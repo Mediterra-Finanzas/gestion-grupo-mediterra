@@ -90,16 +90,6 @@ function initEstados() {
 
 const STORAGE_KEY = "calendario_v4";
 
-async function dbGet(key) {
-  try {
-    const res = await fetch(`https://api.jsonbin.io/v3/b/${key}`, {
-      headers: { "X-Access-Key": "$2a$10$placeholder" }
-    });
-    const data = await res.json();
-    return data?.record || null;
-  } catch { return null; }
-}
-
 export default function App() {
   const hoy = new Date();
   const [mes, setMes] = useState(hoy.getMonth());
