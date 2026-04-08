@@ -136,7 +136,7 @@ const TAREAS_BASE=[
   {id:"m20",nombre:"Apoyo cierre",                                         responsable:"Pablo Duran",     supervisor:"Michelle Garcia",categoria:"Contabilidad",  frecuencia:"Mensual",diaLimiteSem:0,diaLimite:10,dependeDe:null},
 ];
 
-const STORAGE_KEY="calendario_v9";
+// Storage key removido - usando Supabase
 
 function semanasDelMes(anio,mes){
   const semanas=[];const p=new Date(anio,mes,1);const u=new Date(anio,mes+1,0);
@@ -160,21 +160,9 @@ function semanaActivaDefault(semanas){
   return semanas[0]?.num||1;
 }
 
-function MediterraLogo({color="#7ecfca",size=80}){
+function MediterraLogo({size=80}){
   return(
-    <svg width={size} height={size} viewBox="0 0 240 220" fill="none" style={{display:"block",marginBottom:8}}>
-      <rect x="15" y="50" width="30" height="145" fill={color}/>
-      <rect x="195" y="50" width="30" height="145" fill={color}/>
-      <polygon points="15,50 45,50 110,130 80,130" fill={color}/>
-      <polygon points="225,50 195,50 130,130 160,130" fill={color}/>
-      <rect x="95" y="115" width="25" height="80" fill={color}/>
-      <rect x="120" y="115" width="25" height="80" fill={color}/>
-      <circle cx="132" cy="62" r="44" fill="none" stroke={color} strokeWidth="8"/>
-      <line x1="132" y1="30" x2="132" y2="100" stroke={color} strokeWidth="6" strokeLinecap="round"/>
-      <line x1="108" y1="62" x2="156" y2="62" stroke={color} strokeWidth="6" strokeLinecap="round"/>
-      <line x1="113" y1="44" x2="132" y2="62" stroke={color} strokeWidth="5" strokeLinecap="round"/>
-      <line x1="151" y1="44" x2="132" y2="62" stroke={color} strokeWidth="5" strokeLinecap="round"/>
-    </svg>
+    <img src="/med" alt="Mediterra" style={{width:size,height:size,objectFit:"contain",display:"block",marginBottom:8}}/>
   );
 }
 
@@ -543,7 +531,7 @@ export default function App(){
         ):(
           <div>
             <div style={{textAlign:"center",marginBottom:28}}>
-              <MediterraLogo color="#7ecfca" size={90}/>
+              <MediterraLogo size={90}/>
               <div style={{fontSize:11,letterSpacing:4,color:"#7ecfca",fontWeight:600,marginBottom:4}}>MEDITERRA</div>
               <h2 style={{margin:0,color:"#1e293b",fontSize:17,fontWeight:800}}>Planificacion Depto. Adm. y Finanzas</h2>
               <p style={{margin:"4px 0 0",color:"#94a3b8",fontSize:12}}>Ingresa con tu nombre y PIN</p>
@@ -764,7 +752,7 @@ export default function App(){
       <div style={{background:"linear-gradient(135deg,#1e3a5f,#2563eb)",borderRadius:16,padding:"20px 28px",marginBottom:20,color:"#fff"}}>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:8}}>
           <div style={{display:"flex",alignItems:"center",gap:16}}>
-            <MediterraLogo color="rgba(255,255,255,0.95)" size={70}/>
+            <MediterraLogo size={70}/>
             <div>
               <div style={{fontSize:11,opacity:0.7,letterSpacing:3,textTransform:"uppercase",marginBottom:2}}>MEDITERRA</div>
               <h1 style={{margin:0,fontSize:20,fontWeight:800}}>Planificacion Depto. Administracion y Finanzas</h1>
