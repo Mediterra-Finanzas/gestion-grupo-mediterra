@@ -16,12 +16,12 @@ async function enviarEmail(toEmail, nombre, asunto, cuerpo) {
 const DIAS_SEMANA = ["Lunes","Martes","Miercoles","Jueves","Viernes"];
 const MESES = ["Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"];
 const FRECUENCIAS = ["Diaria","Semanal","Mensual"];
+const ROLES = [{v:"editor",l:"Editor - gestiona sus tareas"},{v:"consulta",l:"Consulta - solo visualiza"},{v:"admin",l:"Administrador - acceso total"}];
 
 function diaHabil(anio,mes,dia){
   const f=new Date(anio,mes,dia);const d=f.getDay();
   if(d===6)f.setDate(f.getDate()+2);if(d===0)f.setDate(f.getDate()+1);return f;
 }
-
 function mesAnteriorAlInicio(anio,mes){
   return new Date(anio,mes,1)<new Date(FECHA_INICIO.getFullYear(),FECHA_INICIO.getMonth(),1);
 }
@@ -33,29 +33,29 @@ const RECORDATORIOS=[
     mensaje:(n)=>`Estimada ${n.split(" ")[0]}, te recordamos que el dia 25 de este mes corresponde emitir la factura de servicios Frisku.`},
 ];
 
-function getRecordatoriosActivos(nombre,anio,mes,esCFO){
+function getRecordatoriosActivos(nombre,anio,mes,esAdmin){
   const hoy=new Date();hoy.setHours(0,0,0,0);
   return RECORDATORIOS
-    .filter(r=>r.destinatarios.includes(nombre)||r.copia.includes(nombre)||esCFO)
+    .filter(r=>r.destinatarios.includes(nombre)||r.copia.includes(nombre)||esAdmin)
     .map(r=>{const fv=diaHabil(anio,mes,r.diaMes);const fa=new Date(fv);fa.setDate(fv.getDate()-2);const diff=Math.ceil((fv-hoy)/(1000*60*60*24));return{...r,fechaVence:fv,diff,activo:hoy>=fa};})
     .filter(r=>r.activo);
 }
 
 const SEMAFORO={
-  verde:    {label:"Completado",  color:"#22c55e",bg:"#dcfce7",border:"#86efac"},
-  amarillo: {label:"En proceso",  color:"#eab308",bg:"#fef9c3",border:"#fde047"},
-  rojo:     {label:"Pendiente",   color:"#ef4444",bg:"#fee2e2",border:"#fca5a5"},
-  gris:     {label:"Sin iniciar", color:"#9ca3af",bg:"#f3f4f6",border:"#d1d5db"},
-  na:       {label:"No Aplica",   color:"#475569",bg:"#f1f5f9",border:"#94a3b8"},
+  verde:   {label:"Completado", color:"#22c55e",bg:"#dcfce7",border:"#86efac"},
+  amarillo:{label:"En proceso", color:"#eab308",bg:"#fef9c3",border:"#fde047"},
+  rojo:    {label:"Pendiente",  color:"#ef4444",bg:"#fee2e2",border:"#fca5a5"},
+  gris:    {label:"Sin iniciar",color:"#9ca3af",bg:"#f3f4f6",border:"#d1d5db"},
+  na:      {label:"No Aplica",  color:"#475569",bg:"#f1f5f9",border:"#94a3b8"},
 };
 const ORDEN_SEM=["gris","verde","amarillo","rojo","na"];
 
 const WORKERS_BASE=[
-  {nombre:"Milagros Becerra",cargo:"Sec. Administrativa",     email:"Mbecerra@grupomediterra.cl",pin:"4827",rol:"editor",  esCFO:false},
-  {nombre:"Carol Machuca",   cargo:"Analista Finanzas",       email:"cmachuca@grupomediterra.cl",pin:"3159",rol:"editor",  esCFO:false},
-  {nombre:"Michelle Garcia", cargo:"Contadora General",       email:"mgarcia@grupomediterra.cl", pin:"7413",rol:"editor",  esCFO:false},
-  {nombre:"Pablo Duran",     cargo:"Asistente Contable",      email:"pduran@grupomediterra.cl",  pin:"2986",rol:"editor",  esCFO:false},
-  {nombre:"Angelo Huerta",   cargo:"Gerencia Adm. y Finanzas",email:"ahuerta@grupomediterra.cl", pin:"6054",rol:"admin",   esCFO:true},
+  {nombre:"Milagros Becerra",cargo:"Sec. Administrativa",     email:"Mbecerra@grupomediterra.cl",pin:"4827",rol:"editor",esCFO:false},
+  {nombre:"Carol Machuca",   cargo:"Analista Finanzas",       email:"cmachuca@grupomediterra.cl",pin:"3159",rol:"editor",esCFO:false},
+  {nombre:"Michelle Garcia", cargo:"Contadora General",       email:"mgarcia@grupomediterra.cl", pin:"7413",rol:"editor",esCFO:false},
+  {nombre:"Pablo Duran",     cargo:"Asistente Contable",      email:"pduran@grupomediterra.cl",  pin:"2986",rol:"editor",esCFO:false},
+  {nombre:"Angelo Huerta",   cargo:"Gerencia Adm. y Finanzas",email:"ahuerta@grupomediterra.cl", pin:"6054",rol:"admin", esCFO:true},
 ];
 
 const CATEGORIAS={
@@ -87,13 +87,13 @@ const TAREAS_BASE=[
   {id:"s17",nombre:"Ingreso movimientos bancarios",                        responsable:"Pablo Duran",     supervisor:"Michelle Garcia",categoria:"Contabilidad",  frecuencia:"Semanal",diaLimiteSem:0,diaLimite:5, dependeDe:null},
   {id:"s18",nombre:"Registro pagos de nominas",                            responsable:"Pablo Duran",     supervisor:"Michelle Garcia",categoria:"Contabilidad",  frecuencia:"Semanal",diaLimiteSem:3,diaLimite:8, dependeDe:"s6"},
   {id:"m1", nombre:"EERR real vs presupuesto + analisis de variaciones",   responsable:"Carol Machuca",   supervisor:"Angelo Huerta",  categoria:"Finanzas",      frecuencia:"Mensual",diaLimiteSem:0,diaLimite:18,dependeDe:"m11"},
-  {id:"m2", nombre:"Identificacion de riesgos financieros y operacionales",responsable:"Carol Machuca",   supervisor:"Angelo Huerta",  categoria:"Finanzas",      frecuencia:"Mensual",diaLimiteSem:0,diaLimite:20,dependeDe:null},
+  {id:"m2", nombre:"Identificacion de riesgos financieros",                responsable:"Carol Machuca",   supervisor:"Angelo Huerta",  categoria:"Finanzas",      frecuencia:"Mensual",diaLimiteSem:0,diaLimite:20,dependeDe:null},
   {id:"m3", nombre:"Preparacion planillas anticipo clientes",              responsable:"Carol Machuca",   supervisor:"Angelo Huerta",  categoria:"Finanzas",      frecuencia:"Mensual",diaLimiteSem:0,diaLimite:5, dependeDe:null},
   {id:"m4", nombre:"Preparacion planillas anticipo productores",           responsable:"Carol Machuca",   supervisor:"Angelo Huerta",  categoria:"Finanzas",      frecuencia:"Mensual",diaLimiteSem:0,diaLimite:5, dependeDe:null},
   {id:"m5", nombre:"Chequeo contratos firmados y cargados en nube",        responsable:"Carol Machuca",   supervisor:"Angelo Huerta",  categoria:"Administracion",frecuencia:"Mensual",diaLimiteSem:0,diaLimite:10,dependeDe:null},
   {id:"m6", nombre:"Revision de proveedores masivo",                       responsable:"Carol Machuca",   supervisor:"",               categoria:"Finanzas",      frecuencia:"Mensual",diaLimiteSem:0,diaLimite:10,dependeDe:null},
-  {id:"m7", nombre:"Primera Revision nominas de pago Chile",               responsable:"Carol Machuca",   supervisor:"",               categoria:"Tesoreria",     frecuencia:"Mensual",diaLimiteSem:0,diaLimite:5, dependeDe:null},
-  {id:"m8", nombre:"Primera Revision nominas de pago Peru",                responsable:"Carol Machuca",   supervisor:"",               categoria:"Tesoreria",     frecuencia:"Mensual",diaLimiteSem:0,diaLimite:5, dependeDe:null},
+  {id:"m7", nombre:"Primera Revision nominas Chile",                       responsable:"Carol Machuca",   supervisor:"",               categoria:"Tesoreria",     frecuencia:"Mensual",diaLimiteSem:0,diaLimite:5, dependeDe:null},
+  {id:"m8", nombre:"Primera Revision nominas Peru",                        responsable:"Carol Machuca",   supervisor:"",               categoria:"Tesoreria",     frecuencia:"Mensual",diaLimiteSem:0,diaLimite:5, dependeDe:null},
   {id:"m9", nombre:"Retroalimentacion con Gerentes por desviaciones",      responsable:"Carol Machuca",   supervisor:"Angelo Huerta",  categoria:"Finanzas",      frecuencia:"Mensual",diaLimiteSem:0,diaLimite:22,dependeDe:"m1"},
   {id:"m10",nombre:"Analisis de cuenta",                                   responsable:"Michelle Garcia", supervisor:"Angelo Huerta",  categoria:"Contabilidad",  frecuencia:"Mensual",diaLimiteSem:0,diaLimite:10,dependeDe:null},
   {id:"m11",nombre:"Entrega Final Estados Financieros",                    responsable:"Michelle Garcia", supervisor:"Angelo Huerta",  categoria:"Contabilidad",  frecuencia:"Mensual",diaLimiteSem:0,diaLimite:15,dependeDe:"m12"},
@@ -132,38 +132,18 @@ function semanaActivaDefault(semanas){
   return semanas[0]?.num||1;
 }
 
-function initEstados(tareas,semanas){
-  const est={};
-  tareas.filter(t=>t.frecuencia!=="Mensual").forEach(t=>{
-    semanas.forEach(s=>{est[`${t.id}_s${s.num}`]={estadoResp:"gris",estadoSup:"gris",aprobado:false};});
-  });
-  tareas.filter(t=>t.frecuencia==="Mensual").forEach(t=>{est[t.id]={estadoResp:"gris",estadoSup:"gris",aprobado:false};});
-  return est;
-}
-
-// Logo Mediterra — M bold con árbol integrado en segunda pata
-function MediterraLogo({color="#7ecfca", size=80}){
+function MediterraLogo({color="#7ecfca",size=80}){
   return(
-    <svg width={size} height={size} viewBox="0 0 240 220" fill="none" xmlns="http://www.w3.org/2000/svg" style={{display:"block",marginBottom:8}}>
-      {/* M - bloque izquierdo (pata izquierda) */}
+    <svg width={size} height={size} viewBox="0 0 240 220" fill="none" style={{display:"block",marginBottom:8}}>
       <rect x="15" y="50" width="30" height="145" fill={color}/>
-      {/* M - bloque derecho (pata derecha) */}
       <rect x="195" y="50" width="30" height="145" fill={color}/>
-      {/* M - diagonal izquierda */}
       <polygon points="15,50 45,50 110,130 80,130" fill={color}/>
-      {/* M - diagonal derecha */}
       <polygon points="225,50 195,50 130,130 160,130" fill={color}/>
-      {/* M - pata central izquierda */}
       <rect x="95" y="115" width="25" height="80" fill={color}/>
-      {/* M - pata central derecha (= tronco del árbol) */}
       <rect x="120" y="115" width="25" height="80" fill={color}/>
-      {/* Copa del árbol - circulo que sobresale de la M */}
       <circle cx="132" cy="62" r="44" fill="none" stroke={color} strokeWidth="8"/>
-      {/* Tronco dentro de la copa */}
       <line x1="132" y1="30" x2="132" y2="100" stroke={color} strokeWidth="6" strokeLinecap="round"/>
-      {/* Rama horizontal */}
       <line x1="108" y1="62" x2="156" y2="62" stroke={color} strokeWidth="6" strokeLinecap="round"/>
-      {/* Ramas diagonales superiores */}
       <line x1="113" y1="44" x2="132" y2="62" stroke={color} strokeWidth="5" strokeLinecap="round"/>
       <line x1="151" y1="44" x2="132" y2="62" stroke={color} strokeWidth="5" strokeLinecap="round"/>
     </svg>
@@ -191,28 +171,37 @@ export default function App(){
   const [anio,setAnio]=useState(hoy.getFullYear());
   const semanas=semanasDelMes(anio,mes);
 
-  // Usuarios dinámicos
   const [usuarios,setUsuarios]=useState(WORKERS_BASE);
-  const WORKERS=usuarios.filter(u=>!u.desactivado);
-
-  function getWorker(nombre){return usuarios.find(u=>u.nombre===nombre);}
-  function getRol(nombre){return getWorker(nombre)?.rol||"editor";}
-  function esSoloConsulta(nombre){return getRol(nombre)==="consulta";}
-
-  // Estado gestión usuarios
-  const [tabUsuarios,setTabUsuarios]=useState("lista"); // "lista"|"nuevo"|"editar"
+  const [tabUsuarios,setTabUsuarios]=useState("lista");
   const [usuarioEditando,setUsuarioEditando]=useState(null);
   const [formUsuario,setFormUsuario]=useState({nombre:"",cargo:"",email:"",pin:"",rol:"editor"});
   const [copiarDe,setCopiarDe]=useState("");
+
+  const WORKERS=usuarios.filter(u=>!u.desactivado);
+  const getWorker=(nombre)=>usuarios.find(u=>u.nombre===nombre);
+  const getRol=(nombre)=>getWorker(nombre)?.rol||"editor";
+  const esAdmin=(nombre)=>getRol(nombre)==="admin";
+  const esSoloConsulta=(nombre)=>getRol(nombre)==="consulta";
+
+  const [tareasExtra,setTareasExtra]=useState([]);
   const [tareasConfig,setTareasConfig]=useState(()=>{
-    const c={};
-    TAREAS_BASE.forEach(t=>{c[t.id]={supervisor:t.supervisor,diaLimiteSem:t.diaLimiteSem,diaLimite:t.diaLimite,frecuencia:t.frecuencia,bloqueada:false,dependeDe:t.dependeDe||null};});
-    return c;
+    const c={};TAREAS_BASE.forEach(t=>{c[t.id]={supervisor:t.supervisor,diaLimiteSem:t.diaLimiteSem,diaLimite:t.diaLimite,frecuencia:t.frecuencia,bloqueada:false,dependeDe:t.dependeDe||null};});return c;
   });
 
   const todasTareas=useCallback(()=>[...TAREAS_BASE,...tareasExtra],[tareasExtra]);
+  const getConfig=(id)=>tareasConfig[id]||{supervisor:"",diaLimiteSem:0,diaLimite:10,frecuencia:"Semanal",bloqueada:false,dependeDe:null};
+  const getSupervisor=(id)=>tareasConfig[id]?.supervisor??TAREAS_BASE.find(t=>t.id===id)?.supervisor??"";
+  const getFrecuencia=(id)=>tareasConfig[id]?.frecuencia||TAREAS_BASE.find(t=>t.id===id)?.frecuencia||"Semanal";
+  const isBloqueada=(id)=>tareasConfig[id]?.bloqueada||false;
+  const getDependeDe=(id)=>tareasConfig[id]?.dependeDe??null;
+  const getTareaById=(id)=>todasTareas().find(t=>t.id===id);
 
-  const [estados,setEstados]=useState(()=>initEstados(TAREAS_BASE,semanasDelMes(hoy.getMonth(),hoy.getFullYear())));  // eslint-disable-line
+  const [estados,setEstados]=useState(()=>{
+    const est={};
+    TAREAS_BASE.filter(t=>t.frecuencia!=="Mensual").forEach(t=>{semanasDelMes(hoy.getMonth(),hoy.getFullYear()).forEach(s=>{est[`${t.id}_s${s.num}`]={estadoResp:"gris",estadoSup:"gris",aprobado:false};});});
+    TAREAS_BASE.filter(t=>t.frecuencia==="Mensual").forEach(t=>{est[t.id]={estadoResp:"gris",estadoSup:"gris",aprobado:false};});
+    return est;
+  });
   const [comentarios,setComentarios]=useState({});
   const [supervisores,setSupervisores]=useState(()=>{const d={};TAREAS_BASE.forEach(t=>{d[t.id]=t.supervisor||"";});return d;});
   const [tab,setTab]=useState("semanal");
@@ -227,23 +216,13 @@ export default function App(){
   const [recsComentarios,setRecsComentarios]=useState({});
   const [editRecComentario,setEditRecComentario]=useState(null);
   const [textoRecComentario,setTextoRecComentario]=useState("");
-
-  // Modal notificación dependencia
-  const [modalNotif,setModalNotif]=useState(null); // {key, tarea, numSem}
+  const [modalNotif,setModalNotif]=useState(null);
   const [textoNotif,setTextoNotif]=useState("");
   const [enviandoNotif,setEnviandoNotif]=useState(false);
-
-  // Nueva tarea
   const [nuevaTarea,setNuevaTarea]=useState({nombre:"",responsable:"",supervisor:"",categoria:"Finanzas",frecuencia:"Semanal",dependeDe:""});
   const [mostrarFormTarea,setMostrarFormTarea]=useState(false);
 
   function recKey(id){return `${id}_${mes}_${anio}`;}
-  function getTareaById(id){return todasTareas().find(t=>t.id===id);}
-  function getConfig(id){return tareasConfig[id]||{supervisor:"",diaLimiteSem:0,diaLimite:10,frecuencia:"Semanal",bloqueada:false,dependeDe:null};}
-  function getSupervisor(id){return supervisores[id]??getConfig(id).supervisor??"";}
-  function getFrecuencia(id){return getConfig(id).frecuencia||"Semanal";}
-  function isBloqueada(id){return getConfig(id).bloqueada||false;}
-  function getDependeDe(id){return getConfig(id).dependeDe||null;}
 
   useEffect(()=>{
     const s=semanasDelMes(anio,mes);
@@ -262,17 +241,21 @@ export default function App(){
       const raw=localStorage.getItem(STORAGE_KEY);
       if(raw){
         const d=JSON.parse(raw);
-        if(d.usuarios)           setUsuarios(prev=>[...WORKERS_BASE.map(wb=>{const saved=d.usuarios.find(u=>u.nombre===wb.nombre);return saved?{...wb,...saved}:wb;}),...(d.usuarios.filter(u=>!WORKERS_BASE.find(wb=>wb.nombre===u.nombre))||[])]);
-        if(d.estados)            setEstados(prev=>({...prev,...d.estados}));
-        if(d.comentarios)        setComentarios(d.comentarios);
-        if(d.tareasConfig)       setTareasConfig(prev=>({...prev,...d.tareasConfig}));
-        if(d.supervisores)       setSupervisores(prev=>({...prev,...d.supervisores}));
-        if(d.tareasExtra)        setTareasExtra(d.tareasExtra);
-        if(d.pinsPersonalizados) setPinsPersonalizados(d.pinsPersonalizados);
-        if(d.recsDone)           setRecsDone(d.recsDone);
-        if(d.recsComentarios)    setRecsComentarios(d.recsComentarios);
-        if(d.mes!==undefined)    setMes(d.mes);
-        if(d.anio!==undefined)   setAnio(d.anio);
+        if(d.usuarios)setUsuarios(prev=>{
+          const merged=WORKERS_BASE.map(wb=>{const saved=d.usuarios.find(u=>u.nombre===wb.nombre);return saved?{...wb,...saved}:wb;});
+          const extras=d.usuarios.filter(u=>!WORKERS_BASE.find(wb=>wb.nombre===u.nombre));
+          return[...merged,...extras];
+        });
+        if(d.estados)setEstados(prev=>({...prev,...d.estados}));
+        if(d.comentarios)setComentarios(d.comentarios);
+        if(d.tareasConfig)setTareasConfig(prev=>({...prev,...d.tareasConfig}));
+        if(d.supervisores)setSupervisores(prev=>({...prev,...d.supervisores}));
+        if(d.tareasExtra)setTareasExtra(d.tareasExtra);
+        if(d.pinsPersonalizados)setPinsPersonalizados(d.pinsPersonalizados);
+        if(d.recsDone)setRecsDone(d.recsDone);
+        if(d.recsComentarios)setRecsComentarios(d.recsComentarios);
+        if(d.mes!==undefined)setMes(d.mes);
+        if(d.anio!==undefined)setAnio(d.anio);
       }
     }catch{}
     setCargando(false);
@@ -324,7 +307,7 @@ export default function App(){
   function puedeEditar(tarea,esResp){
     if(!usuarioActual)return false;
     if(esSoloConsulta(usuarioActual.nombre))return false;
-    if(usuarioActual.esCFO)return true;
+    if(esAdmin(usuarioActual.nombre))return true;
     const sup=getSupervisor(tarea.id);
     return esResp?tarea.responsable===usuarioActual.nombre:sup===usuarioActual.nombre;
   }
@@ -332,34 +315,27 @@ export default function App(){
   function dependenciaOk(tarea,numSemana){
     const depId=getDependeDe(tarea.id);if(!depId)return true;
     const depT=getTareaById(depId);if(!depT)return true;
-    if(getFrecuencia(depT.id)==="Mensual"){return(estados[depId]?.estadoResp||"gris")==="verde";}
-    const key=`${depId}_s${numSemana}`;return(estados[key]?.estadoResp||"gris")==="verde";
+    if(getFrecuencia(depT.id)==="Mensual")return(estados[depId]?.estadoResp||"gris")==="verde";
+    return(estados[`${depId}_s${numSemana}`]?.estadoResp||"gris")==="verde";
   }
-
-  function getNombreDep(tarea){const id=getDependeDe(tarea.id);if(!id)return null;return getTareaById(id)?.nombre||null;}
+  function getNombreDep(tarea){const id=getDependeDe(tarea.id);return getTareaById(id)?.nombre||null;}
 
   function ciclarResp(key,tarea,numSemana){
     if(!puedeEditar(tarea,true))return;
     if(!dependenciaOk(tarea,numSemana)){
-      // Si hay dependencia pendiente, ofrecer notificar
-      const depId=getDependeDe(tarea.id);const depT=getTareaById(depId);
-      if(depT){alert(`Esta tarea depende de:\n"${depT.nombre}"\n\nResponsable: ${depT.responsable}\n\nCompleta esa tarea primero.`);}
+      const depT=getTareaById(getDependeDe(tarea.id));
+      if(depT)alert(`Esta tarea depende de:\n"${depT.nombre}"\nCompleta esa tarea primero.`);
       return;
     }
     setEstados(prev=>{
       const actual=prev[key]?.estadoResp||"gris";
       const sig=ORDEN_SEM[(ORDEN_SEM.indexOf(actual)+1)%ORDEN_SEM.length];
-      const nuevoEst={...prev,[key]:{...prev[key],estadoResp:sig,aprobado:false,estadoSup:sig!=="verde"?"gris":prev[key].estadoSup}};
-      // Si se pone en verde y hay tareas que dependen de esta, ofrecer notificar
+      const nuevo={...prev,[key]:{...prev[key],estadoResp:sig,aprobado:false,estadoSup:sig!=="verde"?"gris":prev[key].estadoSup}};
       if(sig==="verde"){
-        const dependientes=todasTareas().filter(t=>{
-          const d=getDependeDe(t.id);return d===tarea.id&&!isBloqueada(t.id);
-        });
-        if(dependientes.length>0){
-          setTimeout(()=>setModalNotif({key,tarea,numSemana,dependientes}),300);
-        }
+        const deps=todasTareas().filter(t=>{const d=getDependeDe(t.id);return d===tarea.id&&!isBloqueada(t.id);});
+        if(deps.length>0)setTimeout(()=>setModalNotif({key,tarea,numSemana,dependientes:deps}),300);
       }
-      return nuevoEst;
+      return nuevo;
     });
   }
 
@@ -379,101 +355,36 @@ export default function App(){
     try{
       for(const dep of modalNotif.dependientes){
         const w=WORKERS.find(x=>x.nombre===dep.responsable);
-        if(w){
-          const asunto=`Tarea desbloqueada: ${dep.nombre}`;
-          const cuerpo=`Hola ${w.nombre.split(" ")[0]},\n\nLa tarea "${modalNotif.tarea.nombre}" ha sido completada por ${usuarioActual.nombre}.\n\nAhora puedes iniciar: "${dep.nombre}"\n\n${textoNotif?`Nota: ${textoNotif}\n\n`:""}Accede en: https://calendario-mediterra-2026.vercel.app\n\nSaludos`;
-          await enviarEmail(w.email,w.nombre,asunto,cuerpo);
-        }
+        if(w)await enviarEmail(w.email,w.nombre,`Tarea desbloqueada: ${dep.nombre}`,
+          `Hola ${w.nombre.split(" ")[0]},\n\n"${modalNotif.tarea.nombre}" fue completada.\nAhora puedes iniciar: "${dep.nombre}"\n\n${textoNotif?`Nota: ${textoNotif}\n\n`:""}https://calendario-mediterra-2026.vercel.app\n\nSaludos`);
       }
       alert("Notificacion enviada!");
-    }catch{alert("Error al enviar notificacion.");}
+    }catch{alert("Error al enviar.");}
     setEnviandoNotif(false);setModalNotif(null);setTextoNotif("");
   }
 
   function guardarComentario(){setComentarios(prev=>({...prev,[editComentario]:textoComentario}));setEditComentario(null);}
 
-  function agregarTarea(){
-    if(!nuevaTarea.nombre.trim()||!nuevaTarea.responsable){alert("Nombre y responsable son obligatorios.");return;}
-    const id=`custom_${Date.now()}`;
-    const t={...nuevaTarea,id,diaLimiteSem:0,diaLimite:10,dependeDe:nuevaTarea.dependeDe||null};
-    setTareasExtra(prev=>[...prev,t]);
-    setTareasConfig(prev=>({...prev,[id]:{supervisor:nuevaTarea.supervisor,diaLimiteSem:0,diaLimite:10,frecuencia:nuevaTarea.frecuencia,bloqueada:false,dependeDe:nuevaTarea.dependeDe||null}}));
-    setSupervisores(prev=>({...prev,[id]:nuevaTarea.supervisor||""}));
-    setEstados(prev=>{
-      const n={...prev};
-      if(nuevaTarea.frecuencia==="Mensual"){n[id]={estadoResp:"gris",estadoSup:"gris",aprobado:false};}
-      else{semanas.forEach(s=>{n[`${id}_s${s.num}`]={estadoResp:"gris",estadoSup:"gris",aprobado:false};});}
-      return n;
-    });
-    setNuevaTarea({nombre:"",responsable:"",supervisor:"",categoria:"Finanzas",frecuencia:"Semanal",dependeDe:""});
-    setMostrarFormTarea(false);
-  }
-
-  function agregarUsuario(){
-    if(!formUsuario.nombre.trim()||!formUsuario.email.trim()||!formUsuario.pin.trim()){alert("Nombre, email y PIN son obligatorios.");return;}
-    if(usuarios.find(u=>u.nombre===formUsuario.nombre)){alert("Ya existe un usuario con ese nombre.");return;}
-    const nuevo={...formUsuario,esCFO:formUsuario.rol==="admin",desactivado:false};
-    setUsuarios(prev=>[...prev,nuevo]);
-    // Copiar tareas si se seleccionó
-    if(copiarDe){
-      const tareasOrigen=todasTareas().filter(t=>t.responsable===copiarDe||getSupervisor(t.id)===copiarDe);
-      tareasOrigen.forEach(t=>{
-        setTareasExtra(prev=>[...prev,{...t,id:`custom_${Date.now()}_${t.id}`,responsable:formUsuario.nombre}]);
-      });
-    }
-    setFormUsuario({nombre:"",cargo:"",email:"",pin:"",rol:"editor"});
-    setCopiarDe("");setTabUsuarios("lista");
-  }
-
-  function guardarEdicionUsuario(){
-    if(!formUsuario.nombre.trim()||!formUsuario.email.trim()){alert("Nombre y email son obligatorios.");return;}
-    setUsuarios(prev=>prev.map(u=>u.nombre===usuarioEditando?{...u,...formUsuario,esCFO:formUsuario.rol==="admin"}:u));
-    setUsuarioEditando(null);setFormUsuario({nombre:"",cargo:"",email:"",pin:"",rol:"editor"});setTabUsuarios("lista");
-  }
-
-  function toggleDesactivarUsuario(nombre){
-    if(nombre===usuarioActual.nombre){alert("No puedes desactivarte a ti mismo.");return;}
-    setUsuarios(prev=>prev.map(u=>u.nombre===nombre?{...u,desactivado:!u.desactivado}:u));
-  }
-
-  function resetPinUsuario(nombre){
-    const pin=String(Math.floor(1000+Math.random()*9000));
-    setPinsPersonalizados(prev=>({...prev,[nombre]:pin}));
-    alert(`PIN reseteado para ${nombre}.\nNuevo PIN temporal: ${pin}\n\nCompártelo de forma segura con el usuario.`);
-  }
-
-  function iniciarEdicion(u){
-    setFormUsuario({nombre:u.nombre,cargo:u.cargo,email:u.email,pin:"",rol:u.rol||"editor"});
-    setUsuarioEditando(u.nombre);setTabUsuarios("editar");
-  }
-    setTareasConfig(prev=>({...prev,[id]:{...getConfig(id),bloqueada:!getConfig(id).bloqueada}}));
-  }
-
-  function updateConfig(id,campo,valor){
-    setTareasConfig(prev=>({...prev,[id]:{...getConfig(id),[campo]:valor}}));
-    if(campo==="supervisor")setSupervisores(prev=>({...prev,[id]:valor}));
-  }
-
   function estaVencida(tarea,key,numSemana){
     const hoyD=new Date();hoyD.setHours(0,0,0,0);
     const frec=getFrecuencia(tarea.id);
     if(frec==="Mensual"){
-      const fechaLimite=new Date(anio,mes,getConfig(tarea.id).diaLimite||tarea.diaLimite);
-      if(fechaLimite<FECHA_INICIO)return false;
-      return hoyD>fechaLimite&&(estados[key]?.estadoResp||"gris")==="gris";
+      const fl=new Date(anio,mes,getConfig(tarea.id).diaLimite||tarea.diaLimite);
+      if(fl<FECHA_INICIO)return false;
+      return hoyD>fl&&(estados[key]?.estadoResp||"gris")==="gris";
     }
     const sw=semanas.find(s=>s.num===numSemana)||semanas[0];
     const ds=getConfig(tarea.id).diaLimiteSem??tarea.diaLimiteSem;
-    const fechaLimite=fechaDiaSemana(sw.inicioSem,ds);
-    if(fechaLimite<FECHA_INICIO)return false;
-    return hoyD>fechaLimite&&(estados[key]?.estadoResp||"gris")==="gris";
+    const fl=fechaDiaSemana(sw.inicioSem,ds);
+    if(fl<FECHA_INICIO)return false;
+    return hoyD>fl&&(estados[key]?.estadoResp||"gris")==="gris";
   }
 
   function estaProxima(tarea,key,numSemana){
     const hoyD=new Date();hoyD.setHours(0,0,0,0);
     const frec=getFrecuencia(tarea.id);
     let diff;
-    if(frec==="Mensual"){diff=(new Date(anio,mes,getConfig(tarea.id).diaLimite||tarea.diaLimite)-hoyD)/(1000*60*60*24);}
+    if(frec==="Mensual")diff=(new Date(anio,mes,getConfig(tarea.id).diaLimite||tarea.diaLimite)-hoyD)/(1000*60*60*24);
     else{const sw=semanas.find(s=>s.num===numSemana)||semanas[0];const ds=getConfig(tarea.id).diaLimiteSem??tarea.diaLimiteSem;diff=(fechaDiaSemana(sw.inicioSem,ds)-hoyD)/(1000*60*60*24);}
     return diff>=0&&diff<=2&&(estados[key]?.estadoResp||"gris")==="gris";
   }
@@ -483,7 +394,7 @@ export default function App(){
     todasTareas().filter(t=>!isBloqueada(t.id)).forEach(t=>{
       const frec=getFrecuencia(t.id);
       if(frec==="Mensual"){if(estaVencida(t,t.id,null))res[t.responsable]?.push({...t,key:t.id});}
-      else{semanas.forEach(s=>{const key=`${t.id}_s${s.num}`;if(estaVencida(t,key,s.num))res[t.responsable]?.push({...t,key});});}
+      else semanas.forEach(s=>{const key=`${t.id}_s${s.num}`;if(estaVencida(t,key,s.num))res[t.responsable]?.push({...t,key});});
     });
     return res;
   }
@@ -497,9 +408,8 @@ export default function App(){
   const totalVencidas=(()=>{
     let c=0;
     todasTareas().filter(t=>!isBloqueada(t.id)).forEach(t=>{
-      const frec=getFrecuencia(t.id);
-      if(frec==="Mensual"){if(estaVencida(t,t.id,null))c++;}
-      else{semanas.forEach(s=>{if(estaVencida(t,`${t.id}_s${s.num}`,s.num))c++;});}
+      if(getFrecuencia(t.id)==="Mensual"){if(estaVencida(t,t.id,null))c++;}
+      else semanas.forEach(s=>{if(estaVencida(t,`${t.id}_s${s.num}`,s.num))c++;});
     });
     return c;
   })();
@@ -508,23 +418,80 @@ export default function App(){
     let v=0,a=0,r=0,g=0,total=0;
     todasTareas().filter(t=>!isBloqueada(t.id)).forEach(t=>{
       const frec=getFrecuencia(t.id);const sup=getSupervisor(t.id);
-      const esResp=t.responsable===nombre;const esSup=sup===nombre;
-      if(!esResp&&!esSup)return;
-      if(frec==="Mensual"){
-        const e=(esResp?estados[t.id]?.estadoResp:estados[t.id]?.estadoSup)||"gris";
+      const esR=t.responsable===nombre;const esS=sup===nombre;
+      if(!esR&&!esS)return;
+      const keys=frec==="Mensual"?[t.id]:semanas.map(s=>`${t.id}_s${s.num}`);
+      keys.forEach(k=>{
+        const e=(esR?estados[k]?.estadoResp:estados[k]?.estadoSup)||"gris";
         if(e==="na")return;total++;if(e==="verde")v++;else if(e==="amarillo")a++;else if(e==="rojo")r++;else g++;
-      }else{
-        semanas.forEach(s=>{
-          const e=(esResp?estados[`${t.id}_s${s.num}`]?.estadoResp:estados[`${t.id}_s${s.num}`]?.estadoSup)||"gris";
-          if(e==="na")return;total++;if(e==="verde")v++;else if(e==="amarillo")a++;else if(e==="rojo")r++;else g++;
-        });
-      }
+      });
     });
     return{v,a,r,g,total,pct:total>0?Math.round((v/total)*100):0};
   }
 
+  // Gestion usuarios
+  function agregarUsuario(){
+    if(!formUsuario.nombre.trim()||!formUsuario.email.trim()||!formUsuario.pin.trim()){alert("Nombre, email y PIN son obligatorios.");return;}
+    if(usuarios.find(u=>u.nombre===formUsuario.nombre)){alert("Ya existe un usuario con ese nombre.");return;}
+    const nuevo={...formUsuario,esCFO:formUsuario.rol==="admin",desactivado:false};
+    setUsuarios(prev=>[...prev,nuevo]);
+    if(copiarDe){
+      todasTareas().filter(t=>t.responsable===copiarDe).forEach(t=>{
+        const id=`custom_${Date.now()}_${t.id}`;
+        setTareasExtra(prev=>[...prev,{...t,id,responsable:formUsuario.nombre}]);
+        setTareasConfig(prev=>({...prev,[id]:{...getConfig(t.id),bloqueada:false}}));
+      });
+    }
+    setFormUsuario({nombre:"",cargo:"",email:"",pin:"",rol:"editor"});setCopiarDe("");setTabUsuarios("lista");
+  }
+
+  function guardarEdicionUsuario(){
+    if(!formUsuario.nombre.trim()||!formUsuario.email.trim()){alert("Nombre y email son obligatorios.");return;}
+    setUsuarios(prev=>prev.map(u=>u.nombre===usuarioEditando?{...u,...formUsuario,esCFO:formUsuario.rol==="admin"}:u));
+    if(formUsuario.pin)setPinsPersonalizados(prev=>({...prev,[usuarioEditando]:formUsuario.pin}));
+    setUsuarioEditando(null);setFormUsuario({nombre:"",cargo:"",email:"",pin:"",rol:"editor"});setTabUsuarios("lista");
+  }
+
+  function toggleDesactivarUsuario(nombre){
+    if(nombre===usuarioActual.nombre){alert("No puedes desactivarte a ti mismo.");return;}
+    setUsuarios(prev=>prev.map(u=>u.nombre===nombre?{...u,desactivado:!u.desactivado}:u));
+  }
+
+  function resetPinUsuario(nombre){
+    const pin=String(Math.floor(1000+Math.random()*9000));
+    setPinsPersonalizados(prev=>({...prev,[nombre]:pin}));
+    alert(`PIN reseteado para ${nombre}.\nNuevo PIN temporal: ${pin}\n\nComparte este PIN de forma segura con el usuario.`);
+  }
+
+  function iniciarEdicion(u){
+    setFormUsuario({nombre:u.nombre,cargo:u.cargo||"",email:u.email,pin:"",rol:u.rol||"editor"});
+    setUsuarioEditando(u.nombre);setTabUsuarios("editar");
+  }
+
+  function toggleBloqueada(id){setTareasConfig(prev=>({...prev,[id]:{...getConfig(id),bloqueada:!getConfig(id).bloqueada}}));}
+  function updateConfig(id,campo,valor){
+    setTareasConfig(prev=>({...prev,[id]:{...getConfig(id),[campo]:valor}}));
+    if(campo==="supervisor")setSupervisores(prev=>({...prev,[id]:valor}));
+  }
+
+  function agregarTarea(){
+    if(!nuevaTarea.nombre.trim()||!nuevaTarea.responsable){alert("Nombre y responsable son obligatorios.");return;}
+    const id=`custom_${Date.now()}`;
+    setTareasExtra(prev=>[...prev,{...nuevaTarea,id,diaLimiteSem:0,diaLimite:10,dependeDe:nuevaTarea.dependeDe||null}]);
+    setTareasConfig(prev=>({...prev,[id]:{supervisor:nuevaTarea.supervisor,diaLimiteSem:0,diaLimite:10,frecuencia:nuevaTarea.frecuencia,bloqueada:false,dependeDe:nuevaTarea.dependeDe||null}}));
+    setSupervisores(prev=>({...prev,[id]:nuevaTarea.supervisor||""}));
+    setEstados(prev=>{
+      const n={...prev};
+      if(nuevaTarea.frecuencia==="Mensual")n[id]={estadoResp:"gris",estadoSup:"gris",aprobado:false};
+      else semanas.forEach(s=>{n[`${id}_s${s.num}`]={estadoResp:"gris",estadoSup:"gris",aprobado:false};});
+      return n;
+    });
+    setNuevaTarea({nombre:"",responsable:"",supervisor:"",categoria:"Finanzas",frecuencia:"Semanal",dependeDe:""});
+    setMostrarFormTarea(false);
+  }
+
   const estadoGuardadoUI={idle:null,guardando:{icon:"💾",text:"Guardando..."},ok:{icon:"✅",text:"Guardado"},error:{icon:"❌",text:"Error"}}[guardado];
-  const recsActivos=getRecordatoriosActivos(usuarioActual?.nombre||"",anio,mes,usuarioActual?.esCFO||false).filter(r=>!recsDone[recKey(r.id)]);
+  const recsActivos=getRecordatoriosActivos(usuarioActual?.nombre||"",anio,mes,esAdmin(usuarioActual?.nombre||"")).filter(r=>!recsDone[recKey(r.id)]);
 
   // LOGIN
   if(!usuarioActual)return(
@@ -574,7 +541,7 @@ export default function App(){
     </div>
   );
 
-  // TABLA FILAS
+  // TABLA
   function TablaFilas({tareas,getKey,getSemana}){
     const todas=tareas.filter(t=>!isBloqueada(t.id));
     const filtradas=filtroPersona?todas.filter(t=>t.responsable===filtroPersona||getSupervisor(t.id)===filtroPersona):todas;
@@ -594,39 +561,39 @@ export default function App(){
       const puedeResp=puedeEditar(t,true);
       const puedeSup=puedeEditar(t,false);
       const depOk=dependenciaOk(t,numSem);
-      const depNombre=getNombreDep(t);
       const esNA=est.estadoResp==="na";
-      const diaLimiteLabel=frec==="Mensual"?`dia ${getConfig(t.id).diaLimite||t.diaLimite}`:`${DIAS_SEMANA[getConfig(t.id).diaLimiteSem??t.diaLimiteSem]}`;
+      const diaLabel=frec==="Mensual"?`dia ${getConfig(t.id).diaLimite||t.diaLimite}`:`${DIAS_SEMANA[getConfig(t.id).diaLimiteSem??t.diaLimiteSem]}`;
       return(
         <tr key={key} style={{borderBottom:"1px solid #f1f5f9",opacity:esNA?0.55:1,
           background:!depOk?"#f8f8ff":esNA?"#f8fafc":vencida?"#fff5f5":proxima?"#fffbeb":i%2===0?"#fff":"#f8fafc",
           borderLeft:!depOk?"4px solid #c4b5fd":esNA?"4px solid #94a3b8":vencida?"4px solid #ef4444":proxima?"4px solid #f59e0b":"4px solid transparent"}}>
           <td style={{padding:"9px 14px"}}>
             <div style={{display:"flex",alignItems:"center",gap:6}}>
-              {!depOk&&<span title={`Depende de: ${depNombre}`} style={{fontSize:11,color:"#7c3aed"}}>🔒</span>}
+              {!depOk&&<span title={`Depende de: ${getNombreDep(t)}`} style={{fontSize:11}}>🔒</span>}
               {vencida&&depOk&&!esNA&&<span style={{color:"#ef4444",fontWeight:700,fontSize:11}}>!!</span>}
               {proxima&&depOk&&!esNA&&<span style={{color:"#f59e0b",fontWeight:700,fontSize:11}}>!</span>}
-              {esNA&&<span style={{fontSize:11,color:"#475569"}}>⊘</span>}
+              {esNA&&<span style={{fontSize:11}}>⊘</span>}
               <div style={{fontWeight:500,color:!depOk?"#7c3aed":esNA?"#94a3b8":vencida?"#ef4444":"#1e293b",fontSize:13,textDecoration:esNA?"line-through":"none"}}>{t.nombre}</div>
             </div>
             <div style={{display:"flex",gap:6,marginTop:2,flexWrap:"wrap"}}>
               <span style={{fontSize:10,background:cat.bg,color:cat.color,borderRadius:20,padding:"1px 8px",fontWeight:600}}>{t.categoria}</span>
-              <span style={{fontSize:10,color:"#94a3b8"}}>{frec} · {diaLimiteLabel}</span>
-              {!depOk&&<span style={{fontSize:10,color:"#7c3aed",background:"#ede9fe",borderRadius:20,padding:"1px 8px"}}>Espera: {depNombre?.substring(0,18)}...</span>}
+              <span style={{fontSize:10,color:"#94a3b8"}}>{frec} · {diaLabel}</span>
             </div>
           </td>
           <td style={{textAlign:"center",padding:"9px 8px",fontSize:12,color:"#374151"}}>{t.responsable.split(" ")[0]}</td>
           <td style={{textAlign:"center",padding:"9px 8px"}}>
-            <button onClick={()=>ciclarResp(key,t,numSem)} title={!depOk?"Bloqueada":puedeResp?semResp.label:"Sin permiso"}
-              style={{width:28,height:28,borderRadius:"50%",background:semResp.color,border:`3px solid ${semResp.border}`,cursor:puedeResp?"pointer":"not-allowed",outline:"none",opacity:puedeResp?1:0.4,boxShadow:"0 2px 6px #0002",transition:"transform 0.1s",
+            <button onClick={()=>ciclarResp(key,t,numSem)}
+              style={{width:28,height:28,borderRadius:"50%",background:semResp.color,border:`3px solid ${semResp.border}`,
+                cursor:puedeResp?"pointer":"not-allowed",outline:"none",opacity:puedeResp?1:0.4,
+                boxShadow:"0 2px 6px #0002",transition:"transform 0.1s",
                 backgroundImage:est.estadoResp==="na"?"repeating-linear-gradient(45deg,transparent,transparent 3px,rgba(0,0,0,0.15) 3px,rgba(0,0,0,0.15) 6px)":undefined}}
               onMouseEnter={e=>{if(puedeResp)e.target.style.transform="scale(1.2)";}} onMouseLeave={e=>e.target.style.transform="scale(1)"}/>
           </td>
           <td style={{textAlign:"center",padding:"9px 8px",fontSize:12,color:"#374151"}}>{sup?sup.split(" ")[0]:<span style={{color:"#d1d5db"}}>-</span>}</td>
           <td style={{textAlign:"center",padding:"9px 8px"}}>
-            {sup?(<button onClick={()=>ciclarSup(key,t)} title={!supActivo?"Disponible al completar":puedeSup?semSup.label:"Sin permiso"}
+            {sup?<button onClick={()=>ciclarSup(key,t)}
               style={{width:28,height:28,borderRadius:"50%",background:supActivo?semSup.color:"#e5e7eb",border:`3px solid ${supActivo?semSup.border:"#d1d5db"}`,cursor:(supActivo&&puedeSup)?"pointer":"not-allowed",outline:"none",opacity:(supActivo&&puedeSup)?1:0.4}}/>
-            ):<span style={{color:"#d1d5db",fontSize:12}}>-</span>}
+            :<span style={{color:"#d1d5db",fontSize:12}}>-</span>}
           </td>
           <td style={{textAlign:"center",padding:"9px 8px"}}>
             <button onClick={()=>{setEditComentario(key);setTextoComentario(com);}}
@@ -655,34 +622,33 @@ export default function App(){
   const tareasSemanales=todasTareas().filter(t=>getFrecuencia(t.id)!=="Mensual");
   const tareasMenusuales=todasTareas().filter(t=>getFrecuencia(t.id)==="Mensual");
 
+  const rolBadge=(nombre)=>{
+    const r=getRol(nombre);
+    if(r==="admin")return<span style={{background:"#fbbf24",color:"#78350f",borderRadius:20,padding:"1px 8px",fontSize:10,fontWeight:700,marginLeft:8}}>ADMIN</span>;
+    if(r==="consulta")return<span style={{background:"#ede9fe",color:"#6d28d9",borderRadius:20,padding:"1px 8px",fontSize:10,fontWeight:700,marginLeft:8}}>CONSULTA</span>;
+    return null;
+  };
+
   return(
     <div style={{fontFamily:"sans-serif",background:"#f8fafc",minHeight:"100vh",padding:"20px"}}>
 
-      {/* Modal notificacion dependencia */}
+      {/* Modal notificacion */}
       {modalNotif&&(
         <div style={{position:"fixed",inset:0,background:"#0006",zIndex:200,display:"flex",alignItems:"center",justifyContent:"center"}}>
           <div style={{background:"#fff",borderRadius:16,padding:28,width:440,maxWidth:"90vw",boxShadow:"0 8px 32px #0003"}}>
             <h3 style={{margin:"0 0 6px",color:"#1e293b"}}>Notificar tarea desbloqueada</h3>
-            <p style={{fontSize:13,color:"#64748b",marginBottom:12}}>
-              Completaste: <strong>{modalNotif.tarea.nombre}</strong><br/>
-              Esto desbloquea:
-            </p>
+            <p style={{fontSize:13,color:"#64748b",marginBottom:12}}>Completaste: <strong>{modalNotif.tarea.nombre}</strong></p>
             {modalNotif.dependientes.map(d=>(
               <div key={d.id} style={{background:"#ede9fe",borderRadius:8,padding:"8px 12px",marginBottom:8,fontSize:13}}>
                 <strong>{d.nombre}</strong> → {d.responsable}
               </div>
             ))}
-            <div style={{marginTop:12,marginBottom:16}}>
-              <label style={{fontSize:12,fontWeight:600,color:"#374151",display:"block",marginBottom:4}}>Mensaje o instruccion (opcional)</label>
-              <textarea value={textoNotif} onChange={e=>setTextoNotif(e.target.value)} rows={3}
-                placeholder="Ej: Comprar USD 50.000 al mejor tipo de cambio disponible..."
-                style={{width:"100%",padding:"10px 12px",borderRadius:8,border:"1px solid #d1d5db",fontSize:13,resize:"vertical",boxSizing:"border-box"}}/>
-            </div>
-            <div style={{display:"flex",gap:10,justifyContent:"flex-end"}}>
+            <textarea value={textoNotif} onChange={e=>setTextoNotif(e.target.value)} rows={3} placeholder="Instruccion o mensaje opcional..."
+              style={{width:"100%",padding:"10px 12px",borderRadius:8,border:"1px solid #d1d5db",fontSize:13,resize:"vertical",boxSizing:"border-box",marginTop:12}}/>
+            <div style={{display:"flex",gap:10,justifyContent:"flex-end",marginTop:14}}>
               <button onClick={()=>{setModalNotif(null);setTextoNotif("");}} style={{padding:"8px 18px",borderRadius:8,border:"1px solid #d1d5db",background:"#fff",cursor:"pointer",fontSize:14}}>Omitir</button>
-              <button onClick={enviarNotifDependencia} disabled={enviandoNotif}
-                style={{padding:"8px 18px",borderRadius:8,border:"none",background:"#2563eb",color:"#fff",cursor:"pointer",fontSize:14,fontWeight:600,opacity:enviandoNotif?0.6:1}}>
-                {enviandoNotif?"Enviando...":"Enviar notificacion"}
+              <button onClick={enviarNotifDependencia} disabled={enviandoNotif} style={{padding:"8px 18px",borderRadius:8,border:"none",background:"#2563eb",color:"#fff",cursor:"pointer",fontSize:14,fontWeight:600,opacity:enviandoNotif?0.6:1}}>
+                {enviandoNotif?"Enviando...":"Enviar"}
               </button>
             </div>
           </div>
@@ -694,7 +660,7 @@ export default function App(){
         <div style={{position:"fixed",inset:0,background:"#0006",zIndex:200,display:"flex",alignItems:"center",justifyContent:"center"}}>
           <div style={{background:"#fff",borderRadius:16,padding:28,width:360,maxWidth:"90vw",boxShadow:"0 8px 32px #0003"}}>
             <h3 style={{margin:"0 0 6px",color:"#1e293b"}}>Cambiar PIN</h3>
-            <p style={{fontSize:13,color:"#64748b",marginBottom:16}}>{usuarioActual.nombre}</p>
+            <p style={{fontSize:13,color:"#64748b",marginBottom:16}}>{usuarioActual?.nombre}</p>
             {[["PIN actual",pinActual,setPinActual],["Nuevo PIN",pinNuevo,setPinNuevo],["Confirmar nuevo PIN",pinConfirm,setPinConfirm]].map(([lbl,val,set],idx)=>(
               <div key={idx} style={{marginBottom:12}}>
                 <label style={{fontSize:12,fontWeight:600,color:"#374151",display:"block",marginBottom:4}}>{lbl}</label>
@@ -731,7 +697,7 @@ export default function App(){
         <div style={{position:"fixed",inset:0,background:"#0006",zIndex:100,display:"flex",alignItems:"center",justifyContent:"center"}}>
           <div style={{background:"#fff",borderRadius:16,padding:28,width:420,maxWidth:"90vw",boxShadow:"0 8px 32px #0003"}}>
             <h3 style={{margin:"0 0 6px",color:"#1e293b"}}>Comentario del recordatorio</h3>
-            <textarea value={textoRecComentario} onChange={e=>setTextoRecComentario(e.target.value)} rows={4} placeholder="Explica el motivo o agrega una nota..."
+            <textarea value={textoRecComentario} onChange={e=>setTextoRecComentario(e.target.value)} rows={4} placeholder="Motivo o nota..."
               style={{width:"100%",padding:"10px 12px",borderRadius:8,border:"1px solid #d1d5db",fontSize:14,resize:"vertical",boxSizing:"border-box"}}/>
             <div style={{display:"flex",gap:10,marginTop:14,justifyContent:"flex-end"}}>
               <button onClick={()=>setEditRecComentario(null)} style={{padding:"8px 18px",borderRadius:8,border:"1px solid #d1d5db",background:"#fff",cursor:"pointer",fontSize:14}}>Cancelar</button>
@@ -748,13 +714,13 @@ export default function App(){
           <div style={{background:"#fff",borderRadius:16,padding:28,width:500,maxWidth:"90vw",maxHeight:"80vh",overflowY:"auto",boxShadow:"0 8px 32px #0003"}}>
             <h3 style={{margin:"0 0 6px",color:"#1e293b"}}>Avisos de tareas vencidas</h3>
             <p style={{fontSize:13,color:"#64748b",marginBottom:16}}>{MESES[mes]} {anio}</p>
-            {WORKERS.map(w=>{const tareas=modalEmail.resumen[w.nombre]||[];if(!tareas.length)return null;return(
+            {WORKERS.map(w=>{const ts=modalEmail.resumen[w.nombre]||[];if(!ts.length)return null;return(
               <div key={w.nombre} style={{background:"#fff5f5",border:"1px solid #fca5a5",borderRadius:10,padding:"12px 16px",marginBottom:10}}>
                 <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-                  <div><div style={{fontWeight:600,fontSize:14,color:"#1e293b"}}>{w.nombre}</div><div style={{fontSize:11,color:"#64748b"}}>{tareas.length} tarea(s)</div></div>
-                  <button onClick={()=>enviarEmailPersona(w,tareas)} style={{background:"#ef4444",color:"#fff",border:"none",borderRadius:8,padding:"6px 14px",cursor:"pointer",fontSize:12,fontWeight:600}}>Enviar</button>
+                  <div><div style={{fontWeight:600,fontSize:14}}>{w.nombre}</div><div style={{fontSize:11,color:"#64748b"}}>{ts.length} tarea(s)</div></div>
+                  <button onClick={()=>enviarEmailPersona(w,ts)} style={{background:"#ef4444",color:"#fff",border:"none",borderRadius:8,padding:"6px 14px",cursor:"pointer",fontSize:12,fontWeight:600}}>Enviar</button>
                 </div>
-                <ul style={{margin:"8px 0 0",paddingLeft:16,fontSize:12,color:"#374151"}}>{tareas.map(t=><li key={t.key}>{t.nombre}</li>)}</ul>
+                <ul style={{margin:"8px 0 0",paddingLeft:16,fontSize:12}}>{ts.map(t=><li key={t.key}>{t.nombre}</li>)}</ul>
               </div>
             );})}
             <div style={{display:"flex",justifyContent:"flex-end",marginTop:16}}>
@@ -774,15 +740,14 @@ export default function App(){
               <h1 style={{margin:0,fontSize:20,fontWeight:800}}>Planificacion Depto. Administracion y Finanzas</h1>
               <div style={{fontSize:12,opacity:0.8,marginTop:3}}>
                 Hola, <strong>{usuarioActual.nombre.split(" ")[0]}</strong> - {usuarioActual.cargo}
-                {usuarioActual.esCFO&&<span style={{background:"#fbbf24",color:"#78350f",borderRadius:20,padding:"1px 8px",fontSize:10,fontWeight:700,marginLeft:8}}>ADMIN</span>}
-                {esSoloConsulta(usuarioActual.nombre)&&<span style={{background:"#ede9fe",color:"#6d28d9",borderRadius:20,padding:"1px 8px",fontSize:10,fontWeight:700,marginLeft:8}}>CONSULTA</span>}
+                {rolBadge(usuarioActual.nombre)}
               </div>
             </div>
           </div>
           <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
-            {totalVencidas>0&&usuarioActual.esCFO&&<button onClick={()=>setModalEmail({resumen:generarResumenEmail()})} style={{background:"#ef4444",color:"#fff",border:"none",borderRadius:10,padding:"8px 16px",cursor:"pointer",fontWeight:700,fontSize:13}}>{totalVencidas} vencida(s)</button>}
+            {totalVencidas>0&&esAdmin(usuarioActual.nombre)&&<button onClick={()=>setModalEmail({resumen:generarResumenEmail()})} style={{background:"#ef4444",color:"#fff",border:"none",borderRadius:10,padding:"8px 16px",cursor:"pointer",fontWeight:700,fontSize:13}}>{totalVencidas} vencida(s)</button>}
             {estadoGuardadoUI&&<span style={{fontSize:12,color:"#fff",background:"rgba(255,255,255,0.15)",borderRadius:20,padding:"4px 12px"}}>{estadoGuardadoUI.icon} {estadoGuardadoUI.text}</span>}
-            <button onClick={()=>{setPinActual("");setPinNuevo("");setPinConfirm("");setPinError("");setModalPin("cambiar");}} style={{background:"rgba(255,255,255,0.15)",border:"none",color:"#fff",borderRadius:8,padding:"6px 14px",cursor:"pointer",fontSize:12}}>Cambiar PIN</button>
+            {!esSoloConsulta(usuarioActual.nombre)&&<button onClick={()=>{setPinActual("");setPinNuevo("");setPinConfirm("");setPinError("");setModalPin("cambiar");}} style={{background:"rgba(255,255,255,0.15)",border:"none",color:"#fff",borderRadius:8,padding:"6px 14px",cursor:"pointer",fontSize:12}}>Cambiar PIN</button>}
             <button onClick={()=>setUsuarioActual(null)} style={{background:"rgba(255,255,255,0.15)",border:"none",color:"#fff",borderRadius:8,padding:"6px 14px",cursor:"pointer",fontSize:12}}>Salir</button>
           </div>
         </div>
@@ -800,12 +765,12 @@ export default function App(){
         <div style={{marginBottom:16,display:"flex",flexDirection:"column",gap:8}}>
           {recsActivos.map(rec=>(
             <div key={rec.id} onClick={()=>setTab("recordatorios")}
-              style={{background:rec.diff<0?"#fee2e2":rec.diff<=1?"#fff1f2":"#fef9c3",border:`1px solid ${rec.diff<0?"#fca5a5":rec.diff<=1?"#fda4af":"#fde047"}`,borderRadius:12,padding:"12px 16px",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"space-between",gap:12,boxShadow:"0 2px 8px #0001"}}>
+              style={{background:rec.diff<0?"#fee2e2":rec.diff<=1?"#fff1f2":"#fef9c3",border:`1px solid ${rec.diff<0?"#fca5a5":"#fde047"}`,borderRadius:12,padding:"12px 16px",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"space-between",gap:12}}>
               <div style={{display:"flex",alignItems:"center",gap:10}}>
                 <span style={{fontSize:22}}>{rec.diff<0?"🔴":rec.diff===0?"🚨":"⚠️"}</span>
                 <div>
                   <div style={{fontWeight:700,fontSize:13,color:"#1e293b"}}>{rec.titulo}</div>
-                  <div style={{fontSize:12,color:"#64748b"}}>{rec.diff<0?"Vencido":"Vence el"} {rec.fechaVence.getDate()} de {MESES[rec.fechaVence.getMonth()]}{rec.diff===0&&<strong style={{color:"#ef4444"}}> - HOY</strong>}{rec.diff===1&&<strong style={{color:"#f59e0b"}}> - Manana</strong>}</div>
+                  <div style={{fontSize:12,color:"#64748b"}}>{rec.diff<0?"Vencido":"Vence el"} {rec.fechaVence.getDate()} de {MESES[rec.fechaVence.getMonth()]}{rec.diff===0&&<strong style={{color:"#ef4444"}}> - HOY</strong>}</div>
                 </div>
               </div>
               <span style={{fontSize:11,color:"#2563eb",fontWeight:600}}>Ver &rarr;</span>
@@ -817,7 +782,7 @@ export default function App(){
       {/* Tabs */}
       <div style={{display:"flex",gap:8,marginBottom:16,flexWrap:"wrap"}}>
         {[["semanal","Semanales"],["mensual","Mensuales"],["resumen","Resumen"],["recordatorios","Recordatorios"],
-          ...(usuarioActual.esCFO?[["configurar","Configurar"]]:[])
+          ...(esAdmin(usuarioActual.nombre)?[["configurar","Configurar"]]:[])
         ].map(([t,l])=>(
           <button key={t} onClick={()=>setTab(t)}
             style={{padding:"8px 20px",borderRadius:8,border:"none",cursor:"pointer",fontWeight:600,fontSize:13,background:tab===t?"#2563eb":"#fff",color:tab===t?"#fff":"#374151",boxShadow:tab===t?"0 2px 8px #2563eb44":"0 1px 4px #0001",position:"relative"}}>
@@ -827,8 +792,8 @@ export default function App(){
         ))}
       </div>
 
-      {/* Filtro CFO */}
-      {usuarioActual.esCFO&&(
+      {/* Filtro admin */}
+      {esAdmin(usuarioActual.nombre)&&(
         <div style={{display:"flex",gap:10,marginBottom:16,alignItems:"center",flexWrap:"wrap"}}>
           <span style={{fontSize:13,color:"#64748b",fontWeight:500}}>Filtrar:</span>
           {["",...WORKERS.map(w=>w.nombre)].map(n=>(
@@ -847,7 +812,7 @@ export default function App(){
             <span style={{width:11,height:11,borderRadius:"50%",background:v.color,display:"inline-block",backgroundImage:k==="na"?"repeating-linear-gradient(45deg,transparent,transparent 2px,rgba(0,0,0,0.2) 2px,rgba(0,0,0,0.2) 4px)":undefined}}></span>{v.label}
           </span>
         ))}
-        <span style={{fontSize:11,background:"#ede9fe",color:"#7c3aed",borderRadius:20,padding:"3px 12px",boxShadow:"0 1px 4px #0001"}}>🔒 Bloqueada por dependencia</span>
+        {esSoloConsulta(usuarioActual.nombre)&&<span style={{fontSize:11,background:"#ede9fe",color:"#6d28d9",borderRadius:20,padding:"3px 12px"}}>Solo visualizacion</span>}
       </div>
 
       {/* SEMANAL */}
@@ -895,7 +860,12 @@ export default function App(){
                 <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:12}}>
                   <div>
                     <div style={{fontWeight:700,fontSize:15,color:"#1e293b"}}>{w.nombre}</div>
-                    <div style={{fontSize:11,color:"#64748b",background:"#f1f5f9",borderRadius:20,padding:"2px 8px",display:"inline-block",marginTop:3}}>{w.cargo}</div>
+                    <div style={{display:"flex",alignItems:"center",gap:6,marginTop:3}}>
+                      <span style={{fontSize:11,color:"#64748b",background:"#f1f5f9",borderRadius:20,padding:"2px 8px"}}>{w.cargo}</span>
+                      <span style={{fontSize:10,background:w.rol==="admin"?"#fef3c7":w.rol==="consulta"?"#ede9fe":"#dcfce7",color:w.rol==="admin"?"#92400e":w.rol==="consulta"?"#6d28d9":"#166534",borderRadius:20,padding:"1px 7px",fontWeight:600}}>
+                        {w.rol==="admin"?"Admin":w.rol==="consulta"?"Consulta":"Editor"}
+                      </span>
+                    </div>
                     {vencidas>0&&<div style={{fontSize:11,color:"#ef4444",marginTop:4}}>{vencidas} vencida(s)</div>}
                   </div>
                   <div style={{fontSize:24,fontWeight:800,color:r.pct>=75?"#22c55e":r.pct>=40?"#eab308":"#ef4444"}}>{r.pct}%</div>
@@ -910,7 +880,7 @@ export default function App(){
                     <span key={k} style={{background:SEMAFORO[k].bg,border:`1px solid ${SEMAFORO[k].border}`,borderRadius:8,padding:"3px 9px",fontSize:12,fontWeight:600,color:"#374151"}}>{ico} {n}</span>
                   ))}
                 </div>
-                {vencidas>0&&usuarioActual.esCFO&&<button onClick={()=>enviarEmailPersona(w,re[w.nombre])} style={{width:"100%",background:"#ef4444",color:"#fff",border:"none",borderRadius:8,padding:"7px",cursor:"pointer",fontSize:12,fontWeight:600}}>Enviar aviso a {w.nombre.split(" ")[0]}</button>}
+                {vencidas>0&&esAdmin(usuarioActual.nombre)&&<button onClick={()=>enviarEmailPersona(w,re[w.nombre])} style={{width:"100%",background:"#ef4444",color:"#fff",border:"none",borderRadius:8,padding:"7px",cursor:"pointer",fontSize:12,fontWeight:600}}>Enviar aviso a {w.nombre.split(" ")[0]}</button>}
               </div>
             );
           })}
@@ -919,14 +889,14 @@ export default function App(){
 
       {/* RECORDATORIOS */}
       {tab==="recordatorios"&&(()=>{
-        const lista=usuarioActual.esCFO
+        const lista=esAdmin(usuarioActual.nombre)
           ?RECORDATORIOS.map(rec=>{const fv=diaHabil(anio,mes,rec.diaMes);const hD=new Date();hD.setHours(0,0,0,0);return{...rec,fechaVence:fv,diff:Math.ceil((fv-hD)/(1000*60*60*24))};})
           :getRecordatoriosActivos(usuarioActual.nombre,anio,mes,false);
         const listaF=lista.filter(r=>!recsDone[recKey(r.id)]);
         const listaC=lista.filter(r=>recsDone[recKey(r.id)]);
         return(
           <div style={{display:"flex",flexDirection:"column",gap:16}}>
-            {listaF.length===0&&listaC.length===0&&<div style={{background:"#fff",borderRadius:14,padding:32,textAlign:"center",boxShadow:"0 2px 10px #0001"}}><div style={{fontSize:32,marginBottom:8}}>✅</div><div style={{color:"#64748b",fontSize:14}}>No hay recordatorios activos este mes.</div></div>}
+            {listaF.length===0&&listaC.length===0&&<div style={{background:"#fff",borderRadius:14,padding:32,textAlign:"center"}}><div style={{fontSize:32}}>✅</div><div style={{color:"#64748b",fontSize:14,marginTop:8}}>No hay recordatorios activos.</div></div>}
             {listaF.map(rec=>{
               const color=rec.diff<0?"#ef4444":rec.diff<=2?"#f59e0b":"#22c55e";
               const bg=rec.diff<0?"#fff5f5":rec.diff<=2?"#fffbeb":"#f0fdf4";
@@ -936,14 +906,13 @@ export default function App(){
               const comRec=recsComentarios[recKey(rec.id)]||"";
               return(
                 <div key={rec.id} style={{background:bg,border:`2px solid ${border}`,borderRadius:14,padding:20,boxShadow:"0 2px 10px #0001"}}>
-                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:12,flexWrap:"wrap"}}>
+                  <div style={{display:"flex",justifyContent:"space-between",gap:12,flexWrap:"wrap"}}>
                     <div style={{flex:1}}>
                       <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:6}}>
                         <span style={{fontSize:18}}>{rec.diff<0?"🔴":rec.diff<=2?"🟡":"🟢"}</span>
                         <span style={{fontWeight:700,fontSize:15,color:"#1e293b"}}>{rec.titulo}</span>
                         {rec.diff===0&&<span style={{background:"#ef4444",color:"#fff",borderRadius:20,padding:"1px 8px",fontSize:11,fontWeight:700}}>HOY</span>}
                         {rec.diff===1&&<span style={{background:"#f59e0b",color:"#fff",borderRadius:20,padding:"1px 8px",fontSize:11,fontWeight:700}}>MANANA</span>}
-                        {rec.diff===2&&<span style={{background:"#f59e0b",color:"#fff",borderRadius:20,padding:"1px 8px",fontSize:11,fontWeight:700}}>EN 2 DIAS</span>}
                         {rec.diff<0&&<span style={{background:"#ef4444",color:"#fff",borderRadius:20,padding:"1px 8px",fontSize:11,fontWeight:700}}>VENCIDO</span>}
                       </div>
                       <div style={{fontSize:13,color:"#64748b",marginBottom:8}}>Fecha: <strong>{rec.fechaVence.getDate()} de {MESES[rec.fechaVence.getMonth()]} {rec.fechaVence.getFullYear()}</strong></div>
@@ -951,7 +920,7 @@ export default function App(){
                       <div style={{fontSize:11,color:"#64748b",marginBottom:8}}>Para: {rec.destinatarios.join(", ")}{ccW.length>0&&<span style={{marginLeft:12}}>CC: {ccW.map(w=>w.nombre).join(", ")}</span>}</div>
                       <button onClick={()=>{setEditRecComentario(rec.id);setTextoRecComentario(comRec);}}
                         style={{background:comRec?"#dbeafe":"#f1f5f9",border:"none",borderRadius:8,padding:"5px 12px",cursor:"pointer",fontSize:11,color:comRec?"#1d4ed8":"#9ca3af"}}>
-                        {comRec?`💬 ${comRec.substring(0,25)}${comRec.length>25?"...":""}` : "+ Agregar comentario"}
+                        {comRec?`💬 ${comRec.substring(0,25)}...`:"+ Comentario"}
                       </button>
                     </div>
                     <div style={{display:"flex",flexDirection:"column",gap:8}}>
@@ -966,15 +935,11 @@ export default function App(){
             })}
             {listaC.length>0&&(
               <div>
-                <div style={{fontSize:12,color:"#94a3b8",fontWeight:600,marginBottom:8,marginTop:8}}>COMPLETADOS ESTE MES</div>
+                <div style={{fontSize:12,color:"#94a3b8",fontWeight:600,marginBottom:8}}>COMPLETADOS ESTE MES</div>
                 {listaC.map(rec=>{const comRec=recsComentarios[recKey(rec.id)]||"";return(
                   <div key={rec.id} style={{background:"#f0fdf4",border:"1px solid #86efac",borderRadius:12,padding:"12px 16px",marginBottom:8,display:"flex",justifyContent:"space-between",alignItems:"center",gap:12}}>
-                    <div>
-                      <div style={{display:"flex",alignItems:"center",gap:6}}><span>✅</span><span style={{fontWeight:600,fontSize:13,color:"#15803d"}}>{rec.titulo}</span></div>
-                      {comRec&&<div style={{fontSize:11,color:"#64748b",marginTop:4}}>💬 {comRec}</div>}
-                    </div>
-                    <button onClick={()=>setRecsDone(prev=>{const n={...prev};delete n[recKey(rec.id)];return n;})}
-                      style={{background:"none",border:"1px solid #d1d5db",borderRadius:8,padding:"4px 10px",cursor:"pointer",fontSize:11,color:"#64748b"}}>Deshacer</button>
+                    <div><div style={{display:"flex",alignItems:"center",gap:6}}><span>✅</span><span style={{fontWeight:600,fontSize:13,color:"#15803d"}}>{rec.titulo}</span></div>{comRec&&<div style={{fontSize:11,color:"#64748b",marginTop:4}}>💬 {comRec}</div>}</div>
+                    <button onClick={()=>setRecsDone(prev=>{const n={...prev};delete n[recKey(rec.id)];return n;})} style={{background:"none",border:"1px solid #d1d5db",borderRadius:8,padding:"4px 10px",cursor:"pointer",fontSize:11,color:"#64748b"}}>Deshacer</button>
                   </div>
                 );})}
               </div>
@@ -984,64 +949,63 @@ export default function App(){
       })()}
 
       {/* CONFIGURAR */}
-      {tab==="configurar"&&usuarioActual.esCFO&&(
+      {tab==="configurar"&&esAdmin(usuarioActual.nombre)&&(
         <div style={{display:"flex",flexDirection:"column",gap:24}}>
 
-          {/* GESTION USUARIOS */}
+          {/* Gestion usuarios */}
           <div style={{background:"#fff",borderRadius:14,padding:20,boxShadow:"0 2px 10px #0001"}}>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
               <h3 style={{margin:0,color:"#1e293b",fontSize:15}}>Gestion de Usuarios</h3>
               <div style={{display:"flex",gap:8}}>
                 {["lista","nuevo"].map(t=>(
                   <button key={t} onClick={()=>{setTabUsuarios(t);setUsuarioEditando(null);setFormUsuario({nombre:"",cargo:"",email:"",pin:"",rol:"editor"});}}
-                    style={{padding:"5px 14px",borderRadius:8,border:"none",cursor:"pointer",fontSize:12,fontWeight:600,background:tabUsuarios===t&&usuarioEditando===null?"#2563eb":"#f1f5f9",color:tabUsuarios===t&&usuarioEditando===null?"#fff":"#374151"}}>
-                    {t==="lista"?"Ver usuarios":"+ Nuevo usuario"}
+                    style={{padding:"5px 14px",borderRadius:8,border:"none",cursor:"pointer",fontSize:12,fontWeight:600,background:tabUsuarios===t&&!usuarioEditando?"#2563eb":"#f1f5f9",color:tabUsuarios===t&&!usuarioEditando?"#fff":"#374151"}}>
+                    {t==="lista"?"Ver usuarios":"+ Nuevo"}
                   </button>
                 ))}
               </div>
             </div>
 
-            {/* Lista de usuarios */}
             {tabUsuarios==="lista"&&!usuarioEditando&&(
-              <table style={{width:"100%",borderCollapse:"collapse",fontSize:13}}>
-                <thead><tr style={{background:"#f8fafc",color:"#64748b"}}>
-                  <th style={{padding:"8px 12px",textAlign:"left",fontWeight:600}}>Nombre</th>
-                  <th style={{padding:"8px 12px",textAlign:"left",fontWeight:600}}>Cargo</th>
-                  <th style={{padding:"8px 12px",textAlign:"left",fontWeight:600}}>Email</th>
-                  <th style={{padding:"8px 12px",textAlign:"center",fontWeight:600,width:90}}>Rol</th>
-                  <th style={{padding:"8px 12px",textAlign:"center",fontWeight:600,width:200}}>Acciones</th>
-                </tr></thead>
-                <tbody>{usuarios.map((u,i)=>(
-                  <tr key={u.nombre} style={{borderTop:"1px solid #f1f5f9",background:u.desactivado?"#f8fafc":i%2===0?"#fff":"#fafafa",opacity:u.desactivado?0.5:1}}>
-                    <td style={{padding:"8px 12px",fontWeight:600,color:"#1e293b"}}>
-                      {u.nombre}
-                      {u.nombre===usuarioActual.nombre&&<span style={{fontSize:10,background:"#dbeafe",color:"#1d4ed8",borderRadius:20,padding:"1px 6px",marginLeft:6}}>yo</span>}
-                    </td>
-                    <td style={{padding:"8px 12px",color:"#64748b"}}>{u.cargo}</td>
-                    <td style={{padding:"8px 12px",color:"#64748b",fontSize:12}}>{u.email}</td>
-                    <td style={{padding:"8px 12px",textAlign:"center"}}>
-                      <span style={{background:u.rol==="admin"?"#fef3c7":u.rol==="consulta"?"#ede9fe":"#dcfce7",color:u.rol==="admin"?"#92400e":u.rol==="consulta"?"#6d28d9":"#166534",borderRadius:20,padding:"2px 10px",fontSize:11,fontWeight:600}}>
-                        {u.rol==="admin"?"Admin":u.rol==="consulta"?"Consulta":"Editor"}
-                      </span>
-                    </td>
-                    <td style={{padding:"8px 12px",textAlign:"center"}}>
-                      <div style={{display:"flex",gap:6,justifyContent:"center",flexWrap:"wrap"}}>
-                        <button onClick={()=>iniciarEdicion(u)} style={{background:"#dbeafe",color:"#1d4ed8",border:"none",borderRadius:6,padding:"3px 10px",cursor:"pointer",fontSize:11,fontWeight:600}}>Editar</button>
-                        <button onClick={()=>resetPinUsuario(u.nombre)} style={{background:"#fef9c3",color:"#92400e",border:"none",borderRadius:6,padding:"3px 10px",cursor:"pointer",fontSize:11,fontWeight:600}}>Reset PIN</button>
-                        {u.nombre!==usuarioActual.nombre&&(
-                          <button onClick={()=>toggleDesactivarUsuario(u.nombre)}
+              <div style={{overflowX:"auto"}}>
+                <table style={{width:"100%",borderCollapse:"collapse",fontSize:13}}>
+                  <thead><tr style={{background:"#f8fafc",color:"#64748b"}}>
+                    <th style={{padding:"8px 12px",textAlign:"left",fontWeight:600}}>Nombre</th>
+                    <th style={{padding:"8px 12px",textAlign:"left",fontWeight:600}}>Cargo</th>
+                    <th style={{padding:"8px 12px",textAlign:"left",fontWeight:600,minWidth:160}}>Email</th>
+                    <th style={{padding:"8px 12px",textAlign:"center",fontWeight:600,width:90}}>Rol</th>
+                    <th style={{padding:"8px 12px",textAlign:"center",fontWeight:600,width:220}}>Acciones</th>
+                  </tr></thead>
+                  <tbody>{usuarios.map((u,i)=>(
+                    <tr key={u.nombre} style={{borderTop:"1px solid #f1f5f9",background:u.desactivado?"#f8fafc":i%2===0?"#fff":"#fafafa",opacity:u.desactivado?0.5:1}}>
+                      <td style={{padding:"8px 12px",fontWeight:600,color:"#1e293b"}}>
+                        {u.nombre}
+                        {u.nombre===usuarioActual.nombre&&<span style={{fontSize:10,background:"#dbeafe",color:"#1d4ed8",borderRadius:20,padding:"1px 6px",marginLeft:6}}>yo</span>}
+                        {u.desactivado&&<span style={{fontSize:10,background:"#fee2e2",color:"#991b1b",borderRadius:20,padding:"1px 6px",marginLeft:6}}>inactivo</span>}
+                      </td>
+                      <td style={{padding:"8px 12px",color:"#64748b",fontSize:12}}>{u.cargo}</td>
+                      <td style={{padding:"8px 12px",color:"#64748b",fontSize:12}}>{u.email}</td>
+                      <td style={{padding:"8px 12px",textAlign:"center"}}>
+                        <span style={{background:u.rol==="admin"?"#fef3c7":u.rol==="consulta"?"#ede9fe":"#dcfce7",color:u.rol==="admin"?"#92400e":u.rol==="consulta"?"#6d28d9":"#166534",borderRadius:20,padding:"2px 10px",fontSize:11,fontWeight:600}}>
+                          {u.rol==="admin"?"Admin":u.rol==="consulta"?"Consulta":"Editor"}
+                        </span>
+                      </td>
+                      <td style={{padding:"8px 12px",textAlign:"center"}}>
+                        <div style={{display:"flex",gap:6,justifyContent:"center",flexWrap:"wrap"}}>
+                          <button onClick={()=>iniciarEdicion(u)} style={{background:"#dbeafe",color:"#1d4ed8",border:"none",borderRadius:6,padding:"3px 10px",cursor:"pointer",fontSize:11,fontWeight:600}}>Editar</button>
+                          <button onClick={()=>resetPinUsuario(u.nombre)} style={{background:"#fef9c3",color:"#92400e",border:"none",borderRadius:6,padding:"3px 10px",cursor:"pointer",fontSize:11,fontWeight:600}}>Reset PIN</button>
+                          {u.nombre!==usuarioActual.nombre&&<button onClick={()=>toggleDesactivarUsuario(u.nombre)}
                             style={{background:u.desactivado?"#dcfce7":"#fee2e2",color:u.desactivado?"#166534":"#991b1b",border:"none",borderRadius:6,padding:"3px 10px",cursor:"pointer",fontSize:11,fontWeight:600}}>
                             {u.desactivado?"Activar":"Desactivar"}
-                          </button>
-                        )}
-                      </div>
-                    </td>
-                  </tr>
-                ))}</tbody>
-              </table>
+                          </button>}
+                        </div>
+                      </td>
+                    </tr>
+                  ))}</tbody>
+                </table>
+              </div>
             )}
 
-            {/* Formulario nuevo / editar */}
             {(tabUsuarios==="nuevo"||(tabUsuarios==="editar"&&usuarioEditando))&&(
               <div>
                 <h4 style={{margin:"0 0 16px",color:"#1e293b",fontSize:14}}>{usuarioEditando?"Editar usuario":"Nuevo usuario"}</h4>
@@ -1050,12 +1014,12 @@ export default function App(){
                     <div key={campo}>
                       <label style={{fontSize:12,fontWeight:600,color:"#374151",display:"block",marginBottom:4}}>{lbl}</label>
                       <input type={tipo} value={formUsuario[campo]} onChange={e=>setFormUsuario(p=>({...p,[campo]:e.target.value}))}
-                        disabled={usuarioEditando&&campo==="nombre"}
+                        disabled={!!usuarioEditando&&campo==="nombre"}
                         style={{width:"100%",padding:"8px 12px",borderRadius:8,border:"1px solid #d1d5db",fontSize:13,boxSizing:"border-box",background:usuarioEditando&&campo==="nombre"?"#f1f5f9":"#fff"}}/>
                     </div>
                   ))}
                   <div>
-                    <label style={{fontSize:12,fontWeight:600,color:"#374151",display:"block",marginBottom:4}}>{usuarioEditando?"Nuevo PIN (dejar vacio para no cambiar)":"PIN inicial *"}</label>
+                    <label style={{fontSize:12,fontWeight:600,color:"#374151",display:"block",marginBottom:4}}>{usuarioEditando?"Nuevo PIN (vacio = sin cambio)":"PIN inicial *"}</label>
                     <input type="password" value={formUsuario.pin} onChange={e=>setFormUsuario(p=>({...p,pin:e.target.value}))} maxLength={6}
                       style={{width:"100%",padding:"8px 12px",borderRadius:8,border:"1px solid #d1d5db",fontSize:13,boxSizing:"border-box",textAlign:"center",letterSpacing:4}}/>
                   </div>
@@ -1063,14 +1027,12 @@ export default function App(){
                     <label style={{fontSize:12,fontWeight:600,color:"#374151",display:"block",marginBottom:4}}>Rol</label>
                     <select value={formUsuario.rol} onChange={e=>setFormUsuario(p=>({...p,rol:e.target.value}))}
                       style={{width:"100%",padding:"8px 12px",borderRadius:8,border:"1px solid #d1d5db",fontSize:13,boxSizing:"border-box"}}>
-                      <option value="editor">Editor — gestiona sus tareas</option>
-                      <option value="consulta">Consulta — solo visualiza</option>
-                      <option value="admin">Administrador — acceso total</option>
+                      {ROLES.map(r=><option key={r.v} value={r.v}>{r.l}</option>)}
                     </select>
                   </div>
                   {!usuarioEditando&&(
                     <div>
-                      <label style={{fontSize:12,fontWeight:600,color:"#374151",display:"block",marginBottom:4}}>Copiar perfil de tareas de</label>
+                      <label style={{fontSize:12,fontWeight:600,color:"#374151",display:"block",marginBottom:4}}>Copiar tareas de</label>
                       <select value={copiarDe} onChange={e=>setCopiarDe(e.target.value)}
                         style={{width:"100%",padding:"8px 12px",borderRadius:8,border:"1px solid #d1d5db",fontSize:13,boxSizing:"border-box"}}>
                         <option value="">Sin copiar</option>
@@ -1080,10 +1042,8 @@ export default function App(){
                   )}
                 </div>
                 <div style={{display:"flex",gap:10,justifyContent:"flex-end",marginTop:16}}>
-                  <button onClick={()=>{setTabUsuarios("lista");setUsuarioEditando(null);setFormUsuario({nombre:"",cargo:"",email:"",pin:"",rol:"editor"});}}
-                    style={{padding:"8px 18px",borderRadius:8,border:"1px solid #d1d5db",background:"#fff",cursor:"pointer",fontSize:14}}>Cancelar</button>
-                  <button onClick={usuarioEditando?guardarEdicionUsuario:agregarUsuario}
-                    style={{padding:"8px 18px",borderRadius:8,border:"none",background:"#2563eb",color:"#fff",cursor:"pointer",fontSize:14,fontWeight:600}}>
+                  <button onClick={()=>{setTabUsuarios("lista");setUsuarioEditando(null);setFormUsuario({nombre:"",cargo:"",email:"",pin:"",rol:"editor"});}} style={{padding:"8px 18px",borderRadius:8,border:"1px solid #d1d5db",background:"#fff",cursor:"pointer",fontSize:14}}>Cancelar</button>
+                  <button onClick={usuarioEditando?guardarEdicionUsuario:agregarUsuario} style={{padding:"8px 18px",borderRadius:8,border:"none",background:"#2563eb",color:"#fff",cursor:"pointer",fontSize:14,fontWeight:600}}>
                     {usuarioEditando?"Guardar cambios":"Crear usuario"}
                   </button>
                 </div>
@@ -1091,7 +1051,7 @@ export default function App(){
             )}
           </div>
 
-          {/* Agregar nueva tarea */}
+          {/* Agregar tarea */}
           <div style={{background:"#fff",borderRadius:14,padding:20,boxShadow:"0 2px 10px #0001",border:"2px dashed #e2e8f0"}}>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:mostrarFormTarea?16:0}}>
               <h3 style={{margin:0,color:"#1e293b",fontSize:15}}>+ Agregar nueva tarea</h3>
@@ -1102,15 +1062,15 @@ export default function App(){
             {mostrarFormTarea&&(
               <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(200px,1fr))",gap:12}}>
                 <div style={{gridColumn:"1/-1"}}>
-                  <label style={{fontSize:12,fontWeight:600,color:"#374151",display:"block",marginBottom:4}}>Nombre de la tarea *</label>
-                  <input value={nuevaTarea.nombre} onChange={e=>setNuevaTarea(p=>({...p,nombre:e.target.value}))} placeholder="Ej: Revision semanal de presupuesto"
+                  <label style={{fontSize:12,fontWeight:600,color:"#374151",display:"block",marginBottom:4}}>Nombre *</label>
+                  <input value={nuevaTarea.nombre} onChange={e=>setNuevaTarea(p=>({...p,nombre:e.target.value}))}
                     style={{width:"100%",padding:"8px 12px",borderRadius:8,border:"1px solid #d1d5db",fontSize:13,boxSizing:"border-box"}}/>
                 </div>
-                {[
-                  ["Responsable *","responsable",WORKERS.map(w=>({v:w.nombre,l:w.nombre.split(" ")[0]+" "+w.nombre.split(" ")[1]}))],
-                  ["Supervisor","supervisor",[{v:"",l:"Sin supervisor"},...WORKERS.map(w=>({v:w.nombre,l:w.nombre.split(" ")[0]+" "+w.nombre.split(" ")[1]}))]],
+                {[["Responsable *","responsable",WORKERS.map(w=>({v:w.nombre,l:w.nombre}))],
+                  ["Supervisor","supervisor",[{v:"",l:"Sin supervisor"},...WORKERS.map(w=>({v:w.nombre,l:w.nombre}))]],
                   ["Categoria","categoria",Object.keys(CATEGORIAS).map(k=>({v:k,l:k}))],
                   ["Frecuencia","frecuencia",FRECUENCIAS.map(f=>({v:f,l:f}))],
+                  ["Depende de","dependeDe",[{v:"",l:"Sin dependencia"},...todasTareas().map(t=>({v:t.id,l:t.nombre.substring(0,30)}))]],
                 ].map(([lbl,campo,opts])=>(
                   <div key={campo}>
                     <label style={{fontSize:12,fontWeight:600,color:"#374151",display:"block",marginBottom:4}}>{lbl}</label>
@@ -1120,14 +1080,6 @@ export default function App(){
                     </select>
                   </div>
                 ))}
-                <div>
-                  <label style={{fontSize:12,fontWeight:600,color:"#374151",display:"block",marginBottom:4}}>Depende de (opcional)</label>
-                  <select value={nuevaTarea.dependeDe} onChange={e=>setNuevaTarea(p=>({...p,dependeDe:e.target.value}))}
-                    style={{width:"100%",padding:"8px 10px",borderRadius:8,border:"1px solid #d1d5db",fontSize:13,boxSizing:"border-box"}}>
-                    <option value="">Sin dependencia</option>
-                    {todasTareas().map(t=><option key={t.id} value={t.id}>{t.nombre.substring(0,30)}{t.nombre.length>30?"...":""}</option>)}
-                  </select>
-                </div>
                 <div style={{gridColumn:"1/-1",display:"flex",justifyContent:"flex-end"}}>
                   <button onClick={agregarTarea} style={{background:"#22c55e",color:"#fff",border:"none",borderRadius:10,padding:"10px 24px",cursor:"pointer",fontWeight:700,fontSize:14}}>Guardar tarea</button>
                 </div>
@@ -1135,25 +1087,25 @@ export default function App(){
             )}
           </div>
 
-          {/* Tabla configuracion */}
+          {/* Tabla config tareas */}
           {[["Semanales y Diarias",todasTareas().filter(t=>getFrecuencia(t.id)!=="Mensual")],["Mensuales",todasTareas().filter(t=>getFrecuencia(t.id)==="Mensual")]].map(([titulo,tareas])=>(
             <div key={titulo} style={{background:"#fff",borderRadius:14,padding:20,boxShadow:"0 2px 10px #0001"}}>
               <h3 style={{margin:"0 0 16px",color:"#1e293b",fontSize:15}}>{titulo}</h3>
               <div style={{overflowX:"auto"}}>
                 <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
                   <thead><tr style={{background:"#f8fafc",color:"#64748b"}}>
-                    <th style={{padding:"8px 12px",textAlign:"left",fontWeight:600,minWidth:180}}>Tarea</th>
-                    <th style={{padding:"8px 12px",textAlign:"center",fontWeight:600,width:90}}>Resp.</th>
-                    <th style={{padding:"8px 12px",textAlign:"center",fontWeight:600,width:130}}>Supervisor</th>
-                    <th style={{padding:"8px 12px",textAlign:"center",fontWeight:600,width:110}}>Frecuencia</th>
-                    <th style={{padding:"8px 12px",textAlign:"center",fontWeight:600,width:130}}>Dia limite</th>
-                    <th style={{padding:"8px 12px",textAlign:"center",fontWeight:600,width:130}}>Depende de</th>
-                    <th style={{padding:"8px 12px",textAlign:"center",fontWeight:600,width:80}}>Estado</th>
+                    <th style={{padding:"8px 12px",textAlign:"left",fontWeight:600,minWidth:160}}>Tarea</th>
+                    <th style={{padding:"8px 12px",textAlign:"center",fontWeight:600,width:80}}>Resp.</th>
+                    <th style={{padding:"8px 12px",textAlign:"center",fontWeight:600,width:120}}>Supervisor</th>
+                    <th style={{padding:"8px 12px",textAlign:"center",fontWeight:600,width:100}}>Frecuencia</th>
+                    <th style={{padding:"8px 12px",textAlign:"center",fontWeight:600,width:120}}>Dia limite</th>
+                    <th style={{padding:"8px 12px",textAlign:"center",fontWeight:600,width:120}}>Depende de</th>
+                    <th style={{padding:"8px 12px",textAlign:"center",fontWeight:600,width:90}}>Estado</th>
                   </tr></thead>
                   <tbody>{tareas.map((t,i)=>{
                     const cfg=getConfig(t.id);const bloq=isBloqueada(t.id);
                     return(
-                      <tr key={t.id} style={{borderTop:"1px solid #f1f5f9",background:bloq?"#f8fafc":i%2===0?"#fff":"#fafafa",opacity:bloq?0.6:1}}>
+                      <tr key={t.id} style={{borderTop:"1px solid #f1f5f9",background:bloq?"#f8fafc":i%2===0?"#fff":"#fafafa",opacity:bloq?0.55:1}}>
                         <td style={{padding:"8px 12px",color:bloq?"#94a3b8":"#1e293b",textDecoration:bloq?"line-through":"none"}}>
                           {t.nombre}
                           {t.id.startsWith("custom_")&&<span style={{fontSize:9,background:"#dbeafe",color:"#1d4ed8",borderRadius:20,padding:"1px 6px",marginLeft:4}}>nueva</span>}
@@ -1173,11 +1125,11 @@ export default function App(){
                           </select>
                         </td>
                         <td style={{padding:"8px 12px",textAlign:"center"}}>
-                          {cfg.frecuencia==="Mensual"||t.frecuencia==="Mensual"?(
+                          {(cfg.frecuencia||t.frecuencia)==="Mensual"?(
                             <div style={{display:"flex",alignItems:"center",justifyContent:"center",gap:4}}>
-                              <button onClick={()=>updateConfig(t.id,"diaLimite",Math.max(1,(cfg.diaLimite||t.diaLimite)-1))} style={{width:20,height:20,borderRadius:4,border:"1px solid #d1d5db",background:"#fff",cursor:"pointer",fontSize:12,lineHeight:1}}>-</button>
+                              <button onClick={()=>updateConfig(t.id,"diaLimite",Math.max(1,(cfg.diaLimite||t.diaLimite)-1))} style={{width:20,height:20,borderRadius:4,border:"1px solid #d1d5db",background:"#fff",cursor:"pointer",fontSize:12}}>-</button>
                               <span style={{fontWeight:700,minWidth:22,textAlign:"center"}}>{cfg.diaLimite||t.diaLimite}</span>
-                              <button onClick={()=>updateConfig(t.id,"diaLimite",Math.min(31,(cfg.diaLimite||t.diaLimite)+1))} style={{width:20,height:20,borderRadius:4,border:"1px solid #d1d5db",background:"#fff",cursor:"pointer",fontSize:12,lineHeight:1}}>+</button>
+                              <button onClick={()=>updateConfig(t.id,"diaLimite",Math.min(31,(cfg.diaLimite||t.diaLimite)+1))} style={{width:20,height:20,borderRadius:4,border:"1px solid #d1d5db",background:"#fff",cursor:"pointer",fontSize:12}}>+</button>
                             </div>
                           ):(
                             <select value={cfg.diaLimiteSem??t.diaLimiteSem} onChange={e=>updateConfig(t.id,"diaLimiteSem",parseInt(e.target.value))}
@@ -1190,13 +1142,13 @@ export default function App(){
                           <select value={cfg.dependeDe||""} onChange={e=>updateConfig(t.id,"dependeDe",e.target.value||null)}
                             style={{padding:"3px 6px",borderRadius:6,border:"1px solid #d1d5db",fontSize:11,cursor:"pointer",width:"100%"}}>
                             <option value="">Ninguna</option>
-                            {todasTareas().filter(x=>x.id!==t.id).map(x=><option key={x.id} value={x.id}>{x.nombre.substring(0,20)}{x.nombre.length>20?"...":""}</option>)}
+                            {todasTareas().filter(x=>x.id!==t.id).map(x=><option key={x.id} value={x.id}>{x.nombre.substring(0,18)}{x.nombre.length>18?"...":""}</option>)}
                           </select>
                         </td>
                         <td style={{padding:"8px 12px",textAlign:"center"}}>
                           <button onClick={()=>toggleBloqueada(t.id)}
                             style={{background:bloq?"#f1f5f9":"#dcfce7",color:bloq?"#64748b":"#15803d",border:`1px solid ${bloq?"#d1d5db":"#86efac"}`,borderRadius:8,padding:"3px 10px",cursor:"pointer",fontSize:11,fontWeight:600,whiteSpace:"nowrap"}}>
-                            {bloq?"🔓 Activar":"🔒 Bloquear"}
+                            {bloq?"Activar":"Bloquear"}
                           </button>
                         </td>
                       </tr>
@@ -1208,7 +1160,7 @@ export default function App(){
           ))}
 
           <div style={{background:"#dbeafe",borderRadius:10,padding:"10px 16px",fontSize:13,color:"#1d4ed8"}}>
-            Cambios guardados automaticamente. Las tareas bloqueadas se ocultan del calendario pero conservan su historial.
+            Cambios guardados automaticamente. Las tareas bloqueadas conservan su historial.
           </div>
         </div>
       )}
@@ -1219,36 +1171,19 @@ export default function App(){
           <span style={{fontSize:11,color:"#94a3b8",letterSpacing:3,textTransform:"uppercase",fontWeight:600}}>Nuestras Empresas – Mediterra</span>
         </div>
         <div style={{display:"flex",flexWrap:"wrap",gap:16,justifyContent:"center",alignItems:"center"}}>
-          <div style={{background:"#1a1a2e",borderRadius:10,padding:"10px 18px",display:"flex",flexDirection:"column",alignItems:"center",minWidth:120}}>
-            <div style={{display:"flex",alignItems:"baseline",gap:1}}><span style={{color:"#6b7280",fontWeight:900,fontSize:15,letterSpacing:1}}>FRISKU</span><span style={{color:"#60a5fa",fontWeight:900,fontSize:15,letterSpacing:1}}>FOODS</span></div>
-            <span style={{color:"#9ca3af",fontSize:8,letterSpacing:2,marginTop:2}}>CONNECTING QUALITY</span>
-          </div>
-          <div style={{background:"#0f2d4a",borderRadius:10,padding:"10px 18px",display:"flex",flexDirection:"column",alignItems:"center",minWidth:140}}>
-            <span style={{color:"#2980b9",fontWeight:700,fontSize:16,letterSpacing:3}}>OSIRIS</span>
-            <span style={{color:"#7fb3d3",fontSize:9,letterSpacing:2,marginTop:1}}>PLANT MANAGEMENT</span>
-          </div>
-          <div style={{background:"#1a1a1a",borderRadius:10,padding:"10px 18px",display:"flex",flexDirection:"column",alignItems:"center",minWidth:120}}>
-            <span style={{color:"#9ca3af",fontWeight:300,fontSize:18,fontStyle:"italic",fontFamily:"Georgia,serif"}}>Allegria</span>
-            <span style={{color:"#ec4899",fontSize:11,letterSpacing:2,marginTop:-2}}>foods</span>
-          </div>
-          <div style={{background:"#111",borderRadius:10,padding:"10px 18px",display:"flex",flexDirection:"column",alignItems:"center",minWidth:130}}>
-            <span style={{color:"#e5e7eb",fontWeight:700,fontSize:15,letterSpacing:2,fontFamily:"Georgia,serif"}}>ALLEGRIA</span>
-            <span style={{color:"#ef4444",fontSize:10,letterSpacing:3,marginTop:2,borderTop:"1px solid #ef4444",paddingTop:3,width:"100%",textAlign:"center"}}>SERVICE</span>
-          </div>
-          <div style={{background:"#0f2010",borderRadius:10,padding:"10px 18px",display:"flex",flexDirection:"column",alignItems:"center",minWidth:130,border:"1px solid #166534"}}>
-            <span style={{color:"#16a34a",fontWeight:800,fontSize:13,letterSpacing:2}}>INTEGRITY</span>
-            <span style={{color:"#16a34a",fontWeight:800,fontSize:13,letterSpacing:2,borderTop:"1px solid #16a34a",paddingTop:3,width:"100%",textAlign:"center"}}>FARMS</span>
-          </div>
-          <div style={{background:"#1e1b4b",borderRadius:10,padding:"10px 18px",display:"flex",flexDirection:"column",alignItems:"center",minWidth:100}}>
-            <span style={{color:"#818cf8",fontWeight:900,fontSize:14,letterSpacing:1}}>ALLPA</span>
-            <span style={{color:"#818cf8",fontWeight:900,fontSize:14,letterSpacing:1}}>FARMS</span>
-            <span style={{background:"#34d399",color:"#fff",fontSize:9,fontWeight:700,borderRadius:4,padding:"1px 8px",marginTop:3,letterSpacing:2}}>PERU</span>
-          </div>
-          <div style={{background:"#1e1b4b",borderRadius:10,padding:"10px 18px",display:"flex",flexDirection:"column",alignItems:"center",minWidth:100}}>
-            <span style={{color:"#818cf8",fontWeight:900,fontSize:14,letterSpacing:1}}>ALLPA</span>
-            <span style={{color:"#818cf8",fontWeight:900,fontSize:14,letterSpacing:1}}>FARMS</span>
-            <span style={{background:"#f87171",color:"#fff",fontSize:9,fontWeight:700,borderRadius:4,padding:"1px 8px",marginTop:3,letterSpacing:2}}>CHILE</span>
-          </div>
+          {[
+            {bg:"#1a1a2e",content:<><div style={{display:"flex",gap:1}}><span style={{color:"#6b7280",fontWeight:900,fontSize:15}}>FRISKU</span><span style={{color:"#60a5fa",fontWeight:900,fontSize:15}}>FOODS</span></div><span style={{color:"#9ca3af",fontSize:8,letterSpacing:2}}>CONNECTING QUALITY</span></>},
+            {bg:"#0f2d4a",content:<><span style={{color:"#2980b9",fontWeight:700,fontSize:16,letterSpacing:3}}>OSIRIS</span><span style={{color:"#7fb3d3",fontSize:9,letterSpacing:2}}>PLANT MANAGEMENT</span></>},
+            {bg:"#1a1a1a",content:<><span style={{color:"#9ca3af",fontWeight:300,fontSize:18,fontStyle:"italic",fontFamily:"Georgia,serif"}}>Allegria</span><span style={{color:"#ec4899",fontSize:11,letterSpacing:2,marginTop:-2}}>foods</span></>},
+            {bg:"#111",content:<><span style={{color:"#e5e7eb",fontWeight:700,fontSize:15,letterSpacing:2}}>ALLEGRIA</span><span style={{color:"#ef4444",fontSize:10,letterSpacing:3,borderTop:"1px solid #ef4444",paddingTop:3,width:"100%",textAlign:"center"}}>SERVICE</span></>},
+            {bg:"#0f2010",border:"1px solid #166534",content:<><span style={{color:"#16a34a",fontWeight:800,fontSize:13,letterSpacing:2}}>INTEGRITY</span><span style={{color:"#16a34a",fontWeight:800,fontSize:13,letterSpacing:2,borderTop:"1px solid #16a34a",paddingTop:3,width:"100%",textAlign:"center"}}>FARMS</span></>},
+            {bg:"#1e1b4b",content:<><span style={{color:"#818cf8",fontWeight:900,fontSize:14}}>ALLPA FARMS</span><span style={{background:"#34d399",color:"#fff",fontSize:9,fontWeight:700,borderRadius:4,padding:"1px 8px",marginTop:3,letterSpacing:2}}>PERU</span></>},
+            {bg:"#1e1b4b",content:<><span style={{color:"#818cf8",fontWeight:900,fontSize:14}}>ALLPA FARMS</span><span style={{background:"#f87171",color:"#fff",fontSize:9,fontWeight:700,borderRadius:4,padding:"1px 8px",marginTop:3,letterSpacing:2}}>CHILE</span></>},
+          ].map((item,i)=>(
+            <div key={i} style={{background:item.bg,border:item.border,borderRadius:10,padding:"10px 18px",display:"flex",flexDirection:"column",alignItems:"center",minWidth:110,gap:2}}>
+              {item.content}
+            </div>
+          ))}
         </div>
         <div style={{textAlign:"center",marginTop:20,fontSize:10,color:"#cbd5e1"}}>
           © {new Date().getFullYear()} Grupo Mediterra · Todos los derechos reservados
