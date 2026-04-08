@@ -193,14 +193,14 @@ export default function App(){
       s.forEach(sw=>TAREAS_SEMANALES.forEach(t=>{const k=`${t.id}_s${sw.num}`;if(!n[k])n[k]={estadoResp:"gris",estadoSup:"gris",aprobado:false};}));
       return n;
     });
-  },[mes,anio]);
+  },[mes,anio]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(()=>{
     try{
       const raw=localStorage.getItem(STORAGE_KEY);
       if(raw){
         const d=JSON.parse(raw);
-        if(d.estados)            setEstados(prev=>({...initEstados(semanas),...d.estados}));
+        if(d.estados)            setEstados(prev=>({...initEstados(semanasDelMes(d.mes??hoy.getMonth(), d.anio??hoy.getFullYear())),...d.estados}));
         if(d.comentarios)        setComentarios(d.comentarios);
         if(d.configSemanal)      setConfigSemanal(prev=>({...prev,...d.configSemanal}));
         if(d.diasLimite)         setDiasLimite(prev=>({...prev,...d.diasLimite}));
@@ -213,7 +213,7 @@ export default function App(){
       }
     }catch{}
     setCargando(false);
-  },[]);
+  }, []);  // eslint-disable-line react-hooks/exhaustive-deps
 
   const guardar=useCallback((est,com,cs,dl,sup,pins,rd,rc,m,a)=>{
     setGuardado("guardando");
