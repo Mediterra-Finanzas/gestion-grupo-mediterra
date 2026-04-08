@@ -5,6 +5,34 @@ const EMAILJS_TEMPLATE = "template_c7yup8d";
 const EMAILJS_KEY      = "bwCBq7JXlEwCTzWNe";
 const FECHA_INICIO     = new Date(2026, 3, 13);
 
+const SUPA_URL = "https://bywovqayuzodbzwsriet.supabase.co";
+const SUPA_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJ5d292cWF5dXpvZGJ6d3NyaWV0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU2ODU1MDgsImV4cCI6MjA5MTI2MTUwOH0.s2x2O_CxE6rl8dBqFuyfQdMyRqSyjJQWXJXesmVGXtk";
+
+async function dbLoad() {
+  try {
+    const res = await fetch(`${SUPA_URL}/rest/v1/calendario_data?id=eq.main&select=value`, {
+      headers: { apikey: SUPA_KEY, Authorization: `Bearer ${SUPA_KEY}` }
+    });
+    const data = await res.json();
+    return data?.[0]?.value || null;
+  } catch { return null; }
+}
+
+async function dbSave(value) {
+  try {
+    await fetch(`${SUPA_URL}/rest/v1/calendario_data`, {
+      method: "POST",
+      headers: {
+        apikey: SUPA_KEY,
+        Authorization: `Bearer ${SUPA_KEY}`,
+        "Content-Type": "application/json",
+        Prefer: "resolution=merge-duplicates"
+      },
+      body: JSON.stringify({ id: "main", value, updated_at: new Date().toISOString() })
+    });
+  } catch(e) { console.error("Error guardando:", e); }
+}
+
 async function enviarEmail(toEmail, nombre, asunto, cuerpo) {
   await fetch("https://api.emailjs.com/api/v1.0/email/send", {
     method:"POST", headers:{"Content-Type":"application/json"},
@@ -237,36 +265,38 @@ export default function App(){
   },[mes,anio]); // eslint-disable-line
 
   useEffect(()=>{
-    try{
-      const raw=localStorage.getItem(STORAGE_KEY);
-      if(raw){
-        const d=JSON.parse(raw);
-        if(d.usuarios)setUsuarios(prev=>{
-          const merged=WORKERS_BASE.map(wb=>{const saved=d.usuarios.find(u=>u.nombre===wb.nombre);return saved?{...wb,...saved}:wb;});
-          const extras=d.usuarios.filter(u=>!WORKERS_BASE.find(wb=>wb.nombre===u.nombre));
-          return[...merged,...extras];
-        });
-        if(d.estados)setEstados(prev=>({...prev,...d.estados}));
-        if(d.comentarios)setComentarios(d.comentarios);
-        if(d.tareasConfig)setTareasConfig(prev=>({...prev,...d.tareasConfig}));
-        if(d.supervisores)setSupervisores(prev=>({...prev,...d.supervisores}));
-        if(d.tareasExtra)setTareasExtra(d.tareasExtra);
-        if(d.pinsPersonalizados)setPinsPersonalizados(d.pinsPersonalizados);
-        if(d.recsDone)setRecsDone(d.recsDone);
-        if(d.recsComentarios)setRecsComentarios(d.recsComentarios);
-        if(d.mes!==undefined)setMes(d.mes);
-        if(d.anio!==undefined)setAnio(d.anio);
-      }
-    }catch{}
-    setCargando(false);
+    async function cargar(){
+      try{
+        const d = await dbLoad();
+        if(d){
+          if(d.usuarios)setUsuarios(prev=>{
+            const merged=WORKERS_BASE.map(wb=>{const saved=d.usuarios.find(u=>u.nombre===wb.nombre);return saved?{...wb,...saved}:wb;});
+            const extras=d.usuarios.filter(u=>!WORKERS_BASE.find(wb=>wb.nombre===u.nombre));
+            return[...merged,...extras];
+          });
+          if(d.estados)setEstados(prev=>({...prev,...d.estados}));
+          if(d.comentarios)setComentarios(d.comentarios);
+          if(d.tareasConfig)setTareasConfig(prev=>({...prev,...d.tareasConfig}));
+          if(d.supervisores)setSupervisores(prev=>({...prev,...d.supervisores}));
+          if(d.tareasExtra)setTareasExtra(d.tareasExtra);
+          if(d.pinsPersonalizados)setPinsPersonalizados(d.pinsPersonalizados);
+          if(d.recsDone)setRecsDone(d.recsDone);
+          if(d.recsComentarios)setRecsComentarios(d.recsComentarios);
+          if(d.mes!==undefined)setMes(d.mes);
+          if(d.anio!==undefined)setAnio(d.anio);
+        }
+      }catch(e){console.error("Error cargando:",e);}
+      setCargando(false);
+    }
+    cargar();
   },[]); // eslint-disable-line
 
   const guardar=useCallback((est,com,tc,sup,te,pins,rd,rc,usrs,m,a)=>{
     setGuardado("guardando");
-    try{
-      localStorage.setItem(STORAGE_KEY,JSON.stringify({estados:est,comentarios:com,tareasConfig:tc,supervisores:sup,tareasExtra:te,pinsPersonalizados:pins,recsDone:rd,recsComentarios:rc,usuarios:usrs,mes:m,anio:a}));
-      setGuardado("ok");setTimeout(()=>setGuardado("idle"),2000);
-    }catch{setGuardado("error");setTimeout(()=>setGuardado("idle"),3000);}
+    dbSave({estados:est,comentarios:com,tareasConfig:tc,supervisores:sup,tareasExtra:te,
+      pinsPersonalizados:pins,recsDone:rd,recsComentarios:rc,usuarios:usrs,mes:m,anio:a})
+      .then(()=>{setGuardado("ok");setTimeout(()=>setGuardado("idle"),2000);})
+      .catch(()=>{setGuardado("error");setTimeout(()=>setGuardado("idle"),3000);});
   },[]);
 
   useEffect(()=>{
