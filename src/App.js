@@ -1,6 +1,44 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 
-const DIAS_SEMANA = ["Lunes","Martes","Miercoles","Jueves","Viernes"];
+const EMAILJS_SERVICE  = "service_ahuerta";
+const EMAILJS_TEMPLATE = "template_c7yup8d";
+const EMAILJS_KEY      = "bwCBq7JXlEwCTzWNe";
+
+async function enviarPinTemporal(worker, pin) {
+  await fetch("https://api.emailjs.com/api/v1.0/email/send", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      service_id:  EMAILJS_SERVICE,
+      template_id: EMAILJS_TEMPLATE,
+      user_id:     EMAILJS_KEY,
+      template_params: {
+        nombre:       worker.nombre,
+        pin_temporal: pin,
+        to_email:     worker.email,
+      }
+    })
+  });
+}
+
+const RECORDATORIOS = [
+  {
+    id: "rec1",
+    titulo: "Emision Factura Corporativo",
+    diaMes: 4,
+    destinatarios: ["Milagros Becerra"],
+    copia: ["Carol Machuca"],
+    mensaje: (nombre) => `Estimada ${nombre.split(" ")[0]}, te recordamos que el dia 4 de este mes corresponde emitir la factura de servicios Corporativo. Por favor asegurate de tener listos los antecedentes necesarios para su emision oportuna.`,
+  },
+  {
+    id: "rec2",
+    titulo: "Emision Factura Frisku",
+    diaMes: 25,
+    destinatarios: ["Milagros Becerra"],
+    copia: ["Carol Machuca"],
+    mensaje: (nombre) => `Estimada ${nombre.split(" ")[0]}, te recordamos que el dia 25 de este mes corresponde emitir la factura de servicios Frisku. Por favor verifica que los documentos de respaldo esten en orden antes de proceder.`,
+  },
+];
 
 const SEMAFORO = {
   verde:    { label: "Completado", color: "#22c55e", bg: "#dcfce7", border: "#86efac" },
@@ -114,6 +152,16 @@ export default function App() {
   const [loginNombre, setLoginNombre] = useState("");
   const [loginPin, setLoginPin] = useState("");
   const [loginError, setLoginError] = useState("");
+  const [pinsPersonalizados, setPinsPersonalizados] = useState({});
+  const [modalPin, setModalPin] = useState(null); // "cambiar" | "resetear"
+  const [resetNombre, setResetNombre] = useState("");
+  const [resetEnviando, setResetEnviando] = useState(false);
+  const [resetMsg, setResetMsg] = useState("");
+  const [pinActual, setPinActual] = useState("");
+  const [pinNuevo, setPinNuevo] = useState("");
+  const [pinConfirm, setPinConfirm] = useState("");
+  const [pinError, setPinError] = useState("");
+  const pinsTempRef = useRef({});
   const [mes, setMes] = useState(hoy.getMonth());
   const [anio, setAnio] = useState(hoy.getFullYear());
   const [estados, setEstados] = useState(initEstados);
@@ -138,6 +186,7 @@ export default function App() {
         if (d.comentarios)  setComentarios(d.comentarios);
         if (d.configSemanal)setConfigSemanal(prev => ({...prev, ...d.configSemanal}));
         if (d.diasLimite)   setDiasLimite(prev => ({...prev, ...d.diasLimite}));
+        if (d.pinsPersonalizados) setPinsPersonalizados(d.pinsPersonalizados);
         if (d.mes !== undefined) setMes(d.mes);
         if (d.anio !== undefined) setAnio(d.anio);
       }
@@ -145,10 +194,10 @@ export default function App() {
     setCargando(false);
   }, []);
 
-  const guardar = useCallback((est, com, cs, dl, m, a) => {
+  const guardar = useCallback((est, com, cs, dl, pins, m, a) => {
     setGuardado("guardando");
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify({ estados:est, comentarios:com, configSemanal:cs, diasLimite:dl, mes:m, anio:a }));
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({ estados:est, comentarios:com, configSemanal:cs, diasLimite:dl, pinsPersonalizados:pins, mes:m, anio:a }));
       setGuardado("ok");
       setTimeout(() => setGuardado("idle"), 2000);
     } catch {
@@ -159,18 +208,58 @@ export default function App() {
 
   useEffect(() => {
     if (cargando) return;
-    const t = setTimeout(() => guardar(estados, comentarios, configSemanal, diasLimite, mes, anio), 800);
+    const t = setTimeout(() => guardar(estados, comentarios, configSemanal, diasLimite, pinsPersonalizados, mes, anio), 800);
     return () => clearTimeout(t);
-  }, [estados, comentarios, configSemanal, diasLimite, mes, anio, cargando, guardar]);
+  }, [estados, comentarios, configSemanal, diasLimite, pinsPersonalizados, mes, anio, cargando, guardar]);
+
+  function getPinActivo(worker) {
+    return pinsPersonalizados[worker.nombre] || worker.pin;
+  }
 
   function handleLogin() {
-    const w = WORKERS.find(x => x.nombre === loginNombre && x.pin === loginPin.trim());
-    if (w) {
+    const w = WORKERS.find(x => x.nombre === loginNombre);
+    if (!w) { setLoginError("Selecciona tu nombre."); return; }
+    const pinTemporal = pinsTempRef.current[w.nombre];
+    const pinCorrecto = getPinActivo(w);
+    if (loginPin.trim() === pinCorrecto || (pinTemporal && loginPin.trim() === pinTemporal)) {
+      if (pinTemporal && loginPin.trim() === pinTemporal) {
+        delete pinsTempRef.current[w.nombre];
+        setModalPin("cambiar");
+      }
       setUsuarioActual(w);
       setLoginError("");
     } else {
-      setLoginError("Nombre o PIN incorrecto. Intenta nuevamente.");
+      setLoginError("PIN incorrecto. Intenta nuevamente.");
     }
+  }
+
+  async function handleResetPin() {
+    const w = WORKERS.find(x => x.nombre === resetNombre);
+    if (!w) { setResetMsg("Selecciona tu nombre."); return; }
+    setResetEnviando(true);
+    const temporal = String(Math.floor(1000 + Math.random() * 9000));
+    pinsTempRef.current[w.nombre] = temporal;
+    try {
+      await enviarPinTemporal(w, temporal);
+      setResetMsg("PIN temporal enviado a " + w.email + ". Revisar bandeja de entrada.");
+    } catch {
+      setResetMsg("Error al enviar. Intenta nuevamente.");
+    }
+    setResetEnviando(false);
+  }
+
+  function handleCambiarPin() {
+    setPinError("");
+    if (!usuarioActual) return;
+    const pinCorrecto = getPinActivo(usuarioActual);
+    if (pinActual !== pinCorrecto && pinActual !== pinsTempRef.current[usuarioActual.nombre]) {
+      setPinError("PIN actual incorrecto."); return;
+    }
+    if (pinNuevo.length < 4) { setPinError("El PIN debe tener al menos 4 digitos."); return; }
+    if (pinNuevo !== pinConfirm) { setPinError("Los PINs no coinciden."); return; }
+    setPinsPersonalizados(prev => ({...prev, [usuarioActual.nombre]: pinNuevo}));
+    setPinActual(""); setPinNuevo(""); setPinConfirm(""); setModalPin(null);
+    alert("PIN cambiado exitosamente!");
   }
 
   function puedeEditar(tarea, esResp) {
@@ -300,39 +389,70 @@ export default function App() {
     return (
       <div style={{minHeight:"100vh",background:"linear-gradient(135deg,#1e3a5f,#2563eb)",display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"sans-serif",padding:20}}>
         <div style={{background:"#fff",borderRadius:20,padding:40,width:380,maxWidth:"100%",boxShadow:"0 20px 60px #0004"}}>
-          <div style={{textAlign:"center",marginBottom:28}}>
-            <svg width="72" height="72" viewBox="0 0 120 120" fill="none" xmlns="http://www.w3.org/2000/svg" style={{marginBottom:8}}>
-              <path d="M10 90 L10 30 L40 65 L60 35 L80 65 L110 30 L110 90" stroke="#7ecfca" strokeWidth="10" strokeLinejoin="round" strokeLinecap="round" fill="none"/>
-              <line x1="60" y1="55" x2="60" y2="80" stroke="#7ecfca" strokeWidth="5" strokeLinecap="round"/>
-              <circle cx="60" cy="42" r="14" fill="#e8f7f6" stroke="#7ecfca" strokeWidth="3"/>
-              <line x1="52" y1="42" x2="68" y2="42" stroke="#7ecfca" strokeWidth="2.5"/>
-              <line x1="60" y1="32" x2="60" y2="52" stroke="#7ecfca" strokeWidth="2.5"/>
-            </svg>
-            <div style={{fontSize:11,letterSpacing:4,color:"#7ecfca",fontWeight:600,marginBottom:4}}>MEDITERRA</div>
-            <h2 style={{margin:0,color:"#1e293b",fontSize:18,fontWeight:800}}>Control Financiero</h2>
-            <p style={{margin:"4px 0 0",color:"#94a3b8",fontSize:12}}>Ingresa con tu nombre y PIN</p>
-          </div>
-          <div style={{marginBottom:14}}>
-            <label style={{fontSize:12,fontWeight:600,color:"#374151",display:"block",marginBottom:4}}>Nombre</label>
-            <select value={loginNombre} onChange={e=>setLoginNombre(e.target.value)}
-              style={{width:"100%",padding:"10px 12px",borderRadius:8,border:"1px solid #d1d5db",fontSize:14,boxSizing:"border-box"}}>
-              <option value="">Selecciona tu nombre...</option>
-              {WORKERS.map(w=><option key={w.nombre} value={w.nombre}>{w.nombre} - {w.cargo}</option>)}
-            </select>
-          </div>
-          <div style={{marginBottom:20}}>
-            <label style={{fontSize:12,fontWeight:600,color:"#374151",display:"block",marginBottom:4}}>PIN</label>
-            <input type="password" value={loginPin} onChange={e=>setLoginPin(e.target.value)}
-              onKeyDown={e=>e.key==="Enter"&&handleLogin()}
-              placeholder="Ingresa tu PIN de 4 digitos"
-              maxLength={4}
-              style={{width:"100%",padding:"10px 12px",borderRadius:8,border:"1px solid #d1d5db",fontSize:14,boxSizing:"border-box",letterSpacing:6,textAlign:"center"}}/>
-          </div>
-          {loginError && <div style={{background:"#fee2e2",color:"#ef4444",borderRadius:8,padding:"8px 12px",fontSize:12,marginBottom:14,textAlign:"center"}}>{loginError}</div>}
-          <button onClick={handleLogin}
-            style={{width:"100%",background:"#2563eb",color:"#fff",border:"none",borderRadius:10,padding:"12px",cursor:"pointer",fontWeight:700,fontSize:15}}>
-            Ingresar
-          </button>
+
+          {/* Modal reset PIN */}
+          {modalPin==="resetear" ? (
+            <div>
+              <button onClick={()=>{setModalPin(null);setResetMsg("");setResetNombre("");}}
+                style={{background:"none",border:"none",color:"#64748b",cursor:"pointer",fontSize:13,marginBottom:16}}>
+                &larr; Volver al login
+              </button>
+              <h3 style={{margin:"0 0 6px",color:"#1e293b"}}>Resetear PIN</h3>
+              <p style={{fontSize:13,color:"#64748b",marginBottom:16}}>Te enviaremos un PIN temporal a tu email registrado.</p>
+              <select value={resetNombre} onChange={e=>setResetNombre(e.target.value)}
+                style={{width:"100%",padding:"10px 12px",borderRadius:8,border:"1px solid #d1d5db",fontSize:14,marginBottom:12,boxSizing:"border-box"}}>
+                <option value="">Selecciona tu nombre...</option>
+                {WORKERS.map(w=><option key={w.nombre} value={w.nombre}>{w.nombre}</option>)}
+              </select>
+              {resetMsg && <div style={{background: resetMsg.includes("Error")?"#fee2e2":"#dcfce7", color: resetMsg.includes("Error")?"#ef4444":"#16a34a", borderRadius:8,padding:"8px 12px",fontSize:12,marginBottom:12}}>{resetMsg}</div>}
+              <button onClick={handleResetPin} disabled={resetEnviando||!resetNombre}
+                style={{width:"100%",background:"#2563eb",color:"#fff",border:"none",borderRadius:10,padding:"12px",cursor:"pointer",fontWeight:700,fontSize:14,opacity:resetEnviando||!resetNombre?0.6:1}}>
+                {resetEnviando ? "Enviando..." : "Enviar PIN temporal"}
+              </button>
+            </div>
+          ) : (
+            <div>
+              <div style={{textAlign:"center",marginBottom:28}}>
+                <svg width="72" height="72" viewBox="0 0 120 120" fill="none" xmlns="http://www.w3.org/2000/svg" style={{marginBottom:8}}>
+                  <path d="M10 90 L10 30 L40 65 L60 35 L80 65 L110 30 L110 90" stroke="#7ecfca" strokeWidth="10" strokeLinejoin="round" strokeLinecap="round" fill="none"/>
+                  <line x1="60" y1="55" x2="60" y2="80" stroke="#7ecfca" strokeWidth="5" strokeLinecap="round"/>
+                  <circle cx="60" cy="42" r="14" fill="#e8f7f6" stroke="#7ecfca" strokeWidth="3"/>
+                  <line x1="52" y1="42" x2="68" y2="42" stroke="#7ecfca" strokeWidth="2.5"/>
+                  <line x1="60" y1="32" x2="60" y2="52" stroke="#7ecfca" strokeWidth="2.5"/>
+                </svg>
+                <div style={{fontSize:11,letterSpacing:4,color:"#7ecfca",fontWeight:600,marginBottom:4}}>MEDITERRA</div>
+                <h2 style={{margin:0,color:"#1e293b",fontSize:18,fontWeight:800}}>Control Financiero</h2>
+                <p style={{margin:"4px 0 0",color:"#94a3b8",fontSize:12}}>Ingresa con tu nombre y PIN</p>
+              </div>
+              <div style={{marginBottom:14}}>
+                <label style={{fontSize:12,fontWeight:600,color:"#374151",display:"block",marginBottom:4}}>Nombre</label>
+                <select value={loginNombre} onChange={e=>setLoginNombre(e.target.value)}
+                  style={{width:"100%",padding:"10px 12px",borderRadius:8,border:"1px solid #d1d5db",fontSize:14,boxSizing:"border-box"}}>
+                  <option value="">Selecciona tu nombre...</option>
+                  {WORKERS.map(w=><option key={w.nombre} value={w.nombre}>{w.nombre} - {w.cargo}</option>)}
+                </select>
+              </div>
+              <div style={{marginBottom:8}}>
+                <label style={{fontSize:12,fontWeight:600,color:"#374151",display:"block",marginBottom:4}}>PIN</label>
+                <input type="password" value={loginPin} onChange={e=>setLoginPin(e.target.value)}
+                  onKeyDown={e=>e.key==="Enter"&&handleLogin()}
+                  placeholder="Ingresa tu PIN"
+                  maxLength={6}
+                  style={{width:"100%",padding:"10px 12px",borderRadius:8,border:"1px solid #d1d5db",fontSize:14,boxSizing:"border-box",letterSpacing:6,textAlign:"center"}}/>
+              </div>
+              <div style={{textAlign:"right",marginBottom:16}}>
+                <button onClick={()=>{setModalPin("resetear");setResetMsg("");}}
+                  style={{background:"none",border:"none",color:"#2563eb",cursor:"pointer",fontSize:12,textDecoration:"underline"}}>
+                  Olvide mi PIN
+                </button>
+              </div>
+              {loginError && <div style={{background:"#fee2e2",color:"#ef4444",borderRadius:8,padding:"8px 12px",fontSize:12,marginBottom:14,textAlign:"center"}}>{loginError}</div>}
+              <button onClick={handleLogin}
+                style={{width:"100%",background:"#2563eb",color:"#fff",border:"none",borderRadius:10,padding:"12px",cursor:"pointer",fontWeight:700,fontSize:15}}>
+                Ingresar
+              </button>
+            </div>
+          )}
         </div>
       </div>
     );
@@ -431,7 +551,39 @@ export default function App() {
   return (
     <div style={{fontFamily:"sans-serif",background:"#f8fafc",minHeight:"100vh",padding:"20px"}}>
 
-      {editComentario !== null && (
+      {/* Modal cambiar PIN */}
+      {modalPin==="cambiar" && (
+        <div style={{position:"fixed",inset:0,background:"#0006",zIndex:100,display:"flex",alignItems:"center",justifyContent:"center"}}>
+          <div style={{background:"#fff",borderRadius:16,padding:28,width:360,maxWidth:"90vw",boxShadow:"0 8px 32px #0003"}}>
+            <h3 style={{margin:"0 0 6px",color:"#1e293b"}}>Cambiar PIN</h3>
+            <p style={{fontSize:13,color:"#64748b",marginBottom:16}}>{usuarioActual.nombre}</p>
+            <div style={{marginBottom:12}}>
+              <label style={{fontSize:12,fontWeight:600,color:"#374151",display:"block",marginBottom:4}}>PIN actual</label>
+              <input type="password" value={pinActual} onChange={e=>setPinActual(e.target.value)} maxLength={6}
+                style={{width:"100%",padding:"10px 12px",borderRadius:8,border:"1px solid #d1d5db",fontSize:14,boxSizing:"border-box",textAlign:"center",letterSpacing:6}}/>
+            </div>
+            <div style={{marginBottom:12}}>
+              <label style={{fontSize:12,fontWeight:600,color:"#374151",display:"block",marginBottom:4}}>Nuevo PIN</label>
+              <input type="password" value={pinNuevo} onChange={e=>setPinNuevo(e.target.value)} maxLength={6}
+                style={{width:"100%",padding:"10px 12px",borderRadius:8,border:"1px solid #d1d5db",fontSize:14,boxSizing:"border-box",textAlign:"center",letterSpacing:6}}/>
+            </div>
+            <div style={{marginBottom:16}}>
+              <label style={{fontSize:12,fontWeight:600,color:"#374151",display:"block",marginBottom:4}}>Confirmar nuevo PIN</label>
+              <input type="password" value={pinConfirm} onChange={e=>setPinConfirm(e.target.value)} maxLength={6}
+                style={{width:"100%",padding:"10px 12px",borderRadius:8,border:"1px solid #d1d5db",fontSize:14,boxSizing:"border-box",textAlign:"center",letterSpacing:6}}/>
+            </div>
+            {pinError && <div style={{background:"#fee2e2",color:"#ef4444",borderRadius:8,padding:"8px 12px",fontSize:12,marginBottom:12}}>{pinError}</div>}
+            <div style={{display:"flex",gap:10,justifyContent:"flex-end"}}>
+              <button onClick={()=>{setModalPin(null);setPinActual("");setPinNuevo("");setPinConfirm("");setPinError("");}}
+                style={{padding:"8px 18px",borderRadius:8,border:"1px solid #d1d5db",background:"#fff",cursor:"pointer",fontSize:14}}>Cancelar</button>
+              <button onClick={handleCambiarPin}
+                style={{padding:"8px 18px",borderRadius:8,border:"none",background:"#2563eb",color:"#fff",cursor:"pointer",fontSize:14,fontWeight:600}}>Guardar</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+
         <div style={{position:"fixed",inset:0,background:"#0006",zIndex:100,display:"flex",alignItems:"center",justifyContent:"center"}}>
           <div style={{background:"#fff",borderRadius:16,padding:28,width:420,maxWidth:"90vw",boxShadow:"0 8px 32px #0003"}}>
             <h3 style={{margin:"0 0 14px",color:"#1e293b"}}>Comentario</h3>
@@ -508,6 +660,10 @@ export default function App() {
               </button>
             )}
             {estadoGuardadoUI && <span style={{fontSize:12,color:"#fff",background:"rgba(255,255,255,0.15)",borderRadius:20,padding:"4px 12px"}}>{estadoGuardadoUI.icon} {estadoGuardadoUI.text}</span>}
+            <button onClick={()=>{setPinActual("");setPinNuevo("");setPinConfirm("");setPinError("");setModalPin("cambiar");}}
+              style={{background:"rgba(255,255,255,0.15)",border:"none",color:"#fff",borderRadius:8,padding:"6px 14px",cursor:"pointer",fontSize:12}}>
+              Cambiar PIN
+            </button>
             <button onClick={()=>setUsuarioActual(null)}
               style={{background:"rgba(255,255,255,0.15)",border:"none",color:"#fff",borderRadius:8,padding:"6px 14px",cursor:"pointer",fontSize:12}}>
               Salir
@@ -525,7 +681,7 @@ export default function App() {
 
       {/* Tabs */}
       <div style={{display:"flex",gap:8,marginBottom:16,flexWrap:"wrap"}}>
-        {[["semanal","Semanales"],["mensual","Mensuales"],["resumen","Resumen"],
+        {[["semanal","Semanales"],["mensual","Mensuales"],["resumen","Resumen"],["recordatorios","Recordatorios"],
           ...(usuarioActual.esCFO ? [["configurar","Configurar"]] : [])
         ].map(([t,l])=>(
           <button key={t} onClick={()=>setTab(t)}
@@ -630,7 +786,93 @@ export default function App() {
         </div>
       )}
 
-      {/* CONFIGURAR - solo CFO */}
+      {/* RECORDATORIOS */}
+      {tab==="recordatorios" && (() => {
+        const recs = getRecordatoriosParaUsuario(usuarioActual.nombre, anio, mes);
+        const todos = usuarioActual.esCFO
+          ? WORKERS.flatMap(w => getRecordatoriosParaUsuario(w.nombre, anio, mes).map(r => ({...r, worker:w})))
+            .filter((r,i,arr) => arr.findIndex(x=>x.id===r.id&&x.worker.nombre===r.worker.nombre)===i)
+          : null;
+
+        const lista = usuarioActual.esCFO
+          ? RECORDATORIOS.map(rec => {
+              const fechaVence = diaHabil(anio, mes, rec.diaMes);
+              const hoy = new Date(); hoy.setHours(0,0,0,0);
+              const diff = Math.ceil((fechaVence - hoy) / (1000*60*60*24));
+              return {...rec, fechaVence, diff};
+            })
+          : recs;
+
+        if (lista.length === 0) return (
+          <div style={{background:"#fff",borderRadius:14,padding:32,textAlign:"center",boxShadow:"0 2px 10px #0001"}}>
+            <div style={{fontSize:32,marginBottom:8}}>✅</div>
+            <div style={{color:"#64748b",fontSize:14}}>No tienes recordatorios activos este mes.</div>
+          </div>
+        );
+
+        return (
+          <div style={{display:"flex",flexDirection:"column",gap:16}}>
+            {(usuarioActual.esCFO ? RECORDATORIOS.map(rec => {
+              const fechaVence = diaHabil(anio, mes, rec.diaMes);
+              const hoy = new Date(); hoy.setHours(0,0,0,0);
+              const diff = Math.ceil((fechaVence - hoy) / (1000*60*60*24));
+              return {...rec, fechaVence, diff};
+            }) : recs).map(rec => {
+              const urgente = rec.diff >= 0 && rec.diff <= 2;
+              const hoy2 = new Date(); hoy2.setHours(0,0,0,0);
+              const visible = rec.diff <= 2 && rec.diff >= -5;
+              const color = rec.diff < 0 ? "#ef4444" : rec.diff <= 2 ? "#f59e0b" : "#22c55e";
+              const bg    = rec.diff < 0 ? "#fff5f5" : rec.diff <= 2 ? "#fffbeb" : "#f0fdf4";
+              const border= rec.diff < 0 ? "#fca5a5" : rec.diff <= 2 ? "#fde047" : "#86efac";
+
+              const destinatariosW = WORKERS.filter(w => rec.destinatarios.includes(w.nombre));
+              const copiaW = WORKERS.filter(w => rec.copia.includes(w.nombre));
+
+              return (
+                <div key={rec.id} style={{background:bg, border:`2px solid ${border}`, borderRadius:14, padding:20, boxShadow:"0 2px 10px #0001"}}>
+                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:12,flexWrap:"wrap"}}>
+                    <div style={{flex:1}}>
+                      <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:6}}>
+                        <span style={{fontSize:18}}>{rec.diff < 0 ? "🔴" : rec.diff <= 2 ? "🟡" : "🟢"}</span>
+                        <span style={{fontWeight:700,fontSize:15,color:"#1e293b"}}>{rec.titulo}</span>
+                      </div>
+                      <div style={{fontSize:13,color:"#64748b",marginBottom:8}}>
+                        Fecha: <strong>{rec.fechaVence.getDate()} de {MESES[rec.fechaVence.getMonth()]} {rec.fechaVence.getFullYear()}</strong>
+                        {rec.diff === 0 && <span style={{marginLeft:8,background:"#ef4444",color:"#fff",borderRadius:20,padding:"1px 8px",fontSize:11,fontWeight:700}}>HOY</span>}
+                        {rec.diff === 1 && <span style={{marginLeft:8,background:"#f59e0b",color:"#fff",borderRadius:20,padding:"1px 8px",fontSize:11,fontWeight:700}}>MANANA</span>}
+                        {rec.diff === 2 && <span style={{marginLeft:8,background:"#f59e0b",color:"#fff",borderRadius:20,padding:"1px 8px",fontSize:11,fontWeight:700}}>EN 2 DIAS</span>}
+                        {rec.diff < 0 && <span style={{marginLeft:8,background:"#ef4444",color:"#fff",borderRadius:20,padding:"1px 8px",fontSize:11,fontWeight:700}}>VENCIDO</span>}
+                      </div>
+                      <div style={{fontSize:12,color:"#374151",background:"rgba(0,0,0,0.04)",borderRadius:8,padding:"8px 12px",marginBottom:10,lineHeight:1.5}}>
+                        {rec.mensaje(usuarioActual.esCFO ? rec.destinatarios[0] : usuarioActual.nombre)}
+                      </div>
+                      <div style={{fontSize:11,color:"#64748b"}}>
+                        <span>Para: {rec.destinatarios.join(", ")}</span>
+                        {rec.copia.length>0 && <span style={{marginLeft:12}}>CC: {rec.copia.join(", ")}</span>}
+                      </div>
+                    </div>
+                    {(rec.diff <= 2) && (
+                      <button onClick={()=>{
+                        destinatariosW.forEach(w => {
+                          const asunto = encodeURIComponent(`Recordatorio: ${rec.titulo} - ${MESES[mes]} ${anio}`);
+                          const cuerpo = encodeURIComponent(rec.mensaje(w.nombre) + `\n\nSaludos,\nEquipo Mediterra`);
+                          const cc = copiaW.map(c=>c.email).join(",");
+                          window.open(`mailto:${w.email}${cc?`?cc=${cc}&`:"?"}subject=${asunto}&body=${cuerpo}`);
+                        });
+                      }}
+                        style={{background:color,color:"#fff",border:"none",borderRadius:10,padding:"10px 18px",cursor:"pointer",fontWeight:700,fontSize:13,whiteSpace:"nowrap"}}>
+                        Enviar aviso
+                      </button>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        );
+      })()}
+
+
       {tab==="configurar" && usuarioActual.esCFO && (
         <div style={{display:"flex",flexDirection:"column",gap:24}}>
 
