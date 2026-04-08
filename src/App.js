@@ -29,17 +29,17 @@ const CATEGORIAS = {
 };
 
 const TAREAS_SEMANALES = [
-  { id:"s1",  nombre:"Preparacion y carga de nominas de pago",           responsable:"Milagros Becerra", supervisor:"Michelle Garcia",  categoria:"Tesoreria",      diaLimiteSem:4 },
-  { id:"s2",  nombre:"Coordinacion de firmas de pagos y documentos",     responsable:"Milagros Becerra", supervisor:"Angelo Huerta",    categoria:"Tesoreria",      diaLimiteSem:4 },
-  { id:"s3",  nombre:"Actualizacion y archivo de documentacion admin",   responsable:"Milagros Becerra", supervisor:"",                 categoria:"Administracion", diaLimiteSem:4 },
-  { id:"s4",  nombre:"Actualizacion flujo de caja proyectado (rolling)", responsable:"Carol Machuca",    supervisor:"Angelo Huerta",    categoria:"Finanzas",       diaLimiteSem:3 },
-  { id:"s5",  nombre:"Seguimiento ingresos, egresos y desviaciones",     responsable:"Carol Machuca",    supervisor:"Angelo Huerta",    categoria:"Finanzas",       diaLimiteSem:3 },
-  { id:"s6",  nombre:"Monitoreo KPIs criticos (caja, margenes, costos)", responsable:"Carol Machuca",    supervisor:"Angelo Huerta",    categoria:"Finanzas",       diaLimiteSem:4 },
-  { id:"s7",  nombre:"Registro y revision de movimientos contables",     responsable:"Michelle Garcia",  supervisor:"",                 categoria:"Contabilidad",   diaLimiteSem:3 },
-  { id:"s8",  nombre:"Conciliacion bancaria semanal",                    responsable:"Michelle Garcia",  supervisor:"Angelo Huerta",    categoria:"Contabilidad",   diaLimiteSem:4 },
-  { id:"s9",  nombre:"Registro de facturas, boletas y gastos",           responsable:"Pablo Duran",      supervisor:"Michelle Garcia",  categoria:"Contabilidad",   diaLimiteSem:3 },
-  { id:"s10", nombre:"Apoyo en conciliaciones bancarias",                responsable:"Pablo Duran",      supervisor:"Michelle Garcia",  categoria:"Contabilidad",   diaLimiteSem:4 },
-  { id:"s11", nombre:"Preparacion de respaldos para pagos",              responsable:"Pablo Duran",      supervisor:"Milagros Becerra", categoria:"Tesoreria",      diaLimiteSem:3 },
+  { id:"s1",  nombre:"Gestion documental",                                          responsable:"Milagros Becerra", supervisor:"Angelo Huerta",   categoria:"Administracion", diaLimiteSem:4 },
+  { id:"s2",  nombre:"Preparacion de nominas de pago",                              responsable:"Milagros Becerra", supervisor:"Carol Machuca",   categoria:"Tesoreria",      diaLimiteSem:1 },
+  { id:"s3",  nombre:"Entrega nominas de pago para revision",                       responsable:"Milagros Becerra", supervisor:"Angelo Huerta",   categoria:"Tesoreria",      diaLimiteSem:2 },
+  { id:"s4",  nombre:"Carga de nominas al banco y envio email para aprobacion",     responsable:"Milagros Becerra", supervisor:"Angelo Huerta",   categoria:"Tesoreria",      diaLimiteSem:3 },
+  { id:"s5",  nombre:"Seguimiento documentos",                                      responsable:"Milagros Becerra", supervisor:"",                categoria:"Administracion", diaLimiteSem:4 },
+  { id:"s6",  nombre:"Envio de nominas a contabilidad para registros",              responsable:"Milagros Becerra", supervisor:"Pablo Duran",     categoria:"Contabilidad",   diaLimiteSem:3 },
+  { id:"s7",  nombre:"Registro documentos mercantiles",                             responsable:"Milagros Becerra", supervisor:"",                categoria:"Administracion", diaLimiteSem:0 },
+  { id:"s8",  nombre:"Revision gastos menores y respaldos",                         responsable:"Milagros Becerra", supervisor:"Carol Machuca",   categoria:"Tesoreria",      diaLimiteSem:2 },
+  { id:"s9",  nombre:"(Por definir - Carol)",                                       responsable:"Carol Machuca",    supervisor:"Angelo Huerta",   categoria:"Finanzas",       diaLimiteSem:3 },
+  { id:"s10", nombre:"(Por definir - Michelle)",                                    responsable:"Michelle Garcia",  supervisor:"Angelo Huerta",   categoria:"Contabilidad",   diaLimiteSem:3 },
+  { id:"s11", nombre:"(Por definir - Pablo)",                                       responsable:"Pablo Duran",      supervisor:"Michelle Garcia", categoria:"Contabilidad",   diaLimiteSem:3 },
 ];
 
 const TAREAS_MENSUALES = [
