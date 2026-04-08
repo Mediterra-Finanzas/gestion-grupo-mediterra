@@ -9,14 +9,8 @@ async function enviarPinTemporal(worker, pin) {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
-      service_id:  EMAILJS_SERVICE,
-      template_id: EMAILJS_TEMPLATE,
-      user_id:     EMAILJS_KEY,
-      template_params: {
-        nombre:       worker.nombre,
-        pin_temporal: pin,
-        to_email:     worker.email,
-      }
+      service_id: EMAILJS_SERVICE, template_id: EMAILJS_TEMPLATE, user_id: EMAILJS_KEY,
+      template_params: { nombre: worker.nombre, pin_temporal: pin, to_email: worker.email }
     })
   });
 }
@@ -25,134 +19,129 @@ const DIAS_SEMANA = ["Lunes","Martes","Miercoles","Jueves","Viernes"];
 const MESES = ["Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"];
 
 function diaHabil(anio, mes, dia) {
-  const fecha = new Date(anio, mes, dia);
-  const dow = fecha.getDay();
-  if (dow === 6) fecha.setDate(fecha.getDate() + 2);
-  if (dow === 0) fecha.setDate(fecha.getDate() + 1);
-  return fecha;
+  const f = new Date(anio, mes, dia);
+  const d = f.getDay();
+  if (d===6) f.setDate(f.getDate()+2);
+  if (d===0) f.setDate(f.getDate()+1);
+  return f;
 }
 
 const RECORDATORIOS = [
-  {
-    id: "rec1",
-    titulo: "Emision Factura Corporativo",
-    diaMes: 4,
-    destinatarios: ["Milagros Becerra"],
-    copia: ["Carol Machuca"],
-    mensaje: (nombre) => `Estimada ${nombre.split(" ")[0]}, te recordamos que el dia 4 de este mes corresponde emitir la factura de servicios Corporativo. Por favor asegurate de tener listos los antecedentes necesarios para su emision oportuna.`,
-  },
-  {
-    id: "rec2",
-    titulo: "Emision Factura Frisku",
-    diaMes: 25,
-    destinatarios: ["Milagros Becerra"],
-    copia: ["Carol Machuca"],
-    mensaje: (nombre) => `Estimada ${nombre.split(" ")[0]}, te recordamos que el dia 25 de este mes corresponde emitir la factura de servicios Frisku. Por favor verifica que los documentos de respaldo esten en orden antes de proceder.`,
-  },
+  { id:"rec1", titulo:"Emision Factura Corporativo", diaMes:4,
+    destinatarios:["Milagros Becerra"], copia:["Carol Machuca"],
+    mensaje:(n)=>`Estimada ${n.split(" ")[0]}, te recordamos que el dia 4 de este mes corresponde emitir la factura de servicios Corporativo. Por favor asegurate de tener listos los antecedentes necesarios para su emision oportuna.` },
+  { id:"rec2", titulo:"Emision Factura Frisku", diaMes:25,
+    destinatarios:["Milagros Becerra"], copia:["Carol Machuca"],
+    mensaje:(n)=>`Estimada ${n.split(" ")[0]}, te recordamos que el dia 25 de este mes corresponde emitir la factura de servicios Frisku. Por favor verifica que los documentos de respaldo esten en orden antes de proceder.` },
 ];
 
-function getRecordatoriosParaUsuario(nombre, anio, mes, esCFO) {
+function getRecordatoriosActivos(nombre, anio, mes, esCFO) {
   const hoy = new Date(); hoy.setHours(0,0,0,0);
-  const resultado = [];
-  RECORDATORIOS.forEach(rec => {
-    const esDestinatario = rec.destinatarios.includes(nombre) || rec.copia.includes(nombre) || esCFO;
-    if (!esDestinatario) return;
-    const fechaVence = diaHabil(anio, mes, rec.diaMes);
-    const fechaAviso = new Date(fechaVence); fechaAviso.setDate(fechaVence.getDate() - 2);
-    const diff = Math.ceil((fechaVence - hoy) / (1000 * 60 * 60 * 24));
-    if (hoy >= fechaAviso) {
-      resultado.push({ ...rec, fechaVence, diff });
-    }
-  });
-  return resultado;
+  return RECORDATORIOS
+    .filter(rec => rec.destinatarios.includes(nombre) || rec.copia.includes(nombre) || esCFO)
+    .map(rec => {
+      const fechaVence = diaHabil(anio, mes, rec.diaMes);
+      const fechaAviso = new Date(fechaVence); fechaAviso.setDate(fechaVence.getDate()-2);
+      const diff = Math.ceil((fechaVence-hoy)/(1000*60*60*24));
+      return {...rec, fechaVence, diff, activo: hoy>=fechaAviso};
+    })
+    .filter(r => r.activo);
 }
 
 const SEMAFORO = {
-  verde:    { label: "Completado", color: "#22c55e", bg: "#dcfce7", border: "#86efac" },
-  amarillo: { label: "En proceso", color: "#eab308", bg: "#fef9c3", border: "#fde047" },
-  rojo:     { label: "Pendiente",  color: "#ef4444", bg: "#fee2e2", border: "#fca5a5" },
-  gris:     { label: "Sin iniciar",color: "#9ca3af", bg: "#f3f4f6", border: "#d1d5db" },
+  verde:    { label:"Completado", color:"#22c55e", bg:"#dcfce7", border:"#86efac" },
+  amarillo: { label:"En proceso", color:"#eab308", bg:"#fef9c3", border:"#fde047" },
+  rojo:     { label:"Pendiente",  color:"#ef4444", bg:"#fee2e2", border:"#fca5a5" },
+  gris:     { label:"Sin iniciar",color:"#9ca3af", bg:"#f3f4f6", border:"#d1d5db" },
 };
 
 const WORKERS = [
-  { nombre: "Milagros Becerra", cargo: "Sec. Administrativa",  email: "Mbecerra@grupomediterra.cl", pin: "4827", esCFO: false },
-  { nombre: "Carol Machuca",    cargo: "Analista Finanzas",    email: "cmachuca@grupomediterra.cl", pin: "3159", esCFO: false },
-  { nombre: "Michelle Garcia",  cargo: "Contadora General",    email: "mgarcia@grupomediterra.cl",  pin: "7413", esCFO: false },
-  { nombre: "Pablo Duran",      cargo: "Asistente Contable",   email: "pduran@grupomediterra.cl",   pin: "2986", esCFO: false },
-  { nombre: "Angelo Huerta",    cargo: "Gerencia / CFO",       email: "ahuerta@grupomediterra.cl",  pin: "6054", esCFO: true  },
+  { nombre:"Milagros Becerra", cargo:"Sec. Administrativa",  email:"Mbecerra@grupomediterra.cl", pin:"4827", esCFO:false },
+  { nombre:"Carol Machuca",    cargo:"Analista Finanzas",    email:"cmachuca@grupomediterra.cl", pin:"3159", esCFO:false },
+  { nombre:"Michelle Garcia",  cargo:"Contadora General",    email:"mgarcia@grupomediterra.cl",  pin:"7413", esCFO:false },
+  { nombre:"Pablo Duran",      cargo:"Asistente Contable",   email:"pduran@grupomediterra.cl",   pin:"2986", esCFO:false },
+  { nombre:"Angelo Huerta",    cargo:"Gerencia / CFO",       email:"ahuerta@grupomediterra.cl",  pin:"6054", esCFO:true  },
 ];
 
 const CATEGORIAS = {
-  "Finanzas":       { color: "#3b82f6", bg: "#dbeafe" },
-  "Contabilidad":   { color: "#8b5cf6", bg: "#ede9fe" },
-  "Tesoreria":      { color: "#f59e0b", bg: "#fef3c7" },
-  "Tributario":     { color: "#ef4444", bg: "#fee2e2" },
-  "Administracion": { color: "#10b981", bg: "#d1fae5" },
-  "Gerencia":       { color: "#6366f1", bg: "#e0e7ff" },
+  "Finanzas":       { color:"#3b82f6", bg:"#dbeafe" },
+  "Contabilidad":   { color:"#8b5cf6", bg:"#ede9fe" },
+  "Tesoreria":      { color:"#f59e0b", bg:"#fef3c7" },
+  "Tributario":     { color:"#ef4444", bg:"#fee2e2" },
+  "Administracion": { color:"#10b981", bg:"#d1fae5" },
+  "Gerencia":       { color:"#6366f1", bg:"#e0e7ff" },
 };
 
 const TAREAS_SEMANALES = [
-  { id:"s1",  nombre:"Gestion documental",                                       responsable:"Milagros Becerra", supervisor:"Angelo Huerta",   categoria:"Administracion", diaLimiteSem:4 },
-  { id:"s2",  nombre:"Preparacion de nominas de pago",                           responsable:"Milagros Becerra", supervisor:"Carol Machuca",   categoria:"Tesoreria",      diaLimiteSem:1 },
-  { id:"s3",  nombre:"Entrega nominas de pago para revision",                    responsable:"Milagros Becerra", supervisor:"Angelo Huerta",   categoria:"Tesoreria",      diaLimiteSem:2 },
-  { id:"s4",  nombre:"Carga nominas al banco y envio email para aprobacion",     responsable:"Milagros Becerra", supervisor:"Angelo Huerta",   categoria:"Tesoreria",      diaLimiteSem:3 },
-  { id:"s5",  nombre:"Seguimiento documentos",                                   responsable:"Milagros Becerra", supervisor:"",                categoria:"Administracion", diaLimiteSem:4 },
-  { id:"s6",  nombre:"Envio nominas a contabilidad para registros",              responsable:"Milagros Becerra", supervisor:"Pablo Duran",     categoria:"Contabilidad",   diaLimiteSem:3 },
-  { id:"s7",  nombre:"Registro documentos mercantiles",                          responsable:"Milagros Becerra", supervisor:"",                categoria:"Administracion", diaLimiteSem:0 },
-  { id:"s8",  nombre:"Revision gastos menores y respaldos",                      responsable:"Milagros Becerra", supervisor:"Carol Machuca",   categoria:"Tesoreria",      diaLimiteSem:2 },
-  { id:"s9",  nombre:"Cobranza de empresas",                                     responsable:"Carol Machuca",    supervisor:"Angelo Huerta",   categoria:"Finanzas",       diaLimiteSem:0 },
-  { id:"s10", nombre:"Primera revision nominas de pago",                         responsable:"Carol Machuca",    supervisor:"Angelo Huerta",   categoria:"Tesoreria",      diaLimiteSem:1 },
-  { id:"s11", nombre:"Ingreso movimientos bancarios",                            responsable:"Pablo Duran",      supervisor:"Michelle Garcia", categoria:"Contabilidad",   diaLimiteSem:0 },
-  { id:"s12", nombre:"Registro contable",                                        responsable:"Michelle Garcia",  supervisor:"Angelo Huerta",   categoria:"Contabilidad",   diaLimiteSem:2 },
-  { id:"s13", nombre:"Conciliaciones",                                           responsable:"Michelle Garcia",  supervisor:"Angelo Huerta",   categoria:"Contabilidad",   diaLimiteSem:3 },
+  { id:"s1",  nombre:"Gestion documental",                                    responsable:"Milagros Becerra", supervisor:"Angelo Huerta",   categoria:"Administracion", diaLimiteSem:4 },
+  { id:"s2",  nombre:"Preparacion de nominas de pago",                        responsable:"Milagros Becerra", supervisor:"Carol Machuca",   categoria:"Tesoreria",      diaLimiteSem:1 },
+  { id:"s3",  nombre:"Entrega nominas de pago para revision",                 responsable:"Milagros Becerra", supervisor:"Angelo Huerta",   categoria:"Tesoreria",      diaLimiteSem:2 },
+  { id:"s4",  nombre:"Carga nominas al banco y envio email para aprobacion",  responsable:"Milagros Becerra", supervisor:"Angelo Huerta",   categoria:"Tesoreria",      diaLimiteSem:3 },
+  { id:"s5",  nombre:"Seguimiento documentos",                                responsable:"Milagros Becerra", supervisor:"",                categoria:"Administracion", diaLimiteSem:4 },
+  { id:"s6",  nombre:"Envio nominas a contabilidad para registros",           responsable:"Milagros Becerra", supervisor:"Pablo Duran",     categoria:"Contabilidad",   diaLimiteSem:3 },
+  { id:"s7",  nombre:"Registro documentos mercantiles",                       responsable:"Milagros Becerra", supervisor:"",                categoria:"Administracion", diaLimiteSem:0 },
+  { id:"s8",  nombre:"Revision gastos menores y respaldos",                   responsable:"Milagros Becerra", supervisor:"Carol Machuca",   categoria:"Tesoreria",      diaLimiteSem:2 },
+  { id:"s9",  nombre:"Cobranza de empresas",                                  responsable:"Carol Machuca",    supervisor:"Angelo Huerta",   categoria:"Finanzas",       diaLimiteSem:0 },
+  { id:"s10", nombre:"Primera revision nominas de pago",                      responsable:"Carol Machuca",    supervisor:"Angelo Huerta",   categoria:"Tesoreria",      diaLimiteSem:1 },
+  { id:"s11", nombre:"Ingreso movimientos bancarios",                         responsable:"Pablo Duran",      supervisor:"Michelle Garcia", categoria:"Contabilidad",   diaLimiteSem:0 },
+  { id:"s12", nombre:"Registro contable",                                     responsable:"Michelle Garcia",  supervisor:"Angelo Huerta",   categoria:"Contabilidad",   diaLimiteSem:2 },
+  { id:"s13", nombre:"Conciliaciones",                                        responsable:"Michelle Garcia",  supervisor:"Angelo Huerta",   categoria:"Contabilidad",   diaLimiteSem:3 },
 ];
 
 const TAREAS_MENSUALES = [
-  { id:"m1",  nombre:"EERR real vs presupuesto + analisis de variaciones",    responsable:"Carol Machuca",    supervisor:"Angelo Huerta",   categoria:"Finanzas",       diaLimite:15 },
-  { id:"m2",  nombre:"Identificacion de riesgos financieros y operacionales", responsable:"Carol Machuca",    supervisor:"Angelo Huerta",   categoria:"Finanzas",       diaLimite:20 },
-  { id:"m3",  nombre:"Preparacion planillas anticipo clientes",               responsable:"Carol Machuca",    supervisor:"Angelo Huerta",   categoria:"Finanzas",       diaLimite:5  },
-  { id:"m4",  nombre:"Preparacion planillas anticipo productores",            responsable:"Carol Machuca",    supervisor:"Angelo Huerta",   categoria:"Finanzas",       diaLimite:5  },
-  { id:"m5",  nombre:"Chequeo contratos firmados y cargados en nube",         responsable:"Carol Machuca",    supervisor:"Angelo Huerta",   categoria:"Administracion", diaLimite:10 },
-  { id:"m6",  nombre:"Analisis de cuenta",                                    responsable:"Michelle Garcia",  supervisor:"Angelo Huerta",   categoria:"Contabilidad",   diaLimite:10 },
-  { id:"m7",  nombre:"Cierre contable",                                       responsable:"Michelle Garcia",  supervisor:"Angelo Huerta",   categoria:"Contabilidad",   diaLimite:10 },
-  { id:"m8",  nombre:"Formulario 29",                                         responsable:"Michelle Garcia",  supervisor:"Angelo Huerta",   categoria:"Tributario",     diaLimite:12 },
-  { id:"m9",  nombre:"Formulario 50",                                         responsable:"Michelle Garcia",  supervisor:"Angelo Huerta",   categoria:"Tributario",     diaLimite:12 },
-  { id:"m10", nombre:"Preparacion estados financieros grupo",                 responsable:"Michelle Garcia",  supervisor:"Angelo Huerta",   categoria:"Contabilidad",   diaLimite:15 },
-  { id:"m11", nombre:"Entrega Final Estados Financieros",                     responsable:"Michelle Garcia",  supervisor:"Angelo Huerta",   categoria:"Contabilidad",   diaLimite:20 },
-  { id:"m12", nombre:"Analisis registros contables",                          responsable:"Michelle Garcia",  supervisor:"Angelo Huerta",   categoria:"Contabilidad",   diaLimite:15 },
-  { id:"m13", nombre:"Analisis de cuenta",                                    responsable:"Pablo Duran",      supervisor:"Michelle Garcia", categoria:"Contabilidad",   diaLimite:8  },
-  { id:"m14", nombre:"Apoyo cierre",                                          responsable:"Pablo Duran",      supervisor:"Michelle Garcia", categoria:"Contabilidad",   diaLimite:10 },
+  { id:"m1",  nombre:"EERR real vs presupuesto + analisis de variaciones",    responsable:"Carol Machuca",   supervisor:"Angelo Huerta",   categoria:"Finanzas",       diaLimite:15 },
+  { id:"m2",  nombre:"Identificacion de riesgos financieros y operacionales", responsable:"Carol Machuca",   supervisor:"Angelo Huerta",   categoria:"Finanzas",       diaLimite:20 },
+  { id:"m3",  nombre:"Preparacion planillas anticipo clientes",               responsable:"Carol Machuca",   supervisor:"Angelo Huerta",   categoria:"Finanzas",       diaLimite:5  },
+  { id:"m4",  nombre:"Preparacion planillas anticipo productores",            responsable:"Carol Machuca",   supervisor:"Angelo Huerta",   categoria:"Finanzas",       diaLimite:5  },
+  { id:"m5",  nombre:"Chequeo contratos firmados y cargados en nube",         responsable:"Carol Machuca",   supervisor:"Angelo Huerta",   categoria:"Administracion", diaLimite:10 },
+  { id:"m6",  nombre:"Analisis de cuenta",                                    responsable:"Michelle Garcia", supervisor:"Angelo Huerta",   categoria:"Contabilidad",   diaLimite:10 },
+  { id:"m7",  nombre:"Cierre contable",                                       responsable:"Michelle Garcia", supervisor:"Angelo Huerta",   categoria:"Contabilidad",   diaLimite:10 },
+  { id:"m8",  nombre:"Formulario 29",                                         responsable:"Michelle Garcia", supervisor:"Angelo Huerta",   categoria:"Tributario",     diaLimite:12 },
+  { id:"m9",  nombre:"Formulario 50",                                         responsable:"Michelle Garcia", supervisor:"Angelo Huerta",   categoria:"Tributario",     diaLimite:12 },
+  { id:"m10", nombre:"Preparacion estados financieros grupo",                 responsable:"Michelle Garcia", supervisor:"Angelo Huerta",   categoria:"Contabilidad",   diaLimite:15 },
+  { id:"m11", nombre:"Entrega Final Estados Financieros",                     responsable:"Michelle Garcia", supervisor:"Angelo Huerta",   categoria:"Contabilidad",   diaLimite:20 },
+  { id:"m12", nombre:"Analisis registros contables",                          responsable:"Michelle Garcia", supervisor:"Angelo Huerta",   categoria:"Contabilidad",   diaLimite:15 },
+  { id:"m13", nombre:"Analisis de cuenta",                                    responsable:"Pablo Duran",     supervisor:"Michelle Garcia", categoria:"Contabilidad",   diaLimite:8  },
+  { id:"m14", nombre:"Apoyo cierre",                                          responsable:"Pablo Duran",     supervisor:"Michelle Garcia", categoria:"Contabilidad",   diaLimite:10 },
 ];
 
-const SEMANAS = [1,2,3,4];
 const ORDEN_SEM = ["gris","verde","amarillo","rojo"];
-const STORAGE_KEY = "calendario_v6";
+const STORAGE_KEY = "calendario_v7";
 
-function semanaDelAnio(anio, mes, numSemana) {
+// Retorna todas las semanas ISO del mes (pueden ser 4, 5 o 6)
+function semanasDelMes(anio, mes) {
+  const semanas = [];
   const primerDia = new Date(anio, mes, 1);
-  const diaSemana = primerDia.getDay() || 7;
-  const ini = new Date(primerDia);
-  ini.setDate(primerDia.getDate() - (diaSemana - 1) + (numSemana - 1) * 7);
-  const tmp = new Date(ini);
-  tmp.setDate(tmp.getDate() + 3 - ((tmp.getDay() + 6) % 7));
-  const w1 = new Date(tmp.getFullYear(), 0, 4);
-  return 1 + Math.round(((tmp - w1) / 86400000 - 3 + ((w1.getDay() + 6) % 7)) / 7);
+  const ultimoDia = new Date(anio, mes+1, 0);
+  let fecha = new Date(primerDia);
+  // Retroceder al lunes de la semana que contiene el 1ro
+  const dow = (fecha.getDay()+6)%7;
+  fecha.setDate(fecha.getDate()-dow);
+  while (fecha <= ultimoDia) {
+    // Calcular numero ISO de semana
+    const tmp = new Date(fecha); tmp.setDate(tmp.getDate()+3);
+    const w1 = new Date(tmp.getFullYear(),0,4);
+    const iso = 1+Math.round(((tmp-w1)/86400000-3+((w1.getDay()+6)%7))/7);
+    // Solo incluir si la semana toca dias del mes pedido
+    const finSemana = new Date(fecha); finSemana.setDate(fecha.getDate()+6);
+    if (fecha.getMonth()===mes || finSemana.getMonth()===mes) {
+      semanas.push({ num: semanas.length+1, iso, inicioSem: new Date(fecha) });
+    }
+    fecha.setDate(fecha.getDate()+7);
+  }
+  return semanas;
 }
 
-function fechaDiaSemana(anio, mes, numSemana, diaSem) {
-  const primerDia = new Date(anio, mes, 1);
-  const dow = primerDia.getDay() || 7;
-  const ini = new Date(primerDia);
-  ini.setDate(primerDia.getDate() - (dow - 1) + (numSemana - 1) * 7);
-  const fecha = new Date(ini);
-  fecha.setDate(ini.getDate() + diaSem);
-  return fecha;
+function fechaDiaSemana(inicioSemana, diaSem) {
+  const f = new Date(inicioSemana);
+  f.setDate(inicioSemana.getDate()+diaSem);
+  return f;
 }
 
-function initEstados() {
+function initEstados(semanas) {
   const est = {};
-  SEMANAS.forEach(s => {
-    TAREAS_SEMANALES.forEach(t => { est[`${t.id}_s${s}`] = { estadoResp:"gris", estadoSup:"gris", aprobado:false }; });
+  semanas.forEach(s => {
+    TAREAS_SEMANALES.forEach(t => { est[`${t.id}_s${s.num}`] = { estadoResp:"gris", estadoSup:"gris", aprobado:false }; });
   });
   TAREAS_MENSUALES.forEach(t => { est[t.id] = { estadoResp:"gris", estadoSup:"gris", aprobado:false }; });
   return est;
@@ -168,6 +157,16 @@ function initDiasLimite() {
   const d = {};
   TAREAS_MENSUALES.forEach(t => { d[t.id] = t.diaLimite; });
   return d;
+}
+
+// Semana activa por defecto: la semana ISO actual
+function semanaActivaDefault(semanas) {
+  const hoy = new Date(); hoy.setHours(0,0,0,0);
+  for (const s of semanas) {
+    const fin = new Date(s.inicioSem); fin.setDate(s.inicioSem.getDate()+6);
+    if (hoy >= s.inicioSem && hoy <= fin) return s.num;
+  }
+  return semanas[0]?.num || 1;
 }
 
 export default function App() {
@@ -188,12 +187,15 @@ export default function App() {
   const pinsTempRef = useRef({});
   const [mes, setMes] = useState(hoy.getMonth());
   const [anio, setAnio] = useState(hoy.getFullYear());
-  const [estados, setEstados] = useState(initEstados);
+
+  const semanas = semanasDelMes(anio, mes);
+
+  const [estados, setEstados] = useState(() => initEstados(semanas));
   const [comentarios, setComentarios] = useState({});
   const [configSemanal, setConfigSemanal] = useState(initConfigSemanal);
   const [diasLimite, setDiasLimite] = useState(initDiasLimite);
   const [tab, setTab] = useState("semanal");
-  const [semanaActiva, setSemanaActiva] = useState(1);
+  const [semanaActiva, setSemanaActiva] = useState(() => semanaActivaDefault(semanas));
   const [guardado, setGuardado] = useState("idle");
   const [cargando, setCargando] = useState(true);
   const [editComentario, setEditComentario] = useState(null);
@@ -201,16 +203,33 @@ export default function App() {
   const [filtroPersona, setFiltroPersona] = useState("");
   const [modalEmail, setModalEmail] = useState(null);
 
+  // Al cambiar mes/anio, recalcular semana activa
+  useEffect(() => {
+    const s = semanasDelMes(anio, mes);
+    setSemanaActiva(semanaActivaDefault(s));
+    // Asegura que existan estados para las semanas del nuevo mes
+    setEstados(prev => {
+      const nuevo = {...prev};
+      s.forEach(sw => {
+        TAREAS_SEMANALES.forEach(t => {
+          const k = `${t.id}_s${sw.num}`;
+          if (!nuevo[k]) nuevo[k] = { estadoResp:"gris", estadoSup:"gris", aprobado:false };
+        });
+      });
+      return nuevo;
+    });
+  }, [mes, anio]);
+
   useEffect(() => {
     try {
       const raw = localStorage.getItem(STORAGE_KEY);
       if (raw) {
         const d = JSON.parse(raw);
-        if (d.estados)           setEstados(prev => ({...initEstados(), ...d.estados}));
-        if (d.comentarios)       setComentarios(d.comentarios);
-        if (d.configSemanal)     setConfigSemanal(prev => ({...prev, ...d.configSemanal}));
-        if (d.diasLimite)        setDiasLimite(prev => ({...prev, ...d.diasLimite}));
-        if (d.pinsPersonalizados)setPinsPersonalizados(d.pinsPersonalizados);
+        if (d.estados)            setEstados(prev=>({...prev,...d.estados}));
+        if (d.comentarios)        setComentarios(d.comentarios);
+        if (d.configSemanal)      setConfigSemanal(prev=>({...prev,...d.configSemanal}));
+        if (d.diasLimite)         setDiasLimite(prev=>({...prev,...d.diasLimite}));
+        if (d.pinsPersonalizados) setPinsPersonalizados(d.pinsPersonalizados);
         if (d.mes  !== undefined) setMes(d.mes);
         if (d.anio !== undefined) setAnio(d.anio);
       }
@@ -218,74 +237,52 @@ export default function App() {
     setCargando(false);
   }, []);
 
-  const guardar = useCallback((est, com, cs, dl, pins, m, a) => {
+  const guardar = useCallback((est,com,cs,dl,pins,m,a) => {
     setGuardado("guardando");
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify({
-        estados:est, comentarios:com, configSemanal:cs,
-        diasLimite:dl, pinsPersonalizados:pins, mes:m, anio:a
-      }));
-      setGuardado("ok");
-      setTimeout(() => setGuardado("idle"), 2000);
-    } catch {
-      setGuardado("error");
-      setTimeout(() => setGuardado("idle"), 3000);
-    }
-  }, []);
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({estados:est,comentarios:com,configSemanal:cs,diasLimite:dl,pinsPersonalizados:pins,mes:m,anio:a}));
+      setGuardado("ok"); setTimeout(()=>setGuardado("idle"),2000);
+    } catch { setGuardado("error"); setTimeout(()=>setGuardado("idle"),3000); }
+  },[]);
 
   useEffect(() => {
     if (cargando) return;
-    const t = setTimeout(() => guardar(estados, comentarios, configSemanal, diasLimite, pinsPersonalizados, mes, anio), 800);
-    return () => clearTimeout(t);
-  }, [estados, comentarios, configSemanal, diasLimite, pinsPersonalizados, mes, anio, cargando, guardar]);
+    const t = setTimeout(()=>guardar(estados,comentarios,configSemanal,diasLimite,pinsPersonalizados,mes,anio),800);
+    return ()=>clearTimeout(t);
+  },[estados,comentarios,configSemanal,diasLimite,pinsPersonalizados,mes,anio,cargando,guardar]);
 
-  function getPinActivo(worker) {
-    return pinsPersonalizados[worker.nombre] || worker.pin;
-  }
+  function getPinActivo(w) { return pinsPersonalizados[w.nombre]||w.pin; }
 
   function handleLogin() {
-    const w = WORKERS.find(x => x.nombre === loginNombre);
+    const w = WORKERS.find(x=>x.nombre===loginNombre);
     if (!w) { setLoginError("Selecciona tu nombre."); return; }
-    const pinTemporal = pinsTempRef.current[w.nombre];
-    const pinCorrecto = getPinActivo(w);
-    if (loginPin.trim() === pinCorrecto || (pinTemporal && loginPin.trim() === pinTemporal)) {
-      if (pinTemporal && loginPin.trim() === pinTemporal) {
-        delete pinsTempRef.current[w.nombre];
-        setModalPin("cambiar");
-      }
-      setUsuarioActual(w);
-      setLoginError("");
-    } else {
-      setLoginError("PIN incorrecto. Intenta nuevamente.");
-    }
+    const pinTemp = pinsTempRef.current[w.nombre];
+    const pinOk = getPinActivo(w);
+    if (loginPin.trim()===pinOk||(pinTemp&&loginPin.trim()===pinTemp)) {
+      if (pinTemp&&loginPin.trim()===pinTemp) { delete pinsTempRef.current[w.nombre]; setModalPin("cambiar"); }
+      setUsuarioActual(w); setLoginError("");
+    } else { setLoginError("PIN incorrecto. Intenta nuevamente."); }
   }
 
   async function handleResetPin() {
-    const w = WORKERS.find(x => x.nombre === resetNombre);
+    const w = WORKERS.find(x=>x.nombre===resetNombre);
     if (!w) { setResetMsg("Selecciona tu nombre."); return; }
     setResetEnviando(true);
-    const temporal = String(Math.floor(1000 + Math.random() * 9000));
+    const temporal = String(Math.floor(1000+Math.random()*9000));
     pinsTempRef.current[w.nombre] = temporal;
-    try {
-      await enviarPinTemporal(w, temporal);
-      setResetMsg("PIN temporal enviado a " + w.email + ". Revisa tu bandeja.");
-    } catch {
-      setResetMsg("Error al enviar. Intenta nuevamente.");
-    }
+    try { await enviarPinTemporal(w,temporal); setResetMsg("PIN temporal enviado a "+w.email); }
+    catch { setResetMsg("Error al enviar. Intenta nuevamente."); }
     setResetEnviando(false);
   }
 
   function handleCambiarPin() {
     setPinError("");
-    if (!usuarioActual) return;
-    const pinCorrecto = getPinActivo(usuarioActual);
-    const pinTemp = pinsTempRef.current[usuarioActual.nombre];
-    if (pinActual !== pinCorrecto && pinActual !== pinTemp) {
-      setPinError("PIN actual incorrecto."); return;
-    }
-    if (pinNuevo.length < 4) { setPinError("El PIN debe tener al menos 4 digitos."); return; }
-    if (pinNuevo !== pinConfirm) { setPinError("Los PINs no coinciden."); return; }
-    setPinsPersonalizados(prev => ({...prev, [usuarioActual.nombre]: pinNuevo}));
+    const pinOk = getPinActivo(usuarioActual);
+    const pinTemp = pinsTempRef.current[usuarioActual?.nombre];
+    if (pinActual!==pinOk&&pinActual!==pinTemp) { setPinError("PIN actual incorrecto."); return; }
+    if (pinNuevo.length<4) { setPinError("El PIN debe tener al menos 4 digitos."); return; }
+    if (pinNuevo!==pinConfirm) { setPinError("Los PINs no coinciden."); return; }
+    setPinsPersonalizados(prev=>({...prev,[usuarioActual.nombre]:pinNuevo}));
     setPinActual(""); setPinNuevo(""); setPinConfirm(""); setModalPin(null);
     alert("PIN cambiado exitosamente!");
   }
@@ -293,255 +290,205 @@ export default function App() {
   function puedeEditar(tarea, esResp) {
     if (!usuarioActual) return false;
     if (usuarioActual.esCFO) return true;
-    return esResp ? tarea.responsable === usuarioActual.nombre : tarea.supervisor === usuarioActual.nombre;
+    return esResp ? tarea.responsable===usuarioActual.nombre : tarea.supervisor===usuarioActual.nombre;
   }
 
-  function ciclarResp(key, tarea) {
-    if (!puedeEditar(tarea, true)) return;
-    setEstados(prev => {
-      const actual = prev[key]?.estadoResp || "gris";
-      const sig = ORDEN_SEM[(ORDEN_SEM.indexOf(actual)+1) % ORDEN_SEM.length];
-      return {...prev, [key]: {...prev[key], estadoResp:sig, aprobado:false, estadoSup:sig!=="verde"?"gris":prev[key].estadoSup}};
-    });
-  }
-
-  function ciclarSup(key, tarea) {
-    if (!puedeEditar(tarea, false)) return;
-    setEstados(prev => {
-      if (prev[key]?.estadoResp !== "verde") return prev;
-      const actual = prev[key]?.estadoSup || "gris";
-      const sig = ORDEN_SEM[(ORDEN_SEM.indexOf(actual)+1) % ORDEN_SEM.length];
-      return {...prev, [key]: {...prev[key], estadoSup:sig, aprobado:sig==="verde"}};
-    });
-  }
-
-  function guardarComentario() {
-    setComentarios(prev => ({...prev, [editComentario]: textoComentario}));
-    setEditComentario(null);
-  }
+  function getSemanaObj(num) { return semanas.find(s=>s.num===num)||semanas[0]; }
 
   function estaVencidaSem(tarea, key, numSemana) {
-    const hoyD = new Date(); hoyD.setHours(0,0,0,0);
-    const ds = configSemanal[tarea.id] ?? tarea.diaLimiteSem;
-    return hoyD > fechaDiaSemana(anio, mes, numSemana, ds) && (estados[key]?.estadoResp||"gris")==="gris";
+    const hoyD=new Date();hoyD.setHours(0,0,0,0);
+    const sw=getSemanaObj(numSemana);
+    const ds=configSemanal[tarea.id]??tarea.diaLimiteSem;
+    return hoyD>fechaDiaSemana(sw.inicioSem,ds)&&(estados[key]?.estadoResp||"gris")==="gris";
   }
 
   function estaProximaSem(tarea, key, numSemana) {
-    const hoyD = new Date(); hoyD.setHours(0,0,0,0);
-    const ds = configSemanal[tarea.id] ?? tarea.diaLimiteSem;
-    const diff = (fechaDiaSemana(anio, mes, numSemana, ds) - hoyD) / (1000*60*60*24);
-    return diff >= 0 && diff <= 2 && (estados[key]?.estadoResp||"gris")==="gris";
+    const hoyD=new Date();hoyD.setHours(0,0,0,0);
+    const sw=getSemanaObj(numSemana);
+    const ds=configSemanal[tarea.id]??tarea.diaLimiteSem;
+    const diff=(fechaDiaSemana(sw.inicioSem,ds)-hoyD)/(1000*60*60*24);
+    return diff>=0&&diff<=2&&(estados[key]?.estadoResp||"gris")==="gris";
   }
 
-  function estaVencidaMen(tarea, key) {
-    const hoyD = new Date(); hoyD.setHours(0,0,0,0);
-    return hoyD > new Date(anio, mes, diasLimite[tarea.id]||tarea.diaLimite) && (estados[key]?.estadoResp||"gris")==="gris";
+  function estaVencidaMen(tarea,key) {
+    const hoyD=new Date();hoyD.setHours(0,0,0,0);
+    return hoyD>new Date(anio,mes,diasLimite[tarea.id]||tarea.diaLimite)&&(estados[key]?.estadoResp||"gris")==="gris";
   }
 
-  function estaProximaMen(tarea, key) {
-    const hoyD = new Date(); hoyD.setHours(0,0,0,0);
-    const diff = (new Date(anio, mes, diasLimite[tarea.id]||tarea.diaLimite) - hoyD) / (1000*60*60*24);
-    return diff >= 0 && diff <= 2 && (estados[key]?.estadoResp||"gris")==="gris";
+  function estaProximaMen(tarea,key) {
+    const hoyD=new Date();hoyD.setHours(0,0,0,0);
+    const diff=(new Date(anio,mes,diasLimite[tarea.id]||tarea.diaLimite)-hoyD)/(1000*60*60*24);
+    return diff>=0&&diff<=2&&(estados[key]?.estadoResp||"gris")==="gris";
   }
+
+  function ciclarResp(key,tarea) {
+    if (!puedeEditar(tarea,true)) return;
+    setEstados(prev=>{
+      const actual=prev[key]?.estadoResp||"gris";
+      const sig=ORDEN_SEM[(ORDEN_SEM.indexOf(actual)+1)%ORDEN_SEM.length];
+      return {...prev,[key]:{...prev[key],estadoResp:sig,aprobado:false,estadoSup:sig!=="verde"?"gris":prev[key].estadoSup}};
+    });
+  }
+
+  function ciclarSup(key,tarea) {
+    if (!puedeEditar(tarea,false)) return;
+    setEstados(prev=>{
+      if (prev[key]?.estadoResp!=="verde") return prev;
+      const actual=prev[key]?.estadoSup||"gris";
+      const sig=ORDEN_SEM[(ORDEN_SEM.indexOf(actual)+1)%ORDEN_SEM.length];
+      return {...prev,[key]:{...prev[key],estadoSup:sig,aprobado:sig==="verde"}};
+    });
+  }
+
+  function guardarComentario() { setComentarios(prev=>({...prev,[editComentario]:textoComentario})); setEditComentario(null); }
 
   function generarResumenEmail() {
-    const res = {};
-    WORKERS.forEach(w => { res[w.nombre] = []; });
-    SEMANAS.forEach(s => {
-      TAREAS_SEMANALES.forEach(t => {
-        const key = `${t.id}_s${s}`;
-        if (estaVencidaSem(t, key, s)) res[t.responsable]?.push({...t, key});
+    const res={};WORKERS.forEach(w=>{res[w.nombre]=[];});
+    semanas.forEach(s=>{
+      TAREAS_SEMANALES.forEach(t=>{
+        const key=`${t.id}_s${s.num}`;
+        if(estaVencidaSem(t,key,s.num)) res[t.responsable]?.push({...t,key});
       });
     });
-    TAREAS_MENSUALES.forEach(t => {
-      if (estaVencidaMen(t, t.id)) res[t.responsable]?.push({...t, key:t.id});
-    });
+    TAREAS_MENSUALES.forEach(t=>{ if(estaVencidaMen(t,t.id)) res[t.responsable]?.push({...t,key:t.id}); });
     return res;
   }
 
-  function abrirEmailResumen() {
-    const resumen = generarResumenEmail();
-    if (!WORKERS.some(w => (resumen[w.nombre]||[]).length > 0)) {
-      alert("Todo al dia! No hay tareas vencidas.");
-      return;
-    }
-    setModalEmail({ resumen });
-  }
-
-  function enviarEmailPersona(w, tareas) {
-    const asunto = encodeURIComponent(`Tareas pendientes - ${MESES[mes]} ${anio}`);
-    const cuerpo = encodeURIComponent(
-      `Hola ${w.nombre.split(" ")[0]},\n\nLas siguientes tareas estan vencidas:\n\n` +
-      tareas.map(t => `- ${t.nombre}`).join('\n') +
-      `\n\nActualiza en: https://calendario-mediterra-2026.vercel.app\n\nSaludos`
-    );
+  function enviarEmailPersona(w,tareas) {
+    const asunto=encodeURIComponent(`Tareas pendientes - ${MESES[mes]} ${anio}`);
+    const cuerpo=encodeURIComponent(`Hola ${w.nombre.split(" ")[0]},\n\nLas siguientes tareas estan vencidas:\n\n`+tareas.map(t=>`- ${t.nombre}`).join('\n')+`\n\nActualiza en: https://calendario-mediterra-2026.vercel.app\n\nSaludos`);
     window.open(`mailto:${w.email}?subject=${asunto}&body=${cuerpo}`);
   }
 
-  const totalVencidas = (() => {
-    let c = 0;
-    SEMANAS.forEach(s => TAREAS_SEMANALES.forEach(t => { if (estaVencidaSem(t, `${t.id}_s${s}`, s)) c++; }));
-    TAREAS_MENSUALES.forEach(t => { if (estaVencidaMen(t, t.id)) c++; });
+  const totalVencidas=(()=>{
+    let c=0;
+    semanas.forEach(s=>TAREAS_SEMANALES.forEach(t=>{ if(estaVencidaSem(t,`${t.id}_s${s.num}`,s.num)) c++; }));
+    TAREAS_MENSUALES.forEach(t=>{ if(estaVencidaMen(t,t.id)) c++; });
     return c;
   })();
 
   function resumen(nombre) {
     let v=0,a=0,r=0,g=0,total=0;
-    SEMANAS.forEach(s => {
-      TAREAS_SEMANALES.forEach(t => {
-        if (t.responsable===nombre || t.supervisor===nombre) {
-          const e = (t.responsable===nombre ? estados[`${t.id}_s${s}`]?.estadoResp : estados[`${t.id}_s${s}`]?.estadoSup)||"gris";
-          total++; if(e==="verde")v++; else if(e==="amarillo")a++; else if(e==="rojo")r++; else g++;
+    semanas.forEach(s=>{
+      TAREAS_SEMANALES.forEach(t=>{
+        if(t.responsable===nombre||t.supervisor===nombre){
+          const e=(t.responsable===nombre?estados[`${t.id}_s${s.num}`]?.estadoResp:estados[`${t.id}_s${s.num}`]?.estadoSup)||"gris";
+          total++;if(e==="verde")v++;else if(e==="amarillo")a++;else if(e==="rojo")r++;else g++;
         }
       });
     });
-    TAREAS_MENSUALES.forEach(t => {
-      if (t.responsable===nombre || t.supervisor===nombre) {
-        const e = (t.responsable===nombre ? estados[t.id]?.estadoResp : estados[t.id]?.estadoSup)||"gris";
-        total++; if(e==="verde")v++; else if(e==="amarillo")a++; else if(e==="rojo")r++; else g++;
+    TAREAS_MENSUALES.forEach(t=>{
+      if(t.responsable===nombre||t.supervisor===nombre){
+        const e=(t.responsable===nombre?estados[t.id]?.estadoResp:estados[t.id]?.estadoSup)||"gris";
+        total++;if(e==="verde")v++;else if(e==="amarillo")a++;else if(e==="rojo")r++;else g++;
       }
     });
-    return { v,a,r,g,total, pct: total>0?Math.round((v/total)*100):0 };
+    return {v,a,r,g,total,pct:total>0?Math.round((v/total)*100):0};
   }
 
-  const estadoGuardadoUI = {
-    idle:null,
-    guardando:{icon:"💾",text:"Guardando..."},
-    ok:{icon:"✅",text:"Guardado"},
-    error:{icon:"❌",text:"Error"}
-  }[guardado];
+  const estadoGuardadoUI={idle:null,guardando:{icon:"💾",text:"Guardando..."},ok:{icon:"✅",text:"Guardado"},error:{icon:"❌",text:"Error"}}[guardado];
 
   // LOGIN
-  if (!usuarioActual) {
-    return (
-      <div style={{minHeight:"100vh",background:"linear-gradient(135deg,#1e3a5f,#2563eb)",display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"sans-serif",padding:20}}>
-        <div style={{background:"#fff",borderRadius:20,padding:40,width:380,maxWidth:"100%",boxShadow:"0 20px 60px #0004"}}>
-          {modalPin==="resetear" ? (
-            <div>
-              <button onClick={()=>{setModalPin(null);setResetMsg("");setResetNombre("");}}
-                style={{background:"none",border:"none",color:"#64748b",cursor:"pointer",fontSize:13,marginBottom:16}}>
-                &larr; Volver
-              </button>
-              <h3 style={{margin:"0 0 6px",color:"#1e293b"}}>Resetear PIN</h3>
-              <p style={{fontSize:13,color:"#64748b",marginBottom:16}}>Te enviaremos un PIN temporal a tu email.</p>
-              <select value={resetNombre} onChange={e=>setResetNombre(e.target.value)}
-                style={{width:"100%",padding:"10px 12px",borderRadius:8,border:"1px solid #d1d5db",fontSize:14,marginBottom:12,boxSizing:"border-box"}}>
+  if (!usuarioActual) return (
+    <div style={{minHeight:"100vh",background:"linear-gradient(135deg,#1e3a5f,#2563eb)",display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"sans-serif",padding:20}}>
+      <div style={{background:"#fff",borderRadius:20,padding:40,width:380,maxWidth:"100%",boxShadow:"0 20px 60px #0004"}}>
+        {modalPin==="resetear"?(
+          <div>
+            <button onClick={()=>{setModalPin(null);setResetMsg("");setResetNombre("");}} style={{background:"none",border:"none",color:"#64748b",cursor:"pointer",fontSize:13,marginBottom:16}}>&larr; Volver</button>
+            <h3 style={{margin:"0 0 6px",color:"#1e293b"}}>Resetear PIN</h3>
+            <p style={{fontSize:13,color:"#64748b",marginBottom:16}}>Te enviaremos un PIN temporal a tu email.</p>
+            <select value={resetNombre} onChange={e=>setResetNombre(e.target.value)} style={{width:"100%",padding:"10px 12px",borderRadius:8,border:"1px solid #d1d5db",fontSize:14,marginBottom:12,boxSizing:"border-box"}}>
+              <option value="">Selecciona tu nombre...</option>
+              {WORKERS.map(w=><option key={w.nombre} value={w.nombre}>{w.nombre}</option>)}
+            </select>
+            {resetMsg&&<div style={{background:resetMsg.includes("Error")?"#fee2e2":"#dcfce7",color:resetMsg.includes("Error")?"#ef4444":"#16a34a",borderRadius:8,padding:"8px 12px",fontSize:12,marginBottom:12}}>{resetMsg}</div>}
+            <button onClick={handleResetPin} disabled={resetEnviando||!resetNombre} style={{width:"100%",background:"#2563eb",color:"#fff",border:"none",borderRadius:10,padding:"12px",cursor:"pointer",fontWeight:700,fontSize:14,opacity:resetEnviando||!resetNombre?0.6:1}}>
+              {resetEnviando?"Enviando...":"Enviar PIN temporal"}
+            </button>
+          </div>
+        ):(
+          <div>
+            <div style={{textAlign:"center",marginBottom:28}}>
+              <svg width="72" height="72" viewBox="0 0 120 120" fill="none" style={{marginBottom:8}}>
+                <path d="M10 90 L10 30 L40 65 L60 35 L80 65 L110 30 L110 90" stroke="#7ecfca" strokeWidth="10" strokeLinejoin="round" strokeLinecap="round" fill="none"/>
+                <line x1="60" y1="55" x2="60" y2="80" stroke="#7ecfca" strokeWidth="5" strokeLinecap="round"/>
+                <circle cx="60" cy="42" r="14" fill="#e8f7f6" stroke="#7ecfca" strokeWidth="3"/>
+                <line x1="52" y1="42" x2="68" y2="42" stroke="#7ecfca" strokeWidth="2.5"/>
+                <line x1="60" y1="32" x2="60" y2="52" stroke="#7ecfca" strokeWidth="2.5"/>
+              </svg>
+              <div style={{fontSize:11,letterSpacing:4,color:"#7ecfca",fontWeight:600,marginBottom:4}}>MEDITERRA</div>
+              <h2 style={{margin:0,color:"#1e293b",fontSize:18,fontWeight:800}}>Control Financiero</h2>
+              <p style={{margin:"4px 0 0",color:"#94a3b8",fontSize:12}}>Ingresa con tu nombre y PIN</p>
+            </div>
+            <div style={{marginBottom:14}}>
+              <label style={{fontSize:12,fontWeight:600,color:"#374151",display:"block",marginBottom:4}}>Nombre</label>
+              <select value={loginNombre} onChange={e=>setLoginNombre(e.target.value)} style={{width:"100%",padding:"10px 12px",borderRadius:8,border:"1px solid #d1d5db",fontSize:14,boxSizing:"border-box"}}>
                 <option value="">Selecciona tu nombre...</option>
-                {WORKERS.map(w=><option key={w.nombre} value={w.nombre}>{w.nombre}</option>)}
+                {WORKERS.map(w=><option key={w.nombre} value={w.nombre}>{w.nombre} - {w.cargo}</option>)}
               </select>
-              {resetMsg && (
-                <div style={{background:resetMsg.includes("Error")?"#fee2e2":"#dcfce7",color:resetMsg.includes("Error")?"#ef4444":"#16a34a",borderRadius:8,padding:"8px 12px",fontSize:12,marginBottom:12}}>
-                  {resetMsg}
-                </div>
-              )}
-              <button onClick={handleResetPin} disabled={resetEnviando||!resetNombre}
-                style={{width:"100%",background:"#2563eb",color:"#fff",border:"none",borderRadius:10,padding:"12px",cursor:"pointer",fontWeight:700,fontSize:14,opacity:resetEnviando||!resetNombre?0.6:1}}>
-                {resetEnviando ? "Enviando..." : "Enviar PIN temporal"}
-              </button>
             </div>
-          ) : (
-            <div>
-              <div style={{textAlign:"center",marginBottom:28}}>
-                <svg width="72" height="72" viewBox="0 0 120 120" fill="none" xmlns="http://www.w3.org/2000/svg" style={{marginBottom:8}}>
-                  <path d="M10 90 L10 30 L40 65 L60 35 L80 65 L110 30 L110 90" stroke="#7ecfca" strokeWidth="10" strokeLinejoin="round" strokeLinecap="round" fill="none"/>
-                  <line x1="60" y1="55" x2="60" y2="80" stroke="#7ecfca" strokeWidth="5" strokeLinecap="round"/>
-                  <circle cx="60" cy="42" r="14" fill="#e8f7f6" stroke="#7ecfca" strokeWidth="3"/>
-                  <line x1="52" y1="42" x2="68" y2="42" stroke="#7ecfca" strokeWidth="2.5"/>
-                  <line x1="60" y1="32" x2="60" y2="52" stroke="#7ecfca" strokeWidth="2.5"/>
-                </svg>
-                <div style={{fontSize:11,letterSpacing:4,color:"#7ecfca",fontWeight:600,marginBottom:4}}>MEDITERRA</div>
-                <h2 style={{margin:0,color:"#1e293b",fontSize:18,fontWeight:800}}>Control Financiero</h2>
-                <p style={{margin:"4px 0 0",color:"#94a3b8",fontSize:12}}>Ingresa con tu nombre y PIN</p>
-              </div>
-              <div style={{marginBottom:14}}>
-                <label style={{fontSize:12,fontWeight:600,color:"#374151",display:"block",marginBottom:4}}>Nombre</label>
-                <select value={loginNombre} onChange={e=>setLoginNombre(e.target.value)}
-                  style={{width:"100%",padding:"10px 12px",borderRadius:8,border:"1px solid #d1d5db",fontSize:14,boxSizing:"border-box"}}>
-                  <option value="">Selecciona tu nombre...</option>
-                  {WORKERS.map(w=><option key={w.nombre} value={w.nombre}>{w.nombre} - {w.cargo}</option>)}
-                </select>
-              </div>
-              <div style={{marginBottom:8}}>
-                <label style={{fontSize:12,fontWeight:600,color:"#374151",display:"block",marginBottom:4}}>PIN</label>
-                <input type="password" value={loginPin} onChange={e=>setLoginPin(e.target.value)}
-                  onKeyDown={e=>e.key==="Enter"&&handleLogin()} placeholder="Ingresa tu PIN" maxLength={6}
-                  style={{width:"100%",padding:"10px 12px",borderRadius:8,border:"1px solid #d1d5db",fontSize:14,boxSizing:"border-box",letterSpacing:6,textAlign:"center"}}/>
-              </div>
-              <div style={{textAlign:"right",marginBottom:16}}>
-                <button onClick={()=>{setModalPin("resetear");setResetMsg("");}}
-                  style={{background:"none",border:"none",color:"#2563eb",cursor:"pointer",fontSize:12,textDecoration:"underline"}}>
-                  Olvide mi PIN
-                </button>
-              </div>
-              {loginError && <div style={{background:"#fee2e2",color:"#ef4444",borderRadius:8,padding:"8px 12px",fontSize:12,marginBottom:14,textAlign:"center"}}>{loginError}</div>}
-              <button onClick={handleLogin}
-                style={{width:"100%",background:"#2563eb",color:"#fff",border:"none",borderRadius:10,padding:"12px",cursor:"pointer",fontWeight:700,fontSize:15}}>
-                Ingresar
-              </button>
+            <div style={{marginBottom:8}}>
+              <label style={{fontSize:12,fontWeight:600,color:"#374151",display:"block",marginBottom:4}}>PIN</label>
+              <input type="password" value={loginPin} onChange={e=>setLoginPin(e.target.value)} onKeyDown={e=>e.key==="Enter"&&handleLogin()} placeholder="Ingresa tu PIN" maxLength={6}
+                style={{width:"100%",padding:"10px 12px",borderRadius:8,border:"1px solid #d1d5db",fontSize:14,boxSizing:"border-box",letterSpacing:6,textAlign:"center"}}/>
             </div>
-          )}
-        </div>
+            <div style={{textAlign:"right",marginBottom:16}}>
+              <button onClick={()=>{setModalPin("resetear");setResetMsg("");}} style={{background:"none",border:"none",color:"#2563eb",cursor:"pointer",fontSize:12,textDecoration:"underline"}}>Olvide mi PIN</button>
+            </div>
+            {loginError&&<div style={{background:"#fee2e2",color:"#ef4444",borderRadius:8,padding:"8px 12px",fontSize:12,marginBottom:14,textAlign:"center"}}>{loginError}</div>}
+            <button onClick={handleLogin} style={{width:"100%",background:"#2563eb",color:"#fff",border:"none",borderRadius:10,padding:"12px",cursor:"pointer",fontWeight:700,fontSize:15}}>Ingresar</button>
+          </div>
+        )}
       </div>
-    );
-  }
+    </div>
+  );
 
   // APP
-  function TablaFilas({ tareas, getKey, getSemana }) {
-    const filtradas = filtroPersona ? tareas.filter(t => t.responsable===filtroPersona||t.supervisor===filtroPersona) : tareas;
-    return filtradas.map((t,i) => {
-      const semana = getSemana ? getSemana() : null;
-      const key = getKey(t);
-      const est = estados[key]||{estadoResp:"gris",estadoSup:"gris",aprobado:false};
-      const semResp = SEMAFORO[est.estadoResp];
-      const supActivo = est.estadoResp==="verde" && t.supervisor;
-      const semSup = SEMAFORO[supActivo?est.estadoSup:"gris"];
-      const cat = CATEGORIAS[t.categoria]||{color:"#64748b",bg:"#f1f5f9"};
-      const com = comentarios[key]||"";
-      const esSemanal = semana!==null;
-      const vencida = esSemanal ? estaVencidaSem(t,key,semana) : estaVencidaMen(t,key);
-      const proxima = !vencida&&(esSemanal?estaProximaSem(t,key,semana):estaProximaMen(t,key));
-      const puedeResp = puedeEditar(t,true);
-      const puedeSup  = puedeEditar(t,false);
-      const diaActual = esSemanal ? DIAS_SEMANA[configSemanal[t.id]??t.diaLimiteSem] : `dia ${diasLimite[t.id]||t.diaLimite}`;
+  function TablaFilas({tareas,getKey,getSemana}) {
+    const filtradas=filtroPersona?tareas.filter(t=>t.responsable===filtroPersona||t.supervisor===filtroPersona):tareas;
+    return filtradas.map((t,i)=>{
+      const numSem=getSemana?getSemana():null;
+      const key=getKey(t);
+      const est=estados[key]||{estadoResp:"gris",estadoSup:"gris",aprobado:false};
+      const semResp=SEMAFORO[est.estadoResp];
+      const supActivo=est.estadoResp==="verde"&&t.supervisor;
+      const semSup=SEMAFORO[supActivo?est.estadoSup:"gris"];
+      const cat=CATEGORIAS[t.categoria]||{color:"#64748b",bg:"#f1f5f9"};
+      const com=comentarios[key]||"";
+      const esSem=numSem!==null;
+      const vencida=esSem?estaVencidaSem(t,key,numSem):estaVencidaMen(t,key);
+      const proxima=!vencida&&(esSem?estaProximaSem(t,key,numSem):estaProximaMen(t,key));
+      const puedeResp=puedeEditar(t,true);
+      const puedeSup=puedeEditar(t,false);
+      const labelLimite=esSem?`Limite: ${DIAS_SEMANA[configSemanal[t.id]??t.diaLimiteSem]}`:`Limite: dia ${diasLimite[t.id]||t.diaLimite}`;
       return (
-        <tr key={key} style={{borderBottom:"1px solid #f1f5f9",
-          background:vencida?"#fff5f5":proxima?"#fffbeb":i%2===0?"#fff":"#f8fafc",
-          borderLeft:vencida?"4px solid #ef4444":proxima?"4px solid #f59e0b":"4px solid transparent"}}>
+        <tr key={key} style={{borderBottom:"1px solid #f1f5f9",background:vencida?"#fff5f5":proxima?"#fffbeb":i%2===0?"#fff":"#f8fafc",borderLeft:vencida?"4px solid #ef4444":proxima?"4px solid #f59e0b":"4px solid transparent"}}>
           <td style={{padding:"9px 14px"}}>
             <div style={{display:"flex",alignItems:"center",gap:6}}>
               {vencida&&<span style={{color:"#ef4444",fontWeight:700,fontSize:11}}>!!</span>}
               {proxima&&<span style={{color:"#f59e0b",fontWeight:700,fontSize:11}}>!</span>}
               <div style={{fontWeight:500,color:vencida?"#ef4444":"#1e293b",fontSize:13}}>{t.nombre}</div>
             </div>
-            <div style={{display:"flex",gap:6,marginTop:2,alignItems:"center"}}>
+            <div style={{display:"flex",gap:6,marginTop:2}}>
               <span style={{fontSize:10,background:cat.bg,color:cat.color,borderRadius:20,padding:"1px 8px",fontWeight:600}}>{t.categoria}</span>
-              <span style={{fontSize:10,color:vencida?"#ef4444":proxima?"#f59e0b":"#94a3b8"}}>Limite: {diaActual}</span>
+              <span style={{fontSize:10,color:vencida?"#ef4444":proxima?"#f59e0b":"#94a3b8"}}>{labelLimite}</span>
             </div>
           </td>
           <td style={{textAlign:"center",padding:"9px 8px",fontSize:12,color:"#374151"}}>{t.responsable.split(" ")[0]}</td>
           <td style={{textAlign:"center",padding:"9px 8px"}}>
             <button onClick={()=>ciclarResp(key,t)} title={puedeResp?semResp.label:"Sin permiso"}
-              style={{width:28,height:28,borderRadius:"50%",background:semResp.color,border:`3px solid ${semResp.border}`,
-                cursor:puedeResp?"pointer":"not-allowed",outline:"none",opacity:puedeResp?1:0.4,
-                boxShadow:"0 2px 6px #0002",transition:"transform 0.1s"}}
-              onMouseEnter={e=>{if(puedeResp)e.target.style.transform="scale(1.2)";}}
-              onMouseLeave={e=>e.target.style.transform="scale(1)"}/>
+              style={{width:28,height:28,borderRadius:"50%",background:semResp.color,border:`3px solid ${semResp.border}`,cursor:puedeResp?"pointer":"not-allowed",outline:"none",opacity:puedeResp?1:0.4,boxShadow:"0 2px 6px #0002",transition:"transform 0.1s"}}
+              onMouseEnter={e=>{if(puedeResp)e.target.style.transform="scale(1.2)";}} onMouseLeave={e=>e.target.style.transform="scale(1)"}/>
           </td>
-          <td style={{textAlign:"center",padding:"9px 8px",fontSize:12,color:"#374151"}}>
-            {t.supervisor?t.supervisor.split(" ")[0]:<span style={{color:"#d1d5db"}}>-</span>}
-          </td>
+          <td style={{textAlign:"center",padding:"9px 8px",fontSize:12,color:"#374151"}}>{t.supervisor?t.supervisor.split(" ")[0]:<span style={{color:"#d1d5db"}}>-</span>}</td>
           <td style={{textAlign:"center",padding:"9px 8px"}}>
-            {t.supervisor?(
-              <button onClick={()=>ciclarSup(key,t)} title={!supActivo?"Disponible al completar":puedeSup?semSup.label:"Sin permiso"}
-                style={{width:28,height:28,borderRadius:"50%",background:supActivo?semSup.color:"#e5e7eb",
-                  border:`3px solid ${supActivo?semSup.border:"#d1d5db"}`,
-                  cursor:(supActivo&&puedeSup)?"pointer":"not-allowed",outline:"none",opacity:(supActivo&&puedeSup)?1:0.4}}/>
+            {t.supervisor?(<button onClick={()=>ciclarSup(key,t)} title={!supActivo?"Disponible al completar":puedeSup?semSup.label:"Sin permiso"}
+              style={{width:28,height:28,borderRadius:"50%",background:supActivo?semSup.color:"#e5e7eb",border:`3px solid ${supActivo?semSup.border:"#d1d5db"}`,cursor:(supActivo&&puedeSup)?"pointer":"not-allowed",outline:"none",opacity:(supActivo&&puedeSup)?1:0.4}}/>
             ):<span style={{color:"#d1d5db",fontSize:12}}>-</span>}
           </td>
           <td style={{textAlign:"center",padding:"9px 8px"}}>
             <button onClick={()=>{setEditComentario(key);setTextoComentario(com);}}
-              style={{background:com?"#dbeafe":"#f1f5f9",border:"none",borderRadius:8,padding:"4px 10px",
-                cursor:"pointer",fontSize:11,color:com?"#1d4ed8":"#9ca3af",maxWidth:100,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+              style={{background:com?"#dbeafe":"#f1f5f9",border:"none",borderRadius:8,padding:"4px 10px",cursor:"pointer",fontSize:11,color:com?"#1d4ed8":"#9ca3af",maxWidth:100,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
               {com?`[${com.substring(0,10)}...]`:"+"}
             </button>
           </td>
@@ -550,57 +497,52 @@ export default function App() {
     });
   }
 
-  const encabezadoTabla = (
-    <thead>
-      <tr style={{background:"#1e3a5f",color:"#fff",fontSize:12}}>
-        <th style={{padding:"10px 14px",textAlign:"left",minWidth:240}}>Tarea</th>
-        <th style={{padding:"10px 8px",textAlign:"center",minWidth:90}}>Responsable</th>
-        <th style={{padding:"10px 8px",textAlign:"center",minWidth:70}}>Estado</th>
-        <th style={{padding:"10px 8px",textAlign:"center",minWidth:90}}>Supervisor</th>
-        <th style={{padding:"10px 8px",textAlign:"center",minWidth:70}}>Aprobacion</th>
-        <th style={{padding:"10px 8px",textAlign:"center",minWidth:100}}>Comentario</th>
-      </tr>
-    </thead>
+  const encabezadoTabla=(
+    <thead><tr style={{background:"#1e3a5f",color:"#fff",fontSize:12}}>
+      <th style={{padding:"10px 14px",textAlign:"left",minWidth:240}}>Tarea</th>
+      <th style={{padding:"10px 8px",textAlign:"center",minWidth:90}}>Responsable</th>
+      <th style={{padding:"10px 8px",textAlign:"center",minWidth:70}}>Estado</th>
+      <th style={{padding:"10px 8px",textAlign:"center",minWidth:90}}>Supervisor</th>
+      <th style={{padding:"10px 8px",textAlign:"center",minWidth:70}}>Aprobacion</th>
+      <th style={{padding:"10px 8px",textAlign:"center",minWidth:100}}>Comentario</th>
+    </tr></thead>
   );
 
   if (cargando) return <div style={{display:"flex",alignItems:"center",justifyContent:"center",height:"100vh",fontFamily:"sans-serif",color:"#64748b"}}>Cargando...</div>;
+
+  const recsActivos = getRecordatoriosActivos(usuarioActual.nombre, anio, mes, usuarioActual.esCFO);
 
   return (
     <div style={{fontFamily:"sans-serif",background:"#f8fafc",minHeight:"100vh",padding:"20px"}}>
 
       {/* Modal cambiar PIN */}
-      {modalPin==="cambiar" && (
+      {modalPin==="cambiar"&&(
         <div style={{position:"fixed",inset:0,background:"#0006",zIndex:200,display:"flex",alignItems:"center",justifyContent:"center"}}>
           <div style={{background:"#fff",borderRadius:16,padding:28,width:360,maxWidth:"90vw",boxShadow:"0 8px 32px #0003"}}>
             <h3 style={{margin:"0 0 6px",color:"#1e293b"}}>Cambiar PIN</h3>
             <p style={{fontSize:13,color:"#64748b",marginBottom:16}}>{usuarioActual.nombre}</p>
-            {["PIN actual","Nuevo PIN","Confirmar nuevo PIN"].map((lbl,idx) => (
+            {[["PIN actual",pinActual,setPinActual],["Nuevo PIN",pinNuevo,setPinNuevo],["Confirmar nuevo PIN",pinConfirm,setPinConfirm]].map(([lbl,val,set],idx)=>(
               <div key={idx} style={{marginBottom:12}}>
                 <label style={{fontSize:12,fontWeight:600,color:"#374151",display:"block",marginBottom:4}}>{lbl}</label>
-                <input type="password" maxLength={6}
-                  value={idx===0?pinActual:idx===1?pinNuevo:pinConfirm}
-                  onChange={e=>idx===0?setPinActual(e.target.value):idx===1?setPinNuevo(e.target.value):setPinConfirm(e.target.value)}
+                <input type="password" maxLength={6} value={val} onChange={e=>set(e.target.value)}
                   style={{width:"100%",padding:"10px 12px",borderRadius:8,border:"1px solid #d1d5db",fontSize:14,boxSizing:"border-box",textAlign:"center",letterSpacing:6}}/>
               </div>
             ))}
             {pinError&&<div style={{background:"#fee2e2",color:"#ef4444",borderRadius:8,padding:"8px 12px",fontSize:12,marginBottom:12}}>{pinError}</div>}
             <div style={{display:"flex",gap:10,justifyContent:"flex-end"}}>
-              <button onClick={()=>{setModalPin(null);setPinActual("");setPinNuevo("");setPinConfirm("");setPinError("");}}
-                style={{padding:"8px 18px",borderRadius:8,border:"1px solid #d1d5db",background:"#fff",cursor:"pointer",fontSize:14}}>Cancelar</button>
-              <button onClick={handleCambiarPin}
-                style={{padding:"8px 18px",borderRadius:8,border:"none",background:"#2563eb",color:"#fff",cursor:"pointer",fontSize:14,fontWeight:600}}>Guardar</button>
+              <button onClick={()=>{setModalPin(null);setPinActual("");setPinNuevo("");setPinConfirm("");setPinError("");}} style={{padding:"8px 18px",borderRadius:8,border:"1px solid #d1d5db",background:"#fff",cursor:"pointer",fontSize:14}}>Cancelar</button>
+              <button onClick={handleCambiarPin} style={{padding:"8px 18px",borderRadius:8,border:"none",background:"#2563eb",color:"#fff",cursor:"pointer",fontSize:14,fontWeight:600}}>Guardar</button>
             </div>
           </div>
         </div>
       )}
 
       {/* Modal comentario */}
-      {editComentario!==null && (
+      {editComentario!==null&&(
         <div style={{position:"fixed",inset:0,background:"#0006",zIndex:100,display:"flex",alignItems:"center",justifyContent:"center"}}>
           <div style={{background:"#fff",borderRadius:16,padding:28,width:420,maxWidth:"90vw",boxShadow:"0 8px 32px #0003"}}>
             <h3 style={{margin:"0 0 14px",color:"#1e293b"}}>Comentario</h3>
-            <textarea value={textoComentario} onChange={e=>setTextoComentario(e.target.value)} rows={4}
-              placeholder="Escribe un comentario..."
+            <textarea value={textoComentario} onChange={e=>setTextoComentario(e.target.value)} rows={4} placeholder="Escribe un comentario..."
               style={{width:"100%",padding:"10px 12px",borderRadius:8,border:"1px solid #d1d5db",fontSize:14,resize:"vertical",boxSizing:"border-box"}}/>
             <div style={{display:"flex",gap:10,marginTop:14,justifyContent:"flex-end"}}>
               <button onClick={()=>setEditComentario(null)} style={{padding:"8px 18px",borderRadius:8,border:"1px solid #d1d5db",background:"#fff",cursor:"pointer",fontSize:14}}>Cancelar</button>
@@ -611,27 +553,21 @@ export default function App() {
       )}
 
       {/* Modal email */}
-      {modalEmail && (
+      {modalEmail&&(
         <div style={{position:"fixed",inset:0,background:"#0006",zIndex:100,display:"flex",alignItems:"center",justifyContent:"center"}}>
           <div style={{background:"#fff",borderRadius:16,padding:28,width:500,maxWidth:"90vw",maxHeight:"80vh",overflowY:"auto",boxShadow:"0 8px 32px #0003"}}>
             <h3 style={{margin:"0 0 6px",color:"#1e293b"}}>Avisos de tareas vencidas</h3>
             <p style={{fontSize:13,color:"#64748b",marginBottom:16}}>{MESES[mes]} {anio}</p>
-            {WORKERS.map(w => {
-              const tareas = modalEmail.resumen[w.nombre]||[];
-              if (!tareas.length) return null;
+            {WORKERS.map(w=>{
+              const tareas=modalEmail.resumen[w.nombre]||[];
+              if(!tareas.length) return null;
               return (
                 <div key={w.nombre} style={{background:"#fff5f5",border:"1px solid #fca5a5",borderRadius:10,padding:"12px 16px",marginBottom:10}}>
                   <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-                    <div>
-                      <div style={{fontWeight:600,fontSize:14,color:"#1e293b"}}>{w.nombre}</div>
-                      <div style={{fontSize:11,color:"#64748b"}}>{tareas.length} tarea(s) vencida(s)</div>
-                    </div>
-                    <button onClick={()=>enviarEmailPersona(w,tareas)}
-                      style={{background:"#ef4444",color:"#fff",border:"none",borderRadius:8,padding:"6px 14px",cursor:"pointer",fontSize:12,fontWeight:600}}>Enviar</button>
+                    <div><div style={{fontWeight:600,fontSize:14,color:"#1e293b"}}>{w.nombre}</div><div style={{fontSize:11,color:"#64748b"}}>{tareas.length} tarea(s) vencida(s)</div></div>
+                    <button onClick={()=>enviarEmailPersona(w,tareas)} style={{background:"#ef4444",color:"#fff",border:"none",borderRadius:8,padding:"6px 14px",cursor:"pointer",fontSize:12,fontWeight:600}}>Enviar</button>
                   </div>
-                  <ul style={{margin:"8px 0 0",paddingLeft:16,fontSize:12,color:"#374151"}}>
-                    {tareas.map(t=><li key={t.key}>{t.nombre}</li>)}
-                  </ul>
+                  <ul style={{margin:"8px 0 0",paddingLeft:16,fontSize:12,color:"#374151"}}>{tareas.map(t=><li key={t.key}>{t.nombre}</li>)}</ul>
                 </div>
               );
             })}
@@ -646,7 +582,7 @@ export default function App() {
       <div style={{background:"linear-gradient(135deg,#1e3a5f,#2563eb)",borderRadius:16,padding:"20px 28px",marginBottom:20,color:"#fff"}}>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:8}}>
           <div style={{display:"flex",alignItems:"center",gap:16}}>
-            <svg width="60" height="60" viewBox="0 0 120 120" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <svg width="60" height="60" viewBox="0 0 120 120" fill="none">
               <path d="M10 90 L10 30 L40 65 L60 35 L80 65 L110 30 L110 90" stroke="rgba(255,255,255,0.9)" strokeWidth="10" strokeLinejoin="round" strokeLinecap="round" fill="none"/>
               <line x1="60" y1="55" x2="60" y2="80" stroke="rgba(255,255,255,0.9)" strokeWidth="5" strokeLinecap="round"/>
               <circle cx="60" cy="42" r="14" fill="rgba(255,255,255,0.25)" stroke="rgba(255,255,255,0.9)" strokeWidth="3"/>
@@ -655,7 +591,7 @@ export default function App() {
             </svg>
             <div>
               <div style={{fontSize:11,opacity:0.7,letterSpacing:3,textTransform:"uppercase",marginBottom:2}}>MEDITERRA</div>
-              <h1 style={{margin:0,fontSize:20,fontWeight:800}}>Control Financiero y Administrativo</h1>
+              <h1 style={{margin:0,fontSize:20,fontWeight:800}}>Planificacion Depto. Administracion y Finanzas</h1>
               <div style={{fontSize:12,opacity:0.8,marginTop:3}}>
                 Hola, <strong>{usuarioActual.nombre.split(" ")[0]}</strong> - {usuarioActual.cargo}
                 {usuarioActual.esCFO&&<span style={{background:"#fbbf24",color:"#78350f",borderRadius:20,padding:"1px 8px",fontSize:10,fontWeight:700,marginLeft:8}}>ACCESO TOTAL</span>}
@@ -664,30 +600,48 @@ export default function App() {
           </div>
           <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
             {totalVencidas>0&&usuarioActual.esCFO&&(
-              <button onClick={abrirEmailResumen}
-                style={{background:"#ef4444",color:"#fff",border:"none",borderRadius:10,padding:"8px 16px",cursor:"pointer",fontWeight:700,fontSize:13}}>
+              <button onClick={()=>{const r=generarResumenEmail();setModalEmail({resumen:r});}} style={{background:"#ef4444",color:"#fff",border:"none",borderRadius:10,padding:"8px 16px",cursor:"pointer",fontWeight:700,fontSize:13}}>
                 {totalVencidas} vencida(s) - Avisar
               </button>
             )}
             {estadoGuardadoUI&&<span style={{fontSize:12,color:"#fff",background:"rgba(255,255,255,0.15)",borderRadius:20,padding:"4px 12px"}}>{estadoGuardadoUI.icon} {estadoGuardadoUI.text}</span>}
-            <button onClick={()=>{setPinActual("");setPinNuevo("");setPinConfirm("");setPinError("");setModalPin("cambiar");}}
-              style={{background:"rgba(255,255,255,0.15)",border:"none",color:"#fff",borderRadius:8,padding:"6px 14px",cursor:"pointer",fontSize:12}}>
-              Cambiar PIN
-            </button>
-            <button onClick={()=>setUsuarioActual(null)}
-              style={{background:"rgba(255,255,255,0.15)",border:"none",color:"#fff",borderRadius:8,padding:"6px 14px",cursor:"pointer",fontSize:12}}>
-              Salir
-            </button>
+            <button onClick={()=>{setPinActual("");setPinNuevo("");setPinConfirm("");setPinError("");setModalPin("cambiar");}} style={{background:"rgba(255,255,255,0.15)",border:"none",color:"#fff",borderRadius:8,padding:"6px 14px",cursor:"pointer",fontSize:12}}>Cambiar PIN</button>
+            <button onClick={()=>setUsuarioActual(null)} style={{background:"rgba(255,255,255,0.15)",border:"none",color:"#fff",borderRadius:8,padding:"6px 14px",cursor:"pointer",fontSize:12}}>Salir</button>
           </div>
         </div>
         <div style={{display:"flex",alignItems:"center",gap:12,marginTop:12}}>
-          <button onClick={()=>{if(mes===0){setMes(11);setAnio(a=>a-1);}else setMes(m=>m-1);}}
-            style={{background:"rgba(255,255,255,0.2)",border:"none",color:"#fff",borderRadius:8,padding:"4px 14px",cursor:"pointer",fontSize:18}}>{"<"}</button>
+          <button onClick={()=>{if(mes===0){setMes(11);setAnio(a=>a-1);}else setMes(m=>m-1);}} style={{background:"rgba(255,255,255,0.2)",border:"none",color:"#fff",borderRadius:8,padding:"4px 14px",cursor:"pointer",fontSize:18}}>{"<"}</button>
           <span style={{fontSize:18,fontWeight:700,minWidth:160,textAlign:"center"}}>{MESES[mes]} {anio}</span>
-          <button onClick={()=>{if(mes===11){setMes(0);setAnio(a=>a+1);}else setMes(m=>m+1);}}
-            style={{background:"rgba(255,255,255,0.2)",border:"none",color:"#fff",borderRadius:8,padding:"4px 14px",cursor:"pointer",fontSize:18}}>{">"}</button>
+          <button onClick={()=>{if(mes===11){setMes(0);setAnio(a=>a+1);}else setMes(m=>m+1);}} style={{background:"rgba(255,255,255,0.2)",border:"none",color:"#fff",borderRadius:8,padding:"4px 14px",cursor:"pointer",fontSize:18}}>{">"}</button>
         </div>
       </div>
+
+      {/* Banner recordatorios activos */}
+      {recsActivos.length>0&&(
+        <div style={{marginBottom:16,display:"flex",flexDirection:"column",gap:8}}>
+          {recsActivos.map(rec=>(
+            <div key={rec.id} onClick={()=>setTab("recordatorios")}
+              style={{background:rec.diff<0?"#fee2e2":rec.diff<=1?"#fff1f2":"#fef9c3",
+                border:`1px solid ${rec.diff<0?"#fca5a5":rec.diff<=1?"#fda4af":"#fde047"}`,
+                borderRadius:12,padding:"12px 16px",cursor:"pointer",
+                display:"flex",alignItems:"center",justifyContent:"space-between",gap:12,boxShadow:"0 2px 8px #0001"}}>
+              <div style={{display:"flex",alignItems:"center",gap:10}}>
+                <span style={{fontSize:22}}>{rec.diff<0?"🔴":rec.diff===0?"🚨":"⚠️"}</span>
+                <div>
+                  <div style={{fontWeight:700,fontSize:13,color:"#1e293b"}}>{rec.titulo}</div>
+                  <div style={{fontSize:12,color:"#64748b"}}>
+                    {rec.diff<0?"Vencido - ":"Vence el "}{rec.fechaVence.getDate()} de {MESES[rec.fechaVence.getMonth()]}
+                    {rec.diff===0&&<strong style={{color:"#ef4444"}}> - HOY</strong>}
+                    {rec.diff===1&&<strong style={{color:"#f59e0b"}}> - Manana</strong>}
+                    {rec.diff===2&&<strong style={{color:"#f59e0b"}}> - En 2 dias</strong>}
+                  </div>
+                </div>
+              </div>
+              <span style={{fontSize:11,color:"#2563eb",fontWeight:600,whiteSpace:"nowrap"}}>Ver detalle &rarr;</span>
+            </div>
+          ))}
+        </div>
+      )}
 
       {/* Tabs */}
       <div style={{display:"flex",gap:8,marginBottom:16,flexWrap:"wrap"}}>
@@ -696,7 +650,14 @@ export default function App() {
         ].map(([t,l])=>(
           <button key={t} onClick={()=>setTab(t)}
             style={{padding:"8px 20px",borderRadius:8,border:"none",cursor:"pointer",fontWeight:600,fontSize:13,
-              background:tab===t?"#2563eb":"#fff",color:tab===t?"#fff":"#374151",boxShadow:tab===t?"0 2px 8px #2563eb44":"0 1px 4px #0001"}}>{l}</button>
+              background:tab===t?"#2563eb":"#fff",color:tab===t?"#fff":"#374151",
+              boxShadow:tab===t?"0 2px 8px #2563eb44":"0 1px 4px #0001",
+              position:"relative"}}>
+            {l}
+            {t==="recordatorios"&&recsActivos.length>0&&(
+              <span style={{position:"absolute",top:-4,right:-4,background:"#ef4444",color:"#fff",borderRadius:"50%",width:16,height:16,fontSize:9,display:"flex",alignItems:"center",justifyContent:"center",fontWeight:700}}>{recsActivos.length}</span>
+            )}
+          </button>
         ))}
       </div>
 
@@ -726,13 +687,14 @@ export default function App() {
 
       {/* SEMANAL */}
       {tab==="semanal"&&(<>
-        <div style={{display:"flex",gap:8,marginBottom:16}}>
-          {SEMANAS.map(s=>(
-            <button key={s} onClick={()=>setSemanaActiva(s)}
+        <div style={{display:"flex",gap:8,marginBottom:16,flexWrap:"wrap"}}>
+          {semanas.map(s=>(
+            <button key={s.num} onClick={()=>setSemanaActiva(s.num)}
               style={{padding:"8px 20px",borderRadius:10,border:"none",cursor:"pointer",fontWeight:700,fontSize:13,
-                background:semanaActiva===s?"#0f172a":"#fff",color:semanaActiva===s?"#fff":"#374151",boxShadow:semanaActiva===s?"0 2px 8px #0003":"0 1px 4px #0001"}}>
-              Semana {s}
-              <div style={{fontSize:10,fontWeight:400,opacity:0.7}}>Sem {semanaDelAnio(anio,mes,s)}</div>
+                background:semanaActiva===s.num?"#0f172a":"#fff",color:semanaActiva===s.num?"#fff":"#374151",
+                boxShadow:semanaActiva===s.num?"0 2px 8px #0003":"0 1px 4px #0001"}}>
+              Semana {s.num}
+              <div style={{fontSize:10,fontWeight:400,opacity:0.7}}>Sem {s.iso}</div>
             </button>
           ))}
         </div>
@@ -761,9 +723,9 @@ export default function App() {
       {tab==="resumen"&&(
         <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(270px,1fr))",gap:16}}>
           {WORKERS.map(w=>{
-            const r = resumen(w.nombre);
-            const resumenEmail = generarResumenEmail();
-            const vencidas = resumenEmail[w.nombre]?.length||0;
+            const r=resumen(w.nombre);
+            const resumenEmail=generarResumenEmail();
+            const vencidas=resumenEmail[w.nombre]?.length||0;
             return (
               <div key={w.nombre} style={{background:"#fff",borderRadius:14,padding:20,boxShadow:"0 2px 10px #0001",border:vencidas>0?"2px solid #fca5a5":"2px solid transparent"}}>
                 <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:12}}>
@@ -785,8 +747,7 @@ export default function App() {
                   ))}
                 </div>
                 {vencidas>0&&usuarioActual.esCFO&&(
-                  <button onClick={()=>enviarEmailPersona(w,resumenEmail[w.nombre])}
-                    style={{width:"100%",background:"#ef4444",color:"#fff",border:"none",borderRadius:8,padding:"7px",cursor:"pointer",fontSize:12,fontWeight:600}}>
+                  <button onClick={()=>enviarEmailPersona(w,resumenEmail[w.nombre])} style={{width:"100%",background:"#ef4444",color:"#fff",border:"none",borderRadius:8,padding:"7px",cursor:"pointer",fontSize:12,fontWeight:600}}>
                     Enviar aviso a {w.nombre.split(" ")[0]}
                   </button>
                 )}
@@ -799,30 +760,22 @@ export default function App() {
       {/* RECORDATORIOS */}
       {tab==="recordatorios"&&(()=>{
         const lista = usuarioActual.esCFO
-          ? RECORDATORIOS.map(rec => {
-              const fechaVence = diaHabil(anio, mes, rec.diaMes);
-              const hoyD = new Date(); hoyD.setHours(0,0,0,0);
-              const diff = Math.ceil((fechaVence - hoyD)/(1000*60*60*24));
-              return {...rec, fechaVence, diff};
-            })
-          : getRecordatoriosParaUsuario(usuarioActual.nombre, anio, mes, false);
-
-        if (lista.length===0) return (
+          ? RECORDATORIOS.map(rec=>{const fv=diaHabil(anio,mes,rec.diaMes);const hD=new Date();hD.setHours(0,0,0,0);return {...rec,fechaVence:fv,diff:Math.ceil((fv-hD)/(1000*60*60*24))};})
+          : getRecordatoriosActivos(usuarioActual.nombre,anio,mes,false);
+        if (!lista.length) return (
           <div style={{background:"#fff",borderRadius:14,padding:32,textAlign:"center",boxShadow:"0 2px 10px #0001"}}>
             <div style={{fontSize:32,marginBottom:8}}>✅</div>
-            <div style={{color:"#64748b",fontSize:14}}>No tienes recordatorios activos este mes.</div>
+            <div style={{color:"#64748b",fontSize:14}}>No hay recordatorios activos este mes.</div>
           </div>
         );
-
         return (
           <div style={{display:"flex",flexDirection:"column",gap:16}}>
             {lista.map(rec=>{
-              const color = rec.diff<0?"#ef4444":rec.diff<=2?"#f59e0b":"#22c55e";
-              const bg    = rec.diff<0?"#fff5f5":rec.diff<=2?"#fffbeb":"#f0fdf4";
-              const border= rec.diff<0?"#fca5a5":rec.diff<=2?"#fde047":"#86efac";
-              const destinatariosW = WORKERS.filter(w=>rec.destinatarios.includes(w.nombre));
-              const copiaW = WORKERS.filter(w=>rec.copia.includes(w.nombre));
-              const nombreMostrar = rec.destinatarios[0];
+              const color=rec.diff<0?"#ef4444":rec.diff<=2?"#f59e0b":"#22c55e";
+              const bg=rec.diff<0?"#fff5f5":rec.diff<=2?"#fffbeb":"#f0fdf4";
+              const border=rec.diff<0?"#fca5a5":rec.diff<=2?"#fde047":"#86efac";
+              const destW=WORKERS.filter(w=>rec.destinatarios.includes(w.nombre));
+              const ccW=WORKERS.filter(w=>rec.copia.includes(w.nombre));
               return (
                 <div key={rec.id} style={{background:bg,border:`2px solid ${border}`,borderRadius:14,padding:20,boxShadow:"0 2px 10px #0001"}}>
                   <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:12,flexWrap:"wrap"}}>
@@ -835,26 +788,12 @@ export default function App() {
                         {rec.diff===2&&<span style={{background:"#f59e0b",color:"#fff",borderRadius:20,padding:"1px 8px",fontSize:11,fontWeight:700}}>EN 2 DIAS</span>}
                         {rec.diff<0&&<span style={{background:"#ef4444",color:"#fff",borderRadius:20,padding:"1px 8px",fontSize:11,fontWeight:700}}>VENCIDO</span>}
                       </div>
-                      <div style={{fontSize:13,color:"#64748b",marginBottom:8}}>
-                        Fecha: <strong>{rec.fechaVence.getDate()} de {MESES[rec.fechaVence.getMonth()]} {rec.fechaVence.getFullYear()}</strong>
-                      </div>
-                      <div style={{fontSize:12,color:"#374151",background:"rgba(0,0,0,0.04)",borderRadius:8,padding:"8px 12px",marginBottom:10,lineHeight:1.5}}>
-                        {rec.mensaje(nombreMostrar)}
-                      </div>
-                      <div style={{fontSize:11,color:"#64748b"}}>
-                        Para: {rec.destinatarios.join(", ")}
-                        {rec.copia.length>0&&<span style={{marginLeft:12}}>CC: {rec.copia.join(", ")}</span>}
-                      </div>
+                      <div style={{fontSize:13,color:"#64748b",marginBottom:8}}>Fecha: <strong>{rec.fechaVence.getDate()} de {MESES[rec.fechaVence.getMonth()]} {rec.fechaVence.getFullYear()}</strong></div>
+                      <div style={{fontSize:12,color:"#374151",background:"rgba(0,0,0,0.04)",borderRadius:8,padding:"8px 12px",marginBottom:10,lineHeight:1.5}}>{rec.mensaje(rec.destinatarios[0])}</div>
+                      <div style={{fontSize:11,color:"#64748b"}}>Para: {rec.destinatarios.join(", ")}{ccW.length>0&&<span style={{marginLeft:12}}>CC: {ccW.map(w=>w.nombre).join(", ")}</span>}</div>
                     </div>
                     {rec.diff<=2&&(
-                      <button onClick={()=>{
-                        destinatariosW.forEach(w=>{
-                          const asunto = encodeURIComponent(`Recordatorio: ${rec.titulo} - ${MESES[mes]} ${anio}`);
-                          const cc = copiaW.map(c=>c.email).join(",");
-                          const cuerpo = encodeURIComponent(rec.mensaje(w.nombre)+`\n\nSaludos,\nEquipo Mediterra`);
-                          window.open(`mailto:${w.email}${cc?`?cc=${cc}&`:"?"}subject=${asunto}&body=${cuerpo}`);
-                        });
-                      }}
+                      <button onClick={()=>{destW.forEach(w=>{const asunto=encodeURIComponent(`Recordatorio: ${rec.titulo} - ${MESES[mes]} ${anio}`);const cc=ccW.map(c=>c.email).join(",");const cuerpo=encodeURIComponent(rec.mensaje(w.nombre)+`\n\nSaludos,\nEquipo Mediterra`);window.open(`mailto:${w.email}${cc?`?cc=${cc}&`:"?"}subject=${asunto}&body=${cuerpo}`);});}}
                         style={{background:color,color:"#fff",border:"none",borderRadius:10,padding:"10px 18px",cursor:"pointer",fontWeight:700,fontSize:13,whiteSpace:"nowrap"}}>
                         Enviar aviso
                       </button>
@@ -867,70 +806,59 @@ export default function App() {
         );
       })()}
 
-      {/* CONFIGURAR - solo CFO */}
+      {/* CONFIGURAR */}
       {tab==="configurar"&&usuarioActual.esCFO&&(
         <div style={{display:"flex",flexDirection:"column",gap:24}}>
           <div style={{background:"#fff",borderRadius:14,padding:20,boxShadow:"0 2px 10px #0001"}}>
             <h3 style={{margin:"0 0 16px",color:"#1e293b",fontSize:15}}>Tareas Semanales - Dia limite</h3>
             <table style={{width:"100%",borderCollapse:"collapse",fontSize:13}}>
-              <thead>
-                <tr style={{background:"#f8fafc",color:"#64748b"}}>
-                  <th style={{padding:"8px 12px",textAlign:"left",fontWeight:600}}>Tarea</th>
-                  <th style={{padding:"8px 12px",textAlign:"center",fontWeight:600,width:120}}>Responsable</th>
-                  <th style={{padding:"8px 12px",textAlign:"center",fontWeight:600,width:200}}>Dia de la semana</th>
+              <thead><tr style={{background:"#f8fafc",color:"#64748b"}}>
+                <th style={{padding:"8px 12px",textAlign:"left",fontWeight:600}}>Tarea</th>
+                <th style={{padding:"8px 12px",textAlign:"center",fontWeight:600,width:120}}>Responsable</th>
+                <th style={{padding:"8px 12px",textAlign:"center",fontWeight:600,width:200}}>Dia de la semana</th>
+              </tr></thead>
+              <tbody>{TAREAS_SEMANALES.map((t,i)=>(
+                <tr key={t.id} style={{borderTop:"1px solid #f1f5f9",background:i%2===0?"#fff":"#f8fafc"}}>
+                  <td style={{padding:"8px 12px",color:"#1e293b"}}>{t.nombre}</td>
+                  <td style={{padding:"8px 12px",textAlign:"center",color:"#64748b"}}>{t.responsable.split(" ")[0]}</td>
+                  <td style={{padding:"8px 12px",textAlign:"center"}}>
+                    <select value={configSemanal[t.id]??t.diaLimiteSem} onChange={e=>setConfigSemanal(prev=>({...prev,[t.id]:parseInt(e.target.value)}))}
+                      style={{padding:"6px 10px",borderRadius:8,border:"1px solid #d1d5db",fontSize:13,cursor:"pointer"}}>
+                      {DIAS_SEMANA.map((d,idx)=><option key={idx} value={idx}>{d}</option>)}
+                    </select>
+                  </td>
                 </tr>
-              </thead>
-              <tbody>
-                {TAREAS_SEMANALES.map((t,i)=>(
-                  <tr key={t.id} style={{borderTop:"1px solid #f1f5f9",background:i%2===0?"#fff":"#f8fafc"}}>
-                    <td style={{padding:"8px 12px",color:"#1e293b"}}>{t.nombre}</td>
-                    <td style={{padding:"8px 12px",textAlign:"center",color:"#64748b"}}>{t.responsable.split(" ")[0]}</td>
-                    <td style={{padding:"8px 12px",textAlign:"center"}}>
-                      <select value={configSemanal[t.id]??t.diaLimiteSem}
-                        onChange={e=>setConfigSemanal(prev=>({...prev,[t.id]:parseInt(e.target.value)}))}
-                        style={{padding:"6px 10px",borderRadius:8,border:"1px solid #d1d5db",fontSize:13,cursor:"pointer"}}>
-                        {DIAS_SEMANA.map((d,idx)=><option key={idx} value={idx}>{d}</option>)}
-                      </select>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
+              ))}</tbody>
             </table>
           </div>
           <div style={{background:"#fff",borderRadius:14,padding:20,boxShadow:"0 2px 10px #0001"}}>
             <h3 style={{margin:"0 0 16px",color:"#1e293b",fontSize:15}}>Tareas Mensuales - Dia limite del mes</h3>
             <table style={{width:"100%",borderCollapse:"collapse",fontSize:13}}>
-              <thead>
-                <tr style={{background:"#f8fafc",color:"#64748b"}}>
-                  <th style={{padding:"8px 12px",textAlign:"left",fontWeight:600}}>Tarea</th>
-                  <th style={{padding:"8px 12px",textAlign:"center",fontWeight:600,width:120}}>Responsable</th>
-                  <th style={{padding:"8px 12px",textAlign:"center",fontWeight:600,width:200}}>Dia del mes</th>
+              <thead><tr style={{background:"#f8fafc",color:"#64748b"}}>
+                <th style={{padding:"8px 12px",textAlign:"left",fontWeight:600}}>Tarea</th>
+                <th style={{padding:"8px 12px",textAlign:"center",fontWeight:600,width:120}}>Responsable</th>
+                <th style={{padding:"8px 12px",textAlign:"center",fontWeight:600,width:200}}>Dia del mes</th>
+              </tr></thead>
+              <tbody>{TAREAS_MENSUALES.map((t,i)=>(
+                <tr key={t.id} style={{borderTop:"1px solid #f1f5f9",background:i%2===0?"#fff":"#f8fafc"}}>
+                  <td style={{padding:"8px 12px",color:"#1e293b"}}>{t.nombre}</td>
+                  <td style={{padding:"8px 12px",textAlign:"center",color:"#64748b"}}>{t.responsable.split(" ")[0]}</td>
+                  <td style={{padding:"8px 12px",textAlign:"center"}}>
+                    <div style={{display:"flex",alignItems:"center",justifyContent:"center",gap:8}}>
+                      <button onClick={()=>setDiasLimite(prev=>({...prev,[t.id]:Math.max(1,(prev[t.id]||t.diaLimite)-1)}))} style={{width:26,height:26,borderRadius:6,border:"1px solid #d1d5db",background:"#fff",cursor:"pointer",fontWeight:700}}>-</button>
+                      <span style={{fontWeight:700,color:"#1e293b",minWidth:30,textAlign:"center",fontSize:15}}>{diasLimite[t.id]||t.diaLimite}</span>
+                      <button onClick={()=>setDiasLimite(prev=>({...prev,[t.id]:Math.min(31,(prev[t.id]||t.diaLimite)+1)}))} style={{width:26,height:26,borderRadius:6,border:"1px solid #d1d5db",background:"#fff",cursor:"pointer",fontWeight:700}}>+</button>
+                      <input type="number" min={1} max={31} value={diasLimite[t.id]||t.diaLimite}
+                        onChange={e=>{const v=parseInt(e.target.value);if(v>=1&&v<=31)setDiasLimite(prev=>({...prev,[t.id]:v}));}}
+                        style={{width:50,padding:"4px 8px",borderRadius:6,border:"1px solid #d1d5db",textAlign:"center",fontSize:13}}/>
+                    </div>
+                  </td>
                 </tr>
-              </thead>
-              <tbody>
-                {TAREAS_MENSUALES.map((t,i)=>(
-                  <tr key={t.id} style={{borderTop:"1px solid #f1f5f9",background:i%2===0?"#fff":"#f8fafc"}}>
-                    <td style={{padding:"8px 12px",color:"#1e293b"}}>{t.nombre}</td>
-                    <td style={{padding:"8px 12px",textAlign:"center",color:"#64748b"}}>{t.responsable.split(" ")[0]}</td>
-                    <td style={{padding:"8px 12px",textAlign:"center"}}>
-                      <div style={{display:"flex",alignItems:"center",justifyContent:"center",gap:8}}>
-                        <button onClick={()=>setDiasLimite(prev=>({...prev,[t.id]:Math.max(1,(prev[t.id]||t.diaLimite)-1)}))}
-                          style={{width:26,height:26,borderRadius:6,border:"1px solid #d1d5db",background:"#fff",cursor:"pointer",fontWeight:700}}>-</button>
-                        <span style={{fontWeight:700,color:"#1e293b",minWidth:30,textAlign:"center",fontSize:15}}>{diasLimite[t.id]||t.diaLimite}</span>
-                        <button onClick={()=>setDiasLimite(prev=>({...prev,[t.id]:Math.min(31,(prev[t.id]||t.diaLimite)+1)}))}
-                          style={{width:26,height:26,borderRadius:6,border:"1px solid #d1d5db",background:"#fff",cursor:"pointer",fontWeight:700}}>+</button>
-                        <input type="number" min={1} max={31} value={diasLimite[t.id]||t.diaLimite}
-                          onChange={e=>{const v=parseInt(e.target.value);if(v>=1&&v<=31)setDiasLimite(prev=>({...prev,[t.id]:v}));}}
-                          style={{width:50,padding:"4px 8px",borderRadius:6,border:"1px solid #d1d5db",textAlign:"center",fontSize:13}}/>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
+              ))}</tbody>
             </table>
           </div>
           <div style={{background:"#dbeafe",borderRadius:10,padding:"10px 16px",fontSize:13,color:"#1d4ed8"}}>
-            Los cambios se guardan automaticamente. La pestana Configurar solo es visible para el CFO.
+            Los cambios se guardan automaticamente. Configurar solo visible para el CFO.
           </div>
         </div>
       )}
