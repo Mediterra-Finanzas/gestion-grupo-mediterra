@@ -303,9 +303,16 @@ export default function App() {
       <div style={{minHeight:"100vh",background:"linear-gradient(135deg,#1e3a5f,#2563eb)",display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"sans-serif",padding:20}}>
         <div style={{background:"#fff",borderRadius:20,padding:40,width:380,maxWidth:"100%",boxShadow:"0 20px 60px #0004"}}>
           <div style={{textAlign:"center",marginBottom:28}}>
-            <div style={{fontSize:40,marginBottom:8}}>📅</div>
-            <h2 style={{margin:0,color:"#1e293b",fontSize:20,fontWeight:800}}>Control Financiero</h2>
-            <p style={{margin:"6px 0 0",color:"#64748b",fontSize:13}}>Grupo Mediterra</p>
+            <svg width="72" height="72" viewBox="0 0 120 120" fill="none" xmlns="http://www.w3.org/2000/svg" style={{marginBottom:8}}>
+              <path d="M10 90 L10 30 L40 65 L60 35 L80 65 L110 30 L110 90" stroke="#7ecfca" strokeWidth="10" strokeLinejoin="round" strokeLinecap="round" fill="none"/>
+              <line x1="60" y1="55" x2="60" y2="80" stroke="#7ecfca" strokeWidth="5" strokeLinecap="round"/>
+              <circle cx="60" cy="42" r="14" fill="#e8f7f6" stroke="#7ecfca" strokeWidth="3"/>
+              <line x1="52" y1="42" x2="68" y2="42" stroke="#7ecfca" strokeWidth="2.5"/>
+              <line x1="60" y1="32" x2="60" y2="52" stroke="#7ecfca" strokeWidth="2.5"/>
+            </svg>
+            <div style={{fontSize:11,letterSpacing:4,color:"#7ecfca",fontWeight:600,marginBottom:4}}>MEDITERRA</div>
+            <h2 style={{margin:0,color:"#1e293b",fontSize:18,fontWeight:800}}>Control Financiero</h2>
+            <p style={{margin:"4px 0 0",color:"#94a3b8",fontSize:12}}>Ingresa con tu nombre y PIN</p>
           </div>
           <div style={{marginBottom:14}}>
             <label style={{fontSize:12,fontWeight:600,color:"#374151",display:"block",marginBottom:4}}>Nombre</label>
@@ -475,11 +482,24 @@ export default function App() {
       {/* Header */}
       <div style={{background:"linear-gradient(135deg,#1e3a5f,#2563eb)",borderRadius:16,padding:"20px 28px",marginBottom:20,color:"#fff"}}>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:8}}>
-          <div>
-            <h1 style={{margin:0,fontSize:22,fontWeight:800}}>Control Financiero y Administrativo</h1>
-            <div style={{fontSize:12,opacity:0.8,marginTop:4}}>
-              Hola, <strong>{usuarioActual.nombre.split(" ")[0]}</strong> - {usuarioActual.cargo}
-              {usuarioActual.esCFO && <span style={{background:"#fbbf24",color:"#78350f",borderRadius:20,padding:"1px 8px",fontSize:10,fontWeight:700,marginLeft:8}}>ACCESO TOTAL</span>}
+          <div style={{display:"flex",alignItems:"center",gap:16}}>
+            <svg width="60" height="60" viewBox="0 0 120 120" fill="none" xmlns="http://www.w3.org/2000/svg">
+              {/* M shape */}
+              <path d="M10 90 L10 30 L40 65 L60 35 L80 65 L110 30 L110 90" stroke="rgba(255,255,255,0.9)" strokeWidth="10" strokeLinejoin="round" strokeLinecap="round" fill="none"/>
+              {/* Tree trunk */}
+              <line x1="60" y1="55" x2="60" y2="80" stroke="rgba(255,255,255,0.9)" strokeWidth="5" strokeLinecap="round"/>
+              {/* Tree top */}
+              <circle cx="60" cy="42" r="14" fill="rgba(255,255,255,0.25)" stroke="rgba(255,255,255,0.9)" strokeWidth="3"/>
+              <line x1="52" y1="42" x2="68" y2="42" stroke="rgba(255,255,255,0.9)" strokeWidth="2.5"/>
+              <line x1="60" y1="32" x2="60" y2="52" stroke="rgba(255,255,255,0.9)" strokeWidth="2.5"/>
+            </svg>
+            <div>
+              <div style={{fontSize:11,opacity:0.7,letterSpacing:3,textTransform:"uppercase",marginBottom:2}}>MEDITERRA</div>
+              <h1 style={{margin:0,fontSize:20,fontWeight:800}}>Control Financiero y Administrativo</h1>
+              <div style={{fontSize:12,opacity:0.8,marginTop:3}}>
+                Hola, <strong>{usuarioActual.nombre.split(" ")[0]}</strong> - {usuarioActual.cargo}
+                {usuarioActual.esCFO && <span style={{background:"#fbbf24",color:"#78350f",borderRadius:20,padding:"1px 8px",fontSize:10,fontWeight:700,marginLeft:8}}>ACCESO TOTAL</span>}
+              </div>
             </div>
           </div>
           <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
