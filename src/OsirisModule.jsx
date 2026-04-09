@@ -262,20 +262,20 @@ const ROYALTY_PLANTA_INIT = [
 
 // Royalty Comercial — ahora con há, US$/há, año/trim cobro, nFactura, pagado
 const ROYALTY_COMERCIAL_INIT = [
-  {id:"rc1", cliente:"Agroextiende",  pais:"Peru",  trimCobro:2,añoCobro:2026,ha:750,  usdHa:3000,  nFact:"F-020",pagado:false},
-  {id:"rc2", cliente:"Allpa",         pais:"Peru",  trimCobro:2,añoCobro:2026,ha:300,  usdHa:3000,  nFact:"F-021",pagado:false},
-  {id:"rc3", cliente:"San Clemente",  pais:"Peru",  trimCobro:2,añoCobro:2026,ha:380,  usdHa:3000,nFact:"F-022",pagado:false},
-  {id:"rc4", cliente:"Mainland",      pais:"Mexico",trimCobro:3,añoCobro:2026,ha:470,  usdHa:3000,  nFact:"",     pagado:false},
-  {id:"rc5", cliente:"Giddings",      pais:"Mexico",trimCobro:3,añoCobro:2026,ha:135,  usdHa:3000,  nFact:"",     pagado:false},
-  {id:"rc6", cliente:"Agroextiende",  pais:"Peru",  trimCobro:2,añoCobro:2027,ha:750,  usdHa:3000,  nFact:"",     pagado:false},
-  {id:"rc7", cliente:"Allpa",         pais:"Peru",  trimCobro:2,añoCobro:2027,ha:300,  usdHa:3000,nFact:"",     pagado:false},
-  {id:"rc8", cliente:"Frusan",        pais:"Peru",  trimCobro:2,añoCobro:2027,ha:400,  usdHa:3000,nFact:"",    pagado:false},
-  {id:"rc9", cliente:"Hass Peru",     pais:"Peru",  trimCobro:2,añoCobro:2027,ha:420,  usdHa:3000,  nFact:"",     pagado:false},
-  {id:"rc10",cliente:"Pura Berries",  pais:"Peru",  trimCobro:2,añoCobro:2027,ha:315,  usdHa:3000,nFact:"",     pagado:false},
-  {id:"rc11",cliente:"Vanguard",      pais:"Peru",  trimCobro:2,añoCobro:2027,ha:2500, usdHa:3000,  nFact:"",     pagado:false},
-  {id:"rc12",cliente:"San Clemente",  pais:"Peru",  trimCobro:2,añoCobro:2027,ha:490,  usdHa:3000,  nFact:"",     pagado:false},
-  {id:"rc13",cliente:"Mainland",      pais:"Mexico",trimCobro:3,añoCobro:2027,ha:1100, usdHa:3000,nFact:"",     pagado:false},
-  {id:"rc14",cliente:"Giddings",      pais:"Mexico",trimCobro:3,añoCobro:2027,ha:120,  usdHa:3000,nFact:"",     pagado:false},
+  {id:"rc1", cliente:"Agroextiende",  pais:"Peru",  trimCobro:2,añoCobro:2026,ha:750,  nPlantas:350000,usdHa:3000,  nFact:"F-020",pagado:false},
+  {id:"rc2", cliente:"Allpa",         pais:"Peru",  trimCobro:2,añoCobro:2026,ha:300,  nPlantas:325475,usdHa:3000,  nFact:"F-021",pagado:false},
+  {id:"rc3", cliente:"San Clemente",  pais:"Peru",  trimCobro:2,añoCobro:2026,ha:380,  nPlantas:338850,usdHa:3000,nFact:"F-022",pagado:false},
+  {id:"rc4", cliente:"Mainland",      pais:"Mexico",trimCobro:3,añoCobro:2026,ha:470,  nPlantas:289250,usdHa:3000,  nFact:"",     pagado:false},
+  {id:"rc5", cliente:"Giddings",      pais:"Mexico",trimCobro:3,añoCobro:2026,ha:135,  nPlantas:108906,usdHa:3000,  nFact:"",     pagado:false},
+  {id:"rc6", cliente:"Agroextiende",  pais:"Peru",  trimCobro:2,añoCobro:2027,ha:750,  nPlantas:350000,usdHa:3000,  nFact:"",     pagado:false},
+  {id:"rc7", cliente:"Allpa",         pais:"Peru",  trimCobro:2,añoCobro:2027,ha:300,  nPlantas:325475,usdHa:3000,nFact:"",     pagado:false},
+  {id:"rc8", cliente:"Frusan",        pais:"Peru",  trimCobro:2,añoCobro:2027,ha:400,  nPlantas:559185,usdHa:3000,nFact:"",    pagado:false},
+  {id:"rc9", cliente:"Hass Peru",     pais:"Peru",  trimCobro:2,añoCobro:2027,ha:420,  nPlantas:267169,usdHa:3000,  nFact:"",     pagado:false},
+  {id:"rc10",cliente:"Pura Berries",  pais:"Peru",  trimCobro:2,añoCobro:2027,ha:315,  nPlantas:259735,usdHa:3000,nFact:"",     pagado:false},
+  {id:"rc11",cliente:"Vanguard",      pais:"Peru",  trimCobro:2,añoCobro:2027,ha:2500, nPlantas:1555705,usdHa:3000,  nFact:"",     pagado:false},
+  {id:"rc12",cliente:"San Clemente",  pais:"Peru",  trimCobro:2,añoCobro:2027,ha:490,  nPlantas:338850,usdHa:3000,  nFact:"",     pagado:false},
+  {id:"rc13",cliente:"Mainland",      pais:"Mexico",trimCobro:3,añoCobro:2027,ha:1100, nPlantas:401000,usdHa:3000,nFact:"",     pagado:false},
+  {id:"rc14",cliente:"Giddings",      pais:"Mexico",trimCobro:3,añoCobro:2027,ha:120,  nPlantas:108906,usdHa:3000,nFact:"",     pagado:false},
 ];
 
 const FEE_ENTRADA_INIT = [
@@ -753,7 +753,7 @@ function RoyaltyPlanta({data,setData,can}) {
 function RoyaltyComercial({data,setData,can}) {
   const [filtroAño,setFiltroAño]=useState("Todos");
   const [modal,setModal]=useState(false);
-  const [form,setForm]=useState({cliente:"",pais:"Peru",trimCobro:2,añoCobro:2026,ha:"",usdHa:3000,nFact:"",pagado:false});
+  const [form,setForm]=useState({cliente:"",pais:"Peru",trimCobro:2,añoCobro:2026,nPlantas:"",ha:"",usdHa:3000,nFact:"",pagado:false});
 
   const calc=useMemo(()=>{
     const h=new Date(); h.setHours(0,0,0,0);
@@ -779,7 +779,7 @@ function RoyaltyComercial({data,setData,can}) {
 
   function agregar(){
     if(!form.cliente.trim()||!form.ha){alert("Cliente y Há a cobrar son obligatorios.");return;}
-    setData(prev=>[...prev,{...form,id:`rc_${Date.now()}`,ha:parseFloat(form.ha)||0,usdHa:parseFloat(form.usdHa)||0,añoCobro:parseInt(form.añoCobro),trimCobro:parseInt(form.trimCobro)}]);
+    setData(prev=>[...prev,{...form,id:`rc_${Date.now()}`,nPlantas:parseFloat(form.nPlantas)||0,ha:parseFloat(form.ha)||0,usdHa:parseFloat(form.usdHa)||0,añoCobro:parseInt(form.añoCobro),trimCobro:parseInt(form.trimCobro)}]);
     setModal(false);
   }
 
@@ -835,7 +835,7 @@ function RoyaltyComercial({data,setData,can}) {
         <table style={{borderCollapse:"collapse",width:"100%",background:"#fff",borderRadius:10,overflow:"hidden"}}>
           <Th cols={[
             {l:"Cliente",w:120},{l:"País",w:70},{l:"Trim./Año cobro",c:true,w:120},
-            {l:"Há a cobrar",c:true,w:100},{l:"US$/Há",c:true,w:90},
+            {l:"N° Plantas",c:true,w:100},{l:"Há a cobrar",c:true,w:100},{l:"US$/Há",c:true,w:90},
             {l:"Mto. Facturar",c:true,w:115},{l:"Mto. Cobrar",c:true,w:115},
             {l:"N° Factura",c:true,w:100},{l:"Fact. Est.",c:true,w:130},{l:"Cobro",c:true,w:110},
             {l:"Alerta",c:true,w:80},
@@ -850,6 +850,7 @@ function RoyaltyComercial({data,setData,can}) {
                   <div style={{fontWeight:600}}>{TRIM_LABELS[r.trimCobro]}</div>
                   <div style={{color:C.gris}}>{r.añoCobro}</div>
                 </td>
+                <td style={{padding:"7px 10px",textAlign:"right",fontWeight:600,color:C.teal}}>{N(r.nPlantas||0)}</td>
                 <td style={{padding:"7px 10px",textAlign:"right",fontWeight:600}}><Cell val={r.ha} onChange={v=>upd(r.id,"ha",parseFloat(v))} type="number" can={can}/></td>
                 <td style={{padding:"7px 10px",textAlign:"center"}}><Cell val={r.usdHa} onChange={v=>upd(r.id,"usdHa",parseFloat(v))} type="number" can={can}/></td>
                 <td style={{padding:"7px 10px",textAlign:"right",fontWeight:700,color:C.mo}}>{$$(r.montoFact)}</td>
@@ -866,7 +867,7 @@ function RoyaltyComercial({data,setData,can}) {
                 </td>
               </tr>
             ))}
-            {filtrado.length===0&&<tr><td colSpan={11} style={{textAlign:"center",padding:32,color:C.gris}}>Sin registros</td></tr>}
+            {filtrado.length===0&&<tr><td colSpan={12} style={{textAlign:"center",padding:32,color:C.gris}}>Sin registros</td></tr>}
           </tbody>
         </table>
       </div>
@@ -876,7 +877,7 @@ function RoyaltyComercial({data,setData,can}) {
           <div style={{background:"#fff",borderRadius:16,padding:28,width:440,maxWidth:"92vw",boxShadow:"0 8px 32px #0003"}}>
             <h3 style={{margin:"0 0 16px",color:C.sl}}>Nuevo Royalty Comercial</h3>
             <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
-              {[["Cliente *","cliente","text",null],["País","pais","select",PAISES],["Trimestre inicio cobro","trimCobro","select",["1","2","3","4"]],["Año inicio cobro","añoCobro","number",null],["Há a cobrar","ha","number",null],["US$/Há (por def. $3.000)","usdHa","number",null],["N° Factura","nFact","text",null]].map(([l,c,t,opts])=>(
+              {[["Cliente *","cliente","text",null],["País","pais","select",PAISES],["Trimestre inicio cobro","trimCobro","select",["1","2","3","4"]],["Año inicio cobro","añoCobro","number",null],["N° Plantas","nPlantas","number",null],["Há a cobrar","ha","number",null],["US$/Há (por def. $3.000)","usdHa","number",null],["N° Factura","nFact","text",null]].map(([l,c,t,opts])=>(
                 <div key={c}>
                   <label style={{fontSize:11,fontWeight:600,color:"#374151",display:"block",marginBottom:4}}>{l}</label>
                   {opts?<select value={form[c]} onChange={e=>setForm(p=>({...p,[c]:e.target.value}))} style={{width:"100%",padding:"7px 10px",borderRadius:8,border:"1px solid #d1d5db",fontSize:13,boxSizing:"border-box"}}>{opts.map(o=><option key={o}>{o}</option>)}</select>
