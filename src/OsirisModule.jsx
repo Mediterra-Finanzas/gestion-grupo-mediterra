@@ -1326,29 +1326,11 @@ function Resumen({rpData,feData,rcData,fvData,tpData}) {
   );
 }
 
-// ── Logo SVG Osiris ───────────────────────────────────────
+// ── Logo Osiris ───────────────────────────────────────────
 function OsirisLogo({height=52}) {
   return (
-    <svg height={height} viewBox="0 0 420 160" style={{display:"block"}} aria-label="Osiris Plant Management">
-      <text x="0" y="118" fontFamily="Arial,sans-serif" fontWeight="900" fontSize="112" fill="#fff" letterSpacing="-3" opacity="0.95">OSIRIS</text>
-      <text x="4" y="150" fontFamily="Arial,sans-serif" fontWeight="400" fontSize="21" fill="rgba(255,255,255,0.65)" letterSpacing="5">PLANT MANAGEMENT</text>
-      <line x1="375" y1="14"  x2="412" y2="36"  stroke="rgba(255,255,255,0.6)" strokeWidth="3" strokeLinecap="round"/>
-      <line x1="412" y1="36"  x2="412" y2="82"  stroke="rgba(255,255,255,0.6)" strokeWidth="3" strokeLinecap="round"/>
-      <line x1="412" y1="82"  x2="375" y2="104" stroke="rgba(255,255,255,0.6)" strokeWidth="3" strokeLinecap="round"/>
-      <line x1="375" y1="104" x2="338" y2="82"  stroke="rgba(255,255,255,0.6)" strokeWidth="3" strokeLinecap="round"/>
-      <line x1="338" y1="82"  x2="338" y2="36"  stroke="rgba(255,255,255,0.6)" strokeWidth="3" strokeLinecap="round"/>
-      <circle cx="375" cy="14"  r="7" fill="none" stroke="#f5c518" strokeWidth="3.5"/>
-      <circle cx="412" cy="36"  r="7" fill="#e74c3c"/>
-      <circle cx="412" cy="82"  r="7" fill="none" stroke="#a569bd" strokeWidth="3.5"/>
-      <circle cx="375" cy="104" r="9" fill="#e67e22"/>
-      <circle cx="338" cy="82"  r="6" fill="#2ecc71"/>
-      <ellipse cx="363" cy="6"  rx="8" ry="5" fill="#2ecc71" transform="rotate(-40 363 6)"/>
-      <ellipse cx="387" cy="5"  rx="8" ry="5" fill="#2ecc71" transform="rotate(30 387 5)"/>
-      <ellipse cx="402" cy="93" rx="7" ry="4" fill="#2ecc71" transform="rotate(50 402 93)"/>
-      <ellipse cx="416" cy="93" rx="7" ry="4" fill="#2ecc71" transform="rotate(-20 416 93)"/>
-      <ellipse cx="327" cy="88" rx="7" ry="4" fill="#2ecc71" transform="rotate(140 327 88)"/>
-      <ellipse cx="331" cy="74" rx="7" ry="4" fill="#2ecc71" transform="rotate(60 331 74)"/>
-    </svg>
+    <img src="/osiris-logo.png" alt="Osiris Plant Management"
+      style={{height:height, objectFit:"contain", display:"block"}}/>
   );
 }
 
