@@ -227,20 +227,20 @@ const ROYALTY_PLANTA_INIT = [
 
 // Royalty Comercial — ahora con há, US$/há, año/trim cobro, nFactura, pagado
 const ROYALTY_COMERCIAL_INIT = [
-  {id:"rc1", cliente:"Agroextiende",  pais:"Peru",  trimCobro:2,añoCobro:2026,ha:750,  usdHa:272,  nFact:"F-020",pagado:false},
-  {id:"rc2", cliente:"Allpa",         pais:"Peru",  trimCobro:2,añoCobro:2026,ha:300,  usdHa:255,  nFact:"F-021",pagado:false},
-  {id:"rc3", cliente:"San Clemente",  pais:"Peru",  trimCobro:2,añoCobro:2026,ha:380,  usdHa:261.5,nFact:"F-022",pagado:false},
-  {id:"rc4", cliente:"Mainland",      pais:"Mexico",trimCobro:3,añoCobro:2026,ha:470,  usdHa:272,  nFact:"",     pagado:false},
-  {id:"rc5", cliente:"Giddings",      pais:"Mexico",trimCobro:3,añoCobro:2026,ha:135,  usdHa:275,  nFact:"",     pagado:false},
-  {id:"rc6", cliente:"Agroextiende",  pais:"Peru",  trimCobro:2,añoCobro:2027,ha:750,  usdHa:272,  nFact:"",     pagado:false},
-  {id:"rc7", cliente:"Allpa",         pais:"Peru",  trimCobro:2,añoCobro:2027,ha:300,  usdHa:382.5,nFact:"",     pagado:false},
-  {id:"rc8", cliente:"Frusan",        pais:"Peru",  trimCobro:2,añoCobro:2027,ha:400,  usdHa:277.95,nFact:"",    pagado:false},
-  {id:"rc9", cliente:"Hass Peru",     pais:"Peru",  trimCobro:2,añoCobro:2027,ha:420,  usdHa:255,  nFact:"",     pagado:false},
-  {id:"rc10",cliente:"Pura Berries",  pais:"Peru",  trimCobro:2,añoCobro:2027,ha:315,  usdHa:273.5,nFact:"",     pagado:false},
-  {id:"rc11",cliente:"Vanguard",      pais:"Peru",  trimCobro:2,añoCobro:2027,ha:2500, usdHa:255,  nFact:"",     pagado:false},
-  {id:"rc12",cliente:"San Clemente",  pais:"Peru",  trimCobro:2,añoCobro:2027,ha:490,  usdHa:255,  nFact:"",     pagado:false},
-  {id:"rc13",cliente:"Mainland",      pais:"Mexico",trimCobro:3,añoCobro:2027,ha:1100, usdHa:295.5,nFact:"",     pagado:false},
-  {id:"rc14",cliente:"Giddings",      pais:"Mexico",trimCobro:3,añoCobro:2027,ha:120,  usdHa:309.6,nFact:"",     pagado:false},
+  {id:"rc1", cliente:"Agroextiende",  pais:"Peru",  trimCobro:2,añoCobro:2026,ha:750,  usdHa:3000,  nFact:"F-020",pagado:false},
+  {id:"rc2", cliente:"Allpa",         pais:"Peru",  trimCobro:2,añoCobro:2026,ha:300,  usdHa:3000,  nFact:"F-021",pagado:false},
+  {id:"rc3", cliente:"San Clemente",  pais:"Peru",  trimCobro:2,añoCobro:2026,ha:380,  usdHa:3000,nFact:"F-022",pagado:false},
+  {id:"rc4", cliente:"Mainland",      pais:"Mexico",trimCobro:3,añoCobro:2026,ha:470,  usdHa:3000,  nFact:"",     pagado:false},
+  {id:"rc5", cliente:"Giddings",      pais:"Mexico",trimCobro:3,añoCobro:2026,ha:135,  usdHa:3000,  nFact:"",     pagado:false},
+  {id:"rc6", cliente:"Agroextiende",  pais:"Peru",  trimCobro:2,añoCobro:2027,ha:750,  usdHa:3000,  nFact:"",     pagado:false},
+  {id:"rc7", cliente:"Allpa",         pais:"Peru",  trimCobro:2,añoCobro:2027,ha:300,  usdHa:3000,nFact:"",     pagado:false},
+  {id:"rc8", cliente:"Frusan",        pais:"Peru",  trimCobro:2,añoCobro:2027,ha:400,  usdHa:3000,nFact:"",    pagado:false},
+  {id:"rc9", cliente:"Hass Peru",     pais:"Peru",  trimCobro:2,añoCobro:2027,ha:420,  usdHa:3000,  nFact:"",     pagado:false},
+  {id:"rc10",cliente:"Pura Berries",  pais:"Peru",  trimCobro:2,añoCobro:2027,ha:315,  usdHa:3000,nFact:"",     pagado:false},
+  {id:"rc11",cliente:"Vanguard",      pais:"Peru",  trimCobro:2,añoCobro:2027,ha:2500, usdHa:3000,  nFact:"",     pagado:false},
+  {id:"rc12",cliente:"San Clemente",  pais:"Peru",  trimCobro:2,añoCobro:2027,ha:490,  usdHa:3000,  nFact:"",     pagado:false},
+  {id:"rc13",cliente:"Mainland",      pais:"Mexico",trimCobro:3,añoCobro:2027,ha:1100, usdHa:3000,nFact:"",     pagado:false},
+  {id:"rc14",cliente:"Giddings",      pais:"Mexico",trimCobro:3,añoCobro:2027,ha:120,  usdHa:3000,nFact:"",     pagado:false},
 ];
 
 const FEE_ENTRADA_INIT = [
@@ -607,7 +607,7 @@ function RoyaltyPlanta({data,setData,can}) {
 function RoyaltyComercial({data,setData,can}) {
   const [filtroAño,setFiltroAño]=useState("Todos");
   const [modal,setModal]=useState(false);
-  const [form,setForm]=useState({cliente:"",pais:"Peru",trimCobro:2,añoCobro:2026,ha:"",usdHa:"",nFact:"",pagado:false});
+  const [form,setForm]=useState({cliente:"",pais:"Peru",trimCobro:2,añoCobro:2026,ha:"",usdHa:3000,nFact:"",pagado:false});
 
   const calc=useMemo(()=>{
     const h=new Date(); h.setHours(0,0,0,0);
@@ -632,7 +632,7 @@ function RoyaltyComercial({data,setData,can}) {
   const upd=(id,c,v)=>setData(prev=>prev.map(r=>r.id===id?{...r,[c]:v}:r));
 
   function agregar(){
-    if(!form.cliente.trim()||!form.ha){alert("Cliente y Há son obligatorios.");return;}
+    if(!form.cliente.trim()||!form.ha){alert("Cliente y Há a cobrar son obligatorios.");return;}
     setData(prev=>[...prev,{...form,id:`rc_${Date.now()}`,ha:parseFloat(form.ha)||0,usdHa:parseFloat(form.usdHa)||0,añoCobro:parseInt(form.añoCobro),trimCobro:parseInt(form.trimCobro)}]);
     setModal(false);
   }
@@ -671,7 +671,7 @@ function RoyaltyComercial({data,setData,can}) {
       </div>
 
       <div style={{background:"#f0fdf4",border:"1px solid #86efac",borderRadius:10,padding:"8px 14px",marginBottom:14,fontSize:12,color:"#15803d"}}>
-        💡 Monto Facturar = Há plantadas × US$/Há &nbsp;·&nbsp; Monto Cobrar = <strong>85% Perú/Chile · 90% México</strong> &nbsp;·&nbsp; Se avisa 1 mes antes del trimestre de cobro
+        💡 Monto Facturar = Há a cobrar × US$/Há (por defecto US$3.000/Há) &nbsp;·&nbsp; Monto Cobrar = <strong>85% Perú/Chile · 90% México</strong> &nbsp;·&nbsp; Se avisa 1 mes antes del trimestre de cobro
       </div>
 
       <div style={{display:"flex",gap:8,marginBottom:14,flexWrap:"wrap"}}>
@@ -689,7 +689,7 @@ function RoyaltyComercial({data,setData,can}) {
         <table style={{borderCollapse:"collapse",width:"100%",background:"#fff",borderRadius:10,overflow:"hidden"}}>
           <Th cols={[
             {l:"Cliente",w:120},{l:"País",w:70},{l:"Trim./Año cobro",c:true,w:120},
-            {l:"Há plantadas",c:true,w:100},{l:"US$/Há",c:true,w:80},
+            {l:"Há a cobrar",c:true,w:100},{l:"US$/Há",c:true,w:90},
             {l:"Mto. Facturar",c:true,w:115},{l:"Mto. Cobrar",c:true,w:115},
             {l:"N° Factura",c:true,w:100},{l:"Fact. Est.",c:true,w:130},{l:"Cobro",c:true,w:110},
             {l:"Alerta",c:true,w:80},
@@ -730,7 +730,7 @@ function RoyaltyComercial({data,setData,can}) {
           <div style={{background:"#fff",borderRadius:16,padding:28,width:440,maxWidth:"92vw",boxShadow:"0 8px 32px #0003"}}>
             <h3 style={{margin:"0 0 16px",color:C.sl}}>Nuevo Royalty Comercial</h3>
             <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
-              {[["Cliente *","cliente","text",null],["País","pais","select",PAISES],["Trimestre inicio cobro","trimCobro","select",["1","2","3","4"]],["Año inicio cobro","añoCobro","number",null],["Há plantadas","ha","number",null],["US$/Há","usdHa","number",null],["N° Factura","nFact","text",null]].map(([l,c,t,opts])=>(
+              {[["Cliente *","cliente","text",null],["País","pais","select",PAISES],["Trimestre inicio cobro","trimCobro","select",["1","2","3","4"]],["Año inicio cobro","añoCobro","number",null],["Há a cobrar","ha","number",null],["US$/Há (por def. $3.000)","usdHa","number",null],["N° Factura","nFact","text",null]].map(([l,c,t,opts])=>(
                 <div key={c}>
                   <label style={{fontSize:11,fontWeight:600,color:"#374151",display:"block",marginBottom:4}}>{l}</label>
                   {opts?<select value={form[c]} onChange={e=>setForm(p=>({...p,[c]:e.target.value}))} style={{width:"100%",padding:"7px 10px",borderRadius:8,border:"1px solid #d1d5db",fontSize:13,boxSizing:"border-box"}}>{opts.map(o=><option key={o}>{o}</option>)}</select>
@@ -921,14 +921,35 @@ function Resumen({rpData,feData,rcData,fvData,tpData}) {
   const rpCalc=rpData.map(r=>{const mf=(Number(r.nPlantas)||0)*(Number(r.usdPlanta)||0);return{...r,montoFact:mf,montoCobro:mf*pct(r.pais)};});
   const rcCalc=rcData.map(r=>{const mf=(Number(r.ha)||0)*(Number(r.usdHa)||0);const fA=fechaAvisoTrim(r.añoCobro,r.trimCobro);const fI=fechaInicioTrim(r.añoCobro,r.trimCobro);return{...r,montoFact:mf,montoCobro:mf*pct(r.pais),alertaActiva:hoy>=fA&&hoy<fI&&!r.nFact};});
 
-  const totRP_cobrado=rpCalc.filter(r=>r.pagado).reduce((s,r)=>s+r.montoCobro,0);
-  const totRP_pend=rpCalc.filter(r=>!r.pagado).reduce((s,r)=>s+r.montoCobro,0);
-  const totRP_fact=rpCalc.reduce((s,r)=>s+r.montoFact,0);
-  const totFE_cob=feData.filter(r=>r.pagado).reduce((s,r)=>s+(r.montoUSD||0),0);
-  const totFE_pend=feData.filter(r=>!r.pagado).reduce((s,r)=>s+(r.montoUSD||0),0);
-  const totRC_2026=rcCalc.filter(r=>r.añoCobro===2026).reduce((s,r)=>s+r.montoFact,0);
-  const totRC_2027=rcCalc.filter(r=>r.añoCobro===2027).reduce((s,r)=>s+r.montoFact,0);
-  const totFV_pend=fvData.filter(r=>!r.pagado).reduce((s,r)=>s+(Number(r.montoFact)||0),0);
+  // ── Royalty/Planta ──
+  // Pendiente de facturar = sin N° factura
+  const totRP_pendFact = rpCalc.filter(r=>!r.nFact||r.nFact.trim()==="").reduce((s,r)=>s+r.montoFact,0);
+  // Facturado = tiene N° factura
+  const totRP_facturado= rpCalc.filter(r=>r.nFact&&r.nFact.trim()!=="").reduce((s,r)=>s+r.montoFact,0);
+  // Por cobrar = facturado pero no pagado
+  const totRP_porCobrar= rpCalc.filter(r=>!r.pagado).reduce((s,r)=>s+r.montoCobro,0);
+  // Cobrado = pagado
+  const totRP_cobrado  = rpCalc.filter(r=>r.pagado).reduce((s,r)=>s+r.montoCobro,0);
+
+  // ── Fee Entrada ──
+  const totFE_facturado= feData.filter(r=>r.nFact&&r.nFact.trim()!=="").reduce((s,r)=>s+(r.montoUSD||0),0);
+  const totFE_porCobrar= feData.filter(r=>!r.pagado).reduce((s,r)=>s+(r.montoUSD||0),0);
+
+  // ── Royalty Comercial ──
+  const totRC_pendFact = rcCalc.filter(r=>!r.nFact||r.nFact.trim()==="").reduce((s,r)=>s+r.montoFact,0);
+  const totRC_facturado= rcCalc.filter(r=>r.nFact&&r.nFact.trim()!=="").reduce((s,r)=>s+r.montoFact,0);
+  const totRC_porCobrar= rcCalc.filter(r=>!r.pagado).reduce((s,r)=>s+r.montoCobro,0);
+
+  // ── Fee Viveros ──
+  const totFV_pendFact = fvData.filter(r=>!r.nFact||r.nFact.trim()==="").reduce((s,r)=>s+(Number(r.montoFact)||0),0);
+  const totFV_facturado= fvData.filter(r=>r.nFact&&r.nFact.trim()!=="").reduce((s,r)=>s+(Number(r.montoFact)||0),0);
+  const totFV_porCobrar= fvData.filter(r=>!r.pagado).reduce((s,r)=>s+(Number(r.montoFact)||0),0);
+
+  // ── Totales globales ──
+  const grandPendFact  = totRP_pendFact + totFE_porCobrar + totRC_pendFact + totFV_pendFact;
+  const grandFacturado = totRP_facturado + totFE_facturado + totRC_facturado + totFV_facturado;
+  const grandPorCobrar = totRP_porCobrar + totFE_porCobrar + totRC_porCobrar + totFV_porCobrar;
+
   const totPlantas=tpData.reduce((s,r)=>s+(Number(r.nPlantas)||0),0);
   const sinConfirmar=tpData.filter(r=>r.estado==="Por confirmar").length;
 
@@ -959,23 +980,41 @@ function Resumen({rpData,feData,rcData,fvData,tpData}) {
         </div>
       )}
 
-      {/* KPIs */}
-      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(185px,1fr))",gap:12}}>
+      {/* KPIs globales */}
+      <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:12,marginBottom:12}}>
         {[
-          ["🌱 Total Plantas",       N(totPlantas),    C.teal,  C.tealBg],
-          ["📦 Por confirmar",       sinConfirmar,     C.am,    C.amBg],
-          ["✅ RP Cobrado",          $$(totRP_cobrado), "#22c55e","#dcfce7"],
-          ["⏳ RP Por cobrar",       $$(totRP_pend),   C.am,    C.amBg],
-          ["📋 RP Total Facturar",   $$(totRP_fact),   C.azul,  C.azulBg],
-          ["📄 Fee Entrada cobrado", $$(totFE_cob),    "#22c55e","#dcfce7"],
-          ["⚠️ Fee Entrada pend.",   $$(totFE_pend),   C.rojo,  C.rojoBg],
-          ["📊 RC Facturar 2026",    $$(totRC_2026),   C.mo,    C.moBg],
-          ["📈 RC Facturar 2027",    $$(totRC_2027),   C.gris,  C.grisBg],
-          ["🌿 Viveros por cobrar",  $$(totFV_pend),   C.am,    C.amBg],
+          ["\u23F8 Total pendiente de facturar", $$(grandPendFact),  C.azul, C.azulBg],
+          ["\uD83D\uDCC4 Total facturado",      $$(grandFacturado), C.mo,   C.moBg],
+          ["\u23F3 Total por cobrar",            $$(grandPorCobrar), C.am,   C.amBg],
         ].map(([l,v,c,bg])=>(
-          <div key={l} style={{background:bg,borderRadius:12,padding:"14px 16px"}}>
+          <div key={l} style={{background:bg,borderRadius:12,padding:"16px 18px",border:`1px solid ${c}33`}}>
+            <div style={{fontSize:11,color:c,fontWeight:700,marginBottom:4}}>{l}</div>
+            <div style={{fontSize:22,fontWeight:800,color:c}}>{v}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* KPIs por modulo */}
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(175px,1fr))",gap:10}}>
+        {[
+          ["Total Plantas",          N(totPlantas),       C.teal,  C.tealBg],
+          ["Pedidos por confirmar",  sinConfirmar,        C.am,    C.amBg],
+          ["RP Pend. facturar",      $$(totRP_pendFact),  C.azul,  C.azulBg],
+          ["RP Facturado",           $$(totRP_facturado), C.mo,    C.moBg],
+          ["RP Por cobrar",          $$(totRP_porCobrar), C.am,    C.amBg],
+          ["RP Cobrado",             $$(totRP_cobrado),   C.verde, C.verdeBg],
+          ["RC Pend. facturar",      $$(totRC_pendFact),  C.azul,  C.azulBg],
+          ["RC Facturado",           $$(totRC_facturado), C.mo,    C.moBg],
+          ["RC Por cobrar",          $$(totRC_porCobrar), C.am,    C.amBg],
+          ["Viveros pend. facturar", $$(totFV_pendFact),  C.azul,  C.azulBg],
+          ["Viveros facturado",      $$(totFV_facturado), C.mo,    C.moBg],
+          ["Viveros por cobrar",     $$(totFV_porCobrar), C.am,    C.amBg],
+          ["Fee Entrada facturado",  $$(totFE_facturado), C.mo,    C.moBg],
+          ["Fee Entrada por cobrar", $$(totFE_porCobrar), C.am,    C.amBg],
+        ].map(([l,v,c,bg])=>(
+          <div key={l} style={{background:bg,borderRadius:10,padding:"12px 14px"}}>
             <div style={{fontSize:10,color:c,fontWeight:600,marginBottom:2}}>{l}</div>
-            <div style={{fontSize:16,fontWeight:800,color:c}}>{v}</div>
+            <div style={{fontSize:15,fontWeight:800,color:c}}>{v}</div>
           </div>
         ))}
       </div>
