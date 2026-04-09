@@ -1768,6 +1768,56 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,osiri
     {id:"feeViveros",       label:"🌱 Fee Viveros",       badge:0},
   ];
 
+  // ── HUB INTERNO ───────────────────────────────────────────
+  if(subApp===null) return(
+    <div style={{fontFamily:"sans-serif"}}>
+      <div style={{background:"linear-gradient(135deg,#0f2d4a,#1a5276)",borderRadius:14,padding:"20px 28px",marginBottom:28,display:"flex",alignItems:"center",gap:16}}>
+        <OsirisLogo height={52}/>
+        <div>
+          <div style={{fontSize:12,color:"rgba(255,255,255,0.45)",letterSpacing:2,marginBottom:2}}>MÓDULO</div>
+          <div style={{fontSize:11,color:"rgba(255,255,255,0.4)"}}>Selecciona una aplicación</div>
+        </div>
+      </div>
+      <div style={{display:"flex",gap:20,justifyContent:"center",flexWrap:"wrap",padding:"0 8px"}}>
+        <button onClick={()=>setSubApp("ingresos")}
+          style={{background:"linear-gradient(135deg,#0f2d4a,#0f766e)",border:"1px solid rgba(255,255,255,0.15)",borderRadius:20,padding:"32px 36px",cursor:"pointer",width:280,textAlign:"left",boxShadow:"0 8px 32px rgba(0,0,0,0.3)",transition:"transform 0.15s",position:"relative"}}
+          onMouseEnter={e=>e.currentTarget.style.transform="translateY(-4px)"}
+          onMouseLeave={e=>e.currentTarget.style.transform="translateY(0)"}>
+          <div style={{fontSize:40,marginBottom:12}}>💰</div>
+          <div style={{fontSize:18,fontWeight:800,color:"#fff",marginBottom:6}}>Ingresos Osiris</div>
+          <div style={{fontSize:12,color:"rgba(255,255,255,0.6)"}}>Royalties, Fee Viveros, Total Pedidos y Resumen de cobros</div>
+          <div style={{position:"absolute",bottom:16,right:18,fontSize:20,color:"rgba(255,255,255,0.3)"}}>→</div>
+        </button>
+        <button onClick={()=>setSubApp("contratos")}
+          style={{background:"linear-gradient(135deg,#1e1b4b,#4338ca)",border:"1px solid rgba(255,255,255,0.15)",borderRadius:20,padding:"32px 36px",cursor:"pointer",width:280,textAlign:"left",boxShadow:"0 8px 32px rgba(0,0,0,0.3)",transition:"transform 0.15s",position:"relative"}}
+          onMouseEnter={e=>e.currentTarget.style.transform="translateY(-4px)"}
+          onMouseLeave={e=>e.currentTarget.style.transform="translateY(0)"}>
+          <div style={{fontSize:40,marginBottom:12}}>📋</div>
+          <div style={{fontSize:18,fontWeight:800,color:"#fff",marginBottom:6}}>Control Contratos</div>
+          <div style={{fontSize:12,color:"rgba(255,255,255,0.6)"}}>Gestión de contratos, firmas, anexos y condiciones comerciales</div>
+          <div style={{position:"absolute",bottom:16,right:18,fontSize:20,color:"rgba(255,255,255,0.3)"}}>→</div>
+        </button>
+      </div>
+    </div>
+  );
+
+  // ── CONTROL CONTRATOS ──────────────────────────────────────
+  if(subApp==="contratos") return(
+    <div>
+      <div style={{background:"linear-gradient(135deg,#1e1b4b,#4338ca)",borderRadius:14,padding:"14px 20px",marginBottom:18,display:"flex",alignItems:"center",gap:14}}>
+        <button onClick={()=>setSubApp(null)} style={{background:"rgba(255,255,255,0.15)",border:"none",color:"#fff",borderRadius:8,padding:"5px 12px",cursor:"pointer",fontSize:12,fontWeight:600}}>← Hub</button>
+        <div style={{flex:1}}>
+          <div style={{fontSize:15,fontWeight:800,color:"#fff"}}>📋 Control Contratos</div>
+          <div style={{fontSize:11,color:"rgba(255,255,255,0.5)"}}>Gestión de contratos Osiris</div>
+        </div>
+        <div style={{fontSize:13,color:"rgba(255,255,255,0.6)"}}>{ctData.length} contratos</div>
+      </div>
+      <div style={{background:"#fff",borderRadius:14,padding:20,boxShadow:"0 2px 10px #0001"}}>
+        <ControlContratos data={ctData} setData={setCt} can={can}/>
+      </div>
+    </div>
+  );
+
   return (
     <div>
       {/* Header */}
