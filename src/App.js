@@ -621,7 +621,7 @@ export default function App(){
     setPinsPersonalizados(nuevosPins);
     await dbSave({estados,comentarios,tareasConfig,supervisores,tareasExtra,pinsPersonalizados:nuevosPins,recsDone,recsComentarios,usuarios,mes,anio,osirisData});
     try{
-      await enviarEmail(w.email,w.nombre,"PIN temporal - Mediterra",`Tu PIN temporal es: ${temporal}\nIngresa con este PIN y cambialo inmediatamente.\n\nhttps://calendario-mediterra-2026.vercel.app`);
+      await enviarEmail(w.email,w.nombre,"PIN temporal - Mediterra",`Tu PIN temporal es: ${temporal}\nIngresa con este PIN y cambialo inmediatamente.\n\nhttps://gestion-grupo-mediterra.vercel.app`);
       setResetMsg("PIN enviado a "+w.email);
     }catch{setResetMsg("Error al enviar.");}
     setResetEnviando(false);
@@ -694,7 +694,7 @@ export default function App(){
       for(const dep of modalNotif.dependientes){
         const w=WORKERS.find(x=>x.nombre===dep.responsable);
         if(w)await enviarEmail(w.email,w.nombre,`Tarea desbloqueada: ${dep.nombre}`,
-          `Hola ${w.nombre.split(" ")[0]},\n\n"${modalNotif.tarea.nombre}" fue completada.\nAhora puedes iniciar: "${dep.nombre}"\n\n${textoNotif?`Nota: ${textoNotif}\n\n`:""}https://calendario-mediterra-2026.vercel.app\n\nSaludos`);
+          `Hola ${w.nombre.split(" ")[0]},\n\n"${modalNotif.tarea.nombre}" fue completada.\nAhora puedes iniciar: "${dep.nombre}"\n\n${textoNotif?`Nota: ${textoNotif}\n\n`:""}https://gestion-grupo-mediterra.vercel.app\n\nSaludos`);
       }
       alert("Notificacion enviada!");
     }catch{alert("Error al enviar.");}
@@ -731,7 +731,7 @@ export default function App(){
   }
   function enviarEmailPersona(w,tareas){
     const asunto=encodeURIComponent(`Tareas pendientes - ${MESES[mes]} ${anio}`);
-    const cuerpo=encodeURIComponent(`Hola ${w.nombre.split(" ")[0]},\n\nLas siguientes tareas estan vencidas:\n\n`+tareas.map(t=>`- ${t.nombre}`).join('\n')+`\n\nhttps://calendario-mediterra-2026.vercel.app\n\nSaludos`);
+    const cuerpo=encodeURIComponent(`Hola ${w.nombre.split(" ")[0]},\n\nLas siguientes tareas estan vencidas:\n\n`+tareas.map(t=>`- ${t.nombre}`).join('\n')+`\n\nhttps://gestion-grupo-mediterra.vercel.app\n\nSaludos`);
     window.open(`mailto:${w.email}?subject=${asunto}&body=${cuerpo}`);
   }
   const totalVencidas=(()=>{let c=0;todasTareas().filter(t=>!isBloqueada(t.id)).forEach(t=>{if(getFrecuencia(t.id)==="Mensual"){if(estaVencida(t,t.id,null))c++;}else semanas.forEach(s=>{if(estaVencida(t,`${t.id}_s${s.num}`,s.num))c++;});});return c;})();
