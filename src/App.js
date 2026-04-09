@@ -189,7 +189,6 @@ function modulosDeUsuario(usuario){
 // PANEL DE PERMISOS — solo visible para admin en el Hub
 // ══════════════════════════════════════════════════════════
 function PanelPermisos({ usuarios, setUsuarios, onClose }) {
-  const [editando, setEditando] = useState(null); // nombre del usuario editando
 
   function toggleModulo(nombreU, modId) {
     setUsuarios(prev => prev.map(u => {
