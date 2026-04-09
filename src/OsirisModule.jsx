@@ -1110,8 +1110,99 @@ function Resumen({rpData,feData,rcData,fvData,tpData}) {
 
   const proximos=rpCalc.filter(r=>{if(!r.fechaPago||r.pagado)return false;const f=new Date(r.fechaPago);const d=(f-hoy)/(1000*60*60*24);return d>=0&&d<=60;}).sort((a,b)=>new Date(a.fechaPago)-new Date(b.fechaPago));
 
+  // Calendario de cobros futuros por mes/año
+  const MESES_CORTO=["Ene","Feb","Mar","Abr","May","Jun","Jul","Ago","Sep","Oct","Nov","Dic"];
+  const calendarioCobros={};
+  function addCobro(fecha,tipo,monto){
+    if(!fecha||!monto||monto<=0)return;
+    const f=new Date(fecha);if(isNaN(f.getTime())||f<hoy)return;
+    const key=`${f.getFullYear()}-${String(f.getMonth()+1).padStart(2,'0')}`;
+    if(!calendarioCobros[key])calendarioCobros[key]={año:f.getFullYear(),mes:f.getMonth(),rp:0,rc:0,fv:0,fe:0};
+    calendarioCobros[key][tipo]+=monto;
+  }
+  rpCalc.filter(r=>!r.pagado&&r.fechaPago).forEach(r=>addCobro(r.fechaPago,"rp",r.montoCobro));
+  rcCalc.filter(r=>!r.pagado).forEach(r=>{const f=fechaInicioTrim(r.añoCobro,r.trimCobro);addCobro(f.toISOString().slice(0,10),"rc",r.montoCobro);});
+  fvData.filter(r=>!r.pagado&&r.fechaFact).forEach(r=>addCobro(r.fechaFact,"fv",Number(r.montoFact)||0));
+  feData.filter(r=>!r.pagado&&r.fechaPago).forEach(r=>addCobro(r.fechaPago,"fe",Number(r.montoUSD)||0));
+  const calKeys=Object.keys(calendarioCobros).sort();
+  const calPorAño={};
+  calKeys.forEach(k=>{
+    const row=calendarioCobros[k];
+    row.total=row.rp+row.rc+row.fv+row.fe;row.key=k;
+    if(!calPorAño[row.año])calPorAño[row.año]=[];
+    calPorAño[row.año].push(row);
+  });
+  const totalAnual={};
+  Object.entries(calPorAño).forEach(([año,rows])=>{
+    totalAnual[año]={rp:0,rc:0,fv:0,fe:0,total:0};
+    rows.forEach(r=>{totalAnual[año].rp+=r.rp;totalAnual[año].rc+=r.rc;totalAnual[año].fv+=r.fv;totalAnual[año].fe+=r.fe;totalAnual[año].total+=r.total;});
+  });
+
   return (
     <div style={{display:"flex",flexDirection:"column",gap:20}}>
+
+      {/* CALENDARIO DE COBROS FUTUROS */}
+      <div style={{background:"#fff",borderRadius:14,padding:20,boxShadow:"0 2px 10px #0001"}}>
+        <h3 style={{margin:"0 0 16px",color:C.sl,fontSize:15,display:"flex",alignItems:"center",gap:8}}>
+          📅 Calendario de Ingresos por Cobrar
+          <span style={{fontSize:11,color:C.gris,fontWeight:400}}>— agrupado por año y mes</span>
+        </h3>
+
+        {Object.entries(calPorAño).sort().map(([año,rows])=>(
+          <div key={año} style={{marginBottom:24}}>
+            {/* Encabezado año */}
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10,
+              background:"linear-gradient(135deg,#1e3a5f,#2563eb)",borderRadius:10,padding:"10px 16px"}}>
+              <div style={{fontWeight:800,fontSize:16,color:"#fff"}}>{año}</div>
+              <div style={{display:"flex",gap:16,flexWrap:"wrap",alignItems:"center"}}>
+                {[["RP",totalAnual[año].rp,"#93c5fd"],["RC",totalAnual[año].rc,"#c4b5fd"],
+                  ["FV",totalAnual[año].fv,"#6ee7b7"],["FE",totalAnual[año].fe,"#fde68a"]].map(([l,v,c])=>
+                  v>0?<span key={l} style={{fontSize:11,color:c,fontWeight:600}}>{l}: {$$(v)}</span>:null
+                )}
+                <span style={{fontSize:14,fontWeight:800,color:"#fbbf24"}}>Total: {$$(totalAnual[año].total)}</span>
+              </div>
+            </div>
+
+            {/* Tabla meses */}
+            <div style={{overflowX:"auto"}}>
+              <table style={{borderCollapse:"collapse",width:"100%",fontSize:12}}>
+                <thead>
+                  <tr style={{background:"#f8fafc",color:C.gris,fontSize:11}}>
+                    {["Mes","Royalty/Planta","Royalty Comercial","Fee Viveros","Fee Entrada","Total Mes"].map(h=>(
+                      <th key={h} style={{padding:"8px 12px",textAlign:h==="Mes"?"left":"right",fontWeight:600,whiteSpace:"nowrap"}}>{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {rows.map((r,i)=>(
+                    <tr key={r.key} style={{borderTop:"1px solid #f1f5f9",background:i%2===0?"#fff":"#f8fafc"}}>
+                      <td style={{padding:"9px 12px",fontWeight:700,color:C.sl,whiteSpace:"nowrap"}}>
+                        {MESES_CORTO[r.mes]} {r.año}
+                      </td>
+                      <td style={{padding:"9px 12px",textAlign:"right",color:r.rp>0?C.azul:C.gris}}>{r.rp>0?$$(r.rp):"—"}</td>
+                      <td style={{padding:"9px 12px",textAlign:"right",color:r.rc>0?C.mo:C.gris}}>{r.rc>0?$$(r.rc):"—"}</td>
+                      <td style={{padding:"9px 12px",textAlign:"right",color:r.fv>0?C.teal:C.gris}}>{r.fv>0?$$(r.fv):"—"}</td>
+                      <td style={{padding:"9px 12px",textAlign:"right",color:r.fe>0?C.verde:C.gris}}>{r.fe>0?$$(r.fe):"—"}</td>
+                      <td style={{padding:"9px 12px",textAlign:"right",fontWeight:700,color:C.sl,background:"#f0f9ff",fontSize:13}}>{$$(r.total)}</td>
+                    </tr>
+                  ))}
+                  {/* Fila total año */}
+                  <tr style={{borderTop:"2px solid #e2e8f0",background:"#f0f9ff"}}>
+                    <td style={{padding:"9px 12px",fontWeight:800,color:C.sl}}>Total {año}</td>
+                    <td style={{padding:"9px 12px",textAlign:"right",fontWeight:700,color:C.azul}}>{totalAnual[año].rp>0?$$(totalAnual[año].rp):"—"}</td>
+                    <td style={{padding:"9px 12px",textAlign:"right",fontWeight:700,color:C.mo}}>{totalAnual[año].rc>0?$$(totalAnual[año].rc):"—"}</td>
+                    <td style={{padding:"9px 12px",textAlign:"right",fontWeight:700,color:C.teal}}>{totalAnual[año].fv>0?$$(totalAnual[año].fv):"—"}</td>
+                    <td style={{padding:"9px 12px",textAlign:"right",fontWeight:700,color:C.verde}}>{totalAnual[año].fe>0?$$(totalAnual[año].fe):"—"}</td>
+                    <td style={{padding:"9px 12px",textAlign:"right",fontWeight:800,color:"#2563eb",fontSize:14}}>{$$(totalAnual[año].total)}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        ))}
+        {calKeys.length===0&&<div style={{textAlign:"center",color:C.gris,fontSize:13,padding:24}}>No hay cobros futuros registrados.</div>}
+      </div>
+
       {/* Alertas Royalty Comercial */}
       {alertasRC.length>0&&(
         <div>
