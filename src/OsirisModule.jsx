@@ -1,7 +1,7 @@
 // ============================================================
 // OsirisModule.jsx — v3 — Módulo Osiris Plant · Mediterra
 // ============================================================
-import { useState, useCallback, useMemo, useEffect } from "react";
+import { useState, useCallback, useMemo } from "react";
 
 // ── Paleta ────────────────────────────────────────────────
 const C = {
@@ -609,17 +609,18 @@ function RoyaltyComercial({data,setData,can}) {
   const [modal,setModal]=useState(false);
   const [form,setForm]=useState({cliente:"",pais:"Peru",trimCobro:2,añoCobro:2026,ha:"",usdHa:"",nFact:"",pagado:false});
 
-  const hoy=new Date(); hoy.setHours(0,0,0,0);
-
-  const calc=useMemo(()=>data.map(r=>{
-    const mf=(Number(r.ha)||0)*(Number(r.usdHa)||0);
-    const mc=mf*pct(r.pais);
-    const fAviso=fechaAvisoTrim(r.añoCobro,r.trimCobro);
-    const fInicio=fechaInicioTrim(r.añoCobro,r.trimCobro);
-    const diasAviso=Math.ceil((fAviso-hoy)/(1000*60*60*24));
-    const alertaActiva=hoy>=fAviso&&hoy<fInicio&&!r.nFact;
-    return{...r,montoFact:mf,montoCobro:mc,fAviso,fInicio,diasAviso,alertaActiva};
-  }),[data,hoy]);
+  const calc=useMemo(()=>{
+    const h=new Date(); h.setHours(0,0,0,0);
+    return data.map(r=>{
+      const mf=(Number(r.ha)||0)*(Number(r.usdHa)||0);
+      const mc=mf*pct(r.pais);
+      const fAviso=fechaAvisoTrim(r.añoCobro,r.trimCobro);
+      const fInicio=fechaInicioTrim(r.añoCobro,r.trimCobro);
+      const diasAviso=Math.ceil((fAviso-h)/(1000*60*60*24));
+      const alertaActiva=h>=fAviso&&h<fInicio&&!r.nFact;
+      return{...r,montoFact:mf,montoCobro:mc,fAviso,fInicio,diasAviso,alertaActiva};
+    });
+  },[data]);
 
   const años=["Todos",...Array.from(new Set(calc.map(r=>r.añoCobro))).sort()];
   const filtrado=calc.filter(r=>filtroAño==="Todos"||r.añoCobro===Number(filtroAño));
@@ -1086,12 +1087,11 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,osiri
   const fvData=osirisData?.feeViveros       ??FEE_VIVEROS_INIT;
   const tpData=osirisData?.totalPedidos     ??TOTAL_PEDIDOS_INIT;
 
-  const mk=(key,init)=>fn=>setOsirisData(prev=>({...prev,[key]:typeof fn==="function"?fn(prev?.[key]??init):fn}));
-  const setRp=useCallback(mk("royaltyPlanta",   ROYALTY_PLANTA_INIT),   [setOsirisData]);
-  const setFe=useCallback(mk("feeEntrada",       FEE_ENTRADA_INIT),      [setOsirisData]);
-  const setRc=useCallback(mk("royaltyComercial", ROYALTY_COMERCIAL_INIT),[setOsirisData]);
-  const setFv=useCallback(mk("feeViveros",       FEE_VIVEROS_INIT),      [setOsirisData]);
-  const setTp=useCallback(mk("totalPedidos",     TOTAL_PEDIDOS_INIT),    [setOsirisData]);
+  const setRp=useCallback(fn=>setOsirisData(prev=>({...prev,royaltyPlanta:   typeof fn==="function"?fn(prev?.royaltyPlanta   ??ROYALTY_PLANTA_INIT)   :fn})),[setOsirisData]);
+  const setFe=useCallback(fn=>setOsirisData(prev=>({...prev,feeEntrada:      typeof fn==="function"?fn(prev?.feeEntrada      ??FEE_ENTRADA_INIT)      :fn})),[setOsirisData]);
+  const setRc=useCallback(fn=>setOsirisData(prev=>({...prev,royaltyComercial:typeof fn==="function"?fn(prev?.royaltyComercial??ROYALTY_COMERCIAL_INIT):fn})),[setOsirisData]);
+  const setFv=useCallback(fn=>setOsirisData(prev=>({...prev,feeViveros:      typeof fn==="function"?fn(prev?.feeViveros      ??FEE_VIVEROS_INIT)      :fn})),[setOsirisData]);
+  const setTp=useCallback(fn=>setOsirisData(prev=>({...prev,totalPedidos:    typeof fn==="function"?fn(prev?.totalPedidos    ??TOTAL_PEDIDOS_INIT)    :fn})),[setOsirisData]);
 
   const can=esAdmin(usuarioActual?.nombre||"");
 
