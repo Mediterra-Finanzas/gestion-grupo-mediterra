@@ -45,7 +45,28 @@ async function enviarEmail(toEmail, nombre, asunto, cuerpo) {
 const DIAS_SEMANA = ["Lunes","Martes","Miercoles","Jueves","Viernes"];
 const MESES = ["Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"];
 const FRECUENCIAS = ["Diaria","Semanal","Mensual"];
-const ROLES = [{v:"editor",l:"Editor - gestiona sus tareas"},{v:"consulta",l:"Consulta - solo visualiza"},{v:"admin",l:"Administrador - acceso total"}];
+
+// Roles del sistema
+const ROLES = [
+  {v:"admin",    l:"Administrador – acceso total"},
+  {v:"editor",   l:"Editor – gestiona sus tareas"},
+  {v:"consulta", l:"Consulta – solo visualiza"},
+];
+
+// Módulos disponibles — agregar aquí nuevos módulos en el futuro
+const MODULOS_DISPONIBLES = [
+  {id:"tareas", label:"Seguimiento Tareas",     sublabel:"Administración y Finanzas", icon:"📋", color:"#2563eb", bg:"#dbeafe", grad:"linear-gradient(135deg,#1e3a5f,#2563eb)"},
+  {id:"osiris", label:"Osiris Plant Management",sublabel:"Gestión de Ingresos",       icon:"🌿", color:"#0f766e", bg:"#ccfbf1", grad:"linear-gradient(135deg,#0f2d4a,#0f766e)"},
+  // Futuros módulos se agregan aquí:
+  // {id:"frisku", label:"Frisku Foods", sublabel:"Gestión Operacional", icon:"🫐", color:"#7c3aed", bg:"#ede9fe", grad:"linear-gradient(135deg,#1a1a2e,#7c3aed)"},
+];
+
+// Accesos por módulo configurables por usuario
+const ACCESOS_OPCIONES = [
+  {v:"todos",  l:"Acceso a todos los módulos"},
+  {v:"tareas", l:"Solo Seguimiento Tareas"},
+  {v:"osiris", l:"Solo Osiris"},
+];
 
 function diaHabil(anio,mes,dia){
   const f=new Date(anio,mes,dia);const d=f.getDay();
@@ -62,10 +83,10 @@ const RECORDATORIOS=[
     mensaje:(n)=>`Estimada ${n.split(" ")[0]}, te recordamos que el dia 25 de este mes corresponde emitir la factura de servicios Frisku.`},
 ];
 
-function getRecordatoriosActivos(nombre,anio,mes,esAdmin){
+function getRecordatoriosActivos(nombre,anio,mes,esAdm){
   const hoy=new Date();hoy.setHours(0,0,0,0);
   return RECORDATORIOS
-    .filter(r=>r.destinatarios.includes(nombre)||r.copia.includes(nombre)||esAdmin)
+    .filter(r=>r.destinatarios.includes(nombre)||r.copia.includes(nombre)||esAdm)
     .map(r=>{const fv=diaHabil(anio,mes,r.diaMes);const fa=new Date(fv);fa.setDate(fv.getDate()-2);const diff=Math.ceil((fv-hoy)/(1000*60*60*24));return{...r,fechaVence:fv,diff,activo:hoy>=fa};})
     .filter(r=>r.activo);
 }
@@ -80,11 +101,11 @@ const SEMAFORO={
 const ORDEN_SEM=["gris","verde","amarillo","rojo","na"];
 
 const WORKERS_BASE=[
-  {nombre:"Milagros Becerra",cargo:"Sec. Administrativa",     email:"Mbecerra@grupomediterra.cl",pin:"4827",rol:"editor",esCFO:false},
-  {nombre:"Carol Machuca",   cargo:"Analista Finanzas",       email:"cmachuca@grupomediterra.cl",pin:"3159",rol:"editor",esCFO:false},
-  {nombre:"Michelle Garcia", cargo:"Contadora General",       email:"mgarcia@grupomediterra.cl", pin:"7413",rol:"editor",esCFO:false},
-  {nombre:"Pablo Duran",     cargo:"Asistente Contable",      email:"pduran@grupomediterra.cl",  pin:"2986",rol:"editor",esCFO:false},
-  {nombre:"Angelo Huerta",   cargo:"Gerencia Adm. y Finanzas",email:"ahuerta@grupomediterra.cl", pin:"6054",rol:"admin", esCFO:true},
+  {nombre:"Milagros Becerra",cargo:"Sec. Administrativa",     email:"Mbecerra@grupomediterra.cl",pin:"4827",rol:"editor", acceso:"tareas", esCFO:false},
+  {nombre:"Carol Machuca",   cargo:"Analista Finanzas",       email:"cmachuca@grupomediterra.cl",pin:"3159",rol:"editor", acceso:"todos",  esCFO:false},
+  {nombre:"Michelle Garcia", cargo:"Contadora General",       email:"mgarcia@grupomediterra.cl", pin:"7413",rol:"editor", acceso:"tareas", esCFO:false},
+  {nombre:"Pablo Duran",     cargo:"Asistente Contable",      email:"pduran@grupomediterra.cl",  pin:"2986",rol:"editor", acceso:"tareas", esCFO:false},
+  {nombre:"Angelo Huerta",   cargo:"Gerencia Adm. y Finanzas",email:"ahuerta@grupomediterra.cl", pin:"6054",rol:"admin",  acceso:"todos",  esCFO:true},
 ];
 
 const CATEGORIAS={
@@ -114,7 +135,7 @@ const TAREAS_BASE=[
   {id:"s15",nombre:"Registro contable",                                    responsable:"Michelle Garcia", supervisor:"Angelo Huerta",  categoria:"Contabilidad",  frecuencia:"Semanal",diaLimiteSem:2,diaLimite:7, dependeDe:null},
   {id:"s16",nombre:"Conciliaciones",                                       responsable:"Michelle Garcia", supervisor:"Angelo Huerta",  categoria:"Contabilidad",  frecuencia:"Semanal",diaLimiteSem:3,diaLimite:7, dependeDe:null},
   {id:"s17",nombre:"Ingreso movimientos bancarios",                        responsable:"Pablo Duran",     supervisor:"Michelle Garcia",categoria:"Contabilidad",  frecuencia:"Semanal",diaLimiteSem:0,diaLimite:5, dependeDe:null},
-  {id:"s18",nombre:"Registro pagos de nominas",                        responsable:"Pablo Duran",     supervisor:"Michelle Garcia",categoria:"Contabilidad",  frecuencia:"Semanal",diaLimiteSem:3,diaLimite:8, dependeDe:"s6"},
+  {id:"s18",nombre:"Registro pagos de nominas",                            responsable:"Pablo Duran",     supervisor:"Michelle Garcia",categoria:"Contabilidad",  frecuencia:"Semanal",diaLimiteSem:3,diaLimite:8, dependeDe:"s6"},
   {id:"m1", nombre:"EERR real vs presupuesto + analisis de variaciones",   responsable:"Carol Machuca",   supervisor:"Angelo Huerta",  categoria:"Finanzas",      frecuencia:"Mensual",diaLimiteSem:0,diaLimite:18,dependeDe:"m11"},
   {id:"m2", nombre:"Identificacion de riesgos financieros",                responsable:"Carol Machuca",   supervisor:"Angelo Huerta",  categoria:"Finanzas",      frecuencia:"Mensual",diaLimiteSem:0,diaLimite:20,dependeDe:null},
   {id:"m3", nombre:"Preparacion planillas anticipo clientes",              responsable:"Carol Machuca",   supervisor:"Angelo Huerta",  categoria:"Finanzas",      frecuencia:"Mensual",diaLimiteSem:0,diaLimite:5, dependeDe:null},
@@ -152,7 +173,6 @@ function semanasDelMes(anio,mes){
 }
 
 function fechaDiaSemana(ini,ds){const f=new Date(ini);f.setDate(ini.getDate()+ds);return f;}
-
 function semanaActivaDefault(semanas){
   const hoy=new Date();hoy.setHours(0,0,0,0);
   for(const s of semanas){const fin=new Date(s.inicioSem);fin.setDate(s.inicioSem.getDate()+6);if(hoy>=s.inicioSem&&hoy<=fin)return s.num;}
@@ -160,14 +180,118 @@ function semanaActivaDefault(semanas){
 }
 
 function MediterraLogo({size=80}){
-  return(
-    <img src="/med.png" alt="Mediterra" style={{width:size,height:size,objectFit:"contain",display:"block",marginBottom:8}}/>
+  return <img src="/med.png" alt="Mediterra" style={{width:size,height:size,objectFit:"contain",display:"block"}}/>;
+}
+
+// ── Helper: qué módulos puede ver este usuario ──────────────
+function modulosDeUsuario(usuario){
+  if(!usuario) return [];
+  const acceso = usuario.acceso || "tareas";
+  if(acceso === "todos" || usuario.rol === "admin") return MODULOS_DISPONIBLES.map(m=>m.id);
+  if(acceso === "tareas") return ["tareas"];
+  if(acceso === "osiris") return ["osiris"];
+  return ["tareas"];
+}
+
+// ══════════════════════════════════════════════════════════
+// PANTALLA HUB — Gestión Grupo Mediterra
+// ══════════════════════════════════════════════════════════
+function HubScreen({ usuario, modulosPermitidos, onSelectModulo, onLogout, onCambiarPin, esSoloConsulta }) {
+  const hoy = new Date();
+  const fechaStr = hoy.toLocaleDateString("es-CL", {weekday:"long", day:"numeric", month:"long", year:"numeric"});
+
+  return (
+    <div style={{minHeight:"100vh", background:"linear-gradient(160deg,#0f172a 0%,#1e3a5f 50%,#0f2d4a 100%)", fontFamily:"sans-serif", padding:"0 0 40px"}}>
+
+      {/* Header */}
+      <div style={{padding:"24px 32px 0", display:"flex", justifyContent:"space-between", alignItems:"center", flexWrap:"wrap", gap:12}}>
+        <div style={{display:"flex", alignItems:"center", gap:14}}>
+          <MediterraLogo size={52}/>
+          <div>
+            <div style={{fontSize:10, letterSpacing:4, color:"#7ecfca", fontWeight:700, textTransform:"uppercase"}}>MEDITERRA</div>
+            <div style={{fontSize:18, fontWeight:800, color:"#fff", lineHeight:1.2}}>Gestión Grupo Mediterra</div>
+          </div>
+        </div>
+        <div style={{display:"flex", gap:8, alignItems:"center", flexWrap:"wrap"}}>
+          <div style={{fontSize:11, color:"rgba(255,255,255,0.5)", textAlign:"right"}}>
+            <div style={{textTransform:"capitalize"}}>{fechaStr}</div>
+            <div>Hola, <strong style={{color:"#fff"}}>{usuario.nombre.split(" ")[0]}</strong> · {usuario.cargo}</div>
+          </div>
+          {!esSoloConsulta(usuario.nombre) &&
+            <button onClick={onCambiarPin} style={{background:"rgba(255,255,255,0.1)", border:"1px solid rgba(255,255,255,0.2)", color:"#fff", borderRadius:8, padding:"6px 14px", cursor:"pointer", fontSize:12}}>🔑 PIN</button>
+          }
+          <button onClick={onLogout} style={{background:"rgba(255,255,255,0.1)", border:"1px solid rgba(255,255,255,0.2)", color:"#fff", borderRadius:8, padding:"6px 14px", cursor:"pointer", fontSize:12}}>Salir</button>
+        </div>
+      </div>
+
+      {/* Título central */}
+      <div style={{textAlign:"center", padding:"48px 24px 32px"}}>
+        <div style={{fontSize:13, color:"rgba(255,255,255,0.5)", letterSpacing:3, textTransform:"uppercase", marginBottom:10}}>Selecciona un módulo</div>
+        <h1 style={{margin:0, fontSize:28, fontWeight:900, color:"#fff", lineHeight:1.2}}>¿Qué deseas gestionar hoy?</h1>
+      </div>
+
+      {/* Tarjetas de módulos */}
+      <div style={{display:"flex", gap:24, justifyContent:"center", flexWrap:"wrap", padding:"0 32px", maxWidth:900, margin:"0 auto"}}>
+        {MODULOS_DISPONIBLES.filter(m => modulosPermitidos.includes(m.id)).map(modulo => (
+          <button key={modulo.id} onClick={() => onSelectModulo(modulo.id)}
+            style={{
+              background: modulo.grad,
+              border: "1px solid rgba(255,255,255,0.15)",
+              borderRadius: 20,
+              padding: "32px 36px",
+              cursor: "pointer",
+              width: 280,
+              textAlign: "left",
+              boxShadow: "0 8px 32px rgba(0,0,0,0.4)",
+              transition: "transform 0.15s, box-shadow 0.15s",
+              position: "relative",
+              overflow: "hidden",
+            }}
+            onMouseEnter={e => { e.currentTarget.style.transform="translateY(-4px)"; e.currentTarget.style.boxShadow="0 16px 48px rgba(0,0,0,0.5)"; }}
+            onMouseLeave={e => { e.currentTarget.style.transform="translateY(0)"; e.currentTarget.style.boxShadow="0 8px 32px rgba(0,0,0,0.4)"; }}
+          >
+            <div style={{fontSize:40, marginBottom:14}}>{modulo.icon}</div>
+            <div style={{fontSize:17, fontWeight:800, color:"#fff", marginBottom:4}}>{modulo.label}</div>
+            <div style={{fontSize:12, color:"rgba(255,255,255,0.65)"}}>{modulo.sublabel}</div>
+            <div style={{position:"absolute", bottom:18, right:18, fontSize:18, color:"rgba(255,255,255,0.4)"}}>→</div>
+          </button>
+        ))}
+
+        {/* Próximamente — tarjetas grises para módulos futuros visibles solo para admin */}
+        {usuario.rol === "admin" && (
+          <div style={{
+            background: "rgba(255,255,255,0.04)",
+            border: "2px dashed rgba(255,255,255,0.12)",
+            borderRadius: 20,
+            padding: "32px 36px",
+            width: 280,
+            textAlign: "left",
+            opacity: 0.6,
+          }}>
+            <div style={{fontSize:40, marginBottom:14}}>➕</div>
+            <div style={{fontSize:17, fontWeight:800, color:"rgba(255,255,255,0.4)", marginBottom:4}}>Nuevo módulo</div>
+            <div style={{fontSize:12, color:"rgba(255,255,255,0.3)"}}>Próximamente disponible</div>
+          </div>
+        )}
+      </div>
+
+      {/* Footer */}
+      <div style={{textAlign:"center", marginTop:56, fontSize:10, color:"rgba(255,255,255,0.2)", letterSpacing:2}}>
+        © {new Date().getFullYear()} GRUPO MEDITERRA · TODOS LOS DERECHOS RESERVADOS
+      </div>
+    </div>
   );
 }
 
+// ══════════════════════════════════════════════════════════
+// APP PRINCIPAL
+// ══════════════════════════════════════════════════════════
 export default function App(){
   const hoy=new Date();
+
+  // ── Auth ────────────────────────────────────────────────
   const [usuarioActual,setUsuarioActual]=useState(null);
+  const [moduloActivo,setModuloActivo]=useState(null); // null = hub
   const [loginNombre,setLoginNombre]=useState("");
   const [loginPin,setLoginPin]=useState("");
   const [loginError,setLoginError]=useState("");
@@ -181,14 +305,16 @@ export default function App(){
   const [pinConfirm,setPinConfirm]=useState("");
   const [pinError,setPinError]=useState("");
 
+  // ── Navegación tareas ───────────────────────────────────
   const [mes,setMes]=useState(hoy.getMonth());
   const [anio,setAnio]=useState(hoy.getFullYear());
   const semanas=semanasDelMes(anio,mes);
 
+  // ── Usuarios ────────────────────────────────────────────
   const [usuarios,setUsuarios]=useState(WORKERS_BASE);
   const [tabUsuarios,setTabUsuarios]=useState("lista");
   const [usuarioEditando,setUsuarioEditando]=useState(null);
-  const [formUsuario,setFormUsuario]=useState({nombre:"",cargo:"",email:"",pin:"",rol:"editor"});
+  const [formUsuario,setFormUsuario]=useState({nombre:"",cargo:"",email:"",pin:"",rol:"editor",acceso:"tareas"});
   const [copiarDe,setCopiarDe]=useState("");
 
   const WORKERS=usuarios.filter(u=>!u.desactivado);
@@ -197,11 +323,11 @@ export default function App(){
   const esAdmin=(nombre)=>getRol(nombre)==="admin";
   const esSoloConsulta=(nombre)=>getRol(nombre)==="consulta";
 
+  // ── Tareas ──────────────────────────────────────────────
   const [tareasExtra,setTareasExtra]=useState([]);
   const [tareasConfig,setTareasConfig]=useState(()=>{
     const c={};TAREAS_BASE.forEach(t=>{c[t.id]={supervisor:t.supervisor,diaLimiteSem:t.diaLimiteSem,diaLimite:t.diaLimite,frecuencia:t.frecuencia,bloqueada:false,dependeDe:t.dependeDe||null};});return c;
   });
-
   const todasTareas=useCallback(()=>[...TAREAS_BASE,...tareasExtra],[tareasExtra]);
   const getConfig=(id)=>tareasConfig[id]||{supervisor:"",diaLimiteSem:0,diaLimite:10,frecuencia:"Semanal",bloqueada:false,dependeDe:null};
   const getSupervisor=(id)=>tareasConfig[id]?.supervisor??TAREAS_BASE.find(t=>t.id===id)?.supervisor??"";
@@ -235,10 +361,13 @@ export default function App(){
   const [enviandoNotif,setEnviandoNotif]=useState(false);
   const [nuevaTarea,setNuevaTarea]=useState({nombre:"",responsable:"",supervisor:"",categoria:"Finanzas",frecuencia:"Semanal",dependeDe:""});
   const [mostrarFormTarea,setMostrarFormTarea]=useState(false);
+
+  // ── Osiris ──────────────────────────────────────────────
   const [osirisData,setOsirisData]=useState({});
 
   function recKey(id){return `${id}_${mes}_${anio}`;}
 
+  // ── Carga inicial ───────────────────────────────────────
   useEffect(()=>{
     const s=semanasDelMes(anio,mes);
     setSemanaActiva(semanaActivaDefault(s));
@@ -254,7 +383,7 @@ export default function App(){
   useEffect(()=>{
     async function cargar(){
       try{
-        const d = await dbLoad();
+        const d=await dbLoad();
         if(d){
           if(d.usuarios)setUsuarios(prev=>{
             const merged=WORKERS_BASE.map(wb=>{const saved=d.usuarios.find(u=>u.nombre===wb.nombre);return saved?{...wb,...saved}:wb;});
@@ -293,6 +422,7 @@ export default function App(){
     return()=>clearTimeout(t);
   },[estados,comentarios,tareasConfig,supervisores,tareasExtra,pinsPersonalizados,recsDone,recsComentarios,usuarios,mes,anio,osirisData,cargando,guardar]);
 
+  // ── Auth helpers ────────────────────────────────────────
   function getPinActivo(w){return pinsPersonalizados[w.nombre]||w.pin;}
 
   function handleLogin(){
@@ -300,14 +430,11 @@ export default function App(){
     if(!w){setLoginError("Selecciona tu nombre.");return;}
     const pinOk=getPinActivo(w);
     const pinTemp=pinsPersonalizados[w.nombre+"_temp"];
-    const esTemp = pinTemp && loginPin.trim()===pinTemp;
-    const esOk = loginPin.trim()===pinOk;
+    const esTemp=pinTemp&&loginPin.trim()===pinTemp;
+    const esOk=loginPin.trim()===pinOk;
     if(esOk||esTemp){
-      setUsuarioActual(w);
-      setLoginError("");
-      if(esTemp){
-        setModalPin("cambiar");
-      }
+      setUsuarioActual(w);setLoginError("");
+      if(esTemp)setModalPin("cambiar");
     }else{
       setLoginError("PIN incorrecto.");
     }
@@ -319,11 +446,9 @@ export default function App(){
     const temporal=String(Math.floor(1000+Math.random()*9000));
     const nuevosPins={...pinsPersonalizados,[w.nombre+"_temp"]:temporal};
     setPinsPersonalizados(nuevosPins);
-    await dbSave({estados,comentarios,tareasConfig,supervisores,tareasExtra,
-      pinsPersonalizados:nuevosPins,recsDone,recsComentarios,usuarios,mes,anio,osirisData});
+    await dbSave({estados,comentarios,tareasConfig,supervisores,tareasExtra,pinsPersonalizados:nuevosPins,recsDone,recsComentarios,usuarios,mes,anio,osirisData});
     try{
-      await enviarEmail(w.email,w.nombre,"PIN temporal - Mediterra",
-        `Tu PIN temporal es: ${temporal}\nIngresa con este PIN y cambialo inmediatamente.\n\nhttps://calendario-mediterra-2026.vercel.app`);
+      await enviarEmail(w.email,w.nombre,"PIN temporal - Mediterra",`Tu PIN temporal es: ${temporal}\nIngresa con este PIN y cambialo inmediatamente.\n\nhttps://calendario-mediterra-2026.vercel.app`);
       setResetMsg("PIN enviado a "+w.email);
     }catch{setResetMsg("Error al enviar.");}
     setResetEnviando(false);
@@ -334,23 +459,19 @@ export default function App(){
     if(!usuarioActual)return;
     const po=getPinActivo(usuarioActual);
     const pinTemp=pinsPersonalizados[usuarioActual.nombre+"_temp"];
-    const pinActualValido = pinActual===po || (pinTemp && pinActual===pinTemp);
-    if(!pinActualValido){
-      console.log("PIN ingresado:", pinActual, "PIN correcto:", po, "PIN temp:", pinTemp);
-      setPinError("PIN actual incorrecto. Si usaste el PIN temporal, ingresalo en el campo PIN actual.");
-      return;
-    }
+    const pinActualValido=pinActual===po||(pinTemp&&pinActual===pinTemp);
+    if(!pinActualValido){setPinError("PIN actual incorrecto.");return;}
     if(pinNuevo.length<4){setPinError("Minimo 4 digitos.");return;}
     if(pinNuevo!==pinConfirm){setPinError("Los PINs no coinciden.");return;}
     const nuevosPins={...pinsPersonalizados,[usuarioActual.nombre]:pinNuevo};
     delete nuevosPins[usuarioActual.nombre+"_temp"];
     setPinsPersonalizados(nuevosPins);
-    dbSave({estados,comentarios,tareasConfig,supervisores,tareasExtra,
-      pinsPersonalizados:nuevosPins,recsDone,recsComentarios,usuarios,mes,anio,osirisData});
+    dbSave({estados,comentarios,tareasConfig,supervisores,tareasExtra,pinsPersonalizados:nuevosPins,recsDone,recsComentarios,usuarios,mes,anio,osirisData});
     setPinActual("");setPinNuevo("");setPinConfirm("");setModalPin(null);
     alert("PIN cambiado exitosamente!");
   }
 
+  // ── Tareas helpers ──────────────────────────────────────
   function puedeEditar(tarea,esResp){
     if(!usuarioActual)return false;
     if(esSoloConsulta(usuarioActual.nombre))return false;
@@ -358,7 +479,6 @@ export default function App(){
     const sup=getSupervisor(tarea.id);
     return esResp?tarea.responsable===usuarioActual.nombre:sup===usuarioActual.nombre;
   }
-
   function dependenciaOk(tarea,numSemana){
     const depId=getDependeDe(tarea.id);if(!depId)return true;
     const depT=getTareaById(depId);if(!depT)return true;
@@ -385,7 +505,6 @@ export default function App(){
       return nuevo;
     });
   }
-
   function ciclarSup(key,tarea){
     if(!puedeEditar(tarea,false))return;
     setEstados(prev=>{
@@ -395,7 +514,6 @@ export default function App(){
       return{...prev,[key]:{...prev[key],estadoSup:sig,aprobado:sig==="verde"}};
     });
   }
-
   async function enviarNotifDependencia(){
     if(!modalNotif)return;
     setEnviandoNotif(true);
@@ -409,24 +527,18 @@ export default function App(){
     }catch{alert("Error al enviar.");}
     setEnviandoNotif(false);setModalNotif(null);setTextoNotif("");
   }
-
   function guardarComentario(){setComentarios(prev=>({...prev,[editComentario]:textoComentario}));setEditComentario(null);}
 
   function estaVencida(tarea,key,numSemana){
     const hoyD=new Date();hoyD.setHours(0,0,0,0);
     const frec=getFrecuencia(tarea.id);
-    if(frec==="Mensual"){
-      const fl=new Date(anio,mes,getConfig(tarea.id).diaLimite||tarea.diaLimite);
-      if(fl<FECHA_INICIO)return false;
-      return hoyD>fl&&(estados[key]?.estadoResp||"gris")==="gris";
-    }
+    if(frec==="Mensual"){const fl=new Date(anio,mes,getConfig(tarea.id).diaLimite||tarea.diaLimite);if(fl<FECHA_INICIO)return false;return hoyD>fl&&(estados[key]?.estadoResp||"gris")==="gris";}
     const sw=semanas.find(s=>s.num===numSemana)||semanas[0];
     const ds=getConfig(tarea.id).diaLimiteSem??tarea.diaLimiteSem;
     const fl=fechaDiaSemana(sw.inicioSem,ds);
     if(fl<FECHA_INICIO)return false;
     return hoyD>fl&&(estados[key]?.estadoResp||"gris")==="gris";
   }
-
   function estaProxima(tarea,key,numSemana){
     const hoyD=new Date();hoyD.setHours(0,0,0,0);
     const frec=getFrecuencia(tarea.id);
@@ -435,7 +547,6 @@ export default function App(){
     else{const sw=semanas.find(s=>s.num===numSemana)||semanas[0];const ds=getConfig(tarea.id).diaLimiteSem??tarea.diaLimiteSem;diff=(fechaDiaSemana(sw.inicioSem,ds)-hoyD)/(1000*60*60*24);}
     return diff>=0&&diff<=2&&(estados[key]?.estadoResp||"gris")==="gris";
   }
-
   function generarResumenEmail(){
     const res={};WORKERS.forEach(w=>{res[w.nombre]=[];});
     todasTareas().filter(t=>!isBloqueada(t.id)).forEach(t=>{
@@ -445,21 +556,12 @@ export default function App(){
     });
     return res;
   }
-
   function enviarEmailPersona(w,tareas){
     const asunto=encodeURIComponent(`Tareas pendientes - ${MESES[mes]} ${anio}`);
     const cuerpo=encodeURIComponent(`Hola ${w.nombre.split(" ")[0]},\n\nLas siguientes tareas estan vencidas:\n\n`+tareas.map(t=>`- ${t.nombre}`).join('\n')+`\n\nhttps://calendario-mediterra-2026.vercel.app\n\nSaludos`);
     window.open(`mailto:${w.email}?subject=${asunto}&body=${cuerpo}`);
   }
-
-  const totalVencidas=(()=>{
-    let c=0;
-    todasTareas().filter(t=>!isBloqueada(t.id)).forEach(t=>{
-      if(getFrecuencia(t.id)==="Mensual"){if(estaVencida(t,t.id,null))c++;}
-      else semanas.forEach(s=>{if(estaVencida(t,`${t.id}_s${s.num}`,s.num))c++;});
-    });
-    return c;
-  })();
+  const totalVencidas=(()=>{let c=0;todasTareas().filter(t=>!isBloqueada(t.id)).forEach(t=>{if(getFrecuencia(t.id)==="Mensual"){if(estaVencida(t,t.id,null))c++;}else semanas.forEach(s=>{if(estaVencida(t,`${t.id}_s${s.num}`,s.num))c++;});});return c;})();
 
   function resumen(nombre){
     let v=0,a=0,r=0,g=0,total=0;
@@ -468,19 +570,16 @@ export default function App(){
       const esR=t.responsable===nombre;const esS=sup===nombre;
       if(!esR&&!esS)return;
       const keys=frec==="Mensual"?[t.id]:semanas.map(s=>`${t.id}_s${s.num}`);
-      keys.forEach(k=>{
-        const e=(esR?estados[k]?.estadoResp:estados[k]?.estadoSup)||"gris";
-        if(e==="na")return;total++;if(e==="verde")v++;else if(e==="amarillo")a++;else if(e==="rojo")r++;else g++;
-      });
+      keys.forEach(k=>{const e=(esR?estados[k]?.estadoResp:estados[k]?.estadoSup)||"gris";if(e==="na")return;total++;if(e==="verde")v++;else if(e==="amarillo")a++;else if(e==="rojo")r++;else g++;});
     });
     return{v,a,r,g,total,pct:total>0?Math.round((v/total)*100):0};
   }
 
+  // ── Gestión usuarios ────────────────────────────────────
   function agregarUsuario(){
     if(!formUsuario.nombre.trim()||!formUsuario.email.trim()||!formUsuario.pin.trim()){alert("Nombre, email y PIN son obligatorios.");return;}
     if(usuarios.find(u=>u.nombre===formUsuario.nombre)){alert("Ya existe un usuario con ese nombre.");return;}
-    const nuevo={...formUsuario,esCFO:formUsuario.rol==="admin",desactivado:false};
-    setUsuarios(prev=>[...prev,nuevo]);
+    setUsuarios(prev=>[...prev,{...formUsuario,esCFO:formUsuario.rol==="admin",desactivado:false}]);
     if(copiarDe){
       todasTareas().filter(t=>t.responsable===copiarDe).forEach(t=>{
         const id=`custom_${Date.now()}_${t.id}`;
@@ -488,106 +587,46 @@ export default function App(){
         setTareasConfig(prev=>({...prev,[id]:{...getConfig(t.id),bloqueada:false}}));
       });
     }
-    setFormUsuario({nombre:"",cargo:"",email:"",pin:"",rol:"editor"});setCopiarDe("");setTabUsuarios("lista");
+    setFormUsuario({nombre:"",cargo:"",email:"",pin:"",rol:"editor",acceso:"tareas"});setCopiarDe("");setTabUsuarios("lista");
   }
-
   function guardarEdicionUsuario(){
     if(!formUsuario.nombre.trim()||!formUsuario.email.trim()){alert("Nombre y email son obligatorios.");return;}
     setUsuarios(prev=>prev.map(u=>u.nombre===usuarioEditando?{...u,...formUsuario,esCFO:formUsuario.rol==="admin"}:u));
     if(formUsuario.pin)setPinsPersonalizados(prev=>({...prev,[usuarioEditando]:formUsuario.pin}));
-    setUsuarioEditando(null);setFormUsuario({nombre:"",cargo:"",email:"",pin:"",rol:"editor"});setTabUsuarios("lista");
+    setUsuarioEditando(null);setFormUsuario({nombre:"",cargo:"",email:"",pin:"",rol:"editor",acceso:"tareas"});setTabUsuarios("lista");
   }
-
   function toggleDesactivarUsuario(nombre){
     if(nombre===usuarioActual.nombre){alert("No puedes desactivarte a ti mismo.");return;}
     setUsuarios(prev=>prev.map(u=>u.nombre===nombre?{...u,desactivado:!u.desactivado}:u));
   }
-
   function resetPinUsuario(nombre){
     const pin=String(Math.floor(1000+Math.random()*9000));
     setPinsPersonalizados(prev=>({...prev,[nombre]:pin}));
     alert(`PIN reseteado para ${nombre}.\nNuevo PIN temporal: ${pin}\n\nComparte este PIN de forma segura con el usuario.`);
   }
-
   function iniciarEdicion(u){
-    setFormUsuario({nombre:u.nombre,cargo:u.cargo||"",email:u.email,pin:"",rol:u.rol||"editor"});
+    setFormUsuario({nombre:u.nombre,cargo:u.cargo||"",email:u.email,pin:"",rol:u.rol||"editor",acceso:u.acceso||"tareas"});
     setUsuarioEditando(u.nombre);setTabUsuarios("editar");
   }
-
   function toggleBloqueada(id){setTareasConfig(prev=>({...prev,[id]:{...getConfig(id),bloqueada:!getConfig(id).bloqueada}}));}
   function updateConfig(id,campo,valor){
     setTareasConfig(prev=>({...prev,[id]:{...getConfig(id),[campo]:valor}}));
     if(campo==="supervisor")setSupervisores(prev=>({...prev,[id]:valor}));
   }
-
   function agregarTarea(){
     if(!nuevaTarea.nombre.trim()||!nuevaTarea.responsable){alert("Nombre y responsable son obligatorios.");return;}
     const id=`custom_${Date.now()}`;
     setTareasExtra(prev=>[...prev,{...nuevaTarea,id,diaLimiteSem:0,diaLimite:10,dependeDe:nuevaTarea.dependeDe||null}]);
     setTareasConfig(prev=>({...prev,[id]:{supervisor:nuevaTarea.supervisor,diaLimiteSem:0,diaLimite:10,frecuencia:nuevaTarea.frecuencia,bloqueada:false,dependeDe:nuevaTarea.dependeDe||null}}));
     setSupervisores(prev=>({...prev,[id]:nuevaTarea.supervisor||""}));
-    setEstados(prev=>{
-      const n={...prev};
-      if(nuevaTarea.frecuencia==="Mensual")n[id]={estadoResp:"gris",estadoSup:"gris",aprobado:false};
-      else semanas.forEach(s=>{n[`${id}_s${s.num}`]={estadoResp:"gris",estadoSup:"gris",aprobado:false};});
-      return n;
-    });
-    setNuevaTarea({nombre:"",responsable:"",supervisor:"",categoria:"Finanzas",frecuencia:"Semanal",dependeDe:""});
-    setMostrarFormTarea(false);
+    setEstados(prev=>{const n={...prev};if(nuevaTarea.frecuencia==="Mensual")n[id]={estadoResp:"gris",estadoSup:"gris",aprobado:false};else semanas.forEach(s=>{n[`${id}_s${s.num}`]={estadoResp:"gris",estadoSup:"gris",aprobado:false};});return n;});
+    setNuevaTarea({nombre:"",responsable:"",supervisor:"",categoria:"Finanzas",frecuencia:"Semanal",dependeDe:""});setMostrarFormTarea(false);
   }
 
   const estadoGuardadoUI={idle:null,guardando:{icon:"💾",text:"Guardando..."},ok:{icon:"✅",text:"Guardado"},error:{icon:"❌",text:"Error"}}[guardado];
   const recsActivos=getRecordatoriosActivos(usuarioActual?.nombre||"",anio,mes,esAdmin(usuarioActual?.nombre||"")).filter(r=>!recsDone[recKey(r.id)]);
 
-  // LOGIN
-  if(!usuarioActual)return(
-    <div style={{minHeight:"100vh",background:"linear-gradient(135deg,#1e3a5f,#2563eb)",display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"sans-serif",padding:20}}>
-      <div style={{background:"#fff",borderRadius:20,padding:40,width:380,maxWidth:"100%",boxShadow:"0 20px 60px #0004"}}>
-        {modalPin==="resetear"?(
-          <div>
-            <button onClick={()=>{setModalPin(null);setResetMsg("");setResetNombre("");}} style={{background:"none",border:"none",color:"#64748b",cursor:"pointer",fontSize:13,marginBottom:16}}>&larr; Volver</button>
-            <h3 style={{margin:"0 0 6px",color:"#1e293b"}}>Resetear PIN</h3>
-            <select value={resetNombre} onChange={e=>setResetNombre(e.target.value)} style={{width:"100%",padding:"10px 12px",borderRadius:8,border:"1px solid #d1d5db",fontSize:14,marginBottom:12,boxSizing:"border-box"}}>
-              <option value="">Selecciona tu nombre...</option>
-              {WORKERS.map(w=><option key={w.nombre} value={w.nombre}>{w.nombre}</option>)}
-            </select>
-            {resetMsg&&<div style={{background:resetMsg.includes("Error")?"#fee2e2":"#dcfce7",color:resetMsg.includes("Error")?"#ef4444":"#16a34a",borderRadius:8,padding:"8px 12px",fontSize:12,marginBottom:12}}>{resetMsg}</div>}
-            <button onClick={handleResetPin} disabled={resetEnviando||!resetNombre} style={{width:"100%",background:"#2563eb",color:"#fff",border:"none",borderRadius:10,padding:"12px",cursor:"pointer",fontWeight:700,fontSize:14,opacity:resetEnviando||!resetNombre?0.6:1}}>
-              {resetEnviando?"Enviando...":"Enviar PIN temporal"}
-            </button>
-          </div>
-        ):(
-          <div>
-            <div style={{textAlign:"center",marginBottom:28}}>
-              <MediterraLogo size={90}/>
-              <div style={{fontSize:11,letterSpacing:4,color:"#7ecfca",fontWeight:600,marginBottom:4}}>MEDITERRA</div>
-              <h2 style={{margin:0,color:"#1e293b",fontSize:17,fontWeight:800}}>Planificacion Depto. Adm. y Finanzas</h2>
-              <p style={{margin:"4px 0 0",color:"#94a3b8",fontSize:12}}>Ingresa con tu nombre y PIN</p>
-            </div>
-            <div style={{marginBottom:14}}>
-              <label style={{fontSize:12,fontWeight:600,color:"#374151",display:"block",marginBottom:4}}>Nombre</label>
-              <select value={loginNombre} onChange={e=>setLoginNombre(e.target.value)} style={{width:"100%",padding:"10px 12px",borderRadius:8,border:"1px solid #d1d5db",fontSize:14,boxSizing:"border-box"}}>
-                <option value="">Selecciona tu nombre...</option>
-                {WORKERS.map(w=><option key={w.nombre} value={w.nombre}>{w.nombre} - {w.cargo}</option>)}
-              </select>
-            </div>
-            <div style={{marginBottom:8}}>
-              <label style={{fontSize:12,fontWeight:600,color:"#374151",display:"block",marginBottom:4}}>PIN</label>
-              <input type="password" value={loginPin} onChange={e=>setLoginPin(e.target.value)} onKeyDown={e=>e.key==="Enter"&&handleLogin()} maxLength={6}
-                style={{width:"100%",padding:"10px 12px",borderRadius:8,border:"1px solid #d1d5db",fontSize:14,boxSizing:"border-box",letterSpacing:6,textAlign:"center"}}/>
-            </div>
-            <div style={{textAlign:"right",marginBottom:16}}>
-              <button onClick={()=>{setModalPin("resetear");setResetMsg("");}} style={{background:"none",border:"none",color:"#2563eb",cursor:"pointer",fontSize:12,textDecoration:"underline"}}>Olvide mi PIN</button>
-            </div>
-            {loginError&&<div style={{background:"#fee2e2",color:"#ef4444",borderRadius:8,padding:"8px 12px",fontSize:12,marginBottom:14,textAlign:"center"}}>{loginError}</div>}
-            <button onClick={handleLogin} style={{width:"100%",background:"#2563eb",color:"#fff",border:"none",borderRadius:10,padding:"12px",cursor:"pointer",fontWeight:700,fontSize:15}}>Ingresar</button>
-          </div>
-        )}
-      </div>
-    </div>
-  );
-
-  // TABLA
+  // ── Tabla helper ────────────────────────────────────────
   function TablaFilas({tareas,getKey,getSemana}){
     const todas=tareas.filter(t=>!isBloqueada(t.id));
     const filtradas=filtroPersona?todas.filter(t=>t.responsable===filtroPersona||getSupervisor(t.id)===filtroPersona):todas;
@@ -604,10 +643,8 @@ export default function App(){
       const com=comentarios[key]||"";
       const vencida=estaVencida(t,key,numSem)&&est.estadoResp!=="na";
       const proxima=!vencida&&estaProxima(t,key,numSem)&&est.estadoResp!=="na";
-      const puedeResp=puedeEditar(t,true);
-      const puedeSup=puedeEditar(t,false);
-      const depOk=dependenciaOk(t,numSem);
-      const esNA=est.estadoResp==="na";
+      const puedeResp=puedeEditar(t,true);const puedeSup=puedeEditar(t,false);
+      const depOk=dependenciaOk(t,numSem);const esNA=est.estadoResp==="na";
       const diaLabel=frec==="Mensual"?`dia ${getConfig(t.id).diaLimite||t.diaLimite}`:`${DIAS_SEMANA[getConfig(t.id).diaLimiteSem??t.diaLimiteSem]}`;
       return(
         <tr key={key} style={{borderBottom:"1px solid #f1f5f9",opacity:esNA?0.55:1,
@@ -629,16 +666,12 @@ export default function App(){
           <td style={{textAlign:"center",padding:"9px 8px",fontSize:12,color:"#374151"}}>{t.responsable.split(" ")[0]}</td>
           <td style={{textAlign:"center",padding:"9px 8px"}}>
             <button onClick={()=>ciclarResp(key,t,numSem)}
-              style={{width:28,height:28,borderRadius:"50%",background:semResp.color,border:`3px solid ${semResp.border}`,
-                cursor:puedeResp?"pointer":"not-allowed",outline:"none",opacity:puedeResp?1:0.4,
-                boxShadow:"0 2px 6px #0002",transition:"transform 0.1s",
-                backgroundImage:est.estadoResp==="na"?"repeating-linear-gradient(45deg,transparent,transparent 3px,rgba(0,0,0,0.15) 3px,rgba(0,0,0,0.15) 6px)":undefined}}
+              style={{width:28,height:28,borderRadius:"50%",background:semResp.color,border:`3px solid ${semResp.border}`,cursor:puedeResp?"pointer":"not-allowed",outline:"none",opacity:puedeResp?1:0.4,boxShadow:"0 2px 6px #0002",transition:"transform 0.1s",backgroundImage:est.estadoResp==="na"?"repeating-linear-gradient(45deg,transparent,transparent 3px,rgba(0,0,0,0.15) 3px,rgba(0,0,0,0.15) 6px)":undefined}}
               onMouseEnter={e=>{if(puedeResp)e.target.style.transform="scale(1.2)";}} onMouseLeave={e=>e.target.style.transform="scale(1)"}/>
           </td>
           <td style={{textAlign:"center",padding:"9px 8px",fontSize:12,color:"#374151"}}>{sup?sup.split(" ")[0]:<span style={{color:"#d1d5db"}}>-</span>}</td>
           <td style={{textAlign:"center",padding:"9px 8px"}}>
-            {sup?<button onClick={()=>ciclarSup(key,t)}
-              style={{width:28,height:28,borderRadius:"50%",background:supActivo?semSup.color:"#e5e7eb",border:`3px solid ${supActivo?semSup.border:"#d1d5db"}`,cursor:(supActivo&&puedeSup)?"pointer":"not-allowed",outline:"none",opacity:(supActivo&&puedeSup)?1:0.4}}/>
+            {sup?<button onClick={()=>ciclarSup(key,t)} style={{width:28,height:28,borderRadius:"50%",background:supActivo?semSup.color:"#e5e7eb",border:`3px solid ${supActivo?semSup.border:"#d1d5db"}`,cursor:(supActivo&&puedeSup)?"pointer":"not-allowed",outline:"none",opacity:(supActivo&&puedeSup)?1:0.4}}/>
             :<span style={{color:"#d1d5db",fontSize:12}}>-</span>}
           </td>
           <td style={{textAlign:"center",padding:"9px 8px"}}>
@@ -663,55 +696,83 @@ export default function App(){
     </tr></thead>
   );
 
+  // ══════════════════════════════════════════════════════
+  // RENDER: LOGIN
+  // ══════════════════════════════════════════════════════
   if(cargando)return<div style={{display:"flex",alignItems:"center",justifyContent:"center",height:"100vh",fontFamily:"sans-serif",color:"#64748b"}}>Cargando...</div>;
 
-  const tareasSemanales=todasTareas().filter(t=>getFrecuencia(t.id)!=="Mensual");
-  const tareasMenusuales=todasTareas().filter(t=>getFrecuencia(t.id)==="Mensual");
-
-  const rolBadge=(nombre)=>{
-    const r=getRol(nombre);
-    if(r==="admin")return<span style={{background:"#fbbf24",color:"#78350f",borderRadius:20,padding:"1px 8px",fontSize:10,fontWeight:700,marginLeft:8}}>ADMIN</span>;
-    if(r==="consulta")return<span style={{background:"#ede9fe",color:"#6d28d9",borderRadius:20,padding:"1px 8px",fontSize:10,fontWeight:700,marginLeft:8}}>CONSULTA</span>;
-    return null;
-  };
-
-  return(
-    <div style={{fontFamily:"sans-serif",background:"#f8fafc",minHeight:"100vh",padding:"20px"}}>
-
-      {/* Modal notificacion */}
-      {modalNotif&&(
-        <div style={{position:"fixed",inset:0,background:"#0006",zIndex:200,display:"flex",alignItems:"center",justifyContent:"center"}}>
-          <div style={{background:"#fff",borderRadius:16,padding:28,width:440,maxWidth:"90vw",boxShadow:"0 8px 32px #0003"}}>
-            <h3 style={{margin:"0 0 6px",color:"#1e293b"}}>Notificar tarea desbloqueada</h3>
-            <p style={{fontSize:13,color:"#64748b",marginBottom:12}}>Completaste: <strong>{modalNotif.tarea.nombre}</strong></p>
-            {modalNotif.dependientes.map(d=>(
-              <div key={d.id} style={{background:"#ede9fe",borderRadius:8,padding:"8px 12px",marginBottom:8,fontSize:13}}>
-                <strong>{d.nombre}</strong> → {d.responsable}
-              </div>
-            ))}
-            <textarea value={textoNotif} onChange={e=>setTextoNotif(e.target.value)} rows={3} placeholder="Instruccion o mensaje opcional..."
-              style={{width:"100%",padding:"10px 12px",borderRadius:8,border:"1px solid #d1d5db",fontSize:13,resize:"vertical",boxSizing:"border-box",marginTop:12}}/>
-            <div style={{display:"flex",gap:10,justifyContent:"flex-end",marginTop:14}}>
-              <button onClick={()=>{setModalNotif(null);setTextoNotif("");}} style={{padding:"8px 18px",borderRadius:8,border:"1px solid #d1d5db",background:"#fff",cursor:"pointer",fontSize:14}}>Omitir</button>
-              <button onClick={enviarNotifDependencia} disabled={enviandoNotif} style={{padding:"8px 18px",borderRadius:8,border:"none",background:"#2563eb",color:"#fff",cursor:"pointer",fontSize:14,fontWeight:600,opacity:enviandoNotif?0.6:1}}>
-                {enviandoNotif?"Enviando...":"Enviar"}
-              </button>
-            </div>
+  if(!usuarioActual)return(
+    <div style={{minHeight:"100vh",background:"linear-gradient(135deg,#0f172a,#1e3a5f)",display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"sans-serif",padding:20}}>
+      <div style={{background:"#fff",borderRadius:20,padding:40,width:380,maxWidth:"100%",boxShadow:"0 20px 60px #0004"}}>
+        {modalPin==="resetear"?(
+          <div>
+            <button onClick={()=>{setModalPin(null);setResetMsg("");setResetNombre("");}} style={{background:"none",border:"none",color:"#64748b",cursor:"pointer",fontSize:13,marginBottom:16}}>&larr; Volver</button>
+            <h3 style={{margin:"0 0 6px",color:"#1e293b"}}>Resetear PIN</h3>
+            <select value={resetNombre} onChange={e=>setResetNombre(e.target.value)} style={{width:"100%",padding:"10px 12px",borderRadius:8,border:"1px solid #d1d5db",fontSize:14,marginBottom:12,boxSizing:"border-box"}}>
+              <option value="">Selecciona tu nombre...</option>
+              {WORKERS.map(w=><option key={w.nombre} value={w.nombre}>{w.nombre}</option>)}
+            </select>
+            {resetMsg&&<div style={{background:resetMsg.includes("Error")?"#fee2e2":"#dcfce7",color:resetMsg.includes("Error")?"#ef4444":"#16a34a",borderRadius:8,padding:"8px 12px",fontSize:12,marginBottom:12}}>{resetMsg}</div>}
+            <button onClick={handleResetPin} disabled={resetEnviando||!resetNombre} style={{width:"100%",background:"#2563eb",color:"#fff",border:"none",borderRadius:10,padding:"12px",cursor:"pointer",fontWeight:700,fontSize:14,opacity:resetEnviando||!resetNombre?0.6:1}}>
+              {resetEnviando?"Enviando...":"Enviar PIN temporal"}
+            </button>
           </div>
-        </div>
-      )}
+        ):(
+          <div>
+            <div style={{textAlign:"center",marginBottom:28}}>
+              <div style={{display:"flex",justifyContent:"center",marginBottom:8}}><MediterraLogo size={80}/></div>
+              <div style={{fontSize:11,letterSpacing:4,color:"#7ecfca",fontWeight:600,marginBottom:4}}>MEDITERRA</div>
+              <h2 style={{margin:0,color:"#1e293b",fontSize:17,fontWeight:800}}>Gestión Grupo Mediterra</h2>
+              <p style={{margin:"4px 0 0",color:"#94a3b8",fontSize:12}}>Ingresa con tu nombre y PIN</p>
+            </div>
+            <div style={{marginBottom:14}}>
+              <label style={{fontSize:12,fontWeight:600,color:"#374151",display:"block",marginBottom:4}}>Nombre</label>
+              <select value={loginNombre} onChange={e=>setLoginNombre(e.target.value)} style={{width:"100%",padding:"10px 12px",borderRadius:8,border:"1px solid #d1d5db",fontSize:14,boxSizing:"border-box"}}>
+                <option value="">Selecciona tu nombre...</option>
+                {WORKERS.map(w=><option key={w.nombre} value={w.nombre}>{w.nombre} - {w.cargo}</option>)}
+              </select>
+            </div>
+            <div style={{marginBottom:8}}>
+              <label style={{fontSize:12,fontWeight:600,color:"#374151",display:"block",marginBottom:4}}>PIN</label>
+              <input type="password" value={loginPin} onChange={e=>setLoginPin(e.target.value)} onKeyDown={e=>e.key==="Enter"&&handleLogin()} maxLength={6}
+                style={{width:"100%",padding:"10px 12px",borderRadius:8,border:"1px solid #d1d5db",fontSize:14,boxSizing:"border-box",letterSpacing:6,textAlign:"center"}}/>
+            </div>
+            <div style={{textAlign:"right",marginBottom:16}}>
+              <button onClick={()=>{setModalPin("resetear");setResetMsg("");}} style={{background:"none",border:"none",color:"#2563eb",cursor:"pointer",fontSize:12,textDecoration:"underline"}}>Olvidé mi PIN</button>
+            </div>
+            {loginError&&<div style={{background:"#fee2e2",color:"#ef4444",borderRadius:8,padding:"8px 12px",fontSize:12,marginBottom:14,textAlign:"center"}}>{loginError}</div>}
+            <button onClick={handleLogin} style={{width:"100%",background:"#2563eb",color:"#fff",border:"none",borderRadius:10,padding:"12px",cursor:"pointer",fontWeight:700,fontSize:15}}>Ingresar</button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
 
-      {/* Modal cambiar PIN */}
+  const modulosPermitidos = modulosDeUsuario(usuarioActual);
+
+  // ══════════════════════════════════════════════════════
+  // RENDER: HUB
+  // ══════════════════════════════════════════════════════
+  if(!moduloActivo)return(
+    <>
+      <HubScreen
+        usuario={usuarioActual}
+        modulosPermitidos={modulosPermitidos}
+        onSelectModulo={id=>setModuloActivo(id)}
+        onLogout={()=>{setUsuarioActual(null);setModuloActivo(null);}}
+        onCambiarPin={()=>{setPinActual("");setPinNuevo("");setPinConfirm("");setPinError("");setModalPin("cambiar");}}
+        esSoloConsulta={esSoloConsulta}
+      />
+      {/* Modal cambiar PIN desde Hub */}
       {modalPin==="cambiar"&&(
-        <div style={{position:"fixed",inset:0,background:"#0006",zIndex:200,display:"flex",alignItems:"center",justifyContent:"center"}}>
+        <div style={{position:"fixed",inset:0,background:"#0008",zIndex:200,display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"sans-serif"}}>
           <div style={{background:"#fff",borderRadius:16,padding:28,width:360,maxWidth:"90vw",boxShadow:"0 8px 32px #0003"}}>
             <h3 style={{margin:"0 0 6px",color:"#1e293b"}}>Cambiar PIN</h3>
             <p style={{fontSize:13,color:"#64748b",marginBottom:16}}>{usuarioActual?.nombre}</p>
             {[["PIN actual",pinActual,setPinActual],["Nuevo PIN",pinNuevo,setPinNuevo],["Confirmar nuevo PIN",pinConfirm,setPinConfirm]].map(([lbl,val,set],idx)=>(
               <div key={idx} style={{marginBottom:12}}>
                 <label style={{fontSize:12,fontWeight:600,color:"#374151",display:"block",marginBottom:4}}>{lbl}</label>
-                <input type="password" maxLength={6} value={val} onChange={e=>set(e.target.value)}
-                  style={{width:"100%",padding:"10px 12px",borderRadius:8,border:"1px solid #d1d5db",fontSize:14,boxSizing:"border-box",textAlign:"center",letterSpacing:6}}/>
+                <input type="password" maxLength={6} value={val} onChange={e=>set(e.target.value)} style={{width:"100%",padding:"10px 12px",borderRadius:8,border:"1px solid #d1d5db",fontSize:14,boxSizing:"border-box",textAlign:"center",letterSpacing:6}}/>
               </div>
             ))}
             {pinError&&<div style={{background:"#fee2e2",color:"#ef4444",borderRadius:8,padding:"8px 12px",fontSize:12,marginBottom:12}}>{pinError}</div>}
@@ -722,14 +783,96 @@ export default function App(){
           </div>
         </div>
       )}
+    </>
+  );
 
-      {/* Modal comentario */}
+  // ══════════════════════════════════════════════════════
+  // RENDER: MÓDULO OSIRIS
+  // ══════════════════════════════════════════════════════
+  if(moduloActivo==="osiris")return(
+    <div style={{fontFamily:"sans-serif",background:"#f8fafc",minHeight:"100vh",padding:"20px"}}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16,flexWrap:"wrap",gap:8}}>
+        <button onClick={()=>setModuloActivo(null)} style={{background:"#fff",border:"1px solid #e2e8f0",borderRadius:8,padding:"6px 14px",cursor:"pointer",fontSize:13,color:"#374151",display:"flex",alignItems:"center",gap:6}}>
+          ← Volver al Hub
+        </button>
+        <div style={{display:"flex",gap:8,alignItems:"center"}}>
+          {estadoGuardadoUI&&<span style={{fontSize:12,color:"#64748b",background:"#f1f5f9",borderRadius:20,padding:"4px 12px"}}>{estadoGuardadoUI.icon} {estadoGuardadoUI.text}</span>}
+          {!esSoloConsulta(usuarioActual.nombre)&&<button onClick={()=>{setPinActual("");setPinNuevo("");setPinConfirm("");setPinError("");setModalPin("cambiar");}} style={{background:"#f1f5f9",border:"none",color:"#374151",borderRadius:8,padding:"6px 14px",cursor:"pointer",fontSize:12}}>🔑 PIN</button>}
+          <button onClick={()=>{setUsuarioActual(null);setModuloActivo(null);}} style={{background:"#fee2e2",border:"none",color:"#991b1b",borderRadius:8,padding:"6px 14px",cursor:"pointer",fontSize:12}}>Salir</button>
+        </div>
+      </div>
+      <OsirisModule usuarioActual={usuarioActual} esAdmin={esAdmin} esSoloConsulta={esSoloConsulta} osirisData={osirisData} setOsirisData={setOsirisData}/>
+      {modalPin==="cambiar"&&(
+        <div style={{position:"fixed",inset:0,background:"#0006",zIndex:200,display:"flex",alignItems:"center",justifyContent:"center"}}>
+          <div style={{background:"#fff",borderRadius:16,padding:28,width:360,maxWidth:"90vw",boxShadow:"0 8px 32px #0003"}}>
+            <h3 style={{margin:"0 0 6px",color:"#1e293b"}}>Cambiar PIN</h3>
+            {[["PIN actual",pinActual,setPinActual],["Nuevo PIN",pinNuevo,setPinNuevo],["Confirmar nuevo PIN",pinConfirm,setPinConfirm]].map(([lbl,val,set],idx)=>(
+              <div key={idx} style={{marginBottom:12}}><label style={{fontSize:12,fontWeight:600,color:"#374151",display:"block",marginBottom:4}}>{lbl}</label>
+              <input type="password" maxLength={6} value={val} onChange={e=>set(e.target.value)} style={{width:"100%",padding:"10px 12px",borderRadius:8,border:"1px solid #d1d5db",fontSize:14,boxSizing:"border-box",textAlign:"center",letterSpacing:6}}/></div>
+            ))}
+            {pinError&&<div style={{background:"#fee2e2",color:"#ef4444",borderRadius:8,padding:"8px 12px",fontSize:12,marginBottom:12}}>{pinError}</div>}
+            <div style={{display:"flex",gap:10,justifyContent:"flex-end"}}>
+              <button onClick={()=>{setModalPin(null);}} style={{padding:"8px 18px",borderRadius:8,border:"1px solid #d1d5db",background:"#fff",cursor:"pointer",fontSize:14}}>Cancelar</button>
+              <button onClick={handleCambiarPin} style={{padding:"8px 18px",borderRadius:8,border:"none",background:"#2563eb",color:"#fff",cursor:"pointer",fontSize:14,fontWeight:600}}>Guardar</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+
+  // ══════════════════════════════════════════════════════
+  // RENDER: MÓDULO TAREAS
+  // ══════════════════════════════════════════════════════
+  const tareasSemanales=todasTareas().filter(t=>getFrecuencia(t.id)!=="Mensual");
+  const tareasMenusuales=todasTareas().filter(t=>getFrecuencia(t.id)==="Mensual");
+  const rolBadge=(nombre)=>{
+    const r=getRol(nombre);
+    if(r==="admin")return<span style={{background:"#fbbf24",color:"#78350f",borderRadius:20,padding:"1px 8px",fontSize:10,fontWeight:700,marginLeft:8}}>ADMIN</span>;
+    if(r==="consulta")return<span style={{background:"#ede9fe",color:"#6d28d9",borderRadius:20,padding:"1px 8px",fontSize:10,fontWeight:700,marginLeft:8}}>CONSULTA</span>;
+    return null;
+  };
+
+  return(
+    <div style={{fontFamily:"sans-serif",background:"#f8fafc",minHeight:"100vh",padding:"20px"}}>
+
+      {/* Modales */}
+      {modalNotif&&(
+        <div style={{position:"fixed",inset:0,background:"#0006",zIndex:200,display:"flex",alignItems:"center",justifyContent:"center"}}>
+          <div style={{background:"#fff",borderRadius:16,padding:28,width:440,maxWidth:"90vw",boxShadow:"0 8px 32px #0003"}}>
+            <h3 style={{margin:"0 0 6px",color:"#1e293b"}}>Notificar tarea desbloqueada</h3>
+            <p style={{fontSize:13,color:"#64748b",marginBottom:12}}>Completaste: <strong>{modalNotif.tarea.nombre}</strong></p>
+            {modalNotif.dependientes.map(d=>(<div key={d.id} style={{background:"#ede9fe",borderRadius:8,padding:"8px 12px",marginBottom:8,fontSize:13}}><strong>{d.nombre}</strong> → {d.responsable}</div>))}
+            <textarea value={textoNotif} onChange={e=>setTextoNotif(e.target.value)} rows={3} placeholder="Instruccion o mensaje opcional..." style={{width:"100%",padding:"10px 12px",borderRadius:8,border:"1px solid #d1d5db",fontSize:13,resize:"vertical",boxSizing:"border-box",marginTop:12}}/>
+            <div style={{display:"flex",gap:10,justifyContent:"flex-end",marginTop:14}}>
+              <button onClick={()=>{setModalNotif(null);setTextoNotif("");}} style={{padding:"8px 18px",borderRadius:8,border:"1px solid #d1d5db",background:"#fff",cursor:"pointer",fontSize:14}}>Omitir</button>
+              <button onClick={enviarNotifDependencia} disabled={enviandoNotif} style={{padding:"8px 18px",borderRadius:8,border:"none",background:"#2563eb",color:"#fff",cursor:"pointer",fontSize:14,fontWeight:600,opacity:enviandoNotif?0.6:1}}>{enviandoNotif?"Enviando...":"Enviar"}</button>
+            </div>
+          </div>
+        </div>
+      )}
+      {modalPin==="cambiar"&&(
+        <div style={{position:"fixed",inset:0,background:"#0006",zIndex:200,display:"flex",alignItems:"center",justifyContent:"center"}}>
+          <div style={{background:"#fff",borderRadius:16,padding:28,width:360,maxWidth:"90vw",boxShadow:"0 8px 32px #0003"}}>
+            <h3 style={{margin:"0 0 6px",color:"#1e293b"}}>Cambiar PIN</h3>
+            <p style={{fontSize:13,color:"#64748b",marginBottom:16}}>{usuarioActual?.nombre}</p>
+            {[["PIN actual",pinActual,setPinActual],["Nuevo PIN",pinNuevo,setPinNuevo],["Confirmar nuevo PIN",pinConfirm,setPinConfirm]].map(([lbl,val,set],idx)=>(
+              <div key={idx} style={{marginBottom:12}}><label style={{fontSize:12,fontWeight:600,color:"#374151",display:"block",marginBottom:4}}>{lbl}</label>
+              <input type="password" maxLength={6} value={val} onChange={e=>set(e.target.value)} style={{width:"100%",padding:"10px 12px",borderRadius:8,border:"1px solid #d1d5db",fontSize:14,boxSizing:"border-box",textAlign:"center",letterSpacing:6}}/></div>
+            ))}
+            {pinError&&<div style={{background:"#fee2e2",color:"#ef4444",borderRadius:8,padding:"8px 12px",fontSize:12,marginBottom:12}}>{pinError}</div>}
+            <div style={{display:"flex",gap:10,justifyContent:"flex-end"}}>
+              <button onClick={()=>{setModalPin(null);setPinActual("");setPinNuevo("");setPinConfirm("");setPinError("");}} style={{padding:"8px 18px",borderRadius:8,border:"1px solid #d1d5db",background:"#fff",cursor:"pointer",fontSize:14}}>Cancelar</button>
+              <button onClick={handleCambiarPin} style={{padding:"8px 18px",borderRadius:8,border:"none",background:"#2563eb",color:"#fff",cursor:"pointer",fontSize:14,fontWeight:600}}>Guardar</button>
+            </div>
+          </div>
+        </div>
+      )}
       {editComentario!==null&&(
         <div style={{position:"fixed",inset:0,background:"#0006",zIndex:100,display:"flex",alignItems:"center",justifyContent:"center"}}>
           <div style={{background:"#fff",borderRadius:16,padding:28,width:420,maxWidth:"90vw",boxShadow:"0 8px 32px #0003"}}>
             <h3 style={{margin:"0 0 14px",color:"#1e293b"}}>Comentario</h3>
-            <textarea value={textoComentario} onChange={e=>setTextoComentario(e.target.value)} rows={4} placeholder="Escribe un comentario..."
-              style={{width:"100%",padding:"10px 12px",borderRadius:8,border:"1px solid #d1d5db",fontSize:14,resize:"vertical",boxSizing:"border-box"}}/>
+            <textarea value={textoComentario} onChange={e=>setTextoComentario(e.target.value)} rows={4} placeholder="Escribe un comentario..." style={{width:"100%",padding:"10px 12px",borderRadius:8,border:"1px solid #d1d5db",fontSize:14,resize:"vertical",boxSizing:"border-box"}}/>
             <div style={{display:"flex",gap:10,marginTop:14,justifyContent:"flex-end"}}>
               <button onClick={()=>setEditComentario(null)} style={{padding:"8px 18px",borderRadius:8,border:"1px solid #d1d5db",background:"#fff",cursor:"pointer",fontSize:14}}>Cancelar</button>
               <button onClick={guardarComentario} style={{padding:"8px 18px",borderRadius:8,border:"none",background:"#2563eb",color:"#fff",cursor:"pointer",fontSize:14,fontWeight:600}}>Guardar</button>
@@ -737,24 +880,18 @@ export default function App(){
           </div>
         </div>
       )}
-
-      {/* Modal comentario recordatorio */}
       {editRecComentario!==null&&(
         <div style={{position:"fixed",inset:0,background:"#0006",zIndex:100,display:"flex",alignItems:"center",justifyContent:"center"}}>
           <div style={{background:"#fff",borderRadius:16,padding:28,width:420,maxWidth:"90vw",boxShadow:"0 8px 32px #0003"}}>
             <h3 style={{margin:"0 0 6px",color:"#1e293b"}}>Comentario del recordatorio</h3>
-            <textarea value={textoRecComentario} onChange={e=>setTextoRecComentario(e.target.value)} rows={4} placeholder="Motivo o nota..."
-              style={{width:"100%",padding:"10px 12px",borderRadius:8,border:"1px solid #d1d5db",fontSize:14,resize:"vertical",boxSizing:"border-box"}}/>
+            <textarea value={textoRecComentario} onChange={e=>setTextoRecComentario(e.target.value)} rows={4} placeholder="Motivo o nota..." style={{width:"100%",padding:"10px 12px",borderRadius:8,border:"1px solid #d1d5db",fontSize:14,resize:"vertical",boxSizing:"border-box"}}/>
             <div style={{display:"flex",gap:10,marginTop:14,justifyContent:"flex-end"}}>
               <button onClick={()=>setEditRecComentario(null)} style={{padding:"8px 18px",borderRadius:8,border:"1px solid #d1d5db",background:"#fff",cursor:"pointer",fontSize:14}}>Cancelar</button>
-              <button onClick={()=>{setRecsComentarios(prev=>({...prev,[recKey(editRecComentario)]:textoRecComentario}));setEditRecComentario(null);}}
-                style={{padding:"8px 18px",borderRadius:8,border:"none",background:"#2563eb",color:"#fff",cursor:"pointer",fontSize:14,fontWeight:600}}>Guardar</button>
+              <button onClick={()=>{setRecsComentarios(prev=>({...prev,[recKey(editRecComentario)]:textoRecComentario}));setEditRecComentario(null);}} style={{padding:"8px 18px",borderRadius:8,border:"none",background:"#2563eb",color:"#fff",cursor:"pointer",fontSize:14,fontWeight:600}}>Guardar</button>
             </div>
           </div>
         </div>
       )}
-
-      {/* Modal email */}
       {modalEmail&&(
         <div style={{position:"fixed",inset:0,background:"#0006",zIndex:100,display:"flex",alignItems:"center",justifyContent:"center"}}>
           <div style={{background:"#fff",borderRadius:16,padding:28,width:500,maxWidth:"90vw",maxHeight:"80vh",overflowY:"auto",boxShadow:"0 8px 32px #0003"}}>
@@ -776,25 +913,27 @@ export default function App(){
         </div>
       )}
 
-      {/* Header */}
-      <div style={{background:"linear-gradient(135deg,#1e3a5f,#2563eb)",borderRadius:16,padding:"20px 28px",marginBottom:20,color:"#fff"}}>
+      {/* Header módulo Tareas */}
+      <div style={{background:"linear-gradient(135deg,#1e3a5f,#2563eb)",borderRadius:16,padding:"16px 24px",marginBottom:20,color:"#fff"}}>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:8}}>
-          <div style={{display:"flex",alignItems:"center",gap:16}}>
-            <MediterraLogo size={70}/>
-            <div>
-              <div style={{fontSize:11,opacity:0.7,letterSpacing:3,textTransform:"uppercase",marginBottom:2}}>MEDITERRA</div>
-              <h1 style={{margin:0,fontSize:20,fontWeight:800}}>Planificacion Depto. Administracion y Finanzas</h1>
-              <div style={{fontSize:12,opacity:0.8,marginTop:3}}>
-                Hola, <strong>{usuarioActual.nombre.split(" ")[0]}</strong> - {usuarioActual.cargo}
-                {rolBadge(usuarioActual.nombre)}
+          <div style={{display:"flex",alignItems:"center",gap:12}}>
+            <button onClick={()=>setModuloActivo(null)} style={{background:"rgba(255,255,255,0.15)",border:"none",color:"#fff",borderRadius:8,padding:"5px 12px",cursor:"pointer",fontSize:12}}>← Hub</button>
+            <div style={{display:"flex",alignItems:"center",gap:12}}>
+              <MediterraLogo size={48}/>
+              <div>
+                <div style={{fontSize:10,opacity:0.7,letterSpacing:2,textTransform:"uppercase"}}>Mediterra · Módulo</div>
+                <h1 style={{margin:0,fontSize:17,fontWeight:800}}>Seguimiento Tareas Adm. y Finanzas</h1>
+                <div style={{fontSize:11,opacity:0.8}}>
+                  Hola, <strong>{usuarioActual.nombre.split(" ")[0]}</strong> - {usuarioActual.cargo}{rolBadge(usuarioActual.nombre)}
+                </div>
               </div>
             </div>
           </div>
           <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
             {totalVencidas>0&&esAdmin(usuarioActual.nombre)&&<button onClick={()=>setModalEmail({resumen:generarResumenEmail()})} style={{background:"#ef4444",color:"#fff",border:"none",borderRadius:10,padding:"8px 16px",cursor:"pointer",fontWeight:700,fontSize:13}}>{totalVencidas} vencida(s)</button>}
             {estadoGuardadoUI&&<span style={{fontSize:12,color:"#fff",background:"rgba(255,255,255,0.15)",borderRadius:20,padding:"4px 12px"}}>{estadoGuardadoUI.icon} {estadoGuardadoUI.text}</span>}
-            {!esSoloConsulta(usuarioActual.nombre)&&<button onClick={()=>{setPinActual("");setPinNuevo("");setPinConfirm("");setPinError("");setModalPin("cambiar");}} style={{background:"rgba(255,255,255,0.15)",border:"none",color:"#fff",borderRadius:8,padding:"6px 14px",cursor:"pointer",fontSize:12}}>Cambiar PIN</button>}
-            <button onClick={()=>setUsuarioActual(null)} style={{background:"rgba(255,255,255,0.15)",border:"none",color:"#fff",borderRadius:8,padding:"6px 14px",cursor:"pointer",fontSize:12}}>Salir</button>
+            {!esSoloConsulta(usuarioActual.nombre)&&<button onClick={()=>{setPinActual("");setPinNuevo("");setPinConfirm("");setPinError("");setModalPin("cambiar");}} style={{background:"rgba(255,255,255,0.15)",border:"none",color:"#fff",borderRadius:8,padding:"6px 14px",cursor:"pointer",fontSize:12}}>🔑 PIN</button>}
+            <button onClick={()=>{setUsuarioActual(null);setModuloActivo(null);}} style={{background:"rgba(255,255,255,0.15)",border:"none",color:"#fff",borderRadius:8,padding:"6px 14px",cursor:"pointer",fontSize:12}}>Salir</button>
           </div>
         </div>
         <div style={{display:"flex",alignItems:"center",gap:12,marginTop:12}}>
@@ -819,7 +958,7 @@ export default function App(){
                   <div style={{fontSize:12,color:"#64748b"}}>{rec.diff<0?"Vencido":"Vence el"} {rec.fechaVence.getDate()} de {MESES[rec.fechaVence.getMonth()]}{rec.diff===0&&<strong style={{color:"#ef4444"}}> - HOY</strong>}</div>
                 </div>
               </div>
-              <span style={{fontSize:11,color:"#2563eb",fontWeight:600}}>Ver &rarr;</span>
+              <span style={{fontSize:11,color:"#2563eb",fontWeight:600}}>Ver →</span>
             </div>
           ))}
         </div>
@@ -827,7 +966,7 @@ export default function App(){
 
       {/* Tabs */}
       <div style={{display:"flex",gap:8,marginBottom:16,flexWrap:"wrap"}}>
-        {[["semanal","Semanales"],["mensual","Mensuales"],["resumen","Resumen"],["recordatorios","Recordatorios"],["osiris","🌿 Osiris"],
+        {[["semanal","Semanales"],["mensual","Mensuales"],["resumen","Resumen"],["recordatorios","Recordatorios"],
           ...(esAdmin(usuarioActual.nombre)?[["configurar","Configurar"]]:[])
         ].map(([t,l])=>(
           <button key={t} onClick={()=>setTab(t)}
@@ -867,18 +1006,14 @@ export default function App(){
           {semanas.map(s=>{
             const fin=new Date(s.inicioSem);fin.setDate(s.inicioSem.getDate()+6);
             if(s.inicioSem<FECHA_INICIO&&fin<FECHA_INICIO)return null;
-            return(
-              <button key={s.num} onClick={()=>setSemanaActiva(s.num)}
-                style={{padding:"8px 20px",borderRadius:10,border:"none",cursor:"pointer",fontWeight:700,fontSize:13,background:semanaActiva===s.num?"#0f172a":"#fff",color:semanaActiva===s.num?"#fff":"#374151",boxShadow:semanaActiva===s.num?"0 2px 8px #0003":"0 1px 4px #0001"}}>
-                Semana {s.num}<div style={{fontSize:10,fontWeight:400,opacity:0.7}}>Sem {s.iso}</div>
-              </button>
-            );
+            return(<button key={s.num} onClick={()=>setSemanaActiva(s.num)} style={{padding:"8px 20px",borderRadius:10,border:"none",cursor:"pointer",fontWeight:700,fontSize:13,background:semanaActiva===s.num?"#0f172a":"#fff",color:semanaActiva===s.num?"#fff":"#374151",boxShadow:semanaActiva===s.num?"0 2px 8px #0003":"0 1px 4px #0001"}}>
+              Semana {s.num}<div style={{fontSize:10,fontWeight:400,opacity:0.7}}>Sem {s.iso}</div>
+            </button>);
           })}
         </div>
         <div style={{overflowX:"auto"}}>
           <table style={{borderCollapse:"collapse",width:"100%",background:"#fff",borderRadius:14,overflow:"hidden",boxShadow:"0 2px 12px #0001"}}>
-            {encabezadoTabla}
-            <tbody><TablaFilas tareas={tareasSemanales} getKey={t=>`${t.id}_s${semanaActiva}`} getSemana={()=>semanaActiva}/></tbody>
+            {encabezadoTabla}<tbody><TablaFilas tareas={tareasSemanales} getKey={t=>`${t.id}_s${semanaActiva}`} getSemana={()=>semanaActiva}/></tbody>
           </table>
         </div>
       </>)}
@@ -886,12 +1021,9 @@ export default function App(){
       {/* MENSUAL */}
       {tab==="mensual"&&(
         <div style={{overflowX:"auto"}}>
-          <div style={{background:"#fef9c3",border:"1px solid #fde047",borderRadius:10,padding:"10px 16px",marginBottom:14,fontSize:13,color:"#92400e"}}>
-            Tareas de cierre mensual. Las tareas con 🔒 esperan que se complete una tarea previa.
-          </div>
+          <div style={{background:"#fef9c3",border:"1px solid #fde047",borderRadius:10,padding:"10px 16px",marginBottom:14,fontSize:13,color:"#92400e"}}>Tareas de cierre mensual. Las tareas con 🔒 esperan que se complete una tarea previa.</div>
           <table style={{borderCollapse:"collapse",width:"100%",background:"#fff",borderRadius:14,overflow:"hidden",boxShadow:"0 2px 12px #0001"}}>
-            {encabezadoTabla}
-            <tbody><TablaFilas tareas={tareasMenusuales} getKey={t=>t.id} getSemana={null}/></tbody>
+            {encabezadoTabla}<tbody><TablaFilas tareas={tareasMenusuales} getKey={t=>t.id} getSemana={null}/></tbody>
           </table>
         </div>
       )}
@@ -908,23 +1040,17 @@ export default function App(){
                     <div style={{fontWeight:700,fontSize:15,color:"#1e293b"}}>{w.nombre}</div>
                     <div style={{display:"flex",alignItems:"center",gap:6,marginTop:3}}>
                       <span style={{fontSize:11,color:"#64748b",background:"#f1f5f9",borderRadius:20,padding:"2px 8px"}}>{w.cargo}</span>
-                      <span style={{fontSize:10,background:w.rol==="admin"?"#fef3c7":w.rol==="consulta"?"#ede9fe":"#dcfce7",color:w.rol==="admin"?"#92400e":w.rol==="consulta"?"#6d28d9":"#166534",borderRadius:20,padding:"1px 7px",fontWeight:600}}>
-                        {w.rol==="admin"?"Admin":w.rol==="consulta"?"Consulta":"Editor"}
-                      </span>
+                      <span style={{fontSize:10,background:w.rol==="admin"?"#fef3c7":w.rol==="consulta"?"#ede9fe":"#dcfce7",color:w.rol==="admin"?"#92400e":w.rol==="consulta"?"#6d28d9":"#166534",borderRadius:20,padding:"1px 7px",fontWeight:600}}>{w.rol==="admin"?"Admin":w.rol==="consulta"?"Consulta":"Editor"}</span>
                     </div>
                     {vencidas>0&&<div style={{fontSize:11,color:"#ef4444",marginTop:4}}>{vencidas} vencida(s)</div>}
                   </div>
                   <div style={{fontSize:24,fontWeight:800,color:r.pct>=75?"#22c55e":r.pct>=40?"#eab308":"#ef4444"}}>{r.pct}%</div>
                 </div>
                 <div style={{background:"#f1f5f9",borderRadius:8,height:9,marginBottom:12,overflow:"hidden",display:"flex"}}>
-                  <div style={{width:`${r.total>0?(r.v/r.total)*100:0}%`,background:"#22c55e"}}/>
-                  <div style={{width:`${r.total>0?(r.a/r.total)*100:0}%`,background:"#eab308"}}/>
-                  <div style={{width:`${r.total>0?(r.r/r.total)*100:0}%`,background:"#ef4444"}}/>
+                  <div style={{width:`${r.total>0?(r.v/r.total)*100:0}%`,background:"#22c55e"}}/><div style={{width:`${r.total>0?(r.a/r.total)*100:0}%`,background:"#eab308"}}/><div style={{width:`${r.total>0?(r.r/r.total)*100:0}%`,background:"#ef4444"}}/>
                 </div>
                 <div style={{display:"flex",gap:7,flexWrap:"wrap",marginBottom:vencidas>0?10:0}}>
-                  {[["verde","✅",r.v],["amarillo","🟡",r.a],["rojo","🔴",r.r],["gris","⚪",r.g]].map(([k,ico,n])=>(
-                    <span key={k} style={{background:SEMAFORO[k].bg,border:`1px solid ${SEMAFORO[k].border}`,borderRadius:8,padding:"3px 9px",fontSize:12,fontWeight:600,color:"#374151"}}>{ico} {n}</span>
-                  ))}
+                  {[["verde","✅",r.v],["amarillo","🟡",r.a],["rojo","🔴",r.r],["gris","⚪",r.g]].map(([k,ico,n])=>(<span key={k} style={{background:SEMAFORO[k].bg,border:`1px solid ${SEMAFORO[k].border}`,borderRadius:8,padding:"3px 9px",fontSize:12,fontWeight:600,color:"#374151"}}>{ico} {n}</span>))}
                 </div>
                 {vencidas>0&&esAdmin(usuarioActual.nombre)&&<button onClick={()=>enviarEmailPersona(w,re[w.nombre])} style={{width:"100%",background:"#ef4444",color:"#fff",border:"none",borderRadius:8,padding:"7px",cursor:"pointer",fontSize:12,fontWeight:600}}>Enviar aviso a {w.nombre.split(" ")[0]}</button>}
               </div>
@@ -935,8 +1061,7 @@ export default function App(){
 
       {/* RECORDATORIOS */}
       {tab==="recordatorios"&&(()=>{
-        const lista=esAdmin(usuarioActual.nombre)
-          ?RECORDATORIOS.map(rec=>{const fv=diaHabil(anio,mes,rec.diaMes);const hD=new Date();hD.setHours(0,0,0,0);return{...rec,fechaVence:fv,diff:Math.ceil((fv-hD)/(1000*60*60*24))};})
+        const lista=esAdmin(usuarioActual.nombre)?RECORDATORIOS.map(rec=>{const fv=diaHabil(anio,mes,rec.diaMes);const hD=new Date();hD.setHours(0,0,0,0);return{...rec,fechaVence:fv,diff:Math.ceil((fv-hD)/(1000*60*60*24))};})
           :getRecordatoriosActivos(usuarioActual.nombre,anio,mes,false);
         const listaF=lista.filter(r=>!recsDone[recKey(r.id)]);
         const listaC=lista.filter(r=>recsDone[recKey(r.id)]);
@@ -958,103 +1083,81 @@ export default function App(){
                         <span style={{fontSize:18}}>{rec.diff<0?"🔴":rec.diff<=2?"🟡":"🟢"}</span>
                         <span style={{fontWeight:700,fontSize:15,color:"#1e293b"}}>{rec.titulo}</span>
                         {rec.diff===0&&<span style={{background:"#ef4444",color:"#fff",borderRadius:20,padding:"1px 8px",fontSize:11,fontWeight:700}}>HOY</span>}
-                        {rec.diff===1&&<span style={{background:"#f59e0b",color:"#fff",borderRadius:20,padding:"1px 8px",fontSize:11,fontWeight:700}}>MANANA</span>}
+                        {rec.diff===1&&<span style={{background:"#f59e0b",color:"#fff",borderRadius:20,padding:"1px 8px",fontSize:11,fontWeight:700}}>MAÑANA</span>}
                         {rec.diff<0&&<span style={{background:"#ef4444",color:"#fff",borderRadius:20,padding:"1px 8px",fontSize:11,fontWeight:700}}>VENCIDO</span>}
                       </div>
                       <div style={{fontSize:13,color:"#64748b",marginBottom:8}}>Fecha: <strong>{rec.fechaVence.getDate()} de {MESES[rec.fechaVence.getMonth()]} {rec.fechaVence.getFullYear()}</strong></div>
                       <div style={{fontSize:12,color:"#374151",background:"rgba(0,0,0,0.04)",borderRadius:8,padding:"8px 12px",marginBottom:10,lineHeight:1.5}}>{rec.mensaje(rec.destinatarios[0])}</div>
                       <div style={{fontSize:11,color:"#64748b",marginBottom:8}}>Para: {rec.destinatarios.join(", ")}{ccW.length>0&&<span style={{marginLeft:12}}>CC: {ccW.map(w=>w.nombre).join(", ")}</span>}</div>
-                      <button onClick={()=>{setEditRecComentario(rec.id);setTextoRecComentario(comRec);}}
-                        style={{background:comRec?"#dbeafe":"#f1f5f9",border:"none",borderRadius:8,padding:"5px 12px",cursor:"pointer",fontSize:11,color:comRec?"#1d4ed8":"#9ca3af"}}>
-                        {comRec?`💬 ${comRec.substring(0,25)}...`:"+ Comentario"}
-                      </button>
+                      <button onClick={()=>{setEditRecComentario(rec.id);setTextoRecComentario(comRec);}} style={{background:comRec?"#dbeafe":"#f1f5f9",border:"none",borderRadius:8,padding:"5px 12px",cursor:"pointer",fontSize:11,color:comRec?"#1d4ed8":"#9ca3af"}}>{comRec?`💬 ${comRec.substring(0,25)}...`:"+ Comentario"}</button>
                     </div>
                     <div style={{display:"flex",flexDirection:"column",gap:8}}>
-                      {rec.diff<=2&&<button onClick={()=>{destW.forEach(w=>{const asunto=encodeURIComponent(`Recordatorio: ${rec.titulo}`);const cc=ccW.map(c=>c.email).join(",");const cuerpo=encodeURIComponent(rec.mensaje(w.nombre)+`\n\nSaludos,\nEquipo Mediterra`);window.open(`mailto:${w.email}${cc?`?cc=${cc}&`:"?"}subject=${asunto}&body=${cuerpo}`);});}}
-                        style={{background:color,color:"#fff",border:"none",borderRadius:10,padding:"10px 18px",cursor:"pointer",fontWeight:700,fontSize:13,whiteSpace:"nowrap"}}>Enviar aviso</button>}
-                      <button onClick={()=>setRecsDone(prev=>({...prev,[recKey(rec.id)]:true}))}
-                        style={{background:"#22c55e",color:"#fff",border:"none",borderRadius:10,padding:"10px 18px",cursor:"pointer",fontWeight:700,fontSize:13,whiteSpace:"nowrap"}}>✓ Completado</button>
+                      {rec.diff<=2&&<button onClick={()=>{destW.forEach(w=>{const asunto=encodeURIComponent(`Recordatorio: ${rec.titulo}`);const cc=ccW.map(c=>c.email).join(",");const cuerpo=encodeURIComponent(rec.mensaje(w.nombre)+`\n\nSaludos,\nEquipo Mediterra`);window.open(`mailto:${w.email}${cc?`?cc=${cc}&`:"?"}subject=${asunto}&body=${cuerpo}`);});}} style={{background:color,color:"#fff",border:"none",borderRadius:10,padding:"10px 18px",cursor:"pointer",fontWeight:700,fontSize:13,whiteSpace:"nowrap"}}>Enviar aviso</button>}
+                      <button onClick={()=>setRecsDone(prev=>({...prev,[recKey(rec.id)]:true}))} style={{background:"#22c55e",color:"#fff",border:"none",borderRadius:10,padding:"10px 18px",cursor:"pointer",fontWeight:700,fontSize:13,whiteSpace:"nowrap"}}>✓ Completado</button>
                     </div>
                   </div>
                 </div>
               );
             })}
-            {listaC.length>0&&(
-              <div>
-                <div style={{fontSize:12,color:"#94a3b8",fontWeight:600,marginBottom:8}}>COMPLETADOS ESTE MES</div>
-                {listaC.map(rec=>{const comRec=recsComentarios[recKey(rec.id)]||"";return(
-                  <div key={rec.id} style={{background:"#f0fdf4",border:"1px solid #86efac",borderRadius:12,padding:"12px 16px",marginBottom:8,display:"flex",justifyContent:"space-between",alignItems:"center",gap:12}}>
-                    <div><div style={{display:"flex",alignItems:"center",gap:6}}><span>✅</span><span style={{fontWeight:600,fontSize:13,color:"#15803d"}}>{rec.titulo}</span></div>{comRec&&<div style={{fontSize:11,color:"#64748b",marginTop:4}}>💬 {comRec}</div>}</div>
-                    <button onClick={()=>setRecsDone(prev=>{const n={...prev};delete n[recKey(rec.id)];return n;})} style={{background:"none",border:"1px solid #d1d5db",borderRadius:8,padding:"4px 10px",cursor:"pointer",fontSize:11,color:"#64748b"}}>Deshacer</button>
-                  </div>
-                );})}
-              </div>
-            )}
+            {listaC.length>0&&(<div><div style={{fontSize:12,color:"#94a3b8",fontWeight:600,marginBottom:8}}>COMPLETADOS ESTE MES</div>
+              {listaC.map(rec=>{const comRec=recsComentarios[recKey(rec.id)]||"";return(
+                <div key={rec.id} style={{background:"#f0fdf4",border:"1px solid #86efac",borderRadius:12,padding:"12px 16px",marginBottom:8,display:"flex",justifyContent:"space-between",alignItems:"center",gap:12}}>
+                  <div><div style={{display:"flex",alignItems:"center",gap:6}}><span>✅</span><span style={{fontWeight:600,fontSize:13,color:"#15803d"}}>{rec.titulo}</span></div>{comRec&&<div style={{fontSize:11,color:"#64748b",marginTop:4}}>💬 {comRec}</div>}</div>
+                  <button onClick={()=>setRecsDone(prev=>{const n={...prev};delete n[recKey(rec.id)];return n;})} style={{background:"none",border:"1px solid #d1d5db",borderRadius:8,padding:"4px 10px",cursor:"pointer",fontSize:11,color:"#64748b"}}>Deshacer</button>
+                </div>
+              );})}
+            </div>)}
           </div>
         );
       })()}
 
-      {/* OSIRIS */}
-      {tab==="osiris"&&(
-        <OsirisModule
-          usuarioActual={usuarioActual}
-          esAdmin={esAdmin}
-          esSoloConsulta={esSoloConsulta}
-          osirisData={osirisData}
-          setOsirisData={setOsirisData}
-        />
-      )}
-
       {/* CONFIGURAR */}
       {tab==="configurar"&&esAdmin(usuarioActual.nombre)&&(
         <div style={{display:"flex",flexDirection:"column",gap:24}}>
-
-          {/* Gestion usuarios */}
           <div style={{background:"#fff",borderRadius:14,padding:20,boxShadow:"0 2px 10px #0001"}}>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
-              <h3 style={{margin:0,color:"#1e293b",fontSize:15}}>Gestion de Usuarios</h3>
+              <h3 style={{margin:0,color:"#1e293b",fontSize:15}}>Gestión de Usuarios</h3>
               <div style={{display:"flex",gap:8}}>
                 {["lista","nuevo"].map(t=>(
-                  <button key={t} onClick={()=>{setTabUsuarios(t);setUsuarioEditando(null);setFormUsuario({nombre:"",cargo:"",email:"",pin:"",rol:"editor"});}}
+                  <button key={t} onClick={()=>{setTabUsuarios(t);setUsuarioEditando(null);setFormUsuario({nombre:"",cargo:"",email:"",pin:"",rol:"editor",acceso:"tareas"});}}
                     style={{padding:"5px 14px",borderRadius:8,border:"none",cursor:"pointer",fontSize:12,fontWeight:600,background:tabUsuarios===t&&!usuarioEditando?"#2563eb":"#f1f5f9",color:tabUsuarios===t&&!usuarioEditando?"#fff":"#374151"}}>
                     {t==="lista"?"Ver usuarios":"+ Nuevo"}
                   </button>
                 ))}
               </div>
             </div>
-
             {tabUsuarios==="lista"&&!usuarioEditando&&(
               <div style={{overflowX:"auto"}}>
                 <table style={{width:"100%",borderCollapse:"collapse",fontSize:13}}>
                   <thead><tr style={{background:"#f8fafc",color:"#64748b"}}>
                     <th style={{padding:"8px 12px",textAlign:"left",fontWeight:600}}>Nombre</th>
                     <th style={{padding:"8px 12px",textAlign:"left",fontWeight:600}}>Cargo</th>
-                    <th style={{padding:"8px 12px",textAlign:"left",fontWeight:600,minWidth:160}}>Email</th>
-                    <th style={{padding:"8px 12px",textAlign:"center",fontWeight:600,width:90}}>Rol</th>
+                    <th style={{padding:"8px 12px",textAlign:"center",fontWeight:600}}>Rol</th>
+                    <th style={{padding:"8px 12px",textAlign:"center",fontWeight:600}}>Acceso a Módulos</th>
                     <th style={{padding:"8px 12px",textAlign:"center",fontWeight:600,width:220}}>Acciones</th>
                   </tr></thead>
                   <tbody>{usuarios.map((u,i)=>(
                     <tr key={u.nombre} style={{borderTop:"1px solid #f1f5f9",background:u.desactivado?"#f8fafc":i%2===0?"#fff":"#fafafa",opacity:u.desactivado?0.5:1}}>
                       <td style={{padding:"8px 12px",fontWeight:600,color:"#1e293b"}}>
-                        {u.nombre}
-                        {u.nombre===usuarioActual.nombre&&<span style={{fontSize:10,background:"#dbeafe",color:"#1d4ed8",borderRadius:20,padding:"1px 6px",marginLeft:6}}>yo</span>}
+                        {u.nombre}{u.nombre===usuarioActual.nombre&&<span style={{fontSize:10,background:"#dbeafe",color:"#1d4ed8",borderRadius:20,padding:"1px 6px",marginLeft:6}}>yo</span>}
                         {u.desactivado&&<span style={{fontSize:10,background:"#fee2e2",color:"#991b1b",borderRadius:20,padding:"1px 6px",marginLeft:6}}>inactivo</span>}
                       </td>
                       <td style={{padding:"8px 12px",color:"#64748b",fontSize:12}}>{u.cargo}</td>
-                      <td style={{padding:"8px 12px",color:"#64748b",fontSize:12}}>{u.email}</td>
                       <td style={{padding:"8px 12px",textAlign:"center"}}>
                         <span style={{background:u.rol==="admin"?"#fef3c7":u.rol==="consulta"?"#ede9fe":"#dcfce7",color:u.rol==="admin"?"#92400e":u.rol==="consulta"?"#6d28d9":"#166534",borderRadius:20,padding:"2px 10px",fontSize:11,fontWeight:600}}>
                           {u.rol==="admin"?"Admin":u.rol==="consulta"?"Consulta":"Editor"}
                         </span>
                       </td>
                       <td style={{padding:"8px 12px",textAlign:"center"}}>
+                        <span style={{background:"#f0fdf4",color:"#16a34a",borderRadius:20,padding:"2px 10px",fontSize:11,fontWeight:600}}>
+                          {u.rol==="admin"?"Todos":(u.acceso==="todos"?"Todos":u.acceso==="osiris"?"Solo Osiris":"Solo Tareas")}
+                        </span>
+                      </td>
+                      <td style={{padding:"8px 12px",textAlign:"center"}}>
                         <div style={{display:"flex",gap:6,justifyContent:"center",flexWrap:"wrap"}}>
                           <button onClick={()=>iniciarEdicion(u)} style={{background:"#dbeafe",color:"#1d4ed8",border:"none",borderRadius:6,padding:"3px 10px",cursor:"pointer",fontSize:11,fontWeight:600}}>Editar</button>
                           <button onClick={()=>resetPinUsuario(u.nombre)} style={{background:"#fef9c3",color:"#92400e",border:"none",borderRadius:6,padding:"3px 10px",cursor:"pointer",fontSize:11,fontWeight:600}}>Reset PIN</button>
-                          {u.nombre!==usuarioActual.nombre&&<button onClick={()=>toggleDesactivarUsuario(u.nombre)}
-                            style={{background:u.desactivado?"#dcfce7":"#fee2e2",color:u.desactivado?"#166534":"#991b1b",border:"none",borderRadius:6,padding:"3px 10px",cursor:"pointer",fontSize:11,fontWeight:600}}>
-                            {u.desactivado?"Activar":"Desactivar"}
-                          </button>}
+                          {u.nombre!==usuarioActual.nombre&&<button onClick={()=>toggleDesactivarUsuario(u.nombre)} style={{background:u.desactivado?"#dcfce7":"#fee2e2",color:u.desactivado?"#166534":"#991b1b",border:"none",borderRadius:6,padding:"3px 10px",cursor:"pointer",fontSize:11,fontWeight:600}}>{u.desactivado?"Activar":"Desactivar"}</button>}
                         </div>
                       </td>
                     </tr>
@@ -1062,47 +1165,34 @@ export default function App(){
                 </table>
               </div>
             )}
-
             {(tabUsuarios==="nuevo"||(tabUsuarios==="editar"&&usuarioEditando))&&(
               <div>
                 <h4 style={{margin:"0 0 16px",color:"#1e293b",fontSize:14}}>{usuarioEditando?"Editar usuario":"Nuevo usuario"}</h4>
                 <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(200px,1fr))",gap:12}}>
                   {[["Nombre completo *","nombre","text"],["Cargo","cargo","text"],["Email *","email","email"]].map(([lbl,campo,tipo])=>(
-                    <div key={campo}>
-                      <label style={{fontSize:12,fontWeight:600,color:"#374151",display:"block",marginBottom:4}}>{lbl}</label>
-                      <input type={tipo} value={formUsuario[campo]} onChange={e=>setFormUsuario(p=>({...p,[campo]:e.target.value}))}
-                        disabled={!!usuarioEditando&&campo==="nombre"}
-                        style={{width:"100%",padding:"8px 12px",borderRadius:8,border:"1px solid #d1d5db",fontSize:13,boxSizing:"border-box",background:usuarioEditando&&campo==="nombre"?"#f1f5f9":"#fff"}}/>
-                    </div>
+                    <div key={campo}><label style={{fontSize:12,fontWeight:600,color:"#374151",display:"block",marginBottom:4}}>{lbl}</label>
+                    <input type={tipo} value={formUsuario[campo]} onChange={e=>setFormUsuario(p=>({...p,[campo]:e.target.value}))} disabled={!!usuarioEditando&&campo==="nombre"}
+                      style={{width:"100%",padding:"8px 12px",borderRadius:8,border:"1px solid #d1d5db",fontSize:13,boxSizing:"border-box",background:usuarioEditando&&campo==="nombre"?"#f1f5f9":"#fff"}}/></div>
                   ))}
-                  <div>
-                    <label style={{fontSize:12,fontWeight:600,color:"#374151",display:"block",marginBottom:4}}>{usuarioEditando?"Nuevo PIN (vacio = sin cambio)":"PIN inicial *"}</label>
-                    <input type="password" value={formUsuario.pin} onChange={e=>setFormUsuario(p=>({...p,pin:e.target.value}))} maxLength={6}
-                      style={{width:"100%",padding:"8px 12px",borderRadius:8,border:"1px solid #d1d5db",fontSize:13,boxSizing:"border-box",textAlign:"center",letterSpacing:4}}/>
-                  </div>
-                  <div>
-                    <label style={{fontSize:12,fontWeight:600,color:"#374151",display:"block",marginBottom:4}}>Rol</label>
-                    <select value={formUsuario.rol} onChange={e=>setFormUsuario(p=>({...p,rol:e.target.value}))}
-                      style={{width:"100%",padding:"8px 12px",borderRadius:8,border:"1px solid #d1d5db",fontSize:13,boxSizing:"border-box"}}>
-                      {ROLES.map(r=><option key={r.v} value={r.v}>{r.l}</option>)}
-                    </select>
-                  </div>
-                  {!usuarioEditando&&(
-                    <div>
-                      <label style={{fontSize:12,fontWeight:600,color:"#374151",display:"block",marginBottom:4}}>Copiar tareas de</label>
-                      <select value={copiarDe} onChange={e=>setCopiarDe(e.target.value)}
-                        style={{width:"100%",padding:"8px 12px",borderRadius:8,border:"1px solid #d1d5db",fontSize:13,boxSizing:"border-box"}}>
-                        <option value="">Sin copiar</option>
-                        {WORKERS.map(w=><option key={w.nombre} value={w.nombre}>{w.nombre}</option>)}
-                      </select>
-                    </div>
-                  )}
+                  <div><label style={{fontSize:12,fontWeight:600,color:"#374151",display:"block",marginBottom:4}}>{usuarioEditando?"Nuevo PIN (vacío = sin cambio)":"PIN inicial *"}</label>
+                  <input type="password" value={formUsuario.pin} onChange={e=>setFormUsuario(p=>({...p,pin:e.target.value}))} maxLength={6}
+                    style={{width:"100%",padding:"8px 12px",borderRadius:8,border:"1px solid #d1d5db",fontSize:13,boxSizing:"border-box",textAlign:"center",letterSpacing:4}}/></div>
+                  <div><label style={{fontSize:12,fontWeight:600,color:"#374151",display:"block",marginBottom:4}}>Rol</label>
+                  <select value={formUsuario.rol} onChange={e=>setFormUsuario(p=>({...p,rol:e.target.value}))} style={{width:"100%",padding:"8px 12px",borderRadius:8,border:"1px solid #d1d5db",fontSize:13,boxSizing:"border-box"}}>
+                    {ROLES.map(r=><option key={r.v} value={r.v}>{r.l}</option>)}
+                  </select></div>
+                  <div><label style={{fontSize:12,fontWeight:600,color:"#374151",display:"block",marginBottom:4}}>Acceso a módulos</label>
+                  <select value={formUsuario.acceso} onChange={e=>setFormUsuario(p=>({...p,acceso:e.target.value}))} style={{width:"100%",padding:"8px 12px",borderRadius:8,border:"1px solid #d1d5db",fontSize:13,boxSizing:"border-box"}}>
+                    {ACCESOS_OPCIONES.map(a=><option key={a.v} value={a.v}>{a.l}</option>)}
+                  </select></div>
+                  {!usuarioEditando&&(<div><label style={{fontSize:12,fontWeight:600,color:"#374151",display:"block",marginBottom:4}}>Copiar tareas de</label>
+                  <select value={copiarDe} onChange={e=>setCopiarDe(e.target.value)} style={{width:"100%",padding:"8px 12px",borderRadius:8,border:"1px solid #d1d5db",fontSize:13,boxSizing:"border-box"}}>
+                    <option value="">Sin copiar</option>{WORKERS.map(w=><option key={w.nombre} value={w.nombre}>{w.nombre}</option>)}
+                  </select></div>)}
                 </div>
                 <div style={{display:"flex",gap:10,justifyContent:"flex-end",marginTop:16}}>
-                  <button onClick={()=>{setTabUsuarios("lista");setUsuarioEditando(null);setFormUsuario({nombre:"",cargo:"",email:"",pin:"",rol:"editor"});}} style={{padding:"8px 18px",borderRadius:8,border:"1px solid #d1d5db",background:"#fff",cursor:"pointer",fontSize:14}}>Cancelar</button>
-                  <button onClick={usuarioEditando?guardarEdicionUsuario:agregarUsuario} style={{padding:"8px 18px",borderRadius:8,border:"none",background:"#2563eb",color:"#fff",cursor:"pointer",fontSize:14,fontWeight:600}}>
-                    {usuarioEditando?"Guardar cambios":"Crear usuario"}
-                  </button>
+                  <button onClick={()=>{setTabUsuarios("lista");setUsuarioEditando(null);setFormUsuario({nombre:"",cargo:"",email:"",pin:"",rol:"editor",acceso:"tareas"});}} style={{padding:"8px 18px",borderRadius:8,border:"1px solid #d1d5db",background:"#fff",cursor:"pointer",fontSize:14}}>Cancelar</button>
+                  <button onClick={usuarioEditando?guardarEdicionUsuario:agregarUsuario} style={{padding:"8px 18px",borderRadius:8,border:"none",background:"#2563eb",color:"#fff",cursor:"pointer",fontSize:14,fontWeight:600}}>{usuarioEditando?"Guardar cambios":"Crear usuario"}</button>
                 </div>
               </div>
             )}
@@ -1112,30 +1202,17 @@ export default function App(){
           <div style={{background:"#fff",borderRadius:14,padding:20,boxShadow:"0 2px 10px #0001",border:"2px dashed #e2e8f0"}}>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:mostrarFormTarea?16:0}}>
               <h3 style={{margin:0,color:"#1e293b",fontSize:15}}>+ Agregar nueva tarea</h3>
-              <button onClick={()=>setMostrarFormTarea(p=>!p)} style={{background:mostrarFormTarea?"#f1f5f9":"#2563eb",color:mostrarFormTarea?"#374151":"#fff",border:"none",borderRadius:8,padding:"6px 14px",cursor:"pointer",fontSize:13,fontWeight:600}}>
-                {mostrarFormTarea?"Cancelar":"Nueva tarea"}
-              </button>
+              <button onClick={()=>setMostrarFormTarea(p=>!p)} style={{background:mostrarFormTarea?"#f1f5f9":"#2563eb",color:mostrarFormTarea?"#374151":"#fff",border:"none",borderRadius:8,padding:"6px 14px",cursor:"pointer",fontSize:13,fontWeight:600}}>{mostrarFormTarea?"Cancelar":"Nueva tarea"}</button>
             </div>
             {mostrarFormTarea&&(
               <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(200px,1fr))",gap:12}}>
-                <div style={{gridColumn:"1/-1"}}>
-                  <label style={{fontSize:12,fontWeight:600,color:"#374151",display:"block",marginBottom:4}}>Nombre *</label>
-                  <input value={nuevaTarea.nombre} onChange={e=>setNuevaTarea(p=>({...p,nombre:e.target.value}))}
-                    style={{width:"100%",padding:"8px 12px",borderRadius:8,border:"1px solid #d1d5db",fontSize:13,boxSizing:"border-box"}}/>
-                </div>
-                {[["Responsable *","responsable",WORKERS.map(w=>({v:w.nombre,l:w.nombre}))],
-                  ["Supervisor","supervisor",[{v:"",l:"Sin supervisor"},...WORKERS.map(w=>({v:w.nombre,l:w.nombre}))]],
-                  ["Categoria","categoria",Object.keys(CATEGORIAS).map(k=>({v:k,l:k}))],
-                  ["Frecuencia","frecuencia",FRECUENCIAS.map(f=>({v:f,l:f}))],
-                  ["Depende de","dependeDe",[{v:"",l:"Sin dependencia"},...todasTareas().map(t=>({v:t.id,l:t.nombre.substring(0,30)}))]],
-                ].map(([lbl,campo,opts])=>(
-                  <div key={campo}>
-                    <label style={{fontSize:12,fontWeight:600,color:"#374151",display:"block",marginBottom:4}}>{lbl}</label>
-                    <select value={nuevaTarea[campo]} onChange={e=>setNuevaTarea(p=>({...p,[campo]:e.target.value}))}
-                      style={{width:"100%",padding:"8px 10px",borderRadius:8,border:"1px solid #d1d5db",fontSize:13,boxSizing:"border-box"}}>
-                      {opts.map(o=><option key={o.v} value={o.v}>{o.l}</option>)}
-                    </select>
-                  </div>
+                <div style={{gridColumn:"1/-1"}}><label style={{fontSize:12,fontWeight:600,color:"#374151",display:"block",marginBottom:4}}>Nombre *</label>
+                <input value={nuevaTarea.nombre} onChange={e=>setNuevaTarea(p=>({...p,nombre:e.target.value}))} style={{width:"100%",padding:"8px 12px",borderRadius:8,border:"1px solid #d1d5db",fontSize:13,boxSizing:"border-box"}}/></div>
+                {[["Responsable *","responsable",WORKERS.map(w=>({v:w.nombre,l:w.nombre}))],["Supervisor","supervisor",[{v:"",l:"Sin supervisor"},...WORKERS.map(w=>({v:w.nombre,l:w.nombre}))]],["Categoria","categoria",Object.keys(CATEGORIAS).map(k=>({v:k,l:k}))],["Frecuencia","frecuencia",FRECUENCIAS.map(f=>({v:f,l:f}))],["Depende de","dependeDe",[{v:"",l:"Sin dependencia"},...todasTareas().map(t=>({v:t.id,l:t.nombre.substring(0,30)}))]]].map(([lbl,campo,opts])=>(
+                  <div key={campo}><label style={{fontSize:12,fontWeight:600,color:"#374151",display:"block",marginBottom:4}}>{lbl}</label>
+                  <select value={nuevaTarea[campo]} onChange={e=>setNuevaTarea(p=>({...p,[campo]:e.target.value}))} style={{width:"100%",padding:"8px 10px",borderRadius:8,border:"1px solid #d1d5db",fontSize:13,boxSizing:"border-box"}}>
+                    {opts.map(o=><option key={o.v} value={o.v}>{o.l}</option>)}
+                  </select></div>
                 ))}
                 <div style={{gridColumn:"1/-1",display:"flex",justifyContent:"flex-end"}}>
                   <button onClick={agregarTarea} style={{background:"#22c55e",color:"#fff",border:"none",borderRadius:10,padding:"10px 24px",cursor:"pointer",fontWeight:700,fontSize:14}}>Guardar tarea</button>
@@ -1163,21 +1240,15 @@ export default function App(){
                     const cfg=getConfig(t.id);const bloq=isBloqueada(t.id);
                     return(
                       <tr key={t.id} style={{borderTop:"1px solid #f1f5f9",background:bloq?"#f8fafc":i%2===0?"#fff":"#fafafa",opacity:bloq?0.55:1}}>
-                        <td style={{padding:"8px 12px",color:bloq?"#94a3b8":"#1e293b",textDecoration:bloq?"line-through":"none"}}>
-                          {t.nombre}
-                          {t.id.startsWith("custom_")&&<span style={{fontSize:9,background:"#dbeafe",color:"#1d4ed8",borderRadius:20,padding:"1px 6px",marginLeft:4}}>nueva</span>}
-                        </td>
+                        <td style={{padding:"8px 12px",color:bloq?"#94a3b8":"#1e293b",textDecoration:bloq?"line-through":"none"}}>{t.nombre}{t.id.startsWith("custom_")&&<span style={{fontSize:9,background:"#dbeafe",color:"#1d4ed8",borderRadius:20,padding:"1px 6px",marginLeft:4}}>nueva</span>}</td>
                         <td style={{padding:"8px 12px",textAlign:"center",color:"#64748b"}}>{t.responsable.split(" ")[0]}</td>
                         <td style={{padding:"8px 12px",textAlign:"center"}}>
-                          <select value={getSupervisor(t.id)||""} onChange={e=>updateConfig(t.id,"supervisor",e.target.value)}
-                            style={{padding:"3px 6px",borderRadius:6,border:"1px solid #d1d5db",fontSize:11,cursor:"pointer",width:"100%"}}>
-                            <option value="">Ninguno</option>
-                            {WORKERS.filter(w=>w.nombre!==t.responsable).map(w=><option key={w.nombre} value={w.nombre}>{w.nombre.split(" ")[0]}</option>)}
+                          <select value={getSupervisor(t.id)||""} onChange={e=>updateConfig(t.id,"supervisor",e.target.value)} style={{padding:"3px 6px",borderRadius:6,border:"1px solid #d1d5db",fontSize:11,cursor:"pointer",width:"100%"}}>
+                            <option value="">Ninguno</option>{WORKERS.filter(w=>w.nombre!==t.responsable).map(w=><option key={w.nombre} value={w.nombre}>{w.nombre.split(" ")[0]}</option>)}
                           </select>
                         </td>
                         <td style={{padding:"8px 12px",textAlign:"center"}}>
-                          <select value={cfg.frecuencia||t.frecuencia} onChange={e=>updateConfig(t.id,"frecuencia",e.target.value)}
-                            style={{padding:"3px 6px",borderRadius:6,border:"1px solid #d1d5db",fontSize:11,cursor:"pointer"}}>
+                          <select value={cfg.frecuencia||t.frecuencia} onChange={e=>updateConfig(t.id,"frecuencia",e.target.value)} style={{padding:"3px 6px",borderRadius:6,border:"1px solid #d1d5db",fontSize:11,cursor:"pointer"}}>
                             {FRECUENCIAS.map(f=><option key={f} value={f}>{f}</option>)}
                           </select>
                         </td>
@@ -1189,22 +1260,18 @@ export default function App(){
                               <button onClick={()=>updateConfig(t.id,"diaLimite",Math.min(31,(cfg.diaLimite||t.diaLimite)+1))} style={{width:20,height:20,borderRadius:4,border:"1px solid #d1d5db",background:"#fff",cursor:"pointer",fontSize:12}}>+</button>
                             </div>
                           ):(
-                            <select value={cfg.diaLimiteSem??t.diaLimiteSem} onChange={e=>updateConfig(t.id,"diaLimiteSem",parseInt(e.target.value))}
-                              style={{padding:"3px 6px",borderRadius:6,border:"1px solid #d1d5db",fontSize:11,cursor:"pointer"}}>
+                            <select value={cfg.diaLimiteSem??t.diaLimiteSem} onChange={e=>updateConfig(t.id,"diaLimiteSem",parseInt(e.target.value))} style={{padding:"3px 6px",borderRadius:6,border:"1px solid #d1d5db",fontSize:11,cursor:"pointer"}}>
                               {DIAS_SEMANA.map((d,idx)=><option key={idx} value={idx}>{d}</option>)}
                             </select>
                           )}
                         </td>
                         <td style={{padding:"8px 12px",textAlign:"center"}}>
-                          <select value={cfg.dependeDe||""} onChange={e=>updateConfig(t.id,"dependeDe",e.target.value||null)}
-                            style={{padding:"3px 6px",borderRadius:6,border:"1px solid #d1d5db",fontSize:11,cursor:"pointer",width:"100%"}}>
-                            <option value="">Ninguna</option>
-                            {todasTareas().filter(x=>x.id!==t.id).map(x=><option key={x.id} value={x.id}>{x.nombre.substring(0,18)}{x.nombre.length>18?"...":""}</option>)}
+                          <select value={cfg.dependeDe||""} onChange={e=>updateConfig(t.id,"dependeDe",e.target.value||null)} style={{padding:"3px 6px",borderRadius:6,border:"1px solid #d1d5db",fontSize:11,cursor:"pointer",width:"100%"}}>
+                            <option value="">Ninguna</option>{todasTareas().filter(x=>x.id!==t.id).map(x=><option key={x.id} value={x.id}>{x.nombre.substring(0,18)}{x.nombre.length>18?"...":""}</option>)}
                           </select>
                         </td>
                         <td style={{padding:"8px 12px",textAlign:"center"}}>
-                          <button onClick={()=>toggleBloqueada(t.id)}
-                            style={{background:bloq?"#f1f5f9":"#dcfce7",color:bloq?"#64748b":"#15803d",border:`1px solid ${bloq?"#d1d5db":"#86efac"}`,borderRadius:8,padding:"3px 10px",cursor:"pointer",fontSize:11,fontWeight:600,whiteSpace:"nowrap"}}>
+                          <button onClick={()=>toggleBloqueada(t.id)} style={{background:bloq?"#f1f5f9":"#dcfce7",color:bloq?"#64748b":"#15803d",border:`1px solid ${bloq?"#d1d5db":"#86efac"}`,borderRadius:8,padding:"3px 10px",cursor:"pointer",fontSize:11,fontWeight:600,whiteSpace:"nowrap"}}>
                             {bloq?"Activar":"Bloquear"}
                           </button>
                         </td>
@@ -1215,18 +1282,13 @@ export default function App(){
               </div>
             </div>
           ))}
-
-          <div style={{background:"#dbeafe",borderRadius:10,padding:"10px 16px",fontSize:13,color:"#1d4ed8"}}>
-            Cambios guardados automaticamente. Las tareas bloqueadas conservan su historial.
-          </div>
+          <div style={{background:"#dbeafe",borderRadius:10,padding:"10px 16px",fontSize:13,color:"#1d4ed8"}}>Cambios guardados automaticamente. Las tareas bloqueadas conservan su historial.</div>
         </div>
       )}
 
       {/* FOOTER */}
       <div style={{marginTop:40,borderTop:"1px solid #e2e8f0",paddingTop:24}}>
-        <div style={{textAlign:"center",marginBottom:20}}>
-          <span style={{fontSize:11,color:"#94a3b8",letterSpacing:3,textTransform:"uppercase",fontWeight:600}}>Nuestras Empresas – Mediterra</span>
-        </div>
+        <div style={{textAlign:"center",marginBottom:20}}><span style={{fontSize:11,color:"#94a3b8",letterSpacing:3,textTransform:"uppercase",fontWeight:600}}>Nuestras Empresas – Mediterra</span></div>
         <div style={{display:"flex",flexWrap:"wrap",gap:16,justifyContent:"center",alignItems:"center"}}>
           {[
             {bg:"#1a1a2e",content:<><div style={{display:"flex",gap:1}}><span style={{color:"#6b7280",fontWeight:900,fontSize:15}}>FRISKU</span><span style={{color:"#60a5fa",fontWeight:900,fontSize:15}}>FOODS</span></div><span style={{color:"#9ca3af",fontSize:8,letterSpacing:2}}>CONNECTING QUALITY</span></>},
@@ -1237,16 +1299,11 @@ export default function App(){
             {bg:"#1e1b4b",content:<><span style={{color:"#818cf8",fontWeight:900,fontSize:14}}>ALLPA FARMS</span><span style={{background:"#34d399",color:"#fff",fontSize:9,fontWeight:700,borderRadius:4,padding:"1px 8px",marginTop:3,letterSpacing:2}}>PERU</span></>},
             {bg:"#1e1b4b",content:<><span style={{color:"#818cf8",fontWeight:900,fontSize:14}}>ALLPA FARMS</span><span style={{background:"#f87171",color:"#fff",fontSize:9,fontWeight:700,borderRadius:4,padding:"1px 8px",marginTop:3,letterSpacing:2}}>CHILE</span></>},
           ].map((item,i)=>(
-            <div key={i} style={{background:item.bg,border:item.border,borderRadius:10,padding:"10px 18px",display:"flex",flexDirection:"column",alignItems:"center",minWidth:110,gap:2}}>
-              {item.content}
-            </div>
+            <div key={i} style={{background:item.bg,border:item.border,borderRadius:10,padding:"10px 18px",display:"flex",flexDirection:"column",alignItems:"center",minWidth:110,gap:2}}>{item.content}</div>
           ))}
         </div>
-        <div style={{textAlign:"center",marginTop:20,fontSize:10,color:"#cbd5e1"}}>
-          © {new Date().getFullYear()} Grupo Mediterra · Todos los derechos reservados
-        </div>
+        <div style={{textAlign:"center",marginTop:20,fontSize:10,color:"#cbd5e1"}}>© {new Date().getFullYear()} Grupo Mediterra · Todos los derechos reservados</div>
       </div>
-
     </div>
   );
 }
