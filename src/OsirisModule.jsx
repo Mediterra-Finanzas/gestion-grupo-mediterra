@@ -1329,7 +1329,7 @@ function Resumen({rpData,feData,rcData,fvData,tpData}) {
 // ── Logo Osiris ───────────────────────────────────────────
 function OsirisLogo({height=52}) {
   return (
-    <img src="/osiris-logo.png" alt="Osiris Plant Management"
+    <img src="/osiris-logo.jpg" alt="Osiris Plant Management"
       style={{height:height, objectFit:"contain", display:"block"}}/>
   );
 }
