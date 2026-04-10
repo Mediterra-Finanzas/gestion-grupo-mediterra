@@ -1474,156 +1474,323 @@ function mesDeDate(d) {
   return `${MN[date.getMonth()]}-${String(date.getFullYear()).slice(2)}`;
 }
 
+// ═══════════════════════════════════════════════════════════════════
+// TABLA FIJA DE CUENTAS: todas las empresas × bancos × monedas
+// ═══════════════════════════════════════════════════════════════════
+const EMPRESAS_LIST = [
+  "Mediterra","Allegria Foods","Allegria Service",
+  "Frisku Foods","Frisku Peru","Allpa Farms",
+  "Allpa Farms Perú","Integrity Farms","Osiris"
+];
+const BANCOS_CHILE = ["BCI","BICE","Security","Chile","Santander"];
+const BANCOS_PERU  = ["Scotiabank Perú","BBVA Perú"];
+const TODOS_BANCOS = [...BANCOS_CHILE,...BANCOS_PERU];
+
+// Genera todas las combinaciones fijas: empresa × banco × moneda
+// Empresas chilenas usan bancos Chile + monedas CLP/USD/EUR
+// Empresas Perú usan bancos Perú + monedas PEN/USD
+function generarCuentasFijas() {
+  const cuentas = [];
+  EMPRESAS_LIST.forEach(emp => {
+    const esPeruana = emp.includes("Perú") || emp === "Frisku Peru";
+    const bancos  = esPeruana ? BANCOS_PERU  : BANCOS_CHILE;
+    const monedas = esPeruana ? ["pen","usd"] : ["clp","usd","eur"];
+    bancos.forEach(banco => {
+      monedas.forEach(moneda => {
+        cuentas.push({ emp, banco, moneda, key:`${emp}||${banco}||${moneda}` });
+      });
+    });
+  });
+  return cuentas;
+}
+const CUENTAS_FIJAS = generarCuentasFijas();
+
+// Fetch paridades de cambio a USD desde open.er-api.com (permite CORS, sin API key)
+async function fetchFX() {
+  try {
+    // exchangerate-api.com — endpoint público sin API key, permite CORS
+    const r = await fetch("https://open.er-api.com/v6/latest/USD");
+    const d = await r.json();
+    if(d.result !== "success") return null;
+    const rates = d.rates;
+    // rates: cuántas unidades de X hay por 1 USD
+    const clpRate = rates.CLP || null;  // CLP por 1 USD
+    const eurRate = rates.EUR || null;  // EUR por 1 USD
+    const penRate = rates.PEN || null;  // PEN por 1 USD
+    return {
+      clp: clpRate ? 1/clpRate : null,   // 1 CLP = ? USD
+      eur: eurRate ? 1/eurRate : null,   // 1 EUR = ? USD
+      pen: penRate ? 1/penRate : null,   // 1 PEN = ? USD
+      usd: 1,
+      clpRaw: clpRate,  // USD/CLP (cuántos CLP por 1 USD)
+      eurRaw: eurRate ? 1/eurRate : null, // USD/EUR (cuántos USD por 1 EUR)
+      penRaw: penRate,  // USD/PEN (cuántos PEN por 1 USD)
+      ts: new Date().toLocaleTimeString("es-CL"),
+    };
+  } catch { return null; }
+}
+
+function toUSD(monto, moneda, fx) {
+  if (!fx || monto == null) return null;
+  return monto * (fx[moneda] ?? 0);
+}
+
 function SaldosBancos({saldos,onSave,canEdit}) {
-  const [empresa,setEmpresa]=useState(EMPRESAS_BANCOS[0]);
-  const [banco,setBanco]=useState(BANCOS[0]);
-  const [moneda,setMoneda]=useState("usd");
-  const [fechaInput,setFechaInput]=useState(()=>new Date().toISOString().slice(0,10));
-  const [montoInput,setMontoInput]=useState("");
-  const [saving,setSaving]=useState(false);
+  const [fx,setFx]         = useState(null);
+  const [fxLoading,setFxLoading] = useState(false);
+  const [fxError,setFxError]     = useState(false);
+  const [fecha,setFecha]   = useState(()=>new Date().toISOString().slice(0,10));
+  const [saving,setSaving] = useState(false);
+  // edits locales: {key: valor_string}
+  const [edits,setEdits]   = useState({});
+  const [dirty,setDirty]   = useState({});
 
-  // Datos actuales filtrados
-  const key=`${empresa}||${banco}||${moneda}`;
-  const entry=saldos?.[key]||{};
-  // Último saldo
-  const lastFecha=entry.fecha||null;
-  const lastMonto=entry.monto!=null?entry.monto:null;
-  const sym=MONEDAS.find(m=>m.id===moneda)?.symbol||"$";
+  // Cargar paridades al montar
+  useEffect(()=>{
+    setFxLoading(true);
+    fetchFX().then(r=>{
+      if(r) setFx(r); else setFxError(true);
+      setFxLoading(false);
+    });
+  },[]);
 
-  async function handleGuardar(){
-    if(!montoInput&&montoInput!=="0") return;
-    setSaving(true);
-    const next={...(saldos||{})};
-    next[key]={empresa,banco,moneda,monto:parseFloat(montoInput)||0,fecha:fechaInput,
-      semana:semanaDeDate(fechaInput),mes:mesDeDate(fechaInput)};
-    await onSave(next);
-    setSaving(false);
-    setMontoInput("");
+  function refreshFX(){
+    setFxLoading(true);setFxError(false);
+    fetchFX().then(r=>{
+      if(r){setFx(r);setFxError(false);}else setFxError(true);
+      setFxLoading(false);
+    });
   }
 
-  // Resumen por moneda — todos los últimos saldos
-  const resumen=useMemo(()=>{
-    const r={clp:[],usd:[],eur:[],pen:[]};
-    Object.values(saldos||{}).forEach(e=>{
-      if(r[e.moneda]) r[e.moneda].push(e);
-    });
-    return r;
-  },[saldos]);
+  // Valor actual de una cuenta (desde edits locales o saldos guardados)
+  function getVal(key){
+    if(edits[key]!==undefined) return edits[key];
+    const s=saldos?.[key];
+    return s?.monto!=null ? String(s.monto) : "";
+  }
 
-  const selSt={padding:"7px 10px",background:C.card2,border:`1px solid ${C.border}`,
-    borderRadius:8,color:C.text,fontSize:12,outline:"none"};
+  function handleChange(key,val){
+    setEdits(p=>({...p,[key]:val}));
+    setDirty(p=>({...p,[key]:true}));
+  }
+
+  async function handleGuardar(){
+    if(!Object.keys(dirty).length) return;
+    setSaving(true);
+    const next=JSON.parse(JSON.stringify(saldos||{}));
+    Object.keys(dirty).forEach(key=>{
+      const c=CUENTAS_FIJAS.find(x=>x.key===key);
+      if(!c) return;
+      const val=parseFloat(edits[key]);
+      if(isNaN(val)) { delete next[key]; return; }
+      next[key]={
+        empresa:c.emp, banco:c.banco, moneda:c.moneda,
+        monto:val, fecha,
+        semana:semanaDeDate(fecha), mes:mesDeDate(fecha),
+        usd: fx ? toUSD(val,c.moneda,fx) : null,
+      };
+    });
+    await onSave(next);
+    setDirty({});
+    setSaving(false);
+  }
+
+  // Totales por empresa en USD
+  const totalesEmpresa = useMemo(()=>{
+    const t={};
+    EMPRESAS_LIST.forEach(emp=>{
+      let sum=0, ok=true;
+      CUENTAS_FIJAS.filter(c=>c.emp===emp).forEach(c=>{
+        const s=saldos?.[c.key];
+        if(!s||s.monto==null) return;
+        const usdVal=toUSD(s.monto,c.moneda,fx);
+        if(usdVal==null){ok=false;return;}
+        sum+=usdVal;
+      });
+      t[emp]={usd:ok?sum:null};
+    });
+    return t;
+  },[saldos,fx]);
+
+  // Total consolidado USD
+  const totalUSD = useMemo(()=>{
+    let s=0,ok=true;
+    Object.values(totalesEmpresa).forEach(({usd})=>{
+      if(usd==null){ok=false;return;}
+      s+=usd;
+    });
+    return ok?s:null;
+  },[totalesEmpresa]);
+
+  const hasDirty=Object.keys(dirty).length>0;
+
+  // Agrupar cuentas por empresa para renderizar
+  const porEmpresa = useMemo(()=>{
+    const m={};
+    CUENTAS_FIJAS.forEach(c=>{
+      if(!m[c.emp]) m[c.emp]=[];
+      m[c.emp].push(c);
+    });
+    return m;
+  },[]);
+
+  const sym=(id)=>MONEDAS.find(m=>m.id===id)?.symbol||"$";
+  const flag=(id)=>MONEDAS.find(m=>m.id===id)?.flag||"";
 
   return (
     <div style={{display:"flex",flexDirection:"column",gap:14}}>
-      {/* Resumen por moneda */}
-      <div style={{display:"grid",gridTemplateColumns:"repeat(2,1fr)",gap:10}}>
-        {MONEDAS.map(mon=>{
-          const items=resumen[mon.id]||[];
-          const total=items.reduce((s,e)=>s+(Number(e.monto)||0),0);
-          return (
-            <div key={mon.id} style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:10,padding:"12px 16px"}}>
-              <div style={{fontSize:10,color:C.muted,marginBottom:4}}>{mon.flag} Total {mon.label}</div>
-              <div style={{fontSize:18,fontWeight:800,color:cf(total)}}>{fmtMoneda(total,mon.symbol)}</div>
-              <div style={{fontSize:10,color:C.muted,marginTop:4}}>{items.length} cuenta{items.length!==1?"s":""}</div>
-            </div>
-          );
-        })}
-      </div>
 
-      {/* Ingresar saldo */}
-      {canEdit&&(
-        <Card>
-          <SectionTitle>Ingresar Saldo Bancario</SectionTitle>
-          <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(160px,1fr))",gap:10,marginBottom:14}}>
-            <div>
-              <div style={{fontSize:10,color:C.muted,marginBottom:3}}>Empresa</div>
-              <select value={empresa} onChange={e=>setEmpresa(e.target.value)} style={selSt}>
-                {EMPRESAS_BANCOS.map(n=><option key={n}>{n}</option>)}
-              </select>
-            </div>
-            <div>
-              <div style={{fontSize:10,color:C.muted,marginBottom:3}}>Banco</div>
-              <select value={banco} onChange={e=>setBanco(e.target.value)} style={selSt}>
-                {BANCOS.map(b=><option key={b}>{b}</option>)}
-              </select>
-            </div>
-            <div>
-              <div style={{fontSize:10,color:C.muted,marginBottom:3}}>Moneda</div>
-              <select value={moneda} onChange={e=>setMoneda(e.target.value)} style={selSt}>
-                {MONEDAS.map(m=><option key={m.id} value={m.id}>{m.flag} {m.label}</option>)}
-              </select>
-            </div>
-            <div>
-              <div style={{fontSize:10,color:C.muted,marginBottom:3}}>Fecha</div>
-              <input type="date" value={fechaInput} onChange={e=>setFechaInput(e.target.value)}
-                style={{...selSt,width:"100%",boxSizing:"border-box"}}/>
-            </div>
-            <div>
-              <div style={{fontSize:10,color:C.muted,marginBottom:3}}>Saldo ({sym})</div>
-              <input type="number" value={montoInput} placeholder="0"
-                onChange={e=>setMontoInput(e.target.value)}
-                style={{...selSt,width:"100%",boxSizing:"border-box",textAlign:"right"}}/>
+      {/* KPIs — paridades + total USD */}
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(160px,1fr))",gap:10}}>
+        {/* Total consolidado */}
+        <div style={{background:C.card,border:`2px solid ${C.accent}`,borderRadius:10,padding:"12px 16px",gridColumn:"span 2"}}>
+          <div style={{fontSize:10,color:C.muted,textTransform:"uppercase",marginBottom:4}}>
+            💵 Total Consolidado USD
+            {fxLoading&&<span style={{marginLeft:6,fontSize:9,color:C.yellow}}>actualizando…</span>}
+            {fxError&&<span style={{marginLeft:6,fontSize:9,color:C.red}}>⚠️ sin paridad</span>}
+          </div>
+          <div style={{fontSize:22,fontWeight:900,color:totalUSD!=null?cf(totalUSD):C.muted}}>
+            {totalUSD!=null?`$${totalUSD.toLocaleString("es-CL",{maximumFractionDigits:0})} USD`:"—"}
+          </div>
+        </div>
+        {/* Paridades */}
+        {[
+          {id:"clp",label:"1 USD =",val:fx?.clpRaw,fmt:v=>`$${Math.round(v).toLocaleString("es-CL")} CLP`},
+          {id:"eur",label:"1 EUR =",val:fx?.eurRaw,fmt:v=>`$${v.toFixed(4)} USD`},
+          {id:"pen",label:"1 USD =",val:fx?.penRaw,fmt:v=>`S/${v.toFixed(3)} PEN`},
+        ].map(p=>(
+          <div key={p.id} style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:10,padding:"10px 14px"}}>
+            <div style={{fontSize:9,color:C.muted,marginBottom:3}}>{p.label}</div>
+            <div style={{fontSize:14,fontWeight:700,color:C.yellow}}>
+              {p.val!=null?p.fmt(p.val):fxLoading?"…":"—"}
             </div>
           </div>
-          {lastFecha&&(
-            <div style={{fontSize:11,color:C.muted,marginBottom:10,padding:"7px 10px",
-              background:C.card2,borderRadius:8,border:`1px solid ${C.border}`}}>
-              Último registrado: <strong style={{color:C.yellow}}>{fmtMoneda(lastMonto,sym)}</strong>
-              {" "}al {lastFecha}
-              {" · "}Semana {entry.semana} · {entry.mes}
-            </div>
-          )}
-          <button onClick={handleGuardar} disabled={saving||!montoInput}
-            style={{padding:"8px 20px",borderRadius:8,border:"none",
-              background:saving||!montoInput?"#555":C.accent,
-              color:"#fff",cursor:saving||!montoInput?"default":"pointer",
-              fontSize:12,fontWeight:700}}>
-            {saving?"Guardando…":"💾 Guardar Saldo"}
+        ))}
+        <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:10,padding:"10px 14px",
+          display:"flex",flexDirection:"column",justifyContent:"center"}}>
+          <button onClick={refreshFX} disabled={fxLoading}
+            style={{padding:"6px 10px",borderRadius:7,border:"none",fontSize:11,fontWeight:600,
+              background:fxLoading?C.card2:C.accent,color:"#fff",cursor:fxLoading?"default":"pointer"}}>
+            {fxLoading?"⟳ …":"🔄 Actualizar FX"}
           </button>
-        </Card>
+          {fx?.ts&&<div style={{fontSize:9,color:C.muted,marginTop:4,textAlign:"center"}}>Última: {fx.ts}</div>}
+        </div>
+      </div>
+
+      {/* Fecha del ingreso */}
+      {canEdit&&(
+        <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
+          <div style={{fontSize:12,color:C.muted}}>📅 Fecha del saldo:</div>
+          <input type="date" value={fecha} onChange={e=>setFecha(e.target.value)}
+            style={{padding:"6px 10px",background:C.card2,border:`1px solid ${C.border}`,
+              borderRadius:8,color:C.text,fontSize:12,outline:"none"}}/>
+          {hasDirty&&(
+            <button onClick={handleGuardar} disabled={saving}
+              style={{padding:"7px 18px",borderRadius:8,border:"none",
+                background:saving?"#555":C.accent,color:"#fff",
+                cursor:saving?"default":"pointer",fontSize:12,fontWeight:700}}>
+              {saving?"Guardando…":"💾 Guardar cambios"}
+            </button>
+          )}
+          {hasDirty&&<span style={{fontSize:11,color:C.yellow}}>● {Object.keys(dirty).length} cambio(s) sin guardar</span>}
+        </div>
       )}
 
-      {/* Tabla completa de saldos */}
+      {/* Tabla fija — todas las cuentas agrupadas por empresa */}
       <Card style={{padding:0,overflow:"hidden"}}>
-        <div style={{padding:"12px 16px",borderBottom:`1px solid ${C.border}`}}>
-          <SectionTitle>Saldos Vigentes por Empresa · Banco · Moneda</SectionTitle>
-        </div>
         <div style={{overflowX:"auto"}}>
           <table style={{width:"100%",borderCollapse:"collapse",fontSize:11}}>
             <thead>
-              <tr style={{background:"rgba(0,0,0,0.2)"}}>
-                {["Empresa","Banco","Moneda","Saldo","Fecha","Semana"].map(h=>(
-                  <th key={h} style={{padding:"8px 12px",fontWeight:600,fontSize:10,color:C.muted,
+              <tr style={{background:"rgba(0,0,0,0.25)"}}>
+                {["Empresa","Banco","Moneda","Saldo",canEdit?"Ingresa saldo":"","≈ USD","Fecha"].filter(Boolean).map(h=>(
+                  <th key={h} style={{padding:"9px 12px",fontWeight:600,fontSize:10,color:C.muted,
                     textTransform:"uppercase",borderBottom:`1px solid ${C.border}`,
-                    textAlign:h==="Saldo"?"right":"left"}}>{h}</th>
+                    textAlign:["Saldo","≈ USD"].includes(h)?"right":"left",whiteSpace:"nowrap"}}>{h}</th>
                 ))}
               </tr>
             </thead>
             <tbody>
-              {Object.values(saldos||{}).length===0&&(
-                <tr><td colSpan={6} style={{padding:"20px",textAlign:"center",color:C.muted,fontSize:12}}>
-                  Sin saldos registrados
-                </td></tr>
-              )}
-              {Object.values(saldos||{})
-                .sort((a,b)=>a.empresa.localeCompare(b.empresa)||a.banco.localeCompare(b.banco))
-                .map((e,i)=>{
-                  const mon=MONEDAS.find(m=>m.id===e.moneda)||MONEDAS[1];
-                  return (
-                    <tr key={i} style={{borderBottom:`1px solid ${C.border}22`}}>
-                      <td style={{padding:"7px 12px",fontWeight:600,color:C.text}}>{e.empresa}</td>
-                      <td style={{padding:"7px 12px",color:C.muted}}>{e.banco}</td>
-                      <td style={{padding:"7px 12px"}}><span style={{fontSize:9,padding:"2px 7px",borderRadius:20,background:C.card2,border:`1px solid ${C.border}`,color:C.muted}}>{mon.flag} {mon.label}</span></td>
-                      <td style={{padding:"7px 12px",textAlign:"right",fontWeight:700,color:cf(e.monto)}}>{fmtMoneda(e.monto,mon.symbol)}</td>
-                      <td style={{padding:"7px 12px",color:C.muted,fontSize:10}}>{e.fecha||"—"}</td>
-                      <td style={{padding:"7px 12px",color:C.muted,fontSize:10}}>{e.semana||"—"} · {e.mes||"—"}</td>
+              {EMPRESAS_LIST.map(emp=>{
+                const cuentas=porEmpresa[emp]||[];
+                const empColor=EMPRESAS_STATIC[emp]?.color||C.muted;
+                const empEmoji=EMPRESAS_STATIC[emp]?.emoji||"🏢";
+                const empUSD=totalesEmpresa[emp]?.usd;
+                return (
+                  <React.Fragment key={emp}>
+                    {/* Fila header empresa */}
+                    <tr style={{background:`${empColor}12`,borderTop:`2px solid ${empColor}44`}}>
+                      <td colSpan={canEdit?7:6} style={{padding:"7px 12px"}}>
+                        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:8}}>
+                          <span style={{fontWeight:800,fontSize:12,color:empColor}}>{empEmoji} {emp}</span>
+                          {empUSD!=null&&(
+                            <span style={{fontSize:11,fontWeight:700,color:cf(empUSD),
+                              background:`${cf(empUSD)}22`,borderRadius:20,padding:"2px 10px"}}>
+                              Total: ${empUSD.toLocaleString("es-CL",{maximumFractionDigits:0})} USD
+                            </span>
+                          )}
+                        </div>
+                      </td>
                     </tr>
-                  );
+                    {/* Filas cuentas */}
+                    {cuentas.map(c=>{
+                      const saved=saldos?.[c.key];
+                      const val=getVal(c.key);
+                      const numVal=parseFloat(val)||0;
+                      const isDirty=dirty[c.key];
+                      const usdVal=numVal&&fx?toUSD(numVal,c.moneda,fx):null;
+                      const mon=MONEDAS.find(m=>m.id===c.moneda);
+                      return (
+                        <tr key={c.key} style={{borderBottom:`1px solid ${C.border}11`,
+                          background:isDirty?"rgba(251,191,36,0.05)":"transparent"}}>
+                          <td style={{padding:"6px 12px",color:C.muted,paddingLeft:24,fontSize:10}}>
+                            {isDirty&&<span style={{color:C.yellow,marginRight:4}}>●</span>}
+                          </td>
+                          <td style={{padding:"6px 12px",color:C.text,fontSize:11}}>{c.banco}</td>
+                          <td style={{padding:"6px 12px"}}>
+                            <span style={{fontSize:10,padding:"2px 8px",borderRadius:20,
+                              background:C.card2,border:`1px solid ${C.border}`,color:C.muted}}>
+                              {mon?.flag} {mon?.label}
+                            </span>
+                          </td>
+                          <td style={{padding:"6px 12px",textAlign:"right",fontWeight:saved?.monto!=null?700:400,
+                            color:saved?.monto!=null?cf(saved.monto):C.muted2,fontSize:11}}>
+                            {saved?.monto!=null?`${sym(c.moneda)}${saved.monto.toLocaleString("es-CL")}` : "—"}
+                          </td>
+                          {canEdit&&(
+                            <td style={{padding:"4px 8px"}}>
+                              <input
+                                type="number"
+                                value={val}
+                                placeholder="0"
+                                onChange={e=>handleChange(c.key,e.target.value)}
+                                style={{width:110,padding:"5px 8px",background:isDirty?`${C.yellow}18`:C.card2,
+                                  border:`1px solid ${isDirty?C.yellow:C.border}`,borderRadius:6,
+                                  color:C.text,fontSize:11,textAlign:"right",outline:"none"}}
+                              />
+                            </td>
+                          )}
+                          <td style={{padding:"6px 12px",textAlign:"right",fontSize:10,
+                            color:usdVal!=null?cf(usdVal):C.muted2}}>
+                            {usdVal!=null?`$${usdVal.toLocaleString("es-CL",{maximumFractionDigits:0})} USD`:"—"}
+                          </td>
+                          <td style={{padding:"6px 12px",color:C.muted,fontSize:10,whiteSpace:"nowrap"}}>
+                            {saved?.fecha||"—"}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </React.Fragment>
+                );
               })}
             </tbody>
           </table>
         </div>
       </Card>
+
+      {/* Nota FX */}
+      <div style={{fontSize:10,color:C.muted2,textAlign:"center"}}>
+        Paridades obtenidas de open.er-api.com (actualización diaria) · Se cargan al abrir la pestaña
+      </div>
     </div>
   );
 }
