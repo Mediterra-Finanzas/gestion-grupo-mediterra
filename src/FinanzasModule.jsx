@@ -730,7 +730,7 @@ function ParamsFruta({seasonKey,fruta,params,setParams}) {
   );
 }
 
-function TabParametros({params,setParams}) {
+function TabParametros({params,setParams,readOnly=false}) {
   const [selSeason,setSelSeason]=useState(SEASON_KEYS[0]);
   const [selFruta,setSelFruta]=useState('cerezas');
   const resumen=useMemo(()=>SEASONS.flatMap(s=>FRUTAS.map(f=>{
@@ -748,6 +748,12 @@ function TabParametros({params,setParams}) {
 
   return (
     <div style={{display:"flex",flexDirection:"column",gap:16}}>
+      {readOnly&&(
+        <div style={{background:"#1d4ed822",border:"1px solid #60a5fa44",borderRadius:10,
+          padding:"10px 16px",fontSize:12,color:"#60a5fa",display:"flex",alignItems:"center",gap:8}}>
+          👁 Estás en modo solo lectura — no puedes modificar los parámetros.
+        </div>
+      )}
       <Card>
         <SectionTitle>⚡ Parámetros Allegria Foods — por Temporada y Fruta</SectionTitle>
         <div style={{fontSize:11,color:C.muted,marginBottom:14}}>Los cambios se reflejan en tiempo real en el Flujo de Allegria Foods.</div>
@@ -1625,8 +1631,8 @@ function SaldosBancos({saldos,onSave,canEdit}) {
 // ═══════════════════════════════════════════════════════════════════
 // MÓDULO PRINCIPAL
 // ═══════════════════════════════════════════════════════════════════
-export default function FinanzasModule({onBack,onLogout,usuarioActual}) {
-  const [tab,setTab]=useState("dashboard");
+export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermisos={}}) {
+  const [tab,setTab]=useState(null); // null = auto-seleccionar primera tab visible
   const [empTab,setEmpTab]=useState("Mediterra");
   const [realData,setRealData]=useState({});
   const [params,setParams]=useState(defaultParams);
@@ -1634,8 +1640,25 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual}) {
   const [loading,setLoading]=useState(true);
   const [saved,setSaved]=useState(null);
 
-  const canEdit=["Angelo Huerta","Carol Machuca"].includes(usuarioActual?.nombre||"");
+  // Permisos por pestaña — si no viene tabPermisos (admin), todos editar
+  const perm = (tabId) => tabPermisos[tabId] ?? "editar";
+  const puedoVer  = (tabId) => perm(tabId) !== "sin_acceso";
+  const puedoEdit = (tabId) => perm(tabId) === "editar";
+
   const empresas=useMemo(()=>buildEmpresas(params),[params]);
+
+  const TABS_ALL=[
+    {id:"dashboard",label:"📊 Dashboard"},
+    {id:"flujo",    label:"📈 Flujo Empresas"},
+    {id:"bancos",   label:"🏦 Saldos Bancos"},
+    {id:"creditos", label:"💳 Créditos"},
+    {id:"params",   label:"⚡ Parámetros"},
+  ];
+  // Solo mostrar tabs con acceso
+  const TABS = TABS_ALL.filter(t => puedoVer(t.id));
+
+  // Auto-seleccionar primera tab visible al cargar o si la tab activa queda sin acceso
+  const tabActiva = (tab && puedoVer(tab)) ? tab : (TABS[0]?.id || "dashboard");
 
   useEffect(()=>{
     dbLoad().then(d=>{
@@ -1671,18 +1694,22 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual}) {
     return ()=>clearTimeout(t);
   },[params,loading]); // eslint-disable-line
 
-  const TABS=[
-    {id:"dashboard",label:"📊 Dashboard"},
-    {id:"flujo",    label:"📈 Flujo Empresas"},
-    {id:"bancos",   label:"🏦 Saldos Bancos"},
-    {id:"creditos", label:"💳 Créditos"},
-    {id:"params",   label:"⚡ Parámetros"},
-  ];
-
   if(loading) return (
     <div style={{display:"flex",alignItems:"center",justifyContent:"center",
       height:"60vh",color:C.muted,fontSize:14,background:C.bg}}>
       Cargando datos financieros...
+    </div>
+  );
+
+  // Pantalla de acceso denegado si no hay ninguna tab visible
+  if(TABS.length === 0) return (
+    <div style={{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",
+      height:"60vh",gap:16,background:C.bg}}>
+      <div style={{fontSize:40}}>🚫</div>
+      <div style={{fontSize:16,fontWeight:700,color:C.text}}>Sin acceso al módulo Finanzas</div>
+      <div style={{fontSize:12,color:C.muted}}>No tienes permisos para ver ninguna pestaña. Contacta al administrador.</div>
+      <button onClick={onBack} style={{padding:"8px 20px",borderRadius:8,border:`1px solid ${C.border}`,
+        background:"transparent",color:C.muted,cursor:"pointer",fontSize:13}}>← Volver al Hub</button>
     </div>
   );
 
@@ -1709,19 +1736,30 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual}) {
             color:C.red,borderRadius:8,padding:"6px 14px",cursor:"pointer",fontSize:12}}>Salir</button>
         </div>
       </div>
+
+      {/* Pestañas — solo las que el usuario puede ver */}
       <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:20}}>
-        {TABS.map(t=>(
-          <button key={t.id} onClick={()=>setTab(t.id)}
-            style={{padding:"7px 16px",borderRadius:8,cursor:"pointer",fontWeight:600,fontSize:12,
-              border:`1px solid ${tab===t.id?C.accent:C.border}`,
-              background:tab===t.id?`${C.accent}33`:"transparent",
-              color:tab===t.id?C.accentL:C.muted}}>
-            {t.label}
-          </button>
-        ))}
+        {TABS.map(t=>{
+          const esActiva = tabActiva === t.id;
+          const soloVer  = perm(t.id) === "ver";
+          return (
+            <button key={t.id} onClick={()=>setTab(t.id)}
+              style={{padding:"7px 16px",borderRadius:8,cursor:"pointer",fontWeight:600,fontSize:12,
+                border:`1px solid ${esActiva?C.accent:C.border}`,
+                background:esActiva?`${C.accent}33`:"transparent",
+                color:esActiva?C.accentL:C.muted,
+                position:"relative"}}>
+              {t.label}
+              {soloVer&&(
+                <span style={{fontSize:9,marginLeft:5,opacity:0.6,verticalAlign:"middle"}}>👁</span>
+              )}
+            </button>
+          );
+        })}
       </div>
-      {tab==="dashboard"&&<Dashboard empresas={empresas}/>}
-      {tab==="flujo"&&(
+
+      {tabActiva==="dashboard"&&<Dashboard empresas={empresas}/>}
+      {tabActiva==="flujo"&&(
         <div>
           <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:16}}>
             {Object.keys(empresas).map(n=>{const e=empresas[n];return (
@@ -1735,14 +1773,20 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual}) {
             );})}
           </div>
           <FlujoEmpresa key={empTab} empNombre={empTab} empresas={empresas}
-            realData={realData} onSaveReal={handleSaveReal} canEdit={canEdit}/>
+            realData={realData} onSaveReal={handleSaveReal} canEdit={puedoEdit("flujo")}/>
         </div>
       )}
-      {tab==="bancos"&&(
-        <SaldosBancos saldos={saldosBancos} onSave={handleSaveSaldos} canEdit={canEdit}/>
+      {tabActiva==="bancos"&&(
+        <SaldosBancos saldos={saldosBancos} onSave={handleSaveSaldos} canEdit={puedoEdit("bancos")}/>
       )}
-      {tab==="creditos"&&<Creditos empresas={empresas}/>}
-      {tab==="params"&&<TabParametros params={params} setParams={setParams}/>}
+      {tabActiva==="creditos"&&<Creditos empresas={empresas}/>}
+      {tabActiva==="params"&&(
+        <TabParametros params={params} setParams={puedoEdit("params")?setParams:()=>{}}
+          readOnly={!puedoEdit("params")}/>
+      )}
     </div>
   );
 }
+
+// ─── REEMPLAZAR export default con versión que soporta tabPermisos ───
+// (el bloque de arriba queda como respaldo; React usa el último export)
