@@ -577,9 +577,17 @@ export default function App(){
   const [copiarDe,setCopiarDe]=useState("");
 
   // Siempre usar el objeto más fresco del array usuarios (se actualiza desde Supabase)
+  // Fallback a usuarioActual si no se encuentra (nunca null si hay sesión activa)
   const usuarioFresco = usuarioActual
     ? (usuarios.find(u=>u.nombre===usuarioActual.nombre) || usuarioActual)
     : null;
+
+  // Para acceso a módulos: si es admin siempre tiene acceso a todo sin depender del array modulos
+  const modulosDeUsuarioSeguro = (u) => {
+    if(!u) return [];
+    if(u.rol==="admin") return MODULOS_DISPONIBLES.map(m=>m.id);
+    return Array.isArray(u.modulos) ? u.modulos : ["tareas"];
+  };
 
   const WORKERS=usuarios.filter(u=>!u.desactivado);
   const getWorker=(nombre)=>usuarios.find(u=>u.nombre===nombre);
@@ -1099,7 +1107,7 @@ export default function App(){
   );
 
   if(moduloActivo==="tareas") {
-    const modulosPermitidos = modulosDeUsuario(usuarioFresco);
+    const modulosPermitidos = modulosDeUsuarioSeguro(usuarioFresco);
     const tabPermTareas = getTabPermisosModulo(usuarioFresco, "tareas");
     const puedeVerSemanal  = getTabPerm(usuarioFresco,"tareas","semanal")  !== "sin_acceso";
     const puedeVerMensual  = getTabPerm(usuarioFresco,"tareas","mensual")  !== "sin_acceso";
@@ -1349,10 +1357,10 @@ export default function App(){
   }
 
   // Hub principal
-  const modulosPermitidos = modulosDeUsuario(usuarioFresco);
+  const modulosPermitidos = modulosDeUsuarioSeguro(usuarioFresco || usuarioActual);
   return (
     <HubScreen
-      usuario={usuarioFresco}
+      usuario={usuarioFresco || usuarioActual}
       modulosPermitidos={modulosPermitidos}
       onSelectModulo={id=>setModuloActivo(id)}
       onLogout={()=>setUsuarioActual(null)}
