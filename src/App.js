@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import OsirisModule from "./OsirisModule";
+import FinanzasModule from "./FinanzasModule";
 
 const EMAILJS_SERVICE  = "service_ahuerta";
 const EMAILJS_TEMPLATE = "template_c7yup8d";
@@ -55,8 +56,9 @@ const ROLES = [
 
 // Módulos disponibles — agregar aquí nuevos módulos en el futuro
 const MODULOS_DISPONIBLES = [
-  {id:"tareas", label:"Seguimiento Tareas",     sublabel:"Administración y Finanzas", icon:"📋", color:"#2563eb", bg:"#dbeafe", grad:"linear-gradient(135deg,#1e3a5f,#2563eb)"},
-  {id:"osiris", label:"Osiris Plant Management",sublabel:"Gestión de Ingresos",       icon:"🌿", color:"#0f766e", bg:"#ccfbf1", grad:"linear-gradient(135deg,#0f2d4a,#0f766e)"},
+  {id:"tareas",   label:"Seguimiento Tareas",      sublabel:"Administración y Finanzas", icon:"📋", color:"#2563eb", bg:"#dbeafe", grad:"linear-gradient(135deg,#1e3a5f,#2563eb)"},
+  {id:"osiris",   label:"Osiris Plant Management", sublabel:"Gestión de Ingresos",       icon:"🌿", color:"#0f766e", bg:"#ccfbf1", grad:"linear-gradient(135deg,#0f2d4a,#0f766e)"},
+  {id:"finanzas", label:"Finanzas",                sublabel:"Flujo de Caja Grupo Mediterra", icon:"💼", color:"#0d6b3a", bg:"#d1fae5", grad:"linear-gradient(135deg,#0d2137,#0a3d2b)"},
   // Futuros módulos se agregan aquí:
   // {id:"frisku", label:"Frisku Foods", sublabel:"Gestión Operacional", icon:"🫐", color:"#7c3aed", bg:"#ede9fe", grad:"linear-gradient(135deg,#1a1a2e,#7c3aed)"},
 ];
@@ -1004,6 +1006,23 @@ export default function App(){
           </div>
         </div>
       )}
+    </div>
+  );
+
+  // ══════════════════════════════════════════════════════
+  // RENDER: MÓDULO FINANZAS
+  // ══════════════════════════════════════════════════════
+  if(moduloActivo==="finanzas")return(
+    <div style={{fontFamily:"sans-serif",background:"#0d1117",minHeight:"100vh",padding:"20px"}}>
+      <FinanzasModule
+        usuarioActual={usuarioActual}
+        esAdmin={esAdmin}
+        esSoloConsulta={esSoloConsulta}
+        onBack={()=>setModuloActivo(null)}
+        onLogout={()=>{setUsuarioActual(null);setModuloActivo(null);}}
+        supaUrl={SUPA_URL}
+        supaKey={SUPA_KEY}
+      />
     </div>
   );
 
