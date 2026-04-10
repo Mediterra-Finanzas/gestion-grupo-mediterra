@@ -1,3 +1,4 @@
+/* eslint-disable no-unused-vars */
 import { useState, useEffect, useCallback } from "react";
 
 // ═══════════════════════════════════════════════════════════════════
@@ -338,15 +339,15 @@ const CREDITOS_TRIM = {
 };
 
 // ═══════════════════════════════════════════════════════════════════
-// COLORES — Verde oscuro finanzas
+// COLORES
 // ═══════════════════════════════════════════════════════════════════
 const C = {
-  bg:"#071810",       // verde muy oscuro
-  bg2:"#0a2218",      // fondo card
-  card:"#0d2b1e",     // cards
-  card2:"#112e20",    // cards secundarias
-  border:"#1a4d32",   // bordes
-  border2:"#236640",  // bordes hover
+  bg:"#071810",
+  bg2:"#0a2218",
+  card:"#0d2b1e",
+  card2:"#112e20",
+  border:"#1a4d32",
+  border2:"#236640",
   text:"#e2f5ec",
   muted:"#6aad8a",
   muted2:"#4a8066",
@@ -355,7 +356,7 @@ const C = {
   blue:"#60a5fa",
   yellow:"#fbbf24",
   orange:"#fb923c",
-  accent:"#16a34a",   // verde acento
+  accent:"#16a34a",
   accentL:"#22c55e",
 };
 
@@ -475,11 +476,10 @@ function LineChart({ months, values, color=C.accentL, h=72 }) {
 }
 
 // ═══════════════════════════════════════════════════════════════════
-// MODAL INGRESO REAL — por semana y línea
+// MODAL INGRESO REAL
 // ═══════════════════════════════════════════════════════════════════
 function ModalIngreso({ empresa, mes, semana, realData, onSave, onClose }) {
   const emp = EMPRESAS[empresa];
-  // Build form state from all lines across all sections
   const allLines = emp.sections.flatMap(s =>
     s.lines.map(l => ({ cat: s.cat, label: l.label, signo: s.signo }))
   );
@@ -520,7 +520,6 @@ function ModalIngreso({ empresa, mes, semana, realData, onSave, onClose }) {
       display:"flex",alignItems:"flex-start",justifyContent:"center",padding:"20px",overflowY:"auto"}}>
       <div style={{background:C.bg2,border:`1px solid ${emp.color}55`,borderRadius:16,
         width:560,maxWidth:"95vw",boxShadow:"0 24px 64px rgba(0,0,0,0.7)"}}>
-        {/* Header */}
         <div style={{padding:"18px 22px",borderBottom:`1px solid ${C.border}`,
           display:"flex",alignItems:"center",gap:12}}>
           <span style={{fontSize:26}}>{emp.emoji}</span>
@@ -532,7 +531,6 @@ function ModalIngreso({ empresa, mes, semana, realData, onSave, onClose }) {
             style={{background:"transparent",border:"none",color:C.muted,cursor:"pointer",fontSize:20,lineHeight:1}}>×</button>
         </div>
 
-        {/* Formulario por sección */}
         <div style={{padding:"16px 22px",maxHeight:"60vh",overflowY:"auto"}}>
           {emp.sections.map(sec => (
             <div key={sec.cat} style={{marginBottom:18}}>
@@ -563,21 +561,17 @@ function ModalIngreso({ empresa, mes, semana, realData, onSave, onClose }) {
           ))}
         </div>
 
-        {/* Resumen + botones */}
         <div style={{padding:"14px 22px",borderTop:`1px solid ${C.border}`}}>
           <div style={{display:"flex",gap:16,marginBottom:14,fontSize:12}}>
-            <div style={{flex:1,background:C.card2,borderRadius:8,padding:"8px 12px",
-              border:`1px solid ${C.border}`}}>
+            <div style={{flex:1,background:C.card2,borderRadius:8,padding:"8px 12px",border:`1px solid ${C.border}`}}>
               <div style={{fontSize:9,color:C.muted,marginBottom:2}}>INGRESOS</div>
               <div style={{fontWeight:800,color:C.green}}>{$$(totalIng)}</div>
             </div>
-            <div style={{flex:1,background:C.card2,borderRadius:8,padding:"8px 12px",
-              border:`1px solid ${C.border}`}}>
+            <div style={{flex:1,background:C.card2,borderRadius:8,padding:"8px 12px",border:`1px solid ${C.border}`}}>
               <div style={{fontSize:9,color:C.muted,marginBottom:2}}>EGRESOS</div>
               <div style={{fontWeight:800,color:C.red}}>{$$(totalEgr)}</div>
             </div>
-            <div style={{flex:1,background:C.card2,borderRadius:8,padding:"8px 12px",
-              border:`1px solid ${C.border}`}}>
+            <div style={{flex:1,background:C.card2,borderRadius:8,padding:"8px 12px",border:`1px solid ${C.border}`}}>
               <div style={{fontSize:9,color:C.muted,marginBottom:2}}>FLUJO NETO</div>
               <div style={{fontWeight:800,color:cf(flujoNeto)}}>{$$(flujoNeto)}</div>
             </div>
@@ -607,11 +601,10 @@ function ModalIngreso({ empresa, mes, semana, realData, onSave, onClose }) {
 function FlujoEmpresa({ empNombre, realData, onSaveReal, canEdit }) {
   const emp = EMPRESAS[empNombre];
   const [mesIdx,    setMesIdx]    = useState(0);
-  const [vista,     setVista]     = useState("tabla");    // tabla | detalle | semanas
-  const [openSec,   setOpenSec]   = useState({});         // sección expandida
-  const [modal,     setModal]     = useState(null);        // {mes, semana}
+  const [vista,     setVista]     = useState("tabla");
+  const [openSec,   setOpenSec]   = useState({});
+  const [modal,     setModal]     = useState(null);
 
-  // Agregar reales semanales → mensuales
   const realMensual = {};
   MESES_24.forEach(mes => {
     const semsData = realData?.[empNombre]?.[mes] || {};
@@ -624,16 +617,6 @@ function FlujoEmpresa({ empNombre, realData, onSaveReal, canEdit }) {
     realMensual[mes] = lines;
   });
 
-  // Por mes: totales reales por sección
-  const realSecTotales = (mes, cat, signo) => {
-    const lines = realMensual[mes] || {};
-    const sec = emp.sections.find(s=>s.cat===cat);
-    if(!sec) return null;
-    const total = sec.lines.reduce((a,l)=>a+(lines[l.label]||0), 0);
-    return total > 0 ? total : null;
-  };
-
-  // Flujo real mensual
   const realFlujo = MESES_24.map(mes => {
     const lines = realMensual[mes] || {};
     if(Object.keys(lines).length===0) return null;
@@ -644,7 +627,6 @@ function FlujoEmpresa({ empNombre, realData, onSaveReal, canEdit }) {
     return flujo;
   });
 
-  // Saldo acumulado real
   let acc = emp.saldo_ini;
   const realAcum = MESES_24.map((mes,i) => {
     if(realFlujo[i]===null) return null;
@@ -653,12 +635,10 @@ function FlujoEmpresa({ empNombre, realData, onSaveReal, canEdit }) {
   });
 
   const mes = MESES_24[mesIdx];
-  const semanas = SEMANAS[mes] || [];
   const hasReal = realFlujo.some(v=>v!==null);
 
   return (
     <div style={{display:"flex",flexDirection:"column",gap:12}}>
-      {/* Header empresa */}
       <div style={{background:`${emp.color}15`,border:`1px solid ${emp.color}44`,
         borderRadius:12,padding:"14px 18px",display:"flex",alignItems:"center",
         gap:14,flexWrap:"wrap"}}>
@@ -681,21 +661,18 @@ function FlujoEmpresa({ empNombre, realData, onSaveReal, canEdit }) {
         </div>
       </div>
 
-      {/* Sub-tabs */}
       <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
         <Btn active={vista==="tabla"}   onClick={()=>setVista("tabla")}   color={emp.color}>📋 Resumen Mensual</Btn>
         <Btn active={vista==="detalle"} onClick={()=>setVista("detalle")} color={emp.color}>📂 Detalle por Línea</Btn>
         {canEdit&&<Btn active={vista==="semanas"} onClick={()=>setVista("semanas")} color={emp.color}>✏️ Ingresar Real</Btn>}
       </div>
 
-      {/* ── TABLA RESUMEN MENSUAL ── */}
       {vista==="tabla"&&(
         <div>
           {hasReal&&(
             <Card style={{marginBottom:12}}>
               <SectionTitle>Saldo Acumulado — Proyectado vs Real</SectionTitle>
               <LineChart months={MESES_24} values={emp.acum} color={`${emp.color}`}/>
-              {/* Real overlay simple */}
               <div style={{fontSize:10,color:C.muted,marginTop:6}}>
                 {realAcum.filter(v=>v!==null).length} meses con datos reales ingresados
               </div>
@@ -765,10 +742,8 @@ function FlujoEmpresa({ empNombre, realData, onSaveReal, canEdit }) {
         </div>
       )}
 
-      {/* ── DETALLE POR LÍNEA ── */}
       {vista==="detalle"&&(
         <div style={{display:"flex",flexDirection:"column",gap:10}}>
-          {/* Selector mes */}
           <div style={{display:"flex",gap:4,flexWrap:"wrap",alignItems:"center"}}>
             <span style={{fontSize:11,color:C.muted,marginRight:4}}>Mes:</span>
             {MESES_24.map((m,i)=>(
@@ -782,16 +757,14 @@ function FlujoEmpresa({ empNombre, realData, onSaveReal, canEdit }) {
             ))}
           </div>
 
-          {/* Secciones expandibles */}
           {emp.sections.map(sec=>{
-            const isOpen = openSec[sec.cat]!==false; // default open
+            const isOpen = openSec[sec.cat]!==false;
             const proy_total = sec.lines.reduce((a,l)=>a+l.proy[mesIdx],0);
             const lines_real = realMensual[mes] || {};
             const real_total = sec.lines.reduce((a,l)=>a+(lines_real[l.label]||0),0);
             const hasRealSec = real_total > 0;
             return(
               <div key={sec.cat} style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,overflow:"hidden"}}>
-                {/* Header sección */}
                 <button onClick={()=>setOpenSec(p=>({...p,[sec.cat]:!isOpen}))}
                   style={{width:"100%",padding:"12px 16px",background:"transparent",border:"none",
                     cursor:"pointer",display:"flex",alignItems:"center",gap:10,textAlign:"left"}}>
@@ -818,7 +791,6 @@ function FlujoEmpresa({ empNombre, realData, onSaveReal, canEdit }) {
                   </div>
                 </button>
 
-                {/* Líneas */}
                 {isOpen&&(
                   <div style={{borderTop:`1px solid ${C.border}`}}>
                     <table style={{width:"100%",borderCollapse:"collapse",fontSize:11}}>
@@ -856,7 +828,6 @@ function FlujoEmpresa({ empNombre, realData, onSaveReal, canEdit }) {
                             </tr>
                           );
                         })}
-                        {/* Total sección */}
                         <tr style={{background:"rgba(255,255,255,0.03)",borderTop:`1px solid ${C.border}`}}>
                           <td style={{padding:"8px 16px",fontWeight:800,color:C.text}}>Total {sec.label}</td>
                           <td style={{padding:"8px 14px",textAlign:"right",fontWeight:800,color:CAT_COLOR[sec.cat]}}>
@@ -877,7 +848,6 @@ function FlujoEmpresa({ empNombre, realData, onSaveReal, canEdit }) {
         </div>
       )}
 
-      {/* ── INGRESO REAL SEMANAL ── */}
       {vista==="semanas"&&canEdit&&(
         <div style={{display:"flex",flexDirection:"column",gap:10}}>
           <div style={{fontSize:11,color:C.muted}}>
@@ -1130,7 +1100,6 @@ export default function FinanzasModule({ onBack, onLogout, usuarioActual }) {
   const [loading,  setLoading]  = useState(true);
   const [saved,    setSaved]    = useState(null);
 
-  // Quiénes pueden ingresar datos
   const canEdit = ["Angelo Huerta","Carol Machuca"].includes(usuarioActual?.nombre||"");
 
   useEffect(()=>{
@@ -1154,11 +1123,16 @@ export default function FinanzasModule({ onBack, onLogout, usuarioActual }) {
     {id:"creditos",  label:"💳 Créditos"},
   ];
 
+  if(loading) return (
+    <div style={{display:"flex",alignItems:"center",justifyContent:"center",height:"60vh",color:C.muted,fontSize:14}}>
+      Cargando datos...
+    </div>
+  );
+
   return (
     <div style={{fontFamily:"'IBM Plex Sans','Segoe UI',system-ui,sans-serif",
       color:C.text, minHeight:"100vh", background:C.bg}}>
 
-      {/* Top bar */}
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",
         marginBottom:20,flexWrap:"wrap",gap:8,paddingBottom:14,
         borderBottom:`1px solid ${C.border}`}}>
@@ -1176,7 +1150,6 @@ export default function FinanzasModule({ onBack, onLogout, usuarioActual }) {
           </div>
         </div>
         <div style={{display:"flex",gap:8,alignItems:"center"}}>
-          {loading&&<span style={{fontSize:11,color:C.muted}}>⏳</span>}
           {saved&&<span style={{fontSize:11,color:C.muted,background:C.card2,
             borderRadius:20,padding:"3px 10px"}}>{saved}</span>}
           <button onClick={onLogout}
@@ -1187,7 +1160,6 @@ export default function FinanzasModule({ onBack, onLogout, usuarioActual }) {
         </div>
       </div>
 
-      {/* Tabs principales */}
       <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:20}}>
         {TABS_LIST.map(t=>(
           <Btn key={t.id} active={tab===t.id} onClick={()=>setTab(t.id)} color={C.accent}>
@@ -1196,12 +1168,10 @@ export default function FinanzasModule({ onBack, onLogout, usuarioActual }) {
         ))}
       </div>
 
-      {/* Contenido */}
       {tab==="dashboard"&&<Dashboard realData={realData}/>}
 
       {tab==="flujo"&&(
         <div>
-          {/* Selector empresa */}
           <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:16}}>
             {Object.keys(EMPRESAS).map(n=>{
               const e=EMPRESAS[n];
