@@ -553,11 +553,6 @@ export default function App(){
 
   const [usuarioActual,setUsuarioActual]=useState(null);
   const [moduloActivo,setModuloActivo]=useState(null);
-
-  // Siempre usar el objeto más fresco del array usuarios (se actualiza desde Supabase)
-  const usuarioFresco = usuarioActual
-    ? (usuarios.find(u=>u.nombre===usuarioActual.nombre) || usuarioActual)
-    : null;
   const [loginNombre,setLoginNombre]=useState("");
   const [loginPin,setLoginPin]=useState("");
   const [loginError,setLoginError]=useState("");
@@ -580,6 +575,11 @@ export default function App(){
   const [usuarioEditando,setUsuarioEditando]=useState(null);
   const [formUsuario,setFormUsuario]=useState({nombre:"",cargo:"",email:"",pin:"",rol:"editor",modulos:["tareas"]});
   const [copiarDe,setCopiarDe]=useState("");
+
+  // Siempre usar el objeto más fresco del array usuarios (se actualiza desde Supabase)
+  const usuarioFresco = usuarioActual
+    ? (usuarios.find(u=>u.nombre===usuarioActual.nombre) || usuarioActual)
+    : null;
 
   const WORKERS=usuarios.filter(u=>!u.desactivado);
   const getWorker=(nombre)=>usuarios.find(u=>u.nombre===nombre);
