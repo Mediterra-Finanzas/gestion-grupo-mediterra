@@ -1183,7 +1183,7 @@ function TabParametros({empNombre,empColor="#2563eb",
               <div style={{background:C.card,borderRadius:12,padding:32,
                 textAlign:"center",border:`1px dashed ${C.border}`,color:C.muted,fontSize:13}}>
                 {prodIds.length===0
-                  ? "Haz click en "+ (readOnly?"":""+ Nuevo producto"")+" para comenzar"
+                  ? `Haz click en ${readOnly ? "" : '"+ Nuevo producto"'} para comenzar`
                   : "Selecciona un producto de la lista"}
               </div>
             )}
