@@ -1198,10 +1198,10 @@ function TabParametros({empNombre,empColor="#2563eb",
           <div style={{overflowX:"auto"}}>
             <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
               <thead><tr style={{background:C.bg2}}>
-                {esAllegria
+                {(esAllegria
                   ? ["Temporada","Producto","Unidades","Precio","Ingreso","C.Fruta","C.Mat","C.Srv","Costo Total","Margen"]
                   : ["Temporada","Producto","Unidades","Precio","Ingreso","Costo","Mat","Srv","Margen"]
-                }.map(h=>(
+                ).map(h=>(
                   <th key={h} style={{padding:"7px 10px",fontWeight:600,fontSize:10,color:C.muted,
                     textTransform:"uppercase",borderBottom:`1px solid ${C.border}`,
                     textAlign:["Temporada","Producto"].includes(h)?"left":"right"}}>{h}</th>
