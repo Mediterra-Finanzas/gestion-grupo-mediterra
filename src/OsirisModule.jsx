@@ -1617,74 +1617,75 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,osiri
   ];
 
   // ── Barra de navegación compartida ────────────────────────
-  function NavBar({breadcrumbItems}) {
-    return (
-      <div style={{
-        background:"linear-gradient(135deg,#0f2d4a,#1a5276)",
-        borderRadius:14,
-        padding:"14px 20px",
-        marginBottom:18,
-        display:"flex",
-        justifyContent:"space-between",
-        alignItems:"center",
-        flexWrap:"wrap",
-        gap:12,
-      }}>
-        <div style={{display:"flex",alignItems:"center",gap:14,flexWrap:"wrap"}}>
-          <OsirisLogo height={44}/>
-          <div style={{borderLeft:"1px solid rgba(255,255,255,0.2)",paddingLeft:14}}>
-            <Breadcrumb items={breadcrumbItems}/>
-          </div>
+  // IMPORTANTE: definida antes de cualquier return para que esté disponible en todos los casos
+  const NavBar = ({breadcrumbItems, showPorCobrar=false}) => (
+    <div style={{
+      background:"linear-gradient(135deg,#0f2d4a,#1a5276)",
+      borderRadius:14,
+      padding:"14px 20px",
+      marginBottom:18,
+      display:"flex",
+      justifyContent:"space-between",
+      alignItems:"center",
+      flexWrap:"wrap",
+      gap:12,
+    }}>
+      <div style={{display:"flex",alignItems:"center",gap:14,flexWrap:"wrap"}}>
+        <OsirisLogo height={44}/>
+        <div style={{borderLeft:"1px solid rgba(255,255,255,0.2)",paddingLeft:14}}>
+          <Breadcrumb items={breadcrumbItems}/>
         </div>
-        <div style={{display:"flex",gap:8,alignItems:"center"}}>
-          {subApp&&(
-            <div style={{fontSize:11,color:"rgba(255,255,255,0.5)",textAlign:"right",marginRight:4}}>
-              <div style={{fontSize:9,textTransform:"uppercase",letterSpacing:1,marginBottom:1}}>Por cobrar</div>
-              <div style={{fontSize:14,fontWeight:800,color:"#fbbf24"}}>{$$(totPend)}</div>
-            </div>
-          )}
+      </div>
+      <div style={{display:"flex",gap:8,alignItems:"center"}}>
+        {showPorCobrar&&(
+          <div style={{fontSize:11,color:"rgba(255,255,255,0.5)",textAlign:"right",marginRight:4}}>
+            <div style={{fontSize:9,textTransform:"uppercase",letterSpacing:1,marginBottom:1}}>Por cobrar</div>
+            <div style={{fontSize:14,fontWeight:800,color:"#fbbf24"}}>{$$(totPend)}</div>
+          </div>
+        )}
+        {/* Solo mostrar "Osiris Hub" si no estamos YA en el hub */}
+        {subApp!==null&&(
           <button
-            onClick={()=>{setSubApp(null);}}
+            onClick={()=>setSubApp(null)}
             style={{
               background:"rgba(255,255,255,0.12)",
               border:"1px solid rgba(255,255,255,0.25)",
               color:"#fff",borderRadius:8,
               padding:"7px 14px",cursor:"pointer",
               fontSize:12,fontWeight:600,
-              display:"flex",alignItems:"center",gap:5,
             }}>
             🏠 Osiris Hub
           </button>
-          <button
-            onClick={onBack}
-            style={{
-              background:"rgba(255,255,255,0.08)",
-              border:"1px solid rgba(255,255,255,0.15)",
-              color:"rgba(255,255,255,0.7)",borderRadius:8,
-              padding:"7px 14px",cursor:"pointer",
-              fontSize:12,
-            }}>
-            ← Mediterra
-          </button>
-          <button
-            onClick={onLogout||onBack}
-            style={{
-              background:"rgba(248,113,113,0.18)",
-              border:"1px solid rgba(248,113,113,0.3)",
-              color:"#fca5a5",borderRadius:8,
-              padding:"7px 14px",cursor:"pointer",
-              fontSize:12,
-            }}>
-            Salir
-          </button>
-        </div>
+        )}
+        <button
+          onClick={onBack}
+          style={{
+            background:"rgba(255,255,255,0.08)",
+            border:"1px solid rgba(255,255,255,0.15)",
+            color:"rgba(255,255,255,0.7)",borderRadius:8,
+            padding:"7px 14px",cursor:"pointer",
+            fontSize:12,fontWeight:600,
+          }}>
+          ← Mediterra
+        </button>
+        <button
+          onClick={onLogout||onBack}
+          style={{
+            background:"rgba(248,113,113,0.18)",
+            border:"1px solid rgba(248,113,113,0.3)",
+            color:"#fca5a5",borderRadius:8,
+            padding:"7px 14px",cursor:"pointer",
+            fontSize:12,
+          }}>
+          Salir
+        </button>
       </div>
-    );
-  }
+    </div>
+  );
 
   // ── HUB INTERNO OSIRIS ─────────────────────────────────────
   if(subApp===null) return(
-    <div style={{fontFamily:"sans-serif",padding:"0 0 40px"}}>
+    <div style={{fontFamily:"sans-serif",background:"#0d1117",minHeight:"100vh",padding:"20px 20px 40px"}}>
       <NavBar breadcrumbItems={[
         {label:"Mediterra", onClick:onBack},
         {label:"Osiris Plant Management"},
@@ -1787,7 +1788,7 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,osiri
 
   // ── CONTROL CONTRATOS ──────────────────────────────────────
   if(subApp==="contratos") return(
-    <div style={{fontFamily:"sans-serif",padding:"0 0 40px"}}>
+    <div style={{fontFamily:"sans-serif",background:"#0d1117",minHeight:"100vh",padding:"20px 20px 40px"}}>
       <NavBar breadcrumbItems={[
         {label:"Mediterra", onClick:onBack},
         {label:"Osiris Hub", onClick:()=>setSubApp(null)},
@@ -1801,8 +1802,8 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,osiri
 
   // ── INGRESOS OSIRIS ────────────────────────────────────────
   return (
-    <div style={{fontFamily:"sans-serif",padding:"0 0 40px"}}>
-      <NavBar breadcrumbItems={[
+    <div style={{fontFamily:"sans-serif",background:"#0d1117",minHeight:"100vh",padding:"20px 20px 40px"}}>
+      <NavBar showPorCobrar breadcrumbItems={[
         {label:"Mediterra", onClick:onBack},
         {label:"Osiris Hub", onClick:()=>setSubApp(null)},
         {label:"Ingresos Osiris"},
