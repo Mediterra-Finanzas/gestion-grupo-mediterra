@@ -576,26 +576,16 @@ export default function App(){
   const [formUsuario,setFormUsuario]=useState({nombre:"",cargo:"",email:"",pin:"",rol:"editor",modulos:["tareas"]});
   const [copiarDe,setCopiarDe]=useState("");
 
-  // Siempre usar el objeto más fresco del array usuarios (se actualiza desde Supabase)
-  // Fallback a usuarioActual si no se encuentra (nunca null si hay sesión activa)
+  // Usuario activo — siempre usar el más fresco del array, con fallback
   const usuarioFresco = usuarioActual
     ? (usuarios.find(u=>u.nombre===usuarioActual.nombre) || usuarioActual)
     : null;
 
-  // Para acceso a módulos: si es admin siempre tiene acceso a todo sin depender del array modulos
+  // Módulos permitidos — admin tiene todo, resto usa su array
   const modulosDeUsuarioSeguro = (u) => {
     if(!u) return [];
-    // Admin siempre accede a todo
     if(u.rol==="admin") return MODULOS_DISPONIBLES.map(m=>m.id);
-    // Para no-admin, unión de modulos guardados + los que tienen tab_permisos configurados
-    const mods = Array.isArray(u.modulos) ? [...u.modulos] : ["tareas"];
-    // Si tiene permisos de pestañas configurados para un módulo, también tiene acceso a ese módulo
-    if(u.tab_permisos) {
-      Object.keys(u.tab_permisos).forEach(modId => {
-        if(!mods.includes(modId)) mods.push(modId);
-      });
-    }
-    return mods;
+    return Array.isArray(u.modulos) ? u.modulos : ["tareas"];
   };
 
   const WORKERS=usuarios.filter(u=>!u.desactivado);
@@ -667,11 +657,8 @@ export default function App(){
             const merged=WORKERS_BASE.map(wb=>{
               const saved=d.usuarios.find(u=>u.nombre===wb.nombre);
               if(!saved) return wb;
-              // Unión de módulos: siempre incluir los del WORKERS_BASE (más los guardados)
-              const modsBase = Array.isArray(wb.modulos) ? wb.modulos : ["tareas"];
-              const modsSaved = Array.isArray(saved.modulos) ? saved.modulos : [];
-              const modsUnion = [...new Set([...modsBase,...modsSaved])];
-              return {...saved, modulos:modsUnion, rol:wb.rol};
+              // SIEMPRE usar modulos y rol del código fuente (WORKERS_BASE)
+              return {...saved, modulos:wb.modulos, rol:wb.rol};
             });
             const extras=d.usuarios.filter(u=>!WORKERS_BASE.find(wb=>wb.nombre===u.nombre));
             return[...merged,...extras];
@@ -1092,7 +1079,6 @@ export default function App(){
   const tabPermisosFinanzas = getTabPermisosModulo(usuarioFresco, "finanzas");
 
   // Módulo activo
-  console.log("RENDER - moduloActivo:",moduloActivo,"usuarioActual:",usuarioActual?.nombre,"cargando:",cargando);
   if(moduloActivo==="finanzas") return (
     <div style={{fontFamily:"sans-serif",background:"#0d1117",minHeight:"100vh",padding:"20px"}}>
       <FinanzasModule
@@ -1376,7 +1362,7 @@ export default function App(){
     <HubScreen
       usuario={usuarioFresco || usuarioActual}
       modulosPermitidos={modulosPermitidos}
-      onSelectModulo={id=>{console.log("MODULO SELECCIONADO:",id,"usuario:",usuarioActual?.nombre,"moduloActivo antes:",moduloActivo);setModuloActivo(id);}}
+      onSelectModulo={id=>setModuloActivo(id)}
       onLogout={()=>setUsuarioActual(null)}
       onCambiarPin={()=>setModalPin("cambiar")}
       esSoloConsulta={esSoloConsulta}
