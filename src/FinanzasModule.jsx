@@ -108,6 +108,97 @@ function defaultParams() {
   return p;
 }
 
+// ── Parámetros genéricos para cualquier empresa ───────────────────
+// Un "producto" es cualquier línea de ingreso con sus propios
+// parámetros: unidades, precio, descuento, anticipos, materiales, servicios
+function defaultProducto() {
+  return {
+    nombre:"",
+    emoji:"📦",
+    unidades:0,           // cantidad (kg, unidades, há, etc.)
+    unidad_label:"unid.", // etiqueta de la unidad
+    precio_unit:0,        // precio unitario (USD / unidad)
+    desc_pct:0,           // descuento intermediario %
+    mat_unit:0,           // materiales USD / unidad
+    srv_unit:0,           // servicios USD / unidad
+    anticipos_cliente:[],
+    mes_liquidacion:"",
+    anticipos_productor:[],
+    mes_saldo_productor:"",
+    dist_mat:[],
+    dist_srv:[],
+  };
+}
+
+function defaultParamsEmp() {
+  // Estructura: { seasonKey: { productoId: defaultProducto() } }
+  const p = {};
+  SEASON_KEYS.forEach(sk => { p[sk] = {}; });
+  return p;
+}
+
+// Convierte los params genéricos en arrays de proyección Z65
+// para las líneas de una empresa
+function calcParamsEmp(paramsEmp, lineLabel) {
+  const ing  = Z65();
+  const cost = Z65();
+  const mat  = Z65();
+  const srv  = Z65();
+
+  SEASON_KEYS.forEach(sk => {
+    const season = paramsEmp?.[sk] || {};
+    Object.values(season).forEach(p => {
+      if(!p || p.nombre !== lineLabel) return;
+      const u   = Number(p.unidades)||0;
+      const pr  = Number(p.precio_unit)||0;
+      const desc= (Number(p.desc_pct)||0)/100;
+      const mU  = Number(p.mat_unit)||0;
+      const sU  = Number(p.srv_unit)||0;
+      if(u===0||pr===0) return;
+
+      // Ingresos cliente
+      let antIngTot=0;
+      (p.anticipos_cliente||[]).forEach(a=>{
+        const i=mIdx(a.mes); if(i<0) return;
+        const v=(Number(a.usd_unit)||0)*u;
+        ing[i]+=v; antIngTot+=v;
+      });
+      if(p.mes_liquidacion){
+        const i=mIdx(p.mes_liquidacion);
+        if(i>=0) ing[i]+=Math.max(0,u*pr-antIngTot);
+      }
+
+      // Costo proveedor
+      const pNeto=Math.max(0,pr*(1-desc)-mU-sU);
+      let antCostTot=0;
+      (p.anticipos_productor||[]).forEach(a=>{
+        const i=mIdx(a.mes); if(i<0) return;
+        const v=(Number(a.usd_unit)||0)*u;
+        cost[i]+=v; antCostTot+=v;
+      });
+      if(p.mes_saldo_productor){
+        const i=mIdx(p.mes_saldo_productor);
+        if(i>=0){const s=u*pNeto-antCostTot; if(s>0) cost[i]+=s;}
+      }
+
+      // Materiales
+      const totM=u*mU;
+      if(totM>0)(p.dist_mat||[]).forEach(d=>{
+        const i=mIdx(d.mes); if(i<0) return;
+        mat[i]+=totM*((Number(d.pct)||0)/100);
+      });
+
+      // Servicios
+      const totS=u*sU;
+      if(totS>0)(p.dist_srv||[]).forEach(d=>{
+        const i=mIdx(d.mes); if(i<0) return;
+        srv[i]+=totS*((Number(d.pct)||0)/100);
+      });
+    });
+  });
+  return {ing,cost,mat,srv};
+}
+
 // ═══════════════════════════════════════════════════════════════════
 // MOTOR FÓRMULAS — Allegria Foods
 // ═══════════════════════════════════════════════════════════════════
@@ -629,6 +720,11 @@ function DistList({items,onChange,totalMonto=0,esSemanal=false}) {
   );
 }
 
+// ═══════════════════════════════════════════════════════════════════
+// PARÁMETROS POR EMPRESA — componentes reutilizables
+// ═══════════════════════════════════════════════════════════════════
+
+// Parámetros específicos Allegria Foods (frutas) — conservado tal cual
 function ParamsFruta({seasonKey,fruta,params,setParams}) {
   const p=params?.[seasonKey]?.[fruta]||defaultFruta();
   const upd=(field,val)=>setParams(prev=>{
@@ -650,7 +746,6 @@ function ParamsFruta({seasonKey,fruta,params,setParams}) {
   const pctSrv=(p.dist_srv||[]).reduce((s,d)=>s+(Number(d.pct)||0),0);
   const iSt={width:90,padding:"5px 7px",background:C.card2,border:`1px solid ${C.border}`,borderRadius:6,color:C.text,fontSize:11,outline:"none",textAlign:"right"};
   const selSt={padding:"5px 8px",background:C.card2,border:`1px solid ${C.border}`,borderRadius:6,fontSize:11,outline:"none",color:C.text};
-
   return (
     <div style={{background:C.card2,borderRadius:12,padding:16,border:`1px solid ${C.border}`}}>
       <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:14}}>
@@ -730,81 +825,421 @@ function ParamsFruta({seasonKey,fruta,params,setParams}) {
   );
 }
 
-function TabParametros({params,setParams,readOnly=false}) {
-  const [selSeason,setSelSeason]=useState(SEASON_KEYS[0]);
-  const [selFruta,setSelFruta]=useState('cerezas');
-  const resumen=useMemo(()=>SEASONS.flatMap(s=>FRUTAS.map(f=>{
-    const p=params?.[s.key]?.[f];
-    const kg=Number(p?.kg)||0,fob=Number(p?.fob_usd_kg)||0;
-    const desc=(Number(p?.desc_exp_pct)||0)/100;
-    const matUsd=Number(p?.mat_usd_kg)||0,srvUsd=Number(p?.srv_usd_kg)||0;
-    const ing=kg*fob;
-    const costFruta=kg*Math.max(0,fob*(1-desc)-matUsd-srvUsd);
-    const costMat=kg*matUsd, costSrv=kg*srvUsd;
-    const cost=costFruta+costMat+costSrv;
-    if(kg===0&&fob===0) return null;
-    return {season:s.label,fruta:f,kg,fob,ing,costFruta,costMat,costSrv,cost,margen:ing-cost};
-  }).filter(Boolean)),[params]);
+// ── Parámetros genéricos: un "producto" por empresa ───────────────
+function ParamsProducto({seasonKey,prodId,paramsEmp,setParamsEmp,empColor="#2563eb"}) {
+  const p = paramsEmp?.[seasonKey]?.[prodId] || defaultProducto();
+  const upd=(field,val)=>setParamsEmp(prev=>{
+    const next=JSON.parse(JSON.stringify(prev));
+    if(!next[seasonKey]) next[seasonKey]={};
+    if(!next[seasonKey][prodId]) next[seasonKey][prodId]=defaultProducto();
+    next[seasonKey][prodId][field]=val;
+    return next;
+  });
+
+  const u    = Number(p.unidades)||0;
+  const pr   = Number(p.precio_unit)||0;
+  const desc = (Number(p.desc_pct)||0)/100;
+  const mU   = Number(p.mat_unit)||0;
+  const sU   = Number(p.srv_unit)||0;
+  const totalIng  = u*pr;
+  const pNeto     = Math.max(0, pr*(1-desc)-mU-sU);
+  const totalCost = u*pNeto;
+  const antIngTot =(p.anticipos_cliente||[]).reduce((s,a)=>s+(Number(a.usd_unit)||0)*u,0);
+  const pctMat    =(p.dist_mat||[]).reduce((s,d)=>s+(Number(d.pct)||0),0);
+  const pctSrv    =(p.dist_srv||[]).reduce((s,d)=>s+(Number(d.pct)||0),0);
+
+  const iSt={width:90,padding:"5px 7px",background:C.card2,border:`1px solid ${C.border}`,
+    borderRadius:6,color:C.text,fontSize:11,outline:"none",textAlign:"right"};
+  const selSt={padding:"5px 8px",background:C.card2,border:`1px solid ${C.border}`,
+    borderRadius:6,fontSize:11,outline:"none",color:C.text};
+
+  return (
+    <div style={{background:C.card2,borderRadius:12,padding:16,border:`1px solid ${C.border}`}}>
+      {/* Header producto */}
+      <div style={{display:"grid",gridTemplateColumns:"auto 1fr auto auto",gap:10,alignItems:"center",marginBottom:14}}>
+        <input value={p.emoji||"📦"} onChange={e=>upd("emoji",e.target.value)}
+          style={{width:40,padding:"4px 6px",background:C.bg,border:`1px solid ${C.border}`,
+            borderRadius:6,color:C.text,fontSize:16,textAlign:"center",outline:"none"}}/>
+        <input value={p.nombre} onChange={e=>upd("nombre",e.target.value)}
+          placeholder="Nombre del producto / línea..."
+          style={{padding:"6px 10px",background:C.bg,border:`1px solid ${C.border}`,
+            borderRadius:6,color:C.text,fontSize:13,fontWeight:700,outline:"none"}}/>
+        <input value={p.unidad_label||"unid."} onChange={e=>upd("unidad_label",e.target.value)}
+          placeholder="unid."
+          style={{width:60,padding:"5px 7px",background:C.bg,border:`1px solid ${C.border}`,
+            borderRadius:6,color:C.muted,fontSize:11,textAlign:"center",outline:"none"}}/>
+        {totalIng>0&&<span style={{fontSize:11,background:`${C.green}22`,color:C.green,
+          borderRadius:20,padding:"2px 10px",fontWeight:700,whiteSpace:"nowrap"}}>
+          Ing: {$$(totalIng)} · Margen: {$$(totalIng-totalCost)}
+        </span>}
+      </div>
+
+      {/* Campos numéricos */}
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(150px,1fr))",gap:12,marginBottom:14}}>
+        {[
+          [`Cantidad (${p.unidad_label||"unid."})`, "unidades", ""],
+          ["Precio US$/unidad",                      "precio_unit","$"],
+          ["Descuento intermediario",                "desc_pct",  "%" ],
+          ["Materiales US$/unidad",                  "mat_unit",  "$" ],
+          ["Servicios US$/unidad",                   "srv_unit",  "$" ],
+        ].map(([lbl,field,pre])=>(
+          <div key={field}>
+            <div style={{fontSize:10,color:C.muted,marginBottom:3}}>{lbl}</div>
+            <div style={{display:"flex",alignItems:"center",gap:3}}>
+              {pre&&<span style={{fontSize:11,color:C.muted}}>{pre}</span>}
+              <input type="number" value={p[field]||""} placeholder="0"
+                onChange={e=>upd(field,parseFloat(e.target.value)||0)} style={iSt}/>
+            </div>
+          </div>
+        ))}
+        {pNeto>0&&u>0&&(
+          <div style={{gridColumn:"1/-1",background:`${C.yellow}11`,border:`1px solid ${C.yellow}33`,
+            borderRadius:8,padding:"8px 12px",fontSize:11,color:C.yellow}}>
+            Precio neto proveedor: <strong>${pNeto.toFixed(3)}/unid.</strong>
+            &nbsp;· Costo total proveedor: <strong>{$$(totalCost)}</strong>
+          </div>
+        )}
+      </div>
+
+      {/* Cobros / Pagos */}
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14,marginBottom:14}}>
+        <div style={{background:`${C.green}0d`,border:`1px solid ${C.green}33`,borderRadius:10,padding:12}}>
+          <div style={{fontSize:11,fontWeight:700,color:C.green,marginBottom:10}}>📥 Cobros al cliente</div>
+          <div style={{marginBottom:8}}>
+            <div style={{fontSize:10,color:C.muted,marginBottom:5,fontWeight:700}}>Anticipos (US$/unid. por mes)</div>
+            <AnticipListGen items={p.anticipos_cliente} onChange={v=>upd("anticipos_cliente",v)}
+              totalUnits={u} label="usd_unit"/>
+          </div>
+          <div>
+            <div style={{fontSize:10,color:C.muted,marginBottom:3}}>Mes liquidación final</div>
+            <select value={p.mes_liquidacion||""} onChange={e=>upd("mes_liquidacion",e.target.value)} style={selSt}>
+              <option value="">— mes —</option>
+              {MESES_65.map(m=><option key={m} value={m}>{m}</option>)}
+            </select>
+            {antIngTot>0&&totalIng>0&&<div style={{fontSize:10,color:C.muted,marginTop:4}}>
+              Anticipos: {$$(antIngTot)} · Liquidación: {$$(Math.max(0,totalIng-antIngTot))}
+            </div>}
+          </div>
+        </div>
+        <div style={{background:`${C.red}0d`,border:`1px solid ${C.red}33`,borderRadius:10,padding:12}}>
+          <div style={{fontSize:11,fontWeight:700,color:C.red,marginBottom:10}}>📤 Pagos al proveedor</div>
+          <div style={{marginBottom:8}}>
+            <div style={{fontSize:10,color:C.muted,marginBottom:5,fontWeight:700}}>Anticipos (US$/unid. por mes)</div>
+            <AnticipListGen items={p.anticipos_productor} onChange={v=>upd("anticipos_productor",v)}
+              totalUnits={u} label="usd_unit"/>
+          </div>
+          <div>
+            <div style={{fontSize:10,color:C.muted,marginBottom:3}}>Mes saldo proveedor</div>
+            <select value={p.mes_saldo_productor||""} onChange={e=>upd("mes_saldo_productor",e.target.value)} style={selSt}>
+              <option value="">— mes —</option>
+              {MESES_65.map(m=><option key={m} value={m}>{m}</option>)}
+            </select>
+          </div>
+        </div>
+      </div>
+
+      {/* Distribución Materiales y Servicios */}
+      {(mU>0||sU>0)&&u>0&&(
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14}}>
+          {mU>0&&(
+            <div style={{background:"rgba(251,191,36,0.07)",border:`1px solid ${C.yellow}44`,borderRadius:10,padding:12}}>
+              <div style={{fontSize:11,fontWeight:700,color:C.yellow,marginBottom:4}}>📦 Pago Materiales</div>
+              <div style={{fontSize:10,color:C.muted,marginBottom:8}}>
+                Total: <strong style={{color:C.yellow}}>{$$(u*mU)}</strong>
+                {" · "}Asignado: <strong style={{color:pctMat===100?C.green:C.orange}}>{pctMat.toFixed(0)}%</strong>
+              </div>
+              <DistList items={p.dist_mat} onChange={v=>upd("dist_mat",v)} totalMonto={u*mU}/>
+            </div>
+          )}
+          {sU>0&&(
+            <div style={{background:"rgba(96,165,250,0.07)",border:`1px solid ${C.blue}44`,borderRadius:10,padding:12}}>
+              <div style={{fontSize:11,fontWeight:700,color:C.blue,marginBottom:4}}>⚙️ Pago Servicios</div>
+              <div style={{fontSize:10,color:C.muted,marginBottom:8}}>
+                Total: <strong style={{color:C.blue}}>{$$(u*sU)}</strong>
+                {" · "}Asignado: <strong style={{color:pctSrv===100?C.green:C.orange}}>{pctSrv.toFixed(0)}%</strong>
+              </div>
+              <DistList items={p.dist_srv} onChange={v=>upd("dist_srv",v)} totalMonto={u*sU} esSemanal/>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// AnticipListGen — igual que AnticipList pero con campo configurable (usd_unit en vez de usd_kg)
+function AnticipListGen({items,onChange,totalUnits=0,label="usd_unit"}) {
+  const addRow=()=>onChange([...(items||[]),{mes:"",[label]:0}]);
+  const updRow=(i,field,val)=>{const n=[...(items||[])];n[i]={...n[i],[field]:val};onChange(n);};
+  const delRow=i=>onChange((items||[]).filter((_,j)=>j!==i));
+  return (
+    <div style={{display:"flex",flexDirection:"column",gap:5}}>
+      {(items||[]).map((row,i)=>(
+        <div key={i} style={{display:"flex",alignItems:"center",gap:6}}>
+          <select value={row.mes||""} onChange={e=>updRow(i,"mes",e.target.value)}
+            style={{padding:"4px 7px",background:C.card2,border:`1px solid ${C.border}`,
+              borderRadius:6,color:row.mes?C.text:C.muted,fontSize:11,outline:"none"}}>
+            <option value="">— mes —</option>
+            {MESES_65.map(m=><option key={m} value={m}>{m}</option>)}
+          </select>
+          <input type="number" value={row[label]||""} placeholder="0"
+            onChange={e=>updRow(i,label,parseFloat(e.target.value)||0)}
+            style={{width:80,padding:"4px 7px",background:C.card2,border:`1px solid ${C.border}`,
+              borderRadius:6,color:C.text,fontSize:11,outline:"none",textAlign:"right"}}/>
+          <span style={{fontSize:10,color:C.muted}}>$/unid</span>
+          {row[label]&&totalUnits>0&&(
+            <span style={{fontSize:10,color:C.yellow}}>=&nbsp;{$$((Number(row[label])||0)*totalUnits)}</span>
+          )}
+          <button onClick={()=>delRow(i)} style={{background:"transparent",border:"none",color:C.red,cursor:"pointer",fontSize:14}}>×</button>
+        </div>
+      ))}
+      <button onClick={addRow} style={{alignSelf:"flex-start",padding:"4px 10px",background:`${C.accent}22`,
+        border:`1px solid ${C.accent}55`,borderRadius:6,color:C.accentL,cursor:"pointer",fontSize:11,fontWeight:600}}>
+        + Agregar mes
+      </button>
+    </div>
+  );
+}
+
+// ── TabParametros GENÉRICO para todas las empresas ─────────────────
+function TabParametros({empNombre,empColor="#2563eb",
+  params,setParams,           // Allegria Foods (frutas)
+  paramsEmp,setParamsEmp,     // Otras empresas (productos genéricos)
+  readOnly=false}) {
+
+  const [selSeason,setSelSeason] = useState(SEASON_KEYS[0]);
+  const [selFruta, setSelFruta]  = useState("cerezas");
+  const [selProd,  setSelProd]   = useState(null);   // id producto seleccionado
+
+  const esAllegria = empNombre === "Allegria Foods";
+
+  // Productos de esta empresa en la temporada seleccionada
+  const productos = paramsEmp?.[selSeason] || {};
+  const prodIds   = Object.keys(productos);
+
+  function addProducto() {
+    if(readOnly) return;
+    const id = `prod_${Date.now()}`;
+    setParamsEmp(prev=>{
+      const next=JSON.parse(JSON.stringify(prev));
+      if(!next[selSeason]) next[selSeason]={};
+      next[selSeason][id]={...defaultProducto(),nombre:"Nuevo producto"};
+      return next;
+    });
+    setSelProd(id);
+  }
+
+  function delProducto(id) {
+    if(readOnly) return;
+    setParamsEmp(prev=>{
+      const next=JSON.parse(JSON.stringify(prev));
+      if(next[selSeason]) delete next[selSeason][id];
+      return next;
+    });
+    if(selProd===id) setSelProd(null);
+  }
+
+  // Resumen Allegria
+  const resumenAllegria = useMemo(()=>{
+    if(!esAllegria) return [];
+    return SEASONS.flatMap(s=>FRUTAS.map(f=>{
+      const p=params?.[s.key]?.[f];
+      const kg=Number(p?.kg)||0,fob=Number(p?.fob_usd_kg)||0;
+      const desc=(Number(p?.desc_exp_pct)||0)/100;
+      const matUsd=Number(p?.mat_usd_kg)||0,srvUsd=Number(p?.srv_usd_kg)||0;
+      const ing=kg*fob;
+      const costFruta=kg*Math.max(0,fob*(1-desc)-matUsd-srvUsd);
+      const costMat=kg*matUsd, costSrv=kg*srvUsd;
+      const cost=costFruta+costMat+costSrv;
+      if(kg===0&&fob===0) return null;
+      return {season:s.label,fruta:f,kg,fob,ing,costFruta,costMat,costSrv,cost,margen:ing-cost};
+    }).filter(Boolean));
+  },[params, esAllegria]);
+
+  // Resumen genérico
+  const resumenEmp = useMemo(()=>{
+    if(esAllegria) return [];
+    return SEASONS.flatMap(s=>{
+      const prods=paramsEmp?.[s.key]||{};
+      return Object.entries(prods).map(([id,p])=>{
+        const u=Number(p.unidades)||0,pr=Number(p.precio_unit)||0;
+        const desc=(Number(p.desc_pct)||0)/100;
+        const mU=Number(p.mat_unit)||0,sU=Number(p.srv_unit)||0;
+        const ing=u*pr;
+        const cost=u*Math.max(0,pr*(1-desc));
+        if(u===0&&pr===0) return null;
+        return {season:s.label,id,nombre:p.nombre||"Sin nombre",emoji:p.emoji||"📦",
+          u,pr,ing,cost,mat:u*mU,srv:u*sU,margen:ing-cost};
+      }).filter(Boolean);
+    });
+  },[paramsEmp,esAllegria]);
 
   return (
     <div style={{display:"flex",flexDirection:"column",gap:16}}>
       {readOnly&&(
         <div style={{background:`${C.accent}22`,border:`1px solid ${C.blue}44`,borderRadius:10,
-          padding:"10px 16px",fontSize:12,color:C.blue,display:"flex",alignItems:"center",gap:8}}>
-          👁 Estás en modo solo lectura — no puedes modificar los parámetros.
+          padding:"10px 16px",fontSize:12,color:C.blue}}>
+          👁 Estás en modo solo lectura.
         </div>
       )}
+
+      {/* Selector temporada — siempre visible */}
       <Card>
-        <SectionTitle>⚡ Parámetros Allegria Foods — por Temporada y Fruta</SectionTitle>
-        <div style={{fontSize:11,color:C.muted,marginBottom:14}}>Los cambios se reflejan en tiempo real en el Flujo de Allegria Foods.</div>
-        <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:14}}>
-          {SEASONS.map(s=><Btn key={s.key} active={selSeason===s.key} onClick={()=>setSelSeason(s.key)} color={C.accent}>{s.label}</Btn>)}
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12,flexWrap:"wrap",gap:8}}>
+          <SectionTitle>
+            ⚡ Parámetros — {empNombre}
+            <span style={{fontSize:10,color:C.muted,fontWeight:400,marginLeft:8}}>
+              Define los productos/líneas de ingreso con sus anticipos y distribuciones
+            </span>
+          </SectionTitle>
         </div>
-        <div style={{display:"flex",gap:6,marginBottom:16}}>
-          {FRUTAS.map(f=>(
-            <button key={f} onClick={()=>setSelFruta(f)}
-              style={{padding:"6px 18px",borderRadius:20,border:"none",cursor:"pointer",fontWeight:600,fontSize:12,
-                background:selFruta===f?"#b91c1c":`${C.card2}`,color:selFruta===f?"#fff":C.muted}}>
-              {FRUTA_EMOJI[f]} {FRUTA_LABEL[f]}
-            </button>
+        <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:0}}>
+          {SEASONS.map(s=>(
+            <Btn key={s.key} active={selSeason===s.key}
+              onClick={()=>{setSelSeason(s.key);setSelProd(null);}}
+              color={empColor}>{s.label}</Btn>
           ))}
         </div>
-        <ParamsFruta key={`${selSeason}-${selFruta}`} seasonKey={selSeason} fruta={selFruta} params={params} setParams={setParams}/>
       </Card>
-      {resumen.length>0&&(
+
+      {/* ── ALLEGRIA FOODS: selector fruta ── */}
+      {esAllegria&&(
+        <Card>
+          <div style={{display:"flex",gap:6,marginBottom:16}}>
+            {FRUTAS.map(f=>(
+              <button key={f} onClick={()=>setSelFruta(f)}
+                style={{padding:"6px 18px",borderRadius:20,border:"none",cursor:"pointer",
+                  fontWeight:600,fontSize:12,
+                  background:selFruta===f?"#b91c1c":C.card2,
+                  color:selFruta===f?"#fff":C.muted}}>
+                {FRUTA_EMOJI[f]} {FRUTA_LABEL[f]}
+              </button>
+            ))}
+          </div>
+          <ParamsFruta key={`${selSeason}-${selFruta}`}
+            seasonKey={selSeason} fruta={selFruta}
+            params={params} setParams={setParams}/>
+        </Card>
+      )}
+
+      {/* ── OTRAS EMPRESAS: lista de productos ── */}
+      {!esAllegria&&(
+        <div style={{display:"flex",gap:14}}>
+          {/* Panel izquierdo: lista productos */}
+          <div style={{width:200,flexShrink:0,display:"flex",flexDirection:"column",gap:6}}>
+            <div style={{fontSize:10,color:C.muted,fontWeight:700,textTransform:"uppercase",
+              letterSpacing:1,marginBottom:4}}>Productos / Líneas</div>
+            {prodIds.length===0&&(
+              <div style={{fontSize:11,color:C.muted2,padding:"8px 0"}}>
+                Sin productos. Agrega uno →
+              </div>
+            )}
+            {prodIds.map(id=>{
+              const prod=productos[id];
+              const isActive=selProd===id;
+              return (
+                <div key={id} style={{display:"flex",alignItems:"center",gap:4}}>
+                  <button onClick={()=>setSelProd(id)}
+                    style={{flex:1,padding:"7px 10px",borderRadius:8,cursor:"pointer",
+                      fontSize:11,fontWeight:isActive?700:400,textAlign:"left",
+                      border:`1px solid ${isActive?empColor:C.border}`,
+                      background:isActive?`${empColor}22`:C.card,
+                      color:isActive?empColor:C.text,overflow:"hidden",
+                      whiteSpace:"nowrap",textOverflow:"ellipsis"}}>
+                    {prod.emoji||"📦"} {prod.nombre||"Sin nombre"}
+                  </button>
+                  {!readOnly&&(
+                    <button onClick={()=>delProducto(id)}
+                      style={{padding:"4px 7px",borderRadius:6,border:"none",
+                        background:"transparent",color:C.red,cursor:"pointer",fontSize:13}}>
+                      ×
+                    </button>
+                  )}
+                </div>
+              );
+            })}
+            {!readOnly&&(
+              <button onClick={addProducto}
+                style={{padding:"7px 10px",borderRadius:8,cursor:"pointer",fontSize:11,
+                  fontWeight:600,border:`1px dashed ${C.border2}`,
+                  background:"transparent",color:C.accentL,marginTop:4}}>
+                + Nuevo producto
+              </button>
+            )}
+          </div>
+
+          {/* Panel derecho: detalle del producto seleccionado */}
+          <div style={{flex:1}}>
+            {selProd&&productos[selProd] ? (
+              <ParamsProducto
+                key={`${selSeason}-${selProd}`}
+                seasonKey={selSeason}
+                prodId={selProd}
+                paramsEmp={paramsEmp}
+                setParamsEmp={setParamsEmp}
+                empColor={empColor}
+              />
+            ) : (
+              <div style={{background:C.card,borderRadius:12,padding:32,
+                textAlign:"center",border:`1px dashed ${C.border}`,color:C.muted,fontSize:13}}>
+                {prodIds.length===0
+                  ? "Haz click en "+ (readOnly?"":""+ Nuevo producto"")+" para comenzar"
+                  : "Selecciona un producto de la lista"}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Resumen proyectado */}
+      {(resumenAllegria.length>0||resumenEmp.length>0)&&(
         <Card>
           <SectionTitle>Resumen Proyectado — Todas las Temporadas</SectionTitle>
           <div style={{overflowX:"auto"}}>
             <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
-              <thead><tr style={{background:`${C.bg2}`}}>
-                {["Temporada","Fruta","KG","FOB","Ingreso","C.Fruta","C.Mat","C.Srv","Total Costo","Margen"].map(h=>(
-                  <th key={h} style={{padding:"7px 10px",fontWeight:600,fontSize:10,color:C.muted,textTransform:"uppercase",
-                    borderBottom:`1px solid ${C.border}`,textAlign:["Temporada","Fruta"].includes(h)?"left":"right"}}>{h}</th>
+              <thead><tr style={{background:C.bg2}}>
+                {esAllegria
+                  ? ["Temporada","Producto","Unidades","Precio","Ingreso","C.Fruta","C.Mat","C.Srv","Costo Total","Margen"]
+                  : ["Temporada","Producto","Unidades","Precio","Ingreso","Costo","Mat","Srv","Margen"]
+                }.map(h=>(
+                  <th key={h} style={{padding:"7px 10px",fontWeight:600,fontSize:10,color:C.muted,
+                    textTransform:"uppercase",borderBottom:`1px solid ${C.border}`,
+                    textAlign:["Temporada","Producto"].includes(h)?"left":"right"}}>{h}</th>
                 ))}
               </tr></thead>
               <tbody>
-                {resumen.map((r,i)=>(
+                {(esAllegria?resumenAllegria:resumenEmp).map((r,i)=>(
                   <tr key={i} style={{borderBottom:`1px solid ${C.border}22`}}>
                     <td style={{padding:"6px 10px",color:C.muted,fontSize:11}}>{r.season}</td>
-                    <td style={{padding:"6px 10px",fontWeight:600,color:C.text}}>{FRUTA_EMOJI[r.fruta]} {FRUTA_LABEL[r.fruta]}</td>
-                    <td style={{padding:"6px 10px",textAlign:"right",color:C.text}}>{r.kg.toLocaleString()}</td>
-                    <td style={{padding:"6px 10px",textAlign:"right",color:C.yellow}}>${r.fob.toFixed(2)}</td>
+                    <td style={{padding:"6px 10px",fontWeight:600,color:C.text}}>
+                      {esAllegria
+                        ? <>{FRUTA_EMOJI[r.fruta]} {FRUTA_LABEL[r.fruta]}</>
+                        : <>{r.emoji} {r.nombre}</>}
+                    </td>
+                    <td style={{padding:"6px 10px",textAlign:"right",color:C.text}}>
+                      {(esAllegria?r.kg:r.u).toLocaleString()}
+                    </td>
+                    <td style={{padding:"6px 10px",textAlign:"right",color:C.yellow}}>
+                      ${(esAllegria?r.fob:r.pr).toFixed(2)}
+                    </td>
                     <td style={{padding:"6px 10px",textAlign:"right",fontWeight:700,color:C.green}}>{$$(r.ing)}</td>
-                    <td style={{padding:"6px 10px",textAlign:"right",color:C.red}}>{$$(r.costFruta)}</td>
-                    <td style={{padding:"6px 10px",textAlign:"right",color:C.orange}}>{r.costMat>0?$$(r.costMat):"—"}</td>
-                    <td style={{padding:"6px 10px",textAlign:"right",color:C.blue}}>{r.costSrv>0?$$(r.costSrv):"—"}</td>
-                    <td style={{padding:"6px 10px",textAlign:"right",fontWeight:700,color:C.red}}>{$$(r.cost)}</td>
+                    {esAllegria&&<td style={{padding:"6px 10px",textAlign:"right",color:C.red}}>{$$(r.costFruta)}</td>}
+                    <td style={{padding:"6px 10px",textAlign:"right",color:C.orange}}>{(esAllegria?r.costMat:r.mat)>0?$$((esAllegria?r.costMat:r.mat)):"—"}</td>
+                    <td style={{padding:"6px 10px",textAlign:"right",color:C.blue}}>{(esAllegria?r.costSrv:r.srv)>0?$$((esAllegria?r.costSrv:r.srv)):"—"}</td>
+                    {!esAllegria&&<td style={{padding:"6px 10px",textAlign:"right",color:C.red,fontWeight:700}}>{$$(r.cost)}</td>}
                     <td style={{padding:"6px 10px",textAlign:"right",fontWeight:700,color:cf(r.margen)}}>{$$(r.margen)}</td>
                   </tr>
                 ))}
-                <tr style={{background:`${C.bg2}`,borderTop:`2px solid ${C.border}`}}>
+                <tr style={{background:C.bg2,borderTop:`2px solid ${C.border}`}}>
                   <td colSpan={4} style={{padding:"8px 10px",fontWeight:800,color:C.text}}>TOTAL</td>
-                  <td style={{padding:"8px 10px",textAlign:"right",fontWeight:800,color:C.green}}>{$$(resumen.reduce((s,r)=>s+r.ing,0))}</td>
-                  <td style={{padding:"8px 10px",textAlign:"right",fontWeight:800,color:C.red}}>{$$(resumen.reduce((s,r)=>s+r.costFruta,0))}</td>
-                  <td style={{padding:"8px 10px",textAlign:"right",fontWeight:800,color:C.orange}}>{$$(resumen.reduce((s,r)=>s+r.costMat,0))}</td>
-                  <td style={{padding:"8px 10px",textAlign:"right",fontWeight:800,color:C.blue}}>{$$(resumen.reduce((s,r)=>s+r.costSrv,0))}</td>
-                  <td style={{padding:"8px 10px",textAlign:"right",fontWeight:800,color:C.red}}>{$$(resumen.reduce((s,r)=>s+r.cost,0))}</td>
-                  <td style={{padding:"8px 10px",textAlign:"right",fontWeight:800,color:cf(resumen.reduce((s,r)=>s+r.margen,0))}}>{$$(resumen.reduce((s,r)=>s+r.margen,0))}</td>
+                  <td style={{padding:"8px 10px",textAlign:"right",fontWeight:800,color:C.green}}>
+                    {$$((esAllegria?resumenAllegria:resumenEmp).reduce((s,r)=>s+r.ing,0))}
+                  </td>
+                  <td colSpan={esAllegria?4:3}/>
+                  <td style={{padding:"8px 10px",textAlign:"right",fontWeight:800,color:cf(
+                    (esAllegria?resumenAllegria:resumenEmp).reduce((s,r)=>s+r.margen,0))}}>
+                    {$$((esAllegria?resumenAllegria:resumenEmp).reduce((s,r)=>s+r.margen,0))}
+                  </td>
                 </tr>
               </tbody>
             </table>
@@ -814,6 +1249,7 @@ function TabParametros({params,setParams,readOnly=false}) {
     </div>
   );
 }
+
 
 // ═══════════════════════════════════════════════════════════════════
 // MODAL INGRESO REAL
@@ -2038,8 +2474,11 @@ function SaldosBancos({saldos,onSave,canEdit}) {
 export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermisos={}}) {
   const [tab,setTab]=useState("dashboard");
   const [empTab,setEmpTab]=useState("Mediterra");
+  const [flujoSubTab,setFlujoSubTab]=useState("flujo"); // "flujo" | "params"
   const [realData,setRealData]=useState({});
   const [params,setParams]=useState(defaultParams);
+  // paramsEmp: { empresa: { seasonKey: { prodId: defaultProducto() } } }
+  const [paramsEmp,setParamsEmp]=useState({});
   const [saldosBancos,setSaldosBancos]=useState({});
   const [loading,setLoading]=useState(true);
   const [saved,setSaved]=useState(null);
@@ -2057,7 +2496,6 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
     {id:"flujo",    label:"📈 Flujo Empresas"},
     {id:"bancos",   label:"🏦 Saldos Bancos"},
     {id:"creditos", label:"💳 Créditos"},
-    {id:"params",   label:"⚡ Parámetros"},
   ];
 
   useEffect(()=>{
@@ -2065,6 +2503,7 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
       if(d?.finanzas_real) setRealData(d.finanzas_real);
       else if(d&&!d.finanzas_real&&!d.allegria_params) setRealData(d);
       if(d?.allegria_params) setParams(prev=>({...defaultParams(),...d.allegria_params}));
+      if(d?.params_emp) setParamsEmp(d.params_emp);
       if(d?.saldos_bancos) setSaldosBancos(d.saldos_bancos);
       setLoading(false);
     });
@@ -2076,7 +2515,7 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
     if(!next[empresa][mes]) next[empresa][mes]={};
     next[empresa][mes][semana]=vals;
     setRealData(next);
-    const ok=await dbSave({finanzas_real:next,allegria_params:params,saldos_bancos:saldosBancos});
+    const ok=await dbSave({finanzas_real:next,allegria_params:params,saldos_bancos:saldosBancos,params_emp:paramsEmp});
     setSaved(ok?"✅ Guardado":"⚠️ Error");
     setTimeout(()=>setSaved(null),3000);
   },[realData,params,saldosBancos]);
@@ -2094,7 +2533,7 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
         next[empresa]._proyOverrides[lineLabel][String(idx)]=val;
       }
       setTimeout(()=>{
-        dbSave({finanzas_real:next,allegria_params:params,saldos_bancos:saldosBancos})
+        dbSave({finanzas_real:next,allegria_params:params,saldos_bancos:saldosBancos,params_emp:paramsEmp})
           .then(ok=>{ setSaved(ok?"✅ Proyección guardada":"⚠️ Error"); setTimeout(()=>setSaved(null),2000); });
       },0);
       return next;
@@ -2103,16 +2542,31 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
   },[params,saldosBancos]);
 
 
+  // setParamsEmp para una empresa específica
+  const setParamsEmpresa = useCallback((empresa, updater) => {
+    setParamsEmp(prev => {
+      const next = JSON.parse(JSON.stringify(prev));
+      if(!next[empresa]) next[empresa] = defaultParamsEmp();
+      next[empresa] = typeof updater === "function" ? updater(next[empresa]) : updater;
+      // Persistir
+      setTimeout(()=>dbSave({finanzas_real:realData,allegria_params:params,
+        saldos_bancos:saldosBancos,params_emp:{...prev,[empresa]:next[empresa]}})
+        .then(ok=>{setSaved(ok?"✅ Parámetros guardados":"⚠️ Error");setTimeout(()=>setSaved(null),2000);}),0);
+      return next;
+    });
+  // eslint-disable-next-line
+  },[realData,params,saldosBancos]);
+
   const handleSaveSaldos=useCallback(async(next)=>{
     setSaldosBancos(next);
-    const ok=await dbSave({finanzas_real:realData,allegria_params:params,saldos_bancos:next});
+    const ok=await dbSave({finanzas_real:realData,allegria_params:params,saldos_bancos:next,params_emp:paramsEmp});
     setSaved(ok?"✅ Guardado":"⚠️ Error");
     setTimeout(()=>setSaved(null),3000);
   },[realData,params]);
 
   useEffect(()=>{
     if(loading) return;
-    const t=setTimeout(()=>dbSave({finanzas_real:realData,allegria_params:params,saldos_bancos:saldosBancos}),800);
+    const t=setTimeout(()=>dbSave({finanzas_real:realData,allegria_params:params,saldos_bancos:saldosBancos,params_emp:paramsEmp}),800);
     return ()=>clearTimeout(t);
   },[params,loading]); // eslint-disable-line
 
@@ -2191,9 +2645,10 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
 
       {tab==="flujo"&&(
         <div>
-          <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:16}}>
+          {/* Selector empresa */}
+          <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:12,alignItems:"center"}}>
             {Object.keys(empresas).map(n=>{const e=empresas[n];return (
-              <button key={n} onClick={()=>setEmpTab(n)}
+              <button key={n} onClick={()=>{setEmpTab(n);setFlujoSubTab("flujo");}}
                 style={{
                   padding:"7px 14px",borderRadius:8,cursor:"pointer",fontSize:11,fontWeight:600,
                   border:`1px solid ${empTab===n?e.color:C.border}`,
@@ -2205,9 +2660,60 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
               </button>
             );})}
           </div>
-          <FlujoEmpresa key={empTab} empNombre={empTab} empresas={empresas}
-            realData={realData} onSaveReal={handleSaveReal} canEdit={puedoEdit("flujo")}
-            saldosBancos={saldosBancos} onSaveProy={handleSaveProy}/>
+
+          {/* Sub-pestañas: Flujo | Parámetros — para TODAS las empresas */}
+          <div style={{display:"flex",gap:6,marginBottom:14,padding:"10px 14px",
+            background:C.card2,borderRadius:10,border:`1px solid ${C.border}`,alignItems:"center"}}>
+            <span style={{fontSize:10,color:C.muted,fontWeight:600,marginRight:4}}>Vista:</span>
+            {[
+              {id:"flujo",  label:"📈 Flujo de Caja"},
+              {id:"params", label:"⚡ Parámetros"},
+            ].map(st=>{
+              const emp=empresas[empTab];
+              const color=emp?.color||C.accent;
+              return (
+                <button key={st.id} onClick={()=>setFlujoSubTab(st.id)}
+                  style={{padding:"6px 18px",borderRadius:8,cursor:"pointer",fontWeight:600,fontSize:12,
+                    border:`1px solid ${flujoSubTab===st.id?color:C.border}`,
+                    background:flujoSubTab===st.id?`${color}33`:"transparent",
+                    color:flujoSubTab===st.id?color:C.muted,
+                    transition:"all 0.15s"}}>
+                  {st.label}
+                </button>
+              );
+            })}
+            <span style={{fontSize:10,color:C.muted,marginLeft:6}}>
+              {flujoSubTab==="params"
+                ? "Define productos, anticipos y distribución de pagos por temporada"
+                : "Proyección de flujo de caja mensual y semanal"}
+            </span>
+          </div>
+
+          {/* Contenido sub-pestaña */}
+          {flujoSubTab==="flujo"&&(
+            <FlujoEmpresa key={empTab} empNombre={empTab} empresas={empresas}
+              realData={realData} onSaveReal={handleSaveReal} canEdit={puedoEdit("flujo")}
+              saldosBancos={saldosBancos} onSaveProy={handleSaveProy}/>
+          )}
+          {flujoSubTab==="params"&&(()=>{
+            const emp=empresas[empTab];
+            const empColor=emp?.color||C.accent;
+            const esAllegria=empTab==="Allegria Foods";
+            const empParamsData=paramsEmp?.[empTab]||defaultParamsEmp();
+            return (
+              <TabParametros
+                empNombre={empTab}
+                empColor={empColor}
+                params={esAllegria?params:undefined}
+                setParams={esAllegria&&puedoEdit("flujo")?setParams:undefined}
+                paramsEmp={esAllegria?undefined:{...empParamsData}}
+                setParamsEmp={!esAllegria&&puedoEdit("flujo")
+                  ? (updater)=>setParamsEmpresa(empTab,updater)
+                  : ()=>{}}
+                readOnly={!puedoEdit("flujo")}
+              />
+            );
+          })()}
         </div>
       )}
 
@@ -2215,10 +2721,7 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
         <SaldosBancos saldos={saldosBancos} onSave={handleSaveSaldos} canEdit={puedoEdit("bancos")}/>
       )}
       {tab==="creditos"&&<Creditos empresas={empresas}/>}
-      {tab==="params"&&(
-        <TabParametros params={params} setParams={puedoEdit("params")?setParams:()=>{}}
-          readOnly={!puedoEdit("params")}/>
-      )}
+
     </div>
   );
 }
