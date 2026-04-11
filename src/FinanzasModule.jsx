@@ -94,8 +94,8 @@ function defaultFruta() {
     mes_saldo_productor:'',
     mat_usd_kg:0,
     srv_usd_kg:0,
-    dist_mat:[],   // [{mes:"Nov-26", pct:40}] — % del total materiales pagado ese mes
-    dist_srv:[],   // [{mes:"Nov-26", pct:40}] — % del total servicios pagado ese mes (se reparte entre semanas)
+    dist_mat:[],
+    dist_srv:[],
   };
 }
 
@@ -127,8 +127,6 @@ function calcAllegria(params) {
       const matUsd  = Number(p.mat_usd_kg)||0;
       const srvUsd  = Number(p.srv_usd_kg)||0;
       if (kg===0||fob===0) return;
-
-      // ── INGRESOS ──────────────────────────────────────────────────
       let totalAntIng = 0;
       (p.anticipos_cliente||[]).forEach(a => {
         const i = mIdx(a.mes); if(i<0) return;
@@ -139,8 +137,6 @@ function calcAllegria(params) {
         const i = mIdx(p.mes_liquidacion);
         if (i>=0) ing[f][i] += Math.max(0, kg*fob - totalAntIng);
       }
-
-      // ── COSTO FRUTA (productor) ───────────────────────────────────
       const precioNetoProd = Math.max(0, fob*(1-desc) - matUsd - srvUsd);
       let totalAntProd = 0;
       (p.anticipos_productor||[]).forEach(a => {
@@ -152,8 +148,6 @@ function calcAllegria(params) {
         const i = mIdx(p.mes_saldo_productor);
         if (i>=0) { const s = kg*precioNetoProd - totalAntProd; if(s>0) cost[f][i] += s; }
       }
-
-      // ── MATERIALES: KG × mat_usd_kg distribuido % por mes ────────
       const totalMat = kg * matUsd;
       if (totalMat > 0) {
         (p.dist_mat||[]).forEach(d => {
@@ -161,16 +155,11 @@ function calcAllegria(params) {
           mat[f][i] += totalMat * ((Number(d.pct)||0)/100);
         });
       }
-
-      // ── SERVICIOS: KG × srv_usd_kg distribuido % por mes,
-      //    luego repartido uniformemente entre las semanas del mes ──
       const totalSrv = kg * srvUsd;
       if (totalSrv > 0) {
         (p.dist_srv||[]).forEach(d => {
           const i = mIdx(d.mes); if(i<0) return;
-          const montoMes = totalSrv * ((Number(d.pct)||0)/100);
-          // Se guarda el total mensual; la vista semanal lo divide por nSems automáticamente
-          srv[f][i] += montoMes;
+          srv[f][i] += totalSrv * ((Number(d.pct)||0)/100);
         });
       }
     });
@@ -475,15 +464,34 @@ const CREDITOS_TRIM = {
 };
 
 // ═══════════════════════════════════════════════════════════════════
-// COLORES Y HELPERS
+// PALETA — TEMA AZUL MARINO (estilo header Tareas #1e3a5f)
 // ═══════════════════════════════════════════════════════════════════
 const C = {
-  bg:"#071810", bg2:"#0a2218", card:"#0d2b1e", card2:"#112e20",
-  border:"#1a4d32", border2:"#236640",
-  text:"#e2f5ec", muted:"#6aad8a", muted2:"#4a8066",
-  green:"#22c55e", red:"#f87171", blue:"#60a5fa",
-  yellow:"#fbbf24", orange:"#fb923c", accent:"#16a34a", accentL:"#22c55e",
+  // Fondos
+  bg:     "#0f2342",   // fondo principal — azul marino oscuro
+  bg2:    "#162d52",   // fondo secundario
+  card:   "#1e3a5f",   // card base — igual al header de Tareas
+  card2:  "#243f65",   // card hover / input
+  border: "#2d5080",   // bordes
+  border2:"#3a6494",   // bordes destacados
+
+  // Textos
+  text:   "#e8f0fa",   // texto principal
+  muted:  "#7da8d4",   // texto secundario
+  muted2: "#4a7aaa",   // texto muy tenue
+
+  // Semáforos
+  green:  "#22c55e",
+  red:    "#f87171",
+  blue:   "#60a5fa",
+  yellow: "#fbbf24",
+  orange: "#fb923c",
+
+  // Accent
+  accent: "#2563eb",
+  accentL:"#60a5fa",
 };
+
 const $$ = n => {
   if(n==null||n==="") return "—";
   const abs=Math.abs(n),s=n<0?"-":"";
@@ -583,7 +591,6 @@ function AnticipList({items,onChange,label}) {
   );
 }
 
-// DistList: lista [{mes, pct}] con total % y monto calculado
 function DistList({items,onChange,totalMonto=0,esSemanal=false}) {
   const addRow=()=>onChange([...(items||[]),{mes:"",pct:0}]);
   const updRow=(i,field,val)=>{const n=[...(items||[])];n[i]={...n[i],[field]:val};onChange(n);};
@@ -642,7 +649,7 @@ function ParamsFruta({seasonKey,fruta,params,setParams}) {
   const pctMat=(p.dist_mat||[]).reduce((s,d)=>s+(Number(d.pct)||0),0);
   const pctSrv=(p.dist_srv||[]).reduce((s,d)=>s+(Number(d.pct)||0),0);
   const iSt={width:90,padding:"5px 7px",background:C.card2,border:`1px solid ${C.border}`,borderRadius:6,color:C.text,fontSize:11,outline:"none",textAlign:"right"};
-  const selSt={padding:"5px 8px",background:C.card2,border:`1px solid ${C.border}`,borderRadius:6,fontSize:11,outline:"none"};
+  const selSt={padding:"5px 8px",background:C.card2,border:`1px solid ${C.border}`,borderRadius:6,fontSize:11,outline:"none",color:C.text};
 
   return (
     <div style={{background:C.card2,borderRadius:12,padding:16,border:`1px solid ${C.border}`}}>
@@ -666,7 +673,7 @@ function ParamsFruta({seasonKey,fruta,params,setParams}) {
         ))}
         {precioNet>0&&kg>0&&(
           <div style={{gridColumn:"1/-1",background:`${C.yellow}11`,border:`1px solid ${C.yellow}33`,borderRadius:8,padding:"8px 12px",fontSize:11,color:C.yellow}}>
-            Precio neto productor: <strong>${precioNet.toFixed(3)}/kg</strong> = FOB×{(100-(Number(p.desc_exp_pct||0))).toFixed(0)}% − mat − srv
+            Precio neto productor: <strong>${precioNet.toFixed(3)}/kg</strong>
           </div>
         )}
       </div>
@@ -676,7 +683,7 @@ function ParamsFruta({seasonKey,fruta,params,setParams}) {
           <AnticipList label="Anticipos (US$/kg por mes)" items={p.anticipos_cliente} onChange={v=>upd("anticipos_cliente",v)}/>
           <div style={{marginTop:10}}>
             <div style={{fontSize:10,color:C.muted,marginBottom:3}}>Mes liquidación final</div>
-            <select value={p.mes_liquidacion||""} onChange={e=>upd("mes_liquidacion",e.target.value)} style={{...selSt,color:p.mes_liquidacion?C.text:C.muted}}>
+            <select value={p.mes_liquidacion||""} onChange={e=>upd("mes_liquidacion",e.target.value)} style={selSt}>
               <option value="">— mes —</option>
               {MESES_65.map(m=><option key={m} value={m}>{m}</option>)}
             </select>
@@ -688,38 +695,31 @@ function ParamsFruta({seasonKey,fruta,params,setParams}) {
           <AnticipList label="Anticipos productor (US$/kg)" items={p.anticipos_productor} onChange={v=>upd("anticipos_productor",v)}/>
           <div style={{marginTop:10}}>
             <div style={{fontSize:10,color:C.muted,marginBottom:3}}>Mes saldo productor</div>
-            <select value={p.mes_saldo_productor||""} onChange={e=>upd("mes_saldo_productor",e.target.value)} style={{...selSt,color:p.mes_saldo_productor?C.text:C.muted}}>
+            <select value={p.mes_saldo_productor||""} onChange={e=>upd("mes_saldo_productor",e.target.value)} style={selSt}>
               <option value="">— mes —</option>
               {MESES_65.map(m=><option key={m} value={m}>{m}</option>)}
             </select>
-            {antCostTot>0&&totalCost>0&&<div style={{fontSize:10,color:C.muted,marginTop:4}}>Anticipos: {$$(antCostTot)} · Saldo: {$$(Math.max(0,totalCost-antCostTot))}</div>}
           </div>
         </div>
       </div>
-
-      {/* MATERIALES y SERVICIOS — distribución % por mes */}
       {(matUsd>0||srvUsd>0)&&kg>0&&(
-        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14,marginTop:4}}>
-          {/* Materiales */}
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14,marginTop:14}}>
           {matUsd>0&&(
             <div style={{background:"rgba(251,191,36,0.07)",border:`1px solid ${C.yellow}44`,borderRadius:10,padding:12}}>
               <div style={{fontSize:11,fontWeight:700,color:C.yellow,marginBottom:4}}>📦 Pago Materiales</div>
               <div style={{fontSize:10,color:C.muted,marginBottom:8}}>
-                Total: <strong style={{color:C.yellow}}>{$$(kg*matUsd)}</strong> ({kg.toLocaleString()} kg × ${matUsd}/kg)
+                Total: <strong style={{color:C.yellow}}>{$$(kg*matUsd)}</strong>
                 {" · "}Asignado: <strong style={{color:pctMat===100?C.green:C.orange}}>{pctMat.toFixed(0)}%</strong>
-                {pctMat!==100&&<span style={{color:C.orange}}> (falta {(100-pctMat).toFixed(0)}%)</span>}
               </div>
               <DistList items={p.dist_mat} onChange={v=>upd("dist_mat",v)} totalMonto={kg*matUsd}/>
             </div>
           )}
-          {/* Servicios */}
           {srvUsd>0&&(
             <div style={{background:"rgba(96,165,250,0.07)",border:`1px solid ${C.blue}44`,borderRadius:10,padding:12}}>
-              <div style={{fontSize:11,fontWeight:700,color:C.blue,marginBottom:4}}>⚙️ Pago Servicios <span style={{fontSize:9,fontWeight:400,opacity:0.7}}>(por semana)</span></div>
+              <div style={{fontSize:11,fontWeight:700,color:C.blue,marginBottom:4}}>⚙️ Pago Servicios</div>
               <div style={{fontSize:10,color:C.muted,marginBottom:8}}>
-                Total: <strong style={{color:C.blue}}>{$$(kg*srvUsd)}</strong> ({kg.toLocaleString()} kg × ${srvUsd}/kg)
+                Total: <strong style={{color:C.blue}}>{$$(kg*srvUsd)}</strong>
                 {" · "}Asignado: <strong style={{color:pctSrv===100?C.green:C.orange}}>{pctSrv.toFixed(0)}%</strong>
-                {pctSrv!==100&&<span style={{color:C.orange}}> (falta {(100-pctSrv).toFixed(0)}%)</span>}
               </div>
               <DistList items={p.dist_srv} onChange={v=>upd("dist_srv",v)} totalMonto={kg*srvUsd} esSemanal/>
             </div>
@@ -749,8 +749,8 @@ function TabParametros({params,setParams,readOnly=false}) {
   return (
     <div style={{display:"flex",flexDirection:"column",gap:16}}>
       {readOnly&&(
-        <div style={{background:"#1d4ed822",border:"1px solid #60a5fa44",borderRadius:10,
-          padding:"10px 16px",fontSize:12,color:"#60a5fa",display:"flex",alignItems:"center",gap:8}}>
+        <div style={{background:`${C.accent}22`,border:`1px solid ${C.blue}44`,borderRadius:10,
+          padding:"10px 16px",fontSize:12,color:C.blue,display:"flex",alignItems:"center",gap:8}}>
           👁 Estás en modo solo lectura — no puedes modificar los parámetros.
         </div>
       )}
@@ -764,7 +764,7 @@ function TabParametros({params,setParams,readOnly=false}) {
           {FRUTAS.map(f=>(
             <button key={f} onClick={()=>setSelFruta(f)}
               style={{padding:"6px 18px",borderRadius:20,border:"none",cursor:"pointer",fontWeight:600,fontSize:12,
-                background:selFruta===f?"#b91c1c":"rgba(255,255,255,0.06)",color:selFruta===f?"#fff":C.muted}}>
+                background:selFruta===f?"#b91c1c":`${C.card2}`,color:selFruta===f?"#fff":C.muted}}>
               {FRUTA_EMOJI[f]} {FRUTA_LABEL[f]}
             </button>
           ))}
@@ -776,7 +776,7 @@ function TabParametros({params,setParams,readOnly=false}) {
           <SectionTitle>Resumen Proyectado — Todas las Temporadas</SectionTitle>
           <div style={{overflowX:"auto"}}>
             <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
-              <thead><tr style={{background:"rgba(0,0,0,0.2)"}}>
+              <thead><tr style={{background:`${C.bg2}`}}>
                 {["Temporada","Fruta","KG","FOB","Ingreso","C.Fruta","C.Mat","C.Srv","Total Costo","Margen"].map(h=>(
                   <th key={h} style={{padding:"7px 10px",fontWeight:600,fontSize:10,color:C.muted,textTransform:"uppercase",
                     borderBottom:`1px solid ${C.border}`,textAlign:["Temporada","Fruta"].includes(h)?"left":"right"}}>{h}</th>
@@ -797,7 +797,7 @@ function TabParametros({params,setParams,readOnly=false}) {
                     <td style={{padding:"6px 10px",textAlign:"right",fontWeight:700,color:cf(r.margen)}}>{$$(r.margen)}</td>
                   </tr>
                 ))}
-                <tr style={{background:"rgba(255,255,255,0.04)",borderTop:`2px solid ${C.border}`}}>
+                <tr style={{background:`${C.bg2}`,borderTop:`2px solid ${C.border}`}}>
                   <td colSpan={4} style={{padding:"8px 10px",fontWeight:800,color:C.text}}>TOTAL</td>
                   <td style={{padding:"8px 10px",textAlign:"right",fontWeight:800,color:C.green}}>{$$(resumen.reduce((s,r)=>s+r.ing,0))}</td>
                   <td style={{padding:"8px 10px",textAlign:"right",fontWeight:800,color:C.red}}>{$$(resumen.reduce((s,r)=>s+r.costFruta,0))}</td>
@@ -816,11 +816,7 @@ function TabParametros({params,setParams,readOnly=false}) {
 }
 
 // ═══════════════════════════════════════════════════════════════════
-// FLUJO POR EMPRESA
-// ═══════════════════════════════════════════════════════════════════
-// ═══════════════════════════════════════════════════════════════════
-// MODAL INGRESO REAL — componente independiente (fix: no puede ser
-// anidado dentro de FlujoEmpresa o los inputs pierden foco)
+// MODAL INGRESO REAL
 // ═══════════════════════════════════════════════════════════════════
 function ModalIngreso({emp,empNombre,mes,semana,existing,onSave,onClose}) {
   const allLines=emp.sections.flatMap(s=>s.lines.map(l=>({cat:s.cat,label:l.label,signo:s.signo})));
@@ -899,7 +895,6 @@ function ModalIngreso({emp,empNombre,mes,semana,existing,onSave,onClose}) {
   );
 }
 
-// Input de una línea real — componente propio para evitar re-renders
 function RealLineInput({label,value,onChange}) {
   return (
     <div style={{display:"grid",gridTemplateColumns:"1fr 120px",gap:8,alignItems:"center",marginBottom:5}}>
@@ -923,14 +918,12 @@ function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit}) {
   const emp=empresas[empNombre];
   const [vista,setVista]=useState("mensual");
   const [openSeason,setOpenSeason]=useState({[SEASON_KEYS[0]]:true,[SEASON_KEYS[1]]:true});
-  // Para vista semanal: qué meses están abiertos (expandidos con sus semanas)
   const [openMonth,setOpenMonth]=useState({});
   const [showReal,setShowReal]=useState(false);
   const [modalSem,setModalSem]=useState(null);
 
   const toggleSeason=key=>setOpenSeason(p=>({...p,[key]:!p[key]}));
   const toggleMonth=mes=>setOpenMonth(p=>({...p,[mes]:!p[mes]}));
-  // Por defecto todos los meses abiertos; si no está en el mapa = abierto
   const isMonthOpen=mes=>openMonth[mes]!==false;
 
   const realMensual=useMemo(()=>{
@@ -951,9 +944,7 @@ function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit}) {
     return {flujoArr:fa,acumArr:aa};
   },[emp]);
 
-  // Estructura de columnas para la tabla (semanal con agrupación por mes)
   const colStructure=useMemo(()=>{
-    // Retorna array de "grupos de columna" para cada temporada
     return SEASONS.map(s=>{
       if(!openSeason[s.key]) return {season:s,collapsed:true,cols:[]};
       if(vista==="mensual"){
@@ -962,18 +953,15 @@ function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit}) {
           label:m,isFirstInSeason:s.months[0]===m
         }))};
       }
-      // Vista semanal: agrupar semanas por mes
       const cols=[];
       s.months.forEach((m,mi)=>{
         const sems=SEMANAS_MES[m]||[];
         const nSems=sems.length||1;
         const open=isMonthOpen(m);
         if(!open){
-          // mes colapsado: una sola celda
           cols.push({type:"month_collapsed",mes:m,idx:mIdx(m),nSems,label:m,
             isFirstInSeason:mi===0,isMonthHeader:true});
         } else {
-          // mes expandido: fila header mes + semanas
           sems.forEach((sw,si)=>{
             cols.push({type:"week",mes:m,semana:sw,idx:mIdx(m),nSems,
               label:sw,isFirstInSeason:mi===0&&si===0,
@@ -990,10 +978,9 @@ function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit}) {
       <div style={{overflowX:"auto",borderRadius:12,border:`1px solid ${C.border}`}}>
         <table style={{borderCollapse:"collapse",fontSize:11,minWidth:600}}>
           <thead>
-            {/* FILA 1: Temporadas */}
-            <tr style={{background:"#071810"}}>
+            <tr style={{background:C.bg}}>
               <th style={{padding:"8px 14px",textAlign:"left",color:C.muted,fontSize:10,
-                position:"sticky",left:0,background:"#071810",zIndex:3,minWidth:200,
+                position:"sticky",left:0,background:C.bg,zIndex:3,minWidth:200,
                 borderRight:`1px solid ${C.border}`}}>
                 Línea
               </th>
@@ -1002,7 +989,7 @@ function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit}) {
                 return (
                   <th key={s.key} colSpan={span} onClick={()=>toggleSeason(s.key)}
                     style={{padding:"7px 10px",textAlign:"center",
-                      background:!collapsed?"#0d2b1e":"#071810",
+                      background:!collapsed?C.card:C.bg,
                       borderLeft:`2px solid ${C.border2}`,cursor:"pointer",
                       fontSize:10,fontWeight:700,color:"#fff",whiteSpace:"nowrap"}}>
                     {!collapsed?"▾":"▸"} {s.label}
@@ -1010,13 +997,11 @@ function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit}) {
                 );
               })}
             </tr>
-            {/* FILA 2 (solo semanal): header mes con colapso */}
             {vista==="semanal"&&(
-              <tr style={{background:"#0a2218"}}>
-                <th style={{position:"sticky",left:0,background:"#0a2218",zIndex:3,borderRight:`1px solid ${C.border}`}}/>
+              <tr style={{background:C.bg2}}>
+                <th style={{position:"sticky",left:0,background:C.bg2,zIndex:3,borderRight:`1px solid ${C.border}`}}/>
                 {colStructure.map(({season:s,collapsed,cols})=>{
-                  if(collapsed) return <th key={s.key} style={{borderLeft:`2px solid ${C.border2}`,background:"#0a2218"}}/>;
-                  // Agrupar cols por mes para calcular colSpan
+                  if(collapsed) return <th key={s.key} style={{borderLeft:`2px solid ${C.border2}`,background:C.bg2}}/>;
                   const byMes={};
                   cols.forEach(col=>{
                     if(!byMes[col.mes]) byMes[col.mes]={mes:col.mes,count:0,isFirstInSeason:col.isFirstInSeason};
@@ -1026,31 +1011,30 @@ function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit}) {
                     <th key={`${s.key}-mh-${mes}`} colSpan={count}
                       onClick={()=>toggleMonth(mes)}
                       style={{padding:"4px 6px",textAlign:"center",
-                        background:isMonthOpen(mes)?"#0d2b1e":"#071810",
+                        background:isMonthOpen(mes)?C.card:C.bg,
                         borderLeft:isFirstInSeason?`2px solid ${C.border2}`:`1px solid ${C.border}44`,
                         cursor:"pointer",fontSize:9,fontWeight:700,
-                        color:isMonthOpen(mes)?"#9de8bc":C.muted,whiteSpace:"nowrap"}}>
+                        color:isMonthOpen(mes)?C.accentL:C.muted,whiteSpace:"nowrap"}}>
                       {isMonthOpen(mes)?"▾":"▸"} {mes}
                     </th>
                   ));
                 })}
               </tr>
             )}
-            {/* FILA 3: semanas o meses */}
-            <tr style={{background:"#071e12"}}>
-              <th style={{position:"sticky",left:0,background:"#071e12",zIndex:3,borderRight:`1px solid ${C.border}`}}/>
+            <tr style={{background:C.bg}}>
+              <th style={{position:"sticky",left:0,background:C.bg,zIndex:3,borderRight:`1px solid ${C.border}`}}/>
               {colStructure.map(({season:s,collapsed,cols})=>{
-                if(collapsed) return <th key={s.key} style={{padding:"4px 8px",color:C.muted,fontSize:9,borderLeft:`2px solid ${C.border2}`,textAlign:"center",background:"#071e12"}}>{s.months.length}m</th>;
+                if(collapsed) return <th key={s.key} style={{padding:"4px 8px",color:C.muted,fontSize:9,borderLeft:`2px solid ${C.border2}`,textAlign:"center",background:C.bg}}>{s.months.length}m</th>;
                 return cols.map((col,ci)=>{
                   const isFirst=col.isFirstInSeason||col.isFirstInMonth;
                   return (
                     <th key={`${s.key}-${col.label}-${ci}`}
                       style={{padding:"4px 6px",textAlign:"center",
-                        color:col.type==="month_collapsed"?"#9de8bc":C.muted,
+                        color:col.type==="month_collapsed"?C.accentL:C.muted,
                         fontSize:col.type==="month_collapsed"?9:8,
                         fontWeight:col.type==="month_collapsed"?700:500,
                         whiteSpace:"nowrap",
-                        minWidth:vista==="semanal"?46:68,background:"#071e12",
+                        minWidth:vista==="semanal"?46:68,background:C.bg,
                         borderLeft:(col.isFirstInSeason)?`2px solid ${C.border2}`:isFirst?`1px solid ${C.border}55`:`1px solid ${C.border}11`,
                         cursor:col.type==="month_collapsed"?"pointer":"default"}}
                       onClick={col.type==="month_collapsed"?()=>toggleMonth(col.mes):undefined}>
@@ -1064,10 +1048,9 @@ function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit}) {
           <tbody>
             {emp.sections.map(sec=>(
               <React.Fragment key={sec.cat}>
-                {/* Header sección */}
-                <tr style={{background:"rgba(0,0,0,0.3)"}}>
+                <tr style={{background:`${C.bg}cc`}}>
                   <td style={{padding:"5px 14px",position:"sticky",left:0,
-                    background:"rgba(7,24,16,0.97)",borderRight:`1px solid ${C.border}`,zIndex:1}}>
+                    background:C.bg,borderRight:`1px solid ${C.border}`,zIndex:1}}>
                     <span style={{fontSize:10,fontWeight:700,color:CAT_COLOR[sec.cat]||C.muted,
                       textTransform:"uppercase",letterSpacing:"0.5px"}}>
                       {CAT_SIGNO[sec.cat]} {sec.label}
@@ -1075,14 +1058,13 @@ function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit}) {
                   </td>
                   {colStructure.map(({season:s,collapsed,cols})=>{
                     const span=collapsed?1:cols.length||1;
-                    return <td key={s.key} colSpan={span} style={{borderLeft:`2px solid ${C.border2}`}}/>;
+                    return <td key={s.key} colSpan={span} style={{borderLeft:`2px solid ${C.border2}`,background:C.bg}}/>;
                   })}
                 </tr>
-                {/* Líneas */}
                 {sec.lines.map(line=>(
                   <tr key={line.label} style={{borderBottom:`1px solid ${C.border}11`}}>
                     <td style={{padding:"5px 14px",color:line.formula?C.yellow:C.text,fontSize:11,
-                      position:"sticky",left:0,background:"#071810",zIndex:1,
+                      position:"sticky",left:0,background:C.card,zIndex:1,
                       borderRight:`1px solid ${C.border}`,whiteSpace:"nowrap",
                       maxWidth:220,overflow:"hidden",textOverflow:"ellipsis"}}>
                       {line.formula&&<span style={{fontSize:9,marginRight:3}}>⚡</span>}{line.label}
@@ -1093,14 +1075,13 @@ function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit}) {
                         return <td key={s.key} style={{padding:"5px 8px",textAlign:"right",
                           color:total!==0?(sec.signo>0?C.green:C.red):C.muted2,
                           fontSize:10,fontWeight:total!==0?600:400,
-                          borderLeft:`2px solid ${C.border2}`}}>
+                          borderLeft:`2px solid ${C.border2}`,background:C.card}}>
                           {total!==0?$$(total):"—"}
                         </td>;
                       }
                       return cols.map((col,ci)=>{
                         let val;
                         if(col.type==="month_collapsed"){
-                          // celda mes colapsado = total del mes
                           val=line.proy[col.idx]||0;
                         } else {
                           val=(line.proy[col.idx]||0)/col.nSems;
@@ -1110,6 +1091,7 @@ function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit}) {
                         return (
                           <td key={`${col.mes}-${col.label}-${ci}`}
                             style={{padding:"4px 5px",textAlign:"right",fontSize:9,
+                              background:C.card,
                               borderLeft:col.isFirstInSeason?`2px solid ${C.border2}`:isFirst?`1px solid ${C.border}44`:`1px solid ${C.border}11`}}>
                             {val!==0
                               ?<span style={{color:sec.signo>0?C.green:C.red,fontWeight:600}}>{$$(val)}</span>
@@ -1121,17 +1103,16 @@ function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit}) {
                     })}
                   </tr>
                 ))}
-                {/* Subtotal sección */}
-                <tr style={{background:"rgba(255,255,255,0.02)"}}>
+                <tr style={{background:`${C.bg2}`}}>
                   <td style={{padding:"5px 14px",fontWeight:700,color:CAT_COLOR[sec.cat],fontSize:10,
-                    position:"sticky",left:0,background:"#0a1f14",borderRight:`1px solid ${C.border}`,zIndex:1}}>
+                    position:"sticky",left:0,background:C.bg2,borderRight:`1px solid ${C.border}`,zIndex:1}}>
                     Total {sec.label}
                   </td>
                   {colStructure.map(({season:s,collapsed,cols})=>{
                     if(collapsed){
                       const total=s.indices.reduce((a,i)=>a+sec.lines.reduce((b,l)=>b+(l.proy[i]||0),0),0);
                       return <td key={s.key} style={{padding:"5px 8px",textAlign:"right",fontWeight:700,
-                        color:CAT_COLOR[sec.cat],fontSize:10,borderLeft:`2px solid ${C.border2}`}}>
+                        color:CAT_COLOR[sec.cat],fontSize:10,borderLeft:`2px solid ${C.border2}`,background:C.bg2}}>
                         {total!==0?$$(total):"—"}
                       </td>;
                     }
@@ -1141,7 +1122,7 @@ function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit}) {
                       const isFirst=col.isFirstInSeason||col.isFirstInMonth;
                       return <td key={`sub-${col.mes}-${col.label}-${ci}`}
                         style={{padding:"4px 5px",textAlign:"right",fontWeight:700,
-                          color:CAT_COLOR[sec.cat],fontSize:9,
+                          color:CAT_COLOR[sec.cat],fontSize:9,background:C.bg2,
                           borderLeft:col.isFirstInSeason?`2px solid ${C.border2}`:isFirst?`1px solid ${C.border}44`:`1px solid ${C.border}11`}}>
                         {total!==0?$$(total):"—"}
                       </td>;
@@ -1151,9 +1132,9 @@ function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit}) {
               </React.Fragment>
             ))}
             {/* FLUJO NETO */}
-            <tr style={{background:"rgba(34,197,94,0.07)",borderTop:`2px solid ${C.border2}`}}>
+            <tr style={{background:`${C.accent}18`,borderTop:`2px solid ${C.border2}`}}>
               <td style={{padding:"7px 14px",fontWeight:800,color:C.accentL,fontSize:11,
-                position:"sticky",left:0,background:"#071810",borderRight:`1px solid ${C.border}`,zIndex:1}}>
+                position:"sticky",left:0,background:C.card,borderRight:`1px solid ${C.border}`,zIndex:1}}>
                 FLUJO NETO
               </td>
               {colStructure.map(({season:s,collapsed,cols})=>{
@@ -1175,9 +1156,9 @@ function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit}) {
               })}
             </tr>
             {/* SALDO ACUM */}
-            <tr style={{background:"rgba(96,165,250,0.06)"}}>
+            <tr style={{background:`${C.blue}11`}}>
               <td style={{padding:"7px 14px",fontWeight:800,color:C.blue,fontSize:11,
-                position:"sticky",left:0,background:"#071810",borderRight:`1px solid ${C.border}`,zIndex:1}}>
+                position:"sticky",left:0,background:C.card,borderRight:`1px solid ${C.border}`,zIndex:1}}>
                 SALDO ACUM.
               </td>
               {colStructure.map(({season:s,collapsed,cols})=>{
@@ -1207,7 +1188,6 @@ function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit}) {
 
   return (
     <div style={{display:"flex",flexDirection:"column",gap:12}}>
-      {/* Header empresa */}
       <div style={{background:`${emp.color}15`,border:`1px solid ${emp.color}44`,borderRadius:12,
         padding:"14px 18px",display:"flex",alignItems:"center",gap:14,flexWrap:"wrap"}}>
         <span style={{fontSize:28}}>{emp.emoji}</span>
@@ -1228,7 +1208,6 @@ function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit}) {
           ))}
         </div>
       </div>
-      {/* Controles */}
       <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center"}}>
         <Btn active={vista==="mensual"} onClick={()=>setVista("mensual")} color={emp.color}>📅 Mensual</Btn>
         <Btn active={vista==="semanal"} onClick={()=>setVista("semanal")} color={emp.color}>📊 Semanal</Btn>
@@ -1250,9 +1229,7 @@ function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit}) {
           </button>
         )}
       </div>
-      {/* Tabla */}
       {renderTabla()}
-      {/* Panel ingreso real */}
       {showReal&&canEdit&&(
         <Card>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
@@ -1287,12 +1264,10 @@ function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit}) {
           </div>
         </Card>
       )}
-      {/* Gráfico acumulado */}
       <Card>
         <SectionTitle>Saldo Acumulado — Mar-26 → Jun-31</SectionTitle>
         <LineChart months={MESES_65} values={acumArr} color={emp.color}/>
       </Card>
-      {/* Modal ingreso real — fuera del árbol para evitar re-renders */}
       {modalSem&&(
         <ModalIngreso
           emp={emp}
@@ -1329,7 +1304,7 @@ function Dashboard({empresas}) {
       <Card>
         <SectionTitle>Flujo Acumulado Consolidado — Mar-26 → Jun-31 (6 Temporadas)</SectionTitle>
         <LineChart months={MESES_65} values={gmAcum} color={C.accentL}/>
-        <div style={{marginTop:8,padding:"8px 12px",background:"rgba(248,113,113,0.08)",border:`1px solid ${C.red}33`,borderRadius:8,fontSize:11,color:C.muted}}>
+        <div style={{marginTop:8,padding:"8px 12px",background:`${C.red}18`,border:`1px solid ${C.red}33`,borderRadius:8,fontSize:11,color:C.muted}}>
           ⚠️ Mínimo proyectado: <strong style={{color:C.red}}>{$$(Math.min(...gmAcum))}</strong>
         </div>
       </Card>
@@ -1388,7 +1363,7 @@ function Creditos({empresas}) {
         <SectionTitle>Saldo Deuda por Trimestre</SectionTitle>
         <div style={{overflowX:"auto"}}>
           <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
-            <thead><tr style={{background:"rgba(0,0,0,0.2)"}}>
+            <thead><tr style={{background:C.bg2}}>
               {["Trimestre","Pagos","Saldo Deuda"].map(h=><th key={h} style={{padding:"7px 12px",fontWeight:600,fontSize:10,color:C.muted,textTransform:"uppercase",borderBottom:`1px solid ${C.border}`,textAlign:h==="Trimestre"?"left":"right"}}>{h}</th>)}
             </tr></thead>
             <tbody>
@@ -1414,7 +1389,7 @@ function Creditos({empresas}) {
       <Card style={{padding:0,overflow:"hidden"}}>
         <div style={{overflowX:"auto"}}>
           <table style={{width:"100%",borderCollapse:"collapse",fontSize:11}}>
-            <thead><tr style={{background:"rgba(0,0,0,0.2)"}}>
+            <thead><tr style={{background:C.bg2}}>
               {["#","Empresa","Acreedor","Tipo","Monto","Cuota","Vencimiento","Tasa"].map(h=><th key={h} style={{padding:"8px 12px",fontWeight:600,fontSize:10,color:C.muted,textTransform:"uppercase",borderBottom:`1px solid ${C.border}`,textAlign:["Monto","Cuota","Tasa"].includes(h)?"right":"left",whiteSpace:"nowrap"}}>{h}</th>)}
             </tr></thead>
             <tbody>
@@ -1422,7 +1397,7 @@ function Creditos({empresas}) {
                 const vencProx=new Date(c.f_venc)<=new Date("2026-12-31");
                 const e=empresas[c.empresa]||{emoji:"🏢",color:C.blue};
                 return (
-                  <tr key={c.n} style={{borderBottom:`1px solid ${C.border}22`,background:vencProx?"rgba(251,191,36,0.05)":"transparent"}}>
+                  <tr key={c.n} style={{borderBottom:`1px solid ${C.border}22`,background:vencProx?`${C.yellow}08`:"transparent"}}>
                     <td style={{padding:"7px 12px",color:C.muted}}>{c.n}</td>
                     <td style={{padding:"7px 12px",fontWeight:600,color:e.color,whiteSpace:"nowrap"}}>{e.emoji} {c.empresa}</td>
                     <td style={{padding:"7px 12px",color:C.text}}>{c.acreedor}</td>
@@ -1462,7 +1437,6 @@ function fmtMoneda(v,sym) {
   return `${s}${sym}${abs.toLocaleString()}`;
 }
 
-// semana ISO aproximada de una fecha
 function semanaDeDate(d) {
   const date = new Date(d);
   const jan1 = new Date(date.getFullYear(),0,1);
@@ -1474,9 +1448,6 @@ function mesDeDate(d) {
   return `${MN[date.getMonth()]}-${String(date.getFullYear()).slice(2)}`;
 }
 
-// ═══════════════════════════════════════════════════════════════════
-// TABLA FIJA DE CUENTAS: todas las empresas × bancos × monedas
-// ═══════════════════════════════════════════════════════════════════
 const EMPRESAS_LIST = [
   "Mediterra","Allegria Foods","Allegria Service",
   "Frisku Foods","Frisku Peru","Allpa Farms",
@@ -1486,9 +1457,6 @@ const BANCOS_CHILE = ["BCI","BICE","Security","Chile","Santander"];
 const BANCOS_PERU  = ["Scotiabank Perú","BBVA Perú"];
 const TODOS_BANCOS = [...BANCOS_CHILE,...BANCOS_PERU];
 
-// Genera todas las combinaciones fijas: empresa × banco × moneda
-// Empresas chilenas usan bancos Chile + monedas CLP/USD/EUR
-// Empresas Perú usan bancos Perú + monedas PEN/USD
 function generarCuentasFijas() {
   const cuentas = [];
   EMPRESAS_LIST.forEach(emp => {
@@ -1505,26 +1473,23 @@ function generarCuentasFijas() {
 }
 const CUENTAS_FIJAS = generarCuentasFijas();
 
-// Fetch paridades de cambio a USD desde open.er-api.com (permite CORS, sin API key)
 async function fetchFX() {
   try {
-    // exchangerate-api.com — endpoint público sin API key, permite CORS
     const r = await fetch("https://open.er-api.com/v6/latest/USD");
     const d = await r.json();
     if(d.result !== "success") return null;
     const rates = d.rates;
-    // rates: cuántas unidades de X hay por 1 USD
-    const clpRate = rates.CLP || null;  // CLP por 1 USD
-    const eurRate = rates.EUR || null;  // EUR por 1 USD
-    const penRate = rates.PEN || null;  // PEN por 1 USD
+    const clpRate = rates.CLP || null;
+    const eurRate = rates.EUR || null;
+    const penRate = rates.PEN || null;
     return {
-      clp: clpRate ? 1/clpRate : null,   // 1 CLP = ? USD
-      eur: eurRate ? 1/eurRate : null,   // 1 EUR = ? USD
-      pen: penRate ? 1/penRate : null,   // 1 PEN = ? USD
+      clp: clpRate ? 1/clpRate : null,
+      eur: eurRate ? 1/eurRate : null,
+      pen: penRate ? 1/penRate : null,
       usd: 1,
-      clpRaw: clpRate,  // USD/CLP (cuántos CLP por 1 USD)
-      eurRaw: eurRate ? 1/eurRate : null, // USD/EUR (cuántos USD por 1 EUR)
-      penRaw: penRate,  // USD/PEN (cuántos PEN por 1 USD)
+      clpRaw: clpRate,
+      eurRaw: eurRate ? 1/eurRate : null,
+      penRaw: penRate,
       ts: new Date().toLocaleTimeString("es-CL"),
     };
   } catch { return null; }
@@ -1543,7 +1508,6 @@ function SaldosBancos({saldos,onSave,canEdit}) {
   const [saving,setSaving] = useState(false);
   const [edits,setEdits]   = useState({});
   const [dirty,setDirty]   = useState({});
-  // Empresas colapsadas — por defecto todas abiertas
   const [collapsed,setCollapsed] = useState({});
   const toggleEmp = emp => setCollapsed(p=>({...p,[emp]:!p[emp]}));
 
@@ -1621,6 +1585,7 @@ function SaldosBancos({saldos,onSave,canEdit}) {
   },[totalesEmpresa]);
 
   const hasDirty=Object.keys(dirty).length>0;
+  const sym=(id)=>MONEDAS.find(m=>m.id===id)?.symbol||"$";
 
   const porEmpresa = useMemo(()=>{
     const m={};
@@ -1631,14 +1596,9 @@ function SaldosBancos({saldos,onSave,canEdit}) {
     return m;
   },[]);
 
-  const sym=(id)=>MONEDAS.find(m=>m.id===id)?.symbol||"$";
-
   return (
     <div style={{display:"flex",flexDirection:"column",gap:14}}>
-
-      {/* KPIs */}
       <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(160px,1fr))",gap:10}}>
-        {/* Total consolidado */}
         <div style={{background:C.card,border:`2px solid ${C.accent}`,borderRadius:10,
           padding:"12px 16px",gridColumn:"span 2"}}>
           <div style={{fontSize:10,color:C.muted,textTransform:"uppercase",marginBottom:4}}>
@@ -1650,7 +1610,6 @@ function SaldosBancos({saldos,onSave,canEdit}) {
             {totalUSD!=null?`$${totalUSD.toLocaleString("es-CL",{maximumFractionDigits:0})} USD`:"—"}
           </div>
         </div>
-        {/* Paridades */}
         {[
           {id:"clp",label:"1 USD =",val:fx?.clpRaw,fmt:v=>`$${Math.round(v).toLocaleString("es-CL")} CLP`},
           {id:"eur",label:"1 EUR =",val:fx?.eurRaw,fmt:v=>`$${v.toFixed(4)} USD`},
@@ -1674,7 +1633,6 @@ function SaldosBancos({saldos,onSave,canEdit}) {
         </div>
       </div>
 
-      {/* Fecha + Guardar */}
       {canEdit&&(
         <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap",
           background:C.card,border:`1px solid ${C.border}`,borderRadius:10,padding:"12px 16px"}}>
@@ -1698,7 +1656,6 @@ function SaldosBancos({saldos,onSave,canEdit}) {
         </div>
       )}
 
-      {/* Acordeón por empresa */}
       <div style={{display:"flex",flexDirection:"column",gap:8}}>
         {EMPRESAS_LIST.map(emp=>{
           const cuentas=porEmpresa[emp]||[];
@@ -1710,9 +1667,7 @@ function SaldosBancos({saldos,onSave,canEdit}) {
 
           return (
             <div key={emp} style={{background:C.card,border:`1px solid ${isOpen?empColor+"55":C.border}`,
-              borderRadius:12,overflow:"hidden",transition:"border-color 0.2s"}}>
-
-              {/* Header empresa — click para colapsar */}
+              borderRadius:12,overflow:"hidden"}}>
               <button onClick={()=>toggleEmp(emp)}
                 style={{width:"100%",background:`${empColor}18`,border:"none",cursor:"pointer",
                   padding:"12px 16px",display:"flex",alignItems:"center",gap:12,textAlign:"left"}}>
@@ -1736,7 +1691,6 @@ function SaldosBancos({saldos,onSave,canEdit}) {
                 </span>
               </button>
 
-              {/* Filas cuentas — solo si está abierto */}
               {isOpen&&(
                 <div style={{borderTop:`1px solid ${C.border}`}}>
                   <table style={{width:"100%",borderCollapse:"collapse",fontSize:11}}>
@@ -1754,7 +1708,6 @@ function SaldosBancos({saldos,onSave,canEdit}) {
                       {cuentas.map(c=>{
                         const saved=saldos?.[c.key];
                         const val=getVal(c.key);
-                        const numVal=parseFloat(val)||0;
                         const isDirty=!!dirty[c.key];
                         const usdVal=(saved?.monto!=null&&fx)?toUSD(saved.monto,c.moneda,fx):null;
                         const mon=MONEDAS.find(m=>m.id===c.moneda);
@@ -1810,13 +1763,13 @@ function SaldosBancos({saldos,onSave,canEdit}) {
       </div>
 
       <div style={{fontSize:10,color:C.muted2,textAlign:"center"}}>
-        Paridades obtenidas de open.er-api.com (actualización diaria) · Se cargan al abrir la pestaña
+        Paridades obtenidas de open.er-api.com · Se cargan al abrir la pestaña
       </div>
     </div>
   );
 }
 
-
+// ═══════════════════════════════════════════════════════════════════
 // MÓDULO PRINCIPAL
 // ═══════════════════════════════════════════════════════════════════
 export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermisos={}}) {
@@ -1831,7 +1784,6 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
   const esAdmin = usuarioActual?.rol==="admin";
   const canEdit = esAdmin || ["Angelo Huerta","Carol Machuca"].includes(usuarioActual?.nombre||"");
 
-  // Permisos por pestaña — default editar si no hay configuración
   const perm  = (tabId) => tabPermisos?.[tabId] ?? "editar";
   const puedoEdit = (tabId) => esAdmin || perm(tabId) !== "ver";
 
@@ -1881,20 +1833,38 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
 
   if(loading) return (
     <div style={{display:"flex",alignItems:"center",justifyContent:"center",
-      height:"60vh",color:C.muted,fontSize:14,background:C.bg}}>
+      height:"60vh",color:C.muted,fontSize:14,background:C.bg,borderRadius:12}}>
       Cargando datos financieros...
     </div>
   );
 
   return (
-    <div style={{fontFamily:"'IBM Plex Sans','Segoe UI',system-ui,sans-serif",
-      color:C.text,minHeight:"100vh",background:C.bg,paddingBottom:40}}>
-      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",
-        marginBottom:20,flexWrap:"wrap",gap:8,paddingBottom:14,borderBottom:`1px solid ${C.border}`}}>
+    <div style={{
+      fontFamily:"'IBM Plex Sans','Segoe UI',system-ui,sans-serif",
+      color:C.text,
+      minHeight:"100vh",
+      background:`linear-gradient(160deg, ${C.bg} 0%, ${C.bg2} 100%)`,
+      padding:"20px",
+      paddingBottom:40,
+    }}>
+      {/* ── Header ─────────────────────────────────────────── */}
+      <div style={{
+        background:"linear-gradient(135deg,#0f1e3a,#1e3a5f)",
+        borderRadius:14,
+        padding:"14px 20px",
+        marginBottom:20,
+        display:"flex",justifyContent:"space-between",alignItems:"center",
+        flexWrap:"wrap",gap:8,
+        border:`1px solid ${C.border2}`,
+        boxShadow:"0 4px 24px rgba(0,0,0,0.3)",
+      }}>
         <div style={{display:"flex",alignItems:"center",gap:12}}>
-          <button onClick={onBack} style={{background:"rgba(255,255,255,0.06)",
-            border:`1px solid ${C.border}`,color:C.text,borderRadius:8,
-            padding:"6px 14px",cursor:"pointer",fontSize:12}}>← Hub</button>
+          <button onClick={onBack} style={{
+            background:"rgba(255,255,255,0.1)",
+            border:`1px solid ${C.border}`,
+            color:C.text,borderRadius:8,
+            padding:"6px 14px",cursor:"pointer",fontSize:12,fontWeight:600,
+          }}>← Hub</button>
           <img src="/med.png" alt="Mediterra" style={{height:30,objectFit:"contain"}}
             onError={e=>{e.target.style.display="none";}}/>
           <div>
@@ -1904,35 +1874,48 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
         </div>
         <div style={{display:"flex",gap:8,alignItems:"center"}}>
           {saved&&<span style={{fontSize:11,color:C.muted,background:C.card2,
-            borderRadius:20,padding:"3px 10px"}}>{saved}</span>}
-          <button onClick={onLogout} style={{background:"rgba(248,113,113,0.15)",border:"none",
-            color:C.red,borderRadius:8,padding:"6px 14px",cursor:"pointer",fontSize:12}}>Salir</button>
+            borderRadius:20,padding:"3px 10px",border:`1px solid ${C.border}`}}>{saved}</span>}
+          <button onClick={onLogout} style={{
+            background:"rgba(248,113,113,0.15)",
+            border:"1px solid rgba(248,113,113,0.3)",
+            color:"#fca5a5",borderRadius:8,
+            padding:"6px 14px",cursor:"pointer",fontSize:12,
+          }}>Salir</button>
         </div>
       </div>
 
-      {/* Pestañas */}
+      {/* ── Pestañas ───────────────────────────────────────── */}
       <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:20}}>
         {TABS.map(t=>(
           <button key={t.id} onClick={()=>setTab(t.id)}
-            style={{padding:"7px 16px",borderRadius:8,cursor:"pointer",fontWeight:600,fontSize:12,
-              border:`1px solid ${tab===t.id?C.accent:C.border}`,
-              background:tab===t.id?`${C.accent}33`:"transparent",
-              color:tab===t.id?C.accentL:C.muted}}>
+            style={{
+              padding:"8px 18px",borderRadius:8,cursor:"pointer",fontWeight:600,fontSize:12,
+              border:`1px solid ${tab===t.id?C.accentL:C.border}`,
+              background:tab===t.id?`${C.accent}44`:C.card,
+              color:tab===t.id?C.accentL:C.muted,
+              boxShadow:tab===t.id?`0 2px 12px ${C.accent}44`:"none",
+              transition:"all 0.15s",
+            }}>
             {t.label}
           </button>
         ))}
       </div>
 
+      {/* ── Contenido por pestaña ──────────────────────────── */}
       {tab==="dashboard"&&<Dashboard empresas={empresas}/>}
+
       {tab==="flujo"&&(
         <div>
           <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:16}}>
             {Object.keys(empresas).map(n=>{const e=empresas[n];return (
               <button key={n} onClick={()=>setEmpTab(n)}
-                style={{padding:"6px 12px",borderRadius:8,cursor:"pointer",fontSize:11,fontWeight:600,
+                style={{
+                  padding:"7px 14px",borderRadius:8,cursor:"pointer",fontSize:11,fontWeight:600,
                   border:`1px solid ${empTab===n?e.color:C.border}`,
-                  background:empTab===n?`${e.color}22`:"transparent",
-                  color:empTab===n?e.color:C.muted}}>
+                  background:empTab===n?`${e.color}33`:C.card,
+                  color:empTab===n?e.color:C.muted,
+                  transition:"all 0.15s",
+                }}>
                 {e.emoji} {n}{n==="Allegria Foods"&&<span style={{fontSize:9,marginLeft:3,color:C.yellow}}>⚡</span>}
               </button>
             );})}
@@ -1941,6 +1924,7 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
             realData={realData} onSaveReal={handleSaveReal} canEdit={puedoEdit("flujo")}/>
         </div>
       )}
+
       {tab==="bancos"&&(
         <SaldosBancos saldos={saldosBancos} onSave={handleSaveSaldos} canEdit={puedoEdit("bancos")}/>
       )}
@@ -1952,6 +1936,3 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
     </div>
   );
 }
-
-// ─── REEMPLAZAR export default con versión que soporta tabPermisos ───
-// (el bloque de arriba queda como respaldo; React usa el último export)
