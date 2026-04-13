@@ -4771,14 +4771,6 @@ async function exportCSV(rows, headers, nombre) {
       .replace(/&/g,"&amp;").replace(/</g,"&lt;")
       .replace(/>/g,"&gt;").replace(/"/g,"&quot;");
   }
-  function cellXml(r, c, val) {
-    const addr = `${colLetter(c)}${r}`;
-    const raw  = val ?? "";
-    const num  = (isMoney(c) || isNum(c)) && raw !== "" && !isNaN(raw) && raw !== "";
-    if(num) return `<c r="${addr}" s="${isMoney(c)?3:4}"><v>${parseFloat(raw)}</v></c>`;
-    return `<c r="${addr}" t="inlineStr" s="${c===0?5:0}"><is><t>${escXml(raw)}</t></is></c>`;
-  }
-
   // Filas de datos
   let rowsXml = "";
   // Fila de encabezado (s=1 = estilo header)
