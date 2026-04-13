@@ -60,7 +60,7 @@ const SUPA_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsI
 
 async function dbLoad() {
   try {
-    const r = await fetch(`${SUPA_URL}/rest/v1/finanzas_real?id=eq.main&select=value`,
+    const r = await fetch(`${SUPA_URL}/rest/v1/calendario_data?id=eq.main&select=value`,
       { headers:{ apikey:SUPA_KEY, Authorization:`Bearer ${SUPA_KEY}` }});
     const d = await r.json();
     const parsed = d?.[0]?.value ? JSON.parse(d[0].value) : {};
@@ -74,7 +74,7 @@ async function dbLoad() {
 async function dbSave(data) {
   try {
     const body = JSON.stringify({ id:"main", value:JSON.stringify(data) });
-    const r = await fetch(`${SUPA_URL}/rest/v1/finanzas_real`, {
+    const r = await fetch(`${SUPA_URL}/rest/v1/calendario_data`, {
       method:"POST",
       headers:{ apikey:SUPA_KEY, Authorization:`Bearer ${SUPA_KEY}`,
         "Content-Type":"application/json", "Prefer":"resolution=merge-duplicates" },
@@ -2865,8 +2865,8 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
 
   useEffect(()=>{
     dbLoad().then(d=>{
-      if(d?.finanzas_real) setRealData(d.finanzas_real);
-      else if(d&&!d.finanzas_real&&!d.allegria_params) setRealData(d);
+      if(d?.calendario_data) setRealData(d.calendario_data);
+      else if(d&&!d.calendario_data&&!d.allegria_params) setRealData(d);
       if(d?.allegria_params) setParams(prev=>({...defaultParams(),...d.allegria_params}));
       if(d?.params_emp) setParamsEmp(d.params_emp);
       if(d?.saldos_bancos) setSaldosBancos(d.saldos_bancos);
@@ -2902,7 +2902,7 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
     next[empresa][mes][semana]=vals;
     setRealData(next);
     realDataRef.current = next;
-    const ok=await persistAll({ finanzas_real:next });
+    const ok=await persistAll({ calendario_data:next });
     setSaved(ok?"✅ Guardado":"⚠️ Error");
     setTimeout(()=>setSaved(null),3000);
   },[persistAll]);
@@ -2921,7 +2921,7 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
       }
       realDataRef.current = next;
       setTimeout(()=>{
-        persistAll({ finanzas_real:next })
+        persistAll({ calendario_data:next })
           .then(ok=>{ setSaved(ok?"✅ Proyección guardada":"⚠️ Error"); setTimeout(()=>setSaved(null),2000); });
       },0);
       return next;
