@@ -1308,6 +1308,7 @@ export default function App(){
         usuarioActual={usuarioFresco}
         esAdmin={esAdmin}
         esSoloConsulta={esSoloConsulta}
+        tabPermisos={getTabPermisosModulo(usuarioFresco,"osiris")}
         onBack={()=>setModuloActivo(null)}
         onLogout={()=>{setUsuarioActual(null);setModuloActivo(null);}}
         osirisData={osirisData}
