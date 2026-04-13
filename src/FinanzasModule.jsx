@@ -1388,6 +1388,303 @@ function CeldaEditable({val, onSave, color, canEdit, real=null}) {
 }
 
 // ═══════════════════════════════════════════════════════════════════
+// HELPERS — Saldo banco indexado a semana
+// ═══════════════════════════════════════════════════════════════════
+function getSaldoBancoParaSemana(saldosBancos, empNombre, mesIdx, semIdx=0) {
+  if(!saldosBancos||mesIdx<0) return null;
+  const mesInfo=MESES_INFO[mesIdx]; if(!mesInfo) return null;
+  const fechaLimite=new Date(mesInfo.y, mesInfo.m, 1+semIdx*7);
+  const porBanco={};
+  Object.entries(saldosBancos).forEach(([key,rec])=>{
+    const parts=key.split("||");
+    if(parts[0]!==empNombre||parts[2]!=="usd") return;
+    if(!rec?.monto||!rec?.fecha) return;
+    const f=new Date(rec.fecha);
+    if(f<fechaLimite){
+      const banco=parts[1];
+      if(!porBanco[banco]||new Date(porBanco[banco].fecha)<f) porBanco[banco]=rec;
+    }
+  });
+  let total=0,found=false;
+  Object.values(porBanco).forEach(rec=>{total+=Number(rec.monto)||0;found=true;});
+  return found?total:null;
+}
+
+function getSaldoBancoInicial(saldosBancos, empNombre, fallback) {
+  if(!saldosBancos) return fallback;
+  const porBanco={};
+  Object.entries(saldosBancos).forEach(([key,rec])=>{
+    const parts=key.split("||");
+    if(parts[0]!==empNombre||parts[2]!=="usd") return;
+    if(!rec?.monto||!rec?.fecha) return;
+    const banco=parts[1];
+    if(!porBanco[banco]||new Date(porBanco[banco].fecha)>new Date(rec.fecha)) porBanco[banco]=rec;
+  });
+  let total=0,found=false;
+  Object.values(porBanco).forEach(rec=>{total+=Number(rec.monto)||0;found=true;});
+  return found?total:fallback;
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// CONSOLIDADO — dentro de Flujo Empresas
+// ═══════════════════════════════════════════════════════════════════
+function Consolidado({empresas,saldosBancos}) {
+  const empNames=Object.keys(empresas);
+  const [vistaConsolidado,setVistaConsolidado]=useState("sumada");
+  const [agrup,setAgrup]=useState("mes");
+  const [openSeason,setOpenSeason]=useState(()=>{const o={};SEASON_KEYS.forEach((k,i)=>{o[k]=i<2;});return o;});
+
+  const flujoPorEmp=useMemo(()=>{
+    const res={};
+    empNames.forEach(n=>{
+      const arr=Z65();
+      empresas[n].sections.forEach(sec=>sec.lines.forEach(l=>l.proy.forEach((v,i)=>{arr[i]+=(v||0)*sec.signo;})));
+      res[n]=arr;
+    });
+    return res;
+  },[empresas]); // eslint-disable-line
+
+  const saldoIniPorEmp=useMemo(()=>{
+    const res={};
+    empNames.forEach(n=>{res[n]=getSaldoBancoInicial(saldosBancos,n,empresas[n].saldo_ini);});
+    return res;
+  },[saldosBancos,empresas]); // eslint-disable-line
+
+  const acumPorEmp=useMemo(()=>{
+    const res={};
+    empNames.forEach(n=>{let a=saldoIniPorEmp[n];res[n]=(flujoPorEmp[n]||[]).map(f=>{a+=f;return a;});});
+    return res;
+  },[flujoPorEmp,saldoIniPorEmp]); // eslint-disable-line
+
+  const flujoConsolidado=useMemo(()=>{
+    const arr=Z65();
+    empNames.forEach(n=>(flujoPorEmp[n]||[]).forEach((v,i)=>{arr[i]+=v;}));
+    return arr;
+  },[flujoPorEmp]); // eslint-disable-line
+
+  const saldoIniConsolidado=useMemo(
+    ()=>empNames.reduce((s,n)=>s+(saldoIniPorEmp[n]||0),0),
+    [saldoIniPorEmp] // eslint-disable-line
+  );
+
+  const acumConsolidado=useMemo(()=>{
+    let a=saldoIniConsolidado;
+    return flujoConsolidado.map(f=>{a+=f;return a;});
+  },[flujoConsolidado,saldoIniConsolidado]);
+
+  const cols=useMemo(()=>{
+    if(agrup==="temporada") return SEASONS.map(s=>({key:s.key,label:s.label,indices:s.indices,tipo:"temporada",isFirstInSeason:true,nSems:1}));
+    return SEASONS.flatMap(s=>{
+      if(!openSeason[s.key]) return [{key:s.key,label:s.label,indices:s.indices,tipo:"season_col",collapsed:true,isFirstInSeason:true,nSems:1}];
+      if(agrup==="mes") return s.months.map((m,mi)=>({key:`${s.key}-${m}`,label:m,indices:[mIdx(m)],tipo:"mes",isFirstInSeason:mi===0,nSems:1,mes:m}));
+      return s.months.flatMap((m,mi)=>{
+        const sems=SEMANAS_MES[m]||[];const nSems=sems.length||1;const midx=mIdx(m);
+        return sems.map((sw,si)=>({key:`${m}-${sw}`,label:sw,indices:[midx],tipo:"semana",nSems,mes:m,labelMes:m,semIdx:si,isFirstInSeason:mi===0&&si===0,isFirstInMes:si===0}));
+      });
+    });
+  },[agrup,openSeason]);
+
+  function colVal(arr,col){
+    const sum=col.indices.reduce((a,i)=>a+(arr[i]||0),0);
+    return agrup==="semana"&&!col.collapsed?sum/(col.nSems||1):sum;
+  }
+
+  function saldoBancoParaCol(empNombre,col){
+    const fallback=saldoIniPorEmp[empNombre]||0;
+    if(col.tipo==="temporada"||col.collapsed) return fallback;
+    if(agrup==="mes") return getSaldoBancoParaSemana(saldosBancos,empNombre,col.indices[0],0)??fallback;
+    return getSaldoBancoParaSemana(saldosBancos,empNombre,col.indices[0],col.semIdx??0)??fallback;
+  }
+
+  const THead=()=>(
+    <thead>
+      <tr style={{background:C.bg}}>
+        <th style={{padding:"9px 14px",textAlign:"left",color:C.muted,fontSize:10,position:"sticky",left:0,background:C.bg,zIndex:4,minWidth:180,borderRight:`1px solid ${C.border}`}}>
+          {vistaConsolidado==="sumada"?"Concepto":"Empresa / Concepto"}
+        </th>
+        {cols.map(col=>(
+          <th key={col.key} onClick={col.collapsed?()=>setOpenSeason(p=>({...p,[col.key]:true})):undefined}
+            style={{padding:"7px 7px",textAlign:"center",
+              background:col.collapsed?C.bg2:col.tipo==="temporada"?C.card:C.bg,
+              borderLeft:col.isFirstInSeason?`2px solid ${C.border2}`:`1px solid ${C.border}22`,
+              fontSize:col.tipo==="temporada"?10:9,fontWeight:col.tipo==="temporada"?800:600,
+              color:col.collapsed?C.accentL:col.tipo==="temporada"?"#fff":col.isFirstInSeason?C.accentL:C.muted,
+              whiteSpace:"nowrap",minWidth:col.tipo==="temporada"?110:col.collapsed?80:agrup==="semana"?44:68,
+              cursor:col.collapsed?"pointer":"default"}}>
+            {col.collapsed?`▸ ${col.label}`:col.label}
+          </th>
+        ))}
+      </tr>
+      {agrup==="semana"&&(()=>{
+        const rendered={};const cells=[];
+        cols.forEach((col,ci)=>{
+          if(col.collapsed){cells.push(<th key={`gap-${ci}`} style={{borderLeft:`2px solid ${C.border2}`,background:C.bg2}}/>);return;}
+          if(col.tipo==="temporada"||rendered[col.mes]) return;
+          const count=cols.filter(c=>c.mes===col.mes&&!c.collapsed).length;
+          rendered[col.mes]=true;
+          cells.push(<th key={`mh-${col.mes}`} colSpan={count} style={{padding:"4px 6px",textAlign:"center",background:C.card,fontSize:9,fontWeight:700,color:C.accentL,borderLeft:col.isFirstInSeason?`2px solid ${C.border2}`:`1px solid ${C.border}44`,whiteSpace:"nowrap"}}>{col.labelMes}</th>);
+        });
+        return(<tr style={{background:C.bg2}}><th style={{position:"sticky",left:0,background:C.bg2,zIndex:3,borderRight:`1px solid ${C.border}`}}/>{cells}</tr>);
+      })()}
+    </thead>
+  );
+
+  const FilaSaldoBanco=({nombre})=>(
+    <tr style={{background:`${C.blue}15`,borderBottom:`2px solid ${C.border2}`}}>
+      <td style={{padding:"7px 14px",position:"sticky",left:0,zIndex:1,background:`${C.blue}15`,borderRight:`1px solid ${C.border}`}}>
+        <div style={{fontSize:11,fontWeight:700,color:C.blue}}>🏦 Saldo Banco USD</div>
+        <div style={{fontSize:9,color:C.muted}}>{nombre==="_consolidado"?`Suma ${empNames.length} empresas · último registro previo al período`:"último registro previo al período"}</div>
+      </td>
+      {cols.map(col=>{
+        const val=nombre==="_consolidado"
+          ?empNames.reduce((s,n)=>s+(saldoBancoParaCol(n,col)||0),0)
+          :(saldoBancoParaCol(nombre,col)||0);
+        return(<td key={col.key} style={{padding:"6px 5px",textAlign:"right",fontWeight:700,fontSize:9,color:C.blue,background:`${C.blue}0d`,borderLeft:col.isFirstInSeason?`2px solid ${C.border2}`:`1px solid ${C.border}11`}}>{$$(val)}</td>);
+      })}
+    </tr>
+  );
+
+  const FilasFlujoYAcum=({flujoArr,acumArr,color=C.accentL,isTotal=false})=>(
+    <>
+      <tr style={{background:`${color}1a`,borderTop:`2px solid ${C.border2}`}}>
+        <td style={{padding:"8px 14px",fontWeight:800,color,fontSize:isTotal?12:11,position:"sticky",left:0,background:C.card,zIndex:1,borderRight:`1px solid ${C.border}`}}>
+          {isTotal?"Σ FLUJO NETO CONSOLIDADO":"Flujo Neto"}
+        </td>
+        {cols.map(col=>{const v=colVal(flujoArr,col);return(<td key={col.key} style={{padding:"7px 5px",textAlign:"right",fontWeight:isTotal?900:700,fontSize:isTotal?10:9,color:cf(v),background:`${cf(v)===C.green?C.green:C.red}0a`,borderLeft:col.isFirstInSeason?`2px solid ${C.border2}`:`1px solid ${C.border}22`}}>{$$(v)}</td>);})}
+      </tr>
+      <tr style={{background:`${C.blue}0a`}}>
+        <td style={{padding:"8px 14px",fontWeight:800,color:C.blue,fontSize:isTotal?12:11,position:"sticky",left:0,background:C.card,zIndex:1,borderRight:`1px solid ${C.border}`}}>
+          {isTotal?"Σ SALDO ACUMULADO CONSOLIDADO":"Saldo Acumulado"}
+        </td>
+        {cols.map(col=>{const lastIdx=col.indices[col.indices.length-1];const v=acumArr[lastIdx]||0;return(<td key={col.key} style={{padding:"7px 5px",textAlign:"right",fontWeight:isTotal?900:700,fontSize:isTotal?10:9,color:cf(v),borderLeft:col.isFirstInSeason?`2px solid ${C.border2}`:`1px solid ${C.border}22`}}>{$$(v)}</td>);})}
+      </tr>
+    </>
+  );
+
+  return(
+    <div style={{display:"flex",flexDirection:"column",gap:14}}>
+      {/* KPIs */}
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(160px,1fr))",gap:10}}>
+        <KPI label="Saldo Inicial Consolidado" value={$$(saldoIniConsolidado)} color={C.blue}/>
+        <KPI label="Flujo Total 65m" value={$$(flujoConsolidado.reduce((a,b)=>a+b,0))} color={cf(flujoConsolidado.reduce((a,b)=>a+b,0))}/>
+        <KPI label="Mínimo Acumulado" value={$$(Math.min(...acumConsolidado))} color={C.red}/>
+        <KPI label="Saldo Final Jun-31" value={$$(acumConsolidado[acumConsolidado.length-1])} color={cf(acumConsolidado[acumConsolidado.length-1])}/>
+        <KPI label="Empresas" value={empNames.length} color={C.yellow}/>
+      </div>
+      {/* Gráfico */}
+      <Card>
+        <SectionTitle>Flujo Acumulado Consolidado · {empNames.length} empresas · Mar-26 → Jun-31</SectionTitle>
+        <LineChart months={MESES_65} values={acumConsolidado} color={C.accentL}/>
+        {Math.min(...acumConsolidado)<0&&(
+          <div style={{marginTop:8,padding:"8px 12px",background:`${C.red}18`,border:`1px solid ${C.red}33`,borderRadius:8,fontSize:11,color:C.muted}}>
+            ⚠️ Mínimo proyectado: <strong style={{color:C.red}}>{$$(Math.min(...acumConsolidado))}</strong>
+          </div>
+        )}
+      </Card>
+      {/* Controles */}
+      <Card>
+        <div style={{display:"flex",gap:16,flexWrap:"wrap",alignItems:"flex-start"}}>
+          <div>
+            <div style={{fontSize:10,color:C.muted,fontWeight:700,textTransform:"uppercase",letterSpacing:1,marginBottom:8}}>Vista</div>
+            <div style={{display:"flex",gap:0,borderRadius:8,overflow:"hidden",border:`1px solid ${C.border}`}}>
+              {[{id:"sumada",label:"🏛 Sumada"},{id:"por_empresa",label:"🏢 Por empresa"}].map(v=>(
+                <button key={v.id} onClick={()=>setVistaConsolidado(v.id)}
+                  style={{padding:"7px 18px",border:"none",cursor:"pointer",fontWeight:vistaConsolidado===v.id?800:500,fontSize:12,
+                    background:vistaConsolidado===v.id?C.accent:"transparent",
+                    color:vistaConsolidado===v.id?"#fff":C.muted,transition:"all 0.15s"}}>
+                  {v.id==="sumada"?"🏛 Sumada":"🏢 Por empresa"}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div>
+            <div style={{fontSize:10,color:C.muted,fontWeight:700,textTransform:"uppercase",letterSpacing:1,marginBottom:8}}>Agrupación</div>
+            <div style={{display:"flex",gap:6}}>
+              {[{id:"temporada",label:"🗓 Temporada"},{id:"mes",label:"📅 Mes"},{id:"semana",label:"📊 Semana"}].map(a=>(
+                <Btn key={a.id} active={agrup===a.id} onClick={()=>setAgrup(a.id)} color={C.accent}>{a.label}</Btn>
+              ))}
+            </div>
+          </div>
+          {agrup!=="temporada"&&(
+            <div>
+              <div style={{fontSize:10,color:C.muted,fontWeight:700,textTransform:"uppercase",letterSpacing:1,marginBottom:8}}>Temporadas</div>
+              <div style={{display:"flex",gap:5,flexWrap:"wrap"}}>
+                {SEASONS.map(s=>(<Btn key={s.key} small active={!!openSeason[s.key]} onClick={()=>setOpenSeason(p=>({...p,[s.key]:!p[s.key]}))} color={C.muted}>{openSeason[s.key]?"▾":"▸"} T{s.sy}</Btn>))}
+              </div>
+            </div>
+          )}
+        </div>
+      </Card>
+
+      {/* Vista sumada */}
+      {vistaConsolidado==="sumada"&&(
+        <div style={{overflowX:"auto",borderRadius:12,border:`1px solid ${C.border}`}}>
+          <table style={{borderCollapse:"collapse",fontSize:11,minWidth:600}}>
+            <THead/>
+            <tbody>
+              <FilaSaldoBanco nombre="_consolidado"/>
+              <FilasFlujoYAcum flujoArr={flujoConsolidado} acumArr={acumConsolidado} color={C.accentL} isTotal/>
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {/* Vista por empresa */}
+      {vistaConsolidado==="por_empresa"&&(
+        <div style={{overflowX:"auto",borderRadius:12,border:`1px solid ${C.border}`}}>
+          <table style={{borderCollapse:"collapse",fontSize:11,minWidth:600}}>
+            <THead/>
+            <tbody>
+              {empNames.map((n,ei)=>{
+                const emp=empresas[n];
+                return(
+                  <React.Fragment key={n}>
+                    <tr style={{background:`${emp.color}22`}}>
+                      <td colSpan={cols.length+1} style={{padding:"8px 14px",position:"sticky",left:0,background:`${emp.color}22`,borderTop:ei>0?`3px solid ${C.border2}`:"none"}}>
+                        <div style={{fontSize:13,fontWeight:900,color:emp.color}}>{emp.emoji} {n}</div>
+                        <div style={{fontSize:10,color:C.muted}}>{emp.desc}</div>
+                      </td>
+                    </tr>
+                    <FilaSaldoBanco nombre={n}/>
+                    {emp.sections.map(sec=>(
+                      <React.Fragment key={sec.cat}>
+                        <tr style={{background:C.bg2}}>
+                          <td style={{padding:"5px 14px",position:"sticky",left:0,background:C.bg2,borderRight:`1px solid ${C.border}`,zIndex:1}}>
+                            <span style={{fontSize:10,fontWeight:700,color:CAT_COLOR[sec.cat]||C.muted,textTransform:"uppercase",letterSpacing:"0.5px"}}>{CAT_SIGNO[sec.cat]} {sec.label}</span>
+                          </td>
+                          {cols.map(col=>(<td key={col.key} style={{borderLeft:col.isFirstInSeason?`2px solid ${C.border2}`:`1px solid ${C.border}11`,background:C.bg2}}/>))}
+                        </tr>
+                        {sec.lines.map(line=>(
+                          <tr key={line.label} style={{borderBottom:`1px solid ${C.border}11`}}>
+                            <td style={{padding:"5px 14px 5px 22px",color:C.text,fontSize:11,position:"sticky",left:0,background:C.card,zIndex:1,borderRight:`1px solid ${C.border}`,whiteSpace:"nowrap",maxWidth:200,overflow:"hidden",textOverflow:"ellipsis"}}>{line.label}</td>
+                            {cols.map(col=>{
+                              const v=colVal(line.proy,col);
+                              return(<td key={col.key} style={{padding:"4px 5px",textAlign:"right",fontSize:9,fontWeight:v!==0?600:400,color:v!==0?(sec.signo>0?C.green:C.red):C.muted2,borderLeft:col.isFirstInSeason?`2px solid ${C.border2}`:`1px solid ${C.border}11`}}>{v!==0?$$(v):"—"}</td>);
+                            })}
+                          </tr>
+                        ))}
+                        <tr style={{background:C.bg2}}>
+                          <td style={{padding:"5px 14px",fontWeight:700,fontSize:10,color:CAT_COLOR[sec.cat]||C.muted,position:"sticky",left:0,background:C.bg2,borderRight:`1px solid ${C.border}`,zIndex:1}}>Σ {sec.label}</td>
+                          {cols.map(col=>{const v=sec.lines.reduce((a,l)=>a+colVal(l.proy,col),0);return(<td key={col.key} style={{padding:"5px 5px",textAlign:"right",fontWeight:700,fontSize:9,color:CAT_COLOR[sec.cat]||C.muted,borderLeft:col.isFirstInSeason?`2px solid ${C.border2}`:`1px solid ${C.border}22`}}>{v!==0?$$(v):"—"}</td>);})}
+                        </tr>
+                      </React.Fragment>
+                    ))}
+                    <FilasFlujoYAcum flujoArr={flujoPorEmp[n]||Z65()} acumArr={acumPorEmp[n]||Z65()} color={emp.color} isTotal={false}/>
+                  </React.Fragment>
+                );
+              })}
+              <tr><td colSpan={cols.length+1} style={{height:6,background:`linear-gradient(90deg,${C.accent}66,${C.border})`}}/></tr>
+              <FilaSaldoBanco nombre="_consolidado"/>
+              <FilasFlujoYAcum flujoArr={flujoConsolidado} acumArr={acumConsolidado} color={C.accentL} isTotal/>
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════
 // FLUJO POR EMPRESA — v2: totales mes/temporada + edición + saldo banco
 // ═══════════════════════════════════════════════════════════════════
 function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit,saldosBancos,onSaveProy}) {
@@ -1404,18 +1701,22 @@ function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit,saldosBanc
   const toggleMonth=mes=>setOpenMonth(p=>({...p,[mes]:!p[mes]}));
   const isMonthOpen=mes=>openMonth[mes]!==false;
 
-  // ── Saldo banco USD de esta empresa ────────────────────────────
+  // ── Saldo banco USD: último registro por banco, anterior a hoy ──
   const saldoBancoUSD = useMemo(()=>{
     if(!saldosBancos) return null;
-    let total = 0, found = false;
+    const HOY = new Date();
+    const porBanco = {};
     Object.entries(saldosBancos).forEach(([key, rec])=>{
-      // key formato: "Empresa||Banco||moneda"
       const parts = key.split("||");
-      if(parts[0]===empNombre && parts[2]==="usd" && rec?.monto!=null) {
-        total += Number(rec.monto)||0;
-        found = true;
-      }
+      if(parts[0]!==empNombre || parts[2]!=="usd") return;
+      if(!rec?.monto || !rec?.fecha) return;
+      const f = new Date(rec.fecha);
+      if(f > HOY) return;
+      const banco = parts[1];
+      if(!porBanco[banco] || new Date(porBanco[banco].fecha) < f) porBanco[banco] = rec;
     });
+    let total = 0, found = false;
+    Object.values(porBanco).forEach(rec=>{total += Number(rec.monto)||0; found = true;});
     return found ? total : null;
   },[saldosBancos, empNombre]);
 
@@ -2559,16 +2860,7 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
 
   const handleSaveSaldos=useCallback(async(next)=>{
     setSaldosBancos(next);
-    const ok=await dbSave({finanzas_real:realData,allegria_params:params,saldos_bancos:next,params_emp:paramsEmp});
-    setSaved(ok?"✅ Guardado":"⚠️ Error");
-    setTimeout(()=>setSaved(null),3000);
-  },[realData,params,paramsEmp]);
-
-  useEffect(()=>{
-    if(loading) return;
-    const t=setTimeout(()=>dbSave({finanzas_real:realData,allegria_params:params,saldos_bancos:saldosBancos,params_emp:paramsEmp}),800);
-    return ()=>clearTimeout(t);
-  },[params,loading]); // eslint-disable-line
+    const ok=await dbSave({finanzas_real:realData,allegria_params:params,saldos_bancos:next,params_emp:
 
   if(loading) return (
     <div style={{display:"flex",alignItems:"center",justifyContent:"center",
@@ -2645,7 +2937,7 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
 
       {tab==="flujo"&&(
         <div>
-          {/* Selector empresa */}
+          {/* Selector empresa + botón Consolidado */}
           <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:12,alignItems:"center"}}>
             {Object.keys(empresas).map(n=>{const e=empresas[n];return (
               <button key={n} onClick={()=>{setEmpTab(n);setFlujoSubTab("flujo");}}
@@ -2659,8 +2951,22 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
                 {e.emoji} {n}{n==="Allegria Foods"&&<span style={{fontSize:9,marginLeft:3,color:C.yellow}}>⚡</span>}
               </button>
             );})}
+            {/* Botón Consolidado */}
+            <button onClick={()=>{setEmpTab("_consolidado");setFlujoSubTab("flujo");}}
+              style={{
+                padding:"7px 14px",borderRadius:8,cursor:"pointer",fontSize:11,fontWeight:600,
+                border:`2px solid ${empTab==="_consolidado"?"#a78bfa":"#a78bfa55"}`,
+                background:empTab==="_consolidado"?"#a78bfa33":C.card,
+                color:empTab==="_consolidado"?"#a78bfa":C.muted,
+                transition:"all 0.15s",marginLeft:8,
+              }}>
+              🏛 Consolidado
+            </button>
           </div>
 
+          {/* Sub-pestañas Flujo/Parámetros — solo cuando NO es consolidado */}
+          {empTab!=="_consolidado"&&(
+          <>
           {/* Sub-pestañas: Flujo | Parámetros — para TODAS las empresas */}
           <div style={{display:"flex",gap:6,marginBottom:14,padding:"10px 14px",
             background:C.card2,borderRadius:10,border:`1px solid ${C.border}`,alignItems:"center"}}>
@@ -2714,6 +3020,13 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
               />
             );
           })()}
+          </>
+          )}
+
+          {/* Consolidado */}
+          {empTab==="_consolidado"&&(
+            <Consolidado empresas={empresas} saldosBancos={saldosBancos}/>
+          )}
         </div>
       )}
 
