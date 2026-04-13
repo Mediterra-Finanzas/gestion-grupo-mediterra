@@ -2825,15 +2825,16 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
   },[]);
 
   const handleSaveReal=useCallback(async(empresa,mes,semana,vals)=>{
-    const next=JSON.parse(JSON.stringify(realData));
+    const next=JSON.parse(JSON.stringify(realDataRef.current));
     if(!next[empresa]) next[empresa]={};
     if(!next[empresa][mes]) next[empresa][mes]={};
     next[empresa][mes][semana]=vals;
     setRealData(next);
-    const ok=await dbSave({finanzas_real:next,allegria_params:params,saldos_bancos:saldosBancos,params_emp:paramsEmp});
+    realDataRef.current = next;
+    const ok=await persistAll({ finanzas_real:next });
     setSaved(ok?"✅ Guardado":"⚠️ Error");
     setTimeout(()=>setSaved(null),3000);
-  },[realData,params,saldosBancos,paramsEmp]);
+  },[persistAll]);
 
   // Persistir overrides de proyección editados por usuario
   const handleSaveProy=useCallback((empresa,lineLabel,idx,val)=>{
@@ -2847,14 +2848,14 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
         if(!next[empresa]._proyOverrides[lineLabel]) next[empresa]._proyOverrides[lineLabel]={};
         next[empresa]._proyOverrides[lineLabel][String(idx)]=val;
       }
+      realDataRef.current = next;
       setTimeout(()=>{
-        dbSave({finanzas_real:next,allegria_params:params,saldos_bancos:saldosBancos,params_emp:paramsEmp})
+        persistAll({ finanzas_real:next })
           .then(ok=>{ setSaved(ok?"✅ Proyección guardada":"⚠️ Error"); setTimeout(()=>setSaved(null),2000); });
       },0);
       return next;
     });
-  // eslint-disable-next-line
-  },[params,saldosBancos]);
+  },[persistAll]);
 
 
   // setParamsEmp para una empresa específica
@@ -2863,39 +2864,44 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
       const next = JSON.parse(JSON.stringify(prev));
       if(!next[empresa]) next[empresa] = defaultParamsEmp();
       next[empresa] = typeof updater === "function" ? updater(next[empresa]) : updater;
-      // Persistir
-      setTimeout(()=>dbSave({finanzas_real:realData,allegria_params:params,
-        saldos_bancos:saldosBancos,params_emp:{...prev,[empresa]:next[empresa]}})
+      paramsEmpRef.current = next;
+      setTimeout(()=>persistAll({ params_emp:next })
         .then(ok=>{setSaved(ok?"✅ Parámetros guardados":"⚠️ Error");setTimeout(()=>setSaved(null),2000);}),0);
       return next;
     });
-  // eslint-disable-next-line
-  },[realData,params,saldosBancos]);
+  },[persistAll]);
 
-  // Ref para tener siempre el valor más reciente de paramsEmp sin stale closure
-  const paramsEmpRef = React.useRef(paramsEmp);
-  useEffect(()=>{ paramsEmpRef.current = paramsEmp; },[paramsEmp]);
+  // Refs para siempre tener el valor mas reciente sin stale closures
+  const realDataRef     = React.useRef(realData);
+  const paramsRef       = React.useRef(params);
+  const saldosBancosRef = React.useRef(saldosBancos);
+  const paramsEmpRef    = React.useRef(paramsEmp);
+  useEffect(()=>{ realDataRef.current     = realData;     },[realData]);
+  useEffect(()=>{ paramsRef.current       = params;       },[params]);
+  useEffect(()=>{ saldosBancosRef.current = saldosBancos; },[saldosBancos]);
+  useEffect(()=>{ paramsEmpRef.current    = paramsEmp;    },[paramsEmp]);
+
+  // Helper centralizado - siempre usa los valores mas recientes
+  const persistAll = useCallback((overrides={})=>{
+    return dbSave({
+      finanzas_real:   overrides.finanzas_real   !== undefined ? overrides.finanzas_real   : realDataRef.current,
+      allegria_params: overrides.allegria_params !== undefined ? overrides.allegria_params : paramsRef.current,
+      saldos_bancos:   overrides.saldos_bancos   !== undefined ? overrides.saldos_bancos   : saldosBancosRef.current,
+      params_emp:      overrides.params_emp      !== undefined ? overrides.params_emp      : paramsEmpRef.current,
+    });
+  },[]);
 
   const handleSaveSaldos=useCallback(async(next)=>{
     setSaldosBancos(next);
-    const ok=await dbSave({
-      finanzas_real:realData,
-      allegria_params:params,
-      saldos_bancos:next,
-      params_emp:paramsEmpRef.current,
-    });
-    setSaved(ok?"✅ Guardado":"⚠️ Error");
+    saldosBancosRef.current = next;
+    const ok=await persistAll({ saldos_bancos:next });
+    setSaved(ok?"Guardado":"Error al guardar");
     setTimeout(()=>setSaved(null),3000);
-  },[realData,params]);
+  },[persistAll]);
 
   useEffect(()=>{
     if(loading) return;
-    const t=setTimeout(()=>dbSave({
-      finanzas_real:realData,
-      allegria_params:params,
-      saldos_bancos:saldosBancos,
-      params_emp:paramsEmpRef.current,
-    }),800);
+    const t=setTimeout(()=>persistAll(),800);
     return ()=>clearTimeout(t);
   },[params,saldosBancos,loading]); // eslint-disable-line
 
