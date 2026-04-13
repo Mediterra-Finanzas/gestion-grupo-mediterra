@@ -428,11 +428,102 @@ function PanelPermisos({ usuarios, setUsuarios, onClose }) {
             </>
           )}
 
+          {/* ── Agregar nuevo usuario ── */}
+          <NuevoUsuarioForm setUsuarios={setUsuarios}/>
+
           <div style={{background:"#dbeafe",borderRadius:10,padding:"10px 14px",fontSize:12,color:"#1d4ed8",marginTop:8}}>
             💾 Los cambios se guardan automáticamente en tiempo real.
           </div>
         </div>
       </div>
+    </div>
+  );
+}
+
+// Formulario nuevo usuario — separado para mantener su propio estado
+function NuevoUsuarioForm({setUsuarios}) {
+  const [open,setOpen]=useState(false);
+  const [form,setForm]=useState({nombre:"",cargo:"",email:"",pin:"",rol:"editor",modulos:["tareas"]});
+  const [err,setErr]=useState("");
+
+  function guardar(){
+    setErr("");
+    if(!form.nombre.trim()){setErr("El nombre es obligatorio.");return;}
+    if(!form.email.trim()){setErr("El email es obligatorio.");return;}
+    if(!form.pin.trim()||form.pin.length<4){setErr("El PIN debe tener al menos 4 dígitos.");return;}
+    setUsuarios(prev=>{
+      if(prev.find(u=>u.nombre===form.nombre)){setErr("Ya existe un usuario con ese nombre.");return prev;}
+      const mods=form.rol==="admin"?MODULOS_DISPONIBLES.map(m=>m.id):form.modulos;
+      return[...prev,{...form,modulos:mods,esCFO:form.rol==="admin",desactivado:false}];
+    });
+    setForm({nombre:"",cargo:"",email:"",pin:"",rol:"editor",modulos:["tareas"]});
+    setOpen(false);setErr("");
+  }
+
+  function toggleMod(id){
+    setForm(p=>{
+      const mods=p.modulos.includes(id)?p.modulos.filter(m=>m!==id):[...p.modulos,id];
+      return{...p,modulos:mods};
+    });
+  }
+
+  return(
+    <div style={{marginTop:16}}>
+      <button onClick={()=>setOpen(v=>!v)}
+        style={{background:open?"#1e3a5f":"#f1f5f9",color:open?"#fff":"#1e293b",border:"1px solid #e2e8f0",
+          borderRadius:10,padding:"9px 20px",cursor:"pointer",fontSize:13,fontWeight:700,width:"100%",textAlign:"left"}}>
+        {open?"✕ Cancelar":"+ Agregar nuevo usuario"}
+      </button>
+      {open&&(
+        <div style={{background:"#f8fafc",borderRadius:12,border:"1px solid #e2e8f0",padding:"18px 20px",marginTop:8}}>
+          <div style={{fontSize:13,fontWeight:800,color:"#1e293b",marginBottom:14}}>Nuevo usuario</div>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:12}}>
+            {[["Nombre completo *","nombre","text"],["Cargo","cargo","text"],["Email *","email","email"],["PIN (mín. 4 dígitos) *","pin","password"]].map(([lbl,campo,tipo])=>(
+              <div key={campo}>
+                <div style={{fontSize:11,color:"#64748b",fontWeight:600,marginBottom:4}}>{lbl}</div>
+                <input type={tipo} value={form[campo]} onChange={e=>setForm(p=>({...p,[campo]:e.target.value}))}
+                  style={{width:"100%",padding:"8px 10px",borderRadius:8,border:"1px solid #d1d5db",fontSize:13,boxSizing:"border-box",outline:"none"}}/>
+              </div>
+            ))}
+          </div>
+          <div style={{marginBottom:12}}>
+            <div style={{fontSize:11,color:"#64748b",fontWeight:600,marginBottom:6}}>Rol</div>
+            <div style={{display:"flex",gap:8}}>
+              {[["editor","Editor","#dcfce7","#166534"],["consulta","Consulta","#ede9fe","#6d28d9"],["admin","Admin","#fef3c7","#92400e"]].map(([v,l,bg,col])=>(
+                <button key={v} onClick={()=>setForm(p=>({...p,rol:v,modulos:v==="admin"?MODULOS_DISPONIBLES.map(m=>m.id):p.modulos}))}
+                  style={{padding:"6px 16px",borderRadius:20,border:"none",cursor:"pointer",fontSize:12,fontWeight:700,
+                    background:form.rol===v?bg:"#e2e8f0",color:form.rol===v?col:"#64748b"}}>
+                  {l}
+                </button>
+              ))}
+            </div>
+          </div>
+          {form.rol!=="admin"&&(
+            <div style={{marginBottom:12}}>
+              <div style={{fontSize:11,color:"#64748b",fontWeight:600,marginBottom:6}}>Acceso a módulos</div>
+              <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+                {MODULOS_DISPONIBLES.map(m=>(
+                  <label key={m.id} style={{display:"flex",alignItems:"center",gap:5,cursor:"pointer",
+                    background:form.modulos.includes(m.id)?m.bg:"#f1f5f9",
+                    border:`1px solid ${form.modulos.includes(m.id)?m.color+"66":"#d1d5db"}`,
+                    borderRadius:8,padding:"5px 12px",fontSize:12,fontWeight:600,
+                    color:form.modulos.includes(m.id)?m.color:"#94a3b8"}}>
+                    <input type="checkbox" checked={form.modulos.includes(m.id)} onChange={()=>toggleMod(m.id)}
+                      style={{accentColor:m.color}}/>
+                    {m.icon} {m.label}
+                  </label>
+                ))}
+              </div>
+            </div>
+          )}
+          {err&&<div style={{color:"#ef4444",fontSize:12,marginBottom:8}}>{err}</div>}
+          <button onClick={guardar}
+            style={{padding:"9px 24px",borderRadius:8,background:"#2563eb",color:"#fff",border:"none",
+              cursor:"pointer",fontSize:13,fontWeight:700}}>
+            💾 Guardar usuario
+          </button>
+        </div>
+      )}
     </div>
   );
 }
@@ -1085,13 +1176,22 @@ export default function App(){
             {modalPin==="reset"&&(
               <div style={{marginTop:16,background:"#f8fafc",borderRadius:10,padding:"14px 16px",border:"1px solid #e2e8f0"}}>
                 <div style={{fontSize:12,fontWeight:700,color:"#1e293b",marginBottom:8}}>Recuperar PIN por email</div>
-                <select value={resetNombre} onChange={e=>setResetNombre(e.target.value)}
-                  style={{width:"100%",padding:"8px 10px",borderRadius:8,border:"1px solid #d1d5db",fontSize:12,marginBottom:8,outline:"none"}}>
-                  <option value="">— Selecciona tu nombre —</option>
-                  {WORKERS.map(w=><option key={w.nombre} value={w.nombre}>{w.nombre}</option>)}
-                </select>
-                <button onClick={handleResetPin} disabled={resetEnviando||!resetNombre}
-                  style={{width:"100%",padding:"8px",borderRadius:8,background:resetEnviando||!resetNombre?"#94a3b8":"#2563eb",color:"#fff",border:"none",fontWeight:700,fontSize:13,cursor:"pointer"}}>
+                {/* Si ya seleccionó su nombre arriba, usarlo directo. Si no, mostrar selector */}
+                {loginNombre
+                  ? (<div style={{padding:"8px 12px",background:"#f1f5f9",borderRadius:8,fontSize:13,color:"#1e293b",fontWeight:600,marginBottom:8}}>
+                      👤 {loginNombre}
+                    </div>)
+                  : (<select value={resetNombre} onChange={e=>setResetNombre(e.target.value)}
+                      style={{width:"100%",padding:"8px 10px",borderRadius:8,border:"1px solid #d1d5db",fontSize:12,marginBottom:8,outline:"none"}}>
+                      <option value="">— Selecciona tu nombre —</option>
+                      {WORKERS.map(w=><option key={w.nombre} value={w.nombre}>{w.nombre}</option>)}
+                    </select>)
+                }
+                <button onClick={()=>{ if(loginNombre) setResetNombre(loginNombre); handleResetPin(); }}
+                  disabled={resetEnviando||(!loginNombre&&!resetNombre)}
+                  style={{width:"100%",padding:"8px",borderRadius:8,
+                    background:(resetEnviando||(!loginNombre&&!resetNombre))?"#94a3b8":"#2563eb",
+                    color:"#fff",border:"none",fontWeight:700,fontSize:13,cursor:"pointer"}}>
                   {resetEnviando?"Enviando...":"Enviar PIN temporal"}
                 </button>
                 {resetMsg&&<div style={{fontSize:11,color:"#64748b",marginTop:6,textAlign:"center"}}>{resetMsg}</div>}
