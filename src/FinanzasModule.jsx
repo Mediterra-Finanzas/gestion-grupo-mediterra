@@ -2824,6 +2824,27 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
     });
   },[]);
 
+  // Refs para siempre tener el valor mas reciente sin stale closures
+  const realDataRef     = React.useRef(realData);
+  const paramsRef       = React.useRef(params);
+  const saldosBancosRef = React.useRef(saldosBancos);
+  const paramsEmpRef    = React.useRef(paramsEmp);
+  useEffect(()=>{ realDataRef.current     = realData;     },[realData]);
+  useEffect(()=>{ paramsRef.current       = params;       },[params]);
+  useEffect(()=>{ saldosBancosRef.current = saldosBancos; },[saldosBancos]);
+  useEffect(()=>{ paramsEmpRef.current    = paramsEmp;    },[paramsEmp]);
+
+  // Helper centralizado - siempre usa los valores mas recientes
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const persistAll = useCallback((overrides={})=>{
+    return dbSave({
+      finanzas_real:   overrides.finanzas_real   !== undefined ? overrides.finanzas_real   : realDataRef.current,
+      allegria_params: overrides.allegria_params !== undefined ? overrides.allegria_params : paramsRef.current,
+      saldos_bancos:   overrides.saldos_bancos   !== undefined ? overrides.saldos_bancos   : saldosBancosRef.current,
+      params_emp:      overrides.params_emp      !== undefined ? overrides.params_emp      : paramsEmpRef.current,
+    });
+  },[]); // eslint-disable-line
+
   const handleSaveReal=useCallback(async(empresa,mes,semana,vals)=>{
     const next=JSON.parse(JSON.stringify(realDataRef.current));
     if(!next[empresa]) next[empresa]={};
@@ -2857,7 +2878,6 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
     });
   },[persistAll]);
 
-
   // setParamsEmp para una empresa específica
   const setParamsEmpresa = useCallback((empresa, updater) => {
     setParamsEmp(prev => {
@@ -2871,31 +2891,11 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
     });
   },[persistAll]);
 
-  // Refs para siempre tener el valor mas reciente sin stale closures
-  const realDataRef     = React.useRef(realData);
-  const paramsRef       = React.useRef(params);
-  const saldosBancosRef = React.useRef(saldosBancos);
-  const paramsEmpRef    = React.useRef(paramsEmp);
-  useEffect(()=>{ realDataRef.current     = realData;     },[realData]);
-  useEffect(()=>{ paramsRef.current       = params;       },[params]);
-  useEffect(()=>{ saldosBancosRef.current = saldosBancos; },[saldosBancos]);
-  useEffect(()=>{ paramsEmpRef.current    = paramsEmp;    },[paramsEmp]);
-
-  // Helper centralizado - siempre usa los valores mas recientes
-  const persistAll = useCallback((overrides={})=>{
-    return dbSave({
-      finanzas_real:   overrides.finanzas_real   !== undefined ? overrides.finanzas_real   : realDataRef.current,
-      allegria_params: overrides.allegria_params !== undefined ? overrides.allegria_params : paramsRef.current,
-      saldos_bancos:   overrides.saldos_bancos   !== undefined ? overrides.saldos_bancos   : saldosBancosRef.current,
-      params_emp:      overrides.params_emp      !== undefined ? overrides.params_emp      : paramsEmpRef.current,
-    });
-  },[]);
-
   const handleSaveSaldos=useCallback(async(next)=>{
     setSaldosBancos(next);
     saldosBancosRef.current = next;
     const ok=await persistAll({ saldos_bancos:next });
-    setSaved(ok?"Guardado":"Error al guardar");
+    setSaved(ok?"✅ Guardado":"⚠️ Error");
     setTimeout(()=>setSaved(null),3000);
   },[persistAll]);
 
