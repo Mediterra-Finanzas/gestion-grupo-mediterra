@@ -749,17 +749,19 @@ export default function App(){
             const merged=WORKERS_BASE.map(wb=>{
               const saved=d.usuarios.find(u=>u.nombre===wb.nombre);
               if(!saved) return wb;
-              // Mantener rol y módulos del código base, pero respetar desactivado guardado
-              return {...saved, modulos:wb.modulos, rol:wb.rol};
+              // Mantener rol y módulos del código base
+              // PERO preservar tab_permisos y desactivado guardados en Supabase
+              return {
+                ...saved,
+                modulos: wb.modulos,
+                rol: wb.rol,
+                tab_permisos: saved.tab_permisos || {},
+                desactivado: saved.desactivado || false,
+              };
             });
             // Usuarios extra agregados desde la app (no están en WORKERS_BASE)
             const extras=d.usuarios.filter(u=>!WORKERS_BASE.find(wb=>wb.nombre===u.nombre));
-            // Aplicar estado desactivado guardado en Supabase
-            return[...merged,...extras].map(u=>{
-              const savedU=d.usuarios.find(s=>s.nombre===u.nombre);
-              if(savedU?.desactivado) return{...u,desactivado:true};
-              return u;
-            });
+            return[...merged,...extras];
           });
           if(d.estados)setEstados(prev=>({...prev,...d.estados}));
           if(d.comentarios)setComentarios(d.comentarios);
