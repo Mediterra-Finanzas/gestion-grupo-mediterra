@@ -4696,6 +4696,33 @@ const FEE_VIVEROS_INIT = [
 // ══════════════════════════════════════════════════════════
 // TOTAL PEDIDOS
 // ══════════════════════════════════════════════════════════
+// Helper: selector cliente en modales — desplegable desde maestro + autocompletado país
+function SelectorCliente({form,setForm,clientes}){
+  return(
+    <div style={{display:"flex",flexDirection:"column",gap:6}}>
+      <label style={{fontSize:11,fontWeight:600,color:"#374151"}}>Cliente *</label>
+      {clientes.length>0&&(
+        <select value={""} onChange={e=>{
+          const cli=clientes.find(c=>c.id===e.target.value);
+          if(!cli)return;
+          setForm(p=>({...p,
+            cliente:cli.razonSocial||p.cliente,
+            pais:cli.pais||p.pais,
+          }));
+        }} style={{width:"100%",padding:"7px 10px",borderRadius:8,border:"1px solid #93c5fd",fontSize:12,boxSizing:"border-box",color:"#2563eb"}}>
+          <option value="">🔍 Seleccionar desde maestro de clientes...</option>
+          {clientes.map(c=><option key={c.id} value={c.id}>
+            {c.razonSocial}{c.nombreComercial&&c.nombreComercial!==c.razonSocial?` (${c.nombreComercial})`:""} — {c.pais}
+          </option>)}
+        </select>
+      )}
+      <input type="text" value={form.cliente} onChange={e=>setForm(p=>({...p,cliente:e.target.value}))}
+        placeholder="O escribe el nombre..."
+        style={{width:"100%",padding:"7px 10px",borderRadius:8,border:"1px solid #d1d5db",fontSize:13,boxSizing:"border-box"}}/>
+    </div>
+  );
+}
+
 // Helper: muestra razón social con tooltip/badge de nombre comercial si difiere
 function NombreCliente({nombre,clientes,onChange,can}) {
   const cli = clientes.find(c=>c.razonSocial===nombre||c.nombreComercial===nombre);
@@ -5240,7 +5267,8 @@ function FeeEntrada({data,setData,can,clientes=[]}) {
           <div style={{background:"#fff",borderRadius:16,padding:28,width:400,maxWidth:"92vw",boxShadow:"0 8px 32px #0003"}}>
             <h3 style={{margin:"0 0 16px",color:C.sl}}>Nuevo Fee de Entrada</h3>
             <div style={{display:"flex",flexDirection:"column",gap:12}}>
-              {[["Cliente *","cliente","text"],["N° Factura","nFact","text"],["Fecha pago","fechaPago","date"],["Detalle","detalle","text"]].map(([l,c,t])=>(
+              <SelectorCliente form={form} setForm={setForm} clientes={clientes}/>
+              {[["N° Factura","nFact","text"],["Fecha pago","fechaPago","date"],["Detalle","detalle","text"]].map(([l,c,t])=>(
                 <div key={c}><label style={{fontSize:11,fontWeight:600,color:"#374151",display:"block",marginBottom:4}}>{l}</label>
                 <input type={t} value={form[c]} onChange={e=>setForm(p=>({...p,[c]:e.target.value}))} style={{width:"100%",padding:"7px 10px",borderRadius:8,border:"1px solid #d1d5db",fontSize:13,boxSizing:"border-box"}}/></div>
               ))}
@@ -5340,8 +5368,25 @@ function FeeViveros({data,setData,can,clientes=[]}) {
         <div style={{position:"fixed",inset:0,background:"#0006",zIndex:300,display:"flex",alignItems:"center",justifyContent:"center"}}>
           <div style={{background:"#fff",borderRadius:16,padding:28,width:500,maxWidth:"92vw",maxHeight:"90vh",overflowY:"auto",boxShadow:"0 8px 32px #0003"}}>
             <h3 style={{margin:"0 0 16px",color:C.sl}}>Nuevo Fee Vivero</h3>
+            {/* Selector empresa desde maestro clientes */}
+            <div style={{display:"flex",flexDirection:"column",gap:6,marginBottom:4}}>
+              <label style={{fontSize:11,fontWeight:600,color:"#374151"}}>Empresa *</label>
+              {clientes.length>0&&(
+                <select value={""} onChange={e=>{
+                  const cli=clientes.find(c=>c.id===e.target.value);
+                  if(!cli)return;
+                  setForm(p=>({...p,empresa:cli.razonSocial||p.empresa,pais:cli.pais||p.pais}));
+                }} style={{width:"100%",padding:"7px 10px",borderRadius:8,border:"1px solid #93c5fd",fontSize:12,boxSizing:"border-box",color:"#2563eb"}}>
+                  <option value="">🔍 Seleccionar desde maestro...</option>
+                  {clientes.map(c=><option key={c.id} value={c.id}>{c.razonSocial}{c.nombreComercial&&c.nombreComercial!==c.razonSocial?` (${c.nombreComercial})`:""} — {c.pais}</option>)}
+                </select>
+              )}
+              <input type="text" value={form.empresa} onChange={e=>setForm(p=>({...p,empresa:e.target.value}))}
+                placeholder="O escribe el nombre..."
+                style={{width:"100%",padding:"7px 10px",borderRadius:8,border:"1px solid #d1d5db",fontSize:13,boxSizing:"border-box"}}/>
+            </div>
             <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
-              {[["Vivero","vivero","select",["Synergiabio","Agromillora"]],["País","pais","select",PAISES],["Empresa *","empresa","text",null],["Proforma","proforma","text",null],["N° Plantas","nPlantas","number",null],["Regalía (dec.)","regalia","number",null],["Total Osiris US$","totalOsiris","number",null],["Tipo Pago","tipoPago","select",TIPOS],["Monto a Facturar","montoFact","number",null],["Fecha Facturar","fechaFact","date",null],["N° Factura","nFact","text",null]].map(([l,c,t,opts])=>(
+              {[["Vivero","vivero","select",["Synergiabio","Agromillora"]],["País","pais","select",PAISES],["Proforma","proforma","text",null],["N° Plantas","nPlantas","number",null],["Regalía (dec.)","regalia","number",null],["Total Osiris US$","totalOsiris","number",null],["Tipo Pago","tipoPago","select",TIPOS],["Monto a Facturar","montoFact","number",null],["Fecha Facturar","fechaFact","date",null],["N° Factura","nFact","text",null]].map(([l,c,t,opts])=>(
                 <div key={c}><label style={{fontSize:11,fontWeight:600,color:"#374151",display:"block",marginBottom:4}}>{l}</label>
                 {opts?<select value={form[c]} onChange={e=>setForm(p=>({...p,[c]:e.target.value}))} style={{width:"100%",padding:"7px 10px",borderRadius:8,border:"1px solid #d1d5db",fontSize:13,boxSizing:"border-box"}}>{opts.map(o=><option key={o}>{o}</option>)}</select>
                 :<input type={t} value={form[c]} onChange={e=>setForm(p=>({...p,[c]:e.target.value}))} style={{width:"100%",padding:"7px 10px",borderRadius:8,border:"1px solid #d1d5db",fontSize:13,boxSizing:"border-box"}}/>}</div>
@@ -5903,6 +5948,75 @@ function MaestroClientes({clientes,setClientes,can}){
   );
 }
 
+// ── Exportar contratos a Excel (CSV descargable) ──────────────
+function exportarContratos(filtrado) {
+  const anx = r => {
+    const partes = [];
+    [["anexo1","A1"],["anexo2","A2"],["anexo3","A3"]].forEach(([campo,label])=>{
+      const a = r[campo];
+      if(!a) return;
+      const activo = typeof a==="object" ? a.activo : !!a;
+      if(!activo) return;
+      const tipo  = typeof a==="object" ? (a.tipo||"") : "";
+      const fO    = typeof a==="object" ? (a.firmadoOsiris?"Sí":"No") : "—";
+      const fL    = typeof a==="object" ? (a.firmadoLicenciado?"Sí":"No") : "—";
+      partes.push(`${label}${tipo?": "+tipo:""} (Osiris:${fO}/Lic:${fL})`);
+    });
+    return partes.join(" | ") || "—";
+  };
+  const headers = [
+    "Razón Social","Nombre Comercial","Tax ID","País","Ciudad",
+    "Tipo Contrato","Fecha Contrato","Fecha Término",
+    "Firmado Licenciado","Firmado OSIRIS",
+    "Año de Prueba","Cantidad Años Prueba",
+    "Lleva Multa","Mín. Há Contrato",
+    "Anexos",
+    "Contract Fee","Tipo Fee","Monto Fee US$",
+    "Royalty/Planta US$","Royalty Comercial US$/Há","Sujeto Inflación","Mes Facturación RC",
+    "Link Contrato","Notas"
+  ];
+  const rows = filtrado.map(r=>[
+    r.razonSocial||"",
+    r.nombreComercial||"",
+    r.taxID||"",
+    r.pais||"",
+    r.ciudad||"",
+    r.tipoContrato||"",
+    r.fechaContrato||"",
+    r.fechaTermino||"",
+    r.firmadoLicenciado?"Sí":"No",
+    r.firmadoOsiris?"Sí":"No",
+    r.tieneAnioPrueba?"Sí":"No",
+    r.tieneAnioPrueba?(r.cantAnioPrueba||1):"—",
+    r.llevaMulta?"Sí":"No",
+    r.llevaMulta?(r.haMinContrato||0):"—",
+    anx(r),
+    r.tipoContractFee||"",
+    r.tipoContractFee==="Sin Contract Fee"?"—":(r.montoContractFee||0),
+    r.tipoContractFee==="Sin Contract Fee"?"—":(r.montoContractFee||0),
+    r.valorRoyaltyPlanta||"",
+    r.valorRoyaltyComercial||"",
+    r.royaltyInflacion?"Sí":"No",
+    r.mesFacuracionRC||"",
+    r.linkContrato||"",
+    r.notas||""
+  ]);
+  // Generar CSV con BOM para Excel
+  const bom = "﻿";
+  const csv = bom + [headers,...rows].map(row=>
+    row.map(v=>`"${String(v).replace(/"/g,'""')}"`).join(",")
+  ).join("
+");
+  const blob = new Blob([csv],{type:"text/csv;charset=utf-8;"});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  const fecha = new Date().toISOString().slice(0,10);
+  a.download = `Contratos_Osiris_${fecha}.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
 function ControlContratos({data,setData,clientes,setClientes,can}){
   const [vista,setVista]=useState("tabla");
   const [sel,setSel]=useState(null);
@@ -5922,7 +6036,7 @@ function ControlContratos({data,setData,clientes,setClientes,can}){
   const formVacio={
     razonSocial:"",nombreComercial:"",taxID:"",pais:"Peru",direccion:"",ciudad:"",
     tipoContrato:"Licencia",moneda:"USD",fechaContrato:"",fechaTermino:"",
-    firmadoLicenciado:false,firmadoOsiris:false,verDigital:"",
+    firmadoLicenciado:false,firmadoOsiris:false,verDigital:"",linkContrato:"",
     anexo1:{...formAnexoVacio},anexo2:{...formAnexoVacio},anexo3:{...formAnexoVacio},
     nombreRep:"",personeria:"",nombrePredio:"",direccionPredio:"",cuartel:"",
     region:"",ciudadPredio:"",coordenadas:"",
@@ -6050,7 +6164,26 @@ function ControlContratos({data,setData,clientes,setClientes,can}){
                 <Campo label="Fecha Contrato" campo="fechaContrato" tipo="date" r={r}/>
                 <Campo label="Fecha Término" campo="fechaTermino" tipo="date" r={r}/>
                 <Campo label="Ver Digital (URL)" campo="verDigital" r={r}/>
+                <Campo label="📎 Link OneDrive contrato" campo="linkContrato" r={r}/>
               </div>
+              {/* Acciones documento */}
+              {r.linkContrato&&(
+                <div style={{background:"#eff6ff",borderRadius:10,padding:"12px 16px",marginBottom:16,border:"1px solid #bfdbfe",display:"flex",gap:10,alignItems:"center",flexWrap:"wrap"}}>
+                  <span style={{fontSize:12,fontWeight:700,color:C.azul}}>📄 Contrato:</span>
+                  <a href={r.linkContrato} target="_blank" rel="noreferrer"
+                    style={{background:C.azul,color:"#fff",borderRadius:6,padding:"5px 12px",fontSize:12,fontWeight:600,textDecoration:"none"}}>
+                    👁 Ver
+                  </a>
+                  <a href={r.linkContrato} download
+                    style={{background:"#16a34a",color:"#fff",borderRadius:6,padding:"5px 12px",fontSize:12,fontWeight:600,textDecoration:"none"}}>
+                    ⬇️ Descargar
+                  </a>
+                  <button onClick={()=>{const w=window.open(r.linkContrato,"_blank");w&&setTimeout(()=>w.print(),1500);}}
+                    style={{background:"#7c3aed",color:"#fff",borderRadius:6,padding:"5px 12px",fontSize:12,fontWeight:600,border:"none",cursor:"pointer"}}>
+                    🖨️ Imprimir
+                  </button>
+                </div>
+              )}
               {/* Año de prueba */}
               <div style={{background:"#fefce8",borderRadius:12,padding:16,marginBottom:16,border:"1px solid #fde047"}}>
                 <div style={{fontSize:12,fontWeight:700,color:"#854d0e",marginBottom:10}}>🧪 Año de prueba</div>
@@ -6144,6 +6277,24 @@ function ControlContratos({data,setData,clientes,setClientes,can}){
                             </>
                           )}
                         </div>
+                        {anx.activo&&(
+                          <div style={{display:"flex",gap:8,alignItems:"center",marginTop:8,paddingTop:8,borderTop:"1px solid #e2e8f0",flexWrap:"wrap"}}>
+                            <span style={{fontSize:11,color:C.gris,fontWeight:600}}>📎 Link OneDrive:</span>
+                            {can
+                              ? <input value={anx.link||""} onChange={e=>upd(r.id,campo,{...anx,link:e.target.value})}
+                                  placeholder="https://..." style={{flex:1,minWidth:200,padding:"4px 8px",borderRadius:6,border:"1px solid #d1d5db",fontSize:11,outline:"none"}}/>
+                              : <span style={{fontSize:11,color:C.gris}}>{anx.link||"—"}</span>
+                            }
+                            {anx.link&&<>
+                              <a href={anx.link} target="_blank" rel="noreferrer"
+                                style={{background:C.azul,color:"#fff",borderRadius:5,padding:"3px 10px",fontSize:11,fontWeight:600,textDecoration:"none"}}>👁 Ver</a>
+                              <a href={anx.link} download
+                                style={{background:"#16a34a",color:"#fff",borderRadius:5,padding:"3px 10px",fontSize:11,fontWeight:600,textDecoration:"none"}}>⬇️</a>
+                              <button onClick={()=>{const w=window.open(anx.link,"_blank");w&&setTimeout(()=>w.print(),1500);}}
+                                style={{background:"#7c3aed",color:"#fff",borderRadius:5,padding:"3px 10px",fontSize:11,fontWeight:600,border:"none",cursor:"pointer"}}>🖨️</button>
+                            </>}
+                          </div>
+                        )}
                       </div>
                     );
                   })}
@@ -6252,6 +6403,7 @@ function ControlContratos({data,setData,clientes,setClientes,can}){
               <CampoNuevo label="Fecha Contrato" campo="fechaContrato" tipo="date"/>
               <CampoNuevo label="Fecha Término" campo="fechaTermino" tipo="date"/>
               <CampoNuevo label="Ver Digital (URL)" campo="verDigital"/>
+              <CampoNuevo label="📎 Link OneDrive contrato" campo="linkContrato"/>
             </div>
             {/* Año de prueba */}
             <div style={{marginTop:14,background:"#fefce8",borderRadius:10,padding:"12px 14px",border:"1px solid #fde047"}}>
@@ -6390,6 +6542,10 @@ function ControlContratos({data,setData,clientes,setClientes,can}){
         ))}
         <div style={{display:"flex",gap:8,alignSelf:"center",flexWrap:"wrap"}}>
           {can&&<button onClick={()=>{setVista("nuevo");setForm(formVacio);setClienteSelId("");}} style={{background:C.azul,color:"#fff",border:"none",borderRadius:8,padding:"8px 18px",cursor:"pointer",fontSize:13,fontWeight:700}}>+ Nuevo contrato</button>}
+          <button onClick={()=>exportarContratos(filtrado)}
+            style={{background:"#16a34a",color:"#fff",border:"none",borderRadius:8,padding:"8px 14px",cursor:"pointer",fontSize:12,fontWeight:700}}>
+            ⬇️ Exportar Excel
+          </button>
           {can&&<button onClick={()=>{setShowMantenedor(v=>!v);setShowClientes(false);}}
             style={{background:showMantenedor?"#1e293b":"#f1f5f9",color:showMantenedor?"#fff":"#1e293b",border:"1px solid #e2e8f0",borderRadius:8,padding:"8px 14px",cursor:"pointer",fontSize:12,fontWeight:600}}>
             ⚙️ Tipos
