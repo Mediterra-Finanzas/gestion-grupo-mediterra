@@ -5550,6 +5550,7 @@ function GraficosPlantas({tpData,rpData}) {
 
 function Resumen({rpData,feData,rcData,fvData,tpData}) {
   const hoy=new Date();hoy.setHours(0,0,0,0);
+  const [expandedMes,setExpandedMes]=useState(null);
 
   const rpCalc=rpData.map(r=>{const mf=(Number(r.nPlantas)||0)*(Number(r.usdPlanta)||0);return{...r,montoFact:mf,montoCobro:mf*pct(r.pais)};});
   const rcCalc=rcData.map(r=>{const mf=(Number(r.ha)||0)*(Number(r.usdHa)||0);const fA=fechaAvisoTrim(r.añoCobro,r.trimCobro);const fI=fechaInicioTrim(r.añoCobro,r.trimCobro);return{...r,montoFact:mf,montoCobro:mf*pct(r.pais),alertaActiva:hoy>=fA&&hoy<fI&&!r.nFact};});
@@ -5588,17 +5589,21 @@ function Resumen({rpData,feData,rcData,fvData,tpData}) {
 
   const MESES_CORTO=["Ene","Feb","Mar","Abr","May","Jun","Jul","Ago","Sep","Oct","Nov","Dic"];
   const calendarioCobros={};
-  function addCobro(fecha,tipo,monto){
+  // Mapa de clientes por mes: key → [{cliente, tipo, monto, pagado}]
+  const clientesPorMes={};
+  function addCobro(fecha,tipo,monto,cliente,pagado){
     if(!fecha||!monto||monto<=0)return;
     const f=new Date(fecha);if(isNaN(f.getTime())||f<hoy)return;
     const key=`${f.getFullYear()}-${String(f.getMonth()+1).padStart(2,'0')}`;
     if(!calendarioCobros[key])calendarioCobros[key]={año:f.getFullYear(),mes:f.getMonth(),rp:0,rc:0,fv:0,fe:0};
-    calendarioCobros[key][tipo]+=monto;
+    if(!pagado) calendarioCobros[key][tipo]+=monto;
+    if(!clientesPorMes[key])clientesPorMes[key]=[];
+    clientesPorMes[key].push({cliente:cliente||"—",tipo,monto,pagado:!!pagado});
   }
-  rpCalc.filter(r=>!r.pagado&&r.fechaPago).forEach(r=>addCobro(r.fechaPago,"rp",r.montoCobro));
-  rcCalc.filter(r=>!r.pagado).forEach(r=>{const f=fechaInicioTrim(r.añoCobro,r.trimCobro);addCobro(f.toISOString().slice(0,10),"rc",r.montoCobro);});
-  fvData.filter(r=>!r.pagado&&r.fechaFact).forEach(r=>addCobro(r.fechaFact,"fv",Number(r.montoFact)||0));
-  feData.filter(r=>!r.pagado&&r.fechaPago).forEach(r=>addCobro(r.fechaPago,"fe",Number(r.montoUSD)||0));
+  rpCalc.filter(r=>r.fechaPago).forEach(r=>addCobro(r.fechaPago,"rp",r.montoCobro,r.cliente,r.pagado));
+  rcCalc.forEach(r=>{const f=fechaInicioTrim(r.añoCobro,r.trimCobro);addCobro(f.toISOString().slice(0,10),"rc",r.montoCobro,r.cliente,r.pagado);});
+  fvData.filter(r=>r.fechaFact).forEach(r=>addCobro(r.fechaFact,"fv",Number(r.montoFact)||0,r.empresa,r.pagado));
+  feData.filter(r=>r.fechaPago).forEach(r=>addCobro(r.fechaPago,"fe",Number(r.montoUSD)||0,r.cliente,r.pagado));
   const calKeys=Object.keys(calendarioCobros).sort();
   const calPorAño={};
   calKeys.forEach(k=>{
@@ -5645,18 +5650,73 @@ function Resumen({rpData,feData,rcData,fvData,tpData}) {
                   </tr>
                 </thead>
                 <tbody>
-                  {rows.map((r,i)=>(
-                    <tr key={r.key} style={{borderTop:"1px solid #f1f5f9",background:i%2===0?"#fff":"#f8fafc"}}>
-                      <td style={{padding:"9px 12px",fontWeight:700,color:C.sl,whiteSpace:"nowrap"}}>
-                        {MESES_CORTO[r.mes]} {r.año}
-                      </td>
-                      <td style={{padding:"9px 12px",textAlign:"right",color:r.rp>0?C.azul:C.gris}}>{r.rp>0?$$(r.rp):"—"}</td>
-                      <td style={{padding:"9px 12px",textAlign:"right",color:r.rc>0?C.mo:C.gris}}>{r.rc>0?$$(r.rc):"—"}</td>
-                      <td style={{padding:"9px 12px",textAlign:"right",color:r.fv>0?C.teal:C.gris}}>{r.fv>0?$$(r.fv):"—"}</td>
-                      <td style={{padding:"9px 12px",textAlign:"right",color:r.fe>0?C.verde:C.gris}}>{r.fe>0?$$(r.fe):"—"}</td>
-                      <td style={{padding:"9px 12px",textAlign:"right",fontWeight:700,color:C.sl,background:"#f0f9ff",fontSize:13}}>{$$(r.total)}</td>
-                    </tr>
-                  ))}
+                  {rows.map((r,i)=>{
+                    const isOpen = expandedMes===r.key;
+                    const clientes = clientesPorMes[r.key]||[];
+                    const pendientes = clientes.filter(c=>!c.pagado);
+                    const pagados = clientes.filter(c=>c.pagado);
+                    const TIPO_LABEL={"rp":"Royalty/Planta","rc":"Royalty Comercial","fv":"Fee Viveros","fe":"Fee Entrada"};
+                    const TIPO_COLOR={"rp":C.azul,"rc":C.mo,"fv":C.teal,"fe":C.verde};
+                    return(
+                      <React.Fragment key={r.key}>
+                        <tr style={{borderTop:"1px solid #f1f5f9",background:isOpen?"#eff6ff":i%2===0?"#fff":"#f8fafc",
+                          cursor:"pointer",transition:"background 0.15s"}}
+                          onClick={()=>setExpandedMes(isOpen?null:r.key)}>
+                          <td style={{padding:"9px 12px",fontWeight:700,color:C.sl,whiteSpace:"nowrap"}}>
+                            <span style={{marginRight:6,fontSize:11,color:isOpen?C.azul:"#94a3b8"}}>{isOpen?"▼":"▶"}</span>
+                            {MESES_CORTO[r.mes]} {r.año}
+                            {pendientes.length>0&&<span style={{marginLeft:8,fontSize:10,background:C.azulBg,color:C.azul,borderRadius:10,padding:"1px 7px",fontWeight:700}}>{pendientes.length} pendiente{pendientes.length>1?"s":""}</span>}
+                          </td>
+                          <td style={{padding:"9px 12px",textAlign:"right",color:r.rp>0?C.azul:C.gris}}>{r.rp>0?$$(r.rp):"—"}</td>
+                          <td style={{padding:"9px 12px",textAlign:"right",color:r.rc>0?C.mo:C.gris}}>{r.rc>0?$$(r.rc):"—"}</td>
+                          <td style={{padding:"9px 12px",textAlign:"right",color:r.fv>0?C.teal:C.gris}}>{r.fv>0?$$(r.fv):"—"}</td>
+                          <td style={{padding:"9px 12px",textAlign:"right",color:r.fe>0?C.verde:C.gris}}>{r.fe>0?$$(r.fe):"—"}</td>
+                          <td style={{padding:"9px 12px",textAlign:"right",fontWeight:700,color:C.sl,background:"#f0f9ff",fontSize:13}}>{$$(r.total)}</td>
+                        </tr>
+                        {isOpen&&(
+                          <tr>
+                            <td colSpan={6} style={{padding:0,background:"#f8fbff",borderBottom:"2px solid #bfdbfe"}}>
+                              <div style={{padding:"14px 20px"}}>
+                                {pendientes.length>0&&(
+                                  <>
+                                    <div style={{fontSize:11,fontWeight:700,color:C.azul,marginBottom:8,letterSpacing:1}}>POR COBRAR</div>
+                                    <div style={{display:"flex",flexDirection:"column",gap:4,marginBottom:12}}>
+                                      {pendientes.sort((a,b)=>b.monto-a.monto).map((c,ci)=>(
+                                        <div key={ci} style={{display:"flex",alignItems:"center",gap:10,background:"#fff",borderRadius:8,padding:"8px 12px",border:"1px solid #dbeafe"}}>
+                                          <span style={{fontSize:11,background:TIPO_COLOR[c.tipo]+"22",color:TIPO_COLOR[c.tipo],borderRadius:6,padding:"2px 8px",fontWeight:700,minWidth:110,textAlign:"center"}}>
+                                            {TIPO_LABEL[c.tipo]}
+                                          </span>
+                                          <span style={{flex:1,fontSize:13,fontWeight:600,color:C.sl}}>{c.cliente}</span>
+                                          <span style={{fontSize:13,fontWeight:800,color:C.azul}}>{$$(c.monto)}</span>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  </>
+                                )}
+                                {pagados.length>0&&(
+                                  <>
+                                    <div style={{fontSize:11,fontWeight:700,color:C.verde,marginBottom:8,letterSpacing:1}}>YA COBRADO</div>
+                                    <div style={{display:"flex",flexDirection:"column",gap:4}}>
+                                      {pagados.sort((a,b)=>b.monto-a.monto).map((c,ci)=>(
+                                        <div key={ci} style={{display:"flex",alignItems:"center",gap:10,background:"#f0fdf4",borderRadius:8,padding:"8px 12px",border:"1px solid #bbf7d0",opacity:0.8}}>
+                                          <span style={{fontSize:11,background:TIPO_COLOR[c.tipo]+"22",color:TIPO_COLOR[c.tipo],borderRadius:6,padding:"2px 8px",fontWeight:700,minWidth:110,textAlign:"center"}}>
+                                            {TIPO_LABEL[c.tipo]}
+                                          </span>
+                                          <span style={{flex:1,fontSize:13,fontWeight:600,color:"#64748b"}}>{c.cliente}</span>
+                                          <span style={{fontSize:12,fontWeight:700,color:C.verde}}>✅ {$$(c.monto)}</span>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  </>
+                                )}
+                                {clientes.length===0&&<div style={{color:C.gris,fontSize:12}}>Sin detalle disponible.</div>}
+                              </div>
+                            </td>
+                          </tr>
+                        )}
+                      </React.Fragment>
+                    );
+                  })}
                   <tr style={{borderTop:"2px solid #e2e8f0",background:"#f0f9ff"}}>
                     <td style={{padding:"9px 12px",fontWeight:800,color:C.sl}}>Total {año}</td>
                     <td style={{padding:"9px 12px",textAlign:"right",fontWeight:700,color:C.azul}}>{totalAnual[año].rp>0?$$(totalAnual[año].rp):"—"}</td>
@@ -6724,17 +6784,16 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
   const setFv=useCallback(fn=>setOsirisData(prev=>({...prev,feeViveros:      typeof fn==="function"?fn(prev?.feeViveros      ??FEE_VIVEROS_INIT)      :fn})),[setOsirisData]);
   const setTp=useCallback(fn=>setOsirisData(prev=>({...prev,totalPedidos:    typeof fn==="function"?fn(prev?.totalPedidos    ??TOTAL_PEDIDOS_INIT)    :fn})),[setOsirisData]);
 
-  // can base: cualquier rol excepto "consulta" puede editar
+  // PERMISOS OSIRIS
+  // Editor/Admin → can=true por defecto
+  // Solo se restringe si tab_permisos está explícitamente en "ver" o "sin_acceso"
   const rolActual = usuarioActual?.rol || "editor";
-  const esEditorOAdmin = rolActual !== "consulta";
-  // can por sección: respeta tab_permisos de osiris (default: editar para todos excepto consulta)
-  const permContratos = tabPermisos?.contratos ?? (esEditorOAdmin ? "editar" : "ver");
-  const permIngresos  = tabPermisos?.royalties  ?? (esEditorOAdmin ? "editar" : "ver");
-  const canContratos  = permContratos === "editar";
-  // Si no hay tab_permisos configurado para royalties, un editor puede editar
-  const canIngresos   = permIngresos === "editar" || (esEditorOAdmin && !tabPermisos?.royalties);
+  const esEditorOAdmin = rolActual === "editor" || rolActual === "admin";
+  const permContratos = tabPermisos?.contratos || "editar";
+  const permIngresos  = tabPermisos?.royalties  || "editar";
   const canVerContratos = permContratos !== "sin_acceso";
-  // can genérico usado en componentes internos (ingresos)
+  const canContratos    = esEditorOAdmin && permContratos === "editar";
+  const canIngresos     = esEditorOAdmin && permIngresos  === "editar";
   const can = canIngresos;
 
   const totPend=
