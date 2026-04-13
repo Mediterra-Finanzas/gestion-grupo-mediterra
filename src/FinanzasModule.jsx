@@ -2851,17 +2851,28 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
   const esAdmin = usuarioActual?.rol==="admin";
   const canEdit = esAdmin || ["Angelo Huerta","Carol Machuca"].includes(usuarioActual?.nombre||"");
 
-  const perm  = (tabId) => tabPermisos?.[tabId] ?? "editar";
-  const puedoEdit = (tabId) => esAdmin || perm(tabId) !== "ver";
+  const perm     = (tabId) => tabPermisos?.[tabId] ?? "editar";
+  const puedoVer = (tabId) => esAdmin || perm(tabId) !== "sin_acceso";
+  const puedoEdit= (tabId) => esAdmin || (perm(tabId) !== "ver" && perm(tabId) !== "sin_acceso");
 
   const empresas=useMemo(()=>buildEmpresas(params),[params]);
 
-  const TABS=[
+  const TABS_ALL=[
     {id:"dashboard",label:"📊 Dashboard"},
     {id:"flujo",    label:"📈 Flujo Empresas"},
     {id:"bancos",   label:"🏦 Saldos Bancos"},
     {id:"creditos", label:"💳 Créditos"},
   ];
+  // Solo mostrar pestañas a las que el usuario tiene acceso
+  const TABS = TABS_ALL.filter(t => puedoVer(t.id));
+
+  // Si la tab activa no está disponible, ir a la primera disponible
+  useEffect(()=>{
+    if(TABS.length>0 && !TABS.find(t=>t.id===tab)){
+      setTab(TABS[0].id);
+    }
+  // eslint-disable-next-line
+  },[tabPermisos]);
 
   useEffect(()=>{
     dbLoad().then(d=>{
@@ -3027,9 +3038,9 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
       </div>
 
       {/* ── Contenido por pestaña ──────────────────────────── */}
-      {tab==="dashboard"&&<Dashboard empresas={empresas}/>}
+      {tab==="dashboard"&&puedoVer("dashboard")&&<Dashboard empresas={empresas}/>}
 
-      {tab==="flujo"&&(
+      {tab==="flujo"&&puedoVer("flujo")&&(
         <div>
           {/* Selector empresa + botón Consolidado */}
           <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:12,alignItems:"center"}}>
@@ -3124,10 +3135,10 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
         </div>
       )}
 
-      {tab==="bancos"&&(
+      {tab==="bancos"&&puedoVer("bancos")&&(
         <SaldosBancos saldos={saldosBancos} onSave={handleSaveSaldos} canEdit={puedoEdit("bancos")}/>
       )}
-      {tab==="creditos"&&<Creditos empresas={empresas}/>}
+      {tab==="creditos"&&puedoVer("creditos")&&<Creditos empresas={empresas}/>}
 
     </div>
   );
