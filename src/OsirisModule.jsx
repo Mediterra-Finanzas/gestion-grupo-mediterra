@@ -4738,17 +4738,110 @@ function NombreCliente({nombre,clientes,onChange,can}) {
   );
 }
 
-// ── Helper: exportar datos filtrados a CSV ────────────────────
-function exportCSV(rows, headers, nombre) {
-  const bom = "\uFEFF";
-  const csv = bom + [headers, ...rows.map(r=>headers.map((_,i)=>r[i]))].map(row=>
-    row.map(v=>`"${String(v??'').replace(/"/g,'""')}"`).join(",")
-  ).join("\r\n");
-  const blob = new Blob([csv],{type:"text/csv;charset=utf-8;"});
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href=url; a.download=`${nombre}_${new Date().toISOString().slice(0,10)}.csv`; a.click();
-  URL.revokeObjectURL(url);
+// ── Helper: exportar datos a Excel (.xlsx) con formato ────────
+async function exportCSV(rows, headers, nombre) {
+  // Cargar SheetJS desde CDN si no está disponible
+  if(!window.XLSX) {
+    await new Promise((resolve, reject) => {
+      const s = document.createElement("script");
+      s.src = "https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js";
+      s.onload = resolve; s.onerror = reject;
+      document.head.appendChild(s);
+    });
+  }
+  const XLSX = window.XLSX;
+  const fecha = new Date().toISOString().slice(0,10);
+
+  // Construir datos: encabezado + filas
+  const data = [headers, ...rows.map(r => headers.map((_,i) => r[i]))];
+  const ws = XLSX.utils.aoa_to_sheet(data);
+
+  // ── Estilos de encabezado ──────────────────────────────────
+  const headerStyle = {
+    font: { bold: true, color: { rgb: "FFFFFF" }, sz: 11 },
+    fill: { fgColor: { rgb: "0F2D4A" } },
+    alignment: { horizontal: "center", vertical: "center", wrapText: true },
+    border: {
+      bottom: { style: "medium", color: { rgb: "2563EB" } },
+    }
+  };
+  const cellStyle = {
+    alignment: { vertical: "center" },
+    border: {
+      bottom: { style: "thin", color: { rgb: "E2E8F0" } },
+      right:  { style: "thin", color: { rgb: "E2E8F0" } },
+    }
+  };
+  const moneyStyle = {
+    ...cellStyle,
+    numFmt: '"$"#,##0.00',
+    alignment: { horizontal: "right", vertical: "center" },
+    font: { color: { rgb: "16A34A" }, bold: true },
+  };
+  const altStyle = {
+    ...cellStyle,
+    fill: { fgColor: { rgb: "F8FAFC" } },
+  };
+
+  const colCount = headers.length;
+  const rowCount = rows.length;
+
+  // Aplicar estilo a encabezados
+  for(let c = 0; c < colCount; c++) {
+    const addr = XLSX.utils.encode_cell({r:0, c});
+    if(ws[addr]) ws[addr].s = headerStyle;
+  }
+
+  // Detectar columnas monetarias (contienen "$" en el valor o "Mto"/"Monto"/"USD"/"US$" en header)
+  const moneyHeaders = new Set(
+    headers.map((h,i) => (
+      /mto|monto|usd|us\$|cobro|facturar|cobrar|total osiris|regalía/i.test(h) ? i : -1
+    )).filter(i => i >= 0)
+  );
+
+  // Aplicar estilos a celdas de datos
+  for(let r = 1; r <= rowCount; r++) {
+    const isAlt = r % 2 === 0;
+    for(let c = 0; c < colCount; c++) {
+      const addr = XLSX.utils.encode_cell({r, c});
+      if(!ws[addr]) ws[addr] = {t:"s", v:""};
+      if(moneyHeaders.has(c) && typeof ws[addr].v === "number") {
+        ws[addr].s = moneyStyle;
+        ws[addr].t = "n";
+      } else {
+        ws[addr].s = isAlt ? altStyle : cellStyle;
+      }
+    }
+  }
+
+  // Anchos de columna automáticos
+  ws["!cols"] = headers.map((h, i) => {
+    const maxLen = Math.max(
+      h.length,
+      ...rows.map(r => String(r[i] ?? "").length)
+    );
+    return { wch: Math.min(Math.max(maxLen + 2, 10), 40) };
+  });
+
+  // Altura de fila de encabezado
+  ws["!rows"] = [{ hpx: 22 }];
+
+  // Freeze primera fila
+  ws["!freeze"] = { xSplit: 0, ySplit: 1, topLeftCell: "A2", activePane: "bottomLeft", state: "frozen" };
+
+  // Crear workbook
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, nombre.slice(0, 31));
+
+  // Propiedades del libro
+  wb.Props = {
+    Title: nombre,
+    Subject: "Osiris Plant Management — Mediterra",
+    Author: "Grupo Mediterra",
+    CreatedDate: new Date(),
+  };
+
+  XLSX.writeFile(wb, `${nombre}_${fecha}.xlsx`);
 }
 
 // ── Helper: barra de filtros + exportar reutilizable ──────────
@@ -4877,7 +4970,7 @@ function TotalPedidos({data,setData,rpData,setRpData,can,clientes=[]}) {
           {label:"Año",opciones:años,valor:filtroAño,onChange:v=>setFiltroAño(String(v))},
           {label:"Estado",opciones:["Todos","Confirmado","Por confirmar"],valor:filtroEst,onChange:setFiltroEst},
         ]}
-        onExportar={()=>exportCSV(
+        onExportar={async ()=>exportCSV(
           filtrado.map(r=>[r.cliente,r.pais,r.proforma||"",r.año,r.trim||"",r.nPlantas||0,r.estado||""]),
           ["Cliente","País","Proforma","Año","Trim.","N° Plantas","Estado"],
           "TotalPedidos"
@@ -5028,7 +5121,7 @@ function RoyaltyPlanta({data,setData,can,clientes=[]}) {
           {label:"Cobro",opciones:["Todos","Pagado","Por cobrar"],valor:filtroCobro,onChange:setFiltroCobro},
           {label:"Factura",opciones:["Todos","Facturado","Pendiente de facturar"],valor:filtroFact,onChange:setFiltroFact},
         ]}
-        onExportar={()=>exportCSV(
+        onExportar={async ()=>exportCSV(
           filtrado.map(r=>[r.cliente,r.pais,`${r.año} T${r.trim}`,r.nPlantas,r.usdPlanta,
             r.montoFact.toFixed(2),r.montoCobro.toFixed(2),r.nOC||"",r.nFact||"",
             r.pagado?"Pagado":"Por cobrar",r.fechaPago||"",r.vivero||""]),
@@ -5191,7 +5284,7 @@ function RoyaltyComercial({data,setData,can,clientes=[]}) {
           {label:"Año",opciones:años,valor:filtroAño,onChange:v=>setFiltroAño(String(v))},
           {label:"Cobro",opciones:["Todos","Pagado","Por cobrar"],valor:filtroCobro,onChange:setFiltroCobro},
         ]}
-        onExportar={()=>exportCSV(
+        onExportar={async ()=>exportCSV(
           filtrado.map(r=>[r.cliente,r.pais,`T${r.trimCobro} ${r.añoCobro}`,r.nPlantas||0,r.ha||0,
             r.usdHa||3000,r.montoFact.toFixed(2),r.montoCobro.toFixed(2),r.nFact||"",
             r.pagado?"Pagado":"Por cobrar"]),
@@ -5307,7 +5400,7 @@ function FeeEntrada({data,setData,can,clientes=[]}) {
           {label:"País",opciones:["Todos","Peru","Mexico","Chile"],valor:filtroPais,onChange:setFiltroPais},
           {label:"Cobro",opciones:["Todos","Pagado","Por cobrar"],valor:filtroCobro,onChange:setFiltroCobro},
         ]}
-        onExportar={()=>exportCSV(
+        onExportar={async ()=>exportCSV(
           filtrado.map(r=>[r.cliente,r.pais,r.nFact||"",
             r.pagado?"Pagado":"Por cobrar",r.fechaPago||"",r.montoUSD||0,r.detalle||""]),
           ["Cliente","País","N° Factura","Estado Cobro","Fecha Pago","Monto US$","Detalle"],
@@ -5414,7 +5507,7 @@ function FeeViveros({data,setData,can,clientes=[]}) {
           {label:"Estado",opciones:["Todos","Facturado","Pendiente","Pagado"],valor:filtroEst,onChange:setFiltroEst},
           {label:"Cobro",opciones:["Todos","Pagado","Por cobrar"],valor:filtroCobro,onChange:setFiltroCobro},
         ]}
-        onExportar={()=>exportCSV(
+        onExportar={async ()=>exportCSV(
           filtrado.map(r=>[r.vivero||"",r.empresa,r.pais,r.proforma||"",r.nPlantas||0,
             r.regalia||0,r.totalOsiris||0,r.tipoPago||"",r.montoFact||0,
             r.fechaFact||"",r.nFact||"",r.pagado?"Pagado":"Por cobrar"]),
@@ -6119,8 +6212,8 @@ function MaestroClientes({clientes,setClientes,can}){
   );
 }
 
-// ── Exportar contratos a Excel (CSV descargable) ──────────────
-function exportarContratos(filtrado) {
+// ── Exportar contratos a Excel (.xlsx) con formato ──────────
+async function exportarContratos(filtrado) {
   const anx = r => {
     const partes = [];
     [["anexo1","A1"],["anexo2","A2"],["anexo3","A3"]].forEach(([campo,label])=>{
@@ -6172,19 +6265,7 @@ function exportarContratos(filtrado) {
     r.linkContrato||"",
     r.notas||""
   ]);
-  // Generar CSV con BOM para Excel
-  const bom = "﻿";
-  const csv = bom + [headers,...rows].map(row=>
-    row.map(v=>`"${String(v).replace(/"/g,'""')}"`).join(",")
-  ).join("\r\n");
-  const blob = new Blob([csv],{type:"text/csv;charset=utf-8;"});
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  const fecha = new Date().toISOString().slice(0,10);
-  a.download = `Contratos_Osiris_${fecha}.csv`;
-  a.click();
-  URL.revokeObjectURL(url);
+  await exportCSV(rows, headers, "Contratos_Osiris");
 }
 
 function ControlContratos({data,setData,clientes,setClientes,can}){
@@ -6701,7 +6782,7 @@ function ControlContratos({data,setData,clientes,setClientes,can}){
         ))}
         <div style={{display:"flex",gap:8,alignSelf:"center",flexWrap:"wrap"}}>
           {can&&<button onClick={()=>{setVista("nuevo");setForm(formVacio);setClienteSelId("");}} style={{background:C.azul,color:"#fff",border:"none",borderRadius:8,padding:"8px 18px",cursor:"pointer",fontSize:13,fontWeight:700}}>+ Nuevo contrato</button>}
-          <button onClick={()=>exportarContratos(filtrado)}
+          <button onClick={async ()=>exportarContratos(filtrado)}
             style={{background:"#16a34a",color:"#fff",border:"none",borderRadius:8,padding:"8px 14px",cursor:"pointer",fontSize:12,fontWeight:700}}>
             ⬇️ Exportar Excel
           </button>
