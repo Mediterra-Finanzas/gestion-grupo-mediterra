@@ -1,5 +1,5 @@
 /* eslint-disable no-unused-vars */
-import { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import OsirisModule from "./OsirisModule.jsx";
 import FinanzasModule from "./FinanzasModule.jsx";
 
@@ -805,18 +805,18 @@ export default function App(){
   },[]); // eslint-disable-line
 
   // Refs para siempre tener valores frescos en guardado
-  const estadosRef       = React.useRef(estados);
-  const comentariosRef   = React.useRef(comentarios);
-  const tareasConfigRef  = React.useRef(tareasConfig);
-  const supervisoresRef  = React.useRef(supervisores);
-  const tareasExtraRef   = React.useRef(tareasExtra);
-  const pinsRef          = React.useRef(pinsPersonalizados);
-  const recsDoneRef      = React.useRef(recsDone);
-  const recsComRef       = React.useRef(recsComentarios);
-  const usuariosRef      = React.useRef(usuarios);
-  const mesRef           = React.useRef(mes);
-  const anioRef          = React.useRef(anio);
-  const osirisDataRef    = React.useRef(osirisData);
+  const estadosRef       = useRef(estados);
+  const comentariosRef   = useRef(comentarios);
+  const tareasConfigRef  = useRef(tareasConfig);
+  const supervisoresRef  = useRef(supervisores);
+  const tareasExtraRef   = useRef(tareasExtra);
+  const pinsRef          = useRef(pinsPersonalizados);
+  const recsDoneRef      = useRef(recsDone);
+  const recsComRef       = useRef(recsComentarios);
+  const usuariosRef      = useRef(usuarios);
+  const mesRef           = useRef(mes);
+  const anioRef          = useRef(anio);
+  const osirisDataRef    = useRef(osirisData);
   useEffect(()=>{ estadosRef.current      = estados;        },[estados]);
   useEffect(()=>{ comentariosRef.current  = comentarios;    },[comentarios]);
   useEffect(()=>{ tareasConfigRef.current = tareasConfig;   },[tareasConfig]);
