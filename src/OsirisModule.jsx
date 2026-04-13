@@ -4738,110 +4738,217 @@ function NombreCliente({nombre,clientes,onChange,can}) {
   );
 }
 
-// ── Helper: exportar datos a Excel (.xlsx) con formato ────────
+// ── Helper: exportar a Excel con tabla nativa, filtros y formato ──
 async function exportCSV(rows, headers, nombre) {
-  // Cargar SheetJS desde CDN si no está disponible
-  if(!window.XLSX) {
-    await new Promise((resolve, reject) => {
+  const fecha = new Date().toISOString().slice(0,10);
+  const nRows = rows.length;
+  const nCols = headers.length;
+
+  // Convertir número de columna a letra Excel (A, B, ..., Z, AA, AB...)
+  function colLetter(n) {
+    let s = "";
+    n++;
+    while(n > 0) { n--; s = String.fromCharCode(65 + (n % 26)) + s; n = Math.floor(n / 26); }
+    return s;
+  }
+  const lastCol = colLetter(nCols - 1);
+  const lastRow = nRows + 1;
+  const tableRef = `A1:${lastCol}${lastRow}`;
+
+  // Detectar columnas monetarias
+  const isMoney = i => /mto|monto|usd|us\$|cobro|facturar|cobrar|total osiris|regali/i.test(headers[i]);
+  const isNum   = i => /n°\s*plantas|plantar|trim|año/i.test(headers[i]);
+
+  // Anchos de columna (en caracteres × 7 puntos)
+  const colWidths = headers.map((h, i) => {
+    const maxLen = Math.max(h.length, ...rows.map(r => String(r[i] ?? "").length));
+    return Math.min(Math.max(maxLen + 3, 10), 45);
+  });
+
+  // ── Generar XML de la hoja ────────────────────────────────
+  function escXml(v) {
+    return String(v ?? "")
+      .replace(/&/g,"&amp;").replace(/</g,"&lt;")
+      .replace(/>/g,"&gt;").replace(/"/g,"&quot;");
+  }
+  function cellXml(r, c, val) {
+    const addr = `${colLetter(c)}${r}`;
+    const raw  = val ?? "";
+    const num  = (isMoney(c) || isNum(c)) && raw !== "" && !isNaN(raw) && raw !== "";
+    if(num) return `<c r="${addr}" s="${isMoney(c)?3:4}"><v>${parseFloat(raw)}</v></c>`;
+    return `<c r="${addr}" t="inlineStr" s="${c===0?5:0}"><is><t>${escXml(raw)}</t></is></c>`;
+  }
+
+  // Filas de datos
+  let rowsXml = "";
+  // Fila de encabezado (s=1 = estilo header)
+  rowsXml += `<row r="1" ht="22" customHeight="1">`;
+  headers.forEach((h, c) => {
+    const addr = `${colLetter(c)}1`;
+    rowsXml += `<c r="${addr}" t="inlineStr" s="1"><is><t>${escXml(h)}</t></is></c>`;
+  });
+  rowsXml += `</row>`;
+
+  rows.forEach((row, ri) => {
+    const r = ri + 2;
+    const sBase = (ri % 2 === 0) ? 0 : 2; // blanco o gris alternado
+    rowsXml += `<row r="${r}" ht="18" customHeight="1">`;
+    headers.forEach((_, c) => {
+      const val = row[c];
+      const addr = `${colLetter(c)}${r}`;
+      const raw  = val ?? "";
+      const isMoneyCol = isMoney(c);
+      const isNumCol   = isNum(c);
+      const num = (isMoneyCol || isNumCol) && raw !== "" && !isNaN(raw);
+      let s;
+      if(isMoneyCol) s = num ? 3 : 0;
+      else if(c === 0) s = sBase === 0 ? 5 : 6;
+      else s = sBase;
+      if(num) {
+        rowsXml += `<c r="${addr}" s="${s}"><v>${parseFloat(raw)}</v></c>`;
+      } else {
+        rowsXml += `<c r="${addr}" t="inlineStr" s="${s}"><is><t>${escXml(raw)}</t></is></c>`;
+      }
+    });
+    rowsXml += `</row>`;
+  });
+
+  // Definiciones de estilos
+  // s=0: normal blanco | s=1: header | s=2: alt gris | s=3: money verde
+  // s=4: número normal | s=5: primera col negrita blanca | s=6: primera col negrita gris
+  const stylesXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+  <fonts count="5">
+    <font><sz val="11"/><name val="Calibri"/></font>
+    <font><sz val="11"/><b/><color rgb="FFFFFFFF"/><name val="Calibri"/></font>
+    <font><sz val="11"/><name val="Calibri"/></font>
+    <font><sz val="11"/><b/><color rgb="FF15803D"/><name val="Calibri"/></font>
+    <font><sz val="11"/><b/><name val="Calibri"/></font>
+  </fonts>
+  <fills count="5">
+    <fill><patternFill patternType="none"/></fill>
+    <fill><patternFill patternType="gray125"/></fill>
+    <fill><patternFill patternType="solid"><fgColor rgb="FF0F2D4A"/></patternFill></fill>
+    <fill><patternFill patternType="solid"><fgColor rgb="FFF1F5F9"/></patternFill></fill>
+    <fill><patternFill patternType="solid"><fgColor rgb="FFDCFCE7"/></patternFill></fill>
+  </fills>
+  <borders count="2">
+    <border><left/><right/><top/><bottom/><diagonal/></border>
+    <border>
+      <left style="thin"><color rgb="FFE2E8F0"/></left>
+      <right style="thin"><color rgb="FFE2E8F0"/></right>
+      <top style="thin"><color rgb="FFE2E8F0"/></top>
+      <bottom style="thin"><color rgb="FFE2E8F0"/></bottom>
+    </border>
+  </borders>
+  <cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>
+  <cellXfs count="7">
+    <xf numFmtId="0"  fontId="0" fillId="0" borderId="1" xfId="0"><alignment vertical="center"/></xf>
+    <xf numFmtId="0"  fontId="1" fillId="2" borderId="0" xfId="0"><alignment horizontal="center" vertical="center" wrapText="1"/></xf>
+    <xf numFmtId="0"  fontId="0" fillId="3" borderId="1" xfId="0"><alignment vertical="center"/></xf>
+    <xf numFmtId="164" fontId="3" fillId="4" borderId="1" xfId="0"><alignment horizontal="right" vertical="center"/></xf>
+    <xf numFmtId="1"  fontId="0" fillId="0" borderId="1" xfId="0"><alignment horizontal="right" vertical="center"/></xf>
+    <xf numFmtId="0"  fontId="4" fillId="0" borderId="1" xfId="0"><alignment vertical="center"/></xf>
+    <xf numFmtId="0"  fontId="4" fillId="3" borderId="1" xfId="0"><alignment vertical="center"/></xf>
+  </cellXfs>
+  <numFmts count="1">
+    <numFmt numFmtId="164" formatCode='"US$" #,##0.00'/>
+  </numFmts>
+</styleSheet>`;
+
+  // Definiciones de columnas
+  const colsXml = `<cols>${colWidths.map((w, i) =>
+    `<col min="${i+1}" max="${i+1}" width="${w}" customWidth="1" bestFit="1"/>`
+  ).join("")}</cols>`;
+
+  // Tabla nativa con filtros automáticos
+  const tableXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<table xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"
+  id="1" name="Tabla1" displayName="Tabla1" ref="${tableRef}"
+  totalsRowShown="0" headerRowCount="1">
+  <autoFilter ref="${tableRef}"/>
+  <tableColumns count="${nCols}">
+    ${headers.map((h,i)=>`<tableColumn id="${i+1}" name="${escXml(h)}"/>`).join("")}
+  </tableColumns>
+  <tableStyleInfo name="TableStyleMedium2"
+    showFirstColumn="1" showLastColumn="0"
+    showRowStripes="1" showColumnStripes="0"/>
+</table>`;
+
+  // Sheet XML
+  const sheetXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"
+           xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+  <sheetViews>
+    <sheetView workbookViewId="0">
+      <pane ySplit="1" topLeftCell="A2" activePane="bottomLeft" state="frozen"/>
+    </sheetView>
+  </sheetViews>
+  ${colsXml}
+  <sheetData>${rowsXml}</sheetData>
+  <tableParts count="1"><tablePart r:id="rId1"/></tableParts>
+</worksheet>`;
+
+  // Workbook XML
+  const wbXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"
+          xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+  <bookViews><workbookView/></bookViews>
+  <sheets><sheet name="${escXml(nombre.slice(0,31))}" sheetId="1" r:id="rId1"/></sheets>
+</workbook>`;
+
+  const wbRels = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>
+</Relationships>`;
+
+  const sheetRels = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/table" Target="../tables/table1.xml"/>
+</Relationships>`;
+
+  const contentTypes = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
+  <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
+  <Default Extension="xml"  ContentType="application/xml"/>
+  <Override PartName="/xl/workbook.xml"           ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>
+  <Override PartName="/xl/worksheets/sheet1.xml"  ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>
+  <Override PartName="/xl/styles.xml"             ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>
+  <Override PartName="/xl/tables/table1.xml"      ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.table+xml"/>
+</Types>`;
+
+  const pkgRels = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/>
+</Relationships>`;
+
+  // ── Empaquetar como ZIP (XLSX) ────────────────────────────
+  if(!window.JSZip) {
+    await new Promise((res, rej) => {
       const s = document.createElement("script");
-      s.src = "https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js";
-      s.onload = resolve; s.onerror = reject;
+      s.src = "https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js";
+      s.onload = res; s.onerror = rej;
       document.head.appendChild(s);
     });
   }
-  const XLSX = window.XLSX;
-  const fecha = new Date().toISOString().slice(0,10);
 
-  // Construir datos: encabezado + filas
-  const data = [headers, ...rows.map(r => headers.map((_,i) => r[i]))];
-  const ws = XLSX.utils.aoa_to_sheet(data);
+  const zip = new window.JSZip();
+  zip.file("[Content_Types].xml", contentTypes);
+  zip.file("_rels/.rels", pkgRels);
+  zip.file("xl/workbook.xml", wbXml);
+  zip.file("xl/_rels/workbook.xml.rels", wbRels);
+  zip.file("xl/worksheets/sheet1.xml", sheetXml);
+  zip.file("xl/worksheets/_rels/sheet1.xml.rels", sheetRels);
+  zip.file("xl/styles.xml", stylesXml);
+  zip.file("xl/tables/table1.xml", tableXml);
 
-  // ── Estilos de encabezado ──────────────────────────────────
-  const headerStyle = {
-    font: { bold: true, color: { rgb: "FFFFFF" }, sz: 11 },
-    fill: { fgColor: { rgb: "0F2D4A" } },
-    alignment: { horizontal: "center", vertical: "center", wrapText: true },
-    border: {
-      bottom: { style: "medium", color: { rgb: "2563EB" } },
-    }
-  };
-  const cellStyle = {
-    alignment: { vertical: "center" },
-    border: {
-      bottom: { style: "thin", color: { rgb: "E2E8F0" } },
-      right:  { style: "thin", color: { rgb: "E2E8F0" } },
-    }
-  };
-  const moneyStyle = {
-    ...cellStyle,
-    numFmt: '"$"#,##0.00',
-    alignment: { horizontal: "right", vertical: "center" },
-    font: { color: { rgb: "16A34A" }, bold: true },
-  };
-  const altStyle = {
-    ...cellStyle,
-    fill: { fgColor: { rgb: "F8FAFC" } },
-  };
-
-  const colCount = headers.length;
-  const rowCount = rows.length;
-
-  // Aplicar estilo a encabezados
-  for(let c = 0; c < colCount; c++) {
-    const addr = XLSX.utils.encode_cell({r:0, c});
-    if(ws[addr]) ws[addr].s = headerStyle;
-  }
-
-  // Detectar columnas monetarias (contienen "$" en el valor o "Mto"/"Monto"/"USD"/"US$" en header)
-  const moneyHeaders = new Set(
-    headers.map((h,i) => (
-      /mto|monto|usd|us\$|cobro|facturar|cobrar|total osiris|regalía/i.test(h) ? i : -1
-    )).filter(i => i >= 0)
-  );
-
-  // Aplicar estilos a celdas de datos
-  for(let r = 1; r <= rowCount; r++) {
-    const isAlt = r % 2 === 0;
-    for(let c = 0; c < colCount; c++) {
-      const addr = XLSX.utils.encode_cell({r, c});
-      if(!ws[addr]) ws[addr] = {t:"s", v:""};
-      if(moneyHeaders.has(c) && typeof ws[addr].v === "number") {
-        ws[addr].s = moneyStyle;
-        ws[addr].t = "n";
-      } else {
-        ws[addr].s = isAlt ? altStyle : cellStyle;
-      }
-    }
-  }
-
-  // Anchos de columna automáticos
-  ws["!cols"] = headers.map((h, i) => {
-    const maxLen = Math.max(
-      h.length,
-      ...rows.map(r => String(r[i] ?? "").length)
-    );
-    return { wch: Math.min(Math.max(maxLen + 2, 10), 40) };
-  });
-
-  // Altura de fila de encabezado
-  ws["!rows"] = [{ hpx: 22 }];
-
-  // Freeze primera fila
-  ws["!freeze"] = { xSplit: 0, ySplit: 1, topLeftCell: "A2", activePane: "bottomLeft", state: "frozen" };
-
-  // Crear workbook
-  const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, ws, nombre.slice(0, 31));
-
-  // Propiedades del libro
-  wb.Props = {
-    Title: nombre,
-    Subject: "Osiris Plant Management — Mediterra",
-    Author: "Grupo Mediterra",
-    CreatedDate: new Date(),
-  };
-
-  XLSX.writeFile(wb, `${nombre}_${fecha}.xlsx`);
+  const blob = await zip.generateAsync({type:"blob", mimeType:"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"});
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement("a");
+  a.href = url;
+  a.download = `${nombre}_${fecha}.xlsx`;
+  a.click();
+  URL.revokeObjectURL(url);
 }
 
 // ── Helper: barra de filtros + exportar reutilizable ──────────
