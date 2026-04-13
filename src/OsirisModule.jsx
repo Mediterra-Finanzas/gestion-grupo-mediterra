@@ -1,7 +1,7 @@
 // ============================================================
 // OsirisModule.jsx — v4 — Módulo Osiris Plant · Mediterra
 // ============================================================
-import { useState, useCallback, useMemo } from "react";
+import React, { useState, useCallback, useMemo } from "react";
 
 // ── Paleta ────────────────────────────────────────────────
 const C = {
