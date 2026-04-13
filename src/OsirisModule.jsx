@@ -5866,7 +5866,7 @@ function MaestroClientes({clientes,setClientes,can}){
                 <td style={{padding:"6px 10px",color:"#64748b",fontSize:11}}>{c.repLegal||"—"}</td>
                 <td style={{padding:"6px 10px",color:"#64748b",fontSize:11}}>{c.contactoCobranza||"—"}</td>
                 <td style={{padding:"6px 8px",textAlign:"center"}}>
-                  {can&&<div style={{display:"flex",gap:4"}}>
+                  {can&&<div style={{display:"flex",gap:4}}>
                     <button onClick={()=>iniciarEdicion(c)} style={{background:"#dbeafe",border:"none",borderRadius:4,padding:"3px 8px",cursor:"pointer",fontSize:11,color:"#1d4ed8",fontWeight:600}}>✏️</button>
                     <button onClick={()=>{if(window.confirm(`¿Eliminar cliente "${c.razonSocial}"?`))setClientes(prev=>prev.filter(x=>x.id!==c.id));}}
                       style={{background:"#fee2e2",border:"none",borderRadius:4,padding:"3px 8px",cursor:"pointer",fontSize:11,color:"#991b1b",fontWeight:600}}>×</button>
