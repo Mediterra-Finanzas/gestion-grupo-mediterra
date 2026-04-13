@@ -2860,7 +2860,16 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
 
   const handleSaveSaldos=useCallback(async(next)=>{
     setSaldosBancos(next);
-    const ok=await dbSave({finanzas_real:realData,allegria_params:params,saldos_bancos:next,params_emp:
+    const ok=await dbSave({finanzas_real:realData,allegria_params:params,saldos_bancos:next,params_emp:paramsEmp});
+    setSaved(ok?"✅ Guardado":"⚠️ Error");
+    setTimeout(()=>setSaved(null),3000);
+  },[realData,params,paramsEmp]);
+
+  useEffect(()=>{
+    if(loading) return;
+    const t=setTimeout(()=>dbSave({finanzas_real:realData,allegria_params:params,saldos_bancos:saldosBancos,params_emp:paramsEmp}),800);
+    return ()=>clearTimeout(t);
+  },[params,loading]); // eslint-disable-line
 
   if(loading) return (
     <div style={{display:"flex",alignItems:"center",justifyContent:"center",
