@@ -778,23 +778,43 @@ export default function App(){
           if(d.osirisData){
             const saved=d.osirisData;
             setOsirisData(prev=>{
-              function mergeSection(savedArr, initArr, idField="id"){
-                if(!savedArr||savedArr.length===0) return initArr;
-                const ids=new Set(savedArr.map(r=>r[idField]));
-                const nuevos=initArr.filter(r=>!ids.has(r[idField]));
-                const merged=savedArr.map(r=>{
-                  const base=initArr.find(b=>b[idField]===r[idField]);
-                  return base?{...base,...r}:r;
+              // Solo restaurar registros con ediciones del usuario:
+              // agregados manualmente (id no empieza con _xl_) o con campos editados
+              function extractUserEdits(savedArr){
+                if(!savedArr||savedArr.length===0) return [];
+                return savedArr.filter(r=>{
+                  const id = String(r.id||'');
+                  // Registro agregado manualmente (no viene del Excel)
+                  if(!id.includes('_xl_')) return true;
+                  // Registro del Excel con ediciones del usuario
+                  if(r.pagado===true) return true;
+                  if(r.nFact && String(r.nFact).trim()!=='') return true;
+                  if(r.nOC && String(r.nOC).trim()!=='') return true;
+                  if(r.fechaPago && String(r.fechaPago).trim()!=='') return true;
+                  if(r.ha && Number(r.ha)>0) return true;
+                  return false;
                 });
-                return[...merged,...nuevos];
+              }
+              // Merge: base = _INIT de OsirisModule (que viene en prev via useState)
+              // Encima: aplicar ediciones del usuario guardadas en Supabase
+              function mergeEdits(base, edits, idField="id"){
+                if(!edits||edits.length===0) return base;
+                const edited = {};
+                edits.forEach(r=>{ edited[r[idField]] = r; });
+                // Actualizar registros base con ediciones
+                const merged = base.map(r => edited[r[idField]] ? {...r,...edited[r[idField]]} : r);
+                // Agregar registros nuevos (agregados manualmente, no están en base)
+                const baseIds = new Set(base.map(r=>r[idField]));
+                const nuevos = edits.filter(r=>!baseIds.has(r[idField]));
+                return [...merged, ...nuevos];
               }
               return{
                 ...prev,
-                royaltyPlanta:    mergeSection(saved.royaltyPlanta,    []),
-                feeEntrada:       mergeSection(saved.feeEntrada,       []),
-                royaltyComercial: mergeSection(saved.royaltyComercial, []),
-                feeViveros:       mergeSection(saved.feeViveros,       []),
-                totalPedidos:     mergeSection(saved.totalPedidos,     []),
+                royaltyPlanta:    mergeEdits(prev.royaltyPlanta||[],    extractUserEdits(saved.royaltyPlanta)),
+                feeEntrada:       mergeEdits(prev.feeEntrada||[],       extractUserEdits(saved.feeEntrada)),
+                royaltyComercial: mergeEdits(prev.royaltyComercial||[], extractUserEdits(saved.royaltyComercial)),
+                feeViveros:       mergeEdits(prev.feeViveros||[],       extractUserEdits(saved.feeViveros)),
+                totalPedidos:     mergeEdits(prev.totalPedidos||[],     extractUserEdits(saved.totalPedidos)),
                 contratos: saved.contratos||prev.contratos||[],
               };
             });
