@@ -121,6 +121,27 @@ const PAISES = ["Peru","Mexico","Chile","Corea","España"];
 const VIVEROS = ["Synergia Chile","Synergia Mexico","Agromillora Pe","Agromillora"];
 const TIPOS   = ["Anticipo","Entrega","Anticipo/Entrega"];
 
+// Regalías por vivero (US$ por planta) — parametrizable
+const REGALIAS_VIVERO_BASE = {
+  "Synergia Chile":  0.45,
+  "Synergia Mexico": 0.45,
+  "Synergiabio":     0.45,
+  "Agromillora Pe":  1.15,
+  "Agromillora":     1.15,
+};
+
+// Calcular trimestre de pago del vivero según trimestre de entrega
+// El vivero paga el trimestre SIGUIENTE a la entrega
+function trimPagoVivero(trimEntrega, añoEntrega) {
+  const t = parseInt(trimEntrega);
+  const a = parseInt(añoEntrega);
+  if(t < 4) return { trim: t + 1, año: a };
+  return { trim: 1, año: a + 1 };
+}
+
+// % anticipo por defecto según tipo pago vivero
+const PCT_ANTICIPO_DEFAULT = 0.60; // 60% en OC, 40% en despacho
+
 // Helper: selector cliente en modales — desplegable desde maestro + autocompletado país
 function SelectorCliente({form,setForm,clientes}){
   return(
@@ -408,16 +429,40 @@ function BarraFiltros({filtros, onExportar, exportLabel="⬇️ Exportar"}) {
 // ══════════════════════════════════════════════════════════
 // TOTAL PEDIDOS — Registro maestro de negociación
 // ══════════════════════════════════════════════════════════
-function TotalPedidos({data,setData,can,clientes=[]}) {
+function TotalPedidos({data,setData,rpData,setRpData,rcData,setRcData,fvData,setFvData,can,clientes=[]}) {
   const [filtroPais,setFiltroPais]=useState("Todos");
   const [filtroAño,setFiltroAño]=useState("Todos");
+  const [filtroEst,setFiltroEst]=useState("Todos");
   const [filtroCli,setFiltroCli]=useState("");
   const [modal,setModal]=useState(false);
-  const [form,setForm]=useState({
+  const [regalias,setRegalias]=useState(REGALIAS_VIVERO_BASE);
+  const [showRegalias,setShowRegalias]=useState(false);
+
+  const añoActual = new Date().getFullYear();
+  const formVacio = {
     cliente:"",pais:"Peru",vivero:"Synergia Chile",
-    fechaPedido:"",añoEntrega:new Date().getFullYear(),trimEntrega:1,
-    nPlantas:"",ha:"",
-  });
+    fechaPedido:"",añoEntrega:añoActual,trimEntrega:1,
+    nPlantas:"",ha:"",estado:"Por confirmar",
+    // Fee vivero
+    regaliaVivero:"",pctAnticipo:60,
+    trimPagoVivero:"",añoPagoVivero:"",
+  };
+  const [form,setForm]=useState(formVacio);
+
+  // Auto-calcular regalia y trim pago cuando cambia vivero o trim/año entrega
+  function calcularDefaults(f) {
+    const reg = regalias[f.vivero] ?? 0.45;
+    const { trim, año } = trimPagoVivero(f.trimEntrega, f.añoEntrega);
+    return { ...f, regaliaVivero: reg, trimPagoVivero: trim, añoPagoVivero: año };
+  }
+
+  function setF(c,v) {
+    setForm(prev => {
+      const next = {...prev,[c]:v};
+      if(c==="vivero"||c==="trimEntrega"||c==="añoEntrega") return calcularDefaults(next);
+      return next;
+    });
+  }
 
   const años=["Todos",...Array.from(new Set(data.map(r=>r.añoEntrega))).sort()];
   const paises=["Todos",...Array.from(new Set(data.map(r=>r.pais).filter(Boolean))).sort()];
@@ -425,58 +470,175 @@ function TotalPedidos({data,setData,can,clientes=[]}) {
   const filtrado=data.filter(r=>
     (filtroPais==="Todos"||r.pais===filtroPais)&&
     (filtroAño==="Todos"||r.añoEntrega===Number(filtroAño))&&
+    (filtroEst==="Todos"||r.estado===filtroEst)&&
     (!filtroCli||r.cliente?.toLowerCase().includes(filtroCli.toLowerCase()))
   );
 
   const totPlantas=filtrado.reduce((s,r)=>s+(Number(r.nPlantas)||0),0);
   const totHa=filtrado.reduce((s,r)=>s+(Number(r.ha)||0),0);
+  const confirmados=filtrado.filter(r=>r.estado==="Confirmado").length;
 
-  function upd(id,c,v){setData(prev=>prev.map(r=>r.id===id?{...r,[c]:v}:r));}
-  function agregar(){
+  // Propagar a pestañas hijas cuando se confirma un pedido
+  function propagarPedido(pedido) {
+    const tpId = pedido.id;
+
+    // 1. Royalty por Planta — crear fila si no existe
+    const rpExiste = rpData.some(r=>r.tpId===tpId);
+    if(!rpExiste) {
+      setRpData(prev=>[...prev,{
+        id:`rp_${tpId}`,tpId,
+        cliente:pedido.cliente,pais:pedido.pais,vivero:pedido.vivero||"",
+        nPlantas:pedido.nPlantas,usdPlanta:"",
+        añoEntrega:pedido.añoEntrega,
+        nFact:"",pagado:false,fechaPago:"",
+      }]);
+    }
+
+    // 2. Royalty Comercial — crear fila para el año siguiente si tiene Há
+    if(pedido.ha && Number(pedido.ha)>0) {
+      const añoRC = (pedido.añoEntrega||añoActual) + 1;
+      const rcExiste = rcData.some(r=>r.tpId===tpId);
+      if(!rcExiste) {
+        setRcData(prev=>[...prev,{
+          id:`rc_${tpId}`,tpId,
+          cliente:pedido.cliente,pais:pedido.pais,
+          ha:pedido.ha,usdHa:3000,
+          añoCobro:añoRC,trimCobro:2,
+          nFact:"",pagado:false,
+          _generado:true,
+        }]);
+      }
+    }
+
+    // 3. Fee Vivero — crear dos filas: Anticipo (OC) + Despacho
+    const fvExiste = fvData.some(r=>r.tpId===tpId);
+    if(!fvExiste) {
+      const reg = pedido.regaliaVivero || regalias[pedido.vivero] || 0.45;
+      const nPl = Number(pedido.nPlantas)||0;
+      const total = nPl * reg;
+      const pctAntic = (Number(pedido.pctAnticipo)||60)/100;
+      const montoAntic = total * pctAntic;
+      const montoDespac = total * (1 - pctAntic);
+      const trimPago = pedido.trimPagoVivero || trimPagoVivero(pedido.trimEntrega,pedido.añoEntrega).trim;
+      const añoPago  = pedido.añoPagoVivero  || trimPagoVivero(pedido.trimEntrega,pedido.añoEntrega).año;
+      const now = Date.now();
+      setFvData(prev=>[...prev,
+        {
+          id:`fv_oc_${tpId}`,tpId,
+          vivero:pedido.vivero||"Synergiabio",empresa:pedido.cliente,pais:pedido.pais,
+          proforma:"",nPlantas:nPl,regalia:reg,totalOsiris:total,
+          tipoPago:"Anticipo (OC)",montoFact:montoAntic,
+          trimPago,añoPago,fechaFact:"",nFact:"",pagado:false,
+          _fromPedido:true,
+        },
+        {
+          id:`fv_des_${tpId}`,tpId,
+          vivero:pedido.vivero||"Synergiabio",empresa:pedido.cliente,pais:pedido.pais,
+          proforma:"",nPlantas:nPl,regalia:reg,totalOsiris:total,
+          tipoPago:"Despacho",montoFact:montoDespac,
+          trimPago,añoPago,fechaFact:"",nFact:"",pagado:false,
+          _fromPedido:true,
+        },
+      ]);
+    }
+  }
+
+  // Actualizar estado de un pedido
+  function upd(id,c,v) {
+    setData(prev=>prev.map(r=>{
+      if(r.id!==id) return r;
+      const updated = {...r,[c]:v};
+      // Si se confirma → propagar automáticamente
+      if(c==="estado" && v==="Confirmado") {
+        setTimeout(()=>propagarPedido(updated),0);
+      }
+      return updated;
+    }));
+  }
+
+  function agregar() {
     if(!form.cliente.trim()){alert("Cliente es obligatorio.");return;}
     if(!form.nPlantas){alert("N° de plantas es obligatorio.");return;}
-    setData(prev=>[...prev,{
+    const nuevo = {
       ...form,id:`tp_${Date.now()}`,
       nPlantas:parseFloat(form.nPlantas)||0,
       ha:parseFloat(form.ha)||0,
       añoEntrega:parseInt(form.añoEntrega),
       trimEntrega:parseInt(form.trimEntrega),
-    }]);
+      regaliaVivero:parseFloat(form.regaliaVivero)||regalias[form.vivero]||0.45,
+      pctAnticipo:parseFloat(form.pctAnticipo)||60,
+      trimPagoVivero:parseInt(form.trimPagoVivero)||trimPagoVivero(form.trimEntrega,form.añoEntrega).trim,
+      añoPagoVivero:parseInt(form.añoPagoVivero)||trimPagoVivero(form.trimEntrega,form.añoEntrega).año,
+    };
+    setData(prev=>[...prev,nuevo]);
+    if(nuevo.estado==="Confirmado") propagarPedido(nuevo);
     setModal(false);
-    setForm({cliente:"",pais:"Peru",vivero:"Synergia Chile",fechaPedido:"",
-      añoEntrega:new Date().getFullYear(),trimEntrega:1,nPlantas:"",ha:""});
+    setForm(formVacio);
   }
+
+  const TRIM_LABEL = ["","T1 Ene-Mar","T2 Abr-Jun","T3 Jul-Sep","T4 Oct-Dic"];
 
   return (
     <div>
+      {/* Mantenedor de regalías */}
+      {can&&showRegalias&&(
+        <div style={{background:"#f0fdf4",border:"1px solid #86efac",borderRadius:12,padding:"16px 20px",marginBottom:16}}>
+          <div style={{fontSize:13,fontWeight:700,color:C.verde,marginBottom:12}}>⚙️ Regalías por Vivero (US$/Planta)</div>
+          <div style={{display:"flex",gap:12,flexWrap:"wrap"}}>
+            {Object.entries(regalias).map(([vivero,val])=>(
+              <div key={vivero} style={{background:"#fff",borderRadius:8,padding:"10px 14px",border:"1px solid #bbf7d0",minWidth:200}}>
+                <div style={{fontSize:11,color:C.gris,fontWeight:600,marginBottom:6}}>{vivero}</div>
+                <div style={{display:"flex",alignItems:"center",gap:6}}>
+                  <span style={{fontSize:12,color:C.gris}}>US$</span>
+                  <input type="number" step="0.01" value={val}
+                    onChange={e=>setRegalias(p=>({...p,[vivero]:parseFloat(e.target.value)||0}))}
+                    style={{width:80,padding:"5px 8px",borderRadius:6,border:"1px solid #86efac",fontSize:13,textAlign:"right"}}/>
+                  <span style={{fontSize:11,color:C.gris}}>/planta</span>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       <div style={{display:"flex",gap:12,marginBottom:16,flexWrap:"wrap"}}>
         {[
           [N(totPlantas),"Total Plantas",C.teal,C.tealBg],
-          [N(totHa)+" há","Total Hectáreas",C.verde,C.verdeBg],
-          [filtrado.length,"Registros",C.gris,C.grisBg],
+          [N(totHa)+" há","Hectáreas",C.verde,C.verdeBg],
+          [confirmados,"Confirmados",C.azul,C.azulBg],
+          [filtrado.length-confirmados,"Por confirmar",C.am,C.amBg],
         ].map(([v,l,c,bg])=>(
-          <div key={l} style={{background:bg,borderRadius:12,padding:"12px 18px",flex:1,minWidth:120}}>
+          <div key={l} style={{background:bg,borderRadius:12,padding:"12px 18px",flex:1,minWidth:110}}>
             <div style={{fontSize:11,color:c,fontWeight:600}}>{l}</div>
             <div style={{fontSize:20,fontWeight:800,color:c}}>{v}</div>
           </div>
         ))}
-        {can&&<button onClick={()=>setModal(true)}
-          style={{background:C.azul,color:"#fff",border:"none",borderRadius:8,padding:"8px 16px",
-            cursor:"pointer",fontSize:12,fontWeight:700,alignSelf:"center"}}>
-          + Nuevo Pedido
-        </button>}
+        <div style={{display:"flex",gap:8,alignSelf:"center",flexWrap:"wrap"}}>
+          {can&&<button onClick={()=>setModal(true)}
+            style={{background:C.azul,color:"#fff",border:"none",borderRadius:8,padding:"8px 16px",cursor:"pointer",fontSize:12,fontWeight:700}}>
+            + Nuevo Pedido
+          </button>}
+          {can&&<button onClick={()=>setShowRegalias(v=>!v)}
+            style={{background:showRegalias?"#16a34a":"#f1f5f9",color:showRegalias?"#fff":C.sl,border:"1px solid #e2e8f0",borderRadius:8,padding:"8px 14px",cursor:"pointer",fontSize:12,fontWeight:600}}>
+            ⚙️ Regalías
+          </button>}
+        </div>
       </div>
 
       <BarraFiltros
         filtros={[
           {label:"Cliente",tipo:"input",valor:filtroCli,onChange:setFiltroCli},
           {label:"País",opciones:paises,valor:filtroPais,onChange:setFiltroPais},
-          {label:"Año entrega",opciones:años,valor:filtroAño,onChange:v=>setFiltroAño(String(v))},
+          {label:"Año",opciones:años,valor:filtroAño,onChange:v=>setFiltroAño(String(v))},
+          {label:"Estado",opciones:["Todos","Confirmado","Por confirmar"],valor:filtroEst,onChange:setFiltroEst},
         ]}
         onExportar={async ()=>exportCSV(
           filtrado.map(r=>[r.cliente,r.pais,r.vivero||"",r.fechaPedido||"",
-            r.añoEntrega,r.trimEntrega,r.nPlantas||0,r.ha||0]),
-          ["Cliente","País","Vivero","Fecha Pedido","Año Entrega","Trim. Entrega","N° Plantas","Há"],
+            r.añoEntrega,`T${r.trimEntrega}`,r.nPlantas||0,r.ha||0,r.estado||"",
+            r.regaliaVivero||"",r.pctAnticipo||60,
+            `T${r.trimPagoVivero} ${r.añoPagoVivero}`]),
+          ["Cliente","País","Vivero","Fecha Pedido","Año Entrega","Trim.","N° Plantas","Há","Estado",
+           "Regalía US$/Pl","% Anticipo","Trim. Pago Vivero"],
           "TotalPedidos"
         )}
       />
@@ -484,34 +646,66 @@ function TotalPedidos({data,setData,can,clientes=[]}) {
       <div style={{overflowX:"auto"}}>
         <table style={{borderCollapse:"collapse",width:"100%",background:"#fff",borderRadius:10,overflow:"hidden"}}>
           <Th cols={[
-            {l:"Cliente",w:140},{l:"País",w:80},{l:"Vivero",w:130},
-            {l:"Fecha Pedido",c:true,w:110},{l:"Año/Trim. Entrega",c:true,w:130},
-            {l:"N° Plantas",c:true,w:110},{l:"Hectáreas",c:true,w:100},
+            {l:"Estado",c:true,w:130},{l:"Cliente",w:130},{l:"País",w:70},{l:"Vivero",w:120},
+            {l:"Fecha Pedido",c:true,w:110},{l:"Entrega",c:true,w:100},
+            {l:"N° Plantas",c:true,w:100},{l:"Há",c:true,w:70},
+            {l:"Regalía/Pl",c:true,w:90},{l:"% Antic.",c:true,w:80},{l:"Trim. Pago",c:true,w:100},
             ...(can?[{l:"",c:true,w:40}]:[]),
           ]}/>
           <tbody>
             {filtrado.map((r,i)=>(
-              <tr key={r.id} style={{borderBottom:"1px solid #f1f5f9",background:i%2===0?"#fff":"#f8fafc"}}>
-                <td style={{padding:"8px 12px",fontWeight:600}}>
+              <tr key={r.id} style={{borderBottom:"1px solid #f1f5f9",
+                background:r.estado==="Confirmado"?"#f0fdf4":i%2===0?"#fff":"#fffbeb"}}>
+                <td style={{padding:"7px 10px",textAlign:"center"}}>
+                  {can
+                    ? <select value={r.estado||"Por confirmar"} onChange={e=>upd(r.id,"estado",e.target.value)}
+                        style={{borderRadius:20,border:`1px solid ${r.estado==="Confirmado"?"#86efac":"#fde047"}`,
+                          background:r.estado==="Confirmado"?C.verdeBg:C.amBg,
+                          color:r.estado==="Confirmado"?C.verde:C.am,
+                          padding:"3px 10px",fontSize:11,fontWeight:700,cursor:"pointer"}}>
+                        <option value="Por confirmar">⏳ Por confirmar</option>
+                        <option value="Confirmado">✅ Confirmado</option>
+                      </select>
+                    : <span style={{background:r.estado==="Confirmado"?C.verdeBg:C.amBg,
+                        color:r.estado==="Confirmado"?C.verde:C.am,
+                        borderRadius:20,padding:"3px 10px",fontSize:11,fontWeight:700}}>
+                        {r.estado==="Confirmado"?"✅ Confirmado":"⏳ Por confirmar"}
+                      </span>
+                  }
+                </td>
+                <td style={{padding:"7px 10px",fontWeight:600}}>
                   <NombreCliente nombre={r.cliente} clientes={clientes} onChange={v=>upd(r.id,"cliente",v)} can={can}/>
                 </td>
-                <td style={{padding:"8px 12px",fontSize:12}}>
-                  <Cell val={r.pais} onChange={v=>upd(r.id,"pais",v)} opts={PAISES} can={can}/>
-                </td>
-                <td style={{padding:"8px 12px",fontSize:12}}>
-                  <Cell val={r.vivero||""} onChange={v=>upd(r.id,"vivero",v)} opts={VIVEROS} can={can}/>
-                </td>
-                <td style={{padding:"8px 12px",textAlign:"center",fontSize:12}}>
+                <td style={{padding:"7px 10px",fontSize:12}}><Cell val={r.pais} onChange={v=>upd(r.id,"pais",v)} opts={PAISES} can={can}/></td>
+                <td style={{padding:"7px 10px",fontSize:11}}><Cell val={r.vivero||""} onChange={v=>upd(r.id,"vivero",v)} opts={VIVEROS} can={can}/></td>
+                <td style={{padding:"7px 10px",textAlign:"center",fontSize:11}}>
                   <Cell val={r.fechaPedido||""} onChange={v=>upd(r.id,"fechaPedido",v)} type="date" can={can}/>
                 </td>
-                <td style={{padding:"8px 12px",textAlign:"center",fontWeight:600,color:C.teal}}>
+                <td style={{padding:"7px 10px",textAlign:"center",fontWeight:600,color:C.teal,fontSize:12}}>
                   {r.añoEntrega} T{r.trimEntrega}
                 </td>
-                <td style={{padding:"8px 12px",textAlign:"right",fontWeight:700,color:C.teal}}>
+                <td style={{padding:"7px 10px",textAlign:"right",fontWeight:700,color:C.teal}}>
                   <Cell val={r.nPlantas} onChange={v=>upd(r.id,"nPlantas",parseFloat(v)||0)} type="number" can={can}/>
                 </td>
-                <td style={{padding:"8px 12px",textAlign:"right",fontWeight:600}}>
+                <td style={{padding:"7px 10px",textAlign:"right"}}>
                   <Cell val={r.ha||""} onChange={v=>upd(r.id,"ha",parseFloat(v)||0)} type="number" can={can} ph="0"/>
+                </td>
+                <td style={{padding:"7px 10px",textAlign:"center",fontSize:11}}>
+                  <Cell val={r.regaliaVivero||regalias[r.vivero]||0.45} onChange={v=>upd(r.id,"regaliaVivero",parseFloat(v)||0)} type="number" can={can}/>
+                </td>
+                <td style={{padding:"7px 10px",textAlign:"center",fontSize:11}}>
+                  <Cell val={r.pctAnticipo||60} onChange={v=>upd(r.id,"pctAnticipo",parseFloat(v)||60)} type="number" can={can}/>
+                  <span style={{fontSize:9,color:C.gris}}>%</span>
+                </td>
+                <td style={{padding:"7px 10px",textAlign:"center",fontSize:11,color:C.mo,fontWeight:600}}>
+                  {r.trimPagoVivero&&r.añoPagoVivero
+                    ? <Cell val={`T${r.trimPagoVivero} ${r.añoPagoVivero}`}
+                        onChange={v=>{
+                          const m=v.match(/T?(\d)\s+(\d{4})/);
+                          if(m){upd(r.id,"trimPagoVivero",parseInt(m[1]));upd(r.id,"añoPagoVivero",parseInt(m[2]));}
+                        }} can={can}/>
+                    : "—"
+                  }
                 </td>
                 {can&&<td style={{padding:"4px 6px",textAlign:"center"}}>
                   <button onClick={()=>{if(window.confirm(`¿Eliminar pedido de "${r.cliente}"?`))setData(prev=>prev.filter(x=>x.id!==r.id));}}
@@ -519,8 +713,8 @@ function TotalPedidos({data,setData,can,clientes=[]}) {
                 </td>}
               </tr>
             ))}
-            {filtrado.length===0&&<tr><td colSpan={8} style={{textAlign:"center",padding:32,color:C.gris,fontSize:13}}>
-              Sin registros. {can&&"Usa \"+ Nuevo Pedido\" para agregar."}
+            {filtrado.length===0&&<tr><td colSpan={12} style={{textAlign:"center",padding:32,color:C.gris,fontSize:13}}>
+              Sin registros.
             </td></tr>}
           </tbody>
         </table>
@@ -528,35 +722,99 @@ function TotalPedidos({data,setData,can,clientes=[]}) {
 
       {modal&&(
         <div style={{position:"fixed",inset:0,background:"#0006",zIndex:300,display:"flex",alignItems:"center",justifyContent:"center"}}>
-          <div style={{background:"#fff",borderRadius:16,padding:28,width:520,maxWidth:"94vw",boxShadow:"0 8px 32px #0003",maxHeight:"90vh",overflowY:"auto"}}>
+          <div style={{background:"#fff",borderRadius:16,padding:28,width:560,maxWidth:"95vw",maxHeight:"92vh",overflowY:"auto",boxShadow:"0 8px 32px #0003"}}>
             <h3 style={{margin:"0 0 16px",color:C.sl}}>Nuevo Pedido de Plantas</h3>
-            <SelectorCliente form={form} setForm={setForm} clientes={clientes}/>
-            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginTop:12}}>
+
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+              {/* Columna izquierda */}
+              <div style={{gridColumn:"1/-1"}}>
+                <SelectorCliente form={form} setForm={f=>setForm(prev=>calcularDefaults({...prev,...f}))} clientes={clientes}/>
+              </div>
+
               {[
-                ["Vivero","vivero","select",VIVEROS],
                 ["País","pais","select",PAISES],
+                ["Estado","estado","select",["Por confirmar","Confirmado"]],
+                ["Vivero","vivero","select",VIVEROS],
                 ["Fecha Pedido","fechaPedido","date",null],
                 ["Año Entrega","añoEntrega","number",null],
-                ["Trimestre Entrega","trimEntrega","select",["1","2","3","4"]],
+                ["Trim. Entrega","trimEntrega","select",["1","2","3","4"]],
                 ["N° Plantas","nPlantas","number",null],
                 ["Hectáreas a plantar","ha","number",null],
               ].map(([l,c,t,opts])=>(
                 <div key={c}>
                   <label style={{fontSize:11,fontWeight:600,color:"#374151",display:"block",marginBottom:4}}>{l}</label>
                   {opts
-                    ? <select value={form[c]||""} onChange={e=>setForm(p=>({...p,[c]:e.target.value}))}
+                    ? <select value={form[c]||""} onChange={e=>setF(c,e.target.value)}
                         style={{width:"100%",padding:"7px 10px",borderRadius:8,border:"1px solid #d1d5db",fontSize:13,boxSizing:"border-box"}}>
                         {opts.map(o=><option key={o}>{o}</option>)}
                       </select>
-                    : <input type={t} value={form[c]||""} onChange={e=>setForm(p=>({...p,[c]:e.target.value}))}
+                    : <input type={t} value={form[c]||""} onChange={e=>setF(c,e.target.value)}
                         style={{width:"100%",padding:"7px 10px",borderRadius:8,border:"1px solid #d1d5db",fontSize:13,boxSizing:"border-box"}}/>
                   }
                 </div>
               ))}
             </div>
+
+            {/* Sección Fee Vivero */}
+            <div style={{marginTop:16,background:"#f0fdf4",borderRadius:10,padding:"14px 16px",border:"1px solid #86efac"}}>
+              <div style={{fontSize:12,fontWeight:700,color:C.verde,marginBottom:10}}>🏭 Fee Vivero (se genera automáticamente)</div>
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:10}}>
+                <div>
+                  <label style={{fontSize:11,fontWeight:600,color:"#374151",display:"block",marginBottom:4}}>Regalía US$/Planta</label>
+                  <input type="number" step="0.01" value={form.regaliaVivero||""} onChange={e=>setF("regaliaVivero",e.target.value)}
+                    style={{width:"100%",padding:"7px 10px",borderRadius:8,border:"1px solid #86efac",fontSize:13,boxSizing:"border-box"}}/>
+                </div>
+                <div>
+                  <label style={{fontSize:11,fontWeight:600,color:"#374151",display:"block",marginBottom:4}}>% Anticipo (OC)</label>
+                  <div style={{display:"flex",alignItems:"center",gap:4}}>
+                    <input type="number" min="0" max="100" value={form.pctAnticipo||60} onChange={e=>setF("pctAnticipo",e.target.value)}
+                      style={{width:"100%",padding:"7px 10px",borderRadius:8,border:"1px solid #86efac",fontSize:13,boxSizing:"border-box"}}/>
+                    <span style={{fontSize:11,color:C.gris}}>%</span>
+                  </div>
+                </div>
+                <div>
+                  <label style={{fontSize:11,fontWeight:600,color:"#374151",display:"block",marginBottom:4}}>% Despacho</label>
+                  <input type="text" readOnly value={`${100-(Number(form.pctAnticipo)||60)}%`}
+                    style={{width:"100%",padding:"7px 10px",borderRadius:8,border:"1px solid #e2e8f0",fontSize:13,background:"#f8fafc",color:C.gris,boxSizing:"border-box"}}/>
+                </div>
+                <div>
+                  <label style={{fontSize:11,fontWeight:600,color:"#374151",display:"block",marginBottom:4}}>Trim. Pago Vivero</label>
+                  <select value={form.trimPagoVivero||""} onChange={e=>setF("trimPagoVivero",e.target.value)}
+                    style={{width:"100%",padding:"7px 10px",borderRadius:8,border:"1px solid #86efac",fontSize:13,boxSizing:"border-box"}}>
+                    <option value="1">T1 Ene-Mar</option>
+                    <option value="2">T2 Abr-Jun</option>
+                    <option value="3">T3 Jul-Sep</option>
+                    <option value="4">T4 Oct-Dic</option>
+                  </select>
+                </div>
+                <div>
+                  <label style={{fontSize:11,fontWeight:600,color:"#374151",display:"block",marginBottom:4}}>Año Pago Vivero</label>
+                  <input type="number" value={form.añoPagoVivero||""} onChange={e=>setF("añoPagoVivero",e.target.value)}
+                    style={{width:"100%",padding:"7px 10px",borderRadius:8,border:"1px solid #86efac",fontSize:13,boxSizing:"border-box"}}/>
+                </div>
+                {form.nPlantas&&form.regaliaVivero&&(
+                  <div style={{display:"flex",flexDirection:"column",justifyContent:"flex-end"}}>
+                    <div style={{background:"#fff",borderRadius:8,padding:"8px 10px",border:"1px solid #86efac",fontSize:11}}>
+                      <div style={{color:C.gris}}>Total regalia:</div>
+                      <div style={{fontWeight:800,color:C.verde,fontSize:14}}>
+                        US${((Number(form.nPlantas)||0)*(Number(form.regaliaVivero)||0)).toLocaleString("es-CL",{minimumFractionDigits:2,maximumFractionDigits:2})}
+                      </div>
+                      <div style={{color:C.azul,fontSize:10}}>
+                        OC: {form.pctAnticipo||60}% · Despacho: {100-(Number(form.pctAnticipo)||60)}%
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+
             <div style={{display:"flex",gap:10,justifyContent:"flex-end",marginTop:20}}>
-              <button onClick={()=>setModal(false)} style={{padding:"8px 18px",borderRadius:8,border:"1px solid #d1d5db",background:"#fff",cursor:"pointer",fontSize:14}}>Cancelar</button>
-              <button onClick={agregar} style={{padding:"8px 18px",borderRadius:8,border:"none",background:C.azul,color:"#fff",cursor:"pointer",fontSize:14,fontWeight:600}}>Guardar</button>
+              <button onClick={()=>{setModal(false);setForm(formVacio);}}
+                style={{padding:"8px 18px",borderRadius:8,border:"1px solid #d1d5db",background:"#fff",cursor:"pointer",fontSize:14}}>Cancelar</button>
+              <button onClick={agregar}
+                style={{padding:"8px 18px",borderRadius:8,border:"none",background:C.azul,color:"#fff",cursor:"pointer",fontSize:14,fontWeight:600}}>
+                {form.estado==="Confirmado"?"✅ Guardar y propagar":"💾 Guardar pedido"}
+              </button>
             </div>
           </div>
         </div>
@@ -1321,9 +1579,9 @@ function FeeViveros({data,setData,can,clientes=[]}) {
       <div style={{overflowX:"auto"}}>
         <table style={{borderCollapse:"collapse",width:"100%",background:"#fff",borderRadius:10,overflow:"hidden"}}>
           <Th cols={[
-            {l:"Vivero",w:100},{l:"Empresa",w:150},{l:"País",w:70},{l:"Proforma",w:130},
-            {l:"N° Plantas",c:true,w:90},{l:"Regalía",c:true,w:70},{l:"Total Osiris",c:true,w:110},
-            {l:"Tipo",c:true,w:90},{l:"Mto. Facturar",c:true,w:115},
+            {l:"Vivero",w:100},{l:"Empresa",w:140},{l:"País",w:70},{l:"Proforma",w:110},
+            {l:"N° Plantas",c:true,w:90},{l:"Regalía",c:true,w:70},{l:"Total",c:true,w:100},
+            {l:"Tipo Pago",c:true,w:120},{l:"Trim. Pago",c:true,w:100},{l:"Mto.",c:true,w:100},
             {l:"Fecha Fact.",c:true,w:100},{l:"N° Factura",c:true,w:100},
             {l:"Est. Factura",c:true,w:130},{l:"Estado Pago",c:true,w:110},
             ...(can?[{l:"",c:true,w:40}]:[]),
@@ -1342,7 +1600,16 @@ function FeeViveros({data,setData,can,clientes=[]}) {
                   <td style={{padding:"7px 10px",textAlign:"center",fontWeight:600}}>{N(r.nPlantas)}</td>
                   <td style={{padding:"7px 10px",textAlign:"center",fontSize:11}}>{r.regalia?`${(r.regalia*100).toFixed(0)}%`:"—"}</td>
                   <td style={{padding:"7px 10px",textAlign:"right",fontSize:12,color:C.gris}}>{$$(r.totalOsiris)}</td>
-                  <td style={{padding:"7px 10px",textAlign:"center",fontSize:11}}><Cell val={r.tipoPago||""} onChange={v=>upd(r.id,"tipoPago",v)} opts={TIPOS} can={can}/></td>
+                  <td style={{padding:"7px 10px",textAlign:"center",fontSize:11}}>
+                    <span style={{background:r.tipoPago==="Anticipo (OC)"||r.tipoPago==="Anticipo"?C.azulBg:C.tealBg,
+                      color:r.tipoPago==="Anticipo (OC)"||r.tipoPago==="Anticipo"?C.azul:C.teal,
+                      borderRadius:20,padding:"2px 8px",fontSize:10,fontWeight:700}}>
+                      {r.tipoPago||"—"}
+                    </span>
+                  </td>
+                  <td style={{padding:"7px 10px",textAlign:"center",fontSize:11,color:C.mo,fontWeight:600}}>
+                    {r.trimPago&&r.añoPago?`T${r.trimPago} ${r.añoPago}`:"—"}
+                  </td>
                   <td style={{padding:"7px 10px",textAlign:"right",fontWeight:700,color:C.azul}}>
                     <Cell val={r.montoFact||""} onChange={v=>upd(r.id,"montoFact",parseFloat(v)||0)} type="number" can={can}/>
                   </td>
@@ -1371,7 +1638,7 @@ function FeeViveros({data,setData,can,clientes=[]}) {
                 </tr>
               );
             })}
-            {filtrado.length===0&&<tr><td colSpan={can?14:13} style={{textAlign:"center",padding:32,color:C.gris,fontSize:13}}>
+            {filtrado.length===0&&<tr><td colSpan={can?15:14} style={{textAlign:"center",padding:32,color:C.gris,fontSize:13}}>
               Sin registros.
             </td></tr>}
           </tbody>
@@ -3052,7 +3319,7 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
       <div style={{background:"#fff",borderRadius:14,padding:20,boxShadow:"0 2px 10px #0001"}}>
         {subTab==="resumen"          &&<Resumen        rpData={rpData} feData={feData} rcData={rcData} fvData={fvData} tpData={tpData}/>}
         {subTab==="graficos"         &&<GraficosPlantas tpData={tpData} rpData={rpData}/>}
-        {subTab==="totalPedidos"     &&<TotalPedidos     data={tpData} setData={setTp} can={canIngresos} clientes={clientes}/>}
+        {subTab==="totalPedidos"     &&<TotalPedidos     data={tpData} setData={setTp} rpData={rpData} setRpData={setRp} rcData={rcData} setRcData={setRc} fvData={fvData} setFvData={setFv} can={canIngresos} clientes={clientes}/>}
         {subTab==="royaltyPlanta"    &&<RoyaltyPlanta    data={rpData} setData={setRp} tpData={tpData} can={canIngresos} clientes={clientes}/>}
         {subTab==="feeEntrada"       &&<FeeEntrada       data={feData} setData={setFe} ctData={ctData} can={canIngresos} clientes={clientes}/>}
         {subTab==="royaltyComercial" &&<RoyaltyComercial data={rcData} setData={setRc} tpData={tpData} can={canIngresos} clientes={clientes}/>}
