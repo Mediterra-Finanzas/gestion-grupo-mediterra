@@ -1231,17 +1231,19 @@ function RoyaltyComercial({data,setData,tpData,can,clientes=[]}) {
     nFact:"",pagado:false,
   });
 
-  // Sync reactiva con Total Pedidos si tiene tpId vinculado
+  // Sync reactiva con Total Pedidos + filtrar huérfanos
   const dataConSync = useMemo(()=>{
     const tpMap = {};
     (tpData||[]).forEach(r=>{ tpMap[r.id]=r; });
-    return data.map(r=>{
-      if(!r.tpId || !tpMap[r.tpId]) return r;
-      const tp = tpMap[r.tpId];
-      // Sync cliente, pais. Ha solo si el RC fue auto-generado y no ha sido editado por el usuario
-      const haSync = r._generado && !r._haEditado ? (Number(tp.ha)||0) : r.ha;
-      return {...r, cliente:tp.cliente, pais:tp.pais, ha:haSync};
-    });
+    return data
+      .filter(r=> !r.tpId || tpMap[r.tpId])  // eliminar huérfanos
+      .map(r=>{
+        if(!r.tpId || !tpMap[r.tpId]) return r;
+        const tp = tpMap[r.tpId];
+        // Sync cliente, pais. Ha solo si el RC fue auto-generado y no ha sido editado por el usuario
+        const haSync = r._generado && !r._haEditado ? (Number(tp.ha)||0) : r.ha;
+        return {...r, cliente:tp.cliente, pais:tp.pais, ha:haSync};
+      });
   },[data,tpData]);
 
   const calc=useMemo(()=>{
@@ -1366,7 +1368,7 @@ function RoyaltyComercial({data,setData,tpData,can,clientes=[]}) {
         <table style={{borderCollapse:"collapse",width:"100%",background:"#fff",borderRadius:10,overflow:"hidden"}}>
           <Th cols={[
             {l:"Cliente",w:130},{l:"País",w:80},{l:"Há",c:true,w:80},{l:"US$/Há",c:true,w:90},
-            {l:"Trim./Año cobro",c:true,w:130},{l:"Mto.Facturar",c:true,w:120},{l:"WHT",c:true,w:70},
+            {l:"Año cobro",c:true,w:90},{l:"Trim.",c:true,w:80},{l:"Mto.Facturar",c:true,w:120},{l:"WHT",c:true,w:70},
             {l:"Mto.Cobrar",c:true,w:120},{l:"N° Factura",c:true,w:110},
             {l:"Est.Factura",c:true,w:130},{l:"Estado Cobro",c:true,w:120},{l:"Alerta",c:true,w:70},
             ...(can?[{l:"",c:true,w:40}]:[]),
@@ -1389,7 +1391,19 @@ function RoyaltyComercial({data,setData,tpData,can,clientes=[]}) {
                     <Cell val={r.usdHa||3000} onChange={v=>upd(r.id,"usdHa",parseFloat(v)||3000)} type="number" can={can}/>
                   </td>
                   <td style={{padding:"7px 10px",textAlign:"center",fontWeight:600,fontSize:12}}>
-                    {TRIM_LABELS[r.trimCobro]} {r.añoCobro}
+                    {can ? (
+                      <div style={{display:"flex",gap:4,justifyContent:"center",alignItems:"center"}}>
+                        <select value={r.trimCobro||2} onChange={e=>upd(r.id,"trimCobro",parseInt(e.target.value))}
+                          style={{borderRadius:6,border:"1px solid #d1d5db",padding:"2px 4px",fontSize:11,fontWeight:700,color:C.mo,background:"#fff",cursor:"pointer"}}>
+                          <option value="1">T1</option>
+                          <option value="2">T2</option>
+                          <option value="3">T3</option>
+                          <option value="4">T4</option>
+                        </select>
+                        <input type="number" value={r.añoCobro||""} onChange={e=>upd(r.id,"añoCobro",parseInt(e.target.value)||r.añoCobro)}
+                          style={{width:58,borderRadius:6,border:"1px solid #d1d5db",padding:"2px 6px",fontSize:11,fontWeight:700,textAlign:"center"}}/>
+                      </div>
+                    ) : <span>{TRIM_LABELS[r.trimCobro]} {r.añoCobro}</span>}
                   </td>
                   <td style={{padding:"7px 10px",textAlign:"right",fontWeight:700,color:C.mo}}>{$$(r.montoFact)}</td>
                   <td style={{padding:"7px 10px",textAlign:"center",fontSize:11}}>
@@ -1483,7 +1497,7 @@ function RoyaltyComercial({data,setData,tpData,can,clientes=[]}) {
 // ══════════════════════════════════════════════════════════
 // FEE VIVEROS — Regalías pagadas al vivero (interno)
 // ══════════════════════════════════════════════════════════
-function FeeViveros({data,setData,can,clientes=[]}) {
+function FeeViveros({data,setData,tpData,can,clientes=[]}) {
   const [filtroPais,setFiltroPais]=useState("Todos");
   const [filtroVivero,setFiltroVivero]=useState("Todos");
   const [filtroFact,setFiltroFact]=useState("Todos");
@@ -1498,7 +1512,11 @@ function FeeViveros({data,setData,can,clientes=[]}) {
 
   const upd=(id,c,v)=>setData(prev=>prev.map(r=>r.id===id?{...r,[c]:v}:r));
 
-  const filtrado=data.filter(r=>{
+  // Filtrar huérfanos: si el registro viene de un pedido (tpId), verificar que el pedido aún existe
+  const tpIds = new Set((tpData||[]).map(r=>r.id));
+  const dataViva = data.filter(r=> !r.tpId || tpIds.has(r.tpId));
+
+  const filtrado=dataViva.filter(r=>{
     if(filtroFact!=="Todos"){
       if(filtroFact==="Facturado"&&!(r.nFact&&r.nFact.trim()!==""))return false;
       if(filtroFact==="Pendiente"&&(r.nFact&&r.nFact.trim()!==""))return false;
@@ -3059,8 +3077,10 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
   const clientes= osirisData?.clientes        ?? CLIENTES_INIT;
   const tpData  = osirisData?.totalPedidos    ?? [];
   const rpData  = osirisData?.royaltyPlanta   ?? [];
-  const rcData    = osirisData?.royaltyComercial ?? [];
-  const fvData    = osirisData?.feeViveros       ?? [];
+  // Filtrar huérfanos: excluir registros vinculados a pedidos eliminados
+  const tpIds   = useMemo(()=>new Set((osirisData?.totalPedidos??[]).map(r=>r.id)),[osirisData]);
+  const rcData  = useMemo(()=>(osirisData?.royaltyComercial??[]).filter(r=>!r.tpId||tpIds.has(r.tpId)),[osirisData,tpIds]);
+  const fvData  = useMemo(()=>(osirisData?.feeViveros??[]).filter(r=>!r.tpId||tpIds.has(r.tpId)),[osirisData,tpIds]);
 
   // feData: vista reactiva — lee osirisData directamente (no variable intermedia)
   // Evita el problema de referencia nueva en cada render con ?? []
@@ -3372,7 +3392,7 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
         {subTab==="royaltyPlanta"    &&<RoyaltyPlanta    data={rpData} setData={setRp} tpData={tpData} can={canIngresos} clientes={clientes}/>}
         {subTab==="feeEntrada"       &&<FeeEntrada       data={feData} setData={setFe} ctData={ctData} can={canIngresos} clientes={clientes}/>}
         {subTab==="royaltyComercial" &&<RoyaltyComercial data={rcData} setData={setRc} tpData={tpData} can={canIngresos} clientes={clientes}/>}
-        {subTab==="feeViveros"       &&<FeeViveros       data={fvData} setData={setFv} can={canIngresos} clientes={clientes}/>}
+        {subTab==="feeViveros"       &&<FeeViveros       data={fvData} setData={setFv} tpData={tpData} can={canIngresos} clientes={clientes}/>}
       </div>
     </div>
   );
