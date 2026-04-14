@@ -351,7 +351,7 @@ const EMPRESAS_STATIC = {
         {label:'Otros Ingresos No Operacionales', proy:Z65()},
       ]},
       { cat:'egr_nop', label:'Egresos No Operacionales', signo:-1, lines:[
-        {label:'Pago Préstamos - Total', proy:ext([32000,32000,32000,131300,32000,32000,101300,32000,32000,101300,32000,32000,131300,32000,32000,131300,32000,32000,131300,32000,32000,131300,32000,32000].concat(Array(41).fill(0))),subLines:true},
+        {label:'Pago Préstamos - Total', proy:calcPrestamosEmpresa('Mediterra'), formula:true, subLines:true},
         {label:'  └ del cual: Intereses', proy:Z65()},
         {label:'Privado Particular', proy:Z65()},
         {label:'Aportes de Capital', proy:Z65(), subLines:true},
@@ -395,7 +395,7 @@ const EMPRESAS_STATIC = {
         {label:'Otros Ingresos No Operacionales', proy:Z65()},
       ]},
       { cat:'egr_nop', label:'Egresos No Operacionales', signo:-1, lines:[
-        {label:'Pago Préstamos - Total', proy:Z65(),subLines:true},
+        {label:'Pago Préstamos - Total', proy:calcPrestamosEmpresa('Allegria Service'), formula:true, subLines:true},
         {label:'  BCI', proy:Z65()},
         {label:'  └ del cual: Intereses', proy:Z65()},
         {label:'Aportes de Capital', proy:Z65(), subLines:true},
@@ -439,7 +439,7 @@ const EMPRESAS_STATIC = {
         {label:'Otros Ingresos No Operacionales', proy:Z65()},
       ]},
       { cat:'egr_nop', label:'Egresos No Operacionales', signo:-1, lines:[
-        {label:'Pago Préstamos - Total', proy:ext([109857,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0].concat(Array(41).fill(0))),subLines:true},
+        {label:'Pago Préstamos - Total', proy:calcPrestamosEmpresa('Frisku Foods'), formula:true, subLines:true},
         {label:'  Banco Security', proy:Z65()},
         {label:'  Banco BICE', proy:Z65()},
         {label:'  └ del cual: Intereses', proy:Z65()},
@@ -483,7 +483,7 @@ const EMPRESAS_STATIC = {
         {label:'Otros Ingresos No Operacionales', proy:Z65()},
       ]},
       { cat:'egr_nop', label:'Egresos No Operacionales', signo:-1, lines:[
-        {label:'Pago Préstamos - Total', proy:Z65(),subLines:true},
+        {label:'Pago Préstamos - Total', proy:calcPrestamosEmpresa('Frisku Peru'), formula:true, subLines:true},
         {label:'  └ del cual: Intereses', proy:Z65()},
         {label:'Aportes de Capital', proy:Z65(), subLines:true},
         {label:'Leyes Sociales Laborales', proy:Z65()},
@@ -554,7 +554,7 @@ const EMPRESAS_STATIC = {
         {label:'Otros Ingresos No Operacionales', proy:Z65()},
       ]},
       { cat:'egr_nop', label:'Egresos No Operacionales', signo:-1, lines:[
-        {label:'Pago Préstamos - Total', proy:ext([0,0,476021,0,0,0,0,0,0,0,0,476021,0,0,476021,0,0,476021,0,0,476021,0,0].concat(Array(41).fill(0))),subLines:true},
+        {label:'Pago Préstamos - Total', proy:calcPrestamosEmpresa('Allpa Farms'), formula:true, subLines:true},
         {label:'  Banco de Chile', proy:Z65()},
         {label:'  └ del cual: Intereses', proy:Z65()},
         {label:'Aportes de Capital', proy:Z65(), subLines:true},
@@ -604,7 +604,7 @@ const EMPRESAS_STATIC = {
         {label:'Otros Ingresos No Operacionales', proy:Z65()},
       ]},
       { cat:'egr_nop', label:'Egresos No Operacionales', signo:-1, lines:[
-        {label:'Pago Préstamos - Total', proy:Z65(),subLines:true},
+        {label:'Pago Préstamos - Total', proy:calcPrestamosEmpresa('Allpa Farms Perú'), formula:true, subLines:true},
         {label:'  └ del cual: Intereses', proy:Z65()},
         {label:'Aportes de Capital', proy:Z65(), subLines:true},
         {label:'Leyes Sociales Laborales', proy:Z65()},
@@ -647,7 +647,7 @@ const EMPRESAS_STATIC = {
         {label:'Otros Ingresos No Operacionales', proy:Z65()},
       ]},
       { cat:'egr_nop', label:'Egresos No Operacionales', signo:-1, lines:[
-        {label:'Pago Préstamos - Total', proy:Z65(),subLines:true},
+        {label:'Pago Préstamos - Total', proy:calcPrestamosEmpresa('Integrity Farms'), formula:true, subLines:true},
         {label:'  └ del cual: Intereses', proy:Z65()},
         {label:'Aportes de Capital', proy:Z65(), subLines:true},
         {label:'Leyes Sociales Laborales', proy:Z65()},
@@ -691,7 +691,7 @@ const EMPRESAS_STATIC = {
         {label:'Otros Ingresos No Operacionales', proy:Z65()},
       ]},
       { cat:'egr_nop', label:'Egresos No Operacionales', signo:-1, lines:[
-        {label:'Pago Préstamos - Total', proy:ext([9178,9178,9178,9178,9178,9178,9178,9178,9178,9178,9178,9178,9178,9178,9178,9178,9178,9178,9178,9178,9178,9178,9178,9178].concat(Array(41).fill(0))),subLines:true},
+        {label:'Pago Préstamos - Total', proy:calcPrestamosEmpresa('Osiris'), formula:true, subLines:true},
         {label:'  Banco Security', proy:Z65()},
         {label:'  BCI', proy:ext([0,0,355425,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0].concat(Array(41).fill(0)))},
         {label:'  └ del cual: Intereses', proy:Z65()},
@@ -750,7 +750,7 @@ function buildAllegria(params) {
         {label:"Otros Ingresos No Operacionales", proy:Z65()},
       ]},
       { cat:"egr_nop", label:"Egresos No Operacionales", signo:-1, lines:[
-        {label:"Pago Préstamos - Total", proy:ext([0,0,0,0,0,0,0,0,499864,0,783199,0,0,0,0,0,0,0,0,0,0,0,0].concat(Array(41).fill(0))), subLines:true},
+        {label:"Pago Préstamos - Total", proy:calcPrestamosEmpresa("Allegria Foods"), formula:true, subLines:true},
         {label:"  Zelun",                proy:Z65()},
         {label:"  Yiannis",              proy:Z65()},
         {label:"  Fresion",              proy:Z65()},
@@ -3638,6 +3638,40 @@ function Creditos({empresas}) {
           </table>
         </div>
       </Card>
+
+      {/* Cronograma de pagos por empresa */}
+      <Card>
+        <SectionTitle>Cronograma de Pagos por Empresa — conectado al Flujo</SectionTitle>
+        <div style={{fontSize:11,color:C.muted,marginBottom:10}}>
+          Los pagos de préstamos se reflejan automáticamente en el flujo de cada empresa en el mes de vencimiento.
+        </div>
+        {Object.entries(
+          CREDITOS.reduce((acc,c)=>{
+            if(!acc[c.empresa]) acc[c.empresa]=[];
+            acc[c.empresa].push(c); return acc;
+          },{})).map(([emp,creds])=>{
+          const e=empresas[emp]||{emoji:"🏢",color:C.muted};
+          return (
+            <div key={emp} style={{marginBottom:12,background:C.card2,borderRadius:8,padding:"10px 14px",
+              border:`1px solid ${C.border}`}}>
+              <div style={{fontSize:12,fontWeight:700,color:e.color,marginBottom:8}}>{e.emoji} {emp}</div>
+              <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+                {creds.map(c=>{
+                  const mes=mesDeDate(c.f_venc);
+                  return (
+                    <div key={c.n} style={{background:C.bg,borderRadius:6,padding:"5px 10px",
+                      border:`1px solid ${C.border}`,fontSize:10}}>
+                      <div style={{color:C.muted}}>{c.acreedor}</div>
+                      <div style={{fontWeight:700,color:C.yellow}}>{mes}</div>
+                      <div style={{color:C.red,fontWeight:600}}>{$$(c.cuota)}</div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          );
+        })}
+      </Card>
     </div>
   );
 }
@@ -3670,6 +3704,33 @@ function semanaDeDate(d) {
 function mesDeDate(d) {
   const date=new Date(d);
   return `${MN[date.getMonth()]}-${String(date.getFullYear()).slice(2)}`;
+}
+
+// Calcula array proy[64] de pagos de préstamos desde CREDITOS para una empresa
+// Coloca cada cuota en el índice del mes de vencimiento (semana más aproximada)
+function calcPrestamosEmpresa(empresa) {
+  const arr = Z65();
+  CREDITOS.filter(c => c.empresa === empresa).forEach(c => {
+    if(!c.f_venc || !c.cuota) return;
+    const mes = mesDeDate(c.f_venc);
+    const i   = mIdx(mes);
+    if(i >= 0) arr[i] += Number(c.cuota)||0;
+  });
+  return arr;
+}
+
+// Retorna { acreedor: proy[64] } desglosado por institución
+function calcPrestamosDesglose(empresa) {
+  const byAcreedor = {};
+  CREDITOS.filter(c => c.empresa === empresa).forEach(c => {
+    if(!c.f_venc || !c.cuota) return;
+    const mes = mesDeDate(c.f_venc);
+    const i   = mIdx(mes);
+    if(i < 0) return;
+    if(!byAcreedor[c.acreedor]) byAcreedor[c.acreedor] = Z65();
+    byAcreedor[c.acreedor][i] += Number(c.cuota)||0;
+  });
+  return byAcreedor;
 }
 
 const EMPRESAS_LIST = [
