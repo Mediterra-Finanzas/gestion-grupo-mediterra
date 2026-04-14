@@ -5230,7 +5230,7 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
           </div>
 
           {/* Sub-pestañas Flujo/Parámetros — solo cuando NO es consolidado */}
-          {empTab!=="_consolidado"&&(
+          {empTab!=="_consolidado"&&empTab!=="_intercompany"&&(
           <>
           {/* Sub-pestañas: Flujo | Parámetros — para TODAS las empresas */}
           <div style={{display:"flex",gap:6,marginBottom:14,padding:"10px 14px",
