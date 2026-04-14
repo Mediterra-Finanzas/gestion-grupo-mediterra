@@ -346,9 +346,22 @@ const CREDITOS = [
   {n:15,empresa:"Allegria Foods",acreedor:"Banco Santander",tipo_inst:"Banco",monto:105000,f_venc:"2026-09-01",tipo_cr:"Bullet",tasa:"7.6%",cuota:105000},
   {n:16,empresa:"Allegria Foods",acreedor:"Banco Santander",tipo_inst:"Banco",monto:105000,f_venc:"2026-09-04",tipo_cr:"Bullet",tasa:"7.6%",cuota:105000},
   {n:17,empresa:"Allegria Foods",acreedor:"Banco Santander",tipo_inst:"Banco",monto:75000,f_venc:"2026-09-25",tipo_cr:"Bullet",tasa:"7.6%",cuota:75000},
-  {n:18,empresa:"Frisku Foods",acreedor:"Banco Security",tipo_inst:"Banco",monto:143226,f_venc:"2026-09-25",tipo_cr:"Cuotas Mensuales",tasa:"10.7%",cuota:12637},
+  {n:50,empresa:"Frisku Foods",acreedor:"Banco Security",tipo_inst:"Banco",monto:12637,f_venc:"2026-04-25",tipo_cr:"Cuotas Mensuales",tasa:"10.7%",cuota:12637},
+  {n:51,empresa:"Frisku Foods",acreedor:"Banco Security",tipo_inst:"Banco",monto:12637,f_venc:"2026-05-25",tipo_cr:"Cuotas Mensuales",tasa:"10.7%",cuota:12637},
+  {n:52,empresa:"Frisku Foods",acreedor:"Banco Security",tipo_inst:"Banco",monto:12637,f_venc:"2026-06-25",tipo_cr:"Cuotas Mensuales",tasa:"10.7%",cuota:12637},
+  {n:53,empresa:"Frisku Foods",acreedor:"Banco Security",tipo_inst:"Banco",monto:12637,f_venc:"2026-07-25",tipo_cr:"Cuotas Mensuales",tasa:"10.7%",cuota:12637},
+  {n:54,empresa:"Frisku Foods",acreedor:"Banco Security",tipo_inst:"Banco",monto:12637,f_venc:"2026-08-25",tipo_cr:"Cuotas Mensuales",tasa:"10.7%",cuota:12637},
+  {n:18,empresa:"Frisku Foods",acreedor:"Banco Security",tipo_inst:"Banco",monto:12637,f_venc:"2026-09-25",tipo_cr:"Cuotas Mensuales",tasa:"10.7%",cuota:12637},
   {n:19,empresa:"Frisku Foods",acreedor:"Banco BICE",tipo_inst:"Banco",monto:52391,f_venc:"2026-04-13",tipo_cr:"Bullet",tasa:"9.7%",cuota:52391},
-  {n:20,empresa:"Osiris",acreedor:"Banco Security",tipo_inst:"Banco",monto:111744,f_venc:"2026-12-05",tipo_cr:"Cuotas Mensuales",tasa:"11.4%",cuota:9178},
+  {n:30,empresa:"Osiris",acreedor:"Banco Security",tipo_inst:"Banco",monto:9178,f_venc:"2026-04-30",tipo_cr:"Cuotas Mensuales",tasa:"",cuota:9178},
+  {n:31,empresa:"Osiris",acreedor:"Banco Security",tipo_inst:"Banco",monto:9178,f_venc:"2026-05-31",tipo_cr:"Cuotas Mensuales",tasa:"",cuota:9178},
+  {n:32,empresa:"Osiris",acreedor:"Banco Security",tipo_inst:"Banco",monto:9178,f_venc:"2026-06-30",tipo_cr:"Cuotas Mensuales",tasa:"",cuota:9178},
+  {n:33,empresa:"Osiris",acreedor:"Banco Security",tipo_inst:"Banco",monto:9178,f_venc:"2026-07-31",tipo_cr:"Cuotas Mensuales",tasa:"",cuota:9178},
+  {n:34,empresa:"Osiris",acreedor:"Banco Security",tipo_inst:"Banco",monto:9178,f_venc:"2026-08-31",tipo_cr:"Cuotas Mensuales",tasa:"",cuota:9178},
+  {n:35,empresa:"Osiris",acreedor:"Banco Security",tipo_inst:"Banco",monto:9178,f_venc:"2026-09-30",tipo_cr:"Cuotas Mensuales",tasa:"",cuota:9178},
+  {n:36,empresa:"Osiris",acreedor:"Banco Security",tipo_inst:"Banco",monto:9178,f_venc:"2026-10-31",tipo_cr:"Cuotas Mensuales",tasa:"",cuota:9178},
+  {n:37,empresa:"Osiris",acreedor:"Banco Security",tipo_inst:"Banco",monto:9178,f_venc:"2026-11-30",tipo_cr:"Cuotas Mensuales",tasa:"",cuota:9178},
+  {n:20,empresa:"Osiris",acreedor:"Banco Security",tipo_inst:"Banco",monto:9178,f_venc:"2026-12-05",tipo_cr:"Cuotas Mensuales",tasa:"",cuota:9178},
   {n:21,empresa:"Osiris",acreedor:"BCI",tipo_inst:"Banco",monto:350000,f_venc:"2026-06-27",tipo_cr:"Bullet",tasa:"9.3%",cuota:350000},
   {n:22,empresa:"Allegria Service",acreedor:"BCI",tipo_inst:"Banco",monto:395759,f_venc:"2026-11-05",tipo_cr:"Leasing",tasa:"8.5%",cuota:600000},
   {n:23,empresa:"Allegria Service",acreedor:"BCI",tipo_inst:"Banco",monto:429557,f_venc:"2027-11-05",tipo_cr:"Leasing",tasa:"8.5%",cuota:600000},
@@ -443,7 +456,6 @@ const EMPRESAS_STATIC = {
       ]},
       { cat:'egr_nop', label:'Egresos No Operacionales', signo:-1, lines:[
         {label:'Pago Préstamos - Total', proy:calcPrestamosEmpresa('Mediterra'), formula:true, subLines:true},
-        {label:'  └ del cual: Intereses', proy:Z65()},
         {label:'Privado Particular', proy:calcPrestamosDesglose('Mediterra')['Privado Particular']||Z65()},
         {label:'Aportes de Capital', proy:Z65(), subLines:true},
         {label:'Leyes Sociales Laborales', proy:Z65()},
@@ -488,7 +500,6 @@ const EMPRESAS_STATIC = {
       { cat:'egr_nop', label:'Egresos No Operacionales', signo:-1, lines:[
         {label:'Pago Préstamos - Total', proy:calcPrestamosEmpresa('Allegria Service'), formula:true, subLines:true},
         {label:'  BCI', proy:calcPrestamosDesglose('Allegria Service')['BCI']||Z65()},
-        {label:'  └ del cual: Intereses', proy:Z65()},
         {label:'Aportes de Capital', proy:Z65(), subLines:true},
         {label:'Leyes Sociales Laborales', proy:Z65()},
         {label:'Otros Egresos No Operacionales', proy:Z65()},
@@ -533,7 +544,6 @@ const EMPRESAS_STATIC = {
         {label:'Pago Préstamos - Total', proy:calcPrestamosEmpresa('Frisku Foods'), formula:true, subLines:true},
         {label:'  Banco Security', proy:calcPrestamosDesglose('Frisku Foods')['Banco Security']||Z65()},
         {label:'  Banco BICE', proy:calcPrestamosDesglose('Frisku Foods')['Banco BICE']||Z65()},
-        {label:'  └ del cual: Intereses', proy:Z65()},
         {label:'Aportes de Capital', proy:Z65(), subLines:true},
         {label:'Leyes Sociales Laborales', proy:Z65()},
         {label:'Otros Egresos No Operacionales', proy:Z65()},
@@ -575,7 +585,6 @@ const EMPRESAS_STATIC = {
       ]},
       { cat:'egr_nop', label:'Egresos No Operacionales', signo:-1, lines:[
         {label:'Pago Préstamos - Total', proy:calcPrestamosEmpresa('Frisku Peru'), formula:true, subLines:true},
-        {label:'  └ del cual: Intereses', proy:Z65()},
         {label:'Aportes de Capital', proy:Z65(), subLines:true},
         {label:'Leyes Sociales Laborales', proy:Z65()},
         {label:'Otros Egresos No Operacionales', proy:Z65()},
@@ -647,7 +656,6 @@ const EMPRESAS_STATIC = {
       { cat:'egr_nop', label:'Egresos No Operacionales', signo:-1, lines:[
         {label:'Pago Préstamos - Total', proy:calcPrestamosEmpresa('Allpa Farms'), formula:true, subLines:true},
         {label:'  Banco de Chile', proy:calcPrestamosDesglose('Allpa Farms')['Banco de Chile']||Z65()},
-        {label:'  └ del cual: Intereses', proy:Z65()},
         {label:'Aportes de Capital', proy:Z65(), subLines:true},
         {label:'Leyes Sociales Laborales', proy:Z65()},
         {label:'Otros Egresos No Operacionales', proy:Z65()},
@@ -696,7 +704,6 @@ const EMPRESAS_STATIC = {
       ]},
       { cat:'egr_nop', label:'Egresos No Operacionales', signo:-1, lines:[
         {label:'Pago Préstamos - Total', proy:calcPrestamosEmpresa('Allpa Farms Perú'), formula:true, subLines:true},
-        {label:'  └ del cual: Intereses', proy:Z65()},
         {label:'Aportes de Capital', proy:Z65(), subLines:true},
         {label:'Leyes Sociales Laborales', proy:Z65()},
         {label:'Otros Egresos No Operacionales', proy:Z65()},
@@ -739,7 +746,6 @@ const EMPRESAS_STATIC = {
       ]},
       { cat:'egr_nop', label:'Egresos No Operacionales', signo:-1, lines:[
         {label:'Pago Préstamos - Total', proy:calcPrestamosEmpresa('Integrity Farms'), formula:true, subLines:true},
-        {label:'  └ del cual: Intereses', proy:Z65()},
         {label:'Aportes de Capital', proy:Z65(), subLines:true},
         {label:'Leyes Sociales Laborales', proy:Z65()},
         {label:'Otros Egresos No Operacionales', proy:Z65()},
@@ -785,7 +791,6 @@ const EMPRESAS_STATIC = {
         {label:'Pago Préstamos - Total', proy:calcPrestamosEmpresa('Osiris'), formula:true, subLines:true},
         {label:'  Banco Security', proy:calcPrestamosDesglose('Osiris')['Banco Security']||Z65()},
         {label:'  BCI', proy:calcPrestamosDesglose('Osiris')['BCI']||Z65()},
-        {label:'  └ del cual: Intereses', proy:Z65()},
         {label:'Aportes de Capital', proy:Z65(), subLines:true},
         {label:'Leyes Sociales Laborales', proy:Z65()},
         {label:'Otros Egresos No Operacionales', proy:Z65()},
@@ -849,7 +854,6 @@ function buildAllegria(params) {
         {label:"  China Smart",         proy:calcPrestamosDesglose("Allegria Foods")["China Smart"]||Z65()},
         {label:"  Banco BICE",          proy:calcPrestamosDesglose("Allegria Foods")["Banco BICE"]||Z65()},
         {label:"  Banco Santander",     proy:calcPrestamosDesglose("Allegria Foods")["Banco Santander"]||Z65()},
-        {label:"  └ del cual: Intereses", proy:Z65()},
         {label:"Aportes de Capital", proy:Z65(), subLines:true},
         {label:"Leyes Sociales Laborales", proy:Z65()},
         {label:"Otros Egresos No Operacionales", proy:Z65()},
@@ -2886,7 +2890,8 @@ function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit,saldosBanc
         } else {
           sems.forEach((sw,si)=>{
             cols.push({type:"week",mes:m,semana:sw,idx:mIdx(m),nSems,
-              label:sw,isFirstInSeason:mi===0&&si===0,isFirstInMonth:si===0});
+              label:sw,isFirstInSeason:mi===0&&si===0,isFirstInMonth:si===0,
+              isLastInMonth:si===sems.length-1});
           });
           // Columna total mensual al final
           cols.push({type:"month_total",mes:m,idx:mIdx(m),nSems,
@@ -3054,7 +3059,14 @@ function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit,saldosBanc
                 </tr>
 
                 {/* Líneas editables */}
-                {sec.lines.map(line=>(
+                {sec.lines.map(line=>{
+                  // Hide indented sub-lines unless their parent is expanded
+                  if(line.label.startsWith("  ")) {
+                    // Find parent line (Pago Préstamos - Total)
+                    const parent = sec.lines.find(l=>l.subLines && !l.label.startsWith("  "));
+                    if(parent && !expandedSubs[parent.label]) return null;
+                  }
+                  return (
                   <React.Fragment key={line.label}>
                   <tr style={{borderBottom:`1px solid ${C.border}11`}}>
                     <td style={{padding:"5px 14px",color:line.formula?C.yellow:C.text,fontSize:11,
@@ -3111,7 +3123,8 @@ function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit,saldosBanc
                       return cols.map((col,ci)=>{
                         const isTot=col.isTotalMes;
                         const valMes=getProy(line.label,col.idx);
-                        const val=isTot ? valMes : (col.type==="month_collapsed" ? valMes : valMes/col.nSems);
+                        // Show full monthly value on last week only (not divided across weeks)
+                        const val=isTot ? valMes : (col.type==="month_collapsed" ? valMes : (col.isLastInMonth ? valMes : 0));
                         const real=vista==="mensual"?(realMensual[col.mes]?.[line.label]||null):null;
                         const isFirst=col.isFirstInSeason||col.isFirstInMonth;
                         const isEditable=canEdit&&!line.formula&&!isTot&&col.type!=="month_collapsed";
@@ -3179,7 +3192,7 @@ function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit,saldosBanc
                           return cols.map((col,ci)=>{
                             const isTot=col.isTotalMes;
                             const raw=Number(slVals[col.idx])||0;
-                            const disp=isTot?raw:(col.type==="month_collapsed"?raw:raw/(col.nSems||1));
+                            const disp=isTot?raw:(col.type==="month_collapsed"?raw:(col.isLastInMonth?raw:0));
                             const isFirst=col.isFirstInSeason||col.isFirstInMonth;
                             return (
                               <td key={`sl-${sli}-${col.mes||""}-${ci}`}
@@ -3200,7 +3213,8 @@ function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit,saldosBanc
                     );
                   })}
                   </React.Fragment>
-                ))}
+                  );
+                })}
 
                 {/* Filas agregadas por el usuario en esta sección */}
                 {(addedLines[sec.cat]||[]).map((al,ali)=>{
@@ -3233,7 +3247,7 @@ function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit,saldosBanc
                       return cols.map((col,ci)=>{
                         const isTot=col.isTotalMes;
                         const rawVal=Number(alVals[col.idx])||0;
-                        const disp=isTot?rawVal:(col.type==="month_collapsed"?rawVal:rawVal/(col.nSems||1));
+                        const disp=isTot?rawVal:(col.type==="month_collapsed"?rawVal:(col.isLastInMonth?rawVal:0));
                         const isFirst=col.isFirstInSeason||col.isFirstInMonth;
                         return (
                           <td key={`al-${ali}-${col.mes||""}-${ci}`}
@@ -3280,7 +3294,7 @@ function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit,saldosBanc
                   </td>
                   {colStructure.map(({season:s,collapsed,cols})=>{
                     if(collapsed){
-                      const total=s.indices.reduce((a,i)=>a+sec.lines.reduce((b,l)=>b+getProy(l.label,i),0)+
+                      const total=s.indices.reduce((a,i)=>a+sec.lines.reduce((b,l)=>l.label.startsWith("  ")?b:b+getProy(l.label,i),0)+
                       (addedLines[sec.cat]||[]).reduce((b,al)=>b+(Number(typeof al==="string"?0:(al.vals||{})[i])||0),0),0);
                       return (
                         <td key={s.key} style={{padding:"5px 8px",textAlign:"right",fontWeight:800,
@@ -3293,7 +3307,8 @@ function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit,saldosBanc
                     return cols.map((col,ci)=>{
                       const isTot=col.isTotalMes;
                       const nSems=col.type==="month_collapsed"||isTot?1:col.nSems;
-                      const baseTotal=sec.lines.reduce((a,l)=>a+getProy(l.label,col.idx)/nSems,0);
+                      // Exclude indented sub-lines (  Banco X) from subtotal — they're breakdowns of Pago Préstamos
+                      const baseTotal=sec.lines.reduce((a,l)=>l.label.startsWith("  ")?a:a+getProy(l.label,col.idx)/nSems,0);
                       // Add values from user-added lines
                       const addedTotal=(addedLines[sec.cat]||[]).reduce((a,al)=>{
                         const v=Number(typeof al==="string"?0:(al.vals||{})[col.idx])||0;
