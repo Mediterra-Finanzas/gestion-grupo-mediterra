@@ -502,20 +502,19 @@ function TotalPedidos({data,setData,rpData,setRpData,rcData,setRcData,fvData,set
       }]);
     }
 
-    // 2. Royalty Comercial — crear fila para el año siguiente si tiene Há
-    if(pedido.ha && Number(pedido.ha)>0) {
-      const añoRC = (pedido.añoEntrega||añoActual) + 1;
-      const rcExiste = rcData.some(r=>r.tpId===tpId);
-      if(!rcExiste) {
-        setRcData(prev=>[...prev,{
-          id:`rc_${tpId}`,tpId,
-          cliente:pedido.cliente,pais:pedido.pais,
-          ha:pedido.ha,usdHa:3000,
-          añoCobro:añoRC,trimCobro:2,
-          nFact:"",pagado:false,
-          _generado:true,
-        }]);
-      }
+    // 2. Royalty Comercial — siempre crear fila (año siguiente al de entrega)
+    // ha puede ser 0 o vacío → usuario lo completa después en la pestaña RC
+    const añoRC = (pedido.añoEntrega||añoActual) + 1;
+    const rcExiste = rcData.some(r=>r.tpId===tpId);
+    if(!rcExiste) {
+      setRcData(prev=>[...prev,{
+        id:`rc_${tpId}`,tpId,
+        cliente:pedido.cliente,pais:pedido.pais,
+        ha:Number(pedido.ha)||0,usdHa:3000,
+        añoCobro:añoRC,trimCobro:2,
+        nFact:"",pagado:false,
+        _generado:true,
+      }]);
     }
 
     // 3. Fee Vivero — crear dos filas: Anticipo (OC) + Despacho
@@ -714,7 +713,14 @@ function TotalPedidos({data,setData,rpData,setRpData,rcData,setRcData,fvData,set
                   }
                 </td>
                 {can&&<td style={{padding:"4px 6px",textAlign:"center"}}>
-                  <button onClick={()=>{if(window.confirm(`¿Eliminar pedido de "${r.cliente}"?`))setData(prev=>prev.filter(x=>x.id!==r.id));}}
+                  <button onClick={()=>{
+                    if(!window.confirm(`¿Eliminar pedido de "${r.cliente}"?\nTambién se eliminarán las filas vinculadas en Royalty/Planta, Royalty Comercial y Fee Vivero.`))return;
+                    const id=r.id;
+                    setData(prev=>prev.filter(x=>x.id!==id));
+                    setRpData(prev=>prev.filter(x=>x.tpId!==id));
+                    setRcData(prev=>prev.filter(x=>x.tpId!==id));
+                    setFvData(prev=>prev.filter(x=>x.tpId!==id));
+                  }}
                     style={{background:"#fee2e2",border:"none",borderRadius:6,padding:"3px 8px",cursor:"pointer",fontSize:12,color:"#991b1b",fontWeight:700}}>×</button>
                 </td>}
               </tr>
@@ -1228,7 +1234,9 @@ function RoyaltyComercial({data,setData,tpData,can,clientes=[]}) {
     return data.map(r=>{
       if(!r.tpId || !tpMap[r.tpId]) return r;
       const tp = tpMap[r.tpId];
-      return {...r, cliente:tp.cliente, pais:tp.pais};
+      // Sync cliente, pais. Ha solo si el RC fue auto-generado y no ha sido editado por el usuario
+      const haSync = r._generado && !r._haEditado ? (Number(tp.ha)||0) : r.ha;
+      return {...r, cliente:tp.cliente, pais:tp.pais, ha:haSync};
     });
   },[data,tpData]);
 
@@ -1260,7 +1268,7 @@ function RoyaltyComercial({data,setData,tpData,can,clientes=[]}) {
   const totCobro=filtrado.reduce((s,r)=>s+r.montoCobro,0);
   const totPend=filtrado.filter(r=>!r.pagado).reduce((s,r)=>s+r.montoCobro,0);
 
-  function upd(id,c,v){setData(prev=>prev.map(r=>r.id===id?{...r,[c]:v}:r));}
+  function upd(id,c,v){setData(prev=>prev.map(r=>r.id===id?{...r,[c]:v,...(c==="ha"?{_haEditado:true}:{})}:r));}
 
   function agregar(){
     if(!form.cliente.trim()){alert("Cliente es obligatorio.");return;}
@@ -1473,6 +1481,7 @@ function RoyaltyComercial({data,setData,tpData,can,clientes=[]}) {
 // ══════════════════════════════════════════════════════════
 function FeeViveros({data,setData,can,clientes=[]}) {
   const [filtroPais,setFiltroPais]=useState("Todos");
+  const [filtroVivero,setFiltroVivero]=useState("Todos");
   const [filtroFact,setFiltroFact]=useState("Todos");
   const [filtroCobro,setFiltroCobro]=useState("Todos");
   const [filtroCli,setFiltroCli]=useState("");
@@ -1491,14 +1500,16 @@ function FeeViveros({data,setData,can,clientes=[]}) {
       if(filtroFact==="Pendiente"&&(r.nFact&&r.nFact.trim()!==""))return false;
     }
     if(filtroPais!=="Todos"&&r.pais!==filtroPais)return false;
+    if(filtroVivero!=="Todos"&&r.vivero!==filtroVivero)return false;
     if(filtroCobro!=="Todos"&&(filtroCobro==="Pagado"?!r.pagado:r.pagado))return false;
     if(filtroCli&&!r.empresa?.toLowerCase().includes(filtroCli.toLowerCase()))return false;
     return true;
   });
 
-  const totFact=filtrado.reduce((s,r)=>s+(Number(r.montoFact)||0),0);
-  const totPend=filtrado.filter(r=>!r.pagado).reduce((s,r)=>s+(Number(r.montoFact)||0),0);
+  const totFacturado=filtrado.filter(r=>r.nFact&&String(r.nFact).trim()!=="").reduce((s,r)=>s+(Number(r.montoFact)||0),0);
+  const totPorCobrar=filtrado.filter(r=>!r.pagado).reduce((s,r)=>s+(Number(r.montoFact)||0),0);
   const paises=["Todos",...Array.from(new Set(data.map(r=>r.pais).filter(Boolean))).sort()];
+  const viveros=["Todos",...Array.from(new Set(data.map(r=>r.vivero).filter(Boolean))).sort()];
 
   function agregar(){
     if(!form.empresa.trim()){alert("Empresa es obligatoria.");return;}
@@ -1517,8 +1528,8 @@ function FeeViveros({data,setData,can,clientes=[]}) {
     <div>
       <div style={{display:"flex",gap:12,marginBottom:16,flexWrap:"wrap"}}>
         {[
-          [$$(totFact),"Total a Pagar Vivero",C.azul,C.azulBg],
-          [$$(totPend),"Por Pagar",C.am,C.amBg],
+          [$$(totFacturado),"Total Factura a Vivero",C.azul,C.azulBg],
+          [$$(totPorCobrar),"Por Cobrar",C.am,C.amBg],
           [filtrado.length,"Registros",C.gris,C.grisBg],
         ].map(([v,l,c,bg])=>(
           <div key={l} style={{background:bg,borderRadius:12,padding:"12px 18px",flex:1,minWidth:120}}>
@@ -1536,15 +1547,16 @@ function FeeViveros({data,setData,can,clientes=[]}) {
       <BarraFiltros
         filtros={[
           {label:"Empresa",tipo:"input",valor:filtroCli,onChange:setFiltroCli},
+          {label:"Vivero",opciones:viveros,valor:filtroVivero,onChange:setFiltroVivero},
           {label:"País",opciones:paises,valor:filtroPais,onChange:setFiltroPais},
           {label:"Factura",opciones:["Todos","Facturado","Pendiente"],valor:filtroFact,onChange:setFiltroFact},
           {label:"Pago",opciones:["Todos","Pagado","Por pagar"],valor:filtroCobro,onChange:setFiltroCobro},
         ]}
         onExportar={async ()=>exportCSV(
           filtrado.map(r=>[r.vivero||"",r.empresa,r.pais,r.proforma||"",
-            r.nPlantas||0,r.regalia||0,r.totalOsiris||0,r.tipoPago||"",
+            r.nPlantas||0,r.regalia||0,`${(pct(r.pais)*100).toFixed(0)}%`,r.totalOsiris||0,r.tipoPago||"",
             r.montoFact||0,r.fechaFact||"",r.nFact||"",r.pagado?"Pagado":"Por pagar"]),
-          ["Vivero","Empresa","País","Proforma","N° Plantas","Regalía","Total Osiris",
+          ["Vivero","Empresa","País","Proforma","N° Plantas","Regalía US$","% Cobro","Total Osiris",
            "Tipo Pago","Mto.Facturar","Fecha Fact.","N° Factura","Estado Pago"],
           "FeeViveros"
         )}
@@ -1554,7 +1566,7 @@ function FeeViveros({data,setData,can,clientes=[]}) {
         <table style={{borderCollapse:"collapse",width:"100%",background:"#fff",borderRadius:10,overflow:"hidden"}}>
           <Th cols={[
             {l:"Vivero",w:100},{l:"Empresa",w:140},{l:"País",w:70},{l:"Proforma",w:110},
-            {l:"N° Plantas",c:true,w:90},{l:"Regalía",c:true,w:70},{l:"Total",c:true,w:100},
+            {l:"N° Plantas",c:true,w:90},{l:"Regalía US$",c:true,w:90},{l:"% Cobro",c:true,w:80},{l:"Total",c:true,w:100},
             {l:"Tipo Pago",c:true,w:120},{l:"Trim. Pago",c:true,w:100},{l:"Mto.",c:true,w:100},
             {l:"Fecha Fact.",c:true,w:100},{l:"N° Factura",c:true,w:100},
             {l:"Est. Factura",c:true,w:130},{l:"Estado Pago",c:true,w:110},
@@ -1572,7 +1584,16 @@ function FeeViveros({data,setData,can,clientes=[]}) {
                   <td style={{padding:"7px 10px",fontSize:11,color:C.gris}}>{r.pais}</td>
                   <td style={{padding:"7px 10px",fontSize:11,color:C.gris}}><Cell val={r.proforma||""} onChange={v=>upd(r.id,"proforma",v)} can={can}/></td>
                   <td style={{padding:"7px 10px",textAlign:"center",fontWeight:600}}>{N(r.nPlantas)}</td>
-                  <td style={{padding:"7px 10px",textAlign:"center",fontSize:11}}>{r.regalia?`${(r.regalia*100).toFixed(0)}%`:"—"}</td>
+                  <td style={{padding:"7px 10px",textAlign:"center",fontWeight:600,color:C.verde}}>
+                    <Cell val={r.regalia||""} onChange={v=>upd(r.id,"regalia",parseFloat(v)||0)} type="number" can={can} ph="0.45"/>
+                  </td>
+                  <td style={{padding:"7px 10px",textAlign:"center",fontSize:11}}>
+                    <span style={{background:pct(r.pais)===1?C.verdeBg:"#fee2e2",
+                      color:pct(r.pais)===1?C.verde:"#dc2626",
+                      borderRadius:20,padding:"2px 8px",fontSize:10,fontWeight:700}}>
+                      {pct(r.pais)===1?"100%":"85%"}
+                    </span>
+                  </td>
                   <td style={{padding:"7px 10px",textAlign:"right",fontSize:12,color:C.gris}}>{$$(r.totalOsiris)}</td>
                   <td style={{padding:"7px 10px",textAlign:"center",fontSize:11}}>
                     <span style={{background:r.tipoPago==="Anticipo (OC)"||r.tipoPago==="Anticipo"?C.azulBg:C.tealBg,
@@ -1612,7 +1633,7 @@ function FeeViveros({data,setData,can,clientes=[]}) {
                 </tr>
               );
             })}
-            {filtrado.length===0&&<tr><td colSpan={can?15:14} style={{textAlign:"center",padding:32,color:C.gris,fontSize:13}}>
+            {filtrado.length===0&&<tr><td colSpan={can?16:15} style={{textAlign:"center",padding:32,color:C.gris,fontSize:13}}>
               Sin registros.
             </td></tr>}
           </tbody>
@@ -1645,7 +1666,7 @@ function FeeViveros({data,setData,can,clientes=[]}) {
                 ["País","pais","select",PAISES],
                 ["Proforma","proforma","text",null],
                 ["N° Plantas","nPlantas","number",null],
-                ["Regalía (dec.)","regalia","number",null],
+                ["Regalía US$/Planta","regalia","number",null],
                 ["Total Osiris US$","totalOsiris","number",null],
                 ["Tipo Pago","tipoPago","select",TIPOS],
                 ["Monto a Facturar","montoFact","number",null],
