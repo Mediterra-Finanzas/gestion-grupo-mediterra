@@ -845,6 +845,11 @@ export default function App(){
         }
       }catch(e){console.error("Error cargando:",e);}
       setCargando(false);
+      // Restaurar sesión después de un reload automático
+      const savedNombre = sessionStorage.getItem('mediterra_usuario');
+      if(savedNombre) {
+        // Se restaura en el useEffect que observa [usuarios, cargando] abajo
+      }
     }
     cargar();
 
@@ -894,6 +899,24 @@ export default function App(){
 
     return () => { clearInterval(hbMain); if(ws.readyState===WebSocket.OPEN) ws.close(); };
   },[]); // eslint-disable-line
+
+  // ── Restaurar sesión tras recarga automática ─────────────────────
+  useEffect(()=>{
+    if(cargando) return; // esperar a que carguen los usuarios
+    if(usuarioActual) return; // ya hay sesión activa
+    const savedNombre = sessionStorage.getItem('mediterra_usuario');
+    if(savedNombre) {
+      const worker = usuarios.find(u=>u.nombre===savedNombre);
+      if(worker && !worker.desactivado) {
+        setUsuarioActual(worker);
+      } else {
+        sessionStorage.removeItem('mediterra_usuario');
+      }
+    }
+  },[cargando, usuarios]); // eslint-disable-line
+
+  // Limpiar sesión al hacer logout manual
+  // (el logout llama setUsuarioActual(null) — interceptamos eso)
 
   // Refs para siempre tener valores frescos en guardado
   const estadosRef       = useRef(estados);
@@ -983,6 +1006,7 @@ export default function App(){
       } else {
         // PIN normal: entrar directo
         setUsuarioActual(w);
+      sessionStorage.setItem('mediterra_usuario', w.nombre);
       }
     }else{
       setLoginError("PIN incorrecto.");
@@ -1026,6 +1050,7 @@ export default function App(){
       // Si venía de login con temporal, ahora sí entrar a la app
       if(workerPendiente){
         setUsuarioActual(workerPendiente);
+        sessionStorage.setItem('mediterra_usuario', workerPendiente.nombre);
         setWorkerPendiente(null);
       }
       alert("PIN cambiado exitosamente!");
@@ -1364,7 +1389,7 @@ export default function App(){
         esSoloConsulta={esSoloConsulta}
         tabPermisos={tabPermisosFinanzas}
         onBack={()=>setModuloActivo(null)}
-        onLogout={()=>{setUsuarioActual(null);setModuloActivo(null);}}
+        onLogout={()=>{setUsuarioActual(null);setModuloActivo(null);sessionStorage.removeItem('mediterra_usuario');}}
       />
     </div>
   );
@@ -1377,7 +1402,7 @@ export default function App(){
         esSoloConsulta={esSoloConsulta}
         tabPermisos={getTabPermisosModulo(usuarioFresco,"osiris")}
         onBack={()=>setModuloActivo(null)}
-        onLogout={()=>{setUsuarioActual(null);setModuloActivo(null);}}
+        onLogout={()=>{setUsuarioActual(null);setModuloActivo(null);sessionStorage.removeItem('mediterra_usuario');}}
         osirisData={osirisData}
         setOsirisData={setOsirisData}
       />
@@ -1457,7 +1482,7 @@ export default function App(){
             <button onClick={()=>setTab(tab==="semanal"?"mensual":"semanal")} style={{background:"rgba(255,255,255,0.1)",border:"1px solid rgba(255,255,255,0.2)",color:"#fff",borderRadius:8,padding:"5px 12px",cursor:"pointer",fontSize:12}}>
               {tab==="semanal"?"📆 Ver Mensual":"📅 Ver Semanal"}
             </button>
-            <button onClick={()=>{setUsuarioActual(null);setModuloActivo(null);}} style={{background:"rgba(248,113,113,0.2)",border:"none",color:"#fca5a5",borderRadius:8,padding:"5px 12px",cursor:"pointer",fontSize:12}}>Salir</button>
+            <button onClick={()=>{setUsuarioActual(null);setModuloActivo(null);sessionStorage.removeItem('mediterra_usuario');}} style={{background:"rgba(248,113,113,0.2)",border:"none",color:"#fca5a5",borderRadius:8,padding:"5px 12px",cursor:"pointer",fontSize:12}}>Salir</button>
           </div>
         </div>
 
@@ -1642,7 +1667,7 @@ export default function App(){
       usuario={usuarioFresco || usuarioActual}
       modulosPermitidos={modulosPermitidos}
       onSelectModulo={id=>setModuloActivo(id)}
-      onLogout={()=>setUsuarioActual(null)}
+      onLogout={()=>{setUsuarioActual(null);sessionStorage.removeItem('mediterra_usuario');}}
       onCambiarPin={()=>setModalPin("cambiar")}
       esSoloConsulta={esSoloConsulta}
       usuarios={usuarios}
