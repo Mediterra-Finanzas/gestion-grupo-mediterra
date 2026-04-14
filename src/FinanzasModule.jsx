@@ -3279,6 +3279,324 @@ function SaldosBancos({saldos,onSave,canEdit}) {
   );
 }
 
+
+// ═══════════════════════════════════════════════════════════════════
+// INTERCOMPANY — Transferencias entre empresas del grupo
+// ═══════════════════════════════════════════════════════════════════
+const TIPOS_IC = ["Préstamo","Aporte de Capital","Devolución Préstamo","Pago Intereses","Transferencia"];
+const IC_COLOR  = {"Préstamo":"#60a5fa","Aporte de Capital":"#34d399","Devolución Préstamo":"#a78bfa",
+  "Pago Intereses":"#f87171","Transferencia":"#fbbf24"};
+
+function Intercompany({transferencias=[],onSave,empresas={},canEdit}) {
+  const empNames = Object.keys(empresas);
+  const [modal,setModal]   = useState(false);
+  const [filtroOr,setFiltroOr] = useState("Todas");
+  const [filtroDest,setFiltroDest] = useState("Todas");
+  const [filtroTipo,setFiltroTipo] = useState("Todos");
+  const [form,setForm]     = useState({
+    fecha:new Date().toISOString().slice(0,10),
+    origen:"",destino:"",tipo:"Préstamo",
+    monto:"",descripcion:"",mes:"",
+  });
+  const [editId,setEditId] = useState(null);
+
+  // KPIs
+  const totalPrestamos   = transferencias.filter(t=>t.tipo==="Préstamo").reduce((s,t)=>s+(Number(t.monto)||0),0);
+  const totalAportes     = transferencias.filter(t=>t.tipo==="Aporte de Capital").reduce((s,t)=>s+(Number(t.monto)||0),0);
+  const totalDevoluciones= transferencias.filter(t=>t.tipo==="Devolución Préstamo").reduce((s,t)=>s+(Number(t.monto)||0),0);
+
+  // Saldo neto por empresa (recibido - enviado)
+  const saldoEmpresa = useMemo(()=>{
+    const s={};
+    empNames.forEach(n=>{ s[n]=0; });
+    transferencias.forEach(t=>{
+      const m=Number(t.monto)||0;
+      if(s[t.destino]!==undefined) s[t.destino]+=m;
+      if(s[t.origen]!==undefined)  s[t.origen]-=m;
+    });
+    return s;
+  },[transferencias,empNames]); // eslint-disable-line
+
+  const filtrado = transferencias.filter(t=>{
+    if(filtroOr!=="Todas"&&t.origen!==filtroOr) return false;
+    if(filtroDest!=="Todas"&&t.destino!==filtroDest) return false;
+    if(filtroTipo!=="Todos"&&t.tipo!==filtroTipo) return false;
+    return true;
+  }).sort((a,b)=>new Date(b.fecha)-new Date(a.fecha));
+
+  function openNew() {
+    setForm({fecha:new Date().toISOString().slice(0,10),origen:"",destino:"",tipo:"Préstamo",monto:"",descripcion:"",mes:""});
+    setEditId(null);
+    setModal(true);
+  }
+  function openEdit(t) {
+    setForm({...t,monto:String(t.monto)});
+    setEditId(t.id);
+    setModal(true);
+  }
+  function guardar() {
+    if(!form.origen||!form.destino||!form.monto){alert("Origen, destino y monto son obligatorios.");return;}
+    if(form.origen===form.destino){alert("Origen y destino no pueden ser la misma empresa.");return;}
+    const item={...form,monto:parseFloat(form.monto)||0,
+      id:editId||`ic_${Date.now()}`};
+    const next = editId
+      ? transferencias.map(t=>t.id===editId?item:t)
+      : [...transferencias,item];
+    onSave(next);
+    setModal(false);
+  }
+  function eliminar(id) {
+    if(!window.confirm("¿Eliminar esta transferencia?")) return;
+    onSave(transferencias.filter(t=>t.id!==id));
+  }
+
+  const fmtFecha=s=>{if(!s)return"—";const d=new Date(s);return`${String(d.getDate()).padStart(2,"0")}/${String(d.getMonth()+1).padStart(2,"0")}/${d.getFullYear()}`;}
+
+  return (
+    <div style={{display:"flex",flexDirection:"column",gap:14}}>
+      {/* KPIs */}
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(160px,1fr))",gap:10}}>
+        {[
+          ["🏦 Total Préstamos",    $$(totalPrestamos),    "#60a5fa"],
+          ["💚 Aportes Capital",    $$(totalAportes),      "#34d399"],
+          ["↩️ Devoluciones",       $$(totalDevoluciones), "#a78bfa"],
+          ["📋 Transferencias",     transferencias.length, C.yellow],
+        ].map(([l,v,c])=>(
+          <div key={l} style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:10,padding:"12px 16px"}}>
+            <div style={{fontSize:10,color:C.muted,marginBottom:4}}>{l}</div>
+            <div style={{fontSize:18,fontWeight:800,color:c}}>{v}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* Saldo neto por empresa */}
+      <Card>
+        <SectionTitle>Saldo Neto Intercompany por Empresa</SectionTitle>
+        <div style={{display:"flex",flexDirection:"column",gap:6}}>
+          {empNames.filter(n=>saldoEmpresa[n]!==0).map(n=>{
+            const e=empresas[n];
+            const v=saldoEmpresa[n];
+            return (
+              <div key={n} style={{display:"grid",gridTemplateColumns:"200px 1fr 120px",gap:10,alignItems:"center"}}>
+                <div style={{fontSize:11,color:C.text,fontWeight:600}}>{e?.emoji} {n}</div>
+                <div style={{background:C.card2,borderRadius:4,height:8,overflow:"hidden"}}>
+                  <div style={{width:`${Math.min(Math.abs(v)/Math.max(...empNames.map(x=>Math.abs(saldoEmpresa[x]||0)),1)*100,100)}%`,
+                    height:"100%",background:v>0?"#34d399":"#f87171",borderRadius:4,opacity:0.8}}/>
+                </div>
+                <div style={{textAlign:"right",fontSize:12,fontWeight:700,color:v>0?"#34d399":"#f87171"}}>
+                  {v>0?"↑ ":"↓ "}{$$(Math.abs(v))}
+                </div>
+              </div>
+            );
+          })}
+          {empNames.every(n=>saldoEmpresa[n]===0)&&(
+            <div style={{fontSize:12,color:C.muted,textAlign:"center",padding:16}}>Sin transferencias registradas</div>
+          )}
+        </div>
+      </Card>
+
+      {/* Controles */}
+      <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center"}}>
+        {canEdit&&(
+          <button onClick={openNew}
+            style={{padding:"8px 18px",borderRadius:8,border:"none",background:"#f59e0b",
+              color:"#000",cursor:"pointer",fontSize:12,fontWeight:700}}>
+            + Nueva Transferencia
+          </button>
+        )}
+        <div style={{display:"flex",gap:6,flexWrap:"wrap",marginLeft:8}}>
+          {[["Origen",["Todas",...empNames],filtroOr,setFiltroOr],
+            ["Destino",["Todas",...empNames],filtroDest,setFiltroDest],
+            ["Tipo",["Todos",...TIPOS_IC],filtroTipo,setFiltroTipo],
+          ].map(([lbl,opts,val,set])=>(
+            <div key={lbl} style={{display:"flex",alignItems:"center",gap:4}}>
+              <span style={{fontSize:10,color:C.muted}}>{lbl}:</span>
+              <select value={val} onChange={e=>set(e.target.value)}
+                style={{padding:"5px 8px",background:C.card2,border:`1px solid ${C.border}`,
+                  borderRadius:6,color:C.text,fontSize:11,outline:"none"}}>
+                {opts.map(o=><option key={o}>{o}</option>)}
+              </select>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Tabla */}
+      <Card style={{padding:0,overflow:"hidden"}}>
+        <div style={{overflowX:"auto"}}>
+          <table style={{width:"100%",borderCollapse:"collapse",fontSize:11}}>
+            <thead>
+              <tr style={{background:C.bg2}}>
+                {["Fecha","Origen","Destino","Tipo","Monto","Mes Flujo","Descripción",...(canEdit?[""]:[])].map(h=>(
+                  <th key={h} style={{padding:"8px 12px",fontWeight:600,fontSize:10,color:C.muted,
+                    textTransform:"uppercase",borderBottom:`1px solid ${C.border}`,
+                    textAlign:["Monto"].includes(h)?"right":"left",whiteSpace:"nowrap"}}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {filtrado.length===0&&(
+                <tr><td colSpan={canEdit?8:7} style={{padding:32,textAlign:"center",color:C.muted}}>
+                  Sin transferencias registradas
+                </td></tr>
+              )}
+              {filtrado.map(t=>{
+                const eOr=empresas[t.origen]||{emoji:"🏢",color:C.muted};
+                const eDest=empresas[t.destino]||{emoji:"🏢",color:C.muted};
+                const tipoColor=IC_COLOR[t.tipo]||C.muted;
+                return (
+                  <tr key={t.id} style={{borderBottom:`1px solid ${C.border}22`}}
+                    onClick={canEdit?()=>openEdit(t):undefined}
+                    onMouseEnter={e=>{if(canEdit)e.currentTarget.style.background=`${C.card2}`;}}
+                    onMouseLeave={e=>{e.currentTarget.style.background="transparent";}}>
+                    <td style={{padding:"8px 12px",color:C.muted,whiteSpace:"nowrap"}}>{fmtFecha(t.fecha)}</td>
+                    <td style={{padding:"8px 12px",fontWeight:600,color:eOr.color,whiteSpace:"nowrap"}}>
+                      {eOr.emoji} {t.origen}
+                    </td>
+                    <td style={{padding:"8px 12px",fontWeight:600,color:eDest.color,whiteSpace:"nowrap"}}>
+                      {eDest.emoji} {t.destino}
+                    </td>
+                    <td style={{padding:"8px 12px"}}>
+                      <span style={{fontSize:10,padding:"2px 8px",borderRadius:20,fontWeight:700,
+                        background:`${tipoColor}22`,color:tipoColor,border:`1px solid ${tipoColor}44`}}>
+                        {t.tipo}
+                      </span>
+                    </td>
+                    <td style={{padding:"8px 12px",textAlign:"right",fontWeight:700,color:C.green}}>
+                      {$$(t.monto)}
+                    </td>
+                    <td style={{padding:"8px 12px",color:C.muted}}>{t.mes||"—"}</td>
+                    <td style={{padding:"8px 12px",color:C.text,maxWidth:220,
+                      overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+                      {t.descripcion||"—"}
+                    </td>
+                    {canEdit&&(
+                      <td style={{padding:"6px 12px"}}>
+                        <button onClick={e=>{e.stopPropagation();eliminar(t.id);}}
+                          style={{background:"#fee2e2",border:"none",borderRadius:6,
+                            padding:"3px 8px",cursor:"pointer",color:"#991b1b",fontSize:11,fontWeight:700}}>
+                          ×
+                        </button>
+                      </td>
+                    )}
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </Card>
+
+      {/* Modal nueva / editar transferencia */}
+      {modal&&(
+        <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.8)",zIndex:400,
+          display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
+          <div style={{background:C.bg2,border:`1px solid #f59e0b55`,borderRadius:16,
+            width:520,maxWidth:"95vw",boxShadow:"0 24px 64px rgba(0,0,0,0.7)"}}>
+            <div style={{padding:"16px 20px",borderBottom:`1px solid ${C.border}`,
+              display:"flex",alignItems:"center",gap:10}}>
+              <span style={{fontSize:22}}>🔄</span>
+              <div style={{flex:1}}>
+                <div style={{fontSize:13,fontWeight:800,color:C.text}}>
+                  {editId?"Editar":"Nueva"} Transferencia Intercompany
+                </div>
+              </div>
+              <button onClick={()=>setModal(false)}
+                style={{background:"transparent",border:"none",color:C.muted,cursor:"pointer",fontSize:20}}>×</button>
+            </div>
+            <div style={{padding:"16px 20px",display:"flex",flexDirection:"column",gap:12}}>
+              {[
+                ["Fecha","fecha","date",null],
+                ["Mes en flujo de caja","mes","select",["",...MESES_65]],
+                ["Tipo de transferencia","tipo","select",TIPOS_IC],
+              ].map(([lbl,field,type,opts])=>(
+                <div key={field}>
+                  <label style={{fontSize:11,fontWeight:600,color:C.muted,display:"block",marginBottom:4}}>{lbl}</label>
+                  {opts?(
+                    <select value={form[field]||""} onChange={e=>setForm(p=>({...p,[field]:e.target.value}))}
+                      style={{width:"100%",padding:"8px 10px",background:C.card2,border:`1px solid ${C.border}`,
+                        borderRadius:8,color:C.text,fontSize:12,outline:"none"}}>
+                      {opts.map(o=><option key={o} value={o}>{o||"— seleccionar mes —"}</option>)}
+                    </select>
+                  ):(
+                    <input type={type} value={form[field]||""} onChange={e=>setForm(p=>({...p,[field]:e.target.value}))}
+                      style={{width:"100%",padding:"8px 10px",background:C.card2,border:`1px solid ${C.border}`,
+                        borderRadius:8,color:C.text,fontSize:12,outline:"none",boxSizing:"border-box"}}/>
+                  )}
+                </div>
+              ))}
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+                <div>
+                  <label style={{fontSize:11,fontWeight:600,color:C.muted,display:"block",marginBottom:4}}>
+                    Empresa Origen (paga / envía)
+                  </label>
+                  <select value={form.origen} onChange={e=>setForm(p=>({...p,origen:e.target.value}))}
+                    style={{width:"100%",padding:"8px 10px",background:C.card2,border:`1px solid ${C.border}`,
+                      borderRadius:8,color:form.origen?empresas[form.origen]?.color||C.text:C.muted,
+                      fontSize:12,outline:"none"}}>
+                    <option value="">— seleccionar —</option>
+                    {empNames.map(n=><option key={n} value={n}>{empresas[n]?.emoji} {n}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label style={{fontSize:11,fontWeight:600,color:C.muted,display:"block",marginBottom:4}}>
+                    Empresa Destino (recibe)
+                  </label>
+                  <select value={form.destino} onChange={e=>setForm(p=>({...p,destino:e.target.value}))}
+                    style={{width:"100%",padding:"8px 10px",background:C.card2,border:`1px solid ${C.border}`,
+                      borderRadius:8,color:form.destino?empresas[form.destino]?.color||C.text:C.muted,
+                      fontSize:12,outline:"none"}}>
+                    <option value="">— seleccionar —</option>
+                    {empNames.filter(n=>n!==form.origen).map(n=><option key={n} value={n}>{empresas[n]?.emoji} {n}</option>)}
+                  </select>
+                </div>
+              </div>
+              <div>
+                <label style={{fontSize:11,fontWeight:600,color:C.muted,display:"block",marginBottom:4}}>Monto USD</label>
+                <input type="number" value={form.monto} onChange={e=>setForm(p=>({...p,monto:e.target.value}))}
+                  placeholder="0"
+                  style={{width:"100%",padding:"8px 10px",background:C.card2,border:`1px solid ${C.border}`,
+                    borderRadius:8,color:C.text,fontSize:12,outline:"none",boxSizing:"border-box"}}/>
+              </div>
+              <div>
+                <label style={{fontSize:11,fontWeight:600,color:C.muted,display:"block",marginBottom:4}}>
+                  Descripción (opcional)
+                </label>
+                <input type="text" value={form.descripcion||""} onChange={e=>setForm(p=>({...p,descripcion:e.target.value}))}
+                  placeholder="Ej: Capital de trabajo temporada cereza 2026"
+                  style={{width:"100%",padding:"8px 10px",background:C.card2,border:`1px solid ${C.border}`,
+                    borderRadius:8,color:C.text,fontSize:12,outline:"none",boxSizing:"border-box"}}/>
+              </div>
+              {form.origen&&form.destino&&form.monto&&(
+                <div style={{background:`${"#f59e0b"}18`,border:`1px solid ${"#f59e0b"}44`,
+                  borderRadius:10,padding:"10px 14px",fontSize:11,color:"#f59e0b"}}>
+                  📤 <strong>{form.origen}</strong> → <strong>{form.destino}</strong> · {$$(parseFloat(form.monto)||0)} USD
+                  {form.tipo==="Préstamo"&&<span style={{marginLeft:8,color:C.muted}}>
+                    (registra como egreso en origen e ingreso en destino)
+                  </span>}
+                </div>
+              )}
+            </div>
+            <div style={{padding:"12px 20px",borderTop:`1px solid ${C.border}`,
+              display:"flex",gap:8,justifyContent:"flex-end"}}>
+              <button onClick={()=>setModal(false)}
+                style={{padding:"8px 18px",borderRadius:8,border:`1px solid ${C.border}`,
+                  background:"transparent",color:C.muted,cursor:"pointer",fontSize:12}}>
+                Cancelar
+              </button>
+              <button onClick={guardar}
+                style={{padding:"8px 18px",borderRadius:8,border:"none",
+                  background:"#f59e0b",color:"#000",cursor:"pointer",fontSize:12,fontWeight:700}}>
+                💾 Guardar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ═══════════════════════════════════════════════════════════════════
 // MÓDULO PRINCIPAL
 // ═══════════════════════════════════════════════════════════════════
@@ -3292,6 +3610,9 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
   const [paramsEmp,setParamsEmp]=useState({});
   // subLines: { empresa: { lineLabel: [nombre1, nombre2, ...] } }
   const [subLines,setSubLines]=useState({});
+  // intercompany: array de transferencias entre empresas
+  // [{id, fecha, origen, destino, tipo, monto, descripcion, mes}]
+  const [intercompany,setIntercompany]=useState([]);
   const [saldosBancos,setSaldosBancos]=useState({});
   const [loading,setLoading]=useState(true);
   const [saved,setSaved]=useState(null);
@@ -3330,6 +3651,7 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
       if(d?.params_emp) setParamsEmp(d.params_emp);
       if(d?.saldos_bancos) setSaldosBancos(d.saldos_bancos);
       if(d?.sub_lines)    setSubLines(d.sub_lines);
+      if(d?.intercompany) setIntercompany(d.intercompany||[]);
       setLoading(false);
     });
   },[]);
@@ -3339,12 +3661,14 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
   const paramsRef       = React.useRef(params);
   const saldosBancosRef = React.useRef(saldosBancos);
   const paramsEmpRef    = React.useRef(paramsEmp);
-  const subLinesRef     = React.useRef(subLines);
+  const subLinesRef      = React.useRef(subLines);
+  const intercompanyRef  = React.useRef(intercompany);
   useEffect(()=>{ realDataRef.current     = realData;     },[realData]);
   useEffect(()=>{ paramsRef.current       = params;       },[params]);
   useEffect(()=>{ saldosBancosRef.current = saldosBancos; },[saldosBancos]);
   useEffect(()=>{ paramsEmpRef.current    = paramsEmp;    },[paramsEmp]);
   useEffect(()=>{ subLinesRef.current     = subLines;     },[subLines]);
+  useEffect(()=>{ intercompanyRef.current = intercompany; },[intercompany]);
 
   // Helper centralizado - siempre usa los valores mas recientes
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -3355,6 +3679,7 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
       saldos_bancos:   overrides.saldos_bancos   !== undefined ? overrides.saldos_bancos   : saldosBancosRef.current,
       params_emp:      overrides.params_emp      !== undefined ? overrides.params_emp      : paramsEmpRef.current,
       sub_lines:       overrides.sub_lines       !== undefined ? overrides.sub_lines       : subLinesRef.current,
+      intercompany:    overrides.intercompany    !== undefined ? overrides.intercompany    : intercompanyRef.current,
     });
   },[]); // eslint-disable-line
 
@@ -3392,6 +3717,16 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
   },[persistAll]);
 
   // setParamsEmp para una empresa específica
+  // Guardar transferencias intercompany
+  const handleSaveIntercompany = useCallback((newList) => {
+    setIntercompany(newList);
+    intercompanyRef.current = newList;
+    setTimeout(()=>{
+      persistAll({ intercompany: newList })
+        .then(ok=>{ setSaved(ok?"✅ Guardado":"⚠️ Error"); setTimeout(()=>setSaved(null),2000); });
+    },0);
+  },[persistAll]);
+
   // Guardar subfilas (clientes CxC / acreedores préstamos) en Supabase
   const handleSaveSubLines = useCallback((empresa, lineLabel, newList) => {
     setSubLines(prev => {
@@ -3519,6 +3854,13 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
                 color:empTab==="_consolidado"?"#a78bfa":C.muted,transition:"all 0.15s"}}>
               🏛 Consolidado
             </button>
+            <button onClick={()=>{setEmpTab("_intercompany");setFlujoSubTab("flujo");}}
+              style={{padding:"7px 14px",borderRadius:8,cursor:"pointer",fontSize:11,fontWeight:600,
+                border:`2px solid ${empTab==="_intercompany"?"#f59e0b":"#f59e0b55"}`,
+                background:empTab==="_intercompany"?"#f59e0b33":C.card,
+                color:empTab==="_intercompany"?"#f59e0b":C.muted,transition:"all 0.15s"}}>
+              🔄 Intercompany
+            </button>
             {["Mediterra","Allegria Foods","Allegria Service","Frisku Foods",
               "Osiris","Integrity Farms","Allpa Farms","Allpa Farms Perú","Frisku Peru"
             ].filter(n=>empresas[n]).map(n=>{const e=empresas[n];return (
@@ -3595,6 +3937,14 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
           {/* Consolidado */}
           {empTab==="_consolidado"&&(
             <Consolidado empresas={empresas} saldosBancos={saldosBancos}/>
+          )}
+          {/* Intercompany */}
+          {empTab==="_intercompany"&&(
+            <Intercompany
+              transferencias={intercompany}
+              onSave={handleSaveIntercompany}
+              empresas={empresas}
+              canEdit={puedoEdit("flujo")}/>
           )}
         </div>
       )}
