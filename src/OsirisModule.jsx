@@ -113,21 +113,7 @@ function BadgeFact({nFact}) {
   );
 }
 
-function BadgeEstado({val,opts,onChange,can}) {
-  const MAP = {
-    "Por confirmar": {bg:"#fef3c7",col:"#d97706",bdr:"#fde047"},
-    "Confirmado":    {bg:"#dcfce7",col:"#16a34a",bdr:"#86efac"},
-  };
-  const s = MAP[val]||{bg:"#f1f5f9",col:"#64748b",bdr:"#d1d5db"};
-  if(!can) return <span style={{background:s.bg,color:s.col,border:`1px solid ${s.bdr}`,borderRadius:20,padding:"2px 10px",fontSize:11,fontWeight:700}}>{val||"—"}</span>;
-  return (
-    <select value={val||""} onChange={e=>onChange(e.target.value)}
-      style={{borderRadius:20,border:`1px solid ${s.bdr}`,background:s.bg,color:s.col,
-        padding:"2px 8px",fontSize:11,fontWeight:700,cursor:"pointer"}}>
-      {opts.map(o=><option key={o} value={o}>{o}</option>)}
-    </select>
-  );
-}
+
 
 // ── Datos base ────────────────────────────────────────────
 
@@ -971,17 +957,18 @@ function RoyaltyComercial({data,setData,tpData,can,clientes=[]}) {
     nFact:"",pagado:false,
   });
 
-  const hoy=new Date();hoy.setHours(0,0,0,0);
-
-  const calc=useMemo(()=>data.map(r=>{
-    const mf=(Number(r.ha)||0)*(Number(r.usdHa)||3000);
-    const mc=mf*pct(r.pais);
-    const fAviso=fechaAvisoTrim(r.añoCobro,r.trimCobro);
-    const fInicio=fechaInicioTrim(r.añoCobro,r.trimCobro);
-    const diasAviso=Math.ceil((fAviso-hoy)/(1000*60*60*24));
-    const alertaActiva=hoy>=fAviso&&hoy<fInicio&&!r.nFact;
-    return{...r,montoFact:mf,montoCobro:mc,fAviso,fInicio,diasAviso,alertaActiva};
-  }),[data]);
+  const calc=useMemo(()=>{
+    const ahora=new Date();ahora.setHours(0,0,0,0);
+    return data.map(r=>{
+      const mf=(Number(r.ha)||0)*(Number(r.usdHa)||3000);
+      const mc=mf*pct(r.pais);
+      const fAviso=fechaAvisoTrim(r.añoCobro,r.trimCobro);
+      const fInicio=fechaInicioTrim(r.añoCobro,r.trimCobro);
+      const diasAviso=Math.ceil((fAviso-ahora)/(1000*60*60*24));
+      const alertaActiva=ahora>=fAviso&&ahora<fInicio&&!r.nFact;
+      return{...r,montoFact:mf,montoCobro:mc,fAviso,fInicio,diasAviso,alertaActiva};
+    });
+  },[data]);
 
   const años=["Todos",...Array.from(new Set(calc.map(r=>r.añoCobro))).sort()];
   const paises=["Todos",...Array.from(new Set(calc.map(r=>r.pais).filter(Boolean))).sort()];
