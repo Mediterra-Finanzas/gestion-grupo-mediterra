@@ -1318,7 +1318,7 @@ function ParamsAllegriaService({selSeason, paramsAS, setParamsAS, readOnly}) {
       <div style={{display:"flex",gap:8,marginBottom:16}}>
         {ESP_AS.map(esp=>(
           <button key={esp} onClick={()=>setSelEsp(esp)}
-            style={{padding:"6px 18px",borderRadius:20,border:"none",cursor:"pointer",
+            style={{padding:"6px 18px",borderRadius:20,cursor:"pointer",
               fontWeight:600,fontSize:12,
               background:selEsp===esp?"#92400e":"transparent",
               color:selEsp===esp?"#fff":C.muted,
