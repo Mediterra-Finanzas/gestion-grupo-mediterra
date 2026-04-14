@@ -280,25 +280,45 @@ const EMPRESAS_STATIC = {
     emoji:"🏢", color:"#1d4ed8", saldo_ini:3601, desc:"Holding · Inversiones Mediterra SpA",
     sections:[
       { cat:"ing_op", label:"Ingresos Operacionales", signo:1, lines:[
-        {label:"Fee Administración / Otros Ingresos", proy:ext([0,80000,80000,80000,87500,87500,87500,87500,87500,87500,87500,87500,87500,87500,87500,87500,87500,87500,87500,87500,87500,87500,87500,87500])},
-        {label:"Cuentas por Cobrar", proy:Z65()},
+        {label:"Fee Administración",                  proy:ext([0,80000,80000,80000,87500,87500,87500,87500,87500,87500,87500,87500,87500,87500,87500,87500,87500,87500,87500,87500,87500,87500,87500,87500].concat(Array(41).fill(87500)))},
+        {label:"Cuentas por Cobrar",                  proy:Z65()},
+      ]},
+      { cat:"egr_var", label:"Egresos Operacionales", signo:-1, lines:[
+        {label:"Costos Variables Operacionales",       proy:Z65()},
       ]},
       { cat:"egr_fijo", label:"Costos Fijos / SG&A", signo:-1, lines:[
-        {label:"Remuneración Administración", proy:ext(Array(24).fill(50000))},
-        {label:"Fee Administración", proy:Z65()},
-        {label:"Arriendo Oficina", proy:Z65()},
-        {label:"Gastos Legales", proy:Z65()},
-        {label:"Gastos Viajes Nacionales", proy:Z65()},
-        {label:"Gastos Viajes Internacionales", proy:Z65()},
-        {label:"Alojamiento", proy:Z65()},
+        {label:"Remuneración Administración",          proy:ext(Array(24).fill(50000).concat(Array(41).fill(0)))},
+        {label:"Arriendo Vehículos",                   proy:Z65()},
+        {label:"Arriendo Oficina",                     proy:Z65()},
+        {label:"Gastos Legales",                       proy:Z65()},
+        {label:"Fee Administración",                   proy:Z65()},
+        {label:"Gastos Viajes Nacionales",             proy:Z65()},
+        {label:"Gastos Viajes Internacionales",        proy:Z65()},
+        {label:"Alojamiento",                          proy:Z65()},
+        {label:"Gastos de Representación",             proy:Z65()},
+        {label:"Almuerzos",                            proy:Z65()},
+        {label:"Patentes Comerciales",                 proy:Z65()},
+        {label:"Seguros",                              proy:Z65()},
+      ]},
+      { cat:"imp", label:"Impuestos", signo:-1, lines:[
+        {label:"Impuestos Mensuales",                  proy:Z65()},
+        {label:"Impuestos Anuales",                    proy:Z65()},
+      ]},
+      { cat:"ing_nop", label:"Ingresos No Operacionales", signo:1, lines:[
+        {label:"Capital Calls",                        proy:Z65()},
+        {label:"Ingresos Financiamiento",              proy:Z65()},
+        {label:"Otros Ingresos No Operacionales",      proy:Z65()},
       ]},
       { cat:"egr_nop", label:"Egresos No Operacionales", signo:-1, lines:[
-        {label:"Pago Préstamos - Total", proy:ext([32000,32000,32000,131300,32000,32000,101300,32000,32000,101300,32000,32000,101300,32000,32000,101300,0,0,0,0,0,0,0,0])},
-        {label:"Leyes Sociales Laborales", proy:Z65()},
-        {label:"Pago F-29", proy:Z65()},
+        {label:"Pago Préstamos - Total",               proy:ext([32000,32000,32000,131300,32000,32000,101300,32000,32000,101300,32000,32000,131300,32000,32000,131300,32000,32000,131300,32000,32000,131300,32000,32000].concat(Array(41).fill(0)))},
+        {label:"  └ del cual: Intereses",              proy:Z65()},
+        {label:"Privado Particular",                   proy:Z65()},
+        {label:"Leyes Sociales Laborales",             proy:Z65()},
+        {label:"Pago F-29",                            proy:Z65()},
       ]},
     ],
   },
+
   "Allegria Service": {
     emoji:"🏭", color:"#92400e", saldo_ini:5519, desc:"Procesamiento · Packing",
     sections:[
@@ -2336,17 +2356,47 @@ function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit,saldosBanc
 // ═══════════════════════════════════════════════════════════════════
 // DASHBOARD
 // ═══════════════════════════════════════════════════════════════════
-function Dashboard({empresas}) {
+function Dashboard({empresas, saldosBancos}) {
   const gmAcum=useMemo(()=>{
     let acc=Object.values(empresas).reduce((s,e)=>s+e.saldo_ini,0);
     return MESES_65.map((_,i)=>{let f=0;Object.values(empresas).forEach(e=>e.sections.forEach(sec=>sec.lines.forEach(l=>{f+=(l.proy[i]||0)*sec.signo;})));acc+=f;return acc;});
   },[empresas]);
+  // ── Saldo banco por país (USD) ──────────────────────────
+  // Empresas Chile: Mediterra, Allegria Foods, Allegria Service, Frisku Foods, Allpa Farms, Osiris, Integrity
+  // Empresas Perú:  Allpa Farms Perú, Frisku Peru
+  const EMPRESAS_CHILE = ["Mediterra","Allegria Foods","Allegria Service","Frisku Foods","Allpa Farms","Osiris","Integrity Farms"];
+  const EMPRESAS_PERU  = ["Allpa Farms Perú","Frisku Peru"];
+  const HOY_DASH = new Date();
+  function saldoDeEmpresas(empList) {
+    if(!saldosBancos) return Object.values(empresas).filter((_,i)=>empList.includes(Object.keys(empresas)[i])).reduce((s,e)=>s+e.saldo_ini,0);
+    let total = 0;
+    empList.forEach(empNombre=>{
+      const porBanco = {};
+      Object.entries(saldosBancos).forEach(([key,rec])=>{
+        const parts = key.split("||");
+        if(parts[0]!==empNombre||!rec?.monto||!rec?.fecha) return;
+        const f = new Date(rec.fecha);
+        if(f>HOY_DASH) return;
+        const banco = parts[1];
+        if(!porBanco[banco]||new Date(porBanco[banco].fecha)<f) porBanco[banco]=rec;
+      });
+      Object.values(porBanco).forEach(rec=>{
+        const moneda = rec.moneda||"usd";
+        if(moneda==="usd") total+=Number(rec.monto)||0;
+        else if(rec.usd!=null) total+=Number(rec.usd)||0;
+      });
+    });
+    return total;
+  }
+  const saldoCajaChile = saldoDeEmpresas(EMPRESAS_CHILE);
+  const saldoCajaPerU  = saldoDeEmpresas(EMPRESAS_PERU);
   const empTotals=Object.entries(empresas).map(([n,e])=>({n,totalIng:e.sections.filter(s=>s.signo>0).flatMap(s=>s.lines).reduce((a,l)=>a+l.proy.reduce((b,v)=>b+v,0),0)})).filter(e=>e.totalIng>0).sort((a,b)=>b.totalIng-a.totalIng);
   const maxIng=empTotals[0]?.totalIng||1;
   return (
     <div style={{display:"flex",flexDirection:"column",gap:14}}>
       <div style={{display:"grid",gridTemplateColumns:"repeat(2,1fr)",gap:10}}>
-        <KPI label="Saldo Caja Actual"      value={$$(411252)}                  color={C.green}/>
+        <KPI label={`🇨🇱 Saldo Banco Chile`}  value={$$(saldoCajaChile)}  color={C.green}/>
+        <KPI label={`🇵🇪 Saldo Banco Perú`}   value={$$(saldoCajaPerU)}   color={"#7c3aed"}/>
         <KPI label="Créditos Totales Q1-26" value={$$(8355763)}                 color={C.red}/>
         <KPI label="Mínimo Acum. (65m)"     value={$$(Math.min(...gmAcum))}     color={C.red}/>
         <KPI label="Saldo Final Jun-31"     value={$$(gmAcum[gmAcum.length-1])} color={cf(gmAcum[gmAcum.length-1])}/>
@@ -3074,13 +3124,28 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
       </div>
 
       {/* ── Contenido por pestaña ──────────────────────────── */}
-      {tab==="dashboard"&&puedoVer("dashboard")&&<Dashboard empresas={empresas}/>}
+      {tab==="dashboard"&&puedoVer("dashboard")&&<Dashboard empresas={empresas} saldosBancos={saldosBancos}/>}
 
       {tab==="flujo"&&puedoVer("flujo")&&(
         <div>
           {/* Selector empresa + botón Consolidado */}
           <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:12,alignItems:"center"}}>
-            {Object.keys(empresas).map(n=>{const e=empresas[n];return (
+            {/* Consolidado primero */}
+            <button onClick={()=>{setEmpTab("_consolidado");setFlujoSubTab("flujo");}}
+              style={{
+                padding:"7px 14px",borderRadius:8,cursor:"pointer",fontSize:11,fontWeight:600,
+                border:`2px solid ${empTab==="_consolidado"?"#a78bfa":"#a78bfa55"}`,
+                background:empTab==="_consolidado"?"#a78bfa33":C.card,
+                color:empTab==="_consolidado"?"#a78bfa":C.muted,
+                transition:"all 0.15s",
+              }}>
+              🏛 Consolidado
+            </button>
+            {/* Empresas en orden definido */}
+            {[
+              "Mediterra","Allegria Foods","Allegria Service","Frisku Foods",
+              "Osiris","Integrity Farms","Allpa Farms","Allpa Farms Perú","Frisku Peru"
+            ].filter(n=>empresas[n]).map(n=>{const e=empresas[n];return (
               <button key={n} onClick={()=>{setEmpTab(n);setFlujoSubTab("flujo");}}
                 style={{
                   padding:"7px 14px",borderRadius:8,cursor:"pointer",fontSize:11,fontWeight:600,
@@ -3089,21 +3154,10 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
                   color:empTab===n?e.color:C.muted,
                   transition:"all 0.15s",
                 }}>
-                {e.emoji} {n}{n==="Allegria Foods"&&<span style={{fontSize:9,marginLeft:3,color:C.yellow}}>⚡</span>}
+                {e.emoji} {n}{n==="Allegria Foods"&&<span style={{fontSize:9,marginLeft:3,color:C.yellow}}>✦</span>}
               </button>
             );})}
-            {/* Botón Consolidado */}
-            <button onClick={()=>{setEmpTab("_consolidado");setFlujoSubTab("flujo");}}
-              style={{
-                padding:"7px 14px",borderRadius:8,cursor:"pointer",fontSize:11,fontWeight:600,
-                border:`2px solid ${empTab==="_consolidado"?"#a78bfa":"#a78bfa55"}`,
-                background:empTab==="_consolidado"?"#a78bfa33":C.card,
-                color:empTab==="_consolidado"?"#a78bfa":C.muted,
-                transition:"all 0.15s",marginLeft:8,
-              }}>
-              🏛 Consolidado
-            </button>
-          </div>
+            </div>
 
           {/* Sub-pestañas Flujo/Parámetros — solo cuando NO es consolidado */}
           {empTab!=="_consolidado"&&(
