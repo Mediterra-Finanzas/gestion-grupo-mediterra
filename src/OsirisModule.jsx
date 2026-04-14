@@ -135,4567 +135,6 @@ const PAISES = ["Peru","Mexico","Chile","Corea","España"];
 const VIVEROS = ["Synergia Chile","Synergia Mexico","Agromillora Pe","Agromillora"];
 const TIPOS   = ["Anticipo","Entrega","Anticipo/Entrega"];
 
-const TOTAL_PEDIDOS_INIT = [
-  {
-    "id": "tp_xl_1",
-    "cliente": "ACP",
-    "pais": "Peru",
-    "proforma": "IQP2022-006",
-    "año": 2022,
-    "trim": 4,
-    "nPlantas": 9200,
-    "estado": "Confirmado"
-  },
-  {
-    "id": "tp_xl_2",
-    "cliente": "Agroberries",
-    "pais": "Peru",
-    "proforma": "IQP2022-111",
-    "año": 2022,
-    "trim": 4,
-    "nPlantas": 4000,
-    "estado": "Confirmado"
-  },
-  {
-    "id": "tp_xl_3",
-    "cliente": "Danper",
-    "pais": "Peru",
-    "proforma": "DANPER-2022-03",
-    "año": 2022,
-    "trim": 4,
-    "nPlantas": 100,
-    "estado": "Confirmado"
-  },
-  {
-    "id": "tp_xl_4",
-    "cliente": "Giddings",
-    "pais": "Peru",
-    "proforma": "IQP2022-004",
-    "año": 2022,
-    "trim": 4,
-    "nPlantas": 2900,
-    "estado": "Confirmado"
-  },
-  {
-    "id": "tp_xl_5",
-    "cliente": "Hass Peru",
-    "pais": "Peru",
-    "proforma": "IQP2022-125",
-    "año": 2022,
-    "trim": 4,
-    "nPlantas": 200,
-    "estado": "Confirmado"
-  },
-  {
-    "id": "tp_xl_6",
-    "cliente": "Mainland",
-    "pais": "Mexico",
-    "proforma": "IQP2022-005",
-    "año": 2022,
-    "trim": 4,
-    "nPlantas": 16000,
-    "estado": "Confirmado"
-  },
-  {
-    "id": "tp_xl_7",
-    "cliente": "Giddings",
-    "pais": "Mexico",
-    "proforma": "IQP2022-112-M",
-    "año": 2023,
-    "trim": 1,
-    "nPlantas": 96006,
-    "estado": "Confirmado"
-  },
-  {
-    "id": "tp_xl_8",
-    "cliente": "Danper",
-    "pais": "Peru",
-    "proforma": "IQP2022-007",
-    "año": 2023,
-    "trim": 2,
-    "nPlantas": 8700,
-    "estado": "Confirmado"
-  },
-  {
-    "id": "tp_xl_9",
-    "cliente": "Don Ricardo",
-    "pais": "Peru",
-    "proforma": "IQP2022-124",
-    "año": 2023,
-    "trim": 2,
-    "nPlantas": 1000,
-    "estado": "Confirmado"
-  },
-  {
-    "id": "tp_xl_10",
-    "cliente": "San Clemente",
-    "pais": "Peru",
-    "proforma": "IQP2022-002",
-    "año": 2023,
-    "trim": 2,
-    "nPlantas": 13320,
-    "estado": "Confirmado"
-  },
-  {
-    "id": "tp_xl_11",
-    "cliente": "Agroberries",
-    "pais": "Mexico",
-    "proforma": "EXPBER-2023-01",
-    "año": 2023,
-    "trim": 2,
-    "nPlantas": 1728,
-    "estado": "Confirmado"
-  },
-  {
-    "id": "tp_xl_12",
-    "cliente": "Mainland",
-    "pais": "Mexico",
-    "proforma": "IQP2022-005- M",
-    "año": 2023,
-    "trim": 2,
-    "nPlantas": 227250,
-    "estado": "Confirmado"
-  },
-  {
-    "id": "tp_xl_13",
-    "cliente": "ACP",
-    "pais": "Peru",
-    "proforma": "CPRIET-2023-01",
-    "año": 2023,
-    "trim": 4,
-    "nPlantas": 2000,
-    "estado": "Confirmado"
-  },
-  {
-    "id": "tp_xl_14",
-    "cliente": "Agroberries",
-    "pais": "Peru",
-    "proforma": "AGBERR-2022-01",
-    "año": 2023,
-    "trim": 4,
-    "nPlantas": 8000,
-    "estado": "Confirmado"
-  },
-  {
-    "id": "tp_xl_15",
-    "cliente": "Agrovision",
-    "pais": "Peru",
-    "proforma": "AGVINV-2023-02",
-    "año": 2023,
-    "trim": 4,
-    "nPlantas": 26000,
-    "estado": "Confirmado"
-  },
-  {
-    "id": "tp_xl_16",
-    "cliente": "Danper",
-    "pais": "Peru",
-    "proforma": "DANPER-2022-01",
-    "año": 2023,
-    "trim": 4,
-    "nPlantas": 6068,
-    "estado": "Confirmado"
-  },
-  {
-    "id": "tp_xl_17",
-    "cliente": "Don Ricardo",
-    "pais": "Peru",
-    "proforma": "ARICDO-2022-02",
-    "año": 2023,
-    "trim": 4,
-    "nPlantas": 2500,
-    "estado": "Confirmado"
-  },
-  {
-    "id": "tp_xl_18",
-    "cliente": "Frusan",
-    "pais": "Peru",
-    "proforma": "FSFNDO-2023-01",
-    "año": 2023,
-    "trim": 4,
-    "nPlantas": 6000,
-    "estado": "Confirmado"
-  },
-  {
-    "id": "tp_xl_19",
-    "cliente": "Hass Peru",
-    "pais": "Peru",
-    "proforma": "HASSPE-2022-01",
-    "año": 2023,
-    "trim": 4,
-    "nPlantas": 2000,
-    "estado": "Confirmado"
-  },
-  {
-    "id": "tp_xl_20",
-    "cliente": "Hass Peru",
-    "pais": "Peru",
-    "proforma": "HASSPE-2023-01",
-    "año": 2023,
-    "trim": 4,
-    "nPlantas": 5000,
-    "estado": "Confirmado"
-  },
-  {
-    "id": "tp_xl_21",
-    "cliente": "Hass Peru",
-    "pais": "Peru",
-    "proforma": "HARVES-2023-01",
-    "año": 2023,
-    "trim": 4,
-    "nPlantas": 2500,
-    "estado": "Confirmado"
-  },
-  {
-    "id": "tp_xl_22",
-    "cliente": "San Clemente",
-    "pais": "Peru",
-    "proforma": "MOQUEH-2022-02",
-    "año": 2023,
-    "trim": 4,
-    "nPlantas": 255000,
-    "estado": "Confirmado"
-  },
-  {
-    "id": "tp_xl_23",
-    "cliente": "Agrovision",
-    "pais": "Mexico",
-    "proforma": "AGVINV-2023-01",
-    "año": 2023,
-    "trim": 4,
-    "nPlantas": 22500,
-    "estado": "Confirmado"
-  },
-  {
-    "id": "tp_xl_24",
-    "cliente": "Giddings",
-    "pais": "Mexico",
-    "proforma": "Sin Proforma",
-    "año": 2023,
-    "trim": 4,
-    "nPlantas": 400,
-    "estado": "Confirmado"
-  },
-  {
-    "id": "tp_xl_25",
-    "cliente": "Mainland",
-    "pais": "Mexico",
-    "proforma": "MAINLF-2022-02",
-    "año": 2023,
-    "trim": 4,
-    "nPlantas": 12000,
-    "estado": "Confirmado"
-  },
-  {
-    "id": "tp_xl_26",
-    "cliente": "Agroberries",
-    "pais": "Peru",
-    "proforma": "PURABE-2024-01",
-    "año": 2024,
-    "trim": 1,
-    "nPlantas": 250,
-    "estado": "Confirmado"
-  },
-  {
-    "id": "tp_xl_27",
-    "cliente": "Danper",
-    "pais": "Peru",
-    "proforma": "DANPER-2024-01",
-    "año": 2024,
-    "trim": 1,
-    "nPlantas": 7296,
-    "estado": "Confirmado"
-  },
-  {
-    "id": "tp_xl_28",
-    "cliente": "Berries Paradise",
-    "pais": "Mexico",
-    "proforma": "Plantas de AGV",
-    "año": 2024,
-    "trim": 1,
-    "nPlantas": 10000,
-    "estado": "Confirmado"
-  },
-  {
-    "id": "tp_xl_29",
-    "cliente": "Central West Produce",
-    "pais": "Mexico",
-    "proforma": "CWESTP-2023-01",
-    "año": 2024,
-    "trim": 1,
-    "nPlantas": 3300,
-    "estado": "Confirmado"
-  },
-  {
-    "id": "tp_xl_30",
-    "cliente": "Hass Peru",
-    "pais": "Peru",
-    "proforma": "HASSPE-2024-01",
-    "año": 2024,
-    "trim": 2,
-    "nPlantas": 25,
-    "estado": "Confirmado"
-  },
-  {
-    "id": "tp_xl_31",
-    "cliente": "Hass Peru",
-    "pais": "Peru",
-    "proforma": "HARVES-2024-01",
-    "año": 2024,
-    "trim": 2,
-    "nPlantas": 25,
-    "estado": "Confirmado"
-  },
-  {
-    "id": "tp_xl_32",
-    "cliente": "Berries Paradise",
-    "pais": "Mexico",
-    "proforma": "BPARAD-2023-01",
-    "año": 2024,
-    "trim": 2,
-    "nPlantas": 4284,
-    "estado": "Confirmado"
-  },
-  {
-    "id": "tp_xl_33",
-    "cliente": "Giddings",
-    "pais": "Mexico",
-    "proforma": "GIDMEX-2024-01",
-    "año": 2024,
-    "trim": 2,
-    "nPlantas": 12672,
-    "estado": "Confirmado"
-  },
-  {
-    "id": "tp_xl_34",
-    "cliente": "Agroextiende",
-    "pais": "Peru",
-    "proforma": "AGROEX-CL-2024-03",
-    "año": 2024,
-    "trim": 3,
-    "nPlantas": 800,
-    "estado": "Confirmado"
-  },
-  {
-    "id": "tp_xl_35",
-    "cliente": "Hass Peru",
-    "pais": "Peru",
-    "proforma": "HARVES-2023-01",
-    "año": 2024,
-    "trim": 3,
-    "nPlantas": 1500,
-    "estado": "Confirmado"
-  },
-  {
-    "id": "tp_xl_36",
-    "cliente": "Mainland",
-    "pais": "Mexico",
-    "proforma": "MAIFAR-2024-01",
-    "año": 2024,
-    "trim": 3,
-    "nPlantas": 11500,
-    "estado": "Confirmado"
-  },
-  {
-    "id": "tp_xl_37",
-    "cliente": "Collipulli",
-    "pais": "Chile",
-    "proforma": "ASELVA-2024-01",
-    "año": 2024,
-    "trim": 3,
-    "nPlantas": 270,
-    "estado": "Confirmado"
-  },
-  {
-    "id": "tp_xl_38",
-    "cliente": "SQM",
-    "pais": "Chile",
-    "proforma": "SQMSDH-2024-01",
-    "año": 2024,
-    "trim": 3,
-    "nPlantas": 420,
-    "estado": "Confirmado"
-  },
-  {
-    "id": "tp_xl_39",
-    "cliente": "Agroextiende",
-    "pais": "Peru",
-    "proforma": "AGROEX-CL-2024-01",
-    "año": 2024,
-    "trim": 4,
-    "nPlantas": 50000,
-    "estado": "Confirmado"
-  },
-  {
-    "id": "tp_xl_40",
-    "cliente": "Frusan",
-    "pais": "Peru",
-    "proforma": "FRUSAN-CL-2024-01",
-    "año": 2024,
-    "trim": 4,
-    "nPlantas": 5160,
-    "estado": "Confirmado"
-  },
-  {
-    "id": "tp_xl_41",
-    "cliente": "Hass Peru",
-    "pais": "Peru",
-    "proforma": "HASSPE-2024-01",
-    "año": 2024,
-    "trim": 4,
-    "nPlantas": 342,
-    "estado": "Confirmado"
-  },
-  {
-    "id": "tp_xl_42",
-    "cliente": "Agroextiende",
-    "pais": "Peru",
-    "proforma": "AGROEX-CL-2024-04",
-    "año": 2025,
-    "trim": 1,
-    "nPlantas": 200000,
-    "estado": "Confirmado"
-  },
-  {
-    "id": "tp_xl_43",
-    "cliente": "Allpa Farms",
-    "pais": "Peru",
-    "proforma": "ALLPAF-2024-01",
-    "año": 2025,
-    "trim": 1,
-    "nPlantas": 325475,
-    "estado": "Confirmado"
-  },
-  {
-    "id": "tp_xl_44",
-    "cliente": "Pura Berries",
-    "pais": "Peru",
-    "proforma": "PURABE-CL-2024-03",
-    "año": 2025,
-    "trim": 1,
-    "nPlantas": 1500,
-    "estado": "Confirmado"
-  },
-  {
-    "id": "tp_xl_45",
-    "cliente": "Gourmet",
-    "pais": "Peru",
-    "proforma": "GOURME-CL-2025-01",
-    "año": 2025,
-    "trim": 1,
-    "nPlantas": 400,
-    "estado": "Confirmado"
-  },
-  {
-    "id": "tp_xl_46",
-    "cliente": "Mainland",
-    "pais": "Mexico",
-    "proforma": "MAIFAR-2024-02",
-    "año": 2025,
-    "trim": 1,
-    "nPlantas": 75000,
-    "estado": "Confirmado"
-  },
-  {
-    "id": "tp_xl_47",
-    "cliente": "Agroextiende",
-    "pais": "Peru",
-    "proforma": "AGROEX-CL-2024-02",
-    "año": 2025,
-    "trim": 2,
-    "nPlantas": 150000,
-    "estado": "Confirmado"
-  },
-  {
-    "id": "tp_xl_48",
-    "cliente": "Frusan",
-    "pais": "Peru",
-    "proforma": "FRUSAN-CL-2024-01",
-    "año": 2025,
-    "trim": 2,
-    "nPlantas": 400,
-    "estado": "Confirmado"
-  },
-  {
-    "id": "tp_xl_49",
-    "cliente": "Pura Berries",
-    "pais": "Peru",
-    "proforma": "PURABE-CL-2024-03",
-    "año": 2025,
-    "trim": 2,
-    "nPlantas": 7500,
-    "estado": "Confirmado"
-  },
-  {
-    "id": "tp_xl_50",
-    "cliente": "Mainland",
-    "pais": "Mexico",
-    "proforma": "MAIFAR-2024-03",
-    "año": 2025,
-    "trim": 2,
-    "nPlantas": 1000,
-    "estado": "Confirmado"
-  },
-  {
-    "id": "tp_xl_51",
-    "cliente": "Mainland",
-    "pais": "Mexico",
-    "proforma": "MAIFAR-2024-03",
-    "año": 2025,
-    "trim": 2,
-    "nPlantas": 1000,
-    "estado": "Confirmado"
-  },
-  {
-    "id": "tp_xl_52",
-    "cliente": "Mainland",
-    "pais": "Mexico",
-    "proforma": "MAIFAR-MX-2024-04",
-    "año": 2025,
-    "trim": 2,
-    "nPlantas": 50000,
-    "estado": "Confirmado"
-  },
-  {
-    "id": "tp_xl_53",
-    "cliente": "Danper",
-    "pais": "Peru",
-    "proforma": "DANPER-2024-02",
-    "año": 2025,
-    "trim": 3,
-    "nPlantas": 512,
-    "estado": "Confirmado"
-  },
-  {
-    "id": "tp_xl_54",
-    "cliente": "Hector Esquivel",
-    "pais": "Chile",
-    "proforma": "HEHSPA-CL-2024-01",
-    "año": 2025,
-    "trim": 3,
-    "nPlantas": 12000,
-    "estado": "Confirmado"
-  },
-  {
-    "id": "tp_xl_55",
-    "cliente": "Danper",
-    "pais": "Peru",
-    "proforma": "DANPER-CL-2025-01",
-    "año": 2025,
-    "trim": 4,
-    "nPlantas": 24000,
-    "estado": "Confirmado"
-  },
-  {
-    "id": "tp_xl_56",
-    "cliente": "Danper",
-    "pais": "Peru",
-    "proforma": "2025/0036",
-    "año": 2025,
-    "trim": 4,
-    "nPlantas": 1000,
-    "estado": "Confirmado"
-  },
-  {
-    "id": "tp_xl_57",
-    "cliente": "Frusan",
-    "pais": "Peru",
-    "proforma": "FRUSAN-CL-2024-01",
-    "año": 2025,
-    "trim": 4,
-    "nPlantas": 400,
-    "estado": "Confirmado"
-  },
-  {
-    "id": "tp_xl_58",
-    "cliente": "Hass Peru",
-    "pais": "Peru",
-    "proforma": "HARVES-2024-01",
-    "año": 2025,
-    "trim": 4,
-    "nPlantas": 384,
-    "estado": "Confirmado"
-  },
-  {
-    "id": "tp_xl_59",
-    "cliente": "Hass Peru",
-    "pais": "Peru",
-    "proforma": "HASSPE-CL-2024-02",
-    "año": 2025,
-    "trim": 4,
-    "nPlantas": 75835,
-    "estado": "Confirmado"
-  },
-  {
-    "id": "tp_xl_60",
-    "cliente": "Hass Peru",
-    "pais": "Peru",
-    "proforma": "AOLMOS-CL-2025-02",
-    "año": 2025,
-    "trim": 4,
-    "nPlantas": 190950,
-    "estado": "Confirmado"
-  },
-  {
-    "id": "tp_xl_61",
-    "cliente": "Pura Berries",
-    "pais": "Peru",
-    "proforma": "PURABE-CL-2024-04",
-    "año": 2025,
-    "trim": 4,
-    "nPlantas": 250735,
-    "estado": "Confirmado"
-  },
-  {
-    "id": "tp_xl_62",
-    "cliente": "San Clemente",
-    "pais": "Peru",
-    "proforma": "MOQUEH-2024-01",
-    "año": 2025,
-    "trim": 4,
-    "nPlantas": 70000,
-    "estado": "Confirmado"
-  },
-  {
-    "id": "tp_xl_63",
-    "cliente": "Vanguard",
-    "pais": "Peru",
-    "proforma": "OLIVOS-CL-2024-01",
-    "año": 2025,
-    "trim": 4,
-    "nPlantas": 1555706,
-    "estado": "Confirmado"
-  },
-  {
-    "id": "tp_xl_64",
-    "cliente": "Gourmet",
-    "pais": "Peru",
-    "proforma": "2025/0068",
-    "año": 2025,
-    "trim": 4,
-    "nPlantas": 250,
-    "estado": "Confirmado"
-  },
-  {
-    "id": "tp_xl_65",
-    "cliente": "La Calera",
-    "pais": "Peru",
-    "proforma": "BRIDGE-PE-2025-01",
-    "año": 2025,
-    "trim": 4,
-    "nPlantas": 3500,
-    "estado": "Confirmado"
-  },
-  {
-    "id": "tp_xl_66",
-    "cliente": "Agroextiende",
-    "pais": "Peru",
-    "proforma": "AGM 2025 - 2705",
-    "año": 2026,
-    "trim": 1,
-    "nPlantas": 421400,
-    "estado": "Confirmado"
-  },
-  {
-    "id": "tp_xl_67",
-    "cliente": "Frusan",
-    "pais": "Peru",
-    "proforma": "FRUSAN-CL-2024-02",
-    "año": 2026,
-    "trim": 1,
-    "nPlantas": 305185,
-    "estado": "Confirmado"
-  },
-  {
-    "id": "tp_xl_68",
-    "cliente": "Mainland",
-    "pais": "Mexico",
-    "proforma": "MAIFAR-MX-2024-05",
-    "año": 2026,
-    "trim": 1,
-    "nPlantas": 150000,
-    "estado": "Confirmado"
-  },
-  {
-    "id": "tp_xl_69",
-    "cliente": "Dole Mexico",
-    "pais": "Mexico",
-    "proforma": "BLUFAR-MX-2025-01",
-    "año": 2026,
-    "trim": 1,
-    "nPlantas": 2100,
-    "estado": "Confirmado"
-  },
-  {
-    "id": "tp_xl_70",
-    "cliente": "Gourmet",
-    "pais": "Mexico",
-    "proforma": "GBFFAR-MX-2026-01",
-    "año": 2026,
-    "trim": 1,
-    "nPlantas": 950,
-    "estado": "Confirmado"
-  },
-  {
-    "id": "tp_xl_71",
-    "cliente": "Integrity/Talsa",
-    "pais": "Peru",
-    "proforma": "INTFAR-PE-2026-01",
-    "año": 2026,
-    "trim": 1,
-    "nPlantas": 2100,
-    "estado": "Confirmado"
-  },
-  {
-    "id": "tp_xl_72",
-    "cliente": "Mainland",
-    "pais": "Mexico",
-    "proforma": "MAIFAR-MX-2025-02",
-    "año": 2026,
-    "trim": 2,
-    "nPlantas": 250000,
-    "estado": "Confirmado"
-  },
-  {
-    "id": "tp_xl_73",
-    "cliente": "Danper",
-    "pais": "Peru",
-    "proforma": "DANPER-2024-02",
-    "año": 2026,
-    "trim": 3,
-    "nPlantas": 512,
-    "estado": "Confirmado"
-  },
-  {
-    "id": "tp_xl_74",
-    "cliente": "Mainland",
-    "pais": "Mexico",
-    "proforma": "MAIFAR-2024-03",
-    "año": 2026,
-    "trim": 3,
-    "nPlantas": 1000,
-    "estado": "Confirmado"
-  },
-  {
-    "id": "tp_xl_75",
-    "cliente": "KJ Orchard",
-    "pais": "Corea",
-    "proforma": "KJORCH-CL-2025-01",
-    "año": 2026,
-    "trim": 3,
-    "nPlantas": 12096,
-    "estado": "Confirmado"
-  },
-  {
-    "id": "tp_xl_76",
-    "cliente": "Danper",
-    "pais": "Peru",
-    "proforma": "DANPER-CL-2025-0148",
-    "año": 2026,
-    "trim": 4,
-    "nPlantas": 884271,
-    "estado": "Confirmado"
-  },
-  {
-    "id": "tp_xl_77",
-    "cliente": "Frusan",
-    "pais": "Peru",
-    "proforma": "HUARME-CL-2026-0046",
-    "año": 2026,
-    "trim": 4,
-    "nPlantas": 285405,
-    "estado": "Confirmado"
-  },
-  {
-    "id": "tp_xl_78",
-    "cliente": "Frunatural",
-    "pais": "Mexico",
-    "proforma": "FRUNAT-MX-2026-01",
-    "año": 2027,
-    "trim": 1,
-    "nPlantas": 208500,
-    "estado": "Confirmado"
-  }
-];
-
-const ROYALTY_PLANTA_INIT = [
-  {
-    "id": "rp_xl_1",
-    "cliente": "Collipulli",
-    "pais": "Chile",
-    "año": 2024,
-    "trim": 3,
-    "nPlantas": 270,
-    "usdPlanta": 1.0,
-    "nOC": "",
-    "nFact": "",
-    "pagado": true,
-    "fechaPago": "2024-07-17",
-    "vivero": "Synergia Chile"
-  },
-  {
-    "id": "rp_xl_2",
-    "cliente": "SQM",
-    "pais": "Chile",
-    "año": 2024,
-    "trim": 3,
-    "nPlantas": 420,
-    "usdPlanta": 1.0,
-    "nOC": "",
-    "nFact": "",
-    "pagado": true,
-    "fechaPago": "2024-12-05",
-    "vivero": "Synergia Chile"
-  },
-  {
-    "id": "rp_xl_3",
-    "cliente": "Agroextiende",
-    "pais": "Peru",
-    "año": 2024,
-    "trim": 3,
-    "nPlantas": 600,
-    "usdPlanta": 1.0,
-    "nOC": "",
-    "nFact": "",
-    "pagado": true,
-    "fechaPago": "2024-12-23",
-    "vivero": "Synergia Chile"
-  },
-  {
-    "id": "rp_xl_4",
-    "cliente": "Agroextiende",
-    "pais": "Peru",
-    "año": 2024,
-    "trim": 4,
-    "nPlantas": 50000,
-    "usdPlanta": 1.0,
-    "nOC": "",
-    "nFact": "",
-    "pagado": true,
-    "fechaPago": "2024-12-23",
-    "vivero": "Synergia Chile"
-  },
-  {
-    "id": "rp_xl_5",
-    "cliente": "Gourmet",
-    "pais": "Peru",
-    "año": 2025,
-    "trim": 1,
-    "nPlantas": 400,
-    "usdPlanta": 1.0,
-    "nOC": "",
-    "nFact": "",
-    "pagado": true,
-    "fechaPago": "2025-03-01",
-    "vivero": "Synergia Chile"
-  },
-  {
-    "id": "rp_xl_6",
-    "cliente": "Pura Berries",
-    "pais": "Peru",
-    "año": 2025,
-    "trim": 1,
-    "nPlantas": 1500,
-    "usdPlanta": 1.0,
-    "nOC": "",
-    "nFact": "",
-    "pagado": true,
-    "fechaPago": "2025-04-01",
-    "vivero": "Synergia Chile"
-  },
-  {
-    "id": "rp_xl_7",
-    "cliente": "Mainland",
-    "pais": "Mexico",
-    "año": 2025,
-    "trim": 2,
-    "nPlantas": 16000,
-    "usdPlanta": 1.0,
-    "nOC": "",
-    "nFact": "",
-    "pagado": true,
-    "fechaPago": "2025-04-11",
-    "vivero": "Synergia Mexico"
-  },
-  {
-    "id": "rp_xl_8",
-    "cliente": "Mainland",
-    "pais": "Mexico",
-    "año": 2025,
-    "trim": 2,
-    "nPlantas": 24500,
-    "usdPlanta": 1.0,
-    "nOC": "",
-    "nFact": "",
-    "pagado": true,
-    "fechaPago": "2025-04-29",
-    "vivero": "Synergia Mexico"
-  },
-  {
-    "id": "rp_xl_9",
-    "cliente": "Agroextiende",
-    "pais": "Peru",
-    "año": 2025,
-    "trim": 2,
-    "nPlantas": 175000,
-    "usdPlanta": 1.0,
-    "nOC": "",
-    "nFact": "",
-    "pagado": true,
-    "fechaPago": "2025-05-01",
-    "vivero": "Synergia Chile"
-  },
-  {
-    "id": "rp_xl_10",
-    "cliente": "Agroextiende",
-    "pais": "Peru",
-    "año": 2025,
-    "trim": 2,
-    "nPlantas": 87500,
-    "usdPlanta": 1.0,
-    "nOC": "",
-    "nFact": "",
-    "pagado": true,
-    "fechaPago": "2025-06-01",
-    "vivero": "Synergia Chile"
-  },
-  {
-    "id": "rp_xl_11",
-    "cliente": "Pura Berries",
-    "pais": "Peru",
-    "año": 2025,
-    "trim": 2,
-    "nPlantas": 7500,
-    "usdPlanta": 1.0,
-    "nOC": "",
-    "nFact": "",
-    "pagado": true,
-    "fechaPago": "2025-06-01",
-    "vivero": "Synergia Chile"
-  },
-  {
-    "id": "rp_xl_12",
-    "cliente": "Agroextiende",
-    "pais": "Peru",
-    "año": 2025,
-    "trim": 2,
-    "nPlantas": 87700,
-    "usdPlanta": 1.0,
-    "nOC": "",
-    "nFact": "",
-    "pagado": true,
-    "fechaPago": "2025-07-01",
-    "vivero": "Synergia Chile"
-  },
-  {
-    "id": "rp_xl_13",
-    "cliente": "Mainland",
-    "pais": "Mexico",
-    "año": 2025,
-    "trim": 2,
-    "nPlantas": 37510,
-    "usdPlanta": 1.0,
-    "nOC": "",
-    "nFact": "",
-    "pagado": true,
-    "fechaPago": "2025-07-04",
-    "vivero": "Synergia Mexico"
-  },
-  {
-    "id": "rp_xl_14",
-    "cliente": "Mainland",
-    "pais": "Mexico",
-    "año": 2025,
-    "trim": 3,
-    "nPlantas": 21230,
-    "usdPlanta": 1.0,
-    "nOC": "",
-    "nFact": "",
-    "pagado": true,
-    "fechaPago": "2025-09-01",
-    "vivero": "Synergia Mexico"
-  },
-  {
-    "id": "rp_xl_15",
-    "cliente": "Mainland",
-    "pais": "Mexico",
-    "año": 2025,
-    "trim": 3,
-    "nPlantas": 10000,
-    "usdPlanta": 1.0,
-    "nOC": "",
-    "nFact": "",
-    "pagado": true,
-    "fechaPago": "2025-09-01",
-    "vivero": "Synergia Mexico"
-  },
-  {
-    "id": "rp_xl_16",
-    "cliente": "Berries Paradise",
-    "pais": "Mexico",
-    "año": 2025,
-    "trim": 2,
-    "nPlantas": 384,
-    "usdPlanta": 1.0,
-    "nOC": "",
-    "nFact": "",
-    "pagado": false,
-    "fechaPago": "2025-10-01",
-    "vivero": "Synergia Mexico"
-  },
-  {
-    "id": "rp_xl_17",
-    "cliente": "Allpa",
-    "pais": "Peru",
-    "año": 2025,
-    "trim": 2,
-    "nPlantas": 325475,
-    "usdPlanta": 1.0,
-    "nOC": "",
-    "nFact": "",
-    "pagado": true,
-    "fechaPago": "2025-10-01",
-    "vivero": "Synergia Chile"
-  },
-  {
-    "id": "rp_xl_18",
-    "cliente": "Mainland",
-    "pais": "Mexico",
-    "año": 2025,
-    "trim": 3,
-    "nPlantas": 1290,
-    "usdPlanta": 1.0,
-    "nOC": "",
-    "nFact": "",
-    "pagado": true,
-    "fechaPago": "2025-10-01",
-    "vivero": "Synergia Mexico"
-  },
-  {
-    "id": "rp_xl_19",
-    "cliente": "Mainland",
-    "pais": "Mexico",
-    "año": 2025,
-    "trim": 3,
-    "nPlantas": 4710,
-    "usdPlanta": 1.0,
-    "nOC": "",
-    "nFact": "",
-    "pagado": true,
-    "fechaPago": "2025-10-01",
-    "vivero": "Synergia Mexico"
-  },
-  {
-    "id": "rp_xl_20",
-    "cliente": "Gourmet",
-    "pais": "Peru",
-    "año": 2025,
-    "trim": 4,
-    "nPlantas": 250,
-    "usdPlanta": 1.0,
-    "nOC": "",
-    "nFact": "",
-    "pagado": true,
-    "fechaPago": "2025-11-01",
-    "vivero": "Synergia Chile"
-  },
-  {
-    "id": "rp_xl_21",
-    "cliente": "Pura Berries",
-    "pais": "Peru",
-    "año": 2025,
-    "trim": 4,
-    "nPlantas": 250735,
-    "usdPlanta": 1.0,
-    "nOC": "",
-    "nFact": "",
-    "pagado": true,
-    "fechaPago": "2025-11-01",
-    "vivero": "Synergia Chile"
-  },
-  {
-    "id": "rp_xl_22",
-    "cliente": "Hass Peru",
-    "pais": "Peru",
-    "año": 2025,
-    "trim": 4,
-    "nPlantas": 190950,
-    "usdPlanta": 1.0,
-    "nOC": "",
-    "nFact": "",
-    "pagado": true,
-    "fechaPago": "2025-11-01",
-    "vivero": "Synergia Chile"
-  },
-  {
-    "id": "rp_xl_23",
-    "cliente": "Hass Peru",
-    "pais": "Peru",
-    "año": 2025,
-    "trim": 4,
-    "nPlantas": 75835,
-    "usdPlanta": 1.0577,
-    "nOC": "",
-    "nFact": "",
-    "pagado": true,
-    "fechaPago": "2025-11-01",
-    "vivero": "Synergia Chile"
-  },
-  {
-    "id": "rp_xl_24",
-    "cliente": "Danper",
-    "pais": "Peru",
-    "año": 2025,
-    "trim": 4,
-    "nPlantas": 24000,
-    "usdPlanta": 1.607,
-    "nOC": "",
-    "nFact": "",
-    "pagado": true,
-    "fechaPago": "2025-11-01",
-    "vivero": "Synergia Chile"
-  },
-  {
-    "id": "rp_xl_25",
-    "cliente": "Danper",
-    "pais": "Peru",
-    "año": 2025,
-    "trim": 4,
-    "nPlantas": 1000,
-    "usdPlanta": 1.0,
-    "nOC": "",
-    "nFact": "",
-    "pagado": true,
-    "fechaPago": "2025-11-01",
-    "vivero": "Synergia Chile"
-  },
-  {
-    "id": "rp_xl_26",
-    "cliente": "Vanguard",
-    "pais": "Peru",
-    "año": 2025,
-    "trim": 4,
-    "nPlantas": 182688,
-    "usdPlanta": 1.0,
-    "nOC": "",
-    "nFact": "",
-    "pagado": true,
-    "fechaPago": "2025-11-01",
-    "vivero": "Synergia Chile"
-  },
-  {
-    "id": "rp_xl_27",
-    "cliente": "San Clemente",
-    "pais": "Peru",
-    "año": 2025,
-    "trim": 4,
-    "nPlantas": 70000,
-    "usdPlanta": 1.0,
-    "nOC": "",
-    "nFact": "",
-    "pagado": true,
-    "fechaPago": "2025-12-01",
-    "vivero": "Synergia Chile"
-  },
-  {
-    "id": "rp_xl_28",
-    "cliente": "Hector Esquivel",
-    "pais": "Chile",
-    "año": 2025,
-    "trim": 4,
-    "nPlantas": 12000,
-    "usdPlanta": 1.0,
-    "nOC": "",
-    "nFact": "",
-    "pagado": true,
-    "fechaPago": "2025-12-01",
-    "vivero": "Synergia Chile"
-  },
-  {
-    "id": "rp_xl_29",
-    "cliente": "La Calera",
-    "pais": "Peru",
-    "año": 2025,
-    "trim": 1,
-    "nPlantas": 3500,
-    "usdPlanta": 1.0,
-    "nOC": "",
-    "nFact": "",
-    "pagado": true,
-    "fechaPago": "2025-12-01",
-    "vivero": "Synergia Chile"
-  },
-  {
-    "id": "rp_xl_30",
-    "cliente": "Vanguard",
-    "pais": "Peru",
-    "año": 2026,
-    "trim": 1,
-    "nPlantas": 422776,
-    "usdPlanta": 0.85,
-    "nOC": "",
-    "nFact": "",
-    "pagado": true,
-    "fechaPago": "2026-01-01",
-    "vivero": "Synergia Chile"
-  },
-  {
-    "id": "rp_xl_31",
-    "cliente": "Frusan",
-    "pais": "Peru",
-    "año": 2025,
-    "trim": 4,
-    "nPlantas": 305185,
-    "usdPlanta": 0.8643,
-    "nOC": "",
-    "nFact": "",
-    "pagado": true,
-    "fechaPago": "2026-02-01",
-    "vivero": "Synergia Chile"
-  },
-  {
-    "id": "rp_xl_32",
-    "cliente": "Vanguard",
-    "pais": "Peru",
-    "año": 2026,
-    "trim": 1,
-    "nPlantas": 298944,
-    "usdPlanta": 0.85,
-    "nOC": "",
-    "nFact": "",
-    "pagado": true,
-    "fechaPago": "2026-02-01",
-    "vivero": "Synergia Chile"
-  },
-  {
-    "id": "rp_xl_33",
-    "cliente": "Mainland",
-    "pais": "Mexico",
-    "año": 2026,
-    "trim": 1,
-    "nPlantas": 150000,
-    "usdPlanta": 0.4936,
-    "nOC": "",
-    "nFact": "",
-    "pagado": true,
-    "fechaPago": "2026-02-01",
-    "vivero": "Synergia Mexico"
-  },
-  {
-    "id": "rp_xl_34",
-    "cliente": "Integrity/Talsa",
-    "pais": "Peru",
-    "año": 2026,
-    "trim": 1,
-    "nPlantas": 2100,
-    "usdPlanta": 0.85,
-    "nOC": "",
-    "nFact": "",
-    "pagado": false,
-    "fechaPago": "2026-03-01",
-    "vivero": "Synergia Chile"
-  },
-  {
-    "id": "rp_xl_35",
-    "cliente": "Mainland",
-    "pais": "Mexico",
-    "año": 2026,
-    "trim": 1,
-    "nPlantas": 150000,
-    "usdPlanta": 0.0133,
-    "nOC": "",
-    "nFact": "",
-    "pagado": true,
-    "fechaPago": "2026-03-13",
-    "vivero": "Synergia Mexico"
-  },
-  {
-    "id": "rp_xl_36",
-    "cliente": "Mainland",
-    "pais": "Mexico",
-    "año": 2026,
-    "trim": 1,
-    "nPlantas": 150000,
-    "usdPlanta": 0.343,
-    "nOC": "",
-    "nFact": "",
-    "pagado": false,
-    "fechaPago": "2026-03-31",
-    "vivero": "Synergia Mexico"
-  },
-  {
-    "id": "rp_xl_37",
-    "cliente": "Vanguard",
-    "pais": "Peru",
-    "año": 2026,
-    "trim": 1,
-    "nPlantas": 222559,
-    "usdPlanta": 0.85,
-    "nOC": "",
-    "nFact": "",
-    "pagado": true,
-    "fechaPago": "2026-03-31",
-    "vivero": "Synergia Chile"
-  },
-  {
-    "id": "rp_xl_38",
-    "cliente": "Dole Mexico",
-    "pais": "Mexico",
-    "año": 2026,
-    "trim": 1,
-    "nPlantas": 2100,
-    "usdPlanta": 0.85,
-    "nOC": "",
-    "nFact": "",
-    "pagado": true,
-    "fechaPago": "2026-03-31",
-    "vivero": "Synergia Mexico"
-  },
-  {
-    "id": "rp_xl_39",
-    "cliente": "Gourmet",
-    "pais": "Mexico",
-    "año": 2026,
-    "trim": 1,
-    "nPlantas": 950,
-    "usdPlanta": 0.85,
-    "nOC": "",
-    "nFact": "",
-    "pagado": true,
-    "fechaPago": "2026-03-31",
-    "vivero": "Synergia Mexico"
-  },
-  {
-    "id": "rp_xl_40",
-    "cliente": "Agroextiende",
-    "pais": "Peru",
-    "año": 2026,
-    "trim": 1,
-    "nPlantas": 105840,
-    "usdPlanta": 0.85,
-    "nOC": "",
-    "nFact": "",
-    "pagado": true,
-    "fechaPago": "2026-03-31",
-    "vivero": "Synergia Chile"
-  },
-  {
-    "id": "rp_xl_41",
-    "cliente": "Vanguard",
-    "pais": "Peru",
-    "año": 2026,
-    "trim": 1,
-    "nPlantas": 233708,
-    "usdPlanta": 0.85,
-    "nOC": "",
-    "nFact": "",
-    "pagado": false,
-    "fechaPago": "2026-04-30",
-    "vivero": "Synergia Chile"
-  },
-  {
-    "id": "rp_xl_42",
-    "cliente": "Agroextiende",
-    "pais": "Peru",
-    "año": 2026,
-    "trim": 1,
-    "nPlantas": 145527,
-    "usdPlanta": 0.85,
-    "nOC": "",
-    "nFact": "",
-    "pagado": false,
-    "fechaPago": "2026-04-30",
-    "vivero": "Synergia Chile"
-  },
-  {
-    "id": "rp_xl_43",
-    "cliente": "Mainland",
-    "pais": "Mexico",
-    "año": 2026,
-    "trim": 2,
-    "nPlantas": 250000,
-    "usdPlanta": 0.34,
-    "nOC": "",
-    "nFact": "",
-    "pagado": false,
-    "fechaPago": "2026-05-01",
-    "vivero": "Synergia Mexico"
-  },
-  {
-    "id": "rp_xl_44",
-    "cliente": "Agroextiende",
-    "pais": "Peru",
-    "año": 2026,
-    "trim": 1,
-    "nPlantas": 174634,
-    "usdPlanta": 0.85,
-    "nOC": "",
-    "nFact": "",
-    "pagado": false,
-    "fechaPago": "2026-05-31",
-    "vivero": "Agromillora Pe"
-  },
-  {
-    "id": "rp_xl_45",
-    "cliente": "Vanguard",
-    "pais": "Peru",
-    "año": 2026,
-    "trim": 1,
-    "nPlantas": 195389,
-    "usdPlanta": 0.85,
-    "nOC": "",
-    "nFact": "",
-    "pagado": false,
-    "fechaPago": "2026-05-31",
-    "vivero": "Synergia Chile"
-  },
-  {
-    "id": "rp_xl_46",
-    "cliente": "Mainland",
-    "pais": "Mexico",
-    "año": 2026,
-    "trim": 1,
-    "nPlantas": 11760,
-    "usdPlanta": 0.85,
-    "nOC": "",
-    "nFact": "",
-    "pagado": false,
-    "fechaPago": "2026-09-01",
-    "vivero": "Synergia Mexico"
-  },
-  {
-    "id": "rp_xl_47",
-    "cliente": "Mainland",
-    "pais": "Mexico",
-    "año": 2026,
-    "trim": 2,
-    "nPlantas": 250000,
-    "usdPlanta": 0.51,
-    "nOC": "",
-    "nFact": "",
-    "pagado": false,
-    "fechaPago": "2026-09-01",
-    "vivero": "Synergia Mexico"
-  },
-  {
-    "id": "rp_xl_48",
-    "cliente": "Danper",
-    "pais": "Peru",
-    "año": 2026,
-    "trim": 3,
-    "nPlantas": 512,
-    "usdPlanta": 0.85,
-    "nOC": "",
-    "nFact": "",
-    "pagado": false,
-    "fechaPago": "2026-09-01",
-    "vivero": "Synergia Chile"
-  },
-  {
-    "id": "rp_xl_49",
-    "cliente": "Mainland",
-    "pais": "Mexico",
-    "año": 2026,
-    "trim": 3,
-    "nPlantas": 1000,
-    "usdPlanta": 0.85,
-    "nOC": "",
-    "nFact": "",
-    "pagado": false,
-    "fechaPago": "2026-09-01",
-    "vivero": "Synergia Mexico"
-  },
-  {
-    "id": "rp_xl_50",
-    "cliente": "Danper",
-    "pais": "Peru",
-    "año": 2026,
-    "trim": 4,
-    "nPlantas": 884271,
-    "usdPlanta": 0.85,
-    "nOC": "",
-    "nFact": "",
-    "pagado": false,
-    "fechaPago": "2026-10-01",
-    "vivero": "Synergia Chile"
-  },
-  {
-    "id": "rp_xl_51",
-    "cliente": "Frusan",
-    "pais": "Peru",
-    "año": 2026,
-    "trim": 4,
-    "nPlantas": 285405,
-    "usdPlanta": 1.0,
-    "nOC": "",
-    "nFact": "",
-    "pagado": false,
-    "fechaPago": "2026-12-01",
-    "vivero": "Synergia Chile"
-  },
-  {
-    "id": "rp_xl_52",
-    "cliente": "Frunatural",
-    "pais": "Mexico",
-    "año": 2027,
-    "trim": 1,
-    "nPlantas": 136500,
-    "usdPlanta": 1.0,
-    "nOC": "",
-    "nFact": "",
-    "pagado": false,
-    "fechaPago": "2027-02-01",
-    "vivero": "Synergia Mexico"
-  },
-  {
-    "id": "rp_xl_53",
-    "cliente": "Frunatural",
-    "pais": "Mexico",
-    "año": 2027,
-    "trim": 2,
-    "nPlantas": 72000,
-    "usdPlanta": 1.0,
-    "nOC": "",
-    "nFact": "",
-    "pagado": false,
-    "fechaPago": "2027-05-01",
-    "vivero": "Synergia Mexico"
-  },
-  {
-    "id": "rp_xl_54",
-    "cliente": "Frusan",
-    "pais": "Peru",
-    "año": 2025,
-    "trim": 2,
-    "nPlantas": 400,
-    "usdPlanta": 1.0,
-    "nOC": "",
-    "nFact": "",
-    "pagado": false,
-    "fechaPago": "",
-    "vivero": "Synergia Chile"
-  },
-  {
-    "id": "rp_xl_55",
-    "cliente": "Danper",
-    "pais": "Peru",
-    "año": 2025,
-    "trim": 3,
-    "nPlantas": 512,
-    "usdPlanta": 24.5703,
-    "nOC": "",
-    "nFact": "",
-    "pagado": false,
-    "fechaPago": "",
-    "vivero": "Synergia Chile"
-  },
-  {
-    "id": "rp_xl_56",
-    "cliente": "Frusan",
-    "pais": "Peru",
-    "año": 2025,
-    "trim": 4,
-    "nPlantas": 400,
-    "usdPlanta": 13.25,
-    "nOC": "",
-    "nFact": "",
-    "pagado": false,
-    "fechaPago": "",
-    "vivero": "Synergia Chile"
-  },
-  {
-    "id": "rp_xl_57",
-    "cliente": "Hass Peru",
-    "pais": "Peru",
-    "año": 2025,
-    "trim": 4,
-    "nPlantas": 384,
-    "usdPlanta": 11.6927,
-    "nOC": "",
-    "nFact": "",
-    "pagado": false,
-    "fechaPago": "",
-    "vivero": "Synergia Chile"
-  }
-];
-
-const ROYALTY_COMERCIAL_INIT = [
-  {
-    "id": "rc_xl_1",
-    "cliente": "Agroextiende",
-    "pais": "Peru",
-    "trimCobro": 2,
-    "añoCobro": 2026,
-    "ha": 0,
-    "nPlantas": 0,
-    "usdHa": 3000,
-    "nFact": "",
-    "pagado": false
-  },
-  {
-    "id": "rc_xl_2",
-    "cliente": "Agroextiende",
-    "pais": "Peru",
-    "trimCobro": 2,
-    "añoCobro": 2027,
-    "ha": 0,
-    "nPlantas": 0,
-    "usdHa": 3000,
-    "nFact": "",
-    "pagado": false
-  },
-  {
-    "id": "rc_xl_3",
-    "cliente": "Agroextiende",
-    "pais": "Peru",
-    "trimCobro": 2,
-    "añoCobro": 2028,
-    "ha": 0,
-    "nPlantas": 0,
-    "usdHa": 3000,
-    "nFact": "",
-    "pagado": false
-  },
-  {
-    "id": "rc_xl_4",
-    "cliente": "Agroextiende",
-    "pais": "Peru",
-    "trimCobro": 2,
-    "añoCobro": 2029,
-    "ha": 0,
-    "nPlantas": 0,
-    "usdHa": 3000,
-    "nFact": "",
-    "pagado": false
-  },
-  {
-    "id": "rc_xl_5",
-    "cliente": "Agroextiende",
-    "pais": "Peru",
-    "trimCobro": 2,
-    "añoCobro": 2030,
-    "ha": 0,
-    "nPlantas": 0,
-    "usdHa": 3000,
-    "nFact": "",
-    "pagado": false
-  },
-  {
-    "id": "rc_xl_6",
-    "cliente": "Allpa",
-    "pais": "Peru",
-    "trimCobro": 2,
-    "añoCobro": 2026,
-    "ha": 0,
-    "nPlantas": 0,
-    "usdHa": 3000,
-    "nFact": "",
-    "pagado": false
-  },
-  {
-    "id": "rc_xl_7",
-    "cliente": "Allpa",
-    "pais": "Peru",
-    "trimCobro": 2,
-    "añoCobro": 2027,
-    "ha": 0,
-    "nPlantas": 0,
-    "usdHa": 3000,
-    "nFact": "",
-    "pagado": false
-  },
-  {
-    "id": "rc_xl_8",
-    "cliente": "Allpa",
-    "pais": "Peru",
-    "trimCobro": 2,
-    "añoCobro": 2028,
-    "ha": 0,
-    "nPlantas": 0,
-    "usdHa": 3000,
-    "nFact": "",
-    "pagado": false
-  },
-  {
-    "id": "rc_xl_9",
-    "cliente": "Allpa",
-    "pais": "Peru",
-    "trimCobro": 2,
-    "añoCobro": 2029,
-    "ha": 0,
-    "nPlantas": 0,
-    "usdHa": 3000,
-    "nFact": "",
-    "pagado": false
-  },
-  {
-    "id": "rc_xl_10",
-    "cliente": "Allpa",
-    "pais": "Peru",
-    "trimCobro": 2,
-    "añoCobro": 2030,
-    "ha": 0,
-    "nPlantas": 0,
-    "usdHa": 3000,
-    "nFact": "",
-    "pagado": false
-  },
-  {
-    "id": "rc_xl_11",
-    "cliente": "Frusan",
-    "pais": "Peru",
-    "trimCobro": 2,
-    "añoCobro": 2027,
-    "ha": 0,
-    "nPlantas": 0,
-    "usdHa": 3000,
-    "nFact": "",
-    "pagado": false
-  },
-  {
-    "id": "rc_xl_12",
-    "cliente": "Frusan",
-    "pais": "Peru",
-    "trimCobro": 2,
-    "añoCobro": 2028,
-    "ha": 0,
-    "nPlantas": 0,
-    "usdHa": 3000,
-    "nFact": "",
-    "pagado": false
-  },
-  {
-    "id": "rc_xl_13",
-    "cliente": "Frusan",
-    "pais": "Peru",
-    "trimCobro": 2,
-    "añoCobro": 2029,
-    "ha": 0,
-    "nPlantas": 0,
-    "usdHa": 3000,
-    "nFact": "",
-    "pagado": false
-  },
-  {
-    "id": "rc_xl_14",
-    "cliente": "Frusan",
-    "pais": "Peru",
-    "trimCobro": 2,
-    "añoCobro": 2030,
-    "ha": 0,
-    "nPlantas": 0,
-    "usdHa": 3000,
-    "nFact": "",
-    "pagado": false
-  },
-  {
-    "id": "rc_xl_15",
-    "cliente": "Hass Peru",
-    "pais": "Peru",
-    "trimCobro": 2,
-    "añoCobro": 2027,
-    "ha": 0,
-    "nPlantas": 0,
-    "usdHa": 3000,
-    "nFact": "",
-    "pagado": false
-  },
-  {
-    "id": "rc_xl_16",
-    "cliente": "Hass Peru",
-    "pais": "Peru",
-    "trimCobro": 2,
-    "añoCobro": 2028,
-    "ha": 0,
-    "nPlantas": 0,
-    "usdHa": 3000,
-    "nFact": "",
-    "pagado": false
-  },
-  {
-    "id": "rc_xl_17",
-    "cliente": "Hass Peru",
-    "pais": "Peru",
-    "trimCobro": 2,
-    "añoCobro": 2029,
-    "ha": 0,
-    "nPlantas": 0,
-    "usdHa": 3000,
-    "nFact": "",
-    "pagado": false
-  },
-  {
-    "id": "rc_xl_18",
-    "cliente": "Hass Peru",
-    "pais": "Peru",
-    "trimCobro": 2,
-    "añoCobro": 2030,
-    "ha": 0,
-    "nPlantas": 0,
-    "usdHa": 3000,
-    "nFact": "",
-    "pagado": false
-  },
-  {
-    "id": "rc_xl_19",
-    "cliente": "Pura Berries",
-    "pais": "Peru",
-    "trimCobro": 2,
-    "añoCobro": 2027,
-    "ha": 0,
-    "nPlantas": 0,
-    "usdHa": 3000,
-    "nFact": "",
-    "pagado": false
-  },
-  {
-    "id": "rc_xl_20",
-    "cliente": "Pura Berries",
-    "pais": "Peru",
-    "trimCobro": 2,
-    "añoCobro": 2028,
-    "ha": 0,
-    "nPlantas": 0,
-    "usdHa": 3000,
-    "nFact": "",
-    "pagado": false
-  },
-  {
-    "id": "rc_xl_21",
-    "cliente": "Pura Berries",
-    "pais": "Peru",
-    "trimCobro": 2,
-    "añoCobro": 2029,
-    "ha": 0,
-    "nPlantas": 0,
-    "usdHa": 3000,
-    "nFact": "",
-    "pagado": false
-  },
-  {
-    "id": "rc_xl_22",
-    "cliente": "Pura Berries",
-    "pais": "Peru",
-    "trimCobro": 2,
-    "añoCobro": 2030,
-    "ha": 0,
-    "nPlantas": 0,
-    "usdHa": 3000,
-    "nFact": "",
-    "pagado": false
-  },
-  {
-    "id": "rc_xl_23",
-    "cliente": "San Clemente",
-    "pais": "Peru",
-    "trimCobro": 2,
-    "añoCobro": 2025,
-    "ha": 0,
-    "nPlantas": 0,
-    "usdHa": 3000,
-    "nFact": "",
-    "pagado": true
-  },
-  {
-    "id": "rc_xl_24",
-    "cliente": "San Clemente",
-    "pais": "Peru",
-    "trimCobro": 2,
-    "añoCobro": 2026,
-    "ha": 0,
-    "nPlantas": 0,
-    "usdHa": 3000,
-    "nFact": "",
-    "pagado": false
-  },
-  {
-    "id": "rc_xl_25",
-    "cliente": "San Clemente",
-    "pais": "Peru",
-    "trimCobro": 2,
-    "añoCobro": 2027,
-    "ha": 0,
-    "nPlantas": 0,
-    "usdHa": 3000,
-    "nFact": "",
-    "pagado": false
-  },
-  {
-    "id": "rc_xl_26",
-    "cliente": "San Clemente",
-    "pais": "Peru",
-    "trimCobro": 2,
-    "añoCobro": 2028,
-    "ha": 0,
-    "nPlantas": 0,
-    "usdHa": 3000,
-    "nFact": "",
-    "pagado": false
-  },
-  {
-    "id": "rc_xl_27",
-    "cliente": "San Clemente",
-    "pais": "Peru",
-    "trimCobro": 2,
-    "añoCobro": 2029,
-    "ha": 0,
-    "nPlantas": 0,
-    "usdHa": 3000,
-    "nFact": "",
-    "pagado": false
-  },
-  {
-    "id": "rc_xl_28",
-    "cliente": "San Clemente",
-    "pais": "Peru",
-    "trimCobro": 2,
-    "añoCobro": 2030,
-    "ha": 0,
-    "nPlantas": 0,
-    "usdHa": 3000,
-    "nFact": "",
-    "pagado": false
-  },
-  {
-    "id": "rc_xl_29",
-    "cliente": "Vanguard",
-    "pais": "Peru",
-    "trimCobro": 2,
-    "añoCobro": 2027,
-    "ha": 0,
-    "nPlantas": 0,
-    "usdHa": 3000,
-    "nFact": "",
-    "pagado": false
-  },
-  {
-    "id": "rc_xl_30",
-    "cliente": "Vanguard",
-    "pais": "Peru",
-    "trimCobro": 2,
-    "añoCobro": 2028,
-    "ha": 0,
-    "nPlantas": 0,
-    "usdHa": 3000,
-    "nFact": "",
-    "pagado": false
-  },
-  {
-    "id": "rc_xl_31",
-    "cliente": "Vanguard",
-    "pais": "Peru",
-    "trimCobro": 2,
-    "añoCobro": 2029,
-    "ha": 0,
-    "nPlantas": 0,
-    "usdHa": 3000,
-    "nFact": "",
-    "pagado": false
-  },
-  {
-    "id": "rc_xl_32",
-    "cliente": "Vanguard",
-    "pais": "Peru",
-    "trimCobro": 2,
-    "añoCobro": 2030,
-    "ha": 0,
-    "nPlantas": 0,
-    "usdHa": 3000,
-    "nFact": "",
-    "pagado": false
-  },
-  {
-    "id": "rc_xl_33",
-    "cliente": "Giddings",
-    "pais": "Mexico",
-    "trimCobro": 3,
-    "añoCobro": 2025,
-    "ha": 0,
-    "nPlantas": 0,
-    "usdHa": 3000,
-    "nFact": "",
-    "pagado": true
-  },
-  {
-    "id": "rc_xl_34",
-    "cliente": "Mainland",
-    "pais": "Mexico",
-    "trimCobro": 3,
-    "añoCobro": 2025,
-    "ha": 0,
-    "nPlantas": 0,
-    "usdHa": 3000,
-    "nFact": "",
-    "pagado": true
-  },
-  {
-    "id": "rc_xl_35",
-    "cliente": "Mainland",
-    "pais": "Mexico",
-    "trimCobro": 3,
-    "añoCobro": 2026,
-    "ha": 0,
-    "nPlantas": 0,
-    "usdHa": 3000,
-    "nFact": "",
-    "pagado": false
-  },
-  {
-    "id": "rc_xl_36",
-    "cliente": "Mainland",
-    "pais": "Mexico",
-    "trimCobro": 3,
-    "añoCobro": 2027,
-    "ha": 0,
-    "nPlantas": 0,
-    "usdHa": 3000,
-    "nFact": "",
-    "pagado": false
-  },
-  {
-    "id": "rc_xl_37",
-    "cliente": "Mainland",
-    "pais": "Mexico",
-    "trimCobro": 3,
-    "añoCobro": 2028,
-    "ha": 0,
-    "nPlantas": 0,
-    "usdHa": 3000,
-    "nFact": "",
-    "pagado": false
-  },
-  {
-    "id": "rc_xl_38",
-    "cliente": "Mainland",
-    "pais": "Mexico",
-    "trimCobro": 3,
-    "añoCobro": 2029,
-    "ha": 0,
-    "nPlantas": 0,
-    "usdHa": 3000,
-    "nFact": "",
-    "pagado": false
-  },
-  {
-    "id": "rc_xl_39",
-    "cliente": "Mainland",
-    "pais": "Mexico",
-    "trimCobro": 3,
-    "añoCobro": 2030,
-    "ha": 0,
-    "nPlantas": 0,
-    "usdHa": 3000,
-    "nFact": "",
-    "pagado": false
-  },
-  {
-    "id": "rc_xl_40",
-    "cliente": "Hector Esquivel",
-    "pais": "Chile",
-    "trimCobro": 2,
-    "añoCobro": 2028,
-    "ha": 0,
-    "nPlantas": 0,
-    "usdHa": 3000,
-    "nFact": "",
-    "pagado": false
-  },
-  {
-    "id": "rc_xl_41",
-    "cliente": "Hector Esquivel",
-    "pais": "Chile",
-    "trimCobro": 2,
-    "añoCobro": 2029,
-    "ha": 0,
-    "nPlantas": 0,
-    "usdHa": 3000,
-    "nFact": "",
-    "pagado": false
-  },
-  {
-    "id": "rc_xl_42",
-    "cliente": "Hector Esquivel",
-    "pais": "Chile",
-    "trimCobro": 2,
-    "añoCobro": 2030,
-    "ha": 0,
-    "nPlantas": 0,
-    "usdHa": 3000,
-    "nFact": "",
-    "pagado": false
-  },
-  {
-    "id": "rc_xl_43",
-    "cliente": "Danper",
-    "pais": "Peru",
-    "trimCobro": 2,
-    "añoCobro": 2028,
-    "ha": 0,
-    "nPlantas": 0,
-    "usdHa": 3000,
-    "nFact": "",
-    "pagado": false
-  },
-  {
-    "id": "rc_xl_44",
-    "cliente": "Danper",
-    "pais": "Peru",
-    "trimCobro": 2,
-    "añoCobro": 2029,
-    "ha": 0,
-    "nPlantas": 0,
-    "usdHa": 3000,
-    "nFact": "",
-    "pagado": false
-  },
-  {
-    "id": "rc_xl_45",
-    "cliente": "Danper",
-    "pais": "Peru",
-    "trimCobro": 2,
-    "añoCobro": 2030,
-    "ha": 0,
-    "nPlantas": 0,
-    "usdHa": 3000,
-    "nFact": "",
-    "pagado": false
-  }
-];
-
-const FEE_ENTRADA_INIT = [
-  {
-    "id": "fe_xl_1",
-    "cliente": "ACP",
-    "pais": "Peru",
-    "nFact": "",
-    "pagado": true,
-    "fechaPago": "",
-    "montoUSD": 30000.0,
-    "detalle": "Con Devolución"
-  },
-  {
-    "id": "fe_xl_2",
-    "cliente": "Agroberries",
-    "pais": "Peru",
-    "nFact": "",
-    "pagado": true,
-    "fechaPago": "",
-    "montoUSD": 30000.0,
-    "detalle": "Con Devolución"
-  },
-  {
-    "id": "fe_xl_3",
-    "cliente": "Agroextiende",
-    "pais": "Peru",
-    "nFact": "",
-    "pagado": true,
-    "fechaPago": "",
-    "montoUSD": 30000.0,
-    "detalle": "Sin Devolución"
-  },
-  {
-    "id": "fe_xl_4",
-    "cliente": "Agrovision",
-    "pais": "Peru",
-    "nFact": "",
-    "pagado": true,
-    "fechaPago": "",
-    "montoUSD": 30000.0,
-    "detalle": "Con Devolución"
-  },
-  {
-    "id": "fe_xl_5",
-    "cliente": "Danper",
-    "pais": "Peru",
-    "nFact": "",
-    "pagado": true,
-    "fechaPago": "",
-    "montoUSD": 30000.0,
-    "detalle": "Con Devolución"
-  },
-  {
-    "id": "fe_xl_6",
-    "cliente": "Don Ricardo",
-    "pais": "Peru",
-    "nFact": "",
-    "pagado": true,
-    "fechaPago": "",
-    "montoUSD": 30000.0,
-    "detalle": "Con Devolución"
-  },
-  {
-    "id": "fe_xl_7",
-    "cliente": "Frusan",
-    "pais": "Peru",
-    "nFact": "",
-    "pagado": true,
-    "fechaPago": "",
-    "montoUSD": 30000.0,
-    "detalle": "Con Devolución"
-  },
-  {
-    "id": "fe_xl_8",
-    "cliente": "Giddings",
-    "pais": "Peru",
-    "nFact": "",
-    "pagado": true,
-    "fechaPago": "",
-    "montoUSD": 30000.0,
-    "detalle": "Con Devolución"
-  },
-  {
-    "id": "fe_xl_9",
-    "cliente": "Gourmet",
-    "pais": "Peru",
-    "nFact": "",
-    "pagado": true,
-    "fechaPago": "",
-    "montoUSD": 30000.0,
-    "detalle": "Sin Devolución"
-  },
-  {
-    "id": "fe_xl_10",
-    "cliente": "Hass Peru",
-    "pais": "Peru",
-    "nFact": "",
-    "pagado": true,
-    "fechaPago": "",
-    "montoUSD": 30000.0,
-    "detalle": "Con Devolución"
-  },
-  {
-    "id": "fe_xl_11",
-    "cliente": "San Clemente",
-    "pais": "Peru",
-    "nFact": "",
-    "pagado": true,
-    "fechaPago": "",
-    "montoUSD": 30000.0,
-    "detalle": "Con Devolución"
-  },
-  {
-    "id": "fe_xl_12",
-    "cliente": "Vanguard",
-    "pais": "Peru",
-    "nFact": "",
-    "pagado": true,
-    "fechaPago": "",
-    "montoUSD": 30000.0,
-    "detalle": "Sin Devolución"
-  },
-  {
-    "id": "fe_xl_13",
-    "cliente": "Agrovision",
-    "pais": "Mexico",
-    "nFact": "",
-    "pagado": true,
-    "fechaPago": "",
-    "montoUSD": 30000.0,
-    "detalle": "Con Devolución"
-  },
-  {
-    "id": "fe_xl_14",
-    "cliente": "Berries Paradise",
-    "pais": "Mexico",
-    "nFact": "",
-    "pagado": true,
-    "fechaPago": "",
-    "montoUSD": 30000.0,
-    "detalle": "Sin Devolución"
-  },
-  {
-    "id": "fe_xl_15",
-    "cliente": "Central West",
-    "pais": "Mexico",
-    "nFact": "",
-    "pagado": true,
-    "fechaPago": "",
-    "montoUSD": 30000.0,
-    "detalle": "Con Devolución"
-  },
-  {
-    "id": "fe_xl_16",
-    "cliente": "Giddings",
-    "pais": "Mexico",
-    "nFact": "",
-    "pagado": true,
-    "fechaPago": "",
-    "montoUSD": 30000.0,
-    "detalle": "Con Devolución"
-  },
-  {
-    "id": "fe_xl_17",
-    "cliente": "Mainland",
-    "pais": "Mexico",
-    "nFact": "",
-    "pagado": true,
-    "fechaPago": "",
-    "montoUSD": 30000.0,
-    "detalle": "Con Devolución"
-  },
-  {
-    "id": "fe_xl_18",
-    "cliente": "La Calera",
-    "pais": "Peru",
-    "nFact": "",
-    "pagado": true,
-    "fechaPago": "",
-    "montoUSD": 30000.0,
-    "detalle": "Sin Devolución"
-  },
-  {
-    "id": "fe_xl_19",
-    "cliente": "Dole",
-    "pais": "Peru",
-    "nFact": "",
-    "pagado": true,
-    "fechaPago": "",
-    "montoUSD": 30000.0,
-    "detalle": "Sin Devolución"
-  },
-  {
-    "id": "fe_xl_20",
-    "cliente": "Dole",
-    "pais": "Mexico",
-    "nFact": "",
-    "pagado": true,
-    "fechaPago": "",
-    "montoUSD": 30000.0,
-    "detalle": "Sin Devolución"
-  },
-  {
-    "id": "fe_xl_21",
-    "cliente": "Frunatural",
-    "pais": "Mexico",
-    "nFact": "",
-    "pagado": true,
-    "fechaPago": "",
-    "montoUSD": 30000.0,
-    "detalle": "Sin Devolución"
-  },
-  {
-    "id": "fe_xl_22",
-    "cliente": "Agrolatina",
-    "pais": "Peru",
-    "nFact": "",
-    "pagado": false,
-    "fechaPago": "",
-    "montoUSD": 30000.0,
-    "detalle": "Sin Devolución"
-  }
-];
-
-const FEE_VIVEROS_INIT = [
-  {
-    "id": "fv_xl_1",
-    "vivero": "Synergiabio",
-    "empresa": "Mainland Farms SA",
-    "pais": "Mexico",
-    "proforma": "IQP2022-005",
-    "nPlantas": 16000,
-    "regalia": 0.25,
-    "totalOsiris": 4000.0,
-    "tipoPago": "Anticipo",
-    "montoFact": 2400.0,
-    "fechaFact": "",
-    "nFact": "N°1",
-    "pagado": true
-  },
-  {
-    "id": "fv_xl_2",
-    "vivero": "Synergiabio",
-    "empresa": "Mainland Farms SA",
-    "pais": "Mexico",
-    "proforma": "IQP2022-005",
-    "nPlantas": 16000,
-    "regalia": 0.25,
-    "totalOsiris": 4000.0,
-    "tipoPago": "Entrega",
-    "montoFact": 1600.0,
-    "fechaFact": "",
-    "nFact": "N°5",
-    "pagado": true
-  },
-  {
-    "id": "fv_xl_3",
-    "vivero": "Synergiabio",
-    "empresa": "Fruits Giddings SA de CV",
-    "pais": "Mexico",
-    "proforma": "IQP2022-112-M",
-    "nPlantas": 90900,
-    "regalia": 0.25,
-    "totalOsiris": 22725.0,
-    "tipoPago": "Anticipo",
-    "montoFact": 13635.0,
-    "fechaFact": "",
-    "nFact": "N°1",
-    "pagado": true
-  },
-  {
-    "id": "fv_xl_4",
-    "vivero": "Synergiabio",
-    "empresa": "Fruits Giddings SA de CV",
-    "pais": "Mexico",
-    "proforma": "IQP2022-112-M",
-    "nPlantas": 90900,
-    "regalia": 0.25,
-    "totalOsiris": 22725.0,
-    "tipoPago": "Entrega",
-    "montoFact": 9090.0,
-    "fechaFact": "",
-    "nFact": "N°5",
-    "pagado": true
-  },
-  {
-    "id": "fv_xl_5",
-    "vivero": "Synergiabio",
-    "empresa": "Fruits Giddings SA de CV",
-    "pais": "Mexico",
-    "proforma": "IQP2022-112-M",
-    "nPlantas": 5440,
-    "regalia": 0.25,
-    "totalOsiris": 1360.0,
-    "tipoPago": "Entrega",
-    "montoFact": 1360.0,
-    "fechaFact": "2024-10-01",
-    "nFact": "N° 9",
-    "pagado": true
-  },
-  {
-    "id": "fv_xl_6",
-    "vivero": "Synergiabio",
-    "empresa": "Mainland Farms SA",
-    "pais": "Mexico",
-    "proforma": "IQP2022-005-M",
-    "nPlantas": 227250,
-    "regalia": 0.45,
-    "totalOsiris": 102262.5,
-    "tipoPago": "Anticipo",
-    "montoFact": 51131.25,
-    "fechaFact": "",
-    "nFact": "N°1",
-    "pagado": true
-  },
-  {
-    "id": "fv_xl_7",
-    "vivero": "Synergiabio",
-    "empresa": "Mainland Farms SA",
-    "pais": "Mexico",
-    "proforma": "IQP2022-005-M",
-    "nPlantas": 227250,
-    "regalia": 0.45,
-    "totalOsiris": 102262.5,
-    "tipoPago": "Entrega",
-    "montoFact": 46018.125,
-    "fechaFact": "",
-    "nFact": "N°5",
-    "pagado": true
-  },
-  {
-    "id": "fv_xl_8",
-    "vivero": "Synergiabio",
-    "empresa": "Mainland Farms SA",
-    "pais": "Mexico",
-    "proforma": "IQP2022-005-M",
-    "nPlantas": 227250,
-    "regalia": 0.45,
-    "totalOsiris": 102262.5,
-    "tipoPago": "Entrega",
-    "montoFact": 5113.125,
-    "fechaFact": "2024-10-01",
-    "nFact": "N° 9",
-    "pagado": true
-  },
-  {
-    "id": "fv_xl_9",
-    "vivero": "Synergiabio",
-    "empresa": "Mainland Farms SA",
-    "pais": "Mexico",
-    "proforma": "MAINLF-2022-02",
-    "nPlantas": 12000,
-    "regalia": 0.45,
-    "totalOsiris": 5400.0,
-    "tipoPago": "Anticipo",
-    "montoFact": 2700.0,
-    "fechaFact": "2024-10-01",
-    "nFact": "N° 9",
-    "pagado": true
-  },
-  {
-    "id": "fv_xl_10",
-    "vivero": "Synergiabio",
-    "empresa": "Mainland Farms SA",
-    "pais": "Mexico",
-    "proforma": "MAINLF-2022-02",
-    "nPlantas": 12000,
-    "regalia": 0.45,
-    "totalOsiris": 5400.0,
-    "tipoPago": "Entrega",
-    "montoFact": 2700.0,
-    "fechaFact": "",
-    "nFact": "N°2",
-    "pagado": true
-  },
-  {
-    "id": "fv_xl_11",
-    "vivero": "Synergiabio",
-    "empresa": "AGV Innovation & Varieties LLC",
-    "pais": "Mexico",
-    "proforma": "AGVINV-2023-03",
-    "nPlantas": 32500,
-    "regalia": 0.45,
-    "totalOsiris": 14625.0,
-    "tipoPago": "Anticipo",
-    "montoFact": 8775.0,
-    "fechaFact": "",
-    "nFact": "N°5",
-    "pagado": true
-  },
-  {
-    "id": "fv_xl_12",
-    "vivero": "Synergiabio",
-    "empresa": "Expoberries SA de CV",
-    "pais": "Mexico",
-    "proforma": "EXPBER-2023-01",
-    "nPlantas": 1728,
-    "regalia": 0.45,
-    "totalOsiris": 777.6,
-    "tipoPago": "Anticipo",
-    "montoFact": 466.56,
-    "fechaFact": "",
-    "nFact": "N°5",
-    "pagado": true
-  },
-  {
-    "id": "fv_xl_13",
-    "vivero": "Synergiabio",
-    "empresa": "Expoberries SA de CV",
-    "pais": "Mexico",
-    "proforma": "EXPBER-2023-01",
-    "nPlantas": 1728,
-    "regalia": 0.45,
-    "totalOsiris": 777.6,
-    "tipoPago": "Entrega",
-    "montoFact": 311.04,
-    "fechaFact": "",
-    "nFact": "N°5",
-    "pagado": true
-  },
-  {
-    "id": "fv_xl_14",
-    "vivero": "Synergiabio",
-    "empresa": "Berries Paradise SAPI de CV",
-    "pais": "Mexico",
-    "proforma": "BPARAD-2023-01",
-    "nPlantas": 3900,
-    "regalia": 0.45,
-    "totalOsiris": 1755.0,
-    "tipoPago": "Anticipo",
-    "montoFact": 1045.98,
-    "fechaFact": "2024-10-01",
-    "nFact": "N° 9",
-    "pagado": true
-  },
-  {
-    "id": "fv_xl_15",
-    "vivero": "Synergiabio",
-    "empresa": "Berries Paradise SAPI de CV",
-    "pais": "Mexico",
-    "proforma": "BPARAD-2023-01",
-    "nPlantas": 3900,
-    "regalia": 0.45,
-    "totalOsiris": 1755.0,
-    "tipoPago": "Entrega",
-    "montoFact": 709.0200000000001,
-    "fechaFact": "2024-10-01",
-    "nFact": "N° 9",
-    "pagado": true
-  },
-  {
-    "id": "fv_xl_16",
-    "vivero": "Synergiabio",
-    "empresa": "Fruits Giddings SA de CV",
-    "pais": "Mexico",
-    "proforma": "GIDMEX-2024-01",
-    "nPlantas": 12672,
-    "regalia": 0.45,
-    "totalOsiris": 5702.400000000001,
-    "tipoPago": "Entrega",
-    "montoFact": 5702.400000000001,
-    "fechaFact": "2024-10-01",
-    "nFact": "N° 9",
-    "pagado": true
-  },
-  {
-    "id": "fv_xl_17",
-    "vivero": "Synergiabio",
-    "empresa": "Fruits Giddings SA de CV",
-    "pais": "Mexico",
-    "proforma": "IQP2022-112-M",
-    "nPlantas": 106,
-    "regalia": 0.25,
-    "totalOsiris": 26.5,
-    "tipoPago": "Entrega",
-    "montoFact": 26.5,
-    "fechaFact": "2024-10-01",
-    "nFact": "N° 9",
-    "pagado": true
-  },
-  {
-    "id": "fv_xl_18",
-    "vivero": "Synergiabio",
-    "empresa": "Mainland Farms SA",
-    "pais": "Mexico",
-    "proforma": "MAIFAR-MX-2025-01",
-    "nPlantas": 150000,
-    "regalia": 0.45,
-    "totalOsiris": 67500.0,
-    "tipoPago": "Entrega",
-    "montoFact": 15387.975,
-    "fechaFact": "2026-03-31",
-    "nFact": "N° 116",
-    "pagado": true
-  },
-  {
-    "id": "fv_xl_19",
-    "vivero": "Synergiabio",
-    "empresa": "Dole Mexico",
-    "pais": "Mexico",
-    "proforma": "BLUFAR-MX-2025-01",
-    "nPlantas": 2100,
-    "regalia": 0.45,
-    "totalOsiris": 945.0,
-    "tipoPago": "Entrega",
-    "montoFact": 425.25,
-    "fechaFact": "2026-03-31",
-    "nFact": "N° 116",
-    "pagado": true
-  },
-  {
-    "id": "fv_xl_20",
-    "vivero": "Synergiabio",
-    "empresa": "Gourmet México",
-    "pais": "Mexico",
-    "proforma": "GBFFAR-MX-2026-01",
-    "nPlantas": 950,
-    "regalia": 0.45,
-    "totalOsiris": 427.5,
-    "tipoPago": "Entrega",
-    "montoFact": 427.5,
-    "fechaFact": "2026-03-31",
-    "nFact": "N° 116",
-    "pagado": true
-  },
-  {
-    "id": "fv_xl_21",
-    "vivero": "Synergiabio",
-    "empresa": "AGV Innovation & Varieties LLC",
-    "pais": "Mexico",
-    "proforma": "AGVINV-2023-01",
-    "nPlantas": 32500,
-    "regalia": 0.45,
-    "totalOsiris": 14625.0,
-    "tipoPago": "Anticipo",
-    "montoFact": 8775.0,
-    "fechaFact": "",
-    "nFact": "N° 28",
-    "pagado": true
-  },
-  {
-    "id": "fv_xl_22",
-    "vivero": "Synergiabio",
-    "empresa": "AGV Innovation & Varieties LLC",
-    "pais": "Mexico",
-    "proforma": "AGVINV-2023-01",
-    "nPlantas": 32500,
-    "regalia": 0.45,
-    "totalOsiris": 14625.0,
-    "tipoPago": "Entrega",
-    "montoFact": 5850.0,
-    "fechaFact": "",
-    "nFact": "N° 37",
-    "pagado": true
-  },
-  {
-    "id": "fv_xl_23",
-    "vivero": "Synergiabio",
-    "empresa": "JDB PRO INC",
-    "pais": "Mexico",
-    "proforma": "CWESTP-2023-01",
-    "nPlantas": 3300,
-    "regalia": 0.45,
-    "totalOsiris": 1485.0,
-    "tipoPago": "Anticipo",
-    "montoFact": 742.5,
-    "fechaFact": "",
-    "nFact": "N° 37",
-    "pagado": true
-  },
-  {
-    "id": "fv_xl_24",
-    "vivero": "Synergiabio",
-    "empresa": "JDB PRO INC",
-    "pais": "Mexico",
-    "proforma": "CWESTP-2023-01",
-    "nPlantas": 3300,
-    "regalia": 0.45,
-    "totalOsiris": 1485.0,
-    "tipoPago": "Entrega",
-    "montoFact": 742.5,
-    "fechaFact": "2024-12-01",
-    "nFact": "N° 45",
-    "pagado": true
-  },
-  {
-    "id": "fv_xl_25",
-    "vivero": "Synergiabio",
-    "empresa": "Mainland Farms SA",
-    "pais": "Mexico",
-    "proforma": "MAIFAR-2024-02",
-    "nPlantas": 75000,
-    "regalia": 0.45,
-    "totalOsiris": 33750.0,
-    "tipoPago": "Anticipo",
-    "montoFact": 18562.5,
-    "fechaFact": "2024-12-01",
-    "nFact": "N° 45",
-    "pagado": true
-  },
-  {
-    "id": "fv_xl_26",
-    "vivero": "Synergiabio",
-    "empresa": "Mainland Farms SA",
-    "pais": "Mexico",
-    "proforma": "MAIFAR-2024-02",
-    "nPlantas": 75000,
-    "regalia": 0.45,
-    "totalOsiris": 33750.0,
-    "tipoPago": "Entrega",
-    "montoFact": 12929.625,
-    "fechaFact": "2025-05-01",
-    "nFact": "N° 69",
-    "pagado": true
-  },
-  {
-    "id": "fv_xl_27",
-    "vivero": "Synergiabio",
-    "empresa": "Mainland Farms SA",
-    "pais": "Mexico",
-    "proforma": "MAIFAR-2024-02",
-    "nPlantas": 75000,
-    "regalia": 0.45,
-    "totalOsiris": 33750.0,
-    "tipoPago": "Entrega",
-    "montoFact": 2156.625,
-    "fechaFact": "2025-07-01",
-    "nFact": "N° 78",
-    "pagado": true
-  },
-  {
-    "id": "fv_xl_28",
-    "vivero": "Synergiabio",
-    "empresa": "Mainland Farms SA",
-    "pais": "Mexico",
-    "proforma": "MAIFAR-2024-03",
-    "nPlantas": 2000,
-    "regalia": 0.45,
-    "totalOsiris": 900.0,
-    "tipoPago": "Anticipo",
-    "montoFact": 495.00000000000006,
-    "fechaFact": "2024-12-01",
-    "nFact": "N° 45",
-    "pagado": true
-  },
-  {
-    "id": "fv_xl_29",
-    "vivero": "Synergiabio",
-    "empresa": "Mainland Farms SA",
-    "pais": "Mexico",
-    "proforma": "MAIFAR-2024-03",
-    "nPlantas": 2000,
-    "regalia": 0.45,
-    "totalOsiris": 900.0,
-    "tipoPago": "Entrega",
-    "montoFact": 192.375,
-    "fechaFact": "2025-07-01",
-    "nFact": "N° 78",
-    "pagado": true
-  },
-  {
-    "id": "fv_xl_30",
-    "vivero": "Synergiabio",
-    "empresa": "Berries Paradise SAPI de CV",
-    "pais": "Mexico",
-    "proforma": "BPARADMX-2024-02",
-    "nPlantas": 384,
-    "regalia": 0.45,
-    "totalOsiris": 172.8,
-    "tipoPago": "Anticipo",
-    "montoFact": 103.68,
-    "fechaFact": "2024-12-01",
-    "nFact": "N° 45",
-    "pagado": true
-  },
-  {
-    "id": "fv_xl_31",
-    "vivero": "Synergiabio",
-    "empresa": "Mainland Farms SA",
-    "pais": "Mexico",
-    "proforma": "MAIFAR-2024-03",
-    "nPlantas": 2000,
-    "regalia": 0.45,
-    "totalOsiris": 900.0,
-    "tipoPago": "Entrega",
-    "montoFact": 162.0,
-    "fechaFact": "2025-09-01",
-    "nFact": "N° 83",
-    "pagado": true
-  },
-  {
-    "id": "fv_xl_32",
-    "vivero": "Synergiabio",
-    "empresa": "Mainland Farms SA",
-    "pais": "Mexico",
-    "proforma": "MAIFAR-2024-03",
-    "nPlantas": 2000,
-    "regalia": 0.45,
-    "totalOsiris": 900.0,
-    "tipoPago": "Entrega",
-    "montoFact": 51.300000000000004,
-    "fechaFact": "2026-03-31",
-    "nFact": "N° 116",
-    "pagado": true
-  },
-  {
-    "id": "fv_xl_33",
-    "vivero": "Synergiabio",
-    "empresa": "Berries Paradise SAPI de CV",
-    "pais": "Mexico",
-    "proforma": "BPARAD-2024-01",
-    "nPlantas": 384,
-    "regalia": 0.45,
-    "totalOsiris": 172.8,
-    "tipoPago": "Entrega",
-    "montoFact": NaN,
-    "fechaFact": "",
-    "nFact": "",
-    "pagado": false
-  },
-  {
-    "id": "fv_xl_34",
-    "vivero": "Synergiabio",
-    "empresa": "Mainland Farms SA",
-    "pais": "Mexico",
-    "proforma": "MAIFAR-2024-01",
-    "nPlantas": 11500,
-    "regalia": 0.45,
-    "totalOsiris": 5175.0,
-    "tipoPago": "Anticipo",
-    "montoFact": 2846.2500000000005,
-    "fechaFact": "2024-12-01",
-    "nFact": "N° 45",
-    "pagado": true
-  },
-  {
-    "id": "fv_xl_35",
-    "vivero": "Synergiabio",
-    "empresa": "Mainland Farms SA",
-    "pais": "Mexico",
-    "proforma": "MAIFAR-2024-01",
-    "nPlantas": 11500,
-    "regalia": 0.45,
-    "totalOsiris": 5175.0,
-    "tipoPago": "Entrega",
-    "montoFact": 2328.75,
-    "fechaFact": "2024-12-01",
-    "nFact": "N° 45",
-    "pagado": true
-  },
-  {
-    "id": "fv_xl_36",
-    "vivero": "Synergiabio",
-    "empresa": "Mainland Farms SA",
-    "pais": "Mexico",
-    "proforma": "MAIFAR-MX-2024-04",
-    "nPlantas": 50000,
-    "regalia": 0.45,
-    "totalOsiris": 22500.0,
-    "tipoPago": "Anticipo",
-    "montoFact": 12375.000000000002,
-    "fechaFact": "2025-05-01",
-    "nFact": "N° 69",
-    "pagado": true
-  },
-  {
-    "id": "fv_xl_37",
-    "vivero": "Synergiabio",
-    "empresa": "Mainland Farms SA",
-    "pais": "Mexico",
-    "proforma": "MAIFAR-MX-2024-04",
-    "nPlantas": 50000,
-    "regalia": 0.45,
-    "totalOsiris": 22500.0,
-    "tipoPago": "Entrega",
-    "montoFact": 3246.0750000000003,
-    "fechaFact": "2025-07-01",
-    "nFact": "N° 78",
-    "pagado": true
-  },
-  {
-    "id": "fv_xl_38",
-    "vivero": "Synergiabio",
-    "empresa": "Mainland Farms SA",
-    "pais": "Mexico",
-    "proforma": "MAIFAR-MX-2024-04",
-    "nPlantas": 50000,
-    "regalia": 0.45,
-    "totalOsiris": 22500.0,
-    "tipoPago": "Entrega",
-    "montoFact": 3587.625,
-    "fechaFact": "2025-09-01",
-    "nFact": "N° 83",
-    "pagado": true
-  },
-  {
-    "id": "fv_xl_39",
-    "vivero": "Synergiabio",
-    "empresa": "Mainland Farms SA",
-    "pais": "Mexico",
-    "proforma": "MAIFAR-MX-2025-01",
-    "nPlantas": 150000,
-    "regalia": 0.45,
-    "totalOsiris": 67500.0,
-    "tipoPago": "Anticipo",
-    "montoFact": 9281.25,
-    "fechaFact": "2025-07-01",
-    "nFact": "N° 78",
-    "pagado": true
-  },
-  {
-    "id": "fv_xl_40",
-    "vivero": "Synergiabio",
-    "empresa": "Mainland Farms SA",
-    "pais": "Mexico",
-    "proforma": "MAIFAR-MX-2025-01",
-    "nPlantas": 150000,
-    "regalia": 0.45,
-    "totalOsiris": 67500.0,
-    "tipoPago": "Anticipo",
-    "montoFact": 9281.25,
-    "fechaFact": "2025-07-01",
-    "nFact": "N° 78",
-    "pagado": true
-  },
-  {
-    "id": "fv_xl_41",
-    "vivero": "Synergiabio",
-    "empresa": "Mainland Farms SA",
-    "pais": "Mexico",
-    "proforma": "MAIFAR-MX-2025-01",
-    "nPlantas": 150000,
-    "regalia": 0.45,
-    "totalOsiris": 67500.0,
-    "tipoPago": "Anticipo",
-    "montoFact": 9281.25,
-    "fechaFact": "2025-07-01",
-    "nFact": "N° 78",
-    "pagado": true
-  },
-  {
-    "id": "fv_xl_42",
-    "vivero": "Synergiabio",
-    "empresa": "Mainland Farms SA",
-    "pais": "Mexico",
-    "proforma": "MAIFAR-MX-2025-01",
-    "nPlantas": 150000,
-    "regalia": 0.45,
-    "totalOsiris": 67500.0,
-    "tipoPago": "Anticipo",
-    "montoFact": 9281.25,
-    "fechaFact": "2025-07-01",
-    "nFact": "N° 78",
-    "pagado": true
-  },
-  {
-    "id": "fv_xl_43",
-    "vivero": "Synergiabio",
-    "empresa": "Mainland Farms SA",
-    "pais": "Mexico",
-    "proforma": "MAIFAR-MX-2024-04",
-    "nPlantas": 50000,
-    "regalia": 0.45,
-    "totalOsiris": 22500.0,
-    "tipoPago": "Entrega",
-    "montoFact": 1214.55,
-    "fechaFact": "2026-03-31",
-    "nFact": "N° 116",
-    "pagado": true
-  },
-  {
-    "id": "fv_xl_44",
-    "vivero": "Synergiabio",
-    "empresa": "Mainland Farms SA",
-    "pais": "Mexico",
-    "proforma": "MAIFAR-MX-2025-02",
-    "nPlantas": 250000,
-    "regalia": 0.45,
-    "totalOsiris": 112500.0,
-    "tipoPago": "Anticipo",
-    "montoFact": 61875.00000000001,
-    "fechaFact": "2025-09-01",
-    "nFact": "N° 83",
-    "pagado": true
-  },
-  {
-    "id": "fv_xl_45",
-    "vivero": "Synergiabio",
-    "empresa": "Frusan Agro SAC",
-    "pais": "Peru",
-    "proforma": "HUARME-CL-2024-02",
-    "nPlantas": 305185,
-    "regalia": 0.45,
-    "totalOsiris": 137333.25,
-    "tipoPago": "Entrega",
-    "montoFact": 54933.3,
-    "fechaFact": "2026-03-31",
-    "nFact": "N° 20",
-    "pagado": false
-  },
-  {
-    "id": "fv_xl_46",
-    "vivero": "Synergiabio",
-    "empresa": "Vanguard",
-    "pais": "Peru",
-    "proforma": "OLIVOS-CL-2024-01",
-    "nPlantas": 1555705,
-    "regalia": 0.45,
-    "totalOsiris": 700067.25,
-    "tipoPago": "Entrega",
-    "montoFact": 180827.37067499998,
-    "fechaFact": "2026-03-31",
-    "nFact": "N° 20",
-    "pagado": false
-  },
-  {
-    "id": "fv_xl_47",
-    "vivero": "Synergiabio",
-    "empresa": "Dole Mexico",
-    "pais": "Mexico",
-    "proforma": "BLUFAR-MX-2025-01",
-    "nPlantas": 2100,
-    "regalia": 0.45,
-    "totalOsiris": 945.0,
-    "tipoPago": "Anticipo",
-    "montoFact": 519.75,
-    "fechaFact": "2025-09-01",
-    "nFact": "N° 83",
-    "pagado": true
-  },
-  {
-    "id": "fv_xl_48",
-    "vivero": "Synergiabio",
-    "empresa": "Frusan Agro SAC",
-    "pais": "Peru",
-    "proforma": "HUARME-CL-2024-02",
-    "nPlantas": 305185,
-    "regalia": 0.45,
-    "totalOsiris": 137333.25,
-    "tipoPago": "Entrega",
-    "montoFact": 10299.99375,
-    "fechaFact": "2026-03-31",
-    "nFact": "N° 20",
-    "pagado": false
-  },
-  {
-    "id": "fv_xl_49",
-    "vivero": "Synergiabio",
-    "empresa": "Hector Esquivel",
-    "pais": "Chile",
-    "proforma": "HEHSPA-CL-2024-01",
-    "nPlantas": 12000,
-    "regalia": 0.45,
-    "totalOsiris": 5400.0,
-    "tipoPago": "Entrega",
-    "montoFact": 1309.5,
-    "fechaFact": "2026-01-01",
-    "nFact": "N° 19",
-    "pagado": true
-  },
-  {
-    "id": "fv_xl_50",
-    "vivero": "Synergiabio",
-    "empresa": "SQM",
-    "pais": "Chile",
-    "proforma": "SQMSDH-2024-01",
-    "nPlantas": 420,
-    "regalia": 0.45,
-    "totalOsiris": 189.0,
-    "tipoPago": "Entrega",
-    "montoFact": 189.0,
-    "fechaFact": "2025-03-01",
-    "nFact": "N° 12",
-    "pagado": true
-  },
-  {
-    "id": "fv_xl_51",
-    "vivero": "Synergiabio",
-    "empresa": "Hector Esquivel",
-    "pais": "Chile",
-    "proforma": "HEHSPA-CL-2024-01",
-    "nPlantas": 12000,
-    "regalia": 0.45,
-    "totalOsiris": 5400.0,
-    "tipoPago": "Anticipo",
-    "montoFact": 4090.4999999999995,
-    "fechaFact": "2025-03-01",
-    "nFact": "N° 12",
-    "pagado": true
-  },
-  {
-    "id": "fv_xl_52",
-    "vivero": "Synergiabio",
-    "empresa": "Collipulli",
-    "pais": "Chile",
-    "proforma": "ASELVA-2024-01",
-    "nPlantas": 270,
-    "regalia": 0.45,
-    "totalOsiris": 121.5,
-    "tipoPago": "Entrega",
-    "montoFact": 121.5,
-    "fechaFact": "2025-03-01",
-    "nFact": "N° 12",
-    "pagado": true
-  },
-  {
-    "id": "fv_xl_53",
-    "vivero": "Synergiabio",
-    "empresa": "KJ Orchard CO Ltd",
-    "pais": "Corea",
-    "proforma": "KJORCH-2023-01",
-    "nPlantas": 1728,
-    "regalia": 0.45,
-    "totalOsiris": 777.6,
-    "tipoPago": "Entrega",
-    "montoFact": 777.6,
-    "fechaFact": "2024-10-01",
-    "nFact": "N° 9",
-    "pagado": true
-  },
-  {
-    "id": "fv_xl_54",
-    "vivero": "Synergiabio",
-    "empresa": "KJ Orchard CO Ltd",
-    "pais": "Corea",
-    "proforma": "KJORCH-2023-02",
-    "nPlantas": 12096,
-    "regalia": 0.1,
-    "totalOsiris": 1209.6000000000001,
-    "tipoPago": "Anticipo",
-    "montoFact": 723.58272,
-    "fechaFact": "2024-10-01",
-    "nFact": "N° 9",
-    "pagado": true
-  },
-  {
-    "id": "fv_xl_55",
-    "vivero": "Synergiabio",
-    "empresa": "KJ Orchard CO Ltd",
-    "pais": "Corea",
-    "proforma": "KJORCH-2023-02",
-    "nPlantas": 12096,
-    "regalia": 0.1,
-    "totalOsiris": 1209.6000000000001,
-    "tipoPago": "Entrega",
-    "montoFact": 483.8400000000001,
-    "fechaFact": "2024-10-01",
-    "nFact": "N° 9",
-    "pagado": true
-  },
-  {
-    "id": "fv_xl_56",
-    "vivero": "Synergiabio",
-    "empresa": "KJ Orchard CO Ltd",
-    "pais": "Corea",
-    "proforma": "KJORCH-CL-2025-01",
-    "nPlantas": 12096,
-    "regalia": 0.1,
-    "totalOsiris": 1209.6000000000001,
-    "tipoPago": "Anticipo",
-    "montoFact": 725.7600000000001,
-    "fechaFact": "2026-09-01",
-    "nFact": "N° 14",
-    "pagado": true
-  },
-  {
-    "id": "fv_xl_57",
-    "vivero": "Synergiabio",
-    "empresa": "Frusan Agro SAC",
-    "pais": "Peru",
-    "proforma": "HUARME-CL-2026-0046",
-    "nPlantas": 285405,
-    "regalia": 0.45,
-    "totalOsiris": 128432.25,
-    "tipoPago": "Anticipo",
-    "montoFact": 67426.93125000001,
-    "fechaFact": "2026-03-31",
-    "nFact": "N° 20",
-    "pagado": false
-  },
-  {
-    "id": "fv_xl_58",
-    "vivero": "Synergiabio",
-    "empresa": "Surexport Compañía Agraria SL",
-    "pais": "España",
-    "proforma": "2022-011",
-    "nPlantas": 31104,
-    "regalia": 0.1,
-    "totalOsiris": 3110.4,
-    "tipoPago": "Anticipo",
-    "montoFact": 1866.24,
-    "fechaFact": "",
-    "nFact": "N° 1",
-    "pagado": true
-  },
-  {
-    "id": "fv_xl_59",
-    "vivero": "Synergiabio",
-    "empresa": "Surexport Compañía Agraria SL",
-    "pais": "España",
-    "proforma": "2022-011",
-    "nPlantas": 31104,
-    "regalia": 0.1,
-    "totalOsiris": 3110.4,
-    "tipoPago": "Entrega",
-    "montoFact": 1150.848,
-    "fechaFact": "",
-    "nFact": "N°5",
-    "pagado": true
-  },
-  {
-    "id": "fv_xl_60",
-    "vivero": "Synergiabio",
-    "empresa": "Agrícola Moquegua",
-    "pais": "Peru",
-    "proforma": "IQP2022-002",
-    "nPlantas": 13320,
-    "regalia": 0.25,
-    "totalOsiris": 3330.0,
-    "tipoPago": "Anticipo",
-    "montoFact": 1998.0,
-    "fechaFact": "",
-    "nFact": "N°1",
-    "pagado": true
-  },
-  {
-    "id": "fv_xl_61",
-    "vivero": "Synergiabio",
-    "empresa": "Agrícola Moquegua",
-    "pais": "Peru",
-    "proforma": "IQP2022-002",
-    "nPlantas": 13320,
-    "regalia": 0.25,
-    "totalOsiris": 3330.0,
-    "tipoPago": "Entrega",
-    "montoFact": 1332.0,
-    "fechaFact": "2024-10-01",
-    "nFact": "N° 9",
-    "pagado": true
-  },
-  {
-    "id": "fv_xl_62",
-    "vivero": "Synergiabio",
-    "empresa": "Giddings Berries Perú SAC",
-    "pais": "Peru",
-    "proforma": "IQP2022-004",
-    "nPlantas": 3000,
-    "regalia": 0.25,
-    "totalOsiris": 750.0,
-    "tipoPago": "Anticipo",
-    "montoFact": 450.0,
-    "fechaFact": "",
-    "nFact": "N°1",
-    "pagado": true
-  },
-  {
-    "id": "fv_xl_63",
-    "vivero": "Synergiabio",
-    "empresa": "Giddings Berries Perú SAC",
-    "pais": "Peru",
-    "proforma": "IQP2022-004",
-    "nPlantas": 2750,
-    "regalia": 0.25,
-    "totalOsiris": 687.5,
-    "tipoPago": "Entrega",
-    "montoFact": 275.0,
-    "fechaFact": "",
-    "nFact": "N°5",
-    "pagado": true
-  },
-  {
-    "id": "fv_xl_64",
-    "vivero": "Synergiabio",
-    "empresa": "Agrícola Cerro Prieto SA",
-    "pais": "Peru",
-    "proforma": "IQP2022-006",
-    "nPlantas": 9200,
-    "regalia": 0.25,
-    "totalOsiris": 2300.0,
-    "tipoPago": "Anticipo",
-    "montoFact": 1380.0,
-    "fechaFact": "",
-    "nFact": "N°1",
-    "pagado": true
-  },
-  {
-    "id": "fv_xl_65",
-    "vivero": "Synergiabio",
-    "empresa": "Agrícola Cerro Prieto SA",
-    "pais": "Peru",
-    "proforma": "IQP2022-006",
-    "nPlantas": 9200,
-    "regalia": 0.25,
-    "totalOsiris": 2300.0,
-    "tipoPago": "Entrega",
-    "montoFact": 920.0,
-    "fechaFact": "",
-    "nFact": "N°5",
-    "pagado": true
-  },
-  {
-    "id": "fv_xl_66",
-    "vivero": "Synergiabio",
-    "empresa": "Danper Trujillo SAC",
-    "pais": "Peru",
-    "proforma": "IQP2022-007",
-    "nPlantas": 8800,
-    "regalia": 0.25,
-    "totalOsiris": 2200.0,
-    "tipoPago": "Anticipo",
-    "montoFact": 1320.0,
-    "fechaFact": "",
-    "nFact": "N°1",
-    "pagado": true
-  },
-  {
-    "id": "fv_xl_67",
-    "vivero": "Synergiabio",
-    "empresa": "Danper Trujillo SAC",
-    "pais": "Peru",
-    "proforma": "IQP2022-007",
-    "nPlantas": 8800,
-    "regalia": 0.25,
-    "totalOsiris": 2200.0,
-    "tipoPago": "Entrega",
-    "montoFact": 880.0,
-    "fechaFact": "",
-    "nFact": "N°5",
-    "pagado": true
-  },
-  {
-    "id": "fv_xl_68",
-    "vivero": "Synergiabio",
-    "empresa": "Agroberries Perú SAC",
-    "pais": "Peru",
-    "proforma": "IQP2022-111",
-    "nPlantas": 4000,
-    "regalia": 0.25,
-    "totalOsiris": 1000.0,
-    "tipoPago": "Anticipo",
-    "montoFact": 600.0,
-    "fechaFact": "",
-    "nFact": "N°1",
-    "pagado": true
-  },
-  {
-    "id": "fv_xl_69",
-    "vivero": "Synergiabio",
-    "empresa": "Agroberries Perú SAC",
-    "pais": "Peru",
-    "proforma": "IQP2022-111",
-    "nPlantas": 4000,
-    "regalia": 0.25,
-    "totalOsiris": 1000.0,
-    "tipoPago": "Entrega",
-    "montoFact": 400.0,
-    "fechaFact": "",
-    "nFact": "N°5",
-    "pagado": true
-  },
-  {
-    "id": "fv_xl_70",
-    "vivero": "Synergiabio",
-    "empresa": "Hass Peru SA",
-    "pais": "Peru",
-    "proforma": "IQP2022-125",
-    "nPlantas": 200,
-    "regalia": 0.45,
-    "totalOsiris": 90.0,
-    "tipoPago": "Anticipo",
-    "montoFact": 54.0,
-    "fechaFact": "",
-    "nFact": "N°2",
-    "pagado": true
-  },
-  {
-    "id": "fv_xl_71",
-    "vivero": "Synergiabio",
-    "empresa": "Agrícola Don Ricardo SAC",
-    "pais": "Peru",
-    "proforma": "IQP2022-124",
-    "nPlantas": 1000,
-    "regalia": 0.45,
-    "totalOsiris": 450.0,
-    "tipoPago": "Anticipo",
-    "montoFact": 270.0,
-    "fechaFact": "",
-    "nFact": "N°2",
-    "pagado": true
-  },
-  {
-    "id": "fv_xl_72",
-    "vivero": "Synergiabio",
-    "empresa": "Agrícola Don Ricardo SAC",
-    "pais": "Peru",
-    "proforma": "IQP2022-124",
-    "nPlantas": 1000,
-    "regalia": 0.45,
-    "totalOsiris": 450.0,
-    "tipoPago": "Entrega",
-    "montoFact": 180.0,
-    "fechaFact": "",
-    "nFact": "N°5",
-    "pagado": true
-  },
-  {
-    "id": "fv_xl_73",
-    "vivero": "Synergiabio",
-    "empresa": "Hass Peru SA",
-    "pais": "Peru",
-    "proforma": "IQP2022-125",
-    "nPlantas": 200,
-    "regalia": 0.45,
-    "totalOsiris": 90.0,
-    "tipoPago": "Entrega",
-    "montoFact": 36.0,
-    "fechaFact": "",
-    "nFact": "N°2",
-    "pagado": true
-  },
-  {
-    "id": "fv_xl_74",
-    "vivero": "Synergiabio",
-    "empresa": "Agrícola Don Ricardo SAC",
-    "pais": "Peru",
-    "proforma": "ARICDO-2022-02",
-    "nPlantas": 2000,
-    "regalia": 0.45,
-    "totalOsiris": 900.0,
-    "tipoPago": "Anticipo",
-    "montoFact": 540.0,
-    "fechaFact": "",
-    "nFact": "N°2",
-    "pagado": true
-  },
-  {
-    "id": "fv_xl_75",
-    "vivero": "Synergiabio",
-    "empresa": "Hass Peru SA",
-    "pais": "Peru",
-    "proforma": "HASSPE-2022-01",
-    "nPlantas": 2000,
-    "regalia": 0.45,
-    "totalOsiris": 900.0,
-    "tipoPago": "Anticipo",
-    "montoFact": 540.0,
-    "fechaFact": "",
-    "nFact": "N°2",
-    "pagado": true
-  },
-  {
-    "id": "fv_xl_76",
-    "vivero": "Synergiabio",
-    "empresa": "Hass Peru SA",
-    "pais": "Peru",
-    "proforma": "HASSPE-2022-01",
-    "nPlantas": 2000,
-    "regalia": 0.45,
-    "totalOsiris": 900.0,
-    "tipoPago": "Entrega",
-    "montoFact": 360.0,
-    "fechaFact": "",
-    "nFact": "N°2",
-    "pagado": true
-  },
-  {
-    "id": "fv_xl_77",
-    "vivero": "Synergiabio",
-    "empresa": "Danper Trujillo SAC",
-    "pais": "Peru",
-    "proforma": "DANPER-2022-01",
-    "nPlantas": 6000,
-    "regalia": 0.45,
-    "totalOsiris": 2700.0,
-    "tipoPago": "Anticipo",
-    "montoFact": 1479.6000000000001,
-    "fechaFact": "",
-    "nFact": "N°5",
-    "pagado": true
-  },
-  {
-    "id": "fv_xl_78",
-    "vivero": "Synergiabio",
-    "empresa": "Danper Trujillo SAC",
-    "pais": "Peru",
-    "proforma": "DANPER-2022-01",
-    "nPlantas": 6000,
-    "regalia": 0.45,
-    "totalOsiris": 2700.0,
-    "tipoPago": "Entrega",
-    "montoFact": 977.4,
-    "fechaFact": "2024-10-01",
-    "nFact": "N° 9",
-    "pagado": true
-  },
-  {
-    "id": "fv_xl_79",
-    "vivero": "Synergiabio",
-    "empresa": "Danper Trujillo SAC",
-    "pais": "Peru",
-    "proforma": "DANPER-2022-01",
-    "nPlantas": 6000,
-    "regalia": 0.45,
-    "totalOsiris": 2700.0,
-    "tipoPago": "Entrega",
-    "montoFact": 243.0,
-    "fechaFact": "2024-10-01",
-    "nFact": "N° 9",
-    "pagado": true
-  },
-  {
-    "id": "fv_xl_80",
-    "vivero": "Synergiabio",
-    "empresa": "Agroberries Perú SAC",
-    "pais": "Peru",
-    "proforma": "AGBERR-2022-01",
-    "nPlantas": 8000,
-    "regalia": 0.45,
-    "totalOsiris": 3600.0,
-    "tipoPago": "Anticipo",
-    "montoFact": 1980.0000000000002,
-    "fechaFact": "",
-    "nFact": "N°2",
-    "pagado": true
-  },
-  {
-    "id": "fv_xl_81",
-    "vivero": "Synergiabio",
-    "empresa": "Agroberries Perú SAC",
-    "pais": "Peru",
-    "proforma": "AGBERR-2022-01",
-    "nPlantas": 8000,
-    "regalia": 0.45,
-    "totalOsiris": 3600.0,
-    "tipoPago": "Entrega",
-    "montoFact": 1620.0,
-    "fechaFact": "2024-10-01",
-    "nFact": "N° 9",
-    "pagado": true
-  },
-  {
-    "id": "fv_xl_82",
-    "vivero": "Synergiabio",
-    "empresa": "Agrícola Moquegua",
-    "pais": "Peru",
-    "proforma": "MOQUEH-2022-02",
-    "nPlantas": 325000,
-    "regalia": 0.45,
-    "totalOsiris": 146250.0,
-    "tipoPago": "Anticipo",
-    "montoFact": 29250.0,
-    "fechaFact": "",
-    "nFact": "N°2",
-    "pagado": true
-  },
-  {
-    "id": "fv_xl_83",
-    "vivero": "Synergiabio",
-    "empresa": "Agrícola Moquegua",
-    "pais": "Peru",
-    "proforma": "MOQUEH-2022-02",
-    "nPlantas": 325000,
-    "regalia": 0.45,
-    "totalOsiris": 146250.0,
-    "tipoPago": "Anticipo",
-    "montoFact": 50748.75,
-    "fechaFact": "",
-    "nFact": "N°4",
-    "pagado": true
-  },
-  {
-    "id": "fv_xl_84",
-    "vivero": "Synergiabio",
-    "empresa": "Agrícola Moquegua",
-    "pais": "Peru",
-    "proforma": "MOQUEH-2022-02",
-    "nPlantas": 325000,
-    "regalia": 0.45,
-    "totalOsiris": 146250.0,
-    "tipoPago": "Entrega",
-    "montoFact": 34734.375,
-    "fechaFact": "2024-10-01",
-    "nFact": "N° 9",
-    "pagado": true
-  },
-  {
-    "id": "fv_xl_85",
-    "vivero": "Synergiabio",
-    "empresa": "Agrícola Moquegua",
-    "pais": "Peru",
-    "proforma": "MOQUEH-2022-02",
-    "nPlantas": 325000,
-    "regalia": 0.45,
-    "totalOsiris": 146250.0,
-    "tipoPago": "Entrega",
-    "montoFact": 31516.875,
-    "fechaFact": "2026-01-01",
-    "nFact": "N° 19",
-    "pagado": true
-  },
-  {
-    "id": "fv_xl_86",
-    "vivero": "Synergiabio",
-    "empresa": "Danper Trujillo SAC",
-    "pais": "Peru",
-    "proforma": "DANPER-2022-01",
-    "nPlantas": 68,
-    "regalia": 0.45,
-    "totalOsiris": 30.6,
-    "tipoPago": "Entrega",
-    "montoFact": 30.6,
-    "fechaFact": "2024-10-01",
-    "nFact": "N° 9",
-    "pagado": true
-  },
-  {
-    "id": "fv_xl_87",
-    "vivero": "Synergiabio",
-    "empresa": "Danper Trujillo SAC",
-    "pais": "Peru",
-    "proforma": "DANPER-2022-03",
-    "nPlantas": 100,
-    "regalia": 0.25,
-    "totalOsiris": 25.0,
-    "tipoPago": "Entrega",
-    "montoFact": 25.0,
-    "fechaFact": "",
-    "nFact": "N°5",
-    "pagado": true
-  },
-  {
-    "id": "fv_xl_88",
-    "vivero": "Synergiabio",
-    "empresa": "Agrícola Cerro Prieto SA",
-    "pais": "Peru",
-    "proforma": "CPRIET-2023-01",
-    "nPlantas": 2000,
-    "regalia": 0.45,
-    "totalOsiris": 900.0,
-    "tipoPago": "Anticipo",
-    "montoFact": 540.0,
-    "fechaFact": "",
-    "nFact": "N°4",
-    "pagado": true
-  },
-  {
-    "id": "fv_xl_89",
-    "vivero": "Synergiabio",
-    "empresa": "Agrícola Cerro Prieto SA",
-    "pais": "Peru",
-    "proforma": "CPRIET-2023-01",
-    "nPlantas": 2000,
-    "regalia": 0.45,
-    "totalOsiris": 900.0,
-    "tipoPago": "Entrega",
-    "montoFact": 360.0,
-    "fechaFact": "2024-10-01",
-    "nFact": "N° 9",
-    "pagado": true
-  },
-  {
-    "id": "fv_xl_90",
-    "vivero": "Synergiabio",
-    "empresa": "Frusan Agro SAC",
-    "pais": "Peru",
-    "proforma": "FSFNDO-2023-01",
-    "nPlantas": 6000,
-    "regalia": 0.45,
-    "totalOsiris": 2700.0,
-    "tipoPago": "Anticipo",
-    "montoFact": 1620.0,
-    "fechaFact": "",
-    "nFact": "N°4",
-    "pagado": true
-  },
-  {
-    "id": "fv_xl_91",
-    "vivero": "Synergiabio",
-    "empresa": "AGV Innovation & Varieties LLC",
-    "pais": "Peru",
-    "proforma": "AGVINV-2023-02",
-    "nPlantas": 26000,
-    "regalia": 0.45,
-    "totalOsiris": 11700.0,
-    "tipoPago": "Anticipo",
-    "montoFact": 7008.3,
-    "fechaFact": "",
-    "nFact": "N°5",
-    "pagado": true
-  },
-  {
-    "id": "fv_xl_92",
-    "vivero": "Synergiabio",
-    "empresa": "AGV Innovation & Varieties LLC",
-    "pais": "Peru",
-    "proforma": "AGVINV-2023-02",
-    "nPlantas": 26000,
-    "regalia": 0.45,
-    "totalOsiris": 11700.0,
-    "tipoPago": "Entrega",
-    "montoFact": 4680.0,
-    "fechaFact": "2024-10-01",
-    "nFact": "N° 9",
-    "pagado": true
-  },
-  {
-    "id": "fv_xl_93",
-    "vivero": "Synergiabio",
-    "empresa": "Agrícola Don Ricardo SAC",
-    "pais": "Peru",
-    "proforma": "ARICDO-2022-01",
-    "nPlantas": 2500,
-    "regalia": 0.45,
-    "totalOsiris": 1125.0,
-    "tipoPago": "Entrega",
-    "montoFact": 585.0,
-    "fechaFact": "2024-10-01",
-    "nFact": "N° 9",
-    "pagado": true
-  },
-  {
-    "id": "fv_xl_94",
-    "vivero": "Synergiabio",
-    "empresa": "Hass Peru SA",
-    "pais": "Peru",
-    "proforma": "HASSPE-2023-01",
-    "nPlantas": 5000,
-    "regalia": 0.45,
-    "totalOsiris": 2250.0,
-    "tipoPago": "Anticipo",
-    "montoFact": 2250.0,
-    "fechaFact": "2024-10-01",
-    "nFact": "N° 9",
-    "pagado": true
-  },
-  {
-    "id": "fv_xl_95",
-    "vivero": "Synergiabio",
-    "empresa": "Berry Harvest SA",
-    "pais": "Peru",
-    "proforma": "HARVES-2023-01",
-    "nPlantas": 4000,
-    "regalia": 0.45,
-    "totalOsiris": 1800.0,
-    "tipoPago": "Anticipo",
-    "montoFact": 1800.0,
-    "fechaFact": "2024-10-01",
-    "nFact": "N° 9",
-    "pagado": true
-  },
-  {
-    "id": "fv_xl_96",
-    "vivero": "Synergiabio",
-    "empresa": "Frusan Agro SAC",
-    "pais": "Peru",
-    "proforma": "FRUSAN-2023-01",
-    "nPlantas": 6000,
-    "regalia": 0.45,
-    "totalOsiris": 2700.0,
-    "tipoPago": "Entrega",
-    "montoFact": 1080.0,
-    "fechaFact": "2024-10-01",
-    "nFact": "N° 9",
-    "pagado": true
-  },
-  {
-    "id": "fv_xl_97",
-    "vivero": "Synergiabio",
-    "empresa": "Agroberries Perú SAC",
-    "pais": "Peru",
-    "proforma": "AGBERR-2023-01",
-    "nPlantas": 250,
-    "regalia": 0.45,
-    "totalOsiris": 112.5,
-    "tipoPago": "Entrega",
-    "montoFact": NaN,
-    "fechaFact": "2024-01-01",
-    "nFact": "",
-    "pagado": false
-  },
-  {
-    "id": "fv_xl_98",
-    "vivero": "Synergiabio",
-    "empresa": "Hass Peru SA",
-    "pais": "Peru",
-    "proforma": "HASSPE-2024-01",
-    "nPlantas": 367,
-    "regalia": 0.45,
-    "totalOsiris": 165.15,
-    "tipoPago": "Anticipo/Entrega",
-    "montoFact": 165.15,
-    "fechaFact": "2024-10-01",
-    "nFact": "N° 9",
-    "pagado": true
-  },
-  {
-    "id": "fv_xl_99",
-    "vivero": "Synergiabio",
-    "empresa": "Berry Harvest SA",
-    "pais": "Peru",
-    "proforma": "HARVES-2024-01",
-    "nPlantas": 409,
-    "regalia": 0.45,
-    "totalOsiris": 184.05,
-    "tipoPago": "Anticipo/Entrega",
-    "montoFact": 184.05,
-    "fechaFact": "2024-10-01",
-    "nFact": "N° 9",
-    "pagado": true
-  },
-  {
-    "id": "fv_xl_100",
-    "vivero": "Synergiabio",
-    "empresa": "Pura Berries",
-    "pais": "Peru",
-    "proforma": "PURABE-CL-2024-04",
-    "nPlantas": 259735,
-    "regalia": 0.45,
-    "totalOsiris": 116880.75,
-    "tipoPago": "Entrega",
-    "montoFact": 46752.3,
-    "fechaFact": "2026-01-01",
-    "nFact": "N° 19",
-    "pagado": true
-  },
-  {
-    "id": "fv_xl_101",
-    "vivero": "Synergiabio",
-    "empresa": "Danper Trujillo SAC",
-    "pais": "Peru",
-    "proforma": "DANPER-2024-01",
-    "nPlantas": 7296,
-    "regalia": 0.45,
-    "totalOsiris": 3283.2000000000003,
-    "tipoPago": "Entrega",
-    "montoFact": 3283.2000000000003,
-    "fechaFact": "2024-10-01",
-    "nFact": "N° 9",
-    "pagado": true
-  },
-  {
-    "id": "fv_xl_102",
-    "vivero": "Synergiabio",
-    "empresa": "Danper Trujillo SAC",
-    "pais": "Peru",
-    "proforma": "DANPER-2024-02",
-    "nPlantas": 1024,
-    "regalia": 0.45,
-    "totalOsiris": 460.8,
-    "tipoPago": "Anticipo",
-    "montoFact": 276.48,
-    "fechaFact": "2024-10-01",
-    "nFact": "N° 9",
-    "pagado": true
-  },
-  {
-    "id": "fv_xl_103",
-    "vivero": "Synergiabio",
-    "empresa": "Danper Trujillo SAC",
-    "pais": "Peru",
-    "proforma": "DANPER-CL-2025-01",
-    "nPlantas": 24000,
-    "regalia": 0.45,
-    "totalOsiris": 10800.0,
-    "tipoPago": "Entrega",
-    "montoFact": 4725.0,
-    "fechaFact": "2026-01-01",
-    "nFact": "N° 19",
-    "pagado": true
-  },
-  {
-    "id": "fv_xl_104",
-    "vivero": "Synergiabio",
-    "empresa": "Danper Trujillo SAC",
-    "pais": "Peru",
-    "proforma": "DANPER-CL-2025-0036",
-    "nPlantas": 1000,
-    "regalia": 0.45,
-    "totalOsiris": 450.0,
-    "tipoPago": "Anticipo",
-    "montoFact": 270.0,
-    "fechaFact": "2026-01-01",
-    "nFact": "N° 19",
-    "pagado": true
-  },
-  {
-    "id": "fv_xl_105",
-    "vivero": "Synergiabio",
-    "empresa": "Danper Trujillo SAC",
-    "pais": "Peru",
-    "proforma": "DANPER-CL-2025-0036",
-    "nPlantas": 1000,
-    "regalia": 0.45,
-    "totalOsiris": 450.0,
-    "tipoPago": "Entrega",
-    "montoFact": 180.0,
-    "fechaFact": "2026-01-01",
-    "nFact": "N° 19",
-    "pagado": true
-  },
-  {
-    "id": "fv_xl_106",
-    "vivero": "Synergiabio",
-    "empresa": "Gourmet Peru",
-    "pais": "Peru",
-    "proforma": "GOURME-CL-2025-01",
-    "nPlantas": 400,
-    "regalia": 0.45,
-    "totalOsiris": 180.0,
-    "tipoPago": "Entrega",
-    "montoFact": 180.0,
-    "fechaFact": "2026-01-01",
-    "nFact": "N° 19",
-    "pagado": true
-  },
-  {
-    "id": "fv_xl_107",
-    "vivero": "Synergiabio",
-    "empresa": "Gourmet Peru",
-    "pais": "Peru",
-    "proforma": "2025/0068",
-    "nPlantas": 250,
-    "regalia": 0.45,
-    "totalOsiris": 112.5,
-    "tipoPago": "Entrega",
-    "montoFact": 112.5,
-    "fechaFact": "2026-01-01",
-    "nFact": "N° 19",
-    "pagado": true
-  },
-  {
-    "id": "fv_xl_108",
-    "vivero": "Synergiabio",
-    "empresa": "Vanguard",
-    "pais": "Peru",
-    "proforma": "OLIVOS-CL-2024-01",
-    "nPlantas": 1555705,
-    "regalia": 0.45,
-    "totalOsiris": 700067.25,
-    "tipoPago": "Anticipo",
-    "montoFact": 350033.625,
-    "fechaFact": "2025-01-01",
-    "nFact": "N° 11",
-    "pagado": true
-  },
-  {
-    "id": "fv_xl_109",
-    "vivero": "Synergiabio",
-    "empresa": "Agrícola Cerro Prieto SA",
-    "pais": "Peru",
-    "proforma": "CPRIET-2024-01",
-    "nPlantas": 1024,
-    "regalia": 0.45,
-    "totalOsiris": 460.8,
-    "tipoPago": "Anticipo",
-    "montoFact": 276.48,
-    "fechaFact": "2024-10-01",
-    "nFact": "N° 9",
-    "pagado": true
-  },
-  {
-    "id": "fv_xl_110",
-    "vivero": "Synergiabio",
-    "empresa": "Allpa Farms",
-    "pais": "Peru",
-    "proforma": "ALLPAF-2024-01",
-    "nPlantas": 294000,
-    "regalia": 0.45,
-    "totalOsiris": 132300.0,
-    "tipoPago": "Anticipo",
-    "montoFact": 51332.4,
-    "fechaFact": "2024-10-01",
-    "nFact": "N° 9",
-    "pagado": true
-  },
-  {
-    "id": "fv_xl_111",
-    "vivero": "Synergiabio",
-    "empresa": "Allpa Farms",
-    "pais": "Peru",
-    "proforma": "ALLPAF-2024-01",
-    "nPlantas": 294000,
-    "regalia": 0.45,
-    "totalOsiris": 132300.0,
-    "tipoPago": "Entrega",
-    "montoFact": 80967.59999999999,
-    "fechaFact": "2025-03-01",
-    "nFact": "N° 12",
-    "pagado": true
-  },
-  {
-    "id": "fv_xl_112",
-    "vivero": "Synergiabio",
-    "empresa": "Allpa Farms",
-    "pais": "Peru",
-    "proforma": "ALLPAF-2024-01",
-    "nPlantas": 26000,
-    "regalia": 0.45,
-    "totalOsiris": 11700.0,
-    "tipoPago": "Entrega",
-    "montoFact": 11700.0,
-    "fechaFact": "2025-03-01",
-    "nFact": "N° 12",
-    "pagado": true
-  },
-  {
-    "id": "fv_xl_113",
-    "vivero": "Synergiabio",
-    "empresa": "Frusan Agro SAC",
-    "pais": "Peru",
-    "proforma": "FRUSAN-CL-2024-01",
-    "nPlantas": 5960,
-    "regalia": 0.45,
-    "totalOsiris": 2682.0,
-    "tipoPago": "Anticipo",
-    "montoFact": 1609.2,
-    "fechaFact": "2024-10-01",
-    "nFact": "N° 9",
-    "pagado": true
-  },
-  {
-    "id": "fv_xl_114",
-    "vivero": "Synergiabio",
-    "empresa": "Frusan Agro SAC",
-    "pais": "Peru",
-    "proforma": "FRUSAN-CL-2024-01",
-    "nPlantas": 5960,
-    "regalia": 0.45,
-    "totalOsiris": 2682.0,
-    "tipoPago": "Entrega",
-    "montoFact": 893.106,
-    "fechaFact": "2025-03-01",
-    "nFact": "N° 12",
-    "pagado": true
-  },
-  {
-    "id": "fv_xl_115",
-    "vivero": "Synergiabio",
-    "empresa": "Frusan Agro SAC",
-    "pais": "Peru",
-    "proforma": "FRUSAN-CL-2024-01",
-    "nPlantas": 5960,
-    "regalia": 0.45,
-    "totalOsiris": 2682.0,
-    "tipoPago": "Entrega",
-    "montoFact": 187.74,
-    "fechaFact": "2025-05-01",
-    "nFact": "N° 13",
-    "pagado": true
-  },
-  {
-    "id": "fv_xl_116",
-    "vivero": "Synergiabio",
-    "empresa": "Hass Peru SA",
-    "pais": "Peru",
-    "proforma": "HASSPE-CL-2024-02",
-    "nPlantas": 75835,
-    "regalia": 0.45,
-    "totalOsiris": 34125.75,
-    "tipoPago": "Anticipo",
-    "montoFact": 20475.45,
-    "fechaFact": "2025-03-01",
-    "nFact": "N° 12",
-    "pagado": true
-  },
-  {
-    "id": "fv_xl_117",
-    "vivero": "Agromillora",
-    "empresa": "AgroExtiende",
-    "pais": "Peru",
-    "proforma": "2025 - 2705",
-    "nPlantas": 420000,
-    "regalia": 1.15,
-    "totalOsiris": 482999.99999999994,
-    "tipoPago": "Anticipo",
-    "montoFact": 34650.42,
-    "fechaFact": "2026-03-31",
-    "nFact": "N° 115",
-    "pagado": false
-  },
-  {
-    "id": "fv_xl_118",
-    "vivero": "Synergiabio",
-    "empresa": "Agroextiende",
-    "pais": "Peru",
-    "proforma": "AGROEX-CL-2024-03",
-    "nPlantas": 800,
-    "regalia": 0.45,
-    "totalOsiris": 360.0,
-    "tipoPago": "Entrega",
-    "montoFact": 360.0,
-    "fechaFact": "2025-03-01",
-    "nFact": "N° 12",
-    "pagado": true
-  },
-  {
-    "id": "fv_xl_119",
-    "vivero": "Synergiabio",
-    "empresa": "Agroextiende",
-    "pais": "Peru",
-    "proforma": "AGROEX-2024-01",
-    "nPlantas": 50000,
-    "regalia": 0.45,
-    "totalOsiris": 22500.0,
-    "tipoPago": "Anticipo",
-    "montoFact": 11250.0,
-    "fechaFact": "2025-03-01",
-    "nFact": "N° 12",
-    "pagado": true
-  },
-  {
-    "id": "fv_xl_120",
-    "vivero": "Synergiabio",
-    "empresa": "Agroextiende",
-    "pais": "Peru",
-    "proforma": "AGROEX-2024-01",
-    "nPlantas": 50000,
-    "regalia": 0.45,
-    "totalOsiris": 22500.0,
-    "tipoPago": "Entrega",
-    "montoFact": 11250.0,
-    "fechaFact": "2025-09-30",
-    "nFact": "N° 14",
-    "pagado": true
-  },
-  {
-    "id": "fv_xl_121",
-    "vivero": "Synergiabio",
-    "empresa": "Agroextiende",
-    "pais": "Peru",
-    "proforma": "AGROEX-2024-02",
-    "nPlantas": 150000,
-    "regalia": 0.45,
-    "totalOsiris": 67500.0,
-    "tipoPago": "Anticipo",
-    "montoFact": 33750.0,
-    "fechaFact": "2025-03-01",
-    "nFact": "N° 12",
-    "pagado": true
-  },
-  {
-    "id": "fv_xl_122",
-    "vivero": "Synergiabio",
-    "empresa": "Agroextiende",
-    "pais": "Peru",
-    "proforma": "AGROEX-2024-02",
-    "nPlantas": 150000,
-    "regalia": 0.45,
-    "totalOsiris": 67500.0,
-    "tipoPago": "Entrega",
-    "montoFact": 33750.0,
-    "fechaFact": "2025-09-30",
-    "nFact": "N° 14",
-    "pagado": true
-  },
-  {
-    "id": "fv_xl_123",
-    "vivero": "Synergiabio",
-    "empresa": "Agroextiende",
-    "pais": "Peru",
-    "proforma": "AGROEX-CL-2024-04",
-    "nPlantas": 200000,
-    "regalia": 0.45,
-    "totalOsiris": 90000.0,
-    "tipoPago": "Anticipo",
-    "montoFact": 31499.999999999996,
-    "fechaFact": "2025-03-01",
-    "nFact": "N° 12",
-    "pagado": true
-  },
-  {
-    "id": "fv_xl_124",
-    "vivero": "Synergiabio",
-    "empresa": "Agroextiende",
-    "pais": "Peru",
-    "proforma": "AGROEX-CL-2024-04",
-    "nPlantas": 200000,
-    "regalia": 0.45,
-    "totalOsiris": 90000.0,
-    "tipoPago": "Anticipo",
-    "montoFact": 13500.0,
-    "fechaFact": "2025-05-01",
-    "nFact": "N° 13",
-    "pagado": true
-  },
-  {
-    "id": "fv_xl_125",
-    "vivero": "Synergiabio",
-    "empresa": "Agroextiende",
-    "pais": "Peru",
-    "proforma": "AGROEX-CL-2024-04",
-    "nPlantas": 200000,
-    "regalia": 0.45,
-    "totalOsiris": 90000.0,
-    "tipoPago": "Entrega",
-    "montoFact": 45000.0,
-    "fechaFact": "2025-09-30",
-    "nFact": "N° 14",
-    "pagado": true
-  },
-  {
-    "id": "fv_xl_126",
-    "vivero": "Agromillora",
-    "empresa": "AgroExtiende",
-    "pais": "Peru",
-    "proforma": "2025 - 2705",
-    "nPlantas": 420000,
-    "regalia": 1.15,
-    "totalOsiris": 482999.99999999994,
-    "tipoPago": "Anticipo",
-    "montoFact": 192149.95799999998,
-    "fechaFact": "2026-05-31",
-    "nFact": "",
-    "pagado": false
-  },
-  {
-    "id": "fv_xl_127",
-    "vivero": "Synergiabio",
-    "empresa": "Hass Peru SA",
-    "pais": "Peru",
-    "proforma": "HASSPE-CL-2024-02",
-    "nPlantas": 75835,
-    "regalia": 0.45,
-    "totalOsiris": 34125.75,
-    "tipoPago": "Entrega",
-    "montoFact": 13650.300000000001,
-    "fechaFact": "2025-12-01",
-    "nFact": "N° 18",
-    "pagado": true
-  },
-  {
-    "id": "fv_xl_128",
-    "vivero": "Synergiabio",
-    "empresa": "Pura Berries",
-    "pais": "Peru",
-    "proforma": "PURABE-CL-2024-04",
-    "nPlantas": 259735,
-    "regalia": 0.45,
-    "totalOsiris": 116880.75,
-    "tipoPago": "Anticipo",
-    "montoFact": 70128.45,
-    "fechaFact": "2025-03-01",
-    "nFact": "N° 12",
-    "pagado": true
-  },
-  {
-    "id": "fv_xl_129",
-    "vivero": "Synergiabio",
-    "empresa": "Mainland Farms SA",
-    "pais": "Mexico",
-    "proforma": "MAIFAR-MX-2025-01",
-    "nPlantas": 150000,
-    "regalia": 0.45,
-    "totalOsiris": 67500.0,
-    "tipoPago": "Entrega",
-    "montoFact": 14987.025,
-    "fechaFact": "2026-06-30",
-    "nFact": "",
-    "pagado": false
-  },
-  {
-    "id": "fv_xl_130",
-    "vivero": "Synergiabio",
-    "empresa": "Coorporacion Agricola Olmos",
-    "pais": "Peru",
-    "proforma": "AOLMOS-CL-2025-01",
-    "nPlantas": 190950,
-    "regalia": 0.45,
-    "totalOsiris": 85927.5,
-    "tipoPago": "Entrega",
-    "montoFact": 34371.0,
-    "fechaFact": "2025-12-01",
-    "nFact": "N° 18",
-    "pagado": true
-  },
-  {
-    "id": "fv_xl_131",
-    "vivero": "Synergiabio",
-    "empresa": "Frusan Agro SAC",
-    "pais": "Peru",
-    "proforma": "HUARME-CL-2024-02",
-    "nPlantas": 305185,
-    "regalia": 0.45,
-    "totalOsiris": 137333.25,
-    "tipoPago": "Anticipo",
-    "montoFact": 72099.95625,
-    "fechaFact": "2025-08-01",
-    "nFact": "N° 14",
-    "pagado": true
-  },
-  {
-    "id": "fv_xl_132",
-    "vivero": "Synergiabio",
-    "empresa": "Coorporacion Agricola Olmos",
-    "pais": "Peru",
-    "proforma": "AOLMOS-CL-2025-01",
-    "nPlantas": 190950,
-    "regalia": 0.45,
-    "totalOsiris": 85927.5,
-    "tipoPago": "Anticipo",
-    "montoFact": 51556.5,
-    "fechaFact": "2025-05-01",
-    "nFact": "N° 13",
-    "pagado": true
-  },
-  {
-    "id": "fv_xl_133",
-    "vivero": "Synergiabio",
-    "empresa": "Mainland Farms SA",
-    "pais": "Mexico",
-    "proforma": "MAIFAR-MX-2025-02",
-    "nPlantas": 250000,
-    "regalia": 0.45,
-    "totalOsiris": 112500.0,
-    "tipoPago": "Entrega",
-    "montoFact": 20250.0,
-    "fechaFact": "2026-06-30",
-    "nFact": "",
-    "pagado": false
-  },
-  {
-    "id": "fv_xl_134",
-    "vivero": "Synergiabio",
-    "empresa": "Danper Trujillo SAC",
-    "pais": "Peru",
-    "proforma": "DANPER-CL-2025-01",
-    "nPlantas": 24000,
-    "regalia": 0.45,
-    "totalOsiris": 10800.0,
-    "tipoPago": "Anticipo",
-    "montoFact": 5400.0,
-    "fechaFact": "2026-09-01",
-    "nFact": "N° 14",
-    "pagado": true
-  },
-  {
-    "id": "fv_xl_135",
-    "vivero": "Synergiabio",
-    "empresa": "Vanguard",
-    "pais": "Peru",
-    "proforma": "OLIVOS-CL-2024-01",
-    "nPlantas": 1555705,
-    "regalia": 0.45,
-    "totalOsiris": 700067.25,
-    "tipoPago": "Entrega",
-    "montoFact": 169206.254325,
-    "fechaFact": "2026-06-30",
-    "nFact": "",
-    "pagado": false
-  },
-  {
-    "id": "fv_xl_136",
-    "vivero": "Synergiabio",
-    "empresa": "Danper Trujillo SAC",
-    "pais": "Peru",
-    "proforma": "DANPER-CL-2025-0148",
-    "nPlantas": 884271,
-    "regalia": 0.45,
-    "totalOsiris": 397921.95,
-    "tipoPago": "Anticipo",
-    "montoFact": 238753.16999999998,
-    "fechaFact": "2025-12-01",
-    "nFact": "N° 18",
-    "pagado": true
-  },
-  {
-    "id": "fv_xl_137",
-    "vivero": "Synergiabio",
-    "empresa": "La Calera",
-    "pais": "Peru",
-    "proforma": "BRIDGE-PE-2025-01",
-    "nPlantas": 3500,
-    "regalia": 0.45,
-    "totalOsiris": 1575.0,
-    "tipoPago": "Entrega",
-    "montoFact": 1575.0,
-    "fechaFact": "2026-06-30",
-    "nFact": "",
-    "pagado": false
-  },
-  {
-    "id": "fv_xl_138",
-    "vivero": "Synergiabio",
-    "empresa": "Integrity/Talsa",
-    "pais": "Peru",
-    "proforma": "INTFAR-PE-2026-01",
-    "nPlantas": 2100,
-    "regalia": 0.45,
-    "totalOsiris": 945.0,
-    "tipoPago": "Entrega",
-    "montoFact": 945.0,
-    "fechaFact": "2026-06-30",
-    "nFact": "",
-    "pagado": false
-  },
-  {
-    "id": "fv_xl_139",
-    "vivero": "Agromillora",
-    "empresa": "AgroExtiende",
-    "pais": "Peru",
-    "proforma": "2025 - 2705",
-    "nPlantas": 420000,
-    "regalia": 1.15,
-    "totalOsiris": 482999.99999999994,
-    "tipoPago": "Entrega",
-    "montoFact": 256199.62199999994,
-    "fechaFact": "2026-07-31",
-    "nFact": "",
-    "pagado": false
-  },
-  {
-    "id": "fv_xl_140",
-    "vivero": "Synergiabio",
-    "empresa": "Mainland Farms SA",
-    "pais": "Mexico",
-    "proforma": "MAIFAR-MX-2025-02",
-    "nPlantas": 250000,
-    "regalia": 0.45,
-    "totalOsiris": 112500.0,
-    "tipoPago": "Entrega",
-    "montoFact": 30375.000000000004,
-    "fechaFact": "2026-09-30",
-    "nFact": "",
-    "pagado": false
-  },
-  {
-    "id": "fv_xl_141",
-    "vivero": "Synergiabio",
-    "empresa": "KJ Orchard CO Ltd",
-    "pais": "Corea",
-    "proforma": "KJORCH-CL-2025-01",
-    "nPlantas": 12096,
-    "regalia": 0.1,
-    "totalOsiris": 1209.6000000000001,
-    "tipoPago": "Entrega",
-    "montoFact": 483.8400000000001,
-    "fechaFact": "2026-09-30",
-    "nFact": "",
-    "pagado": false
-  },
-  {
-    "id": "fv_xl_142",
-    "vivero": "Synergiabio",
-    "empresa": "Mainland Farms SA",
-    "pais": "Mexico",
-    "proforma": "MAIFAR-MX-2024-04",
-    "nPlantas": 50000,
-    "regalia": 0.45,
-    "totalOsiris": 22500.0,
-    "tipoPago": "Entrega",
-    "montoFact": 2077.09425,
-    "fechaFact": "2026-09-30",
-    "nFact": "",
-    "pagado": false
-  },
-  {
-    "id": "fv_xl_143",
-    "vivero": "Synergiabio",
-    "empresa": "Frusan Agro SAC",
-    "pais": "Peru",
-    "proforma": "HUARME-CL-2026-0046",
-    "nPlantas": 285405,
-    "regalia": 0.45,
-    "totalOsiris": 128432.25,
-    "tipoPago": "Entrega",
-    "montoFact": 51372.9,
-    "fechaFact": "2026-12-31",
-    "nFact": "",
-    "pagado": false
-  },
-  {
-    "id": "fv_xl_144",
-    "vivero": "Synergiabio",
-    "empresa": "Danper Trujillo SAC",
-    "pais": "Peru",
-    "proforma": "DANPER-CL-2025-0148",
-    "nPlantas": 884271,
-    "regalia": 0.45,
-    "totalOsiris": 397921.95,
-    "tipoPago": "Entrega",
-    "montoFact": 159168.78000000003,
-    "fechaFact": "2026-12-31",
-    "nFact": "",
-    "pagado": false
-  },
-  {
-    "id": "fv_xl_145",
-    "vivero": "Synergiabio",
-    "empresa": "Danper Trujillo SAC",
-    "pais": "Peru",
-    "proforma": "DANPER-2024-02",
-    "nPlantas": 1024,
-    "regalia": 0.45,
-    "totalOsiris": 460.8,
-    "tipoPago": "Entrega",
-    "montoFact": 184.32000000000002,
-    "fechaFact": "2026-12-31",
-    "nFact": "",
-    "pagado": false
-  },
-  {
-    "id": "fv_xl_146",
-    "vivero": "Synergiabio",
-    "empresa": "Mainland Farms SA",
-    "pais": "Mexico",
-    "proforma": "MAIFAR-2024-02",
-    "nPlantas": 75000,
-    "regalia": 0.45,
-    "totalOsiris": 33750.0,
-    "tipoPago": "Entrega",
-    "montoFact": 101.25,
-    "fechaFact": "2026-12-31",
-    "nFact": "",
-    "pagado": false
-  },
-  {
-    "id": "fv_xl_147",
-    "vivero": "Synergiabio",
-    "empresa": "Frusan Agro SAC",
-    "pais": "Peru",
-    "proforma": "HUARME-CL-2026-0046",
-    "nPlantas": 285405,
-    "regalia": 0.45,
-    "totalOsiris": 128432.25,
-    "tipoPago": "Entrega",
-    "montoFact": 9632.418749999999,
-    "fechaFact": "2027-03-31",
-    "nFact": "",
-    "pagado": false
-  }
-];
-
-// ══════════════════════════════════════════════════════════
-// TOTAL PEDIDOS
-// ══════════════════════════════════════════════════════════
 // Helper: selector cliente en modales — desplegable desde maestro + autocompletado país
 function SelectorCliente({form,setForm,clientes}){
   return(
@@ -4979,170 +418,155 @@ function BarraFiltros({filtros, onExportar, exportLabel="⬇️ Exportar"}) {
   );
 }
 
-function TotalPedidos({data,setData,rpData,setRpData,can,clientes=[]}) {
-  const [filtroAño,setFiltroAño]=useState("Todos");
-  const [filtroPais,setFiltroPais]=useState("Todos");
-  const [filtroEst,setFiltroEst]=useState("Todos");
-  const [busq,setBusq]=useState("");
-  const [modal,setModal]=useState(false);
-  const [form,setForm]=useState({cliente:"",pais:"Peru",proforma:"",año:2026,trim:1,nPlantas:"",estado:"Por confirmar"});
 
-  const años=["Todos",...Array.from(new Set(data.map(r=>r.año))).sort()];
+// ══════════════════════════════════════════════════════════
+// TOTAL PEDIDOS — Registro maestro de negociación
+// ══════════════════════════════════════════════════════════
+function TotalPedidos({data,setData,can,clientes=[]}) {
+  const [filtroPais,setFiltroPais]=useState("Todos");
+  const [filtroAño,setFiltroAño]=useState("Todos");
+  const [filtroCli,setFiltroCli]=useState("");
+  const [modal,setModal]=useState(false);
+  const [form,setForm]=useState({
+    cliente:"",pais:"Peru",vivero:"Synergia Chile",
+    fechaPedido:"",añoEntrega:new Date().getFullYear(),trimEntrega:1,
+    nPlantas:"",ha:"",
+  });
+
+  const años=["Todos",...Array.from(new Set(data.map(r=>r.añoEntrega))).sort()];
+  const paises=["Todos",...Array.from(new Set(data.map(r=>r.pais).filter(Boolean))).sort()];
 
   const filtrado=data.filter(r=>
-    (filtroAño==="Todos"||r.año===Number(filtroAño))&&
     (filtroPais==="Todos"||r.pais===filtroPais)&&
-    (filtroEst==="Todos"||r.estado===filtroEst)&&
-    (!busq||r.cliente.toLowerCase().includes(busq.toLowerCase())||r.proforma.toLowerCase().includes(busq.toLowerCase()))
+    (filtroAño==="Todos"||r.añoEntrega===Number(filtroAño))&&
+    (!filtroCli||r.cliente?.toLowerCase().includes(filtroCli.toLowerCase()))
   );
 
-  const totalPlantas=filtrado.reduce((s,r)=>s+(Number(r.nPlantas)||0),0);
-  const porPais={};filtrado.forEach(r=>{porPais[r.pais]=(porPais[r.pais]||0)+(Number(r.nPlantas)||0);});
+  const totPlantas=filtrado.reduce((s,r)=>s+(Number(r.nPlantas)||0),0);
+  const totHa=filtrado.reduce((s,r)=>s+(Number(r.ha)||0),0);
 
-  function upd(id,campo,valor) {
-    if(campo==="estado"&&valor==="Confirmado") {
-      const row=data.find(r=>r.id===id);
-      if(row) {
-        const yaExiste=rpData.some(r=>r.nOC===row.proforma&&r.cliente===row.cliente);
-        if(!yaExiste) {
-          setRpData(prev=>[...prev,{
-            id:`rp_auto_${Date.now()}`,
-            cliente:row.cliente, pais:row.pais,
-            año:row.año, trim:row.trim,
-            nPlantas:row.nPlantas, usdPlanta:0,
-            nOC:row.proforma, nFact:"",
-            pagado:false, fechaPago:"", vivero:"",
-            _fromPedido:id,
-          }]);
-        }
-      }
-    }
-    setData(prev=>prev.map(r=>r.id===id?{...r,[campo]:valor}:r));
-  }
-
-  function agregar() {
+  function upd(id,c,v){setData(prev=>prev.map(r=>r.id===id?{...r,[c]:v}:r));}
+  function agregar(){
     if(!form.cliente.trim()){alert("Cliente es obligatorio.");return;}
-    const nuevo={...form,id:`tp_${Date.now()}`,nPlantas:parseFloat(form.nPlantas)||0,año:parseInt(form.año),trim:parseInt(form.trim)};
-    setData(prev=>[...prev,nuevo]);
-    if(nuevo.estado==="Confirmado") {
-      setRpData(prev=>[...prev,{
-        id:`rp_auto_${Date.now()}`,
-        cliente:nuevo.cliente, pais:nuevo.pais,
-        año:nuevo.año, trim:nuevo.trim,
-        nPlantas:nuevo.nPlantas, usdPlanta:0,
-        nOC:nuevo.proforma, nFact:"",
-        pagado:false, fechaPago:"", vivero:"",
-        _fromPedido:nuevo.id,
-      }]);
-    }
+    if(!form.nPlantas){alert("N° de plantas es obligatorio.");return;}
+    setData(prev=>[...prev,{
+      ...form,id:`tp_${Date.now()}`,
+      nPlantas:parseFloat(form.nPlantas)||0,
+      ha:parseFloat(form.ha)||0,
+      añoEntrega:parseInt(form.añoEntrega),
+      trimEntrega:parseInt(form.trimEntrega),
+    }]);
     setModal(false);
-    setForm({cliente:"",pais:"Peru",proforma:"",año:2026,trim:1,nPlantas:"",estado:"Por confirmar"});
+    setForm({cliente:"",pais:"Peru",vivero:"Synergia Chile",fechaPedido:"",
+      añoEntrega:new Date().getFullYear(),trimEntrega:1,nPlantas:"",ha:""});
   }
 
   return (
     <div>
       <div style={{display:"flex",gap:12,marginBottom:16,flexWrap:"wrap"}}>
-        <div style={{background:C.tealBg,borderRadius:12,padding:"12px 18px",flex:1,minWidth:140}}>
-          <div style={{fontSize:11,color:C.teal,fontWeight:600}}>Total Plantas</div>
-          <div style={{fontSize:22,fontWeight:800,color:C.teal}}>{N(totalPlantas)}</div>
-        </div>
-        <div style={{background:C.verdeBg,borderRadius:12,padding:"12px 18px",flex:1,minWidth:120}}>
-          <div style={{fontSize:11,color:C.verde,fontWeight:600}}>Confirmados</div>
-          <div style={{fontSize:22,fontWeight:800,color:C.verde}}>{filtrado.filter(r=>r.estado==="Confirmado").length}</div>
-        </div>
-        <div style={{background:C.amBg,borderRadius:12,padding:"12px 18px",flex:1,minWidth:120}}>
-          <div style={{fontSize:11,color:C.am,fontWeight:600}}>Por confirmar</div>
-          <div style={{fontSize:22,fontWeight:800,color:C.am}}>{filtrado.filter(r=>r.estado==="Por confirmar").length}</div>
-        </div>
-        {Object.entries(porPais).map(([p,n])=>(
-          <div key={p} style={{background:"#fff",borderRadius:12,padding:"12px 18px",flex:1,minWidth:100,border:"1px solid #e2e8f0"}}>
-            <div style={{fontSize:11,color:C.gris,fontWeight:600}}>{p}</div>
-            <div style={{fontSize:18,fontWeight:800,color:C.sl}}>{N(n)}</div>
+        {[
+          [N(totPlantas),"Total Plantas",C.teal,C.tealBg],
+          [N(totHa)+" há","Total Hectáreas",C.verde,C.verdeBg],
+          [filtrado.length,"Registros",C.gris,C.grisBg],
+        ].map(([v,l,c,bg])=>(
+          <div key={l} style={{background:bg,borderRadius:12,padding:"12px 18px",flex:1,minWidth:120}}>
+            <div style={{fontSize:11,color:c,fontWeight:600}}>{l}</div>
+            <div style={{fontSize:20,fontWeight:800,color:c}}>{v}</div>
           </div>
         ))}
-        {can&&<button onClick={()=>setModal(true)} style={{background:C.azul,color:"#fff",border:"none",borderRadius:8,padding:"8px 16px",cursor:"pointer",fontSize:12,fontWeight:700,alignSelf:"center"}}>+ Agregar</button>}
+        {can&&<button onClick={()=>setModal(true)}
+          style={{background:C.azul,color:"#fff",border:"none",borderRadius:8,padding:"8px 16px",
+            cursor:"pointer",fontSize:12,fontWeight:700,alignSelf:"center"}}>
+          + Nuevo Pedido
+        </button>}
       </div>
+
       <BarraFiltros
         filtros={[
-          {label:"Cliente",tipo:"input",valor:busq,onChange:setBusq},
-          {label:"País",opciones:["Todos",...Array.from(new Set(data.map(r=>r.pais).filter(Boolean))).sort()],valor:filtroPais,onChange:setFiltroPais},
-          {label:"Año",opciones:años,valor:filtroAño,onChange:v=>setFiltroAño(String(v))},
-          {label:"Estado",opciones:["Todos","Confirmado","Por confirmar"],valor:filtroEst,onChange:setFiltroEst},
+          {label:"Cliente",tipo:"input",valor:filtroCli,onChange:setFiltroCli},
+          {label:"País",opciones:paises,valor:filtroPais,onChange:setFiltroPais},
+          {label:"Año entrega",opciones:años,valor:filtroAño,onChange:v=>setFiltroAño(String(v))},
         ]}
         onExportar={async ()=>exportCSV(
-          filtrado.map(r=>[r.cliente,r.pais,r.proforma||"",r.año,r.trim||"",r.nPlantas||0,r.estado||""]),
-          ["Cliente","País","Proforma","Año","Trim.","N° Plantas","Estado"],
+          filtrado.map(r=>[r.cliente,r.pais,r.vivero||"",r.fechaPedido||"",
+            r.añoEntrega,r.trimEntrega,r.nPlantas||0,r.ha||0]),
+          ["Cliente","País","Vivero","Fecha Pedido","Año Entrega","Trim. Entrega","N° Plantas","Há"],
           "TotalPedidos"
         )}
       />
+
       <div style={{overflowX:"auto"}}>
         <table style={{borderCollapse:"collapse",width:"100%",background:"#fff",borderRadius:10,overflow:"hidden"}}>
           <Th cols={[
-            {l:"Cliente",w:130},{l:"País",w:80},{l:"Proforma",w:150},
-            {l:"Año",c:true,w:60},{l:"Trim.",c:true,w:55},{l:"N° Plantas",c:true,w:110},
-            {l:"Estado",c:true,w:160},
+            {l:"Cliente",w:140},{l:"País",w:80},{l:"Vivero",w:130},
+            {l:"Fecha Pedido",c:true,w:110},{l:"Año/Trim. Entrega",c:true,w:130},
+            {l:"N° Plantas",c:true,w:110},{l:"Hectáreas",c:true,w:100},
             ...(can?[{l:"",c:true,w:40}]:[]),
           ]}/>
           <tbody>
             {filtrado.map((r,i)=>(
-              <tr key={r.id} style={{borderBottom:"1px solid #f1f5f9",
-                background:r.estado==="Confirmado"?"#f0fdf4":r.estado==="Por confirmar"?"#fffbeb":i%2===0?"#fff":"#f8fafc"}}>
+              <tr key={r.id} style={{borderBottom:"1px solid #f1f5f9",background:i%2===0?"#fff":"#f8fafc"}}>
                 <td style={{padding:"8px 12px",fontWeight:600}}>
                   <NombreCliente nombre={r.cliente} clientes={clientes} onChange={v=>upd(r.id,"cliente",v)} can={can}/>
                 </td>
-                <td style={{padding:"8px 12px",fontSize:11,color:C.gris}}>
+                <td style={{padding:"8px 12px",fontSize:12}}>
                   <Cell val={r.pais} onChange={v=>upd(r.id,"pais",v)} opts={PAISES} can={can}/>
                 </td>
-                <td style={{padding:"8px 12px",fontSize:11,color:C.gris}}>
-                  <Cell val={r.proforma} onChange={v=>upd(r.id,"proforma",v)} can={can}/>
+                <td style={{padding:"8px 12px",fontSize:12}}>
+                  <Cell val={r.vivero||""} onChange={v=>upd(r.id,"vivero",v)} opts={VIVEROS} can={can}/>
                 </td>
-                <td style={{padding:"8px 12px",textAlign:"center",fontSize:11}}>{r.año}</td>
-                <td style={{padding:"8px 12px",textAlign:"center",fontSize:11}}>T{r.trim}</td>
-                <td style={{padding:"8px 12px",textAlign:"right",fontWeight:600,color:C.teal}}>
-                  <Cell val={r.nPlantas} onChange={v=>upd(r.id,"nPlantas",parseFloat(v))} type="number" can={can}/>
+                <td style={{padding:"8px 12px",textAlign:"center",fontSize:12}}>
+                  <Cell val={r.fechaPedido||""} onChange={v=>upd(r.id,"fechaPedido",v)} type="date" can={can}/>
                 </td>
-                <td style={{padding:"8px 12px",textAlign:"center"}}>
-                  <BadgeEstado val={r.estado} opts={["Por confirmar","Confirmado"]} onChange={v=>upd(r.id,"estado",v)} can={can}/>
-                  {r.estado==="Confirmado"&&<div style={{fontSize:9,color:C.verde,marginTop:2}}>→ en Royalty/Planta</div>}
+                <td style={{padding:"8px 12px",textAlign:"center",fontWeight:600,color:C.teal}}>
+                  {r.añoEntrega} T{r.trimEntrega}
+                </td>
+                <td style={{padding:"8px 12px",textAlign:"right",fontWeight:700,color:C.teal}}>
+                  <Cell val={r.nPlantas} onChange={v=>upd(r.id,"nPlantas",parseFloat(v)||0)} type="number" can={can}/>
+                </td>
+                <td style={{padding:"8px 12px",textAlign:"right",fontWeight:600}}>
+                  <Cell val={r.ha||""} onChange={v=>upd(r.id,"ha",parseFloat(v)||0)} type="number" can={can} ph="0"/>
                 </td>
                 {can&&<td style={{padding:"4px 6px",textAlign:"center"}}>
-                  <button onClick={()=>{if(window.confirm(`¿Eliminar "${r.cliente}"?`))setData(prev=>prev.filter(x=>x.id!==r.id));}}
+                  <button onClick={()=>{if(window.confirm(`¿Eliminar pedido de "${r.cliente}"?`))setData(prev=>prev.filter(x=>x.id!==r.id));}}
                     style={{background:"#fee2e2",border:"none",borderRadius:6,padding:"3px 8px",cursor:"pointer",fontSize:12,color:"#991b1b",fontWeight:700}}>×</button>
                 </td>}
               </tr>
             ))}
-            {filtrado.length===0&&<tr><td colSpan={7} style={{textAlign:"center",padding:32,color:C.gris}}>Sin registros</td></tr>}
+            {filtrado.length===0&&<tr><td colSpan={8} style={{textAlign:"center",padding:32,color:C.gris,fontSize:13}}>
+              Sin registros. {can&&"Usa \"+ Nuevo Pedido\" para agregar."}
+            </td></tr>}
           </tbody>
         </table>
       </div>
 
       {modal&&(
         <div style={{position:"fixed",inset:0,background:"#0006",zIndex:300,display:"flex",alignItems:"center",justifyContent:"center"}}>
-          <div style={{background:"#fff",borderRadius:16,padding:28,width:460,maxWidth:"92vw",boxShadow:"0 8px 32px #0003"}}>
-            <h3 style={{margin:"0 0 16px",color:C.sl}}>Nuevo Pedido</h3>
+          <div style={{background:"#fff",borderRadius:16,padding:28,width:520,maxWidth:"94vw",boxShadow:"0 8px 32px #0003",maxHeight:"90vh",overflowY:"auto"}}>
+            <h3 style={{margin:"0 0 16px",color:C.sl}}>Nuevo Pedido de Plantas</h3>
             <SelectorCliente form={form} setForm={setForm} clientes={clientes}/>
-            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginTop:8}}>
-              {[["Proforma","proforma","text"],["Año","año","number"],["Trimestre","trim","number"],["N° Plantas","nPlantas","number"]].map(([l,c,t])=>(
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginTop:12}}>
+              {[
+                ["Vivero","vivero","select",VIVEROS],
+                ["País","pais","select",PAISES],
+                ["Fecha Pedido","fechaPedido","date",null],
+                ["Año Entrega","añoEntrega","number",null],
+                ["Trimestre Entrega","trimEntrega","select",["1","2","3","4"]],
+                ["N° Plantas","nPlantas","number",null],
+                ["Hectáreas a plantar","ha","number",null],
+              ].map(([l,c,t,opts])=>(
                 <div key={c}>
                   <label style={{fontSize:11,fontWeight:600,color:"#374151",display:"block",marginBottom:4}}>{l}</label>
-                  <input type={t} value={form[c]} onChange={e=>setForm(p=>({...p,[c]:e.target.value}))}
-                    style={{width:"100%",padding:"7px 10px",borderRadius:8,border:"1px solid #d1d5db",fontSize:13,boxSizing:"border-box"}}/>
+                  {opts
+                    ? <select value={form[c]||""} onChange={e=>setForm(p=>({...p,[c]:e.target.value}))}
+                        style={{width:"100%",padding:"7px 10px",borderRadius:8,border:"1px solid #d1d5db",fontSize:13,boxSizing:"border-box"}}>
+                        {opts.map(o=><option key={o}>{o}</option>)}
+                      </select>
+                    : <input type={t} value={form[c]||""} onChange={e=>setForm(p=>({...p,[c]:e.target.value}))}
+                        style={{width:"100%",padding:"7px 10px",borderRadius:8,border:"1px solid #d1d5db",fontSize:13,boxSizing:"border-box"}}/>
+                  }
                 </div>
               ))}
-              <div>
-                <label style={{fontSize:11,fontWeight:600,color:"#374151",display:"block",marginBottom:4}}>País</label>
-                <select value={form.pais} onChange={e=>setForm(p=>({...p,pais:e.target.value}))}
-                  style={{width:"100%",padding:"7px 10px",borderRadius:8,border:"1px solid #d1d5db",fontSize:13,boxSizing:"border-box"}}>
-                  {PAISES.map(o=><option key={o}>{o}</option>)}
-                </select>
-              </div>
-              <div>
-                <label style={{fontSize:11,fontWeight:600,color:"#374151",display:"block",marginBottom:4}}>Estado inicial</label>
-                <select value={form.estado} onChange={e=>setForm(p=>({...p,estado:e.target.value}))}
-                  style={{width:"100%",padding:"7px 10px",borderRadius:8,border:"1px solid #d1d5db",fontSize:13,boxSizing:"border-box"}}>
-                  {["Por confirmar","Confirmado"].map(o=><option key={o}>{o}</option>)}
-                </select>
-              </div>
             </div>
             <div style={{display:"flex",gap:10,justifyContent:"flex-end",marginTop:20}}>
               <button onClick={()=>setModal(false)} style={{padding:"8px 18px",borderRadius:8,border:"1px solid #d1d5db",background:"#fff",cursor:"pointer",fontSize:14}}>Cancelar</button>
@@ -5156,18 +580,25 @@ function TotalPedidos({data,setData,rpData,setRpData,can,clientes=[]}) {
 }
 
 // ══════════════════════════════════════════════════════════
-// ROYALTY POR PLANTA
+// ROYALTY POR PLANTA — Se alimenta de Total Pedidos
 // ══════════════════════════════════════════════════════════
-function RoyaltyPlanta({data,setData,can,clientes=[]}) {
-  const [filtroAño,setFiltroAño]=useState("Todos");
-  const [filtroFact,setFiltroFact]=useState("Todos");
+function RoyaltyPlanta({data,setData,tpData,can,clientes=[]}) {
   const [filtroPais,setFiltroPais]=useState("Todos");
+  const [filtroAño,setFiltroAño]=useState("Todos");
   const [filtroCobro,setFiltroCobro]=useState("Todos");
+  const [filtroFact,setFiltroFact]=useState("Todos");
   const [filtroCli,setFiltroCli]=useState("");
   const [modal,setModal]=useState(false);
-  const [form,setForm]=useState({cliente:"",pais:"Peru",año:2026,trim:1,nPlantas:"",usdPlanta:"",nOC:"",nFact:"",pagado:false,fechaPago:"",vivero:"Synergia Chile"});
+  const [form,setForm]=useState({
+    tpId:"",cliente:"",pais:"Peru",vivero:"Synergia Chile",
+    nPlantas:"",usdPlanta:"",fechaPago:"",
+    nFact:"",pagado:false,
+  });
 
-  const años=["Todos",...Array.from(new Set(data.map(r=>r.año))).sort()];
+  // Sincronizar: agregar automáticamente registros de pedidos que no tienen royalty aún
+  // (se hace en el componente padre al navegar)
+
+  const años=["Todos",...Array.from(new Set(data.map(r=>r.añoEntrega||r.año))).sort()];
   const paises=["Todos",...Array.from(new Set(data.map(r=>r.pais).filter(Boolean))).sort()];
 
   const calc=useMemo(()=>data.map(r=>{
@@ -5176,8 +607,8 @@ function RoyaltyPlanta({data,setData,can,clientes=[]}) {
   }),[data]);
 
   const filtrado=calc.filter(r=>
-    (filtroAño==="Todos"||r.año===Number(filtroAño))&&
     (filtroPais==="Todos"||r.pais===filtroPais)&&
+    (filtroAño==="Todos"||(r.añoEntrega||r.año)===Number(filtroAño))&&
     (filtroCobro==="Todos"||(filtroCobro==="Pagado"?r.pagado:!r.pagado))&&
     (filtroFact==="Todos"||(filtroFact==="Facturado"?r.nFact&&r.nFact.trim()!=="":!r.nFact||r.nFact.trim()===""))&&
     (!filtroCli||r.cliente?.toLowerCase().includes(filtroCli.toLowerCase()))
@@ -5187,29 +618,58 @@ function RoyaltyPlanta({data,setData,can,clientes=[]}) {
   const totCobro=filtrado.reduce((s,r)=>s+r.montoCobro,0);
   const totPend=filtrado.filter(r=>!r.pagado).reduce((s,r)=>s+r.montoCobro,0);
 
-  const upd=(id,c,v)=>setData(prev=>prev.map(r=>r.id===id?{...r,[c]:v}:r));
+  function upd(id,c,v){
+    setData(prev=>prev.map(r=>{
+      if(r.id!==id) return r;
+      const updated={...r,[c]:v};
+      // Si se ingresa N° factura, marcar como Facturado automáticamente
+      if(c==="nFact"&&v&&String(v).trim()!=="") updated.facturado=true;
+      return updated;
+    }));
+  }
 
   function agregar(){
-    if(!form.cliente.trim()){alert("Cliente obligatorio.");return;}
-    setData(prev=>[...prev,{...form,id:`rp_${Date.now()}`,nPlantas:parseFloat(form.nPlantas)||0,usdPlanta:parseFloat(form.usdPlanta)||0,año:parseInt(form.año),trim:parseInt(form.trim)}]);
+    if(!form.cliente.trim()){alert("Cliente es obligatorio.");return;}
+    setData(prev=>[...prev,{
+      ...form,id:`rp_${Date.now()}`,
+      nPlantas:parseFloat(form.nPlantas)||0,
+      usdPlanta:parseFloat(form.usdPlanta)||0,
+    }]);
     setModal(false);
-    setForm({cliente:"",pais:"Peru",año:2026,trim:1,nPlantas:"",usdPlanta:"",nOC:"",nFact:"",pagado:false,fechaPago:"",vivero:"Synergia Chile"});
+    setForm({tpId:"",cliente:"",pais:"Peru",vivero:"Synergia Chile",nPlantas:"",usdPlanta:"",fechaPago:"",nFact:"",pagado:false});
+  }
+
+  // Pre-llenar form desde Total Pedidos
+  function seleccionarPedido(tpId){
+    const tp=tpData.find(r=>r.id===tpId);
+    if(!tp) return;
+    setForm(p=>({...p,tpId,cliente:tp.cliente,pais:tp.pais,vivero:tp.vivero||"",nPlantas:tp.nPlantas}));
   }
 
   return (
     <div>
+      <div style={{background:"#f0fdf4",border:"1px solid #86efac",borderRadius:10,padding:"8px 14px",marginBottom:14,fontSize:12,color:"#15803d"}}>
+        💡 <strong>Monto a Facturar</strong> = N° Plantas × US$/Planta &nbsp;·&nbsp;
+        <strong>Monto a Cobrar</strong> = Facturar × (100% Chile sin WHT / 85% Perú y México WHT 15%)
+      </div>
+
       <div style={{display:"flex",gap:12,marginBottom:16,flexWrap:"wrap"}}>
-        {[[$$(totFact),"Monto a Facturar",C.azul,C.azulBg],[$$(totCobro),"Monto a Cobrar",C.verde,C.verdeBg],[$$(totPend),"Por Cobrar",C.am,C.amBg],[filtrado.length,"Registros",C.gris,C.grisBg]].map(([v,l,c,bg])=>(
-          <div key={l} style={{background:bg,borderRadius:12,padding:"12px 18px",flex:1,minWidth:130}}>
+        {[
+          [$$(totFact),"Monto a Facturar",C.azul,C.azulBg],
+          [$$(totCobro),"Monto a Cobrar",C.verde,C.verdeBg],
+          [$$(totPend),"Por Cobrar",C.am,C.amBg],
+          [filtrado.length,"Registros",C.gris,C.grisBg],
+        ].map(([v,l,c,bg])=>(
+          <div key={l} style={{background:bg,borderRadius:12,padding:"12px 18px",flex:1,minWidth:120}}>
             <div style={{fontSize:11,color:c,fontWeight:600}}>{l}</div>
             <div style={{fontSize:20,fontWeight:800,color:c}}>{v}</div>
           </div>
         ))}
-        {can&&<button onClick={()=>setModal(true)} style={{background:C.azul,color:"#fff",border:"none",borderRadius:8,padding:"8px 16px",cursor:"pointer",fontSize:12,fontWeight:700,alignSelf:"center"}}>+ Agregar</button>}
-      </div>
-
-      <div style={{background:"#f0fdf4",border:"1px solid #86efac",borderRadius:10,padding:"8px 14px",marginBottom:14,fontSize:12,color:"#15803d"}}>
-        💡 Monto Facturar = N° Plantas × US$/Planta &nbsp;·&nbsp; Monto Cobrar = <strong>85% Perú/México (WHT 15%) · 100% Chile (sin WHT)</strong>
+        {can&&<button onClick={()=>setModal(true)}
+          style={{background:C.azul,color:"#fff",border:"none",borderRadius:8,padding:"8px 16px",
+            cursor:"pointer",fontSize:12,fontWeight:700,alignSelf:"center"}}>
+          + Agregar
+        </button>}
       </div>
 
       <BarraFiltros
@@ -5218,13 +678,15 @@ function RoyaltyPlanta({data,setData,can,clientes=[]}) {
           {label:"País",opciones:paises,valor:filtroPais,onChange:setFiltroPais},
           {label:"Año",opciones:años,valor:filtroAño,onChange:v=>setFiltroAño(String(v))},
           {label:"Cobro",opciones:["Todos","Pagado","Por cobrar"],valor:filtroCobro,onChange:setFiltroCobro},
-          {label:"Factura",opciones:["Todos","Facturado","Pendiente de facturar"],valor:filtroFact,onChange:setFiltroFact},
+          {label:"Factura",opciones:["Todos","Facturado","Pendiente"],valor:filtroFact,onChange:setFiltroFact},
         ]}
         onExportar={async ()=>exportCSV(
-          filtrado.map(r=>[r.cliente,r.pais,`${r.año} T${r.trim}`,r.nPlantas,r.usdPlanta,
-            r.montoFact.toFixed(2),r.montoCobro.toFixed(2),r.nOC||"",r.nFact||"",
-            r.pagado?"Pagado":"Por cobrar",r.fechaPago||"",r.vivero||""]),
-          ["Cliente","País","Año/Trim","N° Plantas","US$/Planta","Mto.Facturar","Mto.Cobrar","N° OC","N° Factura","Estado Cobro","Fecha Pago","Vivero"],
+          filtrado.map(r=>[r.cliente,r.pais,r.vivero||"",r.añoEntrega||r.año||"",
+            r.nPlantas,r.usdPlanta,r.montoFact.toFixed(2),r.montoCobro.toFixed(2),
+            r.nFact||"",r.nFact&&r.nFact.trim()?"Facturado":"Pend. facturar",
+            r.pagado?"Pagado":"Por cobrar",r.fechaPago||""]),
+          ["Cliente","País","Vivero","Año","N° Plantas","US$/Planta","Mto.Facturar","Mto.Cobrar",
+           "N° Factura","Est.Factura","Est.Cobro","Fecha Pago"],
           "RoyaltyPlanta"
         )}
       />
@@ -5232,60 +694,113 @@ function RoyaltyPlanta({data,setData,can,clientes=[]}) {
       <div style={{overflowX:"auto"}}>
         <table style={{borderCollapse:"collapse",width:"100%",background:"#fff",borderRadius:10,overflow:"hidden"}}>
           <Th cols={[
-            {l:"Cliente",w:110},{l:"País",w:70},{l:"Año/Trim.",c:true,w:70},
-            {l:"N° Plantas",c:true,w:90},{l:"US$/Planta",c:true,w:80},
-            {l:"Mto. Facturar",c:true,w:115},{l:"Mto. Cobrar",c:true,w:115},
-            {l:"N° OC",c:true,w:90},{l:"N° Factura",c:true,w:100},
-            {l:"Fact. Est.",c:true,w:130},{l:"Cobro",c:true,w:110},
-            {l:"Fecha pago",c:true,w:100},{l:"Vivero",w:110},
+            {l:"Cliente",w:120},{l:"País",w:80},{l:"Vivero",w:120},{l:"Año",c:true,w:60},
+            {l:"N° Plantas",c:true,w:100},{l:"US$/Planta",c:true,w:90},
+            {l:"Mto. Facturar",c:true,w:120},{l:"WHT",c:true,w:70},{l:"Mto. Cobrar",c:true,w:120},
+            {l:"N° Factura",c:true,w:110},{l:"Est. Factura",c:true,w:130},
+            {l:"Estado Cobro",c:true,w:120},{l:"Fecha Pago",c:true,w:110},
             ...(can?[{l:"",c:true,w:40}]:[]),
           ]}/>
           <tbody>
-            {filtrado.map((r,i)=>(
-              <tr key={r.id} style={{borderBottom:"1px solid #f1f5f9",background:r._fromPedido?"#f0fdf4":i%2===0?"#fff":"#f8fafc"}}>
-                <td style={{padding:"7px 10px",fontWeight:600}}>
-                  <NombreCliente nombre={r.cliente} clientes={clientes} onChange={v=>upd(r.id,"cliente",v)} can={can}/>
-                  {r._fromPedido&&<div style={{fontSize:9,color:C.verde}}>📦 desde pedido</div>}
-                </td>
-                <td style={{padding:"7px 10px",fontSize:11,color:C.gris}}><Cell val={r.pais} onChange={v=>upd(r.id,"pais",v)} opts={PAISES} can={can}/></td>
-                <td style={{padding:"7px 10px",textAlign:"center",fontSize:11}}>{r.año} T{r.trim}</td>
-                <td style={{padding:"7px 10px",textAlign:"right",fontWeight:600}}><Cell val={r.nPlantas} onChange={v=>upd(r.id,"nPlantas",parseFloat(v))} type="number" can={can}/></td>
-                <td style={{padding:"7px 10px",textAlign:"center"}}><Cell val={r.usdPlanta} onChange={v=>upd(r.id,"usdPlanta",parseFloat(v))} type="number" can={can}/></td>
-                <td style={{padding:"7px 10px",textAlign:"right",fontWeight:700,color:C.azul}}>{$$(r.montoFact)}</td>
-                <td style={{padding:"7px 10px",textAlign:"right",fontWeight:700,color:C.verde}}>
-                  {$$(r.montoCobro)}<div style={{fontSize:9,color:C.gris}}>{whtLabel(r.pais)||`${(pct(r.pais)*100).toFixed(0)}% neto`}</div>
-                </td>
-                <td style={{padding:"7px 10px",textAlign:"center"}}><Cell val={r.nOC} onChange={v=>upd(r.id,"nOC",v)} can={can} ph="OC-..."/></td>
-                <td style={{padding:"7px 10px",textAlign:"center"}}><Cell val={r.nFact} onChange={v=>upd(r.id,"nFact",v)} can={can} ph="F-..."/></td>
-                <td style={{padding:"7px 10px",textAlign:"center"}}><BadgeFact nFact={r.nFact}/></td>
-                <td style={{padding:"7px 10px",textAlign:"center"}}><BadgePago pagado={r.pagado} onChange={v=>upd(r.id,"pagado",v)} can={can}/></td>
-                <td style={{padding:"7px 10px",textAlign:"center",fontSize:11,color:C.gris}}><Cell val={r.fechaPago} onChange={v=>upd(r.id,"fechaPago",v)} type="date" can={can}/></td>
-                <td style={{padding:"7px 10px",fontSize:11}}><Cell val={r.vivero} onChange={v=>upd(r.id,"vivero",v)} opts={VIVEROS} can={can}/></td>
-                {can&&<td style={{padding:"4px 6px",textAlign:"center"}}>
-                  <button onClick={()=>{if(window.confirm(`¿Eliminar registro de "${r.cliente}"?`))setData(prev=>prev.filter(x=>x.id!==r.id));}}
-                    style={{background:"#fee2e2",border:"none",borderRadius:6,padding:"3px 8px",cursor:"pointer",fontSize:12,color:"#991b1b",fontWeight:700}}>×</button>
-                </td>}
-              </tr>
-            ))}
-            {filtrado.length===0&&<tr><td colSpan={13} style={{textAlign:"center",padding:32,color:C.gris}}>Sin registros</td></tr>}
+            {filtrado.map((r,i)=>{
+              const facturado = r.nFact&&String(r.nFact).trim()!=="";
+              return(
+                <tr key={r.id} style={{borderBottom:"1px solid #f1f5f9",background:i%2===0?"#fff":"#f8fafc"}}>
+                  <td style={{padding:"7px 10px",fontWeight:600}}>
+                    <NombreCliente nombre={r.cliente} clientes={clientes} onChange={v=>upd(r.id,"cliente",v)} can={can}/>
+                  </td>
+                  <td style={{padding:"7px 10px",fontSize:12}}><Cell val={r.pais} onChange={v=>upd(r.id,"pais",v)} opts={PAISES} can={can}/></td>
+                  <td style={{padding:"7px 10px",fontSize:11}}><Cell val={r.vivero||""} onChange={v=>upd(r.id,"vivero",v)} opts={VIVEROS} can={can}/></td>
+                  <td style={{padding:"7px 10px",textAlign:"center",fontSize:12,color:C.gris}}>{r.añoEntrega||r.año||"—"}</td>
+                  <td style={{padding:"7px 10px",textAlign:"right",fontWeight:600}}><Cell val={r.nPlantas} onChange={v=>upd(r.id,"nPlantas",parseFloat(v)||0)} type="number" can={can}/></td>
+                  <td style={{padding:"7px 10px",textAlign:"center"}}><Cell val={r.usdPlanta||""} onChange={v=>upd(r.id,"usdPlanta",parseFloat(v)||0)} type="number" can={can} ph="0.00"/></td>
+                  <td style={{padding:"7px 10px",textAlign:"right",fontWeight:700,color:C.azul}}>{$$(r.montoFact)}</td>
+                  <td style={{padding:"7px 10px",textAlign:"center",fontSize:11}}>
+                    {whtLabel(r.pais)
+                      ? <span style={{background:"#fee2e2",color:"#dc2626",borderRadius:20,padding:"2px 8px",fontSize:10,fontWeight:700}}>{whtLabel(r.pais)}</span>
+                      : <span style={{background:"#dcfce7",color:"#16a34a",borderRadius:20,padding:"2px 8px",fontSize:10,fontWeight:700}}>Sin WHT</span>
+                    }
+                  </td>
+                  <td style={{padding:"7px 10px",textAlign:"right",fontWeight:700,color:C.verde}}>{$$(r.montoCobro)}</td>
+                  <td style={{padding:"7px 10px",textAlign:"center"}}>
+                    <Cell val={r.nFact||""} onChange={v=>upd(r.id,"nFact",v)} can={can} ph="F-001"/>
+                  </td>
+                  <td style={{padding:"7px 10px",textAlign:"center"}}>
+                    <span style={{
+                      background:facturado?"#dbeafe":"#fef3c7",
+                      color:facturado?"#2563eb":"#d97706",
+                      borderRadius:20,padding:"2px 10px",fontSize:11,fontWeight:700,whiteSpace:"nowrap"
+                    }}>
+                      {facturado?"📄 Facturado":"⏸ Pend. facturar"}
+                    </span>
+                  </td>
+                  <td style={{padding:"7px 10px",textAlign:"center"}}>
+                    <BadgePago pagado={r.pagado} onChange={v=>upd(r.id,"pagado",v)} can={can}/>
+                  </td>
+                  <td style={{padding:"7px 10px",textAlign:"center",fontSize:12}}>
+                    <Cell val={r.fechaPago||""} onChange={v=>upd(r.id,"fechaPago",v)} type="date" can={can}/>
+                  </td>
+                  {can&&<td style={{padding:"4px 6px",textAlign:"center"}}>
+                    <button onClick={()=>{if(window.confirm(`¿Eliminar royalty de "${r.cliente}"?`))setData(prev=>prev.filter(x=>x.id!==r.id));}}
+                      style={{background:"#fee2e2",border:"none",borderRadius:6,padding:"3px 8px",cursor:"pointer",fontSize:12,color:"#991b1b",fontWeight:700}}>×</button>
+                  </td>}
+                </tr>
+              );
+            })}
+            {filtrado.length===0&&<tr><td colSpan={14} style={{textAlign:"center",padding:32,color:C.gris,fontSize:13}}>
+              Sin registros.
+            </td></tr>}
           </tbody>
         </table>
       </div>
 
       {modal&&(
         <div style={{position:"fixed",inset:0,background:"#0006",zIndex:300,display:"flex",alignItems:"center",justifyContent:"center"}}>
-          <div style={{background:"#fff",borderRadius:16,padding:28,width:500,maxWidth:"92vw",maxHeight:"90vh",overflowY:"auto",boxShadow:"0 8px 32px #0003"}}>
-            <h3 style={{margin:"0 0 16px",color:C.sl}}>Nuevo Royalty por Planta</h3>
+          <div style={{background:"#fff",borderRadius:16,padding:28,width:500,maxWidth:"94vw",maxHeight:"90vh",overflowY:"auto",boxShadow:"0 8px 32px #0003"}}>
+            <h3 style={{margin:"0 0 14px",color:C.sl}}>Nuevo Royalty por Planta</h3>
+            {tpData.length>0&&(
+              <div style={{marginBottom:12}}>
+                <label style={{fontSize:11,fontWeight:600,color:"#374151",display:"block",marginBottom:4}}>
+                  📦 Importar desde Total Pedidos (opcional)
+                </label>
+                <select value={form.tpId||""} onChange={e=>seleccionarPedido(e.target.value)}
+                  style={{width:"100%",padding:"7px 10px",borderRadius:8,border:"1px solid #93c5fd",fontSize:12,color:"#2563eb"}}>
+                  <option value="">— Seleccionar pedido —</option>
+                  {tpData.map(tp=>(
+                    <option key={tp.id} value={tp.id}>
+                      {tp.cliente} — {tp.pais} — {N(tp.nPlantas)} plantas — {tp.añoEntrega} T{tp.trimEntrega}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
             <SelectorCliente form={form} setForm={setForm} clientes={clientes}/>
-            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginTop:8}}>
-              {[["País","pais","select",PAISES],["Año","año","number",null],["Trimestre","trim","number",null],["N° Plantas","nPlantas","number",null],["US$/Planta","usdPlanta","number",null],["N° Orden de Compra","nOC","text",null],["N° Factura","nFact","text",null],["Fecha pago","fechaPago","date",null],["Vivero","vivero","select",VIVEROS]].map(([l,c,t,opts])=>(
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginTop:12}}>
+              {[
+                ["País","pais","select",PAISES],
+                ["Vivero","vivero","select",VIVEROS],
+                ["N° Plantas","nPlantas","number",null],
+                ["US$/Planta","usdPlanta","number",null],
+                ["N° Factura","nFact","text",null],
+                ["Fecha estimada pago","fechaPago","date",null],
+              ].map(([l,c,t,opts])=>(
                 <div key={c}>
                   <label style={{fontSize:11,fontWeight:600,color:"#374151",display:"block",marginBottom:4}}>{l}</label>
-                  {opts?<select value={form[c]} onChange={e=>setForm(p=>({...p,[c]:e.target.value}))} style={{width:"100%",padding:"7px 10px",borderRadius:8,border:"1px solid #d1d5db",fontSize:13,boxSizing:"border-box"}}>{opts.map(o=><option key={o}>{o}</option>)}</select>
-                  :<input type={t} value={form[c]} onChange={e=>setForm(p=>({...p,[c]:e.target.value}))} style={{width:"100%",padding:"7px 10px",borderRadius:8,border:"1px solid #d1d5db",fontSize:13,boxSizing:"border-box"}}/>}
+                  {opts
+                    ? <select value={form[c]||""} onChange={e=>setForm(p=>({...p,[c]:e.target.value}))}
+                        style={{width:"100%",padding:"7px 10px",borderRadius:8,border:"1px solid #d1d5db",fontSize:13,boxSizing:"border-box"}}>
+                        {opts.map(o=><option key={o}>{o}</option>)}
+                      </select>
+                    : <input type={t} value={form[c]||""} onChange={e=>setForm(p=>({...p,[c]:e.target.value}))}
+                        style={{width:"100%",padding:"7px 10px",borderRadius:8,border:"1px solid #d1d5db",fontSize:13,boxSizing:"border-box"}}/>
+                  }
                 </div>
               ))}
             </div>
+            <label style={{display:"flex",alignItems:"center",gap:8,marginTop:12,cursor:"pointer",fontSize:13,fontWeight:600,color:C.verde}}>
+              <input type="checkbox" checked={form.pagado||false} onChange={()=>setForm(p=>({...p,pagado:!p.pagado}))}/>
+              ✅ Marcar como Pagado
+            </label>
             <div style={{display:"flex",gap:10,justifyContent:"flex-end",marginTop:20}}>
               <button onClick={()=>setModal(false)} style={{padding:"8px 18px",borderRadius:8,border:"1px solid #d1d5db",background:"#fff",cursor:"pointer",fontSize:14}}>Cancelar</button>
               <button onClick={agregar} style={{padding:"8px 18px",borderRadius:8,border:"none",background:C.azul,color:"#fff",cursor:"pointer",fontSize:14,fontWeight:600}}>Guardar</button>
@@ -5298,33 +813,182 @@ function RoyaltyPlanta({data,setData,can,clientes=[]}) {
 }
 
 // ══════════════════════════════════════════════════════════
-// ROYALTY COMERCIAL
+// FEE DE ENTRADA — Auto-generado desde contratos con fee
 // ══════════════════════════════════════════════════════════
-function RoyaltyComercial({data,setData,can,clientes=[]}) {
-  const [filtroAño,setFiltroAño]=useState("Todos");
+function FeeEntrada({data,setData,ctData,can,clientes=[]}) {
   const [filtroPais,setFiltroPais]=useState("Todos");
   const [filtroCobro,setFiltroCobro]=useState("Todos");
   const [filtroCli,setFiltroCli]=useState("");
-  const [modal,setModal]=useState(false);
-  const [form,setForm]=useState({cliente:"",pais:"Peru",trimCobro:2,añoCobro:2026,nPlantas:"",ha:"",usdHa:3000,nFact:"",pagado:false});
 
-  const calc=useMemo(()=>{
-    const h=new Date(); h.setHours(0,0,0,0);
-    return data.map(r=>{
-      const mf=(Number(r.ha)||0)*(Number(r.usdHa)||0);
-      const mc=mf*pct(r.pais);
-      const fAviso=fechaAvisoTrim(r.añoCobro,r.trimCobro);
-      const fInicio=fechaInicioTrim(r.añoCobro,r.trimCobro);
-      const diasAviso=Math.ceil((fAviso-h)/(1000*60*60*24));
-      const alertaActiva=h>=fAviso&&h<fInicio&&!r.nFact;
-      return{...r,montoFact:mf,montoCobro:mc,fAviso,fInicio,diasAviso,alertaActiva};
-    });
-  },[data]);
+  // Sincronizar con contratos: agregar fee por cada contrato que tenga fee y no esté ya en data
+  const dataConSync = useMemo(()=>{
+    const existing = new Set(data.map(r=>r.ctId||r.id));
+    const fromContracts = (ctData||[])
+      .filter(ct=> ct.tipoContractFee && ct.tipoContractFee!=="Sin Contract Fee" && !existing.has(ct.id))
+      .map(ct=>({
+        id:`fe_${ct.id}`,ctId:ct.id,
+        cliente:ct.razonSocial,pais:ct.pais,
+        montoUSD:ct.montoContractFee||30000,
+        detalle:ct.tipoContractFee||"",
+        nFact:"",pagado:false,fechaPago:"",
+        _fromContract:true,
+      }));
+    return [...data,...fromContracts];
+  },[data,ctData]);
+
+  const filtrado=dataConSync.filter(r=>
+    (filtroPais==="Todos"||r.pais===filtroPais)&&
+    (filtroCobro==="Todos"||(filtroCobro==="Pagado"?r.pagado:!r.pagado))&&
+    (!filtroCli||r.cliente?.toLowerCase().includes(filtroCli.toLowerCase()))
+  );
+
+  const totCobrado=filtrado.filter(r=>r.pagado).reduce((s,r)=>s+(r.montoUSD||0),0);
+  const totPend=filtrado.filter(r=>!r.pagado).reduce((s,r)=>s+(r.montoUSD||0),0);
+
+  function upd(id,c,v){
+    // Si el registro viene de un contrato y aún no está en data, lo agregamos
+    const existe = data.find(r=>r.id===id);
+    if(!existe){
+      const fromSync = dataConSync.find(r=>r.id===id);
+      if(fromSync) setData(prev=>[...prev,{...fromSync,[c]:v}]);
+      return;
+    }
+    setData(prev=>prev.map(r=>{
+      if(r.id!==id) return r;
+      const updated={...r,[c]:v};
+      return updated;
+    }));
+  }
+
+  const paises=["Todos",...Array.from(new Set(dataConSync.map(r=>r.pais).filter(Boolean))).sort()];
+
+  return (
+    <div>
+      <div style={{background:"#eff6ff",border:"1px solid #bfdbfe",borderRadius:10,padding:"8px 14px",marginBottom:14,fontSize:12,color:"#1d4ed8"}}>
+        💡 Los fees de entrada se generan automáticamente desde los contratos que tienen fee. El estado de facturación se actualiza al ingresar el N° de factura.
+      </div>
+
+      <div style={{display:"flex",gap:12,marginBottom:16,flexWrap:"wrap"}}>
+        {[
+          [$$(totCobrado),"Cobrado",C.verde,C.verdeBg],
+          [$$(totPend),"Por Cobrar",C.am,C.amBg],
+          [filtrado.length,"Registros",C.gris,C.grisBg],
+        ].map(([v,l,c,bg])=>(
+          <div key={l} style={{background:bg,borderRadius:12,padding:"12px 18px",flex:1,minWidth:120}}>
+            <div style={{fontSize:11,color:c,fontWeight:600}}>{l}</div>
+            <div style={{fontSize:20,fontWeight:800,color:c}}>{v}</div>
+          </div>
+        ))}
+      </div>
+
+      <BarraFiltros
+        filtros={[
+          {label:"Cliente",tipo:"input",valor:filtroCli,onChange:setFiltroCli},
+          {label:"País",opciones:paises,valor:filtroPais,onChange:setFiltroPais},
+          {label:"Cobro",opciones:["Todos","Pagado","Por cobrar"],valor:filtroCobro,onChange:setFiltroCobro},
+        ]}
+        onExportar={async ()=>exportCSV(
+          filtrado.map(r=>[r.cliente,r.pais,r.detalle||"",r.montoUSD||0,
+            r.nFact||"",r.nFact&&r.nFact.trim()?"Facturado":"Pend. facturar",
+            r.pagado?"Pagado":"Por cobrar",r.fechaPago||""]),
+          ["Cliente","País","Tipo Fee","Monto US$","N° Factura","Est. Factura","Est. Cobro","Fecha Pago"],
+          "FeeEntrada"
+        )}
+      />
+
+      <div style={{overflowX:"auto"}}>
+        <table style={{borderCollapse:"collapse",width:"100%",background:"#fff",borderRadius:10,overflow:"hidden"}}>
+          <Th cols={[
+            {l:"Cliente",w:150},{l:"País",w:80},{l:"Tipo Fee",w:130},
+            {l:"Monto US$",c:true,w:110},{l:"N° Factura",c:true,w:110},
+            {l:"Est. Factura",c:true,w:140},{l:"Estado Cobro",c:true,w:130},
+            {l:"Fecha Pago",c:true,w:110},
+          ]}/>
+          <tbody>
+            {filtrado.map((r,i)=>{
+              const facturado=r.nFact&&String(r.nFact).trim()!=="";
+              return(
+                <tr key={r.id} style={{borderBottom:"1px solid #f1f5f9",background:i%2===0?"#fff":"#f8fafc"}}>
+                  <td style={{padding:"8px 12px",fontWeight:600}}>
+                    <NombreCliente nombre={r.cliente} clientes={clientes} onChange={v=>upd(r.id,"cliente",v)} can={can}/>
+                  </td>
+                  <td style={{padding:"8px 12px",fontSize:12,color:C.gris}}>{r.pais}</td>
+                  <td style={{padding:"8px 12px",fontSize:12}}>
+                    <span style={{background:r.detalle==="Con Devolución"?C.verdeBg:C.amBg,
+                      color:r.detalle==="Con Devolución"?C.verde:C.am,
+                      borderRadius:20,padding:"2px 10px",fontSize:11,fontWeight:700}}>
+                      {r.detalle||"—"}
+                    </span>
+                  </td>
+                  <td style={{padding:"8px 12px",textAlign:"right",fontWeight:700,color:C.mo}}>
+                    <Cell val={r.montoUSD||0} onChange={v=>upd(r.id,"montoUSD",parseFloat(v)||0)} type="number" can={can}/>
+                  </td>
+                  <td style={{padding:"8px 12px",textAlign:"center"}}>
+                    <Cell val={r.nFact||""} onChange={v=>upd(r.id,"nFact",v)} can={can} ph="F-001"/>
+                  </td>
+                  <td style={{padding:"8px 12px",textAlign:"center"}}>
+                    <span style={{
+                      background:facturado?"#dbeafe":"#fef3c7",
+                      color:facturado?"#2563eb":"#d97706",
+                      borderRadius:20,padding:"2px 10px",fontSize:11,fontWeight:700,whiteSpace:"nowrap"
+                    }}>
+                      {facturado?"📄 Facturado":"⏸ Pend. facturar"}
+                    </span>
+                  </td>
+                  <td style={{padding:"8px 12px",textAlign:"center"}}>
+                    <BadgePago pagado={r.pagado} onChange={v=>upd(r.id,"pagado",v)} can={can}/>
+                  </td>
+                  <td style={{padding:"8px 12px",textAlign:"center",fontSize:12}}>
+                    <Cell val={r.fechaPago||""} onChange={v=>upd(r.id,"fechaPago",v)} type="date" can={can}/>
+                  </td>
+                </tr>
+              );
+            })}
+            {filtrado.length===0&&<tr><td colSpan={8} style={{textAlign:"center",padding:32,color:C.gris,fontSize:13}}>
+              No hay contratos con fee de entrada registrados.
+            </td></tr>}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+// ══════════════════════════════════════════════════════════
+// ROYALTY COMERCIAL — Se cobra desde 1er año de producción
+// ══════════════════════════════════════════════════════════
+function RoyaltyComercial({data,setData,tpData,can,clientes=[]}) {
+  const [filtroPais,setFiltroPais]=useState("Todos");
+  const [filtroAño,setFiltroAño]=useState("Todos");
+  const [filtroCobro,setFiltroCobro]=useState("Todos");
+  const [filtroCli,setFiltroCli]=useState("");
+  const [modal,setModal]=useState(false);
+  const [form,setForm]=useState({
+    cliente:"",pais:"Peru",
+    ha:"",usdHa:3000,
+    añoPrimerCobro:"",trimPrimerCobro:"2",
+    repetirAños:5,
+    nFact:"",pagado:false,
+  });
+
+  const hoy=new Date();hoy.setHours(0,0,0,0);
+
+  const calc=useMemo(()=>data.map(r=>{
+    const mf=(Number(r.ha)||0)*(Number(r.usdHa)||3000);
+    const mc=mf*pct(r.pais);
+    const fAviso=fechaAvisoTrim(r.añoCobro,r.trimCobro);
+    const fInicio=fechaInicioTrim(r.añoCobro,r.trimCobro);
+    const diasAviso=Math.ceil((fAviso-hoy)/(1000*60*60*24));
+    const alertaActiva=hoy>=fAviso&&hoy<fInicio&&!r.nFact;
+    return{...r,montoFact:mf,montoCobro:mc,fAviso,fInicio,diasAviso,alertaActiva};
+  }),[data]);
 
   const años=["Todos",...Array.from(new Set(calc.map(r=>r.añoCobro))).sort()];
+  const paises=["Todos",...Array.from(new Set(calc.map(r=>r.pais).filter(Boolean))).sort()];
+
   const filtrado=calc.filter(r=>
-    (filtroAño==="Todos"||r.añoCobro===Number(filtroAño))&&
     (filtroPais==="Todos"||r.pais===filtroPais)&&
+    (filtroAño==="Todos"||r.añoCobro===Number(filtroAño))&&
     (filtroCobro==="Todos"||(filtroCobro==="Pagado"?r.pagado:!r.pagado))&&
     (!filtroCli||r.cliente?.toLowerCase().includes(filtroCli.toLowerCase()))
   );
@@ -5332,13 +996,33 @@ function RoyaltyComercial({data,setData,can,clientes=[]}) {
   const alertas=calc.filter(r=>r.alertaActiva);
   const totFact=filtrado.reduce((s,r)=>s+r.montoFact,0);
   const totCobro=filtrado.reduce((s,r)=>s+r.montoCobro,0);
+  const totPend=filtrado.filter(r=>!r.pagado).reduce((s,r)=>s+r.montoCobro,0);
 
-  const upd=(id,c,v)=>setData(prev=>prev.map(r=>r.id===id?{...r,[c]:v}:r));
+  function upd(id,c,v){setData(prev=>prev.map(r=>r.id===id?{...r,[c]:v}:r));}
 
   function agregar(){
-    if(!form.cliente.trim()||!form.ha){alert("Cliente y Há a cobrar son obligatorios.");return;}
-    setData(prev=>[...prev,{...form,id:`rc_${Date.now()}`,nPlantas:parseFloat(form.nPlantas)||0,ha:parseFloat(form.ha)||0,usdHa:parseFloat(form.usdHa)||0,añoCobro:parseInt(form.añoCobro),trimCobro:parseInt(form.trimCobro)}]);
+    if(!form.cliente.trim()){alert("Cliente es obligatorio.");return;}
+    if(!form.ha||isNaN(form.ha)){alert("Las hectáreas son obligatorias.");return;}
+    if(!form.añoPrimerCobro){alert("El año del primer cobro es obligatorio.");return;}
+
+    const añoBase=parseInt(form.añoPrimerCobro);
+    const trimBase=parseInt(form.trimPrimerCobro)||2;
+    const nAños=parseInt(form.repetirAños)||5;
+    const nuevos=[];
+    for(let i=0;i<nAños;i++){
+      nuevos.push({
+        id:`rc_${Date.now()}_${i}`,
+        cliente:form.cliente,pais:form.pais,
+        ha:parseFloat(form.ha)||0,
+        usdHa:parseFloat(form.usdHa)||3000,
+        añoCobro:añoBase+i,trimCobro:trimBase,
+        nFact:"",pagado:false,
+        _generado:true,
+      });
+    }
+    setData(prev=>[...prev,...nuevos]);
     setModal(false);
+    setForm({cliente:"",pais:"Peru",ha:"",usdHa:3000,añoPrimerCobro:"",trimPrimerCobro:"2",repetirAños:5,nFact:"",pagado:false});
   }
 
   const TRIM_LABELS=["","T1 (Ene-Mar)","T2 (Abr-Jun)","T3 (Jul-Sep)","T4 (Oct-Dic)"];
@@ -5348,13 +1032,13 @@ function RoyaltyComercial({data,setData,can,clientes=[]}) {
       {alertas.length>0&&(
         <div style={{marginBottom:16}}>
           {alertas.map(r=>(
-            <div key={r.id} style={{background:"#fef3c7",border:"2px solid #fde047",borderRadius:12,padding:"12px 16px",marginBottom:8,display:"flex",alignItems:"center",gap:12}}>
+            <div key={r.id} style={{background:"#fef3c7",border:"2px solid #fde047",borderRadius:12,
+              padding:"12px 16px",marginBottom:8,display:"flex",alignItems:"center",gap:12}}>
               <span style={{fontSize:22}}>⚠️</span>
               <div>
-                <div style={{fontWeight:700,fontSize:13,color:C.sl}}>Facturar en 1 mes — {r.cliente}</div>
+                <div style={{fontWeight:700,fontSize:13,color:C.sl}}>Facturar próximamente — {r.cliente}</div>
                 <div style={{fontSize:12,color:C.gris}}>
                   Royalty Comercial {TRIM_LABELS[r.trimCobro]} {r.añoCobro} · {$$(r.montoFact)} a facturar
-                  &nbsp;· Inicio cobro: {r.fInicio.toLocaleDateString("es-CL")}
                 </div>
               </div>
             </div>
@@ -5362,94 +1046,351 @@ function RoyaltyComercial({data,setData,can,clientes=[]}) {
         </div>
       )}
 
+      <div style={{background:"#f0fdf4",border:"1px solid #86efac",borderRadius:10,padding:"8px 14px",marginBottom:14,fontSize:12,color:"#15803d"}}>
+        💡 Royalty Comercial = Há productivas × US$/Há (default US$3.000) · Se cobra desde el 1er año de producción, repitiéndose cada año en el mismo trimestre. El usuario ajusta el US$/Há manualmente cada año según inflación.
+      </div>
+
       <div style={{display:"flex",gap:12,marginBottom:16,flexWrap:"wrap"}}>
-        {[[$$(totFact),"Total a Facturar",C.mo,C.moBg],[$$(totCobro),"Total a Cobrar",C.verde,C.verdeBg],[filtrado.length,"Registros",C.gris,C.grisBg]].map(([v,l,c,bg])=>(
-          <div key={l} style={{background:bg,borderRadius:12,padding:"12px 18px",flex:1,minWidth:130}}>
+        {[
+          [$$(totFact),"Total a Facturar",C.mo,C.moBg],
+          [$$(totCobro),"Total a Cobrar",C.verde,C.verdeBg],
+          [$$(totPend),"Por Cobrar",C.am,C.amBg],
+          [filtrado.length,"Registros",C.gris,C.grisBg],
+        ].map(([v,l,c,bg])=>(
+          <div key={l} style={{background:bg,borderRadius:12,padding:"12px 18px",flex:1,minWidth:120}}>
             <div style={{fontSize:11,color:c,fontWeight:600}}>{l}</div>
             <div style={{fontSize:20,fontWeight:800,color:c}}>{v}</div>
           </div>
         ))}
-        {can&&<button onClick={()=>setModal(true)} style={{background:C.azul,color:"#fff",border:"none",borderRadius:8,padding:"8px 16px",cursor:"pointer",fontSize:12,fontWeight:700,alignSelf:"center"}}>+ Agregar</button>}
-      </div>
-
-      <div style={{background:"#f0fdf4",border:"1px solid #86efac",borderRadius:10,padding:"8px 14px",marginBottom:14,fontSize:12,color:"#15803d"}}>
-        💡 Monto Facturar = Há a cobrar × US$/Há (por defecto US$3.000/Há) &nbsp;·&nbsp; Monto Cobrar = <strong>85% Perú/México (WHT 15%) · 100% Chile (sin WHT)</strong>
+        {can&&<button onClick={()=>setModal(true)}
+          style={{background:C.azul,color:"#fff",border:"none",borderRadius:8,padding:"8px 16px",
+            cursor:"pointer",fontSize:12,fontWeight:700,alignSelf:"center"}}>
+          + Agregar
+        </button>}
       </div>
 
       <BarraFiltros
         filtros={[
           {label:"Cliente",tipo:"input",valor:filtroCli,onChange:setFiltroCli},
-          {label:"País",opciones:["Todos",...Array.from(new Set(data.map(r=>r.pais).filter(Boolean))).sort()],valor:filtroPais,onChange:setFiltroPais},
-          {label:"Año",opciones:años,valor:filtroAño,onChange:v=>setFiltroAño(String(v))},
+          {label:"País",opciones:paises,valor:filtroPais,onChange:setFiltroPais},
+          {label:"Año cobro",opciones:años,valor:filtroAño,onChange:v=>setFiltroAño(String(v))},
           {label:"Cobro",opciones:["Todos","Pagado","Por cobrar"],valor:filtroCobro,onChange:setFiltroCobro},
         ]}
         onExportar={async ()=>exportCSV(
-          filtrado.map(r=>[r.cliente,r.pais,`T${r.trimCobro} ${r.añoCobro}`,r.nPlantas||0,r.ha||0,
-            r.usdHa||3000,r.montoFact.toFixed(2),r.montoCobro.toFixed(2),r.nFact||"",
+          filtrado.map(r=>[r.cliente,r.pais,r.ha||0,r.usdHa||3000,
+            TRIM_LABELS[r.trimCobro],r.añoCobro,
+            r.montoFact.toFixed(2),r.montoCobro.toFixed(2),
+            r.nFact||"",r.nFact&&r.nFact.trim()?"Facturado":"Pend. facturar",
             r.pagado?"Pagado":"Por cobrar"]),
-          ["Cliente","País","Trim/Año","N° Plantas","Há","US$/Há","Mto.Facturar","Mto.Cobrar","N° Factura","Estado Cobro"],
+          ["Cliente","País","Há","US$/Há","Trimestre","Año Cobro",
+           "Mto.Facturar","Mto.Cobrar","N° Factura","Est.Factura","Est.Cobro"],
           "RoyaltyComercial"
         )}
       />
+
       <div style={{overflowX:"auto"}}>
         <table style={{borderCollapse:"collapse",width:"100%",background:"#fff",borderRadius:10,overflow:"hidden"}}>
           <Th cols={[
-            {l:"Cliente",w:120},{l:"País",w:70},{l:"Trim./Año cobro",c:true,w:120},
-            {l:"N° Plantas",c:true,w:100},{l:"Há a cobrar",c:true,w:100},{l:"US$/Há",c:true,w:90},
-            {l:"Mto. Facturar",c:true,w:115},{l:"Mto. Cobrar",c:true,w:115},
-            {l:"N° Factura",c:true,w:100},{l:"Fact. Est.",c:true,w:130},{l:"Cobro",c:true,w:110},
-            {l:"Alerta",c:true,w:80},
+            {l:"Cliente",w:130},{l:"País",w:80},{l:"Há",c:true,w:80},{l:"US$/Há",c:true,w:90},
+            {l:"Trim./Año cobro",c:true,w:130},{l:"Mto.Facturar",c:true,w:120},{l:"WHT",c:true,w:70},
+            {l:"Mto.Cobrar",c:true,w:120},{l:"N° Factura",c:true,w:110},
+            {l:"Est.Factura",c:true,w:130},{l:"Estado Cobro",c:true,w:120},{l:"Alerta",c:true,w:70},
             ...(can?[{l:"",c:true,w:40}]:[]),
           ]}/>
           <tbody>
-            {filtrado.map((r,i)=>(
-              <tr key={r.id} style={{borderBottom:"1px solid #f1f5f9",
-                background:r.alertaActiva?"#fffbeb":i%2===0?"#fff":"#f8fafc"}}>
-                <td style={{padding:"7px 10px",fontWeight:600}}>
-                  <NombreCliente nombre={r.cliente} clientes={clientes} onChange={v=>upd(r.id,"cliente",v)} can={can}/>
-                </td>
-                <td style={{padding:"7px 10px",fontSize:11,color:C.gris}}>{r.pais}</td>
-                <td style={{padding:"7px 10px",textAlign:"center",fontSize:11}}>
-                  <div style={{fontWeight:600}}>{TRIM_LABELS[r.trimCobro]}</div>
-                  <div style={{color:C.gris}}>{r.añoCobro}</div>
-                </td>
-                <td style={{padding:"7px 10px",textAlign:"right",fontWeight:600,color:C.teal}}>{N(r.nPlantas||0)}</td>
-                <td style={{padding:"7px 10px",textAlign:"right",fontWeight:600,background:(!r.ha||r.ha===0)&&can?"#fffbeb":"transparent"}}><Cell val={r.ha||""} onChange={v=>upd(r.id,"ha",parseFloat(v))} type="number" can={can} ph="Ingrese Há"/></td>
-                <td style={{padding:"7px 10px",textAlign:"center"}}><Cell val={r.usdHa||3000} onChange={v=>upd(r.id,"usdHa",parseFloat(v)||3000)} type="number" can={can}/></td>
-                <td style={{padding:"7px 10px",textAlign:"right",fontWeight:700,color:C.mo}}>{$$(r.montoFact)}</td>
-                <td style={{padding:"7px 10px",textAlign:"right",fontWeight:700,color:C.verde}}>
-                  {$$(r.montoCobro)}<div style={{fontSize:9,color:C.gris}}>{whtLabel(r.pais)||`${(pct(r.pais)*100).toFixed(0)}% neto`}</div>
-                </td>
-                <td style={{padding:"7px 10px",textAlign:"center"}}><Cell val={r.nFact} onChange={v=>upd(r.id,"nFact",v)} can={can} ph="F-..."/></td>
-                <td style={{padding:"7px 10px",textAlign:"center"}}><BadgeFact nFact={r.nFact}/></td>
-                <td style={{padding:"7px 10px",textAlign:"center"}}><BadgePago pagado={r.pagado} onChange={v=>upd(r.id,"pagado",v)} can={can}/></td>
-                <td style={{padding:"7px 10px",textAlign:"center"}}>
-                  {r.alertaActiva
-                    ? <span style={{fontSize:18}}>⚠️</span>
-                    : <span style={{fontSize:10,color:C.gris}}>{r.diasAviso>0?`${r.diasAviso}d`:"—"}</span>}
-                </td>
-                {can&&<td style={{padding:"4px 6px",textAlign:"center"}}>
-                  <button onClick={()=>{if(window.confirm(`¿Eliminar royalty comercial de "${r.cliente}"?`))setData(prev=>prev.filter(x=>x.id!==r.id));}}
-                    style={{background:"#fee2e2",border:"none",borderRadius:6,padding:"3px 8px",cursor:"pointer",fontSize:12,color:"#991b1b",fontWeight:700}}>×</button>
-                </td>}
-              </tr>
-            ))}
-            {filtrado.length===0&&<tr><td colSpan={12} style={{textAlign:"center",padding:32,color:C.gris}}>Sin registros</td></tr>}
+            {filtrado.map((r,i)=>{
+              const facturado=r.nFact&&String(r.nFact).trim()!=="";
+              return(
+                <tr key={r.id} style={{borderBottom:"1px solid #f1f5f9",
+                  background:r.alertaActiva?"#fffbeb":i%2===0?"#fff":"#f8fafc"}}>
+                  <td style={{padding:"7px 10px",fontWeight:600}}>
+                    <NombreCliente nombre={r.cliente} clientes={clientes} onChange={v=>upd(r.id,"cliente",v)} can={can}/>
+                  </td>
+                  <td style={{padding:"7px 10px",fontSize:12,color:C.gris}}>{r.pais}</td>
+                  <td style={{padding:"7px 10px",textAlign:"right",fontWeight:600,
+                    background:(!r.ha||r.ha===0)&&can?"#fffbeb":"transparent"}}>
+                    <Cell val={r.ha||""} onChange={v=>upd(r.id,"ha",parseFloat(v)||0)} type="number" can={can} ph="Ingrese Há"/>
+                  </td>
+                  <td style={{padding:"7px 10px",textAlign:"center"}}>
+                    <Cell val={r.usdHa||3000} onChange={v=>upd(r.id,"usdHa",parseFloat(v)||3000)} type="number" can={can}/>
+                  </td>
+                  <td style={{padding:"7px 10px",textAlign:"center",fontWeight:600,fontSize:12}}>
+                    {TRIM_LABELS[r.trimCobro]} {r.añoCobro}
+                  </td>
+                  <td style={{padding:"7px 10px",textAlign:"right",fontWeight:700,color:C.mo}}>{$$(r.montoFact)}</td>
+                  <td style={{padding:"7px 10px",textAlign:"center",fontSize:11}}>
+                    {whtLabel(r.pais)
+                      ? <span style={{background:"#fee2e2",color:"#dc2626",borderRadius:20,padding:"2px 8px",fontSize:10,fontWeight:700}}>{whtLabel(r.pais)}</span>
+                      : <span style={{background:"#dcfce7",color:"#16a34a",borderRadius:20,padding:"2px 8px",fontSize:10,fontWeight:700}}>Sin WHT</span>
+                    }
+                  </td>
+                  <td style={{padding:"7px 10px",textAlign:"right",fontWeight:700,color:C.verde}}>{$$(r.montoCobro)}</td>
+                  <td style={{padding:"7px 10px",textAlign:"center"}}>
+                    <Cell val={r.nFact||""} onChange={v=>upd(r.id,"nFact",v)} can={can} ph="F-001"/>
+                  </td>
+                  <td style={{padding:"7px 10px",textAlign:"center"}}>
+                    <span style={{
+                      background:facturado?"#dbeafe":"#fef3c7",
+                      color:facturado?"#2563eb":"#d97706",
+                      borderRadius:20,padding:"2px 10px",fontSize:11,fontWeight:700,whiteSpace:"nowrap"
+                    }}>
+                      {facturado?"📄 Facturado":"⏸ Pend. facturar"}
+                    </span>
+                  </td>
+                  <td style={{padding:"7px 10px",textAlign:"center"}}>
+                    <BadgePago pagado={r.pagado} onChange={v=>upd(r.id,"pagado",v)} can={can}/>
+                  </td>
+                  <td style={{padding:"7px 10px",textAlign:"center"}}>
+                    {r.alertaActiva
+                      ? <span style={{fontSize:18}} title="Facturar pronto">⚠️</span>
+                      : <span style={{fontSize:10,color:C.gris}}>{r.diasAviso>0?`${r.diasAviso}d`:"—"}</span>
+                    }
+                  </td>
+                  {can&&<td style={{padding:"4px 6px",textAlign:"center"}}>
+                    <button onClick={()=>{if(window.confirm(`¿Eliminar royalty comercial de "${r.cliente}" ${r.añoCobro}?`))setData(prev=>prev.filter(x=>x.id!==r.id));}}
+                      style={{background:"#fee2e2",border:"none",borderRadius:6,padding:"3px 8px",cursor:"pointer",fontSize:12,color:"#991b1b",fontWeight:700}}>×</button>
+                  </td>}
+                </tr>
+              );
+            })}
+            {filtrado.length===0&&<tr><td colSpan={13} style={{textAlign:"center",padding:32,color:C.gris,fontSize:13}}>
+              Sin registros.
+            </td></tr>}
           </tbody>
         </table>
       </div>
 
       {modal&&(
         <div style={{position:"fixed",inset:0,background:"#0006",zIndex:300,display:"flex",alignItems:"center",justifyContent:"center"}}>
-          <div style={{background:"#fff",borderRadius:16,padding:28,width:440,maxWidth:"92vw",boxShadow:"0 8px 32px #0003"}}>
-            <h3 style={{margin:"0 0 16px",color:C.sl}}>Nuevo Royalty Comercial</h3>
+          <div style={{background:"#fff",borderRadius:16,padding:28,width:500,maxWidth:"94vw",maxHeight:"90vh",overflowY:"auto",boxShadow:"0 8px 32px #0003"}}>
+            <h3 style={{margin:"0 0 14px",color:C.sl}}>Nuevo Royalty Comercial</h3>
+            <div style={{background:"#f0fdf4",borderRadius:8,padding:"10px 14px",marginBottom:14,fontSize:12,color:"#15803d"}}>
+              Se generarán registros anuales automáticamente para los años indicados, en el mismo trimestre.
+            </div>
             <SelectorCliente form={form} setForm={setForm} clientes={clientes}/>
-            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginTop:8}}>
-              {[["País","pais","select",PAISES],["Trimestre inicio cobro","trimCobro","select",["1","2","3","4"]],["Año inicio cobro","añoCobro","number",null],["N° Plantas","nPlantas","number",null],["Há a cobrar","ha","number",null],["US$/Há (por def. $3.000)","usdHa","number",null],["N° Factura","nFact","text",null]].map(([l,c,t,opts])=>(
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginTop:12}}>
+              {[
+                ["País","pais","select",PAISES],
+                ["Hectáreas a cobrar","ha","number",null],
+                ["US$/Há (def. 3000)","usdHa","number",null],
+                ["Año 1er cobro","añoPrimerCobro","number",null],
+                ["Trimestre cobro","trimPrimerCobro","select",["1","2","3","4"]],
+                ["Repetir por N años","repetirAños","number",null],
+              ].map(([l,c,t,opts])=>(
                 <div key={c}>
                   <label style={{fontSize:11,fontWeight:600,color:"#374151",display:"block",marginBottom:4}}>{l}</label>
-                  {opts?<select value={form[c]} onChange={e=>setForm(p=>({...p,[c]:e.target.value}))} style={{width:"100%",padding:"7px 10px",borderRadius:8,border:"1px solid #d1d5db",fontSize:13,boxSizing:"border-box"}}>{opts.map(o=><option key={o}>{o}</option>)}</select>
-                  :<input type={t} value={form[c]} onChange={e=>setForm(p=>({...p,[c]:e.target.value}))} style={{width:"100%",padding:"7px 10px",borderRadius:8,border:"1px solid #d1d5db",fontSize:13,boxSizing:"border-box"}}/>}
+                  {opts
+                    ? <select value={form[c]||""} onChange={e=>setForm(p=>({...p,[c]:e.target.value}))}
+                        style={{width:"100%",padding:"7px 10px",borderRadius:8,border:"1px solid #d1d5db",fontSize:13,boxSizing:"border-box"}}>
+                        {opts.map(o=><option key={o}>{o}</option>)}
+                      </select>
+                    : <input type={t} value={form[c]||""} onChange={e=>setForm(p=>({...p,[c]:e.target.value}))}
+                        style={{width:"100%",padding:"7px 10px",borderRadius:8,border:"1px solid #d1d5db",fontSize:13,boxSizing:"border-box"}}/>
+                  }
+                </div>
+              ))}
+            </div>
+            {form.ha&&form.añoPrimerCobro&&(
+              <div style={{marginTop:12,background:"#f0f9ff",borderRadius:8,padding:"10px 14px",fontSize:12,color:C.azul}}>
+                📋 Se generarán <strong>{form.repetirAños} registros</strong> · {form.ha} Há × US${form.usdHa}/Há = <strong>US${((Number(form.ha)||0)*(Number(form.usdHa)||3000)).toLocaleString()}/año</strong>
+              </div>
+            )}
+            <div style={{display:"flex",gap:10,justifyContent:"flex-end",marginTop:20}}>
+              <button onClick={()=>setModal(false)} style={{padding:"8px 18px",borderRadius:8,border:"1px solid #d1d5db",background:"#fff",cursor:"pointer",fontSize:14}}>Cancelar</button>
+              <button onClick={agregar} style={{padding:"8px 18px",borderRadius:8,border:"none",background:C.azul,color:"#fff",cursor:"pointer",fontSize:14,fontWeight:600}}>Generar Registros</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ══════════════════════════════════════════════════════════
+// FEE VIVEROS — Regalías pagadas al vivero (interno)
+// ══════════════════════════════════════════════════════════
+function FeeViveros({data,setData,can,clientes=[]}) {
+  const [filtroPais,setFiltroPais]=useState("Todos");
+  const [filtroFact,setFiltroFact]=useState("Todos");
+  const [filtroCobro,setFiltroCobro]=useState("Todos");
+  const [filtroCli,setFiltroCli]=useState("");
+  const [modal,setModal]=useState(false);
+  const [form,setForm]=useState({
+    vivero:"Synergiabio",empresa:"",pais:"Peru",proforma:"",
+    nPlantas:"",regalia:0.45,totalOsiris:"",tipoPago:"Entrega",
+    montoFact:"",fechaFact:"",nFact:"",pagado:false,
+  });
+
+  const upd=(id,c,v)=>setData(prev=>prev.map(r=>r.id===id?{...r,[c]:v}:r));
+
+  const filtrado=data.filter(r=>{
+    if(filtroFact!=="Todos"){
+      if(filtroFact==="Facturado"&&!(r.nFact&&r.nFact.trim()!==""))return false;
+      if(filtroFact==="Pendiente"&&(r.nFact&&r.nFact.trim()!==""))return false;
+    }
+    if(filtroPais!=="Todos"&&r.pais!==filtroPais)return false;
+    if(filtroCobro!=="Todos"&&(filtroCobro==="Pagado"?!r.pagado:r.pagado))return false;
+    if(filtroCli&&!r.empresa?.toLowerCase().includes(filtroCli.toLowerCase()))return false;
+    return true;
+  });
+
+  const totFact=filtrado.reduce((s,r)=>s+(Number(r.montoFact)||0),0);
+  const totPend=filtrado.filter(r=>!r.pagado).reduce((s,r)=>s+(Number(r.montoFact)||0),0);
+  const paises=["Todos",...Array.from(new Set(data.map(r=>r.pais).filter(Boolean))).sort()];
+
+  function agregar(){
+    if(!form.empresa.trim()){alert("Empresa es obligatoria.");return;}
+    setData(prev=>[...prev,{
+      ...form,id:`fv_${Date.now()}`,
+      nPlantas:parseFloat(form.nPlantas)||0,
+      regalia:parseFloat(form.regalia)||0,
+      totalOsiris:parseFloat(form.totalOsiris)||0,
+      montoFact:parseFloat(form.montoFact)||0,
+    }]);
+    setModal(false);
+    setForm({vivero:"Synergiabio",empresa:"",pais:"Peru",proforma:"",nPlantas:"",regalia:0.45,totalOsiris:"",tipoPago:"Entrega",montoFact:"",fechaFact:"",nFact:"",pagado:false});
+  }
+
+  return (
+    <div>
+      <div style={{display:"flex",gap:12,marginBottom:16,flexWrap:"wrap"}}>
+        {[
+          [$$(totFact),"Total a Pagar Vivero",C.azul,C.azulBg],
+          [$$(totPend),"Por Pagar",C.am,C.amBg],
+          [filtrado.length,"Registros",C.gris,C.grisBg],
+        ].map(([v,l,c,bg])=>(
+          <div key={l} style={{background:bg,borderRadius:12,padding:"12px 18px",flex:1,minWidth:120}}>
+            <div style={{fontSize:11,color:c,fontWeight:600}}>{l}</div>
+            <div style={{fontSize:20,fontWeight:800,color:c}}>{v}</div>
+          </div>
+        ))}
+        {can&&<button onClick={()=>setModal(true)}
+          style={{background:C.azul,color:"#fff",border:"none",borderRadius:8,padding:"8px 16px",
+            cursor:"pointer",fontSize:12,fontWeight:700,alignSelf:"center"}}>
+          + Agregar
+        </button>}
+      </div>
+
+      <BarraFiltros
+        filtros={[
+          {label:"Empresa",tipo:"input",valor:filtroCli,onChange:setFiltroCli},
+          {label:"País",opciones:paises,valor:filtroPais,onChange:setFiltroPais},
+          {label:"Factura",opciones:["Todos","Facturado","Pendiente"],valor:filtroFact,onChange:setFiltroFact},
+          {label:"Pago",opciones:["Todos","Pagado","Por pagar"],valor:filtroCobro,onChange:setFiltroCobro},
+        ]}
+        onExportar={async ()=>exportCSV(
+          filtrado.map(r=>[r.vivero||"",r.empresa,r.pais,r.proforma||"",
+            r.nPlantas||0,r.regalia||0,r.totalOsiris||0,r.tipoPago||"",
+            r.montoFact||0,r.fechaFact||"",r.nFact||"",r.pagado?"Pagado":"Por pagar"]),
+          ["Vivero","Empresa","País","Proforma","N° Plantas","Regalía","Total Osiris",
+           "Tipo Pago","Mto.Facturar","Fecha Fact.","N° Factura","Estado Pago"],
+          "FeeViveros"
+        )}
+      />
+
+      <div style={{overflowX:"auto"}}>
+        <table style={{borderCollapse:"collapse",width:"100%",background:"#fff",borderRadius:10,overflow:"hidden"}}>
+          <Th cols={[
+            {l:"Vivero",w:100},{l:"Empresa",w:150},{l:"País",w:70},{l:"Proforma",w:130},
+            {l:"N° Plantas",c:true,w:90},{l:"Regalía",c:true,w:70},{l:"Total Osiris",c:true,w:110},
+            {l:"Tipo",c:true,w:90},{l:"Mto. Facturar",c:true,w:115},
+            {l:"Fecha Fact.",c:true,w:100},{l:"N° Factura",c:true,w:100},
+            {l:"Est. Factura",c:true,w:130},{l:"Estado Pago",c:true,w:110},
+            ...(can?[{l:"",c:true,w:40}]:[]),
+          ]}/>
+          <tbody>
+            {filtrado.map((r,i)=>{
+              const facturado=r.nFact&&String(r.nFact).trim()!=="";
+              return(
+                <tr key={r.id} style={{borderBottom:"1px solid #f1f5f9",background:i%2===0?"#fff":"#f8fafc"}}>
+                  <td style={{padding:"7px 10px",fontSize:11}}><Cell val={r.vivero||""} onChange={v=>upd(r.id,"vivero",v)} opts={["Synergiabio","Agromillora"]} can={can}/></td>
+                  <td style={{padding:"7px 10px",fontWeight:600}}>
+                    <NombreCliente nombre={r.empresa} clientes={clientes} onChange={v=>upd(r.id,"empresa",v)} can={can}/>
+                  </td>
+                  <td style={{padding:"7px 10px",fontSize:11,color:C.gris}}>{r.pais}</td>
+                  <td style={{padding:"7px 10px",fontSize:11,color:C.gris}}><Cell val={r.proforma||""} onChange={v=>upd(r.id,"proforma",v)} can={can}/></td>
+                  <td style={{padding:"7px 10px",textAlign:"center",fontWeight:600}}>{N(r.nPlantas)}</td>
+                  <td style={{padding:"7px 10px",textAlign:"center",fontSize:11}}>{r.regalia?`${(r.regalia*100).toFixed(0)}%`:"—"}</td>
+                  <td style={{padding:"7px 10px",textAlign:"right",fontSize:12,color:C.gris}}>{$$(r.totalOsiris)}</td>
+                  <td style={{padding:"7px 10px",textAlign:"center",fontSize:11}}><Cell val={r.tipoPago||""} onChange={v=>upd(r.id,"tipoPago",v)} opts={TIPOS} can={can}/></td>
+                  <td style={{padding:"7px 10px",textAlign:"right",fontWeight:700,color:C.azul}}>
+                    <Cell val={r.montoFact||""} onChange={v=>upd(r.id,"montoFact",parseFloat(v)||0)} type="number" can={can}/>
+                  </td>
+                  <td style={{padding:"7px 10px",textAlign:"center",fontSize:11}}>
+                    <Cell val={r.fechaFact||""} onChange={v=>upd(r.id,"fechaFact",v)} type="date" can={can}/>
+                  </td>
+                  <td style={{padding:"7px 10px",textAlign:"center"}}>
+                    <Cell val={r.nFact||""} onChange={v=>upd(r.id,"nFact",v)} can={can} ph="F-001"/>
+                  </td>
+                  <td style={{padding:"7px 10px",textAlign:"center"}}>
+                    <span style={{
+                      background:facturado?"#dbeafe":"#fef3c7",
+                      color:facturado?"#2563eb":"#d97706",
+                      borderRadius:20,padding:"2px 10px",fontSize:11,fontWeight:700,whiteSpace:"nowrap"
+                    }}>
+                      {facturado?"📄 Facturado":"⏸ Pendiente"}
+                    </span>
+                  </td>
+                  <td style={{padding:"7px 10px",textAlign:"center"}}>
+                    <BadgePago pagado={r.pagado} onChange={v=>upd(r.id,"pagado",v)} can={can}/>
+                  </td>
+                  {can&&<td style={{padding:"4px 6px",textAlign:"center"}}>
+                    <button onClick={()=>{if(window.confirm(`¿Eliminar fee vivero de "${r.empresa}"?`))setData(prev=>prev.filter(x=>x.id!==r.id));}}
+                      style={{background:"#fee2e2",border:"none",borderRadius:6,padding:"3px 8px",cursor:"pointer",fontSize:12,color:"#991b1b",fontWeight:700}}>×</button>
+                  </td>}
+                </tr>
+              );
+            })}
+            {filtrado.length===0&&<tr><td colSpan={can?14:13} style={{textAlign:"center",padding:32,color:C.gris,fontSize:13}}>
+              Sin registros.
+            </td></tr>}
+          </tbody>
+        </table>
+      </div>
+
+      {modal&&(
+        <div style={{position:"fixed",inset:0,background:"#0006",zIndex:300,display:"flex",alignItems:"center",justifyContent:"center"}}>
+          <div style={{background:"#fff",borderRadius:16,padding:28,width:500,maxWidth:"94vw",maxHeight:"90vh",overflowY:"auto",boxShadow:"0 8px 32px #0003"}}>
+            <h3 style={{margin:"0 0 16px",color:C.sl}}>Nuevo Fee Vivero</h3>
+            <div style={{display:"flex",flexDirection:"column",gap:6,marginBottom:12}}>
+              <label style={{fontSize:11,fontWeight:600,color:"#374151"}}>Empresa *</label>
+              {clientes.length>0&&(
+                <select value={""} onChange={e=>{
+                  const cli=clientes.find(c=>c.id===e.target.value);
+                  if(!cli)return;
+                  setForm(p=>({...p,empresa:cli.razonSocial||p.empresa,pais:cli.pais||p.pais}));
+                }} style={{width:"100%",padding:"7px 10px",borderRadius:8,border:"1px solid #93c5fd",fontSize:12,color:"#2563eb"}}>
+                  <option value="">🔍 Seleccionar desde maestro...</option>
+                  {clientes.map(c=><option key={c.id} value={c.id}>{c.razonSocial} — {c.pais}</option>)}
+                </select>
+              )}
+              <input type="text" value={form.empresa} onChange={e=>setForm(p=>({...p,empresa:e.target.value}))}
+                placeholder="O escribe el nombre..."
+                style={{width:"100%",padding:"7px 10px",borderRadius:8,border:"1px solid #d1d5db",fontSize:13,boxSizing:"border-box"}}/>
+            </div>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+              {[
+                ["Vivero","vivero","select",["Synergiabio","Agromillora"]],
+                ["País","pais","select",PAISES],
+                ["Proforma","proforma","text",null],
+                ["N° Plantas","nPlantas","number",null],
+                ["Regalía (dec.)","regalia","number",null],
+                ["Total Osiris US$","totalOsiris","number",null],
+                ["Tipo Pago","tipoPago","select",TIPOS],
+                ["Monto a Facturar","montoFact","number",null],
+                ["Fecha Facturar","fechaFact","date",null],
+                ["N° Factura","nFact","text",null],
+              ].map(([l,c,t,opts])=>(
+                <div key={c}>
+                  <label style={{fontSize:11,fontWeight:600,color:"#374151",display:"block",marginBottom:4}}>{l}</label>
+                  {opts
+                    ? <select value={form[c]||""} onChange={e=>setForm(p=>({...p,[c]:e.target.value}))}
+                        style={{width:"100%",padding:"7px 10px",borderRadius:8,border:"1px solid #d1d5db",fontSize:13,boxSizing:"border-box"}}>
+                        {opts.map(o=><option key={o}>{o}</option>)}
+                      </select>
+                    : <input type={t} value={form[c]||""} onChange={e=>setForm(p=>({...p,[c]:e.target.value}))}
+                        style={{width:"100%",padding:"7px 10px",borderRadius:8,border:"1px solid #d1d5db",fontSize:13,boxSizing:"border-box"}}/>
+                  }
                 </div>
               ))}
             </div>
@@ -5464,228 +1405,6 @@ function RoyaltyComercial({data,setData,can,clientes=[]}) {
   );
 }
 
-// ══════════════════════════════════════════════════════════
-// FEE ENTRADA
-// ══════════════════════════════════════════════════════════
-function FeeEntrada({data,setData,can,clientes=[]}) {
-  const [filtroPais,setFiltroPais]=useState("Todos");
-  const [filtroCobro,setFiltroCobro]=useState("Todos");
-  const [filtroCli,setFiltroCli]=useState("");
-  const [modal,setModal]=useState(false);
-  const [form,setForm]=useState({cliente:"",pais:"Peru",nFact:"",pagado:false,fechaPago:"",montoUSD:30000,detalle:"Sin Devolución"});
-  const upd=(id,c,v)=>setData(prev=>prev.map(r=>r.id===id?{...r,[c]:v}:r));
-  function agregar(){if(!form.cliente.trim()){alert("Cliente obligatorio.");return;}setData(prev=>[...prev,{...form,id:`fe_${Date.now()}`,montoUSD:parseFloat(form.montoUSD)||30000}]);setModal(false);}
-  const filtrado=data.filter(r=>
-    (filtroPais==="Todos"||r.pais===filtroPais)&&
-    (filtroCobro==="Todos"||(filtroCobro==="Pagado"?r.pagado:!r.pagado))&&
-    (!filtroCli||r.cliente?.toLowerCase().includes(filtroCli.toLowerCase()))
-  );
-  const totCobFilt=filtrado.filter(r=>r.pagado).reduce((s,r)=>s+(r.montoUSD||0),0);
-  const totPendFilt=filtrado.filter(r=>!r.pagado).reduce((s,r)=>s+(r.montoUSD||0),0);
-  return (
-    <div>
-      <div style={{display:"flex",gap:12,marginBottom:16,flexWrap:"wrap"}}>
-        {[[$$(totCobFilt),"Cobrado",C.verde,C.verdeBg],[$$(totPendFilt),"Por cobrar",C.am,C.amBg],[filtrado.length,"Registros",C.gris,C.grisBg]].map(([v,l,c,bg])=>(
-          <div key={l} style={{background:bg,borderRadius:12,padding:"12px 18px",flex:1,minWidth:120}}>
-            <div style={{fontSize:11,color:c,fontWeight:600}}>{l}</div>
-            <div style={{fontSize:20,fontWeight:800,color:c}}>{v}</div>
-          </div>
-        ))}
-        {can&&<button onClick={()=>setModal(true)} style={{background:C.azul,color:"#fff",border:"none",borderRadius:8,padding:"8px 16px",cursor:"pointer",fontSize:12,fontWeight:700,alignSelf:"center"}}>+ Agregar</button>}
-      </div>
-      <BarraFiltros
-        filtros={[
-          {label:"Cliente",tipo:"input",valor:filtroCli,onChange:setFiltroCli},
-          {label:"País",opciones:["Todos","Peru","Mexico","Chile"],valor:filtroPais,onChange:setFiltroPais},
-          {label:"Cobro",opciones:["Todos","Pagado","Por cobrar"],valor:filtroCobro,onChange:setFiltroCobro},
-        ]}
-        onExportar={async ()=>exportCSV(
-          filtrado.map(r=>[r.cliente,r.pais,r.nFact||"",
-            r.pagado?"Pagado":"Por cobrar",r.fechaPago||"",r.montoUSD||0,r.detalle||""]),
-          ["Cliente","País","N° Factura","Estado Cobro","Fecha Pago","Monto US$","Detalle"],
-          "FeeEntrada"
-        )}
-      />
-      <div style={{overflowX:"auto"}}>
-        <table style={{borderCollapse:"collapse",width:"100%",background:"#fff",borderRadius:10,overflow:"hidden"}}>
-          <Th cols={[{l:"Cliente",w:130},{l:"País",w:80},{l:"N° Factura",c:true,w:110},{l:"Fact. Est.",c:true,w:130},{l:"Fecha pago",c:true,w:100},{l:"Monto US$",c:true,w:100},{l:"Cobro",c:true,w:110},{l:"Detalle",w:140},...(can?[{l:"",c:true,w:40}]:[])]}/>
-          <tbody>
-            {filtrado.map((r,i)=>(
-              <tr key={r.id} style={{borderBottom:"1px solid #f1f5f9",background:i%2===0?"#fff":"#f8fafc"}}>
-                <td style={{padding:"8px 12px"}}>
-                  <NombreCliente nombre={r.cliente} clientes={clientes} onChange={v=>upd(r.id,"cliente",v)} can={can}/>
-                </td>
-                <td style={{padding:"8px 12px"}}><Cell val={r.pais} onChange={v=>upd(r.id,"pais",v)} opts={["Peru","Mexico","Chile"]} can={can}/></td>
-                <td style={{padding:"8px 12px",textAlign:"center"}}><Cell val={r.nFact} onChange={v=>upd(r.id,"nFact",v)} can={can} ph="F-..."/></td>
-                <td style={{padding:"8px 12px",textAlign:"center"}}><BadgeFact nFact={r.nFact}/></td>
-                <td style={{padding:"8px 12px",textAlign:"center",fontSize:11,color:C.gris}}><Cell val={r.fechaPago} onChange={v=>upd(r.id,"fechaPago",v)} type="date" can={can}/></td>
-                <td style={{padding:"8px 12px",textAlign:"right",fontWeight:700,color:C.verde}}><Cell val={r.montoUSD} onChange={v=>upd(r.id,"montoUSD",parseFloat(v))} type="number" can={can}/></td>
-                <td style={{padding:"8px 12px",textAlign:"center"}}><BadgePago pagado={r.pagado} onChange={v=>upd(r.id,"pagado",v)} can={can}/></td>
-                <td style={{padding:"8px 12px",fontSize:11,color:C.gris}}><Cell val={r.detalle} onChange={v=>upd(r.id,"detalle",v)} can={can}/></td>
-                {can&&<td style={{padding:"4px 6px",textAlign:"center"}}>
-                  <button onClick={()=>{if(window.confirm(`¿Eliminar fee entrada de "${r.cliente}"?`))setData(prev=>prev.filter(x=>x.id!==r.id));}}
-                    style={{background:"#fee2e2",border:"none",borderRadius:6,padding:"3px 8px",cursor:"pointer",fontSize:12,color:"#991b1b",fontWeight:700}}>×</button>
-                </td>}
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-      {modal&&(
-        <div style={{position:"fixed",inset:0,background:"#0006",zIndex:300,display:"flex",alignItems:"center",justifyContent:"center"}}>
-          <div style={{background:"#fff",borderRadius:16,padding:28,width:400,maxWidth:"92vw",boxShadow:"0 8px 32px #0003"}}>
-            <h3 style={{margin:"0 0 16px",color:C.sl}}>Nuevo Fee de Entrada</h3>
-            <div style={{display:"flex",flexDirection:"column",gap:12}}>
-              <SelectorCliente form={form} setForm={setForm} clientes={clientes}/>
-              {[["N° Factura","nFact","text"],["Fecha pago","fechaPago","date"],["Detalle","detalle","text"]].map(([l,c,t])=>(
-                <div key={c}><label style={{fontSize:11,fontWeight:600,color:"#374151",display:"block",marginBottom:4}}>{l}</label>
-                <input type={t} value={form[c]} onChange={e=>setForm(p=>({...p,[c]:e.target.value}))} style={{width:"100%",padding:"7px 10px",borderRadius:8,border:"1px solid #d1d5db",fontSize:13,boxSizing:"border-box"}}/></div>
-              ))}
-              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
-                <div><label style={{fontSize:11,fontWeight:600,color:"#374151",display:"block",marginBottom:4}}>País</label>
-                <select value={form.pais} onChange={e=>setForm(p=>({...p,pais:e.target.value}))} style={{width:"100%",padding:"7px 10px",borderRadius:8,border:"1px solid #d1d5db",fontSize:13,boxSizing:"border-box"}}>{["Peru","Mexico","Chile"].map(o=><option key={o}>{o}</option>)}</select></div>
-                <div><label style={{fontSize:11,fontWeight:600,color:"#374151",display:"block",marginBottom:4}}>Monto US$</label>
-                <input type="number" value={form.montoUSD} onChange={e=>setForm(p=>({...p,montoUSD:e.target.value}))} style={{width:"100%",padding:"7px 10px",borderRadius:8,border:"1px solid #d1d5db",fontSize:13,boxSizing:"border-box"}}/></div>
-              </div>
-            </div>
-            <div style={{display:"flex",gap:10,justifyContent:"flex-end",marginTop:20}}>
-              <button onClick={()=>setModal(false)} style={{padding:"8px 18px",borderRadius:8,border:"1px solid #d1d5db",background:"#fff",cursor:"pointer",fontSize:14}}>Cancelar</button>
-              <button onClick={agregar} style={{padding:"8px 18px",borderRadius:8,border:"none",background:C.azul,color:"#fff",cursor:"pointer",fontSize:14,fontWeight:600}}>Guardar</button>
-            </div>
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
-// ══════════════════════════════════════════════════════════
-// FEE VIVEROS
-// ══════════════════════════════════════════════════════════
-function FeeViveros({data,setData,can,clientes=[]}) {
-  const [filtroEst,setFiltroEst]=useState("Todos");
-  const [filtroPais,setFiltroPais]=useState("Todos");
-  const [filtroCobro,setFiltroCobro]=useState("Todos");
-  const [filtroCli,setFiltroCli]=useState("");
-  const [modal,setModal]=useState(false);
-  const [form,setForm]=useState({vivero:"Synergiabio",empresa:"",pais:"Peru",proforma:"",nPlantas:"",regalia:0.45,totalOsiris:"",tipoPago:"Entrega",montoFact:"",fechaFact:"",nFact:"",pagado:false});
-  const upd=(id,c,v)=>setData(prev=>prev.map(r=>r.id===id?{...r,[c]:v}:r));
-
-  const filtrado=data.filter(r=>{
-    if(filtroEst!=="Todos"){
-      if(filtroEst==="Facturado"&&!(r.nFact&&r.nFact.trim()!==""))return false;
-      if(filtroEst==="Pendiente"&&(r.nFact&&r.nFact.trim()!==""))return false;
-    }
-    if(filtroPais!=="Todos"&&r.pais!==filtroPais)return false;
-    if(filtroCobro!=="Todos"&&(filtroCobro==="Pagado"?!r.pagado:r.pagado))return false;
-    if(filtroCli&&!r.empresa?.toLowerCase().includes(filtroCli.toLowerCase()))return false;
-    return true;
-  });;
-
-  const totFact=filtrado.reduce((s,r)=>s+(Number(r.montoFact)||0),0);
-  const totPend=filtrado.filter(r=>!r.pagado).reduce((s,r)=>s+(Number(r.montoFact)||0),0);
-
-  function agregar(){if(!form.empresa.trim()){alert("Empresa obligatoria.");return;}
-    setData(prev=>[...prev,{...form,id:`fv_${Date.now()}`,nPlantas:parseFloat(form.nPlantas)||0,regalia:parseFloat(form.regalia)||0,totalOsiris:parseFloat(form.totalOsiris)||0,montoFact:parseFloat(form.montoFact)||0}]);setModal(false);}
-
-  return (
-    <div>
-      <div style={{display:"flex",gap:12,marginBottom:16,flexWrap:"wrap"}}>
-        {[[$$(totFact),"Total a Facturar",C.azul,C.azulBg],[$$(totPend),"Por Cobrar",C.am,C.amBg],[filtrado.length,"Registros",C.gris,C.grisBg]].map(([v,l,c,bg])=>(
-          <div key={l} style={{background:bg,borderRadius:12,padding:"12px 18px",flex:1,minWidth:130}}>
-            <div style={{fontSize:11,color:c,fontWeight:600}}>{l}</div>
-            <div style={{fontSize:20,fontWeight:800,color:c}}>{v}</div>
-          </div>
-        ))}
-        {can&&<button onClick={()=>setModal(true)} style={{background:C.azul,color:"#fff",border:"none",borderRadius:8,padding:"8px 16px",cursor:"pointer",fontSize:12,fontWeight:700,alignSelf:"center"}}>+ Agregar</button>}
-      </div>
-      <BarraFiltros
-        filtros={[
-          {label:"Empresa",tipo:"input",valor:filtroCli,onChange:setFiltroCli},
-          {label:"País",opciones:["Todos","Peru","Mexico","Chile","AMexico"],valor:filtroPais,onChange:setFiltroPais},
-          {label:"Estado",opciones:["Todos","Facturado","Pendiente","Pagado"],valor:filtroEst,onChange:setFiltroEst},
-          {label:"Cobro",opciones:["Todos","Pagado","Por cobrar"],valor:filtroCobro,onChange:setFiltroCobro},
-        ]}
-        onExportar={async ()=>exportCSV(
-          filtrado.map(r=>[r.vivero||"",r.empresa,r.pais,r.proforma||"",r.nPlantas||0,
-            r.regalia||0,r.totalOsiris||0,r.tipoPago||"",r.montoFact||0,
-            r.fechaFact||"",r.nFact||"",r.pagado?"Pagado":"Por cobrar"]),
-          ["Vivero","Empresa","País","Proforma","N° Plantas","Regalía","Total Osiris","Tipo Pago","Mto.Facturar","Fecha Fact.","N° Factura","Estado Cobro"],
-          "FeeViveros"
-        )}
-      />
-      <div style={{overflowX:"auto"}}>
-        <table style={{borderCollapse:"collapse",width:"100%",background:"#fff",borderRadius:10,overflow:"hidden"}}>
-          <Th cols={[{l:"Vivero",w:100},{l:"Empresa",w:150},{l:"País",w:70},{l:"Proforma",w:130},{l:"N° Plantas",c:true,w:90},{l:"Regalía",c:true,w:70},{l:"Total Osiris",c:true,w:110},{l:"Tipo",c:true,w:90},{l:"Mto. Facturar",c:true,w:115},{l:"Fecha Fact.",c:true,w:100},{l:"N° Factura",c:true,w:100},{l:"Fact. Est.",c:true,w:130},{l:"Cobro",c:true,w:110},...(can?[{l:"",c:true,w:40}]:[])]}/>
-          <tbody>
-            {filtrado.map((r,i)=>(
-              <tr key={r.id} style={{borderBottom:"1px solid #f1f5f9",background:i%2===0?"#fff":"#f8fafc"}}>
-                <td style={{padding:"7px 10px",fontSize:11}}><Cell val={r.vivero} onChange={v=>upd(r.id,"vivero",v)} opts={["Synergiabio","Agromillora"]} can={can}/></td>
-                <td style={{padding:"7px 10px",fontWeight:600}}>
-                  <NombreCliente nombre={r.empresa} clientes={clientes} onChange={v=>upd(r.id,"empresa",v)} can={can}/>
-                </td>
-                <td style={{padding:"7px 10px",fontSize:11,color:C.gris}}>{r.pais}</td>
-                <td style={{padding:"7px 10px",fontSize:11,color:C.gris}}><Cell val={r.proforma} onChange={v=>upd(r.id,"proforma",v)} can={can}/></td>
-                <td style={{padding:"7px 10px",textAlign:"center",fontWeight:600}}>{N(r.nPlantas)}</td>
-                <td style={{padding:"7px 10px",textAlign:"center",fontSize:11}}>{r.regalia?`${(r.regalia*100).toFixed(0)}%`:"—"}</td>
-                <td style={{padding:"7px 10px",textAlign:"right",fontSize:12,color:C.gris}}>{$$(r.totalOsiris)}</td>
-                <td style={{padding:"7px 10px",textAlign:"center",fontSize:11}}><Cell val={r.tipoPago} onChange={v=>upd(r.id,"tipoPago",v)} opts={TIPOS} can={can}/></td>
-                <td style={{padding:"7px 10px",textAlign:"right",fontWeight:700,color:C.azul}}><Cell val={r.montoFact} onChange={v=>upd(r.id,"montoFact",parseFloat(v))} type="number" can={can}/></td>
-                <td style={{padding:"7px 10px",textAlign:"center",fontSize:11,color:C.gris}}><Cell val={r.fechaFact} onChange={v=>upd(r.id,"fechaFact",v)} type="date" can={can}/></td>
-                <td style={{padding:"7px 10px",textAlign:"center"}}><Cell val={r.nFact} onChange={v=>upd(r.id,"nFact",v)} can={can} ph="F-..."/></td>
-                <td style={{padding:"7px 10px",textAlign:"center"}}><BadgeFact nFact={r.nFact}/></td>
-                <td style={{padding:"7px 10px",textAlign:"center"}}><BadgePago pagado={r.pagado} onChange={v=>upd(r.id,"pagado",v)} can={can}/></td>
-                {can&&<td style={{padding:"4px 6px",textAlign:"center"}}>
-                  <button onClick={()=>{if(window.confirm(`¿Eliminar fee vivero de "${r.empresa}"?`))setData(prev=>prev.filter(x=>x.id!==r.id));}}
-                    style={{background:"#fee2e2",border:"none",borderRadius:6,padding:"3px 8px",cursor:"pointer",fontSize:12,color:"#991b1b",fontWeight:700}}>×</button>
-                </td>}
-              </tr>
-            ))}
-            {filtrado.length===0&&<tr><td colSpan={can?14:13} style={{textAlign:"center",padding:32,color:C.gris}}>Sin registros</td></tr>}
-          </tbody>
-        </table>
-      </div>
-      {modal&&(
-        <div style={{position:"fixed",inset:0,background:"#0006",zIndex:300,display:"flex",alignItems:"center",justifyContent:"center"}}>
-          <div style={{background:"#fff",borderRadius:16,padding:28,width:500,maxWidth:"92vw",maxHeight:"90vh",overflowY:"auto",boxShadow:"0 8px 32px #0003"}}>
-            <h3 style={{margin:"0 0 16px",color:C.sl}}>Nuevo Fee Vivero</h3>
-            {/* Selector empresa desde maestro clientes */}
-            <div style={{display:"flex",flexDirection:"column",gap:6,marginBottom:4}}>
-              <label style={{fontSize:11,fontWeight:600,color:"#374151"}}>Empresa *</label>
-              {clientes.length>0&&(
-                <select value={""} onChange={e=>{
-                  const cli=clientes.find(c=>c.id===e.target.value);
-                  if(!cli)return;
-                  setForm(p=>({...p,empresa:cli.razonSocial||p.empresa,pais:cli.pais||p.pais}));
-                }} style={{width:"100%",padding:"7px 10px",borderRadius:8,border:"1px solid #93c5fd",fontSize:12,boxSizing:"border-box",color:"#2563eb"}}>
-                  <option value="">🔍 Seleccionar desde maestro...</option>
-                  {clientes.map(c=><option key={c.id} value={c.id}>{c.razonSocial}{c.nombreComercial&&c.nombreComercial!==c.razonSocial?` (${c.nombreComercial})`:""} — {c.pais}</option>)}
-                </select>
-              )}
-              <input type="text" value={form.empresa} onChange={e=>setForm(p=>({...p,empresa:e.target.value}))}
-                placeholder="O escribe el nombre..."
-                style={{width:"100%",padding:"7px 10px",borderRadius:8,border:"1px solid #d1d5db",fontSize:13,boxSizing:"border-box"}}/>
-            </div>
-            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
-              {[["Vivero","vivero","select",["Synergiabio","Agromillora"]],["País","pais","select",PAISES],["Proforma","proforma","text",null],["N° Plantas","nPlantas","number",null],["Regalía (dec.)","regalia","number",null],["Total Osiris US$","totalOsiris","number",null],["Tipo Pago","tipoPago","select",TIPOS],["Monto a Facturar","montoFact","number",null],["Fecha Facturar","fechaFact","date",null],["N° Factura","nFact","text",null]].map(([l,c,t,opts])=>(
-                <div key={c}><label style={{fontSize:11,fontWeight:600,color:"#374151",display:"block",marginBottom:4}}>{l}</label>
-                {opts?<select value={form[c]} onChange={e=>setForm(p=>({...p,[c]:e.target.value}))} style={{width:"100%",padding:"7px 10px",borderRadius:8,border:"1px solid #d1d5db",fontSize:13,boxSizing:"border-box"}}>{opts.map(o=><option key={o}>{o}</option>)}</select>
-                :<input type={t} value={form[c]} onChange={e=>setForm(p=>({...p,[c]:e.target.value}))} style={{width:"100%",padding:"7px 10px",borderRadius:8,border:"1px solid #d1d5db",fontSize:13,boxSizing:"border-box"}}/>}</div>
-              ))}
-            </div>
-            <div style={{display:"flex",gap:10,justifyContent:"flex-end",marginTop:20}}>
-              <button onClick={()=>setModal(false)} style={{padding:"8px 18px",borderRadius:8,border:"1px solid #d1d5db",background:"#fff",cursor:"pointer"}}>Cancelar</button>
-              <button onClick={agregar} style={{padding:"8px 18px",borderRadius:8,border:"none",background:C.azul,color:"#fff",cursor:"pointer",fontWeight:600}}>Guardar</button>
-            </div>
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
-// ══════════════════════════════════════════════════════════
-// RESUMEN / DASHBOARD
 // ══════════════════════════════════════════════════════════
 function GraficosPlantas({tpData,rpData}) {
   // Plantas vendidas (Total Pedidos) por año
@@ -7035,31 +2754,22 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
   const [subApp,setSubApp]=useState(null);
   const [subTab,setSubTab]=useState("resumen");
 
-  // Merge: combinar datos guardados en Supabase con los _INIT del Excel
-  // Si un registro existe en Supabase (mismo id), usa el de Supabase (tiene ediciones del usuario)
-  // Si solo existe en _INIT (registros nuevos del Excel), lo agrega
-  function mergeConInit(saved, init) {
-    if(!saved || saved.length===0) return init;
-    const savedIds = new Set(saved.map(r=>r.id));
-    const nuevosDeInit = init.filter(r=>!savedIds.has(r.id));
-    return [...saved, ...nuevosDeInit];
-  }
+  // Datos desde Supabase — sin datos de ejemplo (empezar desde cero)
+  const ctData  = osirisData?.contratos       ?? CONTRATOS_INIT;
+  const clientes= osirisData?.clientes        ?? CLIENTES_INIT;
+  const tpData  = osirisData?.totalPedidos    ?? [];
+  const rpData  = osirisData?.royaltyPlanta   ?? [];
+  const feData  = osirisData?.feeEntrada      ?? [];
+  const rcData  = osirisData?.royaltyComercial?? [];
+  const fvData  = osirisData?.feeViveros      ?? [];
 
-  const ctData=osirisData?.contratos        ??CONTRATOS_INIT;
-  const clientes=osirisData?.clientes       ??CLIENTES_INIT;
-  const setClientes=useCallback(fn=>setOsirisData(prev=>({...prev,clientes:typeof fn==="function"?fn(prev?.clientes??CLIENTES_INIT):fn})),[setOsirisData]);
-  const rpData=mergeConInit(osirisData?.royaltyPlanta,    ROYALTY_PLANTA_INIT);
-  const feData=mergeConInit(osirisData?.feeEntrada,       FEE_ENTRADA_INIT);
-  const rcData=mergeConInit(osirisData?.royaltyComercial, ROYALTY_COMERCIAL_INIT);
-  const fvData=mergeConInit(osirisData?.feeViveros,       FEE_VIVEROS_INIT);
-  const tpData=mergeConInit(osirisData?.totalPedidos,     TOTAL_PEDIDOS_INIT);
-
-  const setCt=useCallback(fn=>setOsirisData(prev=>({...prev,contratos:      typeof fn==="function"?fn(prev?.contratos      ??CONTRATOS_INIT)      :fn})),[setOsirisData]);
-  const setRp=useCallback(fn=>setOsirisData(prev=>({...prev,royaltyPlanta:   typeof fn==="function"?fn(prev?.royaltyPlanta   ??ROYALTY_PLANTA_INIT)   :fn})),[setOsirisData]);
-  const setFe=useCallback(fn=>setOsirisData(prev=>({...prev,feeEntrada:      typeof fn==="function"?fn(prev?.feeEntrada      ??FEE_ENTRADA_INIT)      :fn})),[setOsirisData]);
-  const setRc=useCallback(fn=>setOsirisData(prev=>({...prev,royaltyComercial:typeof fn==="function"?fn(prev?.royaltyComercial??ROYALTY_COMERCIAL_INIT):fn})),[setOsirisData]);
-  const setFv=useCallback(fn=>setOsirisData(prev=>({...prev,feeViveros:      typeof fn==="function"?fn(prev?.feeViveros      ??FEE_VIVEROS_INIT)      :fn})),[setOsirisData]);
-  const setTp=useCallback(fn=>setOsirisData(prev=>({...prev,totalPedidos:    typeof fn==="function"?fn(prev?.totalPedidos    ??TOTAL_PEDIDOS_INIT)    :fn})),[setOsirisData]);
+  const setClientes=useCallback(fn=>setOsirisData(prev=>({...prev,clientes:       typeof fn==="function"?fn(prev?.clientes       ??CLIENTES_INIT):fn})),[setOsirisData]);
+  const setCt=useCallback(fn=>setOsirisData(prev=>({...prev,contratos:      typeof fn==="function"?fn(prev?.contratos      ??CONTRATOS_INIT):fn})),[setOsirisData]);
+  const setTp=useCallback(fn=>setOsirisData(prev=>({...prev,totalPedidos:   typeof fn==="function"?fn(prev?.totalPedidos   ??[]):fn})),[setOsirisData]);
+  const setRp=useCallback(fn=>setOsirisData(prev=>({...prev,royaltyPlanta:  typeof fn==="function"?fn(prev?.royaltyPlanta  ??[]):fn})),[setOsirisData]);
+  const setFe=useCallback(fn=>setOsirisData(prev=>({...prev,feeEntrada:     typeof fn==="function"?fn(prev?.feeEntrada     ??[]):fn})),[setOsirisData]);
+  const setRc=useCallback(fn=>setOsirisData(prev=>({...prev,royaltyComercial:typeof fn==="function"?fn(prev?.royaltyComercial??[]):fn})),[setOsirisData]);
+  const setFv=useCallback(fn=>setOsirisData(prev=>({...prev,feeViveros:     typeof fn==="function"?fn(prev?.feeViveros     ??[]):fn})),[setOsirisData]);
 
   // PERMISOS OSIRIS
   // can = cualquier usuario que NO sea "consulta" puede editar
@@ -7312,11 +3022,11 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
       <div style={{background:"#fff",borderRadius:14,padding:20,boxShadow:"0 2px 10px #0001"}}>
         {subTab==="resumen"          &&<Resumen        rpData={rpData} feData={feData} rcData={rcData} fvData={fvData} tpData={tpData}/>}
         {subTab==="graficos"         &&<GraficosPlantas tpData={tpData} rpData={rpData}/>}
-        {subTab==="totalPedidos"     &&<TotalPedidos    data={tpData} setData={setTp} rpData={rpData} setRpData={setRp} can={canIngresos} clientes={clientes}/>}
-        {subTab==="royaltyPlanta"    &&<RoyaltyPlanta   data={rpData} setData={setRp} can={canIngresos} clientes={clientes}/>}
-        {subTab==="feeEntrada"       &&<FeeEntrada      data={feData} setData={setFe} can={canIngresos} clientes={clientes}/>}
-        {subTab==="royaltyComercial" &&<RoyaltyComercial data={rcData} setData={setRc} can={canIngresos} clientes={clientes}/>}
-        {subTab==="feeViveros"       &&<FeeViveros      data={fvData} setData={setFv} can={canIngresos} clientes={clientes}/>}
+        {subTab==="totalPedidos"     &&<TotalPedidos     data={tpData} setData={setTp} can={canIngresos} clientes={clientes}/>}
+        {subTab==="royaltyPlanta"    &&<RoyaltyPlanta    data={rpData} setData={setRp} tpData={tpData} can={canIngresos} clientes={clientes}/>}
+        {subTab==="feeEntrada"       &&<FeeEntrada       data={feData} setData={setFe} ctData={ctData} can={canIngresos} clientes={clientes}/>}
+        {subTab==="royaltyComercial" &&<RoyaltyComercial data={rcData} setData={setRc} tpData={tpData} can={canIngresos} clientes={clientes}/>}
+        {subTab==="feeViveros"       &&<FeeViveros       data={fvData} setData={setFv} can={canIngresos} clientes={clientes}/>}
       </div>
     </div>
   );
