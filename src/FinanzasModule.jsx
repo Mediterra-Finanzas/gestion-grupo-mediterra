@@ -2043,7 +2043,7 @@ function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit,saldosBanc
     let a = saldoIni;
     const aa = fa.map(f=>{a+=f;return a;});
     return {flujoArr:fa, acumArr:aa};
-  },[emp, proyOverrides, saldoBancoUSD]);
+  },[emp, proyOverrides, saldoBancoUSD, addedLines, subLines]); // eslint-disable-line
 
   // Flujo neto por mes (para totales mensuales en vista semanal)
   const flujoMes = useMemo(()=>{
