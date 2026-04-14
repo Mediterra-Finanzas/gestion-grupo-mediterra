@@ -420,15 +420,45 @@ const MES_ABR_TO_EN = {
   "Jul":"Jul","Ago":"Aug","Sep":"Sep","Oct":"Oct","Nov":"Nov","Dic":"Dec"
 };
 
+// Calcula monto real de cada cuota según su tipo y saldo pendiente
+// tipo: "Solo Interés" | "Capital+Interés" | "Solo Capital"
+function calcMontoRealCuota(cuotas, capital, tasaAnual) {
+  const n = (cuotas||[]).length;
+  if(n===0) return [];
+  const periodosAnio = n>=10?12:n>=3?4:n>=2?2:1;
+  const tasaPeriodo = (Number(tasaAnual)||0) / 100 / periodosAnio;
+  let saldo = Number(capital)||0;
+  return (cuotas||[]).map((cq,i) => {
+    const tipo = cq.tipo || "Solo Interés";
+    const montoBase = Number(cq.monto)||0;
+    const interes = Math.round(saldo * tasaPeriodo);
+    let montoReal;
+    if(montoBase > 0) {
+      // Si el usuario ingresó un monto, usarlo tal cual
+      montoReal = montoBase;
+    } else {
+      // Si no hay monto, calcular según tipo
+      if(tipo === "Solo Interés")     montoReal = interes;
+      else if(tipo === "Solo Capital") montoReal = Math.round(saldo);
+      else                             montoReal = Math.round(saldo/Math.max(1,n-i)) + interes;
+    }
+    // Restar del saldo si no es solo interés
+    if(tipo !== "Solo Interés") saldo = Math.max(0, saldo - (montoBase||Math.round(saldo/Math.max(1,n-i))));
+    return {...cq, montoReal};
+  });
+}
+
 function calcRenovacionesEmpresa(empresa, creditos=CREDITOS_DEFAULT) {
   const arr = Z65();
   creditos.filter(c => c.empresa === empresa && c.renovable).forEach(c => {
-    (c.cuotas_renovacion||[]).forEach(cq => {
-      if(!cq.mes || !cq.anio || !cq.monto) return;
+    const cuotasCalc = calcMontoRealCuota(c.cuotas_renovacion, c.monto_renovacion, c.tasa_anual);
+    cuotasCalc.forEach(cq => {
+      if(!cq.mes || !cq.anio) return;
+      const monto = cq.montoReal || Number(cq.monto) || 0;
       const mesEn = MES_ABR_TO_EN[cq.mes] || cq.mes;
       const label = `${mesEn}-${String(cq.anio).slice(2)}`;
       const i = mIdx(label);
-      if(i >= 0) arr[i] += Number(cq.monto)||0;
+      if(i >= 0) arr[i] += monto;
     });
   });
   return arr;
@@ -437,14 +467,16 @@ function calcRenovacionesEmpresa(empresa, creditos=CREDITOS_DEFAULT) {
 function calcRenovacionesDesglose(empresa, creditos=CREDITOS_DEFAULT) {
   const byAcreedor = {};
   creditos.filter(c => c.empresa === empresa && c.renovable).forEach(c => {
-    (c.cuotas_renovacion||[]).forEach(cq => {
-      if(!cq.mes || !cq.anio || !cq.monto) return;
-      const key = c.acreedor + " (Ren.)";
-      if(!byAcreedor[key]) byAcreedor[key] = Z65();
+    const key = c.acreedor + " (Ren.)";
+    if(!byAcreedor[key]) byAcreedor[key] = Z65();
+    const cuotasConInt = calcMontoRealCuota(c.cuotas_renovacion, c.monto_renovacion, c.tasa_anual);
+    cuotasConInt.forEach(cq => {
+      if(!cq.mes || !cq.anio) return;
+      const monto = cq.montoReal || Number(cq.monto) || 0;
       const mesEn = MES_ABR_TO_EN[cq.mes] || cq.mes;
       const label = `${mesEn}-${String(cq.anio).slice(2)}`;
       const i = mIdx(label);
-      if(i >= 0) byAcreedor[key][i] += Number(cq.monto)||0;
+      if(i >= 0) byAcreedor[key][i] += monto;
     });
   });
   return byAcreedor;
@@ -462,6 +494,20 @@ function calcIngresoRenovacionEmpresa(empresa, creditos=CREDITOS_DEFAULT) {
   return arr;
 }
 
+
+// Retorna { acreedor: proy[64] } para desglose de ingresos por renovación
+function calcIngresoRenovacionDesglose(empresa, creditos=CREDITOS_DEFAULT) {
+  const byAcreedor = {};
+  creditos.filter(c => c.empresa === empresa && c.renovable && c.monto_renovacion && c.mes_ingreso_renovacion && c.anio_ingreso_renovacion).forEach(c => {
+    const key = c.acreedor + " (Ingr. Ren.)";
+    if(!byAcreedor[key]) byAcreedor[key] = Z65();
+    const mesEn = MES_ABR_TO_EN[c.mes_ingreso_renovacion] || c.mes_ingreso_renovacion;
+    const label = `${mesEn}-${String(c.anio_ingreso_renovacion).slice(2)}`;
+    const i = mIdx(label);
+    if(i >= 0) byAcreedor[key][i] += Number(c.monto_renovacion)||0;
+  });
+  return byAcreedor;
+}
 function calcPrestamosSemanasEmpresa(empresa, creditos=CREDITOS_DEFAULT) {
   const bySemana = {}; // { "Nov-26": { "S47": 120000 } }
   creditos.filter(c => c.empresa === empresa && !c.pagado).forEach(c => {
@@ -3345,6 +3391,44 @@ function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit,saldosBanc
                       </tr>
                     ));
                   })()}
+                  {/* Ingreso Renovación sub-rows */}
+                  {line.subLines&&expandedSubs[line.label]&&line.label==="Ingreso Renovación"&&(()=>{
+                    const desgloseIng = calcIngresoRenovacionDesglose(empNombre, creditosData);
+                    return Object.entries(desgloseIng).map(([acreedor, proyArr])=>(
+                      <tr key={`ingr-${acreedor}`} style={{borderBottom:`1px solid ${C.border}11`,background:`${C.blue}06`}}>
+                        <td style={{padding:"4px 14px 4px 28px",fontSize:10,position:"sticky",left:0,
+                          background:`${C.blue}06`,zIndex:1,borderRight:`1px solid ${C.border}`,color:C.muted}}>
+                          <div style={{display:"flex",alignItems:"center",gap:4}}>
+                            <span style={{color:C.blue,fontSize:9}}>↺</span>
+                            <span style={{fontWeight:600}}>{acreedor}</span>
+                          </div>
+                        </td>
+                        {colStructure.map(({season:s,collapsed,cols})=>{
+                          if(collapsed){
+                            const tot=s.indices.reduce((a,i)=>a+(proyArr[i]||0),0);
+                            return <td key={s.key} style={{padding:"4px 6px",textAlign:"right",fontSize:9,
+                              color:tot?C.blue:C.muted2,fontWeight:tot?700:400,
+                              borderLeft:`2px solid ${C.border2}`}}>{tot?$$(tot):"—"}</td>;
+                          }
+                          return cols.map((col,ci)=>{
+                            const raw=proyArr[col.idx]||0;
+                            const disp=col.isTotalMes||col.type==="month"||col.type==="month_collapsed"||col.isLastInMonth?raw:0;
+                            const isFirst=col.isFirstInSeason||col.isFirstInMonth;
+                            return (
+                              <td key={`ingr-${acreedor}-${col.mes||""}-${ci}`}
+                                style={{padding:"4px 5px",textAlign:"right",fontSize:9,
+                                  background:col.isTotalMes?`${C.yellow}12`:`${C.blue}06`,
+                                  borderLeft:col.isFirstInSeason?`2px solid ${C.border2}`:isFirst?`1px solid ${C.border}44`:`1px solid ${C.border}11`}}>
+                                <span style={{color:disp?C.blue:C.muted2,fontWeight:disp?700:400}}>
+                                  {disp?$$(disp):"—"}
+                                </span>
+                              </td>
+                            );
+                          });
+                        })}
+                      </tr>
+                    ));
+                  })()}
                   {/* For CxC/Capital Calls: use saved subLines from Supabase */}
                   {line.subLines&&expandedSubs[line.label]&&!line.label.includes("Préstamos")&&(subLines[line.label]||[]).map((sl,sli)=>{
                     const slLabel=typeof sl==="string"?sl:sl.label;
@@ -4210,7 +4294,8 @@ function Creditos({empresas, creditosData=CREDITOS_DEFAULT, onSaveCreditos, canE
                         + Agregar cuota
                       </button>
                     </div>
-                    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr auto",gap:8,marginBottom:6,alignItems:"end"}}>
+                    <div style={{display:"grid",gridTemplateColumns:"1.5fr 0.8fr 0.8fr 1.2fr auto",gap:8,marginBottom:6,alignItems:"end"}}>
+                      <div style={{fontSize:10,color:C.muted,fontWeight:600}}>Tipo</div>
                       <div style={{fontSize:10,color:C.muted,fontWeight:600}}>Mes</div>
                       <div style={{fontSize:10,color:C.muted,fontWeight:600}}>Año</div>
                       <div style={{fontSize:10,color:C.muted,fontWeight:600}}>Monto (USD)</div>
@@ -4219,8 +4304,23 @@ function Creditos({empresas, creditosData=CREDITOS_DEFAULT, onSaveCreditos, canE
                     {(form.cuotas_renovacion||[]).length===0&&(
                       <div style={{fontSize:11,color:C.muted2,fontStyle:"italic"}}>Sin cuotas definidas — agrega al menos una</div>
                     )}
-                    {(form.cuotas_renovacion||[]).map((cq,ci)=>(
-                      <div key={ci} style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr auto",gap:8,marginBottom:6,alignItems:"center"}}>
+                    {(form.cuotas_renovacion||[]).map((cq,ci)=>{
+                      // Calcular interés automático según saldo pendiente
+                      const capital = Number(form.monto_renovacion)||0;
+                      const tasa = (Number(form.tasa_anual)||0)/100;
+                      const cuotasAnt = (form.cuotas_renovacion||[]).slice(0,ci);
+                      const capitalPagado = cuotasAnt.filter(c=>c.tipo==="Capital+Interés"||c.tipo==="Solo Capital").reduce((s,c)=>s+(Number(c.monto)||0),0);
+                      const saldo = capital - capitalPagado;
+                      // Estimar períodos al año
+                      const n=(form.cuotas_renovacion||[]).length;
+                      const periodosAnio=n>=10?12:n>=3?4:n>=2?2:1;
+                      const interesSugerido = Math.round(saldo * tasa / periodosAnio);
+                      return (
+                      <div key={ci} style={{display:"grid",gridTemplateColumns:"1.5fr 0.8fr 0.8fr 1.2fr auto",gap:8,marginBottom:6,alignItems:"center"}}>
+                        <select value={cq.tipo||"Solo Interés"} onChange={e=>{const arr=[...(form.cuotas_renovacion||[])];arr[ci]={...cq,tipo:e.target.value};setForm(p=>({...p,cuotas_renovacion:arr}));}}
+                          style={{padding:"6px 8px",borderRadius:6,border:`1px solid ${C.border}`,background:C.card2,color:C.text,fontSize:11,outline:"none"}}>
+                          {["Solo Interés","Capital+Interés","Solo Capital"].map(t=><option key={t}>{t}</option>)}
+                        </select>
                         <select value={cq.mes||""} onChange={e=>{const arr=[...(form.cuotas_renovacion||[])];arr[ci]={...cq,mes:e.target.value};setForm(p=>({...p,cuotas_renovacion:arr}));}}
                           style={{padding:"6px 8px",borderRadius:6,border:`1px solid ${C.border}`,background:C.card2,color:C.text,fontSize:12,outline:"none"}}>
                           <option value="">— mes —</option>
@@ -4229,13 +4329,19 @@ function Creditos({empresas, creditosData=CREDITOS_DEFAULT, onSaveCreditos, canE
                         <input type="number" value={cq.anio||""} placeholder="2026"
                           onChange={e=>{const arr=[...(form.cuotas_renovacion||[])];arr[ci]={...cq,anio:e.target.value};setForm(p=>({...p,cuotas_renovacion:arr}));}}
                           style={{padding:"6px 8px",borderRadius:6,border:`1px solid ${C.border}`,background:C.card2,color:C.text,fontSize:12,outline:"none"}}/>
-                        <input type="number" value={cq.monto||""} placeholder="0"
-                          onChange={e=>{const arr=[...(form.cuotas_renovacion||[])];arr[ci]={...cq,monto:e.target.value};setForm(p=>({...p,cuotas_renovacion:arr}));}}
-                          style={{padding:"6px 8px",borderRadius:6,border:`1px solid ${C.border}`,background:C.card2,color:C.text,fontSize:12,outline:"none"}}/>
+                        <div>
+                          <input type="number" value={cq.monto||""} placeholder={cq.tipo==="Solo Interés"?String(interesSugerido):"0"}
+                            onChange={e=>{const arr=[...(form.cuotas_renovacion||[])];arr[ci]={...cq,monto:e.target.value};setForm(p=>({...p,cuotas_renovacion:arr}));}}
+                            style={{width:"100%",padding:"6px 8px",borderRadius:6,border:`1px solid ${cq.tipo==="Solo Interés"?C.orange:C.blue}`,background:C.card2,color:C.text,fontSize:12,outline:"none"}}/>
+                          {(cq.tipo==="Solo Interés"||!cq.tipo)&&interesSugerido>0&&!cq.monto&&(
+                            <div style={{fontSize:9,color:C.orange,marginTop:1}}>sugerido: {$$(interesSugerido)}</div>
+                          )}
+                        </div>
                         <button type="button" onClick={()=>setForm(p=>({...p,cuotas_renovacion:(p.cuotas_renovacion||[]).filter((_,j)=>j!==ci)}))}
                           style={{padding:"4px 8px",borderRadius:6,background:"#fee2e2",border:"none",color:"#991b1b",cursor:"pointer",fontSize:11}}>×</button>
                       </div>
-                    ))}
+                      );
+                    })}
                   </div>
 
                   {/* Tasa */}
