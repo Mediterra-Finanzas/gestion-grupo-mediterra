@@ -555,6 +555,7 @@ function TotalPedidos({data,setData,rpData,setRpData,rcData,setRcData,fvData,set
         fechaFact:"",nFact:"",pagado:false,_fromPedido:true,
       }))]);
     }
+  }
 
   // Actualizar estado de un pedido
   function upd(id,c,v) {
@@ -924,7 +925,6 @@ function TotalPedidos({data,setData,rpData,setRpData,rcData,setRcData,fvData,set
       )}
     </div>
   );
-}
 }
 
 // ══════════════════════════════════════════════════════════
