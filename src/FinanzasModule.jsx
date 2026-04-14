@@ -305,14 +305,15 @@ const EMPRESAS_STATIC = {
         {label:'Impuestos Anuales', proy:Z65()},
       ]},
       { cat:'ing_nop', label:'Ingresos No Operacionales', signo:1, lines:[
-        {label:'Capital Calls', proy:Z65()},
-        {label:'Ingresos Financiamiento', proy:Z65()},
+        {label:'Capital Calls', proy:Z65(), subLines:true},
+        {label:'Ingresos Financiamiento', proy:Z65(), subLines:true},
         {label:'Otros Ingresos No Operacionales', proy:Z65()},
       ]},
       { cat:'egr_nop', label:'Egresos No Operacionales', signo:-1, lines:[
         {label:'Pago Préstamos - Total', proy:ext([32000,32000,32000,131300,32000,32000,101300,32000,32000,101300,32000,32000,131300,32000,32000,131300,32000,32000,131300,32000,32000,131300,32000,32000].concat(Array(41).fill(0))),subLines:true},
         {label:'  └ del cual: Intereses', proy:Z65()},
         {label:'Privado Particular', proy:Z65()},
+        {label:'Aportes de Capital', proy:Z65(), subLines:true},
         {label:'Leyes Sociales Laborales', proy:Z65()},
         {label:'Pago F-29', proy:Z65()},
       ]},
@@ -348,14 +349,15 @@ const EMPRESAS_STATIC = {
         {label:'Impuestos Anuales', proy:Z65()},
       ]},
       { cat:'ing_nop', label:'Ingresos No Operacionales', signo:1, lines:[
-        {label:'Capital Calls', proy:Z65()},
-        {label:'Ingresos Financiamiento', proy:Z65()},
+        {label:'Capital Calls', proy:Z65(), subLines:true},
+        {label:'Ingresos Financiamiento', proy:Z65(), subLines:true},
         {label:'Otros Ingresos No Operacionales', proy:Z65()},
       ]},
       { cat:'egr_nop', label:'Egresos No Operacionales', signo:-1, lines:[
         {label:'Pago Préstamos - Total', proy:Z65(),subLines:true},
         {label:'  BCI', proy:Z65()},
         {label:'  └ del cual: Intereses', proy:Z65()},
+        {label:'Aportes de Capital', proy:Z65(), subLines:true},
         {label:'Leyes Sociales Laborales', proy:Z65()},
         {label:'Otros Egresos No Operacionales', proy:Z65()},
       ]},
@@ -391,8 +393,8 @@ const EMPRESAS_STATIC = {
         {label:'Impuestos Anuales', proy:Z65()},
       ]},
       { cat:'ing_nop', label:'Ingresos No Operacionales', signo:1, lines:[
-        {label:'Capital Calls', proy:Z65()},
-        {label:'Ingresos Financiamiento', proy:Z65()},
+        {label:'Capital Calls', proy:Z65(), subLines:true},
+        {label:'Ingresos Financiamiento', proy:Z65(), subLines:true},
         {label:'Otros Ingresos No Operacionales', proy:Z65()},
       ]},
       { cat:'egr_nop', label:'Egresos No Operacionales', signo:-1, lines:[
@@ -400,6 +402,7 @@ const EMPRESAS_STATIC = {
         {label:'  Banco Security', proy:Z65()},
         {label:'  Banco BICE', proy:Z65()},
         {label:'  └ del cual: Intereses', proy:Z65()},
+        {label:'Aportes de Capital', proy:Z65(), subLines:true},
         {label:'Leyes Sociales Laborales', proy:Z65()},
         {label:'Otros Egresos No Operacionales', proy:Z65()},
       ]},
@@ -434,13 +437,14 @@ const EMPRESAS_STATIC = {
         {label:'Impuestos Anuales', proy:Z65()},
       ]},
       { cat:'ing_nop', label:'Ingresos No Operacionales', signo:1, lines:[
-        {label:'Capital Calls', proy:Z65()},
-        {label:'Ingresos Financiamiento', proy:Z65()},
+        {label:'Capital Calls', proy:Z65(), subLines:true},
+        {label:'Ingresos Financiamiento', proy:Z65(), subLines:true},
         {label:'Otros Ingresos No Operacionales', proy:Z65()},
       ]},
       { cat:'egr_nop', label:'Egresos No Operacionales', signo:-1, lines:[
         {label:'Pago Préstamos - Total', proy:Z65(),subLines:true},
         {label:'  └ del cual: Intereses', proy:Z65()},
+        {label:'Aportes de Capital', proy:Z65(), subLines:true},
         {label:'Leyes Sociales Laborales', proy:Z65()},
         {label:'Otros Egresos No Operacionales', proy:Z65()},
       ]},
@@ -504,14 +508,15 @@ const EMPRESAS_STATIC = {
         {label:'Impuestos Anuales', proy:Z65()},
       ]},
       { cat:'ing_nop', label:'Ingresos No Operacionales', signo:1, lines:[
-        {label:'Capital Calls', proy:Z65()},
-        {label:'Ingresos Financiamiento', proy:Z65()},
+        {label:'Capital Calls', proy:Z65(), subLines:true},
+        {label:'Ingresos Financiamiento', proy:Z65(), subLines:true},
         {label:'Otros Ingresos No Operacionales', proy:Z65()},
       ]},
       { cat:'egr_nop', label:'Egresos No Operacionales', signo:-1, lines:[
         {label:'Pago Préstamos - Total', proy:ext([0,0,476021,0,0,0,0,0,0,0,0,476021,0,0,476021,0,0,476021,0,0,476021,0,0].concat(Array(41).fill(0))),subLines:true},
         {label:'  Banco de Chile', proy:Z65()},
         {label:'  └ del cual: Intereses', proy:Z65()},
+        {label:'Aportes de Capital', proy:Z65(), subLines:true},
         {label:'Leyes Sociales Laborales', proy:Z65()},
         {label:'Otros Egresos No Operacionales', proy:Z65()},
       ]},
@@ -553,13 +558,14 @@ const EMPRESAS_STATIC = {
         {label:'Impuestos Anuales', proy:Z65()},
       ]},
       { cat:'ing_nop', label:'Ingresos No Operacionales', signo:1, lines:[
-        {label:'Capital Calls', proy:Z65()},
-        {label:'Ingresos Financiamiento', proy:Z65()},
+        {label:'Capital Calls', proy:Z65(), subLines:true},
+        {label:'Ingresos Financiamiento', proy:Z65(), subLines:true},
         {label:'Otros Ingresos No Operacionales', proy:Z65()},
       ]},
       { cat:'egr_nop', label:'Egresos No Operacionales', signo:-1, lines:[
         {label:'Pago Préstamos - Total', proy:Z65(),subLines:true},
         {label:'  └ del cual: Intereses', proy:Z65()},
+        {label:'Aportes de Capital', proy:Z65(), subLines:true},
         {label:'Leyes Sociales Laborales', proy:Z65()},
         {label:'Otros Egresos No Operacionales', proy:Z65()},
       ]},
@@ -595,13 +601,14 @@ const EMPRESAS_STATIC = {
         {label:'Impuestos Anuales', proy:Z65()},
       ]},
       { cat:'ing_nop', label:'Ingresos No Operacionales', signo:1, lines:[
-        {label:'Capital Calls', proy:Z65()},
-        {label:'Ingresos Financiamiento', proy:Z65()},
+        {label:'Capital Calls', proy:Z65(), subLines:true},
+        {label:'Ingresos Financiamiento', proy:Z65(), subLines:true},
         {label:'Otros Ingresos No Operacionales', proy:Z65()},
       ]},
       { cat:'egr_nop', label:'Egresos No Operacionales', signo:-1, lines:[
         {label:'Pago Préstamos - Total', proy:Z65(),subLines:true},
         {label:'  └ del cual: Intereses', proy:Z65()},
+        {label:'Aportes de Capital', proy:Z65(), subLines:true},
         {label:'Leyes Sociales Laborales', proy:Z65()},
         {label:'Otros Egresos No Operacionales', proy:Z65()},
       ]},
@@ -638,7 +645,7 @@ const EMPRESAS_STATIC = {
         {label:'Impuestos Anuales', proy:Z65()},
       ]},
       { cat:'ing_nop', label:'Ingresos No Operacionales', signo:1, lines:[
-        {label:'Capital Calls', proy:Z65()},
+        {label:'Capital Calls', proy:Z65(), subLines:true},
         {label:'Crédito BCI', proy:Z65()},
         {label:'Otros Ingresos No Operacionales', proy:Z65()},
       ]},
@@ -647,6 +654,7 @@ const EMPRESAS_STATIC = {
         {label:'  Banco Security', proy:Z65()},
         {label:'  BCI', proy:ext([0,0,355425,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0].concat(Array(41).fill(0)))},
         {label:'  └ del cual: Intereses', proy:Z65()},
+        {label:'Aportes de Capital', proy:Z65(), subLines:true},
         {label:'Leyes Sociales Laborales', proy:Z65()},
         {label:'Otros Egresos No Operacionales', proy:Z65()},
       ]},
@@ -710,13 +718,13 @@ function buildAllegria(params) {
         {label:"  Banco BICE",          proy:Z65()},
         {label:"  Banco Santander",     proy:Z65()},
         {label:"  └ del cual: Intereses", proy:Z65()},
+        {label:"Aportes de Capital", proy:Z65(), subLines:true},
         {label:"Leyes Sociales Laborales", proy:Z65()},
         {label:"Otros Egresos No Operacionales", proy:Z65()},
       ]},
     ],
   };
 }
-
 function buildEmpresas(params) {
   return { ...EMPRESAS_STATIC, "Allegria Foods": buildAllegria(params) };
 }
@@ -1613,34 +1621,40 @@ function getSaldoBancoParaSemana(saldosBancos, empNombre, mesIdx, semIdx=0) {
   if(!saldosBancos||mesIdx<0) return null;
   const mesInfo=MESES_INFO[mesIdx]; if(!mesInfo) return null;
   const fechaLimite=new Date(mesInfo.y, mesInfo.m, 1+semIdx*7);
-  const porBanco={};
+  const porCuenta={};
   Object.entries(saldosBancos).forEach(([key,rec])=>{
     const parts=key.split("||");
-    if(parts[0]!==empNombre||parts[2]!=="usd") return;
+    if(parts[0]!==empNombre) return;
     if(!rec?.monto||!rec?.fecha) return;
     const f=new Date(rec.fecha);
     if(f<fechaLimite){
-      const banco=parts[1];
-      if(!porBanco[banco]||new Date(porBanco[banco].fecha)<f) porBanco[banco]=rec;
+      const cuentaKey=`${parts[1]}||${parts[2]||rec.moneda||"usd"}`;
+      if(!porCuenta[cuentaKey]||new Date(porCuenta[cuentaKey].fecha)<f) porCuenta[cuentaKey]=rec;
     }
   });
   let total=0,found=false;
-  Object.values(porBanco).forEach(rec=>{total+=Number(rec.monto)||0;found=true;});
+  Object.values(porCuenta).forEach(rec=>{
+    const moneda=rec.moneda||"usd";
+    if(moneda==="usd") total+=Number(rec.monto)||0;
+    else if(rec.usd!=null) total+=Number(rec.usd)||0;
+    found=true;
+  });
   return found?total:null;
 }
 
 function getSaldoBancoInicial(saldosBancos, empNombre, fallback) {
   if(!saldosBancos) return fallback;
-  const porBanco={};
+  // Agrupar por banco+moneda para no perder cuentas
+  const porCuenta={};
   Object.entries(saldosBancos).forEach(([key,rec])=>{
     const parts=key.split("||");
-    if(parts[0]!==empNombre||parts[2]!=="usd") return;
+    if(parts[0]!==empNombre) return;
     if(!rec?.monto||!rec?.fecha) return;
-    const banco=parts[1];
-    if(!porBanco[banco]||new Date(porBanco[banco].fecha)<new Date(rec.fecha)) porBanco[banco]=rec;
+    const cuentaKey=`${parts[1]}||${parts[2]||rec.moneda||"usd"}`;
+    if(!porCuenta[cuentaKey]||new Date(porCuenta[cuentaKey].fecha)<new Date(rec.fecha)) porCuenta[cuentaKey]=rec;
   });
   let total=0,found=false;
-  Object.values(porBanco).forEach(rec=>{total+=Number(rec.monto)||0;found=true;});
+  Object.values(porCuenta).forEach(rec=>{total+=Number(rec.monto)||0;found=true;});
   return found?total:fallback;
 }
 
@@ -1943,28 +1957,27 @@ function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit,saldosBanc
   const saldoBancoUSD = useMemo(()=>{
     if(!saldosBancos) return null;
     const HOY = new Date();
-    const porBanco = {};
+    // Agrupar por banco+moneda (no solo banco) para no perder cuentas en distintas monedas
+    const porCuenta = {};
     Object.entries(saldosBancos).forEach(([key, rec])=>{
       const parts = key.split("||");
       if(parts[0]!==empNombre) return;
       if(!rec?.monto || !rec?.fecha) return;
       const f = new Date(rec.fecha);
       if(f > HOY) return;
-      const banco = parts[1];
-      // Tomar el registro más reciente por banco (cualquier moneda)
-      const existente = porBanco[banco];
-      if(!existente || new Date(existente.fecha) < f) porBanco[banco] = rec;
+      // key único por banco+moneda
+      const cuentaKey = `${parts[1]}||${parts[2]||rec.moneda||"usd"}`;
+      const existente = porCuenta[cuentaKey];
+      if(!existente || new Date(existente.fecha) < f) porCuenta[cuentaKey] = rec;
     });
     let total = 0, found = false;
-    Object.values(porBanco).forEach(rec=>{
+    Object.values(porCuenta).forEach(rec=>{
       const moneda = rec.moneda || "usd";
       if(moneda === "usd") {
         total += Number(rec.monto)||0;
       } else if(rec.usd != null) {
-        // Usar conversión guardada en Supabase al momento del ingreso
         total += Number(rec.usd)||0;
       }
-      // Si no hay conversión guardada, no suma (evita mostrar valor incorrecto)
       found = true;
     });
     return found ? total : null;
@@ -2262,13 +2275,20 @@ function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit,saldosBanc
                       {line.subLines&&expandedSubs[line.label]&&canEdit&&(
                         <div style={{marginTop:3,paddingLeft:14}}>
                           <button onClick={()=>{
-                            const n=prompt(line.label.includes("Cobrar")?"Nombre del cliente:":"Nombre del acreedor:");
+                            const isAportes=line.label==="Aportes de Capital";
+                            const isFin=line.label.includes("Financiamiento")||line.label.includes("Crédito")||line.label==="Capital Calls";
+                            const msg=isAportes?"Empresa que recibe el aporte:"
+                              :isFin?"Institución / detalle:"
+                              :line.label.includes("Cobrar")?"Nombre del cliente:":"Nombre del acreedor:";
+                            const n=prompt(msg);
                             if(!n?.trim())return;
                             const cur=subLines[line.label]||[];
                             if(onSaveSubLines) onSaveSubLines(line.label,[...cur,{label:n.trim(),vals:{}}]);
                           }} style={{fontSize:9,color:C.blue,background:"none",border:`1px dashed ${C.blue}44`,
                             borderRadius:4,padding:"2px 8px",cursor:"pointer"}}>
-                            {line.label.includes("Cobrar")?"+ agregar cliente":"+ agregar acreedor"}
+                            {line.label==="Aportes de Capital"?"+ agregar empresa"
+                             :line.label.includes("Financiamiento")||line.label.includes("Crédito")||line.label==="Capital Calls"?"+ agregar institución"
+                             :line.label.includes("Cobrar")?"+ agregar cliente":"+ agregar acreedor"}
                           </button>
                         </div>
                       )}
@@ -2713,16 +2733,16 @@ function Dashboard({empresas, saldosBancos}) {
     if(!saldosBancos) return 0;
     let total = 0;
     empList.forEach(empNombre=>{
-      const porBanco = {};
+      const porCuenta = {};
       Object.entries(saldosBancos).forEach(([key,rec])=>{
         const parts = key.split("||");
         if(parts[0]!==empNombre||!rec?.monto||!rec?.fecha) return;
         const f = new Date(rec.fecha);
         if(f>HOY_DASH) return;
-        const banco = parts[1];
-        if(!porBanco[banco]||new Date(porBanco[banco].fecha)<f) porBanco[banco]=rec;
+        const cuentaKey=`${parts[1]}||${parts[2]||rec.moneda||"usd"}`;
+        if(!porCuenta[cuentaKey]||new Date(porCuenta[cuentaKey].fecha)<f) porCuenta[cuentaKey]=rec;
       });
-      Object.values(porBanco).forEach(rec=>{
+      Object.values(porCuenta).forEach(rec=>{
         const moneda = rec.moneda||"usd";
         if(moneda==="usd") total+=Number(rec.monto)||0;
         else if(rec.usd!=null) total+=Number(rec.usd)||0;
