@@ -420,31 +420,33 @@ const MES_ABR_TO_EN = {
   "Jul":"Jul","Ago":"Aug","Sep":"Sep","Oct":"Oct","Nov":"Nov","Dic":"Dec"
 };
 
-// Calcula monto real de cada cuota según su tipo y saldo pendiente
-// tipo: "Solo Interés" | "Capital+Interés" | "Solo Capital"
+// Calcula monto real de cada cuota:
+// "Solo Interés"    → interés sobre saldo (capital NO disminuye)
+// "Capital+Interés" → amortización equitativa + interés sobre saldo (capital disminuye)
+// El interés SIEMPRE se agrega automáticamente según tasa anual
 function calcMontoRealCuota(cuotas, capital, tasaAnual) {
-  const n = (cuotas||[]).length;
+  const cuotasArr = cuotas||[];
+  const n = cuotasArr.length;
   if(n===0) return [];
+  // Contar cuotas que amortizan capital
+  const nCapital = cuotasArr.filter(cq=>(cq.tipo||"Solo Interés")==="Capital+Interés").length;
   const periodosAnio = n>=10?12:n>=3?4:n>=2?2:1;
-  const tasaPeriodo = (Number(tasaAnual)||0) / 100 / periodosAnio;
+  const tasaPeriodo = (Number(tasaAnual)||0)/100/periodosAnio;
+  const amortPorCuota = nCapital>0 ? (Number(capital)||0)/nCapital : 0;
   let saldo = Number(capital)||0;
-  return (cuotas||[]).map((cq,i) => {
-    const tipo = cq.tipo || "Solo Interés";
-    const montoBase = Number(cq.monto)||0;
+  return cuotasArr.map((cq,i) => {
+    const tipo = cq.tipo||"Solo Interés";
     const interes = Math.round(saldo * tasaPeriodo);
-    let montoReal;
-    if(montoBase > 0) {
-      // Si el usuario ingresó un monto, usarlo tal cual
-      montoReal = montoBase;
+    let montoReal, amort=0;
+    if(tipo==="Capital+Interés") {
+      amort = Math.round(amortPorCuota);
+      montoReal = amort + interes;
+      saldo = Math.max(0, saldo - amort);
     } else {
-      // Si no hay monto, calcular según tipo
-      if(tipo === "Solo Interés")     montoReal = interes;
-      else if(tipo === "Solo Capital") montoReal = Math.round(saldo);
-      else                             montoReal = Math.round(saldo/Math.max(1,n-i)) + interes;
+      // Solo Interés: solo paga interés, saldo no cambia
+      montoReal = interes;
     }
-    // Restar del saldo si no es solo interés
-    if(tipo !== "Solo Interés") saldo = Math.max(0, saldo - (montoBase||Math.round(saldo/Math.max(1,n-i))));
-    return {...cq, montoReal};
+    return {...cq, montoReal, interes, amort};
   });
 }
 
@@ -4294,32 +4296,37 @@ function Creditos({empresas, creditosData=CREDITOS_DEFAULT, onSaveCreditos, canE
                         + Agregar cuota
                       </button>
                     </div>
-                    <div style={{display:"grid",gridTemplateColumns:"1.5fr 0.8fr 0.8fr 1.2fr auto",gap:8,marginBottom:6,alignItems:"end"}}>
+                    <div style={{display:"grid",gridTemplateColumns:"1.5fr 0.8fr 0.8fr 1fr auto",gap:8,marginBottom:6,alignItems:"end"}}>
                       <div style={{fontSize:10,color:C.muted,fontWeight:600}}>Tipo</div>
                       <div style={{fontSize:10,color:C.muted,fontWeight:600}}>Mes</div>
                       <div style={{fontSize:10,color:C.muted,fontWeight:600}}>Año</div>
-                      <div style={{fontSize:10,color:C.muted,fontWeight:600}}>Monto (USD)</div>
+                      <div style={{fontSize:10,color:C.muted,fontWeight:600}}>Monto calculado</div>
                       <div/>
                     </div>
                     {(form.cuotas_renovacion||[]).length===0&&(
                       <div style={{fontSize:11,color:C.muted2,fontStyle:"italic"}}>Sin cuotas definidas — agrega al menos una</div>
                     )}
                     {(form.cuotas_renovacion||[]).map((cq,ci)=>{
-                      // Calcular interés automático según saldo pendiente
-                      const capital = Number(form.monto_renovacion)||0;
-                      const tasa = (Number(form.tasa_anual)||0)/100;
-                      const cuotasAnt = (form.cuotas_renovacion||[]).slice(0,ci);
-                      const capitalPagado = cuotasAnt.filter(c=>c.tipo==="Capital+Interés"||c.tipo==="Solo Capital").reduce((s,c)=>s+(Number(c.monto)||0),0);
-                      const saldo = capital - capitalPagado;
-                      // Estimar períodos al año
-                      const n=(form.cuotas_renovacion||[]).length;
-                      const periodosAnio=n>=10?12:n>=3?4:n>=2?2:1;
-                      const interesSugerido = Math.round(saldo * tasa / periodosAnio);
+                      // Calcular monto automático con interés sobre saldo
+                      const _cap = Number(form.monto_renovacion)||0;
+                      const _n = (form.cuotas_renovacion||[]).length;
+                      const _nCap = (form.cuotas_renovacion||[]).filter(c=>(c.tipo||"Solo Interés")==="Capital+Interés").length;
+                      const _pA = _n>=10?12:_n>=3?4:_n>=2?2:1;
+                      const _tP = ((Number(form.tasa_anual)||0)/100)/_pA;
+                      const _amort = _nCap>0?_cap/_nCap:0;
+                      // Calcular saldo hasta esta cuota
+                      let _saldo = _cap;
+                      for(let _j=0;_j<ci;_j++){
+                        if(((form.cuotas_renovacion||[])[_j]?.tipo||"Solo Interés")==="Capital+Interés") _saldo=Math.max(0,_saldo-_amort);
+                      }
+                      const _interes = Math.round(_saldo*_tP);
+                      const _esCap = (cq.tipo||"Solo Interés")==="Capital+Interés";
+                      const _montoCalc = _esCap?Math.round(_amort)+_interes:_interes;
                       return (
-                      <div key={ci} style={{display:"grid",gridTemplateColumns:"1.5fr 0.8fr 0.8fr 1.2fr auto",gap:8,marginBottom:6,alignItems:"center"}}>
+                      <div key={ci} style={{display:"grid",gridTemplateColumns:"1.5fr 0.8fr 0.8fr 1fr auto",gap:8,marginBottom:6,alignItems:"center"}}>
                         <select value={cq.tipo||"Solo Interés"} onChange={e=>{const arr=[...(form.cuotas_renovacion||[])];arr[ci]={...cq,tipo:e.target.value};setForm(p=>({...p,cuotas_renovacion:arr}));}}
                           style={{padding:"6px 8px",borderRadius:6,border:`1px solid ${C.border}`,background:C.card2,color:C.text,fontSize:11,outline:"none"}}>
-                          {["Solo Interés","Capital+Interés","Solo Capital"].map(t=><option key={t}>{t}</option>)}
+                          {["Solo Interés","Capital+Interés"].map(t=><option key={t}>{t}</option>)}
                         </select>
                         <select value={cq.mes||""} onChange={e=>{const arr=[...(form.cuotas_renovacion||[])];arr[ci]={...cq,mes:e.target.value};setForm(p=>({...p,cuotas_renovacion:arr}));}}
                           style={{padding:"6px 8px",borderRadius:6,border:`1px solid ${C.border}`,background:C.card2,color:C.text,fontSize:12,outline:"none"}}>
@@ -4329,13 +4336,11 @@ function Creditos({empresas, creditosData=CREDITOS_DEFAULT, onSaveCreditos, canE
                         <input type="number" value={cq.anio||""} placeholder="2026"
                           onChange={e=>{const arr=[...(form.cuotas_renovacion||[])];arr[ci]={...cq,anio:e.target.value};setForm(p=>({...p,cuotas_renovacion:arr}));}}
                           style={{padding:"6px 8px",borderRadius:6,border:`1px solid ${C.border}`,background:C.card2,color:C.text,fontSize:12,outline:"none"}}/>
-                        <div>
-                          <input type="number" value={cq.monto||""} placeholder={cq.tipo==="Solo Interés"?String(interesSugerido):"0"}
-                            onChange={e=>{const arr=[...(form.cuotas_renovacion||[])];arr[ci]={...cq,monto:e.target.value};setForm(p=>({...p,cuotas_renovacion:arr}));}}
-                            style={{width:"100%",padding:"6px 8px",borderRadius:6,border:`1px solid ${cq.tipo==="Solo Interés"?C.orange:C.blue}`,background:C.card2,color:C.text,fontSize:12,outline:"none"}}/>
-                          {(cq.tipo==="Solo Interés"||!cq.tipo)&&interesSugerido>0&&!cq.monto&&(
-                            <div style={{fontSize:9,color:C.orange,marginTop:1}}>sugerido: {$$(interesSugerido)}</div>
-                          )}
+                        <div style={{background:C.card2,borderRadius:6,padding:"5px 8px",border:`1px solid ${_esCap?C.blue:C.orange}`}}>
+                          <div style={{fontWeight:700,fontSize:12,color:_esCap?C.blue:C.orange}}>{$$(_montoCalc)}</div>
+                          <div style={{fontSize:9,color:C.muted}}>
+                            {_esCap?`Cap: ${$$(Math.round(_amort))} + Int: ${$$(Math.round(_interes))}`:`Int: ${$$(Math.round(_interes))}`}
+                          </div>
                         </div>
                         <button type="button" onClick={()=>setForm(p=>({...p,cuotas_renovacion:(p.cuotas_renovacion||[]).filter((_,j)=>j!==ci)}))}
                           style={{padding:"4px 8px",borderRadius:6,background:"#fee2e2",border:"none",color:"#991b1b",cursor:"pointer",fontSize:11}}>×</button>
