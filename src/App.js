@@ -847,6 +847,52 @@ export default function App(){
       setCargando(false);
     }
     cargar();
+
+    // ── Supabase Realtime — sincronización instantánea entre usuarios ──
+    // Escucha cambios en id:"main" → actualiza Tareas y Osiris en tiempo real
+    const SUPA_WS = `wss://${SUPA_URL.replace('https://','')}/realtime/v1/websocket?apikey=${SUPA_KEY}&vsn=1.0.0`;
+    const TOPIC_MAIN = "realtime:public:calendario_data";
+    const ws = new WebSocket(SUPA_WS);
+    const REF = () => String(Date.now());
+
+    ws.onopen = () => {
+      ws.send(JSON.stringify({
+        topic: TOPIC_MAIN, event: "phx_join",
+        payload: { config: { broadcast:{ack:false,self:false}, presence:{key:""} } },
+        ref: REF()
+      }));
+    };
+
+    ws.onmessage = (e) => {
+      try {
+        const msg = JSON.parse(e.data);
+        if(msg.topic === TOPIC_MAIN && (msg.event === "INSERT" || msg.event === "UPDATE")) {
+          const record = msg.payload?.record;
+          if(record?.id === "main" && record?.value) {
+            try {
+              const d = typeof record.value === "string" ? JSON.parse(record.value) : record.value;
+              // Aplicar solo si el cambio viene de otro usuario (evitar loop)
+              if(d.estados)       setEstados(prev=>({...prev,...d.estados}));
+              if(d.comentarios)   setComentarios(d.comentarios);
+              if(d.tareasConfig)  setTareasConfig(prev=>({...prev,...d.tareasConfig}));
+              if(d.supervisores)  setSupervisores(prev=>({...prev,...d.supervisores}));
+              if(d.tareasExtra)   setTareasExtra(d.tareasExtra);
+              if(d.pinsPersonalizados) setPinsPersonalizados(d.pinsPersonalizados);
+              if(d.recsDone)      setRecsDone(d.recsDone);
+              if(d.recsComentarios) setRecsComentarios(d.recsComentarios);
+              if(d.osirisData)    setOsirisData(prev=>({...prev,...d.osirisData}));
+            } catch(err) {}
+          }
+        }
+      } catch(err) {}
+    };
+
+    const hbMain = setInterval(()=>{
+      if(ws.readyState === WebSocket.OPEN)
+        ws.send(JSON.stringify({topic:"phoenix",event:"heartbeat",payload:{},ref:REF()}));
+    }, 30000);
+
+    return () => { clearInterval(hbMain); if(ws.readyState===WebSocket.OPEN) ws.close(); };
   },[]); // eslint-disable-line
 
   // Refs para siempre tener valores frescos en guardado
