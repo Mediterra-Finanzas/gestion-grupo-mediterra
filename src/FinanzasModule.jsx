@@ -422,9 +422,7 @@ const MES_ABR_TO_EN = {
 
 function calcRenovacionesEmpresa(empresa, creditos=CREDITOS_DEFAULT) {
   const arr = Z65();
-  const matching = creditos.filter(c => c.empresa === empresa && c.renovable && c.pagado);
-  if(matching.length>0) console.log('[Renovaciones] empresa='+empresa+' matching='+matching.length, matching);
-  matching.forEach(c => {
+  creditos.filter(c => c.empresa === empresa && c.renovable).forEach(c => {
     (c.cuotas_renovacion||[]).forEach(cq => {
       if(!cq.mes || !cq.anio || !cq.monto) return;
       const mesEn = MES_ABR_TO_EN[cq.mes] || cq.mes;
@@ -438,7 +436,7 @@ function calcRenovacionesEmpresa(empresa, creditos=CREDITOS_DEFAULT) {
 
 function calcRenovacionesDesglose(empresa, creditos=CREDITOS_DEFAULT) {
   const byAcreedor = {};
-  creditos.filter(c => c.empresa === empresa && c.renovable && c.pagado).forEach(c => {
+  creditos.filter(c => c.empresa === empresa && c.renovable).forEach(c => {
     (c.cuotas_renovacion||[]).forEach(cq => {
       if(!cq.mes || !cq.anio || !cq.monto) return;
       const key = c.acreedor + " (Ren.)";
@@ -455,9 +453,7 @@ function calcRenovacionesDesglose(empresa, creditos=CREDITOS_DEFAULT) {
 // Genera array de ingresos por renovación (nuevo préstamo recibido)
 function calcIngresoRenovacionEmpresa(empresa, creditos=CREDITOS_DEFAULT) {
   const arr = Z65();
-  const matchingIng = creditos.filter(c => c.empresa === empresa && c.renovable);
-  if(matchingIng.length>0) console.log('[IngresoRen] empresa='+empresa+' renovables='+matchingIng.length+' pagados='+matchingIng.filter(c=>c.pagado).length, matchingIng.map(c=>({pagado:c.pagado,monto:c.monto_renovacion,mes:c.mes_ingreso_renovacion})));
-  creditos.filter(c => c.empresa === empresa && c.renovable && c.pagado && c.monto_renovacion && c.mes_ingreso_renovacion && c.anio_ingreso_renovacion).forEach(c => {
+  creditos.filter(c => c.empresa === empresa && c.renovable && c.monto_renovacion && c.mes_ingreso_renovacion && c.anio_ingreso_renovacion).forEach(c => {
     const mesEn = MES_ABR_TO_EN[c.mes_ingreso_renovacion] || c.mes_ingreso_renovacion;
     const label = `${mesEn}-${String(c.anio_ingreso_renovacion).slice(2)}`;
     const i = mIdx(label);
