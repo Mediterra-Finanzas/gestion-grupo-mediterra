@@ -437,7 +437,7 @@ function BarraFiltros({filtros, onExportar, exportLabel="⬇️ Exportar"}) {
 // ══════════════════════════════════════════════════════════
 // TOTAL PEDIDOS — Registro maestro de negociación
 // ══════════════════════════════════════════════════════════
-function TotalPedidos({data,setData,rpData,setRpData,rcData,setRcData,fvData,setFvData,can,clientes=[]}) {
+function TotalPedidos({data,setData,rpData,setRpData,rcData,setRcData,fvData,setFvData,can,clientes=[],onDeletePedido}) {
   const [filtroPais,setFiltroPais]=useState("Todos");
   const [filtroAño,setFiltroAño]=useState("Todos");
   const [filtroEst,setFiltroEst]=useState("Todos");
@@ -716,14 +716,14 @@ function TotalPedidos({data,setData,rpData,setRpData,rcData,setRcData,fvData,set
                   <button onClick={()=>{
                     if(!window.confirm(`¿Eliminar pedido de "${r.cliente}"?\nTambién se eliminarán las filas vinculadas en Royalty/Planta, Royalty Comercial y Fee Vivero.`))return;
                     const id=r.id;
-                    // Eliminar en una sola operación atómica para evitar race conditions
-                    setOsirisData(prev=>({
-                      ...prev,
-                      totalPedidos:    (prev.totalPedidos    ||[]).filter(x=>x.id!==id),
-                      royaltyPlanta:   (prev.royaltyPlanta   ||[]).filter(x=>x.tpId!==id),
-                      royaltyComercial:(prev.royaltyComercial||[]).filter(x=>x.tpId!==id),
-                      feeViveros:      (prev.feeViveros      ||[]).filter(x=>x.tpId!==id),
-                    }));
+                    // Eliminar atómicamente via prop del padre (evita race conditions)
+                    if(onDeletePedido){ onDeletePedido(id); }
+                    else {
+                      setData(prev=>prev.filter(x=>x.id!==id));
+                      setRpData(prev=>prev.filter(x=>x.tpId!==id));
+                      setRcData(prev=>prev.filter(x=>x.tpId!==id));
+                      setFvData(prev=>prev.filter(x=>x.tpId!==id));
+                    }
                   }}
                     style={{background:"#fee2e2",border:"none",borderRadius:6,padding:"3px 8px",cursor:"pointer",fontSize:12,color:"#991b1b",fontWeight:700}}>×</button>
                 </td>}
@@ -3368,7 +3368,7 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
       <div style={{background:"#fff",borderRadius:14,padding:20,boxShadow:"0 2px 10px #0001"}}>
         {subTab==="resumen"          &&<Resumen        rpData={rpData} feData={feData} rcData={rcData} fvData={fvData} tpData={tpData}/>}
         {subTab==="graficos"         &&<GraficosPlantas tpData={tpData} rpData={rpData}/>}
-        {subTab==="totalPedidos"     &&<TotalPedidos     data={tpData} setData={setTp} rpData={rpData} setRpData={setRp} rcData={rcData} setRcData={setRc} fvData={fvData} setFvData={setFv} can={canIngresos} clientes={clientes}/>}
+        {subTab==="totalPedidos"     &&<TotalPedidos     data={tpData} setData={setTp} rpData={rpData} setRpData={setRp} rcData={rcData} setRcData={setRc} fvData={fvData} setFvData={setFv} can={canIngresos} clientes={clientes} onDeletePedido={id=>setOsirisData(prev=>({...prev,totalPedidos:(prev.totalPedidos||[]).filter(x=>x.id!==id),royaltyPlanta:(prev.royaltyPlanta||[]).filter(x=>x.tpId!==id),royaltyComercial:(prev.royaltyComercial||[]).filter(x=>x.tpId!==id),feeViveros:(prev.feeViveros||[]).filter(x=>x.tpId!==id)}))}/>}
         {subTab==="royaltyPlanta"    &&<RoyaltyPlanta    data={rpData} setData={setRp} tpData={tpData} can={canIngresos} clientes={clientes}/>}
         {subTab==="feeEntrada"       &&<FeeEntrada       data={feData} setData={setFe} ctData={ctData} can={canIngresos} clientes={clientes}/>}
         {subTab==="royaltyComercial" &&<RoyaltyComercial data={rcData} setData={setRc} tpData={tpData} can={canIngresos} clientes={clientes}/>}
