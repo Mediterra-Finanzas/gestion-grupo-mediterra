@@ -1,0 +1,8 @@
+gestion-grupo/          ← raíz del repo
+├── .env                ← aquí va el archivo
+├── package.json
+├── public/
+└── src/
+    ├── App.jsx
+    ├── FinanzasModule.jsx
+    └── OsirisModule.jsx
