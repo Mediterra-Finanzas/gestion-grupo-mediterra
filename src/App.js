@@ -4,7 +4,8 @@ import OsirisModule from "./OsirisModule.jsx";
 import FinanzasModule from "./FinanzasModule.jsx";
 
 const EMAILJS_SERVICE  = "service_ahuerta";
-const EMAILJS_TEMPLATE = "template_c7yup8d";
+const EMAILJS_TEMPLATE       = "template_c7yup8d";  // Template PIN temporal
+const EMAILJS_TEMPLATE_NOTIF = "template_notif_tarea"; // ← reemplaza con tu template ID
 const EMAILJS_KEY      = "bwCBq7JXlEwCTzWNe";
 const FECHA_INICIO     = new Date(2026, 3, 13);
 
@@ -41,6 +42,15 @@ async function enviarEmail(toEmail, nombre, asunto, cuerpo) {
     method:"POST", headers:{"Content-Type":"application/json"},
     body:JSON.stringify({service_id:EMAILJS_SERVICE,template_id:EMAILJS_TEMPLATE,user_id:EMAILJS_KEY,
       template_params:{nombre,pin_temporal:cuerpo,to_email:toEmail,subject:asunto}})
+  });
+}
+
+// Template separado para notificaciones de tareas (sin texto de PIN)
+async function enviarNotificacion(toEmail, nombre, asunto, mensaje) {
+  await fetch("https://api.emailjs.com/api/v1.0/email/send", {
+    method:"POST", headers:{"Content-Type":"application/json"},
+    body:JSON.stringify({service_id:EMAILJS_SERVICE,template_id:EMAILJS_TEMPLATE_NOTIF,user_id:EMAILJS_KEY,
+      template_params:{nombre, message:mensaje, to_email:toEmail, subject:asunto}})
   });
 }
 
@@ -1107,8 +1117,18 @@ export default function App(){
     try{
       for(const dep of modalNotif.dependientes){
         const w=WORKERS.find(x=>x.nombre===dep.responsable);
-        if(w)await enviarEmail(w.email,w.nombre,`Tarea desbloqueada: ${dep.nombre}`,
-          `Hola ${w.nombre.split(" ")[0]},\n\n"${modalNotif.tarea.nombre}" fue completada.\nAhora puedes iniciar: "${dep.nombre}"\n\n${textoNotif?`Nota: ${textoNotif}\n\n`:""}https://gestion-grupo-mediterra.vercel.app\n\nSaludos`);
+        if(w)await enviarNotificacion(w.email,w.nombre,`Tarea desbloqueada: ${dep.nombre}`,
+          `Hola ${w.nombre.split(" ")[0]},
+
+"${modalNotif.tarea.nombre}" fue completada.
+Ahora puedes iniciar: "${dep.nombre}"
+
+${textoNotif?`Nota: ${textoNotif}
+
+`:""}https://gestion-grupo-mediterra.vercel.app
+
+Saludos,
+Equipo Mediterra`);
       }
       alert("Notificacion enviada!");
     }catch{alert("Error al enviar.");}
