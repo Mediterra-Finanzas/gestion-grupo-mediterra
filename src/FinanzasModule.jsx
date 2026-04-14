@@ -413,6 +413,81 @@ function semanaVencimientoEnMes(f_venc) {
   return { mes, sem: semsDelMes.includes(sem) ? sem : (semsDelMes[semsDelMes.length-1] || sem) };
 }
 
+// ── Genera cuotas de renovación para créditos renovables ya pagados ──────────
+// Para cada crédito con renovable:true y pagado:true,
+// genera filas de pago futuras según forma_pago y meses_pago
+function calcRenovacionesEmpresa(empresa, creditos=CREDITOS_DEFAULT) {
+  const arr = Z65();
+  creditos.filter(c => c.empresa === empresa && c.renovable && c.pagado && c.cuota_renovacion).forEach(c => {
+    const cuota = Number(c.cuota_renovacion) || 0;
+    if(!cuota) return;
+    const mesesAbr = ["Ene","Feb","Mar","Abr","May","Jun","Jul","Ago","Sep","Oct","Nov","Dic"];
+    const mesesMap = {
+      "Ene":"Jan","Feb":"Feb","Mar":"Mar","Abr":"Apr","May":"May","Jun":"Jun",
+      "Jul":"Jul","Ago":"Aug","Sep":"Sep","Oct":"Oct","Nov":"Nov","Dic":"Dec"
+    };
+    // Determinar qué meses aplica según forma_pago y meses_pago
+    const mesesPago = c.meses_pago && c.meses_pago.length > 0 ? c.meses_pago : [];
+    MESES_INFO.forEach(mo => {
+      const moAbrEs = mesesAbr[mo.m]; // mes en español abreviado
+      const moMN    = MN[mo.m];       // mes en inglés (para label)
+      let aplica = false;
+      if(mesesPago.length > 0) {
+        aplica = mesesPago.includes(moAbrEs);
+      } else {
+        // Sin meses definidos: usar forma_pago para distribuir
+        switch(c.forma_pago) {
+          case "Mensual":     aplica = true; break;
+          case "Trimestral":  aplica = [2,5,8,11].includes(mo.m); break; // Mar,Jun,Sep,Dic
+          case "Semestral":   aplica = [5,11].includes(mo.m); break;      // Jun,Dic
+          case "Anual":       aplica = mo.m === 11; break;                 // Dic
+          case "Bullet":      aplica = false; break;
+          default:            aplica = false;
+        }
+      }
+      if(aplica) {
+        const label = `${moMN}-${String(mo.y).slice(2)}`;
+        const i = mIdx(label);
+        if(i >= 0) arr[i] += cuota;
+      }
+    });
+  });
+  return arr;
+}
+
+function calcRenovacionesDesglose(empresa, creditos=CREDITOS_DEFAULT) {
+  const byAcreedor = {};
+  creditos.filter(c => c.empresa === empresa && c.renovable && c.pagado && c.cuota_renovacion).forEach(c => {
+    const cuota = Number(c.cuota_renovacion) || 0;
+    if(!cuota) return;
+    if(!byAcreedor[c.acreedor + " (Ren.)"]) byAcreedor[c.acreedor + " (Ren.)"] = Z65();
+    const mesesAbr = ["Ene","Feb","Mar","Abr","May","Jun","Jul","Ago","Sep","Oct","Nov","Dic"];
+    const mesesPago = c.meses_pago && c.meses_pago.length > 0 ? c.meses_pago : [];
+    MESES_INFO.forEach(mo => {
+      const moAbrEs = mesesAbr[mo.m];
+      const moMN    = MN[mo.m];
+      let aplica = false;
+      if(mesesPago.length > 0) {
+        aplica = mesesPago.includes(moAbrEs);
+      } else {
+        switch(c.forma_pago) {
+          case "Mensual":     aplica = true; break;
+          case "Trimestral":  aplica = [2,5,8,11].includes(mo.m); break;
+          case "Semestral":   aplica = [5,11].includes(mo.m); break;
+          case "Anual":       aplica = mo.m === 11; break;
+          default:            aplica = false;
+        }
+      }
+      if(aplica) {
+        const label = `${moMN}-${String(mo.y).slice(2)}`;
+        const i = mIdx(label);
+        if(i >= 0) byAcreedor[c.acreedor + " (Ren.)"][i] += cuota;
+      }
+    });
+  });
+  return byAcreedor;
+}
+
 function calcPrestamosSemanasEmpresa(empresa, creditos=CREDITOS_DEFAULT) {
   const bySemana = {}; // { "Nov-26": { "S47": 120000 } }
   creditos.filter(c => c.empresa === empresa && !c.pagado).forEach(c => {
@@ -492,6 +567,7 @@ const EMPRESAS_STATIC = {
       ]},
       { cat:'egr_nop', label:'Egresos No Operacionales', signo:-1, lines:[
         {label:'Pago Préstamos - Total', proy:calcPrestamosEmpresa('Mediterra'), formula:true, subLines:true},
+        {label:'Renovaciones', proy:calcRenovacionesEmpresa('Mediterra'), formula:true, subLines:true},
         {label:'Aportes de Capital', proy:Z65(), subLines:true},
         {label:'Leyes Sociales Laborales', proy:Z65()},
         {label:'Pago F-29', proy:Z65()},
@@ -534,6 +610,7 @@ const EMPRESAS_STATIC = {
       ]},
       { cat:'egr_nop', label:'Egresos No Operacionales', signo:-1, lines:[
         {label:'Pago Préstamos - Total', proy:calcPrestamosEmpresa('Allegria Service'), formula:true, subLines:true},
+        {label:'Renovaciones', proy:calcRenovacionesEmpresa('Allegria Service'), formula:true, subLines:true},
         {label:'Aportes de Capital', proy:Z65(), subLines:true},
         {label:'Leyes Sociales Laborales', proy:Z65()},
         {label:'Otros Egresos No Operacionales', proy:Z65()},
@@ -576,6 +653,7 @@ const EMPRESAS_STATIC = {
       ]},
       { cat:'egr_nop', label:'Egresos No Operacionales', signo:-1, lines:[
         {label:'Pago Préstamos - Total', proy:calcPrestamosEmpresa('Frisku Foods'), formula:true, subLines:true},
+        {label:'Renovaciones', proy:calcRenovacionesEmpresa('Frisku Foods'), formula:true, subLines:true},
         {label:'Aportes de Capital', proy:Z65(), subLines:true},
         {label:'Leyes Sociales Laborales', proy:Z65()},
         {label:'Otros Egresos No Operacionales', proy:Z65()},
@@ -617,6 +695,7 @@ const EMPRESAS_STATIC = {
       ]},
       { cat:'egr_nop', label:'Egresos No Operacionales', signo:-1, lines:[
         {label:'Pago Préstamos - Total', proy:calcPrestamosEmpresa('Frisku Peru'), formula:true, subLines:true},
+        {label:'Renovaciones', proy:calcRenovacionesEmpresa('Frisku Peru'), formula:true, subLines:true},
         {label:'Aportes de Capital', proy:Z65(), subLines:true},
         {label:'Leyes Sociales Laborales', proy:Z65()},
         {label:'Otros Egresos No Operacionales', proy:Z65()},
@@ -687,6 +766,7 @@ const EMPRESAS_STATIC = {
       ]},
       { cat:'egr_nop', label:'Egresos No Operacionales', signo:-1, lines:[
         {label:'Pago Préstamos - Total', proy:calcPrestamosEmpresa('Allpa Farms'), formula:true, subLines:true},
+        {label:'Renovaciones', proy:calcRenovacionesEmpresa('Allpa Farms'), formula:true, subLines:true},
         {label:'Aportes de Capital', proy:Z65(), subLines:true},
         {label:'Leyes Sociales Laborales', proy:Z65()},
         {label:'Otros Egresos No Operacionales', proy:Z65()},
@@ -735,6 +815,7 @@ const EMPRESAS_STATIC = {
       ]},
       { cat:'egr_nop', label:'Egresos No Operacionales', signo:-1, lines:[
         {label:'Pago Préstamos - Total', proy:calcPrestamosEmpresa('Allpa Farms Perú'), formula:true, subLines:true},
+        {label:'Renovaciones', proy:calcRenovacionesEmpresa('Allpa Farms Perú'), formula:true, subLines:true},
         {label:'Aportes de Capital', proy:Z65(), subLines:true},
         {label:'Leyes Sociales Laborales', proy:Z65()},
         {label:'Otros Egresos No Operacionales', proy:Z65()},
@@ -777,6 +858,7 @@ const EMPRESAS_STATIC = {
       ]},
       { cat:'egr_nop', label:'Egresos No Operacionales', signo:-1, lines:[
         {label:'Pago Préstamos - Total', proy:calcPrestamosEmpresa('Integrity Farms'), formula:true, subLines:true},
+        {label:'Renovaciones', proy:calcRenovacionesEmpresa('Integrity Farms'), formula:true, subLines:true},
         {label:'Aportes de Capital', proy:Z65(), subLines:true},
         {label:'Leyes Sociales Laborales', proy:Z65()},
         {label:'Otros Egresos No Operacionales', proy:Z65()},
@@ -820,6 +902,7 @@ const EMPRESAS_STATIC = {
       ]},
       { cat:'egr_nop', label:'Egresos No Operacionales', signo:-1, lines:[
         {label:'Pago Préstamos - Total', proy:calcPrestamosEmpresa('Osiris'), formula:true, subLines:true},
+        {label:'Renovaciones', proy:calcRenovacionesEmpresa('Osiris'), formula:true, subLines:true},
         {label:'Aportes de Capital', proy:Z65(), subLines:true},
         {label:'Leyes Sociales Laborales', proy:Z65()},
         {label:'Otros Egresos No Operacionales', proy:Z65()},
@@ -876,6 +959,7 @@ function buildAllegria(params) {
       ]},
       { cat:"egr_nop", label:"Egresos No Operacionales", signo:-1, lines:[
         {label:"Pago Préstamos - Total", proy:calcPrestamosEmpresa("Allegria Foods"), formula:true, subLines:true},
+        {label:"Renovaciones", proy:calcRenovacionesEmpresa("Allegria Foods"), formula:true, subLines:true},
         {label:"Aportes de Capital", proy:Z65(), subLines:true},
         {label:"Leyes Sociales Laborales", proy:Z65()},
         {label:"Otros Egresos No Operacionales", proy:Z65()},
@@ -3240,6 +3324,44 @@ function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit,saldosBanc
                       );
                     });
                   })()}
+                  {/* Renovaciones sub-rows */}
+                  {line.subLines&&expandedSubs[line.label]&&line.label==="Renovaciones"&&(()=>{
+                    const desgloseRen = calcRenovacionesDesglose(empNombre, creditosData);
+                    return Object.entries(desgloseRen).map(([acreedor, proyArr])=>(
+                      <tr key={`ren-${acreedor}`} style={{borderBottom:`1px solid ${C.border}11`,background:`${C.orange}06`}}>
+                        <td style={{padding:"4px 14px 4px 28px",fontSize:10,position:"sticky",left:0,
+                          background:`${C.orange}06`,zIndex:1,borderRight:`1px solid ${C.border}`,color:C.muted}}>
+                          <div style={{display:"flex",alignItems:"center",gap:4}}>
+                            <span style={{color:C.orange,fontSize:9}}>↺</span>
+                            <span style={{fontWeight:600}}>{acreedor}</span>
+                          </div>
+                        </td>
+                        {colStructure.map(({season:s,collapsed,cols})=>{
+                          if(collapsed){
+                            const tot=s.indices.reduce((a,i)=>a+(proyArr[i]||0),0);
+                            return <td key={s.key} style={{padding:"4px 6px",textAlign:"right",fontSize:9,
+                              color:tot?C.orange:C.muted2,fontWeight:tot?700:400,
+                              borderLeft:`2px solid ${C.border2}`}}>{tot?$$(tot):"—"}</td>;
+                          }
+                          return cols.map((col,ci)=>{
+                            const raw=proyArr[col.idx]||0;
+                            const disp=col.isTotalMes||col.type==="month"||col.type==="month_collapsed"||col.isLastInMonth?raw:0;
+                            const isFirst=col.isFirstInSeason||col.isFirstInMonth;
+                            return (
+                              <td key={`ren-${acreedor}-${col.mes||""}-${ci}`}
+                                style={{padding:"4px 5px",textAlign:"right",fontSize:9,
+                                  background:col.isTotalMes?`${C.yellow}12`:`${C.orange}06`,
+                                  borderLeft:col.isFirstInSeason?`2px solid ${C.border2}`:isFirst?`1px solid ${C.border}44`:`1px solid ${C.border}11`}}>
+                                <span style={{color:disp?C.orange:C.muted2,fontWeight:disp?700:400}}>
+                                  {disp?$$(disp):"—"}
+                                </span>
+                              </td>
+                            );
+                          });
+                        })}
+                      </tr>
+                    ));
+                  })()}
                   {/* For CxC/Capital Calls: use saved subLines from Supabase */}
                   {line.subLines&&expandedSubs[line.label]&&!line.label.includes("Préstamos")&&(subLines[line.label]||[]).map((sl,sli)=>{
                     const slLabel=typeof sl==="string"?sl:sl.label;
@@ -3693,7 +3815,15 @@ function Creditos({empresas, creditosData=CREDITOS_DEFAULT, onSaveCreditos, canE
   const [filtPagado,setFiltPagado]=useState("Todos"); // "Todos" | "Pendientes" | "Pagados"
   const [modal,setModal]=useState(false);
   const [editId,setEditId]=useState(null);
-  const EMPTY_FORM = {empresa:"",acreedor:"",tipo_inst:"",monto:"",f_venc:"",tipo_cr:"Bullet",tasa:"",cuota:""};
+  const EMPTY_FORM = {
+    empresa:"",acreedor:"",tipo_inst:"",monto:"",f_venc:"",tipo_cr:"Bullet",tasa:"",cuota:"",
+    // Renovación
+    renovable:false,
+    forma_pago:"Bullet",        // Mensual | Trimestral | Semestral | Anual | Bullet
+    tasa_anual:"",              // % tasa anual
+    meses_pago:[],              // meses específicos de pago ["Jun","Nov"]
+    cuota_renovacion:"",        // monto por cuota en renovación
+  };
   const [form,setForm]=useState(EMPTY_FORM);
 
   function openNew(){ setForm(EMPTY_FORM); setEditId(null); setModal(true); }
@@ -3782,7 +3912,7 @@ function Creditos({empresas, creditosData=CREDITOS_DEFAULT, onSaveCreditos, canE
         <div style={{overflowX:"auto"}}>
           <table style={{width:"100%",borderCollapse:"collapse",fontSize:11}}>
             <thead><tr style={{background:C.bg2}}>
-              {["#","Empresa","Acreedor","Tipo","Monto","Cuota","Vencimiento","Tasa",...(canEdit?["Acciones"]:[])
+              {["#","Empresa","Acreedor","Tipo","Monto","Cuota","Vencimiento","Tasa","Renovación",...(canEdit?["Acciones"]:[])
               ].map(h=><th key={h} style={{padding:"8px 12px",fontWeight:600,fontSize:10,color:C.muted,textTransform:"uppercase",borderBottom:`1px solid ${C.border}`,textAlign:["Monto","Cuota","Tasa"].includes(h)?"right":"left",whiteSpace:"nowrap"}}>{h}</th>)}
             </tr></thead>
             <tbody>
@@ -3799,10 +3929,24 @@ function Creditos({empresas, creditosData=CREDITOS_DEFAULT, onSaveCreditos, canE
                     <td style={{padding:"7px 12px"}}><span style={{fontSize:9,padding:"2px 7px",borderRadius:20,background:C.card2,border:`1px solid ${C.border}`,color:C.muted}}>{c.tipo_cr}</span></td>
                     <td style={{padding:"7px 12px",textAlign:"right",fontWeight:700,color:c.pagado?C.green:C.red}}>
                       {c.pagado?<span>✓ {$$(c.monto)}</span>:$$(c.monto)}
+                    {c.renovable&&<span style={{fontSize:9,marginLeft:4,background:`${C.orange}22`,color:C.orange,borderRadius:10,padding:"1px 5px"}}>🔄 Renov.</span>}
                     </td>
                     <td style={{padding:"7px 12px",textAlign:"right",color:C.yellow}}>{$$(c.cuota)}</td>
                     <td style={{padding:"7px 12px",whiteSpace:"nowrap",color:vencProx?C.orange:C.muted}}>{fmtDate(c.f_venc)}{vencProx&&" ⚠️"}</td>
                     <td style={{padding:"7px 12px",textAlign:"right",color:C.muted}}>{c.tasa||"—"}</td>
+                    <td style={{padding:"7px 10px",textAlign:"center",fontSize:10}}>
+                      {c.renovable ? (
+                        <div>
+                          <div style={{color:C.orange,fontWeight:700}}>🔄 {c.forma_pago||"Bullet"}</div>
+                          {c.meses_pago&&c.meses_pago.length>0&&(
+                            <div style={{color:C.muted,fontSize:9}}>{c.meses_pago.join(",")}</div>
+                          )}
+                          {c.cuota_renovacion&&(
+                            <div style={{color:C.red,fontSize:9}}>{$$(Number(c.cuota_renovacion))}/cuota</div>
+                          )}
+                        </div>
+                      ) : <span style={{color:C.muted2}}>—</span>}
+                    </td>
                     {canEdit&&(
                       <td style={{padding:"6px 8px",whiteSpace:"nowrap"}}>
                         <div style={{display:"flex",gap:4}}>
@@ -4030,6 +4174,68 @@ function Creditos({empresas, creditosData=CREDITOS_DEFAULT, onSaveCreditos, canE
                 </div>
               ))}
             </div>
+            {/* Sección Renovación */}
+            <div style={{padding:"12px 20px",borderTop:`1px solid ${C.border}`}}>
+              <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:8}}>
+                <label style={{display:"flex",alignItems:"center",gap:6,cursor:"pointer",fontSize:12,fontWeight:700,color:C.text}}>
+                  <input type="checkbox" checked={form.renovable||false}
+                    onChange={e=>setForm(p=>({...p,renovable:e.target.checked}))}
+                    style={{width:14,height:14}}/>
+                  🔄 Crédito Renovable
+                </label>
+                {form.renovable&&<span style={{fontSize:10,color:C.green,fontWeight:600}}>
+                  Al pagarse, genera cuotas de renovación en el flujo
+                </span>}
+              </div>
+              {form.renovable&&(
+                <div style={{background:`${C.green}08`,border:`1px solid ${C.green}33`,borderRadius:10,padding:"12px 14px"}}>
+                  <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:10,marginBottom:10}}>
+                    <div>
+                      <div style={{fontSize:10,color:C.muted,fontWeight:600,marginBottom:3}}>Forma de Pago</div>
+                      <select value={form.forma_pago||"Bullet"} onChange={e=>setForm(p=>({...p,forma_pago:e.target.value}))}
+                        style={{width:"100%",padding:"7px 10px",background:C.card2,border:`1px solid ${C.border}`,borderRadius:8,color:C.text,fontSize:12,outline:"none"}}>
+                        {["Bullet","Mensual","Trimestral","Semestral","Anual"].map(o=><option key={o}>{o}</option>)}
+                      </select>
+                    </div>
+                    <div>
+                      <div style={{fontSize:10,color:C.muted,fontWeight:600,marginBottom:3}}>Tasa Anual (%)</div>
+                      <input type="number" step="0.1" value={form.tasa_anual||""} onChange={e=>setForm(p=>({...p,tasa_anual:e.target.value}))}
+                        placeholder="Ej: 8.5"
+                        style={{width:"100%",padding:"7px 10px",background:C.card2,border:`1px solid ${C.border}`,borderRadius:8,color:C.text,fontSize:12,outline:"none",boxSizing:"border-box"}}/>
+                    </div>
+                    <div>
+                      <div style={{fontSize:10,color:C.muted,fontWeight:600,marginBottom:3}}>Cuota Renovación (USD)</div>
+                      <input type="number" value={form.cuota_renovacion||""} onChange={e=>setForm(p=>({...p,cuota_renovacion:e.target.value}))}
+                        placeholder="Monto por cuota"
+                        style={{width:"100%",padding:"7px 10px",background:C.card2,border:`1px solid ${C.border}`,borderRadius:8,color:C.text,fontSize:12,outline:"none",boxSizing:"border-box"}}/>
+                    </div>
+                  </div>
+                  <div>
+                    <div style={{fontSize:10,color:C.muted,fontWeight:600,marginBottom:6}}>Meses de Pago</div>
+                    <div style={{display:"flex",flexWrap:"wrap",gap:5}}>
+                      {["Ene","Feb","Mar","Abr","May","Jun","Jul","Ago","Sep","Oct","Nov","Dic"].map(m=>{
+                        const sel=(form.meses_pago||[]).includes(m);
+                        return (
+                          <button key={m} type="button"
+                            onClick={()=>setForm(p=>({...p,meses_pago:sel?(p.meses_pago||[]).filter(x=>x!==m):[...(p.meses_pago||[]),m]}))}
+                            style={{padding:"4px 10px",borderRadius:20,fontSize:11,fontWeight:600,cursor:"pointer",
+                              background:sel?C.green:C.card2,color:sel?"#fff":C.muted,
+                              border:`1px solid ${sel?C.green:C.border}`}}>
+                            {m}
+                          </button>
+                        );
+                      })}
+                    </div>
+                    <div style={{fontSize:10,color:C.muted,marginTop:5}}>
+                      {(form.meses_pago||[]).length>0
+                        ? `Pagos en: ${(form.meses_pago||[]).join(", ")}`
+                        : "Sin meses seleccionados — usa fecha de vencimiento"}
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+
             <div style={{padding:"12px 20px",borderTop:`1px solid ${C.border}`,
               display:"flex",gap:8,justifyContent:"flex-end"}}>
               <button onClick={()=>setModal(false)}
@@ -4805,7 +5011,11 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
             ...sec,
             lines: sec.lines.map(l=>{
               if(l.label!=="Pago Préstamos - Total") return l;
-              return {...l, proy: calcPrestamosEmpresa(empNombre, creditosData)};
+              if(l.label==="Pago Préstamos - Total")
+                return {...l, proy: calcPrestamosEmpresa(empNombre, creditosData)};
+              if(l.label==="Renovaciones")
+                return {...l, proy: calcRenovacionesEmpresa(empNombre, creditosData)};
+              return l;
             })
           };
         })
