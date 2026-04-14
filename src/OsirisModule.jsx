@@ -140,7 +140,6 @@ function trimPagoVivero(trimEntrega, añoEntrega) {
 }
 
 // % anticipo por defecto según tipo pago vivero
-const PCT_ANTICIPO_DEFAULT = 0.60; // 60% en OC, 40% en despacho
 
 // Helper: selector cliente en modales — desplegable desde maestro + autocompletado país
 function SelectorCliente({form,setForm,clientes}){
@@ -521,7 +520,6 @@ function TotalPedidos({data,setData,rpData,setRpData,rcData,setRcData,fvData,set
       const montoDespac = total * (1 - pctAntic);
       const trimPago = pedido.trimPagoVivero || trimPagoVivero(pedido.trimEntrega,pedido.añoEntrega).trim;
       const añoPago  = pedido.añoPagoVivero  || trimPagoVivero(pedido.trimEntrega,pedido.añoEntrega).año;
-      const now = Date.now();
       setFvData(prev=>[...prev,
         {
           id:`fv_oc_${tpId}`,tpId,
@@ -576,7 +574,6 @@ function TotalPedidos({data,setData,rpData,setRpData,rcData,setRcData,fvData,set
     setForm(formVacio);
   }
 
-  const TRIM_LABEL = ["","T1 Ene-Mar","T2 Abr-Jun","T3 Jul-Sep","T4 Oct-Dic"];
 
   return (
     <div>
