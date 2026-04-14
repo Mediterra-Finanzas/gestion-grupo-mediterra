@@ -276,218 +276,379 @@ function calcAllegria(params) {
 // EMPRESAS ESTÁTICAS
 // ═══════════════════════════════════════════════════════════════════
 const EMPRESAS_STATIC = {
-  "Mediterra": {
-    emoji:"🏢", color:"#1d4ed8", saldo_ini:3601, desc:"Holding · Inversiones Mediterra SpA",
+  'Mediterra': {
+    emoji:'🏢', color:'#1d4ed8', saldo_ini:3601, desc:'Holding · Inversiones Mediterra SpA',
     sections:[
-      { cat:"ing_op", label:"Ingresos Operacionales", signo:1, lines:[
-        {label:"Fee Administración",                  proy:ext([0,80000,80000,80000,87500,87500,87500,87500,87500,87500,87500,87500,87500,87500,87500,87500,87500,87500,87500,87500,87500,87500,87500,87500].concat(Array(41).fill(87500)))},
-        {label:"Cuentas por Cobrar",                  proy:Z65()},
+      { cat:'ing_op', label:'Ingresos Operacionales', signo:1, lines:[
+        {label:'Fee Administración', proy:ext([0,80000,80000,80000,87500,87500,87500,87500,87500,87500,87500,87500,87500,87500,87500,87500,87500,87500,87500,87500,87500,87500,87500,87500].concat(Array(41).fill(87500)))},
+        {label:'Cuentas por Cobrar', proy:Z65(),subLines:true},
       ]},
-      { cat:"egr_var", label:"Egresos Operacionales", signo:-1, lines:[
-        {label:"Costos Variables Operacionales",       proy:Z65()},
+      { cat:'egr_var', label:'Egresos Operacionales', signo:-1, lines:[
+        {label:'Costos Variables Operacionales', proy:Z65()},
       ]},
-      { cat:"egr_fijo", label:"Costos Fijos / SG&A", signo:-1, lines:[
-        {label:"Remuneración Administración",          proy:ext(Array(24).fill(50000).concat(Array(41).fill(0)))},
-        {label:"Arriendo Vehículos",                   proy:Z65()},
-        {label:"Arriendo Oficina",                     proy:Z65()},
-        {label:"Gastos Legales",                       proy:Z65()},
-        {label:"Fee Administración",                   proy:Z65()},
-        {label:"Gastos Viajes Nacionales",             proy:Z65()},
-        {label:"Gastos Viajes Internacionales",        proy:Z65()},
-        {label:"Alojamiento",                          proy:Z65()},
-        {label:"Gastos de Representación",             proy:Z65()},
-        {label:"Almuerzos",                            proy:Z65()},
-        {label:"Patentes Comerciales",                 proy:Z65()},
-        {label:"Seguros",                              proy:Z65()},
+      { cat:'egr_fijo', label:'Costos Fijos / SG&A', signo:-1, lines:[
+        {label:'Remuneración Administración', proy:ext(Array(24).fill(50000).concat(Array(41).fill(0)))},
+        {label:'Arriendo Vehículos', proy:Z65()},
+        {label:'Arriendo Oficina', proy:Z65()},
+        {label:'Gastos Legales', proy:Z65()},
+        {label:'Fee Administración', proy:Z65()},
+        {label:'Gastos Viajes Nacionales', proy:Z65()},
+        {label:'Gastos Viajes Internacionales', proy:Z65()},
+        {label:'Alojamiento', proy:Z65()},
+        {label:'Gastos de Representación', proy:Z65()},
+        {label:'Almuerzos', proy:Z65()},
+        {label:'Patentes Comerciales', proy:Z65()},
+        {label:'Seguros', proy:Z65()},
       ]},
-      { cat:"imp", label:"Impuestos", signo:-1, lines:[
-        {label:"Impuestos Mensuales",                  proy:Z65()},
-        {label:"Impuestos Anuales",                    proy:Z65()},
+      { cat:'imp', label:'Impuestos', signo:-1, lines:[
+        {label:'Impuestos Mensuales', proy:Z65()},
+        {label:'Impuestos Anuales', proy:Z65()},
       ]},
-      { cat:"ing_nop", label:"Ingresos No Operacionales", signo:1, lines:[
-        {label:"Capital Calls",                        proy:Z65()},
-        {label:"Ingresos Financiamiento",              proy:Z65()},
-        {label:"Otros Ingresos No Operacionales",      proy:Z65()},
+      { cat:'ing_nop', label:'Ingresos No Operacionales', signo:1, lines:[
+        {label:'Capital Calls', proy:Z65()},
+        {label:'Ingresos Financiamiento', proy:Z65()},
+        {label:'Otros Ingresos No Operacionales', proy:Z65()},
       ]},
-      { cat:"egr_nop", label:"Egresos No Operacionales", signo:-1, lines:[
-        {label:"Pago Préstamos - Total",               proy:ext([32000,32000,32000,131300,32000,32000,101300,32000,32000,101300,32000,32000,131300,32000,32000,131300,32000,32000,131300,32000,32000,131300,32000,32000].concat(Array(41).fill(0)))},
-        {label:"  └ del cual: Intereses",              proy:Z65()},
-        {label:"Privado Particular",                   proy:Z65()},
-        {label:"Leyes Sociales Laborales",             proy:Z65()},
-        {label:"Pago F-29",                            proy:Z65()},
+      { cat:'egr_nop', label:'Egresos No Operacionales', signo:-1, lines:[
+        {label:'Pago Préstamos - Total', proy:ext([32000,32000,32000,131300,32000,32000,101300,32000,32000,101300,32000,32000,131300,32000,32000,131300,32000,32000,131300,32000,32000,131300,32000,32000].concat(Array(41).fill(0))),subLines:true},
+        {label:'  └ del cual: Intereses', proy:Z65()},
+        {label:'Privado Particular', proy:Z65()},
+        {label:'Leyes Sociales Laborales', proy:Z65()},
+        {label:'Pago F-29', proy:Z65()},
       ]},
     ],
   },
-
-  "Allegria Service": {
-    emoji:"🏭", color:"#92400e", saldo_ini:5519, desc:"Procesamiento · Packing",
+  'Allegria Service': {
+    emoji:'🏭', color:'#92400e', saldo_ini:5519, desc:'Procesamiento · Packing',
     sections:[
-      { cat:"ing_op", label:"Ingresos Operacionales", signo:1, lines:[
-        {label:"Proceso de Cerezas",   proy:ext([0,0,0,0,0,0,0,0,0,240000,240000,0,1048000,0,0,240000,0,0,0,0,240000,0,0,240000])},
-        {label:"Procesos de Ciruelas", proy:Z65()},
-        {label:"Cuentas por Cobrar",   proy:Z65()},
+      { cat:'ing_op', label:'Ingresos Operacionales', signo:1, lines:[
+        {label:'Proceso de Cerezas', proy:ext([0,0,0,0,0,0,0,0,0,240000,240000,0,1048000,0,0,240000,240000,0,1048000,0,0,240000,240000,0].concat(Array(41).fill(0)))},
+        {label:'Procesos de Ciruelas', proy:Z65()},
+        {label:'Cuentas por Cobrar', proy:Z65(),subLines:true},
       ]},
-      { cat:"egr_var", label:"Costos Variables", signo:-1, lines:[
-        {label:"Costo Directo Variable de Proceso", proy:Z65()},
+      { cat:'egr_var', label:'Egresos Operacionales', signo:-1, lines:[
+        {label:'Costo Directo Variable de Proceso', proy:Z65()},
       ]},
-      { cat:"egr_fijo", label:"Costos Fijos / SG&A", signo:-1, lines:[
-        {label:"Remuneración Administración", proy:Z65()},
-        {label:"Fee Administración", proy:Z65()},
-        {label:"Gastos Legales", proy:Z65()},
+      { cat:'egr_fijo', label:'Costos Fijos / SG&A', signo:-1, lines:[
+        {label:'Remuneración Administración', proy:Z65()},
+        {label:'Arriendo Vehículos', proy:Z65()},
+        {label:'Arriendo Oficina', proy:Z65()},
+        {label:'Gastos Legales', proy:Z65()},
+        {label:'Fee Administración', proy:Z65()},
+        {label:'Gastos Viajes Nacionales', proy:Z65()},
+        {label:'Gastos Viajes Internacionales', proy:Z65()},
+        {label:'Alojamiento', proy:Z65()},
+        {label:'Gastos de Representación', proy:Z65()},
+        {label:'Almuerzos', proy:Z65()},
+        {label:'Patentes Comerciales', proy:Z65()},
+        {label:'Seguros', proy:Z65()},
       ]},
-      { cat:"egr_nop", label:"Egresos No Operacionales", signo:-1, lines:[
-        {label:"Pago Leasing BCI", proy:Z65()},
-        {label:"Leyes Sociales Laborales", proy:Z65()},
+      { cat:'imp', label:'Impuestos', signo:-1, lines:[
+        {label:'Impuestos Mensuales', proy:Z65()},
+        {label:'Impuestos Anuales', proy:Z65()},
+      ]},
+      { cat:'ing_nop', label:'Ingresos No Operacionales', signo:1, lines:[
+        {label:'Capital Calls', proy:Z65()},
+        {label:'Ingresos Financiamiento', proy:Z65()},
+        {label:'Otros Ingresos No Operacionales', proy:Z65()},
+      ]},
+      { cat:'egr_nop', label:'Egresos No Operacionales', signo:-1, lines:[
+        {label:'Pago Préstamos - Total', proy:Z65(),subLines:true},
+        {label:'  BCI', proy:Z65()},
+        {label:'  └ del cual: Intereses', proy:Z65()},
+        {label:'Leyes Sociales Laborales', proy:Z65()},
+        {label:'Otros Egresos No Operacionales', proy:Z65()},
       ]},
     ],
   },
-  "Frisku Foods": {
-    emoji:"🚢", color:"#0e7490", saldo_ini:132828, desc:"Carga contenedores · Logística",
+  'Frisku Foods': {
+    emoji:'🚢', color:'#0e7490', saldo_ini:132828, desc:'Carga contenedores · Logística',
     sections:[
-      { cat:"ing_op", label:"Ingresos Operacionales", signo:1, lines:[
-        {label:"Ingreso Carga Contenedores", proy:ext([0,0,0,0,50500,35350,101000,50500,35350,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0])},
-        {label:"Otros Ingresos", proy:Z65()},
-        {label:"Cuentas por Cobrar", proy:Z65()},
+      { cat:'ing_op', label:'Ingresos Operacionales', signo:1, lines:[
+        {label:'Ingreso Carga Contenedores', proy:ext([0,0,0,0,50500,35350,101000,50500,35350,0,0,0,50500,35350,101000,50500,35350,0,0,0,50500,35350,101000,0].concat(Array(41).fill(0)))},
+        {label:'Otros Ingresos', proy:Z65()},
+        {label:'Cuentas por Cobrar', proy:Z65(),subLines:true},
       ]},
-      { cat:"egr_var", label:"Costos Variables", signo:-1, lines:[
-        {label:"Costo Directo Variable", proy:Z65()},
+      { cat:'egr_var', label:'Egresos Operacionales', signo:-1, lines:[
+        {label:'Costo Directo Variable', proy:Z65()},
       ]},
-      { cat:"egr_fijo", label:"Costos Fijos / SG&A", signo:-1, lines:[
-        {label:"Remuneración Administración", proy:ext(Array(24).fill(25274))},
-        {label:"Fee Administración", proy:Z65()},
-        {label:"Gastos Legales", proy:Z65()},
+      { cat:'egr_fijo', label:'Costos Fijos / SG&A', signo:-1, lines:[
+        {label:'Remuneración Administración', proy:ext(Array(24).fill(25274).concat(Array(41).fill(0)))},
+        {label:'Arriendo Vehículos', proy:Z65()},
+        {label:'Arriendo Oficina', proy:Z65()},
+        {label:'Gastos Legales', proy:Z65()},
+        {label:'Fee Administración', proy:Z65()},
+        {label:'Gastos Viajes Nacionales', proy:Z65()},
+        {label:'Gastos Viajes Internacionales', proy:Z65()},
+        {label:'Alojamiento', proy:Z65()},
+        {label:'Gastos de Representación', proy:Z65()},
+        {label:'Almuerzos', proy:Z65()},
+        {label:'Patentes Comerciales', proy:Z65()},
+        {label:'Seguros', proy:Z65()},
       ]},
-      { cat:"egr_nop", label:"Egresos No Operacionales", signo:-1, lines:[
-        {label:"Banco Security (cuotas)", proy:ext([0,109857,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0])},
-        {label:"Banco BICE (bullet)", proy:Z65()},
-        {label:"Leyes Sociales Laborales", proy:Z65()},
+      { cat:'imp', label:'Impuestos', signo:-1, lines:[
+        {label:'Impuestos Mensuales', proy:Z65()},
+        {label:'Impuestos Anuales', proy:Z65()},
+      ]},
+      { cat:'ing_nop', label:'Ingresos No Operacionales', signo:1, lines:[
+        {label:'Capital Calls', proy:Z65()},
+        {label:'Ingresos Financiamiento', proy:Z65()},
+        {label:'Otros Ingresos No Operacionales', proy:Z65()},
+      ]},
+      { cat:'egr_nop', label:'Egresos No Operacionales', signo:-1, lines:[
+        {label:'Pago Préstamos - Total', proy:ext([0,109857,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0].concat(Array(41).fill(0))),subLines:true},
+        {label:'  Banco Security', proy:Z65()},
+        {label:'  Banco BICE', proy:Z65()},
+        {label:'  └ del cual: Intereses', proy:Z65()},
+        {label:'Leyes Sociales Laborales', proy:Z65()},
+        {label:'Otros Egresos No Operacionales', proy:Z65()},
       ]},
     ],
   },
-  "Frisku Peru": {
-    emoji:"🇵🇪", color:"#6d28d9", saldo_ini:1251, desc:"Operaciones · Perú",
+  'Frisku Peru': {
+    emoji:'🇵🇪', color:'#6d28d9', saldo_ini:1251, desc:'Operaciones · Perú',
     sections:[
-      { cat:"ing_op", label:"Ingresos Operacionales", signo:1, lines:[
-        {label:"Otros Ingresos Operacionales", proy:Z65()},
-        {label:"Cuentas por Cobrar", proy:Z65()},
+      { cat:'ing_op', label:'Ingresos Operacionales', signo:1, lines:[
+        {label:'Otros Ingresos Operacionales', proy:Z65()},
+        {label:'Cuentas por Cobrar', proy:Z65(),subLines:true},
       ]},
-      { cat:"egr_var", label:"Costos Variables", signo:-1, lines:[
-        {label:"Costos Variables Operacionales", proy:Z65()},
+      { cat:'egr_var', label:'Egresos Operacionales', signo:-1, lines:[
+        {label:'Costos Variables Operacionales', proy:Z65()},
       ]},
-      { cat:"egr_fijo", label:"Costos Fijos / SG&A", signo:-1, lines:[
-        {label:"Remuneración Administración", proy:Z65()},
-        {label:"Fee Administración", proy:Z65()},
-        {label:"Gastos Legales", proy:Z65()},
+      { cat:'egr_fijo', label:'Costos Fijos / SG&A', signo:-1, lines:[
+        {label:'Remuneración Administración', proy:Z65()},
+        {label:'Arriendo Vehículos', proy:Z65()},
+        {label:'Arriendo Oficina', proy:Z65()},
+        {label:'Gastos Legales', proy:Z65()},
+        {label:'Fee Administración', proy:Z65()},
+        {label:'Gastos Viajes Nacionales', proy:Z65()},
+        {label:'Gastos Viajes Internacionales', proy:Z65()},
+        {label:'Alojamiento', proy:Z65()},
+        {label:'Gastos de Representación', proy:Z65()},
+        {label:'Almuerzos', proy:Z65()},
+        {label:'Patentes Comerciales', proy:Z65()},
+        {label:'Seguros', proy:Z65()},
+      ]},
+      { cat:'imp', label:'Impuestos', signo:-1, lines:[
+        {label:'Impuestos Mensuales', proy:Z65()},
+        {label:'Impuestos Anuales', proy:Z65()},
+      ]},
+      { cat:'ing_nop', label:'Ingresos No Operacionales', signo:1, lines:[
+        {label:'Capital Calls', proy:Z65()},
+        {label:'Ingresos Financiamiento', proy:Z65()},
+        {label:'Otros Ingresos No Operacionales', proy:Z65()},
+      ]},
+      { cat:'egr_nop', label:'Egresos No Operacionales', signo:-1, lines:[
+        {label:'Pago Préstamos - Total', proy:Z65(),subLines:true},
+        {label:'  └ del cual: Intereses', proy:Z65()},
+        {label:'Leyes Sociales Laborales', proy:Z65()},
+        {label:'Otros Egresos No Operacionales', proy:Z65()},
       ]},
     ],
   },
-  "Allpa Farms": {
-    emoji:"🌸", color:"#dc2626", saldo_ini:1828, desc:"Farming cerezas · Chile",
+  'Allpa Farms': {
+    emoji:'🌸', color:'#dc2626', saldo_ini:1828, desc:'Farming cerezas · Chile',
     sections:[
-      { cat:"ing_op", label:"Ingresos Operacionales", signo:1, lines:[
-        {label:"Ingreso Exportación Cerezas", proy:ext([0,0,0,0,0,0,0,0,152312,304624,0,0,913872,0,0,304624,0,0,0,0,320000,576000,0,0])},
-        {label:"Ingreso Cerezas Nacionales",  proy:Z65()},
-        {label:"Otros Ingresos",              proy:Z65()},
-        {label:"Cuentas por Cobrar",          proy:Z65()},
+      { cat:'ing_op', label:'Ingresos Operacionales', signo:1, lines:[
+        {label:'Ingreso Exportación Cerezas', proy:ext([0,0,0,0,0,0,0,0,152312,304624,0,0,913872,0,0,152312,304624,0,913872,0,0,152312,304624,0].concat(Array(41).fill(0)))},
+        {label:'Ingreso Cerezas Nacionales', proy:Z65()},
+        {label:'Otros Ingresos', proy:Z65()},
+        {label:'Cuentas por Cobrar', proy:Z65(),subLines:true},
       ]},
-      { cat:"egr_var", label:"Costos Variables", signo:-1, lines:[
-        {label:"Remuneración Cosecha",          proy:Z65()},
-        {label:"Contratista Cosecha",           proy:Z65()},
-        {label:"Transporte",                    proy:Z65()},
-        {label:"Remuneración Operacional",      proy:Z65()},
-        {label:"Electricidad",                  proy:Z65()},
-        {label:"Servicio de Terceros",          proy:Z65()},
-        {label:"Flete Nacional",                proy:Z65()},
-        {label:"Mantención Máquinas y Equipos", proy:Z65()},
-        {label:"Mantención Vehículos",          proy:Z65()},
-        {label:"Mantención de Campo",           proy:Z65()},
+      { cat:'egr_var', label:'Egresos Operacionales', signo:-1, lines:[
+        {label:'Remuneración Cosecha', proy:Z65()},
+        {label:'Contratista Cosecha', proy:Z65()},
+        {label:'Transporte', proy:Z65()},
+        {label:'Remuneración Operacional', proy:Z65()},
+        {label:'Electricidad', proy:Z65()},
+        {label:'Servicio de Terceros', proy:Z65()},
+        {label:'Flete Nacional', proy:Z65()},
+        {label:'Mantención de Máquinas y Equipos', proy:Z65()},
+        {label:'Mantención Vehículos', proy:Z65()},
+        {label:'Mantención de Campo', proy:Z65()},
+        {label:'Mantención Oficinas', proy:Z65()},
+        {label:'Arriendo de Maquinaria', proy:Z65()},
+        {label:'Arriendo de Equipos', proy:Z65()},
+        {label:'Arriendo de Vehículos', proy:Z65()},
+        {label:'Combustibles y Lubricantes', proy:Z65()},
+        {label:'Ferretería', proy:Z65()},
+        {label:'Mantención de Huerto', proy:Z65()},
       ]},
-      { cat:"egr_fijo", label:"Costos Fijos / SG&A", signo:-1, lines:[
-        {label:"Remuneración Administración", proy:ext([0,0,0,0,0,0,0,0,0,0,14400,14400,14400,14400,14400,14400,14400,14400,14400,14400,14400,14400,14400,14400])},
-        {label:"Asesoría Técnica",   proy:Z65()},
-        {label:"Arriendo Oficina",   proy:Z65()},
-        {label:"Fee Administración", proy:ext([0,0,0,0,0,0,0,0,0,0,0,0,371696,0,0,0,0,0,0,0,0,0,0,0])},
+      { cat:'egr_fijo', label:'Costos Fijos / SG&A', signo:-1, lines:[
+        {label:'Remuneración Administración', proy:ext([0,0,0,0,0,0,0,0,0,0,14400,14400,14400,14400,14400,14400,14400,14400,14400,14400,14400,14400,14400,14400].concat(Array(41).fill(0)))},
+        {label:'Honorarios Profesionales', proy:Z65()},
+        {label:'Gastos de Representación', proy:Z65()},
+        {label:'Artículos E Insumos de Oficina', proy:Z65()},
+        {label:'Arriendo Oficina', proy:Z65()},
+        {label:'Seguros', proy:Z65()},
+        {label:'Asesoría Técnica', proy:Z65()},
+        {label:'Asesoría Legal', proy:Z65()},
+        {label:'Asesoría Contabilidad', proy:Z65()},
+        {label:'Gastos Notariales', proy:Z65()},
+        {label:'Gasto Alojamiento - Traslado - Pasajes', proy:Z65()},
+        {label:'Tag - Peaje', proy:Z65()},
+        {label:'Gasto Internet - Sist Informáticos', proy:Z65()},
+        {label:'Telefonía - Celular', proy:Z65()},
+        {label:'Electricidad', proy:Z65()},
+        {label:'Fee Administración', proy:ext([0,0,0,0,0,0,0,0,0,0,0,0,371696,0,0,0,0,0,371696,0,0,0,0,0].concat(Array(41).fill(0)))},
+        {label:'Certificaciones', proy:Z65()},
+        {label:'Cafetería', proy:Z65()},
+        {label:'Correo - Gasto Despacho', proy:Z65()},
+        {label:'Estacionamiento', proy:Z65()},
+        {label:'Aseo', proy:Z65()},
+        {label:'Gastos Generales', proy:Z65()},
+        {label:'Patentes', proy:Z65()},
       ]},
-      { cat:"egr_nop", label:"Egresos No Operacionales", signo:-1, lines:[
-        {label:"Banco de Chile (hipotecario)", proy:ext([0,0,0,476021,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0])},
-        {label:"Leyes Sociales Laborales",    proy:Z65()},
+      { cat:'imp', label:'Impuestos', signo:-1, lines:[
+        {label:'Impuestos Mensuales', proy:Z65()},
+        {label:'Impuestos Anuales', proy:Z65()},
+      ]},
+      { cat:'ing_nop', label:'Ingresos No Operacionales', signo:1, lines:[
+        {label:'Capital Calls', proy:Z65()},
+        {label:'Ingresos Financiamiento', proy:Z65()},
+        {label:'Otros Ingresos No Operacionales', proy:Z65()},
+      ]},
+      { cat:'egr_nop', label:'Egresos No Operacionales', signo:-1, lines:[
+        {label:'Pago Préstamos - Total', proy:ext([0,0,0,476021,0,0,0,0,0,0,0,0,476021,0,0,476021,0,0,476021,0,0,476021,0,0].concat(Array(41).fill(0))),subLines:true},
+        {label:'  Banco de Chile', proy:Z65()},
+        {label:'  └ del cual: Intereses', proy:Z65()},
+        {label:'Leyes Sociales Laborales', proy:Z65()},
+        {label:'Otros Egresos No Operacionales', proy:Z65()},
       ]},
     ],
   },
-  "Allpa Farms Perú": {
-    emoji:"🫐", color:"#7c3aed", saldo_ini:208000, desc:"Farming arándanos · Perú",
+  'Allpa Farms Perú': {
+    emoji:'🫐', color:'#7c3aed', saldo_ini:208000, desc:'Farming arándanos · Perú',
     sections:[
-      { cat:"ing_op", label:"Ingresos Operacionales", signo:1, lines:[
-        {label:"Exportación Arándanos",    proy:Z65()},
-        {label:"Venta Arándanos Nacional", proy:Z65()},
-        {label:"Otros Ingresos",           proy:Z65()},
-        {label:"Cuentas por Cobrar",       proy:Z65()},
+      { cat:'ing_op', label:'Ingresos Operacionales', signo:1, lines:[
+        {label:'Exportación Arándanos', proy:Z65()},
+        {label:'Venta Arándanos Nacional', proy:Z65()},
+        {label:'Otros Ingresos', proy:Z65()},
+        {label:'Cuentas por Cobrar', proy:Z65(),subLines:true},
       ]},
-      { cat:"egr_var", label:"Costos Variables", signo:-1, lines:[
-        {label:"Costo Fruta Exportación",        proy:Z65()},
-        {label:"Materiales",                     proy:Z65()},
-        {label:"Servicios de Packing",           proy:Z65()},
-        {label:"Seguros Exportación",            proy:Z65()},
-        {label:"Servicios Terceros Exportación", proy:Z65()},
-        {label:"Arriendo Bodegas",               proy:Z65()},
+      { cat:'egr_var', label:'Egresos Operacionales', signo:-1, lines:[
+        {label:'Costo Fruta Exportación', proy:Z65()},
+        {label:'Materiales', proy:Z65()},
+        {label:'Servicios de Packing', proy:Z65()},
+        {label:'Seguros Exportación', proy:Z65()},
+        {label:'Servicios Terceros Exportación', proy:Z65()},
+        {label:'Arriendo Bodegas', proy:Z65()},
       ]},
-      { cat:"egr_fijo", label:"Costos Fijos / SG&A", signo:-1, lines:[
-        {label:"Remuneración Administración", proy:Z65()},
-        {label:"Fee Administración",          proy:Z65()},
-        {label:"Gastos Legales",              proy:Z65()},
+      { cat:'egr_fijo', label:'Costos Fijos / SG&A', signo:-1, lines:[
+        {label:'Remuneración Administración', proy:Z65()},
+        {label:'Arriendo Vehículos', proy:Z65()},
+        {label:'Arriendo Oficina', proy:Z65()},
+        {label:'Gastos Legales', proy:Z65()},
+        {label:'Fee Administración', proy:Z65()},
+        {label:'Gastos Viajes Nacionales', proy:Z65()},
+        {label:'Gastos Viajes Internacionales', proy:Z65()},
+        {label:'Alojamiento', proy:Z65()},
+        {label:'Gastos de Representación', proy:Z65()},
+        {label:'Almuerzos', proy:Z65()},
+        {label:'Patentes Comerciales', proy:Z65()},
+        {label:'Seguros', proy:Z65()},
+      ]},
+      { cat:'imp', label:'Impuestos', signo:-1, lines:[
+        {label:'Impuestos Mensuales', proy:Z65()},
+        {label:'Impuestos Anuales', proy:Z65()},
+      ]},
+      { cat:'ing_nop', label:'Ingresos No Operacionales', signo:1, lines:[
+        {label:'Capital Calls', proy:Z65()},
+        {label:'Ingresos Financiamiento', proy:Z65()},
+        {label:'Otros Ingresos No Operacionales', proy:Z65()},
+      ]},
+      { cat:'egr_nop', label:'Egresos No Operacionales', signo:-1, lines:[
+        {label:'Pago Préstamos - Total', proy:Z65(),subLines:true},
+        {label:'  └ del cual: Intereses', proy:Z65()},
+        {label:'Leyes Sociales Laborales', proy:Z65()},
+        {label:'Otros Egresos No Operacionales', proy:Z65()},
       ]},
     ],
   },
-  "Integrity Farms": {
-    emoji:"🌾", color:"#15803d", saldo_ini:604, desc:"Administración agrícola (US$2.000/há)",
+  'Integrity Farms': {
+    emoji:'🌾', color:'#15803d', saldo_ini:604, desc:'Administración agrícola (US$2.000/há)',
     sections:[
-      { cat:"ing_op", label:"Ingresos Operacionales", signo:1, lines:[
-        {label:"Ingreso Administración (us$2.000/ha)", proy:ext([0,172000,0,0,0,0,0,0,0,0,172000,0,172000,0,172000,0,0,0,0,0,172000,0,172000,0])},
-        {label:"Otros Ingresos",     proy:Z65()},
-        {label:"Cuentas por Cobrar", proy:Z65()},
+      { cat:'ing_op', label:'Ingresos Operacionales', signo:1, lines:[
+        {label:'Ingreso Administración (us$2.000/ha)', proy:ext([0,172000,0,0,0,0,0,0,0,0,172000,0,172000,0,0,0,0,0,172000,0,0,0,0,0].concat(Array(41).fill(0)))},
+        {label:'Otros Ingresos', proy:Z65()},
+        {label:'Cuentas por Cobrar', proy:Z65(),subLines:true},
       ]},
-      { cat:"egr_var", label:"Costos Variables", signo:-1, lines:[
-        {label:"Costo Directo Variable", proy:Z65()},
+      { cat:'egr_var', label:'Egresos Operacionales', signo:-1, lines:[
+        {label:'Costo Directo Variable', proy:Z65()},
       ]},
-      { cat:"egr_fijo", label:"Costos Fijos / SG&A", signo:-1, lines:[
-        {label:"Remuneración Administración", proy:Z65()},
-        {label:"Arriendo Vehículos",          proy:Z65()},
-        {label:"Arriendo Oficina",            proy:Z65()},
-        {label:"Fee Administración",          proy:Z65()},
-        {label:"Gastos Viajes Nacionales",    proy:Z65()},
+      { cat:'egr_fijo', label:'Costos Fijos / SG&A', signo:-1, lines:[
+        {label:'Remuneración Administración', proy:Z65()},
+        {label:'Arriendo Vehículos', proy:Z65()},
+        {label:'Arriendo Oficina', proy:Z65()},
+        {label:'Gastos Legales', proy:Z65()},
+        {label:'Fee Administración', proy:Z65()},
+        {label:'Gastos Viajes Nacionales', proy:Z65()},
+        {label:'Gastos Viajes Internacionales', proy:Z65()},
+        {label:'Alojamiento', proy:Z65()},
+        {label:'Gastos de Representación', proy:Z65()},
+        {label:'Almuerzos', proy:Z65()},
+        {label:'Patentes Comerciales', proy:Z65()},
+        {label:'Seguros', proy:Z65()},
       ]},
-      { cat:"egr_nop", label:"Egresos No Operacionales", signo:-1, lines:[
-        {label:"Pago Préstamos - Total",   proy:Z65()},
-        {label:"Leyes Sociales Laborales", proy:Z65()},
+      { cat:'imp', label:'Impuestos', signo:-1, lines:[
+        {label:'Impuestos Mensuales', proy:Z65()},
+        {label:'Impuestos Anuales', proy:Z65()},
+      ]},
+      { cat:'ing_nop', label:'Ingresos No Operacionales', signo:1, lines:[
+        {label:'Capital Calls', proy:Z65()},
+        {label:'Ingresos Financiamiento', proy:Z65()},
+        {label:'Otros Ingresos No Operacionales', proy:Z65()},
+      ]},
+      { cat:'egr_nop', label:'Egresos No Operacionales', signo:-1, lines:[
+        {label:'Pago Préstamos - Total', proy:Z65(),subLines:true},
+        {label:'  └ del cual: Intereses', proy:Z65()},
+        {label:'Leyes Sociales Laborales', proy:Z65()},
+        {label:'Otros Egresos No Operacionales', proy:Z65()},
       ]},
     ],
   },
-  "Osiris": {
-    emoji:"🌱", color:"#0f766e", saldo_ini:40188, desc:"Royalties · Fee Viveros · Osiris Plant Mgmt",
+  'Osiris': {
+    emoji:'🌱', color:'#0f766e', saldo_ini:40188, desc:'Royalties · Fee Viveros · Osiris Plant Mgmt',
     sections:[
-      { cat:"ing_op", label:"Ingresos Operacionales", signo:1, lines:[
-        {label:"Royalty por Planta",  proy:ext([0,0,0,0,0,0,0,0,1100000,0,0,0,2200000,0,0,1100000,0,0,0,0,1100000,1100000,0,0])},
-        {label:"Royalty Comercial",   proy:Z65()},
-        {label:"Fee Vivero",          proy:Z65()},
-        {label:"Cuentas por Cobrar",  proy:Z65()},
+      { cat:'ing_op', label:'Ingresos Operacionales', signo:1, lines:[
+        {label:'Royalty por Planta', proy:ext([0,0,0,0,0,0,0,0,1100000,0,0,0,2200000,0,0,1100000,0,0,2200000,0,0,1100000,0,0].concat(Array(41).fill(0)))},
+        {label:'Royalty Comercial', proy:Z65()},
+        {label:'Fee Vivero', proy:Z65()},
+        {label:'Cuentas por Cobrar', proy:Z65(),subLines:true},
       ]},
-      { cat:"egr_var", label:"Costos Variables", signo:-1, lines:[
-        {label:"Costo Directo Variable", proy:Z65()},
+      { cat:'egr_var', label:'Egresos Operacionales', signo:-1, lines:[
+        {label:'Costo Directo Variable', proy:Z65()},
       ]},
-      { cat:"egr_fijo", label:"Costos Fijos / SG&A", signo:-1, lines:[
-        {label:"Remuneración Administración",   proy:Z65()},
-        {label:"Arriendo Vehículos",            proy:Z65()},
-        {label:"Arriendo Oficina",              proy:Z65()},
-        {label:"Gastos Legales",                proy:Z65()},
-        {label:"Fee Administración",            proy:Z65()},
-        {label:"Gastos Viajes Nacionales",      proy:Z65()},
-        {label:"Gastos Viajes Internacionales", proy:Z65()},
-        {label:"Alojamiento",                   proy:Z65()},
+      { cat:'egr_fijo', label:'Costos Fijos / SG&A', signo:-1, lines:[
+        {label:'Remuneración Administración', proy:Z65()},
+        {label:'Arriendo Vehículos', proy:Z65()},
+        {label:'Arriendo Oficina', proy:Z65()},
+        {label:'Gastos Legales', proy:Z65()},
+        {label:'Fee Administración', proy:Z65()},
+        {label:'Gastos Viajes Nacionales', proy:Z65()},
+        {label:'Gastos Viajes Internacionales', proy:Z65()},
+        {label:'Alojamiento', proy:Z65()},
+        {label:'Gastos de Representación', proy:Z65()},
+        {label:'Almuerzos', proy:Z65()},
+        {label:'Patentes Comerciales', proy:Z65()},
+        {label:'Seguros', proy:Z65()},
       ]},
-      { cat:"egr_nop", label:"Egresos No Operacionales", signo:-1, lines:[
-        {label:"Banco Security (cuotas)", proy:ext([9178,9178,9178,9178,9178,9178,9178,9178,9178,9178,0,0,0,0,0,9178,0,0,0,0,0,0,0,0])},
-        {label:"BCI (bullet Jun-26)",     proy:ext([0,0,0,355425,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0])},
-        {label:"Leyes Sociales Laborales",proy:Z65()},
+      { cat:'imp', label:'Impuestos', signo:-1, lines:[
+        {label:'Impuestos Mensuales', proy:Z65()},
+        {label:'Impuestos Anuales', proy:Z65()},
+      ]},
+      { cat:'ing_nop', label:'Ingresos No Operacionales', signo:1, lines:[
+        {label:'Capital Calls', proy:Z65()},
+        {label:'Crédito BCI', proy:Z65()},
+        {label:'Otros Ingresos No Operacionales', proy:Z65()},
+      ]},
+      { cat:'egr_nop', label:'Egresos No Operacionales', signo:-1, lines:[
+        {label:'Pago Préstamos - Total', proy:ext([9178,9178,9178,9178,9178,9178,9178,9178,9178,9178,9178,9178,9178,9178,9178,9178,9178,9178,9178,9178,9178,9178,9178,9178].concat(Array(41).fill(0))),subLines:true},
+        {label:'  Banco Security', proy:Z65()},
+        {label:'  BCI', proy:ext([0,0,0,355425,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0].concat(Array(41).fill(0)))},
+        {label:'  └ del cual: Intereses', proy:Z65()},
+        {label:'Leyes Sociales Laborales', proy:Z65()},
+        {label:'Otros Egresos No Operacionales', proy:Z65()},
       ]},
     ],
   },
@@ -499,34 +660,58 @@ function buildAllegria(params) {
     emoji:"🍒", color:"#b91c1c", saldo_ini:17433, desc:"Exportación frutas · Chile", hasFormula:true,
     sections:[
       { cat:"ing_op", label:"Ingresos Operacionales", signo:1, lines:[
-        {label:"Anticipo / Liquidación Cerezas",   proy:[...ing.cerezas],   formula:true},
-        {label:"Anticipo / Liquidación Ciruelas",  proy:[...ing.ciruelas],  formula:true},
-        {label:"Anticipo / Liquidación Arándanos", proy:[...ing.arandanos], formula:true},
-        {label:"Otros Ingresos",                   proy:Z65()},
-        {label:"Cuentas por Cobrar",               proy:Z65()},
+        {label:"Anticipo Cerezas",             proy:[...ing.cerezas],   formula:true},
+        {label:"Liquidación Cerezas",          proy:Z65()},
+        {label:"Arándanos Perú",               proy:[...ing.arandanos], formula:true},
+        {label:"Liquidación Ciruelas",         proy:[...ing.ciruelas],  formula:true},
+        {label:"Ingresos por Paltas",          proy:Z65()},
+        {label:"Ingreso por Allegria Service", proy:Z65()},
+        {label:"Rebates",                      proy:Z65()},
+        {label:"Cuentas por Cobrar",           proy:Z65(), subLines:true},
       ]},
-      { cat:"egr_var", label:"Costos Variables", signo:-1, lines:[
-        {label:"Costo Fruta Cerezas",          proy:[...cost.cerezas],   formula:true},
-        {label:"Costo Fruta Ciruelas",         proy:[...cost.ciruelas],  formula:true},
-        {label:"Costo Fruta Arándanos",        proy:[...cost.arandanos], formula:true},
-        {label:"Materiales Cerezas 🍒",        proy:[...mat.cerezas],    formula:true},
-        {label:"Materiales Ciruelas 🟣",       proy:[...mat.ciruelas],   formula:true},
-        {label:"Materiales Arándanos 🫐",      proy:[...mat.arandanos],  formula:true},
-        {label:"Servicios Cerezas 🍒",         proy:[...srv.cerezas],    formula:true},
-        {label:"Servicios Ciruelas 🟣",        proy:[...srv.ciruelas],   formula:true},
-        {label:"Servicios Arándanos 🫐",       proy:[...srv.arandanos],  formula:true},
+      { cat:"egr_var", label:"Egresos Operacionales", signo:-1, lines:[
+        {label:"Costo Fruta Exportación",          proy:[...cost.cerezas],   formula:true},
+        {label:"Materiales",                       proy:[...mat.cerezas],    formula:true},
+        {label:"Servicios de Packing",             proy:[...srv.cerezas],    formula:true},
+        {label:"Comisión Exportadora",             proy:Z65()},
+        {label:"Seguros Exportación",              proy:Z65()},
+        {label:"Servicios Terceros / Arriendo Bodegas", proy:Z65()},
       ]},
       { cat:"egr_fijo", label:"Costos Fijos / SG&A", signo:-1, lines:[
         {label:"Remuneración Administración",   proy:Z65()},
         {label:"Arriendo Vehículos",            proy:Z65()},
+        {label:"Arriendo Oficina",              proy:Z65()},
         {label:"Gastos Legales",                proy:Z65()},
         {label:"Fee Administración",            proy:Z65()},
         {label:"Gastos Viajes Nacionales",      proy:Z65()},
         {label:"Gastos Viajes Internacionales", proy:Z65()},
+        {label:"Alojamiento",                   proy:Z65()},
+        {label:"Gastos de Representación",      proy:Z65()},
+        {label:"Almuerzos",                     proy:Z65()},
+        {label:"Patentes Comerciales",          proy:Z65()},
+        {label:"Seguros",                       proy:Z65()},
+      ]},
+      { cat:"imp", label:"Impuestos", signo:-1, lines:[
+        {label:"Impuestos Mensuales", proy:Z65()},
+        {label:"Impuestos Anuales",   proy:Z65()},
+      ]},
+      { cat:"ing_nop", label:"Ingresos No Operacionales", signo:1, lines:[
+        {label:"Capital Calls",               proy:Z65()},
+        {label:"Crédito Banco Santander",     proy:Z65()},
+        {label:"Otros Ingresos No Operacionales", proy:Z65()},
       ]},
       { cat:"egr_nop", label:"Egresos No Operacionales", signo:-1, lines:[
-        {label:"Pago Préstamos Bullet",    proy:ext([0,0,0,0,0,0,0,0,0,499864,0,783199,0,0,0,0,0,0,0,0,111001,0,0,0])},
+        {label:"Pago Préstamos - Total", proy:ext([0,0,0,0,0,0,0,0,0,499864,0,783199,0,0,0,0,0,0,0,0,0,0,0,0].concat(Array(41).fill(0))), subLines:true},
+        {label:"  Zelun",               proy:Z65()},
+        {label:"  Yiannis",             proy:Z65()},
+        {label:"  Fresion",             proy:Z65()},
+        {label:"  Qupai",               proy:Z65()},
+        {label:"  China Smart",         proy:Z65()},
+        {label:"  Banco BICE",          proy:Z65()},
+        {label:"  Banco Santander",     proy:Z65()},
+        {label:"  └ del cual: Intereses", proy:Z65()},
         {label:"Leyes Sociales Laborales", proy:Z65()},
+        {label:"Otros Egresos No Operacionales", proy:Z65()},
       ]},
     ],
   };
@@ -1729,7 +1914,9 @@ function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit,saldosBanc
   const [showReal,setShowReal]=useState(false);
   const [modalSem,setModalSem]=useState(null);
   // Overrides de proyección editados por el usuario: { lineLabel: { idx: valor } }
-  const [proyOverrides, setProyOverrides] = useState({});
+  const [proyOverrides,   setProyOverrides]   = useState({});
+  const [expandedSubs,   setExpandedSubs]    = useState({});  // CxC / Préstamos expandibles
+  const [addedLines,     setAddedLines]       = useState({});  // filas extra por sección
 
   const toggleSeason=key=>setOpenSeason(p=>({...p,[key]:!p[key]}));
   const toggleMonth=mes=>setOpenMonth(p=>({...p,[mes]:!p[mes]}));
@@ -1742,8 +1929,6 @@ function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit,saldosBanc
     const week = 1+Math.round(((hoy-jan1)/86400000-3+((jan1.getDay()+6)%7))/7);
     return `S${String(week).padStart(2,"0")}`;
   },[]);
-  // Año actual para filtrar saldo banco solo en el año en curso
-  const añoHoy = new Date().getFullYear();
   // Label del mes actual (ej: "Apr-26") para comparación exacta
   const mesHoyLabel = useMemo(()=>{
     const hoy = new Date();
@@ -2048,10 +2233,37 @@ function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit,saldosBanc
                     <td style={{padding:"5px 14px",color:line.formula?C.yellow:C.text,fontSize:11,
                       position:"sticky",left:0,background:C.card,zIndex:1,
                       borderRight:`1px solid ${C.border}`,whiteSpace:"nowrap",
-                      maxWidth:220,overflow:"hidden",textOverflow:"ellipsis"}}>
-                      {line.formula&&<span style={{fontSize:9,marginRight:3}}>⚡</span>}
-                      {proyOverrides[line.label]&&<span style={{fontSize:8,color:C.accentL,marginRight:3}} title="Valor editado">●</span>}
-                      {line.label}
+                      maxWidth:240,overflow:"hidden",textOverflow:"ellipsis"}}>
+                      <div style={{display:"flex",alignItems:"center",gap:3}}>
+                        {line.formula&&<span style={{fontSize:9,marginRight:2}}>⚡</span>}
+                        {proyOverrides[line.label]&&<span style={{fontSize:8,color:C.accentL,marginRight:2}} title="Valor editado">●</span>}
+                        {line.subLines&&(
+                          <button onClick={()=>setExpandedSubs(p=>({...p,[line.label]:!p[line.label]}))}
+                            style={{background:"none",border:"none",cursor:"pointer",padding:"0 1px",
+                              color:C.blue,fontSize:9,fontWeight:700,lineHeight:1,flexShrink:0}}>
+                            {expandedSubs[line.label]?"▼":"▶"}
+                          </button>
+                        )}
+                        <span style={{paddingLeft:line.label.startsWith("  ")?10:0}}>{line.label.trim()}</span>
+                      </div>
+                      {line.subLines&&expandedSubs[line.label]&&canEdit&&(
+                        <div style={{marginTop:3,paddingLeft:12}}>
+                          {(addedLines[line.label]||[]).map((sub,si)=>(
+                            <div key={si} style={{fontSize:10,color:C.muted,padding:"1px 0",display:"flex",gap:4}}>
+                              <span>↳ {sub}</span>
+                            </div>
+                          ))}
+                          <button onClick={()=>{
+                            const nombre=prompt("Nombre del cliente / acreedor:");
+                            if(!nombre?.trim())return;
+                            setAddedLines(p=>({...p,[line.label]:[...(p[line.label]||[]),nombre.trim()]}));
+                          }} style={{fontSize:9,color:C.blue,background:"none",
+                            border:`1px dashed ${C.blue}44`,borderRadius:4,
+                            padding:"1px 6px",cursor:"pointer",marginTop:2}}>
+                            + agregar
+                          </button>
+                        </div>
+                      )}
                     </td>
                     {colStructure.map(({season:s,collapsed,cols})=>{
                       if(collapsed){
@@ -2112,6 +2324,31 @@ function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit,saldosBanc
                   </tr>
                 ))}
 
+              {/* Filas agregadas por usuario en esta sección */}
+              {(addedLines[sec.cat]||[]).map((al,ali)=>(
+                <tr key={`al-${sec.cat}-${ali}`} style={{borderBottom:`1px solid ${C.border}11`}}>
+                  <td style={{padding:"5px 14px",fontSize:11,color:CAT_COLOR[sec.cat]||C.text,
+                    position:"sticky",left:0,background:C.card,zIndex:1,
+                    borderRight:`1px solid ${C.border}`,paddingLeft:20}}>
+                    <div style={{display:"flex",alignItems:"center",gap:4}}>
+                      <span style={{fontSize:9,color:C.muted}}>+</span>
+                      {al}
+                      {canEdit&&<button onClick={()=>setAddedLines(p=>({...p,[sec.cat]:(p[sec.cat]||[]).filter((_,i)=>i!==ali)}))}
+                        style={{marginLeft:4,background:"none",border:"none",color:"#ef444488",cursor:"pointer",fontSize:10}}>×</button>}
+                    </div>
+                  </td>
+                  {colStructure.map(({season:s,collapsed,cols})=>{
+                    if(collapsed) return <td key={s.key}/>;
+                    return cols.map((col,ci)=>(
+                      <td key={`al-${ali}-${col.mes}-${ci}`}
+                        style={{padding:"4px 5px",textAlign:"right",fontSize:9,color:C.muted,
+                          borderLeft:col.isFirstInSeason?`2px solid ${C.border2}`:col.isFirstInMonth?`1px solid ${C.border}44`:`1px solid ${C.border}11`}}>
+                      </td>
+                    ));
+                  })}
+                </tr>
+              ))}
+
                 {/* Subtotal sección */}
                 <tr style={{background:C.bg2}}>
                   <td style={{padding:"5px 14px",fontWeight:700,color:CAT_COLOR[sec.cat],fontSize:10,
@@ -2146,6 +2383,25 @@ function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit,saldosBanc
                     });
                   })}
                 </tr>
+              {/* ── Botón agregar fila por concepto ── */}
+              {canEdit&&(sec.cat==="ing_op"||sec.cat==="egr_var"||sec.cat==="egr_fijo"||sec.cat==="ing_nop"||sec.cat==="egr_nop")&&(
+                <tr>
+                  <td colSpan={999} style={{padding:"2px 14px",position:"sticky",left:0}}>
+                    <button onClick={()=>{
+                      const nombre=prompt(`Nueva línea en "${sec.label}":`);
+                      if(!nombre?.trim())return;
+                      setAddedLines(p=>({
+                        ...p,
+                        [sec.cat]:[...(p[sec.cat]||[]),{label:nombre.trim(),proy:Z65()}]
+                      }));
+                    }} style={{fontSize:9,color:CAT_COLOR[sec.cat]||C.muted,background:"none",
+                      border:`1px dashed ${CAT_COLOR[sec.cat]||C.border}44`,
+                      borderRadius:4,padding:"2px 10px",cursor:"pointer"}}>
+                      + agregar concepto
+                    </button>
+                  </td>
+                </tr>
+              )}
               </React.Fragment>
             ))}
 
@@ -2527,7 +2783,6 @@ const MONEDAS = [
   {id:"eur", label:"EUR €", symbol:"€", flag:"🇪🇺"},
   {id:"pen", label:"PEN S/", symbol:"S/", flag:"🇵🇪"},
 ];
-const EMPRESAS_BANCOS = Object.keys(EMPRESAS_STATIC).concat(["Allegria Foods"]);
 
 function fmtMoneda(v,sym) {
   if(!v&&v!==0) return "—";
@@ -2555,7 +2810,6 @@ const EMPRESAS_LIST = [
 ];
 const BANCOS_CHILE = ["BCI","BICE","Security","Chile","Santander"];
 const BANCOS_PERU  = ["Scotiabank Perú","BBVA Perú"];
-const TODOS_BANCOS = [...BANCOS_CHILE,...BANCOS_PERU];
 
 function generarCuentasFijas() {
   const cuentas = [];
