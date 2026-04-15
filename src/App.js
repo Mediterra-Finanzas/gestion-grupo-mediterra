@@ -971,8 +971,8 @@ export default function App(){
 
   const [estados,setEstados]=useState(()=>{
     const est={};
-    TAREAS_BASE.filter(t=>t.frecuencia!=="Mensual").forEach(t=>{semanasDelMes(hoy.getMonth(),hoy.getFullYear()).forEach(s=>{est[`${t.id}_s${s.num}`]={estadoResp:"gris",estadoSup:"gris",aprobado:false};});});
-    TAREAS_BASE.filter(t=>t.frecuencia==="Mensual").forEach(t=>{est[t.id]={estadoResp:"gris",estadoSup:"gris",aprobado:false};});
+    TAREAS_BASE.filter(t=>t.frecuencia==="Semanal").forEach(t=>{semanasDelMes(hoy.getMonth(),hoy.getFullYear()).forEach(s=>{est[`${t.id}_s${s.num}`]={estadoResp:"gris",estadoSup:"gris",aprobado:false};});});
+    TAREAS_BASE.filter(t=>t.frecuencia!=="Semanal").forEach(t=>{est[t.id]={estadoResp:"gris",estadoSup:"gris",aprobado:false};});
     return est;
   });
   const [comentarios,setComentarios]=useState({});
@@ -1332,6 +1332,7 @@ export default function App(){
     const depId=getDependeDe(tarea.id);if(!depId)return true;
     const depT=getTareaById(depId);if(!depT)return true;
     if(getFrecuencia(depT.id)==="Mensual")return(estados[depId]?.estadoResp||"gris")==="verde";
+    if(numSemana===null||numSemana===undefined)return(estados[depId]?.estadoResp||"gris")==="verde";
     return(estados[`${depId}_s${numSemana}`]?.estadoResp||"gris")==="verde";
   }
   function getNombreDep(tarea){const id=getDependeDe(tarea.id);return getTareaById(id)?.nombre||null;}
@@ -1407,7 +1408,9 @@ Equipo Mediterra`);
     const hoyD=new Date();hoyD.setHours(0,0,0,0);
     const frec=getFrecuencia(tarea.id);
     if(frec==="Mensual"){const fl=new Date(anio,mes,getConfig(tarea.id).diaLimite||tarea.diaLimite);if(fl<FECHA_INICIO)return false;return hoyD>fl&&(estados[key]?.estadoResp||"gris")==="gris";}
+    if(numSemana===null||numSemana===undefined) return false; // Diaria/Quincenal/Anual - no semana lógica
     const sw=semanas.find(s=>s.num===numSemana)||semanas[0];
+    if(!sw) return false;
     const ds=getConfig(tarea.id).diaLimiteSem??tarea.diaLimiteSem;
     const fl=fechaDiaSemana(sw.inicioSem,ds);
     if(fl<FECHA_INICIO)return false;
@@ -1418,7 +1421,7 @@ Equipo Mediterra`);
     const frec=getFrecuencia(tarea.id);
     let diff;
     if(frec==="Mensual")diff=(new Date(anio,mes,getConfig(tarea.id).diaLimite||tarea.diaLimite)-hoyD)/(1000*60*60*24);
-    else{const sw=semanas.find(s=>s.num===numSemana)||semanas[0];const ds=getConfig(tarea.id).diaLimiteSem??tarea.diaLimiteSem;diff=(fechaDiaSemana(sw.inicioSem,ds)-hoyD)/(1000*60*60*24);}
+    else{if(numSemana===null||numSemana===undefined)return false;const sw=semanas.find(s=>s.num===numSemana)||semanas[0];if(!sw)return false;const ds=getConfig(tarea.id).diaLimiteSem??tarea.diaLimiteSem;diff=(fechaDiaSemana(sw.inicioSem,ds)-hoyD)/(1000*60*60*24);}
     return diff>=0&&diff<=2&&(estados[key]?.estadoResp||"gris")==="gris";
   }
   function generarResumenEmail(){
@@ -1505,7 +1508,7 @@ Equipo Mediterra`);
     return filtradas.map((t,i)=>{
       const numSem=getSemana?getSemana():null;
       const frec=getFrecuencia(t.id);
-      const key=frec==="Mensual"?t.id:getKey(t);
+      const key=(frec==="Mensual"||frec==="Diaria"||frec==="Quincenal"||frec==="Anual")?t.id:getKey(t);
       const est=estados[key]||{estadoResp:"gris",estadoSup:"gris",aprobado:false};
       const semResp=SEMAFORO[est.estadoResp]||SEMAFORO.gris;
       const sup=getSupervisor(t.id);
@@ -1996,7 +1999,7 @@ Equipo Mediterra`);
                       {encabezadoTabla}
                       <tbody>
                         <TablaFilas
-                          tareas={todasTareas().filter(t=>getFrecuencia(t.id)==="Semanal")}
+                          tareas={todasTareas().filter(t=>getFrecuencia(t.id)==="Semanal").sort((a,b)=>(tareasOverrides[a.id]?.diaLimiteSem??a.diaLimiteSem??0)-(tareasOverrides[b.id]?.diaLimiteSem??b.diaLimiteSem??0))}
                           getKey={t=>`${t.id}_s${s.num}`}
                           getSemana={()=>s.num}
                         />
@@ -2014,7 +2017,7 @@ Equipo Mediterra`);
                 {encabezadoTabla}
                 <tbody>
                   <TablaFilas
-                    tareas={todasTareas().filter(t=>getFrecuencia(t.id)==="Mensual")}
+                    tareas={todasTareas().filter(t=>getFrecuencia(t.id)==="Mensual").sort((a,b)=>(tareasOverrides[a.id]?.diaLimite??a.diaLimite??31)-(tareasOverrides[b.id]?.diaLimite??b.diaLimite??31))}
                     getKey={t=>t.id}
                     getSemana={()=>null}
                   />
