@@ -2294,7 +2294,7 @@ function TabParametros({empNombre,empColor="#2563eb",
       )}
 
       {/* ── OTRAS EMPRESAS: lista de productos ── */}
-      {!esAllegria&&!esAllegriaService&&!esIntegrity&&!esAllpa&&(
+      {!esAllegria&&!esAllegriaService&&!esIntegrity&&!esAllpa&&!esFrisku&&(
         <div style={{display:"flex",gap:14}}>
           {/* Panel izquierdo: lista productos */}
           <div style={{width:200,flexShrink:0,display:"flex",flexDirection:"column",gap:6}}>
@@ -6006,5 +6006,3 @@ function ParamsFrisku({selSeason, paramsFrisku, setParamsFrisku, readOnly}) {
     </div>
   );
 }
-
-
