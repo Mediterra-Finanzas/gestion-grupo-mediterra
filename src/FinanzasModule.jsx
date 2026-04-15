@@ -4382,7 +4382,12 @@ function Creditos({empresas, creditosData=CREDITOS_DEFAULT, onSaveCreditos, canE
               <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:8}}>
                 <label style={{display:"flex",alignItems:"center",gap:6,cursor:"pointer",fontSize:12,fontWeight:700,color:C.text}}>
                   <input type="checkbox" checked={form.renovable||false}
-                    onChange={e=>setForm(p=>({...p,renovable:e.target.checked}))}
+                    onChange={e=>setForm(p=>({
+                      ...p,
+                      renovable:e.target.checked,
+                      // Auto-llenar monto renovación con el monto del crédito
+                      monto_renovacion:e.target.checked&&!p.monto_renovacion?p.monto:p.monto_renovacion,
+                    }))}
                     style={{width:14,height:14}}/>
                   🔄 Crédito Renovable
                 </label>
@@ -5406,6 +5411,7 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
     if(d?.sub_lines)    setSubLines(d.sub_lines);
     if(d?.intercompany)   setIntercompany(d.intercompany||[]);
     if(d?.creditos_data && Array.isArray(d.creditos_data) && d.creditos_data.length>0) setCreditosData(d.creditos_data);
+    if(d?.params_frisku) setParamsFrisku(prev=>d.params_frisku||prev);
   }
 
   useEffect(()=>{
