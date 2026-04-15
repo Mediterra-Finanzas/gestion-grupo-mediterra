@@ -730,8 +730,8 @@ export default function App(){
   const [tareasExtra,setTareasExtra]=useState([]);
   const [tareasConfig,setTareasConfig]=useState(()=>{
     const c={};TAREAS_BASE.forEach(t=>{c[t.id]={supervisor:t.supervisor,diaLimiteSem:t.diaLimiteSem,diaLimite:t.diaLimite,frecuencia:t.frecuencia,bloqueada:false,dependeDe:t.dependeDe||null};});return c;
-  const [tareasOverrides,setTareasOverrides]=useState({});
   });
+  const [tareasOverrides,setTareasOverrides]=useState({});
   const todasTareas=useCallback(()=>{
     const base=[...TAREAS_BASE,...tareasExtra];
     return base.map(t=>tareasOverrides[t.id]?{...t,...tareasOverrides[t.id]}:t);
