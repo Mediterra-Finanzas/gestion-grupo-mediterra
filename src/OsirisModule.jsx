@@ -453,10 +453,11 @@ function TotalPedidos({data,setData,rpData,setRpData,rcData,setRcData,fvData,set
     fechaPedido:"",añoEntrega:añoActual,trimEntrega:1,
     nPlantas:"",ha:"",estado:"Por confirmar",
     // Fee vivero
-    regaliaVivero:"",pctAnticipo:60,
+    regaliaVivero:"",
+    cuotasVivero:[],        // [{label, pct, fechaPago, monto, tipo}] — cuotas manuales
     trimPagoVivero:"",añoPagoVivero:"",
-    nCuotasVivero:2,        // número de cuotas (2, 3 o 4)
-    mesAnticipo:"",         // mes exacto del anticipo
+    // Legacy (compatibilidad)
+    pctAnticipo:60, nCuotasVivero:2, mesAnticipo:"",
     // Tandas de entrega
     tandas:[],               // [{fechaEntrega, nPlantas, nota}]
     // Proforma
@@ -803,62 +804,111 @@ function TotalPedidos({data,setData,rpData,setRpData,rcData,setRcData,fvData,set
 
             {/* Sección Fee Vivero */}
             <div style={{marginTop:16,background:"#f0fdf4",borderRadius:10,padding:"14px 16px",border:"1px solid #86efac"}}>
-              <div style={{fontSize:12,fontWeight:700,color:C.verde,marginBottom:10}}>🏭 Fee Vivero (se genera automáticamente al confirmar)</div>
-              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:10}}>
-                <div>
-                  <label style={{fontSize:11,fontWeight:600,color:"#374151",display:"block",marginBottom:4}}>Regalía US$/planta</label>
-                  <input type="number" step="0.01" value={form.regaliaVivero||""} onChange={e=>setF("regaliaVivero",e.target.value)}
-                    style={{width:"100%",padding:"7px 10px",borderRadius:8,border:"1px solid #86efac",fontSize:13,boxSizing:"border-box",outline:"none"}}/>
-                </div>
-                <div>
-                  <label style={{fontSize:11,fontWeight:600,color:"#374151",display:"block",marginBottom:4}}>N° Cuotas</label>
-                  <select value={form.nCuotasVivero||2} onChange={e=>setF("nCuotasVivero",Number(e.target.value))}
-                    style={{width:"100%",padding:"7px 10px",borderRadius:8,border:"1px solid #86efac",fontSize:13,outline:"none"}}>
-                    <option value={2}>2 cuotas (Anticipo + Despacho)</option>
-                    <option value={3}>3 cuotas</option>
-                    <option value={4}>4 cuotas</option>
-                  </select>
-                </div>
-                <div>
-                  <label style={{fontSize:11,fontWeight:600,color:"#374151",display:"block",marginBottom:4}}>% Anticipo</label>
-                  <div style={{display:"flex",alignItems:"center",gap:4}}>
-                    <input type="number" min="0" max="100" value={form.pctAnticipo||60} onChange={e=>setF("pctAnticipo",Number(e.target.value))}
-                      style={{width:"100%",padding:"7px 10px",borderRadius:8,border:"1px solid #86efac",fontSize:13,boxSizing:"border-box",outline:"none"}}/>
-                    <span style={{fontSize:11,color:C.gris}}>%</span>
-                  </div>
-                </div>
-                <div>
-                  <label style={{fontSize:11,fontWeight:600,color:"#374151",display:"block",marginBottom:4}}>Mes Anticipo</label>
-                  <select value={form.mesAnticipo||""} onChange={e=>setF("mesAnticipo",e.target.value)}
-                    style={{width:"100%",padding:"7px 10px",borderRadius:8,border:"1px solid #86efac",fontSize:13,outline:"none"}}>
-                    <option value="">— seleccionar —</option>
-                    {["Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"].map(m=>(
-                      <option key={m} value={m}>{m}</option>
-                    ))}
-                  </select>
-                </div>
-                <div>
-                  <label style={{fontSize:11,fontWeight:600,color:"#374151",display:"block",marginBottom:4}}>Trim. Pago Vivero</label>
-                  <select value={form.trimPagoVivero||""} onChange={e=>setF("trimPagoVivero",e.target.value)}
-                    style={{width:"100%",padding:"7px 10px",borderRadius:8,border:"1px solid #86efac",fontSize:13,boxSizing:"border-box",outline:"none"}}>
-                    <option value="1">T1 Ene-Mar</option>
-                    <option value="2">T2 Abr-Jun</option>
-                    <option value="3">T3 Jul-Sep</option>
-                    <option value="4">T4 Oct-Dic</option>
-                  </select>
-                </div>
-                <div>
-                  <label style={{fontSize:11,fontWeight:600,color:"#374151",display:"block",marginBottom:4}}>Año Pago Vivero</label>
-                  <input type="number" value={form.añoPagoVivero||""} onChange={e=>setF("añoPagoVivero",e.target.value)}
-                    style={{width:"100%",padding:"7px 10px",borderRadius:8,border:"1px solid #86efac",fontSize:13,boxSizing:"border-box",outline:"none"}}/>
-                </div>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+                <div style={{fontSize:12,fontWeight:700,color:C.verde}}>🏭 Fee Vivero</div>
                 {form.nPlantas&&form.regaliaVivero&&(
-                  <div style={{gridColumn:"1/-1",background:"#fff",borderRadius:8,padding:"8px 12px",border:"1px solid #86efac",fontSize:12}}>
-                    <span style={{color:C.gris}}>Total: </span>
-                    <strong style={{color:C.verde}}>US${((Number(form.nPlantas)||0)*(Number(form.regaliaVivero)||0)).toLocaleString("es-CL",{minimumFractionDigits:0})}</strong>
-                    <span style={{color:C.azul,marginLeft:8}}>· {form.nCuotasVivero||2} cuotas · Anticipo: {form.pctAnticipo||60}%{form.mesAnticipo?" ("+form.mesAnticipo+")":""}</span>
+                  <div style={{fontSize:11,color:C.verde,fontWeight:700}}>
+                    Total: US${((Number(form.nPlantas)||0)*(Number(form.regaliaVivero)||0)).toLocaleString("es-CL",{minimumFractionDigits:0})}
+                    {(form.cuotasVivero||[]).length>0&&<span style={{color:C.azul,marginLeft:6,fontSize:10}}>· {(form.cuotasVivero||[]).length} cuota{(form.cuotasVivero||[]).length>1?"s":""}</span>}
                   </div>
                 )}
+              </div>
+
+              {/* Regalía */}
+              <div style={{marginBottom:12}}>
+                <label style={{fontSize:11,fontWeight:600,color:"#374151",display:"block",marginBottom:4}}>Regalía US$/planta</label>
+                <input type="number" step="0.01" value={form.regaliaVivero||""} onChange={e=>setF("regaliaVivero",e.target.value)}
+                  style={{width:200,padding:"7px 10px",borderRadius:8,border:"1px solid #86efac",fontSize:13,boxSizing:"border-box",outline:"none"}}/>
+              </div>
+
+              {/* Cuotas manuales */}
+              <div>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+                  <div style={{fontSize:11,fontWeight:700,color:"#374151"}}>Plan de Pagos</div>
+                  <div style={{display:"flex",gap:6}}>
+                    <button type="button"
+                      onClick={()=>{
+                        const total=(Number(form.nPlantas)||0)*(Number(form.regaliaVivero)||0);
+                        setF("cuotasVivero",[...(form.cuotasVivero||[]),{label:"Anticipo",pct:60,fechaPago:"",monto:Math.round(total*0.6),tipo:"Anticipo"}]);
+                      }}
+                      style={{fontSize:11,padding:"3px 10px",borderRadius:6,border:"1px dashed #86efac",background:"transparent",color:C.verde,cursor:"pointer"}}>
+                      + Anticipo
+                    </button>
+                    <button type="button"
+                      onClick={()=>{
+                        const total=(Number(form.nPlantas)||0)*(Number(form.regaliaVivero)||0);
+                        setF("cuotasVivero",[...(form.cuotasVivero||[]),{label:"Saldo",pct:40,fechaPago:"",monto:Math.round(total*0.4),tipo:"Saldo"}]);
+                      }}
+                      style={{fontSize:11,padding:"3px 10px",borderRadius:6,border:"1px dashed #3b82f6",background:"transparent",color:C.azul,cursor:"pointer"}}>
+                      + Saldo
+                    </button>
+                    <button type="button"
+                      onClick={()=>{
+                        const total=(Number(form.nPlantas)||0)*(Number(form.regaliaVivero)||0);
+                        const n=(form.cuotasVivero||[]).length+1;
+                        setF("cuotasVivero",[...(form.cuotasVivero||[]),{label:`Cuota ${n}`,pct:0,fechaPago:"",monto:0,tipo:"Cuota"}]);
+                      }}
+                      style={{fontSize:11,padding:"3px 10px",borderRadius:6,border:"1px dashed #9ca3af",background:"transparent",color:C.gris,cursor:"pointer"}}>
+                      + Cuota
+                    </button>
+                  </div>
+                </div>
+
+                {(form.cuotasVivero||[]).length===0&&(
+                  <div style={{fontSize:11,color:"#94a3b8",fontStyle:"italic",padding:"8px 0"}}>
+                    Agrega cuotas de pago — Anticipo, Saldo u otras cuotas personalizadas
+                  </div>
+                )}
+
+                {/* Header */}
+                {(form.cuotasVivero||[]).length>0&&(
+                  <div style={{display:"grid",gridTemplateColumns:"1fr 80px 80px 1fr auto",gap:6,marginBottom:4}}>
+                    {["Descripción","% del total","Monto US$","Fecha de pago",""].map(h=>(
+                      <div key={h} style={{fontSize:10,color:C.gris,fontWeight:600}}>{h}</div>
+                    ))}
+                  </div>
+                )}
+
+                {(form.cuotasVivero||[]).map((cq,ci)=>{
+                  const totalBase=(Number(form.nPlantas)||0)*(Number(form.regaliaVivero)||0);
+                  const montoCalc=cq.pct>0?Math.round(totalBase*cq.pct/100):(cq.monto||0);
+                  const pctRestante=100-(form.cuotasVivero||[]).filter((_,j)=>j!==ci).reduce((s,c)=>s+(Number(c.pct)||0),0);
+                  return (
+                  <div key={ci} style={{display:"grid",gridTemplateColumns:"1fr 80px 80px 1fr auto",gap:6,marginBottom:6,alignItems:"center"}}>
+                    <input type="text" value={cq.label||""}
+                      onChange={e=>{const arr=[...(form.cuotasVivero||[])];arr[ci]={...cq,label:e.target.value};setF("cuotasVivero",arr);}}
+                      placeholder="Ej: Anticipo OC"
+                      style={{padding:"6px 8px",borderRadius:6,border:`1px solid ${cq.tipo==="Anticipo"?"#86efac":"#bfdbfe"}`,background:"#fff",fontSize:12,outline:"none"}}/>
+                    <div style={{display:"flex",alignItems:"center",gap:2}}>
+                      <input type="number" min="0" max="100" value={cq.pct||""}
+                        onChange={e=>{const arr=[...(form.cuotasVivero||[])];const pct=Number(e.target.value)||0;arr[ci]={...cq,pct,monto:Math.round(totalBase*pct/100)};setF("cuotasVivero",arr);}}
+                        placeholder={String(Math.round(pctRestante))}
+                        style={{width:"100%",padding:"6px 8px",borderRadius:6,border:"1px solid #d1d5db",background:"#fff",fontSize:12,outline:"none",textAlign:"right"}}/>
+                      <span style={{fontSize:10,color:C.gris}}>%</span>
+                    </div>
+                    <div style={{padding:"6px 8px",borderRadius:6,border:"1px solid #e2e8f0",background:"#f8fafc",fontSize:12,textAlign:"right",color:C.verde,fontWeight:700}}>
+                      {montoCalc>0?`$${montoCalc.toLocaleString("es-CL")}`:"—"}
+                    </div>
+                    <input type="date" value={cq.fechaPago||""}
+                      onChange={e=>{const arr=[...(form.cuotasVivero||[])];arr[ci]={...cq,fechaPago:e.target.value};setF("cuotasVivero",arr);}}
+                      style={{padding:"6px 8px",borderRadius:6,border:"1px solid #d1d5db",background:"#fff",fontSize:12,outline:"none"}}/>
+                    <button type="button" onClick={()=>setF("cuotasVivero",(form.cuotasVivero||[]).filter((_,j)=>j!==ci))}
+                      style={{padding:"4px 8px",borderRadius:6,background:"#fee2e2",border:"none",color:"#991b1b",cursor:"pointer",fontSize:11}}>×</button>
+                  </div>
+                  );
+                })}
+
+                {/* Resumen % */}
+                {(form.cuotasVivero||[]).length>0&&(()=>{
+                  const pctTotal=(form.cuotasVivero||[]).reduce((s,c)=>s+(Number(c.pct)||0),0);
+                  const montoTotal=(form.cuotasVivero||[]).reduce((s,c)=>s+(c.pct>0?Math.round(((Number(form.nPlantas)||0)*(Number(form.regaliaVivero)||0))*(Number(c.pct)||0)/100):(c.monto||0)),0);
+                  return (
+                    <div style={{display:"flex",gap:12,padding:"6px 8px",background:"#fff",borderRadius:6,border:"1px solid #86efac",fontSize:11,marginTop:4}}>
+                      <span style={{color:pctTotal===100?C.verde:"#dc2626",fontWeight:700}}>{pctTotal}% asignado {pctTotal===100?"✓":`(falta ${100-pctTotal}%)`}</span>
+                      <span style={{color:C.verde,fontWeight:700}}>Total cuotas: US${montoTotal.toLocaleString("es-CL")}</span>
+                    </div>
+                  );
+                })()}
               </div>
             </div>
 
