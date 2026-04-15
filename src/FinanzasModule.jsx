@@ -1,5 +1,5 @@
 /* eslint-disable */
-import React, { useState, useEffect, useCallback, useMemo } from "react";
+import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
 
 // ═══════════════════════════════════════════════════════════════════
 // TIEMPO: Mar-26 → Jun-31 (65 meses)
@@ -4410,7 +4410,7 @@ function Creditos({empresas, creditosData=CREDITOS_DEFAULT, onSaveCreditos, canE
                       </div>
                       <div>
                         <div style={{fontSize:10,color:C.muted,fontWeight:600,marginBottom:3}}>Mes Ingreso</div>
-                        <select value={form.mes_ingreso_renovacion||""} onChange={e=>setForm(p=>({...p,mes_ingreso_renovacion:e.target.value}))}
+                        <select value={form.mes_ingreso_renovacion||""} onChange={e=>setForm(p=>({...p,mes_ingreso_renovacion:e.target.value,anio_ingreso_renovacion:p.anio_ingreso_renovacion||(p.f_venc?new Date(p.f_venc).getFullYear():new Date().getFullYear())}))}
                           style={{width:"100%",padding:"7px 10px",background:C.card2,border:`1px solid ${C.border}`,borderRadius:8,color:C.text,fontSize:12,outline:"none"}}>
                           <option value="">— mes —</option>
                           {["Ene","Feb","Mar","Abr","May","Jun","Jul","Ago","Sep","Oct","Nov","Dic"].map(m=><option key={m}>{m}</option>)}
@@ -4419,7 +4419,7 @@ function Creditos({empresas, creditosData=CREDITOS_DEFAULT, onSaveCreditos, canE
                       <div>
                         <div style={{fontSize:10,color:C.muted,fontWeight:600,marginBottom:3}}>Año Ingreso</div>
                         <input type="number" value={form.anio_ingreso_renovacion||""} onChange={e=>setForm(p=>({...p,anio_ingreso_renovacion:e.target.value}))}
-                          placeholder="2026"
+                          placeholder={form.f_venc?String(new Date(form.f_venc).getFullYear()):"2026"}
                           style={{width:"100%",padding:"7px 10px",background:C.card2,border:`1px solid ${C.border}`,borderRadius:8,color:C.text,fontSize:12,outline:"none",boxSizing:"border-box"}}/>
                       </div>
                     </div>
@@ -4503,7 +4503,7 @@ function Creditos({empresas, creditosData=CREDITOS_DEFAULT, onSaveCreditos, canE
                     <div style={{display:"flex",alignItems:"flex-end",paddingBottom:4}}>
                       <div style={{fontSize:10,color:C.muted,fontStyle:"italic"}}>
                         {(form.cuotas_renovacion||[]).length>0&&(
-                          <>Total cuotas: <strong style={{color:C.green}}>{$$((form.cuotas_renovacion||[]).reduce((s,c)=>s+(Number(c.monto)||0),0))}</strong></>
+                          <>Total cuotas: <strong style={{color:C.green}}>{$$((()=>{const calc=calcMontoRealCuota(form.cuotas_renovacion,form.monto_renovacion,form.tasa_anual,form.mes_ingreso_renovacion&&form.anio_ingreso_renovacion?`${form.mes_ingreso_renovacion}-${String(form.anio_ingreso_renovacion).slice(-2)}`:'');return calc.reduce((s,c)=>s+(c.montoReal||0),0);})())}</strong></>
                         )}
                       </div>
                     </div>
@@ -5385,6 +5385,7 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
     {id:"flujo",    label:"📈 Flujo Empresas"},
     {id:"bancos",   label:"🏦 Saldos Bancos"},
     {id:"creditos", label:"💳 Créditos"},
+    {id:"nominas",  label:"📋 Nóminas"},
   ];
   // Solo mostrar pestañas a las que el usuario tiene acceso
   const TABS = TABS_ALL.filter(t => puedoVer(t.id));
@@ -5885,9 +5886,828 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
       )}
       {tab==="creditos"&&puedoVer("creditos")&&<Creditos empresas={empresas} creditosData={creditosData} onSaveCreditos={handleSaveCreditos} canEdit={puedoEdit('creditos')}/>}
 
+      {tab==="nominas"&&puedoVer("nominas")&&(
+        <NominasModule usuario={usuarioActual} canEdit={puedoEdit("nominas")} saldosBancos={saldosBancos}/>
+      )}
+
     </div>
   );
 }
+
+// ═══ NÓMINAS DE PAGO ═══════════════════════════════════════════════
+/* eslint-disable */
+// ═══════════════════════════════════════════════════════════════════
+// MÓDULO NÓMINAS DE PAGO — Grupo Mediterra
+// ═══════════════════════════════════════════════════════════════════
+
+const EMPRESAS_NOM = [
+  "Allegria Foods","Allegria Service","Frisku Foods","Frisku Peru",
+  "Allpa Farms","Mediterra","Integrity Farms","Osiris",
+];
+
+
+const SECCIONES = [
+  {id:"proveedores",    label:"Proveedores / Materiales"},
+  {id:"anticipos",      label:"Anticipos de Sueldo"},
+  {id:"rendiciones",    label:"Rendiciones"},
+  {id:"servipag",       label:"Servipag"},
+  {id:"pagos_usd",      label:"Pagos USD"},
+];
+
+const ESTADOS_FLUJO = [
+  {id:"borrador",    label:"Borrador",       color:"#94a3b8", bg:"#f1f5f9"},
+  {id:"preparada",   label:"Preparada",      color:"#f59e0b", bg:"#fef3c7"},
+  {id:"revision",    label:"En Revisión",    color:"#3b82f6", bg:"#dbeafe"},
+  {id:"aprobada1",   label:"V°B° Aprobador", color:"#8b5cf6", bg:"#ede9fe"},
+  {id:"aprobada",    label:"Aprobada CFO",   color:"#16a34a", bg:"#dcfce7"},
+];
+
+
+const $$clp = (v) => {
+  return "$" + Math.round(v).toLocaleString("es-CL");
+};
+const $$usd = (v) => {
+  return "USD " + Number(v).toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2});
+};
+
+function semanaISO(date) {
+  const d = new Date(date);
+  d.setHours(0,0,0,0);
+  d.setDate(d.getDate() + 4 - (d.getDay()||7));
+  const y = d.getFullYear();
+  const w = Math.ceil(((d - new Date(y,0,1))/86400000 + 1)/7);
+  return {semana: w, año: y};
+}
+
+function semanaActual() {
+  return semanaISO(new Date()).semana;
+}
+
+// ─────────────────────────────────────────────────────────────────
+// ITEM ROW VACÍO
+// ─────────────────────────────────────────────────────────────────
+function itemVacio(seccion) {
+  return {
+    id: `item_${Date.now()}_${Math.random().toString(36).slice(2,7)}`,
+    seccion,
+    proveedor:"", rut:"", nDoc:"", fDoc:"", fVenc:"",
+    semVenc:"", concepto:"", montoCLP:0, montoUSD:0, comentario:"",
+    pagado:false,
+  };
+}
+
+// ─────────────────────────────────────────────────────────────────
+// NÓMINA VACÍA
+// ─────────────────────────────────────────────────────────────────
+function nominaVacia(empresa, semana, año) {
+  return {
+    id: `nom_${empresa.replace(/\s/g,"_")}_s${semana}_${año}`,
+    empresa, semana, año,
+    fecha: new Date().toISOString().slice(0,10),
+    tc: 0, // tipo de cambio CLP/USD
+    estado: "borrador",
+    preparadoPor: "",
+    revisadoPor: "",
+    aprobadoPor: "",
+    fechaAprobacion: "",
+    items: [],
+    bancos: Object.fromEntries(BANCOS.map(b=>[b,{clp:0,usd:0}])),
+    notas: "",
+  };
+}
+
+// ─────────────────────────────────────────────────────────────────
+// SUPABASE LOAD/SAVE
+// ─────────────────────────────────────────────────────────────────
+async function dbLoadNominas() {
+  try {
+    const res = await fetch(`${SUPA_URL}/rest/v1/calendario_data?id=eq.nominas&select=value`,{
+      headers:{apikey:SUPA_KEY,Authorization:`Bearer ${SUPA_KEY}`}
+    });
+    const data = await res.json();
+    return data?.[0]?.value ? JSON.parse(data[0].value) : null;
+  } catch { return null; }
+}
+
+async function dbSaveNominas(value) {
+  try {
+    await fetch(`${SUPA_URL}/rest/v1/calendario_data`,{
+      method:"POST",
+      headers:{apikey:SUPA_KEY,Authorization:`Bearer ${SUPA_KEY}`,
+        "Content-Type":"application/json",Prefer:"resolution=merge-duplicates"},
+      body:JSON.stringify({id:"nominas",value:JSON.stringify(value),updated_at:new Date().toISOString()})
+    });
+  } catch(e){console.error(e);}
+}
+
+// ─────────────────────────────────────────────────────────────────
+// BADGE ESTADO
+// ─────────────────────────────────────────────────────────────────
+function BadgeEstado({estado}) {
+  const e = ESTADOS_FLUJO.find(x=>x.id===estado)||ESTADOS_FLUJO[0];
+  return (
+    <span style={{background:e.bg,color:e.color,borderRadius:20,padding:"3px 10px",
+      fontSize:11,fontWeight:700,whiteSpace:"nowrap"}}>{e.label}</span>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────
+// TABLA ITEMS (por sección)
+// ─────────────────────────────────────────────────────────────────
+function TablaItems({items, seccion, onChange, canEdit, tc}) {
+  const rows = items.filter(it=>it.seccion===seccion);
+
+  function updItem(id, field, val) {
+    onChange(items.map(it=>it.id===id?{...it,[field]:val}:it));
+  }
+  function addItem() {
+    onChange([...items, itemVacio(seccion)]);
+  }
+  function delItem(id) {
+    onChange(items.filter(it=>it.id!==id));
+  }
+
+  const totalCLP = rows.reduce((s,it)=>s+(Number(it.montoCLP)||0),0);
+  const totalUSD = rows.reduce((s,it)=>s+(Number(it.montoUSD)||0),0);
+
+  const inputSt = {
+    padding:"4px 6px",borderRadius:5,border:`1px solid ${C.border}`,
+    background:C.card2,color:C.text,fontSize:11,outline:"none",width:"100%",boxSizing:"border-box"
+  };
+
+  return (
+    <div style={{marginBottom:20}}>
+      <div style={{overflowX:"auto",borderRadius:8,border:`1px solid ${C.border}`}}>
+        <table style={{width:"100%",borderCollapse:"collapse",fontSize:11}}>
+          <thead>
+            <tr style={{background:C.bg2}}>
+              {["Proveedor / Nombre","RUT","N° Doc","F. Doc","F. Venc","Sem","Concepto","Monto CLP","Monto USD","Comentario",""].map(h=>(
+                <th key={h} style={{padding:"6px 8px",color:C.muted,fontWeight:600,fontSize:10,
+                  textAlign:h==="Monto CLP"||h==="Monto USD"?"right":"left",
+                  whiteSpace:"nowrap",borderBottom:`1px solid ${C.border}`}}>{h}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {rows.length===0&&(
+              <tr><td colSpan={11} style={{padding:"16px",textAlign:"center",color:C.muted2,fontSize:11}}>
+                Sin registros — agrega uno con el botón +
+              </td></tr>
+            )}
+            {rows.map((it,i)=>(
+              <tr key={it.id} style={{borderBottom:`1px solid ${C.border}22`,
+                background:it.pagado?`${C.green}08`:i%2===0?"transparent":`${C.border}11`,
+                opacity:it.pagado?0.6:1}}>
+                <td style={{padding:"3px 6px",minWidth:140}}>
+                  {canEdit
+                    ? <input value={it.proveedor} onChange={e=>updItem(it.id,"proveedor",e.target.value)} style={inputSt} placeholder="Nombre"/>
+                    : <span style={{color:C.text,fontWeight:500}}>{it.proveedor||"—"}</span>}
+                </td>
+                <td style={{padding:"3px 6px",minWidth:90}}>
+                  {canEdit
+                    ? <input value={it.rut} onChange={e=>updItem(it.id,"rut",e.target.value)} style={inputSt} placeholder="RUT"/>
+                    : <span style={{color:C.muted}}>{it.rut||"—"}</span>}
+                </td>
+                <td style={{padding:"3px 6px",minWidth:80}}>
+                  {canEdit
+                    ? <input value={it.nDoc} onChange={e=>updItem(it.id,"nDoc",e.target.value)} style={inputSt} placeholder="F-001"/>
+                    : <span style={{color:C.muted}}>{it.nDoc||"—"}</span>}
+                </td>
+                <td style={{padding:"3px 6px",minWidth:90}}>
+                  {canEdit
+                    ? <input type="date" value={it.fDoc} onChange={e=>updItem(it.id,"fDoc",e.target.value)} style={inputSt}/>
+                    : <span style={{color:C.muted}}>{it.fDoc||"—"}</span>}
+                </td>
+                <td style={{padding:"3px 6px",minWidth:90}}>
+                  {canEdit
+                    ? <input type="date" value={it.fVenc} onChange={e=>updItem(it.id,"fVenc",e.target.value)} style={inputSt}/>
+                    : <span style={{color:C.muted}}>{it.fVenc||"—"}</span>}
+                </td>
+                <td style={{padding:"3px 6px",minWidth:50,textAlign:"center"}}>
+                  {canEdit
+                    ? <input type="number" value={it.semVenc||""} onChange={e=>updItem(it.id,"semVenc",e.target.value)} style={{...inputSt,width:46,textAlign:"center"}} placeholder="S16"/>
+                    : <span style={{color:C.muted}}>{it.semVenc||"—"}</span>}
+                </td>
+                <td style={{padding:"3px 6px",minWidth:140}}>
+                  {canEdit
+                    ? <input value={it.concepto} onChange={e=>updItem(it.id,"concepto",e.target.value)} style={inputSt} placeholder="Descripción"/>
+                    : <span style={{color:C.text}}>{it.concepto||"—"}</span>}
+                </td>
+                <td style={{padding:"3px 6px",minWidth:100,textAlign:"right"}}>
+                  {canEdit
+                    ? <input type="number" value={it.montoCLP||""} onChange={e=>updItem(it.id,"montoCLP",Number(e.target.value))} style={{...inputSt,textAlign:"right"}} placeholder="0"/>
+                    : <span style={{color:it.montoCLP?C.text:C.muted2,fontWeight:it.montoCLP?600:400}}>{it.montoCLP?$$clp(it.montoCLP):"—"}</span>}
+                </td>
+                <td style={{padding:"3px 6px",minWidth:100,textAlign:"right"}}>
+                  {canEdit
+                    ? <input type="number" value={it.montoUSD||""} onChange={e=>updItem(it.id,"montoUSD",Number(e.target.value))} style={{...inputSt,textAlign:"right"}} placeholder="0"/>
+                    : <span style={{color:it.montoUSD?C.blue:C.muted2,fontWeight:it.montoUSD?600:400}}>{it.montoUSD?$$usd(it.montoUSD):"—"}</span>}
+                </td>
+                <td style={{padding:"3px 6px",minWidth:120}}>
+                  {canEdit
+                    ? <input value={it.comentario||""} onChange={e=>updItem(it.id,"comentario",e.target.value)} style={inputSt} placeholder="Obs."/>
+                    : <span style={{color:C.muted,fontSize:10}}>{it.comentario||""}</span>}
+                </td>
+                <td style={{padding:"3px 6px",textAlign:"center",whiteSpace:"nowrap"}}>
+                  {canEdit&&(
+                    <>
+                      <button onClick={()=>updItem(it.id,"pagado",!it.pagado)}
+                        title={it.pagado?"Marcar pendiente":"Marcar pagado"}
+                        style={{background:it.pagado?`${C.green}33`:`${C.border}44`,border:"none",borderRadius:5,
+                          padding:"3px 7px",cursor:"pointer",fontSize:11,color:it.pagado?C.green:C.muted,marginRight:3}}>
+                        {it.pagado?"✓":"○"}
+                      </button>
+                      <button onClick={()=>delItem(it.id)}
+                        style={{background:"#fee2e233",border:"none",borderRadius:5,
+                          padding:"3px 7px",cursor:"pointer",fontSize:11,color:"#ef4444"}}>×</button>
+                    </>
+                  )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+          {rows.length>0&&(
+            <tfoot>
+              <tr style={{background:C.bg2,borderTop:`2px solid ${C.border}`}}>
+                <td colSpan={7} style={{padding:"6px 10px",fontWeight:700,color:C.text,fontSize:11}}>
+                  Total sección
+                </td>
+                <td style={{padding:"6px 8px",textAlign:"right",fontWeight:800,color:C.yellow,fontSize:12}}>
+                  {totalCLP?$$clp(totalCLP):"—"}
+                </td>
+                <td style={{padding:"6px 8px",textAlign:"right",fontWeight:800,color:C.blue,fontSize:12}}>
+                  {totalUSD?$$usd(totalUSD):"—"}
+                </td>
+                <td colSpan={2}/>
+              </tr>
+            </tfoot>
+          )}
+        </table>
+      </div>
+      {canEdit&&(
+        <button onClick={addItem}
+          style={{marginTop:6,padding:"4px 14px",borderRadius:6,border:`1px dashed ${C.border2}`,
+            background:"transparent",color:C.muted,cursor:"pointer",fontSize:11}}>
+          + Agregar fila
+        </button>
+      )}
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────
+// PANEL BANCOS
+// ─────────────────────────────────────────────────────────────────
+// PanelBancos: muestra saldos desde saldosBancos existente (read-only por empresa)
+function PanelBancosNomina({empresa, saldosBancos}) {
+  // Keys format: "Empresa||Banco||moneda"
+  const bancosChile = ["BCI","BICE","Security","Chile","Santander"];
+  const bancosPeruana = ["Scotiabank Perú","BBVA Perú"];
+  const esPeruana = empresa.includes("Perú")||empresa==="Frisku Peru";
+  const bancosList = esPeruana ? bancosPeruana : bancosChile;
+  const rows = bancosList.map(banco=>({
+    banco,
+    clp: Number(saldosBancos?.[`${empresa}||${banco}||clp`]?.monto)||0,
+    usd: Number(saldosBancos?.[`${empresa}||${banco}||usd`]?.monto)||0,
+  })).filter(r=>r.clp||r.usd);
+  const totCLP = rows.reduce((s,r)=>s+r.clp,0);
+  const totUSD = rows.reduce((s,r)=>s+r.usd,0);
+  if(!rows.length) return (
+    <div style={{background:C.card2,borderRadius:10,padding:"12px 16px",border:`1px solid ${C.border}`,
+      color:C.muted2,fontSize:11}}>🏦 Sin saldos bancarios registrados para {empresa}</div>
+  );
+  return (
+    <div style={{background:C.card2,borderRadius:10,padding:"12px 16px",border:`1px solid ${C.border}`}}>
+      <div style={{fontSize:12,fontWeight:700,color:C.text,marginBottom:8}}>🏦 Saldos de Bancos — {empresa}</div>
+      <table style={{width:"100%",borderCollapse:"collapse",fontSize:11}}>
+        <thead>
+          <tr style={{borderBottom:`1px solid ${C.border}`}}>
+            <th style={{padding:"4px 8px",color:C.muted,fontWeight:600,textAlign:"left"}}>Banco</th>
+            <th style={{padding:"4px 8px",color:C.muted,fontWeight:600,textAlign:"right"}}>CLP</th>
+            <th style={{padding:"4px 8px",color:C.muted,fontWeight:600,textAlign:"right"}}>USD</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map(r=>(
+            <tr key={r.banco} style={{borderBottom:`1px solid ${C.border}22`}}>
+              <td style={{padding:"4px 8px",color:C.text,fontWeight:500}}>{r.banco}</td>
+              <td style={{padding:"4px 8px",textAlign:"right",color:r.clp?C.yellow:C.muted2,fontWeight:r.clp?700:400}}>{r.clp?$$clp(r.clp):"—"}</td>
+              <td style={{padding:"4px 8px",textAlign:"right",color:r.usd?C.blue:C.muted2,fontWeight:r.usd?700:400}}>{r.usd?$$usd(r.usd):"—"}</td>
+            </tr>
+          ))}
+        </tbody>
+        <tfoot>
+          <tr style={{borderTop:`2px solid ${C.border}`,background:C.bg2}}>
+            <td style={{padding:"5px 8px",fontWeight:700,color:C.text}}>TOTAL</td>
+            <td style={{padding:"5px 8px",textAlign:"right",fontWeight:800,color:C.yellow}}>{totCLP?$$clp(totCLP):"—"}</td>
+            <td style={{padding:"5px 8px",textAlign:"right",fontWeight:800,color:C.blue}}>{totUSD?$$usd(totUSD):"—"}</td>
+          </tr>
+        </tfoot>
+      </table>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────
+// VISTA NÓMINA DETALLE
+// ─────────────────────────────────────────────────────────────────
+function NominaDetalle({nomina, onUpdate, onBack, usuario, canEdit, saldosBancos}) {
+  const nom = nomina;
+  const esCFO = usuario?.rol==="admin" || usuario?.esCFO;
+  const esAutorizador = canEdit;
+
+  function upd(field, val) {
+    onUpdate({...nom, [field]:val});
+  }
+
+  function avanzarEstado() {
+    const flujo = ["borrador","preparada","revision","aprobada1","aprobada"];
+    const idx = flujo.indexOf(nom.estado);
+    if(idx >= flujo.length-1) return;
+    const next = flujo[idx+1];
+    const ahora = new Date().toISOString().slice(0,10);
+    let patch = {estado: next};
+    if(next==="preparada")  patch.preparadoPor  = usuario?.nombre||"";
+    if(next==="revision")   patch.revisadoPor   = usuario?.nombre||"";
+    if(next==="aprobada1") { patch.aprobado1Por = usuario?.nombre||""; patch.fechaAprobacion1 = ahora; }
+    if(next==="aprobada")  { patch.aprobadoPor  = usuario?.nombre||""; patch.fechaAprobacion  = ahora; }
+    onUpdate({...nom,...patch});
+  }
+
+  function retrocederEstado() {
+    const flujo = ["borrador","preparada","revision","aprobada"];
+    const idx = flujo.indexOf(nom.estado);
+    if(idx <= 0) return;
+    onUpdate({...nom, estado: flujo[idx-1]});
+  }
+
+  // Totales
+  const totCLP = nom.items.reduce((s,it)=>s+(Number(it.montoCLP)||0),0);
+  const totUSD = nom.items.reduce((s,it)=>s+(Number(it.montoUSD)||0),0);
+  const totBancosCLP = BANCOS.reduce((s,b)=>s+(Number(nom.bancos?.[b]?.clp)||0),0);
+  const totBancosUSD = BANCOS.reduce((s,b)=>s+(Number(nom.bancos?.[b]?.usd)||0),0);
+
+  const puedeAvanzar = canEdit && nom.estado!=="aprobada" &&
+    (nom.estado!=="aprobada1" || esCFO);
+  const estadoInfo = ESTADOS_FLUJO.find(e=>e.id===nom.estado)||ESTADOS_FLUJO[0];
+
+  return (
+    <div style={{fontFamily:"sans-serif",background:C.bg,minHeight:"100vh",color:C.text}}>
+      {/* Header */}
+      <div style={{background:C.bg2,borderBottom:`1px solid ${C.border}`,padding:"12px 20px",
+        display:"flex",alignItems:"center",gap:12,flexWrap:"wrap"}}>
+        <button onClick={onBack}
+          style={{background:C.card2,border:`1px solid ${C.border}`,color:C.muted,
+            borderRadius:8,padding:"6px 12px",cursor:"pointer",fontSize:12}}>
+          ← Volver
+        </button>
+        <div style={{flex:1}}>
+          <div style={{fontWeight:800,fontSize:15,color:C.text}}>
+            Nómina — {nom.empresa}
+          </div>
+          <div style={{fontSize:11,color:C.muted}}>
+            Semana {nom.semana} · {nom.año} · {nom.fecha}
+          </div>
+        </div>
+        <BadgeEstado estado={nom.estado}/>
+        {puedeAvanzar&&(
+          <button onClick={avanzarEstado}
+            style={{background:C.blue,border:"none",color:"#fff",borderRadius:8,
+              padding:"7px 16px",cursor:"pointer",fontWeight:700,fontSize:12}}>
+            {nom.estado==="borrador"?"📋 Marcar Preparada":
+             nom.estado==="preparada"?"🔍 Enviar a Revisión":
+             nom.estado==="revision"&&esCFO?"✅ Aprobar (CFO)":"→"}
+          </button>
+        )}
+        {nom.estado!=="borrador"&&canEdit&&(
+          <button onClick={retrocederEstado}
+            style={{background:"transparent",border:`1px solid ${C.border}`,color:C.muted,
+              borderRadius:8,padding:"7px 12px",cursor:"pointer",fontSize:11}}>
+            ← Retroceder
+          </button>
+        )}
+        <button onClick={()=>{
+          const printArea = document.getElementById('nomina-print-area');
+          if(printArea){window.print();}
+        }}
+          style={{background:"transparent",border:`1px solid ${C.border}`,color:C.muted,
+            borderRadius:8,padding:"7px 12px",cursor:"pointer",fontSize:11}}>
+          🖨️ Imprimir PDF
+        </button>
+      </div>
+
+      <div id="nomina-print-area" style={{padding:"20px 24px",maxWidth:1400,margin:"0 auto"}}>
+        {/* Info header */}
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:12,marginBottom:20}}>
+          <div style={{background:C.card2,borderRadius:10,padding:"12px 16px",border:`1px solid ${C.border}`}}>
+            <div style={{fontSize:10,color:C.muted,fontWeight:600,marginBottom:6}}>INFORMACIÓN NÓMINA</div>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
+              <div>
+                <div style={{fontSize:10,color:C.muted}}>Empresa</div>
+                <div style={{fontWeight:700,fontSize:13}}>{nom.empresa}</div>
+              </div>
+              <div>
+                <div style={{fontSize:10,color:C.muted}}>Semana / Año</div>
+                <div style={{fontWeight:700,fontSize:13}}>S{nom.semana} / {nom.año}</div>
+              </div>
+              <div>
+                <div style={{fontSize:10,color:C.muted}}>Fecha</div>
+                {canEdit
+                  ? <input type="date" value={nom.fecha} onChange={e=>upd("fecha",e.target.value)}
+                      style={{padding:"3px 6px",borderRadius:5,border:`1px solid ${C.border}`,
+                        background:C.card,color:C.text,fontSize:12,outline:"none"}}/>
+                  : <div style={{fontSize:12}}>{nom.fecha}</div>}
+              </div>
+              <div>
+                <div style={{fontSize:10,color:C.muted}}>T.C (CLP/USD)</div>
+                {canEdit
+                  ? <input type="number" value={nom.tc||""} onChange={e=>upd("tc",Number(e.target.value))}
+                      placeholder="886.97"
+                      style={{padding:"3px 6px",borderRadius:5,border:`1px solid ${C.border}`,
+                        background:C.card,color:C.text,fontSize:12,outline:"none",width:90}}/>
+                  : <div style={{fontSize:12}}>{nom.tc?nom.tc.toLocaleString("es-CL"):"—"}</div>}
+              </div>
+            </div>
+          </div>
+
+          {/* Totales */}
+          <div style={{background:C.card2,borderRadius:10,padding:"12px 16px",border:`1px solid ${C.border}`}}>
+            <div style={{fontSize:10,color:C.muted,fontWeight:600,marginBottom:8}}>TOTALES NÓMINA</div>
+            <div style={{display:"flex",justifyContent:"space-between",marginBottom:6}}>
+              <span style={{color:C.muted,fontSize:12}}>Total CLP</span>
+              <span style={{fontWeight:800,fontSize:14,color:C.yellow}}>{totCLP?$$clp(totCLP):"—"}</span>
+            </div>
+            <div style={{display:"flex",justifyContent:"space-between",marginBottom:8}}>
+              <span style={{color:C.muted,fontSize:12}}>Total USD</span>
+              <span style={{fontWeight:800,fontSize:14,color:C.blue}}>{totUSD?$$usd(totUSD):"—"}</span>
+            </div>
+            <div style={{borderTop:`1px solid ${C.border}`,paddingTop:8,marginTop:4}}>
+              <div style={{fontSize:10,color:C.muted,fontWeight:600,marginBottom:4}}>SALDO BANCOS</div>
+              <div style={{display:"flex",justifyContent:"space-between",marginBottom:2}}>
+                <span style={{color:C.muted,fontSize:11}}>CLP</span>
+                <span style={{fontWeight:700,fontSize:12,color:C.yellow}}>{totBancosCLP?$$clp(totBancosCLP):"—"}</span>
+              </div>
+              <div style={{display:"flex",justifyContent:"space-between"}}>
+                <span style={{color:C.muted,fontSize:11}}>USD</span>
+                <span style={{fontWeight:700,fontSize:12,color:C.blue}}>{totBancosUSD?$$usd(totBancosUSD):"—"}</span>
+              </div>
+            </div>
+          </div>
+
+          {/* Autorización */}
+          <div style={{background:C.card2,borderRadius:10,padding:"12px 16px",border:`1px solid ${C.border}`}}>
+            <div style={{fontSize:10,color:C.muted,fontWeight:600,marginBottom:8}}>AUTORIZACIÓN</div>
+            {[
+              {label:"Preparada por",  field:"preparadoPor",  icon:"📝"},
+              {label:"Revisada por",   field:"revisadoPor",   icon:"🔍"},
+              {label:"V°B° Aprobador", field:"aprobado1Por",  icon:"✅", fecha:"fechaAprobacion1"},
+              {label:"Aprobado CFO",   field:"aprobadoPor",   icon:"🏆", fecha:"fechaAprobacion"},
+            ].map(({label,field,icon,fecha})=>(
+              <div key={field} style={{marginBottom:6}}>
+                <div style={{fontSize:10,color:C.muted}}>{icon} {label}</div>
+                <div style={{fontWeight:600,fontSize:12,color:nom[field]?C.green:C.muted2}}>
+                  {nom[field]||"Pendiente"}
+                  {fecha&&nom[fecha]&&
+                    <span style={{fontSize:10,color:C.muted,marginLeft:6}}>{nom[fecha]}</span>}
+                </div>
+              </div>
+            ))}
+            {nom.notas!==undefined&&(
+              <div style={{marginTop:8}}>
+                <div style={{fontSize:10,color:C.muted,marginBottom:3}}>Notas</div>
+                {canEdit
+                  ? <textarea value={nom.notas||""} onChange={e=>upd("notas",e.target.value)}
+                      rows={2} placeholder="Observaciones..."
+                      style={{width:"100%",padding:"5px 7px",borderRadius:6,border:`1px solid ${C.border}`,
+                        background:C.card,color:C.text,fontSize:11,outline:"none",
+                        resize:"vertical",boxSizing:"border-box"}}/>
+                  : <div style={{fontSize:11,color:C.muted,fontStyle:"italic"}}>{nom.notas||"Sin notas"}</div>}
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Panel bancos */}
+        <div style={{marginBottom:20}}>
+          <PanelBancosNomina empresa={nom.empresa} saldosBancos={saldosBancos}/>
+        </div>
+
+        {/* Secciones de items */}
+        {SECCIONES.map(sec=>{
+          const hasItems = nom.items.some(it=>it.seccion===sec.id);
+          if(!canEdit && !hasItems) return null;
+          return (
+            <div key={sec.id} style={{marginBottom:4}}>
+              <div style={{display:"flex",alignItems:"center",gap:8,
+                padding:"8px 12px",background:C.bg2,borderRadius:"8px 8px 0 0",
+                border:`1px solid ${C.border}`,borderBottom:"none",marginTop:12}}>
+                <span style={{fontWeight:700,fontSize:13,color:C.text}}>{sec.label}</span>
+                <span style={{fontSize:11,color:C.muted}}>
+                  ({nom.items.filter(it=>it.seccion===sec.id).length} items)
+                </span>
+                <span style={{marginLeft:"auto",fontWeight:700,fontSize:12,color:C.yellow}}>
+                  {$$clp(nom.items.filter(it=>it.seccion===sec.id).reduce((s,it)=>s+(Number(it.montoCLP)||0),0))}
+                </span>
+                <span style={{fontWeight:700,fontSize:12,color:C.blue}}>
+                  {$$usd(nom.items.filter(it=>it.seccion===sec.id).reduce((s,it)=>s+(Number(it.montoUSD)||0),0))}
+                </span>
+              </div>
+              <TablaItems
+                items={nom.items}
+                seccion={sec.id}
+                onChange={v=>upd("items",v)}
+                canEdit={canEdit}
+                tc={nom.tc}
+              />
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────
+// MAIN — NominasModule
+// ─────────────────────────────────────────────────────────────────
+function NominasModule({usuario, canEdit=false, saldosBancos={}}) {
+  const [nominas, setNominas] = useState([]);
+  const [cargando, setCargando] = useState(true);
+  const [selNomina, setSelNomina] = useState(null); // id nomina abierta
+  const [filtroSemana, setFiltroSemana] = useState(semanaActual());
+  const [filtroEmpresa, setFiltroEmpresa] = useState("");
+  const [filtroEstado, setFiltroEstado] = useState("");
+  const nominasRef = useRef(nominas);
+  useEffect(()=>{nominasRef.current=nominas;},[nominas]);
+
+  // Load
+  useEffect(()=>{
+    dbLoadNominas().then(d=>{
+      if(d?.nominas) setNominas(d.nominas);
+      setCargando(false);
+    });
+  },[]);
+
+  // Save (debounce 800ms)
+  const saveTimer = useRef(null);
+  function saveNominas(list) {
+    clearTimeout(saveTimer.current);
+    saveTimer.current = setTimeout(()=>{
+      dbSaveNominas({nominas: list});
+    }, 800);
+  }
+
+  function updNomina(nom) {
+    setNominas(prev=>{
+      const next = prev.some(n=>n.id===nom.id)
+        ? prev.map(n=>n.id===nom.id?nom:n)
+        : [...prev, nom];
+      saveNominas(next);
+      return next;
+    });
+  }
+
+  function crearNomina(empresa) {
+    const s = filtroSemana||semanaActual();
+    const a = new Date().getFullYear();
+    const nom = nominaVacia(empresa, s, a);
+    updNomina(nom);
+    setSelNomina(nom.id);
+  }
+
+  function eliminarNomina(id) {
+    if(!window.confirm("¿Eliminar esta nómina?")) return;
+    setNominas(prev=>{
+      const next = prev.filter(n=>n.id!==id);
+      saveNominas(next);
+      return next;
+    });
+  }
+
+  // Print CSS
+  useEffect(()=>{
+    const st = document.createElement('style');
+    st.id = 'nominas-print-css';
+    st.textContent = `
+      @media print {
+        @page{size:letter portrait;margin:12mm 14mm}
+        body *{visibility:hidden}
+        #nomina-print-area,#nomina-print-area *{visibility:visible}
+        #nomina-print-area{position:fixed;top:0;left:0;width:100%;
+          background:white!important;color:#000!important;font-size:9px}
+        h1,h2,h3{margin:0 0 6px}
+        table{border-collapse:collapse;width:100%;font-size:8px;page-break-inside:auto}
+        thead{display:table-header-group}
+        tr{page-break-inside:avoid}
+        th{background:#1e293b!important;color:white!important;padding:3px 6px;
+          font-size:8px;text-align:left;white-space:nowrap}
+        td{padding:3px 6px;border-bottom:1px solid #e2e8f0;font-size:8px}
+        .no-print{display:none!important}
+        .print-section-title{font-weight:800;font-size:10px;
+          background:#f1f5f9!important;color:#1e293b!important;
+          padding:4px 8px;border-top:2px solid #1e293b;margin-top:8px}
+      }
+    `;
+    document.head.appendChild(st);
+    return()=>{document.getElementById('nominas-print-css')?.remove();};
+  },[]);
+
+  if(cargando) return (
+    <div style={{display:"flex",alignItems:"center",justifyContent:"center",
+      height:"40vh",color:C.muted,fontFamily:"sans-serif"}}>
+      Cargando nóminas...
+    </div>
+  );
+
+  // Nómina abierta
+  const nominaAbierta = selNomina ? nominas.find(n=>n.id===selNomina) : null;
+  if(nominaAbierta) return (
+    <NominaDetalle
+      nomina={nominaAbierta}
+      onUpdate={updNomina}
+      onBack={()=>setSelNomina(null)}
+      usuario={usuario}
+      canEdit={canEdit}
+      saldosBancos={saldosBancos}
+    />
+  );
+
+  // Filtrar
+  const nominasFiltradas = nominas.filter(n=>{
+    if(filtroSemana && n.semana!==filtroSemana) return false;
+    if(filtroEmpresa && n.empresa!==filtroEmpresa) return false;
+    if(filtroEstado && n.estado!==filtroEstado) return false;
+    return true;
+  });
+
+  // Semanas disponibles
+  const semanasDisp = [...new Set(nominas.map(n=>n.semana))].sort((a,b)=>b-a);
+  if(!semanasDisp.includes(filtroSemana)) semanasDisp.unshift(filtroSemana);
+
+  // Empresas que ya tienen nómina esta semana
+  const empresasConNomina = new Set(nominasFiltradas.map(n=>n.empresa));
+
+  // Stats
+  const stats = ESTADOS_FLUJO.map(e=>({
+    ...e, count: nominasFiltradas.filter(n=>n.estado===e.id).length
+  }));
+
+  return (
+    <div style={{fontFamily:"sans-serif",background:C.bg,minHeight:"100vh",color:C.text,padding:"20px 24px"}}>
+
+      {/* Header */}
+      <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:20,flexWrap:"wrap"}}>
+        <div>
+          <div style={{fontSize:18,fontWeight:900,color:C.text}}>📋 Nóminas de Pago</div>
+          <div style={{fontSize:11,color:C.muted}}>Grupo Mediterra · Gestión semanal de pagos</div>
+        </div>
+
+        {/* KPIs */}
+        <div style={{display:"flex",gap:8,marginLeft:"auto",flexWrap:"wrap"}}>
+          {stats.map(s=>(
+            <div key={s.id} style={{background:s.bg+"33",border:`1px solid ${s.color}44`,
+              borderRadius:10,padding:"8px 14px",textAlign:"center",minWidth:80}}>
+              <div style={{fontSize:20,fontWeight:900,color:s.color}}>{s.count}</div>
+              <div style={{fontSize:10,color:s.color,fontWeight:600}}>{s.label}</div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Filtros */}
+      <div style={{display:"flex",gap:8,marginBottom:16,flexWrap:"wrap",alignItems:"center"}}>
+        <div style={{display:"flex",alignItems:"center",gap:6}}>
+          <span style={{fontSize:12,color:C.muted,fontWeight:600}}>Semana:</span>
+          <select value={filtroSemana} onChange={e=>setFiltroSemana(Number(e.target.value))}
+            style={{padding:"6px 10px",borderRadius:8,border:`1px solid ${C.border}`,
+              background:C.card2,color:C.text,fontSize:12,outline:"none"}}>
+            {semanasDisp.map(s=>(
+              <option key={s} value={s}>S{s} {s===semanaActual()?"(actual)":""}</option>
+            ))}
+          </select>
+          <button onClick={()=>setFiltroSemana(s=>s-1)}
+            style={{padding:"5px 10px",borderRadius:6,border:`1px solid ${C.border}`,
+              background:C.card2,color:C.muted,cursor:"pointer",fontSize:12}}>‹</button>
+          <button onClick={()=>setFiltroSemana(s=>s+1)}
+            style={{padding:"5px 10px",borderRadius:6,border:`1px solid ${C.border}`,
+              background:C.card2,color:C.muted,cursor:"pointer",fontSize:12}}>›</button>
+        </div>
+
+        <select value={filtroEmpresa} onChange={e=>setFiltroEmpresa(e.target.value)}
+          style={{padding:"6px 10px",borderRadius:8,border:`1px solid ${C.border}`,
+            background:C.card2,color:C.text,fontSize:12,outline:"none"}}>
+          <option value="">🏢 Todas las empresas</option>
+          {EMPRESAS_NOM.map(e=><option key={e}>{e}</option>)}
+        </select>
+
+        <select value={filtroEstado} onChange={e=>setFiltroEstado(e.target.value)}
+          style={{padding:"6px 10px",borderRadius:8,border:`1px solid ${C.border}`,
+            background:C.card2,color:C.text,fontSize:12,outline:"none"}}>
+          <option value="">📊 Todos los estados</option>
+          {ESTADOS_FLUJO.map(e=><option key={e.id} value={e.id}>{e.label}</option>)}
+        </select>
+      </div>
+
+      {/* Tabla semanal por empresa */}
+      <div style={{overflowX:"auto",borderRadius:12,border:`1px solid ${C.border}`,marginBottom:20}}>
+        <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
+          <thead>
+            <tr style={{background:C.bg2}}>
+              <th style={{padding:"10px 14px",textAlign:"left",color:C.muted,fontWeight:700,fontSize:11}}>
+                Empresa
+              </th>
+              <th style={{padding:"10px 10px",textAlign:"center",color:C.muted,fontWeight:600,fontSize:11}}>Estado</th>
+              <th style={{padding:"10px 10px",textAlign:"right",color:C.muted,fontWeight:600,fontSize:11}}>Total CLP</th>
+              <th style={{padding:"10px 10px",textAlign:"right",color:C.muted,fontWeight:600,fontSize:11}}>Total USD</th>
+              <th style={{padding:"10px 10px",textAlign:"center",color:C.muted,fontWeight:600,fontSize:11}}>Preparada por</th>
+              <th style={{padding:"10px 10px",textAlign:"center",color:C.muted,fontWeight:600,fontSize:11}}>Aprobada por</th>
+              <th style={{padding:"10px 10px",textAlign:"center",color:C.muted,fontWeight:600,fontSize:11}}>Acciones</th>
+            </tr>
+          </thead>
+          <tbody>
+            {EMPRESAS_NOM.filter(emp=>!filtroEmpresa||emp===filtroEmpresa).map(emp=>{
+              const nom = nominasFiltradas.find(n=>n.empresa===emp);
+              if(!nom&&filtroEstado) return null;
+              return (
+                <tr key={emp} style={{borderBottom:`1px solid ${C.border}22`,
+                  background:nom?"transparent":`${C.muted2}08`}}>
+                  <td style={{padding:"10px 14px",fontWeight:600,color:C.text}}>{emp}</td>
+                  <td style={{padding:"8px 10px",textAlign:"center"}}>
+                    {nom ? <BadgeEstado estado={nom.estado}/>
+                          : <span style={{color:C.muted2,fontSize:11}}>Sin nómina</span>}
+                  </td>
+                  <td style={{padding:"8px 10px",textAlign:"right",fontWeight:700,
+                    color:nom?.items.reduce((s,it)=>s+(Number(it.montoCLP)||0),0)?C.yellow:C.muted2}}>
+                    {nom ? $$clp(nom.items.reduce((s,it)=>s+(Number(it.montoCLP)||0),0)) : "—"}
+                  </td>
+                  <td style={{padding:"8px 10px",textAlign:"right",fontWeight:700,
+                    color:nom?.items.reduce((s,it)=>s+(Number(it.montoUSD)||0),0)?C.blue:C.muted2}}>
+                    {nom ? $$usd(nom.items.reduce((s,it)=>s+(Number(it.montoUSD)||0),0)) : "—"}
+                  </td>
+                  <td style={{padding:"8px 10px",textAlign:"center",fontSize:11,color:C.muted}}>
+                    {nom?.preparadoPor||"—"}
+                  </td>
+                  <td style={{padding:"8px 10px",textAlign:"center",fontSize:11,
+                    color:nom?.aprobadoPor?C.green:C.muted2}}>
+                    {nom?.aprobadoPor||"—"}
+                  </td>
+                  <td style={{padding:"8px 10px",textAlign:"center"}}>
+                    <div style={{display:"flex",gap:6,justifyContent:"center",flexWrap:"wrap"}}>
+                      {nom ? (
+                        <>
+                          <button onClick={()=>setSelNomina(nom.id)}
+                            style={{padding:"4px 12px",borderRadius:6,background:C.blue,border:"none",
+                              color:"#fff",cursor:"pointer",fontSize:11,fontWeight:600}}>
+                            {canEdit&&nom.estado!=="aprobada"?"✏️ Editar":"👁 Ver"}
+                          </button>
+                          {canEdit&&<button onClick={()=>eliminarNomina(nom.id)}
+                            style={{padding:"4px 8px",borderRadius:6,background:"#fee2e233",border:"none",
+                              color:"#ef4444",cursor:"pointer",fontSize:11}}>×</button>}
+                        </>
+                      ) : canEdit ? (
+                        <button onClick={()=>crearNomina(emp)}
+                          style={{padding:"4px 14px",borderRadius:6,
+                            background:"transparent",border:`1px dashed ${C.border2}`,
+                            color:C.muted,cursor:"pointer",fontSize:11}}>
+                          + Crear
+                        </button>
+                      ) : <span style={{color:C.muted2,fontSize:11}}>—</span>}
+                    </div>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+          {/* Totales globales */}
+          {nominasFiltradas.length>0&&(
+            <tfoot>
+              <tr style={{background:C.bg2,borderTop:`2px solid ${C.border}`}}>
+                <td style={{padding:"8px 14px",fontWeight:800,color:C.text}}>TOTAL GRUPO</td>
+                <td/>
+                <td style={{padding:"8px 10px",textAlign:"right",fontWeight:900,color:C.yellow,fontSize:13}}>
+                  {$$clp(nominasFiltradas.reduce((s,n)=>s+n.items.reduce((ss,it)=>ss+(Number(it.montoCLP)||0),0),0))}
+                </td>
+                <td style={{padding:"8px 10px",textAlign:"right",fontWeight:900,color:C.blue,fontSize:13}}>
+                  {$$usd(nominasFiltradas.reduce((s,n)=>s+n.items.reduce((ss,it)=>ss+(Number(it.montoUSD)||0),0),0))}
+                </td>
+                <td colSpan={3}/>
+              </tr>
+            </tfoot>
+          )}
+        </table>
+      </div>
+
+      {nominasFiltradas.length===0&&(
+        <div style={{textAlign:"center",padding:40,color:C.muted2,fontSize:13}}>
+          No hay nóminas para la semana S{filtroSemana}.
+          {canEdit&&<div style={{marginTop:8}}>Usa los botones "＋ Crear" para agregar nóminas por empresa.</div>}
+        </div>
+      )}
+    </div>
+  );
+}
+
+
 // ═══════════════════════════════════════════════════════════════════
 // FRISKU FOODS — Contenedores por especie × mes × temporada
 // Ingreso = contenedores × precio_contenedor × 2% comisión
