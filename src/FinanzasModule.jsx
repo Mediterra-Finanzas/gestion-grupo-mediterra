@@ -6267,7 +6267,7 @@ function PanelBancosNomina({empresa, saldosBancos}) {
 // ─────────────────────────────────────────────────────────────────
 // VISTA NÓMINA DETALLE
 // ─────────────────────────────────────────────────────────────────
-function NominaDetalle({nomina, onUpdate, onBack, usuario, canEdit, saldosBancos}) {
+function NominaDetalle({nomina, onUpdate, onBack, usuario, canEdit, saldosBancos, nominasHermanas=[], onSwitchNomina, onCrearYAbrir}) {
   const nom = nomina;
   const esCFO = usuario?.rol==="admin" || usuario?.esCFO;
   const esAutorizador = canEdit;
@@ -6334,8 +6334,37 @@ function NominaDetalle({nomina, onUpdate, onBack, usuario, canEdit, saldosBancos
           ← Volver
         </button>
         <div style={{flex:1}}>
-          <div style={{fontWeight:800,fontSize:15,color:C.text}}>
-            Nómina — {nom.empresa}
+          <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
+            <span style={{fontWeight:800,fontSize:15,color:C.text}}>
+              Nómina —
+            </span>
+            {onSwitchNomina?(
+              <select value={nom.id}
+                onChange={e=>{
+                  const val=e.target.value;
+                  // Si es un id de nómina existente, navegar
+                  if(nominasHermanas.find(nh=>nh.id===val)){
+                    onSwitchNomina(val);
+                  } else if(val.startsWith("_crear_") && onCrearYAbrir && canEdit) {
+                    // Crear nueva nómina para esta empresa
+                    onCrearYAbrir(val.replace("_crear_",""));
+                  }
+                }}
+                style={{padding:"5px 10px",borderRadius:8,border:`1px solid ${C.border}`,
+                  background:C.card2,color:C.text,fontSize:13,fontWeight:700,outline:"none",cursor:"pointer"}}>
+                {nominasHermanas.map(nh=>(
+                  <option key={nh.id} value={nh.id}>{nh.empresa}</option>
+                ))}
+                {canEdit && onCrearYAbrir && EMPRESAS_NOM
+                  .filter(emp=>!nominasHermanas.find(nh=>nh.empresa===emp))
+                  .map(emp=>(
+                    <option key={`_crear_${emp}`} value={`_crear_${emp}`}>+ {emp} (crear)</option>
+                  ))
+                }
+              </select>
+            ):(
+              <span style={{fontWeight:800,fontSize:15,color:C.text}}>{nom.empresa}</span>
+            )}
           </div>
           <div style={{fontSize:11,color:C.muted}}>
             Semana {nom.semana} · {nom.año} · {nom.fecha}
@@ -6559,6 +6588,7 @@ function NominasModule({usuario, canEdit=false, saldosBancos={}}) {
   const [filtroSemana, setFiltroSemana] = useState(semanaActual());
   const [filtroEmpresa, setFiltroEmpresa] = useState("");
   const [filtroEstado, setFiltroEstado] = useState("");
+  const [vistaResumen, setVistaResumen] = useState(false);
   const nominasRef = useRef(nominas);
   useEffect(()=>{nominasRef.current=nominas;},[nominas]);
 
@@ -6643,6 +6673,11 @@ function NominasModule({usuario, canEdit=false, saldosBancos={}}) {
 
   // Nómina abierta
   const nominaAbierta = selNomina ? nominas.find(n=>n.id===selNomina) : null;
+  // Nóminas hermanas: misma semana y año (para navegar entre empresas)
+  const nominasHermanas = nominaAbierta
+    ? nominas.filter(n=>n.semana===nominaAbierta.semana && n.año===nominaAbierta.año)
+        .sort((a,b)=>EMPRESAS_NOM.indexOf(a.empresa)-EMPRESAS_NOM.indexOf(b.empresa))
+    : [];
   if(nominaAbierta) return (
     <NominaDetalle
       nomina={nominaAbierta}
@@ -6651,6 +6686,15 @@ function NominasModule({usuario, canEdit=false, saldosBancos={}}) {
       usuario={usuario}
       canEdit={canEdit}
       saldosBancos={saldosBancos}
+      nominasHermanas={nominasHermanas}
+      onSwitchNomina={id=>setSelNomina(id)}
+      onCrearYAbrir={(empresa)=>{
+        const s = nominaAbierta.semana;
+        const a = nominaAbierta.año;
+        const nom = nominaVacia(empresa, s, a);
+        updNomina(nom);
+        setSelNomina(nom.id);
+      }}
     />
   );
 
@@ -6686,7 +6730,14 @@ function NominasModule({usuario, canEdit=false, saldosBancos={}}) {
         </div>
 
         {/* KPIs */}
-        <div style={{display:"flex",gap:8,marginLeft:"auto",flexWrap:"wrap"}}>
+        <div style={{display:"flex",gap:8,marginLeft:"auto",flexWrap:"wrap",alignItems:"center"}}>
+          <button onClick={()=>setVistaResumen(v=>!v)}
+            style={{padding:"8px 16px",borderRadius:10,
+              background:vistaResumen?C.accent:`${C.card2}`,
+              border:`1px solid ${vistaResumen?C.accent:C.border}`,
+              color:vistaResumen?"#fff":C.muted,cursor:"pointer",fontSize:12,fontWeight:700}}>
+            {vistaResumen?"← Semana":"📊 Resumen Anual"}
+          </button>
           {stats.map(s=>(
             <div key={s.id} style={{background:s.bg+"33",border:`1px solid ${s.color}44`,
               borderRadius:10,padding:"8px 14px",textAlign:"center",minWidth:80}}>
@@ -6762,6 +6813,232 @@ function NominasModule({usuario, canEdit=false, saldosBancos={}}) {
         </select>
       </div>
 
+      {/* ══════ VISTA RESUMEN ANUAL ══════ */}
+      {vistaResumen&&(()=>{
+        const nominasAño = nominas.filter(n=>n.año===filtroAño);
+        // Semanas con datos
+        const semsConDatos = [...new Set(nominasAño.map(n=>n.semana))].sort((a,b)=>a-b);
+
+        // Resumen por empresa: totales anuales
+        const resumenEmpresas = EMPRESAS_NOM.map(emp=>{
+          const noms = nominasAño.filter(n=>n.empresa===emp);
+          const totCLP = noms.reduce((s,n)=>s+n.items.reduce((ss,it)=>ss+(Number(it.montoCLP)||0),0),0);
+          const totUSD = noms.reduce((s,n)=>s+n.items.reduce((ss,it)=>ss+(Number(it.montoUSD)||0),0),0);
+          const cantNom = noms.length;
+          return {emp, totCLP, totUSD, cantNom, noms};
+        }).filter(r=>r.cantNom>0);
+
+        const grandTotCLP = resumenEmpresas.reduce((s,r)=>s+r.totCLP,0);
+        const grandTotUSD = resumenEmpresas.reduce((s,r)=>s+r.totUSD,0);
+
+        return (
+          <div>
+            {/* Selector año para resumen */}
+            <div style={{display:"flex",gap:8,marginBottom:16,alignItems:"center"}}>
+              <span style={{fontSize:13,fontWeight:700,color:C.text}}>📊 Resumen Anual {filtroAño}</span>
+              <select value={filtroAño} onChange={e=>setFiltroAño(Number(e.target.value))}
+                style={{padding:"5px 8px",borderRadius:8,border:`1px solid ${C.border}`,background:C.card2,color:C.text,fontSize:12,outline:"none"}}>
+                {AÑOS_NOM.map(a=><option key={a} value={a}>{a}</option>)}
+              </select>
+              <span style={{fontSize:11,color:C.muted}}>{nominasAño.length} nóminas · {semsConDatos.length} semanas</span>
+            </div>
+
+            {/* Tabla resumen por empresa */}
+            <div style={{overflowX:"auto",borderRadius:12,border:`1px solid ${C.border}`,marginBottom:20}}>
+              <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
+                <thead>
+                  <tr style={{background:C.bg2}}>
+                    <th style={{padding:"10px 14px",textAlign:"left",color:C.muted,fontWeight:700,fontSize:11}}>Empresa</th>
+                    <th style={{padding:"10px 10px",textAlign:"center",color:C.muted,fontWeight:600,fontSize:11}}>Nóminas</th>
+                    <th style={{padding:"10px 10px",textAlign:"right",color:C.muted,fontWeight:600,fontSize:11}}>Total CLP</th>
+                    <th style={{padding:"10px 10px",textAlign:"right",color:C.muted,fontWeight:600,fontSize:11}}>Total USD</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {resumenEmpresas.map((r,i)=>(
+                    <tr key={r.emp} style={{borderBottom:`1px solid ${C.border}22`,background:i%2===0?"transparent":`${C.border}11`}}>
+                      <td style={{padding:"10px 14px",fontWeight:600,color:C.text}}>{r.emp}</td>
+                      <td style={{padding:"8px 10px",textAlign:"center",color:C.muted,fontSize:11}}>{r.cantNom}</td>
+                      <td style={{padding:"8px 10px",textAlign:"right",fontWeight:700,color:r.totCLP?C.yellow:C.muted2}}>{r.totCLP?$$clp(r.totCLP):"—"}</td>
+                      <td style={{padding:"8px 10px",textAlign:"right",fontWeight:700,color:r.totUSD?C.blue:C.muted2}}>{r.totUSD?$$usd(r.totUSD):"—"}</td>
+                    </tr>
+                  ))}
+                </tbody>
+                {resumenEmpresas.length>0&&(
+                  <tfoot>
+                    <tr style={{background:C.bg2,borderTop:`2px solid ${C.border}`}}>
+                      <td style={{padding:"8px 14px",fontWeight:800,color:C.text}}>TOTAL {filtroAño}</td>
+                      <td style={{padding:"8px 10px",textAlign:"center",fontWeight:700,color:C.muted,fontSize:11}}>{nominasAño.length}</td>
+                      <td style={{padding:"8px 10px",textAlign:"right",fontWeight:900,color:C.yellow,fontSize:13}}>{$$clp(grandTotCLP)}</td>
+                      <td style={{padding:"8px 10px",textAlign:"right",fontWeight:900,color:C.blue,fontSize:13}}>{$$usd(grandTotUSD)}</td>
+                    </tr>
+                  </tfoot>
+                )}
+              </table>
+            </div>
+
+            {/* Desglose por categoría de pago */}
+            <div style={{fontSize:13,fontWeight:700,color:C.text,marginBottom:10,marginTop:8}}>💰 Desglose por Categoría de Pago</div>
+            <div style={{overflowX:"auto",borderRadius:12,border:`1px solid ${C.border}`,marginBottom:20}}>
+              <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
+                <thead>
+                  <tr style={{background:C.bg2}}>
+                    <th style={{padding:"10px 14px",textAlign:"left",color:C.muted,fontWeight:700,fontSize:11}}>Categoría</th>
+                    <th style={{padding:"10px 10px",textAlign:"center",color:C.muted,fontWeight:600,fontSize:11}}>Items</th>
+                    <th style={{padding:"10px 10px",textAlign:"right",color:C.muted,fontWeight:600,fontSize:11}}>Total CLP</th>
+                    <th style={{padding:"10px 10px",textAlign:"right",color:C.muted,fontWeight:600,fontSize:11}}>Total USD</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {[...SECCIONES].map((sec,si)=>{
+                    const allItems = nominasAño.flatMap(n=>n.items.filter(it=>it.seccion===sec.id));
+                    if(allItems.length===0) return null;
+                    const esUSD = sec.id==="emp_rel_usd"||sec.id==="pagos_usd";
+                    const sCLP = allItems.reduce((s,it)=>s+(Number(it.montoCLP)||0),0);
+                    const sUSD = allItems.reduce((s,it)=>s+(Number(it.montoUSD)||0),0);
+                    return (
+                      <tr key={sec.id} style={{borderBottom:`1px solid ${C.border}22`,background:si%2===0?"transparent":`${C.border}11`}}>
+                        <td style={{padding:"10px 14px",fontWeight:600,color:esUSD?C.blue:C.text}}>{sec.label}</td>
+                        <td style={{padding:"8px 10px",textAlign:"center",color:C.muted,fontSize:11}}>{allItems.length}</td>
+                        <td style={{padding:"8px 10px",textAlign:"right",fontWeight:700,color:sCLP&&!esUSD?C.yellow:C.muted2}}>
+                          {!esUSD&&sCLP?$$clp(sCLP):"—"}
+                        </td>
+                        <td style={{padding:"8px 10px",textAlign:"right",fontWeight:700,color:sUSD&&esUSD?C.blue:C.muted2}}>
+                          {esUSD&&sUSD?$$usd(sUSD):"—"}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+                <tfoot>
+                  <tr style={{background:C.bg2,borderTop:`2px solid ${C.border}`}}>
+                    <td style={{padding:"8px 14px",fontWeight:800,color:C.text}}>TOTAL</td>
+                    <td style={{padding:"8px 10px",textAlign:"center",fontWeight:700,color:C.muted,fontSize:11}}>
+                      {nominasAño.flatMap(n=>n.items).length}
+                    </td>
+                    <td style={{padding:"8px 10px",textAlign:"right",fontWeight:900,color:C.yellow,fontSize:13}}>{$$clp(grandTotCLP)}</td>
+                    <td style={{padding:"8px 10px",textAlign:"right",fontWeight:900,color:C.blue,fontSize:13}}>{$$usd(grandTotUSD)}</td>
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
+
+            {/* Detalle por semana */}
+            <div style={{fontSize:13,fontWeight:700,color:C.text,marginBottom:10}}>📅 Detalle por Semana</div>
+            <div style={{overflowX:"auto",borderRadius:12,border:`1px solid ${C.border}`,marginBottom:20}}>
+              <table style={{width:"100%",borderCollapse:"collapse",fontSize:11}}>
+                <thead>
+                  <tr style={{background:C.bg2}}>
+                    <th style={{padding:"8px 10px",textAlign:"left",color:C.muted,fontWeight:700,fontSize:10,position:"sticky",left:0,background:C.bg2,zIndex:2}}>Semana</th>
+                    {EMPRESAS_NOM.map(emp=>{
+                      const tiene = nominasAño.some(n=>n.empresa===emp);
+                      if(!tiene) return null;
+                      return (
+                        <th key={emp} colSpan={2} style={{padding:"8px 6px",textAlign:"center",color:C.muted,fontWeight:600,fontSize:10,
+                          borderLeft:`1px solid ${C.border}44`}}>
+                          {emp.replace(" Foods","").replace(" Farms","").replace(" Service","")}
+                        </th>
+                      );
+                    })}
+                    <th colSpan={2} style={{padding:"8px 6px",textAlign:"center",color:C.text,fontWeight:700,fontSize:10,
+                      borderLeft:`2px solid ${C.border}`,background:`${C.accent}22`}}>TOTAL</th>
+                  </tr>
+                  <tr style={{background:`${C.bg2}dd`}}>
+                    <th style={{padding:"4px 10px",position:"sticky",left:0,background:C.bg2,zIndex:2}}/>
+                    {EMPRESAS_NOM.map(emp=>{
+                      const tiene = nominasAño.some(n=>n.empresa===emp);
+                      if(!tiene) return null;
+                      return (
+                        <React.Fragment key={emp}>
+                          <th style={{padding:"4px 6px",textAlign:"right",color:C.yellow,fontWeight:600,fontSize:9,borderLeft:`1px solid ${C.border}44`}}>CLP</th>
+                          <th style={{padding:"4px 6px",textAlign:"right",color:C.blue,fontWeight:600,fontSize:9}}>USD</th>
+                        </React.Fragment>
+                      );
+                    })}
+                    <th style={{padding:"4px 6px",textAlign:"right",color:C.yellow,fontWeight:700,fontSize:9,borderLeft:`2px solid ${C.border}`}}>CLP</th>
+                    <th style={{padding:"4px 6px",textAlign:"right",color:C.blue,fontWeight:700,fontSize:9}}>USD</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {semsConDatos.map((sem,si)=>{
+                    const nomsS = nominasAño.filter(n=>n.semana===sem);
+                    const semTotCLP = nomsS.reduce((s,n)=>s+n.items.reduce((ss,it)=>ss+(Number(it.montoCLP)||0),0),0);
+                    const semTotUSD = nomsS.reduce((s,n)=>s+n.items.reduce((ss,it)=>ss+(Number(it.montoUSD)||0),0),0);
+                    return (
+                      <tr key={sem} style={{borderBottom:`1px solid ${C.border}22`,background:si%2===0?"transparent":`${C.border}08`,
+                        cursor:"pointer"}}
+                        onClick={()=>{setFiltroSemana(sem);setVistaResumen(false);}}>
+                        <td style={{padding:"6px 10px",fontWeight:600,color:C.text,fontSize:11,position:"sticky",left:0,
+                          background:si%2===0?C.bg:`${C.border}11`,zIndex:1}}>
+                          S{String(sem).padStart(2,"0")}
+                          {sem===semanaActual()&&filtroAño===añoActualNom()&&<span style={{color:C.green,marginLeft:4,fontSize:9}}>★</span>}
+                        </td>
+                        {EMPRESAS_NOM.map(emp=>{
+                          const tiene = nominasAño.some(n=>n.empresa===emp);
+                          if(!tiene) return null;
+                          const n = nomsS.find(n=>n.empresa===emp);
+                          const eCLP = n?n.items.reduce((s,it)=>s+(Number(it.montoCLP)||0),0):0;
+                          const eUSD = n?n.items.reduce((s,it)=>s+(Number(it.montoUSD)||0),0):0;
+                          return (
+                            <React.Fragment key={emp}>
+                              <td style={{padding:"5px 6px",textAlign:"right",color:eCLP?C.yellow:C.muted2,fontWeight:eCLP?600:400,
+                                fontSize:10,borderLeft:`1px solid ${C.border}22`}}>
+                                {eCLP?$$clp(eCLP):"—"}
+                              </td>
+                              <td style={{padding:"5px 6px",textAlign:"right",color:eUSD?C.blue:C.muted2,fontWeight:eUSD?600:400,fontSize:10}}>
+                                {eUSD?$$usd(eUSD):"—"}
+                              </td>
+                            </React.Fragment>
+                          );
+                        })}
+                        <td style={{padding:"5px 6px",textAlign:"right",fontWeight:700,color:C.yellow,fontSize:10,
+                          borderLeft:`2px solid ${C.border}`,background:`${C.accent}08`}}>
+                          {semTotCLP?$$clp(semTotCLP):"—"}
+                        </td>
+                        <td style={{padding:"5px 6px",textAlign:"right",fontWeight:700,color:C.blue,fontSize:10,
+                          background:`${C.accent}08`}}>
+                          {semTotUSD?$$usd(semTotUSD):"—"}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+                {semsConDatos.length>0&&(
+                  <tfoot>
+                    <tr style={{background:C.bg2,borderTop:`2px solid ${C.border}`}}>
+                      <td style={{padding:"8px 10px",fontWeight:800,color:C.text,position:"sticky",left:0,background:C.bg2,zIndex:2}}>TOTAL</td>
+                      {EMPRESAS_NOM.map(emp=>{
+                        const tiene = nominasAño.some(n=>n.empresa===emp);
+                        if(!tiene) return null;
+                        const noms = nominasAño.filter(n=>n.empresa===emp);
+                        const tCLP = noms.reduce((s,n)=>s+n.items.reduce((ss,it)=>ss+(Number(it.montoCLP)||0),0),0);
+                        const tUSD = noms.reduce((s,n)=>s+n.items.reduce((ss,it)=>ss+(Number(it.montoUSD)||0),0),0);
+                        return (
+                          <React.Fragment key={emp}>
+                            <td style={{padding:"6px 6px",textAlign:"right",fontWeight:800,color:C.yellow,fontSize:10,borderLeft:`1px solid ${C.border}22`}}>{tCLP?$$clp(tCLP):"—"}</td>
+                            <td style={{padding:"6px 6px",textAlign:"right",fontWeight:800,color:C.blue,fontSize:10}}>{tUSD?$$usd(tUSD):"—"}</td>
+                          </React.Fragment>
+                        );
+                      })}
+                      <td style={{padding:"6px 6px",textAlign:"right",fontWeight:900,color:C.yellow,fontSize:11,borderLeft:`2px solid ${C.border}`,background:`${C.accent}15`}}>{$$clp(grandTotCLP)}</td>
+                      <td style={{padding:"6px 6px",textAlign:"right",fontWeight:900,color:C.blue,fontSize:11,background:`${C.accent}15`}}>{$$usd(grandTotUSD)}</td>
+                    </tr>
+                  </tfoot>
+                )}
+              </table>
+            </div>
+
+            {nominasAño.length===0&&(
+              <div style={{textAlign:"center",padding:40,color:C.muted2,fontSize:13}}>
+                No hay nóminas registradas para {filtroAño}.
+              </div>
+            )}
+          </div>
+        );
+      })()}
+
+      {/* ══════ VISTA SEMANAL (existente) ══════ */}
+      {!vistaResumen&&(<>
 
       {/* Tabla semanal por empresa */}
       <div style={{overflowX:"auto",borderRadius:12,border:`1px solid ${C.border}`,marginBottom:20}}>
@@ -6858,6 +7135,7 @@ function NominasModule({usuario, canEdit=false, saldosBancos={}}) {
           {canEdit&&<div style={{marginTop:8}}>Usa los botones "＋ Crear" para agregar nóminas por empresa.</div>}
         </div>
       )}
+      </>)}
     </div>
   );
 }
