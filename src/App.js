@@ -679,6 +679,8 @@ function ConfigTab({todasTareas,getFrecuencia,WORKERS,CATEGORIAS,FRECUENCIAS,
 
   function guardarTarea(t){
     const upd={...formEditTarea};
+    // Ensure diaLimiteSem is included if not changed
+    if(upd.diaLimiteSem===undefined) upd.diaLimiteSem = tareasOverrides[t.id]?.diaLimiteSem??t.diaLimiteSem??0;
     setTareasOverrides(prev=>({...prev,[t.id]:upd}));
     setTareasConfig(prev=>({...prev,[t.id]:{...prev[t.id],...upd}}));
     setEditandoTarea(null);
@@ -768,6 +770,15 @@ function ConfigTab({todasTareas,getFrecuencia,WORKERS,CATEGORIAS,FRECUENCIAS,
                             style={{padding:"4px 6px",borderRadius:6,border:"1px solid #3b82f6",fontSize:11,outline:"none"}}>
                             {FRECUENCIAS.map(f=><option key={f}>{f}</option>)}
                           </select>
+                          {(formEditTarea.frecuencia||getFrecuencia(t.id))==="Semanal"&&(
+                            <select value={formEditTarea.diaLimiteSem!==undefined?formEditTarea.diaLimiteSem:(tareasOverrides[t.id]?.diaLimiteSem??t.diaLimiteSem??0)}
+                              onChange={e=>setFormEditTarea(p=>({...p,diaLimiteSem:Number(e.target.value)}))}
+                              style={{marginTop:4,width:"100%",padding:"4px 6px",borderRadius:6,border:"1px solid #3b82f6",fontSize:11,outline:"none"}}>
+                              {["Lunes","Martes","Miércoles","Jueves","Viernes"].map((d,i)=>(
+                                <option key={i} value={i}>{d}</option>
+                              ))}
+                            </select>
+                          )}
                         </td>
                         <td style={{padding:"5px 6px"}}>
                           <input type="date" value={formEditTarea.fechaVenc||""} onChange={e=>setFormEditTarea(p=>({...p,fechaVenc:e.target.value}))}
@@ -815,6 +826,11 @@ function ConfigTab({todasTareas,getFrecuencia,WORKERS,CATEGORIAS,FRECUENCIAS,
                           <span style={{background:"#f0fdf4",color:"#16a34a",borderRadius:20,padding:"2px 8px",fontSize:10,fontWeight:600}}>
                             {getFrecuencia(t.id)}
                           </span>
+                          {getFrecuencia(t.id)==="Semanal"&&(
+                            <div style={{fontSize:10,color:"#64748b",marginTop:2}}>
+                              {["Lunes","Martes","Miércoles","Jueves","Viernes"][tareasOverrides[t.id]?.diaLimiteSem??t.diaLimiteSem??0]}
+                            </div>
+                          )}
                         </td>
                         <td style={{padding:"7px 10px",whiteSpace:"nowrap"}}>
                           {fechaVenc
