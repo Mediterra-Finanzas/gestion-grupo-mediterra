@@ -1347,7 +1347,7 @@ export default function App(){
     setEstados(prev=>{
       const actual=prev[key]?.estadoResp||"gris";
       const sig=ORDEN_SEM[(ORDEN_SEM.indexOf(actual)+1)%ORDEN_SEM.length];
-      const nuevo={...prev,[key]:{...prev[key],estadoResp:sig,aprobado:false,estadoSup:sig!=="verde"?"gris":prev[key].estadoSup}};
+      const nuevo={...prev,[key]:{...prev[key],estadoResp:sig,aprobado:false,estadoSup:sig!=="verde"?"gris":(prev[key]?.estadoSup||"gris")}};
       if(sig==="verde"){
         // Notificar al supervisor por email
         const supNombre = tareasOverrides[tarea.id]?.supervisor || getSupervisor(tarea.id);
@@ -1376,7 +1376,7 @@ export default function App(){
       if(prev[key]?.estadoResp!=="verde")return prev;
       const actual=prev[key]?.estadoSup||"gris";
       const sig=ORDEN_SEM[(ORDEN_SEM.indexOf(actual)+1)%ORDEN_SEM.length];
-      return{...prev,[key]:{...prev[key],estadoSup:sig,aprobado:sig==="verde"}};
+      return{...prev,[key]:{...(prev[key]||{estadoResp:"gris",estadoSup:"gris",aprobado:false}),estadoSup:sig,aprobado:sig==="verde"}};
     });
   }
   async function enviarNotifDependencia(){
