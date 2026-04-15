@@ -2840,7 +2840,7 @@ function Consolidado({empresas,saldosBancos}) {
       {/* Vista sumada */}
       {vistaConsolidado==="sumada"&&(
         <div style={{overflowX:"auto",borderRadius:12,border:`1px solid ${C.border}`}}>
-          <table style={{borderCollapse:"collapse",fontSize:11,minWidth:600}}>
+          <table id={`flujo-table-${empNombre}`} style={{borderCollapse:"collapse",fontSize:11,minWidth:600}}>
             <THead/>
             <tbody>
               <FilaSaldoBanco nombre="_consolidado"/>
@@ -5779,6 +5779,48 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
                 ? "Define productos, anticipos y distribución de pagos por temporada"
                 : "Proyección de flujo de caja mensual y semanal"}
             </span>
+            {flujoSubTab==="flujo"&&empTab!=="_consolidado"&&empTab!=="_intercompany"&&(
+              <button onClick={()=>{
+                const empNombre=empTab;
+                const emp=empresas[empNombre];
+                const printWin=window.open("","_blank");
+                const tableEl=document.getElementById(`flujo-table-${empNombre}`);
+                if(!tableEl||!printWin)return;
+                printWin.document.write(`
+                  <!DOCTYPE html><html><head>
+                  <title>Flujo ${empNombre} - Grupo Mediterra</title>
+                  <style>
+                    @page{size:A3 landscape;margin:10mm}
+                    body{font-family:Arial,sans-serif;font-size:9px;color:#1e293b;background:#fff;margin:0}
+                    h2{font-size:13px;margin:0 0 4px;color:#1e293b}
+                    p{font-size:9px;color:#64748b;margin:0 0 8px}
+                    table{border-collapse:collapse;width:100%;font-size:8px}
+                    th{background:#1e293b;color:#fff;padding:4px 6px;text-align:right;white-space:nowrap;font-size:7px}
+                    th:first-child{text-align:left;position:static}
+                    td{padding:3px 6px;border-bottom:1px solid #e2e8f0;white-space:nowrap}
+                    td:first-child{text-align:left;font-weight:600}
+                    tr:nth-child(even){background:#f8fafc}
+                    .section-header{background:#334155;color:#fff;font-weight:700;font-size:8px}
+                    .total-row{background:#1e3a5f;color:#fff;font-weight:800}
+                    .saldo-row{background:#0f2d4a;color:#38bdf8;font-weight:800}
+                    .positive{color:#16a34a}.negative{color:#dc2626}
+                  </style></head><body>
+                  <h2>${empNombre} ${emp?.emoji||""} — Flujo de Caja Proyectado</h2>
+                  <p>Grupo Mediterra · Generado ${new Date().toLocaleDateString("es-CL")} · USD</p>
+                `);
+                printWin.document.write(tableEl.outerHTML);
+                printWin.document.write("</body></html>");
+                printWin.document.close();
+                printWin.focus();
+                setTimeout(()=>printWin.print(),400);
+              }}
+                style={{marginLeft:"auto",padding:"5px 12px",borderRadius:8,
+                  border:"1px solid #334155",background:"transparent",
+                  color:C.muted,cursor:"pointer",fontSize:11,display:"flex",
+                  alignItems:"center",gap:5}}>
+                🖨️ Imprimir PDF
+              </button>
+            )}
           </div>
 
           {/* Contenido sub-pestaña */}
