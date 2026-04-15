@@ -1648,12 +1648,15 @@ Equipo Mediterra`);
   if(moduloActivo==="tareas") {
     const modulosPermitidos = modulosDeUsuarioSeguro(usuarioFresco);
     const tabPermTareas = getTabPermisosModulo(usuarioFresco, "tareas");
-    const puedeVerSemanal  = getTabPerm(usuarioFresco,"tareas","semanal")  !== "sin_acceso";
-    const puedeVerMensual  = getTabPerm(usuarioFresco,"tareas","mensual")  !== "sin_acceso";
-    const puedeVerConfig   = getTabPerm(usuarioFresco,"tareas","config")   !== "sin_acceso";
-    const puedeEditSemanal = getTabPerm(usuarioFresco,"tareas","semanal")  === "editar";
-    const puedeEditMensual = getTabPerm(usuarioFresco,"tareas","mensual")  === "editar";
-    const puedeEditConfig  = getTabPerm(usuarioFresco,"tareas","config")   === "editar";
+    const puedeVerDiaria    = getTabPerm(usuarioFresco,"tareas","diaria")    !== "sin_acceso";
+    const puedeVerSemanal   = getTabPerm(usuarioFresco,"tareas","semanal")   !== "sin_acceso";
+    const puedeVerQuincenal = getTabPerm(usuarioFresco,"tareas","quincenal") !== "sin_acceso";
+    const puedeVerMensual   = getTabPerm(usuarioFresco,"tareas","mensual")   !== "sin_acceso";
+    const puedeVerAnual     = getTabPerm(usuarioFresco,"tareas","anual")     !== "sin_acceso";
+    const puedeVerConfig    = getTabPerm(usuarioFresco,"tareas","config")    !== "sin_acceso";
+    const puedeEditSemanal  = getTabPerm(usuarioFresco,"tareas","semanal")   === "editar";
+    const puedeEditMensual  = getTabPerm(usuarioFresco,"tareas","mensual")   === "editar";
+    const puedeEditConfig   = getTabPerm(usuarioFresco,"tareas","config")    === "editar";
 
     return (
       <div style={{fontFamily:"sans-serif",background:"#f1f5f9",minHeight:"100vh"}}>
@@ -1956,14 +1959,14 @@ Equipo Mediterra`);
             </div>
           )}
 
-          {!puedeVerSemanal&&tab==="semanal"&&(
+          {(!puedeVerSemanal&&tab==="semanal"||!puedeVerDiaria&&tab==="diaria"||!puedeVerQuincenal&&tab==="quincenal"||!puedeVerAnual&&tab==="anual")&&(
             <div style={{textAlign:"center",padding:40,color:"#94a3b8",fontSize:14}}>🚫 No tienes acceso a la vista semanal.</div>
           )}
           {!puedeVerMensual&&tab==="mensual"&&(
             <div style={{textAlign:"center",padding:40,color:"#94a3b8",fontSize:14}}>🚫 No tienes acceso a la vista mensual.</div>
           )}
 
-          {tab==="diaria"&&puedeVerSemanal&&(
+          {tab==="diaria"&&puedeVerDiaria&&(
             <div style={{overflowX:"auto",borderRadius:12,boxShadow:"0 1px 4px #0001"}}>
               <table style={{width:"100%",borderCollapse:"collapse",background:"#fff"}}>
                 {encabezadoTabla}
@@ -1978,7 +1981,7 @@ Equipo Mediterra`);
             </div>
           )}
 
-          {tab==="quincenal"&&puedeVerSemanal&&(
+          {tab==="quincenal"&&puedeVerQuincenal&&(
             <div style={{overflowX:"auto",borderRadius:12,boxShadow:"0 1px 4px #0001"}}>
               <table style={{width:"100%",borderCollapse:"collapse",background:"#fff"}}>
                 {encabezadoTabla}
@@ -1993,7 +1996,7 @@ Equipo Mediterra`);
             </div>
           )}
 
-          {tab==="anual"&&puedeVerSemanal&&(
+          {tab==="anual"&&puedeVerAnual&&(
             <div style={{overflowX:"auto",borderRadius:12,boxShadow:"0 1px 4px #0001"}}>
               <table style={{width:"100%",borderCollapse:"collapse",background:"#fff"}}>
                 {encabezadoTabla}
