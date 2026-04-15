@@ -238,6 +238,8 @@ const NIVEL_BG     = {editar:"#dcfce7", ver:"#dbeafe",  sin_acceso:"#fee2e2"};
 function getTabPerm(usuario, modulo, tabId) {
   if(!usuario) return "sin_acceso";
   if(usuario.rol === "admin") return "editar";
+  // config es solo para admin — no-admins no tienen acceso por defecto
+  if(tabId === "config") return usuario.tab_permisos?.[modulo]?.[tabId] ?? "sin_acceso";
   return usuario.tab_permisos?.[modulo]?.[tabId] ?? "editar";
 }
 
