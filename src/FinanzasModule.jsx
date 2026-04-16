@@ -4297,6 +4297,97 @@ function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit,saldosBanc
                     });
                   })}
                 </tr>
+
+                {/* SALDO CAJA OPERACIONAL — después del subtotal de egr_fijo */}
+                {sec.cat === "egr_fijo" && (() => {
+                  // Suma de una sección específica en un mes (getProy + subLines)
+                  const sumSeccionMes = (catBuscar, idx) => {
+                    const s = emp.sections.find(x=>x.cat===catBuscar);
+                    if(!s) return 0;
+                    let total = 0;
+                    s.lines.forEach(l=>{
+                      if(l.label.startsWith("  ")) return;
+                      total += getProy(l.label, idx);
+                      if(l.subLines && !l.label.includes("Préstamos")) {
+                        total += sumSubLinesMes(l.label, idx);
+                      }
+                    });
+                    (addedLines[s.cat]||[]).forEach(al=>{
+                      const v = Number(typeof al==="string" ? 0 : (al.vals||{})[idx]) || 0;
+                      total += v;
+                    });
+                    return total * s.signo;
+                  };
+                  const sumSeccionSemana = (catBuscar, idx, semIdx, isLastInMonth) => {
+                    const s = emp.sections.find(x=>x.cat===catBuscar);
+                    if(!s) return 0;
+                    let total = 0;
+                    s.lines.forEach(l=>{
+                      if(l.label.startsWith("  ")) return;
+                      total += getProySemana(l.label, idx, semIdx, isLastInMonth);
+                      if(l.subLines && !l.label.includes("Préstamos")) {
+                        total += sumSubLinesSemana(l.label, idx, semIdx, isLastInMonth);
+                      }
+                    });
+                    // addedLines son mensuales: mostrar solo en primera semana
+                    if(semIdx === 0) {
+                      (addedLines[s.cat]||[]).forEach(al=>{
+                        const v = Number(typeof al==="string" ? 0 : (al.vals||{})[idx]) || 0;
+                        total += v;
+                      });
+                    }
+                    return total * s.signo;
+                  };
+                  // Cálculo para un período: Saldo Caja + Ingresos Op + Egresos Op (var + fijo)
+                  // Usamos saldoBancoUSD como saldo caja inicial
+                  const saldoCaja = saldoBancoUSD != null ? saldoBancoUSD : emp.saldo_ini;
+                  return (
+                    <tr style={{background:`${C.teal}11`, borderTop:`1px solid ${C.teal}44`, borderBottom:`1px solid ${C.teal}44`}}>
+                      <td style={{padding:"6px 14px",fontWeight:800,color:C.teal,fontSize:11,
+                        position:"sticky",left:0,background:`${C.teal}11`,borderRight:`1px solid ${C.border}`,zIndex:1}}>
+                        💰 Saldo Caja Operacional
+                      </td>
+                      {colStructure.map(({season:s,collapsed,cols})=>{
+                        if(collapsed){
+                          const acumFlujoOp = s.indices.reduce((a,i)=>
+                            a + sumSeccionMes("ing_op", i) + sumSeccionMes("egr_var", i) + sumSeccionMes("egr_fijo", i), 0);
+                          const saldoOp = saldoCaja + acumFlujoOp;
+                          return (
+                            <td key={s.key} style={{padding:"6px 8px",textAlign:"right",fontWeight:800,
+                              fontSize:10,color:cf(saldoOp),borderLeft:`2px solid ${C.border2}`,background:`${C.teal}11`}}>
+                              <div style={{fontSize:8,color:C.muted,marginBottom:1}}>Total T</div>
+                              {$$(saldoOp)}
+                            </td>
+                          );
+                        }
+                        return cols.map((col,ci)=>{
+                          const isTot = col.isTotalMes;
+                          let flujoOp = 0;
+                          if(isTot || col.type==="month" || col.type==="month_collapsed") {
+                            flujoOp = sumSeccionMes("ing_op", col.idx) + sumSeccionMes("egr_var", col.idx) + sumSeccionMes("egr_fijo", col.idx);
+                          } else if(col.type==="week") {
+                            flujoOp = sumSeccionSemana("ing_op", col.idx, col.semIdx, col.isLastInMonth)
+                                    + sumSeccionSemana("egr_var", col.idx, col.semIdx, col.isLastInMonth)
+                                    + sumSeccionSemana("egr_fijo", col.idx, col.semIdx, col.isLastInMonth);
+                          }
+                          // Saldo operacional = saldo inicial + flujo operacional acumulado hasta ese punto
+                          // Mostramos el valor del período (no acumulado) para que sea consistente con la estructura
+                          const saldoOp = saldoCaja + flujoOp;
+                          const isFirst = col.isFirstInSeason || col.isFirstInMonth;
+                          return (
+                            <td key={`sco-${col.mes}-${col.label}-${ci}`}
+                              style={{padding:"5px 5px",textAlign:"right",fontWeight:isTot?900:800,
+                                fontSize:isTot?10:9,color:cf(saldoOp),
+                                background:isTot?`${C.yellow}18`:`${C.teal}11`,
+                                borderLeft:col.isFirstInSeason?`2px solid ${C.border2}`:isFirst?`1px solid ${C.border}44`:`1px solid ${C.border}11`}}>
+                              {$$(saldoOp)}
+                            </td>
+                          );
+                        });
+                      })}
+                    </tr>
+                  );
+                })()}
               </React.Fragment>
             ))}
 
