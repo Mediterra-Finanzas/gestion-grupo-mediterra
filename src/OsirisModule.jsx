@@ -612,6 +612,14 @@ async function exportCSV(rowsOrSections, headers, nombre, opts={}) {
   a.download = `${nombre}_${fecha}.xlsx`;
   a.click();
   URL.revokeObjectURL(url);
+
+  // Auditoría: registrar exportación
+  const totalFilas = sections.reduce((s,sec)=>s+sec.rows.length, 0);
+  window.auditLog&&window.auditLog("exportar", {
+    modulo:"osiris",
+    seccion: tituloDoc,
+    descripcion: `Exportó Excel "${tituloDoc}" con ${totalFilas} registros${filtrosInfo?` · ${filtrosInfo}`:""}`,
+  });
 }
 
 // ── Helper: barra de filtros + exportar reutilizable ──────────
@@ -778,6 +786,13 @@ function TotalPedidos({data,setData,rpData,setRpData,rcData,setRcData,fvData,set
   function upd(id,c,v) {
     setData(prev=>prev.map(r=>{
       if(r.id!==id) return r;
+      // Solo auditar si realmente cambió
+      if(String(r[c]||"") !== String(v||"")) {
+        window.auditLog&&window.auditLog("editar", {modulo:"osiris", seccion:"Total Pedidos",
+          descripcion:`Editó pedido de "${r.cliente}" · ${r.pais}: campo ${c}`,
+          registroId:id, campo:c,
+          valorAnterior:String(r[c]||""), valorNuevo:String(v||"")});
+      }
       const updated = {...r,[c]:v};
       // Si se confirma → propagar automáticamente
       if(c==="estado" && v==="Confirmado") {
@@ -802,6 +817,9 @@ function TotalPedidos({data,setData,rpData,setRpData,rcData,setRcData,fvData,set
       añoPagoVivero:parseInt(form.añoPagoVivero)||trimPagoVivero(form.trimEntrega,form.añoEntrega).año,
     };
     setData(prev=>[...prev,nuevo]);
+    window.auditLog&&window.auditLog("crear", {modulo:"osiris", seccion:"Total Pedidos",
+      descripcion:`Creó pedido para ${nuevo.cliente} · ${nuevo.pais} · ${nuevo.nPlantas} plantas · ${nuevo.añoEntrega} T${nuevo.trimEntrega}`,
+      registroId:nuevo.id});
     if(nuevo.estado==="Confirmado") propagarPedido(nuevo);
     setModal(false);
     setForm(formVacio);
@@ -968,6 +986,9 @@ function TotalPedidos({data,setData,rpData,setRpData,rcData,setRcData,fvData,set
                   <button onClick={()=>{
                     if(!window.confirm(`¿Eliminar pedido de "${r.cliente}"?\nTambién se eliminarán las filas vinculadas en Royalty/Planta, Royalty Comercial y Fee Vivero.`))return;
                     const id=r.id;
+                    window.auditLog&&window.auditLog("eliminar", {modulo:"osiris", seccion:"Total Pedidos",
+                      descripcion:`Eliminó pedido de "${r.cliente}" (${r.pais} · ${r.nPlantas} plantas · ${r.añoEntrega}). También se eliminaron registros vinculados en RP/RC/FV`,
+                      registroId:id});
                     // Eliminar atómicamente via prop del padre (evita race conditions)
                     if(onDeletePedido){ onDeletePedido(id); }
                     else {
@@ -1256,6 +1277,12 @@ function RoyaltyPlanta({data,setData,tpData,can,clientes=[]}) {
   function upd(id,c,v){
     setData(prev=>prev.map(r=>{
       if(r.id!==id) return r;
+      if(String(r[c]||"") !== String(v||"")) {
+        window.auditLog&&window.auditLog("editar", {modulo:"osiris", seccion:"Royalty Planta",
+          descripcion:`Editó royalty/planta de "${r.cliente}" · ${r.pais}: campo ${c}`,
+          registroId:id, campo:c,
+          valorAnterior:String(r[c]||""), valorNuevo:String(v||"")});
+      }
       const updated={...r,[c]:v};
       // Si se ingresa N° factura, marcar como Facturado automáticamente
       if(c==="nFact"&&v&&String(v).trim()!=="") updated.facturado=true;
@@ -1271,11 +1298,15 @@ function RoyaltyPlanta({data,setData,tpData,can,clientes=[]}) {
     const cuotasCalc = form.planPago && (form.cuotas||[]).length>0
       ? form.cuotas.map((c,i)=>({...c,id:`rpc_${Date.now()}_${i}`,monto:nPl*usd*(c.pct||0)/100}))
       : [];
+    const id = `rp_${Date.now()}`;
     setData(prev=>[...prev,{
-      ...form,id:`rp_${Date.now()}`,
+      ...form,id,
       nPlantas:nPl, usdPlanta:usd,
       cuotas:cuotasCalc,
     }]);
+    window.auditLog&&window.auditLog("crear", {modulo:"osiris", seccion:"Royalty Planta",
+      descripcion:`Creó royalty/planta para "${form.cliente}" · ${form.pais} · ${nPl} plantas × $${usd}/pl`,
+      registroId:id});
     setModal(false);
     setForm({tpId:"",cliente:"",pais:"Peru",vivero:"Synergia Chile",nPlantas:"",usdPlanta:"",fechaPago:"",nFact:"",pagado:false});
   }
@@ -1387,7 +1418,13 @@ function RoyaltyPlanta({data,setData,tpData,can,clientes=[]}) {
                     <Cell val={r.fechaPago||""} onChange={v=>upd(r.id,"fechaPago",v)} type="date" can={can}/>
                   </td>
                   {can&&<td style={{padding:"4px 6px",textAlign:"center"}}>
-                    <button onClick={()=>{if(window.confirm(`¿Eliminar royalty de "${r.cliente}"?`))setData(prev=>prev.filter(x=>x.id!==r.id));}}
+                    <button onClick={()=>{
+                      if(!window.confirm(`¿Eliminar royalty de "${r.cliente}"?`))return;
+                      window.auditLog&&window.auditLog("eliminar", {modulo:"osiris", seccion:"Royalty Planta",
+                        descripcion:`Eliminó royalty/planta de "${r.cliente}" · ${r.pais} · ${r.nPlantas||0} plantas`,
+                        registroId:r.id});
+                      setData(prev=>prev.filter(x=>x.id!==r.id));
+                    }}
                       style={{background:"#fee2e2",border:"none",borderRadius:6,padding:"3px 8px",cursor:"pointer",fontSize:12,color:"#991b1b",fontWeight:700}}>×</button>
                   </td>}
                 </tr>
@@ -1538,11 +1575,23 @@ function FeeEntrada({data,setData,ctData,can,clientes=[]}) {
     const existe = data.find(r=>r.id===id);
     if(!existe){
       const fromSync = dataConSync.find(r=>r.id===id);
-      if(fromSync) setData(prev=>[...prev,{...fromSync,[c]:v}]);
+      if(fromSync) {
+        window.auditLog&&window.auditLog("editar", {modulo:"osiris", seccion:"Fee Entrada",
+          descripcion:`Editó fee entrada de "${fromSync.cliente}" · ${fromSync.pais}: campo ${c} (auto-generado desde contrato)`,
+          registroId:id, campo:c,
+          valorAnterior:String(fromSync[c]||""), valorNuevo:String(v||"")});
+        setData(prev=>[...prev,{...fromSync,[c]:v}]);
+      }
       return;
     }
     setData(prev=>prev.map(r=>{
       if(r.id!==id) return r;
+      if(String(r[c]||"") !== String(v||"")) {
+        window.auditLog&&window.auditLog("editar", {modulo:"osiris", seccion:"Fee Entrada",
+          descripcion:`Editó fee entrada de "${r.cliente}" · ${r.pais}: campo ${c}`,
+          registroId:id, campo:c,
+          valorAnterior:String(r[c]||""), valorNuevo:String(v||"")});
+      }
       const updated={...r,[c]:v};
       return updated;
     }));
@@ -1707,7 +1756,18 @@ function RoyaltyComercial({data,setData,tpData,can,clientes=[]}) {
   const totCobro=filtrado.reduce((s,r)=>s+r.montoCobro,0);
   const totPend=filtrado.filter(r=>!r.pagado).reduce((s,r)=>s+r.montoCobro,0);
 
-  function upd(id,c,v){setData(prev=>prev.map(r=>r.id===id?{...r,[c]:v,...(c==="ha"?{_haEditado:true}:{})}:r));}
+  function upd(id,c,v){
+    setData(prev=>prev.map(r=>{
+      if(r.id!==id) return r;
+      if(String(r[c]||"") !== String(v||"")) {
+        window.auditLog&&window.auditLog("editar", {modulo:"osiris", seccion:"Royalty Comercial",
+          descripcion:`Editó royalty comercial de "${r.cliente}" · ${r.pais} ${r.añoCobro||""}: campo ${c}`,
+          registroId:id, campo:c,
+          valorAnterior:String(r[c]||""), valorNuevo:String(v||"")});
+      }
+      return r.id===id?{...r,[c]:v,...(c==="ha"?{_haEditado:true}:{})}:r;
+    }));
+  }
 
   function agregar(){
     if(!form.cliente.trim()){alert("Cliente es obligatorio.");return;}
@@ -1730,6 +1790,9 @@ function RoyaltyComercial({data,setData,tpData,can,clientes=[]}) {
       });
     }
     setData(prev=>[...prev,...nuevos]);
+    window.auditLog&&window.auditLog("crear", {modulo:"osiris", seccion:"Royalty Comercial",
+      descripcion:`Creó royalty comercial para "${form.cliente}" · ${form.pais} · ${form.ha} há × $${form.usdHa||3000}/há · ${nAños} años desde ${añoBase} T${trimBase}`,
+      registroId:nuevos[0]?.id});
     setModal(false);
     setForm({cliente:"",pais:"Peru",ha:"",usdHa:3000,añoPrimerCobro:"",trimPrimerCobro:"2",repetirAños:5,nFact:"",pagado:false});
   }
@@ -1873,7 +1936,13 @@ function RoyaltyComercial({data,setData,tpData,can,clientes=[]}) {
                     }
                   </td>
                   {can&&<td style={{padding:"4px 6px",textAlign:"center"}}>
-                    <button onClick={()=>{if(window.confirm(`¿Eliminar royalty comercial de "${r.cliente}" ${r.añoCobro}?`))setData(prev=>prev.filter(x=>x.id!==r.id));}}
+                    <button onClick={()=>{
+                      if(!window.confirm(`¿Eliminar royalty comercial de "${r.cliente}" ${r.añoCobro}?`))return;
+                      window.auditLog&&window.auditLog("eliminar", {modulo:"osiris", seccion:"Royalty Comercial",
+                        descripcion:`Eliminó royalty comercial de "${r.cliente}" · ${r.pais} · ${r.añoCobro} T${r.trimCobro} · ${r.ha||0} há`,
+                        registroId:r.id});
+                      setData(prev=>prev.filter(x=>x.id!==r.id));
+                    }}
                       style={{background:"#fee2e2",border:"none",borderRadius:6,padding:"3px 8px",cursor:"pointer",fontSize:12,color:"#991b1b",fontWeight:700}}>×</button>
                   </td>}
                 </tr>
@@ -1948,7 +2017,16 @@ function FeeViveros({data,setData,tpData,can,clientes=[]}) {
     montoFact:"",fechaFact:"",nFact:"",pagado:false,
   });
 
-  const upd=(id,c,v)=>setData(prev=>prev.map(r=>r.id===id?{...r,[c]:v}:r));
+  const upd=(id,c,v)=>setData(prev=>prev.map(r=>{
+    if(r.id!==id) return r;
+    if(String(r[c]||"") !== String(v||"")) {
+      window.auditLog&&window.auditLog("editar", {modulo:"osiris", seccion:"Fee Viveros",
+        descripcion:`Editó fee vivero de "${r.empresa||r.cliente||""}" · ${r.vivero||""}: campo ${c}`,
+        registroId:id, campo:c,
+        valorAnterior:String(r[c]||""), valorNuevo:String(v||"")});
+    }
+    return {...r,[c]:v};
+  }));
 
   // Filtrar huérfanos: si el registro viene de un pedido (tpId), verificar que el pedido aún existe
   const tpIds = new Set((tpData||[]).map(r=>r.id));
@@ -1973,13 +2051,17 @@ function FeeViveros({data,setData,tpData,can,clientes=[]}) {
 
   function agregar(){
     if(!form.empresa.trim()){alert("Empresa es obligatoria.");return;}
+    const id = `fv_${Date.now()}`;
     setData(prev=>[...prev,{
-      ...form,id:`fv_${Date.now()}`,
+      ...form,id,
       nPlantas:parseFloat(form.nPlantas)||0,
       regalia:parseFloat(form.regalia)||0,
       totalOsiris:parseFloat(form.totalOsiris)||0,
       montoFact:parseFloat(form.montoFact)||0,
     }]);
+    window.auditLog&&window.auditLog("crear", {modulo:"osiris", seccion:"Fee Viveros",
+      descripcion:`Creó fee vivero para "${form.empresa}" · ${form.vivero} · ${form.pais} · ${form.nPlantas||0} plantas`,
+      registroId:id});
     setModal(false);
     setForm({vivero:"Synergiabio",empresa:"",pais:"Peru",proforma:"",nPlantas:"",regalia:0.45,totalOsiris:"",tipoPago:"Entrega",montoFact:"",fechaFact:"",nFact:"",pagado:false});
   }
@@ -2092,7 +2174,13 @@ function FeeViveros({data,setData,tpData,can,clientes=[]}) {
                     <BadgePago pagado={r.pagado} onChange={v=>upd(r.id,"pagado",v)} can={can}/>
                   </td>
                   {can&&<td style={{padding:"4px 6px",textAlign:"center"}}>
-                    <button onClick={()=>{if(window.confirm(`¿Eliminar fee vivero de "${r.empresa}"?`))setData(prev=>prev.filter(x=>x.id!==r.id));}}
+                    <button onClick={()=>{
+                      if(!window.confirm(`¿Eliminar fee vivero de "${r.empresa}"?`))return;
+                      window.auditLog&&window.auditLog("eliminar", {modulo:"osiris", seccion:"Fee Viveros",
+                        descripcion:`Eliminó fee vivero de "${r.empresa}" · ${r.vivero||""} · ${r.pais||""}`,
+                        registroId:r.id});
+                      setData(prev=>prev.filter(x=>x.id!==r.id));
+                    }}
                       style={{background:"#fee2e2",border:"none",borderRadius:6,padding:"3px 8px",cursor:"pointer",fontSize:12,color:"#991b1b",fontWeight:700}}>×</button>
                   </td>}
                 </tr>
@@ -3122,10 +3210,26 @@ function MaestroClientes({clientes,setClientes,can}){
   function guardar(){
     if(!form.razonSocial.trim()){alert("Razón Social es obligatoria.");return;}
     if(editId){
+      const anterior = clientes.find(c=>c.id===editId);
       setClientes(prev=>prev.map(c=>c.id===editId?{...c,...form}:c));
+      // Auditar cambios campo a campo
+      if(anterior) {
+        Object.keys(form).forEach(k=>{
+          if(String(anterior[k]||"") !== String(form[k]||"")) {
+            window.auditLog&&window.auditLog("editar", {modulo:"osiris", seccion:"Maestro Clientes",
+              descripcion:`Editó cliente "${form.razonSocial||anterior.razonSocial}": campo ${k}`,
+              registroId:editId, campo:k,
+              valorAnterior:String(anterior[k]||""), valorNuevo:String(form[k]||"")});
+          }
+        });
+      }
       setEditId(null);
     } else {
-      setClientes(prev=>[...prev,{...form,id:`cli_${Date.now()}`}]);
+      const id = `cli_${Date.now()}`;
+      setClientes(prev=>[...prev,{...form,id}]);
+      window.auditLog&&window.auditLog("crear", {modulo:"osiris", seccion:"Maestro Clientes",
+        descripcion:`Creó cliente "${form.razonSocial}" · ${form.pais||""}`,
+        registroId:id});
     }
     setForm({razonSocial:"",nombreComercial:"",taxID:"",pais:"Peru",direccion:"",ciudad:"",repLegal:"",rucRep:"",contactoCobranza:""});
     setShowForm(false);
@@ -3198,7 +3302,13 @@ function MaestroClientes({clientes,setClientes,can}){
                 <td style={{padding:"6px 8px",textAlign:"center"}}>
                   {can&&<div style={{display:"flex",gap:4}}>
                     <button onClick={()=>iniciarEdicion(c)} style={{background:"#dbeafe",border:"none",borderRadius:4,padding:"3px 8px",cursor:"pointer",fontSize:11,color:"#1d4ed8",fontWeight:600}}>✏️</button>
-                    <button onClick={()=>{if(window.confirm(`¿Eliminar cliente "${c.razonSocial}"?`))setClientes(prev=>prev.filter(x=>x.id!==c.id));}}
+                    <button onClick={()=>{
+                      if(!window.confirm(`¿Eliminar cliente "${c.razonSocial}"?`))return;
+                      window.auditLog&&window.auditLog("eliminar", {modulo:"osiris", seccion:"Maestro Clientes",
+                        descripcion:`Eliminó cliente "${c.razonSocial}" · ${c.pais||""}`,
+                        registroId:c.id});
+                      setClientes(prev=>prev.filter(x=>x.id!==c.id));
+                    }}
                       style={{background:"#fee2e2",border:"none",borderRadius:4,padding:"3px 8px",cursor:"pointer",fontSize:11,color:"#991b1b",fontWeight:600}}>×</button>
                   </div>}
                 </td>
@@ -3304,7 +3414,19 @@ function ControlContratos({data,setData,clientes,setClientes,can}){
   };
   const [form,setForm]=useState(formVacio);
 
-  const upd=(id,c,v)=>setData(prev=>prev.map(r=>r.id===id?{...r,[c]:v}:r));
+  const upd=(id,c,v)=>setData(prev=>prev.map(r=>{
+    if(r.id!==id) return r;
+    // Para objetos anidados (anexos), serializar; para otros, directo
+    const valA = typeof r[c]==="object" ? JSON.stringify(r[c]) : String(r[c]||"");
+    const valD = typeof v==="object" ? JSON.stringify(v) : String(v||"");
+    if(valA !== valD) {
+      window.auditLog&&window.auditLog("editar", {modulo:"osiris", seccion:"Contratos",
+        descripcion:`Editó contrato de "${r.razonSocial}" · ${r.pais}: campo ${c}`,
+        registroId:id, campo:c,
+        valorAnterior:valA.slice(0,200), valorNuevo:valD.slice(0,200)});
+    }
+    return {...r,[c]:v};
+  }));
   const setF=(c,v)=>setForm(p=>({...p,[c]:v}));
 
   const filtrado=data.filter(r=>
@@ -3321,7 +3443,11 @@ function ControlContratos({data,setData,clientes,setClientes,can}){
     if(!form.tipoContrato){alert("El Tipo de Contrato es obligatorio.");return;}
     if(!form.fechaContrato){alert("La Fecha de Contrato es obligatoria.");return;}
     if(!form.moneda){alert("La Moneda es obligatoria.");return;}
-    setData(prev=>[...prev,{...form,id:`ct_${Date.now()}`}]);
+    const id = `ct_${Date.now()}`;
+    setData(prev=>[...prev,{...form,id}]);
+    window.auditLog&&window.auditLog("crear", {modulo:"osiris", seccion:"Contratos",
+      descripcion:`Creó contrato para "${form.razonSocial}" · ${form.pais} · ${form.tipoContrato} · ${form.fechaContrato}`,
+      registroId:id});
     setVista("tabla");setForm(formVacio);setClienteSelId("");
   }
 
@@ -3342,6 +3468,10 @@ function ControlContratos({data,setData,clientes,setClientes,can}){
   }
   function eliminar(id){
     if(!window.confirm("¿Eliminar este contrato?"))return;
+    const ct = data.find(r=>r.id===id);
+    if(ct) window.auditLog&&window.auditLog("eliminar", {modulo:"osiris", seccion:"Contratos",
+      descripcion:`Eliminó contrato de "${ct.razonSocial}" · ${ct.pais||""} · ${ct.tipoContrato||""}`,
+      registroId:id});
     setData(prev=>prev.filter(r=>r.id!==id));
     if(sel===id){setVista("tabla");setSel(null);}
   }
