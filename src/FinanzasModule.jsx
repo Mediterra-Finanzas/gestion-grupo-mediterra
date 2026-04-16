@@ -3502,6 +3502,44 @@ function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit,saldosBanc
     return 0;
   },[proyOverrides, emp]);
 
+  // ── Helpers para sumar subLines (CxC, Capital Calls, Aportes, etc) ─
+  // Soporta formato nuevo "idx_semIdx" y formato antiguo "idx"
+  const sumSubLinesMes = useCallback((lineLabel, idx) => {
+    const list = subLines[lineLabel] || [];
+    let total = 0;
+    list.forEach(sl=>{
+      if(typeof sl === "string") return;
+      const vals = sl.vals || {};
+      let hasSem = false;
+      for(let s=0; s<4; s++){
+        const k = `${idx}_${s}`;
+        if(vals[k] !== undefined){ total += Number(vals[k])||0; hasSem = true; }
+      }
+      if(!hasSem && vals[idx] !== undefined) total += Number(vals[idx])||0;
+    });
+    return total;
+  },[subLines]);
+
+  const sumSubLinesSemana = useCallback((lineLabel, idx, semIdx, isLastInMonth) => {
+    const list = subLines[lineLabel] || [];
+    let total = 0;
+    list.forEach(sl=>{
+      if(typeof sl === "string") return;
+      const vals = sl.vals || {};
+      const kSem = `${idx}_${semIdx}`;
+      if(vals[kSem] !== undefined) {
+        total += Number(vals[kSem])||0;
+      } else {
+        // Retrocompatibilidad: si no hay valor por semana pero hay mensual antiguo, mostrar en última semana
+        const hasAnySem = [0,1,2,3].some(s=>vals[`${idx}_${s}`]!==undefined);
+        if(!hasAnySem && vals[idx] !== undefined && isLastInMonth) {
+          total += Number(vals[idx])||0;
+        }
+      }
+    });
+    return total;
+  },[subLines]);
+
   // Guardar override semanal (o mensual si semIdx no se especifica)
   const handleEditProy = useCallback((lineLabel, idx, nuevoVal, semIdx) => {
     setProyOverrides(prev=>{
@@ -3559,7 +3597,16 @@ function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit,saldosBanc
           f += v * sec.signo;
           // Include subLines (CxC/Préstamos sub-items) in flujo
           if(l.subLines)(subLines[l.label]||[]).forEach(sl=>{
-            const sv=Number(typeof sl==="string"?0:(sl.vals||{})[i])||0;
+            if(typeof sl === "string") return;
+            const vals = sl.vals || {};
+            // Sumar formato nuevo (idx_semIdx) + formato antiguo (idx como número)
+            let sv = 0;
+            let hasSem = false;
+            for(let s=0; s<4; s++){
+              const k = `${i}_${s}`;
+              if(vals[k] !== undefined){ sv += Number(vals[k])||0; hasSem = true; }
+            }
+            if(!hasSem && vals[i] !== undefined) sv = Number(vals[i])||0;
             f += sv * sec.signo;
           });
         });
@@ -3830,7 +3877,11 @@ function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit,saldosBanc
                       }
                       return cols.map((col,ci)=>{
                         const isTot=col.isTotalMes;
-                        const valMes=getProy(line.label,col.idx);
+                        const valMesProp=getProy(line.label,col.idx);
+                        // Si la línea tiene subLines, sumar los subLines al valor mostrado en el padre
+                        const sumSubMes = line.subLines && !line.label.includes("Préstamos")
+                          ? sumSubLinesMes(line.label, col.idx) : 0;
+                        const valMes = valMesProp + sumSubMes;
                         // Show full monthly value: on monthly view always
                         // For Pago Préstamos: use exact semana of vencimiento in weekly view
                         let val;
@@ -3841,7 +3892,10 @@ function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit,saldosBanc
                           val=(semMap[col.mes]?.[col.semana])||0;
                         } else if(col.type==="week") {
                           // Cada semana tiene su propio valor independiente
-                          val = getProySemana(line.label, col.idx, col.semIdx, col.isLastInMonth);
+                          const propValSem = getProySemana(line.label, col.idx, col.semIdx, col.isLastInMonth);
+                          const subValSem = line.subLines && !line.label.includes("Préstamos")
+                            ? sumSubLinesSemana(line.label, col.idx, col.semIdx, col.isLastInMonth) : 0;
+                          val = propValSem + subValSem;
                         } else {
                           val=col.isLastInMonth?valMes:0;
                         }
@@ -4017,9 +4071,32 @@ function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit,saldosBanc
                   {line.subLines&&expandedSubs[line.label]&&!line.label.includes("Préstamos")&&(subLines[line.label]||[]).map((sl,sli)=>{
                     const slLabel=typeof sl==="string"?sl:sl.label;
                     const slVals =typeof sl==="string"?{}:(sl.vals||{});
-                    const updSlVal=(idx,v)=>{
-                      const arr=(subLines[line.label]||[]).map((x,xi)=>xi===sli?{label:slLabel,vals:{...slVals,[idx]:v}}:x);
+                    // Guarda un valor semanal: la clave es "idx_semIdx" (ej: "2_0") o "idx" para mensual antiguo
+                    const updSlVal=(idx,v,semIdx)=>{
+                      const key = semIdx != null ? `${idx}_${semIdx}` : String(idx);
+                      const arr=(subLines[line.label]||[]).map((x,xi)=>xi===sli?{label:slLabel,vals:{...slVals,[key]:v}}:x);
                       if(onSaveSubLines) onSaveSubLines(line.label,arr);
+                    };
+                    // Helper: obtener valor de un subLine para (idx, semIdx)
+                    const getSlVal = (idx, semIdx) => {
+                      const keySem = `${idx}_${semIdx}`;
+                      if(slVals[keySem] !== undefined) return Number(slVals[keySem])||0;
+                      return 0;
+                    };
+                    // Helper: valor total del mes (suma todas las semanas + key mensual antiguo)
+                    const getSlValMes = (idx) => {
+                      let total = 0;
+                      let hasSem = false;
+                      for(let s=0; s<4; s++){
+                        const k = `${idx}_${s}`;
+                        if(slVals[k] !== undefined) {
+                          total += Number(slVals[k])||0;
+                          hasSem = true;
+                        }
+                      }
+                      // Retrocompatibilidad: si hay valor mensual antiguo sin semanas, usarlo
+                      if(!hasSem && slVals[idx] !== undefined) return Number(slVals[idx])||0;
+                      return total;
                     };
                     return (
                       <tr key={`sl-${line.label}-${sli}`} style={{borderBottom:`1px solid ${C.border}11`,background:`${C.blue}06`}}>
@@ -4034,14 +4111,24 @@ function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit,saldosBanc
                         </td>
                         {colStructure.map(({season:s,collapsed,cols})=>{
                           if(collapsed){
-                            const tot=s.indices.reduce((a,i)=>a+(Number(slVals[i])||0),0);
+                            const tot=s.indices.reduce((a,i)=>a+getSlValMes(i),0);
                             return <td key={s.key} style={{padding:"4px 6px",textAlign:"right",fontSize:9,
                               color:tot?C.blue:C.muted2,borderLeft:`2px solid ${C.border2}`}}>{tot?$$(tot):"—"}</td>;
                           }
                           return cols.map((col,ci)=>{
                             const isTot=col.isTotalMes;
-                            const raw=Number(slVals[col.idx])||0;
-                            const disp=isTot?raw:(col.type==="month"||col.type==="month_collapsed"||col.isLastInMonth?raw:0);
+                            // Valor a mostrar
+                            let disp;
+                            if(isTot) {
+                              disp = getSlValMes(col.idx);
+                            } else if(col.type==="month_collapsed" || col.type==="month") {
+                              disp = getSlValMes(col.idx);
+                            } else if(col.type==="week") {
+                              // Valor específico de la semana
+                              disp = getSlVal(col.idx, col.semIdx);
+                            } else {
+                              disp = 0;
+                            }
                             const isFirst=col.isFirstInSeason||col.isFirstInMonth;
                             return (
                               <td key={`sl-${sli}-${col.mes||""}-${ci}`}
@@ -4052,7 +4139,11 @@ function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit,saldosBanc
                                   ? <span style={{color:disp?C.blue:C.muted2,fontWeight:disp?700:400}}>{disp?$$(disp):"—"}</span>
                                   : <CeldaEditable val={disp} color={C.blue}
                                       canEdit={canEdit&&col.type!=="month_collapsed"}
-                                      onSave={v=>updSlVal(col.idx,col.type==="month_collapsed"?v:v*(col.nSems||1))}/>
+                                      onSave={v=>{
+                                        // Guardar tal cual, sin multiplicar
+                                        if(col.type==="week") updSlVal(col.idx, v, col.semIdx);
+                                        else updSlVal(col.idx, v);
+                                      }}/>
                                 }
                               </td>
                             );
@@ -4143,8 +4234,15 @@ function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit,saldosBanc
                   </td>
                   {colStructure.map(({season:s,collapsed,cols})=>{
                     if(collapsed){
-                      const total=s.indices.reduce((a,i)=>a+sec.lines.reduce((b,l)=>l.label.startsWith("  ")?b:b+getProy(l.label,i),0)+
-                      (addedLines[sec.cat]||[]).reduce((b,al)=>b+(Number(typeof al==="string"?0:(al.vals||{})[i])||0),0),0);
+                      const total=s.indices.reduce((a,i)=>{
+                        const linTot = sec.lines.reduce((b,l)=>{
+                          if(l.label.startsWith("  ")) return b;
+                          const subSum = l.subLines && !l.label.includes("Préstamos") ? sumSubLinesMes(l.label, i) : 0;
+                          return b + getProy(l.label,i) + subSum;
+                        },0);
+                        const addSum = (addedLines[sec.cat]||[]).reduce((b,al)=>b+(Number(typeof al==="string"?0:(al.vals||{})[i])||0),0);
+                        return a + linTot + addSum;
+                      },0);
                       return (
                         <td key={s.key} style={{padding:"5px 8px",textAlign:"right",fontWeight:800,
                           color:CAT_COLOR[sec.cat],fontSize:10,borderLeft:`2px solid ${C.border2}`,background:C.bg2}}>
@@ -4159,20 +4257,27 @@ function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit,saldosBanc
                       // Vista mensual o Σ mes: suma todos los valores del mes
                       let baseTotal = 0, addedTotal = 0;
                       if(isTot || col.type==="month" || col.type==="month_collapsed") {
-                        // Columna total mes: suma mensual completa
-                        baseTotal = sec.lines.reduce((a,l)=>l.label.startsWith("  ")?a:a+getProy(l.label,col.idx),0);
+                        // Columna total mes: suma mensual completa (línea padre + sus subLines)
+                        baseTotal = sec.lines.reduce((a,l)=>{
+                          if(l.label.startsWith("  ")) return a;
+                          const subSum = l.subLines && !l.label.includes("Préstamos") ? sumSubLinesMes(l.label, col.idx) : 0;
+                          return a + getProy(l.label,col.idx) + subSum;
+                        },0);
                         addedTotal = (addedLines[sec.cat]||[]).reduce((a,al)=>{
                           const v=Number(typeof al==="string"?0:(al.vals||{})[col.idx])||0;
                           return a+v;
                         },0);
                       } else if(col.type==="week") {
-                        // Columna de semana: suma los valores semanales de cada línea
+                        // Columna de semana: suma los valores semanales de cada línea + subLines de esa semana
                         baseTotal = sec.lines.reduce((a,l)=>{
                           if(l.label.startsWith("  ")) return a;
-                          return a + getProySemana(l.label, col.idx, col.semIdx, col.isLastInMonth);
+                          const propSem = getProySemana(l.label, col.idx, col.semIdx, col.isLastInMonth);
+                          const subSem = l.subLines && !l.label.includes("Préstamos")
+                            ? sumSubLinesSemana(l.label, col.idx, col.semIdx, col.isLastInMonth) : 0;
+                          return a + propSem + subSem;
                         }, 0);
-                        // addedLines son mensuales, mostrar solo en última semana
-                        addedTotal = col.isLastInMonth ?
+                        // addedLines son mensuales, mostrar solo en primera semana
+                        addedTotal = col.semIdx === 0 ?
                           (addedLines[sec.cat]||[]).reduce((a,al)=>{
                             const v=Number(typeof al==="string"?0:(al.vals||{})[col.idx])||0;
                             return a+v;
