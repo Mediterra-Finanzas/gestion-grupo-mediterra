@@ -3475,10 +3475,10 @@ function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit,saldosBanc
 
   // Valor proyectado específico de UNA semana (0-3) del mes idx
   // Lógica:
-  // - Sin ningún override: prorratea valor base entre 4 semanas (muestra valor promedio en cada una)
+  // - Sin override: muestra el valor base COMPLETO en la primera semana del mes (0), resto en 0
+  //   (los parámetros apuntan a un mes específico, no tiene sentido prorratear)
   // - Con override mensual antiguo (number): muestra en última semana
-  // - Con override semanal (objeto): solo muestra lo que el usuario ingresó en esa semana específica,
-  //   las demás semanas son 0 (el usuario tomó control del mes, la fórmula base se ignora)
+  // - Con override semanal (objeto): solo muestra lo que el usuario ingresó en esa semana específica
   const getProySemana = useCallback((lineLabel, idx, semIdx, isLastInMonth) => {
     const ov = proyOverrides[lineLabel]?.[idx];
     let base = 0;
@@ -3487,8 +3487,8 @@ function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit,saldosBanc
       if(l){ base = l.proy[idx]||0; break; }
     }
     if(ov === undefined) {
-      // Sin override: prorratear base entre 4 semanas
-      return base / 4;
+      // Sin override: mostrar el valor base COMPLETO en la primera semana
+      return semIdx === 0 ? base : 0;
     }
     if(typeof ov === "number") {
       // Override mensual antiguo: mostrar solo en última semana
@@ -3497,7 +3497,6 @@ function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit,saldosBanc
     if(typeof ov === "object" && ov !== null) {
       const k = `_sem${semIdx}`;
       // Solo el valor ingresado por el usuario en esa semana exacta
-      // Las demás semanas muestran 0 (el usuario está controlando el mes manualmente)
       return ov[k] !== undefined ? (Number(ov[k])||0) : 0;
     }
     return 0;
