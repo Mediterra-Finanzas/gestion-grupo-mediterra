@@ -3447,8 +3447,10 @@ function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit,saldosBanc
   },[saldosBancos, empNombre]);
 
   // ── Valor proyectado efectivo (base + override) ────────────────
-  // Si override es objeto {_sem0,_sem1,_sem2,_sem3}: suma las semanas definidas (resto = base prorrateado /4)
+  // Si override es objeto {_sem0,_sem1,_sem2,_sem3}: suma SOLO las semanas definidas por el usuario
+  //   (las semanas no editadas son 0, el usuario tomó control del mes)
   // Si override es número: usa ese número como total del mes (retrocompatibilidad)
+  // Si no hay override: usa el valor base de la fórmula/proyección
   const getProy = useCallback((lineLabel, idx) => {
     const ov = proyOverrides[lineLabel]?.[idx];
     // Obtener valor base
@@ -3459,13 +3461,12 @@ function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit,saldosBanc
     }
     if(ov === undefined) return base;
     if(typeof ov === "number") return ov;
-    // ov es objeto con semanas: las definidas suman; las no definidas toman base/4
+    // ov es objeto con semanas: suma solo las semanas que el usuario ingresó
     if(typeof ov === "object" && ov !== null) {
       let total = 0;
       for(let s=0; s<4; s++){
         const k = `_sem${s}`;
         if(ov[k] !== undefined) total += Number(ov[k])||0;
-        else total += base / 4;
       }
       return total;
     }
@@ -3473,9 +3474,11 @@ function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit,saldosBanc
   },[proyOverrides, emp]);
 
   // Valor proyectado específico de UNA semana (0-3) del mes idx
-  // Si hay override semanal explícito → úsalo
-  // Si no hay override → prorratea el valor base uniformemente entre 4 semanas
-  // Si hay override mensual antiguo (number) → lo muestra entero en última semana
+  // Lógica:
+  // - Sin ningún override: prorratea valor base entre 4 semanas (muestra valor promedio en cada una)
+  // - Con override mensual antiguo (number): muestra en última semana
+  // - Con override semanal (objeto): solo muestra lo que el usuario ingresó en esa semana específica,
+  //   las demás semanas son 0 (el usuario tomó control del mes, la fórmula base se ignora)
   const getProySemana = useCallback((lineLabel, idx, semIdx, isLastInMonth) => {
     const ov = proyOverrides[lineLabel]?.[idx];
     let base = 0;
@@ -3493,8 +3496,9 @@ function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit,saldosBanc
     }
     if(typeof ov === "object" && ov !== null) {
       const k = `_sem${semIdx}`;
-      if(ov[k] !== undefined) return Number(ov[k])||0;
-      return base / 4; // semanas no editadas: valor base prorrateado
+      // Solo el valor ingresado por el usuario en esa semana exacta
+      // Las demás semanas muestran 0 (el usuario está controlando el mes manualmente)
+      return ov[k] !== undefined ? (Number(ov[k])||0) : 0;
     }
     return 0;
   },[proyOverrides, emp]);
@@ -3551,9 +3555,8 @@ function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit,saldosBanc
       let f=0;
       emp.sections.forEach(sec=>{
         sec.lines.forEach(l=>{
-          const v = proyOverrides[l.label]?.[i] !== undefined
-            ? proyOverrides[l.label][i]
-            : (l.proy[i]||0);
+          // Usar getProy que maneja tanto overrides mensuales como objeto por semanas
+          const v = getProy(l.label, i);
           f += v * sec.signo;
           // Include subLines (CxC/Préstamos sub-items) in flujo
           if(l.subLines)(subLines[l.label]||[]).forEach(sl=>{
@@ -3572,7 +3575,7 @@ function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit,saldosBanc
     let a = saldoIni;
     const aa = fa.map(f=>{a+=f;return a;});
     return {flujoArr:fa, acumArr:aa};
-  },[emp, proyOverrides, saldoBancoUSD, addedLines, subLines]); // eslint-disable-line
+  },[emp, proyOverrides, saldoBancoUSD, addedLines, subLines, getProy]); // eslint-disable-line
 
   // Flujo neto por mes (para totales mensuales en vista semanal)
   const flujoMes = useMemo(()=>{
@@ -4153,16 +4156,29 @@ function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit,saldosBanc
                     }
                     return cols.map((col,ci)=>{
                       const isTot=col.isTotalMes;
-                      const showFull=isTot||col.type==="month"||col.type==="month_collapsed"||col.isLastInMonth;
-                      // Subtotal: show full month value on monthly view always, weekly only on last week
-                      // Exclude indented sub-lines (  Banco X) — they're breakdowns of Pago Préstamos
-                      const baseTotal=!showFull ? 0 :
-                        sec.lines.reduce((a,l)=>l.label.startsWith("  ")?a:a+getProy(l.label,col.idx),0);
-                      const addedTotal=!showFull ? 0 :
-                        (addedLines[sec.cat]||[]).reduce((a,al)=>{
+                      // Vista semanal: subtotal suma los valores semanales reales
+                      // Vista mensual o Σ mes: suma todos los valores del mes
+                      let baseTotal = 0, addedTotal = 0;
+                      if(isTot || col.type==="month" || col.type==="month_collapsed") {
+                        // Columna total mes: suma mensual completa
+                        baseTotal = sec.lines.reduce((a,l)=>l.label.startsWith("  ")?a:a+getProy(l.label,col.idx),0);
+                        addedTotal = (addedLines[sec.cat]||[]).reduce((a,al)=>{
                           const v=Number(typeof al==="string"?0:(al.vals||{})[col.idx])||0;
                           return a+v;
                         },0);
+                      } else if(col.type==="week") {
+                        // Columna de semana: suma los valores semanales de cada línea
+                        baseTotal = sec.lines.reduce((a,l)=>{
+                          if(l.label.startsWith("  ")) return a;
+                          return a + getProySemana(l.label, col.idx, col.semIdx, col.isLastInMonth);
+                        }, 0);
+                        // addedLines son mensuales, mostrar solo en última semana
+                        addedTotal = col.isLastInMonth ?
+                          (addedLines[sec.cat]||[]).reduce((a,al)=>{
+                            const v=Number(typeof al==="string"?0:(al.vals||{})[col.idx])||0;
+                            return a+v;
+                          },0) : 0;
+                      }
                       const total=baseTotal+addedTotal;
                       const isFirst=col.isFirstInSeason||col.isFirstInMonth;
                       return (
