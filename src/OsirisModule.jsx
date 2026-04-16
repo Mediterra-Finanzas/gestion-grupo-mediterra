@@ -193,91 +193,229 @@ function NombreCliente({nombre,clientes,onChange,can}) {
   );
 }
 
-// ── Helper: exportar a Excel con tabla nativa, filtros y formato ──
-async function exportCSV(rows, headers, nombre) {
-  const fecha = new Date().toISOString().slice(0,10);
-  const nRows = rows.length;
-  const nCols = headers.length;
+// ── Helper: fetch logo Osiris como base64 (una vez) ───────────────
+let _logoCache = null;
+async function getLogoBase64() {
+  if(_logoCache) return _logoCache;
+  try {
+    const res = await fetch("/osiris-logo.jpg");
+    if(!res.ok) return null;
+    const blob = await res.blob();
+    const b64 = await new Promise(resolve => {
+      const r = new FileReader();
+      r.onload = () => resolve(r.result.split(",")[1]);
+      r.readAsDataURL(blob);
+    });
+    // Convertir base64 a ArrayBuffer para JSZip
+    const bin = atob(b64);
+    const buf = new Uint8Array(bin.length);
+    for(let i=0;i<bin.length;i++) buf[i] = bin.charCodeAt(i);
+    _logoCache = {buffer: buf, ext: "jpeg"};
+    return _logoCache;
+  } catch { return null; }
+}
 
-  // Convertir número de columna a letra Excel (A, B, ..., Z, AA, AB...)
+// ── Helper: cargar JSZip una vez ──────────────────────────────────
+async function ensureJSZip() {
+  if(window.JSZip) return;
+  await new Promise((res, rej) => {
+    const s = document.createElement("script");
+    s.src = "https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js";
+    s.onload = res; s.onerror = rej;
+    document.head.appendChild(s);
+  });
+}
+
+// ── Helper: exportar a Excel con logo, título, tabla y formato ──
+// sections puede ser:
+//   - {rows, headers, titulo}  (una sección simple, compatibilidad con llamadas viejas)
+//   - Array de {titulo, rows, headers, subtitulo}  (múltiples secciones)
+async function exportCSV(rowsOrSections, headers, nombre, opts={}) {
+  const fecha = new Date().toISOString().slice(0,10);
+  const fechaLarga = new Date().toLocaleDateString("es-CL", {year:"numeric",month:"long",day:"numeric"});
+
+  // Normalizar entrada: soportar el formato antiguo (rows, headers, nombre)
+  // o el nuevo (sections[], null, nombre, opts)
+  let sections;
+  if(Array.isArray(rowsOrSections) && headers && Array.isArray(headers)) {
+    // Formato antiguo: (rows, headers, nombre)
+    sections = [{titulo: nombre, rows: rowsOrSections, headers}];
+  } else {
+    sections = rowsOrSections;
+  }
+
+  const tituloDoc = opts.tituloDoc || nombre.replace(/_/g," ");
+  const subtituloDoc = opts.subtituloDoc || "Osiris Plant Management · Grupo Mediterra";
+  const filtrosInfo = opts.filtros || "";
+
   function colLetter(n) {
     let s = "";
     n++;
     while(n > 0) { n--; s = String.fromCharCode(65 + (n % 26)) + s; n = Math.floor(n / 26); }
     return s;
   }
-  const lastCol = colLetter(nCols - 1);
-  const lastRow = nRows + 1;
-  const tableRef = `A1:${lastCol}${lastRow}`;
 
-  // Detectar columnas monetarias
-  const isMoney = i => /mto|monto|usd|us\$|cobro|facturar|cobrar|total osiris|regali/i.test(headers[i]);
-  const isNum   = i => /n°\s*plantas|plantar|trim|año/i.test(headers[i]);
-
-  // Anchos de columna (en caracteres × 7 puntos)
-  const colWidths = headers.map((h, i) => {
-    const maxLen = Math.max(h.length, ...rows.map(r => String(r[i] ?? "").length));
-    return Math.min(Math.max(maxLen + 3, 10), 45);
-  });
-
-  // ── Generar XML de la hoja ────────────────────────────────
   function escXml(v) {
     return String(v ?? "")
       .replace(/&/g,"&amp;").replace(/</g,"&lt;")
       .replace(/>/g,"&gt;").replace(/"/g,"&quot;");
   }
-  // Filas de datos
-  let rowsXml = "";
-  // Fila de encabezado (s=1 = estilo header)
-  rowsXml += `<row r="1" ht="22" customHeight="1">`;
-  headers.forEach((h, c) => {
-    const addr = `${colLetter(c)}1`;
-    rowsXml += `<c r="${addr}" t="inlineStr" s="1"><is><t>${escXml(h)}</t></is></c>`;
-  });
-  rowsXml += `</row>`;
 
-  rows.forEach((row, ri) => {
-    const r = ri + 2;
-    const sBase = (ri % 2 === 0) ? 0 : 2; // blanco o gris alternado
-    rowsXml += `<row r="${r}" ht="18" customHeight="1">`;
-    headers.forEach((_, c) => {
-      const val = row[c];
-      const addr = `${colLetter(c)}${r}`;
-      const raw  = val ?? "";
-      const isMoneyCol = isMoney(c);
-      const isNumCol   = isNum(c);
-      const num = (isMoneyCol || isNumCol) && raw !== "" && !isNaN(raw);
-      let s;
-      if(isMoneyCol) s = num ? 3 : 0;
-      else if(c === 0) s = sBase === 0 ? 5 : 6;
-      else s = sBase;
-      if(num) {
-        rowsXml += `<c r="${addr}" s="${s}"><v>${parseFloat(raw)}</v></c>`;
-      } else {
-        rowsXml += `<c r="${addr}" t="inlineStr" s="${s}"><is><t>${escXml(raw)}</t></is></c>`;
-      }
+  // Intentar cargar el logo
+  const logo = await getLogoBase64().catch(()=>null);
+
+  // ── Construir filas XML ───────────────────────────────────
+  let rowsXml = "";
+  let currentRow = 1;
+  const tableParts = []; // [{ref, id, name, headers}]
+  const merges = []; // cells merged ranges
+
+  // Fila 1-4: espacio para logo + título
+  // Fila 1 (vacía para logo), Fila 2 = título grande, Fila 3 = subtítulo, Fila 4 = fecha
+  const maxCols = Math.max(...sections.map(s => s.headers.length));
+  const lastTitleCol = colLetter(maxCols - 1);
+
+  // Fila de logo (height alta para dejar espacio)
+  rowsXml += `<row r="1" ht="58" customHeight="1"></row>`;
+  currentRow = 2;
+
+  // Fila Título
+  rowsXml += `<row r="${currentRow}" ht="26" customHeight="1">`;
+  rowsXml += `<c r="A${currentRow}" t="inlineStr" s="10"><is><t>${escXml(tituloDoc)}</t></is></c>`;
+  rowsXml += `</row>`;
+  merges.push(`A${currentRow}:${lastTitleCol}${currentRow}`);
+  currentRow++;
+
+  // Fila Subtítulo
+  rowsXml += `<row r="${currentRow}" ht="18" customHeight="1">`;
+  rowsXml += `<c r="A${currentRow}" t="inlineStr" s="11"><is><t>${escXml(subtituloDoc)}</t></is></c>`;
+  rowsXml += `</row>`;
+  merges.push(`A${currentRow}:${lastTitleCol}${currentRow}`);
+  currentRow++;
+
+  // Fila Fecha / Filtros
+  const metaTxt = `Exportado: ${fechaLarga}${filtrosInfo?` · ${filtrosInfo}`:""}`;
+  rowsXml += `<row r="${currentRow}" ht="16" customHeight="1">`;
+  rowsXml += `<c r="A${currentRow}" t="inlineStr" s="12"><is><t>${escXml(metaTxt)}</t></is></c>`;
+  rowsXml += `</row>`;
+  merges.push(`A${currentRow}:${lastTitleCol}${currentRow}`);
+  currentRow++;
+
+  // Fila separadora
+  rowsXml += `<row r="${currentRow}" ht="10" customHeight="1"></row>`;
+  currentRow++;
+
+  // ── Procesar cada sección ──
+  sections.forEach((sec, sidx) => {
+    const {titulo: secTitulo, rows: secRows, headers: secHeaders} = sec;
+    const nCols = secHeaders.length;
+
+    // Detectar columnas
+    const isMoney = i => /mto|monto|usd|us\$|cobro|facturar|cobrar|total osiris|regali|iq|wht|neto|fact\b/i.test(secHeaders[i]);
+    const isNum   = i => /n°\s*plantas|plantar|trim|año\b/i.test(secHeaders[i]);
+
+    // Título de sección (si aplica)
+    if(secTitulo && sections.length > 1) {
+      rowsXml += `<row r="${currentRow}" ht="22" customHeight="1">`;
+      rowsXml += `<c r="A${currentRow}" t="inlineStr" s="13"><is><t>${escXml(secTitulo)}</t></is></c>`;
+      rowsXml += `</row>`;
+      const lastSecCol = colLetter(nCols - 1);
+      merges.push(`A${currentRow}:${lastSecCol}${currentRow}`);
+      currentRow++;
+    }
+
+    // Headers de tabla
+    const headerRow = currentRow;
+    rowsXml += `<row r="${currentRow}" ht="22" customHeight="1">`;
+    secHeaders.forEach((h, c) => {
+      const addr = `${colLetter(c)}${currentRow}`;
+      rowsXml += `<c r="${addr}" t="inlineStr" s="1"><is><t>${escXml(h)}</t></is></c>`;
     });
     rowsXml += `</row>`;
+    currentRow++;
+
+    // Data rows
+    secRows.forEach((row, ri) => {
+      const r = currentRow;
+      const sBase = (ri % 2 === 0) ? 0 : 2;
+      rowsXml += `<row r="${r}" ht="18" customHeight="1">`;
+      secHeaders.forEach((_, c) => {
+        const val = row[c];
+        const addr = `${colLetter(c)}${r}`;
+        const raw  = val ?? "";
+        const isMoneyCol = isMoney(c);
+        const isNumCol   = isNum(c);
+        const num = (isMoneyCol || isNumCol) && raw !== "" && !isNaN(raw);
+        let s;
+        if(isMoneyCol) s = num ? 3 : 0;
+        else if(c === 0) s = sBase === 0 ? 5 : 6;
+        else s = sBase;
+        if(num) {
+          rowsXml += `<c r="${addr}" s="${s}"><v>${parseFloat(raw)}</v></c>`;
+        } else {
+          rowsXml += `<c r="${addr}" t="inlineStr" s="${s}"><is><t>${escXml(raw)}</t></is></c>`;
+        }
+      });
+      rowsXml += `</row>`;
+      currentRow++;
+    });
+
+    // Registrar tabla para esta sección (con filtros nativos)
+    if(secRows.length > 0) {
+      const lastCol = colLetter(nCols - 1);
+      const tableRef = `A${headerRow}:${lastCol}${currentRow - 1}`;
+      tableParts.push({
+        id: sidx + 1,
+        name: `Tabla${sidx + 1}`,
+        ref: tableRef,
+        headers: secHeaders,
+      });
+    }
+
+    // Separador entre secciones
+    if(sidx < sections.length - 1) {
+      rowsXml += `<row r="${currentRow}" ht="12" customHeight="1"></row>`;
+      currentRow++;
+    }
   });
 
-  // Definiciones de estilos
-  // s=0: normal blanco | s=1: header | s=2: alt gris | s=3: money verde
-  // s=4: número normal | s=5: primera col negrita blanca | s=6: primera col negrita gris
+  // ── Anchos de columnas (basado en la sección más ancha) ──
+  const colWidths = [];
+  for(let c = 0; c < maxCols; c++) {
+    let maxLen = 0;
+    sections.forEach(sec => {
+      if(c < sec.headers.length) {
+        maxLen = Math.max(maxLen, String(sec.headers[c] ?? "").length);
+        sec.rows.forEach(r => {
+          maxLen = Math.max(maxLen, String(r[c] ?? "").length);
+        });
+      }
+    });
+    colWidths.push(Math.min(Math.max(maxLen + 3, 12), 45));
+  }
+
+  // ── Estilos ──
   const stylesXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
-  <fonts count="5">
+  <fonts count="9">
     <font><sz val="11"/><name val="Calibri"/></font>
     <font><sz val="11"/><b/><color rgb="FFFFFFFF"/><name val="Calibri"/></font>
     <font><sz val="11"/><name val="Calibri"/></font>
     <font><sz val="11"/><b/><color rgb="FF15803D"/><name val="Calibri"/></font>
     <font><sz val="11"/><b/><name val="Calibri"/></font>
+    <font><sz val="20"/><b/><color rgb="FF0F2D4A"/><name val="Calibri"/></font>
+    <font><sz val="12"/><i/><color rgb="FF64748B"/><name val="Calibri"/></font>
+    <font><sz val="10"/><color rgb="FF94A3B8"/><name val="Calibri"/></font>
+    <font><sz val="13"/><b/><color rgb="FFFFFFFF"/><name val="Calibri"/></font>
   </fonts>
-  <fills count="5">
+  <fills count="7">
     <fill><patternFill patternType="none"/></fill>
     <fill><patternFill patternType="gray125"/></fill>
     <fill><patternFill patternType="solid"><fgColor rgb="FF0F2D4A"/></patternFill></fill>
     <fill><patternFill patternType="solid"><fgColor rgb="FFF1F5F9"/></patternFill></fill>
     <fill><patternFill patternType="solid"><fgColor rgb="FFDCFCE7"/></patternFill></fill>
+    <fill><patternFill patternType="solid"><fgColor rgb="FF0F766E"/></patternFill></fill>
+    <fill><patternFill patternType="solid"><fgColor rgb="FFE0F2F1"/></patternFill></fill>
   </fills>
   <borders count="2">
     <border><left/><right/><top/><bottom/><diagonal/></border>
@@ -289,7 +427,7 @@ async function exportCSV(rows, headers, nombre) {
     </border>
   </borders>
   <cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>
-  <cellXfs count="7">
+  <cellXfs count="14">
     <xf numFmtId="0"  fontId="0" fillId="0" borderId="1" xfId="0"><alignment vertical="center"/></xf>
     <xf numFmtId="0"  fontId="1" fillId="2" borderId="0" xfId="0"><alignment horizontal="center" vertical="center" wrapText="1"/></xf>
     <xf numFmtId="0"  fontId="0" fillId="3" borderId="1" xfId="0"><alignment vertical="center"/></xf>
@@ -297,44 +435,115 @@ async function exportCSV(rows, headers, nombre) {
     <xf numFmtId="1"  fontId="0" fillId="0" borderId="1" xfId="0"><alignment horizontal="right" vertical="center"/></xf>
     <xf numFmtId="0"  fontId="4" fillId="0" borderId="1" xfId="0"><alignment vertical="center"/></xf>
     <xf numFmtId="0"  fontId="4" fillId="3" borderId="1" xfId="0"><alignment vertical="center"/></xf>
+    <xf numFmtId="0"  fontId="0" fillId="0" borderId="0" xfId="0"/>
+    <xf numFmtId="0"  fontId="0" fillId="0" borderId="0" xfId="0"/>
+    <xf numFmtId="0"  fontId="0" fillId="0" borderId="0" xfId="0"/>
+    <xf numFmtId="0"  fontId="5" fillId="0" borderId="0" xfId="0"><alignment horizontal="left" vertical="center" indent="1"/></xf>
+    <xf numFmtId="0"  fontId="6" fillId="0" borderId="0" xfId="0"><alignment horizontal="left" vertical="center" indent="1"/></xf>
+    <xf numFmtId="0"  fontId="7" fillId="0" borderId="0" xfId="0"><alignment horizontal="left" vertical="center" indent="1"/></xf>
+    <xf numFmtId="0"  fontId="8" fillId="5" borderId="0" xfId="0"><alignment horizontal="left" vertical="center" indent="1"/></xf>
   </cellXfs>
   <numFmts count="1">
     <numFmt numFmtId="164" formatCode='"US$" #,##0.00'/>
   </numFmts>
 </styleSheet>`;
 
-  // Definiciones de columnas
   const colsXml = `<cols>${colWidths.map((w, i) =>
-    `<col min="${i+1}" max="${i+1}" width="${w}" customWidth="1" bestFit="1"/>`
+    `<col min="${i+1}" max="${i+1}" width="${w}" customWidth="1"/>`
   ).join("")}</cols>`;
 
-  // Tabla nativa con filtros automáticos
-  const tableXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<table xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"
-  id="1" name="Tabla1" displayName="Tabla1" ref="${tableRef}"
-  totalsRowShown="0" headerRowCount="1">
-  <autoFilter ref="${tableRef}"/>
-  <tableColumns count="${nCols}">
-    ${headers.map((h,i)=>`<tableColumn id="${i+1}" name="${escXml(h)}"/>`).join("")}
-  </tableColumns>
-  <tableStyleInfo name="TableStyleMedium2"
-    showFirstColumn="1" showLastColumn="0"
-    showRowStripes="1" showColumnStripes="0"/>
-</table>`;
+  // Merges XML
+  const mergesXml = merges.length > 0
+    ? `<mergeCells count="${merges.length}">${merges.map(m=>`<mergeCell ref="${m}"/>`).join("")}</mergeCells>`
+    : "";
+
+  // Drawing reference (si hay logo)
+  const drawingRef = logo ? `<drawing r:id="rId100"/>` : "";
+
+  // Table parts XML
+  const tablePartsXml = tableParts.length > 0
+    ? `<tableParts count="${tableParts.length}">${tableParts.map((t,i)=>`<tablePart r:id="rId${200+i}"/>`).join("")}</tableParts>`
+    : "";
 
   // Sheet XML
   const sheetXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"
            xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
   <sheetViews>
-    <sheetView workbookViewId="0">
-      <pane ySplit="1" topLeftCell="A2" activePane="bottomLeft" state="frozen"/>
+    <sheetView workbookViewId="0" showGridLines="0">
+      <pane ySplit="5" topLeftCell="A6" activePane="bottomLeft" state="frozen"/>
     </sheetView>
   </sheetViews>
   ${colsXml}
   <sheetData>${rowsXml}</sheetData>
-  <tableParts count="1"><tablePart r:id="rId1"/></tableParts>
+  ${mergesXml}
+  ${drawingRef}
+  ${tablePartsXml}
 </worksheet>`;
+
+  // Sheet rels (incluye drawing si hay logo + tables)
+  let sheetRelsItems = "";
+  if(logo) {
+    sheetRelsItems += `<Relationship Id="rId100" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/drawing" Target="../drawings/drawing1.xml"/>`;
+  }
+  tableParts.forEach((t,i)=>{
+    sheetRelsItems += `<Relationship Id="rId${200+i}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/table" Target="../tables/table${t.id}.xml"/>`;
+  });
+  const sheetRels = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  ${sheetRelsItems}
+</Relationships>`;
+
+  // Drawing XML (para el logo)
+  const drawingXml = logo ? `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<xdr:wsDr xmlns:xdr="http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing"
+          xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"
+          xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+  <xdr:oneCellAnchor>
+    <xdr:from>
+      <xdr:col>0</xdr:col><xdr:colOff>95250</xdr:colOff>
+      <xdr:row>0</xdr:row><xdr:rowOff>38100</xdr:rowOff>
+    </xdr:from>
+    <xdr:ext cx="1600200" cy="685800"/>
+    <xdr:pic>
+      <xdr:nvPicPr>
+        <xdr:cNvPr id="1" name="Logo Osiris"/>
+        <xdr:cNvPicPr><a:picLocks noChangeAspect="1"/></xdr:cNvPicPr>
+      </xdr:nvPicPr>
+      <xdr:blipFill>
+        <a:blip r:embed="rId1"/>
+        <a:stretch><a:fillRect/></a:stretch>
+      </xdr:blipFill>
+      <xdr:spPr>
+        <a:xfrm><a:off x="0" y="0"/><a:ext cx="1600200" cy="685800"/></a:xfrm>
+        <a:prstGeom prst="rect"><a:avLst/></a:prstGeom>
+      </xdr:spPr>
+    </xdr:pic>
+    <xdr:clientData/>
+  </xdr:oneCellAnchor>
+</xdr:wsDr>` : "";
+
+  const drawingRels = logo ? `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="../media/image1.jpeg"/>
+</Relationships>` : "";
+
+  // Tablas nativas
+  const tablesXml = {};
+  tableParts.forEach(t => {
+    tablesXml[t.id] = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<table xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"
+  id="${t.id}" name="${t.name}" displayName="${t.name}" ref="${t.ref}"
+  totalsRowShown="0" headerRowCount="1">
+  <autoFilter ref="${t.ref}"/>
+  <tableColumns count="${t.headers.length}">
+    ${t.headers.map((h,i)=>`<tableColumn id="${i+1}" name="${escXml(h)}"/>`).join("")}
+  </tableColumns>
+  <tableStyleInfo name="TableStyleMedium2"
+    showFirstColumn="1" showLastColumn="0"
+    showRowStripes="1" showColumnStripes="0"/>
+</table>`;
+  });
 
   // Workbook XML
   const wbXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
@@ -347,21 +556,28 @@ async function exportCSV(rows, headers, nombre) {
   const wbRels = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
   <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>
+  <Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>
 </Relationships>`;
 
-  const sheetRels = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
-  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/table" Target="../tables/table1.xml"/>
-</Relationships>`;
+  // Content types
+  let contentOverrides = `
+  <Override PartName="/xl/workbook.xml"           ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>
+  <Override PartName="/xl/worksheets/sheet1.xml"  ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>
+  <Override PartName="/xl/styles.xml"             ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>`;
+  tableParts.forEach(t => {
+    contentOverrides += `
+  <Override PartName="/xl/tables/table${t.id}.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.table+xml"/>`;
+  });
+  if(logo) {
+    contentOverrides += `
+  <Default Extension="jpeg" ContentType="image/jpeg"/>
+  <Override PartName="/xl/drawings/drawing1.xml"  ContentType="application/vnd.openxmlformats-officedocument.drawing+xml"/>`;
+  }
 
   const contentTypes = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
   <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
-  <Default Extension="xml"  ContentType="application/xml"/>
-  <Override PartName="/xl/workbook.xml"           ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>
-  <Override PartName="/xl/worksheets/sheet1.xml"  ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>
-  <Override PartName="/xl/styles.xml"             ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>
-  <Override PartName="/xl/tables/table1.xml"      ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.table+xml"/>
+  <Default Extension="xml"  ContentType="application/xml"/>${contentOverrides}
 </Types>`;
 
   const pkgRels = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
@@ -370,14 +586,7 @@ async function exportCSV(rows, headers, nombre) {
 </Relationships>`;
 
   // ── Empaquetar como ZIP (XLSX) ────────────────────────────
-  if(!window.JSZip) {
-    await new Promise((res, rej) => {
-      const s = document.createElement("script");
-      s.src = "https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js";
-      s.onload = res; s.onerror = rej;
-      document.head.appendChild(s);
-    });
-  }
+  await ensureJSZip();
 
   const zip = new window.JSZip();
   zip.file("[Content_Types].xml", contentTypes);
@@ -387,7 +596,14 @@ async function exportCSV(rows, headers, nombre) {
   zip.file("xl/worksheets/sheet1.xml", sheetXml);
   zip.file("xl/worksheets/_rels/sheet1.xml.rels", sheetRels);
   zip.file("xl/styles.xml", stylesXml);
-  zip.file("xl/tables/table1.xml", tableXml);
+  tableParts.forEach(t => {
+    zip.file(`xl/tables/table${t.id}.xml`, tablesXml[t.id]);
+  });
+  if(logo) {
+    zip.file("xl/drawings/drawing1.xml", drawingXml);
+    zip.file("xl/drawings/_rels/drawing1.xml.rels", drawingRels);
+    zip.file("xl/media/image1.jpeg", logo.buffer);
+  }
 
   const blob = await zip.generateAsync({type:"blob", mimeType:"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"});
   const url  = URL.createObjectURL(blob);
@@ -399,7 +615,7 @@ async function exportCSV(rows, headers, nombre) {
 }
 
 // ── Helper: barra de filtros + exportar reutilizable ──────────
-function BarraFiltros({filtros, onExportar, exportLabel="⬇️ Exportar"}) {
+function BarraFiltros({filtros, onExportar, exportLabel="📥 Exportar Excel"}) {
   return (
     <div style={{display:"flex",gap:8,marginBottom:14,flexWrap:"wrap",alignItems:"center",
       background:"#f8fafc",borderRadius:10,padding:"8px 12px",border:"1px solid #e2e8f0"}}>
@@ -655,7 +871,12 @@ function TotalPedidos({data,setData,rpData,setRpData,rcData,setRcData,fvData,set
             `T${r.trimPagoVivero} ${r.añoPagoVivero}`]),
           ["Cliente","País","Vivero","Fecha Pedido","Año Entrega","Trim.","N° Plantas","Há","Estado",
            "Regalía US$/Pl","% Anticipo","N° Cuotas","Mes Anticipo","Proforma","Tandas","Trim. Pago Vivero"],
-          "TotalPedidos"
+          "TotalPedidos",
+          {
+            tituloDoc: "Total Pedidos",
+            subtituloDoc: "Osiris Plant Management · Grupo Mediterra · Pedidos de Plantas",
+            filtros: `${filtrado.length} pedidos exportados`,
+          }
         )}
       />
 
@@ -1107,7 +1328,12 @@ function RoyaltyPlanta({data,setData,tpData,can,clientes=[]}) {
             r.pagado?"Pagado":"Por cobrar",r.fechaPago||""]),
           ["Cliente","País","Vivero","Año","N° Plantas","US$/Planta","Mto.Facturar","Mto.Cobrar",
            "N° Factura","Est.Factura","Est.Cobro","Fecha Pago"],
-          "RoyaltyPlanta"
+          "RoyaltyPlanta",
+          {
+            tituloDoc: "Royalty por Planta",
+            subtituloDoc: "Osiris Plant Management · Grupo Mediterra",
+            filtros: `${filtrado.length} registros exportados`,
+          }
         )}
       />
 
@@ -1354,7 +1580,12 @@ function FeeEntrada({data,setData,ctData,can,clientes=[]}) {
             r.nFact||"",r.nFact&&r.nFact.trim()?"Facturado":"Pend. facturar",
             r.pagado?"Pagado":"Por cobrar",r.fechaPago||""]),
           ["Cliente","País","Tipo Fee","Monto US$","N° Factura","Est. Factura","Est. Cobro","Fecha Pago"],
-          "FeeEntrada"
+          "FeeEntrada",
+          {
+            tituloDoc: "Fee de Entrada (Contract Fee)",
+            subtituloDoc: "Osiris Plant Management · Grupo Mediterra",
+            filtros: `${filtrado.length} registros exportados`,
+          }
         )}
       />
 
@@ -1562,7 +1793,12 @@ function RoyaltyComercial({data,setData,tpData,can,clientes=[]}) {
             r.pagado?"Pagado":"Por cobrar"]),
           ["Cliente","País","Há","US$/Há","Trimestre","Año Cobro",
            "Mto.Facturar","Mto.Cobrar","N° Factura","Est.Factura","Est.Cobro"],
-          "RoyaltyComercial"
+          "RoyaltyComercial",
+          {
+            tituloDoc: "Royalty Comercial",
+            subtituloDoc: "Osiris Plant Management · Grupo Mediterra · Royalty por hectárea",
+            filtros: `${filtrado.length} registros exportados`,
+          }
         )}
       />
 
@@ -1782,7 +2018,12 @@ function FeeViveros({data,setData,tpData,can,clientes=[]}) {
             r.montoFact||0,r.fechaFact||"",r.nFact||"",r.pagado?"Pagado":"Por pagar"]),
           ["Vivero","Empresa","País","Proforma","N° Plantas","Regalía US$","% Cobro","Total Osiris",
            "Tipo Pago","Mto.Facturar","Fecha Fact.","N° Factura","Estado Pago"],
-          "FeeViveros"
+          "FeeViveros",
+          {
+            tituloDoc: "Fee de Viveros",
+            subtituloDoc: "Osiris Plant Management · Grupo Mediterra",
+            filtros: `${filtrado.length} registros exportados`,
+          }
         )}
       />
 
@@ -2288,27 +2529,43 @@ function ReconciliacionIQ({rpData, feData, rcData, tpData}) {
     </div>
   );
 
-  function exportarCSV() {
-    const headers = ["Concepto","Cliente","Pais","Año","Detalle","N° Factura","Estado Pago","Fecha Pago","Facturado USD","IQ 70% USD","WHT 10% USD","Pago Neto IQ USD"];
-    const filas = [
-      ["# RECONCILIACIÓN IQ — PAGADOS (Base IQ firme)"],
-      headers,
-      ...pagados.map(r=>[r.concepto,r.cliente,r.pais,r.año,r.detalle,r.nFact,"Pagado",r.fechaPago,r.montoFact.toFixed(2),r.iq.toFixed(2),r.wht.toFixed(2),r.pagoNetoIQ.toFixed(2)]),
-      ["","","","","","","","TOTAL PAGADOS",totPagadoFact.toFixed(2),totPagadoIQ.toFixed(2),totPagadoWHT.toFixed(2),totPagadoNeto.toFixed(2)],
-      [""],
-      ["# PENDIENTES DE COBRO (Proyección IQ)"],
-      headers,
-      ...pendientes.map(r=>[r.concepto,r.cliente,r.pais,r.año,r.detalle,r.nFact,"Pendiente","",r.montoFact.toFixed(2),r.iq.toFixed(2),r.wht.toFixed(2),r.pagoNetoIQ.toFixed(2)]),
-      ["","","","","","","","TOTAL PENDIENTES",totPendienteFact.toFixed(2),totPendienteIQ.toFixed(2),totPendienteWHT.toFixed(2),totPendienteNeto.toFixed(2)],
-    ];
-    const csv = filas.map(f=>f.map(v=>`"${String(v??"").replace(/"/g,'""')}"`).join(",")).join("\n");
-    const blob = new Blob(["\ufeff"+csv], {type:"text/csv;charset=utf-8;"});
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `ReconciliacionIQ_${new Date().toISOString().slice(0,10)}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
+  async function exportarXLSX() {
+    const headers = ["Concepto","Cliente","País","Año","Detalle","N° Factura","Estado Pago","Fecha Pago","Facturado USD","IQ 70% USD","WHT 10% USD","Pago Neto IQ USD"];
+
+    // Sección Pagados
+    const rowsPagados = pagados.map(r=>[
+      r.concepto, r.cliente, r.pais, r.año, r.detalle, r.nFact,
+      "Pagado", r.fechaPago, r.montoFact, r.iq, r.wht, r.pagoNetoIQ
+    ]);
+    // Fila total Pagados
+    rowsPagados.push(["TOTAL PAGADOS","","","","","","","", totPagadoFact, totPagadoIQ, totPagadoWHT, totPagadoNeto]);
+
+    // Sección Pendientes
+    const rowsPendientes = pendientes.map(r=>[
+      r.concepto, r.cliente, r.pais, r.año, r.detalle, r.nFact,
+      "Pendiente", "", r.montoFact, r.iq, r.wht, r.pagoNetoIQ
+    ]);
+    rowsPendientes.push(["TOTAL PENDIENTES","","","","","","","", totPendienteFact, totPendienteIQ, totPendienteWHT, totPendienteNeto]);
+
+    const filtros = [];
+    if(filtroPais!=="Todos") filtros.push(`País: ${filtroPais}`);
+    if(filtroAño!=="Todos") filtros.push(`Año: ${filtroAño}`);
+    if(filtroCliente) filtros.push(`Cliente: ${filtroCliente}`);
+    const filtrosInfo = filtros.length>0 ? `Filtros: ${filtros.join(" · ")}` : "";
+
+    await exportCSV(
+      [
+        {titulo: "✅ PAGADOS — Base IQ firme (70% facturado − 10% WHT)", rows: rowsPagados, headers},
+        {titulo: "⏳ PENDIENTES DE COBRO — Proyección IQ", rows: rowsPendientes, headers},
+      ],
+      null,
+      "Reconciliacion_IQ",
+      {
+        tituloDoc: "Reconciliación IQ",
+        subtituloDoc: "Osiris Plant Management · Grupo Mediterra · 70% facturado − 10% WHT",
+        filtros: filtrosInfo,
+      }
+    );
   }
 
   return (
@@ -2321,10 +2578,10 @@ function ReconciliacionIQ({rpData, feData, rcData, tpData}) {
             70% de lo facturado al cliente por Fee Entrada + Royalty Planta + Royalty Comercial
           </div>
         </div>
-        <button onClick={exportarCSV}
+        <button onClick={exportarXLSX}
           style={{marginLeft:"auto", padding:"8px 16px", borderRadius:8, background:C.teal,
             color:"#fff", border:"none", cursor:"pointer", fontSize:12, fontWeight:700}}>
-          📥 Exportar CSV
+          📥 Exportar Excel
         </button>
       </div>
 
@@ -3008,7 +3265,11 @@ async function exportarContratos(filtrado) {
     r.linkContrato||"",
     r.notas||""
   ]);
-  await exportCSV(rows, headers, "Contratos_Osiris");
+  await exportCSV(rows, headers, "Contratos_Osiris", {
+    tituloDoc: "Control de Contratos",
+    subtituloDoc: "Osiris Plant Management · Grupo Mediterra",
+    filtros: `${filtrado.length} contratos exportados`,
+  });
 }
 
 function ControlContratos({data,setData,clientes,setClientes,can}){
