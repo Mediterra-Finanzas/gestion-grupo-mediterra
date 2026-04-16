@@ -7311,10 +7311,10 @@ function NominaDetalle({nomina, onUpdate, onBack, usuario, canEdit, saldosBancos
 
   // ── Lógica de autorización ──────────────────────────────
   // Flujo: borrador → preparada → revision → aprobada1 (V°B°) → aprobada (CFO/CEO)
-  // Reglas:
+  // Reglas estrictas:
   //   - Cualquier editor puede: borrador → preparada → revision
-  //   - Solo autorizadores (Carol, Michelle) pueden: revision → aprobada1
-  //   - Solo CFO/CEO (admin) puede: aprobada1 → aprobada
+  //   - SOLO Carol o Michelle pueden: revision → aprobada1 (V°B°)
+  //   - SOLO CFO/CEO (admin) puede: aprobada1 → aprobada
   const AUTORIZADORES = ["Carol Machuca","Michelle Garcia"];
   const esAutorizadorNom = AUTORIZADORES.includes(usuario?.nombre);
   const esAdmin = usuario?.rol === "admin";
@@ -7323,8 +7323,8 @@ function NominaDetalle({nomina, onUpdate, onBack, usuario, canEdit, saldosBancos
     if(!editActivo) return false;
     if(nom.estado === "aprobada") return false;
     if(nom.estado === "borrador" || nom.estado === "preparada") return true; // cualquier editor
-    if(nom.estado === "revision") return esAutorizadorNom || esAdmin; // solo autorizador o admin
-    if(nom.estado === "aprobada1") return esAdmin; // solo CFO/CEO
+    if(nom.estado === "revision") return esAutorizadorNom; // SOLO Carol o Michelle (admin NO puede)
+    if(nom.estado === "aprobada1") return esAdmin; // SOLO CFO/CEO
     return false;
   })();
 
@@ -7339,8 +7339,8 @@ function NominaDetalle({nomina, onUpdate, onBack, usuario, canEdit, saldosBancos
 
   // Mensaje de bloqueo
   const mensajeBloqueo = (() => {
-    if(nom.estado === "revision" && !esAutorizadorNom && !esAdmin)
-      return "⏳ Esperando V°B° de un Autorizador (Carol / Michelle)";
+    if(nom.estado === "revision" && !esAutorizadorNom)
+      return "⏳ Esperando V°B° de Carol Machuca o Michelle Garcia";
     if(nom.estado === "aprobada1" && !esAdmin)
       return "⏳ Esperando aprobación del CFO";
     return null;
