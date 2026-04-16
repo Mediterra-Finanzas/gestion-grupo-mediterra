@@ -3986,15 +3986,21 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
   const setFv=useCallback(fn=>setOsirisData(prev=>({...prev,feeViveros:     typeof fn==="function"?fn(prev?.feeViveros     ??[]):fn})),[setOsirisData]);
 
   // PERMISOS OSIRIS
-  // can = cualquier usuario que NO sea "consulta" puede editar
-  // tabPermisos solo controla acceso a secciones completas, no edición de registros
+  // Edición requiere: (a) rol editor/admin Y (b) permiso "editar" en la pestaña activa
+  // Si la pestaña tiene permiso "ver", no puede editar aunque sea editor
   const rolActual = usuarioActual?.rol || "editor";
   const esEditorOAdmin = rolActual === "editor" || rolActual === "admin";
-  const permContratos = tabPermisos?.contratos || "editar";
+  const esConsulta = rolActual === "consulta";
+  // Admin tiene acceso total; editor/consulta dependen de tabPermisos
+  const permContratos   = tabPermisos?.contratos || "editar";
+  const permRoyalties   = tabPermisos?.royalties || "editar";
   const canVerContratos = permContratos !== "sin_acceso";
-  // can = editorOAdmin independiente de tabPermisos (tabPermisos solo oculta secciones)
-  const canContratos = esEditorOAdmin;
-  const canIngresos  = esEditorOAdmin;
+  const canVerRoyalties = permRoyalties !== "sin_acceso";
+  // Solo puede editar si: no es consulta AND rol editor/admin AND permiso = "editar"
+  const canContratos = !esConsulta && esEditorOAdmin &&
+    (rolActual === "admin" || permContratos === "editar");
+  const canIngresos  = !esConsulta && esEditorOAdmin &&
+    (rolActual === "admin" || permRoyalties === "editar");
   const can = canIngresos;
 
   const totPend=
@@ -4215,6 +4221,20 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
         {label:"Osiris Hub", onClick:()=>setSubApp(null)},
         {label:"Control Contratos"},
       ]}/>
+      {canVerContratos&&!canContratos&&(
+        <div style={{background:"linear-gradient(135deg,#fef3c7,#fde68a)",border:"1px solid #f59e0b",
+          borderRadius:10,padding:"10px 16px",marginBottom:14,display:"flex",alignItems:"center",gap:10}}>
+          <span style={{fontSize:20}}>👁</span>
+          <div style={{flex:1}}>
+            <div style={{fontSize:12,fontWeight:800,color:"#92400e"}}>Modo solo lectura</div>
+            <div style={{fontSize:11,color:"#78350f"}}>
+              {esConsulta
+                ? "Tu rol es de Consulta. Puedes visualizar y exportar los datos a Excel, pero no modificar contratos."
+                : "Tienes permiso de \"Solo ver\" en Contratos. Puedes visualizar y exportar los datos a Excel, pero no modificarlos. Contacta al administrador si necesitas editar."}
+            </div>
+          </div>
+        </div>
+      )}
       <div style={{background:"#fff",borderRadius:14,padding:20,boxShadow:"0 2px 10px #0001"}}>
         {canVerContratos
         ? <ControlContratos data={ctData} setData={setCt} clientes={clientes} setClientes={setClientes} can={canContratos}/>
@@ -4245,6 +4265,22 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
           </button>
         ))}
       </div>
+
+      {/* Banner modo solo lectura */}
+      {!canIngresos&&(
+        <div style={{background:"linear-gradient(135deg,#fef3c7,#fde68a)",border:"1px solid #f59e0b",
+          borderRadius:10,padding:"10px 16px",marginBottom:14,display:"flex",alignItems:"center",gap:10}}>
+          <span style={{fontSize:20}}>👁</span>
+          <div style={{flex:1}}>
+            <div style={{fontSize:12,fontWeight:800,color:"#92400e"}}>Modo solo lectura</div>
+            <div style={{fontSize:11,color:"#78350f"}}>
+              {esConsulta
+                ? "Tu rol es de Consulta. Puedes visualizar y exportar los datos a Excel, pero no modificarlos."
+                : "Tienes permiso de \"Solo ver\" en esta sección. Puedes visualizar y exportar los datos a Excel, pero no modificarlos. Contacta al administrador si necesitas editar."}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Maestro clientes accesible desde Ingresos también */}
       {can&&<div style={{marginBottom:16}}>
