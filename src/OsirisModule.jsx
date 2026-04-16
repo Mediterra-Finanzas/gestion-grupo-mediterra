@@ -2061,6 +2061,341 @@ function GraficosPlantas({tpData,rpData}) {
   );
 }
 
+// ══════════════════════════════════════════════════════════════════
+// RECONCILIACIÓN IQ — 70% de lo facturado (FE + RP + RC)
+// ══════════════════════════════════════════════════════════════════
+function ReconciliacionIQ({rpData, feData, rcData, tpData}) {
+  const PCT_IQ = 0.70;
+  const [filtroPais, setFiltroPais] = useState("Todos");
+  const [filtroAño, setFiltroAño] = useState("Todos");
+  const [filtroCliente, setFiltroCliente] = useState("");
+
+  // Calcular datos con montoFact (antes de WHT)
+  const rpCalc = useMemo(()=> (rpData||[]).map(r=>{
+    const mf = (Number(r.nPlantas)||0)*(Number(r.usdPlanta)||0);
+    return {
+      id: r.id, concepto: "Royalty Planta", tipo: "rp",
+      cliente: r.cliente||"—", pais: r.pais||"—",
+      año: r.añoEntrega || r.año || "",
+      detalle: `${Number(r.nPlantas)||0} plantas × $${Number(r.usdPlanta)||0}`,
+      nFact: r.nFact||"", pagado: !!r.pagado, fechaPago: r.fechaPago||"",
+      montoFact: mf,
+      iq: mf * PCT_IQ,
+      facturado: !!(r.nFact && String(r.nFact).trim()!==""),
+    };
+  }), [rpData]);
+
+  const feCalc = useMemo(()=> (feData||[]).map(r=>{
+    const mf = Number(r.montoUSD)||0;
+    return {
+      id: r.id, concepto: "Fee Entrada", tipo: "fe",
+      cliente: r.cliente||"—", pais: r.pais||"—",
+      año: r.año || (r.fechaPago ? new Date(r.fechaPago).getFullYear() : ""),
+      detalle: r.detalle || "Contract Fee",
+      nFact: r.nFact||"", pagado: !!r.pagado, fechaPago: r.fechaPago||"",
+      montoFact: mf,
+      iq: mf * PCT_IQ,
+      facturado: !!(r.nFact && String(r.nFact).trim()!==""),
+    };
+  }), [feData]);
+
+  const rcCalc = useMemo(()=> (rcData||[]).map(r=>{
+    const mf = (Number(r.ha)||0)*(Number(r.usdHa)||0);
+    return {
+      id: r.id, concepto: "Royalty Comercial", tipo: "rc",
+      cliente: r.cliente||"—", pais: r.pais||"—",
+      año: r.añoCobro || "",
+      detalle: `${Number(r.ha)||0} há × $${Number(r.usdHa)||0}${r.trimCobro?` · T${r.trimCobro}`:""}`,
+      nFact: r.nFact||"", pagado: !!r.pagado, fechaPago: r.fechaPago||"",
+      montoFact: mf,
+      iq: mf * PCT_IQ,
+      facturado: !!(r.nFact && String(r.nFact).trim()!==""),
+    };
+  }), [rcData]);
+
+  const todos = useMemo(()=> [...rpCalc, ...feCalc, ...rcCalc], [rpCalc, feCalc, rcCalc]);
+
+  // Filtros
+  const paises = useMemo(()=> ["Todos", ...Array.from(new Set(todos.map(r=>r.pais).filter(p=>p&&p!=="—"))).sort()], [todos]);
+  const años = useMemo(()=> ["Todos", ...Array.from(new Set(todos.map(r=>r.año).filter(Boolean))).sort()], [todos]);
+
+  const filtrado = useMemo(()=> todos.filter(r=>
+    (filtroPais==="Todos"||r.pais===filtroPais) &&
+    (filtroAño==="Todos"||String(r.año)===String(filtroAño)) &&
+    (!filtroCliente||r.cliente.toLowerCase().includes(filtroCliente.toLowerCase()))
+  ), [todos, filtroPais, filtroAño, filtroCliente]);
+
+  // Solo consideramos para IQ los FACTURADOS (regla: facturados y pagados = base IQ firme)
+  const facturados = filtrado.filter(r=>r.facturado);
+  const pagados = facturados.filter(r=>r.pagado);       // Base IQ real
+  const pendientes = facturados.filter(r=>!r.pagado);   // Proyección IQ
+
+  // Agrupador por país
+  function groupByPais(arr) {
+    const g = {};
+    arr.forEach(r=>{
+      const p = r.pais || "—";
+      if(!g[p]) g[p] = {montoFact:0, iq:0, porConcepto:{rp:0, fe:0, rc:0}, items:[]};
+      g[p].montoFact += r.montoFact;
+      g[p].iq += r.iq;
+      g[p].porConcepto[r.tipo] = (g[p].porConcepto[r.tipo]||0) + r.montoFact;
+      g[p].items.push(r);
+    });
+    return g;
+  }
+
+  const grupoPagado = groupByPais(pagados);
+  const grupoPendiente = groupByPais(pendientes);
+
+  const totPagadoFact = pagados.reduce((s,r)=>s+r.montoFact, 0);
+  const totPagadoIQ = pagados.reduce((s,r)=>s+r.iq, 0);
+  const totPendienteFact = pendientes.reduce((s,r)=>s+r.montoFact, 0);
+  const totPendienteIQ = pendientes.reduce((s,r)=>s+r.iq, 0);
+
+  // Estilo tarjeta país
+  const TarjetaPais = ({pais, data, color, bgColor}) => (
+    <div style={{background:bgColor, borderRadius:12, padding:"14px 18px",
+      border:`1px solid ${color}44`, minWidth:220, flex:1}}>
+      <div style={{fontSize:10, color:C.gris, letterSpacing:1, marginBottom:4, fontWeight:700}}>
+        🌍 {pais.toUpperCase()}
+      </div>
+      <div style={{fontSize:11, color:C.sl, marginBottom:2}}>Facturado</div>
+      <div style={{fontSize:18, fontWeight:900, color:C.sl, marginBottom:8}}>{$$(data.montoFact)}</div>
+      <div style={{fontSize:11, color:color, fontWeight:700, marginBottom:2}}>IQ (70%)</div>
+      <div style={{fontSize:22, fontWeight:900, color:color}}>{$$(data.iq)}</div>
+      <div style={{marginTop:10, paddingTop:8, borderTop:`1px solid ${color}22`, fontSize:10, color:C.gris}}>
+        <div style={{display:"flex", justifyContent:"space-between"}}><span>🌱 Royalty Planta:</span><span style={{fontWeight:600, color:C.sl}}>{$$(data.porConcepto.rp||0)}</span></div>
+        <div style={{display:"flex", justifyContent:"space-between"}}><span>📄 Fee Entrada:</span><span style={{fontWeight:600, color:C.sl}}>{$$(data.porConcepto.fe||0)}</span></div>
+        <div style={{display:"flex", justifyContent:"space-between"}}><span>📈 Royalty Comercial:</span><span style={{fontWeight:600, color:C.sl}}>{$$(data.porConcepto.rc||0)}</span></div>
+      </div>
+    </div>
+  );
+
+  const Tabla = ({titulo, items, color, bgColor, tot, totIQ}) => (
+    <div style={{marginBottom:20}}>
+      <div style={{display:"flex", alignItems:"center", gap:10, marginBottom:10, flexWrap:"wrap"}}>
+        <div style={{fontSize:14, fontWeight:800, color:color}}>{titulo}</div>
+        <span style={{background:bgColor, color:color, borderRadius:20, padding:"3px 10px", fontSize:11, fontWeight:700}}>
+          {items.length} registros
+        </span>
+        <div style={{marginLeft:"auto", display:"flex", gap:16, alignItems:"center"}}>
+          <div>
+            <div style={{fontSize:10, color:C.gris, textAlign:"right"}}>Facturado</div>
+            <div style={{fontSize:15, fontWeight:800, color:C.sl}}>{$$(tot)}</div>
+          </div>
+          <div>
+            <div style={{fontSize:10, color:color, textAlign:"right", fontWeight:700}}>IQ 70%</div>
+            <div style={{fontSize:18, fontWeight:900, color:color}}>{$$(totIQ)}</div>
+          </div>
+        </div>
+      </div>
+      {items.length===0 ? (
+        <div style={{textAlign:"center", padding:24, color:"#94a3b8", fontSize:12,
+          background:"#f8fafc", borderRadius:10}}>
+          Sin registros
+        </div>
+      ) : (
+        <div style={{overflowX:"auto", borderRadius:10, boxShadow:"0 1px 4px #0001"}}>
+          <table style={{width:"100%", borderCollapse:"collapse", background:"#fff", fontSize:11}}>
+            <thead>
+              <tr style={{background:"#0f172a", color:"#fff"}}>
+                <th style={{padding:"8px 10px", textAlign:"left", fontWeight:600}}>Concepto</th>
+                <th style={{padding:"8px 10px", textAlign:"left", fontWeight:600}}>Cliente</th>
+                <th style={{padding:"8px 10px", textAlign:"center", fontWeight:600}}>País</th>
+                <th style={{padding:"8px 10px", textAlign:"center", fontWeight:600}}>Año</th>
+                <th style={{padding:"8px 10px", textAlign:"left", fontWeight:600}}>Detalle</th>
+                <th style={{padding:"8px 10px", textAlign:"center", fontWeight:600}}>N° Fact</th>
+                <th style={{padding:"8px 10px", textAlign:"center", fontWeight:600}}>Pagado</th>
+                <th style={{padding:"8px 10px", textAlign:"right", fontWeight:600}}>Facturado</th>
+                <th style={{padding:"8px 10px", textAlign:"right", fontWeight:600, background:color}}>IQ 70%</th>
+              </tr>
+            </thead>
+            <tbody>
+              {items.map((r,i)=>(
+                <tr key={`${r.tipo}_${r.id}`} style={{borderBottom:"1px solid #f1f5f9",
+                  background:i%2===0?"#fff":"#fafafa"}}>
+                  <td style={{padding:"6px 10px"}}>
+                    <span style={{fontSize:10, background:r.tipo==="rp"?C.verdeBg:r.tipo==="fe"?C.azulBg:C.moBg,
+                      color:r.tipo==="rp"?C.verde:r.tipo==="fe"?C.azul:C.mo,
+                      borderRadius:20, padding:"2px 8px", fontWeight:700}}>{r.concepto}</span>
+                  </td>
+                  <td style={{padding:"6px 10px", color:C.sl, fontWeight:500}}>{r.cliente}</td>
+                  <td style={{padding:"6px 10px", textAlign:"center", color:C.gris}}>{r.pais}</td>
+                  <td style={{padding:"6px 10px", textAlign:"center", color:C.gris}}>{r.año||"—"}</td>
+                  <td style={{padding:"6px 10px", color:C.gris, fontSize:10}}>{r.detalle}</td>
+                  <td style={{padding:"6px 10px", textAlign:"center"}}>
+                    <span style={{fontSize:10, background:C.azulBg, color:C.azul, borderRadius:20,
+                      padding:"2px 8px", fontWeight:700}}>{r.nFact||"—"}</span>
+                  </td>
+                  <td style={{padding:"6px 10px", textAlign:"center", fontSize:11}}>
+                    {r.pagado ? <span style={{color:C.verde, fontWeight:700}}>✓ {r.fechaPago||""}</span>
+                              : <span style={{color:C.am, fontWeight:600}}>⏳ Pendiente</span>}
+                  </td>
+                  <td style={{padding:"6px 10px", textAlign:"right", fontWeight:700, color:C.sl}}>{$$(r.montoFact)}</td>
+                  <td style={{padding:"6px 10px", textAlign:"right", fontWeight:900, color:color,
+                    background:bgColor}}>{$$(r.iq)}</td>
+                </tr>
+              ))}
+            </tbody>
+            <tfoot>
+              <tr style={{background:"#f1f5f9", borderTop:"2px solid #cbd5e1"}}>
+                <td colSpan={7} style={{padding:"8px 10px", fontWeight:800, color:C.sl}}>TOTAL</td>
+                <td style={{padding:"8px 10px", textAlign:"right", fontWeight:900, color:C.sl, fontSize:13}}>{$$(tot)}</td>
+                <td style={{padding:"8px 10px", textAlign:"right", fontWeight:900, color:color, fontSize:14, background:bgColor}}>{$$(totIQ)}</td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+
+  function exportarCSV() {
+    const headers = ["Concepto","Cliente","Pais","Año","Detalle","N° Factura","Estado Pago","Fecha Pago","Facturado USD","IQ 70% USD"];
+    const filas = [
+      ["# RECONCILIACIÓN IQ — PAGADOS (Base IQ firme)"],
+      headers,
+      ...pagados.map(r=>[r.concepto,r.cliente,r.pais,r.año,r.detalle,r.nFact,"Pagado",r.fechaPago,r.montoFact.toFixed(2),r.iq.toFixed(2)]),
+      ["","","","","","","","TOTAL PAGADOS",totPagadoFact.toFixed(2),totPagadoIQ.toFixed(2)],
+      [""],
+      ["# PENDIENTES DE COBRO (Proyección IQ)"],
+      headers,
+      ...pendientes.map(r=>[r.concepto,r.cliente,r.pais,r.año,r.detalle,r.nFact,"Pendiente","",r.montoFact.toFixed(2),r.iq.toFixed(2)]),
+      ["","","","","","","","TOTAL PENDIENTES",totPendienteFact.toFixed(2),totPendienteIQ.toFixed(2)],
+    ];
+    const csv = filas.map(f=>f.map(v=>`"${String(v??"").replace(/"/g,'""')}"`).join(",")).join("\n");
+    const blob = new Blob(["\ufeff"+csv], {type:"text/csv;charset=utf-8;"});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `ReconciliacionIQ_${new Date().toISOString().slice(0,10)}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  return (
+    <div>
+      {/* Header */}
+      <div style={{display:"flex", alignItems:"center", gap:12, marginBottom:18, flexWrap:"wrap"}}>
+        <div>
+          <div style={{fontSize:18, fontWeight:900, color:C.sl}}>🧾 Reconciliación IQ</div>
+          <div style={{fontSize:11, color:C.gris, marginTop:2}}>
+            70% de lo facturado al cliente por Fee Entrada + Royalty Planta + Royalty Comercial
+          </div>
+        </div>
+        <button onClick={exportarCSV}
+          style={{marginLeft:"auto", padding:"8px 16px", borderRadius:8, background:C.teal,
+            color:"#fff", border:"none", cursor:"pointer", fontSize:12, fontWeight:700}}>
+          📥 Exportar CSV
+        </button>
+      </div>
+
+      {/* Filtros */}
+      <div style={{display:"flex", gap:10, marginBottom:16, flexWrap:"wrap", alignItems:"center",
+        background:"#f8fafc", borderRadius:10, padding:"10px 14px", border:"1px solid #e2e8f0"}}>
+        <span style={{fontSize:11, color:C.gris, fontWeight:700}}>Filtros:</span>
+        <select value={filtroPais} onChange={e=>setFiltroPais(e.target.value)}
+          style={{padding:"6px 10px", borderRadius:8, border:"1px solid #d1d5db", fontSize:12, outline:"none"}}>
+          {paises.map(p=><option key={p} value={p}>🌍 {p}</option>)}
+        </select>
+        <select value={filtroAño} onChange={e=>setFiltroAño(e.target.value)}
+          style={{padding:"6px 10px", borderRadius:8, border:"1px solid #d1d5db", fontSize:12, outline:"none"}}>
+          {años.map(a=><option key={a} value={a}>📅 {a}</option>)}
+        </select>
+        <input placeholder="🔍 Buscar cliente..." value={filtroCliente} onChange={e=>setFiltroCliente(e.target.value)}
+          style={{padding:"6px 10px", borderRadius:8, border:"1px solid #d1d5db", fontSize:12, outline:"none", minWidth:180}}/>
+        {(filtroPais!=="Todos"||filtroAño!=="Todos"||filtroCliente)&&(
+          <button onClick={()=>{setFiltroPais("Todos");setFiltroAño("Todos");setFiltroCliente("");}}
+            style={{padding:"5px 12px", borderRadius:8, background:"#fff", border:"1px solid #d1d5db",
+              cursor:"pointer", fontSize:11, color:C.gris}}>✕ Limpiar</button>
+        )}
+      </div>
+
+      {/* KPIs Pagado / Pendiente */}
+      <div style={{display:"flex", gap:12, marginBottom:20, flexWrap:"wrap"}}>
+        <div style={{background:"linear-gradient(135deg,#dcfce7,#bbf7d0)", borderRadius:12,
+          padding:"16px 20px", border:`2px solid ${C.verde}`, flex:1, minWidth:240}}>
+          <div style={{fontSize:10, color:C.verde, letterSpacing:2, fontWeight:800, marginBottom:4}}>✅ IQ BASE FIRME (PAGADO)</div>
+          <div style={{fontSize:11, color:C.sl, marginBottom:2}}>Facturado + Cobrado</div>
+          <div style={{fontSize:16, fontWeight:700, color:C.sl, marginBottom:6}}>{$$(totPagadoFact)}</div>
+          <div style={{fontSize:11, color:C.verde, fontWeight:700}}>IQ a reconocer (70%)</div>
+          <div style={{fontSize:26, fontWeight:900, color:C.verde}}>{$$(totPagadoIQ)}</div>
+          <div style={{fontSize:10, color:C.gris, marginTop:4}}>{pagados.length} registros</div>
+        </div>
+        <div style={{background:"linear-gradient(135deg,#fef3c7,#fde68a)", borderRadius:12,
+          padding:"16px 20px", border:`2px solid ${C.am}`, flex:1, minWidth:240}}>
+          <div style={{fontSize:10, color:C.am, letterSpacing:2, fontWeight:800, marginBottom:4}}>⏳ IQ PROYECTADO (PENDIENTE)</div>
+          <div style={{fontSize:11, color:C.sl, marginBottom:2}}>Facturado por cobrar</div>
+          <div style={{fontSize:16, fontWeight:700, color:C.sl, marginBottom:6}}>{$$(totPendienteFact)}</div>
+          <div style={{fontSize:11, color:C.am, fontWeight:700}}>IQ proyectado (70%)</div>
+          <div style={{fontSize:26, fontWeight:900, color:C.am}}>{$$(totPendienteIQ)}</div>
+          <div style={{fontSize:10, color:C.gris, marginTop:4}}>{pendientes.length} registros</div>
+        </div>
+        <div style={{background:"linear-gradient(135deg,#dbeafe,#bfdbfe)", borderRadius:12,
+          padding:"16px 20px", border:`2px solid ${C.azul}`, flex:1, minWidth:240}}>
+          <div style={{fontSize:10, color:C.azul, letterSpacing:2, fontWeight:800, marginBottom:4}}>📊 IQ TOTAL (FACTURADO)</div>
+          <div style={{fontSize:11, color:C.sl, marginBottom:2}}>Base total facturada</div>
+          <div style={{fontSize:16, fontWeight:700, color:C.sl, marginBottom:6}}>{$$(totPagadoFact+totPendienteFact)}</div>
+          <div style={{fontSize:11, color:C.azul, fontWeight:700}}>IQ total 70%</div>
+          <div style={{fontSize:26, fontWeight:900, color:C.azul}}>{$$(totPagadoIQ+totPendienteIQ)}</div>
+          <div style={{fontSize:10, color:C.gris, marginTop:4}}>{pagados.length+pendientes.length} registros</div>
+        </div>
+      </div>
+
+      {/* Segregación por país - Pagado */}
+      {Object.keys(grupoPagado).length>0&&(
+        <div style={{marginBottom:20}}>
+          <div style={{fontSize:13, fontWeight:800, color:C.verde, marginBottom:10}}>
+            🌍 IQ Pagado por País
+          </div>
+          <div style={{display:"flex", gap:12, flexWrap:"wrap"}}>
+            {Object.entries(grupoPagado).map(([pais, data])=>(
+              <TarjetaPais key={pais} pais={pais} data={data} color={C.verde} bgColor={C.verdeBg}/>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Segregación por país - Pendiente */}
+      {Object.keys(grupoPendiente).length>0&&(
+        <div style={{marginBottom:24}}>
+          <div style={{fontSize:13, fontWeight:800, color:C.am, marginBottom:10}}>
+            🌍 IQ Proyectado por País (Pendiente de Cobro)
+          </div>
+          <div style={{display:"flex", gap:12, flexWrap:"wrap"}}>
+            {Object.entries(grupoPendiente).map(([pais, data])=>(
+              <TarjetaPais key={pais} pais={pais} data={data} color={C.am} bgColor={C.amBg}/>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Tabla Pagados */}
+      <Tabla
+        titulo="✅ PAGADOS — Base IQ firme"
+        items={pagados} color={C.verde} bgColor={C.verdeBg}
+        tot={totPagadoFact} totIQ={totPagadoIQ}
+      />
+
+      {/* Tabla Pendientes */}
+      <Tabla
+        titulo="⏳ PENDIENTES DE COBRO — Proyección IQ"
+        items={pendientes} color={C.am} bgColor={C.amBg}
+        tot={totPendienteFact} totIQ={totPendienteIQ}
+      />
+
+      {/* Nota explicativa */}
+      <div style={{background:"#f0f9ff", border:"1px solid #bae6fd", borderRadius:10,
+        padding:"12px 16px", fontSize:11, color:"#0c4a6e", marginTop:10}}>
+        <strong>ℹ️ Metodología:</strong> La Reconciliación IQ toma el <strong>70% del monto facturado</strong> (antes de retenciones)
+        de los 3 conceptos: Fee Entrada, Royalty Planta y Royalty Comercial.
+        Solo se incluyen registros con <strong>N° de factura emitido</strong>. El monto <strong>Pagado</strong>
+        es la base IQ firme ya reconocible; el monto <strong>Pendiente</strong> es la proyección de IQ por cobrar.
+      </div>
+    </div>
+  );
+}
+
 function Resumen({rpData,feData,rcData,fvData,tpData}) {
   const hoy=new Date();hoy.setHours(0,0,0,0);
   const [expandedMes,setExpandedMes]=useState(null);
@@ -3348,6 +3683,7 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
     {id:"feeEntrada",       label:"📄 Fee Entrada",       badge:0},
     {id:"royaltyComercial", label:"📈 Royalty Comercial", badge:alertasRC},
     {id:"feeViveros",       label:"🏭 Fee Viveros",       badge:0},
+    {id:"reconciliacionIQ", label:"🧾 Reconciliación IQ", badge:0},
   ];
 
   // ── Barra de navegación compartida ────────────────────────
@@ -3595,6 +3931,7 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
         {subTab==="feeEntrada"       &&<FeeEntrada       data={feData} setData={setFe} ctData={ctData} can={canIngresos} clientes={clientes}/>}
         {subTab==="royaltyComercial" &&<RoyaltyComercial data={rcData} setData={setRc} tpData={tpData} can={canIngresos} clientes={clientes}/>}
         {subTab==="feeViveros"       &&<FeeViveros       data={fvData} setData={setFv} tpData={tpData} can={canIngresos} clientes={clientes}/>}
+        {subTab==="reconciliacionIQ" &&<ReconciliacionIQ rpData={rpData} feData={feData} rcData={rcData} tpData={tpData}/>}
       </div>
     </div>
   );
