@@ -2065,14 +2065,20 @@ function GraficosPlantas({tpData,rpData}) {
 // RECONCILIACIÓN IQ — 70% de lo facturado (FE + RP + RC)
 // ══════════════════════════════════════════════════════════════════
 function ReconciliacionIQ({rpData, feData, rcData, tpData}) {
-  const PCT_IQ = 0.70;
+  const PCT_IQ  = 0.70;  // 70% del facturado al cliente corresponde a IQ
+  const PCT_WHT = 0.10;  // 10% de retención sobre lo que pagamos a IQ
   const [filtroPais, setFiltroPais] = useState("Todos");
   const [filtroAño, setFiltroAño] = useState("Todos");
   const [filtroCliente, setFiltroCliente] = useState("");
 
-  // Calcular datos con montoFact (antes de WHT)
+  // Calcular datos con montoFact (antes de WHT del cliente)
+  // iq = 70% del facturado (bruto a pagar a IQ)
+  // wht = 10% retención sobre IQ
+  // pagoNetoIQ = iq - wht (monto efectivo a transferir a IQ)
   const rpCalc = useMemo(()=> (rpData||[]).map(r=>{
     const mf = (Number(r.nPlantas)||0)*(Number(r.usdPlanta)||0);
+    const iq = mf * PCT_IQ;
+    const wht = iq * PCT_WHT;
     return {
       id: r.id, concepto: "Royalty Planta", tipo: "rp",
       cliente: r.cliente||"—", pais: r.pais||"—",
@@ -2080,13 +2086,15 @@ function ReconciliacionIQ({rpData, feData, rcData, tpData}) {
       detalle: `${Number(r.nPlantas)||0} plantas × $${Number(r.usdPlanta)||0}`,
       nFact: r.nFact||"", pagado: !!r.pagado, fechaPago: r.fechaPago||"",
       montoFact: mf,
-      iq: mf * PCT_IQ,
+      iq, wht, pagoNetoIQ: iq - wht,
       facturado: !!(r.nFact && String(r.nFact).trim()!==""),
     };
   }), [rpData]);
 
   const feCalc = useMemo(()=> (feData||[]).map(r=>{
     const mf = Number(r.montoUSD)||0;
+    const iq = mf * PCT_IQ;
+    const wht = iq * PCT_WHT;
     return {
       id: r.id, concepto: "Fee Entrada", tipo: "fe",
       cliente: r.cliente||"—", pais: r.pais||"—",
@@ -2094,13 +2102,15 @@ function ReconciliacionIQ({rpData, feData, rcData, tpData}) {
       detalle: r.detalle || "Contract Fee",
       nFact: r.nFact||"", pagado: !!r.pagado, fechaPago: r.fechaPago||"",
       montoFact: mf,
-      iq: mf * PCT_IQ,
+      iq, wht, pagoNetoIQ: iq - wht,
       facturado: !!(r.nFact && String(r.nFact).trim()!==""),
     };
   }), [feData]);
 
   const rcCalc = useMemo(()=> (rcData||[]).map(r=>{
     const mf = (Number(r.ha)||0)*(Number(r.usdHa)||0);
+    const iq = mf * PCT_IQ;
+    const wht = iq * PCT_WHT;
     return {
       id: r.id, concepto: "Royalty Comercial", tipo: "rc",
       cliente: r.cliente||"—", pais: r.pais||"—",
@@ -2108,7 +2118,7 @@ function ReconciliacionIQ({rpData, feData, rcData, tpData}) {
       detalle: `${Number(r.ha)||0} há × $${Number(r.usdHa)||0}${r.trimCobro?` · T${r.trimCobro}`:""}`,
       nFact: r.nFact||"", pagado: !!r.pagado, fechaPago: r.fechaPago||"",
       montoFact: mf,
-      iq: mf * PCT_IQ,
+      iq, wht, pagoNetoIQ: iq - wht,
       facturado: !!(r.nFact && String(r.nFact).trim()!==""),
     };
   }), [rcData]);
@@ -2135,9 +2145,11 @@ function ReconciliacionIQ({rpData, feData, rcData, tpData}) {
     const g = {};
     arr.forEach(r=>{
       const p = r.pais || "—";
-      if(!g[p]) g[p] = {montoFact:0, iq:0, porConcepto:{rp:0, fe:0, rc:0}, items:[]};
+      if(!g[p]) g[p] = {montoFact:0, iq:0, wht:0, pagoNetoIQ:0, porConcepto:{rp:0, fe:0, rc:0}, items:[]};
       g[p].montoFact += r.montoFact;
       g[p].iq += r.iq;
+      g[p].wht += r.wht;
+      g[p].pagoNetoIQ += r.pagoNetoIQ;
       g[p].porConcepto[r.tipo] = (g[p].porConcepto[r.tipo]||0) + r.montoFact;
       g[p].items.push(r);
     });
@@ -2147,23 +2159,35 @@ function ReconciliacionIQ({rpData, feData, rcData, tpData}) {
   const grupoPagado = groupByPais(pagados);
   const grupoPendiente = groupByPais(pendientes);
 
-  const totPagadoFact = pagados.reduce((s,r)=>s+r.montoFact, 0);
-  const totPagadoIQ = pagados.reduce((s,r)=>s+r.iq, 0);
-  const totPendienteFact = pendientes.reduce((s,r)=>s+r.montoFact, 0);
-  const totPendienteIQ = pendientes.reduce((s,r)=>s+r.iq, 0);
+  const totPagadoFact     = pagados.reduce((s,r)=>s+r.montoFact, 0);
+  const totPagadoIQ       = pagados.reduce((s,r)=>s+r.iq, 0);
+  const totPagadoWHT      = pagados.reduce((s,r)=>s+r.wht, 0);
+  const totPagadoNeto     = pagados.reduce((s,r)=>s+r.pagoNetoIQ, 0);
+  const totPendienteFact  = pendientes.reduce((s,r)=>s+r.montoFact, 0);
+  const totPendienteIQ    = pendientes.reduce((s,r)=>s+r.iq, 0);
+  const totPendienteWHT   = pendientes.reduce((s,r)=>s+r.wht, 0);
+  const totPendienteNeto  = pendientes.reduce((s,r)=>s+r.pagoNetoIQ, 0);
 
   // Estilo tarjeta país
   const TarjetaPais = ({pais, data, color, bgColor}) => (
     <div style={{background:bgColor, borderRadius:12, padding:"14px 18px",
-      border:`1px solid ${color}44`, minWidth:220, flex:1}}>
+      border:`1px solid ${color}44`, minWidth:260, flex:1}}>
       <div style={{fontSize:10, color:C.gris, letterSpacing:1, marginBottom:4, fontWeight:700}}>
         🌍 {pais.toUpperCase()}
       </div>
-      <div style={{fontSize:11, color:C.sl, marginBottom:2}}>Facturado</div>
-      <div style={{fontSize:18, fontWeight:900, color:C.sl, marginBottom:8}}>{$$(data.montoFact)}</div>
-      <div style={{fontSize:11, color:color, fontWeight:700, marginBottom:2}}>IQ (70%)</div>
-      <div style={{fontSize:22, fontWeight:900, color:color}}>{$$(data.iq)}</div>
-      <div style={{marginTop:10, paddingTop:8, borderTop:`1px solid ${color}22`, fontSize:10, color:C.gris}}>
+      <div style={{fontSize:11, color:C.sl, marginBottom:2}}>Facturado al cliente</div>
+      <div style={{fontSize:16, fontWeight:800, color:C.sl, marginBottom:6}}>{$$(data.montoFact)}</div>
+      <div style={{fontSize:10, color:color, fontWeight:700}}>IQ bruto (70%)</div>
+      <div style={{fontSize:15, fontWeight:800, color:color, marginBottom:4}}>{$$(data.iq)}</div>
+      <div style={{display:"flex", justifyContent:"space-between", fontSize:10, color:C.rojo}}>
+        <span>(-) WHT 10%:</span>
+        <span style={{fontWeight:600}}>{$$(data.wht)}</span>
+      </div>
+      <div style={{borderTop:`1px dashed ${color}55`, marginTop:4, paddingTop:4}}>
+        <div style={{fontSize:10, color:color, fontWeight:800}}>PAGO NETO A IQ</div>
+        <div style={{fontSize:20, fontWeight:900, color:color}}>{$$(data.pagoNetoIQ)}</div>
+      </div>
+      <div style={{marginTop:8, paddingTop:6, borderTop:`1px solid ${color}22`, fontSize:10, color:C.gris}}>
         <div style={{display:"flex", justifyContent:"space-between"}}><span>🌱 Royalty Planta:</span><span style={{fontWeight:600, color:C.sl}}>{$$(data.porConcepto.rp||0)}</span></div>
         <div style={{display:"flex", justifyContent:"space-between"}}><span>📄 Fee Entrada:</span><span style={{fontWeight:600, color:C.sl}}>{$$(data.porConcepto.fe||0)}</span></div>
         <div style={{display:"flex", justifyContent:"space-between"}}><span>📈 Royalty Comercial:</span><span style={{fontWeight:600, color:C.sl}}>{$$(data.porConcepto.rc||0)}</span></div>
@@ -2171,21 +2195,29 @@ function ReconciliacionIQ({rpData, feData, rcData, tpData}) {
     </div>
   );
 
-  const Tabla = ({titulo, items, color, bgColor, tot, totIQ}) => (
+  const Tabla = ({titulo, items, color, bgColor, tot, totIQ, totWHT, totNeto}) => (
     <div style={{marginBottom:20}}>
       <div style={{display:"flex", alignItems:"center", gap:10, marginBottom:10, flexWrap:"wrap"}}>
         <div style={{fontSize:14, fontWeight:800, color:color}}>{titulo}</div>
         <span style={{background:bgColor, color:color, borderRadius:20, padding:"3px 10px", fontSize:11, fontWeight:700}}>
           {items.length} registros
         </span>
-        <div style={{marginLeft:"auto", display:"flex", gap:16, alignItems:"center"}}>
+        <div style={{marginLeft:"auto", display:"flex", gap:16, alignItems:"center", flexWrap:"wrap"}}>
           <div>
             <div style={{fontSize:10, color:C.gris, textAlign:"right"}}>Facturado</div>
-            <div style={{fontSize:15, fontWeight:800, color:C.sl}}>{$$(tot)}</div>
+            <div style={{fontSize:14, fontWeight:800, color:C.sl}}>{$$(tot)}</div>
           </div>
           <div>
             <div style={{fontSize:10, color:color, textAlign:"right", fontWeight:700}}>IQ 70%</div>
-            <div style={{fontSize:18, fontWeight:900, color:color}}>{$$(totIQ)}</div>
+            <div style={{fontSize:14, fontWeight:800, color:color}}>{$$(totIQ)}</div>
+          </div>
+          <div>
+            <div style={{fontSize:10, color:C.rojo, textAlign:"right", fontWeight:700}}>(-) WHT 10%</div>
+            <div style={{fontSize:14, fontWeight:800, color:C.rojo}}>{$$(totWHT)}</div>
+          </div>
+          <div>
+            <div style={{fontSize:10, color:color, textAlign:"right", fontWeight:800}}>Pago Neto IQ</div>
+            <div style={{fontSize:18, fontWeight:900, color:color}}>{$$(totNeto)}</div>
           </div>
         </div>
       </div>
@@ -2207,7 +2239,9 @@ function ReconciliacionIQ({rpData, feData, rcData, tpData}) {
                 <th style={{padding:"8px 10px", textAlign:"center", fontWeight:600}}>N° Fact</th>
                 <th style={{padding:"8px 10px", textAlign:"center", fontWeight:600}}>Pagado</th>
                 <th style={{padding:"8px 10px", textAlign:"right", fontWeight:600}}>Facturado</th>
-                <th style={{padding:"8px 10px", textAlign:"right", fontWeight:600, background:color}}>IQ 70%</th>
+                <th style={{padding:"8px 10px", textAlign:"right", fontWeight:600}}>IQ 70%</th>
+                <th style={{padding:"8px 10px", textAlign:"right", fontWeight:600, color:"#fca5a5"}}>WHT 10%</th>
+                <th style={{padding:"8px 10px", textAlign:"right", fontWeight:700, background:color}}>Pago Neto IQ</th>
               </tr>
             </thead>
             <tbody>
@@ -2232,8 +2266,10 @@ function ReconciliacionIQ({rpData, feData, rcData, tpData}) {
                               : <span style={{color:C.am, fontWeight:600}}>⏳ Pendiente</span>}
                   </td>
                   <td style={{padding:"6px 10px", textAlign:"right", fontWeight:700, color:C.sl}}>{$$(r.montoFact)}</td>
+                  <td style={{padding:"6px 10px", textAlign:"right", fontWeight:700, color:color}}>{$$(r.iq)}</td>
+                  <td style={{padding:"6px 10px", textAlign:"right", fontWeight:600, color:C.rojo}}>({$$(r.wht)})</td>
                   <td style={{padding:"6px 10px", textAlign:"right", fontWeight:900, color:color,
-                    background:bgColor}}>{$$(r.iq)}</td>
+                    background:bgColor}}>{$$(r.pagoNetoIQ)}</td>
                 </tr>
               ))}
             </tbody>
@@ -2241,7 +2277,9 @@ function ReconciliacionIQ({rpData, feData, rcData, tpData}) {
               <tr style={{background:"#f1f5f9", borderTop:"2px solid #cbd5e1"}}>
                 <td colSpan={7} style={{padding:"8px 10px", fontWeight:800, color:C.sl}}>TOTAL</td>
                 <td style={{padding:"8px 10px", textAlign:"right", fontWeight:900, color:C.sl, fontSize:13}}>{$$(tot)}</td>
-                <td style={{padding:"8px 10px", textAlign:"right", fontWeight:900, color:color, fontSize:14, background:bgColor}}>{$$(totIQ)}</td>
+                <td style={{padding:"8px 10px", textAlign:"right", fontWeight:900, color:color, fontSize:13}}>{$$(totIQ)}</td>
+                <td style={{padding:"8px 10px", textAlign:"right", fontWeight:800, color:C.rojo, fontSize:12}}>({$$(totWHT)})</td>
+                <td style={{padding:"8px 10px", textAlign:"right", fontWeight:900, color:color, fontSize:14, background:bgColor}}>{$$(totNeto)}</td>
               </tr>
             </tfoot>
           </table>
@@ -2251,17 +2289,17 @@ function ReconciliacionIQ({rpData, feData, rcData, tpData}) {
   );
 
   function exportarCSV() {
-    const headers = ["Concepto","Cliente","Pais","Año","Detalle","N° Factura","Estado Pago","Fecha Pago","Facturado USD","IQ 70% USD"];
+    const headers = ["Concepto","Cliente","Pais","Año","Detalle","N° Factura","Estado Pago","Fecha Pago","Facturado USD","IQ 70% USD","WHT 10% USD","Pago Neto IQ USD"];
     const filas = [
       ["# RECONCILIACIÓN IQ — PAGADOS (Base IQ firme)"],
       headers,
-      ...pagados.map(r=>[r.concepto,r.cliente,r.pais,r.año,r.detalle,r.nFact,"Pagado",r.fechaPago,r.montoFact.toFixed(2),r.iq.toFixed(2)]),
-      ["","","","","","","","TOTAL PAGADOS",totPagadoFact.toFixed(2),totPagadoIQ.toFixed(2)],
+      ...pagados.map(r=>[r.concepto,r.cliente,r.pais,r.año,r.detalle,r.nFact,"Pagado",r.fechaPago,r.montoFact.toFixed(2),r.iq.toFixed(2),r.wht.toFixed(2),r.pagoNetoIQ.toFixed(2)]),
+      ["","","","","","","","TOTAL PAGADOS",totPagadoFact.toFixed(2),totPagadoIQ.toFixed(2),totPagadoWHT.toFixed(2),totPagadoNeto.toFixed(2)],
       [""],
       ["# PENDIENTES DE COBRO (Proyección IQ)"],
       headers,
-      ...pendientes.map(r=>[r.concepto,r.cliente,r.pais,r.año,r.detalle,r.nFact,"Pendiente","",r.montoFact.toFixed(2),r.iq.toFixed(2)]),
-      ["","","","","","","","TOTAL PENDIENTES",totPendienteFact.toFixed(2),totPendienteIQ.toFixed(2)],
+      ...pendientes.map(r=>[r.concepto,r.cliente,r.pais,r.año,r.detalle,r.nFact,"Pendiente","",r.montoFact.toFixed(2),r.iq.toFixed(2),r.wht.toFixed(2),r.pagoNetoIQ.toFixed(2)]),
+      ["","","","","","","","TOTAL PENDIENTES",totPendienteFact.toFixed(2),totPendienteIQ.toFixed(2),totPendienteWHT.toFixed(2),totPendienteNeto.toFixed(2)],
     ];
     const csv = filas.map(f=>f.map(v=>`"${String(v??"").replace(/"/g,'""')}"`).join(",")).join("\n");
     const blob = new Blob(["\ufeff"+csv], {type:"text/csv;charset=utf-8;"});
@@ -2314,30 +2352,56 @@ function ReconciliacionIQ({rpData, feData, rcData, tpData}) {
       {/* KPIs Pagado / Pendiente */}
       <div style={{display:"flex", gap:12, marginBottom:20, flexWrap:"wrap"}}>
         <div style={{background:"linear-gradient(135deg,#dcfce7,#bbf7d0)", borderRadius:12,
-          padding:"16px 20px", border:`2px solid ${C.verde}`, flex:1, minWidth:240}}>
-          <div style={{fontSize:10, color:C.verde, letterSpacing:2, fontWeight:800, marginBottom:4}}>✅ IQ BASE FIRME (PAGADO)</div>
-          <div style={{fontSize:11, color:C.sl, marginBottom:2}}>Facturado + Cobrado</div>
-          <div style={{fontSize:16, fontWeight:700, color:C.sl, marginBottom:6}}>{$$(totPagadoFact)}</div>
-          <div style={{fontSize:11, color:C.verde, fontWeight:700}}>IQ a reconocer (70%)</div>
-          <div style={{fontSize:26, fontWeight:900, color:C.verde}}>{$$(totPagadoIQ)}</div>
+          padding:"16px 20px", border:`2px solid ${C.verde}`, flex:1, minWidth:260}}>
+          <div style={{fontSize:10, color:C.verde, letterSpacing:2, fontWeight:800, marginBottom:4}}>✅ IQ FIRME (PAGADO POR CLIENTE)</div>
+          <div style={{fontSize:11, color:C.sl, marginBottom:1}}>Facturado + Cobrado</div>
+          <div style={{fontSize:14, fontWeight:700, color:C.sl, marginBottom:4}}>{$$(totPagadoFact)}</div>
+          <div style={{fontSize:10, color:C.verde, fontWeight:700}}>IQ bruto (70%)</div>
+          <div style={{fontSize:15, fontWeight:800, color:C.verde, marginBottom:2}}>{$$(totPagadoIQ)}</div>
+          <div style={{display:"flex", justifyContent:"space-between", fontSize:10, color:C.rojo, marginBottom:4}}>
+            <span>(-) WHT 10%:</span>
+            <span style={{fontWeight:700}}>{$$(totPagadoWHT)}</span>
+          </div>
+          <div style={{borderTop:`1px dashed ${C.verde}66`, paddingTop:4}}>
+            <div style={{fontSize:10, color:C.verde, fontWeight:800}}>PAGO NETO A IQ</div>
+            <div style={{fontSize:24, fontWeight:900, color:C.verde}}>{$$(totPagadoNeto)}</div>
+          </div>
           <div style={{fontSize:10, color:C.gris, marginTop:4}}>{pagados.length} registros</div>
         </div>
+
         <div style={{background:"linear-gradient(135deg,#fef3c7,#fde68a)", borderRadius:12,
-          padding:"16px 20px", border:`2px solid ${C.am}`, flex:1, minWidth:240}}>
-          <div style={{fontSize:10, color:C.am, letterSpacing:2, fontWeight:800, marginBottom:4}}>⏳ IQ PROYECTADO (PENDIENTE)</div>
-          <div style={{fontSize:11, color:C.sl, marginBottom:2}}>Facturado por cobrar</div>
-          <div style={{fontSize:16, fontWeight:700, color:C.sl, marginBottom:6}}>{$$(totPendienteFact)}</div>
-          <div style={{fontSize:11, color:C.am, fontWeight:700}}>IQ proyectado (70%)</div>
-          <div style={{fontSize:26, fontWeight:900, color:C.am}}>{$$(totPendienteIQ)}</div>
+          padding:"16px 20px", border:`2px solid ${C.am}`, flex:1, minWidth:260}}>
+          <div style={{fontSize:10, color:C.am, letterSpacing:2, fontWeight:800, marginBottom:4}}>⏳ IQ PROYECTADO (POR COBRAR)</div>
+          <div style={{fontSize:11, color:C.sl, marginBottom:1}}>Facturado por cobrar</div>
+          <div style={{fontSize:14, fontWeight:700, color:C.sl, marginBottom:4}}>{$$(totPendienteFact)}</div>
+          <div style={{fontSize:10, color:C.am, fontWeight:700}}>IQ bruto (70%)</div>
+          <div style={{fontSize:15, fontWeight:800, color:C.am, marginBottom:2}}>{$$(totPendienteIQ)}</div>
+          <div style={{display:"flex", justifyContent:"space-between", fontSize:10, color:C.rojo, marginBottom:4}}>
+            <span>(-) WHT 10%:</span>
+            <span style={{fontWeight:700}}>{$$(totPendienteWHT)}</span>
+          </div>
+          <div style={{borderTop:`1px dashed ${C.am}66`, paddingTop:4}}>
+            <div style={{fontSize:10, color:C.am, fontWeight:800}}>PAGO NETO PROYECTADO</div>
+            <div style={{fontSize:24, fontWeight:900, color:C.am}}>{$$(totPendienteNeto)}</div>
+          </div>
           <div style={{fontSize:10, color:C.gris, marginTop:4}}>{pendientes.length} registros</div>
         </div>
+
         <div style={{background:"linear-gradient(135deg,#dbeafe,#bfdbfe)", borderRadius:12,
-          padding:"16px 20px", border:`2px solid ${C.azul}`, flex:1, minWidth:240}}>
+          padding:"16px 20px", border:`2px solid ${C.azul}`, flex:1, minWidth:260}}>
           <div style={{fontSize:10, color:C.azul, letterSpacing:2, fontWeight:800, marginBottom:4}}>📊 IQ TOTAL (FACTURADO)</div>
-          <div style={{fontSize:11, color:C.sl, marginBottom:2}}>Base total facturada</div>
-          <div style={{fontSize:16, fontWeight:700, color:C.sl, marginBottom:6}}>{$$(totPagadoFact+totPendienteFact)}</div>
-          <div style={{fontSize:11, color:C.azul, fontWeight:700}}>IQ total 70%</div>
-          <div style={{fontSize:26, fontWeight:900, color:C.azul}}>{$$(totPagadoIQ+totPendienteIQ)}</div>
+          <div style={{fontSize:11, color:C.sl, marginBottom:1}}>Base total facturada</div>
+          <div style={{fontSize:14, fontWeight:700, color:C.sl, marginBottom:4}}>{$$(totPagadoFact+totPendienteFact)}</div>
+          <div style={{fontSize:10, color:C.azul, fontWeight:700}}>IQ bruto (70%)</div>
+          <div style={{fontSize:15, fontWeight:800, color:C.azul, marginBottom:2}}>{$$(totPagadoIQ+totPendienteIQ)}</div>
+          <div style={{display:"flex", justifyContent:"space-between", fontSize:10, color:C.rojo, marginBottom:4}}>
+            <span>(-) WHT 10%:</span>
+            <span style={{fontWeight:700}}>{$$(totPagadoWHT+totPendienteWHT)}</span>
+          </div>
+          <div style={{borderTop:`1px dashed ${C.azul}66`, paddingTop:4}}>
+            <div style={{fontSize:10, color:C.azul, fontWeight:800}}>PAGO NETO TOTAL</div>
+            <div style={{fontSize:24, fontWeight:900, color:C.azul}}>{$$(totPagadoNeto+totPendienteNeto)}</div>
+          </div>
           <div style={{fontSize:10, color:C.gris, marginTop:4}}>{pagados.length+pendientes.length} registros</div>
         </div>
       </div>
@@ -2372,25 +2436,31 @@ function ReconciliacionIQ({rpData, feData, rcData, tpData}) {
 
       {/* Tabla Pagados */}
       <Tabla
-        titulo="✅ PAGADOS — Base IQ firme"
+        titulo="✅ PAGADOS — Pago Neto IQ firme"
         items={pagados} color={C.verde} bgColor={C.verdeBg}
         tot={totPagadoFact} totIQ={totPagadoIQ}
+        totWHT={totPagadoWHT} totNeto={totPagadoNeto}
       />
 
       {/* Tabla Pendientes */}
       <Tabla
-        titulo="⏳ PENDIENTES DE COBRO — Proyección IQ"
+        titulo="⏳ PENDIENTES DE COBRO — Proyección Pago Neto IQ"
         items={pendientes} color={C.am} bgColor={C.amBg}
         tot={totPendienteFact} totIQ={totPendienteIQ}
+        totWHT={totPendienteWHT} totNeto={totPendienteNeto}
       />
 
       {/* Nota explicativa */}
       <div style={{background:"#f0f9ff", border:"1px solid #bae6fd", borderRadius:10,
         padding:"12px 16px", fontSize:11, color:"#0c4a6e", marginTop:10}}>
-        <strong>ℹ️ Metodología:</strong> La Reconciliación IQ toma el <strong>70% del monto facturado</strong> (antes de retenciones)
-        de los 3 conceptos: Fee Entrada, Royalty Planta y Royalty Comercial.
-        Solo se incluyen registros con <strong>N° de factura emitido</strong>. El monto <strong>Pagado</strong>
-        es la base IQ firme ya reconocible; el monto <strong>Pendiente</strong> es la proyección de IQ por cobrar.
+        <strong>ℹ️ Metodología:</strong> La Reconciliación IQ calcula: <strong>(1)</strong> IQ bruto = 70% del monto facturado al cliente
+        en los 3 conceptos (Fee Entrada + Royalty Planta + Royalty Comercial); <strong>(2)</strong> WHT = 10% de retención sobre el IQ bruto;
+        <strong> (3)</strong> Pago Neto a IQ = IQ bruto − WHT.
+        <br/><br/>
+        <strong>Ejemplo:</strong> Cliente factura $1.000 → IQ bruto $700 → WHT $70 → <strong>Pago neto a IQ: $630</strong>.
+        <br/><br/>
+        Solo se incluyen registros con <strong>N° de factura emitido</strong>. Los <strong>Pagados</strong> son la base firme ya devengada;
+        los <strong>Pendientes</strong> son la proyección por cobrar.
       </div>
     </div>
   );
