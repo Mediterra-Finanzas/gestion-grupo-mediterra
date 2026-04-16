@@ -7176,51 +7176,55 @@ function NominaDetalle({nomina, onUpdate, onBack, usuario, canEdit, saldosBancos
       </div>
 
       <div id="nomina-print-area" style={{padding:"20px 24px",maxWidth:1400,margin:"0 auto"}}>
-        {/* Info header */}
-        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:12,marginBottom:20}}>
+        {/* Info header — versión compacta para impresión */}
+        <div className="nomina-info-grid" style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:12,marginBottom:20}}>
           <div style={{background:C.card2,borderRadius:10,padding:"12px 16px",border:`1px solid ${C.border}`}}>
-            <div style={{fontSize:10,color:C.muted,fontWeight:600,marginBottom:6}}>INFORMACIÓN NÓMINA</div>
+            <div className="info-label" style={{fontSize:10,color:C.muted,fontWeight:600,marginBottom:6}}>INFORMACIÓN NÓMINA</div>
             <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
               <div>
-                <div style={{fontSize:10,color:C.muted}}>Empresa</div>
-                <div style={{fontWeight:700,fontSize:13}}>{nom.empresa}</div>
+                <div className="info-label" style={{fontSize:10,color:C.muted}}>Empresa</div>
+                <div className="info-value" style={{fontWeight:700,fontSize:13}}>{nom.empresa}</div>
               </div>
               <div>
-                <div style={{fontSize:10,color:C.muted}}>Semana / Año</div>
-                <div style={{fontWeight:700,fontSize:13}}>S{nom.semana} / {nom.año}</div>
+                <div className="info-label" style={{fontSize:10,color:C.muted}}>Semana / Año</div>
+                <div className="info-value" style={{fontWeight:700,fontSize:13}}>S{nom.semana} / {nom.año}</div>
               </div>
               <div>
-                <div style={{fontSize:10,color:C.muted}}>Fecha</div>
+                <div className="info-label" style={{fontSize:10,color:C.muted}}>Fecha</div>
                 {canEdit
                   ? <input type="date" value={nom.fecha} onChange={e=>upd("fecha",e.target.value)}
+                      className="no-print"
                       style={{padding:"3px 6px",borderRadius:5,border:`1px solid ${C.border}`,
                         background:C.card,color:C.text,fontSize:12,outline:"none"}}/>
-                  : <div style={{fontSize:12}}>{nom.fecha}</div>}
+                  : null}
+                <div className="info-value" style={{fontSize:12}}>{nom.fecha}</div>
               </div>
               <div>
-                <div style={{fontSize:10,color:C.muted}}>T.C (CLP/USD)</div>
+                <div className="info-label" style={{fontSize:10,color:C.muted}}>T.C (CLP/USD)</div>
                 {canEdit
                   ? <input type="number" value={nom.tc||""} onChange={e=>upd("tc",Number(e.target.value))}
-                      placeholder="886.97"
+                      placeholder="886.97" className="no-print"
                       style={{padding:"3px 6px",borderRadius:5,border:`1px solid ${C.border}`,
                         background:C.card,color:C.text,fontSize:12,outline:"none",width:90}}/>
-                  : <div style={{fontSize:12}}>{nom.tc?nom.tc.toLocaleString("es-CL"):"—"}</div>}
+                  : null}
+                <div className="info-value" style={{fontSize:12}}>{nom.tc?nom.tc.toLocaleString("es-CL"):"—"}</div>
               </div>
             </div>
           </div>
 
-          {/* Totales */}
+          {/* Totales — visible en impresión */}
           <div style={{background:C.card2,borderRadius:10,padding:"12px 16px",border:`1px solid ${C.border}`}}>
-            <div style={{fontSize:10,color:C.muted,fontWeight:600,marginBottom:8}}>TOTALES NÓMINA</div>
+            <div className="info-label" style={{fontSize:10,color:C.muted,fontWeight:600,marginBottom:8}}>TOTALES NÓMINA</div>
             <div style={{display:"flex",justifyContent:"space-between",marginBottom:6}}>
               <span style={{color:C.muted,fontSize:12}}>Total CLP</span>
-              <span style={{fontWeight:800,fontSize:14,color:C.yellow}}>{totCLP?$$clp(totCLP):"—"}</span>
+              <span className="info-value" style={{fontWeight:800,fontSize:14,color:C.yellow}}>{totCLP?$$clp(totCLP):"—"}</span>
             </div>
             <div style={{display:"flex",justifyContent:"space-between",marginBottom:8}}>
               <span style={{color:C.muted,fontSize:12}}>Total USD</span>
-              <span style={{fontWeight:800,fontSize:14,color:C.blue}}>{totUSD?$$usd(totUSD):"—"}</span>
+              <span className="info-value" style={{fontWeight:800,fontSize:14,color:C.blue}}>{totUSD?$$usd(totUSD):"—"}</span>
             </div>
-            <div style={{borderTop:`1px solid ${C.border}`,paddingTop:8,marginTop:4}}>
+            {/* Saldo bancos: solo pantalla, no impresión */}
+            <div className="nomina-kpis-header" style={{borderTop:`1px solid ${C.border}`,paddingTop:8,marginTop:4}}>
               <div style={{fontSize:10,color:C.muted,fontWeight:600,marginBottom:4}}>SALDO BANCOS</div>
               <div style={{display:"flex",justifyContent:"space-between",marginBottom:2}}>
                 <span style={{color:C.muted,fontSize:11}}>CLP</span>
@@ -7480,22 +7484,30 @@ function NominasModule({usuario, canEdit=false, saldosBancos={}}) {
     st.id = 'nominas-print-css';
     st.textContent = `
       @media print {
-        @page{size:letter portrait;margin:12mm 14mm}
+        @page{size:letter landscape;margin:8mm 10mm}
         body *{visibility:hidden}
         #nomina-print-area,#nomina-print-area *{visibility:visible}
         #nomina-print-area{position:fixed;top:0;left:0;width:100%;
-          background:white!important;color:#000!important;font-size:9px}
-        h1,h2,h3{margin:0 0 6px}
-        table{border-collapse:collapse;width:100%;font-size:8px;page-break-inside:auto}
+          background:white!important;color:#000!important;font-size:8px}
+        h1,h2,h3{margin:0 0 4px}
+        table{border-collapse:collapse;width:100%;font-size:7.5px;page-break-inside:auto}
         thead{display:table-header-group}
         tr{page-break-inside:avoid}
-        th{background:#1e293b!important;color:white!important;padding:3px 6px;
-          font-size:8px;text-align:left;white-space:nowrap}
-        td{padding:3px 6px;border-bottom:1px solid #e2e8f0;font-size:8px}
+        th{background:#1e293b!important;color:white!important;padding:2px 5px;
+          font-size:7.5px;text-align:left;white-space:nowrap;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+        td{padding:2px 5px;border-bottom:1px solid #e2e8f0;font-size:7.5px}
         .no-print{display:none!important}
-        .print-section-title{font-weight:800;font-size:10px;
+        .print-only{display:block!important}
+        .print-section-title{font-weight:800;font-size:9px;
           background:#f1f5f9!important;color:#1e293b!important;
-          padding:4px 8px;border-top:2px solid #1e293b;margin-top:8px}
+          padding:3px 6px;border-top:2px solid #1e293b;margin-top:6px;
+          -webkit-print-color-adjust:exact;print-color-adjust:exact}
+        .nomina-kpis-header{display:none!important}
+        .nomina-info-grid{display:flex!important;gap:12px!important;margin-bottom:8px!important}
+        .nomina-info-grid>div{flex:1!important;padding:6px 10px!important;font-size:7px!important;
+          border:1px solid #d1d5db!important;border-radius:4px!important;background:white!important}
+        .nomina-info-grid .info-label{font-size:6.5px!important;margin-bottom:1px!important}
+        .nomina-info-grid .info-value{font-size:8px!important;font-weight:700!important}
       }
     `;
     document.head.appendChild(st);
