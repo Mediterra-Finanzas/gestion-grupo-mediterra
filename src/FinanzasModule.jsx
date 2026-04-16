@@ -7275,9 +7275,31 @@ function NominaDetalle({nomina, onUpdate, onBack, usuario, canEdit, saldosBancos
     const ahora = new Date().toISOString().slice(0,10);
     let patch = {estado: next};
     if(next==="preparada")  patch.preparadoPor  = usuario?.nombre||"";
-    if(next==="revision")   patch.revisadoPor   = usuario?.nombre||"";
-    if(next==="aprobada1") { patch.aprobado1Por = usuario?.nombre||""; patch.fechaAprobacion1 = ahora; }
-    if(next==="aprobada")  { patch.aprobadoPor  = usuario?.nombre||""; patch.fechaAprobacion  = ahora; }
+    if(next==="revision") {
+      patch.revisadoPor = usuario?.nombre||"";
+      // Notificar a Carol y Michelle que hay una nómina esperando su V°B°
+      const notifMsg = `${usuario?.nombre||"Un usuario"} ha enviado a revisión la ${nombreFormal} (${nom.empresa}).\n\nPor favor ingresa al sistema para dar tu V°B°.\n\nhttps://gestion-grupo-mediterra.vercel.app`;
+      if(window._enviarNotificacion) {
+        window._enviarNotificacion("cmachuca@grupomediterra.cl","Carol Machuca",
+          `📋 Nómina pendiente de V°B° — ${nom.empresa} S${nom.semana}`, notifMsg).catch(()=>{});
+        window._enviarNotificacion("mgarcia@grupomediterra.cl","Michelle Garcia",
+          `📋 Nómina pendiente de V°B° — ${nom.empresa} S${nom.semana}`, notifMsg).catch(()=>{});
+      }
+    }
+    if(next==="aprobada1") {
+      patch.aprobado1Por = usuario?.nombre||"";
+      patch.fechaAprobacion1 = ahora;
+      // Notificar al CFO que la nómina tiene V°B° y está lista para aprobación final
+      if(window._enviarNotificacion) {
+        const notifMsg = `${usuario?.nombre||"Un autorizador"} ha dado V°B° a la ${nombreFormal} (${nom.empresa}).\n\nEstá lista para tu aprobación final.\n\nhttps://gestion-grupo-mediterra.vercel.app`;
+        window._enviarNotificacion("ahuerta@grupomediterra.cl","Angelo Huerta",
+          `✅ Nómina lista para aprobación CFO — ${nom.empresa} S${nom.semana}`, notifMsg).catch(()=>{});
+      }
+    }
+    if(next==="aprobada") {
+      patch.aprobadoPor = usuario?.nombre||"";
+      patch.fechaAprobacion = ahora;
+    }
     onUpdate({...nom,...patch});
   }
 
