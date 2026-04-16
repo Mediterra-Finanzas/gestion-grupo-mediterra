@@ -5386,9 +5386,14 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
     {id:"bancos",   label:"🏦 Saldos Bancos"},
     {id:"creditos", label:"💳 Créditos"},
     {id:"nominas",  label:"📋 Nóminas"},
+    {id:"auditoria",label:"🔍 Auditoría"},
   ];
   // Solo mostrar pestañas a las que el usuario tiene acceso
-  const TABS = TABS_ALL.filter(t => puedoVer(t.id));
+  // Auditoría: solo admin
+  const TABS = TABS_ALL.filter(t => {
+    if(t.id==="auditoria") return usuarioActual?.rol==="admin";
+    return puedoVer(t.id);
+  });
 
   // Si la tab activa no está disponible, ir a la primera disponible
   useEffect(()=>{
@@ -5639,6 +5644,30 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
   },[persistAll]);
 
   const handleSaveSaldos=useCallback(async(next)=>{
+    // Auditoría: detectar cambios en saldos (key = "Empresa||Banco||moneda")
+    const anterior = saldosBancosRef.current || {};
+    Object.keys(next).forEach(key=>{
+      const antes = Number(anterior[key]?.monto) || 0;
+      const despues = Number(next[key]?.monto) || 0;
+      if(antes !== despues) {
+        const partes = key.split("||");
+        const [emp, banco, moneda] = partes;
+        window.auditLog&&window.auditLog("editar", {modulo:"finanzas", seccion:"saldos bancos",
+          descripcion:`Actualizó saldo de ${emp} · ${banco} · ${(moneda||"").toUpperCase()}`,
+          registroId:key, campo:"monto",
+          valorAnterior:antes.toLocaleString("es-CL"),
+          valorNuevo:despues.toLocaleString("es-CL")});
+      }
+    });
+    // Detectar eliminaciones
+    Object.keys(anterior).forEach(key=>{
+      if(!(key in next) && Number(anterior[key]?.monto) !== 0) {
+        const [emp, banco, moneda] = key.split("||");
+        window.auditLog&&window.auditLog("eliminar", {modulo:"finanzas", seccion:"saldos bancos",
+          descripcion:`Eliminó saldo de ${emp} · ${banco} · ${(moneda||"").toUpperCase()}`,
+          registroId:key});
+      }
+    });
     setSaldosBancos(next);
     saldosBancosRef.current = next;
     setSaved("💾 Guardando…");
@@ -5888,6 +5917,10 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
 
       {tab==="nominas"&&puedoVer("nominas")&&(
         <NominasModule usuario={usuarioActual} canEdit={puedoEdit("nominas")} saldosBancos={saldosBancos}/>
+      )}
+
+      {tab==="auditoria"&&usuarioActual?.rol==="admin"&&(
+        <AuditoriaModule usuario={usuarioActual}/>
       )}
 
     </div>
@@ -6611,10 +6644,66 @@ function NominasModule({usuario, canEdit=false, saldosBancos={}}) {
 
   function updNomina(nom) {
     setNominas(prev=>{
+      const anterior = prev.find(n=>n.id===nom.id);
       const next = prev.some(n=>n.id===nom.id)
         ? prev.map(n=>n.id===nom.id?nom:n)
         : [...prev, nom];
       saveNominas(next);
+      // Auditoría
+      if(!anterior) {
+        window.auditLog&&window.auditLog("crear", {modulo:"finanzas", seccion:"nóminas",
+          descripcion:`Creó nómina para ${nom.empresa} · S${nom.semana}/${nom.año}`,
+          registroId:nom.id});
+      } else {
+        // Detectar cambio de estado específicamente
+        if(anterior.estado !== nom.estado) {
+          const esCFO = nom.estado === "aprobada";
+          window.auditLog&&window.auditLog(esCFO?"aprobar":"editar", {modulo:"finanzas", seccion:"nóminas",
+            descripcion:`Nómina ${nom.empresa} S${nom.semana}/${nom.año}: cambió estado de "${anterior.estado}" a "${nom.estado}"`,
+            registroId:nom.id, campo:"estado",
+            valorAnterior:anterior.estado, valorNuevo:nom.estado});
+        }
+        // Detectar otros cambios en campos clave
+        const camposRastrear = ["fecha","tc","notas","preparadoPor","revisadoPor","aprobadoPor","aprobado1Por"];
+        camposRastrear.forEach(k=>{
+          if(anterior[k] !== nom[k] && (anterior[k]!==undefined || nom[k])) {
+            window.auditLog&&window.auditLog("editar", {modulo:"finanzas", seccion:"nóminas",
+              descripcion:`Nómina ${nom.empresa} S${nom.semana}/${nom.año}: editó ${k}`,
+              registroId:nom.id, campo:k,
+              valorAnterior:anterior[k]||"", valorNuevo:nom[k]||""});
+          }
+        });
+        // Detectar cambios en items (granular: agregar, quitar, editar)
+        const itemsAntes = anterior.items || [];
+        const itemsDespues = nom.items || [];
+        const idsAntes = new Set(itemsAntes.map(it=>it.id));
+        const idsDespues = new Set(itemsDespues.map(it=>it.id));
+        // Items nuevos
+        itemsDespues.filter(it=>!idsAntes.has(it.id)).forEach(it=>{
+          window.auditLog&&window.auditLog("crear", {modulo:"finanzas", seccion:"nóminas · items",
+            descripcion:`Nómina ${nom.empresa} S${nom.semana}: agregó item "${it.proveedor||"sin nombre"}" en ${it.seccion}`,
+            registroId:it.id});
+        });
+        // Items eliminados
+        itemsAntes.filter(it=>!idsDespues.has(it.id)).forEach(it=>{
+          window.auditLog&&window.auditLog("eliminar", {modulo:"finanzas", seccion:"nóminas · items",
+            descripcion:`Nómina ${nom.empresa} S${nom.semana}: eliminó item "${it.proveedor||"sin nombre"}" de ${it.seccion}`,
+            registroId:it.id});
+        });
+        // Items editados (pagado, montos)
+        itemsDespues.forEach(itN=>{
+          const itA = itemsAntes.find(x=>x.id===itN.id);
+          if(!itA) return;
+          ["pagado","montoCLP","montoUSD","nDoc","fVenc"].forEach(k=>{
+            if(itA[k] !== itN[k] && (itA[k]!==undefined || itN[k])) {
+              window.auditLog&&window.auditLog("editar", {modulo:"finanzas", seccion:"nóminas · items",
+                descripcion:`Nómina ${nom.empresa} S${nom.semana}: editó ${k} en item "${itN.proveedor||itN.id}"`,
+                registroId:itN.id, campo:k,
+                valorAnterior:String(itA[k]||""), valorNuevo:String(itN[k]||"")});
+            }
+          });
+        });
+      }
       return next;
     });
   }
@@ -6630,8 +6719,12 @@ function NominasModule({usuario, canEdit=false, saldosBancos={}}) {
   function eliminarNomina(id) {
     if(!window.confirm("¿Eliminar esta nómina?")) return;
     setNominas(prev=>{
+      const nom = prev.find(n=>n.id===id);
       const next = prev.filter(n=>n.id!==id);
       saveNominas(next);
+      if(nom) window.auditLog&&window.auditLog("eliminar", {modulo:"finanzas", seccion:"nóminas",
+        descripcion:`Eliminó nómina ${nom.empresa} · S${nom.semana}/${nom.año} (estado: ${nom.estado})`,
+        registroId:id});
       return next;
     });
   }
@@ -7349,6 +7442,538 @@ function ParamsFrisku({selSeason, paramsFrisku, setParamsFrisku, readOnly}) {
               </tr>
             </tfoot>
           </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// MÓDULO AUDITORÍA — Registro de actividad del sistema
+// Solo visible para admin. Retención: 24 meses.
+// ═══════════════════════════════════════════════════════════════════
+async function loadAuditEvents() {
+  try {
+    const res = await fetch(`${SUPA_URL}/rest/v1/calendario_data?id=eq.audit_log&select=value`, {
+      headers: { apikey: SUPA_KEY, Authorization: `Bearer ${SUPA_KEY}` }
+    });
+    const data = await res.json();
+    return data?.[0]?.value?.eventos || [];
+  } catch { return []; }
+}
+
+// Helper: exportar eventos auditoría a Excel
+async function exportAuditoriaExcel(eventos, filtrosInfo) {
+  if(!window.JSZip) {
+    await new Promise((res, rej) => {
+      const s = document.createElement("script");
+      s.src = "https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js";
+      s.onload = res; s.onerror = rej;
+      document.head.appendChild(s);
+    });
+  }
+  const headers = ["Fecha/Hora","Usuario","Rol","Email","Acción","Módulo","Sección","Descripción","Campo","Valor Anterior","Valor Nuevo"];
+  const rows = eventos.map(e => [
+    new Date(e.timestamp).toLocaleString("es-CL"),
+    e.usuario, e.rol, e.email, e.accion, e.modulo, e.seccion,
+    e.descripcion, e.campo, e.valorAnterior, e.valorNuevo
+  ]);
+
+  function colLetter(n){let s="";n++;while(n>0){n--;s=String.fromCharCode(65+(n%26))+s;n=Math.floor(n/26);}return s;}
+  function escXml(v){return String(v??"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");}
+
+  const nCols = headers.length;
+  const lastCol = colLetter(nCols-1);
+  let rowsXml = "";
+
+  // Título
+  rowsXml += `<row r="1" ht="28" customHeight="1"><c r="A1" t="inlineStr" s="5"><is><t>🔍 Registro de Auditoría — Grupo Mediterra</t></is></c></row>`;
+  rowsXml += `<row r="2" ht="18" customHeight="1"><c r="A2" t="inlineStr" s="6"><is><t>Exportado: ${new Date().toLocaleString("es-CL")}${filtrosInfo?` · ${filtrosInfo}`:""}</t></is></c></row>`;
+  rowsXml += `<row r="3" ht="10" customHeight="1"></row>`;
+
+  // Headers tabla
+  rowsXml += `<row r="4" ht="22" customHeight="1">`;
+  headers.forEach((h,c)=>{rowsXml += `<c r="${colLetter(c)}4" t="inlineStr" s="1"><is><t>${escXml(h)}</t></is></c>`;});
+  rowsXml += `</row>`;
+
+  rows.forEach((row,ri)=>{
+    const r = ri+5;
+    const sBase = ri%2===0?0:2;
+    rowsXml += `<row r="${r}" ht="18" customHeight="1">`;
+    row.forEach((val,c)=>{
+      rowsXml += `<c r="${colLetter(c)}${r}" t="inlineStr" s="${sBase}"><is><t>${escXml(val)}</t></is></c>`;
+    });
+    rowsXml += `</row>`;
+  });
+
+  const tableRef = `A4:${lastCol}${rows.length+4}`;
+  const merges = [`A1:${lastCol}1`, `A2:${lastCol}2`];
+  const mergesXml = `<mergeCells count="${merges.length}">${merges.map(m=>`<mergeCell ref="${m}"/>`).join("")}</mergeCells>`;
+
+  const stylesXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+  <fonts count="7">
+    <font><sz val="11"/><name val="Calibri"/></font>
+    <font><sz val="11"/><b/><color rgb="FFFFFFFF"/><name val="Calibri"/></font>
+    <font><sz val="11"/><name val="Calibri"/></font>
+    <font/><font/>
+    <font><sz val="18"/><b/><color rgb="FF0F2D4A"/><name val="Calibri"/></font>
+    <font><sz val="11"/><i/><color rgb="FF64748B"/><name val="Calibri"/></font>
+  </fonts>
+  <fills count="4">
+    <fill><patternFill patternType="none"/></fill>
+    <fill><patternFill patternType="gray125"/></fill>
+    <fill><patternFill patternType="solid"><fgColor rgb="FF0F2D4A"/></patternFill></fill>
+    <fill><patternFill patternType="solid"><fgColor rgb="FFF1F5F9"/></patternFill></fill>
+  </fills>
+  <borders count="2">
+    <border><left/><right/><top/><bottom/><diagonal/></border>
+    <border><left style="thin"><color rgb="FFE2E8F0"/></left><right style="thin"><color rgb="FFE2E8F0"/></right><top style="thin"><color rgb="FFE2E8F0"/></top><bottom style="thin"><color rgb="FFE2E8F0"/></bottom></border>
+  </borders>
+  <cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>
+  <cellXfs count="7">
+    <xf numFmtId="0" fontId="0" fillId="0" borderId="1" xfId="0"><alignment vertical="center"/></xf>
+    <xf numFmtId="0" fontId="1" fillId="2" borderId="0" xfId="0"><alignment horizontal="center" vertical="center" wrapText="1"/></xf>
+    <xf numFmtId="0" fontId="0" fillId="3" borderId="1" xfId="0"><alignment vertical="center"/></xf>
+    <xf/><xf/>
+    <xf numFmtId="0" fontId="5" fillId="0" borderId="0" xfId="0"><alignment horizontal="left" vertical="center" indent="1"/></xf>
+    <xf numFmtId="0" fontId="6" fillId="0" borderId="0" xfId="0"><alignment horizontal="left" vertical="center" indent="1"/></xf>
+  </cellXfs>
+</styleSheet>`;
+
+  const colWidths = [22,22,12,28,18,14,22,55,20,30,30];
+  const colsXml = `<cols>${colWidths.map((w,i)=>`<col min="${i+1}" max="${i+1}" width="${w}" customWidth="1"/>`).join("")}</cols>`;
+
+  const tableXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<table xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" id="1" name="Auditoria" displayName="Auditoria" ref="${tableRef}" totalsRowShown="0" headerRowCount="1">
+  <autoFilter ref="${tableRef}"/>
+  <tableColumns count="${nCols}">${headers.map((h,i)=>`<tableColumn id="${i+1}" name="${escXml(h)}"/>`).join("")}</tableColumns>
+  <tableStyleInfo name="TableStyleMedium2" showFirstColumn="0" showLastColumn="0" showRowStripes="1" showColumnStripes="0"/>
+</table>`;
+
+  const sheetXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+  <sheetViews><sheetView workbookViewId="0" showGridLines="0"><pane ySplit="4" topLeftCell="A5" activePane="bottomLeft" state="frozen"/></sheetView></sheetViews>
+  ${colsXml}
+  <sheetData>${rowsXml}</sheetData>
+  ${mergesXml}
+  <tableParts count="1"><tablePart r:id="rId1"/></tableParts>
+</worksheet>`;
+
+  const wbXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+  <bookViews><workbookView/></bookViews>
+  <sheets><sheet name="Auditoria" sheetId="1" r:id="rId1"/></sheets>
+</workbook>`;
+
+  const wbRels = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>
+  <Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>
+</Relationships>`;
+
+  const sheetRels = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/table" Target="../tables/table1.xml"/>
+</Relationships>`;
+
+  const contentTypes = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
+  <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
+  <Default Extension="xml" ContentType="application/xml"/>
+  <Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>
+  <Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>
+  <Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>
+  <Override PartName="/xl/tables/table1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.table+xml"/>
+</Types>`;
+
+  const pkgRels = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/>
+</Relationships>`;
+
+  const zip = new window.JSZip();
+  zip.file("[Content_Types].xml", contentTypes);
+  zip.file("_rels/.rels", pkgRels);
+  zip.file("xl/workbook.xml", wbXml);
+  zip.file("xl/_rels/workbook.xml.rels", wbRels);
+  zip.file("xl/worksheets/sheet1.xml", sheetXml);
+  zip.file("xl/worksheets/_rels/sheet1.xml.rels", sheetRels);
+  zip.file("xl/styles.xml", stylesXml);
+  zip.file("xl/tables/table1.xml", tableXml);
+
+  const blob = await zip.generateAsync({type:"blob", mimeType:"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `Auditoria_${new Date().toISOString().slice(0,10)}.xlsx`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+function AuditoriaModule({usuario}) {
+  const [eventos, setEventos] = useState([]);
+  const [cargando, setCargando] = useState(true);
+  const [filtroUsuario, setFiltroUsuario] = useState("");
+  const [filtroAccion, setFiltroAccion] = useState("Todos");
+  const [filtroModulo, setFiltroModulo] = useState("Todos");
+  const [filtroDesde, setFiltroDesde] = useState(() => {
+    const d = new Date(); d.setDate(d.getDate()-30);
+    return d.toISOString().slice(0,10);
+  });
+  const [filtroHasta, setFiltroHasta] = useState(new Date().toISOString().slice(0,10));
+  const [busqueda, setBusqueda] = useState("");
+  const [eventoDetalle, setEventoDetalle] = useState(null);
+  const [autoRefresh, setAutoRefresh] = useState(false);
+
+  // Cargar eventos
+  async function recargar() {
+    setCargando(true);
+    const evs = await loadAuditEvents();
+    setEventos(evs);
+    setCargando(false);
+  }
+
+  useEffect(() => {
+    recargar();
+    window.auditLog("consultar", {modulo:"sistema", seccion:"auditoría",
+      descripcion:"Accedió al módulo de Auditoría"});
+  }, []);
+
+  // Auto-refresh cada 30s si está activo
+  useEffect(() => {
+    if(!autoRefresh) return;
+    const t = setInterval(recargar, 30000);
+    return () => clearInterval(t);
+  }, [autoRefresh]);
+
+  // Filtrar
+  const filtrado = useMemo(() => {
+    const desde = filtroDesde ? new Date(filtroDesde+"T00:00:00") : null;
+    const hasta = filtroHasta ? new Date(filtroHasta+"T23:59:59") : null;
+    return eventos
+      .filter(e => {
+        const ts = new Date(e.timestamp);
+        if(desde && ts < desde) return false;
+        if(hasta && ts > hasta) return false;
+        if(filtroUsuario && !e.usuario?.toLowerCase().includes(filtroUsuario.toLowerCase())) return false;
+        if(filtroAccion !== "Todos" && e.accion !== filtroAccion) return false;
+        if(filtroModulo !== "Todos" && e.modulo !== filtroModulo) return false;
+        if(busqueda) {
+          const q = busqueda.toLowerCase();
+          const match = e.descripcion?.toLowerCase().includes(q) ||
+                        e.seccion?.toLowerCase().includes(q) ||
+                        e.campo?.toLowerCase().includes(q) ||
+                        e.valorNuevo?.toLowerCase().includes(q) ||
+                        e.valorAnterior?.toLowerCase().includes(q);
+          if(!match) return false;
+        }
+        return true;
+      })
+      .sort((a,b) => new Date(b.timestamp) - new Date(a.timestamp));
+  }, [eventos, filtroDesde, filtroHasta, filtroUsuario, filtroAccion, filtroModulo, busqueda]);
+
+  // Opciones únicas para filtros
+  const accionesDisp = useMemo(() => ["Todos", ...Array.from(new Set(eventos.map(e=>e.accion).filter(Boolean))).sort()], [eventos]);
+  const modulosDisp = useMemo(() => ["Todos", ...Array.from(new Set(eventos.map(e=>e.modulo).filter(Boolean))).sort()], [eventos]);
+
+  // KPIs
+  const kpiHoy = eventos.filter(e => {
+    const hoy = new Date(); hoy.setHours(0,0,0,0);
+    return new Date(e.timestamp) >= hoy;
+  }).length;
+  const kpiUsuariosActivos = new Set(filtrado.map(e=>e.usuario)).size;
+  const kpiEdiciones = filtrado.filter(e=>e.accion==="editar").length;
+  const kpiEliminaciones = filtrado.filter(e=>e.accion==="eliminar").length;
+  const kpiLogins = filtrado.filter(e=>e.accion==="login").length;
+  const kpiLoginsFallidos = filtrado.filter(e=>e.accion==="login_fallido").length;
+
+  // Colores por acción
+  function colorAccion(accion) {
+    const map = {
+      login: "#16a34a", logout: "#64748b", login_fallido: "#dc2626",
+      crear: "#3b82f6", editar: "#f59e0b", eliminar: "#ef4444",
+      consultar: "#8b5cf6", exportar: "#0f766e",
+      aprobar: "#16a34a", rechazar: "#dc2626",
+      cambio_pin: "#f59e0b", reset_pin: "#f97316",
+      cambio_permiso: "#7c3aed",
+      desactivar_usuario: "#dc2626", activar_usuario: "#16a34a",
+      login_pin_temporal: "#f59e0b",
+    };
+    return map[accion] || "#64748b";
+  }
+
+  function emojiAccion(accion) {
+    const map = {
+      login: "🔓", logout: "🚪", login_fallido: "⛔",
+      crear: "➕", editar: "✏️", eliminar: "🗑",
+      consultar: "👁", exportar: "📥",
+      aprobar: "✅", rechazar: "❌",
+      cambio_pin: "🔑", reset_pin: "🔄",
+      cambio_permiso: "🔐",
+      desactivar_usuario: "🚫", activar_usuario: "♻️",
+      login_pin_temporal: "⚡",
+    };
+    return map[accion] || "📋";
+  }
+
+  function exportarExcel() {
+    const filtros = [];
+    if(filtroDesde) filtros.push(`Desde: ${filtroDesde}`);
+    if(filtroHasta) filtros.push(`Hasta: ${filtroHasta}`);
+    if(filtroUsuario) filtros.push(`Usuario: ${filtroUsuario}`);
+    if(filtroAccion !== "Todos") filtros.push(`Acción: ${filtroAccion}`);
+    if(filtroModulo !== "Todos") filtros.push(`Módulo: ${filtroModulo}`);
+    if(busqueda) filtros.push(`Búsqueda: ${busqueda}`);
+    exportAuditoriaExcel(filtrado, filtros.join(" · "));
+    window.auditLog("exportar", {modulo:"sistema", seccion:"auditoría",
+      descripcion:`Exportó ${filtrado.length} eventos de auditoría a Excel`});
+  }
+
+  if(cargando) return (
+    <div style={{padding:40, textAlign:"center", color:C.muted}}>Cargando registro de auditoría...</div>
+  );
+
+  return (
+    <div style={{fontFamily:"sans-serif", color:C.text}}>
+      {/* Header */}
+      <div style={{display:"flex", alignItems:"center", gap:12, marginBottom:16, flexWrap:"wrap"}}>
+        <div>
+          <div style={{fontSize:18, fontWeight:900, color:C.text}}>🔍 Auditoría del Sistema</div>
+          <div style={{fontSize:11, color:C.muted}}>
+            Registro cronológico de actividad · Retención 24 meses · Solo visible para administradores
+          </div>
+        </div>
+        <div style={{marginLeft:"auto", display:"flex", gap:8, alignItems:"center"}}>
+          <label style={{display:"flex", alignItems:"center", gap:6, fontSize:11, color:C.muted, cursor:"pointer"}}>
+            <input type="checkbox" checked={autoRefresh} onChange={e=>setAutoRefresh(e.target.checked)}/>
+            Auto-refresh 30s
+          </label>
+          <button onClick={recargar}
+            style={{padding:"7px 12px", borderRadius:8, background:C.card2, border:`1px solid ${C.border}`,
+              color:C.muted, cursor:"pointer", fontSize:12}}>
+            🔄 Recargar
+          </button>
+          <button onClick={exportarExcel} disabled={filtrado.length===0}
+            style={{padding:"7px 14px", borderRadius:8, background:filtrado.length===0?C.muted2:C.teal,
+              color:"#fff", border:"none", cursor:filtrado.length===0?"not-allowed":"pointer",
+              fontSize:12, fontWeight:700}}>
+            📥 Exportar Excel ({filtrado.length})
+          </button>
+        </div>
+      </div>
+
+      {/* KPIs */}
+      <div style={{display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(150px,1fr))", gap:10, marginBottom:16}}>
+        {[
+          {label:"📊 Eventos totales",    val:eventos.length, color:C.blue},
+          {label:"📅 Hoy",                 val:kpiHoy,         color:C.teal},
+          {label:"👥 Usuarios en filtro",  val:kpiUsuariosActivos, color:"#8b5cf6"},
+          {label:"✏️ Ediciones",           val:kpiEdiciones,   color:C.yellow},
+          {label:"🗑 Eliminaciones",       val:kpiEliminaciones, color:C.red},
+          {label:"🔓 Logins",              val:kpiLogins,      color:C.green},
+          {label:"⛔ Logins fallidos",     val:kpiLoginsFallidos, color:"#dc2626"},
+        ].map(k=>(
+          <div key={k.label} style={{background:C.card2, borderRadius:10, padding:"12px 14px",
+            border:`1px solid ${C.border}`, borderLeft:`4px solid ${k.color}`}}>
+            <div style={{fontSize:10, color:C.muted, fontWeight:600, marginBottom:4}}>{k.label}</div>
+            <div style={{fontSize:22, fontWeight:900, color:k.color}}>{k.val}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* Filtros */}
+      <div style={{background:C.card2, borderRadius:10, padding:"12px 14px", border:`1px solid ${C.border}`,
+        marginBottom:16, display:"flex", gap:10, flexWrap:"wrap", alignItems:"center"}}>
+        <span style={{fontSize:11, fontWeight:700, color:C.muted}}>Filtros:</span>
+        <div>
+          <div style={{fontSize:10, color:C.muted, marginBottom:2}}>Desde</div>
+          <input type="date" value={filtroDesde} onChange={e=>setFiltroDesde(e.target.value)}
+            style={{padding:"5px 8px", borderRadius:6, border:`1px solid ${C.border}`,
+              background:C.card, color:C.text, fontSize:11, outline:"none"}}/>
+        </div>
+        <div>
+          <div style={{fontSize:10, color:C.muted, marginBottom:2}}>Hasta</div>
+          <input type="date" value={filtroHasta} onChange={e=>setFiltroHasta(e.target.value)}
+            style={{padding:"5px 8px", borderRadius:6, border:`1px solid ${C.border}`,
+              background:C.card, color:C.text, fontSize:11, outline:"none"}}/>
+        </div>
+        <div>
+          <div style={{fontSize:10, color:C.muted, marginBottom:2}}>Usuario</div>
+          <input type="text" placeholder="Nombre..." value={filtroUsuario} onChange={e=>setFiltroUsuario(e.target.value)}
+            style={{padding:"5px 8px", borderRadius:6, border:`1px solid ${C.border}`,
+              background:C.card, color:C.text, fontSize:11, outline:"none", width:140}}/>
+        </div>
+        <div>
+          <div style={{fontSize:10, color:C.muted, marginBottom:2}}>Acción</div>
+          <select value={filtroAccion} onChange={e=>setFiltroAccion(e.target.value)}
+            style={{padding:"5px 8px", borderRadius:6, border:`1px solid ${C.border}`,
+              background:C.card, color:C.text, fontSize:11, outline:"none"}}>
+            {accionesDisp.map(a=><option key={a} value={a}>{a}</option>)}
+          </select>
+        </div>
+        <div>
+          <div style={{fontSize:10, color:C.muted, marginBottom:2}}>Módulo</div>
+          <select value={filtroModulo} onChange={e=>setFiltroModulo(e.target.value)}
+            style={{padding:"5px 8px", borderRadius:6, border:`1px solid ${C.border}`,
+              background:C.card, color:C.text, fontSize:11, outline:"none"}}>
+            {modulosDisp.map(m=><option key={m} value={m}>{m}</option>)}
+          </select>
+        </div>
+        <div style={{flex:1, minWidth:180}}>
+          <div style={{fontSize:10, color:C.muted, marginBottom:2}}>Búsqueda</div>
+          <input type="text" placeholder="🔍 Buscar en descripción, campos..." value={busqueda} onChange={e=>setBusqueda(e.target.value)}
+            style={{padding:"5px 10px", borderRadius:6, border:`1px solid ${C.border}`,
+              background:C.card, color:C.text, fontSize:11, outline:"none", width:"100%", boxSizing:"border-box"}}/>
+        </div>
+        {(filtroUsuario||filtroAccion!=="Todos"||filtroModulo!=="Todos"||busqueda)&&(
+          <button onClick={()=>{setFiltroUsuario("");setFiltroAccion("Todos");setFiltroModulo("Todos");setBusqueda("");}}
+            style={{padding:"5px 12px", borderRadius:6, background:"transparent",
+              border:`1px solid ${C.border}`, color:C.muted, cursor:"pointer", fontSize:11, alignSelf:"flex-end"}}>
+            ✕ Limpiar
+          </button>
+        )}
+      </div>
+
+      {/* Tabla eventos */}
+      <div style={{overflowX:"auto", borderRadius:10, border:`1px solid ${C.border}`}}>
+        <table style={{width:"100%", borderCollapse:"collapse", fontSize:11}}>
+          <thead>
+            <tr style={{background:C.bg2}}>
+              <th style={{padding:"8px 10px", textAlign:"left", color:C.muted, fontWeight:700, fontSize:10}}>Fecha / Hora</th>
+              <th style={{padding:"8px 10px", textAlign:"left", color:C.muted, fontWeight:700, fontSize:10}}>Usuario</th>
+              <th style={{padding:"8px 10px", textAlign:"center", color:C.muted, fontWeight:700, fontSize:10}}>Acción</th>
+              <th style={{padding:"8px 10px", textAlign:"center", color:C.muted, fontWeight:700, fontSize:10}}>Módulo</th>
+              <th style={{padding:"8px 10px", textAlign:"left", color:C.muted, fontWeight:700, fontSize:10}}>Sección</th>
+              <th style={{padding:"8px 10px", textAlign:"left", color:C.muted, fontWeight:700, fontSize:10}}>Descripción</th>
+              <th style={{padding:"8px 10px", textAlign:"center", color:C.muted, fontWeight:700, fontSize:10, width:40}}></th>
+            </tr>
+          </thead>
+          <tbody>
+            {filtrado.length===0&&(
+              <tr><td colSpan={7} style={{padding:40, textAlign:"center", color:C.muted2, fontSize:12}}>
+                {eventos.length===0 ? "Aún no hay eventos registrados en el sistema." : "No hay eventos que coincidan con los filtros."}
+              </td></tr>
+            )}
+            {filtrado.slice(0, 500).map((e,i)=>{
+              const col = colorAccion(e.accion);
+              const ts = new Date(e.timestamp);
+              return (
+                <tr key={e.id} style={{borderBottom:`1px solid ${C.border}22`,
+                  background:i%2===0?"transparent":`${C.border}08`,
+                  cursor:"pointer"}}
+                  onClick={()=>setEventoDetalle(e)}>
+                  <td style={{padding:"6px 10px", fontSize:10, color:C.muted, whiteSpace:"nowrap"}}>
+                    <div style={{fontWeight:600, color:C.text}}>{ts.toLocaleDateString("es-CL")}</div>
+                    <div style={{fontSize:9}}>{ts.toLocaleTimeString("es-CL")}</div>
+                  </td>
+                  <td style={{padding:"6px 10px", fontWeight:600, color:C.text}}>
+                    {e.usuario}
+                    {e.rol&&<div style={{fontSize:9, color:C.muted, fontWeight:400}}>{e.rol}</div>}
+                  </td>
+                  <td style={{padding:"6px 10px", textAlign:"center"}}>
+                    <span style={{display:"inline-block", padding:"2px 8px", borderRadius:20,
+                      background:`${col}22`, color:col, fontSize:10, fontWeight:700,
+                      border:`1px solid ${col}44`}}>
+                      {emojiAccion(e.accion)} {e.accion}
+                    </span>
+                  </td>
+                  <td style={{padding:"6px 10px", textAlign:"center", fontSize:10, color:C.muted}}>
+                    {e.modulo||"—"}
+                  </td>
+                  <td style={{padding:"6px 10px", fontSize:10, color:C.muted}}>{e.seccion||"—"}</td>
+                  <td style={{padding:"6px 10px", color:C.text, fontSize:11, maxWidth:380,
+                    overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap"}}>{e.descripcion||"—"}</td>
+                  <td style={{padding:"6px 10px", textAlign:"center", color:C.muted}}>›</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+      {filtrado.length > 500 && (
+        <div style={{marginTop:10, padding:"8px 14px", background:"#fef3c7", border:"1px solid #fde68a",
+          borderRadius:8, fontSize:11, color:"#92400e"}}>
+          ⚠️ Mostrando primeros 500 eventos de {filtrado.length} totales. Refina los filtros o exporta a Excel para ver todos.
+        </div>
+      )}
+
+      {/* Modal detalle de evento */}
+      {eventoDetalle&&(
+        <div style={{position:"fixed", inset:0, background:"#000a", zIndex:400,
+          display:"flex", alignItems:"center", justifyContent:"center", padding:20}}
+          onClick={()=>setEventoDetalle(null)}>
+          <div style={{background:C.card, borderRadius:14, padding:"20px 24px",
+            maxWidth:640, width:"100%", boxShadow:"0 24px 64px #0009",
+            border:`1px solid ${C.border}`, maxHeight:"85vh", overflowY:"auto"}}
+            onClick={e=>e.stopPropagation()}>
+            <div style={{display:"flex", alignItems:"center", gap:10, marginBottom:14}}>
+              <span style={{fontSize:22}}>{emojiAccion(eventoDetalle.accion)}</span>
+              <div style={{flex:1}}>
+                <div style={{fontSize:15, fontWeight:800, color:C.text}}>Detalle del evento</div>
+                <div style={{fontSize:11, color:C.muted}}>ID: {eventoDetalle.id}</div>
+              </div>
+              <button onClick={()=>setEventoDetalle(null)}
+                style={{background:C.card2, border:`1px solid ${C.border}`, color:C.muted,
+                  borderRadius:8, padding:"5px 12px", cursor:"pointer", fontSize:12}}>Cerrar</button>
+            </div>
+
+            <div style={{display:"grid", gridTemplateColumns:"1fr 1fr", gap:12, marginBottom:12}}>
+              {[
+                {l:"📅 Fecha/Hora", v:new Date(eventoDetalle.timestamp).toLocaleString("es-CL")},
+                {l:"👤 Usuario",    v:`${eventoDetalle.usuario} (${eventoDetalle.rol||"—"})`},
+                {l:"📧 Email",      v:eventoDetalle.email||"—"},
+                {l:"⚡ Acción",     v:eventoDetalle.accion},
+                {l:"📦 Módulo",     v:eventoDetalle.modulo||"—"},
+                {l:"📂 Sección",    v:eventoDetalle.seccion||"—"},
+              ].map(x=>(
+                <div key={x.l} style={{background:C.card2, borderRadius:8, padding:"8px 12px",
+                  border:`1px solid ${C.border}`}}>
+                  <div style={{fontSize:10, color:C.muted, fontWeight:600}}>{x.l}</div>
+                  <div style={{fontSize:12, color:C.text, fontWeight:500, marginTop:2}}>{x.v}</div>
+                </div>
+              ))}
+            </div>
+
+            <div style={{background:C.card2, borderRadius:8, padding:"10px 14px",
+              border:`1px solid ${C.border}`, marginBottom:12}}>
+              <div style={{fontSize:10, color:C.muted, fontWeight:600, marginBottom:4}}>📝 Descripción</div>
+              <div style={{fontSize:13, color:C.text}}>{eventoDetalle.descripcion||"—"}</div>
+            </div>
+
+            {(eventoDetalle.campo||eventoDetalle.valorAnterior||eventoDetalle.valorNuevo)&&(
+              <div style={{background:C.card2, borderRadius:8, padding:"10px 14px",
+                border:`1px solid ${C.border}`, marginBottom:12}}>
+                <div style={{fontSize:10, color:C.muted, fontWeight:600, marginBottom:6}}>🔄 Cambio de valor</div>
+                {eventoDetalle.campo&&<div style={{fontSize:11, color:C.text, marginBottom:6}}>
+                  <strong>Campo:</strong> {eventoDetalle.campo}
+                </div>}
+                <div style={{display:"grid", gridTemplateColumns:"1fr 1fr", gap:8}}>
+                  <div style={{background:"#fee2e244", borderRadius:6, padding:"8px 10px",
+                    border:"1px solid #fecaca"}}>
+                    <div style={{fontSize:9, color:"#991b1b", fontWeight:700}}>ANTES</div>
+                    <div style={{fontSize:11, color:"#7f1d1d", marginTop:2, wordBreak:"break-word"}}>
+                      {eventoDetalle.valorAnterior||<em style={{color:"#94a3b8"}}>(vacío)</em>}
+                    </div>
+                  </div>
+                  <div style={{background:"#dcfce744", borderRadius:6, padding:"8px 10px",
+                    border:"1px solid #bbf7d0"}}>
+                    <div style={{fontSize:9, color:"#166534", fontWeight:700}}>DESPUÉS</div>
+                    <div style={{fontSize:11, color:"#14532d", marginTop:2, wordBreak:"break-word"}}>
+                      {eventoDetalle.valorNuevo||<em style={{color:"#94a3b8"}}>(vacío)</em>}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {eventoDetalle.registroId&&(
+              <div style={{fontSize:10, color:C.muted, textAlign:"right"}}>
+                Registro afectado: <code style={{background:C.bg2, padding:"2px 6px",
+                  borderRadius:4}}>{eventoDetalle.registroId}</code>
+              </div>
+            )}
+          </div>
         </div>
       )}
     </div>
