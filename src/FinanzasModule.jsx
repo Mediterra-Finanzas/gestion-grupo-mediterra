@@ -6764,17 +6764,19 @@ function itemVacio(seccion) {
 // ─────────────────────────────────────────────────────────────────
 // NÓMINA VACÍA
 // ─────────────────────────────────────────────────────────────────
-function nominaVacia(empresa, semana, año) {
+function nominaVacia(empresa, semana, año, numero=1) {
   return {
-    id: `nom_${empresa.replace(/\s/g,"_")}_s${semana}_${año}`,
-    empresa, semana, año,
+    id: `nom_${Date.now()}_${Math.random().toString(36).slice(2,6)}`,
+    empresa, semana, año, numero,
     fecha: new Date().toISOString().slice(0,10),
     tc: 0, // tipo de cambio CLP/USD
     estado: "borrador",
     preparadoPor: "",
     revisadoPor: "",
     aprobadoPor: "",
+    aprobado1Por: "",
     fechaAprobacion: "",
+    fechaAprobacion1: "",
     items: [],
     bancos: Object.fromEntries(BANCOS.map(b=>[b,{clp:0,usd:0}])),
     notas: "",
@@ -7045,13 +7047,224 @@ function PanelBancosNomina({empresa, saldosBancos}) {
 // ─────────────────────────────────────────────────────────────────
 // VISTA NÓMINA DETALLE
 // ─────────────────────────────────────────────────────────────────
-function NominaDetalle({nomina, onUpdate, onBack, usuario, canEdit, saldosBancos, nominasHermanas=[], onSwitchNomina, onCrearYAbrir}) {
+function NominaDetalle({nomina, onUpdate, onBack, usuario, canEdit, saldosBancos, nominasHermanas=[], onSwitchNomina, onCrearYAbrir, onCrearNueva}) {
   const nom = nomina;
   const esCFO = usuario?.rol==="admin" || usuario?.esCFO;
   const esAutorizador = canEdit;
+  const [soloVer, setSoloVer] = useState(false);
+  const editActivo = canEdit && !soloVer;
+
+  // Nombre formal: "Nómina [Empresa] S[semana] N°[numero]"
+  const numNomina = nom.numero || 1;
+  const nombreFormal = `Nómina ${nom.empresa} S${nom.semana} N°${numNomina}`;
 
   function upd(field, val) {
+    if(soloVer) return;
     onUpdate({...nom, [field]:val});
+  }
+
+  // ── Export Excel ──────────────────────────────────
+  async function exportarExcelNomina() {
+    if(!window.JSZip) {
+      await new Promise((res,rej)=>{
+        const s=document.createElement("script");
+        s.src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js";
+        s.onload=res;s.onerror=rej;document.head.appendChild(s);
+      });
+    }
+    function colLetter(n){let s="";n++;while(n>0){n--;s=String.fromCharCode(65+(n%26))+s;n=Math.floor(n/26);}return s;}
+    function escXml(v){return String(v??"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");}
+
+    const headers=["Tipo de Pago","Proveedor / Nombre","N° Doc","F. Venc","Monto CLP","Monto USD","Pagado"];
+    const nCols=headers.length;
+    const lastCol=colLetter(nCols-1);
+    let rowsXml="";
+    let currentRow=1;
+
+    // Fila 1: Título
+    rowsXml+=`<row r="${currentRow}" ht="28" customHeight="1"><c r="A${currentRow}" t="inlineStr" s="5"><is><t>${escXml(nombreFormal)}</t></is></c></row>`;
+    currentRow++;
+    // Fila 2: Meta
+    const estadoLabel = (ESTADOS_FLUJO.find(e=>e.id===nom.estado)||{}).label||nom.estado;
+    rowsXml+=`<row r="${currentRow}" ht="18" customHeight="1"><c r="A${currentRow}" t="inlineStr" s="6"><is><t>Fecha: ${nom.fecha||"—"} · T.C: ${nom.tc||"—"} · Estado: ${estadoLabel} · ${new Date().toLocaleDateString("es-CL")}</t></is></c></row>`;
+    currentRow++;
+    // Fila 3: Aprobadores
+    const aprobadores = [
+      nom.preparadoPor?`Prep: ${nom.preparadoPor}`:"",
+      nom.revisadoPor?`Rev: ${nom.revisadoPor}`:"",
+      nom.aprobado1Por?`V°B°: ${nom.aprobado1Por}`:"",
+      nom.aprobadoPor?`CFO: ${nom.aprobadoPor}`:"",
+    ].filter(Boolean).join(" · ");
+    rowsXml+=`<row r="${currentRow}" ht="16" customHeight="1"><c r="A${currentRow}" t="inlineStr" s="6"><is><t>${escXml(aprobadores)}</t></is></c></row>`;
+    currentRow++;
+    // Fila vacía
+    rowsXml+=`<row r="${currentRow}" ht="8" customHeight="1"></row>`;
+    currentRow++;
+
+    const merges=[`A1:${lastCol}1`,`A2:${lastCol}2`,`A3:${lastCol}3`];
+
+    // Headers tabla
+    rowsXml+=`<row r="${currentRow}" ht="22" customHeight="1">`;
+    headers.forEach((h,c)=>{rowsXml+=`<c r="${colLetter(c)}${currentRow}" t="inlineStr" s="1"><is><t>${escXml(h)}</t></is></c>`;});
+    rowsXml+=`</row>`;
+    const headerRow=currentRow;
+    currentRow++;
+
+    // Data por sección
+    const allSecs=[...SECCIONES,...(nom.seccionesExtra||[])];
+    let grandTotalCLP=0, grandTotalUSD=0;
+    allSecs.forEach(sec=>{
+      const secItems=nom.items.filter(it=>it.seccion===sec.id);
+      if(secItems.length===0) return;
+      // Fila título sección
+      rowsXml+=`<row r="${currentRow}" ht="20" customHeight="1"><c r="A${currentRow}" t="inlineStr" s="7"><is><t>${escXml(sec.label)} (${secItems.length})</t></is></c>`;
+      for(let c=1;c<nCols;c++) rowsXml+=`<c r="${colLetter(c)}${currentRow}" s="7"/>`;
+      rowsXml+=`</row>`;
+      merges.push(`A${currentRow}:${lastCol}${currentRow}`);
+      currentRow++;
+      // Items
+      secItems.forEach((it,ri)=>{
+        const sBase=ri%2===0?0:2;
+        const clp=Number(it.montoCLP)||0;
+        const usd=Number(it.montoUSD)||0;
+        rowsXml+=`<row r="${currentRow}" ht="18" customHeight="1">`;
+        rowsXml+=`<c r="A${currentRow}" t="inlineStr" s="${sBase}"><is><t>  ${escXml(sec.label)}</t></is></c>`;
+        rowsXml+=`<c r="B${currentRow}" t="inlineStr" s="${sBase}"><is><t>${escXml(it.proveedor||"—")}</t></is></c>`;
+        rowsXml+=`<c r="C${currentRow}" t="inlineStr" s="${sBase}"><is><t>${escXml(it.nDoc||"—")}</t></is></c>`;
+        rowsXml+=`<c r="D${currentRow}" t="inlineStr" s="${sBase}"><is><t>${escXml(it.fVenc||"—")}</t></is></c>`;
+        rowsXml+=clp?`<c r="E${currentRow}" s="3"><v>${clp}</v></c>`:`<c r="E${currentRow}" t="inlineStr" s="${sBase}"><is><t>—</t></is></c>`;
+        rowsXml+=usd?`<c r="F${currentRow}" s="4"><v>${usd}</v></c>`:`<c r="F${currentRow}" t="inlineStr" s="${sBase}"><is><t>—</t></is></c>`;
+        rowsXml+=`<c r="G${currentRow}" t="inlineStr" s="${sBase}"><is><t>${it.pagado?"✓":"—"}</t></is></c>`;
+        rowsXml+=`</row>`;
+        currentRow++;
+      });
+      // Subtotal sección
+      const stCLP=secItems.reduce((s,it)=>s+(Number(it.montoCLP)||0),0);
+      const stUSD=secItems.reduce((s,it)=>s+(Number(it.montoUSD)||0),0);
+      grandTotalCLP+=stCLP; grandTotalUSD+=stUSD;
+      rowsXml+=`<row r="${currentRow}" ht="18" customHeight="1">`;
+      rowsXml+=`<c r="A${currentRow}" t="inlineStr" s="8"><is><t></t></is></c>`;
+      rowsXml+=`<c r="B${currentRow}" t="inlineStr" s="8"><is><t></t></is></c>`;
+      rowsXml+=`<c r="C${currentRow}" t="inlineStr" s="8"><is><t></t></is></c>`;
+      rowsXml+=`<c r="D${currentRow}" t="inlineStr" s="8"><is><t>Subtotal</t></is></c>`;
+      rowsXml+=stCLP?`<c r="E${currentRow}" s="9"><v>${stCLP}</v></c>`:`<c r="E${currentRow}" s="8"/>`;
+      rowsXml+=stUSD?`<c r="F${currentRow}" s="10"><v>${stUSD}</v></c>`:`<c r="F${currentRow}" s="8"/>`;
+      rowsXml+=`<c r="G${currentRow}" s="8"/>`;
+      rowsXml+=`</row>`;
+      currentRow++;
+    });
+    // Total general
+    rowsXml+=`<row r="${currentRow}" ht="22" customHeight="1">`;
+    rowsXml+=`<c r="A${currentRow}" t="inlineStr" s="11"><is><t></t></is></c>`;
+    rowsXml+=`<c r="B${currentRow}" t="inlineStr" s="11"><is><t></t></is></c>`;
+    rowsXml+=`<c r="C${currentRow}" t="inlineStr" s="11"><is><t></t></is></c>`;
+    rowsXml+=`<c r="D${currentRow}" t="inlineStr" s="11"><is><t>TOTAL NÓMINA</t></is></c>`;
+    rowsXml+=`<c r="E${currentRow}" s="12"><v>${grandTotalCLP}</v></c>`;
+    rowsXml+=`<c r="F${currentRow}" s="13"><v>${grandTotalUSD}</v></c>`;
+    rowsXml+=`<c r="G${currentRow}" s="11"/>`;
+    rowsXml+=`</row>`;
+
+    const tableRef=`A${headerRow}:${lastCol}${currentRow}`;
+    const mergesXml=`<mergeCells count="${merges.length}">${merges.map(m=>`<mergeCell ref="${m}"/>`).join("")}</mergeCells>`;
+
+    const stylesXml=`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+  <numFmts count="2">
+    <numFmt numFmtId="164" formatCode='#,##0'/>
+    <numFmt numFmtId="165" formatCode='"US$" #,##0.00'/>
+  </numFmts>
+  <fonts count="8">
+    <font><sz val="10"/><name val="Calibri"/></font>
+    <font><sz val="10"/><b/><color rgb="FFFFFFFF"/><name val="Calibri"/></font>
+    <font><sz val="10"/><name val="Calibri"/></font>
+    <font><sz val="10"/><b/><color rgb="FF15803D"/><name val="Calibri"/></font>
+    <font><sz val="10"/><color rgb="FF1D4ED8"/><name val="Calibri"/></font>
+    <font><sz val="16"/><b/><color rgb="FF0F2D4A"/><name val="Calibri"/></font>
+    <font><sz val="10"/><i/><color rgb="FF64748B"/><name val="Calibri"/></font>
+    <font><sz val="10"/><b/><name val="Calibri"/></font>
+  </fonts>
+  <fills count="6">
+    <fill><patternFill patternType="none"/></fill>
+    <fill><patternFill patternType="gray125"/></fill>
+    <fill><patternFill patternType="solid"><fgColor rgb="FF0F2D4A"/></patternFill></fill>
+    <fill><patternFill patternType="solid"><fgColor rgb="FFF1F5F9"/></patternFill></fill>
+    <fill><patternFill patternType="solid"><fgColor rgb="FFE2E8F0"/></patternFill></fill>
+    <fill><patternFill patternType="solid"><fgColor rgb="FF1E293B"/></patternFill></fill>
+  </fills>
+  <borders count="2">
+    <border><left/><right/><top/><bottom/><diagonal/></border>
+    <border><left style="thin"><color rgb="FFE2E8F0"/></left><right style="thin"><color rgb="FFE2E8F0"/></right><top style="thin"><color rgb="FFE2E8F0"/></top><bottom style="thin"><color rgb="FFE2E8F0"/></bottom></border>
+  </borders>
+  <cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>
+  <cellXfs count="14">
+    <xf numFmtId="0" fontId="0" fillId="0" borderId="1" xfId="0"><alignment vertical="center"/></xf>
+    <xf numFmtId="0" fontId="1" fillId="2" borderId="0" xfId="0"><alignment horizontal="center" vertical="center" wrapText="1"/></xf>
+    <xf numFmtId="0" fontId="0" fillId="3" borderId="1" xfId="0"><alignment vertical="center"/></xf>
+    <xf numFmtId="164" fontId="3" fillId="0" borderId="1" xfId="0"><alignment horizontal="right" vertical="center"/></xf>
+    <xf numFmtId="165" fontId="4" fillId="0" borderId="1" xfId="0"><alignment horizontal="right" vertical="center"/></xf>
+    <xf numFmtId="0" fontId="5" fillId="0" borderId="0" xfId="0"><alignment horizontal="left" vertical="center" indent="1"/></xf>
+    <xf numFmtId="0" fontId="6" fillId="0" borderId="0" xfId="0"><alignment horizontal="left" vertical="center" indent="1"/></xf>
+    <xf numFmtId="0" fontId="7" fillId="3" borderId="1" xfId="0"><alignment vertical="center"/></xf>
+    <xf numFmtId="0" fontId="7" fillId="4" borderId="1" xfId="0"><alignment vertical="center"/></xf>
+    <xf numFmtId="164" fontId="7" fillId="4" borderId="1" xfId="0"><alignment horizontal="right" vertical="center"/></xf>
+    <xf numFmtId="165" fontId="7" fillId="4" borderId="1" xfId="0"><alignment horizontal="right" vertical="center"/></xf>
+    <xf numFmtId="0" fontId="1" fillId="5" borderId="1" xfId="0"><alignment vertical="center"/></xf>
+    <xf numFmtId="164" fontId="1" fillId="5" borderId="1" xfId="0"><alignment horizontal="right" vertical="center"/></xf>
+    <xf numFmtId="165" fontId="1" fillId="5" borderId="1" xfId="0"><alignment horizontal="right" vertical="center"/></xf>
+  </cellXfs>
+</styleSheet>`;
+
+    const colWidths=[18,28,12,12,16,16,10];
+    const colsXml=`<cols>${colWidths.map((w,i)=>`<col min="${i+1}" max="${i+1}" width="${w}" customWidth="1"/>`).join("")}</cols>`;
+
+    const sheetXml=`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+  <sheetViews><sheetView workbookViewId="0" showGridLines="0"><pane ySplit="${headerRow}" topLeftCell="A${headerRow+1}" activePane="bottomLeft" state="frozen"/></sheetView></sheetViews>
+  ${colsXml}
+  <sheetData>${rowsXml}</sheetData>
+  ${mergesXml}
+</worksheet>`;
+
+    const wbXml=`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+  <bookViews><workbookView/></bookViews>
+  <sheets><sheet name="${escXml(nombreFormal.slice(0,31))}" sheetId="1" r:id="rId1"/></sheets>
+</workbook>`;
+    const wbRels=`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>
+  <Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>
+</Relationships>`;
+    const contentTypes=`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
+  <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
+  <Default Extension="xml" ContentType="application/xml"/>
+  <Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>
+  <Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>
+  <Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>
+</Types>`;
+    const pkgRels=`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/>
+</Relationships>`;
+
+    const zip=new window.JSZip();
+    zip.file("[Content_Types].xml",contentTypes);
+    zip.file("_rels/.rels",pkgRels);
+    zip.file("xl/workbook.xml",wbXml);
+    zip.file("xl/_rels/workbook.xml.rels",wbRels);
+    zip.file("xl/worksheets/sheet1.xml",sheetXml);
+    zip.file("xl/styles.xml",stylesXml);
+
+    const blob=await zip.generateAsync({type:"blob"});
+    const url=URL.createObjectURL(blob);
+    const a=document.createElement("a");
+    a.href=url;
+    a.download=`${nombreFormal.replace(/\s/g,"_")}_${nom.año}.xlsx`;
+    a.click();
+    URL.revokeObjectURL(url);
+    window.auditLog&&window.auditLog("exportar",{modulo:"finanzas",seccion:"nóminas",
+      descripcion:`Exportó ${nombreFormal} a Excel`,registroId:nom.id});
   }
 
   function avanzarEstado() {
@@ -7097,15 +7310,15 @@ function NominaDetalle({nomina, onUpdate, onBack, usuario, canEdit, saldosBancos
     return {totBancosCLP:clp, totBancosUSD:usd};
   },[saldosBancos, nom.empresa]);
 
-  const puedeAvanzar = canEdit && nom.estado!=="aprobada" &&
+  const puedeAvanzar = editActivo && nom.estado!=="aprobada" &&
     (nom.estado!=="aprobada1" || esCFO);
   const estadoInfo = ESTADOS_FLUJO.find(e=>e.id===nom.estado)||ESTADOS_FLUJO[0];
 
   return (
     <div style={{fontFamily:"sans-serif",background:C.bg,minHeight:"100vh",color:C.text}}>
       {/* Header */}
-      <div style={{background:C.bg2,borderBottom:`1px solid ${C.border}`,padding:"12px 20px",
-        display:"flex",alignItems:"center",gap:12,flexWrap:"wrap"}}>
+      <div className="no-print" style={{background:C.bg2,borderBottom:`1px solid ${C.border}`,padding:"12px 20px",
+        display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
         <button onClick={onBack}
           style={{background:C.card2,border:`1px solid ${C.border}`,color:C.muted,
             borderRadius:8,padding:"6px 12px",cursor:"pointer",fontSize:12}}>
@@ -7114,24 +7327,22 @@ function NominaDetalle({nomina, onUpdate, onBack, usuario, canEdit, saldosBancos
         <div style={{flex:1}}>
           <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
             <span style={{fontWeight:800,fontSize:15,color:C.text}}>
-              Nómina —
+              {nombreFormal}
             </span>
-            {onSwitchNomina?(
+            {onSwitchNomina&&(
               <select value={nom.id}
                 onChange={e=>{
                   const val=e.target.value;
-                  // Si es un id de nómina existente, navegar
                   if(nominasHermanas.find(nh=>nh.id===val)){
                     onSwitchNomina(val);
                   } else if(val.startsWith("_crear_") && onCrearYAbrir && canEdit) {
-                    // Crear nueva nómina para esta empresa
                     onCrearYAbrir(val.replace("_crear_",""));
                   }
                 }}
                 style={{padding:"5px 10px",borderRadius:8,border:`1px solid ${C.border}`,
-                  background:C.card2,color:C.text,fontSize:13,fontWeight:700,outline:"none",cursor:"pointer"}}>
+                  background:C.card2,color:C.text,fontSize:12,fontWeight:600,outline:"none",cursor:"pointer"}}>
                 {nominasHermanas.map(nh=>(
-                  <option key={nh.id} value={nh.id}>{nh.empresa}</option>
+                  <option key={nh.id} value={nh.id}>{nh.empresa}{nh.numero>1?` N°${nh.numero}`:""}</option>
                 ))}
                 {canEdit && onCrearYAbrir && EMPRESAS_NOM
                   .filter(emp=>!nominasHermanas.find(nh=>nh.empresa===emp))
@@ -7140,8 +7351,6 @@ function NominaDetalle({nomina, onUpdate, onBack, usuario, canEdit, saldosBancos
                   ))
                 }
               </select>
-            ):(
-              <span style={{fontWeight:800,fontSize:15,color:C.text}}>{nom.empresa}</span>
             )}
           </div>
           <div style={{fontSize:11,color:C.muted}}>
@@ -7149,6 +7358,13 @@ function NominaDetalle({nomina, onUpdate, onBack, usuario, canEdit, saldosBancos
           </div>
         </div>
         <BadgeEstado estado={nom.estado}/>
+        {/* Solo Ver / Editar toggle */}
+        <button onClick={()=>setSoloVer(!soloVer)}
+          style={{background:soloVer?C.blue:"transparent",border:`1px solid ${soloVer?C.blue:C.border}`,
+            color:soloVer?"#fff":C.muted,borderRadius:8,padding:"6px 12px",cursor:"pointer",
+            fontSize:11,fontWeight:600}}>
+          {soloVer?"👁 Solo ver":"✏️ Editar"}
+        </button>
         {puedeAvanzar&&(
           <button onClick={avanzarEstado}
             style={{background:C.blue,border:"none",color:"#fff",borderRadius:8,
@@ -7158,24 +7374,36 @@ function NominaDetalle({nomina, onUpdate, onBack, usuario, canEdit, saldosBancos
              nom.estado==="revision"&&esCFO?"✅ Aprobar (CFO)":"→"}
           </button>
         )}
-        {nom.estado!=="borrador"&&canEdit&&(
+        {nom.estado!=="borrador"&&editActivo&&(
           <button onClick={retrocederEstado}
             style={{background:"transparent",border:`1px solid ${C.border}`,color:C.muted,
               borderRadius:8,padding:"7px 12px",cursor:"pointer",fontSize:11}}>
             ← Retroceder
           </button>
         )}
-        <button onClick={()=>{
-          const printArea = document.getElementById('nomina-print-area');
-          if(printArea){window.print();}
-        }}
+        {/* + Nueva nómina misma empresa/semana */}
+        {canEdit&&onCrearNueva&&(
+          <button onClick={()=>onCrearNueva(nom.empresa, nom.semana, nom.año)}
+            style={{background:C.teal,border:"none",color:"#fff",borderRadius:8,
+              padding:"7px 14px",cursor:"pointer",fontWeight:700,fontSize:11}}>
+            + Nueva Nómina
+          </button>
+        )}
+        <button onClick={exportarExcelNomina}
           style={{background:"transparent",border:`1px solid ${C.border}`,color:C.muted,
             borderRadius:8,padding:"7px 12px",cursor:"pointer",fontSize:11}}>
-          🖨️ Imprimir PDF
+          📥 Excel
+        </button>
+        <button onClick={()=>{window.print();}}
+          style={{background:"transparent",border:`1px solid ${C.border}`,color:C.muted,
+            borderRadius:8,padding:"7px 12px",cursor:"pointer",fontSize:11}}>
+          🖨️ Imprimir
         </button>
       </div>
 
       <div id="nomina-print-area" style={{padding:"20px 24px",maxWidth:1400,margin:"0 auto"}}>
+        {/* ═══ Contenido interactivo — solo pantalla, oculto al imprimir ═══ */}
+        <div className="screen-only">
         {/* Info header — versión compacta para impresión */}
         <div className="nomina-info-grid" style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:12,marginBottom:20}}>
           <div style={{background:C.card2,borderRadius:10,padding:"12px 16px",border:`1px solid ${C.border}`}}>
@@ -7315,7 +7543,7 @@ function NominaDetalle({nomina, onUpdate, onBack, usuario, canEdit, saldosBancos
                 items={nom.items}
                 seccion={sec.id}
                 onChange={v=>upd("items",v)}
-                canEdit={canEdit}
+                canEdit={editActivo}
                 tc={nom.tc}
                 moneda={monedaSec}
               />
@@ -7354,14 +7582,99 @@ function NominaDetalle({nomina, onUpdate, onBack, usuario, canEdit, saldosBancos
             ))}
           </div>
         )}
+        {/* Fin contenido interactivo (screen-only) */}
+        </div>
+
+        {/* ═══ Vista compacta solo para impresión ═══ */}
+        <div className="print-only" style={{display:"none"}}>
+          <div className="print-header">
+            <div>
+              <h2>{nombreFormal}</h2>
+              <div style={{fontSize:9,color:"#475569",marginTop:2}}>
+                Semana {nom.semana} · Año {nom.año} · Fecha: {nom.fecha || "—"}
+                {nom.tc ? ` · T.C: $${nom.tc.toLocaleString("es-CL")}` : ""}
+              </div>
+            </div>
+            <div className="meta">
+              <div>Estado: {(ESTADOS_FLUJO.find(e=>e.id===nom.estado)||{}).label || nom.estado}</div>
+              <div>Impreso: {new Date().toLocaleDateString("es-CL")}</div>
+            </div>
+          </div>
+
+          <table className="print-table">
+            <thead>
+              <tr>
+                <th style={{width:"18%"}}>Tipo de Pago</th>
+                <th style={{width:"24%"}}>Proveedor / Nombre</th>
+                <th style={{width:"10%"}}>N° Doc</th>
+                <th style={{width:"10%"}}>F. Venc</th>
+                <th style={{width:"14%",textAlign:"right"}}>Monto CLP</th>
+                <th style={{width:"14%",textAlign:"right"}}>Monto USD</th>
+                <th style={{width:"10%",textAlign:"center"}}>Pagado</th>
+              </tr>
+            </thead>
+            <tbody>
+              {([...SECCIONES,...(nom.seccionesExtra||[])]).map(sec=>{
+                const secItems = nom.items.filter(it=>it.seccion===sec.id);
+                if(secItems.length === 0) return null;
+                const esUSD = sec.id==="emp_rel_usd"||sec.id==="pagos_usd";
+                const stCLP = secItems.reduce((s,it)=>s+(Number(it.montoCLP)||0),0);
+                const stUSD = secItems.reduce((s,it)=>s+(Number(it.montoUSD)||0),0);
+                return (
+                  <React.Fragment key={sec.id}>
+                    <tr className="sec-row">
+                      <td colSpan={7}>{sec.label} ({secItems.length})</td>
+                    </tr>
+                    {secItems.map(it=>(
+                      <tr key={it.id}>
+                        <td style={{paddingLeft:12,color:"#64748b",fontSize:"7px"}}>{sec.label}</td>
+                        <td style={{fontWeight:500}}>{it.proveedor||"—"}</td>
+                        <td>{it.nDoc||"—"}</td>
+                        <td>{it.fVenc||"—"}</td>
+                        <td className="num">{(Number(it.montoCLP)||0) ? $$clp(Number(it.montoCLP)) : "—"}</td>
+                        <td className="num">{(Number(it.montoUSD)||0) ? $$usd(Number(it.montoUSD)) : "—"}</td>
+                        <td style={{textAlign:"center"}}>{it.pagado?"✓":"—"}</td>
+                      </tr>
+                    ))}
+                    <tr className="subtotal-row">
+                      <td colSpan={4} style={{textAlign:"right"}}>Subtotal {sec.label}</td>
+                      <td className="num">{stCLP ? $$clp(stCLP) : "—"}</td>
+                      <td className="num">{stUSD ? $$usd(stUSD) : "—"}</td>
+                      <td></td>
+                    </tr>
+                  </React.Fragment>
+                );
+              })}
+              <tr className="total-row">
+                <td colSpan={4} style={{textAlign:"right"}}>TOTAL NÓMINA</td>
+                <td className="num">{totCLP ? $$clp(totCLP) : "—"}</td>
+                <td className="num">{totUSD ? $$usd(totUSD) : "—"}</td>
+                <td></td>
+              </tr>
+            </tbody>
+          </table>
+
+          <div className="print-footer">
+            {[
+              {label:"Preparada por",  val:nom.preparadoPor},
+              {label:"Revisada por",   val:nom.revisadoPor},
+              {label:"V°B° Aprobador", val:nom.aprobado1Por, fecha:nom.fechaAprobacion1},
+              {label:"Aprobado CFO",   val:nom.aprobadoPor,  fecha:nom.fechaAprobacion},
+            ].map(a=>(
+              <div key={a.label} className="auth-item">
+                <div>{a.label}</div>
+                <div className="auth-name">{a.val||"_______________"}</div>
+                {a.fecha&&<div style={{fontSize:"6.5px",color:"#94a3b8"}}>{a.fecha}</div>}
+                <div style={{borderTop:"1px solid #94a3b8",marginTop:8,width:"100%"}}></div>
+              </div>
+            ))}
+          </div>
+        </div>
+
       </div>
     </div>
   );
 }
-
-// ─────────────────────────────────────────────────────────────────
-// MAIN — NominasModule
-// ─────────────────────────────────────────────────────────────────
 function NominasModule({usuario, canEdit=false, saldosBancos={}}) {
   const [nominas, setNominas] = useState([]);
   const [cargando, setCargando] = useState(true);
@@ -7457,10 +7770,13 @@ function NominasModule({usuario, canEdit=false, saldosBancos={}}) {
     });
   }
 
-  function crearNomina(empresa) {
-    const s = filtroSemana||semanaActual();
-    const a = filtroAño||añoActualNom();
-    const nom = nominaVacia(empresa, s, a);
+  function crearNomina(empresa, semanaOverride, añoOverride) {
+    const s = semanaOverride || filtroSemana || semanaActual();
+    const a = añoOverride || filtroAño || añoActualNom();
+    // Calcular N° secuencial: contar cuántas ya existen para esta empresa/semana/año
+    const existentes = nominas.filter(n=>n.empresa===empresa && n.semana===Number(s) && n.año===Number(a));
+    const numero = existentes.length + 1;
+    const nom = nominaVacia(empresa, s, a, numero);
     updNomina(nom);
     setSelNomina(nom.id);
   }
@@ -7488,26 +7804,31 @@ function NominasModule({usuario, canEdit=false, saldosBancos={}}) {
         body *{visibility:hidden}
         #nomina-print-area,#nomina-print-area *{visibility:visible}
         #nomina-print-area{position:fixed;top:0;left:0;width:100%;
-          background:white!important;color:#000!important;font-size:8px}
-        h1,h2,h3{margin:0 0 4px}
-        table{border-collapse:collapse;width:100%;font-size:7.5px;page-break-inside:auto}
-        thead{display:table-header-group}
-        tr{page-break-inside:avoid}
-        th{background:#1e293b!important;color:white!important;padding:2px 5px;
-          font-size:7.5px;text-align:left;white-space:nowrap;-webkit-print-color-adjust:exact;print-color-adjust:exact}
-        td{padding:2px 5px;border-bottom:1px solid #e2e8f0;font-size:7.5px}
+          background:white!important;color:#000!important;font-size:8px;padding:6mm!important}
         .no-print{display:none!important}
+        .screen-only{display:none!important}
         .print-only{display:block!important}
-        .print-section-title{font-weight:800;font-size:9px;
-          background:#f1f5f9!important;color:#1e293b!important;
-          padding:3px 6px;border-top:2px solid #1e293b;margin-top:6px;
+        .print-header{display:flex!important;justify-content:space-between;align-items:flex-start;
+          margin-bottom:6px;padding-bottom:4px;border-bottom:2px solid #1e293b}
+        .print-header h2{margin:0;font-size:14px;color:#1e293b}
+        .print-header .meta{font-size:8px;color:#64748b;text-align:right}
+        .print-header .meta div{margin-bottom:1px}
+        .print-table{width:100%;border-collapse:collapse;font-size:7.5px;margin-bottom:8px}
+        .print-table th{background:#1e293b;color:white;padding:3px 6px;font-size:7px;
+          text-align:left;white-space:nowrap;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+        .print-table td{padding:2.5px 6px;border-bottom:0.5px solid #e2e8f0;font-size:7.5px}
+        .print-table .sec-row td{background:#f1f5f9;font-weight:800;font-size:8px;
+          padding:4px 6px;border-top:1.5px solid #94a3b8;color:#1e293b;
           -webkit-print-color-adjust:exact;print-color-adjust:exact}
-        .nomina-kpis-header{display:none!important}
-        .nomina-info-grid{display:flex!important;gap:12px!important;margin-bottom:8px!important}
-        .nomina-info-grid>div{flex:1!important;padding:6px 10px!important;font-size:7px!important;
-          border:1px solid #d1d5db!important;border-radius:4px!important;background:white!important}
-        .nomina-info-grid .info-label{font-size:6.5px!important;margin-bottom:1px!important}
-        .nomina-info-grid .info-value{font-size:8px!important;font-weight:700!important}
+        .print-table .total-row td{background:#1e293b;color:white;font-weight:800;font-size:8px;
+          padding:4px 6px;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+        .print-table .subtotal-row td{background:#e2e8f0;font-weight:700;font-size:7.5px;
+          padding:3px 6px;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+        .print-table td.num{text-align:right;font-variant-numeric:tabular-nums}
+        .print-footer{display:flex!important;justify-content:space-between;margin-top:8px;
+          padding-top:4px;border-top:1px solid #94a3b8;font-size:7.5px;color:#475569}
+        .print-footer .auth-item{text-align:center;min-width:120px}
+        .print-footer .auth-name{font-weight:700;font-size:8px;color:#1e293b;margin-top:2px}
       }
     `;
     document.head.appendChild(st);
@@ -7539,11 +7860,10 @@ function NominasModule({usuario, canEdit=false, saldosBancos={}}) {
       nominasHermanas={nominasHermanas}
       onSwitchNomina={id=>setSelNomina(id)}
       onCrearYAbrir={(empresa)=>{
-        const s = nominaAbierta.semana;
-        const a = nominaAbierta.año;
-        const nom = nominaVacia(empresa, s, a);
-        updNomina(nom);
-        setSelNomina(nom.id);
+        crearNomina(empresa, nominaAbierta.semana, nominaAbierta.año);
+      }}
+      onCrearNueva={(empresa, semana, año)=>{
+        crearNomina(empresa, semana, año);
       }}
     />
   );
