@@ -1033,6 +1033,20 @@ function ConfigTab({todasTareas,getFrecuencia,WORKERS,CATEGORIAS,FRECUENCIAS,
 export default function App(){
   const hoy=new Date();
 
+  // ── Título y favicon de Mediterra ────────────────────────────────
+  useEffect(()=>{
+    document.title = "Gestión Mediterra";
+    // Buscar o crear el favicon
+    let link = document.querySelector("link[rel*='icon']");
+    if(!link) {
+      link = document.createElement("link");
+      link.rel = "icon";
+      document.head.appendChild(link);
+    }
+    link.type = "image/png";
+    link.href = "/mediterra-logo.png"; // Logo colocado en /public
+  },[]);
+
   const [usuarioActual,setUsuarioActual]=useState(null);
   const [moduloActivo,setModuloActivo]=useState(null);
   const [loginNombre,setLoginNombre]=useState("");
