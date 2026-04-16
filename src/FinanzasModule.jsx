@@ -3390,7 +3390,7 @@ function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit,saldosBanc
   const [openMonth,setOpenMonth]=useState({});
   const [showReal,setShowReal]=useState(false);
   const [modalSem,setModalSem]=useState(null);
-  // Overrides de proyección editados por el usuario: { lineLabel: { idx: valor } }
+  // Overrides de proyección editados por el usuario: { lineLabel: { idx: valor | {_sem0,_sem1,_sem2,_sem3} } }
   const [proyOverrides,  setProyOverrides]  = useState({});
   const [expandedSubs,   setExpandedSubs]   = useState({});  // ▶ CxC / Préstamos
   const [addedLines,     setAddedLines]      = useState({});  // + conceptos por sección (no persistidos)
@@ -3447,25 +3447,78 @@ function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit,saldosBanc
   },[saldosBancos, empNombre]);
 
   // ── Valor proyectado efectivo (base + override) ────────────────
+  // Si override es objeto {_sem0,_sem1,_sem2,_sem3}: suma las semanas definidas (resto = base prorrateado /4)
+  // Si override es número: usa ese número como total del mes (retrocompatibilidad)
   const getProy = useCallback((lineLabel, idx) => {
-    if(proyOverrides[lineLabel]?.[idx] !== undefined)
-      return proyOverrides[lineLabel][idx];
-    // buscar en emp.sections
+    const ov = proyOverrides[lineLabel]?.[idx];
+    // Obtener valor base
+    let base = 0;
     for(const sec of emp.sections){
       const l = sec.lines.find(x=>x.label===lineLabel);
-      if(l) return l.proy[idx]||0;
+      if(l){ base = l.proy[idx]||0; break; }
+    }
+    if(ov === undefined) return base;
+    if(typeof ov === "number") return ov;
+    // ov es objeto con semanas: las definidas suman; las no definidas toman base/4
+    if(typeof ov === "object" && ov !== null) {
+      let total = 0;
+      for(let s=0; s<4; s++){
+        const k = `_sem${s}`;
+        if(ov[k] !== undefined) total += Number(ov[k])||0;
+        else total += base / 4;
+      }
+      return total;
+    }
+    return base;
+  },[proyOverrides, emp]);
+
+  // Valor proyectado específico de UNA semana (0-3) del mes idx
+  // Si hay override semanal explícito → úsalo
+  // Si no hay override → prorratea el valor base uniformemente entre 4 semanas
+  // Si hay override mensual antiguo (number) → lo muestra entero en última semana
+  const getProySemana = useCallback((lineLabel, idx, semIdx, isLastInMonth) => {
+    const ov = proyOverrides[lineLabel]?.[idx];
+    let base = 0;
+    for(const sec of emp.sections){
+      const l = sec.lines.find(x=>x.label===lineLabel);
+      if(l){ base = l.proy[idx]||0; break; }
+    }
+    if(ov === undefined) {
+      // Sin override: prorratear base entre 4 semanas
+      return base / 4;
+    }
+    if(typeof ov === "number") {
+      // Override mensual antiguo: mostrar solo en última semana
+      return isLastInMonth ? ov : 0;
+    }
+    if(typeof ov === "object" && ov !== null) {
+      const k = `_sem${semIdx}`;
+      if(ov[k] !== undefined) return Number(ov[k])||0;
+      return base / 4; // semanas no editadas: valor base prorrateado
     }
     return 0;
   },[proyOverrides, emp]);
 
-  // Guardar override y persistir en Supabase
-  const handleEditProy = useCallback((lineLabel, idx, nuevoVal) => {
+  // Guardar override semanal (o mensual si semIdx no se especifica)
+  const handleEditProy = useCallback((lineLabel, idx, nuevoVal, semIdx) => {
     setProyOverrides(prev=>{
       const next = JSON.parse(JSON.stringify(prev));
       if(!next[lineLabel]) next[lineLabel]={};
-      next[lineLabel][idx] = nuevoVal;
+      if(semIdx != null) {
+        // Override semanal: mantener objeto con claves _sem0.._sem3
+        const current = next[lineLabel][idx];
+        if(typeof current === "object" && current !== null) {
+          next[lineLabel][idx] = { ...current, [`_sem${semIdx}`]: nuevoVal };
+        } else {
+          // Si había un número (override mensual antiguo) o nada, crear objeto
+          next[lineLabel][idx] = { [`_sem${semIdx}`]: nuevoVal };
+        }
+      } else {
+        // Override mensual directo (vista mensual)
+        next[lineLabel][idx] = nuevoVal;
+      }
       // Persistir async
-      if(onSaveProy) onSaveProy(empNombre, lineLabel, idx, nuevoVal);
+      if(onSaveProy) onSaveProy(empNombre, lineLabel, idx, next[lineLabel][idx]);
       return next;
     });
   },[empNombre, onSaveProy]);
@@ -3784,13 +3837,15 @@ function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit,saldosBanc
                         } else if(line.formula&&line.label.includes("Préstamos")&&col.type==="week"){
                           const semMap=calcPrestamosSemanasEmpresa(empNombre, creditosData);
                           val=(semMap[col.mes]?.[col.semana])||0;
+                        } else if(col.type==="week") {
+                          // Cada semana tiene su propio valor independiente
+                          val = getProySemana(line.label, col.idx, col.semIdx, col.isLastInMonth);
                         } else {
                           val=col.isLastInMonth?valMes:0;
                         }
                         const real=vista==="mensual"?(realMensual[col.mes]?.[line.label]||null):null;
                         const isFirst=col.isFirstInSeason||col.isFirstInMonth;
                         // Permite editar líneas con fórmula SOLO si el mes pertenece a la temporada actual 2025-2026
-                        // (los primeros meses del dataset, indices de SEASONS[0])
                         const esTemporadaActual = SEASONS[0]?.indices?.includes(col.idx);
                         const formulaBloquea = line.formula && !esTemporadaActual;
                         const isEditable=canEdit && !formulaBloquea && !isTot && col.type!=="month_collapsed";
@@ -3820,8 +3875,8 @@ function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit,saldosBanc
                                 canEdit={isEditable}
                                 real={real}
                                 onSave={v=>{
-                                  // Al editar una semana, guardar el valor mensual total (v * nSems)
-                                  handleEditProy(line.label,col.idx,v*col.nSems);
+                                  // Guardar valor para esa semana específica (no se prorratea, no se distribuye)
+                                  handleEditProy(line.label, col.idx, v, col.semIdx);
                                 }}
                               />
                             )}
