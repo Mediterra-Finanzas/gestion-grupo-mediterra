@@ -7282,7 +7282,7 @@ function NominaDetalle({nomina, onUpdate, onBack, usuario, canEdit, saldosBancos
   }
 
   function retrocederEstado() {
-    const flujo = ["borrador","preparada","revision","aprobada"];
+    const flujo = ["borrador","preparada","revision","aprobada1","aprobada"];
     const idx = flujo.indexOf(nom.estado);
     if(idx <= 0) return;
     onUpdate({...nom, estado: flujo[idx-1]});
@@ -7303,15 +7303,49 @@ function NominaDetalle({nomina, onUpdate, onBack, usuario, canEdit, saldosBancos
     bancosList.forEach(banco=>{
       clp += Number(saldosBancos[`${nom.empresa}||${banco}||clp`]?.monto)||0;
       usd += Number(saldosBancos[`${nom.empresa}||${banco}||usd`]?.monto)||0;
-      // PEN para empresas peruanas también
       const pen = Number(saldosBancos[`${nom.empresa}||${banco}||pen`]?.monto)||0;
-      clp += pen; // Sumar PEN al total de moneda local
+      clp += pen;
     });
     return {totBancosCLP:clp, totBancosUSD:usd};
   },[saldosBancos, nom.empresa]);
 
-  const puedeAvanzar = editActivo && nom.estado!=="aprobada" &&
-    (nom.estado!=="aprobada1" || esCFO);
+  // ── Lógica de autorización ──────────────────────────────
+  // Flujo: borrador → preparada → revision → aprobada1 (V°B°) → aprobada (CFO/CEO)
+  // Reglas:
+  //   - Cualquier editor puede: borrador → preparada → revision
+  //   - Solo autorizadores (Carol, Michelle) pueden: revision → aprobada1
+  //   - Solo CFO/CEO (admin) puede: aprobada1 → aprobada
+  const AUTORIZADORES = ["Carol Machuca","Michelle Garcia"];
+  const esAutorizadorNom = AUTORIZADORES.includes(usuario?.nombre);
+  const esAdmin = usuario?.rol === "admin";
+
+  const puedeAvanzar = (() => {
+    if(!editActivo) return false;
+    if(nom.estado === "aprobada") return false;
+    if(nom.estado === "borrador" || nom.estado === "preparada") return true; // cualquier editor
+    if(nom.estado === "revision") return esAutorizadorNom || esAdmin; // solo autorizador o admin
+    if(nom.estado === "aprobada1") return esAdmin; // solo CFO/CEO
+    return false;
+  })();
+
+  // Texto del botón de avanzar según estado
+  const textoAvanzar = (() => {
+    if(nom.estado === "borrador") return "📋 Marcar Preparada";
+    if(nom.estado === "preparada") return "📤 Enviar a Revisión";
+    if(nom.estado === "revision") return "✅ Dar V°B° (Autorizador)";
+    if(nom.estado === "aprobada1") return "🏆 Aprobar (CFO)";
+    return "→";
+  })();
+
+  // Mensaje de bloqueo
+  const mensajeBloqueo = (() => {
+    if(nom.estado === "revision" && !esAutorizadorNom && !esAdmin)
+      return "⏳ Esperando V°B° de un Autorizador (Carol / Michelle)";
+    if(nom.estado === "aprobada1" && !esAdmin)
+      return "⏳ Esperando aprobación del CFO";
+    return null;
+  })();
+
   const estadoInfo = ESTADOS_FLUJO.find(e=>e.id===nom.estado)||ESTADOS_FLUJO[0];
 
   return (
@@ -7360,18 +7394,23 @@ function NominaDetalle({nomina, onUpdate, onBack, usuario, canEdit, saldosBancos
         <BadgeEstado estado={nom.estado}/>
         {/* Solo Ver / Editar toggle */}
         <button onClick={()=>setSoloVer(!soloVer)}
-          style={{background:soloVer?C.blue:"transparent",border:`1px solid ${soloVer?C.blue:C.border}`,
+          style={{background:soloVer?"#3b82f6":"transparent",border:`1px solid ${soloVer?"#3b82f6":C.border}`,
             color:soloVer?"#fff":C.muted,borderRadius:8,padding:"6px 12px",cursor:"pointer",
             fontSize:11,fontWeight:600}}>
           {soloVer?"👁 Solo ver":"✏️ Editar"}
         </button>
+        {/* Mensaje de bloqueo si no puede avanzar */}
+        {mensajeBloqueo&&!puedeAvanzar&&(
+          <span style={{fontSize:10,color:"#f59e0b",background:"#fef3c7",padding:"5px 12px",
+            borderRadius:8,fontWeight:600,border:"1px solid #fde68a"}}>
+            {mensajeBloqueo}
+          </span>
+        )}
         {puedeAvanzar&&(
           <button onClick={avanzarEstado}
-            style={{background:C.blue,border:"none",color:"#fff",borderRadius:8,
+            style={{background:nom.estado==="aprobada1"?"#16a34a":"#3b82f6",border:"none",color:"#fff",borderRadius:8,
               padding:"7px 16px",cursor:"pointer",fontWeight:700,fontSize:12}}>
-            {nom.estado==="borrador"?"📋 Marcar Preparada":
-             nom.estado==="preparada"?"🔍 Enviar a Revisión":
-             nom.estado==="revision"&&esCFO?"✅ Aprobar (CFO)":"→"}
+            {textoAvanzar}
           </button>
         )}
         {nom.estado!=="borrador"&&editActivo&&(
@@ -7384,7 +7423,7 @@ function NominaDetalle({nomina, onUpdate, onBack, usuario, canEdit, saldosBancos
         {/* + Nueva nómina misma empresa/semana */}
         {canEdit&&onCrearNueva&&(
           <button onClick={()=>onCrearNueva(nom.empresa, nom.semana, nom.año)}
-            style={{background:C.teal,border:"none",color:"#fff",borderRadius:8,
+            style={{background:"#0f766e",border:"none",color:"#fff",borderRadius:8,
               padding:"7px 14px",cursor:"pointer",fontWeight:700,fontSize:11}}>
             + Nueva Nómina
           </button>
@@ -7805,30 +7844,32 @@ function NominasModule({usuario, canEdit=false, saldosBancos={}}) {
         #nomina-print-area,#nomina-print-area *{visibility:visible}
         #nomina-print-area{position:fixed;top:0;left:0;width:100%;
           background:white!important;color:#000!important;font-size:8px;padding:6mm!important}
-        .no-print{display:none!important}
-        .screen-only{display:none!important}
-        .print-only{display:block!important}
+        .no-print{display:none!important;visibility:hidden!important}
+        .screen-only{display:none!important;visibility:hidden!important;height:0!important;overflow:hidden!important}
+        .print-only{display:block!important;visibility:visible!important;height:auto!important}
         .print-header{display:flex!important;justify-content:space-between;align-items:flex-start;
-          margin-bottom:6px;padding-bottom:4px;border-bottom:2px solid #1e293b}
-        .print-header h2{margin:0;font-size:14px;color:#1e293b}
-        .print-header .meta{font-size:8px;color:#64748b;text-align:right}
-        .print-header .meta div{margin-bottom:1px}
-        .print-table{width:100%;border-collapse:collapse;font-size:7.5px;margin-bottom:8px}
-        .print-table th{background:#1e293b;color:white;padding:3px 6px;font-size:7px;
-          text-align:left;white-space:nowrap;-webkit-print-color-adjust:exact;print-color-adjust:exact}
-        .print-table td{padding:2.5px 6px;border-bottom:0.5px solid #e2e8f0;font-size:7.5px}
-        .print-table .sec-row td{background:#f1f5f9;font-weight:800;font-size:8px;
-          padding:4px 6px;border-top:1.5px solid #94a3b8;color:#1e293b;
-          -webkit-print-color-adjust:exact;print-color-adjust:exact}
-        .print-table .total-row td{background:#1e293b;color:white;font-weight:800;font-size:8px;
-          padding:4px 6px;-webkit-print-color-adjust:exact;print-color-adjust:exact}
-        .print-table .subtotal-row td{background:#e2e8f0;font-weight:700;font-size:7.5px;
-          padding:3px 6px;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+          margin-bottom:8px;padding-bottom:6px;border-bottom:2.5px solid #0f2d4a}
+        .print-header h2{margin:0;font-size:15px;color:#0f2d4a;font-weight:900}
+        .print-header .meta{font-size:8.5px;color:#475569;text-align:right}
+        .print-header .meta div{margin-bottom:2px}
+        .print-table{width:100%;border-collapse:collapse;font-size:8px;margin-bottom:10px}
+        .print-table th{background:#0f2d4a!important;color:white!important;padding:4px 8px;font-size:7.5px;
+          text-align:left;white-space:nowrap;-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important}
+        .print-table td{padding:3px 8px;border-bottom:0.5px solid #e2e8f0;font-size:8px}
+        .print-table .sec-row td{background:#e2e8f0!important;font-weight:800;font-size:8.5px;
+          padding:5px 8px;border-top:1.5px solid #64748b;color:#0f2d4a;
+          -webkit-print-color-adjust:exact!important;print-color-adjust:exact!important}
+        .print-table .total-row td{background:#0f2d4a!important;color:white!important;font-weight:800;font-size:9px;
+          padding:5px 8px;-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important}
+        .print-table .subtotal-row td{background:#f1f5f9!important;font-weight:700;font-size:8px;
+          padding:3px 8px;border-top:1px solid #94a3b8;
+          -webkit-print-color-adjust:exact!important;print-color-adjust:exact!important}
         .print-table td.num{text-align:right;font-variant-numeric:tabular-nums}
-        .print-footer{display:flex!important;justify-content:space-between;margin-top:8px;
-          padding-top:4px;border-top:1px solid #94a3b8;font-size:7.5px;color:#475569}
-        .print-footer .auth-item{text-align:center;min-width:120px}
-        .print-footer .auth-name{font-weight:700;font-size:8px;color:#1e293b;margin-top:2px}
+        .print-footer{display:flex!important;justify-content:space-around;margin-top:16px;
+          padding-top:8px;border-top:1.5px solid #0f2d4a;font-size:8px;color:#475569}
+        .print-footer .auth-item{text-align:center;min-width:130px}
+        .print-footer .auth-name{font-weight:800;font-size:9px;color:#0f2d4a;margin-top:4px}
+        .print-footer .auth-line{border-top:1px solid #94a3b8;margin-top:20px;width:100%}
       }
     `;
     document.head.appendChild(st);
