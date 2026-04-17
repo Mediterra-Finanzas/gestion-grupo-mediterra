@@ -106,51 +106,142 @@ function AllegriaLogo({height=52}) {
 // ═══════════════════════════════════════════════════════════════════
 // CLIENTES IMPORTADORES
 // ═══════════════════════════════════════════════════════════════════
+const FORM_CLI_VACIO = {razonSocial:"",nombreComercial:"",direccion:"",ciudad:"",pais:"",contactoNombre:"",contactoEmail:"",notifys:[{nombre:"",direccion:""}],consignatarios:[{nombre:"",direccion:""}],frutas:[],notas:""};
+
 function ClientesModule({data, setData, can}) {
   const [busq, setBusq] = useState("");
   const [modal, setModal] = useState(false);
-  const [form, setForm] = useState({nombre:"",pais:"",ciudad:"",contacto:"",email:"",telefono:"",frutas:[],notas:""});
+  const [form, setForm] = useState({...FORM_CLI_VACIO});
   const [editId, setEditId] = useState(null);
+  const [detalle, setDetalle] = useState(null); // id del cliente para ver detalle
 
-  const filtrado = data.filter(c=>!busq||c.nombre?.toLowerCase().includes(busq.toLowerCase())||c.pais?.toLowerCase().includes(busq.toLowerCase()));
+  const filtrado = data.filter(c=>!busq||
+    c.razonSocial?.toLowerCase().includes(busq.toLowerCase())||
+    c.nombreComercial?.toLowerCase().includes(busq.toLowerCase())||
+    c.nombre?.toLowerCase().includes(busq.toLowerCase())|| // retrocompat
+    c.pais?.toLowerCase().includes(busq.toLowerCase()));
 
   function guardar() {
-    if(!form.nombre.trim()){alert("Nombre es obligatorio.");return;}
+    if(!form.razonSocial.trim()&&!form.nombreComercial.trim()){alert("Razón Social o Nombre Comercial es obligatorio.");return;}
+    // Limpiar notifys/consignatarios vacíos
+    const clean = {...form,
+      notifys:(form.notifys||[]).filter(n=>n.nombre.trim()||n.direccion.trim()),
+      consignatarios:(form.consignatarios||[]).filter(n=>n.nombre.trim()||n.direccion.trim()),
+    };
     if(editId) {
-      setData(prev=>prev.map(c=>c.id===editId?{...c,...form}:c));
-      window.auditLog&&window.auditLog("editar",{modulo:"allegria",seccion:"Clientes",descripcion:`Editó cliente "${form.nombre}"`,registroId:editId});
+      setData(prev=>prev.map(c=>c.id===editId?{...c,...clean}:c));
+      window.auditLog&&window.auditLog("editar",{modulo:"allegria",seccion:"Clientes",descripcion:`Editó cliente "${clean.nombreComercial||clean.razonSocial}"`,registroId:editId});
     } else {
       const id=`acli_${Date.now()}`;
-      setData(prev=>[...prev,{...form,id}]);
-      window.auditLog&&window.auditLog("crear",{modulo:"allegria",seccion:"Clientes",descripcion:`Creó cliente "${form.nombre}" · ${form.pais}`,registroId:id});
+      setData(prev=>[...prev,{...clean,id}]);
+      window.auditLog&&window.auditLog("crear",{modulo:"allegria",seccion:"Clientes",descripcion:`Creó cliente "${clean.nombreComercial||clean.razonSocial}" · ${clean.pais}`,registroId:id});
     }
-    setForm({nombre:"",pais:"",ciudad:"",contacto:"",email:"",telefono:"",frutas:[],notas:""});
-    setModal(false);setEditId(null);
+    setForm({...FORM_CLI_VACIO});setModal(false);setEditId(null);
+  }
+
+  function editarCliente(c) {
+    setEditId(c.id);
+    setForm({
+      razonSocial:c.razonSocial||c.nombre||"",
+      nombreComercial:c.nombreComercial||"",
+      direccion:c.direccion||"",
+      ciudad:c.ciudad||"",
+      pais:c.pais||"",
+      contactoNombre:c.contactoNombre||c.contacto||"",
+      contactoEmail:c.contactoEmail||c.email||"",
+      notifys:c.notifys?.length>0?c.notifys:[{nombre:"",direccion:""}],
+      consignatarios:c.consignatarios?.length>0?c.consignatarios:[{nombre:"",direccion:""}],
+      frutas:c.frutas||[],
+      notas:c.notas||"",
+    });
+    setModal(true);
+  }
+
+  // Helpers para listas dinámicas
+  function updList(field, idx, key, val) {
+    setForm(p=>{
+      const arr=[...(p[field]||[])];
+      arr[idx]={...arr[idx],[key]:val};
+      return {...p,[field]:arr};
+    });
+  }
+  function addList(field) { setForm(p=>({...p,[field]:[...(p[field]||[]),{nombre:"",direccion:""}]})); }
+  function removeList(field, idx) { setForm(p=>({...p,[field]:(p[field]||[]).filter((_,i)=>i!==idx)})); }
+
+  const inputSt = {width:"100%",padding:"7px 10px",borderRadius:8,border:`1px solid ${C.border}`,background:C.card2,color:C.text,fontSize:12,outline:"none",boxSizing:"border-box"};
+
+  // Vista detalle
+  if(detalle) {
+    const c = data.find(x=>x.id===detalle);
+    if(!c) { setDetalle(null); return null; }
+    return (
+      <div>
+        <button onClick={()=>setDetalle(null)} style={{background:C.card2,border:`1px solid ${C.border}`,color:C.muted,borderRadius:8,padding:"6px 14px",cursor:"pointer",fontSize:12,marginBottom:16}}>← Volver a lista</button>
+        <Card>
+          <div style={{display:"flex",alignItems:"flex-start",gap:16}}>
+            <div style={{width:56,height:56,borderRadius:"50%",background:`${C.accent}22`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:28,flexShrink:0}}>🏢</div>
+            <div style={{flex:1}}>
+              <div style={{fontWeight:900,fontSize:18,color:C.text}}>{c.nombreComercial||c.razonSocial||c.nombre}</div>
+              {c.razonSocial&&c.nombreComercial&&<div style={{fontSize:12,color:C.muted,marginTop:2}}>Razón Social: {c.razonSocial}</div>}
+              <div style={{fontSize:12,color:C.muted,marginTop:4}}>{c.direccion?`${c.direccion} · `:""}{c.ciudad?`${c.ciudad} · `:""}{c.pais||""}</div>
+              <div style={{fontSize:12,color:C.muted,marginTop:6}}>👤 {c.contactoNombre||c.contacto||"—"} · {c.contactoEmail||c.email||"—"}</div>
+              {c.frutas?.length>0&&<div style={{display:"flex",gap:4,marginTop:8,flexWrap:"wrap"}}>{c.frutas.map(f=><span key={f} style={{fontSize:10,background:`${C.accent}22`,color:C.accentL,padding:"2px 10px",borderRadius:12,fontWeight:600}}>{f}</span>)}</div>}
+            </div>
+            {can&&<button onClick={()=>editarCliente(c)} style={{background:C.accent,border:"none",color:"#fff",borderRadius:8,padding:"6px 14px",cursor:"pointer",fontWeight:700,fontSize:12}}>✏️ Editar</button>}
+          </div>
+        </Card>
+
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:16,marginTop:4}}>
+          <Card>
+            <div style={{fontSize:11,color:C.muted,fontWeight:700,marginBottom:10}}>📋 NOTIFY</div>
+            {(c.notifys||[]).length===0?<div style={{color:C.muted2,fontSize:12}}>Sin notify registrados</div>:
+              (c.notifys||[]).map((n,i)=>(
+                <div key={i} style={{padding:"8px 0",borderBottom:i<(c.notifys||[]).length-1?`1px solid ${C.border}22`:"none"}}>
+                  <div style={{fontWeight:600,fontSize:13,color:C.text}}>{n.nombre||"—"}</div>
+                  <div style={{fontSize:11,color:C.muted}}>{n.direccion||"—"}</div>
+                </div>
+              ))}
+          </Card>
+          <Card>
+            <div style={{fontSize:11,color:C.muted,fontWeight:700,marginBottom:10}}>🚢 CONSIGNATARIOS</div>
+            {(c.consignatarios||[]).length===0?<div style={{color:C.muted2,fontSize:12}}>Sin consignatarios registrados</div>:
+              (c.consignatarios||[]).map((n,i)=>(
+                <div key={i} style={{padding:"8px 0",borderBottom:i<(c.consignatarios||[]).length-1?`1px solid ${C.border}22`:"none"}}>
+                  <div style={{fontWeight:600,fontSize:13,color:C.text}}>{n.nombre||"—"}</div>
+                  <div style={{fontSize:11,color:C.muted}}>{n.direccion||"—"}</div>
+                </div>
+              ))}
+          </Card>
+        </div>
+        {c.notas&&<Card><div style={{fontSize:11,color:C.muted,fontWeight:700,marginBottom:6}}>📝 NOTAS</div><div style={{fontSize:12,color:C.text}}>{c.notas}</div></Card>}
+      </div>
+    );
   }
 
   return (
     <div>
       <div style={{display:"flex",gap:12,marginBottom:16,flexWrap:"wrap",alignItems:"center"}}>
         <input value={busq} onChange={e=>setBusq(e.target.value)} placeholder="🔍 Buscar cliente..." style={{padding:"8px 14px",borderRadius:8,border:`1px solid ${C.border}`,background:C.card2,color:C.text,fontSize:12,outline:"none",flex:1,minWidth:200}}/>
-        {can&&<button onClick={()=>{setModal(true);setEditId(null);setForm({nombre:"",pais:"",ciudad:"",contacto:"",email:"",telefono:"",frutas:[],notas:""});}} style={{background:C.accent,color:"#fff",border:"none",borderRadius:8,padding:"8px 18px",cursor:"pointer",fontWeight:700,fontSize:12}}>+ Nuevo Cliente</button>}
+        {can&&<button onClick={()=>{setModal(true);setEditId(null);setForm({...FORM_CLI_VACIO});}} style={{background:C.accent,color:"#fff",border:"none",borderRadius:8,padding:"8px 18px",cursor:"pointer",fontWeight:700,fontSize:12}}>+ Nuevo Cliente</button>}
       </div>
 
-      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(320px,1fr))",gap:12}}>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(340px,1fr))",gap:12}}>
         {filtrado.map(c=>(
-          <Card key={c.id} style={{cursor:can?"pointer":"default"}} >
+          <Card key={c.id}>
             <div style={{display:"flex",alignItems:"flex-start",gap:10}}>
-              <div style={{width:44,height:44,borderRadius:"50%",background:`${C.accent}22`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:20,flexShrink:0}}>🏢</div>
-              <div style={{flex:1,minWidth:0}}>
-                <div style={{fontWeight:800,fontSize:14,color:C.text}}>{c.nombre}</div>
+              <div onClick={()=>setDetalle(c.id)} style={{width:44,height:44,borderRadius:"50%",background:`${C.accent}22`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:20,flexShrink:0,cursor:"pointer"}}>🏢</div>
+              <div style={{flex:1,minWidth:0,cursor:"pointer"}} onClick={()=>setDetalle(c.id)}>
+                <div style={{fontWeight:800,fontSize:14,color:C.text}}>{c.nombreComercial||c.razonSocial||c.nombre||"—"}</div>
+                {c.razonSocial&&c.nombreComercial&&<div style={{fontSize:10,color:C.muted}}>{c.razonSocial}</div>}
                 <div style={{fontSize:11,color:C.muted}}>{c.pais}{c.ciudad?` · ${c.ciudad}`:""}</div>
-                {c.contacto&&<div style={{fontSize:11,color:C.muted,marginTop:4}}>👤 {c.contacto} {c.email?`· ${c.email}`:""}</div>}
-                {c.frutas?.length>0&&(
-                  <div style={{display:"flex",gap:4,marginTop:6,flexWrap:"wrap"}}>
-                    {c.frutas.map(f=><span key={f} style={{fontSize:9,background:`${C.accent}22`,color:C.accentL,padding:"2px 8px",borderRadius:12,fontWeight:600}}>{f}</span>)}
-                  </div>
-                )}
+                {(c.contactoNombre||c.contacto)&&<div style={{fontSize:11,color:C.muted,marginTop:4}}>👤 {c.contactoNombre||c.contacto} {c.contactoEmail||c.email?`· ${c.contactoEmail||c.email}`:""}</div>}
+                <div style={{display:"flex",gap:4,marginTop:6,flexWrap:"wrap"}}>
+                  {(c.frutas||[]).map(f=><span key={f} style={{fontSize:9,background:`${C.accent}22`,color:C.accentL,padding:"2px 8px",borderRadius:12,fontWeight:600}}>{f}</span>)}
+                  {(c.notifys||[]).length>0&&<span style={{fontSize:9,background:`${C.blue}22`,color:C.blue,padding:"2px 8px",borderRadius:12,fontWeight:600}}>{(c.notifys||[]).length} notify</span>}
+                  {(c.consignatarios||[]).length>0&&<span style={{fontSize:9,background:`${C.teal}22`,color:C.teal,padding:"2px 8px",borderRadius:12,fontWeight:600}}>{(c.consignatarios||[]).length} consig.</span>}
+                </div>
               </div>
-              {can&&<button onClick={()=>{setEditId(c.id);setForm({nombre:c.nombre||"",pais:c.pais||"",ciudad:c.ciudad||"",contacto:c.contacto||"",email:c.email||"",telefono:c.telefono||"",frutas:c.frutas||[],notas:c.notas||""});setModal(true);}} style={{background:C.card2,border:`1px solid ${C.border}`,color:C.muted,borderRadius:6,padding:"4px 10px",cursor:"pointer",fontSize:11}}>✏️</button>}
+              {can&&<button onClick={()=>editarCliente(c)} style={{background:C.card2,border:`1px solid ${C.border}`,color:C.muted,borderRadius:6,padding:"4px 10px",cursor:"pointer",fontSize:11}}>✏️</button>}
             </div>
           </Card>
         ))}
@@ -160,15 +251,17 @@ function ClientesModule({data, setData, can}) {
       {/* Modal */}
       {modal&&(
         <div style={{position:"fixed",inset:0,background:"#000a",zIndex:400,display:"flex",alignItems:"center",justifyContent:"center",padding:20}} onClick={()=>setModal(false)}>
-          <div style={{background:C.card,borderRadius:14,padding:24,maxWidth:500,width:"100%",border:`1px solid ${C.border}`}} onClick={e=>e.stopPropagation()}>
+          <div style={{background:C.card,borderRadius:14,padding:24,maxWidth:580,width:"100%",border:`1px solid ${C.border}`,maxHeight:"90vh",overflowY:"auto"}} onClick={e=>e.stopPropagation()}>
             <h3 style={{margin:"0 0 16px",color:C.text}}>{editId?"Editar Cliente":"Nuevo Cliente Importador"}</h3>
             <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
-              {[["Nombre *","nombre"],["País","pais"],["Ciudad","ciudad"],["Contacto","contacto"],["Email","email"],["Teléfono","telefono"]].map(([l,f])=>(
-                <div key={f}><div style={{fontSize:10,color:C.muted,marginBottom:4}}>{l}</div>
-                  <input value={form[f]||""} onChange={e=>setForm(p=>({...p,[f]:e.target.value}))} style={{width:"100%",padding:"7px 10px",borderRadius:8,border:`1px solid ${C.border}`,background:C.card2,color:C.text,fontSize:12,outline:"none",boxSizing:"border-box"}}/></div>
+              {[["Razón Social *","razonSocial"],["Nombre Comercial","nombreComercial"],["Dirección","direccion"],["Ciudad","ciudad"],["País","pais"],["Contacto Nombre","contactoNombre"],["Contacto Email","contactoEmail"]].map(([l,f])=>(
+                <div key={f} style={f==="direccion"?{gridColumn:"1/-1"}:{}}><div style={{fontSize:10,color:C.muted,marginBottom:4}}>{l}</div>
+                  <input value={form[f]||""} onChange={e=>setForm(p=>({...p,[f]:e.target.value}))} placeholder={f==="nombreComercial"?"Ej: Nongfu":""} style={inputSt}/></div>
               ))}
             </div>
-            <div style={{marginTop:12}}>
+
+            {/* Frutas */}
+            <div style={{marginTop:14}}>
               <div style={{fontSize:10,color:C.muted,marginBottom:4}}>Frutas</div>
               <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
                 {FRUTAS.map(f=>(
@@ -179,10 +272,43 @@ function ClientesModule({data, setData, can}) {
                 ))}
               </div>
             </div>
+
+            {/* Notify — lista dinámica */}
+            <div style={{marginTop:14,padding:"12px 14px",background:C.bg2,borderRadius:10,border:`1px solid ${C.border}`}}>
+              <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8}}>
+                <div style={{fontSize:11,color:C.blue,fontWeight:700}}>📋 Notify</div>
+                <button onClick={()=>addList("notifys")} style={{background:`${C.blue}22`,border:`1px solid ${C.blue}44`,color:C.blue,borderRadius:6,padding:"3px 10px",cursor:"pointer",fontSize:10,fontWeight:700}}>+ Agregar</button>
+              </div>
+              {(form.notifys||[]).map((n,i)=>(
+                <div key={i} style={{display:"flex",gap:8,marginBottom:6,alignItems:"center"}}>
+                  <input value={n.nombre} onChange={e=>updList("notifys",i,"nombre",e.target.value)} placeholder="Nombre" style={{...inputSt,flex:1}}/>
+                  <input value={n.direccion} onChange={e=>updList("notifys",i,"direccion",e.target.value)} placeholder="Dirección" style={{...inputSt,flex:1}}/>
+                  {(form.notifys||[]).length>1&&<button onClick={()=>removeList("notifys",i)} style={{background:"none",border:"none",color:C.red,cursor:"pointer",fontSize:14,padding:0}}>×</button>}
+                </div>
+              ))}
+            </div>
+
+            {/* Consignatarios — lista dinámica */}
+            <div style={{marginTop:12,padding:"12px 14px",background:C.bg2,borderRadius:10,border:`1px solid ${C.border}`}}>
+              <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8}}>
+                <div style={{fontSize:11,color:C.teal,fontWeight:700}}>🚢 Consignatarios</div>
+                <button onClick={()=>addList("consignatarios")} style={{background:`${C.teal}22`,border:`1px solid ${C.teal}44`,color:C.teal,borderRadius:6,padding:"3px 10px",cursor:"pointer",fontSize:10,fontWeight:700}}>+ Agregar</button>
+              </div>
+              {(form.consignatarios||[]).map((n,i)=>(
+                <div key={i} style={{display:"flex",gap:8,marginBottom:6,alignItems:"center"}}>
+                  <input value={n.nombre} onChange={e=>updList("consignatarios",i,"nombre",e.target.value)} placeholder="Nombre" style={{...inputSt,flex:1}}/>
+                  <input value={n.direccion} onChange={e=>updList("consignatarios",i,"direccion",e.target.value)} placeholder="Dirección" style={{...inputSt,flex:1}}/>
+                  {(form.consignatarios||[]).length>1&&<button onClick={()=>removeList("consignatarios",i)} style={{background:"none",border:"none",color:C.red,cursor:"pointer",fontSize:14,padding:0}}>×</button>}
+                </div>
+              ))}
+            </div>
+
+            {/* Notas */}
             <div style={{marginTop:12}}>
               <div style={{fontSize:10,color:C.muted,marginBottom:4}}>Notas</div>
-              <textarea value={form.notas||""} onChange={e=>setForm(p=>({...p,notas:e.target.value}))} rows={2} style={{width:"100%",padding:"7px 10px",borderRadius:8,border:`1px solid ${C.border}`,background:C.card2,color:C.text,fontSize:12,outline:"none",resize:"vertical",boxSizing:"border-box"}}/>
+              <textarea value={form.notas||""} onChange={e=>setForm(p=>({...p,notas:e.target.value}))} rows={2} style={{...inputSt,resize:"vertical"}}/>
             </div>
+
             <div style={{display:"flex",gap:8,justifyContent:"flex-end",marginTop:16}}>
               <button onClick={()=>{setModal(false);setEditId(null);}} style={{padding:"8px 18px",borderRadius:8,border:`1px solid ${C.border}`,background:"transparent",color:C.muted,cursor:"pointer"}}>Cancelar</button>
               <button onClick={guardar} style={{padding:"8px 18px",borderRadius:8,border:"none",background:C.accent,color:"#fff",cursor:"pointer",fontWeight:700}}>Guardar</button>
