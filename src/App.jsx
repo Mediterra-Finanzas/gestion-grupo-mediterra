@@ -761,7 +761,23 @@ function HubScreen({ usuario, modulosPermitidos, onSelectModulo, onLogout, onCam
   const [mostrarPermisos, setMostrarPermisos] = useState(false);
 
   return (
-    <div style={{minHeight:"100vh", background:"#ffffff", fontFamily:"sans-serif", padding:"0 0 40px"}}>
+    <div style={{minHeight:"100vh", background:"#ffffff", fontFamily:"sans-serif", padding:"0 0 40px",
+      position:"relative",overflow:"hidden"}}>
+      {/* Fondo decorativo fruticultura */}
+      <div style={{position:"fixed",inset:0,zIndex:0,pointerEvents:"none",
+        background:"linear-gradient(180deg, rgba(255,255,255,0.97) 0%, rgba(241,245,249,0.95) 40%, rgba(220,252,231,0.15) 100%)",
+      }}>
+        <div style={{position:"absolute",top:"15%",right:"-5%",width:400,height:400,borderRadius:"50%",
+          background:"radial-gradient(circle, rgba(220,252,231,0.4) 0%, transparent 70%)"}}/>
+        <div style={{position:"absolute",bottom:"10%",left:"-8%",width:500,height:500,borderRadius:"50%",
+          background:"radial-gradient(circle, rgba(254,226,226,0.3) 0%, transparent 70%)"}}/>
+        <div style={{position:"absolute",top:"60%",right:"10%",width:300,height:300,borderRadius:"50%",
+          background:"radial-gradient(circle, rgba(219,234,254,0.3) 0%, transparent 70%)"}}/>
+        <div style={{position:"absolute",bottom:"5%",right:"20%",fontSize:180,opacity:0.04,transform:"rotate(-15deg)"}}>🍒</div>
+        <div style={{position:"absolute",top:"20%",left:"5%",fontSize:140,opacity:0.04,transform:"rotate(10deg)"}}>🫐</div>
+        <div style={{position:"absolute",top:"45%",right:"3%",fontSize:120,opacity:0.03,transform:"rotate(-20deg)"}}>🌿</div>
+      </div>
+      <div style={{position:"relative",zIndex:1}}>
 
       {mostrarPermisos && (
         <PanelPermisos usuarios={usuarios} setUsuarios={setUsuarios} onClose={()=>setMostrarPermisos(false)}/>
@@ -842,26 +858,12 @@ function HubScreen({ usuario, modulosPermitidos, onSelectModulo, onLogout, onCam
           </button>
         ))}
 
-        {usuario.rol === "admin" && (
-          <div style={{
-            background: "#f8fafc",
-            border: "2px dashed #e2e8f0",
-            borderRadius: 20,
-            padding: "32px 36px",
-            width: 280,
-            textAlign: "left",
-            opacity: 0.7,
-          }}>
-            <div style={{fontSize:40, marginBottom:14}}>➕</div>
-            <div style={{fontSize:17, fontWeight:800, color:"#94a3b8", marginBottom:4}}>Nuevo módulo</div>
-            <div style={{fontSize:12, color:"#cbd5e1"}}>Próximamente disponible</div>
-          </div>
-        )}
       </div>
 
       <div style={{textAlign:"center", marginTop:56, fontSize:10, color:"#cbd5e1", letterSpacing:2}}>
         © {new Date().getFullYear()} GRUPO MEDITERRA · TODOS LOS DERECHOS RESERVADOS
       </div>
+      </div>{/* cierre z-index:1 */}
     </div>
   );
 }
