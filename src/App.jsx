@@ -810,8 +810,8 @@ function HubScreen({ usuario, modulosPermitidos, onSelectModulo, onLogout, onCam
       </div>
 
       <div style={{textAlign:"center", padding:"40px 24px 28px"}}>
-        <div style={{fontSize:13, color:"#94a3b8", letterSpacing:3, textTransform:"uppercase", marginBottom:10}}>Selecciona un módulo</div>
-        <h1 style={{margin:0, fontSize:28, fontWeight:900, color:"#1e293b", lineHeight:1.2}}>¿Qué deseas gestionar hoy?</h1>
+        <div style={{fontSize:28, fontWeight:900, color:"#1e293b", marginBottom:6}}>Hola, {usuario.nombre.split(" ")[0]} 👋</div>
+        <h2 style={{margin:0, fontSize:18, fontWeight:500, color:"#64748b", lineHeight:1.4}}>¿Qué deseas gestionar hoy?</h2>
         {modulosPermitidos.length === 0 && (
           <p style={{color:"#94a3b8", fontSize:14, marginTop:16}}>No tienes módulos asignados. Contacta al administrador.</p>
         )}
