@@ -4168,9 +4168,18 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
       gap:12,
     }}>
       <div style={{display:"flex",alignItems:"center",gap:14,flexWrap:"wrap"}}>
-        <OsirisLogo height={44}/>
+        <div style={{display:"flex",alignItems:"center",gap:8,fontSize:13}}>
+          {breadcrumbItems.map((item,i)=>(
+            <React.Fragment key={i}>
+              {i>0&&<span style={{color:"rgba(255,255,255,0.3)"}}>›</span>}
+              {item.onClick
+                ? <button onClick={item.onClick} style={{background:"none",border:"none",color:"rgba(255,255,255,0.55)",cursor:"pointer",fontSize:13,fontWeight:500,padding:0}}>{item.label}</button>
+                : <span style={{color:"#fff",fontWeight:700,fontSize:14}}>{item.label}</span>}
+            </React.Fragment>
+          ))}
+        </div>
         <div style={{borderLeft:"1px solid rgba(255,255,255,0.2)",paddingLeft:14}}>
-          <Breadcrumb items={breadcrumbItems}/>
+          <OsirisLogo height={36}/>
         </div>
       </div>
       <div style={{display:"flex",gap:8,alignItems:"center"}}>
@@ -4180,40 +4189,21 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
             <div style={{fontSize:14,fontWeight:800,color:"#fbbf24"}}>{$$(totPend)}</div>
           </div>
         )}
-        {/* Solo mostrar "Osiris Hub" si no estamos YA en el hub */}
         {subApp!==null&&(
-          <button
-            onClick={()=>setSubApp(null)}
-            style={{
-              background:"rgba(255,255,255,0.12)",
-              border:"1px solid rgba(255,255,255,0.25)",
-              color:"#fff",borderRadius:8,
-              padding:"7px 14px",cursor:"pointer",
-              fontSize:12,fontWeight:600,
-            }}>
+          <button onClick={()=>setSubApp(null)}
+            style={{background:"rgba(255,255,255,0.12)",border:"1px solid rgba(255,255,255,0.25)",
+              color:"#fff",borderRadius:8,padding:"7px 14px",cursor:"pointer",fontSize:12,fontWeight:600}}>
             🏠 Osiris Hub
           </button>
         )}
-        <button
-          onClick={onBack}
-          style={{
-            background:"rgba(255,255,255,0.08)",
-            border:"1px solid rgba(255,255,255,0.15)",
-            color:"rgba(255,255,255,0.7)",borderRadius:8,
-            padding:"7px 14px",cursor:"pointer",
-            fontSize:12,fontWeight:600,
-          }}>
+        <button onClick={onBack}
+          style={{background:"rgba(255,255,255,0.08)",border:"1px solid rgba(255,255,255,0.15)",
+            color:"rgba(255,255,255,0.7)",borderRadius:8,padding:"7px 14px",cursor:"pointer",fontSize:12,fontWeight:600}}>
           ← Mediterra
         </button>
-        <button
-          onClick={onLogout||onBack}
-          style={{
-            background:"rgba(248,113,113,0.18)",
-            border:"1px solid rgba(248,113,113,0.3)",
-            color:"#fca5a5",borderRadius:8,
-            padding:"7px 14px",cursor:"pointer",
-            fontSize:12,
-          }}>
+        <button onClick={onLogout||onBack}
+          style={{background:"rgba(248,113,113,0.18)",border:"1px solid rgba(248,113,113,0.3)",
+            color:"#fca5a5",borderRadius:8,padding:"7px 14px",cursor:"pointer",fontSize:12}}>
           Salir
         </button>
       </div>
