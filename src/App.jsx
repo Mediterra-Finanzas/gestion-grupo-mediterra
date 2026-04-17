@@ -199,7 +199,7 @@ const ROLES = [
 // Módulos disponibles — agregar aquí nuevos módulos en el futuro
 const MODULOS_DISPONIBLES = [
   {id:"tareas",   label:"Seguimiento Tareas",      sublabel:"Administración y Finanzas", icon:"📋", color:"#2563eb", bg:"#dbeafe", grad:"linear-gradient(135deg,#1e3a5f,#2563eb)"},
-  {id:"osiris",   label:"Osiris Plant Management", sublabel:"Gestión de Ingresos",       icon:"🌿", color:"#0f766e", bg:"#ccfbf1", grad:"linear-gradient(135deg,#0f2d4a,#0f766e)"},
+  {id:"osiris",   label:"Osiris Plant Management", sublabel:"Genética Diferenciada",       icon:"🌿", color:"#0f766e", bg:"#ccfbf1", grad:"linear-gradient(135deg,#0f2d4a,#0f766e)"},
   {id:"finanzas", label:"Finanzas",                sublabel:"Flujo de Caja Grupo Mediterra", icon:"💼", color:"#0d6b3a", bg:"#d1fae5", grad:"linear-gradient(135deg,#0d2137,#0a3d2b)"},
   {id:"allegria", label:"Allegria Foods",           sublabel:"Exportación Fruta Fresca",  icon:"🍒", color:"#b91c1c", bg:"#fee2e2", grad:"linear-gradient(135deg,#1a0a0a,#b91c1c)"},
 ];
@@ -374,7 +374,7 @@ function modulosDeUsuario(usuario){
 function OsirisLogoSmall() {
   return (
     <img src="/osiris-logo.jpg" alt="Osiris Plant Management"
-      style={{height:70, objectFit:"contain", display:"block", marginBottom:6}}/>
+      style={{height:44, objectFit:"contain", display:"block"}}/>
   );
 }
 
