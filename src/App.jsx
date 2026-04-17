@@ -2101,6 +2101,9 @@ Equipo Mediterra`);
   // Calcular permisos de pestaña para el usuario actual en Finanzas
   const tabPermisosFinanzas = getTabPermisosModulo(usuarioFresco, "finanzas");
 
+  // DEBUG — verificar qué módulo está activo
+  console.log("[DEBUG] moduloActivo:", moduloActivo);
+
   // Módulo activo
   if(moduloActivo==="finanzas") return (
     <div style={{fontFamily:"sans-serif",background:"#0d1117",minHeight:"100vh",padding:"20px"}}>
