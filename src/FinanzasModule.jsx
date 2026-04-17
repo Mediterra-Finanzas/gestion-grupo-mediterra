@@ -6478,19 +6478,17 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
         border:`1px solid ${C.border2}`,
         boxShadow:"0 4px 24px rgba(0,0,0,0.3)",
       }}>
-        <div style={{display:"flex",alignItems:"center",gap:12}}>
-          <button onClick={onBack} style={{
-            background:"rgba(255,255,255,0.1)",
-            border:`1px solid ${C.border}`,
-            color:C.text,borderRadius:8,
-            padding:"6px 14px",cursor:"pointer",fontSize:12,fontWeight:600,
-          }}>← Hub</button>
-          <img src="/med.png" alt="Mediterra" style={{height:30,objectFit:"contain"}}
-            onError={e=>{e.target.style.display="none";}}/>
-          <div>
-            <div style={{fontSize:13,fontWeight:900,color:C.text}}>Finanzas · Grupo Mediterra</div>
-            <div style={{fontSize:10,color:C.muted}}>Apr-2026 → Jun-2031 · 64 meses · 6 Temporadas · USD</div>
+        <div style={{display:"flex",alignItems:"center",gap:14}}>
+          <div style={{display:"flex",alignItems:"center",gap:8,fontSize:13,flexWrap:"wrap"}}>
+            <button onClick={onBack} style={{background:"none",border:"none",color:"#8b949e",cursor:"pointer",fontSize:13,fontWeight:500,padding:0}}>Mediterra</button>
+            <span style={{color:"#484f58"}}>›</span>
+            <span style={{color:"#e6edf3",fontWeight:700,fontSize:14}}>Finanzas</span>
           </div>
+          <div style={{borderLeft:"1px solid rgba(255,255,255,0.15)",paddingLeft:14}}>
+            <img src="/med.png" alt="Mediterra" style={{height:30,objectFit:"contain"}}
+              onError={e=>{e.target.style.display="none";}}/>
+          </div>
+          <div style={{fontSize:10,color:"#8b949e"}}>Apr-2026 → Jun-2031 · 64 meses · USD</div>
         </div>
         <div style={{display:"flex",gap:8,alignItems:"center"}}>
           {saved&&<span style={{fontSize:11,color:C.muted,background:C.card2,
