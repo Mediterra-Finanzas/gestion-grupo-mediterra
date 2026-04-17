@@ -279,7 +279,7 @@ function EmbarquesModule({data, setData, clientes, productores, can}) {
   const [filtroEstado, setFiltroEstado] = useState("Todos");
   const [filtroTemp, setFiltroTemp] = useState("Todos");
   const [modal, setModal] = useState(false);
-  const [form, setForm] = useState({contenedor:"",fruta:"Cerezas",origen:"Chile",destino:"China",cliente:"",productor:"",temporada:"2025/2026",kgNeto:"",cajas:"",etd:"",eta:"",naviera:"",booking:"",bl:"",estado:"Programado",precioFOB:"",notas:""});
+  const [form, setForm] = useState({contenedor:"",fruta:"Cerezas",origen:"Chile",destino:"China",cliente:"",productor:"",temporada:"2025/2026",kgNeto:"",cajas:"",etd:"",eta:"",naviera:"",booking:"",bl:"",estado:"Programado",precioFOB:"",siniestrado:false,notas:""});
 
   const filtrado = data.filter(e=>
     (filtroFruta==="Todos"||e.fruta===filtroFruta)&&
@@ -320,6 +320,7 @@ function EmbarquesModule({data, setData, clientes, productores, can}) {
         <KPI label="⚖️ KG Neto Total" value={`${(totKg/1000).toFixed(0)}t`} color={C.teal} sub={`${totKg.toLocaleString("es-CL")} kg`}/>
         <KPI label="💰 FOB Total" value={$$(totFOB)} color={C.green}/>
         <KPI label="🚢 En tránsito" value={data.filter(e=>e.estado==="En tránsito").length} color={C.yellow}/>
+        <KPI label="⚠️ Siniestrados" value={data.filter(e=>e.siniestrado).length} color={C.red}/>
       </div>
 
       {/* Filtros */}
@@ -341,8 +342,8 @@ function EmbarquesModule({data, setData, clientes, productores, can}) {
       <div style={{overflowX:"auto",borderRadius:10,border:`1px solid ${C.border}`}}>
         <table style={{width:"100%",borderCollapse:"collapse",fontSize:11}}>
           <thead><tr style={{background:C.bg2}}>
-            {["Contenedor","Fruta","Origen","Destino","Cliente","Productor","KG Neto","FOB/kg","FOB Total","ETD","ETA","Estado","Naviera"].map(h=>
-              <th key={h} style={{padding:"8px 10px",textAlign:h.includes("KG")||h.includes("FOB")?"right":"left",color:C.muted,fontWeight:700,fontSize:10,whiteSpace:"nowrap"}}>{h}</th>)}
+            {["Contenedor","Fruta","Origen","Destino","Cliente","Productor","KG Neto","FOB/kg","FOB Total","ETD","ETA","Estado","Sin.","Naviera"].map(h=>
+              <th key={h} style={{padding:"8px 10px",textAlign:h==="KG Neto"||h.includes("FOB")?"right":h==="Sin."?"center":"left",color:C.muted,fontWeight:700,fontSize:10,whiteSpace:"nowrap"}}>{h}</th>)}
           </tr></thead>
           <tbody>
             {filtrado.map((e,i)=>{
@@ -368,11 +369,17 @@ function EmbarquesModule({data, setData, clientes, productores, can}) {
                       : <span style={{fontSize:10,background:`${estadoColor[e.estado]||C.border}22`,color:estadoColor[e.estado]||C.muted,padding:"2px 8px",borderRadius:10,fontWeight:700}}>{e.estado}</span>
                     }
                   </td>
+                  <td style={{padding:"7px 10px",textAlign:"center"}}>
+                    {can
+                      ? <input type="checkbox" checked={!!e.siniestrado} onChange={ev=>upd(e.id,"siniestrado",ev.target.checked)} style={{cursor:"pointer",accentColor:C.red}}/>
+                      : e.siniestrado ? <span style={{fontSize:10,background:"#fee2e2",color:C.red,padding:"2px 8px",borderRadius:10,fontWeight:700}}>⚠️ Sí</span> : <span style={{color:C.muted2,fontSize:10}}>—</span>
+                    }
+                  </td>
                   <td style={{padding:"7px 10px",color:C.muted,fontSize:10}}>{e.naviera||"—"}</td>
                 </tr>
               );
             })}
-            {filtrado.length===0&&<tr><td colSpan={13} style={{padding:32,textAlign:"center",color:C.muted2}}>Sin embarques</td></tr>}
+            {filtrado.length===0&&<tr><td colSpan={14} style={{padding:32,textAlign:"center",color:C.muted2}}>Sin embarques</td></tr>}
           </tbody>
         </table>
       </div>
@@ -401,6 +408,10 @@ function EmbarquesModule({data, setData, clientes, productores, can}) {
                   <option value="">— Seleccionar —</option>
                   {productores.map(p=><option key={p.id} value={p.nombre}>{p.nombre}</option>)}
                 </select></div>
+              <div style={{display:"flex",alignItems:"center",gap:8,paddingTop:18}}>
+                <input type="checkbox" checked={!!form.siniestrado} onChange={e=>setForm(p=>({...p,siniestrado:e.target.checked}))} style={{accentColor:C.red}}/>
+                <span style={{fontSize:12,color:C.text,fontWeight:600}}>⚠️ Siniestrado</span>
+              </div>
             </div>
             <div style={{display:"flex",gap:8,justifyContent:"flex-end",marginTop:16}}>
               <button onClick={()=>setModal(false)} style={{padding:"8px 18px",borderRadius:8,border:`1px solid ${C.border}`,background:"transparent",color:C.muted,cursor:"pointer"}}>Cancelar</button>
@@ -414,24 +425,33 @@ function EmbarquesModule({data, setData, clientes, productores, can}) {
 }
 
 // ═══════════════════════════════════════════════════════════════════
-// LIQUIDACIONES DE VENTA
+// LIQUIDACIONES PRODUCTOR
 // ═══════════════════════════════════════════════════════════════════
+const FORMATOS_CAJA = ["2.5 kg","5 kg","2en1 (10 kg)","Otro"];
+
 function LiquidacionesModule({data, setData, embarques, can}) {
   const [filtroFruta, setFiltroFruta] = useState("Todos");
   const [modal, setModal] = useState(false);
-  const [form, setForm] = useState({embarqueId:"",precioVenta:"",comisionPct:"",gastosDestino:"",gastosLogistica:"",notas:""});
+  const [form, setForm] = useState({embarqueId:"",cajas:"",formatoCaja:"5 kg",formatoOtro:"",precioVenta:"",comisionPct:"",costoMateriales:"",costoServicios:"",gastosDestino:"",gastosLogistica:"",notas:""});
 
   const enriched = data.map(l=>{
     const emb = embarques.find(e=>e.id===l.embarqueId)||{};
     const kg = Number(emb.kgNeto)||0;
+    const cajas = Number(l.cajas)||Number(emb.cajas)||0;
     const precioVenta = Number(l.precioVenta)||0;
     const comisionPct = Number(l.comisionPct)||0;
+    const costoMat = Number(l.costoMateriales)||0;
+    const costoServ = Number(l.costoServicios)||0;
     const gastosDestino = Number(l.gastosDestino)||0;
     const gastosLogistica = Number(l.gastosLogistica)||0;
     const ventaBruta = kg * precioVenta;
     const comision = ventaBruta * comisionPct / 100;
-    const retornoNeto = ventaBruta - comision - gastosDestino - gastosLogistica;
-    return {...l, emb, kg, ventaBruta, comision, retornoNeto, precioVenta, gastosDestino, gastosLogistica};
+    const totalCostos = costoMat + costoServ + gastosDestino + gastosLogistica + comision;
+    const retornoNeto = ventaBruta - totalCostos;
+    const retornoPorCaja = cajas > 0 ? retornoNeto / cajas : 0;
+    const retornoPorKg = kg > 0 ? retornoNeto / kg : 0;
+    const formato = l.formatoCaja==="Otro" ? (l.formatoOtro||"Otro") : (l.formatoCaja||"—");
+    return {...l, emb, kg, cajas, ventaBruta, comision, costoMat, costoServ, totalCostos, retornoNeto, retornoPorCaja, retornoPorKg, precioVenta, gastosDestino, gastosLogistica, formato};
   });
 
   const filtrado = enriched.filter(l=>filtroFruta==="Todos"||l.emb.fruta===filtroFruta);
@@ -443,15 +463,15 @@ function LiquidacionesModule({data, setData, embarques, can}) {
     const id=`aliq_${Date.now()}`;
     setData(prev=>[...prev,{...form,id}]);
     const emb=embarques.find(e=>e.id===form.embarqueId);
-    window.auditLog&&window.auditLog("crear",{modulo:"allegria",seccion:"Liquidaciones",descripcion:`Creó liquidación para embarque ${emb?.contenedor||form.embarqueId}`,registroId:id});
-    setModal(false);setForm({embarqueId:"",precioVenta:"",comisionPct:"",gastosDestino:"",gastosLogistica:"",notas:""});
+    window.auditLog&&window.auditLog("crear",{modulo:"allegria",seccion:"Liquidación Productor",descripcion:`Creó liquidación para embarque ${emb?.contenedor||form.embarqueId}`,registroId:id});
+    setModal(false);setForm({embarqueId:"",cajas:"",formatoCaja:"5 kg",formatoOtro:"",precioVenta:"",comisionPct:"",costoMateriales:"",costoServicios:"",gastosDestino:"",gastosLogistica:"",notas:""});
   }
 
   return (
     <div>
       <div style={{display:"flex",gap:12,marginBottom:16,flexWrap:"wrap"}}>
         <KPI label="💰 Venta Bruta" value={$$(totVenta)} color={C.blue}/>
-        <KPI label="📊 Retorno Neto" value={$$(totNeto)} color={C.green}/>
+        <KPI label="📊 Retorno Neto Productor" value={$$(totNeto)} color={C.green}/>
         <KPI label="📋 Liquidaciones" value={filtrado.length} color={C.muted}/>
       </div>
 
@@ -464,48 +484,160 @@ function LiquidacionesModule({data, setData, embarques, can}) {
       <div style={{overflowX:"auto",borderRadius:10,border:`1px solid ${C.border}`}}>
         <table style={{width:"100%",borderCollapse:"collapse",fontSize:11}}>
           <thead><tr style={{background:C.bg2}}>
-            {["Contenedor","Fruta","Cliente","Destino","KG","Precio/kg","Venta Bruta","Comisión %","Gastos Destino","Gastos Log.","Retorno Neto"].map(h=>
-              <th key={h} style={{padding:"8px 10px",textAlign:["KG","Precio/kg","Venta Bruta","Comisión %","Gastos Destino","Gastos Log.","Retorno Neto"].includes(h)?"right":"left",color:C.muted,fontWeight:700,fontSize:10}}>{h}</th>)}
+            {["Contenedor","Fruta","Cliente","Cajas","Formato","KG","USD/kg","Venta Bruta","Comisión","Mat.+Serv.","Gastos Dest.","Gastos Log.","Retorno Neto","$/Caja","$/KG"].map(h=>
+              <th key={h} style={{padding:"8px 8px",textAlign:["Contenedor","Fruta","Cliente","Formato"].includes(h)?"left":"right",color:C.muted,fontWeight:700,fontSize:9,whiteSpace:"nowrap"}}>{h}</th>)}
           </tr></thead>
           <tbody>
             {filtrado.map((l,i)=>(
               <tr key={l.id} style={{borderBottom:`1px solid ${C.border}22`,background:i%2===0?"transparent":`${C.border}08`}}>
-                <td style={{padding:"7px 10px",fontWeight:700,color:C.text}}>{l.emb.contenedor||"—"}</td>
-                <td style={{padding:"7px 10px"}}><span style={{fontSize:10,background:`${C.accent}22`,color:C.accentL,padding:"2px 8px",borderRadius:10,fontWeight:600}}>{l.emb.fruta||"—"}</span></td>
-                <td style={{padding:"7px 10px",color:C.muted}}>{l.emb.cliente||"—"}</td>
-                <td style={{padding:"7px 10px",color:C.muted}}>{l.emb.destino||"—"}</td>
-                <td style={{padding:"7px 10px",textAlign:"right",color:C.text}}>{l.kg.toLocaleString("es-CL")}</td>
-                <td style={{padding:"7px 10px",textAlign:"right",color:C.muted}}>${l.precioVenta.toFixed(2)}</td>
-                <td style={{padding:"7px 10px",textAlign:"right",fontWeight:600,color:C.blue}}>{$$(l.ventaBruta)}</td>
-                <td style={{padding:"7px 10px",textAlign:"right",color:C.yellow}}>{Number(l.comisionPct)||0}%</td>
-                <td style={{padding:"7px 10px",textAlign:"right",color:C.red}}>{$$(l.gastosDestino)}</td>
-                <td style={{padding:"7px 10px",textAlign:"right",color:C.red}}>{$$(Number(l.gastosLogistica)||0)}</td>
-                <td style={{padding:"7px 10px",textAlign:"right",fontWeight:800,color:l.retornoNeto>=0?C.green:C.red}}>{$$(l.retornoNeto)}</td>
+                <td style={{padding:"6px 8px",fontWeight:700,color:C.text,fontSize:11}}>{l.emb.contenedor||"—"}</td>
+                <td style={{padding:"6px 8px"}}><span style={{fontSize:9,background:`${C.accent}22`,color:C.accentL,padding:"2px 6px",borderRadius:10,fontWeight:600}}>{l.emb.fruta||"—"}</span></td>
+                <td style={{padding:"6px 8px",color:C.muted,fontSize:10}}>{l.emb.cliente||"—"}</td>
+                <td style={{padding:"6px 8px",textAlign:"right",color:C.text}}>{l.cajas?l.cajas.toLocaleString("es-CL"):"—"}</td>
+                <td style={{padding:"6px 8px",color:C.muted,fontSize:10}}>{l.formato}</td>
+                <td style={{padding:"6px 8px",textAlign:"right",color:C.text}}>{l.kg.toLocaleString("es-CL")}</td>
+                <td style={{padding:"6px 8px",textAlign:"right",color:C.muted}}>${l.precioVenta.toFixed(2)}</td>
+                <td style={{padding:"6px 8px",textAlign:"right",fontWeight:600,color:C.blue}}>{$$(l.ventaBruta)}</td>
+                <td style={{padding:"6px 8px",textAlign:"right",color:C.yellow}}>{$$(l.comision)}</td>
+                <td style={{padding:"6px 8px",textAlign:"right",color:C.red}}>{$$(l.costoMat+l.costoServ)}</td>
+                <td style={{padding:"6px 8px",textAlign:"right",color:C.red}}>{$$(l.gastosDestino)}</td>
+                <td style={{padding:"6px 8px",textAlign:"right",color:C.red}}>{$$(Number(l.gastosLogistica)||0)}</td>
+                <td style={{padding:"6px 8px",textAlign:"right",fontWeight:800,color:l.retornoNeto>=0?C.green:C.red}}>{$$(l.retornoNeto)}</td>
+                <td style={{padding:"6px 8px",textAlign:"right",fontWeight:600,color:C.teal}}>{l.retornoPorCaja?`$${l.retornoPorCaja.toFixed(2)}`:"—"}</td>
+                <td style={{padding:"6px 8px",textAlign:"right",fontWeight:600,color:C.teal}}>{l.retornoPorKg?`$${l.retornoPorKg.toFixed(2)}`:"—"}</td>
               </tr>
             ))}
-            {filtrado.length===0&&<tr><td colSpan={11} style={{padding:32,textAlign:"center",color:C.muted2}}>Sin liquidaciones</td></tr>}
+            {filtrado.length===0&&<tr><td colSpan={15} style={{padding:32,textAlign:"center",color:C.muted2}}>Sin liquidaciones</td></tr>}
           </tbody>
         </table>
       </div>
 
       {modal&&(
         <div style={{position:"fixed",inset:0,background:"#000a",zIndex:400,display:"flex",alignItems:"center",justifyContent:"center",padding:20}} onClick={()=>setModal(false)}>
-          <div style={{background:C.card,borderRadius:14,padding:24,maxWidth:480,width:"100%",border:`1px solid ${C.border}`}} onClick={e=>e.stopPropagation()}>
-            <h3 style={{margin:"0 0 16px",color:C.text}}>💰 Nueva Liquidación</h3>
+          <div style={{background:C.card,borderRadius:14,padding:24,maxWidth:540,width:"100%",border:`1px solid ${C.border}`}} onClick={e=>e.stopPropagation()}>
+            <h3 style={{margin:"0 0 16px",color:C.text}}>💰 Nueva Liquidación Productor</h3>
             <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
               <div style={{gridColumn:"1/-1"}}><div style={{fontSize:10,color:C.muted,marginBottom:4}}>Embarque *</div>
                 <select value={form.embarqueId} onChange={e=>setForm(p=>({...p,embarqueId:e.target.value}))} style={{width:"100%",padding:"7px 10px",borderRadius:8,border:`1px solid ${C.border}`,background:C.card2,color:C.text,fontSize:12,outline:"none"}}>
                   <option value="">— Seleccionar embarque —</option>
                   {embarques.map(e=><option key={e.id} value={e.id}>{e.contenedor} · {e.fruta} · {e.cliente} ({(Number(e.kgNeto)||0).toLocaleString()} kg)</option>)}
                 </select></div>
-              {[["Precio Venta USD/kg","precioVenta","number"],["Comisión %","comisionPct","number"],["Gastos Destino USD","gastosDestino","number"],["Gastos Logística USD","gastosLogistica","number"]].map(([l,f,t])=>(
+              <div><div style={{fontSize:10,color:C.muted,marginBottom:4}}>Cantidad Cajas</div>
+                <input type="number" value={form.cajas||""} onChange={e=>setForm(p=>({...p,cajas:e.target.value}))} style={{width:"100%",padding:"7px 10px",borderRadius:8,border:`1px solid ${C.border}`,background:C.card2,color:C.text,fontSize:12,outline:"none",boxSizing:"border-box"}}/></div>
+              <div><div style={{fontSize:10,color:C.muted,marginBottom:4}}>Formato Caja</div>
+                <select value={form.formatoCaja||"5 kg"} onChange={e=>setForm(p=>({...p,formatoCaja:e.target.value}))} style={{width:"100%",padding:"7px 10px",borderRadius:8,border:`1px solid ${C.border}`,background:C.card2,color:C.text,fontSize:12,outline:"none"}}>
+                  {FORMATOS_CAJA.map(f=><option key={f}>{f}</option>)}
+                </select></div>
+              {form.formatoCaja==="Otro"&&(
+                <div><div style={{fontSize:10,color:C.muted,marginBottom:4}}>Especificar formato</div>
+                  <input type="text" value={form.formatoOtro||""} onChange={e=>setForm(p=>({...p,formatoOtro:e.target.value}))} placeholder="ej: 8 kg" style={{width:"100%",padding:"7px 10px",borderRadius:8,border:`1px solid ${C.border}`,background:C.card2,color:C.text,fontSize:12,outline:"none",boxSizing:"border-box"}}/></div>
+              )}
+              {[["Precio Venta USD/kg","precioVenta"],["Comisión %","comisionPct"],["Costo Materiales USD","costoMateriales"],["Costo Servicios USD","costoServicios"],["Gastos Destino USD","gastosDestino"],["Gastos Logística USD","gastosLogistica"]].map(([l,f])=>(
                 <div key={f}><div style={{fontSize:10,color:C.muted,marginBottom:4}}>{l}</div>
-                  <input type={t} value={form[f]||""} onChange={e=>setForm(p=>({...p,[f]:e.target.value}))} style={{width:"100%",padding:"7px 10px",borderRadius:8,border:`1px solid ${C.border}`,background:C.card2,color:C.text,fontSize:12,outline:"none",boxSizing:"border-box"}}/></div>
+                  <input type="number" value={form[f]||""} onChange={e=>setForm(p=>({...p,[f]:e.target.value}))} style={{width:"100%",padding:"7px 10px",borderRadius:8,border:`1px solid ${C.border}`,background:C.card2,color:C.text,fontSize:12,outline:"none",boxSizing:"border-box"}}/></div>
               ))}
             </div>
             <div style={{display:"flex",gap:8,justifyContent:"flex-end",marginTop:16}}>
               <button onClick={()=>setModal(false)} style={{padding:"8px 18px",borderRadius:8,border:`1px solid ${C.border}`,background:"transparent",color:C.muted,cursor:"pointer"}}>Cancelar</button>
               <button onClick={guardar} style={{padding:"8px 18px",borderRadius:8,border:"none",background:C.accent,color:"#fff",cursor:"pointer",fontWeight:700}}>Crear</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// LIQUIDACIÓN CLIENTE (recibida del importador)
+// ═══════════════════════════════════════════════════════════════════
+function LiquidacionClienteModule({data, setData, embarques, can}) {
+  const [modal, setModal] = useState(false);
+  const [form, setForm] = useState({embarqueId:"",montoRecibido:"",monedaRecibida:"USD",fechaRecepcion:"",nDocumento:"",deduccionesCalidad:"",deduccionesFlete:"",otrasDeduciones:"",montoNetoCli:"",notas:""});
+
+  const enriched = data.map(l=>{
+    const emb = embarques.find(e=>e.id===l.embarqueId)||{};
+    const montoRecibido = Number(l.montoRecibido)||0;
+    const dedCalidad = Number(l.deduccionesCalidad)||0;
+    const dedFlete = Number(l.deduccionesFlete)||0;
+    const dedOtras = Number(l.otrasDeduciones)||0;
+    const totalDeducciones = dedCalidad + dedFlete + dedOtras;
+    const netoCliente = montoRecibido - totalDeducciones;
+    return {...l, emb, montoRecibido, totalDeducciones, netoCliente};
+  });
+
+  const totRecibido = enriched.reduce((s,l)=>s+l.montoRecibido,0);
+  const totNeto = enriched.reduce((s,l)=>s+l.netoCliente,0);
+
+  function guardar() {
+    if(!form.embarqueId){alert("Selecciona un embarque.");return;}
+    const id=`aliqc_${Date.now()}`;
+    setData(prev=>[...prev,{...form,id}]);
+    const emb=embarques.find(e=>e.id===form.embarqueId);
+    window.auditLog&&window.auditLog("crear",{modulo:"allegria",seccion:"Liquidación Cliente",descripcion:`Creó liquidación cliente para ${emb?.contenedor||"—"}`,registroId:id});
+    setModal(false);setForm({embarqueId:"",montoRecibido:"",monedaRecibida:"USD",fechaRecepcion:"",nDocumento:"",deduccionesCalidad:"",deduccionesFlete:"",otrasDeduciones:"",montoNetoCli:"",notas:""});
+  }
+
+  return (
+    <div>
+      <div style={{display:"flex",gap:12,marginBottom:16,flexWrap:"wrap"}}>
+        <KPI label="💵 Total Recibido" value={$$(totRecibido)} color={C.blue}/>
+        <KPI label="✅ Neto Cliente" value={$$(totNeto)} color={C.green}/>
+        <KPI label="📋 Liquidaciones" value={enriched.length} color={C.muted}/>
+      </div>
+
+      <div style={{display:"flex",gap:8,marginBottom:14,alignItems:"center"}}>
+        {can&&<button onClick={()=>setModal(true)} style={{marginLeft:"auto",background:C.blue,color:"#fff",border:"none",borderRadius:8,padding:"7px 16px",cursor:"pointer",fontWeight:700,fontSize:12}}>+ Nueva Liquidación Cliente</button>}
+      </div>
+
+      <div style={{overflowX:"auto",borderRadius:10,border:`1px solid ${C.border}`}}>
+        <table style={{width:"100%",borderCollapse:"collapse",fontSize:11}}>
+          <thead><tr style={{background:C.bg2}}>
+            {["Contenedor","Fruta","Cliente","Destino","Monto Recibido","Ded. Calidad","Ded. Flete","Otras Ded.","Neto Cliente","Moneda","Fecha Recepción","N° Doc"].map(h=>
+              <th key={h} style={{padding:"8px 8px",textAlign:["Monto Recibido","Ded. Calidad","Ded. Flete","Otras Ded.","Neto Cliente"].includes(h)?"right":"left",color:C.muted,fontWeight:700,fontSize:9,whiteSpace:"nowrap"}}>{h}</th>)}
+          </tr></thead>
+          <tbody>
+            {enriched.map((l,i)=>(
+              <tr key={l.id} style={{borderBottom:`1px solid ${C.border}22`,background:i%2===0?"transparent":`${C.border}08`}}>
+                <td style={{padding:"6px 8px",fontWeight:700,color:C.text}}>{l.emb.contenedor||"—"}</td>
+                <td style={{padding:"6px 8px"}}><span style={{fontSize:9,background:`${C.accent}22`,color:C.accentL,padding:"2px 6px",borderRadius:10,fontWeight:600}}>{l.emb.fruta||"—"}</span></td>
+                <td style={{padding:"6px 8px",color:C.muted}}>{l.emb.cliente||"—"}</td>
+                <td style={{padding:"6px 8px",color:C.muted}}>{l.emb.destino||"—"}</td>
+                <td style={{padding:"6px 8px",textAlign:"right",fontWeight:700,color:C.blue}}>{$$(l.montoRecibido)}</td>
+                <td style={{padding:"6px 8px",textAlign:"right",color:C.red}}>{Number(l.deduccionesCalidad)?$$(Number(l.deduccionesCalidad)):"—"}</td>
+                <td style={{padding:"6px 8px",textAlign:"right",color:C.red}}>{Number(l.deduccionesFlete)?$$(Number(l.deduccionesFlete)):"—"}</td>
+                <td style={{padding:"6px 8px",textAlign:"right",color:C.red}}>{Number(l.otrasDeduciones)?$$(Number(l.otrasDeduciones)):"—"}</td>
+                <td style={{padding:"6px 8px",textAlign:"right",fontWeight:800,color:l.netoCliente>=0?C.green:C.red}}>{$$(l.netoCliente)}</td>
+                <td style={{padding:"6px 8px",color:C.muted}}>{l.monedaRecibida||"USD"}</td>
+                <td style={{padding:"6px 8px",color:C.muted,fontSize:10}}>{l.fechaRecepcion||"—"}</td>
+                <td style={{padding:"6px 8px",color:C.muted}}>{l.nDocumento||"—"}</td>
+              </tr>
+            ))}
+            {enriched.length===0&&<tr><td colSpan={12} style={{padding:32,textAlign:"center",color:C.muted2}}>Sin liquidaciones de cliente</td></tr>}
+          </tbody>
+        </table>
+      </div>
+
+      {modal&&(
+        <div style={{position:"fixed",inset:0,background:"#000a",zIndex:400,display:"flex",alignItems:"center",justifyContent:"center",padding:20}} onClick={()=>setModal(false)}>
+          <div style={{background:C.card,borderRadius:14,padding:24,maxWidth:520,width:"100%",border:`1px solid ${C.border}`}} onClick={e=>e.stopPropagation()}>
+            <h3 style={{margin:"0 0 16px",color:C.text}}>📥 Nueva Liquidación Cliente (del Importador)</h3>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+              <div style={{gridColumn:"1/-1"}}><div style={{fontSize:10,color:C.muted,marginBottom:4}}>Embarque *</div>
+                <select value={form.embarqueId} onChange={e=>setForm(p=>({...p,embarqueId:e.target.value}))} style={{width:"100%",padding:"7px 10px",borderRadius:8,border:`1px solid ${C.border}`,background:C.card2,color:C.text,fontSize:12,outline:"none"}}>
+                  <option value="">— Seleccionar embarque —</option>
+                  {embarques.map(e=><option key={e.id} value={e.id}>{e.contenedor} · {e.fruta} · {e.cliente}</option>)}
+                </select></div>
+              {[["Monto Recibido USD","montoRecibido","number"],["N° Documento","nDocumento","text"],["Fecha Recepción","fechaRecepcion","date"],["Ded. Calidad USD","deduccionesCalidad","number"],["Ded. Flete USD","deduccionesFlete","number"],["Otras Deducciones USD","otrasDeduciones","number"]].map(([l,f,t])=>(
+                <div key={f}><div style={{fontSize:10,color:C.muted,marginBottom:4}}>{l}</div>
+                  <input type={t} value={form[f]||""} onChange={e=>setForm(p=>({...p,[f]:e.target.value}))} style={{width:"100%",padding:"7px 10px",borderRadius:8,border:`1px solid ${C.border}`,background:C.card2,color:C.text,fontSize:12,outline:"none",boxSizing:"border-box"}}/></div>
+              ))}
+              <div><div style={{fontSize:10,color:C.muted,marginBottom:4}}>Moneda</div>
+                <select value={form.monedaRecibida||"USD"} onChange={e=>setForm(p=>({...p,monedaRecibida:e.target.value}))} style={{width:"100%",padding:"7px 10px",borderRadius:8,border:`1px solid ${C.border}`,background:C.card2,color:C.text,fontSize:12,outline:"none"}}>{MONEDAS.map(m=><option key={m}>{m}</option>)}</select></div>
+            </div>
+            <div style={{display:"flex",gap:8,justifyContent:"flex-end",marginTop:16}}>
+              <button onClick={()=>setModal(false)} style={{padding:"8px 18px",borderRadius:8,border:`1px solid ${C.border}`,background:"transparent",color:C.muted,cursor:"pointer"}}>Cancelar</button>
+              <button onClick={guardar} style={{padding:"8px 18px",borderRadius:8,border:"none",background:C.blue,color:"#fff",cursor:"pointer",fontWeight:700}}>Crear</button>
             </div>
           </div>
         </div>
@@ -679,7 +811,7 @@ function CobranzaModule({data, setData, embarques, liquidaciones, can}) {
 // ═══════════════════════════════════════════════════════════════════
 export default function AllegriaModule({usuarioActual, esAdmin, esSoloConsulta, tabPermisos={}, onBack, onLogout}) {
   const [subApp, setSubApp] = useState(null);
-  const [data, setData] = useState({clientes:[],productores:[],embarques:[],liquidaciones:[],anticipos:[],cobranza:[]});
+  const [data, setData] = useState({clientes:[],productores:[],embarques:[],liquidaciones:[],liqCliente:[],anticipos:[],cobranza:[]});
   const [cargando, setCargando] = useState(true);
 
   // Permisos
@@ -708,6 +840,7 @@ export default function AllegriaModule({usuarioActual, esAdmin, esSoloConsulta, 
   const setProductores = fn => setData(p=>({...p, productores: typeof fn==="function"?fn(p.productores||[]):fn}));
   const setEmbarques = fn => setData(p=>({...p, embarques: typeof fn==="function"?fn(p.embarques||[]):fn}));
   const setLiquidaciones = fn => setData(p=>({...p, liquidaciones: typeof fn==="function"?fn(p.liquidaciones||[]):fn}));
+  const setLiqCliente = fn => setData(p=>({...p, liqCliente: typeof fn==="function"?fn(p.liqCliente||[]):fn}));
   const setAnticipos = fn => setData(p=>({...p, anticipos: typeof fn==="function"?fn(p.anticipos||[]):fn}));
   const setCobranza = fn => setData(p=>({...p, cobranza: typeof fn==="function"?fn(p.cobranza||[]):fn}));
 
@@ -718,7 +851,8 @@ export default function AllegriaModule({usuarioActual, esAdmin, esSoloConsulta, 
     {id:"clientes",      label:"Clientes Importadores", desc:"Gestión de importadores internacionales", icon:"👥", color:"#b91c1c", stats:`${(data.clientes||[]).length} clientes`},
     {id:"productores",   label:"Productores",           desc:"Proveedores de fruta fresca",              icon:"🌱", color:"#0f766e", stats:`${(data.productores||[]).length} productores`},
     {id:"embarques",     label:"Embarques",              desc:"Contenedores, tracking y documentos",     icon:"🚢", color:"#2563eb", stats:`${(data.embarques||[]).length} embarques`},
-    {id:"liquidaciones", label:"Liquidaciones",          desc:"Resultado de venta por embarque",         icon:"💰", color:"#16a34a", stats:`${(data.liquidaciones||[]).length} liquidaciones`},
+    {id:"liquidaciones", label:"Liquidación Productor",  desc:"Resultado de venta — retorno por caja y kg",  icon:"💰", color:"#16a34a", stats:`${(data.liquidaciones||[]).length} liquidaciones`},
+    {id:"liq_cliente",   label:"Liquidación Cliente",    desc:"Liquidación recibida del importador",      icon:"📥", color:"#2563eb", stats:`${(data.liqCliente||[]).length} liquidaciones`},
     {id:"anticipos",     label:"Anticipos",              desc:"Anticipos a productores y de clientes",   icon:"💵", color:"#d97706", stats:`${(data.anticipos||[]).length} anticipos`},
     {id:"cobranza",      label:"Cobranza",               desc:"Cuentas por cobrar y seguimiento",        icon:"📋", color:"#7c3aed", stats:`${(data.cobranza||[]).length} registros`},
   ];
@@ -745,6 +879,7 @@ export default function AllegriaModule({usuarioActual, esAdmin, esSoloConsulta, 
           {subApp==="productores"&&<ProductoresModule data={data.productores||[]} setData={setProductores} can={can}/>}
           {subApp==="embarques"&&<EmbarquesModule data={data.embarques||[]} setData={setEmbarques} clientes={data.clientes||[]} productores={data.productores||[]} can={can}/>}
           {subApp==="liquidaciones"&&<LiquidacionesModule data={data.liquidaciones||[]} setData={setLiquidaciones} embarques={data.embarques||[]} can={can}/>}
+          {subApp==="liq_cliente"&&<LiquidacionClienteModule data={data.liqCliente||[]} setData={setLiqCliente} embarques={data.embarques||[]} can={can}/>}
           {subApp==="anticipos"&&<AnticiposModule data={data.anticipos||[]} setData={setAnticipos} clientes={data.clientes||[]} productores={data.productores||[]} can={can}/>}
           {subApp==="cobranza"&&<CobranzaModule data={data.cobranza||[]} setData={setCobranza} embarques={data.embarques||[]} liquidaciones={data.liquidaciones||[]} can={can}/>}
         </Card>
