@@ -1393,6 +1393,130 @@ export default function App(){
     window._auditUsuarioActual = usuarioActual;
   },[usuarioActual]);
 
+  // ═══════════════════════════════════════════════════════════════════
+  // ALERTAS EMAIL — Tareas puntuales: email los LUNES + resumen semanal
+  // + Modal al ingresar con tareas próximas/vencidas
+  // ═══════════════════════════════════════════════════════════════════
+  const [modalAlertasTareas, setModalAlertasTareas] = useState(null); // {tareas:[]}
+
+  useEffect(()=>{
+    if(cargando || !usuarioActual) return;
+    const hoyStr = new Date().toISOString().slice(0,10);
+    const hoyD = new Date(); hoyD.setHours(0,0,0,0);
+    const diaSemana = hoyD.getDay(); // 0=dom, 1=lun...
+
+    const puntuales = todasTareas().filter(t=>getFrecuencia(t.id)==="Puntual"&&!isBloqueada(t.id));
+    const getWorker = (nombre) => WORKERS.find(w=>w.nombre===nombre);
+
+    // ── Modal al login: mostrar tareas próximas (30d) y vencidas del usuario ──
+    const modalKey = `_modal_tareas_${hoyStr}_${usuarioActual.nombre}`;
+    if(!sessionStorage.getItem(modalKey)) {
+      sessionStorage.setItem(modalKey, "1");
+      const misTareas = [];
+      puntuales.forEach(t => {
+        const fp = getConfig(t.id).fechaPuntual || t.fechaPuntual;
+        if(!fp) return;
+        const est = estados[t.id]||{};
+        if(est.estadoResp === "verde" || est.estadoResp === "na") return;
+        const fechaObj = new Date(fp+"T00:00:00");
+        const diff = Math.ceil((fechaObj - hoyD)/(1000*60*60*24));
+        if(diff > 30) return;
+        const sup = getSupervisor(t.id);
+        // Mostrar si soy responsable, supervisor, o admin
+        const esResp = t.responsable === usuarioActual.nombre;
+        const esSup = sup === usuarioActual.nombre;
+        const esAdm = usuarioActual.rol === "admin";
+        if(!esResp && !esSup && !esAdm) return;
+        misTareas.push({
+          nombre: t.nombre,
+          responsable: t.responsable,
+          supervisor: sup||"—",
+          fecha: fechaObj.toLocaleDateString("es-CL",{day:"2-digit",month:"short",year:"numeric"}),
+          diff,
+          categoria: t.categoria,
+          vencida: diff < 0,
+          hoy: diff === 0,
+        });
+      });
+      // Ordenar: vencidas primero, luego por fecha
+      misTareas.sort((a,b) => a.diff - b.diff);
+      if(misTareas.length > 0) {
+        setTimeout(()=>setModalAlertasTareas({tareas: misTareas}), 1500); // delay para que cargue UI
+      }
+    }
+
+    // ── Emails: solo los LUNES ──
+    if(diaSemana !== 1) return;
+    if(usuarioActual.rol !== "admin") return; // solo admin dispara emails
+    const alertKey = `_alertas_email_${hoyStr}`;
+    if(sessionStorage.getItem(alertKey)) return;
+    sessionStorage.setItem(alertKey, "1");
+
+    // Alertas individuales: solo cuando faltan ≤7 días o está vencida (≤3d)
+    puntuales.forEach(t => {
+      const fp = getConfig(t.id).fechaPuntual || t.fechaPuntual;
+      if(!fp) return;
+      const est = estados[t.id]||{};
+      if(est.estadoResp === "verde" || est.estadoResp === "na") return;
+      const fechaObj = new Date(fp+"T00:00:00");
+      const diff = Math.ceil((fechaObj - hoyD)/(1000*60*60*24));
+      const sup = getSupervisor(t.id);
+      const wResp = getWorker(t.responsable);
+      const wSup = sup ? getWorker(sup) : null;
+
+      let asunto = null, mensaje = null;
+      if(diff >= 0 && diff <= 7) {
+        asunto = `⚠️ ${diff===0?"VENCE HOY":diff===1?"MAÑANA vence":`${diff} días`} — ${t.nombre}`;
+        mensaje = `La tarea "${t.nombre}" vence el ${fechaObj.toLocaleDateString("es-CL")}.\n\n${diff===0?"¡Vence HOY!":diff===1?"¡Vence MAÑANA!":"Faltan "+diff+" días."}\n\nResponsable: ${t.responsable}\nSupervisor: ${sup||"—"}\n\nhttps://gestion-grupo-mediterra.vercel.app`;
+      } else if(diff < 0 && diff >= -7) {
+        asunto = `❌ VENCIDA (${Math.abs(diff)}d) — ${t.nombre}`;
+        mensaje = `La tarea "${t.nombre}" venció hace ${Math.abs(diff)} día(s).\n\nAún no ha sido completada.\n\nResponsable: ${t.responsable}\n\nhttps://gestion-grupo-mediterra.vercel.app`;
+      }
+
+      if(asunto && mensaje && window._enviarNotificacion) {
+        if(wResp?.email) window._enviarNotificacion(wResp.email, wResp.nombre, asunto, mensaje).catch(()=>{});
+        if(wSup?.email && wSup.email !== wResp?.email) window._enviarNotificacion(wSup.email, wSup.nombre, asunto, mensaje).catch(()=>{});
+      }
+    });
+
+    // Resumen semanal consolidado (lunes)
+    const porResponsable = {};
+    puntuales.forEach(t => {
+      const fp = getConfig(t.id).fechaPuntual || t.fechaPuntual;
+      if(!fp) return;
+      const est = estados[t.id]||{};
+      if(est.estadoResp === "verde" || est.estadoResp === "na") return;
+      const fechaObj = new Date(fp+"T00:00:00");
+      const diff = Math.ceil((fechaObj - hoyD)/(1000*60*60*24));
+      if(diff > 30) return;
+      if(!porResponsable[t.responsable]) porResponsable[t.responsable] = [];
+      const estado = diff < 0 ? `⚠️ VENCIDA ${Math.abs(diff)}d` : diff === 0 ? "🔴 HOY" : `${diff} días`;
+      porResponsable[t.responsable].push(`• ${t.nombre} — ${fechaObj.toLocaleDateString("es-CL")} (${estado})`);
+    });
+
+    if(window._enviarNotificacion) {
+      Object.entries(porResponsable).forEach(([nombre, tareas]) => {
+        const w = getWorker(nombre);
+        if(!w?.email || tareas.length === 0) return;
+        window._enviarNotificacion(w.email, nombre,
+          `📋 Resumen semanal — ${tareas.length} tarea(s) próxima(s)`,
+          `Hola ${nombre.split(" ")[0]},\n\nTus tareas puntuales próximas (30 días):\n\n${tareas.join("\n")}\n\nhttps://gestion-grupo-mediterra.vercel.app`
+        ).catch(()=>{});
+      });
+
+      const todasLasTareas = Object.entries(porResponsable)
+        .map(([nombre, tareas]) => `\n👤 ${nombre}:\n${tareas.join("\n")}`)
+        .join("\n");
+      if(todasLasTareas) {
+        const totalTareas = Object.values(porResponsable).reduce((s,t)=>s+t.length, 0);
+        window._enviarNotificacion("ahuerta@grupomediterra.cl", "Angelo Huerta",
+          `📋 Resumen semanal equipo — ${totalTareas} tarea(s)`,
+          `Hola Angelo,\n\nResumen tareas puntuales del equipo (próximos 30 días):\n${todasLasTareas}\n\nhttps://gestion-grupo-mediterra.vercel.app`
+        ).catch(()=>{});
+      }
+    }
+  },[cargando, usuarioActual]); // eslint-disable-line
+
   // Limpiar sesión al hacer logout manual
   // (el logout llama setUsuarioActual(null) — interceptamos eso)
 
@@ -2013,6 +2137,80 @@ Equipo Mediterra`);
               <div style={{display:"flex",gap:8,justifyContent:"flex-end",marginTop:10}}>
                 <button onClick={()=>setEditComentario(null)} style={{padding:"6px 16px",borderRadius:8,border:"1px solid #d1d5db",background:"#fff",cursor:"pointer",fontSize:13}}>Cancelar</button>
                 <button onClick={guardarComentario} style={{padding:"6px 16px",borderRadius:8,background:"#2563eb",color:"#fff",border:"none",cursor:"pointer",fontWeight:700,fontSize:13}}>Guardar</button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ═══ Modal alertas tareas puntuales al ingresar ═══ */}
+        {modalAlertasTareas&&(
+          <div style={{position:"fixed",inset:0,background:"#000a",zIndex:350,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}
+            onClick={()=>setModalAlertasTareas(null)}>
+            <div style={{background:"#fff",borderRadius:16,padding:0,width:"100%",maxWidth:600,
+              boxShadow:"0 24px 64px #0005",maxHeight:"85vh",overflow:"hidden",display:"flex",flexDirection:"column"}}
+              onClick={e=>e.stopPropagation()}>
+              {/* Header */}
+              <div style={{background:"linear-gradient(135deg,#1e3a5f,#0f2d4a)",padding:"18px 24px",
+                display:"flex",alignItems:"center",gap:12}}>
+                <span style={{fontSize:28}}>📌</span>
+                <div style={{flex:1}}>
+                  <div style={{fontSize:16,fontWeight:800,color:"#fff"}}>Tareas Puntuales Próximas</div>
+                  <div style={{fontSize:11,color:"#94a3b8"}}>
+                    {modalAlertasTareas.tareas.filter(t=>t.vencida).length > 0
+                      ? `⚠️ ${modalAlertasTareas.tareas.filter(t=>t.vencida).length} vencida(s) · ${modalAlertasTareas.tareas.filter(t=>!t.vencida).length} próxima(s)`
+                      : `${modalAlertasTareas.tareas.length} tarea(s) en los próximos 30 días`}
+                  </div>
+                </div>
+                <button onClick={()=>setModalAlertasTareas(null)}
+                  style={{background:"rgba(255,255,255,0.15)",border:"none",color:"#fff",borderRadius:8,
+                    padding:"6px 14px",cursor:"pointer",fontSize:12,fontWeight:600}}>
+                  Cerrar ✕
+                </button>
+              </div>
+              {/* Lista */}
+              <div style={{overflowY:"auto",padding:"12px 16px",flex:1}}>
+                {modalAlertasTareas.tareas.map((t,i)=>{
+                  const cat = CATEGORIAS[t.categoria]||{color:"#64748b",bg:"#f1f5f9"};
+                  return (
+                    <div key={i} style={{display:"flex",alignItems:"center",gap:12,padding:"10px 12px",
+                      borderRadius:10,marginBottom:6,
+                      background:t.vencida?"#fff5f5":t.hoy?"#fef3c7":t.diff<=7?"#fffbeb":"#f8fafc",
+                      border:`1px solid ${t.vencida?"#fecaca":t.hoy?"#fde68a":t.diff<=7?"#fef3c7":"#e2e8f0"}`}}>
+                      {/* Indicador */}
+                      <div style={{width:40,height:40,borderRadius:"50%",display:"flex",alignItems:"center",justifyContent:"center",
+                        fontSize:18,flexShrink:0,
+                        background:t.vencida?"#fee2e2":t.hoy?"#fef3c7":t.diff<=7?"#dbeafe":"#f1f5f9"}}>
+                        {t.vencida?"⚠️":t.hoy?"🔴":t.diff<=7?"⏰":"📌"}
+                      </div>
+                      {/* Info */}
+                      <div style={{flex:1,minWidth:0}}>
+                        <div style={{fontWeight:700,fontSize:13,color:"#1e293b",marginBottom:2}}>{t.nombre}</div>
+                        <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
+                          <span style={{fontSize:10,color:"#64748b"}}>👤 {t.responsable}</span>
+                          <span style={{fontSize:10,color:"#94a3b8"}}>🔍 {t.supervisor}</span>
+                          <span style={{fontSize:9,background:cat.bg,color:cat.color,padding:"1px 6px",borderRadius:12,fontWeight:600}}>{t.categoria}</span>
+                        </div>
+                      </div>
+                      {/* Fecha + días */}
+                      <div style={{textAlign:"right",flexShrink:0}}>
+                        <div style={{fontSize:12,fontWeight:700,color:t.vencida?"#dc2626":t.hoy?"#d97706":"#1e293b"}}>{t.fecha}</div>
+                        <div style={{fontSize:11,fontWeight:600,marginTop:2,padding:"2px 8px",borderRadius:12,display:"inline-block",
+                          background:t.vencida?"#dc2626":t.hoy?"#d97706":t.diff<=7?"#2563eb":"#64748b",
+                          color:"#fff"}}>
+                          {t.vencida?`Vencida ${Math.abs(t.diff)}d`:t.hoy?"HOY":`${t.diff}d`}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+              {/* Footer */}
+              <div style={{padding:"12px 20px",borderTop:"1px solid #e2e8f0",textAlign:"center"}}>
+                <button onClick={()=>{setModalAlertasTareas(null);setTab("puntual");}}
+                  style={{padding:"8px 24px",borderRadius:8,background:"#2563eb",color:"#fff",
+                    border:"none",cursor:"pointer",fontWeight:700,fontSize:13}}>
+                  📌 Ver todas las tareas puntuales
+                </button>
               </div>
             </div>
           </div>
