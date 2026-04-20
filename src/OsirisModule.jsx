@@ -1587,30 +1587,51 @@ function FeeEntrada({data,setData,ctData,can,clientes=[]}) {
   const totPend=filtrado.filter(r=>!r.pagado).reduce((s,r)=>s+(r.montoUSD||0),0);
 
   function upd(id,c,v){
-    // Si el registro viene de un contrato y aún no está en data, lo agregamos
-    const existe = data.find(r=>r.id===id);
-    if(!existe){
-      const fromSync = dataConSync.find(r=>r.id===id);
-      if(fromSync) {
-        window.auditLog&&window.auditLog("editar", {modulo:"osiris", seccion:"Fee Entrada",
-          descripcion:`Editó fee entrada de "${fromSync.cliente}" · ${fromSync.pais}: campo ${c} (auto-generado desde contrato)`,
-          registroId:id, campo:c,
-          valorAnterior:String(fromSync[c]||""), valorNuevo:String(v||"")});
-        setData(prev=>[...prev,{...fromSync,[c]:v}]);
+    // Buscar en los datos RAW de Supabase (osirisData.feeEntrada)
+    // data es feData (vista calculada), setData es setFe (actualiza raw)
+    const fromSync = dataConSync.find(r=>r.id===id);
+
+    setData(prev=>{
+      // Buscar si ya existe en raw por id o ctId
+      const ctId = fromSync?.ctId;
+      const existeIdx = prev.findIndex(r=>r.id===id || (ctId && r.ctId===ctId));
+      
+      if(existeIdx >= 0) {
+        // Ya existe en raw → actualizar
+        const updated = [...prev];
+        const old = updated[existeIdx];
+        if(String(old[c]||"") !== String(v||"")) {
+          window.auditLog&&window.auditLog("editar", {modulo:"osiris", seccion:"Fee Entrada",
+            descripcion:`Editó fee entrada de "${old.cliente||fromSync?.cliente}" · ${old.pais||fromSync?.pais}: campo ${c}`,
+            registroId:id, campo:c,
+            valorAnterior:String(old[c]||""), valorNuevo:String(v||"")});
+        }
+        updated[existeIdx] = {...old, [c]:v};
+        return updated;
+      } else {
+        // No existe en raw → crear desde la vista calculada
+        if(fromSync) {
+          window.auditLog&&window.auditLog("editar", {modulo:"osiris", seccion:"Fee Entrada",
+            descripcion:`Editó fee entrada de "${fromSync.cliente}" · ${fromSync.pais}: campo ${c} (auto-generado desde contrato)`,
+            registroId:id, campo:c,
+            valorAnterior:String(fromSync[c]||""), valorNuevo:String(v||"")});
+          // Guardar solo los campos que necesita Supabase (sin _fromContract y otros transitorios)
+          return [...prev, {
+            id: fromSync.id,
+            ctId: fromSync.ctId,
+            cliente: fromSync.cliente,
+            pais: fromSync.pais,
+            montoUSD: fromSync.montoUSD,
+            detalle: fromSync.detalle,
+            nFact: fromSync.nFact || "",
+            pagado: fromSync.pagado || false,
+            fechaPago: fromSync.fechaPago || "",
+            [c]: v,
+          }];
+        }
+        return prev;
       }
-      return;
-    }
-    setData(prev=>prev.map(r=>{
-      if(r.id!==id) return r;
-      if(String(r[c]||"") !== String(v||"")) {
-        window.auditLog&&window.auditLog("editar", {modulo:"osiris", seccion:"Fee Entrada",
-          descripcion:`Editó fee entrada de "${r.cliente}" · ${r.pais}: campo ${c}`,
-          registroId:id, campo:c,
-          valorAnterior:String(r[c]||""), valorNuevo:String(v||"")});
-      }
-      const updated={...r,[c]:v};
-      return updated;
-    }));
+    });
   }
 
   const paises=["Todos",...Array.from(new Set(dataConSync.map(r=>r.pais).filter(Boolean))).sort()];
