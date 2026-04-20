@@ -600,7 +600,7 @@ const EMPRESAS_STATIC = {
         {label:'Costos Variables Operacionales', proy:Z65()},
       ]},
       { cat:'egr_fijo', label:'Costos Fijos / SG&A', signo:-1, lines:[
-        {label:'Remuneración Administración', proy:ext(Array(65).fill(51500))},
+        {label:'Remuneración Administración', proy:ext([51500, 51500, 76500, 51500, 51500, 51500, 51500, 51500, 51500, 51500, 51500, 51500, 51500, 51500, 76500, 51500, 51500, 51500, 51500, 51500, 51500, 51500, 51500, 51500, 51500, 51500, 76500, 51500, 51500, 51500, 51500, 51500, 51500, 51500, 51500, 51500, 51500, 51500, 76500, 51500, 51500, 51500, 51500, 51500, 51500, 51500, 51500, 51500, 51500, 51500, 76500, 51500, 51500, 51500, 51500, 51500, 51500, 51500, 51500, 51500, 51500, 51500, 76500, 51500, 51500])},
         {label:'Leyes Sociales', proy:ext(Array(65).fill(7210))},
         {label:'Aguinaldo', proy:Z65()},
         {label:'Vales De Colación', proy:ext(Array(65).fill(1081.5))},
@@ -1149,7 +1149,7 @@ function buildAllegria(params) {
         {label:"Servicios Terceros / Arriendo Bodegas", proy:Z65()},
       ]},
       { cat:"egr_fijo", label:"Costos Fijos / SG&A", signo:-1, lines:[
-        {label:"Remuneración Administración",   proy:ext(Array(65).fill(7000))},
+        {label:"Remuneración Administración",   proy:ext([7000, 7000, 27000, 7000, 7000, 7000, 7000, 7000, 7000, 7000, 7000, 7000, 7000, 7000, 27000, 7000, 7000, 7000, 7000, 7000, 7000, 7000, 7000, 7000, 7000, 7000, 27000, 7000, 7000, 7000, 7000, 7000, 7000, 7000, 7000, 7000, 7000, 7000, 27000, 7000, 7000, 7000, 7000, 7000, 7000, 7000, 7000, 7000, 7000, 7000, 27000, 7000, 7000, 7000, 7000, 7000, 7000, 7000, 7000, 7000, 7000, 7000, 27000, 7000, 7000])},
         {label:"Leyes Sociales", proy:ext(Array(65).fill(3000))},
         {label:"Aguinaldo", proy:ext([0,0,0,0,0,300,0,0,300,0,0,0,0,0,0,0,0,300,0,0,300,0,0,0,0,0,0,0,0,300,0,0,300,0,0,0,0,0,0,0,0,300,0,0,300,0,0,0,0,0,0,0,0,300,0,0,300,0,0,0,0,0,0,0,0])},
         {label:"Vales De Colación", proy:Z65()},
@@ -1158,7 +1158,7 @@ function buildAllegria(params) {
         {label:"Arriendo Vehículos",            proy:ext(Array(65).fill(2800))},
         {label:"Arriendo Oficina",              proy:ext(Array(65).fill(2800))},
         {label:"Gastos Comunes",                proy:ext(Array(65).fill(500))},
-        {label:"Gastos Legales",                proy:Z65()},
+        {label:"Gastos Legales",                proy:ext(Array(65).fill(1000))},
         {label:"Fee Administración",            proy:Z65()},
         {label:"Asesorías Corporativo", proy:Z65()},
         {label:"Asesorías", proy:Z65()},
