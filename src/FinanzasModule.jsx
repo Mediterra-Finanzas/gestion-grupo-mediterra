@@ -615,7 +615,6 @@ const EMPRESAS_STATIC = {
         {label:'Contribuciones Bienes Raíces', proy:Z65()},
         {label:'Encomienda Y Correo Nacional', proy:Z65()},
         {label:'Encomienda Y Corresp. Internacional', proy:Z65()},
-        {label:'Fee Administración', proy:Z65()},
         {label:'Gasto Arriendo Dispensadores', proy:Z65()},
         {label:'Gastos Bancarios', proy:Z65()},
         {label:'Gastos Bodegaje Documentación', proy:Z65()},
