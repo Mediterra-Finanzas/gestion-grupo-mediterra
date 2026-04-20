@@ -840,6 +840,49 @@ function HubScreen({ usuario, modulosPermitidos, onSelectModulo, onLogout, onCam
               💾 Respaldo
             </button>
           )}
+          {usuario.rol === "admin" && (
+            <button onClick={()=>{
+              const input = document.createElement("input");
+              input.type="file";
+              input.accept=".json";
+              input.onchange=async(e)=>{
+                const file = e.target.files[0];
+                if(!file) return;
+                if(!window.confirm(`⚠️ RESTAURAR RESPALDO\n\nArchivo: ${file.name}\nTamaño: ${(file.size/1024).toFixed(0)} KB\n\nEsto REEMPLAZARÁ todos los datos actuales con los del respaldo.\n\n¿Estás seguro? Esta acción no se puede deshacer.`)) return;
+                // Doble confirmación
+                const code = prompt("Para confirmar, escribe RESTAURAR:");
+                if(code !== "RESTAURAR") { alert("Restauración cancelada."); return; }
+                try {
+                  const text = await file.text();
+                  const backup = JSON.parse(text);
+                  if(!backup.tablas || !backup.version) {
+                    alert("❌ Archivo inválido. No es un respaldo de Mediterra Hub.");
+                    return;
+                  }
+                  let restauradas = 0;
+                  const tablas = Object.entries(backup.tablas);
+                  for(const [id, tabla] of tablas) {
+                    const value = typeof tabla.data === "string" ? tabla.data : JSON.stringify(tabla.data);
+                    await fetch(`${SUPA_URL}/rest/v1/calendario_data`,{
+                      method:"POST",
+                      headers:{apikey:SUPA_KEY,Authorization:`Bearer ${SUPA_KEY}`,
+                        "Content-Type":"application/json",Prefer:"resolution=merge-duplicates"},
+                      body:JSON.stringify({id, value, updated_at:new Date().toISOString()})
+                    });
+                    restauradas++;
+                  }
+                  alert(`✅ Respaldo restaurado exitosamente.\n\n${restauradas} tablas restauradas.\nFecha del respaldo: ${backup.fecha}\n\nLa página se recargará ahora.`);
+                  window.location.reload();
+                } catch(err) {
+                  alert("❌ Error al restaurar: " + err.message);
+                }
+              };
+              input.click();
+            }}
+              style={{background:"#fef3c7", border:"1px solid #fde68a", color:"#92400e", borderRadius:8, padding:"6px 14px", cursor:"pointer", fontSize:12, fontWeight:600}}>
+              📤 Restaurar
+            </button>
+          )}
           {!esSoloConsulta(usuario.nombre) &&
             <button onClick={onCambiarPin} style={{background:"#f1f5f9", border:"1px solid #e2e8f0", color:"#1e293b", borderRadius:8, padding:"6px 14px", cursor:"pointer", fontSize:12}}>🔑 PIN</button>
           }
