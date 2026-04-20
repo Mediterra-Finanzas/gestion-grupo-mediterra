@@ -2887,7 +2887,6 @@ function getSaldoBancoParaSemana(saldosBancos, empNombre, mesIdx, semIdx=0) {
 
 function getSaldoBancoInicial(saldosBancos, empNombre, fallback) {
   if(!saldosBancos) return fallback;
-  // Agrupar por banco+moneda para no perder cuentas
   const porCuenta={};
   Object.entries(saldosBancos).forEach(([key,rec])=>{
     const parts=key.split("||");
@@ -2897,7 +2896,15 @@ function getSaldoBancoInicial(saldosBancos, empNombre, fallback) {
     if(!porCuenta[cuentaKey]||new Date(porCuenta[cuentaKey].fecha)<new Date(rec.fecha)) porCuenta[cuentaKey]=rec;
   });
   let total=0,found=false;
-  Object.values(porCuenta).forEach(rec=>{total+=Number(rec.monto)||0;found=true;});
+  Object.values(porCuenta).forEach(rec=>{
+    const moneda = rec.moneda || "usd";
+    if(moneda === "usd") {
+      total += Number(rec.monto)||0;
+    } else if(rec.usd != null) {
+      total += Number(rec.usd)||0;
+    }
+    found=true;
+  });
   return found?total:fallback;
 }
 
