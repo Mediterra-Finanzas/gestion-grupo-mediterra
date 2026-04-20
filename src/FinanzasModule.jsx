@@ -7009,7 +7009,7 @@ const AÑOS_NOM = Array.from({length:12},(_,i)=>2024+i); // 2024-2035
 // ─────────────────────────────────────────────────────────────────
 // ITEM ROW VACÍO
 // ─────────────────────────────────────────────────────────────────
-const TIPOS_DOCUMENTO = ["Factura Electrónica","Factura Exenta","Factura Importación","Nota de Cobro","Rendición","Remuneraciones","Boleta de Honorarios"];
+const TIPOS_DOCUMENTO = ["Factura Electrónica","Factura Exenta","Factura Importación","Nota de Cobro","Rendición","Remuneraciones","Boleta de Honorarios","Convenio TGR"];
 
 function itemVacio(seccion) {
   return {
