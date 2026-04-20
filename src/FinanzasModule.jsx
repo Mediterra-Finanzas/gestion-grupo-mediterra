@@ -6318,6 +6318,7 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
     }
     // Inject Allpa Farms calculated projections
     const {ingArr:ingAF, costArr:costAF, trspArr:trspAF} = calcAllpa(paramsAF);
+    console.log("[DEBUG calcAllpa] ingAF non-zero:", ingAF.filter(v=>v!==0).length, "costAF non-zero:", costAF.filter(v=>v!==0).length, "paramsAF keys:", Object.keys(paramsAF||{}));
     const afEmp = base["Allpa Farms"];
     if(afEmp) {
       const nextAF = JSON.parse(JSON.stringify(afEmp));
