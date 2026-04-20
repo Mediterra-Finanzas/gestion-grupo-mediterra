@@ -6399,7 +6399,7 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
         if(sec.cat!=="ing_op") return sec;
         return {...sec, lines: sec.lines.map(l=>{
           if(l.label==="Ingreso Carga Contenedores")
-            return {...l, proy:[...ingFrisku], formula:true};
+            return {...l, proy:[...ingFrisku]};
           return l;
         })};
       });
