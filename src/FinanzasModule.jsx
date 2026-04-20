@@ -7036,15 +7036,15 @@ function itemVacio(seccion) {
 // ─────────────────────────────────────────────────────────────────
 // NÓMINA VACÍA
 // ─────────────────────────────────────────────────────────────────
-// Calcular semana ISO de una fecha
+// Calcular semana ISO 8601 de una fecha
 function semanaISOdeFecha(fechaStr) {
   if(!fechaStr) return null;
   const d = new Date(fechaStr+"T00:00:00");
   if(isNaN(d)) return null;
-  const jan4 = new Date(d.getFullYear(),0,4);
-  const daysSinceJan4 = Math.floor((d - jan4)/(86400000));
-  const weekNum = Math.ceil((daysSinceJan4 + jan4.getDay() + 1) / 7);
-  return Math.max(1, Math.min(weekNum, 53));
+  const tmp = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
+  tmp.setUTCDate(tmp.getUTCDate() + 4 - (tmp.getUTCDay() || 7));
+  const yearStart = new Date(Date.UTC(tmp.getUTCFullYear(), 0, 1));
+  return Math.ceil((((tmp - yearStart) / 86400000) + 1) / 7);
 }
 
 function nominaVacia(empresa, semana, año, numero=1) {
