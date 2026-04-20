@@ -3595,7 +3595,7 @@ function WaterfallConsolidado({empresas, saldosBancos}) {
 // ═══════════════════════════════════════════════════════════════════
 // FLUJO POR EMPRESA — v2: totales mes/temporada + edición + saldo banco
 // ═══════════════════════════════════════════════════════════════════
-function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit,saldosBancos,onSaveProy,subLines={},onSaveSubLines,creditosData=CREDITOS_DEFAULT}) {
+function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit,saldosBancos,onSaveProy,subLines={},onSaveSubLines,addedLinesInit={},onSaveAddedLines,creditosData=CREDITOS_DEFAULT}) {
   const emp=empresas[empNombre];
   const [vista,setVista]=useState("mensual");
   const [openSeason,setOpenSeason]=useState({[SEASON_KEYS[0]]:true,[SEASON_KEYS[1]]:true});
@@ -3605,7 +3605,15 @@ function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit,saldosBanc
   // Overrides de proyección editados por el usuario: { lineLabel: { idx: valor | {_sem0,_sem1,_sem2,_sem3} } }
   const [proyOverrides,  setProyOverrides]  = useState({});
   const [expandedSubs,   setExpandedSubs]   = useState({});  // ▶ CxC / Préstamos
-  const [addedLines,     setAddedLines]      = useState({});  // + conceptos por sección (no persistidos)
+  const [addedLines,     setAddedLinesLocal]      = useState(addedLinesInit);  // persistido en Supabase
+  // Wrapper que persiste en Supabase al cambiar addedLines
+  const setAddedLines = useCallback((updater) => {
+    setAddedLinesLocal(prev => {
+      const next = typeof updater === "function" ? updater(prev) : updater;
+      if(onSaveAddedLines) onSaveAddedLines(next);
+      return next;
+    });
+  },[onSaveAddedLines]);
   // Secciones colapsadas — por defecto todas colapsadas, usuario expande
   const [collapsedSections, setCollapsedSections] = useState(()=>{
     const o={};
@@ -6280,6 +6288,8 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
   const [paramsAF,setParamsAF]=useState(defaultParamsAllpa);
   // subLines: { empresa: { lineLabel: [nombre1, nombre2, ...] } }
   const [subLines,setSubLines]=useState({});
+  // addedLines: { empresa: { cat: [{label, vals:{idx:val}}] } } — filas agregadas por usuario
+  const [addedLinesGlobal,setAddedLinesGlobal]=useState({});
   // intercompany: array de transferencias entre empresas
   // [{id, fecha, origen, destino, tipo, monto, descripcion, mes}]
   const [intercompany,setIntercompany]=useState([]);
@@ -6433,6 +6443,7 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
     if(d?.params_if)    setParamsIF(prev=>({...defaultParamsIntegrity(),...d.params_if}));
     if(d?.params_af)    setParamsAF(prev=>({...defaultParamsAllpa(),...d.params_af}));
     if(d?.sub_lines)    setSubLines(d.sub_lines);
+    if(d?.added_lines)  setAddedLinesGlobal(d.added_lines);
     if(d?.intercompany)   setIntercompany(d.intercompany||[]);
     if(d?.creditos_data && Array.isArray(d.creditos_data) && d.creditos_data.length>0) setCreditosData(d.creditos_data);
     if(d?.params_frisku) setParamsFrisku(prev=>d.params_frisku||prev);
@@ -6508,6 +6519,7 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
   const paramsFriskuRef = React.useRef(paramsFrisku);
   const paramsAFRef     = React.useRef(paramsAF);
   const subLinesRef      = React.useRef(subLines);
+  const addedLinesRef    = React.useRef(addedLinesGlobal);
   const intercompanyRef  = React.useRef(intercompany);
   useEffect(()=>{ realDataRef.current     = realData;     },[realData]);
   useEffect(()=>{ paramsRef.current       = params;       },[params]);
@@ -6519,6 +6531,7 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
   useEffect(()=>{ paramsFriskuRef.current = paramsFrisku; },[paramsFrisku]);
   useEffect(()=>{ paramsAFRef.current     = paramsAF;     },[paramsAF]);
   useEffect(()=>{ subLinesRef.current     = subLines;     },[subLines]);
+  useEffect(()=>{ addedLinesRef.current   = addedLinesGlobal; },[addedLinesGlobal]);
   useEffect(()=>{ intercompanyRef.current = intercompany; },[intercompany]);
 
   // Helper centralizado - siempre usa los valores mas recientes
@@ -6535,6 +6548,7 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
       params_if:       overrides.params_if       !== undefined ? overrides.params_if       : paramsIFRef.current,
       params_af:       overrides.params_af       !== undefined ? overrides.params_af       : paramsAFRef.current,
       sub_lines:       overrides.sub_lines       !== undefined ? overrides.sub_lines       : subLinesRef.current,
+      added_lines:     overrides.added_lines     !== undefined ? overrides.added_lines     : addedLinesRef.current,
       intercompany:    overrides.intercompany    !== undefined ? overrides.intercompany    : intercompanyRef.current,
     });
   },[]); // eslint-disable-line
@@ -6607,9 +6621,20 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
       if(!next[empresa]) next[empresa] = {};
       next[empresa][lineLabel] = newList;
       subLinesRef.current = next;
-      // Persistir async
       setTimeout(()=>{
         persistAll({ sub_lines: next })
+          .then(ok=>{ setSaved(ok ? "✅ Guardado" : "⚠️ Error"); setTimeout(()=>setSaved(null),2000); });
+      }, 0);
+      return next;
+    });
+  },[persistAll]);
+
+  const handleSaveAddedLines = useCallback((empresa, newAddedLines) => {
+    setAddedLinesGlobal(prev => {
+      const next = {...prev, [empresa]: newAddedLines};
+      addedLinesRef.current = next;
+      setTimeout(()=>{
+        persistAll({ added_lines: next })
           .then(ok=>{ setSaved(ok ? "✅ Guardado" : "⚠️ Error"); setTimeout(()=>setSaved(null),2000); });
       }, 0);
       return next;
@@ -6878,6 +6903,7 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
                 realData={realData} onSaveReal={handleSaveReal} canEdit={puedoEdit("flujo")}
                 saldosBancos={saldosBancos} onSaveProy={handleSaveProy}
                 subLines={subLines?.[empTab]||{}} onSaveSubLines={(lineLabel,list)=>handleSaveSubLines(empTab,lineLabel,list)}
+                addedLinesInit={addedLinesGlobal?.[empTab]||{}} onSaveAddedLines={(al)=>handleSaveAddedLines(empTab,al)}
                 creditosData={creditosData}/>
             </div>
           )}
