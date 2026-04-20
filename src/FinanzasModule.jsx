@@ -7029,7 +7029,7 @@ function itemVacio(seccion) {
     seccion,
     tipoDoc:"", proveedor:"", rut:"", nDoc:"", fDoc:"", fVenc:"",
     semVenc:"", concepto:"", montoCLP:0, montoUSD:0, comentario:"",
-    pagado:false,
+    pagado:false, anticipo:false,
   };
 }
 
@@ -7105,13 +7105,25 @@ function BadgeEstado({estado}) {
 // ─────────────────────────────────────────────────────────────────
 // TABLA ITEMS (por sección)
 // ─────────────────────────────────────────────────────────────────
-function TablaItems({items, seccion, onChange, canEdit, tc, moneda="ambas"}) {
+function TablaItems({items, seccion, onChange, canEdit, tc, moneda="ambas", semanaNomina}) {
   const rows = items.filter(it=>it.seccion===seccion);
   const soloUSD = moneda==="usd";
   const soloCLP = moneda==="clp";
 
   function updItem(id, field, val) {
-    onChange(items.map(it=>it.id===id?{...it,[field]:val}:it));
+    let updated = {...items.find(it=>it.id===id), [field]:val};
+    // Auto-calcular semana al cambiar fecha de vencimiento
+    if(field==="fVenc" && val) {
+      const sem = semanaISOdeFecha(val);
+      if(sem) {
+        if(semanaNomina && sem !== semanaNomina) {
+          alert(`⚠️ La fecha ${val} corresponde a la semana ${sem}, pero esta nómina es de la semana ${semanaNomina}.\nNo se puede ingresar una fecha fuera de la semana de trabajo.`);
+          return; // no actualizar
+        }
+        updated.semVenc = sem;
+      }
+    }
+    onChange(items.map(it=>it.id===id?updated:it));
   }
   function addItem() {
     onChange([...items, itemVacio(seccion)]);
@@ -7122,11 +7134,14 @@ function TablaItems({items, seccion, onChange, canEdit, tc, moneda="ambas"}) {
 
   const totalCLP = rows.reduce((s,it)=>s+(Number(it.montoCLP)||0),0);
   const totalUSD = rows.reduce((s,it)=>s+(Number(it.montoUSD)||0),0);
+  const totalAnticipo = rows.reduce((s,it)=>s+(Number(it.anticipo)||0),0);
+  const totalSaldoCLP = totalCLP - (soloCLP ? totalAnticipo : 0);
+  const totalSaldoUSD = totalUSD - (soloUSD||(!soloUSD&&!soloCLP) ? totalAnticipo : 0);
 
   const montoLabel = soloUSD ? "Monto USD" : soloCLP ? "Monto CLP" : null;
   const headers = ["Tipo Doc","Proveedor / Nombre","RUT","N° Doc","F. Doc","F. Venc","Sem","Concepto",
     ...(soloUSD ? ["Monto USD"] : soloCLP ? ["Monto CLP"] : ["Monto CLP","Monto USD"]),
-    "Comentario",""];
+    "Anticipo","Saldo a Pagar","Comentario",""];
   const colSpanTotal = 8;
   const colSpanEnd = soloUSD||soloCLP ? 2 : 2;
 
@@ -7193,9 +7208,9 @@ function TablaItems({items, seccion, onChange, canEdit, tc, moneda="ambas"}) {
                     : <span style={{color:C.muted}}>{it.fVenc||"—"}</span>}
                 </td>
                 <td style={{padding:"3px 6px",minWidth:50,textAlign:"center"}}>
-                  {canEdit
-                    ? <input type="number" value={it.semVenc||""} onChange={e=>updItem(it.id,"semVenc",e.target.value)} style={{...inputSt,width:46,textAlign:"center"}} placeholder="S16"/>
-                    : <span style={{color:C.muted}}>{it.semVenc||"—"}</span>}
+                  <span style={{color:it.semVenc?C.accentL:C.muted2,fontWeight:it.semVenc?700:400,fontSize:11}}>
+                    {it.semVenc?`S${it.semVenc}`:"—"}
+                  </span>
                 </td>
                 <td style={{padding:"3px 6px",minWidth:140}}>
                   {canEdit
@@ -7216,6 +7231,23 @@ function TablaItems({items, seccion, onChange, canEdit, tc, moneda="ambas"}) {
                     : <span style={{color:it.montoUSD?C.blue:C.muted2,fontWeight:it.montoUSD?600:400}}>{it.montoUSD?$$usd(it.montoUSD):"—"}</span>}
                 </td>
                 )}
+                <td style={{padding:"3px 6px",textAlign:"right",minWidth:90}}>
+                  {canEdit
+                    ? <input type="number" value={it.anticipo||""} onChange={e=>updItem(it.id,"anticipo",Number(e.target.value)||0)}
+                        style={{...inputSt,textAlign:"right",width:80}} placeholder="0"/>
+                    : <span style={{fontSize:11,color:it.anticipo?C.yellow:C.muted2,fontWeight:it.anticipo?600:400}}>
+                        {it.anticipo?(soloUSD||(!soloUSD&&!soloCLP)?$$usd(it.anticipo):$$clp(it.anticipo)):"—"}
+                      </span>}
+                </td>
+                <td style={{padding:"3px 6px",textAlign:"right",minWidth:90}}>
+                  {(()=>{
+                    const monto = soloUSD ? (Number(it.montoUSD)||0) : soloCLP ? (Number(it.montoCLP)||0) : (Number(it.montoUSD)||Number(it.montoCLP)||0);
+                    const antic = Number(it.anticipo)||0;
+                    const saldo = monto - antic;
+                    const fmt = soloUSD||(!soloUSD&&!soloCLP) ? $$usd : $$clp;
+                    return <span style={{fontWeight:700,fontSize:11,color:saldo>0?C.green:saldo<0?C.red:C.muted2}}>{saldo?fmt(saldo):"—"}</span>;
+                  })()}
+                </td>
                 <td style={{padding:"3px 6px",minWidth:120}}>
                   {canEdit
                     ? <input value={it.comentario||""} onChange={e=>updItem(it.id,"comentario",e.target.value)} style={inputSt} placeholder="Obs."/>
@@ -7242,7 +7274,7 @@ function TablaItems({items, seccion, onChange, canEdit, tc, moneda="ambas"}) {
           {rows.length>0&&(
             <tfoot>
               <tr style={{background:C.bg2,borderTop:`2px solid ${C.border}`}}>
-                <td colSpan={7} style={{padding:"6px 10px",fontWeight:700,color:C.text,fontSize:11}}>
+                <td colSpan={8} style={{padding:"6px 10px",fontWeight:700,color:C.text,fontSize:11}}>
                   Total sección
                 </td>
                 {!soloUSD&&(
@@ -7255,6 +7287,14 @@ function TablaItems({items, seccion, onChange, canEdit, tc, moneda="ambas"}) {
                   {totalUSD?$$usd(totalUSD):"—"}
                 </td>
                 )}
+                <td style={{padding:"6px 8px",textAlign:"right",fontWeight:700,color:C.yellow,fontSize:11}}>
+                  {totalAnticipo?(soloUSD||(!soloUSD&&!soloCLP)?$$usd(totalAnticipo):$$clp(totalAnticipo)):"—"}
+                </td>
+                <td style={{padding:"6px 8px",textAlign:"right",fontWeight:800,color:C.green,fontSize:12}}>
+                  {soloUSD||(!soloUSD&&!soloCLP)
+                    ? (totalSaldoUSD?$$usd(totalSaldoUSD):"—")
+                    : (totalSaldoCLP?$$clp(totalSaldoCLP):"—")}
+                </td>
                 <td colSpan={2}/>
               </tr>
             </tfoot>
@@ -7925,6 +7965,7 @@ function NominaDetalle({nomina, onUpdate, onBack, usuario, canEdit, saldosBancos
                 canEdit={editActivo}
                 tc={nom.tc}
                 moneda={monedaSec}
+                semanaNomina={nom.semana}
               />
             </div>
           );
