@@ -819,49 +819,6 @@ const EMPRESAS_STATIC = {
       ]},
     ],
   },
-  'Frisku Peru': {
-    emoji:'🇵🇪', color:'#6d28d9', saldo_ini:1251, desc:'Operaciones · Perú',
-    sections:[
-      { cat:'ing_op', label:'Ingresos Operacionales', signo:1, lines:[
-        {label:'Otros Ingresos Operacionales', proy:Z65()},
-        {label:'Cuentas por Cobrar', proy:Z65(),subLines:true},
-      ]},
-      { cat:'egr_var', label:'Egresos Operacionales', signo:-1, lines:[
-        {label:'Costos Variables Operacionales', proy:Z65()},
-      ]},
-      { cat:'egr_fijo', label:'Costos Fijos / SG&A', signo:-1, lines:[
-        {label:'Remuneración Administración', proy:Z65()},
-        {label:'Arriendo Vehículos', proy:Z65()},
-        {label:'Arriendo Oficina', proy:Z65()},
-        {label:'Gastos Legales', proy:Z65()},
-        {label:'Fee Administración', proy:Z65()},
-        {label:'Gastos Viajes Nacionales', proy:Z65()},
-        {label:'Gastos Viajes Internacionales', proy:Z65()},
-        {label:'Alojamiento', proy:Z65()},
-        {label:'Gastos de Representación', proy:Z65()},
-        {label:'Almuerzos', proy:Z65()},
-        {label:'Patentes Comerciales', proy:Z65()},
-        {label:'Seguros', proy:Z65()},
-      ]},
-      { cat:'imp', label:'Impuestos', signo:-1, lines:[
-        {label:'Impuestos Mensuales', proy:Z65()},
-        {label:'Impuestos Anuales', proy:Z65()},
-      ]},
-      { cat:'ing_nop', label:'Ingresos No Operacionales', signo:1, lines:[
-        {label:'Capital Calls', proy:Z65(), subLines:true},
-        {label:'Ingresos Financiamiento', proy:Z65(), subLines:true},
-        {label:'Ingreso Renovación', proy:calcIngresoRenovacionEmpresa('Frisku Peru'), formula:true, subLines:true},
-        {label:'Otros Ingresos No Operacionales', proy:Z65()},
-      ]},
-      { cat:'egr_nop', label:'Egresos No Operacionales', signo:-1, lines:[
-        {label:'Pago Préstamos - Total', proy:calcPrestamosEmpresa('Frisku Peru'), formula:true, subLines:true},
-        {label:'Renovaciones', proy:calcRenovacionesEmpresa('Frisku Peru'), formula:true, subLines:true},
-        {label:'Aportes de Capital', proy:Z65(), subLines:true},
-        {label:'Leyes Sociales Laborales', proy:Z65()},
-        {label:'Otros Egresos No Operacionales', proy:Z65()},
-      ]},
-    ],
-  },
   'Allpa Farms': {
     emoji:'🌸', color:'#dc2626', saldo_ini:1828, desc:'Farming cerezas · Chile',
     sections:[
@@ -891,7 +848,7 @@ const EMPRESAS_STATIC = {
         {label:'Transporte', proy:Z65()},
       ]},
       { cat:'egr_fijo', label:'Costos Fijos / SG&A', signo:-1, lines:[
-        {label:'Aguinaldo', proy:Z65()},
+        {label:'Aguinaldo', proy:ext([0, 0, 0, 0, 0, 2000, 0, 0, 2000, 0, 0, 0, 0, 0, 0, 0, 0, 2000, 0, 0, 2000, 0, 0, 0, 0, 0, 0, 0, 0, 2000, 0, 0, 2000, 0, 0, 0, 0, 0, 0, 0, 0, 2000, 0, 0, 2000, 0, 0, 0, 0, 0, 0, 0, 0, 2000, 0, 0, 2000, 0, 0, 0, 0, 0, 0, 0, 0])},
         {label:'Arriendo Oficina', proy:Z65()},
         {label:'Artículos E Insumos de Oficina', proy:Z65()},
         {label:'Aseo', proy:Z65()},
@@ -915,11 +872,11 @@ const EMPRESAS_STATIC = {
         {label:'Gastos Notariales', proy:Z65()},
         {label:'Gastos Varios', proy:Z65()},
         {label:'Honorarios Profesionales', proy:Z65()},
-        {label:'Leyes Sociales', proy:Z65()},
+        {label:'Leyes Sociales', proy:ext(Array(65).fill(4000))},
         {label:'Mantención De Vehículos De Administración', proy:Z65()},
         {label:'Patentes', proy:Z65()},
-        {label:'Remuneración Administración', proy:ext([0,0,0,0,0,0,0,0,0,14400,14400,14400,14400,14400,14400,14400,14400,14400,14400,14400,14400,14400,14400].concat(Array(41).fill(0)))},
-        {label:'Seguro Complementario Salud', proy:Z65()},
+        {label:'Remuneración Administración', proy:ext(Array(65).fill(3200))},
+        {label:'Seguro Complementario Salud', proy:ext(Array(65).fill(800))},
         {label:'Seguros', proy:Z65()},
         {label:'Tag - Peaje', proy:Z65()},
         {label:'Telefonía - Celular', proy:Z65()},
@@ -928,7 +885,7 @@ const EMPRESAS_STATIC = {
       ]},
       { cat:'imp', label:'Impuestos', signo:-1, lines:[
         {label:'Impuestos Anuales', proy:Z65()},
-        {label:'Impuestos Mensuales', proy:Z65()},
+        {label:'Impuestos Mensuales', proy:ext(Array(65).fill(600))},
       ]},
       { cat:'ing_nop', label:'Ingresos No Operacionales', signo:1, lines:[
         {label:'Capital Calls', proy:Z65(), subLines:true},
@@ -3138,7 +3095,6 @@ const PARTICIPACION_CONTROLADORA = {
   "Allegria Foods":1.00,
   "Allegria Service":0.80,
   "Frisku Foods":0.54,
-  "Frisku Peru":0.54,
   "Osiris":1.00,
   "Integrity Farms":0.80,
   "Allpa Farms":0.50,
@@ -4890,7 +4846,7 @@ function Dashboard({empresas, saldosBancos}) {
     return MESES_65.map((_,i)=>{let f=0;Object.values(empresas).forEach(e=>e.sections.forEach(sec=>sec.lines.forEach(l=>{f+=(l.proy[i]||0)*sec.signo;})));acc+=f;return acc;});
   },[empresas]);
   const EMPRESAS_CHILE = ["Mediterra","Allegria Foods","Allegria Service","Frisku Foods","Allpa Farms","Osiris","Integrity Farms"];
-  const EMPRESAS_PERU  = ["Allpa Farms Perú","Frisku Peru"];
+  const EMPRESAS_PERU  = ["Allpa Farms Perú"];
   const HOY_DASH = new Date();
   function saldoDeEmpresas(empList) {
     if(!saldosBancos) return 0;
@@ -5380,7 +5336,7 @@ function Creditos({empresas, creditosData=CREDITOS_DEFAULT, onSaveCreditos, canE
             </div>
             <div style={{padding:"16px 20px",display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
               {[
-                ["Empresa","empresa","select",["Mediterra","Allegria Foods","Allegria Service","Frisku Foods","Osiris","Integrity Farms","Allpa Farms","Allpa Farms Perú","Frisku Peru"]],
+                ["Empresa","empresa","select",["Mediterra","Allegria Foods","Allegria Service","Frisku Foods","Osiris","Integrity Farms","Allpa Farms","Allpa Farms Perú"]],
                 ["Acreedor / Institución","acreedor","text",null],
                 ["Tipo institución","tipo_inst","text",null],
                 ["Tipo crédito","tipo_cr","select",["Bullet","Cuotas Mensuales","Leasing","Crédito Hipotecario","Inversión","Otro"]],
@@ -5585,7 +5541,7 @@ function fmtMoneda(v,sym) {
 
 const EMPRESAS_LIST = [
   "Mediterra","Allegria Foods","Allegria Service",
-  "Frisku Foods","Frisku Peru","Allpa Farms",
+  "Frisku Foods","Allpa Farms",
   "Allpa Farms Perú","Integrity Farms","Osiris"
 ];
 const BANCOS_CHILE = ["BCI","BICE","Security","Chile","Santander"];
@@ -5594,7 +5550,7 @@ const BANCOS_PERU  = ["Scotiabank Perú","BBVA Perú"];
 function generarCuentasFijas() {
   const cuentas = [];
   EMPRESAS_LIST.forEach(emp => {
-    const esPeruana = emp.includes("Perú") || emp === "Frisku Peru";
+    const esPeruana = emp.includes("Perú");
     const bancos  = esPeruana ? BANCOS_PERU  : BANCOS_CHILE;
     const monedas = esPeruana ? ["pen","usd"] : ["clp","usd","eur"];
     bancos.forEach(banco => {
@@ -6844,7 +6800,7 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
               🔄 Intercompany
             </button>
             {["Mediterra","Allegria Foods","Allegria Service","Frisku Foods",
-              "Osiris","Integrity Farms","Allpa Farms","Allpa Farms Perú","Frisku Peru"
+              "Osiris","Integrity Farms","Allpa Farms","Allpa Farms Perú"
             ].filter(n=>empresas[n]).map(n=>{const e=empresas[n];return (
               <button key={n} onClick={()=>{setEmpTab(n);setFlujoSubTab("flujo");}}
                 style={{padding:"7px 14px",borderRadius:8,cursor:"pointer",fontSize:11,fontWeight:600,
@@ -6981,7 +6937,7 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
 // ═══════════════════════════════════════════════════════════════════
 
 const EMPRESAS_NOM = [
-  "Allegria Foods","Allegria Service","Frisku Foods","Frisku Peru",
+  "Allegria Foods","Allegria Service","Frisku Foods",
   "Allpa Farms","Allpa Farms Perú","Mediterra","Integrity Farms","Osiris",
 ];
 
@@ -7394,7 +7350,7 @@ function PanelBancosNomina({empresa, saldosBancos}) {
   // Keys format: "Empresa||Banco||moneda" — must match EMPRESAS_LIST exactly
   const bancosChile = ["BCI","BICE","Security","Chile","Santander"];
   const bancosPeruana = ["Scotiabank Perú","BBVA Perú"];
-  const esPeruana = empresa.includes("Perú")||empresa==="Frisku Peru";
+  const esPeruana = empresa.includes("Perú");
   const bancosList = esPeruana ? bancosPeruana : bancosChile;
   const monedas = esPeruana ? ["pen","usd"] : ["clp","usd","eur"];
   // Build rows from all relevant keys in saldosBancos
@@ -7728,7 +7684,7 @@ function NominaDetalle({nomina, onUpdate, onBack, usuario, canEdit, saldosBancos
     if(!saldosBancos) return {totBancosCLP:0, totBancosUSD:0};
     const bancosChile = ["BCI","BICE","Security","Chile","Santander"];
     const bancosPeruana = ["Scotiabank Perú","BBVA Perú"];
-    const esPeruana = nom.empresa.includes("Perú")||nom.empresa==="Frisku Peru";
+    const esPeruana = nom.empresa.includes("Perú");
     const bancosList = esPeruana ? bancosPeruana : bancosChile;
     let clp=0, usd=0;
     bancosList.forEach(banco=>{
