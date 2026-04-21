@@ -2968,26 +2968,38 @@ function Consolidado({empresas,saldosBancos,realData={},addedLinesGlobal={},subL
       const empSubLines = subLinesGlobal[n] || {};
       Object.entries(empSubLines).forEach(([lineLabel, slList])=>{
         if(!Array.isArray(slList)) return;
-        // Buscar la línea padre en alguna sección
         for(const sec of emp.sections) {
           const parentLine = sec.lines.find(l=>l.label===lineLabel && l.subLines);
           if(parentLine) {
-            // Sumar valores de todas las sub-líneas al proy del padre
-            slList.forEach(sl=>{
-              if(!sl || typeof sl === "string") return;
-              const vals = sl.vals || {};
-              Object.entries(vals).forEach(([k, v])=>{
-                // k puede ser "idx" o "idx_semIdx"
-                const parts = k.split("_");
-                const idx = Number(parts[0]);
-                if(!isNaN(idx) && idx>=0 && idx<65) {
-                  parentLine.proy[idx] += Number(v)||0;
+            // Para cada mes (0-64), sumar subLines igual que sumSubLinesMes
+            for(let idx=0; idx<65; idx++) {
+              let mesTotal = 0;
+              slList.forEach(sl=>{
+                if(!sl || typeof sl === "string") return;
+                const vals = sl.vals || {};
+                // Intentar semanas primero
+                let hasSem = false;
+                for(let s=0; s<4; s++){
+                  const k = `${idx}_${s}`;
+                  if(vals[k] !== undefined){ mesTotal += Number(vals[k])||0; hasSem = true; }
                 }
+                // Si no hay semanas, usar valor mensual
+                if(!hasSem && vals[idx] !== undefined) mesTotal += Number(vals[idx])||0;
+                // También verificar string keys
+                if(!hasSem && vals[String(idx)] !== undefined && vals[idx] === undefined) mesTotal += Number(vals[String(idx)])||0;
               });
-            });
+              if(mesTotal) parentLine.proy[idx] = (parentLine.proy[idx]||0) + mesTotal;
+            }
             break;
           }
         }
+      });
+
+      // Sanitizar todos los proy para evitar NaN
+      emp.sections.forEach(sec=>{
+        sec.lines.forEach(l=>{
+          l.proy = l.proy.map(v=>{const n=Number(v); return isNaN(n)?0:n;});
+        });
       });
 
       result[n] = emp;
