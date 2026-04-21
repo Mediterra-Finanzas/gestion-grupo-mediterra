@@ -2926,6 +2926,17 @@ function Consolidado({empresas,saldosBancos,realData={},addedLinesGlobal={}}) {
       const overrides = realData?.[n]?._proyOverrides || {};
       const overrideKeys = Object.keys(overrides);
       if(overrideKeys.length > 0) console.log(`[Consolidado] ${n}: ${overrideKeys.length} overrides:`, overrideKeys.slice(0,5));
+      // Debug ingresos
+      if(n==="Allegria Service") {
+        const ingSec = emp.sections.find(s=>s.cat==="ing_op");
+        if(ingSec) {
+          ingSec.lines.forEach(l=>{
+            const sum012 = (l.proy[0]||0)+(l.proy[1]||0)+(l.proy[2]||0);
+            if(sum012) console.log(`[Consolidado] AS ing_op "${l.label}" sum(0,1,2)=${sum012}`);
+          });
+        }
+        console.log(`[Consolidado] AS ing_op total lines: ${ingSec?.lines?.length}, total T25-26:`, ingSec?.lines?.reduce((s,l)=>s+(l.proy[0]||0)+(l.proy[1]||0)+(l.proy[2]||0),0));
+      }
       // Aplicar overrides de proyección
       emp.sections = emp.sections.map(sec=>({
         ...sec,
