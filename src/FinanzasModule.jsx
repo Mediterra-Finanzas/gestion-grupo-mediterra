@@ -2911,7 +2911,7 @@ function getSaldoBancoInicial(saldosBancos, empNombre, fallback) {
 // ═══════════════════════════════════════════════════════════════════
 // CONSOLIDADO — dentro de Flujo Empresas
 // ═══════════════════════════════════════════════════════════════════
-function Consolidado({empresas,saldosBancos,realData={},addedLinesGlobal={}}) {
+function Consolidado({empresas,saldosBancos,realData={},addedLinesGlobal={},subLinesGlobal={}}) {
   const empNames=Object.keys(empresas);
   const [vistaConsolidado,setVistaConsolidado]=useState("sumada");
   const [agrup,setAgrup]=useState("mes");
@@ -2924,19 +2924,6 @@ function Consolidado({empresas,saldosBancos,realData={},addedLinesGlobal={}}) {
       const emp = JSON.parse(JSON.stringify(empresas[n]));
       // Los overrides del usuario están en realData[empresa]._proyOverrides
       const overrides = realData?.[n]?._proyOverrides || {};
-      const overrideKeys = Object.keys(overrides);
-      if(overrideKeys.length > 0) console.log(`[Consolidado] ${n}: ${overrideKeys.length} overrides:`, overrideKeys.slice(0,5));
-      // Debug ingresos
-      if(n==="Allegria Service") {
-        const ingSec = emp.sections.find(s=>s.cat==="ing_op");
-        if(ingSec) {
-          ingSec.lines.forEach(l=>{
-            const sum012 = (l.proy[0]||0)+(l.proy[1]||0)+(l.proy[2]||0);
-            if(sum012) console.log(`[Consolidado] AS ing_op "${l.label}" sum(0,1,2)=${sum012}`);
-          });
-        }
-        console.log(`[Consolidado] AS ing_op total lines: ${ingSec?.lines?.length}, total T25-26:`, ingSec?.lines?.reduce((s,l)=>s+(l.proy[0]||0)+(l.proy[1]||0)+(l.proy[2]||0),0));
-      }
       // Aplicar overrides de proyección
       emp.sections = emp.sections.map(sec=>({
         ...sec,
@@ -2963,8 +2950,6 @@ function Consolidado({empresas,saldosBancos,realData={},addedLinesGlobal={}}) {
       }));
       // Agregar addedLines
       const added = addedLinesGlobal[n] || {};
-      const addedKeys = Object.keys(added);
-      if(addedKeys.length > 0) console.log(`[Consolidado] ${n}: addedLines cats:`, addedKeys, 'total lines:', addedKeys.reduce((s,k)=>(s+(added[k]||[]).length),0));
       Object.entries(added).forEach(([cat, lines])=>{
         const sec = emp.sections.find(s=>s.cat===cat);
         if(sec && Array.isArray(lines)) {
@@ -2979,6 +2964,32 @@ function Consolidado({empresas,saldosBancos,realData={},addedLinesGlobal={}}) {
           });
         }
       });
+      // Agregar subLines values (CxC, Capital Calls, etc.)
+      const empSubLines = subLinesGlobal[n] || {};
+      Object.entries(empSubLines).forEach(([lineLabel, slList])=>{
+        if(!Array.isArray(slList)) return;
+        // Buscar la línea padre en alguna sección
+        for(const sec of emp.sections) {
+          const parentLine = sec.lines.find(l=>l.label===lineLabel && l.subLines);
+          if(parentLine) {
+            // Sumar valores de todas las sub-líneas al proy del padre
+            slList.forEach(sl=>{
+              if(!sl || typeof sl === "string") return;
+              const vals = sl.vals || {};
+              Object.entries(vals).forEach(([k, v])=>{
+                // k puede ser "idx" o "idx_semIdx"
+                const parts = k.split("_");
+                const idx = Number(parts[0]);
+                if(!isNaN(idx) && idx>=0 && idx<65) {
+                  parentLine.proy[idx] += Number(v)||0;
+                }
+              });
+            });
+            break;
+          }
+        }
+      });
+
       result[n] = emp;
     });
     return result;
@@ -7052,7 +7063,7 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
 
           {/* Consolidado */}
           {empTab==="_consolidado"&&(
-            <Consolidado empresas={empresas} saldosBancos={saldosBancos} realData={realData} addedLinesGlobal={addedLinesGlobal}/>
+            <Consolidado empresas={empresas} saldosBancos={saldosBancos} realData={realData} addedLinesGlobal={addedLinesGlobal} subLinesGlobal={subLines}/>
           )}
           {/* Intercompany */}
           {empTab==="_intercompany"&&(
