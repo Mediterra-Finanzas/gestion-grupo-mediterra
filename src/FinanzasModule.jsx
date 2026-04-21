@@ -2924,6 +2924,8 @@ function Consolidado({empresas,saldosBancos,realData={},addedLinesGlobal={}}) {
       const emp = JSON.parse(JSON.stringify(empresas[n]));
       // Los overrides del usuario están en realData[empresa]._proyOverrides
       const overrides = realData?.[n]?._proyOverrides || {};
+      const overrideKeys = Object.keys(overrides);
+      if(overrideKeys.length > 0) console.log(`[Consolidado] ${n}: ${overrideKeys.length} overrides:`, overrideKeys.slice(0,5));
       // Aplicar overrides de proyección
       emp.sections = emp.sections.map(sec=>({
         ...sec,
@@ -2950,6 +2952,8 @@ function Consolidado({empresas,saldosBancos,realData={},addedLinesGlobal={}}) {
       }));
       // Agregar addedLines
       const added = addedLinesGlobal[n] || {};
+      const addedKeys = Object.keys(added);
+      if(addedKeys.length > 0) console.log(`[Consolidado] ${n}: addedLines cats:`, addedKeys, 'total lines:', addedKeys.reduce((s,k)=>(s+(added[k]||[]).length),0));
       Object.entries(added).forEach(([cat, lines])=>{
         const sec = emp.sections.find(s=>s.cat===cat);
         if(sec && Array.isArray(lines)) {
