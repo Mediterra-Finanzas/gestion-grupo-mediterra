@@ -6791,7 +6791,7 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
     next[empresa][mes][semana]=vals;
     setRealData(next);
     realDataRef.current = next;
-    const ok=await persistAll({ calendario_data:next });
+    const ok=await persistAll({ finanzas_real:next });
     setSaved(ok?"✅ Guardado":"⚠️ Error");
     setTimeout(()=>setSaved(null),3000);
   },[persistAll]);
@@ -6810,7 +6810,7 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
       }
       realDataRef.current = next;
       setTimeout(()=>{
-        persistAll({ calendario_data:next })
+        persistAll({ finanzas_real:next })
           .then(ok=>{ setSaved(ok?"✅ Proyección guardada":"⚠️ Error"); setTimeout(()=>setSaved(null),2000); });
       },0);
       return next;
