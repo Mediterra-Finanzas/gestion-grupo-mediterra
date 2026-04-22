@@ -4511,11 +4511,20 @@ function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit,saldosBanc
                   {line.subLines&&expandedSubs[line.label]&&!line.label.includes("Préstamos")&&(subLines[line.label]||[]).map((sl,sli)=>{
                     const slLabel=typeof sl==="string"?sl:sl.label;
                     const slVals =typeof sl==="string"?{}:(sl.vals||{});
-                    // Guarda un valor semanal: la clave es "idx_semIdx" (ej: "2_0") o "idx" para mensual antiguo
+                    // Guarda un valor: lee siempre del estado actual de subLines para evitar closures stale
                     const updSlVal=(idx,v,semIdx)=>{
                       const key = semIdx != null ? `${idx}_${semIdx}` : String(idx);
-                      const arr=(subLines[line.label]||[]).map((x,xi)=>xi===sli?{label:slLabel,vals:{...slVals,[key]:v}}:x);
-                      if(onSaveSubLines) onSaveSubLines(line.label,arr);
+                      if(onSaveSubLines) {
+                        // Leer el estado ACTUAL de subLines (no el closure)
+                        const currentList = subLines[line.label] || [];
+                        const currentSl = currentList[sli];
+                        const currentVals = (typeof currentSl === "string" ? {} : (currentSl?.vals || {}));
+                        const newVals = {...currentVals, [key]: v};
+                        // Si v es 0, eliminar la key para limpiar
+                        if(v === 0) delete newVals[key];
+                        const arr = currentList.map((x,xi) => xi === sli ? {label: slLabel, vals: newVals} : x);
+                        onSaveSubLines(line.label, arr);
+                      }
                     };
                     // Helper: obtener valor de un subLine para (idx, semIdx)
                     const getSlVal = (idx, semIdx) => {
