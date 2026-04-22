@@ -7739,7 +7739,7 @@ function NominaDetalle({nomina, onUpdate, onBack, usuario, canEdit, saldosBancos
 
     // Data por sección
     const allSecs=[...SECCIONES,...(nom.seccionesExtra||[])];
-    let grandTotalCLP=0, grandTotalUSD=0, grandTotalAnticipo=0;
+    let grandTotalCLP=0, grandTotalUSD=0;
     allSecs.forEach(sec=>{
       const secItems=nom.items.filter(it=>it.seccion===sec.id);
       if(secItems.length===0) return;
@@ -7757,6 +7757,7 @@ function NominaDetalle({nomina, onUpdate, onBack, usuario, canEdit, saldosBancos
         const antic=Number(it.anticipo)||0;
         const monto = usd || clp;
         const saldo = monto - antic;
+        const sMoneda = usd ? 4 : 3; // 4=USD format, 3=CLP format
         rowsXml+=`<row r="${currentRow}" ht="18" customHeight="1">`;
         rowsXml+=`<c r="A${currentRow}" t="inlineStr" s="${sBase}"><is><t>${escXml(it.tipoDoc||"—")}</t></is></c>`;
         rowsXml+=`<c r="B${currentRow}" t="inlineStr" s="${sBase}"><is><t>${escXml(it.proveedor||"—")}</t></is></c>`;
@@ -7768,25 +7769,34 @@ function NominaDetalle({nomina, onUpdate, onBack, usuario, canEdit, saldosBancos
         rowsXml+=`<c r="H${currentRow}" t="inlineStr" s="${sBase}"><is><t>${escXml(it.concepto||"—")}</t></is></c>`;
         rowsXml+=clp?`<c r="I${currentRow}" s="3"><v>${clp}</v></c>`:`<c r="I${currentRow}" t="inlineStr" s="${sBase}"><is><t>—</t></is></c>`;
         rowsXml+=usd?`<c r="J${currentRow}" s="4"><v>${usd}</v></c>`:`<c r="J${currentRow}" t="inlineStr" s="${sBase}"><is><t>—</t></is></c>`;
-        rowsXml+=antic?`<c r="K${currentRow}" s="3"><v>${antic}</v></c>`:`<c r="K${currentRow}" t="inlineStr" s="${sBase}"><is><t>—</t></is></c>`;
-        rowsXml+=saldo?`<c r="L${currentRow}" s="4"><v>${saldo}</v></c>`:`<c r="L${currentRow}" t="inlineStr" s="${sBase}"><is><t>—</t></is></c>`;
+        rowsXml+=antic?`<c r="K${currentRow}" s="${sMoneda}"><v>${antic}</v></c>`:`<c r="K${currentRow}" t="inlineStr" s="${sBase}"><is><t>—</t></is></c>`;
+        rowsXml+=saldo?`<c r="L${currentRow}" s="${sMoneda}"><v>${saldo}</v></c>`:`<c r="L${currentRow}" t="inlineStr" s="${sBase}"><is><t>—</t></is></c>`;
         rowsXml+=`<c r="M${currentRow}" t="inlineStr" s="${sBase}"><is><t>${escXml(it.comentario||"")}</t></is></c>`;
         rowsXml+=`<c r="N${currentRow}" t="inlineStr" s="${sBase}"><is><t>${it.pagado?"✓":"—"}</t></is></c>`;
         rowsXml+=`</row>`;
         currentRow++;
       });
-      // Subtotal sección
+      // Subtotal sección — separar anticipos por moneda
       const stCLP=secItems.reduce((s,it)=>s+(Number(it.montoCLP)||0),0);
       const stUSD=secItems.reduce((s,it)=>s+(Number(it.montoUSD)||0),0);
-      const stAntic=secItems.reduce((s,it)=>s+(Number(it.anticipo)||0),0);
-      grandTotalCLP+=stCLP; grandTotalUSD+=stUSD; grandTotalAnticipo+=stAntic;
+      const stAnticCLP=secItems.reduce((s,it)=>{
+        if(Number(it.montoCLP)&&!Number(it.montoUSD)) return s+(Number(it.anticipo)||0); return s;
+      },0);
+      const stAnticUSD=secItems.reduce((s,it)=>{
+        if(Number(it.montoUSD)) return s+(Number(it.anticipo)||0); return s;
+      },0);
+      grandTotalCLP+=stCLP; grandTotalUSD+=stUSD;
       rowsXml+=`<row r="${currentRow}" ht="18" customHeight="1">`;
       for(let c=0;c<8;c++) rowsXml+=`<c r="${colLetter(c)}${currentRow}" s="8"/>`;
       rowsXml+=stCLP?`<c r="I${currentRow}" s="9"><v>${stCLP}</v></c>`:`<c r="I${currentRow}" s="8"/>`;
       rowsXml+=stUSD?`<c r="J${currentRow}" s="10"><v>${stUSD}</v></c>`:`<c r="J${currentRow}" s="8"/>`;
-      rowsXml+=stAntic?`<c r="K${currentRow}" s="9"><v>${stAntic}</v></c>`:`<c r="K${currentRow}" s="8"/>`;
-      const stSaldo=(stUSD||stCLP)-stAntic;
-      rowsXml+=stSaldo?`<c r="L${currentRow}" s="10"><v>${stSaldo}</v></c>`:`<c r="L${currentRow}" s="8"/>`;
+      // Anticipo subtotal: CLP format si solo CLP, USD si solo USD, o separado
+      const stAnticTot=stAnticCLP+stAnticUSD;
+      rowsXml+=stAnticTot?`<c r="K${currentRow}" s="${stUSD?10:9}"><v>${stAnticTot}</v></c>`:`<c r="K${currentRow}" s="8"/>`;
+      const stSaldoCLP=stCLP-stAnticCLP;
+      const stSaldoUSD=stUSD-stAnticUSD;
+      const stSaldoTot=stSaldoCLP+stSaldoUSD;
+      rowsXml+=stSaldoTot?`<c r="L${currentRow}" s="${stUSD?10:9}"><v>${stUSD?stSaldoUSD:stSaldoCLP}</v></c>`:`<c r="L${currentRow}" s="8"/>`;
       rowsXml+=`<c r="M${currentRow}" s="8"/><c r="N${currentRow}" s="8"/>`;
       rowsXml+=`</row>`;
       currentRow++;
@@ -7806,8 +7816,8 @@ function NominaDetalle({nomina, onUpdate, onBack, usuario, canEdit, saldosBancos
     for(let c=0;c<8;c++) rowsXml+=`<c r="${colLetter(c)}${currentRow}" s="11"/>`;
     rowsXml+=`<c r="I${currentRow}" s="12"><v>${grandTotalCLP}</v></c>`;
     rowsXml+=`<c r="J${currentRow}" s="13"><v>${grandTotalUSD}</v></c>`;
-    rowsXml+=`<c r="K${currentRow}" s="12"><v>${grandAnticCLP+grandAnticUSD}</v></c>`;
-    rowsXml+=`<c r="L${currentRow}" s="13"><v>${grandSaldoUSD||grandSaldoCLP}</v></c>`;
+    rowsXml+=grandAnticCLP?`<c r="K${currentRow}" s="12"><v>${grandAnticCLP}</v></c>`:(grandAnticUSD?`<c r="K${currentRow}" s="13"><v>${grandAnticUSD}</v></c>`:`<c r="K${currentRow}" s="11"/>`);
+    rowsXml+=grandSaldoCLP?`<c r="L${currentRow}" s="12"><v>${grandSaldoCLP}</v></c>`:(grandSaldoUSD?`<c r="L${currentRow}" s="13"><v>${grandSaldoUSD}</v></c>`:`<c r="L${currentRow}" s="11"/>`);
     rowsXml+=`<c r="M${currentRow}" s="11"/><c r="N${currentRow}" s="11"/>`;
     rowsXml+=`</row>`;
 
@@ -7817,7 +7827,7 @@ function NominaDetalle({nomina, onUpdate, onBack, usuario, canEdit, saldosBancos
     const stylesXml=`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
   <numFmts count="2">
-    <numFmt numFmtId="164" formatCode='#,##0'/>
+    <numFmt numFmtId="164" formatCode='"$" #,##0'/>
     <numFmt numFmtId="165" formatCode='"US$" #,##0.00'/>
   </numFmts>
   <fonts count="8">
@@ -8003,8 +8013,11 @@ function NominaDetalle({nomina, onUpdate, onBack, usuario, canEdit, saldosBancos
   }
 
   // Totales
-  const totCLP = nom.items.reduce((s,it)=>s+(Number(it.montoCLP)||0),0);
-  const totUSD = nom.items.reduce((s,it)=>s+(Number(it.montoUSD)||0),0);
+  // Solo sumar items que pertenecen a secciones válidas (evita items fantasma)
+  const seccionesValidas = new Set([...SECCIONES,...(nom.seccionesExtra||[])].map(s=>s.id));
+  const itemsValidos = nom.items.filter(it=>seccionesValidas.has(it.seccion));
+  const totCLP = itemsValidos.reduce((s,it)=>s+(Number(it.montoCLP)||0),0);
+  const totUSD = itemsValidos.reduce((s,it)=>s+(Number(it.montoUSD)||0),0);
 
   // Saldo bancos: tomar de saldosBancos reales (pestaña Saldos Bancos) para esta empresa
   const {totBancosCLP, totBancosUSD} = React.useMemo(()=>{
