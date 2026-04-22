@@ -368,12 +368,15 @@ const CREDITOS_DEFAULT = [
   {n:24,empresa:"Allegria Service",acreedor:"BCI",tipo_inst:"Banco",monto:543447,f_venc:"2028-11-05",tipo_cr:"Leasing",tasa:"8.5%",cuota:677206,pagado:false},
   {n:25,empresa:"Allegria Service",acreedor:"BCI",tipo_inst:"Banco",monto:589857,f_venc:"2029-11-05",tipo_cr:"Leasing",tasa:"8.5%",cuota:677206,pagado:false},
   {n:26,empresa:"Allegria Service",acreedor:"BCI",tipo_inst:"Banco",monto:432959,f_venc:"2029-12-05",tipo_cr:"Leasing",tasa:"8.5%",cuota:436040,pagado:false},
-  {n:27,empresa:"Allpa Farms",acreedor:"Banco de Chile",tipo_inst:"Banco",monto:53061,f_venc:"2026-06-26",tipo_cr:"Crédito Hipotecario",tasa:"7.7%",cuota:53061,pagado:false},
-  {n:28,empresa:"Allpa Farms",acreedor:"Banco de Chile",tipo_inst:"Banco",monto:106122,f_venc:"2027-06-29",tipo_cr:"Crédito Hipotecario",tasa:"7.7%",cuota:106122,pagado:false},
-  {n:29,empresa:"Allpa Farms",acreedor:"Banco de Chile",tipo_inst:"Banco",monto:143720,f_venc:"2028-06-27",tipo_cr:"Crédito Hipotecario",tasa:"7.7%",cuota:143720,pagado:false},
-  {n:30,empresa:"Allpa Farms",acreedor:"Banco de Chile",tipo_inst:"Banco",monto:143720,f_venc:"2029-06-26",tipo_cr:"Crédito Hipotecario",tasa:"7.7%",cuota:143720,pagado:false},
-  {n:31,empresa:"Allpa Farms",acreedor:"Banco de Chile",tipo_inst:"Banco",monto:143720,f_venc:"2030-06-26",tipo_cr:"Crédito Hipotecario",tasa:"7.7%",cuota:143720,pagado:false},
-  {n:32,empresa:"Allpa Farms",acreedor:"Banco de Chile",tipo_inst:"Banco",monto:143720,f_venc:"2031-06-26",tipo_cr:"Crédito Hipotecario",tasa:"7.7%",cuota:143720,pagado:false},
+  {n:27,empresa:"Allpa Farms",acreedor:"Banco de Chile",tipo_inst:"Banco",monto:245273,f_venc:"2026-06-26",tipo_cr:"Crédito Hipotecario",tasa:"7.7%",cuota:245273,pagado:false},
+  {n:28,empresa:"Allpa Farms",acreedor:"Banco de Chile",tipo_inst:"Banco",monto:198867,f_venc:"2027-06-29",tipo_cr:"Crédito Hipotecario",tasa:"7.7%",cuota:198867,pagado:false},
+  {n:29,empresa:"Allpa Farms",acreedor:"Banco de Chile",tipo_inst:"Banco",monto:228192,f_venc:"2028-06-27",tipo_cr:"Crédito Hipotecario",tasa:"7.7%",cuota:228192,pagado:false},
+  {n:30,empresa:"Allpa Farms",acreedor:"Banco de Chile",tipo_inst:"Banco",monto:216751,f_venc:"2029-06-26",tipo_cr:"Crédito Hipotecario",tasa:"7.7%",cuota:216751,pagado:false},
+  {n:31,empresa:"Allpa Farms",acreedor:"Banco de Chile",tipo_inst:"Banco",monto:205467,f_venc:"2030-06-26",tipo_cr:"Crédito Hipotecario",tasa:"7.7%",cuota:205467,pagado:false},
+  {n:32,empresa:"Allpa Farms",acreedor:"Banco de Chile",tipo_inst:"Banco",monto:193995,f_venc:"2031-06-26",tipo_cr:"Crédito Hipotecario",tasa:"7.7%",cuota:193995,pagado:false},
+  {n:42,empresa:"Allpa Farms",acreedor:"Banco de Chile",tipo_inst:"Banco",monto:182899,f_venc:"2032-06-29",tipo_cr:"Crédito Hipotecario",tasa:"7.7%",cuota:182899,pagado:false},
+  {n:43,empresa:"Allpa Farms",acreedor:"Banco de Chile",tipo_inst:"Banco",monto:170987,f_venc:"2033-06-28",tipo_cr:"Crédito Hipotecario",tasa:"7.7%",cuota:170987,pagado:false},
+  {n:44,empresa:"Allpa Farms",acreedor:"Banco de Chile",tipo_inst:"Banco",monto:159543,f_venc:"2034-06-27",tipo_cr:"Crédito Hipotecario",tasa:"7.7%",cuota:159543,pagado:false},
   {n:33,empresa:"Mediterra",acreedor:"Privado Particular",tipo_inst:"Privado",monto:34650,f_venc:"2026-06-01",tipo_cr:"Inversión",tasa:"12.6%",cuota:34650,pagado:false},
   {n:34,empresa:"Mediterra",acreedor:"Privado Particular",tipo_inst:"Privado",monto:34650,f_venc:"2026-09-01",tipo_cr:"Inversión",tasa:"12.6%",cuota:34650,pagado:false},
   {n:35,empresa:"Mediterra",acreedor:"Privado Particular",tipo_inst:"Privado",monto:34650,f_venc:"2026-12-01",tipo_cr:"Inversión",tasa:"12.6%",cuota:34650,pagado:false},
@@ -1722,6 +1725,24 @@ function defaultParamsAllpa() {
     p[sk] = {
       variedades: [], // [{nombre, kg_mes:{mes:kg}, usd_kg:0, anticipos:[{mes,usd_kg}], mes_liq:""}]
       cosecha: { usd_kg:0, semanas_pago:[] }, // costos de cosecha
+      transporte: { costo_persona:0, personas:0, meses_pago:[] },
+    };
+  });
+  // Pre-cargar datos temporadas 2028-2029, 2029-2030, 2030-2031
+  const preload = [
+    {sk:"2028-2029", oct:"Oct-28", nov:"Nov-28", mar:"Mar-29"},
+    {sk:"2029-2030", oct:"Oct-29", nov:"Nov-29", mar:"Mar-30"},
+    {sk:"2030-2031", oct:"Oct-30", nov:"Nov-30", mar:"Mar-31"},
+  ];
+  preload.forEach(({sk,oct,nov,mar})=>{
+    if(!p[sk]) return;
+    p[sk] = {
+      variedades: [
+        {nombre:"Nimba",  kg_mes:{[oct]:180000}, usd_kg:5.5, anticipos:[{mes:oct,usd_kg:0.5},{mes:nov,usd_kg:0.5}], mes_liq:mar},
+        {nombre:"Aryana", kg_mes:{[nov]:220000}, usd_kg:2.5, anticipos:[{mes:oct,usd_kg:0.5},{mes:nov,usd_kg:0.5}], mes_liq:mar},
+        {nombre:"Nipama", kg_mes:{[oct]:69000},  usd_kg:5.5, anticipos:[{mes:oct,usd_kg:0.5},{mes:nov,usd_kg:0.5}], mes_liq:mar},
+      ],
+      cosecha: { usd_kg:0.45, semanas_pago:[{mes:oct,pct:70},{mes:nov,pct:30}] },
       transporte: { costo_persona:0, personas:0, meses_pago:[] },
     };
   });
@@ -5132,6 +5153,11 @@ function Creditos({empresas, creditosData=CREDITOS_DEFAULT, onSaveCreditos, canE
     if(filtPagado==="Pagados"&&!c.pagado) return false;
     if(busq&&![c.empresa,c.acreedor].some(s=>s.toLowerCase().includes(busq.toLowerCase()))) return false;
     return true;
+  }).sort((a,b)=>{
+    // Ordenar por empresa, luego por fecha de vencimiento
+    const empCmp = (a.empresa||"").localeCompare(b.empresa||"");
+    if(empCmp!==0) return empCmp;
+    return (a.f_venc||"").localeCompare(b.f_venc||"");
   });
   const deudaEmp={};creditosData.forEach(c=>{
     if(!deudaEmp[c.empresa]) deudaEmp[c.empresa]=0;
