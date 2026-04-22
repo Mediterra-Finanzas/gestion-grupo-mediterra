@@ -11,8 +11,8 @@ const EMAILJS_TEMPLATE_NOTIF = process.env.REACT_APP_EMAILJS_TEMPLATE_NOTIF;
 const EMAILJS_KEY      = process.env.REACT_APP_EMAILJS_KEY;
 const FECHA_INICIO     = new Date(2026, 3, 13);
 
-const SUPA_URL = process.env.REACT_APP_SUPA_URL;
-const SUPA_KEY = process.env.REACT_APP_SUPA_KEY;
+const SUPA_URL = process.env.REACT_APP_SUPA_URL || "https://bywovqayuzodbzwsriet.supabase.co";
+const SUPA_KEY = process.env.REACT_APP_SUPA_KEY || "sb_publishable_FaExS2rtwFRW3qgUKatmLA_BHiWM2EV";
 
 async function dbLoad() {
   try {
