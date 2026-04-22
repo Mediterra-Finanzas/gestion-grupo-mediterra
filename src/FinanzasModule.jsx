@@ -6633,8 +6633,9 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
   // ── Carga inicial de datos ────────────────────────────────────────
   function applyData(d) {
     if(!d) return;
-    if(d?.calendario_data) setRealData(d.calendario_data);
-    else if(d&&!d.calendario_data&&!d.allegria_params) setRealData(d);
+    if(d?.finanzas_real) setRealData(d.finanzas_real);
+    else if(d?.calendario_data) setRealData(d.calendario_data);
+    else if(d&&!d.calendario_data&&!d.allegria_params&&!d.finanzas_real) setRealData(d);
     if(d?.allegria_params) setParams(prev=>({...defaultParams(),...d.allegria_params}));
     if(d?.params_emp) setParamsEmp(d.params_emp);
     if(d?.saldos_bancos) setSaldosBancos(d.saldos_bancos);
