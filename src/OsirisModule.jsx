@@ -63,9 +63,9 @@ function Th({cols}) {
 function Cell({val,onChange,type="text",opts=null,can,ph=""}) {
   const [on,setOn]=useState(false);
   const [tmp,setTmp]=useState(val);
-  // Sincronizar cuando val cambia externamente
+  // Sincronizar cuando val cambia externamente — solo si no estamos editando
   React.useEffect(()=>{if(!on) setTmp(val);},[val,on]);
-  if(!can) return <span style={{fontSize:12,color:C.sl}}>{val!=null&&val!==""?val:<span style={{color:"#cbd5e1"}}>—</span>}</span>;
+  if(!can) return <span style={{fontSize:12,color:C.sl,wordBreak:"break-all"}}>{val!=null&&val!==""?val:<span style={{color:"#cbd5e1"}}>—</span>}</span>;
   if(on) {
     if(opts) return (
       <select value={tmp} onChange={e=>setTmp(e.target.value)}
@@ -77,16 +77,24 @@ function Cell({val,onChange,type="text",opts=null,can,ph=""}) {
     return (
       <input type={type} value={tmp??""} placeholder={ph}
         onChange={e=>setTmp(e.target.value)}
+        onPaste={e=>{
+          // Forzar guardado inmediato al pegar (especialmente para links)
+          setTimeout(()=>{
+            const pasted = e.target.value;
+            setTmp(pasted);
+            onChange(type==="number"?(parseFloat(pasted)||0):pasted);
+          },50);
+        }}
         onBlur={()=>{onChange(type==="number"?(parseFloat(tmp)||0):tmp);setOn(false);}}
         onKeyDown={e=>{if(e.key==="Enter"){onChange(type==="number"?(parseFloat(tmp)||0):tmp);setOn(false);}}}
         autoFocus
-        style={{fontSize:12,borderRadius:6,border:"1px solid #93c5fd",padding:"3px 6px",background:"#eff6ff",width:"100%",maxWidth:type==="number"?90:160}}
+        style={{fontSize:12,borderRadius:6,border:"1px solid #93c5fd",padding:"3px 6px",background:"#eff6ff",width:"100%",maxWidth:type==="number"?90:400}}
       />
     );
   }
   return (
     <span onClick={()=>{setTmp(val);setOn(true);}}
-      style={{fontSize:12,color:C.sl,cursor:"pointer",borderBottom:"1px dashed #93c5fd",paddingBottom:1}}>
+      style={{fontSize:12,color:C.sl,cursor:"pointer",borderBottom:"1px dashed #93c5fd",paddingBottom:1,wordBreak:"break-all"}}>
       {val!=null&&val!==""?val:<span style={{color:"#cbd5e1"}}>—</span>}
     </span>
   );
@@ -3626,15 +3634,35 @@ function ControlContratos({data,setData,clientes,setClientes,can}){
                     Lleva multa
                   </label>
                   {r.llevaMulta&&(
-                    <div style={{display:"flex",alignItems:"center",gap:8}}>
-                      <span style={{fontSize:12,color:"#9f1239"}}>Mínimo Há según contrato:</span>
-                      {can
-                        ? <input type="number" min="0" value={r.haMinContrato||0}
-                            onChange={e=>upd(r.id,"haMinContrato",parseFloat(e.target.value)||0)}
-                            style={{width:90,padding:"5px 8px",borderRadius:6,border:"1px solid #fecdd3",fontSize:13,textAlign:"right"}}/>
-                        : <span style={{fontWeight:700,color:"#9f1239"}}>{r.haMinContrato||0}</span>
-                      }
-                      <span style={{fontSize:12,color:"#9f1239"}}>Há</span>
+                    <div style={{display:"flex",flexDirection:"column",gap:10,flex:1}}>
+                      <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
+                        <span style={{fontSize:12,color:"#9f1239"}}>Mínimo Há según contrato:</span>
+                        {can
+                          ? <input type="number" min="0" value={r.haMinContrato||0}
+                              onChange={e=>upd(r.id,"haMinContrato",parseFloat(e.target.value)||0)}
+                              style={{width:90,padding:"5px 8px",borderRadius:6,border:"1px solid #fecdd3",fontSize:13,textAlign:"right"}}/>
+                          : <span style={{fontWeight:700,color:"#9f1239"}}>{r.haMinContrato||0}</span>
+                        }
+                        <span style={{fontSize:12,color:"#9f1239"}}>Há</span>
+                      </div>
+                      <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
+                        <span style={{fontSize:12,color:"#9f1239"}}>Monto multa ({r.moneda||"USD"}):</span>
+                        {can
+                          ? <input type="number" min="0" value={r.montoMulta||0}
+                              onChange={e=>upd(r.id,"montoMulta",parseFloat(e.target.value)||0)}
+                              style={{width:120,padding:"5px 8px",borderRadius:6,border:"1px solid #fecdd3",fontSize:13,textAlign:"right"}}/>
+                          : <span style={{fontWeight:700,color:"#9f1239"}}>{r.montoMulta?`${r.moneda||"USD"} ${Number(r.montoMulta).toLocaleString("es-CL")}`:0}</span>
+                        }
+                      </div>
+                      <div style={{display:"flex",alignItems:"flex-start",gap:8}}>
+                        <span style={{fontSize:12,color:"#9f1239",whiteSpace:"nowrap",marginTop:4}}>Descripción multa:</span>
+                        {can
+                          ? <textarea value={r.descMulta||""} onChange={e=>upd(r.id,"descMulta",e.target.value)}
+                              rows={2} placeholder="Ej: USD 5,000 por cada hectárea no plantada bajo el mínimo contractual..."
+                              style={{flex:1,padding:"5px 8px",borderRadius:6,border:"1px solid #fecdd3",fontSize:12,resize:"vertical",minWidth:250}}/>
+                          : <span style={{fontSize:12,color:"#9f1239"}}>{r.descMulta||"—"}</span>
+                        }
+                      </div>
                     </div>
                   )}
                 </div>
