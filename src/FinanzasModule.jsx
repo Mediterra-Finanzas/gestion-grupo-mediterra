@@ -4513,15 +4513,28 @@ function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit,saldosBanc
                     const slVals =typeof sl==="string"?{}:(sl.vals||{});
                     // Guarda un valor: lee siempre del estado actual de subLines para evitar closures stale
                     const updSlVal=(idx,v,semIdx)=>{
-                      const key = semIdx != null ? `${idx}_${semIdx}` : String(idx);
                       if(onSaveSubLines) {
                         // Leer el estado ACTUAL de subLines (no el closure)
                         const currentList = subLines[line.label] || [];
                         const currentSl = currentList[sli];
                         const currentVals = (typeof currentSl === "string" ? {} : (currentSl?.vals || {}));
-                        const newVals = {...currentVals, [key]: v};
-                        // Si v es 0, eliminar la key para limpiar
-                        if(v === 0) delete newVals[key];
+                        const newVals = {...currentVals};
+                        
+                        if(semIdx != null) {
+                          // Editando una semana específica
+                          const key = `${idx}_${semIdx}`;
+                          if(v === 0 || v === "") delete newVals[key];
+                          else newVals[key] = v;
+                        } else {
+                          // Editando a nivel de mes — limpiar todas las keys de semana de este mes
+                          for(let s=0; s<5; s++) delete newVals[`${idx}_${s}`];
+                          // También limpiar key mensual vieja
+                          delete newVals[idx];
+                          delete newVals[String(idx)];
+                          // Guardar el nuevo valor con key string
+                          if(v !== 0 && v !== "") newVals[String(idx)] = v;
+                        }
+                        
                         const arr = currentList.map((x,xi) => xi === sli ? {label: slLabel, vals: newVals} : x);
                         onSaveSubLines(line.label, arr);
                       }
