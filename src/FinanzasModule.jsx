@@ -73,6 +73,18 @@ async function dbLoad() {
 }
 async function dbSave(data) {
   try {
+    // Si no viene finanzas_real, leer el existente para no borrarlo
+    if(!data.finanzas_real) {
+      try {
+        const existing = await fetch(`${SUPA_URL}/rest/v1/calendario_data?id=eq.finanzas&select=value`,
+          { headers:{ apikey:SUPA_KEY, Authorization:`Bearer ${SUPA_KEY}` }});
+        const ed = await existing.json();
+        const parsed = ed?.[0]?.value ? JSON.parse(ed[0].value) : {};
+        if(parsed.finanzas_real && Object.keys(parsed.finanzas_real).length > 0) {
+          data.finanzas_real = parsed.finanzas_real;
+        }
+      } catch(e) { /* si falla la lectura, continuar sin finanzas_real */ }
+    }
     const body = JSON.stringify({ id:"finanzas", value:JSON.stringify(data) });
     const r = await fetch(`${SUPA_URL}/rest/v1/calendario_data`, {
       method:"POST",
@@ -6768,8 +6780,11 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
   // Helper centralizado - siempre usa los valores mas recientes
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const persistAll = useCallback((overrides={})=>{
-    return dbSave({
-      finanzas_real:   overrides.finanzas_real   !== undefined ? overrides.finanzas_real   : realDataRef.current,
+    // Protección: no enviar finanzas_real vacío (evita borrar overrides guardados)
+    const realToSave = overrides.finanzas_real !== undefined ? overrides.finanzas_real : realDataRef.current;
+    const hasRealData = realToSave && Object.keys(realToSave).length > 0;
+    
+    const payload = {
       allegria_params: overrides.allegria_params !== undefined ? overrides.allegria_params : paramsRef.current,
       saldos_bancos:   overrides.saldos_bancos   !== undefined ? overrides.saldos_bancos   : saldosBancosRef.current,
       params_emp:      overrides.params_emp      !== undefined ? overrides.params_emp      : paramsEmpRef.current,
@@ -6781,7 +6796,10 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
       sub_lines:       overrides.sub_lines       !== undefined ? overrides.sub_lines       : subLinesRef.current,
       added_lines:     overrides.added_lines     !== undefined ? overrides.added_lines     : addedLinesRef.current,
       intercompany:    overrides.intercompany    !== undefined ? overrides.intercompany    : intercompanyRef.current,
-    });
+    };
+    // Solo incluir finanzas_real si tiene datos (evita borrar al inicio)
+    if(hasRealData) payload.finanzas_real = realToSave;
+    return dbSave(payload);
   },[]); // eslint-disable-line
 
   const handleSaveReal=useCallback(async(empresa,mes,semana,vals)=>{
