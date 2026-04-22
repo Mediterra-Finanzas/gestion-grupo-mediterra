@@ -55,8 +55,8 @@ function mIdx(label) { return MESES_65.indexOf(label); }
 // ═══════════════════════════════════════════════════════════════════
 // SUPABASE
 // ═══════════════════════════════════════════════════════════════════
-const SUPA_URL = process.env.REACT_APP_SUPA_URL;
-const SUPA_KEY = process.env.REACT_APP_SUPA_KEY;
+const SUPA_URL = process.env.REACT_APP_SUPA_URL || "https://bywovqayuzodbzwsriet.supabase.co";
+const SUPA_KEY = process.env.REACT_APP_SUPA_KEY || "sb_publishable_FaExS2rtwFRW3qgUKatmLA_BHiWM2EV";
 
 async function dbLoad() {
   try {
