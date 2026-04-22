@@ -8390,53 +8390,81 @@ function NominaDetalle({nomina, onUpdate, onBack, usuario, canEdit, saldosBancos
           <table className="print-table">
             <thead>
               <tr>
-                <th style={{width:"18%"}}>Tipo de Pago</th>
-                <th style={{width:"24%"}}>Proveedor / Nombre</th>
-                <th style={{width:"10%"}}>N° Doc</th>
-                <th style={{width:"10%"}}>F. Venc</th>
-                <th style={{width:"14%",textAlign:"right"}}>Monto CLP</th>
-                <th style={{width:"14%",textAlign:"right"}}>Monto USD</th>
-                <th style={{width:"10%",textAlign:"center"}}>Pagado</th>
+                <th style={{width:"8%"}}>Tipo Doc</th>
+                <th style={{width:"14%"}}>Proveedor</th>
+                <th style={{width:"7%"}}>RUT</th>
+                <th style={{width:"6%"}}>N° Doc</th>
+                <th style={{width:"7%"}}>F. Doc</th>
+                <th style={{width:"7%"}}>F. Venc</th>
+                <th style={{width:"3%"}}>Sem</th>
+                <th style={{width:"10%"}}>Concepto</th>
+                <th style={{width:"9%",textAlign:"right"}}>Monto CLP</th>
+                <th style={{width:"9%",textAlign:"right"}}>Monto USD</th>
+                <th style={{width:"7%",textAlign:"right"}}>Anticipo</th>
+                <th style={{width:"8%",textAlign:"right"}}>Saldo Pagar</th>
+                <th style={{width:"5%"}}>Obs.</th>
               </tr>
             </thead>
             <tbody>
               {([...SECCIONES,...(nom.seccionesExtra||[])]).map(sec=>{
                 const secItems = nom.items.filter(it=>it.seccion===sec.id);
                 if(secItems.length === 0) return null;
-                const esUSD = sec.id==="emp_rel_usd"||sec.id==="pagos_usd";
                 const stCLP = secItems.reduce((s,it)=>s+(Number(it.montoCLP)||0),0);
                 const stUSD = secItems.reduce((s,it)=>s+(Number(it.montoUSD)||0),0);
+                const stAntic = secItems.reduce((s,it)=>s+(Number(it.anticipo)||0),0);
+                const stSaldo = (stUSD||stCLP) - stAntic;
                 return (
                   <React.Fragment key={sec.id}>
                     <tr className="sec-row">
-                      <td colSpan={7}>{sec.label} ({secItems.length})</td>
+                      <td colSpan={13}>{sec.label} ({secItems.length})</td>
                     </tr>
-                    {secItems.map(it=>(
-                      <tr key={it.id}>
-                        <td style={{paddingLeft:12,color:"#64748b",fontSize:"7px"}}>{sec.label}</td>
-                        <td style={{fontWeight:500}}>{it.proveedor||"—"}</td>
-                        <td>{it.nDoc||"—"}</td>
-                        <td>{it.fVenc||"—"}</td>
-                        <td className="num">{(Number(it.montoCLP)||0) ? $$clp(Number(it.montoCLP)) : "—"}</td>
-                        <td className="num">{(Number(it.montoUSD)||0) ? $$usd(Number(it.montoUSD)) : "—"}</td>
-                        <td style={{textAlign:"center"}}>{it.pagado?"✓":"—"}</td>
-                      </tr>
-                    ))}
+                    {secItems.map(it=>{
+                      const monto = Number(it.montoUSD)||Number(it.montoCLP)||0;
+                      const antic = Number(it.anticipo)||0;
+                      const saldo = monto - antic;
+                      return (
+                        <tr key={it.id}>
+                          <td style={{fontSize:"6.5px"}}>{it.tipoDoc||"—"}</td>
+                          <td style={{fontWeight:500}}>{it.proveedor||"—"}</td>
+                          <td style={{fontSize:"6.5px"}}>{it.rut||"—"}</td>
+                          <td>{it.nDoc||"—"}</td>
+                          <td style={{fontSize:"6.5px"}}>{it.fDoc||"—"}</td>
+                          <td style={{fontSize:"6.5px"}}>{it.fVenc||"—"}</td>
+                          <td style={{textAlign:"center"}}>{it.semVenc?`S${it.semVenc}`:"—"}</td>
+                          <td style={{fontSize:"6.5px"}}>{it.concepto||"—"}</td>
+                          <td className="num">{Number(it.montoCLP)?$$clp(Number(it.montoCLP)):"—"}</td>
+                          <td className="num">{Number(it.montoUSD)?$$usd(Number(it.montoUSD)):"—"}</td>
+                          <td className="num">{antic?$$usd(antic):"—"}</td>
+                          <td className="num" style={{fontWeight:600}}>{saldo?$$usd(saldo):"—"}</td>
+                          <td style={{fontSize:"6px"}}>{it.comentario||""}</td>
+                        </tr>
+                      );
+                    })}
                     <tr className="subtotal-row">
-                      <td colSpan={4} style={{textAlign:"right"}}>Subtotal {sec.label}</td>
-                      <td className="num">{stCLP ? $$clp(stCLP) : "—"}</td>
-                      <td className="num">{stUSD ? $$usd(stUSD) : "—"}</td>
+                      <td colSpan={8} style={{textAlign:"right"}}>Subtotal</td>
+                      <td className="num">{stCLP?$$clp(stCLP):"—"}</td>
+                      <td className="num">{stUSD?$$usd(stUSD):"—"}</td>
+                      <td className="num">{stAntic?$$usd(stAntic):"—"}</td>
+                      <td className="num" style={{fontWeight:700}}>{stSaldo?$$usd(stSaldo):"—"}</td>
                       <td></td>
                     </tr>
                   </React.Fragment>
                 );
               })}
-              <tr className="total-row">
-                <td colSpan={4} style={{textAlign:"right"}}>TOTAL NÓMINA</td>
-                <td className="num">{totCLP ? $$clp(totCLP) : "—"}</td>
-                <td className="num">{totUSD ? $$usd(totUSD) : "—"}</td>
-                <td></td>
-              </tr>
+              {(()=>{
+                const gAntic = nom.items.reduce((s,it)=>s+(Number(it.anticipo)||0),0);
+                const gSaldo = (totUSD||totCLP) - gAntic;
+                return (
+                  <tr className="total-row">
+                    <td colSpan={8} style={{textAlign:"right"}}>TOTAL NÓMINA</td>
+                    <td className="num">{totCLP?$$clp(totCLP):"—"}</td>
+                    <td className="num">{totUSD?$$usd(totUSD):"—"}</td>
+                    <td className="num">{gAntic?$$usd(gAntic):"—"}</td>
+                    <td className="num" style={{fontWeight:800}}>{gSaldo?$$usd(gSaldo):"—"}</td>
+                    <td></td>
+                  </tr>
+                );
+              })()}
             </tbody>
           </table>
 
@@ -8632,17 +8660,17 @@ function NominasModule({usuario, canEdit=false, saldosBancos={}}) {
         .print-header h2{margin:0;font-size:15px;color:#0f2d4a;font-weight:900}
         .print-header .meta{font-size:8.5px;color:#475569;text-align:right}
         .print-header .meta div{margin-bottom:2px}
-        .print-table{width:100%;border-collapse:collapse;font-size:8px;margin-bottom:10px}
-        .print-table th{background:#0f2d4a!important;color:white!important;padding:4px 8px;font-size:7.5px;
+        .print-table{width:100%;border-collapse:collapse;font-size:7px;margin-bottom:10px}
+        .print-table th{background:#0f2d4a!important;color:white!important;padding:3px 4px;font-size:6.5px;
           text-align:left;white-space:nowrap;-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important}
-        .print-table td{padding:3px 8px;border-bottom:0.5px solid #e2e8f0;font-size:8px}
-        .print-table .sec-row td{background:#e2e8f0!important;font-weight:800;font-size:8.5px;
-          padding:5px 8px;border-top:1.5px solid #64748b;color:#0f2d4a;
+        .print-table td{padding:2px 4px;border-bottom:0.5px solid #e2e8f0;font-size:7px}
+        .print-table .sec-row td{background:#e2e8f0!important;font-weight:800;font-size:7.5px;
+          padding:4px 4px;border-top:1.5px solid #64748b;color:#0f2d4a;
           -webkit-print-color-adjust:exact!important;print-color-adjust:exact!important}
-        .print-table .total-row td{background:#0f2d4a!important;color:white!important;font-weight:800;font-size:9px;
-          padding:5px 8px;-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important}
-        .print-table .subtotal-row td{background:#f1f5f9!important;font-weight:700;font-size:8px;
-          padding:3px 8px;border-top:1px solid #94a3b8;
+        .print-table .total-row td{background:#0f2d4a!important;color:white!important;font-weight:800;font-size:8px;
+          padding:4px 4px;-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important}
+        .print-table .subtotal-row td{background:#f1f5f9!important;font-weight:700;font-size:7px;
+          padding:2px 4px;border-top:1px solid #94a3b8;
           -webkit-print-color-adjust:exact!important;print-color-adjust:exact!important}
         .print-table td.num{text-align:right;font-variant-numeric:tabular-nums}
         .print-footer{display:flex!important;justify-content:space-around;margin-top:16px;
