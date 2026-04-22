@@ -8390,19 +8390,19 @@ function NominaDetalle({nomina, onUpdate, onBack, usuario, canEdit, saldosBancos
           <table className="print-table">
             <thead>
               <tr>
-                <th style={{width:"7%"}}>Tipo Doc</th>
+                <th style={{width:"6%"}}>Tipo Doc</th>
                 <th style={{width:"13%"}}>Proveedor</th>
                 <th style={{width:"6%"}}>RUT</th>
-                <th style={{width:"5%"}}>N° Doc</th>
-                <th style={{width:"6%"}}>F. Doc</th>
-                <th style={{width:"6%"}}>F. Venc</th>
-                <th style={{width:"3%"}}>Sem</th>
+                <th style={{width:"4%"}}>N° Doc</th>
+                <th style={{width:"5%"}}>F. Doc</th>
+                <th style={{width:"5%"}}>F. Venc</th>
+                <th style={{width:"2%"}}>S</th>
                 <th style={{width:"9%"}}>Concepto</th>
-                <th style={{width:"8%",textAlign:"right"}}>Monto CLP</th>
-                <th style={{width:"8%",textAlign:"right"}}>Monto USD</th>
-                <th style={{width:"7%",textAlign:"right"}}>Anticipo</th>
-                <th style={{width:"8%",textAlign:"right"}}>Saldo Pagar</th>
-                <th style={{width:"14%"}}>Observaciones</th>
+                <th style={{width:"7%",textAlign:"right"}}>CLP</th>
+                <th style={{width:"6%",textAlign:"right"}}>USD</th>
+                <th style={{width:"6%",textAlign:"right"}}>Anticipo</th>
+                <th style={{width:"7%",textAlign:"right"}}>Saldo</th>
+                <th style={{width:"24%"}}>Observaciones</th>
               </tr>
             </thead>
             <tbody>
@@ -8651,37 +8651,37 @@ function NominasModule({usuario, canEdit=false, saldosBancos={}}) {
     st.id = 'nominas-print-css';
     st.textContent = `
       @media print {
-        @page{size:letter landscape;margin:6mm 8mm}
+        @page{size:letter landscape;margin:4mm 5mm}
         body *{visibility:hidden}
         #nomina-print-area,#nomina-print-area *{visibility:visible}
-        #nomina-print-area{position:fixed;top:0;left:0;width:100%;
-          background:white!important;color:#000!important;font-size:7px;padding:4mm!important}
+        #nomina-print-area{position:absolute;top:0;left:0;width:100%;
+          background:white!important;color:#000!important;font-size:6px;padding:2mm!important;box-sizing:border-box}
         .no-print{display:none!important;visibility:hidden!important}
         .screen-only{display:none!important;visibility:hidden!important;height:0!important;overflow:hidden!important}
         .print-only{display:block!important;visibility:visible!important;height:auto!important}
         .print-header{display:flex!important;justify-content:space-between;align-items:flex-start;
-          margin-bottom:8px;padding-bottom:6px;border-bottom:2.5px solid #0f2d4a}
-        .print-header h2{margin:0;font-size:15px;color:#0f2d4a;font-weight:900}
-        .print-header .meta{font-size:8.5px;color:#475569;text-align:right}
-        .print-header .meta div{margin-bottom:2px}
-        .print-table{width:100%;border-collapse:collapse;font-size:7px;margin-bottom:10px;table-layout:fixed}
-        .print-table th{background:#0f2d4a!important;color:white!important;padding:3px 3px;font-size:6px;
-          text-align:left;overflow:hidden;-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important}
-        .print-table td{padding:2px 3px;border-bottom:0.5px solid #e2e8f0;font-size:6.5px;overflow:hidden;word-break:break-word}
-        .print-table .sec-row td{background:#e2e8f0!important;font-weight:800;font-size:7.5px;
-          padding:4px 4px;border-top:1.5px solid #64748b;color:#0f2d4a;
+          margin-bottom:4px;padding-bottom:3px;border-bottom:2px solid #0f2d4a}
+        .print-header h2{margin:0;font-size:11px;color:#0f2d4a;font-weight:900}
+        .print-header .meta{font-size:7px;color:#475569;text-align:right}
+        .print-header .meta div{margin-bottom:1px}
+        .print-table{width:100%;border-collapse:collapse;font-size:5.5px;margin-bottom:6px;table-layout:fixed;word-wrap:break-word}
+        .print-table th{background:#0f2d4a!important;color:white!important;padding:2px 1.5px;font-size:5px;
+          text-align:left;overflow:hidden;white-space:nowrap;-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important}
+        .print-table td{padding:1.5px 1.5px;border-bottom:0.5px solid #e2e8f0;font-size:5.5px;overflow:hidden;word-break:break-word}
+        .print-table .sec-row td{background:#e2e8f0!important;font-weight:800;font-size:6px;
+          padding:2px 2px;border-top:1px solid #64748b;color:#0f2d4a;
           -webkit-print-color-adjust:exact!important;print-color-adjust:exact!important}
-        .print-table .total-row td{background:#0f2d4a!important;color:white!important;font-weight:800;font-size:8px;
-          padding:4px 4px;-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important}
-        .print-table .subtotal-row td{background:#f1f5f9!important;font-weight:700;font-size:7px;
-          padding:2px 4px;border-top:1px solid #94a3b8;
+        .print-table .total-row td{background:#0f2d4a!important;color:white!important;font-weight:800;font-size:6px;
+          padding:2px 2px;-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important}
+        .print-table .subtotal-row td{background:#f1f5f9!important;font-weight:700;font-size:5.5px;
+          padding:1.5px 2px;border-top:1px solid #94a3b8;
           -webkit-print-color-adjust:exact!important;print-color-adjust:exact!important}
-        .print-table td.num{text-align:right;font-variant-numeric:tabular-nums}
-        .print-footer{display:flex!important;justify-content:space-around;margin-top:16px;
-          padding-top:8px;border-top:1.5px solid #0f2d4a;font-size:8px;color:#475569}
-        .print-footer .auth-item{text-align:center;min-width:130px}
-        .print-footer .auth-name{font-weight:800;font-size:9px;color:#0f2d4a;margin-top:4px}
-        .print-footer .auth-line{border-top:1px solid #94a3b8;margin-top:20px;width:100%}
+        .print-table td.num{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+        .print-footer{display:flex!important;justify-content:space-around;margin-top:10px;
+          padding-top:5px;border-top:1.5px solid #0f2d4a;font-size:7px;color:#475569}
+        .print-footer .auth-item{text-align:center;min-width:100px}
+        .print-footer .auth-name{font-weight:800;font-size:8px;color:#0f2d4a;margin-top:3px}
+        .print-footer .auth-line{border-top:1px solid #94a3b8;margin-top:14px;width:100%}
       }
     `;
     document.head.appendChild(st);
