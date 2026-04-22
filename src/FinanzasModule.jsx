@@ -6619,7 +6619,22 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
     if(d?.saldos_bancos) setSaldosBancos(d.saldos_bancos);
     if(d?.params_as)    setParamsAS(prev=>({...defaultParamsAllegriaService(),...d.params_as}));
     if(d?.params_if)    setParamsIF(prev=>({...defaultParamsIntegrity(),...d.params_if}));
-    if(d?.params_af)    setParamsAF(prev=>({...defaultParamsAllpa(),...d.params_af}));
+    if(d?.params_af) {
+      setParamsAF(prev=>{
+        const defaults = defaultParamsAllpa();
+        const merged = {...defaults};
+        // Merge profundo por temporada: solo usar datos guardados si tienen variedades
+        Object.keys(d.params_af).forEach(sk=>{
+          const saved = d.params_af[sk];
+          if(saved && saved.variedades && saved.variedades.length > 0) {
+            // Tiene datos reales guardados → usar los guardados
+            merged[sk] = saved;
+          }
+          // Si no tiene variedades → mantener el default (que puede tener datos pre-cargados)
+        });
+        return merged;
+      });
+    }
     if(d?.sub_lines)    setSubLines(d.sub_lines);
     if(d?.added_lines)  setAddedLinesGlobal(d.added_lines);
     if(d?.intercompany)   setIntercompany(d.intercompany||[]);
