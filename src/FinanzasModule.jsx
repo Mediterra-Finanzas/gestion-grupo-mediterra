@@ -3250,6 +3250,7 @@ function Consolidado({empresas,saldosBancos,realData={},addedLinesGlobal={},subL
               ))}
             </div>
           </div>
+          {vistaConsolidado!=="waterfall"&&(<>
           <div>
             <div style={{fontSize:10,color:C.muted,fontWeight:700,textTransform:"uppercase",letterSpacing:1,marginBottom:8}}>Agrupación</div>
             <div style={{display:"flex",gap:6}}>
@@ -3266,6 +3267,7 @@ function Consolidado({empresas,saldosBancos,realData={},addedLinesGlobal={},subL
               </div>
             </div>
           )}
+          </>)}
         </div>
       </Card>
 
@@ -3352,9 +3354,9 @@ const PARTICIPACION_CONTROLADORA = {
   "Mediterra":1.00,
   "Allegria Foods":1.00,
   "Allegria Service":0.80,
-  "Frisku Foods":0.54,
+  "Frisku Foods":0.90,
   "Osiris":1.00,
-  "Integrity Farms":0.80,
+  "Integrity Farms":1.00,
   "Allpa Farms":0.50,
   "Allpa Farms Perú":0.26,
 };
@@ -3526,11 +3528,19 @@ function WaterfallConsolidado({empresas, saldosBancos, saldoIniPorEmp={}, acumPo
 
   // Color según tipo de fila y valor
   function colorFila(tipo, v) {
-    if(tipo === "saldo" || tipo === "saldoFinal") return C.blue;
+    if(tipo === "saldo") return C.blue;
+    if(tipo === "saldoFinal") return v < 0 ? C.red : C.blue;
     if(tipo === "subtotal") return v >= 0 ? C.green : C.red;
     if(tipo === "total") return v >= 0 ? C.green : C.red;
     if(v === 0 || v == null) return C.muted2;
     return v >= 0 ? C.text : C.red;
+  }
+  
+  // Formato con ⚠️ para saldo final negativo
+  function fmtSaldo(v, tipo) {
+    const base = fmt(v);
+    if(tipo === "saldoFinal" && v < 0) return "⚠️ " + base;
+    return base;
   }
 
   // Export Excel
@@ -3795,14 +3805,14 @@ function WaterfallConsolidado({empresas, saldosBancos, saldoIniPorEmp={}, acumPo
                     return (
                       <td key={n} style={{padding:"8px 10px",textAlign:"right",
                         color:colorFila(f.tipo,v),fontWeight,fontSize:11}}>
-                        {fmt(v)}
+                        {fmtSaldo(v, f.tipo)}
                       </td>
                     );
                   })}
                   <td style={{padding:"8px 14px",textAlign:"right",
                     color:colorFila(f.tipo,totales[f.key]),fontWeight:900,
                     background:`${C.accent}11`,fontSize:(isTotal||isSaldoFinal)?12:11}}>
-                    {fmt(totales[f.key])}
+                    {fmtSaldo(totales[f.key], f.tipo)}
                   </td>
                   {mostrarControladora&&(
                     <td style={{padding:"8px 14px",textAlign:"right",
