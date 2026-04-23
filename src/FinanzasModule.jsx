@@ -5136,17 +5136,17 @@ function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit,saldosBanc
 // ═══════════════════════════════════════════════════════════════════
 function Dashboard({empresas, saldosBancos}) {
   const gmAcum=useMemo(()=>{
-    let acc=Object.values(empresasConOverrides).reduce((s,e)=>s+(e.saldo_ini||0),0);
+    let acc=Object.values(empresas).reduce((s,e)=>s+(e.saldo_ini||0),0);
     return MESES_65.map((_,i)=>{
       let f=0;
-      Object.values(empresasConOverrides).forEach(e=>e.sections.forEach(sec=>sec.lines.forEach(l=>{
+      Object.values(empresas).forEach(e=>e.sections.forEach(sec=>sec.lines.forEach(l=>{
         const num=Number(l.proy[i]);
         f+=(isNaN(num)?0:num)*sec.signo;
       })));
       acc+=f;
       return acc;
     });
-  },[empresasConOverrides]);
+  },[empresas]);
   const EMPRESAS_CHILE = ["Mediterra","Allegria Foods","Allegria Service","Frisku Foods","Allpa Farms","Osiris","Integrity Farms"];
   const EMPRESAS_PERU  = ["Allpa Farms Perú"];
   const HOY_DASH = new Date();
