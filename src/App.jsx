@@ -1404,6 +1404,7 @@ export default function App(){
                 feeViveros:       mergeEdits(prev.feeViveros||[],       extractUserEdits(saved.feeViveros)),
                 totalPedidos:     mergeEdits(prev.totalPedidos||[],     extractUserEdits(saved.totalPedidos)),
                 contratos: saved.contratos||prev.contratos||[],
+                clientes: saved.clientes||prev.clientes||[],
               };
             });
           }
