@@ -96,7 +96,7 @@ async function dbSave(data) {
 // PARÁMETROS ALLEGRIA FOODS
 // ═══════════════════════════════════════════════════════════════════
 const FRUTAS      = ['cerezas','ciruelas','arandanos'];
-const FRUTA_LABEL = { cerezas:'Cerezas', ciruelas:'Ciruelas', arandanos:'Arándanos' };
+const FRUTA_LABEL = { cerezas:'Cerezas', ciruelas:'Ciruelas', arandanos:'Arándanos Perú (Comercialización)' };
 const FRUTA_EMOJI = { cerezas:'🍒', ciruelas:'🟣', arandanos:'🫐' };
 
 function defaultFruta() {
@@ -273,6 +273,20 @@ function calcAllegria(params) {
       const matUsd  = Number(p.mat_usd_kg)||0;
       const srvUsd  = Number(p.srv_usd_kg)||0;
       if (kg===0||fob===0) return;
+
+      // Arándanos Perú: ingreso = kg × FOB × fee% en mes_liquidacion (servicio de comercialización)
+      if(f === 'arandanos') {
+        const fee_pct = desc; // desc_exp_pct se usa como % fee de comercialización
+        const ingresoFee = kg * fob * fee_pct;
+        if(p.mes_liquidacion) {
+          const i = mIdx(p.mes_liquidacion);
+          if(i >= 0) ing[f][i] += ingresoFee;
+        }
+        // No hay costos ni materiales para servicio de comercialización
+        return;
+      }
+
+      // Cerezas y Ciruelas: lógica original
       let totalAntIng = 0;
       (p.anticipos_cliente||[]).forEach(a => {
         const i = mIdx(a.mes); if(i<0) return;
@@ -718,7 +732,7 @@ const EMPRESAS_STATIC = {
         {label:'Leyes Sociales', proy:ext(Array(65).fill(3600))},
         {label:'Mantención De Vehículos De Administración', proy:Z65()},
         {label:'Patentes Municipales', proy:ext([0,0,0,0,0,0,0,0,0,1500,0,0,0,0,0,0,0,0,0,0,0,1500,0,0,0,0,0,0,0,0,0,0,0,1500,0,0,0,0,0,0,0,0,0,0,0,1500,0,0,0,0,0,0,0,0,0,0,0,1500,0,0,0,0,0,0,0])},
-        {label:'Remuneración', proy:ext(Array(65).fill(13000))},
+        {label:'Remuneración', proy:ext([13000, 13000, 13000, 17316, 12982, 12982, 14860, 14860, 14860, 12694, 12694, 10816, 10816, 12982, 32303, 17316, 12982, 12982, 14860, 14860, 14860, 12694, 12694, 10816, 10816, 12982, 32303, 17316, 12982, 12982, 14860, 14860, 14860, 12694, 12694, 10816, 10816, 12982, 32303, 17316, 12982, 12982, 14860, 14860, 14860, 12694, 12694, 10816, 10816, 12982, 32303, 17316, 12982, 12982, 14860, 14860, 14860, 12694, 12694, 10816, 10816, 12982, 32303, 32303])},
         {label:'Ropa de Trabajo', proy:ext(Array(65).fill(500))},
         {label:'Seguro Complementario Salud', proy:ext(Array(65).fill(800))},
         {label:'Teléfonos Celulares', proy:Z65()},
@@ -1188,7 +1202,7 @@ function buildAllegria(params) {
     emoji:"🍒", color:"#b91c1c", saldo_ini:17433, desc:"Exportación frutas · Chile", hasFormula:true,
     sections:[
       { cat:"ing_op", label:"Ingresos Operacionales", signo:1, lines:[
-        {label:"Anticipo Cerezas",              proy:[...ing.cerezas],   formula:true},
+        {label:"Liquidación Cerezas",              proy:[...ing.cerezas],   formula:true},
         {label:"Arándanos Perú",                proy:[...ing.arandanos], formula:true},
         {label:"Cuentas por Cobrar",            proy:Z65(), subLines:true},
         {label:"Ingreso por Allegria Service",  proy:Z65()},
@@ -1469,22 +1483,56 @@ function ParamsFruta({seasonKey,fruta,params,setParams}) {
         </span>}
       </div>
       <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(140px,1fr))",gap:12,marginBottom:14}}>
-        {[["KG a exportar","kg","",""],["FOB US$/kg","fob_usd_kg","$",""],["Desc. exportadora","desc_exp_pct","","%"],["Materiales US$/kg","mat_usd_kg","$",""],["Servicios US$/kg","srv_usd_kg","$",""]].map(([lbl,field,pre,suf])=>(
-          <div key={field}>
-            <div style={{fontSize:10,color:C.muted,marginBottom:3}}>{lbl}</div>
-            <div style={{display:"flex",alignItems:"center",gap:3}}>
-              {pre&&<span style={{fontSize:11,color:C.muted}}>{pre}</span>}
-              <input type="number" value={p[field]||""} placeholder="0" onChange={e=>upd(field,parseFloat(e.target.value)||0)} style={iSt}/>
-              {suf&&<span style={{fontSize:11,color:C.muted}}>{suf}</span>}
+        {fruta === 'arandanos' ? (
+          // Arándanos Perú: servicio de comercialización
+          <>
+            {[["KG exportados por Perú","kg","",""],["FOB estimado US$/kg","fob_usd_kg","$",""],["% Fee Allegria Foods","desc_exp_pct","","%"]].map(([lbl,field,pre,suf])=>(
+              <div key={field}>
+                <div style={{fontSize:10,color:C.muted,marginBottom:3}}>{lbl}</div>
+                <div style={{display:"flex",alignItems:"center",gap:3}}>
+                  {pre&&<span style={{fontSize:11,color:C.muted}}>{pre}</span>}
+                  <input type="number" value={p[field]||""} placeholder="0" onChange={e=>upd(field,parseFloat(e.target.value)||0)} style={iSt}/>
+                  {suf&&<span style={{fontSize:11,color:C.muted}}>{suf}</span>}
+                </div>
+              </div>
+            ))}
+            <div>
+              <div style={{fontSize:10,color:C.muted,marginBottom:3}}>Mes que paga Perú</div>
+              <select value={p.mes_liquidacion||""} onChange={e=>upd("mes_liquidacion",e.target.value)} style={selSt}>
+                <option value="">— mes —</option>
+                {MESES_65.map(m=><option key={m} value={m}>{m}</option>)}
+              </select>
             </div>
-          </div>
-        ))}
-        {precioNet>0&&kg>0&&(
-          <div style={{gridColumn:"1/-1",background:`${C.yellow}11`,border:`1px solid ${C.yellow}33`,borderRadius:8,padding:"8px 12px",fontSize:11,color:C.yellow}}>
-            Precio neto productor: <strong>${precioNet.toFixed(3)}/kg</strong>
-          </div>
+            {kg>0&&fob>0&&desc>0&&(
+              <div style={{gridColumn:"1/-1",background:`${C.green}11`,border:`1px solid ${C.green}33`,borderRadius:8,padding:"8px 12px",fontSize:11,color:C.green}}>
+                Ingreso Allegria Foods: <strong>{$$(kg * fob * (desc/100))}</strong> ({desc}% de {$$(kg*fob)} FOB total)
+                {p.mes_liquidacion ? ` → cobro en ${p.mes_liquidacion}` : " — selecciona mes de pago"}
+              </div>
+            )}
+          </>
+        ) : (
+          // Cerezas y Ciruelas: parámetros completos
+          <>
+            {[["KG a exportar","kg","",""],["FOB US$/kg","fob_usd_kg","$",""],["Desc. exportadora","desc_exp_pct","","%"],["Materiales US$/kg","mat_usd_kg","$",""],["Servicios US$/kg","srv_usd_kg","$",""]].map(([lbl,field,pre,suf])=>(
+              <div key={field}>
+                <div style={{fontSize:10,color:C.muted,marginBottom:3}}>{lbl}</div>
+                <div style={{display:"flex",alignItems:"center",gap:3}}>
+                  {pre&&<span style={{fontSize:11,color:C.muted}}>{pre}</span>}
+                  <input type="number" value={p[field]||""} placeholder="0" onChange={e=>upd(field,parseFloat(e.target.value)||0)} style={iSt}/>
+                  {suf&&<span style={{fontSize:11,color:C.muted}}>{suf}</span>}
+                </div>
+              </div>
+            ))}
+            {precioNet>0&&kg>0&&(
+              <div style={{gridColumn:"1/-1",background:`${C.yellow}11`,border:`1px solid ${C.yellow}33`,borderRadius:8,padding:"8px 12px",fontSize:11,color:C.yellow}}>
+                Precio neto productor: <strong>${precioNet.toFixed(3)}/kg</strong>
+              </div>
+            )}
+          </>
         )}
       </div>
+      {fruta !== 'arandanos' && (
+      <>
       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14}}>
         <div style={{background:`${C.green}0d`,border:`1px solid ${C.green}33`,borderRadius:10,padding:12}}>
           <div style={{fontSize:11,fontWeight:700,color:C.green,marginBottom:10}}>📥 Cobros al cliente</div>
@@ -1533,6 +1581,8 @@ function ParamsFruta({seasonKey,fruta,params,setParams}) {
             </div>
           )}
         </div>
+      )}
+      </>
       )}
     </div>
   );
