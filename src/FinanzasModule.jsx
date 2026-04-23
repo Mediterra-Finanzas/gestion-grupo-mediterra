@@ -1220,11 +1220,11 @@ function buildAllegria(params) {
     emoji:"🍒", color:"#b91c1c", saldo_ini:17433, desc:"Exportación frutas · Chile", hasFormula:true,
     sections:[
       { cat:"ing_op", label:"Ingresos Operacionales", signo:1, lines:[
+        {label:"Anticipo Cerezas",              proy:[...ing.cerezas],   formula:true},
         {label:"Arándanos Perú",                proy:[...ing.arandanos], formula:true},
         {label:"Cuentas por Cobrar",            proy:Z65(), subLines:true},
         {label:"Ingreso por Allegria Service",  proy:Z65()},
         {label:"Ingresos por Paltas",           proy:Z65()},
-        {label:"Liquidación Cerezas",           proy:ext([0, 0, 0, 0, 0, 0, 450000, 450000, 0, 0, 0, 3150000, 0, 0, 0, 0, 0, 0, 450000, 450000, 0, 0, 0, 3150000, 0, 0, 0, 0, 0, 0, 450000, 450000, 0, 0, 0, 3150000, 0, 0, 0, 0, 0, 0, 450000, 450000, 0, 0, 0, 3150000, 0, 0, 0, 0, 0, 0, 450000, 450000, 0, 0, 0, 3150000, 0, 0, 0, 0])},
         {label:"Liquidación Ciruelas",          proy:[...ing.ciruelas],  formula:true},
         {label:"Rebates",                       proy:Z65()},
       ]},
