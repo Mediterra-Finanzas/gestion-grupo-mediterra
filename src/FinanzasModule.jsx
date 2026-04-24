@@ -5235,19 +5235,22 @@ function Creditos({empresas, creditosData=CREDITOS_DEFAULT, onSaveCreditos, canE
   function openEdit(c){ setForm({...c,monto:String(c.monto),cuota:String(c.cuota)}); setEditId(c.n); setModal(true); }
   function guardar(){
     if(!form.empresa||!form.acreedor||!form.monto||!form.f_venc){alert("Empresa, acreedor, monto y fecha son obligatorios.");return;}
-    const item={...form,monto:parseFloat(form.monto)||0,cuota:parseFloat(form.cuota||form.monto)||0,pagado:false,n:editId||Date.now()};
-    const next=editId?creditosData.map(c=>c.n===editId?item:c):[...creditosData,item];
+    const item={...form,monto:parseFloat(form.monto)||0,cuota:parseFloat(form.cuota||form.monto)||0,
+      pagado: form.pagado !== undefined ? form.pagado : false,
+      n:editId||Date.now()};
+    const next=editId
+      ? creditosData.map(c=>String(c.n)===String(editId)?item:c)
+      : [...creditosData,item];
     if(onSaveCreditos) onSaveCreditos(next);
     setModal(false);
   }
   function togglePagado(n, value){
-    // value: true=pagado, false=pendiente (undefined=toggle)
-    const next=creditosData.map(c=>c.n===n?{...c,pagado:value!==undefined?value:!c.pagado}:c);
+    const next=creditosData.map(c=>String(c.n)===String(n)?{...c,pagado:value!==undefined?value:!c.pagado}:c);
     if(onSaveCreditos) onSaveCreditos(next);
   }
   function eliminar(n){
     if(!window.confirm("¿Eliminar este crédito?")) return;
-    if(onSaveCreditos) onSaveCreditos(creditosData.filter(c=>c.n!==n));
+    if(onSaveCreditos) onSaveCreditos(creditosData.filter(c=>String(c.n)!==String(n)));
   }
   const empList=["Todas",...new Set(creditosData.map(c=>c.empresa))];
   const filtered=creditosData.filter(c=>{
