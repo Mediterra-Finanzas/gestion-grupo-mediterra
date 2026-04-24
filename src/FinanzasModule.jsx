@@ -5220,7 +5220,7 @@ function Creditos({empresas, creditosData=CREDITOS_DEFAULT, onSaveCreditos, canE
   const [modal,setModal]=useState(false);
   const [editId,setEditId]=useState(null);
   const EMPTY_FORM = {
-    empresa:"",acreedor:"",tipo_inst:"",monto:"",f_venc:"",tipo_cr:"Bullet",tasa:"",cuota:"",
+    empresa:"",acreedor:"",tipo_inst:"",monto:"",f_inicio:"",f_venc:"",tipo_cr:"Bullet",tasa:"",cuota:"",
     // Renovación
     renovable:false,
     tasa_anual:"",              // % tasa anual
@@ -5331,7 +5331,7 @@ function Creditos({empresas, creditosData=CREDITOS_DEFAULT, onSaveCreditos, canE
         <div style={{overflowX:"auto"}}>
           <table style={{width:"100%",borderCollapse:"collapse",fontSize:11}}>
             <thead><tr style={{background:C.bg2}}>
-              {["#","Empresa","Acreedor","Tipo","Monto","Cuota","Vencimiento","Tasa","Renovación",...(canEdit?["Acciones"]:[])
+              {["#","Empresa","Acreedor","Tipo","Monto","Cuota","Desembolso","Vencimiento","Tasa","Renovación",...(canEdit?["Acciones"]:[])
               ].map(h=><th key={h} style={{padding:"8px 12px",fontWeight:600,fontSize:10,color:C.muted,textTransform:"uppercase",borderBottom:`1px solid ${C.border}`,textAlign:["Monto","Cuota","Tasa"].includes(h)?"right":"left",whiteSpace:"nowrap"}}>{h}</th>)}
             </tr></thead>
             <tbody>
@@ -5351,6 +5351,7 @@ function Creditos({empresas, creditosData=CREDITOS_DEFAULT, onSaveCreditos, canE
                     {c.renovable&&<span style={{fontSize:9,marginLeft:4,background:`${C.orange}22`,color:C.orange,borderRadius:10,padding:"1px 5px"}}>🔄 Renov.</span>}
                     </td>
                     <td style={{padding:"7px 12px",textAlign:"right",color:C.yellow}}>{$$(c.cuota)}</td>
+                    <td style={{padding:"7px 12px",whiteSpace:"nowrap",color:C.muted}}>{c.f_inicio?fmtDate(c.f_inicio):"—"}</td>
                     <td style={{padding:"7px 12px",whiteSpace:"nowrap",color:vencProx?C.orange:C.muted}}>{fmtDate(c.f_venc)}{vencProx&&" ⚠️"}</td>
                     <td style={{padding:"7px 12px",textAlign:"right",color:C.muted}}>{c.tasa||"—"}</td>
                     <td style={{padding:"7px 10px",textAlign:"center",fontSize:10}}>
@@ -5649,6 +5650,7 @@ function Creditos({empresas, creditosData=CREDITOS_DEFAULT, onSaveCreditos, canE
                 ["Tipo crédito","tipo_cr","select",["Bullet","Cuotas Mensuales","Leasing","Crédito Hipotecario","Inversión","Otro"]],
                 ["Monto total (USD)","monto","number",null],
                 ["Cuota (USD)","cuota","number",null],
+                ["Fecha desembolso","f_inicio","date",null],
                 ["Fecha vencimiento","f_venc","date",null],
                 ["Tasa (%)","tasa","text",null],
               ].map(([lbl,field,type,opts])=>(
