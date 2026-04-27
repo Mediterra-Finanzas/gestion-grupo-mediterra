@@ -3284,7 +3284,7 @@ function Consolidado({empresas,saldosBancos,realData={},addedLinesGlobal={},subL
           <div>
             <div style={{fontSize:10,color:C.muted,fontWeight:700,textTransform:"uppercase",letterSpacing:1,marginBottom:8}}>Vista</div>
             <div style={{display:"flex",gap:0,borderRadius:8,overflow:"hidden",border:`1px solid ${C.border}`}}>
-              {[{id:"sumada",label:"🏛 Sumada"},{id:"waterfall",label:"📊 Waterfall"}].map(v=>(
+              {[{id:"sumada",label:"🏛 Sumada"},{id:"waterfall",label:"📊 Waterfall"},{id:"semanal",label:"📅 Resumen Semanal"}].map(v=>(
                 <button key={v.id} onClick={()=>setVistaConsolidado(v.id)}
                   style={{padding:"7px 18px",border:"none",cursor:"pointer",fontWeight:vistaConsolidado===v.id?800:500,fontSize:12,
                     background:vistaConsolidado===v.id?C.accent:"transparent",
@@ -3380,11 +3380,149 @@ function Consolidado({empresas,saldosBancos,realData={},addedLinesGlobal={},subL
         </div>
       )}
 
+      {/* Vista Resumen Semanal */}
+      {vistaConsolidado==="semanal"&&(
+        <ResumenSemanal empresas={empresasConOverrides} empNames={empNamesConsolidado}/>
+      )}
+
       {/* Vista Waterfall — Conceptos × Empresas por temporada */}
       {vistaConsolidado==="waterfall"&&(
         <WaterfallConsolidado empresas={empresasConOverrides} saldosBancos={saldosBancos} saldoIniPorEmp={saldoIniPorEmp} acumPorEmp={acumPorEmp} flujoPorEmp={flujoPorEmp}/>
       )}
     </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// RESUMEN SEMANAL — Vista consolidada por semana seleccionada
+// ═══════════════════════════════════════════════════════════════════
+function ResumenSemanal({empresas, empNames}) {
+  const semanasDisponibles = useMemo(()=>{
+    const list = [];
+    MESES_65.forEach((mes, mesIdx) => {
+      const sems = SEMANAS_MES[mes] || ["S1","S2","S3","S4"];
+      sems.forEach((sem, si) => {
+        list.push({ label: `${sem} · ${mes}`, mes, mesIdx, semIdx: si, nSems: sems.length, semLabel: sem });
+      });
+    });
+    return list;
+  },[]);
+
+  const [selIdx, setSelIdx] = useState(0);
+  const sel = semanasDisponibles[selIdx] || semanasDisponibles[0];
+
+  const CATS = [
+    {cat:"ing_op", label:"Ingresos Operacionales"},
+    {cat:"egr_var", label:"Egresos Operacionales"},
+    {cat:"egr_fijo", label:"Costos Fijos / SG&A"},
+    {cat:"imp", label:"Impuestos"},
+    {cat:"ing_nop", label:"Ingresos No Operacionales"},
+    {cat:"egr_nop", label:"Egresos No Operacionales"},
+  ];
+
+  const datos = useMemo(()=>{
+    const res = {};
+    empNames.forEach(n => {
+      const emp = empresas[n];
+      const row = {};
+      let flujoNeto = 0;
+      CATS.forEach(({cat}) => {
+        const sec = (emp.sections||[]).find(s=>s.cat===cat);
+        if(!sec) { row[cat] = 0; return; }
+        let total = 0;
+        sec.lines.forEach(l => {
+          const mesVal = Number(l.proy[sel.mesIdx])||0;
+          total += mesVal / sel.nSems;
+        });
+        const val = total * sec.signo;
+        row[cat] = val;
+        flujoNeto += val;
+      });
+      row.flujoNeto = flujoNeto;
+      res[n] = row;
+    });
+    return res;
+  },[empresas, empNames, sel]); // eslint-disable-line
+
+  const totales = useMemo(()=>{
+    const t = {};
+    CATS.forEach(({cat}) => { t[cat] = empNames.reduce((s,n)=>s+(datos[n]?.[cat]||0), 0); });
+    t.flujoNeto = empNames.reduce((s,n)=>s+(datos[n]?.flujoNeto||0), 0);
+    return t;
+  },[datos, empNames]); // eslint-disable-line
+
+  function fmt(v) {
+    if(!v || Math.abs(v) < 1) return "—";
+    const abs = Math.abs(Math.round(v));
+    return `${v<0?"-":""}$${abs.toLocaleString("es-CL")}`;
+  }
+  function cf(v) { return v > 0 ? C.green : v < 0 ? C.red : C.muted2; }
+
+  return (
+    <Card>
+      <div style={{display:"flex",alignItems:"center",gap:16,marginBottom:16,flexWrap:"wrap"}}>
+        <div style={{fontWeight:800,fontSize:14,color:C.text}}>📅 Resumen Flujo Semanal</div>
+        <div style={{display:"flex",alignItems:"center",gap:8}}>
+          <button onClick={()=>setSelIdx(Math.max(0,selIdx-1))} disabled={selIdx===0}
+            style={{padding:"6px 12px",borderRadius:8,border:`1px solid ${C.border}`,background:C.card2,color:C.text,cursor:selIdx===0?"default":"pointer",opacity:selIdx===0?0.4:1}}>◀</button>
+          <select value={selIdx} onChange={e=>setSelIdx(Number(e.target.value))}
+            style={{padding:"8px 14px",borderRadius:8,border:`1px solid ${C.border}`,background:C.card,color:C.text,fontSize:13,fontWeight:700,minWidth:180}}>
+            {semanasDisponibles.map((s,i)=><option key={i} value={i}>{s.label}</option>)}
+          </select>
+          <button onClick={()=>setSelIdx(Math.min(semanasDisponibles.length-1,selIdx+1))} disabled={selIdx>=semanasDisponibles.length-1}
+            style={{padding:"6px 12px",borderRadius:8,border:`1px solid ${C.border}`,background:C.card2,color:C.text,cursor:selIdx>=semanasDisponibles.length-1?"default":"pointer",opacity:selIdx>=semanasDisponibles.length-1?0.4:1}}>▶</button>
+        </div>
+      </div>
+      <div style={{overflowX:"auto"}}>
+        <table style={{width:"100%",borderCollapse:"collapse",fontSize:11}}>
+          <thead>
+            <tr style={{background:C.bg2}}>
+              <th style={{padding:"10px 14px",textAlign:"left",color:C.muted,fontWeight:700,fontSize:10,position:"sticky",left:0,background:C.bg2,zIndex:2,minWidth:220}}>
+                {sel.semLabel} · {sel.mes}
+              </th>
+              {empNames.map(n=>(
+                <th key={n} style={{padding:"10px 10px",textAlign:"right",color:C.muted,fontWeight:700,fontSize:10,minWidth:110}}>
+                  {empresas[n]?.emoji} {n}
+                </th>
+              ))}
+              <th style={{padding:"10px 14px",textAlign:"right",color:C.text,fontWeight:900,fontSize:10,background:`${C.accent}22`,minWidth:120}}>TOTAL</th>
+            </tr>
+          </thead>
+          <tbody>
+            {CATS.map(({cat,label},i)=>{
+              const isIng = cat.startsWith("ing");
+              return (
+                <tr key={cat} style={{borderBottom:`1px solid ${C.border}33`,background:i%2===0?"transparent":`${C.border}08`}}>
+                  <td style={{padding:"8px 14px",fontWeight:600,color:isIng?C.green:C.red,fontSize:11,position:"sticky",left:0,background:i%2===0?C.card:`${C.border}08`,zIndex:1}}>
+                    {label}
+                  </td>
+                  {empNames.map(n=>{
+                    const v = datos[n]?.[cat]||0;
+                    return <td key={n} style={{padding:"8px 10px",textAlign:"right",color:cf(v)}}>{fmt(v)}</td>;
+                  })}
+                  <td style={{padding:"8px 14px",textAlign:"right",fontWeight:700,color:cf(totales[cat]),background:`${C.accent}11`}}>{fmt(totales[cat])}</td>
+                </tr>
+              );
+            })}
+            <tr style={{borderTop:`2px solid ${C.accent}`,background:`${C.accent}22`}}>
+              <td style={{padding:"10px 14px",fontWeight:900,color:C.accent,fontSize:12,position:"sticky",left:0,background:`${C.accent}22`,zIndex:1}}>
+                FLUJO NETO
+              </td>
+              {empNames.map(n=>{
+                const v = datos[n]?.flujoNeto||0;
+                return <td key={n} style={{padding:"10px 10px",textAlign:"right",fontWeight:800,fontSize:12,color:cf(v)}}>{fmt(v)}</td>;
+              })}
+              <td style={{padding:"10px 14px",textAlign:"right",fontWeight:900,fontSize:13,color:cf(totales.flujoNeto),background:`${C.accent}33`}}>
+                {fmt(totales.flujoNeto)}
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <div style={{marginTop:10,fontSize:10,color:C.muted,fontStyle:"italic"}}>
+        💡 Valores estimados: monto mensual distribuido equitativamente entre las semanas del mes.
+      </div>
+    </Card>
   );
 }
 
