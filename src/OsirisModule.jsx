@@ -3647,6 +3647,50 @@ const MONEDAS=["USD","EUR","CLP","PEN"];
 
 // Bloque 1: Operación Técnica
 const TIPOS_VISITA = ["Técnica","Comercial","Recepción","Vivero","Día de campo","Otra"];
+
+// ── Supabase Storage: fotos de informes ──
+// Reutiliza las credenciales de App.jsx (misma instancia Supabase)
+const SUPA_URL_OSIRIS = "https://bywovqayuzodbzwsriet.supabase.co";
+const SUPA_KEY_OSIRIS = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJ5d292cWF5dXpvZGJ6d3NyaWV0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU2ODU1MDgsImV4cCI6MjA5MTI2MTUwOH0.s2x2O_CxE6rl8dBqFuyfQdMyRqSyjJQWXJXesmVGXtk";
+const STORAGE_BUCKET = "osiris-fotos";
+
+// Intenta crear el bucket si no existe (silencioso si ya existe)
+let _bucketChecked = false;
+async function ensureBucket() {
+  if(_bucketChecked) return;
+  try {
+    await fetch(`${SUPA_URL_OSIRIS}/storage/v1/bucket`, {
+      method:"POST",
+      headers:{apikey:SUPA_KEY_OSIRIS, Authorization:`Bearer ${SUPA_KEY_OSIRIS}`, "Content-Type":"application/json"},
+      body:JSON.stringify({id:STORAGE_BUCKET, name:STORAGE_BUCKET, public:true})
+    });
+  } catch(e) { /* bucket ya existe o sin permisos — no importa */ }
+  _bucketChecked = true;
+}
+
+// Subir archivo a Supabase Storage, devuelve URL pública
+async function uploadFoto(file, informeId) {
+  await ensureBucket();
+  const ext = file.name.split('.').pop() || 'jpg';
+  const path = `informes/${informeId}/${Date.now()}_${Math.random().toString(36).slice(2,6)}.${ext}`;
+  const res = await fetch(`${SUPA_URL_OSIRIS}/storage/v1/object/${STORAGE_BUCKET}/${path}`, {
+    method:"POST",
+    headers:{
+      apikey:SUPA_KEY_OSIRIS,
+      Authorization:`Bearer ${SUPA_KEY_OSIRIS}`,
+      "Content-Type": file.type || "image/jpeg",
+      "x-upsert": "true",
+    },
+    body:file,
+  });
+  if(!res.ok) {
+    const err = await res.text();
+    console.error("Upload error:", err);
+    throw new Error("Error subiendo foto: " + (res.status));
+  }
+  // URL pública
+  return `${SUPA_URL_OSIRIS}/storage/v1/object/public/${STORAGE_BUCKET}/${path}`;
+}
 const ESTADOS_VISITA = ["Programada","Realizada","Cancelada","Reprogramada"];
 const ESTADOS_MEDIDA = ["Abierta","En proceso","Cerrada","Descartada"];
 const ESTADOS_TEST_BLOCK = ["Planificado","En curso","Finalizado","Cancelado"];
@@ -3988,10 +4032,11 @@ function OperacionTecnica({data, setData, ctData=[], viverosData=[], obtentoresD
   const [envioModal, setEnvioModal] = useState(false);
   const [emailsEnvio, setEmailsEnvio] = useState("");
 
-  // Generar PDF del informe como HTML → descargar
-  function generarPDF(inf) {
+  // Generar HTML del informe (reutilizable para PDF e impresión)
+  function generarHTMLInforme(inf) {
     const ct = (ctData||[]).find(c=>c.id===inf.ctId);
-    const html = `
+    const fotos = (inf.registroFotografico||"").split(",").map(u=>u.trim()).filter(Boolean);
+    return `
 <!DOCTYPE html><html><head><meta charset="utf-8"><title>Informe ${inf.titulo}</title>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
@@ -4004,20 +4049,20 @@ body{font-family:'Segoe UI',system-ui,sans-serif;color:#1e293b;font-size:12px;li
 .grid .value{font-size:12px;font-weight:600}
 .section{margin-bottom:14px}
 .section h2{font-size:13px;font-weight:700;color:#0f766e;background:#f0fdfa;padding:6px 10px;border-radius:4px;margin-bottom:6px}
-.section p{padding:0 10px;font-size:12px;color:#334155}
+.section p,.section div.content{padding:0 10px;font-size:12px;color:#334155;white-space:pre-wrap}
+.fotos{display:flex;flex-wrap:wrap;gap:10px;padding:0 10px}
+.fotos img{width:180px;height:130px;object-fit:cover;border-radius:6px;border:1px solid #e2e8f0}
 .firma{display:grid;grid-template-columns:1fr 1fr 1fr;gap:20px;border-top:2px solid #e2e8f0;padding-top:16px;margin-top:24px}
 .firma .col{text-align:center}
 .firma .col .name{font-weight:700;font-size:12px}
 .firma .col .cargo{font-size:10px;color:#64748b}
-.badge{display:inline-block;padding:2px 10px;border-radius:10px;font-size:10px;font-weight:700}
-.urgente{background:#fee2e2;color:#991b1b}
-.media{background:#fef3c7;color:#78350f}
-@media print{body{padding:20px 30px}}
+.estado{display:inline-block;padding:3px 12px;border-radius:12px;font-size:10px;font-weight:700}
+@media print{body{padding:20px 30px}.fotos img{width:150px;height:110px}}
 </style></head><body>
 <div class="header">
 <div style="font-size:10px;color:#64748b;letter-spacing:2px">OSIRIS PLANT MANAGEMENT</div>
 <h1>${inf.titulo || 'Informe Técnico'}</h1>
-<div class="sub">N° INF-${new Date(inf.fecha||Date.now()).getFullYear()}-${String(inf.id||'').slice(-4).padStart(4,'0')} · ${inf.fecha||new Date().toISOString().slice(0,10)}</div>
+<div class="sub">N° INF-${new Date(inf.fecha||Date.now()).getFullYear()}-${String(inf.id||'').slice(-4).padStart(4,'0')} · ${inf.fecha||new Date().toISOString().slice(0,10)} · <span class="estado" style="background:#dcfce7;color:#166534">${inf.estado||'Borrador'}</span></div>
 </div>
 <div class="grid">
 <div><div class="label">Cliente</div><div class="value">${ct?.razonSocial||'—'} · ${ct?.pais||''}</div></div>
@@ -4027,19 +4072,24 @@ body{font-family:'Segoe UI',system-ui,sans-serif;color:#1e293b;font-size:12px;li
 <div><div class="label">Especie / Variedad</div><div class="value">${inf.especie||'—'}${inf.variedad?' · '+inf.variedad:''}</div></div>
 <div><div class="label">Fecha</div><div class="value">${inf.fecha||'—'}</div></div>
 </div>
-<div class="section"><h2>1. Objetivo</h2><p>${(inf.objetivo||'—').replace(/\n/g,'<br>')}</p></div>
-<div class="section"><h2>2. Observaciones de campo</h2><p>${(inf.observacionesCampo||'—').replace(/\n/g,'<br>')}</p></div>
-<div class="section"><h2>3. Recomendaciones</h2><p>${(inf.recomendaciones||'—').replace(/\n/g,'<br>')}</p></div>
-<div class="section"><h2>4. Medidas correctivas</h2><p>${(inf.medidasCorrectivas||'—').replace(/\n/g,'<br>')}</p></div>
-<div class="section"><h2>5. Registro fotográfico</h2><p>${inf.registroFotografico?inf.registroFotografico.split(',').map(u=>'<a href="'+u.trim()+'">'+u.trim()+'</a>').join('<br>'):'Sin fotos adjuntas'}</p></div>
-<div class="section"><h2>6. Conclusiones</h2><p>${(inf.conclusiones||'—').replace(/\n/g,'<br>')}</p></div>
+<div class="section"><h2>1. Objetivo</h2><div class="content">${inf.objetivo||'—'}</div></div>
+<div class="section"><h2>2. Observaciones de campo</h2><div class="content">${inf.observacionesCampo||'—'}</div></div>
+<div class="section"><h2>3. Recomendaciones</h2><div class="content">${inf.recomendaciones||'—'}</div></div>
+<div class="section"><h2>4. Medidas correctivas</h2><div class="content">${inf.medidasCorrectivas||'—'}</div></div>
+<div class="section"><h2>5. Registro fotográfico</h2>${fotos.length>0?'<div class="fotos">'+fotos.map((u,i)=>'<img src="'+u+'" alt="Foto '+(i+1)+'"/>').join('')+'</div>':'<p>Sin fotos adjuntas</p>'}</div>
+<div class="section"><h2>6. Conclusiones</h2><div class="content">${inf.conclusiones||'—'}</div></div>
+<div class="section"><h2>7. Próxima visita</h2><div class="content">${inf.proximaVisitaFecha?inf.proximaVisitaFecha+' — '+(inf.proximaVisitaObjetivo||''):'No programada'}</div></div>
 <div class="firma">
 <div class="col"><div class="name">${inf.responsable||'—'}</div><div class="cargo">${inf.responsableCargo||'Elaborado por'}</div></div>
-<div class="col"><div class="name">${inf.revisor||'—'}</div><div class="cargo">${inf.revisorCargo||'Revisado por'}</div></div>
-<div class="col"><div class="name">Próxima visita: ${inf.proximaVisitaFecha||'—'}</div><div class="cargo">${inf.proximaVisitaObjetivo||''}</div></div>
+<div class="col"><div class="name">${inf.revisor||'(Pendiente)'}</div><div class="cargo">${inf.revisorCargo||'Revisado por'}</div>${inf.fechaAprobacion?'<div style="font-size:9px;color:#16a34a;margin-top:2px">Aprobado '+inf.fechaAprobacion+'</div>':''}</div>
+<div class="col"><div class="name">Próxima: ${inf.proximaVisitaFecha||'—'}</div><div class="cargo">${inf.proximaVisitaObjetivo||''}</div></div>
 </div>
 </body></html>`;
-    // Abrir en nueva ventana para imprimir/guardar como PDF
+  }
+
+  // Descargar PDF (abre en nueva ventana para imprimir/guardar)
+  function generarPDF(inf) {
+    const html = generarHTMLInforme(inf);
     const w = window.open('','_blank','width=800,height=1100');
     w.document.write(html);
     w.document.close();
@@ -4385,17 +4435,17 @@ body{font-family:'Segoe UI',system-ui,sans-serif;color:#1e293b;font-size:12px;li
                     updItem("informes",inf.id,{estado:"Rechazado",observacionesRechazo:obs,revisor:nombreUsuario});
                   }} style={{padding:"6px 14px",borderRadius:8,background:"#dc2626",color:"#fff",border:"none",cursor:"pointer",fontSize:11,fontWeight:700}}>❌ Rechazar</button>
                 </>}
-                {puedeEnviar&&<>
-                  <button onClick={()=>generarPDF(inf)}
-                    style={{padding:"6px 14px",borderRadius:8,background:"#1e293b",color:"#fff",border:"none",cursor:"pointer",fontSize:11,fontWeight:700}}>📄 Descargar PDF</button>
-                  <button onClick={()=>{
+                {/* PDF siempre disponible */}
+                <button onClick={()=>generarPDF(inf)}
+                  style={{padding:"6px 14px",borderRadius:8,background:"#1e293b",color:"#fff",border:"none",cursor:"pointer",fontSize:11,fontWeight:700}}>📄 Descargar PDF</button>
+                <button onClick={()=>{const w=window.open('','_blank');w.document.write(generarHTMLInforme(inf));w.document.close();setTimeout(()=>w.print(),300);}}
+                  style={{padding:"6px 14px",borderRadius:8,background:"#475569",color:"#fff",border:"none",cursor:"pointer",fontSize:11,fontWeight:700}}>🖨️ Imprimir</button>
+                {/* Email solo cuando Aprobado o Enviado */}
+                {(puedeEnviar||inf.estado==="Enviado")&&<button onClick={()=>{
                     const clienteEmail = ct?.email||"";
                     setEmailsEnvio(clienteEmail);
                     setEnvioModal(true);
-                  }} style={{padding:"6px 14px",borderRadius:8,background:"#2563eb",color:"#fff",border:"none",cursor:"pointer",fontSize:11,fontWeight:700}}>📧 Enviar por email</button>
-                </>}
-                {inf.estado==="Enviado"&&<button onClick={()=>generarPDF(inf)}
-                  style={{padding:"6px 14px",borderRadius:8,background:"#1e293b",color:"#fff",border:"none",cursor:"pointer",fontSize:11,fontWeight:700}}>📄 Descargar PDF</button>}
+                  }} style={{padding:"6px 14px",borderRadius:8,background:"#2563eb",color:"#fff",border:"none",cursor:"pointer",fontSize:11,fontWeight:700}}>📧 Enviar por email</button>}
               </div>
             </div>
 
@@ -4427,7 +4477,63 @@ body{font-family:'Segoe UI',system-ui,sans-serif;color:#1e293b;font-size:12px;li
               <div style={{height:10}}/>
               <Input label="4. Medidas correctivas requeridas" value={inf.medidasCorrectivas} onChange={v=>updInf("medidasCorrectivas",v)} rows={3} disabled={!puedeEditar} placeholder="[Urgente] Reparar riego — plazo: 30 abril&#10;[Media] Ajustar dosis K — plazo: 15 mayo"/>
               <div style={{height:10}}/>
-              <Input label="5. Registro fotográfico (URLs separadas por coma)" value={inf.registroFotografico} onChange={v=>updInf("registroFotografico",v)} rows={2} disabled={!puedeEditar} placeholder="https://drive.google.com/foto1, https://..."/>
+              {/* 5. Registro fotográfico — upload + preview */}
+              <div>
+                <div style={{fontSize:11,color:"#64748b",fontWeight:600,marginBottom:6}}>5. Registro fotográfico</div>
+                {/* Grid de fotos existentes */}
+                {(()=>{
+                  const fotos = (inf.registroFotografico||"").split(",").map(u=>u.trim()).filter(Boolean);
+                  return fotos.length>0?(
+                    <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(140px,1fr))",gap:8,marginBottom:10}}>
+                      {fotos.map((url,fi)=>(
+                        <div key={fi} style={{position:"relative",borderRadius:8,overflow:"hidden",border:"1px solid #e2e8f0",background:"#f8fafc"}}>
+                          <img src={url} alt={`Foto ${fi+1}`} style={{width:"100%",height:100,objectFit:"cover",display:"block"}}
+                            onError={e=>{e.target.style.display="none";e.target.nextSibling.style.display="flex";}}/>
+                          <div style={{display:"none",width:"100%",height:100,alignItems:"center",justifyContent:"center",fontSize:10,color:"#94a3b8",flexDirection:"column",gap:4}}>
+                            <span>📷</span><span>Error cargando</span>
+                            <a href={url} target="_blank" rel="noreferrer" style={{color:"#2563eb",fontSize:9}}>Ver link</a>
+                          </div>
+                          {puedeEditar&&<button onClick={()=>{
+                            const nuevas = fotos.filter((_,i)=>i!==fi);
+                            updInf("registroFotografico", nuevas.join(", "));
+                          }} style={{position:"absolute",top:4,right:4,width:22,height:22,borderRadius:4,background:"rgba(0,0,0,0.6)",color:"#fff",border:"none",cursor:"pointer",fontSize:12,display:"flex",alignItems:"center",justifyContent:"center"}}>×</button>}
+                          <div style={{padding:"4px 6px",fontSize:9,color:"#64748b",background:"#f8fafc",textAlign:"center",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>Foto {fi+1}</div>
+                        </div>
+                      ))}
+                    </div>
+                  ):(<div style={{padding:16,textAlign:"center",color:"#94a3b8",border:"1px dashed #e2e8f0",borderRadius:8,marginBottom:10,fontSize:12}}>Sin fotos adjuntas</div>);
+                })()}
+                {/* Botones de upload */}
+                {puedeEditar&&<div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+                  <label style={{padding:"7px 14px",borderRadius:8,background:"#16a34a",color:"#fff",border:"none",cursor:"pointer",fontSize:12,fontWeight:700,display:"inline-flex",alignItems:"center",gap:6}}>
+                    📷 Subir foto
+                    <input type="file" accept="image/*" multiple style={{display:"none"}} onChange={async(e)=>{
+                      const files = Array.from(e.target.files||[]);
+                      if(files.length===0) return;
+                      const fotosActuales = (inf.registroFotografico||"").split(",").map(u=>u.trim()).filter(Boolean);
+                      let nuevasUrls = [...fotosActuales];
+                      for(const file of files) {
+                        try {
+                          const url = await uploadFoto(file, inf.id);
+                          nuevasUrls.push(url);
+                        } catch(err) {
+                          alert(`Error subiendo ${file.name}: ${err.message}`);
+                        }
+                      }
+                      updInf("registroFotografico", nuevasUrls.join(", "));
+                      e.target.value = "";
+                    }}/>
+                  </label>
+                  <button onClick={()=>{
+                    const url = window.prompt("Pegar URL de foto:");
+                    if(!url||!url.trim()) return;
+                    const fotosActuales = (inf.registroFotografico||"").split(",").map(u=>u.trim()).filter(Boolean);
+                    updInf("registroFotografico", [...fotosActuales, url.trim()].join(", "));
+                  }} style={{padding:"7px 14px",borderRadius:8,background:"#f1f5f9",color:"#475569",border:"1px solid #d1d5db",cursor:"pointer",fontSize:12,fontWeight:600}}>
+                    🔗 Pegar URL
+                  </button>
+                </div>}
+              </div>
               <div style={{height:10}}/>
               <Input label="6. Conclusiones" value={inf.conclusiones} onChange={v=>updInf("conclusiones",v)} rows={3} disabled={!puedeEditar}/>
               <div style={{height:10}}/>
