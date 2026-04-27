@@ -3961,7 +3961,7 @@ function MaestroViveristas({viveristas,setViveristas,can}){
 // OPERACIÓN TÉCNICA — Hub transversal (visitas, informes, test blocks,
 // equipo técnico, medidas correctivas, entregables)
 // ═══════════════════════════════════════════════════════════════════
-function OperacionTecnica({data, setData, ctData=[], viverosData=[], obtentoresData=[], can}) {
+function OperacionTecnica({data, setData, ctData=[], viverosData=[], obtentoresData=[], can, usuarioActual={}}) {
   const [subTab, setSubTab] = useState("visitas");
   const [modal, setModal] = useState(null); // "visita"|"informe"|"testblock"|"tecnico"|"medida"|"entregable"
   const [busq, setBusq] = useState("");
@@ -3977,6 +3977,119 @@ function OperacionTecnica({data, setData, ctData=[], viverosData=[], obtentoresD
   const entregables   = Array.isArray(data?.entregables)   ? data.entregables   : [];
 
   const upd = (key, val) => setData(prev => ({...(prev||{}), [key]: val}));
+
+  // Permisos de workflow
+  const esGteTecnico = usuarioActual?.rol === "gerente_tecnico" || usuarioActual?.rol === "admin";
+  const esAdmin = usuarioActual?.rol === "admin";
+  const nombreUsuario = usuarioActual?.nombre || "Usuario";
+
+  // Detalle de informe expandido (null = lista, id = ver detalle)
+  const [informeDetalle, setInformeDetalle] = useState(null);
+  const [envioModal, setEnvioModal] = useState(false);
+  const [emailsEnvio, setEmailsEnvio] = useState("");
+
+  // Generar PDF del informe como HTML → descargar
+  function generarPDF(inf) {
+    const ct = (ctData||[]).find(c=>c.id===inf.ctId);
+    const html = `
+<!DOCTYPE html><html><head><meta charset="utf-8"><title>Informe ${inf.titulo}</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:'Segoe UI',system-ui,sans-serif;color:#1e293b;font-size:12px;line-height:1.6;padding:40px 50px}
+.header{text-align:center;border-bottom:2px solid #0f766e;padding-bottom:16px;margin-bottom:20px}
+.header h1{font-size:18px;color:#0f766e;margin-bottom:2px}
+.header .sub{font-size:11px;color:#64748b}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:8px 20px;margin-bottom:16px}
+.grid .label{font-size:10px;color:#64748b;text-transform:uppercase;letter-spacing:0.5px}
+.grid .value{font-size:12px;font-weight:600}
+.section{margin-bottom:14px}
+.section h2{font-size:13px;font-weight:700;color:#0f766e;background:#f0fdfa;padding:6px 10px;border-radius:4px;margin-bottom:6px}
+.section p{padding:0 10px;font-size:12px;color:#334155}
+.firma{display:grid;grid-template-columns:1fr 1fr 1fr;gap:20px;border-top:2px solid #e2e8f0;padding-top:16px;margin-top:24px}
+.firma .col{text-align:center}
+.firma .col .name{font-weight:700;font-size:12px}
+.firma .col .cargo{font-size:10px;color:#64748b}
+.badge{display:inline-block;padding:2px 10px;border-radius:10px;font-size:10px;font-weight:700}
+.urgente{background:#fee2e2;color:#991b1b}
+.media{background:#fef3c7;color:#78350f}
+@media print{body{padding:20px 30px}}
+</style></head><body>
+<div class="header">
+<div style="font-size:10px;color:#64748b;letter-spacing:2px">OSIRIS PLANT MANAGEMENT</div>
+<h1>${inf.titulo || 'Informe Técnico'}</h1>
+<div class="sub">N° INF-${new Date(inf.fecha||Date.now()).getFullYear()}-${String(inf.id||'').slice(-4).padStart(4,'0')} · ${inf.fecha||new Date().toISOString().slice(0,10)}</div>
+</div>
+<div class="grid">
+<div><div class="label">Cliente</div><div class="value">${ct?.razonSocial||'—'} · ${ct?.pais||''}</div></div>
+<div><div class="label">Predio / Ubicación</div><div class="value">${inf.lugar||'—'}</div></div>
+<div><div class="label">Tipo de informe</div><div class="value">${inf.tipo||'—'}</div></div>
+<div><div class="label">Responsable</div><div class="value">${inf.responsable||'—'}${inf.responsableCargo?' · '+inf.responsableCargo:''}</div></div>
+<div><div class="label">Especie / Variedad</div><div class="value">${inf.especie||'—'}${inf.variedad?' · '+inf.variedad:''}</div></div>
+<div><div class="label">Fecha</div><div class="value">${inf.fecha||'—'}</div></div>
+</div>
+<div class="section"><h2>1. Objetivo</h2><p>${(inf.objetivo||'—').replace(/\n/g,'<br>')}</p></div>
+<div class="section"><h2>2. Observaciones de campo</h2><p>${(inf.observacionesCampo||'—').replace(/\n/g,'<br>')}</p></div>
+<div class="section"><h2>3. Recomendaciones</h2><p>${(inf.recomendaciones||'—').replace(/\n/g,'<br>')}</p></div>
+<div class="section"><h2>4. Medidas correctivas</h2><p>${(inf.medidasCorrectivas||'—').replace(/\n/g,'<br>')}</p></div>
+<div class="section"><h2>5. Registro fotográfico</h2><p>${inf.registroFotografico?inf.registroFotografico.split(',').map(u=>'<a href="'+u.trim()+'">'+u.trim()+'</a>').join('<br>'):'Sin fotos adjuntas'}</p></div>
+<div class="section"><h2>6. Conclusiones</h2><p>${(inf.conclusiones||'—').replace(/\n/g,'<br>')}</p></div>
+<div class="firma">
+<div class="col"><div class="name">${inf.responsable||'—'}</div><div class="cargo">${inf.responsableCargo||'Elaborado por'}</div></div>
+<div class="col"><div class="name">${inf.revisor||'—'}</div><div class="cargo">${inf.revisorCargo||'Revisado por'}</div></div>
+<div class="col"><div class="name">Próxima visita: ${inf.proximaVisitaFecha||'—'}</div><div class="cargo">${inf.proximaVisitaObjetivo||''}</div></div>
+</div>
+</body></html>`;
+    // Abrir en nueva ventana para imprimir/guardar como PDF
+    const w = window.open('','_blank','width=800,height=1100');
+    w.document.write(html);
+    w.document.close();
+    setTimeout(()=>w.print(), 500);
+  }
+
+  // Enviar por email via EmailJS
+  async function enviarPorEmail(inf, emails) {
+    if(!emails||!emails.trim()){alert("Ingresa al menos un email.");return false;}
+    const ct = (ctData||[]).find(c=>c.id===inf.ctId);
+    const mensaje = `📄 INFORME TÉCNICO — Osiris Plant Management\n\n`
+      +`Título: ${inf.titulo}\n`
+      +`Tipo: ${inf.tipo}\n`
+      +`Fecha: ${inf.fecha}\n`
+      +`Cliente: ${ct?.razonSocial||'—'} · ${ct?.pais||''}\n`
+      +`Responsable: ${inf.responsable}\n\n`
+      +`── Objetivo ──\n${inf.objetivo||'—'}\n\n`
+      +`── Observaciones ──\n${inf.observacionesCampo||'—'}\n\n`
+      +`── Recomendaciones ──\n${inf.recomendaciones||'—'}\n\n`
+      +`── Medidas Correctivas ──\n${inf.medidasCorrectivas||'—'}\n\n`
+      +`── Conclusiones ──\n${inf.conclusiones||'—'}\n\n`
+      +`── Próxima visita: ${inf.proximaVisitaFecha||'—'} ──\n${inf.proximaVisitaObjetivo||''}\n\n`
+      +`— Osiris Plant Management · Grupo Mediterra`;
+    try {
+      // EmailJS config (misma que App.jsx)
+      const EMAILJS_SERVICE = "service_7uisg69";
+      const EMAILJS_KEY = "vJgNsLqJpkCi17Ucd";
+      const EMAILJS_TEMPLATE = "template_0m92glq";
+      const emailList = emails.split(',').map(e=>e.trim()).filter(Boolean);
+      for(const email of emailList) {
+        await fetch("https://api.emailjs.com/api/v1.0/email/send", {
+          method:"POST", headers:{"Content-Type":"application/json"},
+          body:JSON.stringify({
+            service_id:EMAILJS_SERVICE, template_id:EMAILJS_TEMPLATE, user_id:EMAILJS_KEY,
+            template_params:{
+              to_email:email,
+              to_name:ct?.razonSocial||"Cliente",
+              subject:`📄 Informe Técnico: ${inf.titulo} — Osiris Plant Management`,
+              message:mensaje,
+            }
+          })
+        });
+      }
+      return true;
+    } catch(e) {
+      console.error("Error enviando email:", e);
+      alert("Error al enviar email. Verifica conexión.");
+      return false;
+    }
+  }
 
   // ── CRUD helpers ──
   function addItem(key, item) {
@@ -3994,7 +4107,24 @@ function OperacionTecnica({data, setData, ctData=[], viverosData=[], obtentoresD
 
   // ── Forms ──
   const VACIO_VISITA = {tipo:"Técnica",fecha:"",cliente:"",ctId:"",viveroId:"",lugar:"",objetivo:"",resultado:"",estado:"Programada",responsable:"",fotos:"",observaciones:""};
-  const VACIO_INFORME = {tipo:"Visita Técnica",titulo:"",fecha:"",ctId:"",contenido:"",conclusiones:"",adjunto:"",responsable:""};
+  const VACIO_INFORME = {tipo:"Visita Técnica",titulo:"",fecha:"",ctId:"",
+    // 9 secciones del informe
+    especie:"",variedad:"",lugar:"",
+    objetivo:"",observacionesCampo:"",recomendaciones:"",
+    medidasCorrectivas:"", // texto libre con prioridad
+    registroFotografico:"", // URLs separadas por coma
+    proximaVisitaFecha:"",proximaVisitaObjetivo:"",
+    // Workflow
+    estado:"Borrador", // Borrador|En revisión|Aprobado|Rechazado|Enviado
+    responsable:"",responsableCargo:"",
+    revisor:"",revisorCargo:"",
+    observacionesRechazo:"",
+    fechaAprobacion:"",
+    // Envío
+    emailsDestino:"", // emails separados por coma
+    fechaEnvio:"",
+    adjunto:"",contenido:"",conclusiones:""};
+  const ESTADOS_INFORME = ["Borrador","En revisión","Aprobado","Rechazado","Enviado"];
   const VACIO_TEST = {nombre:"",especie:"",variedad:"",ubicacion:"",fechaInicio:"",fechaFin:"",estado:"Planificado",responsable:"",resultados:"",observaciones:""};
   const VACIO_TECNICO = {nombre:"",rol:"Asesor por especie",especie:"",email:"",telefono:"",modalidad:"Part time",observaciones:""};
   const VACIO_MEDIDA = {titulo:"",ctId:"",fecha:"",descripcionProblema:"",accionCorrectiva:"",responsable:"",fechaCierre:"",estado:"Abierta",observaciones:""};
@@ -4208,21 +4338,151 @@ function OperacionTecnica({data, setData, ctData=[], viverosData=[], obtentoresD
         emptyMsg="Sin visitas registradas. Programa la primera visita técnica o comercial."
       />}
 
-      {/* ── TAB: Informes ── */}
-      {subTab==="informes"&&<TablaGenerica
-        cols={[
-          {label:"Fecha",field:"fecha",w:100},
-          {label:"Tipo",render:r=><BadgeEstado estado={r.tipo}/>,w:130},
-          {label:"Título",field:"titulo",style:{fontWeight:600}},
-          {label:"Cliente",render:r=>r.ctId?nombreCliente(r.ctId):"—"},
-          {label:"Responsable",field:"responsable"},
-          {label:"Adjunto",render:r=>r.adjunto?<a href={r.adjunto} target="_blank" rel="noreferrer" style={{color:"#2563eb",fontSize:11,fontWeight:600}}>📎 Ver</a>:"—"},
-        ]}
-        rows={filtrar(informes,"tipo","tipo")}
-        onEdit={r=>abrirEditar("informe",r)}
-        onDel={r=>delItem("informes",r.id,r.titulo)}
-        emptyMsg="Sin informes. Crea uno después de una visita o recepción."
-      />}
+      {/* ── TAB: Informes (con workflow de aprobación) ── */}
+      {subTab==="informes"&&(informeDetalle?(()=>{
+        // VISTA DETALLE del informe
+        const inf = informes.find(i=>i.id===informeDetalle);
+        if(!inf) { setInformeDetalle(null); return null; }
+        const ct = (ctData||[]).find(c=>c.id===inf.ctId);
+        const puedeEditar = can && (inf.estado==="Borrador"||inf.estado==="Rechazado");
+        const puedeAprobar = esGteTecnico && inf.estado==="En revisión";
+        const puedeEnviar = (esGteTecnico||esAdmin) && inf.estado==="Aprobado";
+        const updInf = (campo, valor) => updItem("informes", inf.id, {[campo]:valor});
+        return (
+          <div>
+            {/* Botón volver */}
+            <button onClick={()=>setInformeDetalle(null)}
+              style={{marginBottom:14,padding:"7px 14px",borderRadius:8,border:"1px solid #d1d5db",background:"#fff",cursor:"pointer",fontSize:12,fontWeight:600}}>← Volver a lista</button>
+
+            {/* Barra de workflow */}
+            <div style={{display:"flex",gap:6,alignItems:"center",marginBottom:16,padding:"12px 16px",background:"#f8fafc",borderRadius:10,border:"1px solid #e2e8f0",flexWrap:"wrap"}}>
+              {ESTADOS_INFORME.filter(e=>e!=="Rechazado").map((est,i)=>{
+                const activo = inf.estado===est || (est==="Borrador"&&inf.estado==="Rechazado");
+                const pasado = ESTADOS_INFORME.indexOf(inf.estado) > ESTADOS_INFORME.indexOf(est);
+                const colores = {Borrador:"#64748b","En revisión":"#d97706",Aprobado:"#2563eb",Enviado:"#16a34a"};
+                const c = colores[est]||"#64748b";
+                return <React.Fragment key={est}>
+                  {i>0&&<div style={{width:24,height:2,background:pasado?c:"#e2e8f0"}}/>}
+                  <div style={{padding:"6px 14px",borderRadius:20,fontSize:11,fontWeight:700,
+                    background:activo?`${c}22`:"#f1f5f9",color:activo?c:"#94a3b8",
+                    border:`1.5px solid ${activo?c:"#e2e8f0"}`}}>
+                    {est==="Borrador"&&inf.estado==="Rechazado"?"⚠️ Rechazado":est}
+                  </div>
+                </React.Fragment>;
+              })}
+              <div style={{marginLeft:"auto",display:"flex",gap:6,flexWrap:"wrap"}}>
+                {/* Botones de acción según estado */}
+                {puedeEditar&&inf.estado==="Borrador"&&<button onClick={()=>updInf("estado","En revisión")}
+                  style={{padding:"6px 14px",borderRadius:8,background:"#d97706",color:"#fff",border:"none",cursor:"pointer",fontSize:11,fontWeight:700}}>📤 Enviar a revisión</button>}
+                {puedeEditar&&inf.estado==="Rechazado"&&<button onClick={()=>updInf("estado","En revisión")}
+                  style={{padding:"6px 14px",borderRadius:8,background:"#d97706",color:"#fff",border:"none",cursor:"pointer",fontSize:11,fontWeight:700}}>📤 Reenviar a revisión</button>}
+                {puedeAprobar&&<>
+                  <button onClick={()=>{updItem("informes",inf.id,{estado:"Aprobado",revisor:nombreUsuario,revisorCargo:"Gerente Técnico",fechaAprobacion:new Date().toISOString().slice(0,10)});}}
+                    style={{padding:"6px 14px",borderRadius:8,background:"#16a34a",color:"#fff",border:"none",cursor:"pointer",fontSize:11,fontWeight:700}}>✅ Aprobar</button>
+                  <button onClick={()=>{
+                    const obs = window.prompt("Observaciones del rechazo:");
+                    if(obs===null) return;
+                    updItem("informes",inf.id,{estado:"Rechazado",observacionesRechazo:obs,revisor:nombreUsuario});
+                  }} style={{padding:"6px 14px",borderRadius:8,background:"#dc2626",color:"#fff",border:"none",cursor:"pointer",fontSize:11,fontWeight:700}}>❌ Rechazar</button>
+                </>}
+                {puedeEnviar&&<>
+                  <button onClick={()=>generarPDF(inf)}
+                    style={{padding:"6px 14px",borderRadius:8,background:"#1e293b",color:"#fff",border:"none",cursor:"pointer",fontSize:11,fontWeight:700}}>📄 Descargar PDF</button>
+                  <button onClick={()=>{
+                    const clienteEmail = ct?.email||"";
+                    setEmailsEnvio(clienteEmail);
+                    setEnvioModal(true);
+                  }} style={{padding:"6px 14px",borderRadius:8,background:"#2563eb",color:"#fff",border:"none",cursor:"pointer",fontSize:11,fontWeight:700}}>📧 Enviar por email</button>
+                </>}
+                {inf.estado==="Enviado"&&<button onClick={()=>generarPDF(inf)}
+                  style={{padding:"6px 14px",borderRadius:8,background:"#1e293b",color:"#fff",border:"none",cursor:"pointer",fontSize:11,fontWeight:700}}>📄 Descargar PDF</button>}
+              </div>
+            </div>
+
+            {/* Observaciones de rechazo */}
+            {inf.estado==="Rechazado"&&inf.observacionesRechazo&&(
+              <div style={{padding:"10px 14px",background:"#fef2f2",border:"1px solid #fecaca",borderRadius:8,marginBottom:14,fontSize:12,color:"#991b1b"}}>
+                ❌ <strong>Rechazado por {inf.revisor}:</strong> {inf.observacionesRechazo}
+              </div>
+            )}
+
+            {/* Formulario con las 9 secciones */}
+            <div style={{background:"#fff",border:"1px solid #e2e8f0",borderRadius:12,padding:"20px 24px"}}>
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:16}}>
+                <Select label="Tipo de informe *" value={inf.tipo} onChange={v=>updInf("tipo",v)} opts={TIPOS_INFORME} disabled={!puedeEditar}/>
+                <Input label="Título *" value={inf.titulo} onChange={v=>updInf("titulo",v)} placeholder="Informe de visita a..." disabled={!puedeEditar}/>
+                <Input label="Fecha *" value={inf.fecha} onChange={v=>updInf("fecha",v)} type="date" disabled={!puedeEditar}/>
+                <div><div style={{fontSize:11,color:"#64748b",fontWeight:600,marginBottom:3}}>Cliente (contrato)</div>
+                  <ClienteSelect value={inf.ctId} onChange={v=>updInf("ctId",v)} disabled={!puedeEditar}/></div>
+                <Input label="Especie" value={inf.especie} onChange={v=>updInf("especie",v)} disabled={!puedeEditar}/>
+                <Input label="Variedad" value={inf.variedad} onChange={v=>updInf("variedad",v)} disabled={!puedeEditar}/>
+                <Input label="Predio / Ubicación" value={inf.lugar} onChange={v=>updInf("lugar",v)} disabled={!puedeEditar}/>
+                <Input label="Responsable (elabora)" value={inf.responsable} onChange={v=>updInf("responsable",v)} disabled={!puedeEditar}/>
+              </div>
+              <Input label="1. Objetivo de la visita" value={inf.objetivo} onChange={v=>updInf("objetivo",v)} rows={3} disabled={!puedeEditar}/>
+              <div style={{height:10}}/>
+              <Input label="2. Observaciones de campo" value={inf.observacionesCampo} onChange={v=>updInf("observacionesCampo",v)} rows={4} disabled={!puedeEditar}/>
+              <div style={{height:10}}/>
+              <Input label="3. Recomendaciones" value={inf.recomendaciones} onChange={v=>updInf("recomendaciones",v)} rows={3} disabled={!puedeEditar} placeholder="1) ... 2) ... 3) ..."/>
+              <div style={{height:10}}/>
+              <Input label="4. Medidas correctivas requeridas" value={inf.medidasCorrectivas} onChange={v=>updInf("medidasCorrectivas",v)} rows={3} disabled={!puedeEditar} placeholder="[Urgente] Reparar riego — plazo: 30 abril&#10;[Media] Ajustar dosis K — plazo: 15 mayo"/>
+              <div style={{height:10}}/>
+              <Input label="5. Registro fotográfico (URLs separadas por coma)" value={inf.registroFotografico} onChange={v=>updInf("registroFotografico",v)} rows={2} disabled={!puedeEditar} placeholder="https://drive.google.com/foto1, https://..."/>
+              <div style={{height:10}}/>
+              <Input label="6. Conclusiones" value={inf.conclusiones} onChange={v=>updInf("conclusiones",v)} rows={3} disabled={!puedeEditar}/>
+              <div style={{height:10}}/>
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+                <Input label="7. Próxima visita — fecha" value={inf.proximaVisitaFecha} onChange={v=>updInf("proximaVisitaFecha",v)} type="date" disabled={!puedeEditar}/>
+                <Input label="7. Próxima visita — objetivo" value={inf.proximaVisitaObjetivo} onChange={v=>updInf("proximaVisitaObjetivo",v)} disabled={!puedeEditar}/>
+              </div>
+              <div style={{height:10}}/>
+              <Input label="📎 Adjunto (URL)" value={inf.adjunto} onChange={v=>updInf("adjunto",v)} disabled={!puedeEditar} placeholder="https://drive.google.com/..."/>
+              {/* Info de firmas */}
+              <div style={{marginTop:16,padding:"12px 16px",background:"#f8fafc",borderRadius:8,display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:12,fontSize:12}}>
+                <div><div style={{fontSize:10,color:"#94a3b8"}}>Elaborado por</div><div style={{fontWeight:600}}>{inf.responsable||"—"}</div></div>
+                <div><div style={{fontSize:10,color:"#94a3b8"}}>Revisado por</div><div style={{fontWeight:600}}>{inf.revisor||"(Pendiente)"}</div>{inf.fechaAprobacion&&<div style={{fontSize:10,color:"#16a34a"}}>Aprobado {inf.fechaAprobacion}</div>}</div>
+                <div><div style={{fontSize:10,color:"#94a3b8"}}>Estado</div><div><BadgeEstado estado={inf.estado}/></div></div>
+              </div>
+            </div>
+
+            {/* Modal envío email */}
+            {envioModal&&<ModalForm titulo="📧 Enviar informe por email" onSave={async()=>{
+              const ok = await enviarPorEmail(inf, emailsEnvio);
+              if(ok){
+                updItem("informes",inf.id,{estado:"Enviado",emailsDestino:emailsEnvio,fechaEnvio:new Date().toISOString().slice(0,10)});
+                window.auditLog&&window.auditLog("enviar",{modulo:"osiris",seccion:"Informe",descripcion:`Envió informe "${inf.titulo}" a: ${emailsEnvio}`});
+                setEnvioModal(false);
+                alert("✅ Informe enviado exitosamente.");
+              }
+            }}>
+              <Input label="Emails destino (separados por coma) *" value={emailsEnvio} onChange={v=>setEmailsEnvio(v)}
+                placeholder="cliente@empresa.com, sublicenciado@empresa.com"/>
+              <div style={{fontSize:11,color:"#64748b",marginTop:8}}>
+                💡 Se enviará un resumen del informe por email a cada destinatario. El estado cambiará a "Enviado".
+              </div>
+            </ModalForm>}
+          </div>
+        );
+      })():(
+        // LISTA de informes
+        <>
+          <TablaGenerica
+            cols={[
+              {label:"Fecha",field:"fecha",w:90},
+              {label:"Tipo",render:r=><BadgeEstado estado={r.tipo}/>,w:120},
+              {label:"Título",render:r=><span style={{fontWeight:600,cursor:"pointer",color:"#2563eb",textDecoration:"underline"}} onClick={()=>setInformeDetalle(r.id)}>{r.titulo||"(sin título)"}</span>},
+              {label:"Cliente",render:r=>r.ctId?nombreCliente(r.ctId):"—"},
+              {label:"Responsable",field:"responsable"},
+              {label:"Estado",render:r=><BadgeEstado estado={r.estado}/>,w:110},
+              {label:"Revisor",render:r=>r.revisor||"—"},
+            ]}
+            rows={filtrar(informes,"tipo","estado")}
+            onEdit={r=>{setInformeDetalle(r.id);}}
+            onDel={r=>delItem("informes",r.id,r.titulo)}
+            emptyMsg="Sin informes. Crea uno después de una visita o recepción."
+          />
+        </>
+      ))}
 
       {/* ── TAB: Test Blocks ── */}
       {subTab==="testblocks"&&<TablaGenerica
@@ -4343,20 +4603,31 @@ function OperacionTecnica({data, setData, ctData=[], viverosData=[], obtentoresD
         <Input label="📎 Link fotos/adjuntos" value={form.fotos} onChange={v=>setForm(p=>({...p,fotos:v}))} placeholder="https://drive.google.com/..."/>
       </ModalForm>}
 
-      {modal==="informe"&&<ModalForm titulo={form._editId?"Editar informe":"Nuevo informe"} onSave={()=>guardarForm("informes",VACIO_INFORME)}>
+      {modal==="informe"&&<ModalForm titulo="Nuevo informe" onSave={()=>{
+        if(!form.titulo||!form.titulo.trim()){alert("El título es obligatorio.");return;}
+        const nuevoInf = {...form, estado:"Borrador", responsable:form.responsable||nombreUsuario};
+        addItem("informes", nuevoInf);
+        setForm({});setModal(null);
+        // Abrir detalle del nuevo informe
+        setTimeout(()=>{
+          const ultimo = (data?.informes||[])[(data?.informes||[]).length];
+          // El ID se genera en addItem, así que abrimos el último
+        },100);
+      }}>
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
           <Select label="Tipo *" value={form.tipo} onChange={v=>setForm(p=>({...p,tipo:v}))} opts={TIPOS_INFORME}/>
-          <Input label="Fecha *" value={form.fecha} onChange={v=>setForm(p=>({...p,fecha:v}))} type="date"/>
           <Input label="Título *" value={form.titulo} onChange={v=>setForm(p=>({...p,titulo:v}))} placeholder="Informe de visita a..."/>
+          <Input label="Fecha *" value={form.fecha} onChange={v=>setForm(p=>({...p,fecha:v}))} type="date"/>
           <div>
             <div style={{fontSize:11,color:"#64748b",fontWeight:600,marginBottom:3}}>Cliente (contrato)</div>
             <ClienteSelect value={form.ctId} onChange={v=>setForm(p=>({...p,ctId:v}))}/>
           </div>
-          <Input label="Responsable" value={form.responsable} onChange={v=>setForm(p=>({...p,responsable:v}))}/>
-          <Input label="📎 Adjunto (URL)" value={form.adjunto} onChange={v=>setForm(p=>({...p,adjunto:v}))} placeholder="https://..."/>
+          <Input label="Responsable" value={form.responsable||nombreUsuario} onChange={v=>setForm(p=>({...p,responsable:v}))}/>
+          <Input label="Predio / Ubicación" value={form.lugar} onChange={v=>setForm(p=>({...p,lugar:v}))}/>
         </div>
-        <Input label="Contenido" value={form.contenido} onChange={v=>setForm(p=>({...p,contenido:v}))} rows={4} placeholder="Descripción detallada..."/>
-        <Input label="Conclusiones" value={form.conclusiones} onChange={v=>setForm(p=>({...p,conclusiones:v}))} rows={2}/>
+        <div style={{fontSize:11,color:"#64748b",marginTop:12,padding:"8px 12px",background:"#f0f9ff",borderRadius:6,border:"1px solid #bae6fd"}}>
+          💡 Se creará como <strong>Borrador</strong>. Después podrás completar las 9 secciones del informe y enviarlo a revisión del Gerente Técnico.
+        </div>
       </ModalForm>}
 
       {modal==="testblock"&&<ModalForm titulo={form._editId?"Editar test block":"Nuevo test block"} onSave={()=>guardarForm("testBlocks",VACIO_TEST)}>
@@ -8366,6 +8637,7 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
             viverosData={Array.isArray(osirisData?.viveros)?osirisData.viveros:[]}
             obtentoresData={obtentoresData}
             can={canOp}
+            usuarioActual={usuarioActual}
           />
         </div>
       </div>
