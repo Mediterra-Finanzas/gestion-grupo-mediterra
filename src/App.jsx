@@ -391,9 +391,7 @@ const TABS_PERMISOS_CONFIG = {
     {id:"config",   label:"⚙️ Configuración"},
   ],
   osiris: [
-    {id:"contratos",  label:"📄 Contratos Prod-Exp"},
-    {id:"obtentores", label:"🧬 Contratos Obtentores"},
-    {id:"viveros",    label:"🌱 Contratos Viveros"},
+    {id:"contratos",  label:"📄 Contratos"},
     {id:"royalties",  label:"💰 Royalties / Fee"},
   ],
   finanzas: [
@@ -1405,8 +1403,14 @@ export default function App(){
                 royaltyComercial: mergeEdits(prev.royaltyComercial||[], extractUserEdits(saved.royaltyComercial)),
                 feeViveros:       mergeEdits(prev.feeViveros||[],       extractUserEdits(saved.feeViveros)),
                 totalPedidos:     mergeEdits(prev.totalPedidos||[],     extractUserEdits(saved.totalPedidos)),
-                contratos: saved.contratos||prev.contratos||[],
-                clientes: saved.clientes||prev.clientes||[],
+                contratos:   saved.contratos   || prev.contratos   || [],
+                clientes:    saved.clientes    || prev.clientes    || [],
+                // Maestros de catálogo: restaurar tal cual desde Supabase
+                especies:    saved.especies    || prev.especies    || [],
+                variedades:  saved.variedades  || prev.variedades  || [],
+                obtentores:  saved.obtentores  || prev.obtentores  || [],
+                viveros:     saved.viveros     || prev.viveros     || [],
+                viveristas:  saved.viveristas  || prev.viveristas  || [],
               };
             });
           }
@@ -1512,13 +1516,18 @@ export default function App(){
           headers:{apikey:SUPA_KEY,Authorization:`Bearer ${SUPA_KEY}`}
         });
         const allData = await res.json();
+        // Defensive: Supabase puede devolver objeto de error en lugar de array si la query falla
+        if(!Array.isArray(allData)) {
+          console.warn("[backup] Respuesta no esperada de Supabase, omitiendo respaldo:", allData);
+          return;
+        }
         const backup = {
           fecha: new Date().toISOString(),
           usuario: usuarioActual.nombre,
           version: "Mediterra Hub Backup Automático v1",
           tablas: {}
         };
-        (allData||[]).forEach(row=>{
+        allData.forEach(row=>{
           try { backup.tablas[row.id] = {data:JSON.parse(row.value), updated_at:row.updated_at}; }
           catch { backup.tablas[row.id] = {data:row.value, updated_at:row.updated_at}; }
         });
