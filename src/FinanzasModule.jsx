@@ -3247,7 +3247,8 @@ function Consolidado({empresas,saldosBancos,realData={},addedLinesGlobal={},subL
         <KPI label="Saldo Inicial Consolidado" value={$$(saldoIniConsolidado)} color={C.blue}/>
         <KPI label="Flujo Total" value={$$(flujoConsolidado.reduce((a,b)=>a+(Number(b)||0),0))} color={cf(flujoConsolidado.reduce((a,b)=>a+(Number(b)||0),0))}/>
         <KPI label={"Mínimo Acumulado ("+MESES_65[acumConsolidado.indexOf(Math.min(...acumConsolidado))]+")"} value={$$(Math.min(...acumConsolidado))} color={C.red}/>
-        <KPI label="Saldo Final Jun-31" value={$$(acumConsolidado[acumConsolidado.length-1])} color={cf(acumConsolidado[acumConsolidado.length-1])}/>
+        <KPI label="Saldo Jun-27" value={$$(acumConsolidado[14])} color={cf(acumConsolidado[14])}/>
+        <KPI label="Saldo Jun-31" value={$$(acumConsolidado[62])} color={cf(acumConsolidado[62])}/>
         <KPI label="Empresas" value={empNamesConsolidado.length} color={C.yellow}/>
       </div>
       {/* Flujo al cierre de cada temporada */}
@@ -5182,6 +5183,7 @@ function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit,saldosBanc
             {l:"Saldo Banco USD", v:saldoBancoUSD!=null?saldoBancoUSD:emp.saldo_ini, c:C.blue,
               sub:saldoBancoUSD!=null?"desde Saldos Bancos":"saldo base"},
             {l:"Flujo total",     v:flujoArr.reduce((a,b)=>a+b,0), c:cf(flujoArr.reduce((a,b)=>a+b,0))},
+            {l:"Saldo Jun-27",   v:acumArr[14], c:cf(acumArr[14])},
             {l:"Saldo Jun-31",   v:acumArr[acumArr.length-1], c:cf(acumArr[acumArr.length-1])},
           ].map(k=>(
             <div key={k.l} style={{textAlign:"right"}}>
@@ -5299,18 +5301,39 @@ function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit,saldosBanc
 // DASHBOARD
 // ═══════════════════════════════════════════════════════════════════
 function Dashboard({empresas, saldosBancos}) {
+  // Empresas a consolidar (excluye Allpa Farms Perú, igual que en Consolidado de Flujo Empresas)
+  const empNamesConsolidado = useMemo(()=>
+    Object.keys(empresas).filter(n => n !== "Allpa Farms Perú"),
+    [empresas]
+  );
+  // Saldo inicial real desde bancos (igual que Consolidado)
+  const saldoIniConsolidado = useMemo(()=>{
+    return empNamesConsolidado.reduce((s,n)=>{
+      const v = getSaldoBancoInicial(saldosBancos, n, empresas[n]?.saldo_ini || 0);
+      return s + (isNaN(v) ? 0 : v);
+    }, 0);
+  },[empNamesConsolidado,saldosBancos,empresas]);
+
   const gmAcum=useMemo(()=>{
-    let acc=Object.values(empresas).reduce((s,e)=>s+(e.saldo_ini||0),0);
+    let acc=saldoIniConsolidado;
     return MESES_65.map((_,i)=>{
       let f=0;
-      Object.values(empresas).forEach(e=>e.sections.forEach(sec=>sec.lines.forEach(l=>{
-        const num=Number(l.proy[i]);
-        f+=(isNaN(num)?0:num)*sec.signo;
-      })));
+      empNamesConsolidado.forEach(n=>{
+        const e = empresas[n];
+        e.sections.forEach(sec=>sec.lines.forEach(l=>{
+          const num=Number(l.proy[i]);
+          f+=(isNaN(num)?0:num)*sec.signo;
+        }));
+      });
       acc+=f;
       return acc;
     });
-  },[empresas]);
+  },[empresas,empNamesConsolidado,saldoIniConsolidado]);
+
+  // Índices clave: Apr-26 = 0, Jun-27 = 14, Jun-31 = 62
+  const IDX_JUN_27 = 14;
+  const IDX_JUN_31 = 62;
+
   const EMPRESAS_CHILE = ["Mediterra","Allegria Foods","Allegria Service","Frisku Foods","Allpa Farms","Osiris","Integrity Farms"];
   const EMPRESAS_PERU  = ["Allpa Farms Perú"];
   const HOY_DASH = new Date();
@@ -5346,7 +5369,8 @@ function Dashboard({empresas, saldosBancos}) {
         <KPI label={`🇵🇪 Saldo Banco Perú`}   value={$$(saldoCajaPerU)}   color={"#7c3aed"}/>
         <KPI label="Créditos Totales Q1-26" value={$$(8355763)}                 color={C.red}/>
         <KPI label="Mínimo Acum. (65m)"     value={$$(Math.min(...gmAcum))}     color={C.red}/>
-        <KPI label="Saldo Final Jun-31"     value={$$(gmAcum[gmAcum.length-1])} color={cf(gmAcum[gmAcum.length-1])}/>
+        <KPI label="Saldo Jun-27"           value={$$(gmAcum[IDX_JUN_27])}      color={cf(gmAcum[IDX_JUN_27])}/>
+        <KPI label="Saldo Jun-31"           value={$$(gmAcum[IDX_JUN_31])}      color={cf(gmAcum[IDX_JUN_31])}/>
       </div>
       <Card>
         <SectionTitle>Flujo Acumulado Consolidado — Mar-26 → Jun-31 (6 Temporadas)</SectionTitle>
@@ -6163,6 +6187,18 @@ function SaldosBancos({saldos,onSave,canEdit}) {
     return Object.values(totalesEmpresa).reduce((a,b)=>a+b,0);
   },[totalesEmpresa]);
 
+  // Desglose Chile vs Perú (por empresa)
+  const totalUSD_Chile = useMemo(()=>{
+    return EMPRESAS_LIST
+      .filter(emp=>!emp.includes("Perú"))
+      .reduce((a,emp)=>a+(totalesEmpresa[emp]||0),0);
+  },[totalesEmpresa]);
+  const totalUSD_Peru = useMemo(()=>{
+    return EMPRESAS_LIST
+      .filter(emp=>emp.includes("Perú"))
+      .reduce((a,emp)=>a+(totalesEmpresa[emp]||0),0);
+  },[totalesEmpresa]);
+
   const hasDirty=Object.keys(dirty).length>0;
   const sym=(id)=>MONEDAS.find(m=>m.id===id)?.symbol||"$";
 
@@ -6178,15 +6214,25 @@ function SaldosBancos({saldos,onSave,canEdit}) {
   return (
     <div style={{display:"flex",flexDirection:"column",gap:14}}>
       <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(160px,1fr))",gap:10}}>
-        <div style={{background:C.card,border:`2px solid ${C.accent}`,borderRadius:10,
-          padding:"12px 16px",gridColumn:"span 2"}}>
+        <div style={{background:C.card,border:`2px solid ${C.green}`,borderRadius:10,
+          padding:"12px 16px"}}>
           <div style={{fontSize:10,color:C.muted,textTransform:"uppercase",marginBottom:4}}>
-            💵 Total Consolidado USD
+            🇨🇱 Saldo Chile USD
+            {fxLoading&&<span style={{marginLeft:6,fontSize:9,color:C.yellow}}>actualizando…</span>}
+          </div>
+          <div style={{fontSize:22,fontWeight:900,color:totalUSD_Chile!=null?cf(totalUSD_Chile):C.muted}}>
+            {totalUSD_Chile!=null?`$${totalUSD_Chile.toLocaleString("es-CL",{maximumFractionDigits:0})} USD`:"—"}
+          </div>
+        </div>
+        <div style={{background:C.card,border:`2px solid #7c3aed`,borderRadius:10,
+          padding:"12px 16px"}}>
+          <div style={{fontSize:10,color:C.muted,textTransform:"uppercase",marginBottom:4}}>
+            🇵🇪 Saldo Perú USD
             {fxLoading&&<span style={{marginLeft:6,fontSize:9,color:C.yellow}}>actualizando…</span>}
             {fxError&&<span style={{marginLeft:6,fontSize:9,color:C.red}}>⚠️ sin paridad</span>}
           </div>
-          <div style={{fontSize:22,fontWeight:900,color:totalUSD!=null?cf(totalUSD):C.muted}}>
-            {totalUSD!=null?`$${totalUSD.toLocaleString("es-CL",{maximumFractionDigits:0})} USD`:"—"}
+          <div style={{fontSize:22,fontWeight:900,color:totalUSD_Peru!=null?cf(totalUSD_Peru):C.muted}}>
+            {totalUSD_Peru!=null?`$${totalUSD_Peru.toLocaleString("es-CL",{maximumFractionDigits:0})} USD`:"—"}
           </div>
         </div>
         {[
