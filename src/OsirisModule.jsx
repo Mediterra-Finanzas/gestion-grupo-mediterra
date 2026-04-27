@@ -2,7 +2,7 @@
 // ============================================================
 // OsirisModule.jsx — v4 — Módulo Osiris Plant · Mediterra
 // ============================================================
-import React, { useState, useCallback, useMemo } from "react";
+import React, { useState, useCallback, useMemo, useEffect } from "react";
 
 // ── Paleta ────────────────────────────────────────────────
 const C = {
@@ -2862,7 +2862,7 @@ function ReconciliacionIQ({rpData, feData, rcData, tpData}) {
 // KPIs: ingresos por concepto (CF/RP/RC), por cobrar, cobrado, WHT
 // Gráficos: plantas por especie, há por país, comparativo temporadas
 // ══════════════════════════════════════════════════════════════
-function DashboardAnalitico({ctData,feData,rpData,rcData,tpData}) {
+function DashboardAnalitico({ctData,feData,rpData,rcData,tpData,especiesMaestro=[]}) {
   const [filtroPais,setFiltroPais]=useState("Todos");
   const [filtroEspecie,setFiltroEspecie]=useState("Todos");
   const [filtroVariedad,setFiltroVariedad]=useState("Todos");
@@ -3000,7 +3000,7 @@ function DashboardAnalitico({ctData,feData,rpData,rcData,tpData}) {
   const fmt = (v) => `$${(parseFloat(v)||0).toLocaleString("en-US",{minimumFractionDigits:0,maximumFractionDigits:0})}`;
 
   // Bar chart simple en SVG
-  const BarChart = ({data, getLabel, getValue, color="#7c3aed", fmtVal=v=>v.toLocaleString()}) => {
+  const BarChart = ({data, getLabel, getValue, color="#7c3aed", getColor=null, fmtVal=v=>v.toLocaleString()}) => {
     if(data.length===0) return <div style={{padding:20,textAlign:"center",color:"#94a3b8",fontSize:12}}>Sin datos</div>;
     const maxV = Math.max(...data.map(getValue),1);
     return (
@@ -3008,11 +3008,15 @@ function DashboardAnalitico({ctData,feData,rpData,rcData,tpData}) {
         {data.slice(0,12).map((d,i)=>{
           const v = getValue(d);
           const pct = (v/maxV)*100;
+          const barColor = getColor?getColor(d)||color:color;
           return (
             <div key={i} style={{display:"flex",alignItems:"center",gap:10,marginBottom:6}}>
-              <div style={{width:120,fontSize:11,color:"#475569",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{getLabel(d)}</div>
+              <div style={{width:120,fontSize:11,color:"#475569",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",display:"flex",alignItems:"center",gap:6}}>
+                {getColor&&<div style={{width:10,height:10,borderRadius:3,background:barColor,flexShrink:0,boxShadow:"0 1px 2px #0002"}}/>}
+                <span style={{overflow:"hidden",textOverflow:"ellipsis"}}>{getLabel(d)}</span>
+              </div>
               <div style={{flex:1,background:"#f1f5f9",height:24,borderRadius:6,overflow:"hidden",position:"relative"}}>
-                <div style={{width:`${pct}%`,height:"100%",background:color,borderRadius:6,transition:"width 0.3s"}}/>
+                <div style={{width:`${pct}%`,height:"100%",background:barColor,borderRadius:6,transition:"width 0.3s"}}/>
                 <div style={{position:"absolute",right:6,top:0,bottom:0,display:"flex",alignItems:"center",fontSize:10,fontWeight:700,color:"#fff",textShadow:"0 1px 2px #0006"}}>{fmtVal(v)}</div>
               </div>
             </div>
@@ -3135,7 +3139,12 @@ function DashboardAnalitico({ctData,feData,rpData,rcData,tpData}) {
       <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(360px,1fr))",gap:14}}>
         <div style={{background:"#fff",borderRadius:12,padding:16,boxShadow:"0 1px 6px #0001"}}>
           <div style={{fontSize:13,fontWeight:700,color:"#1e293b",marginBottom:12}}>🌿 Plantas por especie</div>
-          <BarChart data={plantasPorEspecie} getLabel={d=>d.especie} getValue={d=>d.plantas} color="#16a34a" fmtVal={v=>v.toLocaleString()}/>
+          <BarChart data={plantasPorEspecie} getLabel={d=>d.especie} getValue={d=>d.plantas} color="#16a34a"
+            getColor={d=>{
+              const esp = (especiesMaestro||[]).find(e=>e.nombre.toLowerCase().trim()===(d.especie||"").toLowerCase().trim());
+              return esp?.color || "#16a34a";
+            }}
+            fmtVal={v=>v.toLocaleString()}/>
         </div>
         <div style={{background:"#fff",borderRadius:12,padding:16,boxShadow:"0 1px 6px #0001"}}>
           <div style={{fontSize:13,fontWeight:700,color:"#1e293b",marginBottom:12}}>🌍 Hectáreas por país</div>
@@ -3192,11 +3201,16 @@ function DashboardAnalitico({ctData,feData,rpData,rcData,tpData}) {
                 ))}
               </tr></thead>
               <tbody>
-                {tpFilt.map((p,i)=>(
+                {tpFilt.map((p,i)=>{
+                  const esp = (especiesMaestro||[]).find(e=>e.nombre.toLowerCase().trim()===(p.especie||"").toLowerCase().trim());
+                  return (
                   <tr key={p.id} style={{borderBottom:"1px solid #f1f5f9",background:i%2?"#f8fafc":"#fff"}}>
                     <td style={{padding:"5px 8px",fontWeight:600}}>{p.cliente||"—"}</td>
                     <td style={{padding:"5px 8px"}}>{p.pais||"—"}</td>
-                    <td style={{padding:"5px 8px"}}>{p.especie||"—"}</td>
+                    <td style={{padding:"5px 8px"}}>
+                      {esp&&<span style={{display:"inline-block",width:10,height:10,borderRadius:3,background:esp.color,marginRight:6,verticalAlign:"middle"}}/>}
+                      {p.especie||"—"}
+                    </td>
                     <td style={{padding:"5px 8px",fontWeight:600,color:"#15803d"}}>{p.variedad||"—"}</td>
                     <td style={{padding:"5px 8px",textAlign:"right"}}>{(parseFloat(p.nPlantas)||0).toLocaleString()}</td>
                     <td style={{padding:"5px 8px",textAlign:"right"}}>{(parseFloat(p.hectareas)||0).toFixed(2)}</td>
@@ -3207,7 +3221,8 @@ function DashboardAnalitico({ctData,feData,rpData,rcData,tpData}) {
                         color:p.estado==="Productivo"?"#15803d":p.estado==="Plantado"?"#92400e":p.estado==="Anulado"?"#991b1b":"#3730a3"}}>{p.estado||"Confirmado"}</span>
                     </td>
                   </tr>
-                ))}
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -3560,6 +3575,21 @@ const CLIENTES_INIT=[
 const VIVERISTAS_INIT = [];
 // Maestro de Variedades — empieza vacío, se puede pre-poblar desde contratos obtentores
 const VARIEDADES_INIT = [];
+// Maestro de Especies — se pre-puebla automáticamente al cargar (ver migración en componente principal)
+const ESPECIES_INIT = [];
+// Paleta de colores sugeridos para especies
+const COLORES_ESPECIES = [
+  {nombre:"Rojo cereza",   hex:"#dc2626"},
+  {nombre:"Azul arándano", hex:"#1e40af"},
+  {nombre:"Morado uva",    hex:"#7c3aed"},
+  {nombre:"Verde kiwi",    hex:"#16a34a"},
+  {nombre:"Naranja",       hex:"#ea580c"},
+  {nombre:"Amarillo",      hex:"#ca8a04"},
+  {nombre:"Rosa",          hex:"#db2777"},
+  {nombre:"Turquesa",      hex:"#0d9488"},
+  {nombre:"Marrón",        hex:"#78350f"},
+  {nombre:"Gris",          hex:"#475569"},
+];
 const MESES = ["Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"];
 const FORMAS_PAGO = ["Anual","Semestral","Trimestral","Mensual","A demanda","Contra entrega","Otro"];
 const ESTADOS_DHE = ["No iniciado","En proceso","Aprobado","Rechazado","No aplica"];
@@ -3898,9 +3928,224 @@ function MaestroViveristas({viveristas,setViveristas,can}){
   );
 }
 
+// ── Maestro de Especies ──────────────────────────────────────
+// Catálogo central de especies (Cerezo, Arándano, Uva...) con color identificador
+function MaestroEspecies({especies,setEspecies,can,obtentores=[],contratos=[],variedades=[]}){
+  const [editId,setEditId]=useState(null);
+  const VACIO={nombre:"",color:COLORES_ESPECIES[0].hex,observaciones:""};
+  const [form,setForm]=useState(VACIO);
+  const [showForm,setShowForm]=useState(false);
+  const [busq,setBusq]=useState("");
+
+  // Detectar especies escritas a mano en obtentores/contratos/variedades que aún no están en el maestro
+  const sugerencias = useMemo(()=>{
+    const enMaestro = new Set((especies||[]).map(e=>e.nombre.toLowerCase().trim()));
+    const detectadas = new Map(); // nombre → fuente
+    (obtentores||[]).forEach(o=>(o.especies||[]).forEach(e=>{
+      if(e.especie && !enMaestro.has(e.especie.toLowerCase().trim())) {
+        detectadas.set(e.especie.trim(), `Obtentor ${o.obtentor}`);
+      }
+    }));
+    (contratos||[]).forEach(c=>(c.plantaciones||[]).forEach(p=>{
+      if(p.especie && !enMaestro.has(p.especie.toLowerCase().trim())) {
+        if(!detectadas.has(p.especie.trim())) detectadas.set(p.especie.trim(), `Contrato ${c.razonSocial}`);
+      }
+    }));
+    (variedades||[]).forEach(v=>{
+      if(v.especie && !enMaestro.has(v.especie.toLowerCase().trim())) {
+        if(!detectadas.has(v.especie.trim())) detectadas.set(v.especie.trim(), `Variedad ${v.especie} · ${v.variedad}`);
+      }
+    });
+    return Array.from(detectadas.entries()).map(([nombre,fuente])=>({nombre,fuente}));
+  },[especies,obtentores,contratos,variedades]);
+
+  function guardar(){
+    if(!form.nombre.trim()){alert("Nombre de especie es obligatorio.");return;}
+    const nombreNorm = form.nombre.trim();
+    const dupe = (especies||[]).find(e =>
+      e.id !== editId &&
+      e.nombre?.toLowerCase().trim() === nombreNorm.toLowerCase()
+    );
+    if(dupe){alert(`Ya existe la especie "${nombreNorm}".`);return;}
+    if(editId){
+      const anterior = especies.find(e=>e.id===editId);
+      setEspecies(prev=>prev.map(e=>e.id===editId?{...e,...form,nombre:nombreNorm}:e));
+      if(anterior) {
+        Object.keys(form).forEach(k=>{
+          const va = String(anterior[k]||"");
+          const vn = k==="nombre"?nombreNorm:String(form[k]||"");
+          if(va !== vn) {
+            window.auditLog&&window.auditLog("editar", {modulo:"osiris", seccion:"Maestro Especies",
+              descripcion:`Editó especie "${nombreNorm}": campo ${k}`,
+              registroId:editId, campo:k, valorAnterior:va, valorNuevo:vn});
+          }
+        });
+      }
+      setEditId(null);
+    } else {
+      const id = `esp_${Date.now()}`;
+      setEspecies(prev=>[...(prev||[]),{...form,nombre:nombreNorm,id}]);
+      window.auditLog&&window.auditLog("crear", {modulo:"osiris", seccion:"Maestro Especies",
+        descripcion:`Creó especie "${nombreNorm}"`,
+        registroId:id});
+    }
+    setForm(VACIO);
+    setShowForm(false);
+  }
+  function importarSugerencia(s, idxColor){
+    if(!can) return;
+    const id = `esp_${Date.now()}`;
+    const color = COLORES_ESPECIES[idxColor % COLORES_ESPECIES.length].hex;
+    setEspecies(prev=>[...(prev||[]),{id, nombre:s.nombre, color, observaciones:""}]);
+    window.auditLog&&window.auditLog("crear", {modulo:"osiris", seccion:"Maestro Especies",
+      descripcion:`Importó especie "${s.nombre}" (detectada en ${s.fuente})`,
+      registroId:id});
+  }
+  function importarTodas(){
+    if(!can || sugerencias.length===0) return;
+    if(!window.confirm(`¿Importar ${sugerencias.length} especies detectadas?`)) return;
+    const baseLen = (especies||[]).length;
+    const nuevas = sugerencias.map((s, i)=>({
+      id:`esp_${Date.now()}_${i}`,
+      nombre:s.nombre,
+      color: COLORES_ESPECIES[(baseLen+i) % COLORES_ESPECIES.length].hex,
+      observaciones:"",
+    }));
+    setEspecies(prev=>[...(prev||[]),...nuevas]);
+    window.auditLog&&window.auditLog("crear", {modulo:"osiris", seccion:"Maestro Especies",
+      descripcion:`Importó ${nuevas.length} especies detectadas (${nuevas.map(e=>e.nombre).join(", ")})`});
+  }
+  function iniciarEdicion(e){
+    setForm({nombre:e.nombre||"",color:e.color||COLORES_ESPECIES[0].hex,observaciones:e.observaciones||""});
+    setEditId(e.id);setShowForm(true);
+  }
+
+  const filtrado = (especies||[]).filter(e=>!busq||
+    e.nombre.toLowerCase().includes(busq.toLowerCase())||
+    (e.observaciones||"").toLowerCase().includes(busq.toLowerCase()));
+
+  return(
+    <div style={{background:"#f0fdfa",border:"1px solid #5eead4",borderRadius:12,padding:"16px 20px",marginBottom:16}}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12,flexWrap:"wrap",gap:8}}>
+        <div style={{fontSize:13,fontWeight:700,color:"#115e59"}}>🌳 Maestro de Especies</div>
+        <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+          <input value={busq} onChange={e=>setBusq(e.target.value)} placeholder="Buscar..."
+            style={{padding:"5px 10px",borderRadius:6,border:"1px solid #5eead4",fontSize:12,outline:"none"}}/>
+          {can&&sugerencias.length>0&&<button onClick={importarTodas}
+            style={{padding:"6px 12px",borderRadius:6,background:"#7c3aed",color:"#fff",border:"none",cursor:"pointer",fontSize:11,fontWeight:600}}>
+            📥 Importar {sugerencias.length} detectadas
+          </button>}
+          {can&&<button onClick={()=>{setShowForm(v=>!v);setEditId(null);setForm(VACIO);}}
+            style={{padding:"6px 14px",borderRadius:6,background:"#0d9488",color:"#fff",border:"none",cursor:"pointer",fontSize:12,fontWeight:600}}>
+            {showForm&&!editId?"✕":"+ Nueva especie"}
+          </button>}
+        </div>
+      </div>
+
+      {showForm&&can&&(
+        <div style={{background:"#fff",borderRadius:10,padding:"14px 16px",marginBottom:12,border:"1px solid #5eead4"}}>
+          <div style={{fontSize:12,fontWeight:700,color:"#115e59",marginBottom:10}}>{editId?"Editar especie":"Nueva especie"}</div>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:10}}>
+            <div>
+              <div style={{fontSize:11,color:"#64748b",fontWeight:600,marginBottom:3}}>Nombre *</div>
+              <input value={form.nombre} placeholder="Cerezo, Arándano, Uva..." onChange={e=>setForm(p=>({...p,nombre:e.target.value}))}
+                style={{width:"100%",padding:"6px 8px",borderRadius:6,border:"1px solid #d1d5db",fontSize:12,outline:"none",boxSizing:"border-box"}}/>
+            </div>
+            <div>
+              <div style={{fontSize:11,color:"#64748b",fontWeight:600,marginBottom:3}}>Observaciones</div>
+              <input value={form.observaciones} onChange={e=>setForm(p=>({...p,observaciones:e.target.value}))}
+                style={{width:"100%",padding:"6px 8px",borderRadius:6,border:"1px solid #d1d5db",fontSize:12,outline:"none",boxSizing:"border-box"}}/>
+            </div>
+          </div>
+          <div style={{marginBottom:10}}>
+            <div style={{fontSize:11,color:"#64748b",fontWeight:600,marginBottom:6}}>Color identificador</div>
+            <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
+              {COLORES_ESPECIES.map(c=>(
+                <button key={c.hex} type="button" onClick={()=>setForm(p=>({...p,color:c.hex}))}
+                  title={c.nombre}
+                  style={{width:32,height:32,borderRadius:8,background:c.hex,border:form.color===c.hex?"3px solid #1e293b":"2px solid #fff",
+                  boxShadow:form.color===c.hex?"0 0 0 2px #5eead4":"0 1px 3px #0002",cursor:"pointer",padding:0}}/>
+              ))}
+              <input type="color" value={form.color} onChange={e=>setForm(p=>({...p,color:e.target.value}))}
+                style={{width:32,height:32,padding:0,border:"2px solid #fff",borderRadius:8,cursor:"pointer",boxShadow:"0 1px 3px #0002"}}/>
+            </div>
+            <div style={{marginTop:8,padding:"6px 12px",background:form.color,color:"#fff",borderRadius:6,fontSize:11,fontWeight:700,display:"inline-block",textShadow:"0 1px 2px #0006"}}>Vista previa: {form.nombre||"Especie"}</div>
+          </div>
+          <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}>
+            <button onClick={()=>{setShowForm(false);setEditId(null);}} style={{padding:"6px 16px",borderRadius:6,border:"1px solid #d1d5db",background:"#fff",cursor:"pointer",fontSize:12}}>Cancelar</button>
+            <button onClick={guardar} style={{padding:"6px 16px",borderRadius:6,background:"#0d9488",color:"#fff",border:"none",cursor:"pointer",fontSize:12,fontWeight:600}}>💾 Guardar</button>
+          </div>
+        </div>
+      )}
+
+      {/* Sugerencias detectadas no importadas */}
+      {sugerencias.length>0&&can&&!showForm&&(
+        <div style={{background:"#fff",border:"1px dashed #fb923c",borderRadius:10,padding:"10px 14px",marginBottom:12}}>
+          <div style={{fontSize:11,fontWeight:700,color:"#c2410c",marginBottom:8}}>💡 {sugerencias.length} especies detectadas en uso pero no en el maestro:</div>
+          <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
+            {sugerencias.map((s,i)=>(
+              <button key={s.nombre} onClick={()=>importarSugerencia(s,(especies||[]).length+i)} title={`Detectada en: ${s.fuente}`}
+                style={{padding:"4px 10px",borderRadius:14,background:"#fff7ed",border:"1px solid #fb923c",cursor:"pointer",fontSize:11,color:"#c2410c",fontWeight:600}}>
+                + {s.nombre}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <div style={{overflowX:"auto"}}>
+        <table style={{borderCollapse:"collapse",width:"100%",background:"#fff",borderRadius:8,overflow:"hidden",fontSize:12}}>
+          <thead><tr style={{background:"#0d9488",color:"#fff"}}>
+            {["","Nombre","Variedades","Plantaciones","Observaciones",""].map(h=>(
+              <th key={h} style={{padding:"7px 10px",textAlign:"left",fontWeight:600,fontSize:11,whiteSpace:"nowrap"}}>{h}</th>
+            ))}
+          </tr></thead>
+          <tbody>
+            {filtrado.map((e,i)=>{
+              // Conteos: cuántas variedades del maestro y cuántas plantaciones usan esta especie
+              const nVariedades = (variedades||[]).filter(v=>v.especie?.toLowerCase().trim() === e.nombre.toLowerCase().trim()).length;
+              const nPlantaciones = (contratos||[]).reduce((s,c)=>
+                s + ((c.plantaciones||[]).filter(p=>p.especie?.toLowerCase().trim() === e.nombre.toLowerCase().trim()).length), 0);
+              return (
+                <tr key={e.id} style={{borderBottom:"1px solid #ccfbf1",background:i%2===0?"#fff":"#f0fdfa"}}>
+                  <td style={{padding:"6px 10px",width:32}}>
+                    <div style={{width:24,height:24,borderRadius:6,background:e.color||"#475569",boxShadow:"0 1px 3px #0002"}}/>
+                  </td>
+                  <td style={{padding:"6px 10px",fontWeight:700,color:"#1e293b"}}>{e.nombre}</td>
+                  <td style={{padding:"6px 10px",color:"#64748b"}}>{nVariedades>0?<span style={{padding:"2px 8px",borderRadius:10,background:"#fef3c7",color:"#92400e",fontSize:10,fontWeight:700}}>{nVariedades}</span>:"—"}</td>
+                  <td style={{padding:"6px 10px",color:"#64748b"}}>{nPlantaciones>0?<span style={{padding:"2px 8px",borderRadius:10,background:"#dcfce7",color:"#15803d",fontSize:10,fontWeight:700}}>{nPlantaciones}</span>:"—"}</td>
+                  <td style={{padding:"6px 10px",color:"#64748b",fontSize:11}}>{e.observaciones||"—"}</td>
+                  <td style={{padding:"6px 8px",textAlign:"center"}}>
+                    {can&&<div style={{display:"flex",gap:4}}>
+                      <button onClick={()=>iniciarEdicion(e)} style={{background:"#dbeafe",border:"none",borderRadius:4,padding:"3px 8px",cursor:"pointer",fontSize:11,color:"#1d4ed8",fontWeight:600}}>✏️</button>
+                      <button onClick={()=>{
+                        if(nVariedades>0||nPlantaciones>0) {
+                          if(!window.confirm(`Esta especie está en uso por ${nVariedades} variedad(es) y ${nPlantaciones} plantación(es). ¿Eliminar de todos modos? (los registros que la usan no se borran, solo perderán el link al maestro)`))return;
+                        } else {
+                          if(!window.confirm(`¿Eliminar especie "${e.nombre}"?`))return;
+                        }
+                        window.auditLog&&window.auditLog("eliminar", {modulo:"osiris", seccion:"Maestro Especies",
+                          descripcion:`Eliminó especie "${e.nombre}"`,
+                          registroId:e.id});
+                        setEspecies(prev=>(prev||[]).filter(x=>x.id!==e.id));
+                      }}
+                        style={{background:"#fee2e2",border:"none",borderRadius:4,padding:"3px 8px",cursor:"pointer",fontSize:11,color:"#991b1b",fontWeight:600}}>×</button>
+                    </div>}
+                  </td>
+                </tr>
+              );
+            })}
+            {filtrado.length===0&&<tr><td colSpan={6} style={{textAlign:"center",padding:20,color:"#94a3b8"}}>Sin especies. {can?(sugerencias.length>0?`Hay ${sugerencias.length} especies detectadas listas para importar arriba.`:"Agrega una con \"+ Nueva especie\"."):""}</td></tr>}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
 // ── Maestro de Variedades ────────────────────────────────────
 // Catálogo central de variedades, linkable con contratos de obtentor
-function MaestroVariedades({variedades,setVariedades,can,obtentores=[]}){
+function MaestroVariedades({variedades,setVariedades,can,obtentores=[],especies=[],setEspecies}){
   const [editId,setEditId]=useState(null);
   const VACIO={especie:"",variedad:"",obtentor:"",observaciones:""};
   const [form,setForm]=useState(VACIO);
@@ -4010,8 +4255,39 @@ function MaestroVariedades({variedades,setVariedades,can,obtentores=[]}){
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:10}}>
             <div>
               <div style={{fontSize:11,color:"#64748b",fontWeight:600,marginBottom:3}}>Especie *</div>
-              <input value={form.especie} placeholder="Cerezo, Arándano, Uva..." onChange={e=>setForm(p=>({...p,especie:e.target.value}))}
-                style={{width:"100%",padding:"6px 8px",borderRadius:6,border:"1px solid #d1d5db",fontSize:12,outline:"none",boxSizing:"border-box"}}/>
+              {(especies||[]).length>0?(
+                <div style={{display:"flex",gap:4}}>
+                  <select value={form.especie||""} onChange={e=>{
+                    if(e.target.value==="__nueva__") {
+                      const nombre = window.prompt("Nombre de la nueva especie:");
+                      if(!nombre || !nombre.trim()) return;
+                      const dupe = (especies||[]).find(x=>x.nombre.toLowerCase().trim()===nombre.toLowerCase().trim());
+                      if(dupe) { setForm(p=>({...p,especie:dupe.nombre})); return; }
+                      const id = `esp_${Date.now()}`;
+                      const idxColor = (especies||[]).length % COLORES_ESPECIES.length;
+                      const nueva = {id, nombre:nombre.trim(), color:COLORES_ESPECIES[idxColor].hex, observaciones:""};
+                      setEspecies&&setEspecies(prev=>[...(prev||[]),nueva]);
+                      window.auditLog&&window.auditLog("crear",{modulo:"osiris",seccion:"Maestro Especies",
+                        descripcion:`Creó especie "${nombre.trim()}" desde Maestro Variedades`,registroId:id});
+                      setForm(p=>({...p,especie:nombre.trim()}));
+                    } else {
+                      setForm(p=>({...p,especie:e.target.value}));
+                    }
+                  }}
+                    style={{flex:1,padding:"6px 8px",borderRadius:6,border:"1px solid #d1d5db",fontSize:12,outline:"none",boxSizing:"border-box",background:"#fff"}}>
+                    <option value="">— Seleccionar —</option>
+                    {(especies||[]).map(e=><option key={e.id} value={e.nombre}>{e.nombre}</option>)}
+                    <option value="__nueva__">＋ Crear nueva...</option>
+                  </select>
+                  {form.especie&&(()=>{
+                    const esp = (especies||[]).find(x=>x.nombre===form.especie);
+                    return esp?<div title={esp.nombre} style={{width:30,height:30,borderRadius:6,background:esp.color,boxShadow:"0 1px 3px #0002"}}/>:null;
+                  })()}
+                </div>
+              ):(
+                <input value={form.especie} placeholder="Cerezo, Arándano, Uva..." onChange={e=>setForm(p=>({...p,especie:e.target.value}))}
+                  style={{width:"100%",padding:"6px 8px",borderRadius:6,border:"1px solid #d1d5db",fontSize:12,outline:"none",boxSizing:"border-box"}}/>
+              )}
             </div>
             <div>
               <div style={{fontSize:11,color:"#64748b",fontWeight:600,marginBottom:3}}>Variedad *</div>
@@ -4261,7 +4537,7 @@ async function exportarContratos(filtrado) {
   });
 }
 
-function ControlContratos({data,setData,clientes,setClientes,variedadesMaestro=[],setVariedadesMaestro,obtentoresData=[],can}){
+function ControlContratos({data,setData,clientes,setClientes,variedadesMaestro=[],setVariedadesMaestro,especiesMaestro=[],setEspeciesMaestro,obtentoresData=[],can}){
   const [vista,setVista]=useState("tabla");
   const [sel,setSel]=useState(null);
   const [sec,setSec]=useState("empresa");
@@ -4273,6 +4549,7 @@ function ControlContratos({data,setData,clientes,setClientes,variedadesMaestro=[
   const [showMantenedor,setShowMantenedor]=useState(false);
   const [showClientes,setShowClientes]=useState(false);
   const [showVariedades,setShowVariedades]=useState(false);
+  const [showEspecies,setShowEspecies]=useState(false);
   const [nuevoTipo,setNuevoTipo]=useState("");
   const [nuevoAnexo,setNuevoAnexo]=useState("");
   const [clienteSelId,setClienteSelId]=useState("");
@@ -4714,16 +4991,30 @@ function ControlContratos({data,setData,clientes,setClientes,variedadesMaestro=[
                       return (
                         <tr key={p.id} style={{borderBottom:"1px solid #f1f5f9",background:i%2?"#f8fafc":"#fff"}}>
                           <td style={{padding:"6px 8px"}}>
-                            {(variedadesMaestro||[]).length>0?(
-                              <select disabled={!can} value={p.variedad_id||""} onChange={e=>seleccionarVariedad(e.target.value)}
-                                style={{width:"100%",padding:"5px 8px",borderRadius:6,border:"1px solid #d1d5db",fontSize:11,background:"#fff"}}>
-                                <option value="">— Seleccionar —</option>
-                                {(variedadesMaestro||[]).map(v=><option key={v.id} value={v.id}>{v.especie} · {v.variedad}</option>)}
-                              </select>
-                            ):(
-                              <input disabled={!can} value={p.especie||""} onChange={e=>updPl("especie",e.target.value)}
-                                style={{width:"100%",padding:"5px 8px",borderRadius:6,border:"1px solid #d1d5db",fontSize:11}}/>
-                            )}
+                            {(()=>{
+                              const espMaestro = (especiesMaestro||[]).find(e=>e.nombre.toLowerCase().trim()===(p.especie||"").toLowerCase().trim());
+                              const colorEsp = espMaestro?.color;
+                              return (variedadesMaestro||[]).length>0?(
+                                <div style={{display:"flex",gap:4,alignItems:"center"}}>
+                                  {colorEsp&&<div title={p.especie} style={{width:14,height:14,borderRadius:3,background:colorEsp,flexShrink:0,boxShadow:"0 1px 2px #0002"}}/>}
+                                  <select disabled={!can} value={p.variedad_id||""} onChange={e=>seleccionarVariedad(e.target.value)}
+                                    style={{width:"100%",padding:"5px 8px",borderRadius:6,border:"1px solid #d1d5db",fontSize:11,background:"#fff"}}>
+                                    <option value="">— Seleccionar —</option>
+                                    {/* Agrupar por especie */}
+                                    {Array.from(new Set((variedadesMaestro||[]).map(v=>v.especie).filter(Boolean))).sort().map(esp=>(
+                                      <optgroup key={esp} label={esp}>
+                                        {(variedadesMaestro||[]).filter(v=>v.especie===esp).map(v=>(
+                                          <option key={v.id} value={v.id}>{v.variedad}</option>
+                                        ))}
+                                      </optgroup>
+                                    ))}
+                                  </select>
+                                </div>
+                              ):(
+                                <input disabled={!can} value={p.especie||""} onChange={e=>updPl("especie",e.target.value)}
+                                  style={{width:"100%",padding:"5px 8px",borderRadius:6,border:"1px solid #d1d5db",fontSize:11}}/>
+                              );
+                            })()}
                           </td>
                           <td style={{padding:"6px 8px",fontWeight:600}}>{p.variedad||"—"}</td>
                           <td style={{padding:"6px 8px"}}>
@@ -5305,13 +5596,26 @@ function ControlContratos({data,setData,clientes,setClientes,variedadesMaestro=[
                       return (
                         <tr key={p.id} style={{borderBottom:"1px solid #f1f5f9"}}>
                           <td style={{padding:"5px 8px"}}>
-                            {(variedadesMaestro||[]).length>0?(
-                              <select value={p.variedad_id||""} onChange={e=>seleccionarVar(e.target.value)}
-                                style={{padding:"5px 7px",borderRadius:5,border:"1px solid #d1d5db",fontSize:11,background:"#fff"}}>
-                                <option value="">— Seleccionar —</option>
-                                {(variedadesMaestro||[]).map(v=><option key={v.id} value={v.id}>{v.especie} · {v.variedad}</option>)}
-                              </select>
-                            ):(<input value={p.especie||""} onChange={e=>updPl("especie",e.target.value)} style={{padding:"5px 7px",borderRadius:5,border:"1px solid #d1d5db",fontSize:11}}/>)}
+                            {(()=>{
+                              const espMaestro = (especiesMaestro||[]).find(e=>e.nombre.toLowerCase().trim()===(p.especie||"").toLowerCase().trim());
+                              const colorEsp = espMaestro?.color;
+                              return (variedadesMaestro||[]).length>0?(
+                                <div style={{display:"flex",gap:4,alignItems:"center"}}>
+                                  {colorEsp&&<div title={p.especie} style={{width:14,height:14,borderRadius:3,background:colorEsp,flexShrink:0,boxShadow:"0 1px 2px #0002"}}/>}
+                                  <select value={p.variedad_id||""} onChange={e=>seleccionarVar(e.target.value)}
+                                    style={{padding:"5px 7px",borderRadius:5,border:"1px solid #d1d5db",fontSize:11,background:"#fff"}}>
+                                    <option value="">— Seleccionar —</option>
+                                    {Array.from(new Set((variedadesMaestro||[]).map(v=>v.especie).filter(Boolean))).sort().map(esp=>(
+                                      <optgroup key={esp} label={esp}>
+                                        {(variedadesMaestro||[]).filter(v=>v.especie===esp).map(v=>(
+                                          <option key={v.id} value={v.id}>{v.variedad}</option>
+                                        ))}
+                                      </optgroup>
+                                    ))}
+                                  </select>
+                                </div>
+                              ):(<input value={p.especie||""} onChange={e=>updPl("especie",e.target.value)} style={{padding:"5px 7px",borderRadius:5,border:"1px solid #d1d5db",fontSize:11}}/>);
+                            })()}
                           </td>
                           <td style={{padding:"5px 8px",fontWeight:600}}>{p.variedad||"—"}</td>
                           <td style={{padding:"5px 8px"}}>
@@ -5388,15 +5692,19 @@ function ControlContratos({data,setData,clientes,setClientes,variedadesMaestro=[
             style={{background:"#16a34a",color:"#fff",border:"none",borderRadius:8,padding:"8px 14px",cursor:"pointer",fontSize:12,fontWeight:700}}>
             ⬇️ Exportar Excel
           </button>
-          {can&&<button onClick={()=>{setShowMantenedor(v=>!v);setShowClientes(false);setShowVariedades(false);}}
+          {can&&<button onClick={()=>{setShowMantenedor(v=>!v);setShowClientes(false);setShowVariedades(false);setShowEspecies(false);}}
             style={{background:showMantenedor?"#1e293b":"#f1f5f9",color:showMantenedor?"#fff":"#1e293b",border:"1px solid #e2e8f0",borderRadius:8,padding:"8px 14px",cursor:"pointer",fontSize:12,fontWeight:600}}>
             ⚙️ Tipos
           </button>}
-          {can&&<button onClick={()=>{setShowClientes(v=>!v);setShowMantenedor(false);setShowVariedades(false);}}
+          {can&&<button onClick={()=>{setShowClientes(v=>!v);setShowMantenedor(false);setShowVariedades(false);setShowEspecies(false);}}
             style={{background:showClientes?"#0f766e":"#f1f5f9",color:showClientes?"#fff":"#1e293b",border:"1px solid #e2e8f0",borderRadius:8,padding:"8px 14px",cursor:"pointer",fontSize:12,fontWeight:600}}>
             👥 Clientes
           </button>}
-          {can&&<button onClick={()=>{setShowVariedades(v=>!v);setShowMantenedor(false);setShowClientes(false);}}
+          {can&&<button onClick={()=>{setShowEspecies(v=>!v);setShowMantenedor(false);setShowClientes(false);setShowVariedades(false);}}
+            style={{background:showEspecies?"#0d9488":"#f1f5f9",color:showEspecies?"#fff":"#1e293b",border:"1px solid #e2e8f0",borderRadius:8,padding:"8px 14px",cursor:"pointer",fontSize:12,fontWeight:600}}>
+            🌳 Especies
+          </button>}
+          {can&&<button onClick={()=>{setShowVariedades(v=>!v);setShowMantenedor(false);setShowClientes(false);setShowEspecies(false);}}
             style={{background:showVariedades?"#d97706":"#f1f5f9",color:showVariedades?"#fff":"#1e293b",border:"1px solid #e2e8f0",borderRadius:8,padding:"8px 14px",cursor:"pointer",fontSize:12,fontWeight:600}}>
             🌿 Variedades
           </button>}
@@ -5458,7 +5766,10 @@ function ControlContratos({data,setData,clientes,setClientes,variedadesMaestro=[
       {showClientes&&<MaestroClientes clientes={clientes} setClientes={setClientes} can={can}/>}
 
       {/* Maestro variedades inline */}
-      {showVariedades&&<MaestroVariedades variedades={variedadesMaestro} setVariedades={setVariedadesMaestro} can={can} obtentores={obtentoresData}/>}
+      {showVariedades&&<MaestroVariedades variedades={variedadesMaestro} setVariedades={setVariedadesMaestro} can={can} obtentores={obtentoresData} especies={especiesMaestro} setEspecies={setEspeciesMaestro}/>}
+
+      {/* Maestro especies inline */}
+      {showEspecies&&<MaestroEspecies especies={especiesMaestro} setEspecies={setEspeciesMaestro} can={can} obtentores={obtentoresData} contratos={data} variedades={variedadesMaestro}/>}
 
       <div style={{display:"flex",gap:8,marginBottom:14,flexWrap:"wrap",alignItems:"center"}}>
         <input value={busq} onChange={e=>setBusq(e.target.value)} placeholder="Buscar empresa..."
@@ -5795,6 +6106,7 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
   const clientes= osirisData?.clientes        ?? CLIENTES_INIT;
   const viveristas = osirisData?.viveristas   ?? VIVERISTAS_INIT;
   const variedadesMaestro = osirisData?.variedades ?? VARIEDADES_INIT;
+  const especiesMaestro   = osirisData?.especies   ?? ESPECIES_INIT;
   const obtentoresData = osirisData?.obtentores || [];
   // ── Datos derivados desde el contrato (fuente de verdad) ──
   // tpData: Total Pedidos, ahora derivado de plantaciones del contrato.
@@ -5874,12 +6186,45 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
   const setClientes=useCallback(fn=>setOsirisData(prev=>({...prev,clientes:       typeof fn==="function"?fn(prev?.clientes       ??CLIENTES_INIT):fn})),[setOsirisData]);
   const setViveristas=useCallback(fn=>setOsirisData(prev=>({...prev,viveristas:    typeof fn==="function"?fn(prev?.viveristas    ??VIVERISTAS_INIT):fn})),[setOsirisData]);
   const setVariedadesMaestro=useCallback(fn=>setOsirisData(prev=>({...prev,variedades:    typeof fn==="function"?fn(prev?.variedades    ??VARIEDADES_INIT):fn})),[setOsirisData]);
+  const setEspeciesMaestro=useCallback(fn=>setOsirisData(prev=>({...prev,especies:    typeof fn==="function"?fn(prev?.especies    ??ESPECIES_INIT):fn})),[setOsirisData]);
   const setCt=useCallback(fn=>setOsirisData(prev=>({...prev,contratos:      typeof fn==="function"?fn(prev?.contratos      ??CONTRATOS_INIT):fn})),[setOsirisData]);
   const setTp=useCallback(fn=>setOsirisData(prev=>({...prev,totalPedidos:   typeof fn==="function"?fn(prev?.totalPedidos   ??[]):fn})),[setOsirisData]);
   const setRp=useCallback(fn=>setOsirisData(prev=>({...prev,royaltyPlanta:  typeof fn==="function"?fn(prev?.royaltyPlanta  ??[]):fn})),[setOsirisData]);
   const setFe=useCallback(fn=>setOsirisData(prev=>({...prev,feeEntrada:     typeof fn==="function"?fn(prev?.feeEntrada     ??[]):fn})),[setOsirisData]);
   const setRc=useCallback(fn=>setOsirisData(prev=>({...prev,royaltyComercial:typeof fn==="function"?fn(prev?.royaltyComercial??[]):fn})),[setOsirisData]);
   const setFv=useCallback(fn=>setOsirisData(prev=>({...prev,feeViveros:     typeof fn==="function"?fn(prev?.feeViveros     ??[]):fn})),[setOsirisData]);
+
+  // ── Migración automática del Maestro de Especies ──
+  // Se ejecuta una vez al cargar: detecta especies escritas a mano en contratos obtentores
+  // y plantaciones de contratos prod-exp, y las crea en el maestro si no existen.
+  // Solo corre si el maestro está vacío Y hay datos para migrar (evita sobrescribir).
+  useEffect(()=>{
+    // Solo migrar si el maestro está vacío y hay datos potenciales
+    if((especiesMaestro||[]).length>0) return;
+    const detectadas = new Set();
+    // Desde contratos obtentores
+    (obtentoresData||[]).forEach(o=>(o.especies||[]).forEach(e=>{
+      if(e.especie && e.especie.trim()) detectadas.add(e.especie.trim());
+    }));
+    // Desde plantaciones de contratos prod-exp
+    (ctData||[]).forEach(c=>(c.plantaciones||[]).forEach(p=>{
+      if(p.especie && p.especie.trim()) detectadas.add(p.especie.trim());
+    }));
+    // Desde maestro de variedades (si ya tienen especies)
+    (variedadesMaestro||[]).forEach(v=>{
+      if(v.especie && v.especie.trim()) detectadas.add(v.especie.trim());
+    });
+    if(detectadas.size===0) return;
+    const nuevas = Array.from(detectadas).map((nombre, i)=>({
+      id:`esp_mig_${Date.now()}_${i}`,
+      nombre,
+      color: COLORES_ESPECIES[i % COLORES_ESPECIES.length].hex,
+    }));
+    setEspeciesMaestro(nuevas);
+    window.auditLog && window.auditLog("crear", {modulo:"osiris", seccion:"Maestro Especies",
+      descripcion:`Migración automática: importó ${nuevas.length} especies (${nuevas.map(e=>e.nombre).join(", ")})`});
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  },[]);  // Solo al montar el componente
 
   // PERMISOS OSIRIS
   // Edición requiere: (a) rol editor/admin Y (b) permiso "editar" en la pestaña activa
@@ -6140,7 +6485,7 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
       )}
       <div style={{background:"#fff",borderRadius:14,padding:20,boxShadow:"0 2px 10px #0001"}}>
         {canVerContratos
-        ? <ControlContratos data={ctData} setData={setCt} clientes={clientes} setClientes={setClientes} variedadesMaestro={variedadesMaestro} setVariedadesMaestro={setVariedadesMaestro} obtentoresData={obtentoresData} can={canContratos}/>
+        ? <ControlContratos data={ctData} setData={setCt} clientes={clientes} setClientes={setClientes} variedadesMaestro={variedadesMaestro} setVariedadesMaestro={setVariedadesMaestro} especiesMaestro={especiesMaestro} setEspeciesMaestro={setEspeciesMaestro} obtentoresData={obtentoresData} can={canContratos}/>
         : <div style={{textAlign:"center",padding:40,color:"#94a3b8"}}>Sin acceso a Contratos</div>
       }
       </div>
@@ -8876,7 +9221,7 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
       {/* Contenido */}
       <div style={{background:"#fff",borderRadius:14,padding:20,boxShadow:"0 2px 10px #0001"}}>
         {subTab==="resumen"          &&<Resumen        rpData={rpData} feData={feData} rcData={rcData} fvData={fvData} tpData={tpData}/>}
-        {subTab==="dashboard"        &&<DashboardAnalitico ctData={ctData} feData={feData} rpData={rpData} rcData={rcData} tpData={tpData}/>}
+        {subTab==="dashboard"        &&<DashboardAnalitico ctData={ctData} feData={feData} rpData={rpData} rcData={rcData} tpData={tpData} especiesMaestro={especiesMaestro}/>}
         {subTab==="graficos"         &&<GraficosPlantas tpData={tpData} rpData={rpData}/>}
         {subTab==="totalPedidos"     &&<TotalPedidos     data={tpData} setData={setTp} rpData={rpData} setRpData={setRp} rcData={rcData} setRcData={setRc} fvData={fvData} setFvData={setFv} can={canIngresos} clientes={clientes} onDeletePedido={id=>setOsirisData(prev=>({...prev,totalPedidos:(prev.totalPedidos||[]).filter(x=>x.id!==id),royaltyPlanta:(prev.royaltyPlanta||[]).filter(x=>x.tpId!==id),royaltyComercial:(prev.royaltyComercial||[]).filter(x=>x.tpId!==id),feeViveros:(prev.feeViveros||[]).filter(x=>x.tpId!==id)}))}/>}
         {subTab==="royaltyPlanta"    &&<RoyaltyPlanta    data={rpData} setData={setRp} tpData={tpData} can={canIngresos} clientes={clientes}/>}
