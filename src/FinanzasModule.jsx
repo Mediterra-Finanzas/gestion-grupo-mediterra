@@ -703,7 +703,7 @@ const EMPRESAS_STATIC = {
       { cat:'egr_nop', label:'Egresos No Operacionales', signo:-1, lines:[
         {label:'Aportes de Capital', proy:Z65(), subLines:true},
         {label:'Leyes Sociales Laborales', proy:Z65()},
-        {label:'Pago F-29', proy:ext(Array(65).fill(25000))},
+        {label:'Pago F-29', proy:Z65()},
         {label:'Pago Préstamos - Total', proy:calcPrestamosEmpresa('Mediterra'), formula:true, subLines:true},
         {label:'Renovaciones', proy:calcRenovacionesEmpresa('Mediterra'), formula:true, subLines:true},
       ]},
@@ -3022,6 +3022,7 @@ function getSaldoBancoInicial(saldosBancos, empNombre, fallback) {
 // ═══════════════════════════════════════════════════════════════════
 function Consolidado({empresas,saldosBancos,realData={},addedLinesGlobal={},subLinesGlobal={}}) {
   const empNames=Object.keys(empresas);
+  const empNamesConsolidado = empNames.filter(n => n !== "Allpa Farms Perú");
   const [vistaConsolidado,setVistaConsolidado]=useState("sumada");
   const [agrup,setAgrup]=useState("mes");
   const [openSeason,setOpenSeason]=useState(()=>{const o={};SEASON_KEYS.forEach((k,i)=>{o[k]=i<2;});return o;});
@@ -3146,12 +3147,12 @@ function Consolidado({empresas,saldosBancos,realData={},addedLinesGlobal={},subL
 
   const flujoConsolidado=useMemo(()=>{
     const arr=Z65();
-    empNames.forEach(n=>(flujoPorEmp[n]||[]).forEach((v,i)=>{const num=Number(v);arr[i]+=(isNaN(num)?0:num);}));
+    empNamesConsolidado.forEach(n=>(flujoPorEmp[n]||[]).forEach((v,i)=>{const num=Number(v);arr[i]+=(isNaN(num)?0:num);}));
     return arr;
   },[flujoPorEmp]); // eslint-disable-line
 
   const saldoIniConsolidado=useMemo(
-    ()=>empNames.reduce((s,n)=>s+((saldoIniPorEmp[n])||0),0),
+    ()=>empNamesConsolidado.reduce((s,n)=>s+((saldoIniPorEmp[n])||0),0),
     [saldoIniPorEmp] // eslint-disable-line
   );
 
@@ -3221,11 +3222,11 @@ function Consolidado({empresas,saldosBancos,realData={},addedLinesGlobal={},subL
     <tr style={{background:`${C.blue}15`,borderBottom:`2px solid ${C.border2}`}}>
       <td style={{padding:"7px 14px",position:"sticky",left:0,zIndex:1,background:`${C.blue}15`,borderRight:`1px solid ${C.border}`}}>
         <div style={{fontSize:11,fontWeight:700,color:C.blue}}>🏦 Saldo Banco USD</div>
-        <div style={{fontSize:9,color:C.muted}}>{nombre==="_consolidado"?`Suma ${empNames.length} empresas · último registro previo al período`:"último registro previo al período"}</div>
+        <div style={{fontSize:9,color:C.muted}}>{nombre==="_consolidado"?`Suma ${empNamesConsolidado.length} empresas · último registro previo al período`:"último registro previo al período"}</div>
       </td>
       {cols.map(col=>{
         const val=nombre==="_consolidado"
-          ?empNames.reduce((s,n)=>s+(saldoBancoParaCol(n,col)||0),0)
+          ?empNamesConsolidado.reduce((s,n)=>s+(saldoBancoParaCol(n,col)||0),0)
           :(saldoBancoParaCol(nombre,col)||0);
         return(<td key={col.key} style={{padding:"6px 5px",textAlign:"right",fontWeight:700,fontSize:9,color:C.blue,background:`${C.blue}0d`,borderLeft:col.isFirstInSeason?`2px solid ${C.border2}`:`1px solid ${C.border}11`}}>{$$(val)}</td>);
       })}
@@ -3257,7 +3258,7 @@ function Consolidado({empresas,saldosBancos,realData={},addedLinesGlobal={},subL
         <KPI label="Flujo Total" value={$$(flujoConsolidado.reduce((a,b)=>a+(Number(b)||0),0))} color={cf(flujoConsolidado.reduce((a,b)=>a+(Number(b)||0),0))}/>
         <KPI label={"Mínimo Acumulado ("+MESES_65[acumConsolidado.indexOf(Math.min(...acumConsolidado))]+")"} value={$$(Math.min(...acumConsolidado))} color={C.red}/>
         <KPI label="Saldo Final Jun-31" value={$$(acumConsolidado[acumConsolidado.length-1])} color={cf(acumConsolidado[acumConsolidado.length-1])}/>
-        <KPI label="Empresas" value={empNames.length} color={C.yellow}/>
+        <KPI label="Empresas" value={empNamesConsolidado.length} color={C.yellow}/>
       </div>
       {/* Flujo al cierre de cada temporada */}
       <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(140px,1fr))",gap:8}}>
@@ -3269,7 +3270,7 @@ function Consolidado({empresas,saldosBancos,realData={},addedLinesGlobal={},subL
       </div>
       {/* Gráfico */}
       <Card>
-        <SectionTitle>Flujo Acumulado Consolidado · {empNames.length} empresas · Mar-26 → Jun-31</SectionTitle>
+        <SectionTitle>Flujo Acumulado Consolidado · {empNamesConsolidado.length} empresas · Mar-26 → Jun-31</SectionTitle>
         <LineChart months={MESES_65} values={acumConsolidado} color={C.accentL}/>
         {Math.min(...acumConsolidado)<0&&(
           <div style={{marginTop:8,padding:"8px 12px",background:`${C.red}18`,border:`1px solid ${C.red}33`,borderRadius:8,fontSize:11,color:C.muted}}>
@@ -3333,7 +3334,7 @@ function Consolidado({empresas,saldosBancos,realData={},addedLinesGlobal={},subL
           <table style={{borderCollapse:"collapse",fontSize:11,minWidth:600}}>
             <THead/>
             <tbody>
-              {empNames.map((n,ei)=>{
+              {empNamesConsolidado.map((n,ei)=>{
                 const emp=empresas[n];
                 return(
                   <React.Fragment key={n}>
@@ -3448,7 +3449,7 @@ function getSaldoBancoUSD(saldosBancos, empNombre) {
 }
 
 function WaterfallConsolidado({empresas, saldosBancos, saldoIniPorEmp={}, acumPorEmp={}, flujoPorEmp={}}) {
-  const empNames = Object.keys(empresas);
+  const empNames = Object.keys(empresas).filter(n => n !== "Allpa Farms Perú");
   const [temporadaSel, setTemporadaSel] = useState(SEASONS[0]?.key || "");
   const [mostrarControladora, setMostrarControladora] = useState(true);
 
