@@ -3602,6 +3602,7 @@ const COLORES_ESPECIES = [
 const MESES = ["Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"];
 const FORMAS_PAGO = ["Anual","Semestral","Trimestral","Mensual","A demanda","Contra entrega","Otro"];
 const ESTADOS_DHE = ["No iniciado","Solicitado","En proceso","Aprobado","Rechazado","Vencido","No aplica"];
+const PAISES_DHE = ["Chile","Perú","México","Colombia","Argentina","Brasil","Ecuador","Uruguay","España","Estados Unidos","Sudáfrica","China","Australia","Nueva Zelanda","Corea del Sur","Japón","India","Turquía","Marruecos","Egipto","Italia","Francia","Portugal","Países Bajos","Reino Unido","Alemania","Otro"];
 const ESTADOS_PBR = ["Pendiente","Solicitado","En Revisión","Otorgado","Vigente","Vencido","Denegado","Retirado"];
 const TIPOS_ROYALTY_OBTENTOR = ["Por planta","Por hectárea","Por kilo","% sobre ventas","Mínimo garantizado","Otro"];
 const ESTADOS_CONTRATO_OBT = ["Borrador","En revisión","Firmado","Vigente","Vencido","Terminado"];
@@ -7332,10 +7333,10 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
         return(
           <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(280px,1fr))",gap:16,maxWidth:700,margin:"0 auto 30px"}}>
             {order.map(cid=>{const d=CARD_DEFS[cid];if(!d)return null;return(
-              <div key={cid} draggable onDragStart={e=>handleDragStart(e,cid)} onDragOver={e=>{e.preventDefault();e.dataTransfer.dropEffect="move";}} onDrop={e=>handleDrop(e,cid)} onDragEnd={()=>{setTimeout(()=>{window._didDrag=false;},100);window._dragCard=null;}} onClick={()=>handleCardClick(d.onClick)}
+              <div key={cid} draggable={!!esAdmin} onDragStart={e=>{if(!esAdmin)return;handleDragStart(e,cid);}} onDragOver={e=>{if(!esAdmin)return;e.preventDefault();e.dataTransfer.dropEffect="move";}} onDrop={e=>{if(!esAdmin)return;handleDrop(e,cid);}} onDragEnd={()=>{setTimeout(()=>{window._didDrag=false;},100);window._dragCard=null;}} onClick={()=>handleCardClick(d.onClick)}
                 style={{background:`linear-gradient(135deg,#1c2333,${d.grad})`,borderRadius:16,padding:"24px 20px",border:`1px solid ${d.border}`,cursor:"pointer",transition:"all 0.2s",position:"relative",overflow:"hidden"}}
                 onMouseEnter={e=>e.currentTarget.style.transform="translateY(-2px)"} onMouseLeave={e=>e.currentTarget.style.transform="translateY(0)"}>
-                <div style={{position:"absolute",top:8,right:10,fontSize:10,color:"#475569",cursor:"grab"}} title="Arrastra para reordenar">⋮⋮</div>
+                {esAdmin&&<div style={{position:"absolute",top:8,right:10,fontSize:10,color:"#475569",cursor:"grab"}} title="Arrastra para reordenar">⋮⋮</div>}
                 <div style={{fontSize:32,marginBottom:10}}>{d.emoji}</div>
                 <div style={{fontWeight:800,fontSize:16,color:"#e6edf3",marginBottom:4}}>{d.label}</div>
                 <div style={{fontSize:11,color:"#8b949e",marginBottom:12}}>{d.desc}</div>
@@ -7650,56 +7651,109 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
                 {especies.length===0?<div style={{padding:30,textAlign:"center",color:"#94a3b8"}}>No hay especies registradas.</div>:(
                   <div style={{display:"flex",flexDirection:"column",gap:12}}>
                     {especies.map(e=>{
-                      const dheEstado = e.dhe_estado || "No iniciado";
-                      const dheBg = dheEstado==="Aprobado"?"#f0fdf4":dheEstado==="Rechazado"?"#fef2f2":dheEstado==="En proceso"?"#fef9c3":"#fff";
-                      const dheColor = dheEstado==="Aprobado"?"#16a34a":dheEstado==="Rechazado"?"#dc2626":dheEstado==="En proceso"?"#d97706":"#64748b";
+                      // Migrar DHE plano a array si es necesario
+                      const dheArr = Array.isArray(e.dhe) ? e.dhe : (e.dhe_estado && e.dhe_estado!=="No iniciado" ? [{id:`dhe_mig_${e.id}`,pais:"",estado:e.dhe_estado,fecha_solicitud:e.dhe_fecha_solicitud||"",fecha_aprob:e.dhe_fecha_aprob||"",nRegistro:e.dhe_nRegistro||"",doc:e.dhe_doc||"",observaciones:e.dhe_observaciones||""}] : []);
+                      const nAprobados = dheArr.filter(d=>d.estado==="Aprobado").length;
+                      const updDhe = (dheId,campo,valor) => {
+                        const newDhe = dheArr.map(d=>d.id===dheId?{...d,[campo]:valor}:d);
+                        updateContrato(c.id,{especies:especies.map(x=>x.id===e.id?{...x,dhe:newDhe}:x)});
+                      };
+                      const delDhe = (dheId) => {
+                        if(!window.confirm("¿Eliminar este registro DHE?"))return;
+                        const newDhe = dheArr.filter(d=>d.id!==dheId);
+                        updateContrato(c.id,{especies:especies.map(x=>x.id===e.id?{...x,dhe:newDhe}:x)});
+                      };
                       return (
-                        <div key={e.id} style={{border:"1px solid #e2e8f0",borderRadius:10,padding:14,background:dheBg}}>
+                        <div key={e.id} style={{border:"1px solid #e2e8f0",borderRadius:10,padding:14,background:"#fff"}}>
                           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10,flexWrap:"wrap",gap:8}}>
                             <div>
                               <span style={{fontWeight:800,fontSize:14,color:"#1e293b"}}>🌿 {e.especie}</span>
                               <span style={{fontSize:13,color:"#475569",marginLeft:6}}>— {e.variedad}</span>
                             </div>
                             <div style={{display:"flex",gap:6,alignItems:"center"}}>
-                              <span style={{fontSize:10,fontWeight:700,padding:"3px 10px",borderRadius:20,background:dheColor+"22",color:dheColor,border:`1px solid ${dheColor}55`}}>
-                                DHE: {dheEstado}
-                              </span>
+                              {nAprobados>0&&<span style={{fontSize:10,fontWeight:700,padding:"3px 10px",borderRadius:20,background:"#dcfce7",color:"#16a34a"}}>✅ {nAprobados} DHE aprobado{nAprobados>1?"s":""}</span>}
+                              <span style={{fontSize:10,fontWeight:700,padding:"3px 10px",borderRadius:20,background:"#7c3aed22",color:"#7c3aed"}}>{dheArr.length} país{dheArr.length!==1?"es":""}</span>
                               {canObtentores&&<button onClick={()=>delEspecie(e.id)} style={{background:"#fef2f2",border:"none",borderRadius:6,padding:"4px 8px",cursor:"pointer",fontSize:11}}>🗑</button>}
                             </div>
                           </div>
-                          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:10,fontSize:11,marginBottom:8}}>
-                            <div>
-                              <div style={{color:"#64748b",fontWeight:600,marginBottom:2}}>Estado DHE</div>
-                              <select disabled={!canObtentores} value={e.dhe_estado||"No iniciado"} onChange={ev=>updateContrato(c.id,{especies:especies.map(x=>x.id===e.id?{...x,dhe_estado:ev.target.value}:x)})}
-                                style={{width:"100%",padding:"4px 8px",border:"1px solid #e2e8f0",borderRadius:6,fontSize:11,boxSizing:"border-box",fontWeight:700,background:dheBg}}>
-                                {ESTADOS_DHE.map(s=><option key={s} value={s}>{s}</option>)}
-                              </select>
-                            </div>
-                            <div>
-                              <div style={{color:"#64748b",fontWeight:600,marginBottom:2}}>Fecha aprob. DHE</div>
-                              <input type="date" disabled={!canObtentores} value={e.dhe_fecha_aprob||""} onChange={ev=>updateContrato(c.id,{especies:especies.map(x=>x.id===e.id?{...x,dhe_fecha_aprob:ev.target.value}:x)})}
-                                style={{width:"100%",padding:"4px 8px",border:"1px solid #e2e8f0",borderRadius:6,fontSize:11,boxSizing:"border-box"}}/>
-                            </div>
-                            <div>
-                              <div style={{color:"#64748b",fontWeight:600,marginBottom:2}}>📎 Doc. DHE (URL)</div>
-                              <div style={{display:"flex",gap:4,alignItems:"center"}}>
-                                <input disabled={!canObtentores} value={e.dhe_doc||""} placeholder="https://..." onChange={ev=>updateContrato(c.id,{especies:especies.map(x=>x.id===e.id?{...x,dhe_doc:ev.target.value}:x)})}
-                                  style={{flex:1,padding:"4px 8px",border:"1px solid #e2e8f0",borderRadius:6,fontSize:11,boxSizing:"border-box"}}/>
-                                {e.dhe_doc&&<a href={e.dhe_doc} target="_blank" rel="noopener noreferrer" style={{fontSize:14,textDecoration:"none"}}>📎</a>}
-                              </div>
-                            </div>
+                          {/* Obs variedad */}
+                          <div style={{marginBottom:10,fontSize:11}}>
+                            <span style={{color:"#64748b",fontWeight:600}}>Obs. variedad: </span>
+                            <input disabled={!canObtentores} value={e.observaciones||""} placeholder="Notas..." onChange={ev=>updateContrato(c.id,{especies:especies.map(x=>x.id===e.id?{...x,observaciones:ev.target.value}:x)})}
+                              style={{width:"60%",padding:"4px 8px",border:"1px solid #e2e8f0",borderRadius:6,fontSize:11,boxSizing:"border-box"}}/>
                           </div>
-                          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,fontSize:11}}>
-                            <div>
-                              <div style={{color:"#64748b",fontWeight:600,marginBottom:2}}>Obs. DHE</div>
-                              <input disabled={!canObtentores} value={e.dhe_observaciones||""} placeholder="Notas DHE..." onChange={ev=>updateContrato(c.id,{especies:especies.map(x=>x.id===e.id?{...x,dhe_observaciones:ev.target.value}:x)})}
-                                style={{width:"100%",padding:"4px 8px",border:"1px solid #e2e8f0",borderRadius:6,fontSize:11,boxSizing:"border-box"}}/>
+                          {/* DHE multi-país */}
+                          <div style={{background:"#f8fafc",borderRadius:8,padding:10}}>
+                            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+                              <div style={{fontSize:11,fontWeight:700,color:"#475569"}}>📋 Registros DHE por país</div>
+                              {canObtentores&&<button onClick={()=>{
+                                const nd={id:`dhe_${Date.now()}`,pais:"",estado:"No iniciado",fecha_solicitud:"",fecha_aprob:"",nRegistro:"",doc:"",observaciones:""};
+                                updateContrato(c.id,{especies:especies.map(x=>x.id===e.id?{...x,dhe:[...dheArr,nd]}:x)});
+                              }} style={{padding:"3px 10px",borderRadius:6,background:"#7c3aed",border:"none",color:"#fff",cursor:"pointer",fontSize:10,fontWeight:700}}>+ País DHE</button>}
                             </div>
-                            <div>
-                              <div style={{color:"#64748b",fontWeight:600,marginBottom:2}}>Obs. variedad</div>
-                              <input disabled={!canObtentores} value={e.observaciones||""} placeholder="Notas..." onChange={ev=>updateContrato(c.id,{especies:especies.map(x=>x.id===e.id?{...x,observaciones:ev.target.value}:x)})}
-                                style={{width:"100%",padding:"4px 8px",border:"1px solid #e2e8f0",borderRadius:6,fontSize:11,boxSizing:"border-box"}}/>
-                            </div>
+                            {dheArr.length===0?(
+                              <div style={{padding:12,textAlign:"center",color:"#94a3b8",fontSize:11,border:"1px dashed #e2e8f0",borderRadius:6}}>Sin registros DHE. Agrega un país.</div>
+                            ):(
+                              <div style={{display:"flex",flexDirection:"column",gap:8}}>
+                                {dheArr.map(d=>{
+                                  const dColor=d.estado==="Aprobado"?"#16a34a":d.estado==="Rechazado"||d.estado==="Vencido"?"#dc2626":d.estado==="En proceso"||d.estado==="Solicitado"?"#d97706":"#64748b";
+                                  return(
+                                    <div key={d.id} style={{border:"1px solid #e2e8f0",borderRadius:8,padding:10,background:d.estado==="Aprobado"?"#f0fdf4":"#fff"}}>
+                                      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
+                                        <div style={{display:"flex",gap:8,alignItems:"center"}}>
+                                          <select disabled={!canObtentores} value={d.pais||""} onChange={ev=>updDhe(d.id,"pais",ev.target.value)}
+                                            style={{padding:"4px 8px",borderRadius:6,border:"1px solid #d1d5db",fontSize:11,fontWeight:700,minWidth:120}}>
+                                            <option value="">— País —</option>
+                                            {PAISES_DHE.map(p=><option key={p} value={p}>{p}</option>)}
+                                          </select>
+                                          <span style={{fontSize:10,fontWeight:700,padding:"2px 8px",borderRadius:12,background:dColor+"22",color:dColor}}>{d.estado}</span>
+                                        </div>
+                                        {canObtentores&&<button onClick={()=>delDhe(d.id)} style={{background:"#fef2f2",border:"none",borderRadius:4,padding:"2px 6px",cursor:"pointer",fontSize:10,color:"#991b1b"}}>🗑</button>}
+                                      </div>
+                                      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr 1fr",gap:8,fontSize:11}}>
+                                        <div>
+                                          <div style={{color:"#64748b",fontWeight:600,marginBottom:2}}>Estado</div>
+                                          <select disabled={!canObtentores} value={d.estado||"No iniciado"} onChange={ev=>updDhe(d.id,"estado",ev.target.value)}
+                                            style={{width:"100%",padding:"4px 6px",border:"1px solid #e2e8f0",borderRadius:6,fontSize:11,boxSizing:"border-box",fontWeight:700}}>
+                                            {ESTADOS_DHE.map(s=><option key={s} value={s}>{s}</option>)}
+                                          </select>
+                                        </div>
+                                        <div>
+                                          <div style={{color:"#64748b",fontWeight:600,marginBottom:2}}>F. Solicitud</div>
+                                          <input type="date" disabled={!canObtentores} value={d.fecha_solicitud||""} onChange={ev=>updDhe(d.id,"fecha_solicitud",ev.target.value)}
+                                            style={{width:"100%",padding:"4px 6px",border:"1px solid #e2e8f0",borderRadius:6,fontSize:11,boxSizing:"border-box"}}/>
+                                        </div>
+                                        <div>
+                                          <div style={{color:"#64748b",fontWeight:600,marginBottom:2}}>F. Aprobación</div>
+                                          <input type="date" disabled={!canObtentores} value={d.fecha_aprob||""} onChange={ev=>updDhe(d.id,"fecha_aprob",ev.target.value)}
+                                            style={{width:"100%",padding:"4px 6px",border:"1px solid #e2e8f0",borderRadius:6,fontSize:11,boxSizing:"border-box"}}/>
+                                        </div>
+                                        <div>
+                                          <div style={{color:"#64748b",fontWeight:600,marginBottom:2}}>N° Registro</div>
+                                          <input disabled={!canObtentores} value={d.nRegistro||""} placeholder="Ej: 2024-001" onChange={ev=>updDhe(d.id,"nRegistro",ev.target.value)}
+                                            style={{width:"100%",padding:"4px 6px",border:"1px solid #e2e8f0",borderRadius:6,fontSize:11,boxSizing:"border-box"}}/>
+                                        </div>
+                                      </div>
+                                      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,fontSize:11,marginTop:6}}>
+                                        <div>
+                                          <div style={{color:"#64748b",fontWeight:600,marginBottom:2}}>📎 Doc DHE</div>
+                                          <div style={{display:"flex",gap:4}}>
+                                            <input disabled={!canObtentores} value={d.doc||""} placeholder="https://..." onChange={ev=>updDhe(d.id,"doc",ev.target.value)}
+                                              style={{flex:1,padding:"4px 6px",border:"1px solid #e2e8f0",borderRadius:6,fontSize:11,boxSizing:"border-box"}}/>
+                                            {d.doc&&<a href={d.doc} target="_blank" rel="noopener noreferrer" style={{fontSize:12}}>📎</a>}
+                                          </div>
+                                        </div>
+                                        <div>
+                                          <div style={{color:"#64748b",fontWeight:600,marginBottom:2}}>Observaciones</div>
+                                          <input disabled={!canObtentores} value={d.observaciones||""} onChange={ev=>updDhe(d.id,"observaciones",ev.target.value)}
+                                            style={{width:"100%",padding:"4px 6px",border:"1px solid #e2e8f0",borderRadius:6,fontSize:11,boxSizing:"border-box"}}/>
+                                        </div>
+                                      </div>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            )}
                           </div>
                         </div>
                       );
