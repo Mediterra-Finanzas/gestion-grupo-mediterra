@@ -3007,89 +3007,6 @@ function getSaldoBancoInicial(saldosBancos, empNombre, fallback) {
   return found?total:fallback;
 }
 
-// ── Helper compartido: aplicar overrides, addedLines y subLines a empresas ──
-// Usado por Consolidado (Flujo Empresas) y por Dashboard para que ambos vean
-// los mismos números (incluyendo edits manuales del usuario).
-function aplicarOverridesEmpresas(empresas, realData={}, addedLinesGlobal={}, subLinesGlobal={}) {
-  const result = {};
-  Object.keys(empresas).forEach(n=>{
-    const emp = JSON.parse(JSON.stringify(empresas[n]));
-    const overrides = realData?.[n]?._proyOverrides || {};
-    // Aplicar overrides de proyección
-    emp.sections = emp.sections.map(sec=>({
-      ...sec,
-      lines: sec.lines.map(l=>{
-        if(overrides[l.label]) {
-          const newProy = [...l.proy];
-          Object.entries(overrides[l.label]).forEach(([idx, val])=>{
-            const i = Number(idx);
-            if(!isNaN(i) && i>=0 && i<newProy.length) {
-              if(typeof val === "object" && val !== null) {
-                const semTotal = Object.values(val).reduce((s,v)=>s+(Number(v)||0),0);
-                newProy[i] = semTotal;
-              } else {
-                newProy[i] = Number(val)||0;
-              }
-            }
-          });
-          return {...l, proy:newProy};
-        }
-        return l;
-      })
-    }));
-    // Agregar addedLines
-    const added = addedLinesGlobal[n] || {};
-    Object.entries(added).forEach(([cat, lines])=>{
-      const sec = emp.sections.find(s=>s.cat===cat);
-      if(sec && Array.isArray(lines)) {
-        lines.forEach(al=>{
-          if(al && al.label) {
-            const vals = Array(63).fill(0);
-            if(al.vals) Object.entries(al.vals).forEach(([i,v])=>{
-              const idx=Number(i); if(!isNaN(idx)&&idx>=0&&idx<65) vals[idx]=Number(v)||0;
-            });
-            sec.lines.push({label:al.label, proy:vals});
-          }
-        });
-      }
-    });
-    // Agregar subLines (CxC, Capital Calls, etc.)
-    const empSubLines = subLinesGlobal[n] || {};
-    Object.entries(empSubLines).forEach(([lineLabel, slList])=>{
-      if(!Array.isArray(slList)) return;
-      for(const sec of emp.sections) {
-        const parentLine = sec.lines.find(l=>l.label===lineLabel && l.subLines);
-        if(parentLine) {
-          for(let idx=0; idx<65; idx++) {
-            let mesTotal = 0;
-            slList.forEach(sl=>{
-              if(!sl || typeof sl === "string") return;
-              const vals = sl.vals || {};
-              let hasSem = false;
-              for(let s=0; s<4; s++){
-                const k = `${idx}_${s}`;
-                if(vals[k] !== undefined){ mesTotal += Number(vals[k])||0; hasSem = true; }
-              }
-              if(!hasSem && vals[idx] !== undefined) mesTotal += Number(vals[idx])||0;
-              if(!hasSem && vals[String(idx)] !== undefined && vals[idx] === undefined) mesTotal += Number(vals[String(idx)])||0;
-            });
-            if(mesTotal) parentLine.proy[idx] = (parentLine.proy[idx]||0) + mesTotal;
-          }
-          break;
-        }
-      }
-    });
-    // Sanitizar NaN
-    emp.sections.forEach(sec=>{
-      sec.lines.forEach(l=>{
-        l.proy = l.proy.map(v=>{const num=Number(v); return isNaN(num)?0:num;});
-      });
-    });
-    result[n] = emp;
-  });
-  return result;
-}
-
 // ═══════════════════════════════════════════════════════════════════
 // CONSOLIDADO — dentro de Flujo Empresas
 // ═══════════════════════════════════════════════════════════════════
@@ -3102,8 +3019,93 @@ function Consolidado({empresas,saldosBancos,realData={},addedLinesGlobal={},subL
 
   // Construir empresas con overrides aplicados (igual que FlujoEmpresa)
   const empresasConOverrides = useMemo(()=>{
-    return aplicarOverridesEmpresas(empresas, realData, addedLinesGlobal, subLinesGlobal);
-  },[empresas, realData, addedLinesGlobal, subLinesGlobal]);
+    const result = {};
+    empNames.forEach(n=>{
+      const emp = JSON.parse(JSON.stringify(empresas[n]));
+      // Los overrides del usuario están en realData[empresa]._proyOverrides
+      const overrides = realData?.[n]?._proyOverrides || {};
+      // Aplicar overrides de proyección
+      emp.sections = emp.sections.map(sec=>({
+        ...sec,
+        lines: sec.lines.map(l=>{
+          if(overrides[l.label]) {
+            const newProy = [...l.proy];
+            Object.entries(overrides[l.label]).forEach(([idx, val])=>{
+              const i = Number(idx);
+              if(!isNaN(i) && i>=0 && i<newProy.length) {
+                // val puede ser un número o un objeto {_sem0,_sem1,_sem2,_sem3}
+                if(typeof val === "object" && val !== null) {
+                  // Semanas: sumar los valores de las semanas
+                  const semTotal = Object.values(val).reduce((s,v)=>s+(Number(v)||0),0);
+                  newProy[i] = semTotal;
+                } else {
+                  newProy[i] = Number(val)||0;
+                }
+              }
+            });
+            return {...l, proy:newProy};
+          }
+          return l;
+        })
+      }));
+      // Agregar addedLines
+      const added = addedLinesGlobal[n] || {};
+      Object.entries(added).forEach(([cat, lines])=>{
+        const sec = emp.sections.find(s=>s.cat===cat);
+        if(sec && Array.isArray(lines)) {
+          lines.forEach(al=>{
+            if(al && al.label) {
+              const vals = Array(63).fill(0);
+              if(al.vals) Object.entries(al.vals).forEach(([i,v])=>{
+                const idx=Number(i); if(!isNaN(idx)&&idx>=0&&idx<65) vals[idx]=Number(v)||0;
+              });
+              sec.lines.push({label:al.label, proy:vals});
+            }
+          });
+        }
+      });
+      // Agregar subLines values (CxC, Capital Calls, etc.)
+      const empSubLines = subLinesGlobal[n] || {};
+      Object.entries(empSubLines).forEach(([lineLabel, slList])=>{
+        if(!Array.isArray(slList)) return;
+        for(const sec of emp.sections) {
+          const parentLine = sec.lines.find(l=>l.label===lineLabel && l.subLines);
+          if(parentLine) {
+            // Para cada mes (0-64), sumar subLines igual que sumSubLinesMes
+            for(let idx=0; idx<65; idx++) {
+              let mesTotal = 0;
+              slList.forEach(sl=>{
+                if(!sl || typeof sl === "string") return;
+                const vals = sl.vals || {};
+                // Intentar semanas primero
+                let hasSem = false;
+                for(let s=0; s<4; s++){
+                  const k = `${idx}_${s}`;
+                  if(vals[k] !== undefined){ mesTotal += Number(vals[k])||0; hasSem = true; }
+                }
+                // Si no hay semanas, usar valor mensual
+                if(!hasSem && vals[idx] !== undefined) mesTotal += Number(vals[idx])||0;
+                // También verificar string keys
+                if(!hasSem && vals[String(idx)] !== undefined && vals[idx] === undefined) mesTotal += Number(vals[String(idx)])||0;
+              });
+              if(mesTotal) parentLine.proy[idx] = (parentLine.proy[idx]||0) + mesTotal;
+            }
+            break;
+          }
+        }
+      });
+
+      // Sanitizar todos los proy para evitar NaN
+      emp.sections.forEach(sec=>{
+        sec.lines.forEach(l=>{
+          l.proy = l.proy.map(v=>{const n=Number(v); return isNaN(n)?0:n;});
+        });
+      });
+
+      result[n] = emp;
+    });
+    return result;
+  },[empresas, realData, addedLinesGlobal, subLinesGlobal]); // eslint-disable-line
 
   const flujoPorEmp=useMemo(()=>{
     const res={};
@@ -3245,8 +3247,7 @@ function Consolidado({empresas,saldosBancos,realData={},addedLinesGlobal={},subL
         <KPI label="Saldo Inicial Consolidado" value={$$(saldoIniConsolidado)} color={C.blue}/>
         <KPI label="Flujo Total" value={$$(flujoConsolidado.reduce((a,b)=>a+(Number(b)||0),0))} color={cf(flujoConsolidado.reduce((a,b)=>a+(Number(b)||0),0))}/>
         <KPI label={"Mínimo Acumulado ("+MESES_65[acumConsolidado.indexOf(Math.min(...acumConsolidado))]+")"} value={$$(Math.min(...acumConsolidado))} color={C.red}/>
-        <KPI label="Saldo Jun-27" value={$$(acumConsolidado[14])} color={cf(acumConsolidado[14])}/>
-        <KPI label="Saldo Jun-31" value={$$(acumConsolidado[62])} color={cf(acumConsolidado[62])}/>
+        <KPI label="Saldo Final Jun-31" value={$$(acumConsolidado[acumConsolidado.length-1])} color={cf(acumConsolidado[acumConsolidado.length-1])}/>
         <KPI label="Empresas" value={empNamesConsolidado.length} color={C.yellow}/>
       </div>
       {/* Flujo al cierre de cada temporada */}
@@ -3263,7 +3264,7 @@ function Consolidado({empresas,saldosBancos,realData={},addedLinesGlobal={},subL
         <LineChart months={MESES_65} values={acumConsolidado} color={C.accentL}/>
         {Math.min(...acumConsolidado)<0&&(
           <div style={{marginTop:8,padding:"8px 12px",background:`${C.red}18`,border:`1px solid ${C.red}33`,borderRadius:8,fontSize:11,color:C.muted}}>
-            ⚠️ Mínimo proyectado: <strong style={{color:C.red}}>{$$(Math.min(...acumConsolidado))}</strong> en <strong style={{color:C.red}}>{MESES_65[acumConsolidado.indexOf(Math.min(...acumConsolidado))]}</strong>
+            ⚠️ Mínimo proyectado: <strong style={{color:C.red}}>{$$(Math.min(...acumConsolidado))}</strong>
           </div>
         )}
       </Card>
@@ -5181,7 +5182,6 @@ function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit,saldosBanc
             {l:"Saldo Banco USD", v:saldoBancoUSD!=null?saldoBancoUSD:emp.saldo_ini, c:C.blue,
               sub:saldoBancoUSD!=null?"desde Saldos Bancos":"saldo base"},
             {l:"Flujo total",     v:flujoArr.reduce((a,b)=>a+b,0), c:cf(flujoArr.reduce((a,b)=>a+b,0))},
-            {l:"Saldo Jun-27",   v:acumArr[14], c:cf(acumArr[14])},
             {l:"Saldo Jun-31",   v:acumArr[acumArr.length-1], c:cf(acumArr[acumArr.length-1])},
           ].map(k=>(
             <div key={k.l} style={{textAlign:"right"}}>
@@ -5298,45 +5298,19 @@ function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit,saldosBanc
 // ═══════════════════════════════════════════════════════════════════
 // DASHBOARD
 // ═══════════════════════════════════════════════════════════════════
-function Dashboard({empresas, saldosBancos, realData={}, addedLinesGlobal={}, subLinesGlobal={}}) {
-  // Aplicar overrides para que el Dashboard vea los mismos números que Consolidado
-  const empresasConOverrides = useMemo(()=>{
-    return aplicarOverridesEmpresas(empresas, realData, addedLinesGlobal, subLinesGlobal);
-  },[empresas, realData, addedLinesGlobal, subLinesGlobal]);
-
-  // Empresas a consolidar (excluye Allpa Farms Perú, igual que en Consolidado de Flujo Empresas)
-  const empNamesConsolidado = useMemo(()=>
-    Object.keys(empresasConOverrides).filter(n => n !== "Allpa Farms Perú"),
-    [empresasConOverrides]
-  );
-  // Saldo inicial real desde bancos (igual que Consolidado)
-  const saldoIniConsolidado = useMemo(()=>{
-    return empNamesConsolidado.reduce((s,n)=>{
-      const v = getSaldoBancoInicial(saldosBancos, n, empresasConOverrides[n]?.saldo_ini || 0);
-      return s + (isNaN(v) ? 0 : v);
-    }, 0);
-  },[empNamesConsolidado,saldosBancos,empresasConOverrides]);
-
+function Dashboard({empresas, saldosBancos}) {
   const gmAcum=useMemo(()=>{
-    let acc=saldoIniConsolidado;
+    let acc=Object.values(empresas).reduce((s,e)=>s+(e.saldo_ini||0),0);
     return MESES_65.map((_,i)=>{
       let f=0;
-      empNamesConsolidado.forEach(n=>{
-        const e = empresasConOverrides[n];
-        e.sections.forEach(sec=>sec.lines.forEach(l=>{
-          const num=Number(l.proy[i]);
-          f+=(isNaN(num)?0:num)*sec.signo;
-        }));
-      });
+      Object.values(empresas).forEach(e=>e.sections.forEach(sec=>sec.lines.forEach(l=>{
+        const num=Number(l.proy[i]);
+        f+=(isNaN(num)?0:num)*sec.signo;
+      })));
       acc+=f;
       return acc;
     });
-  },[empresasConOverrides,empNamesConsolidado,saldoIniConsolidado]);
-
-  // Índices clave: Apr-26 = 0, Jun-27 = 14, Jun-31 = 62
-  const IDX_JUN_27 = 14;
-  const IDX_JUN_31 = 62;
-
+  },[empresas]);
   const EMPRESAS_CHILE = ["Mediterra","Allegria Foods","Allegria Service","Frisku Foods","Allpa Farms","Osiris","Integrity Farms"];
   const EMPRESAS_PERU  = ["Allpa Farms Perú"];
   const HOY_DASH = new Date();
@@ -5363,7 +5337,7 @@ function Dashboard({empresas, saldosBancos, realData={}, addedLinesGlobal={}, su
   }
   const saldoCajaChile = saldoDeEmpresas(EMPRESAS_CHILE);
   const saldoCajaPerU  = saldoDeEmpresas(EMPRESAS_PERU);
-  const empTotals=Object.entries(empresasConOverrides).map(([n,e])=>({n,totalIng:e.sections.filter(s=>s.signo>0).flatMap(s=>s.lines).reduce((a,l)=>a+l.proy.reduce((b,v)=>b+v,0),0)})).filter(e=>e.totalIng>0).sort((a,b)=>b.totalIng-a.totalIng);
+  const empTotals=Object.entries(empresas).map(([n,e])=>({n,totalIng:e.sections.filter(s=>s.signo>0).flatMap(s=>s.lines).reduce((a,l)=>a+l.proy.reduce((b,v)=>b+v,0),0)})).filter(e=>e.totalIng>0).sort((a,b)=>b.totalIng-a.totalIng);
   const maxIng=empTotals[0]?.totalIng||1;
   return (
     <div style={{display:"flex",flexDirection:"column",gap:14}}>
@@ -5371,15 +5345,14 @@ function Dashboard({empresas, saldosBancos, realData={}, addedLinesGlobal={}, su
         <KPI label={`🇨🇱 Saldo Banco Chile`}  value={$$(saldoCajaChile)}  color={C.green}/>
         <KPI label={`🇵🇪 Saldo Banco Perú`}   value={$$(saldoCajaPerU)}   color={"#7c3aed"}/>
         <KPI label="Créditos Totales Q1-26" value={$$(8355763)}                 color={C.red}/>
-        <KPI label={"Mínimo Acumulado ("+MESES_65[gmAcum.indexOf(Math.min(...gmAcum))]+")"}     value={$$(Math.min(...gmAcum))}     color={C.red}/>
-        <KPI label="Saldo Jun-27"           value={$$(gmAcum[IDX_JUN_27])}      color={cf(gmAcum[IDX_JUN_27])}/>
-        <KPI label="Saldo Jun-31"           value={$$(gmAcum[IDX_JUN_31])}      color={cf(gmAcum[IDX_JUN_31])}/>
+        <KPI label="Mínimo Acum. (65m)"     value={$$(Math.min(...gmAcum))}     color={C.red}/>
+        <KPI label="Saldo Final Jun-31"     value={$$(gmAcum[gmAcum.length-1])} color={cf(gmAcum[gmAcum.length-1])}/>
       </div>
       <Card>
         <SectionTitle>Flujo Acumulado Consolidado — Mar-26 → Jun-31 (6 Temporadas)</SectionTitle>
         <LineChart months={MESES_65} values={gmAcum} color={C.accentL}/>
         <div style={{marginTop:8,padding:"8px 12px",background:`${C.red}18`,border:`1px solid ${C.red}33`,borderRadius:8,fontSize:11,color:C.muted}}>
-          ⚠️ Mínimo proyectado: <strong style={{color:C.red}}>{$$(Math.min(...gmAcum))}</strong> en <strong style={{color:C.red}}>{MESES_65[gmAcum.indexOf(Math.min(...gmAcum))]}</strong>
+          ⚠️ Mínimo proyectado: <strong style={{color:C.red}}>{$$(Math.min(...gmAcum))}</strong>
         </div>
       </Card>
       <Card>
@@ -6190,18 +6163,6 @@ function SaldosBancos({saldos,onSave,canEdit}) {
     return Object.values(totalesEmpresa).reduce((a,b)=>a+b,0);
   },[totalesEmpresa]);
 
-  // Desglose Chile vs Perú (por empresa)
-  const totalUSD_Chile = useMemo(()=>{
-    return EMPRESAS_LIST
-      .filter(emp=>!emp.includes("Perú"))
-      .reduce((a,emp)=>a+(totalesEmpresa[emp]||0),0);
-  },[totalesEmpresa]);
-  const totalUSD_Peru = useMemo(()=>{
-    return EMPRESAS_LIST
-      .filter(emp=>emp.includes("Perú"))
-      .reduce((a,emp)=>a+(totalesEmpresa[emp]||0),0);
-  },[totalesEmpresa]);
-
   const hasDirty=Object.keys(dirty).length>0;
   const sym=(id)=>MONEDAS.find(m=>m.id===id)?.symbol||"$";
 
@@ -6217,25 +6178,15 @@ function SaldosBancos({saldos,onSave,canEdit}) {
   return (
     <div style={{display:"flex",flexDirection:"column",gap:14}}>
       <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(160px,1fr))",gap:10}}>
-        <div style={{background:C.card,border:`2px solid ${C.green}`,borderRadius:10,
-          padding:"12px 16px"}}>
+        <div style={{background:C.card,border:`2px solid ${C.accent}`,borderRadius:10,
+          padding:"12px 16px",gridColumn:"span 2"}}>
           <div style={{fontSize:10,color:C.muted,textTransform:"uppercase",marginBottom:4}}>
-            🇨🇱 Saldo Chile USD
-            {fxLoading&&<span style={{marginLeft:6,fontSize:9,color:C.yellow}}>actualizando…</span>}
-          </div>
-          <div style={{fontSize:22,fontWeight:900,color:totalUSD_Chile!=null?cf(totalUSD_Chile):C.muted}}>
-            {totalUSD_Chile!=null?`$${totalUSD_Chile.toLocaleString("es-CL",{maximumFractionDigits:0})} USD`:"—"}
-          </div>
-        </div>
-        <div style={{background:C.card,border:`2px solid #7c3aed`,borderRadius:10,
-          padding:"12px 16px"}}>
-          <div style={{fontSize:10,color:C.muted,textTransform:"uppercase",marginBottom:4}}>
-            🇵🇪 Saldo Perú USD
+            💵 Total Consolidado USD
             {fxLoading&&<span style={{marginLeft:6,fontSize:9,color:C.yellow}}>actualizando…</span>}
             {fxError&&<span style={{marginLeft:6,fontSize:9,color:C.red}}>⚠️ sin paridad</span>}
           </div>
-          <div style={{fontSize:22,fontWeight:900,color:totalUSD_Peru!=null?cf(totalUSD_Peru):C.muted}}>
-            {totalUSD_Peru!=null?`$${totalUSD_Peru.toLocaleString("es-CL",{maximumFractionDigits:0})} USD`:"—"}
+          <div style={{fontSize:22,fontWeight:900,color:totalUSD!=null?cf(totalUSD):C.muted}}>
+            {totalUSD!=null?`$${totalUSD.toLocaleString("es-CL",{maximumFractionDigits:0})} USD`:"—"}
           </div>
         </div>
         {[
@@ -7353,7 +7304,7 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
       </div>
 
       {/* ── Contenido por pestaña ──────────────────────────── */}
-      {tab==="dashboard"&&puedoVer("dashboard")&&<Dashboard empresas={empresas} saldosBancos={saldosBancos} realData={realData} addedLinesGlobal={addedLinesGlobal} subLinesGlobal={subLines}/>}
+      {tab==="dashboard"&&puedoVer("dashboard")&&<Dashboard empresas={empresas} saldosBancos={saldosBancos}/>}
 
       {tab==="flujo"&&puedoVer("flujo")&&(
         <div>
