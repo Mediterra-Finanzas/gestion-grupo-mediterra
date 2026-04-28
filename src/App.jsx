@@ -1356,7 +1356,7 @@ export default function App(){
         if(d){
           if(d.usuarios)setUsuarios(prev=>{
             const merged=WORKERS_BASE.map(wb=>{
-              const saved=d.usuarios.find(u=>u.nombre===wb.nombre);
+              const saved=d.usuarios.find(u=>u.nombre===wb.nombre || (u.email && wb.email && u.email.toLowerCase()===wb.email.toLowerCase()));
               if(!saved) return wb;
               return {
                 ...saved,
@@ -1373,7 +1373,9 @@ export default function App(){
               };
             });
             // Usuarios extra agregados desde la app (no están en WORKERS_BASE)
-            const extras=d.usuarios.filter(u=>!WORKERS_BASE.find(wb=>wb.nombre===u.nombre));
+            const baseEmails = new Set(WORKERS_BASE.map(wb=>(wb.email||"").toLowerCase()));
+            const baseNames = new Set(WORKERS_BASE.map(wb=>wb.nombre));
+            const extras=d.usuarios.filter(u=>!baseNames.has(u.nombre) && !baseEmails.has((u.email||"").toLowerCase()));
             return[...merged,...extras];
           });
           if(d.estados)setEstados(prev=>({...prev,...d.estados}));
