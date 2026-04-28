@@ -2,7 +2,7 @@
 // ============================================================
 // OsirisModule.jsx — v4 — Módulo Osiris Plant · Mediterra
 // ============================================================
-import React, { useState, useCallback, useMemo, useEffect } from "react";
+import React, { useState, useCallback, useMemo } from "react";
 
 // ── Paleta ────────────────────────────────────────────────
 const C = {
@@ -886,9 +886,10 @@ function TotalPedidos({data,setData,rpData,setRpData,rcData,setRcData,fvData,set
           </div>
         ))}
         <div style={{display:"flex",gap:8,alignSelf:"center",flexWrap:"wrap"}}>
-          <div style={{fontSize:11,color:"#64748b",fontStyle:"italic",alignSelf:"center",padding:"6px 12px",background:"#f0f9ff",border:"1px solid #bae6fd",borderRadius:6}}>
-            🔗 Datos derivados de Contratos Productores
-          </div>
+          {can&&<button onClick={()=>setModal(true)}
+            style={{background:C.azul,color:"#fff",border:"none",borderRadius:8,padding:"8px 16px",cursor:"pointer",fontSize:12,fontWeight:700}}>
+            + Nuevo Pedido
+          </button>}
           {can&&<button onClick={()=>setShowRegalias(v=>!v)}
             style={{background:showRegalias?"#16a34a":"#f1f5f9",color:showRegalias?"#fff":C.sl,border:"1px solid #e2e8f0",borderRadius:8,padding:"8px 14px",cursor:"pointer",fontSize:12,fontWeight:600}}>
             ⚙️ Regalías
@@ -955,9 +956,9 @@ function TotalPedidos({data,setData,rpData,setRpData,rcData,setRcData,fvData,set
                   }
                 </td>
                 <td style={{padding:"7px 10px",fontWeight:600}}>
-                  <NombreCliente nombre={r.cliente} clientes={clientes} onChange={v=>upd(r.id,"cliente",v)} can={can&&!r._fromContract}/>
+                  <NombreCliente nombre={r.cliente} clientes={clientes} onChange={v=>upd(r.id,"cliente",v)} can={can}/>
                 </td>
-                <td style={{padding:"7px 10px",fontSize:12}}><Cell val={r.pais} onChange={v=>upd(r.id,"pais",v)} opts={PAISES} can={can&&!r._fromContract}/></td>
+                <td style={{padding:"7px 10px",fontSize:12}}><Cell val={r.pais} onChange={v=>upd(r.id,"pais",v)} opts={PAISES} can={can}/></td>
                 <td style={{padding:"7px 10px",fontSize:11}}><Cell val={r.vivero||""} onChange={v=>upd(r.id,"vivero",v)} opts={VIVEROS} can={can}/></td>
                 <td style={{padding:"7px 10px",textAlign:"center",fontSize:11}}>
                   <Cell val={r.fechaPedido||""} onChange={v=>upd(r.id,"fechaPedido",v)} type="date" can={can}/>
@@ -966,10 +967,10 @@ function TotalPedidos({data,setData,rpData,setRpData,rcData,setRcData,fvData,set
                   {r.añoEntrega} T{r.trimEntrega}
                 </td>
                 <td style={{padding:"7px 10px",textAlign:"right",fontWeight:700,color:C.teal}}>
-                  <Cell val={r.nPlantas} onChange={v=>upd(r.id,"nPlantas",parseFloat(v)||0)} type="number" can={can&&!r._fromContract}/>
+                  <Cell val={r.nPlantas} onChange={v=>upd(r.id,"nPlantas",parseFloat(v)||0)} type="number" can={can}/>
                 </td>
                 <td style={{padding:"7px 10px",textAlign:"right"}}>
-                  <Cell val={r.ha||""} onChange={v=>upd(r.id,"ha",parseFloat(v)||0)} type="number" can={can&&!r._fromContract} ph="0"/>
+                  <Cell val={r.ha||""} onChange={v=>upd(r.id,"ha",parseFloat(v)||0)} type="number" can={can} ph="0"/>
                 </td>
                 <td style={{padding:"7px 10px",textAlign:"center",fontSize:11}}>
                   <Cell val={r.regaliaVivero||regalias[r.vivero]||0.45} onChange={v=>upd(r.id,"regaliaVivero",parseFloat(v)||0)} type="number" can={can}/>
@@ -1006,9 +1007,6 @@ function TotalPedidos({data,setData,rpData,setRpData,rcData,setRcData,fvData,set
                   }
                 </td>
                 {can&&<td style={{padding:"4px 6px",textAlign:"center"}}>
-                  {r._fromContract?(
-                    <span title="Eliminar el contrato productor para borrar este registro" style={{color:"#94a3b8",fontSize:14}}>🔒</span>
-                  ):(
                   <button onClick={()=>{
                     if(!window.confirm(`¿Eliminar pedido de "${r.cliente}"?\nTambién se eliminarán las filas vinculadas en Royalty/Planta, Royalty Comercial y Fee Vivero.`))return;
                     const id=r.id;
@@ -1025,7 +1023,6 @@ function TotalPedidos({data,setData,rpData,setRpData,rcData,setRcData,fvData,set
                     }
                   }}
                     style={{background:"#fee2e2",border:"none",borderRadius:6,padding:"3px 8px",cursor:"pointer",fontSize:12,color:"#991b1b",fontWeight:700}}>×</button>
-                  )}
                 </td>}
               </tr>
             ))}
@@ -1364,9 +1361,11 @@ function RoyaltyPlanta({data,setData,tpData,can,clientes=[]}) {
             <div style={{fontSize:20,fontWeight:800,color:c}}>{v}</div>
           </div>
         ))}
-        <div style={{fontSize:11,color:"#64748b",fontStyle:"italic",alignSelf:"center",padding:"6px 12px",background:"#f0f9ff",border:"1px solid #bae6fd",borderRadius:6}}>
-          🔗 Derivado de Contratos Productores
-        </div>
+        {can&&<button onClick={()=>setModal(true)}
+          style={{background:C.azul,color:"#fff",border:"none",borderRadius:8,padding:"8px 16px",
+            cursor:"pointer",fontSize:12,fontWeight:700,alignSelf:"center"}}>
+          + Agregar
+        </button>}
       </div>
 
       <BarraFiltros
@@ -1409,13 +1408,13 @@ function RoyaltyPlanta({data,setData,tpData,can,clientes=[]}) {
               return(
                 <tr key={r.id} style={{borderBottom:"1px solid #f1f5f9",background:i%2===0?"#fff":"#f8fafc"}}>
                   <td style={{padding:"7px 10px",fontWeight:600}}>
-                    <NombreCliente nombre={r.cliente} clientes={clientes} onChange={v=>upd(r.id,"cliente",v)} can={can&&!r._fromContract}/>
+                    <NombreCliente nombre={r.cliente} clientes={clientes} onChange={v=>upd(r.id,"cliente",v)} can={can}/>
                   </td>
-                  <td style={{padding:"7px 10px",fontSize:12}}><Cell val={r.pais} onChange={v=>upd(r.id,"pais",v)} opts={PAISES} can={can&&!r._fromContract}/></td>
-                  <td style={{padding:"7px 10px",fontSize:11}}><Cell val={r.vivero||""} onChange={v=>upd(r.id,"vivero",v)} opts={VIVEROS} can={can&&!r._fromContract}/></td>
+                  <td style={{padding:"7px 10px",fontSize:12}}><Cell val={r.pais} onChange={v=>upd(r.id,"pais",v)} opts={PAISES} can={can}/></td>
+                  <td style={{padding:"7px 10px",fontSize:11}}><Cell val={r.vivero||""} onChange={v=>upd(r.id,"vivero",v)} opts={VIVEROS} can={can}/></td>
                   <td style={{padding:"7px 10px",textAlign:"center",fontSize:12,color:C.gris}}>{r.añoEntrega||r.año||"—"}</td>
-                  <td style={{padding:"7px 10px",textAlign:"right",fontWeight:600}}><Cell val={r.nPlantas} onChange={v=>upd(r.id,"nPlantas",parseFloat(v)||0)} type="number" can={can&&!r._fromContract}/></td>
-                  <td style={{padding:"7px 10px",textAlign:"center"}}><Cell val={r.usdPlanta||""} onChange={v=>upd(r.id,"usdPlanta",parseFloat(v)||0)} type="number" can={can&&!r._fromContract} ph="0.00"/></td>
+                  <td style={{padding:"7px 10px",textAlign:"right",fontWeight:600}}><Cell val={r.nPlantas} onChange={v=>upd(r.id,"nPlantas",parseFloat(v)||0)} type="number" can={can}/></td>
+                  <td style={{padding:"7px 10px",textAlign:"center"}}><Cell val={r.usdPlanta||""} onChange={v=>upd(r.id,"usdPlanta",parseFloat(v)||0)} type="number" can={can} ph="0.00"/></td>
                   <td style={{padding:"7px 10px",textAlign:"right",fontWeight:700,color:C.azul}}>{$$(r.montoFact)}</td>
                   <td style={{padding:"7px 10px",textAlign:"center",fontSize:11}}>
                     {whtLabel(r.pais)
@@ -1443,9 +1442,6 @@ function RoyaltyPlanta({data,setData,tpData,can,clientes=[]}) {
                     <Cell val={r.fechaPago||""} onChange={v=>upd(r.id,"fechaPago",v)} type="date" can={can}/>
                   </td>
                   {can&&<td style={{padding:"4px 6px",textAlign:"center"}}>
-                    {r._fromContract?(
-                      <span title="Eliminar el contrato productor para borrar este registro" style={{color:"#94a3b8",fontSize:14}}>🔒</span>
-                    ):(
                     <button onClick={()=>{
                       if(!window.confirm(`¿Eliminar royalty de "${r.cliente}"?`))return;
                       window.auditLog&&window.auditLog("eliminar", {modulo:"osiris", seccion:"Royalty Planta",
@@ -1454,7 +1450,6 @@ function RoyaltyPlanta({data,setData,tpData,can,clientes=[]}) {
                       setData(prev=>prev.filter(x=>x.id!==r.id));
                     }}
                       style={{background:"#fee2e2",border:"none",borderRadius:6,padding:"3px 8px",cursor:"pointer",fontSize:12,color:"#991b1b",fontWeight:700}}>×</button>
-                    )}
                   </td>}
                 </tr>
               );
@@ -1884,9 +1879,11 @@ function RoyaltyComercial({data,setData,tpData,can,clientes=[]}) {
             <div style={{fontSize:20,fontWeight:800,color:c}}>{v}</div>
           </div>
         ))}
-        <div style={{fontSize:11,color:"#64748b",fontStyle:"italic",alignSelf:"center",padding:"6px 12px",background:"#f0f9ff",border:"1px solid #bae6fd",borderRadius:6}}>
-          🔗 Derivado de Contratos Productores
-        </div>
+        {can&&<button onClick={()=>setModal(true)}
+          style={{background:C.azul,color:"#fff",border:"none",borderRadius:8,padding:"8px 16px",
+            cursor:"pointer",fontSize:12,fontWeight:700,alignSelf:"center"}}>
+          + Agregar
+        </button>}
       </div>
 
       <BarraFiltros
@@ -1929,15 +1926,15 @@ function RoyaltyComercial({data,setData,tpData,can,clientes=[]}) {
                 <tr key={r.id} style={{borderBottom:"1px solid #f1f5f9",
                   background:r.alertaActiva?"#fffbeb":i%2===0?"#fff":"#f8fafc"}}>
                   <td style={{padding:"7px 10px",fontWeight:600}}>
-                    <NombreCliente nombre={r.cliente} clientes={clientes} onChange={v=>upd(r.id,"cliente",v)} can={can&&!r._fromContract}/>
+                    <NombreCliente nombre={r.cliente} clientes={clientes} onChange={v=>upd(r.id,"cliente",v)} can={can}/>
                   </td>
                   <td style={{padding:"7px 10px",fontSize:12,color:C.gris}}>{r.pais}</td>
                   <td style={{padding:"7px 10px",textAlign:"right",fontWeight:600,
                     background:(!r.ha||r.ha===0)&&can?"#fffbeb":"transparent"}}>
-                    <Cell val={r.ha||""} onChange={v=>upd(r.id,"ha",parseFloat(v)||0)} type="number" can={can&&!r._fromContract} ph="Ingrese Há"/>
+                    <Cell val={r.ha||""} onChange={v=>upd(r.id,"ha",parseFloat(v)||0)} type="number" can={can} ph="Ingrese Há"/>
                   </td>
                   <td style={{padding:"7px 10px",textAlign:"center"}}>
-                    <Cell val={r.usdHa||3000} onChange={v=>upd(r.id,"usdHa",parseFloat(v)||3000)} type="number" can={can&&!r._fromContract}/>
+                    <Cell val={r.usdHa||3000} onChange={v=>upd(r.id,"usdHa",parseFloat(v)||3000)} type="number" can={can}/>
                   </td>
                   <td style={{padding:"7px 10px",textAlign:"center",fontWeight:600,fontSize:12}}>
                     {can ? (
@@ -1984,9 +1981,6 @@ function RoyaltyComercial({data,setData,tpData,can,clientes=[]}) {
                     }
                   </td>
                   {can&&<td style={{padding:"4px 6px",textAlign:"center"}}>
-                    {r._fromContract?(
-                      <span title="Eliminar el contrato productor para borrar este registro" style={{color:"#94a3b8",fontSize:14}}>🔒</span>
-                    ):(
                     <button onClick={()=>{
                       if(!window.confirm(`¿Eliminar royalty comercial de "${r.cliente}" ${r.añoCobro}?`))return;
                       window.auditLog&&window.auditLog("eliminar", {modulo:"osiris", seccion:"Royalty Comercial",
@@ -1995,7 +1989,6 @@ function RoyaltyComercial({data,setData,tpData,can,clientes=[]}) {
                       setData(prev=>prev.filter(x=>x.id!==r.id));
                     }}
                       style={{background:"#fee2e2",border:"none",borderRadius:6,padding:"3px 8px",cursor:"pointer",fontSize:12,color:"#991b1b",fontWeight:700}}>×</button>
-                    )}
                   </td>}
                 </tr>
               );
@@ -2131,9 +2124,11 @@ function FeeViveros({data,setData,tpData,can,clientes=[]}) {
             <div style={{fontSize:20,fontWeight:800,color:c}}>{v}</div>
           </div>
         ))}
-        <div style={{fontSize:11,color:"#64748b",fontStyle:"italic",alignSelf:"center",padding:"6px 12px",background:"#f0f9ff",border:"1px solid #bae6fd",borderRadius:6}}>
-          🔗 Derivado de Contratos Productores
-        </div>
+        {can&&<button onClick={()=>setModal(true)}
+          style={{background:C.azul,color:"#fff",border:"none",borderRadius:8,padding:"8px 16px",
+            cursor:"pointer",fontSize:12,fontWeight:700,alignSelf:"center"}}>
+          + Agregar
+        </button>}
       </div>
 
       <BarraFiltros
@@ -2174,15 +2169,15 @@ function FeeViveros({data,setData,tpData,can,clientes=[]}) {
               const facturado=r.nFact&&String(r.nFact).trim()!=="";
               return(
                 <tr key={r.id} style={{borderBottom:"1px solid #f1f5f9",background:i%2===0?"#fff":"#f8fafc"}}>
-                  <td style={{padding:"7px 10px",fontSize:11}}><Cell val={r.vivero||""} onChange={v=>upd(r.id,"vivero",v)} opts={["Synergiabio","Agromillora"]} can={can&&!r._fromContract}/></td>
+                  <td style={{padding:"7px 10px",fontSize:11}}><Cell val={r.vivero||""} onChange={v=>upd(r.id,"vivero",v)} opts={["Synergiabio","Agromillora"]} can={can}/></td>
                   <td style={{padding:"7px 10px",fontWeight:600}}>
-                    <NombreCliente nombre={r.empresa} clientes={clientes} onChange={v=>upd(r.id,"empresa",v)} can={can&&!r._fromContract}/>
+                    <NombreCliente nombre={r.empresa} clientes={clientes} onChange={v=>upd(r.id,"empresa",v)} can={can}/>
                   </td>
                   <td style={{padding:"7px 10px",fontSize:11,color:C.gris}}>{r.pais}</td>
                   <td style={{padding:"7px 10px",fontSize:11,color:C.gris}}><Cell val={r.proforma||""} onChange={v=>upd(r.id,"proforma",v)} can={can}/></td>
                   <td style={{padding:"7px 10px",textAlign:"center",fontWeight:600}}>{N(r.nPlantas)}</td>
                   <td style={{padding:"7px 10px",textAlign:"center",fontWeight:600,color:C.verde}}>
-                    <Cell val={r.regalia||""} onChange={v=>upd(r.id,"regalia",parseFloat(v)||0)} type="number" can={can&&!r._fromContract} ph="0.45"/>
+                    <Cell val={r.regalia||""} onChange={v=>upd(r.id,"regalia",parseFloat(v)||0)} type="number" can={can} ph="0.45"/>
                   </td>
                   <td style={{padding:"7px 10px",textAlign:"center",fontSize:11}}>
                     <span style={{background:pct(r.pais)===1?C.verdeBg:"#fee2e2",
@@ -2224,9 +2219,6 @@ function FeeViveros({data,setData,tpData,can,clientes=[]}) {
                     <BadgePago pagado={r.pagado} onChange={v=>upd(r.id,"pagado",v)} onFechaPago={f=>upd(r.id,"fechaPago",f)} can={can}/>
                   </td>
                   {can&&<td style={{padding:"4px 6px",textAlign:"center"}}>
-                    {r._fromContract?(
-                      <span title="Eliminar el contrato productor para borrar este registro" style={{color:"#94a3b8",fontSize:14}}>🔒</span>
-                    ):(
                     <button onClick={()=>{
                       if(!window.confirm(`¿Eliminar fee vivero de "${r.empresa}"?`))return;
                       window.auditLog&&window.auditLog("eliminar", {modulo:"osiris", seccion:"Fee Viveros",
@@ -2235,7 +2227,6 @@ function FeeViveros({data,setData,tpData,can,clientes=[]}) {
                       setData(prev=>prev.filter(x=>x.id!==r.id));
                     }}
                       style={{background:"#fee2e2",border:"none",borderRadius:6,padding:"3px 8px",cursor:"pointer",fontSize:12,color:"#991b1b",fontWeight:700}}>×</button>
-                    )}
                   </td>}
                 </tr>
               );
@@ -2865,382 +2856,6 @@ function ReconciliacionIQ({rpData, feData, rcData, tpData}) {
   );
 }
 
-// ══════════════════════════════════════════════════════════════
-// DASHBOARD ANALÍTICO — vista cruzada de plantaciones y cobros
-// Filtros: temporada, país, especie, variedad, cliente, estado cobranza
-// KPIs: ingresos por concepto (CF/RP/RC), por cobrar, cobrado, WHT
-// Gráficos: plantas por especie, há por país, comparativo temporadas
-// ══════════════════════════════════════════════════════════════
-function DashboardAnalitico({ctData,feData,rpData,rcData,tpData,especiesMaestro=[]}) {
-  const [filtroPais,setFiltroPais]=useState("Todos");
-  const [filtroEspecie,setFiltroEspecie]=useState("Todos");
-  const [filtroVariedad,setFiltroVariedad]=useState("Todos");
-  const [filtroCliente,setFiltroCliente]=useState("");
-  const [filtroTemp,setFiltroTemp]=useState("Todas");
-  const [filtroCobranza,setFiltroCobranza]=useState("Todos");
-
-  // ── Universos de filtros ──
-  const paises = useMemo(()=>["Todos",...Array.from(new Set((tpData||[]).map(p=>p.pais).filter(Boolean))).sort()],[tpData]);
-  const especies = useMemo(()=>["Todos",...Array.from(new Set((tpData||[]).map(p=>p.especie).filter(Boolean))).sort()],[tpData]);
-  const variedades = useMemo(()=>{
-    const filtrados = filtroEspecie==="Todos"
-      ? (tpData||[])
-      : (tpData||[]).filter(p=>p.especie===filtroEspecie);
-    return ["Todos",...Array.from(new Set(filtrados.map(p=>p.variedad).filter(Boolean))).sort()];
-  },[tpData,filtroEspecie]);
-  const temporadas = useMemo(()=>{
-    const tset = new Set();
-    (rcData||[]).forEach(r=>r.temporada&&tset.add(r.temporada));
-    return ["Todas",...Array.from(tset).sort()];
-  },[rcData]);
-
-  const matchPlantacion = (p) =>
-    (filtroPais==="Todos"||p.pais===filtroPais)&&
-    (filtroEspecie==="Todos"||p.especie===filtroEspecie)&&
-    (filtroVariedad==="Todos"||p.variedad===filtroVariedad)&&
-    (!filtroCliente||(p.cliente||"").toLowerCase().includes(filtroCliente.toLowerCase()));
-
-  const matchTemp = (r) => filtroTemp==="Todas"||r.temporada===filtroTemp;
-
-  // ── tpFilt: plantaciones filtradas ──
-  const tpFilt = useMemo(()=>(tpData||[]).filter(matchPlantacion),[tpData,filtroPais,filtroEspecie,filtroVariedad,filtroCliente]);
-
-  // ── feFilt / rpFilt / rcFilt: cobros filtrados ──
-  const matchCobranza = (r) => filtroCobranza==="Todos" || (filtroCobranza==="Pagado" ? !!r.pagado : !r.pagado);
-
-  const feFilt = useMemo(()=>(feData||[]).filter(r=>
-    (filtroPais==="Todos"||r.pais===filtroPais)&&
-    (!filtroCliente||(r.cliente||"").toLowerCase().includes(filtroCliente.toLowerCase()))&&
-    matchCobranza(r)
-  ),[feData,filtroPais,filtroCliente,filtroCobranza]);
-
-  const rpFilt = useMemo(()=>(rpData||[]).filter(r=>{
-    const ct = (ctData||[]).find(c=>c.id===r.ctId);
-    const tieneVariedadFiltrada = filtroEspecie==="Todos" && filtroVariedad==="Todos" ? true :
-      (ct?.plantaciones||[]).some(p=>
-        (filtroEspecie==="Todos"||p.especie===filtroEspecie)&&
-        (filtroVariedad==="Todos"||p.variedad===filtroVariedad)
-      );
-    return (filtroPais==="Todos"||r.pais===filtroPais)&&
-      (!filtroCliente||(r.cliente||"").toLowerCase().includes(filtroCliente.toLowerCase()))&&
-      matchCobranza(r)&&
-      tieneVariedadFiltrada;
-  }),[rpData,ctData,filtroPais,filtroEspecie,filtroVariedad,filtroCliente,filtroCobranza]);
-
-  const rcFilt = useMemo(()=>(rcData||[]).filter(r=>{
-    const ct = (ctData||[]).find(c=>c.id===r.ctId);
-    const tieneVariedadFiltrada = filtroEspecie==="Todos" && filtroVariedad==="Todos" ? true :
-      (ct?.plantaciones||[]).some(p=>
-        (filtroEspecie==="Todos"||p.especie===filtroEspecie)&&
-        (filtroVariedad==="Todos"||p.variedad===filtroVariedad)
-      );
-    return (filtroPais==="Todos"||r.pais===filtroPais)&&
-      (!filtroCliente||(r.cliente||"").toLowerCase().includes(filtroCliente.toLowerCase()))&&
-      matchTemp(r)&&matchCobranza(r)&&tieneVariedadFiltrada;
-  }),[rcData,ctData,filtroPais,filtroEspecie,filtroVariedad,filtroCliente,filtroTemp,filtroCobranza]);
-
-  // ── KPIs ──
-  const sumNum = (arr,getter) => arr.reduce((s,r)=>s+(parseFloat(getter(r))||0),0);
-
-  const totPlantas = sumNum(tpFilt, p=>p.nPlantas);
-  const totHa = sumNum(tpFilt, p=>p.hectareas);
-  const cantContratos = new Set(tpFilt.map(p=>p.ctId)).size;
-
-  const cfFact = sumNum(feFilt, r=>r.montoUSD);
-  const cfNeto = sumNum(feFilt, r=>parseFloat(r.montoUSD)||0); // Contract Fee NO lleva WHT
-  const cfPagado = sumNum(feFilt.filter(r=>r.pagado), r=>parseFloat(r.montoUSD)||0); // Sin WHT
-
-  const rpFact = sumNum(rpFilt, r=>r.montoFact);
-  const rpNeto = sumNum(rpFilt, r=>r.montoCobro);
-  const rpPagado = sumNum(rpFilt.filter(r=>r.pagado), r=>r.montoCobro);
-
-  const rcFact = sumNum(rcFilt, r=>r.montoFact);
-  const rcNeto = sumNum(rcFilt, r=>r.montoCobro);
-  const rcPagado = sumNum(rcFilt.filter(r=>r.pagado), r=>r.montoCobro);
-
-  const totFact = cfFact + rpFact + rcFact;
-  const totNeto = cfNeto + rpNeto + rcNeto;
-  const totPagado = cfPagado + rpPagado + rcPagado;
-  const totWHT = totFact - totNeto;
-  const porCobrar = totNeto - totPagado;
-
-  // ── Datos para gráficos ──
-  // Plantas por especie
-  const plantasPorEspecie = useMemo(()=>{
-    const map = {};
-    tpFilt.forEach(p=>{
-      const k = p.especie||"(sin)";
-      map[k] = (map[k]||0)+(parseFloat(p.nPlantas)||0);
-    });
-    return Object.entries(map).map(([especie,plantas])=>({especie,plantas})).sort((a,b)=>b.plantas-a.plantas);
-  },[tpFilt]);
-
-  // Há por país
-  const haPorPais = useMemo(()=>{
-    const map = {};
-    tpFilt.forEach(p=>{
-      const k = p.pais||"(sin)";
-      map[k] = (map[k]||0)+(parseFloat(p.hectareas)||0);
-    });
-    return Object.entries(map).map(([pais,ha])=>({pais,ha:parseFloat(ha.toFixed(2))})).sort((a,b)=>b.ha-a.ha);
-  },[tpFilt]);
-
-  // Comparativo por temporada (RC)
-  const ingresosPorTemporada = useMemo(()=>{
-    const map = {};
-    rcFilt.forEach(r=>{
-      const k = r.temporada;
-      if(!map[k]) map[k]={fact:0, cobrado:0, porCobrar:0};
-      map[k].fact     += parseFloat(r.montoFact)||0;
-      if(r.pagado) map[k].cobrado += parseFloat(r.montoCobro)||0;
-      else         map[k].porCobrar += parseFloat(r.montoCobro)||0;
-    });
-    return Object.entries(map).map(([temp,v])=>({temporada:temp,...v})).sort((a,b)=>a.temporada.localeCompare(b.temporada));
-  },[rcFilt]);
-
-  const KpiCard = ({label,val,sub,col}) => (
-    <div style={{flex:1,minWidth:160,background:"#fff",borderRadius:10,padding:"12px 14px",borderLeft:`4px solid ${col}`,boxShadow:"0 1px 4px #0001"}}>
-      <div style={{fontSize:10,color:"#64748b",fontWeight:700,textTransform:"uppercase",letterSpacing:0.5}}>{label}</div>
-      <div style={{fontSize:18,fontWeight:900,color:col,marginTop:3}}>{val}</div>
-      {sub&&<div style={{fontSize:10,color:"#94a3b8",marginTop:3}}>{sub}</div>}
-    </div>
-  );
-
-  const fmt = (v) => `$${(parseFloat(v)||0).toLocaleString("en-US",{minimumFractionDigits:0,maximumFractionDigits:0})}`;
-
-  // Bar chart simple en SVG
-  const BarChart = ({data, getLabel, getValue, color="#7c3aed", getColor=null, fmtVal=v=>v.toLocaleString()}) => {
-    if(data.length===0) return <div style={{padding:20,textAlign:"center",color:"#94a3b8",fontSize:12}}>Sin datos</div>;
-    const maxV = Math.max(...data.map(getValue),1);
-    return (
-      <div>
-        {data.slice(0,12).map((d,i)=>{
-          const v = getValue(d);
-          const pct = (v/maxV)*100;
-          const barColor = getColor?getColor(d)||color:color;
-          return (
-            <div key={i} style={{display:"flex",alignItems:"center",gap:10,marginBottom:6}}>
-              <div style={{width:120,fontSize:11,color:"#475569",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",display:"flex",alignItems:"center",gap:6}}>
-                {getColor&&<div style={{width:10,height:10,borderRadius:3,background:barColor,flexShrink:0,boxShadow:"0 1px 2px #0002"}}/>}
-                <span style={{overflow:"hidden",textOverflow:"ellipsis"}}>{getLabel(d)}</span>
-              </div>
-              <div style={{flex:1,background:"#f1f5f9",height:24,borderRadius:6,overflow:"hidden",position:"relative"}}>
-                <div style={{width:`${pct}%`,height:"100%",background:barColor,borderRadius:6,transition:"width 0.3s"}}/>
-                <div style={{position:"absolute",right:6,top:0,bottom:0,display:"flex",alignItems:"center",fontSize:10,fontWeight:700,color:"#fff",textShadow:"0 1px 2px #0006"}}>{fmtVal(v)}</div>
-              </div>
-            </div>
-          );
-        })}
-      </div>
-    );
-  };
-
-  return (
-    <div style={{display:"flex",flexDirection:"column",gap:16}}>
-      {/* Filtros */}
-      <div style={{background:"linear-gradient(135deg,#f0f9ff,#dbeafe)",border:"1px solid #93c5fd",borderRadius:12,padding:16}}>
-        <div style={{fontSize:12,fontWeight:700,color:"#1e3a8a",marginBottom:10}}>🔎 Filtros</div>
-        <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(180px,1fr))",gap:10}}>
-          <div>
-            <div style={{fontSize:10,color:"#64748b",fontWeight:600,marginBottom:3}}>País</div>
-            <select value={filtroPais} onChange={e=>setFiltroPais(e.target.value)} style={{width:"100%",padding:"6px 10px",borderRadius:6,border:"1px solid #93c5fd",fontSize:12,background:"#fff"}}>
-              {paises.map(p=><option key={p}>{p}</option>)}
-            </select>
-          </div>
-          <div>
-            <div style={{fontSize:10,color:"#64748b",fontWeight:600,marginBottom:3}}>Especie</div>
-            <select value={filtroEspecie} onChange={e=>{setFiltroEspecie(e.target.value);setFiltroVariedad("Todos");}} style={{width:"100%",padding:"6px 10px",borderRadius:6,border:"1px solid #93c5fd",fontSize:12,background:"#fff"}}>
-              {especies.map(p=><option key={p}>{p}</option>)}
-            </select>
-          </div>
-          <div>
-            <div style={{fontSize:10,color:"#64748b",fontWeight:600,marginBottom:3}}>Variedad</div>
-            <select value={filtroVariedad} onChange={e=>setFiltroVariedad(e.target.value)} style={{width:"100%",padding:"6px 10px",borderRadius:6,border:"1px solid #93c5fd",fontSize:12,background:"#fff"}}>
-              {variedades.map(p=><option key={p}>{p}</option>)}
-            </select>
-          </div>
-          <div>
-            <div style={{fontSize:10,color:"#64748b",fontWeight:600,marginBottom:3}}>Cliente</div>
-            <input value={filtroCliente} onChange={e=>setFiltroCliente(e.target.value)} placeholder="Buscar..."
-              style={{width:"100%",padding:"6px 10px",borderRadius:6,border:"1px solid #93c5fd",fontSize:12,boxSizing:"border-box"}}/>
-          </div>
-          <div>
-            <div style={{fontSize:10,color:"#64748b",fontWeight:600,marginBottom:3}}>Temporada (RC)</div>
-            <select value={filtroTemp} onChange={e=>setFiltroTemp(e.target.value)} style={{width:"100%",padding:"6px 10px",borderRadius:6,border:"1px solid #93c5fd",fontSize:12,background:"#fff"}}>
-              {temporadas.map(p=><option key={p}>{p}</option>)}
-            </select>
-          </div>
-          <div>
-            <div style={{fontSize:10,color:"#64748b",fontWeight:600,marginBottom:3}}>Estado cobranza</div>
-            <select value={filtroCobranza} onChange={e=>setFiltroCobranza(e.target.value)} style={{width:"100%",padding:"6px 10px",borderRadius:6,border:"1px solid #93c5fd",fontSize:12,background:"#fff"}}>
-              <option>Todos</option><option>Pagado</option><option>Por cobrar</option>
-            </select>
-          </div>
-          <div style={{display:"flex",alignItems:"flex-end"}}>
-            <button onClick={()=>{setFiltroPais("Todos");setFiltroEspecie("Todos");setFiltroVariedad("Todos");setFiltroCliente("");setFiltroTemp("Todas");setFiltroCobranza("Todos");}}
-              style={{padding:"6px 12px",borderRadius:6,background:"#1e293b",color:"#fff",border:"none",cursor:"pointer",fontSize:11,fontWeight:600}}>↺ Reset</button>
-          </div>
-        </div>
-      </div>
-
-      {/* KPIs operativos */}
-      <div style={{display:"flex",gap:12,flexWrap:"wrap"}}>
-        <KpiCard label="Plantaciones" val={tpFilt.length} sub={`${cantContratos} contrato${cantContratos!==1?"s":""}`} col="#15803d"/>
-        <KpiCard label="Plantas" val={totPlantas.toLocaleString()} sub={`${totHa.toFixed(2)} há totales`} col="#16a34a"/>
-        <KpiCard label="Ingresos facturables" val={fmt(totFact)} sub="100% USD bruto" col="#0f766e"/>
-        <KpiCard label="Neto cobrable" val={fmt(totNeto)} sub={`WHT ${fmt(totWHT)}`} col="#0d9488"/>
-        <KpiCard label="Cobrado" val={fmt(totPagado)} sub={`${totNeto>0?Math.round(totPagado/totNeto*100):0}% del neto`} col="#22c55e"/>
-        <KpiCard label="Por cobrar" val={fmt(porCobrar)} sub="Saldo pendiente" col="#f59e0b"/>
-      </div>
-
-      {/* KPIs por concepto */}
-      <div style={{background:"#fff",borderRadius:12,padding:16,boxShadow:"0 1px 6px #0001"}}>
-        <div style={{fontSize:13,fontWeight:700,color:"#1e293b",marginBottom:12}}>💰 Ingresos por concepto</div>
-        <div style={{overflowX:"auto"}}>
-          <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
-            <thead><tr style={{background:"#f8fafc",borderBottom:"2px solid #e2e8f0"}}>
-              {["Concepto","Registros","Facturable","WHT","Neto","Cobrado","Por cobrar","%"].map(h=>(
-                <th key={h} style={{padding:"8px 10px",textAlign:h==="Concepto"?"left":"right",fontSize:11,fontWeight:700,color:"#475569"}}>{h}</th>
-              ))}
-            </tr></thead>
-            <tbody>
-              {[
-                {k:"💵 Contract Fee",  fact:cfFact, neto:cfNeto, pagado:cfPagado, n:feFilt.length, col:"#92400e"},
-                {k:"🌱 Royalty Planta", fact:rpFact, neto:rpNeto, pagado:rpPagado, n:rpFilt.length, col:"#15803d"},
-                {k:"📈 Royalty Comercial", fact:rcFact, neto:rcNeto, pagado:rcPagado, n:rcFilt.length, col:"#9d174d"},
-              ].map(row=>{
-                const wht = row.fact - row.neto;
-                const pc = row.neto - row.pagado;
-                const pctPag = row.neto>0?Math.round(row.pagado/row.neto*100):0;
-                return (
-                  <tr key={row.k} style={{borderBottom:"1px solid #f1f5f9"}}>
-                    <td style={{padding:"8px 10px",fontWeight:700,color:row.col}}>{row.k}</td>
-                    <td style={{padding:"8px 10px",textAlign:"right"}}>{row.n}</td>
-                    <td style={{padding:"8px 10px",textAlign:"right",fontWeight:600}}>{fmt(row.fact)}</td>
-                    <td style={{padding:"8px 10px",textAlign:"right",color:wht>0?"#dc2626":"#94a3b8"}}>{wht>0?`-${fmt(wht)}`:"—"}</td>
-                    <td style={{padding:"8px 10px",textAlign:"right",fontWeight:700,color:"#0f766e"}}>{fmt(row.neto)}</td>
-                    <td style={{padding:"8px 10px",textAlign:"right",fontWeight:700,color:"#22c55e"}}>{fmt(row.pagado)}</td>
-                    <td style={{padding:"8px 10px",textAlign:"right",fontWeight:700,color:"#f59e0b"}}>{fmt(pc)}</td>
-                    <td style={{padding:"8px 10px",textAlign:"right"}}>
-                      <span style={{padding:"2px 8px",borderRadius:10,fontSize:10,fontWeight:700,
-                        background:pctPag>=80?"#dcfce7":pctPag>=50?"#fef3c7":"#fee2e2",
-                        color:pctPag>=80?"#15803d":pctPag>=50?"#92400e":"#991b1b"}}>{pctPag}%</span>
-                    </td>
-                  </tr>
-                );
-              })}
-              <tr style={{background:"#f0fdfa",fontWeight:900,borderTop:"2px solid #14b8a6"}}>
-                <td style={{padding:"10px"}}>TOTAL</td>
-                <td style={{padding:"10px",textAlign:"right"}}>{feFilt.length+rpFilt.length+rcFilt.length}</td>
-                <td style={{padding:"10px",textAlign:"right",color:"#0f766e"}}>{fmt(totFact)}</td>
-                <td style={{padding:"10px",textAlign:"right",color:"#dc2626"}}>{totWHT>0?`-${fmt(totWHT)}`:"—"}</td>
-                <td style={{padding:"10px",textAlign:"right",color:"#0f766e"}}>{fmt(totNeto)}</td>
-                <td style={{padding:"10px",textAlign:"right",color:"#22c55e"}}>{fmt(totPagado)}</td>
-                <td style={{padding:"10px",textAlign:"right",color:"#f59e0b"}}>{fmt(porCobrar)}</td>
-                <td style={{padding:"10px",textAlign:"right"}}>{totNeto>0?Math.round(totPagado/totNeto*100):0}%</td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-      {/* Gráficos */}
-      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(360px,1fr))",gap:14}}>
-        <div style={{background:"#fff",borderRadius:12,padding:16,boxShadow:"0 1px 6px #0001"}}>
-          <div style={{fontSize:13,fontWeight:700,color:"#1e293b",marginBottom:12}}>🌿 Plantas por especie</div>
-          <BarChart data={plantasPorEspecie} getLabel={d=>d.especie} getValue={d=>d.plantas} color="#16a34a"
-            getColor={d=>{
-              const esp = (especiesMaestro||[]).find(e=>e.nombre.toLowerCase().trim()===(d.especie||"").toLowerCase().trim());
-              return esp?.color || "#16a34a";
-            }}
-            fmtVal={v=>v.toLocaleString()}/>
-        </div>
-        <div style={{background:"#fff",borderRadius:12,padding:16,boxShadow:"0 1px 6px #0001"}}>
-          <div style={{fontSize:13,fontWeight:700,color:"#1e293b",marginBottom:12}}>🌍 Hectáreas por país</div>
-          <BarChart data={haPorPais} getLabel={d=>d.pais} getValue={d=>d.ha} color="#0284c7" fmtVal={v=>`${v.toFixed(2)} há`}/>
-        </div>
-        <div style={{background:"#fff",borderRadius:12,padding:16,boxShadow:"0 1px 6px #0001",gridColumn:"1 / -1"}}>
-          <div style={{fontSize:13,fontWeight:700,color:"#1e293b",marginBottom:12}}>📈 Royalty Comercial — Comparativo por temporada</div>
-          {ingresosPorTemporada.length===0?(
-            <div style={{padding:20,textAlign:"center",color:"#94a3b8",fontSize:12}}>Sin datos. Asegúrate que los contratos tengan plantaciones y temporada inicio definida.</div>
-          ):(
-            <div style={{overflowX:"auto"}}>
-              <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
-                <thead><tr style={{background:"#fce7f3"}}>
-                  {["Temporada","Facturable","Cobrado","Por cobrar","%"].map(h=>(
-                    <th key={h} style={{padding:"7px 10px",textAlign:h==="Temporada"?"left":"right",fontSize:11,fontWeight:700,color:"#9d174d"}}>{h}</th>
-                  ))}
-                </tr></thead>
-                <tbody>
-                  {ingresosPorTemporada.map(r=>{
-                    const totT = r.cobrado + r.porCobrar;
-                    const pctC = totT>0?Math.round(r.cobrado/totT*100):0;
-                    return (
-                      <tr key={r.temporada} style={{borderBottom:"1px solid #fce7f3"}}>
-                        <td style={{padding:"6px 10px",fontWeight:700,color:"#9d174d"}}>{r.temporada}</td>
-                        <td style={{padding:"6px 10px",textAlign:"right",fontWeight:600}}>{fmt(r.fact)}</td>
-                        <td style={{padding:"6px 10px",textAlign:"right",color:"#22c55e",fontWeight:700}}>{fmt(r.cobrado)}</td>
-                        <td style={{padding:"6px 10px",textAlign:"right",color:"#f59e0b",fontWeight:700}}>{fmt(r.porCobrar)}</td>
-                        <td style={{padding:"6px 10px",textAlign:"right"}}>
-                          <span style={{padding:"2px 8px",borderRadius:10,fontSize:10,fontWeight:700,
-                            background:pctC>=80?"#dcfce7":pctC>=50?"#fef3c7":"#fee2e2",
-                            color:pctC>=80?"#15803d":pctC>=50?"#92400e":"#991b1b"}}>{pctC}%</span>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </div>
-      </div>
-
-      {/* Detalle plantaciones filtradas */}
-      <div style={{background:"#fff",borderRadius:12,padding:16,boxShadow:"0 1px 6px #0001"}}>
-        <div style={{fontSize:13,fontWeight:700,color:"#1e293b",marginBottom:12}}>📋 Plantaciones filtradas ({tpFilt.length})</div>
-        {tpFilt.length===0?(
-          <div style={{padding:20,textAlign:"center",color:"#94a3b8",fontSize:12}}>Sin plantaciones que coincidan con los filtros.</div>
-        ):(
-          <div style={{overflowX:"auto",maxHeight:340}}>
-            <table style={{width:"100%",borderCollapse:"collapse",fontSize:11}}>
-              <thead style={{position:"sticky",top:0,zIndex:1}}><tr style={{background:"#f8fafc"}}>
-                {["Cliente","País","Especie","Variedad","Plantas","Há","Sublicenciatario","Estado"].map(h=>(
-                  <th key={h} style={{padding:"6px 8px",textAlign:h==="Plantas"||h==="Há"?"right":"left",fontSize:10,fontWeight:700,color:"#475569",borderBottom:"2px solid #e2e8f0"}}>{h}</th>
-                ))}
-              </tr></thead>
-              <tbody>
-                {tpFilt.map((p,i)=>{
-                  const esp = (especiesMaestro||[]).find(e=>e.nombre.toLowerCase().trim()===(p.especie||"").toLowerCase().trim());
-                  return (
-                  <tr key={p.id} style={{borderBottom:"1px solid #f1f5f9",background:i%2?"#f8fafc":"#fff"}}>
-                    <td style={{padding:"5px 8px",fontWeight:600}}>{p.cliente||"—"}</td>
-                    <td style={{padding:"5px 8px"}}>{p.pais||"—"}</td>
-                    <td style={{padding:"5px 8px"}}>
-                      {esp&&<span style={{display:"inline-block",width:10,height:10,borderRadius:3,background:esp.color,marginRight:6,verticalAlign:"middle"}}/>}
-                      {p.especie||"—"}
-                    </td>
-                    <td style={{padding:"5px 8px",fontWeight:600,color:"#15803d"}}>{p.variedad||"—"}</td>
-                    <td style={{padding:"5px 8px",textAlign:"right"}}>{(parseFloat(p.nPlantas)||0).toLocaleString()}</td>
-                    <td style={{padding:"5px 8px",textAlign:"right"}}>{(parseFloat(p.hectareas)||0).toFixed(2)}</td>
-                    <td style={{padding:"5px 8px",fontStyle:p.sublicenciatario?"normal":"italic",color:p.sublicenciatario?"#0284c7":"#94a3b8"}}>{p.sublicenciatario||"—"}</td>
-                    <td style={{padding:"5px 8px"}}>
-                      <span style={{padding:"2px 8px",borderRadius:10,fontSize:9,fontWeight:700,
-                        background:p.estado==="Productivo"?"#dcfce7":p.estado==="Plantado"?"#fef3c7":p.estado==="Anulado"?"#fee2e2":"#e0e7ff",
-                        color:p.estado==="Productivo"?"#15803d":p.estado==="Plantado"?"#92400e":p.estado==="Anulado"?"#991b1b":"#3730a3"}}>{p.estado||"Confirmado"}</span>
-                    </td>
-                  </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
 function Resumen({rpData,feData,rcData,fvData,tpData}) {
   const hoy=new Date();hoy.setHours(0,0,0,0);
   const [expandedMes,setExpandedMes]=useState(null);
@@ -3582,157 +3197,18 @@ const CLIENTES_INIT=[
 ];
 // Maestro de Viveristas — empieza vacío, se agregan según necesidad
 const VIVERISTAS_INIT = [];
-// Maestro de Variedades — empieza vacío, se puede pre-poblar desde contratos obtentores
-const VARIEDADES_INIT = [];
-// Maestro de Especies — se pre-puebla automáticamente al cargar (ver migración en componente principal)
-const ESPECIES_INIT = [];
-// Paleta de colores sugeridos para especies
-const COLORES_ESPECIES = [
-  {nombre:"Rojo cereza",   hex:"#dc2626"},
-  {nombre:"Azul arándano", hex:"#1e40af"},
-  {nombre:"Morado uva",    hex:"#7c3aed"},
-  {nombre:"Verde kiwi",    hex:"#16a34a"},
-  {nombre:"Naranja",       hex:"#ea580c"},
-  {nombre:"Amarillo",      hex:"#ca8a04"},
-  {nombre:"Rosa",          hex:"#db2777"},
-  {nombre:"Turquesa",      hex:"#0d9488"},
-  {nombre:"Marrón",        hex:"#78350f"},
-  {nombre:"Gris",          hex:"#475569"},
-];
 const MESES = ["Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"];
 const FORMAS_PAGO = ["Anual","Semestral","Trimestral","Mensual","A demanda","Contra entrega","Otro"];
-const ESTADOS_DHE = ["No iniciado","Solicitado","En proceso","Aprobado","Rechazado","Vencido","No aplica"];
-const ESTADOS_PBR = ["Pendiente","Solicitado","En Revisión","Otorgado","Vigente","Vencido","Denegado","Retirado"];
-const TIPOS_ROYALTY_OBTENTOR = ["Por planta","Por hectárea","Por kilo","% sobre ventas","Mínimo garantizado","Otro"];
+const ESTADOS_DHE = ["No iniciado","En proceso","Aprobado","Rechazado","No aplica"];
 const ESTADOS_CONTRATO_OBT = ["Borrador","En revisión","Firmado","Vigente","Vencido","Terminado"];
-const ESTADOS_OC = ["Borrador","Enviada","Negociando","Confirmada","En producción","Lista","Despachada","Recibida","Pagada parcial","Pagada total","Anulada"];
-
-// ── Royalty Comercial: mes de cobro por defecto según país ──
-const RC_MES_DEFAULT_POR_PAIS = {
-  "Peru":   "Mayo",
-  "Chile":  "Abril",
-  "Mexico": "Julio",
-  "México": "Julio",
-};
-// ── Temporada: julio del año T → junio del año T+1 ──
-function temporadaActual() {
-  const hoy = new Date();
-  const año = hoy.getMonth() >= 6 ? hoy.getFullYear() : hoy.getFullYear() - 1;
-  return `${año}/${año+1}`;
-}
-function temporadasEntre(inicioTemp, finFecha) {
-  // inicioTemp formato "YYYY/YYYY+1", finFecha en formato fecha o vacío
-  if(!inicioTemp) return [];
-  const [a1] = String(inicioTemp).split("/").map(s=>parseInt(s));
-  if(isNaN(a1)) return [];
-  let fin;
-  if(finFecha){
-    const f = new Date(finFecha);
-    fin = isNaN(f.getTime()) ? a1+10 : (f.getMonth()>=6 ? f.getFullYear() : f.getFullYear()-1);
-  } else {
-    fin = a1+10; // si no hay fin, asumimos 10 temporadas
-  }
-  const out = [];
-  for(let y=a1; y<=fin; y++) out.push(`${y}/${y+1}`);
-  return out;
-}
-// ── Cuotas default Royalty por Planta ──
-const RP_CUOTAS_DEFAULT = [
-  {id:"cuo_firma",      descripcion:"Al firmar contrato",      pct:50, fechaEvento:""},
-  {id:"cuo_plantacion", descripcion:"A la plantación",         pct:50, fechaEvento:""},
-];
+const ESTADOS_OC = ["Borrador","Confirmada","En producción","Entregada","Pagada parcial","Pagada total","Anulada"];
 const MONEDAS=["USD","EUR","CLP","PEN"];
-
-// ═══════════════════════════════════════════════════════════════════
-// MODELO DE DATOS — Bloques nuevos (Operación Técnica + Seguimiento)
-// ═══════════════════════════════════════════════════════════════════
-
-// Bloque 1: Operación Técnica
-const TIPOS_VISITA = ["Técnica","Comercial","Test Block","Recepción","Día de campo","Vivero"];
-
-// Estados fenológicos y campos que aplican por estado
-const ESTADOS_FENOLOGICOS = [
-  "Dormancia","Brotación","Crecimiento vegetativo","Floración",
-  "Cuaja","Desarrollo de fruto","Envero/Pinta","Cosecha","Post-cosecha"
-];
-// Matriz: qué campos de conteo son visibles por estado fenológico
-const CAMPOS_POR_FENOLOGIA = {
-  "Dormancia":              {brotes:false, flores:false, frutos:false},
-  "Brotación":              {brotes:true,  flores:false, frutos:false},
-  "Crecimiento vegetativo": {brotes:true,  flores:false, frutos:false},
-  "Floración":              {brotes:true,  flores:true,  frutos:false},
-  "Cuaja":                  {brotes:false, flores:true,  frutos:true},
-  "Desarrollo de fruto":    {brotes:false, flores:false, frutos:true},
-  "Envero/Pinta":           {brotes:false, flores:false, frutos:true},
-  "Cosecha":                {brotes:false, flores:false, frutos:true},
-  "Post-cosecha":           {brotes:false, flores:false, frutos:false},
-};
-
-// ── Supabase Storage: fotos de informes ──
-// Reutiliza las credenciales de App.jsx (misma instancia Supabase)
-const SUPA_URL_OSIRIS = "https://bywovqayuzodbzwsriet.supabase.co";
-const SUPA_KEY_OSIRIS = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJ5d292cWF5dXpvZGJ6d3NyaWV0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU2ODU1MDgsImV4cCI6MjA5MTI2MTUwOH0.s2x2O_CxE6rl8dBqFuyfQdMyRqSyjJQWXJXesmVGXtk";
-const STORAGE_BUCKET = "osiris-fotos";
-
-// Intenta crear el bucket si no existe (silencioso si ya existe)
-let _bucketChecked = false;
-async function ensureBucket() {
-  if(_bucketChecked) return;
-  try {
-    await fetch(`${SUPA_URL_OSIRIS}/storage/v1/bucket`, {
-      method:"POST",
-      headers:{apikey:SUPA_KEY_OSIRIS, Authorization:`Bearer ${SUPA_KEY_OSIRIS}`, "Content-Type":"application/json"},
-      body:JSON.stringify({id:STORAGE_BUCKET, name:STORAGE_BUCKET, public:true})
-    });
-  } catch(e) { /* bucket ya existe o sin permisos — no importa */ }
-  _bucketChecked = true;
-}
-
-// Subir archivo a Supabase Storage, devuelve URL pública
-async function uploadFoto(file, informeId) {
-  await ensureBucket();
-  const ext = file.name.split('.').pop() || 'jpg';
-  const path = `informes/${informeId}/${Date.now()}_${Math.random().toString(36).slice(2,6)}.${ext}`;
-  const res = await fetch(`${SUPA_URL_OSIRIS}/storage/v1/object/${STORAGE_BUCKET}/${path}`, {
-    method:"POST",
-    headers:{
-      apikey:SUPA_KEY_OSIRIS,
-      Authorization:`Bearer ${SUPA_KEY_OSIRIS}`,
-      "Content-Type": file.type || "image/jpeg",
-      "x-upsert": "true",
-    },
-    body:file,
-  });
-  if(!res.ok) {
-    const err = await res.text();
-    console.error("Upload error:", err);
-    throw new Error("Error subiendo foto: " + (res.status));
-  }
-  // URL pública
-  return `${SUPA_URL_OSIRIS}/storage/v1/object/public/${STORAGE_BUCKET}/${path}`;
-}
-const ESTADOS_VISITA = ["Programada","Realizada","Cancelada","Reprogramada"];
-const ESTADOS_MEDIDA = ["Abierta","En proceso","Cerrada","Descartada"];
-const ESTADOS_TEST_BLOCK = ["Planificado","En curso","Finalizado","Cancelado"];
-const TIPOS_INFORME = ["Visita Técnica","Visita Comercial","Recepción","Medida Correctiva","Final de Temporada","Otro"];
-const ENTREGABLES_SUBLICENCIADO = ["Brochure","Presentaciones","Manual técnico","Informes","Días de campo","Otros"];
-
-// Bloque 2: Estado de pedido enriquecido (Productores)
-const ESTADOS_PEDIDO = ["Cotizado","OC enviada","Negociando","Confirmado","En producción","Despachado parcial","Despachado","Recibido","Anulado"];
-const ESTADOS_DESPACHO = ["Programado","En tránsito","Entregado","Con observaciones"];
-
-// Bloque 3: Estado OC Vivero enriquecido
-const ESTADOS_OC_VIVERO = ["Borrador","Enviada","Negociando","Confirmada","En producción","Lista","Despachada","Recibida","Anulada"];
-
 const SECCIONES_CT=[
-  {id:"empresa",         label:"🏢 Empresa",            color:"#2563eb"},
-  {id:"contrato",        label:"📄 Contrato",            color:"#7c3aed"},
-  {id:"rep",             label:"👤 Representante",       color:"#0f766e"},
-  {id:"ubicacion",       label:"🌱 Ubicación plantas",   color:"#16a34a"},
-  {id:"plantaciones",    label:"🌿 Plantaciones",        color:"#15803d"},
-  {id:"sublicenciatarios",label:"🤝 Sublicenciatarios",   color:"#0284c7"},
-  {id:"factura",         label:"💰 Facturación",         color:"#d97706"},
-  {id:"cobros",          label:"💵 Cobros derivados",    color:"#be185d"},
+  {id:"empresa",   label:"🏢 Empresa",         color:"#2563eb"},
+  {id:"contrato",  label:"📄 Contrato",         color:"#7c3aed"},
+  {id:"rep",       label:"👤 Representante",    color:"#0f766e"},
+  {id:"ubicacion", label:"🌱 Ubicación plantas",color:"#16a34a"},
+  {id:"factura",   label:"💰 Facturación",      color:"#d97706"},
 ];
 
 const CONTRATOS_INIT=[
@@ -4021,1322 +3497,7 @@ function MaestroViveristas({viveristas,setViveristas,can}){
   );
 }
 
-// ═══════════════════════════════════════════════════════════════════
-// OPERACIÓN TÉCNICA — Hub transversal (visitas, informes, test blocks,
-// equipo técnico, medidas correctivas, entregables)
-// ═══════════════════════════════════════════════════════════════════
-function OperacionTecnica({data, setData, ctData=[], viverosData=[], obtentoresData=[], can, usuarioActual={}, especiesMaestro=[], variedadesMaestro=[], setEspeciesMaestro, setVariedadesMaestro}) {
-  const [subTab, setSubTab] = useState("visitas");
-  const [modal, setModal] = useState(null);
-  const [busq, setBusq] = useState("");
-  const [filtroTipo, setFiltroTipo] = useState("Todos");
-  const [filtroEstado, setFiltroEstado] = useState("Todos");
-
-  // Data slices (defensivo)
-  const visitas       = Array.isArray(data?.visitas)       ? data.visitas       : [];
-  const informes      = Array.isArray(data?.informes)      ? data.informes      : [];
-  const equipoTecnico = Array.isArray(data?.equipoTecnico) ? data.equipoTecnico : [];
-  const entregables   = Array.isArray(data?.entregables)   ? data.entregables   : [];
-
-  const upd = (key, val) => setData(prev => ({...(prev||{}), [key]: val}));
-
-  // Permisos
-  const esGteTecnico = usuarioActual?.rol === "gerente_tecnico" || usuarioActual?.rol === "admin";
-  const nombreUsuario = usuarioActual?.nombre || "Usuario";
-
-  // Detalle informe
-  const [informeDetalle, setInformeDetalle] = useState(null);
-  const [envioModal, setEnvioModal] = useState(false);
-  const [emailsEnvio, setEmailsEnvio] = useState("");
-
-  // CRUD helpers
-  function addItem(key, item) {
-    const id = `${key.slice(0,3)}_${Date.now()}`;
-    upd(key, [...(data?.[key]||[]), {...item, id}]);
-    window.auditLog&&window.auditLog("crear",{modulo:"osiris",seccion:`Op. Técnica · ${key}`,descripcion:`Creó ${key}: ${item.titulo||item.nombre||item.tipo||""}`});
-    return id;
-  }
-  function updItem(key, id, changes) {
-    upd(key, (data?.[key]||[]).map(x=>x.id===id?{...x,...changes}:x));
-  }
-  function delItem(key, id, label) {
-    if(!window.confirm(`¿Eliminar "${label}"?`)) return;
-    upd(key, (data?.[key]||[]).filter(x=>x.id!==id));
-    window.auditLog&&window.auditLog("eliminar",{modulo:"osiris",seccion:`Op. Técnica · ${key}`,descripcion:`Eliminó: ${label}`,registroId:id});
-  }
-
-  // Forms vacíos
-  const VACIO_VISITA = {tipo:"Técnica",fecha:"",cliente:"",ctId:"",viveroId:"",lugar:"",cuartel:"",objetivo:"",resultado:"",estado:"Programada",responsable:"",fotos:"",observaciones:"",
-    // Campos extra para Test Block
-    testBlockNombre:"",testBlockEspecie:"",testBlockVariedad:"",testBlockUbicacion:"",testBlockResultados:"",
-    // Evaluaciones por variedad (estado fenológico, conteos)
-    evaluaciones:[]};
-  const VACIO_TECNICO = {nombre:"",rol:"Asesor por especie",especie:"",email:"",telefono:"",modalidad:"Part time",observaciones:""};
-  const VACIO_ENTREGABLE = {ctId:"",sublicenciatario:"",items:ENTREGABLES_SUBLICENCIADO.map(e=>({nombre:e,entregado:false,fecha:"",observaciones:""}))};
-  const ESTADOS_INFORME = ["Borrador","En revisión","Aprobado","Rechazado","Enviado"];
-  const [form, setForm] = useState({});
-
-  // Helpers
-  const clientesOpts = useMemo(()=>(ctData||[]).map(c=>({id:c.id,label:`${c.razonSocial} · ${c.pais}`})),[ctData]);
-  const nombreCliente = (ctId) => { const ct = (ctData||[]).find(c=>c.id===ctId); return ct ? `${ct.razonSocial} · ${ct.pais}` : "—"; };
-
-  // KPIs
-  const kpis = useMemo(()=>{
-    const hoy = new Date().toISOString().slice(0,10);
-    const visitasSinInforme = visitas.filter(v=>v.estado==="Realizada"&&!informes.some(i=>i.visitaId===v.id));
-    return {
-      visitasProg: visitas.filter(v=>v.estado==="Programada"&&v.fecha>=hoy).length,
-      visitasRealizadas: visitas.filter(v=>v.estado==="Realizada").length,
-      informesPend: visitasSinInforme.length,
-      informesBorrador: informes.filter(i=>i.estado==="Borrador"||i.estado==="Rechazado").length,
-      informesRevision: informes.filter(i=>i.estado==="En revisión").length,
-      tecnicos: equipoTecnico.length,
-      entregablesPend: entregables.reduce((s,e)=>s+(e.items||[]).filter(i=>!i.entregado).length,0),
-    };
-  },[visitas,informes,equipoTecnico,entregables]);
-
-  const TABS = [
-    {id:"visitas",     label:"📋 Visitas",       badge:kpis.visitasProg||null},
-    {id:"informes",    label:"📝 Informes",       badge:(kpis.informesPend+kpis.informesBorrador+kpis.informesRevision)||null},
-    {id:"equipo",      label:"👨‍🔬 Equipo Técnico", badge:kpis.tecnicos||null},
-    {id:"entregables", label:"📦 Entregables",     badge:kpis.entregablesPend||null},
-  ];
-
-  function guardarForm(key, vacio) {
-    if(form._editId) { updItem(key, form._editId, form); }
-    else { addItem(key, form); }
-    setForm({}); setModal(null);
-  }
-  function abrirNuevo(modalKey, vacio) { setForm({...vacio}); setModal(modalKey); }
-  function abrirEditar(modalKey, item) { setForm({...item, _editId:item.id}); setModal(modalKey); }
-
-  // Crear informe desde visita (1:1)
-  function crearInformeDesdeVisita(visita) {
-    const ct = (ctData||[]).find(c=>c.id===visita.ctId);
-    const evals = visita.evaluaciones||[];
-    const especiesResumen = [...new Set(evals.map(e=>e.especie).filter(Boolean))].join(", ");
-    const variedadesResumen = [...new Set(evals.map(e=>e.variedad).filter(Boolean))].join(", ");
-    const nuevoInforme = {
-      visitaId: visita.id,
-      tipo: visita.tipo,
-      titulo: `Informe ${visita.tipo} — ${ct?.razonSocial||visita.lugar||""}`,
-      fecha: visita.fecha,
-      ctId: visita.ctId,
-      especie: especiesResumen || visita.testBlockEspecie || "",
-      variedad: variedadesResumen || visita.testBlockVariedad || "",
-      lugar: visita.lugar,
-      cuartel: visita.cuartel||"",
-      responsable: visita.responsable,
-      responsableCargo: "",
-      evaluaciones: evals, // heredar evaluaciones completas
-      // secciones
-      objetivo: visita.objetivo||"",
-      observacionesCampo: visita.resultado||"",
-      recomendaciones: "",
-      medidasCorrectivas: "",
-      registroFotografico: visita.fotos||"",
-      conclusiones: "",
-      proximaVisitaFecha: "",
-      proximaVisitaObjetivo: "",
-      adjunto: "",
-      // Workflow
-      estado: "Borrador",
-      revisor: "",
-      revisorCargo: "",
-      observacionesRechazo: "",
-      fechaAprobacion: "",
-      emailsDestino: "",
-      fechaEnvio: "",
-    };
-    const id = addItem("informes", nuevoInforme);
-    // Abrir el detalle
-    setTimeout(()=>{
-      const lista = data?.informes||[];
-      const ultimo = lista[lista.length]; // el recién creado tiene id generado
-      setSubTab("informes");
-      // El ID se generó en addItem — buscar por visitaId
-      const creado = [...(data?.informes||[]), {...nuevoInforme, id}].find(i=>i.visitaId===visita.id);
-      if(creado) setInformeDetalle(creado.id);
-    },100);
-  }
-
-  // Generar HTML del informe
-  function generarHTMLInforme(inf) {
-    const ct = (ctData||[]).find(c=>c.id===inf.ctId);
-    const fotos = (inf.registroFotografico||"").split(",").map(u=>u.trim()).filter(Boolean);
-    const visita = visitas.find(v=>v.id===inf.visitaId);
-    return `<!DOCTYPE html><html><head><meta charset="utf-8"><title>${inf.titulo}</title>
-<style>
-*{margin:0;padding:0;box-sizing:border-box}
-body{font-family:'Segoe UI',system-ui,sans-serif;color:#1e293b;font-size:12px;line-height:1.6;padding:40px 50px}
-.header{text-align:center;border-bottom:2px solid #0f766e;padding-bottom:16px;margin-bottom:20px}
-.header h1{font-size:18px;color:#0f766e;margin-bottom:2px}
-.header .sub{font-size:11px;color:#64748b}
-.grid{display:grid;grid-template-columns:1fr 1fr;gap:8px 20px;margin-bottom:16px}
-.grid .label{font-size:10px;color:#64748b;text-transform:uppercase;letter-spacing:0.5px}
-.grid .value{font-size:12px;font-weight:600}
-.section{margin-bottom:14px}
-.section h2{font-size:13px;font-weight:700;color:#0f766e;background:#f0fdfa;padding:6px 10px;border-radius:4px;margin-bottom:6px}
-.section .content{padding:0 10px;font-size:12px;color:#334155;white-space:pre-wrap}
-.fotos{display:flex;flex-wrap:wrap;gap:10px;padding:0 10px}
-.fotos img{width:180px;height:130px;object-fit:cover;border-radius:6px;border:1px solid #e2e8f0}
-.firma{display:grid;grid-template-columns:1fr 1fr 1fr;gap:20px;border-top:2px solid #e2e8f0;padding-top:16px;margin-top:24px}
-.firma .col{text-align:center}.firma .col .name{font-weight:700;font-size:12px}.firma .col .cargo{font-size:10px;color:#64748b}
-@media print{body{padding:20px 30px}.fotos img{width:150px;height:110px}}
-</style></head><body>
-<div class="header">
-<div style="font-size:10px;color:#64748b;letter-spacing:2px">OSIRIS PLANT MANAGEMENT</div>
-<h1>${inf.titulo||'Informe Técnico'}</h1>
-<div class="sub">N° INF-${new Date(inf.fecha||Date.now()).getFullYear()}-${String(inf.id||'').slice(-4).padStart(4,'0')} · ${inf.fecha||''} · ${inf.tipo||''}</div>
-</div>
-<div class="grid">
-<div><div class="label">Cliente</div><div class="value">${ct?.razonSocial||'—'} · ${ct?.pais||''}</div></div>
-<div><div class="label">Predio / Ubicación</div><div class="value">${inf.lugar||'—'}${inf.cuartel?' · Cuartel: '+inf.cuartel:''}</div></div>
-<div><div class="label">Tipo</div><div class="value">${inf.tipo||'—'}</div></div>
-<div><div class="label">Responsable</div><div class="value">${inf.responsable||'—'}</div></div>
-<div><div class="label">Especie / Variedad</div><div class="value">${inf.especie||'—'}${inf.variedad?' · '+inf.variedad:''}</div></div>
-<div><div class="label">Fecha visita</div><div class="value">${visita?.fecha||inf.fecha||'—'}</div></div>
-</div>
-<div class="section"><h2>1. Objetivo</h2><div class="content">${inf.objetivo||'—'}</div></div>
-<div class="section"><h2>2. Evaluación por variedad</h2>${(()=>{
-      const evals = visita?.evaluaciones || inf.evaluaciones || [];
-      if(!evals.length) return '<div class="content">Sin evaluaciones registradas</div>';
-      return '<table style="width:100%;border-collapse:collapse;font-size:11px;margin:6px 10px"><thead><tr style="background:#f0fdfa;border-bottom:2px solid #86efac"><th style="padding:6px 8px;text-align:left">Especie</th><th style="padding:6px 8px;text-align:left">Variedad</th><th style="padding:6px 8px;text-align:right">Há</th><th style="padding:6px 8px;text-align:left">Estado Fenol.</th><th style="padding:6px 8px;text-align:right">Brotes/pl</th><th style="padding:6px 8px;text-align:right">Flores/pl</th><th style="padding:6px 8px;text-align:right">Frutos/pl</th><th style="padding:6px 8px;text-align:left">Obs.</th></tr></thead><tbody>'
-        + evals.map((ev,i)=>'<tr style="border-bottom:1px solid #e2e8f0;background:'+(i%2?'#f8fafc':'#fff')+'"><td style="padding:5px 8px;font-weight:600">'+( ev.especie||'—')+'</td><td style="padding:5px 8px">'+(ev.variedad||'—')+'</td><td style="padding:5px 8px;text-align:right">'+(ev.hectareas||0)+'</td><td style="padding:5px 8px">'+(ev.estadoFenologico||'—')+'</td><td style="padding:5px 8px;text-align:right">'+(ev.brotesPlanta||'—')+'</td><td style="padding:5px 8px;text-align:right">'+(ev.floresPlanta||'—')+'</td><td style="padding:5px 8px;text-align:right">'+(ev.frutosPlanta||'—')+'</td><td style="padding:5px 8px;font-size:10px">'+(ev.observaciones||'')+'</td></tr>').join('')
-        + '</tbody></table>';
-    })()}</div>
-<div class="section"><h2>3. Observaciones de campo</h2><div class="content">${inf.observacionesCampo||'—'}</div></div>
-<div class="section"><h2>4. Recomendaciones</h2><div class="content">${inf.recomendaciones||'—'}</div></div>
-<div class="section"><h2>5. Medidas correctivas</h2><div class="content">${inf.medidasCorrectivas||'Sin medidas correctivas requeridas'}</div></div>
-<div class="section"><h2>6. Registro fotográfico</h2>${fotos.length>0?'<div class="fotos">'+fotos.map((u,i)=>'<img src="'+u+'" alt="Foto '+(i+1)+'"/>').join('')+'</div>':'<div class="content">Sin fotos adjuntas</div>'}</div>
-<div class="section"><h2>7. Conclusiones</h2><div class="content">${inf.conclusiones||'—'}</div></div>
-<div class="section"><h2>8. Próxima visita</h2><div class="content">${inf.proximaVisitaFecha?inf.proximaVisitaFecha+' — '+(inf.proximaVisitaObjetivo||''):'No programada'}</div></div>
-<div class="firma">
-<div class="col"><div class="name">${inf.responsable||'—'}</div><div class="cargo">Elaborado por</div></div>
-<div class="col"><div class="name">${inf.revisor||'(Pendiente)'}</div><div class="cargo">Revisado por</div>${inf.fechaAprobacion?'<div style="font-size:9px;color:#16a34a;margin-top:2px">Aprobado '+inf.fechaAprobacion+'</div>':''}</div>
-<div class="col"><div class="name">Próxima: ${inf.proximaVisitaFecha||'—'}</div><div class="cargo">${inf.proximaVisitaObjetivo||''}</div></div>
-</div></body></html>`;
-  }
-  function generarPDF(inf) {
-    const w = window.open('','_blank','width=800,height=1100');
-    w.document.write(generarHTMLInforme(inf)); w.document.close();
-    setTimeout(()=>w.print(), 500);
-  }
-  async function enviarPorEmail(inf, emails) {
-    if(!emails||!emails.trim()){alert("Ingresa al menos un email.");return false;}
-    const ct = (ctData||[]).find(c=>c.id===inf.ctId);
-    const mensaje = `📄 INFORME TÉCNICO — Osiris Plant Management\n\nTítulo: ${inf.titulo}\nTipo: ${inf.tipo}\nFecha: ${inf.fecha}\nCliente: ${ct?.razonSocial||'—'}\nResponsable: ${inf.responsable}\n\n── Objetivo ──\n${inf.objetivo||'—'}\n\n── Observaciones ──\n${inf.observacionesCampo||'—'}\n\n── Recomendaciones ──\n${inf.recomendaciones||'—'}\n\n── Medidas Correctivas ──\n${inf.medidasCorrectivas||'—'}\n\n── Conclusiones ──\n${inf.conclusiones||'—'}\n\n— Osiris Plant Management · Grupo Mediterra`;
-    try {
-      const emailList = emails.split(',').map(e=>e.trim()).filter(Boolean);
-      for(const email of emailList) {
-        await fetch("https://api.emailjs.com/api/v1.0/email/send", {
-          method:"POST", headers:{"Content-Type":"application/json"},
-          body:JSON.stringify({service_id:"service_7uisg69",template_id:"template_0m92glq",user_id:"vJgNsLqJpkCi17Ucd",
-            template_params:{to_email:email,to_name:ct?.razonSocial||"Cliente",subject:`📄 Informe: ${inf.titulo} — Osiris`,message:mensaje}})
-        });
-      }
-      return true;
-    } catch(e) { console.error("Error email:", e); alert("Error al enviar."); return false; }
-  }
-
-  // ── UI Helpers ──
-  const ClienteSelect = ({value, onChange, disabled}) => (
-    <select disabled={disabled} value={value||""} onChange={e=>onChange(e.target.value)}
-      style={{width:"100%",padding:"7px 10px",borderRadius:6,border:"1px solid #d1d5db",fontSize:12,background:"#fff",boxSizing:"border-box"}}>
-      <option value="">— Seleccionar cliente —</option>
-      {(ctData||[]).map(c=><option key={c.id} value={c.id}>{c.razonSocial} · {c.pais}</option>)}
-    </select>
-  );
-  const Input = ({label,value,onChange,type="text",placeholder="",disabled=false,rows=0}) => (
-    <div>
-      <div style={{fontSize:11,color:"#64748b",fontWeight:600,marginBottom:3}}>{label}</div>
-      {rows>0?<textarea disabled={disabled} value={value||""} onChange={e=>onChange(e.target.value)} placeholder={placeholder} rows={rows}
-        style={{width:"100%",padding:"7px 10px",borderRadius:6,border:"1px solid #d1d5db",fontSize:12,resize:"vertical",boxSizing:"border-box"}}/>
-      :<input type={type} disabled={disabled} value={value||""} onChange={e=>onChange(e.target.value)} placeholder={placeholder}
-        style={{width:"100%",padding:"7px 10px",borderRadius:6,border:"1px solid #d1d5db",fontSize:12,boxSizing:"border-box"}}/>}
-    </div>
-  );
-  const Select = ({label,value,onChange,opts=[],disabled=false}) => (
-    <div>
-      <div style={{fontSize:11,color:"#64748b",fontWeight:600,marginBottom:3}}>{label}</div>
-      <select disabled={disabled} value={value||""} onChange={e=>onChange(e.target.value)}
-        style={{width:"100%",padding:"7px 10px",borderRadius:6,border:"1px solid #d1d5db",fontSize:12,background:"#fff",boxSizing:"border-box"}}>
-        <option value="">— Seleccionar —</option>
-        {opts.map(o=><option key={o} value={o}>{o}</option>)}
-      </select>
-    </div>
-  );
-  const BadgeEstado = ({estado}) => {
-    const c = {"Programada":"#3b82f6","Realizada":"#16a34a","Cancelada":"#94a3b8","Reprogramada":"#d97706",
-      "Borrador":"#64748b","En revisión":"#d97706","Aprobado":"#2563eb","Rechazado":"#dc2626","Enviado":"#16a34a",
-      "Técnica":"#0f766e","Comercial":"#2563eb","Test Block":"#7c3aed","Recepción":"#d97706","Día de campo":"#16a34a","Vivero":"#0284c7",
-    }[estado]||"#64748b";
-    return <span style={{padding:"3px 10px",borderRadius:20,fontSize:10,fontWeight:700,background:`${c}18`,color:c,border:`1px solid ${c}33`,whiteSpace:"nowrap"}}>{estado}</span>;
-  };
-  function ModalForm({titulo, onSave, children}) {
-    return (
-      <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:20}} onClick={()=>setModal(null)}>
-        <div style={{background:"#fff",borderRadius:16,padding:"24px 28px",maxWidth:620,width:"100%",maxHeight:"85vh",overflow:"auto",boxShadow:"0 24px 64px #0004"}} onClick={e=>e.stopPropagation()}>
-          <div style={{fontSize:16,fontWeight:800,color:"#1e293b",marginBottom:16}}>{titulo}</div>
-          {children}
-          <div style={{display:"flex",gap:8,justifyContent:"flex-end",marginTop:20}}>
-            <button onClick={()=>setModal(null)} style={{padding:"8px 20px",borderRadius:8,border:"1px solid #d1d5db",background:"#fff",cursor:"pointer",fontSize:12}}>Cancelar</button>
-            <button onClick={onSave} style={{padding:"8px 20px",borderRadius:8,background:"#1e293b",color:"#fff",border:"none",cursor:"pointer",fontSize:12,fontWeight:700}}>💾 Guardar</button>
-          </div>
-        </div>
-      </div>
-    );
-  }
-  function TablaGenerica({cols, rows, onEdit, onDel, emptyMsg, extraAction}) {
-    return (
-      <div style={{overflowX:"auto"}}>
-        <table style={{width:"100%",borderCollapse:"collapse",fontSize:12,background:"#fff",borderRadius:10,overflow:"hidden",border:"1px solid #e2e8f0"}}>
-          <thead><tr style={{background:"#1e293b",color:"#fff"}}>
-            {cols.map(c=><th key={c.label} style={{padding:"8px 10px",textAlign:c.right?"right":"left",fontSize:11,fontWeight:700,whiteSpace:"nowrap",width:c.w||"auto"}}>{c.label}</th>)}
-            {(can||extraAction)&&<th style={{padding:"8px 10px",width:90}}></th>}
-          </tr></thead>
-          <tbody>
-            {rows.length===0&&<tr><td colSpan={cols.length+(can||extraAction?1:0)} style={{textAlign:"center",padding:32,color:"#94a3b8",fontSize:13}}>{emptyMsg||"Sin registros"}</td></tr>}
-            {rows.map((r,i)=>(
-              <tr key={r.id} style={{borderBottom:"1px solid #f1f5f9",background:i%2?"#f8fafc":"#fff"}}>
-                {cols.map(c=><td key={c.label} style={{padding:"7px 10px",textAlign:c.right?"right":"left",...(c.style||{})}}>{c.render?c.render(r):r[c.field]||"—"}</td>)}
-                {(can||extraAction)&&<td style={{padding:"4px 6px",textAlign:"center"}}>
-                  <div style={{display:"flex",gap:4,justifyContent:"center"}}>
-                    {extraAction&&extraAction(r)}
-                    {can&&<button onClick={()=>onEdit(r)} style={{background:"#dbeafe",border:"none",borderRadius:4,padding:"3px 8px",cursor:"pointer",fontSize:11,color:"#1d4ed8",fontWeight:600}}>✏️</button>}
-                    {can&&<button onClick={()=>onDel(r)} style={{background:"#fee2e2",border:"none",borderRadius:4,padding:"3px 8px",cursor:"pointer",fontSize:11,color:"#991b1b",fontWeight:600}}>×</button>}
-                  </div>
-                </td>}
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    );
-  }
-  function filtrar(arr, campoTipo="tipo", campoEstado="estado") {
-    return arr.filter(r=>
-      (filtroTipo==="Todos"||r[campoTipo]===filtroTipo)&&
-      (filtroEstado==="Todos"||r[campoEstado]===filtroEstado)&&
-      (!busq||JSON.stringify(r).toLowerCase().includes(busq.toLowerCase()))
-    );
-  }
-
-  return (
-    <div style={{fontFamily:"'IBM Plex Sans',system-ui,sans-serif"}}>
-      {/* KPIs */}
-      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(130px,1fr))",gap:10,marginBottom:16}}>
-        {[
-          {label:"Visitas programadas",val:kpis.visitasProg,col:"#3b82f6",bg:"#dbeafe"},
-          {label:"Visitas realizadas",val:kpis.visitasRealizadas,col:"#16a34a",bg:"#dcfce7"},
-          {label:"Sin informe",val:kpis.informesPend,col:"#dc2626",bg:"#fee2e2"},
-          {label:"Informes en revisión",val:kpis.informesRevision,col:"#d97706",bg:"#fef3c7"},
-          {label:"Técnicos",val:kpis.tecnicos,col:"#0f766e",bg:"#ccfbf1"},
-          {label:"Entregables pend.",val:kpis.entregablesPend,col:"#7c3aed",bg:"#ede9fe"},
-        ].map(k=>(
-          <div key={k.label} style={{background:k.bg,borderRadius:10,padding:"10px 14px"}}>
-            <div style={{fontSize:10,color:k.col,fontWeight:600}}>{k.label}</div>
-            <div style={{fontSize:22,fontWeight:800,color:k.col}}>{k.val}</div>
-          </div>
-        ))}
-      </div>
-
-      {/* Sub-tabs */}
-      <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:16}}>
-        {TABS.map(t=>(
-          <button key={t.id} onClick={()=>{setSubTab(t.id);setFiltroTipo("Todos");setFiltroEstado("Todos");setBusq("");setInformeDetalle(null);}}
-            style={{padding:"8px 14px",borderRadius:8,border:subTab===t.id?"2px solid #1e293b":"1px solid #e2e8f0",
-              background:subTab===t.id?"#1e293b":"#fff",color:subTab===t.id?"#fff":"#1e293b",
-              cursor:"pointer",fontSize:12,fontWeight:600,display:"flex",alignItems:"center",gap:6}}>
-            {t.label}
-            {t.badge&&<span style={{background:subTab===t.id?"#fff":"#dc2626",color:subTab===t.id?"#1e293b":"#fff",borderRadius:10,padding:"1px 7px",fontSize:10,fontWeight:800}}>{t.badge}</span>}
-          </button>
-        ))}
-      </div>
-
-      {/* Barra filtros */}
-      <div style={{display:"flex",gap:8,marginBottom:14,flexWrap:"wrap",alignItems:"center"}}>
-        <input value={busq} onChange={e=>setBusq(e.target.value)} placeholder="Buscar..."
-          style={{padding:"7px 12px",borderRadius:6,border:"1px solid #d1d5db",fontSize:12,flex:1,minWidth:150,outline:"none"}}/>
-        {can&&subTab!=="informes"&&<button onClick={()=>{
-          if(subTab==="visitas") abrirNuevo("visita", VACIO_VISITA);
-          else if(subTab==="equipo") abrirNuevo("tecnico", VACIO_TECNICO);
-          else if(subTab==="entregables") abrirNuevo("entregable", VACIO_ENTREGABLE);
-        }} style={{padding:"8px 16px",borderRadius:8,background:"#1e293b",color:"#fff",border:"none",cursor:"pointer",fontSize:12,fontWeight:700}}>+ Agregar</button>}
-      </div>
-
-      {/* ════ TAB: VISITAS ════ */}
-      {subTab==="visitas"&&<TablaGenerica
-        cols={[
-          {label:"Fecha",field:"fecha",w:90},
-          {label:"Tipo",render:r=><BadgeEstado estado={r.tipo}/>,w:110},
-          {label:"Cliente / Vivero",render:r=>r.ctId?nombreCliente(r.ctId):(r.viveroId?(viverosData||[]).find(v=>v.id===r.viveroId)?.viverista||"—":"—")},
-          {label:"Lugar",field:"lugar"},
-          {label:"Cuartel",field:"cuartel",w:100},
-          {label:"Responsable",field:"responsable"},
-          {label:"Estado",render:r=><BadgeEstado estado={r.estado}/>,w:110},
-          {label:"Informe",render:r=>{
-            const inf = informes.find(i=>i.visitaId===r.id);
-            if(inf) return <span onClick={()=>{setSubTab("informes");setInformeDetalle(inf.id);}} style={{color:"#2563eb",cursor:"pointer",fontSize:11,fontWeight:600,textDecoration:"underline"}}>📝 Ver</span>;
-            if(r.estado==="Realizada"&&can) return <button onClick={()=>crearInformeDesdeVisita(r)} style={{padding:"3px 8px",borderRadius:6,background:"#16a34a",color:"#fff",border:"none",cursor:"pointer",fontSize:10,fontWeight:700}}>📝 Crear</button>;
-            return <span style={{color:"#94a3b8",fontSize:10}}>—</span>;
-          },w:80},
-        ]}
-        rows={filtrar(visitas)}
-        onEdit={r=>abrirEditar("visita",r)}
-        onDel={r=>{
-          const infVinculado = informes.find(i=>i.visitaId===r.id);
-          const msg = infVinculado
-            ? `¿Eliminar la visita "${r.tipo} ${r.fecha}"?\n\n⚠️ También se eliminará el informe vinculado: "${infVinculado.titulo||'Sin título'}" (estado: ${infVinculado.estado})`
-            : `¿Eliminar la visita "${r.tipo} ${r.fecha}"?`;
-          if(!window.confirm(msg)) return;
-          // Eliminar informe vinculado si existe
-          if(infVinculado) {
-            upd("informes", (data?.informes||[]).filter(x=>x.id!==infVinculado.id));
-            window.auditLog&&window.auditLog("eliminar",{modulo:"osiris",seccion:"Op. Técnica · informes",descripcion:`Eliminó informe "${infVinculado.titulo}" (vinculado a visita eliminada)`,registroId:infVinculado.id});
-          }
-          // Eliminar visita
-          upd("visitas", (data?.visitas||[]).filter(x=>x.id!==r.id));
-          window.auditLog&&window.auditLog("eliminar",{modulo:"osiris",seccion:"Op. Técnica · visitas",descripcion:`Eliminó visita ${r.tipo} ${r.fecha}`,registroId:r.id});
-        }}
-        emptyMsg="Sin visitas. Programa la primera visita técnica, comercial o test block."
-      />}
-
-      {/* ════ TAB: INFORMES ════ */}
-      {subTab==="informes"&&(informeDetalle?(()=>{
-        const inf = informes.find(i=>i.id===informeDetalle);
-        if(!inf) { setInformeDetalle(null); return null; }
-        const ct = (ctData||[]).find(c=>c.id===inf.ctId);
-        const visita = visitas.find(v=>v.id===inf.visitaId);
-        const puedeEditar = can && (inf.estado==="Borrador"||inf.estado==="Rechazado");
-        const puedeAprobar = esGteTecnico && inf.estado==="En revisión";
-        const puedeEnviar = esGteTecnico && (inf.estado==="Aprobado"||inf.estado==="Enviado");
-        const updInf = (campo, valor) => updItem("informes", inf.id, {[campo]:valor});
-        return (
-          <div>
-            <button onClick={()=>setInformeDetalle(null)} style={{marginBottom:14,padding:"7px 14px",borderRadius:8,border:"1px solid #d1d5db",background:"#fff",cursor:"pointer",fontSize:12,fontWeight:600}}>← Volver</button>
-            {/* Vinculación con visita */}
-            {visita&&<div style={{padding:"8px 14px",background:"#f0f9ff",border:"1px solid #bae6fd",borderRadius:8,marginBottom:12,fontSize:12,color:"#0369a1"}}>
-              🔗 Vinculado a visita: <strong>{visita.tipo}</strong> del {visita.fecha} — {visita.lugar||""} ({visita.estado})
-            </div>}
-            {/* Workflow */}
-            <div style={{display:"flex",gap:6,alignItems:"center",marginBottom:16,padding:"12px 16px",background:"#f8fafc",borderRadius:10,border:"1px solid #e2e8f0",flexWrap:"wrap"}}>
-              {ESTADOS_INFORME.filter(e=>e!=="Rechazado").map((est,i)=>{
-                const activo = inf.estado===est||(est==="Borrador"&&inf.estado==="Rechazado");
-                const pasado = ESTADOS_INFORME.indexOf(inf.estado)>ESTADOS_INFORME.indexOf(est);
-                const col = {Borrador:"#64748b","En revisión":"#d97706",Aprobado:"#2563eb",Enviado:"#16a34a"}[est]||"#64748b";
-                return <React.Fragment key={est}>
-                  {i>0&&<div style={{width:24,height:2,background:pasado?col:"#e2e8f0"}}/>}
-                  <div style={{padding:"6px 14px",borderRadius:20,fontSize:11,fontWeight:700,background:activo?`${col}22`:"#f1f5f9",color:activo?col:"#94a3b8",border:`1.5px solid ${activo?col:"#e2e8f0"}`}}>
-                    {est==="Borrador"&&inf.estado==="Rechazado"?"⚠️ Rechazado":est}
-                  </div>
-                </React.Fragment>;
-              })}
-              <div style={{marginLeft:"auto",display:"flex",gap:6,flexWrap:"wrap"}}>
-                {puedeEditar&&inf.estado==="Borrador"&&<button onClick={()=>updInf("estado","En revisión")} style={{padding:"6px 14px",borderRadius:8,background:"#d97706",color:"#fff",border:"none",cursor:"pointer",fontSize:11,fontWeight:700}}>📤 Enviar a revisión</button>}
-                {puedeEditar&&inf.estado==="Rechazado"&&<button onClick={()=>updInf("estado","En revisión")} style={{padding:"6px 14px",borderRadius:8,background:"#d97706",color:"#fff",border:"none",cursor:"pointer",fontSize:11,fontWeight:700}}>📤 Reenviar</button>}
-                {puedeAprobar&&<>
-                  <button onClick={()=>updItem("informes",inf.id,{estado:"Aprobado",revisor:nombreUsuario,revisorCargo:"Gerente Técnico",fechaAprobacion:new Date().toISOString().slice(0,10)})} style={{padding:"6px 14px",borderRadius:8,background:"#16a34a",color:"#fff",border:"none",cursor:"pointer",fontSize:11,fontWeight:700}}>✅ Aprobar</button>
-                  <button onClick={()=>{const obs=window.prompt("Observaciones del rechazo:");if(obs===null)return;updItem("informes",inf.id,{estado:"Rechazado",observacionesRechazo:obs,revisor:nombreUsuario});}} style={{padding:"6px 14px",borderRadius:8,background:"#dc2626",color:"#fff",border:"none",cursor:"pointer",fontSize:11,fontWeight:700}}>❌ Rechazar</button>
-                </>}
-                <button onClick={()=>generarPDF(inf)} style={{padding:"6px 14px",borderRadius:8,background:"#1e293b",color:"#fff",border:"none",cursor:"pointer",fontSize:11,fontWeight:700}}>📄 PDF</button>
-                <button onClick={()=>{const w=window.open('','_blank');w.document.write(generarHTMLInforme(inf));w.document.close();setTimeout(()=>w.print(),300);}} style={{padding:"6px 14px",borderRadius:8,background:"#475569",color:"#fff",border:"none",cursor:"pointer",fontSize:11,fontWeight:700}}>🖨️ Imprimir</button>
-                {puedeEnviar&&<button onClick={()=>{setEmailsEnvio(ct?.email||"");setEnvioModal(true);}} style={{padding:"6px 14px",borderRadius:8,background:"#2563eb",color:"#fff",border:"none",cursor:"pointer",fontSize:11,fontWeight:700}}>📧 Email</button>}
-              </div>
-            </div>
-            {inf.estado==="Rechazado"&&inf.observacionesRechazo&&<div style={{padding:"10px 14px",background:"#fef2f2",border:"1px solid #fecaca",borderRadius:8,marginBottom:14,fontSize:12,color:"#991b1b"}}>❌ <strong>Rechazado por {inf.revisor}:</strong> {inf.observacionesRechazo}</div>}
-            {/* Formulario 9 secciones */}
-            <div style={{background:"#fff",border:"1px solid #e2e8f0",borderRadius:12,padding:"20px 24px"}}>
-              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:16}}>
-                <Select label="Tipo *" value={inf.tipo} onChange={v=>updInf("tipo",v)} opts={TIPOS_VISITA} disabled={!puedeEditar}/>
-                <Input label="Título *" value={inf.titulo} onChange={v=>updInf("titulo",v)} disabled={!puedeEditar}/>
-                <Input label="Fecha *" value={inf.fecha} onChange={v=>updInf("fecha",v)} type="date" disabled={!puedeEditar}/>
-                <div><div style={{fontSize:11,color:"#64748b",fontWeight:600,marginBottom:3}}>Cliente</div><ClienteSelect value={inf.ctId} onChange={v=>updInf("ctId",v)} disabled={!puedeEditar}/></div>
-                <Input label="Especie" value={inf.especie} onChange={v=>updInf("especie",v)} disabled={!puedeEditar}/>
-                <Input label="Variedad" value={inf.variedad} onChange={v=>updInf("variedad",v)} disabled={!puedeEditar}/>
-                <Input label="Predio / Ubicación" value={inf.lugar} onChange={v=>updInf("lugar",v)} disabled={!puedeEditar}/>
-                <Input label="Cuartel" value={inf.cuartel} onChange={v=>updInf("cuartel",v)} disabled={!puedeEditar} placeholder="Cuartel, sector..."/>
-                <Input label="Responsable" value={inf.responsable} onChange={v=>updInf("responsable",v)} disabled={!puedeEditar}/>
-              </div>
-              <Input label="1. Objetivo" value={inf.objetivo} onChange={v=>updInf("objetivo",v)} rows={3} disabled={!puedeEditar}/>
-              <div style={{height:8}}/>
-              <Input label="2. Observaciones de campo" value={inf.observacionesCampo} onChange={v=>updInf("observacionesCampo",v)} rows={4} disabled={!puedeEditar}/>
-              <div style={{height:8}}/>
-              <Input label="3. Recomendaciones" value={inf.recomendaciones} onChange={v=>updInf("recomendaciones",v)} rows={3} disabled={!puedeEditar}/>
-              <div style={{height:8}}/>
-              <Input label="4. Medidas correctivas" value={inf.medidasCorrectivas} onChange={v=>updInf("medidasCorrectivas",v)} rows={3} disabled={!puedeEditar} placeholder="[Urgente] Reparar riego — plazo: 30 abril&#10;[Media] Ajustar dosis — plazo: 15 mayo"/>
-              <div style={{height:8}}/>
-              {/* Fotos */}
-              <div>
-                <div style={{fontSize:11,color:"#64748b",fontWeight:600,marginBottom:6}}>5. Registro fotográfico</div>
-                {(()=>{
-                  const fotos = (inf.registroFotografico||"").split(",").map(u=>u.trim()).filter(Boolean);
-                  return fotos.length>0?(
-                    <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(130px,1fr))",gap:8,marginBottom:10}}>
-                      {fotos.map((url,fi)=>(
-                        <div key={fi} style={{position:"relative",borderRadius:8,overflow:"hidden",border:"1px solid #e2e8f0"}}>
-                          <img src={url} alt={`Foto ${fi+1}`} style={{width:"100%",height:90,objectFit:"cover",display:"block"}} onError={e=>{e.target.style.display="none";}}/>
-                          {puedeEditar&&<button onClick={()=>{const n=fotos.filter((_,i)=>i!==fi);updInf("registroFotografico",n.join(", "));}} style={{position:"absolute",top:3,right:3,width:20,height:20,borderRadius:4,background:"rgba(0,0,0,0.6)",color:"#fff",border:"none",cursor:"pointer",fontSize:11,display:"flex",alignItems:"center",justifyContent:"center"}}>×</button>}
-                        </div>
-                      ))}
-                    </div>
-                  ):null;
-                })()}
-                {puedeEditar&&<div style={{display:"flex",gap:8}}>
-                  <label style={{padding:"6px 12px",borderRadius:8,background:"#16a34a",color:"#fff",cursor:"pointer",fontSize:11,fontWeight:700,display:"inline-flex",alignItems:"center",gap:4}}>
-                    📷 Subir foto
-                    <input type="file" accept="image/*" multiple style={{display:"none"}} onChange={async(e)=>{
-                      const files=Array.from(e.target.files||[]);if(!files.length)return;
-                      const actuales=(inf.registroFotografico||"").split(",").map(u=>u.trim()).filter(Boolean);
-                      let urls=[...actuales];
-                      for(const f of files){try{const url=await uploadFoto(f,inf.id);urls.push(url);}catch(err){alert(`Error: ${err.message}`);}}
-                      updInf("registroFotografico",urls.join(", "));e.target.value="";
-                    }}/>
-                  </label>
-                  <button onClick={()=>{const u=window.prompt("URL de foto:");if(u&&u.trim()){const a=(inf.registroFotografico||"").split(",").map(x=>x.trim()).filter(Boolean);updInf("registroFotografico",[...a,u.trim()].join(", "));}}} style={{padding:"6px 12px",borderRadius:8,background:"#f1f5f9",border:"1px solid #d1d5db",cursor:"pointer",fontSize:11,fontWeight:600}}>🔗 URL</button>
-                </div>}
-              </div>
-              <div style={{height:8}}/>
-              <Input label="6. Conclusiones" value={inf.conclusiones} onChange={v=>updInf("conclusiones",v)} rows={3} disabled={!puedeEditar}/>
-              <div style={{height:8}}/>
-              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
-                <Input label="7. Próxima visita — fecha" value={inf.proximaVisitaFecha} onChange={v=>updInf("proximaVisitaFecha",v)} type="date" disabled={!puedeEditar}/>
-                <Input label="7. Próxima visita — objetivo" value={inf.proximaVisitaObjetivo} onChange={v=>updInf("proximaVisitaObjetivo",v)} disabled={!puedeEditar}/>
-              </div>
-              {/* Firmas */}
-              <div style={{marginTop:16,padding:"12px 16px",background:"#f8fafc",borderRadius:8,display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:12,fontSize:12}}>
-                <div><div style={{fontSize:10,color:"#94a3b8"}}>Elaborado por</div><div style={{fontWeight:600}}>{inf.responsable||"—"}</div></div>
-                <div><div style={{fontSize:10,color:"#94a3b8"}}>Revisado por</div><div style={{fontWeight:600}}>{inf.revisor||"(Pendiente)"}</div>{inf.fechaAprobacion&&<div style={{fontSize:10,color:"#16a34a"}}>Aprobado {inf.fechaAprobacion}</div>}</div>
-                <div><div style={{fontSize:10,color:"#94a3b8"}}>Estado</div><BadgeEstado estado={inf.estado}/></div>
-              </div>
-            </div>
-            {envioModal&&<ModalForm titulo="📧 Enviar por email" onSave={async()=>{
-              const ok=await enviarPorEmail(inf,emailsEnvio);
-              if(ok){updItem("informes",inf.id,{estado:"Enviado",emailsDestino:emailsEnvio,fechaEnvio:new Date().toISOString().slice(0,10)});setEnvioModal(false);alert("✅ Enviado.");}
-            }}>
-              <Input label="Emails destino (separados por coma) *" value={emailsEnvio} onChange={v=>setEmailsEnvio(v)} placeholder="cliente@empresa.com, otro@empresa.com"/>
-              <div style={{fontSize:11,color:"#64748b",marginTop:8}}>💡 Se enviará resumen del informe. Estado cambiará a "Enviado".</div>
-            </ModalForm>}
-          </div>
-        );
-      })():(
-        <TablaGenerica
-          cols={[
-            {label:"Fecha",field:"fecha",w:90},
-            {label:"Tipo",render:r=><BadgeEstado estado={r.tipo}/>,w:110},
-            {label:"Título",render:r=><span style={{fontWeight:600,cursor:"pointer",color:"#2563eb",textDecoration:"underline"}} onClick={()=>setInformeDetalle(r.id)}>{r.titulo||"(sin título)"}</span>},
-            {label:"Cliente",render:r=>r.ctId?nombreCliente(r.ctId):"—"},
-            {label:"Responsable",field:"responsable"},
-            {label:"Estado",render:r=><BadgeEstado estado={r.estado}/>,w:110},
-          ]}
-          rows={filtrar(informes,"tipo","estado")}
-          onEdit={r=>setInformeDetalle(r.id)}
-          onDel={r=>delItem("informes",r.id,r.titulo)}
-          emptyMsg="Sin informes. Crea uno desde una visita realizada."
-        />
-      ))}
-
-      {/* ════ TAB: EQUIPO TÉCNICO ════ */}
-      {subTab==="equipo"&&<TablaGenerica
-        cols={[
-          {label:"Nombre",field:"nombre",style:{fontWeight:600}},
-          {label:"Rol",field:"rol"},
-          {label:"Especie",field:"especie"},
-          {label:"Modalidad",field:"modalidad"},
-          {label:"Email",field:"email"},
-          {label:"Teléfono",field:"telefono"},
-        ]}
-        rows={filtrar(equipoTecnico,"rol","rol")}
-        onEdit={r=>abrirEditar("tecnico",r)}
-        onDel={r=>delItem("equipoTecnico",r.id,r.nombre)}
-        emptyMsg="Sin técnicos registrados."
-      />}
-
-      {/* ════ TAB: ENTREGABLES ════ */}
-      {subTab==="entregables"&&(
-        entregables.length===0?(
-          <div style={{textAlign:"center",padding:32,color:"#94a3b8",border:"1px dashed #e2e8f0",borderRadius:10}}>Sin entregables.</div>
-        ):(
-          entregables.map((e,ei)=>{
-            const ct=(ctData||[]).find(c=>c.id===e.ctId);
-            const comp=e.items.filter(i=>i.entregado).length;
-            return (
-              <div key={e.id||ei} style={{background:"#fff",border:"1px solid #e2e8f0",borderRadius:10,padding:"14px 18px",marginBottom:12}}>
-                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
-                  <div><div style={{fontWeight:700,fontSize:13}}>{ct?.razonSocial||"—"} · {e.sublicenciatario||"General"}</div><div style={{fontSize:11,color:"#64748b"}}>{comp}/{e.items.length} entregados</div></div>
-                  {can&&<div style={{display:"flex",gap:4}}>
-                    <button onClick={()=>abrirEditar("entregable",e)} style={{background:"#dbeafe",border:"none",borderRadius:4,padding:"3px 8px",cursor:"pointer",fontSize:11,color:"#1d4ed8",fontWeight:600}}>✏️</button>
-                    <button onClick={()=>delItem("entregables",e.id,`Entregables ${ct?.razonSocial||""}`)} style={{background:"#fee2e2",border:"none",borderRadius:4,padding:"3px 8px",cursor:"pointer",fontSize:11,color:"#991b1b",fontWeight:600}}>×</button>
-                  </div>}
-                </div>
-                <div style={{height:8,background:"#f1f5f9",borderRadius:4,overflow:"hidden",marginBottom:8}}><div style={{height:"100%",background:"#16a34a",borderRadius:4,width:`${(comp/Math.max(e.items.length,1))*100}%`}}/></div>
-                <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(200px,1fr))",gap:6}}>
-                  {e.items.map((item,ii)=>(
-                    <label key={ii} style={{display:"flex",alignItems:"center",gap:8,padding:"6px 10px",borderRadius:6,background:item.entregado?"#f0fdf4":"#fff",border:`1px solid ${item.entregado?"#86efac":"#e2e8f0"}`,cursor:can?"pointer":"default",fontSize:12}}>
-                      <input type="checkbox" disabled={!can} checked={item.entregado} onChange={()=>{const ni=[...e.items];ni[ii]={...ni[ii],entregado:!ni[ii].entregado,fecha:!ni[ii].entregado?new Date().toISOString().slice(0,10):""};updItem("entregables",e.id,{items:ni});}} style={{accentColor:"#16a34a"}}/>
-                      <span style={{textDecoration:item.entregado?"line-through":"none",color:item.entregado?"#16a34a":"#1e293b"}}>{item.nombre}</span>
-                    </label>
-                  ))}
-                </div>
-              </div>
-            );
-          })
-        )
-      )}
-
-      {/* ═══ MODALES ═══ */}
-      {modal==="visita"&&<ModalForm titulo={form._editId?"Editar visita":"Nueva visita"} onSave={()=>guardarForm("visitas",VACIO_VISITA)}>
-        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
-          <Select label="Tipo *" value={form.tipo} onChange={v=>setForm(p=>({...p,tipo:v}))} opts={TIPOS_VISITA}/>
-          <Input label="Fecha *" value={form.fecha} onChange={v=>setForm(p=>({...p,fecha:v}))} type="date"/>
-          <div><div style={{fontSize:11,color:"#64748b",fontWeight:600,marginBottom:3}}>Cliente</div><ClienteSelect value={form.ctId} onChange={v=>setForm(p=>({...p,ctId:v}))}/></div>
-          <Select label="Estado" value={form.estado} onChange={v=>setForm(p=>({...p,estado:v}))} opts={ESTADOS_VISITA}/>
-          <Input label="Lugar / Predio" value={form.lugar} onChange={v=>setForm(p=>({...p,lugar:v}))} placeholder="Fundo, ciudad..."/>
-          <Input label="Cuartel" value={form.cuartel} onChange={v=>setForm(p=>({...p,cuartel:v}))} placeholder="Cuartel 1, Sector norte..."/>
-          <Input label="Responsable" value={form.responsable} onChange={v=>setForm(p=>({...p,responsable:v}))}/>
-        </div>
-        <Input label="Objetivo" value={form.objetivo} onChange={v=>setForm(p=>({...p,objetivo:v}))} rows={2}/>
-        <Input label="Resultado / Observaciones" value={form.resultado} onChange={v=>setForm(p=>({...p,resultado:v}))} rows={2}/>
-        {form.tipo==="Test Block"&&(<>
-          <div style={{marginTop:10,padding:"10px 14px",background:"#ede9fe",borderRadius:8,border:"1px solid #c4b5fd"}}>
-            <div style={{fontSize:12,fontWeight:700,color:"#5b21b6",marginBottom:8}}>🧪 Datos del Test Block</div>
-            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
-              <Input label="Nombre del ensayo" value={form.testBlockNombre} onChange={v=>setForm(p=>({...p,testBlockNombre:v}))} placeholder="Test Atlas 2026"/>
-              <Input label="Ubicación" value={form.testBlockUbicacion} onChange={v=>setForm(p=>({...p,testBlockUbicacion:v}))} placeholder="Parcela, cuartel..."/>
-            </div>
-            <Input label="Resultados generales" value={form.testBlockResultados} onChange={v=>setForm(p=>({...p,testBlockResultados:v}))} rows={2} placeholder="Rendimiento, observaciones..."/>
-          </div>
-        </>)}
-
-        {/* ── Evaluación por variedad (estado fenológico + conteos) ── */}
-        <div style={{marginTop:12,padding:"12px 16px",background:"#f0fdf4",borderRadius:10,border:"1px solid #86efac"}}>
-          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
-            <div style={{fontSize:12,fontWeight:700,color:"#15803d"}}>🌿 Evaluación por variedad</div>
-            <button type="button" onClick={()=>{
-              const evals = [...(form.evaluaciones||[])];
-              evals.push({id:`ev_${Date.now()}`,especie:"",variedad:"",variedad_id:"",hectareas:0,estadoFenologico:"",brotesPlanta:0,floresPlanta:0,frutosPlanta:0,observaciones:""});
-              setForm(p=>({...p,evaluaciones:evals}));
-            }} style={{padding:"5px 12px",borderRadius:6,background:"#15803d",color:"#fff",border:"none",cursor:"pointer",fontSize:11,fontWeight:700}}>+ Agregar variedad</button>
-          </div>
-          {(form.evaluaciones||[]).length===0?(
-            <div style={{padding:16,textAlign:"center",color:"#94a3b8",border:"1px dashed #d1d5db",borderRadius:8,fontSize:12}}>
-              Sin evaluaciones. Agrega variedades para registrar estado fenológico y conteos.
-            </div>
-          ):(
-            <div style={{display:"flex",flexDirection:"column",gap:10}}>
-              {(form.evaluaciones||[]).map((ev,ei)=>{
-                const campos = CAMPOS_POR_FENOLOGIA[ev.estadoFenologico] || {brotes:false,flores:false,frutos:false};
-                const updEv = (campo,valor) => {
-                  const evals = [...(form.evaluaciones||[])];
-                  evals[ei] = {...evals[ei],[campo]:valor};
-                  // Si cambia fenología, limpiar campos que ya no aplican
-                  if(campo==="estadoFenologico") {
-                    const nc = CAMPOS_POR_FENOLOGIA[valor]||{brotes:false,flores:false,frutos:false};
-                    if(!nc.brotes) evals[ei].brotesPlanta = 0;
-                    if(!nc.flores) evals[ei].floresPlanta = 0;
-                    if(!nc.frutos) evals[ei].frutosPlanta = 0;
-                  }
-                  setForm(p=>({...p,evaluaciones:evals}));
-                };
-                const seleccionarVariedadEv = (vid) => {
-                  const vv = (variedadesMaestro||[]).find(x=>x.id===vid);
-                  if(vv) updEv("_multi", null); // dummy, usamos evals directamente
-                  const evals = [...(form.evaluaciones||[])];
-                  evals[ei] = {...evals[ei], variedad_id:vid, especie:vv?.especie||evals[ei].especie, variedad:vv?.variedad||evals[ei].variedad};
-                  setForm(p=>({...p,evaluaciones:evals}));
-                };
-                const varFiltradas = ev.especie
-                  ? (variedadesMaestro||[]).filter(v=>v.especie===ev.especie)
-                  : (variedadesMaestro||[]);
-                const espColor = (especiesMaestro||[]).find(e=>e.nombre===ev.especie)?.color;
-                return (
-                  <div key={ev.id||ei} style={{background:"#fff",borderRadius:8,padding:"10px 14px",border:"1px solid #d1fae5",position:"relative"}}>
-                    {/* Botón eliminar */}
-                    <button type="button" onClick={()=>{
-                      const evals = (form.evaluaciones||[]).filter((_,i)=>i!==ei);
-                      setForm(p=>({...p,evaluaciones:evals}));
-                    }} style={{position:"absolute",top:6,right:6,width:22,height:22,borderRadius:4,background:"#fee2e2",color:"#991b1b",border:"none",cursor:"pointer",fontSize:12,display:"flex",alignItems:"center",justifyContent:"center"}}>×</button>
-                    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 80px 1fr",gap:8,marginBottom:8}}>
-                      {/* Especie */}
-                      <div>
-                        <div style={{fontSize:10,color:"#64748b",fontWeight:600,marginBottom:2}}>Especie</div>
-                        <div style={{display:"flex",gap:4,alignItems:"center"}}>
-                          {espColor&&<div style={{width:12,height:12,borderRadius:3,background:espColor,flexShrink:0}}/>}
-                          <select value={ev.especie||""} onChange={e=>{
-                            if(e.target.value==="__nueva__") {
-                              const n=window.prompt("Nueva especie:");
-                              if(!n||!n.trim())return;
-                              const nombre=n.trim();
-                              const dupe=(especiesMaestro||[]).find(x=>x.nombre.toLowerCase()===nombre.toLowerCase());
-                              if(dupe){updEv("especie",dupe.nombre);return;}
-                              const id=`esp_${Date.now()}`;
-                              const color=COLORES_ESPECIES[(especiesMaestro||[]).length%COLORES_ESPECIES.length].hex;
-                              setEspeciesMaestro&&setEspeciesMaestro(prev=>[...(prev||[]),{id,nombre,color,observaciones:""}]);
-                              updEv("especie",nombre);
-                            } else {
-                              const evals=[...(form.evaluaciones||[])];
-                              evals[ei]={...evals[ei],especie:e.target.value,variedad_id:"",variedad:""};
-                              setForm(p=>({...p,evaluaciones:evals}));
-                            }
-                          }} style={{flex:1,padding:"5px 8px",borderRadius:5,border:"1px solid #d1d5db",fontSize:11,background:"#fff"}}>
-                            <option value="">— Seleccionar —</option>
-                            {(especiesMaestro||[]).map(e=><option key={e.id} value={e.nombre}>{e.nombre}</option>)}
-                            <option value="__nueva__">＋ Crear nueva...</option>
-                          </select>
-                        </div>
-                      </div>
-                      {/* Variedad */}
-                      <div>
-                        <div style={{fontSize:10,color:"#64748b",fontWeight:600,marginBottom:2}}>Variedad</div>
-                        <select value={ev.variedad_id||""} disabled={!ev.especie} onChange={e=>{
-                          if(e.target.value==="__nueva__") {
-                            if(!ev.especie){alert("Selecciona especie primero.");return;}
-                            const n=window.prompt(`Nueva variedad (${ev.especie}):`);
-                            if(!n||!n.trim())return;
-                            const nombre=n.trim();
-                            const dupe=(variedadesMaestro||[]).find(v=>v.especie===ev.especie&&v.variedad.toLowerCase()===nombre.toLowerCase());
-                            if(dupe){seleccionarVariedadEv(dupe.id);return;}
-                            const id=`var_${Date.now()}`;
-                            setVariedadesMaestro&&setVariedadesMaestro(prev=>[...(prev||[]),{id,especie:ev.especie,variedad:nombre,obtentor:"",observaciones:""}]);
-                            const evals=[...(form.evaluaciones||[])];
-                            evals[ei]={...evals[ei],variedad_id:id,variedad:nombre};
-                            setForm(p=>({...p,evaluaciones:evals}));
-                          } else { seleccionarVariedadEv(e.target.value); }
-                        }} style={{width:"100%",padding:"5px 8px",borderRadius:5,border:"1px solid #d1d5db",fontSize:11,background:ev.especie?"#fff":"#f1f5f9"}}>
-                          <option value="">{ev.especie?"— Seleccionar —":"(especie primero)"}</option>
-                          {varFiltradas.map(v=><option key={v.id} value={v.id}>{v.variedad}</option>)}
-                          {ev.especie&&<option value="__nueva__">＋ Crear nueva...</option>}
-                        </select>
-                      </div>
-                      {/* Hectáreas */}
-                      <div>
-                        <div style={{fontSize:10,color:"#64748b",fontWeight:600,marginBottom:2}}>Há</div>
-                        <input type="number" step="0.01" value={ev.hectareas||0} onChange={e=>updEv("hectareas",parseFloat(e.target.value)||0)}
-                          style={{width:"100%",padding:"5px 8px",borderRadius:5,border:"1px solid #d1d5db",fontSize:11,textAlign:"right",boxSizing:"border-box"}}/>
-                      </div>
-                      {/* Estado fenológico */}
-                      <div>
-                        <div style={{fontSize:10,color:"#64748b",fontWeight:600,marginBottom:2}}>Estado fenológico</div>
-                        <select value={ev.estadoFenologico||""} onChange={e=>updEv("estadoFenologico",e.target.value)}
-                          style={{width:"100%",padding:"5px 8px",borderRadius:5,border:"1px solid #d1d5db",fontSize:11,background:"#fff"}}>
-                          <option value="">— Seleccionar —</option>
-                          {ESTADOS_FENOLOGICOS.map(ef=><option key={ef} value={ef}>{ef}</option>)}
-                        </select>
-                      </div>
-                    </div>
-                    {/* Conteos condicionales */}
-                    {ev.estadoFenologico&&(campos.brotes||campos.flores||campos.frutos)&&(
-                      <div style={{display:"flex",gap:10,marginBottom:6}}>
-                        {campos.brotes&&<div style={{flex:1}}>
-                          <div style={{fontSize:10,color:"#15803d",fontWeight:600,marginBottom:2}}>🌱 Brotes/planta</div>
-                          <input type="number" value={ev.brotesPlanta||0} onChange={e=>updEv("brotesPlanta",parseInt(e.target.value)||0)}
-                            style={{width:"100%",padding:"5px 8px",borderRadius:5,border:"1px solid #86efac",fontSize:12,textAlign:"center",fontWeight:700,boxSizing:"border-box"}}/>
-                        </div>}
-                        {campos.flores&&<div style={{flex:1}}>
-                          <div style={{fontSize:10,color:"#db2777",fontWeight:600,marginBottom:2}}>🌸 Flores/planta</div>
-                          <input type="number" value={ev.floresPlanta||0} onChange={e=>updEv("floresPlanta",parseInt(e.target.value)||0)}
-                            style={{width:"100%",padding:"5px 8px",borderRadius:5,border:"1px solid #f9a8d4",fontSize:12,textAlign:"center",fontWeight:700,boxSizing:"border-box"}}/>
-                        </div>}
-                        {campos.frutos&&<div style={{flex:1}}>
-                          <div style={{fontSize:10,color:"#dc2626",fontWeight:600,marginBottom:2}}>🍇 Frutos/planta</div>
-                          <input type="number" value={ev.frutosPlanta||0} onChange={e=>updEv("frutosPlanta",parseInt(e.target.value)||0)}
-                            style={{width:"100%",padding:"5px 8px",borderRadius:5,border:"1px solid #fca5a5",fontSize:12,textAlign:"center",fontWeight:700,boxSizing:"border-box"}}/>
-                        </div>}
-                      </div>
-                    )}
-                    {ev.estadoFenologico&&!campos.brotes&&!campos.flores&&!campos.frutos&&(
-                      <div style={{fontSize:10,color:"#94a3b8",fontStyle:"italic",marginBottom:4}}>Estado "{ev.estadoFenologico}" — sin conteos aplicables</div>
-                    )}
-                    <input value={ev.observaciones||""} onChange={e=>updEv("observaciones",e.target.value)} placeholder="Observaciones de esta variedad..."
-                      style={{width:"100%",padding:"5px 8px",borderRadius:5,border:"1px solid #d1d5db",fontSize:11,boxSizing:"border-box"}}/>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </div>
-      </ModalForm>}
-
-      {modal==="tecnico"&&<ModalForm titulo={form._editId?"Editar técnico":"Nuevo técnico"} onSave={()=>guardarForm("equipoTecnico",VACIO_TECNICO)}>
-        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
-          <Input label="Nombre *" value={form.nombre} onChange={v=>setForm(p=>({...p,nombre:v}))}/>
-          <Select label="Rol" value={form.rol} onChange={v=>setForm(p=>({...p,rol:v}))} opts={["Asesor por especie","Técnico part time","Asesoría integral (AI)","Documentación técnica","Otro"]}/>
-          <Input label="Especie" value={form.especie} onChange={v=>setForm(p=>({...p,especie:v}))} placeholder="Cerezo, Arándano..."/>
-          <Select label="Modalidad" value={form.modalidad} onChange={v=>setForm(p=>({...p,modalidad:v}))} opts={["Full time","Part time","Por proyecto","Consultor externo"]}/>
-          <Input label="Email" value={form.email} onChange={v=>setForm(p=>({...p,email:v}))} type="email"/>
-          <Input label="Teléfono" value={form.telefono} onChange={v=>setForm(p=>({...p,telefono:v}))}/>
-        </div>
-        <Input label="Observaciones" value={form.observaciones} onChange={v=>setForm(p=>({...p,observaciones:v}))} rows={2}/>
-      </ModalForm>}
-
-      {modal==="entregable"&&<ModalForm titulo={form._editId?"Editar entregables":"Nuevo checklist"} onSave={()=>guardarForm("entregables",VACIO_ENTREGABLE)}>
-        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:14}}>
-          <div><div style={{fontSize:11,color:"#64748b",fontWeight:600,marginBottom:3}}>Cliente *</div><ClienteSelect value={form.ctId} onChange={v=>setForm(p=>({...p,ctId:v}))}/></div>
-          <Input label="Sublicenciatario" value={form.sublicenciatario} onChange={v=>setForm(p=>({...p,sublicenciatario:v}))}/>
-        </div>
-        <div style={{fontSize:11,fontWeight:700,marginBottom:8}}>Checklist:</div>
-        {(form.items||[]).map((item,i)=>(
-          <label key={i} style={{display:"flex",alignItems:"center",gap:8,padding:"6px 10px",borderRadius:6,background:item.entregado?"#f0fdf4":"#fff",border:"1px solid #e2e8f0",marginBottom:4,fontSize:12,cursor:"pointer"}}>
-            <input type="checkbox" checked={item.entregado} onChange={()=>{const ni=[...(form.items||[])];ni[i]={...ni[i],entregado:!ni[i].entregado};setForm(p=>({...p,items:ni}));}} style={{accentColor:"#16a34a"}}/>
-            {item.nombre}
-          </label>
-        ))}
-      </ModalForm>}
-    </div>
-  );
-}
-
-
-// ── Maestro de Especies ──────────────────────────────────────
-// Catálogo central de especies (Cerezo, Arándano, Uva...) con color identificador
-function MaestroEspecies({especies,setEspecies,can,obtentores=[],contratos=[],variedades=[]}){
-  const [editId,setEditId]=useState(null);
-  const VACIO={nombre:"",color:COLORES_ESPECIES[0].hex,observaciones:""};
-  const [form,setForm]=useState(VACIO);
-  const [showForm,setShowForm]=useState(false);
-  const [busq,setBusq]=useState("");
-
-  // Detectar especies escritas a mano en obtentores/contratos/variedades que aún no están en el maestro
-  const sugerencias = useMemo(()=>{
-    const enMaestro = new Set((especies||[]).map(e=>e.nombre.toLowerCase().trim()));
-    const detectadas = new Map(); // nombre → fuente
-    (obtentores||[]).forEach(o=>(o.especies||[]).forEach(e=>{
-      if(e.especie && !enMaestro.has(e.especie.toLowerCase().trim())) {
-        detectadas.set(e.especie.trim(), `Obtentor ${o.obtentor}`);
-      }
-    }));
-    (contratos||[]).forEach(c=>(c.plantaciones||[]).forEach(p=>{
-      if(p.especie && !enMaestro.has(p.especie.toLowerCase().trim())) {
-        if(!detectadas.has(p.especie.trim())) detectadas.set(p.especie.trim(), `Contrato ${c.razonSocial}`);
-      }
-    }));
-    (variedades||[]).forEach(v=>{
-      if(v.especie && !enMaestro.has(v.especie.toLowerCase().trim())) {
-        if(!detectadas.has(v.especie.trim())) detectadas.set(v.especie.trim(), `Variedad ${v.especie} · ${v.variedad}`);
-      }
-    });
-    return Array.from(detectadas.entries()).map(([nombre,fuente])=>({nombre,fuente}));
-  },[especies,obtentores,contratos,variedades]);
-
-  function guardar(){
-    if(!form.nombre.trim()){alert("Nombre de especie es obligatorio.");return;}
-    const nombreNorm = form.nombre.trim();
-    const dupe = (especies||[]).find(e =>
-      e.id !== editId &&
-      e.nombre?.toLowerCase().trim() === nombreNorm.toLowerCase()
-    );
-    if(dupe){alert(`Ya existe la especie "${nombreNorm}".`);return;}
-    if(editId){
-      const anterior = especies.find(e=>e.id===editId);
-      setEspecies(prev=>prev.map(e=>e.id===editId?{...e,...form,nombre:nombreNorm}:e));
-      if(anterior) {
-        Object.keys(form).forEach(k=>{
-          const va = String(anterior[k]||"");
-          const vn = k==="nombre"?nombreNorm:String(form[k]||"");
-          if(va !== vn) {
-            window.auditLog&&window.auditLog("editar", {modulo:"osiris", seccion:"Maestro Especies",
-              descripcion:`Editó especie "${nombreNorm}": campo ${k}`,
-              registroId:editId, campo:k, valorAnterior:va, valorNuevo:vn});
-          }
-        });
-      }
-      setEditId(null);
-    } else {
-      const id = `esp_${Date.now()}`;
-      setEspecies(prev=>[...(prev||[]),{...form,nombre:nombreNorm,id}]);
-      window.auditLog&&window.auditLog("crear", {modulo:"osiris", seccion:"Maestro Especies",
-        descripcion:`Creó especie "${nombreNorm}"`,
-        registroId:id});
-    }
-    setForm(VACIO);
-    setShowForm(false);
-  }
-  function importarSugerencia(s, idxColor){
-    if(!can) return;
-    const id = `esp_${Date.now()}`;
-    const color = COLORES_ESPECIES[idxColor % COLORES_ESPECIES.length].hex;
-    setEspecies(prev=>[...(prev||[]),{id, nombre:s.nombre, color, observaciones:""}]);
-    window.auditLog&&window.auditLog("crear", {modulo:"osiris", seccion:"Maestro Especies",
-      descripcion:`Importó especie "${s.nombre}" (detectada en ${s.fuente})`,
-      registroId:id});
-  }
-  function importarTodas(){
-    if(!can || sugerencias.length===0) return;
-    if(!window.confirm(`¿Importar ${sugerencias.length} especies detectadas?`)) return;
-    const baseLen = (especies||[]).length;
-    const nuevas = sugerencias.map((s, i)=>({
-      id:`esp_${Date.now()}_${i}`,
-      nombre:s.nombre,
-      color: COLORES_ESPECIES[(baseLen+i) % COLORES_ESPECIES.length].hex,
-      observaciones:"",
-    }));
-    setEspecies(prev=>[...(prev||[]),...nuevas]);
-    window.auditLog&&window.auditLog("crear", {modulo:"osiris", seccion:"Maestro Especies",
-      descripcion:`Importó ${nuevas.length} especies detectadas (${nuevas.map(e=>e.nombre).join(", ")})`});
-  }
-  function iniciarEdicion(e){
-    setForm({nombre:e.nombre||"",color:e.color||COLORES_ESPECIES[0].hex,observaciones:e.observaciones||""});
-    setEditId(e.id);setShowForm(true);
-  }
-
-  const filtrado = (especies||[]).filter(e=>!busq||
-    e.nombre.toLowerCase().includes(busq.toLowerCase())||
-    (e.observaciones||"").toLowerCase().includes(busq.toLowerCase()));
-
-  return(
-    <div style={{background:"#f0fdfa",border:"1px solid #5eead4",borderRadius:12,padding:"16px 20px",marginBottom:16}}>
-      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12,flexWrap:"wrap",gap:8}}>
-        <div style={{fontSize:13,fontWeight:700,color:"#115e59"}}>🌳 Maestro de Especies</div>
-        <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
-          <input value={busq} onChange={e=>setBusq(e.target.value)} placeholder="Buscar..."
-            style={{padding:"5px 10px",borderRadius:6,border:"1px solid #5eead4",fontSize:12,outline:"none"}}/>
-          {can&&sugerencias.length>0&&<button onClick={importarTodas}
-            style={{padding:"6px 12px",borderRadius:6,background:"#7c3aed",color:"#fff",border:"none",cursor:"pointer",fontSize:11,fontWeight:600}}>
-            📥 Importar {sugerencias.length} detectadas
-          </button>}
-          {can&&<button onClick={()=>{setShowForm(v=>!v);setEditId(null);setForm(VACIO);}}
-            style={{padding:"6px 14px",borderRadius:6,background:"#0d9488",color:"#fff",border:"none",cursor:"pointer",fontSize:12,fontWeight:600}}>
-            {showForm&&!editId?"✕":"+ Nueva especie"}
-          </button>}
-        </div>
-      </div>
-
-      {showForm&&can&&(
-        <div style={{background:"#fff",borderRadius:10,padding:"14px 16px",marginBottom:12,border:"1px solid #5eead4"}}>
-          <div style={{fontSize:12,fontWeight:700,color:"#115e59",marginBottom:10}}>{editId?"Editar especie":"Nueva especie"}</div>
-          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:10}}>
-            <div>
-              <div style={{fontSize:11,color:"#64748b",fontWeight:600,marginBottom:3}}>Nombre *</div>
-              <input value={form.nombre} placeholder="Cerezo, Arándano, Uva..." onChange={e=>setForm(p=>({...p,nombre:e.target.value}))}
-                style={{width:"100%",padding:"6px 8px",borderRadius:6,border:"1px solid #d1d5db",fontSize:12,outline:"none",boxSizing:"border-box"}}/>
-            </div>
-            <div>
-              <div style={{fontSize:11,color:"#64748b",fontWeight:600,marginBottom:3}}>Observaciones</div>
-              <input value={form.observaciones} onChange={e=>setForm(p=>({...p,observaciones:e.target.value}))}
-                style={{width:"100%",padding:"6px 8px",borderRadius:6,border:"1px solid #d1d5db",fontSize:12,outline:"none",boxSizing:"border-box"}}/>
-            </div>
-          </div>
-          <div style={{marginBottom:10}}>
-            <div style={{fontSize:11,color:"#64748b",fontWeight:600,marginBottom:6}}>Color identificador</div>
-            <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
-              {COLORES_ESPECIES.map(c=>(
-                <button key={c.hex} type="button" onClick={()=>setForm(p=>({...p,color:c.hex}))}
-                  title={c.nombre}
-                  style={{width:32,height:32,borderRadius:8,background:c.hex,border:form.color===c.hex?"3px solid #1e293b":"2px solid #fff",
-                  boxShadow:form.color===c.hex?"0 0 0 2px #5eead4":"0 1px 3px #0002",cursor:"pointer",padding:0}}/>
-              ))}
-              <input type="color" value={form.color} onChange={e=>setForm(p=>({...p,color:e.target.value}))}
-                style={{width:32,height:32,padding:0,border:"2px solid #fff",borderRadius:8,cursor:"pointer",boxShadow:"0 1px 3px #0002"}}/>
-            </div>
-            <div style={{marginTop:8,padding:"6px 12px",background:form.color,color:"#fff",borderRadius:6,fontSize:11,fontWeight:700,display:"inline-block",textShadow:"0 1px 2px #0006"}}>Vista previa: {form.nombre||"Especie"}</div>
-          </div>
-          <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}>
-            <button onClick={()=>{setShowForm(false);setEditId(null);}} style={{padding:"6px 16px",borderRadius:6,border:"1px solid #d1d5db",background:"#fff",cursor:"pointer",fontSize:12}}>Cancelar</button>
-            <button onClick={guardar} style={{padding:"6px 16px",borderRadius:6,background:"#0d9488",color:"#fff",border:"none",cursor:"pointer",fontSize:12,fontWeight:600}}>💾 Guardar</button>
-          </div>
-        </div>
-      )}
-
-      {/* Sugerencias detectadas no importadas */}
-      {sugerencias.length>0&&can&&!showForm&&(
-        <div style={{background:"#fff",border:"1px dashed #fb923c",borderRadius:10,padding:"10px 14px",marginBottom:12}}>
-          <div style={{fontSize:11,fontWeight:700,color:"#c2410c",marginBottom:8}}>💡 {sugerencias.length} especies detectadas en uso pero no en el maestro:</div>
-          <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
-            {sugerencias.map((s,i)=>(
-              <button key={s.nombre} onClick={()=>importarSugerencia(s,(especies||[]).length+i)} title={`Detectada en: ${s.fuente}`}
-                style={{padding:"4px 10px",borderRadius:14,background:"#fff7ed",border:"1px solid #fb923c",cursor:"pointer",fontSize:11,color:"#c2410c",fontWeight:600}}>
-                + {s.nombre}
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
-
-      <div style={{overflowX:"auto"}}>
-        <table style={{borderCollapse:"collapse",width:"100%",background:"#fff",borderRadius:8,overflow:"hidden",fontSize:12}}>
-          <thead><tr style={{background:"#0d9488",color:"#fff"}}>
-            {["","Nombre","Variedades","Plantaciones","Observaciones",""].map(h=>(
-              <th key={h} style={{padding:"7px 10px",textAlign:"left",fontWeight:600,fontSize:11,whiteSpace:"nowrap"}}>{h}</th>
-            ))}
-          </tr></thead>
-          <tbody>
-            {filtrado.map((e,i)=>{
-              // Conteos: cuántas variedades del maestro y cuántas plantaciones usan esta especie
-              const nVariedades = (variedades||[]).filter(v=>v.especie?.toLowerCase().trim() === e.nombre.toLowerCase().trim()).length;
-              const nPlantaciones = (contratos||[]).reduce((s,c)=>
-                s + ((c.plantaciones||[]).filter(p=>p.especie?.toLowerCase().trim() === e.nombre.toLowerCase().trim()).length), 0);
-              return (
-                <tr key={e.id} style={{borderBottom:"1px solid #ccfbf1",background:i%2===0?"#fff":"#f0fdfa"}}>
-                  <td style={{padding:"6px 10px",width:32}}>
-                    <div style={{width:24,height:24,borderRadius:6,background:e.color||"#475569",boxShadow:"0 1px 3px #0002"}}/>
-                  </td>
-                  <td style={{padding:"6px 10px",fontWeight:700,color:"#1e293b"}}>{e.nombre}</td>
-                  <td style={{padding:"6px 10px",color:"#64748b"}}>{nVariedades>0?<span style={{padding:"2px 8px",borderRadius:10,background:"#fef3c7",color:"#92400e",fontSize:10,fontWeight:700}}>{nVariedades}</span>:"—"}</td>
-                  <td style={{padding:"6px 10px",color:"#64748b"}}>{nPlantaciones>0?<span style={{padding:"2px 8px",borderRadius:10,background:"#dcfce7",color:"#15803d",fontSize:10,fontWeight:700}}>{nPlantaciones}</span>:"—"}</td>
-                  <td style={{padding:"6px 10px",color:"#64748b",fontSize:11}}>{e.observaciones||"—"}</td>
-                  <td style={{padding:"6px 8px",textAlign:"center"}}>
-                    {can&&<div style={{display:"flex",gap:4}}>
-                      <button onClick={()=>iniciarEdicion(e)} style={{background:"#dbeafe",border:"none",borderRadius:4,padding:"3px 8px",cursor:"pointer",fontSize:11,color:"#1d4ed8",fontWeight:600}}>✏️</button>
-                      <button onClick={()=>{
-                        if(nVariedades>0||nPlantaciones>0) {
-                          if(!window.confirm(`Esta especie está en uso por ${nVariedades} variedad(es) y ${nPlantaciones} plantación(es). ¿Eliminar de todos modos? (los registros que la usan no se borran, solo perderán el link al maestro)`))return;
-                        } else {
-                          if(!window.confirm(`¿Eliminar especie "${e.nombre}"?`))return;
-                        }
-                        window.auditLog&&window.auditLog("eliminar", {modulo:"osiris", seccion:"Maestro Especies",
-                          descripcion:`Eliminó especie "${e.nombre}"`,
-                          registroId:e.id});
-                        setEspecies(prev=>(prev||[]).filter(x=>x.id!==e.id));
-                      }}
-                        style={{background:"#fee2e2",border:"none",borderRadius:4,padding:"3px 8px",cursor:"pointer",fontSize:11,color:"#991b1b",fontWeight:600}}>×</button>
-                    </div>}
-                  </td>
-                </tr>
-              );
-            })}
-            {filtrado.length===0&&<tr><td colSpan={6} style={{textAlign:"center",padding:20,color:"#94a3b8"}}>Sin especies. {can?(sugerencias.length>0?`Hay ${sugerencias.length} especies detectadas listas para importar arriba.`:"Agrega una con \"+ Nueva especie\"."):""}</td></tr>}
-          </tbody>
-        </table>
-      </div>
-    </div>
-  );
-}
-
-// ── Maestro de Variedades ────────────────────────────────────
-// Catálogo central de variedades, linkable con contratos de obtentor
-function MaestroVariedades({variedades,setVariedades,can,obtentores=[],especies=[],setEspecies}){
-  const [editId,setEditId]=useState(null);
-  const VACIO={especie:"",variedad:"",obtentor:"",observaciones:""};
-  const [form,setForm]=useState(VACIO);
-  const [showForm,setShowForm]=useState(false);
-  const [busq,setBusq]=useState("");
-
-  // Recopilar variedades únicas desde contratos obtentores (para sugerir)
-  const variedadesObtentor = useMemo(()=>{
-    const out = [];
-    (obtentores||[]).forEach(o=>(o.especies||[]).forEach(e=>{
-      out.push({especie:e.especie, variedad:e.variedad, obtentor:o.obtentor});
-    }));
-    return out;
-  },[obtentores]);
-  const sugerencias = variedadesObtentor.filter(s=>
-    !(variedades||[]).some(v=>v.especie===s.especie && v.variedad===s.variedad)
-  );
-
-  function guardar(){
-    if(!form.especie.trim() || !form.variedad.trim()){alert("Especie y Variedad son obligatorias.");return;}
-    // Evitar duplicados
-    const dupe = (variedades||[]).find(v =>
-      v.id !== editId &&
-      v.especie?.toLowerCase().trim() === form.especie.toLowerCase().trim() &&
-      v.variedad?.toLowerCase().trim() === form.variedad.toLowerCase().trim()
-    );
-    if(dupe){alert(`Ya existe la variedad "${form.especie} · ${form.variedad}".`);return;}
-    if(editId){
-      const anterior = variedades.find(v=>v.id===editId);
-      setVariedades(prev=>prev.map(v=>v.id===editId?{...v,...form}:v));
-      if(anterior) {
-        Object.keys(form).forEach(k=>{
-          if(String(anterior[k]||"") !== String(form[k]||"")) {
-            window.auditLog&&window.auditLog("editar", {modulo:"osiris", seccion:"Maestro Variedades",
-              descripcion:`Editó variedad "${form.especie} · ${form.variedad}": campo ${k}`,
-              registroId:editId, campo:k,
-              valorAnterior:String(anterior[k]||""), valorNuevo:String(form[k]||"")});
-          }
-        });
-      }
-      setEditId(null);
-    } else {
-      const id = `var_${Date.now()}`;
-      setVariedades(prev=>[...(prev||[]),{...form,id}]);
-      window.auditLog&&window.auditLog("crear", {modulo:"osiris", seccion:"Maestro Variedades",
-        descripcion:`Creó variedad "${form.especie} · ${form.variedad}"${form.obtentor?` · Obtentor ${form.obtentor}`:""}`,
-        registroId:id});
-    }
-    setForm(VACIO);
-    setShowForm(false);
-  }
-  function importarSugerencia(s){
-    if(!can) return;
-    const dupe = (variedades||[]).find(v=>
-      v.especie?.toLowerCase().trim() === s.especie.toLowerCase().trim() &&
-      v.variedad?.toLowerCase().trim() === s.variedad.toLowerCase().trim()
-    );
-    if(dupe) return;
-    const id = `var_${Date.now()}`;
-    setVariedades(prev=>[...(prev||[]),{id, especie:s.especie, variedad:s.variedad, obtentor:s.obtentor, observaciones:""}]);
-    window.auditLog&&window.auditLog("crear", {modulo:"osiris", seccion:"Maestro Variedades",
-      descripcion:`Importó variedad desde Obtentor "${s.especie} · ${s.variedad}" (${s.obtentor})`,
-      registroId:id});
-  }
-  function importarTodas(){
-    if(!can || sugerencias.length===0) return;
-    if(!window.confirm(`¿Importar ${sugerencias.length} variedades desde los contratos obtentores?`)) return;
-    const nuevas = sugerencias.map(s=>({
-      id:`var_${Date.now()}_${Math.random().toString(36).slice(2,7)}`,
-      especie:s.especie, variedad:s.variedad, obtentor:s.obtentor, observaciones:""
-    }));
-    setVariedades(prev=>[...(prev||[]),...nuevas]);
-    window.auditLog&&window.auditLog("crear", {modulo:"osiris", seccion:"Maestro Variedades",
-      descripcion:`Importó ${nuevas.length} variedades desde contratos obtentores`});
-  }
-  function iniciarEdicion(v){
-    setForm({especie:v.especie||"",variedad:v.variedad||"",obtentor:v.obtentor||"",observaciones:v.observaciones||""});
-    setEditId(v.id);setShowForm(true);
-  }
-
-  const filtrado = (variedades||[]).filter(v=>!busq||
-    v.especie.toLowerCase().includes(busq.toLowerCase())||
-    v.variedad.toLowerCase().includes(busq.toLowerCase())||
-    (v.obtentor||"").toLowerCase().includes(busq.toLowerCase()));
-
-  return(
-    <div style={{background:"#fef3c7",border:"1px solid #fbbf24",borderRadius:12,padding:"16px 20px",marginBottom:16}}>
-      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12,flexWrap:"wrap",gap:8}}>
-        <div style={{fontSize:13,fontWeight:700,color:"#78350f"}}>🌿 Maestro de Variedades</div>
-        <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
-          <input value={busq} onChange={e=>setBusq(e.target.value)} placeholder="Buscar..."
-            style={{padding:"5px 10px",borderRadius:6,border:"1px solid #fbbf24",fontSize:12,outline:"none"}}/>
-          {can&&sugerencias.length>0&&<button onClick={importarTodas}
-            style={{padding:"6px 12px",borderRadius:6,background:"#7c3aed",color:"#fff",border:"none",cursor:"pointer",fontSize:11,fontWeight:600}}>
-            📥 Importar {sugerencias.length} desde Obtentores
-          </button>}
-          {can&&<button onClick={()=>{setShowForm(v=>!v);setEditId(null);setForm(VACIO);}}
-            style={{padding:"6px 14px",borderRadius:6,background:"#d97706",color:"#fff",border:"none",cursor:"pointer",fontSize:12,fontWeight:600}}>
-            {showForm&&!editId?"✕":"+ Nueva variedad"}
-          </button>}
-        </div>
-      </div>
-
-      {showForm&&can&&(
-        <div style={{background:"#fff",borderRadius:10,padding:"14px 16px",marginBottom:12,border:"1px solid #fbbf24"}}>
-          <div style={{fontSize:12,fontWeight:700,color:"#78350f",marginBottom:10}}>{editId?"Editar variedad":"Nueva variedad"}</div>
-          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:10}}>
-            <div>
-              <div style={{fontSize:11,color:"#64748b",fontWeight:600,marginBottom:3}}>Especie *</div>
-              {(especies||[]).length>0?(
-                <div style={{display:"flex",gap:4}}>
-                  <select value={form.especie||""} onChange={e=>{
-                    if(e.target.value==="__nueva__") {
-                      const nombre = window.prompt("Nombre de la nueva especie:");
-                      if(!nombre || !nombre.trim()) return;
-                      const dupe = (especies||[]).find(x=>x.nombre.toLowerCase().trim()===nombre.toLowerCase().trim());
-                      if(dupe) { setForm(p=>({...p,especie:dupe.nombre})); return; }
-                      const id = `esp_${Date.now()}`;
-                      const idxColor = (especies||[]).length % COLORES_ESPECIES.length;
-                      const nueva = {id, nombre:nombre.trim(), color:COLORES_ESPECIES[idxColor].hex, observaciones:""};
-                      setEspecies&&setEspecies(prev=>[...(prev||[]),nueva]);
-                      window.auditLog&&window.auditLog("crear",{modulo:"osiris",seccion:"Maestro Especies",
-                        descripcion:`Creó especie "${nombre.trim()}" desde Maestro Variedades`,registroId:id});
-                      setForm(p=>({...p,especie:nombre.trim()}));
-                    } else {
-                      setForm(p=>({...p,especie:e.target.value}));
-                    }
-                  }}
-                    style={{flex:1,padding:"6px 8px",borderRadius:6,border:"1px solid #d1d5db",fontSize:12,outline:"none",boxSizing:"border-box",background:"#fff"}}>
-                    <option value="">— Seleccionar —</option>
-                    {(especies||[]).map(e=><option key={e.id} value={e.nombre}>{e.nombre}</option>)}
-                    <option value="__nueva__">＋ Crear nueva...</option>
-                  </select>
-                  {form.especie&&(()=>{
-                    const esp = (especies||[]).find(x=>x.nombre===form.especie);
-                    return esp?<div title={esp.nombre} style={{width:30,height:30,borderRadius:6,background:esp.color,boxShadow:"0 1px 3px #0002"}}/>:null;
-                  })()}
-                </div>
-              ):(
-                <input value={form.especie} placeholder="Cerezo, Arándano, Uva..." onChange={e=>setForm(p=>({...p,especie:e.target.value}))}
-                  style={{width:"100%",padding:"6px 8px",borderRadius:6,border:"1px solid #d1d5db",fontSize:12,outline:"none",boxSizing:"border-box"}}/>
-              )}
-            </div>
-            <div>
-              <div style={{fontSize:11,color:"#64748b",fontWeight:600,marginBottom:3}}>Variedad *</div>
-              <input value={form.variedad} placeholder="Royal Dawn, Sweet Heart..." onChange={e=>setForm(p=>({...p,variedad:e.target.value}))}
-                style={{width:"100%",padding:"6px 8px",borderRadius:6,border:"1px solid #d1d5db",fontSize:12,outline:"none",boxSizing:"border-box"}}/>
-            </div>
-            <div>
-              <div style={{fontSize:11,color:"#64748b",fontWeight:600,marginBottom:3}}>Obtentor</div>
-              <input value={form.obtentor} placeholder="SunWorld, IFG, Bloom Fresh..." onChange={e=>setForm(p=>({...p,obtentor:e.target.value}))}
-                list="obtentores-list"
-                style={{width:"100%",padding:"6px 8px",borderRadius:6,border:"1px solid #d1d5db",fontSize:12,outline:"none",boxSizing:"border-box"}}/>
-              <datalist id="obtentores-list">
-                {[...new Set((obtentores||[]).map(o=>o.obtentor).filter(Boolean))].map(o=><option key={o} value={o}/>)}
-              </datalist>
-            </div>
-            <div>
-              <div style={{fontSize:11,color:"#64748b",fontWeight:600,marginBottom:3}}>Observaciones</div>
-              <input value={form.observaciones} onChange={e=>setForm(p=>({...p,observaciones:e.target.value}))}
-                style={{width:"100%",padding:"6px 8px",borderRadius:6,border:"1px solid #d1d5db",fontSize:12,outline:"none",boxSizing:"border-box"}}/>
-            </div>
-          </div>
-          <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}>
-            <button onClick={()=>{setShowForm(false);setEditId(null);}} style={{padding:"6px 16px",borderRadius:6,border:"1px solid #d1d5db",background:"#fff",cursor:"pointer",fontSize:12}}>Cancelar</button>
-            <button onClick={guardar} style={{padding:"6px 16px",borderRadius:6,background:"#d97706",color:"#fff",border:"none",cursor:"pointer",fontSize:12,fontWeight:600}}>💾 Guardar</button>
-          </div>
-        </div>
-      )}
-
-      <div style={{overflowX:"auto"}}>
-        <table style={{borderCollapse:"collapse",width:"100%",background:"#fff",borderRadius:8,overflow:"hidden",fontSize:12}}>
-          <thead><tr style={{background:"#d97706",color:"#fff"}}>
-            {["Especie","Variedad","Obtentor","Observaciones",""].map(h=>(
-              <th key={h} style={{padding:"7px 10px",textAlign:"left",fontWeight:600,fontSize:11,whiteSpace:"nowrap"}}>{h}</th>
-            ))}
-          </tr></thead>
-          <tbody>
-            {filtrado.map((v,i)=>(
-              <tr key={v.id} style={{borderBottom:"1px solid #fef3c7",background:i%2===0?"#fff":"#fffbeb"}}>
-                <td style={{padding:"6px 10px",fontWeight:600,color:"#78350f"}}>{v.especie}</td>
-                <td style={{padding:"6px 10px",fontWeight:600,color:"#1e293b"}}>{v.variedad}</td>
-                <td style={{padding:"6px 10px",color:"#64748b"}}>{v.obtentor||"—"}</td>
-                <td style={{padding:"6px 10px",color:"#64748b",fontSize:11}}>{v.observaciones||"—"}</td>
-                <td style={{padding:"6px 8px",textAlign:"center"}}>
-                  {can&&<div style={{display:"flex",gap:4}}>
-                    <button onClick={()=>iniciarEdicion(v)} style={{background:"#dbeafe",border:"none",borderRadius:4,padding:"3px 8px",cursor:"pointer",fontSize:11,color:"#1d4ed8",fontWeight:600}}>✏️</button>
-                    <button onClick={()=>{
-                      if(!window.confirm(`¿Eliminar variedad "${v.especie} · ${v.variedad}"?`))return;
-                      window.auditLog&&window.auditLog("eliminar", {modulo:"osiris", seccion:"Maestro Variedades",
-                        descripcion:`Eliminó variedad "${v.especie} · ${v.variedad}"`,
-                        registroId:v.id});
-                      setVariedades(prev=>(prev||[]).filter(x=>x.id!==v.id));
-                    }}
-                      style={{background:"#fee2e2",border:"none",borderRadius:4,padding:"3px 8px",cursor:"pointer",fontSize:11,color:"#991b1b",fontWeight:600}}>×</button>
-                  </div>}
-                </td>
-              </tr>
-            ))}
-            {filtrado.length===0&&<tr><td colSpan={5} style={{textAlign:"center",padding:20,color:"#94a3b8"}}>Sin variedades. {can?(sugerencias.length>0?`Hay ${sugerencias.length} sugerencias desde obtentores.`:"Agrega una con \"+ Nueva variedad\"."):""}</td></tr>}
-          </tbody>
-        </table>
-      </div>
-    </div>
-  );
-}
-// ══════════════════════════════════════════════════════════
-// DERIVADORES DE INGRESOS DESDE CONTRATO
-// El contrato es la fuente de verdad. Estos helpers calculan
-// los registros de Contract Fee, Royalty Planta y Royalty Comercial.
-// ══════════════════════════════════════════════════════════
-function derivarContractFeeDesdeContratos(ctData) {
-  return (ctData||[])
-    .filter(ct => ct.tipoContractFee && ct.tipoContractFee !== "Sin Contract Fee")
-    .map(ct => ({
-      id: `cf_${ct.id}`,
-      ctId: ct.id,
-      cliente: ct.razonSocial,
-      pais: ct.pais,
-      montoUSD: Number(ct.montoContractFee)||0,
-      montoNeto: Number(ct.montoContractFee)||0, // Contract Fee NO lleva WHT
-      whtPct: 0, // Sin WHT
-      detalle: ct.tipoContractFee,
-      fechaContrato: ct.fechaContrato || "",
-      pagado: !!ct.contractFeePagado,
-      fechaPago: ct.contractFeeFechaPago || "",
-      nFact: ct.contractFeeNFact || "",
-      _fromContract: true,
-    }));
-}
-
-function derivarRoyaltyPlantaDesdeContratos(ctData) {
-  // Por cada cuota × contrato genera un registro
-  const out = [];
-  (ctData||[]).forEach(ct => {
-    const totPlantas = (ct.plantaciones||[]).reduce((s,p)=>s+(Number(p.nPlantas)||0),0);
-    if(totPlantas===0) return;
-    const valorPorPlanta = Number(ct.valorRoyaltyPlanta)||1;
-    const montoTotalUSD = totPlantas * valorPorPlanta;
-    const cuotas = ct.rpPlantaCuotas && ct.rpPlantaCuotas.length>0 ? ct.rpPlantaCuotas : RP_CUOTAS_DEFAULT;
-    cuotas.forEach((cuo, idx) => {
-      const pctCuota = (Number(cuo.pct)||0)/100;
-      const montoCuota = montoTotalUSD * pctCuota;
-      out.push({
-        id: `rp_${ct.id}_${cuo.id||idx}`,
-        ctId: ct.id,
-        cuotaId: cuo.id||`cuo_${idx}`,
-        cliente: ct.razonSocial,
-        pais: ct.pais,
-        nPlantas: totPlantas,
-        usdPlanta: valorPorPlanta,
-        descripcionCuota: cuo.descripcion||`Cuota ${idx+1}`,
-        pctCuota: Number(cuo.pct)||0,
-        montoFact: montoCuota,                 // 100%
-        montoCobro: montoCuota * pct(ct.pais), // con WHT
-        whtPct: pct(ct.pais)===1 ? 0 : 15,
-        fechaEvento: cuo.fechaEvento || "",
-        pagado: !!cuo.pagado,
-        fechaPago: cuo.fechaPago || "",
-        nFact: cuo.nFact || "",
-        _fromContract: true,
-      });
-    });
-  });
-  return out;
-}
-
-function derivarRoyaltyComercialDesdeContratos(ctData) {
-  // Por cada temporada × contrato genera un registro
-  const out = [];
-  (ctData||[]).forEach(ct => {
-    const haTotal = (ct.plantaciones||[]).reduce((s,p)=>s+(Number(p.hectareas)||0),0);
-    if(haTotal===0) return;
-    const valorPorHa = Number(ct.valorRoyaltyComercial)||0;
-    if(valorPorHa===0) return;
-    const inicioTemp = ct.rcInicioTemporada || temporadaActual();
-    const mesCobro = ct.rcMesCobro || RC_MES_DEFAULT_POR_PAIS[ct.pais] || "Abril";
-    const temps = temporadasEntre(inicioTemp, ct.fechaTermino);
-    temps.forEach(temp => {
-      const montoFact = haTotal * valorPorHa;
-      const montoCobro = montoFact * pct(ct.pais);
-      // Pagos guardados por temporada en el contrato
-      const pagosKey = ct.rcPagos || {};
-      const pago = pagosKey[temp] || {};
-      out.push({
-        id: `rc_${ct.id}_${temp.replace("/","")}`,
-        ctId: ct.id,
-        temporada: temp,
-        cliente: ct.razonSocial,
-        pais: ct.pais,
-        haTotal,
-        valorPorHa,
-        montoFact,
-        montoCobro,
-        whtPct: pct(ct.pais)===1 ? 0 : 15,
-        mesCobro,
-        añoCobro: parseInt(temp.split("/")[1]),
-        pagado: !!pago.pagado,
-        fechaPago: pago.fechaPago || "",
-        nFact: pago.nFact || "",
-        _fromContract: true,
-      });
-    });
-  });
-  return out;
-}
-
-function derivarTotalPedidosDesdeContratos(ctData) {
-  // Una fila por plantación de cada contrato
-  const out = [];
-  (ctData||[]).forEach(ct => {
-    (ct.plantaciones||[]).forEach(p => {
-      out.push({
-        id: `tp_${ct.id}_${p.id}`,
-        ctId: ct.id,
-        plantacionId: p.id,
-        cliente: ct.razonSocial,
-        pais: ct.pais,
-        especie: p.especie || "",
-        variedad: p.variedad || "",
-        nPlantas: Number(p.nPlantas)||0,
-        hectareas: Number(p.hectareas)||0,
-        fechaPlantacion: p.fechaPlantacion || "",
-        sublicenciatario: p.sublicenciatario_nombre || "",
-        estado: p.estado || "Confirmado",
-        _fromContract: true,
-      });
-    });
-  });
-  return out;
-}
-
+// ── Exportar contratos a Excel (.xlsx) con formato ──────────
 async function exportarContratos(filtrado) {
   const anx = r => {
     const partes = [];
@@ -5396,7 +3557,7 @@ async function exportarContratos(filtrado) {
   });
 }
 
-function ControlContratos({data,setData,clientes,setClientes,variedadesMaestro=[],setVariedadesMaestro,especiesMaestro=[],setEspeciesMaestro,obtentoresData=[],viverosData=[],setViveros,can}){
+function ControlContratos({data,setData,clientes,setClientes,can}){
   const [vista,setVista]=useState("tabla");
   const [sel,setSel]=useState(null);
   const [sec,setSec]=useState("empresa");
@@ -5407,11 +3568,6 @@ function ControlContratos({data,setData,clientes,setClientes,variedadesMaestro=[
   const [tiposAnexo,setTiposAnexo]=useState(TIPOS_ANEXO_BASE);
   const [showMantenedor,setShowMantenedor]=useState(false);
   const [showClientes,setShowClientes]=useState(false);
-  const [showVariedades,setShowVariedades]=useState(false);
-  const [showEspecies,setShowEspecies]=useState(false);
-  // Modal edición de tanda de despacho
-  const [tandaModal, setTandaModal] = useState(null); // {ctId, pltId, tandaIdx, tanda}
-  const ESTADOS_TANDA = ["Programado","En tránsito","Entregado","Con observaciones"];
   const [nuevoTipo,setNuevoTipo]=useState("");
   const [nuevoAnexo,setNuevoAnexo]=useState("");
   const [clienteSelId,setClienteSelId]=useState("");
@@ -5420,7 +3576,6 @@ function ControlContratos({data,setData,clientes,setClientes,variedadesMaestro=[
   const formVacio={
     razonSocial:"",nombreComercial:"",taxID:"",pais:"Peru",direccion:"",ciudad:"",
     tipoContrato:"Licencia",moneda:"USD",fechaContrato:"",fechaTermino:"",
-    renovable:false,fechaTerminoNueva:"",
     firmadoLicenciado:false,firmadoOsiris:false,verDigital:"",linkContrato:"",
     anexo1:{...formAnexoVacio},anexo2:{...formAnexoVacio},anexo3:{...formAnexoVacio},
     nombreRep:"",personeria:"",nombrePredio:"",direccionPredio:"",cuartel:"",
@@ -5428,24 +3583,11 @@ function ControlContratos({data,setData,clientes,setClientes,variedadesMaestro=[
     tipoContractFee:"Sin Devolución",montoContractFee:30000,
     valorRoyaltyPlanta:1.00,valorRoyaltyComercial:3000,
     royaltyInflacion:false,mesFacuracionRC:"",notas:"",
-    // Nuevos campos sesión 9
-    plantaciones:[],
-    sublicenciatarios:[],
-    rcInicioTemporada:"",  // ej "2026/2027"
-    rcMesCobro:"",          // hereda de RC_MES_DEFAULT_POR_PAIS si vacío al usar
-    rpPlantaCuotas:[
-      {id:"cuo_firma",      descripcion:"Al firmar contrato", pct:50, fechaEvento:""},
-      {id:"cuo_plantacion", descripcion:"A la plantación",    pct:50, fechaEvento:""},
-    ],
-    rcPagos:{},   // {temporada: {pagado, fechaPago, nFact}}
-    contractFeePagado:false, contractFeeFechaPago:"", contractFeeNFact:"",
-    // Multa
+    // Nuevos campos
     llevaMulta:false,haMinContrato:0,
     tieneAnioPrueba:false,cantAnioPrueba:1,
   };
   const [form,setForm]=useState(formVacio);
-  // Wizard de "nuevo contrato": paso actual
-  const [wizStep, setWizStep] = useState(1);
 
   const upd=(id,c,v)=>setData(prev=>prev.map(r=>{
     if(r.id!==id) return r;
@@ -5461,70 +3603,6 @@ function ControlContratos({data,setData,clientes,setClientes,variedadesMaestro=[
     return {...r,[c]:v};
   }));
   const setF=(c,v)=>setForm(p=>({...p,[c]:v}));
-
-  // ── Helpers para sincronizar OC del vivero con plantaciones ─────────
-  // Cuando una plantación se crea/edita/elimina con vivero asociado, las OCs
-  // del contrato del vivero se mantienen sincronizadas automáticamente.
-  function generarOCEnVivero(plantacion) {
-    if(!setViveros) return;
-    if(!plantacion?.vivero_id || !plantacion?.nPlantas || !plantacion?.vivero_fee_usd) return;
-    const ocId = `oc_plt_${plantacion.id}_${Date.now()}`;
-    const productorActual = data.find(c=>c.plantaciones?.some(p=>p.id===plantacion.id));
-    setViveros(prev => (prev||[]).map(v=>{
-      if(v.id !== plantacion.vivero_id) return v;
-      const nuevaOC = {
-        id: ocId,
-        n_oc: `OC-${(v.ordenesCompra||[]).length+1}`,
-        cliente: productorActual?.razonSocial || "",
-        ctId: productorActual?.id || "",
-        plantacionId: plantacion.id,
-        variedad_id: plantacion.variedad_id || "",
-        especie: plantacion.especie || "",
-        variedad: plantacion.variedad || "",
-        plantas: plantacion.nPlantas,
-        fee: plantacion.vivero_fee_usd,
-        total: (plantacion.nPlantas||0) * (plantacion.vivero_fee_usd||0),
-        estado: "Pendiente",
-        f_oc: new Date().toISOString().split("T")[0],
-        observaciones: `Generada automáticamente desde plantación ${plantacion.especie} · ${plantacion.variedad}`,
-        _fromPlantacion: true,
-      };
-      return {...v, ordenesCompra: [...(v.ordenesCompra||[]), nuevaOC]};
-    }));
-    // También actualizar la plantación con el ocId
-    if(productorActual) {
-      const nextPl = (productorActual.plantaciones||[]).map(x =>
-        x.id === plantacion.id ? {...x, vivero_oc_id: ocId} : x);
-      setData(prev => prev.map(c => c.id === productorActual.id ? {...c, plantaciones:nextPl} : c));
-    }
-    window.auditLog && window.auditLog("crear", {modulo:"osiris", seccion:"OC Vivero (auto)",
-      descripcion:`OC autogenerada en vivero "${plantacion.vivero_nombre}" desde plantación ${plantacion.especie} · ${plantacion.variedad}: ${plantacion.nPlantas} plantas × $${plantacion.vivero_fee_usd}`,
-      registroId:ocId});
-  }
-  function actualizarOCEnVivero(viveroId, ocId, cambios) {
-    if(!setViveros || !viveroId || !ocId) return;
-    setViveros(prev => (prev||[]).map(v=>{
-      if(v.id !== viveroId) return v;
-      return {
-        ...v,
-        ordenesCompra: (v.ordenesCompra||[]).map(oc =>
-          oc.id === ocId ? {...oc, ...cambios} : oc)
-      };
-    }));
-  }
-  function removerOCDelVivero(viveroId, ocId) {
-    if(!setViveros || !viveroId || !ocId) return;
-    setViveros(prev => (prev||[]).map(v=>{
-      if(v.id !== viveroId) return v;
-      return {
-        ...v,
-        ordenesCompra: (v.ordenesCompra||[]).filter(oc => oc.id !== ocId)
-      };
-    }));
-    window.auditLog && window.auditLog("eliminar", {modulo:"osiris", seccion:"OC Vivero (auto)",
-      descripcion:`OC eliminada por unvinculación de plantación`,
-      registroId:ocId});
-  }
 
   const filtrado=data.filter(r=>
     (filtroPais==="Todos"||r.pais===filtroPais)&&
@@ -5634,16 +3712,6 @@ function ControlContratos({data,setData,clientes,setClientes,variedadesMaestro=[
                 <Campo label="Moneda" campo="moneda" opts={MONEDAS} r={r}/>
                 <Campo label="Fecha Contrato" campo="fechaContrato" tipo="date" r={r}/>
                 <Campo label="Fecha Término" campo="fechaTermino" tipo="date" r={r}/>
-                <div>
-                  <div style={{fontSize:11,color:C.gris,fontWeight:600,marginBottom:4}}>Renovable</div>
-                  <label style={{display:"flex",alignItems:"center",gap:8,cursor:can?"pointer":"default",
-                    background:r.renovable?"#dbeafe":"#f1f5f9",border:`1px solid ${r.renovable?"#60a5fa":"#d1d5db"}`,
-                    borderRadius:8,padding:"7px 12px",fontSize:12,fontWeight:600,color:r.renovable?"#1d4ed8":"#94a3b8"}}>
-                    <input type="checkbox" disabled={!can} checked={!!r.renovable} onChange={()=>upd(r.id,"renovable",!r.renovable)} style={{accentColor:"#2563eb"}}/>
-                    🔄 Contrato renovable
-                  </label>
-                </div>
-                {r.renovable&&<Campo label="📆 Nueva Fecha Vencimiento" campo="fechaTerminoNueva" tipo="date" r={r}/>}
                 <Campo label="Ver Digital (URL)" campo="verDigital" r={r}/>
                 <Campo label="📎 Link OneDrive contrato" campo="linkContrato" r={r}/>
               </div>
@@ -5828,742 +3896,38 @@ function ControlContratos({data,setData,clientes,setClientes,variedadesMaestro=[
             </div>
           )}
           {sec==="factura"&&(
-            <>
-              <div style={{padding:"10px 14px",background:"#fef3c7",borderRadius:8,border:"1px solid #fde68a",marginBottom:14,fontSize:11,color:"#78350f"}}>
-                💡 <strong>Recordatorio fiscal:</strong> Contract Fee no lleva WHT. Royalty Planta y Royalty Comercial sí están sujetos a WHT 15% en Perú/México (en Chile, sin WHT).
+            <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(210px,1fr))",gap:16}}>
+              <div>
+                <div style={{fontSize:11,color:C.gris,fontWeight:600,marginBottom:4}}>Tipo Contract Fee</div>
+                <Cell val={r.tipoContractFee} onChange={v=>upd(r.id,"tipoContractFee",v)} opts={TIPOS_FEE} can={can}/>
               </div>
-              <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(210px,1fr))",gap:16}}>
-                <div>
-                  <div style={{fontSize:11,color:C.gris,fontWeight:600,marginBottom:4}}>Tipo Contract Fee</div>
-                  <Cell val={r.tipoContractFee} onChange={v=>upd(r.id,"tipoContractFee",v)} opts={TIPOS_FEE} can={can}/>
-                  <div style={{fontSize:9,color:"#94a3b8",marginTop:3}}>Sin WHT</div>
-                </div>
-                <div>
-                  <div style={{fontSize:11,color:C.gris,fontWeight:600,marginBottom:4}}>Monto Contract Fee (USD)</div>
-                  <Cell val={r.montoContractFee} onChange={v=>upd(r.id,"montoContractFee",parseFloat(v)||0)} type="number" can={can}/>
-                </div>
-                <div>
-                  <div style={{fontSize:11,color:C.gris,fontWeight:600,marginBottom:4}}>Valor Royalty/Planta (USD)</div>
-                  <Cell val={r.valorRoyaltyPlanta} onChange={v=>upd(r.id,"valorRoyaltyPlanta",parseFloat(v)||0)} type="number" can={can}/>
-                  <div style={{fontSize:9,color:pct(r.pais)===1?"#94a3b8":"#dc2626",marginTop:3}}>{pct(r.pais)===1?"Sin WHT (Chile)":"WHT 15% — neto = "+(((Number(r.valorRoyaltyPlanta)||0)*0.85).toFixed(2))+" USD/planta"}</div>
-                </div>
-                <div>
-                  <div style={{fontSize:11,color:C.gris,fontWeight:600,marginBottom:4}}>Valor Royalty Comercial (USD/Há)</div>
-                  <Cell val={r.valorRoyaltyComercial} onChange={v=>upd(r.id,"valorRoyaltyComercial",parseFloat(v)||0)} type="number" can={can}/>
-                  <div style={{fontSize:9,color:pct(r.pais)===1?"#94a3b8":"#dc2626",marginTop:3}}>{pct(r.pais)===1?"Sin WHT (Chile)":"WHT 15% — neto = $"+(((Number(r.valorRoyaltyComercial)||0)*0.85).toFixed(0))+"/há"}</div>
-                </div>
-                <div>
-                  <div style={{fontSize:11,color:C.gris,fontWeight:600,marginBottom:4}}>📅 Mes Facturación RC</div>
-                  <Cell val={r.mesFacuracionRC||""} onChange={v=>upd(r.id,"mesFacuracionRC",v)} opts={["—",...MESES_ANO]} can={can}/>
-                  <div style={{fontSize:9,color:"#94a3b8",marginTop:3}}>Default {r.pais}: {RC_MES_DEFAULT_POR_PAIS[r.pais]||"Abril"}</div>
-                </div>
-                <div>
-                  <div style={{fontSize:11,color:C.gris,fontWeight:600,marginBottom:4}}>📆 Año primer cobro RC</div>
-                  <Cell val={r.anioPrimerCobroRC||""} onChange={v=>upd(r.id,"anioPrimerCobroRC",parseInt(v)||"")} type="number" can={can}/>
-                  <div style={{fontSize:9,color:"#94a3b8",marginTop:3}}>Ej. 2027 — luego se repite cada año hasta término</div>
-                </div>
-                <div style={{display:"flex",alignItems:"flex-end",paddingBottom:4}}>
-                  <label style={{display:"flex",alignItems:"center",gap:8,cursor:can?"pointer":"default",
-                    background:r.royaltyInflacion?C.amBg:"#f1f5f9",border:`1px solid ${r.royaltyInflacion?"#fde047":"#d1d5db"}`,
-                    borderRadius:10,padding:"9px 14px",fontSize:13,fontWeight:600,
-                    color:r.royaltyInflacion?C.am:"#94a3b8"}}>
-                    <input type="checkbox" checked={r.royaltyInflacion||false} disabled={!can} onChange={()=>upd(r.id,"royaltyInflacion",!r.royaltyInflacion)} style={{accentColor:"#d97706"}}/>
-                    📈 Sujeto a Inflación
-                  </label>
-                </div>
+              <div>
+                <div style={{fontSize:11,color:C.gris,fontWeight:600,marginBottom:4}}>Monto Contract Fee (USD)</div>
+                <Cell val={r.montoContractFee} onChange={v=>upd(r.id,"montoContractFee",parseFloat(v)||0)} type="number" can={can}/>
               </div>
-              {/* Declaración Royalties IQ */}
-              <div style={{marginTop:16,padding:"12px 16px",background:"#ede9fe",borderRadius:10,border:"1px solid #c4b5fd"}}>
-                <div style={{fontSize:12,fontWeight:700,color:"#5b21b6",marginBottom:10}}>📋 Declaración Royalties IQ</div>
-                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:10}}>
-                  <div>
-                    <div style={{fontSize:11,color:"#64748b",fontWeight:600,marginBottom:3}}>Fecha declaración</div>
-                    <Cell val={r.iqFechaDeclaracion||""} onChange={v=>upd(r.id,"iqFechaDeclaracion",v)} type="date" can={can}/>
-                  </div>
-                  <div>
-                    <div style={{fontSize:11,color:"#64748b",fontWeight:600,marginBottom:3}}>Monto declarado (USD)</div>
-                    <Cell val={r.iqMontoDeclarado||""} onChange={v=>upd(r.id,"iqMontoDeclarado",parseFloat(v)||0)} type="number" can={can}/>
-                  </div>
-                  <div>
-                    <div style={{fontSize:11,color:"#64748b",fontWeight:600,marginBottom:3}}>Estado</div>
-                    <Cell val={r.iqEstado||""} onChange={v=>upd(r.id,"iqEstado",v)} opts={["—","Pendiente","Presentada","Aprobada","Observada"]} can={can}/>
-                  </div>
-                  <div style={{gridColumn:"span 2"}}>
-                    <div style={{fontSize:11,color:"#64748b",fontWeight:600,marginBottom:3}}>📎 Doc. declaración (URL)</div>
-                    <Cell val={r.iqDocumento||""} onChange={v=>upd(r.id,"iqDocumento",v)} can={can}/>
-                  </div>
-                  <div>
-                    <div style={{fontSize:11,color:"#64748b",fontWeight:600,marginBottom:3}}>Observaciones</div>
-                    <Cell val={r.iqObservaciones||""} onChange={v=>upd(r.id,"iqObservaciones",v)} can={can}/>
-                  </div>
-                </div>
+              <div>
+                <div style={{fontSize:11,color:C.gris,fontWeight:600,marginBottom:4}}>Valor Royalty/Planta (USD)</div>
+                <Cell val={r.valorRoyaltyPlanta} onChange={v=>upd(r.id,"valorRoyaltyPlanta",parseFloat(v)||0)} type="number" can={can}/>
               </div>
-            </>
+              <div>
+                <div style={{fontSize:11,color:C.gris,fontWeight:600,marginBottom:4}}>Valor Royalty Comercial (USD/Há)</div>
+                <Cell val={r.valorRoyaltyComercial} onChange={v=>upd(r.id,"valorRoyaltyComercial",parseFloat(v)||0)} type="number" can={can}/>
+              </div>
+              <div>
+                <div style={{fontSize:11,color:C.gris,fontWeight:600,marginBottom:4}}>Mes Facturación Royalty Comercial</div>
+                <Cell val={r.mesFacuracionRC||""} onChange={v=>upd(r.id,"mesFacuracionRC",v)} opts={["—",...MESES_ANO]} can={can}/>
+              </div>
+              <div style={{display:"flex",alignItems:"flex-end",paddingBottom:4}}>
+                <label style={{display:"flex",alignItems:"center",gap:8,cursor:can?"pointer":"default",
+                  background:r.royaltyInflacion?C.amBg:"#f1f5f9",border:`1px solid ${r.royaltyInflacion?"#fde047":"#d1d5db"}`,
+                  borderRadius:10,padding:"9px 14px",fontSize:13,fontWeight:600,
+                  color:r.royaltyInflacion?C.am:"#94a3b8"}}>
+                  <input type="checkbox" checked={r.royaltyInflacion||false} disabled={!can} onChange={()=>upd(r.id,"royaltyInflacion",!r.royaltyInflacion)} style={{accentColor:"#d97706"}}/>
+                  📈 Sujeto a Inflación
+                </label>
+              </div>
+            </div>
           )}
-          {sec==="plantaciones"&&(<>
-            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12,flexWrap:"wrap",gap:8}}>
-              <div style={{fontSize:13,color:"#475569"}}>
-                🌿 Plantaciones del licenciatario principal — variedades, plantas y hectáreas que generan los royalties.
-              </div>
-              {can&&<button onClick={()=>{
-                const variedadDefault = (variedadesMaestro||[])[0];
-                const nuevaPlant = {
-                  id:`plt_${Date.now()}`,
-                  variedad_id: variedadDefault?.id || "",
-                  especie:    variedadDefault?.especie || "",
-                  variedad:   variedadDefault?.variedad || "",
-                  nPlantas:   0,
-                  hectareas:  0,
-                  fechaPlantacion:"",
-                  sublicenciatario_id:"",
-                  sublicenciatario_nombre:"",
-                  estado:"Confirmado",
-                };
-                const next = [...(r.plantaciones||[]), nuevaPlant];
-                upd(r.id,"plantaciones",next);
-              }} style={{background:"#15803d",color:"#fff",border:"none",borderRadius:8,padding:"7px 14px",cursor:"pointer",fontSize:12,fontWeight:700}}>+ Agregar plantación</button>}
-            </div>
-
-            {(r.plantaciones||[]).length===0?(
-              <div style={{padding:30,textAlign:"center",color:"#94a3b8",border:"1px dashed #e2e8f0",borderRadius:10}}>
-                <div style={{fontSize:32,marginBottom:8}}>🌿</div>
-                <div style={{fontSize:12}}>Sin plantaciones registradas. {can?"Haz clic en \"+ Agregar plantación\" para empezar.":""}</div>
-                <div style={{fontSize:11,color:"#64748b",marginTop:6}}>💡 Las plantaciones alimentan automáticamente Royalty Planta (cantidad × USD/planta) y Royalty Comercial (há × USD/há).</div>
-              </div>
-            ):(<>
-              <div style={{overflowX:"auto"}}>
-                <table style={{width:"100%",borderCollapse:"collapse",fontSize:12,background:"#fff",borderRadius:10,overflow:"hidden",border:"1px solid #e2e8f0"}}>
-                  <thead><tr style={{background:"#15803d",color:"#fff"}}>
-                    {["Especie","Variedad","Plantas","Hectáreas","Fecha plant.","Sublicenciatario","Vivero","Fee USD/pl","Estado","Tandas despacho",""].map(h=>(
-                      <th key={h} style={{padding:"8px 10px",textAlign:"left",fontSize:11,fontWeight:700,whiteSpace:"nowrap"}}>{h}</th>
-                    ))}
-                  </tr></thead>
-                  <tbody>
-                    {(r.plantaciones||[]).map((p,i)=>{
-                      const updPl = (campo, valor) => {
-                        const next = (r.plantaciones||[]).map(x=>x.id===p.id?{...x,[campo]:valor}:x);
-                        upd(r.id,"plantaciones",next);
-                      };
-                      const updPlMulti = (cambios) => {
-                        const next = (r.plantaciones||[]).map(x=>x.id===p.id?{...x,...cambios}:x);
-                        upd(r.id,"plantaciones",next);
-                      };
-                      const seleccionarVariedad = (vid) => {
-                        if(!vid){ updPlMulti({variedad_id:"", especie:p.especie, variedad:p.variedad}); return; }
-                        const vv = (variedadesMaestro||[]).find(x=>x.id===vid);
-                        updPlMulti({
-                          variedad_id: vid,
-                          especie:  vv?.especie || p.especie,
-                          variedad: vv?.variedad || p.variedad,
-                        });
-                      };
-                      const seleccionarSublic = (sid) => {
-                        const sub = (r.sublicenciatarios||[]).find(s=>s.id===sid);
-                        updPlMulti({
-                          sublicenciatario_id: sid,
-                          sublicenciatario_nombre: sub?.razonSocial || "",
-                        });
-                      };
-                      const seleccionarVivero = (vivId) => {
-                        if(!vivId){
-                          // Si tenía OC vinculada, preguntar
-                          if(p.vivero_oc_id && window.confirm("Esta plantación tenía vivero asociado con OC generada. ¿Eliminar también la OC del vivero?")) {
-                            removerOCDelVivero(p.vivero_id, p.vivero_oc_id);
-                          }
-                          updPlMulti({vivero_id:"", vivero_nombre:"", vivero_fee_usd:0, vivero_oc_id:""});
-                          return;
-                        }
-                        const viv = (viverosData||[]).find(v=>v.id===vivId);
-                        updPlMulti({
-                          vivero_id: vivId,
-                          vivero_nombre: viv?.viverista || "",
-                        });
-                      };
-                      // Especie color del Maestro
-                      const espMaestro = (especiesMaestro||[]).find(e=>e.nombre.toLowerCase().trim()===(p.especie||"").toLowerCase().trim());
-                      const colorEsp = espMaestro?.color;
-                      // Variedad coincide con maestro (para el dual-mode)
-                      const enMaestro = (variedadesMaestro||[]).some(v=>v.id===p.variedad_id);
-                      return (
-                        <tr key={p.id} style={{borderBottom:"1px solid #f1f5f9",background:i%2?"#f8fafc":"#fff"}}>
-                          {/* Especie: dropdown puro del maestro + Crear nuevo */}
-                          <td style={{padding:"6px 8px",minWidth:140}}>
-                            <div style={{display:"flex",gap:4,alignItems:"center"}}>
-                              {colorEsp&&<div title={p.especie} style={{width:14,height:14,borderRadius:3,background:colorEsp,flexShrink:0,boxShadow:"0 1px 2px #0002"}}/>}
-                              <select disabled={!can} value={p.especie||""} onChange={e=>{
-                                if(e.target.value==="__nueva__") {
-                                  const nombre = window.prompt("Nombre de la nueva especie:");
-                                  if(!nombre || !nombre.trim()) return;
-                                  const nombreNorm = nombre.trim();
-                                  const dupe = (especiesMaestro||[]).find(x=>x.nombre.toLowerCase().trim()===nombreNorm.toLowerCase());
-                                  if(dupe) { updPlMulti({especie:dupe.nombre, variedad_id:""}); return; }
-                                  const id = `esp_${Date.now()}`;
-                                  const idxColor = (especiesMaestro||[]).length % COLORES_ESPECIES.length;
-                                  const nueva = {id, nombre:nombreNorm, color:COLORES_ESPECIES[idxColor].hex, observaciones:""};
-                                  setEspeciesMaestro&&setEspeciesMaestro(prev=>[...(prev||[]),nueva]);
-                                  window.auditLog&&window.auditLog("crear",{modulo:"osiris",seccion:"Maestro Especies",
-                                    descripcion:`Creó especie "${nombreNorm}" desde plantaciones`,registroId:id});
-                                  updPlMulti({especie:nombreNorm, variedad_id:""});
-                                } else {
-                                  const variedadActualOK = (variedadesMaestro||[]).some(v=>v.id===p.variedad_id && v.especie===e.target.value);
-                                  updPlMulti({
-                                    especie: e.target.value,
-                                    variedad_id: variedadActualOK ? p.variedad_id : "",
-                                    variedad: variedadActualOK ? p.variedad : "",
-                                  });
-                                }
-                              }} style={{flex:1,padding:"5px 8px",borderRadius:6,border:"1px solid #d1d5db",fontSize:11,background:"#fff"}}>
-                                <option value="">— Seleccionar —</option>
-                                {(especiesMaestro||[]).map(e=><option key={e.id} value={e.nombre}>{e.nombre}</option>)}
-                                {can&&<option value="__nueva__">＋ Crear nueva especie...</option>}
-                              </select>
-                            </div>
-                          </td>
-                          {/* Variedad: dropdown puro filtrado por especie + Crear nueva */}
-                          <td style={{padding:"6px 8px",minWidth:140}}>
-                            {(()=>{
-                              const variedadesFiltradas = p.especie
-                                ? (variedadesMaestro||[]).filter(v=>v.especie===p.especie)
-                                : [];
-                              return (
-                                <select disabled={!can||!p.especie} value={p.variedad_id||""} onChange={e=>{
-                                  if(e.target.value==="__nueva__") {
-                                    if(!p.especie){alert("Selecciona primero la especie.");return;}
-                                    const nombre = window.prompt(`Nombre de la nueva variedad (especie: ${p.especie}):`);
-                                    if(!nombre || !nombre.trim()) return;
-                                    const nombreNorm = nombre.trim();
-                                    const dupe = (variedadesMaestro||[]).find(v=>v.especie===p.especie && v.variedad.toLowerCase().trim()===nombreNorm.toLowerCase());
-                                    if(dupe){ seleccionarVariedad(dupe.id); return; }
-                                    const id = `var_${Date.now()}`;
-                                    const nueva = {id, especie:p.especie, variedad:nombreNorm, obtentor:"", observaciones:""};
-                                    setVariedadesMaestro&&setVariedadesMaestro(prev=>[...(prev||[]),nueva]);
-                                    window.auditLog&&window.auditLog("crear",{modulo:"osiris",seccion:"Maestro Variedades",
-                                      descripcion:`Creó variedad "${p.especie} · ${nombreNorm}" desde plantaciones`,registroId:id});
-                                    seleccionarVariedad(id);
-                                  } else {
-                                    seleccionarVariedad(e.target.value);
-                                  }
-                                }} style={{width:"100%",padding:"5px 8px",borderRadius:6,border:"1px solid #d1d5db",fontSize:11,background:p.especie?"#fff":"#f1f5f9"}}>
-                                  <option value="">{p.especie?"— Seleccionar —":"(Selecciona especie primero)"}</option>
-                                  {variedadesFiltradas.map(v=>(
-                                    <option key={v.id} value={v.id}>{v.variedad}{v.obtentor?` · ${v.obtentor}`:""}</option>
-                                  ))}
-                                  {can&&p.especie&&<option value="__nueva__">＋ Crear nueva variedad...</option>}
-                                </select>
-                              );
-                            })()}
-                          </td>
-                          <td style={{padding:"6px 8px"}}>
-                            <input type="number" disabled={!can} value={p.nPlantas||0} onChange={e=>{
-                              const n = parseInt(e.target.value)||0;
-                              updPlMulti({nPlantas:n});
-                              // Si tiene OC vinculada, actualizar la OC también
-                              if(p.vivero_oc_id && p.vivero_id) {
-                                actualizarOCEnVivero(p.vivero_id, p.vivero_oc_id, {plantas:n, total:n*(p.vivero_fee_usd||0)});
-                              }
-                            }}
-                              style={{width:90,padding:"5px 8px",borderRadius:6,border:"1px solid #d1d5db",fontSize:11,textAlign:"right"}}/>
-                          </td>
-                          <td style={{padding:"6px 8px"}}>
-                            <input type="number" step="0.01" disabled={!can} value={p.hectareas||0} onChange={e=>updPl("hectareas",parseFloat(e.target.value)||0)}
-                              style={{width:80,padding:"5px 8px",borderRadius:6,border:"1px solid #d1d5db",fontSize:11,textAlign:"right"}}/>
-                          </td>
-                          <td style={{padding:"6px 8px"}}>
-                            <input type="date" disabled={!can} value={p.fechaPlantacion||""} onChange={e=>updPl("fechaPlantacion",e.target.value)}
-                              style={{padding:"5px 8px",borderRadius:6,border:"1px solid #d1d5db",fontSize:11}}/>
-                          </td>
-                          <td style={{padding:"6px 8px"}}>
-                            <select disabled={!can} value={p.sublicenciatario_id||""} onChange={e=>seleccionarSublic(e.target.value)}
-                              style={{padding:"5px 8px",borderRadius:6,border:"1px solid #d1d5db",fontSize:11,background:"#fff",maxWidth:160}}>
-                              <option value="">— Sin sublicencia —</option>
-                              {(r.sublicenciatarios||[]).map(s=><option key={s.id} value={s.id}>{s.razonSocial}</option>)}
-                            </select>
-                          </td>
-                          {/* NUEVO: Vivero */}
-                          <td style={{padding:"6px 8px"}}>
-                            {(viverosData||[]).length>0?(
-                              <select disabled={!can} value={p.vivero_id||""} onChange={e=>seleccionarVivero(e.target.value)}
-                                style={{padding:"5px 8px",borderRadius:6,border:"1px solid #d1d5db",fontSize:11,background:"#fff",maxWidth:170}}>
-                                <option value="">— Sin vivero —</option>
-                                {(viverosData||[]).map(v=>(
-                                  <option key={v.id} value={v.id}>{v.viverista || "Sin nombre"}{v.pais?` · ${v.pais}`:""}</option>
-                                ))}
-                              </select>
-                            ):(
-                              <span style={{fontSize:10,color:"#94a3b8",fontStyle:"italic"}}>Sin contratos vivero</span>
-                            )}
-                          </td>
-                          {/* NUEVO: Fee USD/planta */}
-                          <td style={{padding:"6px 8px"}}>
-                            <input type="number" step="0.001" disabled={!can||!p.vivero_id} value={p.vivero_fee_usd||0}
-                              placeholder={p.vivero_id?"0.00":"—"}
-                              onChange={e=>{
-                                const fee = parseFloat(e.target.value)||0;
-                                updPlMulti({vivero_fee_usd:fee});
-                                if(p.vivero_oc_id && p.vivero_id) {
-                                  actualizarOCEnVivero(p.vivero_id, p.vivero_oc_id, {fee, total:(p.nPlantas||0)*fee});
-                                }
-                              }}
-                              style={{width:80,padding:"5px 8px",borderRadius:6,border:"1px solid #d1d5db",fontSize:11,textAlign:"right",background:p.vivero_id?"#fff":"#f1f5f9"}}/>
-                            {p.vivero_id&&p.nPlantas>0&&(p.vivero_fee_usd||0)>0&&(
-                              <div style={{fontSize:9,color:"#64748b",marginTop:2,textAlign:"right"}}>
-                                Total: ${N(((p.nPlantas||0)*(p.vivero_fee_usd||0)).toFixed(0))}
-                              </div>
-                            )}
-                            {p.vivero_id&&!p.vivero_oc_id&&p.nPlantas>0&&(p.vivero_fee_usd||0)>0&&can&&(
-                              <button onClick={()=>generarOCEnVivero(p)}
-                                title="Generar OC en el contrato del vivero"
-                                style={{marginTop:3,padding:"2px 6px",borderRadius:4,background:"#0d9488",color:"#fff",border:"none",fontSize:9,cursor:"pointer",fontWeight:600,display:"block",width:"100%"}}>
-                                ⚡ Generar OC
-                              </button>
-                            )}
-                            {p.vivero_oc_id&&(
-                              <div style={{fontSize:9,color:"#0d9488",marginTop:2,fontWeight:600,textAlign:"right"}}>
-                                ✓ OC vinculada
-                              </div>
-                            )}
-                          </td>
-                          <td style={{padding:"6px 8px"}}>
-                            {(()=>{
-                              // Estado auto-derivado de tandas
-                              const tandas = p.tandas || [];
-                              const totalPedido = parseFloat(p.nPlantas)||0;
-                              const totalDespachado = tandas.reduce((s,t)=>s+(parseFloat(t.plantas)||0),0);
-                              const totalEntregado = tandas.filter(t=>t.estado==="Entregado").reduce((s,t)=>s+(parseFloat(t.plantas)||0),0);
-                              const pctDesp = totalPedido>0 ? Math.min((totalDespachado/totalPedido)*100, 100) : 0;
-                              // Auto-estado
-                              let autoEstado = p.estado||"Cotizado";
-                              if(tandas.length>0) {
-                                if(totalEntregado>=totalPedido) autoEstado = "Recibido";
-                                else if(totalDespachado>=totalPedido) autoEstado = "Despachado";
-                                else if(totalDespachado>0) autoEstado = "Despachado parcial";
-                              }
-                              const colEstado = {"Cotizado":"#94a3b8","OC enviada":"#3b82f6","Negociando":"#d97706","Confirmado":"#0284c7","En producción":"#7c3aed","Despachado parcial":"#0f766e","Despachado":"#0f766e","Recibido":"#16a34a","Anulado":"#dc2626"};
-                              const c = colEstado[autoEstado]||"#64748b";
-                              return (
-                                <div>
-                                  <div style={{padding:"3px 8px",borderRadius:10,background:`${c}18`,color:c,fontWeight:700,fontSize:10,textAlign:"center",border:`1px solid ${c}33`,marginBottom:4}}>{autoEstado}</div>
-                                  {totalPedido>0&&<div>
-                                    <div style={{height:6,background:"#f1f5f9",borderRadius:3,overflow:"hidden",marginBottom:2}}>
-                                      <div style={{height:"100%",background:c,borderRadius:3,width:`${pctDesp}%`,transition:"width 0.3s"}}/>
-                                    </div>
-                                    <div style={{fontSize:9,color:"#64748b",textAlign:"center"}}>{N(totalDespachado)}/{N(totalPedido)} ({Math.round(pctDesp)}%)</div>
-                                  </div>}
-                                </div>
-                              );
-                            })()}
-                          </td>
-                          {/* Tandas */}
-                          <td style={{padding:"6px 8px"}} colSpan={2}>
-                            {(()=>{
-                              const tandas = p.tandas || [];
-                              return (
-                                <div>
-                                  {tandas.length>0&&<div style={{fontSize:10,marginBottom:4}}>
-                                    {tandas.map((t,ti)=>{
-                                      const colT = {"Programado":"#94a3b8","En tránsito":"#3b82f6","Entregado":"#16a34a","Con observaciones":"#d97706"};
-                                      const ct = colT[t.estado]||"#64748b";
-                                      return <div key={t.id||ti} onClick={()=>setTandaModal({ctId:r.id,pltId:p.id,tandaIdx:ti,tanda:{...t}})}
-                                        style={{display:"flex",gap:4,alignItems:"center",marginBottom:3,padding:"3px 6px",background:`${ct}08`,borderRadius:4,border:`1px solid ${ct}22`,cursor:"pointer"}}
-                                        title="Click para editar esta tanda">
-                                        <span style={{fontSize:9,color:"#64748b",minWidth:65}}>{t.fecha||"s/f"}</span>
-                                        <span style={{fontSize:9,fontWeight:600,color:"#1e293b",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",maxWidth:90}}>{t.especie?`${t.especie}`:""}{t.variedad?` · ${t.variedad}`:""}</span>
-                                        <span style={{fontSize:9,fontWeight:700,color:ct}}>{N(t.plantas||0)} pl.</span>
-                                        <span style={{fontSize:8,padding:"1px 6px",borderRadius:8,background:`${ct}18`,color:ct,fontWeight:600}}>{t.estado||"Programado"}</span>
-                                        {t.guia&&<span style={{fontSize:8,color:"#94a3b8"}}>#{t.guia}</span>}
-                                        {can&&<button onClick={e=>{e.stopPropagation();
-                                          const nt = tandas.filter((_,i)=>i!==ti);
-                                          updPl("tandas",nt);
-                                        }} style={{marginLeft:"auto",background:"none",border:"none",cursor:"pointer",fontSize:10,color:"#dc2626",padding:0}}>×</button>}
-                                      </div>;
-                                    })}
-                                  </div>}
-                                  {can&&<button onClick={()=>{
-                                    const nt = [...tandas, {id:`tnd_${Date.now()}`,fecha:"",guia:"",especie:p.especie||"",variedad:p.variedad||"",variedad_id:p.variedad_id||"",plantas:0,estado:"Programado",observaciones:""}];
-                                    updPl("tandas",nt);
-                                  }} style={{padding:"2px 8px",borderRadius:4,background:"#0f766e",color:"#fff",border:"none",cursor:"pointer",fontSize:9,fontWeight:700}}>+ Tanda</button>}
-                                </div>
-                              );
-                            })()}
-                          </td>
-                          <td style={{padding:"6px 8px",textAlign:"center"}}>
-                            {can&&<button onClick={()=>{
-                              if(!window.confirm(`¿Eliminar la plantación "${p.especie} · ${p.variedad}"?`))return;
-                              // Si tiene OC vinculada, preguntar si también eliminar la OC del vivero
-                              if(p.vivero_oc_id && p.vivero_id) {
-                                if(window.confirm(`Esta plantación tiene una OC vinculada en el vivero "${p.vivero_nombre||"el vivero"}". ¿Eliminar también esa OC?`)) {
-                                  removerOCDelVivero(p.vivero_id, p.vivero_oc_id);
-                                }
-                              }
-                              const next = (r.plantaciones||[]).filter(x=>x.id!==p.id);
-                              upd(r.id,"plantaciones",next);
-                            }} style={{background:"#fef2f2",border:"none",borderRadius:6,padding:"4px 8px",cursor:"pointer",fontSize:11,color:"#991b1b"}}>🗑</button>}
-                          </td>
-                        </tr>
-                      );
-                    })}
-                    <tr style={{background:"#f0fdf4",fontWeight:800}}>
-                      <td colSpan={2} style={{padding:"7px 10px",color:"#15803d"}}>TOTALES</td>
-                      <td style={{padding:"7px 10px",color:"#15803d",textAlign:"right"}}>{N((r.plantaciones||[]).reduce((s,p)=>s+(parseFloat(p.nPlantas)||0),0))}</td>
-                      <td style={{padding:"7px 10px",color:"#15803d",textAlign:"right"}}>{N((r.plantaciones||[]).reduce((s,p)=>s+(parseFloat(p.hectareas)||0),0).toFixed(2))}</td>
-                      <td colSpan={3}></td>
-                      <td style={{padding:"7px 10px",color:"#dc2626",textAlign:"right"}} title="Total egreso por viveros">${N((r.plantaciones||[]).reduce((s,p)=>s+((parseFloat(p.nPlantas)||0)*(parseFloat(p.vivero_fee_usd)||0)),0).toFixed(0))}</td>
-                      <td colSpan={4}></td>
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
-              <div style={{marginTop:12,padding:12,background:"#f0fdf4",borderRadius:10,fontSize:11,color:"#14532d",borderLeft:"4px solid #16a34a"}}>
-                💡 <strong>Royalty Planta estimado:</strong> {(r.plantaciones||[]).reduce((s,p)=>s+(parseFloat(p.nPlantas)||0),0)} plantas × ${r.valorRoyaltyPlanta||1}/planta = <strong>${N(((r.plantaciones||[]).reduce((s,p)=>s+(parseFloat(p.nPlantas)||0),0)*(r.valorRoyaltyPlanta||1)).toFixed(2))}</strong> (100% facturado, {pct(r.pais)===1?"sin WHT":"15% WHT"})
-                <br/>
-                💡 <strong>Royalty Comercial anual:</strong> {N((r.plantaciones||[]).reduce((s,p)=>s+(parseFloat(p.hectareas)||0),0).toFixed(2))} há × ${N(r.valorRoyaltyComercial||0)}/há = <strong>${N(((r.plantaciones||[]).reduce((s,p)=>s+(parseFloat(p.hectareas)||0),0)*(r.valorRoyaltyComercial||0)).toFixed(2))}</strong>/temporada (100% facturado)
-                {(r.plantaciones||[]).some(p=>p.vivero_id)&&<><br/>💸 <strong style={{color:"#dc2626"}}>Egreso por viveros:</strong> ${N((r.plantaciones||[]).reduce((s,p)=>s+((parseFloat(p.nPlantas)||0)*(parseFloat(p.vivero_fee_usd)||0)),0).toFixed(0))} (one-time, USD)</>}
-              </div>
-            </>)}
-          </>)}
-
-          {/* ── SECCIÓN: SUBLICENCIATARIOS (informativo) ── */}
-          {sec==="sublicenciatarios"&&(<>
-            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12,flexWrap:"wrap",gap:8}}>
-              <div style={{fontSize:13,color:"#475569"}}>
-                🤝 Empresas sublicenciatarias del licenciatario principal — <em>solo informativo, sin impacto financiero directo</em>.
-              </div>
-              {can&&<button onClick={()=>{
-                const nuevoSub = {
-                  id:`sub_${Date.now()}`,
-                  razonSocial:"", pais:"Peru", taxID:"",
-                  nombrePredio:"", direccionPredio:"", region:"",
-                  hectareas:0, plantas:0,
-                  variedades:"",
-                  observaciones:"",
-                };
-                const next = [...(r.sublicenciatarios||[]), nuevoSub];
-                upd(r.id,"sublicenciatarios",next);
-              }} style={{background:"#0284c7",color:"#fff",border:"none",borderRadius:8,padding:"7px 14px",cursor:"pointer",fontSize:12,fontWeight:700}}>+ Agregar sublicenciatario</button>}
-            </div>
-            {(r.sublicenciatarios||[]).length===0?(
-              <div style={{padding:30,textAlign:"center",color:"#94a3b8",border:"1px dashed #e2e8f0",borderRadius:10}}>
-                <div style={{fontSize:32,marginBottom:8}}>🤝</div>
-                <div style={{fontSize:12}}>Sin sublicenciatarios. {can?"Agrega uno con el botón de arriba.":""}</div>
-              </div>
-            ):(
-              <div style={{display:"grid",gridTemplateColumns:"1fr",gap:12}}>
-                {(r.sublicenciatarios||[]).map(s=>{
-                  const updSub = (campo, valor) => {
-                    const next = (r.sublicenciatarios||[]).map(x=>x.id===s.id?{...x,[campo]:valor}:x);
-                    upd(r.id,"sublicenciatarios",next);
-                  };
-                  return (
-                    <div key={s.id} style={{background:"#fff",border:"1px solid #bae6fd",borderRadius:10,padding:14}}>
-                      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
-                        <div style={{fontSize:13,fontWeight:700,color:"#0c4a6e"}}>🤝 {s.razonSocial||"(sin nombre)"}</div>
-                        {can&&<button onClick={()=>{
-                          if(!window.confirm(`¿Eliminar al sublicenciatario "${s.razonSocial||"(sin nombre)"}"?`))return;
-                          const next = (r.sublicenciatarios||[]).filter(x=>x.id!==s.id);
-                          upd(r.id,"sublicenciatarios",next);
-                        }} style={{background:"#fef2f2",border:"none",borderRadius:6,padding:"4px 8px",cursor:"pointer",fontSize:11,color:"#991b1b"}}>🗑</button>}
-                      </div>
-                      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(200px,1fr))",gap:10}}>
-                        <div>
-                          <div style={{fontSize:10,color:"#64748b",fontWeight:600,marginBottom:3}}>Razón Social</div>
-                          <input disabled={!can} value={s.razonSocial||""} onChange={e=>updSub("razonSocial",e.target.value)}
-                            style={{width:"100%",padding:"6px 8px",borderRadius:6,border:"1px solid #d1d5db",fontSize:11,boxSizing:"border-box"}}/>
-                        </div>
-                        <div>
-                          <div style={{fontSize:10,color:"#64748b",fontWeight:600,marginBottom:3}}>País</div>
-                          <select disabled={!can} value={s.pais||"Peru"} onChange={e=>updSub("pais",e.target.value)}
-                            style={{width:"100%",padding:"6px 8px",borderRadius:6,border:"1px solid #d1d5db",fontSize:11,boxSizing:"border-box",background:"#fff"}}>
-                            <option>Peru</option><option>Chile</option><option>Mexico</option><option>Colombia</option><option>Otro</option>
-                          </select>
-                        </div>
-                        <div>
-                          <div style={{fontSize:10,color:"#64748b",fontWeight:600,marginBottom:3}}>RUC / Tax ID</div>
-                          <input disabled={!can} value={s.taxID||""} onChange={e=>updSub("taxID",e.target.value)}
-                            style={{width:"100%",padding:"6px 8px",borderRadius:6,border:"1px solid #d1d5db",fontSize:11,boxSizing:"border-box"}}/>
-                        </div>
-                        <div>
-                          <div style={{fontSize:10,color:"#64748b",fontWeight:600,marginBottom:3}}>Nombre del Predio</div>
-                          <input disabled={!can} value={s.nombrePredio||""} onChange={e=>updSub("nombrePredio",e.target.value)}
-                            style={{width:"100%",padding:"6px 8px",borderRadius:6,border:"1px solid #d1d5db",fontSize:11,boxSizing:"border-box"}}/>
-                        </div>
-                        <div style={{gridColumn:"span 2"}}>
-                          <div style={{fontSize:10,color:"#64748b",fontWeight:600,marginBottom:3}}>Dirección Predio</div>
-                          <input disabled={!can} value={s.direccionPredio||""} onChange={e=>updSub("direccionPredio",e.target.value)}
-                            style={{width:"100%",padding:"6px 8px",borderRadius:6,border:"1px solid #d1d5db",fontSize:11,boxSizing:"border-box"}}/>
-                        </div>
-                        <div>
-                          <div style={{fontSize:10,color:"#64748b",fontWeight:600,marginBottom:3}}>Región / Estado</div>
-                          <input disabled={!can} value={s.region||""} onChange={e=>updSub("region",e.target.value)}
-                            style={{width:"100%",padding:"6px 8px",borderRadius:6,border:"1px solid #d1d5db",fontSize:11,boxSizing:"border-box"}}/>
-                        </div>
-                        <div>
-                          <div style={{fontSize:10,color:"#64748b",fontWeight:600,marginBottom:3}}>Hectáreas</div>
-                          <input type="number" step="0.01" disabled={!can} value={s.hectareas||0} onChange={e=>updSub("hectareas",parseFloat(e.target.value)||0)}
-                            style={{width:"100%",padding:"6px 8px",borderRadius:6,border:"1px solid #d1d5db",fontSize:11,boxSizing:"border-box",textAlign:"right"}}/>
-                        </div>
-                        <div>
-                          <div style={{fontSize:10,color:"#64748b",fontWeight:600,marginBottom:3}}>Plantas</div>
-                          <input type="number" disabled={!can} value={s.plantas||0} onChange={e=>updSub("plantas",parseInt(e.target.value)||0)}
-                            style={{width:"100%",padding:"6px 8px",borderRadius:6,border:"1px solid #d1d5db",fontSize:11,boxSizing:"border-box",textAlign:"right"}}/>
-                        </div>
-                        <div style={{gridColumn:"span 2"}}>
-                          <div style={{fontSize:10,color:"#64748b",fontWeight:600,marginBottom:3}}>Variedades cultivadas</div>
-                          <input disabled={!can} value={s.variedades||""} placeholder="Royal Dawn, Sweet Heart..." onChange={e=>updSub("variedades",e.target.value)}
-                            style={{width:"100%",padding:"6px 8px",borderRadius:6,border:"1px solid #d1d5db",fontSize:11,boxSizing:"border-box"}}/>
-                        </div>
-                        <div style={{gridColumn:"1 / -1"}}>
-                          <div style={{fontSize:10,color:"#64748b",fontWeight:600,marginBottom:3}}>Observaciones</div>
-                          <input disabled={!can} value={s.observaciones||""} onChange={e=>updSub("observaciones",e.target.value)}
-                            style={{width:"100%",padding:"6px 8px",borderRadius:6,border:"1px solid #d1d5db",fontSize:11,boxSizing:"border-box"}}/>
-                        </div>
-                        {/* Entregables checklist */}
-                        <div style={{gridColumn:"1 / -1",marginTop:8}}>
-                          <div style={{fontSize:10,color:"#64748b",fontWeight:600,marginBottom:6}}>📦 Entregables</div>
-                          {(()=>{
-                            const items = s.entregables || ENTREGABLES_SUBLICENCIADO.map(e=>({nombre:e,entregado:false,fecha:""}));
-                            if(!s.entregables) updSub("entregables", items); // inicializar
-                            const completados = items.filter(i=>i.entregado).length;
-                            return (<>
-                              <div style={{height:6,background:"#f1f5f9",borderRadius:3,overflow:"hidden",marginBottom:6}}>
-                                <div style={{height:"100%",background:"#16a34a",borderRadius:3,width:`${(completados/Math.max(items.length,1))*100}%`,transition:"width 0.3s"}}/>
-                              </div>
-                              <div style={{display:"flex",flexWrap:"wrap",gap:4}}>
-                                {items.map((item,ii)=>(
-                                  <label key={ii} style={{display:"flex",alignItems:"center",gap:4,padding:"4px 8px",borderRadius:6,
-                                    background:item.entregado?"#f0fdf4":"#fff",border:`1px solid ${item.entregado?"#86efac":"#e2e8f0"}`,
-                                    cursor:can?"pointer":"default",fontSize:11}}>
-                                    <input type="checkbox" disabled={!can} checked={item.entregado} onChange={()=>{
-                                      const ni = [...items];
-                                      ni[ii] = {...ni[ii], entregado:!ni[ii].entregado, fecha:!ni[ii].entregado?new Date().toISOString().slice(0,10):""};
-                                      updSub("entregables", ni);
-                                    }} style={{accentColor:"#16a34a",width:14,height:14}}/>
-                                    <span style={{textDecoration:item.entregado?"line-through":"none",color:item.entregado?"#16a34a":"#1e293b"}}>{item.nombre}</span>
-                                  </label>
-                                ))}
-                              </div>
-                            </>);
-                          })()}
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </>)}
-
-          {/* ── SECCIÓN: COBROS DERIVADOS ── */}
-          {sec==="cobros"&&(<>
-            <div style={{fontSize:13,color:"#475569",marginBottom:12}}>
-              💵 Configuración de cobros derivada de plantaciones. Contract Fee: <strong>sin WHT (100%)</strong>. Royalties: <strong>{pct(r.pais)===1?"sin WHT (100%)":"con WHT 15% → cobro 85%"}</strong> ({r.pais}).
-            </div>
-
-            {/* Sub-sección 1: Contract Fee */}
-            <div style={{background:"#fff",border:"1px solid #fde68a",borderRadius:10,padding:14,marginBottom:14}}>
-              <div style={{fontSize:13,fontWeight:800,color:"#92400e",marginBottom:10}}>💰 Contract Fee <span style={{fontSize:10,fontWeight:600,color:"#16a34a",marginLeft:8}}>Sin WHT</span></div>
-              {r.tipoContractFee==="Sin Contract Fee"?(
-                <div style={{padding:14,background:"#fef3c7",borderRadius:8,fontSize:12,color:"#78350f"}}>Este contrato no contempla Contract Fee. Configurable en la sección Facturación.</div>
-              ):(
-                <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(160px,1fr))",gap:10,alignItems:"end"}}>
-                  <div>
-                    <div style={{fontSize:10,color:"#64748b",fontWeight:600,marginBottom:3}}>Monto USD</div>
-                    <div style={{padding:"7px 10px",background:"#f8fafc",borderRadius:6,fontSize:13,fontWeight:700,color:"#92400e"}}>${N(r.montoContractFee||0)}</div>
-                  </div>
-                  <div>
-                    <div style={{fontSize:10,color:"#64748b",fontWeight:600,marginBottom:3}}>Neto cobro (USD)</div>
-                    <div style={{padding:"7px 10px",background:"#dcfce7",borderRadius:6,fontSize:13,fontWeight:700,color:"#15803d"}}>${N(r.montoContractFee||0)}</div>
-                    <div style={{fontSize:9,color:"#16a34a",marginTop:2}}>100% — sin retención</div>
-                  </div>
-                  <div>
-                    <div style={{fontSize:10,color:"#64748b",fontWeight:600,marginBottom:3}}>N° Factura</div>
-                    <input disabled={!can} value={r.contractFeeNFact||""} onChange={e=>upd(r.id,"contractFeeNFact",e.target.value)}
-                      style={{width:"100%",padding:"6px 8px",borderRadius:6,border:"1px solid #d1d5db",fontSize:11,boxSizing:"border-box"}}/>
-                  </div>
-                  <div>
-                    <div style={{fontSize:10,color:"#64748b",fontWeight:600,marginBottom:3}}>Estado</div>
-                    <label style={{display:"flex",alignItems:"center",gap:6,cursor:can?"pointer":"default",padding:"7px 10px",background:r.contractFeePagado?"#dcfce7":"#fef3c7",borderRadius:6,fontSize:11,fontWeight:700,color:r.contractFeePagado?"#15803d":"#92400e"}}>
-                      <input type="checkbox" disabled={!can} checked={!!r.contractFeePagado} onChange={e=>upd(r.id,"contractFeePagado",e.target.checked)}/>
-                      {r.contractFeePagado?"✅ Pagado":"⏳ Por cobrar"}
-                    </label>
-                  </div>
-                  {r.contractFeePagado&&<div>
-                    <div style={{fontSize:10,color:"#64748b",fontWeight:600,marginBottom:3}}>Fecha pago</div>
-                    <input type="date" disabled={!can} value={r.contractFeeFechaPago||""} onChange={e=>upd(r.id,"contractFeeFechaPago",e.target.value)}
-                      style={{width:"100%",padding:"6px 8px",borderRadius:6,border:"1px solid #d1d5db",fontSize:11,boxSizing:"border-box"}}/>
-                  </div>}
-                </div>
-              )}
-            </div>
-
-            {/* Sub-sección 2: Royalty Planta - cuotas */}
-            <div style={{background:"#fff",border:"1px solid #bbf7d0",borderRadius:10,padding:14,marginBottom:14}}>
-              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
-                <div style={{fontSize:13,fontWeight:800,color:"#15803d"}}>🌱 Royalty Planta — Plan de cuotas</div>
-                {can&&<button onClick={()=>{
-                  const nuevaCuota = {id:`cuo_${Date.now()}`, descripcion:"Nueva cuota", pct:0, fechaEvento:""};
-                  const next = [...(r.rpPlantaCuotas||[]), nuevaCuota];
-                  upd(r.id,"rpPlantaCuotas",next);
-                }} style={{background:"#16a34a",color:"#fff",border:"none",borderRadius:6,padding:"5px 10px",cursor:"pointer",fontSize:11,fontWeight:600}}>+ Cuota</button>}
-              </div>
-              {(()=>{
-                const totPlantas = (r.plantaciones||[]).reduce((s,p)=>s+(parseFloat(p.nPlantas)||0),0);
-                const valorPP = parseFloat(r.valorRoyaltyPlanta)||1;
-                const totRP = totPlantas * valorPP;
-                const cuotas = r.rpPlantaCuotas||[];
-                const sumPct = cuotas.reduce((s,c)=>s+(parseFloat(c.pct)||0),0);
-                return (
-                  <>
-                    <div style={{padding:10,background:"#f0fdf4",borderRadius:8,marginBottom:10,fontSize:11,color:"#14532d"}}>
-                      <strong>Base:</strong> {N(totPlantas)} plantas × ${valorPP}/planta = <strong>${N(totRP.toFixed(2))}</strong> · Suma cuotas: <strong style={{color:Math.abs(sumPct-100)<0.01?"#15803d":"#dc2626"}}>{sumPct}%</strong>
-                    </div>
-                    <table style={{width:"100%",borderCollapse:"collapse",fontSize:11}}>
-                      <thead><tr style={{background:"#dcfce7"}}>
-                        {["Descripción","%","Monto Fact.","Monto Cobro","Fecha evento","Pagado","Fecha pago","N° Fact.",""].map(h=>(
-                          <th key={h} style={{padding:"6px 8px",textAlign:"left",fontSize:10,fontWeight:700,color:"#14532d"}}>{h}</th>
-                        ))}
-                      </tr></thead>
-                      <tbody>
-                        {cuotas.map(c=>{
-                          const monto = totRP * (parseFloat(c.pct)||0)/100;
-                          const updCuo = (campo, valor) => {
-                            const next = cuotas.map(x=>x.id===c.id?{...x,[campo]:valor}:x);
-                            upd(r.id,"rpPlantaCuotas",next);
-                          };
-                          return (
-                            <tr key={c.id} style={{borderBottom:"1px solid #f1f5f9"}}>
-                              <td style={{padding:"5px 8px"}}>
-                                <input disabled={!can} value={c.descripcion||""} onChange={e=>updCuo("descripcion",e.target.value)}
-                                  style={{width:"100%",padding:"4px 6px",borderRadius:4,border:"1px solid #d1d5db",fontSize:11,boxSizing:"border-box"}}/>
-                              </td>
-                              <td style={{padding:"5px 8px"}}>
-                                <input type="number" disabled={!can} value={c.pct||0} onChange={e=>updCuo("pct",parseFloat(e.target.value)||0)}
-                                  style={{width:60,padding:"4px 6px",borderRadius:4,border:"1px solid #d1d5db",fontSize:11,textAlign:"right"}}/>
-                              </td>
-                              <td style={{padding:"5px 8px",fontWeight:700,color:"#15803d"}}>${N(monto.toFixed(2))}</td>
-                              <td style={{padding:"5px 8px",fontWeight:700,color:"#16a34a"}}>${N((monto*pct(r.pais)).toFixed(2))}</td>
-                              <td style={{padding:"5px 8px"}}>
-                                <input type="date" disabled={!can} value={c.fechaEvento||""} onChange={e=>updCuo("fechaEvento",e.target.value)}
-                                  style={{padding:"4px 6px",borderRadius:4,border:"1px solid #d1d5db",fontSize:11}}/>
-                              </td>
-                              <td style={{padding:"5px 8px",textAlign:"center"}}>
-                                <input type="checkbox" disabled={!can} checked={!!c.pagado} onChange={e=>updCuo("pagado",e.target.checked)}/>
-                              </td>
-                              <td style={{padding:"5px 8px"}}>
-                                <input type="date" disabled={!can || !c.pagado} value={c.fechaPago||""} onChange={e=>updCuo("fechaPago",e.target.value)}
-                                  style={{padding:"4px 6px",borderRadius:4,border:"1px solid #d1d5db",fontSize:11,opacity:c.pagado?1:0.5}}/>
-                              </td>
-                              <td style={{padding:"5px 8px"}}>
-                                <input disabled={!can} value={c.nFact||""} onChange={e=>updCuo("nFact",e.target.value)}
-                                  style={{width:80,padding:"4px 6px",borderRadius:4,border:"1px solid #d1d5db",fontSize:11}}/>
-                              </td>
-                              <td style={{padding:"5px 8px"}}>
-                                {can&&<button onClick={()=>{
-                                  const next = cuotas.filter(x=>x.id!==c.id);
-                                  upd(r.id,"rpPlantaCuotas",next);
-                                }} style={{background:"#fef2f2",border:"none",borderRadius:4,padding:"3px 6px",cursor:"pointer",fontSize:10,color:"#991b1b"}}>×</button>}
-                              </td>
-                            </tr>
-                          );
-                        })}
-                      </tbody>
-                    </table>
-                  </>
-                );
-              })()}
-            </div>
-
-            {/* Sub-sección 3: Royalty Comercial — Calendario por temporada */}
-            <div style={{background:"#fff",border:"1px solid #fbcfe8",borderRadius:10,padding:14}}>
-              <div style={{fontSize:13,fontWeight:800,color:"#9d174d",marginBottom:10}}>📈 Royalty Comercial — Calendario por temporada</div>
-              <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(180px,1fr))",gap:10,marginBottom:12}}>
-                <div>
-                  <div style={{fontSize:10,color:"#64748b",fontWeight:600,marginBottom:3}}>Temporada inicio</div>
-                  <input disabled={!can} value={r.rcInicioTemporada||""} placeholder="2026/2027" onChange={e=>upd(r.id,"rcInicioTemporada",e.target.value)}
-                    style={{width:"100%",padding:"6px 8px",borderRadius:6,border:"1px solid #d1d5db",fontSize:11,boxSizing:"border-box"}}/>
-                  <div style={{fontSize:9,color:"#94a3b8",marginTop:2}}>Formato: AAAA/AAAA</div>
-                </div>
-                <div>
-                  <div style={{fontSize:10,color:"#64748b",fontWeight:600,marginBottom:3}}>Mes de cobro</div>
-                  <select disabled={!can} value={r.rcMesCobro||RC_MES_DEFAULT_POR_PAIS[r.pais]||"Abril"} onChange={e=>upd(r.id,"rcMesCobro",e.target.value)}
-                    style={{width:"100%",padding:"6px 8px",borderRadius:6,border:"1px solid #d1d5db",fontSize:11,boxSizing:"border-box",background:"#fff"}}>
-                    {MESES.map(m=><option key={m}>{m}</option>)}
-                  </select>
-                  <div style={{fontSize:9,color:"#94a3b8",marginTop:2}}>Default {r.pais}: {RC_MES_DEFAULT_POR_PAIS[r.pais]||"—"}</div>
-                </div>
-                <div>
-                  <div style={{fontSize:10,color:"#64748b",fontWeight:600,marginBottom:3}}>USD/há</div>
-                  <div style={{padding:"7px 10px",background:"#fdf2f8",borderRadius:6,fontSize:13,fontWeight:700,color:"#9d174d"}}>${N(r.valorRoyaltyComercial||0)}</div>
-                </div>
-                <div>
-                  <div style={{fontSize:10,color:"#64748b",fontWeight:600,marginBottom:3}}>Há totales</div>
-                  <div style={{padding:"7px 10px",background:"#f8fafc",borderRadius:6,fontSize:13,fontWeight:700,color:"#1e293b"}}>{N(((r.plantaciones||[]).reduce((s,p)=>s+(parseFloat(p.hectareas)||0),0)).toFixed(2))} há</div>
-                </div>
-              </div>
-
-              {(()=>{
-                const haTotal = (r.plantaciones||[]).reduce((s,p)=>s+(parseFloat(p.hectareas)||0),0);
-                if(haTotal===0) return <div style={{padding:14,background:"#fdf2f8",borderRadius:8,fontSize:11,color:"#9d174d"}}>⚠️ Aún no hay hectáreas registradas en Plantaciones. Agrega plantaciones para ver el calendario.</div>;
-                if(!r.rcInicioTemporada) return <div style={{padding:14,background:"#fdf2f8",borderRadius:8,fontSize:11,color:"#9d174d"}}>⚠️ Define la "Temporada inicio" arriba (ej. 2026/2027) para ver el calendario.</div>;
-                const valor = parseFloat(r.valorRoyaltyComercial)||0;
-                const temps = temporadasEntre(r.rcInicioTemporada, r.fechaTermino);
-                const pagos = r.rcPagos||{};
-                const updPago = (temp, campo, valor) => {
-                  const np = {...(r.rcPagos||{})};
-                  np[temp] = {...(np[temp]||{}), [campo]:valor};
-                  upd(r.id,"rcPagos",np);
-                };
-                const totalAcumulado = temps.length * haTotal * valor;
-                return (
-                  <>
-                    <div style={{padding:10,background:"#fdf2f8",borderRadius:8,marginBottom:10,fontSize:11,color:"#9d174d"}}>
-                      <strong>{temps.length}</strong> temporada{temps.length!==1?"s":""} desde {r.rcInicioTemporada}
-                      {r.fechaTermino?` hasta término ${r.fechaTermino}`:" (10 años proyectados)"} ·
-                      Total facturable acumulado: <strong>${N(totalAcumulado.toFixed(2))}</strong>
-                    </div>
-                    <div style={{overflowX:"auto"}}>
-                      <table style={{width:"100%",borderCollapse:"collapse",fontSize:11}}>
-                        <thead><tr style={{background:"#fce7f3"}}>
-                          {["Temporada","Mes cobro","Há","$/há","Bruto","WHT","Neto","Pagado","Fecha pago","N° Fact."].map(h=>(
-                            <th key={h} style={{padding:"6px 8px",textAlign:"left",fontSize:10,fontWeight:700,color:"#9d174d"}}>{h}</th>
-                          ))}
-                        </tr></thead>
-                        <tbody>
-                          {temps.map(t=>{
-                            const bruto = haTotal * valor;
-                            const wht = bruto * (1-pct(r.pais));
-                            const neto = bruto - wht;
-                            const p = pagos[t] || {};
-                            return (
-                              <tr key={t} style={{borderBottom:"1px solid #fce7f3",background:p.pagado?"#f0fdf4":""}}>
-                                <td style={{padding:"5px 8px",fontWeight:700,color:"#9d174d"}}>{t}</td>
-                                <td style={{padding:"5px 8px"}}>{r.rcMesCobro||RC_MES_DEFAULT_POR_PAIS[r.pais]||"—"} {parseInt(t.split("/")[1])}</td>
-                                <td style={{padding:"5px 8px",textAlign:"right"}}>{N(haTotal.toFixed(2))}</td>
-                                <td style={{padding:"5px 8px",textAlign:"right"}}>${N(valor)}</td>
-                                <td style={{padding:"5px 8px",textAlign:"right",fontWeight:700,color:"#9d174d"}}>${N(bruto.toFixed(2))}</td>
-                                <td style={{padding:"5px 8px",textAlign:"right",color:"#dc2626"}}>{wht>0?`-$${N(wht.toFixed(2))}`:"—"}</td>
-                                <td style={{padding:"5px 8px",textAlign:"right",fontWeight:700,color:"#15803d"}}>${N(neto.toFixed(2))}</td>
-                                <td style={{padding:"5px 8px",textAlign:"center"}}>
-                                  <input type="checkbox" disabled={!can} checked={!!p.pagado} onChange={e=>updPago(t,"pagado",e.target.checked)}/>
-                                </td>
-                                <td style={{padding:"5px 8px"}}>
-                                  <input type="date" disabled={!can || !p.pagado} value={p.fechaPago||""} onChange={e=>updPago(t,"fechaPago",e.target.value)}
-                                    style={{padding:"4px 6px",borderRadius:4,border:"1px solid #d1d5db",fontSize:11,opacity:p.pagado?1:0.5}}/>
-                                </td>
-                                <td style={{padding:"5px 8px"}}>
-                                  <input disabled={!can} value={p.nFact||""} onChange={e=>updPago(t,"nFact",e.target.value)}
-                                    style={{width:80,padding:"4px 6px",borderRadius:4,border:"1px solid #d1d5db",fontSize:11}}/>
-                                </td>
-                              </tr>
-                            );
-                          })}
-                        </tbody>
-                      </table>
-                    </div>
-                  </>
-                );
-              })()}
-            </div>
-          </>)}
         </div>
       </div>
     );
@@ -6607,16 +3971,6 @@ function ControlContratos({data,setData,clientes,setClientes,variedadesMaestro=[
               <CampoNuevo label="Moneda" campo="moneda" opts={MONEDAS} form={form} setF={setF}/>
               <CampoNuevo label="Fecha Contrato" campo="fechaContrato" tipo="date" form={form} setF={setF}/>
               <CampoNuevo label="Fecha Término" campo="fechaTermino" tipo="date" form={form} setF={setF}/>
-              <div>
-                <div style={{fontSize:11,color:C.gris,fontWeight:600,marginBottom:4}}>Renovable</div>
-                <label style={{display:"flex",alignItems:"center",gap:8,cursor:"pointer",
-                  background:form.renovable?"#dbeafe":"#f1f5f9",border:`1px solid ${form.renovable?"#60a5fa":"#d1d5db"}`,
-                  borderRadius:8,padding:"7px 12px",fontSize:12,fontWeight:600,color:form.renovable?"#1d4ed8":"#94a3b8"}}>
-                  <input type="checkbox" checked={!!form.renovable} onChange={()=>setF("renovable",!form.renovable)} style={{accentColor:"#2563eb"}}/>
-                  🔄 Contrato renovable
-                </label>
-              </div>
-              {form.renovable&&<CampoNuevo label="📆 Nueva Fecha Vencimiento" campo="fechaTerminoNueva" tipo="date" form={form} setF={setF}/>}
               <CampoNuevo label="Ver Digital (URL)" campo="verDigital" form={form} setF={setF}/>
               <CampoNuevo label="📎 Link OneDrive contrato" campo="linkContrato" form={form} setF={setF}/>
             </div>
@@ -6737,192 +4091,6 @@ function ControlContratos({data,setData,clientes,setClientes,variedadesMaestro=[
                 style={{width:"100%",padding:"8px 10px",borderRadius:8,border:"1px solid #d1d5db",fontSize:13,resize:"vertical",boxSizing:"border-box"}}/>
             </div>
           </div>
-
-          {/* Plantaciones + RC Setup en modo NUEVO */}
-          <div style={{background:"#fff",borderRadius:12,padding:20,boxShadow:"0 1px 6px #0001"}}>
-            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14,flexWrap:"wrap",gap:8}}>
-              <div style={{fontSize:13,fontWeight:700,color:"#15803d"}}>🌿 Plantaciones (variedades plantadas)</div>
-              <button onClick={()=>{
-                const variedadDefault = (variedadesMaestro||[])[0];
-                const nuevaPlant = {
-                  id:`plt_${Date.now()}`,
-                  variedad_id: variedadDefault?.id || "",
-                  especie:    variedadDefault?.especie || "",
-                  variedad:   variedadDefault?.variedad || "",
-                  nPlantas:0, hectareas:0, fechaPlantacion:"",
-                  sublicenciatario_id:"", sublicenciatario_nombre:"", estado:"Confirmado",
-                };
-                setF("plantaciones",[...(form.plantaciones||[]), nuevaPlant]);
-              }} style={{background:"#15803d",color:"#fff",border:"none",borderRadius:8,padding:"6px 12px",cursor:"pointer",fontSize:12,fontWeight:700}}>+ Agregar plantación</button>
-            </div>
-            {(form.plantaciones||[]).length===0?(
-              <div style={{padding:20,textAlign:"center",color:"#94a3b8",border:"1px dashed #e2e8f0",borderRadius:8,fontSize:12}}>
-                Sin plantaciones. Agrega al menos una para que se calculen los royalties.
-              </div>
-            ):(
-              <div style={{overflowX:"auto"}}>
-                <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
-                  <thead><tr style={{background:"#dcfce7"}}>
-                    {["Especie","Variedad","Plantas","Há","Fecha plant.","Sublicenciatario","Vivero","Fee USD/planta",""].map(h=>(<th key={h} style={{padding:"6px 8px",textAlign:"left",fontSize:11,fontWeight:700,color:"#14532d"}}>{h}</th>))}
-                  </tr></thead>
-                  <tbody>
-                    {(form.plantaciones||[]).map(p=>{
-                      const updPl = (campo, valor)=>{
-                        const next = (form.plantaciones||[]).map(x=>x.id===p.id?{...x,[campo]:valor}:x);
-                        setF("plantaciones",next);
-                      };
-                      const updPlMulti = (cambios)=>{
-                        const next = (form.plantaciones||[]).map(x=>x.id===p.id?{...x,...cambios}:x);
-                        setF("plantaciones",next);
-                      };
-                      const seleccionarVar = (vid)=>{
-                        if(!vid){ updPlMulti({variedad_id:""}); return; }
-                        const vv = (variedadesMaestro||[]).find(x=>x.id===vid);
-                        updPlMulti({variedad_id:vid, especie:vv?.especie||p.especie, variedad:vv?.variedad||p.variedad});
-                      };
-                      const seleccionarSub = (sid)=>{
-                        const sub = (form.sublicenciatarios||[]).find(s=>s.id===sid);
-                        updPlMulti({sublicenciatario_id:sid, sublicenciatario_nombre:sub?.razonSocial||""});
-                      };
-                      const seleccionarViv = (vivId)=>{
-                        if(!vivId){ updPlMulti({vivero_id:"", vivero_nombre:"", vivero_fee_usd:0}); return; }
-                        const viv = (viverosData||[]).find(v=>v.id===vivId);
-                        updPlMulti({vivero_id:vivId, vivero_nombre:viv?.viverista||""});
-                      };
-                      const espMaestro = (especiesMaestro||[]).find(e=>e.nombre.toLowerCase().trim()===(p.especie||"").toLowerCase().trim());
-                      const colorEsp = espMaestro?.color;
-                      return (
-                        <tr key={p.id} style={{borderBottom:"1px solid #f1f5f9"}}>
-                          {/* Especie: dropdown puro + Crear nueva */}
-                          <td style={{padding:"5px 8px",minWidth:130}}>
-                            <div style={{display:"flex",gap:4,alignItems:"center"}}>
-                              {colorEsp&&<div title={p.especie} style={{width:12,height:12,borderRadius:3,background:colorEsp,flexShrink:0,boxShadow:"0 1px 2px #0002"}}/>}
-                              <select value={p.especie||""} onChange={e=>{
-                                if(e.target.value==="__nueva__") {
-                                  const nombre = window.prompt("Nombre de la nueva especie:");
-                                  if(!nombre || !nombre.trim()) return;
-                                  const nombreNorm = nombre.trim();
-                                  const dupe = (especiesMaestro||[]).find(x=>x.nombre.toLowerCase().trim()===nombreNorm.toLowerCase());
-                                  if(dupe) { updPlMulti({especie:dupe.nombre, variedad_id:""}); return; }
-                                  const id = `esp_${Date.now()}`;
-                                  const idxColor = (especiesMaestro||[]).length % COLORES_ESPECIES.length;
-                                  const nueva = {id, nombre:nombreNorm, color:COLORES_ESPECIES[idxColor].hex, observaciones:""};
-                                  setEspeciesMaestro&&setEspeciesMaestro(prev=>[...(prev||[]),nueva]);
-                                  window.auditLog&&window.auditLog("crear",{modulo:"osiris",seccion:"Maestro Especies",
-                                    descripcion:`Creó especie "${nombreNorm}" desde plantaciones (modo nuevo)`,registroId:id});
-                                  updPlMulti({especie:nombreNorm, variedad_id:""});
-                                } else {
-                                  const variedadActualOK = (variedadesMaestro||[]).some(v=>v.id===p.variedad_id && v.especie===e.target.value);
-                                  updPlMulti({especie:e.target.value, variedad_id: variedadActualOK ? p.variedad_id : "", variedad: variedadActualOK ? p.variedad : ""});
-                                }
-                              }} style={{flex:1,padding:"5px 7px",borderRadius:5,border:"1px solid #d1d5db",fontSize:11,background:"#fff"}}>
-                                <option value="">— Seleccionar —</option>
-                                {(especiesMaestro||[]).map(e=><option key={e.id} value={e.nombre}>{e.nombre}</option>)}
-                                <option value="__nueva__">＋ Crear nueva especie...</option>
-                              </select>
-                            </div>
-                          </td>
-                          {/* Variedad: dropdown puro filtrado + Crear nueva */}
-                          <td style={{padding:"5px 8px",minWidth:130}}>
-                            {(()=>{
-                              const variedadesFiltradas = p.especie
-                                ? (variedadesMaestro||[]).filter(v=>v.especie===p.especie)
-                                : [];
-                              return (
-                                <select disabled={!p.especie} value={p.variedad_id||""} onChange={e=>{
-                                  if(e.target.value==="__nueva__") {
-                                    if(!p.especie){alert("Selecciona primero la especie.");return;}
-                                    const nombre = window.prompt(`Nombre de la nueva variedad (especie: ${p.especie}):`);
-                                    if(!nombre || !nombre.trim()) return;
-                                    const nombreNorm = nombre.trim();
-                                    const dupe = (variedadesMaestro||[]).find(v=>v.especie===p.especie && v.variedad.toLowerCase().trim()===nombreNorm.toLowerCase());
-                                    if(dupe){ seleccionarVar(dupe.id); return; }
-                                    const id = `var_${Date.now()}`;
-                                    const nueva = {id, especie:p.especie, variedad:nombreNorm, obtentor:"", observaciones:""};
-                                    setVariedadesMaestro&&setVariedadesMaestro(prev=>[...(prev||[]),nueva]);
-                                    window.auditLog&&window.auditLog("crear",{modulo:"osiris",seccion:"Maestro Variedades",
-                                      descripcion:`Creó variedad "${p.especie} · ${nombreNorm}" desde plantaciones (modo nuevo)`,registroId:id});
-                                    seleccionarVar(id);
-                                  } else {
-                                    seleccionarVar(e.target.value);
-                                  }
-                                }} style={{padding:"5px 7px",borderRadius:5,border:"1px solid #d1d5db",fontSize:11,background:p.especie?"#fff":"#f1f5f9",width:"100%"}}>
-                                  <option value="">{p.especie?"— Seleccionar —":"(Selecciona especie primero)"}</option>
-                                  {variedadesFiltradas.map(v=>(<option key={v.id} value={v.id}>{v.variedad}</option>))}
-                                  {p.especie&&<option value="__nueva__">＋ Crear nueva variedad...</option>}
-                                </select>
-                              );
-                            })()}
-                          </td>
-                          <td style={{padding:"5px 8px"}}>
-                            <input type="number" value={p.nPlantas||0} onChange={e=>updPl("nPlantas",parseInt(e.target.value)||0)} style={{width:80,padding:"5px 7px",borderRadius:5,border:"1px solid #d1d5db",fontSize:11,textAlign:"right"}}/>
-                          </td>
-                          <td style={{padding:"5px 8px"}}>
-                            <input type="number" step="0.01" value={p.hectareas||0} onChange={e=>updPl("hectareas",parseFloat(e.target.value)||0)} style={{width:70,padding:"5px 7px",borderRadius:5,border:"1px solid #d1d5db",fontSize:11,textAlign:"right"}}/>
-                          </td>
-                          <td style={{padding:"5px 8px"}}>
-                            <input type="date" value={p.fechaPlantacion||""} onChange={e=>updPl("fechaPlantacion",e.target.value)} style={{padding:"5px 7px",borderRadius:5,border:"1px solid #d1d5db",fontSize:11}}/>
-                          </td>
-                          <td style={{padding:"5px 8px"}}>
-                            <select value={p.sublicenciatario_id||""} onChange={e=>seleccionarSub(e.target.value)}
-                              style={{padding:"5px 7px",borderRadius:5,border:"1px solid #d1d5db",fontSize:11,background:"#fff",maxWidth:140}}>
-                              <option value="">— Sin sublicencia —</option>
-                              {(form.sublicenciatarios||[]).map(s=><option key={s.id} value={s.id}>{s.razonSocial||"(sin nombre)"}</option>)}
-                            </select>
-                          </td>
-                          {/* NUEVO: Vivero */}
-                          <td style={{padding:"5px 8px"}}>
-                            {(viverosData||[]).length>0?(
-                              <select value={p.vivero_id||""} onChange={e=>seleccionarViv(e.target.value)}
-                                style={{padding:"5px 7px",borderRadius:5,border:"1px solid #d1d5db",fontSize:11,background:"#fff",maxWidth:160}}>
-                                <option value="">— Sin vivero —</option>
-                                {(viverosData||[]).map(v=>(<option key={v.id} value={v.id}>{v.viverista||"Sin nombre"}</option>))}
-                              </select>
-                            ):(
-                              <span style={{fontSize:10,color:"#94a3b8",fontStyle:"italic"}}>Sin contratos</span>
-                            )}
-                          </td>
-                          {/* NUEVO: Fee USD/planta */}
-                          <td style={{padding:"5px 8px"}}>
-                            <input type="number" step="0.001" disabled={!p.vivero_id} value={p.vivero_fee_usd||0}
-                              placeholder={p.vivero_id?"0.00":"—"}
-                              onChange={e=>updPl("vivero_fee_usd",parseFloat(e.target.value)||0)}
-                              style={{width:75,padding:"5px 7px",borderRadius:5,border:"1px solid #d1d5db",fontSize:11,textAlign:"right",background:p.vivero_id?"#fff":"#f1f5f9"}}/>
-                          </td>
-                          <td style={{padding:"5px 8px"}}>
-                            <button onClick={()=>{
-                              const next = (form.plantaciones||[]).filter(x=>x.id!==p.id);
-                              setF("plantaciones",next);
-                            }} style={{background:"#fef2f2",border:"none",borderRadius:5,padding:"3px 7px",cursor:"pointer",fontSize:10,color:"#991b1b"}}>×</button>
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            )}
-            <div style={{marginTop:14,padding:12,background:"#fffbeb",borderRadius:8,fontSize:11,color:"#78350f"}}>
-              ⚙️ <strong>Configuración Royalty Comercial:</strong> Se cobra 1 vez al año en el mes definido, por cada hectárea plantada.
-            </div>
-            <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(180px,1fr))",gap:10,marginTop:10}}>
-              <div>
-                <label style={{fontSize:11,fontWeight:600,color:"#374151",display:"block",marginBottom:3}}>Temporada inicio</label>
-                <input value={form.rcInicioTemporada||""} placeholder={temporadaActual()} onChange={e=>setF("rcInicioTemporada",e.target.value)}
-                  style={{width:"100%",padding:"7px 10px",borderRadius:6,border:"1px solid #d1d5db",fontSize:12,boxSizing:"border-box"}}/>
-                <div style={{fontSize:9,color:"#94a3b8",marginTop:2}}>Formato: AAAA/AAAA · Default: {temporadaActual()}</div>
-              </div>
-              <div>
-                <label style={{fontSize:11,fontWeight:600,color:"#374151",display:"block",marginBottom:3}}>Mes de cobro</label>
-                <select value={form.rcMesCobro||RC_MES_DEFAULT_POR_PAIS[form.pais]||"Abril"} onChange={e=>setF("rcMesCobro",e.target.value)}
-                  style={{width:"100%",padding:"7px 10px",borderRadius:6,border:"1px solid #d1d5db",fontSize:12,boxSizing:"border-box",background:"#fff"}}>
-                  {MESES.map(m=><option key={m}>{m}</option>)}
-                </select>
-                <div style={{fontSize:9,color:"#94a3b8",marginTop:2}}>Default {form.pais}: {RC_MES_DEFAULT_POR_PAIS[form.pais]||"—"}</div>
-              </div>
-            </div>
-          </div>
-
           <div style={{display:"flex",gap:10,justifyContent:"flex-end",paddingBottom:16}}>
             <button onClick={()=>{setVista("tabla");setForm(formVacio);}} style={{padding:"9px 22px",borderRadius:8,border:"1px solid #d1d5db",background:"#fff",cursor:"pointer",fontSize:14}}>Cancelar</button>
             <button onClick={guardarNuevo} style={{padding:"9px 22px",borderRadius:8,border:"none",background:C.azul,color:"#fff",cursor:"pointer",fontSize:14,fontWeight:600}}>Guardar contrato</button>
@@ -6947,15 +4115,14 @@ function ControlContratos({data,setData,clientes,setClientes,variedadesMaestro=[
             style={{background:"#16a34a",color:"#fff",border:"none",borderRadius:8,padding:"8px 14px",cursor:"pointer",fontSize:12,fontWeight:700}}>
             ⬇️ Exportar Excel
           </button>
-          {can&&<button onClick={()=>{setShowMantenedor(v=>!v);setShowClientes(false);setShowVariedades(false);setShowEspecies(false);}}
+          {can&&<button onClick={()=>{setShowMantenedor(v=>!v);setShowClientes(false);}}
             style={{background:showMantenedor?"#1e293b":"#f1f5f9",color:showMantenedor?"#fff":"#1e293b",border:"1px solid #e2e8f0",borderRadius:8,padding:"8px 14px",cursor:"pointer",fontSize:12,fontWeight:600}}>
             ⚙️ Tipos
           </button>}
-          {can&&<button onClick={()=>{setShowClientes(v=>!v);setShowMantenedor(false);setShowVariedades(false);setShowEspecies(false);}}
+          {can&&<button onClick={()=>{setShowClientes(v=>!v);setShowMantenedor(false);}}
             style={{background:showClientes?"#0f766e":"#f1f5f9",color:showClientes?"#fff":"#1e293b",border:"1px solid #e2e8f0",borderRadius:8,padding:"8px 14px",cursor:"pointer",fontSize:12,fontWeight:600}}>
             👥 Clientes
           </button>}
-          <span style={{fontSize:10,color:"#94a3b8",padding:"8px 10px"}}>🌳🌿 Maestro Especies/Variedades → en Contratos Obtentores</span>
         </div>
       </div>
 
@@ -7013,8 +4180,6 @@ function ControlContratos({data,setData,clientes,setClientes,variedadesMaestro=[
       {/* Maestro clientes inline */}
       {showClientes&&<MaestroClientes clientes={clientes} setClientes={setClientes} can={can}/>}
 
-      {/* Maestros Especies/Variedades → ahora en Contratos Obtentores */}
-
       <div style={{display:"flex",gap:8,marginBottom:14,flexWrap:"wrap",alignItems:"center"}}>
         <input value={busq} onChange={e=>setBusq(e.target.value)} placeholder="Buscar empresa..."
           style={{padding:"7px 12px",borderRadius:8,border:"1px solid #d1d5db",fontSize:13,minWidth:200}}/>
@@ -7062,80 +4227,6 @@ function ControlContratos({data,setData,clientes,setClientes,variedadesMaestro=[
           </tbody>
         </table>
       </div>
-      {/* Modal edición de tanda */}
-      {tandaModal&&(
-        <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}
-          onClick={()=>setTandaModal(null)}>
-          <div style={{background:"#fff",borderRadius:16,padding:"24px 28px",maxWidth:520,width:"100%",boxShadow:"0 24px 64px #0004"}}
-            onClick={e=>e.stopPropagation()}>
-            <div style={{fontSize:16,fontWeight:800,color:"#1e293b",marginBottom:16}}>📦 Editar tanda de despacho</div>
-            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
-              <div>
-                <div style={{fontSize:11,color:"#64748b",fontWeight:600,marginBottom:3}}>Fecha despacho</div>
-                <input type="date" value={tandaModal.tanda.fecha||""} onChange={e=>setTandaModal(p=>({...p,tanda:{...p.tanda,fecha:e.target.value}}))}
-                  style={{width:"100%",padding:"7px 10px",borderRadius:6,border:"1px solid #d1d5db",fontSize:12,boxSizing:"border-box"}}/>
-              </div>
-              <div>
-                <div style={{fontSize:11,color:"#64748b",fontWeight:600,marginBottom:3}}>N° guía despacho</div>
-                <input value={tandaModal.tanda.guia||""} onChange={e=>setTandaModal(p=>({...p,tanda:{...p.tanda,guia:e.target.value}}))} placeholder="GD-001"
-                  style={{width:"100%",padding:"7px 10px",borderRadius:6,border:"1px solid #d1d5db",fontSize:12,boxSizing:"border-box"}}/>
-              </div>
-              <div>
-                <div style={{fontSize:11,color:"#64748b",fontWeight:600,marginBottom:3}}>Especie</div>
-                <select value={tandaModal.tanda.especie||""} onChange={e=>{
-                  setTandaModal(p=>({...p,tanda:{...p.tanda,especie:e.target.value,variedad:"",variedad_id:""}}));
-                }} style={{width:"100%",padding:"7px 10px",borderRadius:6,border:"1px solid #d1d5db",fontSize:12,background:"#fff",boxSizing:"border-box"}}>
-                  <option value="">— Seleccionar —</option>
-                  {(especiesMaestro||[]).map(e=><option key={e.id} value={e.nombre}>{e.nombre}</option>)}
-                </select>
-              </div>
-              <div>
-                <div style={{fontSize:11,color:"#64748b",fontWeight:600,marginBottom:3}}>Variedad</div>
-                <select value={tandaModal.tanda.variedad_id||""} disabled={!tandaModal.tanda.especie} onChange={e=>{
-                  const vv = (variedadesMaestro||[]).find(v=>v.id===e.target.value);
-                  setTandaModal(p=>({...p,tanda:{...p.tanda,variedad_id:e.target.value,variedad:vv?.variedad||""}}));
-                }} style={{width:"100%",padding:"7px 10px",borderRadius:6,border:"1px solid #d1d5db",fontSize:12,background:tandaModal.tanda.especie?"#fff":"#f1f5f9",boxSizing:"border-box"}}>
-                  <option value="">— Seleccionar —</option>
-                  {(variedadesMaestro||[]).filter(v=>v.especie===tandaModal.tanda.especie).map(v=><option key={v.id} value={v.id}>{v.variedad}</option>)}
-                </select>
-              </div>
-              <div>
-                <div style={{fontSize:11,color:"#64748b",fontWeight:600,marginBottom:3}}>Cantidad plantas</div>
-                <input type="number" value={tandaModal.tanda.plantas||0} onChange={e=>setTandaModal(p=>({...p,tanda:{...p.tanda,plantas:parseInt(e.target.value)||0}}))}
-                  style={{width:"100%",padding:"7px 10px",borderRadius:6,border:"1px solid #d1d5db",fontSize:12,boxSizing:"border-box"}}/>
-              </div>
-              <div>
-                <div style={{fontSize:11,color:"#64748b",fontWeight:600,marginBottom:3}}>Estado</div>
-                <select value={tandaModal.tanda.estado||"Programado"} onChange={e=>setTandaModal(p=>({...p,tanda:{...p.tanda,estado:e.target.value}}))}
-                  style={{width:"100%",padding:"7px 10px",borderRadius:6,border:"1px solid #d1d5db",fontSize:12,background:"#fff",boxSizing:"border-box"}}>
-                  {ESTADOS_TANDA.map(s=><option key={s} value={s}>{s}</option>)}
-                </select>
-              </div>
-            </div>
-            <div style={{marginTop:10}}>
-              <div style={{fontSize:11,color:"#64748b",fontWeight:600,marginBottom:3}}>Observaciones</div>
-              <input value={tandaModal.tanda.observaciones||""} onChange={e=>setTandaModal(p=>({...p,tanda:{...p.tanda,observaciones:e.target.value}}))} placeholder="Estado de las plantas, condiciones..."
-                style={{width:"100%",padding:"7px 10px",borderRadius:6,border:"1px solid #d1d5db",fontSize:12,boxSizing:"border-box"}}/>
-            </div>
-            <div style={{display:"flex",gap:8,justifyContent:"flex-end",marginTop:16}}>
-              <button onClick={()=>setTandaModal(null)} style={{padding:"8px 20px",borderRadius:8,border:"1px solid #d1d5db",background:"#fff",cursor:"pointer",fontSize:12}}>Cancelar</button>
-              <button onClick={()=>{
-                // Guardar tanda editada
-                const ct = data.find(c=>c.id===tandaModal.ctId);
-                if(!ct) { setTandaModal(null); return; }
-                const newPl = (ct.plantaciones||[]).map(p=>{
-                  if(p.id!==tandaModal.pltId) return p;
-                  const nt = [...(p.tandas||[])];
-                  nt[tandaModal.tandaIdx] = tandaModal.tanda;
-                  return {...p, tandas:nt};
-                });
-                setData(prev=>prev.map(c=>c.id===tandaModal.ctId?{...c,plantaciones:newPl}:c));
-                setTandaModal(null);
-              }} style={{padding:"8px 20px",borderRadius:8,background:"#1e293b",color:"#fff",border:"none",cursor:"pointer",fontSize:12,fontWeight:700}}>💾 Guardar</button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
@@ -7258,13 +4349,12 @@ async function exportarObtentores(obtData) {
 async function exportarViveros(vivData) {
   const sectionViveros = {
     titulo: "Contratos Viveros",
-    headers: ["Viverista","País","Estado Contrato","Fecha Contrato","Fecha Vencimiento","Forma de Pago","Mes Estim. Pago","Firma Viverista","Firma Osiris","# Variedades","# OC","Días para vencer","Link Contrato","Observaciones"],
+    headers: ["Viverista","País","Fecha Contrato","Fecha Vencimiento","Forma de Pago","Mes Estim. Pago","Firma Viverista","Firma Osiris","# Variedades","# OC","Días para vencer","Link Contrato","Observaciones"],
     rows: vivData.map(v=>{
       const d = diasParaVencer(v.f_vencimiento);
       return [
         v.viverista||"",
         v.pais||"",
-        v.estado_contrato||"Borrador",
         v.f_contrato||"",
         v.f_vencimiento||"",
         v.forma_pago||"",
@@ -7348,41 +4438,17 @@ async function exportarViveros(vivData) {
 export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPermisos={},osirisData,setOsirisData,onBack,onLogout}) {
   // subApp: null = hub Osiris | "ingresos" | "contratos"
   const [subApp,setSubApp]=useState(null);
-  // Hub cards order (drag-and-drop persistente)
-  const HUB_CARDS_DEFAULT = ["ingresos","contratos","obtentores","viveros","opTecnica","tareas"];
-  const [hubCardsOrder, setHubCardsOrder] = useState(()=>{
-    try { const saved = osirisData?.hubCardsOrder; return Array.isArray(saved) && saved.length===HUB_CARDS_DEFAULT.length ? saved : HUB_CARDS_DEFAULT; }
-    catch(e) { return HUB_CARDS_DEFAULT; }
-  });
-  const [dragCard, setDragCard] = useState(null);
   const [subTab,setSubTab]=useState("resumen");
 
   // Hooks para Contratos Obtentores
   const [obtModal, setObtModal] = useState(false);
   const [obtEditId, setObtEditId] = useState(null);
   const [obtDetalle, setObtDetalle] = useState(null);
-  const [showEspeciesObt, setShowEspeciesObt] = useState(false);
-  const [showVariedadesObt, setShowVariedadesObt] = useState(false);
   const [obtTab, setObtTab] = useState("general");
-  const EMPTY_OBT = {obtentor:"",pais:"",contacto:"",emailContacto:"",telefonoContacto:"",representanteLegal:"",
-    f_inicio:"",f_vencimiento:"",renovable:false,f_vencimiento_nueva:"",
-    // Contrato ampliado
-    territorios:"",exclusividad:"No",tipoExclusividad:"",obligaciones:"",
-    // Royalty hacia obtentor
-    royaltiesObtentor:[],
-    // Condiciones comerciales
-    minimoGarantizado:0,monedaMinimo:"USD",frecuenciaReportes:"",proximoReporte:"",derechoAuditoria:false,calendarioPagos:"",
-    // Existentes
-    observaciones:"",firma_obtentor:false,firma_osiris:false,doc_legal:"",doc_contrato:"",estado_contrato:"Borrador",
+  const EMPTY_OBT = {obtentor:"",f_inicio:"",f_vencimiento:"",renovable:false,observaciones:"",
+    firma_obtentor:false,firma_osiris:false,doc_legal:"",doc_contrato:"",estado_contrato:"Borrador",
     especies:[],anexos:[],pbr:[]};
   const [obtForm, setObtForm] = useState(EMPTY_OBT);
-  // Wizard: paso actual (1=cabecera, 2=especies/DHE, 3=PBR)
-  const [obtWizStep, setObtWizStep] = useState(1);
-  // Forms inline del wizard (paso 2 y 3) — para agregar especies/PBR sin abrir submodales
-  const EMPTY_ESP_INLINE = {especie:"",variedad:"",codigoVariedad:"",nombreComercial:"",vigenciaDesde:"",vigenciaHasta:"",observaciones:"",dhe_estado:"No iniciado",dhe_fecha_solicitud:"",dhe_fecha_aprob:"",dhe_doc:"",dhe_nRegistro:"",dhe_observaciones:""};
-  const EMPTY_PBR_INLINE = {especie:"",variedad:"",pais:"",estado:"Pendiente",nRegistro:"",f_solicitud:"",f_resolucion:"",f_vencimiento:"",doc_solicitud:"",doc_resolucion:"",observaciones:""};
-  const [obtWizEspForm, setObtWizEspForm] = useState(EMPTY_ESP_INLINE);
-  const [obtWizPbrForm, setObtWizPbrForm] = useState(EMPTY_PBR_INLINE);
   // Sub-modales Obtentores
   const [espModal, setEspModal] = useState(false);
   const [espForm, setEspForm] = useState({especie:"",variedad:"",observaciones:"",dhe_estado:"No iniciado",dhe_fecha_aprob:"",dhe_doc:"",dhe_observaciones:""});
@@ -7393,31 +4459,14 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
 
   // Hooks para Contratos Viveros (estructura jerárquica)
   const [vivModal, setVivModal] = useState(false);
-  const EMPTY_VIV = {viverista:"",pais:"",f_contrato:"",f_vencimiento:"",renovable:false,f_vencimiento_nueva:"",
+  const EMPTY_VIV = {viverista:"",pais:"",f_contrato:"",f_vencimiento:"",renovable:false,
     firma_viverista:false,firma_osiris:false,doc_legal:"",doc_contrato:"",observaciones:"",
-    mes_pago_estimado:"",forma_pago:"",estado_contrato:"Borrador",
+    mes_pago_estimado:"",forma_pago:"",
     variedades:[],anexos:[],ordenesCompra:[]};
   const [vivForm, setVivForm] = useState(EMPTY_VIV);
   const [vivEditId, setVivEditId] = useState(null);
   const [vivDetalle, setVivDetalle] = useState(null);
   const [vivTab, setVivTab] = useState("general");
-  // Wizard Viveros: paso 1=cabecera, 2=variedades, 3=anexos, 4=OC, 5=cuotas
-  const [vivWizStep, setVivWizStep] = useState(1);
-  const EMPTY_VV_INLINE = {especie:"",variedad:"",fee_usd:"",fee_pct:"",observaciones:""};
-  const EMPTY_VANX_INLINE = {descripcion:"",fecha:"",enlace:"",observaciones:""};
-  const EMPTY_OC_INLINE = {n_oc:"",fecha_oc:"",cliente_id:"",cliente_nombre:"",
-    variedad_id:"",especie:"",variedad:"",
-    cantidad_plantas:"",hectareas:"",
-    fee_usd_planta:"",fee_total_usd:0,
-    estado_oc:"Borrador",observaciones:"",
-    // Despacho y recepción
-    fechaDespacho:"",guiaDespacho:"",fechaRecepcion:"",observacionesRecepcion:""};
-  const EMPTY_CUOTA_INLINE = {fecha:"",monto_usd:"",pagado:false,fecha_pago:"",n_factura:"",observaciones:""};
-  const [vivWizVvForm, setVivWizVvForm] = useState(EMPTY_VV_INLINE);
-  const [vivWizAnxForm, setVivWizAnxForm] = useState(EMPTY_VANX_INLINE);
-  const [vivWizOcForm, setVivWizOcForm] = useState(EMPTY_OC_INLINE);
-  const [vivWizCuotaForm, setVivWizCuotaForm] = useState(EMPTY_CUOTA_INLINE);
-  const [vivWizOcExpandido, setVivWizOcExpandido] = useState(null); // id de OC en paso 5 cuya sección de cuotas está abierta
   // Sub-modales Viveros
   const [vvModal, setVvModal] = useState(false);
   const [vvForm, setVvForm] = useState({especie:"",variedad:"",fee_usd:"",fee_pct:"",observaciones:""});
@@ -7442,56 +4491,15 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
   const ctData  = osirisData?.contratos       ?? CONTRATOS_INIT;
   const clientes= osirisData?.clientes        ?? CLIENTES_INIT;
   const viveristas = osirisData?.viveristas   ?? VIVERISTAS_INIT;
-  const variedadesMaestro = Array.isArray(osirisData?.variedades) ? osirisData.variedades : VARIEDADES_INIT;
-  const especiesMaestro   = Array.isArray(osirisData?.especies)   ? osirisData.especies   : ESPECIES_INIT;
-  const obtentoresData    = Array.isArray(osirisData?.obtentores) ? osirisData.obtentores : [];
-  // ── Datos derivados desde el contrato (fuente de verdad) ──
-  // tpData: Total Pedidos, ahora derivado de plantaciones del contrato.
-  //   Se preservan los pedidos manuales antiguos para no romper la transición.
-  const tpData = useMemo(()=>{
-    const fromContracts = derivarTotalPedidosDesdeContratos(ctData);
-    const manuales = (osirisData?.totalPedidos||[]).filter(r=>!r._fromContract && !r.ctId);
-    return [...fromContracts, ...manuales];
-  },[osirisData, ctData]);
-
-  const tpIds   = useMemo(()=>new Set(tpData.map(r=>r.id)),[tpData]);
-
-  // rpData: Royalty Planta, derivado de cuotas del contrato + overrides manuales
-  const rpData = useMemo(()=>{
-    const fromContracts = derivarRoyaltyPlantaDesdeContratos(ctData);
-    const raw = osirisData?.royaltyPlanta || [];
-    // Aplicar overrides: si hay un registro manual con mismo id (rp_ctId_cuotaId), prevalece
-    const overridesMap = {};
-    raw.forEach(r=>{ if(r.id) overridesMap[r.id]=r; });
-    const merged = fromContracts.map(rec=>{
-      const ov = overridesMap[rec.id];
-      if(!ov) return rec;
-      // Solo aplicamos campos que el usuario pudo editar (estado de pago, factura, fecha de pago, observaciones, montos override)
-      return {...rec, ...ov, _fromContract: true, _hasOverride: true};
-    });
-    // Manuales legacy (sin ctId) se preservan
-    const manualesLegacy = raw.filter(r=>!r.ctId && !r._fromContract);
-    return [...merged, ...manualesLegacy];
-  },[osirisData, ctData]);
-
-  // rcData: Royalty Comercial derivado de plantaciones × temporadas
-  const rcData = useMemo(()=>{
-    const fromContracts = derivarRoyaltyComercialDesdeContratos(ctData);
-    const raw = osirisData?.royaltyComercial || [];
-    const overridesMap = {};
-    raw.forEach(r=>{ if(r.id) overridesMap[r.id]=r; });
-    const merged = fromContracts.map(rec=>{
-      const ov = overridesMap[rec.id];
-      if(!ov) return rec;
-      return {...rec, ...ov, _fromContract: true, _hasOverride: true};
-    });
-    const manualesLegacy = raw.filter(r=>!r.ctId && !r._fromContract);
-    return [...merged, ...manualesLegacy];
-  },[osirisData, ctData]);
-
+  const tpData  = osirisData?.totalPedidos    ?? [];
+  const rpData  = osirisData?.royaltyPlanta   ?? [];
+  // Filtrar huérfanos: excluir registros vinculados a pedidos eliminados
+  const tpIds   = useMemo(()=>new Set((osirisData?.totalPedidos??[]).map(r=>r.id)),[osirisData]);
+  const rcData  = useMemo(()=>(osirisData?.royaltyComercial??[]).filter(r=>!r.tpId||tpIds.has(r.tpId)),[osirisData,tpIds]);
   const fvData  = useMemo(()=>(osirisData?.feeViveros??[]).filter(r=>!r.tpId||tpIds.has(r.tpId)),[osirisData,tpIds]);
 
-  // feData: Contract Fee derivado del contrato (formato actual mantenido)
+  // feData: vista reactiva — lee osirisData directamente (no variable intermedia)
+  // Evita el problema de referencia nueva en cada render con ?? []
   const feData = useMemo(()=>{
     const raw = osirisData?.feeEntrada || [];
     const edits = {};
@@ -7522,48 +4530,12 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
 
   const setClientes=useCallback(fn=>setOsirisData(prev=>({...prev,clientes:       typeof fn==="function"?fn(prev?.clientes       ??CLIENTES_INIT):fn})),[setOsirisData]);
   const setViveristas=useCallback(fn=>setOsirisData(prev=>({...prev,viveristas:    typeof fn==="function"?fn(prev?.viveristas    ??VIVERISTAS_INIT):fn})),[setOsirisData]);
-  const setVivGlobal=useCallback(fn=>setOsirisData(prev=>({...prev,viveros:       typeof fn==="function"?fn(prev?.viveros       ??[]):fn})),[setOsirisData]);
-  const setOpTecnica=useCallback(fn=>setOsirisData(prev=>({...prev,opTecnica:    typeof fn==="function"?fn(prev?.opTecnica    ??{}):fn})),[setOsirisData]);
-  const setVariedadesMaestro=useCallback(fn=>setOsirisData(prev=>({...prev,variedades:    typeof fn==="function"?fn(prev?.variedades    ??VARIEDADES_INIT):fn})),[setOsirisData]);
-  const setEspeciesMaestro=useCallback(fn=>setOsirisData(prev=>({...prev,especies:    typeof fn==="function"?fn(prev?.especies    ??ESPECIES_INIT):fn})),[setOsirisData]);
   const setCt=useCallback(fn=>setOsirisData(prev=>({...prev,contratos:      typeof fn==="function"?fn(prev?.contratos      ??CONTRATOS_INIT):fn})),[setOsirisData]);
   const setTp=useCallback(fn=>setOsirisData(prev=>({...prev,totalPedidos:   typeof fn==="function"?fn(prev?.totalPedidos   ??[]):fn})),[setOsirisData]);
   const setRp=useCallback(fn=>setOsirisData(prev=>({...prev,royaltyPlanta:  typeof fn==="function"?fn(prev?.royaltyPlanta  ??[]):fn})),[setOsirisData]);
   const setFe=useCallback(fn=>setOsirisData(prev=>({...prev,feeEntrada:     typeof fn==="function"?fn(prev?.feeEntrada     ??[]):fn})),[setOsirisData]);
   const setRc=useCallback(fn=>setOsirisData(prev=>({...prev,royaltyComercial:typeof fn==="function"?fn(prev?.royaltyComercial??[]):fn})),[setOsirisData]);
   const setFv=useCallback(fn=>setOsirisData(prev=>({...prev,feeViveros:     typeof fn==="function"?fn(prev?.feeViveros     ??[]):fn})),[setOsirisData]);
-
-  // ── Migración automática del Maestro de Especies ──
-  // Se ejecuta una vez al cargar: detecta especies escritas a mano en contratos obtentores
-  // y plantaciones de contratos prod-exp, y las crea en el maestro si no existen.
-  // Solo corre si el maestro está vacío Y hay datos para migrar (evita sobrescribir).
-  useEffect(()=>{
-    // Solo migrar si el maestro está vacío y hay datos potenciales
-    if((especiesMaestro||[]).length>0) return;
-    const detectadas = new Set();
-    // Desde contratos obtentores
-    (obtentoresData||[]).forEach(o=>(o.especies||[]).forEach(e=>{
-      if(e.especie && e.especie.trim()) detectadas.add(e.especie.trim());
-    }));
-    // Desde plantaciones de contratos prod-exp
-    (ctData||[]).forEach(c=>(c.plantaciones||[]).forEach(p=>{
-      if(p.especie && p.especie.trim()) detectadas.add(p.especie.trim());
-    }));
-    // Desde maestro de variedades (si ya tienen especies)
-    (variedadesMaestro||[]).forEach(v=>{
-      if(v.especie && v.especie.trim()) detectadas.add(v.especie.trim());
-    });
-    if(detectadas.size===0) return;
-    const nuevas = Array.from(detectadas).map((nombre, i)=>({
-      id:`esp_mig_${Date.now()}_${i}`,
-      nombre,
-      color: COLORES_ESPECIES[i % COLORES_ESPECIES.length].hex,
-    }));
-    setEspeciesMaestro(nuevas);
-    window.auditLog && window.auditLog("crear", {modulo:"osiris", seccion:"Maestro Especies",
-      descripcion:`Migración automática: importó ${nuevas.length} especies (${nuevas.map(e=>e.nombre).join(", ")})`});
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  },[]);  // Solo al montar el componente
 
   // PERMISOS OSIRIS
   // Edición requiere: (a) rol editor/admin Y (b) permiso "editar" en la pestaña activa
@@ -7602,7 +4574,6 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
 
   const SUBTABS=[
     {id:"resumen",          label:"📊 Resumen",          badge:0},
-    {id:"dashboard",        label:"📊 Dashboard",        badge:0},
     {id:"graficos",         label:"🌿 Plantas",          badge:0},
     {id:"totalPedidos",     label:"📦 Total Pedidos",     badge:sinConfirmar},
     {id:"royaltyPlanta",    label:"🌱 Royalty/Planta",    badge:0},
@@ -7685,91 +4656,102 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
         <div style={{color:"#8b949e",fontSize:13}}>Genética Diferenciada</div>
       </div>
 
-      {/* Tarjetas de módulos — drag-and-drop para reordenar */}
-      {(()=>{
-        const CARD_DEFS = {
-          ingresos: {emoji:"💰",label:"Ingresos Osiris",desc:"Royalties, Fee Viveros, Total Pedidos y Resumen de cobros",grad:"#0f766e22",border:"#0f766e44",
-            onClick:()=>setSubApp("ingresos"),badges:()=><>{sinConfirmar>0&&<span style={{fontSize:10,background:"rgba(251,191,36,0.2)",color:"#fbbf24",padding:"3px 10px",borderRadius:20,fontWeight:700}}>{sinConfirmar} por confirmar</span>}{alertasRC>0&&<span style={{fontSize:10,background:"rgba(239,68,68,0.2)",color:"#f87171",padding:"3px 10px",borderRadius:20,fontWeight:700}}>⚠️ {alertasRC} alerta{alertasRC>1?"s":""}</span>}</>},
-          contratos: {emoji:"📜",label:"Contratos Productores",desc:"Gestión de contratos con productores-exportadores",grad:"#2563eb22",border:"#2563eb44",
-            onClick:()=>setSubApp("contratos"),badges:()=><span style={{fontSize:10,background:"rgba(37,99,235,0.2)",color:"#93c5fd",padding:"3px 10px",borderRadius:20,fontWeight:700}}>{(ctData||[]).length} contratos</span>},
-          obtentores: {emoji:"🧬",label:"Contratos Obtentores",desc:"Obtentores, variedades, DHE, PBR, Maestro Especies/Variedades",grad:"#7c3aed22",border:"#7c3aed44",
-            onClick:()=>{if(canVerObtentores)setSubApp("obtentores");},badges:()=>{
-              const arr=Array.isArray(osirisData?.obtentores)?osirisData.obtentores:[];
-              const venc=arr.filter(o=>{const d=diasParaVencer(o.f_vencimiento);return d!==null&&d<0;}).length;
-              const por=arr.filter(o=>{const d=diasParaVencer(o.f_vencimiento);return d!==null&&d>=0&&d<=90;}).length;
-              return <>{<span style={{fontSize:10,background:"rgba(124,58,237,0.2)",color:"#c4b5fd",padding:"3px 10px",borderRadius:20,fontWeight:700}}>{arr.length} contratos</span>}
-                {venc>0&&<span style={{fontSize:10,background:"rgba(239,68,68,0.2)",color:"#f87171",padding:"3px 10px",borderRadius:20,fontWeight:700}}>⚠️ {venc} vencido{venc>1?"s":""}</span>}
-                {por>0&&<span style={{fontSize:10,background:"rgba(251,191,36,0.2)",color:"#fbbf24",padding:"3px 10px",borderRadius:20,fontWeight:700}}>⏳ {por} por vencer</span>}</>;
-            }},
-          viveros: {emoji:"🌱",label:"Contratos Viveros",desc:"Viveros, variedades autorizadas, OC Clientes, Cuotas",grad:"#16a34a22",border:"#16a34a44",
-            onClick:()=>{if(canVerViveros)setSubApp("viveros");},badges:()=>{
-              const arr=Array.isArray(osirisData?.viveros)?osirisData.viveros:[];
-              const venc=arr.filter(v=>{const d=diasParaVencer(v.f_vencimiento);return d!==null&&d<0;}).length;
-              const totOC=arr.reduce((s,v)=>s+(Array.isArray(v.ordenesCompra)?v.ordenesCompra.length:0),0);
-              return <>{<span style={{fontSize:10,background:"rgba(22,163,74,0.2)",color:"#4ade80",padding:"3px 10px",borderRadius:20,fontWeight:700}}>{arr.length} viveros</span>}
-                {totOC>0&&<span style={{fontSize:10,background:"rgba(14,165,233,0.2)",color:"#7dd3fc",padding:"3px 10px",borderRadius:20,fontWeight:700}}>📦 {totOC} OC</span>}
-                {venc>0&&<span style={{fontSize:10,background:"rgba(239,68,68,0.2)",color:"#f87171",padding:"3px 10px",borderRadius:20,fontWeight:700}}>⚠️ {venc} vencido{venc>1?"s":""}</span>}</>;
-            }},
-          opTecnica: {emoji:"🔬",label:"Operación Técnica",desc:"Visitas, informes, equipo técnico, entregables",grad:"#0ea5e922",border:"#0ea5e944",
-            onClick:()=>setSubApp("opTecnica"),badges:()=>{
-              const ot=osirisData?.opTecnica||{};
-              const nV=Array.isArray(ot.visitas)?ot.visitas.filter(v=>v.estado==="Programada").length:0;
-              const nM=Array.isArray(ot.medidas)?ot.medidas.filter(m=>m.estado==="Abierta"||m.estado==="En proceso").length:0;
-              return <>{nV>0&&<span style={{fontSize:10,background:"rgba(59,130,246,0.2)",color:"#93c5fd",padding:"3px 10px",borderRadius:20,fontWeight:700}}>📋 {nV} visitas prog.</span>}
-                {nM>0&&<span style={{fontSize:10,background:"rgba(239,68,68,0.2)",color:"#f87171",padding:"3px 10px",borderRadius:20,fontWeight:700}}>⚠️ {nM} medidas</span>}</>;
-            }},
-          tareas: {emoji:"✅",label:"Seguimiento Tareas",desc:"Tareas operativas del equipo Osiris",grad:"#d9770622",border:"#d9770644",
-            onClick:()=>setSubApp("tareas"),badges:()=>null},
-        };
-
-        const handleDragStart = (e, cardId) => { setDragCard(cardId); e.dataTransfer.effectAllowed="move"; };
-        const handleDragOver = (e) => { e.preventDefault(); e.dataTransfer.dropEffect="move"; };
-        const handleDrop = (e, targetId) => {
-          e.preventDefault();
-          if(!dragCard||dragCard===targetId) return;
-          const newOrder = [...hubCardsOrder];
-          const fromIdx = newOrder.indexOf(dragCard);
-          const toIdx = newOrder.indexOf(targetId);
-          if(fromIdx===-1||toIdx===-1) return;
-          newOrder.splice(fromIdx,1);
-          newOrder.splice(toIdx,0,dragCard);
-          setHubCardsOrder(newOrder);
-          // Persistir orden en osirisData
-          setOsirisData(prev=>({...(prev||{}), hubCardsOrder:newOrder}));
-          setDragCard(null);
-        };
-
-        return (
-          <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(280px,1fr))",gap:16,maxWidth:700,margin:"0 auto 30px"}}>
-            {hubCardsOrder.map(cardId=>{
-              const def = CARD_DEFS[cardId];
-              if(!def) return null;
-              return (
-                <div key={cardId}
-                  draggable
-                  onDragStart={e=>handleDragStart(e,cardId)}
-                  onDragOver={handleDragOver}
-                  onDrop={e=>handleDrop(e,cardId)}
-                  onDragEnd={()=>setDragCard(null)}
-                  onClick={def.onClick}
-                  style={{background:`linear-gradient(135deg,#1c2333,${def.grad})`,borderRadius:16,padding:"24px 20px",
-                    border:`1px solid ${def.border}`,cursor:"grab",transition:"all 0.2s",position:"relative",overflow:"hidden",
-                    opacity:dragCard===cardId?0.5:1,
-                    outline:dragCard&&dragCard!==cardId?"2px dashed #475569":"none"}}
-                  onMouseEnter={e=>{if(!dragCard)e.currentTarget.style.transform="translateY(-2px)";}}
-                  onMouseLeave={e=>e.currentTarget.style.transform="translateY(0)"}>
-                  <div style={{position:"absolute",top:8,right:10,fontSize:10,color:"#475569",cursor:"grab"}} title="Arrastra para reordenar">⋮⋮</div>
-                  <div style={{fontSize:32,marginBottom:10}}>{def.emoji}</div>
-                  <div style={{fontWeight:800,fontSize:16,color:"#e6edf3",marginBottom:4}}>{def.label}</div>
-                  <div style={{fontSize:11,color:"#8b949e",marginBottom:12}}>{def.desc}</div>
-                  <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>{def.badges()}</div>
-                  <div style={{position:"absolute",right:16,bottom:16,fontSize:20,color:`${def.border}`}}>→</div>
-                </div>
-              );
-            })}
+      {/* Tarjetas de módulos — estilo Allegria */}
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(280px,1fr))",gap:16,maxWidth:700,margin:"0 auto 30px"}}>
+        {/* Ingresos */}
+        <div onClick={()=>setSubApp("ingresos")}
+          style={{background:"linear-gradient(135deg,#1c2333,#0f766e22)",borderRadius:16,padding:"24px 20px",
+            border:"1px solid #0f766e44",cursor:"pointer",transition:"all 0.2s",position:"relative",overflow:"hidden"}}
+          onMouseEnter={e=>e.currentTarget.style.transform="translateY(-2px)"}
+          onMouseLeave={e=>e.currentTarget.style.transform="translateY(0)"}>
+          <div style={{fontSize:32,marginBottom:10}}>💰</div>
+          <div style={{fontWeight:800,fontSize:16,color:"#e6edf3",marginBottom:4}}>Ingresos Osiris</div>
+          <div style={{fontSize:11,color:"#8b949e",marginBottom:12}}>Royalties, Fee Viveros, Total Pedidos y Resumen de cobros</div>
+          <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+            {sinConfirmar>0&&<span style={{fontSize:10,background:"rgba(251,191,36,0.2)",color:"#fbbf24",padding:"3px 10px",borderRadius:20,fontWeight:700}}>{sinConfirmar} por confirmar</span>}
+            {alertasRC>0&&<span style={{fontSize:10,background:"rgba(239,68,68,0.2)",color:"#f87171",padding:"3px 10px",borderRadius:20,fontWeight:700}}>⚠️ {alertasRC} alerta{alertasRC>1?"s":""}</span>}
           </div>
-        );
-      })()}
+          <div style={{position:"absolute",right:16,bottom:16,fontSize:20,color:"#0f766e44"}}>→</div>
+        </div>
+
+        {/* Contratos Productores-Exportadores */}
+        <div onClick={()=>setSubApp("contratos")}
+          style={{background:"linear-gradient(135deg,#1c2333,#4338ca22)",borderRadius:16,padding:"24px 20px",
+            border:"1px solid #4338ca44",cursor:"pointer",transition:"all 0.2s",position:"relative",overflow:"hidden"}}
+          onMouseEnter={e=>e.currentTarget.style.transform="translateY(-2px)"}
+          onMouseLeave={e=>e.currentTarget.style.transform="translateY(0)"}>
+          <div style={{fontSize:32,marginBottom:10}}>📋</div>
+          <div style={{fontWeight:800,fontSize:16,color:"#e6edf3",marginBottom:4}}>Contratos Productores-Exportadores</div>
+          <div style={{fontSize:11,color:"#8b949e",marginBottom:12}}>Gestión de contratos, firmas, anexos y condiciones comerciales</div>
+          <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+            <span style={{fontSize:10,background:"rgba(99,102,241,0.2)",color:"#a5b4fc",padding:"3px 10px",borderRadius:20,fontWeight:700}}>{ctData.length} contratos</span>
+            <span style={{fontSize:10,background:"rgba(22,163,74,0.2)",color:"#4ade80",padding:"3px 10px",borderRadius:20,fontWeight:700}}>{ctData.filter(c=>c.firmadoLicenciado&&c.firmadoOsiris).length} firmados</span>
+          </div>
+          <div style={{position:"absolute",right:16,bottom:16,fontSize:20,color:"#4338ca44"}}>→</div>
+        </div>
+
+        {/* Contratos Obtentores */}
+        <div onClick={()=>{if(canVerObtentores)setSubApp("obtentores");}}
+          style={{background:"linear-gradient(135deg,#1c2333,#7c3aed22)",borderRadius:16,padding:"24px 20px",
+            border:"1px solid #7c3aed44",cursor:canVerObtentores?"pointer":"not-allowed",opacity:canVerObtentores?1:0.5,transition:"all 0.2s",position:"relative",overflow:"hidden"}}
+          onMouseEnter={e=>{if(canVerObtentores)e.currentTarget.style.transform="translateY(-2px)";}}
+          onMouseLeave={e=>e.currentTarget.style.transform="translateY(0)"}>
+          <div style={{fontSize:32,marginBottom:10}}>🧬</div>
+          <div style={{fontWeight:800,fontSize:16,color:"#e6edf3",marginBottom:4}}>Contratos Obtentores</div>
+          <div style={{fontSize:11,color:"#8b949e",marginBottom:12}}>Contratos con obtentores de genética, especies y variedades</div>
+          <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+            <span style={{fontSize:10,background:"rgba(124,58,237,0.2)",color:"#c4b5fd",padding:"3px 10px",borderRadius:20,fontWeight:700}}>{(osirisData?.obtentores||[]).length} contratos</span>
+            {(()=>{
+              const arr = osirisData?.obtentores||[];
+              const venc = arr.filter(o=>{const d=diasParaVencer(o.f_vencimiento);return d!==null && d<0;}).length;
+              const por = arr.filter(o=>{const d=diasParaVencer(o.f_vencimiento);return d!==null && d>=0 && d<=90;}).length;
+              return <>
+                {venc>0&&<span style={{fontSize:10,background:"rgba(239,68,68,0.2)",color:"#f87171",padding:"3px 10px",borderRadius:20,fontWeight:700}}>⚠️ {venc} vencido{venc>1?"s":""}</span>}
+                {por>0&&<span style={{fontSize:10,background:"rgba(251,191,36,0.2)",color:"#fbbf24",padding:"3px 10px",borderRadius:20,fontWeight:700}}>⏳ {por} por vencer</span>}
+              </>;
+            })()}
+          </div>
+          <div style={{position:"absolute",right:16,bottom:16,fontSize:20,color:"#7c3aed44"}}>→</div>
+        </div>
+
+        {/* Contratos Viveros */}
+        <div onClick={()=>{if(canVerViveros)setSubApp("viveros");}}
+          style={{background:"linear-gradient(135deg,#1c2333,#16a34a22)",borderRadius:16,padding:"24px 20px",
+            border:"1px solid #16a34a44",cursor:canVerViveros?"pointer":"not-allowed",opacity:canVerViveros?1:0.5,transition:"all 0.2s",position:"relative",overflow:"hidden"}}
+          onMouseEnter={e=>{if(canVerViveros)e.currentTarget.style.transform="translateY(-2px)";}}
+          onMouseLeave={e=>e.currentTarget.style.transform="translateY(0)"}>
+          <div style={{fontSize:32,marginBottom:10}}>🌱</div>
+          <div style={{fontWeight:800,fontSize:16,color:"#e6edf3",marginBottom:4}}>Contratos Viveros</div>
+          <div style={{fontSize:11,color:"#8b949e",marginBottom:12}}>Viveristas autorizados, fee a Osiris y condiciones</div>
+          <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+            <span style={{fontSize:10,background:"rgba(22,163,74,0.2)",color:"#4ade80",padding:"3px 10px",borderRadius:20,fontWeight:700}}>{(osirisData?.viveros||[]).length} viveros</span>
+            {(()=>{
+              const arr = osirisData?.viveros||[];
+              const venc = arr.filter(v=>{const d=diasParaVencer(v.f_vencimiento);return d!==null && d<0;}).length;
+              const por = arr.filter(v=>{const d=diasParaVencer(v.f_vencimiento);return d!==null && d>=0 && d<=90;}).length;
+              const totOC = arr.reduce((s,v)=>s+(v.ordenesCompra||[]).length,0);
+              return <>
+                {totOC>0&&<span style={{fontSize:10,background:"rgba(37,99,235,0.2)",color:"#93c5fd",padding:"3px 10px",borderRadius:20,fontWeight:700}}>📦 {totOC} OC</span>}
+                {venc>0&&<span style={{fontSize:10,background:"rgba(239,68,68,0.2)",color:"#f87171",padding:"3px 10px",borderRadius:20,fontWeight:700}}>⚠️ {venc} vencido{venc>1?"s":""}</span>}
+                {por>0&&<span style={{fontSize:10,background:"rgba(251,191,36,0.2)",color:"#fbbf24",padding:"3px 10px",borderRadius:20,fontWeight:700}}>⏳ {por} por vencer</span>}
+              </>;
+            })()}
+          </div>
+          <div style={{position:"absolute",right:16,bottom:16,fontSize:20,color:"#16a34a44"}}>→</div>
+        </div>
+
+        {/* Seguimiento Tareas */}
+        <div onClick={()=>setSubApp("tareas")}
+          style={{background:"linear-gradient(135deg,#1c2333,#ea580c22)",borderRadius:16,padding:"24px 20px",
+            border:"1px solid #ea580c44",cursor:"pointer",transition:"all 0.2s",position:"relative",overflow:"hidden"}}
+          onMouseEnter={e=>e.currentTarget.style.transform="translateY(-2px)"}
+          onMouseLeave={e=>e.currentTarget.style.transform="translateY(0)"}>
+          <div style={{fontSize:32,marginBottom:10}}>✅</div>
+          <div style={{fontWeight:800,fontSize:16,color:"#e6edf3",marginBottom:4}}>Seguimiento Tareas</div>
+          <div style={{fontSize:11,color:"#8b949e",marginBottom:12}}>Control y seguimiento de tareas del equipo Osiris</div>
+          <div style={{position:"absolute",right:16,bottom:16,fontSize:20,color:"#ea580c44"}}>→</div>
+        </div>
+      </div>
 
       {/* KPIs globales */}
       <div style={{display:"flex",gap:12,flexWrap:"wrap",maxWidth:700,margin:"0 auto"}}>
@@ -7813,7 +4795,7 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
       )}
       <div style={{background:"#fff",borderRadius:14,padding:20,boxShadow:"0 2px 10px #0001"}}>
         {canVerContratos
-        ? <ControlContratos data={ctData} setData={setCt} clientes={clientes} setClientes={setClientes} variedadesMaestro={variedadesMaestro} setVariedadesMaestro={setVariedadesMaestro} especiesMaestro={especiesMaestro} setEspeciesMaestro={setEspeciesMaestro} obtentoresData={obtentoresData} viverosData={Array.isArray(osirisData?.viveros)?osirisData.viveros:[]} setViveros={setVivGlobal} can={canContratos}/>
+        ? <ControlContratos data={ctData} setData={setCt} clientes={clientes} setClientes={setClientes} can={canContratos}/>
         : <div style={{textAlign:"center",padding:40,color:"#94a3b8"}}>Sin acceso a Contratos</div>
       }
       </div>
@@ -7822,7 +4804,7 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
 
   // ── CONTRATOS OBTENTORES ──────────────────────────────────
   if(subApp==="obtentores") {
-    const obtData = Array.isArray(osirisData?.obtentores) ? osirisData.obtentores : [];
+    const obtData = osirisData?.obtentores || [];
     const setObt = (list) => setOsirisData(prev=>({...prev, obtentores: list}));
 
     const guardarObt = () => {
@@ -7840,17 +4822,10 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
       item.anexos   = item.anexos   || [];
       const next = obtEditId ? obtData.map(o=>o.id===obtEditId?item:o) : [...obtData, item];
       setObt(next);
-      const extras = [];
-      if(item.especies.length>0) extras.push(`${item.especies.length} variedad${item.especies.length>1?"es":""}`);
-      if(item.pbr.length>0) extras.push(`${item.pbr.length} PBR`);
-      const extraStr = extras.length ? ` · ${extras.join(", ")}` : "";
       window.auditLog && window.auditLog(obtEditId?"editar":"crear", {modulo:"osiris", seccion:"Contratos Obtentores",
-        descripcion:`${obtEditId?"Editó":"Creó"} contrato obtentor "${item.obtentor}"${item.f_vencimiento?` · vence ${item.f_vencimiento}`:""}${extraStr}`});
+        descripcion:`${obtEditId?"Editó":"Creó"} contrato obtentor "${item.obtentor}"${item.f_vencimiento?` · vence ${item.f_vencimiento}`:""}`});
       setObtModal(false);
       setObtEditId(null);
-      setObtWizStep(1);
-      setObtWizEspForm(EMPTY_ESP_INLINE);
-      setObtWizPbrForm(EMPTY_PBR_INLINE);
     };
 
     const updateContrato = (id, updates) => {
@@ -7953,7 +4928,7 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
         updateContrato(c.id, {anexos:anexos.filter(a=>a.id!==aid)});
       };
 
-      const TABS_OBT = [{id:"general",label:"📋 General"},{id:"especies",label:"🌿 Especies/Variedades"},{id:"pbr",label:"📜 PBR"},{id:"royalties",label:"💰 Royalty al Obtentor"},{id:"condiciones",label:"📊 Condiciones Comerciales"},{id:"legal",label:"⚖️ Legal/Firmas"},{id:"anexos",label:"📎 Anexos"}];
+      const TABS_OBT = [{id:"general",label:"📋 General"},{id:"especies",label:"🌿 Especies/Variedades"},{id:"pbr",label:"📜 PBR"},{id:"legal",label:"⚖️ Legal/Firmas"},{id:"anexos",label:"📎 Anexos"}];
       const vig = estadoVigencia(c.f_vencimiento);
 
       return (
@@ -7985,7 +4960,6 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
                 <div style={{fontSize:20,fontWeight:900,color:"#e6edf3"}}>🧬 {c.obtentor}</div>
                 <div style={{fontSize:11,color:"#8b949e",marginTop:4}}>
                   {c.f_inicio&&`Desde ${c.f_inicio}`} {c.f_vencimiento&&` · Hasta ${c.f_vencimiento}`}
-                  {c.renovable&&c.f_vencimiento_nueva&&<span style={{color:"#60a5fa",marginLeft:6,fontWeight:700}}>🔄 Nueva: {c.f_vencimiento_nueva}</span>}
                   <span style={{color:vig.color,marginLeft:8,fontWeight:700}}>{vig.icon} {vig.label}</span>
                   {c.doc_contrato&&<a href={c.doc_contrato} target="_blank" rel="noopener noreferrer" style={{marginLeft:10,color:"#a78bfa",fontWeight:700,textDecoration:"none"}}>📄 Abrir contrato</a>}
                 </div>
@@ -8016,18 +4990,7 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
             {/* TAB GENERAL */}
             {obtTab==="general"&&(
               <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:16}}>
-                {/* Datos del obtentor */}
-                <div style={{gridColumn:"1/-1",fontSize:12,fontWeight:700,color:"#7c3aed",borderBottom:"1px solid #e2e8f0",paddingBottom:6}}>🏢 Datos del Obtentor</div>
-                {[["Nombre del Obtentor *","obtentor","text"],["País","pais","text"],["Contacto (nombre)","contacto","text"],["Email contacto","emailContacto","email"],["Teléfono contacto","telefonoContacto","text"],["Representante legal","representanteLegal","text"]].map(([lbl,f,t])=>(
-                  <div key={f}>
-                    <label style={{fontSize:11,fontWeight:600,color:"#475569",display:"block",marginBottom:4}}>{lbl}</label>
-                    <input type={t} disabled={!canObtentores} value={c[f]||""} onChange={e=>updateContrato(c.id,{[f]:e.target.value})}
-                      style={{width:"100%",padding:"8px 12px",borderRadius:8,border:"1px solid #d1d5db",fontSize:13,boxSizing:"border-box",background:canObtentores?"#fff":"#f8fafc"}}/>
-                  </div>
-                ))}
-                {/* Datos del contrato */}
-                <div style={{gridColumn:"1/-1",fontSize:12,fontWeight:700,color:"#7c3aed",borderBottom:"1px solid #e2e8f0",paddingBottom:6,marginTop:8}}>📄 Datos del Contrato</div>
-                {[["Fecha Inicio","f_inicio","date"],["Fecha Vencimiento","f_vencimiento","date"]].map(([lbl,f,t])=>(
+                {[["Obtentor","obtentor","text"],["Fecha Inicio","f_inicio","date"],["Fecha Vencimiento","f_vencimiento","date"]].map(([lbl,f,t])=>(
                   <div key={f}>
                     <label style={{fontSize:11,fontWeight:600,color:"#475569",display:"block",marginBottom:4}}>{lbl}</label>
                     <input type={t} disabled={!canObtentores} value={c[f]||""} onChange={e=>updateContrato(c.id,{[f]:e.target.value})}
@@ -8042,44 +5005,11 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
                   </select>
                 </div>
                 <div>
-                  <label style={{fontSize:11,fontWeight:600,color:"#475569",display:"block",marginBottom:4}}>Exclusividad</label>
-                  <select disabled={!canObtentores} value={c.exclusividad||"No"} onChange={e=>updateContrato(c.id,{exclusividad:e.target.value})}
-                    style={{width:"100%",padding:"8px 12px",borderRadius:8,border:"1px solid #d1d5db",fontSize:13,boxSizing:"border-box",background:canObtentores?"#fff":"#f8fafc"}}>
-                    <option value="No">No exclusivo</option>
-                    <option value="Exclusivo">Exclusivo</option>
-                    <option value="Semi-exclusivo">Semi-exclusivo</option>
-                  </select>
-                </div>
-                {c.exclusividad&&c.exclusividad!=="No"&&(
-                  <div>
-                    <label style={{fontSize:11,fontWeight:600,color:"#475569",display:"block",marginBottom:4}}>Tipo de exclusividad</label>
-                    <input disabled={!canObtentores} value={c.tipoExclusividad||""} placeholder="Por territorio, por especie..." onChange={e=>updateContrato(c.id,{tipoExclusividad:e.target.value})}
-                      style={{width:"100%",padding:"8px 12px",borderRadius:8,border:"1px solid #d1d5db",fontSize:13,boxSizing:"border-box",background:canObtentores?"#fff":"#f8fafc"}}/>
-                  </div>
-                )}
-                <div style={{gridColumn:"1/-1"}}>
-                  <label style={{fontSize:11,fontWeight:600,color:"#475569",display:"block",marginBottom:4}}>Territorios autorizados</label>
-                  <input disabled={!canObtentores} value={c.territorios||""} placeholder="Chile, Perú, México, Colombia..." onChange={e=>updateContrato(c.id,{territorios:e.target.value})}
-                    style={{width:"100%",padding:"8px 12px",borderRadius:8,border:"1px solid #d1d5db",fontSize:13,boxSizing:"border-box",background:canObtentores?"#fff":"#f8fafc"}}/>
-                </div>
-                <div style={{gridColumn:"1/-1"}}>
-                  <label style={{fontSize:11,fontWeight:600,color:"#475569",display:"block",marginBottom:4}}>Obligaciones contractuales</label>
-                  <textarea disabled={!canObtentores} value={c.obligaciones||""} placeholder="Reportes anuales, pago de mínimos, mantención de registros PBR..." onChange={e=>updateContrato(c.id,{obligaciones:e.target.value})}
-                    style={{width:"100%",padding:"8px 12px",borderRadius:8,border:"1px solid #d1d5db",fontSize:13,minHeight:60,boxSizing:"border-box",background:canObtentores?"#fff":"#f8fafc"}}/>
-                </div>
-                <div>
-                  <label style={{fontSize:11,fontWeight:600,color:"#475569",display:"flex",alignItems:"center",gap:8,cursor:canObtentores?"pointer":"default"}}>
+                  <label style={{fontSize:11,fontWeight:600,color:"#475569",display:"flex",alignItems:"center",gap:8,cursor:canObtentores?"pointer":"default",marginTop:24}}>
                     <input type="checkbox" disabled={!canObtentores} checked={!!c.renovable} onChange={e=>updateContrato(c.id,{renovable:e.target.checked})}/>
                     Contrato renovable
                   </label>
                 </div>
-                {c.renovable&&(
-                  <div>
-                    <label style={{fontSize:11,fontWeight:600,color:"#475569",display:"block",marginBottom:4}}>📆 Nueva Fecha Vencimiento</label>
-                    <input type="date" disabled={!canObtentores} value={c.f_vencimiento_nueva||""} onChange={e=>updateContrato(c.id,{f_vencimiento_nueva:e.target.value})}
-                      style={{width:"100%",padding:"8px 12px",borderRadius:8,border:"1px solid #93c5fd",fontSize:13,boxSizing:"border-box",background:canObtentores?"#eff6ff":"#f8fafc"}}/>
-                  </div>
-                )}
                 <div style={{gridColumn:"1/-1"}}>
                   <label style={{fontSize:11,fontWeight:600,color:"#475569",display:"block",marginBottom:4}}>📎 Link al contrato (OneDrive/Drive)</label>
                   <input disabled={!canObtentores} value={c.doc_contrato||""} placeholder="https://..." onChange={e=>updateContrato(c.id,{doc_contrato:e.target.value})}
@@ -8186,9 +5116,13 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
                           <div style={{display:"flex",gap:6,alignItems:"center"}}>
                             <select disabled={!canObtentores} value={p.estado||"Pendiente"} onChange={e=>updatePBR(p.id,{estado:e.target.value})}
                               style={{padding:"4px 8px",borderRadius:6,border:"1px solid #d1d5db",fontSize:11,
-                                background:p.estado==="Otorgado"||p.estado==="Vigente"?"#dcfce7":p.estado==="Denegado"||p.estado==="Vencido"||p.estado==="Retirado"?"#fee2e2":"#fef9c3",
+                                background:p.estado==="Aprobado"?"#dcfce7":p.estado==="Rechazado"?"#fee2e2":"#fef9c3",
                                 fontWeight:700}}>
-                              {ESTADOS_PBR.map(s=><option key={s} value={s}>{s}</option>)}
+                              <option value="Pendiente">⏳ Pendiente</option>
+                              <option value="Solicitado">📨 Solicitado</option>
+                              <option value="En Revisión">🔍 En Revisión</option>
+                              <option value="Aprobado">✅ Aprobado</option>
+                              <option value="Rechazado">❌ Rechazado</option>
                             </select>
                             {canObtentores&&<button onClick={()=>delPBR(p.id)} style={{background:"#fef2f2",border:"none",borderRadius:6,padding:"4px 8px",cursor:"pointer",fontSize:11}}>🗑</button>}
                           </div>
@@ -8223,85 +5157,6 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
                     ))}
                   </div>
                 )}
-              </div>
-            )}
-
-            {/* TAB ROYALTY AL OBTENTOR */}
-            {obtTab==="royalties"&&(
-              <div>
-                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
-                  <div style={{fontWeight:700,color:"#1e293b"}}>💰 Royalties que Osiris paga al obtentor por este contrato</div>
-                  {canObtentores&&<button onClick={()=>{
-                    const nuevoRoy = {id:`roy_${Date.now()}`,tipo:"Por planta",especie:"",variedad:"",valor:0,moneda:"USD",frecuencia:"Anual",observaciones:""};
-                    updateContrato(c.id,{royaltiesObtentor:[...(c.royaltiesObtentor||[]),nuevoRoy]});
-                  }} style={{padding:"6px 14px",borderRadius:8,background:"#7c3aed",border:"none",color:"#fff",cursor:"pointer",fontSize:12,fontWeight:700}}>+ Agregar royalty</button>}
-                </div>
-                {(c.royaltiesObtentor||[]).length===0?(
-                  <div style={{padding:30,textAlign:"center",color:"#94a3b8",border:"1px dashed #e2e8f0",borderRadius:10}}>
-                    <div style={{fontSize:32,marginBottom:8}}>💰</div>
-                    <div style={{fontSize:12}}>Sin royalties definidos. Agrega los conceptos de pago al obtentor.</div>
-                  </div>
-                ):(
-                  <div style={{overflowX:"auto"}}>
-                    <table style={{width:"100%",borderCollapse:"collapse",fontSize:12,background:"#fff",borderRadius:10,overflow:"hidden",border:"1px solid #e2e8f0"}}>
-                      <thead><tr style={{background:"#7c3aed",color:"#fff"}}>
-                        {["Tipo","Especie","Variedad","Valor","Moneda","Frecuencia","Observaciones",""].map(h=>(
-                          <th key={h} style={{padding:"8px 10px",textAlign:"left",fontSize:11,fontWeight:700}}>{h}</th>
-                        ))}
-                      </tr></thead>
-                      <tbody>
-                        {(c.royaltiesObtentor||[]).map((roy,i)=>{
-                          const updRoy = (campo,valor) => {
-                            const next = (c.royaltiesObtentor||[]).map(r=>r.id===roy.id?{...r,[campo]:valor}:r);
-                            updateContrato(c.id,{royaltiesObtentor:next});
-                          };
-                          return (
-                            <tr key={roy.id} style={{borderBottom:"1px solid #f1f5f9",background:i%2?"#f8fafc":"#fff"}}>
-                              <td style={{padding:"6px 8px"}}><select disabled={!canObtentores} value={roy.tipo||""} onChange={e=>updRoy("tipo",e.target.value)} style={{padding:"5px 8px",borderRadius:6,border:"1px solid #d1d5db",fontSize:11,background:"#fff"}}>{TIPOS_ROYALTY_OBTENTOR.map(t=><option key={t} value={t}>{t}</option>)}</select></td>
-                              <td style={{padding:"6px 8px"}}><input disabled={!canObtentores} value={roy.especie||""} onChange={e=>updRoy("especie",e.target.value)} placeholder="Todas" style={{width:90,padding:"5px 8px",borderRadius:6,border:"1px solid #d1d5db",fontSize:11}}/></td>
-                              <td style={{padding:"6px 8px"}}><input disabled={!canObtentores} value={roy.variedad||""} onChange={e=>updRoy("variedad",e.target.value)} placeholder="Todas" style={{width:90,padding:"5px 8px",borderRadius:6,border:"1px solid #d1d5db",fontSize:11}}/></td>
-                              <td style={{padding:"6px 8px"}}><input type="number" step="0.01" disabled={!canObtentores} value={roy.valor||0} onChange={e=>updRoy("valor",parseFloat(e.target.value)||0)} style={{width:80,padding:"5px 8px",borderRadius:6,border:"1px solid #d1d5db",fontSize:11,textAlign:"right"}}/></td>
-                              <td style={{padding:"6px 8px"}}><select disabled={!canObtentores} value={roy.moneda||"USD"} onChange={e=>updRoy("moneda",e.target.value)} style={{padding:"5px 8px",borderRadius:6,border:"1px solid #d1d5db",fontSize:11,background:"#fff"}}>{MONEDAS.map(m=><option key={m}>{m}</option>)}</select></td>
-                              <td style={{padding:"6px 8px"}}><select disabled={!canObtentores} value={roy.frecuencia||"Anual"} onChange={e=>updRoy("frecuencia",e.target.value)} style={{padding:"5px 8px",borderRadius:6,border:"1px solid #d1d5db",fontSize:11,background:"#fff"}}>{["Anual","Semestral","Trimestral","Por evento","Única vez"].map(f=><option key={f}>{f}</option>)}</select></td>
-                              <td style={{padding:"6px 8px"}}><input disabled={!canObtentores} value={roy.observaciones||""} onChange={e=>updRoy("observaciones",e.target.value)} style={{width:"100%",padding:"5px 8px",borderRadius:6,border:"1px solid #d1d5db",fontSize:11,boxSizing:"border-box"}}/></td>
-                              <td style={{padding:"6px 8px"}}>{canObtentores&&<button onClick={()=>{if(!window.confirm("¿Eliminar?"))return;updateContrato(c.id,{royaltiesObtentor:(c.royaltiesObtentor||[]).filter(r=>r.id!==roy.id)});}} style={{background:"#fef2f2",border:"none",borderRadius:6,padding:"4px 8px",cursor:"pointer",fontSize:11,color:"#991b1b"}}>🗑</button>}</td>
-                            </tr>
-                          );
-                        })}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
-                <div style={{marginTop:12,padding:10,background:"#ede9fe",borderRadius:8,fontSize:11,color:"#5b21b6"}}>
-                  💡 Estos son los royalties que <strong>Osiris paga al obtentor</strong>. Son distintos de los que Osiris <strong>cobra a productores</strong>.
-                </div>
-              </div>
-            )}
-
-            {/* TAB CONDICIONES COMERCIALES */}
-            {obtTab==="condiciones"&&(
-              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:16}}>
-                <div><label style={{fontSize:11,fontWeight:600,color:"#475569",display:"block",marginBottom:4}}>Mínimo garantizado</label>
-                  <div style={{display:"flex",gap:8}}>
-                    <input type="number" step="0.01" disabled={!canObtentores} value={c.minimoGarantizado||0} onChange={e=>updateContrato(c.id,{minimoGarantizado:parseFloat(e.target.value)||0})} style={{flex:1,padding:"8px 12px",borderRadius:8,border:"1px solid #d1d5db",fontSize:13,textAlign:"right"}}/>
-                    <select disabled={!canObtentores} value={c.monedaMinimo||"USD"} onChange={e=>updateContrato(c.id,{monedaMinimo:e.target.value})} style={{width:80,padding:"8px",borderRadius:8,border:"1px solid #d1d5db",fontSize:13,background:"#fff"}}>{MONEDAS.map(m=><option key={m}>{m}</option>)}</select>
-                  </div>
-                </div>
-                <div><label style={{fontSize:11,fontWeight:600,color:"#475569",display:"block",marginBottom:4}}>Frecuencia de reportes</label>
-                  <select disabled={!canObtentores} value={c.frecuenciaReportes||""} onChange={e=>updateContrato(c.id,{frecuenciaReportes:e.target.value})} style={{width:"100%",padding:"8px 12px",borderRadius:8,border:"1px solid #d1d5db",fontSize:13,background:"#fff"}}>
-                    <option value="">— Sin definir —</option><option>Mensual</option><option>Trimestral</option><option>Semestral</option><option>Anual</option>
-                  </select>
-                </div>
-                <div><label style={{fontSize:11,fontWeight:600,color:"#475569",display:"block",marginBottom:4}}>Próximo reporte</label>
-                  <input type="date" disabled={!canObtentores} value={c.proximoReporte||""} onChange={e=>updateContrato(c.id,{proximoReporte:e.target.value})} style={{width:"100%",padding:"8px 12px",borderRadius:8,border:"1px solid #d1d5db",fontSize:13}}/>
-                </div>
-                <div><label style={{fontSize:11,fontWeight:600,color:"#475569",display:"flex",alignItems:"center",gap:8,cursor:canObtentores?"pointer":"default",marginTop:24}}>
-                    <input type="checkbox" disabled={!canObtentores} checked={!!c.derechoAuditoria} onChange={e=>updateContrato(c.id,{derechoAuditoria:e.target.checked})}/> Obtentor tiene derecho a auditoría</label>
-                </div>
-                <div style={{gridColumn:"1/-1"}}><label style={{fontSize:11,fontWeight:600,color:"#475569",display:"block",marginBottom:4}}>Calendario de pagos / Condiciones</label>
-                  <textarea disabled={!canObtentores} value={c.calendarioPagos||""} placeholder="Pago anual en marzo, mínimo garantizado en enero..." onChange={e=>updateContrato(c.id,{calendarioPagos:e.target.value})}
-                    style={{width:"100%",padding:"8px 12px",borderRadius:8,border:"1px solid #d1d5db",fontSize:13,minHeight:80,boxSizing:"border-box"}}/>
-                </div>
               </div>
             )}
 
@@ -8436,7 +5291,11 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
                   <label style={{fontSize:11,fontWeight:600,color:"#475569",display:"block",marginBottom:4}}>Estado</label>
                   <select value={pbrForm.estado||"Pendiente"} onChange={e=>setPbrForm(p=>({...p,estado:e.target.value}))}
                     style={{width:"100%",padding:"8px 12px",borderRadius:8,border:"1px solid #d1d5db",fontSize:13,boxSizing:"border-box",background:"#fff"}}>
-                    {ESTADOS_PBR.map(s=><option key={s} value={s}>{s}</option>)}
+                    <option value="Pendiente">⏳ Pendiente</option>
+                    <option value="Solicitado">📨 Solicitado</option>
+                    <option value="En Revisión">🔍 En Revisión</option>
+                    <option value="Aprobado">✅ Aprobado</option>
+                    <option value="Rechazado">❌ Rechazado</option>
                   </select>
                 </div>
                 <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:12}}>
@@ -8556,28 +5415,17 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
         <div style={{background:"#fff",borderRadius:14,padding:20,boxShadow:"0 2px 10px #0001"}}>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16,flexWrap:"wrap",gap:8}}>
             <h3 style={{margin:0,fontSize:18,color:"#1e293b"}}>🧬 Contratos Obtentores</h3>
-            <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
-              <button onClick={()=>{setShowEspeciesObt(p=>!p);setShowVariedadesObt(false);}}
-                style={{background:showEspeciesObt?"#0d9488":"#f1f5f9",color:showEspeciesObt?"#fff":"#1e293b",border:"1px solid #e2e8f0",borderRadius:8,padding:"8px 14px",cursor:"pointer",fontSize:12,fontWeight:600}}>
-                🌳 Especies
-              </button>
-              <button onClick={()=>{setShowVariedadesObt(p=>!p);setShowEspeciesObt(false);}}
-                style={{background:showVariedadesObt?"#0d9488":"#f1f5f9",color:showVariedadesObt?"#fff":"#1e293b",border:"1px solid #e2e8f0",borderRadius:8,padding:"8px 14px",cursor:"pointer",fontSize:12,fontWeight:600}}>
-                🌿 Variedades
-              </button>
+            <div style={{display:"flex",gap:8}}>
               <button onClick={()=>exportarObtentores(obtData)}
                 style={{padding:"8px 16px",borderRadius:8,background:"#0f766e",border:"none",color:"#fff",cursor:"pointer",fontSize:12,fontWeight:700}}>
                 📥 Exportar Excel
               </button>
-              {canObtentores&&<button onClick={()=>{setObtForm(EMPTY_OBT);setObtEditId(null);setObtWizStep(1);setObtWizEspForm(EMPTY_ESP_INLINE);setObtWizPbrForm(EMPTY_PBR_INLINE);setObtModal(true);}}
+              {canObtentores&&<button onClick={()=>{setObtForm(EMPTY_OBT);setObtEditId(null);setObtModal(true);}}
                 style={{padding:"8px 16px",borderRadius:8,background:"#7c3aed",border:"none",color:"#fff",cursor:"pointer",fontSize:12,fontWeight:700}}>
                 + Nuevo Contrato
               </button>}
             </div>
           </div>
-          {/* Maestros de Especies y Variedades (fuente de verdad en Obtentores) */}
-          {showEspeciesObt&&<MaestroEspecies especies={especiesMaestro} setEspecies={setEspeciesMaestro} can={canObtentores} obtentores={obtData} contratos={ctData} variedades={variedadesMaestro}/>}
-          {showVariedadesObt&&<MaestroVariedades variedades={variedadesMaestro} setVariedades={setVariedadesMaestro} can={canObtentores} obtentores={obtData} especies={especiesMaestro} setEspecies={setEspeciesMaestro}/>}
           {obtData.length===0?<div style={{padding:40,textAlign:"center",color:"#94a3b8"}}>No hay contratos obtentores. {canObtentores?"Haz click en \"+ Nuevo Contrato\" para agregar.":""}</div>:(
             <div style={{display:"grid",gap:12}}>
               {obtData.map(o=>{
@@ -8607,7 +5455,7 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
                         <span style={{fontSize:10,background:"rgba(124,58,237,0.15)",color:"#7c3aed",padding:"3px 10px",borderRadius:20,fontWeight:700}}>{nEsp} esp.</span>
                         <span style={{fontSize:10,background:"rgba(251,191,36,0.15)",color:"#d97706",padding:"3px 10px",borderRadius:20,fontWeight:700}}>{nPbr} PBR</span>
                         {canObtentores&&<>
-                          <button onClick={e=>{e.stopPropagation();setObtForm({...EMPTY_OBT,...o});setObtEditId(o.id);setObtWizStep(1);setObtWizEspForm(EMPTY_ESP_INLINE);setObtWizPbrForm(EMPTY_PBR_INLINE);setObtModal(true);}}
+                          <button onClick={e=>{e.stopPropagation();setObtForm({...EMPTY_OBT,...o});setObtEditId(o.id);setObtModal(true);}}
                             style={{background:"#f0f9ff",border:"none",borderRadius:6,padding:"4px 10px",cursor:"pointer",fontSize:11}}>✏️</button>
                           <button onClick={e=>{e.stopPropagation();eliminarObt(o.id);}}
                             style={{background:"#fef2f2",border:"none",borderRadius:6,padding:"4px 10px",cursor:"pointer",fontSize:11}}>🗑</button>
@@ -8621,393 +5469,71 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
           )}
         </div>
 
-        {/* Modal Wizard: Nuevo/Editar Obtentor (3 pasos) */}
-        {obtModal&&(()=>{
-          const wizEspecies = obtForm.especies || [];
-          const wizPbr      = obtForm.pbr      || [];
-
-          const agregarEspWiz = () => {
-            if(!obtWizEspForm.especie || !obtWizEspForm.variedad) {
-              alert("Especie y Variedad son obligatorios."); return;
-            }
-            const nueva = {
-              id:`esp_${Date.now()}`,
-              especie:obtWizEspForm.especie.trim(),
-              variedad:obtWizEspForm.variedad.trim(),
-              observaciones:obtWizEspForm.observaciones||"",
-              dhe_estado:obtWizEspForm.dhe_estado||"No iniciado",
-              dhe_fecha_aprob:obtWizEspForm.dhe_fecha_aprob||"",
-              dhe_doc:obtWizEspForm.dhe_doc||"",
-              dhe_observaciones:obtWizEspForm.dhe_observaciones||"",
-            };
-            setObtForm(p=>({...p, especies:[...(p.especies||[]), nueva]}));
-            setObtWizEspForm(EMPTY_ESP_INLINE);
-          };
-          const quitarEspWiz = (eid) => {
-            // Verificar PBR vinculados al nombre de especie
-            const espRemovida = wizEspecies.find(e=>e.id===eid);
-            if(!espRemovida) return;
-            const pbrVinc = wizPbr.filter(p=>p.especie === espRemovida.especie);
-            if(pbrVinc.length>0) {
-              if(!window.confirm(`Hay ${pbrVinc.length} registro(s) PBR vinculados a "${espRemovida.especie}". Si la eliminas, esos PBR quedarán huérfanos. ¿Continuar?`)) return;
-            }
-            setObtForm(p=>({...p, especies:(p.especies||[]).filter(e=>e.id!==eid)}));
-          };
-
-          const agregarPbrWiz = () => {
-            if(!obtWizPbrForm.especie || !obtWizPbrForm.pais) {
-              alert("Especie y País son obligatorios."); return;
-            }
-            if(obtWizPbrForm.f_solicitud && obtWizPbrForm.f_resolucion && new Date(obtWizPbrForm.f_resolucion) < new Date(obtWizPbrForm.f_solicitud)) {
-              alert("La fecha de resolución no puede ser anterior a la fecha de solicitud."); return;
-            }
-            const nuevo = {id:`pbr_${Date.now()}`, ...obtWizPbrForm};
-            setObtForm(p=>({...p, pbr:[...(p.pbr||[]), nuevo]}));
-            setObtWizPbrForm(EMPTY_PBR_INLINE);
-          };
-          const quitarPbrWiz = (pid) => {
-            setObtForm(p=>({...p, pbr:(p.pbr||[]).filter(x=>x.id!==pid)}));
-          };
-
-          // Estados visuales del stepper
-          const Step = ({n, label, active, done}) => {
-            const bg = active?"#7c3aed":done?"#16a34a":"#e2e8f0";
-            const col = active||done?"#fff":"#94a3b8";
-            return (
-              <div style={{display:"flex",alignItems:"center",gap:8,flex:1,minWidth:0}}>
-                <div style={{
-                  width:28,height:28,borderRadius:"50%",
-                  background:bg,color:col,
-                  display:"flex",alignItems:"center",justifyContent:"center",
-                  fontSize:13,fontWeight:800,flexShrink:0
-                }}>{done?"✓":n}</div>
-                <div style={{
-                  fontSize:11,fontWeight:active?700:500,
-                  color:active?"#1e293b":done?"#16a34a":"#94a3b8",
-                  whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"
-                }}>{label}</div>
-              </div>
-            );
-          };
-
-          const irPaso = (n) => {
-            // Validar paso 1 antes de avanzar
-            if(obtWizStep===1 && n>1 && !obtForm.obtentor) {
-              alert("Nombre del obtentor es obligatorio para continuar."); return;
-            }
-            if(obtWizStep===1 && n>1 && obtForm.f_inicio && obtForm.f_vencimiento && new Date(obtForm.f_vencimiento) < new Date(obtForm.f_inicio)) {
-              alert("La fecha de vencimiento no puede ser anterior a la fecha de inicio."); return;
-            }
-            setObtWizStep(n);
-          };
-
-          return (
+        {/* Modal: Nuevo/Editar Obtentor */}
+        {obtModal&&(
           <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:9999}} onClick={()=>setObtModal(false)}>
-            <div onClick={e=>e.stopPropagation()} style={{background:"#fff",borderRadius:16,padding:24,width:680,maxHeight:"92vh",overflowY:"auto"}}>
-              <h3 style={{margin:"0 0 18px",color:"#1e293b"}}>{obtEditId?"✏️ Editar":"➕ Nuevo"} Contrato Obtentor</h3>
-
-              {/* Stepper */}
-              <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:20,padding:"12px 8px",background:"#f8fafc",borderRadius:10}}>
-                <Step n={1} label="Cabecera"        active={obtWizStep===1} done={obtWizStep>1}/>
-                <div style={{flex:"0 0 30px",height:2,background:obtWizStep>1?"#16a34a":"#e2e8f0"}}/>
-                <Step n={2} label="Especies / DHE"  active={obtWizStep===2} done={obtWizStep>2}/>
-                <div style={{flex:"0 0 30px",height:2,background:obtWizStep>2?"#16a34a":"#e2e8f0"}}/>
-                <Step n={3} label="Registros PBR"   active={obtWizStep===3} done={false}/>
+            <div onClick={e=>e.stopPropagation()} style={{background:"#fff",borderRadius:16,padding:24,width:560,maxHeight:"85vh",overflowY:"auto"}}>
+              <h3 style={{margin:"0 0 16px",color:"#1e293b"}}>{obtEditId?"✏️ Editar":"➕ Nuevo"} Contrato Obtentor</h3>
+              <div style={{marginBottom:12}}>
+                <label style={{fontSize:11,fontWeight:600,color:"#475569",display:"block",marginBottom:4}}>Nombre del Obtentor <span style={{color:"#dc2626"}}>*</span></label>
+                <input value={obtForm.obtentor||""} placeholder="Ej. SunWorld, IFG, Bloom Fresh..." onChange={e=>setObtForm(p=>({...p,obtentor:e.target.value}))}
+                  style={{width:"100%",padding:"8px 12px",borderRadius:8,border:"1px solid #d1d5db",fontSize:13,boxSizing:"border-box"}}/>
               </div>
-
-              {/* PASO 1 — Cabecera */}
-              {obtWizStep===1&&(<>
-                <div style={{marginBottom:12}}>
-                  <label style={{fontSize:11,fontWeight:600,color:"#475569",display:"block",marginBottom:4}}>Nombre del Obtentor <span style={{color:"#dc2626"}}>*</span></label>
-                  <input value={obtForm.obtentor||""} placeholder="Ej. SunWorld, IFG, Bloom Fresh..." onChange={e=>setObtForm(p=>({...p,obtentor:e.target.value}))}
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:12}}>
+                <div>
+                  <label style={{fontSize:11,fontWeight:600,color:"#475569",display:"block",marginBottom:4}}>Fecha Inicio</label>
+                  <input type="date" value={obtForm.f_inicio||""} onChange={e=>setObtForm(p=>({...p,f_inicio:e.target.value}))}
                     style={{width:"100%",padding:"8px 12px",borderRadius:8,border:"1px solid #d1d5db",fontSize:13,boxSizing:"border-box"}}/>
                 </div>
-                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:12}}>
-                  <div>
-                    <label style={{fontSize:11,fontWeight:600,color:"#475569",display:"block",marginBottom:4}}>Fecha Inicio</label>
-                    <input type="date" value={obtForm.f_inicio||""} onChange={e=>setObtForm(p=>({...p,f_inicio:e.target.value}))}
-                      style={{width:"100%",padding:"8px 12px",borderRadius:8,border:"1px solid #d1d5db",fontSize:13,boxSizing:"border-box"}}/>
-                  </div>
-                  <div>
-                    <label style={{fontSize:11,fontWeight:600,color:"#475569",display:"block",marginBottom:4}}>Fecha Vencimiento</label>
-                    <input type="date" value={obtForm.f_vencimiento||""} onChange={e=>setObtForm(p=>({...p,f_vencimiento:e.target.value}))}
-                      style={{width:"100%",padding:"8px 12px",borderRadius:8,border:"1px solid #d1d5db",fontSize:13,boxSizing:"border-box"}}/>
-                  </div>
+                <div>
+                  <label style={{fontSize:11,fontWeight:600,color:"#475569",display:"block",marginBottom:4}}>Fecha Vencimiento</label>
+                  <input type="date" value={obtForm.f_vencimiento||""} onChange={e=>setObtForm(p=>({...p,f_vencimiento:e.target.value}))}
+                    style={{width:"100%",padding:"8px 12px",borderRadius:8,border:"1px solid #d1d5db",fontSize:13,boxSizing:"border-box"}}/>
                 </div>
-                <div style={{marginBottom:12}}>
-                  <label style={{fontSize:11,fontWeight:600,color:"#475569",display:"block",marginBottom:4}}>Estado del Contrato</label>
-                  <select value={obtForm.estado_contrato||"Borrador"} onChange={e=>setObtForm(p=>({...p,estado_contrato:e.target.value}))}
-                    style={{width:"100%",padding:"8px 12px",borderRadius:8,border:"1px solid #d1d5db",fontSize:13,boxSizing:"border-box",background:"#fff"}}>
-                    {ESTADOS_CONTRATO_OBT.map(s=><option key={s} value={s}>{s}</option>)}
-                  </select>
-                </div>
-                <label style={{display:"flex",alignItems:"center",gap:8,cursor:"pointer",marginBottom:12}}>
-                  <input type="checkbox" checked={!!obtForm.renovable} onChange={e=>setObtForm(p=>({...p,renovable:e.target.checked}))}/>
-                  <span style={{fontSize:12}}>Contrato renovable</span>
+              </div>
+              <div style={{marginBottom:12}}>
+                <label style={{fontSize:11,fontWeight:600,color:"#475569",display:"block",marginBottom:4}}>Estado del Contrato</label>
+                <select value={obtForm.estado_contrato||"Borrador"} onChange={e=>setObtForm(p=>({...p,estado_contrato:e.target.value}))}
+                  style={{width:"100%",padding:"8px 12px",borderRadius:8,border:"1px solid #d1d5db",fontSize:13,boxSizing:"border-box",background:"#fff"}}>
+                  {ESTADOS_CONTRATO_OBT.map(s=><option key={s} value={s}>{s}</option>)}
+                </select>
+              </div>
+              <label style={{display:"flex",alignItems:"center",gap:8,cursor:"pointer",marginBottom:12}}>
+                <input type="checkbox" checked={!!obtForm.renovable} onChange={e=>setObtForm(p=>({...p,renovable:e.target.checked}))}/>
+                <span style={{fontSize:12}}>Contrato renovable</span>
+              </label>
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:12,padding:12,background:"#f8fafc",borderRadius:8}}>
+                <label style={{display:"flex",alignItems:"center",gap:8,cursor:"pointer"}}>
+                  <input type="checkbox" checked={!!obtForm.firma_obtentor} onChange={e=>setObtForm(p=>({...p,firma_obtentor:e.target.checked}))}/>
+                  <span style={{fontSize:12}}>✅ Firma Obtentor</span>
                 </label>
-                {obtForm.renovable&&(
-                  <div style={{marginBottom:12}}>
-                    <label style={{fontSize:11,fontWeight:600,color:"#475569",display:"block",marginBottom:4}}>📆 Nueva Fecha Vencimiento</label>
-                    <input type="date" value={obtForm.f_vencimiento_nueva||""} onChange={e=>setObtForm(p=>({...p,f_vencimiento_nueva:e.target.value}))}
-                      style={{width:"100%",padding:"8px 12px",borderRadius:8,border:"1px solid #93c5fd",fontSize:13,boxSizing:"border-box",background:"#eff6ff"}}/>
-                  </div>
-                )}
-                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:12,padding:12,background:"#f8fafc",borderRadius:8}}>
-                  <label style={{display:"flex",alignItems:"center",gap:8,cursor:"pointer"}}>
-                    <input type="checkbox" checked={!!obtForm.firma_obtentor} onChange={e=>setObtForm(p=>({...p,firma_obtentor:e.target.checked}))}/>
-                    <span style={{fontSize:12}}>✅ Firma Obtentor</span>
-                  </label>
-                  <label style={{display:"flex",alignItems:"center",gap:8,cursor:"pointer"}}>
-                    <input type="checkbox" checked={!!obtForm.firma_osiris} onChange={e=>setObtForm(p=>({...p,firma_osiris:e.target.checked}))}/>
-                    <span style={{fontSize:12}}>✅ Firma Osiris</span>
-                  </label>
-                </div>
-                <div style={{marginBottom:12}}>
-                  <label style={{fontSize:11,fontWeight:600,color:"#475569",display:"block",marginBottom:4}}>📎 Link al contrato (OneDrive/Drive)</label>
-                  <input value={obtForm.doc_contrato||""} placeholder="https://..." onChange={e=>setObtForm(p=>({...p,doc_contrato:e.target.value}))}
-                    style={{width:"100%",padding:"8px 12px",borderRadius:8,border:"1px solid #d1d5db",fontSize:13,boxSizing:"border-box"}}/>
-                </div>
-                <div style={{marginBottom:12}}>
-                  <label style={{fontSize:11,fontWeight:600,color:"#475569",display:"block",marginBottom:4}}>📄 Link doc. legal complementario</label>
-                  <input value={obtForm.doc_legal||""} placeholder="https://..." onChange={e=>setObtForm(p=>({...p,doc_legal:e.target.value}))}
-                    style={{width:"100%",padding:"8px 12px",borderRadius:8,border:"1px solid #d1d5db",fontSize:13,boxSizing:"border-box"}}/>
-                </div>
-                <div style={{marginBottom:12}}>
-                  <label style={{fontSize:11,fontWeight:600,color:"#475569",display:"block",marginBottom:4}}>Observaciones</label>
-                  <textarea value={obtForm.observaciones||""} onChange={e=>setObtForm(p=>({...p,observaciones:e.target.value}))}
-                    style={{width:"100%",padding:"8px 12px",borderRadius:8,border:"1px solid #d1d5db",fontSize:13,minHeight:60,boxSizing:"border-box"}}/>
-                </div>
-              </>)}
-
-              {/* PASO 2 — Especies/Variedades + DHE */}
-              {obtWizStep===2&&(<>
-                <div style={{background:"#ede9fe",border:"1px solid #c4b5fd",borderRadius:8,padding:"8px 12px",marginBottom:14,fontSize:11,color:"#5b21b6"}}>
-                  💡 Agrega cada variedad cubierta por el contrato. Luego en el paso 3 podrás registrar PBR vinculados a estas variedades. <strong>Este paso es opcional</strong> — puedes saltarlo y agregar después desde la vista detalle.
-                </div>
-
-                {/* Lista de especies ya agregadas */}
-                {wizEspecies.length>0&&(
-                  <div style={{marginBottom:14,border:"1px solid #e2e8f0",borderRadius:10,overflow:"hidden"}}>
-                    <div style={{background:"#f8fafc",padding:"8px 12px",fontSize:11,fontWeight:700,color:"#475569"}}>
-                      Variedades agregadas ({wizEspecies.length})
-                    </div>
-                    {wizEspecies.map(e=>{
-                      const dheCol = e.dhe_estado==="Aprobado"?"#16a34a":e.dhe_estado==="Rechazado"?"#dc2626":e.dhe_estado==="En proceso"?"#d97706":"#64748b";
-                      return (
-                        <div key={e.id} style={{padding:"10px 12px",borderTop:"1px solid #f1f5f9",display:"flex",justifyContent:"space-between",alignItems:"center",gap:8}}>
-                          <div style={{flex:1,minWidth:0}}>
-                            <div style={{fontSize:13,fontWeight:700,color:"#1e293b"}}>🌿 {e.especie} — {e.variedad}</div>
-                            <div style={{fontSize:10,color:"#64748b",marginTop:2}}>
-                              <span style={{color:dheCol,fontWeight:700}}>DHE: {e.dhe_estado||"No iniciado"}</span>
-                              {e.dhe_fecha_aprob&&` · Aprob. ${e.dhe_fecha_aprob}`}
-                              {e.dhe_doc&&" · 📎 Doc"}
-                            </div>
-                          </div>
-                          <button onClick={()=>quitarEspWiz(e.id)} style={{background:"#fef2f2",border:"none",borderRadius:6,padding:"4px 8px",cursor:"pointer",fontSize:11,color:"#991b1b"}}>🗑</button>
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
-
-                {/* Form inline para agregar nueva especie */}
-                <div style={{border:"1px dashed #c4b5fd",borderRadius:10,padding:14,background:"#faf5ff",marginBottom:12}}>
-                  <div style={{fontSize:12,fontWeight:700,color:"#5b21b6",marginBottom:10}}>+ Agregar nueva variedad</div>
-                  <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:10}}>
-                    <div>
-                      <label style={{fontSize:11,fontWeight:600,color:"#475569",display:"block",marginBottom:3}}>Especie <span style={{color:"#dc2626"}}>*</span></label>
-                      <input value={obtWizEspForm.especie||""} placeholder="Cerezo, Arándano..." onChange={e=>setObtWizEspForm(p=>({...p,especie:e.target.value}))}
-                        style={{width:"100%",padding:"7px 10px",borderRadius:6,border:"1px solid #d1d5db",fontSize:12,boxSizing:"border-box"}}/>
-                    </div>
-                    <div>
-                      <label style={{fontSize:11,fontWeight:600,color:"#475569",display:"block",marginBottom:3}}>Variedad <span style={{color:"#dc2626"}}>*</span></label>
-                      <input value={obtWizEspForm.variedad||""} placeholder="Royal Dawn..." onChange={e=>setObtWizEspForm(p=>({...p,variedad:e.target.value}))}
-                        style={{width:"100%",padding:"7px 10px",borderRadius:6,border:"1px solid #d1d5db",fontSize:12,boxSizing:"border-box"}}/>
-                    </div>
-                  </div>
-                  <div style={{padding:10,background:"#fef3c7",borderRadius:6,marginBottom:8,fontSize:11,fontWeight:700,color:"#78350f"}}>📋 DHE (Distinción, Homogeneidad y Estabilidad)</div>
-                  <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:8}}>
-                    <div>
-                      <label style={{fontSize:11,fontWeight:600,color:"#475569",display:"block",marginBottom:3}}>Estado DHE</label>
-                      <select value={obtWizEspForm.dhe_estado||"No iniciado"} onChange={e=>setObtWizEspForm(p=>({...p,dhe_estado:e.target.value}))}
-                        style={{width:"100%",padding:"7px 10px",borderRadius:6,border:"1px solid #d1d5db",fontSize:12,boxSizing:"border-box",background:"#fff"}}>
-                        {ESTADOS_DHE.map(s=><option key={s} value={s}>{s}</option>)}
-                      </select>
-                    </div>
-                    <div>
-                      <label style={{fontSize:11,fontWeight:600,color:"#475569",display:"block",marginBottom:3}}>Fecha aprobación DHE</label>
-                      <input type="date" value={obtWizEspForm.dhe_fecha_aprob||""} onChange={e=>setObtWizEspForm(p=>({...p,dhe_fecha_aprob:e.target.value}))}
-                        style={{width:"100%",padding:"7px 10px",borderRadius:6,border:"1px solid #d1d5db",fontSize:12,boxSizing:"border-box"}}/>
-                    </div>
-                  </div>
-                  <div style={{marginBottom:8}}>
-                    <label style={{fontSize:11,fontWeight:600,color:"#475569",display:"block",marginBottom:3}}>📎 Doc. DHE (URL)</label>
-                    <input value={obtWizEspForm.dhe_doc||""} placeholder="https://..." onChange={e=>setObtWizEspForm(p=>({...p,dhe_doc:e.target.value}))}
-                      style={{width:"100%",padding:"7px 10px",borderRadius:6,border:"1px solid #d1d5db",fontSize:12,boxSizing:"border-box"}}/>
-                  </div>
-                  <div style={{marginBottom:8}}>
-                    <label style={{fontSize:11,fontWeight:600,color:"#475569",display:"block",marginBottom:3}}>Obs. DHE / Variedad</label>
-                    <input value={obtWizEspForm.dhe_observaciones||""} onChange={e=>setObtWizEspForm(p=>({...p,dhe_observaciones:e.target.value,observaciones:e.target.value}))}
-                      style={{width:"100%",padding:"7px 10px",borderRadius:6,border:"1px solid #d1d5db",fontSize:12,boxSizing:"border-box"}}/>
-                  </div>
-                  <button onClick={agregarEspWiz} style={{width:"100%",padding:"8px 14px",borderRadius:8,background:"#7c3aed",border:"none",color:"#fff",cursor:"pointer",fontSize:12,fontWeight:700}}>+ Agregar variedad a la lista</button>
-                </div>
-              </>)}
-
-              {/* PASO 3 — Registros PBR */}
-              {obtWizStep===3&&(<>
-                <div style={{background:"#fef3c7",border:"1px solid #fbbf24",borderRadius:8,padding:"8px 12px",marginBottom:14,fontSize:11,color:"#78350f"}}>
-                  💡 Cada PBR es un registro de Protección de Obtenciones Vegetales en un país específico, vinculado a una de las variedades del contrato. <strong>Este paso es opcional</strong>.
-                </div>
-
-                {wizEspecies.length===0?(
-                  <div style={{padding:30,textAlign:"center",color:"#94a3b8",border:"1px dashed #e2e8f0",borderRadius:10,marginBottom:12}}>
-                    <div style={{fontSize:32,marginBottom:8}}>🌿</div>
-                    <div style={{fontSize:12}}>Para registrar un PBR primero necesitas agregar al menos una variedad.</div>
-                    <button onClick={()=>setObtWizStep(2)} style={{marginTop:10,padding:"6px 14px",borderRadius:8,background:"#7c3aed",border:"none",color:"#fff",cursor:"pointer",fontSize:11,fontWeight:700}}>← Volver al paso 2</button>
-                  </div>
-                ):(<>
-                  {/* Lista de PBR ya agregados */}
-                  {wizPbr.length>0&&(
-                    <div style={{marginBottom:14,border:"1px solid #e2e8f0",borderRadius:10,overflow:"hidden"}}>
-                      <div style={{background:"#f8fafc",padding:"8px 12px",fontSize:11,fontWeight:700,color:"#475569"}}>
-                        PBR agregados ({wizPbr.length})
-                      </div>
-                      {wizPbr.map(p=>{
-                        const stCol = p.estado==="Aprobado"?"#16a34a":p.estado==="Rechazado"?"#dc2626":p.estado==="En Revisión"?"#0284c7":p.estado==="Solicitado"?"#7c3aed":"#d97706";
-                        return (
-                          <div key={p.id} style={{padding:"10px 12px",borderTop:"1px solid #f1f5f9",display:"flex",justifyContent:"space-between",alignItems:"center",gap:8}}>
-                            <div style={{flex:1,minWidth:0}}>
-                              <div style={{fontSize:13,fontWeight:700,color:"#1e293b"}}>📜 {p.especie} — 🌍 {p.pais}</div>
-                              <div style={{fontSize:10,color:"#64748b",marginTop:2}}>
-                                <span style={{color:stCol,fontWeight:700}}>{p.estado}</span>
-                                {p.f_solicitud&&` · Sol. ${p.f_solicitud}`}
-                                {p.f_resolucion&&` · Res. ${p.f_resolucion}`}
-                              </div>
-                            </div>
-                            <button onClick={()=>quitarPbrWiz(p.id)} style={{background:"#fef2f2",border:"none",borderRadius:6,padding:"4px 8px",cursor:"pointer",fontSize:11,color:"#991b1b"}}>🗑</button>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  )}
-
-                  {/* Form inline para agregar nuevo PBR */}
-                  <div style={{border:"1px dashed #fbbf24",borderRadius:10,padding:14,background:"#fffbeb",marginBottom:12}}>
-                    <div style={{fontSize:12,fontWeight:700,color:"#78350f",marginBottom:10}}>+ Agregar nuevo registro PBR</div>
-                    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:10}}>
-                      <div>
-                        <label style={{fontSize:11,fontWeight:600,color:"#475569",display:"block",marginBottom:3}}>Especie <span style={{color:"#dc2626"}}>*</span></label>
-                        <select value={obtWizPbrForm.especie||""} onChange={e=>setObtWizPbrForm(p=>({...p,especie:e.target.value}))}
-                          style={{width:"100%",padding:"7px 10px",borderRadius:6,border:"1px solid #d1d5db",fontSize:12,boxSizing:"border-box",background:"#fff"}}>
-                          <option value="">— Seleccionar —</option>
-                          {[...new Set(wizEspecies.map(e=>e.especie))].map(esp=><option key={esp} value={esp}>{esp}</option>)}
-                        </select>
-                      </div>
-                      <div>
-                        <label style={{fontSize:11,fontWeight:600,color:"#475569",display:"block",marginBottom:3}}>País <span style={{color:"#dc2626"}}>*</span></label>
-                        <input value={obtWizPbrForm.pais||""} placeholder="Chile, Perú, México..." onChange={e=>setObtWizPbrForm(p=>({...p,pais:e.target.value}))}
-                          style={{width:"100%",padding:"7px 10px",borderRadius:6,border:"1px solid #d1d5db",fontSize:12,boxSizing:"border-box"}}/>
-                      </div>
-                    </div>
-                    <div style={{marginBottom:10}}>
-                      <label style={{fontSize:11,fontWeight:600,color:"#475569",display:"block",marginBottom:3}}>Estado PBR</label>
-                      <select value={obtWizPbrForm.estado||"Pendiente"} onChange={e=>setObtWizPbrForm(p=>({...p,estado:e.target.value}))}
-                        style={{width:"100%",padding:"7px 10px",borderRadius:6,border:"1px solid #d1d5db",fontSize:12,boxSizing:"border-box",background:"#fff"}}>
-                        <option value="Pendiente">Pendiente</option>
-                        {ESTADOS_PBR.filter(s=>s!=="Pendiente").map(s=><option key={s} value={s}>{s}</option>)}
-                      </select>
-                    </div>
-                    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:10}}>
-                      <div>
-                        <label style={{fontSize:11,fontWeight:600,color:"#475569",display:"block",marginBottom:3}}>Fecha Solicitud</label>
-                        <input type="date" value={obtWizPbrForm.f_solicitud||""} onChange={e=>setObtWizPbrForm(p=>({...p,f_solicitud:e.target.value}))}
-                          style={{width:"100%",padding:"7px 10px",borderRadius:6,border:"1px solid #d1d5db",fontSize:12,boxSizing:"border-box"}}/>
-                      </div>
-                      <div>
-                        <label style={{fontSize:11,fontWeight:600,color:"#475569",display:"block",marginBottom:3}}>Fecha Resolución</label>
-                        <input type="date" value={obtWizPbrForm.f_resolucion||""} onChange={e=>setObtWizPbrForm(p=>({...p,f_resolucion:e.target.value}))}
-                          style={{width:"100%",padding:"7px 10px",borderRadius:6,border:"1px solid #d1d5db",fontSize:12,boxSizing:"border-box"}}/>
-                      </div>
-                    </div>
-                    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:10}}>
-                      <div>
-                        <label style={{fontSize:11,fontWeight:600,color:"#475569",display:"block",marginBottom:3}}>📎 Doc. Solicitud (URL)</label>
-                        <input value={obtWizPbrForm.doc_solicitud||""} placeholder="https://..." onChange={e=>setObtWizPbrForm(p=>({...p,doc_solicitud:e.target.value}))}
-                          style={{width:"100%",padding:"7px 10px",borderRadius:6,border:"1px solid #d1d5db",fontSize:12,boxSizing:"border-box"}}/>
-                      </div>
-                      <div>
-                        <label style={{fontSize:11,fontWeight:600,color:"#475569",display:"block",marginBottom:3}}>📎 Doc. Resolución (URL)</label>
-                        <input value={obtWizPbrForm.doc_resolucion||""} placeholder="https://..." onChange={e=>setObtWizPbrForm(p=>({...p,doc_resolucion:e.target.value}))}
-                          style={{width:"100%",padding:"7px 10px",borderRadius:6,border:"1px solid #d1d5db",fontSize:12,boxSizing:"border-box"}}/>
-                      </div>
-                    </div>
-                    <div style={{marginBottom:10}}>
-                      <label style={{fontSize:11,fontWeight:600,color:"#475569",display:"block",marginBottom:3}}>Observaciones</label>
-                      <input value={obtWizPbrForm.observaciones||""} onChange={e=>setObtWizPbrForm(p=>({...p,observaciones:e.target.value}))}
-                        style={{width:"100%",padding:"7px 10px",borderRadius:6,border:"1px solid #d1d5db",fontSize:12,boxSizing:"border-box"}}/>
-                    </div>
-                    <button onClick={agregarPbrWiz} style={{width:"100%",padding:"8px 14px",borderRadius:8,background:"#f59e0b",border:"none",color:"#fff",cursor:"pointer",fontSize:12,fontWeight:700}}>+ Agregar PBR a la lista</button>
-                  </div>
-                </>)}
-              </>)}
-
-              {/* Footer wizard: navegación */}
-              <div style={{display:"flex",gap:8,justifyContent:"space-between",alignItems:"center",marginTop:18,paddingTop:14,borderTop:"1px solid #e2e8f0"}}>
-                <button onClick={()=>setObtModal(false)} style={{padding:"8px 16px",borderRadius:8,border:"1px solid #d1d5db",background:"#fff",cursor:"pointer",fontSize:12}}>Cancelar</button>
-                <div style={{display:"flex",gap:8}}>
-                  {obtWizStep>1&&<button onClick={()=>setObtWizStep(obtWizStep-1)} style={{padding:"8px 16px",borderRadius:8,border:"1px solid #d1d5db",background:"#f8fafc",cursor:"pointer",fontSize:12,fontWeight:600}}>← Anterior</button>}
-                  {obtWizStep<3&&<button onClick={()=>irPaso(obtWizStep+1)} style={{padding:"8px 16px",borderRadius:8,background:"#7c3aed",border:"none",color:"#fff",cursor:"pointer",fontSize:12,fontWeight:700}}>Siguiente →</button>}
-                  {obtWizStep===3&&<button onClick={guardarObt} style={{padding:"8px 18px",borderRadius:8,background:"#16a34a",border:"none",color:"#fff",cursor:"pointer",fontSize:13,fontWeight:700}}>{obtEditId?"💾 Guardar cambios":"✅ Crear contrato"}</button>}
-                </div>
+                <label style={{display:"flex",alignItems:"center",gap:8,cursor:"pointer"}}>
+                  <input type="checkbox" checked={!!obtForm.firma_osiris} onChange={e=>setObtForm(p=>({...p,firma_osiris:e.target.checked}))}/>
+                  <span style={{fontSize:12}}>✅ Firma Osiris</span>
+                </label>
+              </div>
+              <div style={{marginBottom:12}}>
+                <label style={{fontSize:11,fontWeight:600,color:"#475569",display:"block",marginBottom:4}}>📎 Link al contrato (OneDrive/Drive)</label>
+                <input value={obtForm.doc_contrato||""} placeholder="https://..." onChange={e=>setObtForm(p=>({...p,doc_contrato:e.target.value}))}
+                  style={{width:"100%",padding:"8px 12px",borderRadius:8,border:"1px solid #d1d5db",fontSize:13,boxSizing:"border-box"}}/>
+              </div>
+              <div style={{marginBottom:12}}>
+                <label style={{fontSize:11,fontWeight:600,color:"#475569",display:"block",marginBottom:4}}>📄 Link doc. legal complementario</label>
+                <input value={obtForm.doc_legal||""} placeholder="https://..." onChange={e=>setObtForm(p=>({...p,doc_legal:e.target.value}))}
+                  style={{width:"100%",padding:"8px 12px",borderRadius:8,border:"1px solid #d1d5db",fontSize:13,boxSizing:"border-box"}}/>
+              </div>
+              <div style={{marginBottom:12}}>
+                <label style={{fontSize:11,fontWeight:600,color:"#475569",display:"block",marginBottom:4}}>Observaciones</label>
+                <textarea value={obtForm.observaciones||""} onChange={e=>setObtForm(p=>({...p,observaciones:e.target.value}))}
+                  style={{width:"100%",padding:"8px 12px",borderRadius:8,border:"1px solid #d1d5db",fontSize:13,minHeight:60,boxSizing:"border-box"}}/>
+              </div>
+              <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}>
+                <button onClick={()=>setObtModal(false)} style={{padding:"8px 16px",borderRadius:8,border:"1px solid #d1d5db",background:"#fff",cursor:"pointer"}}>Cancelar</button>
+                <button onClick={guardarObt} style={{padding:"8px 16px",borderRadius:8,background:"#7c3aed",border:"none",color:"#fff",cursor:"pointer",fontWeight:700}}>{obtEditId?"Guardar cambios":"Crear contrato"}</button>
               </div>
             </div>
           </div>
-          );
-        })()}
-
-      </div>
-    );
-  }
-
-  // ── OPERACIÓN TÉCNICA ─────────────────────────────────────
-  if(subApp==="opTecnica") {
-    const opData = osirisData?.opTecnica || {};
-    const canOp = esEditorOAdmin; // usar mismos permisos base
-    return (
-      <div style={{fontFamily:"'IBM Plex Sans',system-ui,sans-serif",minHeight:"100vh",
-        background:"linear-gradient(160deg,#0d1117,#161b22)",color:"#e6edf3",padding:20}}>
-        <div style={{maxWidth:1300,margin:"0 auto"}}>
-          {/* Header */}
-          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20,flexWrap:"wrap",gap:12}}>
-            <div style={{display:"flex",alignItems:"center",gap:12}}>
-              <button onClick={()=>setSubApp(null)}
-                style={{background:"#21283b",border:"1px solid #30363d",borderRadius:8,padding:"8px 14px",cursor:"pointer",color:"#e6edf3",fontSize:13,fontWeight:700}}>
-                ← Hub Osiris
-              </button>
-              <div>
-                <div style={{fontSize:22,fontWeight:900,color:"#e6edf3"}}>🔬 Operación Técnica</div>
-                <div style={{fontSize:11,color:"#8b949e"}}>Visitas · Informes · Test Blocks · Equipo · Medidas Correctivas · Entregables</div>
-              </div>
-            </div>
-          </div>
-          <OperacionTecnica
-            data={opData}
-            setData={val => {
-              if(typeof val === "function") setOpTecnica(val);
-              else setOpTecnica(val);
-            }}
-            ctData={ctData}
-            viverosData={Array.isArray(osirisData?.viveros)?osirisData.viveros:[]}
-            obtentoresData={obtentoresData}
-            can={canOp}
-            usuarioActual={usuarioActual}
-            especiesMaestro={especiesMaestro}
-            variedadesMaestro={variedadesMaestro}
-            setEspeciesMaestro={setEspeciesMaestro}
-            setVariedadesMaestro={setVariedadesMaestro}
-          />
-        </div>
+        )}
       </div>
     );
   }
@@ -9016,7 +5542,7 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
   if(subApp==="viveros") {
     // Migración suave: si llegan datos en formato plano viejo (con especie/variedad/fee_usd a nivel raíz),
     // los convertimos a estructura jerárquica al vuelo (sin alterar Supabase hasta que el usuario edite).
-    const vivDataRaw = Array.isArray(osirisData?.viveros) ? osirisData.viveros : [];
+    const vivDataRaw = osirisData?.viveros || [];
     const vivData = vivDataRaw.map(v=>{
       // Si ya tiene array variedades, está migrado
       if(Array.isArray(v.variedades)) return v;
@@ -9028,7 +5554,6 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
       return {
         id:v.id, viverista:v.viverista||"", pais:v.pais||"",
         f_contrato:v.f_contrato||"", f_vencimiento:v.f_vencimiento||"",
-        estado_contrato:v.estado_contrato||"Borrador",
         renovable:!!v.renovable, firma_viverista:!!v.firma_viverista, firma_osiris:!!v.firma_osiris,
         doc_legal:v.doc_legal||"", doc_contrato:v.doc_contrato||"",
         mes_pago_estimado:v.mes_pago_estimado||"", forma_pago:v.forma_pago||"",
@@ -9048,29 +5573,14 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
       const existing = vivEditId ? vivData.find(v=>v.id===vivEditId) : null;
       const item = {...(existing||{}), ...vivForm, id};
       // Asegurar arrays
-      item.variedades    = item.variedades    || [];
-      item.anexos        = item.anexos        || [];
-      item.ordenesCompra = item.ordenesCompra || [];
+      item.variedades = item.variedades || [];
+      item.anexos     = item.anexos     || [];
       const next = vivEditId ? vivData.map(v=>v.id===vivEditId?item:v) : [...vivData, item];
       setViv(next);
-      // Resumen para auditoría
-      const totCuotas = item.ordenesCompra.reduce((s,o)=>s+(o.cuotas||[]).length,0);
-      const extras = [];
-      if(item.variedades.length>0)    extras.push(`${item.variedades.length} variedad${item.variedades.length>1?"es":""}`);
-      if(item.anexos.length>0)        extras.push(`${item.anexos.length} anexo${item.anexos.length>1?"s":""}`);
-      if(item.ordenesCompra.length>0) extras.push(`${item.ordenesCompra.length} OC`);
-      if(totCuotas>0)                 extras.push(`${totCuotas} cuota${totCuotas>1?"s":""}`);
-      const extraStr = extras.length ? ` · ${extras.join(", ")}` : "";
       window.auditLog && window.auditLog(vivEditId?"editar":"crear", {modulo:"osiris", seccion:"Contratos Viveros",
-        descripcion:`${vivEditId?"Editó":"Creó"} contrato vivero "${item.viverista}"${item.pais?` · ${item.pais}`:""}${item.f_vencimiento?` · vence ${item.f_vencimiento}`:""}${extraStr}`});
+        descripcion:`${vivEditId?"Editó":"Creó"} contrato vivero "${item.viverista}"${item.pais?` · ${item.pais}`:""}${item.f_vencimiento?` · vence ${item.f_vencimiento}`:""}`});
       setVivModal(false);
       setVivEditId(null);
-      setVivWizStep(1);
-      setVivWizVvForm(EMPTY_VV_INLINE);
-      setVivWizAnxForm(EMPTY_VANX_INLINE);
-      setVivWizOcForm(EMPTY_OC_INLINE);
-      setVivWizCuotaForm(EMPTY_CUOTA_INLINE);
-      setVivWizOcExpandido(null);
     };
 
     const updateVivero = (id, updates) => {
@@ -9308,13 +5818,11 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
                 <div style={{fontSize:20,fontWeight:900,color:"#e6edf3"}}>🌱 {v.viverista}</div>
                 <div style={{fontSize:11,color:"#8b949e",marginTop:4}}>
                   {v.pais&&`🌍 ${v.pais}`} {v.f_contrato&&` · Contrato ${v.f_contrato}`} {v.f_vencimiento&&` · Vence ${v.f_vencimiento}`}
-                  {v.renovable&&v.f_vencimiento_nueva&&<span style={{color:"#60a5fa",marginLeft:6,fontWeight:700}}>🔄 Nueva: {v.f_vencimiento_nueva}</span>}
                   <span style={{color:vig.color,marginLeft:8,fontWeight:700}}>{vig.icon} {vig.label}</span>
                   {v.doc_contrato&&<a href={v.doc_contrato} target="_blank" rel="noopener noreferrer" style={{marginLeft:10,color:"#86efac",fontWeight:700,textDecoration:"none"}}>📄 Abrir contrato</a>}
                 </div>
               </div>
               <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
-                {v.estado_contrato&&<span style={{fontSize:10,background:"rgba(22,163,74,0.25)",color:"#86efac",padding:"4px 10px",borderRadius:20,fontWeight:700,border:"1px solid #16a34a44"}}>📋 {v.estado_contrato}</span>}
                 {v.firma_viverista&&<span style={{fontSize:10,background:"rgba(34,197,94,0.2)",color:"#4ade80",padding:"4px 10px",borderRadius:20,fontWeight:700}}>✅ Firma Viverista</span>}
                 {v.firma_osiris&&<span style={{fontSize:10,background:"rgba(34,197,94,0.2)",color:"#4ade80",padding:"4px 10px",borderRadius:20,fontWeight:700}}>✅ Firma Osiris</span>}
                 {v.renovable&&<span style={{fontSize:10,background:"rgba(96,165,250,0.2)",color:"#93c5fd",padding:"4px 10px",borderRadius:20,fontWeight:700}}>🔄 Renovable</span>}
@@ -9359,13 +5867,6 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
                     style={{width:"100%",padding:"8px 12px",borderRadius:8,border:"1px solid #d1d5db",fontSize:13,boxSizing:"border-box",background:canViveros?"#fff":"#f8fafc"}}>
                     <option value="">— Seleccionar —</option>
                     {MESES.map(m=><option key={m} value={m}>{m}</option>)}
-                  </select>
-                </div>
-                <div>
-                  <label style={{fontSize:11,fontWeight:600,color:"#475569",display:"block",marginBottom:4}}>Estado del Contrato</label>
-                  <select disabled={!canViveros} value={v.estado_contrato||"Borrador"} onChange={e=>updateVivero(v.id,{estado_contrato:e.target.value})}
-                    style={{width:"100%",padding:"8px 12px",borderRadius:8,border:"1px solid #d1d5db",fontSize:13,boxSizing:"border-box",background:canViveros?"#fff":"#f8fafc"}}>
-                    {ESTADOS_CONTRATO_OBT.map(s=><option key={s} value={s}>{s}</option>)}
                   </select>
                 </div>
                 <div style={{gridColumn:"1/-1"}}>
@@ -9495,11 +5996,7 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
                                 <td style={{padding:"6px 10px",textAlign:"right"}}>{$$(oc.fee_usd_planta)}</td>
                                 <td style={{padding:"6px 10px",textAlign:"right",fontWeight:700,color:"#7c3aed"}}>{$$(oc.fee_total_usd)}</td>
                                 <td style={{padding:"6px 10px",fontSize:10}}>
-                                  {(()=>{
-                                    const colOC = {"Borrador":"#94a3b8","Enviada":"#3b82f6","Negociando":"#d97706","Confirmada":"#0284c7","En producción":"#7c3aed","Lista":"#0f766e","Despachada":"#0d9488","Recibida":"#16a34a","Pagada parcial":"#ca8a04","Pagada total":"#16a34a","Anulada":"#dc2626"};
-                                    const c = colOC[oc.estado_oc]||"#64748b";
-                                    return <span style={{padding:"2px 8px",borderRadius:10,background:`${c}18`,color:c,fontWeight:700,border:`1px solid ${c}33`}}>{oc.estado_oc||"—"}</span>;
-                                  })()}
+                                  <span style={{padding:"2px 8px",borderRadius:10,background:oc.estado_oc==="Pagada total"?"#dcfce7":oc.estado_oc==="Anulada"?"#fee2e2":"#fef3c7",color:oc.estado_oc==="Pagada total"?"#16a34a":oc.estado_oc==="Anulada"?"#dc2626":"#d97706",fontWeight:700}}>{oc.estado_oc||"—"}</span>
                                 </td>
                                 <td style={{padding:"6px 10px",textAlign:"right",fontSize:11}}>
                                   <span style={{color:cuotasOk===cuotasArr.length&&cuotasArr.length>0?"#16a34a":"#64748b"}}>{cuotasOk}/{cuotasArr.length}</span>
@@ -9831,33 +6328,6 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
                     style={{width:"100%",padding:"8px 12px",borderRadius:8,border:"1px solid #d1d5db",fontSize:13,minHeight:60,boxSizing:"border-box"}}/>
                 </div>
 
-                {/* Despacho y Recepción */}
-                <div style={{padding:"10px 14px",background:"#f0f9ff",borderRadius:8,border:"1px solid #bae6fd",marginBottom:12}}>
-                  <div style={{fontSize:12,fontWeight:700,color:"#0369a1",marginBottom:8}}>📦 Despacho y Recepción</div>
-                  <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
-                    <div>
-                      <label style={{fontSize:11,fontWeight:600,color:"#475569",display:"block",marginBottom:3}}>Fecha despacho</label>
-                      <input type="date" value={ocForm.fechaDespacho||""} onChange={e=>setOcForm(p=>({...p,fechaDespacho:e.target.value}))}
-                        style={{width:"100%",padding:"7px 10px",borderRadius:6,border:"1px solid #d1d5db",fontSize:12,boxSizing:"border-box"}}/>
-                    </div>
-                    <div>
-                      <label style={{fontSize:11,fontWeight:600,color:"#475569",display:"block",marginBottom:3}}>N° guía despacho</label>
-                      <input value={ocForm.guiaDespacho||""} onChange={e=>setOcForm(p=>({...p,guiaDespacho:e.target.value}))} placeholder="Guía N°..."
-                        style={{width:"100%",padding:"7px 10px",borderRadius:6,border:"1px solid #d1d5db",fontSize:12,boxSizing:"border-box"}}/>
-                    </div>
-                    <div>
-                      <label style={{fontSize:11,fontWeight:600,color:"#475569",display:"block",marginBottom:3}}>Fecha recepción</label>
-                      <input type="date" value={ocForm.fechaRecepcion||""} onChange={e=>setOcForm(p=>({...p,fechaRecepcion:e.target.value}))}
-                        style={{width:"100%",padding:"7px 10px",borderRadius:6,border:"1px solid #d1d5db",fontSize:12,boxSizing:"border-box"}}/>
-                    </div>
-                    <div>
-                      <label style={{fontSize:11,fontWeight:600,color:"#475569",display:"block",marginBottom:3}}>Observaciones recepción</label>
-                      <input value={ocForm.observacionesRecepcion||""} onChange={e=>setOcForm(p=>({...p,observacionesRecepcion:e.target.value}))} placeholder="Estado de las plantas al recibir..."
-                        style={{width:"100%",padding:"7px 10px",borderRadius:6,border:"1px solid #d1d5db",fontSize:12,boxSizing:"border-box"}}/>
-                    </div>
-                  </div>
-                </div>
-
                 {/* Info: las cuotas se gestionan tras crear la OC */}
                 {!ocEditId&&<div style={{background:"#fef3c7",border:"1px solid #fbbf24",borderRadius:8,padding:"8px 12px",marginBottom:12,fontSize:11,color:"#78350f"}}>
                   💡 Tras crear la OC, podrás agregar las cuotas/fechas de pago entrando al detalle de la OC.
@@ -9989,7 +6459,7 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
                 style={{padding:"8px 16px",borderRadius:8,background:"#0f766e",border:"none",color:"#fff",cursor:"pointer",fontSize:12,fontWeight:700}}>
                 📥 Exportar Excel
               </button>
-              {canViveros&&<button onClick={()=>{setVivForm(EMPTY_VIV);setVivEditId(null);setVivWizStep(1);setVivWizVvForm(EMPTY_VV_INLINE);setVivWizAnxForm(EMPTY_VANX_INLINE);setVivWizOcForm(EMPTY_OC_INLINE);setVivWizCuotaForm(EMPTY_CUOTA_INLINE);setVivWizOcExpandido(null);setVivModal(true);}}
+              {canViveros&&<button onClick={()=>{setVivForm(EMPTY_VIV);setVivEditId(null);setVivModal(true);}}
                 style={{padding:"8px 16px",borderRadius:8,background:"#16a34a",border:"none",color:"#fff",cursor:"pointer",fontSize:12,fontWeight:700}}>
                 + Nuevo Vivero
               </button>}
@@ -10022,7 +6492,7 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
                         {v.renovable&&<span style={{fontSize:10,background:"rgba(96,165,250,0.15)",color:"#3b82f6",padding:"3px 10px",borderRadius:20,fontWeight:700}}>🔄</span>}
                         <span style={{fontSize:10,background:"rgba(22,163,74,0.15)",color:"#16a34a",padding:"3px 10px",borderRadius:20,fontWeight:700}}>{nVar} var.</span>
                         {canViveros&&<>
-                          <button onClick={e=>{e.stopPropagation();setVivForm({...EMPTY_VIV,...v});setVivEditId(v.id);setVivWizStep(1);setVivWizVvForm(EMPTY_VV_INLINE);setVivWizAnxForm(EMPTY_VANX_INLINE);setVivWizOcForm(EMPTY_OC_INLINE);setVivWizCuotaForm(EMPTY_CUOTA_INLINE);setVivWizOcExpandido(null);setVivModal(true);}}
+                          <button onClick={e=>{e.stopPropagation();setVivForm({...EMPTY_VIV,...v});setVivEditId(v.id);setVivModal(true);}}
                             style={{background:"#f0f9ff",border:"none",borderRadius:6,padding:"4px 10px",cursor:"pointer",fontSize:11}}>✏️</button>
                           <button onClick={e=>{e.stopPropagation();eliminarViv(v.id);}}
                             style={{background:"#fef2f2",border:"none",borderRadius:6,padding:"4px 10px",cursor:"pointer",fontSize:11}}>🗑</button>
@@ -10036,661 +6506,64 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
           )}
         </div>
 
-        {/* Modal Wizard: Nuevo/Editar Vivero (5 pasos) */}
-        {vivModal&&(()=>{
-          const wizVariedades = vivForm.variedades || [];
-          const wizAnexos     = vivForm.anexos     || [];
-          const wizOCs        = vivForm.ordenesCompra || [];
-
-          // ── Helpers paso 2 (variedades) ──
-          const agregarVarWiz = () => {
-            if(!vivWizVvForm.especie || !vivWizVvForm.variedad) {
-              alert("Especie y Variedad son obligatorios."); return;
-            }
-            const nueva = {
-              id:`vv_${Date.now()}`,
-              especie:vivWizVvForm.especie.trim(),
-              variedad:vivWizVvForm.variedad.trim(),
-              fee_usd:parseFloat(vivWizVvForm.fee_usd)||0,
-              fee_pct:parseFloat(vivWizVvForm.fee_pct)||0,
-              observaciones:vivWizVvForm.observaciones||"",
-            };
-            setVivForm(p=>({...p, variedades:[...(p.variedades||[]), nueva]}));
-            setVivWizVvForm(EMPTY_VV_INLINE);
-          };
-          const quitarVarWiz = (vid) => {
-            const variedadRemovida = wizVariedades.find(v=>v.id===vid);
-            if(!variedadRemovida) return;
-            // Verificar OC vinculadas
-            const ocVinc = wizOCs.filter(o=>o.variedad_id === vid);
-            if(ocVinc.length>0) {
-              if(!window.confirm(`Hay ${ocVinc.length} OC vinculada(s) a "${variedadRemovida.especie} · ${variedadRemovida.variedad}". Si la eliminas, esas OC quedarán huérfanas. ¿Continuar?`)) return;
-            }
-            setVivForm(p=>({...p, variedades:(p.variedades||[]).filter(v=>v.id!==vid)}));
-          };
-
-          // ── Helpers paso 3 (anexos) ──
-          const agregarAnxWiz = () => {
-            if(!vivWizAnxForm.descripcion) { alert("Descripción del anexo es obligatoria."); return; }
-            const nuevo = {id:`vanx_${Date.now()}`, ...vivWizAnxForm};
-            setVivForm(p=>({...p, anexos:[...(p.anexos||[]), nuevo]}));
-            setVivWizAnxForm(EMPTY_VANX_INLINE);
-          };
-          const quitarAnxWiz = (aid) => {
-            setVivForm(p=>({...p, anexos:(p.anexos||[]).filter(a=>a.id!==aid)}));
-          };
-
-          // ── Helpers paso 4 (OC) ──
-          const seleccionarVariedadWizOC = (vid) => {
-            const vv = wizVariedades.find(x=>x.id===vid);
-            if(!vv) { setVivWizOcForm(p=>({...p,variedad_id:""})); return; }
-            setVivWizOcForm(p=>({
-              ...p,
-              variedad_id: vid,
-              especie: vv.especie||"",
-              variedad: vv.variedad||"",
-              fee_usd_planta: p.fee_usd_planta || vv.fee_usd || "",
-            }));
-          };
-          const calcFeeTotalWiz = (cant, fee) => Math.round((parseFloat(cant)||0)*(parseFloat(fee)||0)*100)/100;
-          const agregarOcWiz = () => {
-            if(!vivWizOcForm.n_oc || !vivWizOcForm.cliente_id || !vivWizOcForm.variedad_id) {
-              alert("N° OC, Cliente y Variedad son obligatorios."); return;
-            }
-            const cli = clientes.find(c=>c.id===vivWizOcForm.cliente_id);
-            const cant = parseFloat(vivWizOcForm.cantidad_plantas)||0;
-            const fee  = parseFloat(vivWizOcForm.fee_usd_planta)||0;
-            const nueva = {
-              id:`oc_${Date.now()}`,
-              ...vivWizOcForm,
-              cliente_nombre: cli?.razonSocial || "",
-              cantidad_plantas: cant,
-              hectareas: parseFloat(vivWizOcForm.hectareas)||0,
-              fee_usd_planta: fee,
-              fee_total_usd: calcFeeTotalWiz(cant, fee),
-              cuotas: [],
-            };
-            setVivForm(p=>({...p, ordenesCompra:[...(p.ordenesCompra||[]), nueva]}));
-            setVivWizOcForm(EMPTY_OC_INLINE);
-          };
-          const quitarOcWiz = (oid) => {
-            const oc = wizOCs.find(o=>o.id===oid);
-            if(oc && (oc.cuotas||[]).length>0) {
-              if(!window.confirm(`Esta OC tiene ${oc.cuotas.length} cuota(s) registrada(s). ¿Eliminar de todos modos?`)) return;
-            }
-            setVivForm(p=>({...p, ordenesCompra:(p.ordenesCompra||[]).filter(o=>o.id!==oid)}));
-            if(vivWizOcExpandido===oid) setVivWizOcExpandido(null);
-          };
-
-          // ── Helpers paso 5 (cuotas) ──
-          const agregarCuotaWiz = (ocId) => {
-            if(!vivWizCuotaForm.fecha || !vivWizCuotaForm.monto_usd) {
-              alert("Fecha y Monto son obligatorios."); return;
-            }
-            const cuota = {
-              id:`cuo_${Date.now()}`,
-              fecha:vivWizCuotaForm.fecha,
-              monto_usd:parseFloat(vivWizCuotaForm.monto_usd)||0,
-              pagado:!!vivWizCuotaForm.pagado,
-              fecha_pago:vivWizCuotaForm.fecha_pago||"",
-              n_factura:vivWizCuotaForm.n_factura||"",
-              observaciones:vivWizCuotaForm.observaciones||"",
-            };
-            setVivForm(p=>({
-              ...p,
-              ordenesCompra: (p.ordenesCompra||[]).map(o=>{
-                if(o.id!==ocId) return o;
-                const cuotasNew = [...(o.cuotas||[]), cuota];
-                cuotasNew.sort((a,b)=>String(a.fecha).localeCompare(String(b.fecha)));
-                return {...o, cuotas: cuotasNew};
-              }),
-            }));
-            setVivWizCuotaForm(EMPTY_CUOTA_INLINE);
-          };
-          const quitarCuotaWiz = (ocId, cid) => {
-            setVivForm(p=>({
-              ...p,
-              ordenesCompra: (p.ordenesCompra||[]).map(o=>
-                o.id!==ocId ? o : {...o, cuotas:(o.cuotas||[]).filter(c=>c.id!==cid)}
-              ),
-            }));
-          };
-
-          // Stepper helpers
-          const Step = ({n, label, active, done}) => {
-            const bg = active?"#16a34a":done?"#0f766e":"#e2e8f0";
-            const col = active||done?"#fff":"#94a3b8";
-            return (
-              <div style={{display:"flex",alignItems:"center",gap:6,flex:1,minWidth:0}}>
-                <div style={{
-                  width:26,height:26,borderRadius:"50%",
-                  background:bg,color:col,
-                  display:"flex",alignItems:"center",justifyContent:"center",
-                  fontSize:12,fontWeight:800,flexShrink:0
-                }}>{done?"✓":n}</div>
-                <div style={{
-                  fontSize:10,fontWeight:active?700:500,
-                  color:active?"#1e293b":done?"#0f766e":"#94a3b8",
-                  whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"
-                }}>{label}</div>
-              </div>
-            );
-          };
-          const irPaso = (n) => {
-            if(vivWizStep===1 && n>1 && !vivForm.viverista) {
-              alert("Viverista es obligatorio para continuar."); return;
-            }
-            if(vivWizStep===1 && n>1 && vivForm.f_contrato && vivForm.f_vencimiento && new Date(vivForm.f_vencimiento) < new Date(vivForm.f_contrato)) {
-              alert("La fecha de vencimiento no puede ser anterior a la fecha de contrato."); return;
-            }
-            setVivWizStep(n);
-          };
-
-          // Resumen totales OC
-          const totFeeAllOC = wizOCs.reduce((s,o)=>s+(parseFloat(o.fee_total_usd)||0),0);
-          const totCuotasAllOC = wizOCs.reduce((s,o)=>s+(o.cuotas||[]).reduce((ss,c)=>ss+(parseFloat(c.monto_usd)||0),0),0);
-
-          return (
+        {/* Modal: Nuevo/Editar Vivero */}
+        {vivModal&&(
           <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:9999}} onClick={()=>setVivModal(false)}>
-            <div onClick={e=>e.stopPropagation()} style={{background:"#fff",borderRadius:16,padding:24,width:760,maxHeight:"94vh",overflowY:"auto"}}>
-              <h3 style={{margin:"0 0 18px",color:"#1e293b"}}>{vivEditId?"✏️ Editar":"➕ Nuevo"} Contrato Vivero</h3>
-
-              {/* Stepper */}
-              <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:20,padding:"12px 8px",background:"#f8fafc",borderRadius:10}}>
-                <Step n={1} label="Cabecera"   active={vivWizStep===1} done={vivWizStep>1}/>
-                <div style={{flex:"0 0 18px",height:2,background:vivWizStep>1?"#0f766e":"#e2e8f0"}}/>
-                <Step n={2} label="Variedades" active={vivWizStep===2} done={vivWizStep>2}/>
-                <div style={{flex:"0 0 18px",height:2,background:vivWizStep>2?"#0f766e":"#e2e8f0"}}/>
-                <Step n={3} label="Anexos"     active={vivWizStep===3} done={vivWizStep>3}/>
-                <div style={{flex:"0 0 18px",height:2,background:vivWizStep>3?"#0f766e":"#e2e8f0"}}/>
-                <Step n={4} label="OC Clientes" active={vivWizStep===4} done={vivWizStep>4}/>
-                <div style={{flex:"0 0 18px",height:2,background:vivWizStep>4?"#0f766e":"#e2e8f0"}}/>
-                <Step n={5} label="Cuotas"     active={vivWizStep===5} done={false}/>
+            <div onClick={e=>e.stopPropagation()} style={{background:"#fff",borderRadius:16,padding:24,width:560,maxHeight:"85vh",overflowY:"auto"}}>
+              <h3 style={{margin:"0 0 16px",color:"#1e293b"}}>{vivEditId?"✏️ Editar":"➕ Nuevo"} Contrato Vivero</h3>
+              <div style={{marginBottom:12}}>
+                <label style={{fontSize:11,fontWeight:600,color:"#475569",display:"block",marginBottom:4}}>Viverista <span style={{color:"#dc2626"}}>*</span></label>
+                <input value={vivForm.viverista||""} placeholder="Ej. Vivero La Esperanza, Genética del Sur..." onChange={e=>setVivForm(p=>({...p,viverista:e.target.value}))}
+                  style={{width:"100%",padding:"8px 12px",borderRadius:8,border:"1px solid #d1d5db",fontSize:13,boxSizing:"border-box"}}/>
               </div>
-
-              {/* PASO 1 — CABECERA */}
-              {vivWizStep===1&&(<>
-                <div style={{marginBottom:12}}>
-                  <label style={{fontSize:11,fontWeight:600,color:"#475569",display:"block",marginBottom:4}}>Viverista <span style={{color:"#dc2626"}}>*</span></label>
-                  {(viveristas||[]).length>0?(
-                    <div style={{display:"grid",gridTemplateColumns:"1fr auto",gap:8}}>
-                      <select value={(viveristas||[]).find(vv=>vv.razonSocial===vivForm.viverista)?.id||""} onChange={e=>{
-                        const vrs = (viveristas||[]).find(x=>x.id===e.target.value);
-                        if(vrs) setVivForm(p=>({...p,viverista:vrs.razonSocial,pais:p.pais||vrs.pais||""}));
-                      }}
-                        style={{width:"100%",padding:"8px 12px",borderRadius:8,border:"1px solid #d1d5db",fontSize:13,boxSizing:"border-box",background:"#fff"}}>
-                        <option value="">— Seleccionar del Maestro —</option>
-                        {(viveristas||[]).map(vrs=><option key={vrs.id} value={vrs.id}>{vrs.razonSocial} {vrs.pais?`(${vrs.pais})`:""}</option>)}
-                      </select>
-                      <input value={vivForm.viverista||""} placeholder="O escribir libre..." onChange={e=>setVivForm(p=>({...p,viverista:e.target.value}))}
-                        style={{padding:"8px 12px",borderRadius:8,border:"1px solid #d1d5db",fontSize:13,boxSizing:"border-box",width:220}}/>
-                    </div>
-                  ):(
-                    <input value={vivForm.viverista||""} placeholder="Ej. Vivero La Esperanza, Genética del Sur..." onChange={e=>setVivForm(p=>({...p,viverista:e.target.value}))}
-                      style={{width:"100%",padding:"8px 12px",borderRadius:8,border:"1px solid #d1d5db",fontSize:13,boxSizing:"border-box"}}/>
-                  )}
-                  {(viveristas||[]).length===0&&<div style={{fontSize:10,color:"#64748b",marginTop:4}}>💡 Aún no hay viveristas en el Maestro. Puedes agregarlos después o escribir libremente aquí.</div>}
-                </div>
-                <div style={{marginBottom:12}}>
-                  <label style={{fontSize:11,fontWeight:600,color:"#475569",display:"block",marginBottom:4}}>País</label>
-                  <input value={vivForm.pais||""} placeholder="Chile, Perú, México..." onChange={e=>setVivForm(p=>({...p,pais:e.target.value}))}
+              <div style={{marginBottom:12}}>
+                <label style={{fontSize:11,fontWeight:600,color:"#475569",display:"block",marginBottom:4}}>País</label>
+                <input value={vivForm.pais||""} placeholder="Chile, Perú, México..." onChange={e=>setVivForm(p=>({...p,pais:e.target.value}))}
+                  style={{width:"100%",padding:"8px 12px",borderRadius:8,border:"1px solid #d1d5db",fontSize:13,boxSizing:"border-box"}}/>
+              </div>
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:12}}>
+                <div>
+                  <label style={{fontSize:11,fontWeight:600,color:"#475569",display:"block",marginBottom:4}}>Fecha Contrato</label>
+                  <input type="date" value={vivForm.f_contrato||""} onChange={e=>setVivForm(p=>({...p,f_contrato:e.target.value}))}
                     style={{width:"100%",padding:"8px 12px",borderRadius:8,border:"1px solid #d1d5db",fontSize:13,boxSizing:"border-box"}}/>
                 </div>
-                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:12}}>
-                  <div>
-                    <label style={{fontSize:11,fontWeight:600,color:"#475569",display:"block",marginBottom:4}}>Fecha Contrato</label>
-                    <input type="date" value={vivForm.f_contrato||""} onChange={e=>setVivForm(p=>({...p,f_contrato:e.target.value}))}
-                      style={{width:"100%",padding:"8px 12px",borderRadius:8,border:"1px solid #d1d5db",fontSize:13,boxSizing:"border-box"}}/>
-                  </div>
-                  <div>
-                    <label style={{fontSize:11,fontWeight:600,color:"#475569",display:"block",marginBottom:4}}>Fecha Vencimiento</label>
-                    <input type="date" value={vivForm.f_vencimiento||""} onChange={e=>setVivForm(p=>({...p,f_vencimiento:e.target.value}))}
-                      style={{width:"100%",padding:"8px 12px",borderRadius:8,border:"1px solid #d1d5db",fontSize:13,boxSizing:"border-box"}}/>
-                  </div>
+                <div>
+                  <label style={{fontSize:11,fontWeight:600,color:"#475569",display:"block",marginBottom:4}}>Fecha Vencimiento</label>
+                  <input type="date" value={vivForm.f_vencimiento||""} onChange={e=>setVivForm(p=>({...p,f_vencimiento:e.target.value}))}
+                    style={{width:"100%",padding:"8px 12px",borderRadius:8,border:"1px solid #d1d5db",fontSize:13,boxSizing:"border-box"}}/>
                 </div>
-                <div style={{marginBottom:12}}>
-                  <label style={{fontSize:11,fontWeight:600,color:"#475569",display:"block",marginBottom:4}}>Estado del Contrato</label>
-                  <select value={vivForm.estado_contrato||"Borrador"} onChange={e=>setVivForm(p=>({...p,estado_contrato:e.target.value}))}
-                    style={{width:"100%",padding:"8px 12px",borderRadius:8,border:"1px solid #d1d5db",fontSize:13,boxSizing:"border-box",background:"#fff"}}>
-                    {ESTADOS_CONTRATO_OBT.map(s=><option key={s} value={s}>{s}</option>)}
-                  </select>
-                </div>
-                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:12}}>
-                  <div>
-                    <label style={{fontSize:11,fontWeight:600,color:"#475569",display:"block",marginBottom:4}}>Forma de pago a Osiris</label>
-                    <select value={vivForm.forma_pago||""} onChange={e=>setVivForm(p=>({...p,forma_pago:e.target.value}))}
-                      style={{width:"100%",padding:"8px 12px",borderRadius:8,border:"1px solid #d1d5db",fontSize:13,boxSizing:"border-box",background:"#fff"}}>
-                      <option value="">— Seleccionar —</option>
-                      {FORMAS_PAGO.map(s=><option key={s} value={s}>{s}</option>)}
-                    </select>
-                  </div>
-                  <div>
-                    <label style={{fontSize:11,fontWeight:600,color:"#475569",display:"block",marginBottom:4}}>Mes estimado de pago</label>
-                    <select value={vivForm.mes_pago_estimado||""} onChange={e=>setVivForm(p=>({...p,mes_pago_estimado:e.target.value}))}
-                      style={{width:"100%",padding:"8px 12px",borderRadius:8,border:"1px solid #d1d5db",fontSize:13,boxSizing:"border-box",background:"#fff"}}>
-                      <option value="">— Seleccionar —</option>
-                      {MESES.map(m=><option key={m} value={m}>{m}</option>)}
-                    </select>
-                  </div>
-                </div>
-                <label style={{display:"flex",alignItems:"center",gap:8,cursor:"pointer",marginBottom:12}}>
-                  <input type="checkbox" checked={!!vivForm.renovable} onChange={e=>setVivForm(p=>({...p,renovable:e.target.checked}))}/>
-                  <span style={{fontSize:12}}>Contrato renovable</span>
+              </div>
+              <label style={{display:"flex",alignItems:"center",gap:8,cursor:"pointer",marginBottom:12}}>
+                <input type="checkbox" checked={!!vivForm.renovable} onChange={e=>setVivForm(p=>({...p,renovable:e.target.checked}))}/>
+                <span style={{fontSize:12}}>Contrato renovable</span>
+              </label>
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:12,padding:12,background:"#f8fafc",borderRadius:8}}>
+                <label style={{display:"flex",alignItems:"center",gap:8,cursor:"pointer"}}>
+                  <input type="checkbox" checked={!!vivForm.firma_viverista} onChange={e=>setVivForm(p=>({...p,firma_viverista:e.target.checked}))}/>
+                  <span style={{fontSize:12}}>✅ Firma Viverista</span>
                 </label>
-                {vivForm.renovable&&(
-                  <div style={{marginBottom:12}}>
-                    <label style={{fontSize:11,fontWeight:600,color:"#475569",display:"block",marginBottom:4}}>📆 Nueva Fecha Vencimiento</label>
-                    <input type="date" value={vivForm.f_vencimiento_nueva||""} onChange={e=>setVivForm(p=>({...p,f_vencimiento_nueva:e.target.value}))}
-                      style={{width:"100%",padding:"8px 12px",borderRadius:8,border:"1px solid #93c5fd",fontSize:13,boxSizing:"border-box",background:"#eff6ff"}}/>
-                  </div>
-                )}
-                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:12,padding:12,background:"#f8fafc",borderRadius:8}}>
-                  <label style={{display:"flex",alignItems:"center",gap:8,cursor:"pointer"}}>
-                    <input type="checkbox" checked={!!vivForm.firma_viverista} onChange={e=>setVivForm(p=>({...p,firma_viverista:e.target.checked}))}/>
-                    <span style={{fontSize:12}}>✅ Firma Viverista</span>
-                  </label>
-                  <label style={{display:"flex",alignItems:"center",gap:8,cursor:"pointer"}}>
-                    <input type="checkbox" checked={!!vivForm.firma_osiris} onChange={e=>setVivForm(p=>({...p,firma_osiris:e.target.checked}))}/>
-                    <span style={{fontSize:12}}>✅ Firma Osiris</span>
-                  </label>
-                </div>
-                <div style={{marginBottom:12}}>
-                  <label style={{fontSize:11,fontWeight:600,color:"#475569",display:"block",marginBottom:4}}>📎 Link al contrato (OneDrive/Drive)</label>
-                  <input value={vivForm.doc_contrato||""} placeholder="https://..." onChange={e=>setVivForm(p=>({...p,doc_contrato:e.target.value}))}
-                    style={{width:"100%",padding:"8px 12px",borderRadius:8,border:"1px solid #d1d5db",fontSize:13,boxSizing:"border-box"}}/>
-                </div>
-                <div style={{marginBottom:12}}>
-                  <label style={{fontSize:11,fontWeight:600,color:"#475569",display:"block",marginBottom:4}}>📄 Link doc. legal complementario</label>
-                  <input value={vivForm.doc_legal||""} placeholder="https://..." onChange={e=>setVivForm(p=>({...p,doc_legal:e.target.value}))}
-                    style={{width:"100%",padding:"8px 12px",borderRadius:8,border:"1px solid #d1d5db",fontSize:13,boxSizing:"border-box"}}/>
-                </div>
-                <div style={{marginBottom:12}}>
-                  <label style={{fontSize:11,fontWeight:600,color:"#475569",display:"block",marginBottom:4}}>Observaciones</label>
-                  <textarea value={vivForm.observaciones||""} onChange={e=>setVivForm(p=>({...p,observaciones:e.target.value}))}
-                    style={{width:"100%",padding:"8px 12px",borderRadius:8,border:"1px solid #d1d5db",fontSize:13,minHeight:60,boxSizing:"border-box"}}/>
-                </div>
-              </>)}
-
-              {/* PASO 2 — VARIEDADES */}
-              {vivWizStep===2&&(<>
-                <div style={{background:"#dcfce7",border:"1px solid #86efac",borderRadius:8,padding:"8px 12px",marginBottom:14,fontSize:11,color:"#14532d"}}>
-                  💡 Agrega las variedades autorizadas a producir por este viverista. <strong>Este paso es opcional</strong> — puedes saltar y agregar después desde el detalle.
-                </div>
-
-                {wizVariedades.length>0&&(
-                  <div style={{marginBottom:14,border:"1px solid #e2e8f0",borderRadius:10,overflow:"hidden"}}>
-                    <div style={{background:"#f8fafc",padding:"8px 12px",fontSize:11,fontWeight:700,color:"#475569"}}>
-                      Variedades agregadas ({wizVariedades.length})
-                    </div>
-                    {wizVariedades.map(v=>(
-                      <div key={v.id} style={{padding:"10px 12px",borderTop:"1px solid #f1f5f9",display:"flex",justifyContent:"space-between",alignItems:"center",gap:8}}>
-                        <div style={{flex:1,minWidth:0}}>
-                          <div style={{fontSize:13,fontWeight:700,color:"#1e293b"}}>🌿 {v.especie} — {v.variedad}</div>
-                          <div style={{fontSize:10,color:"#64748b",marginTop:2}}>
-                            {v.fee_usd?<>💵 ${v.fee_usd}/planta</>:null}
-                            {v.fee_pct?<> · 📊 {v.fee_pct}% s/venta</>:null}
-                            {v.observaciones?<> · {v.observaciones}</>:null}
-                          </div>
-                        </div>
-                        <button onClick={()=>quitarVarWiz(v.id)} style={{background:"#fef2f2",border:"none",borderRadius:6,padding:"4px 8px",cursor:"pointer",fontSize:11,color:"#991b1b"}}>🗑</button>
-                      </div>
-                    ))}
-                  </div>
-                )}
-
-                <div style={{border:"1px dashed #86efac",borderRadius:10,padding:14,background:"#f0fdf4",marginBottom:12}}>
-                  <div style={{fontSize:12,fontWeight:700,color:"#14532d",marginBottom:10}}>+ Agregar nueva variedad</div>
-                  <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:10}}>
-                    <div>
-                      <label style={{fontSize:11,fontWeight:600,color:"#475569",display:"block",marginBottom:3}}>Especie <span style={{color:"#dc2626"}}>*</span></label>
-                      <input value={vivWizVvForm.especie||""} placeholder="Cerezo, Arándano..." onChange={e=>setVivWizVvForm(p=>({...p,especie:e.target.value}))}
-                        style={{width:"100%",padding:"7px 10px",borderRadius:6,border:"1px solid #d1d5db",fontSize:12,boxSizing:"border-box"}}/>
-                    </div>
-                    <div>
-                      <label style={{fontSize:11,fontWeight:600,color:"#475569",display:"block",marginBottom:3}}>Variedad <span style={{color:"#dc2626"}}>*</span></label>
-                      <input value={vivWizVvForm.variedad||""} placeholder="Royal Dawn..." onChange={e=>setVivWizVvForm(p=>({...p,variedad:e.target.value}))}
-                        style={{width:"100%",padding:"7px 10px",borderRadius:6,border:"1px solid #d1d5db",fontSize:12,boxSizing:"border-box"}}/>
-                    </div>
-                  </div>
-                  <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:10}}>
-                    <div>
-                      <label style={{fontSize:11,fontWeight:600,color:"#475569",display:"block",marginBottom:3}}>Fee USD/planta</label>
-                      <input type="number" step="0.01" value={vivWizVvForm.fee_usd||""} placeholder="0.85" onChange={e=>setVivWizVvForm(p=>({...p,fee_usd:e.target.value}))}
-                        style={{width:"100%",padding:"7px 10px",borderRadius:6,border:"1px solid #d1d5db",fontSize:12,boxSizing:"border-box",textAlign:"right"}}/>
-                    </div>
-                    <div>
-                      <label style={{fontSize:11,fontWeight:600,color:"#475569",display:"block",marginBottom:3}}>Fee % s/venta</label>
-                      <input type="number" step="0.1" value={vivWizVvForm.fee_pct||""} placeholder="3" onChange={e=>setVivWizVvForm(p=>({...p,fee_pct:e.target.value}))}
-                        style={{width:"100%",padding:"7px 10px",borderRadius:6,border:"1px solid #d1d5db",fontSize:12,boxSizing:"border-box",textAlign:"right"}}/>
-                    </div>
-                  </div>
-                  <div style={{marginBottom:10}}>
-                    <label style={{fontSize:11,fontWeight:600,color:"#475569",display:"block",marginBottom:3}}>Observaciones</label>
-                    <input value={vivWizVvForm.observaciones||""} onChange={e=>setVivWizVvForm(p=>({...p,observaciones:e.target.value}))}
-                      style={{width:"100%",padding:"7px 10px",borderRadius:6,border:"1px solid #d1d5db",fontSize:12,boxSizing:"border-box"}}/>
-                  </div>
-                  <button onClick={agregarVarWiz} style={{width:"100%",padding:"8px 14px",borderRadius:8,background:"#16a34a",border:"none",color:"#fff",cursor:"pointer",fontSize:12,fontWeight:700}}>+ Agregar variedad a la lista</button>
-                </div>
-              </>)}
-
-              {/* PASO 3 — ANEXOS */}
-              {vivWizStep===3&&(<>
-                <div style={{background:"#dbeafe",border:"1px solid #93c5fd",borderRadius:8,padding:"8px 12px",marginBottom:14,fontSize:11,color:"#1e3a8a"}}>
-                  💡 Adjunta documentos complementarios al contrato (adendas, cartas compromiso, certificados...). <strong>Paso opcional</strong>.
-                </div>
-
-                {wizAnexos.length>0&&(
-                  <div style={{marginBottom:14,border:"1px solid #e2e8f0",borderRadius:10,overflow:"hidden"}}>
-                    <div style={{background:"#f8fafc",padding:"8px 12px",fontSize:11,fontWeight:700,color:"#475569"}}>
-                      Anexos agregados ({wizAnexos.length})
-                    </div>
-                    {wizAnexos.map(a=>(
-                      <div key={a.id} style={{padding:"10px 12px",borderTop:"1px solid #f1f5f9",display:"flex",justifyContent:"space-between",alignItems:"center",gap:8}}>
-                        <div style={{flex:1,minWidth:0}}>
-                          <div style={{fontSize:13,fontWeight:700,color:"#1e293b"}}>📎 {a.descripcion}</div>
-                          <div style={{fontSize:10,color:"#64748b",marginTop:2}}>
-                            {a.fecha&&`📅 ${a.fecha}`}
-                            {a.enlace&&<> · <a href={a.enlace} target="_blank" rel="noopener noreferrer" style={{color:"#2563eb"}}>📎 Abrir</a></>}
-                            {a.observaciones&&` · ${a.observaciones}`}
-                          </div>
-                        </div>
-                        <button onClick={()=>quitarAnxWiz(a.id)} style={{background:"#fef2f2",border:"none",borderRadius:6,padding:"4px 8px",cursor:"pointer",fontSize:11,color:"#991b1b"}}>🗑</button>
-                      </div>
-                    ))}
-                  </div>
-                )}
-
-                <div style={{border:"1px dashed #93c5fd",borderRadius:10,padding:14,background:"#eff6ff",marginBottom:12}}>
-                  <div style={{fontSize:12,fontWeight:700,color:"#1e3a8a",marginBottom:10}}>+ Agregar nuevo anexo</div>
-                  <div style={{marginBottom:10}}>
-                    <label style={{fontSize:11,fontWeight:600,color:"#475569",display:"block",marginBottom:3}}>Descripción <span style={{color:"#dc2626"}}>*</span></label>
-                    <input value={vivWizAnxForm.descripcion||""} placeholder="Adenda 2026, Carta compromiso..." onChange={e=>setVivWizAnxForm(p=>({...p,descripcion:e.target.value}))}
-                      style={{width:"100%",padding:"7px 10px",borderRadius:6,border:"1px solid #d1d5db",fontSize:12,boxSizing:"border-box"}}/>
-                  </div>
-                  <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:10}}>
-                    <div>
-                      <label style={{fontSize:11,fontWeight:600,color:"#475569",display:"block",marginBottom:3}}>Fecha</label>
-                      <input type="date" value={vivWizAnxForm.fecha||""} onChange={e=>setVivWizAnxForm(p=>({...p,fecha:e.target.value}))}
-                        style={{width:"100%",padding:"7px 10px",borderRadius:6,border:"1px solid #d1d5db",fontSize:12,boxSizing:"border-box"}}/>
-                    </div>
-                    <div>
-                      <label style={{fontSize:11,fontWeight:600,color:"#475569",display:"block",marginBottom:3}}>Enlace (URL)</label>
-                      <input value={vivWizAnxForm.enlace||""} placeholder="https://..." onChange={e=>setVivWizAnxForm(p=>({...p,enlace:e.target.value}))}
-                        style={{width:"100%",padding:"7px 10px",borderRadius:6,border:"1px solid #d1d5db",fontSize:12,boxSizing:"border-box"}}/>
-                    </div>
-                  </div>
-                  <div style={{marginBottom:10}}>
-                    <label style={{fontSize:11,fontWeight:600,color:"#475569",display:"block",marginBottom:3}}>Observaciones</label>
-                    <input value={vivWizAnxForm.observaciones||""} onChange={e=>setVivWizAnxForm(p=>({...p,observaciones:e.target.value}))}
-                      style={{width:"100%",padding:"7px 10px",borderRadius:6,border:"1px solid #d1d5db",fontSize:12,boxSizing:"border-box"}}/>
-                  </div>
-                  <button onClick={agregarAnxWiz} style={{width:"100%",padding:"8px 14px",borderRadius:8,background:"#2563eb",border:"none",color:"#fff",cursor:"pointer",fontSize:12,fontWeight:700}}>+ Agregar anexo a la lista</button>
-                </div>
-              </>)}
-
-              {/* PASO 4 — ÓRDENES DE COMPRA */}
-              {vivWizStep===4&&(<>
-                <div style={{background:"#ede9fe",border:"1px solid #c4b5fd",borderRadius:8,padding:"8px 12px",marginBottom:14,fontSize:11,color:"#5b21b6"}}>
-                  💡 Cada OC es una orden del cliente productor-exportador al viverista. El fee a Osiris se hereda de la variedad pero puedes editarlo. Las cuotas/fechas de pago se configuran en el siguiente paso. <strong>Paso opcional</strong>.
-                </div>
-
-                {wizVariedades.length===0?(
-                  <div style={{padding:30,textAlign:"center",color:"#94a3b8",border:"1px dashed #e2e8f0",borderRadius:10,marginBottom:12}}>
-                    <div style={{fontSize:32,marginBottom:8}}>🌿</div>
-                    <div style={{fontSize:12}}>Para registrar una OC primero necesitas agregar al menos una variedad.</div>
-                    <button onClick={()=>setVivWizStep(2)} style={{marginTop:10,padding:"6px 14px",borderRadius:8,background:"#16a34a",border:"none",color:"#fff",cursor:"pointer",fontSize:11,fontWeight:700}}>← Volver al paso 2</button>
-                  </div>
-                ):clientes.length===0?(
-                  <div style={{padding:30,textAlign:"center",color:"#94a3b8",border:"1px dashed #e2e8f0",borderRadius:10,marginBottom:12}}>
-                    <div style={{fontSize:32,marginBottom:8}}>👥</div>
-                    <div style={{fontSize:12}}>No hay clientes en el Maestro de Clientes Osiris. Carga al menos uno antes.</div>
-                  </div>
-                ):(<>
-                  {wizOCs.length>0&&(
-                    <div style={{marginBottom:14,border:"1px solid #e2e8f0",borderRadius:10,overflow:"hidden"}}>
-                      <div style={{background:"#f8fafc",padding:"8px 12px",fontSize:11,fontWeight:700,color:"#475569",display:"flex",justifyContent:"space-between"}}>
-                        <span>OC agregadas ({wizOCs.length})</span>
-                        <span style={{color:"#7c3aed"}}>Total fee: {$$(totFeeAllOC)}</span>
-                      </div>
-                      {wizOCs.map(oc=>(
-                        <div key={oc.id} style={{padding:"10px 12px",borderTop:"1px solid #f1f5f9",display:"flex",justifyContent:"space-between",alignItems:"center",gap:8}}>
-                          <div style={{flex:1,minWidth:0}}>
-                            <div style={{fontSize:13,fontWeight:700,color:"#1e293b"}}>📦 OC {oc.n_oc} — {oc.cliente_nombre}</div>
-                            <div style={{fontSize:10,color:"#64748b",marginTop:2}}>
-                              🌿 {oc.especie} · {oc.variedad} · {N(oc.cantidad_plantas)} plantas
-                              {oc.hectareas?` · ${N(oc.hectareas)} há`:""}
-                              {oc.fee_usd_planta?` · $${oc.fee_usd_planta}/planta`:""}
-                              <span style={{color:"#7c3aed",fontWeight:700,marginLeft:6}}>= {$$(oc.fee_total_usd)}</span>
-                            </div>
-                          </div>
-                          <button onClick={()=>quitarOcWiz(oc.id)} style={{background:"#fef2f2",border:"none",borderRadius:6,padding:"4px 8px",cursor:"pointer",fontSize:11,color:"#991b1b"}}>🗑</button>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-
-                  <div style={{border:"1px dashed #c4b5fd",borderRadius:10,padding:14,background:"#faf5ff",marginBottom:12}}>
-                    <div style={{fontSize:12,fontWeight:700,color:"#5b21b6",marginBottom:10}}>+ Agregar nueva OC</div>
-                    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:10}}>
-                      <div>
-                        <label style={{fontSize:11,fontWeight:600,color:"#475569",display:"block",marginBottom:3}}>N° OC <span style={{color:"#dc2626"}}>*</span></label>
-                        <input value={vivWizOcForm.n_oc||""} placeholder="OC-2026-001" onChange={e=>setVivWizOcForm(p=>({...p,n_oc:e.target.value}))}
-                          style={{width:"100%",padding:"7px 10px",borderRadius:6,border:"1px solid #d1d5db",fontSize:12,boxSizing:"border-box"}}/>
-                      </div>
-                      <div>
-                        <label style={{fontSize:11,fontWeight:600,color:"#475569",display:"block",marginBottom:3}}>Fecha OC</label>
-                        <input type="date" value={vivWizOcForm.fecha_oc||""} onChange={e=>setVivWizOcForm(p=>({...p,fecha_oc:e.target.value}))}
-                          style={{width:"100%",padding:"7px 10px",borderRadius:6,border:"1px solid #d1d5db",fontSize:12,boxSizing:"border-box"}}/>
-                      </div>
-                    </div>
-                    <div style={{marginBottom:10}}>
-                      <label style={{fontSize:11,fontWeight:600,color:"#475569",display:"block",marginBottom:3}}>Cliente <span style={{color:"#dc2626"}}>*</span></label>
-                      <select value={vivWizOcForm.cliente_id||""} onChange={e=>{
-                        const cli = clientes.find(c=>c.id===e.target.value);
-                        setVivWizOcForm(p=>({...p,cliente_id:e.target.value,cliente_nombre:cli?.razonSocial||""}));
-                      }}
-                        style={{width:"100%",padding:"7px 10px",borderRadius:6,border:"1px solid #d1d5db",fontSize:12,boxSizing:"border-box",background:"#fff"}}>
-                        <option value="">— Seleccionar cliente —</option>
-                        {clientes.map(c=><option key={c.id} value={c.id}>{c.razonSocial} {c.pais?`(${c.pais})`:""}</option>)}
-                      </select>
-                    </div>
-                    <div style={{marginBottom:10}}>
-                      <label style={{fontSize:11,fontWeight:600,color:"#475569",display:"block",marginBottom:3}}>Variedad <span style={{color:"#dc2626"}}>*</span></label>
-                      <select value={vivWizOcForm.variedad_id||""} onChange={e=>seleccionarVariedadWizOC(e.target.value)}
-                        style={{width:"100%",padding:"7px 10px",borderRadius:6,border:"1px solid #d1d5db",fontSize:12,boxSizing:"border-box",background:"#fff"}}>
-                        <option value="">— Seleccionar variedad —</option>
-                        {wizVariedades.map(x=><option key={x.id} value={x.id}>{x.especie} · {x.variedad} {x.fee_usd?`(fee $${x.fee_usd})`:""}</option>)}
-                      </select>
-                    </div>
-                    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:10,marginBottom:10}}>
-                      <div>
-                        <label style={{fontSize:11,fontWeight:600,color:"#475569",display:"block",marginBottom:3}}>Plantas</label>
-                        <input type="number" value={vivWizOcForm.cantidad_plantas||""} onChange={e=>{
-                          const cant = e.target.value;
-                          setVivWizOcForm(p=>({...p,cantidad_plantas:cant,fee_total_usd:calcFeeTotalWiz(cant,p.fee_usd_planta)}));
-                        }}
-                          style={{width:"100%",padding:"7px 10px",borderRadius:6,border:"1px solid #d1d5db",fontSize:12,boxSizing:"border-box",textAlign:"right"}}/>
-                      </div>
-                      <div>
-                        <label style={{fontSize:11,fontWeight:600,color:"#475569",display:"block",marginBottom:3}}>Hectáreas</label>
-                        <input type="number" step="0.01" value={vivWizOcForm.hectareas||""} onChange={e=>setVivWizOcForm(p=>({...p,hectareas:e.target.value}))}
-                          style={{width:"100%",padding:"7px 10px",borderRadius:6,border:"1px solid #d1d5db",fontSize:12,boxSizing:"border-box",textAlign:"right"}}/>
-                      </div>
-                      <div>
-                        <label style={{fontSize:11,fontWeight:600,color:"#475569",display:"block",marginBottom:3}}>Fee USD/planta</label>
-                        <input type="number" step="0.001" value={vivWizOcForm.fee_usd_planta||""} onChange={e=>{
-                          const fee = e.target.value;
-                          setVivWizOcForm(p=>({...p,fee_usd_planta:fee,fee_total_usd:calcFeeTotalWiz(p.cantidad_plantas,fee)}));
-                        }}
-                          style={{width:"100%",padding:"7px 10px",borderRadius:6,border:"1px solid #d1d5db",fontSize:12,boxSizing:"border-box",textAlign:"right"}}/>
-                      </div>
-                    </div>
-                    <div style={{padding:8,background:"#ede9fe",borderRadius:6,marginBottom:10,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-                      <span style={{fontSize:11,fontWeight:700,color:"#5b21b6"}}>💰 Fee total:</span>
-                      <span style={{fontSize:14,fontWeight:900,color:"#7c3aed"}}>{$$(vivWizOcForm.fee_total_usd)}</span>
-                    </div>
-                    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:10}}>
-                      <div>
-                        <label style={{fontSize:11,fontWeight:600,color:"#475569",display:"block",marginBottom:3}}>Estado OC</label>
-                        <select value={vivWizOcForm.estado_oc||"Borrador"} onChange={e=>setVivWizOcForm(p=>({...p,estado_oc:e.target.value}))}
-                          style={{width:"100%",padding:"7px 10px",borderRadius:6,border:"1px solid #d1d5db",fontSize:12,boxSizing:"border-box",background:"#fff"}}>
-                          {ESTADOS_OC.map(s=><option key={s} value={s}>{s}</option>)}
-                        </select>
-                      </div>
-                      <div>
-                        <label style={{fontSize:11,fontWeight:600,color:"#475569",display:"block",marginBottom:3}}>Observaciones</label>
-                        <input value={vivWizOcForm.observaciones||""} onChange={e=>setVivWizOcForm(p=>({...p,observaciones:e.target.value}))}
-                          style={{width:"100%",padding:"7px 10px",borderRadius:6,border:"1px solid #d1d5db",fontSize:12,boxSizing:"border-box"}}/>
-                      </div>
-                    </div>
-                    <button onClick={agregarOcWiz} style={{width:"100%",padding:"8px 14px",borderRadius:8,background:"#7c3aed",border:"none",color:"#fff",cursor:"pointer",fontSize:12,fontWeight:700}}>+ Agregar OC a la lista</button>
-                  </div>
-                </>)}
-              </>)}
-
-              {/* PASO 5 — CUOTAS POR OC */}
-              {vivWizStep===5&&(<>
-                <div style={{background:"#fef3c7",border:"1px solid #fbbf24",borderRadius:8,padding:"8px 12px",marginBottom:14,fontSize:11,color:"#78350f"}}>
-                  💡 Para cada OC del paso anterior, agrega las cuotas/fechas de pago. Haz clic en una OC para expandirla. <strong>Paso opcional</strong> — puedes saltar y agregar después desde el detalle.
-                </div>
-
-                {wizOCs.length===0?(
-                  <div style={{padding:30,textAlign:"center",color:"#94a3b8",border:"1px dashed #e2e8f0",borderRadius:10,marginBottom:12}}>
-                    <div style={{fontSize:32,marginBottom:8}}>📦</div>
-                    <div style={{fontSize:12}}>No hay OC para configurar cuotas. {wizVariedades.length>0?"Vuelve al paso 4 para agregarlas.":"O salta a crear el contrato sin cuotas."}</div>
-                    {wizVariedades.length>0&&<button onClick={()=>setVivWizStep(4)} style={{marginTop:10,padding:"6px 14px",borderRadius:8,background:"#7c3aed",border:"none",color:"#fff",cursor:"pointer",fontSize:11,fontWeight:700}}>← Volver al paso 4</button>}
-                  </div>
-                ):(<>
-                  {/* Resumen */}
-                  <div style={{display:"flex",gap:10,marginBottom:12,flexWrap:"wrap"}}>
-                    <div style={{flex:1,minWidth:140,background:"#f8fafc",padding:"10px 12px",borderRadius:8,borderLeft:"4px solid #7c3aed"}}>
-                      <div style={{fontSize:9,color:"#64748b",fontWeight:600}}>Total fee OC</div>
-                      <div style={{fontSize:16,fontWeight:900,color:"#7c3aed"}}>{$$(totFeeAllOC)}</div>
-                    </div>
-                    <div style={{flex:1,minWidth:140,background:"#f8fafc",padding:"10px 12px",borderRadius:8,borderLeft:"4px solid #16a34a"}}>
-                      <div style={{fontSize:9,color:"#64748b",fontWeight:600}}>Total cuotas</div>
-                      <div style={{fontSize:16,fontWeight:900,color:"#16a34a"}}>{$$(totCuotasAllOC)}</div>
-                    </div>
-                    <div style={{flex:1,minWidth:140,background:Math.abs(totFeeAllOC-totCuotasAllOC)<0.01?"#dcfce7":"#fef2f2",padding:"10px 12px",borderRadius:8,borderLeft:`4px solid ${Math.abs(totFeeAllOC-totCuotasAllOC)<0.01?"#16a34a":"#dc2626"}`}}>
-                      <div style={{fontSize:9,color:"#64748b",fontWeight:600}}>Diferencia</div>
-                      <div style={{fontSize:16,fontWeight:900,color:Math.abs(totFeeAllOC-totCuotasAllOC)<0.01?"#16a34a":"#dc2626"}}>{$$(totFeeAllOC-totCuotasAllOC)}</div>
-                    </div>
-                  </div>
-
-                  {wizOCs.map(oc=>{
-                    const expandido = vivWizOcExpandido===oc.id;
-                    const totC = (oc.cuotas||[]).reduce((s,c)=>s+(parseFloat(c.monto_usd)||0),0);
-                    const diff = (parseFloat(oc.fee_total_usd)||0) - totC;
-                    const diffOk = Math.abs(diff)<0.01;
-                    return (
-                      <div key={oc.id} style={{border:"1px solid #e2e8f0",borderRadius:10,marginBottom:10,overflow:"hidden"}}>
-                        <div onClick={()=>setVivWizOcExpandido(expandido?null:oc.id)}
-                          style={{padding:"10px 12px",background:expandido?"#fef3c7":"#fff",cursor:"pointer",display:"flex",justifyContent:"space-between",alignItems:"center",gap:8}}>
-                          <div style={{flex:1,minWidth:0}}>
-                            <div style={{fontSize:13,fontWeight:700,color:"#1e293b"}}>{expandido?"▼":"▶"} OC {oc.n_oc} — {oc.cliente_nombre}</div>
-                            <div style={{fontSize:10,color:"#64748b",marginTop:2}}>
-                              🌿 {oc.especie} · {oc.variedad} ·
-                              💰 {$$(oc.fee_total_usd)} ·
-                              📋 {(oc.cuotas||[]).length} cuota{(oc.cuotas||[]).length!==1?"s":""}
-                              {!diffOk&&<span style={{color:"#dc2626",marginLeft:6}}>⚠️ diff {$$(diff)}</span>}
-                            </div>
-                          </div>
-                        </div>
-
-                        {expandido&&(
-                          <div style={{padding:14,background:"#fffbeb",borderTop:"1px solid #fde68a"}}>
-                            {/* Lista cuotas existentes */}
-                            {(oc.cuotas||[]).length>0&&(
-                              <div style={{marginBottom:12,background:"#fff",borderRadius:8,overflow:"hidden",border:"1px solid #fde68a"}}>
-                                <table style={{width:"100%",borderCollapse:"collapse",fontSize:11}}>
-                                  <thead>
-                                    <tr style={{background:"#fef3c7"}}>
-                                      <th style={{padding:"6px 8px",textAlign:"left",fontWeight:700,color:"#78350f"}}>Fecha</th>
-                                      <th style={{padding:"6px 8px",textAlign:"right",fontWeight:700,color:"#78350f"}}>Monto USD</th>
-                                      <th style={{padding:"6px 8px",textAlign:"left",fontWeight:700,color:"#78350f"}}>Estado</th>
-                                      <th style={{padding:"6px 8px",textAlign:"left",fontWeight:700,color:"#78350f"}}>N° Fact.</th>
-                                      <th style={{padding:"6px 8px"}}></th>
-                                    </tr>
-                                  </thead>
-                                  <tbody>
-                                    {(oc.cuotas||[]).map(cu=>(
-                                      <tr key={cu.id} style={{borderTop:"1px solid #fef3c7",background:cu.pagado?"#f0fdf4":"#fff"}}>
-                                        <td style={{padding:"5px 8px",fontWeight:600}}>{cu.fecha}</td>
-                                        <td style={{padding:"5px 8px",textAlign:"right",fontWeight:700,color:"#7c3aed"}}>{$$(cu.monto_usd)}</td>
-                                        <td style={{padding:"5px 8px"}}>
-                                          <span style={{padding:"2px 6px",borderRadius:10,fontSize:9,fontWeight:700,background:cu.pagado?"#dcfce7":"#fef3c7",color:cu.pagado?"#16a34a":"#d97706"}}>{cu.pagado?"✅ Pagado":"⏳ Por cobrar"}</span>
-                                        </td>
-                                        <td style={{padding:"5px 8px",fontSize:10}}>{cu.n_factura||"—"}</td>
-                                        <td style={{padding:"5px 8px"}}>
-                                          <button onClick={()=>quitarCuotaWiz(oc.id, cu.id)} style={{background:"#fef2f2",border:"none",borderRadius:4,padding:"2px 6px",cursor:"pointer",fontSize:10,color:"#991b1b"}}>🗑</button>
-                                        </td>
-                                      </tr>
-                                    ))}
-                                  </tbody>
-                                </table>
-                              </div>
-                            )}
-                            {/* Form para agregar cuota nueva */}
-                            <div style={{background:"#fff",borderRadius:8,padding:10,border:"1px dashed #fbbf24"}}>
-                              <div style={{fontSize:11,fontWeight:700,color:"#78350f",marginBottom:8}}>+ Agregar cuota a esta OC</div>
-                              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:8}}>
-                                <div>
-                                  <label style={{fontSize:10,fontWeight:600,color:"#475569",display:"block",marginBottom:2}}>Fecha estim. <span style={{color:"#dc2626"}}>*</span></label>
-                                  <input type="date" value={vivWizCuotaForm.fecha||""} onChange={e=>setVivWizCuotaForm(p=>({...p,fecha:e.target.value}))}
-                                    style={{width:"100%",padding:"6px 8px",borderRadius:6,border:"1px solid #d1d5db",fontSize:11,boxSizing:"border-box"}}/>
-                                </div>
-                                <div>
-                                  <label style={{fontSize:10,fontWeight:600,color:"#475569",display:"block",marginBottom:2}}>Monto USD <span style={{color:"#dc2626"}}>*</span></label>
-                                  <input type="number" step="0.01" value={vivWizCuotaForm.monto_usd||""} placeholder={diff>0?`Sugerido: ${diff.toFixed(2)}`:""} onChange={e=>setVivWizCuotaForm(p=>({...p,monto_usd:e.target.value}))}
-                                    style={{width:"100%",padding:"6px 8px",borderRadius:6,border:"1px solid #d1d5db",fontSize:11,boxSizing:"border-box",textAlign:"right"}}/>
-                                </div>
-                              </div>
-                              <label style={{display:"flex",alignItems:"center",gap:6,cursor:"pointer",marginBottom:8,fontSize:11}}>
-                                <input type="checkbox" checked={!!vivWizCuotaForm.pagado} onChange={e=>setVivWizCuotaForm(p=>({...p,pagado:e.target.checked,fecha_pago:e.target.checked&&!p.fecha_pago?new Date().toISOString().slice(0,10):p.fecha_pago}))}/>
-                                ✅ Cuota pagada
-                              </label>
-                              {vivWizCuotaForm.pagado&&(
-                                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:8}}>
-                                  <div>
-                                    <label style={{fontSize:10,fontWeight:600,color:"#475569",display:"block",marginBottom:2}}>Fecha pago</label>
-                                    <input type="date" value={vivWizCuotaForm.fecha_pago||""} onChange={e=>setVivWizCuotaForm(p=>({...p,fecha_pago:e.target.value}))}
-                                      style={{width:"100%",padding:"6px 8px",borderRadius:6,border:"1px solid #d1d5db",fontSize:11,boxSizing:"border-box"}}/>
-                                  </div>
-                                  <div>
-                                    <label style={{fontSize:10,fontWeight:600,color:"#475569",display:"block",marginBottom:2}}>N° Factura</label>
-                                    <input value={vivWizCuotaForm.n_factura||""} onChange={e=>setVivWizCuotaForm(p=>({...p,n_factura:e.target.value}))}
-                                      style={{width:"100%",padding:"6px 8px",borderRadius:6,border:"1px solid #d1d5db",fontSize:11,boxSizing:"border-box"}}/>
-                                  </div>
-                                </div>
-                              )}
-                              <div style={{marginBottom:8}}>
-                                <input value={vivWizCuotaForm.observaciones||""} placeholder="Observaciones..." onChange={e=>setVivWizCuotaForm(p=>({...p,observaciones:e.target.value}))}
-                                  style={{width:"100%",padding:"6px 8px",borderRadius:6,border:"1px solid #d1d5db",fontSize:11,boxSizing:"border-box"}}/>
-                              </div>
-                              <button onClick={()=>agregarCuotaWiz(oc.id)} style={{width:"100%",padding:"7px 12px",borderRadius:6,background:"#f59e0b",border:"none",color:"#fff",cursor:"pointer",fontSize:11,fontWeight:700}}>+ Agregar cuota</button>
-                            </div>
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })}
-                </>)}
-              </>)}
-
-              {/* Footer wizard: navegación */}
-              <div style={{display:"flex",gap:8,justifyContent:"space-between",alignItems:"center",marginTop:18,paddingTop:14,borderTop:"1px solid #e2e8f0"}}>
-                <button onClick={()=>setVivModal(false)} style={{padding:"8px 16px",borderRadius:8,border:"1px solid #d1d5db",background:"#fff",cursor:"pointer",fontSize:12}}>Cancelar</button>
-                <div style={{display:"flex",gap:8}}>
-                  {vivWizStep>1&&<button onClick={()=>setVivWizStep(vivWizStep-1)} style={{padding:"8px 16px",borderRadius:8,border:"1px solid #d1d5db",background:"#f8fafc",cursor:"pointer",fontSize:12,fontWeight:600}}>← Anterior</button>}
-                  {vivWizStep<5&&<button onClick={()=>irPaso(vivWizStep+1)} style={{padding:"8px 16px",borderRadius:8,background:"#16a34a",border:"none",color:"#fff",cursor:"pointer",fontSize:12,fontWeight:700}}>Siguiente →</button>}
-                  {vivWizStep===5&&<button onClick={guardarViv} style={{padding:"8px 18px",borderRadius:8,background:"#16a34a",border:"none",color:"#fff",cursor:"pointer",fontSize:13,fontWeight:700}}>{vivEditId?"💾 Guardar cambios":"✅ Crear vivero"}</button>}
-                </div>
+                <label style={{display:"flex",alignItems:"center",gap:8,cursor:"pointer"}}>
+                  <input type="checkbox" checked={!!vivForm.firma_osiris} onChange={e=>setVivForm(p=>({...p,firma_osiris:e.target.checked}))}/>
+                  <span style={{fontSize:12}}>✅ Firma Osiris</span>
+                </label>
+              </div>
+              <div style={{marginBottom:12}}>
+                <label style={{fontSize:11,fontWeight:600,color:"#475569",display:"block",marginBottom:4}}>📎 Link documento legal</label>
+                <input value={vivForm.doc_legal||""} placeholder="https://..." onChange={e=>setVivForm(p=>({...p,doc_legal:e.target.value}))}
+                  style={{width:"100%",padding:"8px 12px",borderRadius:8,border:"1px solid #d1d5db",fontSize:13,boxSizing:"border-box"}}/>
+              </div>
+              <div style={{marginBottom:12}}>
+                <label style={{fontSize:11,fontWeight:600,color:"#475569",display:"block",marginBottom:4}}>Observaciones</label>
+                <textarea value={vivForm.observaciones||""} onChange={e=>setVivForm(p=>({...p,observaciones:e.target.value}))}
+                  style={{width:"100%",padding:"8px 12px",borderRadius:8,border:"1px solid #d1d5db",fontSize:13,minHeight:60,boxSizing:"border-box"}}/>
+              </div>
+              <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}>
+                <button onClick={()=>setVivModal(false)} style={{padding:"8px 16px",borderRadius:8,border:"1px solid #d1d5db",background:"#fff",cursor:"pointer"}}>Cancelar</button>
+                <button onClick={guardarViv} style={{padding:"8px 16px",borderRadius:8,background:"#16a34a",border:"none",color:"#fff",cursor:"pointer",fontWeight:700}}>{vivEditId?"Guardar cambios":"Crear vivero"}</button>
               </div>
             </div>
           </div>
-          );
-        })()}
-
+        )}
       </div>
     );
   }
@@ -10761,7 +6634,6 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
       {/* Contenido */}
       <div style={{background:"#fff",borderRadius:14,padding:20,boxShadow:"0 2px 10px #0001"}}>
         {subTab==="resumen"          &&<Resumen        rpData={rpData} feData={feData} rcData={rcData} fvData={fvData} tpData={tpData}/>}
-        {subTab==="dashboard"        &&<DashboardAnalitico ctData={ctData} feData={feData} rpData={rpData} rcData={rcData} tpData={tpData} especiesMaestro={especiesMaestro}/>}
         {subTab==="graficos"         &&<GraficosPlantas tpData={tpData} rpData={rpData}/>}
         {subTab==="totalPedidos"     &&<TotalPedidos     data={tpData} setData={setTp} rpData={rpData} setRpData={setRp} rcData={rcData} setRcData={setRc} fvData={fvData} setFvData={setFv} can={canIngresos} clientes={clientes} onDeletePedido={id=>setOsirisData(prev=>({...prev,totalPedidos:(prev.totalPedidos||[]).filter(x=>x.id!==id),royaltyPlanta:(prev.royaltyPlanta||[]).filter(x=>x.tpId!==id),royaltyComercial:(prev.royaltyComercial||[]).filter(x=>x.tpId!==id),feeViveros:(prev.feeViveros||[]).filter(x=>x.tpId!==id)}))}/>}
         {subTab==="royaltyPlanta"    &&<RoyaltyPlanta    data={rpData} setData={setRp} tpData={tpData} can={canIngresos} clientes={clientes}/>}
