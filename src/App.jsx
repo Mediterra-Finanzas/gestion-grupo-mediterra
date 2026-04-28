@@ -26,6 +26,21 @@ async function dbLoad() {
 
 async function dbSave(value) {
   try {
+    // ── Protección anti-pérdida ──
+    const od = value?.osirisData;
+    if(od) {
+      const keys = ["contratos","obtentores","viveros","clientes"];
+      for(const k of keys) {
+        const nc = Array.isArray(od[k]) ? od[k].length : -1;
+        const pc = window._lastSavedCounts?.[k] || 0;
+        if(nc >= 0 && nc < pc) {
+          console.warn(`[dbSave] ⚠️ BLOQUEADO: ${k} pasó de ${pc} a ${nc}. Posible pérdida.`);
+          return;
+        }
+      }
+      if(!window._lastSavedCounts) window._lastSavedCounts = {};
+      for(const k of keys) { if(Array.isArray(od[k]) && od[k].length > 0) window._lastSavedCounts[k] = od[k].length; }
+    }
     await fetch(`${SUPA_URL}/rest/v1/calendario_data`, {
       method: "POST",
       headers: {
@@ -193,6 +208,7 @@ const FRECUENCIAS = ["Diaria","Semanal","Quincenal","Mensual","Anual","Puntual"]
 const ROLES = [
   {v:"admin",    l:"Administrador – acceso total"},
   {v:"editor",   l:"Editor – gestiona sus tareas"},
+  {v:"gerente_tecnico", l:"Gte. Técnico – Osiris operación técnica"},
   {v:"consulta", l:"Consulta – solo visualiza"},
 ];
 
@@ -287,6 +303,7 @@ const WORKERS_BASE=[
   {nombre:"Michelle Garcia", cargo:"Contadora General",       email:"mgarcia@grupomediterra.cl", pin:"7413",rol:"editor", modulos:["tareas"],                    esCFO:false},
   {nombre:"Pablo Duran",     cargo:"Asistente Contable",      email:"pduran@grupomediterra.cl",  pin:"2986",rol:"editor", modulos:["tareas"],                    esCFO:false},
   {nombre:"Angelo Huerta",   cargo:"Gerencia Adm. y Finanzas",email:"ahuerta@grupomediterra.cl", pin:"6054",rol:"admin",  modulos:["tareas","osiris","finanzas"], esCFO:true},
+  {nombre:"Nicolás Fuenzalida",cargo:"Gerente Técnico",       email:"nfuenzalida@osirisplant.com",pin:"8271",rol:"gerente_tecnico",modulos:["osiris"],esCFO:false},
 ];
 
 const CATEGORIAS={
@@ -391,7 +408,10 @@ const TABS_PERMISOS_CONFIG = {
     {id:"config",   label:"⚙️ Configuración"},
   ],
   osiris: [
-    {id:"contratos",  label:"📄 Contratos"},
+    {id:"contratos",  label:"📄 Contratos Prod-Exp"},
+    {id:"obtentores", label:"🧬 Contratos Obtentores"},
+    {id:"viveros",    label:"🌱 Contratos Viveros"},
+    {id:"opTecnica",  label:"🔬 Operación Técnica"},
     {id:"royalties",  label:"💰 Royalties / Fee"},
   ],
   finanzas: [
@@ -424,6 +444,8 @@ const NIVEL_BG     = {editar:"#dcfce7", ver:"#dbeafe",  sin_acceso:"#fee2e2"};
 function getTabPerm(usuario, modulo, tabId) {
   if(!usuario) return "sin_acceso";
   if(usuario.rol === "admin") return "editar";
+  // gerente_tecnico: acceso completo a osiris
+  if(usuario.rol === "gerente_tecnico" && modulo === "osiris") return "editar";
   // config es solo para admin — no-admins no tienen acceso por defecto
   if(tabId === "config") return usuario.tab_permisos?.[modulo]?.[tabId] ?? "sin_acceso";
   return usuario.tab_permisos?.[modulo]?.[tabId] ?? "editar";
@@ -541,7 +563,7 @@ function PanelPermisos({ usuarios, setUsuarios, onClose }) {
                       <div style={{display:"flex",alignItems:"center",gap:8}}>
                         <span style={{fontWeight:700,fontSize:14,color:"#1e293b"}}>{u.nombre}</span>
                         <span style={{fontSize:10,background:u.rol==="admin"?"#fef3c7":u.rol==="consulta"?"#ede9fe":"#dcfce7",color:u.rol==="admin"?"#92400e":u.rol==="consulta"?"#6d28d9":"#166534",borderRadius:20,padding:"1px 8px",fontWeight:700}}>
-                          {u.rol==="admin"?"Admin":u.rol==="consulta"?"Consulta":"Editor"}
+                          {u.rol==="admin"?"Admin":u.rol==="gerente_tecnico"?"Gte. Técnico":u.rol==="consulta"?"Consulta":"Editor"}
                         </span>
                       </div>
                       <div style={{fontSize:11,color:"#64748b",marginTop:2}}>{u.cargo}</div>
@@ -586,6 +608,7 @@ function PanelPermisos({ usuarios, setUsuarios, onClose }) {
                     </div>
                   </div>
                   {u.rol==="admin"&&<div style={{padding:"0 18px 10px",fontSize:10,color:"#64748b"}}>⚙️ Admin tiene acceso automático a todos los módulos y pestañas</div>}
+                  {u.rol==="gerente_tecnico"&&<div style={{padding:"0 18px 10px",fontSize:10,color:"#64748b"}}>🔬 Gte. Técnico tiene acceso completo al módulo Osiris</div>}
 
                   {/* Sección permisos por pestaña (expandible) */}
                   {isExpanded&&u.rol!=="admin"&&(
@@ -1405,11 +1428,28 @@ export default function App(){
                 totalPedidos:     mergeEdits(prev.totalPedidos||[],     extractUserEdits(saved.totalPedidos)),
                 contratos: saved.contratos||prev.contratos||[],
                 clientes: saved.clientes||prev.clientes||[],
+                // Datos adicionales de Osiris
+                especies:    Array.isArray(saved.especies)    ? saved.especies    : (prev.especies    || []),
+                variedades:  Array.isArray(saved.variedades)  ? saved.variedades  : (prev.variedades  || []),
+                obtentores:  Array.isArray(saved.obtentores)  ? saved.obtentores  : (prev.obtentores  || []),
+                viveros:     Array.isArray(saved.viveros)     ? saved.viveros     : (prev.viveros     || []),
+                viveristas:  Array.isArray(saved.viveristas)  ? saved.viveristas  : (prev.viveristas  || []),
+                opTecnica:   (saved.opTecnica && typeof saved.opTecnica === "object" && !Array.isArray(saved.opTecnica))
+                             ? saved.opTecnica : (prev.opTecnica || {}),
+                hubCardsOrder: Array.isArray(saved.hubCardsOrder) ? saved.hubCardsOrder : (prev.hubCardsOrder || null),
               };
             });
           }
           if(d.mes!==undefined)setMes(d.mes);
           if(d.anio!==undefined)setAnio(d.anio);
+          // Inicializar protección anti-pérdida
+          if(d.osirisData) {
+            window._lastSavedCounts = {};
+            ["contratos","obtentores","viveros","clientes"].forEach(k=>{
+              if(Array.isArray(d.osirisData[k])) window._lastSavedCounts[k] = d.osirisData[k].length;
+            });
+            console.log("[cargar] Protección anti-pérdida:", JSON.stringify(window._lastSavedCounts));
+          }
         }
       }catch(e){console.error("Error cargando:",e);}
       setCargando(false);
