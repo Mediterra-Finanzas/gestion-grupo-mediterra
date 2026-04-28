@@ -3601,7 +3601,9 @@ const COLORES_ESPECIES = [
 ];
 const MESES = ["Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"];
 const FORMAS_PAGO = ["Anual","Semestral","Trimestral","Mensual","A demanda","Contra entrega","Otro"];
-const ESTADOS_DHE = ["No iniciado","En proceso","Aprobado","Rechazado","No aplica"];
+const ESTADOS_DHE = ["No iniciado","Solicitado","En proceso","Aprobado","Rechazado","Vencido","No aplica"];
+const ESTADOS_PBR = ["Pendiente","Solicitado","En Revisión","Otorgado","Vigente","Vencido","Denegado","Retirado"];
+const TIPOS_ROYALTY_OBTENTOR = ["Por planta","Por hectárea","Por kilo","% sobre ventas","Mínimo garantizado","Otro"];
 const ESTADOS_CONTRATO_OBT = ["Borrador","En revisión","Firmado","Vigente","Vencido","Terminado"];
 const ESTADOS_OC = ["Borrador","Enviada","Negociando","Confirmada","En producción","Lista","Despachada","Recibida","Pagada parcial","Pagada total","Anulada"];
 
@@ -7364,15 +7366,23 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
   const [obtEditId, setObtEditId] = useState(null);
   const [obtDetalle, setObtDetalle] = useState(null);
   const [obtTab, setObtTab] = useState("general");
-  const EMPTY_OBT = {obtentor:"",f_inicio:"",f_vencimiento:"",renovable:false,f_vencimiento_nueva:"",observaciones:"",
-    firma_obtentor:false,firma_osiris:false,doc_legal:"",doc_contrato:"",estado_contrato:"Borrador",
+  const EMPTY_OBT = {obtentor:"",pais:"",contacto:"",emailContacto:"",telefonoContacto:"",representanteLegal:"",
+    f_inicio:"",f_vencimiento:"",renovable:false,f_vencimiento_nueva:"",
+    // Contrato ampliado
+    territorios:"",exclusividad:"No",tipoExclusividad:"",obligaciones:"",
+    // Royalty hacia obtentor
+    royaltiesObtentor:[],
+    // Condiciones comerciales
+    minimoGarantizado:0,monedaMinimo:"USD",frecuenciaReportes:"",proximoReporte:"",derechoAuditoria:false,calendarioPagos:"",
+    // Existentes
+    observaciones:"",firma_obtentor:false,firma_osiris:false,doc_legal:"",doc_contrato:"",estado_contrato:"Borrador",
     especies:[],anexos:[],pbr:[]};
   const [obtForm, setObtForm] = useState(EMPTY_OBT);
   // Wizard: paso actual (1=cabecera, 2=especies/DHE, 3=PBR)
   const [obtWizStep, setObtWizStep] = useState(1);
   // Forms inline del wizard (paso 2 y 3) — para agregar especies/PBR sin abrir submodales
-  const EMPTY_ESP_INLINE = {especie:"",variedad:"",observaciones:"",dhe_estado:"No iniciado",dhe_fecha_aprob:"",dhe_doc:"",dhe_observaciones:""};
-  const EMPTY_PBR_INLINE = {especie:"",pais:"",estado:"Pendiente",f_solicitud:"",f_resolucion:"",doc_solicitud:"",doc_resolucion:"",observaciones:""};
+  const EMPTY_ESP_INLINE = {especie:"",variedad:"",codigoVariedad:"",nombreComercial:"",vigenciaDesde:"",vigenciaHasta:"",observaciones:"",dhe_estado:"No iniciado",dhe_fecha_solicitud:"",dhe_fecha_aprob:"",dhe_doc:"",dhe_nRegistro:"",dhe_observaciones:""};
+  const EMPTY_PBR_INLINE = {especie:"",variedad:"",pais:"",estado:"Pendiente",nRegistro:"",f_solicitud:"",f_resolucion:"",f_vencimiento:"",doc_solicitud:"",doc_resolucion:"",observaciones:""};
   const [obtWizEspForm, setObtWizEspForm] = useState(EMPTY_ESP_INLINE);
   const [obtWizPbrForm, setObtWizPbrForm] = useState(EMPTY_PBR_INLINE);
   // Sub-modales Obtentores
@@ -7981,7 +7991,7 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
         updateContrato(c.id, {anexos:anexos.filter(a=>a.id!==aid)});
       };
 
-      const TABS_OBT = [{id:"general",label:"📋 General"},{id:"especies",label:"🌿 Especies/Variedades"},{id:"pbr",label:"📜 PBR"},{id:"legal",label:"⚖️ Legal/Firmas"},{id:"anexos",label:"📎 Anexos"}];
+      const TABS_OBT = [{id:"general",label:"📋 General"},{id:"especies",label:"🌿 Especies/Variedades"},{id:"pbr",label:"📜 PBR"},{id:"royalties",label:"💰 Royalty al Obtentor"},{id:"condiciones",label:"📊 Condiciones Comerciales"},{id:"legal",label:"⚖️ Legal/Firmas"},{id:"anexos",label:"📎 Anexos"}];
       const vig = estadoVigencia(c.f_vencimiento);
 
       return (
@@ -8044,7 +8054,18 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
             {/* TAB GENERAL */}
             {obtTab==="general"&&(
               <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:16}}>
-                {[["Obtentor","obtentor","text"],["Fecha Inicio","f_inicio","date"],["Fecha Vencimiento","f_vencimiento","date"]].map(([lbl,f,t])=>(
+                {/* Datos del obtentor */}
+                <div style={{gridColumn:"1/-1",fontSize:12,fontWeight:700,color:"#7c3aed",borderBottom:"1px solid #e2e8f0",paddingBottom:6}}>🏢 Datos del Obtentor</div>
+                {[["Nombre del Obtentor *","obtentor","text"],["País","pais","text"],["Contacto (nombre)","contacto","text"],["Email contacto","emailContacto","email"],["Teléfono contacto","telefonoContacto","text"],["Representante legal","representanteLegal","text"]].map(([lbl,f,t])=>(
+                  <div key={f}>
+                    <label style={{fontSize:11,fontWeight:600,color:"#475569",display:"block",marginBottom:4}}>{lbl}</label>
+                    <input type={t} disabled={!canObtentores} value={c[f]||""} onChange={e=>updateContrato(c.id,{[f]:e.target.value})}
+                      style={{width:"100%",padding:"8px 12px",borderRadius:8,border:"1px solid #d1d5db",fontSize:13,boxSizing:"border-box",background:canObtentores?"#fff":"#f8fafc"}}/>
+                  </div>
+                ))}
+                {/* Datos del contrato */}
+                <div style={{gridColumn:"1/-1",fontSize:12,fontWeight:700,color:"#7c3aed",borderBottom:"1px solid #e2e8f0",paddingBottom:6,marginTop:8}}>📄 Datos del Contrato</div>
+                {[["Fecha Inicio","f_inicio","date"],["Fecha Vencimiento","f_vencimiento","date"]].map(([lbl,f,t])=>(
                   <div key={f}>
                     <label style={{fontSize:11,fontWeight:600,color:"#475569",display:"block",marginBottom:4}}>{lbl}</label>
                     <input type={t} disabled={!canObtentores} value={c[f]||""} onChange={e=>updateContrato(c.id,{[f]:e.target.value})}
@@ -8059,7 +8080,33 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
                   </select>
                 </div>
                 <div>
-                  <label style={{fontSize:11,fontWeight:600,color:"#475569",display:"flex",alignItems:"center",gap:8,cursor:canObtentores?"pointer":"default",marginTop:24}}>
+                  <label style={{fontSize:11,fontWeight:600,color:"#475569",display:"block",marginBottom:4}}>Exclusividad</label>
+                  <select disabled={!canObtentores} value={c.exclusividad||"No"} onChange={e=>updateContrato(c.id,{exclusividad:e.target.value})}
+                    style={{width:"100%",padding:"8px 12px",borderRadius:8,border:"1px solid #d1d5db",fontSize:13,boxSizing:"border-box",background:canObtentores?"#fff":"#f8fafc"}}>
+                    <option value="No">No exclusivo</option>
+                    <option value="Exclusivo">Exclusivo</option>
+                    <option value="Semi-exclusivo">Semi-exclusivo</option>
+                  </select>
+                </div>
+                {c.exclusividad&&c.exclusividad!=="No"&&(
+                  <div>
+                    <label style={{fontSize:11,fontWeight:600,color:"#475569",display:"block",marginBottom:4}}>Tipo de exclusividad</label>
+                    <input disabled={!canObtentores} value={c.tipoExclusividad||""} placeholder="Por territorio, por especie..." onChange={e=>updateContrato(c.id,{tipoExclusividad:e.target.value})}
+                      style={{width:"100%",padding:"8px 12px",borderRadius:8,border:"1px solid #d1d5db",fontSize:13,boxSizing:"border-box",background:canObtentores?"#fff":"#f8fafc"}}/>
+                  </div>
+                )}
+                <div style={{gridColumn:"1/-1"}}>
+                  <label style={{fontSize:11,fontWeight:600,color:"#475569",display:"block",marginBottom:4}}>Territorios autorizados</label>
+                  <input disabled={!canObtentores} value={c.territorios||""} placeholder="Chile, Perú, México, Colombia..." onChange={e=>updateContrato(c.id,{territorios:e.target.value})}
+                    style={{width:"100%",padding:"8px 12px",borderRadius:8,border:"1px solid #d1d5db",fontSize:13,boxSizing:"border-box",background:canObtentores?"#fff":"#f8fafc"}}/>
+                </div>
+                <div style={{gridColumn:"1/-1"}}>
+                  <label style={{fontSize:11,fontWeight:600,color:"#475569",display:"block",marginBottom:4}}>Obligaciones contractuales</label>
+                  <textarea disabled={!canObtentores} value={c.obligaciones||""} placeholder="Reportes anuales, pago de mínimos, mantención de registros PBR..." onChange={e=>updateContrato(c.id,{obligaciones:e.target.value})}
+                    style={{width:"100%",padding:"8px 12px",borderRadius:8,border:"1px solid #d1d5db",fontSize:13,minHeight:60,boxSizing:"border-box",background:canObtentores?"#fff":"#f8fafc"}}/>
+                </div>
+                <div>
+                  <label style={{fontSize:11,fontWeight:600,color:"#475569",display:"flex",alignItems:"center",gap:8,cursor:canObtentores?"pointer":"default"}}>
                     <input type="checkbox" disabled={!canObtentores} checked={!!c.renovable} onChange={e=>updateContrato(c.id,{renovable:e.target.checked})}/>
                     Contrato renovable
                   </label>
@@ -8177,13 +8224,9 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
                           <div style={{display:"flex",gap:6,alignItems:"center"}}>
                             <select disabled={!canObtentores} value={p.estado||"Pendiente"} onChange={e=>updatePBR(p.id,{estado:e.target.value})}
                               style={{padding:"4px 8px",borderRadius:6,border:"1px solid #d1d5db",fontSize:11,
-                                background:p.estado==="Aprobado"?"#dcfce7":p.estado==="Rechazado"?"#fee2e2":"#fef9c3",
+                                background:p.estado==="Otorgado"||p.estado==="Vigente"?"#dcfce7":p.estado==="Denegado"||p.estado==="Vencido"||p.estado==="Retirado"?"#fee2e2":"#fef9c3",
                                 fontWeight:700}}>
-                              <option value="Pendiente">⏳ Pendiente</option>
-                              <option value="Solicitado">📨 Solicitado</option>
-                              <option value="En Revisión">🔍 En Revisión</option>
-                              <option value="Aprobado">✅ Aprobado</option>
-                              <option value="Rechazado">❌ Rechazado</option>
+                              {ESTADOS_PBR.map(s=><option key={s} value={s}>{s}</option>)}
                             </select>
                             {canObtentores&&<button onClick={()=>delPBR(p.id)} style={{background:"#fef2f2",border:"none",borderRadius:6,padding:"4px 8px",cursor:"pointer",fontSize:11}}>🗑</button>}
                           </div>
@@ -8218,6 +8261,85 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
                     ))}
                   </div>
                 )}
+              </div>
+            )}
+
+            {/* TAB ROYALTY AL OBTENTOR */}
+            {obtTab==="royalties"&&(
+              <div>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
+                  <div style={{fontWeight:700,color:"#1e293b"}}>💰 Royalties que Osiris paga al obtentor por este contrato</div>
+                  {canObtentores&&<button onClick={()=>{
+                    const nuevoRoy = {id:`roy_${Date.now()}`,tipo:"Por planta",especie:"",variedad:"",valor:0,moneda:"USD",frecuencia:"Anual",observaciones:""};
+                    updateContrato(c.id,{royaltiesObtentor:[...(c.royaltiesObtentor||[]),nuevoRoy]});
+                  }} style={{padding:"6px 14px",borderRadius:8,background:"#7c3aed",border:"none",color:"#fff",cursor:"pointer",fontSize:12,fontWeight:700}}>+ Agregar royalty</button>}
+                </div>
+                {(c.royaltiesObtentor||[]).length===0?(
+                  <div style={{padding:30,textAlign:"center",color:"#94a3b8",border:"1px dashed #e2e8f0",borderRadius:10}}>
+                    <div style={{fontSize:32,marginBottom:8}}>💰</div>
+                    <div style={{fontSize:12}}>Sin royalties definidos. Agrega los conceptos de pago al obtentor.</div>
+                  </div>
+                ):(
+                  <div style={{overflowX:"auto"}}>
+                    <table style={{width:"100%",borderCollapse:"collapse",fontSize:12,background:"#fff",borderRadius:10,overflow:"hidden",border:"1px solid #e2e8f0"}}>
+                      <thead><tr style={{background:"#7c3aed",color:"#fff"}}>
+                        {["Tipo","Especie","Variedad","Valor","Moneda","Frecuencia","Observaciones",""].map(h=>(
+                          <th key={h} style={{padding:"8px 10px",textAlign:"left",fontSize:11,fontWeight:700}}>{h}</th>
+                        ))}
+                      </tr></thead>
+                      <tbody>
+                        {(c.royaltiesObtentor||[]).map((roy,i)=>{
+                          const updRoy = (campo,valor) => {
+                            const next = (c.royaltiesObtentor||[]).map(r=>r.id===roy.id?{...r,[campo]:valor}:r);
+                            updateContrato(c.id,{royaltiesObtentor:next});
+                          };
+                          return (
+                            <tr key={roy.id} style={{borderBottom:"1px solid #f1f5f9",background:i%2?"#f8fafc":"#fff"}}>
+                              <td style={{padding:"6px 8px"}}><select disabled={!canObtentores} value={roy.tipo||""} onChange={e=>updRoy("tipo",e.target.value)} style={{padding:"5px 8px",borderRadius:6,border:"1px solid #d1d5db",fontSize:11,background:"#fff"}}>{TIPOS_ROYALTY_OBTENTOR.map(t=><option key={t} value={t}>{t}</option>)}</select></td>
+                              <td style={{padding:"6px 8px"}}><input disabled={!canObtentores} value={roy.especie||""} onChange={e=>updRoy("especie",e.target.value)} placeholder="Todas" style={{width:90,padding:"5px 8px",borderRadius:6,border:"1px solid #d1d5db",fontSize:11}}/></td>
+                              <td style={{padding:"6px 8px"}}><input disabled={!canObtentores} value={roy.variedad||""} onChange={e=>updRoy("variedad",e.target.value)} placeholder="Todas" style={{width:90,padding:"5px 8px",borderRadius:6,border:"1px solid #d1d5db",fontSize:11}}/></td>
+                              <td style={{padding:"6px 8px"}}><input type="number" step="0.01" disabled={!canObtentores} value={roy.valor||0} onChange={e=>updRoy("valor",parseFloat(e.target.value)||0)} style={{width:80,padding:"5px 8px",borderRadius:6,border:"1px solid #d1d5db",fontSize:11,textAlign:"right"}}/></td>
+                              <td style={{padding:"6px 8px"}}><select disabled={!canObtentores} value={roy.moneda||"USD"} onChange={e=>updRoy("moneda",e.target.value)} style={{padding:"5px 8px",borderRadius:6,border:"1px solid #d1d5db",fontSize:11,background:"#fff"}}>{MONEDAS.map(m=><option key={m}>{m}</option>)}</select></td>
+                              <td style={{padding:"6px 8px"}}><select disabled={!canObtentores} value={roy.frecuencia||"Anual"} onChange={e=>updRoy("frecuencia",e.target.value)} style={{padding:"5px 8px",borderRadius:6,border:"1px solid #d1d5db",fontSize:11,background:"#fff"}}>{["Anual","Semestral","Trimestral","Por evento","Única vez"].map(f=><option key={f}>{f}</option>)}</select></td>
+                              <td style={{padding:"6px 8px"}}><input disabled={!canObtentores} value={roy.observaciones||""} onChange={e=>updRoy("observaciones",e.target.value)} style={{width:"100%",padding:"5px 8px",borderRadius:6,border:"1px solid #d1d5db",fontSize:11,boxSizing:"border-box"}}/></td>
+                              <td style={{padding:"6px 8px"}}>{canObtentores&&<button onClick={()=>{if(!window.confirm("¿Eliminar?"))return;updateContrato(c.id,{royaltiesObtentor:(c.royaltiesObtentor||[]).filter(r=>r.id!==roy.id)});}} style={{background:"#fef2f2",border:"none",borderRadius:6,padding:"4px 8px",cursor:"pointer",fontSize:11,color:"#991b1b"}}>🗑</button>}</td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+                <div style={{marginTop:12,padding:10,background:"#ede9fe",borderRadius:8,fontSize:11,color:"#5b21b6"}}>
+                  💡 Estos son los royalties que <strong>Osiris paga al obtentor</strong>. Son distintos de los que Osiris <strong>cobra a productores</strong>.
+                </div>
+              </div>
+            )}
+
+            {/* TAB CONDICIONES COMERCIALES */}
+            {obtTab==="condiciones"&&(
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:16}}>
+                <div><label style={{fontSize:11,fontWeight:600,color:"#475569",display:"block",marginBottom:4}}>Mínimo garantizado</label>
+                  <div style={{display:"flex",gap:8}}>
+                    <input type="number" step="0.01" disabled={!canObtentores} value={c.minimoGarantizado||0} onChange={e=>updateContrato(c.id,{minimoGarantizado:parseFloat(e.target.value)||0})} style={{flex:1,padding:"8px 12px",borderRadius:8,border:"1px solid #d1d5db",fontSize:13,textAlign:"right"}}/>
+                    <select disabled={!canObtentores} value={c.monedaMinimo||"USD"} onChange={e=>updateContrato(c.id,{monedaMinimo:e.target.value})} style={{width:80,padding:"8px",borderRadius:8,border:"1px solid #d1d5db",fontSize:13,background:"#fff"}}>{MONEDAS.map(m=><option key={m}>{m}</option>)}</select>
+                  </div>
+                </div>
+                <div><label style={{fontSize:11,fontWeight:600,color:"#475569",display:"block",marginBottom:4}}>Frecuencia de reportes</label>
+                  <select disabled={!canObtentores} value={c.frecuenciaReportes||""} onChange={e=>updateContrato(c.id,{frecuenciaReportes:e.target.value})} style={{width:"100%",padding:"8px 12px",borderRadius:8,border:"1px solid #d1d5db",fontSize:13,background:"#fff"}}>
+                    <option value="">— Sin definir —</option><option>Mensual</option><option>Trimestral</option><option>Semestral</option><option>Anual</option>
+                  </select>
+                </div>
+                <div><label style={{fontSize:11,fontWeight:600,color:"#475569",display:"block",marginBottom:4}}>Próximo reporte</label>
+                  <input type="date" disabled={!canObtentores} value={c.proximoReporte||""} onChange={e=>updateContrato(c.id,{proximoReporte:e.target.value})} style={{width:"100%",padding:"8px 12px",borderRadius:8,border:"1px solid #d1d5db",fontSize:13}}/>
+                </div>
+                <div><label style={{fontSize:11,fontWeight:600,color:"#475569",display:"flex",alignItems:"center",gap:8,cursor:canObtentores?"pointer":"default",marginTop:24}}>
+                    <input type="checkbox" disabled={!canObtentores} checked={!!c.derechoAuditoria} onChange={e=>updateContrato(c.id,{derechoAuditoria:e.target.checked})}/> Obtentor tiene derecho a auditoría</label>
+                </div>
+                <div style={{gridColumn:"1/-1"}}><label style={{fontSize:11,fontWeight:600,color:"#475569",display:"block",marginBottom:4}}>Calendario de pagos / Condiciones</label>
+                  <textarea disabled={!canObtentores} value={c.calendarioPagos||""} placeholder="Pago anual en marzo, mínimo garantizado en enero..." onChange={e=>updateContrato(c.id,{calendarioPagos:e.target.value})}
+                    style={{width:"100%",padding:"8px 12px",borderRadius:8,border:"1px solid #d1d5db",fontSize:13,minHeight:80,boxSizing:"border-box"}}/>
+                </div>
               </div>
             )}
 
@@ -8352,11 +8474,7 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
                   <label style={{fontSize:11,fontWeight:600,color:"#475569",display:"block",marginBottom:4}}>Estado</label>
                   <select value={pbrForm.estado||"Pendiente"} onChange={e=>setPbrForm(p=>({...p,estado:e.target.value}))}
                     style={{width:"100%",padding:"8px 12px",borderRadius:8,border:"1px solid #d1d5db",fontSize:13,boxSizing:"border-box",background:"#fff"}}>
-                    <option value="Pendiente">⏳ Pendiente</option>
-                    <option value="Solicitado">📨 Solicitado</option>
-                    <option value="En Revisión">🔍 En Revisión</option>
-                    <option value="Aprobado">✅ Aprobado</option>
-                    <option value="Rechazado">❌ Rechazado</option>
+                    {ESTADOS_PBR.map(s=><option key={s} value={s}>{s}</option>)}
                   </select>
                 </div>
                 <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:12}}>
@@ -8823,11 +8941,8 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
                       <label style={{fontSize:11,fontWeight:600,color:"#475569",display:"block",marginBottom:3}}>Estado PBR</label>
                       <select value={obtWizPbrForm.estado||"Pendiente"} onChange={e=>setObtWizPbrForm(p=>({...p,estado:e.target.value}))}
                         style={{width:"100%",padding:"7px 10px",borderRadius:6,border:"1px solid #d1d5db",fontSize:12,boxSizing:"border-box",background:"#fff"}}>
-                        <option value="Pendiente">⏳ Pendiente</option>
-                        <option value="Solicitado">📨 Solicitado</option>
-                        <option value="En Revisión">🔍 En Revisión</option>
-                        <option value="Aprobado">✅ Aprobado</option>
-                        <option value="Rechazado">❌ Rechazado</option>
+                        <option value="Pendiente">Pendiente</option>
+                        {ESTADOS_PBR.filter(s=>s!=="Pendiente").map(s=><option key={s} value={s}>{s}</option>)}
                       </select>
                     </div>
                     <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:10}}>
