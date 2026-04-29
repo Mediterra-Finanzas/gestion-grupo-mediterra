@@ -1325,6 +1325,456 @@ function CobranzaModule({data, setData, embarques, liquidaciones, can, temporada
 // ═══════════════════════════════════════════════════════════════════
 // MÓDULO PRINCIPAL — ALLEGRIA FOODS HUB
 // ═══════════════════════════════════════════════════════════════════
+
+// ═══════════════════════════════════════════════════════════════════
+// PROGRAMA COMERCIAL
+// ═══════════════════════════════════════════════════════════════════
+function ProgramaComercialModule({data, setData, productores, clientes, can}) {
+  const [tab, setTab] = useState("recepcion");
+  const [modal, setModal] = useState(false);
+  const [form, setForm] = useState({tipo:"recepcion",semana:"",productor:"",fruta:"",variedad:"",kgEstimado:0,kgReal:0,cliente:"",calibre:"",estado:"Programado",observaciones:""});
+  const [editId, setEditId] = useState(null);
+  const [busq, setBusq] = useState("");
+
+  const TABS=[{id:"recepcion",label:"📥 Programa Recepción"},{id:"asignacion",label:"🔗 Asignación Prod→Cliente"},{id:"resumen",label:"📊 Resumen Semanal"}];
+  const ESTADOS=["Programado","Confirmado","Recibido","Cancelado"];
+
+  function guardar(){
+    if(!form.semana||!form.productor){alert("Semana y Productor son obligatorios.");return;}
+    if(editId){setData(prev=>prev.map(r=>r.id===editId?{...r,...form}:r));}
+    else{setData(prev=>[...prev,{...form,id:`prog_${Date.now()}`}]);}
+    setForm({tipo:"recepcion",semana:"",productor:"",fruta:"",variedad:"",kgEstimado:0,kgReal:0,cliente:"",calibre:"",estado:"Programado",observaciones:""});
+    setModal(false);setEditId(null);
+  }
+
+  const filtrado=data.filter(r=>(!busq||r.productor?.toLowerCase().includes(busq.toLowerCase()))&&(tab==="resumen"||r.tipo===tab||(tab==="recepcion"&&!r.tipo)));
+  const totalKgEst=filtrado.reduce((s,r)=>s+(parseFloat(r.kgEstimado)||0),0);
+  const totalKgReal=filtrado.reduce((s,r)=>s+(parseFloat(r.kgReal)||0),0);
+
+  return(
+    <div>
+      <div style={{display:"flex",gap:6,marginBottom:14,flexWrap:"wrap"}}>
+        {TABS.map(t=><button key={t.id} onClick={()=>setTab(t.id)}
+          style={{padding:"8px 16px",borderRadius:8,border:tab===t.id?`2px solid ${C.teal}`:`1px solid ${C.border}`,background:tab===t.id?C.teal:"transparent",color:tab===t.id?"#fff":C.muted,cursor:"pointer",fontSize:12,fontWeight:700}}>{t.label}</button>)}
+      </div>
+      {tab==="resumen"?(
+        <div>
+          <div style={{display:"flex",gap:12,marginBottom:16,flexWrap:"wrap"}}>
+            <div style={{background:`${C.teal}15`,borderRadius:10,padding:"14px 20px",flex:1,minWidth:140}}>
+              <div style={{fontSize:10,color:C.muted}}>Kg estimados</div>
+              <div style={{fontSize:20,fontWeight:800,color:C.teal}}>{totalKgEst.toLocaleString()}</div></div>
+            <div style={{background:`${C.green}15`,borderRadius:10,padding:"14px 20px",flex:1,minWidth:140}}>
+              <div style={{fontSize:10,color:C.muted}}>Kg reales</div>
+              <div style={{fontSize:20,fontWeight:800,color:C.green}}>{totalKgReal.toLocaleString()}</div></div>
+            <div style={{background:`${C.yellow}15`,borderRadius:10,padding:"14px 20px",flex:1,minWidth:140}}>
+              <div style={{fontSize:10,color:C.muted}}>Cumplimiento</div>
+              <div style={{fontSize:20,fontWeight:800,color:C.yellow}}>{totalKgEst>0?Math.round(totalKgReal/totalKgEst*100):0}%</div></div>
+          </div>
+          <div style={{overflowX:"auto",borderRadius:10,border:`1px solid ${C.border}`}}>
+            <table style={{width:"100%",borderCollapse:"collapse",fontSize:11}}>
+              <thead><tr style={{background:C.bg2}}>{["Semana","Productor","Fruta","Variedad","Kg Est.","Kg Real","Cliente","Estado"].map(h=><th key={h} style={{padding:"6px 10px",textAlign:"left",color:C.muted,fontWeight:700,fontSize:10}}>{h}</th>)}</tr></thead>
+              <tbody>{data.map((r,i)=>(
+                <tr key={r.id} style={{borderBottom:`1px solid ${C.border}22`,background:i%2?"transparent":`${C.border}08`}}>
+                  <td style={{padding:"6px 10px",fontWeight:600,color:C.text}}>{r.semana}</td>
+                  <td style={{padding:"6px 10px",color:C.muted}}>{r.productor}</td>
+                  <td style={{padding:"6px 10px"}}><span style={{fontSize:9,background:`${C.teal}22`,color:C.teal,padding:"1px 6px",borderRadius:10,fontWeight:600}}>{r.fruta}</span></td>
+                  <td style={{padding:"6px 10px",color:C.muted}}>{r.variedad||"—"}</td>
+                  <td style={{padding:"6px 10px",textAlign:"right",color:C.text}}>{(parseFloat(r.kgEstimado)||0).toLocaleString()}</td>
+                  <td style={{padding:"6px 10px",textAlign:"right",fontWeight:700,color:C.green}}>{(parseFloat(r.kgReal)||0).toLocaleString()}</td>
+                  <td style={{padding:"6px 10px",color:C.muted}}>{r.cliente||"—"}</td>
+                  <td style={{padding:"6px 10px"}}><span style={{fontSize:9,padding:"2px 8px",borderRadius:10,fontWeight:700,background:r.estado==="Recibido"?`${C.green}22`:r.estado==="Cancelado"?"#fee2e2":`${C.yellow}22`,color:r.estado==="Recibido"?C.green:r.estado==="Cancelado"?"#dc2626":C.yellow}}>{r.estado}</span></td>
+                </tr>))}</tbody>
+            </table>
+          </div>
+        </div>
+      ):(
+        <div>
+          <div style={{display:"flex",gap:12,marginBottom:14,flexWrap:"wrap",alignItems:"center"}}>
+            <input value={busq} onChange={e=>setBusq(e.target.value)} placeholder="🔍 Buscar..." style={{padding:"8px 14px",borderRadius:8,border:`1px solid ${C.border}`,background:C.card2,color:C.text,fontSize:12,outline:"none",flex:1,minWidth:200}}/>
+            {can&&<button onClick={()=>{setForm({tipo:tab==="asignacion"?"asignacion":"recepcion",semana:"",productor:"",fruta:"",variedad:"",kgEstimado:0,kgReal:0,cliente:"",calibre:"",estado:"Programado",observaciones:""});setEditId(null);setModal(true);}}
+              style={{background:C.teal,color:"#fff",border:"none",borderRadius:8,padding:"8px 18px",cursor:"pointer",fontWeight:700,fontSize:12}}>+ Nuevo registro</button>}
+          </div>
+          <div style={{overflowX:"auto",borderRadius:10,border:`1px solid ${C.border}`}}>
+            <table style={{width:"100%",borderCollapse:"collapse",fontSize:11}}>
+              <thead><tr style={{background:C.bg2}}>{["Semana","Productor","Fruta","Variedad",tab==="asignacion"?"Cliente":"","Kg Est.","Kg Real","Estado",""].map(h=>h?<th key={h} style={{padding:"6px 10px",textAlign:"left",color:C.muted,fontWeight:700,fontSize:10}}>{h}</th>:null)}</tr></thead>
+              <tbody>{filtrado.map((r,i)=>(
+                <tr key={r.id} style={{borderBottom:`1px solid ${C.border}22`}}>
+                  <td style={{padding:"6px 10px",fontWeight:600,color:C.text}}>{r.semana}</td>
+                  <td style={{padding:"6px 10px",color:C.muted}}>{r.productor}</td>
+                  <td style={{padding:"6px 10px"}}><span style={{fontSize:9,background:`${C.teal}22`,color:C.teal,padding:"1px 6px",borderRadius:10,fontWeight:600}}>{r.fruta}</span></td>
+                  <td style={{padding:"6px 10px",color:C.muted}}>{r.variedad||"—"}</td>
+                  {tab==="asignacion"&&<td style={{padding:"6px 10px",color:C.muted}}>{r.cliente||"—"}</td>}
+                  <td style={{padding:"6px 10px",textAlign:"right"}}>{(parseFloat(r.kgEstimado)||0).toLocaleString()}</td>
+                  <td style={{padding:"6px 10px",textAlign:"right",fontWeight:700,color:C.green}}>{(parseFloat(r.kgReal)||0).toLocaleString()}</td>
+                  <td style={{padding:"6px 10px"}}><span style={{fontSize:9,padding:"2px 8px",borderRadius:10,fontWeight:700,background:r.estado==="Recibido"?`${C.green}22`:`${C.yellow}22`,color:r.estado==="Recibido"?C.green:C.yellow}}>{r.estado}</span></td>
+                  <td style={{padding:"6px 10px"}}>{can&&<button onClick={()=>{setEditId(r.id);setForm({...r});setModal(true);}} style={{background:C.card2,border:`1px solid ${C.border}`,color:C.muted,borderRadius:6,padding:"3px 8px",cursor:"pointer",fontSize:10}}>✏️</button>}</td>
+                </tr>))}
+                {filtrado.length===0&&<tr><td colSpan={9} style={{padding:30,textAlign:"center",color:C.muted2}}>Sin registros</td></tr>}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+      {modal&&(
+        <div style={{position:"fixed",inset:0,background:"#000a",zIndex:400,display:"flex",alignItems:"center",justifyContent:"center",padding:20}} onClick={()=>setModal(false)}>
+          <div style={{background:C.card,borderRadius:14,padding:24,maxWidth:520,width:"100%",border:`1px solid ${C.border}`,maxHeight:"85vh",overflowY:"auto"}} onClick={e=>e.stopPropagation()}>
+            <h3 style={{margin:"0 0 16px",color:C.text}}>{editId?"Editar":"Nuevo"} {tab==="asignacion"?"Asignación":"Programa Recepción"}</h3>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+              <div><div style={{fontSize:10,color:C.muted,marginBottom:4}}>Semana *</div>
+                <input value={form.semana} placeholder="S1, S2..." onChange={e=>setForm(p=>({...p,semana:e.target.value}))} style={{width:"100%",padding:"7px 10px",borderRadius:8,border:`1px solid ${C.border}`,background:C.card2,color:C.text,fontSize:12,boxSizing:"border-box"}}/></div>
+              <div><div style={{fontSize:10,color:C.muted,marginBottom:4}}>Productor *</div>
+                <select value={form.productor} onChange={e=>setForm(p=>({...p,productor:e.target.value}))} style={{width:"100%",padding:"7px 10px",borderRadius:8,border:`1px solid ${C.border}`,background:C.card2,color:C.text,fontSize:12,boxSizing:"border-box"}}>
+                  <option value="">— Seleccionar —</option>{(productores||[]).map(p=><option key={p.id} value={p.nombre}>{p.nombre}</option>)}</select></div>
+              <div><div style={{fontSize:10,color:C.muted,marginBottom:4}}>Fruta</div>
+                <select value={form.fruta} onChange={e=>setForm(p=>({...p,fruta:e.target.value}))} style={{width:"100%",padding:"7px 10px",borderRadius:8,border:`1px solid ${C.border}`,background:C.card2,color:C.text,fontSize:12,boxSizing:"border-box"}}>
+                  <option value="">—</option>{FRUTAS.map(f=><option key={f}>{f}</option>)}</select></div>
+              <div><div style={{fontSize:10,color:C.muted,marginBottom:4}}>Variedad</div>
+                <input value={form.variedad} onChange={e=>setForm(p=>({...p,variedad:e.target.value}))} style={{width:"100%",padding:"7px 10px",borderRadius:8,border:`1px solid ${C.border}`,background:C.card2,color:C.text,fontSize:12,boxSizing:"border-box"}}/></div>
+              <div><div style={{fontSize:10,color:C.muted,marginBottom:4}}>Kg estimado</div>
+                <input type="number" value={form.kgEstimado} onChange={e=>setForm(p=>({...p,kgEstimado:parseFloat(e.target.value)||0}))} style={{width:"100%",padding:"7px 10px",borderRadius:8,border:`1px solid ${C.border}`,background:C.card2,color:C.text,fontSize:12,boxSizing:"border-box",textAlign:"right"}}/></div>
+              <div><div style={{fontSize:10,color:C.muted,marginBottom:4}}>Kg real</div>
+                <input type="number" value={form.kgReal} onChange={e=>setForm(p=>({...p,kgReal:parseFloat(e.target.value)||0}))} style={{width:"100%",padding:"7px 10px",borderRadius:8,border:`1px solid ${C.border}`,background:C.card2,color:C.text,fontSize:12,boxSizing:"border-box",textAlign:"right"}}/></div>
+              {tab==="asignacion"&&<div><div style={{fontSize:10,color:C.muted,marginBottom:4}}>Cliente destino</div>
+                <select value={form.cliente} onChange={e=>setForm(p=>({...p,cliente:e.target.value}))} style={{width:"100%",padding:"7px 10px",borderRadius:8,border:`1px solid ${C.border}`,background:C.card2,color:C.text,fontSize:12,boxSizing:"border-box"}}>
+                  <option value="">— Seleccionar —</option>{(clientes||[]).map(c=><option key={c.id} value={c.nombre}>{c.nombre}</option>)}</select></div>}
+              <div><div style={{fontSize:10,color:C.muted,marginBottom:4}}>Estado</div>
+                <select value={form.estado} onChange={e=>setForm(p=>({...p,estado:e.target.value}))} style={{width:"100%",padding:"7px 10px",borderRadius:8,border:`1px solid ${C.border}`,background:C.card2,color:C.text,fontSize:12,boxSizing:"border-box"}}>
+                  {ESTADOS.map(s=><option key={s}>{s}</option>)}</select></div>
+            </div>
+            <div style={{display:"flex",gap:8,justifyContent:"flex-end",marginTop:16}}>
+              <button onClick={()=>setModal(false)} style={{padding:"8px 18px",borderRadius:8,border:`1px solid ${C.border}`,background:"transparent",color:C.muted,cursor:"pointer"}}>Cancelar</button>
+              <button onClick={guardar} style={{padding:"8px 18px",borderRadius:8,border:"none",background:C.teal,color:"#fff",cursor:"pointer",fontWeight:700}}>Guardar</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// RECEPCIÓN & PROCESO
+// ═══════════════════════════════════════════════════════════════════
+function RecepcionProcesoModule({data, setData, productores, can}) {
+  const [tab, setTab] = useState("recepcion");
+  const [modal, setModal] = useState(false);
+  const [form, setForm] = useState({fecha:"",productor:"",fruta:"",variedad:"",bins:0,kgBruto:0,kgNeto:0,qcRecepcion:"",estadoProceso:"Pendiente",resultadoProceso:{cajasObtenidas:0,descarte:0,merma:0},informeProductor:"",informeAllegria:"",observaciones:""});
+  const [editId, setEditId] = useState(null);
+  const TABS=[{id:"recepcion",label:"📥 Recepción"},{id:"proceso",label:"🏭 Proceso"},{id:"resultados",label:"📊 Resultados"}];
+  const ESTADOS_PROC=["Pendiente","En recepción","En proceso","Procesado","Informado"];
+
+  function guardar(){
+    if(!form.fecha||!form.productor){alert("Fecha y Productor obligatorios.");return;}
+    if(editId){setData(prev=>prev.map(r=>r.id===editId?{...r,...form}:r));}
+    else{setData(prev=>[...prev,{...form,id:`rec_${Date.now()}`}]);}
+    setForm({fecha:"",productor:"",fruta:"",variedad:"",bins:0,kgBruto:0,kgNeto:0,qcRecepcion:"",estadoProceso:"Pendiente",resultadoProceso:{cajasObtenidas:0,descarte:0,merma:0},informeProductor:"",informeAllegria:"",observaciones:""});
+    setModal(false);setEditId(null);
+  }
+
+  const filtrado=data;
+  return(
+    <div>
+      <div style={{display:"flex",gap:6,marginBottom:14,flexWrap:"wrap"}}>
+        {TABS.map(t=><button key={t.id} onClick={()=>setTab(t.id)} style={{padding:"8px 16px",borderRadius:8,border:tab===t.id?`2px solid #dc2626`:`1px solid ${C.border}`,background:tab===t.id?"#dc2626":"transparent",color:tab===t.id?"#fff":C.muted,cursor:"pointer",fontSize:12,fontWeight:700}}>{t.label}</button>)}
+      </div>
+      <div style={{display:"flex",gap:12,marginBottom:14,flexWrap:"wrap",alignItems:"center"}}>
+        {can&&<button onClick={()=>{setEditId(null);setForm({fecha:"",productor:"",fruta:"",variedad:"",bins:0,kgBruto:0,kgNeto:0,qcRecepcion:"",estadoProceso:"Pendiente",resultadoProceso:{cajasObtenidas:0,descarte:0,merma:0},informeProductor:"",informeAllegria:"",observaciones:""});setModal(true);}}
+          style={{background:"#dc2626",color:"#fff",border:"none",borderRadius:8,padding:"8px 18px",cursor:"pointer",fontWeight:700,fontSize:12}}>+ Nueva recepción</button>}
+        <div style={{fontSize:11,color:C.muted}}>{filtrado.length} recepciones · {filtrado.reduce((s,r)=>s+(r.bins||0),0)} bins · {filtrado.reduce((s,r)=>s+(parseFloat(r.kgNeto)||0),0).toLocaleString()} kg neto</div>
+      </div>
+      <div style={{overflowX:"auto",borderRadius:10,border:`1px solid ${C.border}`}}>
+        <table style={{width:"100%",borderCollapse:"collapse",fontSize:11}}>
+          <thead><tr style={{background:C.bg2}}>{["Fecha","Productor","Fruta","Variedad","Bins","Kg bruto","Kg neto","QC","Estado",tab!=="recepcion"?"Cajas":"",""].map(h=>h!==""?<th key={h} style={{padding:"6px 10px",textAlign:"left",color:C.muted,fontWeight:700,fontSize:10}}>{h}</th>:null)}</tr></thead>
+          <tbody>{filtrado.map((r,i)=>(
+            <tr key={r.id} style={{borderBottom:`1px solid ${C.border}22`,background:i%2?"transparent":`${C.border}08`}}>
+              <td style={{padding:"6px 10px",fontWeight:600,color:C.text}}>{r.fecha}</td>
+              <td style={{padding:"6px 10px",color:C.muted}}>{r.productor}</td>
+              <td style={{padding:"6px 10px"}}><span style={{fontSize:9,background:`${C.accent}22`,color:C.accent,padding:"1px 6px",borderRadius:10,fontWeight:600}}>{r.fruta}</span></td>
+              <td style={{padding:"6px 10px",color:C.muted}}>{r.variedad||"—"}</td>
+              <td style={{padding:"6px 10px",textAlign:"right"}}>{r.bins||0}</td>
+              <td style={{padding:"6px 10px",textAlign:"right"}}>{(parseFloat(r.kgBruto)||0).toLocaleString()}</td>
+              <td style={{padding:"6px 10px",textAlign:"right",fontWeight:700}}>{(parseFloat(r.kgNeto)||0).toLocaleString()}</td>
+              <td style={{padding:"6px 10px",color:C.muted}}>{r.qcRecepcion?"✅":"—"}</td>
+              <td style={{padding:"6px 10px"}}><span style={{fontSize:9,padding:"2px 8px",borderRadius:10,fontWeight:700,background:r.estadoProceso==="Procesado"||r.estadoProceso==="Informado"?`${C.green}22`:`${C.yellow}22`,color:r.estadoProceso==="Procesado"||r.estadoProceso==="Informado"?C.green:C.yellow}}>{r.estadoProceso}</span></td>
+              {tab!=="recepcion"&&<td style={{padding:"6px 10px",textAlign:"right",fontWeight:700,color:C.blue}}>{r.resultadoProceso?.cajasObtenidas||0}</td>}
+              <td style={{padding:"6px 10px"}}>{can&&<button onClick={()=>{setEditId(r.id);setForm({...r});setModal(true);}} style={{background:C.card2,border:`1px solid ${C.border}`,color:C.muted,borderRadius:6,padding:"3px 8px",cursor:"pointer",fontSize:10}}>✏️</button>}</td>
+            </tr>))}
+            {filtrado.length===0&&<tr><td colSpan={11} style={{padding:30,textAlign:"center",color:C.muted2}}>Sin recepciones</td></tr>}
+          </tbody>
+        </table>
+      </div>
+      {modal&&(
+        <div style={{position:"fixed",inset:0,background:"#000a",zIndex:400,display:"flex",alignItems:"center",justifyContent:"center",padding:20}} onClick={()=>setModal(false)}>
+          <div style={{background:C.card,borderRadius:14,padding:24,maxWidth:560,width:"100%",border:`1px solid ${C.border}`,maxHeight:"85vh",overflowY:"auto"}} onClick={e=>e.stopPropagation()}>
+            <h3 style={{margin:"0 0 16px",color:C.text}}>{editId?"Editar":"Nueva"} Recepción</h3>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+              <div><div style={{fontSize:10,color:C.muted,marginBottom:4}}>Fecha *</div><input type="date" value={form.fecha} onChange={e=>setForm(p=>({...p,fecha:e.target.value}))} style={{width:"100%",padding:"7px 10px",borderRadius:8,border:`1px solid ${C.border}`,background:C.card2,color:C.text,fontSize:12,boxSizing:"border-box"}}/></div>
+              <div><div style={{fontSize:10,color:C.muted,marginBottom:4}}>Productor *</div><select value={form.productor} onChange={e=>setForm(p=>({...p,productor:e.target.value}))} style={{width:"100%",padding:"7px 10px",borderRadius:8,border:`1px solid ${C.border}`,background:C.card2,color:C.text,fontSize:12,boxSizing:"border-box"}}><option value="">—</option>{(productores||[]).map(p=><option key={p.id} value={p.nombre}>{p.nombre}</option>)}</select></div>
+              <div><div style={{fontSize:10,color:C.muted,marginBottom:4}}>Fruta</div><select value={form.fruta} onChange={e=>setForm(p=>({...p,fruta:e.target.value}))} style={{width:"100%",padding:"7px 10px",borderRadius:8,border:`1px solid ${C.border}`,background:C.card2,color:C.text,fontSize:12,boxSizing:"border-box"}}><option value="">—</option>{FRUTAS.map(f=><option key={f}>{f}</option>)}</select></div>
+              <div><div style={{fontSize:10,color:C.muted,marginBottom:4}}>Variedad</div><input value={form.variedad||""} onChange={e=>setForm(p=>({...p,variedad:e.target.value}))} style={{width:"100%",padding:"7px 10px",borderRadius:8,border:`1px solid ${C.border}`,background:C.card2,color:C.text,fontSize:12,boxSizing:"border-box"}}/></div>
+              {[["Bins","bins","number"],["Kg bruto","kgBruto","number"],["Kg neto","kgNeto","number"]].map(([l,f,t])=>(
+                <div key={f}><div style={{fontSize:10,color:C.muted,marginBottom:4}}>{l}</div><input type={t} value={form[f]||""} onChange={e=>setForm(p=>({...p,[f]:t==="number"?parseFloat(e.target.value)||0:e.target.value}))} style={{width:"100%",padding:"7px 10px",borderRadius:8,border:`1px solid ${C.border}`,background:C.card2,color:C.text,fontSize:12,boxSizing:"border-box",textAlign:t==="number"?"right":"left"}}/></div>))}
+              <div><div style={{fontSize:10,color:C.muted,marginBottom:4}}>Estado proceso</div><select value={form.estadoProceso} onChange={e=>setForm(p=>({...p,estadoProceso:e.target.value}))} style={{width:"100%",padding:"7px 10px",borderRadius:8,border:`1px solid ${C.border}`,background:C.card2,color:C.text,fontSize:12,boxSizing:"border-box"}}>{ESTADOS_PROC.map(s=><option key={s}>{s}</option>)}</select></div>
+              <div><div style={{fontSize:10,color:C.muted,marginBottom:4}}>Cajas obtenidas</div><input type="number" value={form.resultadoProceso?.cajasObtenidas||""} onChange={e=>setForm(p=>({...p,resultadoProceso:{...(p.resultadoProceso||{}),cajasObtenidas:parseInt(e.target.value)||0}}))} style={{width:"100%",padding:"7px 10px",borderRadius:8,border:`1px solid ${C.border}`,background:C.card2,color:C.text,fontSize:12,boxSizing:"border-box",textAlign:"right"}}/></div>
+              <div><div style={{fontSize:10,color:C.muted,marginBottom:4}}>QC Recepción</div><input value={form.qcRecepcion||""} placeholder="Observaciones QC..." onChange={e=>setForm(p=>({...p,qcRecepcion:e.target.value}))} style={{width:"100%",padding:"7px 10px",borderRadius:8,border:`1px solid ${C.border}`,background:C.card2,color:C.text,fontSize:12,boxSizing:"border-box"}}/></div>
+            </div>
+            <div style={{display:"flex",gap:8,justifyContent:"flex-end",marginTop:16}}>
+              <button onClick={()=>setModal(false)} style={{padding:"8px 18px",borderRadius:8,border:`1px solid ${C.border}`,background:"transparent",color:C.muted,cursor:"pointer"}}>Cancelar</button>
+              <button onClick={guardar} style={{padding:"8px 18px",borderRadius:8,border:"none",background:"#dc2626",color:"#fff",cursor:"pointer",fontWeight:700}}>Guardar</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// STOCK & PALLETS
+// ═══════════════════════════════════════════════════════════════════
+function StockPalletsModule({data, setData, can}) {
+  const [modal, setModal] = useState(false);
+  const [form, setForm] = useState({codigoPallet:"",fruta:"",variedad:"",calibre:"",color:"",embalaje:"",cajas:0,kgNeto:0,fechaProceso:"",estadoSAG:"Pendiente",disponible:false,observaciones:""});
+  const [editId, setEditId] = useState(null);
+  const [busq, setBusq] = useState("");
+  const [filtroSAG, setFiltroSAG] = useState("Todos");
+  const ESTADOS_SAG=["Pendiente","En inspección","Aprobado","Rechazado"];
+
+  function guardar(){
+    if(!form.codigoPallet){alert("Código pallet obligatorio.");return;}
+    if(editId){setData(prev=>prev.map(r=>r.id===editId?{...r,...form,disponible:form.estadoSAG==="Aprobado"}:r));}
+    else{setData(prev=>[...prev,{...form,id:`plt_${Date.now()}`,disponible:form.estadoSAG==="Aprobado"}]);}
+    setForm({codigoPallet:"",fruta:"",variedad:"",calibre:"",color:"",embalaje:"",cajas:0,kgNeto:0,fechaProceso:"",estadoSAG:"Pendiente",disponible:false,observaciones:""});
+    setModal(false);setEditId(null);
+  }
+
+  const filtrado=data.filter(p=>(!busq||p.codigoPallet?.toLowerCase().includes(busq.toLowerCase())||p.fruta?.toLowerCase().includes(busq.toLowerCase()))&&(filtroSAG==="Todos"||p.estadoSAG===filtroSAG));
+  const aprobados=data.filter(p=>p.estadoSAG==="Aprobado").length;
+  const totalCajas=filtrado.reduce((s,p)=>s+(p.cajas||0),0);
+
+  return(
+    <div>
+      <div style={{display:"flex",gap:12,marginBottom:16,flexWrap:"wrap"}}>
+        <div style={{background:`${C.green}15`,borderRadius:10,padding:"12px 18px",flex:1,minWidth:120}}>
+          <div style={{fontSize:10,color:C.muted}}>Aprobados SAG</div><div style={{fontSize:18,fontWeight:800,color:C.green}}>{aprobados}</div></div>
+        <div style={{background:`${C.blue}15`,borderRadius:10,padding:"12px 18px",flex:1,minWidth:120}}>
+          <div style={{fontSize:10,color:C.muted}}>Total pallets</div><div style={{fontSize:18,fontWeight:800,color:C.blue}}>{data.length}</div></div>
+        <div style={{background:`${C.yellow}15`,borderRadius:10,padding:"12px 18px",flex:1,minWidth:120}}>
+          <div style={{fontSize:10,color:C.muted}}>Total cajas</div><div style={{fontSize:18,fontWeight:800,color:C.yellow}}>{totalCajas.toLocaleString()}</div></div>
+      </div>
+      <div style={{display:"flex",gap:12,marginBottom:14,flexWrap:"wrap",alignItems:"center"}}>
+        <input value={busq} onChange={e=>setBusq(e.target.value)} placeholder="🔍 Buscar pallet..." style={{padding:"8px 14px",borderRadius:8,border:`1px solid ${C.border}`,background:C.card2,color:C.text,fontSize:12,outline:"none",flex:1,minWidth:200}}/>
+        <div style={{display:"flex",gap:4}}>{["Todos",...ESTADOS_SAG].map(s=><button key={s} onClick={()=>setFiltroSAG(s)} style={{padding:"5px 12px",borderRadius:20,border:`1px solid ${filtroSAG===s?"#ea580c":C.border}`,background:filtroSAG===s?"#ea580c22":"transparent",color:filtroSAG===s?"#ea580c":C.muted,cursor:"pointer",fontSize:10,fontWeight:600}}>{s}</button>)}</div>
+        {can&&<button onClick={()=>{setEditId(null);setForm({codigoPallet:"",fruta:"",variedad:"",calibre:"",color:"",embalaje:"",cajas:0,kgNeto:0,fechaProceso:"",estadoSAG:"Pendiente",disponible:false,observaciones:""});setModal(true);}}
+          style={{background:"#ea580c",color:"#fff",border:"none",borderRadius:8,padding:"8px 18px",cursor:"pointer",fontWeight:700,fontSize:12}}>+ Nuevo pallet</button>}
+      </div>
+      <div style={{overflowX:"auto",borderRadius:10,border:`1px solid ${C.border}`}}>
+        <table style={{width:"100%",borderCollapse:"collapse",fontSize:11}}>
+          <thead><tr style={{background:C.bg2}}>{["Código","Fruta","Variedad","Calibre","Color","Embalaje","Cajas","Kg neto","SAG","Disponible",""].map(h=><th key={h} style={{padding:"6px 10px",textAlign:"left",color:C.muted,fontWeight:700,fontSize:10}}>{h}</th>)}</tr></thead>
+          <tbody>{filtrado.map((p,i)=>(
+            <tr key={p.id} style={{borderBottom:`1px solid ${C.border}22`,background:i%2?"transparent":`${C.border}08`}}>
+              <td style={{padding:"6px 10px",fontWeight:700,color:C.text,fontFamily:"monospace"}}>{p.codigoPallet}</td>
+              <td style={{padding:"6px 10px"}}><span style={{fontSize:9,background:`${C.teal}22`,color:C.teal,padding:"1px 6px",borderRadius:10,fontWeight:600}}>{p.fruta}</span></td>
+              <td style={{padding:"6px 10px",color:C.muted}}>{p.variedad||"—"}</td>
+              <td style={{padding:"6px 10px",color:C.muted}}>{p.calibre||"—"}</td>
+              <td style={{padding:"6px 10px",color:C.muted}}>{p.color||"—"}</td>
+              <td style={{padding:"6px 10px",color:C.muted}}>{p.embalaje||"—"}</td>
+              <td style={{padding:"6px 10px",textAlign:"right",fontWeight:700}}>{p.cajas||0}</td>
+              <td style={{padding:"6px 10px",textAlign:"right"}}>{(parseFloat(p.kgNeto)||0).toLocaleString()}</td>
+              <td style={{padding:"6px 10px"}}><span style={{fontSize:9,padding:"2px 8px",borderRadius:10,fontWeight:700,background:p.estadoSAG==="Aprobado"?`${C.green}22`:p.estadoSAG==="Rechazado"?"#fee2e2":`${C.yellow}22`,color:p.estadoSAG==="Aprobado"?C.green:p.estadoSAG==="Rechazado"?"#dc2626":C.yellow}}>{p.estadoSAG}</span></td>
+              <td style={{padding:"6px 10px"}}>{p.disponible?<span style={{color:C.green,fontWeight:700}}>✅</span>:<span style={{color:C.muted}}>—</span>}</td>
+              <td style={{padding:"6px 10px"}}>{can&&<button onClick={()=>{setEditId(p.id);setForm({...p});setModal(true);}} style={{background:C.card2,border:`1px solid ${C.border}`,color:C.muted,borderRadius:6,padding:"3px 8px",cursor:"pointer",fontSize:10}}>✏️</button>}</td>
+            </tr>))}
+            {filtrado.length===0&&<tr><td colSpan={11} style={{padding:30,textAlign:"center",color:C.muted2}}>Sin pallets</td></tr>}
+          </tbody>
+        </table>
+      </div>
+      {modal&&(
+        <div style={{position:"fixed",inset:0,background:"#000a",zIndex:400,display:"flex",alignItems:"center",justifyContent:"center",padding:20}} onClick={()=>setModal(false)}>
+          <div style={{background:C.card,borderRadius:14,padding:24,maxWidth:560,width:"100%",border:`1px solid ${C.border}`,maxHeight:"85vh",overflowY:"auto"}} onClick={e=>e.stopPropagation()}>
+            <h3 style={{margin:"0 0 16px",color:C.text}}>{editId?"Editar":"Nuevo"} Pallet</h3>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+              {[["Código pallet *","codigoPallet"],["Fruta","fruta"],["Variedad","variedad"],["Calibre","calibre"],["Color","color"],["Embalaje","embalaje"]].map(([l,f])=>(
+                <div key={f}><div style={{fontSize:10,color:C.muted,marginBottom:4}}>{l}</div>
+                  {f==="fruta"?<select value={form[f]||""} onChange={e=>setForm(p=>({...p,[f]:e.target.value}))} style={{width:"100%",padding:"7px 10px",borderRadius:8,border:`1px solid ${C.border}`,background:C.card2,color:C.text,fontSize:12,boxSizing:"border-box"}}><option value="">—</option>{FRUTAS.map(fr=><option key={fr}>{fr}</option>)}</select>
+                  :<input value={form[f]||""} onChange={e=>setForm(p=>({...p,[f]:e.target.value}))} style={{width:"100%",padding:"7px 10px",borderRadius:8,border:`1px solid ${C.border}`,background:C.card2,color:C.text,fontSize:12,boxSizing:"border-box"}}/>}</div>))}
+              {[["Cajas","cajas"],["Kg neto","kgNeto"]].map(([l,f])=>(
+                <div key={f}><div style={{fontSize:10,color:C.muted,marginBottom:4}}>{l}</div><input type="number" value={form[f]||""} onChange={e=>setForm(p=>({...p,[f]:parseFloat(e.target.value)||0}))} style={{width:"100%",padding:"7px 10px",borderRadius:8,border:`1px solid ${C.border}`,background:C.card2,color:C.text,fontSize:12,boxSizing:"border-box",textAlign:"right"}}/></div>))}
+              <div><div style={{fontSize:10,color:C.muted,marginBottom:4}}>Fecha proceso</div><input type="date" value={form.fechaProceso||""} onChange={e=>setForm(p=>({...p,fechaProceso:e.target.value}))} style={{width:"100%",padding:"7px 10px",borderRadius:8,border:`1px solid ${C.border}`,background:C.card2,color:C.text,fontSize:12,boxSizing:"border-box"}}/></div>
+              <div><div style={{fontSize:10,color:C.muted,marginBottom:4}}>Estado SAG</div><select value={form.estadoSAG} onChange={e=>setForm(p=>({...p,estadoSAG:e.target.value}))} style={{width:"100%",padding:"7px 10px",borderRadius:8,border:`1px solid ${C.border}`,background:C.card2,color:C.text,fontSize:12,boxSizing:"border-box"}}>{ESTADOS_SAG.map(s=><option key={s}>{s}</option>)}</select></div>
+            </div>
+            <div style={{display:"flex",gap:8,justifyContent:"flex-end",marginTop:16}}>
+              <button onClick={()=>setModal(false)} style={{padding:"8px 18px",borderRadius:8,border:`1px solid ${C.border}`,background:"transparent",color:C.muted,cursor:"pointer"}}>Cancelar</button>
+              <button onClick={guardar} style={{padding:"8px 18px",borderRadius:8,border:"none",background:"#ea580c",color:"#fff",cursor:"pointer",fontWeight:700}}>Guardar</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// MATERIALES & INVENTARIO
+// ═══════════════════════════════════════════════════════════════════
+function MaterialesInventarioModule({data, setData, recetas, setRecetas, embarques, can}) {
+  const [tab, setTab] = useState("maestro");
+  const [modal, setModal] = useState(false);
+  const [modalType, setModalType] = useState("material"); // material | receta | ingreso
+  const [form, setForm] = useState({});
+  const [editId, setEditId] = useState(null);
+  const TABS=[{id:"maestro",label:"🧱 Maestro"},{id:"recetas",label:"📋 Recetas"},{id:"ingresos",label:"📥 Ingresos"},{id:"stock",label:"📊 Stock"}];
+  const CATEGORIAS_MAT=["Caja","Bolsa","Etiqueta","Cinta","Film","Esquinero","Pallet","Separador","Absorbente","Otro"];
+  const UNIDADES=["Unidad","Kg","Metro","Rollo"];
+
+  const materiales = data || [];
+  const recetasArr = recetas || [];
+  // Calcular stock: ingresos - consumos
+  const calcStock = (matId) => {
+    const ingresos = materiales.filter(m=>m.id===matId).reduce((s,m)=>s+((m.ingresos||[]).reduce((si,ing)=>si+(parseFloat(ing.cantidad)||0),0)),0);
+    const consumos = materiales.filter(m=>m.id===matId).reduce((s,m)=>s+((m.consumos||[]).reduce((sc,con)=>sc+(parseFloat(con.cantidad)||0),0)),0);
+    return ingresos - consumos;
+  };
+
+  function guardarMaterial(){
+    if(!form.nombre){alert("Nombre obligatorio.");return;}
+    if(editId){setData(prev=>prev.map(m=>m.id===editId?{...m,...form}:m));}
+    else{setData(prev=>[...prev,{...form,id:`mat_${Date.now()}`,ingresos:[],consumos:[]}]);}
+    setForm({});setModal(false);setEditId(null);
+  }
+
+  function guardarReceta(){
+    if(!form.nombre){alert("Nombre obligatorio.");return;}
+    if(editId){setRecetas(prev=>prev.map(r=>r.id===editId?{...r,...form}:r));}
+    else{setRecetas(prev=>[...prev,{...form,id:`rct_${Date.now()}`}]);}
+    setForm({});setModal(false);setEditId(null);
+  }
+
+  return(
+    <div>
+      <div style={{display:"flex",gap:6,marginBottom:14,flexWrap:"wrap"}}>
+        {TABS.map(t=><button key={t.id} onClick={()=>setTab(t.id)} style={{padding:"8px 16px",borderRadius:8,border:tab===t.id?`2px solid #854d0e`:`1px solid ${C.border}`,background:tab===t.id?"#854d0e":"transparent",color:tab===t.id?"#fff":C.muted,cursor:"pointer",fontSize:12,fontWeight:700}}>{t.label}</button>)}
+      </div>
+
+      {tab==="maestro"&&(
+        <div>
+          <div style={{display:"flex",justifyContent:"flex-end",marginBottom:12}}>
+            {can&&<button onClick={()=>{setModalType("material");setEditId(null);setForm({nombre:"",categoria:"Caja",unidad:"Unidad",proveedorHabitual:"",costoRef:0,stockMinimo:0,activo:true});setModal(true);}}
+              style={{background:"#854d0e",color:"#fff",border:"none",borderRadius:8,padding:"8px 18px",cursor:"pointer",fontWeight:700,fontSize:12}}>+ Nuevo material</button>}
+          </div>
+          <div style={{overflowX:"auto",borderRadius:10,border:`1px solid ${C.border}`}}>
+            <table style={{width:"100%",borderCollapse:"collapse",fontSize:11}}>
+              <thead><tr style={{background:C.bg2}}>{["Material","Categoría","Unidad","Proveedor","Costo ref.","Stock mín.","Stock actual",""].map(h=><th key={h} style={{padding:"6px 10px",textAlign:"left",color:C.muted,fontWeight:700,fontSize:10}}>{h}</th>)}</tr></thead>
+              <tbody>{materiales.map((m,i)=>{
+                const stock = calcStock(m.id);
+                return(
+                  <tr key={m.id} style={{borderBottom:`1px solid ${C.border}22`,background:i%2?"transparent":`${C.border}08`}}>
+                    <td style={{padding:"6px 10px",fontWeight:600,color:C.text}}>{m.nombre}</td>
+                    <td style={{padding:"6px 10px"}}><span style={{fontSize:9,background:`#854d0e22`,color:"#854d0e",padding:"1px 6px",borderRadius:10,fontWeight:600}}>{m.categoria}</span></td>
+                    <td style={{padding:"6px 10px",color:C.muted}}>{m.unidad}</td>
+                    <td style={{padding:"6px 10px",color:C.muted}}>{m.proveedorHabitual||"—"}</td>
+                    <td style={{padding:"6px 10px",textAlign:"right"}}>{m.costoRef||"—"}</td>
+                    <td style={{padding:"6px 10px",textAlign:"right"}}>{m.stockMinimo||0}</td>
+                    <td style={{padding:"6px 10px",textAlign:"right",fontWeight:700,color:stock<(m.stockMinimo||0)?"#dc2626":C.green}}>{stock}</td>
+                    <td style={{padding:"6px 10px"}}>{can&&<button onClick={()=>{setEditId(m.id);setModalType("material");setForm({nombre:m.nombre,categoria:m.categoria,unidad:m.unidad,proveedorHabitual:m.proveedorHabitual,costoRef:m.costoRef,stockMinimo:m.stockMinimo,activo:m.activo});setModal(true);}} style={{background:C.card2,border:`1px solid ${C.border}`,color:C.muted,borderRadius:6,padding:"3px 8px",cursor:"pointer",fontSize:10}}>✏️</button>}</td>
+                  </tr>);})}
+                {materiales.length===0&&<tr><td colSpan={8} style={{padding:30,textAlign:"center",color:C.muted2}}>Sin materiales</td></tr>}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {tab==="recetas"&&(
+        <div>
+          <div style={{display:"flex",justifyContent:"flex-end",marginBottom:12}}>
+            {can&&<button onClick={()=>{setModalType("receta");setEditId(null);setForm({nombre:"",fruta:"",formato:"",mercado:"",pesoNetoCaja:0,cajasPorPallet:48,componentes:[]});setModal(true);}}
+              style={{background:"#854d0e",color:"#fff",border:"none",borderRadius:8,padding:"8px 18px",cursor:"pointer",fontWeight:700,fontSize:12}}>+ Nueva receta</button>}
+          </div>
+          {recetasArr.length===0?(
+            <div style={{padding:40,textAlign:"center",color:C.muted2,border:`1px dashed ${C.border}`,borderRadius:10}}>Sin recetas de embalaje. Crea una para definir los materiales por caja.</div>
+          ):(
+            <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(280px,1fr))",gap:12}}>
+              {recetasArr.map(r=>(
+                <div key={r.id} style={{border:`1px solid ${C.border}`,borderRadius:10,padding:14,background:C.card2}}>
+                  <div style={{fontWeight:700,color:C.text,marginBottom:4}}>{r.nombre}</div>
+                  <div style={{fontSize:11,color:C.muted,marginBottom:8}}>{r.fruta} · {r.formato} · {r.mercado} · {r.pesoNetoCaja}kg/caja · {r.cajasPorPallet} cajas/pallet</div>
+                  <div style={{fontSize:10,color:C.muted}}>Componentes: {(r.componentes||[]).length}</div>
+                  {(r.componentes||[]).map((c,i)=><div key={i} style={{fontSize:10,color:C.text,padding:"2px 0"}}>· {c.cantidad} {c.unidad} — {c.material}</div>)}
+                  {can&&<button onClick={()=>{setEditId(r.id);setModalType("receta");setForm({...r});setModal(true);}} style={{marginTop:8,background:C.card2,border:`1px solid ${C.border}`,color:C.muted,borderRadius:6,padding:"4px 10px",cursor:"pointer",fontSize:10}}>✏️ Editar</button>}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {tab==="stock"&&(
+        <div>
+          <div style={{overflowX:"auto",borderRadius:10,border:`1px solid ${C.border}`}}>
+            <table style={{width:"100%",borderCollapse:"collapse",fontSize:11}}>
+              <thead><tr style={{background:C.bg2}}>{["Material","Ingresos","Consumos","Stock actual","Mínimo","Estado"].map(h=><th key={h} style={{padding:"8px 12px",textAlign:"left",color:C.muted,fontWeight:700,fontSize:10}}>{h}</th>)}</tr></thead>
+              <tbody>{materiales.map((m,i)=>{
+                const ing = (m.ingresos||[]).reduce((s,x)=>s+(parseFloat(x.cantidad)||0),0);
+                const con = (m.consumos||[]).reduce((s,x)=>s+(parseFloat(x.cantidad)||0),0);
+                const stock = ing - con;
+                const bajo = stock < (m.stockMinimo||0);
+                return(
+                  <tr key={m.id} style={{borderBottom:`1px solid ${C.border}22`,background:bajo?"#fef2f2":i%2?"transparent":`${C.border}08`}}>
+                    <td style={{padding:"8px 12px",fontWeight:600,color:C.text}}>{m.nombre}</td>
+                    <td style={{padding:"8px 12px",textAlign:"right",color:C.green}}>{ing.toLocaleString()}</td>
+                    <td style={{padding:"8px 12px",textAlign:"right",color:"#dc2626"}}>{con.toLocaleString()}</td>
+                    <td style={{padding:"8px 12px",textAlign:"right",fontWeight:800,color:bajo?"#dc2626":C.green}}>{stock.toLocaleString()}</td>
+                    <td style={{padding:"8px 12px",textAlign:"right",color:C.muted}}>{m.stockMinimo||0}</td>
+                    <td style={{padding:"8px 12px"}}>{bajo?<span style={{fontSize:9,padding:"2px 8px",borderRadius:10,fontWeight:700,background:"#fee2e2",color:"#dc2626"}}>🔴 Bajo mínimo</span>:<span style={{fontSize:9,padding:"2px 8px",borderRadius:10,fontWeight:700,background:`${C.green}22`,color:C.green}}>✅ OK</span>}</td>
+                  </tr>);})}
+                {materiales.length===0&&<tr><td colSpan={6} style={{padding:30,textAlign:"center",color:C.muted2}}>Sin materiales registrados</td></tr>}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {tab==="ingresos"&&(
+        <div style={{padding:20,textAlign:"center",color:C.muted2}}>
+          <div style={{fontSize:11}}>Los ingresos se registran desde el detalle de cada material en el tab Maestro (próxima iteración).</div>
+        </div>
+      )}
+
+      {modal&&(
+        <div style={{position:"fixed",inset:0,background:"#000a",zIndex:400,display:"flex",alignItems:"center",justifyContent:"center",padding:20}} onClick={()=>setModal(false)}>
+          <div style={{background:C.card,borderRadius:14,padding:24,maxWidth:520,width:"100%",border:`1px solid ${C.border}`,maxHeight:"85vh",overflowY:"auto"}} onClick={e=>e.stopPropagation()}>
+            <h3 style={{margin:"0 0 16px",color:C.text}}>{editId?"Editar":"Nuevo"} {modalType==="receta"?"Receta":"Material"}</h3>
+            {modalType==="material"?(
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+                <div><div style={{fontSize:10,color:C.muted,marginBottom:4}}>Nombre *</div><input value={form.nombre||""} onChange={e=>setForm(p=>({...p,nombre:e.target.value}))} style={{width:"100%",padding:"7px 10px",borderRadius:8,border:`1px solid ${C.border}`,background:C.card2,color:C.text,fontSize:12,boxSizing:"border-box"}}/></div>
+                <div><div style={{fontSize:10,color:C.muted,marginBottom:4}}>Categoría</div><select value={form.categoria||"Caja"} onChange={e=>setForm(p=>({...p,categoria:e.target.value}))} style={{width:"100%",padding:"7px 10px",borderRadius:8,border:`1px solid ${C.border}`,background:C.card2,color:C.text,fontSize:12,boxSizing:"border-box"}}>{CATEGORIAS_MAT.map(c=><option key={c}>{c}</option>)}</select></div>
+                <div><div style={{fontSize:10,color:C.muted,marginBottom:4}}>Unidad</div><select value={form.unidad||"Unidad"} onChange={e=>setForm(p=>({...p,unidad:e.target.value}))} style={{width:"100%",padding:"7px 10px",borderRadius:8,border:`1px solid ${C.border}`,background:C.card2,color:C.text,fontSize:12,boxSizing:"border-box"}}>{UNIDADES.map(u=><option key={u}>{u}</option>)}</select></div>
+                <div><div style={{fontSize:10,color:C.muted,marginBottom:4}}>Proveedor habitual</div><input value={form.proveedorHabitual||""} onChange={e=>setForm(p=>({...p,proveedorHabitual:e.target.value}))} style={{width:"100%",padding:"7px 10px",borderRadius:8,border:`1px solid ${C.border}`,background:C.card2,color:C.text,fontSize:12,boxSizing:"border-box"}}/></div>
+                <div><div style={{fontSize:10,color:C.muted,marginBottom:4}}>Costo ref.</div><input type="number" value={form.costoRef||""} onChange={e=>setForm(p=>({...p,costoRef:parseFloat(e.target.value)||0}))} style={{width:"100%",padding:"7px 10px",borderRadius:8,border:`1px solid ${C.border}`,background:C.card2,color:C.text,fontSize:12,boxSizing:"border-box",textAlign:"right"}}/></div>
+                <div><div style={{fontSize:10,color:C.muted,marginBottom:4}}>Stock mínimo</div><input type="number" value={form.stockMinimo||""} onChange={e=>setForm(p=>({...p,stockMinimo:parseInt(e.target.value)||0}))} style={{width:"100%",padding:"7px 10px",borderRadius:8,border:`1px solid ${C.border}`,background:C.card2,color:C.text,fontSize:12,boxSizing:"border-box",textAlign:"right"}}/></div>
+              </div>
+            ):(
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+                <div style={{gridColumn:"1/-1"}}><div style={{fontSize:10,color:C.muted,marginBottom:4}}>Nombre receta *</div><input value={form.nombre||""} onChange={e=>setForm(p=>({...p,nombre:e.target.value}))} style={{width:"100%",padding:"7px 10px",borderRadius:8,border:`1px solid ${C.border}`,background:C.card2,color:C.text,fontSize:12,boxSizing:"border-box"}}/></div>
+                <div><div style={{fontSize:10,color:C.muted,marginBottom:4}}>Fruta</div><select value={form.fruta||""} onChange={e=>setForm(p=>({...p,fruta:e.target.value}))} style={{width:"100%",padding:"7px 10px",borderRadius:8,border:`1px solid ${C.border}`,background:C.card2,color:C.text,fontSize:12,boxSizing:"border-box"}}><option value="">—</option>{FRUTAS.map(f=><option key={f}>{f}</option>)}</select></div>
+                <div><div style={{fontSize:10,color:C.muted,marginBottom:4}}>Formato</div><input value={form.formato||""} placeholder="Caja 5kg, Caja 2.5kg..." onChange={e=>setForm(p=>({...p,formato:e.target.value}))} style={{width:"100%",padding:"7px 10px",borderRadius:8,border:`1px solid ${C.border}`,background:C.card2,color:C.text,fontSize:12,boxSizing:"border-box"}}/></div>
+                <div><div style={{fontSize:10,color:C.muted,marginBottom:4}}>Mercado</div><input value={form.mercado||""} placeholder="China, USA..." onChange={e=>setForm(p=>({...p,mercado:e.target.value}))} style={{width:"100%",padding:"7px 10px",borderRadius:8,border:`1px solid ${C.border}`,background:C.card2,color:C.text,fontSize:12,boxSizing:"border-box"}}/></div>
+                <div><div style={{fontSize:10,color:C.muted,marginBottom:4}}>Peso neto/caja (kg)</div><input type="number" step="0.1" value={form.pesoNetoCaja||""} onChange={e=>setForm(p=>({...p,pesoNetoCaja:parseFloat(e.target.value)||0}))} style={{width:"100%",padding:"7px 10px",borderRadius:8,border:`1px solid ${C.border}`,background:C.card2,color:C.text,fontSize:12,boxSizing:"border-box",textAlign:"right"}}/></div>
+                <div><div style={{fontSize:10,color:C.muted,marginBottom:4}}>Cajas por pallet</div><input type="number" value={form.cajasPorPallet||48} onChange={e=>setForm(p=>({...p,cajasPorPallet:parseInt(e.target.value)||48}))} style={{width:"100%",padding:"7px 10px",borderRadius:8,border:`1px solid ${C.border}`,background:C.card2,color:C.text,fontSize:12,boxSizing:"border-box",textAlign:"right"}}/></div>
+              </div>
+            )}
+            <div style={{display:"flex",gap:8,justifyContent:"flex-end",marginTop:16}}>
+              <button onClick={()=>setModal(false)} style={{padding:"8px 18px",borderRadius:8,border:`1px solid ${C.border}`,background:"transparent",color:C.muted,cursor:"pointer"}}>Cancelar</button>
+              <button onClick={modalType==="receta"?guardarReceta:guardarMaterial} style={{padding:"8px 18px",borderRadius:8,border:"none",background:"#854d0e",color:"#fff",cursor:"pointer",fontWeight:700}}>Guardar</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function PlaceholderModule({icon,title,desc}) {
   return (
     <div style={{padding:40,textAlign:"center",color:"#94a3b8"}}>
@@ -1434,10 +1884,10 @@ export default function AllegriaModule({usuarioActual, esAdmin, esSoloConsulta, 
         <Card>
           {subApp==="clientes"&&<ClientesModule data={data.clientes||[]} setData={setClientes} can={can}/>}
           {subApp==="productores"&&<ProductoresModule data={data.productores||[]} setData={setProductores} can={can}/>}
-          {subApp==="programa"&&<PlaceholderModule icon="📊" title="Programa Comercial" desc="Programa recepción kg/semana · Asignación productor→cliente por fruta/variedad"/>}
-          {subApp==="recepcion"&&<PlaceholderModule icon="🏭" title="Recepción & Proceso" desc="Recepción bins en packing · QC recepción · Proceso · Resultado · Informe a productor"/>}
-          {subApp==="stock"&&<PlaceholderModule icon="📦" title="Stock & Pallets" desc="Producto terminado (cajas × embalaje × calibre × variedad × color) · Codificación pallets · Inspección SAG · Stock disponible"/>}
-          {subApp==="materiales"&&<PlaceholderModule icon="🧱" title="Materiales & Inventario" desc="Maestro materiales · Recetas embalaje · Compras · Consumo (auto + ajustable) · Stock actual · Kardex"/>}
+          {subApp==="programa"&&<ProgramaComercialModule data={data.programaComercial||[]} setData={setProgramaComercial} productores={data.productores||[]} clientes={data.clientes||[]} can={can}/>}
+          {subApp==="recepcion"&&<RecepcionProcesoModule data={data.recepciones||[]} setData={setRecepciones} productores={data.productores||[]} can={can}/>}
+          {subApp==="stock"&&<StockPalletsModule data={data.stockPT||[]} setData={setStockPT} can={can}/>}
+          {subApp==="materiales"&&<MaterialesInventarioModule data={data.materiales||[]} setData={setMateriales} recetas={data.recetas||[]} setRecetas={setRecetas} embarques={data.embarques||[]} can={can}/>}
           {subApp==="embarques"&&<EmbarquesModule data={data.embarques||[]} setData={setEmbarques} clientes={data.clientes||[]} productores={data.productores||[]} can={can} temporada={tempSeleccionada}/>}
           {subApp==="liquidaciones"&&<div>
             <div style={{display:"flex",gap:8,marginBottom:14,flexWrap:"wrap"}}>
