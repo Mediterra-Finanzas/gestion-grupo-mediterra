@@ -26,7 +26,7 @@ async function dbLoad() {
 
 async function dbSave(value) {
   try {
-    // ── Protección anti-pérdida ──
+    // ── Protección anti-pérdida: osirisData ──
     const od = value?.osirisData;
     if(od) {
       const keys = ["contratos","obtentores","viveros","clientes"];
@@ -40,6 +40,27 @@ async function dbSave(value) {
       }
       if(!window._lastSavedCounts) window._lastSavedCounts = {};
       for(const k of keys) { if(Array.isArray(od[k]) && od[k].length > 0) window._lastSavedCounts[k] = od[k].length; }
+    }
+    // ── Protección anti-pérdida: usuarios y permisos ──
+    const usrs = value?.usuarios;
+    if(Array.isArray(usrs)) {
+      const minUsers = 6; // WORKERS_BASE tiene 6 usuarios mínimo
+      if(usrs.length < minUsers) {
+        console.warn(`[dbSave] ⚠️ BLOQUEADO: usuarios pasó de ${minUsers}+ a ${usrs.length}. No se permite reducir por debajo de WORKERS_BASE.`);
+        return;
+      }
+      const prevCount = window._lastSavedUsersCount || minUsers;
+      if(usrs.length < prevCount) {
+        console.warn(`[dbSave] ⚠️ BLOQUEADO: usuarios pasó de ${prevCount} a ${usrs.length}. Posible pérdida.`);
+        return;
+      }
+      window._lastSavedUsersCount = usrs.length;
+      // Verificar que ningún usuario de WORKERS_BASE perdió sus permisos
+      const admins = usrs.filter(u=>u.rol==="admin");
+      if(admins.length === 0) {
+        console.warn("[dbSave] ⚠️ BLOQUEADO: no hay ningún admin. Se requiere al menos 1 administrador.");
+        return;
+      }
     }
     await fetch(`${SUPA_URL}/rest/v1/calendario_data`, {
       method: "POST",
@@ -1358,19 +1379,29 @@ export default function App(){
             const merged=WORKERS_BASE.map(wb=>{
               const saved=d.usuarios.find(u=>u.nombre===wb.nombre || (u.email && wb.email && u.email.toLowerCase()===wb.email.toLowerCase()));
               if(!saved) return wb;
-              return {
-                ...saved,
-                // Módulos: usar los guardados en Supabase (admin los configura),
-                // solo si no hay guardados usar los del código base
-                modulos: (saved.modulos && saved.modulos.length > 0)
-                  ? saved.modulos
-                  : wb.modulos,
-                // Rol: respetar lo guardado en Supabase
-                rol: saved.rol || wb.rol,
-                // Permisos por pestaña: siempre preservar lo guardado
-                tab_permisos: saved.tab_permisos || {},
-                desactivado: saved.desactivado || false,
+              // WORKERS_BASE es fuente de verdad para: nombre, cargo, email, pin, esCFO
+              // Supabase es fuente de verdad para: rol, modulos, tab_permisos, desactivado
+              const merged_u = {
+                ...wb,                                    // base: nombre, cargo, email, pin, esCFO
+                rol: saved.rol || wb.rol,                 // admin configura rol
+                modulos: (Array.isArray(saved.modulos) && saved.modulos.length > 0)
+                  ? saved.modulos : wb.modulos,           // admin configura módulos
+                desactivado: saved.desactivado || false,   // admin desactiva
+                tab_permisos: saved.tab_permisos || {},    // admin configura permisos
               };
+              // Asegurar que tab_permisos tenga todos los tabs definidos en TABS_PERMISOS_CONFIG
+              // Si hay tabs nuevos que no existían cuando se guardaron los permisos, inicializarlos
+              (merged_u.modulos||[]).forEach(mod=>{
+                const tabsDef = TABS_PERMISOS_CONFIG[mod] || [];
+                if(tabsDef.length > 0 && !merged_u.tab_permisos[mod]) merged_u.tab_permisos[mod] = {};
+                tabsDef.forEach(t=>{
+                  if(merged_u.tab_permisos[mod] && merged_u.tab_permisos[mod][t.id] === undefined) {
+                    // Tab nuevo: dar acceso "editar" por defecto (admin puede restringir después)
+                    merged_u.tab_permisos[mod][t.id] = "editar";
+                  }
+                });
+              });
+              return merged_u;
             });
             // Usuarios extra agregados desde la app (no están en WORKERS_BASE)
             const baseEmails = new Set(WORKERS_BASE.map(wb=>(wb.email||"").toLowerCase()));
@@ -2111,9 +2142,32 @@ Equipo Mediterra`);
     return{v,a,r,g,total,pct:total>0?Math.round((v/total)*100):0};
   }
 
+  // Enviar email de bienvenida a nuevo usuario
+  async function enviarEmailBienvenida(nombre, email, pin, rol) {
+    try {
+      const appUrl = window.location.origin;
+      await fetch("https://api.emailjs.com/api/v1.0/email/send", {
+        method:"POST", headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({
+          service_id:"service_7uisg69",
+          template_id:"template_0m92glq",
+          user_id:"vJgNsLqJpkCi17Ucd",
+          template_params:{
+            to_email: email,
+            to_name: nombre,
+            subject: "🔑 Bienvenido a Gestión Grupo Mediterra",
+            message: `Hola ${nombre},\n\nSe ha creado tu cuenta en la plataforma Gestión Grupo Mediterra.\n\n📧 Tu email de acceso: ${email}\n🔑 Tu PIN temporal: ${pin}\n👤 Rol asignado: ${rol==="admin"?"Administrador":rol==="gerente_tecnico"?"Gte. Técnico":rol==="consulta"?"Consulta":"Editor"}\n\n🔗 Ingresa aquí: ${appUrl}\n\n⚠️ Por seguridad, cambia tu PIN después del primer ingreso desde Configuración.\n\nSaludos,\nGrupo Mediterra`
+          }
+        })
+      });
+      console.log(`[Email] ✅ Bienvenida enviada a ${email}`);
+    } catch(e) { console.warn("[Email] Error enviando bienvenida:", e); }
+  }
+
   function agregarUsuario(){
     if(!formUsuario.nombre.trim()||!formUsuario.email.trim()||!formUsuario.pin.trim()){alert("Nombre, email y PIN son obligatorios.");return;}
     if(usuarios.find(u=>u.nombre===formUsuario.nombre)){alert("Ya existe un usuario con ese nombre.");return;}
+    if(usuarios.find(u=>u.email.toLowerCase()===formUsuario.email.trim().toLowerCase())){alert("Ya existe un usuario con ese email.");return;}
     setUsuarios(prev=>[...prev,{...formUsuario,modulos:formUsuario.modulos||["tareas"],esCFO:formUsuario.rol==="admin",desactivado:false}]);
     if(copiarDe){
       todasTareas().filter(t=>t.responsable===copiarDe).forEach(t=>{
@@ -2122,6 +2176,9 @@ Equipo Mediterra`);
         setTareasConfig(prev=>({...prev,[id]:{...getConfig(t.id),bloqueada:false}}));
       });
     }
+    // Enviar email de bienvenida
+    enviarEmailBienvenida(formUsuario.nombre.trim(), formUsuario.email.trim(), formUsuario.pin.trim(), formUsuario.rol);
+    alert(`✅ Usuario "${formUsuario.nombre}" creado.\n📧 Se envió email de bienvenida a ${formUsuario.email} con su PIN temporal.`);
     setFormUsuario({nombre:"",cargo:"",email:"",pin:"",rol:"editor",modulos:["tareas"]});setCopiarDe("");setTabUsuarios("lista");
   }
   function guardarEdicionUsuario(){
@@ -2137,7 +2194,25 @@ Equipo Mediterra`);
   function resetPinUsuario(nombre){
     const pin=String(Math.floor(1000+Math.random()*9000));
     setPinsPersonalizados(prev=>({...prev,[nombre]:pin}));
-    alert(`PIN reseteado para ${nombre}.\nNuevo PIN temporal: ${pin}\n\nComparte este PIN de forma segura con el usuario.`);
+    const u = usuarios.find(x=>x.nombre===nombre);
+    if(u?.email) {
+      fetch("https://api.emailjs.com/api/v1.0/email/send", {
+        method:"POST", headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({
+          service_id:"service_7uisg69",
+          template_id:"template_0m92glq",
+          user_id:"vJgNsLqJpkCi17Ucd",
+          template_params:{
+            to_email: u.email,
+            to_name: nombre,
+            subject: "🔑 PIN reseteado — Gestión Grupo Mediterra",
+            message: `Hola ${nombre},\n\nTu PIN de acceso ha sido reseteado.\n\n🔑 Tu nuevo PIN temporal: ${pin}\n\n⚠️ Por seguridad, cambia tu PIN después de ingresar desde Configuración.\n\nSaludos,\nGrupo Mediterra`
+          }
+        })
+      }).then(()=>console.log(`[Email] ✅ Reset PIN enviado a ${u.email}`))
+        .catch(e=>console.warn("[Email] Error:", e));
+    }
+    alert(`PIN reseteado para ${nombre}.\nNuevo PIN: ${pin}\n📧 Se envió email al usuario con el nuevo PIN.`);
   }
   function iniciarEdicion(u){
     setFormUsuario({nombre:u.nombre,cargo:u.cargo||"",email:u.email,pin:"",rol:u.rol||"editor",modulos:Array.isArray(u.modulos)?u.modulos:["tareas"]});
