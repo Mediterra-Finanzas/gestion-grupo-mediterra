@@ -4451,70 +4451,305 @@ body{font-family:'Segoe UI',system-ui,sans-serif;color:#1e293b;font-size:12px;li
               </div>
             </div>
             {inf.estado==="Rechazado"&&inf.observacionesRechazo&&<div style={{padding:"10px 14px",background:"#fef2f2",border:"1px solid #fecaca",borderRadius:8,marginBottom:14,fontSize:12,color:"#991b1b"}}>❌ <strong>Rechazado por {inf.revisor}:</strong> {inf.observacionesRechazo}</div>}
-            {/* Formulario 9 secciones */}
-            <div style={{background:"#fff",border:"1px solid #e2e8f0",borderRadius:12,padding:"20px 24px"}}>
-              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:16}}>
-                <Select label="Tipo *" value={inf.tipo} onChange={v=>updInf("tipo",v)} opts={TIPOS_VISITA} disabled={!puedeEditar}/>
-                <Input label="Título *" value={inf.titulo} onChange={v=>updInf("titulo",v)} disabled={!puedeEditar}/>
-                <Input label="Fecha *" value={inf.fecha} onChange={v=>updInf("fecha",v)} type="date" disabled={!puedeEditar}/>
-                <div><div style={{fontSize:11,color:"#64748b",fontWeight:600,marginBottom:3}}>Cliente</div><ClienteSelect value={inf.ctId} onChange={v=>updInf("ctId",v)} disabled={!puedeEditar}/></div>
-                <Input label="Especie" value={inf.especie} onChange={v=>updInf("especie",v)} disabled={!puedeEditar}/>
-                <Input label="Variedad" value={inf.variedad} onChange={v=>updInf("variedad",v)} disabled={!puedeEditar}/>
-                <Input label="Predio / Ubicación" value={inf.lugar} onChange={v=>updInf("lugar",v)} disabled={!puedeEditar}/>
-                <Input label="Responsable" value={inf.responsable} onChange={v=>updInf("responsable",v)} disabled={!puedeEditar}/>
-              </div>
-              <Input label="1. Objetivo" value={inf.objetivo} onChange={v=>updInf("objetivo",v)} rows={3} disabled={!puedeEditar}/>
-              <div style={{height:8}}/>
-              <Input label="2. Observaciones de campo" value={inf.observacionesCampo} onChange={v=>updInf("observacionesCampo",v)} rows={4} disabled={!puedeEditar}/>
-              <div style={{height:8}}/>
-              <Input label="3. Recomendaciones" value={inf.recomendaciones} onChange={v=>updInf("recomendaciones",v)} rows={3} disabled={!puedeEditar}/>
-              <div style={{height:8}}/>
-              <Input label="4. Medidas correctivas" value={inf.medidasCorrectivas} onChange={v=>updInf("medidasCorrectivas",v)} rows={3} disabled={!puedeEditar} placeholder="[Urgente] Reparar riego — plazo: 30 abril&#10;[Media] Ajustar dosis — plazo: 15 mayo"/>
-              <div style={{height:8}}/>
-              {/* Fotos */}
-              <div>
-                <div style={{fontSize:11,color:"#64748b",fontWeight:600,marginBottom:6}}>5. Registro fotográfico</div>
-                {(()=>{
-                  const fotos = (inf.registroFotografico||"").split(",").map(u=>u.trim()).filter(Boolean);
-                  return fotos.length>0?(
-                    <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(130px,1fr))",gap:8,marginBottom:10}}>
-                      {fotos.map((url,fi)=>(
-                        <div key={fi} style={{position:"relative",borderRadius:8,overflow:"hidden",border:"1px solid #e2e8f0"}}>
-                          <img src={url} alt={`Foto ${fi+1}`} style={{width:"100%",height:90,objectFit:"cover",display:"block"}} onError={e=>{e.target.style.display="none";}}/>
-                          {puedeEditar&&<button onClick={()=>{const n=fotos.filter((_,i)=>i!==fi);updInf("registroFotografico",n.join(", "));}} style={{position:"absolute",top:3,right:3,width:20,height:20,borderRadius:4,background:"rgba(0,0,0,0.6)",color:"#fff",border:"none",cursor:"pointer",fontSize:11,display:"flex",alignItems:"center",justifyContent:"center"}}>×</button>}
+            {/* Formulario Informe Técnico — 13 secciones */}
+            {(()=>{
+              const SECCIONES=[
+                {id:"encabezado",label:"A. Encabezado"},
+                {id:"resumen",label:"B. Resumen"},
+                {id:"fenologia",label:"C. Fenología"},
+                {id:"riego",label:"D. Riego"},
+                {id:"nutricion",label:"E. Nutrición"},
+                {id:"fitosanitario",label:"F. Fitosanitario"},
+                {id:"labores",label:"G. Labores"},
+                {id:"sanidad",label:"H. Sanidad"},
+                {id:"suelo",label:"I. Suelo"},
+                {id:"desarrollo",label:"J. Desarrollo"},
+                {id:"recomendaciones",label:"K. Recomendaciones"},
+                {id:"fotos",label:"L. Fotos"},
+                {id:"conclusion",label:"M. Conclusión"},
+              ];
+              const secTab = inf._secTab || "encabezado";
+              const setSecTab = v => updInf("_secTab", v);
+              const UNIFORMIDAD=["Alta","Media","Baja"];
+              const NIVELES=["Baja","Media","Alta"];
+              const CALIDAD_EJEC=["Buena","Regular","Deficiente"];
+              const PRIORIDADES=["Alta","Media","Baja"];
+              const AREAS_REC=["Riego","Nutrición","Sanidad","Poda","Cosecha","Otro"];
+              const ESTADOS_FENOL=["Brotación","Floración","Cuaja","Desarrollo de fruto","Cosecha","Postcosecha","Receso"];
+              const HUMEDAD=["Baja","Adecuada","Excesiva"];
+              const SISTEMAS_RIEGO=["Goteo","Microaspersión","Aspersión","Surco","Pivote","Otro"];
+              const LABORES_CULT=["Poda","Amarra / conducción","Raleo","Manejo de brotes","Control de malezas","Manejo de mulch","Manejo de camellones / sustrato","Limpieza de entrehilera","Cosecha"];
+              const TIPOS_PROB=["Plaga","Enfermedad","Fisiopatía"];
+              const CATS_FOTO=["General","Planta","Fruta","Suelo","Problema","Aplicación","Labor cultural"];
+
+              // Helpers para arrays dentro del informe
+              const getArr = (campo) => Array.isArray(inf[campo]) ? inf[campo] : [];
+              const updArr = (campo, val) => updInf(campo, val);
+              const addToArr = (campo, item) => updArr(campo, [...getArr(campo), {...item, id:`it_${Date.now()}`}]);
+              const updInArr = (campo, id, field, val) => updArr(campo, getArr(campo).map(x=>x.id===id?{...x,[field]:val}:x));
+              const delFromArr = (campo, id) => updArr(campo, getArr(campo).filter(x=>x.id!==id));
+
+              return(
+                <div style={{background:"#fff",border:"1px solid #e2e8f0",borderRadius:12,overflow:"hidden"}}>
+                  {/* Tabs de secciones */}
+                  <div style={{display:"flex",flexWrap:"wrap",gap:0,borderBottom:"1px solid #e2e8f0",background:"#f8fafc",padding:"8px 12px 0"}}>
+                    {SECCIONES.map(s=>(
+                      <button key={s.id} onClick={()=>setSecTab(s.id)}
+                        style={{padding:"6px 10px",fontSize:10,fontWeight:secTab===s.id?700:500,color:secTab===s.id?"#7c3aed":"#64748b",background:"transparent",border:"none",borderBottom:secTab===s.id?"2px solid #7c3aed":"2px solid transparent",cursor:"pointer",marginBottom:-1}}>{s.label}</button>
+                    ))}
+                  </div>
+                  <div style={{padding:"20px 24px"}}>
+
+                  {/* A. ENCABEZADO */}
+                  {secTab==="encabezado"&&(
+                    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+                      <Select label="Tipo visita *" value={inf.tipo} onChange={v=>updInf("tipo",v)} opts={TIPOS_VISITA} disabled={!puedeEditar}/>
+                      <Input label="Título / N° informe *" value={inf.titulo} onChange={v=>updInf("titulo",v)} disabled={!puedeEditar}/>
+                      <Input label="Fecha visita *" value={inf.fecha} onChange={v=>updInf("fecha",v)} type="date" disabled={!puedeEditar}/>
+                      <div><div style={{fontSize:11,color:"#64748b",fontWeight:600,marginBottom:3}}>Cliente</div><ClienteSelect value={inf.ctId} onChange={v=>updInf("ctId",v)} disabled={!puedeEditar}/></div>
+                      <Input label="Campo / Predio" value={inf.lugar} onChange={v=>updInf("lugar",v)} disabled={!puedeEditar}/>
+                      <Input label="Ubicación" value={inf.ubicacion} onChange={v=>updInf("ubicacion",v)} disabled={!puedeEditar}/>
+                      <Input label="Especie" value={inf.especie} onChange={v=>updInf("especie",v)} disabled={!puedeEditar}/>
+                      <Input label="Variedad" value={inf.variedad} onChange={v=>updInf("variedad",v)} disabled={!puedeEditar}/>
+                      <Input label="Superficie evaluada (há)" value={inf.superficie} onChange={v=>updInf("superficie",v)} disabled={!puedeEditar}/>
+                      <Input label="Temporada" value={inf.temporada} onChange={v=>updInf("temporada",v)} disabled={!puedeEditar} placeholder="2025/2026"/>
+                      <Input label="Técnico responsable" value={inf.responsable} onChange={v=>updInf("responsable",v)} disabled={!puedeEditar}/>
+                    </div>
+                  )}
+
+                  {/* B. RESUMEN */}
+                  {secTab==="resumen"&&(
+                    <Input label="Resumen general de la visita" value={inf.resumenGeneral} onChange={v=>updInf("resumenGeneral",v)} rows={6} disabled={!puedeEditar} placeholder="Estado general del huerto, principales observaciones..."/>
+                  )}
+
+                  {/* C. FENOLOGÍA */}
+                  {secTab==="fenologia"&&(
+                    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+                      <Select label="Estado fenológico actual" value={inf.fenologiaEstado} onChange={v=>updInf("fenologiaEstado",v)} opts={ESTADOS_FENOL} disabled={!puedeEditar}/>
+                      <Select label="Uniformidad del huerto" value={inf.fenologiaUniformidad} onChange={v=>updInf("fenologiaUniformidad",v)} opts={UNIFORMIDAD} disabled={!puedeEditar}/>
+                      <div style={{gridColumn:"1/-1"}}><Input label="Observaciones fenológicas" value={inf.fenologiaObs} onChange={v=>updInf("fenologiaObs",v)} rows={3} disabled={!puedeEditar}/></div>
+                    </div>
+                  )}
+
+                  {/* D. RIEGO */}
+                  {secTab==="riego"&&(
+                    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+                      <Select label="Sistema de riego" value={inf.riegoSistema} onChange={v=>updInf("riegoSistema",v)} opts={SISTEMAS_RIEGO} disabled={!puedeEditar}/>
+                      <Input label="Frecuencia semanal" value={inf.riegoFrecuencia} onChange={v=>updInf("riegoFrecuencia",v)} disabled={!puedeEditar}/>
+                      <Input label="Duración por evento (min)" value={inf.riegoDuracion} onChange={v=>updInf("riegoDuracion",v)} disabled={!puedeEditar}/>
+                      <Input label="Volumen estimado" value={inf.riegoVolumen} onChange={v=>updInf("riegoVolumen",v)} disabled={!puedeEditar}/>
+                      <Select label="Humedad observada" value={inf.riegoHumedad} onChange={v=>updInf("riegoHumedad",v)} opts={HUMEDAD} disabled={!puedeEditar}/>
+                      <Select label="Uniformidad riego" value={inf.riegoUniformidad} onChange={v=>updInf("riegoUniformidad",v)} opts={CALIDAD_EJEC} disabled={!puedeEditar}/>
+                      <div style={{gridColumn:"1/-1"}}><Input label="Observación técnica" value={inf.riegoObs} onChange={v=>updInf("riegoObs",v)} rows={2} disabled={!puedeEditar}/></div>
+                      <div style={{gridColumn:"1/-1"}}><Input label="Recomendación riego" value={inf.riegoRec} onChange={v=>updInf("riegoRec",v)} rows={2} disabled={!puedeEditar}/></div>
+                    </div>
+                  )}
+
+                  {/* E. NUTRICIÓN */}
+                  {secTab==="nutricion"&&(
+                    <div>
+                      <Input label="Programa nutricional actual" value={inf.nutricionPrograma} onChange={v=>updInf("nutricionPrograma",v)} rows={2} disabled={!puedeEditar}/>
+                      <div style={{height:8}}/>
+                      <Input label="Síntomas de deficiencia o exceso" value={inf.nutricionSintomas} onChange={v=>updInf("nutricionSintomas",v)} rows={2} disabled={!puedeEditar}/>
+                      <div style={{height:8}}/>
+                      <Input label="Recomendaciones nutricionales" value={inf.nutricionRec} onChange={v=>updInf("nutricionRec",v)} rows={2} disabled={!puedeEditar}/>
+                      <div style={{marginTop:12,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                        <div style={{fontSize:12,fontWeight:700,color:"#1e293b"}}>Tabla de aplicaciones</div>
+                        {puedeEditar&&<button onClick={()=>addToArr("nutricionAplicaciones",{fecha:"",producto:"",dosis:"",via:"",objetivo:"",obs:""})} style={{padding:"4px 12px",borderRadius:6,background:"#7c3aed",border:"none",color:"#fff",cursor:"pointer",fontSize:10,fontWeight:700}}>+ Agregar</button>}
+                      </div>
+                      {getArr("nutricionAplicaciones").length>0&&(
+                        <div style={{overflowX:"auto",marginTop:8}}>
+                          <table style={{width:"100%",borderCollapse:"collapse",fontSize:11}}>
+                            <thead><tr style={{background:"#f8fafc"}}>{["Fecha","Producto","Dosis","Vía","Objetivo","Obs",""].map(h=><th key={h} style={{padding:"5px 8px",textAlign:"left",color:"#64748b",fontSize:10}}>{h}</th>)}</tr></thead>
+                            <tbody>{getArr("nutricionAplicaciones").map(a=>(
+                              <tr key={a.id} style={{borderBottom:"1px solid #f1f5f9"}}>
+                                {["fecha","producto","dosis","via","objetivo","obs"].map(f=><td key={f} style={{padding:"4px 6px"}}><input disabled={!puedeEditar} value={a[f]||""} onChange={e=>updInArr("nutricionAplicaciones",a.id,f,e.target.value)} style={{width:"100%",padding:"3px 5px",border:"1px solid #e2e8f0",borderRadius:4,fontSize:10,boxSizing:"border-box"}}/></td>)}
+                                <td>{puedeEditar&&<button onClick={()=>delFromArr("nutricionAplicaciones",a.id)} style={{background:"#fef2f2",border:"none",borderRadius:4,padding:"2px 6px",cursor:"pointer",fontSize:10,color:"#991b1b"}}>🗑</button>}</td>
+                              </tr>))}</tbody>
+                          </table>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* F. FITOSANITARIO */}
+                  {secTab==="fitosanitario"&&(
+                    <div>
+                      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+                        <div style={{fontSize:12,fontWeight:700,color:"#1e293b"}}>Aplicaciones fitosanitarias</div>
+                        {puedeEditar&&<button onClick={()=>addToArr("fitoAplicaciones",{fecha:"",producto:"",dosis:"",objetivo:"",resultado:"",rec:""})} style={{padding:"4px 12px",borderRadius:6,background:"#7c3aed",border:"none",color:"#fff",cursor:"pointer",fontSize:10,fontWeight:700}}>+ Agregar</button>}
+                      </div>
+                      {getArr("fitoAplicaciones").length>0&&(
+                        <div style={{overflowX:"auto"}}>
+                          <table style={{width:"100%",borderCollapse:"collapse",fontSize:11}}>
+                            <thead><tr style={{background:"#f8fafc"}}>{["Fecha","Producto","Dosis","Objetivo","Resultado","Recomendación",""].map(h=><th key={h} style={{padding:"5px 8px",textAlign:"left",color:"#64748b",fontSize:10}}>{h}</th>)}</tr></thead>
+                            <tbody>{getArr("fitoAplicaciones").map(a=>(
+                              <tr key={a.id} style={{borderBottom:"1px solid #f1f5f9"}}>
+                                {["fecha","producto","dosis","objetivo","resultado","rec"].map(f=><td key={f} style={{padding:"4px 6px"}}><input disabled={!puedeEditar} value={a[f]||""} onChange={e=>updInArr("fitoAplicaciones",a.id,f,e.target.value)} style={{width:"100%",padding:"3px 5px",border:"1px solid #e2e8f0",borderRadius:4,fontSize:10,boxSizing:"border-box"}}/></td>)}
+                                <td>{puedeEditar&&<button onClick={()=>delFromArr("fitoAplicaciones",a.id)} style={{background:"#fef2f2",border:"none",borderRadius:4,padding:"2px 6px",cursor:"pointer",fontSize:10,color:"#991b1b"}}>🗑</button>}</td>
+                              </tr>))}</tbody>
+                          </table>
+                        </div>
+                      )}
+                      {getArr("fitoAplicaciones").length===0&&<div style={{padding:16,textAlign:"center",color:"#94a3b8",fontSize:11}}>Sin aplicaciones registradas.</div>}
+                    </div>
+                  )}
+
+                  {/* G. LABORES CULTURALES */}
+                  {secTab==="labores"&&(
+                    <div>
+                      {LABORES_CULT.map(lab=>{
+                        const key = `labor_${lab.replace(/[^a-zA-Z]/g,"_")}`;
+                        const d = inf[key] || {};
+                        const updL = (f,v) => updInf(key, {...d,[f]:v});
+                        return(
+                          <div key={lab} style={{display:"grid",gridTemplateColumns:"2fr 1fr 1fr 2fr 2fr",gap:8,alignItems:"center",padding:"6px 0",borderBottom:"1px solid #f1f5f9",fontSize:11}}>
+                            <div style={{fontWeight:600,color:"#1e293b"}}>{lab}</div>
+                            <select disabled={!puedeEditar} value={d.estado||""} onChange={e=>updL("estado",e.target.value)} style={{padding:"4px 6px",borderRadius:4,border:"1px solid #e2e8f0",fontSize:10}}>
+                              <option value="">—</option><option>Realizado</option><option>Pendiente</option><option>No aplica</option>
+                            </select>
+                            <select disabled={!puedeEditar} value={d.calidad||""} onChange={e=>updL("calidad",e.target.value)} style={{padding:"4px 6px",borderRadius:4,border:"1px solid #e2e8f0",fontSize:10}}>
+                              <option value="">—</option>{CALIDAD_EJEC.map(c=><option key={c}>{c}</option>)}
+                            </select>
+                            <input disabled={!puedeEditar} value={d.obs||""} placeholder="Observación" onChange={e=>updL("obs",e.target.value)} style={{padding:"4px 6px",borderRadius:4,border:"1px solid #e2e8f0",fontSize:10}}/>
+                            <input disabled={!puedeEditar} value={d.rec||""} placeholder="Recomendación" onChange={e=>updL("rec",e.target.value)} style={{padding:"4px 6px",borderRadius:4,border:"1px solid #e2e8f0",fontSize:10}}/>
+                          </div>);
+                      })}
+                      <div style={{fontSize:9,color:"#94a3b8",marginTop:6}}>Columnas: Labor | Estado | Calidad ejecución | Observación | Recomendación</div>
+                    </div>
+                  )}
+
+                  {/* H. SANIDAD VEGETAL */}
+                  {secTab==="sanidad"&&(
+                    <div>
+                      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+                        <div style={{fontSize:12,fontWeight:700,color:"#1e293b"}}>Problemas detectados</div>
+                        {puedeEditar&&<button onClick={()=>addToArr("sanidadProblemas",{problema:"",tipo:"Plaga",incidencia:"Baja",severidad:"Baja",sector:"",accion:""})} style={{padding:"4px 12px",borderRadius:6,background:"#7c3aed",border:"none",color:"#fff",cursor:"pointer",fontSize:10,fontWeight:700}}>+ Agregar</button>}
+                      </div>
+                      {getArr("sanidadProblemas").map(p=>(
+                        <div key={p.id} style={{display:"grid",gridTemplateColumns:"2fr 1fr 1fr 1fr 1fr 2fr auto",gap:6,padding:"6px 0",borderBottom:"1px solid #f1f5f9",fontSize:11,alignItems:"center"}}>
+                          <input disabled={!puedeEditar} value={p.problema||""} placeholder="Problema" onChange={e=>updInArr("sanidadProblemas",p.id,"problema",e.target.value)} style={{padding:"4px 6px",borderRadius:4,border:"1px solid #e2e8f0",fontSize:10}}/>
+                          <select disabled={!puedeEditar} value={p.tipo||""} onChange={e=>updInArr("sanidadProblemas",p.id,"tipo",e.target.value)} style={{padding:"4px 6px",borderRadius:4,border:"1px solid #e2e8f0",fontSize:10}}>{TIPOS_PROB.map(t=><option key={t}>{t}</option>)}</select>
+                          <select disabled={!puedeEditar} value={p.incidencia||""} onChange={e=>updInArr("sanidadProblemas",p.id,"incidencia",e.target.value)} style={{padding:"4px 6px",borderRadius:4,border:"1px solid #e2e8f0",fontSize:10}}>{NIVELES.map(n=><option key={n}>{n}</option>)}</select>
+                          <select disabled={!puedeEditar} value={p.severidad||""} onChange={e=>updInArr("sanidadProblemas",p.id,"severidad",e.target.value)} style={{padding:"4px 6px",borderRadius:4,border:"1px solid #e2e8f0",fontSize:10}}>{NIVELES.map(n=><option key={n}>{n}</option>)}</select>
+                          <input disabled={!puedeEditar} value={p.sector||""} placeholder="Sector" onChange={e=>updInArr("sanidadProblemas",p.id,"sector",e.target.value)} style={{padding:"4px 6px",borderRadius:4,border:"1px solid #e2e8f0",fontSize:10}}/>
+                          <input disabled={!puedeEditar} value={p.accion||""} placeholder="Acción recomendada" onChange={e=>updInArr("sanidadProblemas",p.id,"accion",e.target.value)} style={{padding:"4px 6px",borderRadius:4,border:"1px solid #e2e8f0",fontSize:10}}/>
+                          {puedeEditar&&<button onClick={()=>delFromArr("sanidadProblemas",p.id)} style={{background:"#fef2f2",border:"none",borderRadius:4,padding:"2px 6px",cursor:"pointer",fontSize:10,color:"#991b1b"}}>🗑</button>}
                         </div>
                       ))}
+                      {getArr("sanidadProblemas").length===0&&<div style={{padding:16,textAlign:"center",color:"#94a3b8",fontSize:11}}>Sin problemas registrados.</div>}
                     </div>
-                  ):null;
-                })()}
-                {puedeEditar&&<div style={{display:"flex",gap:8}}>
-                  <label style={{padding:"6px 12px",borderRadius:8,background:"#16a34a",color:"#fff",cursor:"pointer",fontSize:11,fontWeight:700,display:"inline-flex",alignItems:"center",gap:4}}>
-                    📷 Subir foto
-                    <input type="file" accept="image/*" multiple style={{display:"none"}} onChange={async(e)=>{
-                      const files=Array.from(e.target.files||[]);if(!files.length)return;
-                      const actuales=(inf.registroFotografico||"").split(",").map(u=>u.trim()).filter(Boolean);
-                      let urls=[...actuales];
-                      for(const f of files){try{const url=await uploadFoto(f,inf.id);urls.push(url);}catch(err){alert(`Error: ${err.message}`);}}
-                      updInf("registroFotografico",urls.join(", "));e.target.value="";
-                    }}/>
-                  </label>
-                  <button onClick={()=>{const u=window.prompt("URL de foto:");if(u&&u.trim()){const a=(inf.registroFotografico||"").split(",").map(x=>x.trim()).filter(Boolean);updInf("registroFotografico",[...a,u.trim()].join(", "));}}} style={{padding:"6px 12px",borderRadius:8,background:"#f1f5f9",border:"1px solid #d1d5db",cursor:"pointer",fontSize:11,fontWeight:600}}>🔗 URL</button>
-                </div>}
-              </div>
-              <div style={{height:8}}/>
-              <Input label="6. Conclusiones" value={inf.conclusiones} onChange={v=>updInf("conclusiones",v)} rows={3} disabled={!puedeEditar}/>
-              <div style={{height:8}}/>
-              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
-                <Input label="7. Próxima visita — fecha" value={inf.proximaVisitaFecha} onChange={v=>updInf("proximaVisitaFecha",v)} type="date" disabled={!puedeEditar}/>
-                <Input label="7. Próxima visita — objetivo" value={inf.proximaVisitaObjetivo} onChange={v=>updInf("proximaVisitaObjetivo",v)} disabled={!puedeEditar}/>
-              </div>
-              {/* Firmas */}
-              <div style={{marginTop:16,padding:"12px 16px",background:"#f8fafc",borderRadius:8,display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:12,fontSize:12}}>
-                <div><div style={{fontSize:10,color:"#94a3b8"}}>Elaborado por</div><div style={{fontWeight:600}}>{inf.responsable||"—"}</div></div>
-                <div><div style={{fontSize:10,color:"#94a3b8"}}>Revisado por</div><div style={{fontWeight:600}}>{inf.revisor||"(Pendiente)"}</div>{inf.fechaAprobacion&&<div style={{fontSize:10,color:"#16a34a"}}>Aprobado {inf.fechaAprobacion}</div>}</div>
-                <div><div style={{fontSize:10,color:"#94a3b8"}}>Estado</div><BadgeEstado estado={inf.estado}/></div>
-              </div>
-            </div>
+                  )}
+
+                  {/* I. SUELO */}
+                  {secTab==="suelo"&&(
+                    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+                      <Select label="Condición humedad" value={inf.sueloHumedad} onChange={v=>updInf("sueloHumedad",v)} opts={HUMEDAD} disabled={!puedeEditar}/>
+                      <Select label="Drenaje" value={inf.sueloDrenaje} onChange={v=>updInf("sueloDrenaje",v)} opts={CALIDAD_EJEC} disabled={!puedeEditar}/>
+                      <Select label="Compactación" value={inf.sueloCompactacion} onChange={v=>updInf("sueloCompactacion",v)} opts={NIVELES} disabled={!puedeEditar}/>
+                      <Input label="pH" value={inf.sueloPH} onChange={v=>updInf("sueloPH",v)} disabled={!puedeEditar}/>
+                      <Input label="CE (dS/m)" value={inf.sueloCE} onChange={v=>updInf("sueloCE",v)} disabled={!puedeEditar}/>
+                      <Select label="Estado de raíces" value={inf.sueloRaices} onChange={v=>updInf("sueloRaices",v)} opts={CALIDAD_EJEC} disabled={!puedeEditar}/>
+                      <div style={{gridColumn:"1/-1"}}><Input label="Observaciones calicata / suelo" value={inf.sueloObs} onChange={v=>updInf("sueloObs",v)} rows={3} disabled={!puedeEditar}/></div>
+                    </div>
+                  )}
+
+                  {/* J. DESARROLLO */}
+                  {secTab==="desarrollo"&&(
+                    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+                      <Select label="Vigor" value={inf.desarrolloVigor} onChange={v=>updInf("desarrolloVigor",v)} opts={NIVELES} disabled={!puedeEditar}/>
+                      <Select label="Uniformidad plantas" value={inf.desarrolloUniformidad} onChange={v=>updInf("desarrolloUniformidad",v)} opts={UNIFORMIDAD} disabled={!puedeEditar}/>
+                      <Input label="Carga frutal" value={inf.desarrolloCarga} onChange={v=>updInf("desarrolloCarga",v)} disabled={!puedeEditar}/>
+                      <Input label="Estimación productiva (kg/há)" value={inf.desarrolloEstimacion} onChange={v=>updInf("desarrolloEstimacion",v)} disabled={!puedeEditar}/>
+                      <Input label="Calidad esperada" value={inf.desarrolloCalidad} onChange={v=>updInf("desarrolloCalidad",v)} disabled={!puedeEditar}/>
+                      <Input label="Calibre esperado" value={inf.desarrolloCalibre} onChange={v=>updInf("desarrolloCalibre",v)} disabled={!puedeEditar}/>
+                      <Input label="Condición de fruta" value={inf.desarrolloCondicion} onChange={v=>updInf("desarrolloCondicion",v)} disabled={!puedeEditar}/>
+                      <Input label="Fecha estimada cosecha" value={inf.desarrolloFechaCosecha} onChange={v=>updInf("desarrolloFechaCosecha",v)} type="date" disabled={!puedeEditar}/>
+                    </div>
+                  )}
+
+                  {/* K. RECOMENDACIONES */}
+                  {secTab==="recomendaciones"&&(
+                    <div>
+                      {["Inmediatas (próximos días)","Corto plazo (próximas semanas)","De temporada (resto del ciclo)"].map((grupo,gi)=>{
+                        const campo = ["recInmediatas","recCortoPlazo","recTemporada"][gi];
+                        return(
+                          <div key={grupo} style={{marginBottom:16}}>
+                            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
+                              <div style={{fontSize:12,fontWeight:700,color:"#1e293b"}}>{grupo}</div>
+                              {puedeEditar&&<button onClick={()=>addToArr(campo,{area:"",accion:"",responsable:"",plazo:"",prioridad:"Media"})} style={{padding:"3px 10px",borderRadius:6,background:"#7c3aed",border:"none",color:"#fff",cursor:"pointer",fontSize:10,fontWeight:700}}>+</button>}
+                            </div>
+                            {getArr(campo).map(r=>(
+                              <div key={r.id} style={{display:"grid",gridTemplateColumns:"1fr 2fr 1fr 1fr 1fr auto",gap:6,padding:"4px 0",borderBottom:"1px solid #f1f5f9",fontSize:11,alignItems:"center"}}>
+                                <select disabled={!puedeEditar} value={r.area||""} onChange={e=>updInArr(campo,r.id,"area",e.target.value)} style={{padding:"4px 6px",borderRadius:4,border:"1px solid #e2e8f0",fontSize:10}}><option value="">Área</option>{AREAS_REC.map(a=><option key={a}>{a}</option>)}</select>
+                                <input disabled={!puedeEditar} value={r.accion||""} placeholder="Acción" onChange={e=>updInArr(campo,r.id,"accion",e.target.value)} style={{padding:"4px 6px",borderRadius:4,border:"1px solid #e2e8f0",fontSize:10}}/>
+                                <input disabled={!puedeEditar} value={r.responsable||""} placeholder="Responsable" onChange={e=>updInArr(campo,r.id,"responsable",e.target.value)} style={{padding:"4px 6px",borderRadius:4,border:"1px solid #e2e8f0",fontSize:10}}/>
+                                <input disabled={!puedeEditar} value={r.plazo||""} placeholder="Plazo" onChange={e=>updInArr(campo,r.id,"plazo",e.target.value)} style={{padding:"4px 6px",borderRadius:4,border:"1px solid #e2e8f0",fontSize:10}}/>
+                                <select disabled={!puedeEditar} value={r.prioridad||"Media"} onChange={e=>updInArr(campo,r.id,"prioridad",e.target.value)} style={{padding:"4px 6px",borderRadius:4,border:"1px solid #e2e8f0",fontSize:10,fontWeight:700,color:r.prioridad==="Alta"?"#dc2626":r.prioridad==="Baja"?"#16a34a":"#d97706"}}>{PRIORIDADES.map(p=><option key={p}>{p}</option>)}</select>
+                                {puedeEditar&&<button onClick={()=>delFromArr(campo,r.id)} style={{background:"#fef2f2",border:"none",borderRadius:4,padding:"2px 6px",cursor:"pointer",fontSize:10,color:"#991b1b"}}>🗑</button>}
+                              </div>
+                            ))}
+                            {getArr(campo).length===0&&<div style={{padding:8,color:"#94a3b8",fontSize:10}}>Sin recomendaciones.</div>}
+                          </div>);
+                      })}
+                    </div>
+                  )}
+
+                  {/* L. FOTOS */}
+                  {secTab==="fotos"&&(
+                    <div>
+                      <div style={{fontSize:11,color:"#64748b",fontWeight:600,marginBottom:8}}>Registro fotográfico</div>
+                      {(()=>{
+                        const fotos = getArr("fotosInforme");
+                        return(
+                          <div>
+                            {fotos.length>0&&(
+                              <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(200px,1fr))",gap:10,marginBottom:12}}>
+                                {fotos.map(f=>(
+                                  <div key={f.id} style={{border:"1px solid #e2e8f0",borderRadius:8,overflow:"hidden"}}>
+                                    {f.url&&<img src={f.url} alt="" style={{width:"100%",height:120,objectFit:"cover"}} onError={e=>{e.target.style.display="none";}}/>}
+                                    <div style={{padding:8,fontSize:10}}>
+                                      <input disabled={!puedeEditar} value={f.descripcion||""} placeholder="Descripción" onChange={e=>updInArr("fotosInforme",f.id,"descripcion",e.target.value)} style={{width:"100%",padding:"3px 5px",border:"1px solid #e2e8f0",borderRadius:4,fontSize:10,marginBottom:4,boxSizing:"border-box"}}/>
+                                      <select disabled={!puedeEditar} value={f.categoria||""} onChange={e=>updInArr("fotosInforme",f.id,"categoria",e.target.value)} style={{width:"100%",padding:"3px 5px",border:"1px solid #e2e8f0",borderRadius:4,fontSize:10,marginBottom:4}}>
+                                        <option value="">Categoría</option>{CATS_FOTO.map(c=><option key={c}>{c}</option>)}</select>
+                                      {puedeEditar&&<button onClick={()=>delFromArr("fotosInforme",f.id)} style={{background:"#fef2f2",border:"none",borderRadius:4,padding:"2px 6px",cursor:"pointer",fontSize:10,color:"#991b1b",width:"100%"}}>🗑 Eliminar</button>}
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                            {puedeEditar&&<div style={{display:"flex",gap:8}}>
+                              <button onClick={()=>addToArr("fotosInforme",{url:"",descripcion:"",categoria:"",sector:""})} style={{padding:"6px 14px",borderRadius:8,background:"#16a34a",color:"#fff",border:"none",cursor:"pointer",fontSize:11,fontWeight:700}}>📷 Agregar foto (URL)</button>
+                            </div>}
+                            {fotos.length===0&&<div style={{padding:20,textAlign:"center",color:"#94a3b8",fontSize:11}}>Sin fotos. Agrega URLs de imágenes.</div>}
+                          </div>
+                        );
+                      })()}
+                    </div>
+                  )}
+
+                  {/* M. CONCLUSIÓN */}
+                  {secTab==="conclusion"&&(
+                    <div>
+                      <Input label="Conclusión técnica" value={inf.conclusionTecnica} onChange={v=>updInf("conclusionTecnica",v)} rows={5} disabled={!puedeEditar} placeholder="Estado general, principales riesgos, potencial productivo, acciones críticas..."/>
+                      <div style={{height:12}}/>
+                      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+                        <Input label="Próxima visita — fecha sugerida" value={inf.proximaVisitaFecha} onChange={v=>updInf("proximaVisitaFecha",v)} type="date" disabled={!puedeEditar}/>
+                        <Input label="Próxima visita — objetivo" value={inf.proximaVisitaObjetivo} onChange={v=>updInf("proximaVisitaObjetivo",v)} disabled={!puedeEditar}/>
+                      </div>
+                    </div>
+                  )}
+
+                  </div>
+                  {/* Firmas */}
+                  <div style={{padding:"12px 24px",background:"#f8fafc",borderTop:"1px solid #e2e8f0",display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:12,fontSize:12}}>
+                    <div><div style={{fontSize:10,color:"#94a3b8"}}>Elaborado por</div><div style={{fontWeight:600}}>{inf.responsable||"—"}</div></div>
+                    <div><div style={{fontSize:10,color:"#94a3b8"}}>Revisado por</div><div style={{fontWeight:600}}>{inf.revisor||"(Pendiente)"}</div>{inf.fechaAprobacion&&<div style={{fontSize:10,color:"#16a34a"}}>Aprobado {inf.fechaAprobacion}</div>}</div>
+                    <div><div style={{fontSize:10,color:"#94a3b8"}}>Estado</div><BadgeEstado estado={inf.estado}/></div>
+                  </div>
+                </div>
+              );
+            })()}
             {envioModal&&<ModalForm titulo="📧 Enviar por email" onSave={async()=>{
               const ok=await enviarPorEmail(inf,emailsEnvio);
               if(ok){updItem("informes",inf.id,{estado:"Enviado",emailsDestino:emailsEnvio,fechaEnvio:new Date().toISOString().slice(0,10)});setEnvioModal(false);alert("✅ Enviado.");}
