@@ -82,6 +82,20 @@ async function dbLoadAllegria() {
 
 async function dbSaveAllegria(value) {
   try {
+    // Protección anti-pérdida
+    if(value) {
+      const keys = ["clientes","productores","embarques","liquidaciones","liqCliente","anticipos","cobranza"];
+      for(const k of keys) {
+        const nc = Array.isArray(value[k]) ? value[k].length : -1;
+        const pc = window._lastSavedAllegria?.[k] || 0;
+        if(nc >= 0 && nc < pc) {
+          console.warn(`[dbSaveAllegria] ⚠️ BLOQUEADO: ${k} pasó de ${pc} a ${nc}. Posible pérdida.`);
+          return;
+        }
+      }
+      if(!window._lastSavedAllegria) window._lastSavedAllegria = {};
+      for(const k of keys) { if(Array.isArray(value[k]) && value[k].length > 0) window._lastSavedAllegria[k] = value[k].length; }
+    }
     await fetch(`${SUPA_URL}/rest/v1/calendario_data`, {
       method: "POST",
       headers: { apikey: SUPA_KEY, Authorization: `Bearer ${SUPA_KEY}`,
@@ -1023,7 +1037,9 @@ function CobranzaModule({data, setData, embarques, liquidaciones, can, temporada
 // ═══════════════════════════════════════════════════════════════════
 export default function AllegriaModule({usuarioActual, esAdmin, esSoloConsulta, tabPermisos={}, onBack, onLogout}) {
   const [subApp, setSubApp] = useState(null);
-  const [data, setData] = useState({clientes:[],productores:[],embarques:[],liquidaciones:[],liqCliente:[],anticipos:[],cobranza:[]});
+  const [liqTab, setLiqTab] = useState("productor");
+  const [antTab, setAntTab] = useState("anticipos");
+  const [data, setData] = useState({clientes:[],productores:[],programaComercial:[],embarques:[],liquidaciones:[],liqCliente:[],anticipos:[],cobranza:[],hubCardsOrder:null});
   const [cargando, setCargando] = useState(true);
   const [tempSeleccionada, setTempSeleccionada] = useState(temporadaActual());
 
@@ -1035,7 +1051,15 @@ export default function AllegriaModule({usuarioActual, esAdmin, esSoloConsulta, 
   useEffect(()=>{
     (async()=>{
       const d = await dbLoadAllegria();
-      if(d) setData(d);
+      if(d) {
+        setData(d);
+        // Inicializar protección anti-pérdida
+        window._lastSavedAllegria = {};
+        ["clientes","productores","embarques","liquidaciones","liqCliente","anticipos","cobranza"].forEach(k=>{
+          if(Array.isArray(d[k])) window._lastSavedAllegria[k] = d[k].length;
+        });
+        console.log("[Allegria] Protección anti-pérdida:", JSON.stringify(window._lastSavedAllegria));
+      }
       setCargando(false);
     })();
   },[]);
@@ -1051,6 +1075,7 @@ export default function AllegriaModule({usuarioActual, esAdmin, esSoloConsulta, 
 
   const setClientes = fn => setData(p=>({...p, clientes: typeof fn==="function"?fn(p.clientes||[]):fn}));
   const setProductores = fn => setData(p=>({...p, productores: typeof fn==="function"?fn(p.productores||[]):fn}));
+  const setProgramaComercial = fn => setData(p=>({...p, programaComercial: typeof fn==="function"?fn(p.programaComercial||[]):fn}));
   const setEmbarques = fn => setData(p=>({...p, embarques: typeof fn==="function"?fn(p.embarques||[]):fn}));
   const setLiquidaciones = fn => setData(p=>({...p, liquidaciones: typeof fn==="function"?fn(p.liquidaciones||[]):fn}));
   const setLiqCliente = fn => setData(p=>({...p, liqCliente: typeof fn==="function"?fn(p.liqCliente||[]):fn}));
@@ -1061,13 +1086,13 @@ export default function AllegriaModule({usuarioActual, esAdmin, esSoloConsulta, 
 
   // Sub-apps
   const SUBAPPS = [
-    {id:"clientes",      label:"Clientes Importadores", desc:"Gestión de importadores internacionales", icon:"👥", color:"#b91c1c", stats:`${(data.clientes||[]).length} clientes`},
-    {id:"productores",   label:"Productores",           desc:"Proveedores de fruta fresca",              icon:"🌱", color:"#0f766e", stats:`${(data.productores||[]).length} productores`},
-    {id:"embarques",     label:"Embarques",              desc:"Contenedores, tracking y documentos",     icon:"🚢", color:"#2563eb", stats:`${(data.embarques||[]).length} embarques`},
-    {id:"liquidaciones", label:"Liquidación Productor",  desc:"Resultado de venta — retorno por caja y kg",  icon:"💰", color:"#16a34a", stats:`${(data.liquidaciones||[]).length} liquidaciones`},
-    {id:"liq_cliente",   label:"Liquidación Cliente",    desc:"Liquidación recibida del importador",      icon:"📥", color:"#2563eb", stats:`${(data.liqCliente||[]).length} liquidaciones`},
-    {id:"anticipos",     label:"Anticipos",              desc:"Anticipos a productores y de clientes",   icon:"💵", color:"#d97706", stats:`${(data.anticipos||[]).length} anticipos`},
-    {id:"cobranza",      label:"Cobranza",               desc:"Cuentas por cobrar y seguimiento",        icon:"📋", color:"#7c3aed", stats:`${(data.cobranza||[]).length} registros`},
+    {id:"clientes",      label:"Clientes Importadores", desc:"Ficha importador, país destino, contacto, condiciones comerciales",          icon:"👥", color:"#b91c1c", stats:`${(data.clientes||[]).length} clientes`},
+    {id:"productores",   label:"Productores",           desc:"Proveedores de fruta, zona, variedades, certificaciones",                     icon:"🌱", color:"#0f766e", stats:`${(data.productores||[]).length} productores`},
+    {id:"programa",      label:"Programa Comercial",    desc:"Trisemanal kg-var, programa semanal, asignación productor→cliente",           icon:"📊", color:"#7c3aed", stats:`${(data.programaComercial||[]).length} programas`},
+    {id:"embarques",     label:"Embarques",              desc:"Plan, instructivos, booking, documentos, QC, seguimiento, reclamos",         icon:"📦", color:"#2563eb", stats:`${(data.embarques||[]).length} embarques`},
+    {id:"liquidaciones", label:"Liquidaciones",          desc:"Liquidación productor (retorno caja/kg) y cliente (del importador)",          icon:"💰", color:"#16a34a", stats:`${(data.liquidaciones||[]).length + (data.liqCliente||[]).length} liquidaciones`},
+    {id:"anticipos",     label:"Anticipos & Cobranza",  desc:"Anticipos pre-season, contra BL, cobranza, pago liquidación",                icon:"💵", color:"#d97706", stats:`${(data.anticipos||[]).length + (data.cobranza||[]).length} registros`},
+    {id:"dashboard",     label:"Dashboard",              desc:"KPIs por temporada, volumen por fruta/destino, resumen financiero",          icon:"📈", color:"#0ea5e9", stats:"Resumen"},
   ];
 
   if(subApp) {
@@ -1103,11 +1128,35 @@ export default function AllegriaModule({usuarioActual, esAdmin, esSoloConsulta, 
         <Card>
           {subApp==="clientes"&&<ClientesModule data={data.clientes||[]} setData={setClientes} can={can}/>}
           {subApp==="productores"&&<ProductoresModule data={data.productores||[]} setData={setProductores} can={can}/>}
+          {subApp==="programa"&&<div style={{padding:30,textAlign:"center",color:C.muted}}>
+            <div style={{fontSize:48,marginBottom:12}}>📊</div>
+            <div style={{fontSize:16,fontWeight:700,color:C.text,marginBottom:8}}>Programa Comercial</div>
+            <div style={{fontSize:12}}>Trisemanal kg-var · Programa semanal · Asignación productor→cliente</div>
+            <div style={{fontSize:11,color:"#94a3b8",marginTop:12}}>Módulo en construcción — próxima sesión</div>
+          </div>}
           {subApp==="embarques"&&<EmbarquesModule data={data.embarques||[]} setData={setEmbarques} clientes={data.clientes||[]} productores={data.productores||[]} can={can} temporada={tempSeleccionada}/>}
-          {subApp==="liquidaciones"&&<LiquidacionesModule data={data.liquidaciones||[]} setData={setLiquidaciones} embarques={data.embarques||[]} can={can} temporada={tempSeleccionada}/>}
-          {subApp==="liq_cliente"&&<LiquidacionClienteModule data={data.liqCliente||[]} setData={setLiqCliente} embarques={data.embarques||[]} can={can} temporada={tempSeleccionada}/>}
-          {subApp==="anticipos"&&<AnticiposModule data={data.anticipos||[]} setData={setAnticipos} clientes={data.clientes||[]} productores={data.productores||[]} can={can} temporada={tempSeleccionada}/>}
-          {subApp==="cobranza"&&<CobranzaModule data={data.cobranza||[]} setData={setCobranza} embarques={data.embarques||[]} liquidaciones={data.liquidaciones||[]} can={can} temporada={tempSeleccionada}/>}
+          {subApp==="liquidaciones"&&<div>
+            <div style={{display:"flex",gap:8,marginBottom:14}}>
+              <button onClick={()=>setLiqTab("productor")} style={{padding:"8px 16px",borderRadius:8,border:liqTab==="productor"?"2px solid #16a34a":"1px solid #e2e8f0",background:liqTab==="productor"?"#16a34a":"#fff",color:liqTab==="productor"?"#fff":"#1e293b",cursor:"pointer",fontSize:12,fontWeight:700}}>💰 Liq. Productor</button>
+              <button onClick={()=>setLiqTab("cliente")} style={{padding:"8px 16px",borderRadius:8,border:liqTab==="cliente"?"2px solid #2563eb":"1px solid #e2e8f0",background:liqTab==="cliente"?"#2563eb":"#fff",color:liqTab==="cliente"?"#fff":"#1e293b",cursor:"pointer",fontSize:12,fontWeight:700}}>📥 Liq. Cliente</button>
+            </div>
+            {liqTab==="productor"&&<LiquidacionesModule data={data.liquidaciones||[]} setData={setLiquidaciones} embarques={data.embarques||[]} can={can} temporada={tempSeleccionada}/>}
+            {liqTab==="cliente"&&<LiquidacionClienteModule data={data.liqCliente||[]} setData={setLiqCliente} embarques={data.embarques||[]} can={can} temporada={tempSeleccionada}/>}
+          </div>}
+          {subApp==="anticipos"&&<div>
+            <div style={{display:"flex",gap:8,marginBottom:14}}>
+              <button onClick={()=>setAntTab("anticipos")} style={{padding:"8px 16px",borderRadius:8,border:antTab==="anticipos"?"2px solid #d97706":"1px solid #e2e8f0",background:antTab==="anticipos"?"#d97706":"#fff",color:antTab==="anticipos"?"#fff":"#1e293b",cursor:"pointer",fontSize:12,fontWeight:700}}>💵 Anticipos</button>
+              <button onClick={()=>setAntTab("cobranza")} style={{padding:"8px 16px",borderRadius:8,border:antTab==="cobranza"?"2px solid #7c3aed":"1px solid #e2e8f0",background:antTab==="cobranza"?"#7c3aed":"#fff",color:antTab==="cobranza"?"#fff":"#1e293b",cursor:"pointer",fontSize:12,fontWeight:700}}>📋 Cobranza</button>
+            </div>
+            {antTab==="anticipos"&&<AnticiposModule data={data.anticipos||[]} setData={setAnticipos} clientes={data.clientes||[]} productores={data.productores||[]} can={can} temporada={tempSeleccionada}/>}
+            {antTab==="cobranza"&&<CobranzaModule data={data.cobranza||[]} setData={setCobranza} embarques={data.embarques||[]} liquidaciones={data.liquidaciones||[]} can={can} temporada={tempSeleccionada}/>}
+          </div>}
+          {subApp==="dashboard"&&<div style={{padding:30,textAlign:"center",color:C.muted}}>
+            <div style={{fontSize:48,marginBottom:12}}>📈</div>
+            <div style={{fontSize:16,fontWeight:700,color:C.text,marginBottom:8}}>Dashboard Allegria Foods</div>
+            <div style={{fontSize:12}}>KPIs por temporada · Volumen por fruta/destino · Resumen financiero</div>
+            <div style={{fontSize:11,color:"#94a3b8",marginTop:12}}>Módulo en construcción — próxima sesión</div>
+          </div>}
         </Card>
       </div>
     );
@@ -1126,34 +1175,61 @@ export default function AllegriaModule({usuarioActual, esAdmin, esSoloConsulta, 
         <div style={{display:"flex",justifyContent:"center",marginBottom:12}}>
           <AllegriaLogo height={60}/>
         </div>
-        <div style={{color:C.muted,fontSize:13}}>Exportación de Fruta Fresca · Cerezas · Ciruelas · Arándanos</div>
+        <div style={{color:C.muted,fontSize:13}}>Exportación de Fruta Fresca · Arándanos · Cerezas · Uvas · Ciruelas d'Agen · Zarzaparrilla</div>
       </div>
 
-      {/* Sub-apps */}
-      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(280px,1fr))",gap:16,maxWidth:950,margin:"0 auto 30px"}}>
-        {SUBAPPS.map(sa=>(
-          <div key={sa.id} onClick={()=>setSubApp(sa.id)}
-            style={{background:`linear-gradient(135deg,${C.card},${sa.color}22)`,borderRadius:16,padding:"24px 20px",
-              border:`1px solid ${sa.color}44`,cursor:"pointer",transition:"all 0.2s",position:"relative",overflow:"hidden"}}
-            onMouseEnter={e=>e.currentTarget.style.transform="translateY(-2px)"}
-            onMouseLeave={e=>e.currentTarget.style.transform="translateY(0)"}>
-            <div style={{fontSize:32,marginBottom:10}}>{sa.icon}</div>
-            <div style={{fontWeight:800,fontSize:16,color:C.text,marginBottom:4}}>{sa.label}</div>
-            <div style={{fontSize:11,color:C.muted,marginBottom:12}}>{sa.desc}</div>
-            <div style={{display:"flex",gap:8}}>
-              <span style={{fontSize:10,background:`${sa.color}22`,color:sa.color,padding:"3px 10px",borderRadius:20,fontWeight:700}}>{sa.stats}</span>
-            </div>
-            <div style={{position:"absolute",right:16,bottom:16,fontSize:20,color:`${sa.color}44`}}>→</div>
+      {/* Sub-apps — drag-and-drop (solo admin) */}
+      {(()=>{
+        const HUB_DEFAULT = SUBAPPS.map(s=>s.id);
+        const order = (Array.isArray(data.hubCardsOrder) && data.hubCardsOrder.length===HUB_DEFAULT.length) ? data.hubCardsOrder : HUB_DEFAULT;
+        const handleDragStart = (e,id) => { window._dragCardA=id; window._didDragA=true; e.dataTransfer.effectAllowed="move"; };
+        const handleDrop = (e,targetId) => {
+          e.preventDefault(); e.stopPropagation();
+          const from = window._dragCardA; if(!from||from===targetId){window._dragCardA=null;return;}
+          const nw=[...order]; const fi=nw.indexOf(from), ti=nw.indexOf(targetId);
+          if(fi===-1||ti===-1)return; nw.splice(fi,1); nw.splice(ti,0,from);
+          setData(p=>({...p, hubCardsOrder:nw})); window._dragCardA=null;
+        };
+        const handleClick = (id) => { if(window._didDragA){window._didDragA=false;return;} setSubApp(id); };
+        return (
+          <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(280px,1fr))",gap:16,maxWidth:950,margin:"0 auto 30px"}}>
+            {order.map(sid=>{
+              const sa = SUBAPPS.find(s=>s.id===sid);
+              if(!sa) return null;
+              return (
+                <div key={sa.id} draggable={!!esAdmin}
+                  onDragStart={e=>{if(!esAdmin)return;handleDragStart(e,sa.id);}}
+                  onDragOver={e=>{if(!esAdmin)return;e.preventDefault();e.dataTransfer.dropEffect="move";}}
+                  onDrop={e=>{if(!esAdmin)return;handleDrop(e,sa.id);}}
+                  onDragEnd={()=>{setTimeout(()=>{window._didDragA=false;},100);window._dragCardA=null;}}
+                  onClick={()=>handleClick(sa.id)}
+                  style={{background:`linear-gradient(135deg,${C.card},${sa.color}22)`,borderRadius:16,padding:"24px 20px",
+                    border:`1px solid ${sa.color}44`,cursor:"pointer",transition:"all 0.2s",position:"relative",overflow:"hidden"}}
+                  onMouseEnter={e=>e.currentTarget.style.transform="translateY(-2px)"}
+                  onMouseLeave={e=>e.currentTarget.style.transform="translateY(0)"}>
+                  {esAdmin&&<div style={{position:"absolute",top:8,right:10,fontSize:10,color:"#475569",cursor:"grab"}} title="Arrastra para reordenar">⋮⋮</div>}
+                  <div style={{fontSize:32,marginBottom:10}}>{sa.icon}</div>
+                  <div style={{fontWeight:800,fontSize:16,color:C.text,marginBottom:4}}>{sa.label}</div>
+                  <div style={{fontSize:11,color:C.muted,marginBottom:12}}>{sa.desc}</div>
+                  <div style={{display:"flex",gap:8}}>
+                    <span style={{fontSize:10,background:`${sa.color}22`,color:sa.color,padding:"3px 10px",borderRadius:20,fontWeight:700}}>{sa.stats}</span>
+                  </div>
+                  <div style={{position:"absolute",right:16,bottom:16,fontSize:20,color:`${sa.color}44`}}>→</div>
+                </div>
+              );
+            })}
           </div>
-        ))}
-      </div>
+        );
+      })()}
 
       {/* KPIs globales */}
       <div style={{display:"flex",gap:12,flexWrap:"wrap",maxWidth:950,margin:"0 auto"}}>
         <KPI label="📦 Embarques" value={(data.embarques||[]).length} color={C.blue}/>
         <KPI label="🚢 En tránsito" value={(data.embarques||[]).filter(e=>e.estado==="En tránsito").length} color={C.yellow}/>
+        <KPI label="✅ Llegados" value={(data.embarques||[]).filter(e=>e.estado==="Llegado").length} color={C.green}/>
         <KPI label="👥 Clientes" value={(data.clientes||[]).length} color={C.accent}/>
         <KPI label="🌱 Productores" value={(data.productores||[]).length} color={C.teal}/>
+        <KPI label="💰 Liquidaciones" value={(data.liquidaciones||[]).length + (data.liqCliente||[]).length} color={C.green}/>
       </div>
     </div>
   );
