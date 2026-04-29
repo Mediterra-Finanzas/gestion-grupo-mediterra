@@ -1455,6 +1455,37 @@ export default function App(){
         }
       }catch(e){console.error("Error cargando:",e);}
       setCargando(false);
+
+      // ── Backup automático diario ──
+      try {
+        const hoy = new Date().toISOString().slice(0,10);
+        const backupId = `backup_${hoy}`;
+        // Verificar si ya existe backup de hoy
+        const chk = await fetch(`${SUPA_URL}/rest/v1/calendario_data?id=eq.${backupId}&select=id`,{
+          headers:{apikey:SUPA_KEY,Authorization:`Bearer ${SUPA_KEY}`}
+        });
+        const exists = await chk.json();
+        if(!exists || exists.length===0) {
+          // Leer todos los datos actuales
+          const allRes = await fetch(`${SUPA_URL}/rest/v1/calendario_data?id=in.(main,allegria,finanzas,nominas)&select=id,value`,{
+            headers:{apikey:SUPA_KEY,Authorization:`Bearer ${SUPA_KEY}`}
+          });
+          const allData = await allRes.json();
+          const backupData = { fecha:new Date().toISOString(), version:"auto-v2" };
+          (allData||[]).forEach(row=>{
+            try { backupData[row.id] = typeof row.value==="string"?JSON.parse(row.value):row.value; }
+            catch { backupData[row.id] = row.value; }
+          });
+          await fetch(`${SUPA_URL}/rest/v1/calendario_data`,{
+            method:"POST",
+            headers:{apikey:SUPA_KEY,Authorization:`Bearer ${SUPA_KEY}`,"Content-Type":"application/json",Prefer:"resolution=merge-duplicates"},
+            body:JSON.stringify({id:backupId, value:backupData, updated_at:new Date().toISOString()})
+          });
+          console.log(`[Backup] ✅ Backup automático creado: ${backupId}`);
+        } else {
+          console.log(`[Backup] Ya existe backup de hoy: ${backupId}`);
+        }
+      } catch(e) { console.warn("[Backup] Error en backup automático:", e); }
       // Restaurar sesión después de un reload automático
       const savedNombre = sessionStorage.getItem('mediterra_usuario');
       if(savedNombre) {
