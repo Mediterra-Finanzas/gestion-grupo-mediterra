@@ -245,7 +245,7 @@ export default function FriskuModule({usuarioActual, esAdmin, esSoloConsulta, ta
     <div style={{fontFamily:"sans-serif",background:C.bg,minHeight:"100vh",color:C.text}}>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"14px 24px",background:C.card,borderBottom:`1px solid ${C.border}`,flexWrap:"wrap",gap:8}}>
         <div style={{display:"flex",alignItems:"center",gap:12}}>
-          <span style={{fontSize:12,color:C.muted}}>Mediterra ›</span>
+          <button onClick={onBack} style={{background:C.card2,color:C.muted,border:`1px solid ${C.border}`,borderRadius:8,padding:"6px 14px",cursor:"pointer",fontSize:12}}>← Mediterra</button>
           <span style={{fontSize:14,fontWeight:700,color:C.text}}>Frisku Foods Hub</span>
           <FriskuLogo height={28}/>
         </div>
@@ -254,7 +254,6 @@ export default function FriskuModule({usuarioActual, esAdmin, esSoloConsulta, ta
             style={{padding:"6px 10px",borderRadius:8,border:`1px solid ${C.border}`,background:C.card2,color:C.text,fontSize:11}}>
             {generarTemporadas().map(t=><option key={t} value={t}>{t}</option>)}
           </select>
-          <button onClick={onBack} style={{background:C.card2,color:C.muted,border:`1px solid ${C.border}`,borderRadius:8,padding:"6px 14px",cursor:"pointer",fontSize:12}}>← Mediterra</button>
           <button onClick={onLogout} style={{background:C.accent,color:"#fff",border:"none",borderRadius:8,padding:"6px 14px",cursor:"pointer",fontSize:12}}>Salir</button>
         </div>
       </div>
