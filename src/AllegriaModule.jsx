@@ -218,23 +218,18 @@ async function dbLoadAllegria() {
 
 async function dbSaveAllegria(value) {
   try {
-    // Protección anti-pérdida: solo bloquea caídas masivas (>50%) o todo a 0
+    // Protección anti-pérdida: solo bloquea si 3+ arrays caen simultáneamente (crash)
     if(value) {
       const keys = ["clientes","productores","embarques","liquidaciones","liqCliente","anticipos","cobranza","recepciones","stockPT","materiales","recetas","programaComercial"];
+      let caidas = 0;
       for(const k of keys) {
         const nc = Array.isArray(value[k]) ? value[k].length : -1;
         const pc = window._lastSavedAllegria?.[k] || 0;
-        if(pc >= 3 && nc >= 0 && nc < pc * 0.5) {
-          console.warn(`[dbSaveAllegria] ⚠️ BLOQUEADO: ${k} pasó de ${pc} a ${nc} (caída >50%).`);
-          return;
-        }
-        if(pc > 0 && nc === 0) {
-          console.warn(`[dbSaveAllegria] ⚠️ BLOQUEADO: ${k} pasó de ${pc} a 0.`);
-          return;
-        }
+        if(nc >= 0 && pc > 0 && nc < pc) caidas++;
       }
+      if(caidas >= 3) { console.warn(`[dbSaveAllegria] ⚠️ BLOQUEADO: ${caidas} arrays cayeron.`); return; }
       if(!window._lastSavedAllegria) window._lastSavedAllegria = {};
-      for(const k of keys) { if(Array.isArray(value[k]) && value[k].length > 0) window._lastSavedAllegria[k] = value[k].length; }
+      for(const k of keys) { if(Array.isArray(value[k])) window._lastSavedAllegria[k] = value[k].length; }
     }
     await fetch(`${SUPA_URL}/rest/v1/calendario_data`, {
       method: "POST",
