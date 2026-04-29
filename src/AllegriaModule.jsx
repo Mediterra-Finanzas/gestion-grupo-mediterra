@@ -435,18 +435,64 @@ function ProductoresModule({data, setData, can}) {
 
         {/* TAB FICHA */}
         {tab==="ficha"&&(
-          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14}}>
-            {[["Nombre","nombre"],["RUT","rut"],["País","pais"],["Zona/Región","zona"],["Contacto","contacto"],["Email","email"],["Teléfono","telefono"],["Hectáreas","hectareas"]].map(([l,f])=>(
-              <div key={f}><div style={{fontSize:10,color:C.muted,fontWeight:600,marginBottom:3}}>{l}</div>
-                <input disabled={!can} value={prod[f]||""} onChange={e=>upd(f,e.target.value)}
-                  style={{width:"100%",padding:"8px 10px",borderRadius:8,border:`1px solid ${C.border}`,background:C.card2,color:C.text,fontSize:12,boxSizing:"border-box"}}/></div>
-            ))}
-            <div style={{gridColumn:"1/-1"}}><div style={{fontSize:10,color:C.muted,fontWeight:600,marginBottom:3}}>Frutas</div>
-              <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>{FRUTAS.map(f=>(
-                <button key={f} disabled={!can} onClick={()=>{const cur=prod.frutas||[];upd("frutas",cur.includes(f)?cur.filter(x=>x!==f):[...cur,f]);}}
-                  style={{padding:"4px 12px",borderRadius:20,border:`1px solid ${(prod.frutas||[]).includes(f)?C.teal:C.border}`,background:(prod.frutas||[]).includes(f)?`${C.teal}22`:"transparent",color:(prod.frutas||[]).includes(f)?C.teal:C.muted,cursor:can?"pointer":"default",fontSize:11,fontWeight:600}}>{f}</button>
-              ))}</div></div>
-            <div style={{gridColumn:"1/-1"}}><div style={{fontSize:10,color:C.muted,fontWeight:600,marginBottom:3}}>Notas</div>
+          <div>
+            {/* Datos empresa */}
+            <div style={{fontSize:12,fontWeight:700,color:C.teal,borderBottom:`1px solid ${C.border}`,paddingBottom:6,marginBottom:12}}>🏢 Datos de la empresa</div>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14,marginBottom:16}}>
+              {[["Razón social","nombre"],["RUT empresa","rut"],["País","pais"],["Zona/Región","zona"],["Contacto operativo","contacto"],["Email contacto","email"],["Teléfono","telefono"],["Hectáreas","hectareas"]].map(([l,f])=>(
+                <div key={f}><div style={{fontSize:10,color:C.muted,fontWeight:600,marginBottom:3}}>{l}</div>
+                  <input disabled={!can} value={prod[f]||""} onChange={e=>upd(f,e.target.value)}
+                    style={{width:"100%",padding:"8px 10px",borderRadius:8,border:`1px solid ${C.border}`,background:C.card2,color:C.text,fontSize:12,boxSizing:"border-box"}}/></div>
+              ))}
+              <div style={{gridColumn:"1/-1"}}><div style={{fontSize:10,color:C.muted,fontWeight:600,marginBottom:3}}>Frutas</div>
+                <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>{FRUTAS.map(f=>(
+                  <button key={f} disabled={!can} onClick={()=>{const cur=prod.frutas||[];upd("frutas",cur.includes(f)?cur.filter(x=>x!==f):[...cur,f]);}}
+                    style={{padding:"4px 12px",borderRadius:20,border:`1px solid ${(prod.frutas||[]).includes(f)?C.teal:C.border}`,background:(prod.frutas||[]).includes(f)?`${C.teal}22`:"transparent",color:(prod.frutas||[]).includes(f)?C.teal:C.muted,cursor:can?"pointer":"default",fontSize:11,fontWeight:600}}>{f}</button>
+                ))}</div></div>
+            </div>
+
+            {/* Representante legal */}
+            <div style={{fontSize:12,fontWeight:700,color:C.teal,borderBottom:`1px solid ${C.border}`,paddingBottom:6,marginBottom:12}}>👤 Representante legal</div>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14,marginBottom:16}}>
+              {[["Nombre completo","repLegalNombre"],["RUT","repLegalRut"],["Email","repLegalEmail"],["Teléfono","repLegalTelefono"]].map(([l,f])=>(
+                <div key={f}><div style={{fontSize:10,color:C.muted,fontWeight:600,marginBottom:3}}>{l}</div>
+                  <input disabled={!can} value={prod[f]||""} onChange={e=>upd(f,e.target.value)}
+                    style={{width:"100%",padding:"8px 10px",borderRadius:8,border:`1px solid ${C.border}`,background:C.card2,color:C.text,fontSize:12,boxSizing:"border-box"}}/></div>
+              ))}
+            </div>
+
+            {/* Socios */}
+            <div style={{fontSize:12,fontWeight:700,color:C.teal,borderBottom:`1px solid ${C.border}`,paddingBottom:6,marginBottom:12,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+              <span>👥 Socios (si son distintos al representante legal)</span>
+              {can&&<button onClick={()=>upd("socios",[...(prod.socios||[]),{id:`soc_${Date.now()}`,nombre:"",rut:"",email:"",telefono:"",participacion:""}])}
+                style={{padding:"4px 12px",borderRadius:6,background:C.teal,border:"none",color:"#fff",cursor:"pointer",fontSize:10,fontWeight:700}}>+ Agregar socio</button>}
+            </div>
+            {(prod.socios||[]).length===0?(
+              <div style={{padding:16,textAlign:"center",color:C.muted2,fontSize:11,border:`1px dashed ${C.border}`,borderRadius:8,marginBottom:16}}>Sin socios adicionales registrados.</div>
+            ):(
+              <div style={{display:"flex",flexDirection:"column",gap:10,marginBottom:16}}>
+                {(prod.socios||[]).map((s,i)=>{
+                  const updS=(f,v)=>upd("socios",(prod.socios||[]).map(x=>x.id===s.id?{...x,[f]:v}:x));
+                  return(
+                    <div key={s.id} style={{border:`1px solid ${C.border}`,borderRadius:8,padding:12,background:C.card2}}>
+                      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+                        <span style={{fontSize:11,fontWeight:700,color:C.text}}>Socio #{i+1}</span>
+                        {can&&<button onClick={()=>{if(!window.confirm("¿Eliminar socio?"))return;upd("socios",(prod.socios||[]).filter(x=>x.id!==s.id));}} style={{background:"#fef2f2",border:"none",borderRadius:4,padding:"3px 8px",cursor:"pointer",fontSize:10,color:"#991b1b"}}>🗑</button>}
+                      </div>
+                      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr 1fr 1fr",gap:8,fontSize:11}}>
+                        {[["Nombre","nombre"],["RUT","rut"],["Email","email"],["Teléfono","telefono"],["% Participación","participacion"]].map(([l,f])=>(
+                          <div key={f}><div style={{color:C.muted,fontWeight:600,marginBottom:2}}>{l}</div>
+                            <input disabled={!can} value={s[f]||""} onChange={e=>updS(f,e.target.value)}
+                              style={{width:"100%",padding:"5px 6px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:11,background:C.card2,color:C.text,boxSizing:"border-box"}}/></div>
+                        ))}
+                      </div>
+                    </div>);
+                })}
+              </div>
+            )}
+
+            {/* Notas */}
+            <div><div style={{fontSize:10,color:C.muted,fontWeight:600,marginBottom:3}}>Notas generales</div>
               <textarea disabled={!can} value={prod.notas||""} onChange={e=>upd("notas",e.target.value)}
                 style={{width:"100%",padding:"8px 10px",borderRadius:8,border:`1px solid ${C.border}`,background:C.card2,color:C.text,fontSize:12,minHeight:60,boxSizing:"border-box"}}/></div>
           </div>
