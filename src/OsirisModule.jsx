@@ -57,6 +57,10 @@ async function dbSaveOsiris(value) {
 }
 
 // ── Paleta ────────────────────────────────────────────────
+// Temporadas disponibles hasta 2040/2041
+const TEMPORADAS_LIST = [];
+for(let y=2024;y<=2040;y++) TEMPORADAS_LIST.push(`${y}/${y+1}`);
+
 const C = {
   azul:"#2563eb",    azulBg:"#dbeafe",
   verde:"#16a34a",   verdeBg:"#dcfce7",
@@ -4194,7 +4198,7 @@ function OperacionTecnica({data, setData, ctData=[], viverosData=[], obtentoresD
     const visita = visitas.find(v=>v.id===inf.visitaId);
     const fotosArr = Array.isArray(inf.fotosInforme) ? inf.fotosInforme : [];
     const getArr = (campo) => Array.isArray(inf[campo]) ? inf[campo] : [];
-    const LABORES_CULT_PDF=["Poda","Amarra / conducción","Raleo","Manejo de brotes","Control de malezas","Manejo de mulch","Manejo de camellones / sustrato","Limpieza de entrehilera","Cosecha"];
+    const LABORES_CULT_PDF=["Poda","Amarra / conducción","Raleo","Manejo de brotes","Control de malezas","Manejo de mulch","Manejo de camellones / sustrato","Limpieza de entrehilera","Despunte","Cosecha"];
 
     const secHTML = (titulo, contenido) => contenido && contenido !== "—" ? `<div class="section"><h2>${titulo}</h2><div class="content">${contenido}</div></div>` : "";
     const tableHTML = (headers, rows) => {
@@ -4266,7 +4270,7 @@ ${inf.nutricionPrograma||getArr("nutricionAplicaciones").length>0?`<div class="s
 ${getArr("fitoAplicaciones").length>0?`<div class="section"><h2>F. Aplicaciones Fitosanitarias</h2>${tableHTML(["Fecha","Producto","Dosis","Objetivo","Resultado","Rec."],getArr("fitoAplicaciones").map(a=>[a.fecha,a.producto,a.dosis,a.objetivo,a.resultado,a.rec]))}</div>`:""}
 ${laboresHTML?`<div class="section"><h2>G. Labores Culturales</h2><table><thead><tr><th>Labor</th><th>Estado</th><th>Calidad</th><th>Observación</th><th>Recomendación</th></tr></thead><tbody>${laboresHTML}</tbody></table></div>`:""}
 ${getArr("sanidadProblemas").length>0?`<div class="section"><h2>H. Sanidad Vegetal</h2>${tableHTML(["Problema","Tipo","Incidencia","Severidad","Sector","Acción"],getArr("sanidadProblemas").map(p=>[p.problema,p.tipo,p.incidencia,p.severidad,p.sector,p.accion]))}</div>`:""}
-${inf.sueloHumedad||inf.sueloPH?`<div class="section"><h2>I. Suelo / Sustrato</h2><div class="content">Humedad: <strong>${inf.sueloHumedad||"—"}</strong> · Drenaje: <strong>${inf.sueloDrenaje||"—"}</strong> · Compactación: <strong>${inf.sueloCompactacion||"—"}</strong>\npH: ${inf.sueloPH||"—"} · CE: ${inf.sueloCE||"—"} dS/m · Raíces: ${inf.sueloRaices||"—"}${inf.sueloObs?"\nObs: "+inf.sueloObs:""}</div></div>`:""}
+${inf.sueloHumedad||inf.sueloPH?`<div class="section"><h2>I. Suelo / Sustrato</h2><div class="content">Sustrato: <strong>${inf.sueloTipo||"—"}</strong> · Humedad: <strong>${inf.sueloHumedad||"—"}</strong> · Drenaje: <strong>${inf.sueloDrenaje||"—"}</strong> · Compactación: <strong>${inf.sueloCompactacion||"—"}</strong>\npH: ${inf.sueloPH||"—"} · CE: ${inf.sueloCE||"—"} dS/m · Raíces: ${inf.sueloRaices||"—"}${inf.sueloObs?"\nObs: "+inf.sueloObs:""}</div></div>`:""}
 ${inf.desarrolloVigor||inf.desarrolloEstimacion?`<div class="section"><h2>J. Desarrollo Vegetativo y Productivo</h2><div class="content">Vigor: <strong>${inf.desarrolloVigor||"—"}</strong> · Uniformidad: <strong>${inf.desarrolloUniformidad||"—"}</strong> · Carga frutal: ${inf.desarrolloCarga||"—"}\nEstimación: ${inf.desarrolloEstimacion||"—"} kg/há · Calidad: ${inf.desarrolloCalidad||"—"} · Calibre: ${inf.desarrolloCalibre||"—"}\nCondición fruta: ${inf.desarrolloCondicion||"—"} · F. cosecha est.: ${inf.desarrolloFechaCosecha||"—"}</div></div>`:""}
 ${getArr("recInmediatas").length+getArr("recCortoPlazo").length+getArr("recTemporada").length>0?`<div class="section"><h2>K. Recomendaciones Técnicas</h2>${recHTML(getArr("recInmediatas"),"⚡ Inmediatas (próximos días)")}${recHTML(getArr("recCortoPlazo"),"📅 Corto plazo (próximas semanas)")}${recHTML(getArr("recTemporada"),"🌿 De temporada (resto del ciclo)")}</div>`:""}
 ${fotosArr.length>0?`<div class="section"><h2>L. Registro Fotográfico</h2><div class="fotos">${fotosArr.map(f=>`<div class="foto">${f.url?`<img src="${f.url}"/>`:"📷"}<div class="desc">${f.descripcion||""}${f.categoria?" · "+f.categoria:""}</div></div>`).join("")}</div></div>`:""}
@@ -4286,18 +4290,45 @@ ${inf.proximaVisitaFecha?`<div class="section"><h2>Próxima Visita</h2><div clas
   async function enviarPorEmail(inf, emails) {
     if(!emails||!emails.trim()){alert("Ingresa al menos un email.");return false;}
     const ct = (ctData||[]).find(c=>c.id===inf.ctId);
-    const mensaje = `📄 INFORME TÉCNICO — Osiris Plant Management\n\nTítulo: ${inf.titulo}\nTipo: ${inf.tipo}\nFecha: ${inf.fecha}\nCliente: ${ct?.razonSocial||'—'}\nResponsable: ${inf.responsable}\n\n── Objetivo ──\n${inf.objetivo||'—'}\n\n── Observaciones ──\n${inf.observacionesCampo||'—'}\n\n── Recomendaciones ──\n${inf.recomendaciones||'—'}\n\n── Medidas Correctivas ──\n${inf.medidasCorrectivas||'—'}\n\n── Conclusiones ──\n${inf.conclusiones||'—'}\n\n— Osiris Plant Management · Grupo Mediterra`;
+    const mensaje = `📄 INFORME TÉCNICO — Osiris Plant Management
+
+Título: ${inf.titulo||'—'}
+Tipo: ${inf.tipo||'—'}
+Fecha: ${inf.fecha||'—'}
+Cliente: ${ct?.razonSocial||'—'}
+Campo: ${inf.lugar||'—'}
+Especie/Variedad: ${inf.especie||'—'} · ${inf.variedad||'—'}
+Responsable: ${inf.responsable||'—'}
+
+── Resumen ──
+${inf.resumenGeneral||'—'}
+
+── Estado fenológico ──
+${inf.fenologiaEstado||'—'} · Uniformidad: ${inf.fenologiaUniformidad||'—'}
+${inf.fenologiaObs||''}
+
+── Recomendaciones inmediatas ──
+${(Array.isArray(inf.recInmediatas)?inf.recInmediatas:[]).map(r=>`• [${r.prioridad||'Media'}] ${r.area||''}: ${r.accion||''}`).join('\n')||'Sin recomendaciones inmediatas'}
+
+── Conclusión ──
+${inf.conclusionTecnica||'—'}
+
+── Próxima visita ──
+${inf.proximaVisitaFecha||'No programada'} — ${inf.proximaVisitaObjetivo||''}
+
+— Osiris Plant Management · Grupo Mediterra`;
     try {
       const emailList = emails.split(',').map(e=>e.trim()).filter(Boolean);
       for(const email of emailList) {
-        await fetch("https://api.emailjs.com/api/v1.0/email/send", {
+        const res = await fetch("https://api.emailjs.com/api/v1.0/email/send", {
           method:"POST", headers:{"Content-Type":"application/json"},
           body:JSON.stringify({service_id:"service_7uisg69",template_id:"template_0m92glq",user_id:"vJgNsLqJpkCi17Ucd",
-            template_params:{to_email:email,to_name:ct?.razonSocial||"Cliente",subject:`📄 Informe: ${inf.titulo} — Osiris`,message:mensaje}})
+            template_params:{to_email:email,to_name:ct?.razonSocial||"Cliente",subject:`📄 Informe Técnico: ${inf.titulo||'Visita'} — Osiris`,message:mensaje}})
         });
+        if(!res.ok) { const err=await res.text(); console.error("EmailJS error:",res.status,err); }
       }
       return true;
-    } catch(e) { console.error("Error email:", e); alert("Error al enviar."); return false; }
+    } catch(e) { console.error("Error email:", e); alert("Error al enviar: "+e.message); return false; }
   }
 
   // ── UI Helpers ──
@@ -4528,7 +4559,7 @@ ${inf.proximaVisitaFecha?`<div class="section"><h2>Próxima Visita</h2><div clas
               const ESTADOS_FENOL=["Brotación","Floración","Cuaja","Desarrollo de fruto","Cosecha","Postcosecha","Receso"];
               const HUMEDAD=["Baja","Adecuada","Excesiva"];
               const SISTEMAS_RIEGO=["Goteo","Microaspersión","Aspersión","Surco","Pivote","Otro"];
-              const LABORES_CULT=["Poda","Amarra / conducción","Raleo","Manejo de brotes","Control de malezas","Manejo de mulch","Manejo de camellones / sustrato","Limpieza de entrehilera","Cosecha"];
+              const LABORES_CULT=["Poda","Amarra / conducción","Raleo","Manejo de brotes","Control de malezas","Manejo de mulch","Manejo de camellones / sustrato","Limpieza de entrehilera","Despunte","Cosecha"];
               const TIPOS_PROB=["Plaga","Enfermedad","Fisiopatía"];
               const CATS_FOTO=["General","Planta","Fruta","Suelo","Problema","Aplicación","Labor cultural"];
 
@@ -4562,7 +4593,12 @@ ${inf.proximaVisitaFecha?`<div class="section"><h2>Próxima Visita</h2><div clas
                       <Input label="Especie" value={inf.especie} onChange={v=>updInf("especie",v)} disabled={!puedeEditar}/>
                       <Input label="Variedad" value={inf.variedad} onChange={v=>updInf("variedad",v)} disabled={!puedeEditar}/>
                       <Input label="Superficie evaluada (há)" value={inf.superficie} onChange={v=>updInf("superficie",v)} disabled={!puedeEditar}/>
-                      <Input label="Temporada" value={inf.temporada} onChange={v=>updInf("temporada",v)} disabled={!puedeEditar} placeholder="2025/2026"/>
+                      <div><div style={{fontSize:11,color:"#64748b",fontWeight:600,marginBottom:3}}>Temporada</div>
+                        <select disabled={!puedeEditar} value={inf.temporada||""} onChange={e=>updInf("temporada",e.target.value)}
+                          style={{width:"100%",padding:"7px 10px",borderRadius:6,border:"1px solid #d1d5db",fontSize:12,boxSizing:"border-box"}}>
+                          <option value="">— Seleccionar —</option>
+                          {TEMPORADAS_LIST.map(t=><option key={t} value={t}>{t}</option>)}
+                        </select></div>
                       <Input label="Técnico responsable" value={inf.responsable} onChange={v=>updInf("responsable",v)} disabled={!puedeEditar}/>
                     </div>
                   )}
@@ -4666,6 +4702,34 @@ ${inf.proximaVisitaFecha?`<div class="section"><h2>Próxima Visita</h2><div clas
                           </div>);
                       })}
                       <div style={{fontSize:9,color:"#94a3b8",marginTop:6}}>Columnas: Labor | Estado | Calidad ejecución | Observación | Recomendación</div>
+                      {puedeEditar&&<button onClick={()=>{
+                        const nueva=window.prompt("Nombre de la nueva labor:");
+                        if(nueva&&nueva.trim()){
+                          const key=`labor_${nueva.trim().replace(/[^a-zA-Z]/g,"_")}`;
+                          updInf(key,{estado:"",calidad:"",obs:"",rec:""});
+                          // Agregar a labores extra del informe
+                          const extras=Array.isArray(inf.laboresExtra)?inf.laboresExtra:[];
+                          if(!extras.includes(nueva.trim())) updInf("laboresExtra",[...extras,nueva.trim()]);
+                        }
+                      }} style={{marginTop:6,padding:"4px 12px",borderRadius:6,background:"#7c3aed",border:"none",color:"#fff",cursor:"pointer",fontSize:10,fontWeight:700}}>+ Agregar otra labor</button>}
+                      {/* Labores extra personalizadas */}
+                      {(Array.isArray(inf.laboresExtra)?inf.laboresExtra:[]).map(lab=>{
+                        const key = `labor_${lab.replace(/[^a-zA-Z]/g,"_")}`;
+                        const d = inf[key] || {};
+                        const updL = (f,v) => updInf(key, {...d,[f]:v});
+                        return(
+                          <div key={lab} style={{display:"grid",gridTemplateColumns:"2fr 1fr 1fr 2fr 2fr",gap:8,alignItems:"center",padding:"6px 0",borderBottom:"1px solid #f1f5f9",fontSize:11}}>
+                            <div style={{fontWeight:600,color:"#1e293b"}}>{lab} ✨</div>
+                            <select disabled={!puedeEditar} value={d.estado||""} onChange={e=>updL("estado",e.target.value)} style={{padding:"4px 6px",borderRadius:4,border:"1px solid #e2e8f0",fontSize:10}}>
+                              <option value="">—</option><option>Realizado</option><option>Pendiente</option><option>No aplica</option>
+                            </select>
+                            <select disabled={!puedeEditar} value={d.calidad||""} onChange={e=>updL("calidad",e.target.value)} style={{padding:"4px 6px",borderRadius:4,border:"1px solid #e2e8f0",fontSize:10}}>
+                              <option value="">—</option>{CALIDAD_EJEC.map(cc=><option key={cc}>{cc}</option>)}
+                            </select>
+                            <input disabled={!puedeEditar} value={d.obs||""} placeholder="Observación" onChange={e=>updL("obs",e.target.value)} style={{padding:"4px 6px",borderRadius:4,border:"1px solid #e2e8f0",fontSize:10}}/>
+                            <input disabled={!puedeEditar} value={d.rec||""} placeholder="Recomendación" onChange={e=>updL("rec",e.target.value)} style={{padding:"4px 6px",borderRadius:4,border:"1px solid #e2e8f0",fontSize:10}}/>
+                          </div>);
+                      })}
                     </div>
                   )}
 
@@ -4694,6 +4758,7 @@ ${inf.proximaVisitaFecha?`<div class="section"><h2>Próxima Visita</h2><div clas
                   {/* I. SUELO */}
                   {secTab==="suelo"&&(
                     <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+                      <Select label="Tipo sustrato" value={inf.sueloTipo} onChange={v=>updInf("sueloTipo",v)} opts={["Suelo Directo","Maceta","Bolsa"]} disabled={!puedeEditar}/>
                       <Select label="Condición humedad" value={inf.sueloHumedad} onChange={v=>updInf("sueloHumedad",v)} opts={HUMEDAD} disabled={!puedeEditar}/>
                       <Select label="Drenaje" value={inf.sueloDrenaje} onChange={v=>updInf("sueloDrenaje",v)} opts={CALIDAD_EJEC} disabled={!puedeEditar}/>
                       <Select label="Compactación" value={inf.sueloCompactacion} onChange={v=>updInf("sueloCompactacion",v)} opts={NIVELES} disabled={!puedeEditar}/>
@@ -4769,7 +4834,11 @@ ${inf.proximaVisitaFecha?`<div class="section"><h2>Próxima Visita</h2><div clas
                               </div>
                             )}
                             {puedeEditar&&<div style={{display:"flex",gap:8}}>
-                              <button onClick={()=>addToArr("fotosInforme",{url:"",descripcion:"",categoria:"",sector:""})} style={{padding:"6px 14px",borderRadius:8,background:"#16a34a",color:"#fff",border:"none",cursor:"pointer",fontSize:11,fontWeight:700}}>📷 Agregar foto (URL)</button>
+                              <button onClick={()=>{
+                                const url=window.prompt("Pega la URL de la foto:");
+                                if(url&&url.trim()) addToArr("fotosInforme",{url:url.trim(),descripcion:"",categoria:"",sector:""});
+                              }} style={{padding:"6px 14px",borderRadius:8,background:"#16a34a",color:"#fff",border:"none",cursor:"pointer",fontSize:11,fontWeight:700}}>📷 Agregar foto (URL)</button>
+                              <button onClick={()=>addToArr("fotosInforme",{url:"",descripcion:"",categoria:"",sector:""})} style={{padding:"6px 14px",borderRadius:8,background:"#f1f5f9",border:"1px solid #d1d5db",cursor:"pointer",fontSize:11,fontWeight:600}}>+ Foto sin URL</button>
                             </div>}
                             {fotos.length===0&&<div style={{padding:20,textAlign:"center",color:"#94a3b8",fontSize:11}}>Sin fotos. Agrega URLs de imágenes.</div>}
                           </div>
@@ -5326,7 +5395,7 @@ function MaestroVariedades({variedades,setVariedades,can,obtentores=[],especies=
       <div style={{overflowX:"auto"}}>
         <table style={{borderCollapse:"collapse",width:"100%",background:"#fff",borderRadius:8,overflow:"hidden",fontSize:12}}>
           <thead><tr style={{background:"#d97706",color:"#fff"}}>
-            {["Especie","Variedad","Obtentor","N° Registro","Observaciones",""].map(h=>(
+            {["Especie","Denominación","Obtentor","Variedad","Observaciones",""].map(h=>(
               <th key={h} style={{padding:"7px 10px",textAlign:"left",fontWeight:600,fontSize:11,whiteSpace:"nowrap"}}>{h}</th>
             ))}
           </tr></thead>
@@ -6517,7 +6586,7 @@ function ControlContratos({data,setData,clientes,setClientes,variedadesMaestro=[
                   <select disabled={!can} value={r.rcInicioTemporada||""} onChange={e=>upd(r.id,"rcInicioTemporada",e.target.value)}
                     style={{width:"100%",padding:"6px 8px",borderRadius:6,border:"1px solid #d1d5db",fontSize:11,boxSizing:"border-box",background:"#fff"}}>
                     <option value="">— Seleccionar —</option>
-                    {Array.from({length:12},(_,i)=>{const a=2024+i;return`${a}/${a+1}`;}).map(t=><option key={t} value={t}>{t}</option>)}
+                    {TEMPORADAS_LIST.map(t=><option key={t} value={t}>{t}</option>)}
                   </select>
                 </div>
                 <div>
@@ -6946,9 +7015,11 @@ function ControlContratos({data,setData,clientes,setClientes,variedadesMaestro=[
             <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(180px,1fr))",gap:10,marginTop:10}}>
               <div>
                 <label style={{fontSize:11,fontWeight:600,color:"#374151",display:"block",marginBottom:3}}>Temporada inicio</label>
-                <input value={form.rcInicioTemporada||""} placeholder={temporadaActual()} onChange={e=>setF("rcInicioTemporada",e.target.value)}
-                  style={{width:"100%",padding:"7px 10px",borderRadius:6,border:"1px solid #d1d5db",fontSize:12,boxSizing:"border-box"}}/>
-                <div style={{fontSize:9,color:"#94a3b8",marginTop:2}}>Formato: AAAA/AAAA · Default: {temporadaActual()}</div>
+                <select value={form.rcInicioTemporada||""} onChange={e=>setF("rcInicioTemporada",e.target.value)}
+                  style={{width:"100%",padding:"7px 10px",borderRadius:6,border:"1px solid #d1d5db",fontSize:12,boxSizing:"border-box",background:"#fff"}}>
+                  <option value="">— Seleccionar —</option>
+                  {TEMPORADAS_LIST.map(t=><option key={t} value={t}>{t}</option>)}
+                </select>
               </div>
               <div>
                 <label style={{fontSize:11,fontWeight:600,color:"#374151",display:"block",marginBottom:3}}>Mes de cobro</label>
