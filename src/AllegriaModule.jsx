@@ -84,7 +84,7 @@ async function dbSaveAllegria(value) {
   try {
     // Protección anti-pérdida
     if(value) {
-      const keys = ["clientes","productores","embarques","liquidaciones","liqCliente","anticipos","cobranza"];
+      const keys = ["clientes","productores","embarques","liquidaciones","liqCliente","anticipos","cobranza","recepciones","stockPT","materiales","recetas","programaComercial"];
       for(const k of keys) {
         const nc = Array.isArray(value[k]) ? value[k].length : -1;
         const pc = window._lastSavedAllegria?.[k] || 0;
@@ -1035,11 +1035,21 @@ function CobranzaModule({data, setData, embarques, liquidaciones, can, temporada
 // ═══════════════════════════════════════════════════════════════════
 // MÓDULO PRINCIPAL — ALLEGRIA FOODS HUB
 // ═══════════════════════════════════════════════════════════════════
+function PlaceholderModule({icon,title,desc}) {
+  return (
+    <div style={{padding:40,textAlign:"center",color:"#94a3b8"}}>
+      <div style={{fontSize:56,marginBottom:16}}>{icon}</div>
+      <div style={{fontSize:18,fontWeight:700,color:"#1e293b",marginBottom:8}}>{title}</div>
+      <div style={{fontSize:13,color:"#64748b",maxWidth:500,margin:"0 auto",lineHeight:1.6}}>{desc}</div>
+      <div style={{marginTop:20,padding:"12px 20px",background:"#f1f5f9",borderRadius:10,display:"inline-block",fontSize:12,color:"#475569"}}>🚧 Módulo en construcción</div>
+    </div>
+  );
+}
+
 export default function AllegriaModule({usuarioActual, esAdmin, esSoloConsulta, tabPermisos={}, onBack, onLogout}) {
   const [subApp, setSubApp] = useState(null);
-  const [liqTab, setLiqTab] = useState("productor");
-  const [antTab, setAntTab] = useState("anticipos");
-  const [data, setData] = useState({clientes:[],productores:[],programaComercial:[],embarques:[],liquidaciones:[],liqCliente:[],anticipos:[],cobranza:[],hubCardsOrder:null});
+  const [liqTab, setLiqTab] = useState("cliente");
+  const [data, setData] = useState({clientes:[],productores:[],programaComercial:[],recepciones:[],stockPT:[],materiales:[],recetas:[],embarques:[],liquidaciones:[],liqCliente:[],anticipos:[],cobranza:[],hubCardsOrder:null});
   const [cargando, setCargando] = useState(true);
   const [tempSeleccionada, setTempSeleccionada] = useState(temporadaActual());
 
@@ -1055,7 +1065,7 @@ export default function AllegriaModule({usuarioActual, esAdmin, esSoloConsulta, 
         setData(d);
         // Inicializar protección anti-pérdida
         window._lastSavedAllegria = {};
-        ["clientes","productores","embarques","liquidaciones","liqCliente","anticipos","cobranza"].forEach(k=>{
+        ["clientes","productores","embarques","liquidaciones","liqCliente","anticipos","cobranza","recepciones","stockPT","materiales","recetas","programaComercial"].forEach(k=>{
           if(Array.isArray(d[k])) window._lastSavedAllegria[k] = d[k].length;
         });
         console.log("[Allegria] Protección anti-pérdida:", JSON.stringify(window._lastSavedAllegria));
@@ -1076,6 +1086,10 @@ export default function AllegriaModule({usuarioActual, esAdmin, esSoloConsulta, 
   const setClientes = fn => setData(p=>({...p, clientes: typeof fn==="function"?fn(p.clientes||[]):fn}));
   const setProductores = fn => setData(p=>({...p, productores: typeof fn==="function"?fn(p.productores||[]):fn}));
   const setProgramaComercial = fn => setData(p=>({...p, programaComercial: typeof fn==="function"?fn(p.programaComercial||[]):fn}));
+  const setRecepciones = fn => setData(p=>({...p, recepciones: typeof fn==="function"?fn(p.recepciones||[]):fn}));
+  const setStockPT = fn => setData(p=>({...p, stockPT: typeof fn==="function"?fn(p.stockPT||[]):fn}));
+  const setMateriales = fn => setData(p=>({...p, materiales: typeof fn==="function"?fn(p.materiales||[]):fn}));
+  const setRecetas = fn => setData(p=>({...p, recetas: typeof fn==="function"?fn(p.recetas||[]):fn}));
   const setEmbarques = fn => setData(p=>({...p, embarques: typeof fn==="function"?fn(p.embarques||[]):fn}));
   const setLiquidaciones = fn => setData(p=>({...p, liquidaciones: typeof fn==="function"?fn(p.liquidaciones||[]):fn}));
   const setLiqCliente = fn => setData(p=>({...p, liqCliente: typeof fn==="function"?fn(p.liqCliente||[]):fn}));
@@ -1087,11 +1101,13 @@ export default function AllegriaModule({usuarioActual, esAdmin, esSoloConsulta, 
   // Sub-apps
   const SUBAPPS = [
     {id:"clientes",      label:"Clientes Importadores", desc:"Ficha importador, país destino, contacto, condiciones comerciales",          icon:"👥", color:"#b91c1c", stats:`${(data.clientes||[]).length} clientes`},
-    {id:"productores",   label:"Productores",           desc:"Proveedores de fruta, zona, variedades, certificaciones",                     icon:"🌱", color:"#0f766e", stats:`${(data.productores||[]).length} productores`},
-    {id:"programa",      label:"Programa Comercial",    desc:"Trisemanal kg-var, programa semanal, asignación productor→cliente",           icon:"📊", color:"#7c3aed", stats:`${(data.programaComercial||[]).length} programas`},
-    {id:"embarques",     label:"Embarques",              desc:"Plan, instructivos, booking, documentos, QC, seguimiento, reclamos",         icon:"📦", color:"#2563eb", stats:`${(data.embarques||[]).length} embarques`},
-    {id:"liquidaciones", label:"Liquidaciones",          desc:"Liquidación productor (retorno caja/kg) y cliente (del importador)",          icon:"💰", color:"#16a34a", stats:`${(data.liquidaciones||[]).length + (data.liqCliente||[]).length} liquidaciones`},
-    {id:"anticipos",     label:"Anticipos & Cobranza",  desc:"Anticipos pre-season, contra BL, cobranza, pago liquidación",                icon:"💵", color:"#d97706", stats:`${(data.anticipos||[]).length + (data.cobranza||[]).length} registros`},
+    {id:"productores",   label:"Productores & Contratos",desc:"Contrato, kg/var/semana, anticipos pactados, visitas agronómicas",          icon:"🌱", color:"#0f766e", stats:`${(data.productores||[]).length} productores`},
+    {id:"programa",      label:"Programa Comercial",    desc:"Programa recepción, asignación productor→cliente por fruta/variedad",         icon:"📊", color:"#7c3aed", stats:`${(data.programaComercial||[]).length} programas`},
+    {id:"recepcion",     label:"Recepción & Proceso",   desc:"Recepción bins en packing, QC recepción, proceso, resultado, informe",       icon:"🏭", color:"#dc2626", stats:`${(data.recepciones||[]).length} recepciones`},
+    {id:"stock",         label:"Stock & Pallets",        desc:"Producto terminado, codificación pallets, inspección SAG, disponible",       icon:"📦", color:"#ea580c", stats:`${(data.stockPT||[]).length} pallets`},
+    {id:"materiales",    label:"Materiales & Inventario",desc:"Maestro materiales, recetas embalaje, compras, consumo, stock actual",       icon:"🧱", color:"#854d0e", stats:`${(data.materiales||[]).length} materiales`},
+    {id:"embarques",     label:"Embarques",              desc:"Carga, despacho, tracking, llegada, QC destino, siniestros, claims",         icon:"🚢", color:"#2563eb", stats:`${(data.embarques||[]).length} embarques`},
+    {id:"liquidaciones", label:"Liquidaciones",          desc:"Liq. cliente → ajustes → liq. productor → anticipos → cobranza",            icon:"💰", color:"#16a34a", stats:`${(data.liquidaciones||[]).length + (data.liqCliente||[]).length} liquidaciones`},
     {id:"dashboard",     label:"Dashboard",              desc:"KPIs por temporada, volumen por fruta/destino, resumen financiero",          icon:"📈", color:"#0ea5e9", stats:"Resumen"},
   ];
 
@@ -1128,35 +1144,25 @@ export default function AllegriaModule({usuarioActual, esAdmin, esSoloConsulta, 
         <Card>
           {subApp==="clientes"&&<ClientesModule data={data.clientes||[]} setData={setClientes} can={can}/>}
           {subApp==="productores"&&<ProductoresModule data={data.productores||[]} setData={setProductores} can={can}/>}
-          {subApp==="programa"&&<div style={{padding:30,textAlign:"center",color:C.muted}}>
-            <div style={{fontSize:48,marginBottom:12}}>📊</div>
-            <div style={{fontSize:16,fontWeight:700,color:C.text,marginBottom:8}}>Programa Comercial</div>
-            <div style={{fontSize:12}}>Trisemanal kg-var · Programa semanal · Asignación productor→cliente</div>
-            <div style={{fontSize:11,color:"#94a3b8",marginTop:12}}>Módulo en construcción — próxima sesión</div>
-          </div>}
+          {subApp==="programa"&&<PlaceholderModule icon="📊" title="Programa Comercial" desc="Programa recepción kg/semana · Asignación productor→cliente por fruta/variedad"/>}
+          {subApp==="recepcion"&&<PlaceholderModule icon="🏭" title="Recepción & Proceso" desc="Recepción bins en packing · QC recepción · Proceso · Resultado · Informe a productor"/>}
+          {subApp==="stock"&&<PlaceholderModule icon="📦" title="Stock & Pallets" desc="Producto terminado (cajas × embalaje × calibre × variedad × color) · Codificación pallets · Inspección SAG · Stock disponible"/>}
+          {subApp==="materiales"&&<PlaceholderModule icon="🧱" title="Materiales & Inventario" desc="Maestro materiales · Recetas embalaje · Compras · Consumo (auto + ajustable) · Stock actual · Kardex"/>}
           {subApp==="embarques"&&<EmbarquesModule data={data.embarques||[]} setData={setEmbarques} clientes={data.clientes||[]} productores={data.productores||[]} can={can} temporada={tempSeleccionada}/>}
           {subApp==="liquidaciones"&&<div>
-            <div style={{display:"flex",gap:8,marginBottom:14}}>
-              <button onClick={()=>setLiqTab("productor")} style={{padding:"8px 16px",borderRadius:8,border:liqTab==="productor"?"2px solid #16a34a":"1px solid #e2e8f0",background:liqTab==="productor"?"#16a34a":"#fff",color:liqTab==="productor"?"#fff":"#1e293b",cursor:"pointer",fontSize:12,fontWeight:700}}>💰 Liq. Productor</button>
+            <div style={{display:"flex",gap:8,marginBottom:14,flexWrap:"wrap"}}>
               <button onClick={()=>setLiqTab("cliente")} style={{padding:"8px 16px",borderRadius:8,border:liqTab==="cliente"?"2px solid #2563eb":"1px solid #e2e8f0",background:liqTab==="cliente"?"#2563eb":"#fff",color:liqTab==="cliente"?"#fff":"#1e293b",cursor:"pointer",fontSize:12,fontWeight:700}}>📥 Liq. Cliente</button>
+              <button onClick={()=>setLiqTab("productor")} style={{padding:"8px 16px",borderRadius:8,border:liqTab==="productor"?"2px solid #16a34a":"1px solid #e2e8f0",background:liqTab==="productor"?"#16a34a":"#fff",color:liqTab==="productor"?"#fff":"#1e293b",cursor:"pointer",fontSize:12,fontWeight:700}}>💰 Liq. Productor</button>
+              <button onClick={()=>setLiqTab("anticipos")} style={{padding:"8px 16px",borderRadius:8,border:liqTab==="anticipos"?"2px solid #d97706":"1px solid #e2e8f0",background:liqTab==="anticipos"?"#d97706":"#fff",color:liqTab==="anticipos"?"#fff":"#1e293b",cursor:"pointer",fontSize:12,fontWeight:700}}>💵 Anticipos</button>
+              <button onClick={()=>setLiqTab("cobranza")} style={{padding:"8px 16px",borderRadius:8,border:liqTab==="cobranza"?"2px solid #7c3aed":"1px solid #e2e8f0",background:liqTab==="cobranza"?"#7c3aed":"#fff",color:liqTab==="cobranza"?"#fff":"#1e293b",cursor:"pointer",fontSize:12,fontWeight:700}}>📋 Cobranza</button>
             </div>
-            {liqTab==="productor"&&<LiquidacionesModule data={data.liquidaciones||[]} setData={setLiquidaciones} embarques={data.embarques||[]} can={can} temporada={tempSeleccionada}/>}
+            <div style={{fontSize:10,color:"#94a3b8",marginBottom:12}}>Flujo: Liq. Cliente (primero) → Ajustes/Comparativas → Liq. Productor → Anticipos → Cobranza</div>
             {liqTab==="cliente"&&<LiquidacionClienteModule data={data.liqCliente||[]} setData={setLiqCliente} embarques={data.embarques||[]} can={can} temporada={tempSeleccionada}/>}
+            {liqTab==="productor"&&<LiquidacionesModule data={data.liquidaciones||[]} setData={setLiquidaciones} embarques={data.embarques||[]} can={can} temporada={tempSeleccionada}/>}
+            {liqTab==="anticipos"&&<AnticiposModule data={data.anticipos||[]} setData={setAnticipos} clientes={data.clientes||[]} productores={data.productores||[]} can={can} temporada={tempSeleccionada}/>}
+            {liqTab==="cobranza"&&<CobranzaModule data={data.cobranza||[]} setData={setCobranza} embarques={data.embarques||[]} liquidaciones={data.liquidaciones||[]} can={can} temporada={tempSeleccionada}/>}
           </div>}
-          {subApp==="anticipos"&&<div>
-            <div style={{display:"flex",gap:8,marginBottom:14}}>
-              <button onClick={()=>setAntTab("anticipos")} style={{padding:"8px 16px",borderRadius:8,border:antTab==="anticipos"?"2px solid #d97706":"1px solid #e2e8f0",background:antTab==="anticipos"?"#d97706":"#fff",color:antTab==="anticipos"?"#fff":"#1e293b",cursor:"pointer",fontSize:12,fontWeight:700}}>💵 Anticipos</button>
-              <button onClick={()=>setAntTab("cobranza")} style={{padding:"8px 16px",borderRadius:8,border:antTab==="cobranza"?"2px solid #7c3aed":"1px solid #e2e8f0",background:antTab==="cobranza"?"#7c3aed":"#fff",color:antTab==="cobranza"?"#fff":"#1e293b",cursor:"pointer",fontSize:12,fontWeight:700}}>📋 Cobranza</button>
-            </div>
-            {antTab==="anticipos"&&<AnticiposModule data={data.anticipos||[]} setData={setAnticipos} clientes={data.clientes||[]} productores={data.productores||[]} can={can} temporada={tempSeleccionada}/>}
-            {antTab==="cobranza"&&<CobranzaModule data={data.cobranza||[]} setData={setCobranza} embarques={data.embarques||[]} liquidaciones={data.liquidaciones||[]} can={can} temporada={tempSeleccionada}/>}
-          </div>}
-          {subApp==="dashboard"&&<div style={{padding:30,textAlign:"center",color:C.muted}}>
-            <div style={{fontSize:48,marginBottom:12}}>📈</div>
-            <div style={{fontSize:16,fontWeight:700,color:C.text,marginBottom:8}}>Dashboard Allegria Foods</div>
-            <div style={{fontSize:12}}>KPIs por temporada · Volumen por fruta/destino · Resumen financiero</div>
-            <div style={{fontSize:11,color:"#94a3b8",marginTop:12}}>Módulo en construcción — próxima sesión</div>
-          </div>}
+          {subApp==="dashboard"&&<PlaceholderModule icon="📈" title="Dashboard Allegria Foods" desc="KPIs por temporada · Volumen por fruta/destino · Resumen financiero · Alertas"/>}
         </Card>
       </div>
     );
@@ -1224,9 +1230,9 @@ export default function AllegriaModule({usuarioActual, esAdmin, esSoloConsulta, 
 
       {/* KPIs globales */}
       <div style={{display:"flex",gap:12,flexWrap:"wrap",maxWidth:950,margin:"0 auto"}}>
-        <KPI label="📦 Embarques" value={(data.embarques||[]).length} color={C.blue}/>
-        <KPI label="🚢 En tránsito" value={(data.embarques||[]).filter(e=>e.estado==="En tránsito").length} color={C.yellow}/>
-        <KPI label="✅ Llegados" value={(data.embarques||[]).filter(e=>e.estado==="Llegado").length} color={C.green}/>
+        <KPI label="🚢 Embarques" value={(data.embarques||[]).length} color={C.blue}/>
+        <KPI label="📦 Pallets" value={(data.stockPT||[]).length} color={C.yellow}/>
+        <KPI label="🏭 Recepciones" value={(data.recepciones||[]).length} color={C.accent}/>
         <KPI label="👥 Clientes" value={(data.clientes||[]).length} color={C.accent}/>
         <KPI label="🌱 Productores" value={(data.productores||[]).length} color={C.teal}/>
         <KPI label="💰 Liquidaciones" value={(data.liquidaciones||[]).length + (data.liqCliente||[]).length} color={C.green}/>
