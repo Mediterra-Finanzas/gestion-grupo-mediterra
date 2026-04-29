@@ -4191,51 +4191,91 @@ function OperacionTecnica({data, setData, ctData=[], viverosData=[], obtentoresD
   // Generar HTML del informe
   function generarHTMLInforme(inf) {
     const ct = (ctData||[]).find(c=>c.id===inf.ctId);
-    const fotos = (inf.registroFotografico||"").split(",").map(u=>u.trim()).filter(Boolean);
     const visita = visitas.find(v=>v.id===inf.visitaId);
-    return `<!DOCTYPE html><html><head><meta charset="utf-8"><title>${inf.titulo}</title>
+    const fotosArr = Array.isArray(inf.fotosInforme) ? inf.fotosInforme : [];
+    const getArr = (campo) => Array.isArray(inf[campo]) ? inf[campo] : [];
+    const LABORES_CULT_PDF=["Poda","Amarra / conducción","Raleo","Manejo de brotes","Control de malezas","Manejo de mulch","Manejo de camellones / sustrato","Limpieza de entrehilera","Cosecha"];
+
+    const secHTML = (titulo, contenido) => contenido && contenido !== "—" ? `<div class="section"><h2>${titulo}</h2><div class="content">${contenido}</div></div>` : "";
+    const tableHTML = (headers, rows) => {
+      if(!rows || rows.length===0) return '<div class="content" style="color:#94a3b8">Sin registros</div>';
+      return `<table><thead><tr>${headers.map(h=>`<th>${h}</th>`).join("")}</tr></thead><tbody>${rows.map(r=>`<tr>${r.map(c=>`<td>${c||"—"}</td>`).join("")}</tr>`).join("")}</tbody></table>`;
+    };
+
+    // Labores culturales
+    const laboresHTML = LABORES_CULT_PDF.map(lab=>{
+      const key = `labor_${lab.replace(/[^a-zA-Z]/g,"_")}`;
+      const d = inf[key] || {};
+      if(!d.estado && !d.obs && !d.rec) return "";
+      return `<tr><td style="font-weight:600">${lab}</td><td>${d.estado||"—"}</td><td>${d.calidad||"—"}</td><td>${d.obs||"—"}</td><td>${d.rec||"—"}</td></tr>`;
+    }).filter(Boolean).join("");
+
+    // Recomendaciones
+    const recHTML = (arr, titulo) => {
+      if(!Array.isArray(arr)||arr.length===0) return "";
+      return `<div style="margin-bottom:8px"><div style="font-weight:700;font-size:11px;color:#0f766e;margin-bottom:4px">${titulo}</div>${tableHTML(["Área","Acción","Responsable","Plazo","Prioridad"],arr.map(r=>[r.area,r.accion,r.responsable,r.plazo,`<span style="color:${r.prioridad==="Alta"?"#dc2626":r.prioridad==="Baja"?"#16a34a":"#d97706"};font-weight:700">${r.prioridad||"Media"}</span>`]))}</div>`;
+    };
+
+    return `<!DOCTYPE html><html><head><meta charset="utf-8"><title>${inf.titulo||"Informe Técnico"}</title>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
-body{font-family:'Segoe UI',system-ui,sans-serif;color:#1e293b;font-size:12px;line-height:1.6;padding:40px 50px}
-.header{text-align:center;border-bottom:2px solid #0f766e;padding-bottom:16px;margin-bottom:20px}
-.header h1{font-size:18px;color:#0f766e;margin-bottom:2px}
-.header .sub{font-size:11px;color:#64748b}
-.grid{display:grid;grid-template-columns:1fr 1fr;gap:8px 20px;margin-bottom:16px}
-.grid .label{font-size:10px;color:#64748b;text-transform:uppercase;letter-spacing:0.5px}
-.grid .value{font-size:12px;font-weight:600}
-.section{margin-bottom:14px}
-.section h2{font-size:13px;font-weight:700;color:#0f766e;background:#f0fdfa;padding:6px 10px;border-radius:4px;margin-bottom:6px}
-.section .content{padding:0 10px;font-size:12px;color:#334155;white-space:pre-wrap}
-.fotos{display:flex;flex-wrap:wrap;gap:10px;padding:0 10px}
-.fotos img{width:180px;height:130px;object-fit:cover;border-radius:6px;border:1px solid #e2e8f0}
-.firma{display:grid;grid-template-columns:1fr 1fr 1fr;gap:20px;border-top:2px solid #e2e8f0;padding-top:16px;margin-top:24px}
-.firma .col{text-align:center}.firma .col .name{font-weight:700;font-size:12px}.firma .col .cargo{font-size:10px;color:#64748b}
-@media print{body{padding:20px 30px}.fotos img{width:150px;height:110px}}
+body{font-family:'Segoe UI',system-ui,sans-serif;color:#1e293b;font-size:11px;line-height:1.5;padding:30px 40px}
+.header{display:flex;align-items:center;gap:16px;border-bottom:2px solid #0f766e;padding-bottom:14px;margin-bottom:16px}
+.header img{height:50px;object-fit:contain}
+.header .info{flex:1}
+.header h1{font-size:16px;color:#0f766e;margin-bottom:1px}
+.header .sub{font-size:10px;color:#64748b}
+.grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px 16px;margin-bottom:14px;background:#f8fafc;padding:10px 12px;border-radius:6px}
+.grid .label{font-size:9px;color:#64748b;text-transform:uppercase;letter-spacing:0.5px}
+.grid .value{font-size:11px;font-weight:600}
+.section{margin-bottom:12px;page-break-inside:avoid}
+.section h2{font-size:12px;font-weight:700;color:#fff;background:#0f766e;padding:5px 10px;border-radius:4px;margin-bottom:5px}
+.section .content{padding:4px 10px;font-size:11px;color:#334155;white-space:pre-wrap}
+table{width:100%;border-collapse:collapse;font-size:10px;margin-top:4px}
+th{background:#f0fdfa;color:#0f766e;padding:4px 8px;text-align:left;font-size:9px;border-bottom:1px solid #d1d5db}
+td{padding:3px 8px;border-bottom:1px solid #f1f5f9}
+.fotos{display:flex;flex-wrap:wrap;gap:8px;padding:4px 10px}
+.fotos .foto{text-align:center}
+.fotos img{width:160px;height:110px;object-fit:cover;border-radius:4px;border:1px solid #e2e8f0}
+.fotos .desc{font-size:9px;color:#64748b;margin-top:2px}
+.firma{display:grid;grid-template-columns:1fr 1fr 1fr;gap:20px;border-top:2px solid #0f766e;padding-top:14px;margin-top:20px}
+.firma .col{text-align:center}.firma .col .name{font-weight:700;font-size:11px}.firma .col .cargo{font-size:9px;color:#64748b}
+@media print{body{padding:15px 25px}table{font-size:9px}.fotos img{width:130px;height:90px}}
 </style></head><body>
 <div class="header">
-<div style="font-size:10px;color:#64748b;letter-spacing:2px">OSIRIS PLANT MANAGEMENT</div>
-<h1>${inf.titulo||'Informe Técnico'}</h1>
-<div class="sub">N° INF-${new Date(inf.fecha||Date.now()).getFullYear()}-${String(inf.id||'').slice(-4).padStart(4,'0')} · ${inf.fecha||''} · ${inf.tipo||''}</div>
+<img src="/osiris-logo.jpg" alt="Osiris"/>
+<div class="info">
+<h1>${inf.titulo||'Informe Técnico de Visita'}</h1>
+<div class="sub">N° INF-${new Date(inf.fecha||Date.now()).getFullYear()}-${String(inf.id||'').slice(-4).padStart(4,'0')} · ${inf.tipo||''} · ${inf.fecha||''}</div>
+</div>
 </div>
 <div class="grid">
-<div><div class="label">Cliente</div><div class="value">${ct?.razonSocial||'—'} · ${ct?.pais||''}</div></div>
-<div><div class="label">Predio / Ubicación</div><div class="value">${inf.lugar||'—'}</div></div>
-<div><div class="label">Tipo</div><div class="value">${inf.tipo||'—'}</div></div>
-<div><div class="label">Responsable</div><div class="value">${inf.responsable||'—'}</div></div>
+<div><div class="label">Cliente</div><div class="value">${ct?.razonSocial||'—'}</div></div>
+<div><div class="label">Campo / Predio</div><div class="value">${inf.lugar||'—'}</div></div>
+<div><div class="label">Ubicación</div><div class="value">${inf.ubicacion||'—'}</div></div>
 <div><div class="label">Especie / Variedad</div><div class="value">${inf.especie||'—'}${inf.variedad?' · '+inf.variedad:''}</div></div>
+<div><div class="label">Superficie</div><div class="value">${inf.superficie||'—'} há</div></div>
+<div><div class="label">Temporada</div><div class="value">${inf.temporada||'—'}</div></div>
+<div><div class="label">Técnico</div><div class="value">${inf.responsable||'—'}</div></div>
 <div><div class="label">Fecha visita</div><div class="value">${visita?.fecha||inf.fecha||'—'}</div></div>
 </div>
-<div class="section"><h2>1. Objetivo</h2><div class="content">${inf.objetivo||'—'}</div></div>
-<div class="section"><h2>2. Observaciones de campo</h2><div class="content">${inf.observacionesCampo||'—'}</div></div>
-<div class="section"><h2>3. Recomendaciones</h2><div class="content">${inf.recomendaciones||'—'}</div></div>
-<div class="section"><h2>4. Medidas correctivas</h2><div class="content">${inf.medidasCorrectivas||'Sin medidas correctivas requeridas'}</div></div>
-<div class="section"><h2>5. Registro fotográfico</h2>${fotos.length>0?'<div class="fotos">'+fotos.map((u,i)=>'<img src="'+u+'" alt="Foto '+(i+1)+'"/>').join('')+'</div>':'<div class="content">Sin fotos adjuntas</div>'}</div>
-<div class="section"><h2>6. Conclusiones</h2><div class="content">${inf.conclusiones||'—'}</div></div>
-<div class="section"><h2>7. Próxima visita</h2><div class="content">${inf.proximaVisitaFecha?inf.proximaVisitaFecha+' — '+(inf.proximaVisitaObjetivo||''):'No programada'}</div></div>
+${secHTML("B. Resumen General",inf.resumenGeneral)}
+${inf.fenologiaEstado?`<div class="section"><h2>C. Estado Fenológico</h2><div class="content">Estado: <strong>${inf.fenologiaEstado||"—"}</strong> · Uniformidad: <strong>${inf.fenologiaUniformidad||"—"}</strong>${inf.fenologiaObs?"\n"+inf.fenologiaObs:""}</div></div>`:""}
+${inf.riegoSistema?`<div class="section"><h2>D. Riego y Uso de Agua</h2><div class="content">Sistema: <strong>${inf.riegoSistema||"—"}</strong> · Frecuencia: ${inf.riegoFrecuencia||"—"} · Duración: ${inf.riegoDuracion||"—"} min · Volumen: ${inf.riegoVolumen||"—"}\nHumedad: <strong>${inf.riegoHumedad||"—"}</strong> · Uniformidad: <strong>${inf.riegoUniformidad||"—"}</strong>${inf.riegoObs?"\nObs: "+inf.riegoObs:""}${inf.riegoRec?"\nRec: "+inf.riegoRec:""}</div></div>`:""}
+${inf.nutricionPrograma||getArr("nutricionAplicaciones").length>0?`<div class="section"><h2>E. Nutrición y Fertilización</h2><div class="content">${inf.nutricionPrograma||""}${inf.nutricionSintomas?"\nSíntomas: "+inf.nutricionSintomas:""}${inf.nutricionRec?"\nRec: "+inf.nutricionRec:""}</div>${getArr("nutricionAplicaciones").length>0?tableHTML(["Fecha","Producto","Dosis","Vía","Objetivo","Obs"],getArr("nutricionAplicaciones").map(a=>[a.fecha,a.producto,a.dosis,a.via,a.objetivo,a.obs])):""}</div>`:""}
+${getArr("fitoAplicaciones").length>0?`<div class="section"><h2>F. Aplicaciones Fitosanitarias</h2>${tableHTML(["Fecha","Producto","Dosis","Objetivo","Resultado","Rec."],getArr("fitoAplicaciones").map(a=>[a.fecha,a.producto,a.dosis,a.objetivo,a.resultado,a.rec]))}</div>`:""}
+${laboresHTML?`<div class="section"><h2>G. Labores Culturales</h2><table><thead><tr><th>Labor</th><th>Estado</th><th>Calidad</th><th>Observación</th><th>Recomendación</th></tr></thead><tbody>${laboresHTML}</tbody></table></div>`:""}
+${getArr("sanidadProblemas").length>0?`<div class="section"><h2>H. Sanidad Vegetal</h2>${tableHTML(["Problema","Tipo","Incidencia","Severidad","Sector","Acción"],getArr("sanidadProblemas").map(p=>[p.problema,p.tipo,p.incidencia,p.severidad,p.sector,p.accion]))}</div>`:""}
+${inf.sueloHumedad||inf.sueloPH?`<div class="section"><h2>I. Suelo / Sustrato</h2><div class="content">Humedad: <strong>${inf.sueloHumedad||"—"}</strong> · Drenaje: <strong>${inf.sueloDrenaje||"—"}</strong> · Compactación: <strong>${inf.sueloCompactacion||"—"}</strong>\npH: ${inf.sueloPH||"—"} · CE: ${inf.sueloCE||"—"} dS/m · Raíces: ${inf.sueloRaices||"—"}${inf.sueloObs?"\nObs: "+inf.sueloObs:""}</div></div>`:""}
+${inf.desarrolloVigor||inf.desarrolloEstimacion?`<div class="section"><h2>J. Desarrollo Vegetativo y Productivo</h2><div class="content">Vigor: <strong>${inf.desarrolloVigor||"—"}</strong> · Uniformidad: <strong>${inf.desarrolloUniformidad||"—"}</strong> · Carga frutal: ${inf.desarrolloCarga||"—"}\nEstimación: ${inf.desarrolloEstimacion||"—"} kg/há · Calidad: ${inf.desarrolloCalidad||"—"} · Calibre: ${inf.desarrolloCalibre||"—"}\nCondición fruta: ${inf.desarrolloCondicion||"—"} · F. cosecha est.: ${inf.desarrolloFechaCosecha||"—"}</div></div>`:""}
+${getArr("recInmediatas").length+getArr("recCortoPlazo").length+getArr("recTemporada").length>0?`<div class="section"><h2>K. Recomendaciones Técnicas</h2>${recHTML(getArr("recInmediatas"),"⚡ Inmediatas (próximos días)")}${recHTML(getArr("recCortoPlazo"),"📅 Corto plazo (próximas semanas)")}${recHTML(getArr("recTemporada"),"🌿 De temporada (resto del ciclo)")}</div>`:""}
+${fotosArr.length>0?`<div class="section"><h2>L. Registro Fotográfico</h2><div class="fotos">${fotosArr.map(f=>`<div class="foto">${f.url?`<img src="${f.url}"/>`:"📷"}<div class="desc">${f.descripcion||""}${f.categoria?" · "+f.categoria:""}</div></div>`).join("")}</div></div>`:""}
+${secHTML("M. Conclusión Técnica",inf.conclusionTecnica)}
+${inf.proximaVisitaFecha?`<div class="section"><h2>Próxima Visita</h2><div class="content">${inf.proximaVisitaFecha} — ${inf.proximaVisitaObjetivo||"Sin objetivo definido"}</div></div>`:""}
 <div class="firma">
 <div class="col"><div class="name">${inf.responsable||'—'}</div><div class="cargo">Elaborado por</div></div>
-<div class="col"><div class="name">${inf.revisor||'(Pendiente)'}</div><div class="cargo">Revisado por</div>${inf.fechaAprobacion?'<div style="font-size:9px;color:#16a34a;margin-top:2px">Aprobado '+inf.fechaAprobacion+'</div>':''}</div>
-<div class="col"><div class="name">Próxima: ${inf.proximaVisitaFecha||'—'}</div><div class="cargo">${inf.proximaVisitaObjetivo||''}</div></div>
+<div class="col"><div class="name">${inf.revisor||'(Pendiente)'}</div><div class="cargo">Revisado por</div>${inf.fechaAprobacion?'<div style="font-size:8px;color:#16a34a;margin-top:2px">Aprobado '+inf.fechaAprobacion+'</div>':''}</div>
+<div class="col"><div class="name" style="color:#0f766e">OSIRIS PLANT MANAGEMENT</div><div class="cargo">Grupo Mediterra</div></div>
 </div></body></html>`;
   }
   function generarPDF(inf) {
