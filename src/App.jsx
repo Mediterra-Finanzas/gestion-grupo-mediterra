@@ -963,6 +963,12 @@ function HubScreen({ usuario, modulosPermitidos, onSelectModulo, onLogout, onCam
                     style={{height:44,objectFit:"contain",display:"block"}}
                     onError={e=>{e.target.onerror=null;e.target.style.display="none";}}/>
                 </div>
+              : modulo.id === "frisku"
+              ? <div style={{marginBottom:12}}>
+                  <img src="/frisku.png" alt="Frisku Foods"
+                    style={{height:44,objectFit:"contain",display:"block"}}
+                    onError={e=>{e.target.style.display="none";}}/>
+                </div>
               : <div style={{fontSize:40, marginBottom:14}}>{modulo.icon}</div>
             }
             <div style={{fontSize:17, fontWeight:800, color:"#fff", marginBottom:4}}>{modulo.label}</div>
