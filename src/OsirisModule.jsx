@@ -3846,7 +3846,7 @@ function MaestroClientes({clientes,setClientes,can}){
     setShowForm(false);
   }
   function iniciarEdicion(c){
-    setForm({razonSocial:c.razonSocial||"",nombreComercial:c.nombreComercial||"",taxID:c.taxID||"",pais:c.pais||"Peru",direccion:c.direccion||"",ciudad:c.ciudad||"",repLegal:c.repLegal||"",rucRep:c.rucRep||"",contactoCobranza:c.contactoCobranza||""});
+    setForm({razonSocial:c.razonSocial||"",nombreComercial:c.nombreComercial||"",taxID:c.taxID||"",pais:c.pais||"Peru",direccion:c.direccion||"",ciudad:c.ciudad||"",repLegal:c.repLegal||"",rucRep:c.rucRep||"",contactoCobranza:c.contactoCobranza||"",ubicaciones:c.ubicaciones||[]});
     setEditId(c.id);setShowForm(true);
   }
 
@@ -3885,6 +3885,27 @@ function MaestroClientes({clientes,setClientes,can}){
                 }
               </div>
             ))}
+          </div>
+          {/* Ubicaciones múltiples */}
+          <div style={{marginBottom:12}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
+              <div style={{fontSize:11,color:"#64748b",fontWeight:600}}>📍 Ubicaciones (campos, predios)</div>
+              <button type="button" onClick={()=>setForm(p=>({...p,ubicaciones:[...(p.ubicaciones||[]),{id:`ub_${Date.now()}`,nombre:"",region:"",direccion:""}]}))}
+                style={{padding:"3px 10px",borderRadius:6,background:"#0f766e",color:"#fff",border:"none",cursor:"pointer",fontSize:10,fontWeight:700}}>+ Ubicación</button>
+            </div>
+            {(form.ubicaciones||[]).map((ub,i)=>(
+              <div key={ub.id} style={{display:"flex",gap:6,marginBottom:4,alignItems:"center"}}>
+                <input value={ub.nombre||""} placeholder="Nombre campo" onChange={e=>setForm(p=>({...p,ubicaciones:(p.ubicaciones||[]).map(u=>u.id===ub.id?{...u,nombre:e.target.value}:u)}))}
+                  style={{flex:1,padding:"5px 8px",borderRadius:6,border:"1px solid #d1d5db",fontSize:11}}/>
+                <input value={ub.region||""} placeholder="Región" onChange={e=>setForm(p=>({...p,ubicaciones:(p.ubicaciones||[]).map(u=>u.id===ub.id?{...u,region:e.target.value}:u)}))}
+                  style={{flex:1,padding:"5px 8px",borderRadius:6,border:"1px solid #d1d5db",fontSize:11}}/>
+                <input value={ub.direccion||""} placeholder="Dirección" onChange={e=>setForm(p=>({...p,ubicaciones:(p.ubicaciones||[]).map(u=>u.id===ub.id?{...u,direccion:e.target.value}:u)}))}
+                  style={{flex:1,padding:"5px 8px",borderRadius:6,border:"1px solid #d1d5db",fontSize:11}}/>
+                <button onClick={()=>setForm(p=>({...p,ubicaciones:(p.ubicaciones||[]).filter(u=>u.id!==ub.id)}))}
+                  style={{background:"#fee2e2",border:"none",borderRadius:4,padding:"3px 6px",cursor:"pointer",fontSize:10,color:"#991b1b"}}>×</button>
+              </div>
+            ))}
+            {(form.ubicaciones||[]).length===0&&<div style={{fontSize:10,color:"#94a3b8"}}>Sin ubicaciones. Agrega campos o predios del cliente.</div>}
           </div>
           <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}>
             <button onClick={()=>{setShowForm(false);setEditId(null);}} style={{padding:"6px 16px",borderRadius:6,border:"1px solid #d1d5db",background:"#fff",cursor:"pointer",fontSize:12}}>Cancelar</button>
@@ -6029,13 +6050,34 @@ function ControlContratos({data,setData,clientes,setClientes,variedadesMaestro=[
             </div>
           )}
           {sec==="ubicacion"&&(
-            <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(200px,1fr))",gap:16}}>
-              <Campo label="Nombre Predio" campo="nombrePredio" r={r}/>
-              <Campo label="Dirección Predio" campo="direccionPredio" r={r}/>
-              <Campo label="Cuartel" campo="cuartel" r={r}/>
-              <Campo label="Región" campo="region" r={r}/>
-              <Campo label="Ciudad" campo="ciudadPredio" r={r}/>
-              <Campo label="Coordenadas GPS" campo="coordenadas" r={r}/>
+            <div>
+              {/* Selector de ubicación del cliente */}
+              {(()=>{
+                const cli = clientes.find(c=>c.razonSocial===r.cliente||c.id===r.clienteId);
+                const ubics = cli?.ubicaciones || [];
+                return ubics.length > 0 ? (
+                  <div style={{marginBottom:12}}>
+                    <div style={{fontSize:11,color:"#64748b",fontWeight:600,marginBottom:4}}>📍 Seleccionar ubicación del cliente</div>
+                    <select disabled={!can} value={r.ubicacionClienteId||""} onChange={e=>{
+                      const ub = ubics.find(u=>u.id===e.target.value);
+                      if(ub) { upd(r.id,"ubicacionClienteId",ub.id); upd(r.id,"nombrePredio",ub.nombre); upd(r.id,"region",ub.region); upd(r.id,"direccionPredio",ub.direccion); }
+                      else { upd(r.id,"ubicacionClienteId",""); }
+                    }} style={{width:"100%",maxWidth:400,padding:"7px 10px",borderRadius:6,border:"1px solid #16a34a",fontSize:12,background:"#f0fdf4"}}>
+                      <option value="">— Seleccionar o ingresar manualmente —</option>
+                      {ubics.map(u=><option key={u.id} value={u.id}>{u.nombre} — {u.region} {u.direccion?`(${u.direccion})`:""}</option>)}
+                    </select>
+                  </div>
+                ) : null;
+              })()}
+              <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(200px,1fr))",gap:16}}>
+                <Campo label="Nombre Predio" campo="nombrePredio" r={r}/>
+                <Campo label="Dirección Predio" campo="direccionPredio" r={r}/>
+                <Campo label="Cuartel" campo="cuartel" r={r}/>
+                <Campo label="Región" campo="region" r={r}/>
+                <Campo label="Ciudad" campo="ciudadPredio" r={r}/>
+                <Campo label="Coordenadas GPS" campo="coordenadas" r={r}/>
+                <Campo label="N° Cotización Vivero" campo="nCotizacionVivero" r={r}/>
+              </div>
             </div>
           )}
           {sec==="factura"&&(
@@ -6062,16 +6104,6 @@ function ControlContratos({data,setData,clientes,setClientes,variedadesMaestro=[
                   <div style={{fontSize:11,color:C.gris,fontWeight:600,marginBottom:4}}>Valor Royalty Comercial (USD/Há)</div>
                   <Cell val={r.valorRoyaltyComercial} onChange={v=>upd(r.id,"valorRoyaltyComercial",parseFloat(v)||0)} type="number" can={can}/>
                   <div style={{fontSize:9,color:pct(r.pais)===1?"#94a3b8":"#dc2626",marginTop:3}}>{pct(r.pais)===1?"Sin WHT (Chile)":"WHT 15% — neto = $"+(((Number(r.valorRoyaltyComercial)||0)*0.85).toFixed(0))+"/há"}</div>
-                </div>
-                <div>
-                  <div style={{fontSize:11,color:C.gris,fontWeight:600,marginBottom:4}}>📅 Mes Facturación RC</div>
-                  <Cell val={r.mesFacuracionRC||""} onChange={v=>upd(r.id,"mesFacuracionRC",v)} opts={["—",...MESES_ANO]} can={can}/>
-                  <div style={{fontSize:9,color:"#94a3b8",marginTop:3}}>Default {r.pais}: {RC_MES_DEFAULT_POR_PAIS[r.pais]||"Abril"}</div>
-                </div>
-                <div>
-                  <div style={{fontSize:11,color:C.gris,fontWeight:600,marginBottom:4}}>📆 Año primer cobro RC</div>
-                  <Cell val={r.anioPrimerCobroRC||""} onChange={v=>upd(r.id,"anioPrimerCobroRC",parseInt(v)||"")} type="number" can={can}/>
-                  <div style={{fontSize:9,color:"#94a3b8",marginTop:3}}>Ej. 2027 — luego se repite cada año hasta término</div>
                 </div>
                 <div style={{display:"flex",alignItems:"flex-end",paddingBottom:4}}>
                   <label style={{display:"flex",alignItems:"center",gap:8,cursor:can?"pointer":"default",
@@ -6826,7 +6858,6 @@ function ControlContratos({data,setData,clientes,setClientes,variedadesMaestro=[
               <CampoNuevo label="Monto Contract Fee (USD)" campo="montoContractFee" tipo="number" form={form} setF={setF}/>
               <CampoNuevo label="Royalty/Planta (USD)" campo="valorRoyaltyPlanta" tipo="number"/>
               <CampoNuevo label="Royalty Comercial (USD/Há)" campo="valorRoyaltyComercial" tipo="number"/>
-              <CampoNuevo label="Mes Facturación RC" campo="mesFacuracionRC" opts={["—",...MESES_ANO]} form={form} setF={setF}/>
               <div style={{display:"flex",alignItems:"flex-end"}}>
                 <label style={{display:"flex",alignItems:"center",gap:8,cursor:"pointer",fontSize:12,fontWeight:600,color:C.sl}}>
                   <input type="checkbox" checked={form.royaltyInflacion||false} onChange={()=>setF("royaltyInflacion",!form.royaltyInflacion)}/>
