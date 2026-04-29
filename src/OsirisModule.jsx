@@ -1,8 +1,59 @@
 /* eslint-disable */
 // ============================================================
-// OsirisModule.jsx — v4 — Módulo Osiris Plant · Mediterra
+// OsirisModule.jsx — v5 — Módulo Osiris Plant · Mediterra
+// Persistencia independiente: fila "osiris" en Supabase
 // ============================================================
-import React, { useState, useCallback, useMemo, useEffect } from "react";
+import React, { useState, useCallback, useMemo, useEffect, useRef } from "react";
+
+const SUPA_URL = "https://bywovqayuzodbzwsriet.supabase.co";
+const SUPA_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJ5d292cWF5dXpvZGJ6d3NyaWV0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzYwMjA4NjIsImV4cCI6MjA5MTU5Njg2Mn0.yLaB4sGJHIJOhmq5tLGj7Z-Z1UoAJzhEaTFY6VqBeYc";
+
+async function dbLoadOsiris() {
+  try {
+    const res = await fetch(`${SUPA_URL}/rest/v1/calendario_data?id=eq.osiris&select=value`, {
+      headers: { apikey: SUPA_KEY, Authorization: `Bearer ${SUPA_KEY}` }
+    });
+    const rows = await res.json();
+    if(rows?.[0]?.value) {
+      const v = typeof rows[0].value === "string" ? JSON.parse(rows[0].value) : rows[0].value;
+      return v;
+    }
+    return null;
+  } catch(e) { console.error("[Osiris] Error cargando:", e); return null; }
+}
+
+async function dbSaveOsiris(value) {
+  try {
+    // Protección anti-pérdida
+    if(value) {
+      const protectedKeys = ["contratos","obtentores","viveros","clientes","especies","variedades"];
+      const hasAnyData = protectedKeys.some(k => Array.isArray(value[k]) && value[k].length > 0);
+      const prevHadData = window._lastSavedOsiris && Object.values(window._lastSavedOsiris).some(v => v > 0);
+      if(!hasAnyData && prevHadData) {
+        console.warn("[dbSaveOsiris] ⚠️ BLOQUEADO: osirisData vacío pero antes tenía datos.");
+        return;
+      }
+      for(const k of protectedKeys) {
+        const nc = Array.isArray(value[k]) ? value[k].length : -1;
+        const pc = window._lastSavedOsiris?.[k] || 0;
+        if(nc >= 0 && nc < pc) {
+          console.warn(`[dbSaveOsiris] ⚠️ BLOQUEADO: ${k} pasó de ${pc} a ${nc}.`);
+          return;
+        }
+      }
+      if(!window._lastSavedOsiris) window._lastSavedOsiris = {};
+      for(const k of protectedKeys) { if(Array.isArray(value[k]) && value[k].length > 0) window._lastSavedOsiris[k] = value[k].length; }
+    }
+    await fetch(`${SUPA_URL}/rest/v1/calendario_data`, {
+      method: "POST",
+      headers: { apikey: SUPA_KEY, Authorization: `Bearer ${SUPA_KEY}`,
+        "Content-Type": "application/json", Prefer: "resolution=merge-duplicates" },
+      body: JSON.stringify({ id: "osiris", value, updated_at: new Date().toISOString() })
+    });
+    const keys = value ? Object.keys(value).filter(k=>Array.isArray(value[k])&&value[k].length>0).map(k=>`${k}:${value[k].length}`).join(", ") : "VACÍO";
+    console.log(`[Osiris] ✅ Guardado: ${keys}`);
+  } catch(e) { console.error("[Osiris] Error guardando:", e); }
+}
 
 // ── Paleta ────────────────────────────────────────────────
 const C = {
@@ -887,7 +938,7 @@ function TotalPedidos({data,setData,rpData,setRpData,rcData,setRcData,fvData,set
         ))}
         <div style={{display:"flex",gap:8,alignSelf:"center",flexWrap:"wrap"}}>
           <div style={{fontSize:11,color:"#64748b",fontStyle:"italic",alignSelf:"center",padding:"6px 12px",background:"#f0f9ff",border:"1px solid #bae6fd",borderRadius:6}}>
-            🔗 Datos derivados de Contratos Productores
+            🔗 Datos derivados de Contratos Exp-Prod
           </div>
           {can&&<button onClick={()=>setShowRegalias(v=>!v)}
             style={{background:showRegalias?"#16a34a":"#f1f5f9",color:showRegalias?"#fff":C.sl,border:"1px solid #e2e8f0",borderRadius:8,padding:"8px 14px",cursor:"pointer",fontSize:12,fontWeight:600}}>
@@ -1365,7 +1416,7 @@ function RoyaltyPlanta({data,setData,tpData,can,clientes=[]}) {
           </div>
         ))}
         <div style={{fontSize:11,color:"#64748b",fontStyle:"italic",alignSelf:"center",padding:"6px 12px",background:"#f0f9ff",border:"1px solid #bae6fd",borderRadius:6}}>
-          🔗 Derivado de Contratos Productores
+          🔗 Derivado de Contratos Exp-Prod
         </div>
       </div>
 
@@ -1885,7 +1936,7 @@ function RoyaltyComercial({data,setData,tpData,can,clientes=[]}) {
           </div>
         ))}
         <div style={{fontSize:11,color:"#64748b",fontStyle:"italic",alignSelf:"center",padding:"6px 12px",background:"#f0f9ff",border:"1px solid #bae6fd",borderRadius:6}}>
-          🔗 Derivado de Contratos Productores
+          🔗 Derivado de Contratos Exp-Prod
         </div>
       </div>
 
@@ -2132,7 +2183,7 @@ function FeeViveros({data,setData,tpData,can,clientes=[]}) {
           </div>
         ))}
         <div style={{fontSize:11,color:"#64748b",fontStyle:"italic",alignSelf:"center",padding:"6px 12px",background:"#f0f9ff",border:"1px solid #bae6fd",borderRadius:6}}>
-          🔗 Derivado de Contratos Productores
+          🔗 Derivado de Contratos Exp-Prod
         </div>
       </div>
 
@@ -6972,7 +7023,36 @@ async function exportarViveros(vivData) {
 // ══════════════════════════════════════════════════════════
 // COMPONENTE PRINCIPAL — Hub Osiris mejorado
 // ══════════════════════════════════════════════════════════
-export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPermisos={},osirisData,setOsirisData,onBack,onLogout}) {
+export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPermisos={},onBack,onLogout}) {
+  // ── Osiris tiene su propia persistencia (fila "osiris" en Supabase) ──
+  const [osirisData, setOsirisData] = useState({});
+  const [cargandoOsiris, setCargandoOsiris] = useState(true);
+  const dataRef = useRef(osirisData);
+  useEffect(()=>{ dataRef.current = osirisData; },[osirisData]);
+
+  // Cargar al montar
+  useEffect(()=>{
+    (async()=>{
+      const saved = await dbLoadOsiris();
+      if(saved) {
+        setOsirisData(saved);
+        // Inicializar protección
+        window._lastSavedOsiris = {};
+        ["contratos","obtentores","viveros","clientes","especies","variedades"].forEach(k=>{
+          if(Array.isArray(saved[k])) window._lastSavedOsiris[k] = saved[k].length;
+        });
+        console.log("[Osiris] Cargado. Protección:", JSON.stringify(window._lastSavedOsiris));
+      }
+      setCargandoOsiris(false);
+    })();
+  },[]);
+
+  // Auto-guardado independiente (debounce 2s)
+  useEffect(()=>{
+    if(cargandoOsiris) return;
+    const t = setTimeout(()=>dbSaveOsiris(dataRef.current), 2000);
+    return ()=>clearTimeout(t);
+  },[osirisData, cargandoOsiris]);
   // subApp: null = hub Osiris | "ingresos" | "contratos"
   const [subApp,setSubApp]=useState(null);
   const [subTab,setSubTab]=useState("resumen");
@@ -7304,7 +7384,7 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
         const CARD_DEFS = {
           ingresos: {emoji:"💰",label:"Ingresos Osiris",desc:"Royalties, Fee Viveros, Total Pedidos y Resumen de cobros",grad:"#0f766e22",border:"#0f766e44",
             onClick:()=>setSubApp("ingresos"),badges:()=><>{sinConfirmar>0&&<span style={{fontSize:10,background:"rgba(251,191,36,0.2)",color:"#fbbf24",padding:"3px 10px",borderRadius:20,fontWeight:700}}>{sinConfirmar} por confirmar</span>}{alertasRC>0&&<span style={{fontSize:10,background:"rgba(239,68,68,0.2)",color:"#f87171",padding:"3px 10px",borderRadius:20,fontWeight:700}}>⚠️ {alertasRC} alerta{alertasRC>1?"s":""}</span>}</>},
-          contratos: {emoji:"📜",label:"Contratos Productores",desc:"Gestión de contratos con productores-exportadores",grad:"#2563eb22",border:"#2563eb44",
+          contratos: {emoji:"📜",label:"Contratos Exportadores-Productores",desc:"Gestión de contratos con productores-exportadores",grad:"#2563eb22",border:"#2563eb44",
             onClick:()=>setSubApp("contratos"),badges:()=><span style={{fontSize:10,background:"rgba(37,99,235,0.2)",color:"#93c5fd",padding:"3px 10px",borderRadius:20,fontWeight:700}}>{(ctData||[]).length} contratos</span>},
           obtentores: {emoji:"🧬",label:"Contratos Obtentores",desc:"Obtentores, variedades, DHE, PBR, Maestro Especies",grad:"#7c3aed22",border:"#7c3aed44",
             onClick:()=>{if(canVerObtentores)setSubApp("obtentores");},badges:()=>{
@@ -7373,7 +7453,7 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
       <NavBar breadcrumbItems={[
         {label:"Mediterra", onClick:onBack},
         {label:"Osiris Hub", onClick:()=>setSubApp(null)},
-        {label:"Contratos Prod-Exp"},
+        {label:"Contratos Exp-Prod"},
       ]}/>
       {canVerContratos&&!canContratos&&(
         <div style={{background:"linear-gradient(135deg,#fef3c7,#fde68a)",border:"1px solid #f59e0b",
