@@ -1,6 +1,13 @@
 /* eslint-disable */
 import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
 
+// Componente DateInput: evita re-renders al escribir año en campos date
+function DateInput({value, onChange, disabled, style}) {
+  const [local, setLocal] = useState(value||"");
+  useEffect(()=>{ setLocal(value||""); },[value]);
+  return <input type="date" disabled={disabled} value={local} onChange={e=>setLocal(e.target.value)} onBlur={()=>onChange(local)} style={style}/>;
+}
+
 // ═══════════════════════════════════════════════════════════════════
 // ALLEGRIA FOODS — Hub de Exportación de Fruta Fresca
 // Módulos: Clientes, Productores, Embarques, Liquidaciones, Anticipos, Cobranza
@@ -701,9 +708,9 @@ function ProductoresModule({data, setData, can}) {
                             <select disabled={!can} value={g.estado||"Vigente"} onChange={e=>updG("estado",e.target.value)} style={{width:"100%",padding:"5px 6px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:11,background:C.card2,color:C.text,boxSizing:"border-box"}}>
                               <option>Vigente</option><option>Vencida</option><option>Ejecutada</option><option>Devuelta</option></select></div>
                           <div><div style={{color:C.muted,fontWeight:600,marginBottom:2}}>F. Emisión</div>
-                            <input type="date" disabled={!can} value={g.fechaEmision||""} onChange={e=>updG("fechaEmision",e.target.value)} style={{width:"100%",padding:"5px 6px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:11,background:C.card2,color:C.text,boxSizing:"border-box"}}/></div>
+                            <DateInput disabled={!can} value={g.fechaEmision||""} onChange={v=>updG("fechaEmision",v)} style={{width:"100%",padding:"5px 6px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:11,background:C.card2,color:C.text,boxSizing:"border-box"}}/></div>
                           <div><div style={{color:C.muted,fontWeight:600,marginBottom:2}}>F. Vencimiento</div>
-                            <input type="date" disabled={!can} value={g.fechaVencimiento||""} onChange={e=>updG("fechaVencimiento",e.target.value)} style={{width:"100%",padding:"5px 6px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:11,background:C.card2,color:C.text,boxSizing:"border-box"}}/></div>
+                            <DateInput disabled={!can} value={g.fechaVencimiento||""} onChange={v=>updG("fechaVencimiento",v)} style={{width:"100%",padding:"5px 6px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:11,background:C.card2,color:C.text,boxSizing:"border-box"}}/></div>
                           <div><div style={{color:C.muted,fontWeight:600,marginBottom:2}}>📎 Link</div>
                             <div style={{display:"flex",gap:4,alignItems:"center"}}>
                               <input disabled={!can} value={g.link||""} placeholder="https://..." onChange={e=>updG("link",e.target.value)} style={{flex:1,padding:"5px 6px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:11,background:C.card2,color:C.text,boxSizing:"border-box"}}/>
@@ -787,9 +794,9 @@ function ProductoresModule({data, setData, can}) {
                         <div><div style={{color:C.muted,fontWeight:600,marginBottom:2}}>$/kg</div>
                           <input type="number" step="0.01" disabled={!can} value={a.valorPorKg||""} onChange={e=>updA("valorPorKg",parseFloat(e.target.value)||0)} style={{width:"100%",padding:"5px 6px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:11,textAlign:"right",background:C.card2,color:C.text,boxSizing:"border-box"}}/></div>
                         <div><div style={{color:C.muted,fontWeight:600,marginBottom:2}}>F. pactada</div>
-                          <input type="date" disabled={!can} value={a.fechaPactada||""} onChange={e=>updA("fechaPactada",e.target.value)} style={{width:"100%",padding:"5px 6px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:11,background:C.card2,color:C.text,boxSizing:"border-box"}}/></div>
+                          <DateInput disabled={!can} value={a.fechaPactada||""} onChange={v=>updA("fechaPactada",v)} style={{width:"100%",padding:"5px 6px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:11,background:C.card2,color:C.text,boxSizing:"border-box"}}/></div>
                         <div><div style={{color:C.muted,fontWeight:600,marginBottom:2}}>F. pago real</div>
-                          <input type="date" disabled={!can} value={a.fechaPago||""} onChange={e=>updA("fechaPago",e.target.value)} style={{width:"100%",padding:"5px 6px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:11,background:C.card2,color:C.text,boxSizing:"border-box"}}/></div>
+                          <DateInput disabled={!can} value={a.fechaPago||""} onChange={v=>updA("fechaPago",v)} style={{width:"100%",padding:"5px 6px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:11,background:C.card2,color:C.text,boxSizing:"border-box"}}/></div>
                       </div>
                       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,fontSize:11}}>
                         <div><div style={{color:C.muted,fontWeight:600,marginBottom:2}}>🔒 Garantía vinculada</div>
@@ -839,7 +846,7 @@ function ProductoresModule({data, setData, can}) {
                           <select disabled={!can} value={v.tipo||""} onChange={e=>updV("tipo",e.target.value)} style={{width:"100%",padding:"5px 6px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:11,background:C.card2,color:C.text,boxSizing:"border-box"}}>
                             {TIPOS_VISITA.map(t=><option key={t}>{t}</option>)}</select></div>
                         <div><div style={{color:C.muted,fontWeight:600,marginBottom:2}}>Fecha</div>
-                          <input type="date" disabled={!can} value={v.fecha||""} onChange={e=>updV("fecha",e.target.value)} style={{width:"100%",padding:"5px 6px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:11,background:C.card2,color:C.text,boxSizing:"border-box"}}/></div>
+                          <DateInput disabled={!can} value={v.fecha||""} onChange={val=>updV("fecha",val)} style={{width:"100%",padding:"5px 6px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:11,background:C.card2,color:C.text,boxSizing:"border-box"}}/></div>
                         <div><div style={{color:C.muted,fontWeight:600,marginBottom:2}}>Agrónomo</div>
                           <input disabled={!can} value={v.agronomo||""} onChange={e=>updV("agronomo",e.target.value)} style={{width:"100%",padding:"5px 6px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:11,background:C.card2,color:C.text,boxSizing:"border-box"}}/></div>
                         <div><div style={{color:C.muted,fontWeight:600,marginBottom:2}}>Estado</div>
