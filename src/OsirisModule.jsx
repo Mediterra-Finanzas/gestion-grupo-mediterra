@@ -6153,7 +6153,7 @@ function ControlContratos({data,setData,clientes,setClientes,variedadesMaestro=[
               <div style={{overflowX:"auto"}}>
                 <table style={{width:"100%",borderCollapse:"collapse",fontSize:12,background:"#fff",borderRadius:10,overflow:"hidden",border:"1px solid #e2e8f0"}}>
                   <thead><tr style={{background:"#15803d",color:"#fff"}}>
-                    {["Especie","Variedad","Plantas","Hectáreas","Fecha plantación","Sublicenciatario","Vivero","Fee USD/planta","Estado",""].map(h=>(
+                    {["Predio","Especie","Denominación","Plantas","Hectáreas","Fecha plantación","N° Cot. Vivero","Sublicenciatario","Vivero","Fee USD/planta","Estado",""].map(h=>(
                       <th key={h} style={{padding:"8px 10px",textAlign:"left",fontSize:11,fontWeight:700,whiteSpace:"nowrap"}}>{h}</th>
                     ))}
                   </tr></thead>
@@ -6205,6 +6205,26 @@ function ControlContratos({data,setData,clientes,setClientes,variedadesMaestro=[
                       const enMaestro = (variedadesMaestro||[]).some(v=>v.id===p.variedad_id);
                       return (
                         <tr key={p.id} style={{borderBottom:"1px solid #f1f5f9",background:i%2?"#f8fafc":"#fff"}}>
+                          {/* Predio: selector de ubicación del cliente */}
+                          <td style={{padding:"6px 8px",minWidth:120}}>
+                            {(()=>{
+                              const cli = clientes.find(c=>c.razonSocial===r.cliente||c.id===r.clienteId);
+                              const ubics = cli?.ubicaciones || [];
+                              return ubics.length > 0 ? (
+                                <select disabled={!can} value={p.ubicacionId||""} onChange={e=>{
+                                  const ub = ubics.find(u=>u.id===e.target.value);
+                                  if(ub) updPlMulti({ubicacionId:ub.id, nombrePredio:ub.nombre});
+                                  else updPlMulti({ubicacionId:"", nombrePredio:""});
+                                }} style={{width:"100%",padding:"4px 6px",borderRadius:4,border:"1px solid #d1d5db",fontSize:11,background:"#f0fdf4"}}>
+                                  <option value="">— Predio —</option>
+                                  {ubics.map(u=><option key={u.id} value={u.id}>{u.nombre}</option>)}
+                                </select>
+                              ) : (
+                                <input disabled={!can} value={p.nombrePredio||""} placeholder="Predio" onChange={e=>updPl("nombrePredio",e.target.value)}
+                                  style={{width:"100%",padding:"4px 6px",borderRadius:4,border:"1px solid #d1d5db",fontSize:11}}/>
+                              );
+                            })()}
+                          </td>
                           {/* Especie: dropdown puro del maestro + Crear nuevo */}
                           <td style={{padding:"6px 8px",minWidth:140}}>
                             <div style={{display:"flex",gap:4,alignItems:"center"}}>
@@ -6290,6 +6310,10 @@ function ControlContratos({data,setData,clientes,setClientes,variedadesMaestro=[
                           <td style={{padding:"6px 8px"}}>
                             <input type="date" disabled={!can} value={p.fechaPlantacion||""} onChange={e=>updPl("fechaPlantacion",e.target.value)}
                               style={{padding:"5px 8px",borderRadius:6,border:"1px solid #d1d5db",fontSize:11}}/>
+                          </td>
+                          <td style={{padding:"6px 8px"}}>
+                            <input disabled={!can} value={p.nCotizacionVivero||""} placeholder="N° Cot." onChange={e=>updPl("nCotizacionVivero",e.target.value)}
+                              style={{width:80,padding:"5px 8px",borderRadius:6,border:"1px solid #d1d5db",fontSize:11}}/>
                           </td>
                           <td style={{padding:"6px 8px"}}>
                             <select disabled={!can} value={p.sublicenciatario_id||""} onChange={e=>seleccionarSublic(e.target.value)}
