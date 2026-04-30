@@ -4254,7 +4254,7 @@ td{padding:3px 8px;border-bottom:1px solid #f1f5f9}
 .fotos .desc{font-size:9px;color:#64748b;margin-top:2px}
 .firma{display:grid;grid-template-columns:1fr 1fr 1fr;gap:20px;border-top:2px solid #0f766e;padding-top:14px;margin-top:20px}
 .firma .col{text-align:center}.firma .col .name{font-weight:700;font-size:11px}.firma .col .cargo{font-size:9px;color:#64748b}
-@media print{body{padding:15px 25px}table{font-size:9px}.fotos img{width:130px;height:90px}}
+@media print{body{padding:15px 25px}table{font-size:9px}.fotos img{width:130px;height:90px}button{display:none!important}}
 </style></head><body>
 <div class="header">
 <img src="/osiris-logo.jpg" alt="Osiris"/>
@@ -4287,6 +4287,10 @@ ${fotosArr.length>0?`<div class="section"><h2>L. Registro Fotográfico</h2><div 
 ${secHTML("M. Conclusión Técnica",inf.conclusionTecnica)}
 ${inf.proximaVisitaFecha?`<div class="section"><h2>Próxima Visita</h2><div class="content">${inf.proximaVisitaFecha} — ${inf.proximaVisitaObjetivo||"Sin objetivo definido"}</div></div>`:""}
 <div class="firma">
+<div style="grid-column:1/-1;text-align:center;margin-bottom:16px;print-color-adjust:exact;-webkit-print-color-adjust:exact">
+<button onclick="window.print()" style="padding:10px 28px;border-radius:8px;background:#0f766e;color:#fff;border:none;cursor:pointer;font-size:13px;font-weight:700;margin-right:10px">📄 Imprimir / Guardar PDF</button>
+<span style="font-size:11px;color:#64748b">Ctrl+P → "Guardar como PDF" para descargar</span>
+</div>
 <div class="col"><div class="name">${inf.responsable||'—'}</div><div class="cargo">Elaborado por</div></div>
 <div class="col"><div class="name">${inf.revisor||'(Pendiente)'}</div><div class="cargo">Revisado por</div>${inf.fechaAprobacion?'<div style="font-size:8px;color:#16a34a;margin-top:2px">Aprobado '+inf.fechaAprobacion+'</div>':''}</div>
 <div class="col"><div class="name" style="color:#0f766e">OSIRIS PLANT MANAGEMENT</div><div class="cargo">Grupo Mediterra</div></div>
