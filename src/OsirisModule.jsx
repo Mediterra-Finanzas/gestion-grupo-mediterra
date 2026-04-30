@@ -4305,56 +4305,92 @@ ${inf.proximaVisitaFecha?`<div class="section"><h2>Próxima Visita</h2><div clas
     w.document.write(generarHTMLInforme(inf)); w.document.close();
     setTimeout(()=>w.print(), 500);
   }
+  // Subir HTML del informe a Supabase Storage y obtener URL pública
+  async function uploadInformeHTML(inf) {
+    await ensureBucket();
+    const html = generarHTMLInforme(inf);
+    // Reemplazar logo relativo por logo embebido (para que funcione sin acceso a la app)
+    const htmlFinal = html.replace(
+      'src="/osiris-logo.jpg"',
+      'src="https://bywovqayuzodbzwsriet.supabase.co/storage/v1/object/public/osiris-fotos/osiris-logo.jpg"'
+    );
+    const blob = new Blob([htmlFinal], {type:"text/html"});
+    const fecha = (inf.fecha||new Date().toISOString().slice(0,10)).replace(/-/g,"");
+    const path = `informes-html/INF_${fecha}_${String(inf.id||"").slice(-6)}.html`;
+    const res = await fetch(`${SUPA_URL_OSIRIS}/storage/v1/object/${STORAGE_BUCKET}/${path}`, {
+      method:"POST",
+      headers:{
+        apikey:SUPA_KEY_OSIRIS,
+        Authorization:`Bearer ${SUPA_KEY_OSIRIS}`,
+        "Content-Type":"text/html",
+        "x-upsert":"true",
+      },
+      body:blob,
+    });
+    if(!res.ok) throw new Error("Error subiendo informe: "+res.status);
+    return `${SUPA_URL_OSIRIS}/storage/v1/object/public/${STORAGE_BUCKET}/${path}`;
+  }
+
   async function enviarPorEmail(inf, emails) {
     if(!emails||!emails.trim()){alert("Ingresa al menos un email.");return false;}
     const ct = (ctData||[]).find(c=>c.id===inf.ctId);
-    const mensaje = `📄 INFORME TÉCNICO — Osiris Plant Management
+    
+    // Subir HTML del informe y obtener URL pública
+    let linkInforme = "";
+    try {
+      linkInforme = await uploadInformeHTML(inf);
+      console.log("[Informe] ✅ HTML subido:", linkInforme);
+    } catch(e) {
+      console.warn("[Informe] No se pudo subir HTML:", e.message);
+    }
 
-Título: ${inf.titulo||'—'}
-Tipo: ${inf.tipo||'—'}
-Fecha: ${inf.fecha||'—'}
-Cliente: ${ct?.razonSocial||'—'}
-Campo: ${inf.lugar||'—'}
-Especie/Variedad: ${inf.especie||'—'} · ${inf.variedad||'—'}
-Responsable: ${inf.responsable||'—'}
+    const emailBody = `📄 INFORME TÉCNICO — Osiris Plant Management
 
-── Resumen ──
-${inf.resumenGeneral||'—'}
+Estimado(a),
 
-── Estado fenológico ──
-${inf.fenologiaEstado||'—'} · Uniformidad: ${inf.fenologiaUniformidad||'—'}
-${inf.fenologiaObs||''}
+Le enviamos el Informe Técnico correspondiente a:
 
-── Recomendaciones inmediatas ──
-${(Array.isArray(inf.recInmediatas)?inf.recInmediatas:[]).map(r=>`• [${r.prioridad||'Media'}] ${r.area||''}: ${r.accion||''}`).join('\n')||'Sin recomendaciones inmediatas'}
+• Título: ${inf.titulo||'—'}
+• Cliente: ${ct?.razonSocial||'—'}
+• Campo: ${inf.lugar||'—'}
+• Especie: ${inf.especie||'—'} · ${inf.variedad||'—'}
+• Fecha: ${inf.fecha||'—'}
+• Responsable: ${inf.responsable||'—'}
+${linkInforme?`
+📎 Ver y descargar informe completo:
+${linkInforme}
 
-── Conclusión ──
-${inf.conclusionTecnica||'—'}
-
-── Próxima visita ──
-${inf.proximaVisitaFecha||'No programada'} — ${inf.proximaVisitaObjetivo||''}
+(El enlace abre el informe como página web. Para guardar como PDF: Ctrl+P → "Guardar como PDF")`
+:`
+(No se pudo generar el enlace de descarga. Contacte al administrador.)`}
 
 — Osiris Plant Management · Grupo Mediterra`;
+
     try {
-      const emailList = emails.split(',').map(e=>e.trim()).filter(Boolean);
-      const to = emailList.join(", ");
+      const to = emails.split(',').map(e=>e.trim()).filter(Boolean).join(", ");
       // Intentar SMTP primero
       try {
         const res = await fetch("/api/send-email", {
           method:"POST", headers:{"Content-Type":"application/json"},
-          body:JSON.stringify({to, subject:`📄 Informe Técnico: ${inf.titulo||'Visita'} — Osiris`, message:mensaje, modulo:"osiris"})
+          body:JSON.stringify({to, subject:`📄 Informe Técnico: ${inf.titulo||'Visita'} — Osiris`, message:emailBody, modulo:"osiris"})
         });
         if(!res.ok) throw new Error(await res.text());
         console.log(`[Email] ✅ Informe enviado via SMTP a ${to}`);
       } catch(smtpErr) {
         console.warn("[Email] SMTP falló, intentando EmailJS:", smtpErr.message);
+        const emailList = emails.split(',').map(e=>e.trim()).filter(Boolean);
         for(const email of emailList) {
           await fetch("https://api.emailjs.com/api/v1.0/email/send", {
             method:"POST", headers:{"Content-Type":"application/json"},
             body:JSON.stringify({service_id:"service_ahuerta",template_id:"template_notif_tarea",user_id:"bwCBq7JXlEwCTzWNe",
-              template_params:{to_email:email,to_name:ct?.razonSocial||"Cliente",name:"Osiris Plant Management",subject:`📄 Informe Técnico: ${inf.titulo||'Visita'} — Osiris`,message:mensaje}})
+              template_params:{to_email:email,to_name:ct?.razonSocial||"Cliente",name:"Osiris Plant Management",subject:`📄 Informe Técnico: ${inf.titulo||'Visita'} — Osiris`,message:emailBody}})
           });
         }
+      }
+      // Guardar URL del informe en el objeto
+      if(linkInforme) {
+        const updInformes = data.map(i=>i.id===inf.id?{...i,linkInforme,fechaEnvio:new Date().toISOString().slice(0,10)}:i);
+        setData(updInformes);
       }
       return true;
     } catch(e) { console.error("Error email:", e); alert("Error al enviar: "+e.message); return false; }
