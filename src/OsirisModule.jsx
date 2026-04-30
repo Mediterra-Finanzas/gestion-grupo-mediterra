@@ -4074,7 +4074,7 @@ function MaestroViveristas({viveristas,setViveristas,can}){
 // OPERACIÓN TÉCNICA — Hub transversal (visitas, informes, test blocks,
 // equipo técnico, medidas correctivas, entregables)
 // ═══════════════════════════════════════════════════════════════════
-function OperacionTecnica({data, setData, ctData=[], clientes=[], viverosData=[], obtentoresData=[], can, usuarioActual={}}) {
+function OperacionTecnica({data, setData, ctData=[], clientes=[], especiesMaestro=[], variedadesMaestro=[], viverosData=[], obtentoresData=[], can, usuarioActual={}}) {
   const [subTab, setSubTab] = useState("visitas");
   const [modal, setModal] = useState(null);
   const [busq, setBusq] = useState("");
@@ -4268,6 +4268,7 @@ td{padding:3px 8px;border-bottom:1px solid #f1f5f9}
 <div><div class="label">Campo / Predio</div><div class="value">${inf.lugar||'—'}</div></div>
 <div><div class="label">Ubicación</div><div class="value">${inf.ubicacion||'—'}</div></div>
 <div><div class="label">Especie / Variedad</div><div class="value">${inf.especie||'—'}${inf.variedad?' · '+inf.variedad:''}</div></div>
+<div><div class="label">Mes/Año Plantación</div><div class="value">${inf.mesAnioPlantacion||'—'}</div></div>
 <div><div class="label">Superficie</div><div class="value">${inf.superficie||'—'} há</div></div>
 <div><div class="label">Temporada</div><div class="value">${inf.temporada||'—'}</div></div>
 <div><div class="label">Técnico</div><div class="value">${inf.responsable||'—'}</div></div>
@@ -4652,8 +4653,19 @@ ${linkInforme}
                       <div><div style={{fontSize:11,color:"#64748b",fontWeight:600,marginBottom:3}}>Cliente</div><ClienteSelect value={inf.ctId} onChange={v=>updInf("ctId",v)} disabled={!puedeEditar}/></div>
                       <Input label="Campo / Predio" value={inf.lugar} onChange={v=>updInf("lugar",v)} disabled={!puedeEditar}/>
                       <Input label="Ubicación" value={inf.ubicacion} onChange={v=>updInf("ubicacion",v)} disabled={!puedeEditar}/>
-                      <Input label="Especie" value={inf.especie} onChange={v=>updInf("especie",v)} disabled={!puedeEditar}/>
-                      <Input label="Variedad" value={inf.variedad} onChange={v=>updInf("variedad",v)} disabled={!puedeEditar}/>
+                      <div><div style={{fontSize:11,color:"#64748b",fontWeight:600,marginBottom:3}}>Especie</div>
+                        <select disabled={!puedeEditar} value={inf.especie||""} onChange={e=>updInf("especie",e.target.value)}
+                          style={{width:"100%",padding:"7px 10px",borderRadius:6,border:"1px solid #d1d5db",fontSize:12,boxSizing:"border-box"}}>
+                          <option value="">— Seleccionar —</option>
+                          {especiesMaestro.map(e=><option key={e.id} value={e.nombre}>{e.nombre}</option>)}
+                        </select></div>
+                      <div><div style={{fontSize:11,color:"#64748b",fontWeight:600,marginBottom:3}}>Denominación (variedad)</div>
+                        <select disabled={!puedeEditar} value={inf.variedad||""} onChange={e=>updInf("variedad",e.target.value)}
+                          style={{width:"100%",padding:"7px 10px",borderRadius:6,border:"1px solid #d1d5db",fontSize:12,boxSizing:"border-box"}}>
+                          <option value="">— Seleccionar —</option>
+                          {variedadesMaestro.filter(v=>!inf.especie||v.especie===inf.especie).map(v=><option key={v.id} value={v.variedad}>{v.variedad}{v.nRegistro?` (${v.nRegistro})`:""}</option>)}
+                        </select></div>
+                      <Input label="Mes/Año plantación" value={inf.mesAnioPlantacion} onChange={v=>updInf("mesAnioPlantacion",v)} disabled={!puedeEditar} placeholder="Ej: Marzo 2024"/>
                       <Input label="Superficie evaluada (há)" value={inf.superficie} onChange={v=>updInf("superficie",v)} disabled={!puedeEditar}/>
                       <div><div style={{fontSize:11,color:"#64748b",fontWeight:600,marginBottom:3}}>Temporada</div>
                         <select disabled={!puedeEditar} value={inf.temporada||""} onChange={e=>updInf("temporada",e.target.value)}
@@ -5053,7 +5065,12 @@ ${linkInforme}
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
           <Input label="Nombre *" value={form.nombre} onChange={v=>setForm(p=>({...p,nombre:v}))}/>
           <Select label="Rol" value={form.rol} onChange={v=>setForm(p=>({...p,rol:v}))} opts={["Asesor por especie","Técnico part time","Asesoría integral (AI)","Documentación técnica","Otro"]}/>
-          <Input label="Especie" value={form.especie} onChange={v=>setForm(p=>({...p,especie:v}))} placeholder="Cerezo, Arándano..."/>
+          <div><div style={{fontSize:11,color:"#64748b",fontWeight:600,marginBottom:3}}>Especie</div>
+            <select value={form.especie||""} onChange={e=>setForm(p=>({...p,especie:e.target.value}))}
+              style={{width:"100%",padding:"7px 10px",borderRadius:6,border:"1px solid #d1d5db",fontSize:12}}>
+              <option value="">— Seleccionar —</option>
+              {especiesMaestro.map(e=><option key={e.id} value={e.nombre}>{e.nombre}</option>)}
+            </select></div>
           <Select label="Modalidad" value={form.modalidad} onChange={v=>setForm(p=>({...p,modalidad:v}))} opts={["Full time","Part time","Por proyecto","Consultor externo"]}/>
           <Input label="Email" value={form.email} onChange={v=>setForm(p=>({...p,email:v}))} type="email"/>
           <Input label="Teléfono" value={form.telefono} onChange={v=>setForm(p=>({...p,telefono:v}))}/>
@@ -8988,13 +9005,19 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
                   <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:10}}>
                     <div>
                       <label style={{fontSize:11,fontWeight:600,color:"#475569",display:"block",marginBottom:3}}>Especie <span style={{color:"#dc2626"}}>*</span></label>
-                      <input value={obtWizEspForm.especie||""} placeholder="Cerezo, Arándano..." onChange={e=>setObtWizEspForm(p=>({...p,especie:e.target.value}))}
-                        style={{width:"100%",padding:"7px 10px",borderRadius:6,border:"1px solid #d1d5db",fontSize:12,boxSizing:"border-box"}}/>
+                      <select value={obtWizEspForm.especie||""} onChange={e=>setObtWizEspForm(p=>({...p,especie:e.target.value,variedad:""}))}
+                        style={{width:"100%",padding:"7px 10px",borderRadius:6,border:"1px solid #d1d5db",fontSize:12,boxSizing:"border-box"}}>
+                        <option value="">— Seleccionar —</option>
+                        {especiesMaestro.map(e=><option key={e.id} value={e.nombre}>{e.nombre}</option>)}
+                      </select>
                     </div>
                     <div>
-                      <label style={{fontSize:11,fontWeight:600,color:"#475569",display:"block",marginBottom:3}}>Variedad <span style={{color:"#dc2626"}}>*</span></label>
-                      <input value={obtWizEspForm.variedad||""} placeholder="Royal Dawn..." onChange={e=>setObtWizEspForm(p=>({...p,variedad:e.target.value}))}
-                        style={{width:"100%",padding:"7px 10px",borderRadius:6,border:"1px solid #d1d5db",fontSize:12,boxSizing:"border-box"}}/>
+                      <label style={{fontSize:11,fontWeight:600,color:"#475569",display:"block",marginBottom:3}}>Denominación <span style={{color:"#dc2626"}}>*</span></label>
+                      <select value={obtWizEspForm.variedad||""} onChange={e=>setObtWizEspForm(p=>({...p,variedad:e.target.value}))}
+                        style={{width:"100%",padding:"7px 10px",borderRadius:6,border:"1px solid #d1d5db",fontSize:12,boxSizing:"border-box"}}>
+                        <option value="">— Seleccionar —</option>
+                        {variedadesMaestro.filter(v=>!obtWizEspForm.especie||v.especie===obtWizEspForm.especie).map(v=><option key={v.id} value={v.variedad}>{v.variedad}{v.nRegistro?` (${v.nRegistro})`:""}</option>)}
+                      </select>
                     </div>
                   </div>
                   <div style={{padding:10,background:"#fef3c7",borderRadius:6,marginBottom:8}}>
@@ -9079,24 +9102,34 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
                     <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:10}}>
                       <div>
                         <label style={{fontSize:11,fontWeight:600,color:"#475569",display:"block",marginBottom:3}}>Especie <span style={{color:"#dc2626"}}>*</span></label>
-                        <select value={obtWizPbrForm.especie||""} onChange={e=>setObtWizPbrForm(p=>({...p,especie:e.target.value}))}
+                        <select value={obtWizPbrForm.especie||""} onChange={e=>setObtWizPbrForm(p=>({...p,especie:e.target.value,variedad:""}))}
                           style={{width:"100%",padding:"7px 10px",borderRadius:6,border:"1px solid #d1d5db",fontSize:12,boxSizing:"border-box",background:"#fff"}}>
                           <option value="">— Seleccionar —</option>
-                          {[...new Set(wizEspecies.map(e=>e.especie))].map(esp=><option key={esp} value={esp}>{esp}</option>)}
+                          {especiesMaestro.map(e=><option key={e.id} value={e.nombre}>{e.nombre}</option>)}
                         </select>
                       </div>
+                      <div>
+                        <label style={{fontSize:11,fontWeight:600,color:"#475569",display:"block",marginBottom:3}}>Denominación</label>
+                        <select value={obtWizPbrForm.variedad||""} onChange={e=>setObtWizPbrForm(p=>({...p,variedad:e.target.value}))}
+                          style={{width:"100%",padding:"7px 10px",borderRadius:6,border:"1px solid #d1d5db",fontSize:12,boxSizing:"border-box",background:"#fff"}}>
+                          <option value="">— Seleccionar —</option>
+                          {variedadesMaestro.filter(v=>!obtWizPbrForm.especie||v.especie===obtWizPbrForm.especie).map(v=><option key={v.id} value={v.variedad}>{v.variedad}{v.nRegistro?` (${v.nRegistro})`:""}</option>)}
+                        </select>
+                      </div>
+                    </div>
+                    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:10}}>
                       <div>
                         <label style={{fontSize:11,fontWeight:600,color:"#475569",display:"block",marginBottom:3}}>País <span style={{color:"#dc2626"}}>*</span></label>
                         <input value={obtWizPbrForm.pais||""} placeholder="Chile, Perú, México..." onChange={e=>setObtWizPbrForm(p=>({...p,pais:e.target.value}))}
                           style={{width:"100%",padding:"7px 10px",borderRadius:6,border:"1px solid #d1d5db",fontSize:12,boxSizing:"border-box"}}/>
                       </div>
-                    </div>
-                    <div style={{marginBottom:10}}>
-                      <label style={{fontSize:11,fontWeight:600,color:"#475569",display:"block",marginBottom:3}}>Estado PBR</label>
-                      <select value={obtWizPbrForm.estado||"Pendiente"} onChange={e=>setObtWizPbrForm(p=>({...p,estado:e.target.value}))}
-                        style={{width:"100%",padding:"7px 10px",borderRadius:6,border:"1px solid #d1d5db",fontSize:12,boxSizing:"border-box",background:"#fff"}}>
-                        {ESTADOS_PBR.map(s=><option key={s} value={s}>{s}</option>)}
-                      </select>
+                      <div>
+                        <label style={{fontSize:11,fontWeight:600,color:"#475569",display:"block",marginBottom:3}}>Estado PBR</label>
+                        <select value={obtWizPbrForm.estado||"Pendiente"} onChange={e=>setObtWizPbrForm(p=>({...p,estado:e.target.value}))}
+                          style={{width:"100%",padding:"7px 10px",borderRadius:6,border:"1px solid #d1d5db",fontSize:12,boxSizing:"border-box",background:"#fff"}}>
+                          {ESTADOS_PBR.map(s=><option key={s} value={s}>{s}</option>)}
+                        </select>
+                      </div>
                     </div>
                     <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:10}}>
                       <div>
@@ -9179,6 +9212,8 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
             }}
             ctData={ctData}
             clientes={clientes}
+            especiesMaestro={especiesMaestro}
+            variedadesMaestro={variedadesMaestro}
             viverosData={Array.isArray(osirisData?.viveros)?osirisData.viveros:[]}
             obtentoresData={obtentoresData}
             can={canOp}
