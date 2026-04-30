@@ -4309,42 +4309,42 @@ ${inf.proximaVisitaFecha?`<div class="section"><h2>Próxima Visita</h2><div clas
   async function uploadInformeHTML(inf) {
     await ensureBucket();
     const html = generarHTMLInforme(inf);
-    // Reemplazar logo relativo por logo embebido (para que funcione sin acceso a la app)
     const htmlFinal = html.replace(
       'src="/osiris-logo.jpg"',
       'src="https://bywovqayuzodbzwsriet.supabase.co/storage/v1/object/public/osiris-fotos/osiris-logo.jpg"'
     );
-    const blob = new Blob([htmlFinal], {type:"text/html"});
     const fecha = (inf.fecha||new Date().toISOString().slice(0,10)).replace(/-/g,"");
     const path = `informes-html/INF_${fecha}_${String(inf.id||"").slice(-6)}.html`;
+    // Intentar subir
     const res = await fetch(`${SUPA_URL_OSIRIS}/storage/v1/object/${STORAGE_BUCKET}/${path}`, {
       method:"POST",
       headers:{
         apikey:SUPA_KEY_OSIRIS,
         Authorization:`Bearer ${SUPA_KEY_OSIRIS}`,
-        "Content-Type":"text/html",
+        "Content-Type":"text/html; charset=utf-8",
         "x-upsert":"true",
       },
-      body:blob,
+      body:htmlFinal,
     });
-    if(!res.ok) throw new Error("Error subiendo informe: "+res.status);
+    if(!res.ok) {
+      const err = await res.text();
+      console.error("[Upload] Error:", res.status, err);
+      throw new Error("Upload falló: "+res.status);
+    }
     return `${SUPA_URL_OSIRIS}/storage/v1/object/public/${STORAGE_BUCKET}/${path}`;
   }
 
   async function enviarPorEmail(inf, emails) {
     if(!emails||!emails.trim()){alert("Ingresa al menos un email.");return false;}
     const ct = (ctData||[]).find(c=>c.id===inf.ctId);
-    
-    // Subir HTML del informe y obtener URL pública
-    let linkInforme = "";
-    try {
-      linkInforme = await uploadInformeHTML(inf);
-      console.log("[Informe] ✅ HTML subido:", linkInforme);
-    } catch(e) {
-      console.warn("[Informe] No se pudo subir HTML:", e.message);
-    }
+    const to = emails.split(',').map(e=>e.trim()).filter(Boolean).join(", ");
 
-    const emailBody = `📄 INFORME TÉCNICO — Osiris Plant Management
+    // Lanzar upload y email en PARALELO para mayor velocidad
+    const uploadPromise = uploadInformeHTML(inf).catch(e=>{console.warn("[Informe] Upload falló:",e.message);return "";});
+    const emailPromise = (async()=>{
+      // Enviar email inmediatamente con texto básico (el link se agrega si llega a tiempo)
+      const linkInforme = await uploadPromise;
+      const emailBody = `📄 INFORME TÉCNICO — Osiris Plant Management
 
 Estimado(a),
 
@@ -4353,22 +4353,17 @@ Le enviamos el Informe Técnico correspondiente a:
 • Título: ${inf.titulo||'—'}
 • Cliente: ${ct?.razonSocial||'—'}
 • Campo: ${inf.lugar||'—'}
-• Especie: ${inf.especie||'—'} · ${inf.variedad||'—'}
+• Especie: ${inf.especie||'—'}${inf.variedad?' · '+inf.variedad:''}
 • Fecha: ${inf.fecha||'—'}
 • Responsable: ${inf.responsable||'—'}
 ${linkInforme?`
 📎 Ver y descargar informe completo:
 ${linkInforme}
 
-(El enlace abre el informe como página web. Para guardar como PDF: Ctrl+P → "Guardar como PDF")`
-:`
-(No se pudo generar el enlace de descarga. Contacte al administrador.)`}
+(El enlace abre el informe como página web. Para guardar como PDF: Ctrl+P → "Guardar como PDF")`:''}
 
 — Osiris Plant Management · Grupo Mediterra`;
 
-    try {
-      const to = emails.split(',').map(e=>e.trim()).filter(Boolean).join(", ");
-      // Intentar SMTP primero
       try {
         const res = await fetch("/api/send-email", {
           method:"POST", headers:{"Content-Type":"application/json"},
@@ -4378,16 +4373,19 @@ ${linkInforme}
         console.log(`[Email] ✅ Informe enviado via SMTP a ${to}`);
       } catch(smtpErr) {
         console.warn("[Email] SMTP falló, intentando EmailJS:", smtpErr.message);
-        const emailList = emails.split(',').map(e=>e.trim()).filter(Boolean);
-        for(const email of emailList) {
+        for(const email of emails.split(',').map(e=>e.trim()).filter(Boolean)) {
           await fetch("https://api.emailjs.com/api/v1.0/email/send", {
             method:"POST", headers:{"Content-Type":"application/json"},
             body:JSON.stringify({service_id:"service_ahuerta",template_id:"template_notif_tarea",user_id:"bwCBq7JXlEwCTzWNe",
-              template_params:{to_email:email,to_name:ct?.razonSocial||"Cliente",name:"Osiris Plant Management",subject:`📄 Informe Técnico: ${inf.titulo||'Visita'} — Osiris`,message:emailBody}})
+              template_params:{to_email:email,name:"Osiris Plant Management",subject:`📄 Informe Técnico: ${inf.titulo||'Visita'} — Osiris`,message:emailBody}})
           });
         }
       }
-      // Guardar URL del informe en el objeto
+      return linkInforme;
+    })();
+
+    try {
+      const linkInforme = await emailPromise;
       if(linkInforme) {
         const updInformes = data.map(i=>i.id===inf.id?{...i,linkInforme,fechaEnvio:new Date().toISOString().slice(0,10)}:i);
         setData(updInformes);
