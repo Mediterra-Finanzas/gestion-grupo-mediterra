@@ -9626,13 +9626,32 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
                 {variedades.length===0?<div style={{padding:30,textAlign:"center",color:"#94a3b8"}}>No hay variedades registradas.</div>:(
                   <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
                     <thead><tr style={{background:"#f8fafc"}}>
-                      {["Especie","Variedad","Fee USD/planta","Fee % s/venta","Observaciones",""].map(h=><th key={h} style={{padding:"8px 12px",textAlign:["Fee USD/planta","Fee % s/venta"].includes(h)?"right":"left",fontWeight:700,fontSize:10,color:"#64748b",borderBottom:"2px solid #e2e8f0"}}>{h}</th>)}
+                      {["Especie","Variedad","Formato planta","Fee USD/planta","Fee % s/venta","Observaciones",""].map(h=><th key={h} style={{padding:"8px 12px",textAlign:["Fee USD/planta","Fee % s/venta"].includes(h)?"right":"left",fontWeight:700,fontSize:10,color:"#64748b",borderBottom:"2px solid #e2e8f0"}}>{h}</th>)}
                     </tr></thead>
                     <tbody>
                       {variedades.map(x=>(
                         <tr key={x.id} style={{borderBottom:"1px solid #f1f5f9"}}>
                           <td style={{padding:"8px 12px",fontWeight:600}}>{x.especie}</td>
-                          <td style={{padding:"8px 12px"}}>{x.variedad}</td>
+                          <td style={{padding:"8px 12px"}}>{x.nRegistro?`${x.nRegistro} · `:""}{x.variedad}</td>
+                          <td style={{padding:"8px 12px"}}>
+                            <select disabled={!canViveros} value={x.formatoPlanta||""} onChange={ev=>updateVariedad(x.id,{formatoPlanta:ev.target.value})}
+                              style={{width:120,padding:"4px 8px",border:"1px solid #e2e8f0",borderRadius:6,fontSize:11,background:canViveros?"#fff":"#f8fafc"}}>
+                              <option value="">— Formato —</option>
+                              <option value="Bandeja">Bandeja</option>
+                              <option value="Bolsa 1L">Bolsa 1L</option>
+                              <option value="Bolsa 2L">Bolsa 2L</option>
+                              <option value="Bolsa 3L">Bolsa 3L</option>
+                              <option value="Bolsa 5L">Bolsa 5L</option>
+                              <option value="Maceta 1L">Maceta 1L</option>
+                              <option value="Maceta 2L">Maceta 2L</option>
+                              <option value="Maceta 3L">Maceta 3L</option>
+                              <option value="Maceta 5L">Maceta 5L</option>
+                              <option value="Raíz desnuda">Raíz desnuda</option>
+                              <option value="Esqueje">Esqueje</option>
+                              <option value="Micro propagación">Micro propagación</option>
+                              <option value="Otro">Otro</option>
+                            </select>
+                          </td>
                           <td style={{padding:"8px 12px",textAlign:"right"}}>
                             <input type="number" disabled={!canViveros} value={x.fee_usd||0} onChange={ev=>updateVariedad(x.id,{fee_usd:parseFloat(ev.target.value)||0})}
                               style={{width:90,padding:"4px 8px",border:"1px solid #e2e8f0",borderRadius:6,fontSize:12,textAlign:"right",background:canViveros?"#fff":"#f8fafc"}}/>
@@ -9994,51 +10013,79 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
                   </select>
                 </div>
 
-                {/* Variedad del contrato */}
+                {/* Variedad(es) del contrato — MULTI-ESPECIE */}
                 <div style={{marginBottom:12}}>
-                  <label style={{fontSize:11,fontWeight:600,color:"#475569",display:"block",marginBottom:4}}>Variedad autorizada <span style={{color:"#dc2626"}}>*</span></label>
-                  <select value={ocForm.variedad_id||""} onChange={e=>seleccionarVariedadOC(e.target.value)}
-                    style={{width:"100%",padding:"8px 12px",borderRadius:8,border:"1px solid #d1d5db",fontSize:13,boxSizing:"border-box",background:"#fff"}}>
-                    <option value="">— Seleccionar variedad —</option>
-                    {variedades.map(x=><option key={x.id} value={x.id}>{x.especie} · {x.variedad} {x.fee_usd?`(fee $${x.fee_usd})`:""}</option>)}
-                  </select>
+                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
+                    <label style={{fontSize:11,fontWeight:700,color:"#475569"}}>🌱 Especies / Variedades de la OC</label>
+                    <button type="button" onClick={()=>setOcForm(p=>({...p,items:[...(p.items||[]),{id:`oci_${Date.now()}`,variedad_id:"",especie:"",variedad:"",cantidad_plantas:"",hectareas:"",fee_usd_planta:"",fee_total_usd:0}]}))}
+                      style={{padding:"4px 12px",borderRadius:6,background:"#2563eb",color:"#fff",border:"none",cursor:"pointer",fontSize:10,fontWeight:700}}>+ Agregar línea</button>
+                  </div>
+                  {/* Items existentes */}
+                  {(ocForm.items||[]).length>0?(
+                    <div style={{border:"1px solid #e2e8f0",borderRadius:8,overflow:"hidden"}}>
+                      <table style={{width:"100%",borderCollapse:"collapse",fontSize:11}}>
+                        <thead><tr style={{background:"#f8fafc"}}>
+                          {["Variedad","Plantas","Há","Fee USD/pl","Fee total",""].map(h=><th key={h} style={{padding:"6px 8px",textAlign:"left",fontWeight:700,color:"#475569",fontSize:10}}>{h}</th>)}
+                        </tr></thead>
+                        <tbody>{(ocForm.items||[]).map((it,idx)=>(
+                          <tr key={it.id} style={{borderTop:"1px solid #f1f5f9"}}>
+                            <td style={{padding:"4px 6px",minWidth:180}}>
+                              <select value={it.variedad_id||""} onChange={e=>{
+                                const vv=variedades.find(x=>x.id===e.target.value);
+                                setOcForm(p=>({...p,items:(p.items||[]).map(x=>x.id===it.id?{...x,variedad_id:e.target.value,especie:vv?.especie||"",variedad:vv?.variedad||"",fee_usd_planta:vv?.fee_usd||x.fee_usd_planta}:x)}));
+                              }} style={{width:"100%",padding:"5px 6px",borderRadius:4,border:"1px solid #d1d5db",fontSize:11}}>
+                                <option value="">— Seleccionar —</option>
+                                {variedades.map(x=><option key={x.id} value={x.id}>{x.especie} · {x.nRegistro?`${x.nRegistro} · `:""}{x.variedad}</option>)}
+                              </select>
+                            </td>
+                            <td style={{padding:"4px 6px"}}><input type="number" value={it.cantidad_plantas||""} onChange={e=>{
+                              const cant=e.target.value;const fee=parseFloat(it.fee_usd_planta)||0;
+                              setOcForm(p=>({...p,items:(p.items||[]).map(x=>x.id===it.id?{...x,cantidad_plantas:cant,fee_total_usd:Math.round((parseFloat(cant)||0)*fee*100)/100}:x)}));
+                            }} style={{width:70,padding:"5px 6px",borderRadius:4,border:"1px solid #d1d5db",fontSize:11,textAlign:"right"}}/></td>
+                            <td style={{padding:"4px 6px"}}><input type="number" step="0.01" value={it.hectareas||""} onChange={e=>{
+                              setOcForm(p=>({...p,items:(p.items||[]).map(x=>x.id===it.id?{...x,hectareas:e.target.value}:x)}));
+                            }} style={{width:60,padding:"5px 6px",borderRadius:4,border:"1px solid #d1d5db",fontSize:11,textAlign:"right"}}/></td>
+                            <td style={{padding:"4px 6px"}}><input type="number" step="0.001" value={it.fee_usd_planta||""} onChange={e=>{
+                              const fee=e.target.value;const cant=parseFloat(it.cantidad_plantas)||0;
+                              setOcForm(p=>({...p,items:(p.items||[]).map(x=>x.id===it.id?{...x,fee_usd_planta:fee,fee_total_usd:Math.round(cant*(parseFloat(fee)||0)*100)/100}:x)}));
+                            }} style={{width:70,padding:"5px 6px",borderRadius:4,border:"1px solid #d1d5db",fontSize:11,textAlign:"right"}}/></td>
+                            <td style={{padding:"4px 6px",fontWeight:700,color:"#7c3aed",fontSize:11}}>{$$(it.fee_total_usd||0)}</td>
+                            <td style={{padding:"4px 6px"}}><button onClick={()=>setOcForm(p=>({...p,items:(p.items||[]).filter(x=>x.id!==it.id)}))}
+                              style={{background:"#fee2e2",border:"none",borderRadius:4,padding:"2px 6px",cursor:"pointer",fontSize:10,color:"#991b1b"}}>×</button></td>
+                          </tr>
+                        ))}</tbody>
+                      </table>
+                    </div>
+                  ):(
+                    <div style={{padding:12,background:"#f8fafc",borderRadius:8,textAlign:"center",color:"#94a3b8",fontSize:11}}>
+                      Sin líneas. Click "+ Agregar línea" para agregar especies/variedades.
+                    </div>
+                  )}
+                  {/* Migración: si la OC vieja tiene variedad_id directo, mostrar como línea legacy */}
+                  {!ocForm.items?.length && ocForm.variedad_id && (
+                    <div style={{padding:8,background:"#fffbeb",borderRadius:6,fontSize:10,color:"#78350f",marginTop:6}}>
+                      ⚠️ Esta OC tiene formato antiguo (1 variedad). Al guardar se migrará al nuevo formato multi-línea.
+                    </div>
+                  )}
                 </div>
 
-                {/* Cantidades */}
-                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:10,marginBottom:12}}>
-                  <div>
-                    <label style={{fontSize:11,fontWeight:600,color:"#475569",display:"block",marginBottom:4}}>Cantidad plantas</label>
-                    <input type="number" value={ocForm.cantidad_plantas||""} placeholder="0" onChange={e=>{
-                      const cant = e.target.value;
-                      const fee = parseFloat(ocForm.fee_usd_planta)||0;
-                      setOcForm(p=>({...p,cantidad_plantas:cant,fee_total_usd:Math.round((parseFloat(cant)||0)*fee*100)/100}));
-                    }}
-                      style={{width:"100%",padding:"8px 12px",borderRadius:8,border:"1px solid #d1d5db",fontSize:13,boxSizing:"border-box",textAlign:"right"}}/>
-                  </div>
-                  <div>
-                    <label style={{fontSize:11,fontWeight:600,color:"#475569",display:"block",marginBottom:4}}>Hectáreas</label>
-                    <input type="number" step="0.01" value={ocForm.hectareas||""} placeholder="0" onChange={e=>setOcForm(p=>({...p,hectareas:e.target.value}))}
-                      style={{width:"100%",padding:"8px 12px",borderRadius:8,border:"1px solid #d1d5db",fontSize:13,boxSizing:"border-box",textAlign:"right"}}/>
-                  </div>
-                  <div>
-                    <label style={{fontSize:11,fontWeight:600,color:"#475569",display:"block",marginBottom:4}}>
-                      Fee USD/planta
-                      {ocForm.variedad_id&&(()=>{const vv=variedades.find(x=>x.id===ocForm.variedad_id);return vv?.fee_usd?<span style={{fontSize:9,color:"#64748b",fontWeight:500,marginLeft:4}}>(default ${vv.fee_usd})</span>:null;})()}
-                    </label>
-                    <input type="number" step="0.001" value={ocForm.fee_usd_planta||""} placeholder="0.00" onChange={e=>{
-                      const fee = e.target.value;
-                      const cant = parseFloat(ocForm.cantidad_plantas)||0;
-                      setOcForm(p=>({...p,fee_usd_planta:fee,fee_total_usd:Math.round(cant*(parseFloat(fee)||0)*100)/100}));
-                    }}
-                      style={{width:"100%",padding:"8px 12px",borderRadius:8,border:"1px solid #d1d5db",fontSize:13,boxSizing:"border-box",textAlign:"right"}}/>
-                  </div>
-                </div>
-
-                {/* Total calculado */}
-                <div style={{padding:12,background:"#ede9fe",borderRadius:8,border:"1px solid #c4b5fd",marginBottom:12,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-                  <span style={{fontSize:12,fontWeight:700,color:"#5b21b6"}}>💰 Fee total calculado:</span>
-                  <span style={{fontSize:18,fontWeight:900,color:"#7c3aed"}}>{$$(ocForm.fee_total_usd)}</span>
-                </div>
+                {/* Total calculado (suma de todos los items) */}
+                {(()=>{
+                  const items = ocForm.items||[];
+                  const totFee = items.reduce((s,i)=>s+(parseFloat(i.fee_total_usd)||0),0);
+                  const totPlantas = items.reduce((s,i)=>s+(parseFloat(i.cantidad_plantas)||0),0);
+                  const totHa = items.reduce((s,i)=>s+(parseFloat(i.hectareas)||0),0);
+                  // Mantener compatibilidad con campos top-level
+                  if(items.length>0 && (ocForm.fee_total_usd!==totFee||ocForm.cantidad_plantas!=totPlantas)){
+                    setTimeout(()=>setOcForm(p=>({...p,fee_total_usd:totFee,cantidad_plantas:totPlantas,hectareas:totHa})),0);
+                  }
+                  return (
+                    <div style={{padding:12,background:"#ede9fe",borderRadius:8,border:"1px solid #c4b5fd",marginBottom:12,display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:8}}>
+                      <div style={{fontSize:11,color:"#5b21b6"}}>{items.length} línea(s) · {totPlantas.toLocaleString()} plantas · {totHa} há</div>
+                      <div><span style={{fontSize:12,fontWeight:700,color:"#5b21b6"}}>💰 Fee total: </span><span style={{fontSize:18,fontWeight:900,color:"#7c3aed"}}>{$$(totFee)}</span></div>
+                    </div>
+                  );
+                })()}
 
                 {/* Estado */}
                 <div style={{marginBottom:12}}>
@@ -10463,17 +10510,31 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
                   </div>
                   <div>
                     <label style={{fontSize:11,fontWeight:600,color:"#475569",display:"block",marginBottom:4}}>Mes estimado de pago</label>
-                    <select value={vivForm.mes_pago_estimado||""} onChange={e=>setVivForm(p=>({...p,mes_pago_estimado:e.target.value}))}
-                      style={{width:"100%",padding:"8px 12px",borderRadius:8,border:"1px solid #d1d5db",fontSize:13,boxSizing:"border-box",background:"#fff"}}>
-                      <option value="">— Seleccionar —</option>
-                      {MESES.map(m=><option key={m} value={m}>{m}</option>)}
-                    </select>
+                    {vivForm.forma_pago==="Contra pago del cliente"
+                      ? <div style={{padding:"8px 12px",borderRadius:8,background:"#f1f5f9",fontSize:12,color:"#94a3b8"}}>No aplica (contra pago del cliente)</div>
+                      : <select value={vivForm.mes_pago_estimado||""} onChange={e=>setVivForm(p=>({...p,mes_pago_estimado:e.target.value}))}
+                          style={{width:"100%",padding:"8px 12px",borderRadius:8,border:"1px solid #d1d5db",fontSize:13,boxSizing:"border-box",background:"#fff"}}>
+                          <option value="">— Seleccionar —</option>
+                          {MESES.map(m=><option key={m} value={m}>{m}</option>)}
+                        </select>
+                    }
                   </div>
                 </div>
-                <label style={{display:"flex",alignItems:"center",gap:8,cursor:"pointer",marginBottom:12}}>
+                <label style={{display:"flex",alignItems:"center",gap:8,cursor:"pointer",marginBottom:8}}>
                   <input type="checkbox" checked={!!vivForm.renovable} onChange={e=>setVivForm(p=>({...p,renovable:e.target.checked}))}/>
                   <span style={{fontSize:12}}>Contrato renovable</span>
                 </label>
+                {vivForm.renovable&&(
+                  <div style={{marginBottom:12}}>
+                    <label style={{fontSize:11,fontWeight:600,color:"#475569",display:"block",marginBottom:3}}>Período de renovación</label>
+                    <select value={vivForm.periodoRenovacion||""} onChange={e=>setVivForm(p=>({...p,periodoRenovacion:e.target.value}))}
+                      style={{width:"100%",maxWidth:300,padding:"7px 10px",borderRadius:6,border:"1px solid #d1d5db",fontSize:12,boxSizing:"border-box"}}>
+                      <option value="">— Seleccionar —</option>
+                      <option value="1 año">1 año</option><option value="2 años">2 años</option><option value="3 años">3 años</option>
+                      <option value="5 años">5 años</option><option value="10 años">10 años</option><option value="Automático">Automático</option>
+                    </select>
+                  </div>
+                )}
                 {vivForm.renovable&&(
                   <div style={{marginBottom:12}}>
                     <label style={{fontSize:11,fontWeight:600,color:"#475569",display:"block",marginBottom:4}}>📆 Nueva Fecha Vencimiento</label>
@@ -10540,13 +10601,19 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
                   <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:10}}>
                     <div>
                       <label style={{fontSize:11,fontWeight:600,color:"#475569",display:"block",marginBottom:3}}>Especie <span style={{color:"#dc2626"}}>*</span></label>
-                      <input value={vivWizVvForm.especie||""} placeholder="Cerezo, Arándano..." onChange={e=>setVivWizVvForm(p=>({...p,especie:e.target.value}))}
-                        style={{width:"100%",padding:"7px 10px",borderRadius:6,border:"1px solid #d1d5db",fontSize:12,boxSizing:"border-box"}}/>
+                      <select value={vivWizVvForm.especie||""} onChange={e=>setVivWizVvForm(p=>({...p,especie:e.target.value,variedad:""}))}
+                        style={{width:"100%",padding:"7px 10px",borderRadius:6,border:"1px solid #d1d5db",fontSize:12,boxSizing:"border-box"}}>
+                        <option value="">— Seleccionar —</option>
+                        {especiesMaestro.map(e=><option key={e.id} value={e.nombre}>{e.nombre}</option>)}
+                      </select>
                     </div>
                     <div>
-                      <label style={{fontSize:11,fontWeight:600,color:"#475569",display:"block",marginBottom:3}}>Variedad <span style={{color:"#dc2626"}}>*</span></label>
-                      <input value={vivWizVvForm.variedad||""} placeholder="Royal Dawn..." onChange={e=>setVivWizVvForm(p=>({...p,variedad:e.target.value}))}
-                        style={{width:"100%",padding:"7px 10px",borderRadius:6,border:"1px solid #d1d5db",fontSize:12,boxSizing:"border-box"}}/>
+                      <label style={{fontSize:11,fontWeight:600,color:"#475569",display:"block",marginBottom:3}}>Denominación <span style={{color:"#dc2626"}}>*</span></label>
+                      <select value={vivWizVvForm.variedad||""} onChange={e=>setVivWizVvForm(p=>({...p,variedad:e.target.value}))}
+                        style={{width:"100%",padding:"7px 10px",borderRadius:6,border:"1px solid #d1d5db",fontSize:12,boxSizing:"border-box"}}>
+                        <option value="">— Seleccionar —</option>
+                        {variedadesMaestro.filter(v=>!vivWizVvForm.especie||v.especie===vivWizVvForm.especie).map(v=><option key={v.id} value={v.variedad}>{v.nRegistro?`${v.nRegistro} · ${v.variedad}`:v.variedad}</option>)}
+                      </select>
                     </div>
                   </div>
                   <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:10}}>
@@ -10684,13 +10751,35 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
                       <label style={{fontSize:11,fontWeight:600,color:"#475569",display:"block",marginBottom:3}}>Cliente <span style={{color:"#dc2626"}}>*</span></label>
                       <select value={vivWizOcForm.cliente_id||""} onChange={e=>{
                         const cli = clientes.find(c=>c.id===e.target.value);
-                        setVivWizOcForm(p=>({...p,cliente_id:e.target.value,cliente_nombre:cli?.razonSocial||""}));
+                        setVivWizOcForm(p=>({...p,cliente_id:e.target.value,cliente_nombre:cli?.razonSocial||"",plantacion_id:""}));
                       }}
                         style={{width:"100%",padding:"7px 10px",borderRadius:6,border:"1px solid #d1d5db",fontSize:12,boxSizing:"border-box",background:"#fff"}}>
                         <option value="">— Seleccionar cliente —</option>
                         {clientes.map(c=><option key={c.id} value={c.id}>{c.razonSocial} {c.pais?`(${c.pais})`:""}</option>)}
                       </select>
                     </div>
+                    {/* Plantación del contrato exp-prod */}
+                    {vivWizOcForm.cliente_id&&(()=>{
+                      const plantaciones = [];
+                      (ctData||[]).forEach(ct=>{
+                        if((ct.clienteId===vivWizOcForm.cliente_id||(ct.cliente||"").toLowerCase()===(vivWizOcForm.cliente_nombre||"").toLowerCase())&&Array.isArray(ct.plantaciones)){
+                          ct.plantaciones.forEach(p=>plantaciones.push({...p,contratoId:ct.id,contratoCliente:ct.razonSocial||ct.cliente}));
+                        }
+                      });
+                      return plantaciones.length>0?(
+                        <div style={{marginBottom:10}}>
+                          <label style={{fontSize:11,fontWeight:600,color:"#475569",display:"block",marginBottom:3}}>📍 Plantación (del contrato exp-prod)</label>
+                          <select value={vivWizOcForm.plantacion_id||""} onChange={e=>{
+                            const pl=plantaciones.find(p=>p.id===e.target.value);
+                            if(pl) setVivWizOcForm(p=>({...p,plantacion_id:pl.id,hectareas:pl.hectareas||p.hectareas,cantidad_plantas:pl.nPlantas||p.cantidad_plantas,campo:pl.nombrePredio||""}));
+                          }}
+                            style={{width:"100%",padding:"7px 10px",borderRadius:6,border:"1px solid #d1d5db",fontSize:12,boxSizing:"border-box",background:"#f0fdf4"}}>
+                            <option value="">— Vincular a plantación (opcional) —</option>
+                            {plantaciones.map(p=><option key={p.id} value={p.id}>{p.especie} · {p.variedad_nombre||p.variedad||"—"} · {p.nPlantas||0} plantas · {p.hectareas||0} há{p.nombrePredio?` · ${p.nombrePredio}`:""}</option>)}
+                          </select>
+                        </div>
+                      ):null;
+                    })()}
                     <div style={{marginBottom:10}}>
                       <label style={{fontSize:11,fontWeight:600,color:"#475569",display:"block",marginBottom:3}}>Variedad <span style={{color:"#dc2626"}}>*</span></label>
                       <select value={vivWizOcForm.variedad_id||""} onChange={e=>seleccionarVariedadWizOC(e.target.value)}
