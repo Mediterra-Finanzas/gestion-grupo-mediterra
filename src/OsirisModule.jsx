@@ -6050,34 +6050,8 @@ function ControlContratos({data,setData,clientes,setClientes,variedadesMaestro=[
             </div>
           )}
           {sec==="ubicacion"&&(
-            <div>
-              {/* Selector de ubicación del cliente */}
-              {(()=>{
-                const cli = clientes.find(c=>c.razonSocial===r.cliente||c.id===r.clienteId);
-                const ubics = cli?.ubicaciones || [];
-                return ubics.length > 0 ? (
-                  <div style={{marginBottom:12}}>
-                    <div style={{fontSize:11,color:"#64748b",fontWeight:600,marginBottom:4}}>📍 Seleccionar ubicación del cliente</div>
-                    <select disabled={!can} value={r.ubicacionClienteId||""} onChange={e=>{
-                      const ub = ubics.find(u=>u.id===e.target.value);
-                      if(ub) { upd(r.id,"ubicacionClienteId",ub.id); upd(r.id,"nombrePredio",ub.nombre); upd(r.id,"region",ub.region); upd(r.id,"direccionPredio",ub.direccion); }
-                      else { upd(r.id,"ubicacionClienteId",""); }
-                    }} style={{width:"100%",maxWidth:400,padding:"7px 10px",borderRadius:6,border:"1px solid #16a34a",fontSize:12,background:"#f0fdf4"}}>
-                      <option value="">— Seleccionar o ingresar manualmente —</option>
-                      {ubics.map(u=><option key={u.id} value={u.id}>{u.nombre} — {u.region} {u.direccion?`(${u.direccion})`:""}</option>)}
-                    </select>
-                  </div>
-                ) : null;
-              })()}
-              <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(200px,1fr))",gap:16}}>
-                <Campo label="Nombre Predio" campo="nombrePredio" r={r}/>
-                <Campo label="Dirección Predio" campo="direccionPredio" r={r}/>
-                <Campo label="Cuartel" campo="cuartel" r={r}/>
-                <Campo label="Región" campo="region" r={r}/>
-                <Campo label="Ciudad" campo="ciudadPredio" r={r}/>
-                <Campo label="Coordenadas GPS" campo="coordenadas" r={r}/>
-                <Campo label="N° Cotización Vivero" campo="nCotizacionVivero" r={r}/>
-              </div>
+            <div style={{padding:14,background:"#f0fdf4",borderRadius:8,fontSize:12,color:"#16a34a"}}>
+              📍 La ubicación se define en cada plantación seleccionando el predio del cliente.
             </div>
           )}
           {sec==="factura"&&(
@@ -6879,32 +6853,6 @@ function ControlContratos({data,setData,clientes,setClientes,variedadesMaestro=[
               <div style={{fontSize:13,fontWeight:700,color:C.teal,marginBottom:14}}>👤 Representante</div>
               <CampoNuevo label="Nombre" campo="nombreRep" form={form} setF={setF}/>
               <div style={{marginTop:12}}><CampoNuevo label="Personería" campo="personeria" form={form} setF={setF}/></div>
-            </div>
-            <div style={{background:"#fff",borderRadius:12,padding:20,boxShadow:"0 1px 6px #0001"}}>
-              <div style={{fontSize:13,fontWeight:700,color:C.verde,marginBottom:14}}>🌱 Ubicación Plantas</div>
-              {/* Selector de ubicación del cliente */}
-              {(()=>{
-                const cli = clientes.find(c=>c.id===form.clienteId||c.razonSocial===form.empresa);
-                const ubics = cli?.ubicaciones || [];
-                return ubics.length > 0 ? (
-                  <div style={{marginBottom:12}}>
-                    <div style={{fontSize:11,color:"#64748b",fontWeight:600,marginBottom:4}}>📍 Seleccionar ubicación del cliente</div>
-                    <select value={form.ubicacionClienteId||""} onChange={e=>{
-                      const ub = ubics.find(u=>u.id===e.target.value);
-                      if(ub) { setF("ubicacionClienteId",ub.id); setF("nombrePredio",ub.nombre); setF("region",ub.region); }
-                      else { setF("ubicacionClienteId",""); }
-                    }} style={{width:"100%",maxWidth:400,padding:"7px 10px",borderRadius:6,border:"1px solid #16a34a",fontSize:12,background:"#f0fdf4"}}>
-                      <option value="">— Seleccionar o ingresar manualmente —</option>
-                      {ubics.map(u=><option key={u.id} value={u.id}>{u.nombre} — {u.region} {u.direccion?`(${u.direccion})`:""}</option>)}
-                    </select>
-                  </div>
-                ) : null;
-              })()}
-              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
-                {[["Nombre Predio","nombrePredio"],["Cuartel","cuartel"],["Región","region"],["Coordenadas","coordenadas"]].map(([l,c])=>(
-                  <div key={c}><CampoNuevo label={l} campo={c} form={form} setF={setF}/></div>
-                ))}
-              </div>
             </div>
           </div>
           <div style={{background:"#fff",borderRadius:12,padding:20,boxShadow:"0 1px 6px #0001"}}>
