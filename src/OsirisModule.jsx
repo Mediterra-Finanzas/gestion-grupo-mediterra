@@ -235,6 +235,7 @@ function SelectorCliente({form,setForm,clientes,onSelect}){
           } else {
             setForm(p=>({...p,
               cliente:cli.razonSocial||p.cliente,
+              clienteId:cli.id,
               pais:cli.pais||p.pais,
             }));
           }
@@ -1096,7 +1097,7 @@ function TotalPedidos({data,setData,rpData,setRpData,rcData,setRcData,fvData,set
             <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
               {/* Columna izquierda */}
               <div style={{gridColumn:"1/-1"}}>
-                <SelectorCliente form={form} setForm={setForm} clientes={clientes} onSelect={cli=>setForm(prev=>calcularDefaults({...prev,cliente:cli.razonSocial||prev.cliente,pais:cli.pais||prev.pais}))}/>
+                <SelectorCliente form={form} setForm={setForm} clientes={clientes} onSelect={cli=>setForm(prev=>calcularDefaults({...prev,cliente:cli.razonSocial||prev.cliente,clienteId:cli.id,pais:cli.pais||prev.pais}))}/>
               </div>
 
               {[
@@ -6184,8 +6185,6 @@ function ControlContratos({data,setData,clientes,setClientes,variedadesMaestro=[
                             {(()=>{
                               const cli = clientes.find(c=>c.razonSocial===r.cliente||c.id===r.clienteId);
                               const ubics = cli?.ubicaciones || [];
-                              if(!cli) console.log("[Plantación] Cliente no encontrado. r.cliente=", r.cliente, "r.clienteId=", r.clienteId, "clientes:", clientes.map(c=>c.razonSocial));
-                              else console.log("[Plantación] Cliente:", cli.razonSocial, "Ubicaciones:", ubics.length);
                               return ubics.length > 0 ? (
                                 <select disabled={!can} value={p.ubicacionId||""} onChange={e=>{
                                   const ub = ubics.find(u=>u.id===e.target.value);
