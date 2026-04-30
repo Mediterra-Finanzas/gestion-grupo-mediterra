@@ -193,7 +193,7 @@ async function enviarEmail(toEmail, nombre, asunto, cuerpo) {
   await fetch("https://api.emailjs.com/api/v1.0/email/send", {
     method:"POST", headers:{"Content-Type":"application/json"},
     body:JSON.stringify({service_id:EMAILJS_SERVICE,template_id:EMAILJS_TEMPLATE,user_id:EMAILJS_KEY,
-      template_params:{nombre,pin_temporal:cuerpo,to_email:toEmail,subject:asunto}})
+      template_params:{name:"Grupo Mediterra",nombre,pin_temporal:cuerpo,to_email:toEmail,subject:asunto}})
   });
 }
 
@@ -202,7 +202,7 @@ async function enviarNotificacion(toEmail, nombre, asunto, mensaje) {
   await fetch("https://api.emailjs.com/api/v1.0/email/send", {
     method:"POST", headers:{"Content-Type":"application/json"},
     body:JSON.stringify({service_id:EMAILJS_SERVICE,template_id:EMAILJS_TEMPLATE_NOTIF,user_id:EMAILJS_KEY,
-      template_params:{nombre, message:mensaje, to_email:toEmail, subject:asunto}})
+      template_params:{name:"Grupo Mediterra",nombre, message:mensaje, to_email:toEmail, subject:asunto}})
   });
 }
 // Exponer globalmente para uso desde otros módulos (ej: nóminas)
@@ -1607,7 +1607,7 @@ export default function App(){
             service_id:EMAILJS_SERVICE,
             template_id:EMAILJS_TEMPLATE_NOTIF,
             user_id:EMAILJS_KEY,
-            template_params:{
+            template_params:{name:"Grupo Mediterra",
               to_email:"ahuerta@grupomediterra.cl",
               to_name:"Angelo",
               subject:`📦 Backup Mediterra Hub — ${new Date().toISOString().slice(0,10)}`,
@@ -2102,10 +2102,10 @@ Equipo Mediterra`);
       await fetch("https://api.emailjs.com/api/v1.0/email/send", {
         method:"POST", headers:{"Content-Type":"application/json"},
         body:JSON.stringify({
-          service_id:"service_7uisg69",
-          template_id:"template_0m92glq",
-          user_id:"vJgNsLqJpkCi17Ucd",
-          template_params:{
+          service_id:"service_ahuerta",
+          template_id:"template_notif_tarea",
+          user_id:"bwCBq7JXlEwCTzWNe",
+          template_params:{name:"Grupo Mediterra",
             to_email: email,
             to_name: nombre,
             subject: "🔑 Bienvenido a Gestión Grupo Mediterra",
@@ -2152,10 +2152,10 @@ Equipo Mediterra`);
       fetch("https://api.emailjs.com/api/v1.0/email/send", {
         method:"POST", headers:{"Content-Type":"application/json"},
         body:JSON.stringify({
-          service_id:"service_7uisg69",
-          template_id:"template_0m92glq",
-          user_id:"vJgNsLqJpkCi17Ucd",
-          template_params:{
+          service_id:"service_ahuerta",
+          template_id:"template_notif_tarea",
+          user_id:"bwCBq7JXlEwCTzWNe",
+          template_params:{name:"Grupo Mediterra",
             to_email: u.email,
             to_name: nombre,
             subject: "🔑 PIN reseteado — Gestión Grupo Mediterra",
