@@ -6179,11 +6179,13 @@ function ControlContratos({data,setData,clientes,setClientes,variedadesMaestro=[
                       const enMaestro = (variedadesMaestro||[]).some(v=>v.id===p.variedad_id);
                       return (
                         <tr key={p.id} style={{borderBottom:"1px solid #f1f5f9",background:i%2?"#f8fafc":"#fff"}}>
-                          {/* Predio: selector de ubicación del cliente */}
+                          {/* Campo: selector de ubicación del cliente */}
                           <td style={{padding:"6px 8px",minWidth:120}}>
                             {(()=>{
                               const cli = clientes.find(c=>c.razonSocial===r.cliente||c.id===r.clienteId);
                               const ubics = cli?.ubicaciones || [];
+                              if(!cli) console.log("[Plantación] Cliente no encontrado. r.cliente=", r.cliente, "r.clienteId=", r.clienteId, "clientes:", clientes.map(c=>c.razonSocial));
+                              else console.log("[Plantación] Cliente:", cli.razonSocial, "Ubicaciones:", ubics.length);
                               return ubics.length > 0 ? (
                                 <select disabled={!can} value={p.ubicacionId||""} onChange={e=>{
                                   const ub = ubics.find(u=>u.id===e.target.value);
