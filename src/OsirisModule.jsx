@@ -3889,13 +3889,13 @@ function MaestroClientes({clientes,setClientes,can}){
           {/* Ubicaciones múltiples */}
           <div style={{marginBottom:12}}>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
-              <div style={{fontSize:11,color:"#64748b",fontWeight:600}}>📍 Ubicaciones (campos, predios)</div>
+              <div style={{fontSize:11,color:"#64748b",fontWeight:600}}>📍 Campos / Predios del cliente</div>
               <button type="button" onClick={()=>setForm(p=>({...p,ubicaciones:[...(p.ubicaciones||[]),{id:`ub_${Date.now()}`,nombre:"",region:"",direccion:""}]}))}
                 style={{padding:"3px 10px",borderRadius:6,background:"#0f766e",color:"#fff",border:"none",cursor:"pointer",fontSize:10,fontWeight:700}}>+ Ubicación</button>
             </div>
             {(form.ubicaciones||[]).map((ub,i)=>(
               <div key={ub.id} style={{display:"flex",gap:6,marginBottom:4,alignItems:"center"}}>
-                <input value={ub.nombre||""} placeholder="Nombre campo" onChange={e=>setForm(p=>({...p,ubicaciones:(p.ubicaciones||[]).map(u=>u.id===ub.id?{...u,nombre:e.target.value}:u)}))}
+                <input value={ub.nombre||""} placeholder="Nombre del campo" onChange={e=>setForm(p=>({...p,ubicaciones:(p.ubicaciones||[]).map(u=>u.id===ub.id?{...u,nombre:e.target.value}:u)}))}
                   style={{flex:1,padding:"5px 8px",borderRadius:6,border:"1px solid #d1d5db",fontSize:11}}/>
                 <input value={ub.region||""} placeholder="Región" onChange={e=>setForm(p=>({...p,ubicaciones:(p.ubicaciones||[]).map(u=>u.id===ub.id?{...u,region:e.target.value}:u)}))}
                   style={{flex:1,padding:"5px 8px",borderRadius:6,border:"1px solid #d1d5db",fontSize:11}}/>
@@ -6127,7 +6127,7 @@ function ControlContratos({data,setData,clientes,setClientes,variedadesMaestro=[
               <div style={{overflowX:"auto"}}>
                 <table style={{width:"100%",borderCollapse:"collapse",fontSize:12,background:"#fff",borderRadius:10,overflow:"hidden",border:"1px solid #e2e8f0"}}>
                   <thead><tr style={{background:"#15803d",color:"#fff"}}>
-                    {["Predio","Especie","Denominación","Plantas","Hectáreas","Fecha plantación","N° Cot. Vivero","Sublicenciatario","Vivero","Fee USD/planta","Estado",""].map(h=>(
+                    {["Campo","Especie","Denominación","Plantas","Hectáreas","Fecha plantación","N° Cot. Vivero","Sublicenciatario","Vivero","Fee USD/planta","Estado",""].map(h=>(
                       <th key={h} style={{padding:"8px 10px",textAlign:"left",fontSize:11,fontWeight:700,whiteSpace:"nowrap"}}>{h}</th>
                     ))}
                   </tr></thead>
@@ -6190,11 +6190,11 @@ function ControlContratos({data,setData,clientes,setClientes,variedadesMaestro=[
                                   if(ub) updPlMulti({ubicacionId:ub.id, nombrePredio:ub.nombre});
                                   else updPlMulti({ubicacionId:"", nombrePredio:""});
                                 }} style={{width:"100%",padding:"4px 6px",borderRadius:4,border:"1px solid #d1d5db",fontSize:11,background:"#f0fdf4"}}>
-                                  <option value="">— Predio —</option>
+                                  <option value="">— Campo —</option>
                                   {ubics.map(u=><option key={u.id} value={u.id}>{u.nombre}</option>)}
                                 </select>
                               ) : (
-                                <input disabled={!can} value={p.nombrePredio||""} placeholder="Predio" onChange={e=>updPl("nombrePredio",e.target.value)}
+                                <input disabled={!can} value={p.nombrePredio||""} placeholder="Campo" onChange={e=>updPl("nombrePredio",e.target.value)}
                                   style={{width:"100%",padding:"4px 6px",borderRadius:4,border:"1px solid #d1d5db",fontSize:11}}/>
                               );
                             })()}
@@ -6901,7 +6901,7 @@ function ControlContratos({data,setData,clientes,setClientes,variedadesMaestro=[
               <div style={{overflowX:"auto"}}>
                 <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
                   <thead><tr style={{background:"#dcfce7"}}>
-                    {["Predio","Especie","Denominación","Plantas","Há","Fecha plant.","N° Cot. Vivero","Sublicenciatario","Vivero","Fee USD/planta",""].map(h=>(<th key={h} style={{padding:"6px 8px",textAlign:"left",fontSize:11,fontWeight:700,color:"#14532d"}}>{h}</th>))}
+                    {["Campo","Especie","Denominación","Plantas","Há","Fecha plant.","N° Cot. Vivero","Sublicenciatario","Vivero","Fee USD/planta",""].map(h=>(<th key={h} style={{padding:"6px 8px",textAlign:"left",fontSize:11,fontWeight:700,color:"#14532d"}}>{h}</th>))}
                   </tr></thead>
                   <tbody>
                     {(form.plantaciones||[]).map(p=>{
@@ -6942,11 +6942,11 @@ function ControlContratos({data,setData,clientes,setClientes,variedadesMaestro=[
                                   if(ub) updPlMulti({ubicacionId:ub.id, nombrePredio:ub.nombre});
                                   else updPlMulti({ubicacionId:"", nombrePredio:""});
                                 }} style={{width:"100%",padding:"4px 6px",borderRadius:4,border:"1px solid #d1d5db",fontSize:11,background:"#f0fdf4"}}>
-                                  <option value="">— Predio —</option>
+                                  <option value="">— Campo —</option>
                                   {ubics.map(u=><option key={u.id} value={u.id}>{u.nombre}</option>)}
                                 </select>
                               ) : (
-                                <input value={p.nombrePredio||""} placeholder="Predio" onChange={e=>updPl("nombrePredio",e.target.value)}
+                                <input value={p.nombrePredio||""} placeholder="Campo" onChange={e=>updPl("nombrePredio",e.target.value)}
                                   style={{width:"100%",padding:"4px 6px",borderRadius:4,border:"1px solid #d1d5db",fontSize:11}}/>
                               );
                             })()}
