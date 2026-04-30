@@ -4337,13 +4337,24 @@ ${inf.proximaVisitaFecha||'No programada'} — ${inf.proximaVisitaObjetivo||''}
 — Osiris Plant Management · Grupo Mediterra`;
     try {
       const emailList = emails.split(',').map(e=>e.trim()).filter(Boolean);
-      for(const email of emailList) {
-        const res = await fetch("https://api.emailjs.com/api/v1.0/email/send", {
+      const to = emailList.join(", ");
+      // Intentar SMTP primero
+      try {
+        const res = await fetch("/api/send-email", {
           method:"POST", headers:{"Content-Type":"application/json"},
-          body:JSON.stringify({service_id:"service_ahuerta",template_id:"template_notif_tarea",user_id:"bwCBq7JXlEwCTzWNe",
-            template_params:{to_email:email,to_name:ct?.razonSocial||"Cliente",name:"Osiris Plant Management",subject:`📄 Informe Técnico: ${inf.titulo||'Visita'} — Osiris`,message:mensaje}})
+          body:JSON.stringify({to, subject:`📄 Informe Técnico: ${inf.titulo||'Visita'} — Osiris`, message:mensaje, modulo:"osiris"})
         });
-        if(!res.ok) { const err=await res.text(); console.error("EmailJS error:",res.status,err); }
+        if(!res.ok) throw new Error(await res.text());
+        console.log(`[Email] ✅ Informe enviado via SMTP a ${to}`);
+      } catch(smtpErr) {
+        console.warn("[Email] SMTP falló, intentando EmailJS:", smtpErr.message);
+        for(const email of emailList) {
+          await fetch("https://api.emailjs.com/api/v1.0/email/send", {
+            method:"POST", headers:{"Content-Type":"application/json"},
+            body:JSON.stringify({service_id:"service_ahuerta",template_id:"template_notif_tarea",user_id:"bwCBq7JXlEwCTzWNe",
+              template_params:{to_email:email,to_name:ct?.razonSocial||"Cliente",name:"Osiris Plant Management",subject:`📄 Informe Técnico: ${inf.titulo||'Visita'} — Osiris`,message:mensaje}})
+          });
+        }
       }
       return true;
     } catch(e) { console.error("Error email:", e); alert("Error al enviar: "+e.message); return false; }
@@ -6183,7 +6194,8 @@ function ControlContratos({data,setData,clientes,setClientes,variedadesMaestro=[
                           {/* Campo: selector de ubicación del cliente */}
                           <td style={{padding:"6px 8px",minWidth:120}}>
                             {(()=>{
-                              const cli = clientes.find(c=>c.razonSocial===r.cliente||c.id===r.clienteId);
+                              const cli = clientes.find(c=>c.id===r.clienteId||
+                                (c.razonSocial||"").toLowerCase().trim()===(r.cliente||"").toLowerCase().trim());
                               const ubics = cli?.ubicaciones || [];
                               return ubics.length > 0 ? (
                                 <select disabled={!can} value={p.ubicacionId||""} onChange={e=>{
@@ -6935,7 +6947,9 @@ function ControlContratos({data,setData,clientes,setClientes,variedadesMaestro=[
                           {/* Predio */}
                           <td style={{padding:"5px 8px",minWidth:110}}>
                             {(()=>{
-                              const cli = clientes.find(c=>c.id===form.clienteId||c.razonSocial===form.empresa);
+                              const cli = clientes.find(c=>c.id===form.clienteId||
+                                (c.razonSocial||"").toLowerCase().trim()===(form.cliente||"").toLowerCase().trim()||
+                                (c.razonSocial||"").toLowerCase().trim()===(form.empresa||"").toLowerCase().trim());
                               const ubics = cli?.ubicaciones || [];
                               return ubics.length > 0 ? (
                                 <select value={p.ubicacionId||""} onChange={e=>{
