@@ -5392,7 +5392,7 @@ function MaestroVariedades({variedades,setVariedades,can,obtentores=[],especies=
       descripcion:`Importó ${nuevas.length} variedades desde contratos obtentores`});
   }
   function iniciarEdicion(v){
-    setForm({especie:v.especie||"",variedad:v.variedad||"",obtentor:v.obtentor||"",nRegistro:v.nRegistro||"",observaciones:v.observaciones||"",royaltyPct:v.royaltyPct||"",royaltyPlanta:v.royaltyPlanta||"",royaltyHa:v.royaltyHa||"",royaltyContractFee:v.royaltyContractFee||""});
+    setForm({especie:v.especie||"",variedad:v.variedad||"",obtentor:v.obtentor||"",nRegistro:v.nRegistro||"",observaciones:v.observaciones||"",royaltyPct:v.royaltyPct||"",royaltyPctPeriod:v.royaltyPctPeriod||"",royaltyPlanta:v.royaltyPlanta||"",royaltyPlantaPeriod:v.royaltyPlantaPeriod||"",royaltyHa:v.royaltyHa||"",royaltyHaPeriod:v.royaltyHaPeriod||"",royaltyContractFee:v.royaltyContractFee||"",royaltyContractFeePeriod:v.royaltyContractFeePeriod||""});
     setEditId(v.id);setShowForm(true);
   }
 
@@ -5485,39 +5485,79 @@ function MaestroVariedades({variedades,setVariedades,can,obtentores=[],especies=
           </div>
           {/* Royalty por obtentor */}
           <div style={{marginTop:10,padding:12,background:"#fffbeb",borderRadius:8,border:"1px solid #fde68a"}}>
-            <div style={{fontSize:11,fontWeight:700,color:"#92400e",marginBottom:8}}>💰 Royalty al Obtentor (todos en %)</div>
+            <div style={{fontSize:11,fontWeight:700,color:"#92400e",marginBottom:8}}>💰 Royalty al Obtentor</div>
             <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr 1fr",gap:10}}>
               <div>
                 <div style={{fontSize:10,color:"#78350f",fontWeight:600,marginBottom:3}}>% sobre venta</div>
-                <div style={{display:"flex",alignItems:"center",gap:4}}>
+                <div style={{display:"flex",alignItems:"center",gap:4,marginBottom:4}}>
                   <input type="number" step="0.1" value={form.royaltyPct||""} placeholder="0" onChange={e=>setForm(p=>({...p,royaltyPct:e.target.value}))}
                     style={{width:"100%",padding:"5px 8px",borderRadius:6,border:"1px solid #fde68a",fontSize:12,textAlign:"right"}}/>
                   <span style={{fontSize:11,color:"#92400e"}}>%</span>
                 </div>
+                <select value={form.royaltyPctPeriod||""} onChange={e=>setForm(p=>({...p,royaltyPctPeriod:e.target.value}))}
+                  style={{width:"100%",padding:"4px 6px",borderRadius:6,border:"1px solid #fde68a",fontSize:10,background:"#fff"}}>
+                  <option value="">Periodicidad</option>
+                  <option value="Mensual">Mensual</option>
+                  <option value="Trimestral">Trimestral</option>
+                  <option value="Semestral">Semestral</option>
+                  <option value="Anual">Anual</option>
+                  <option value="Por temporada">Por temporada</option>
+                  <option value="Única vez">Única vez</option>
+                </select>
               </div>
               <div>
                 <div style={{fontSize:10,color:"#78350f",fontWeight:600,marginBottom:3}}>% por planta</div>
-                <div style={{display:"flex",alignItems:"center",gap:4}}>
+                <div style={{display:"flex",alignItems:"center",gap:4,marginBottom:4}}>
                   <input type="number" step="0.1" value={form.royaltyPlanta||""} placeholder="0" onChange={e=>setForm(p=>({...p,royaltyPlanta:e.target.value}))}
                     style={{width:"100%",padding:"5px 8px",borderRadius:6,border:"1px solid #fde68a",fontSize:12,textAlign:"right"}}/>
                   <span style={{fontSize:11,color:"#92400e"}}>%</span>
                 </div>
+                <select value={form.royaltyPlantaPeriod||""} onChange={e=>setForm(p=>({...p,royaltyPlantaPeriod:e.target.value}))}
+                  style={{width:"100%",padding:"4px 6px",borderRadius:6,border:"1px solid #fde68a",fontSize:10,background:"#fff"}}>
+                  <option value="">Periodicidad</option>
+                  <option value="Mensual">Mensual</option>
+                  <option value="Trimestral">Trimestral</option>
+                  <option value="Semestral">Semestral</option>
+                  <option value="Anual">Anual</option>
+                  <option value="Por temporada">Por temporada</option>
+                  <option value="Única vez">Única vez</option>
+                </select>
               </div>
               <div>
                 <div style={{fontSize:10,color:"#78350f",fontWeight:600,marginBottom:3}}>% por Há plantada</div>
-                <div style={{display:"flex",alignItems:"center",gap:4}}>
+                <div style={{display:"flex",alignItems:"center",gap:4,marginBottom:4}}>
                   <input type="number" step="0.1" value={form.royaltyHa||""} placeholder="0" onChange={e=>setForm(p=>({...p,royaltyHa:e.target.value}))}
                     style={{width:"100%",padding:"5px 8px",borderRadius:6,border:"1px solid #fde68a",fontSize:12,textAlign:"right"}}/>
                   <span style={{fontSize:11,color:"#92400e"}}>%</span>
                 </div>
+                <select value={form.royaltyHaPeriod||""} onChange={e=>setForm(p=>({...p,royaltyHaPeriod:e.target.value}))}
+                  style={{width:"100%",padding:"4px 6px",borderRadius:6,border:"1px solid #fde68a",fontSize:10,background:"#fff"}}>
+                  <option value="">Periodicidad</option>
+                  <option value="Mensual">Mensual</option>
+                  <option value="Trimestral">Trimestral</option>
+                  <option value="Semestral">Semestral</option>
+                  <option value="Anual">Anual</option>
+                  <option value="Por temporada">Por temporada</option>
+                  <option value="Única vez">Única vez</option>
+                </select>
               </div>
               <div>
                 <div style={{fontSize:10,color:"#78350f",fontWeight:600,marginBottom:3}}>% Contract Fee</div>
-                <div style={{display:"flex",alignItems:"center",gap:4}}>
+                <div style={{display:"flex",alignItems:"center",gap:4,marginBottom:4}}>
                   <input type="number" step="0.1" value={form.royaltyContractFee||""} placeholder="0" onChange={e=>setForm(p=>({...p,royaltyContractFee:e.target.value}))}
                     style={{width:"100%",padding:"5px 8px",borderRadius:6,border:"1px solid #fde68a",fontSize:12,textAlign:"right"}}/>
                   <span style={{fontSize:11,color:"#92400e"}}>%</span>
                 </div>
+                <select value={form.royaltyContractFeePeriod||""} onChange={e=>setForm(p=>({...p,royaltyContractFeePeriod:e.target.value}))}
+                  style={{width:"100%",padding:"4px 6px",borderRadius:6,border:"1px solid #fde68a",fontSize:10,background:"#fff"}}>
+                  <option value="">Periodicidad</option>
+                  <option value="Mensual">Mensual</option>
+                  <option value="Trimestral">Trimestral</option>
+                  <option value="Semestral">Semestral</option>
+                  <option value="Anual">Anual</option>
+                  <option value="Por temporada">Por temporada</option>
+                  <option value="Única vez">Única vez</option>
+                </select>
               </div>
             </div>
           </div>
