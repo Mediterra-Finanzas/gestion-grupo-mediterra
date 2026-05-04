@@ -3278,7 +3278,7 @@ function Consolidado({empresas,saldosBancos,realData={},addedLinesGlobal={},subL
         <td style={{padding:"8px 14px",fontWeight:800,color:C.blue,fontSize:isTotal?12:11,position:"sticky",left:0,background:C.card,zIndex:1,borderRight:`1px solid ${C.border}`}}>
           {isTotal?"Σ SALDO ACUMULADO CONSOLIDADO":"Saldo Acumulado"}
         </td>
-        {cols.map(col=>{const lastIdx=col.indices[col.indices.length-1];const v=acumArr[lastIdx]||0;return(<td key={col.key} style={{padding:"7px 5px",textAlign:"right",fontWeight:isTotal?900:700,fontSize:isTotal?10:9,color:cf(v),borderLeft:col.isFirstInSeason?`2px solid ${C.border2}`:`1px solid ${C.border}22`}}>{$$(v)}</td>);})}
+        {cols.map(col=>{const lastIdx=col.indices[col.indices.length-1];const v=acumArr[lastIdx];const esNull=v==null;return(<td key={col.key} style={{padding:"7px 5px",textAlign:"right",fontWeight:isTotal?900:700,fontSize:isTotal?10:9,color:esNull?C.muted2:cf(v||0),borderLeft:col.isFirstInSeason?`2px solid ${C.border2}`:`1px solid ${C.border}22`}}>{esNull?"—":$$(v||0)}</td>);})}
       </tr>
     </>
   );
@@ -4114,6 +4114,27 @@ function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit,saldosBanc
     return found ? total : null;
   },[saldosBancos, empNombre]);
 
+  // Mes en MESES_65 desde el cual arranca el saldo banco (fecha más reciente)
+  const mesIdxInicioSaldo = useMemo(()=>{
+    if(!saldosBancos) return 0;
+    let fechaMaxSaldo = null;
+    Object.entries(saldosBancos).forEach(([key, rec])=>{
+      const parts = key.split("||");
+      if(parts[0]!==empNombre) return;
+      if(!rec?.monto || !rec?.fecha) return;
+      const f = new Date(rec.fecha);
+      if(!fechaMaxSaldo || f > fechaMaxSaldo) fechaMaxSaldo = f;
+    });
+    if(!fechaMaxSaldo) return 0;
+    // Buscar el mes correspondiente en MESES_65
+    const anio = fechaMaxSaldo.getFullYear();
+    const mes = fechaMaxSaldo.getMonth(); // 0-11
+    const nombresMes = ["Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"];
+    const label = `${nombresMes[mes]} ${anio}`;
+    const idx = MESES_65.indexOf(label);
+    return idx >= 0 ? idx : 0;
+  },[saldosBancos, empNombre]);
+
   // ── Valor proyectado efectivo (base + override) ────────────────
   // Si override es objeto {_sem0,_sem1,_sem2,_sem3}: suma SOLO las semanas definidas por el usuario
   //   (las semanas no editadas son 0, el usuario tomó control del mes)
@@ -4293,9 +4314,16 @@ function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit,saldosBanc
       return f;
     });
     let a = saldoIni;
-    const aa = fa.map(f=>{a+=f;return a;});
+    const aa = fa.map((f,i)=>{
+      // Antes del mes del saldo banco: no acumular (mes pasado, sin valor de saldo)
+      if(i < mesIdxInicioSaldo) return null;
+      // Desde el mes del saldo banco: arrancar con saldo y acumular
+      if(i === mesIdxInicioSaldo) { a = saldoIni + f; return a; }
+      a += f;
+      return a;
+    });
     return {flujoArr:fa, acumArr:aa};
-  },[emp, proyOverrides, saldoBancoUSD, addedLines, subLines, getProy]); // eslint-disable-line
+  },[emp, proyOverrides, saldoBancoUSD, mesIdxInicioSaldo, addedLines, subLines, getProy]); // eslint-disable-line
 
   // Flujo neto por mes (para totales mensuales en vista semanal)
   const flujoMes = useMemo(()=>{
@@ -5200,24 +5228,26 @@ function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit,saldosBanc
               {colStructure.map(({season:s,collapsed,cols})=>{
                 if(collapsed){
                   const last=s.indices[s.indices.length-1];
+                  const v = acumArr[last];
                   return (
                     <td key={s.key} style={{padding:"7px 8px",textAlign:"right",fontWeight:800,
-                      fontSize:11,color:cf(acumArr[last]),borderLeft:`2px solid ${C.border2}`}}>
+                      fontSize:11,color:v==null?C.muted2:cf(v),borderLeft:`2px solid ${C.border2}`}}>
                       <div style={{fontSize:8,color:C.muted,marginBottom:1}}>Fin T</div>
-                      {$$(acumArr[last])}
+                      {v==null?"—":$$(v)}
                     </td>
                   );
                 }
                 return cols.map((col,ci)=>{
                   const isTot=col.isTotalMes;
                   const isFirst=col.isFirstInSeason||col.isFirstInMonth;
+                  const v = acumArr[col.idx];
                   return (
                     <td key={`acum-${col.mes}-${col.label}-${ci}`}
                       style={{padding:"6px 5px",textAlign:"right",fontWeight:isTot?900:700,
-                        fontSize:isTot?10:9,color:cf(acumArr[col.idx]),
+                        fontSize:isTot?10:9,color:v==null?C.muted2:cf(v),
                         background:isTot?`${C.yellow}18`:"transparent",
                         borderLeft:col.isFirstInSeason?`2px solid ${C.border2}`:isFirst?`1px solid ${C.border}44`:`1px solid ${C.border}11`}}>
-                      {$$(acumArr[col.idx])}
+                      {v==null?"—":$$(v)}
                     </td>
                   );
                 });
