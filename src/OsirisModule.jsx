@@ -9073,7 +9073,14 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
                       <select value={obtWizEspForm.variedad||""} onChange={e=>setObtWizEspForm(p=>({...p,variedad:e.target.value}))}
                         style={{width:"100%",padding:"7px 10px",borderRadius:6,border:"1px solid #d1d5db",fontSize:12,boxSizing:"border-box"}}>
                         <option value="">— Seleccionar —</option>
-                        {variedadesMaestro.filter(v=>!obtWizEspForm.especie||v.especie===obtWizEspForm.especie).map(v=><option key={v.id} value={v.variedad}>{v.nRegistro?`${v.nRegistro} · ${v.variedad}`:v.variedad}</option>)}
+                        {(()=>{
+                          const espSel = (obtWizEspForm.especie||"").trim().toLowerCase();
+                          const filtradas = espSel
+                            ? variedadesMaestro.filter(v=>(v.especie||"").trim().toLowerCase()===espSel)
+                            : variedadesMaestro;
+                          const lista = filtradas.length>0 ? filtradas : variedadesMaestro;
+                          return lista.map(v=><option key={v.id} value={v.variedad}>{v.especie?`[${v.especie}] `:""}{v.nRegistro?`${v.nRegistro} · `:""}{v.variedad}</option>);
+                        })()}
                       </select>
                     </div>
                   </div>
