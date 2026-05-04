@@ -2896,10 +2896,53 @@ function CeldaEditable({val, onSave, color, canEdit, real=null}) {
   const [tmp, setTmp] = useState("");
 
   // Evaluar expresión matemática segura: soporta +, -, *, / y paréntesis
+  // Maneja correctamente formatos: 1.500.000 / 1,500,000 / 1500000 / 1500.50
   function evalExpr(str) {
-    if(!str || !str.trim()) return 0;
-    const clean = str.replace(/\s/g,"").replace(/,/g,""); // quitar espacios y comas
-    // Solo permitir números, operadores y paréntesis
+    if(!str || !String(str).trim()) return 0;
+    let clean = String(str).replace(/\s/g,"").replace(/[$%]/g,"");
+    // Detectar separadores: si tiene puntos Y comas, el último es decimal
+    const tienePunto = clean.includes(".");
+    const tieneComa  = clean.includes(",");
+    
+    if(tienePunto && tieneComa) {
+      // Ambos: el ÚLTIMO es el decimal, el otro es separador de miles
+      const lastDot   = clean.lastIndexOf(".");
+      const lastComma = clean.lastIndexOf(",");
+      if(lastComma > lastDot) {
+        // Coma es decimal: 1.500.000,50 → 1500000.50
+        clean = clean.replace(/\./g,"").replace(",",".");
+      } else {
+        // Punto es decimal: 1,500,000.50 → 1500000.50
+        clean = clean.replace(/,/g,"");
+      }
+    } else if(tienePunto) {
+      // Solo puntos: si hay 2+ puntos O si los puntos NO son seguidos de exactamente 1-2 dígitos, son separadores de miles
+      const partes = clean.split(".");
+      if(partes.length > 2) {
+        // 1.500.000 → 1500000 (todos miles)
+        clean = clean.replace(/\./g,"");
+      } else if(partes.length === 2 && partes[1].length === 3 && /^\d+$/.test(partes[0]) && /^\d+$/.test(partes[1])) {
+        // 1.500 → 1500 (formato chileno típico de miles)
+        clean = clean.replace(".","");
+      }
+      // Si no, queda como está (ej: 1500.50 = decimal)
+    } else if(tieneComa) {
+      // Solo comas: si hay 2+ comas, son miles. Si hay 1 y son 3 dígitos, también.
+      const partes = clean.split(",");
+      if(partes.length > 2) {
+        clean = clean.replace(/,/g,"");
+      } else if(partes.length === 2 && partes[1].length === 3) {
+        clean = clean.replace(",","");
+      } else {
+        // Coma decimal: 1500,50 → 1500.50
+        clean = clean.replace(",",".");
+      }
+    }
+
+    // Si solo hay número simple, retornar
+    if(/^-?\d+(\.\d+)?$/.test(clean)) return parseFloat(clean);
+    
+    // Sino, evaluar como expresión matemática (solo si tiene operadores)
     if(!/^[\d.+\-*/()]+$/.test(clean)) return parseFloat(clean)||0;
     try { return Function('"use strict";return('+clean+')')(); } catch { return parseFloat(clean)||0; }
   }
@@ -4900,7 +4943,7 @@ function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit,saldosBanc
                             ):(
                               <CeldaEditable val={disp} color={sec.signo>0?C.green:C.red}
                                 canEdit={canEdit&&col.type!=="month_collapsed"}
-                                onSave={v=>updAlVal(col.idx, col.type==="month_collapsed"?v:v*(col.nSems||1))}/>
+                                onSave={v=>updAlVal(col.idx, v)}/>
                             )}
                           </td>
                         );
