@@ -4659,7 +4659,7 @@ ${linkInforme}
                         <select disabled={!puedeEditar} value={inf.especie||""} onChange={e=>updInf("especie",e.target.value)}
                           style={{width:"100%",padding:"7px 10px",borderRadius:6,border:"1px solid #d1d5db",fontSize:12,boxSizing:"border-box"}}>
                           <option value="">— Seleccionar —</option>
-                          {especiesMaestro.map(e=><option key={e.id} value={e.nombre}>{e.nombre}</option>)}
+                          {especiesMaestro.filter(e=>e.nombre||e.especie).map(e=>{const n=e.nombre||e.especie;return <option key={e.id} value={n}>{n}</option>;})}
                         </select></div>
                       <div><div style={{fontSize:11,color:"#64748b",fontWeight:600,marginBottom:3}}>Denominación (variedad)</div>
                         <select disabled={!puedeEditar} value={inf.variedad||""} onChange={e=>updInf("variedad",e.target.value)}
@@ -5071,7 +5071,7 @@ ${linkInforme}
             <select value={form.especie||""} onChange={e=>setForm(p=>({...p,especie:e.target.value}))}
               style={{width:"100%",padding:"7px 10px",borderRadius:6,border:"1px solid #d1d5db",fontSize:12}}>
               <option value="">— Seleccionar —</option>
-              {especiesMaestro.map(e=><option key={e.id} value={e.nombre}>{e.nombre}</option>)}
+              {especiesMaestro.filter(e=>e.nombre||e.especie).map(e=>{const n=e.nombre||e.especie;return <option key={e.id} value={n}>{n}</option>;})}
             </select></div>
           <Select label="Modalidad" value={form.modalidad} onChange={v=>setForm(p=>({...p,modalidad:v}))} opts={["Full time","Part time","Por proyecto","Consultor externo"]}/>
           <Input label="Email" value={form.email} onChange={v=>setForm(p=>({...p,email:v}))} type="email"/>
@@ -8657,7 +8657,7 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
                   <select value={pbrForm.especie||""} onChange={e=>setPbrForm(p=>({...p,especie:e.target.value,variedades:[]}))}
                     style={{width:"100%",padding:"8px 12px",borderRadius:8,border:"1px solid #d1d5db",fontSize:13,boxSizing:"border-box",background:"#fff"}}>
                     <option value="">— Seleccionar especie —</option>
-                    {especiesMaestro.map(e=><option key={e.id} value={e.nombre}>{e.nombre}</option>)}
+                    {especiesMaestro.filter(e=>e.nombre||e.especie).map(e=>{const n=e.nombre||e.especie;return <option key={e.id} value={n}>{n}</option>;})}
                   </select>
                 </div>
                 <div style={{marginBottom:12}}>
@@ -9065,7 +9065,7 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
                       <select value={obtWizEspForm.especie||""} onChange={e=>setObtWizEspForm(p=>({...p,especie:e.target.value,variedad:""}))}
                         style={{width:"100%",padding:"7px 10px",borderRadius:6,border:"1px solid #d1d5db",fontSize:12,boxSizing:"border-box"}}>
                         <option value="">— Seleccionar —</option>
-                        {especiesMaestro.map(e=><option key={e.id} value={e.nombre}>{e.nombre}</option>)}
+                        {especiesMaestro.filter(e=>e.nombre||e.especie).map(e=>{const n=e.nombre||e.especie;return <option key={e.id} value={n}>{n}</option>;})}
                       </select>
                     </div>
                     <div>
@@ -9163,29 +9163,36 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
                         <select value={obtWizPbrForm.especie||""} onChange={e=>setObtWizPbrForm(p=>({...p,especie:e.target.value,variedades:[]}))}
                           style={{width:"100%",padding:"7px 10px",borderRadius:6,border:"1px solid #d1d5db",fontSize:12,boxSizing:"border-box",background:"#fff"}}>
                           <option value="">— Seleccionar —</option>
-                          {especiesMaestro.map(e=><option key={e.id} value={e.nombre}>{e.nombre}</option>)}
+                          {especiesMaestro.filter(e=>e.nombre||e.especie).map(e=>{const n=e.nombre||e.especie;return <option key={e.id} value={n}>{n}</option>;})}
                         </select>
                       </div>
                       <div>
                         <label style={{fontSize:11,fontWeight:600,color:"#475569",display:"block",marginBottom:3}}>Variedades (seleccionar una o más)</label>
                         <div style={{maxHeight:120,overflowY:"auto",border:"1px solid #d1d5db",borderRadius:6,padding:6,background:"#fff"}}>
-                          {variedadesMaestro.filter(v=>!obtWizPbrForm.especie||v.especie===obtWizPbrForm.especie).length===0
-                            ? <div style={{fontSize:11,color:"#94a3b8",padding:4}}>Sin variedades para esta especie</div>
-                            : variedadesMaestro.filter(v=>!obtWizPbrForm.especie||v.especie===obtWizPbrForm.especie).map(v=>{
-                                const sel = (obtWizPbrForm.variedades||[]).includes(v.variedad);
-                                return (
-                                  <label key={v.id} style={{display:"flex",alignItems:"center",gap:6,padding:"3px 4px",cursor:"pointer",fontSize:11,color:sel?"#1e293b":"#64748b",background:sel?"#ede9fe":"transparent",borderRadius:4,marginBottom:2}}>
-                                    <input type="checkbox" checked={sel} onChange={()=>{
-                                      setObtWizPbrForm(p=>{
-                                        const cur = p.variedades||[];
-                                        return {...p, variedades: sel ? cur.filter(x=>x!==v.variedad) : [...cur, v.variedad]};
-                                      });
-                                    }}/>
-                                    {v.nRegistro?`${v.nRegistro} · `:""}{v.variedad}
-                                  </label>
-                                );
-                              })
-                          }
+                          {(()=>{
+                            const espSel = (obtWizPbrForm.especie||"").trim().toLowerCase();
+                            const filtradas = espSel
+                              ? variedadesMaestro.filter(v=>(v.especie||"").trim().toLowerCase()===espSel)
+                              : variedadesMaestro;
+                            // Si filtró y no hay resultados, mostrar todas como fallback
+                            const lista = filtradas.length>0 ? filtradas : variedadesMaestro;
+                            if(lista.length===0) return <div style={{fontSize:11,color:"#94a3b8",padding:4}}>No hay variedades en el maestro</div>;
+                            return lista.map(v=>{
+                              const sel = (obtWizPbrForm.variedades||[]).includes(v.variedad);
+                              return (
+                                <label key={v.id} style={{display:"flex",alignItems:"center",gap:6,padding:"3px 4px",cursor:"pointer",fontSize:11,color:sel?"#1e293b":"#64748b",background:sel?"#ede9fe":"transparent",borderRadius:4,marginBottom:2}}>
+                                  <input type="checkbox" checked={sel} onChange={()=>{
+                                    setObtWizPbrForm(p=>{
+                                      const cur = p.variedades||[];
+                                      return {...p, variedades: sel ? cur.filter(x=>x!==v.variedad) : [...cur, v.variedad]};
+                                    });
+                                  }}/>
+                                  {v.especie?<span style={{color:"#94a3b8",fontSize:10}}>[{v.especie}] </span>:""}
+                                  {v.nRegistro?`${v.nRegistro} · `:""}{v.variedad}
+                                </label>
+                              );
+                            });
+                          })()}
                         </div>
                       </div>
                     </div>
@@ -10674,7 +10681,7 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
                       <select value={vivWizVvForm.especie||""} onChange={e=>setVivWizVvForm(p=>({...p,especie:e.target.value,variedad:""}))}
                         style={{width:"100%",padding:"7px 10px",borderRadius:6,border:"1px solid #d1d5db",fontSize:12,boxSizing:"border-box"}}>
                         <option value="">— Seleccionar —</option>
-                        {especiesMaestro.map(e=><option key={e.id} value={e.nombre}>{e.nombre}</option>)}
+                        {especiesMaestro.filter(e=>e.nombre||e.especie).map(e=>{const n=e.nombre||e.especie;return <option key={e.id} value={n}>{n}</option>;})}
                       </select>
                     </div>
                     <div>
