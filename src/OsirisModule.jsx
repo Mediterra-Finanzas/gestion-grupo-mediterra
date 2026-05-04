@@ -8559,13 +8559,31 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
             <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:10000}} onClick={()=>setEspModal(false)}>
               <div onClick={e=>e.stopPropagation()} style={{background:"#fff",borderRadius:16,padding:24,width:540,maxHeight:"85vh",overflowY:"auto"}}>
                 <h3 style={{margin:"0 0 16px",color:"#1e293b"}}>🌿 Nueva Especie/Variedad</h3>
-                {[["Especie","especie","text","Cerezo, Arándano, Ciruelo..."],["Variedad","variedad","text","Royal Dawn, Magenta..."]].map(([lbl,f,t,ph])=>(
-                  <div key={f} style={{marginBottom:12}}>
-                    <label style={{fontSize:11,fontWeight:600,color:"#475569",display:"block",marginBottom:4}}>{lbl} <span style={{color:"#dc2626"}}>*</span></label>
-                    <input type={t} value={espForm[f]||""} placeholder={ph} onChange={e=>setEspForm(p=>({...p,[f]:e.target.value}))}
-                      style={{width:"100%",padding:"8px 12px",borderRadius:8,border:"1px solid #d1d5db",fontSize:13,boxSizing:"border-box"}}/>
+                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:12}}>
+                  <div>
+                    <label style={{fontSize:11,fontWeight:600,color:"#475569",display:"block",marginBottom:4}}>Especie <span style={{color:"#dc2626"}}>*</span></label>
+                    <select value={espForm.especie||""} onChange={e=>setEspForm(p=>({...p,especie:e.target.value,variedad:""}))}
+                      style={{width:"100%",padding:"8px 12px",borderRadius:8,border:"1px solid #d1d5db",fontSize:13,boxSizing:"border-box",background:"#fff"}}>
+                      <option value="">— Seleccionar especie —</option>
+                      {especiesMaestro.filter(e=>e.nombre||e.especie).map(e=>{const n=e.nombre||e.especie;return <option key={e.id} value={n}>{n}</option>;})}
+                    </select>
                   </div>
-                ))}
+                  <div>
+                    <label style={{fontSize:11,fontWeight:600,color:"#475569",display:"block",marginBottom:4}}>Denominación <span style={{color:"#dc2626"}}>*</span></label>
+                    <select value={espForm.variedad||""} onChange={e=>setEspForm(p=>({...p,variedad:e.target.value}))}
+                      style={{width:"100%",padding:"8px 12px",borderRadius:8,border:"1px solid #d1d5db",fontSize:13,boxSizing:"border-box",background:"#fff"}}>
+                      <option value="">— Seleccionar denominación —</option>
+                      {(()=>{
+                        const espSel = (espForm.especie||"").trim().toLowerCase();
+                        const filtradas = espSel
+                          ? variedadesMaestro.filter(v=>(v.especie||"").trim().toLowerCase()===espSel)
+                          : variedadesMaestro;
+                        const lista = filtradas.length>0 ? filtradas : variedadesMaestro;
+                        return lista.map(v=><option key={v.id} value={v.variedad}>{v.especie?`[${v.especie}] `:""}{v.nRegistro?`${v.nRegistro} · `:""}{v.variedad}</option>);
+                      })()}
+                    </select>
+                  </div>
+                </div>
                 <div style={{marginBottom:12}}>
                   <label style={{fontSize:11,fontWeight:600,color:"#475569",display:"block",marginBottom:4}}>Observaciones de la variedad</label>
                   <textarea value={espForm.observaciones||""} onChange={e=>setEspForm(p=>({...p,observaciones:e.target.value}))}
