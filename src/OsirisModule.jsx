@@ -5392,7 +5392,7 @@ function MaestroVariedades({variedades,setVariedades,can,obtentores=[],especies=
       descripcion:`Importó ${nuevas.length} variedades desde contratos obtentores`});
   }
   function iniciarEdicion(v){
-    setForm({especie:v.especie||"",variedad:v.variedad||"",obtentor:v.obtentor||"",nRegistro:v.nRegistro||"",observaciones:v.observaciones||""});
+    setForm({especie:v.especie||"",variedad:v.variedad||"",obtentor:v.obtentor||"",nRegistro:v.nRegistro||"",observaciones:v.observaciones||"",royaltyPct:v.royaltyPct||"",royaltyPlanta:v.royaltyPlanta||"",royaltyHa:v.royaltyHa||"",royaltyContractFee:v.royaltyContractFee||""});
     setEditId(v.id);setShowForm(true);
   }
 
@@ -5466,12 +5466,11 @@ function MaestroVariedades({variedades,setVariedades,can,obtentores=[],especies=
             </div>
             <div>
               <div style={{fontSize:11,color:"#64748b",fontWeight:600,marginBottom:3}}>Obtentor</div>
-              <input value={form.obtentor} placeholder="SunWorld, IFG, Bloom Fresh..." onChange={e=>setForm(p=>({...p,obtentor:e.target.value}))}
-                list="obtentores-list"
-                style={{width:"100%",padding:"6px 8px",borderRadius:6,border:"1px solid #d1d5db",fontSize:12,outline:"none",boxSizing:"border-box"}}/>
-              <datalist id="obtentores-list">
-                {[...new Set((obtentores||[]).map(o=>o.obtentor).filter(Boolean))].map(o=><option key={o} value={o}/>)}
-              </datalist>
+              <select value={form.obtentor||""} onChange={e=>setForm(p=>({...p,obtentor:e.target.value}))}
+                style={{width:"100%",padding:"6px 8px",borderRadius:6,border:"1px solid #d1d5db",fontSize:12,boxSizing:"border-box"}}>
+                <option value="">— Seleccionar obtentor —</option>
+                {[...new Set((obtentores||[]).map(o=>o.obtentor||o.razonSocial).filter(Boolean))].sort().map(o=><option key={o} value={o}>{o}</option>)}
+              </select>
             </div>
             <div>
               <div style={{fontSize:11,color:"#64748b",fontWeight:600,marginBottom:3}}>N° Registro</div>
@@ -5484,6 +5483,35 @@ function MaestroVariedades({variedades,setVariedades,can,obtentores=[],especies=
                 style={{width:"100%",padding:"6px 8px",borderRadius:6,border:"1px solid #d1d5db",fontSize:12,outline:"none",boxSizing:"border-box"}}/>
             </div>
           </div>
+          {/* Royalty por obtentor */}
+          <div style={{marginTop:10,padding:12,background:"#fffbeb",borderRadius:8,border:"1px solid #fde68a"}}>
+            <div style={{fontSize:11,fontWeight:700,color:"#92400e",marginBottom:8}}>💰 Royalty al Obtentor</div>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr 1fr",gap:10}}>
+              <div>
+                <div style={{fontSize:10,color:"#78350f",fontWeight:600,marginBottom:3}}>% sobre venta</div>
+                <div style={{display:"flex",alignItems:"center",gap:4}}>
+                  <input type="number" step="0.1" value={form.royaltyPct||""} placeholder="0" onChange={e=>setForm(p=>({...p,royaltyPct:e.target.value}))}
+                    style={{width:"100%",padding:"5px 8px",borderRadius:6,border:"1px solid #fde68a",fontSize:12,textAlign:"right"}}/>
+                  <span style={{fontSize:11,color:"#92400e"}}>%</span>
+                </div>
+              </div>
+              <div>
+                <div style={{fontSize:10,color:"#78350f",fontWeight:600,marginBottom:3}}>Por planta (USD)</div>
+                <input type="number" step="0.01" value={form.royaltyPlanta||""} placeholder="0.00" onChange={e=>setForm(p=>({...p,royaltyPlanta:e.target.value}))}
+                  style={{width:"100%",padding:"5px 8px",borderRadius:6,border:"1px solid #fde68a",fontSize:12,textAlign:"right"}}/>
+              </div>
+              <div>
+                <div style={{fontSize:10,color:"#78350f",fontWeight:600,marginBottom:3}}>Por Há plantada (USD)</div>
+                <input type="number" step="0.1" value={form.royaltyHa||""} placeholder="0.00" onChange={e=>setForm(p=>({...p,royaltyHa:e.target.value}))}
+                  style={{width:"100%",padding:"5px 8px",borderRadius:6,border:"1px solid #fde68a",fontSize:12,textAlign:"right"}}/>
+              </div>
+              <div>
+                <div style={{fontSize:10,color:"#78350f",fontWeight:600,marginBottom:3}}>Contract Fee (USD)</div>
+                <input type="number" step="1" value={form.royaltyContractFee||""} placeholder="0" onChange={e=>setForm(p=>({...p,royaltyContractFee:e.target.value}))}
+                  style={{width:"100%",padding:"5px 8px",borderRadius:6,border:"1px solid #fde68a",fontSize:12,textAlign:"right"}}/>
+              </div>
+            </div>
+          </div>
           <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}>
             <button onClick={()=>{setShowForm(false);setEditId(null);}} style={{padding:"6px 16px",borderRadius:6,border:"1px solid #d1d5db",background:"#fff",cursor:"pointer",fontSize:12}}>Cancelar</button>
             <button onClick={guardar} style={{padding:"6px 16px",borderRadius:6,background:"#d97706",color:"#fff",border:"none",cursor:"pointer",fontSize:12,fontWeight:600}}>💾 Guardar</button>
@@ -5494,7 +5522,7 @@ function MaestroVariedades({variedades,setVariedades,can,obtentores=[],especies=
       <div style={{overflowX:"auto"}}>
         <table style={{borderCollapse:"collapse",width:"100%",background:"#fff",borderRadius:8,overflow:"hidden",fontSize:12}}>
           <thead><tr style={{background:"#d97706",color:"#fff"}}>
-            {["Especie","Denominación","Obtentor","Variedad","Observaciones",""].map(h=>(
+            {["Especie","Denominación","Obtentor","Variedad","Royalty","Observaciones",""].map(h=>(
               <th key={h} style={{padding:"7px 10px",textAlign:"left",fontWeight:600,fontSize:11,whiteSpace:"nowrap"}}>{h}</th>
             ))}
           </tr></thead>
@@ -5505,6 +5533,13 @@ function MaestroVariedades({variedades,setVariedades,can,obtentores=[],especies=
                 <td style={{padding:"6px 10px",fontWeight:600,color:"#1e293b"}}>{v.variedad}</td>
                 <td style={{padding:"6px 10px",color:"#64748b"}}>{v.obtentor||"—"}</td>
                 <td style={{padding:"6px 10px",color:"#64748b"}}>{v.nRegistro||"—"}</td>
+                <td style={{padding:"6px 10px",fontSize:10,color:"#92400e"}}>
+                  {v.royaltyPct?`${v.royaltyPct}% `:""}
+                  {v.royaltyPlanta?`$${v.royaltyPlanta}/pl `:""}
+                  {v.royaltyHa?`$${v.royaltyHa}/há `:""}
+                  {v.royaltyContractFee?`CF:$${v.royaltyContractFee}`:""}
+                  {!v.royaltyPct&&!v.royaltyPlanta&&!v.royaltyHa&&!v.royaltyContractFee?"—":""}
+                </td>
                 <td style={{padding:"6px 10px",color:"#64748b",fontSize:11}}>{v.observaciones||"—"}</td>
                 <td style={{padding:"6px 8px",textAlign:"center"}}>
                   {can&&<div style={{display:"flex",gap:4}}>
@@ -7575,14 +7610,14 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
   const [obtWizStep, setObtWizStep] = useState(1);
   // Forms inline del wizard (paso 2 y 3) — para agregar especies/PBR sin abrir submodales
   const EMPTY_ESP_INLINE = {especie:"",variedad:"",codigoVariedad:"",nombreComercial:"",vigenciaDesde:"",vigenciaHasta:"",observaciones:"",dhe:[]};
-  const EMPTY_PBR_INLINE = {especie:"",variedad:"",pais:"",estado:"Pendiente",nRegistro:"",f_solicitud:"",f_resolucion:"",f_vencimiento:"",doc_solicitud:"",doc_resolucion:"",observaciones:""};
+  const EMPTY_PBR_INLINE = {especie:"",variedad:"",variedades:[],pais:"",estado:"Pendiente",nRegistro:"",f_solicitud:"",f_resolucion:"",f_vencimiento:"",doc_solicitud:"",doc_resolucion:"",observaciones:""};
   const [obtWizEspForm, setObtWizEspForm] = useState(EMPTY_ESP_INLINE);
   const [obtWizPbrForm, setObtWizPbrForm] = useState(EMPTY_PBR_INLINE);
   // Sub-modales Obtentores
   const [espModal, setEspModal] = useState(false);
   const [espForm, setEspForm] = useState({especie:"",variedad:"",observaciones:"",dhe:[]});
   const [pbrModal, setPbrModal] = useState(false);
-  const [pbrForm, setPbrForm] = useState({especie:"",pais:"",estado:"Pendiente",f_solicitud:"",f_resolucion:"",doc_solicitud:"",doc_resolucion:"",observaciones:""});
+  const [pbrForm, setPbrForm] = useState({especie:"",variedades:[],pais:"",estado:"Pendiente",f_solicitud:"",f_resolucion:"",doc_solicitud:"",doc_resolucion:"",observaciones:""});
   const [anxModal, setAnxModal] = useState(false);
   const [anxForm, setAnxForm] = useState({descripcion:"",fecha:"",enlace:"",observaciones:""});
 
@@ -8619,11 +8654,31 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
                 <h3 style={{margin:"0 0 16px",color:"#1e293b"}}>📜 Nuevo Registro PBR</h3>
                 <div style={{marginBottom:12}}>
                   <label style={{fontSize:11,fontWeight:600,color:"#475569",display:"block",marginBottom:4}}>Especie <span style={{color:"#dc2626"}}>*</span></label>
-                  <select value={pbrForm.especie||""} onChange={e=>setPbrForm(p=>({...p,especie:e.target.value}))}
+                  <select value={pbrForm.especie||""} onChange={e=>setPbrForm(p=>({...p,especie:e.target.value,variedades:[]}))}
                     style={{width:"100%",padding:"8px 12px",borderRadius:8,border:"1px solid #d1d5db",fontSize:13,boxSizing:"border-box",background:"#fff"}}>
                     <option value="">— Seleccionar especie —</option>
-                    {[...new Set(especies.map(e=>e.especie))].map(esp=><option key={esp} value={esp}>{esp}</option>)}
+                    {especiesMaestro.map(e=><option key={e.id} value={e.nombre}>{e.nombre}</option>)}
                   </select>
+                </div>
+                <div style={{marginBottom:12}}>
+                  <label style={{fontSize:11,fontWeight:600,color:"#475569",display:"block",marginBottom:4}}>Variedades (seleccionar una o más)</label>
+                  <div style={{maxHeight:120,overflowY:"auto",border:"1px solid #d1d5db",borderRadius:8,padding:8,background:"#fff"}}>
+                    {variedadesMaestro.filter(v=>!pbrForm.especie||v.especie===pbrForm.especie).length===0
+                      ? <div style={{fontSize:11,color:"#94a3b8",padding:4}}>Sin variedades para esta especie</div>
+                      : variedadesMaestro.filter(v=>!pbrForm.especie||v.especie===pbrForm.especie).map(v=>{
+                          const sel = (pbrForm.variedades||[]).includes(v.variedad);
+                          return (
+                            <label key={v.id} style={{display:"flex",alignItems:"center",gap:6,padding:"3px 4px",cursor:"pointer",fontSize:12,color:sel?"#1e293b":"#64748b",background:sel?"#ede9fe":"transparent",borderRadius:4,marginBottom:2}}>
+                              <input type="checkbox" checked={sel} onChange={()=>setPbrForm(p=>{
+                                const cur = p.variedades||[];
+                                return {...p, variedades: sel ? cur.filter(x=>x!==v.variedad) : [...cur, v.variedad]};
+                              })}/>
+                              {v.nRegistro?`${v.nRegistro} · `:""}{v.variedad}
+                            </label>
+                          );
+                        })
+                    }
+                  </div>
                 </div>
                 <div style={{marginBottom:12}}>
                   <label style={{fontSize:11,fontWeight:600,color:"#475569",display:"block",marginBottom:4}}>País de Inscripción <span style={{color:"#dc2626"}}>*</span></label>
@@ -9086,7 +9141,8 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
                             <div style={{flex:1,minWidth:0}}>
                               <div style={{fontSize:13,fontWeight:700,color:"#1e293b"}}>📜 {p.especie} — 🌍 {p.pais}</div>
                               <div style={{fontSize:10,color:"#64748b",marginTop:2}}>
-                                <span style={{color:stCol,fontWeight:700}}>{p.estado}</span>
+                                {(p.variedades||[p.variedad]).filter(Boolean).length>0&&<span style={{color:"#7c3aed"}}>🌱 {(p.variedades||[p.variedad]).filter(Boolean).join(", ")}</span>}
+                                <span style={{color:stCol,fontWeight:700,marginLeft:6}}>{p.estado}</span>
                                 {p.f_solicitud&&` · Sol. ${p.f_solicitud}`}
                                 {p.f_resolucion&&` · Res. ${p.f_resolucion}`}
                               </div>
@@ -9104,19 +9160,33 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
                     <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:10}}>
                       <div>
                         <label style={{fontSize:11,fontWeight:600,color:"#475569",display:"block",marginBottom:3}}>Especie <span style={{color:"#dc2626"}}>*</span></label>
-                        <select value={obtWizPbrForm.especie||""} onChange={e=>setObtWizPbrForm(p=>({...p,especie:e.target.value,variedad:""}))}
+                        <select value={obtWizPbrForm.especie||""} onChange={e=>setObtWizPbrForm(p=>({...p,especie:e.target.value,variedades:[]}))}
                           style={{width:"100%",padding:"7px 10px",borderRadius:6,border:"1px solid #d1d5db",fontSize:12,boxSizing:"border-box",background:"#fff"}}>
                           <option value="">— Seleccionar —</option>
                           {especiesMaestro.map(e=><option key={e.id} value={e.nombre}>{e.nombre}</option>)}
                         </select>
                       </div>
                       <div>
-                        <label style={{fontSize:11,fontWeight:600,color:"#475569",display:"block",marginBottom:3}}>Denominación</label>
-                        <select value={obtWizPbrForm.variedad||""} onChange={e=>setObtWizPbrForm(p=>({...p,variedad:e.target.value}))}
-                          style={{width:"100%",padding:"7px 10px",borderRadius:6,border:"1px solid #d1d5db",fontSize:12,boxSizing:"border-box",background:"#fff"}}>
-                          <option value="">— Seleccionar —</option>
-                          {variedadesMaestro.filter(v=>!obtWizPbrForm.especie||v.especie===obtWizPbrForm.especie).map(v=><option key={v.id} value={v.variedad}>{v.nRegistro?`${v.nRegistro} · ${v.variedad}`:v.variedad}</option>)}
-                        </select>
+                        <label style={{fontSize:11,fontWeight:600,color:"#475569",display:"block",marginBottom:3}}>Variedades (seleccionar una o más)</label>
+                        <div style={{maxHeight:120,overflowY:"auto",border:"1px solid #d1d5db",borderRadius:6,padding:6,background:"#fff"}}>
+                          {variedadesMaestro.filter(v=>!obtWizPbrForm.especie||v.especie===obtWizPbrForm.especie).length===0
+                            ? <div style={{fontSize:11,color:"#94a3b8",padding:4}}>Sin variedades para esta especie</div>
+                            : variedadesMaestro.filter(v=>!obtWizPbrForm.especie||v.especie===obtWizPbrForm.especie).map(v=>{
+                                const sel = (obtWizPbrForm.variedades||[]).includes(v.variedad);
+                                return (
+                                  <label key={v.id} style={{display:"flex",alignItems:"center",gap:6,padding:"3px 4px",cursor:"pointer",fontSize:11,color:sel?"#1e293b":"#64748b",background:sel?"#ede9fe":"transparent",borderRadius:4,marginBottom:2}}>
+                                    <input type="checkbox" checked={sel} onChange={()=>{
+                                      setObtWizPbrForm(p=>{
+                                        const cur = p.variedades||[];
+                                        return {...p, variedades: sel ? cur.filter(x=>x!==v.variedad) : [...cur, v.variedad]};
+                                      });
+                                    }}/>
+                                    {v.nRegistro?`${v.nRegistro} · `:""}{v.variedad}
+                                  </label>
+                                );
+                              })
+                          }
+                        </div>
                       </div>
                     </div>
                     <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:10}}>
