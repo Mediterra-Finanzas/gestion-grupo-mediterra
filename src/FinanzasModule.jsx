@@ -4114,26 +4114,17 @@ function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit,saldosBanc
     return found ? total : null;
   },[saldosBancos, empNombre]);
 
-  // Mes en MESES_65 desde el cual arranca el saldo banco (fecha más reciente)
+  // Mes en MESES_65 desde el cual arranca el saldo banco = mes ACTUAL (hoy)
+  // El saldo banco (con fecha histórica) se aplica en la semana en curso, no en su fecha
   const mesIdxInicioSaldo = useMemo(()=>{
-    if(!saldosBancos) return 0;
-    let fechaMaxSaldo = null;
-    Object.entries(saldosBancos).forEach(([key, rec])=>{
-      const parts = key.split("||");
-      if(parts[0]!==empNombre) return;
-      if(!rec?.monto || !rec?.fecha) return;
-      const f = new Date(rec.fecha);
-      if(!fechaMaxSaldo || f > fechaMaxSaldo) fechaMaxSaldo = f;
-    });
-    if(!fechaMaxSaldo) return 0;
-    // Buscar el mes correspondiente en MESES_65
-    const anio = fechaMaxSaldo.getFullYear();
-    const mes = fechaMaxSaldo.getMonth(); // 0-11
+    const HOY = new Date();
+    const anio = HOY.getFullYear();
+    const mes = HOY.getMonth();
     const nombresMes = ["Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"];
     const label = `${nombresMes[mes]} ${anio}`;
     const idx = MESES_65.indexOf(label);
     return idx >= 0 ? idx : 0;
-  },[saldosBancos, empNombre]);
+  },[]);
 
   // ── Valor proyectado efectivo (base + override) ────────────────
   // Si override es objeto {_sem0,_sem1,_sem2,_sem3}: suma SOLO las semanas definidas por el usuario
