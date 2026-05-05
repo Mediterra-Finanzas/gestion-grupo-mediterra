@@ -4186,6 +4186,22 @@ function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit,saldosBanc
     return found ? total : null;
   },[saldosBancos, empNombre]);
 
+  // Fecha de la cuenta de saldo banco más reciente (para determinar la semana de arranque)
+  const fechaInicioSaldo = useMemo(()=>{
+    if(!saldosBancos) return null;
+    const HOY = new Date();
+    let maxFecha = null;
+    Object.entries(saldosBancos).forEach(([key, rec])=>{
+      const parts = key.split("||");
+      if(parts[0]!==empNombre) return;
+      if(!rec?.monto || !rec?.fecha) return;
+      const f = new Date(rec.fecha);
+      if(f > HOY) return;
+      if(!maxFecha || f > maxFecha) maxFecha = f;
+    });
+    return maxFecha;
+  },[saldosBancos, empNombre]);
+
   // Mes en MESES_65 desde el cual arranca el saldo banco = mes ACTUAL (hoy)
   // El saldo banco (con fecha histórica) se aplica en la semana en curso, no en su fecha
   const mesIdxInicioSaldo = useMemo(()=>{
@@ -4197,6 +4213,17 @@ function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit,saldosBanc
     const idx = MESES_65.indexOf(label);
     return idx >= 0 ? idx : 0;
   },[]);
+
+  // Semana del mes (0-3) en la que arranca el saldo banco — basado en fechaInicioSaldo o HOY
+  // Regla: día 1-7 = sem 0; 8-14 = sem 1; 15-21 = sem 2; 22+ = sem 3
+  const semIdxInicioSaldo = useMemo(()=>{
+    const ref = fechaInicioSaldo || new Date();
+    const dia = ref.getDate();
+    if(dia <= 7) return 0;
+    if(dia <= 14) return 1;
+    if(dia <= 21) return 2;
+    return 3;
+  },[fechaInicioSaldo]);
 
   // ── Valor proyectado efectivo (base + override) ────────────────
   // Si override es objeto {_sem0,_sem1,_sem2,_sem3}: suma SOLO las semanas definidas por el usuario
@@ -4456,19 +4483,25 @@ function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit,saldosBanc
     return flujoArrSemana.map((sems,i)=>{
       // Antes del mes del saldo banco: no acumular
       if(i < mesIdxInicioSaldo) return [null,null,null,null];
-      // Desde el mes del saldo banco
-      if(i === mesIdxInicioSaldo && !arrancado){
-        a = saldoIni;
-        arrancado = true;
-      }
-      const out = [0,0,0,0];
+      const out = [null,null,null,null];
       for(let s=0; s<4; s++){
-        a += (sems[s]||0);
+        // En el mes de arranque: las semanas anteriores a semIdxInicioSaldo quedan en null (no existe saldo aún)
+        if(i === mesIdxInicioSaldo && s < semIdxInicioSaldo){
+          out[s] = null;
+          continue;
+        }
+        // Primera semana válida: arrancar con saldo inicial + flujo de esa semana
+        if(!arrancado){
+          a = saldoIni + (sems[s]||0);
+          arrancado = true;
+        } else {
+          a += (sems[s]||0);
+        }
         out[s] = a;
       }
       return out;
     });
-  },[flujoArrSemana, saldoBancoUSD, emp, mesIdxInicioSaldo]); // eslint-disable-line
+  },[flujoArrSemana, saldoBancoUSD, emp, mesIdxInicioSaldo, semIdxInicioSaldo]); // eslint-disable-line
 
   // Flujo neto por mes (para totales mensuales en vista semanal)
   const flujoMes = useMemo(()=>{
@@ -5383,6 +5416,16 @@ function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit,saldosBanc
                           const isTot = col.isTotalMes;
                           // Si la celda es de un mes anterior al mes actual, mostrar guion
                           if(col.idx < mesIdxInicioSaldo) {
+                            const isFirst = col.isFirstInSeason || col.isFirstInMonth;
+                            return (
+                              <td key={`opCaja-${col.mes}-${col.label}-${ci}`}
+                                style={{padding:"6px 5px",textAlign:"right",fontSize:isTot?10:9,color:C.muted2,
+                                  background:isTot?`${C.yellow}18`:`${C.teal}05`,
+                                  borderLeft:col.isFirstInSeason?`2px solid ${C.border2}`:isFirst?`1px solid ${C.border}44`:`1px solid ${C.border}11`}}>—</td>
+                            );
+                          }
+                          // Vista semanal: si la semana es anterior a la fecha del saldo, mostrar guion
+                          if(col.type==="week" && col.idx === mesIdxInicioSaldo && col.semIdx < semIdxInicioSaldo){
                             const isFirst = col.isFirstInSeason || col.isFirstInMonth;
                             return (
                               <td key={`opCaja-${col.mes}-${col.label}-${ci}`}
