@@ -4415,6 +4415,8 @@ function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit,saldosBanc
       });
       return f;
     });
+    // acumArr mensual se calcula DESPUÉS de acumArrSemana para garantizar consistencia
+    // (ver useMemo siguiente). Aquí solo creamos un placeholder que se refinará.
     let a = saldoIni;
     const aa = fa.map((f,i)=>{
       // Antes del mes del saldo banco: no acumular (mes pasado, sin valor de saldo)
@@ -4507,6 +4509,18 @@ function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit,saldosBanc
       return out;
     });
   },[flujoArrSemana, saldoBancoUSD, emp, mesIdxInicioSaldo, semIdxInicioSaldo]); // eslint-disable-line
+
+  // Acumulado MENSUAL DERIVADO: para garantizar que Σ mes = último valor semanal del mes
+  // (el flujo de semanas anteriores al saldo banco no se incluye en el saldo final)
+  const acumArrFinal = useMemo(()=>{
+    return acumArrSemana.map((sems,i)=>{
+      // Devuelve el último valor no-null de la semana del mes
+      for(let s=3; s>=0; s--){
+        if(sems[s] != null) return sems[s];
+      }
+      return null;
+    });
+  },[acumArrSemana]);
 
   // Flujo neto por mes (para totales mensuales en vista semanal)
   const flujoMes = useMemo(()=>{
@@ -5177,13 +5191,15 @@ function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit,saldosBanc
                     </td>
                     {colStructure.map(({season:s,collapsed,cols})=>{
                       if(collapsed){
-                        // Sumar valores mensuales + valores semanales (idx_semIdx)
+                        // Si tiene valores semanales usar SOLO semanales; si no, usar mensual
                         const tot=s.indices.reduce((a,i)=>{
-                          let sum = Number(alVals[i])||0;
-                          // Sumar también todas las semanas individuales del mes
-                          Object.entries(alVals).forEach(([k,v])=>{
-                            if(k.startsWith(`${i}_`)) sum += (Number(v)||0);
-                          });
+                          let sum = 0;
+                          let hasSem = false;
+                          for(let ss=0; ss<4; ss++){
+                            const k = `${i}_${ss}`;
+                            if(alVals[k] !== undefined){ sum += Number(alVals[k])||0; hasSem = true; }
+                          }
+                          if(!hasSem && alVals[i] !== undefined) sum = Number(alVals[i])||0;
                           return a+sum;
                         },0);
                         return <td key={s.key} style={{padding:"5px 8px",textAlign:"right",fontSize:9,
@@ -5194,14 +5210,22 @@ function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit,saldosBanc
                         const isTot=col.isTotalMes;
                         // idx único por semana: para semanas usar "monthIdx_semIdx", para mes usar "monthIdx"
                         const cellKey = col.type==="week" ? `${col.idx}_${col.semIdx}` : String(col.idx);
-                        // Para total del mes: sumar valor mensual + todas las semanas individuales
-                        const sumWeeks = col.type==="month_total" 
-                          ? Object.entries(alVals).filter(([k])=>k.startsWith(`${col.idx}_`)).reduce((a,[,v])=>a+(Number(v)||0),0)
-                          : 0;
+                        // Para total del mes: si hay semanales usar SOLO semanales, si no usar mensual
+                        let disp;
+                        if(col.type==="month_total" || col.type==="month" || col.type==="month_collapsed"){
+                          let sum = 0;
+                          let hasSem = false;
+                          for(let ss=0; ss<4; ss++){
+                            const k = `${col.idx}_${ss}`;
+                            if(alVals[k] !== undefined){ sum += Number(alVals[k])||0; hasSem = true; }
+                          }
+                          if(!hasSem && alVals[col.idx] !== undefined) sum = Number(alVals[col.idx])||0;
+                          disp = sum;
+                        } else {
+                          // Vista semanal: solo el valor de esa semana específica
+                          disp = Number(alVals[cellKey])||0;
+                        }
                         const rawVal=Number(alVals[cellKey])||0;
-                        const disp = col.type==="month_total" 
-                          ? (Number(alVals[String(col.idx)])||0) + sumWeeks
-                          : rawVal;
                         const isFirst=col.isFirstInSeason||col.isFirstInMonth;
                         return (
                           <td key={`al-${ali}-${col.mes||""}-${ci}`}
@@ -5458,6 +5482,16 @@ function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit,saldosBanc
                                     + sumSeccionSemana("egr_var", col.idx, col.semIdx, col.isLastInMonth)
                                     + sumSeccionSemana("egr_fijo", col.idx, col.semIdx, col.isLastInMonth);
                           }
+                          // Si NO hay flujo operacional en esta semana/mes, mostrar guion (no aplicable)
+                          if(flujoOp === 0){
+                            const isFirst = col.isFirstInSeason || col.isFirstInMonth;
+                            return (
+                              <td key={`opCaja-${col.mes}-${col.label}-${ci}`}
+                                style={{padding:"6px 5px",textAlign:"right",fontSize:isTot?10:9,color:C.muted2,
+                                  background:isTot?`${C.yellow}18`:`${C.teal}05`,
+                                  borderLeft:col.isFirstInSeason?`2px solid ${C.border2}`:isFirst?`1px solid ${C.border}44`:`1px solid ${C.border}11`}}>—</td>
+                            );
+                          }
                           const saldoOp = saldoCaja + flujoOp;
                           const isFirst = col.isFirstInSeason || col.isFirstInMonth;
                           return (
@@ -5528,7 +5562,7 @@ function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit,saldosBanc
               {colStructure.map(({season:s,collapsed,cols})=>{
                 if(collapsed){
                   const last=s.indices[s.indices.length-1];
-                  const v = acumArr[last];
+                  const v = acumArrFinal[last];
                   return (
                     <td key={s.key} style={{padding:"7px 8px",textAlign:"right",fontWeight:800,
                       fontSize:11,color:v==null?C.muted2:cf(v),borderLeft:`2px solid ${C.border2}`}}>
@@ -5545,8 +5579,8 @@ function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit,saldosBanc
                     // Vista semanal: saldo acumulado al final de esa semana
                     v = (acumArrSemana[col.idx]||[null,null,null,null])[col.semIdx];
                   } else {
-                    // Vista mensual / Σ mes / colapsado: saldo al final del mes
-                    v = acumArr[col.idx];
+                    // Vista mensual / Σ mes / colapsado: usar acumArrFinal (= último valor semanal del mes)
+                    v = acumArrFinal[col.idx];
                   }
                   return (
                     <td key={`acum-${col.mes}-${col.label}-${ci}`}
