@@ -4365,15 +4365,19 @@ function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit,saldosBanc
             f += sv * sec.signo;
           });
         });
-        // Include user-added lines in flujo (sumar valor mensual + semanales i_0, i_1, ...)
+        // Include user-added lines in flujo
+        // Regla: si tiene semanales (i_0, i_1, ..) usar SOLO semanales; si no, usar mensual
+        // (NO sumar ambos para evitar doble conteo)
         (addedLines[sec.cat]||[]).forEach(al=>{
           if(typeof al==="string") return;
           const v = al.vals||{};
-          let av = Number(v[i])||0;
-          // Sumar valores semanales del mismo mes (i_0, i_1, ..)
-          Object.entries(v).forEach(([k,val])=>{
-            if(k.startsWith(`${i}_`)) av += (Number(val)||0);
-          });
+          let av = 0;
+          let hasSem = false;
+          for(let s=0; s<4; s++){
+            const k = `${i}_${s}`;
+            if(v[k] !== undefined){ av += Number(v[k])||0; hasSem = true; }
+          }
+          if(!hasSem && v[i] !== undefined) av = Number(v[i])||0;
           f += av * sec.signo;
         });
       });
@@ -4390,6 +4394,81 @@ function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit,saldosBanc
     });
     return {flujoArr:fa, acumArr:aa};
   },[emp, proyOverrides, saldoBancoUSD, mesIdxInicioSaldo, addedLines, subLines, getProy]); // eslint-disable-line
+
+  // Flujo neto SEMANAL real: arr[i][s] = flujo neto del mes i, semana s
+  // El parámetro mensual cae en la última semana del mes (consistente con getProySemana)
+  const flujoArrSemana = useMemo(()=>{
+    return MESES_65.map((_,i)=>{
+      const sems = [0,0,0,0];
+      const nSems = 4;
+      for(let s=0; s<nSems; s++){
+        const isLastInMonth = s === nSems-1;
+        let f = 0;
+        emp.sections.forEach(sec=>{
+          sec.lines.forEach(l=>{
+            // Valor proyectado de la semana específica
+            const v = getProySemana(l.label, i, s, isLastInMonth);
+            f += v * sec.signo;
+            // SubLines: solo el valor semanal específico (excluir formula y Préstamos)
+            if(l.subLines && !l.formula && !l.label.includes("Préstamos")){
+              (subLines[l.label]||[]).forEach(sl=>{
+                if(typeof sl === "string") return;
+                const vals = sl.vals || {};
+                const kSem = `${i}_${s}`;
+                if(vals[kSem] !== undefined){
+                  f += (Number(vals[kSem])||0) * sec.signo;
+                } else {
+                  // Si no hay semanal pero hay mensual, ponerlo en última semana
+                  const hasAnySem = [0,1,2,3].some(ss=>vals[`${i}_${ss}`]!==undefined);
+                  if(!hasAnySem && vals[i] !== undefined && isLastInMonth){
+                    f += (Number(vals[i])||0) * sec.signo;
+                  }
+                }
+              });
+            }
+          });
+          // addedLines: valor semanal específico, o mensual en última semana
+          (addedLines[sec.cat]||[]).forEach(al=>{
+            if(typeof al==="string") return;
+            const vals = al.vals||{};
+            const kSem = `${i}_${s}`;
+            if(vals[kSem] !== undefined){
+              f += (Number(vals[kSem])||0) * sec.signo;
+            } else {
+              const hasAnySem = [0,1,2,3].some(ss=>vals[`${i}_${ss}`]!==undefined);
+              if(!hasAnySem && vals[i] !== undefined && isLastInMonth){
+                f += (Number(vals[i])||0) * sec.signo;
+              }
+            }
+          });
+        });
+        sems[s] = f;
+      }
+      return sems;
+    });
+  },[emp, proyOverrides, addedLines, subLines, getProySemana]); // eslint-disable-line
+
+  // Acumulado SEMANAL: aa[i][s] = saldo acumulado al final de la semana s del mes i
+  const acumArrSemana = useMemo(()=>{
+    const saldoIni = saldoBancoUSD != null ? saldoBancoUSD : emp.saldo_ini;
+    let a = saldoIni;
+    let arrancado = false;
+    return flujoArrSemana.map((sems,i)=>{
+      // Antes del mes del saldo banco: no acumular
+      if(i < mesIdxInicioSaldo) return [null,null,null,null];
+      // Desde el mes del saldo banco
+      if(i === mesIdxInicioSaldo && !arrancado){
+        a = saldoIni;
+        arrancado = true;
+      }
+      const out = [0,0,0,0];
+      for(let s=0; s<4; s++){
+        a += (sems[s]||0);
+        out[s] = a;
+      }
+      return out;
+    });
+  },[flujoArrSemana, saldoBancoUSD, emp, mesIdxInicioSaldo]); // eslint-disable-line
 
   // Flujo neto por mes (para totales mensuales en vista semanal)
   const flujoMes = useMemo(()=>{
@@ -4604,10 +4683,14 @@ function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit,saldosBanc
                         },0) + (addedLines[sec.cat]||[]).reduce((b,al)=>{
                           if(typeof al==="string") return b;
                           const vals = al.vals||{};
-                          let av = Number(vals[i])||0;
-                          Object.entries(vals).forEach(([k,val])=>{
-                            if(k.startsWith(`${i}_`)) av += Number(val)||0;
-                          });
+                          // Si tiene valores semanales, usar SOLO semanales; si no, usar mensual
+                          let av = 0;
+                          let hasSem = false;
+                          for(let s=0; s<4; s++){
+                            const k = `${i}_${s}`;
+                            if(vals[k] !== undefined){ av += Number(vals[k])||0; hasSem = true; }
+                          }
+                          if(!hasSem && vals[i] !== undefined) av = Number(vals[i])||0;
                           return b + av;
                         },0);
                       },0);
@@ -4631,10 +4714,14 @@ function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit,saldosBanc
                           if(typeof al==="string") return a;
                           const vals = al.vals||{};
                           // Sumar valor mensual + todos los semanales del mes (consistente con flujoArr)
-                          let av = Number(vals[col.idx])||0;
-                          Object.entries(vals).forEach(([k,val])=>{
-                            if(k.startsWith(`${col.idx}_`)) av += Number(val)||0;
-                          });
+                          // Si tiene valores semanales, usar SOLO semanales; si no, usar mensual
+                          let av = 0;
+                          let hasSem = false;
+                          for(let s=0; s<4; s++){
+                            const k = `${col.idx}_${s}`;
+                            if(vals[k] !== undefined){ av += Number(vals[k])||0; hasSem = true; }
+                          }
+                          if(!hasSem && vals[col.idx] !== undefined) av = Number(vals[col.idx])||0;
                           return a + av;
                         },0);
                       } else if(col.type==="week"){
@@ -5121,10 +5208,14 @@ function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit,saldosBanc
                         const addSum = (addedLines[sec.cat]||[]).reduce((b,al)=>{
                           if(typeof al==="string") return b;
                           const vals = al.vals||{};
-                          let av = Number(vals[i])||0;
-                          Object.entries(vals).forEach(([k,val])=>{
-                            if(k.startsWith(`${i}_`)) av += Number(val)||0;
-                          });
+                          // Si tiene valores semanales, usar SOLO semanales; si no, usar mensual
+                          let av = 0;
+                          let hasSem = false;
+                          for(let s=0; s<4; s++){
+                            const k = `${i}_${s}`;
+                            if(vals[k] !== undefined){ av += Number(vals[k])||0; hasSem = true; }
+                          }
+                          if(!hasSem && vals[i] !== undefined) av = Number(vals[i])||0;
                           return b + av;
                         },0);
                         return a + linTot + addSum;
@@ -5153,10 +5244,14 @@ function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit,saldosBanc
                         addedTotal = (addedLines[sec.cat]||[]).reduce((a,al)=>{
                           if(typeof al==="string") return a;
                           const vals = al.vals||{};
-                          let av = Number(vals[col.idx])||0;
-                          Object.entries(vals).forEach(([k,val])=>{
-                            if(k.startsWith(`${col.idx}_`)) av += Number(val)||0;
-                          });
+                          // Si tiene valores semanales, usar SOLO semanales; si no, usar mensual
+                          let av = 0;
+                          let hasSem = false;
+                          for(let s=0; s<4; s++){
+                            const k = `${col.idx}_${s}`;
+                            if(vals[k] !== undefined){ av += Number(vals[k])||0; hasSem = true; }
+                          }
+                          if(!hasSem && vals[col.idx] !== undefined) av = Number(vals[col.idx])||0;
                           return a + av;
                         },0);
                       } else if(col.type==="week") {
@@ -5208,13 +5303,23 @@ function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit,saldosBanc
                     s.lines.forEach(l=>{
                       if(l.label.startsWith("  ")) return;
                       total += getProy(l.label, idx);
-                      if(l.subLines && !l.label.includes("Préstamos")) {
+                      // Excluir formula:true para evitar doble conteo
+                      if(l.subLines && !l.formula && !l.label.includes("Préstamos")) {
                         total += sumSubLinesMes(l.label, idx);
                       }
                     });
                     (addedLines[s.cat]||[]).forEach(al=>{
-                      const v = Number(typeof al==="string" ? 0 : (al.vals||{})[idx]) || 0;
-                      total += v;
+                      if(typeof al==="string") return;
+                      const vals = al.vals||{};
+                      // Si tiene semanales usar SOLO semanales; si no, usar mensual
+                      let av = 0;
+                      let hasSem = false;
+                      for(let ss=0; ss<4; ss++){
+                        const k = `${idx}_${ss}`;
+                        if(vals[k] !== undefined){ av += Number(vals[k])||0; hasSem = true; }
+                      }
+                      if(!hasSem && vals[idx] !== undefined) av = Number(vals[idx])||0;
+                      total += av;
                     });
                     return total * s.signo;
                   };
@@ -5225,17 +5330,24 @@ function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit,saldosBanc
                     s.lines.forEach(l=>{
                       if(l.label.startsWith("  ")) return;
                       total += getProySemana(l.label, idx, semIdx, isLastInMonth);
-                      if(l.subLines && !l.label.includes("Préstamos")) {
+                      if(l.subLines && !l.formula && !l.label.includes("Préstamos")) {
                         total += sumSubLinesSemana(l.label, idx, semIdx, isLastInMonth);
                       }
                     });
-                    // addedLines son mensuales: mostrar solo en primera semana
-                    if(semIdx === 0) {
-                      (addedLines[s.cat]||[]).forEach(al=>{
-                        const v = Number(typeof al==="string" ? 0 : (al.vals||{})[idx]) || 0;
-                        total += v;
-                      });
-                    }
+                    // addedLines: valor semanal específico, o mensual en última semana
+                    (addedLines[s.cat]||[]).forEach(al=>{
+                      if(typeof al==="string") return;
+                      const vals = al.vals||{};
+                      const kSem = `${idx}_${semIdx}`;
+                      if(vals[kSem] !== undefined){
+                        total += Number(vals[kSem])||0;
+                      } else {
+                        const hasAnySem = [0,1,2,3].some(ss=>vals[`${idx}_${ss}`]!==undefined);
+                        if(!hasAnySem && vals[idx] !== undefined && isLastInMonth){
+                          total += Number(vals[idx])||0;
+                        }
+                      }
+                    });
                     return total * s.signo;
                   };
                   // Cálculo para un período: Saldo Caja + Ingresos Op + Egresos Op (var + fijo)
@@ -5326,8 +5438,14 @@ function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit,saldosBanc
                 }
                 return cols.map((col,ci)=>{
                   const isTot=col.isTotalMes;
-                  const nSems=col.type==="month_collapsed"||isTot?1:col.nSems;
-                  const val=flujoArr[col.idx]/nSems;
+                  let val;
+                  if(col.type === "week"){
+                    // Vista semanal: usar el flujo neto de la semana específica
+                    val = (flujoArrSemana[col.idx]||[0,0,0,0])[col.semIdx]||0;
+                  } else {
+                    // Vista mensual / Σ mes / mes colapsado: valor mensual completo
+                    val = flujoArr[col.idx]||0;
+                  }
                   const isFirst=col.isFirstInSeason||col.isFirstInMonth;
                   return (
                     <td key={`flujo-${col.mes}-${col.label}-${ci}`}
@@ -5335,7 +5453,7 @@ function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit,saldosBanc
                         fontSize:isTot?10:9,color:cf(val),
                         background:isTot?`${C.yellow}18`:"transparent",
                         borderLeft:col.isFirstInSeason?`2px solid ${C.border2}`:isFirst?`1px solid ${C.border}44`:`1px solid ${C.border}11`}}>
-                      {$$(val)}
+                      {val===0?"—":$$(val)}
                     </td>
                   );
                 });
@@ -5363,7 +5481,14 @@ function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit,saldosBanc
                 return cols.map((col,ci)=>{
                   const isTot=col.isTotalMes;
                   const isFirst=col.isFirstInSeason||col.isFirstInMonth;
-                  const v = acumArr[col.idx];
+                  let v;
+                  if(col.type === "week"){
+                    // Vista semanal: saldo acumulado al final de esa semana
+                    v = (acumArrSemana[col.idx]||[null,null,null,null])[col.semIdx];
+                  } else {
+                    // Vista mensual / Σ mes / colapsado: saldo al final del mes
+                    v = acumArr[col.idx];
+                  }
                   return (
                     <td key={`acum-${col.mes}-${col.label}-${ci}`}
                       style={{padding:"6px 5px",textAlign:"right",fontWeight:isTot?900:700,
