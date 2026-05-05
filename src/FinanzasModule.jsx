@@ -5132,6 +5132,13 @@ function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit,saldosBanc
                       </td>
                       {colStructure.map(({season:s,collapsed,cols})=>{
                         if(collapsed){
+                          // Si toda la temporada está antes del mes actual, no mostrar
+                          const lastIdx = s.indices[s.indices.length-1];
+                          if(lastIdx < mesIdxInicioSaldo) {
+                            return (
+                              <td key={s.key} style={{padding:"6px 8px",textAlign:"right",fontSize:10,color:C.muted2,borderLeft:`2px solid ${C.border2}`,background:`${C.teal}11`}}>—</td>
+                            );
+                          }
                           const acumFlujoOp = s.indices.reduce((a,i)=>
                             a + sumSeccionMes("ing_op", i) + sumSeccionMes("egr_var", i) + sumSeccionMes("egr_fijo", i), 0);
                           const saldoOp = saldoCaja + acumFlujoOp;
@@ -5145,6 +5152,16 @@ function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit,saldosBanc
                         }
                         return cols.map((col,ci)=>{
                           const isTot = col.isTotalMes;
+                          // Si la celda es de un mes anterior al mes actual, mostrar guion
+                          if(col.idx < mesIdxInicioSaldo) {
+                            const isFirst = col.isFirstInSeason || col.isFirstInMonth;
+                            return (
+                              <td key={`opCaja-${col.mes}-${col.label}-${ci}`}
+                                style={{padding:"6px 5px",textAlign:"right",fontSize:isTot?10:9,color:C.muted2,
+                                  background:isTot?`${C.yellow}18`:`${C.teal}05`,
+                                  borderLeft:col.isFirstInSeason?`2px solid ${C.border2}`:isFirst?`1px solid ${C.border}44`:`1px solid ${C.border}11`}}>—</td>
+                            );
+                          }
                           let flujoOp = 0;
                           if(isTot || col.type==="month" || col.type==="month_collapsed") {
                             flujoOp = sumSeccionMes("ing_op", col.idx) + sumSeccionMes("egr_var", col.idx) + sumSeccionMes("egr_fijo", col.idx);
@@ -5153,8 +5170,6 @@ function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit,saldosBanc
                                     + sumSeccionSemana("egr_var", col.idx, col.semIdx, col.isLastInMonth)
                                     + sumSeccionSemana("egr_fijo", col.idx, col.semIdx, col.isLastInMonth);
                           }
-                          // Saldo operacional = saldo inicial + flujo operacional acumulado hasta ese punto
-                          // Mostramos el valor del período (no acumulado) para que sea consistente con la estructura
                           const saldoOp = saldoCaja + flujoOp;
                           const isFirst = col.isFirstInSeason || col.isFirstInMonth;
                           return (
