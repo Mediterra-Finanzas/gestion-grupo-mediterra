@@ -4214,15 +4214,20 @@ function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit,saldosBanc
     return idx >= 0 ? idx : 0;
   },[]);
 
-  // Semana del mes (0-3) en la que arranca el saldo banco — basado en fechaInicioSaldo o HOY
-  // Regla: día 1-7 = sem 0; 8-14 = sem 1; 15-21 = sem 2; 22+ = sem 3
+  // Semana del mes (0-3) en la que arranca el saldo banco
+  // Calcula la semana ISO de la fecha y la busca en SEMANAS_MES del mes correspondiente
   const semIdxInicioSaldo = useMemo(()=>{
     const ref = fechaInicioSaldo || new Date();
-    const dia = ref.getDate();
-    if(dia <= 7) return 0;
-    if(dia <= 14) return 1;
-    if(dia <= 21) return 2;
-    return 3;
+    // Calcular semana ISO de la fecha de referencia (mismo método que semanaHoy)
+    const jan1 = new Date(ref.getFullYear(),0,4);
+    const isoWeek = 1+Math.round(((ref-jan1)/86400000-3+((jan1.getDay()+6)%7))/7);
+    const semLabel = `S${String(isoWeek).padStart(2,"0")}`;
+    // Mes label de la fecha
+    const mn=["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+    const mesLabel = `${mn[ref.getMonth()]}-${String(ref.getFullYear()).slice(2)}`;
+    const sems = SEMANAS_MES[mesLabel] || [];
+    const idx = sems.indexOf(semLabel);
+    return idx >= 0 ? idx : 0;
   },[fechaInicioSaldo]);
 
   // ── Valor proyectado efectivo (base + override) ────────────────
@@ -4765,6 +4770,17 @@ function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit,saldosBanc
                           const subSem = l.subLines && !l.formula && !l.label.includes("Préstamos")
                             ? sumSubLinesSemana(l.label, col.idx, col.semIdx, col.isLastInMonth) : 0;
                           return a + propSem + subSem;
+                        },0) + (addedLines[sec.cat]||[]).reduce((a,al)=>{
+                          if(typeof al==="string") return a;
+                          const vals = al.vals||{};
+                          // Valor semanal específico, o mensual en última semana del mes
+                          const kSem = `${col.idx}_${col.semIdx}`;
+                          if(vals[kSem] !== undefined) return a + (Number(vals[kSem])||0);
+                          const hasAnySem = [0,1,2,3].some(ss=>vals[`${col.idx}_${ss}`]!==undefined);
+                          if(!hasAnySem && vals[col.idx] !== undefined && col.isLastInMonth){
+                            return a + (Number(vals[col.idx])||0);
+                          }
+                          return a;
                         },0);
                       }
                       return (
