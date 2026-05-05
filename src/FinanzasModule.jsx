@@ -3116,7 +3116,9 @@ function Consolidado({empresas,saldosBancos,realData={},addedLinesGlobal={},subL
       Object.entries(empSubLines).forEach(([lineLabel, slList])=>{
         if(!Array.isArray(slList)) return;
         for(const sec of emp.sections) {
-          const parentLine = sec.lines.find(l=>l.label===lineLabel && l.subLines);
+          // Excluir líneas fórmula (Pago Préstamos, Renovaciones, Ingreso Renovación):
+          // su proy[i] ya viene calculado, sumar subLines causaría doble conteo
+          const parentLine = sec.lines.find(l=>l.label===lineLabel && l.subLines && !l.formula && !l.label.includes("Préstamos"));
           if(parentLine) {
             // Para cada mes (0-64), sumar subLines igual que sumSubLinesMes
             for(let idx=0; idx<65; idx++) {
@@ -4346,8 +4348,10 @@ function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit,saldosBanc
           // Usar getProy que maneja tanto overrides mensuales como objeto por semanas
           const v = getProy(l.label, i);
           f += v * sec.signo;
-          // Include subLines (CxC/Préstamos sub-items) in flujo
-          if(l.subLines)(subLines[l.label]||[]).forEach(sl=>{
+          // Include subLines (CxC/Capital Calls/Aportes) in flujo
+          // EXCLUIR Préstamos y Renovaciones porque su proy[i] ya viene calculado de la fórmula
+          // (sumar subLines además del valor de la fórmula causa doble conteo)
+          if(l.subLines && !l.formula && !l.label.includes("Préstamos"))(subLines[l.label]||[]).forEach(sl=>{
             if(typeof sl === "string") return;
             const vals = sl.vals || {};
             // Sumar formato nuevo (idx_semIdx) + formato antiguo (idx como número)
@@ -4611,14 +4615,17 @@ function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit,saldosBanc
                       if(col.type==="month"||col.type==="month_collapsed"||col.isTotalMes){
                         v = sec.lines.reduce((a,l)=>{
                           if(l.label.startsWith("  ")) return a;
-                          const subSum = l.subLines && !l.label.includes("Préstamos") ? sumSubLinesMes(l.label, col.idx) : 0;
+                          // Excluir subLines de líneas fórmula (Pago Préstamos, Renovaciones, Ingreso Renovación)
+                          // porque su proy[i] ya viene calculado y sumar subLines causa doble conteo
+                          const subSum = l.subLines && !l.formula && !l.label.includes("Préstamos") ? sumSubLinesMes(l.label, col.idx) : 0;
                           return a + getProy(l.label,col.idx) + subSum;
                         },0) + (addedLines[sec.cat]||[]).reduce((a,al)=>a+(Number(typeof al==="string"?0:(al.vals||{})[col.idx])||0),0);
                       } else if(col.type==="week"){
                         v = sec.lines.reduce((a,l)=>{
                           if(l.label.startsWith("  ")) return a;
                           const propSem = getProySemana(l.label, col.idx, col.semIdx, col.isLastInMonth);
-                          const subSem = l.subLines && !l.label.includes("Préstamos")
+                          // Excluir subLines de líneas fórmula (mismo motivo que vista mensual)
+                          const subSem = l.subLines && !l.formula && !l.label.includes("Préstamos")
                             ? sumSubLinesSemana(l.label, col.idx, col.semIdx, col.isLastInMonth) : 0;
                           return a + propSem + subSem;
                         },0);
@@ -5519,7 +5526,8 @@ function Dashboard({empresas, saldosBancos, realData={}, addedLinesGlobal={}, su
       Object.entries(empSubLines).forEach(([lineLabel, slList])=>{
         if(!Array.isArray(slList)) return;
         for(const sec of emp.sections) {
-          const parentLine = sec.lines.find(l=>l.label===lineLabel && l.subLines);
+          // Excluir líneas fórmula (mismo motivo que en Consolidado)
+          const parentLine = sec.lines.find(l=>l.label===lineLabel && l.subLines && !l.formula && !l.label.includes("Préstamos"));
           if(parentLine) {
             for(let idx=0; idx<65; idx++) {
               let mesTotal = 0;
