@@ -3212,7 +3212,13 @@ function Consolidado({empresas,saldosBancos,realData={},addedLinesGlobal={},subL
 
   function colVal(arr,col){
     const sum=col.indices.reduce((a,i)=>a+(arr[i]||0),0);
-    return agrup==="semana"&&!col.collapsed?sum/(col.nSems||1):sum;
+    // Vista semanal del Consolidado: el flujo mensual va completo a la última semana
+    // (no se puede desglosar a semanas individuales porque arr ya viene agregado por mes)
+    if(agrup==="semana"&&!col.collapsed){
+      const isLastWeek = col.semIdx === ((col.nSems||1)-1);
+      return isLastWeek ? sum : 0;
+    }
+    return sum;
   }
 
   function saldoBancoParaCol(empNombre,col){
@@ -4231,11 +4237,12 @@ function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit,saldosBanc
       if(l){ base = l.proy[idx]||0; break; }
     }
     if(ov === undefined) {
-      // Sin override: mostrar el valor base COMPLETO en la primera semana
-      return semIdx === 0 ? base : 0;
+      // Sin override: parámetro mensual va a la ÚLTIMA semana del mes
+      // (asume cobro/pago a fin de mes; las demás semanas quedan en 0)
+      return isLastInMonth ? base : 0;
     }
     if(typeof ov === "number") {
-      // Override mensual antiguo: mostrar solo en última semana
+      // Override mensual: mostrar solo en la última semana
       return isLastInMonth ? ov : 0;
     }
     if(typeof ov === "object" && ov !== null) {
