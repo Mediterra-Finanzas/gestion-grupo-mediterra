@@ -3057,6 +3057,7 @@ function Consolidado({empresas,saldosBancos,realData={},addedLinesGlobal={},subL
   const empNames=Object.keys(empresas);
   const empNamesConsolidado = empNames.filter(n => n !== "Allpa Farms Perú");
   const [vistaConsolidado,setVistaConsolidado]=useState("sumada");
+  const [desgloseEmpresas,setDesgloseEmpresas]=useState(false);
   const [agrup,setAgrup]=useState("mes");
   const [openSeason,setOpenSeason]=useState(()=>{const o={};SEASON_KEYS.forEach((k,i)=>{o[k]=i<2;});return o;});
 
@@ -3345,6 +3346,17 @@ function Consolidado({empresas,saldosBancos,realData={},addedLinesGlobal={},subL
             </div>
           )}
           </>)}
+          {vistaConsolidado==="sumada"&&(
+            <div>
+              <div style={{fontSize:10,color:C.muted,fontWeight:700,textTransform:"uppercase",letterSpacing:1,marginBottom:8}}>Desglose</div>
+              <button onClick={()=>setDesgloseEmpresas(p=>!p)}
+                style={{padding:"7px 14px",border:`1px solid ${desgloseEmpresas?C.accent:C.border}`,borderRadius:8,cursor:"pointer",
+                  background:desgloseEmpresas?`${C.accent}1a`:"transparent",
+                  color:desgloseEmpresas?C.accent:C.muted,fontWeight:desgloseEmpresas?700:500,fontSize:12,transition:"all 0.15s",whiteSpace:"nowrap"}}>
+                {desgloseEmpresas?"▼ Por empresa":"▶ Por empresa"}
+              </button>
+            </div>
+          )}
         </div>
       </Card>
 
@@ -3354,8 +3366,57 @@ function Consolidado({empresas,saldosBancos,realData={},addedLinesGlobal={},subL
           <table id="flujo-table-consolidado" style={{borderCollapse:"collapse",fontSize:11,minWidth:600}}>
             <THead/>
             <tbody>
+              {/* Saldo Banco USD - total + desglose */}
               <FilaSaldoBanco nombre="_consolidado"/>
-              <FilasFlujoYAcum flujoArr={flujoConsolidado} acumArr={acumConsolidado} color={C.accentL} isTotal/>
+              {desgloseEmpresas&&empNamesConsolidado.map(n=>(
+                <tr key={`sb-${n}`} style={{background:`${C.blue}08`}}>
+                  <td style={{padding:"5px 14px 5px 32px",position:"sticky",left:0,zIndex:1,background:C.card,borderRight:`1px solid ${C.border}`,fontSize:10,color:C.muted,fontWeight:500}}>
+                    {n}
+                  </td>
+                  {cols.map(col=>{
+                    const v=saldoBancoParaCol(n,col)||0;
+                    return(<td key={col.key} style={{padding:"4px 5px",textAlign:"right",fontSize:9,color:C.muted2,fontWeight:500,borderLeft:col.isFirstInSeason?`2px solid ${C.border2}`:`1px solid ${C.border}11`}}>{$$(v)}</td>);
+                  })}
+                </tr>
+              ))}
+              {/* Flujo Neto - total + desglose */}
+              <tr style={{background:`${C.accentL}1a`,borderTop:`2px solid ${C.border2}`}}>
+                <td style={{padding:"8px 14px",fontWeight:800,color:C.accentL,fontSize:12,position:"sticky",left:0,background:C.card,zIndex:1,borderRight:`1px solid ${C.border}`}}>
+                  Σ FLUJO NETO CONSOLIDADO
+                </td>
+                {cols.map(col=>{const v=colVal(flujoConsolidado,col);return(<td key={col.key} style={{padding:"7px 5px",textAlign:"right",fontWeight:900,fontSize:10,color:cf(v),background:`${cf(v)===C.green?C.green:C.red}0a`,borderLeft:col.isFirstInSeason?`2px solid ${C.border2}`:`1px solid ${C.border}22`}}>{$$(v)}</td>);})}
+              </tr>
+              {desgloseEmpresas&&empNamesConsolidado.map(n=>(
+                <tr key={`fn-${n}`} style={{background:`${C.accentL}05`}}>
+                  <td style={{padding:"5px 14px 5px 32px",position:"sticky",left:0,zIndex:1,background:C.card,borderRight:`1px solid ${C.border}`,fontSize:10,color:C.muted,fontWeight:500}}>
+                    {n}
+                  </td>
+                  {cols.map(col=>{
+                    const v=colVal(flujoPorEmp[n]||Z65(),col);
+                    return(<td key={col.key} style={{padding:"4px 5px",textAlign:"right",fontSize:9,color:v===0?C.muted2:cf(v),fontWeight:500,borderLeft:col.isFirstInSeason?`2px solid ${C.border2}`:`1px solid ${C.border}11`}}>{$$(v)}</td>);
+                  })}
+                </tr>
+              ))}
+              {/* Saldo Acumulado - total + desglose */}
+              <tr style={{background:`${C.blue}0a`}}>
+                <td style={{padding:"8px 14px",fontWeight:800,color:C.blue,fontSize:12,position:"sticky",left:0,background:C.card,zIndex:1,borderRight:`1px solid ${C.border}`}}>
+                  Σ SALDO ACUMULADO CONSOLIDADO
+                </td>
+                {cols.map(col=>{const lastIdx=col.indices[col.indices.length-1];const v=acumConsolidado[lastIdx];const esNull=v==null;return(<td key={col.key} style={{padding:"7px 5px",textAlign:"right",fontWeight:900,fontSize:10,color:esNull?C.muted2:cf(v||0),borderLeft:col.isFirstInSeason?`2px solid ${C.border2}`:`1px solid ${C.border}22`}}>{esNull?"—":$$(v||0)}</td>);})}
+              </tr>
+              {desgloseEmpresas&&empNamesConsolidado.map(n=>(
+                <tr key={`ac-${n}`} style={{background:`${C.blue}05`}}>
+                  <td style={{padding:"5px 14px 5px 32px",position:"sticky",left:0,zIndex:1,background:C.card,borderRight:`1px solid ${C.border}`,fontSize:10,color:C.muted,fontWeight:500}}>
+                    {n}
+                  </td>
+                  {cols.map(col=>{
+                    const lastIdx=col.indices[col.indices.length-1];
+                    const v=(acumPorEmp[n]||[])[lastIdx];
+                    const esNull=v==null;
+                    return(<td key={col.key} style={{padding:"4px 5px",textAlign:"right",fontSize:9,color:esNull?C.muted2:(v===0?C.muted2:cf(v||0)),fontWeight:500,borderLeft:col.isFirstInSeason?`2px solid ${C.border2}`:`1px solid ${C.border}11`}}>{esNull?"—":$$(v||0)}</td>);
+                  })}
+                </tr>
+              ))}
             </tbody>
           </table>
         </div>
