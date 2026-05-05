@@ -3029,13 +3029,16 @@ function getSaldoBancoParaSemana(saldosBancos, empNombre, mesIdx, semIdx=0) {
 
 function getSaldoBancoInicial(saldosBancos, empNombre, fallback) {
   if(!saldosBancos) return fallback;
+  const HOY = new Date();
   const porCuenta={};
   Object.entries(saldosBancos).forEach(([key,rec])=>{
     const parts=key.split("||");
     if(parts[0]!==empNombre) return;
     if(!rec?.monto||!rec?.fecha) return;
+    const f = new Date(rec.fecha);
+    if(f > HOY) return; // ignorar registros con fecha futura
     const cuentaKey=`${parts[1]}||${parts[2]||rec.moneda||"usd"}`;
-    if(!porCuenta[cuentaKey]||new Date(porCuenta[cuentaKey].fecha)<new Date(rec.fecha)) porCuenta[cuentaKey]=rec;
+    if(!porCuenta[cuentaKey]||new Date(porCuenta[cuentaKey].fecha)<f) porCuenta[cuentaKey]=rec;
   });
   let total=0,found=false;
   Object.values(porCuenta).forEach(rec=>{
@@ -5460,19 +5463,108 @@ function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit,saldosBanc
 // ═══════════════════════════════════════════════════════════════════
 // DASHBOARD
 // ═══════════════════════════════════════════════════════════════════
-function Dashboard({empresas, saldosBancos}) {
+function Dashboard({empresas, saldosBancos, realData={}, addedLinesGlobal={}, subLinesGlobal={}}) {
+  // Construir empresas con overrides aplicados (igual que Consolidado)
+  const empresasConOverrides = useMemo(()=>{
+    const result = {};
+    Object.keys(empresas).forEach(n=>{
+      const emp = JSON.parse(JSON.stringify(empresas[n]));
+      const overrides = realData?.[n]?._proyOverrides || {};
+      emp.sections = emp.sections.map(sec=>({
+        ...sec,
+        lines: sec.lines.map(l=>{
+          if(overrides[l.label]) {
+            const newProy = [...l.proy];
+            Object.entries(overrides[l.label]).forEach(([idx, val])=>{
+              const i = Number(idx);
+              if(!isNaN(i) && i>=0 && i<newProy.length) {
+                if(typeof val === "object" && val !== null) {
+                  const semTotal = Object.values(val).reduce((s,v)=>s+(Number(v)||0),0);
+                  newProy[i] = semTotal;
+                } else {
+                  newProy[i] = Number(val)||0;
+                }
+              }
+            });
+            return {...l, proy:newProy};
+          }
+          return l;
+        })
+      }));
+      // addedLines
+      const added = addedLinesGlobal[n] || {};
+      Object.entries(added).forEach(([cat, lines])=>{
+        const sec = emp.sections.find(s=>s.cat===cat);
+        if(sec && Array.isArray(lines)) {
+          lines.forEach(al=>{
+            if(al && al.label) {
+              const vals = Array(63).fill(0);
+              if(al.vals) Object.entries(al.vals).forEach(([i,v])=>{
+                const idx=Number(i); if(!isNaN(idx)&&idx>=0&&idx<65) vals[idx]=Number(v)||0;
+              });
+              sec.lines.push({label:al.label, proy:vals});
+            }
+          });
+        }
+      });
+      // subLines
+      const empSubLines = subLinesGlobal[n] || {};
+      Object.entries(empSubLines).forEach(([lineLabel, slList])=>{
+        if(!Array.isArray(slList)) return;
+        for(const sec of emp.sections) {
+          const parentLine = sec.lines.find(l=>l.label===lineLabel && l.subLines);
+          if(parentLine) {
+            for(let idx=0; idx<65; idx++) {
+              let mesTotal = 0;
+              slList.forEach(sl=>{
+                if(!sl || typeof sl === "string") return;
+                const vals = sl.vals || {};
+                let hasSem = false;
+                for(let s=0; s<4; s++){
+                  const k = `${idx}_${s}`;
+                  if(vals[k] !== undefined){ mesTotal += Number(vals[k])||0; hasSem = true; }
+                }
+                if(!hasSem && vals[idx] !== undefined) mesTotal += Number(vals[idx])||0;
+                if(!hasSem && vals[String(idx)] !== undefined && vals[idx] === undefined) mesTotal += Number(vals[String(idx)])||0;
+              });
+              if(mesTotal) parentLine.proy[idx] = (parentLine.proy[idx]||0) + mesTotal;
+            }
+            break;
+          }
+        }
+      });
+      // Sanitizar
+      emp.sections.forEach(sec=>{
+        sec.lines.forEach(l=>{
+          l.proy = l.proy.map(v=>{const n=Number(v); return isNaN(n)?0:n;});
+        });
+      });
+      result[n] = emp;
+    });
+    return result;
+  },[empresas, realData, addedLinesGlobal, subLinesGlobal]); // eslint-disable-line
+
+  // Excluir Allpa Perú del consolidado (igual que en Flujo Empresas Consolidado)
+  const empresasConsolidado = useMemo(()=>{
+    const r = {};
+    Object.entries(empresasConOverrides).forEach(([n,e])=>{
+      if(n !== "Allpa Farms Perú") r[n] = e;
+    });
+    return r;
+  },[empresasConOverrides]);
+
   const gmAcum=useMemo(()=>{
-    let acc=Object.values(empresas).reduce((s,e)=>s+(e.saldo_ini||0),0);
+    let acc=Object.entries(empresasConsolidado).reduce((s,[n,e])=>s+(getSaldoBancoInicial(saldosBancos,n,e.saldo_ini)||0),0);
     return MESES_65.map((_,i)=>{
       let f=0;
-      Object.values(empresas).forEach(e=>e.sections.forEach(sec=>sec.lines.forEach(l=>{
+      Object.values(empresasConsolidado).forEach(e=>e.sections.forEach(sec=>sec.lines.forEach(l=>{
         const num=Number(l.proy[i]);
         f+=(isNaN(num)?0:num)*sec.signo;
       })));
       acc+=f;
       return acc;
     });
-  },[empresas]);
+  },[empresasConsolidado, saldosBancos]);
   const EMPRESAS_CHILE = ["Mediterra","Allegria Foods","Allegria Service","Frisku Foods","Allpa Farms","Osiris","Integrity Farms"];
   const EMPRESAS_PERU  = ["Allpa Farms Perú"];
   const HOY_DASH = new Date();
@@ -5499,7 +5591,7 @@ function Dashboard({empresas, saldosBancos}) {
   }
   const saldoCajaChile = saldoDeEmpresas(EMPRESAS_CHILE);
   const saldoCajaPerU  = saldoDeEmpresas(EMPRESAS_PERU);
-  const empTotals=Object.entries(empresas).map(([n,e])=>({n,totalIng:e.sections.filter(s=>s.signo>0).flatMap(s=>s.lines).reduce((a,l)=>a+l.proy.reduce((b,v)=>b+v,0),0)})).filter(e=>e.totalIng>0).sort((a,b)=>b.totalIng-a.totalIng);
+  const empTotals=Object.entries(empresasConOverrides).map(([n,e])=>({n,totalIng:e.sections.filter(s=>s.signo>0).flatMap(s=>s.lines).reduce((a,l)=>a+l.proy.reduce((b,v)=>b+v,0),0)})).filter(e=>e.totalIng>0).sort((a,b)=>b.totalIng-a.totalIng);
   const maxIng=empTotals[0]?.totalIng||1;
   return (
     <div style={{display:"flex",flexDirection:"column",gap:14}}>
@@ -7489,7 +7581,7 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
       </div>
 
       {/* ── Contenido por pestaña ──────────────────────────── */}
-      {tab==="dashboard"&&puedoVer("dashboard")&&<Dashboard empresas={empresas} saldosBancos={saldosBancos}/>}
+      {tab==="dashboard"&&puedoVer("dashboard")&&<Dashboard empresas={empresas} saldosBancos={saldosBancos} realData={realData} addedLinesGlobal={addedLinesGlobal} subLinesGlobal={subLines}/>}
 
       {tab==="flujo"&&puedoVer("flujo")&&(
         <div>
