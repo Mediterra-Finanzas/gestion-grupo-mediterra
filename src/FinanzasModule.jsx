@@ -4599,9 +4599,17 @@ function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit,saldosBanc
                       const total=s.indices.reduce((a,i)=>{
                         return a + sec.lines.reduce((b,l)=>{
                           if(l.label.startsWith("  ")) return b;
-                          const subSum = l.subLines && !l.label.includes("Préstamos") ? sumSubLinesMes(l.label, i) : 0;
+                          const subSum = l.subLines && !l.formula && !l.label.includes("Préstamos") ? sumSubLinesMes(l.label, i) : 0;
                           return b + getProy(l.label,i) + subSum;
-                        },0) + (addedLines[sec.cat]||[]).reduce((b,al)=>b+(Number(typeof al==="string"?0:(al.vals||{})[i])||0),0);
+                        },0) + (addedLines[sec.cat]||[]).reduce((b,al)=>{
+                          if(typeof al==="string") return b;
+                          const vals = al.vals||{};
+                          let av = Number(vals[i])||0;
+                          Object.entries(vals).forEach(([k,val])=>{
+                            if(k.startsWith(`${i}_`)) av += Number(val)||0;
+                          });
+                          return b + av;
+                        },0);
                       },0);
                       return (
                         <td key={s.key} style={{padding:"5px 8px",textAlign:"right",fontWeight:800,
@@ -4619,7 +4627,16 @@ function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit,saldosBanc
                           // porque su proy[i] ya viene calculado y sumar subLines causa doble conteo
                           const subSum = l.subLines && !l.formula && !l.label.includes("Préstamos") ? sumSubLinesMes(l.label, col.idx) : 0;
                           return a + getProy(l.label,col.idx) + subSum;
-                        },0) + (addedLines[sec.cat]||[]).reduce((a,al)=>a+(Number(typeof al==="string"?0:(al.vals||{})[col.idx])||0),0);
+                        },0) + (addedLines[sec.cat]||[]).reduce((a,al)=>{
+                          if(typeof al==="string") return a;
+                          const vals = al.vals||{};
+                          // Sumar valor mensual + todos los semanales del mes (consistente con flujoArr)
+                          let av = Number(vals[col.idx])||0;
+                          Object.entries(vals).forEach(([k,val])=>{
+                            if(k.startsWith(`${col.idx}_`)) av += Number(val)||0;
+                          });
+                          return a + av;
+                        },0);
                       } else if(col.type==="week"){
                         v = sec.lines.reduce((a,l)=>{
                           if(l.label.startsWith("  ")) return a;
@@ -5098,10 +5115,18 @@ function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit,saldosBanc
                       const total=s.indices.reduce((a,i)=>{
                         const linTot = sec.lines.reduce((b,l)=>{
                           if(l.label.startsWith("  ")) return b;
-                          const subSum = l.subLines && !l.label.includes("Préstamos") ? sumSubLinesMes(l.label, i) : 0;
+                          const subSum = l.subLines && !l.formula && !l.label.includes("Préstamos") ? sumSubLinesMes(l.label, i) : 0;
                           return b + getProy(l.label,i) + subSum;
                         },0);
-                        const addSum = (addedLines[sec.cat]||[]).reduce((b,al)=>b+(Number(typeof al==="string"?0:(al.vals||{})[i])||0),0);
+                        const addSum = (addedLines[sec.cat]||[]).reduce((b,al)=>{
+                          if(typeof al==="string") return b;
+                          const vals = al.vals||{};
+                          let av = Number(vals[i])||0;
+                          Object.entries(vals).forEach(([k,val])=>{
+                            if(k.startsWith(`${i}_`)) av += Number(val)||0;
+                          });
+                          return b + av;
+                        },0);
                         return a + linTot + addSum;
                       },0);
                       return (
@@ -5121,28 +5146,42 @@ function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit,saldosBanc
                         // Columna total mes: suma mensual completa (línea padre + sus subLines)
                         baseTotal = sec.lines.reduce((a,l)=>{
                           if(l.label.startsWith("  ")) return a;
-                          const subSum = l.subLines && !l.label.includes("Préstamos") ? sumSubLinesMes(l.label, col.idx) : 0;
+                          const subSum = l.subLines && !l.formula && !l.label.includes("Préstamos") ? sumSubLinesMes(l.label, col.idx) : 0;
                           return a + getProy(l.label,col.idx) + subSum;
                         },0);
+                        // addedLines: sumar mensual + todos los semanales (consistente con flujoArr)
                         addedTotal = (addedLines[sec.cat]||[]).reduce((a,al)=>{
-                          const v=Number(typeof al==="string"?0:(al.vals||{})[col.idx])||0;
-                          return a+v;
+                          if(typeof al==="string") return a;
+                          const vals = al.vals||{};
+                          let av = Number(vals[col.idx])||0;
+                          Object.entries(vals).forEach(([k,val])=>{
+                            if(k.startsWith(`${col.idx}_`)) av += Number(val)||0;
+                          });
+                          return a + av;
                         },0);
                       } else if(col.type==="week") {
                         // Columna de semana: suma los valores semanales de cada línea + subLines de esa semana
                         baseTotal = sec.lines.reduce((a,l)=>{
                           if(l.label.startsWith("  ")) return a;
                           const propSem = getProySemana(l.label, col.idx, col.semIdx, col.isLastInMonth);
-                          const subSem = l.subLines && !l.label.includes("Préstamos")
+                          const subSem = l.subLines && !l.formula && !l.label.includes("Préstamos")
                             ? sumSubLinesSemana(l.label, col.idx, col.semIdx, col.isLastInMonth) : 0;
                           return a + propSem + subSem;
                         }, 0);
-                        // addedLines son mensuales, mostrar solo en primera semana
-                        addedTotal = col.semIdx === 0 ?
-                          (addedLines[sec.cat]||[]).reduce((a,al)=>{
-                            const v=Number(typeof al==="string"?0:(al.vals||{})[col.idx])||0;
-                            return a+v;
-                          },0) : 0;
+                        // addedLines: en vista semanal, mostrar el valor semanal específico de esta semana
+                        // Si la addedLine tiene valor mensual sin semanas, mostrarlo en última semana
+                        addedTotal = (addedLines[sec.cat]||[]).reduce((a,al)=>{
+                          if(typeof al==="string") return a;
+                          const vals = al.vals||{};
+                          const kSem = `${col.idx}_${col.semIdx}`;
+                          if(vals[kSem] !== undefined) return a + (Number(vals[kSem])||0);
+                          // Sin valor semanal: si tiene mensual, ponerlo en última semana
+                          const hasAnySem = [0,1,2,3].some(s=>vals[`${col.idx}_${s}`]!==undefined);
+                          if(!hasAnySem && vals[col.idx] !== undefined && col.isLastInMonth) {
+                            return a + (Number(vals[col.idx])||0);
+                          }
+                          return a;
+                        },0);
                       }
                       const total=baseTotal+addedTotal;
                       const isFirst=col.isFirstInSeason||col.isFirstInMonth;
