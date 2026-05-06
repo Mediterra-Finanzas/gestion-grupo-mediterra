@@ -8251,7 +8251,7 @@ function TablaItems({items, seccion, onChange, canEdit, tc, moneda="ambas", sema
                             const nuevo=prompt("Ingrese el nuevo tipo de documento:");
                             if(nuevo&&nuevo.trim()){
                               const n=nuevo.trim();
-                              if(!TIPOS_DOCUMENTO.includes(n)) TIPOS_DOCUMENTO.push(n);
+                              // NO mutar TIPOS_DOCUMENTO global; el guardado lo maneja onAddTipoDoc
                               if(onAddTipoDoc) onAddTipoDoc(n);
                               updItem(it.id,"tipoDoc",n);
                             }
@@ -8262,9 +8262,12 @@ function TablaItems({items, seccion, onChange, canEdit, tc, moneda="ambas", sema
                           style={{...inputSt,flex:1,cursor:"pointer"}}>
                           <option value="">— Tipo —</option>
                           {(()=>{
-                            // Restaurar tipos doc extra
-                            (tiposDocExtra||[]).forEach(t=>{ if(!TIPOS_DOCUMENTO.includes(t)) TIPOS_DOCUMENTO.push(t); });
-                            return TIPOS_DOCUMENTO.map(t=><option key={t} value={t}>{t}</option>);
+                            // Combinar tipos base + extras (sin mutar el array global)
+                            const todos = [...TIPOS_DOCUMENTO];
+                            (tiposDocExtra||[]).forEach(t=>{ if(t && !todos.includes(t)) todos.push(t); });
+                            // Si el item ya tiene un tipoDoc no estándar, incluirlo también
+                            if(it.tipoDoc && !todos.includes(it.tipoDoc)) todos.push(it.tipoDoc);
+                            return todos.map(t=><option key={t} value={t}>{t}</option>);
                           })()}
                           <option value="__nuevo__">+ Agregar nuevo...</option>
                         </select>
@@ -8539,7 +8542,7 @@ function PanelBancosNomina({empresa, saldosBancos}) {
 // ─────────────────────────────────────────────────────────────────
 // VISTA NÓMINA DETALLE
 // ─────────────────────────────────────────────────────────────────
-function NominaDetalle({nomina, onUpdate, onBack, usuario, canEdit, saldosBancos, nominasHermanas=[], onSwitchNomina, onCrearYAbrir, onCrearNueva}) {
+function NominaDetalle({nomina, onUpdate, onBack, usuario, canEdit, saldosBancos, nominasHermanas=[], onSwitchNomina, onCrearYAbrir, onCrearNueva, tiposDocExtraGlobal=[], onAddTipoDocGlobal}) {
   const nom = nomina;
   const esCFO = usuario?.rol==="admin" || usuario?.esCFO;
   const [soloVer, setSoloVer] = useState(false);
@@ -9274,8 +9277,11 @@ function NominaDetalle({nomina, onUpdate, onBack, usuario, canEdit, saldosBancos
                 tc={nom.tc}
                 moneda={monedaSec}
                 semanaNomina={nom.semana}
-                tiposDocExtra={nom.tiposDocExtra||[]}
-                onAddTipoDoc={n=>{const extras=nom.tiposDocExtra||[];if(!extras.includes(n))upd("tiposDocExtra",[...extras,n]);}}
+                tiposDocExtra={[...(tiposDocExtraGlobal||[]), ...(nom.tiposDocExtra||[]).filter(t=>!(tiposDocExtraGlobal||[]).includes(t))]}
+                onAddTipoDoc={n=>{
+                  // Guardar globalmente (visible en todas las nóminas)
+                  if(onAddTipoDocGlobal) onAddTipoDocGlobal(n);
+                }}
               />
             </div>
           );
@@ -9456,6 +9462,7 @@ function NominaDetalle({nomina, onUpdate, onBack, usuario, canEdit, saldosBancos
 }
 function NominasModule({usuario, canEdit=false, saldosBancos={}}) {
   const [nominas, setNominas] = useState([]);
+  const [tiposDocExtraGlobal, setTiposDocExtraGlobal] = useState([]);
   const [cargando, setCargando] = useState(true);
   const [selNomina, setSelNomina] = useState(null); // id nomina abierta
   const [filtroAño, setFiltroAño]       = useState(añoActualNom());
@@ -9472,6 +9479,21 @@ function NominasModule({usuario, canEdit=false, saldosBancos={}}) {
   useEffect(()=>{
     dbLoadNominas().then(d=>{
       if(d?.nominas) setNominas(d.nominas);
+      // Cargar tipos doc extra globales
+      if(Array.isArray(d?.tiposDocExtra)){
+        setTiposDocExtraGlobal(d.tiposDocExtra);
+      } else if(d?.nominas) {
+        // Migración: extraer tipos extra de las nóminas existentes y consolidar
+        const setExtras = new Set();
+        d.nominas.forEach(n=>{
+          (n.tiposDocExtra||[]).forEach(t=>setExtras.add(t));
+          // También buscar en items por si hay tipos no estándar
+          (n.items||[]).forEach(it=>{
+            if(it.tipoDoc && !TIPOS_DOCUMENTO.includes(it.tipoDoc)) setExtras.add(it.tipoDoc);
+          });
+        });
+        if(setExtras.size > 0) setTiposDocExtraGlobal([...setExtras]);
+      }
       setCargando(false);
     });
   },[]);
@@ -9489,6 +9511,13 @@ function NominasModule({usuario, canEdit=false, saldosBancos={}}) {
             return prev;
           });
         }
+        // Sincronizar tipos doc extra globales (otros usuarios pudieron agregar)
+        if(Array.isArray(d?.tiposDocExtra)){
+          setTiposDocExtraGlobal(prev=>{
+            if(JSON.stringify(prev)!==JSON.stringify(d.tiposDocExtra)) return d.tiposDocExtra;
+            return prev;
+          });
+        }
       }).catch(()=>{});
     }, 30000);
     return ()=>clearInterval(interval);
@@ -9500,6 +9529,7 @@ function NominasModule({usuario, canEdit=false, saldosBancos={}}) {
       if(document.visibilityState === "visible"){
         dbLoadNominas().then(d=>{
           if(d?.nominas) setNominas(d.nominas);
+          if(Array.isArray(d?.tiposDocExtra)) setTiposDocExtraGlobal(d.tiposDocExtra);
         }).catch(()=>{});
       }
     }
@@ -9509,11 +9539,22 @@ function NominasModule({usuario, canEdit=false, saldosBancos={}}) {
 
   // Save (debounce 800ms)
   const saveTimer = useRef(null);
-  function saveNominas(list) {
+  function saveNominas(list, tiposExtra=null) {
     clearTimeout(saveTimer.current);
+    const tipos = tiposExtra !== null ? tiposExtra : tiposDocExtraGlobal;
     saveTimer.current = setTimeout(()=>{
-      dbSaveNominas({nominas: list});
+      dbSaveNominas({nominas: list, tiposDocExtra: tipos});
     }, 800);
+  }
+
+  // Cuando se actualizan los tipos doc extra globales, persistir
+  function actualizarTiposDocExtra(nuevoTipo) {
+    setTiposDocExtraGlobal(prev=>{
+      if(prev.includes(nuevoTipo)) return prev;
+      const next = [...prev, nuevoTipo];
+      saveNominas(nominasRef.current, next);
+      return next;
+    });
   }
 
   function updNomina(nom) {
@@ -9673,6 +9714,8 @@ function NominasModule({usuario, canEdit=false, saldosBancos={}}) {
       saldosBancos={saldosBancos}
       nominasHermanas={nominasHermanas}
       onSwitchNomina={id=>setSelNomina(id)}
+      tiposDocExtraGlobal={tiposDocExtraGlobal}
+      onAddTipoDocGlobal={actualizarTiposDocExtra}
       onCrearYAbrir={(empresa, semDest, añoDest, itemAplazado)=>{
         if(semDest && añoDest) {
           // Aplazamiento: buscar o crear nómina en semana destino
