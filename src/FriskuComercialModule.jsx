@@ -18,12 +18,12 @@ import {
   formatearMonto,
 } from "./friskuHelpers.js";
 
-// ── Paleta (consistente con FriskuModule) ──
+// ── Paleta Frisku — Slate neutro ──
 const C = {
-  bg:"#0d1117", bg2:"#161b22", card:"#1c2333", card2:"#21283b", border:"#30363d",
-  text:"#e6edf3", muted:"#8b949e", muted2:"#484f58",
-  blue:"#2563eb", green:"#16a34a", yellow:"#d97706", accent:"#b91c1c",
-  teal:"#0f766e", purple:"#7c3aed",
+  bg:"#1e2533", bg2:"#263044", card:"#2d3a52", card2:"#334158", border:"#3d4f6e",
+  text:"#e2e8f0", muted:"#94a3b8", muted2:"#5a6a80",
+  blue:"#3b82f6", green:"#22c55e", yellow:"#f59e0b", accent:"#ef4444",
+  teal:"#14b8a6", purple:"#a855f7",
 };
 
 const inputSt = {
@@ -1236,12 +1236,17 @@ export default function FriskuComercialModule({
   return (
     <div style={{background:C.bg, minHeight:"100vh", color:C.text}}>
       {/* Header */}
-      <div style={{padding:"16px 20px", borderBottom:`1px solid ${C.border}`, display:"flex", alignItems:"center", justifyContent:"space-between", flexWrap:"wrap", gap:10, background:C.bg2}}>
-        <div>
-          <h2 style={{margin:0, fontSize:20, fontWeight:800, color:C.text, display:"flex", alignItems:"center", gap:10}}>
-            🔗 <span>Frisku Foods</span>
-            <span style={{fontSize:11, color:C.muted, fontWeight:500}}>Connecting Quality</span>
-          </h2>
+      <div style={{padding:"12px 20px", borderBottom:`1px solid ${C.border}`, display:"flex", alignItems:"center", justifyContent:"space-between", flexWrap:"wrap", gap:10, background:C.bg2}}>
+        <div style={{display:"flex", alignItems:"center", gap:14}}>
+          <img
+            src={`${process.env.PUBLIC_URL}/frisku.png`}
+            alt="Frisku Foods"
+            style={{height:44, objectFit:"contain", borderRadius:6}}
+          />
+          <div>
+            <h2 style={{margin:0, fontSize:18, fontWeight:800, color:C.text, lineHeight:1.2}}>Frisku Foods</h2>
+            <div style={{fontSize:11, color:C.muted, fontWeight:400}}>Connecting Quality</div>
+          </div>
         </div>
         <div style={{display:"flex", alignItems:"center", gap:10, fontSize:11, color:C.muted}}>
           {Object.values(guardando).some(Boolean)

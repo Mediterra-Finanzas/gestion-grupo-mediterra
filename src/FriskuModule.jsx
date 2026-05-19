@@ -16,12 +16,12 @@ import {
 const SUPA_URL = "https://bywovqayuzodbzwsriet.supabase.co";
 const SUPA_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJ5d292cWF5dXpvZGJ6d3NyaWV0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU2ODU1MDgsImV4cCI6MjA5MTI2MTUwOH0.s2x2O_CxE6rl8dBqFuyfQdMyRqSyjJQWXJXesmVGXtk";
 
-// ── Paleta (consistente con FriskuModule) ──
+// ── Paleta Frisku — Slate neutro ──
 const C = {
-  bg:"#0d1117", bg2:"#161b22", card:"#1c2333", card2:"#21283b", border:"#30363d",
-  text:"#e6edf3", muted:"#8b949e", muted2:"#484f58",
-  blue:"#2563eb", green:"#16a34a", yellow:"#d97706", accent:"#b91c1c",
-  teal:"#0f766e", purple:"#7c3aed",
+  bg:"#1e2533", bg2:"#263044", card:"#2d3a52", card2:"#334158", border:"#3d4f6e",
+  text:"#e2e8f0", muted:"#94a3b8", muted2:"#5a6a80",
+  blue:"#3b82f6", green:"#22c55e", yellow:"#f59e0b", accent:"#ef4444",
+  teal:"#14b8a6", purple:"#a855f7",
 };
 
 // ── Persistencia genérica para maestros ──
