@@ -7,10 +7,10 @@
 //   frisku_exportadoras, frisku_contratos, frisku_programa,
 //   frisku_embarques, frisku_liquidaciones
 // ═══════════════════════════════════════════════════════════════════
-import React, { useState, useEffect, useMemo, useRef } from "react";
+import React, { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import FriskuModule, {
   PAISES_DEFAULT, MERCADOS_DEFAULT, MONEDAS_DEFAULT,
-  ESPECIES_DEFAULT, TIPOS_EMBALAJE_DEFAULT,
+  ESPECIES_DEFAULT, TIPOS_EMBALAJE_DEFAULT, CIUDADES_DEFAULT,
 } from "./FriskuModule.jsx";
 import {
   dbLoadGeneric, dbSaveGeneric,
@@ -77,9 +77,17 @@ function Seccion({id, titulo, icono, abierta, onToggle, children}) {
 // ═══════════════════════════════════════════════════════════════════
 // CLIENTE FORM — editor expandible con secciones
 // ═══════════════════════════════════════════════════════════════════
-function ClienteForm({cliente, especies, paises, monedas, mercados, tiposEmbalaje, onGuardar, onCancelar}) {
+function ClienteForm({cliente, especies, paises, ciudades, monedas, mercados, tiposEmbalaje, onGuardar, onCancelar}) {
   const [buf, setBuf] = useState(()=>JSON.parse(JSON.stringify(cliente)));
   const [seccionAbierta, setSeccionAbierta] = useState("basico");
+
+  // Ciudades del maestro filtradas por el país seleccionado.
+  // Si no hay país elegido aún, sugiere todas.
+  const ciudadesSugeridas = useMemo(()=>{
+    if(!Array.isArray(ciudades) || !ciudades.length) return [];
+    if(!buf.paisCodigo) return ciudades;
+    return ciudades.filter(c => c.paisCodigo === buf.paisCodigo);
+  },[ciudades, buf.paisCodigo]);
 
   const setCampo = (k, v) => setBuf(prev => ({...prev, [k]:v}));
   const toggleEspecie = (codigo) => {
@@ -150,7 +158,19 @@ function ClienteForm({cliente, especies, paises, monedas, mercados, tiposEmbalaj
           </div>
           <div>
             <div style={lblSt}>Ciudad</div>
-            <input value={buf.ciudad||""} onChange={e=>setCampo("ciudad", e.target.value)} placeholder="Los Angeles" style={inputSt}/>
+            <input
+              value={buf.ciudad||""}
+              onChange={e=>setCampo("ciudad", e.target.value)}
+              list="ciudades-cliente-list"
+              placeholder={buf.paisCodigo ? "Empezá a tipear o elegí…" : "Selecciona país primero o tipea libre"}
+              style={inputSt}
+              autoComplete="off"
+            />
+            <datalist id="ciudades-cliente-list">
+              {ciudadesSugeridas.map(c => (
+                <option key={c.codigo} value={c.nombre}>{c.paisCodigo}</option>
+              ))}
+            </datalist>
           </div>
           <div>
             <div style={lblSt}>Mercado</div>
@@ -415,9 +435,15 @@ function ClienteCard({cliente, especies, paises, monedas, mercados, onEditar, on
 // ═══════════════════════════════════════════════════════════════════
 // EXPORTADORA FORM — editor con 3 secciones
 // ═══════════════════════════════════════════════════════════════════
-function ExportadoraForm({exportadora, especies, paises, monedas, onGuardar, onCancelar}) {
+function ExportadoraForm({exportadora, especies, paises, ciudades, monedas, onGuardar, onCancelar}) {
   const [buf, setBuf] = useState(()=>JSON.parse(JSON.stringify(exportadora)));
   const [seccionAbierta, setSeccionAbierta] = useState("basico");
+
+  const ciudadesSugeridas = useMemo(()=>{
+    if(!Array.isArray(ciudades) || !ciudades.length) return [];
+    if(!buf.paisCodigo) return ciudades;
+    return ciudades.filter(c => c.paisCodigo === buf.paisCodigo);
+  },[ciudades, buf.paisCodigo]);
 
   const setCampo = (k, v) => setBuf(prev => ({...prev, [k]:v}));
   const toggleEspecie = (codigo) => {
@@ -472,7 +498,19 @@ function ExportadoraForm({exportadora, especies, paises, monedas, onGuardar, onC
           </div>
           <div>
             <div style={lblSt}>Ciudad</div>
-            <input value={buf.ciudad||""} onChange={e=>setCampo("ciudad", e.target.value)} placeholder="Curicó" style={inputSt}/>
+            <input
+              value={buf.ciudad||""}
+              onChange={e=>setCampo("ciudad", e.target.value)}
+              list="ciudades-exportadora-list"
+              placeholder={buf.paisCodigo ? "Empezá a tipear o elegí…" : "Selecciona país primero o tipea libre"}
+              style={inputSt}
+              autoComplete="off"
+            />
+            <datalist id="ciudades-exportadora-list">
+              {ciudadesSugeridas.map(c => (
+                <option key={c.codigo} value={c.nombre}>{c.paisCodigo}</option>
+              ))}
+            </datalist>
           </div>
           <div>
             <div style={lblSt}>Moneda principal</div>
@@ -678,12 +716,15 @@ export default function FriskuComercialModule({
   const [embarques,      setEmbarques]      = useState([]);
   const [liquidaciones,  setLiquidaciones]  = useState([]);
 
-  // Maestros (solo lectura para los selects del form)
+  // Maestros (solo lectura para los selects del form). Se re-fetchan cada
+  // vez que el usuario entra a un tab que los necesita, así reflejan
+  // ediciones recientes en Maestros sin necesidad de recargar la página.
   const [especies,       setEspecies]       = useState([]);
   const [paises,         setPaises]         = useState([]);
   const [monedas,        setMonedas]        = useState([]);
   const [mercados,       setMercados]       = useState([]);
   const [tiposEmbalaje,  setTiposEmbalaje]  = useState([]);
+  const [ciudades,       setCiudades]       = useState([]);
 
   const [cargando, setCargando] = useState(true);
   const [tab, setTab] = useState("clientes");
@@ -709,7 +750,7 @@ export default function FriskuComercialModule({
   useEffect(()=>{
     let alive = true;
     (async ()=>{
-      const [cli, exp, con, pro, emb, liq, esp, pa, mo, me, tb] = await Promise.all([
+      const [cli, exp, con, pro, emb, liq, esp, pa, mo, me, tb, ci] = await Promise.all([
         dbLoadGeneric("frisku_clientes"),
         dbLoadGeneric("frisku_exportadoras"),
         dbLoadGeneric("frisku_contratos"),
@@ -721,6 +762,7 @@ export default function FriskuComercialModule({
         dbLoadGeneric("maestro_monedas"),
         dbLoadGeneric("maestro_mercados"),
         dbLoadGeneric("maestro_tipos_embalaje"),
+        dbLoadGeneric("maestro_ciudades"),
       ]);
       if(!alive) return;
       setClientes(Array.isArray(cli) ? cli : []);
@@ -738,10 +780,40 @@ export default function FriskuComercialModule({
       setMonedas(Array.isArray(mo) && mo.length ? mo : MONEDAS_DEFAULT);
       setMercados(Array.isArray(me) && me.length ? me : MERCADOS_DEFAULT);
       setTiposEmbalaje(Array.isArray(tb) && tb.length ? tb : TIPOS_EMBALAJE_DEFAULT);
+      setCiudades(Array.isArray(ci) && ci.length ? ci : CIUDADES_DEFAULT);
       setCargando(false);
     })();
     return ()=>{alive=false;};
   },[]);
+
+  // ── Recarga manual de maestros ──
+  // Se ejecuta al navegar a tabs que dependen de los selects (Clientes,
+  // Exportadoras). Garantiza que las altas/cambios hechos en el módulo
+  // de Maestros se reflejen sin necesidad de recargar la página.
+  const recargarMaestros = useCallback(async ()=>{
+    const [esp, pa, mo, me, tb, ci] = await Promise.all([
+      dbLoadGeneric("maestro_especies"),
+      dbLoadGeneric("maestro_paises"),
+      dbLoadGeneric("maestro_monedas"),
+      dbLoadGeneric("maestro_mercados"),
+      dbLoadGeneric("maestro_tipos_embalaje"),
+      dbLoadGeneric("maestro_ciudades"),
+    ]);
+    setEspecies(Array.isArray(esp) && esp.length ? esp : ESPECIES_DEFAULT);
+    setPaises(Array.isArray(pa) && pa.length ? pa : PAISES_DEFAULT);
+    setMonedas(Array.isArray(mo) && mo.length ? mo : MONEDAS_DEFAULT);
+    setMercados(Array.isArray(me) && me.length ? me : MERCADOS_DEFAULT);
+    setTiposEmbalaje(Array.isArray(tb) && tb.length ? tb : TIPOS_EMBALAJE_DEFAULT);
+    setCiudades(Array.isArray(ci) && ci.length ? ci : CIUDADES_DEFAULT);
+  },[]);
+
+  // Refrescar maestros al entrar a tabs que los necesitan
+  useEffect(()=>{
+    if (cargando) return;
+    if (tab === "clientes" || tab === "exportadoras") {
+      recargarMaestros();
+    }
+  },[tab, cargando, recargarMaestros]);
 
   // ── Auto-save genérico ──
   const useAutoSave = (id, valor, listo=true) => {
@@ -1052,6 +1124,7 @@ export default function FriskuComercialModule({
                 cliente={editandoCli}
                 especies={especies}
                 paises={paises}
+                ciudades={ciudades}
                 monedas={monedas}
                 mercados={mercados}
                 tiposEmbalaje={tiposEmbalaje}
@@ -1128,6 +1201,7 @@ export default function FriskuComercialModule({
                 exportadora={editandoExp}
                 especies={especies}
                 paises={paises}
+                ciudades={ciudades}
                 monedas={monedas}
                 onGuardar={handleGuardarExportadora}
                 onCancelar={()=>{setEditandoExp(null); setCreandoExp(false);}}
