@@ -1161,6 +1161,323 @@ function ClosureCard({closure, exportadoras, clientes, especies, tiposEmbalaje, 
 }
 
 // ═══════════════════════════════════════════════════════════════════
+// PROGRAMA COMERCIAL — helpers y componentes
+// ═══════════════════════════════════════════════════════════════════
+
+// Retorna el lunes de la semana de una fecha YYYY-MM-DD
+function getMondayStr(dateStr) {
+  if(!dateStr) return "";
+  const d = new Date(dateStr + "T12:00:00");
+  const day = d.getDay();
+  const diff = day === 0 ? -6 : 1 - day;
+  d.setDate(d.getDate() + diff);
+  return d.toISOString().slice(0,10);
+}
+
+// "2026-05-11" → "lun 11 may 2026"
+function formatFechaSemana(dateStr) {
+  if(!dateStr) return "—";
+  const d = new Date(dateStr + "T12:00:00");
+  return d.toLocaleDateString("es-CL", {weekday:"short", day:"numeric", month:"short", year:"numeric"});
+}
+
+// Formulario para agregar/editar una semana del programa
+function ProgramaSemanaForm({semana, closure, tiposEmbalaje, onGuardar, onCancelar}) {
+  const [buf, setBuf] = useState(()=>JSON.parse(JSON.stringify(semana)));
+
+  const setCajas = (fmtCodigo, val) => setBuf(prev=>{
+    const cpf = {...(prev.cajasPorFormato||{})};
+    const n = Number(val);
+    if(!val || n===0) delete cpf[fmtCodigo]; else cpf[fmtCodigo]=n;
+    return {...prev, cajasPorFormato:cpf};
+  });
+
+  const formatosClosure = Object.keys(closure?.cajasPorFormato||{});
+  const totalCajas = Object.values(buf.cajasPorFormato||{}).reduce((s,v)=>s+Number(v||0),0);
+
+  const handleGuardar = () => {
+    const fecha = getMondayStr(buf.fechaSemana);
+    if(!fecha){ alert("Ingresa la fecha de la semana"); return; }
+    if(totalCajas===0){ alert("Ingresa cajas en al menos un formato"); return; }
+    onGuardar({...buf, fechaSemana:fecha});
+  };
+
+  return (
+    <div style={{background:`${C.teal}11`, padding:14, borderRadius:8, border:`1px solid ${C.teal}44`, marginBottom:10}}>
+      <h4 style={{margin:"0 0 12px", color:C.teal, fontSize:13, display:"flex", alignItems:"center", gap:8}}>
+        <span>{semana.id?"✎":"+"}</span>
+        <span>{semana.id?"Editar semana":"Nueva semana de programa"}</span>
+        <span style={{fontSize:10, color:C.muted, fontWeight:400}}>
+          — La fecha se ajusta al lunes de la semana elegida
+        </span>
+      </h4>
+
+      {/* Fecha + Estado */}
+      <div style={{display:"grid", gridTemplateColumns:"1fr 160px", gap:10, marginBottom:12}}>
+        <div>
+          <div style={lblSt}>Semana (fecha de inicio) *</div>
+          <input type="date" value={buf.fechaSemana||""} style={inputSt}
+            onChange={e=>setBuf(prev=>({...prev, fechaSemana:e.target.value}))}
+            onBlur={e=>setBuf(prev=>({...prev, fechaSemana:getMondayStr(e.target.value)}))}/>
+          {buf.fechaSemana && (
+            <div style={{fontSize:10, color:C.teal, marginTop:3}}>
+              Lunes: {formatFechaSemana(getMondayStr(buf.fechaSemana))}
+            </div>
+          )}
+        </div>
+        <div>
+          <div style={lblSt}>Estado</div>
+          <select value={buf.estado||"borrador"} style={inputSt}
+            onChange={e=>setBuf(prev=>({...prev, estado:e.target.value}))}>
+            <option value="borrador">◌ Borrador</option>
+            <option value="confirmado">✓ Confirmado</option>
+          </select>
+        </div>
+      </div>
+
+      {/* Cajas por formato */}
+      <div style={{marginBottom:12}}>
+        <div style={lblSt}>Cajas por formato *</div>
+        {formatosClosure.length === 0 ? (
+          <div style={{color:C.muted, fontSize:11}}>El Business Closure no tiene formatos definidos.</div>
+        ) : (
+          <div style={{display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(180px,1fr))", gap:8}}>
+            {formatosClosure.map(fmtCodigo=>{
+              const fmtObj = tiposEmbalaje.find(t=>t.codigo===fmtCodigo);
+              const ppto = Number(closure.cajasPorFormato[fmtCodigo]||0);
+              return (
+                <div key={fmtCodigo} style={{background:C.card, padding:8, borderRadius:6, border:`1px solid ${C.border}`}}>
+                  <div style={{fontSize:10, color:C.muted, marginBottom:4}}>{fmtObj?.nombre||fmtCodigo}</div>
+                  <div style={{fontSize:9, color:C.muted2, marginBottom:4}}>Ppto: {ppto.toLocaleString("es-CL")} cjs</div>
+                  <input type="number" min="0" step="1"
+                    value={buf.cajasPorFormato?.[fmtCodigo]||""}
+                    placeholder="0"
+                    style={{...inputSt, padding:"4px 8px", fontSize:13, fontFamily:"monospace", textAlign:"right"}}
+                    onChange={e=>setCajas(fmtCodigo, e.target.value)}/>
+                </div>
+              );
+            })}
+          </div>
+        )}
+        {totalCajas > 0 && (
+          <div style={{fontSize:11, color:C.teal, marginTop:6, fontFamily:"monospace"}}>
+            Total semana: {totalCajas.toLocaleString("es-CL")} cjs
+          </div>
+        )}
+      </div>
+
+      {/* Observ */}
+      <div style={{marginBottom:12}}>
+        <div style={lblSt}>Observaciones</div>
+        <textarea value={buf.observ||""} rows={2}
+          style={{...inputSt, resize:"vertical", fontFamily:"inherit"}}
+          onChange={e=>setBuf(prev=>({...prev, observ:e.target.value}))}/>
+      </div>
+
+      <div style={{display:"flex", gap:8, justifyContent:"flex-end"}}>
+        <button onClick={onCancelar} style={btnSt(C.muted,true)}>Cancelar</button>
+        <button onClick={handleGuardar} style={btnSt(C.teal)}>✓ Guardar semana</button>
+      </div>
+    </div>
+  );
+}
+
+// Panel de programa por Business Closure
+function ClosureProgramaPanel({closure, semanas, tiposEmbalaje, exportadoras, clientes, especies,
+  canEdit, editandoSemana, closureIdParaSemana,
+  onAgregarSemana, onEditarSemana, onEliminarSemana, onGuardarSemana, onCancelarSemana
+}) {
+  const exportadora = exportadoras.find(e=>e.id===closure.exportadoraId);
+  const cliente     = clientes.find(c=>c.id===closure.clienteId);
+  const especie     = especies.find(e=>e.codigo===closure.especieCodigo);
+
+  const formatosClosure = Object.keys(closure.cajasPorFormato||{});
+  const totalPpto = Object.values(closure.cajasPorFormato||{}).reduce((s,v)=>s+Number(v||0),0);
+
+  // Acumulado real por formato
+  const acumReal = {};
+  semanas.forEach(s=>{
+    Object.entries(s.cajasPorFormato||{}).forEach(([cod,v])=>{
+      acumReal[cod] = (acumReal[cod]||0) + Number(v||0);
+    });
+  });
+  const totalReal = Object.values(acumReal).reduce((s,v)=>s+v,0);
+  const totalVariacion = totalPpto - totalReal;
+
+  const semanasOrdenadas = [...semanas].sort((a,b)=>(a.fechaSemana||"").localeCompare(b.fechaSemana||""));
+  const esEditandoEste   = closureIdParaSemana === closure.id;
+
+  return (
+    <div style={{
+      background:C.card2, borderRadius:10, border:`1px solid ${C.blue}44`,
+      marginBottom:14, overflow:"hidden",
+    }}>
+      {/* Header del closure */}
+      <div style={{padding:"10px 14px", background:`${C.blue}0a`, borderBottom:`1px solid ${C.border}`, display:"flex", alignItems:"center", justifyContent:"space-between", flexWrap:"wrap", gap:8}}>
+        <div>
+          <div style={{fontSize:13, fontWeight:700, color:C.text, display:"flex", alignItems:"center", gap:6}}>
+            {exportadora?.nombre||"—"}
+            <span style={{color:C.muted, fontSize:11}}>→</span>
+            {cliente?.nombre||"—"}
+          </div>
+          <div style={{fontSize:11, color:C.muted, marginTop:2, display:"flex", gap:8, alignItems:"center"}}>
+            {especie && <span>{especie.icono} {especie.nombreEs}</span>}
+            <span>· Temporada {closure.temporada}</span>
+            {closure.codigo && <span style={{color:C.muted2}}>· {closure.codigo}</span>}
+          </div>
+        </div>
+        {/* KPIs compactos */}
+        <div style={{display:"flex", gap:16, fontSize:11, fontFamily:"monospace"}}>
+          <div style={{textAlign:"center"}}>
+            <div style={{color:C.muted, fontSize:9, textTransform:"uppercase"}}>Presup.</div>
+            <div style={{color:C.blue, fontWeight:700}}>{totalPpto.toLocaleString("es-CL")}</div>
+          </div>
+          <div style={{textAlign:"center"}}>
+            <div style={{color:C.muted, fontSize:9, textTransform:"uppercase"}}>Real</div>
+            <div style={{color:C.teal, fontWeight:700}}>{totalReal.toLocaleString("es-CL")}</div>
+          </div>
+          <div style={{textAlign:"center"}}>
+            <div style={{color:C.muted, fontSize:9, textTransform:"uppercase"}}>Variación</div>
+            <div style={{color: totalVariacion<0?C.accent:totalVariacion===0?C.green:C.yellow, fontWeight:700}}>
+              {totalVariacion>0?"+":""}{totalVariacion.toLocaleString("es-CL")}
+            </div>
+          </div>
+          <div style={{textAlign:"center"}}>
+            <div style={{color:C.muted, fontSize:9, textTransform:"uppercase"}}>Avance</div>
+            <div style={{color:C.text, fontWeight:700}}>
+              {totalPpto>0?Math.round(totalReal/totalPpto*100):0}%
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Tabla de semanas */}
+      <div style={{padding:14}}>
+        {semanasOrdenadas.length > 0 ? (
+          <div style={{overflowX:"auto", marginBottom:10}}>
+            <table style={{borderCollapse:"collapse", width:"100%", fontSize:11}}>
+              <thead>
+                <tr style={{background:C.bg2}}>
+                  <th style={{padding:"6px 10px", textAlign:"left", color:C.muted, fontWeight:600, border:`1px solid ${C.border}`, whiteSpace:"nowrap"}}>Semana (lunes)</th>
+                  {formatosClosure.map(cod=>{
+                    const fmt = tiposEmbalaje.find(t=>t.codigo===cod);
+                    return (
+                      <th key={cod} style={{padding:"6px 8px", textAlign:"right", color:C.muted, fontWeight:600, border:`1px solid ${C.border}`, whiteSpace:"nowrap", fontSize:10}}>
+                        {fmt?.nombre||cod}
+                      </th>
+                    );
+                  })}
+                  <th style={{padding:"6px 8px", textAlign:"right", color:C.muted, fontWeight:600, border:`1px solid ${C.border}`}}>Total cjs</th>
+                  <th style={{padding:"6px 8px", textAlign:"center", color:C.muted, fontWeight:600, border:`1px solid ${C.border}`}}>Estado</th>
+                  {canEdit && <th style={{border:`1px solid ${C.border}`}}/>}
+                </tr>
+              </thead>
+              <tbody>
+                {semanasOrdenadas.map((sem,i)=>{
+                  const totalSem = Object.values(sem.cajasPorFormato||{}).reduce((s,v)=>s+Number(v||0),0);
+                  return (
+                    <tr key={sem.id||i} style={{background: i%2===0?C.card:C.card2}}>
+                      <td style={{padding:"6px 10px", border:`1px solid ${C.border}`, whiteSpace:"nowrap"}}>
+                        {formatFechaSemana(sem.fechaSemana)}
+                      </td>
+                      {formatosClosure.map(cod=>(
+                        <td key={cod} style={{padding:"6px 8px", textAlign:"right", border:`1px solid ${C.border}`, fontFamily:"monospace"}}>
+                          {sem.cajasPorFormato?.[cod]!=null ? Number(sem.cajasPorFormato[cod]).toLocaleString("es-CL") : "—"}
+                        </td>
+                      ))}
+                      <td style={{padding:"6px 8px", textAlign:"right", border:`1px solid ${C.border}`, fontFamily:"monospace", fontWeight:700}}>
+                        {totalSem.toLocaleString("es-CL")}
+                      </td>
+                      <td style={{padding:"6px 8px", textAlign:"center", border:`1px solid ${C.border}`}}>
+                        <span style={{
+                          fontSize:9, padding:"2px 6px", borderRadius:4, fontWeight:600,
+                          background:sem.estado==="confirmado"?`${C.green}22`:`${C.yellow}22`,
+                          color:sem.estado==="confirmado"?C.green:C.yellow,
+                        }}>
+                          {sem.estado==="confirmado"?"✓ Conf.":"◌ Bor."}
+                        </span>
+                      </td>
+                      {canEdit && (
+                        <td style={{padding:"4px 6px", border:`1px solid ${C.border}`, whiteSpace:"nowrap"}}>
+                          <button onClick={()=>onEditarSemana(sem)} style={{...btnSt(C.blue,true), padding:"2px 6px", fontSize:10, marginRight:3}}>✎</button>
+                          <button onClick={()=>onEliminarSemana(sem)} style={{...btnSt(C.accent,true), padding:"2px 6px", fontSize:10}}>×</button>
+                        </td>
+                      )}
+                    </tr>
+                  );
+                })}
+                {/* Fila de totales acumulados */}
+                <tr style={{background:`${C.teal}0a`, fontWeight:700}}>
+                  <td style={{padding:"6px 10px", border:`1px solid ${C.border}`, color:C.teal, fontSize:10, textTransform:"uppercase"}}>Acumulado real</td>
+                  {formatosClosure.map(cod=>(
+                    <td key={cod} style={{padding:"6px 8px", textAlign:"right", border:`1px solid ${C.border}`, fontFamily:"monospace", color:C.teal}}>
+                      {acumReal[cod]!=null ? acumReal[cod].toLocaleString("es-CL") : "—"}
+                    </td>
+                  ))}
+                  <td style={{padding:"6px 8px", textAlign:"right", border:`1px solid ${C.border}`, fontFamily:"monospace", color:C.teal}}>
+                    {totalReal.toLocaleString("es-CL")}
+                  </td>
+                  <td colSpan={canEdit?2:1} style={{border:`1px solid ${C.border}`}}/>
+                </tr>
+                {/* Fila de variación */}
+                <tr style={{background:`${C.blue}0a`}}>
+                  <td style={{padding:"6px 10px", border:`1px solid ${C.border}`, color:C.blue, fontSize:10, textTransform:"uppercase"}}>Presupuesto BC</td>
+                  {formatosClosure.map(cod=>{
+                    const ppto = Number(closure.cajasPorFormato?.[cod]||0);
+                    const real = acumReal[cod]||0;
+                    const vari = ppto - real;
+                    return (
+                      <td key={cod} style={{padding:"6px 8px", textAlign:"right", border:`1px solid ${C.border}`, fontFamily:"monospace"}}>
+                        <div style={{color:C.blue, fontSize:10}}>{ppto.toLocaleString("es-CL")}</div>
+                        {semanasOrdenadas.length>0 && (
+                          <div style={{fontSize:9, color:vari<0?C.accent:vari===0?C.green:C.yellow}}>
+                            {vari>0?"+":""}{vari.toLocaleString("es-CL")}
+                          </div>
+                        )}
+                      </td>
+                    );
+                  })}
+                  <td style={{padding:"6px 8px", textAlign:"right", border:`1px solid ${C.border}`, fontFamily:"monospace"}}>
+                    <div style={{color:C.blue}}>{totalPpto.toLocaleString("es-CL")}</div>
+                    {semanasOrdenadas.length>0 && (
+                      <div style={{fontSize:9, color:totalVariacion<0?C.accent:totalVariacion===0?C.green:C.yellow}}>
+                        {totalVariacion>0?"+":""}{totalVariacion.toLocaleString("es-CL")}
+                      </div>
+                    )}
+                  </td>
+                  <td colSpan={canEdit?2:1} style={{border:`1px solid ${C.border}`}}/>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <div style={{color:C.muted, fontSize:12, fontStyle:"italic", marginBottom:10}}>
+            Aún no hay semanas ingresadas para este Business Closure.
+          </div>
+        )}
+
+        {/* Form inline */}
+        {esEditandoEste && editandoSemana && (
+          <ProgramaSemanaForm
+            semana={editandoSemana}
+            closure={closure}
+            tiposEmbalaje={tiposEmbalaje}
+            onGuardar={onGuardarSemana}
+            onCancelar={onCancelarSemana}
+          />
+        )}
+
+        {canEdit && !esEditandoEste && (
+          <button onClick={()=>onAgregarSemana(closure.id)} style={{...btnSt(C.teal,true), fontSize:11, padding:"5px 12px"}}>
+            + Agregar semana
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════
 // PLACEHOLDER GENÉRICO — tabs que se construyen en fases siguientes
 // ═══════════════════════════════════════════════════════════════════
 function Placeholder({titulo, icono, fase, descripcion}) {
@@ -1512,6 +1829,61 @@ export default function FriskuComercialModule({
     setEditandoClosure(null); setCreandoClosure(false);
   };
   const totalClosuresActivos = contratos.filter(c=>(c.estado||"activo")==="activo").length;
+
+  // ── UI Programa Comercial ──
+  const [filtroProgramaTemp, setFiltroProgramaTemp] = useState("");
+  const [filtroProgramaExp,  setFiltroProgramaExp]  = useState("");
+  const [filtroProgramaCli,  setFiltroProgramaCli]  = useState("");
+  const [filtroProgramaEsp,  setFiltroProgramaEsp]  = useState("");
+  const [editandoSemana,     setEditandoSemana]     = useState(null);
+  const [closureIdParaSemana,setClosureIdParaSemana]= useState(null);
+
+  const closuresParaPrograma = useMemo(()=>{
+    return contratos.filter(bc=>{
+      if(filtroProgramaTemp && bc.temporada    !== filtroProgramaTemp) return false;
+      if(filtroProgramaExp  && bc.exportadoraId!== filtroProgramaExp)  return false;
+      if(filtroProgramaCli  && bc.clienteId    !== filtroProgramaCli)  return false;
+      if(filtroProgramaEsp  && bc.especieCodigo!== filtroProgramaEsp)  return false;
+      return true;
+    }).sort((a,b)=>{
+      if(b.temporada !== a.temporada) return (b.temporada||"").localeCompare(a.temporada||"");
+      const eA = exportadoras.find(e=>e.id===a.exportadoraId)?.nombre||"";
+      const eB = exportadoras.find(e=>e.id===b.exportadoraId)?.nombre||"";
+      return eA.localeCompare(eB);
+    });
+  },[contratos, filtroProgramaTemp, filtroProgramaExp, filtroProgramaCli, filtroProgramaEsp, exportadoras]);
+
+  const semanasPorClosure = useMemo(()=>{
+    const mapa = {};
+    programa.forEach(s=>{
+      if(!mapa[s.closureId]) mapa[s.closureId]=[];
+      mapa[s.closureId].push(s);
+    });
+    return mapa;
+  },[programa]);
+
+  const handleAgregarSemana = (closureId) => {
+    const hoyLocal = new Date().toISOString().slice(0,10);
+    setClosureIdParaSemana(closureId);
+    setEditandoSemana({
+      id:"", closureId,
+      fechaSemana: getMondayStr(hoyLocal),
+      cajasPorFormato:{}, estado:"borrador", observ:"",
+      fechaCreacion: new Date().toISOString(),
+    });
+  };
+  const handleEditarSemana  = (sem) => { setClosureIdParaSemana(sem.closureId); setEditandoSemana(sem); };
+  const handleEliminarSemana = (sem) => {
+    if(!window.confirm("¿Eliminar esta semana del programa?")) return;
+    setPrograma(prev=>prev.filter(s=>s.id!==sem.id));
+  };
+  const handleGuardarSemana = (sem) => {
+    const semFinal = {...sem, fechaSemana:getMondayStr(sem.fechaSemana), fechaActualizacion:new Date().toISOString()};
+    if(!sem.id) setPrograma(prev=>[...prev, {...semFinal, id:uid()}]);
+    else        setPrograma(prev=>prev.map(s=>s.id===sem.id?semFinal:s));
+    setEditandoSemana(null); setClosureIdParaSemana(null);
+  };
+  const handleCancelarSemana = () => { setEditandoSemana(null); setClosureIdParaSemana(null); };
 
   const hoy = new Date().toISOString().slice(0,10);
   const clientesConDocsFaltantes = clientes.filter(c =>
@@ -1888,12 +2260,67 @@ export default function FriskuComercialModule({
           </div>
         )}
         {tab === "programa" && (
-          <Placeholder
-            titulo="Programa comercial semanal"
-            icono="📅"
-            fase="Fase 4"
-            descripcion="Planificación semanal de envíos por exportadora × cliente × especie. Punto de partida para las Órdenes de Embarque."
-          />
+          <div>
+            {/* Filtros */}
+            <div style={{display:"flex", flexWrap:"wrap", gap:8, marginBottom:16, alignItems:"center"}}>
+              <select value={filtroProgramaTemp} onChange={e=>setFiltroProgramaTemp(e.target.value)} style={{...inputSt, maxWidth:160, fontSize:11}}>
+                <option value="">Todas las temporadas</option>
+                {temporadas.map(t=><option key={t} value={t}>Temporada {t}</option>)}
+              </select>
+              <select value={filtroProgramaExp} onChange={e=>setFiltroProgramaExp(e.target.value)} style={{...inputSt, maxWidth:180, fontSize:11}}>
+                <option value="">Todas las exportadoras</option>
+                {exportadoras.filter(e=>e.activo!==false).sort((a,b)=>(a.nombre||"").localeCompare(b.nombre||"")).map(e=><option key={e.id} value={e.id}>{e.nombre}</option>)}
+              </select>
+              <select value={filtroProgramaCli} onChange={e=>setFiltroProgramaCli(e.target.value)} style={{...inputSt, maxWidth:180, fontSize:11}}>
+                <option value="">Todos los clientes</option>
+                {clientes.filter(c=>c.activo!==false).sort((a,b)=>(a.nombre||"").localeCompare(b.nombre||"")).map(c=><option key={c.id} value={c.id}>{c.nombre}</option>)}
+              </select>
+              <select value={filtroProgramaEsp} onChange={e=>setFiltroProgramaEsp(e.target.value)} style={{...inputSt, maxWidth:140, fontSize:11}}>
+                <option value="">Todas las especies</option>
+                {especies.map(e=><option key={e.codigo} value={e.codigo}>{e.icono} {e.nombreEs}</option>)}
+              </select>
+              {(filtroProgramaTemp||filtroProgramaExp||filtroProgramaCli||filtroProgramaEsp) && (
+                <button onClick={()=>{setFiltroProgramaTemp(""); setFiltroProgramaExp(""); setFiltroProgramaCli(""); setFiltroProgramaEsp("");}}
+                  style={{...btnSt(C.muted,true), fontSize:11}}>✕ Limpiar</button>
+              )}
+              <span style={{marginLeft:"auto", fontSize:11, color:C.muted}}>
+                {closuresParaPrograma.length} Business Closure{closuresParaPrograma.length!==1?"s":""}
+              </span>
+            </div>
+
+            {/* Paneles por closure */}
+            {closuresParaPrograma.length === 0 ? (
+              contratos.length === 0 ? (
+                <div style={{padding:40, textAlign:"center", color:C.muted, fontSize:13}}>
+                  No hay Business Closures registrados. Crea uno en el tab "📄 Contratos".
+                </div>
+              ) : (
+                <div style={{padding:40, textAlign:"center", color:C.muted, fontSize:13}}>
+                  Ningún Business Closure coincide con los filtros seleccionados.
+                </div>
+              )
+            ) : (
+              closuresParaPrograma.map(bc=>(
+                <ClosureProgramaPanel
+                  key={bc.id}
+                  closure={bc}
+                  semanas={semanasPorClosure[bc.id]||[]}
+                  tiposEmbalaje={tiposEmbalaje}
+                  exportadoras={exportadoras}
+                  clientes={clientes}
+                  especies={especies}
+                  canEdit={permPrograma.canEdit}
+                  editandoSemana={editandoSemana}
+                  closureIdParaSemana={closureIdParaSemana}
+                  onAgregarSemana={handleAgregarSemana}
+                  onEditarSemana={handleEditarSemana}
+                  onEliminarSemana={handleEliminarSemana}
+                  onGuardarSemana={handleGuardarSemana}
+                  onCancelarSemana={handleCancelarSemana}
+                />
+              ))
+            )}
+          </div>
         )}
         {tab === "embarques" && (
           <Placeholder
