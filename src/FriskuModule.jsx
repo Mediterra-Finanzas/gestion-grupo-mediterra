@@ -529,6 +529,44 @@ export const SHIPPING_LINES_DEFAULT = [
 ];
 
 // ═══════════════════════════════════════════════════════════════════
+// LÍNEAS AÉREAS — cargueras relevantes para fruta fresca perecedera
+// Códigos: IATA (2 letras) cuando aplica + ICAO (3 letras) opcional
+// ═══════════════════════════════════════════════════════════════════
+export const LINEAS_AEREAS_DEFAULT = [
+  // Cargueras puras (todo-carga)
+  {codigo:"CV", nombre:"Cargolux",                paisCodigo:"LU", website:"cargolux.com",          observ:"Carguera pura, hub Luxemburgo"},
+  {codigo:"FX", nombre:"FedEx Express",           paisCodigo:"US", website:"fedex.com",             observ:"Red global express"},
+  {codigo:"5X", nombre:"UPS Airlines",            paisCodigo:"US", website:"ups.com",               observ:"Red global express"},
+  {codigo:"D0", nombre:"DHL Aviation",            paisCodigo:"DE", website:"dhl.com",               observ:"Carguera express global"},
+  // Cargueras de aerolíneas comerciales — Sudamérica (clave para Chile/Perú)
+  {codigo:"LA", nombre:"LATAM Cargo",             paisCodigo:"CL", website:"latamcargo.com",        observ:"Principal exportación fruta Chile/Perú"},
+  {codigo:"AV", nombre:"Avianca Cargo",           paisCodigo:"CO", website:"aviancacargo.com",      observ:""},
+  {codigo:"AM", nombre:"Aeroméxico Cargo",        paisCodigo:"MX", website:"aeromexicocargo.com",   observ:""},
+  // Medio Oriente — hubs clave hacia Asia
+  {codigo:"EK", nombre:"Emirates SkyCargo",       paisCodigo:"AE", website:"emirates.com/cargo",    observ:"Hub Dubai, fuerte en perecederos"},
+  {codigo:"QR", nombre:"Qatar Airways Cargo",     paisCodigo:"QA", website:"qrcargo.com",           observ:"Hub Doha"},
+  {codigo:"EY", nombre:"Etihad Cargo",            paisCodigo:"AE", website:"etihadcargo.com",       observ:"Hub Abu Dhabi"},
+  {codigo:"TK", nombre:"Turkish Cargo",           paisCodigo:"TR", website:"turkishcargo.com",      observ:"Hub Estambul, red amplia"},
+  // Europa
+  {codigo:"LH", nombre:"Lufthansa Cargo",         paisCodigo:"DE", website:"lufthansa-cargo.com",   observ:"Hub Frankfurt, líder europea"},
+  {codigo:"KL", nombre:"KLM Cargo",               paisCodigo:"NL", website:"afklcargo.com",         observ:"Hub Amsterdam"},
+  {codigo:"AF", nombre:"Air France Cargo",        paisCodigo:"FR", website:"afklcargo.com",         observ:"Hub París CDG"},
+  {codigo:"BA", nombre:"IAG Cargo (BA)",          paisCodigo:"GB", website:"iagcargo.com",          observ:"Hub Londres LHR"},
+  {codigo:"IB", nombre:"IAG Cargo (Iberia)",      paisCodigo:"ES", website:"iagcargo.com",          observ:"Hub Madrid, fuerte LATAM"},
+  // Asia
+  {codigo:"CX", nombre:"Cathay Pacific Cargo",    paisCodigo:"HK", website:"cathaycargo.com",       observ:"Hub Hong Kong"},
+  {codigo:"SQ", nombre:"Singapore Airlines Cargo",paisCodigo:"SG", website:"siacargo.com",          observ:"Hub Singapur"},
+  {codigo:"KE", nombre:"Korean Air Cargo",        paisCodigo:"KR", website:"cargo.koreanair.com",   observ:"Hub Incheon"},
+  {codigo:"CZ", nombre:"China Southern Cargo",    paisCodigo:"CN", website:"csair.com",             observ:"Hub Guangzhou"},
+  {codigo:"CI", nombre:"China Airlines Cargo",    paisCodigo:"TW", website:"china-airlines.com",    observ:"Hub Taipei"},
+  {codigo:"NH", nombre:"ANA Cargo",               paisCodigo:"JP", website:"anacargo.jp",           observ:"Hub Narita"},
+  // USA pasajeros con división cargo
+  {codigo:"AA", nombre:"American Airlines Cargo", paisCodigo:"US", website:"aacargo.com",           observ:"Hub Miami / DFW"},
+  {codigo:"UA", nombre:"United Cargo",            paisCodigo:"US", website:"unitedcargo.com",       observ:""},
+  {codigo:"DL", nombre:"Delta Cargo",             paisCodigo:"US", website:"deltacargo.com",        observ:""},
+];
+
+// ═══════════════════════════════════════════════════════════════════
 // TIPOS DE EMBARQUE
 // ═══════════════════════════════════════════════════════════════════
 export const TIPOS_EMBARQUE_DEFAULT = [
@@ -570,25 +608,75 @@ export const TIPOS_EMBALAJE_DEFAULT = [
 // MERCADOS DE DESTINO — agrupaciones comerciales
 // ═══════════════════════════════════════════════════════════════════
 export const MERCADOS_DEFAULT = [
+  // Norteamérica
   {codigo:"USA",   nombre:"Estados Unidos",        region:"Norteamérica", paisesCodigos:["US"]},
   {codigo:"CAN",   nombre:"Canadá",                region:"Norteamérica", paisesCodigos:["CA"]},
   {codigo:"MEX",   nombre:"México",                region:"Norteamérica", paisesCodigos:["MX"]},
-  {codigo:"UE",    nombre:"Unión Europea",         region:"Europa",       paisesCodigos:["DE","ES","FR","IT","NL","BE","PT","AT","DK","SE","FI","GR","IE","PL"]},
+  // Europa Occidental — separados por país para precios/condiciones distintas
   {codigo:"UK",    nombre:"Reino Unido",           region:"Europa",       paisesCodigos:["GB"]},
-  {codigo:"CH-EU", nombre:"Suiza/Noruega",         region:"Europa",       paisesCodigos:["CH","NO"]},
-  {codigo:"RU",    nombre:"Rusia / CIS",           region:"Europa/Asia",  paisesCodigos:["RU","UA"]},
+  {codigo:"DE",    nombre:"Alemania",              region:"Europa",       paisesCodigos:["DE"]},
+  {codigo:"NL",    nombre:"Países Bajos",          region:"Europa",       paisesCodigos:["NL"]},
+  {codigo:"FR",    nombre:"Francia",               region:"Europa",       paisesCodigos:["FR"]},
+  {codigo:"ES",    nombre:"España",                region:"Europa",       paisesCodigos:["ES"]},
+  {codigo:"IT",    nombre:"Italia",                region:"Europa",       paisesCodigos:["IT"]},
+  {codigo:"BE",    nombre:"Bélgica",               region:"Europa",       paisesCodigos:["BE"]},
+  {codigo:"PT",    nombre:"Portugal",              region:"Europa",       paisesCodigos:["PT"]},
+  {codigo:"IE",    nombre:"Irlanda",               region:"Europa",       paisesCodigos:["IE"]},
+  {codigo:"CH",    nombre:"Suiza",                 region:"Europa",       paisesCodigos:["CH"]},
+  {codigo:"AT",    nombre:"Austria",               region:"Europa",       paisesCodigos:["AT"]},
+  // Europa Nórdica
+  {codigo:"DK",    nombre:"Dinamarca",             region:"Europa",       paisesCodigos:["DK"]},
+  {codigo:"SE",    nombre:"Suecia",                region:"Europa",       paisesCodigos:["SE"]},
+  {codigo:"NO",    nombre:"Noruega",               region:"Europa",       paisesCodigos:["NO"]},
+  {codigo:"FI",    nombre:"Finlandia",             region:"Europa",       paisesCodigos:["FI"]},
+  // Europa Sur / Este
+  {codigo:"GR",    nombre:"Grecia",                region:"Europa",       paisesCodigos:["GR"]},
+  {codigo:"PL",    nombre:"Polonia",               region:"Europa",       paisesCodigos:["PL"]},
+  {codigo:"CZ",    nombre:"República Checa",       region:"Europa",       paisesCodigos:["CZ"]},
+  {codigo:"HU",    nombre:"Hungría",               region:"Europa",       paisesCodigos:["HU"]},
+  {codigo:"RO",    nombre:"Rumania",               region:"Europa",       paisesCodigos:["RO"]},
+  // Eurasia
+  {codigo:"RU",    nombre:"Rusia",                 region:"Europa/Asia",  paisesCodigos:["RU"]},
+  {codigo:"UA",    nombre:"Ucrania",               region:"Europa",       paisesCodigos:["UA"]},
+  {codigo:"TR",    nombre:"Turquía",               region:"Europa/Asia",  paisesCodigos:["TR"]},
+  // Asia
   {codigo:"CHN",   nombre:"China Continental",     region:"Asia",         paisesCodigos:["CN"]},
   {codigo:"HK",    nombre:"Hong Kong",             region:"Asia",         paisesCodigos:["HK"]},
   {codigo:"TW",    nombre:"Taiwán",                region:"Asia",         paisesCodigos:["TW"]},
   {codigo:"JP",    nombre:"Japón",                 region:"Asia",         paisesCodigos:["JP"]},
   {codigo:"KR",    nombre:"Corea del Sur",         region:"Asia",         paisesCodigos:["KR"]},
-  {codigo:"SE-ASI",nombre:"Sudeste Asiático",      region:"Asia",         paisesCodigos:["SG","MY","TH","VN","PH","ID"]},
+  {codigo:"SG",    nombre:"Singapur",              region:"Asia",         paisesCodigos:["SG"]},
+  {codigo:"MY",    nombre:"Malasia",               region:"Asia",         paisesCodigos:["MY"]},
+  {codigo:"TH",    nombre:"Tailandia",             region:"Asia",         paisesCodigos:["TH"]},
+  {codigo:"VN",    nombre:"Vietnam",               region:"Asia",         paisesCodigos:["VN"]},
+  {codigo:"PH",    nombre:"Filipinas",             region:"Asia",         paisesCodigos:["PH"]},
+  {codigo:"ID",    nombre:"Indonesia",             region:"Asia",         paisesCodigos:["ID"]},
   {codigo:"IND",   nombre:"India",                 region:"Asia",         paisesCodigos:["IN"]},
-  {codigo:"ME",    nombre:"Medio Oriente",         region:"Medio Oriente",paisesCodigos:["AE","SA","QA","KW","OM","BH","IL","JO","LB"]},
-  {codigo:"AFR",   nombre:"África",                region:"África",       paisesCodigos:["ZA","EG","MA","KE","NG"]},
-  {codigo:"OCE",   nombre:"Oceanía",               region:"Oceanía",      paisesCodigos:["AU","NZ"]},
-  {codigo:"LATAM-N", nombre:"Latinoamérica Norte", region:"Sudamérica",   paisesCodigos:["CO","EC","VE","PA","CR"]},
+  // Medio Oriente — separados por país por practicidad logística
+  {codigo:"AE",    nombre:"Emiratos Árabes Unidos",region:"Medio Oriente",paisesCodigos:["AE"]},
+  {codigo:"SA",    nombre:"Arabia Saudita",        region:"Medio Oriente",paisesCodigos:["SA"]},
+  {codigo:"QA",    nombre:"Catar",                 region:"Medio Oriente",paisesCodigos:["QA"]},
+  {codigo:"KW",    nombre:"Kuwait",                region:"Medio Oriente",paisesCodigos:["KW"]},
+  {codigo:"IL",    nombre:"Israel",                region:"Medio Oriente",paisesCodigos:["IL"]},
+  {codigo:"OM",    nombre:"Omán",                  region:"Medio Oriente",paisesCodigos:["OM"]},
+  {codigo:"BH",    nombre:"Baréin",                region:"Medio Oriente",paisesCodigos:["BH"]},
+  // África
+  {codigo:"ZA",    nombre:"Sudáfrica",             region:"África",       paisesCodigos:["ZA"]},
+  {codigo:"EG",    nombre:"Egipto",                region:"África",       paisesCodigos:["EG"]},
+  {codigo:"MA",    nombre:"Marruecos",             region:"África",       paisesCodigos:["MA"]},
+  {codigo:"KE",    nombre:"Kenia",                 region:"África",       paisesCodigos:["KE"]},
+  {codigo:"NG",    nombre:"Nigeria",               region:"África",       paisesCodigos:["NG"]},
+  // Oceanía
+  {codigo:"AU",    nombre:"Australia",             region:"Oceanía",      paisesCodigos:["AU"]},
+  {codigo:"NZ",    nombre:"Nueva Zelanda",         region:"Oceanía",      paisesCodigos:["NZ"]},
+  // Sudamérica (otros mercados destino)
   {codigo:"BR",    nombre:"Brasil",                region:"Sudamérica",   paisesCodigos:["BR"]},
+  {codigo:"CO",    nombre:"Colombia",              region:"Sudamérica",   paisesCodigos:["CO"]},
+  {codigo:"EC",    nombre:"Ecuador",               region:"Sudamérica",   paisesCodigos:["EC"]},
+  {codigo:"VE",    nombre:"Venezuela",             region:"Sudamérica",   paisesCodigos:["VE"]},
+  {codigo:"PA",    nombre:"Panamá",                region:"Sudamérica",   paisesCodigos:["PA"]},
+  {codigo:"CR",    nombre:"Costa Rica",            region:"Sudamérica",   paisesCodigos:["CR"]},
+  // Doméstico
   {codigo:"DOM",   nombre:"Doméstico",             region:"Local",        paisesCodigos:[]},
 ];
 
@@ -628,7 +716,7 @@ export const ESPECIES_DEFAULT = [
   {codigo:"CHE", nombreEs:"Cerezas",     nombreEn:"Cherries",     icono:"🍒", familia:"Carozos",    kgPorCajaDefault:5.0,  unidadComercial:"kg", temporadaInicio:"Nov", temporadaFin:"Feb", observ:"Especie principal Allegria"},
   {codigo:"BLB", nombreEs:"Arándanos",   nombreEn:"Blueberries",  icono:"🫐", familia:"Berries",    kgPorCajaDefault:1.5,  unidadComercial:"kg", temporadaInicio:"Oct", temporadaFin:"Mar", observ:"Allpa Perú + Chile"},
   {codigo:"GRP", nombreEs:"Uvas",        nombreEn:"Grapes",       icono:"🍇", familia:"Berries",    kgPorCajaDefault:8.2,  unidadComercial:"kg", temporadaInicio:"Dic", temporadaFin:"Abr", observ:""},
-  {codigo:"PLM", nombreEs:"Ciruelas",    nombreEn:"Plums",        icono:"🍑", familia:"Carozos",    kgPorCajaDefault:5.0,  unidadComercial:"kg", temporadaInicio:"Dic", temporadaFin:"Mar", observ:""},
+  {codigo:"PLM", nombreEs:"Ciruelas",    nombreEn:"Plums",        icono:"🟣", familia:"Carozos",    kgPorCajaDefault:5.0,  unidadComercial:"kg", temporadaInicio:"Dic", temporadaFin:"Mar", observ:"Sin emoji oficial — se usa círculo morado"},
   {codigo:"PCH", nombreEs:"Duraznos",    nombreEn:"Peaches",      icono:"🍑", familia:"Carozos",    kgPorCajaDefault:5.0,  unidadComercial:"kg", temporadaInicio:"Nov", temporadaFin:"Feb", observ:""},
   {codigo:"NCT", nombreEs:"Nectarinas",  nombreEn:"Nectarines",   icono:"🍑", familia:"Carozos",    kgPorCajaDefault:5.0,  unidadComercial:"kg", temporadaInicio:"Nov", temporadaFin:"Feb", observ:""},
   {codigo:"KWI", nombreEs:"Kiwi",        nombreEn:"Kiwifruit",    icono:"🥝", familia:"Otros",      kgPorCajaDefault:3.0,  unidadComercial:"kg", temporadaInicio:"Abr", temporadaFin:"Oct", observ:""},
@@ -640,7 +728,7 @@ export const ESPECIES_DEFAULT = [
   {codigo:"MND", nombreEs:"Mandarinas",  nombreEn:"Mandarins",    icono:"🍊", familia:"Cítricos",   kgPorCajaDefault:10.0, unidadComercial:"kg", temporadaInicio:"May", temporadaFin:"Sep", observ:""},
   {codigo:"MNG", nombreEs:"Mango",       nombreEn:"Mango",        icono:"🥭", familia:"Tropicales", kgPorCajaDefault:4.0,  unidadComercial:"kg", temporadaInicio:"Oct", temporadaFin:"Feb", observ:""},
   {codigo:"STR", nombreEs:"Frutillas",   nombreEn:"Strawberries", icono:"🍓", familia:"Berries",    kgPorCajaDefault:2.5,  unidadComercial:"kg", temporadaInicio:"Sep", temporadaFin:"Feb", observ:""},
-  {codigo:"RSP", nombreEs:"Frambuesas",  nombreEn:"Raspberries",  icono:"🫐", familia:"Berries",    kgPorCajaDefault:1.5,  unidadComercial:"kg", temporadaInicio:"Nov", temporadaFin:"Mar", observ:""},
+  {codigo:"RSP", nombreEs:"Frambuesas",  nombreEn:"Raspberries",  icono:"🩷", familia:"Berries",    kgPorCajaDefault:1.5,  unidadComercial:"kg", temporadaInicio:"Nov", temporadaFin:"Mar", observ:"Sin emoji oficial — se usa corazón rosa"},
 ];
 
 // ═══════════════════════════════════════════════════════════════════
@@ -1482,6 +1570,7 @@ export default function FriskuMaestrosModule({canEdit=true, onBack}) {
   const [puertos,        setPuertos]        = useState([]);
   const [aeropuertos,    setAeropuertos]    = useState([]);
   const [shippingLines,  setShippingLines]  = useState([]);
+  const [lineasAereas,   setLineasAereas]   = useState([]);
   const [tiposEmbarque,  setTiposEmbarque]  = useState([]);
   const [tiposEmbalaje,  setTiposEmbalaje]  = useState([]);
   const [mercados,       setMercados]       = useState([]);
@@ -1502,12 +1591,13 @@ export default function FriskuMaestrosModule({canEdit=true, onBack}) {
       // y los retorna (queda persistido para todos los usuarios).
       // dbLoadMaestro normal para los que NO se siembran (Ciudades vacío
       // intencionalmente, TC es objeto y se carga vía APIs externas).
-      const [p, c, pu, ae, sl, te, tb, me, mo, es, tc, cd] = await Promise.all([
+      const [p, c, pu, ae, sl, la, te, tb, me, mo, es, tc, cd] = await Promise.all([
         loadConSeed("maestro_paises",         PAISES_DEFAULT),
         loadConSeed("maestro_ciudades",       CIUDADES_DEFAULT),
         loadConSeed("maestro_puertos",        PUERTOS_DEFAULT),
         loadConSeed("maestro_aeropuertos",    AEROPUERTOS_DEFAULT),
         loadConSeed("maestro_shipping_lines", SHIPPING_LINES_DEFAULT),
+        loadConSeed("maestro_lineas_aereas",  LINEAS_AEREAS_DEFAULT),
         loadConSeed("maestro_tipos_embarque", TIPOS_EMBARQUE_DEFAULT),
         loadConSeed("maestro_tipos_embalaje", TIPOS_EMBALAJE_DEFAULT),
         loadConSeed("maestro_mercados",       MERCADOS_DEFAULT),
@@ -1524,6 +1614,7 @@ export default function FriskuMaestrosModule({canEdit=true, onBack}) {
       setPuertos(Array.isArray(pu) ? pu : PUERTOS_DEFAULT);
       setAeropuertos(Array.isArray(ae) ? ae : AEROPUERTOS_DEFAULT);
       setShippingLines(Array.isArray(sl) ? sl : SHIPPING_LINES_DEFAULT);
+      setLineasAereas(Array.isArray(la) ? la : LINEAS_AEREAS_DEFAULT);
       setTiposEmbarque(Array.isArray(te) ? te : TIPOS_EMBARQUE_DEFAULT);
       setTiposEmbalaje(Array.isArray(tb) ? tb : TIPOS_EMBALAJE_DEFAULT);
       setMercados(Array.isArray(me) ? me : MERCADOS_DEFAULT);
@@ -1556,6 +1647,7 @@ export default function FriskuMaestrosModule({canEdit=true, onBack}) {
   useAutoSave("maestro_puertos", puertos);
   useAutoSave("maestro_aeropuertos", aeropuertos);
   useAutoSave("maestro_shipping_lines", shippingLines);
+  useAutoSave("maestro_lineas_aereas", lineasAereas);
   useAutoSave("maestro_tipos_embarque", tiposEmbarque);
   useAutoSave("maestro_tipos_embalaje", tiposEmbalaje);
   useAutoSave("maestro_mercados", mercados);
@@ -1608,6 +1700,7 @@ export default function FriskuMaestrosModule({canEdit=true, onBack}) {
     {id:"puertos",         label:"🚢 Puertos",           count:puertos.length},
     {id:"aeropuertos",     label:"✈️ Aeropuertos",       count:aeropuertos.length},
     {id:"shipping",        label:"⚓ Shipping Lines",    count:shippingLines.length},
+    {id:"lineas_aereas",   label:"✈️ Líneas Aéreas",     count:lineasAereas.length},
     {id:"tipos_embarque",  label:"📦 Tipos de Embarque", count:tiposEmbarque.length},
     {id:"especies",        label:"🍒 Especies",          count:especies.length},
     {id:"tipos_embalaje",  label:"📐 Tipos de Embalaje", count:tiposEmbalaje.length},
@@ -1764,6 +1857,27 @@ export default function FriskuMaestrosModule({canEdit=true, onBack}) {
           defaultItem={{codigo:"", nombre:"", paisCodigo:"", website:"", observ:""}}
           columnas={[
             {key:"codigo",     label:"SCAC", align:"center"},
+            {key:"nombre",     label:"Nombre"},
+            {key:"paisCodigo", label:"País Origen", options:opcionesPaises, render:renderPais},
+            {key:"website",    label:"Website"},
+            {key:"observ",     label:"Observación"},
+          ]}
+        />
+      )}
+
+      {tab === "lineas_aereas" && (
+        <TablaMaestro
+          titulo="Líneas Aéreas"
+          icono="✈️"
+          datos={lineasAereas}
+          setDatos={setLineasAereas}
+          canEdit={canEdit}
+          presetsParcial={true}
+          onPresetRestore={()=>recargarPresets(lineasAereas, LINEAS_AEREAS_DEFAULT, setLineasAereas)}
+          busquedaPlaceholder="Buscar línea aérea..."
+          defaultItem={{codigo:"", nombre:"", paisCodigo:"", website:"", observ:""}}
+          columnas={[
+            {key:"codigo",     label:"IATA", align:"center"},
             {key:"nombre",     label:"Nombre"},
             {key:"paisCodigo", label:"País Origen", options:opcionesPaises, render:renderPais},
             {key:"website",    label:"Website"},
