@@ -888,6 +888,265 @@ function ExportadoraCard({exportadora, especies, paises, monedas, onEditar, onEl
 }
 
 // ═══════════════════════════════════════════════════════════════════
+// BUSINESS CLOSURE FORM
+// ═══════════════════════════════════════════════════════════════════
+function ClosureForm({closure, exportadoras, clientes, especies, tiposEmbalaje, monedas, onGuardar, onCancelar}) {
+  const [buf, setBuf] = useState(()=>JSON.parse(JSON.stringify(closure)));
+  const setCampo = (k, v) => setBuf(prev=>({...prev, [k]:v}));
+
+  const setCajas = (fmtCodigo, val) => setBuf(prev=>{
+    const cpf = {...(prev.cajasPorFormato||{})};
+    const n = Number(val);
+    if(!val || n===0) delete cpf[fmtCodigo]; else cpf[fmtCodigo]=n;
+    return {...prev, cajasPorFormato:cpf};
+  });
+
+  const especieObj   = especies.find(e=>e.codigo===buf.especieCodigo);
+  const formatosDisp = tiposEmbalaje.filter(t=>
+    t.especieCodigo===buf.especieCodigo || (especieObj && t.especie===especieObj.nombreEs)
+  );
+  const totalCajas = Object.values(buf.cajasPorFormato||{}).reduce((s,v)=>s+Number(v||0),0);
+
+  const handleGuardar = () => {
+    if(!buf.exportadoraId)   { alert("Selecciona exportadora"); return; }
+    if(!buf.clienteId)       { alert("Selecciona cliente"); return; }
+    if(!buf.especieCodigo)   { alert("Selecciona especie"); return; }
+    if(!buf.temporada?.trim()){ alert("Ingresa la temporada"); return; }
+    if(totalCajas===0)       { alert("Ingresa cajas en al menos un formato"); return; }
+    onGuardar({...buf, fechaActualizacion:new Date().toISOString()});
+  };
+
+  return (
+    <div style={{background:`${C.blue}11`, padding:16, borderRadius:8, border:`1px solid ${C.blue}44`, marginBottom:14}}>
+      <h3 style={{margin:"0 0 14px", color:C.blue, fontSize:14, display:"flex", alignItems:"center", gap:8}}>
+        <span>{closure.id?"✎":"+"}</span>
+        <span>{closure.id?"Editando Business Closure":"Nuevo Business Closure"}</span>
+      </h3>
+
+      {/* Temporada · Código · Estado */}
+      <div style={{display:"grid", gridTemplateColumns:"1fr 200px 140px", gap:10, marginBottom:10}}>
+        <div>
+          <div style={lblSt}>Temporada *</div>
+          <input value={buf.temporada||""} onChange={e=>setCampo("temporada",e.target.value)}
+            placeholder="Cerezas 2026/2027" style={inputSt}/>
+        </div>
+        <div>
+          <div style={lblSt}>Código (opcional)</div>
+          <input value={buf.codigo||""} onChange={e=>setCampo("codigo",e.target.value)}
+            placeholder="BC-CHE-2026-001" style={inputSt}/>
+        </div>
+        <div>
+          <div style={lblSt}>Estado</div>
+          <select value={buf.estado||"activo"} onChange={e=>setCampo("estado",e.target.value)} style={inputSt}>
+            <option value="activo">● Activo</option>
+            <option value="cerrado">✓ Cerrado</option>
+            <option value="cancelado">✗ Cancelado</option>
+          </select>
+        </div>
+      </div>
+
+      {/* Exportadora · Cliente */}
+      <div style={{display:"grid", gridTemplateColumns:"1fr 1fr", gap:10, marginBottom:10}}>
+        <div>
+          <div style={lblSt}>Exportadora *</div>
+          <select value={buf.exportadoraId||""} onChange={e=>setCampo("exportadoraId",e.target.value)} style={inputSt}>
+            <option value="">— seleccionar —</option>
+            {exportadoras.map(e=><option key={e.id} value={e.id}>{e.nombre}</option>)}
+          </select>
+        </div>
+        <div>
+          <div style={lblSt}>Cliente *</div>
+          <select value={buf.clienteId||""} onChange={e=>setCampo("clienteId",e.target.value)} style={inputSt}>
+            <option value="">— seleccionar —</option>
+            {clientes.map(c=><option key={c.id} value={c.id}>{c.nombre}</option>)}
+          </select>
+        </div>
+      </div>
+
+      {/* Especie · Precio · Moneda · Condiciones */}
+      <div style={{display:"grid", gridTemplateColumns:"1fr 110px 120px 130px", gap:10, marginBottom:10}}>
+        <div>
+          <div style={lblSt}>Especie *</div>
+          <select value={buf.especieCodigo||""}
+            onChange={e=>setBuf(prev=>({...prev, especieCodigo:e.target.value, cajasPorFormato:{}}))}
+            style={inputSt}>
+            <option value="">— seleccionar —</option>
+            {especies.map(e=><option key={e.codigo} value={e.codigo}>{e.icono} {e.nombreEs}</option>)}
+          </select>
+        </div>
+        <div>
+          <div style={lblSt}>Precio ref.</div>
+          <input type="number" step="0.01" value={buf.precioRef??""} placeholder="8.50"
+            onChange={e=>setCampo("precioRef", e.target.value===""?null:Number(e.target.value))}
+            style={inputSt}/>
+        </div>
+        <div>
+          <div style={lblSt}>Moneda</div>
+          <select value={buf.monedaCodigo||"USD"} onChange={e=>setCampo("monedaCodigo",e.target.value)} style={inputSt}>
+            {monedas.map(m=><option key={m.codigo} value={m.codigo}>{m.simbolo} {m.codigo}</option>)}
+          </select>
+        </div>
+        <div>
+          <div style={lblSt}>Condiciones</div>
+          <select value={buf.condiciones||"FOB"} onChange={e=>setCampo("condiciones",e.target.value)} style={inputSt}>
+            {["FOB","CIF","CFR","EXW","DAP"].map(c=><option key={c}>{c}</option>)}
+          </select>
+        </div>
+      </div>
+
+      {/* Fechas */}
+      <div style={{display:"grid", gridTemplateColumns:"1fr 1fr", gap:10, marginBottom:10}}>
+        <div>
+          <div style={lblSt}>Inicio temporada</div>
+          <input type="date" value={buf.fechaInicio||""} onChange={e=>setCampo("fechaInicio",e.target.value)} style={inputSt}/>
+        </div>
+        <div>
+          <div style={lblSt}>Fin temporada</div>
+          <input type="date" value={buf.fechaFin||""} onChange={e=>setCampo("fechaFin",e.target.value)} style={inputSt}/>
+        </div>
+      </div>
+
+      {/* Cajas por formato */}
+      {buf.especieCodigo && (
+        <div style={{marginBottom:10}}>
+          <div style={{...lblSt, marginBottom:6, display:"flex", alignItems:"center", gap:10}}>
+            Cajas comprometidas por formato
+            {totalCajas>0 && <span style={{color:C.green, fontWeight:700, fontSize:11, textTransform:"none"}}>
+              Total: {totalCajas.toLocaleString("es-CL")} cajas
+            </span>}
+          </div>
+          {formatosDisp.length===0 ? (
+            <div style={{color:C.muted, fontSize:11, fontStyle:"italic", padding:"8px 12px", background:C.card, borderRadius:6}}>
+              Sin formatos para esta especie. Agrégalos en Maestros → Tipos de Embalaje.
+            </div>
+          ) : (
+            <div style={{display:"grid", gridTemplateColumns:"repeat(auto-fill, minmax(175px, 1fr))", gap:8}}>
+              {formatosDisp.map(fmt=>{
+                const val = (buf.cajasPorFormato||{})[fmt.codigo];
+                return (
+                  <div key={fmt.codigo} style={{background:C.card, padding:10, borderRadius:6, border:`1px solid ${val?C.blue:C.border}`}}>
+                    <div style={{fontSize:11, color:C.text, fontWeight:600, marginBottom:2}}>{fmt.nombre}</div>
+                    <div style={{fontSize:9, color:C.muted, marginBottom:6}}>{fmt.codigo}</div>
+                    <input type="number" min="0" step="1" value={val??""} placeholder="cajas"
+                      onChange={e=>setCajas(fmt.codigo, e.target.value)} style={inputSt}/>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Observaciones */}
+      <div style={{marginBottom:14}}>
+        <div style={lblSt}>Observaciones</div>
+        <textarea value={buf.observ||""} onChange={e=>setCampo("observ",e.target.value)}
+          rows={2} style={{...inputSt, resize:"vertical", fontFamily:"inherit"}}/>
+      </div>
+
+      <div style={{display:"flex", gap:8, justifyContent:"flex-end"}}>
+        <button onClick={onCancelar} style={btnSt(C.muted,true)}>Cancelar</button>
+        <button onClick={handleGuardar} style={btnSt(C.green)}>✓ Guardar Business Closure</button>
+      </div>
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// BUSINESS CLOSURE CARD
+// ═══════════════════════════════════════════════════════════════════
+function ClosureCard({closure, exportadoras, clientes, especies, tiposEmbalaje, monedas, onEditar, onEliminar, canEdit}) {
+  const exportadora = exportadoras.find(e=>e.id===closure.exportadoraId);
+  const cliente     = clientes.find(c=>c.id===closure.clienteId);
+  const especie     = especies.find(e=>e.codigo===closure.especieCodigo);
+  const moneda      = monedas.find(m=>m.codigo===closure.monedaCodigo);
+  const totalCajas  = Object.values(closure.cajasPorFormato||{}).reduce((s,v)=>s+Number(v||0),0);
+
+  const formatosConCajas = Object.entries(closure.cajasPorFormato||{})
+    .map(([cod, cajas])=>({ fmt: tiposEmbalaje.find(t=>t.codigo===cod)||{nombre:cod,codigo:cod}, cajas:Number(cajas) }))
+    .filter(x=>x.cajas>0);
+
+  const estadoColor = {activo:C.green, cerrado:C.blue, cancelado:C.muted}[closure.estado||"activo"] || C.muted;
+  const estadoLabel = {activo:"● Activo", cerrado:"✓ Cerrado", cancelado:"✗ Cancelado"}[closure.estado||"activo"];
+
+  return (
+    <div style={{
+      background:C.card2, padding:14, borderRadius:10,
+      border:`1px solid ${closure.estado==="activo"?C.blue+"55":C.border}`,
+      opacity: closure.estado==="cancelado"?0.6:1,
+    }}>
+      {/* Exportadora → Cliente */}
+      <div style={{display:"flex", justifyContent:"space-between", alignItems:"flex-start", gap:10, marginBottom:10}}>
+        <div style={{flex:1}}>
+          <div style={{fontSize:13, fontWeight:700, color:C.text, display:"flex", alignItems:"center", gap:6, flexWrap:"wrap"}}>
+            <span>{exportadora?.nombre||<em style={{color:C.muted}}>—</em>}</span>
+            <span style={{color:C.muted, fontSize:11, fontWeight:400}}>→</span>
+            <span>{cliente?.nombre||<em style={{color:C.muted}}>—</em>}</span>
+          </div>
+          <div style={{fontSize:11, color:C.muted, marginTop:3, display:"flex", gap:8, flexWrap:"wrap", alignItems:"center"}}>
+            {especie && <span>{especie.icono} {especie.nombreEs}</span>}
+            <span>· {closure.temporada}</span>
+            {closure.codigo && <span style={{color:C.muted2}}>· {closure.codigo}</span>}
+          </div>
+        </div>
+        <div style={{display:"flex", flexDirection:"column", alignItems:"flex-end", gap:4}}>
+          <span style={{fontSize:9, padding:"2px 8px", borderRadius:4, background:`${estadoColor}22`, color:estadoColor, border:`1px solid ${estadoColor}44`, fontWeight:700}}>
+            {estadoLabel}
+          </span>
+          {canEdit && (
+            <div style={{display:"flex", gap:4, marginTop:2}}>
+              <button onClick={onEditar} style={{...btnSt(C.blue,true), padding:"3px 8px", fontSize:10}}>✎</button>
+              <button onClick={onEliminar} style={{...btnSt(C.accent,true), padding:"3px 8px", fontSize:10}}>×</button>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Formatos y cajas */}
+      {formatosConCajas.length>0 && (
+        <div style={{display:"flex", flexWrap:"wrap", gap:4, marginBottom:10}}>
+          {formatosConCajas.map(({fmt,cajas})=>(
+            <span key={fmt.codigo} style={{padding:"3px 10px", borderRadius:4, fontSize:10, background:`${C.teal}22`, color:C.teal, border:`1px solid ${C.teal}33`}}>
+              {fmt.nombre}: {cajas.toLocaleString("es-CL")} cjs
+            </span>
+          ))}
+        </div>
+      )}
+
+      {/* KPIs */}
+      <div style={{display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:8, padding:"8px 0", borderTop:`1px solid ${C.border}`, fontSize:11}}>
+        <div>
+          <div style={{color:C.muted, fontSize:9, textTransform:"uppercase"}}>Total cajas</div>
+          <div style={{color:C.text, fontWeight:700, fontFamily:"monospace"}}>{totalCajas.toLocaleString("es-CL")}</div>
+        </div>
+        <div>
+          <div style={{color:C.muted, fontSize:9, textTransform:"uppercase"}}>Precio ref.</div>
+          <div style={{color:C.text, fontWeight:700, fontFamily:"monospace"}}>
+            {closure.precioRef!=null ? `${moneda?.simbolo||closure.monedaCodigo} ${Number(closure.precioRef).toFixed(2)}` : "—"}
+          </div>
+        </div>
+        <div>
+          <div style={{color:C.muted, fontSize:9, textTransform:"uppercase"}}>Condiciones</div>
+          <div style={{color:C.blue, fontWeight:700}}>{closure.condiciones||"—"}</div>
+        </div>
+      </div>
+
+      {(closure.fechaInicio||closure.fechaFin) && (
+        <div style={{fontSize:10, color:C.muted, marginTop:6, display:"flex", gap:10}}>
+          {closure.fechaInicio && <span>Inicio: {closure.fechaInicio}</span>}
+          {closure.fechaFin    && <span>Fin: {closure.fechaFin}</span>}
+        </div>
+      )}
+      {closure.observ && (
+        <div style={{marginTop:8, fontSize:11, color:C.muted, fontStyle:"italic", borderTop:`1px solid ${C.border}`, paddingTop:6}}>
+          {closure.observ}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════
 // PLACEHOLDER GENÉRICO — tabs que se construyen en fases siguientes
 // ═══════════════════════════════════════════════════════════════════
 function Placeholder({titulo, icono, fase, descripcion}) {
@@ -968,6 +1227,15 @@ export default function FriskuComercialModule({
   const [editandoExp, setEditandoExp] = useState(null);
   const [creandoExp, setCreandoExp] = useState(false);
 
+  // UI Business Closures
+  const [busquedaClosure, setBusquedaClosure]         = useState("");
+  const [filtroExpClosure, setFiltroExpClosure]       = useState("");
+  const [filtroCliClosure, setFiltroCliClosure]       = useState("");
+  const [filtroEspClosure, setFiltroEspClosure]       = useState("");
+  const [filtroEstadoClosure, setFiltroEstadoClosure] = useState("activo");
+  const [editandoClosure, setEditandoClosure]         = useState(null);
+  const [creandoClosure, setCreandoClosure]           = useState(false);
+
   // ── Carga inicial ──
   useEffect(()=>{
     let alive = true;
@@ -1032,7 +1300,7 @@ export default function FriskuComercialModule({
   // Refrescar maestros al entrar a tabs que los necesitan
   useEffect(()=>{
     if (cargando) return;
-    if (tab === "clientes" || tab === "exportadoras") {
+    if (tab === "clientes" || tab === "exportadoras" || tab === "contratos") {
       recargarMaestros();
     }
   },[tab, cargando, recargarMaestros]);
@@ -1185,6 +1453,47 @@ export default function FriskuComercialModule({
   };
 
   const totalExportadorasActivas = exportadoras.filter(e => e.activo !== false).length;
+
+  // ── Filtrado y handlers Business Closures ──
+  const closuresFiltrados = useMemo(()=>{
+    const q = busquedaClosure.trim().toLowerCase();
+    return contratos.filter(bc=>{
+      if(filtroExpClosure && bc.exportadoraId !== filtroExpClosure) return false;
+      if(filtroCliClosure && bc.clienteId     !== filtroCliClosure) return false;
+      if(filtroEspClosure && bc.especieCodigo !== filtroEspClosure) return false;
+      if(filtroEstadoClosure !== "todos" && (bc.estado||"activo") !== filtroEstadoClosure) return false;
+      if(q){
+        const exp = exportadoras.find(e=>e.id===bc.exportadoraId)?.nombre||"";
+        const cli = clientes.find(c=>c.id===bc.clienteId)?.nombre||"";
+        const txt = `${bc.temporada||""} ${bc.codigo||""} ${exp} ${cli}`.toLowerCase();
+        if(!txt.includes(q)) return false;
+      }
+      return true;
+    }).sort((a,b)=>(b.fechaCreacion||"").localeCompare(a.fechaCreacion||""));
+  },[contratos, busquedaClosure, filtroExpClosure, filtroCliClosure, filtroEspClosure, filtroEstadoClosure, exportadoras, clientes]);
+
+  const handleNuevoClosure = () => {
+    setCreandoClosure(true);
+    setEditandoClosure({
+      id:"", codigo:"", temporada:"", exportadoraId:"", clienteId:"",
+      especieCodigo:"", cajasPorFormato:{}, precioRef:null,
+      monedaCodigo:"USD", condiciones:"FOB",
+      fechaInicio:"", fechaFin:"", estado:"activo", observ:"",
+      fechaCreacion:new Date().toISOString(), fechaActualizacion:new Date().toISOString(),
+    });
+  };
+  const handleEditarClosure  = (bc) => { setCreandoClosure(false); setEditandoClosure(bc); };
+  const handleEliminarClosure = (bc) => {
+    if(!window.confirm(`¿Eliminar Business Closure "${bc.temporada}"?`)) return;
+    setContratos(prev=>prev.filter(c=>c.id!==bc.id));
+  };
+  const handleGuardarClosure = (bc) => {
+    if(creandoClosure) setContratos(prev=>[...prev, {...bc, id:uid()}]);
+    else               setContratos(prev=>prev.map(c=>c.id===bc.id?bc:c));
+    setEditandoClosure(null); setCreandoClosure(false);
+  };
+  const totalClosuresActivos = contratos.filter(c=>(c.estado||"activo")==="activo").length;
+
   const hoy = new Date().toISOString().slice(0,10);
   const clientesConDocsFaltantes = clientes.filter(c =>
     c.activo !== false && TIPOS_DOC_MINIMOS.some(t => !(c.documentos||[]).some(d=>d.tipo===t&&d.url))
@@ -1198,7 +1507,7 @@ export default function FriskuComercialModule({
     {id:"clientes",      label:"👥 Clientes",      count:totalClientesActivos,              perm:permClientes},
     {id:"exportadoras",  label:"🏭 Exportadoras",  count:totalExportadorasActivas,          perm:permExportadoras},
     {id:"documentos",    label:"📁 Documentos",    count:clientesConDocsFaltantes||null,    perm:permDocumentos},
-    {id:"contratos",     label:"📄 Contratos",     count:contratos.length||null,            perm:permContratos},
+    {id:"contratos",     label:"📄 Contratos",     count:totalClosuresActivos||null,        perm:permContratos},
     {id:"programa",      label:"📅 Programa",      count:programa.length||null,             perm:permPrograma},
     {id:"embarques",     label:"🚢 Embarques",     count:embarques.length||null,            perm:permEmbarques},
     {id:"liquidaciones", label:"💰 Liquidaciones", count:liquidaciones.length||null,        perm:permLiquidaciones},
@@ -1480,12 +1789,83 @@ export default function FriskuComercialModule({
         )}
 
         {tab === "contratos" && (
-          <Placeholder
-            titulo="Contratos comerciales"
-            icono="📄"
-            fase="Fase 4"
-            descripcion="Contratos entre exportadoras y clientes. Asocian especies, temporada, condiciones comerciales y documentación de respaldo. Se construye en detalle cuando se aborde el lifecycle de embarques."
-          />
+          <div>
+            {/* Toolbar */}
+            <div style={{display:"flex", gap:8, marginBottom:16, flexWrap:"wrap", alignItems:"center"}}>
+              <input value={busquedaClosure} onChange={e=>setBusquedaClosure(e.target.value)}
+                placeholder="Buscar temporada, código, empresa…" style={{...inputSt, flex:"1 1 220px", maxWidth:280}}/>
+              <select value={filtroExpClosure} onChange={e=>setFiltroExpClosure(e.target.value)} style={{...inputSt, maxWidth:190}}>
+                <option value="">— Exportadora —</option>
+                {exportadoras.map(e=><option key={e.id} value={e.id}>{e.nombre}</option>)}
+              </select>
+              <select value={filtroCliClosure} onChange={e=>setFiltroCliClosure(e.target.value)} style={{...inputSt, maxWidth:190}}>
+                <option value="">— Cliente —</option>
+                {clientes.map(c=><option key={c.id} value={c.id}>{c.nombre}</option>)}
+              </select>
+              <select value={filtroEspClosure} onChange={e=>setFiltroEspClosure(e.target.value)} style={{...inputSt, maxWidth:170}}>
+                <option value="">— Especie —</option>
+                {especies.map(e=><option key={e.codigo} value={e.codigo}>{e.icono} {e.nombreEs}</option>)}
+              </select>
+              <select value={filtroEstadoClosure} onChange={e=>setFiltroEstadoClosure(e.target.value)} style={{...inputSt, maxWidth:130}}>
+                <option value="activo">● Activos</option>
+                <option value="cerrado">✓ Cerrados</option>
+                <option value="cancelado">✗ Cancelados</option>
+                <option value="todos">Todos</option>
+              </select>
+              <span style={{fontSize:11, color:C.muted}}>{closuresFiltrados.length} de {contratos.length}</span>
+              {permContratos.canEdit && !editandoClosure && (
+                <button onClick={handleNuevoClosure} style={{...btnSt(C.green), marginLeft:"auto"}}>
+                  + Nuevo Business Closure
+                </button>
+              )}
+              {!permContratos.canEdit && (
+                <span style={{fontSize:10, padding:"3px 8px", borderRadius:4, background:`${C.blue}22`, color:C.blue, border:`1px solid ${C.blue}44`}}>
+                  👁 Solo lectura
+                </span>
+              )}
+            </div>
+
+            {/* Form */}
+            {editandoClosure && (
+              <ClosureForm
+                closure={editandoClosure}
+                exportadoras={exportadoras}
+                clientes={clientes}
+                especies={especies}
+                tiposEmbalaje={tiposEmbalaje}
+                monedas={monedas}
+                onGuardar={handleGuardarClosure}
+                onCancelar={()=>{setEditandoClosure(null); setCreandoClosure(false);}}
+              />
+            )}
+
+            {/* Grid de cards */}
+            {!editandoClosure && (
+              closuresFiltrados.length===0 ? (
+                <div style={{padding:50, textAlign:"center", color:C.muted, fontSize:13, background:C.card, borderRadius:14}}>
+                  {contratos.length===0
+                    ? "Sin Business Closures. Click \"+ Nuevo Business Closure\" para crear el primero."
+                    : "Sin resultados con esos filtros."}
+                </div>
+              ) : (
+                <div style={{display:"grid", gridTemplateColumns:"repeat(auto-fill, minmax(400px, 1fr))", gap:14}}>
+                  {closuresFiltrados.map(bc=>(
+                    <ClosureCard key={bc.id}
+                      closure={bc}
+                      exportadoras={exportadoras}
+                      clientes={clientes}
+                      especies={especies}
+                      tiposEmbalaje={tiposEmbalaje}
+                      monedas={monedas}
+                      onEditar={()=>handleEditarClosure(bc)}
+                      onEliminar={()=>handleEliminarClosure(bc)}
+                      canEdit={permContratos.canEdit}
+                    />
+                  ))}
+                </div>
+              )
+            )}
+          </div>
         )}
         {tab === "programa" && (
           <Placeholder
