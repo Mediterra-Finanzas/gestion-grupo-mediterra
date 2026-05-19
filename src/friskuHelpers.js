@@ -65,8 +65,9 @@ export async function loadConSeed(id, defaults) {
 
 // ═══════════════════════════════════════════════════════════════════
 // COMISIÓN FRISKU
-// Modelo: cliente cobra X% sobre FOB → Frisku recibe Y% de ese X%.
-// Ejemplo Disney: cliente 8% × Frisku 25% = Frisku se queda 2% del FOB.
+// Modelo: base = venta en destino − gastos en destino (base neta).
+// El cliente cobra X% sobre esa base neta; Frisku recibe Y% de ese X%.
+// Ejemplo Disney: cliente 8% × Frisku 25% → Frisku recibe 2% de la base neta.
 // ═══════════════════════════════════════════════════════════════════
 
 // Resuelve los porcentajes aplicables para un cliente+especie+formato.
@@ -90,18 +91,18 @@ export function resolverPorcentajesComision(cliente, especieCodigo, formatoCodig
   return { cliPct: Number(cliPct) || 0, friPct: Number(friPct) || 0 };
 }
 
-// Calcula los montos para un valor FOB dado.
-// Retorna { comisionClienteSobreFOB%, comisionFriskuSobreClientePct%,
-//           comisionFriskuSobreFOB%, montoComisionCliente, montoComisionFrisku }
-export function calcularComisionFrisku(cliente, especieCodigo, formatoCodigo, valorFOB) {
+// Calcula los montos sobre la base neta (venta destino − gastos destino).
+// Retorna { cliPct%, friPct%, friSobreBaseNeta%,
+//           montoComisionCliente, montoComisionFrisku, baseNeta }
+export function calcularComisionFrisku(cliente, especieCodigo, formatoCodigo, baseNeta) {
   const { cliPct, friPct } = resolverPorcentajesComision(cliente, especieCodigo, formatoCodigo);
-  const fob = Number(valorFOB) || 0;
-  const friSobreFOB = (cliPct * friPct) / 100;            // ej. 8 × 25 / 100 = 2
-  const montoComisionCliente = (fob * cliPct) / 100;
-  const montoComisionFrisku  = (fob * friSobreFOB) / 100; // == montoCliente × friPct/100
+  const base = Number(baseNeta) || 0;
+  const friSobreBaseNeta = (cliPct * friPct) / 100;              // ej. 8 × 25 / 100 = 2
+  const montoComisionCliente = (base * cliPct) / 100;
+  const montoComisionFrisku  = (base * friSobreBaseNeta) / 100;  // == montoCliente × friPct/100
   return {
-    cliPct, friPct, friSobreFOB,
-    montoComisionCliente, montoComisionFrisku, fob,
+    cliPct, friPct, friSobreBaseNeta,
+    montoComisionCliente, montoComisionFrisku, baseNeta: base,
   };
 }
 

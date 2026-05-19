@@ -240,14 +240,14 @@ function ClienteForm({cliente, especies, paises, ciudades, monedas, mercados, ti
 
       <Seccion id="comisiones" titulo="Comisión Frisku" icono="💰" abierta={seccionAbierta==="comisiones"} onToggle={()=>toggle("comisiones")}>
         <div style={{background:C.card, padding:12, borderRadius:6, marginBottom:12, fontSize:11, color:C.muted, lineHeight:1.5}}>
-          <strong style={{color:C.text}}>Modelo:</strong> el cliente cobra <em>X% sobre FOB</em> a la exportadora.
+          <strong style={{color:C.text}}>Modelo:</strong> el cliente cobra <em>X% sobre la base neta en destino</em> (venta en destino − gastos en destino).
           Frisku recibe <em>Y%</em> de esa comisión.<br/>
-          <span style={{color:C.yellow}}>Ejemplo Disney: cliente 8% × Frisku 25% = Frisku se queda con 2% del FOB.</span>
+          <span style={{color:C.yellow}}>Ejemplo Disney: cliente 8% × Frisku 25% = Frisku se queda con 2% de la base neta.</span>
         </div>
 
         <div style={{display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:10, marginBottom:14}}>
           <div>
-            <div style={lblSt}>% Cliente sobre FOB</div>
+            <div style={lblSt}>% Cliente s/ base neta destino</div>
             <div style={{position:"relative"}}>
               <input type="number" step="0.01" value={buf.comisionGlobalSobreFOB ?? ""}
                 onChange={e=>setCampo("comisionGlobalSobreFOB", e.target.value === "" ? null : Number(e.target.value))}
@@ -261,7 +261,7 @@ function ClienteForm({cliente, especies, paises, ciudades, monedas, mercados, ti
               placeholder="25.0" style={inputSt}/>
           </div>
           <div>
-            <div style={lblSt}>% Frisku efectivo sobre FOB</div>
+            <div style={lblSt}>% Frisku efectivo s/ base neta</div>
             <div style={{...inputSt, background:C.bg2, color:C.green, fontFamily:"monospace", fontWeight:700, display:"flex", alignItems:"center"}}>
               {(((Number(buf.comisionGlobalSobreFOB)||0) * (Number(buf.comisionFriskuSobreClienteGlobal)||0)) / 100).toFixed(2)}%
             </div>
@@ -366,7 +366,7 @@ function ClienteCard({cliente, especies, paises, monedas, mercados, onEditar, on
     .map(c => especies.find(e=>e.codigo===c))
     .filter(Boolean);
 
-  const friSobreFOB = (Number(cliente.comisionGlobalSobreFOB)||0) * (Number(cliente.comisionFriskuSobreClienteGlobal)||0) / 100;
+  const friSobreBaseNeta = (Number(cliente.comisionGlobalSobreFOB)||0) * (Number(cliente.comisionFriskuSobreClienteGlobal)||0) / 100;
   const numOverrides = Object.keys(cliente.comisionOverrides||{}).length;
 
   return (
@@ -407,7 +407,7 @@ function ClienteCard({cliente, especies, paises, monedas, mercados, onEditar, on
 
       <div style={{display:"grid", gridTemplateColumns:"repeat(3, 1fr)", gap:8, padding:"10px 0", borderTop:`1px solid ${C.border}`, fontSize:11}}>
         <div>
-          <div style={{color:C.muted, fontSize:9, textTransform:"uppercase"}}>Cliente s/FOB</div>
+          <div style={{color:C.muted, fontSize:9, textTransform:"uppercase"}}>Cliente s/base neta</div>
           <div style={{color:C.text, fontWeight:700, fontFamily:"monospace"}}>{(cliente.comisionGlobalSobreFOB??0).toFixed(2)}%</div>
         </div>
         <div>
@@ -415,9 +415,9 @@ function ClienteCard({cliente, especies, paises, monedas, mercados, onEditar, on
           <div style={{color:C.text, fontWeight:700, fontFamily:"monospace"}}>{(cliente.comisionFriskuSobreClienteGlobal??0).toFixed(2)}%</div>
         </div>
         <div>
-          <div style={{color:C.muted, fontSize:9, textTransform:"uppercase"}}>Frisku s/FOB</div>
+          <div style={{color:C.muted, fontSize:9, textTransform:"uppercase"}}>Frisku s/base neta</div>
           <div style={{color:C.green, fontWeight:700, fontFamily:"monospace"}}>
-            {friSobreFOB.toFixed(2)}%
+            {friSobreBaseNeta.toFixed(2)}%
             {numOverrides > 0 && <span style={{color:C.yellow, fontSize:9, marginLeft:4}}>(+{numOverrides} override{numOverrides>1?"s":""})</span>}
           </div>
         </div>
