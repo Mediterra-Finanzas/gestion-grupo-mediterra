@@ -10,6 +10,7 @@ import {
   TC_PARES_DEFAULT, fechaISO,
   actualizarTCDesdeAPIs, aplicarUpdatesATCData, mergeTCSerie,
   buscarTC, formatearMonto,
+  loadConSeed,
 } from "./friskuHelpers.js";
 
 const SUPA_URL = "https://bywovqayuzodbzwsriet.supabase.co";
@@ -1366,34 +1367,39 @@ export default function FriskuMaestrosModule({canEdit=true, onBack}) {
   useEffect(()=>{
     let alive = true;
     (async ()=>{
+      // loadConSeed: si la fila no existe en Supabase, graba defaults
+      // y los retorna (queda persistido para todos los usuarios).
+      // dbLoadMaestro normal para los que NO se siembran (Ciudades vacío
+      // intencionalmente, TC es objeto y se carga vía APIs externas).
       const [p, c, pu, ae, sl, te, tb, me, mo, es, tc, cd] = await Promise.all([
-        dbLoadMaestro("maestro_paises"),
+        loadConSeed("maestro_paises",         PAISES_DEFAULT),
         dbLoadMaestro("maestro_ciudades"),
-        dbLoadMaestro("maestro_puertos"),
-        dbLoadMaestro("maestro_aeropuertos"),
-        dbLoadMaestro("maestro_shipping_lines"),
-        dbLoadMaestro("maestro_tipos_embarque"),
-        dbLoadMaestro("maestro_tipos_embalaje"),
-        dbLoadMaestro("maestro_mercados"),
-        dbLoadMaestro("maestro_monedas"),
-        dbLoadMaestro("maestro_especies"),
+        loadConSeed("maestro_puertos",        PUERTOS_DEFAULT),
+        loadConSeed("maestro_aeropuertos",    AEROPUERTOS_DEFAULT),
+        loadConSeed("maestro_shipping_lines", SHIPPING_LINES_DEFAULT),
+        loadConSeed("maestro_tipos_embarque", TIPOS_EMBARQUE_DEFAULT),
+        loadConSeed("maestro_tipos_embalaje", TIPOS_EMBALAJE_DEFAULT),
+        loadConSeed("maestro_mercados",       MERCADOS_DEFAULT),
+        loadConSeed("maestro_monedas",        MONEDAS_DEFAULT),
+        loadConSeed("maestro_especies",       ESPECIES_DEFAULT),
         dbLoadMaestro("maestro_tc"),
-        dbLoadMaestro("maestro_checklist_docs"),
+        loadConSeed("maestro_checklist_docs", CHECKLIST_DOCS_DEFAULT),
       ]);
       if(!alive) return;
-      // Si no hay data en Supabase, usar defaults (primera carga)
-      setPaises(Array.isArray(p) && p.length ? p : PAISES_DEFAULT);
+      // Defensa en profundidad: si loadConSeed retornó algo inesperado
+      // (red caída, JSON malformado), caer al default en memoria.
+      setPaises(Array.isArray(p) ? p : PAISES_DEFAULT);
       setCiudades(Array.isArray(c) ? c : []);
-      setPuertos(Array.isArray(pu) && pu.length ? pu : PUERTOS_DEFAULT);
-      setAeropuertos(Array.isArray(ae) && ae.length ? ae : AEROPUERTOS_DEFAULT);
-      setShippingLines(Array.isArray(sl) && sl.length ? sl : SHIPPING_LINES_DEFAULT);
-      setTiposEmbarque(Array.isArray(te) && te.length ? te : TIPOS_EMBARQUE_DEFAULT);
-      setTiposEmbalaje(Array.isArray(tb) && tb.length ? tb : TIPOS_EMBALAJE_DEFAULT);
-      setMercados(Array.isArray(me) && me.length ? me : MERCADOS_DEFAULT);
-      setMonedas(Array.isArray(mo) && mo.length ? mo : MONEDAS_DEFAULT);
-      setEspecies(Array.isArray(es) && es.length ? es : ESPECIES_DEFAULT);
+      setPuertos(Array.isArray(pu) ? pu : PUERTOS_DEFAULT);
+      setAeropuertos(Array.isArray(ae) ? ae : AEROPUERTOS_DEFAULT);
+      setShippingLines(Array.isArray(sl) ? sl : SHIPPING_LINES_DEFAULT);
+      setTiposEmbarque(Array.isArray(te) ? te : TIPOS_EMBARQUE_DEFAULT);
+      setTiposEmbalaje(Array.isArray(tb) ? tb : TIPOS_EMBALAJE_DEFAULT);
+      setMercados(Array.isArray(me) ? me : MERCADOS_DEFAULT);
+      setMonedas(Array.isArray(mo) ? mo : MONEDAS_DEFAULT);
+      setEspecies(Array.isArray(es) ? es : ESPECIES_DEFAULT);
       setTcData(tc && typeof tc === "object" && !Array.isArray(tc) ? tc : {});
-      setChecklistDocs(Array.isArray(cd) && cd.length ? cd : CHECKLIST_DOCS_DEFAULT);
+      setChecklistDocs(Array.isArray(cd) ? cd : CHECKLIST_DOCS_DEFAULT);
       setCargando(false);
     })();
     return ()=>{alive=false;};

@@ -36,6 +36,34 @@ export async function dbSaveGeneric(id, value) {
 }
 
 // ═══════════════════════════════════════════════════════════════════
+// SEEDING — siembra automática de defaults en Supabase
+// Si la fila no existe → graba defaults y los retorna (queda persistido
+// para todos los usuarios). Si existe → respeta su contenido actual
+// (incluso si el usuario lo dejó vacío deliberadamente).
+// ═══════════════════════════════════════════════════════════════════
+export async function loadConSeed(id, defaults) {
+  try {
+    const res = await fetch(
+      `${SUPA_URL}/rest/v1/calendario_data?id=eq.${id}&select=value`,
+      { headers: { apikey: SUPA_KEY, Authorization: `Bearer ${SUPA_KEY}` } }
+    );
+    const rows = await res.json();
+    if (Array.isArray(rows) && rows.length > 0) {
+      // Fila existe: retornar lo que tenga (incluido array vacío)
+      const v = rows[0].value;
+      return typeof v === "string" ? JSON.parse(v) : v;
+    }
+    // Fila NO existe: sembrar defaults y retornarlos
+    await dbSaveGeneric(id, defaults);
+    console.log(`[Seed:${id}] Sembrado con ${Array.isArray(defaults) ? defaults.length : "?"} items`);
+    return defaults;
+  } catch (e) {
+    console.error(`[Seed:${id}] Error:`, e);
+    return defaults; // fallback en memoria si la red falla
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════
 // COMISIÓN FRISKU
 // Modelo: cliente cobra X% sobre FOB → Frisku recibe Y% de ese X%.
 // Ejemplo Disney: cliente 8% × Frisku 25% = Frisku se queda 2% del FOB.
