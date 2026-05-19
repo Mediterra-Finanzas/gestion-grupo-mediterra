@@ -54,6 +54,26 @@ function Card({children, title, icon, action}) {
   );
 }
 
+// Sección colapsable usada por ClienteForm y ExportadoraForm.
+// IMPORTANTE: este componente debe declararse FUERA de los Forms
+// para que React no lo recree en cada keystroke y los inputs no
+// pierdan el foco. (Sí, eso pasó. Sí, fue mi error la primera vez.)
+function Seccion({id, titulo, icono, abierta, onToggle, children}) {
+  return (
+    <div style={{marginBottom:10, border:`1px solid ${C.border}`, borderRadius:8, overflow:"hidden"}}>
+      <button onClick={onToggle}
+        style={{width:"100%", padding:"10px 14px", background:abierta?C.card2:C.card, border:"none",
+          color:C.text, textAlign:"left", cursor:"pointer", display:"flex", alignItems:"center",
+          gap:8, fontSize:12, fontWeight:700}}>
+        <span>{icono}</span>
+        <span style={{flex:1}}>{titulo}</span>
+        <span style={{color:C.muted, fontSize:10}}>{abierta?"▼":"▶"}</span>
+      </button>
+      {abierta && <div style={{padding:14, background:C.card2}}>{children}</div>}
+    </div>
+  );
+}
+
 // ═══════════════════════════════════════════════════════════════════
 // CLIENTE FORM — editor expandible con secciones
 // ═══════════════════════════════════════════════════════════════════
@@ -101,22 +121,7 @@ function ClienteForm({cliente, especies, paises, monedas, mercados, tiposEmbalaj
     onGuardar({...buf, fechaActualizacion: new Date().toISOString()});
   };
 
-  const Seccion = ({id, titulo, icono, children}) => {
-    const abierta = seccionAbierta === id;
-    return (
-      <div style={{marginBottom:10, border:`1px solid ${C.border}`, borderRadius:8, overflow:"hidden"}}>
-        <button onClick={()=>setSeccionAbierta(abierta ? "" : id)}
-          style={{width:"100%", padding:"10px 14px", background:abierta?C.card2:C.card, border:"none",
-            color:C.text, textAlign:"left", cursor:"pointer", display:"flex", alignItems:"center",
-            gap:8, fontSize:12, fontWeight:700}}>
-          <span>{icono}</span>
-          <span style={{flex:1}}>{titulo}</span>
-          <span style={{color:C.muted, fontSize:10}}>{abierta?"▼":"▶"}</span>
-        </button>
-        {abierta && <div style={{padding:14, background:C.card2}}>{children}</div>}
-      </div>
-    );
-  };
+  const toggle = (id) => setSeccionAbierta(prev => prev === id ? "" : id);
 
   const especiesActivas = (buf.especiesCodigos||[]);
   const overrides = buf.comisionOverrides || {};
@@ -130,7 +135,7 @@ function ClienteForm({cliente, especies, paises, monedas, mercados, tiposEmbalaj
         <span>{cliente.id ? `Editando: ${buf.nombre || "(sin nombre)"}` : "Nuevo cliente"}</span>
       </h3>
 
-      <Seccion id="basico" titulo="Datos básicos" icono="🏢">
+      <Seccion id="basico" titulo="Datos básicos" icono="🏢" abierta={seccionAbierta==="basico"} onToggle={()=>toggle("basico")}>
         <div style={{display:"grid", gridTemplateColumns:"repeat(auto-fit, minmax(180px, 1fr))", gap:10}}>
           <div>
             <div style={lblSt}>Nombre *</div>
@@ -175,7 +180,7 @@ function ClienteForm({cliente, especies, paises, monedas, mercados, tiposEmbalaj
         </div>
       </Seccion>
 
-      <Seccion id="contactos" titulo={`Contactos (${(buf.contactos||[]).length})`} icono="👥">
+      <Seccion id="contactos" titulo={`Contactos (${(buf.contactos||[]).length})`} icono="👥" abierta={seccionAbierta==="contactos"} onToggle={()=>toggle("contactos")}>
         {(buf.contactos||[]).map((co, i) => (
           <div key={i} style={{display:"grid", gridTemplateColumns:"1.2fr 1fr 1.5fr 1fr 36px", gap:8, marginBottom:8}}>
             <input value={co.nombre||""} onChange={e=>setContacto(i,"nombre",e.target.value)} placeholder="Nombre" style={inputSt}/>
@@ -188,7 +193,7 @@ function ClienteForm({cliente, especies, paises, monedas, mercados, tiposEmbalaj
         <button onClick={addContacto} style={btnSt(C.green, true)}>+ Agregar contacto</button>
       </Seccion>
 
-      <Seccion id="especies" titulo={`Especies que compra (${especiesActivas.length}/${especies.length})`} icono="🍒">
+      <Seccion id="especies" titulo={`Especies que compra (${especiesActivas.length}/${especies.length})`} icono="🍒" abierta={seccionAbierta==="especies"} onToggle={()=>toggle("especies")}>
         <div style={{display:"grid", gridTemplateColumns:"repeat(auto-fill, minmax(150px, 1fr))", gap:6}}>
           {especies.map(e => {
             const activa = especiesActivas.includes(e.codigo);
@@ -213,7 +218,7 @@ function ClienteForm({cliente, especies, paises, monedas, mercados, tiposEmbalaj
         )}
       </Seccion>
 
-      <Seccion id="comisiones" titulo="Comisión Frisku" icono="💰">
+      <Seccion id="comisiones" titulo="Comisión Frisku" icono="💰" abierta={seccionAbierta==="comisiones"} onToggle={()=>toggle("comisiones")}>
         <div style={{background:C.card, padding:12, borderRadius:6, marginBottom:12, fontSize:11, color:C.muted, lineHeight:1.5}}>
           <strong style={{color:C.text}}>Modelo:</strong> el cliente cobra <em>X% sobre FOB</em> a la exportadora.
           Frisku recibe <em>Y%</em> de esa comisión.<br/>
@@ -437,22 +442,7 @@ function ExportadoraForm({exportadora, especies, paises, monedas, onGuardar, onC
     onGuardar({...buf, fechaActualizacion: new Date().toISOString()});
   };
 
-  const Seccion = ({id, titulo, icono, children}) => {
-    const abierta = seccionAbierta === id;
-    return (
-      <div style={{marginBottom:10, border:`1px solid ${C.border}`, borderRadius:8, overflow:"hidden"}}>
-        <button onClick={()=>setSeccionAbierta(abierta ? "" : id)}
-          style={{width:"100%", padding:"10px 14px", background:abierta?C.card2:C.card, border:"none",
-            color:C.text, textAlign:"left", cursor:"pointer", display:"flex", alignItems:"center",
-            gap:8, fontSize:12, fontWeight:700}}>
-          <span>{icono}</span>
-          <span style={{flex:1}}>{titulo}</span>
-          <span style={{color:C.muted, fontSize:10}}>{abierta?"▼":"▶"}</span>
-        </button>
-        {abierta && <div style={{padding:14, background:C.card2}}>{children}</div>}
-      </div>
-    );
-  };
+  const toggle = (id) => setSeccionAbierta(prev => prev === id ? "" : id);
 
   const especiesActivas = (buf.especiesProduce||[]);
 
@@ -463,7 +453,7 @@ function ExportadoraForm({exportadora, especies, paises, monedas, onGuardar, onC
         <span>{exportadora.id ? `Editando: ${buf.nombre || "(sin nombre)"}` : "Nueva exportadora"}</span>
       </h3>
 
-      <Seccion id="basico" titulo="Datos básicos" icono="🏭">
+      <Seccion id="basico" titulo="Datos básicos" icono="🏭" abierta={seccionAbierta==="basico"} onToggle={()=>toggle("basico")}>
         <div style={{display:"grid", gridTemplateColumns:"repeat(auto-fit, minmax(180px, 1fr))", gap:10}}>
           <div>
             <div style={lblSt}>Nombre *</div>
@@ -514,7 +504,7 @@ function ExportadoraForm({exportadora, especies, paises, monedas, onGuardar, onC
         </div>
       </Seccion>
 
-      <Seccion id="contactos" titulo={`Contactos (${(buf.contactos||[]).length})`} icono="👥">
+      <Seccion id="contactos" titulo={`Contactos (${(buf.contactos||[]).length})`} icono="👥" abierta={seccionAbierta==="contactos"} onToggle={()=>toggle("contactos")}>
         {(buf.contactos||[]).map((co, i) => (
           <div key={i} style={{display:"grid", gridTemplateColumns:"1.2fr 1fr 1.5fr 1fr 36px", gap:8, marginBottom:8}}>
             <input value={co.nombre||""} onChange={e=>setContacto(i,"nombre",e.target.value)} placeholder="Nombre" style={inputSt}/>
@@ -527,7 +517,7 @@ function ExportadoraForm({exportadora, especies, paises, monedas, onGuardar, onC
         <button onClick={addContacto} style={btnSt(C.green, true)}>+ Agregar contacto</button>
       </Seccion>
 
-      <Seccion id="especies" titulo={`Especies que produce (${especiesActivas.length}/${especies.length})`} icono="🍒">
+      <Seccion id="especies" titulo={`Especies que produce (${especiesActivas.length}/${especies.length})`} icono="🍒" abierta={seccionAbierta==="especies"} onToggle={()=>toggle("especies")}>
         <div style={{display:"grid", gridTemplateColumns:"repeat(auto-fill, minmax(150px, 1fr))", gap:6}}>
           {especies.map(e => {
             const activa = especiesActivas.includes(e.codigo);

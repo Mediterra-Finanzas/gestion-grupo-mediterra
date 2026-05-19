@@ -146,6 +146,137 @@ export const PAISES_DEFAULT = [
 ];
 
 // ═══════════════════════════════════════════════════════════════════
+// CIUDADES — relevantes para el negocio (producción + destino fruta fresca)
+// Código convencional: PAIS-XXX (3 letras tipo IATA cuando aplica)
+// ═══════════════════════════════════════════════════════════════════
+export const CIUDADES_DEFAULT = [
+  // CHILE — producción y logística
+  {codigo:"CL-SCL", nombre:"Santiago",     paisCodigo:"CL", observ:"Capital, principal HUB aéreo"},
+  {codigo:"CL-VAP", nombre:"Valparaíso",   paisCodigo:"CL", observ:"Puerto principal Pacífico"},
+  {codigo:"CL-SAI", nombre:"San Antonio",  paisCodigo:"CL", observ:"Puerto principal carga"},
+  {codigo:"CL-CUR", nombre:"Curicó",       paisCodigo:"CL", observ:"Zona cerezas/uva"},
+  {codigo:"CL-TLC", nombre:"Talca",        paisCodigo:"CL", observ:"Zona frutícola"},
+  {codigo:"CL-RAN", nombre:"Rancagua",     paisCodigo:"CL", observ:"Zona uva/cerezas"},
+  {codigo:"CL-CCP", nombre:"Concepción",   paisCodigo:"CL", observ:""},
+  {codigo:"CL-CNL", nombre:"Coronel",      paisCodigo:"CL", observ:"Puerto sur"},
+  {codigo:"CL-LSC", nombre:"La Serena",    paisCodigo:"CL", observ:"Zona uva pisquera"},
+  {codigo:"CL-IQQ", nombre:"Iquique",      paisCodigo:"CL", observ:""},
+  {codigo:"CL-ANF", nombre:"Antofagasta",  paisCodigo:"CL", observ:""},
+  // PERÚ — producción arándanos y logística
+  {codigo:"PE-LIM", nombre:"Lima",         paisCodigo:"PE", observ:"Capital + Callao"},
+  {codigo:"PE-PIU", nombre:"Piura",        paisCodigo:"PE", observ:"Zona arándanos / uva"},
+  {codigo:"PE-TRU", nombre:"Trujillo",     paisCodigo:"PE", observ:"Zona arándanos"},
+  {codigo:"PE-ICA", nombre:"Ica",          paisCodigo:"PE", observ:"Zona uva / paltas"},
+  {codigo:"PE-PAI", nombre:"Paita",        paisCodigo:"PE", observ:"Puerto norte"},
+  // BRASIL
+  {codigo:"BR-GRU", nombre:"São Paulo",    paisCodigo:"BR", observ:"Principal mercado destino"},
+  {codigo:"BR-SSZ", nombre:"Santos",       paisCodigo:"BR", observ:"Puerto principal"},
+  {codigo:"BR-GIG", nombre:"Rio de Janeiro", paisCodigo:"BR", observ:""},
+  {codigo:"BR-POA", nombre:"Porto Alegre", paisCodigo:"BR", observ:""},
+  {codigo:"BR-CWB", nombre:"Curitiba",     paisCodigo:"BR", observ:""},
+  // ARGENTINA
+  {codigo:"AR-BUE", nombre:"Buenos Aires", paisCodigo:"AR", observ:""},
+  {codigo:"AR-MDZ", nombre:"Mendoza",      paisCodigo:"AR", observ:"Zona vitivinícola"},
+  {codigo:"AR-ROS", nombre:"Rosario",      paisCodigo:"AR", observ:""},
+  // COLOMBIA / ECUADOR
+  {codigo:"CO-BOG", nombre:"Bogotá",       paisCodigo:"CO", observ:""},
+  {codigo:"CO-MDE", nombre:"Medellín",     paisCodigo:"CO", observ:""},
+  {codigo:"CO-CTG", nombre:"Cartagena",    paisCodigo:"CO", observ:"Puerto Caribe"},
+  {codigo:"CO-BUN", nombre:"Buenaventura", paisCodigo:"CO", observ:"Puerto Pacífico"},
+  {codigo:"EC-UIO", nombre:"Quito",        paisCodigo:"EC", observ:""},
+  {codigo:"EC-GYE", nombre:"Guayaquil",    paisCodigo:"EC", observ:"Puerto principal"},
+  // MÉXICO
+  {codigo:"MX-MEX", nombre:"Ciudad de México", paisCodigo:"MX", observ:""},
+  {codigo:"MX-GDL", nombre:"Guadalajara",  paisCodigo:"MX", observ:""},
+  {codigo:"MX-MTY", nombre:"Monterrey",    paisCodigo:"MX", observ:""},
+  {codigo:"MX-VER", nombre:"Veracruz",     paisCodigo:"MX", observ:"Puerto Atlántico"},
+  {codigo:"MX-MZT", nombre:"Manzanillo",   paisCodigo:"MX", observ:"Puerto Pacífico"},
+  // USA — destino principal
+  {codigo:"US-MIA", nombre:"Miami",        paisCodigo:"US", observ:"HUB fruta latam"},
+  {codigo:"US-LAX", nombre:"Los Angeles",  paisCodigo:"US", observ:""},
+  {codigo:"US-LGB", nombre:"Long Beach",   paisCodigo:"US", observ:"Puerto Pacífico"},
+  {codigo:"US-NYC", nombre:"New York",     paisCodigo:"US", observ:""},
+  {codigo:"US-PHL", nombre:"Philadelphia", paisCodigo:"US", observ:"Puerto Atlántico fruta"},
+  {codigo:"US-HOU", nombre:"Houston",      paisCodigo:"US", observ:""},
+  {codigo:"US-SFO", nombre:"San Francisco", paisCodigo:"US", observ:""},
+  {codigo:"US-ORD", nombre:"Chicago",      paisCodigo:"US", observ:""},
+  {codigo:"US-ATL", nombre:"Atlanta",      paisCodigo:"US", observ:""},
+  {codigo:"US-DFW", nombre:"Dallas",       paisCodigo:"US", observ:""},
+  {codigo:"US-SEA", nombre:"Seattle",      paisCodigo:"US", observ:""},
+  // CANADÁ
+  {codigo:"CA-YYZ", nombre:"Toronto",      paisCodigo:"CA", observ:""},
+  {codigo:"CA-YVR", nombre:"Vancouver",    paisCodigo:"CA", observ:"Puerto Pacífico"},
+  {codigo:"CA-YUL", nombre:"Montreal",     paisCodigo:"CA", observ:""},
+  // EUROPA Occidental
+  {codigo:"ES-MAD", nombre:"Madrid",       paisCodigo:"ES", observ:""},
+  {codigo:"ES-BCN", nombre:"Barcelona",    paisCodigo:"ES", observ:""},
+  {codigo:"PT-LIS", nombre:"Lisboa",       paisCodigo:"PT", observ:""},
+  {codigo:"PT-OPO", nombre:"Porto",        paisCodigo:"PT", observ:""},
+  {codigo:"IT-ROM", nombre:"Roma",         paisCodigo:"IT", observ:""},
+  {codigo:"IT-MIL", nombre:"Milán",        paisCodigo:"IT", observ:""},
+  {codigo:"FR-PAR", nombre:"París",        paisCodigo:"FR", observ:""},
+  {codigo:"FR-MRS", nombre:"Marsella",     paisCodigo:"FR", observ:"Puerto Mediterráneo"},
+  {codigo:"DE-FRA", nombre:"Frankfurt",    paisCodigo:"DE", observ:"HUB aéreo carga"},
+  {codigo:"DE-HAM", nombre:"Hamburgo",     paisCodigo:"DE", observ:"Puerto principal"},
+  {codigo:"DE-MUC", nombre:"Múnich",       paisCodigo:"DE", observ:""},
+  {codigo:"NL-AMS", nombre:"Amsterdam",    paisCodigo:"NL", observ:""},
+  {codigo:"NL-RTM", nombre:"Rotterdam",    paisCodigo:"NL", observ:"Mayor puerto europeo"},
+  {codigo:"BE-BRU", nombre:"Bruselas",     paisCodigo:"BE", observ:""},
+  {codigo:"BE-ANR", nombre:"Antwerp",      paisCodigo:"BE", observ:"Puerto principal"},
+  {codigo:"GB-LON", nombre:"Londres",      paisCodigo:"GB", observ:""},
+  {codigo:"GB-MAN", nombre:"Manchester",   paisCodigo:"GB", observ:""},
+  {codigo:"CH-ZRH", nombre:"Zúrich",       paisCodigo:"CH", observ:""},
+  {codigo:"AT-VIE", nombre:"Viena",        paisCodigo:"AT", observ:""},
+  // EUROPA Norte / Báltico
+  {codigo:"DK-CPH", nombre:"Copenhague",   paisCodigo:"DK", observ:""},
+  {codigo:"SE-STO", nombre:"Estocolmo",    paisCodigo:"SE", observ:""},
+  {codigo:"FI-HEL", nombre:"Helsinki",     paisCodigo:"FI", observ:""},
+  {codigo:"NO-OSL", nombre:"Oslo",         paisCodigo:"NO", observ:""},
+  // EUROPA del Este / Rusia
+  {codigo:"RU-MOW", nombre:"Moscú",        paisCodigo:"RU", observ:""},
+  {codigo:"RU-LED", nombre:"San Petersburgo", paisCodigo:"RU", observ:""},
+  {codigo:"PL-WAW", nombre:"Varsovia",     paisCodigo:"PL", observ:""},
+  {codigo:"TR-IST", nombre:"Estambul",     paisCodigo:"TR", observ:""},
+  // ASIA — China (mercado clave cerezas)
+  {codigo:"CN-PVG", nombre:"Shanghai",     paisCodigo:"CN", observ:"Mercado principal cerezas"},
+  {codigo:"CN-PEK", nombre:"Beijing",      paisCodigo:"CN", observ:""},
+  {codigo:"CN-CAN", nombre:"Guangzhou",    paisCodigo:"CN", observ:""},
+  {codigo:"CN-SZX", nombre:"Shenzhen",     paisCodigo:"CN", observ:""},
+  {codigo:"CN-NGB", nombre:"Ningbo",       paisCodigo:"CN", observ:""},
+  {codigo:"HK-HKG", nombre:"Hong Kong",    paisCodigo:"HK", observ:""},
+  {codigo:"TW-TPE", nombre:"Taipei",       paisCodigo:"TW", observ:""},
+  // ASIA — Japón / Corea
+  {codigo:"JP-TYO", nombre:"Tokio",        paisCodigo:"JP", observ:""},
+  {codigo:"JP-OSA", nombre:"Osaka",        paisCodigo:"JP", observ:""},
+  {codigo:"KR-SEL", nombre:"Seúl",         paisCodigo:"KR", observ:""},
+  // ASIA — SE Asia / India
+  {codigo:"SG-SIN", nombre:"Singapur",     paisCodigo:"SG", observ:"HUB regional"},
+  {codigo:"MY-KUL", nombre:"Kuala Lumpur", paisCodigo:"MY", observ:""},
+  {codigo:"TH-BKK", nombre:"Bangkok",      paisCodigo:"TH", observ:""},
+  {codigo:"VN-SGN", nombre:"Ho Chi Minh",  paisCodigo:"VN", observ:""},
+  {codigo:"PH-MNL", nombre:"Manila",       paisCodigo:"PH", observ:""},
+  {codigo:"ID-JKT", nombre:"Yakarta",      paisCodigo:"ID", observ:""},
+  {codigo:"IN-DEL", nombre:"Nueva Delhi",  paisCodigo:"IN", observ:""},
+  {codigo:"IN-BOM", nombre:"Mumbai",       paisCodigo:"IN", observ:""},
+  // MEDIO ORIENTE
+  {codigo:"AE-DXB", nombre:"Dubai",        paisCodigo:"AE", observ:"HUB Medio Oriente"},
+  {codigo:"AE-AUH", nombre:"Abu Dhabi",    paisCodigo:"AE", observ:""},
+  {codigo:"SA-JED", nombre:"Jeddah",       paisCodigo:"SA", observ:""},
+  {codigo:"SA-RUH", nombre:"Riad",         paisCodigo:"SA", observ:""},
+  {codigo:"QA-DOH", nombre:"Doha",         paisCodigo:"QA", observ:""},
+  {codigo:"IL-TLV", nombre:"Tel Aviv",     paisCodigo:"IL", observ:""},
+  // ÁFRICA
+  {codigo:"ZA-JNB", nombre:"Johannesburgo", paisCodigo:"ZA", observ:""},
+  {codigo:"ZA-CPT", nombre:"Ciudad del Cabo", paisCodigo:"ZA", observ:""},
+  {codigo:"EG-CAI", nombre:"El Cairo",     paisCodigo:"EG", observ:""},
+  {codigo:"MA-CMN", nombre:"Casablanca",   paisCodigo:"MA", observ:""},
+  // OCEANÍA
+  {codigo:"AU-SYD", nombre:"Sydney",       paisCodigo:"AU", observ:""},
+  {codigo:"AU-MEL", nombre:"Melbourne",    paisCodigo:"AU", observ:""},
+  {codigo:"NZ-AKL", nombre:"Auckland",     paisCodigo:"NZ", observ:""},
+];
+
+// ═══════════════════════════════════════════════════════════════════
 // PUERTOS — relevantes para fruta fresca (UN/LOCODE: PAÍS + 3 letras)
 // ═══════════════════════════════════════════════════════════════════
 export const PUERTOS_DEFAULT = [
@@ -1373,7 +1504,7 @@ export default function FriskuMaestrosModule({canEdit=true, onBack}) {
       // intencionalmente, TC es objeto y se carga vía APIs externas).
       const [p, c, pu, ae, sl, te, tb, me, mo, es, tc, cd] = await Promise.all([
         loadConSeed("maestro_paises",         PAISES_DEFAULT),
-        dbLoadMaestro("maestro_ciudades"),
+        loadConSeed("maestro_ciudades",       CIUDADES_DEFAULT),
         loadConSeed("maestro_puertos",        PUERTOS_DEFAULT),
         loadConSeed("maestro_aeropuertos",    AEROPUERTOS_DEFAULT),
         loadConSeed("maestro_shipping_lines", SHIPPING_LINES_DEFAULT),
@@ -1389,7 +1520,7 @@ export default function FriskuMaestrosModule({canEdit=true, onBack}) {
       // Defensa en profundidad: si loadConSeed retornó algo inesperado
       // (red caída, JSON malformado), caer al default en memoria.
       setPaises(Array.isArray(p) ? p : PAISES_DEFAULT);
-      setCiudades(Array.isArray(c) ? c : []);
+      setCiudades(Array.isArray(c) ? c : CIUDADES_DEFAULT);
       setPuertos(Array.isArray(pu) ? pu : PUERTOS_DEFAULT);
       setAeropuertos(Array.isArray(ae) ? ae : AEROPUERTOS_DEFAULT);
       setShippingLines(Array.isArray(sl) ? sl : SHIPPING_LINES_DEFAULT);
@@ -1562,6 +1693,8 @@ export default function FriskuMaestrosModule({canEdit=true, onBack}) {
           datos={ciudades}
           setDatos={setCiudades}
           canEdit={canEdit}
+          presetsParcial={true}
+          onPresetRestore={()=>recargarPresets(ciudades, CIUDADES_DEFAULT, setCiudades)}
           busquedaPlaceholder="Buscar ciudad..."
           defaultItem={{codigo:"", nombre:"", paisCodigo:"", observ:""}}
           columnas={[
