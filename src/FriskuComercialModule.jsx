@@ -39,6 +39,14 @@ const btnSt = (color=C.blue, ghost=false) => ({
 
 function uid() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 8); }
 
+const TIPOS_DOC_CLIENTE = [
+  "Contrato Marco", "KYC / Ficha Cliente", "Certificado Importador",
+  "Poder Notarial", "Referencia Bancaria", "Carta de Crédito",
+  "Certificado de Seguro", "Registro Sanitario", "Otro",
+];
+// Tipos que generan alerta si el cliente activo no los tiene cargados con URL
+const TIPOS_DOC_MINIMOS = ["Contrato Marco", "KYC / Ficha Cliente", "Certificado Importador"];
+
 function Card({children, title, icon, action}) {
   return (
     <div style={{background:C.card, borderRadius:14, padding:18, border:`1px solid ${C.border}`}}>
@@ -124,6 +132,10 @@ function ClienteForm({cliente, especies, paises, ciudades, monedas, mercados, ti
     });
   };
 
+  const addDoc = () => setBuf(prev => ({...prev, documentos:[...(prev.documentos||[]), {id:uid(), tipo:"", nombre:"", url:"", fecha:"", vencimiento:"", observ:""}]}));
+  const setDoc = (idx, k, v) => setBuf(prev => { const list=[...(prev.documentos||[])]; list[idx]={...list[idx],[k]:v}; return {...prev, documentos:list}; });
+  const delDoc = (idx) => setBuf(prev => ({...prev, documentos:(prev.documentos||[]).filter((_,i)=>i!==idx)}));
+
   const handleGuardar = () => {
     if(!buf.nombre?.trim()) { alert("Nombre es requerido"); return; }
     onGuardar({...buf, fechaActualizacion: new Date().toISOString()});
@@ -133,8 +145,9 @@ function ClienteForm({cliente, especies, paises, ciudades, monedas, mercados, ti
 
   const especiesActivas = (buf.especiesCodigos||[]);
   const overrides = buf.comisionOverrides || {};
-  // Solo permitimos overrides por especies que el cliente compra
   const especiesParaOverride = especies.filter(e => especiesActivas.includes(e.codigo));
+  const hoyDoc = new Date().toISOString().slice(0,10);
+  const docsFaltantes = TIPOS_DOC_MINIMOS.filter(t => !(buf.documentos||[]).some(d=>d.tipo===t&&d.url));
 
   return (
     <div style={{background:`${C.blue}11`, padding:16, borderRadius:8, border:`1px solid ${C.blue}44`, marginBottom:14}}>
@@ -346,6 +359,57 @@ function ClienteForm({cliente, especies, paises, ciudades, monedas, mercados, ti
         )}
       </Seccion>
 
+      <Seccion id="documentos" titulo={`Documentos (${(buf.documentos||[]).length})`} icono="📁" abierta={seccionAbierta==="documentos"} onToggle={()=>toggle("documentos")}>
+        {docsFaltantes.length > 0 && (
+          <div style={{background:`${C.accent}11`, border:`1px solid ${C.accent}44`, borderRadius:6, padding:"8px 12px", marginBottom:10, fontSize:11, color:C.accent}}>
+            Obligatorios faltantes: {docsFaltantes.join(" · ")}
+          </div>
+        )}
+        {(buf.documentos||[]).map((doc, i) => {
+          const vencDoc = doc.vencimiento && doc.vencimiento < hoyDoc;
+          return (
+            <div key={doc.id||i} style={{background:C.card, padding:10, borderRadius:6, marginBottom:8, border:`1px solid ${vencDoc ? C.accent : C.border}`}}>
+              <div style={{display:"grid", gridTemplateColumns:"160px 1fr", gap:8, marginBottom:6}}>
+                <div>
+                  <div style={lblSt}>Tipo</div>
+                  <input value={doc.tipo||""} onChange={e=>setDoc(i,"tipo",e.target.value)}
+                    list="tipos-doc-list" placeholder="Tipo de documento" style={inputSt} autoComplete="off"/>
+                </div>
+                <div>
+                  <div style={lblSt}>Nombre / descripción</div>
+                  <input value={doc.nombre||""} onChange={e=>setDoc(i,"nombre",e.target.value)}
+                    placeholder="Contrato Marco 2026-2027" style={inputSt}/>
+                </div>
+              </div>
+              <div style={{display:"grid", gridTemplateColumns:"1fr 130px 130px 36px", gap:8, alignItems:"flex-end"}}>
+                <div>
+                  <div style={lblSt}>URL / Link</div>
+                  <div style={{display:"flex", gap:4}}>
+                    <input value={doc.url||""} onChange={e=>setDoc(i,"url",e.target.value)}
+                      placeholder="https://drive.google.com/..." style={{...inputSt, flex:1}}/>
+                    {doc.url && <button onClick={()=>window.open(doc.url,"_blank")} style={{...btnSt(C.blue,true), padding:"6px 8px", flexShrink:0}} title="Abrir link">↗</button>}
+                  </div>
+                </div>
+                <div>
+                  <div style={lblSt}>Fecha doc.</div>
+                  <input type="date" value={doc.fecha||""} onChange={e=>setDoc(i,"fecha",e.target.value)} style={inputSt}/>
+                </div>
+                <div>
+                  <div style={lblSt}>Vencimiento{vencDoc ? " ⚠" : ""}</div>
+                  <input type="date" value={doc.vencimiento||""} onChange={e=>setDoc(i,"vencimiento",e.target.value)}
+                    style={{...inputSt, borderColor: vencDoc ? C.accent : C.border}}/>
+                </div>
+                <button onClick={()=>delDoc(i)} style={{...btnSt(C.accent,true), padding:"6px 8px", marginTop:14}}>×</button>
+              </div>
+            </div>
+          );
+        })}
+        <datalist id="tipos-doc-list">
+          {TIPOS_DOC_CLIENTE.map(t=><option key={t} value={t}/>)}
+        </datalist>
+        <button onClick={addDoc} style={btnSt(C.blue,true)}>+ Agregar documento</button>
+      </Seccion>
+
       <div style={{display:"flex", gap:8, justifyContent:"flex-end", marginTop:14}}>
         <button onClick={onCancelar} style={btnSt(C.muted, true)}>Cancelar</button>
         <button onClick={handleGuardar} style={btnSt(C.green)}>✓ Guardar cliente</button>
@@ -368,10 +432,15 @@ function ClienteCard({cliente, especies, paises, monedas, mercados, onEditar, on
 
   const friSobreBaseNeta = (Number(cliente.comisionGlobalSobreFOB)||0) * (Number(cliente.comisionFriskuSobreClienteGlobal)||0) / 100;
   const numOverrides = Object.keys(cliente.comisionOverrides||{}).length;
+  const hoyCard = new Date().toISOString().slice(0,10);
+  const docsFaltantesCard = TIPOS_DOC_MINIMOS.filter(t => !(cliente.documentos||[]).some(d=>d.tipo===t&&d.url));
+  const docsVencidosCard = (cliente.documentos||[]).filter(d => d.vencimiento && d.vencimiento < hoyCard).length;
+  const tieneAlertaDocs = (docsFaltantesCard.length > 0 || docsVencidosCard > 0) && cliente.activo !== false;
 
   return (
     <div style={{
-      background:C.card2, padding:14, borderRadius:10, border:`1px solid ${cliente.activo===false?C.border:C.green+"66"}`,
+      background:C.card2, padding:14, borderRadius:10,
+      border:`1px solid ${tieneAlertaDocs ? C.accent+"66" : cliente.activo===false ? C.border : C.green+"66"}`,
       opacity: cliente.activo===false ? 0.65 : 1,
     }}>
       <div style={{display:"flex", justifyContent:"space-between", alignItems:"flex-start", gap:10, marginBottom:10}}>
@@ -385,6 +454,20 @@ function ClienteCard({cliente, especies, paises, monedas, mercados, onEditar, on
             {mercado && <span>· 🎯 {mercado.nombre}</span>}
             <span>· 💱 {monedaSimb}</span>
           </div>
+          {tieneAlertaDocs && (
+            <div style={{marginTop:4, display:"flex", gap:4, flexWrap:"wrap"}}>
+              {docsFaltantesCard.length > 0 && (
+                <span style={{fontSize:9, padding:"2px 8px", borderRadius:4, background:`${C.accent}22`, color:C.accent, border:`1px solid ${C.accent}44`}}>
+                  {docsFaltantesCard.length} doc{docsFaltantesCard.length>1?"s":""} obligatorio{docsFaltantesCard.length>1?"s":""} faltante{docsFaltantesCard.length>1?"s":""}
+                </span>
+              )}
+              {docsVencidosCard > 0 && (
+                <span style={{fontSize:9, padding:"2px 8px", borderRadius:4, background:`${C.yellow}22`, color:C.yellow, border:`1px solid ${C.yellow}44`}}>
+                  {docsVencidosCard} doc{docsVencidosCard>1?"s":""} vencido{docsVencidosCard>1?"s":""}
+                </span>
+              )}
+            </div>
+          )}
         </div>
         {canEdit && (
           <div style={{display:"flex", gap:6}}>
@@ -426,6 +509,146 @@ function ClienteCard({cliente, especies, paises, monedas, mercados, onEditar, on
       {cliente.observ && (
         <div style={{marginTop:8, paddingTop:8, borderTop:`1px solid ${C.border}`, fontSize:11, color:C.muted, fontStyle:"italic"}}>
           {cliente.observ}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// DOCUMENTOS TAB — vista agregada de todos los docs de todos los clientes
+// ═══════════════════════════════════════════════════════════════════
+function DocumentosTab({clientes}) {
+  const [filtroCli,    setFiltroCli]    = useState("");
+  const [filtroTipo,   setFiltroTipo]   = useState("");
+  const [filtroEstado, setFiltroEstado] = useState("todos");
+  const hoy = new Date().toISOString().slice(0,10);
+  const en30 = new Date(Date.now()+30*24*3600*1000).toISOString().slice(0,10);
+
+  const clientesFaltantes = useMemo(()=>
+    clientes.filter(c => c.activo !== false &&
+      TIPOS_DOC_MINIMOS.some(t => !(c.documentos||[]).some(d=>d.tipo===t&&d.url)))
+  ,[clientes]);
+
+  const todos = useMemo(()=>{
+    const rows = [];
+    clientes.forEach(c => {
+      (c.documentos||[]).forEach(d => {
+        rows.push({...d, clienteId:c.id, clienteNombre:c.nombre});
+      });
+    });
+    return rows.sort((a,b)=>{
+      const aV = a.vencimiento && a.vencimiento < hoy;
+      const bV = b.vencimiento && b.vencimiento < hoy;
+      if(aV && !bV) return -1;
+      if(!aV && bV) return 1;
+      return (b.fecha||"").localeCompare(a.fecha||"");
+    });
+  },[clientes, hoy]);
+
+  const filtrados = useMemo(()=>todos.filter(d=>{
+    if(filtroCli && d.clienteId !== filtroCli) return false;
+    if(filtroTipo && d.tipo !== filtroTipo) return false;
+    if(filtroEstado==="vencidos" && !(d.vencimiento && d.vencimiento < hoy)) return false;
+    if(filtroEstado==="vigentes" && d.vencimiento && d.vencimiento < hoy) return false;
+    return true;
+  }),[todos, filtroCli, filtroTipo, filtroEstado, hoy]);
+
+  const tiposExistentes = [...new Set(todos.map(d=>d.tipo).filter(Boolean))].sort();
+
+  return (
+    <div>
+      {/* Alerta clientes con docs obligatorios faltantes */}
+      {clientesFaltantes.length > 0 && (
+        <div style={{background:`${C.accent}11`, border:`1px solid ${C.accent}44`, borderRadius:10, padding:14, marginBottom:16}}>
+          <div style={{fontWeight:700, color:C.accent, marginBottom:8, fontSize:12}}>
+            Documentos obligatorios faltantes — {clientesFaltantes.length} cliente{clientesFaltantes.length>1?"s":""}
+          </div>
+          <div style={{display:"flex", flexWrap:"wrap", gap:8}}>
+            {clientesFaltantes.map(c => {
+              const falt = TIPOS_DOC_MINIMOS.filter(t => !(c.documentos||[]).some(d=>d.tipo===t&&d.url));
+              return (
+                <div key={c.id} style={{background:C.card, padding:"6px 12px", borderRadius:6, fontSize:11}}>
+                  <strong style={{color:C.text}}>{c.nombre}</strong>
+                  <span style={{color:C.muted, marginLeft:6}}>falta: {falt.join(", ")}</span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* Filtros */}
+      <div style={{display:"flex", gap:10, marginBottom:14, flexWrap:"wrap", alignItems:"center"}}>
+        <select value={filtroCli} onChange={e=>setFiltroCli(e.target.value)} style={{...inputSt, maxWidth:220}}>
+          <option value="">— Todos los clientes —</option>
+          {clientes.map(c=><option key={c.id} value={c.id}>{c.nombre}</option>)}
+        </select>
+        <select value={filtroTipo} onChange={e=>setFiltroTipo(e.target.value)} style={{...inputSt, maxWidth:200}}>
+          <option value="">— Todos los tipos —</option>
+          {tiposExistentes.map(t=><option key={t} value={t}>{t}</option>)}
+        </select>
+        <select value={filtroEstado} onChange={e=>setFiltroEstado(e.target.value)} style={{...inputSt, maxWidth:180}}>
+          <option value="todos">Todos</option>
+          <option value="vencidos">Vencidos</option>
+          <option value="vigentes">Vigentes / sin venc.</option>
+        </select>
+        <span style={{fontSize:11, color:C.muted}}>{filtrados.length} documento{filtrados.length!==1?"s":""}</span>
+      </div>
+
+      {/* Tabla */}
+      {filtrados.length === 0 ? (
+        <div style={{padding:50, textAlign:"center", color:C.muted, fontSize:13, background:C.card, borderRadius:14}}>
+          {todos.length === 0
+            ? "Sin documentos cargados. Abre un cliente, sección Documentos, y agrega links."
+            : "Sin resultados con esos filtros."}
+        </div>
+      ) : (
+        <div style={{background:C.card, borderRadius:14, border:`1px solid ${C.border}`, overflow:"hidden"}}>
+          <table style={{width:"100%", borderCollapse:"collapse", fontSize:12}}>
+            <thead>
+              <tr style={{background:C.card2, borderBottom:`1px solid ${C.border}`}}>
+                {["Cliente","Tipo","Nombre","Fecha","Vencimiento","Link"].map(h=>(
+                  <th key={h} style={{padding:"10px 14px", textAlign:"left", color:C.muted, fontWeight:600, fontSize:10, textTransform:"uppercase"}}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {filtrados.map((d,i)=>{
+                const vencido  = d.vencimiento && d.vencimiento < hoy;
+                const porVenc  = d.vencimiento && !vencido && d.vencimiento <= en30;
+                return (
+                  <tr key={d.id||i} style={{borderBottom:`1px solid ${C.border}`, background: vencido ? `${C.accent}09` : "transparent"}}>
+                    <td style={{padding:"10px 14px", color:C.text, fontWeight:600}}>{d.clienteNombre}</td>
+                    <td style={{padding:"10px 14px"}}>
+                      <span style={{
+                        padding:"2px 8px", borderRadius:4, fontSize:10,
+                        background: TIPOS_DOC_MINIMOS.includes(d.tipo) ? `${C.blue}22` : C.border,
+                        color: TIPOS_DOC_MINIMOS.includes(d.tipo) ? C.blue : C.muted,
+                        border: TIPOS_DOC_MINIMOS.includes(d.tipo) ? `1px solid ${C.blue}44` : "none",
+                      }}>{d.tipo||"—"}</span>
+                    </td>
+                    <td style={{padding:"10px 14px", color:C.text}}>{d.nombre||"—"}</td>
+                    <td style={{padding:"10px 14px", color:C.muted, fontFamily:"monospace", fontSize:11}}>{d.fecha||"—"}</td>
+                    <td style={{padding:"10px 14px", fontFamily:"monospace", fontSize:11}}>
+                      {d.vencimiento ? (
+                        <span style={{color: vencido ? C.accent : porVenc ? C.yellow : C.green, fontWeight: vencido||porVenc ? 700 : 400}}>
+                          {d.vencimiento}
+                          {vencido  && <span style={{marginLeft:4, fontSize:9}}>VENCIDO</span>}
+                          {porVenc  && <span style={{marginLeft:4, fontSize:9}}>⚠ pronto</span>}
+                        </span>
+                      ) : <span style={{color:C.muted2}}>—</span>}
+                    </td>
+                    <td style={{padding:"10px 14px"}}>
+                      {d.url
+                        ? <button onClick={()=>window.open(d.url,"_blank")} style={{...btnSt(C.blue,true), padding:"4px 10px", fontSize:10}}>Abrir ↗</button>
+                        : <span style={{color:C.muted2, fontSize:10}}>Sin link</span>}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
         </div>
       )}
     </div>
@@ -868,6 +1091,7 @@ export default function FriskuComercialModule({
       comisionGlobalSobreFOB: 8,
       comisionFriskuSobreClienteGlobal: 25,
       comisionOverrides: {},
+      documentos: [],
       activo: true,
       observ: "",
       fechaCreacion: new Date().toISOString(),
@@ -899,6 +1123,7 @@ export default function FriskuComercialModule({
   const permDashboard     = permTab("dashboard");
   const permClientes      = permTab("clientes");
   const permExportadoras  = permTab("exportadoras");
+  const permDocumentos    = permTab("documentos");
   const permContratos     = permTab("contratos");
   const permPrograma      = permTab("programa");
   const permEmbarques     = permTab("embarques");
@@ -961,19 +1186,24 @@ export default function FriskuComercialModule({
   };
 
   const totalExportadorasActivas = exportadoras.filter(e => e.activo !== false).length;
+  const hoy = new Date().toISOString().slice(0,10);
+  const clientesConDocsFaltantes = clientes.filter(c =>
+    c.activo !== false && TIPOS_DOC_MINIMOS.some(t => !(c.documentos||[]).some(d=>d.tipo===t&&d.url))
+  ).length;
 
   // ── Tabs (lista filtrada por permisos) ──
   // Se declara antes de los early returns para que el useEffect siguiente
   // respete las rules of hooks.
   const tabsAll = [
-    {id:"dashboard",     label:"📊 Dashboard",     count:null,                      perm:permDashboard},
-    {id:"clientes",      label:"👥 Clientes",      count:totalClientesActivos,      perm:permClientes},
-    {id:"exportadoras",  label:"🏭 Exportadoras",  count:totalExportadorasActivas,  perm:permExportadoras},
-    {id:"contratos",     label:"📄 Contratos",     count:contratos.length||null,    perm:permContratos},
-    {id:"programa",      label:"📅 Programa",      count:programa.length||null,     perm:permPrograma},
-    {id:"embarques",     label:"🚢 Embarques",     count:embarques.length||null,    perm:permEmbarques},
-    {id:"liquidaciones", label:"💰 Liquidaciones", count:liquidaciones.length||null, perm:permLiquidaciones},
-    {id:"maestros",      label:"🗂️ Maestros + TC", count:null,                      perm:permMaestros},
+    {id:"dashboard",     label:"📊 Dashboard",     count:null,                              perm:permDashboard},
+    {id:"clientes",      label:"👥 Clientes",      count:totalClientesActivos,              perm:permClientes},
+    {id:"exportadoras",  label:"🏭 Exportadoras",  count:totalExportadorasActivas,          perm:permExportadoras},
+    {id:"documentos",    label:"📁 Documentos",    count:clientesConDocsFaltantes||null,    perm:permDocumentos},
+    {id:"contratos",     label:"📄 Contratos",     count:contratos.length||null,            perm:permContratos},
+    {id:"programa",      label:"📅 Programa",      count:programa.length||null,             perm:permPrograma},
+    {id:"embarques",     label:"🚢 Embarques",     count:embarques.length||null,            perm:permEmbarques},
+    {id:"liquidaciones", label:"💰 Liquidaciones", count:liquidaciones.length||null,        perm:permLiquidaciones},
+    {id:"maestros",      label:"🗂️ Maestros + TC", count:null,                              perm:permMaestros},
   ];
   const tabs = tabsAll.filter(t => t.perm.visible);
 
@@ -1038,7 +1268,7 @@ export default function FriskuComercialModule({
             {t.count != null && (
               <span style={{
                 fontSize:9, padding:"1px 6px", borderRadius:8,
-                background: tab===t.id ? C.blue : C.border,
+                background: t.id==="documentos" ? C.accent : tab===t.id ? C.blue : C.border,
                 color:"#fff", fontWeight:700,
               }}>{t.count}</span>
             )}
@@ -1067,15 +1297,19 @@ export default function FriskuComercialModule({
               <div style={{fontSize:32, fontWeight:800, color:C.yellow}}>{especies.length}</div>
               <div style={{color:C.muted, fontSize:11}}>en maestro</div>
             </Card>
-            <Card title="Pares TC" icon="📈">
-              <div style={{fontSize:32, fontWeight:800, color:C.purple}}>—</div>
-              <div style={{color:C.muted, fontSize:11}}>ver tab Maestros + TC</div>
+            <Card title="Documentos faltantes" icon="📁">
+              <div style={{fontSize:32, fontWeight:800, color: clientesConDocsFaltantes > 0 ? C.accent : C.green}}>
+                {clientesConDocsFaltantes}
+              </div>
+              <div style={{color:C.muted, fontSize:11}}>
+                cliente{clientesConDocsFaltantes!==1?"s":""} sin docs obligatorios
+              </div>
             </Card>
             <Card title="Plan Frisku" icon="🗺️">
               <div style={{fontSize:11, color:C.text, lineHeight:1.6}}>
                 <div>✅ Fase 1 — Maestros</div>
-                <div style={{color:C.yellow}}>🛠️ Fase 2 — Clientes + TC <em>(en curso)</em></div>
-                <div style={{color:C.muted}}>⏳ Fase 3 — Checklist + archivos</div>
+                <div>✅ Fase 2 — Clientes + TC</div>
+                <div style={{color:C.yellow}}>🛠️ Fase 3 — Documentos <em>(en curso)</em></div>
                 <div style={{color:C.muted}}>⏳ Fase 4 — Embarques</div>
                 <div style={{color:C.muted}}>⏳ Fase 5 — COMEX</div>
                 <div style={{color:C.muted}}>⏳ Fase 6 — Liquidaciones</div>
@@ -1234,6 +1468,13 @@ export default function FriskuComercialModule({
             )}
           </div>
         )}
+        {tab === "documentos" && (
+          <DocumentosTab
+            clientes={clientes}
+            canEdit={permDocumentos.canEdit}
+          />
+        )}
+
         {tab === "contratos" && (
           <Placeholder
             titulo="Contratos comerciales"
