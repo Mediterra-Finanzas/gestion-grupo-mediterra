@@ -46,6 +46,12 @@ const TIPOS_DOC_CLIENTE = [
 // Tipos que generan alerta si el cliente activo no los tiene cargados con URL
 const TIPOS_DOC_MINIMOS = ["Packing List", "Certificado Fitosanitario", "Factura Exportación", "Invoice", "QC Destino"];
 
+// Temporadas agrícolas julio–junio. Para agregar más, extender el rango.
+const TEMPORADAS = Array.from({length: 2041-2021}, (_, i) => {
+  const a = 2021 + i;
+  return { label: `Temporada ${a}-${a+1}`, value: `${a}-${a+1}`, inicio: `${a}-07-01`, fin: `${a+1}-06-30` };
+});
+
 function Card({children, title, icon, action}) {
   return (
     <div style={{background:C.card, borderRadius:14, padding:18, border:`1px solid ${C.border}`}}>
@@ -927,8 +933,17 @@ function ClosureForm({closure, exportadoras, clientes, especies, tiposEmbalaje, 
       <div style={{display:"grid", gridTemplateColumns:"1fr 200px 140px", gap:10, marginBottom:10}}>
         <div>
           <div style={lblSt}>Temporada *</div>
-          <input value={buf.temporada||""} onChange={e=>setCampo("temporada",e.target.value)}
-            placeholder="Cerezas 2026/2027" style={inputSt}/>
+          <select value={buf.temporada||""} style={inputSt}
+            onChange={e=>{
+              const t = TEMPORADAS.find(x=>x.value===e.target.value);
+              setBuf(prev=>({...prev, temporada:e.target.value,
+                fechaInicio: prev.fechaInicio||t?.inicio||"",
+                fechaFin:    prev.fechaFin   ||t?.fin   ||"",
+              }));
+            }}>
+            <option value="">— seleccionar —</option>
+            {TEMPORADAS.map(t=><option key={t.value} value={t.value}>{t.label}</option>)}
+          </select>
         </div>
         <div>
           <div style={lblSt}>Código (opcional)</div>
