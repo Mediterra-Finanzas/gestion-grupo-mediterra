@@ -40,12 +40,11 @@ const btnSt = (color=C.blue, ghost=false) => ({
 function uid() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 8); }
 
 const TIPOS_DOC_CLIENTE = [
-  "Contrato Marco", "KYC / Ficha Cliente", "Certificado Importador",
-  "Poder Notarial", "Referencia Bancaria", "Carta de Crédito",
-  "Certificado de Seguro", "Registro Sanitario", "Otro",
+  "Packing List", "Certificado Fitosanitario", "Factura Exportación",
+  "Invoice", "QC Destino", "Otro",
 ];
 // Tipos que generan alerta si el cliente activo no los tiene cargados con URL
-const TIPOS_DOC_MINIMOS = ["Contrato Marco", "KYC / Ficha Cliente", "Certificado Importador"];
+const TIPOS_DOC_MINIMOS = ["Packing List", "Certificado Fitosanitario", "Factura Exportación", "Invoice", "QC Destino"];
 
 function Card({children, title, icon, action}) {
   return (
