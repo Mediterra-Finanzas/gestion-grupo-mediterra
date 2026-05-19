@@ -11,6 +11,7 @@ import React, { useState, useEffect, useMemo, useRef, useCallback } from "react"
 import FriskuModule, {
   PAISES_DEFAULT, MERCADOS_DEFAULT, MONEDAS_DEFAULT,
   ESPECIES_DEFAULT, TIPOS_EMBALAJE_DEFAULT, CIUDADES_DEFAULT,
+  TEMPORADAS_DEFAULT,
 } from "./FriskuModule.jsx";
 import {
   dbLoadGeneric, dbSaveGeneric,
@@ -46,11 +47,6 @@ const TIPOS_DOC_CLIENTE = [
 // Tipos que generan alerta si el cliente activo no los tiene cargados con URL
 const TIPOS_DOC_MINIMOS = ["Packing List", "Certificado Fitosanitario", "Factura Exportación", "Invoice", "QC Destino"];
 
-// Temporadas agrícolas julio–junio. Para agregar más, extender el rango.
-const TEMPORADAS = Array.from({length: 2041-2021}, (_, i) => {
-  const a = 2021 + i;
-  return { label: `Temporada ${a}-${a+1}`, value: `${a}-${a+1}`, inicio: `${a}-07-01`, fin: `${a+1}-06-30` };
-});
 
 function Card({children, title, icon, action}) {
   return (
@@ -896,7 +892,7 @@ function ExportadoraCard({exportadora, especies, paises, monedas, onEditar, onEl
 // ═══════════════════════════════════════════════════════════════════
 // BUSINESS CLOSURE FORM
 // ═══════════════════════════════════════════════════════════════════
-function ClosureForm({closure, exportadoras, clientes, especies, tiposEmbalaje, monedas, onGuardar, onCancelar}) {
+function ClosureForm({closure, exportadoras, clientes, especies, tiposEmbalaje, monedas, temporadas, onGuardar, onCancelar}) {
   const [buf, setBuf] = useState(()=>JSON.parse(JSON.stringify(closure)));
   const setCampo = (k, v) => setBuf(prev=>({...prev, [k]:v}));
 
@@ -935,14 +931,17 @@ function ClosureForm({closure, exportadoras, clientes, especies, tiposEmbalaje, 
           <div style={lblSt}>Temporada *</div>
           <select value={buf.temporada||""} style={inputSt}
             onChange={e=>{
-              const t = TEMPORADAS.find(x=>x.value===e.target.value);
-              setBuf(prev=>({...prev, temporada:e.target.value,
-                fechaInicio: prev.fechaInicio||t?.inicio||"",
-                fechaFin:    prev.fechaFin   ||t?.fin   ||"",
+              const val = e.target.value;
+              const [a1, a2] = val.split("-");
+              const inicio = a1 ? `${a1}-07-01` : "";
+              const fin    = a2 ? `${a2}-06-30` : "";
+              setBuf(prev=>({...prev, temporada:val,
+                fechaInicio: prev.fechaInicio||inicio,
+                fechaFin:    prev.fechaFin   ||fin,
               }));
             }}>
             <option value="">— seleccionar —</option>
-            {TEMPORADAS.map(t=><option key={t.value} value={t.value}>{t.label}</option>)}
+            {(temporadas||[]).map(t=><option key={t} value={t}>Temporada {t}</option>)}
           </select>
         </div>
         <div>
@@ -1221,6 +1220,7 @@ export default function FriskuComercialModule({
   const [mercados,       setMercados]       = useState([]);
   const [tiposEmbalaje,  setTiposEmbalaje]  = useState([]);
   const [ciudades,       setCiudades]       = useState([]);
+  const [temporadas,     setTemporadas]     = useState(TEMPORADAS_DEFAULT);
 
   const [cargando, setCargando] = useState(true);
   const [tab, setTab] = useState("clientes");
@@ -1255,7 +1255,7 @@ export default function FriskuComercialModule({
   useEffect(()=>{
     let alive = true;
     (async ()=>{
-      const [cli, exp, con, pro, emb, liq, esp, pa, mo, me, tb, ci] = await Promise.all([
+      const [cli, exp, con, pro, emb, liq, esp, pa, mo, me, tb, ci, tmp] = await Promise.all([
         dbLoadGeneric("frisku_clientes"),
         dbLoadGeneric("frisku_exportadoras"),
         dbLoadGeneric("frisku_contratos"),
@@ -1268,6 +1268,7 @@ export default function FriskuComercialModule({
         dbLoadGeneric("maestro_mercados"),
         dbLoadGeneric("maestro_tipos_embalaje"),
         dbLoadGeneric("maestro_ciudades"),
+        dbLoadGeneric("maestro_temporadas"),
       ]);
       if(!alive) return;
       setClientes(Array.isArray(cli) ? cli : []);
@@ -1286,6 +1287,7 @@ export default function FriskuComercialModule({
       setMercados(Array.isArray(me) && me.length ? me : MERCADOS_DEFAULT);
       setTiposEmbalaje(Array.isArray(tb) && tb.length ? tb : TIPOS_EMBALAJE_DEFAULT);
       setCiudades(Array.isArray(ci) && ci.length ? ci : CIUDADES_DEFAULT);
+      if(Array.isArray(tmp) && tmp.length) setTemporadas(tmp);
       setCargando(false);
     })();
     return ()=>{alive=false;};
@@ -1296,13 +1298,14 @@ export default function FriskuComercialModule({
   // Exportadoras). Garantiza que las altas/cambios hechos en el módulo
   // de Maestros se reflejen sin necesidad de recargar la página.
   const recargarMaestros = useCallback(async ()=>{
-    const [esp, pa, mo, me, tb, ci] = await Promise.all([
+    const [esp, pa, mo, me, tb, ci, tmp] = await Promise.all([
       dbLoadGeneric("maestro_especies"),
       dbLoadGeneric("maestro_paises"),
       dbLoadGeneric("maestro_monedas"),
       dbLoadGeneric("maestro_mercados"),
       dbLoadGeneric("maestro_tipos_embalaje"),
       dbLoadGeneric("maestro_ciudades"),
+      dbLoadGeneric("maestro_temporadas"),
     ]);
     setEspecies(Array.isArray(esp) && esp.length ? esp : ESPECIES_DEFAULT);
     setPaises(Array.isArray(pa) && pa.length ? pa : PAISES_DEFAULT);
@@ -1310,6 +1313,7 @@ export default function FriskuComercialModule({
     setMercados(Array.isArray(me) && me.length ? me : MERCADOS_DEFAULT);
     setTiposEmbalaje(Array.isArray(tb) && tb.length ? tb : TIPOS_EMBALAJE_DEFAULT);
     setCiudades(Array.isArray(ci) && ci.length ? ci : CIUDADES_DEFAULT);
+    if(Array.isArray(tmp) && tmp.length) setTemporadas(tmp);
   },[]);
 
   // Refrescar maestros al entrar a tabs que los necesitan
@@ -1849,6 +1853,7 @@ export default function FriskuComercialModule({
                 especies={especies}
                 tiposEmbalaje={tiposEmbalaje}
                 monedas={monedas}
+                temporadas={temporadas}
                 onGuardar={handleGuardarClosure}
                 onCancelar={()=>{setEditandoClosure(null); setCreandoClosure(false);}}
               />

@@ -732,6 +732,11 @@ export const ESPECIES_DEFAULT = [
 ];
 
 // ═══════════════════════════════════════════════════════════════════
+// TEMPORADAS AGRÍCOLAS — julio a junio del año siguiente
+// ═══════════════════════════════════════════════════════════════════
+export const TEMPORADAS_DEFAULT = Array.from({length:20}, (_,i)=>`${2021+i}-${2022+i}`);
+
+// ═══════════════════════════════════════════════════════════════════
 // CHECKLIST DOCUMENTAL — plantillas comunes preconfiguradas
 // ═══════════════════════════════════════════════════════════════════
 export const CHECKLIST_DOCS_DEFAULT = [
@@ -859,6 +864,74 @@ function exportarCSV(data, nombre, columnas) {
   a.href = url; a.download = `${nombre}_${new Date().toISOString().slice(0,10)}.csv`;
   document.body.appendChild(a); a.click(); document.body.removeChild(a);
   URL.revokeObjectURL(url);
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// EDITOR DE TEMPORADAS
+// ═══════════════════════════════════════════════════════════════════
+function AgregarTemporada({temporadas, setTemporadas}) {
+  const [anio, setAnio] = useState("");
+  const valor = anio && /^\d{4}$/.test(anio) ? `${anio}-${Number(anio)+1}` : "";
+  const yaExiste = temporadas.includes(valor);
+  const agregar = () => {
+    if(!valor || yaExiste) return;
+    setTemporadas(prev=>[...prev, valor].sort());
+    setAnio("");
+  };
+  return (
+    <div style={{display:"flex", gap:8, alignItems:"flex-end", flexWrap:"wrap"}}>
+      <div>
+        <div style={{fontSize:10, color:C.muted, fontWeight:600, marginBottom:3, textTransform:"uppercase", letterSpacing:0.4}}>Año inicio</div>
+        <input type="number" value={anio} onChange={e=>setAnio(e.target.value)}
+          placeholder="2042" min="2000" max="2099"
+          onKeyDown={e=>e.key==="Enter"&&agregar()}
+          style={{width:110, padding:"6px 10px", borderRadius:6, border:`1px solid ${C.border}`, background:C.card2, color:C.text, fontSize:12, outline:"none"}}/>
+      </div>
+      {valor && <div style={{fontSize:11, color:C.muted, paddingBottom:7}}>→ Temporada {valor} (01-jul-{anio} a 30-jun-{Number(anio)+1})</div>}
+      <button onClick={agregar} disabled={!valor||yaExiste}
+        style={{padding:"6px 14px", borderRadius:6, border:`1px solid ${yaExiste||!valor?C.border:C.green}`,
+          background:"transparent", color:yaExiste||!valor?C.muted:C.green,
+          fontWeight:600, fontSize:11, cursor:valor&&!yaExiste?"pointer":"default", marginBottom:1}}>
+        {yaExiste?"Ya existe":"+ Agregar"}
+      </button>
+    </div>
+  );
+}
+
+function TemporadasEditor({temporadas, setTemporadas, canEdit}) {
+  return (
+    <div style={{background:C.card, borderRadius:14, padding:18, border:`1px solid ${C.border}`}}>
+      <div style={{display:"flex", alignItems:"center", gap:8, marginBottom:14, borderBottom:`1px solid ${C.border}`, paddingBottom:10}}>
+        <span style={{fontSize:18}}>📅</span>
+        <h3 style={{margin:0, color:C.text, fontSize:14, fontWeight:700, flex:1}}>Temporadas</h3>
+        <span style={{fontSize:11, color:C.muted}}>{temporadas.length} temporadas</span>
+      </div>
+      <div style={{fontSize:11, color:C.muted, marginBottom:14, lineHeight:1.5}}>
+        Cada temporada corre del <strong style={{color:C.text}}>1 de julio</strong> al <strong style={{color:C.text}}>30 de junio</strong> del año siguiente.
+        Se usan en Business Closures para identificar el período comercial.
+      </div>
+      <div style={{display:"grid", gridTemplateColumns:"repeat(auto-fill, minmax(220px,1fr))", gap:8, marginBottom:16}}>
+        {temporadas.map(t=>{
+          const [a1, a2] = t.split("-");
+          return (
+            <div key={t} style={{display:"flex", alignItems:"center", justifyContent:"space-between",
+              background:C.card2, padding:"8px 12px", borderRadius:6, border:`1px solid ${C.border}`}}>
+              <div>
+                <div style={{fontWeight:700, color:C.text, fontSize:12}}>Temporada {t}</div>
+                <div style={{fontSize:9, color:C.muted, marginTop:2}}>{a1}-07-01 → {a2}-06-30</div>
+              </div>
+              {canEdit && (
+                <button onClick={()=>setTemporadas(prev=>prev.filter(x=>x!==t))}
+                  style={{padding:"2px 8px", borderRadius:4, border:`1px solid ${C.accent}44`,
+                    background:"transparent", color:C.accent, cursor:"pointer", fontSize:10, fontWeight:700}}>×</button>
+              )}
+            </div>
+          );
+        })}
+      </div>
+      {canEdit && <AgregarTemporada temporadas={temporadas} setTemporadas={setTemporadas}/>}
+    </div>
+  );
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -1578,6 +1651,7 @@ export default function FriskuMaestrosModule({canEdit=true, onBack}) {
   const [especies,       setEspecies]       = useState([]);
   const [tcData,         setTcData]         = useState({});
   const [checklistDocs,  setChecklistDocs]  = useState([]);
+  const [temporadas,     setTemporadas]     = useState([]);
 
   const [cargando, setCargando] = useState(true);
   const [tab, setTab] = useState("paises");
@@ -1591,7 +1665,7 @@ export default function FriskuMaestrosModule({canEdit=true, onBack}) {
       // y los retorna (queda persistido para todos los usuarios).
       // dbLoadMaestro normal para los que NO se siembran (Ciudades vacío
       // intencionalmente, TC es objeto y se carga vía APIs externas).
-      const [p, c, pu, ae, sl, la, te, tb, me, mo, es, tc, cd] = await Promise.all([
+      const [p, c, pu, ae, sl, la, te, tb, me, mo, es, tc, cd, tmp] = await Promise.all([
         loadConSeed("maestro_paises",         PAISES_DEFAULT),
         loadConSeed("maestro_ciudades",       CIUDADES_DEFAULT),
         loadConSeed("maestro_puertos",        PUERTOS_DEFAULT),
@@ -1605,6 +1679,7 @@ export default function FriskuMaestrosModule({canEdit=true, onBack}) {
         loadConSeed("maestro_especies",       ESPECIES_DEFAULT),
         dbLoadMaestro("maestro_tc"),
         loadConSeed("maestro_checklist_docs", CHECKLIST_DOCS_DEFAULT),
+        loadConSeed("maestro_temporadas",     TEMPORADAS_DEFAULT),
       ]);
       if(!alive) return;
       // Defensa en profundidad: si loadConSeed retornó algo inesperado
@@ -1622,6 +1697,7 @@ export default function FriskuMaestrosModule({canEdit=true, onBack}) {
       setEspecies(Array.isArray(es) ? es : ESPECIES_DEFAULT);
       setTcData(tc && typeof tc === "object" && !Array.isArray(tc) ? tc : {});
       setChecklistDocs(Array.isArray(cd) ? cd : CHECKLIST_DOCS_DEFAULT);
+      setTemporadas(Array.isArray(tmp) ? tmp : TEMPORADAS_DEFAULT);
       setCargando(false);
     })();
     return ()=>{alive=false;};
@@ -1655,6 +1731,7 @@ export default function FriskuMaestrosModule({canEdit=true, onBack}) {
   useAutoSave("maestro_especies", especies);
   useAutoSave("maestro_tc", tcData);
   useAutoSave("maestro_checklist_docs", checklistDocs);
+  useAutoSave("maestro_temporadas", temporadas);
 
   // Mapas para mostrar nombres en lugar de códigos
   const paisesMap = useMemo(()=>{
@@ -1708,6 +1785,7 @@ export default function FriskuMaestrosModule({canEdit=true, onBack}) {
     {id:"monedas",         label:"💱 Monedas",           count:monedas.length},
     {id:"tc",              label:"📈 Tipo de Cambio",    count:Object.keys(tcData||{}).length},
     {id:"checklist",       label:"📋 Checklist Docs",    count:checklistDocs.length},
+    {id:"temporadas",      label:"📅 Temporadas",         count:temporadas.length},
   ];
 
   return (
@@ -2076,6 +2154,14 @@ export default function FriskuMaestrosModule({canEdit=true, onBack}) {
           setDatos={setChecklistDocs}
           tiposEmbarque={tiposEmbarque}
           mercados={mercados}
+          canEdit={canEdit}
+        />
+      )}
+
+      {tab === "temporadas" && (
+        <TemporadasEditor
+          temporadas={temporadas}
+          setTemporadas={setTemporadas}
           canEdit={canEdit}
         />
       )}
