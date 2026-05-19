@@ -3,7 +3,7 @@ import React, { useState, useEffect, useCallback, useRef } from "react";
 import OsirisModule from "./OsirisModule.jsx";
 import FinanzasModule from "./FinanzasModule.jsx";
 import AllegriaModule from "./AllegriaModule.jsx";
-import FriskuModule from "./FriskuModule.jsx";
+import FriskuComercialModule from "./FriskuComercialModule.jsx";
 
 // ═══════════════════════════════════════════════════════════════════
 // ErrorBoundary: captura crash por archivos obsoletos tras deploy
@@ -2543,7 +2543,7 @@ Equipo Mediterra`);
 
   if(moduloActivo==="frisku") return (
     <div style={{fontFamily:"sans-serif",background:"#0d1117",minHeight:"100vh"}}>
-      <FriskuModule
+      <FriskuComercialModule
         usuarioActual={usuarioFresco}
         esAdmin={esAdmin}
         esSoloConsulta={esSoloConsulta}

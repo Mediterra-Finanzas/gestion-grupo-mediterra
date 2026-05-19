@@ -6,6 +6,11 @@
 // Persistencia: tabla calendario_data, ids "maestro_*"
 // ═══════════════════════════════════════════════════════════════════
 import React, { useState, useEffect, useMemo, useCallback, useRef } from "react";
+import {
+  TC_PARES_DEFAULT, fechaISO,
+  actualizarTCDesdeAPIs, aplicarUpdatesATCData, mergeTCSerie,
+  buscarTC, formatearMonto,
+} from "./friskuHelpers.js";
 
 const SUPA_URL = "https://bywovqayuzodbzwsriet.supabase.co";
 const SUPA_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJ5d292cWF5dXpvZGJ6d3NyaWV0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU2ODU1MDgsImV4cCI6MjA5MTI2MTUwOH0.s2x2O_CxE6rl8dBqFuyfQdMyRqSyjJQWXJXesmVGXtk";
@@ -408,23 +413,23 @@ const TIPOS_EMBARQUE_DEFAULT = [
 // ═══════════════════════════════════════════════════════════════════
 const TIPOS_EMBALAJE_DEFAULT = [
   // CEREZAS
-  {codigo:"CHE-5KG-CB", nombre:"Caja Cereza 5kg",        especie:"Cerezas",   kgPorUnidad:5.0,  unidad:"kg", observ:"Caja exportación estándar"},
-  {codigo:"CHE-25KG",   nombre:"Caja Cereza 2.5kg",      especie:"Cerezas",   kgPorUnidad:2.5,  unidad:"kg", observ:""},
-  {codigo:"CHE-CLAM",   nombre:"Clamshell 500g × 10",    especie:"Cerezas",   kgPorUnidad:5.0,  unidad:"kg", observ:"Retail-ready"},
+  {codigo:"CHE-5KG-CB", nombre:"Caja Cereza 5kg",        especieCodigo:"CHE", kgPorUnidad:5.0,  unidad:"kg", observ:"Caja exportación estándar"},
+  {codigo:"CHE-25KG",   nombre:"Caja Cereza 2.5kg",      especieCodigo:"CHE", kgPorUnidad:2.5,  unidad:"kg", observ:""},
+  {codigo:"CHE-CLAM",   nombre:"Clamshell 500g × 10",    especieCodigo:"CHE", kgPorUnidad:5.0,  unidad:"kg", observ:"Retail-ready"},
   // ARÁNDANOS
-  {codigo:"BLB-125GR",  nombre:"Clamshell 125g × 12",    especie:"Arándanos", kgPorUnidad:1.5,  unidad:"kg", observ:"Retail Asia/EU"},
-  {codigo:"BLB-PINT",   nombre:"Pint × 12",              especie:"Arándanos", kgPorUnidad:2.04, unidad:"kg", observ:"USA - pint 170g"},
-  {codigo:"BLB-6OZ",    nombre:"Clamshell 6oz × 12",     especie:"Arándanos", kgPorUnidad:2.04, unidad:"kg", observ:"USA estándar"},
-  {codigo:"BLB-18OZ",   nombre:"Clamshell 18oz × 8",     especie:"Arándanos", kgPorUnidad:4.08, unidad:"kg", observ:"USA familiar"},
+  {codigo:"BLB-125GR",  nombre:"Clamshell 125g × 12",    especieCodigo:"BLB", kgPorUnidad:1.5,  unidad:"kg", observ:"Retail Asia/EU"},
+  {codigo:"BLB-PINT",   nombre:"Pint × 12",              especieCodigo:"BLB", kgPorUnidad:2.04, unidad:"kg", observ:"USA - pint 170g"},
+  {codigo:"BLB-6OZ",    nombre:"Clamshell 6oz × 12",     especieCodigo:"BLB", kgPorUnidad:2.04, unidad:"kg", observ:"USA estándar"},
+  {codigo:"BLB-18OZ",   nombre:"Clamshell 18oz × 8",     especieCodigo:"BLB", kgPorUnidad:4.08, unidad:"kg", observ:"USA familiar"},
   // UVAS
-  {codigo:"GRP-82KG",   nombre:"Caja Uva 8.2kg",         especie:"Uvas",      kgPorUnidad:8.2,  unidad:"kg", observ:"USA"},
-  {codigo:"GRP-5KG",    nombre:"Caja Uva 5kg",           especie:"Uvas",      kgPorUnidad:5.0,  unidad:"kg", observ:"Europa"},
+  {codigo:"GRP-82KG",   nombre:"Caja Uva 8.2kg",         especieCodigo:"GRP", kgPorUnidad:8.2,  unidad:"kg", observ:"USA"},
+  {codigo:"GRP-5KG",    nombre:"Caja Uva 5kg",           especieCodigo:"GRP", kgPorUnidad:5.0,  unidad:"kg", observ:"Europa"},
   // CIRUELAS
-  {codigo:"PLM-5KG",    nombre:"Caja Ciruela 5kg",       especie:"Ciruelas",  kgPorUnidad:5.0,  unidad:"kg", observ:""},
+  {codigo:"PLM-5KG",    nombre:"Caja Ciruela 5kg",       especieCodigo:"PLM", kgPorUnidad:5.0,  unidad:"kg", observ:""},
   // KIWI
-  {codigo:"KWI-3KG",    nombre:"Caja Kiwi 3kg",          especie:"Kiwi",      kgPorUnidad:3.0,  unidad:"kg", observ:""},
+  {codigo:"KWI-3KG",    nombre:"Caja Kiwi 3kg",          especieCodigo:"KWI", kgPorUnidad:3.0,  unidad:"kg", observ:""},
   // PALTAS
-  {codigo:"AVO-4KG",    nombre:"Caja Palta 4kg",         especie:"Paltas",    kgPorUnidad:4.0,  unidad:"kg", observ:""},
+  {codigo:"AVO-4KG",    nombre:"Caja Palta 4kg",         especieCodigo:"AVO", kgPorUnidad:4.0,  unidad:"kg", observ:""},
 ];
 
 // ═══════════════════════════════════════════════════════════════════
@@ -479,6 +484,29 @@ const MONEDAS_DEFAULT = [
   {codigo:"CHF", nombre:"Franco Suizo",           simbolo:"CHF",  paisCodigo:"CH", default:false},
   {codigo:"RUB", nombre:"Rublo Ruso",             simbolo:"₽",    paisCodigo:"RU", default:false},
   {codigo:"INR", nombre:"Rupia India",            simbolo:"₹",    paisCodigo:"IN", default:false},
+];
+
+// ═══════════════════════════════════════════════════════════════════
+// ESPECIES (Fase 2) — catálogo normalizado de frutas exportadas
+// Reemplaza el string libre `especie` que vive en TIPOS_EMBALAJE_DEFAULT.
+// ═══════════════════════════════════════════════════════════════════
+const ESPECIES_DEFAULT = [
+  {codigo:"CHE", nombreEs:"Cerezas",     nombreEn:"Cherries",     icono:"🍒", familia:"Carozos",    kgPorCajaDefault:5.0,  unidadComercial:"kg", temporadaInicio:"Nov", temporadaFin:"Feb", observ:"Especie principal Allegria"},
+  {codigo:"BLB", nombreEs:"Arándanos",   nombreEn:"Blueberries",  icono:"🫐", familia:"Berries",    kgPorCajaDefault:1.5,  unidadComercial:"kg", temporadaInicio:"Oct", temporadaFin:"Mar", observ:"Allpa Perú + Chile"},
+  {codigo:"GRP", nombreEs:"Uvas",        nombreEn:"Grapes",       icono:"🍇", familia:"Berries",    kgPorCajaDefault:8.2,  unidadComercial:"kg", temporadaInicio:"Dic", temporadaFin:"Abr", observ:""},
+  {codigo:"PLM", nombreEs:"Ciruelas",    nombreEn:"Plums",        icono:"🍑", familia:"Carozos",    kgPorCajaDefault:5.0,  unidadComercial:"kg", temporadaInicio:"Dic", temporadaFin:"Mar", observ:""},
+  {codigo:"PCH", nombreEs:"Duraznos",    nombreEn:"Peaches",      icono:"🍑", familia:"Carozos",    kgPorCajaDefault:5.0,  unidadComercial:"kg", temporadaInicio:"Nov", temporadaFin:"Feb", observ:""},
+  {codigo:"NCT", nombreEs:"Nectarinas",  nombreEn:"Nectarines",   icono:"🍑", familia:"Carozos",    kgPorCajaDefault:5.0,  unidadComercial:"kg", temporadaInicio:"Nov", temporadaFin:"Feb", observ:""},
+  {codigo:"KWI", nombreEs:"Kiwi",        nombreEn:"Kiwifruit",    icono:"🥝", familia:"Otros",      kgPorCajaDefault:3.0,  unidadComercial:"kg", temporadaInicio:"Abr", temporadaFin:"Oct", observ:""},
+  {codigo:"AVO", nombreEs:"Paltas",      nombreEn:"Avocados",     icono:"🥑", familia:"Tropicales", kgPorCajaDefault:4.0,  unidadComercial:"kg", temporadaInicio:"Jul", temporadaFin:"Mar", observ:""},
+  {codigo:"APL", nombreEs:"Manzanas",    nombreEn:"Apples",       icono:"🍎", familia:"Pomáceas",   kgPorCajaDefault:18.0, unidadComercial:"kg", temporadaInicio:"Mar", temporadaFin:"Sep", observ:""},
+  {codigo:"PER", nombreEs:"Peras",       nombreEn:"Pears",        icono:"🍐", familia:"Pomáceas",   kgPorCajaDefault:18.0, unidadComercial:"kg", temporadaInicio:"Feb", temporadaFin:"Jul", observ:""},
+  {codigo:"ORG", nombreEs:"Naranjas",    nombreEn:"Oranges",      icono:"🍊", familia:"Cítricos",   kgPorCajaDefault:15.0, unidadComercial:"kg", temporadaInicio:"Jun", temporadaFin:"Dic", observ:""},
+  {codigo:"LMN", nombreEs:"Limones",     nombreEn:"Lemons",       icono:"🍋", familia:"Cítricos",   kgPorCajaDefault:15.0, unidadComercial:"kg", temporadaInicio:"May", temporadaFin:"Sep", observ:""},
+  {codigo:"MND", nombreEs:"Mandarinas",  nombreEn:"Mandarins",    icono:"🍊", familia:"Cítricos",   kgPorCajaDefault:10.0, unidadComercial:"kg", temporadaInicio:"May", temporadaFin:"Sep", observ:""},
+  {codigo:"MNG", nombreEs:"Mango",       nombreEn:"Mango",        icono:"🥭", familia:"Tropicales", kgPorCajaDefault:4.0,  unidadComercial:"kg", temporadaInicio:"Oct", temporadaFin:"Feb", observ:""},
+  {codigo:"STR", nombreEs:"Frutillas",   nombreEn:"Strawberries", icono:"🍓", familia:"Berries",    kgPorCajaDefault:2.5,  unidadComercial:"kg", temporadaInicio:"Sep", temporadaFin:"Feb", observ:""},
+  {codigo:"RSP", nombreEs:"Frambuesas",  nombreEn:"Raspberries",  icono:"🫐", familia:"Berries",    kgPorCajaDefault:1.5,  unidadComercial:"kg", temporadaInicio:"Nov", temporadaFin:"Mar", observ:""},
 ];
 
 // ═══════════════════════════════════════════════════════════════════
@@ -997,6 +1025,320 @@ function ChecklistDocsEditor({datos, setDatos, tiposEmbarque, mercados, canEdit}
 }
 
 // ═══════════════════════════════════════════════════════════════════
+// SUB-COMPONENTE: TipoCambioEditor
+// Estructura: tcData = { "USD-CLP":[{fecha,valor,fuente}], ... }
+// UI: lista plana + filtros + botones actualización APIs + CRUD manual
+// ═══════════════════════════════════════════════════════════════════
+function TipoCambioEditor({tcData, setTcData, monedas, canEdit}) {
+  const [filtroPar, setFiltroPar] = useState("");
+  const [filtroFecha, setFiltroFecha] = useState("");
+  const [actualizando, setActualizando] = useState(false);
+  const [mensaje, setMensaje] = useState("");
+  const [agregando, setAgregando] = useState(false);
+  const [nuevoTC, setNuevoTC] = useState({par:"USD-CLP", fecha:fechaISO(), valor:"", fuente:"manual"});
+  const [editingKey, setEditingKey] = useState(null);
+  const [editBuffer, setEditBuffer] = useState({});
+
+  // Aplanar a lista de filas {par, fecha, valor, fuente}
+  const filas = useMemo(()=>{
+    const out = [];
+    Object.entries(tcData || {}).forEach(([par, serie])=>{
+      (Array.isArray(serie)?serie:[]).forEach(entry => {
+        if(entry?.fecha != null && entry.valor != null) {
+          out.push({par, fecha:entry.fecha, valor:Number(entry.valor), fuente:entry.fuente||"manual"});
+        }
+      });
+    });
+    return out.sort((a,b)=> b.fecha.localeCompare(a.fecha) || a.par.localeCompare(b.par));
+  },[tcData]);
+
+  const filasFiltradas = useMemo(()=>{
+    return filas.filter(f => {
+      if(filtroPar && !f.par.includes(filtroPar.toUpperCase())) return false;
+      if(filtroFecha && !f.fecha.startsWith(filtroFecha)) return false;
+      return true;
+    });
+  },[filas, filtroPar, filtroFecha]);
+
+  // Resumen: última fecha por par
+  const resumen = useMemo(()=>{
+    const r = {};
+    filas.forEach(f => {
+      if(!r[f.par] || r[f.par].fecha < f.fecha) r[f.par] = f;
+    });
+    return Object.entries(r).map(([par, f]) => ({par, ...f}))
+      .sort((a,b)=>a.par.localeCompare(b.par));
+  },[filas]);
+
+  const handleActualizar = async (fechas) => {
+    if(!canEdit) return;
+    setActualizando(true);
+    setMensaje("");
+    try {
+      let totalActualizados = 0;
+      for(const f of fechas) {
+        const updates = await actualizarTCDesdeAPIs(TC_PARES_DEFAULT, f);
+        const numPares = Object.keys(updates).length;
+        if(numPares > 0) {
+          setTcData(prev => aplicarUpdatesATCData(prev, updates));
+          totalActualizados += numPares;
+        }
+      }
+      setMensaje(`✓ ${totalActualizados} entradas actualizadas (${fechas.length} fecha${fechas.length>1?"s":""})`);
+    } catch(e) {
+      setMensaje(`✕ Error: ${e.message}`);
+    } finally {
+      setActualizando(false);
+      setTimeout(()=>setMensaje(""), 6000);
+    }
+  };
+
+  const fechasRango = (dias) => {
+    const out = [];
+    for(let i=0; i<dias; i++) {
+      const d = new Date();
+      d.setDate(d.getDate() - i);
+      out.push(fechaISO(d));
+    }
+    return out;
+  };
+
+  const handleAgregarManual = () => {
+    if(!nuevoTC.par || !nuevoTC.fecha || !nuevoTC.valor) {
+      alert("Par, fecha y valor son requeridos"); return;
+    }
+    const valor = Number(nuevoTC.valor);
+    if(isNaN(valor) || valor <= 0) { alert("Valor inválido"); return; }
+    if(!/^[A-Z]{3}-[A-Z]{3}$/.test(nuevoTC.par)) { alert("Par debe ser formato 'USD-CLP'"); return; }
+    setTcData(prev => ({
+      ...prev,
+      [nuevoTC.par]: mergeTCSerie(prev[nuevoTC.par], [{fecha:nuevoTC.fecha, valor, fuente:"manual"}])
+    }));
+    setNuevoTC({par:"USD-CLP", fecha:fechaISO(), valor:"", fuente:"manual"});
+    setAgregando(false);
+  };
+
+  const handleEditar = (fila) => {
+    setEditingKey(`${fila.par}__${fila.fecha}`);
+    setEditBuffer({...fila});
+  };
+
+  const handleGuardarEdit = () => {
+    const valor = Number(editBuffer.valor);
+    if(isNaN(valor) || valor <= 0) { alert("Valor inválido"); return; }
+    const [parOrig, fechaOrig] = editingKey.split("__");
+    setTcData(prev => {
+      const out = {...prev};
+      // remover entrada vieja
+      if(out[parOrig]) {
+        out[parOrig] = out[parOrig].filter(e => e.fecha !== fechaOrig);
+        if(!out[parOrig].length) delete out[parOrig];
+      }
+      // agregar nueva (puede haber cambiado de par/fecha)
+      out[editBuffer.par] = mergeTCSerie(out[editBuffer.par], [{
+        fecha: editBuffer.fecha, valor, fuente: editBuffer.fuente || "manual"
+      }]);
+      return out;
+    });
+    setEditingKey(null);
+    setEditBuffer({});
+  };
+
+  const handleEliminar = (fila) => {
+    if(!window.confirm(`Eliminar ${fila.par} ${fila.fecha} = ${fila.valor}?`)) return;
+    setTcData(prev => {
+      const out = {...prev};
+      if(out[fila.par]) {
+        out[fila.par] = out[fila.par].filter(e => e.fecha !== fila.fecha);
+        if(!out[fila.par].length) delete out[fila.par];
+      }
+      return out;
+    });
+  };
+
+  const exportar = () => {
+    if(!filasFiltradas.length) { alert("No hay datos"); return; }
+    exportarCSV(filasFiltradas, "tipo_cambio", [
+      {key:"par", label:"Par"},
+      {key:"fecha", label:"Fecha"},
+      {key:"valor", label:"Valor"},
+      {key:"fuente", label:"Fuente"},
+    ]);
+  };
+
+  const monedasMap = useMemo(()=>{
+    const m = {}; (monedas||[]).forEach(x => m[x.codigo] = x); return m;
+  },[monedas]);
+
+  return (
+    <Card title="Tipo de Cambio Histórico" icon="💱">
+      <div style={{fontSize:11, color:C.muted, marginBottom:14, lineHeight:1.5}}>
+        Tabla histórica de tasas. Fuentes: <strong>mindicador.cl</strong> (Banco Central Chile, para CLP) y{" "}
+        <strong>frankfurter.app</strong> (Banco Central Europeo, resto del mundo).
+        Las entradas manuales no se sobrescriben automáticamente.
+      </div>
+
+      {/* Botones de actualización */}
+      {canEdit && (
+        <div style={{display:"flex", gap:8, flexWrap:"wrap", marginBottom:14, alignItems:"center"}}>
+          <button onClick={()=>handleActualizar([fechaISO()])} disabled={actualizando} style={btnSt(C.blue)}>
+            🔄 Actualizar hoy
+          </button>
+          <button onClick={()=>handleActualizar(fechasRango(7))} disabled={actualizando} style={btnSt(C.teal)}>
+            📅 Últimos 7 días
+          </button>
+          <button onClick={()=>handleActualizar(fechasRango(30))} disabled={actualizando} style={btnSt(C.teal, true)}>
+            📅 Últimos 30 días
+          </button>
+          <button onClick={()=>setAgregando(!agregando)} style={btnSt(C.green, true)}>
+            {agregando ? "✕ Cancelar" : "+ Agregar manual"}
+          </button>
+          <button onClick={exportar} style={btnSt(C.muted, true)}>⇩ CSV</button>
+          {actualizando && <span style={{color:C.yellow, fontSize:11}}>⏳ Llamando APIs…</span>}
+          {mensaje && <span style={{color: mensaje.startsWith("✓")?C.green:C.accent, fontSize:11}}>{mensaje}</span>}
+        </div>
+      )}
+
+      {/* Form agregar manual */}
+      {agregando && canEdit && (
+        <div style={{background:`${C.green}11`, padding:12, borderRadius:8, marginBottom:14, border:`1px solid ${C.green}44`}}>
+          <div style={{display:"grid", gridTemplateColumns:"1fr 1fr 1fr auto", gap:8, alignItems:"end"}}>
+            <div>
+              <div style={lblSt}>Par (ej. USD-CLP)</div>
+              <input value={nuevoTC.par} onChange={e=>setNuevoTC({...nuevoTC, par:e.target.value.toUpperCase()})}
+                placeholder="USD-CLP" style={inputSt}/>
+            </div>
+            <div>
+              <div style={lblSt}>Fecha</div>
+              <input type="date" value={nuevoTC.fecha} onChange={e=>setNuevoTC({...nuevoTC, fecha:e.target.value})} style={inputSt}/>
+            </div>
+            <div>
+              <div style={lblSt}>Valor (1 origen = X destino)</div>
+              <input type="number" step="0.0001" value={nuevoTC.valor} onChange={e=>setNuevoTC({...nuevoTC, valor:e.target.value})}
+                placeholder="950.25" style={inputSt}/>
+            </div>
+            <button onClick={handleAgregarManual} style={btnSt(C.green)}>✓ Agregar</button>
+          </div>
+        </div>
+      )}
+
+      {/* Resumen por par (última fecha disponible) */}
+      {resumen.length > 0 && (
+        <div style={{marginBottom:14}}>
+          <div style={{...lblSt, marginBottom:6}}>Última cotización por par ({resumen.length})</div>
+          <div style={{display:"flex", flexWrap:"wrap", gap:6}}>
+            {resumen.map(r => {
+              const [orig, dest] = r.par.split("-");
+              const simbDest = monedasMap[dest]?.simbolo || dest;
+              return (
+                <div key={r.par} style={{
+                  background:C.card2, padding:"6px 10px", borderRadius:6,
+                  border:`1px solid ${C.border}`, fontSize:11,
+                }}>
+                  <div style={{fontWeight:700, color:C.text, fontSize:12}}>
+                    {orig} → {dest}
+                  </div>
+                  <div style={{color:C.muted, fontSize:10}}>
+                    {r.fecha} · <strong style={{color:C.text}}>{simbDest} {r.valor.toLocaleString("es-CL",{maximumFractionDigits:4})}</strong>
+                  </div>
+                  <div style={{fontSize:9, color:r.fuente==="manual"?C.yellow:C.green}}>{r.fuente}</div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* Filtros */}
+      <div style={{display:"flex", gap:8, marginBottom:10, flexWrap:"wrap"}}>
+        <input value={filtroPar} onChange={e=>setFiltroPar(e.target.value)}
+          placeholder="Filtrar por par (ej. USD)" style={{...inputSt, maxWidth:200}}/>
+        <input type="text" value={filtroFecha} onChange={e=>setFiltroFecha(e.target.value)}
+          placeholder="Filtrar fecha (ej. 2026-05)" style={{...inputSt, maxWidth:200}}/>
+        <div style={{fontSize:11, color:C.muted, alignSelf:"center"}}>
+          {filasFiltradas.length} de {filas.length} entradas
+        </div>
+      </div>
+
+      {/* Tabla */}
+      <div style={{overflowX:"auto", borderRadius:8, border:`1px solid ${C.border}`}}>
+        <table style={{borderCollapse:"collapse", width:"100%", fontSize:11, minWidth:600}}>
+          <thead>
+            <tr style={{background:C.bg2}}>
+              <th style={{padding:"8px 10px", textAlign:"left", color:C.muted, fontWeight:700, fontSize:10, borderBottom:`2px solid ${C.border}`}}>Par</th>
+              <th style={{padding:"8px 10px", textAlign:"left", color:C.muted, fontWeight:700, fontSize:10, borderBottom:`2px solid ${C.border}`}}>Fecha</th>
+              <th style={{padding:"8px 10px", textAlign:"right", color:C.muted, fontWeight:700, fontSize:10, borderBottom:`2px solid ${C.border}`}}>Valor</th>
+              <th style={{padding:"8px 10px", textAlign:"center", color:C.muted, fontWeight:700, fontSize:10, borderBottom:`2px solid ${C.border}`}}>Fuente</th>
+              {canEdit && <th style={{padding:"8px 10px", textAlign:"center", color:C.muted, fontWeight:700, fontSize:10, borderBottom:`2px solid ${C.border}`}}>Acciones</th>}
+            </tr>
+          </thead>
+          <tbody>
+            {filasFiltradas.length === 0 && (
+              <tr><td colSpan={canEdit?5:4} style={{padding:30, textAlign:"center", color:C.muted, fontSize:12}}>
+                {filas.length ? "Sin resultados con esos filtros" : "Sin tasas cargadas. Click \"🔄 Actualizar hoy\" para empezar."}
+              </td></tr>
+            )}
+            {filasFiltradas.map(f => {
+              const key = `${f.par}__${f.fecha}`;
+              const isEditing = editingKey === key;
+              return (
+                <tr key={key} style={{borderBottom:`1px solid ${C.border}22`}}>
+                  {isEditing ? (
+                    <>
+                      <td style={{padding:"6px 10px"}}>
+                        <input value={editBuffer.par} onChange={e=>setEditBuffer({...editBuffer, par:e.target.value.toUpperCase()})} style={inputSt}/>
+                      </td>
+                      <td style={{padding:"6px 10px"}}>
+                        <input type="date" value={editBuffer.fecha} onChange={e=>setEditBuffer({...editBuffer, fecha:e.target.value})} style={inputSt}/>
+                      </td>
+                      <td style={{padding:"6px 10px"}}>
+                        <input type="number" step="0.0001" value={editBuffer.valor} onChange={e=>setEditBuffer({...editBuffer, valor:e.target.value})} style={inputSt}/>
+                      </td>
+                      <td style={{padding:"6px 10px"}}>
+                        <select value={editBuffer.fuente||"manual"} onChange={e=>setEditBuffer({...editBuffer, fuente:e.target.value})} style={inputSt}>
+                          <option value="manual">manual</option>
+                          <option value="mindicador">mindicador</option>
+                          <option value="frankfurter">frankfurter</option>
+                        </select>
+                      </td>
+                      <td style={{padding:"6px 10px", textAlign:"center", whiteSpace:"nowrap"}}>
+                        <button onClick={handleGuardarEdit} style={btnSt(C.green)}>✓</button>
+                        <button onClick={()=>{setEditingKey(null); setEditBuffer({});}} style={{...btnSt(C.muted, true), marginLeft:4}}>✕</button>
+                      </td>
+                    </>
+                  ) : (
+                    <>
+                      <td style={{padding:"6px 10px", color:C.text, fontWeight:600}}>{f.par}</td>
+                      <td style={{padding:"6px 10px", color:C.text, fontFamily:"monospace"}}>{f.fecha}</td>
+                      <td style={{padding:"6px 10px", color:C.text, textAlign:"right", fontFamily:"monospace"}}>
+                        {f.valor.toLocaleString("es-CL", {maximumFractionDigits:6})}
+                      </td>
+                      <td style={{padding:"6px 10px", textAlign:"center"}}>
+                        <span style={{
+                          fontSize:9, padding:"2px 6px", borderRadius:4,
+                          background: f.fuente==="manual" ? `${C.yellow}22` : `${C.green}22`,
+                          color:      f.fuente==="manual" ? C.yellow : C.green,
+                        }}>{f.fuente}</span>
+                      </td>
+                      {canEdit && (
+                        <td style={{padding:"6px 10px", textAlign:"center", whiteSpace:"nowrap"}}>
+                          <button onClick={()=>handleEditar(f)} style={{...btnSt(C.blue, true), padding:"4px 8px"}}>✎</button>
+                          <button onClick={()=>handleEliminar(f)} style={{...btnSt(C.accent, true), padding:"4px 8px", marginLeft:4}}>×</button>
+                        </td>
+                      )}
+                    </>
+                  )}
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </Card>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════
 // COMPONENTE PRINCIPAL
 // ═══════════════════════════════════════════════════════════════════
 export default function FriskuMaestrosModule({canEdit=true, onBack}) {
@@ -1010,6 +1352,8 @@ export default function FriskuMaestrosModule({canEdit=true, onBack}) {
   const [tiposEmbalaje,  setTiposEmbalaje]  = useState([]);
   const [mercados,       setMercados]       = useState([]);
   const [monedas,        setMonedas]        = useState([]);
+  const [especies,       setEspecies]       = useState([]);
+  const [tcData,         setTcData]         = useState({});
   const [checklistDocs,  setChecklistDocs]  = useState([]);
 
   const [cargando, setCargando] = useState(true);
@@ -1020,7 +1364,7 @@ export default function FriskuMaestrosModule({canEdit=true, onBack}) {
   useEffect(()=>{
     let alive = true;
     (async ()=>{
-      const [p, c, pu, ae, sl, te, tb, me, mo, cd] = await Promise.all([
+      const [p, c, pu, ae, sl, te, tb, me, mo, es, tc, cd] = await Promise.all([
         dbLoadMaestro("maestro_paises"),
         dbLoadMaestro("maestro_ciudades"),
         dbLoadMaestro("maestro_puertos"),
@@ -1030,6 +1374,8 @@ export default function FriskuMaestrosModule({canEdit=true, onBack}) {
         dbLoadMaestro("maestro_tipos_embalaje"),
         dbLoadMaestro("maestro_mercados"),
         dbLoadMaestro("maestro_monedas"),
+        dbLoadMaestro("maestro_especies"),
+        dbLoadMaestro("maestro_tc"),
         dbLoadMaestro("maestro_checklist_docs"),
       ]);
       if(!alive) return;
@@ -1043,6 +1389,8 @@ export default function FriskuMaestrosModule({canEdit=true, onBack}) {
       setTiposEmbalaje(Array.isArray(tb) && tb.length ? tb : TIPOS_EMBALAJE_DEFAULT);
       setMercados(Array.isArray(me) && me.length ? me : MERCADOS_DEFAULT);
       setMonedas(Array.isArray(mo) && mo.length ? mo : MONEDAS_DEFAULT);
+      setEspecies(Array.isArray(es) && es.length ? es : ESPECIES_DEFAULT);
+      setTcData(tc && typeof tc === "object" && !Array.isArray(tc) ? tc : {});
       setChecklistDocs(Array.isArray(cd) && cd.length ? cd : CHECKLIST_DOCS_DEFAULT);
       setCargando(false);
     })();
@@ -1073,6 +1421,8 @@ export default function FriskuMaestrosModule({canEdit=true, onBack}) {
   useAutoSave("maestro_tipos_embalaje", tiposEmbalaje);
   useAutoSave("maestro_mercados", mercados);
   useAutoSave("maestro_monedas", monedas);
+  useAutoSave("maestro_especies", especies);
+  useAutoSave("maestro_tc", tcData);
   useAutoSave("maestro_checklist_docs", checklistDocs);
 
   // Mapas para mostrar nombres en lugar de códigos
@@ -1120,9 +1470,11 @@ export default function FriskuMaestrosModule({canEdit=true, onBack}) {
     {id:"aeropuertos",     label:"✈️ Aeropuertos",       count:aeropuertos.length},
     {id:"shipping",        label:"⚓ Shipping Lines",    count:shippingLines.length},
     {id:"tipos_embarque",  label:"📦 Tipos de Embarque", count:tiposEmbarque.length},
+    {id:"especies",        label:"🍒 Especies",          count:especies.length},
     {id:"tipos_embalaje",  label:"📐 Tipos de Embalaje", count:tiposEmbalaje.length},
     {id:"mercados",        label:"🎯 Mercados",          count:mercados.length},
     {id:"monedas",         label:"💱 Monedas",           count:monedas.length},
+    {id:"tc",              label:"📈 Tipo de Cambio",    count:Object.keys(tcData||{}).length},
     {id:"checklist",       label:"📋 Checklist Docs",    count:checklistDocs.length},
   ];
 
@@ -1299,27 +1651,116 @@ export default function FriskuMaestrosModule({canEdit=true, onBack}) {
         />
       )}
 
-      {tab === "tipos_embalaje" && (
+      {tab === "especies" && (
         <TablaMaestro
-          titulo="Tipos de Embalaje"
-          icono="📐"
-          datos={tiposEmbalaje}
-          setDatos={setTiposEmbalaje}
+          titulo="Especies de Fruta"
+          icono="🍒"
+          datos={especies}
+          setDatos={setEspecies}
           canEdit={canEdit}
           presetsParcial={true}
-          onPresetRestore={()=>recargarPresets(tiposEmbalaje, TIPOS_EMBALAJE_DEFAULT, setTiposEmbalaje)}
-          busquedaPlaceholder="Buscar embalaje por especie o nombre..."
-          defaultItem={{codigo:"", nombre:"", especie:"", kgPorUnidad:0, unidad:"kg", observ:""}}
+          onPresetRestore={()=>recargarPresets(especies, ESPECIES_DEFAULT, setEspecies)}
+          busquedaPlaceholder="Buscar especie por código, nombre o familia..."
+          defaultItem={{codigo:"", nombreEs:"", nombreEn:"", icono:"🍎", familia:"Otros", kgPorCajaDefault:0, unidadComercial:"kg", temporadaInicio:"", temporadaFin:"", observ:""}}
           columnas={[
-            {key:"codigo",      label:"Código"},
-            {key:"nombre",      label:"Nombre"},
-            {key:"especie",     label:"Especie"},
-            {key:"kgPorUnidad", label:"Kg/Unidad", type:"number", align:"right"},
-            {key:"unidad",      label:"Unidad"},
-            {key:"observ",      label:"Observación"},
+            {key:"icono",             label:"",          align:"center", render:(v)=>v||"🍎"},
+            {key:"codigo",            label:"Código"},
+            {key:"nombreEs",          label:"Nombre (ES)"},
+            {key:"nombreEn",          label:"Nombre (EN)"},
+            {key:"familia",           label:"Familia", options:[
+              {value:"Carozos",     label:"Carozos"},
+              {value:"Berries",     label:"Berries"},
+              {value:"Pomáceas",    label:"Pomáceas"},
+              {value:"Cítricos",    label:"Cítricos"},
+              {value:"Tropicales",  label:"Tropicales"},
+              {value:"Otros",       label:"Otros"},
+            ]},
+            {key:"kgPorCajaDefault",  label:"Kg/Caja", type:"number", align:"right"},
+            {key:"unidadComercial",   label:"Unidad", align:"center"},
+            {key:"temporadaInicio",   label:"Temp. Inicio", align:"center"},
+            {key:"temporadaFin",      label:"Temp. Fin", align:"center"},
+            {key:"observ",            label:"Observación"},
           ]}
         />
       )}
+
+      {tab === "tipos_embalaje" && (()=> {
+        // Detectar items con `especie` legacy pero sin `especieCodigo` que puedan migrarse
+        const legacyMigrables = tiposEmbalaje.filter(t => {
+          if(t.especieCodigo) return false;
+          if(!t.especie) return false;
+          return especies.some(e => e.nombreEs.toLowerCase() === String(t.especie).toLowerCase());
+        });
+        const legacySinMatch = tiposEmbalaje.filter(t => {
+          if(t.especieCodigo) return false;
+          if(!t.especie) return false;
+          return !especies.some(e => e.nombreEs.toLowerCase() === String(t.especie).toLowerCase());
+        });
+        const migrarLegacy = () => {
+          if(!window.confirm(`Se asignará "especieCodigo" a ${legacyMigrables.length} embalaje${legacyMigrables.length>1?"s":""} basado en el campo "especie" actual. El campo legacy se mantiene como respaldo. ¿Continuar?`)) return;
+          setTiposEmbalaje(prev => prev.map(t => {
+            if(t.especieCodigo) return t;
+            const match = especies.find(e => e.nombreEs.toLowerCase() === String(t.especie||"").toLowerCase());
+            return match ? {...t, especieCodigo: match.codigo} : t;
+          }));
+        };
+        return (
+          <>
+            {(legacyMigrables.length > 0 || legacySinMatch.length > 0) && canEdit && (
+              <div style={{
+                marginBottom:14, padding:"10px 14px", borderRadius:8,
+                background:`${C.yellow}11`, border:`1px solid ${C.yellow}44`,
+                display:"flex", alignItems:"center", gap:12, flexWrap:"wrap",
+              }}>
+                <span style={{fontSize:18}}>⚠️</span>
+                <div style={{flex:1, fontSize:11, color:C.text, lineHeight:1.5}}>
+                  {legacyMigrables.length > 0 && (
+                    <div>
+                      <strong>{legacyMigrables.length}</strong> embalaje{legacyMigrables.length>1?"s":""} con especie legacy (texto libre) que se {legacyMigrables.length>1?"pueden":"puede"} vincular automáticamente al maestro de Especies.
+                    </div>
+                  )}
+                  {legacySinMatch.length > 0 && (
+                    <div style={{color:C.muted, marginTop:legacyMigrables.length?4:0}}>
+                      <strong>{legacySinMatch.length}</strong> con especie "{legacySinMatch.map(t=>t.especie).filter((v,i,a)=>a.indexOf(v)===i).join(", ")}" no tiene match en el maestro — agrega esa especie primero o edítalas manualmente.
+                    </div>
+                  )}
+                </div>
+                {legacyMigrables.length > 0 && (
+                  <button onClick={migrarLegacy} style={btnSt(C.yellow)}>
+                    🔗 Migrar {legacyMigrables.length} embalaje{legacyMigrables.length>1?"s":""}
+                  </button>
+                )}
+              </div>
+            )}
+            <TablaMaestro
+              titulo="Tipos de Embalaje"
+              icono="📐"
+              datos={tiposEmbalaje}
+              setDatos={setTiposEmbalaje}
+              canEdit={canEdit}
+              presetsParcial={true}
+              onPresetRestore={()=>recargarPresets(tiposEmbalaje, TIPOS_EMBALAJE_DEFAULT, setTiposEmbalaje)}
+              busquedaPlaceholder="Buscar embalaje por especie o nombre..."
+              defaultItem={{codigo:"", nombre:"", especieCodigo:"", kgPorUnidad:0, unidad:"kg", observ:""}}
+              columnas={[
+                {key:"codigo",         label:"Código"},
+                {key:"nombre",         label:"Nombre"},
+                {key:"especieCodigo",  label:"Especie", options:especies.map(e=>({value:e.codigo, label:`${e.icono} ${e.nombreEs}`})),
+                  render:(v, row) => {
+                    if(v) {
+                      const e = especies.find(e=>e.codigo===v);
+                      return e ? <span>{e.icono} {e.nombreEs}</span> : v;
+                    }
+                    return row.especie ? <span style={{color:C.yellow}} title="Campo legacy — use el botón de migración">{row.especie}</span> : "—";
+                  }},
+                {key:"kgPorUnidad",    label:"Kg/Unidad", type:"number", align:"right"},
+                {key:"unidad",         label:"Unidad"},
+                {key:"observ",         label:"Observación"},
+              ]}
+            />
+          </>
+        );
+      })()}
 
       {tab === "mercados" && (
         <TablaMaestro
@@ -1362,6 +1803,15 @@ export default function FriskuMaestrosModule({canEdit=true, onBack}) {
             {key:"paisCodigo", label:"País", options:opcionesPaises, render:renderPais},
             {key:"default",    label:"Default", align:"center", render:(v) => v ? "★" : "—"},
           ]}
+        />
+      )}
+
+      {tab === "tc" && (
+        <TipoCambioEditor
+          tcData={tcData}
+          setTcData={setTcData}
+          monedas={monedas}
+          canEdit={canEdit}
         />
       )}
 

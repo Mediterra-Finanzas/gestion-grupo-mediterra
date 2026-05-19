@@ -4,12 +4,13 @@ Aplicación web interna para la gestión financiera y operativa de **Grupo Medit
 
 ## Stack técnico
 
-- **Frontend**: React (sin TypeScript, sin framework — JSX puro)
+- **Frontend**: React 18 (sin TypeScript, sin framework — JSX puro)
 - **Backend**: Supabase (Postgres + Auth + Storage)
 - **Hosting**: Vercel (deploy automático desde GitHub)
-- **Build**: Vite (probable, verificar `package.json`)
-- **Sin tests** actualmente
-- **Sin linter** configurado (los archivos usan `/* eslint-disable */`)
+- **Build**: Create React App (`react-scripts 5.0.1`) — NO Vite
+- **Sin tests activos** (existe `@testing-library/react` pero sin specs propios)
+- **Sin linter activo** (archivos usan `/* eslint-disable */`); en build con `CI=true` los warnings escalan a error
+- **APIs externas integradas**: `mindicador.cl` (Banco Central Chile, TC del CLP) y `api.frankfurter.app` (Banco Central Europeo, cross-rates globales). Sin auth, CORS abierto.
 
 ## Usuario principal
 
@@ -35,26 +36,69 @@ Aplicación web interna para la gestión financiera y operativa de **Grupo Medit
 
 ## Arquitectura de la app
 
-### Archivos principales (a la fecha de este CLAUDE.md)
+### Archivos principales
 
-- `App.jsx` — entry point, autenticación (email + PIN), routing por tabs
-- `FinanzasModule.jsx` (~13.300 líneas) — módulo central: flujo de caja, créditos, saldos bancos, nóminas, reportes, consolidado, auditoría
+- `App.jsx` (~3.180 L) — entry point, autenticación (email + PIN), routing por tabs, backup automático
+- `FinanzasModule.jsx` (~13.300 L) — módulo central: flujo de caja, créditos, saldos bancos, nóminas, reportes, consolidado, auditoría
 - `OsirisModule.jsx` — gestión Osiris Plant: contratos, anexos, royalties
-- `FriskuModule.jsx` (~3.200 líneas) — sistema Frisku (clientes, exportadoras, contratos, programa comercial, embarques, liquidaciones)
-- `FriskuMaestrosModule.jsx` (~1.400 líneas, nuevo May-26) — maestros globales: países, ciudades, puertos, aeropuertos, shipping lines, tipos embarque/embalaje, mercados, monedas, checklist documental
+- `AllegriaModule.jsx` — módulo Allegria
+- `FriskuModule.jsx` (~1.500 L) — **Maestros globales de Frisku** (a pesar del nombre del archivo, internamente es `FriskuMaestrosModule`): 11 tabs — Países, Ciudades, Puertos, Aeropuertos, Shipping Lines, Tipos Embarque, **Especies** (Fase 2), Tipos Embalaje, Mercados, Monedas, **Tipo de Cambio histórico** (Fase 2, con APIs), Checklist Docs
+- `FriskuComercialModule.jsx` (~960 L, **nuevo Fase 2**) — módulo comercial: Dashboard, **Clientes** (CRUD con especies + comisiones + overrides), **Exportadoras** (CRUD), placeholders para Contratos / Programa / Embarques / Liquidaciones, embed de Maestros + TC
+- `friskuHelpers.js` (~290 L, **nuevo Fase 2**) — helpers compartidos: persistencia genérica, modelo de comisión Frisku, formateo de montos, búsqueda TC, conversión multimoneda, integración mindicador.cl + frankfurter.app
+- `emailHelper.js` — utilidades de email
+
+**Nota histórica**: el archivo `FriskuModule.jsx` se llamó así por compatibilidad con imports anteriores, pero su contenido es el módulo de Maestros (la cabecera del archivo lo declara explícitamente). El módulo Frisku que ve el usuario al entrar a "Frisku Foods" es `FriskuComercialModule`, el cual embebe `FriskuModule` (Maestros) dentro de su sub-tab "🗂️ Maestros + TC".
 
 ### Persistencia en Supabase
 
 Tabla principal: `calendario_data` con columnas `id` (string), `value` (JSON), `updated_at` (timestamp). Cada módulo guarda en una fila distinta:
 
+**Módulos de negocio:**
 - `id="finanzas"` → módulo finanzas completo
 - `id="osiris"` → módulo Osiris
-- `id="frisku"` → módulo Frisku (clientes, exportadoras, contratos, embarques, liquidaciones)
+- `id="allegria"` → módulo Allegria
 - `id="nominas"` → módulo nóminas
-- `id="maestro_paises"`, `id="maestro_puertos"`, `id="maestro_aeropuertos"`, etc. → maestros Frisku (10 ids: paises, ciudades, puertos, aeropuertos, shipping_lines, tipos_embarque, tipos_embalaje, mercados, monedas, checklist_docs)
+
+**Maestros Frisku (11 ids):**
+- `maestro_paises`, `maestro_ciudades`, `maestro_puertos`, `maestro_aeropuertos`, `maestro_shipping_lines`
+- `maestro_tipos_embarque`, `maestro_tipos_embalaje`, `maestro_mercados`, `maestro_monedas`
+- `maestro_especies` (**Fase 2**) — catálogo normalizado de frutas: `{codigo, nombreEs, nombreEn, icono, familia, kgPorCajaDefault, unidadComercial, temporadaInicio, temporadaFin, observ}`
+- `maestro_checklist_docs`
+- `maestro_tc` (**Fase 2**) — TC histórico, estructura distinta: `{"USD-CLP":[{fecha,valor,fuente}], "USD-EUR":[...]}` con fuentes `mindicador|frankfurter|manual`
+
+**Datos comerciales Frisku (Fase 2 en adelante):**
+- `frisku_clientes` — clientes (importadores) con especies asociadas, contactos, modelo de comisión + overrides por especie y especie+formato, multimoneda
+- `frisku_exportadoras` — exportadoras (chilenas/peruanas) con especies que producen, certificaciones, contactos
+- `frisku_contratos`, `frisku_programa`, `frisku_embarques`, `frisku_liquidaciones` — estructuras placeholder, se completan en Fases 3-6
 
 URL Supabase: `https://bywovqayuzodbzwsriet.supabase.co`
-Las API keys están hardcodeadas en cada módulo como constantes `SUPA_URL` y `SUPA_KEY` (NO mover a `.env` sin avisar a Angelo, porque rompería deploy actual).
+Las API keys están hardcodeadas en `friskuHelpers.js` y en cada módulo como constantes `SUPA_URL` y `SUPA_KEY` (NO mover a `.env` sin avisar a Angelo, porque rompería deploy actual).
+
+### Modelo de comisión Frisku (Fase 2)
+
+Implementado en `friskuHelpers.js → calcularComisionFrisku()`. **El cliente cobra X% sobre FOB a la exportadora; Frisku recibe Y% de esa comisión cliente.**
+
+```
+% Frisku efectivo sobre FOB = (cliente% × frisku%) / 100
+```
+
+Ejemplo Disney: cliente 8% × Frisku 25% = Frisku se queda con **2% del FOB**.
+
+Los porcentajes pueden venir de 3 niveles (lookup en cascada, en este orden):
+1. Override por especie+formato: `cliente.comisionOverrides["CHE::CHE-5KG-CB"]`
+2. Override por especie: `cliente.comisionOverrides["CHE"]`
+3. Global del cliente: `cliente.comisionGlobalSobreFOB` + `comisionFriskuSobreClienteGlobal`
+
+### Tipo de cambio (Fase 2)
+
+Implementado en `friskuHelpers.js`. UI en el sub-tab "📈 Tipo de Cambio" del módulo de Maestros.
+
+- **mindicador.cl** para pares `?-CLP` (Banco Central Chile, oficial). Soporta dólar y euro.
+- **api.frankfurter.app** para cross-rates global (Banco Central Europeo). Cubre las monedas mayores, omite las exóticas (ej. PEN no aparece).
+- Si mindicador falla en un par CLP, frankfurter es fallback.
+- **Las entradas con `fuente:"manual"` no se sobrescriben** por la API → preservan ajustes/overrides del CFO.
+
+Pares por defecto (configurables): USD→CLP, PEN, EUR, GBP, CNY, BRL, MXN, AUD, CAD, JPY; EUR→CLP/USD.
 
 ### Estructura del módulo Finanzas (el más complejo)
 
@@ -108,19 +152,7 @@ Las líneas con `formula:true` y "Préstamos" en el label:
 
 El subtotal de categoría debe **incluir** las sublines de líneas con "Préstamos" en el nombre. Antes se excluían y generaba descuadre con el Flujo Neto. La exclusión `!l.label.includes("Préstamos")` fue removida del cálculo de subtotales — no volverla a poner.
 
-### Estructura del módulo Frisku
-
-#### Modelo de comisión Frisku
-
-Frisku representa importadores. Cobra **% sobre la comisión del cliente** (no sobre la venta directa).
-
-**Ejemplo Disney:**
-- Cliente Disney cobra 8% a la exportadora
-- De ese 8%, Frisku recibe el 25% → 2% del FOB es para Frisku
-
-Los % de comisión Frisku pueden variar por **especie + formato**.
-
-#### Lifecycle de un embarque (Plan Frisku Fase 4)
+### Lifecycle de un embarque (Plan Frisku Fase 4)
 
 ```
 Business Closure → Programa Comercial (semanal) → Orden de Embarque → Despacho (Packing List) → Carpeta COMEX → Liquidación
@@ -128,14 +160,14 @@ Business Closure → Programa Comercial (semanal) → Orden de Embarque → Desp
 
 Orden de Embarque debe tener mínimo: Exportadora, Cliente, Tipo de Embarque, Origen, Notify.
 
-#### Plan de fases Frisku (a la fecha de este CLAUDE.md)
+### Plan de fases Frisku
 
-- ✅ **Fase 1**: Maestros (completada May-26)
-- ⏳ **Fase 2**: Asociación especies-cliente + multimoneda + TC por fecha
-- ⏳ **Fase 3**: Checklist documental con alertas + upload archivos
+- ✅ **Fase 1**: Maestros (completada). 10 catálogos en `FriskuModule.jsx` (a pesar del nombre, es el módulo de Maestros).
+- ✅ **Fase 2**: Especies normalizadas + multimoneda + TC histórico + Clientes/Exportadoras. Entregado en `FriskuComercialModule.jsx` + `friskuHelpers.js` + tabs Especies/TC en `FriskuModule.jsx`. Modelo de comisión `cliente% × frisku%` implementado.
+- ⏳ **Fase 3**: Checklist documental con alertas + upload archivos a Supabase Storage
 - ⏳ **Fase 4**: Flujo comercial restructurado (programa semanal, OE, despacho con Packing List, equivalencias contenedor)
 - ⏳ **Fase 5**: Carpeta COMEX (Packing List + Docs Embarque + QC Destino + Liquidaciones, upload Supabase Storage)
-- ⏳ **Fase 6**: Liquidaciones avanzadas (% comisión cliente × % comisión Frisku por especie+formato)
+- ⏳ **Fase 6**: Liquidaciones avanzadas (aplica `calcularComisionFrisku` × TC para conversión a USD)
 - ⏳ **Fase 7**: Carga histórica (importador Excel/CSV con mapeo)
 - ⏳ **Fase 8**: Dashboards CFO + Comercial
 
@@ -154,7 +186,7 @@ Algunos módulos usan `C.teal/accent/blue/green/yellow/accent` etc. Cada módulo
 
 ### Auto-save
 
-Casi todos los módulos hacen auto-save con debounce ~1-2 segundos a Supabase. Ver patrón `useAutoSave` en FriskuMaestrosModule.
+Casi todos los módulos hacen auto-save con debounce ~1-2 segundos a Supabase. Ver patrón `useAutoSave` en `FriskuModule.jsx` (Maestros) y `FriskuComercialModule.jsx`.
 
 ## Estilo de trabajo con Angelo
 
@@ -171,11 +203,12 @@ Casi todos los módulos hacen auto-save con debounce ~1-2 segundos a Supabase. V
 # Instalar dependencias
 npm install
 
-# Desarrollo local
-npm run dev
+# Desarrollo local (CRA → puerto 3000)
+npm start
 
-# Build producción
-npm run build
+# Build producción (con CI=true los warnings escalan a error — buena verificación)
+$env:CI = "true"; npm run build      # PowerShell
+CI=true npm run build                 # bash
 
 # Deploy a Vercel (si tienes Vercel CLI)
 vercel --prod
@@ -244,5 +277,5 @@ export default function MiModulo({ canEdit, ... }) {
 
 ---
 
-**Última actualización**: Mayo 2026.
+**Última actualización**: 2026-05-19 — Fase 2 Frisku entregada (Especies + TC + Clientes + Exportadoras).
 **Mantener este archivo actualizado** después de cambios mayores en estructura, módulos nuevos, o decisiones de arquitectura importantes.

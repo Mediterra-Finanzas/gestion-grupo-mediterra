@@ -1,0 +1,301 @@
+/* eslint-disable */
+// ═══════════════════════════════════════════════════════════════════
+// friskuHelpers.js — Helpers compartidos del módulo Frisku
+// Fase 2: cálculo de comisión, formateo de montos, conversión de monedas
+// Las funciones de TC quedan como stubs hasta el Commit 2 (UI + API).
+// ═══════════════════════════════════════════════════════════════════
+
+// ── Persistencia genérica (Supabase calendario_data) ──
+export const SUPA_URL = "https://bywovqayuzodbzwsriet.supabase.co";
+export const SUPA_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJ5d292cWF5dXpvZGJ6d3NyaWV0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU2ODU1MDgsImV4cCI6MjA5MTI2MTUwOH0.s2x2O_CxE6rl8dBqFuyfQdMyRqSyjJQWXJXesmVGXtk";
+
+export async function dbLoadGeneric(id) {
+  try {
+    const res = await fetch(`${SUPA_URL}/rest/v1/calendario_data?id=eq.${id}&select=value`, {
+      headers: { apikey: SUPA_KEY, Authorization: `Bearer ${SUPA_KEY}` }
+    });
+    const rows = await res.json();
+    if (rows?.[0]?.value) {
+      return typeof rows[0].value === "string" ? JSON.parse(rows[0].value) : rows[0].value;
+    }
+    return null;
+  } catch (e) { console.error(`[Frisku:${id}] Error cargando:`, e); return null; }
+}
+
+export async function dbSaveGeneric(id, value) {
+  try {
+    await fetch(`${SUPA_URL}/rest/v1/calendario_data`, {
+      method: "POST",
+      headers: {
+        apikey: SUPA_KEY, Authorization: `Bearer ${SUPA_KEY}`,
+        "Content-Type": "application/json", Prefer: "resolution=merge-duplicates"
+      },
+      body: JSON.stringify({ id, value, updated_at: new Date().toISOString() })
+    });
+  } catch (e) { console.error(`[Frisku:${id}] Error guardando:`, e); }
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// COMISIÓN FRISKU
+// Modelo: cliente cobra X% sobre FOB → Frisku recibe Y% de ese X%.
+// Ejemplo Disney: cliente 8% × Frisku 25% = Frisku se queda 2% del FOB.
+// ═══════════════════════════════════════════════════════════════════
+
+// Resuelve los porcentajes aplicables para un cliente+especie+formato.
+// Busca primero override por (especieCodigo + formatoCodigo); luego por
+// especieCodigo solo; al final cae al global del cliente.
+export function resolverPorcentajesComision(cliente, especieCodigo, formatoCodigo) {
+  const overrides = cliente?.comisionOverrides || {};
+  const keyEsp = especieCodigo || "";
+  const keyEspFmt = `${especieCodigo || ""}::${formatoCodigo || ""}`;
+
+  let cliPct = null, friPct = null;
+  if (overrides[keyEspFmt]) {
+    cliPct = overrides[keyEspFmt].cliente;
+    friPct = overrides[keyEspFmt].frisku;
+  } else if (overrides[keyEsp]) {
+    cliPct = overrides[keyEsp].cliente;
+    friPct = overrides[keyEsp].frisku;
+  }
+  if (cliPct == null) cliPct = cliente?.comisionGlobalSobreFOB ?? 0;
+  if (friPct == null) friPct = cliente?.comisionFriskuSobreClienteGlobal ?? 0;
+  return { cliPct: Number(cliPct) || 0, friPct: Number(friPct) || 0 };
+}
+
+// Calcula los montos para un valor FOB dado.
+// Retorna { comisionClienteSobreFOB%, comisionFriskuSobreClientePct%,
+//           comisionFriskuSobreFOB%, montoComisionCliente, montoComisionFrisku }
+export function calcularComisionFrisku(cliente, especieCodigo, formatoCodigo, valorFOB) {
+  const { cliPct, friPct } = resolverPorcentajesComision(cliente, especieCodigo, formatoCodigo);
+  const fob = Number(valorFOB) || 0;
+  const friSobreFOB = (cliPct * friPct) / 100;            // ej. 8 × 25 / 100 = 2
+  const montoComisionCliente = (fob * cliPct) / 100;
+  const montoComisionFrisku  = (fob * friSobreFOB) / 100; // == montoCliente × friPct/100
+  return {
+    cliPct, friPct, friSobreFOB,
+    montoComisionCliente, montoComisionFrisku, fob,
+  };
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// FORMATEO DE MONTOS Y NÚMEROS
+// ═══════════════════════════════════════════════════════════════════
+
+// Formatea un número como dinero según la moneda dada.
+// monedasMap es opcional; si se entrega, se usa el símbolo del maestro.
+export function formatearMonto(monto, monedaCodigo = "USD", monedasMap = null, decimales = 2) {
+  if (monto == null || isNaN(monto)) return "—";
+  const n = Number(monto);
+  const simbolo = monedasMap?.[monedaCodigo]?.simbolo || monedaCodigo;
+  const formato = new Intl.NumberFormat("es-CL", {
+    minimumFractionDigits: decimales,
+    maximumFractionDigits: decimales,
+  });
+  return `${simbolo} ${formato.format(n)}`;
+}
+
+// Parsea un string en formato es-CL ("1.234,56") a número
+export function parsearMonto(s) {
+  if (s == null) return 0;
+  if (typeof s === "number") return s;
+  const limpio = String(s).replace(/\./g, "").replace(",", ".").replace(/[^\d.\-]/g, "");
+  const n = parseFloat(limpio);
+  return isNaN(n) ? 0 : n;
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// TIPO DE CAMBIO — stubs (UI y API se agregan en Commit 2)
+// Estructura esperada de tcData (id "maestro_tc"):
+//   { "USD-CLP": [{ fecha:"2026-05-19", valor:950, fuente:"mindicador" }, ...],
+//     "USD-EUR": [...], ... }
+// Convención: par "ORIGEN-DESTINO" significa "1 ORIGEN = X DESTINO".
+// ═══════════════════════════════════════════════════════════════════
+
+// Busca el TC más cercano con fecha <= fechaPedida.
+// Si no hay datos, retorna null.
+// Si origen === destino, retorna 1.
+// Si solo existe el par inverso (DESTINO-ORIGEN), retorna 1/valor.
+export function buscarTC(monedaOrigen, monedaDestino, fecha, tcData) {
+  if (!monedaOrigen || !monedaDestino) return null;
+  if (monedaOrigen === monedaDestino) return 1;
+  if (!tcData || typeof tcData !== "object") return null;
+
+  const parDirecto = `${monedaOrigen}-${monedaDestino}`;
+  const parInverso = `${monedaDestino}-${monedaOrigen}`;
+  const fechaPedida = fecha || new Date().toISOString().slice(0, 10);
+
+  const buscarEnSerie = (serie) => {
+    if (!Array.isArray(serie) || !serie.length) return null;
+    const validos = serie.filter(p => p.fecha && p.fecha <= fechaPedida && p.valor != null);
+    if (!validos.length) return null;
+    validos.sort((a, b) => b.fecha.localeCompare(a.fecha));
+    return Number(validos[0].valor);
+  };
+
+  const directo = buscarEnSerie(tcData[parDirecto]);
+  if (directo != null && directo !== 0) return directo;
+
+  const inverso = buscarEnSerie(tcData[parInverso]);
+  if (inverso != null && inverso !== 0) return 1 / inverso;
+
+  return null;
+}
+
+// Convierte un monto entre monedas. Si no hay TC, retorna null
+// (la UI debe decidir cómo mostrar el faltante).
+export function convertirMonto(monto, monedaOrigen, monedaDestino, fecha, tcData) {
+  const tc = buscarTC(monedaOrigen, monedaDestino, fecha, tcData);
+  if (tc == null) return null;
+  return (Number(monto) || 0) * tc;
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// ACTUALIZACIÓN AUTOMÁTICA DE TC — APIs públicas con CORS abierto
+// mindicador.cl     → USD/EUR/UF/UTM contra CLP (Banco Central Chile)
+// api.frankfurter.app → cross-rates global (Banco Central Europeo)
+// ═══════════════════════════════════════════════════════════════════
+
+// Pares por defecto que se actualizan al pedir "TC hoy".
+// Convención par "ORIGEN-DESTINO" → 1 ORIGEN = X DESTINO.
+export const TC_PARES_DEFAULT = [
+  "USD-CLP", "USD-PEN", "USD-EUR", "USD-GBP", "USD-CNY",
+  "USD-BRL", "USD-MXN", "USD-AUD", "USD-CAD", "USD-JPY",
+  "EUR-CLP", "EUR-USD",
+];
+
+// Helper: fecha YYYY-MM-DD
+export function fechaISO(d = new Date()) {
+  return new Date(d).toISOString().slice(0, 10);
+}
+
+// Helper: deriva (origen, destino) de un par "USD-CLP"
+function partesPar(par) {
+  const [origen, destino] = String(par).split("-");
+  return { origen, destino };
+}
+
+// Merge inteligente: las entradas con fuente "manual" se conservan
+// si ya existen para esa fecha (no las pisa la API).
+// Retorna nueva serie ordenada por fecha desc.
+export function mergeTCSerie(serieExistente, nuevasEntradas) {
+  const existentes = Array.isArray(serieExistente) ? [...serieExistente] : [];
+  const porFecha = new Map();
+  existentes.forEach(e => { if (e?.fecha) porFecha.set(e.fecha, e); });
+  (nuevasEntradas || []).forEach(nueva => {
+    if (!nueva?.fecha || nueva.valor == null) return;
+    const existente = porFecha.get(nueva.fecha);
+    if (existente && existente.fuente === "manual") return; // respetar manual
+    porFecha.set(nueva.fecha, { ...nueva });
+  });
+  return Array.from(porFecha.values()).sort((a, b) => b.fecha.localeCompare(a.fecha));
+}
+
+// ── mindicador.cl ────────────────────────────────────────────
+// Endpoint: https://mindicador.cl/api/dolar/2026-05-19 → {serie:[{fecha,valor}]}
+// La API devuelve para la fecha pedida + algunos días anteriores.
+async function fetchMindicadorSerie(indicador, fechaDDMMYYYY) {
+  // mindicador acepta tanto YYYY-MM-DD como DD-MM-YYYY; usamos DD-MM-YYYY para ser explícitos
+  const url = `https://mindicador.cl/api/${indicador}/${fechaDDMMYYYY}`;
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`mindicador.cl ${indicador} HTTP ${res.status}`);
+  const data = await res.json();
+  return (data.serie || []).map(s => ({
+    fecha: s.fecha.slice(0, 10),
+    valor: Number(s.valor),
+    fuente: "mindicador",
+  }));
+}
+
+// Actualiza pares ?-CLP usando mindicador. Solo soporta USD, EUR contra CLP.
+export async function actualizarTCMindicador(fecha = null) {
+  const f = fecha || fechaISO();
+  const [yyyy, mm, dd] = f.split("-");
+  const ddmmyyyy = `${dd}-${mm}-${yyyy}`;
+  const updates = {}; // { "USD-CLP": [entradas], ... }
+  try {
+    const dolar = await fetchMindicadorSerie("dolar", ddmmyyyy);
+    if (dolar.length) updates["USD-CLP"] = dolar;
+  } catch (e) { console.warn("[TC mindicador USD]", e.message); }
+  try {
+    const euro = await fetchMindicadorSerie("euro", ddmmyyyy);
+    if (euro.length) updates["EUR-CLP"] = euro;
+  } catch (e) { console.warn("[TC mindicador EUR]", e.message); }
+  return updates;
+}
+
+// ── frankfurter.app ─────────────────────────────────────────
+// Endpoint: https://api.frankfurter.app/2026-05-19?from=USD&to=CLP,EUR,PEN
+// O https://api.frankfurter.app/latest?from=USD&to=...
+// Soporta gran parte de monedas; algunas exóticas (PEN p.ej.) no están.
+// Si una moneda no está, frankfurter la omite silenciosamente.
+async function fetchFrankfurter(fecha, origen, destinos) {
+  const path = fecha === fechaISO() ? "latest" : fecha;
+  const url = `https://api.frankfurter.app/${path}?from=${origen}&to=${destinos.join(",")}`;
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`frankfurter.app HTTP ${res.status}`);
+  const data = await res.json();
+  const fechaUsada = data.date || fecha;
+  const rates = data.rates || {};
+  const out = {};
+  Object.keys(rates).forEach(destino => {
+    const par = `${origen}-${destino}`;
+    out[par] = [{ fecha: fechaUsada, valor: Number(rates[destino]), fuente: "frankfurter" }];
+  });
+  return out;
+}
+
+// Actualiza pares vía frankfurter para los pares pedidos.
+// Agrupa por moneda origen para minimizar llamadas.
+export async function actualizarTCFrankfurter(pares, fecha = null) {
+  const f = fecha || fechaISO();
+  const porOrigen = {};
+  pares.forEach(p => {
+    const { origen, destino } = partesPar(p);
+    if (!origen || !destino || origen === destino) return;
+    porOrigen[origen] = porOrigen[origen] || new Set();
+    porOrigen[origen].add(destino);
+  });
+  const updates = {};
+  for (const origen of Object.keys(porOrigen)) {
+    const destinos = Array.from(porOrigen[origen]);
+    try {
+      const parcial = await fetchFrankfurter(f, origen, destinos);
+      Object.assign(updates, parcial);
+    } catch (e) { console.warn(`[TC frankfurter ${origen}]`, e.message); }
+  }
+  return updates;
+}
+
+// Orquestador: para una fecha dada, llama mindicador (CLP) y frankfurter (resto)
+// y retorna un objeto { "USD-CLP": [...], "USD-EUR": [...], ... } listo para mergear.
+export async function actualizarTCDesdeAPIs(pares = TC_PARES_DEFAULT, fecha = null) {
+  const f = fecha || fechaISO();
+  // Separar pares: los que terminan en CLP los manda mindicador (es más oficial para Chile)
+  const paresClp = pares.filter(p => p.endsWith("-CLP"));
+  const paresOtros = pares.filter(p => !p.endsWith("-CLP"));
+
+  const [updMindicador, updFrankfurter] = await Promise.all([
+    paresClp.length ? actualizarTCMindicador(f) : Promise.resolve({}),
+    paresOtros.length ? actualizarTCFrankfurter(paresOtros, f) : Promise.resolve({}),
+  ]);
+
+  // Frankfurter como fallback para pares CLP que mindicador no haya devuelto
+  const faltantesClp = paresClp.filter(p => !updMindicador[p]);
+  if (faltantesClp.length) {
+    try {
+      const fallback = await actualizarTCFrankfurter(faltantesClp, f);
+      Object.assign(updMindicador, fallback);
+    } catch (e) { console.warn("[TC fallback frankfurter]", e.message); }
+  }
+
+  return { ...updMindicador, ...updFrankfurter };
+}
+
+// Aplica un objeto de updates sobre tcData existente (immutable).
+export function aplicarUpdatesATCData(tcData, updates) {
+  const base = (tcData && typeof tcData === "object") ? { ...tcData } : {};
+  Object.keys(updates || {}).forEach(par => {
+    base[par] = mergeTCSerie(base[par], updates[par]);
+  });
+  return base;
+}
