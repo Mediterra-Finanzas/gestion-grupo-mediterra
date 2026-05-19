@@ -51,8 +51,10 @@ async function dbSaveMaestro(id, value) {
 
 // ═══════════════════════════════════════════════════════════════════
 // DATOS PRECARGADOS — PAÍSES (ISO 3166-1 alpha-2)
+// (Exportados para que FriskuComercialModule pueda usarlos como
+// fallback cuando Supabase aún no tiene la fila correspondiente.)
 // ═══════════════════════════════════════════════════════════════════
-const PAISES_DEFAULT = [
+export const PAISES_DEFAULT = [
   // Sudamérica (exportadores principales)
   {codigo:"CL", nombreEs:"Chile",        nombreEn:"Chile",         flag:"🇨🇱", region:"Sudamérica"},
   {codigo:"PE", nombreEs:"Perú",         nombreEn:"Peru",          flag:"🇵🇪", region:"Sudamérica"},
@@ -145,7 +147,7 @@ const PAISES_DEFAULT = [
 // ═══════════════════════════════════════════════════════════════════
 // PUERTOS — relevantes para fruta fresca (UN/LOCODE: PAÍS + 3 letras)
 // ═══════════════════════════════════════════════════════════════════
-const PUERTOS_DEFAULT = [
+export const PUERTOS_DEFAULT = [
   // CHILE (exportador principal)
   {codigo:"CLVAP", nombre:"Valparaíso",      paisCodigo:"CL", tipo:"Marítimo", ciudad:"Valparaíso"},
   {codigo:"CLSAI", nombre:"San Antonio",     paisCodigo:"CL", tipo:"Marítimo", ciudad:"San Antonio"},
@@ -286,7 +288,7 @@ const PUERTOS_DEFAULT = [
 // ═══════════════════════════════════════════════════════════════════
 // AEROPUERTOS — IATA principales para carga aérea de fruta fresca
 // ═══════════════════════════════════════════════════════════════════
-const AEROPUERTOS_DEFAULT = [
+export const AEROPUERTOS_DEFAULT = [
   // SUDAMÉRICA
   {codigo:"SCL", nombre:"Aeropuerto Arturo Merino Benítez", paisCodigo:"CL", ciudad:"Santiago"},
   {codigo:"LIM", nombre:"Jorge Chávez Internacional",       paisCodigo:"PE", ciudad:"Lima"},
@@ -376,7 +378,7 @@ const AEROPUERTOS_DEFAULT = [
 // ═══════════════════════════════════════════════════════════════════
 // SHIPPING LINES — principales navieras globales
 // ═══════════════════════════════════════════════════════════════════
-const SHIPPING_LINES_DEFAULT = [
+export const SHIPPING_LINES_DEFAULT = [
   {codigo:"MAEU", nombre:"Maersk Line",            paisCodigo:"DK", website:"maersk.com",         observ:"Líder mundial, fuerte en reefer"},
   {codigo:"MSCU", nombre:"MSC",                    paisCodigo:"CH", website:"msc.com",            observ:"Segunda más grande del mundo"},
   {codigo:"CMDU", nombre:"CMA CGM",                paisCodigo:"FR", website:"cma-cgm.com",        observ:"Tercera global"},
@@ -397,7 +399,7 @@ const SHIPPING_LINES_DEFAULT = [
 // ═══════════════════════════════════════════════════════════════════
 // TIPOS DE EMBARQUE
 // ═══════════════════════════════════════════════════════════════════
-const TIPOS_EMBARQUE_DEFAULT = [
+export const TIPOS_EMBARQUE_DEFAULT = [
   {codigo:"MAR-FCL",  nombre:"Marítimo FCL",        descripcion:"Contenedor completo (Full Container Load)", icono:"🚢"},
   {codigo:"MAR-LCL",  nombre:"Marítimo LCL",        descripcion:"Carga consolidada (Less than Container Load)", icono:"📦"},
   {codigo:"MAR-REF",  nombre:"Marítimo Refrigerado",descripcion:"Contenedor reefer para fruta fresca", icono:"❄️"},
@@ -411,7 +413,7 @@ const TIPOS_EMBARQUE_DEFAULT = [
 // ═══════════════════════════════════════════════════════════════════
 // TIPOS DE EMBALAJE — base, parametrizable por especie
 // ═══════════════════════════════════════════════════════════════════
-const TIPOS_EMBALAJE_DEFAULT = [
+export const TIPOS_EMBALAJE_DEFAULT = [
   // CEREZAS
   {codigo:"CHE-5KG-CB", nombre:"Caja Cereza 5kg",        especieCodigo:"CHE", kgPorUnidad:5.0,  unidad:"kg", observ:"Caja exportación estándar"},
   {codigo:"CHE-25KG",   nombre:"Caja Cereza 2.5kg",      especieCodigo:"CHE", kgPorUnidad:2.5,  unidad:"kg", observ:""},
@@ -435,7 +437,7 @@ const TIPOS_EMBALAJE_DEFAULT = [
 // ═══════════════════════════════════════════════════════════════════
 // MERCADOS DE DESTINO — agrupaciones comerciales
 // ═══════════════════════════════════════════════════════════════════
-const MERCADOS_DEFAULT = [
+export const MERCADOS_DEFAULT = [
   {codigo:"USA",   nombre:"Estados Unidos",        region:"Norteamérica", paisesCodigos:["US"]},
   {codigo:"CAN",   nombre:"Canadá",                region:"Norteamérica", paisesCodigos:["CA"]},
   {codigo:"MEX",   nombre:"México",                region:"Norteamérica", paisesCodigos:["MX"]},
@@ -461,7 +463,7 @@ const MERCADOS_DEFAULT = [
 // ═══════════════════════════════════════════════════════════════════
 // MONEDAS (ISO 4217)
 // ═══════════════════════════════════════════════════════════════════
-const MONEDAS_DEFAULT = [
+export const MONEDAS_DEFAULT = [
   {codigo:"USD", nombre:"Dólar Estadounidense",   simbolo:"US$",  paisCodigo:"US", default:true},
   {codigo:"EUR", nombre:"Euro",                   simbolo:"€",    paisCodigo:"DE", default:false},
   {codigo:"GBP", nombre:"Libra Esterlina",        simbolo:"£",    paisCodigo:"GB", default:false},
@@ -490,7 +492,7 @@ const MONEDAS_DEFAULT = [
 // ESPECIES (Fase 2) — catálogo normalizado de frutas exportadas
 // Reemplaza el string libre `especie` que vive en TIPOS_EMBALAJE_DEFAULT.
 // ═══════════════════════════════════════════════════════════════════
-const ESPECIES_DEFAULT = [
+export const ESPECIES_DEFAULT = [
   {codigo:"CHE", nombreEs:"Cerezas",     nombreEn:"Cherries",     icono:"🍒", familia:"Carozos",    kgPorCajaDefault:5.0,  unidadComercial:"kg", temporadaInicio:"Nov", temporadaFin:"Feb", observ:"Especie principal Allegria"},
   {codigo:"BLB", nombreEs:"Arándanos",   nombreEn:"Blueberries",  icono:"🫐", familia:"Berries",    kgPorCajaDefault:1.5,  unidadComercial:"kg", temporadaInicio:"Oct", temporadaFin:"Mar", observ:"Allpa Perú + Chile"},
   {codigo:"GRP", nombreEs:"Uvas",        nombreEn:"Grapes",       icono:"🍇", familia:"Berries",    kgPorCajaDefault:8.2,  unidadComercial:"kg", temporadaInicio:"Dic", temporadaFin:"Abr", observ:""},
@@ -512,7 +514,7 @@ const ESPECIES_DEFAULT = [
 // ═══════════════════════════════════════════════════════════════════
 // CHECKLIST DOCUMENTAL — plantillas comunes preconfiguradas
 // ═══════════════════════════════════════════════════════════════════
-const CHECKLIST_DOCS_DEFAULT = [
+export const CHECKLIST_DOCS_DEFAULT = [
   {
     codigo:"MAR-UE",
     nombre:"Embarque Marítimo a Unión Europea",

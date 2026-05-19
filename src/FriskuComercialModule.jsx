@@ -8,7 +8,10 @@
 //   frisku_embarques, frisku_liquidaciones
 // ═══════════════════════════════════════════════════════════════════
 import React, { useState, useEffect, useMemo, useRef } from "react";
-import FriskuModule from "./FriskuModule.jsx";
+import FriskuModule, {
+  PAISES_DEFAULT, MERCADOS_DEFAULT, MONEDAS_DEFAULT,
+  ESPECIES_DEFAULT, TIPOS_EMBALAJE_DEFAULT,
+} from "./FriskuModule.jsx";
 import {
   dbLoadGeneric, dbSaveGeneric,
   calcularComisionFrisku, resolverPorcentajesComision,
@@ -736,11 +739,15 @@ export default function FriskuComercialModule({
       setPrograma(Array.isArray(pro) ? pro : []);
       setEmbarques(Array.isArray(emb) ? emb : []);
       setLiquidaciones(Array.isArray(liq) ? liq : []);
-      setEspecies(Array.isArray(esp) ? esp : []);
-      setPaises(Array.isArray(pa) ? pa : []);
-      setMonedas(Array.isArray(mo) ? mo : []);
-      setMercados(Array.isArray(me) ? me : []);
-      setTiposEmbalaje(Array.isArray(tb) ? tb : []);
+      // Fallback a los DEFAULT cuando Supabase aún no tiene la fila del
+      // maestro o está vacía. Mantiene el mismo comportamiento que
+      // FriskuModule (Maestros) para que el form de Cliente nunca aparezca
+      // con selects vacíos en una instalación nueva.
+      setEspecies(Array.isArray(esp) && esp.length ? esp : ESPECIES_DEFAULT);
+      setPaises(Array.isArray(pa) && pa.length ? pa : PAISES_DEFAULT);
+      setMonedas(Array.isArray(mo) && mo.length ? mo : MONEDAS_DEFAULT);
+      setMercados(Array.isArray(me) && me.length ? me : MERCADOS_DEFAULT);
+      setTiposEmbalaje(Array.isArray(tb) && tb.length ? tb : TIPOS_EMBALAJE_DEFAULT);
       setCargando(false);
     })();
     return ()=>{alive=false;};
