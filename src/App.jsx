@@ -510,6 +510,16 @@ const TABS_PERMISOS_CONFIG = {
     {id:"anticipos",     label:"💵 Anticipos"},
     {id:"cobranza",      label:"📋 Cobranza"},
   ],
+  frisku: [
+    {id:"dashboard",     label:"📊 Dashboard"},
+    {id:"clientes",      label:"👥 Clientes"},
+    {id:"exportadoras",  label:"🏭 Exportadoras"},
+    {id:"contratos",     label:"📄 Contratos"},
+    {id:"programa",      label:"📅 Programa"},
+    {id:"embarques",     label:"🚢 Embarques"},
+    {id:"liquidaciones", label:"💰 Liquidaciones"},
+    {id:"maestros",      label:"🗂️ Maestros + TC"},
+  ],
 };
 
 const NIVELES_PERM = ["editar","ver","sin_acceso"];

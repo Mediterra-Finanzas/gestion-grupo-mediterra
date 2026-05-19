@@ -658,7 +658,24 @@ export default function FriskuComercialModule({
   usuarioActual, esAdmin, esSoloConsulta, tabPermisos,
   onBack, onLogout,
 }) {
-  const canEdit = !esSoloConsulta;
+  // Resolver permisos: App.jsx pasa esAdmin/esSoloConsulta como FUNCIONES
+  // (rol-checkers que reciben el nombre del usuario). Soportar también booleans
+  // por si se invoca el componente desde otro contexto (tests, storybook).
+  const nombreUsuario = usuarioActual?.nombre;
+  const admin = typeof esAdmin === "function" ? esAdmin(nombreUsuario) : !!esAdmin;
+  const consulta = typeof esSoloConsulta === "function" ? esSoloConsulta(nombreUsuario) : !!esSoloConsulta;
+  const canEditGlobal = admin || !consulta;
+
+  // Permisos finos por tab. tabPermisos = {tabId: "editar"|"ver"|"sin_acceso"}
+  // Admin siempre puede editar todo. Si no hay info para un tab, default = "editar".
+  const permTab = (tabId) => {
+    if (admin) return { visible: true, canEdit: canEditGlobal };
+    const nivel = tabPermisos?.[tabId] || "editar";
+    return {
+      visible: nivel !== "sin_acceso",
+      canEdit: canEditGlobal && nivel === "editar",
+    };
+  };
 
   // Datos comerciales
   const [clientes,       setClientes]       = useState([]);
@@ -809,6 +826,16 @@ export default function FriskuComercialModule({
 
   const totalClientesActivos = clientes.filter(c => c.activo !== false).length;
 
+  // Permisos derivados por tab del módulo comercial
+  const permDashboard     = permTab("dashboard");
+  const permClientes      = permTab("clientes");
+  const permExportadoras  = permTab("exportadoras");
+  const permContratos     = permTab("contratos");
+  const permPrograma      = permTab("programa");
+  const permEmbarques     = permTab("embarques");
+  const permLiquidaciones = permTab("liquidaciones");
+  const permMaestros      = permTab("maestros");
+
   // ── Filtrado de exportadoras ──
   const exportadorasFiltradas = useMemo(()=>{
     const q = busquedaExp.trim().toLowerCase();
@@ -866,6 +893,29 @@ export default function FriskuComercialModule({
 
   const totalExportadorasActivas = exportadoras.filter(e => e.activo !== false).length;
 
+  // ── Tabs (lista filtrada por permisos) ──
+  // Se declara antes de los early returns para que el useEffect siguiente
+  // respete las rules of hooks.
+  const tabsAll = [
+    {id:"dashboard",     label:"📊 Dashboard",     count:null,                      perm:permDashboard},
+    {id:"clientes",      label:"👥 Clientes",      count:totalClientesActivos,      perm:permClientes},
+    {id:"exportadoras",  label:"🏭 Exportadoras",  count:totalExportadorasActivas,  perm:permExportadoras},
+    {id:"contratos",     label:"📄 Contratos",     count:contratos.length||null,    perm:permContratos},
+    {id:"programa",      label:"📅 Programa",      count:programa.length||null,     perm:permPrograma},
+    {id:"embarques",     label:"🚢 Embarques",     count:embarques.length||null,    perm:permEmbarques},
+    {id:"liquidaciones", label:"💰 Liquidaciones", count:liquidaciones.length||null, perm:permLiquidaciones},
+    {id:"maestros",      label:"🗂️ Maestros + TC", count:null,                      perm:permMaestros},
+  ];
+  const tabs = tabsAll.filter(t => t.perm.visible);
+
+  // Si el tab activo no es visible para este usuario, saltar al primero accesible
+  useEffect(()=>{
+    if (cargando) return;
+    if (!tabs.find(t => t.id === tab) && tabs.length) {
+      setTab(tabs[0].id);
+    }
+  },[tabs, tab, cargando]);
+
   // ── Render ──
   if(cargando) {
     return (
@@ -875,16 +925,14 @@ export default function FriskuComercialModule({
     );
   }
 
-  const tabs = [
-    {id:"dashboard",     label:"📊 Dashboard",     count:null},
-    {id:"clientes",      label:"👥 Clientes",      count:totalClientesActivos},
-    {id:"exportadoras",  label:"🏭 Exportadoras",  count:totalExportadorasActivas},
-    {id:"contratos",     label:"📄 Contratos",     count:contratos.length||null},
-    {id:"programa",      label:"📅 Programa",      count:programa.length||null},
-    {id:"embarques",     label:"🚢 Embarques",     count:embarques.length||null},
-    {id:"liquidaciones", label:"💰 Liquidaciones", count:liquidaciones.length||null},
-    {id:"maestros",      label:"🗂️ Maestros + TC", count:null},
-  ];
+  if (!tabs.length) {
+    return (
+      <div style={{padding:40, textAlign:"center", color:C.muted, background:C.bg, minHeight:"100vh"}}>
+        Sin acceso a ningún tab de Frisku Foods. Contacta al administrador.
+        {onBack && <div style={{marginTop:14}}><button onClick={onBack} style={btnSt(C.muted, true)}>← Volver</button></div>}
+      </div>
+    );
+  }
 
   return (
     <div style={{background:C.bg, minHeight:"100vh", color:C.text}}>
@@ -989,10 +1037,15 @@ export default function FriskuComercialModule({
               <span style={{fontSize:11, color:C.muted}}>
                 {clientesFiltrados.length} de {clientes.length}
               </span>
-              {canEdit && !editandoCli && (
+              {permClientes.canEdit && !editandoCli && (
                 <button onClick={handleNuevoCliente} style={{...btnSt(C.green), marginLeft:"auto"}}>
                   + Nuevo cliente
                 </button>
+              )}
+              {!permClientes.canEdit && (
+                <span style={{fontSize:10, padding:"3px 8px", borderRadius:4, background:`${C.blue}22`, color:C.blue, border:`1px solid ${C.blue}44`}}>
+                  👁 Solo lectura
+                </span>
               )}
             </div>
 
@@ -1029,7 +1082,7 @@ export default function FriskuComercialModule({
                       mercados={mercados}
                       onEditar={()=>handleEditarCliente(c)}
                       onEliminar={()=>handleEliminarCliente(c)}
-                      canEdit={canEdit}
+                      canEdit={permClientes.canEdit}
                     />
                   ))}
                 </div>
@@ -1060,10 +1113,15 @@ export default function FriskuComercialModule({
               <span style={{fontSize:11, color:C.muted}}>
                 {exportadorasFiltradas.length} de {exportadoras.length}
               </span>
-              {canEdit && !editandoExp && (
+              {permExportadoras.canEdit && !editandoExp && (
                 <button onClick={handleNuevaExportadora} style={{...btnSt(C.green), marginLeft:"auto"}}>
                   + Nueva exportadora
                 </button>
+              )}
+              {!permExportadoras.canEdit && (
+                <span style={{fontSize:10, padding:"3px 8px", borderRadius:4, background:`${C.blue}22`, color:C.blue, border:`1px solid ${C.blue}44`}}>
+                  👁 Solo lectura
+                </span>
               )}
             </div>
 
@@ -1097,7 +1155,7 @@ export default function FriskuComercialModule({
                       monedas={monedas}
                       onEditar={()=>handleEditarExportadora(e)}
                       onEliminar={()=>handleEliminarExportadora(e)}
-                      canEdit={canEdit}
+                      canEdit={permExportadoras.canEdit}
                     />
                   ))}
                 </div>
@@ -1140,7 +1198,7 @@ export default function FriskuComercialModule({
 
         {tab === "maestros" && (
           <FriskuModule
-            canEdit={canEdit}
+            canEdit={permMaestros.canEdit}
             usuarioActual={usuarioActual}
             esAdmin={esAdmin}
             esSoloConsulta={esSoloConsulta}
