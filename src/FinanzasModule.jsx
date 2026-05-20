@@ -3241,9 +3241,9 @@ function Consolidado({empresas,saldosBancos,realData={},addedLinesGlobal={},subL
   }
 
   const THead=()=>(
-    <thead>
+    <thead style={{position:"sticky",top:0,zIndex:5}}>
       <tr style={{background:C.bg}}>
-        <th style={{padding:"9px 14px",textAlign:"left",color:C.muted,fontSize:10,position:"sticky",left:0,background:C.bg,zIndex:4,minWidth:180,borderRight:`1px solid ${C.border}`}}>
+        <th style={{padding:"9px 14px",textAlign:"left",color:C.muted,fontSize:10,position:"sticky",left:0,top:0,background:C.bg,zIndex:6,minWidth:180,borderRight:`1px solid ${C.border}`}}>
           {vistaConsolidado==="sumada"?"Concepto":"Empresa / Concepto"}
         </th>
         {cols.map(col=>(
@@ -3268,7 +3268,7 @@ function Consolidado({empresas,saldosBancos,realData={},addedLinesGlobal={},subL
           rendered[col.mes]=true;
           cells.push(<th key={`mh-${col.mes}`} colSpan={count} style={{padding:"4px 6px",textAlign:"center",background:C.card,fontSize:9,fontWeight:700,color:C.accentL,borderLeft:col.isFirstInSeason?`2px solid ${C.border2}`:`1px solid ${C.border}44`,whiteSpace:"nowrap"}}>{col.labelMes}</th>);
         });
-        return(<tr style={{background:C.bg2}}><th style={{position:"sticky",left:0,background:C.bg2,zIndex:3,borderRight:`1px solid ${C.border}`}}/>{cells}</tr>);
+        return(<tr style={{background:C.bg2}}><th style={{position:"sticky",left:0,top:0,background:C.bg2,zIndex:6,borderRight:`1px solid ${C.border}`}}/>{cells}</tr>);
       })()}
     </thead>
   );
@@ -3462,8 +3462,8 @@ function Consolidado({empresas,saldosBancos,realData={},addedLinesGlobal={},subL
 
       {/* Vista sumada */}
       {vistaConsolidado==="sumada"&&(
-        <div style={{overflowX:"auto",borderRadius:12,border:`1px solid ${C.border}`}}>
-          <table id="flujo-table-consolidado" style={{borderCollapse:"collapse",fontSize:11,minWidth:600}}>
+        <div style={{overflowX:"auto",overflowY:"auto",maxHeight:"80vh",borderRadius:12,border:`1px solid ${C.border}`}}>
+          <table id="flujo-table-consolidado" style={{borderCollapse:"separate",borderSpacing:0,fontSize:11,minWidth:600}}>
             <THead/>
             <tbody>
               <FilaSaldoBanco nombre="_consolidado"/>
@@ -3485,8 +3485,8 @@ function Consolidado({empresas,saldosBancos,realData={},addedLinesGlobal={},subL
 
       {/* Vista por empresa - solo subtotales por categoría */}
       {vistaConsolidado==="por_empresa"&&(
-        <div style={{overflowX:"auto",borderRadius:12,border:`1px solid ${C.border}`}}>
-          <table style={{borderCollapse:"collapse",fontSize:11,minWidth:600}}>
+        <div style={{overflowX:"auto",overflowY:"auto",maxHeight:"80vh",borderRadius:12,border:`1px solid ${C.border}`}}>
+          <table style={{borderCollapse:"separate",borderSpacing:0,fontSize:11,minWidth:600}}>
             <THead/>
             <tbody>
               {empNamesConsolidado.map((n,ei)=>{
