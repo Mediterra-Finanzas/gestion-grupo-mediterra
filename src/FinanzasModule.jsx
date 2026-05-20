@@ -3059,6 +3059,10 @@ function Consolidado({empresas,saldosBancos,realData={},addedLinesGlobal={},subL
   const [vistaConsolidado,setVistaConsolidado]=useState("sumada");
   const [agrup,setAgrup]=useState("mes");
   const [openSeason,setOpenSeason]=useState(()=>{const o={};SEASON_KEYS.forEach((k,i)=>{o[k]=i<2;});return o;});
+  // Estado de drill-down para vista "sumada". Keys: cat codes + "flujo_neto" + "saldo_acum".
+  // Solo se usa en "sumada" — en "por_empresa" el desglose ya es visual por empresa.
+  const [expandedCats, setExpandedCats] = useState({});
+  const toggleCat = cat => setExpandedCats(prev => ({...prev, [cat]: !prev[cat]}));
 
   // Construir empresas con overrides aplicados (igual que FlujoEmpresa)
   const empresasConOverrides = useMemo(()=>{
@@ -3237,9 +3241,9 @@ function Consolidado({empresas,saldosBancos,realData={},addedLinesGlobal={},subL
   }
 
   const THead=()=>(
-    <thead>
+    <thead style={{position:"sticky",top:0,zIndex:5}}>
       <tr style={{background:C.bg}}>
-        <th style={{padding:"9px 14px",textAlign:"left",color:C.muted,fontSize:10,position:"sticky",left:0,background:C.bg,zIndex:4,minWidth:180,borderRight:`1px solid ${C.border}`}}>
+        <th style={{padding:"9px 14px",textAlign:"left",color:C.muted,fontSize:10,position:"sticky",left:0,top:0,background:C.bg,zIndex:6,minWidth:180,borderRight:`1px solid ${C.border}`}}>
           {vistaConsolidado==="sumada"?"Concepto":"Empresa / Concepto"}
         </th>
         {cols.map(col=>(
@@ -3264,10 +3268,54 @@ function Consolidado({empresas,saldosBancos,realData={},addedLinesGlobal={},subL
           rendered[col.mes]=true;
           cells.push(<th key={`mh-${col.mes}`} colSpan={count} style={{padding:"4px 6px",textAlign:"center",background:C.card,fontSize:9,fontWeight:700,color:C.accentL,borderLeft:col.isFirstInSeason?`2px solid ${C.border2}`:`1px solid ${C.border}44`,whiteSpace:"nowrap"}}>{col.labelMes}</th>);
         });
-        return(<tr style={{background:C.bg2}}><th style={{position:"sticky",left:0,background:C.bg2,zIndex:3,borderRight:`1px solid ${C.border}`}}/>{cells}</tr>);
+        return(<tr style={{background:C.bg2}}><th style={{position:"sticky",left:0,top:0,background:C.bg2,zIndex:6,borderRight:`1px solid ${C.border}`}}/>{cells}</tr>);
       })()}
     </thead>
   );
+
+  // Fila de total por categoría con drill-down expandible por empresa.
+  // Solo se usa en vista "sumada". Lee de empresasConOverrides (con addedLines/overrides).
+  const FilaCategoriaConDrilldown=({cat,label})=>{
+    const expanded = !!expandedCats[cat];
+    const color = CAT_COLOR[cat]||C.muted;
+    const signo = CAT_SIGNO[cat]||"";
+    return (
+      <>
+        <tr style={{background:`${color}0d`,cursor:"pointer",borderTop:`1px solid ${C.border}33`}}
+          onClick={()=>toggleCat(cat)}>
+          <td style={{padding:"7px 14px",position:"sticky",left:0,background:C.bg2,zIndex:1,borderRight:`1px solid ${C.border}`,whiteSpace:"nowrap"}}>
+            <span style={{fontSize:11,fontWeight:800,color,textTransform:"uppercase",letterSpacing:"0.5px",display:"flex",alignItems:"center",gap:6}}>
+              <span style={{fontSize:9,display:"inline-block",transform:expanded?"rotate(90deg)":"rotate(0deg)",transition:"transform 0.15s"}}>▶</span>
+              {signo} {label}
+              <span style={{fontSize:8,color:C.muted,fontWeight:400,textTransform:"none",letterSpacing:0}}>total</span>
+            </span>
+          </td>
+          {cols.map(col=>{
+            const v=empNamesConsolidado.reduce((sum,n)=>{
+              const sec=empresasConOverrides[n].sections.find(s=>s.cat===cat);
+              return sum+(sec?sec.lines.reduce((a,l)=>a+colVal(l.proy,col),0):0);
+            },0);
+            return(<td key={col.key} style={{padding:"6px 5px",textAlign:"right",fontWeight:700,fontSize:10,color,background:`${color}0d`,borderLeft:col.isFirstInSeason?`2px solid ${C.border2}`:`1px solid ${C.border}22`}}>{v!==0?$$(v):"—"}</td>);
+          })}
+        </tr>
+        {expanded && empNamesConsolidado.map(n=>{
+          const emp=empresasConOverrides[n];
+          const sec=emp.sections.find(s=>s.cat===cat);
+          return (
+            <tr key={n} style={{background:`${color}06`}}>
+              <td style={{padding:"5px 14px 5px 28px",position:"sticky",left:0,background:C.bg2,zIndex:1,borderRight:`1px solid ${C.border}`,fontSize:10,color:emp.color,whiteSpace:"nowrap"}}>
+                {emp.emoji} {n}
+              </td>
+              {cols.map(col=>{
+                const v=sec?sec.lines.reduce((a,l)=>a+colVal(l.proy,col),0):0;
+                return(<td key={col.key} style={{padding:"5px 5px",textAlign:"right",fontSize:9,color:v!==0?color:C.muted2,borderLeft:col.isFirstInSeason?`2px solid ${C.border2}`:`1px solid ${C.border}11`}}>{v!==0?$$(v):"—"}</td>);
+              })}
+            </tr>
+          );
+        })}
+      </>
+    );
+  };
 
   const FilaSaldoBanco=({nombre})=>(
     <tr style={{background:`${C.blue}15`,borderBottom:`2px solid ${C.border2}`}}>
@@ -3284,22 +3332,62 @@ function Consolidado({empresas,saldosBancos,realData={},addedLinesGlobal={},subL
     </tr>
   );
 
-  const FilasFlujoYAcum=({flujoArr,acumArr,color=C.accentL,isTotal=false})=>(
+  // drilldownFlujo / drilldownAcum: {[empName]: number[]} — solo se pasan desde la vista "sumada".
+  // En "por_empresa" no se pasan → el desglose ya es visual por empresa, drill-down no aplica.
+  const FilasFlujoYAcum=({flujoArr,acumArr,color=C.accentL,isTotal=false,drilldownFlujo,drilldownAcum})=>{
+    const expFlujo = isTotal && !!expandedCats["flujo_neto"];
+    const expAcum  = isTotal && !!expandedCats["saldo_acum"];
+    return (
     <>
-      <tr style={{background:`${color}1a`,borderTop:`2px solid ${C.border2}`}}>
+      <tr style={{background:`${color}1a`,borderTop:`2px solid ${C.border2}`,cursor:isTotal?"pointer":undefined}}
+        onClick={isTotal?()=>toggleCat("flujo_neto"):undefined}>
         <td style={{padding:"8px 14px",fontWeight:800,color,fontSize:isTotal?12:11,position:"sticky",left:0,background:C.card,zIndex:1,borderRight:`1px solid ${C.border}`}}>
-          {isTotal?"Σ FLUJO NETO CONSOLIDADO":"Flujo Neto"}
+          {isTotal?(
+            <span style={{display:"flex",alignItems:"center",gap:6}}>
+              <span style={{fontSize:9,display:"inline-block",transform:expFlujo?"rotate(90deg)":"rotate(0deg)",transition:"transform 0.15s"}}>▶</span>
+              Σ FLUJO NETO CONSOLIDADO
+            </span>
+          ):"Flujo Neto"}
         </td>
         {cols.map(col=>{const v=colVal(flujoArr,col);return(<td key={col.key} style={{padding:"7px 5px",textAlign:"right",fontWeight:isTotal?900:700,fontSize:isTotal?10:9,color:cf(v),background:`${cf(v)===C.green?C.green:C.red}0a`,borderLeft:col.isFirstInSeason?`2px solid ${C.border2}`:`1px solid ${C.border}22`}}>{$$(v)}</td>);})}
       </tr>
-      <tr style={{background:`${C.blue}0a`}}>
+      {expFlujo && drilldownFlujo && empNamesConsolidado.map(n=>{
+        const emp=empresasConOverrides[n];
+        return (
+          <tr key={n} style={{background:`${color}08`}}>
+            <td style={{padding:"5px 14px 5px 28px",position:"sticky",left:0,background:C.bg2,zIndex:1,borderRight:`1px solid ${C.border}`,fontSize:10,color:emp.color,whiteSpace:"nowrap"}}>
+              {emp.emoji} {n}
+            </td>
+            {cols.map(col=>{const v=colVal(drilldownFlujo[n]||[],col);return(<td key={col.key} style={{padding:"5px 5px",textAlign:"right",fontSize:9,color:v!==0?cf(v):C.muted2,borderLeft:col.isFirstInSeason?`2px solid ${C.border2}`:`1px solid ${C.border}11`}}>{v!==0?$$(v):"—"}</td>);})}
+          </tr>
+        );
+      })}
+      <tr style={{background:`${C.blue}0a`,cursor:isTotal?"pointer":undefined}}
+        onClick={isTotal?()=>toggleCat("saldo_acum"):undefined}>
         <td style={{padding:"8px 14px",fontWeight:800,color:C.blue,fontSize:isTotal?12:11,position:"sticky",left:0,background:C.card,zIndex:1,borderRight:`1px solid ${C.border}`}}>
-          {isTotal?"Σ SALDO ACUMULADO CONSOLIDADO":"Saldo Acumulado"}
+          {isTotal?(
+            <span style={{display:"flex",alignItems:"center",gap:6}}>
+              <span style={{fontSize:9,display:"inline-block",transform:expAcum?"rotate(90deg)":"rotate(0deg)",transition:"transform 0.15s"}}>▶</span>
+              Σ SALDO ACUMULADO CONSOLIDADO
+            </span>
+          ):"Saldo Acumulado"}
         </td>
         {cols.map(col=>{const lastIdx=col.indices[col.indices.length-1];const v=acumArr[lastIdx];const esNull=v==null;return(<td key={col.key} style={{padding:"7px 5px",textAlign:"right",fontWeight:isTotal?900:700,fontSize:isTotal?10:9,color:esNull?C.muted2:cf(v||0),borderLeft:col.isFirstInSeason?`2px solid ${C.border2}`:`1px solid ${C.border}22`}}>{esNull?"—":$$(v||0)}</td>);})}
       </tr>
+      {expAcum && drilldownAcum && empNamesConsolidado.map(n=>{
+        const emp=empresasConOverrides[n];
+        return (
+          <tr key={n} style={{background:`${C.blue}06`}}>
+            <td style={{padding:"5px 14px 5px 28px",position:"sticky",left:0,background:C.bg2,zIndex:1,borderRight:`1px solid ${C.border}`,fontSize:10,color:emp.color,whiteSpace:"nowrap"}}>
+              {emp.emoji} {n}
+            </td>
+            {cols.map(col=>{const lastIdx=col.indices[col.indices.length-1];const v=(drilldownAcum[n]||[])[lastIdx];const esNull=v==null;return(<td key={col.key} style={{padding:"5px 5px",textAlign:"right",fontSize:9,color:esNull?C.muted2:cf(v||0),borderLeft:col.isFirstInSeason?`2px solid ${C.border2}`:`1px solid ${C.border}11`}}>{esNull?"—":$$(v||0)}</td>);})}
+          </tr>
+        );
+      })}
     </>
-  );
+  );};
+
 
   return(
     <div style={{display:"flex",flexDirection:"column",gap:14}}>
@@ -3374,12 +3462,22 @@ function Consolidado({empresas,saldosBancos,realData={},addedLinesGlobal={},subL
 
       {/* Vista sumada */}
       {vistaConsolidado==="sumada"&&(
-        <div style={{overflowX:"auto",borderRadius:12,border:`1px solid ${C.border}`}}>
-          <table id="flujo-table-consolidado" style={{borderCollapse:"collapse",fontSize:11,minWidth:600}}>
+        <div style={{overflowX:"auto",overflowY:"auto",maxHeight:"80vh",borderRadius:12,border:`1px solid ${C.border}`}}>
+          <table id="flujo-table-consolidado" style={{borderCollapse:"separate",borderSpacing:0,fontSize:11,minWidth:600}}>
             <THead/>
             <tbody>
               <FilaSaldoBanco nombre="_consolidado"/>
-              <FilasFlujoYAcum flujoArr={flujoConsolidado} acumArr={acumConsolidado} color={C.accentL} isTotal/>
+              <FilaCategoriaConDrilldown cat="ing_op"  label="Ingresos Operacionales"/>
+              <FilaCategoriaConDrilldown cat="egr_var" label="Egresos Operacionales"/>
+              <FilaCategoriaConDrilldown cat="egr_fijo"label="Costos Fijos / SG&A"/>
+              <FilaCategoriaConDrilldown cat="imp"     label="Impuestos"/>
+              <FilaCategoriaConDrilldown cat="ing_nop" label="Ingresos No Operacionales"/>
+              <FilaCategoriaConDrilldown cat="egr_nop" label="Egresos No Operacionales"/>
+              <FilasFlujoYAcum
+                flujoArr={flujoConsolidado} acumArr={acumConsolidado}
+                color={C.accentL} isTotal
+                drilldownFlujo={flujoPorEmp} drilldownAcum={acumPorEmp}
+              />
             </tbody>
           </table>
         </div>
@@ -3387,8 +3485,8 @@ function Consolidado({empresas,saldosBancos,realData={},addedLinesGlobal={},subL
 
       {/* Vista por empresa - solo subtotales por categoría */}
       {vistaConsolidado==="por_empresa"&&(
-        <div style={{overflowX:"auto",borderRadius:12,border:`1px solid ${C.border}`}}>
-          <table style={{borderCollapse:"collapse",fontSize:11,minWidth:600}}>
+        <div style={{overflowX:"auto",overflowY:"auto",maxHeight:"80vh",borderRadius:12,border:`1px solid ${C.border}`}}>
+          <table style={{borderCollapse:"separate",borderSpacing:0,fontSize:11,minWidth:600}}>
             <THead/>
             <tbody>
               {empNamesConsolidado.map((n,ei)=>{
