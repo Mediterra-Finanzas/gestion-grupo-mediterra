@@ -122,6 +122,28 @@ function defaultParams() {
   return p;
 }
 
+function defaultAllegraComisionArandanos() {
+  return { cobros: [] };
+}
+
+// Migración automática desde params.arandanos (legacy) → nuevo calendario
+function migrateAllegraComisionArandanos(allegraParams) {
+  if (!allegraParams) return null;
+  const cobros = [];
+  SEASON_KEYS.forEach(sk => {
+    const p = allegraParams?.[sk]?.arandanos;
+    if (!p) return;
+    const kg = Number(p.kg) || 0;
+    const fob = Number(p.fob_usd_kg) || 0;
+    const feePct = Number(p.desc_exp_pct) || 0;
+    if (!kg && !fob) return;
+    const pagos = p.mes_liquidacion ? [{ mes: p.mes_liquidacion, pct: 100 }] : [];
+    cobros.push({ id:`cobro_mig_${sk}`, temporada:sk, descripcion:"Arándanos Perú (migrado)", kgTotal:kg, fobUsdKg:fob, feePct, pagos });
+  });
+  if (cobros.length === 0) return null;
+  return { cobros, _migratedFrom: true };
+}
+
 // ── Parámetros genéricos para cualquier empresa ───────────────────
 // Un "producto" es cualquier línea de ingreso con sus propios
 // parámetros: unidades, precio, descuento, anticipos, materiales, servicios
@@ -1221,14 +1243,32 @@ const EMPRESAS_STATIC = {
   },
 };
 
-function buildAllegria(params) {
+// Convierte el calendario de cobros de arándanos → proy[65]
+function calcComisionArandanosArr(config) {
+  const proy = Z65();
+  (config?.cobros || []).forEach(c => {
+    const kg  = Number(c.kgTotal)  || 0;
+    const fob = Number(c.fobUsdKg) || 0;
+    const fee = (Number(c.feePct)  || 0) / 100;
+    if (!kg || !fob || !fee) return;
+    const total = kg * fob * fee;
+    (c.pagos || []).forEach(p => {
+      const i = mIdx(p.mes);
+      if (i >= 0) proy[i] += total * ((Number(p.pct) || 0) / 100);
+    });
+  });
+  return proy;
+}
+
+function buildAllegria(params, allegraComisionArandanos) {
   const { ing, cost, mat, srv } = calcAllegria(params);
+  const arandanosProy = calcComisionArandanosArr(allegraComisionArandanos);
   return {
     emoji:"🍒", color:"#b91c1c", saldo_ini:17433, desc:"Exportación frutas · Chile", hasFormula:true,
     sections:[
       { cat:"ing_op", label:"Ingresos Operacionales", signo:1, lines:[
         {label:"Anticipo Cerezas",              proy:[...ing.cerezas],   formula:true},
-        {label:"Arándanos Perú",                proy:[...ing.arandanos], formula:true},
+        {label:"Arándanos Perú",                proy:[...arandanosProy],  formula:true},
         {label:"Cuentas por Cobrar",            proy:Z65(), subLines:true},
         {label:"Ingreso por Allegria Service",  proy:Z65()},
         {label:"Ingresos por Paltas",           proy:Z65()},
@@ -1307,8 +1347,8 @@ function buildAllegria(params) {
     ],
   };
 }
-function buildEmpresas(params) {
-  return { ...EMPRESAS_STATIC, "Allegria Foods": buildAllegria(params) };
+function buildEmpresas(params, allegraComisionArandanos) {
+  return { ...EMPRESAS_STATIC, "Allegria Foods": buildAllegria(params, allegraComisionArandanos) };
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -2498,9 +2538,210 @@ function ParamsAllegriaService({selSeason, paramsAS, setParamsAS, readOnly}) {
   );
 }
 
+// ── Panel Comisión Arándanos Perú (Fase Calendario) ────────────────
+function AllegriaComisionArandanosPanel({ config, setConfig, readOnly }) {
+  const [editId, setEditId] = useState(null);
+  const [form,   setForm]   = useState(null);
+
+  const cobros      = config?.cobros      || [];
+  const migratedFrom = config?._migratedFrom;
+  const totalProy   = calcComisionArandanosArr(config);
+  const totalIngreso = totalProy.reduce((s, v) => s + v, 0);
+
+  const iSt  = {width:90,padding:"5px 7px",background:C.card2,border:`1px solid ${C.border}`,borderRadius:6,color:C.text,fontSize:11,outline:"none",textAlign:"right"};
+  const selSt= {padding:"5px 8px",background:C.card2,border:`1px solid ${C.border}`,borderRadius:6,fontSize:11,outline:"none",color:C.text,minWidth:110};
+
+  function startAdd() {
+    const id = `cobro_${Date.now()}`;
+    setForm({ id, temporada:SEASON_KEYS[0], descripcion:"", kgTotal:0, fobUsdKg:0, feePct:8, pagos:[] });
+    setEditId(id);
+  }
+  function startEdit(c) { setForm(JSON.parse(JSON.stringify(c))); setEditId(c.id); }
+  function cancelEdit() { setForm(null); setEditId(null); }
+  function saveEdit() {
+    if (!form) return;
+    const isNew = !cobros.find(c => c.id === form.id);
+    const nextCobros = isNew ? [...cobros, form] : cobros.map(c => c.id === form.id ? form : c);
+    setConfig(prev => ({ ...prev, cobros: nextCobros }));
+    setForm(null); setEditId(null);
+  }
+  function deleteCobro(id) {
+    setConfig(prev => ({ ...prev, cobros: (prev?.cobros || []).filter(c => c.id !== id) }));
+  }
+  function updForm(field, val) { setForm(prev => ({ ...prev, [field]: val })); }
+  function addPago() { setForm(prev => ({ ...prev, pagos: [...(prev.pagos||[]), { mes:"", pct:0 }] })); }
+  function updPago(idx, field, val) {
+    setForm(prev => { const ps=[...(prev.pagos||[])]; ps[idx]={...ps[idx],[field]:val}; return {...prev,pagos:ps}; });
+  }
+  function delPago(idx) {
+    setForm(prev => ({ ...prev, pagos:(prev.pagos||[]).filter((_,i)=>i!==idx) }));
+  }
+
+  const formKg  = Number(form?.kgTotal)  || 0;
+  const formFob = Number(form?.fobUsdKg) || 0;
+  const formFee = (Number(form?.feePct)  || 0) / 100;
+  const formTotal = formKg * formFob * formFee;
+  const formPctSum = (form?.pagos||[]).reduce((s,p)=>s+(Number(p.pct)||0),0);
+
+  return (
+    <div style={{display:"flex",flexDirection:"column",gap:14}}>
+      {/* Aviso migración */}
+      {migratedFrom && (
+        <div style={{background:`${C.yellow}18`,border:`1px solid ${C.yellow}44`,borderRadius:10,padding:"10px 14px",fontSize:11,color:C.yellow}}>
+          Los datos fueron migrados automáticamente desde el módulo legacy (un cobro por temporada). Revisa y ajusta los calendarios según corresponda.
+        </div>
+      )}
+
+      {/* Cabecera */}
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+        <div>
+          <span style={{fontSize:13,fontWeight:700,color:C.text}}>🫐 Calendario de Cobros — Arándanos Perú</span>
+          {totalIngreso > 0 && (
+            <span style={{marginLeft:12,fontSize:11,background:`${C.green}22`,color:C.green,borderRadius:20,padding:"2px 10px",fontWeight:700}}>
+              Total: {$$(totalIngreso)} USD
+            </span>
+          )}
+        </div>
+        {!readOnly && (
+          <button onClick={startAdd}
+            style={{padding:"6px 14px",background:C.accent,color:"#fff",border:"none",borderRadius:8,cursor:"pointer",fontSize:12,fontWeight:700}}>
+            + Agregar cobro
+          </button>
+        )}
+      </div>
+
+      {/* Formulario edición */}
+      {form && (
+        <div style={{background:C.card,border:`1px solid ${C.accent}55`,borderRadius:12,padding:16,display:"flex",flexDirection:"column",gap:12}}>
+          <div style={{fontSize:12,fontWeight:700,color:C.accent}}>
+            {cobros.find(c=>c.id===form.id) ? "Editar cobro" : "Nuevo cobro"}
+          </div>
+          <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(130px,1fr))",gap:10}}>
+            <div>
+              <div style={{fontSize:10,color:C.muted,marginBottom:3}}>Temporada</div>
+              <select value={form.temporada} onChange={e=>updForm("temporada",e.target.value)} style={selSt}>
+                {SEASON_KEYS.map(sk=><option key={sk} value={sk}>{sk}</option>)}
+              </select>
+            </div>
+            <div style={{gridColumn:"span 2"}}>
+              <div style={{fontSize:10,color:C.muted,marginBottom:3}}>Descripción (opcional)</div>
+              <input value={form.descripcion} onChange={e=>updForm("descripcion",e.target.value)}
+                style={{...iSt,width:"100%",textAlign:"left"}} placeholder="ej. Liquidación campaña alta"/>
+            </div>
+            {[["KG exportados Perú","kgTotal","",""],["FOB estimado US$/kg","fobUsdKg","$",""],["% Fee Allegria","feePct","","%"]].map(([lbl,field,pre,suf])=>(
+              <div key={field}>
+                <div style={{fontSize:10,color:C.muted,marginBottom:3}}>{lbl}</div>
+                <div style={{display:"flex",alignItems:"center",gap:3}}>
+                  {pre&&<span style={{fontSize:11,color:C.muted}}>{pre}</span>}
+                  <input type="number" value={form[field]||""} placeholder="0"
+                    onChange={e=>updForm(field,parseFloat(e.target.value)||0)} style={iSt}/>
+                  {suf&&<span style={{fontSize:11,color:C.muted}}>{suf}</span>}
+                </div>
+              </div>
+            ))}
+          </div>
+          {formTotal > 0 && (
+            <div style={{background:`${C.green}11`,border:`1px solid ${C.green}33`,borderRadius:8,padding:"7px 12px",fontSize:11,color:C.green}}>
+              Total a cobrar: <strong>{$$(formTotal)}</strong> ({formKg.toLocaleString()} kg × ${formFob}/kg × {(formFee*100).toFixed(1)}%)
+            </div>
+          )}
+          {/* Distribución de pagos */}
+          <div>
+            <div style={{fontSize:11,fontWeight:700,color:C.text,marginBottom:8}}>
+              Distribución de pagos
+              {formPctSum > 0 && (
+                <span style={{marginLeft:8,fontSize:10,color:formPctSum===100?C.green:C.yellow,fontWeight:700}}>
+                  {formPctSum}% asignado{formPctSum!==100?" — debe sumar 100%":""}
+                </span>
+              )}
+            </div>
+            <div style={{display:"flex",flexDirection:"column",gap:6}}>
+              {(form.pagos||[]).map((p,idx)=>(
+                <div key={idx} style={{display:"flex",alignItems:"center",gap:8}}>
+                  <select value={p.mes} onChange={e=>updPago(idx,"mes",e.target.value)} style={selSt}>
+                    <option value="">— mes —</option>
+                    {MESES_65.map(m=><option key={m} value={m}>{m}</option>)}
+                  </select>
+                  <input type="number" value={p.pct||""} placeholder="%" onChange={e=>updPago(idx,"pct",parseFloat(e.target.value)||0)}
+                    style={{...iSt,width:60}}/>
+                  <span style={{fontSize:10,color:C.muted}}>%</span>
+                  {formTotal > 0 && p.pct > 0 && (
+                    <span style={{fontSize:10,color:C.green}}>{$$( formTotal * (Number(p.pct)||0)/100 )}</span>
+                  )}
+                  <button onClick={()=>delPago(idx)}
+                    style={{padding:"2px 7px",background:"transparent",border:`1px solid ${C.red}44`,color:C.red,borderRadius:4,cursor:"pointer",fontSize:12,lineHeight:1}}>×</button>
+                </div>
+              ))}
+              <button onClick={addPago}
+                style={{alignSelf:"flex-start",padding:"4px 12px",background:"transparent",border:`1px solid ${C.border}`,color:C.muted,borderRadius:6,cursor:"pointer",fontSize:11}}>
+                + Agregar mes
+              </button>
+            </div>
+          </div>
+          <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}>
+            <button onClick={cancelEdit}
+              style={{padding:"6px 16px",background:"transparent",border:`1px solid ${C.border}`,color:C.muted,borderRadius:8,cursor:"pointer",fontSize:12}}>
+              Cancelar
+            </button>
+            <button onClick={saveEdit}
+              style={{padding:"6px 16px",background:C.accent,color:"#fff",border:"none",borderRadius:8,cursor:"pointer",fontSize:12,fontWeight:700}}>
+              Guardar
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Lista de cobros */}
+      {cobros.length === 0 && !form && (
+        <div style={{padding:"24px",textAlign:"center",color:C.muted2,fontSize:11,fontStyle:"italic",background:C.card,borderRadius:10,border:`1px solid ${C.border}`}}>
+          Sin cobros registrados. Agrega el primer cobro con el botón de arriba.
+        </div>
+      )}
+      {cobros.map(c => {
+        const isEditing = editId === c.id;
+        const cKg    = Number(c.kgTotal)  || 0;
+        const cFob   = Number(c.fobUsdKg) || 0;
+        const cFee   = (Number(c.feePct)  || 0) / 100;
+        const cTotal = cKg * cFob * cFee;
+        const cProy  = calcComisionArandanosArr({ cobros:[c] });
+        return (
+          <div key={c.id} style={{background:C.card,borderRadius:10,border:`1px solid ${isEditing?C.accent:C.border}`,padding:14}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:8}}>
+              <div style={{flex:1}}>
+                <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:4}}>
+                  <span style={{fontSize:11,fontWeight:700,color:C.accent,background:`${C.accent}22`,padding:"2px 8px",borderRadius:12}}>{c.temporada}</span>
+                  {c.descripcion && <span style={{fontSize:11,color:C.text}}>{c.descripcion}</span>}
+                  {cTotal > 0 && <span style={{marginLeft:"auto",fontSize:11,color:C.green,fontWeight:700}}>{$$(cTotal)}</span>}
+                </div>
+                <div style={{fontSize:10,color:C.muted,display:"flex",gap:12,flexWrap:"wrap"}}>
+                  {cKg>0&&<span>{cKg.toLocaleString()} kg</span>}
+                  {cFob>0&&<span>${cFob}/kg FOB</span>}
+                  {c.feePct>0&&<span>{c.feePct}% fee</span>}
+                  {(c.pagos||[]).length > 0 && (
+                    <span>Cobros: {(c.pagos||[]).filter(p=>p.mes).map(p=>`${p.mes} (${p.pct}%)`).join(", ")}</span>
+                  )}
+                </div>
+              </div>
+              {!readOnly && !isEditing && (
+                <div style={{display:"flex",gap:6,flexShrink:0}}>
+                  <button onClick={()=>startEdit(c)}
+                    style={{padding:"4px 10px",background:"transparent",border:`1px solid ${C.border2}`,color:C.text,borderRadius:6,cursor:"pointer",fontSize:11}}>Editar</button>
+                  <button onClick={()=>deleteCobro(c.id)}
+                    style={{padding:"4px 8px",background:"transparent",border:`1px solid ${C.red}44`,color:C.red,borderRadius:6,cursor:"pointer",fontSize:11}}>✕</button>
+                </div>
+              )}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 // ── TabParametros GENÉRICO para todas las empresas ─────────────────
 function TabParametros({empNombre,empColor="#2563eb",
-  params,setParams,           // Allegria Foods (frutas)
+  params,setParams,           // Allegria Foods (frutas legacy)
+  allegraComisionArandanos,setAllegraComisionArandanos, // Allegria (arándanos calendario)
   paramsEmp,setParamsEmp,     // Otras empresas (productos genéricos)
   paramsAS,setParamsAS,       // Allegria Service (kg × especie)
   paramsIF,setParamsIF,       // Integrity Farms (clientes × há)
@@ -2621,9 +2862,16 @@ function TabParametros({empNombre,empColor="#2563eb",
               </button>
             ))}
           </div>
-          <ParamsFruta key={`${selSeason}-${selFruta}`}
-            seasonKey={selSeason} fruta={selFruta}
-            params={params} setParams={setParams}/>
+          {selFruta === 'arandanos' ? (
+            <AllegriaComisionArandanosPanel
+              config={allegraComisionArandanos}
+              setConfig={setAllegraComisionArandanos || function(){}}
+              readOnly={readOnly}/>
+          ) : (
+            <ParamsFruta key={`${selSeason}-${selFruta}`}
+              seasonKey={selSeason} fruta={selFruta}
+              params={params} setParams={setParams}/>
+          )}
         </Card>
       )}
 
@@ -9646,6 +9894,7 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
   const [flujoSubTab,setFlujoSubTab]=useState("flujo"); // "flujo" | "params"
   const [realData,setRealData]=useState({});
   const [params,setParams]=useState(defaultParams);
+  const [allegraComisionArandanos,setAllegraComisionArandanos]=useState(defaultAllegraComisionArandanos);
   // paramsEmp: { empresa: { seasonKey: { prodId: defaultProducto() } } }
   const [paramsEmp,setParamsEmp]=useState({});
   // CREDITOS: dinámico — se puede agregar, editar y marcar como pagado
@@ -9681,7 +9930,7 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
   const puedoEdit= (tabId) => esAdmin || (perm(tabId) !== "ver" && perm(tabId) !== "sin_acceso");
 
   const empresas=useMemo(()=>{
-    const base = buildEmpresas(params);
+    const base = buildEmpresas(params, allegraComisionArandanos);
     // Recalculate Préstamos + Renovaciones proy using current creditosData
     Object.keys(base).forEach(empNombre=>{
       const emp = base[empNombre];
@@ -9788,7 +10037,7 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
       base["Frisku Foods"] = nextFrisku;
     }
     return base;
-  },[params,paramsAS,paramsIF,paramsAF,creditosData,paramsFrisku]);
+  },[params,allegraComisionArandanos,paramsAS,paramsIF,paramsAF,creditosData,paramsFrisku]);
 
   // Empresas con overrides aplicados — para Dashboard y cualquier otro consumer que no sea Consolidado
   const empresasConOverridesMain = useMemo(
@@ -9827,6 +10076,12 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
     else if(d?.calendario_data) setRealData(d.calendario_data);
     else if(d&&!d.calendario_data&&!d.allegria_params&&!d.finanzas_real) setRealData(d);
     if(d?.allegria_params) setParams(prev=>({...defaultParams(),...d.allegria_params}));
+    if(d?.allegria_comision_arandanos) {
+      setAllegraComisionArandanos(d.allegria_comision_arandanos);
+    } else {
+      const migrated = migrateAllegraComisionArandanos(d?.allegria_params);
+      if(migrated) setAllegraComisionArandanos(migrated);
+    }
     if(d?.params_emp) setParamsEmp(d.params_emp);
     if(d?.saldos_bancos) setSaldosBancos(d.saldos_bancos);
     if(d?.params_as)    setParamsAS(prev=>({...defaultParamsAllegriaService(),...d.params_as}));
@@ -9916,6 +10171,7 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
   // Refs para siempre tener el valor mas reciente sin stale closures
   const realDataRef     = React.useRef(realData);
   const paramsRef       = React.useRef(params);
+  const allegraComisionArandanosRef = React.useRef(allegraComisionArandanos);
   const saldosBancosRef = React.useRef(saldosBancos);
   const paramsEmpRef    = React.useRef(paramsEmp);
   const paramsASRef     = React.useRef(paramsAS);
@@ -9928,6 +10184,7 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
   const intercompanyRef  = React.useRef(intercompany);
   useEffect(()=>{ realDataRef.current     = realData;     },[realData]);
   useEffect(()=>{ paramsRef.current       = params;       },[params]);
+  useEffect(()=>{ allegraComisionArandanosRef.current = allegraComisionArandanos; },[allegraComisionArandanos]);
   useEffect(()=>{ saldosBancosRef.current = saldosBancos; },[saldosBancos]);
   useEffect(()=>{ paramsEmpRef.current    = paramsEmp;    },[paramsEmp]);
   useEffect(()=>{ paramsASRef.current     = paramsAS;     },[paramsAS]);
@@ -10003,6 +10260,7 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
     return dbSave({
       finanzas_real:   overrides.finanzas_real   !== undefined ? overrides.finanzas_real   : realDataRef.current,
       allegria_params: overrides.allegria_params !== undefined ? overrides.allegria_params : paramsRef.current,
+      allegria_comision_arandanos: overrides.allegria_comision_arandanos !== undefined ? overrides.allegria_comision_arandanos : allegraComisionArandanosRef.current,
       saldos_bancos:   overrides.saldos_bancos   !== undefined ? overrides.saldos_bancos   : saldosBancosRef.current,
       params_emp:      overrides.params_emp      !== undefined ? overrides.params_emp      : paramsEmpRef.current,
       creditos_data:   overrides.creditos_data !== undefined ? overrides.creditos_data : creditosRef.current,
@@ -10055,6 +10313,13 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
     setParamsFrisku(next);
     paramsFriskuRef.current = next;
     setTimeout(()=>persistAll({ params_frisku: next }),0);
+  },[persistAll]);
+
+  const handleSaveAllegraComisionArandanos = useCallback((updater) => {
+    const next = typeof updater === 'function' ? updater(allegraComisionArandanosRef.current) : updater;
+    setAllegraComisionArandanos(next);
+    allegraComisionArandanosRef.current = next;
+    setTimeout(()=>persistAll({ allegria_comision_arandanos: next }),0);
   },[persistAll]);
 
   // Guardar créditos (nuevo, editar, marcar pagado)
@@ -10391,6 +10656,8 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
                 empColor={empColor}
                 params={esAllegria?params:undefined}
                 setParams={esAllegria&&puedoEdit("flujo")?setParams:undefined}
+                allegraComisionArandanos={esAllegria?allegraComisionArandanos:undefined}
+                setAllegraComisionArandanos={esAllegria&&puedoEdit("flujo")?handleSaveAllegraComisionArandanos:undefined}
                 paramsEmp={esAllegria?undefined:{...empParamsData}}
                 setParamsEmp={!esAllegria&&puedoEdit("flujo")
                   ? (updater)=>setParamsEmpresa(empTab,updater)
