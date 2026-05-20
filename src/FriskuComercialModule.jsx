@@ -12,6 +12,8 @@ import FriskuModule, {
   PAISES_DEFAULT, MERCADOS_DEFAULT, MONEDAS_DEFAULT,
   ESPECIES_DEFAULT, TIPOS_EMBALAJE_DEFAULT, CIUDADES_DEFAULT,
   TEMPORADAS_DEFAULT,
+  PUERTOS_DEFAULT, AEROPUERTOS_DEFAULT,
+  SHIPPING_LINES_DEFAULT, LINEAS_AEREAS_DEFAULT,
 } from "./FriskuModule.jsx";
 import {
   dbLoadGeneric, dbSaveGeneric,
@@ -1478,6 +1480,369 @@ function ClosureProgramaPanel({closure, semanas, tiposEmbalaje, exportadoras, cl
 }
 
 // ═══════════════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════════════
+// ORDEN DE EMBARQUE — FORM
+// ═══════════════════════════════════════════════════════════════════
+function OEForm({oe, exportadoras, clientes, especies, tiposEmbalaje, contratos,
+  puertos, aeropuertos, shippingLines, lineasAereas, temporadas,
+  onGuardar, onCancelar}) {
+  const [buf, setBuf] = useState(()=>JSON.parse(JSON.stringify(oe)));
+  const set = (k,v) => setBuf(prev=>({...prev,[k]:v}));
+  const setNotify = (k,v) => setBuf(prev=>({...prev,notify:{...(prev.notify||{}), [k]:v}}));
+  const setCajas = (cod,val) => setBuf(prev=>{
+    const cpf = {...(prev.cajasPorFormato||{})};
+    const n = Number(val);
+    if(!val||n===0) delete cpf[cod]; else cpf[cod]=n;
+    return {...prev,cajasPorFormato:cpf};
+  });
+
+  const esMar = buf.tipoEmbarque==="maritimo";
+  const esAer = buf.tipoEmbarque==="aereo";
+  const totalCajas = Object.values(buf.cajasPorFormato||{}).reduce((s,v)=>s+Number(v||0),0);
+
+  // Formatos disponibles según especie seleccionada
+  const especieObj = especies.find(e=>e.codigo===buf.especieCodigo);
+  const formatosDisp = tiposEmbalaje.filter(t=>
+    t.especieCodigo===buf.especieCodigo || (especieObj && t.especie===especieObj.nombreEs)
+  );
+
+  // Al seleccionar BC, auto-completa campos desde el closure
+  const handleClosureChange = (closureId) => {
+    if(!closureId) { set("closureId",""); return; }
+    const bc = contratos.find(c=>c.id===closureId);
+    if(!bc) { set("closureId",""); return; }
+    setBuf(prev=>({
+      ...prev,
+      closureId,
+      temporada:    prev.temporada    || bc.temporada,
+      exportadoraId:prev.exportadoraId|| bc.exportadoraId,
+      clienteId:    prev.clienteId    || bc.clienteId,
+      especieCodigo:prev.especieCodigo|| bc.especieCodigo,
+    }));
+  };
+
+  const handleGuardar = () => {
+    if(!buf.exportadoraId){ alert("Selecciona exportadora"); return; }
+    if(!buf.clienteId)    { alert("Selecciona cliente"); return; }
+    if(!buf.especieCodigo){ alert("Selecciona especie"); return; }
+    if(!buf.tipoEmbarque) { alert("Selecciona tipo de embarque"); return; }
+    if(!buf.origen?.trim()){ alert("Ingresa origen"); return; }
+    if(!buf.destino?.trim()){ alert("Ingresa destino"); return; }
+    onGuardar({...buf, fechaActualizacion:new Date().toISOString()});
+  };
+
+  const origenDestOptions = esMar ? puertos : esAer ? aeropuertos : [];
+
+  return (
+    <div style={{background:`${C.blue}0d`,padding:16,borderRadius:8,border:`1px solid ${C.blue}44`,marginBottom:14}}>
+      <h3 style={{margin:"0 0 14px",color:C.blue,fontSize:14,display:"flex",alignItems:"center",gap:8}}>
+        <span>{oe.id?"✎":"+"}</span>
+        <span>{oe.id?"Editando Orden de Embarque":"Nueva Orden de Embarque"}</span>
+      </h3>
+
+      {/* Número + Estado */}
+      <div style={{display:"grid",gridTemplateColumns:"1fr 160px",gap:10,marginBottom:10}}>
+        <div>
+          <div style={lblSt}>N° Embarque</div>
+          <input value={buf.numero||""} onChange={e=>set("numero",e.target.value)}
+            placeholder="OE-2026-001" style={inputSt}/>
+        </div>
+        <div>
+          <div style={lblSt}>Estado</div>
+          <select value={buf.estado||"borrador"} onChange={e=>set("estado",e.target.value)} style={inputSt}>
+            <option value="borrador">◌ Borrador</option>
+            <option value="confirmado">✓ Confirmado</option>
+            <option value="despachado">🚢 Despachado</option>
+            <option value="cancelado">✗ Cancelado</option>
+          </select>
+        </div>
+      </div>
+
+      {/* BC (opcional) */}
+      <div style={{marginBottom:10}}>
+        <div style={lblSt}>Vincular a Business Closure (opcional)</div>
+        <select value={buf.closureId||""} onChange={e=>handleClosureChange(e.target.value)} style={inputSt}>
+          <option value="">— sin vincular —</option>
+          {contratos.filter(c=>(c.estado||"activo")==="activo").map(c=>{
+            const exp=exportadoras.find(x=>x.id===c.exportadoraId)?.nombre||"?";
+            const cli=clientes.find(x=>x.id===c.clienteId)?.nombre||"?";
+            const esp=especies.find(x=>x.codigo===c.especieCodigo)?.nombreEs||c.especieCodigo||"?";
+            return <option key={c.id} value={c.id}>{c.temporada} · {exp} → {cli} ({esp})</option>;
+          })}
+        </select>
+      </div>
+
+      {/* Temporada + Exportadora + Cliente + Especie */}
+      <div style={{display:"grid",gridTemplateColumns:"150px 1fr 1fr 1fr",gap:10,marginBottom:10}}>
+        <div>
+          <div style={lblSt}>Temporada</div>
+          <select value={buf.temporada||""} onChange={e=>set("temporada",e.target.value)} style={inputSt}>
+            <option value="">— —</option>
+            {temporadas.map(t=><option key={t} value={t}>{t}</option>)}
+          </select>
+        </div>
+        <div>
+          <div style={lblSt}>Exportadora *</div>
+          <select value={buf.exportadoraId||""} onChange={e=>set("exportadoraId",e.target.value)} style={inputSt}>
+            <option value="">— seleccionar —</option>
+            {exportadoras.filter(e=>e.activo!==false).map(e=><option key={e.id} value={e.id}>{e.nombre}</option>)}
+          </select>
+        </div>
+        <div>
+          <div style={lblSt}>Cliente *</div>
+          <select value={buf.clienteId||""} onChange={e=>set("clienteId",e.target.value)} style={inputSt}>
+            <option value="">— seleccionar —</option>
+            {clientes.filter(c=>c.activo!==false).map(c=><option key={c.id} value={c.id}>{c.nombre}</option>)}
+          </select>
+        </div>
+        <div>
+          <div style={lblSt}>Especie *</div>
+          <select value={buf.especieCodigo||""} onChange={e=>set("especieCodigo",e.target.value)} style={inputSt}>
+            <option value="">— seleccionar —</option>
+            {especies.map(e=><option key={e.codigo} value={e.codigo}>{e.icono} {e.nombreEs}</option>)}
+          </select>
+        </div>
+      </div>
+
+      {/* Tipo embarque + Naviera/Aerolinea + Contenedor */}
+      <div style={{display:"grid",gridTemplateColumns:"160px 1fr 200px",gap:10,marginBottom:10}}>
+        <div>
+          <div style={lblSt}>Tipo embarque *</div>
+          <select value={buf.tipoEmbarque||""} onChange={e=>set("tipoEmbarque",e.target.value)} style={inputSt}>
+            <option value="">— —</option>
+            <option value="maritimo">🚢 Marítimo</option>
+            <option value="aereo">✈ Aéreo</option>
+          </select>
+        </div>
+        <div>
+          <div style={lblSt}>{esAer?"Aerolínea":"Naviera"}</div>
+          <input list="oe-naviera-list" value={buf.navieraAerolinea||""}
+            onChange={e=>set("navieraAerolinea",e.target.value)}
+            placeholder={esAer?"LATAM Cargo":"Maersk Line"} style={inputSt}/>
+          <datalist id="oe-naviera-list">
+            {(esAer?lineasAereas:shippingLines).map(x=>(
+              <option key={x.codigo} value={x.nombre}>{x.codigo} — {x.nombre}</option>
+            ))}
+          </datalist>
+        </div>
+        <div>
+          <div style={lblSt}>{esAer?"N° Vuelo":"N° Contenedor"}</div>
+          <input value={buf.numeroContenedor||""} onChange={e=>set("numeroContenedor",e.target.value)}
+            placeholder={esAer?"LA800":"MSKU1234567"} style={inputSt}/>
+        </div>
+      </div>
+
+      {/* Origen + Destino */}
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:10}}>
+        <div>
+          <div style={lblSt}>Origen *</div>
+          <input list="oe-origen-list" value={buf.origen||""}
+            onChange={e=>set("origen",e.target.value)}
+            placeholder={esMar?"Puerto Montt":"SCL"} style={inputSt}/>
+          <datalist id="oe-origen-list">
+            {origenDestOptions.map(p=>(
+              <option key={p.codigo} value={p.nombre||p.codigo}>{p.codigo} — {p.nombre||p.ciudad}</option>
+            ))}
+          </datalist>
+        </div>
+        <div>
+          <div style={lblSt}>Destino *</div>
+          <input list="oe-destino-list" value={buf.destino||""}
+            onChange={e=>set("destino",e.target.value)}
+            placeholder={esMar?"Rotterdam":"AMS"} style={inputSt}/>
+          <datalist id="oe-destino-list">
+            {origenDestOptions.map(p=>(
+              <option key={p.codigo} value={p.nombre||p.codigo}>{p.codigo} — {p.nombre||p.ciudad}</option>
+            ))}
+          </datalist>
+        </div>
+      </div>
+
+      {/* Notify */}
+      <div style={{background:C.card,padding:10,borderRadius:6,border:`1px solid ${C.border}`,marginBottom:10}}>
+        <div style={{fontSize:11,fontWeight:700,color:C.muted,marginBottom:8}}>Notify</div>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8}}>
+          <div>
+            <div style={lblSt}>Nombre / Empresa</div>
+            <input value={buf.notify?.nombre||""} onChange={e=>setNotify("nombre",e.target.value)}
+              placeholder="Importador destino" style={inputSt}/>
+          </div>
+          <div>
+            <div style={lblSt}>Dirección</div>
+            <input value={buf.notify?.direccion||""} onChange={e=>setNotify("direccion",e.target.value)}
+              placeholder="123 Main St, Rotterdam" style={inputSt}/>
+          </div>
+          <div>
+            <div style={lblSt}>Contacto / Teléfono</div>
+            <input value={buf.notify?.contacto||""} onChange={e=>setNotify("contacto",e.target.value)}
+              placeholder="+31 6 00000000" style={inputSt}/>
+          </div>
+        </div>
+      </div>
+
+      {/* Cajas por formato */}
+      <div style={{marginBottom:10}}>
+        <div style={lblSt}>Cajas por formato</div>
+        {formatosDisp.length===0 ? (
+          <div style={{fontSize:11,color:C.muted,fontStyle:"italic"}}>
+            {buf.especieCodigo?"No hay formatos para esta especie en el maestro.":"Selecciona una especie primero."}
+          </div>
+        ) : (
+          <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(160px,1fr))",gap:8}}>
+            {formatosDisp.map(fmt=>(
+              <div key={fmt.codigo} style={{background:C.card,padding:8,borderRadius:6,border:`1px solid ${C.border}`}}>
+                <div style={{fontSize:10,color:C.muted,marginBottom:4}}>{fmt.nombre||fmt.codigo}</div>
+                <input type="number" min="0" step="1"
+                  value={buf.cajasPorFormato?.[fmt.codigo]||""}
+                  placeholder="0"
+                  style={{...inputSt,padding:"4px 8px",fontSize:13,fontFamily:"monospace",textAlign:"right"}}
+                  onChange={e=>setCajas(fmt.codigo,e.target.value)}/>
+              </div>
+            ))}
+          </div>
+        )}
+        {totalCajas>0 && (
+          <div style={{fontSize:11,color:C.blue,marginTop:6,fontFamily:"monospace"}}>
+            Total: {totalCajas.toLocaleString("es-CL")} cjs
+          </div>
+        )}
+      </div>
+
+      {/* Fechas */}
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:10}}>
+        <div>
+          <div style={lblSt}>Fecha estimada despacho (ETD)</div>
+          <input type="date" value={buf.fechaDespacho||""} onChange={e=>set("fechaDespacho",e.target.value)} style={inputSt}/>
+        </div>
+        <div>
+          <div style={lblSt}>Fecha estimada llegada (ETA)</div>
+          <input type="date" value={buf.fechaETA||""} onChange={e=>set("fechaETA",e.target.value)} style={inputSt}/>
+        </div>
+      </div>
+
+      {/* Observaciones */}
+      <div style={{marginBottom:12}}>
+        <div style={lblSt}>Observaciones</div>
+        <textarea value={buf.observ||""} rows={2}
+          style={{...inputSt,resize:"vertical",fontFamily:"inherit"}}
+          onChange={e=>set("observ",e.target.value)}/>
+      </div>
+
+      <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}>
+        <button onClick={onCancelar} style={btnSt(C.muted,true)}>Cancelar</button>
+        <button onClick={handleGuardar} style={btnSt(C.blue)}>✓ Guardar OE</button>
+      </div>
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// ORDEN DE EMBARQUE — CARD
+// ═══════════════════════════════════════════════════════════════════
+function OECard({oe, exportadoras, clientes, especies, tiposEmbalaje, onEditar, onEliminar, canEdit}) {
+  const exportadora = exportadoras.find(e=>e.id===oe.exportadoraId);
+  const cliente     = clientes.find(c=>c.id===oe.clienteId);
+  const especie     = especies.find(e=>e.codigo===oe.especieCodigo);
+  const totalCajas  = Object.values(oe.cajasPorFormato||{}).reduce((s,v)=>s+Number(v||0),0);
+  const formatosConCajas = Object.entries(oe.cajasPorFormato||{})
+    .map(([cod,cajas])=>({fmt:tiposEmbalaje.find(t=>t.codigo===cod)||{nombre:cod},cajas:Number(cajas)}))
+    .filter(x=>x.cajas>0);
+
+  const ESTADO_COLOR = {borrador:C.yellow,confirmado:C.green,despachado:C.blue,cancelado:C.muted};
+  const ESTADO_LABEL = {borrador:"◌ Borrador",confirmado:"✓ Confirmado",despachado:"🚢 Despachado",cancelado:"✗ Cancelado"};
+  const estadoColor = ESTADO_COLOR[oe.estado||"borrador"]||C.muted;
+
+  return (
+    <div style={{
+      background:C.card2,padding:14,borderRadius:10,
+      border:`1px solid ${oe.estado==="despachado"?C.blue+"55":oe.estado==="cancelado"?C.border:C.teal+"44"}`,
+      opacity:oe.estado==="cancelado"?0.6:1,
+    }}>
+      {/* Header */}
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:10,marginBottom:10}}>
+        <div style={{flex:1}}>
+          <div style={{fontSize:13,fontWeight:700,color:C.text,display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}}>
+            {oe.numero && <span style={{fontFamily:"monospace",color:C.blue,fontSize:12}}>{oe.numero}</span>}
+            {oe.numero && <span style={{color:C.muted,fontSize:11}}>·</span>}
+            <span>{exportadora?.nombre||"—"}</span>
+            <span style={{color:C.muted,fontSize:11}}>→</span>
+            <span>{cliente?.nombre||"—"}</span>
+          </div>
+          <div style={{fontSize:11,color:C.muted,marginTop:3,display:"flex",gap:8,flexWrap:"wrap",alignItems:"center"}}>
+            {especie && <span>{especie.icono} {especie.nombreEs}</span>}
+            {oe.temporada && <span>· {oe.temporada}</span>}
+            {oe.tipoEmbarque && <span>· {oe.tipoEmbarque==="maritimo"?"🚢 Marítimo":"✈ Aéreo"}</span>}
+          </div>
+        </div>
+        <div style={{display:"flex",flexDirection:"column",alignItems:"flex-end",gap:4}}>
+          <span style={{fontSize:9,padding:"2px 8px",borderRadius:4,background:`${estadoColor}22`,color:estadoColor,border:`1px solid ${estadoColor}44`,fontWeight:700}}>
+            {ESTADO_LABEL[oe.estado||"borrador"]}
+          </span>
+          {canEdit && (
+            <div style={{display:"flex",gap:4,marginTop:2}}>
+              <button onClick={onEditar} style={{...btnSt(C.blue,true),padding:"3px 8px",fontSize:10}}>✎</button>
+              <button onClick={onEliminar} style={{...btnSt(C.accent,true),padding:"3px 8px",fontSize:10}}>×</button>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Ruta + Naviera */}
+      {(oe.origen||oe.destino||oe.navieraAerolinea) && (
+        <div style={{fontSize:11,color:C.text,marginBottom:8,display:"flex",gap:10,flexWrap:"wrap",alignItems:"center"}}>
+          {oe.origen && <span style={{color:C.teal,fontWeight:600}}>{oe.origen}</span>}
+          {(oe.origen&&oe.destino) && <span style={{color:C.muted}}>→</span>}
+          {oe.destino && <span style={{color:C.teal,fontWeight:600}}>{oe.destino}</span>}
+          {oe.navieraAerolinea && <span style={{color:C.muted}}>· {oe.navieraAerolinea}</span>}
+          {oe.numeroContenedor && <span style={{fontFamily:"monospace",fontSize:10,color:C.muted2}}>· {oe.numeroContenedor}</span>}
+        </div>
+      )}
+
+      {/* Notify */}
+      {oe.notify?.nombre && (
+        <div style={{fontSize:10,color:C.muted,marginBottom:8}}>
+          Notify: <span style={{color:C.text}}>{oe.notify.nombre}</span>
+          {oe.notify.contacto && <span> · {oe.notify.contacto}</span>}
+        </div>
+      )}
+
+      {/* Formatos */}
+      {formatosConCajas.length>0 && (
+        <div style={{display:"flex",flexWrap:"wrap",gap:4,marginBottom:8}}>
+          {formatosConCajas.map(({fmt,cajas})=>(
+            <span key={fmt.codigo||fmt.nombre} style={{padding:"3px 10px",borderRadius:4,fontSize:10,background:`${C.blue}22`,color:C.blue,border:`1px solid ${C.blue}33`}}>
+              {fmt.nombre}: {cajas.toLocaleString("es-CL")} cjs
+            </span>
+          ))}
+        </div>
+      )}
+
+      {/* KPIs */}
+      <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:8,padding:"8px 0",borderTop:`1px solid ${C.border}`,fontSize:11}}>
+        <div>
+          <div style={{color:C.muted,fontSize:9,textTransform:"uppercase"}}>Total cajas</div>
+          <div style={{color:C.text,fontWeight:700,fontFamily:"monospace"}}>{totalCajas>0?totalCajas.toLocaleString("es-CL"):"—"}</div>
+        </div>
+        <div>
+          <div style={{color:C.muted,fontSize:9,textTransform:"uppercase"}}>ETD</div>
+          <div style={{color:C.text,fontWeight:700}}>{oe.fechaDespacho||"—"}</div>
+        </div>
+        <div>
+          <div style={{color:C.muted,fontSize:9,textTransform:"uppercase"}}>ETA</div>
+          <div style={{color:C.text,fontWeight:700}}>{oe.fechaETA||"—"}</div>
+        </div>
+      </div>
+
+      {oe.observ && (
+        <div style={{marginTop:8,fontSize:11,color:C.muted,fontStyle:"italic",borderTop:`1px solid ${C.border}`,paddingTop:6}}>
+          {oe.observ}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════
 // PLACEHOLDER GENÉRICO — tabs que se construyen en fases siguientes
 // ═══════════════════════════════════════════════════════════════════
 function Placeholder({titulo, icono, fase, descripcion}) {
@@ -1538,6 +1903,20 @@ export default function FriskuComercialModule({
   const [tiposEmbalaje,  setTiposEmbalaje]  = useState([]);
   const [ciudades,       setCiudades]       = useState([]);
   const [temporadas,     setTemporadas]     = useState(TEMPORADAS_DEFAULT);
+  const [puertos,        setPuertos]        = useState(PUERTOS_DEFAULT);
+  const [aeropuertos,    setAeropuertos]    = useState(AEROPUERTOS_DEFAULT);
+  const [shippingLines,  setShippingLines]  = useState(SHIPPING_LINES_DEFAULT);
+  const [lineasAereas,   setLineasAereas]   = useState(LINEAS_AEREAS_DEFAULT);
+
+  // UI Órdenes de Embarque
+  const [editandoOE,      setEditandoOE]      = useState(null);
+  const [creandoOE,       setCreandoOE]       = useState(false);
+  const [busquedaOE,      setBusquedaOE]      = useState("");
+  const [filtroExpOE,     setFiltroExpOE]     = useState("");
+  const [filtroCliOE,     setFiltroCliOE]     = useState("");
+  const [filtroEspOE,     setFiltroEspOE]     = useState("");
+  const [filtroEstadoOE,  setFiltroEstadoOE]  = useState("");
+  const [filtroTempOE,    setFiltroTempOE]    = useState("");
 
   const [cargando, setCargando] = useState(true);
   const [tab, setTab] = useState("clientes");
@@ -1572,7 +1951,7 @@ export default function FriskuComercialModule({
   useEffect(()=>{
     let alive = true;
     (async ()=>{
-      const [cli, exp, con, pro, emb, liq, esp, pa, mo, me, tb, ci, tmp] = await Promise.all([
+      const [cli, exp, con, pro, emb, liq, esp, pa, mo, me, tb, ci, tmp, pu, ae, sl, la] = await Promise.all([
         dbLoadGeneric("frisku_clientes"),
         dbLoadGeneric("frisku_exportadoras"),
         dbLoadGeneric("frisku_contratos"),
@@ -1586,6 +1965,10 @@ export default function FriskuComercialModule({
         dbLoadGeneric("maestro_tipos_embalaje"),
         dbLoadGeneric("maestro_ciudades"),
         dbLoadGeneric("maestro_temporadas"),
+        dbLoadGeneric("maestro_puertos"),
+        dbLoadGeneric("maestro_aeropuertos"),
+        dbLoadGeneric("maestro_shipping_lines"),
+        dbLoadGeneric("maestro_lineas_aereas"),
       ]);
       if(!alive) return;
       setClientes(Array.isArray(cli) ? cli : []);
@@ -1605,6 +1988,10 @@ export default function FriskuComercialModule({
       setTiposEmbalaje(Array.isArray(tb) && tb.length ? tb : TIPOS_EMBALAJE_DEFAULT);
       setCiudades(Array.isArray(ci) && ci.length ? ci : CIUDADES_DEFAULT);
       if(Array.isArray(tmp) && tmp.length) setTemporadas(tmp);
+      setPuertos(Array.isArray(pu) && pu.length ? pu : PUERTOS_DEFAULT);
+      setAeropuertos(Array.isArray(ae) && ae.length ? ae : AEROPUERTOS_DEFAULT);
+      setShippingLines(Array.isArray(sl) && sl.length ? sl : SHIPPING_LINES_DEFAULT);
+      setLineasAereas(Array.isArray(la) && la.length ? la : LINEAS_AEREAS_DEFAULT);
       setCargando(false);
     })();
     return ()=>{alive=false;};
@@ -1615,7 +2002,7 @@ export default function FriskuComercialModule({
   // Exportadoras). Garantiza que las altas/cambios hechos en el módulo
   // de Maestros se reflejen sin necesidad de recargar la página.
   const recargarMaestros = useCallback(async ()=>{
-    const [esp, pa, mo, me, tb, ci, tmp] = await Promise.all([
+    const [esp, pa, mo, me, tb, ci, tmp, pu, ae, sl, la] = await Promise.all([
       dbLoadGeneric("maestro_especies"),
       dbLoadGeneric("maestro_paises"),
       dbLoadGeneric("maestro_monedas"),
@@ -1623,6 +2010,10 @@ export default function FriskuComercialModule({
       dbLoadGeneric("maestro_tipos_embalaje"),
       dbLoadGeneric("maestro_ciudades"),
       dbLoadGeneric("maestro_temporadas"),
+      dbLoadGeneric("maestro_puertos"),
+      dbLoadGeneric("maestro_aeropuertos"),
+      dbLoadGeneric("maestro_shipping_lines"),
+      dbLoadGeneric("maestro_lineas_aereas"),
     ]);
     setEspecies(Array.isArray(esp) && esp.length ? esp : ESPECIES_DEFAULT);
     setPaises(Array.isArray(pa) && pa.length ? pa : PAISES_DEFAULT);
@@ -1631,12 +2022,16 @@ export default function FriskuComercialModule({
     setTiposEmbalaje(Array.isArray(tb) && tb.length ? tb : TIPOS_EMBALAJE_DEFAULT);
     setCiudades(Array.isArray(ci) && ci.length ? ci : CIUDADES_DEFAULT);
     if(Array.isArray(tmp) && tmp.length) setTemporadas(tmp);
+    setPuertos(Array.isArray(pu) && pu.length ? pu : PUERTOS_DEFAULT);
+    setAeropuertos(Array.isArray(ae) && ae.length ? ae : AEROPUERTOS_DEFAULT);
+    setShippingLines(Array.isArray(sl) && sl.length ? sl : SHIPPING_LINES_DEFAULT);
+    setLineasAereas(Array.isArray(la) && la.length ? la : LINEAS_AEREAS_DEFAULT);
   },[]);
 
   // Refrescar maestros al entrar a tabs que los necesitan
   useEffect(()=>{
     if (cargando) return;
-    if (tab === "clientes" || tab === "exportadoras" || tab === "contratos") {
+    if (tab === "clientes" || tab === "exportadoras" || tab === "contratos" || tab === "embarques") {
       recargarMaestros();
     }
   },[tab, cargando, recargarMaestros]);
@@ -1885,6 +2280,50 @@ export default function FriskuComercialModule({
   };
   const handleCancelarSemana = () => { setEditandoSemana(null); setClosureIdParaSemana(null); };
 
+  // ── Handlers Órdenes de Embarque ──
+  const handleNuevaOE = () => {
+    setEditandoOE(null);
+    setCreandoOE(true);
+  };
+  const handleEditarOE = (oe) => {
+    setCreandoOE(false);
+    setEditandoOE(oe);
+  };
+  const handleEliminarOE = (oe) => {
+    if(!window.confirm(`¿Eliminar la orden de embarque "${oe.numero||oe.id}"?`)) return;
+    setEmbarques(prev=>prev.filter(e=>e.id!==oe.id));
+  };
+  const handleGuardarOE = (oe) => {
+    const oeFinal = {...oe, fechaActualizacion: new Date().toISOString()};
+    if(creandoOE) setEmbarques(prev=>[...prev, {...oeFinal, id:uid()}]);
+    else          setEmbarques(prev=>prev.map(e=>e.id===oe.id?oeFinal:e));
+    setEditandoOE(null); setCreandoOE(false);
+  };
+
+  // ── Filtros Órdenes de Embarque ──
+  const embarquesFiltrados = useMemo(()=>{
+    const q = busquedaOE.toLowerCase();
+    return embarques.filter(oe=>{
+      if(filtroExpOE   && oe.exportadoraId !== filtroExpOE)   return false;
+      if(filtroCliOE   && oe.clienteId     !== filtroCliOE)   return false;
+      if(filtroEspOE   && oe.especieCodigo !== filtroEspOE)   return false;
+      if(filtroEstadoOE && (oe.estado||"borrador") !== filtroEstadoOE) return false;
+      if(filtroTempOE  && oe.temporada     !== filtroTempOE)  return false;
+      if(q) {
+        const exp = exportadoras.find(e=>e.id===oe.exportadoraId)?.nombre||"";
+        const cli = clientes.find(c=>c.id===oe.clienteId)?.nombre||"";
+        const hayMatch = (oe.numero||"").toLowerCase().includes(q)
+          || exp.toLowerCase().includes(q)
+          || cli.toLowerCase().includes(q)
+          || (oe.origen||"").toLowerCase().includes(q)
+          || (oe.destino||"").toLowerCase().includes(q)
+          || (oe.navieraAerolinea||"").toLowerCase().includes(q);
+        if(!hayMatch) return false;
+      }
+      return true;
+    });
+  },[embarques, filtroExpOE, filtroCliOE, filtroEspOE, filtroEstadoOE, filtroTempOE, busquedaOE, exportadoras, clientes]);
+
   const hoy = new Date().toISOString().slice(0,10);
   const clientesConDocsFaltantes = clientes.filter(c =>
     c.activo !== false && TIPOS_DOC_MINIMOS.some(t => !(c.documentos||[]).some(d=>d.tipo===t&&d.url))
@@ -1994,8 +2433,8 @@ export default function FriskuComercialModule({
               <div style={{color:C.muted, fontSize:11}}>activas de {exportadoras.length} totales</div>
             </Card>
             <Card title="Embarques" icon="🚢">
-              <div style={{fontSize:32, fontWeight:800, color:C.teal}}>{embarques.length}</div>
-              <div style={{color:C.muted, fontSize:11}}>Fase 4 pendiente</div>
+              <div style={{fontSize:32, fontWeight:800, color:C.teal}}>{embarques.filter(e=>(e.estado||"borrador")!=="cancelado").length}</div>
+              <div style={{color:C.muted, fontSize:11}}>{embarques.filter(e=>e.estado==="confirmado"||e.estado==="despachado").length} confirmados/despachados</div>
             </Card>
             <Card title="Especies cargadas" icon="🍒">
               <div style={{fontSize:32, fontWeight:800, color:C.yellow}}>{especies.length}</div>
@@ -2323,12 +2762,103 @@ export default function FriskuComercialModule({
           </div>
         )}
         {tab === "embarques" && (
-          <Placeholder
-            titulo="Órdenes de Embarque"
-            icono="🚢"
-            fase="Fase 4"
-            descripcion="Lifecycle completo: Business Closure → Programa → Orden de Embarque → Despacho (Packing List) → Carpeta COMEX → Liquidación."
-          />
+          <div>
+            {/* Formulario */}
+            {(creandoOE || editandoOE) && (
+              <OEForm
+                oe={editandoOE}
+                exportadoras={exportadoras}
+                clientes={clientes}
+                especies={especies}
+                tiposEmbalaje={tiposEmbalaje}
+                contratos={contratos}
+                puertos={puertos}
+                aeropuertos={aeropuertos}
+                shippingLines={shippingLines}
+                lineasAereas={lineasAereas}
+                temporadas={temporadas}
+                onGuardar={handleGuardarOE}
+                onCancelar={()=>{ setEditandoOE(null); setCreandoOE(false); }}
+              />
+            )}
+
+            {!creandoOE && !editandoOE && (
+              <>
+                {/* Toolbar */}
+                <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center",marginBottom:14}}>
+                  <input
+                    value={busquedaOE} onChange={e=>setBusquedaOE(e.target.value)}
+                    placeholder="Buscar número, empresa, ruta..."
+                    style={{flex:1,minWidth:180,padding:"6px 10px",background:C.input,border:`1px solid ${C.border}`,borderRadius:6,color:C.text,fontSize:12}}
+                  />
+                  <select value={filtroTempOE} onChange={e=>setFiltroTempOE(e.target.value)}
+                    style={{padding:"6px 8px",background:C.input,border:`1px solid ${C.border}`,borderRadius:6,color:C.text,fontSize:12}}>
+                    <option value="">Todas las temp.</option>
+                    {temporadas.map(t=><option key={t} value={t}>{t}</option>)}
+                  </select>
+                  <select value={filtroExpOE} onChange={e=>setFiltroExpOE(e.target.value)}
+                    style={{padding:"6px 8px",background:C.input,border:`1px solid ${C.border}`,borderRadius:6,color:C.text,fontSize:12}}>
+                    <option value="">Todas las exp.</option>
+                    {exportadoras.filter(e=>e.activo!==false).map(e=><option key={e.id} value={e.id}>{e.nombre}</option>)}
+                  </select>
+                  <select value={filtroCliOE} onChange={e=>setFiltroCliOE(e.target.value)}
+                    style={{padding:"6px 8px",background:C.input,border:`1px solid ${C.border}`,borderRadius:6,color:C.text,fontSize:12}}>
+                    <option value="">Todos los clientes</option>
+                    {clientes.filter(c=>c.activo!==false).map(c=><option key={c.id} value={c.id}>{c.nombre}</option>)}
+                  </select>
+                  <select value={filtroEspOE} onChange={e=>setFiltroEspOE(e.target.value)}
+                    style={{padding:"6px 8px",background:C.input,border:`1px solid ${C.border}`,borderRadius:6,color:C.text,fontSize:12}}>
+                    <option value="">Todas las especies</option>
+                    {especies.map(e=><option key={e.codigo} value={e.codigo}>{e.icono} {e.nombreEs}</option>)}
+                  </select>
+                  <select value={filtroEstadoOE} onChange={e=>setFiltroEstadoOE(e.target.value)}
+                    style={{padding:"6px 8px",background:C.input,border:`1px solid ${C.border}`,borderRadius:6,color:C.text,fontSize:12}}>
+                    <option value="">Todos los estados</option>
+                    <option value="borrador">Borrador</option>
+                    <option value="confirmado">Confirmado</option>
+                    <option value="despachado">Despachado</option>
+                    <option value="cancelado">Cancelado</option>
+                  </select>
+                  {permEmbarques.canEdit && (
+                    <button onClick={handleNuevaOE} style={{...btnSt(C.blue), marginLeft:"auto", whiteSpace:"nowrap"}}>
+                      + Nueva OE
+                    </button>
+                  )}
+                </div>
+
+                {/* Conteo */}
+                <div style={{fontSize:11,color:C.muted,marginBottom:10}}>
+                  {embarquesFiltrados.length} orden{embarquesFiltrados.length!==1?"es":""} de embarque
+                  {embarquesFiltrados.length !== embarques.length && ` (${embarques.length} total)`}
+                </div>
+
+                {/* Grid de cards */}
+                {embarquesFiltrados.length === 0 ? (
+                  <div style={{textAlign:"center",padding:40,color:C.muted,fontSize:13}}>
+                    {embarques.length === 0
+                      ? "No hay órdenes de embarque. Crea la primera con + Nueva OE."
+                      : "No hay OE que coincidan con los filtros."}
+                  </div>
+                ) : (
+                  <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(320px,1fr))",gap:14}}>
+                    {embarquesFiltrados.map(oe=>(
+                      <OECard
+                        key={oe.id}
+                        oe={oe}
+                        exportadoras={exportadoras}
+                        clientes={clientes}
+                        especies={especies}
+                        tiposEmbalaje={tiposEmbalaje}
+                        onEditar={()=>handleEditarOE(oe)}
+                        onEliminar={()=>handleEliminarOE(oe)}
+                        canEdit={permEmbarques.canEdit}
+                      />
+                    ))}
+                  </div>
+                )}
+              </>
+            )}
+          </div>
         )}
         {tab === "liquidaciones" && (
           <Placeholder
