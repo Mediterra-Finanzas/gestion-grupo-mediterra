@@ -3392,7 +3392,7 @@ function Consolidado({empresas,saldosBancos,realData={},addedLinesGlobal={},subL
             <THead/>
             <tbody>
               {empNamesConsolidado.map((n,ei)=>{
-                const emp=empresas[n];
+                const emp=empresasConOverrides[n];
                 return(
                   <React.Fragment key={n}>
                     <tr style={{background:`${emp.color}22`}}>
