@@ -328,3 +328,83 @@ export function aplicarUpdatesATCData(tcData, updates) {
   });
   return base;
 }
+
+// ═══════════════════════════════════════════════════════════════════
+// SUPABASE STORAGE — Fase 3
+// Bucket: frisku-docs (público, sin RLS por ahora — mismo criterio
+// que el resto del proyecto hasta que se implemente RLS global)
+// ═══════════════════════════════════════════════════════════════════
+
+const STORAGE_BUCKET = "frisku-docs";
+const STORAGE_BASE   = `${SUPA_URL}/storage/v1`;
+
+// Crea el bucket si no existe. Idempotente: 409 "already exists" no es error.
+export async function ensureBucketFrisku() {
+  try {
+    const res = await fetch(`${STORAGE_BASE}/bucket`, {
+      method: "POST",
+      headers: {
+        apikey: SUPA_KEY,
+        Authorization: `Bearer ${SUPA_KEY}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ id: STORAGE_BUCKET, name: STORAGE_BUCKET, public: true }),
+    });
+    if (res.ok || res.status === 409) return true;
+    const err = await res.json().catch(() => ({}));
+    console.warn("[Storage] No se pudo crear bucket:", err.message || res.status);
+    return false;
+  } catch (e) {
+    console.warn("[Storage] Error creando bucket:", e.message);
+    return false;
+  }
+}
+
+// Sube un File al bucket frisku-docs bajo la ruta dada.
+// Retorna la URL pública si tuvo éxito, o null si falló.
+// path: e.g. "clientes/abc123/doc456/contrato.pdf"
+export async function uploadArchivoFrisku(file, path) {
+  try {
+    await ensureBucketFrisku();
+    const res = await fetch(`${STORAGE_BASE}/object/${STORAGE_BUCKET}/${path}`, {
+      method: "POST",
+      headers: {
+        apikey: SUPA_KEY,
+        Authorization: `Bearer ${SUPA_KEY}`,
+        "Content-Type": file.type || "application/octet-stream",
+        "x-upsert": "true",
+      },
+      body: file,
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      console.error("[Storage] Upload falló:", err.message || res.status);
+      return null;
+    }
+    return `${STORAGE_BASE}/object/public/${STORAGE_BUCKET}/${path}`;
+  } catch (e) {
+    console.error("[Storage] Upload error:", e.message);
+    return null;
+  }
+}
+
+// Elimina un archivo del bucket.
+export async function eliminarArchivoFrisku(path) {
+  try {
+    await fetch(`${STORAGE_BASE}/object/${STORAGE_BUCKET}/${path}`, {
+      method: "DELETE",
+      headers: { apikey: SUPA_KEY, Authorization: `Bearer ${SUPA_KEY}` },
+    });
+  } catch (e) {
+    console.warn("[Storage] Error eliminando archivo:", e.message);
+  }
+}
+
+// Extrae el path relativo de una URL pública de Storage.
+// Retorna null si la URL no es del bucket frisku-docs.
+export function pathDesdeUrlStorage(url) {
+  if (!url) return null;
+  const prefix = `/object/public/${STORAGE_BUCKET}/`;
+  const idx = url.indexOf(prefix);
+  return idx !== -1 ? url.slice(idx + prefix.length) : null;
+}

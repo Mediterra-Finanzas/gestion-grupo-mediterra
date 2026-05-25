@@ -19,6 +19,7 @@ import {
   dbLoadGeneric, dbSaveGeneric,
   calcularComisionFrisku, resolverPorcentajesComision,
   formatearMonto,
+  uploadArchivoFrisku, pathDesdeUrlStorage,
 } from "./friskuHelpers.js";
 
 // ── Paleta Frisku — Slate neutro ──
@@ -138,6 +139,25 @@ function ClienteForm({cliente, especies, paises, ciudades, monedas, mercados, ti
   const addDoc = () => setBuf(prev => ({...prev, documentos:[...(prev.documentos||[]), {id:uid(), tipo:"", nombre:"", url:"", fecha:"", vencimiento:"", observ:""}]}));
   const setDoc = (idx, k, v) => setBuf(prev => { const list=[...(prev.documentos||[])]; list[idx]={...list[idx],[k]:v}; return {...prev, documentos:list}; });
   const delDoc = (idx) => setBuf(prev => ({...prev, documentos:(prev.documentos||[]).filter((_,i)=>i!==idx)}));
+
+  const [uploadingDocs, setUploadingDocs] = useState(new Set());
+  const handleUploadDoc = async (idx, file) => {
+    if (!file) return;
+    const doc = (buf.documentos||[])[idx];
+    if (!doc) return;
+    const ext  = file.name.split(".").pop();
+    const docId = doc.id || uid();
+    const path = `clientes/${buf.id||"nuevo"}/${docId}/${Date.now()}.${ext}`;
+    setUploadingDocs(prev => new Set(prev).add(idx));
+    const url = await uploadArchivoFrisku(file, path);
+    setUploadingDocs(prev => { const s = new Set(prev); s.delete(idx); return s; });
+    if (url) {
+      setDoc(idx, "url", url);
+      if (!doc.nombre) setDoc(idx, "nombre", file.name);
+    } else {
+      alert("Error al subir el archivo. Verifica tu conexión o pega el link manualmente.");
+    }
+  };
 
   const handleGuardar = () => {
     if(!buf.nombre?.trim()) { alert("Nombre es requerido"); return; }
@@ -369,7 +389,11 @@ function ClienteForm({cliente, especies, paises, ciudades, monedas, mercados, ti
           </div>
         )}
         {(buf.documentos||[]).map((doc, i) => {
-          const vencDoc = doc.vencimiento && doc.vencimiento < hoyDoc;
+          const vencDoc    = doc.vencimiento && doc.vencimiento < hoyDoc;
+          const subiendo   = uploadingDocs.has(i);
+          const esStorage  = !!pathDesdeUrlStorage(doc.url);
+          const fileNombre = esStorage ? doc.url.split("/").pop() : null;
+          const fileInputId = `fdoc-${doc.id||i}`;
           return (
             <div key={doc.id||i} style={{background:C.card, padding:10, borderRadius:6, marginBottom:8, border:`1px solid ${vencDoc ? C.accent : C.border}`}}>
               <div style={{display:"grid", gridTemplateColumns:"160px 1fr", gap:8, marginBottom:6}}>
@@ -386,12 +410,42 @@ function ClienteForm({cliente, especies, paises, ciudades, monedas, mercados, ti
               </div>
               <div style={{display:"grid", gridTemplateColumns:"1fr 130px 130px 36px", gap:8, alignItems:"flex-end"}}>
                 <div>
-                  <div style={lblSt}>URL / Link</div>
-                  <div style={{display:"flex", gap:4}}>
-                    <input value={doc.url||""} onChange={e=>setDoc(i,"url",e.target.value)}
-                      placeholder="https://drive.google.com/..." style={{...inputSt, flex:1}}/>
-                    {doc.url && <button onClick={()=>window.open(doc.url,"_blank")} style={{...btnSt(C.blue,true), padding:"6px 8px", flexShrink:0}} title="Abrir link">↗</button>}
-                  </div>
+                  <div style={lblSt}>URL / Archivo</div>
+                  {/* Input oculto para selección de archivo */}
+                  <input type="file" id={fileInputId} style={{display:"none"}}
+                    onChange={e=>{ handleUploadDoc(i, e.target.files[0]); e.target.value=""; }}/>
+                  {esStorage && fileNombre ? (
+                    /* Chip de archivo subido a Storage */
+                    <div style={{display:"flex", gap:4, alignItems:"center"}}>
+                      <span style={{
+                        flex:1, padding:"5px 10px", borderRadius:6, fontSize:11,
+                        background:`${C.teal}18`, border:`1px solid ${C.teal}44`, color:C.teal,
+                        overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap",
+                      }} title={doc.url}>📎 {fileNombre}</span>
+                      <button onClick={()=>window.open(doc.url,"_blank")}
+                        style={{...btnSt(C.blue,true), padding:"5px 8px", flexShrink:0}} title="Abrir archivo">↗</button>
+                      <button onClick={()=>document.getElementById(fileInputId)?.click()}
+                        disabled={subiendo}
+                        style={{...btnSt(C.muted,true), padding:"5px 8px", flexShrink:0}} title="Reemplazar archivo">
+                        {subiendo ? "…" : "↺"}
+                      </button>
+                    </div>
+                  ) : (
+                    /* URL manual + botón subir */
+                    <div style={{display:"flex", gap:4}}>
+                      <input value={doc.url||""} onChange={e=>setDoc(i,"url",e.target.value)}
+                        placeholder="https://... o sube un archivo →" style={{...inputSt, flex:1}}/>
+                      {doc.url && !esStorage && (
+                        <button onClick={()=>window.open(doc.url,"_blank")}
+                          style={{...btnSt(C.blue,true), padding:"6px 8px", flexShrink:0}} title="Abrir link">↗</button>
+                      )}
+                      <button onClick={()=>document.getElementById(fileInputId)?.click()}
+                        disabled={subiendo}
+                        style={{...btnSt(C.teal,true), padding:"6px 8px", flexShrink:0}} title="Subir archivo a Supabase">
+                        {subiendo ? "…" : "📎"}
+                      </button>
+                    </div>
+                  )}
                 </div>
                 <div>
                   <div style={lblSt}>Fecha doc.</div>
@@ -643,9 +697,11 @@ function DocumentosTab({clientes}) {
                       ) : <span style={{color:C.muted2}}>—</span>}
                     </td>
                     <td style={{padding:"10px 14px"}}>
-                      {d.url
-                        ? <button onClick={()=>window.open(d.url,"_blank")} style={{...btnSt(C.blue,true), padding:"4px 10px", fontSize:10}}>Abrir ↗</button>
-                        : <span style={{color:C.muted2, fontSize:10}}>Sin link</span>}
+                      {d.url ? (
+                        pathDesdeUrlStorage(d.url)
+                          ? <button onClick={()=>window.open(d.url,"_blank")} style={{...btnSt(C.teal,true), padding:"4px 10px", fontSize:10}}>📎 Descargar</button>
+                          : <button onClick={()=>window.open(d.url,"_blank")} style={{...btnSt(C.blue,true), padding:"4px 10px", fontSize:10}}>↗ Abrir</button>
+                      ) : <span style={{color:C.muted2, fontSize:10}}>Sin link</span>}
                     </td>
                   </tr>
                 );
