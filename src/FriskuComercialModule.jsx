@@ -18,7 +18,7 @@ import FriskuModule, {
 import {
   dbLoadGeneric, dbSaveGeneric,
   calcularComisionFrisku, resolverPorcentajesComision,
-  formatearMonto,
+  formatearMonto, buscarTC, convertirMonto,
   uploadArchivoFrisku, pathDesdeUrlStorage,
 } from "./friskuHelpers.js";
 
@@ -2445,6 +2445,298 @@ function Placeholder({titulo, icono, fase, descripcion}) {
 }
 
 // ═══════════════════════════════════════════════════════════════════
+// LIQUIDACIONES — Fase 6
+// ═══════════════════════════════════════════════════════════════════
+
+const LIQ_ESTADOS = {
+  borrador: { label:"Borrador", color:"#f59e0b" },
+  enviada:  { label:"Enviada",  color:"#3b82f6" },
+  pagada:   { label:"Pagada",   color:"#22c55e" },
+};
+const LIQ_ESTADO_SIG = { borrador:"enviada", enviada:"pagada" };
+
+function LiquidacionForm({ liq, embarques, clientes, exportadoras, especies, monedas, tcData, onGuardar, onCancelar }) {
+  const hoyISO = new Date().toISOString().slice(0,10);
+  const [form, setForm] = useState({
+    oeId:             liq?.oeId             || "",
+    estado:           liq?.estado           || "borrador",
+    fechaLiquidacion: liq?.fechaLiquidacion || hoyISO,
+    baseNeta:         liq?.baseNeta != null ? String(liq.baseNeta) : "",
+    monedaBase:       liq?.monedaBase       || "USD",
+    fechaTC:          liq?.fechaTC          || hoyISO,
+    numeroFactura:    liq?.numeroFactura    || "",
+    fechaFactura:     liq?.fechaFactura     || "",
+    observ:           liq?.observ           || "",
+  });
+  const f = k => e => setForm(p=>({...p,[k]:e.target.value}));
+
+  const oeSeleccionada  = embarques.find(e=>e.id===form.oeId);
+  const clienteOE       = clientes.find(c=>c.id===oeSeleccionada?.clienteId);
+  const exportadoraOE   = exportadoras.find(e=>e.id===oeSeleccionada?.exportadoraId);
+  const especieOE       = especies.find(e=>e.codigo===oeSeleccionada?.especieCodigo);
+  const baseNetaNum     = parseFloat(String(form.baseNeta).replace(/[^\d.\-]/g,"")) || 0;
+  const monedasMap      = Object.fromEntries(monedas.map(m=>[m.codigo,m]));
+
+  const tcCalculado = form.monedaBase==="USD" ? 1
+    : buscarTC(form.monedaBase, "USD", form.fechaTC, tcData);
+  const baseNetaUSD = form.monedaBase==="USD" ? baseNetaNum
+    : (tcCalculado!=null ? baseNetaNum*tcCalculado : null);
+
+  const comision = (clienteOE && baseNetaNum>0)
+    ? calcularComisionFrisku(clienteOE, oeSeleccionada?.especieCodigo, "", baseNetaNum)
+    : null;
+  const montoFriskuUSD = comision
+    ? (form.monedaBase==="USD" ? comision.montoComisionFrisku
+      : (tcCalculado!=null ? comision.montoComisionFrisku*tcCalculado : null))
+    : null;
+
+  const handleGuardar = () => {
+    if(!form.oeId)       { alert("Selecciona una OE"); return; }
+    if(!baseNetaNum)     { alert("Ingresa la base neta"); return; }
+    onGuardar({
+      ...liq,
+      id: liq?.id || uid(),
+      oeId: form.oeId,
+      temporada: oeSeleccionada?.temporada || "",
+      estado: form.estado,
+      fechaLiquidacion: form.fechaLiquidacion,
+      baseNeta: baseNetaNum,
+      monedaBase: form.monedaBase,
+      fechaTC: form.fechaTC,
+      tcUsado: tcCalculado,
+      baseNetaUSD,
+      cliPct:               comision?.cliPct               ?? 0,
+      friPct:               comision?.friPct               ?? 0,
+      friSobreBaseNeta:     comision?.friSobreBaseNeta      ?? 0,
+      montoComisionCliente: comision?.montoComisionCliente  ?? 0,
+      montoComisionFrisku:  comision?.montoComisionFrisku   ?? 0,
+      montoComisionFriskuUSD: montoFriskuUSD,
+      numeroFactura: form.numeroFactura,
+      fechaFactura:  form.fechaFactura,
+      observ:        form.observ,
+      fechaCreacion:      liq?.fechaCreacion || new Date().toISOString(),
+      fechaActualizacion: new Date().toISOString(),
+    });
+  };
+
+  return (
+    <div style={{background:C.card, borderRadius:14, padding:20, marginBottom:20, border:`1px solid ${C.border}`}}>
+      <h3 style={{margin:"0 0 16px", fontSize:14, color:C.text, fontWeight:700}}>
+        {liq?.id ? "Editar liquidación" : "Nueva liquidación"}
+      </h3>
+      <div style={{display:"grid", gridTemplateColumns:"repeat(auto-fill, minmax(200px,1fr))", gap:12}}>
+
+        {/* OE */}
+        <div style={{gridColumn:"1/-1"}}>
+          <div style={lblSt}>Orden de embarque *</div>
+          <select value={form.oeId} onChange={f("oeId")} style={inputSt}>
+            <option value="">— Selecciona una OE —</option>
+            {[...embarques].sort((a,b)=>(b.fechaCreacion||"").localeCompare(a.fechaCreacion||"")).map(oe=>{
+              const exp = exportadoras.find(e=>e.id===oe.exportadoraId);
+              const cli = clientes.find(c=>c.id===oe.clienteId);
+              const esp = especies.find(e=>e.codigo===oe.especieCodigo);
+              return (
+                <option key={oe.id} value={oe.id}>
+                  {oe.numero||oe.id.slice(-6)} — {exp?.nombre||"?"} → {cli?.nombre||"?"} {esp?.icono||""} T{oe.temporada||"?"} [{oe.estado||"borrador"}]
+                </option>
+              );
+            })}
+          </select>
+          {oeSeleccionada && (
+            <div style={{fontSize:11, color:C.muted, marginTop:4}}>
+              {exportadoraOE?.nombre} → {clienteOE?.nombre} · {especieOE?.icono} {especieOE?.nombreEs} · T{oeSeleccionada.temporada}
+              {!clienteOE && <span style={{color:C.accent}}> — cliente no encontrado, verificar la OE</span>}
+            </div>
+          )}
+        </div>
+
+        {/* Base neta + moneda */}
+        <div>
+          <div style={lblSt}>Base neta *</div>
+          <input value={form.baseNeta} onChange={f("baseNeta")} style={inputSt} placeholder="0.00"/>
+        </div>
+        <div>
+          <div style={lblSt}>Moneda</div>
+          <select value={form.monedaBase} onChange={f("monedaBase")} style={inputSt}>
+            {monedas.length
+              ? monedas.map(m=><option key={m.codigo} value={m.codigo}>{m.simbolo} {m.codigo}</option>)
+              : <><option value="USD">USD</option><option value="EUR">EUR</option><option value="CLP">CLP</option></>}
+          </select>
+        </div>
+
+        {/* TC — solo si moneda != USD */}
+        {form.monedaBase!=="USD" && (<>
+          <div>
+            <div style={lblSt}>Fecha TC</div>
+            <input type="date" value={form.fechaTC} onChange={f("fechaTC")} style={inputSt}/>
+          </div>
+          <div>
+            <div style={lblSt}>TC {form.monedaBase}→USD</div>
+            <input
+              value={tcCalculado!=null ? tcCalculado.toFixed(6) : "sin datos en maestro TC"}
+              readOnly
+              style={{...inputSt, background:C.bg, color:tcCalculado!=null ? C.green : C.accent, fontStyle:"italic"}}
+            />
+          </div>
+        </>)}
+
+        {/* Preview comisión */}
+        {comision && (
+          <div style={{gridColumn:"1/-1", background:C.bg2, borderRadius:10, padding:12, border:`1px solid ${C.border}`}}>
+            <div style={{fontSize:11, fontWeight:700, color:C.teal, marginBottom:8}}>Preview comisión</div>
+            <div style={{display:"grid", gridTemplateColumns:"repeat(auto-fill, minmax(170px,1fr))", gap:8, fontSize:11}}>
+              <div><span style={{color:C.muted}}>Base neta: </span><span style={{fontWeight:600}}>{formatearMonto(baseNetaNum, form.monedaBase, monedasMap)}</span></div>
+              {form.monedaBase!=="USD" && baseNetaUSD!=null &&
+                <div><span style={{color:C.muted}}>Base USD: </span><span style={{fontWeight:600}}>USD {baseNetaUSD.toLocaleString("es-CL",{minimumFractionDigits:2,maximumFractionDigits:2})}</span></div>}
+              <div><span style={{color:C.muted}}>% cliente: </span><span>{comision.cliPct}%</span></div>
+              <div><span style={{color:C.muted}}>% Frisku s/cli: </span><span>{comision.friPct}%</span></div>
+              <div><span style={{color:C.muted}}>Frisku s/base: </span><span style={{color:C.yellow, fontWeight:700}}>{comision.friSobreBaseNeta.toFixed(4)}%</span></div>
+              <div><span style={{color:C.muted}}>Com. cliente: </span><span>{formatearMonto(comision.montoComisionCliente, form.monedaBase, monedasMap)}</span></div>
+              <div><span style={{color:C.muted}}>Com. Frisku: </span><span style={{color:C.green, fontWeight:700}}>{formatearMonto(comision.montoComisionFrisku, form.monedaBase, monedasMap)}</span></div>
+              {form.monedaBase!=="USD" && montoFriskuUSD!=null &&
+                <div><span style={{color:C.muted}}>Frisku USD: </span><span style={{color:C.green, fontWeight:700}}>USD {montoFriskuUSD.toLocaleString("es-CL",{minimumFractionDigits:2,maximumFractionDigits:2})}</span></div>}
+            </div>
+          </div>
+        )}
+        {!clienteOE && form.oeId && (
+          <div style={{gridColumn:"1/-1", color:C.accent, fontSize:11}}>
+            No se encontró el cliente para esta OE. No se puede calcular la comisión.
+          </div>
+        )}
+
+        {/* Estado y fecha liq */}
+        <div>
+          <div style={lblSt}>Estado</div>
+          <select value={form.estado} onChange={f("estado")} style={inputSt}>
+            <option value="borrador">Borrador</option>
+            <option value="enviada">Enviada</option>
+            <option value="pagada">Pagada</option>
+          </select>
+        </div>
+        <div>
+          <div style={lblSt}>Fecha liquidación</div>
+          <input type="date" value={form.fechaLiquidacion} onChange={f("fechaLiquidacion")} style={inputSt}/>
+        </div>
+
+        {/* Facturación */}
+        <div>
+          <div style={lblSt}>N° factura</div>
+          <input value={form.numeroFactura} onChange={f("numeroFactura")} style={inputSt} placeholder="001-2026"/>
+        </div>
+        <div>
+          <div style={lblSt}>Fecha factura</div>
+          <input type="date" value={form.fechaFactura} onChange={f("fechaFactura")} style={inputSt}/>
+        </div>
+
+        {/* Observaciones */}
+        <div style={{gridColumn:"1/-1"}}>
+          <div style={lblSt}>Observaciones</div>
+          <textarea value={form.observ} onChange={f("observ")}
+            style={{...inputSt, minHeight:56, resize:"vertical"}} placeholder="Notas adicionales..."/>
+        </div>
+      </div>
+
+      <div style={{display:"flex", gap:8, marginTop:14}}>
+        <button onClick={handleGuardar} style={btnSt(C.green)}>Guardar</button>
+        <button onClick={onCancelar} style={btnSt(C.muted, true)}>Cancelar</button>
+      </div>
+    </div>
+  );
+}
+
+function LiquidacionCard({ liq, embarques, clientes, exportadoras, especies, monedas, onEditar, onEliminar, onAvanzarEstado, canEdit }) {
+  const oe          = embarques.find(e=>e.id===liq.oeId);
+  const cliente     = clientes.find(c=>c.id===oe?.clienteId);
+  const exportadora = exportadoras.find(e=>e.id===oe?.exportadoraId);
+  const especie     = especies.find(e=>e.codigo===oe?.especieCodigo);
+  const monedasMap  = Object.fromEntries(monedas.map(m=>[m.codigo,m]));
+  const estadoInfo  = LIQ_ESTADOS[liq.estado] || {label:liq.estado, color:"#94a3b8"};
+  const estadoSig   = LIQ_ESTADO_SIG[liq.estado];
+
+  return (
+    <div style={{background:C.card, borderRadius:12, border:`1px solid ${C.border}`, padding:16, display:"flex", flexDirection:"column", gap:10}}>
+      {/* Header */}
+      <div style={{display:"flex", justifyContent:"space-between", alignItems:"flex-start", gap:8}}>
+        <div>
+          <div style={{fontSize:13, fontWeight:700, color:C.text}}>
+            {oe?.numero || `OE …${liq.oeId?.slice(-6)||"?"}`}
+          </div>
+          <div style={{fontSize:11, color:C.muted, marginTop:2}}>
+            {especie?.icono} {especie?.nombreEs||"—"} · T{liq.temporada||oe?.temporada||"—"}
+          </div>
+        </div>
+        <span style={{
+          fontSize:10, padding:"2px 9px", borderRadius:10, whiteSpace:"nowrap",
+          background:`${estadoInfo.color}22`, color:estadoInfo.color,
+          fontWeight:700, border:`1px solid ${estadoInfo.color}44`,
+        }}>
+          {estadoInfo.label}
+        </span>
+      </div>
+
+      {/* Empresas */}
+      <div style={{fontSize:11, color:C.muted}}>
+        <span style={{color:C.text, fontWeight:600}}>{exportadora?.nombre||"?"}</span>
+        {" → "}
+        <span style={{color:C.text, fontWeight:600}}>{cliente?.nombre||"?"}</span>
+      </div>
+
+      {/* Montos */}
+      <div style={{display:"grid", gridTemplateColumns:"1fr 1fr", gap:8, fontSize:11}}>
+        <div>
+          <div style={{color:C.muted, marginBottom:2}}>Base neta</div>
+          <div style={{color:C.text, fontWeight:600}}>{formatearMonto(liq.baseNeta, liq.monedaBase, monedasMap)}</div>
+          {liq.monedaBase!=="USD" && liq.baseNetaUSD!=null && (
+            <div style={{color:C.muted, fontSize:10}}>≈ USD {liq.baseNetaUSD.toLocaleString("es-CL",{maximumFractionDigits:0})}</div>
+          )}
+        </div>
+        <div>
+          <div style={{color:C.muted, marginBottom:2}}>Comisión Frisku</div>
+          <div style={{color:C.green, fontWeight:700}}>{formatearMonto(liq.montoComisionFrisku, liq.monedaBase, monedasMap)}</div>
+          {liq.monedaBase!=="USD" && liq.montoComisionFriskuUSD!=null && (
+            <div style={{color:C.green, fontSize:10}}>≈ USD {liq.montoComisionFriskuUSD.toLocaleString("es-CL",{maximumFractionDigits:0})}</div>
+          )}
+        </div>
+      </div>
+
+      {/* % aplicados */}
+      <div style={{fontSize:10, color:C.muted}}>
+        {liq.cliPct}% cliente × {liq.friPct}% Frisku =&nbsp;
+        <span style={{color:C.yellow}}>{(liq.friSobreBaseNeta||0).toFixed(4)}% s/base</span>
+      </div>
+
+      {/* Fechas y factura */}
+      {(liq.fechaLiquidacion||liq.numeroFactura) && (
+        <div style={{fontSize:10, color:C.muted, borderTop:`1px solid ${C.border}`, paddingTop:8}}>
+          {liq.fechaLiquidacion && <span>{liq.fechaLiquidacion}</span>}
+          {liq.numeroFactura    && <span> · Fact. {liq.numeroFactura}</span>}
+          {liq.fechaFactura     && <span> ({liq.fechaFactura})</span>}
+        </div>
+      )}
+      {liq.observ && (
+        <div style={{fontSize:10, color:C.muted, fontStyle:"italic"}}>{liq.observ}</div>
+      )}
+
+      {/* Actions */}
+      {canEdit && (
+        <div style={{display:"flex", gap:6, flexWrap:"wrap", marginTop:2}}>
+          <button onClick={onEditar} style={{...btnSt(C.blue,true), fontSize:10, padding:"3px 10px"}}>Editar</button>
+          {estadoSig && (
+            <button
+              onClick={()=>onAvanzarEstado(liq, estadoSig)}
+              style={{...btnSt(LIQ_ESTADOS[estadoSig]?.color||C.blue, true), fontSize:10, padding:"3px 10px"}}
+            >
+              → {LIQ_ESTADOS[estadoSig]?.label}
+            </button>
+          )}
+          <button onClick={onEliminar} style={{...btnSt(C.accent,true), fontSize:10, padding:"3px 10px", marginLeft:"auto"}}>Eliminar</button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════
 // COMPONENTE PRINCIPAL
 // ═══════════════════════════════════════════════════════════════════
 export default function FriskuComercialModule({
@@ -2492,6 +2784,7 @@ export default function FriskuComercialModule({
   const [aeropuertos,    setAeropuertos]    = useState(AEROPUERTOS_DEFAULT);
   const [shippingLines,  setShippingLines]  = useState(SHIPPING_LINES_DEFAULT);
   const [lineasAereas,   setLineasAereas]   = useState(LINEAS_AEREAS_DEFAULT);
+  const [tcData,         setTcData]         = useState({});
 
   // UI Órdenes de Embarque
   const [editandoOE,      setEditandoOE]      = useState(null);
@@ -2532,11 +2825,19 @@ export default function FriskuComercialModule({
   const [editandoClosure, setEditandoClosure]         = useState(null);
   const [creandoClosure, setCreandoClosure]           = useState(false);
 
+  // UI Liquidaciones
+  const [editandoLiq,    setEditandoLiq]    = useState(null);
+  const [creandoLiq,     setCreandoLiq]     = useState(false);
+  const [filtroEstadoLiq, setFiltroEstadoLiq] = useState("");
+  const [filtroExpLiq,   setFiltroExpLiq]   = useState("");
+  const [filtroCliLiq,   setFiltroCliLiq]   = useState("");
+  const [filtroTempLiq,  setFiltroTempLiq]  = useState("");
+
   // ── Carga inicial ──
   useEffect(()=>{
     let alive = true;
     (async ()=>{
-      const [cli, exp, con, pro, emb, liq, esp, pa, mo, me, tb, ci, tmp, pu, ae, sl, la] = await Promise.all([
+      const [cli, exp, con, pro, emb, liq, esp, pa, mo, me, tb, ci, tmp, pu, ae, sl, la, tc] = await Promise.all([
         dbLoadGeneric("frisku_clientes"),
         dbLoadGeneric("frisku_exportadoras"),
         dbLoadGeneric("frisku_contratos"),
@@ -2554,6 +2855,7 @@ export default function FriskuComercialModule({
         dbLoadGeneric("maestro_aeropuertos"),
         dbLoadGeneric("maestro_shipping_lines"),
         dbLoadGeneric("maestro_lineas_aereas"),
+        dbLoadGeneric("maestro_tc"),
       ]);
       if(!alive) return;
       setClientes(Array.isArray(cli) ? cli : []);
@@ -2577,6 +2879,7 @@ export default function FriskuComercialModule({
       setAeropuertos(Array.isArray(ae) && ae.length ? ae : AEROPUERTOS_DEFAULT);
       setShippingLines(Array.isArray(sl) && sl.length ? sl : SHIPPING_LINES_DEFAULT);
       setLineasAereas(Array.isArray(la) && la.length ? la : LINEAS_AEREAS_DEFAULT);
+      if(tc && typeof tc === "object") setTcData(tc);
       setCargando(false);
     })();
     return ()=>{alive=false;};
@@ -2587,7 +2890,7 @@ export default function FriskuComercialModule({
   // Exportadoras). Garantiza que las altas/cambios hechos en el módulo
   // de Maestros se reflejen sin necesidad de recargar la página.
   const recargarMaestros = useCallback(async ()=>{
-    const [esp, pa, mo, me, tb, ci, tmp, pu, ae, sl, la] = await Promise.all([
+    const [esp, pa, mo, me, tb, ci, tmp, pu, ae, sl, la, tc] = await Promise.all([
       dbLoadGeneric("maestro_especies"),
       dbLoadGeneric("maestro_paises"),
       dbLoadGeneric("maestro_monedas"),
@@ -2599,6 +2902,7 @@ export default function FriskuComercialModule({
       dbLoadGeneric("maestro_aeropuertos"),
       dbLoadGeneric("maestro_shipping_lines"),
       dbLoadGeneric("maestro_lineas_aereas"),
+      dbLoadGeneric("maestro_tc"),
     ]);
     setEspecies(Array.isArray(esp) && esp.length ? esp : ESPECIES_DEFAULT);
     setPaises(Array.isArray(pa) && pa.length ? pa : PAISES_DEFAULT);
@@ -2611,12 +2915,13 @@ export default function FriskuComercialModule({
     setAeropuertos(Array.isArray(ae) && ae.length ? ae : AEROPUERTOS_DEFAULT);
     setShippingLines(Array.isArray(sl) && sl.length ? sl : SHIPPING_LINES_DEFAULT);
     setLineasAereas(Array.isArray(la) && la.length ? la : LINEAS_AEREAS_DEFAULT);
+    if(tc && typeof tc === "object") setTcData(tc);
   },[]);
 
   // Refrescar maestros al entrar a tabs que los necesitan
   useEffect(()=>{
     if (cargando) return;
-    if (tab === "clientes" || tab === "exportadoras" || tab === "contratos" || tab === "embarques") {
+    if (tab === "clientes" || tab === "exportadoras" || tab === "contratos" || tab === "embarques" || tab === "liquidaciones") {
       recargarMaestros();
     }
   },[tab, cargando, recargarMaestros]);
@@ -2885,6 +3190,46 @@ export default function FriskuComercialModule({
     setEditandoOE(null); setCreandoOE(false);
   };
 
+  // ── Handlers Liquidaciones ──
+  const handleNuevaLiq = () => { setCreandoLiq(true); setEditandoLiq(null); };
+  const handleEditarLiq = (liq) => { setCreandoLiq(false); setEditandoLiq(liq); };
+  const handleEliminarLiq = (liq) => {
+    const oe = embarques.find(e=>e.id===liq.oeId);
+    if(!window.confirm(`¿Eliminar liquidación de OE "${oe?.numero||liq.oeId?.slice(-6)}"? Esta acción no se puede deshacer.`)) return;
+    setLiquidaciones(prev=>prev.filter(l=>l.id!==liq.id));
+  };
+  const handleGuardarLiq = (liq) => {
+    if(creandoLiq) setLiquidaciones(prev=>[...prev, liq]);
+    else           setLiquidaciones(prev=>prev.map(l=>l.id===liq.id?liq:l));
+    setEditandoLiq(null); setCreandoLiq(false);
+  };
+  const handleAvanzarEstadoLiq = (liq, nuevoEstado) => {
+    setLiquidaciones(prev=>prev.map(l=>l.id===liq.id
+      ? {...l, estado:nuevoEstado, fechaActualizacion:new Date().toISOString()}
+      : l));
+  };
+
+  // ── Filtros Liquidaciones ──
+  const liqFiltradas = useMemo(()=>{
+    return liquidaciones.filter(liq=>{
+      if(filtroEstadoLiq && liq.estado !== filtroEstadoLiq) return false;
+      if(filtroTempLiq   && liq.temporada !== filtroTempLiq) return false;
+      if(filtroExpLiq || filtroCliLiq) {
+        const oe = embarques.find(e=>e.id===liq.oeId);
+        if(filtroExpLiq && oe?.exportadoraId !== filtroExpLiq) return false;
+        if(filtroCliLiq && oe?.clienteId     !== filtroCliLiq) return false;
+      }
+      return true;
+    }).sort((a,b)=>(b.fechaLiquidacion||"").localeCompare(a.fechaLiquidacion||""));
+  },[liquidaciones, filtroEstadoLiq, filtroExpLiq, filtroCliLiq, filtroTempLiq, embarques]);
+
+  const totalComisionFriskuUSD = useMemo(()=>{
+    return liqFiltradas.reduce((acc,liq)=>{
+      const v = liq.monedaBase==="USD" ? liq.montoComisionFrisku : liq.montoComisionFriskuUSD;
+      return acc + (Number(v)||0);
+    },0);
+  },[liqFiltradas]);
+
   // ── Filtros Órdenes de Embarque ──
   const embarquesFiltrados = useMemo(()=>{
     const q = busquedaOE.toLowerCase();
@@ -3037,10 +3382,12 @@ export default function FriskuComercialModule({
               <div style={{fontSize:11, color:C.text, lineHeight:1.6}}>
                 <div>✅ Fase 1 — Maestros</div>
                 <div>✅ Fase 2 — Clientes + TC</div>
-                <div style={{color:C.yellow}}>🛠️ Fase 3 — Documentos <em>(en curso)</em></div>
-                <div style={{color:C.muted}}>⏳ Fase 4 — Embarques</div>
-                <div style={{color:C.green}}>✅ Fase 5 — COMEX</div>
-                <div style={{color:C.muted}}>⏳ Fase 6 — Liquidaciones</div>
+                <div>✅ Fase 3 — Documentos</div>
+                <div>✅ Fase 4 — Embarques + PL</div>
+                <div>✅ Fase 5 — COMEX</div>
+                <div>✅ Fase 6 — Liquidaciones</div>
+                <div style={{color:C.muted}}>⏳ Fase 7 — Carga histórica</div>
+                <div style={{color:C.muted}}>⏳ Fase 8 — Dashboards CFO</div>
               </div>
             </Card>
           </div>
@@ -3448,12 +3795,101 @@ export default function FriskuComercialModule({
           </div>
         )}
         {tab === "liquidaciones" && (
-          <Placeholder
-            titulo="Liquidaciones"
-            icono="💰"
-            fase="Fase 6"
-            descripcion="Cálculo de la comisión Frisku por embarque, aplicando % cliente × % Frisku con overrides por especie+formato. Convierte montos a USD vía TC."
-          />
+          <div>
+            {/* Form */}
+            {(creandoLiq || editandoLiq) && (
+              <LiquidacionForm
+                liq={editandoLiq}
+                embarques={embarques}
+                clientes={clientes}
+                exportadoras={exportadoras}
+                especies={especies}
+                monedas={monedas}
+                tcData={tcData}
+                onGuardar={handleGuardarLiq}
+                onCancelar={()=>{setEditandoLiq(null); setCreandoLiq(false);}}
+              />
+            )}
+
+            {!creandoLiq && !editandoLiq && (
+              <>
+                {/* Toolbar */}
+                <div style={{display:"flex", gap:8, flexWrap:"wrap", alignItems:"center", marginBottom:14}}>
+                  <select value={filtroEstadoLiq} onChange={e=>setFiltroEstadoLiq(e.target.value)} style={{...inputSt, maxWidth:140}}>
+                    <option value="">Todos los estados</option>
+                    <option value="borrador">Borrador</option>
+                    <option value="enviada">Enviada</option>
+                    <option value="pagada">Pagada</option>
+                  </select>
+                  <select value={filtroTempLiq} onChange={e=>setFiltroTempLiq(e.target.value)} style={{...inputSt, maxWidth:150}}>
+                    <option value="">Todas las temp.</option>
+                    {temporadas.map(t=><option key={t} value={t}>T{t}</option>)}
+                  </select>
+                  <select value={filtroExpLiq} onChange={e=>setFiltroExpLiq(e.target.value)} style={{...inputSt, maxWidth:180}}>
+                    <option value="">Todas las exp.</option>
+                    {exportadoras.filter(e=>e.activo!==false).sort((a,b)=>(a.nombre||"").localeCompare(b.nombre||"")).map(e=>(
+                      <option key={e.id} value={e.id}>{e.nombre}</option>
+                    ))}
+                  </select>
+                  <select value={filtroCliLiq} onChange={e=>setFiltroCliLiq(e.target.value)} style={{...inputSt, maxWidth:180}}>
+                    <option value="">Todos los clientes</option>
+                    {clientes.filter(c=>c.activo!==false).sort((a,b)=>(a.nombre||"").localeCompare(b.nombre||"")).map(c=>(
+                      <option key={c.id} value={c.id}>{c.nombre}</option>
+                    ))}
+                  </select>
+                  {(filtroEstadoLiq||filtroTempLiq||filtroExpLiq||filtroCliLiq) && (
+                    <button
+                      onClick={()=>{setFiltroEstadoLiq(""); setFiltroTempLiq(""); setFiltroExpLiq(""); setFiltroCliLiq("");}}
+                      style={{...btnSt(C.muted,true), fontSize:11}}
+                    >✕ Limpiar</button>
+                  )}
+                  <span style={{fontSize:11, color:C.muted}}>{liqFiltradas.length} de {liquidaciones.length}</span>
+                  {totalComisionFriskuUSD>0 && (
+                    <span style={{fontSize:12, fontWeight:700, color:C.green, marginLeft:4}}>
+                      Total Frisku: USD {totalComisionFriskuUSD.toLocaleString("es-CL",{minimumFractionDigits:2,maximumFractionDigits:2})}
+                    </span>
+                  )}
+                  {permLiquidaciones.canEdit && (
+                    <button onClick={handleNuevaLiq} style={{...btnSt(C.green), marginLeft:"auto", whiteSpace:"nowrap"}}>
+                      + Nueva liquidación
+                    </button>
+                  )}
+                  {!permLiquidaciones.canEdit && (
+                    <span style={{fontSize:10, padding:"3px 8px", borderRadius:4, background:`${C.blue}22`, color:C.blue, border:`1px solid ${C.blue}44`}}>
+                      👁 Solo lectura
+                    </span>
+                  )}
+                </div>
+
+                {/* Grid de cards */}
+                {liqFiltradas.length===0 ? (
+                  <div style={{padding:50, textAlign:"center", color:C.muted, fontSize:13, background:C.card, borderRadius:14}}>
+                    {liquidaciones.length===0
+                      ? 'Sin liquidaciones. Click "+ Nueva liquidación" para crear la primera.'
+                      : "Sin resultados con esos filtros."}
+                  </div>
+                ) : (
+                  <div style={{display:"grid", gridTemplateColumns:"repeat(auto-fill, minmax(320px,1fr))", gap:14}}>
+                    {liqFiltradas.map(liq=>(
+                      <LiquidacionCard
+                        key={liq.id}
+                        liq={liq}
+                        embarques={embarques}
+                        clientes={clientes}
+                        exportadoras={exportadoras}
+                        especies={especies}
+                        monedas={monedas}
+                        onEditar={()=>handleEditarLiq(liq)}
+                        onEliminar={()=>handleEliminarLiq(liq)}
+                        onAvanzarEstado={handleAvanzarEstadoLiq}
+                        canEdit={permLiquidaciones.canEdit}
+                      />
+                    ))}
+                  </div>
+                )}
+              </>
+            )}
+          </div>
         )}
 
         {tab === "maestros" && (
