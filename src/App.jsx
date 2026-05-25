@@ -1,7 +1,7 @@
 /* eslint-disable */
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import OsirisModule from "./OsirisModule.jsx";
-import FinanzasModule from "./FinanzasModule.jsx";
+import FinanzasModule, { EMPRESAS_KEYS_ALL } from "./FinanzasModule.jsx";
 import AllegriaModule from "./AllegriaModule.jsx";
 import FriskuComercialModule from "./FriskuComercialModule.jsx";
 
@@ -600,6 +600,21 @@ function PanelPermisos({ usuarios, setUsuarios, onClose }) {
     }));
   }
 
+  function toggleEmpresaFinanzas(nombreU, empKey) {
+    setUsuarios(prev => prev.map(u => {
+      if(u.nombre !== nombreU) return u;
+      const prevArr = Array.isArray(u.empresas_permitidas) ? [...u.empresas_permitidas] : [];
+      const tiene = prevArr.includes(empKey);
+      const nextArr = tiene ? prevArr.filter(k => k !== empKey) : [...prevArr, empKey];
+      window.auditLog("cambio_permiso", {modulo:"sistema", seccion:"permisos",
+        descripcion:`${tiene?"Quitó":"Agregó"} permiso de empresa "${empKey}" en Finanzas a ${nombreU}`,
+        registroId:nombreU, campo:"empresas_permitidas",
+        valorAnterior:prevArr.join(",")||"(todas)",
+        valorNuevo:nextArr.join(",")||"(todas)"});
+      return { ...u, empresas_permitidas: nextArr };
+    }));
+  }
+
   function setTabPerm(nombreU, modulo, tabId, nivel) {
     setUsuarios(prev => prev.map(u => {
       if(u.nombre !== nombreU) return u;
@@ -738,6 +753,51 @@ function PanelPermisos({ usuarios, setUsuarios, onClose }) {
                           );
                         })}
                       </div>
+
+                      {/* ── Permisos por empresa en Finanzas ── */}
+                      {mods.includes("finanzas")&&(()=>{
+                        const arr = Array.isArray(u.empresas_permitidas) ? u.empresas_permitidas : [];
+                        const sinSeleccion = arr.length === 0;
+                        return (
+                          <div style={{marginTop:14,background:"#fefce8",borderRadius:10,padding:"12px 14px",border:"1px solid #fde68a"}}>
+                            <div style={{fontSize:11,fontWeight:700,color:"#854d0e",marginBottom:8}}>
+                              💰 Empresas visibles en Finanzas
+                              <span style={{color:"#92400e",fontWeight:500,marginLeft:6}}>
+                                — Sin selección = acceso a todas las empresas
+                              </span>
+                            </div>
+                            <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
+                              {EMPRESAS_KEYS_ALL.map(emp=>{
+                                const marcada = arr.includes(emp);
+                                return (
+                                  <label key={emp} style={{display:"flex",alignItems:"center",gap:5,cursor:"pointer",
+                                    background:marcada?"#fef3c7":(sinSeleccion?"#fffbeb":"#f1f5f9"),
+                                    border:`1px solid ${marcada?"#f59e0b":"#e2e8f0"}`,
+                                    borderRadius:8,padding:"4px 10px",fontSize:11,fontWeight:600,
+                                    color:marcada?"#92400e":(sinSeleccion?"#a16207":"#64748b"),
+                                    opacity:sinSeleccion?0.85:1}}>
+                                    <input type="checkbox" checked={marcada}
+                                      onChange={()=>toggleEmpresaFinanzas(u.nombre,emp)}
+                                      style={{cursor:"pointer",accentColor:"#f59e0b"}}/>
+                                    {emp}
+                                  </label>
+                                );
+                              })}
+                            </div>
+                            {sinSeleccion && (
+                              <div style={{fontSize:10,color:"#a16207",marginTop:8,fontStyle:"italic"}}>
+                                Estado actual: el usuario verá todas las empresas, el consolidado, intercompany y el dashboard.
+                              </div>
+                            )}
+                            {!sinSeleccion && (
+                              <div style={{fontSize:10,color:"#854d0e",marginTop:8}}>
+                                {arr.length} de {EMPRESAS_KEYS_ALL.length} empresas seleccionadas
+                                {arr.length < EMPRESAS_KEYS_ALL.length - 1 && " · sin acceso a consolidado, intercompany ni dashboard"}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })()}
                     </div>
                   )}
                 </div>

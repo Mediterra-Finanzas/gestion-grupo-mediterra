@@ -1352,6 +1352,39 @@ function buildEmpresas(params, allegraComisionArandanos) {
 }
 
 // ═══════════════════════════════════════════════════════════════════
+// PERMISOS POR EMPRESA — fuente única de verdad
+// ═══════════════════════════════════════════════════════════════════
+// Las 8 empresas existentes en el módulo Finanzas.
+export const EMPRESAS_KEYS_ALL = [
+  "Mediterra","Allegria Service","Allegria Foods","Frisku Foods",
+  "Osiris","Integrity Farms","Allpa Farms","Allpa Farms Perú",
+];
+// Empresas que entran al consolidado del grupo.
+// Allpa Farms Perú queda fuera por IAS 28 (método patrimonio).
+const EMPRESAS_KEYS_CONSOLIDADO = EMPRESAS_KEYS_ALL.filter(n => n !== "Allpa Farms Perú");
+
+// Acceso completo a Finanzas si: admin, CFO, sin array (retrocompat),
+// array vacío, o array contiene TODAS las empresas del consolidado.
+function esAccesoCompletoUsuario(usuario){
+  if(!usuario) return true;
+  if(usuario.rol === "admin" || usuario.esCFO === true) return true;
+  const arr = usuario.empresas_permitidas;
+  if(!Array.isArray(arr) || arr.length === 0) return true;
+  return EMPRESAS_KEYS_CONSOLIDADO.every(k => arr.includes(k));
+}
+
+// Empresas que el usuario puede ver. Admin/CFO siempre las 8.
+// Array vacío/undefined = todas (retrocompat). Si tiene items se devuelven
+// los presentes en EMPRESAS_KEYS_ALL en su orden canónico.
+function getEmpresasPermitidasUsuario(usuario){
+  if(!usuario) return EMPRESAS_KEYS_ALL;
+  if(usuario.rol === "admin" || usuario.esCFO === true) return EMPRESAS_KEYS_ALL;
+  const arr = usuario.empresas_permitidas;
+  if(!Array.isArray(arr) || arr.length === 0) return EMPRESAS_KEYS_ALL;
+  return EMPRESAS_KEYS_ALL.filter(k => arr.includes(k));
+}
+
+// ═══════════════════════════════════════════════════════════════════
 // PALETA — TEMA AZUL MARINO (estilo header Tareas #1e3a5f)
 // ═══════════════════════════════════════════════════════════════════
 const C = {
@@ -3401,7 +3434,7 @@ function buildEmpresasConOverrides(empresas, realData, addedLinesGlobal, subLine
 // ═══════════════════════════════════════════════════════════════════
 function Consolidado({empresas,saldosBancos,realData={},addedLinesGlobal={},subLinesGlobal={}}) {
   const empNames=Object.keys(empresas);
-  const empNamesConsolidado = empNames.filter(n => n !== "Allpa Farms Perú");
+  const empNamesConsolidado = empNames.filter(n => EMPRESAS_KEYS_CONSOLIDADO.includes(n));
   const [vistaConsolidado,setVistaConsolidado]=useState("sumada");
   const [agrup,setAgrup]=useState("mes");
   const [openSeason,setOpenSeason]=useState(()=>{const o={};SEASON_KEYS.forEach((k,i)=>{o[k]=i<2;});return o;});
@@ -4193,7 +4226,7 @@ function MatrizMensualConsolidado({empresas, empNames, flujoPorEmp={}, acumPorEm
 }
 
 function WaterfallConsolidado({empresas, saldosBancos, saldoIniPorEmp={}, acumPorEmp={}, flujoPorEmp={}}) {
-  const empNames = Object.keys(empresas).filter(n => n !== "Allpa Farms Perú");
+  const empNames = Object.keys(empresas).filter(n => EMPRESAS_KEYS_CONSOLIDADO.includes(n));
   const [temporadaSel, setTemporadaSel] = useState(SEASONS[0]?.key || "");
   const [mostrarControladora, setMostrarControladora] = useState(true);
 
@@ -6118,7 +6151,26 @@ function Dashboard({empresas, empresasConOverrides, saldosBancos}) {
 // ═══════════════════════════════════════════════════════════════════
 // CRÉDITOS
 // ═══════════════════════════════════════════════════════════════════
-function Creditos({empresas, creditosData=CREDITOS_DEFAULT, onSaveCreditos, canEdit=false}) {
+function Creditos({empresas, creditosData=CREDITOS_DEFAULT, onSaveCreditos, canEdit=false, empresasPermitidas, nextCreditId}) {
+  // Subset de empresas que el usuario puede ver. Todos los créditos,
+  // KPIs y deudas se computan SOLO sobre este subset. Defensa adicional
+  // en guardar/togglePagado/eliminar para descartar registros fuera del subset.
+  const permitidasSet = useMemo(
+    () => Array.isArray(empresasPermitidas) && empresasPermitidas.length>0
+      ? new Set(empresasPermitidas)
+      : null, // null = sin restricción (acceso completo)
+    [empresasPermitidas]
+  );
+  const esPermitida = (emp) => permitidasSet ? permitidasSet.has(emp) : true;
+  const creditosVisibles = useMemo(
+    () => permitidasSet
+      ? (creditosData||[]).filter(c => permitidasSet.has(c?.empresa))
+      : (creditosData||[]),
+    [creditosData, permitidasSet]
+  );
+  // Lista de empresas para el <select> del modal: filtrar por permisos
+  const EMP_SELECT = ["Mediterra","Allegria Foods","Allegria Service","Frisku Foods","Osiris","Integrity Farms","Allpa Farms","Allpa Farms Perú"]
+    .filter(e => esPermitida(e));
   const [busq,setBusq]=useState("");
   const [filtEmp,setFiltEmp]=useState("Todas");
   const [filtPagado,setFiltPagado]=useState("Todos"); // "Todos" | "Pendientes" | "Pagados"
@@ -6140,9 +6192,12 @@ function Creditos({empresas, creditosData=CREDITOS_DEFAULT, onSaveCreditos, canE
   function openEdit(c){ setForm({...c,monto:String(c.monto),cuota:String(c.cuota)}); setEditId(c.n); setModal(true); }
   function guardar(){
     if(!form.empresa||!form.acreedor||!form.monto||!form.f_venc){alert("Empresa, acreedor, monto y fecha son obligatorios.");return;}
-    // ID secuencial: max n existente + 1
-    const maxN = creditosData.reduce((m,c)=> Math.max(m, typeof c.n === 'number' && c.n < 100000 ? c.n : 0), 0);
-    const newN = editId || (maxN + 1);
+    // Guardrail: no permitir crear/editar créditos de empresas fuera del subset
+    if(!esPermitida(form.empresa)){ alert("Empresa no permitida."); return; }
+    // ID secuencial: usa nextCreditId del parent (sobre el blob completo) si está disponible;
+    // fallback al cálculo local sobre el subset visible (para retrocompat).
+    const maxNLocal = creditosVisibles.reduce((m,c)=> Math.max(m, typeof c.n === 'number' && c.n < 100000 ? c.n : 0), 0);
+    const newN = editId || (typeof nextCreditId === 'number' ? nextCreditId : (maxNLocal + 1));
     const item={
       ...form,
       n: newN,
@@ -6152,22 +6207,23 @@ function Creditos({empresas, creditosData=CREDITOS_DEFAULT, onSaveCreditos, canE
       f_venc: form.f_venc || "",
       f_inicio: form.f_inicio || "",
     };
+    // El payload al parent contiene SOLO el subset visible — el parent hace merge.
     const next=editId
-      ? creditosData.map(c=>String(c.n)===String(editId)?item:c)
-      : [...creditosData,item];
+      ? creditosVisibles.map(c=>String(c.n)===String(editId)?item:c)
+      : [...creditosVisibles,item];
     if(onSaveCreditos) onSaveCreditos(next);
     setModal(false);
   }
   function togglePagado(n, value){
-    const next=creditosData.map(c=>String(c.n)===String(n)?{...c,pagado:value!==undefined?value:!c.pagado}:c);
+    const next=creditosVisibles.map(c=>String(c.n)===String(n)?{...c,pagado:value!==undefined?value:!c.pagado}:c);
     if(onSaveCreditos) onSaveCreditos(next);
   }
   function eliminar(n){
     if(!window.confirm("¿Eliminar este crédito?")) return;
-    if(onSaveCreditos) onSaveCreditos(creditosData.filter(c=>String(c.n)!==String(n)));
+    if(onSaveCreditos) onSaveCreditos(creditosVisibles.filter(c=>String(c.n)!==String(n)));
   }
-  const empList=["Todas",...new Set(creditosData.map(c=>c.empresa))];
-  const filtered=creditosData.filter(c=>{
+  const empList=["Todas",...new Set(creditosVisibles.map(c=>c.empresa))];
+  const filtered=creditosVisibles.filter(c=>{
     if(filtEmp!=="Todas"&&c.empresa!==filtEmp) return false;
     if(filtPagado==="Pendientes"&&c.pagado) return false;
     if(filtPagado==="Pagados"&&!c.pagado) return false;
@@ -6179,7 +6235,7 @@ function Creditos({empresas, creditosData=CREDITOS_DEFAULT, onSaveCreditos, canE
     if(empCmp!==0) return empCmp;
     return (a.f_venc||"").localeCompare(b.f_venc||"");
   });
-  const deudaEmp={};creditosData.forEach(c=>{
+  const deudaEmp={};creditosVisibles.forEach(c=>{
     if(!deudaEmp[c.empresa]) deudaEmp[c.empresa]=0;
     // Deuda original (si no está pagado)
     if(!c.pagado) deudaEmp[c.empresa]+=c.monto;
@@ -6195,8 +6251,8 @@ function Creditos({empresas, creditosData=CREDITOS_DEFAULT, onSaveCreditos, canE
       <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:10}}>
         <KPI label="Deuda Total Q1-2026" value={$$(CREDITOS_TRIM.saldos[0])} color={C.red}/>
         <KPI label="Pagos Q1-2026"       value={$$(CREDITOS_TRIM.pagos[0])}  color={C.yellow}/>
-        <KPI label="N° Créditos"         value={creditosData.length}             color={C.blue}/>
-        <KPI label="Renovables"          value={creditosData.filter(c=>c.renovable).length} color={C.orange}/>
+        <KPI label="N° Créditos"         value={creditosVisibles.length}             color={C.blue}/>
+        <KPI label="Renovables"          value={creditosVisibles.filter(c=>c.renovable).length} color={C.orange}/>
       </div>
       <Card>
         <SectionTitle>Deuda por Empresa</SectionTitle>
@@ -6348,10 +6404,10 @@ function Creditos({empresas, creditosData=CREDITOS_DEFAULT, onSaveCreditos, canE
                   ["Jun-28","2028-06-30"],["Jun-29","2029-06-30"],
                   ["Jun-30","2030-06-30"],["Jun-31","2031-06-30"],
                 ];
-                const emps = [...new Set(creditosData.map(c=>c.empresa))].sort();
+                const emps = [...new Set(creditosVisibles.map(c=>c.empresa))].sort();
                 return emps.map(emp=>{
                   const e = empresas[emp]||{emoji:"🏢",color:C.blue};
-                  const empCreds = creditosData.filter(c=>c.empresa===emp);
+                  const empCreds = creditosVisibles.filter(c=>c.empresa===emp);
                   const saldos = CIERRES.map(([,fecha])=>
                     empCreds.reduce((s,c)=>{
                       // Deuda original pendiente
@@ -6436,7 +6492,7 @@ function Creditos({empresas, creditosData=CREDITOS_DEFAULT, onSaveCreditos, canE
                   ];
                   const MES_ABREV = {Ene:'01',Feb:'02',Mar:'03',Abr:'04',May:'05',Jun:'06',Jul:'07',Ago:'08',Sep:'09',Oct:'10',Nov:'11',Dic:'12'};
                   return CIERRES_F.map((fecha,i)=>{
-                    const total = creditosData.reduce((s,c)=>{
+                    const total = creditosVisibles.reduce((s,c)=>{
                       let d = (!c.pagado && c.f_venc>fecha)?(Number(c.cuota)||0):0;
                       if(c.renovable)(c.cuotas_renovacion||[]).forEach(cq=>{
                         if((cq.tipo||'Solo Interés')==='Capital+Interés'){
@@ -6469,7 +6525,7 @@ function Creditos({empresas, creditosData=CREDITOS_DEFAULT, onSaveCreditos, canE
         {(()=>{
           // Agrupar por empresa → acreedor
           const byEmp = {};
-          creditosData.forEach(c=>{
+          creditosVisibles.forEach(c=>{
             if(!byEmp[c.empresa]) byEmp[c.empresa]={};
             if(!byEmp[c.empresa][c.acreedor]) byEmp[c.empresa][c.acreedor]=[];
             byEmp[c.empresa][c.acreedor].push(c);
@@ -6561,7 +6617,7 @@ function Creditos({empresas, creditosData=CREDITOS_DEFAULT, onSaveCreditos, canE
             </div>
             <div style={{padding:"16px 20px",display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
               {[
-                ["Empresa","empresa","select",["Mediterra","Allegria Foods","Allegria Service","Frisku Foods","Osiris","Integrity Farms","Allpa Farms","Allpa Farms Perú"]],
+                ["Empresa","empresa","select",EMP_SELECT],
                 ["Acreedor / Institución","acreedor","text",null],
                 ["Tipo institución","tipo_inst","text",null],
                 ["Tipo crédito","tipo_cr","select",["Bullet","Cuotas Mensuales","Leasing","Crédito Hipotecario","Inversión","Otro"]],
@@ -6816,7 +6872,23 @@ function toUSD(monto, moneda, fx) {
   return monto * (fx[moneda] ?? 0);
 }
 
-function SaldosBancos({saldos,onSave,canEdit}) {
+function SaldosBancos({saldos,onSave,canEdit,empresasPermitidas}) {
+  // Subset de empresas que el usuario puede ver. Si no se pasa la prop → todas.
+  // Todos los agregados (KPIs, totales, render) se calculan SOLO sobre este subset.
+  const EMPRESAS_VISIBLES = useMemo(
+    () => Array.isArray(empresasPermitidas) && empresasPermitidas.length>0
+      ? EMPRESAS_LIST.filter(e => empresasPermitidas.includes(e))
+      : EMPRESAS_LIST,
+    [empresasPermitidas]
+  );
+  const CUENTAS_VISIBLES = useMemo(
+    () => CUENTAS_FIJAS.filter(c => EMPRESAS_VISIBLES.includes(c.emp)),
+    [EMPRESAS_VISIBLES]
+  );
+  const empresaVisibleSet = useMemo(() => new Set(EMPRESAS_VISIBLES), [EMPRESAS_VISIBLES]);
+  const hayChile = EMPRESAS_VISIBLES.some(e => !e.includes("Perú"));
+  const hayPeru  = EMPRESAS_VISIBLES.some(e =>  e.includes("Perú"));
+
   const [fx,setFx]         = useState(null);
   const [fxLoading,setFxLoading] = useState(false);
   const [fxError,setFxError]     = useState(false);
@@ -6857,10 +6929,18 @@ function SaldosBancos({saldos,onSave,canEdit}) {
   async function handleGuardar(){
     if(!Object.keys(dirty).length) return;
     setSaving(true);
-    const next=JSON.parse(JSON.stringify(saldos||{}));
+    // El payload al parent contiene SOLO el subset de keys que el usuario
+    // tiene permitido ver. El parent se encarga del merge contra el blob completo.
+    // Partimos de las keys visibles del prop saldos para que el comportamiento
+    // sea el mismo que antes (clone + mutaciones por dirty) pero restringido.
+    const next = {};
+    Object.entries(saldos||{}).forEach(([k,v])=>{
+      const [emp] = (k||"").split("||");
+      if(empresaVisibleSet.has(emp)) next[k] = JSON.parse(JSON.stringify(v));
+    });
     Object.keys(dirty).forEach(key=>{
-      const c=CUENTAS_FIJAS.find(x=>x.key===key);
-      if(!c) return;
+      const c=CUENTAS_VISIBLES.find(x=>x.key===key);
+      if(!c) return; // descartar dirty fuera del subset (defensa)
       const val=parseFloat(edits[key]);
       if(isNaN(val)) { delete next[key]; return; }
       next[key]={
@@ -6877,9 +6957,9 @@ function SaldosBancos({saldos,onSave,canEdit}) {
 
   const totalesEmpresa = useMemo(()=>{
     const t={};
-    EMPRESAS_LIST.forEach(emp=>{
+    EMPRESAS_VISIBLES.forEach(emp=>{
       let sum=0;
-      CUENTAS_FIJAS.filter(c=>c.emp===emp).forEach(c=>{
+      CUENTAS_VISIBLES.filter(c=>c.emp===emp).forEach(c=>{
         const s=saldos?.[c.key];
         if(!s||s.monto==null) return;
         // Si FX cargado: convertir en vivo
@@ -6898,34 +6978,34 @@ function SaldosBancos({saldos,onSave,canEdit}) {
       t[emp]=sum; // siempre número, 0 si no hay saldo
     });
     return t;
-  },[saldos,fx]);
+  },[saldos,fx,EMPRESAS_VISIBLES,CUENTAS_VISIBLES]);
 
   const totalUSD = useMemo(()=>{
     return Object.values(totalesEmpresa).reduce((a,b)=>a+b,0);
   },[totalesEmpresa]);
 
-  // Totales separados Chile y Perú (en USD)
+  // Totales separados Chile y Perú (en USD) — solo sobre el subset visible
   const {totalChileUSD, totalPeruUSD} = useMemo(()=>{
     let chile=0, peru=0;
-    EMPRESAS_LIST.forEach(emp=>{
+    EMPRESAS_VISIBLES.forEach(emp=>{
       const usd = totalesEmpresa[emp]||0;
       if(emp.includes("Perú")) peru += usd;
       else chile += usd;
     });
     return {totalChileUSD:chile, totalPeruUSD:peru};
-  },[totalesEmpresa]);
+  },[totalesEmpresa,EMPRESAS_VISIBLES]);
 
   const hasDirty=Object.keys(dirty).length>0;
   const sym=(id)=>MONEDAS.find(m=>m.id===id)?.symbol||"$";
 
   const porEmpresa = useMemo(()=>{
     const m={};
-    CUENTAS_FIJAS.forEach(c=>{
+    CUENTAS_VISIBLES.forEach(c=>{
       if(!m[c.emp]) m[c.emp]=[];
       m[c.emp].push(c);
     });
     return m;
-  },[]);
+  },[CUENTAS_VISIBLES]);
 
   return (
     <div style={{display:"flex",flexDirection:"column",gap:14}}>
@@ -6941,18 +7021,22 @@ function SaldosBancos({saldos,onSave,canEdit}) {
             {totalUSD!=null?`$${totalUSD.toLocaleString("es-CL",{maximumFractionDigits:0})} USD`:"—"}
           </div>
         </div>
+        {hayChile&&(
         <div style={{background:C.card,border:`1px solid #3b82f6`,borderRadius:10,padding:"12px 16px"}}>
           <div style={{fontSize:10,color:C.muted,textTransform:"uppercase",marginBottom:4}}>🇨🇱 Total Chile</div>
           <div style={{fontSize:18,fontWeight:900,color:"#3b82f6"}}>
             ${totalChileUSD.toLocaleString("es-CL",{maximumFractionDigits:0})} <span style={{fontSize:11,color:C.muted}}>USD</span>
           </div>
         </div>
+        )}
+        {hayPeru&&(
         <div style={{background:C.card,border:`1px solid #ef4444`,borderRadius:10,padding:"12px 16px"}}>
           <div style={{fontSize:10,color:C.muted,textTransform:"uppercase",marginBottom:4}}>🇵🇪 Total Perú</div>
           <div style={{fontSize:18,fontWeight:900,color:"#ef4444"}}>
             ${totalPeruUSD.toLocaleString("es-CL",{maximumFractionDigits:0})} <span style={{fontSize:11,color:C.muted}}>USD</span>
           </div>
         </div>
+        )}
         {[
           {id:"clp",label:"1 USD =",val:fx?.clpRaw,fmt:v=>`$${Math.round(v).toLocaleString("es-CL")} CLP`},
           {id:"eur",label:"1 EUR =",val:fx?.eurRaw,fmt:v=>`$${v.toFixed(4)} USD`},
@@ -6984,10 +7068,10 @@ function SaldosBancos({saldos,onSave,canEdit}) {
           {fxError&&<span style={{fontSize:10,color:C.orange}}>⚠️ Sin FX en vivo — usando valores guardados</span>}
         </div>
         {(()=>{
-          const maxVal=Math.max(...EMPRESAS_LIST.map(n=>totalesEmpresa[n]||0),1);
+          const maxVal=Math.max(...EMPRESAS_VISIBLES.map(n=>totalesEmpresa[n]||0),1);
           return(
             <div style={{display:"flex",flexDirection:"column",gap:7}}>
-              {EMPRESAS_LIST.map(emp=>{
+              {EMPRESAS_VISIBLES.map(emp=>{
                 const e=EMPRESAS_STATIC[emp]||{emoji:"🏢",color:C.muted};
                 const usd=totalesEmpresa[emp]||0;
                 const pct=Math.max(0,(usd/maxVal)*100);
@@ -7056,7 +7140,7 @@ function SaldosBancos({saldos,onSave,canEdit}) {
       )}
 
       <div style={{display:"flex",flexDirection:"column",gap:8}}>
-        {EMPRESAS_LIST.map(emp=>{
+        {EMPRESAS_VISIBLES.map(emp=>{
           const cuentas=porEmpresa[emp]||[];
           const empColor=EMPRESAS_STATIC[emp]?.color||C.muted;
           const empEmoji=EMPRESAS_STATIC[emp]?.emoji||"🏢";
@@ -9929,6 +10013,17 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
   const puedoVer = (tabId) => esAdmin || perm(tabId) !== "sin_acceso";
   const puedoEdit= (tabId) => esAdmin || (perm(tabId) !== "ver" && perm(tabId) !== "sin_acceso");
 
+  // Permisos por empresa (defensa en profundidad: filtra UI Y cálculos).
+  // El blob completo permanece en state — el filtro es solo a nivel de vista.
+  const empresasPermitidas = useMemo(
+    () => getEmpresasPermitidasUsuario(usuarioActual),
+    [usuarioActual]
+  );
+  const accesoCompletoEmpresas = useMemo(
+    () => esAccesoCompletoUsuario(usuarioActual),
+    [usuarioActual]
+  );
+
   const empresas=useMemo(()=>{
     const base = buildEmpresas(params, allegraComisionArandanos);
     // Recalculate Préstamos + Renovaciones proy using current creditosData
@@ -10045,6 +10140,19 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
     [empresas, realData, addedLinesGlobal, subLines] // eslint-disable-line
   );
 
+  // Subset de empresas visibles para el usuario actual.
+  // El blob raw (state) NO se filtra; el filtro vive en esta derivación de vista.
+  const empresasVisibles = useMemo(() => {
+    const out = {};
+    empresasPermitidas.forEach(k => { if(empresas[k]) out[k] = empresas[k]; });
+    return out;
+  }, [empresas, empresasPermitidas]);
+  const empresasConOverridesVisibles = useMemo(() => {
+    const out = {};
+    empresasPermitidas.forEach(k => { if(empresasConOverridesMain[k]) out[k] = empresasConOverridesMain[k]; });
+    return out;
+  }, [empresasConOverridesMain, empresasPermitidas]);
+
   const TABS_ALL=[
     {id:"dashboard",label:"📊 Dashboard"},
     {id:"flujo",    label:"📈 Flujo Empresas"},
@@ -10056,8 +10164,11 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
   ];
   // Solo mostrar pestañas a las que el usuario tiene acceso
   // Auditoría: solo admin
+  // Dashboard: solo si tiene acceso completo a empresas del consolidado
   const TABS = TABS_ALL.filter(t => {
     if(t.id==="auditoria") return usuarioActual?.rol==="admin";
+    // Dashboard y Reporte Semanal: solo con acceso completo (vistas agregadas del grupo)
+    if((t.id==="dashboard" || t.id==="reporte") && !accesoCompletoEmpresas) return false;
     return puedoVer(t.id);
   });
 
@@ -10067,7 +10178,19 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
       setTab(TABS[0].id);
     }
   // eslint-disable-next-line
-  },[tabPermisos]);
+  },[tabPermisos, accesoCompletoEmpresas]);
+
+  // Si empTab apunta a consolidado/intercompany sin acceso completo,
+  // o a una empresa fuera del subset permitido → caer en la primera permitida.
+  useEffect(()=>{
+    const esVistaAgregada = empTab==="_consolidado" || empTab==="_intercompany";
+    if(esVistaAgregada && !accesoCompletoEmpresas){
+      if(empresasPermitidas.length>0) setEmpTab(empresasPermitidas[0]);
+    } else if(!esVistaAgregada && !empresasPermitidas.includes(empTab)){
+      if(empresasPermitidas.length>0) setEmpTab(empresasPermitidas[0]);
+    }
+  // eslint-disable-next-line
+  },[accesoCompletoEmpresas, empresasPermitidas]);
 
   // ── Carga inicial de datos ────────────────────────────────────────
   function applyData(d) {
@@ -10324,13 +10447,23 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
 
   // Guardar créditos (nuevo, editar, marcar pagado)
   const handleSaveCreditos = useCallback((newList) => {
-    setCreditosData(newList);
-    creditosRef.current = newList;
+    // Permisos por empresa: merge contra el blob completo en memoria.
+    // 1. Validar: descartar registros cuya empresa NO esté permitida.
+    // 2. Preservar intactos los créditos de empresas fuera del subset del usuario.
+    const anterior = creditosRef.current || [];
+    const permitidas = getEmpresasPermitidasUsuario(usuarioActual);
+    const nextValidado = (Array.isArray(newList)?newList:[])
+      .filter(c => permitidas.includes(c?.empresa));
+    const preservados = anterior.filter(c => !permitidas.includes(c?.empresa));
+    const final = [...preservados, ...nextValidado];
+
+    setCreditosData(final);
+    creditosRef.current = final;
     setTimeout(()=>{
-      persistAll({ creditos_data: newList })
+      persistAll({ creditos_data: final })
         .then(ok=>{ setSaved(ok?"✅ Guardado":"⚠️ Error"); setTimeout(()=>setSaved(null),2000); });
     }, 0);
-  },[persistAll]);
+  },[persistAll, usuarioActual]);
 
   // Guardar transferencias intercompany
   const handleSaveIntercompany = useCallback((newList) => {
@@ -10414,25 +10547,39 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
     });
   },[persistAll]);
 
-  const handleSaveSaldos=useCallback(async(next)=>{
-    // Auditoría: detectar cambios en saldos (key = "Empresa||Banco||moneda")
+  const handleSaveSaldos=useCallback(async(nextRecibido)=>{
+    // Permisos por empresa — defensa en profundidad.
+    // 1. Validar: descartar del payload del child cualquier key cuya empresa NO esté permitida.
+    // 2. Merge: preservar intactas las keys de empresas fuera del subset del usuario.
+    // 3. AuditLog: comparar solo dentro del subset permitido (no logear eliminaciones falsas).
     const anterior = saldosBancosRef.current || {};
-    Object.keys(next).forEach(key=>{
-      const antes = Number(anterior[key]?.monto) || 0;
-      const despues = Number(next[key]?.monto) || 0;
-      const fechaAntes = anterior[key]?.fecha || null;
-      const fechaDespues = next[key]?.fecha || null;
-      const partes = key.split("||");
-      const [emp, banco, moneda] = partes;
+    const empKey = (k) => (k||"").split("||")[0];
+    const permitidas = getEmpresasPermitidasUsuario(usuarioActual);
+    const esPermitida = (k) => permitidas.includes(empKey(k));
+
+    const nextValidado = {};
+    Object.keys(nextRecibido||{}).forEach(k=>{
+      if(esPermitida(k)) nextValidado[k] = nextRecibido[k];
+    });
+    const anteriorPermitido = {};
+    Object.keys(anterior).forEach(k=>{
+      if(esPermitida(k)) anteriorPermitido[k] = anterior[k];
+    });
+
+    // Auditoría: cambios y ratificaciones sobre el subset del usuario
+    Object.keys(nextValidado).forEach(key=>{
+      const antes = Number(anteriorPermitido[key]?.monto) || 0;
+      const despues = Number(nextValidado[key]?.monto) || 0;
+      const fechaAntes = anteriorPermitido[key]?.fecha || null;
+      const fechaDespues = nextValidado[key]?.fecha || null;
+      const [emp, banco, moneda] = key.split("||");
       if(antes !== despues) {
-        // Cambio de monto (con o sin cambio de fecha)
         window.auditLog&&window.auditLog("editar", {modulo:"finanzas", seccion:"saldos bancos",
           descripcion:`Actualizó saldo de ${emp} · ${banco} · ${(moneda||"").toUpperCase()}`,
           registroId:key, campo:"monto",
           valorAnterior:antes.toLocaleString("es-CL"),
           valorNuevo:despues.toLocaleString("es-CL")});
       } else if(fechaAntes !== fechaDespues && despues !== 0) {
-        // Ratificación: mismo monto pero fecha distinta (usuario confirmó que el saldo sigue igual hoy)
         window.auditLog&&window.auditLog("editar", {modulo:"finanzas", seccion:"saldos bancos",
           descripcion:`Ratificó saldo de ${emp} · ${banco} · ${(moneda||"").toUpperCase()} (sin cambio de monto)`,
           registroId:key, campo:"fecha",
@@ -10440,22 +10587,30 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
           valorNuevo:fechaDespues||"—"});
       }
     });
-    // Detectar eliminaciones
-    Object.keys(anterior).forEach(key=>{
-      if(!(key in next) && Number(anterior[key]?.monto) !== 0) {
+    // Eliminaciones: solo dentro del subset permitido
+    Object.keys(anteriorPermitido).forEach(key=>{
+      if(!(key in nextValidado) && Number(anteriorPermitido[key]?.monto) !== 0) {
         const [emp, banco, moneda] = key.split("||");
         window.auditLog&&window.auditLog("eliminar", {modulo:"finanzas", seccion:"saldos bancos",
           descripcion:`Eliminó saldo de ${emp} · ${banco} · ${(moneda||"").toUpperCase()}`,
           registroId:key});
       }
     });
-    setSaldosBancos(next);
-    saldosBancosRef.current = next;
+
+    // Merge: preservar empresas no permitidas + aplicar subset del usuario
+    const merged = {};
+    Object.entries(anterior).forEach(([k,v])=>{
+      if(!esPermitida(k)) merged[k] = v;
+    });
+    Object.assign(merged, nextValidado);
+
+    setSaldosBancos(merged);
+    saldosBancosRef.current = merged;
     setSaved("💾 Guardando…");
-    const ok=await persistAll({ saldos_bancos:next });
+    const ok=await persistAll({ saldos_bancos:merged });
     setSaved(ok?"✅ Saldos guardados":"⚠️ Error al guardar — ver consola");
     setTimeout(()=>setSaved(null),4000);
-  },[persistAll]);
+  },[persistAll, usuarioActual]);
 
   useEffect(()=>{
     if(loading) return;
@@ -10556,12 +10711,13 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
       </div>
 
       {/* ── Contenido por pestaña ──────────────────────────── */}
-      {tab==="dashboard"&&puedoVer("dashboard")&&<Dashboard empresas={empresas} empresasConOverrides={empresasConOverridesMain} saldosBancos={saldosBancos}/>}
+      {tab==="dashboard"&&puedoVer("dashboard")&&accesoCompletoEmpresas&&<Dashboard empresas={empresas} empresasConOverrides={empresasConOverridesMain} saldosBancos={saldosBancos}/>}
 
       {tab==="flujo"&&puedoVer("flujo")&&(
         <div>
           {/* Selector empresa + botón Consolidado */}
           <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:12,alignItems:"center"}}>
+            {accesoCompletoEmpresas&&(<>
             <button onClick={()=>{setEmpTab("_consolidado");setFlujoSubTab("flujo");}}
               style={{padding:"7px 14px",borderRadius:8,cursor:"pointer",fontSize:11,fontWeight:600,
                 border:`2px solid ${empTab==="_consolidado"?"#a78bfa":"#a78bfa55"}`,
@@ -10576,9 +10732,10 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
                 color:empTab==="_intercompany"?"#f59e0b":C.muted,transition:"all 0.15s"}}>
               🔄 Intercompany
             </button>
+            </>)}
             {["Mediterra","Allegria Foods","Allegria Service","Frisku Foods",
               "Osiris","Integrity Farms","Allpa Farms","Allpa Farms Perú"
-            ].filter(n=>empresas[n]).map(n=>{const e=empresas[n];return (
+            ].filter(n=>empresas[n]&&empresasPermitidas.includes(n)).map(n=>{const e=empresas[n];return (
               <button key={n} onClick={()=>{setEmpTab(n);setFlujoSubTab("flujo");}}
                 style={{padding:"7px 14px",borderRadius:8,cursor:"pointer",fontSize:11,fontWeight:600,
                   border:`1px solid ${empTab===n?e.color:C.border}`,
@@ -10678,11 +10835,11 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
           )}
 
           {/* Consolidado */}
-          {empTab==="_consolidado"&&(
+          {empTab==="_consolidado"&&accesoCompletoEmpresas&&(
             <Consolidado empresas={empresas} saldosBancos={saldosBancos} realData={realData} addedLinesGlobal={addedLinesGlobal} subLinesGlobal={subLines}/>
           )}
           {/* Intercompany */}
-          {empTab==="_intercompany"&&(
+          {empTab==="_intercompany"&&accesoCompletoEmpresas&&(
             <Intercompany
               transferencias={intercompany}
               onSave={handleSaveIntercompany}
@@ -10693,15 +10850,20 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
       )}
 
       {tab==="bancos"&&puedoVer("bancos")&&(
-        <SaldosBancos saldos={saldosBancos} onSave={handleSaveSaldos} canEdit={puedoEdit("bancos")}/>
+        <SaldosBancos saldos={saldosBancos} onSave={handleSaveSaldos} canEdit={puedoEdit("bancos")} empresasPermitidas={empresasPermitidas}/>
       )}
-      {tab==="creditos"&&puedoVer("creditos")&&<Creditos empresas={empresas} creditosData={creditosData} onSaveCreditos={handleSaveCreditos} canEdit={puedoEdit('creditos')}/>}
+      {tab==="creditos"&&puedoVer("creditos")&&(()=>{
+        // nextCreditId calculado sobre el BLOB COMPLETO (no sobre el subset visible)
+        // para evitar colisión de IDs cuando un usuario restringido crea un crédito.
+        const maxNFull = (creditosData||[]).reduce((m,c)=> Math.max(m, typeof c.n==='number' && c.n<100000 ? c.n : 0), 0);
+        return <Creditos empresas={empresasVisibles} creditosData={creditosData} onSaveCreditos={handleSaveCreditos} canEdit={puedoEdit('creditos')} empresasPermitidas={empresasPermitidas} nextCreditId={maxNFull+1}/>;
+      })()}
 
       {tab==="nominas"&&puedoVer("nominas")&&(
         <NominasModule usuario={usuarioActual} canEdit={puedoEdit("nominas")} saldosBancos={saldosBancos}/>
       )}
 
-      {tab==="reporte"&&puedoVer("reporte")&&(
+      {tab==="reporte"&&puedoVer("reporte")&&accesoCompletoEmpresas&&(
         <ReporteSemanalModule
           realData={realData}
           params={params}
