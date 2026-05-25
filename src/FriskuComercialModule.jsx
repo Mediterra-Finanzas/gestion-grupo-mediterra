@@ -43,6 +43,308 @@ const btnSt = (color=C.blue, ghost=false) => ({
 
 function uid() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 8); }
 
+// ── Loaders CDN ──────────────────────────────────────────────────
+let _plJsPDFLoaded = false;
+async function pl_loadJsPDF() {
+  if(_plJsPDFLoaded && window.jspdf) return window.jspdf.jsPDF;
+  await new Promise((res,rej)=>{
+    const s1=document.createElement("script");
+    s1.src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js";
+    s1.onload=()=>{
+      const s2=document.createElement("script");
+      s2.src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js";
+      s2.onload=()=>{ _plJsPDFLoaded=true; res(); };
+      s2.onerror=rej; document.head.appendChild(s2);
+    };
+    s1.onerror=rej; document.head.appendChild(s1);
+  });
+  return window.jspdf.jsPDF;
+}
+async function pl_loadJSZip() {
+  if(window.JSZip) return;
+  await new Promise((res,rej)=>{ const s=document.createElement("script"); s.src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"; s.onload=res; s.onerror=rej; document.head.appendChild(s); });
+}
+
+// ── Exportar Packing List → PDF ──────────────────────────────────
+async function exportarPL_PDF(oe, pl, exportadora, cliente, especie, tiposEmbalaje) {
+  const JsPDF = await pl_loadJsPDF();
+  const doc = new JsPDF({ orientation:"portrait", unit:"mm", format:"a4" });
+  const W=210, m=14;
+
+  // Header
+  doc.setFillColor(30,37,51); doc.rect(0,0,W,28,"F");
+  doc.setTextColor(255,255,255);
+  doc.setFontSize(16); doc.setFont("helvetica","bold"); doc.text("PACKING LIST",m,11);
+  doc.setFontSize(9); doc.setFont("helvetica","normal");
+  doc.text(`Frisku Foods — ${especie?.icono||""} ${especie?.nombreEs||""}`,m,18);
+  if(oe.numero) doc.text(`OE: ${oe.numero}`,W-m,11,{align:"right"});
+  doc.text(new Date().toLocaleDateString("es-CL"),W-m,18,{align:"right"});
+
+  let y=36;
+  doc.setTextColor(40,40,40);
+
+  // Info OE
+  doc.autoTable({
+    startY:y,
+    theme:"grid",
+    headStyles:{fillColor:[45,58,82],textColor:255,fontStyle:"bold",fontSize:8},
+    styles:{fontSize:8,cellPadding:3},
+    head:[["Campo","Detalle","Campo","Detalle"]],
+    body:[
+      ["Exportadora",exportadora?.nombre||"—","Cliente",cliente?.nombre||"—"],
+      ["Origen",oe.origen||"—","Destino",oe.destino||"—"],
+      ["Naviera/Aerolínea",oe.navieraAerolinea||"—","N° Contenedor/Vuelo",oe.numeroContenedor||"—"],
+      ["Tipo embarque",oe.tipoEmbarque==="maritimo"?"Marítimo":"Aéreo","Temporada",oe.temporada||"—"],
+      ["Fecha despacho real",pl.fechaDespReal||"—","B/L o AWB",pl.blAwb||"—"],
+      ["N° Sello",pl.sello||"—","Temperatura",pl.temperaturaC!=null&&pl.temperaturaC!==""?`${pl.temperaturaC}°C`:"—"],
+    ],
+    margin:{left:m,right:m},
+  });
+  y = doc.lastAutoTable.finalY + 8;
+
+  if(oe.notify?.nombre) {
+    doc.setFontSize(8); doc.setTextColor(100,100,100);
+    doc.text(`Notify: ${oe.notify.nombre}${oe.notify.direccion?" · "+oe.notify.direccion:""}${oe.notify.contacto?" · "+oe.notify.contacto:""}`,m,y);
+    y+=7;
+  }
+
+  // Pallets table
+  const totalCajas   = (pl.pallets||[]).reduce((s,p)=>s+Number(p.cajas||0),0);
+  const totalNetoKg  = (pl.pallets||[]).reduce((s,p)=>s+Number(p.pesoNetoKg||0),0);
+  const totalBrutoKg = (pl.pallets||[]).reduce((s,p)=>s+Number(p.pesoBrutoKg||0),0);
+  const body = (pl.pallets||[]).map((p,i)=>[
+    i+1,
+    tiposEmbalaje.find(t=>t.codigo===p.formato)?.nombre||p.formato||"—",
+    p.palletNum||"—",
+    Number(p.cajas||0).toLocaleString("es-CL"),
+    Number(p.pesoNetoKg||0).toLocaleString("es-CL"),
+    Number(p.pesoBrutoKg||0).toLocaleString("es-CL"),
+  ]);
+  body.push(["","TOTAL","",totalCajas.toLocaleString("es-CL"),totalNetoKg.toLocaleString("es-CL"),totalBrutoKg.toLocaleString("es-CL")]);
+
+  doc.autoTable({
+    startY:y,
+    theme:"striped",
+    headStyles:{fillColor:[20,184,166],textColor:255,fontStyle:"bold",fontSize:8},
+    styles:{fontSize:8,cellPadding:3},
+    footStyles:{fillColor:[240,240,240],fontStyle:"bold"},
+    head:[["#","Formato","N° Pallet","Cajas","Peso Neto (kg)","Peso Bruto (kg)"]],
+    body,
+    columnStyles:{0:{halign:"center",cellWidth:8},2:{halign:"center",cellWidth:18},3:{halign:"right",cellWidth:20},4:{halign:"right",cellWidth:26},5:{halign:"right",cellWidth:26}},
+    margin:{left:m,right:m},
+    didDrawRow:(data)=>{
+      if(data.row.index===body.length-1){
+        doc.setFont("helvetica","bold");
+      }
+    },
+  });
+
+  if(pl.observ) {
+    const finalY = doc.lastAutoTable.finalY + 6;
+    doc.setFontSize(8); doc.setTextColor(100,100,100);
+    doc.text(`Observaciones: ${pl.observ}`,m,finalY);
+  }
+
+  const nombre = `PL_${oe.numero||oe.id}_${new Date().toISOString().slice(0,10)}.pdf`;
+  doc.save(nombre);
+}
+
+// ── Exportar Packing List → Excel ────────────────────────────────
+async function exportarPL_Excel(oe, pl, exportadora, cliente, especie, tiposEmbalaje) {
+  await pl_loadJSZip();
+  const pallets = pl.pallets||[];
+  const totalCajas   = pallets.reduce((s,p)=>s+Number(p.cajas||0),0);
+  const totalNetoKg  = pallets.reduce((s,p)=>s+Number(p.pesoNetoKg||0),0);
+  const totalBrutoKg = pallets.reduce((s,p)=>s+Number(p.pesoBrutoKg||0),0);
+
+  function esc(s){ return String(s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;"); }
+  function cell(v,bold=false,bg=""){
+    const s = bold?`<Font Bold="1"/>`:"";
+    const fill = bg?`<Interior ss:Color="${bg}" ss:Pattern="Solid"/>`:"";
+    return `<Cell><ss:Data ss:Type="String">${esc(v)}</ss:Data>${s||fill?`<ss:Style>${s}${fill}</ss:Style>`:""}</Cell>`;
+  }
+  function numCell(v,bold=false){
+    const s=bold?`<ss:Style><Font Bold="1"/></ss:Style>`:"";
+    return `<Cell${s?` ss:StyleID="bold"`:""}><ss:Data ss:Type="Number">${Number(v)||0}</ss:Data></Cell>`;
+  }
+
+  const infoRows = [
+    ["Exportadora",exportadora?.nombre||"—","Cliente",cliente?.nombre||"—"],
+    ["Especie",especie?`${especie.icono} ${especie.nombreEs}`:"—","Temporada",oe.temporada||"—"],
+    ["Origen",oe.origen||"—","Destino",oe.destino||"—"],
+    ["Naviera/Aerolinea",oe.navieraAerolinea||"—","N° Contenedor/Vuelo",oe.numeroContenedor||"—"],
+    ["Fecha despacho real",pl.fechaDespReal||"—","B/L o AWB",pl.blAwb||"—"],
+    ["N° Sello",pl.sello||"—","Temperatura",pl.temperaturaC!=null&&pl.temperaturaC!==""?`${pl.temperaturaC}°C`:"—"],
+  ].map(r=>`<Row>${r.map(v=>cell(v)).join("")}</Row>`).join("");
+
+  const palletRows = pallets.map((p,i)=>`<Row>
+    <Cell><ss:Data ss:Type="Number">${i+1}</ss:Data></Cell>
+    ${cell(tiposEmbalaje.find(t=>t.codigo===p.formato)?.nombre||p.formato||"")}
+    <Cell><ss:Data ss:Type="Number">${Number(p.palletNum)||0}</ss:Data></Cell>
+    <Cell><ss:Data ss:Type="Number">${Number(p.cajas)||0}</ss:Data></Cell>
+    <Cell><ss:Data ss:Type="Number">${Number(p.pesoNetoKg)||0}</ss:Data></Cell>
+    <Cell><ss:Data ss:Type="Number">${Number(p.pesoBrutoKg)||0}</ss:Data></Cell>
+  </Row>`).join("");
+
+  const totalRow = `<Row>
+    ${cell("")}${cell("TOTAL",true)}${cell("")}
+    <Cell><ss:Data ss:Type="Number">${totalCajas}</ss:Data></Cell>
+    <Cell><ss:Data ss:Type="Number">${totalNetoKg}</ss:Data></Cell>
+    <Cell><ss:Data ss:Type="Number">${totalBrutoKg}</ss:Data></Cell>
+  </Row>`;
+
+  const xml = `<?xml version="1.0"?><Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet" xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet">
+<Worksheet ss:Name="Packing List"><Table>
+  <Row><Cell ss:MergeAcross="5"><ss:Data ss:Type="String">PACKING LIST — ${esc(oe.numero||oe.id)}</ss:Data></Cell></Row>
+  <Row/>
+  ${infoRows}
+  <Row/>
+  <Row>${["#","Formato","N° Pallet","Cajas","Peso Neto (kg)","Peso Bruto (kg)"].map(h=>cell(h,true)).join("")}</Row>
+  ${palletRows}
+  ${totalRow}
+  ${pl.observ?`<Row/><Row>${cell("Observaciones:",true)}${cell(pl.observ)}</Row>`:""}
+</Table></Worksheet></Workbook>`;
+
+  const blob = new Blob([xml],{type:"application/vnd.ms-excel;charset=utf-8"});
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement("a");
+  a.href=url; a.download=`PL_${oe.numero||oe.id}_${new Date().toISOString().slice(0,10)}.xlsx`; a.click();
+  URL.revokeObjectURL(url);
+}
+
+// ── PackingListPanel ─────────────────────────────────────────────
+function PackingListPanel({ oe, tiposEmbalaje, especies, exportadoras, clientes, onGuardar, canEdit }) {
+  const [pl, setPl] = useState(()=>JSON.parse(JSON.stringify(oe.packingList||{fechaDespReal:"",blAwb:"",sello:"",temperaturaC:"",pallets:[],observ:""})));
+  const [dirty, setDirty] = useState(false);
+  const [exporting, setExporting] = useState(false);
+
+  const exportadora = exportadoras.find(e=>e.id===oe.exportadoraId);
+  const cliente     = clientes.find(c=>c.id===oe.clienteId);
+  const especie     = especies.find(e=>e.codigo===oe.especieCodigo);
+  const formatosOE  = Object.entries(oe.cajasPorFormato||{}).filter(([,v])=>Number(v)>0).map(([cod])=>cod);
+
+  function upd(k,v){ setPl(p=>({...p,[k]:v})); setDirty(true); }
+  function addPallet(){
+    setPl(p=>({...p,pallets:[...(p.pallets||[]),{id:uid(),formato:formatosOE[0]||"",palletNum:(p.pallets||[]).length+1,cajas:0,pesoNetoKg:0,pesoBrutoKg:0}]}));
+    setDirty(true);
+  }
+  function updPallet(idx,k,v){ setPl(p=>{ const ps=[...p.pallets]; ps[idx]={...ps[idx],[k]:v}; return {...p,pallets:ps}; }); setDirty(true); }
+  function delPallet(idx){ setPl(p=>({...p,pallets:p.pallets.filter((_,i)=>i!==idx)})); setDirty(true); }
+
+  const totalCajas   = (pl.pallets||[]).reduce((s,p)=>s+Number(p.cajas||0),0);
+  const totalNetoKg  = (pl.pallets||[]).reduce((s,p)=>s+Number(p.pesoNetoKg||0),0);
+  const totalBrutoKg = (pl.pallets||[]).reduce((s,p)=>s+Number(p.pesoBrutoKg||0),0);
+
+  function handleGuardar(){ onGuardar(pl); setDirty(false); }
+
+  async function handlePDF(){
+    setExporting(true);
+    try{ await exportarPL_PDF(oe,pl,exportadora,cliente,especie,tiposEmbalaje); }
+    catch(e){ alert("Error generando PDF: "+e.message); }
+    finally{ setExporting(false); }
+  }
+  async function handleExcel(){
+    setExporting(true);
+    try{ await exportarPL_Excel(oe,pl,exportadora,cliente,especie,tiposEmbalaje); }
+    catch(e){ alert("Error generando Excel: "+e.message); }
+    finally{ setExporting(false); }
+  }
+
+  const numSt = {...inputSt,width:70,textAlign:"right",padding:"4px 6px"};
+  const hasPallets = (pl.pallets||[]).length > 0;
+
+  return (
+    <div style={{marginTop:12,padding:14,background:`${C.bg}bb`,borderRadius:10,border:`1px solid ${C.teal}44`}}>
+      <div style={{fontSize:12,fontWeight:700,color:C.teal,marginBottom:12}}>📋 Packing List</div>
+
+      {/* Meta */}
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(140px,1fr))",gap:10,marginBottom:14}}>
+        {[["Fecha despacho real","fechaDespReal","date"],["B/L o AWB","blAwb","text"],["N° Sello","sello","text"],["Temperatura (°C)","temperaturaC","number"]].map(([lbl,k,type])=>(
+          <div key={k}>
+            <div style={lblSt}>{lbl}</div>
+            <input type={type} value={pl[k]||""} onChange={e=>upd(k,e.target.value)} style={inputSt} disabled={!canEdit}/>
+          </div>
+        ))}
+      </div>
+
+      {/* Tabla pallets */}
+      <div style={{overflowX:"auto",marginBottom:10}}>
+        <table style={{width:"100%",borderCollapse:"collapse",fontSize:11}}>
+          <thead>
+            <tr style={{borderBottom:`1px solid ${C.border}`}}>
+              {["#","Formato","N° Pallet","Cajas","Peso Neto kg","Peso Bruto kg",canEdit?"✕":""].map((h,i)=>(
+                <th key={i} style={{padding:"6px 8px",textAlign:i===0||i===2||i===3?"center":"left",color:C.muted,fontWeight:700,fontSize:10,whiteSpace:"nowrap"}}>{h}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {(pl.pallets||[]).map((p,idx)=>(
+              <tr key={p.id||idx} style={{borderBottom:`1px solid ${C.border}22`}}>
+                <td style={{padding:"4px 8px",textAlign:"center",color:C.muted2,fontFamily:"monospace",fontSize:10}}>{idx+1}</td>
+                <td style={{padding:"4px 4px"}}>
+                  {canEdit
+                    ? <select value={p.formato} onChange={e=>updPallet(idx,"formato",e.target.value)} style={{...inputSt,padding:"4px 6px",width:130}}>
+                        {formatosOE.map(cod=><option key={cod} value={cod}>{tiposEmbalaje.find(t=>t.codigo===cod)?.nombre||cod}</option>)}
+                        {!formatosOE.includes(p.formato)&&p.formato&&<option value={p.formato}>{p.formato}</option>}
+                      </select>
+                    : <span style={{color:C.text}}>{tiposEmbalaje.find(t=>t.codigo===p.formato)?.nombre||p.formato||"—"}</span>}
+                </td>
+                <td style={{padding:"4px 4px",textAlign:"center"}}>
+                  {canEdit
+                    ? <input type="number" value={p.palletNum||""} onChange={e=>updPallet(idx,"palletNum",Number(e.target.value)||0)} style={{...numSt,width:55}}/>
+                    : <span style={{fontFamily:"monospace",color:C.text}}>{p.palletNum||"—"}</span>}
+                </td>
+                {["cajas","pesoNetoKg","pesoBrutoKg"].map(k=>(
+                  <td key={k} style={{padding:"4px 4px"}}>
+                    {canEdit
+                      ? <input type="number" value={p[k]||""} onChange={e=>updPallet(idx,k,Number(e.target.value)||0)} style={numSt}/>
+                      : <span style={{fontFamily:"monospace",color:C.text}}>{Number(p[k]||0).toLocaleString("es-CL")}</span>}
+                  </td>
+                ))}
+                <td style={{padding:"4px 4px"}}>
+                  {canEdit && <button onClick={()=>delPallet(idx)} style={{...btnSt(C.accent,true),padding:"2px 6px",fontSize:11}}>×</button>}
+                </td>
+              </tr>
+            ))}
+            {hasPallets && (
+              <tr style={{borderTop:`1px solid ${C.border}`,background:`${C.bg}66`}}>
+                <td colSpan={2} style={{padding:"6px 8px",fontSize:10,color:C.muted,fontWeight:700,textAlign:"right"}}>TOTAL</td>
+                <td style={{padding:"6px 8px",textAlign:"center",fontWeight:700,color:C.text,fontFamily:"monospace"}}>{(pl.pallets||[]).length}</td>
+                <td style={{padding:"6px 8px",textAlign:"center",fontWeight:700,color:C.text,fontFamily:"monospace"}}>{totalCajas.toLocaleString("es-CL")}</td>
+                <td style={{padding:"6px 8px",fontWeight:700,color:C.text,fontFamily:"monospace"}}>{totalNetoKg.toLocaleString("es-CL")}</td>
+                <td style={{padding:"6px 8px",fontWeight:700,color:C.text,fontFamily:"monospace"}}>{totalBrutoKg.toLocaleString("es-CL")}</td>
+                <td/>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+
+      {canEdit && (
+        <button onClick={addPallet} style={{...btnSt(C.teal,true),marginBottom:12,fontSize:11}}>+ Agregar pallet</button>
+      )}
+
+      <div style={{marginBottom:12}}>
+        <div style={lblSt}>Observaciones</div>
+        <textarea value={pl.observ||""} onChange={e=>upd("observ",e.target.value)}
+          rows={2} style={{...inputSt,resize:"vertical"}} disabled={!canEdit}/>
+      </div>
+
+      <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center"}}>
+        {canEdit && dirty && <button onClick={handleGuardar} style={btnSt(C.green)}>💾 Guardar</button>}
+        {canEdit && !dirty && hasPallets && <span style={{fontSize:11,color:C.green}}>✓ Guardado</span>}
+        {hasPallets && !exporting && (
+          <>
+            <button onClick={handlePDF}   style={btnSt(C.accent,true)}>📄 PDF</button>
+            <button onClick={handleExcel} style={btnSt(C.green,true)}>📊 Excel</button>
+          </>
+        )}
+        {exporting && <span style={{fontSize:11,color:C.muted}}>Generando…</span>}
+      </div>
+    </div>
+  );
+}
+
 const TIPOS_DOC_CLIENTE = [
   "Packing List", "Certificado Fitosanitario", "Factura Exportación",
   "Invoice", "QC Destino", "Otro",
@@ -1795,7 +2097,8 @@ function OEForm({oe, exportadoras, clientes, especies, tiposEmbalaje, contratos,
 // ═══════════════════════════════════════════════════════════════════
 // ORDEN DE EMBARQUE — CARD
 // ═══════════════════════════════════════════════════════════════════
-function OECard({oe, exportadoras, clientes, especies, tiposEmbalaje, onEditar, onEliminar, canEdit}) {
+function OECard({oe, exportadoras, clientes, especies, tiposEmbalaje, onEditar, onEliminar, onGuardarPL, canEdit}) {
+  const [showPL, setShowPL] = useState(false);
   const exportadora = exportadoras.find(e=>e.id===oe.exportadoraId);
   const cliente     = clientes.find(c=>c.id===oe.clienteId);
   const especie     = especies.find(e=>e.codigo===oe.especieCodigo);
@@ -1813,6 +2116,7 @@ function OECard({oe, exportadoras, clientes, especies, tiposEmbalaje, onEditar, 
       background:C.card2,padding:14,borderRadius:10,
       border:`1px solid ${oe.estado==="despachado"?C.blue+"55":oe.estado==="cancelado"?C.border:C.teal+"44"}`,
       opacity:oe.estado==="cancelado"?0.6:1,
+      gridColumn:showPL?"1/-1":undefined,
     }}>
       {/* Header */}
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:10,marginBottom:10}}>
@@ -1873,7 +2177,7 @@ function OECard({oe, exportadoras, clientes, especies, tiposEmbalaje, onEditar, 
         </div>
       )}
 
-      {/* KPIs */}
+      {/* KPIs + botón PL */}
       <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:8,padding:"8px 0",borderTop:`1px solid ${C.border}`,fontSize:11}}>
         <div>
           <div style={{color:C.muted,fontSize:9,textTransform:"uppercase"}}>Total cajas</div>
@@ -1893,6 +2197,33 @@ function OECard({oe, exportadoras, clientes, especies, tiposEmbalaje, onEditar, 
         <div style={{marginTop:8,fontSize:11,color:C.muted,fontStyle:"italic",borderTop:`1px solid ${C.border}`,paddingTop:6}}>
           {oe.observ}
         </div>
+      )}
+
+      {/* Botón Packing List */}
+      <div style={{marginTop:10,paddingTop:8,borderTop:`1px solid ${C.border}`}}>
+        <button onClick={()=>setShowPL(v=>!v)}
+          style={{...btnSt(C.teal,!showPL),fontSize:11,display:"flex",alignItems:"center",gap:5}}>
+          📋 Packing List
+          {oe.packingList?.pallets?.length>0 && (
+            <span style={{background:`${C.teal}33`,borderRadius:10,padding:"1px 7px",fontSize:10,fontWeight:700}}>
+              {oe.packingList.pallets.length} pallets
+            </span>
+          )}
+          <span style={{fontSize:10,opacity:0.7}}>{showPL?"▲":"▼"}</span>
+        </button>
+      </div>
+
+      {/* Panel Packing List */}
+      {showPL && (
+        <PackingListPanel
+          oe={oe}
+          tiposEmbalaje={tiposEmbalaje}
+          especies={especies}
+          exportadoras={exportadoras}
+          clientes={clientes}
+          onGuardar={onGuardarPL}
+          canEdit={canEdit}
+        />
       )}
     </div>
   );
@@ -2907,6 +3238,7 @@ export default function FriskuComercialModule({
                         tiposEmbalaje={tiposEmbalaje}
                         onEditar={()=>handleEditarOE(oe)}
                         onEliminar={()=>handleEliminarOE(oe)}
+                        onGuardarPL={(pl)=>setEmbarques(prev=>prev.map(e=>e.id===oe.id?{...e,packingList:pl,estado:pl.pallets?.length>0&&e.estado==="confirmado"?"despachado":e.estado}:e))}
                         canEdit={permEmbarques.canEdit}
                       />
                     ))}
