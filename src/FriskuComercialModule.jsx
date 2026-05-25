@@ -3172,8 +3172,20 @@ export default function FriskuComercialModule({
 
   // ── Handlers Órdenes de Embarque ──
   const handleNuevaOE = () => {
-    setEditandoOE(null);
     setCreandoOE(true);
+    setEditandoOE({
+      id:"", numero:"", temporada:"",
+      closureId:"", exportadoraId:"", clienteId:"", especieCodigo:"",
+      tipoEmbarque:"maritimo",
+      origen:"", destino:"",
+      navieraAerolinea:"", vuelo:"", contenedor:"",
+      etd:"", eta:"", fechaCierre:"",
+      notify:{ nombre:"", direccion:"", ciudad:"", pais:"", email:"", telefono:"" },
+      cajasPorFormato:{},
+      observ:"", estado:"borrador",
+      fechaCreacion: new Date().toISOString(),
+      fechaActualizacion: new Date().toISOString(),
+    });
   };
   const handleEditarOE = (oe) => {
     setCreandoOE(false);
