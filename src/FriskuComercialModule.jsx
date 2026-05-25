@@ -2094,11 +2094,208 @@ function OEForm({oe, exportadoras, clientes, especies, tiposEmbalaje, contratos,
   );
 }
 
+// ── Carpeta COMEX ────────────────────────────────────────────────
+const DOCS_COMEX_DEFAULT = [
+  "BL / AWB","Invoice Comercial","Packing List",
+  "Certificado Fitosanitario","Certificado de Origen","Seguro de Carga",
+];
+
+function defaultCarpetaComex() {
+  return {
+    docs: DOCS_COMEX_DEFAULT.map(tipo=>({id:uid(),tipo,nombre:"",url:"",fuente:"manual",fechaCarga:"",estado:"pendiente"})),
+    qcDestino:{fechaRecepcion:"",temperaturaLlegada:"",pesoVerificadoKg:"",observ:"",fotos:[]},
+  };
+}
+
+function CarpetaComexPanel({ oe, onGuardar, canEdit }) {
+  const [cx, setCx] = useState(()=>{
+    const saved = oe.carpetaComex;
+    if(!saved) return defaultCarpetaComex();
+    const savedTipos = (saved.docs||[]).map(d=>d.tipo);
+    const missing = DOCS_COMEX_DEFAULT.filter(t=>!savedTipos.includes(t))
+      .map(tipo=>({id:uid(),tipo,nombre:"",url:"",fuente:"manual",fechaCarga:"",estado:"pendiente"}));
+    return { ...saved, docs:[...(saved.docs||[]),...missing], qcDestino:{...defaultCarpetaComex().qcDestino,...(saved.qcDestino||{})} };
+  });
+  const [dirty,    setDirty]    = useState(false);
+  const [uploading,setUploading]= useState(new Set());
+  const [subTab,   setSubTab]   = useState("docs");
+
+  function updDoc(idx,k,v){ setCx(p=>{ const d=[...p.docs]; d[idx]={...d[idx],[k]:v}; return {...p,docs:d}; }); setDirty(true); }
+  function addDoc(){ setCx(p=>({...p,docs:[...p.docs,{id:uid(),tipo:"Otro",nombre:"",url:"",fuente:"manual",fechaCarga:"",estado:"pendiente"}]})); setDirty(true); }
+  function delDoc(idx){ setCx(p=>({...p,docs:p.docs.filter((_,i)=>i!==idx)})); setDirty(true); }
+  function updQC(k,v){ setCx(p=>({...p,qcDestino:{...p.qcDestino,[k]:v}})); setDirty(true); }
+  function addFoto(){ setCx(p=>({...p,qcDestino:{...p.qcDestino,fotos:[...(p.qcDestino.fotos||[]),{id:uid(),url:"",fuente:"manual",fecha:""}]}})); setDirty(true); }
+  function updFoto(idx,k,v){ setCx(p=>{ const f=[...(p.qcDestino.fotos||[])]; f[idx]={...f[idx],[k]:v}; return {...p,qcDestino:{...p.qcDestino,fotos:f}}; }); setDirty(true); }
+  function delFoto(idx){ setCx(p=>({...p,qcDestino:{...p.qcDestino,fotos:(p.qcDestino.fotos||[]).filter((_,i)=>i!==idx)}})); setDirty(true); }
+
+  async function handleUploadDoc(idx, file) {
+    const doc = cx.docs[idx];
+    const ext = file.name.split(".").pop();
+    const path = `embarques/${oe.id}/comex/${doc.id||uid()}/${Date.now()}.${ext}`;
+    setUploading(p=>new Set(p).add(idx));
+    const url = await uploadArchivoFrisku(file, path);
+    setUploading(p=>{ const s=new Set(p); s.delete(idx); return s; });
+    if(url){ updDoc(idx,"url",url); updDoc(idx,"fuente","storage"); updDoc(idx,"nombre",file.name); updDoc(idx,"fechaCarga",new Date().toISOString().slice(0,10)); updDoc(idx,"estado","cargado"); }
+  }
+  async function handleUploadFoto(idx, file) {
+    const foto = (cx.qcDestino.fotos||[])[idx];
+    const ext  = file.name.split(".").pop();
+    const path = `embarques/${oe.id}/comex/qc/${foto?.id||uid()}/${Date.now()}.${ext}`;
+    const key  = `foto_${idx}`;
+    setUploading(p=>new Set(p).add(key));
+    const url = await uploadArchivoFrisku(file, path);
+    setUploading(p=>{ const s=new Set(p); s.delete(key); return s; });
+    if(url){ updFoto(idx,"url",url); updFoto(idx,"fuente","storage"); updFoto(idx,"fecha",new Date().toISOString().slice(0,10)); }
+  }
+
+  const docsCargados = cx.docs.filter(d=>d.url&&d.estado!=="pendiente").length;
+  const pct = cx.docs.length>0 ? Math.round(docsCargados/cx.docs.length*100) : 0;
+  const ECOL = { pendiente:C.yellow, cargado:C.blue, aprobado:C.green };
+
+  return (
+    <div style={{marginTop:12,padding:14,background:`${C.bg}bb`,borderRadius:10,border:`1px solid ${C.purple}44`}}>
+      {/* Cabecera */}
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+        <div style={{fontSize:12,fontWeight:700,color:C.purple}}>
+          📁 Carpeta COMEX
+          <span style={{marginLeft:10,fontSize:10,background:`${C.purple}22`,color:C.purple,borderRadius:20,padding:"2px 8px",fontWeight:700}}>
+            {docsCargados}/{cx.docs.length} · {pct}%
+          </span>
+        </div>
+        <div style={{display:"flex",gap:5}}>
+          {[["docs","📄 Docs"],["qc","🔍 QC Destino"]].map(([t,lbl])=>(
+            <button key={t} onClick={()=>setSubTab(t)} style={{...btnSt(C.purple,subTab!==t),padding:"4px 10px",fontSize:10}}>{lbl}</button>
+          ))}
+        </div>
+      </div>
+      {/* Progress bar */}
+      <div style={{background:C.border,borderRadius:4,height:4,marginBottom:12,overflow:"hidden"}}>
+        <div style={{width:`${pct}%`,background:pct===100?C.green:C.purple,height:"100%",borderRadius:4,transition:"width 0.3s"}}/>
+      </div>
+
+      {/* Documentos */}
+      {subTab==="docs" && (
+        <div>
+          <div style={{display:"flex",flexDirection:"column",gap:5,marginBottom:10}}>
+            {cx.docs.map((doc,idx)=>{
+              const isStorage = doc.fuente==="storage" && doc.url;
+              const isUploading = uploading.has(idx);
+              const ec = ECOL[doc.estado||"pendiente"]||C.yellow;
+              const isDefault = DOCS_COMEX_DEFAULT.includes(doc.tipo);
+              return (
+                <div key={doc.id||idx} style={{display:"flex",gap:6,alignItems:"center",padding:"7px 10px",background:C.card,borderRadius:8,border:`1px solid ${doc.url?C.border:C.border+"44"}`}}>
+                  <div style={{flex:1,minWidth:0}}>
+                    <div style={{fontSize:11,fontWeight:600,color:C.text,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{doc.tipo}</div>
+                    {doc.nombre&&doc.nombre!==doc.tipo&&<div style={{fontSize:9,color:C.muted,marginTop:1,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{doc.nombre}</div>}
+                    {doc.fechaCarga&&<div style={{fontSize:9,color:C.muted2}}>{doc.fechaCarga}</div>}
+                  </div>
+                  {canEdit
+                    ? <select value={doc.estado||"pendiente"} onChange={e=>updDoc(idx,"estado",e.target.value)}
+                        style={{...inputSt,padding:"3px 5px",width:85,fontSize:10,color:ec,border:`1px solid ${ec}44`,flexShrink:0}}>
+                        <option value="pendiente">Pendiente</option>
+                        <option value="cargado">Cargado</option>
+                        <option value="aprobado">Aprobado</option>
+                      </select>
+                    : <span style={{fontSize:9,padding:"2px 7px",borderRadius:4,background:`${ec}22`,color:ec,border:`1px solid ${ec}44`,fontWeight:700,whiteSpace:"nowrap",flexShrink:0}}>
+                        {doc.estado==="pendiente"?"Pendiente":doc.estado==="cargado"?"Cargado":"Aprobado"}
+                      </span>
+                  }
+                  {doc.url && (
+                    <a href={doc.url} target="_blank" rel="noreferrer"
+                      style={{...btnSt(isStorage?C.teal:C.blue,true),padding:"3px 8px",fontSize:10,textDecoration:"none",flexShrink:0}}>
+                      {isStorage?"📎":"↗"}
+                    </a>
+                  )}
+                  {canEdit && !doc.url && (
+                    <input value={doc.url||""} onChange={e=>{ updDoc(idx,"url",e.target.value); if(e.target.value){updDoc(idx,"fuente","manual");updDoc(idx,"estado","cargado");} }}
+                      placeholder="URL…" style={{...inputSt,width:130,padding:"3px 6px",fontSize:10,flexShrink:0}}/>
+                  )}
+                  {canEdit && (
+                    <>
+                      <input type="file" id={`comex_${oe.id}_${idx}`} style={{display:"none"}}
+                        onChange={e=>{ if(e.target.files[0]) handleUploadDoc(idx,e.target.files[0]); e.target.value=""; }}/>
+                      <button onClick={()=>document.getElementById(`comex_${oe.id}_${idx}`)?.click()}
+                        disabled={isUploading} style={{...btnSt(C.purple,true),padding:"3px 8px",fontSize:10,flexShrink:0}}>
+                        {isUploading?"⏳":"📎"}
+                      </button>
+                      {doc.url && (
+                        <button onClick={()=>{ updDoc(idx,"url",""); updDoc(idx,"nombre",""); updDoc(idx,"fuente","manual"); updDoc(idx,"estado","pendiente"); }}
+                          style={{...btnSt(C.accent,true),padding:"3px 6px",fontSize:10,flexShrink:0}}>✕</button>
+                      )}
+                      {!isDefault && (
+                        <button onClick={()=>delDoc(idx)} style={{...btnSt(C.accent,true),padding:"3px 6px",fontSize:10,flexShrink:0}}>×</button>
+                      )}
+                    </>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+          {canEdit && <button onClick={addDoc} style={{...btnSt(C.purple,true),fontSize:11}}>+ Agregar documento</button>}
+        </div>
+      )}
+
+      {/* QC Destino */}
+      {subTab==="qc" && (
+        <div>
+          <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(160px,1fr))",gap:10,marginBottom:14}}>
+            {[["Fecha recepción","fechaRecepcion","date"],["Temperatura llegada °C","temperaturaLlegada","number"],["Peso verificado kg","pesoVerificadoKg","number"]].map(([lbl,k,type])=>(
+              <div key={k}>
+                <div style={lblSt}>{lbl}</div>
+                <input type={type} value={cx.qcDestino[k]||""} onChange={e=>updQC(k,e.target.value)} style={inputSt} disabled={!canEdit}/>
+              </div>
+            ))}
+            <div style={{gridColumn:"1/-1"}}>
+              <div style={lblSt}>Observaciones QC</div>
+              <textarea value={cx.qcDestino.observ||""} onChange={e=>updQC("observ",e.target.value)} rows={2} style={{...inputSt,resize:"vertical"}} disabled={!canEdit}/>
+            </div>
+          </div>
+          <div style={{fontSize:11,fontWeight:700,color:C.text,marginBottom:8}}>📷 Fotos de llegada</div>
+          <div style={{display:"flex",flexWrap:"wrap",gap:10,marginBottom:10}}>
+            {(cx.qcDestino.fotos||[]).map((foto,idx)=>{
+              const isUploading = uploading.has(`foto_${idx}`);
+              return (
+                <div key={foto.id||idx} style={{position:"relative",width:96,height:96,borderRadius:8,overflow:"hidden",border:`1px solid ${C.border}`,background:C.card,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
+                  {foto.url ? (
+                    <>
+                      <a href={foto.url} target="_blank" rel="noreferrer" style={{display:"block",width:"100%",height:"100%"}}>
+                        <img src={foto.url} alt="QC" style={{width:"100%",height:"100%",objectFit:"cover"}} onError={e=>{e.target.style.display="none";}}/>
+                        <div style={{position:"absolute",bottom:0,left:0,right:0,background:"rgba(0,0,0,0.55)",fontSize:8,color:"#fff",padding:"2px 4px",textAlign:"center"}}>↗ Ver</div>
+                      </a>
+                      {canEdit && <button onClick={()=>delFoto(idx)} style={{position:"absolute",top:3,right:3,background:"rgba(239,68,68,0.85)",border:"none",color:"#fff",borderRadius:"50%",width:18,height:18,fontSize:10,cursor:"pointer",lineHeight:"18px",textAlign:"center"}}>×</button>}
+                    </>
+                  ) : isUploading ? <span style={{fontSize:22}}>⏳</span> : (
+                    <>
+                      <input type="file" accept="image/*" id={`qcf_${oe.id}_${idx}`} style={{display:"none"}}
+                        onChange={e=>{ if(e.target.files[0]) handleUploadFoto(idx,e.target.files[0]); e.target.value=""; }}/>
+                      <button onClick={()=>document.getElementById(`qcf_${oe.id}_${idx}`)?.click()}
+                        style={{background:"none",border:"none",cursor:"pointer",color:C.purple,fontSize:26,lineHeight:1}}>📎</button>
+                    </>
+                  )}
+                </div>
+              );
+            })}
+            {canEdit && (
+              <button onClick={addFoto} style={{width:96,height:96,borderRadius:8,border:`1px dashed ${C.purple}`,background:"transparent",color:C.purple,fontSize:28,cursor:"pointer",flexShrink:0}}>+</button>
+            )}
+          </div>
+        </div>
+      )}
+
+      <div style={{display:"flex",gap:8,alignItems:"center",marginTop:4}}>
+        {canEdit&&dirty&&<button onClick={()=>{onGuardar(cx);setDirty(false);}} style={btnSt(C.green)}>💾 Guardar</button>}
+        {canEdit&&!dirty&&docsCargados>0&&<span style={{fontSize:11,color:C.green}}>✓ Guardado</span>}
+      </div>
+    </div>
+  );
+}
+
 // ═══════════════════════════════════════════════════════════════════
 // ORDEN DE EMBARQUE — CARD
 // ═══════════════════════════════════════════════════════════════════
-function OECard({oe, exportadoras, clientes, especies, tiposEmbalaje, onEditar, onEliminar, onGuardarPL, canEdit}) {
-  const [showPL, setShowPL] = useState(false);
+function OECard({oe, exportadoras, clientes, especies, tiposEmbalaje, onEditar, onEliminar, onGuardarPL, onGuardarCOMEX, canEdit}) {
+  const [showPL,    setShowPL]    = useState(false);
+  const [showCOMEX, setShowCOMEX] = useState(false);
   const exportadora = exportadoras.find(e=>e.id===oe.exportadoraId);
   const cliente     = clientes.find(c=>c.id===oe.clienteId);
   const especie     = especies.find(e=>e.codigo===oe.especieCodigo);
@@ -2116,7 +2313,7 @@ function OECard({oe, exportadoras, clientes, especies, tiposEmbalaje, onEditar, 
       background:C.card2,padding:14,borderRadius:10,
       border:`1px solid ${oe.estado==="despachado"?C.blue+"55":oe.estado==="cancelado"?C.border:C.teal+"44"}`,
       opacity:oe.estado==="cancelado"?0.6:1,
-      gridColumn:showPL?"1/-1":undefined,
+      gridColumn:(showPL||showCOMEX)?"1/-1":undefined,
     }}>
       {/* Header */}
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:10,marginBottom:10}}>
@@ -2199,9 +2396,9 @@ function OECard({oe, exportadoras, clientes, especies, tiposEmbalaje, onEditar, 
         </div>
       )}
 
-      {/* Botón Packing List */}
-      <div style={{marginTop:10,paddingTop:8,borderTop:`1px solid ${C.border}`}}>
-        <button onClick={()=>setShowPL(v=>!v)}
+      {/* Botones PL + COMEX */}
+      <div style={{marginTop:10,paddingTop:8,borderTop:`1px solid ${C.border}`,display:"flex",gap:8,flexWrap:"wrap"}}>
+        <button onClick={()=>{ setShowPL(v=>!v); setShowCOMEX(false); }}
           style={{...btnSt(C.teal,!showPL),fontSize:11,display:"flex",alignItems:"center",gap:5}}>
           📋 Packing List
           {oe.packingList?.pallets?.length>0 && (
@@ -2211,19 +2408,20 @@ function OECard({oe, exportadoras, clientes, especies, tiposEmbalaje, onEditar, 
           )}
           <span style={{fontSize:10,opacity:0.7}}>{showPL?"▲":"▼"}</span>
         </button>
+        <button onClick={()=>{ setShowCOMEX(v=>!v); setShowPL(false); }}
+          style={{...btnSt(C.purple,!showCOMEX),fontSize:11,display:"flex",alignItems:"center",gap:5}}>
+          📁 COMEX
+          {(()=>{ const cx=oe.carpetaComex; if(!cx) return null; const ok=(cx.docs||[]).filter(d=>d.url&&d.estado!=="pendiente").length; return ok>0?<span style={{background:`${C.purple}33`,borderRadius:10,padding:"1px 7px",fontSize:10,fontWeight:700}}>{ok}/{(cx.docs||[]).length}</span>:null; })()}
+          <span style={{fontSize:10,opacity:0.7}}>{showCOMEX?"▲":"▼"}</span>
+        </button>
       </div>
 
-      {/* Panel Packing List */}
       {showPL && (
-        <PackingListPanel
-          oe={oe}
-          tiposEmbalaje={tiposEmbalaje}
-          especies={especies}
-          exportadoras={exportadoras}
-          clientes={clientes}
-          onGuardar={onGuardarPL}
-          canEdit={canEdit}
-        />
+        <PackingListPanel oe={oe} tiposEmbalaje={tiposEmbalaje} especies={especies}
+          exportadoras={exportadoras} clientes={clientes} onGuardar={onGuardarPL} canEdit={canEdit}/>
+      )}
+      {showCOMEX && (
+        <CarpetaComexPanel oe={oe} onGuardar={onGuardarCOMEX} canEdit={canEdit}/>
       )}
     </div>
   );
@@ -2841,7 +3039,7 @@ export default function FriskuComercialModule({
                 <div>✅ Fase 2 — Clientes + TC</div>
                 <div style={{color:C.yellow}}>🛠️ Fase 3 — Documentos <em>(en curso)</em></div>
                 <div style={{color:C.muted}}>⏳ Fase 4 — Embarques</div>
-                <div style={{color:C.muted}}>⏳ Fase 5 — COMEX</div>
+                <div style={{color:C.green}}>✅ Fase 5 — COMEX</div>
                 <div style={{color:C.muted}}>⏳ Fase 6 — Liquidaciones</div>
               </div>
             </Card>
@@ -3239,6 +3437,7 @@ export default function FriskuComercialModule({
                         onEditar={()=>handleEditarOE(oe)}
                         onEliminar={()=>handleEliminarOE(oe)}
                         onGuardarPL={(pl)=>setEmbarques(prev=>prev.map(e=>e.id===oe.id?{...e,packingList:pl,estado:pl.pallets?.length>0&&e.estado==="confirmado"?"despachado":e.estado}:e))}
+                        onGuardarCOMEX={(cx)=>setEmbarques(prev=>prev.map(e=>e.id===oe.id?{...e,carpetaComex:cx}:e))}
                         canEdit={permEmbarques.canEdit}
                       />
                     ))}
