@@ -4,6 +4,7 @@ import {
   parsearBalance, detectarFormatoBalance, fmtMonto, NOMBRES_MES,
   parsearPlanMaestro, clasificarCuentas,
   dbLoadPlanMaestro, dbSavePlanMaestro,
+  guardarEEFF, cargarEEFF, eeffId,
 } from './eeffHelpers.js';
 
 const EMPRESAS = [
@@ -87,6 +88,13 @@ export default function EEFFModule({ canEdit, usuarioActual }) {
   const [planGuardando,setPlanGuardando] = useState(false);
   const planFileRef = useRef();
 
+  // ── Estado: guardar / verificar EEFF ────────────────────────────
+  const [guardando,    setGuardando]    = useState(false);
+  const [guardadoId,   setGuardadoId]   = useState(null);
+  const [guardadoError,setGuardadoError]= useState(null);
+  const [verificando,  setVerificando]  = useState(false);
+  const [verificacion, setVerificacion] = useState(null);
+
   const POR_PAGINA = 60;
 
   // ── Cargar Plan Maestro desde Supabase al montar ─────────────────
@@ -140,10 +148,68 @@ export default function EEFFModule({ canEdit, usuarioActual }) {
     }
   }, [usuarioActual]);
 
+  // ── Handler: guardar EEFF clasificado ───────────────────────────
+  const handleGuardar = useCallback(async () => {
+    if (!clasifRef.current) return;
+    setGuardando(true); setGuardadoError(null); setGuardadoId(null); setVerificacion(null);
+    try {
+      const id = await guardarEEFF({
+        empresa, mes, anio,
+        sistema: formato === 'megasystem' ? 'megasystem' : 'contec',
+        formato,
+        clasif: clasifRef.current,
+        guardadoPor: usuarioActual?.nombre || usuarioActual?.email || '',
+      });
+      setGuardadoId(id);
+    } catch (e) {
+      setGuardadoError(e.message || String(e));
+    } finally {
+      setGuardando(false);
+    }
+  }, [empresa, mes, anio, formato, usuarioActual]);
+
+  // ── Handler: verificar EEFF recargado desde Supabase ────────────
+  const handleVerificar = useCallback(async () => {
+    setVerificando(true); setVerificacion(null);
+    try {
+      const data = await cargarEEFF(empresa, anio, mes);
+      if (!data) { setVerificacion({ ok: false, msg: 'No se encontró el EEFF en Supabase.' }); return; }
+      const total    = data.cuentas?.length ?? 0;
+      const sinComp  = data.cuentas?.filter(c => !('composicion' in c)).length ?? 0;
+      const sinNarr  = data.cuentas?.filter(c => !('narrativa' in c)).length ?? 0;
+      const compNull = data.cuentas?.filter(c => c.composicion !== null).length ?? 0;
+      const narrNull = data.cuentas?.filter(c => c.narrativa !== null).length ?? 0;
+      setVerificacion({
+        ok: true,
+        empresa:       data.empresa,
+        mes:           data.mes,
+        anio:          data.anio,
+        sistema:       data.sistema,
+        fechaGuardado: data.fechaGuardado,
+        guardadoPor:   data.guardadoPor,
+        total,
+        situacion:     data.resumen?.situacion    ?? 0,
+        resultados:    data.resumen?.resultados   ?? 0,
+        sinClasif:     data.resumen?.sinClasificar ?? 0,
+        camposOk:      sinComp === 0 && sinNarr === 0 && compNull === 0 && narrNull === 0,
+      });
+    } catch (e) {
+      setVerificacion({ ok: false, msg: e.message || String(e) });
+    } finally {
+      setVerificando(false);
+    }
+  }, [empresa, anio, mes]);
+
+  // Ref para acceder a clasif dentro de los callbacks (evita stale closure)
+  const clasifRef = useRef(null);
+
   // ── Clasificación (useMemo, se recalcula cuando cambian cuentas o plan) ──
   const clasif = useMemo(() => {
-    if (!cuentas.length || !planMaps) return null;
-    return clasificarCuentas(cuentas, planMaps);
+    const result = (!cuentas.length || !planMaps) ? null : clasificarCuentas(cuentas, planMaps);
+    clasifRef.current = result;
+    // Limpiar estado de guardado al cambiar clasificación
+    setGuardadoId(null); setGuardadoError(null); setVerificacion(null);
+    return result;
   }, [cuentas, planMaps]);
 
   // ── Paginación ───────────────────────────────────────────────────
@@ -391,6 +457,72 @@ export default function EEFFModule({ canEdit, usuarioActual }) {
           {clasif.sinClasificar.length === 0 && (
             <div style={{ fontSize:11, color:C.green }}>
               Todas las cuentas clasificadas correctamente.
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── Panel Guardar / Verificar EEFF ── */}
+      {clasif && canEdit && (
+        <div style={{ background:C.card2, border:`1px solid ${C.border}`, borderRadius:10,
+          padding:'12px 16px', marginBottom:16 }}>
+          <div style={{ fontSize:11, fontWeight:700, color:C.accentL, marginBottom:10 }}>
+            Persistencia EEFF — {eeffId(empresa, anio, mes)}
+          </div>
+          <div style={{ display:'flex', gap:10, flexWrap:'wrap', alignItems:'center' }}>
+            <Btn onClick={handleGuardar} disabled={guardando} color={C.green}>
+              {guardando ? 'Guardando...' : 'Guardar EEFF'}
+            </Btn>
+            {guardadoId && (
+              <Btn onClick={handleVerificar} disabled={verificando} color={C.blue}>
+                {verificando ? 'Verificando...' : 'Recargar y verificar'}
+              </Btn>
+            )}
+            {guardadoId && !verificando && (
+              <span style={{ fontSize:10, color:C.green }}>
+                Guardado: <code style={{ fontSize:10 }}>{guardadoId}</code>
+              </span>
+            )}
+            {guardadoError && (
+              <span style={{ fontSize:10, color:C.red }}>Error: {guardadoError}</span>
+            )}
+          </div>
+
+          {/* Resultado de verificación */}
+          {verificacion && (
+            <div style={{ marginTop:12, background: verificacion.ok ? `${C.green}11` : `${C.red}11`,
+              border:`1px solid ${verificacion.ok ? C.green : C.red}44`,
+              borderRadius:8, padding:'10px 14px' }}>
+              {!verificacion.ok ? (
+                <span style={{ fontSize:11, color:C.red }}>{verificacion.msg}</span>
+              ) : (
+                <div style={{ display:'flex', gap:20, flexWrap:'wrap' }}>
+                  {[
+                    { label:'Empresa',    v: verificacion.empresa },
+                    { label:'Período',    v: `${NOMBRES_MES[verificacion.mes]} ${verificacion.anio}` },
+                    { label:'Sistema',    v: verificacion.sistema },
+                    { label:'Total cuentas', v: verificacion.total },
+                    { label:'Situación', v: verificacion.situacion },
+                    { label:'Resultados', v: verificacion.resultados },
+                    { label:'Sin clasificar', v: verificacion.sinClasif },
+                    { label:'Guardado por', v: verificacion.guardadoPor },
+                  ].map(({ label, v }) => (
+                    <div key={label}>
+                      <div style={{ fontSize:9, color:C.muted, textTransform:'uppercase', marginBottom:2 }}>{label}</div>
+                      <div style={{ fontSize:12, fontWeight:700, color:C.text }}>{v}</div>
+                    </div>
+                  ))}
+                  <div>
+                    <div style={{ fontSize:9, color:C.muted, textTransform:'uppercase', marginBottom:2 }}>
+                      composicion + narrativa
+                    </div>
+                    <div style={{ fontSize:12, fontWeight:700,
+                      color: verificacion.camposOk ? C.green : C.red }}>
+                      {verificacion.camposOk ? 'null en todas las cuentas' : 'PROBLEMA — revisar'}
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
           )}
         </div>

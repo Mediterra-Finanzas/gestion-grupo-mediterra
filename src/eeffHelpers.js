@@ -283,3 +283,66 @@ export async function dbLoadPlanMaestro() {
     meta: { version: val.version, cargadoEn: val.cargadoEn, cargadoPor: val.cargadoPor },
   };
 }
+
+// ═══════════════════════════════════════════════════════════════════
+// EEFF CLASIFICADO — PERSISTENCIA SUPABASE
+// id: eeff_{empresa_slug}_{anio}_{mes_2d}  ej. eeff_allegria_foods_2026_04
+//
+// Esquema value:
+//   empresa, mes, anio, sistema, formato, fechaGuardado, guardadoPor,
+//   resumen: { totalCuentas, situacion, resultados, sinClasificar },
+//   cuentas: [ ...campos_cuenta, grupo, composicion:null, narrativa:null ]
+//
+// Los campos composicion y narrativa se reservan para Etapas 2-3 (análisis
+// de cuenta y comentarios CFO); se guardan en null desde ahora.
+// ═══════════════════════════════════════════════════════════════════
+
+export function eeffId(empresa, anio, mes) {
+  const slug = empresa.toLowerCase()
+    .replace(/\s+/g, '_')
+    .replace(/[^a-z0-9_]/g, '');
+  return `eeff_${slug}_${anio}_${String(mes).padStart(2, '0')}`;
+}
+
+export async function guardarEEFF({ empresa, mes, anio, sistema, formato, clasif, guardadoPor }) {
+  const enrich = (grupo) => (c) => ({ ...c, grupo, composicion: null, narrativa: null });
+  const cuentas = [
+    ...clasif.situacion.map(enrich('situacion')),
+    ...clasif.resultados.map(enrich('resultados')),
+    ...clasif.sinClasificar.map(enrich('sinClasificar')),
+  ];
+  const value = {
+    empresa, mes, anio, sistema, formato,
+    fechaGuardado: new Date().toISOString(),
+    guardadoPor:   guardadoPor || '',
+    resumen: {
+      totalCuentas:  cuentas.length,
+      situacion:     clasif.situacion.length,
+      resultados:    clasif.resultados.length,
+      sinClasificar: clasif.sinClasificar.length,
+    },
+    cuentas,
+  };
+  const id  = eeffId(empresa, anio, mes);
+  const res = await fetch(`${SUPA_URL}/rest/v1/calendario_data`, {
+    method:  'POST',
+    headers: {
+      apikey: SUPA_KEY, Authorization: `Bearer ${SUPA_KEY}`,
+      'Content-Type': 'application/json',
+      Prefer: 'resolution=merge-duplicates',
+    },
+    body: JSON.stringify({ id, value, updated_at: new Date().toISOString() }),
+  });
+  if (!res.ok) throw new Error(`Error guardando EEFF (${res.status})`);
+  return id;
+}
+
+export async function cargarEEFF(empresa, anio, mes) {
+  const id  = eeffId(empresa, anio, mes);
+  const res = await fetch(
+    `${SUPA_URL}/rest/v1/calendario_data?id=eq.${id}&select=value`,
+    { headers: { apikey: SUPA_KEY, Authorization: `Bearer ${SUPA_KEY}` } }
+  );
+  const rows = await res.json();
+  return rows?.[0]?.value ?? null;
+}
