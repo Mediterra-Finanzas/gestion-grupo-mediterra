@@ -1,6 +1,10 @@
 /* eslint-disable */
-import React, { useState, useCallback, useRef } from 'react';
-import { parsearBalance, detectarFormatoBalance, saldoEfectivo, fmtMonto, NOMBRES_MES } from './eeffHelpers.js';
+import React, { useState, useCallback, useRef, useEffect, useMemo } from 'react';
+import {
+  parsearBalance, detectarFormatoBalance, fmtMonto, NOMBRES_MES,
+  parsearPlanMaestro, clasificarCuentas,
+  dbLoadPlanMaestro, dbSavePlanMaestro,
+} from './eeffHelpers.js';
 
 const EMPRESAS = [
   'Mediterra','Allegria Foods','Allegria Service',
@@ -24,23 +28,24 @@ const C = {
   red:     '#ef4444',
   yellow:  '#f59e0b',
   blue:    '#3b82f6',
+  purple:  '#a855f7',
 };
 
-function Btn({ onClick, children, active, color, disabled }) {
-  const bg = active ? (color || C.accent) : 'transparent';
-  const col = active ? '#fff' : (color || C.muted);
+function Btn({ onClick, children, active, color, disabled, small }) {
   return (
     <button onClick={onClick} disabled={disabled}
-      style={{ padding:'6px 14px', borderRadius:7, border:`1px solid ${color||C.accent}`,
-        background:active?`${color||C.accent}cc`:disabled?C.bg2:`${color||C.accent}18`,
-        color:disabled?C.muted2:col, cursor:disabled?'default':'pointer',
-        fontSize:11, fontWeight:600, transition:'all 0.15s' }}>
+      style={{ padding: small ? '4px 10px' : '6px 14px', borderRadius:7,
+        border:`1px solid ${color||C.accent}`,
+        background: active ? `${color||C.accent}cc` : disabled ? C.bg2 : `${color||C.accent}18`,
+        color: disabled ? C.muted2 : active ? '#fff' : (color||C.accent),
+        cursor: disabled ? 'default' : 'pointer',
+        fontSize: small ? 10 : 11, fontWeight:600, transition:'all 0.15s' }}>
       {children}
     </button>
   );
 }
 
-// ─── Columnas del parser para la tabla de validación ──────────────
+// ─── Columnas tabla de cuentas ──────────────────────────────────────
 const COLS_DISPLAY = [
   { key:'codigo',           label:'Código',     align:'left'  },
   { key:'nombre',           label:'Nombre',     align:'left'  },
@@ -60,6 +65,9 @@ const NUMS = new Set(['debe','haber','saldoDeudor','saldoAcreedor',
   'inventarioActivo','inventarioPasivo','resultadoPerdida','resultadoGanancia']);
 
 export default function EEFFModule({ canEdit, usuarioActual }) {
+  const isAdmin = usuarioActual?.rol === 'admin';
+
+  // ── Estado: balance ──────────────────────────────────────────────
   const [empresa,  setEmpresa]  = useState('Allegria Foods');
   const [mes,      setMes]      = useState(4);
   const [anio,     setAnio]     = useState(2026);
@@ -71,15 +79,31 @@ export default function EEFFModule({ canEdit, usuarioActual }) {
   const [pagina,   setPagina]   = useState(0);
   const fileRef = useRef();
 
+  // ── Estado: Plan Maestro ─────────────────────────────────────────
+  const [planMaps,    setPlanMaps]    = useState(null);
+  const [planMeta,    setPlanMeta]    = useState(null);
+  const [planCargando,setPlanCargando]= useState(false);
+  const [planError,   setPlanError]   = useState(null);
+  const [planGuardando,setPlanGuardando] = useState(false);
+  const planFileRef = useRef();
+
   const POR_PAGINA = 60;
 
+  // ── Cargar Plan Maestro desde Supabase al montar ─────────────────
+  useEffect(() => {
+    setPlanCargando(true);
+    dbLoadPlanMaestro()
+      .then(res => {
+        if (res) { setPlanMaps(res.maps); setPlanMeta(res.meta); }
+      })
+      .catch(() => {})
+      .finally(() => setPlanCargando(false));
+  }, []);
+
+  // ── Handler: cargar archivo de balance ───────────────────────────
   const handleFile = useCallback(async (file) => {
     if (!file) return;
-    setLoading(true);
-    setError(null);
-    setCuentas([]);
-    setPagina(0);
-    setFileName(file.name);
+    setLoading(true); setError(null); setCuentas([]); setPagina(0); setFileName(file.name);
     try {
       const fmt = detectarFormatoBalance(file);
       setFormato(fmt);
@@ -99,19 +123,45 @@ export default function EEFFModule({ canEdit, usuarioActual }) {
     if (file) handleFile(file);
   }, [handleFile]);
 
+  // ── Handler: cargar Plan Maestro (admin) ─────────────────────────
+  const handlePlanFile = useCallback(async (file) => {
+    if (!file) return;
+    setPlanGuardando(true); setPlanError(null);
+    try {
+      const maps = await parsearPlanMaestro(file);
+      await dbSavePlanMaestro(maps, usuarioActual?.nombre || usuarioActual?.email || '');
+      setPlanMaps(maps);
+      setPlanMeta({ version:'v5', cargadoEn: new Date().toISOString(), cargadoPor: usuarioActual?.nombre || '' });
+    } catch (e) {
+      setPlanError(e.message || String(e));
+    } finally {
+      setPlanGuardando(false);
+      if (planFileRef.current) planFileRef.current.value = '';
+    }
+  }, [usuarioActual]);
+
+  // ── Clasificación (useMemo, se recalcula cuando cambian cuentas o plan) ──
+  const clasif = useMemo(() => {
+    if (!cuentas.length || !planMaps) return null;
+    return clasificarCuentas(cuentas, planMaps);
+  }, [cuentas, planMaps]);
+
+  // ── Paginación ───────────────────────────────────────────────────
   const totalPaginas = Math.ceil(cuentas.length / POR_PAGINA);
   const filas = cuentas.slice(pagina * POR_PAGINA, (pagina + 1) * POR_PAGINA);
 
-  // Resumen para validación rápida
+  // ── Resumen de validación rápida ─────────────────────────────────
   const resumen = cuentas.length > 0 ? {
     totalCuentas: cuentas.length,
-    sumaDebe:     cuentas.reduce((s, c) => s + c.debe, 0),
+    sumaDebe:     cuentas.reduce((s, c) => s + c.debe,  0),
     sumaHaber:    cuentas.reduce((s, c) => s + c.haber, 0),
-    sumaSD:       cuentas.reduce((s, c) => s + c.saldoDeudor, 0),
+    sumaSD:       cuentas.reduce((s, c) => s + c.saldoDeudor,   0),
     sumaSA:       cuentas.reduce((s, c) => s + c.saldoAcreedor, 0),
     mesLeido:     cuentas[0]?.mes,
     anioLeido:    cuentas[0]?.anio,
   } : null;
+
+  const difSdSa = resumen ? Math.abs(resumen.sumaSD - resumen.sumaSA) : 0;
 
   return (
     <div style={{ background:C.bg, color:C.text, padding:'20px 24px', minHeight:'60vh' }}>
@@ -119,24 +169,58 @@ export default function EEFFModule({ canEdit, usuarioActual }) {
       {/* ── Encabezado ── */}
       <div style={{ marginBottom:20 }}>
         <div style={{ fontSize:16, fontWeight:900, color:C.accentL, marginBottom:4 }}>
-          Test Parser EEFF — Parte 1
+          Test Parser EEFF — Parte 1 y 2
         </div>
         <div style={{ fontSize:11, color:C.muted }}>
-          Sube un balance Megasystem (.xls) o Contec (.xlsx) para validar el parseo antes de continuar con la Parte 2.
+          Sube un balance Megasystem (.xls) o Contec (.xlsx) para validar el parseo y la clasificación IFRS.
         </div>
       </div>
 
-      {/* ── Controles ── */}
+      {/* ── Panel Plan Maestro ── */}
+      <div style={{ background:C.card2, border:`1px solid ${C.border}`, borderRadius:10,
+        padding:'10px 16px', marginBottom:16, display:'flex', gap:16, alignItems:'center',
+        flexWrap:'wrap' }}>
+        <div style={{ fontSize:9, color:C.muted, textTransform:'uppercase', minWidth:80 }}>Plan Maestro</div>
+        {planCargando && <span style={{ fontSize:11, color:C.muted }}>Cargando...</span>}
+        {!planCargando && planMaps && (
+          <>
+            <span style={{ fontSize:11, color:C.green, fontWeight:700 }}>Cargado</span>
+            <span style={{ fontSize:10, color:C.muted }}>
+              {planMaps.mega.size} cuentas MEGA · {planMaps.contec.size} cuentas CONTEC
+            </span>
+            {planMeta && (
+              <span style={{ fontSize:10, color:C.muted2 }}>
+                {planMeta.version} · {planMeta.cargadoEn ? new Date(planMeta.cargadoEn).toLocaleDateString('es-CL') : ''} · {planMeta.cargadoPor}
+              </span>
+            )}
+          </>
+        )}
+        {!planCargando && !planMaps && (
+          <span style={{ fontSize:11, color:C.yellow }}>Sin cargar — sube el xlsx del Plan Maestro</span>
+        )}
+        {isAdmin && (
+          <>
+            <input ref={planFileRef} type="file" accept=".xlsx"
+              onChange={e => handlePlanFile(e.target.files[0])}
+              style={{ display:'none' }} />
+            <Btn onClick={() => planFileRef.current?.click()}
+              color={C.purple} disabled={planGuardando} small>
+              {planGuardando ? 'Guardando...' : planMaps ? 'Actualizar Plan Maestro' : 'Cargar Plan Maestro'}
+            </Btn>
+          </>
+        )}
+        {planError && (
+          <span style={{ fontSize:10, color:C.red }}>Error: {planError}</span>
+        )}
+      </div>
+
+      {/* ── Controles balance ── */}
       <div style={{ display:'flex', gap:10, flexWrap:'wrap', marginBottom:16, alignItems:'center' }}>
         <div style={{ display:'flex', flexDirection:'column', gap:3 }}>
           <label style={{ fontSize:9, color:C.muted, textTransform:'uppercase' }}>Empresa</label>
           <select value={empresa} onChange={e => {
             setEmpresa(e.target.value);
-            setCuentas([]);
-            setFileName(null);
-            setFormato(null);
-            setError(null);
-            setPagina(0);
+            setCuentas([]); setFileName(null); setFormato(null); setError(null); setPagina(0);
             if (fileRef.current) fileRef.current.value = '';
           }}
             style={{ padding:'6px 10px', borderRadius:6, background:C.card2, color:C.text,
@@ -188,7 +272,6 @@ export default function EEFFModule({ canEdit, usuarioActual }) {
       {loading && (
         <div style={{ color:C.yellow, fontSize:12, marginBottom:12 }}>Parseando archivo...</div>
       )}
-
       {error && (
         <div style={{ color:C.red, background:`${C.red}18`, border:`1px solid ${C.red}44`,
           borderRadius:8, padding:'8px 14px', fontSize:11, marginBottom:12 }}>
@@ -199,8 +282,7 @@ export default function EEFFModule({ canEdit, usuarioActual }) {
       {/* ── Resumen de validación ── */}
       {resumen && (
         <div style={{ background:C.card2, border:`1px solid ${C.border}`, borderRadius:10,
-          padding:'12px 18px', marginBottom:16, display:'flex', gap:24, flexWrap:'wrap',
-          alignItems:'flex-start' }}>
+          padding:'12px 18px', marginBottom:16, display:'flex', gap:24, flexWrap:'wrap' }}>
           <div>
             <div style={{ fontSize:9, color:C.muted, textTransform:'uppercase', marginBottom:2 }}>Formato</div>
             <div style={{ fontSize:13, fontWeight:800, color:formato==='megasystem'?C.yellow:C.accentL }}>
@@ -237,22 +319,101 @@ export default function EEFFModule({ canEdit, usuarioActual }) {
           )}
           <div>
             <div style={{ fontSize:9, color:C.muted, textTransform:'uppercase', marginBottom:2 }}>Balance (SD - SA)</div>
-            <div style={{ fontSize:12, fontWeight:700,
-              color:Math.abs(resumen.sumaSD - resumen.sumaSA) < 1 ? C.green : C.yellow }}>
+            <div style={{ fontSize:12, fontWeight:700, color: difSdSa < 1 ? C.green : C.yellow }}>
               {fmtMonto(resumen.sumaSD - resumen.sumaSA, 2)}
-              {Math.abs(resumen.sumaSD - resumen.sumaSA) >= 1 &&
-                <span style={{ fontSize:9, color:C.yellow, marginLeft:6 }}>⚠ diferencia</span>}
+              {difSdSa >= 1 && <span style={{ fontSize:9, color:C.yellow, marginLeft:6 }}>⚠ diferencia</span>}
             </div>
           </div>
         </div>
       )}
 
-      {/* ── Tabla de cuentas ── */}
+      {/* ── Panel de clasificación IFRS ── */}
+      {clasif && (
+        <div style={{ marginBottom:20 }}>
+          <div style={{ fontSize:12, fontWeight:800, color:C.accentL, marginBottom:8 }}>
+            Clasificación IFRS
+          </div>
+
+          {/* Contadores */}
+          <div style={{ display:'flex', gap:12, marginBottom:12, flexWrap:'wrap' }}>
+            {[
+              { label:'Estado de Situación', n: clasif.situacion.length,     color: C.green  },
+              { label:'Estado de Resultados', n: clasif.resultados.length,   color: C.blue   },
+              { label:'Sin clasificar',        n: clasif.sinClasificar.length, color: clasif.sinClasificar.length > 0 ? C.yellow : C.muted },
+            ].map(({ label, n, color }) => (
+              <div key={label} style={{ background:C.card2, border:`1px solid ${C.border}`,
+                borderRadius:8, padding:'10px 16px', minWidth:160 }}>
+                <div style={{ fontSize:9, color:C.muted, textTransform:'uppercase', marginBottom:4 }}>{label}</div>
+                <div style={{ fontSize:20, fontWeight:900, color }}>{n}</div>
+                <div style={{ fontSize:9, color:C.muted2 }}>cuentas</div>
+              </div>
+            ))}
+          </div>
+
+          {/* Lista de sin clasificar */}
+          {clasif.sinClasificar.length > 0 && (
+            <div style={{ background:C.card2, border:`1px solid ${C.yellow}44`,
+              borderRadius:10, padding:'10px 16px' }}>
+              <div style={{ fontSize:10, fontWeight:700, color:C.yellow, marginBottom:8 }}>
+                Cuentas sin clasificar — {clasif.sinClasificar.length} ({' '}
+                no están en el Plan Maestro {formato === 'megasystem' ? 'MEGA' : 'CONTEC'})
+              </div>
+              <div style={{ overflowX:'auto' }}>
+                <table style={{ borderCollapse:'collapse', width:'100%', fontSize:10 }}>
+                  <thead>
+                    <tr style={{ background:C.bg2 }}>
+                      {['Código','Nombre','SD','SA'].map(h => (
+                        <th key={h} style={{ padding:'4px 10px', textAlign: h==='Código'||h==='Nombre'?'left':'right',
+                          color:C.muted, fontSize:9, textTransform:'uppercase',
+                          borderBottom:`1px solid ${C.border}` }}>{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {clasif.sinClasificar.map((c, i) => (
+                      <tr key={c.codigo + i}
+                        style={{ background: i%2===0?C.bg:C.bg2, borderBottom:`1px solid ${C.border}22` }}>
+                        <td style={{ padding:'3px 10px', color:C.yellow }}>{c.codigo}</td>
+                        <td style={{ padding:'3px 10px', color:C.text, whiteSpace:'nowrap' }}>{c.nombre}</td>
+                        <td style={{ padding:'3px 10px', textAlign:'right', color:C.muted2 }}>
+                          {c.saldoDeudor !== 0 ? fmtMonto(c.saldoDeudor, 2) : '—'}
+                        </td>
+                        <td style={{ padding:'3px 10px', textAlign:'right', color:C.muted2 }}>
+                          {c.saldoAcreedor !== 0 ? fmtMonto(c.saldoAcreedor, 2) : '—'}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+          {clasif.sinClasificar.length === 0 && (
+            <div style={{ fontSize:11, color:C.green }}>
+              Todas las cuentas clasificadas correctamente.
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Mensaje si hay cuentas pero no hay plan cargado */}
+      {cuentas.length > 0 && !planMaps && (
+        <div style={{ color:C.yellow, fontSize:11, marginBottom:16, background:`${C.yellow}11`,
+          border:`1px solid ${C.yellow}44`, borderRadius:8, padding:'8px 14px' }}>
+          Carga el Plan Maestro para ver la clasificación IFRS.
+          {isAdmin ? ' Usa el botón "Cargar Plan Maestro" arriba.' : ' Pídele al administrador que lo suba.'}
+        </div>
+      )}
+
+      {/* ── Tabla de cuentas (parser raw) ── */}
       {cuentas.length > 0 && (
         <>
+          <div style={{ fontSize:11, fontWeight:700, color:C.muted, marginBottom:6 }}>
+            Cuentas parseadas (raw)
+          </div>
           <div style={{ display:'flex', gap:8, alignItems:'center', marginBottom:8, flexWrap:'wrap' }}>
             <span style={{ fontSize:11, color:C.muted }}>
-              Mostrando {pagina * POR_PAGINA + 1}–{Math.min((pagina + 1) * POR_PAGINA, cuentas.length)} de {cuentas.length} cuentas
+              Mostrando {pagina * POR_PAGINA + 1}–{Math.min((pagina + 1) * POR_PAGINA, cuentas.length)} de {cuentas.length}
             </span>
             <div style={{ display:'flex', gap:4 }}>
               <Btn onClick={() => setPagina(p => Math.max(0, p-1))} disabled={pagina===0} color={C.muted}>◀</Btn>
@@ -282,9 +443,7 @@ export default function EEFFModule({ canEdit, usuarioActual }) {
                     {COLS_DISPLAY.map(col => {
                       const v = c[col.key];
                       const isNum = NUMS.has(col.key);
-                      const display = isNum
-                        ? (v !== 0 ? fmtMonto(v, 2) : '—')
-                        : (v ?? '—');
+                      const display = isNum ? (v !== 0 ? fmtMonto(v, 2) : '—') : (v ?? '—');
                       return (
                         <td key={col.key}
                           style={{ padding:'4px 10px', textAlign:col.align,

@@ -1,6 +1,9 @@
 /* eslint-disable */
 import * as XLSX from 'xlsx';
 
+const SUPA_URL = 'https://bywovqayuzodbzwsriet.supabase.co';
+const SUPA_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJ5d292cWF5dXpvZGJ6d3NyaWV0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU2ODU1MDgsImV4cCI6MjA5MTI2MTUwOH0.s2x2O_CxE6rl8dBqFuyfQdMyRqSyjJQWXJXesmVGXtk';
+
 // ═══════════════════════════════════════════════════════════════════
 // DETECCIÓN DE FORMATO
 // ═══════════════════════════════════════════════════════════════════
@@ -162,4 +165,121 @@ export const NOMBRES_MES = [
 export function fmtMonto(v, decimales = 0) {
   if (v == null || isNaN(v)) return '—';
   return v.toLocaleString('es-CL', { minimumFractionDigits: decimales, maximumFractionDigits: decimales });
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// PLAN MAESTRO — PARSER
+// Lee las hojas PLAN MAESTRO MEGA y PLAN MAESTRO CONTEC del xlsx.
+// Solo incluye cuentas de detalle (Tipo IFRS ∈ TIPOS_DETALLE).
+// Devuelve { mega: Map<string, EntryPlan>, contec: Map<string, EntryPlan> }
+//   EntryPlan = { nombreOficial, tipoIFRS, subtipo, categoriaIFRS, orden }
+// ═══════════════════════════════════════════════════════════════════
+
+const TIPOS_DETALLE = new Set(['Activo','Pasivo','Patrimonio','Ingreso','Costo','Gasto']);
+export const TIPOS_SITUACION  = new Set(['Activo','Pasivo','Patrimonio']);
+export const TIPOS_RESULTADOS = new Set(['Ingreso','Costo','Gasto']);
+
+export async function parsearPlanMaestro(file) {
+  const data = await file.arrayBuffer();
+  const wb = XLSX.read(data, { type: 'array' });
+
+  function parseHoja(ws) {
+    const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: null });
+    const mapa = new Map();
+    for (let i = 1; i < rows.length; i++) {
+      const row = rows[i];
+      if (row[0] == null) continue;
+      const tipoIFRS = row[3] ? String(row[3]).trim() : '';
+      if (!TIPOS_DETALLE.has(tipoIFRS)) continue;
+      mapa.set(String(row[0]).trim(), {
+        nombreOficial: row[1] ? String(row[1]).trim() : '',
+        tipoIFRS,
+        subtipo:       row[4] ? String(row[4]).trim() : '',
+        categoriaIFRS: row[5] ? String(row[5]).trim() : '',
+        orden:         Number(row[6]) || 999,
+      });
+    }
+    return mapa;
+  }
+
+  const wsMega   = wb.Sheets['PLAN MAESTRO MEGA'];
+  const wsContec = wb.Sheets['PLAN MAESTRO CONTEC'];
+  if (!wsMega)   throw new Error('Hoja "PLAN MAESTRO MEGA" no encontrada en el archivo.');
+  if (!wsContec) throw new Error('Hoja "PLAN MAESTRO CONTEC" no encontrada en el archivo.');
+
+  return { mega: parseHoja(wsMega), contec: parseHoja(wsContec) };
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// CLASIFICADOR
+// Para cada cuenta busca su entrada en el map del sistema correcto.
+// Sin match → sinClasificar (visible, no descartada).
+// Devuelve { situacion, resultados, sinClasificar }
+// ═══════════════════════════════════════════════════════════════════
+
+export function clasificarCuentas(cuentas, planMaps) {
+  const situacion = [], resultados = [], sinClasificar = [];
+  for (const cuenta of cuentas) {
+    const mapa  = cuenta.sistema === 'megasystem' ? planMaps?.mega : planMaps?.contec;
+    const entry = mapa?.get(cuenta.codigo);
+    if (!entry) { sinClasificar.push(cuenta); continue; }
+    const enriquecida = { ...cuenta, ...entry };
+    if (TIPOS_SITUACION.has(entry.tipoIFRS))       situacion.push(enriquecida);
+    else if (TIPOS_RESULTADOS.has(entry.tipoIFRS)) resultados.push(enriquecida);
+    else                                            sinClasificar.push(enriquecida);
+  }
+  return { situacion, resultados, sinClasificar };
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// SUPABASE — PLAN MAESTRO (id: maestro_plan_cuentas)
+// Serializa Maps a objetos planos para JSON; reconstruye al cargar.
+// ═══════════════════════════════════════════════════════════════════
+
+function _mapToObj(m) {
+  const o = {};
+  m.forEach((v, k) => { o[k] = v; });
+  return o;
+}
+
+export function planObjToMaps(obj) {
+  if (!obj) return null;
+  return {
+    mega:   new Map(Object.entries(obj.mega   || {})),
+    contec: new Map(Object.entries(obj.contec || {})),
+  };
+}
+
+export async function dbSavePlanMaestro(planMaps, cargadoPor) {
+  const value = {
+    mega:       _mapToObj(planMaps.mega),
+    contec:     _mapToObj(planMaps.contec),
+    version:    'v5',
+    cargadoEn:  new Date().toISOString(),
+    cargadoPor: cargadoPor || '',
+  };
+  const res = await fetch(`${SUPA_URL}/rest/v1/calendario_data`, {
+    method: 'POST',
+    headers: {
+      apikey: SUPA_KEY, Authorization: `Bearer ${SUPA_KEY}`,
+      'Content-Type': 'application/json',
+      Prefer: 'resolution=merge-duplicates',
+    },
+    body: JSON.stringify({ id: 'maestro_plan_cuentas', value, updated_at: new Date().toISOString() }),
+  });
+  if (!res.ok) throw new Error(`Error guardando Plan Maestro: ${res.status}`);
+}
+
+export async function dbLoadPlanMaestro() {
+  const res = await fetch(
+    `${SUPA_URL}/rest/v1/calendario_data?id=eq.maestro_plan_cuentas&select=value`,
+    { headers: { apikey: SUPA_KEY, Authorization: `Bearer ${SUPA_KEY}` } }
+  );
+  const rows = await res.json();
+  if (!rows?.[0]?.value) return null;
+  const val = rows[0].value;
+  return {
+    maps: planObjToMaps(val),
+    meta: { version: val.version, cargadoEn: val.cargadoEn, cargadoPor: val.cargadoPor },
+  };
 }
