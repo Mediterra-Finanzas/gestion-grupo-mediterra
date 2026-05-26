@@ -3608,11 +3608,13 @@ function Consolidado({empresas,saldosBancos,realData={},addedLinesGlobal={},subL
         <div style={{fontSize:9,color:C.muted}}>{nombre==="_consolidado"?`Suma ${empNamesConsolidado.length} empresas · último registro previo al período`:"último registro previo al período"}</div>
       </td>
       {cols.map(col=>{
-        // Meses futuros: no hay datos de saldo banco reales → mostrar "—"
-        const esFuturo = !col.collapsed && col.tipo!=="temporada" && col.indices[0] > mesIdxHoy;
-        const val = esFuturo ? null : (nombre==="_consolidado"
-          ?empNamesConsolidado.reduce((s,n)=>s+(saldoBancoParaCol(n,col)||0),0)
-          :(saldoBancoParaCol(nombre,col)||0));
+        // Solo mostrar saldo banco en el mes actual. Pasados y futuros → "—"
+        const esMesActual = !col.collapsed && col.tipo!=="temporada" && col.indices[0]===mesIdxHoy;
+        const val = esMesActual
+          ? (nombre==="_consolidado"
+              ? empNamesConsolidado.reduce((s,n)=>s+(saldoIniPorEmp[n]||0),0)
+              : (saldoIniPorEmp[nombre]||0))
+          : null;
         return(<td key={col.key} style={{padding:"6px 5px",textAlign:"right",fontWeight:700,fontSize:9,color:val==null?C.muted2:C.blue,background:`${C.blue}0d`,borderLeft:col.isFirstInSeason?`2px solid ${C.border2}`:`1px solid ${C.border}11`}}>{val==null?"—":$$(val)}</td>);
       })}
     </tr>
