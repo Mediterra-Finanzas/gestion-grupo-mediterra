@@ -1,5 +1,6 @@
 /* eslint-disable */
 import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
+import EEFFModule from './EEFFModule.jsx';
 
 // ═══════════════════════════════════════════════════════════════════
 // TIEMPO: Mar-26 → Jun-31 (65 meses)
@@ -10234,6 +10235,7 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
     {id:"nominas",  label:"📋 Nóminas"},
     {id:"reporte",  label:"📅 Reporte Semanal"},
     {id:"auditoria",label:"🔍 Auditoría"},
+    {id:"eeff",     label:"📑 EEFF"},
   ];
   // Solo mostrar pestañas a las que el usuario tiene acceso
   // Auditoría: solo admin
@@ -10961,6 +10963,10 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
 
       {tab==="auditoria"&&usuarioActual?.rol==="admin"&&(
         <AuditoriaModule usuario={usuarioActual}/>
+      )}
+
+      {tab==="eeff"&&(
+        <EEFFModule canEdit={puedoEdit("eeff")} usuarioActual={usuarioActual}/>
       )}
 
     </div>
