@@ -3436,6 +3436,13 @@ function Consolidado({empresas,saldosBancos,realData={},addedLinesGlobal={},subL
   const empNames=Object.keys(empresas);
   const empNamesConsolidado = empNames.filter(n => EMPRESAS_KEYS_CONSOLIDADO.includes(n));
   const [vistaConsolidado,setVistaConsolidado]=useState("sumada");
+  // Índice del mes actual en MESES_65 — para no mostrar saldo banco en meses futuros
+  const mesIdxHoy = useMemo(()=>{
+    const HOY=new Date();
+    const label=`${MN[HOY.getMonth()]}-${String(HOY.getFullYear()).slice(2)}`;
+    const idx=MESES_65.indexOf(label);
+    return idx>=0?idx:0;
+  },[]);
   const [agrup,setAgrup]=useState("mes");
   const [openSeason,setOpenSeason]=useState(()=>{const o={};SEASON_KEYS.forEach((k,i)=>{o[k]=i<2;});return o;});
   // Estado de drill-down para vista "sumada". Keys: cat codes + "flujo_neto" + "saldo_acum".
@@ -3601,10 +3608,12 @@ function Consolidado({empresas,saldosBancos,realData={},addedLinesGlobal={},subL
         <div style={{fontSize:9,color:C.muted}}>{nombre==="_consolidado"?`Suma ${empNamesConsolidado.length} empresas · último registro previo al período`:"último registro previo al período"}</div>
       </td>
       {cols.map(col=>{
-        const val=nombre==="_consolidado"
+        // Meses futuros: no hay datos de saldo banco reales → mostrar "—"
+        const esFuturo = !col.collapsed && col.tipo!=="temporada" && col.indices[0] > mesIdxHoy;
+        const val = esFuturo ? null : (nombre==="_consolidado"
           ?empNamesConsolidado.reduce((s,n)=>s+(saldoBancoParaCol(n,col)||0),0)
-          :(saldoBancoParaCol(nombre,col)||0);
-        return(<td key={col.key} style={{padding:"6px 5px",textAlign:"right",fontWeight:700,fontSize:9,color:C.blue,background:`${C.blue}0d`,borderLeft:col.isFirstInSeason?`2px solid ${C.border2}`:`1px solid ${C.border}11`}}>{$$(val)}</td>);
+          :(saldoBancoParaCol(nombre,col)||0));
+        return(<td key={col.key} style={{padding:"6px 5px",textAlign:"right",fontWeight:700,fontSize:9,color:val==null?C.muted2:C.blue,background:`${C.blue}0d`,borderLeft:col.isFirstInSeason?`2px solid ${C.border2}`:`1px solid ${C.border}11`}}>{val==null?"—":$$(val)}</td>);
       })}
     </tr>
   );
