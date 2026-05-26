@@ -130,7 +130,15 @@ export default function EEFFModule({ canEdit, usuarioActual }) {
       <div style={{ display:'flex', gap:10, flexWrap:'wrap', marginBottom:16, alignItems:'center' }}>
         <div style={{ display:'flex', flexDirection:'column', gap:3 }}>
           <label style={{ fontSize:9, color:C.muted, textTransform:'uppercase' }}>Empresa</label>
-          <select value={empresa} onChange={e => setEmpresa(e.target.value)}
+          <select value={empresa} onChange={e => {
+            setEmpresa(e.target.value);
+            setCuentas([]);
+            setFileName(null);
+            setFormato(null);
+            setError(null);
+            setPagina(0);
+            if (fileRef.current) fileRef.current.value = '';
+          }}
             style={{ padding:'6px 10px', borderRadius:6, background:C.card2, color:C.text,
               border:`1px solid ${C.border}`, fontSize:11 }}>
             {EMPRESAS.map(e => <option key={e} value={e}>{e}</option>)}
@@ -230,9 +238,9 @@ export default function EEFFModule({ canEdit, usuarioActual }) {
           <div>
             <div style={{ fontSize:9, color:C.muted, textTransform:'uppercase', marginBottom:2 }}>Balance (SD - SA)</div>
             <div style={{ fontSize:12, fontWeight:700,
-              color:Math.abs(resumen.sumaSD - resumen.sumaSA) < 0.01 ? C.green : C.yellow }}>
+              color:Math.abs(resumen.sumaSD - resumen.sumaSA) < 1 ? C.green : C.yellow }}>
               {fmtMonto(resumen.sumaSD - resumen.sumaSA, 2)}
-              {Math.abs(resumen.sumaSD - resumen.sumaSA) > 0.01 &&
+              {Math.abs(resumen.sumaSD - resumen.sumaSA) >= 1 &&
                 <span style={{ fontSize:9, color:C.yellow, marginLeft:6 }}>⚠ diferencia</span>}
             </div>
           </div>
