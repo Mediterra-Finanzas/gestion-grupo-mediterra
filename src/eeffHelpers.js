@@ -366,3 +366,179 @@ export async function cargarEEFF(empresa, anio, mes) {
   const rows = await res.json();
   return rows?.[0]?.value ?? null;
 }
+
+// ═══════════════════════════════════════════════════════════════════
+// LIBRO MAYOR — PARSERS
+//
+// Salida normalizada por movimiento:
+//   { fecha, tipo, numDoc, glosa, debe, haber, saldo,
+//     codigoCuenta, nombreCuenta, moneda, tc, mes, anio, sistema }
+//
+// MEGASYSTEM (.xls): tabla plana, una fila por movimiento.
+//   Columnas clave: mot_fecdoc (DD-MM-YYYY HH:MM:SS), mod_cuenta,
+//   pla_nombre, mod_debe, mod_haber, mot_tipmov, mot_numdoc,
+//   mot_detall, glosa_detalle, Nombre_Moneda, Valor_Moneda.
+//   Sin saldo acumulado en el export → saldo: null.
+//
+// CONTEC (.xlsx): estructura jerárquica por cuenta.
+//   Cabecera cuenta: col0 === "Cuenta :", col2=código, col3=nombre.
+//   Movimiento: col0 = fecha "DD/MM/YYYY", col1=tipo, col2=numDoc,
+//   col3=glosa, col4=TC, col5=debe, col6=haber, col7=saldo acum.
+//   Totalizador: col0 vacío, col5/col6 con totales → ignorar.
+// ═══════════════════════════════════════════════════════════════════
+
+function _parseFechaMega(str) {
+  // "DD-MM-YYYY HH:MM:SS" → "YYYY-MM-DD"
+  if (!str || typeof str !== 'string') return null;
+  const [d, m, y] = str.split(' ')[0].split('-');
+  if (!d || !m || !y) return null;
+  return `${y}-${m.padStart(2,'0')}-${d.padStart(2,'0')}`;
+}
+
+function _parseFechaContec(str) {
+  // "DD/MM/YYYY" → "YYYY-MM-DD"
+  if (!str || typeof str !== 'string') return null;
+  const [d, m, y] = str.split('/');
+  if (!d || !m || !y) return null;
+  return `${y}-${m.padStart(2,'0')}-${d.padStart(2,'0')}`;
+}
+
+export async function parsearMayorMegasystem(file) {
+  const data = await file.arrayBuffer();
+  const wb = XLSX.read(data, { type: 'array' });
+  const ws = wb.Sheets[wb.SheetNames[0]];
+  // Primera fila = header con nombres de campo exactos
+  const rows = XLSX.utils.sheet_to_json(ws, { defval: null });
+
+  const movimientos = [];
+  for (const row of rows) {
+    const fechaStr = _parseFechaMega(row['mot_fecdoc']);
+    if (!fechaStr) continue;
+    const mes  = parseInt(fechaStr.substring(5, 7), 10);
+    const anio = parseInt(fechaStr.substring(0, 4), 10);
+    const glosa = [row['mot_detall'], row['glosa_detalle']]
+      .filter(Boolean).join(' — ').trim() || '';
+    movimientos.push({
+      fecha:        fechaStr,
+      tipo:         row['mot_tipmov'] != null ? String(row['mot_tipmov']) : '',
+      numDoc:       row['mot_numdoc'] != null ? String(row['mot_numdoc']) : '',
+      glosa,
+      debe:         Number(row['mod_debe'])  || 0,
+      haber:        Number(row['mod_haber']) || 0,
+      saldo:        null,  // Megasystem no exporta saldo acumulado
+      codigoCuenta: row['mod_cuenta'] != null ? String(row['mod_cuenta']).trim() : '',
+      nombreCuenta: row['pla_nombre'] != null ? String(row['pla_nombre']).trim() : '',
+      moneda:       row['Nombre_Moneda'] != null ? String(row['Nombre_Moneda']).trim() : '',
+      tc:           Number(row['Valor_Moneda']) || null,
+      mes,
+      anio,
+      sistema:      'megasystem',
+    });
+  }
+  return movimientos;
+}
+
+export async function parsearMayorContec(file) {
+  const data = await file.arrayBuffer();
+  const wb = XLSX.read(data, { type: 'array' });
+  const ws = wb.Sheets[wb.SheetNames[0]];
+  const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: null });
+
+  const movimientos = [];
+  let cuentaActual = { codigo: '', nombre: '' };
+
+  for (const row of rows) {
+    const col0 = row[0];
+
+    // Cabecera de cuenta
+    if (col0 === 'Cuenta :') {
+      cuentaActual = {
+        codigo: row[2] != null ? String(row[2]).trim() : '',
+        nombre: row[3] != null ? String(row[3]).trim() : '',
+      };
+      continue;
+    }
+
+    // Movimiento: col0 es fecha "DD/MM/YYYY"
+    if (typeof col0 === 'string' && /^\d{2}\/\d{2}\/\d{4}$/.test(col0)) {
+      const fechaStr = _parseFechaContec(col0);
+      if (!fechaStr) continue;
+      const mes  = parseInt(fechaStr.substring(5, 7), 10);
+      const anio = parseInt(fechaStr.substring(0, 4), 10);
+      movimientos.push({
+        fecha:        fechaStr,
+        tipo:         row[1] != null ? String(row[1]).trim() : '',
+        numDoc:       row[2] != null ? String(row[2]).trim() : '',
+        glosa:        row[3] != null ? String(row[3]).trim() : '',
+        debe:         Number(row[5]) || 0,
+        haber:        Number(row[6]) || 0,
+        saldo:        row[7] != null ? Number(row[7]) : null,
+        codigoCuenta: cuentaActual.codigo,
+        nombreCuenta: cuentaActual.nombre,
+        moneda:       '',   // Contec no incluye código de moneda por movimiento
+        tc:           Number(row[4]) || null,
+        mes,
+        anio,
+        sistema:      'contec',
+      });
+      continue;
+    }
+    // Totalizador / separador → ignorar
+  }
+  return movimientos;
+}
+
+export async function parsearMayor(file) {
+  const ext = (file.name || '').split('.').pop().toLowerCase();
+  if (ext === 'xls')  return parsearMayorMegasystem(file);
+  if (ext === 'xlsx') return parsearMayorContec(file);
+  throw new Error(`Formato no reconocido para libro mayor: ${file.name}. Use .xls (Megasystem) o .xlsx (Contec).`);
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// LIBRO MAYOR — PERSISTENCIA SUPABASE
+// id: mayor_{empresa_slug}_{anio}  (un row por empresa-año)
+// El mayor cubre todos los meses del año; la UI filtra por mes.
+// ═══════════════════════════════════════════════════════════════════
+
+export function mayorId(empresa, anio) {
+  const slug = empresa.toLowerCase()
+    .replace(/\s+/g, '_')
+    .replace(/[^a-z0-9_]/g, '');
+  return `mayor_${slug}_${anio}`;
+}
+
+export async function dbSaveMayor({ empresa, anio, movimientos, guardadoPor }) {
+  const value = {
+    empresa,
+    anio,
+    totalMovimientos: movimientos.length,
+    meses: [...new Set(movimientos.map(m => m.mes))].sort((a,b) => a-b),
+    cargadoEn:  new Date().toISOString(),
+    guardadoPor: guardadoPor || '',
+    movimientos,
+  };
+  const id  = mayorId(empresa, anio);
+  const res = await fetch(`${SUPA_URL}/rest/v1/calendario_data`, {
+    method:  'POST',
+    headers: {
+      apikey: SUPA_KEY, Authorization: `Bearer ${SUPA_KEY}`,
+      'Content-Type': 'application/json',
+      Prefer: 'resolution=merge-duplicates',
+    },
+    body: JSON.stringify({ id, value, updated_at: new Date().toISOString() }),
+  });
+  if (!res.ok) throw new Error(`Error guardando Mayor (${res.status})`);
+  return id;
+}
+
+export async function dbLoadMayor(empresa, anio, empresasPermitidas) {
+  if (empresasPermitidas && !empresasPermitidas.includes(empresa)) return null;
+  const id  = mayorId(empresa, anio);
+  const res = await fetch(
+    `${SUPA_URL}/rest/v1/calendario_data?id=eq.${encodeURIComponent(id)}&select=value`,
+    { headers: { apikey: SUPA_KEY, Authorization: `Bearer ${SUPA_KEY}` } }
+  );
+  const rows = await res.json();
+  return rows?.[0]?.value ?? null;
+}

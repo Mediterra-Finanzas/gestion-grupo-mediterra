@@ -5,6 +5,7 @@ import {
   parsearPlanMaestro, clasificarCuentas,
   dbLoadPlanMaestro, dbSavePlanMaestro,
   guardarEEFF, cargarEEFF, eeffId,
+  parsearMayor, dbSaveMayor, dbLoadMayor,
 } from './eeffHelpers.js';
 
 const EMPRESAS = [
@@ -442,6 +443,14 @@ export default function EEFFModule({ canEdit, usuarioActual, empresasPermitidas 
   );
   const [expandedSecs, setExpandedSecs] = useState(defaultExpandedSecs);
   const [expandedCats, setExpandedCats] = useState(new Set());
+
+  // ── Mayor — diagnóstico (Parte 1) ────────────────────────────────
+  const [mayorDiag,        setMayorDiag]        = useState(null);   // { movimientos, meta }
+  const [mayorDiagError,   setMayorDiagError]   = useState(null);
+  const [mayorDiagLoading, setMayorDiagLoading] = useState(false);
+  const [mayorGuardando,   setMayorGuardando]   = useState(false);
+  const [mayorGuardadoOk,  setMayorGuardadoOk]  = useState(false);
+  const mayorDiagRef = useRef();
 
   const toggleSec = useCallback((id) => {
     setExpandedSecs(prev => { const s = new Set(prev); s.has(id)?s.delete(id):s.add(id); return s; });
@@ -993,6 +1002,147 @@ export default function EEFFModule({ canEdit, usuarioActual, empresasPermitidas 
             </div>
           )}
         </>
+      )}
+
+      {/* ── Panel diagnóstico Libro Mayor (solo admin, Parte 1) ── */}
+      {isAdmin && (
+        <div style={{ marginTop:40, background:C.bg2, border:`1px solid ${C.border}`,
+          borderRadius:8, padding:'16px 20px' }}>
+          <div style={{ fontSize:11, fontWeight:700, color:C.yellow, letterSpacing:1,
+            marginBottom:12, textTransform:'uppercase' }}>
+            Diagnóstico — Parser Libro Mayor
+          </div>
+
+          <div style={{ fontSize:12, color:C.muted, marginBottom:10 }}>
+            Empresa activa: <strong style={{ color:C.text }}>{empresa}</strong> — año {anio}.
+            El mayor se guarda por empresa-año (cubre todos los meses).
+          </div>
+
+          <div style={{ display:'flex', gap:10, alignItems:'center', flexWrap:'wrap', marginBottom:14 }}>
+            <input type="file" accept=".xls,.xlsx" ref={mayorDiagRef} style={{ display:'none' }}
+              onChange={async (e) => {
+                const file = e.target.files?.[0];
+                if (!file) return;
+                e.target.value = '';
+                setMayorDiagError(null); setMayorDiag(null); setMayorGuardadoOk(false);
+                setMayorDiagLoading(true);
+                try {
+                  const movimientos = await parsearMayor(file);
+                  const cuentasSet = new Set(movimientos.map(m => m.codigoCuenta));
+                  const mesesSet   = new Set(movimientos.map(m => m.mes));
+                  setMayorDiag({
+                    movimientos,
+                    meta: {
+                      archivo: file.name,
+                      totalMovimientos: movimientos.length,
+                      totalCuentas: cuentasSet.size,
+                      meses: [...mesesSet].sort((a,b)=>a-b),
+                      sistema: movimientos[0]?.sistema || '?',
+                    },
+                  });
+                } catch(err) {
+                  setMayorDiagError(err.message);
+                } finally {
+                  setMayorDiagLoading(false);
+                }
+              }}
+            />
+            <Btn onClick={() => mayorDiagRef.current?.click()} color={C.accent}>
+              Seleccionar archivo mayor (.xls/.xlsx)
+            </Btn>
+            {mayorDiag && canEdit && (
+              <Btn
+                disabled={mayorGuardando}
+                color={C.green}
+                onClick={async () => {
+                  setMayorGuardando(true); setMayorGuardadoOk(false);
+                  try {
+                    await dbSaveMayor({
+                      empresa, anio,
+                      movimientos: mayorDiag.movimientos,
+                      guardadoPor: usuarioActual?.email || '',
+                    });
+                    setMayorGuardadoOk(true);
+                  } catch(err) {
+                    setMayorDiagError(err.message);
+                  } finally {
+                    setMayorGuardando(false);
+                  }
+                }}>
+                {mayorGuardando ? 'Guardando...' : 'Guardar en Supabase'}
+              </Btn>
+            )}
+            {mayorGuardadoOk && (
+              <span style={{ fontSize:12, color:C.green }}>Guardado OK</span>
+            )}
+          </div>
+
+          {mayorDiagLoading && (
+            <div style={{ fontSize:12, color:C.muted }}>Procesando archivo...</div>
+          )}
+          {mayorDiagError && (
+            <div style={{ fontSize:12, color:C.red, marginBottom:8 }}>{mayorDiagError}</div>
+          )}
+
+          {mayorDiag && (
+            <>
+              <div style={{ display:'flex', gap:20, flexWrap:'wrap', marginBottom:12 }}>
+                {[
+                  ['Archivo',       mayorDiag.meta.archivo],
+                  ['Sistema',       mayorDiag.meta.sistema],
+                  ['Movimientos',   mayorDiag.meta.totalMovimientos.toLocaleString('es-CL')],
+                  ['Cuentas',       mayorDiag.meta.totalCuentas],
+                  ['Meses (MM)',    mayorDiag.meta.meses.join(', ')],
+                ].map(([k,v]) => (
+                  <div key={k} style={{ fontSize:11 }}>
+                    <span style={{ color:C.muted }}>{k}: </span>
+                    <span style={{ color:C.text, fontWeight:600 }}>{v}</span>
+                  </div>
+                ))}
+              </div>
+
+              <div style={{ fontSize:11, color:C.muted, marginBottom:6 }}>
+                Primeros 30 movimientos:
+              </div>
+              <div style={{ overflowX:'auto' }}>
+                <table style={{ width:'100%', borderCollapse:'collapse', fontSize:11 }}>
+                  <thead>
+                    <tr style={{ background:C.bg, color:C.muted }}>
+                      {['Fecha','Cuenta','Nombre','Tipo','Glosa','Debe','Haber','Saldo','Moneda','TC'].map(h => (
+                        <th key={h} style={{ padding:'4px 8px', textAlign:'left',
+                          borderBottom:`1px solid ${C.border}`, whiteSpace:'nowrap' }}>{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {mayorDiag.movimientos.slice(0,30).map((m, i) => (
+                      <tr key={i} style={{ background:i%2===0?C.bg:C.bg2 }}>
+                        <td style={{ padding:'3px 8px', whiteSpace:'nowrap' }}>{m.fecha}</td>
+                        <td style={{ padding:'3px 8px', fontFamily:'monospace', color:C.accentL }}>{m.codigoCuenta}</td>
+                        <td style={{ padding:'3px 8px', color:C.muted, maxWidth:180,
+                          overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}
+                          title={m.nombreCuenta}>{m.nombreCuenta}</td>
+                        <td style={{ padding:'3px 8px', color:C.muted }}>{m.tipo}</td>
+                        <td style={{ padding:'3px 8px', maxWidth:200,
+                          overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}
+                          title={m.glosa}>{m.glosa}</td>
+                        <td style={{ padding:'3px 8px', textAlign:'right',
+                          color: m.debe > 0 ? C.text : C.muted }}>{m.debe ? fmtMonto(m.debe,2) : '—'}</td>
+                        <td style={{ padding:'3px 8px', textAlign:'right',
+                          color: m.haber > 0 ? C.text : C.muted }}>{m.haber ? fmtMonto(m.haber,2) : '—'}</td>
+                        <td style={{ padding:'3px 8px', textAlign:'right',
+                          color:C.muted }}>{m.saldo != null ? fmtMonto(m.saldo,2) : '—'}</td>
+                        <td style={{ padding:'3px 8px', color:C.muted }}>{m.moneda || '—'}</td>
+                        <td style={{ padding:'3px 8px', textAlign:'right',
+                          color:C.muted }}>{m.tc ? fmtMonto(m.tc,0) : '—'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </>
+          )}
+        </div>
       )}
     </div>
   );
