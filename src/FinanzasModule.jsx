@@ -11099,26 +11099,99 @@ function nominaVacia(empresa, semana, año, numero=1) {
 }
 
 // ─────────────────────────────────────────────────────────────────
-// SUPABASE LOAD/SAVE
+// SUPABASE LOAD/SAVE — particionado por empresa (v2)
 // ─────────────────────────────────────────────────────────────────
-async function dbLoadNominas() {
+
+// Genera el slug de Supabase para una empresa: "Allpa Farms Perú" → "allpa_farms_peru"
+function slugEmpresaNom(empresa) {
+  return empresa.toLowerCase()
+    .normalize('NFD').replace(/[̀-ͯ]/g, '') // quitar tildes
+    .replace(/\s+/g, '_')
+    .replace(/[^a-z0-9_]/g, '');
+}
+
+// Cache en memoria del estado de migración (null=desconocido, true/false=conocido)
+let _cacheNominasMigrado = null;
+async function dbNominasMigrado() {
+  if (_cacheNominasMigrado !== null) return _cacheNominasMigrado;
   try {
-    const res = await fetch(`${SUPA_URL}/rest/v1/calendario_data?id=eq.nominas&select=value`,{
+    const res = await fetch(`${SUPA_URL}/rest/v1/calendario_data?id=eq.nominas_v2_done&select=id`,{
       headers:{apikey:SUPA_KEY,Authorization:`Bearer ${SUPA_KEY}`}
     });
-    const data = await res.json();
-    return data?.[0]?.value ? JSON.parse(data[0].value) : null;
+    const rows = await res.json();
+    _cacheNominasMigrado = Array.isArray(rows) && rows.length > 0;
+  } catch { _cacheNominasMigrado = false; }
+  return _cacheNominasMigrado;
+}
+
+// Carga nóminas: si migrado → carga solo las filas de empresasPermitidas;
+// si no migrado → carga blob legacy id="nominas" y filtra en memoria.
+async function dbLoadNominas(empresasPermitidas) {
+  try {
+    const migrado = await dbNominasMigrado();
+    if (!migrado) {
+      // Legacy: blob único
+      const res = await fetch(`${SUPA_URL}/rest/v1/calendario_data?id=eq.nominas&select=value`,{
+        headers:{apikey:SUPA_KEY,Authorization:`Bearer ${SUPA_KEY}`}
+      });
+      const data = await res.json();
+      if (!data?.[0]?.value) return null;
+      const blob = JSON.parse(data[0].value);
+      // Aplicar filtro en memoria para usuarios restringidos
+      if (empresasPermitidas?.length) {
+        blob.nominas = (blob.nominas||[]).filter(n => empresasPermitidas.includes(n.empresa));
+      }
+      return blob;
+    }
+    // v2: cargar por empresa
+    const empresasTarget = (!empresasPermitidas?.length)
+      ? EMPRESAS_NOM
+      : EMPRESAS_NOM.filter(e => empresasPermitidas.includes(e));
+    const resultados = await Promise.all(empresasTarget.map(async emp => {
+      const slug = slugEmpresaNom(emp);
+      const res = await fetch(`${SUPA_URL}/rest/v1/calendario_data?id=eq.nominas_${slug}&select=value`,{
+        headers:{apikey:SUPA_KEY,Authorization:`Bearer ${SUPA_KEY}`}
+      });
+      const data = await res.json();
+      return data?.[0]?.value ? JSON.parse(data[0].value).nominas || [] : [];
+    }));
+    return { nominas: resultados.flat() };
   } catch { return null; }
 }
 
-async function dbSaveNominas(value) {
+// Guarda nóminas: si migrado → upsert por empresa;
+// si no migrado → sobreescribe blob legacy.
+async function dbSaveNominas(nominas) {
   try {
-    await fetch(`${SUPA_URL}/rest/v1/calendario_data`,{
-      method:"POST",
-      headers:{apikey:SUPA_KEY,Authorization:`Bearer ${SUPA_KEY}`,
-        "Content-Type":"application/json",Prefer:"resolution=merge-duplicates"},
-      body:JSON.stringify({id:"nominas",value:JSON.stringify(value),updated_at:new Date().toISOString()})
-    });
+    const migrado = await dbNominasMigrado();
+    if (!migrado) {
+      await fetch(`${SUPA_URL}/rest/v1/calendario_data`,{
+        method:"POST",
+        headers:{apikey:SUPA_KEY,Authorization:`Bearer ${SUPA_KEY}`,
+          "Content-Type":"application/json",Prefer:"resolution=merge-duplicates"},
+        body:JSON.stringify({id:"nominas",value:JSON.stringify({nominas}),updated_at:new Date().toISOString()})
+      });
+      return;
+    }
+    // v2: agrupar por empresa y upsert cada fila
+    const grupos = {};
+    for (const n of nominas) {
+      const emp = n.empresa;
+      if (emp) { if (!grupos[emp]) grupos[emp]=[]; grupos[emp].push(n); }
+    }
+    await Promise.all(Object.entries(grupos).map(([emp, noms]) => {
+      const slug = slugEmpresaNom(emp);
+      return fetch(`${SUPA_URL}/rest/v1/calendario_data`,{
+        method:"POST",
+        headers:{apikey:SUPA_KEY,Authorization:`Bearer ${SUPA_KEY}`,
+          "Content-Type":"application/json",Prefer:"resolution=merge-duplicates"},
+        body:JSON.stringify({
+          id:`nominas_${slug}`,
+          value:JSON.stringify({nominas:noms, empresa:emp}),
+          updated_at:new Date().toISOString()
+        })
+      });
+    }));
   } catch(e){console.error(e);}
 }
 
@@ -12445,6 +12518,205 @@ function sumNominaUSD(nom) {
     .reduce((s,it) => s + (Number(it.montoUSD)||0), 0);
 }
 
+// ─────────────────────────────────────────────────────────────────
+// MIGRACIÓN v2 — ejecuta particionado, verifica conteo, escribe marcador
+// ─────────────────────────────────────────────────────────────────
+async function ejecutarMigracion(usuario, onLog) {
+  // 1. Cargar blob original
+  onLog('Cargando blob original id="nominas"...');
+  const res = await fetch(`${SUPA_URL}/rest/v1/calendario_data?id=eq.nominas&select=value`,{
+    headers:{apikey:SUPA_KEY,Authorization:`Bearer ${SUPA_KEY}`}
+  });
+  const rows = await res.json();
+  if (!rows?.[0]?.value) throw new Error('No se encontró el blob id="nominas" en Supabase');
+  const blobValue = JSON.parse(rows[0].value);
+  const nominas = blobValue.nominas || [];
+  const totalOriginal = nominas.length;
+  onLog(`Blob cargado: ${totalOriginal} nóminas`);
+
+  // 2. Verificar campo empresa limpio
+  const sinEmpresa = nominas.filter(n => !n.empresa?.trim());
+  if (sinEmpresa.length > 0) throw new Error(`${sinEmpresa.length} nóminas sin campo empresa — abortar`);
+
+  // 3. Descargar respaldo ANTES de escribir nada
+  onLog('Descargando respaldo en tu equipo...');
+  const backupJSON = JSON.stringify(blobValue, null, 2);
+  const blobFile = new Blob([backupJSON], {type:'application/json'});
+  const url = URL.createObjectURL(blobFile);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `nominas_respaldo_${new Date().toISOString().slice(0,10)}.json`;
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+  onLog('Respaldo descargado');
+  await new Promise(r => setTimeout(r, 800));
+
+  // 4. Agrupar por empresa
+  const grupos = {};
+  for (const n of nominas) {
+    const emp = n.empresa.trim();
+    if (!grupos[emp]) grupos[emp] = [];
+    grupos[emp].push(n);
+  }
+  const empresasEncontradas = Object.keys(grupos);
+  onLog(`Empresas: ${empresasEncontradas.join(', ')}`);
+
+  // 5. Escribir una fila por empresa
+  onLog('Escribiendo filas particionadas...');
+  const porEmpresa = {};
+  await Promise.all(empresasEncontradas.map(async emp => {
+    const noms = grupos[emp];
+    const slug = slugEmpresaNom(emp);
+    const r = await fetch(`${SUPA_URL}/rest/v1/calendario_data`,{
+      method:'POST',
+      headers:{apikey:SUPA_KEY,Authorization:`Bearer ${SUPA_KEY}`,
+        'Content-Type':'application/json',Prefer:'resolution=merge-duplicates'},
+      body:JSON.stringify({id:`nominas_${slug}`,value:JSON.stringify({nominas:noms,empresa:emp}),updated_at:new Date().toISOString()})
+    });
+    if (!r.ok) throw new Error(`Error guardando nominas_${slug}: HTTP ${r.status}`);
+    porEmpresa[emp] = noms.length;
+    onLog(`  nominas_${slug}: ${noms.length}`);
+  }));
+
+  // 6. Verificar conteo leyendo de vuelta
+  onLog('Verificando conteo post-escritura...');
+  await new Promise(r => setTimeout(r, 600));
+  const conteos = await Promise.all(empresasEncontradas.map(async emp => {
+    const slug = slugEmpresaNom(emp);
+    const r = await fetch(`${SUPA_URL}/rest/v1/calendario_data?id=eq.nominas_${slug}&select=value`,{
+      headers:{apikey:SUPA_KEY,Authorization:`Bearer ${SUPA_KEY}`}
+    });
+    const data = await r.json();
+    return data?.[0]?.value ? (JSON.parse(data[0].value).nominas||[]).length : 0;
+  }));
+  const totalParticionado = conteos.reduce((s,c) => s+c, 0);
+  onLog(`Conteo: original=${totalOriginal}, particionado=${totalParticionado}`);
+  if (totalParticionado !== totalOriginal)
+    throw new Error(`Conteo no coincide (${totalOriginal} vs ${totalParticionado}) — revisar filas nominas_* antes de continuar`);
+  onLog('Conteo OK');
+
+  // 7. Escribir marcador de migración completada
+  const meta = {
+    migracionFecha: new Date().toISOString(),
+    migracionPor: usuario?.nombre || usuario?.email || 'admin',
+    totalNominas: totalOriginal,
+    porEmpresa,
+  };
+  const rMeta = await fetch(`${SUPA_URL}/rest/v1/calendario_data`,{
+    method:'POST',
+    headers:{apikey:SUPA_KEY,Authorization:`Bearer ${SUPA_KEY}`,
+      'Content-Type':'application/json',Prefer:'resolution=merge-duplicates'},
+    body:JSON.stringify({id:'nominas_v2_done',value:JSON.stringify(meta),updated_at:new Date().toISOString()})
+  });
+  if (!rMeta.ok) throw new Error(`Error escribiendo nominas_v2_done: HTTP ${rMeta.status}`);
+  _cacheNominasMigrado = true; // activar código nuevo en esta sesión
+  onLog('Marcador nominas_v2_done escrito. Código nuevo activo.');
+  return meta;
+}
+
+function MigracionNominasPanel({usuario}) {
+  const [estado, setEstado] = useState('verificando'); // verificando|pendiente|ejecutando|completada|error
+  const [meta, setMeta] = useState(null);
+  const [log, setLog] = useState([]);
+  const [confirmando, setConfirmando] = useState(false);
+  const [abierto, setAbierto] = useState(false);
+
+  useEffect(()=>{
+    dbNominasMigrado().then(migrado=>{
+      if(migrado){
+        fetch(`${SUPA_URL}/rest/v1/calendario_data?id=eq.nominas_v2_done&select=value`,{
+          headers:{apikey:SUPA_KEY,Authorization:`Bearer ${SUPA_KEY}`}
+        }).then(r=>r.json()).then(rows=>{
+          if(rows?.[0]?.value) setMeta(JSON.parse(rows[0].value));
+          setEstado('completada');
+        });
+      } else { setEstado('pendiente'); }
+    });
+  },[]);
+
+  function addLog(msg){ setLog(prev=>[...prev,`${new Date().toLocaleTimeString('es-CL')} — ${msg}`]); }
+
+  async function correrMigracion(){
+    setConfirmando(false); setEstado('ejecutando'); setLog([]);
+    try {
+      const result = await ejecutarMigracion(usuario, addLog);
+      setMeta(result); setEstado('completada');
+    } catch(e) { addLog(`ERROR: ${e.message}`); setEstado('error'); }
+  }
+
+  const colEst = estado==='completada'?'#22c55e':estado==='error'?'#ef4444':estado==='ejecutando'?'#f59e0b':'#64748b';
+  const labelEst = {
+    verificando:'Migración: verificando...',
+    pendiente:'Migración a particionado por empresa: PENDIENTE',
+    ejecutando:'Ejecutando migración...',
+    completada:`Migración completada — ${meta?.totalNominas||'?'} nóminas particionadas`,
+    error:'Migración: ERROR — ver log',
+  }[estado];
+
+  return (
+    <div style={{marginBottom:14,border:`1px solid ${colEst}44`,borderRadius:10,background:`${colEst}08`,overflow:'hidden'}}>
+      <div onClick={()=>setAbierto(a=>!a)}
+        style={{display:'flex',alignItems:'center',gap:10,padding:'10px 16px',cursor:'pointer',userSelect:'none'}}>
+        <span style={{fontSize:11,fontWeight:700,color:colEst}}>{labelEst}</span>
+        <span style={{fontSize:10,color:'#64748b',marginLeft:'auto'}}>{abierto?'▲':'▼'}</span>
+      </div>
+      {abierto&&(
+        <div style={{padding:'0 16px 14px',borderTop:`1px solid ${colEst}33`}}>
+          {estado==='pendiente'&&!confirmando&&(
+            <div>
+              <p style={{fontSize:11,color:'#94a3b8',margin:'10px 0 10px'}}>
+                Particiona el blob <code>id="nominas"</code> en 8 filas por empresa (<code>nominas_{'{slug}'}</code>).
+                Descarga el respaldo automáticamente antes de escribir nada. El blob original no se borra.
+              </p>
+              <button onClick={()=>setConfirmando(true)}
+                style={{padding:'7px 18px',borderRadius:8,background:'#3b82f6',border:'none',color:'#fff',cursor:'pointer',fontWeight:700,fontSize:12}}>
+                Ejecutar migración
+              </button>
+            </div>
+          )}
+          {estado==='pendiente'&&confirmando&&(
+            <div style={{background:'#1e3a5f',borderRadius:8,padding:'12px 14px',marginTop:10}}>
+              <p style={{fontSize:12,color:'#f1f5f9',margin:'0 0 12px'}}>
+                Se descargará <strong>nominas_respaldo_{'{fecha}'}.json</strong> en tu equipo antes de escribir nada.
+              </p>
+              <div style={{display:'flex',gap:8}}>
+                <button onClick={correrMigracion}
+                  style={{padding:'7px 18px',borderRadius:8,background:'#22c55e',border:'none',color:'#fff',cursor:'pointer',fontWeight:700,fontSize:12}}>
+                  Confirmar y migrar
+                </button>
+                <button onClick={()=>setConfirmando(false)}
+                  style={{padding:'7px 14px',borderRadius:8,background:'transparent',border:'1px solid #475569',color:'#94a3b8',cursor:'pointer',fontSize:12}}>
+                  Cancelar
+                </button>
+              </div>
+            </div>
+          )}
+          {(estado==='ejecutando'||estado==='error'||log.length>0)&&(
+            <div style={{marginTop:10,background:'#0f172a',borderRadius:8,padding:'10px 12px',
+              fontFamily:'monospace',fontSize:11,color:'#94a3b8',maxHeight:200,overflowY:'auto'}}>
+              {log.map((l,i)=>(
+                <div key={i} style={{color:l.includes('ERROR')?'#ef4444':l.includes('OK')?'#22c55e':'#94a3b8'}}>{l}</div>
+              ))}
+              {estado==='ejecutando'&&<div style={{color:'#f59e0b'}}>...</div>}
+            </div>
+          )}
+          {estado==='completada'&&meta&&(
+            <div style={{marginTop:10,fontSize:11,color:'#94a3b8'}}>
+              <div>Ejecutada: {new Date(meta.migracionFecha).toLocaleString('es-CL')}</div>
+              <div>Por: {meta.migracionPor}</div>
+              <div style={{marginTop:6,display:'flex',flexWrap:'wrap',gap:'4px 16px'}}>
+                {Object.entries(meta.porEmpresa||{}).map(([emp,cnt])=>(
+                  <span key={emp}>{emp}: <strong style={{color:'#f1f5f9'}}>{cnt}</strong></span>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function NominasModule({usuario, canEdit=false, saldosBancos={}, empresasPermitidas}) {
   const [nominas, setNominas] = useState([]);
   const [cargando, setCargando] = useState(true);
@@ -12459,14 +12731,10 @@ function NominasModule({usuario, canEdit=false, saldosBancos={}, empresasPermiti
   const nominasRef = useRef(nominas);
   useEffect(()=>{nominasRef.current=nominas;},[nominas]);
 
-  // Filtra por empresas permitidas. Sin restricción (admin/CFO) → devuelve todo.
-  const filtrarXEmpresa = (list) =>
-    (!empresasPermitidas?.length) ? list : list.filter(n => empresasPermitidas.includes(n.empresa));
-
-  // Load
+  // Load — dbLoadNominas aplica el filtro por empresa (legacy en memoria, v2 en consulta)
   useEffect(()=>{
-    dbLoadNominas().then(d=>{
-      if(d?.nominas) setNominas(filtrarXEmpresa(d.nominas));
+    dbLoadNominas(empresasPermitidas).then(d=>{
+      if(d?.nominas) setNominas(d.nominas);
       setCargando(false);
     });
   },[]);
@@ -12474,14 +12742,14 @@ function NominasModule({usuario, canEdit=false, saldosBancos={}, empresasPermiti
   // Auto-refresh nóminas cada 30s para sincronizar cambios de otros usuarios
   useEffect(()=>{
     const interval = setInterval(()=>{
-      dbLoadNominas().then(d=>{
+      dbLoadNominas(empresasPermitidas).then(d=>{
         if(d?.nominas) {
-          const filtered = filtrarXEmpresa(d.nominas);
+          const fresh = d.nominas;
           setNominas(prev=>{
             // Solo actualizar si hay cambios reales (evitar re-render innecesario)
             const prevJSON = JSON.stringify(prev.map(n=>({id:n.id,estado:n.estado,aprobado1Por:n.aprobado1Por,aprobadoPor:n.aprobadoPor})));
-            const newJSON = JSON.stringify(filtered.map(n=>({id:n.id,estado:n.estado,aprobado1Por:n.aprobado1Por,aprobadoPor:n.aprobadoPor})));
-            if(prevJSON !== newJSON) return filtered;
+            const newJSON = JSON.stringify(fresh.map(n=>({id:n.id,estado:n.estado,aprobado1Por:n.aprobado1Por,aprobadoPor:n.aprobadoPor})));
+            if(prevJSON !== newJSON) return fresh;
             return prev;
           });
         }
@@ -12494,8 +12762,8 @@ function NominasModule({usuario, canEdit=false, saldosBancos={}, empresasPermiti
   useEffect(()=>{
     function onVisibility(){
       if(document.visibilityState === "visible"){
-        dbLoadNominas().then(d=>{
-          if(d?.nominas) setNominas(filtrarXEmpresa(d.nominas));
+        dbLoadNominas(empresasPermitidas).then(d=>{
+          if(d?.nominas) setNominas(d.nominas);
         }).catch(()=>{});
       }
     }
@@ -12503,12 +12771,12 @@ function NominasModule({usuario, canEdit=false, saldosBancos={}, empresasPermiti
     return ()=>document.removeEventListener("visibilitychange", onVisibility);
   },[]);
 
-  // Save (debounce 800ms)
+  // Save (debounce 800ms) — dbSaveNominas agrupa por empresa en v2
   const saveTimer = useRef(null);
   function saveNominas(list) {
     clearTimeout(saveTimer.current);
     saveTimer.current = setTimeout(()=>{
-      dbSaveNominas({nominas: list});
+      dbSaveNominas(list);
     }, 800);
   }
 
@@ -12714,6 +12982,9 @@ function NominasModule({usuario, canEdit=false, saldosBancos={}, empresasPermiti
 
   return (
     <div style={{fontFamily:"sans-serif",background:C.bg,minHeight:"100vh",color:C.text,padding:"20px 24px"}}>
+
+      {/* Panel de migración v2 — solo admin */}
+      {usuario?.rol==='admin' && <MigracionNominasPanel usuario={usuario}/>}
 
       {/* Header */}
       <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:20,flexWrap:"wrap"}}>
