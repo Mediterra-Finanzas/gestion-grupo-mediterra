@@ -357,11 +357,24 @@ function BloqueER({ bloque, cuentas, expandedSecs, onToggleSec, expandedCats, on
 }
 
 // ── Componente principal ─────────────────────────────────────────────
-export default function EEFFModule({ canEdit, usuarioActual }) {
+export default function EEFFModule({ canEdit, usuarioActual, empresasPermitidas }) {
   const isAdmin = usuarioActual?.rol === 'admin';
 
+  // Empresas visibles para este usuario.
+  // empresasPermitidas viene de FinanzasModule (getEmpresasPermitidasUsuario).
+  // Vacío/undefined = acceso a todas (admin, CFO, retrocompat).
+  const empresasVisibles = useMemo(() => {
+    if (!empresasPermitidas || empresasPermitidas.length === 0) return EMPRESAS;
+    return EMPRESAS.filter(e => empresasPermitidas.includes(e));
+  }, [empresasPermitidas]);
+
   // ── Selectores ──────────────────────────────────────────────────
-  const [empresa, setEmpresa] = useState('Allegria Foods');
+  // Empresa inicial: Allegria Foods si está permitida, si no la primera autorizada.
+  const [empresa, setEmpresa] = useState(() => {
+    if (!empresasPermitidas?.length) return 'Allegria Foods';
+    if (empresasPermitidas.includes('Allegria Foods')) return 'Allegria Foods';
+    return empresasPermitidas.find(e => EMPRESAS.includes(e)) || EMPRESAS[0];
+  });
   const [mes,     setMes]     = useState(new Date().getMonth() + 1);
   const [anio,    setAnio]    = useState(new Date().getFullYear());
   const [modo,    setModo]    = useState('mes'); // 'mes' | 'ytd'
@@ -411,6 +424,12 @@ export default function EEFFModule({ canEdit, usuarioActual }) {
 
   // ── Cargar EEFF desde Supabase cuando cambia empresa/mes/año ─────
   useEffect(() => {
+    // Defensa de datos: si la empresa seleccionada no está en la lista autorizada,
+    // redirigir sin emitir ninguna consulta a Supabase.
+    if (empresasVisibles.length > 0 && !empresasVisibles.includes(empresa)) {
+      setEmpresa(empresasVisibles[0]);
+      return; // el setEmpresa dispara re-render → este useEffect se ejecuta de nuevo con empresa válida
+    }
     setEeffData(null); setSinDatos(false); setShowUpload(false);
     setUploadError(null); setUploadFile(null);
     setLoadingData(true);
@@ -421,7 +440,7 @@ export default function EEFFModule({ canEdit, usuarioActual }) {
       })
       .catch(() => setSinDatos(true))
       .finally(() => setLoadingData(false));
-  }, [empresa, mes, anio]);
+  }, [empresa, mes, anio, empresasVisibles]);
 
   // ── Handler: upload Plan Maestro (admin) ─────────────────────────
   const handlePlanFile = useCallback(async (file) => {
@@ -552,7 +571,7 @@ export default function EEFFModule({ canEdit, usuarioActual }) {
           <select value={empresa} onChange={e => setEmpresa(e.target.value)}
             style={{ padding:'6px 10px', borderRadius:6, background:C.card2, color:C.text,
               border:`1px solid ${C.border}`, fontSize:11 }}>
-            {EMPRESAS.map(e => <option key={e} value={e}>{e}</option>)}
+            {empresasVisibles.map(e => <option key={e} value={e}>{e}</option>)}
           </select>
         </div>
         <div style={{ display:'flex', flexDirection:'column', gap:3 }}>

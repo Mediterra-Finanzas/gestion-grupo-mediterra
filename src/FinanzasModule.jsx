@@ -10966,7 +10966,7 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
       )}
 
       {tab==="eeff"&&(
-        <EEFFModule canEdit={puedoEdit("eeff")} usuarioActual={usuarioActual}/>
+        <EEFFModule canEdit={puedoEdit("eeff")} usuarioActual={usuarioActual} empresasPermitidas={empresasPermitidas}/>
       )}
 
     </div>
