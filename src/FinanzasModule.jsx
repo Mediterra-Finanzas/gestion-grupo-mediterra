@@ -1,5 +1,6 @@
 /* eslint-disable */
 import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
+import EEFFModule from './EEFFModule.jsx';
 
 // ═══════════════════════════════════════════════════════════════════
 // TIEMPO: Mar-26 → Jun-31 (65 meses)
@@ -3436,6 +3437,13 @@ function Consolidado({empresas,saldosBancos,realData={},addedLinesGlobal={},subL
   const empNames=Object.keys(empresas);
   const empNamesConsolidado = empNames.filter(n => EMPRESAS_KEYS_CONSOLIDADO.includes(n));
   const [vistaConsolidado,setVistaConsolidado]=useState("sumada");
+  // Índice del mes actual en MESES_65 — para no mostrar saldo banco en meses futuros
+  const mesIdxHoy = useMemo(()=>{
+    const HOY=new Date();
+    const label=`${MN[HOY.getMonth()]}-${String(HOY.getFullYear()).slice(2)}`;
+    const idx=MESES_65.indexOf(label);
+    return idx>=0?idx:0;
+  },[]);
   const [agrup,setAgrup]=useState("mes");
   const [openSeason,setOpenSeason]=useState(()=>{const o={};SEASON_KEYS.forEach((k,i)=>{o[k]=i<2;});return o;});
   // Estado de drill-down para vista "sumada". Keys: cat codes + "flujo_neto" + "saldo_acum".
@@ -3601,10 +3609,14 @@ function Consolidado({empresas,saldosBancos,realData={},addedLinesGlobal={},subL
         <div style={{fontSize:9,color:C.muted}}>{nombre==="_consolidado"?`Suma ${empNamesConsolidado.length} empresas · último registro previo al período`:"último registro previo al período"}</div>
       </td>
       {cols.map(col=>{
-        const val=nombre==="_consolidado"
-          ?empNamesConsolidado.reduce((s,n)=>s+(saldoBancoParaCol(n,col)||0),0)
-          :(saldoBancoParaCol(nombre,col)||0);
-        return(<td key={col.key} style={{padding:"6px 5px",textAlign:"right",fontWeight:700,fontSize:9,color:C.blue,background:`${C.blue}0d`,borderLeft:col.isFirstInSeason?`2px solid ${C.border2}`:`1px solid ${C.border}11`}}>{$$(val)}</td>);
+        // Solo mostrar saldo banco en el mes actual. Pasados y futuros → "—"
+        const esMesActual = !col.collapsed && col.tipo!=="temporada" && col.indices[0]===mesIdxHoy;
+        const val = esMesActual
+          ? (nombre==="_consolidado"
+              ? empNamesConsolidado.reduce((s,n)=>s+(saldoIniPorEmp[n]||0),0)
+              : (saldoIniPorEmp[nombre]||0))
+          : null;
+        return(<td key={col.key} style={{padding:"6px 5px",textAlign:"right",fontWeight:700,fontSize:9,color:val==null?C.muted2:C.blue,background:`${C.blue}0d`,borderLeft:col.isFirstInSeason?`2px solid ${C.border2}`:`1px solid ${C.border}11`}}>{val==null?"—":$$(val)}</td>);
       })}
     </tr>
   );
@@ -4732,6 +4744,14 @@ function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit,saldosBanc
     return idx >= 0 ? idx : 0;
   },[]);
 
+  // Semana actual dentro del mes en curso (índice 0-3)
+  // Usa semanaHoy + mesHoyLabel para ser consistente con la columna destacada
+  const semIdxActual = useMemo(()=>{
+    const sems = SEMANAS_MES[mesHoyLabel] || [];
+    const idx = sems.indexOf(semanaHoy);
+    return idx >= 0 ? idx : 0;
+  },[mesHoyLabel, semanaHoy]);
+
   // ── Valor proyectado efectivo (base + override) ────────────────
   // Si override es objeto {_sem0,_sem1,_sem2,_sem3}: suma SOLO las semanas definidas por el usuario
   //   (las semanas no editadas son 0, el usuario tomó control del mes)
@@ -4975,6 +4995,42 @@ function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit,saldosBanc
     });
     return {flujoArr:fa, acumArr:aa};
   },[emp, proyOverrides, saldoBancoUSD, mesIdxInicioSaldo, addedLines, subLines, getProy]); // eslint-disable-line
+
+  // Flujo neto de UNA semana (suma todas las líneas base + sublines + addedLines)
+  const flujoNetoPorSemana = useCallback((mesIdx, semIdx) => {
+    const isLast = semIdx === 3;
+    let f = 0;
+    emp.sections.forEach(sec => {
+      sec.lines.forEach(l => {
+        f += getProySemana(l.label, mesIdx, semIdx, isLast) * sec.signo;
+        if (l.subLines) f += sumSubLinesSemana(l.label, mesIdx, semIdx, isLast) * sec.signo;
+      });
+      f += sumAddedLinesSemana(sec.cat, mesIdx, semIdx) * sec.signo;
+    });
+    return f;
+  },[emp, getProySemana, sumSubLinesSemana, sumAddedLinesSemana]); // eslint-disable-line
+
+  // Saldo acumulado al cierre de una semana específica (para vista semanal)
+  // - Semanas pasadas del mes actual → null (no acumular)
+  // - Semana actual → saldoIni + flujo de esa semana
+  // - Semanas futuras del mes actual → acumulativo desde semIdxActual
+  // - Meses siguientes → arranca desde acumArr[mesIdx-1] (consistente con vista mensual)
+  const getAcumSemana = useCallback((mesIdx, semIdx) => {
+    if (mesIdx < mesIdxInicioSaldo) return null;
+    if (mesIdx === mesIdxInicioSaldo && semIdx < semIdxActual) return null;
+    const sIni = saldoBancoUSD != null ? saldoBancoUSD : emp.saldo_ini;
+    let startVal, startSem;
+    if (mesIdx === mesIdxInicioSaldo) {
+      startVal = sIni;
+      startSem = semIdxActual;
+    } else {
+      startVal = acumArr[mesIdx - 1] ?? sIni;
+      startSem = 0;
+    }
+    let a = startVal;
+    for (let s = startSem; s <= semIdx; s++) a += flujoNetoPorSemana(mesIdx, s);
+    return a;
+  },[mesIdxInicioSaldo, semIdxActual, saldoBancoUSD, emp, acumArr, flujoNetoPorSemana]); // eslint-disable-line
 
   // Flujo neto por mes (para totales mensuales en vista semanal)
   const flujoMes = useMemo(()=>{
@@ -5917,7 +5973,7 @@ function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit,saldosBanc
                 return cols.map((col,ci)=>{
                   const isTot=col.isTotalMes;
                   const isFirst=col.isFirstInSeason||col.isFirstInMonth;
-                  const v = acumArr[col.idx];
+                  const v = col.type==="week" ? getAcumSemana(col.idx, col.semIdx) : acumArr[col.idx];
                   return (
                     <td key={`acum-${col.mes}-${col.label}-${ci}`}
                       style={{padding:"6px 5px",textAlign:"right",fontWeight:isTot?900:700,
@@ -6984,6 +7040,13 @@ function SaldosBancos({saldos,onSave,canEdit,empresasPermitidas}) {
     return Object.values(totalesEmpresa).reduce((a,b)=>a+b,0);
   },[totalesEmpresa]);
 
+  // Total excluyendo Allpa Farms Perú (= saldo inicial del flujo consolidado IAS 28)
+  const totalConsolidadoUSD = useMemo(()=>{
+    return EMPRESAS_VISIBLES
+      .filter(e => e !== "Allpa Farms Perú")
+      .reduce((a, e) => a + (totalesEmpresa[e]||0), 0);
+  },[totalesEmpresa, EMPRESAS_VISIBLES]);
+
   // Totales separados Chile y Perú (en USD) — solo sobre el subset visible
   const {totalChileUSD, totalPeruUSD} = useMemo(()=>{
     let chile=0, peru=0;
@@ -7012,13 +7075,24 @@ function SaldosBancos({saldos,onSave,canEdit,empresasPermitidas}) {
       <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(160px,1fr))",gap:10}}>
         <div style={{background:C.card,border:`2px solid ${C.accent}`,borderRadius:10,
           padding:"12px 16px",gridColumn:"span 2"}}>
-          <div style={{fontSize:10,color:C.muted,textTransform:"uppercase",marginBottom:4}}>
-            💵 Total Consolidado USD
-            {fxLoading&&<span style={{marginLeft:6,fontSize:9,color:C.yellow}}>actualizando…</span>}
-            {fxError&&<span style={{marginLeft:6,fontSize:9,color:C.red}}>⚠️ sin paridad</span>}
-          </div>
-          <div style={{fontSize:22,fontWeight:900,color:totalUSD!=null?cf(totalUSD):C.muted}}>
-            {totalUSD!=null?`$${totalUSD.toLocaleString("es-CL",{maximumFractionDigits:0})} USD`:"—"}
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",flexWrap:"wrap",gap:12}}>
+            <div>
+              <div style={{fontSize:10,color:C.muted,textTransform:"uppercase",marginBottom:4}}>
+                💵 Saldo Consolidado
+                <span style={{marginLeft:5,fontSize:8,color:C.muted2,fontWeight:400,textTransform:"none"}}>sin Allpa Perú · = saldo inicial del flujo</span>
+                {fxLoading&&<span style={{marginLeft:6,fontSize:9,color:C.yellow}}>actualizando…</span>}
+                {fxError&&<span style={{marginLeft:6,fontSize:9,color:C.red}}>⚠️ sin paridad</span>}
+              </div>
+              <div style={{fontSize:22,fontWeight:900,color:totalConsolidadoUSD!=null?cf(totalConsolidadoUSD):C.muted}}>
+                {totalConsolidadoUSD!=null?`$${totalConsolidadoUSD.toLocaleString("es-CL",{maximumFractionDigits:0})} USD`:"—"}
+              </div>
+            </div>
+            <div style={{textAlign:"right"}}>
+              <div style={{fontSize:9,color:C.muted,textTransform:"uppercase",marginBottom:4}}>Total Grupo (incl. Allpa Perú)</div>
+              <div style={{fontSize:15,fontWeight:700,color:C.muted}}>
+                {totalUSD!=null?`$${totalUSD.toLocaleString("es-CL",{maximumFractionDigits:0})} USD`:"—"}
+              </div>
+            </div>
           </div>
         </div>
         {hayChile&&(
@@ -10161,6 +10235,7 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
     {id:"nominas",  label:"📋 Nóminas"},
     {id:"reporte",  label:"📅 Reporte Semanal"},
     {id:"auditoria",label:"🔍 Auditoría"},
+    {id:"eeff",     label:"📑 EEFF"},
   ];
   // Solo mostrar pestañas a las que el usuario tiene acceso
   // Auditoría: solo admin
@@ -10888,6 +10963,10 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
 
       {tab==="auditoria"&&usuarioActual?.rol==="admin"&&(
         <AuditoriaModule usuario={usuarioActual}/>
+      )}
+
+      {tab==="eeff"&&(
+        <EEFFModule canEdit={puedoEdit("eeff")} usuarioActual={usuarioActual}/>
       )}
 
     </div>
