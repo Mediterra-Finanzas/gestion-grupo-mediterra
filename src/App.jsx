@@ -500,6 +500,7 @@ const TABS_PERMISOS_CONFIG = {
     {id:"nominas",   label:"📋 Nóminas"},
     {id:"params",    label:"⚡ Parámetros"},
     {id:"auditoria", label:"🔍 Auditoría"},
+    {id:"eeff",      label:"📑 EEFF"},
   ],
   allegria: [
     {id:"clientes",      label:"👥 Clientes Importadores"},
