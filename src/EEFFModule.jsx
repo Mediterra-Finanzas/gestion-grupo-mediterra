@@ -454,6 +454,19 @@ export default function EEFFModule({ canEdit, usuarioActual, empresasPermitidas 
   const [mayorRecargado,   setMayorRecargado]   = useState(undefined); // undefined=no intentado, null=vacío, obj=datos
   const mayorDiagRef = useRef();
 
+  // Limpiar panel del mayor cuando cambia empresa o año — evita guardar movimientos
+  // de la empresa anterior bajo el id de la nueva (bug de integridad).
+  useEffect(() => {
+    setMayorDiag(null);
+    setMayorDiagError(null);
+    setMayorDiagLoading(false);
+    setMayorGuardando(false);
+    setMayorGuardadoInfo(null);
+    setMayorRecargando(false);
+    setMayorRecargado(undefined);
+    if (mayorDiagRef.current) mayorDiagRef.current.value = '';
+  }, [empresa, anio]);
+
   const toggleSec = useCallback((id) => {
     setExpandedSecs(prev => { const s = new Set(prev); s.has(id)?s.delete(id):s.add(id); return s; });
   }, []);
