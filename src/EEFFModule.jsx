@@ -1134,10 +1134,11 @@ export default function EEFFModule({ canEdit, usuarioActual, empresasPermitidas 
                     {mayorRecargado.totalMovimientos?.toLocaleString('es-CL')} movimientos
                     {' · '}meses: {mayorRecargado.meses?.join(', ')}
                     {' · '}cargado: {mayorRecargado.cargadoEn ? new Date(mayorRecargado.cargadoEn).toLocaleString('es-CL') : '?'}
-                    {mayorDiag && mayorRecargado.totalMovimientos === mayorDiag.meta.totalMovimientos
-                      ? <span style={{ color:C.green }}> ✓ cuenta coincide con el archivo original</span>
-                      : <span style={{ color:C.red }}> ✗ cuenta NO coincide ({mayorDiag?.meta.totalMovimientos} en archivo)</span>
-                    }
+                    {mayorDiag && (
+                      mayorRecargado.totalMovimientos === mayorDiag.meta.totalMovimientos
+                        ? <span style={{ color:C.green }}> ✓ coincide con archivo cargado ({mayorDiag.meta.totalMovimientos} mov)</span>
+                        : <span style={{ color:C.red }}> ✗ NO coincide con archivo cargado ({mayorDiag.meta.totalMovimientos} vs {mayorRecargado.totalMovimientos})</span>
+                    )}
                   </span>
                 </>
               ) : (
