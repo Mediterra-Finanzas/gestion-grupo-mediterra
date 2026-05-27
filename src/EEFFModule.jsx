@@ -138,6 +138,41 @@ function fmtSig(v) {
   return (v < 0 ? '(' : '') + fmtMonto(Math.abs(v), 0) + (v < 0 ? ')' : '');
 }
 
+// Construye mapa {grupo: [cuentas]} desde un array de cuentas clasificadas.
+// Excluye sinClasificar (se manejan por separado).
+function buildCpg(cuentas) {
+  if (!cuentas) return {};
+  const m = {};
+  for (const c of cuentas) {
+    if (c.grupo === 'sinClasificar') continue;
+    const g = c.categoriaIFRS ? (CAT_GRUPO[c.categoriaIFRS] || 'Sin Grupo') : 'Sin Grupo';
+    if (!m[g]) m[g] = [];
+    m[g].push(c);
+  }
+  return m;
+}
+
+// Calcula todos los totales del ER a partir de un cpg.
+function calcER(cpg) {
+  const _sumER = (grupoER) => {
+    const bloque = ER_BLOQUES.find(b => b.grupo === grupoER);
+    if (!bloque) return 0;
+    return (cpg[grupoER] || []).reduce((s, c) => s + valorERCuenta(c, bloque.signo), 0);
+  };
+  const ingOp    = _sumER('Ingreso Operacional');
+  const costoOp  = _sumER('Costo Operacional');
+  const resB     = ingOp - costoOp;
+  const gastoOp  = _sumER('Gasto Operacional');
+  const resOp    = resB - gastoOp;
+  const ingNOp   = _sumER('Ingreso No Operacional');
+  const gastNOp  = _sumER('Gasto No Operacional');
+  const noOp     = _sumER('No Operacional');
+  const resAntes = resOp + ingNOp - gastNOp + noOp;
+  const impuesto = _sumER('Impuesto');
+  const resEjec  = resAntes - impuesto;
+  return { ingOp, costoOp, resB, gastoOp, resOp, ingNOp, gastNOp, noOp, resAntes, impuesto, resEjec };
+}
+
 // ── Componentes de UI ─────────────────────────────────────────────────
 function Btn({ onClick, children, color, disabled, active, small }) {
   return (
@@ -385,11 +420,13 @@ export default function EEFFModule({ canEdit, usuarioActual, empresasPermitidas 
   const [sinDatos,     setSinDatos]     = useState(false);
 
   // ── Cargar balance (flujo upload) ────────────────────────────────
-  const [showUpload,   setShowUpload]   = useState(false);
-  const [uploading,    setUploading]    = useState(false);
-  const [uploadError,  setUploadError]  = useState(null);
-  const [uploadFile,   setUploadFile]   = useState(null);
-  const fileRef = useRef();
+  const [showUpload,    setShowUpload]    = useState(false);
+  const [uploading,     setUploading]     = useState(false);
+  const [uploadError,   setUploadError]   = useState(null);
+  const [uploadFileMes, setUploadFileMes] = useState(null);
+  const [uploadFileYtd, setUploadFileYtd] = useState(null);
+  const fileRefMes = useRef();
+  const fileRefYtd = useRef();
 
   // ── Plan Maestro ─────────────────────────────────────────────────
   const [planMaps,     setPlanMaps]     = useState(null);
@@ -431,7 +468,7 @@ export default function EEFFModule({ canEdit, usuarioActual, empresasPermitidas 
       return; // el setEmpresa dispara re-render → este useEffect se ejecuta de nuevo con empresa válida
     }
     setEeffData(null); setSinDatos(false); setShowUpload(false);
-    setUploadError(null); setUploadFile(null);
+    setUploadError(null); setUploadFileMes(null); setUploadFileYtd(null);
     setLoadingData(true);
     cargarEEFF(empresa, anio, mes)
       .then(data => {
@@ -456,19 +493,23 @@ export default function EEFFModule({ canEdit, usuarioActual, empresasPermitidas 
     finally { setPlanGuardando(false); if(planFileRef.current) planFileRef.current.value=''; }
   }, [usuarioActual]);
 
-  // ── Handler: cargar balance y guardar EEFF ───────────────────────
-  const handleCargarBalance = useCallback(async (file) => {
-    if (!file || !planMaps) return;
+  // ── Handler: cargar los dos balances (Mes + YTD) y guardar ───────
+  const handleCargarBalance = useCallback(async () => {
+    if (!uploadFileMes || !uploadFileYtd || !planMaps) return;
     setUploading(true); setUploadError(null);
     try {
-      const fmt2 = detectarFormatoBalance(file);
-      if (!fmt2) throw new Error('Formato no reconocido. Use .xls (Megasystem) o .xlsx (Contec).');
-      const cuentas = await parsearBalance(file, empresa, mes, anio);
-      const clasif  = clasificarCuentas(cuentas, planMaps);
+      const fmtMes = detectarFormatoBalance(uploadFileMes);
+      const fmtYtd = detectarFormatoBalance(uploadFileYtd);
+      if (!fmtMes) throw new Error(`Balance del Mes: formato no reconocido (${uploadFileMes.name}). Use .xls o .xlsx.`);
+      if (!fmtYtd) throw new Error(`Balance Acumulado: formato no reconocido (${uploadFileYtd.name}). Use .xls o .xlsx.`);
+      const cuentasMes = await parsearBalance(uploadFileMes, empresa, mes, anio);
+      const cuentasYtd = await parsearBalance(uploadFileYtd, empresa, mes, anio);
+      const clasifMes  = clasificarCuentas(cuentasMes, planMaps);
+      const clasifYtd  = clasificarCuentas(cuentasYtd, planMaps);
       await guardarEEFF({
         empresa, mes, anio,
-        sistema: fmt2 === 'megasystem' ? 'megasystem' : 'contec',
-        formato: fmt2, clasif,
+        sistema_mes: fmtMes, formato_mes: fmtMes, clasif_mes: clasifMes,
+        sistema_ytd: fmtYtd, formato_ytd: fmtYtd, clasif_ytd: clasifYtd,
         guardadoPor: usuarioActual?.nombre || usuarioActual?.email || '',
       });
       const data = await cargarEEFF(empresa, anio, mes);
@@ -477,56 +518,49 @@ export default function EEFFModule({ canEdit, usuarioActual, empresasPermitidas 
       setUploadError(e.message || String(e));
     } finally {
       setUploading(false);
-      if (fileRef.current) fileRef.current.value = '';
+      if (fileRefMes.current) fileRefMes.current.value = '';
+      if (fileRefYtd.current) fileRefYtd.current.value = '';
     }
-  }, [empresa, mes, anio, planMaps, usuarioActual]);
+  }, [empresa, mes, anio, planMaps, usuarioActual, uploadFileMes, uploadFileYtd]);
 
-  // ── Derived: agrupar cuentas por grupo de sección ────────────────
-  const { cuentasPorGrupo, sinClasificar } = useMemo(() => {
-    if (!eeffData?.cuentas) return { cuentasPorGrupo: {}, sinClasificar: [] };
-    const m = {};
-    const sc = [];
-    for (const c of eeffData.cuentas) {
-      if (c.grupo === 'sinClasificar') { sc.push(c); continue; }
-      const g = c.categoriaIFRS ? (CAT_GRUPO[c.categoriaIFRS] || 'Sin Grupo') : 'Sin Grupo';
-      if (!m[g]) m[g] = [];
-      m[g].push(c);
-    }
-    return { cuentasPorGrupo: m, sinClasificar: sc };
+  const cancelUpload = useCallback(() => {
+    setShowUpload(false); setUploadFileMes(null); setUploadFileYtd(null); setUploadError(null);
+    if (fileRefMes.current) fileRefMes.current.value = '';
+    if (fileRefYtd.current) fileRefYtd.current.value = '';
+  }, []);
+
+  // ── Derived: cpg por fuente ──────────────────────────────────────
+  // cpgYtd: siempre acumulado (cuentas_ytd si existe, o legacy cuentas)
+  const cpgYtd = useMemo(() => buildCpg(eeffData?.cuentas_ytd || eeffData?.cuentas), [eeffData]);
+  // cpgMes: solo cuando hay formato nuevo (cuentas_mes)
+  const cpgMes = useMemo(() => buildCpg(eeffData?.cuentas_mes), [eeffData]);
+  // sinClasificar siempre desde YTD
+  const sinClasYtd = useMemo(() => {
+    const src = eeffData?.cuentas_ytd || eeffData?.cuentas;
+    return src ? src.filter(c => c.grupo === 'sinClasificar') : [];
   }, [eeffData]);
+  // indica si este registro tiene dos balances (nuevo formato)
+  const hasFormatoNuevo = !!eeffData?.cuentas_mes;
 
-  // ── Totales para líneas calculadas ───────────────────────────────
-  const sumGrupo = (grupo) =>
-    (cuentasPorGrupo[grupo] || []).reduce((s, c) => s + valorSit(c), 0);
-
-  const sumER = (grupoER) => {
-    const bloque = ER_BLOQUES.find(b => b.grupo === grupoER);
-    if (!bloque) return 0;
-    return (cuentasPorGrupo[grupoER] || [])
-      .reduce((s, c) => s + valorERCuenta(c, bloque.signo), 0);
-  };
-
-  const totalAC  = sumGrupo('Activo Corriente');
-  const totalANC = sumGrupo('Activo No Corriente');
+  // ── Totales ESF (siempre desde YTD) ─────────────────────────────
+  const sumGrupoEsf = (grupo) => (cpgYtd[grupo] || []).reduce((s, c) => s + valorSit(c), 0);
+  const totalAC  = sumGrupoEsf('Activo Corriente');
+  const totalANC = sumGrupoEsf('Activo No Corriente');
   const totalA   = totalAC + totalANC;
-  const totalPC  = sumGrupo('Pasivo Corriente');
-  const totalPNC = sumGrupo('Pasivo No Corriente');
+  const totalPC  = sumGrupoEsf('Pasivo Corriente');
+  const totalPNC = sumGrupoEsf('Pasivo No Corriente');
   const totalP   = totalPC + totalPNC;
-  const totalPat = sumGrupo('Patrimonio');
+  const totalPat = sumGrupoEsf('Patrimonio');
 
-  const ingOp   = sumER('Ingreso Operacional');
-  const costoOp = sumER('Costo Operacional');   // Σ(RP) → positivo; se resta
-  const resB    = ingOp - costoOp;
-  const gastoOp = sumER('Gasto Operacional');   // Σ(RP) → positivo; se resta
-  const resOp   = resB  - gastoOp;
-  const ingNOp  = sumER('Ingreso No Operacional');
-  const gastNOp = sumER('Gasto No Operacional'); // Σ(RP) → positivo; se resta
-  const noOp    = sumER('No Operacional');        // neto RG-RP, puede ser negativo
-  const resAntes= resOp + ingNOp - gastNOp + noOp;
-  const impuesto= sumER('Impuesto');              // Σ(RP) → positivo; se resta
-  const resEjec = resAntes - impuesto;
-  // resEjec es la ÚNICA fuente de verdad: lo usa el ER y el ESF (Patrimonio derivado)
-  const totalPP  = totalP + totalPat + resEjec;
+  // ── Totales ER (fuente depende del toggle) ───────────────────────
+  const erYtd = calcER(cpgYtd);
+  const erMes = calcER(cpgMes);
+  const cpgER     = (modo === 'mes' && hasFormatoNuevo) ? cpgMes : cpgYtd;
+  const erDisplay = (modo === 'mes' && hasFormatoNuevo) ? erMes  : erYtd;
+  const { ingOp, costoOp, resB, gastoOp, resOp, ingNOp, gastNOp, noOp, resAntes, impuesto, resEjec } = erDisplay;
+
+  // ESF cierra con resEjec acumulado (siempre YTD)
+  const totalPP = totalP + totalPat + erYtd.resEjec;
 
   // ── Render ───────────────────────────────────────────────────────
   return (
@@ -591,45 +625,40 @@ export default function EEFFModule({ canEdit, usuarioActual, empresasPermitidas 
 
         {/* Toggle Mes / YTD */}
         <div style={{ display:'flex', flexDirection:'column', gap:3 }}>
-          <label style={{ fontSize:9, color:C.muted, textTransform:'uppercase' }}>Vista</label>
+          <label style={{ fontSize:9, color:C.muted, textTransform:'uppercase' }}>Vista ER</label>
           <div style={{ display:'flex', gap:0, borderRadius:7, overflow:'hidden',
             border:`1px solid ${C.border}` }}>
-            {['mes','ytd'].map(m => (
-              <button key={m} onClick={() => setModo(m)}
-                style={{ padding:'6px 14px', fontSize:11, fontWeight:600, cursor:'pointer',
-                  background: modo===m ? `${C.accent}cc` : C.card2,
-                  color: modo===m ? '#fff' : C.muted,
-                  border:'none', transition:'all 0.15s' }}>
-                {m === 'mes' ? 'Mes' : 'YTD'}
-              </button>
-            ))}
+            <button onClick={() => hasFormatoNuevo && setModo('mes')}
+              title={hasFormatoNuevo ? 'Resultado del mes seleccionado' : 'Requiere cargar ambos balances (Mes + YTD)'}
+              style={{ padding:'6px 14px', fontSize:11, fontWeight:600,
+                cursor: hasFormatoNuevo ? 'pointer' : 'default',
+                background: modo==='mes' ? `${C.accent}cc` : C.card2,
+                color: modo==='mes' ? '#fff' : hasFormatoNuevo ? C.muted : C.muted2,
+                border:'none', transition:'all 0.15s',
+                opacity: hasFormatoNuevo ? 1 : 0.45 }}>
+              Mes
+            </button>
+            <button onClick={() => setModo('ytd')}
+              title="Resultado acumulado año hasta el mes seleccionado"
+              style={{ padding:'6px 14px', fontSize:11, fontWeight:600, cursor:'pointer',
+                background: modo==='ytd' ? `${C.accent}cc` : C.card2,
+                color: modo==='ytd' ? '#fff' : C.muted,
+                border:'none', transition:'all 0.15s' }}>
+              YTD
+            </button>
           </div>
         </div>
 
         {/* Cargar balance (si hay datos, reemplazar) */}
         {canEdit && !showUpload && !loadingData && (
-          <>
-            <input ref={fileRef} type="file" accept=".xls,.xlsx"
-              onChange={e => { setUploadFile(e.target.files[0]); setShowUpload(true); }}
-              style={{ display:'none' }} />
-            <div style={{ display:'flex', flexDirection:'column', gap:3 }}>
-              <label style={{ fontSize:9, color:C.muted, textTransform:'uppercase' }}>&nbsp;</label>
-              <Btn onClick={() => fileRef.current?.click()} color={C.accent}
-                disabled={!planMaps}>
-                {eeffData ? 'Reemplazar balance' : 'Cargar balance'}
-              </Btn>
-            </div>
-          </>
+          <div style={{ display:'flex', flexDirection:'column', gap:3 }}>
+            <label style={{ fontSize:9, color:C.muted, textTransform:'uppercase' }}>&nbsp;</label>
+            <Btn onClick={() => setShowUpload(true)} color={C.accent} disabled={!planMaps}>
+              {eeffData ? 'Reemplazar balance' : 'Cargar balance'}
+            </Btn>
+          </div>
         )}
       </div>
-
-      {/* ── YTD aviso ── */}
-      {modo === 'ytd' && (
-        <div style={{ color:C.yellow, fontSize:11, marginBottom:12, background:`${C.yellow}11`,
-          border:`1px solid ${C.yellow}33`, borderRadius:8, padding:'8px 14px' }}>
-          Vista YTD disponible en próxima etapa. Mostrando datos del mes seleccionado.
-        </div>
-      )}
 
       {/* ── Loading ── */}
       {loadingData && (
@@ -646,14 +675,9 @@ export default function EEFFModule({ canEdit, usuarioActual, empresasPermitidas 
             {NOMBRES_MES[mes]} {anio}
           </div>
           {canEdit && planMaps && (
-            <>
-              <input ref={fileRef} type="file" accept=".xls,.xlsx"
-                onChange={e => { setUploadFile(e.target.files[0]); setShowUpload(true); }}
-                style={{ display:'none' }} />
-              <Btn onClick={() => fileRef.current?.click()} color={C.accent}>
-                Cargar balance
-              </Btn>
-            </>
+            <Btn onClick={() => setShowUpload(true)} color={C.accent}>
+              Cargar balance
+            </Btn>
           )}
           {canEdit && !planMaps && (
             <div style={{ fontSize:11, color:C.yellow, marginTop:8 }}>
@@ -669,21 +693,67 @@ export default function EEFFModule({ canEdit, usuarioActual, empresasPermitidas 
       )}
 
       {/* ── Panel de upload ── */}
-      {showUpload && uploadFile && (
+      {showUpload && (
         <div style={{ background:C.card2, border:`1px solid ${C.border}`, borderRadius:10,
           padding:'16px 20px', marginBottom:16 }}>
-          <div style={{ fontSize:11, color:C.muted, marginBottom:8 }}>
-            Archivo: <strong style={{ color:C.text }}>{uploadFile.name}</strong>
+          <div style={{ fontSize:12, fontWeight:700, color:C.text, marginBottom:12 }}>
+            Cargar balances — {empresa} · {NOMBRES_MES[mes]} {anio}
+          </div>
+          <div style={{ display:'flex', gap:12, flexWrap:'wrap', marginBottom:12 }}>
+            {/* Balance del Mes */}
+            <div style={{ flex:1, minWidth:200, border:`1px dashed ${uploadFileMes ? C.green : C.border}`,
+              borderRadius:8, padding:'12px 14px', background:C.bg }}>
+              <div style={{ fontSize:10, fontWeight:700, color:C.muted, textTransform:'uppercase', marginBottom:6 }}>
+                Balance del Mes
+              </div>
+              {uploadFileMes ? (
+                <div style={{ fontSize:11, color:C.green, display:'flex', alignItems:'center', gap:6 }}>
+                  <span>{uploadFileMes.name}</span>
+                  <button onClick={() => { setUploadFileMes(null); if(fileRefMes.current) fileRefMes.current.value=''; }}
+                    style={{ background:'none', border:'none', cursor:'pointer', color:C.muted2, fontSize:12, lineHeight:1 }}>✕</button>
+                </div>
+              ) : (
+                <>
+                  <input ref={fileRefMes} type="file" accept=".xls,.xlsx"
+                    onChange={e => setUploadFileMes(e.target.files[0])} style={{ display:'none' }} />
+                  <Btn onClick={() => fileRefMes.current?.click()} color={C.accent} small>
+                    Seleccionar archivo
+                  </Btn>
+                </>
+              )}
+            </div>
+            {/* Balance Acumulado YTD */}
+            <div style={{ flex:1, minWidth:200, border:`1px dashed ${uploadFileYtd ? C.green : C.border}`,
+              borderRadius:8, padding:'12px 14px', background:C.bg }}>
+              <div style={{ fontSize:10, fontWeight:700, color:C.muted, textTransform:'uppercase', marginBottom:6 }}>
+                Balance Acumulado (YTD)
+              </div>
+              {uploadFileYtd ? (
+                <div style={{ fontSize:11, color:C.green, display:'flex', alignItems:'center', gap:6 }}>
+                  <span>{uploadFileYtd.name}</span>
+                  <button onClick={() => { setUploadFileYtd(null); if(fileRefYtd.current) fileRefYtd.current.value=''; }}
+                    style={{ background:'none', border:'none', cursor:'pointer', color:C.muted2, fontSize:12, lineHeight:1 }}>✕</button>
+                </div>
+              ) : (
+                <>
+                  <input ref={fileRefYtd} type="file" accept=".xls,.xlsx"
+                    onChange={e => setUploadFileYtd(e.target.files[0])} style={{ display:'none' }} />
+                  <Btn onClick={() => fileRefYtd.current?.click()} color={C.accent} small>
+                    Seleccionar archivo
+                  </Btn>
+                </>
+              )}
+            </div>
           </div>
           {uploadError && (
             <div style={{ color:C.red, fontSize:11, marginBottom:8 }}>Error: {uploadError}</div>
           )}
           <div style={{ display:'flex', gap:8 }}>
-            <Btn onClick={() => handleCargarBalance(uploadFile)} color={C.green} disabled={uploading}>
+            <Btn onClick={handleCargarBalance} color={C.green}
+              disabled={uploading || !uploadFileMes || !uploadFileYtd}>
               {uploading ? 'Procesando...' : 'Confirmar y guardar'}
             </Btn>
-            <Btn onClick={() => { setShowUpload(false); setUploadFile(null); setUploadError(null);
-              if(fileRef.current) fileRef.current.value=''; }} color={C.muted} disabled={uploading}>
+            <Btn onClick={cancelUpload} color={C.muted} disabled={uploading}>
               Cancelar
             </Btn>
           </div>
@@ -696,11 +766,19 @@ export default function EEFFModule({ canEdit, usuarioActual, empresasPermitidas 
           {/* Metadata del período */}
           <div style={{ display:'flex', gap:16, marginBottom:16, flexWrap:'wrap', alignItems:'center' }}>
             <div style={{ fontSize:10, color:C.muted }}>
-              {eeffData.sistema === 'megasystem' ? 'Megasystem' : 'Contec'} ·{' '}
-              {eeffData.cuentas?.length} cuentas ·{' '}
-              Guardado {eeffData.fechaGuardado
-                ? new Date(eeffData.fechaGuardado).toLocaleDateString('es-CL')
-                : ''}
+              {hasFormatoNuevo ? (
+                <>
+                  Mes: {eeffData.sistema_mes || '?'} · {eeffData.cuentas_mes?.length} cuentas
+                  {' · '}
+                  YTD: {eeffData.sistema_ytd || '?'} · {eeffData.cuentas_ytd?.length} cuentas
+                </>
+              ) : (
+                <>
+                  {eeffData.sistema === 'megasystem' ? 'Megasystem' : 'Contec'} · {eeffData.cuentas?.length} cuentas · <span style={{ color:C.yellow }}>formato legacy</span>
+                </>
+              )}
+              {' · '}Guardado{' '}
+              {eeffData.fechaGuardado ? new Date(eeffData.fechaGuardado).toLocaleDateString('es-CL') : ''}
               {eeffData.guardadoPor ? ` por ${eeffData.guardadoPor}` : ''}
             </div>
             <div style={{ display:'flex', gap:4 }}>
@@ -730,7 +808,7 @@ export default function EEFFModule({ canEdit, usuarioActual, empresasPermitidas 
                       color:C.muted, fontWeight:700, textTransform:'uppercase' }}>Cuenta</th>
                     <th style={{ padding:'8px 14px', textAlign:'right', fontSize:10,
                       color:C.muted, fontWeight:700, textTransform:'uppercase', whiteSpace:'nowrap' }}>
-                      {NOMBRES_MES[mes]} {anio}
+                      Acumulado {NOMBRES_MES[mes]} {anio}
                     </th>
                   </tr>
                 </thead>
@@ -742,7 +820,7 @@ export default function EEFFModule({ canEdit, usuarioActual, empresasPermitidas 
                   </tr>
                   {ESF_SECCIONES.filter(s => s.grupo.startsWith('Activo')).map(sec => (
                     <SeccionESF key={sec.id} sec={sec}
-                      cuentas={cuentasPorGrupo[sec.grupo] || []}
+                      cuentas={cpgYtd[sec.grupo] || []}
                       expandedSecs={expandedSecs} onToggleSec={toggleSec}
                       expandedCats={expandedCats} onToggleCat={toggleCat} />
                   ))}
@@ -757,7 +835,7 @@ export default function EEFFModule({ canEdit, usuarioActual, empresasPermitidas 
                   </tr>
                   {ESF_SECCIONES.filter(s => s.grupo.startsWith('Pasivo')).map(sec => (
                     <SeccionESF key={sec.id} sec={sec}
-                      cuentas={cuentasPorGrupo[sec.grupo] || []}
+                      cuentas={cpgYtd[sec.grupo] || []}
                       expandedSecs={expandedSecs} onToggleSec={toggleSec}
                       expandedCats={expandedCats} onToggleCat={toggleCat} />
                   ))}
@@ -765,24 +843,24 @@ export default function EEFFModule({ canEdit, usuarioActual, empresasPermitidas 
                   <tr style={{ background:'transparent', height:4 }}><td colSpan={2}></td></tr>
                   {ESF_SECCIONES.filter(s => s.grupo === 'Patrimonio').map(sec => (
                     <SeccionESF key={sec.id} sec={sec}
-                      cuentas={cuentasPorGrupo[sec.grupo] || []}
+                      cuentas={cpgYtd[sec.grupo] || []}
                       expandedSecs={expandedSecs} onToggleSec={toggleSec}
                       expandedCats={expandedCats} onToggleCat={toggleCat} />
                   ))}
-                  {/* Línea derivada — mismo valor que "Resultado del Ejercicio" en el ER */}
+                  {/* Línea derivada — siempre desde YTD para que el ESF cuadre */}
                   <tr style={{ background:`${C.purple}0d`, borderTop:`1px solid ${C.purple}33` }}>
                     <td style={{ padding:'6px 12px', paddingLeft:28,
                       fontSize:11, fontWeight:700, color:C.purple, fontStyle:'italic' }}>
-                      Resultado del Período
+                      Resultado del Período (Acumulado)
                       <span style={{ fontSize:9, fontStyle:'normal', fontWeight:400,
                         color:C.muted, marginLeft:8 }}>
-                        derivado · igual al Resultado del Ejercicio (ER)
+                        derivado · YTD acumulado igual al Resultado del Ejercicio (ER YTD)
                       </span>
                     </td>
                     <td style={{ padding:'6px 14px', textAlign:'right',
                       fontSize:12, fontWeight:800, fontStyle:'italic',
-                      color: resEjec >= 0 ? C.green : C.red, whiteSpace:'nowrap' }}>
-                      {fmtSig(resEjec)}
+                      color: erYtd.resEjec >= 0 ? C.green : C.red, whiteSpace:'nowrap' }}>
+                      {fmtSig(erYtd.resEjec)}
                     </td>
                   </tr>
                   <LineaDivision label="TOTAL PASIVO + PATRIMONIO" valor={totalPP}
@@ -815,51 +893,65 @@ export default function EEFFModule({ canEdit, usuarioActual, empresasPermitidas 
                       color:C.muted, fontWeight:700, textTransform:'uppercase' }}>Cuenta</th>
                     <th style={{ padding:'8px 14px', textAlign:'right', fontSize:10,
                       color:C.muted, fontWeight:700, textTransform:'uppercase', whiteSpace:'nowrap' }}>
-                      {NOMBRES_MES[mes]} {anio}
+                      {(modo === 'ytd' || !hasFormatoNuevo)
+                        ? `Acum. ${NOMBRES_MES[mes]} ${anio}`
+                        : `${NOMBRES_MES[mes]} ${anio}`}
                     </th>
                   </tr>
                 </thead>
                 <tbody>
-                  <BloqueER bloque={ER_BLOQUES[0]} cuentas={cuentasPorGrupo['Ingreso Operacional']||[]}
+                  <BloqueER bloque={ER_BLOQUES[0]} cuentas={cpgER['Ingreso Operacional']||[]}
                     expandedSecs={expandedSecs} onToggleSec={toggleSec}
                     expandedCats={expandedCats} onToggleCat={toggleCat} />
-                  <BloqueER bloque={ER_BLOQUES[1]} cuentas={cuentasPorGrupo['Costo Operacional']||[]}
+                  <BloqueER bloque={ER_BLOQUES[1]} cuentas={cpgER['Costo Operacional']||[]}
                     expandedSecs={expandedSecs} onToggleSec={toggleSec}
                     expandedCats={expandedCats} onToggleCat={toggleCat} />
                   <LineaDivision label="RESULTADO BRUTO" valor={resB} />
 
-                  <BloqueER bloque={ER_BLOQUES[2]} cuentas={cuentasPorGrupo['Gasto Operacional']||[]}
+                  <BloqueER bloque={ER_BLOQUES[2]} cuentas={cpgER['Gasto Operacional']||[]}
                     expandedSecs={expandedSecs} onToggleSec={toggleSec}
                     expandedCats={expandedCats} onToggleCat={toggleCat} />
                   <LineaDivision label="RESULTADO OPERACIONAL" valor={resOp} />
 
-                  <BloqueER bloque={ER_BLOQUES[3]} cuentas={cuentasPorGrupo['Ingreso No Operacional']||[]}
+                  <BloqueER bloque={ER_BLOQUES[3]} cuentas={cpgER['Ingreso No Operacional']||[]}
                     expandedSecs={expandedSecs} onToggleSec={toggleSec}
                     expandedCats={expandedCats} onToggleCat={toggleCat} />
-                  <BloqueER bloque={ER_BLOQUES[4]} cuentas={cuentasPorGrupo['Gasto No Operacional']||[]}
+                  <BloqueER bloque={ER_BLOQUES[4]} cuentas={cpgER['Gasto No Operacional']||[]}
                     expandedSecs={expandedSecs} onToggleSec={toggleSec}
                     expandedCats={expandedCats} onToggleCat={toggleCat} />
-                  {(cuentasPorGrupo['No Operacional']||[]).length > 0 && (
-                    <BloqueER bloque={ER_BLOQUES[5]} cuentas={cuentasPorGrupo['No Operacional']||[]}
+                  {(cpgER['No Operacional']||[]).length > 0 && (
+                    <BloqueER bloque={ER_BLOQUES[5]} cuentas={cpgER['No Operacional']||[]}
                       expandedSecs={expandedSecs} onToggleSec={toggleSec}
                       expandedCats={expandedCats} onToggleCat={toggleCat} />
                   )}
                   <LineaTotal label="Resultado antes de Impuesto" valor={resAntes} />
 
-                  <BloqueER bloque={ER_BLOQUES[6]} cuentas={cuentasPorGrupo['Impuesto']||[]}
+                  <BloqueER bloque={ER_BLOQUES[6]} cuentas={cpgER['Impuesto']||[]}
                     expandedSecs={expandedSecs} onToggleSec={toggleSec}
                     expandedCats={expandedCats} onToggleCat={toggleCat} />
                   <LineaDivision label="RESULTADO DEL EJERCICIO" valor={resEjec} />
+                  {/* En vista Mes: referencia contextual del resultado acumulado YTD */}
+                  {modo === 'mes' && hasFormatoNuevo && (
+                    <tr style={{ background:`${C.purple}0d`, borderTop:`1px solid ${C.border}22` }}>
+                      <td colSpan={2} style={{ padding:'4px 14px', fontSize:10,
+                        color:C.muted, fontStyle:'italic', textAlign:'right' }}>
+                        Resultado Acumulado YTD:{' '}
+                        <strong style={{ color: erYtd.resEjec >= 0 ? C.green : C.red }}>
+                          {fmtSig(erYtd.resEjec)}
+                        </strong>
+                      </td>
+                    </tr>
+                  )}
                 </tbody>
               </table>
             </div>
           </div>
 
-          {/* ═══ SIN CLASIFICAR ═══ */}
-          {sinClasificar.length > 0 && (
+          {/* ═══ SIN CLASIFICAR (siempre desde YTD) ═══ */}
+          {sinClasYtd.length > 0 && (
             <div style={{ marginBottom:24 }}>
               <div style={{ fontSize:12, fontWeight:800, color:C.yellow, marginBottom:8 }}>
-                Sin Clasificar — {sinClasificar.length} cuentas
+                Sin Clasificar — {sinClasYtd.length} cuentas
                 <span style={{ fontSize:10, fontWeight:400, color:C.muted, marginLeft:8 }}>
                   (no encontradas en el Plan Maestro — agregar en la próxima versión)
                 </span>
@@ -880,7 +972,7 @@ export default function EEFFModule({ canEdit, usuarioActual, empresasPermitidas 
                     </tr>
                   </thead>
                   <tbody>
-                    {sinClasificar.map((c, i) => (
+                    {sinClasYtd.map((c, i) => (
                       <tr key={c.codigo+i}
                         style={{ background:i%2===0?C.bg:C.bg2,
                           borderBottom:`1px solid ${C.border}22` }}>
