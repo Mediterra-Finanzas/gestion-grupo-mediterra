@@ -1652,6 +1652,8 @@ export default function FriskuMaestrosModule({canEdit=true, onBack}) {
   const [tcData,         setTcData]         = useState({});
   const [checklistDocs,  setChecklistDocs]  = useState([]);
   const [temporadas,     setTemporadas]     = useState([]);
+  const [notify,         setNotify]         = useState([]);
+  const [consignatarios, setConsignatarios] = useState([]);
 
   const [cargando, setCargando] = useState(true);
   const [tab, setTab] = useState("paises");
@@ -1665,7 +1667,7 @@ export default function FriskuMaestrosModule({canEdit=true, onBack}) {
       // y los retorna (queda persistido para todos los usuarios).
       // dbLoadMaestro normal para los que NO se siembran (Ciudades vacío
       // intencionalmente, TC es objeto y se carga vía APIs externas).
-      const [p, c, pu, ae, sl, la, te, tb, me, mo, es, tc, cd, tmp] = await Promise.all([
+      const [p, c, pu, ae, sl, la, te, tb, me, mo, es, tc, cd, tmp, nt, cn] = await Promise.all([
         loadConSeed("maestro_paises",         PAISES_DEFAULT),
         loadConSeed("maestro_ciudades",       CIUDADES_DEFAULT),
         loadConSeed("maestro_puertos",        PUERTOS_DEFAULT),
@@ -1680,6 +1682,8 @@ export default function FriskuMaestrosModule({canEdit=true, onBack}) {
         dbLoadMaestro("maestro_tc"),
         loadConSeed("maestro_checklist_docs", CHECKLIST_DOCS_DEFAULT),
         loadConSeed("maestro_temporadas",     TEMPORADAS_DEFAULT),
+        dbLoadMaestro("maestro_notify"),
+        dbLoadMaestro("maestro_consignatarios"),
       ]);
       if(!alive) return;
       // Defensa en profundidad: si loadConSeed retornó algo inesperado
@@ -1698,6 +1702,8 @@ export default function FriskuMaestrosModule({canEdit=true, onBack}) {
       setTcData(tc && typeof tc === "object" && !Array.isArray(tc) ? tc : {});
       setChecklistDocs(Array.isArray(cd) ? cd : CHECKLIST_DOCS_DEFAULT);
       setTemporadas(Array.isArray(tmp) ? tmp : TEMPORADAS_DEFAULT);
+      setNotify(Array.isArray(nt) ? nt : []);
+      setConsignatarios(Array.isArray(cn) ? cn : []);
       setCargando(false);
     })();
     return ()=>{alive=false;};
@@ -1732,6 +1738,8 @@ export default function FriskuMaestrosModule({canEdit=true, onBack}) {
   useAutoSave("maestro_tc", tcData);
   useAutoSave("maestro_checklist_docs", checklistDocs);
   useAutoSave("maestro_temporadas", temporadas);
+  useAutoSave("maestro_notify", notify);
+  useAutoSave("maestro_consignatarios", consignatarios);
 
   // Mapas para mostrar nombres en lugar de códigos
   const paisesMap = useMemo(()=>{
@@ -1786,6 +1794,8 @@ export default function FriskuMaestrosModule({canEdit=true, onBack}) {
     {id:"tc",              label:"📈 Tipo de Cambio",    count:Object.keys(tcData||{}).length},
     {id:"checklist",       label:"📋 Checklist Docs",    count:checklistDocs.length},
     {id:"temporadas",      label:"📅 Temporadas",         count:temporadas.length},
+    {id:"notify",          label:"🔔 Notify",            count:notify.length},
+    {id:"consignatarios",  label:"📦 Consignatarios",    count:consignatarios.length},
   ];
 
   return (
@@ -2163,6 +2173,57 @@ export default function FriskuMaestrosModule({canEdit=true, onBack}) {
           temporadas={temporadas}
           setTemporadas={setTemporadas}
           canEdit={canEdit}
+        />
+      )}
+
+      {tab === "notify" && (
+        <TablaMaestro
+          titulo="Notify"
+          icono="🔔"
+          datos={notify}
+          setDatos={setNotify}
+          canEdit={canEdit}
+          busquedaPlaceholder="Buscar notify por código, nombre, email..."
+          defaultItem={{codigo:"", razonSocial:"", nombre:"", subtipo:"generico",
+            rut:"", email:"", fono:"", nombreContacto:"", paisCodigo:"", pais:"", ciudad:"", direccion:"", observ:""}}
+          columnas={[
+            {key:"codigo",      label:"Código"},
+            {key:"nombre",      label:"Nombre"},
+            {key:"subtipo",     label:"Tipo", align:"center",
+              options:[
+                {value:"generico", label:"Genérico"},
+                {value:"maritimo", label:"Marítimo"},
+                {value:"aereo",    label:"Aéreo"},
+              ],
+              render:(v)=> v==="maritimo" ? "🚢 Marítimo" : v==="aereo" ? "✈️ Aéreo" : "📄 Genérico"},
+            {key:"email",       label:"Email"},
+            {key:"fono",        label:"Teléfono"},
+            {key:"paisCodigo",  label:"País", options:opcionesPaises, render:renderPais},
+            {key:"ciudad",      label:"Ciudad"},
+          ]}
+        />
+      )}
+
+      {tab === "consignatarios" && (
+        <TablaMaestro
+          titulo="Consignatarios"
+          icono="📦"
+          datos={consignatarios}
+          setDatos={setConsignatarios}
+          canEdit={canEdit}
+          busquedaPlaceholder="Buscar consignatario por código, nombre, email..."
+          defaultItem={{codigo:"", razonSocial:"", nombre:"",
+            rut:"", email:"", fono:"", nombreContacto:"", paisCodigo:"", pais:"", ciudad:"", direccion:"", observ:""}}
+          columnas={[
+            {key:"codigo",      label:"Código"},
+            {key:"razonSocial", label:"Razón Social"},
+            {key:"nombre",      label:"Nombre"},
+            {key:"rut",         label:"RUT"},
+            {key:"email",       label:"Email"},
+            {key:"fono",        label:"Teléfono"},
+            {key:"paisCodigo",  label:"País", options:opcionesPaises, render:renderPais},
+            {key:"ciudad",      label:"Ciudad"},
+          ]}
         />
       )}
 

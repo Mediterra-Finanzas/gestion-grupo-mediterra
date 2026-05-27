@@ -47,6 +47,225 @@ const TIPOS_DOC_CLIENTE = [
 // Tipos que generan alerta si el cliente activo no los tiene cargados con URL
 const TIPOS_DOC_MINIMOS = ["Packing List", "Certificado Fitosanitario", "Factura Exportación", "Invoice", "QC Destino"];
 
+// ═══════════════════════════════════════════════════════════════════
+// IMPORTADOR DE EXCEL — clientes_frisku.xlsx (155 entidades)
+// Reparte filas a 4 categorías. Merge NO destructivo: conserva los
+// campos Frisku de los registros existentes (comisiones, especies...).
+// ═══════════════════════════════════════════════════════════════════
+
+const norm = (v) => String(v ?? "").replace(/\s+/g, " ").trim();
+const claveCmp = (v) => norm(v).toUpperCase()
+  .normalize("NFD").replace(/[̀-ͯ]/g, "");
+
+function categoriaDestino(catRaw) {
+  const c = claveCmp(catRaw);
+  if(c === "EXPORTADORA")      return {destino:"exportadoras", subtipo:null};
+  if(c === "CONSIGNEE")        return {destino:"consignatarios", subtipo:null};
+  if(c === "CLIENTE")          return {destino:"clientes", subtipo:null};
+  if(c === "NOTIFY")           return {destino:"notify", subtipo:"generico"};
+  if(c === "NOTIFY MARITIMO")  return {destino:"notify", subtipo:"maritimo"};
+  if(c === "NOTIFY AEREO")     return {destino:"notify", subtipo:"aereo"};
+  return {destino:null, subtipo:null};
+}
+
+async function leerExcelEntidades(file) {
+  const XLSX = await import("xlsx");
+  const buf = await file.arrayBuffer();
+  const wb = XLSX.read(buf, {type:"array"});
+  const hoja = wb.Sheets[wb.SheetNames[0]];
+  const filas = XLSX.utils.sheet_to_json(hoja, {defval:""});
+  return filas.map(f => {
+    const o = {};
+    for(const k in f) o[norm(k).toLowerCase()] = norm(f[k]);
+    return o;
+  });
+}
+
+function contactoDesdeExcel(row) {
+  const nombre = row.nombre_representante || "";
+  const email = row.email || "";
+  const fono = row.fono || "";
+  if(!nombre && !email && !fono) return null;
+  return {nombre, email, fono, cargo:"", principal:true};
+}
+
+function procesarFilas(filasRaw) {
+  const porDestino = {clientes:[], exportadoras:[], notify:[], consignatarios:[]};
+  const errores = [];
+  filasRaw.forEach((row, i) => {
+    const fila = i + 2;
+    const codigo = norm(row.codigo_entidad);
+    const cat = norm(row.categoria);
+    if(!codigo) { errores.push(`Fila ${fila}: sin codigo_entidad — omitida`); return; }
+    const {destino, subtipo} = categoriaDestino(cat);
+    if(!destino) { errores.push(`Fila ${fila}: categoría desconocida "${cat}" — omitida`); return; }
+    porDestino[destino].push({
+      codigoEntidad: codigo,
+      razonSocial:   norm(row.razon_social),
+      nombre:        norm(row.nombre) || norm(row.razon_social),
+      rut:           norm(row.rut_entidad),
+      rutRepresentante: norm(row.rut_representante),
+      nombreRepresentante: norm(row.nombre_representante),
+      email:         norm(row.email),
+      fono:          norm(row.fono),
+      pais:          norm(row.pais),
+      provincia:     norm(row.provincia),
+      comuna:        norm(row.comuna),
+      ciudad:        norm(row.ciudad),
+      direccion:     norm(row.direccion),
+      subtipo,
+    });
+  });
+  return {porDestino, errores};
+}
+
+function mergeClientes(existentes, entrantes) {
+  const res = existentes.map(c => ({...c}));
+  let creados = 0, actualizados = 0;
+  const idxPorCodigo = {}, idxPorNombre = {};
+  res.forEach((c, i) => {
+    if(c.codigoEntidad) idxPorCodigo[claveCmp(c.codigoEntidad)] = i;
+    if(c.nombre) idxPorNombre[claveCmp(c.nombre)] = i;
+  });
+  entrantes.forEach(e => {
+    let i = idxPorCodigo[claveCmp(e.codigoEntidad)];
+    if(i === undefined) i = idxPorNombre[claveCmp(e.nombre)];
+    if(i !== undefined) {
+      const prev = res[i];
+      res[i] = {
+        ...prev,
+        codigoEntidad: e.codigoEntidad,
+        nombre: e.nombre || prev.nombre,
+        razonSocial: e.razonSocial || prev.razonSocial || "",
+        rut: e.rut || prev.rut || "",
+        paisCodigo: prev.paisCodigo || e.paisCodigo || "",
+        pais: e.pais || prev.pais || "",
+        ciudad: e.ciudad || prev.ciudad || "",
+        direccion: e.direccion || prev.direccion || "",
+        contactos: (prev.contactos && prev.contactos.length)
+          ? prev.contactos
+          : [contactoDesdeExcel(e)].filter(Boolean),
+        fechaActualizacion: new Date().toISOString(),
+      };
+      actualizados++;
+    } else {
+      res.push({
+        id: uid(),
+        codigoEntidad: e.codigoEntidad,
+        nombre: e.nombre,
+        razonSocial: e.razonSocial,
+        paisCodigo: e.paisCodigo || "",
+        pais: e.pais,
+        ciudad: e.ciudad,
+        direccion: e.direccion,
+        rut: e.rut,
+        mercadoCodigo: "",
+        monedaCodigo: "USD",
+        contactos: [contactoDesdeExcel(e)].filter(Boolean),
+        especiesCodigos: [],
+        comisionGlobalSobreFOB: 8,
+        comisionFriskuSobreClienteGlobal: 25,
+        comisionOverrides: {},
+        activo: true,
+        observ: "",
+        fechaCreacion: new Date().toISOString(),
+        fechaActualizacion: new Date().toISOString(),
+      });
+      creados++;
+    }
+  });
+  return {datos:res, creados, actualizados};
+}
+
+function mergeExportadoras(existentes, entrantes) {
+  const res = existentes.map(x => ({...x}));
+  let creados = 0, actualizados = 0;
+  const idxPorCodigo = {}, idxPorNombre = {};
+  res.forEach((x, i) => {
+    if(x.codigoEntidad) idxPorCodigo[claveCmp(x.codigoEntidad)] = i;
+    if(x.nombre) idxPorNombre[claveCmp(x.nombre)] = i;
+  });
+  entrantes.forEach(e => {
+    let i = idxPorCodigo[claveCmp(e.codigoEntidad)];
+    if(i === undefined) i = idxPorNombre[claveCmp(e.nombre)];
+    if(i !== undefined) {
+      const prev = res[i];
+      res[i] = {
+        ...prev,
+        codigoEntidad: e.codigoEntidad,
+        nombre: e.nombre || prev.nombre,
+        razonSocial: e.razonSocial || prev.razonSocial || "",
+        rut: e.rut || prev.rut || "",
+        paisCodigo: prev.paisCodigo || e.paisCodigo || "",
+        pais: e.pais || prev.pais || "",
+        ciudad: e.ciudad || prev.ciudad || "",
+        direccion: e.direccion || prev.direccion || "",
+        contactos: (prev.contactos && prev.contactos.length)
+          ? prev.contactos
+          : [contactoDesdeExcel(e)].filter(Boolean),
+        fechaActualizacion: new Date().toISOString(),
+      };
+      actualizados++;
+    } else {
+      res.push({
+        id: uid(),
+        codigoEntidad: e.codigoEntidad,
+        nombre: e.nombre,
+        razonSocial: e.razonSocial,
+        rut: e.rut,
+        paisCodigo: e.paisCodigo || "",
+        pais: e.pais,
+        ciudad: e.ciudad,
+        direccion: e.direccion,
+        monedaCodigo: "USD",
+        contactos: [contactoDesdeExcel(e)].filter(Boolean),
+        especiesProduce: [],
+        certificaciones: "",
+        activo: true,
+        observ: "",
+        fechaCreacion: new Date().toISOString(),
+        fechaActualizacion: new Date().toISOString(),
+      });
+      creados++;
+    }
+  });
+  return {datos:res, creados, actualizados};
+}
+
+function mergeSimple(existentes, entrantes) {
+  const res = existentes.map(x => ({...x}));
+  let creados = 0, actualizados = 0;
+  const idxPorCodigo = {};
+  res.forEach((x, i) => { if(x.codigo) idxPorCodigo[claveCmp(x.codigo)] = i; });
+  entrantes.forEach(e => {
+    const reg = {
+      codigo: e.codigoEntidad,
+      razonSocial: e.razonSocial,
+      nombre: e.nombre,
+      rut: e.rut,
+      email: e.email,
+      fono: e.fono,
+      nombreContacto: e.nombreRepresentante,
+      paisCodigo: e.paisCodigo || "",
+      pais: e.pais,
+      ciudad: e.ciudad,
+      direccion: e.direccion,
+      observ: "",
+    };
+    if(e.subtipo) reg.subtipo = e.subtipo;
+    const i = idxPorCodigo[claveCmp(e.codigoEntidad)];
+    if(i !== undefined) {
+      res[i] = {...res[i], ...reg};
+      actualizados++;
+    } else {
+      res.push(reg);
+      idxPorCodigo[claveCmp(e.codigoEntidad)] = res.length - 1;
+      creados++;
+    }
+  });
+  return {datos:res, creados, actualizados};
+}
+
 
 function Card({children, title, icon, action}) {
   return (
@@ -1495,6 +1714,219 @@ function Placeholder({titulo, icono, fase, descripcion}) {
 }
 
 // ═══════════════════════════════════════════════════════════════════
+// MODAL IMPORTADOR DE EXCEL
+// Flujo: seleccionar archivo -> preview con desglose y conflictos
+//        -> confirmar -> guarda en Supabase las 4 categorías
+// ═══════════════════════════════════════════════════════════════════
+function ImportadorExcelModal({clientes, exportadoras, onAplicar, onCerrar}) {
+  const [etapa, setEtapa] = useState("seleccion"); // seleccion | preview | aplicando | listo
+  const [error, setError] = useState("");
+  const [plan, setPlan] = useState(null);
+  const fileRef = useRef(null);
+
+  const cargarArchivo = async (file) => {
+    if(!file) return;
+    setError("");
+    try {
+      const filasRaw = await leerExcelEntidades(file);
+      if(!filasRaw.length) { setError("El archivo no tiene filas de datos."); return; }
+      const {porDestino, errores} = procesarFilas(filasRaw);
+
+      // Cargar notify, consignatarios y maestro de países desde Supabase
+      const [ntActual, cnActual, paisesActual] = await Promise.all([
+        dbLoadGeneric("maestro_notify"),
+        dbLoadGeneric("maestro_consignatarios"),
+        dbLoadGeneric("maestro_paises"),
+      ]);
+
+      // Mapa nombre/código del país (es/en/ISO) -> código ISO.
+      // El Excel trae el país como texto plano ("CHILE", "Perú", "China"),
+      // así que sin esto las entidades importadas se muestran sin bandera.
+      const paisesList = Array.isArray(paisesActual) ? paisesActual : [];
+      const paisIdx = {};
+      paisesList.forEach(p => {
+        if(!p.codigo) return;
+        paisIdx[claveCmp(p.codigo)] = p.codigo;
+        if(p.nombreEs) paisIdx[claveCmp(p.nombreEs)] = p.codigo;
+        if(p.nombreEn) paisIdx[claveCmp(p.nombreEn)] = p.codigo;
+      });
+      const traducirPais = (txt) => paisIdx[claveCmp(txt)] || "";
+
+      // Resolver paisCodigo en todas las filas antes del merge
+      ["clientes","exportadoras","notify","consignatarios"].forEach(d => {
+        porDestino[d].forEach(e => { e.paisCodigo = traducirPais(e.pais); });
+      });
+      const sinPais = [];
+      ["clientes","exportadoras","notify","consignatarios"].forEach(d => {
+        porDestino[d].forEach(e => {
+          if(e.pais && !e.paisCodigo) sinPais.push(`${e.codigoEntidad} → "${e.pais}"`);
+        });
+      });
+      if(sinPais.length) {
+        errores.push(`${sinPais.length} entidad(es) con país sin código ISO mapeado (se importan sin bandera): ${sinPais.slice(0,5).join(", ")}${sinPais.length>5?"…":""}`);
+      }
+
+      const rCli = mergeClientes(clientes, porDestino.clientes);
+      const rExp = mergeExportadoras(exportadoras, porDestino.exportadoras);
+      const rNot = mergeSimple(Array.isArray(ntActual)?ntActual:[], porDestino.notify);
+      const rCon = mergeSimple(Array.isArray(cnActual)?cnActual:[], porDestino.consignatarios);
+
+      setPlan({
+        totalFilas: filasRaw.length,
+        errores,
+        clientes:       {...rCli, entrantes:porDestino.clientes.length},
+        exportadoras:   {...rExp, entrantes:porDestino.exportadoras.length},
+        notify:         {...rNot, entrantes:porDestino.notify.length},
+        consignatarios: {...rCon, entrantes:porDestino.consignatarios.length},
+      });
+      setEtapa("preview");
+    } catch(e) {
+      console.error("[Importador] Error:", e);
+      setError("No se pudo leer el archivo. Verifica que sea un .xlsx válido. Detalle: " + e.message);
+    }
+  };
+
+  const confirmar = async () => {
+    setEtapa("aplicando");
+    try {
+      await dbSaveGeneric("maestro_notify", plan.notify.datos);
+      await dbSaveGeneric("maestro_consignatarios", plan.consignatarios.datos);
+      onAplicar({
+        clientes: plan.clientes.datos,
+        exportadoras: plan.exportadoras.datos,
+      });
+      setEtapa("listo");
+    } catch(e) {
+      console.error("[Importador] Error al aplicar:", e);
+      setError("Error guardando en Supabase: " + e.message);
+      setEtapa("preview");
+    }
+  };
+
+  const ov = {position:"fixed", inset:0, background:"rgba(0,0,0,0.7)", zIndex:1000,
+    display:"flex", alignItems:"center", justifyContent:"center", padding:20};
+  const box = {background:C.card, borderRadius:14, border:`1px solid ${C.border}`,
+    width:"100%", maxWidth:620, maxHeight:"85vh", overflowY:"auto", padding:22};
+
+  const FilaResumen = ({icono, label, r}) => (
+    <div style={{display:"flex", alignItems:"center", gap:10, padding:"10px 12px",
+      background:C.card2, borderRadius:8, marginBottom:8}}>
+      <span style={{fontSize:20}}>{icono}</span>
+      <div style={{flex:1}}>
+        <div style={{color:C.text, fontWeight:700, fontSize:13}}>{label}</div>
+        <div style={{color:C.muted, fontSize:11}}>{r.entrantes} en el Excel</div>
+      </div>
+      <div style={{textAlign:"right", fontSize:11}}>
+        <div style={{color:C.green, fontWeight:700}}>+{r.creados} nuevos</div>
+        <div style={{color:C.yellow, fontWeight:700}}>~{r.actualizados} actualizados</div>
+      </div>
+    </div>
+  );
+
+  return (
+    <div style={ov} onClick={(e)=>{ if(e.target===e.currentTarget && etapa!=="aplicando") onCerrar(); }}>
+      <div style={box}>
+        <div style={{display:"flex", alignItems:"center", gap:8, marginBottom:16,
+          borderBottom:`1px solid ${C.border}`, paddingBottom:12}}>
+          <span style={{fontSize:22}}>📥</span>
+          <h3 style={{margin:0, color:C.text, fontSize:16, flex:1}}>Importar entidades desde Excel</h3>
+          {etapa!=="aplicando" && (
+            <button onClick={onCerrar} style={btnSt(C.muted, true)}>✕ Cerrar</button>
+          )}
+        </div>
+
+        {error && (
+          <div style={{padding:"10px 12px", background:`${C.accent}22`, border:`1px solid ${C.accent}66`,
+            borderRadius:8, color:C.text, fontSize:12, marginBottom:14}}>⚠️ {error}</div>
+        )}
+
+        {etapa === "seleccion" && (
+          <div>
+            <div style={{color:C.muted, fontSize:12, lineHeight:1.7, marginBottom:16}}>
+              Selecciona el archivo <strong style={{color:C.text}}>clientes_frisku.xlsx</strong>.
+              El importador detecta la columna <code>categoria</code> y reparte cada fila a
+              Clientes, Exportadoras, Notify o Consignatarios automáticamente.
+              <br/><br/>
+              <strong style={{color:C.green}}>Merge no destructivo:</strong> si un cliente o
+              exportadora ya existe, se actualizan solo los datos de identidad y contacto.
+              Las comisiones, especies y certificaciones que ya configuraste se conservan intactas.
+            </div>
+            <input ref={fileRef} type="file" accept=".xlsx,.xls"
+              onChange={e=>cargarArchivo(e.target.files?.[0])}
+              style={{display:"none"}}/>
+            <button onClick={()=>fileRef.current?.click()} style={{...btnSt(C.blue), padding:"12px 20px", fontSize:13}}>
+              📂 Seleccionar archivo Excel
+            </button>
+          </div>
+        )}
+
+        {etapa === "preview" && plan && (
+          <div>
+            <div style={{color:C.muted, fontSize:12, marginBottom:14}}>
+              Se leyeron <strong style={{color:C.text}}>{plan.totalFilas}</strong> filas.
+              Revisa el desglose antes de confirmar:
+            </div>
+            <FilaResumen icono="👥" label="Clientes"       r={plan.clientes}/>
+            <FilaResumen icono="🏭" label="Exportadoras"   r={plan.exportadoras}/>
+            <FilaResumen icono="🔔" label="Notify"         r={plan.notify}/>
+            <FilaResumen icono="📦" label="Consignatarios" r={plan.consignatarios}/>
+
+            {plan.errores.length > 0 && (
+              <div style={{marginTop:12, padding:"10px 12px", background:`${C.yellow}18`,
+                border:`1px solid ${C.yellow}55`, borderRadius:8}}>
+                <div style={{color:C.yellow, fontWeight:700, fontSize:12, marginBottom:6}}>
+                  ⚠️ {plan.errores.length} fila(s) con observaciones:
+                </div>
+                <ul style={{margin:0, paddingLeft:18, color:C.muted, fontSize:11, lineHeight:1.6}}>
+                  {plan.errores.slice(0,8).map((e,i)=><li key={i}>{e}</li>)}
+                  {plan.errores.length>8 && <li>… y {plan.errores.length-8} más</li>}
+                </ul>
+              </div>
+            )}
+
+            <div style={{marginTop:14, padding:"10px 12px", background:C.card2, borderRadius:8,
+              fontSize:11, color:C.muted, lineHeight:1.6}}>
+              💡 Los registros marcados <span style={{color:C.yellow}}>~actualizados</span> conservan
+              sus comisiones y especies. Notify y Consignatarios se guardan en el tab Maestros
+              (los verás al entrar a esa pestaña).
+            </div>
+
+            <div style={{display:"flex", gap:10, marginTop:18, justifyContent:"flex-end"}}>
+              <button onClick={()=>{setEtapa("seleccion"); setPlan(null);}} style={btnSt(C.muted, true)}>
+                ← Elegir otro archivo
+              </button>
+              <button onClick={confirmar} style={{...btnSt(C.green), padding:"8px 18px"}}>
+                ✓ Confirmar importación
+              </button>
+            </div>
+          </div>
+        )}
+
+        {etapa === "aplicando" && (
+          <div style={{padding:30, textAlign:"center", color:C.muted}}>
+            💾 Guardando en Supabase…
+          </div>
+        )}
+
+        {etapa === "listo" && plan && (
+          <div style={{padding:20, textAlign:"center"}}>
+            <div style={{fontSize:42, marginBottom:10}}>✅</div>
+            <h3 style={{margin:"0 0 8px", color:C.text}}>Importación completada</h3>
+            <div style={{color:C.muted, fontSize:12, lineHeight:1.7, marginBottom:16}}>
+              {plan.clientes.creados + plan.exportadoras.creados +
+               plan.notify.creados + plan.consignatarios.creados} registros nuevos ·{" "}
+              {plan.clientes.actualizados + plan.exportadoras.actualizados +
+               plan.notify.actualizados + plan.consignatarios.actualizados} actualizados.
+            </div>
+            <button onClick={onCerrar} style={{...btnSt(C.blue), padding:"8px 20px"}}>Cerrar</button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════
 // COMPONENTE PRINCIPAL
 // ═══════════════════════════════════════════════════════════════════
 export default function FriskuComercialModule({
@@ -1542,6 +1974,7 @@ export default function FriskuComercialModule({
   const [cargando, setCargando] = useState(true);
   const [tab, setTab] = useState("clientes");
   const [guardando, setGuardando] = useState({});
+  const [importando, setImportando] = useState(false);
 
   // UI Clientes
   const [busquedaCli, setBusquedaCli] = useState("");
@@ -1790,6 +2223,12 @@ export default function FriskuComercialModule({
 
   const totalExportadorasActivas = exportadoras.filter(e => e.activo !== false).length;
 
+  // ── Handler importación Excel ──
+  const handleAplicarImport = ({clientes:cliNuevos, exportadoras:expNuevas}) => {
+    setClientes(cliNuevos);
+    setExportadoras(expNuevas);
+  };
+
   // ── Filtrado y handlers Business Closures ──
   const closuresFiltrados = useMemo(()=>{
     const q = busquedaClosure.trim().toLowerCase();
@@ -1985,6 +2424,19 @@ export default function FriskuComercialModule({
 
         {tab === "dashboard" && (
           <div style={{display:"grid", gridTemplateColumns:"repeat(auto-fit, minmax(220px, 1fr))", gap:14}}>
+            <Card title="Importar datos" icon="📥">
+              <div style={{color:C.muted, fontSize:11, lineHeight:1.6, marginBottom:12}}>
+                Carga masiva de Clientes, Exportadoras, Notify y Consignatarios desde
+                un archivo Excel. Merge no destructivo.
+              </div>
+              {canEditGlobal ? (
+                <button onClick={()=>setImportando(true)} style={{...btnSt(C.blue), padding:"8px 14px", fontSize:12}}>
+                  📥 Importar Excel
+                </button>
+              ) : (
+                <div style={{fontSize:11, color:C.muted2}}>Sin permisos de edición</div>
+              )}
+            </Card>
             <Card title="Clientes" icon="👥">
               <div style={{fontSize:32, fontWeight:800, color:C.green}}>{totalClientesActivos}</div>
               <div style={{color:C.muted, fontSize:11}}>activos de {clientes.length} totales</div>
@@ -2351,6 +2803,15 @@ export default function FriskuComercialModule({
           />
         )}
       </div>
+
+      {importando && (
+        <ImportadorExcelModal
+          clientes={clientes}
+          exportadoras={exportadoras}
+          onAplicar={handleAplicarImport}
+          onCerrar={()=>setImportando(false)}
+        />
+      )}
     </div>
   );
 }
