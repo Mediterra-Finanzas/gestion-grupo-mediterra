@@ -490,19 +490,20 @@ export default function EEFFModule({ canEdit, usuarioActual }) {
   const totalPNC = sumGrupo('Pasivo No Corriente');
   const totalP   = totalPC + totalPNC;
   const totalPat = sumGrupo('Patrimonio');
-  const totalPP  = totalP + totalPat;
 
   const ingOp   = sumER('Ingreso Operacional');
-  const costoOp = sumER('Costo Operacional');
-  const resB    = ingOp + costoOp;           // costoOp ya es negativo
-  const gastoOp = sumER('Gasto Operacional');
-  const resOp   = resB + gastoOp;            // gastoOp ya es negativo
+  const costoOp = sumER('Costo Operacional');   // Σ(RP) → positivo; se resta
+  const resB    = ingOp - costoOp;
+  const gastoOp = sumER('Gasto Operacional');   // Σ(RP) → positivo; se resta
+  const resOp   = resB  - gastoOp;
   const ingNOp  = sumER('Ingreso No Operacional');
-  const gastNOp = sumER('Gasto No Operacional');
-  const noOp    = sumER('No Operacional');
-  const resAntes= resOp + ingNOp + gastNOp + noOp;
-  const impuesto= sumER('Impuesto');
-  const resEjec = resAntes + impuesto;
+  const gastNOp = sumER('Gasto No Operacional'); // Σ(RP) → positivo; se resta
+  const noOp    = sumER('No Operacional');        // neto RG-RP, puede ser negativo
+  const resAntes= resOp + ingNOp - gastNOp + noOp;
+  const impuesto= sumER('Impuesto');              // Σ(RP) → positivo; se resta
+  const resEjec = resAntes - impuesto;
+  // resEjec es la ÚNICA fuente de verdad: lo usa el ER y el ESF (Patrimonio derivado)
+  const totalPP  = totalP + totalPat + resEjec;
 
   // ── Render ───────────────────────────────────────────────────────
   return (
@@ -745,12 +746,28 @@ export default function EEFFModule({ canEdit, usuarioActual }) {
                       expandedSecs={expandedSecs} onToggleSec={toggleSec}
                       expandedCats={expandedCats} onToggleCat={toggleCat} />
                   ))}
+                  {/* Línea derivada — mismo valor que "Resultado del Ejercicio" en el ER */}
+                  <tr style={{ background:`${C.purple}0d`, borderTop:`1px solid ${C.purple}33` }}>
+                    <td style={{ padding:'6px 12px', paddingLeft:28,
+                      fontSize:11, fontWeight:700, color:C.purple, fontStyle:'italic' }}>
+                      Resultado del Período
+                      <span style={{ fontSize:9, fontStyle:'normal', fontWeight:400,
+                        color:C.muted, marginLeft:8 }}>
+                        derivado · igual al Resultado del Ejercicio (ER)
+                      </span>
+                    </td>
+                    <td style={{ padding:'6px 14px', textAlign:'right',
+                      fontSize:12, fontWeight:800, fontStyle:'italic',
+                      color: resEjec >= 0 ? C.green : C.red, whiteSpace:'nowrap' }}>
+                      {fmtSig(resEjec)}
+                    </td>
+                  </tr>
                   <LineaDivision label="TOTAL PASIVO + PATRIMONIO" valor={totalPP}
                     color={Math.abs(totalA - totalPP) < 1 ? C.green : C.red} />
                   {Math.abs(totalA - totalPP) >= 1 && (
                     <tr style={{ background:`${C.red}11` }}>
                       <td colSpan={2} style={{ padding:'4px 12px', fontSize:10, color:C.red }}>
-                        ⚠ Diferencia A - (P+Pat): {fmtMonto(totalA - totalPP, 2)}
+                        ⚠ Diferencia A − (P+Pat): {fmtMonto(totalA - totalPP, 2)}
                       </td>
                     </tr>
                   )}
