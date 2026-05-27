@@ -1088,24 +1088,22 @@ export default function EEFFModule({ canEdit, usuarioActual, empresasPermitidas 
                 {mayorGuardando ? 'Guardando...' : 'Guardar en Supabase'}
               </Btn>
             )}
-            {mayorGuardadoInfo && (
-              <Btn
-                disabled={mayorRecargando}
-                color={C.blue}
-                onClick={async () => {
-                  setMayorRecargando(true); setMayorRecargado(null); setMayorDiagError(null);
-                  try {
-                    const val = await dbLoadMayor(empresa, anio, empresasPermitidas);
-                    setMayorRecargado(val);
-                  } catch(err) {
-                    setMayorDiagError(err.message);
-                  } finally {
-                    setMayorRecargando(false);
-                  }
-                }}>
-                {mayorRecargando ? 'Cargando...' : 'Recargar de Supabase'}
-              </Btn>
-            )}
+            <Btn
+              disabled={mayorRecargando}
+              color={C.blue}
+              onClick={async () => {
+                setMayorRecargando(true); setMayorRecargado(null); setMayorDiagError(null);
+                try {
+                  const val = await dbLoadMayor(empresa, anio, empresasPermitidas);
+                  setMayorRecargado(val);
+                } catch(err) {
+                  setMayorDiagError(err.message);
+                } finally {
+                  setMayorRecargando(false);
+                }
+              }}>
+              {mayorRecargando ? 'Cargando...' : 'Recargar de Supabase'}
+            </Btn>
           </div>
 
           {/* Resultado del guardado */}
@@ -1143,8 +1141,8 @@ export default function EEFFModule({ canEdit, usuarioActual, empresasPermitidas 
                   </span>
                 </>
               ) : (
-                <span style={{ fontSize:11, color:C.red }}>
-                  Recarga: sin datos — permiso denegado o row no encontrado en Supabase.
+                <span style={{ fontSize:11, color:C.yellow }}>
+                  No hay mayor guardado para {empresa} {anio}.
                 </span>
               )}
             </div>
