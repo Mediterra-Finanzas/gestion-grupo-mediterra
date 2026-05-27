@@ -118,15 +118,19 @@ const ER_BLOQUES = [
 
 // ── Helpers ──────────────────────────────────────────────────────────
 function valorSit(c) {
-  if (c.tipoIFRS === 'Activo')     return c.inventarioActivo  || 0;
-  if (c.tipoIFRS === 'Pasivo')     return c.inventarioPasivo  || 0;
-  if (c.tipoIFRS === 'Patrimonio') return c.inventarioPasivo  || 0;
+  const ia = c.inventarioActivo  || 0;
+  const ip = c.inventarioPasivo  || 0;
+  if (c.tipoIFRS === 'Activo')     return ia - ip; // neto: activo − contra-activo
+  if (c.tipoIFRS === 'Pasivo')     return ip - ia; // neto: pasivo − saldo deudor anormal
+  if (c.tipoIFRS === 'Patrimonio') return ip - ia; // neto: patrimonio − saldo deudor (pérdidas, dividendos)
   return 0;
 }
 function valorERCuenta(c, signo) {
-  if (signo ===  1) return c.resultadoGanancia || 0;
-  if (signo === -1) return c.resultadoPerdida  || 0;
-  return (c.resultadoGanancia || 0) - (c.resultadoPerdida || 0); // neto
+  const rg = c.resultadoGanancia || 0;
+  const rp = c.resultadoPerdida  || 0;
+  if (signo ===  1) return rg - rp; // ingreso: neto (RG − RP)
+  if (signo === -1) return rp - rg; // egreso:  neto (RP − RG, positivo = egreso)
+  return rg - rp;
 }
 function fmt(v) { return fmtMonto(Math.abs(v), 0); }
 function fmtSig(v) {
