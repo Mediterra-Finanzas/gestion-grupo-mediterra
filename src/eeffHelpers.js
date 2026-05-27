@@ -304,25 +304,45 @@ export function eeffId(empresa, anio, mes) {
   return `eeff_${slug}_${anio}_${String(mes).padStart(2, '0')}`;
 }
 
-export async function guardarEEFF({ empresa, mes, anio, sistema, formato, clasif, guardadoPor }) {
+export async function guardarEEFF({
+  empresa, mes, anio, guardadoPor,
+  // Nuevo formato dual (YTD + Mes)
+  clasif_mes, clasif_ytd, sistema_mes, formato_mes, sistema_ytd, formato_ytd,
+  // Legacy (un solo balance — retrocompat)
+  clasif, sistema, formato,
+}) {
   const enrich = (grupo) => (c) => ({ ...c, grupo, composicion: null, narrativa: null });
-  const cuentas = [
-    ...clasif.situacion.map(enrich('situacion')),
-    ...clasif.resultados.map(enrich('resultados')),
-    ...clasif.sinClasificar.map(enrich('sinClasificar')),
+  const enrichAll = (cl) => [
+    ...cl.situacion.map(enrich('situacion')),
+    ...cl.resultados.map(enrich('resultados')),
+    ...cl.sinClasificar.map(enrich('sinClasificar')),
   ];
-  const value = {
-    empresa, mes, anio, sistema, formato,
-    fechaGuardado: new Date().toISOString(),
-    guardadoPor:   guardadoPor || '',
-    resumen: {
-      totalCuentas:  cuentas.length,
-      situacion:     clasif.situacion.length,
-      resultados:    clasif.resultados.length,
-      sinClasificar: clasif.sinClasificar.length,
-    },
-    cuentas,
-  };
+
+  let value;
+  if (clasif_mes && clasif_ytd) {
+    const cuentas_mes = enrichAll(clasif_mes);
+    const cuentas_ytd = enrichAll(clasif_ytd);
+    value = {
+      empresa, mes, anio,
+      sistema_mes, formato_mes, sistema_ytd, formato_ytd,
+      fechaGuardado: new Date().toISOString(),
+      guardadoPor:   guardadoPor || '',
+      resumen_mes: { totalCuentas: cuentas_mes.length, situacion: clasif_mes.situacion.length, resultados: clasif_mes.resultados.length, sinClasificar: clasif_mes.sinClasificar.length },
+      resumen_ytd: { totalCuentas: cuentas_ytd.length, situacion: clasif_ytd.situacion.length, resultados: clasif_ytd.resultados.length, sinClasificar: clasif_ytd.sinClasificar.length },
+      cuentas_mes,
+      cuentas_ytd,
+    };
+  } else {
+    const cuentas = enrichAll(clasif);
+    value = {
+      empresa, mes, anio, sistema, formato,
+      fechaGuardado: new Date().toISOString(),
+      guardadoPor:   guardadoPor || '',
+      resumen: { totalCuentas: cuentas.length, situacion: clasif.situacion.length, resultados: clasif.resultados.length, sinClasificar: clasif.sinClasificar.length },
+      cuentas,
+    };
+  }
+
   const id  = eeffId(empresa, anio, mes);
   const res = await fetch(`${SUPA_URL}/rest/v1/calendario_data`, {
     method:  'POST',
