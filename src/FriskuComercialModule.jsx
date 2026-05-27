@@ -3353,7 +3353,8 @@ export default function FriskuComercialModule({
   // Refrescar maestros al entrar a tabs que los necesitan
   useEffect(()=>{
     if (cargando) return;
-    if (tab === "clientes" || tab === "exportadoras" || tab === "contratos" || tab === "embarques" || tab === "liquidaciones") {
+    // "maestros" cubre lo que antes eran sub-tabs separados (clientes/exportadoras)
+    if (tab === "maestros" || tab === "contratos" || tab === "embarques" || tab === "liquidaciones") {
       recargarMaestros();
     }
   },[tab, cargando, recargarMaestros]);
@@ -3712,10 +3713,162 @@ export default function FriskuComercialModule({
   // ── Tabs (lista filtrada por permisos) ──
   // Se declara antes de los early returns para que el useEffect siguiente
   // respete las rules of hooks.
+  // Clientes y Exportadoras se renderizan dentro de Maestros como sub-tabs.
+  // Los permisos permClientes/permExportadoras se siguen evaluando aquí y
+  // se aplican dentro de los render-props que se pasan a FriskuModule.
+  const renderClientesTab = () => (
+    <div>
+      {/* Toolbar */}
+      <div style={{display:"flex", gap:10, marginBottom:16, flexWrap:"wrap", alignItems:"center"}}>
+        <input value={busquedaCli} onChange={e=>setBusquedaCli(e.target.value)}
+          placeholder="Buscar cliente..." style={{...inputSt, flex:"1 1 240px", maxWidth:300}}/>
+        <select value={filtroMercadoCli} onChange={e=>setFiltroMercadoCli(e.target.value)} style={{...inputSt, maxWidth:200}}>
+          <option value="">— Todos los mercados —</option>
+          {mercados.map(m => <option key={m.codigo} value={m.codigo}>{m.nombre}</option>)}
+        </select>
+        <select value={filtroEspecieCli} onChange={e=>setFiltroEspecieCli(e.target.value)} style={{...inputSt, maxWidth:200}}>
+          <option value="">— Todas las especies —</option>
+          {especies.map(e => <option key={e.codigo} value={e.codigo}>{e.icono} {e.nombreEs}</option>)}
+        </select>
+        <select value={filtroActivoCli} onChange={e=>setFiltroActivoCli(e.target.value)} style={{...inputSt, maxWidth:140}}>
+          <option value="activos">● Activos</option>
+          <option value="inactivos">○ Inactivos</option>
+          <option value="todos">Todos</option>
+        </select>
+        <span style={{fontSize:11, color:C.muted}}>
+          {clientesFiltrados.length} de {clientes.length}
+        </span>
+        {permClientes.canEdit && !editandoCli && (
+          <button onClick={handleNuevoCliente} style={{...btnSt(C.green), marginLeft:"auto"}}>
+            + Nuevo cliente
+          </button>
+        )}
+        {!permClientes.canEdit && (
+          <span style={{fontSize:10, padding:"3px 8px", borderRadius:4, background:`${C.blue}22`, color:C.blue, border:`1px solid ${C.blue}44`}}>
+            👁 Solo lectura
+          </span>
+        )}
+      </div>
+
+      {/* Form de edición/creación */}
+      {editandoCli && (
+        <ClienteForm
+          cliente={editandoCli}
+          especies={especies}
+          paises={paises}
+          ciudades={ciudades}
+          monedas={monedas}
+          mercados={mercados}
+          tiposEmbalaje={tiposEmbalaje}
+          onGuardar={handleGuardarCliente}
+          onCancelar={()=>{setEditandoCli(null); setCreandoCli(false);}}
+        />
+      )}
+
+      {/* Grid de cards */}
+      {!editandoCli && (
+        clientesFiltrados.length === 0 ? (
+          <div style={{padding:50, textAlign:"center", color:C.muted, fontSize:13, background:C.card, borderRadius:14}}>
+            {clientes.length === 0
+              ? "Aún no hay clientes. Click \"+ Nuevo cliente\" para crear el primero."
+              : "Sin resultados con esos filtros."}
+          </div>
+        ) : (
+          <div style={{display:"grid", gridTemplateColumns:"repeat(auto-fill, minmax(380px, 1fr))", gap:14}}>
+            {clientesFiltrados.map(c => (
+              <ClienteCard key={c.id}
+                cliente={c}
+                especies={especies}
+                paises={paises}
+                monedas={monedas}
+                mercados={mercados}
+                onEditar={()=>handleEditarCliente(c)}
+                onEliminar={()=>handleEliminarCliente(c)}
+                canEdit={permClientes.canEdit}
+              />
+            ))}
+          </div>
+        )
+      )}
+    </div>
+  );
+
+  const renderExportadorasTab = () => (
+    <div>
+      {/* Toolbar */}
+      <div style={{display:"flex", gap:10, marginBottom:16, flexWrap:"wrap", alignItems:"center"}}>
+        <input value={busquedaExp} onChange={e=>setBusquedaExp(e.target.value)}
+          placeholder="Buscar exportadora..." style={{...inputSt, flex:"1 1 240px", maxWidth:300}}/>
+        <select value={filtroPaisExp} onChange={e=>setFiltroPaisExp(e.target.value)} style={{...inputSt, maxWidth:200}}>
+          <option value="">— Todos los países —</option>
+          {paises.map(p => <option key={p.codigo} value={p.codigo}>{p.flag} {p.nombreEs}</option>)}
+        </select>
+        <select value={filtroEspecieExp} onChange={e=>setFiltroEspecieExp(e.target.value)} style={{...inputSt, maxWidth:200}}>
+          <option value="">— Todas las especies —</option>
+          {especies.map(e => <option key={e.codigo} value={e.codigo}>{e.icono} {e.nombreEs}</option>)}
+        </select>
+        <select value={filtroActivoExp} onChange={e=>setFiltroActivoExp(e.target.value)} style={{...inputSt, maxWidth:140}}>
+          <option value="activos">● Activas</option>
+          <option value="inactivos">○ Inactivas</option>
+          <option value="todos">Todas</option>
+        </select>
+        <span style={{fontSize:11, color:C.muted}}>
+          {exportadorasFiltradas.length} de {exportadoras.length}
+        </span>
+        {permExportadoras.canEdit && !editandoExp && (
+          <button onClick={handleNuevaExportadora} style={{...btnSt(C.green), marginLeft:"auto"}}>
+            + Nueva exportadora
+          </button>
+        )}
+        {!permExportadoras.canEdit && (
+          <span style={{fontSize:10, padding:"3px 8px", borderRadius:4, background:`${C.blue}22`, color:C.blue, border:`1px solid ${C.blue}44`}}>
+            👁 Solo lectura
+          </span>
+        )}
+      </div>
+
+      {/* Form de edición/creación */}
+      {editandoExp && (
+        <ExportadoraForm
+          exportadora={editandoExp}
+          especies={especies}
+          paises={paises}
+          ciudades={ciudades}
+          monedas={monedas}
+          onGuardar={handleGuardarExportadora}
+          onCancelar={()=>{setEditandoExp(null); setCreandoExp(false);}}
+        />
+      )}
+
+      {/* Grid de cards */}
+      {!editandoExp && (
+        exportadorasFiltradas.length === 0 ? (
+          <div style={{padding:50, textAlign:"center", color:C.muted, fontSize:13, background:C.card, borderRadius:14}}>
+            {exportadoras.length === 0
+              ? "Aún no hay exportadoras. Click \"+ Nueva exportadora\" para crear la primera."
+              : "Sin resultados con esos filtros."}
+          </div>
+        ) : (
+          <div style={{display:"grid", gridTemplateColumns:"repeat(auto-fill, minmax(380px, 1fr))", gap:14}}>
+            {exportadorasFiltradas.map(e => (
+              <ExportadoraCard key={e.id}
+                exportadora={e}
+                especies={especies}
+                paises={paises}
+                monedas={monedas}
+                onEditar={()=>handleEditarExportadora(e)}
+                onEliminar={()=>handleEliminarExportadora(e)}
+                canEdit={permExportadoras.canEdit}
+              />
+            ))}
+          </div>
+        )
+      )}
+    </div>
+  );
+
   const tabsAll = [
     {id:"dashboard",     label:"📊 Dashboard",     count:null,                              perm:permDashboard},
-    {id:"clientes",      label:"👥 Clientes",      count:totalClientesActivos,              perm:permClientes},
-    {id:"exportadoras",  label:"🏭 Exportadoras",  count:totalExportadorasActivas,          perm:permExportadoras},
     {id:"documentos",    label:"📁 Documentos",    count:clientesConDocsFaltantes||null,    perm:permDocumentos},
     {id:"contratos",     label:"📄 Contratos",     count:totalClosuresActivos||null,        perm:permContratos},
     {id:"programa",      label:"📅 Programa",      count:programa.length||null,             perm:permPrograma},
@@ -3856,156 +4009,6 @@ export default function FriskuComercialModule({
           </div>
         )}
 
-        {tab === "clientes" && (
-          <div>
-            {/* Toolbar */}
-            <div style={{display:"flex", gap:10, marginBottom:16, flexWrap:"wrap", alignItems:"center"}}>
-              <input value={busquedaCli} onChange={e=>setBusquedaCli(e.target.value)}
-                placeholder="Buscar cliente..." style={{...inputSt, flex:"1 1 240px", maxWidth:300}}/>
-              <select value={filtroMercadoCli} onChange={e=>setFiltroMercadoCli(e.target.value)} style={{...inputSt, maxWidth:200}}>
-                <option value="">— Todos los mercados —</option>
-                {mercados.map(m => <option key={m.codigo} value={m.codigo}>{m.nombre}</option>)}
-              </select>
-              <select value={filtroEspecieCli} onChange={e=>setFiltroEspecieCli(e.target.value)} style={{...inputSt, maxWidth:200}}>
-                <option value="">— Todas las especies —</option>
-                {especies.map(e => <option key={e.codigo} value={e.codigo}>{e.icono} {e.nombreEs}</option>)}
-              </select>
-              <select value={filtroActivoCli} onChange={e=>setFiltroActivoCli(e.target.value)} style={{...inputSt, maxWidth:140}}>
-                <option value="activos">● Activos</option>
-                <option value="inactivos">○ Inactivos</option>
-                <option value="todos">Todos</option>
-              </select>
-              <span style={{fontSize:11, color:C.muted}}>
-                {clientesFiltrados.length} de {clientes.length}
-              </span>
-              {permClientes.canEdit && !editandoCli && (
-                <button onClick={handleNuevoCliente} style={{...btnSt(C.green), marginLeft:"auto"}}>
-                  + Nuevo cliente
-                </button>
-              )}
-              {!permClientes.canEdit && (
-                <span style={{fontSize:10, padding:"3px 8px", borderRadius:4, background:`${C.blue}22`, color:C.blue, border:`1px solid ${C.blue}44`}}>
-                  👁 Solo lectura
-                </span>
-              )}
-            </div>
-
-            {/* Form de edición/creación */}
-            {editandoCli && (
-              <ClienteForm
-                cliente={editandoCli}
-                especies={especies}
-                paises={paises}
-                ciudades={ciudades}
-                monedas={monedas}
-                mercados={mercados}
-                tiposEmbalaje={tiposEmbalaje}
-                onGuardar={handleGuardarCliente}
-                onCancelar={()=>{setEditandoCli(null); setCreandoCli(false);}}
-              />
-            )}
-
-            {/* Grid de cards */}
-            {!editandoCli && (
-              clientesFiltrados.length === 0 ? (
-                <div style={{padding:50, textAlign:"center", color:C.muted, fontSize:13, background:C.card, borderRadius:14}}>
-                  {clientes.length === 0
-                    ? "Aún no hay clientes. Click \"+ Nuevo cliente\" para crear el primero."
-                    : "Sin resultados con esos filtros."}
-                </div>
-              ) : (
-                <div style={{display:"grid", gridTemplateColumns:"repeat(auto-fill, minmax(380px, 1fr))", gap:14}}>
-                  {clientesFiltrados.map(c => (
-                    <ClienteCard key={c.id}
-                      cliente={c}
-                      especies={especies}
-                      paises={paises}
-                      monedas={monedas}
-                      mercados={mercados}
-                      onEditar={()=>handleEditarCliente(c)}
-                      onEliminar={()=>handleEliminarCliente(c)}
-                      canEdit={permClientes.canEdit}
-                    />
-                  ))}
-                </div>
-              )
-            )}
-          </div>
-        )}
-
-        {tab === "exportadoras" && (
-          <div>
-            {/* Toolbar */}
-            <div style={{display:"flex", gap:10, marginBottom:16, flexWrap:"wrap", alignItems:"center"}}>
-              <input value={busquedaExp} onChange={e=>setBusquedaExp(e.target.value)}
-                placeholder="Buscar exportadora..." style={{...inputSt, flex:"1 1 240px", maxWidth:300}}/>
-              <select value={filtroPaisExp} onChange={e=>setFiltroPaisExp(e.target.value)} style={{...inputSt, maxWidth:200}}>
-                <option value="">— Todos los países —</option>
-                {paises.map(p => <option key={p.codigo} value={p.codigo}>{p.flag} {p.nombreEs}</option>)}
-              </select>
-              <select value={filtroEspecieExp} onChange={e=>setFiltroEspecieExp(e.target.value)} style={{...inputSt, maxWidth:200}}>
-                <option value="">— Todas las especies —</option>
-                {especies.map(e => <option key={e.codigo} value={e.codigo}>{e.icono} {e.nombreEs}</option>)}
-              </select>
-              <select value={filtroActivoExp} onChange={e=>setFiltroActivoExp(e.target.value)} style={{...inputSt, maxWidth:140}}>
-                <option value="activos">● Activas</option>
-                <option value="inactivos">○ Inactivas</option>
-                <option value="todos">Todas</option>
-              </select>
-              <span style={{fontSize:11, color:C.muted}}>
-                {exportadorasFiltradas.length} de {exportadoras.length}
-              </span>
-              {permExportadoras.canEdit && !editandoExp && (
-                <button onClick={handleNuevaExportadora} style={{...btnSt(C.green), marginLeft:"auto"}}>
-                  + Nueva exportadora
-                </button>
-              )}
-              {!permExportadoras.canEdit && (
-                <span style={{fontSize:10, padding:"3px 8px", borderRadius:4, background:`${C.blue}22`, color:C.blue, border:`1px solid ${C.blue}44`}}>
-                  👁 Solo lectura
-                </span>
-              )}
-            </div>
-
-            {/* Form de edición/creación */}
-            {editandoExp && (
-              <ExportadoraForm
-                exportadora={editandoExp}
-                especies={especies}
-                paises={paises}
-                ciudades={ciudades}
-                monedas={monedas}
-                onGuardar={handleGuardarExportadora}
-                onCancelar={()=>{setEditandoExp(null); setCreandoExp(false);}}
-              />
-            )}
-
-            {/* Grid de cards */}
-            {!editandoExp && (
-              exportadorasFiltradas.length === 0 ? (
-                <div style={{padding:50, textAlign:"center", color:C.muted, fontSize:13, background:C.card, borderRadius:14}}>
-                  {exportadoras.length === 0
-                    ? "Aún no hay exportadoras. Click \"+ Nueva exportadora\" para crear la primera."
-                    : "Sin resultados con esos filtros."}
-                </div>
-              ) : (
-                <div style={{display:"grid", gridTemplateColumns:"repeat(auto-fill, minmax(380px, 1fr))", gap:14}}>
-                  {exportadorasFiltradas.map(e => (
-                    <ExportadoraCard key={e.id}
-                      exportadora={e}
-                      especies={especies}
-                      paises={paises}
-                      monedas={monedas}
-                      onEditar={()=>handleEditarExportadora(e)}
-                      onEliminar={()=>handleEliminarExportadora(e)}
-                      canEdit={permExportadoras.canEdit}
-                    />
-                  ))}
-                </div>
-              )
-            )}
-          </div>
-        )}
         {tab === "documentos" && (
           <DocumentosTab
             clientes={clientes}
@@ -4364,6 +4367,10 @@ export default function FriskuComercialModule({
             tabPermisos={tabPermisos}
             onBack={null}
             onLogout={onLogout}
+            renderClientesTab={permClientes.visible ? renderClientesTab : undefined}
+            renderExportadorasTab={permExportadoras.visible ? renderExportadorasTab : undefined}
+            clientesCount={totalClientesActivos}
+            exportadorasCount={totalExportadorasActivas}
           />
         )}
       </div>

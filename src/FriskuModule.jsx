@@ -1636,7 +1636,17 @@ function TipoCambioEditor({tcData, setTcData, monedas, canEdit}) {
 // ═══════════════════════════════════════════════════════════════════
 // COMPONENTE PRINCIPAL
 // ═══════════════════════════════════════════════════════════════════
-export default function FriskuMaestrosModule({canEdit=true, onBack}) {
+export default function FriskuMaestrosModule({
+  canEdit=true,
+  onBack,
+  // Render-props para tabs de Clientes y Exportadoras. Si no se pasan,
+  // los sub-tabs se ocultan. Los estados, filtros y handlers viven en
+  // FriskuComercialModule (no se duplica persistencia ni lógica).
+  renderClientesTab,
+  renderExportadorasTab,
+  clientesCount=0,
+  exportadorasCount=0,
+}) {
   // Estado por maestro
   const [paises,         setPaises]         = useState([]);
   const [ciudades,       setCiudades]       = useState([]);
@@ -1656,7 +1666,8 @@ export default function FriskuMaestrosModule({canEdit=true, onBack}) {
   const [consignatarios, setConsignatarios] = useState([]);
 
   const [cargando, setCargando] = useState(true);
-  const [tab, setTab] = useState("paises");
+  // Si el comercial pasa renderClientesTab, partir en "clientes"; si no, en "paises".
+  const [tab, setTab] = useState(renderClientesTab ? "clientes" : "paises");
   const [guardando, setGuardando] = useState({});
 
   // Cargar todos los maestros al montar
@@ -1779,23 +1790,39 @@ export default function FriskuMaestrosModule({canEdit=true, onBack}) {
     );
   }
 
-  const tabs = [
-    {id:"paises",          label:"🌍 Países",            count:paises.length},
-    {id:"ciudades",        label:"🏙️ Ciudades",          count:ciudades.length},
-    {id:"puertos",         label:"🚢 Puertos",           count:puertos.length},
-    {id:"aeropuertos",     label:"✈️ Aeropuertos",       count:aeropuertos.length},
-    {id:"shipping",        label:"⚓ Shipping Lines",    count:shippingLines.length},
-    {id:"lineas_aereas",   label:"✈️ Líneas Aéreas",     count:lineasAereas.length},
-    {id:"tipos_embarque",  label:"📦 Tipos de Embarque", count:tiposEmbarque.length},
-    {id:"especies",        label:"🍒 Especies",          count:especies.length},
-    {id:"tipos_embalaje",  label:"📐 Tipos de Embalaje", count:tiposEmbalaje.length},
-    {id:"mercados",        label:"🎯 Mercados",          count:mercados.length},
-    {id:"monedas",         label:"💱 Monedas",           count:monedas.length},
-    {id:"tc",              label:"📈 Tipo de Cambio",    count:Object.keys(tcData||{}).length},
-    {id:"checklist",       label:"📋 Checklist Docs",    count:checklistDocs.length},
-    {id:"temporadas",      label:"📅 Temporadas",         count:temporadas.length},
-    {id:"notify",          label:"🔔 Notify",            count:notify.length},
-    {id:"consignatarios",  label:"📦 Consignatarios",    count:consignatarios.length},
+  // Tabs agrupados por sección. Cada grupo muestra un micro-header arriba.
+  // Tabs con `hidden:true` no se renderizan (caso: render-prop de Clientes
+  // o Exportadoras no provisto). Sección con todos sus items hidden no
+  // muestra header.
+  const tabGroups = [
+    {titulo:"ENTIDADES COMERCIALES", items:[
+      {id:"clientes",        label:"👥 Clientes",          count:clientesCount,     hidden:!renderClientesTab},
+      {id:"exportadoras",    label:"🏭 Exportadoras",      count:exportadorasCount, hidden:!renderExportadorasTab},
+      {id:"notify",          label:"🔔 Notify",            count:notify.length},
+      {id:"consignatarios",  label:"📦 Consignatarios",    count:consignatarios.length},
+    ]},
+    {titulo:"GEOGRAFÍA", items:[
+      {id:"paises",          label:"🌍 Países",            count:paises.length},
+      {id:"mercados",        label:"🎯 Mercados",          count:mercados.length},
+      {id:"ciudades",        label:"🏙️ Ciudades",          count:ciudades.length},
+    ]},
+    {titulo:"LOGÍSTICA", items:[
+      {id:"puertos",         label:"🚢 Puertos",           count:puertos.length},
+      {id:"aeropuertos",     label:"✈️ Aeropuertos",       count:aeropuertos.length},
+      {id:"shipping",        label:"⚓ Shipping Lines",    count:shippingLines.length},
+      {id:"lineas_aereas",   label:"✈️ Líneas Aéreas",     count:lineasAereas.length},
+      {id:"tipos_embarque",  label:"📦 Tipos de Embarque", count:tiposEmbarque.length},
+      {id:"tipos_embalaje",  label:"📐 Tipos de Embalaje", count:tiposEmbalaje.length},
+    ]},
+    {titulo:"PRODUCTO Y OPERACIÓN", items:[
+      {id:"especies",        label:"🍒 Especies",          count:especies.length},
+      {id:"temporadas",      label:"📅 Temporadas",        count:temporadas.length},
+      {id:"checklist",       label:"📋 Checklist Docs",    count:checklistDocs.length},
+    ]},
+    {titulo:"FINANCIERO", items:[
+      {id:"monedas",         label:"💱 Monedas",           count:monedas.length},
+      {id:"tc",              label:"📈 Tipo de Cambio",    count:Object.keys(tcData||{}).length},
+    ]},
   ];
 
   return (
@@ -1822,28 +1849,49 @@ export default function FriskuMaestrosModule({canEdit=true, onBack}) {
         </div>
       </div>
 
-      {/* Tabs */}
-      <div style={{display:"flex", flexWrap:"wrap", gap:4, marginBottom:18, borderBottom:`2px solid ${C.border}`}}>
-        {tabs.map(t => (
-          <button key={t.id} onClick={()=>setTab(t.id)}
-            style={{
-              padding:"9px 14px", border:"none", cursor:"pointer", fontSize:12,
-              background: tab===t.id ? C.card : "transparent",
-              color: tab===t.id ? C.text : C.muted,
-              fontWeight: tab===t.id ? 700 : 500,
-              borderBottom: tab===t.id ? `3px solid ${C.blue}` : "3px solid transparent",
-              marginBottom:-2, borderRadius:"6px 6px 0 0",
-              display:"flex", alignItems:"center", gap:6,
-            }}>
-            <span>{t.label}</span>
-            <span style={{
-              fontSize:9, padding:"1px 6px", borderRadius:8,
-              background:tab===t.id ? C.blue : C.border,
-              color:"#fff", fontWeight:700,
-            }}>{t.count}</span>
-          </button>
-        ))}
+      {/* Tabs agrupados por sección */}
+      <div style={{marginBottom:18, borderBottom:`2px solid ${C.border}`, paddingBottom:2}}>
+        {tabGroups.map((grupo, gi) => {
+          const visibles = grupo.items.filter(t => !t.hidden);
+          if(visibles.length === 0) return null;
+          return (
+            <div key={grupo.titulo} style={{marginBottom: gi < tabGroups.length-1 ? 6 : 0}}>
+              <div style={{
+                fontSize:9, fontWeight:700, color:C.muted2 || C.muted,
+                textTransform:"uppercase", letterSpacing:1.2,
+                padding:"6px 4px 4px", opacity:0.75,
+              }}>
+                {grupo.titulo}
+              </div>
+              <div style={{display:"flex", flexWrap:"wrap", gap:4}}>
+                {visibles.map(t => (
+                  <button key={t.id} onClick={()=>setTab(t.id)}
+                    style={{
+                      padding:"9px 14px", border:"none", cursor:"pointer", fontSize:12,
+                      background: tab===t.id ? C.card : "transparent",
+                      color: tab===t.id ? C.text : C.muted,
+                      fontWeight: tab===t.id ? 700 : 500,
+                      borderBottom: tab===t.id ? `3px solid ${C.blue}` : "3px solid transparent",
+                      marginBottom:-2, borderRadius:"6px 6px 0 0",
+                      display:"flex", alignItems:"center", gap:6,
+                    }}>
+                    <span>{t.label}</span>
+                    <span style={{
+                      fontSize:9, padding:"1px 6px", borderRadius:8,
+                      background:tab===t.id ? C.blue : C.border,
+                      color:"#fff", fontWeight:700,
+                    }}>{t.count}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          );
+        })}
       </div>
+
+      {/* Sub-tabs Clientes / Exportadoras (render-props desde el comercial) */}
+      {tab === "clientes" && renderClientesTab && renderClientesTab()}
+      {tab === "exportadoras" && renderExportadorasTab && renderExportadorasTab()}
 
       {/* Contenido de cada tab */}
       {tab === "paises" && (
