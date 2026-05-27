@@ -444,12 +444,14 @@ export default function EEFFModule({ canEdit, usuarioActual, empresasPermitidas 
   const [expandedSecs, setExpandedSecs] = useState(defaultExpandedSecs);
   const [expandedCats, setExpandedCats] = useState(new Set());
 
-  // ── Mayor — diagnóstico (Parte 1) ────────────────────────────────
+  // ── Mayor — diagnóstico (Partes 1-2) ─────────────────────────────
   const [mayorDiag,        setMayorDiag]        = useState(null);   // { movimientos, meta }
   const [mayorDiagError,   setMayorDiagError]   = useState(null);
   const [mayorDiagLoading, setMayorDiagLoading] = useState(false);
   const [mayorGuardando,   setMayorGuardando]   = useState(false);
-  const [mayorGuardadoOk,  setMayorGuardadoOk]  = useState(false);
+  const [mayorGuardadoInfo,setMayorGuardadoInfo]= useState(null);   // { id, payloadMB }
+  const [mayorRecargando,  setMayorRecargando]  = useState(false);
+  const [mayorRecargado,   setMayorRecargado]   = useState(undefined); // undefined=no intentado, null=vacío, obj=datos
   const mayorDiagRef = useRef();
 
   const toggleSec = useCallback((id) => {
@@ -1024,7 +1026,8 @@ export default function EEFFModule({ canEdit, usuarioActual, empresasPermitidas 
                 const file = e.target.files?.[0];
                 if (!file) return;
                 e.target.value = '';
-                setMayorDiagError(null); setMayorDiag(null); setMayorGuardadoOk(false);
+                setMayorDiagError(null); setMayorDiag(null);
+                setMayorGuardadoInfo(null); setMayorRecargado(undefined);
                 setMayorDiagLoading(true);
                 try {
                   const movimientos = await parsearMayor(file);
@@ -1055,14 +1058,14 @@ export default function EEFFModule({ canEdit, usuarioActual, empresasPermitidas 
                 disabled={mayorGuardando}
                 color={C.green}
                 onClick={async () => {
-                  setMayorGuardando(true); setMayorGuardadoOk(false);
+                  setMayorGuardando(true); setMayorGuardadoInfo(null); setMayorDiagError(null);
                   try {
-                    await dbSaveMayor({
+                    const { id, payloadBytes } = await dbSaveMayor({
                       empresa, anio,
                       movimientos: mayorDiag.movimientos,
                       guardadoPor: usuarioActual?.email || '',
                     });
-                    setMayorGuardadoOk(true);
+                    setMayorGuardadoInfo({ id, payloadMB: (payloadBytes / 1024 / 1024).toFixed(3) });
                   } catch(err) {
                     setMayorDiagError(err.message);
                   } finally {
@@ -1072,10 +1075,67 @@ export default function EEFFModule({ canEdit, usuarioActual, empresasPermitidas 
                 {mayorGuardando ? 'Guardando...' : 'Guardar en Supabase'}
               </Btn>
             )}
-            {mayorGuardadoOk && (
-              <span style={{ fontSize:12, color:C.green }}>Guardado OK</span>
+            {mayorGuardadoInfo && (
+              <Btn
+                disabled={mayorRecargando}
+                color={C.blue}
+                onClick={async () => {
+                  setMayorRecargando(true); setMayorRecargado(null); setMayorDiagError(null);
+                  try {
+                    const val = await dbLoadMayor(empresa, anio, empresasPermitidas);
+                    setMayorRecargado(val);
+                  } catch(err) {
+                    setMayorDiagError(err.message);
+                  } finally {
+                    setMayorRecargando(false);
+                  }
+                }}>
+                {mayorRecargando ? 'Cargando...' : 'Recargar de Supabase'}
+              </Btn>
             )}
           </div>
+
+          {/* Resultado del guardado */}
+          {mayorGuardadoInfo && (
+            <div style={{ marginBottom:10, padding:'8px 12px', background:C.bg,
+              borderRadius:6, border:`1px solid ${C.green}44` }}>
+              <span style={{ fontSize:11, color:C.green, fontWeight:600 }}>Guardado OK — </span>
+              <span style={{ fontSize:11, color:C.muted }}>
+                id: <code style={{ color:C.accentL }}>{mayorGuardadoInfo.id}</code>
+                {' · '}payload enviado: <strong style={{ color: parseFloat(mayorGuardadoInfo.payloadMB) > 5 ? C.red : C.text }}>
+                  {mayorGuardadoInfo.payloadMB} MB
+                </strong>
+                {parseFloat(mayorGuardadoInfo.payloadMB) > 5 && (
+                  <span style={{ color:C.red }}> ⚠ supera 5 MB — revisar particionado</span>
+                )}
+              </span>
+            </div>
+          )}
+
+          {/* Resultado de la recarga — solo muestra si se intentó (mayorRecargado !== undefined) */}
+          {mayorRecargado !== undefined && !mayorRecargando && (
+            <div style={{ marginBottom:10, padding:'8px 12px', background:C.bg,
+              borderRadius:6, border:`1px solid ${mayorRecargado ? C.blue : C.red}44` }}>
+              {mayorRecargado ? (
+                <>
+                  <span style={{ fontSize:11, color:C.blue, fontWeight:600 }}>Recargado de Supabase — </span>
+                  <span style={{ fontSize:11, color:C.muted }}>
+                    {mayorRecargado.totalMovimientos?.toLocaleString('es-CL')} movimientos
+                    {' · '}meses: {mayorRecargado.meses?.join(', ')}
+                    {' · '}cargado: {mayorRecargado.cargadoEn ? new Date(mayorRecargado.cargadoEn).toLocaleString('es-CL') : '?'}
+                    {mayorDiag && mayorRecargado.totalMovimientos === mayorDiag.meta.totalMovimientos
+                      ? <span style={{ color:C.green }}> ✓ cuenta coincide con el archivo original</span>
+                      : <span style={{ color:C.red }}> ✗ cuenta NO coincide ({mayorDiag?.meta.totalMovimientos} en archivo)</span>
+                    }
+                  </span>
+                </>
+              ) : (
+                <span style={{ fontSize:11, color:C.red }}>
+                  Recarga: sin datos — permiso denegado o row no encontrado en Supabase.
+                </span>
+              )}
+            </div>
+          )}
 
           {mayorDiagLoading && (
             <div style={{ fontSize:12, color:C.muted }}>Procesando archivo...</div>

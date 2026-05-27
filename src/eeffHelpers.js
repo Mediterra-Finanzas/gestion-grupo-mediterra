@@ -518,7 +518,11 @@ export async function dbSaveMayor({ empresa, anio, movimientos, guardadoPor }) {
     guardadoPor: guardadoPor || '',
     movimientos,
   };
-  const id  = mayorId(empresa, anio);
+  const id      = mayorId(empresa, anio);
+  const bodyStr = JSON.stringify({ id, value, updated_at: new Date().toISOString() });
+  // Medir tamaño real del payload en bytes (UTF-8)
+  const payloadBytes = new TextEncoder().encode(bodyStr).length;
+
   const res = await fetch(`${SUPA_URL}/rest/v1/calendario_data`, {
     method:  'POST',
     headers: {
@@ -526,10 +530,10 @@ export async function dbSaveMayor({ empresa, anio, movimientos, guardadoPor }) {
       'Content-Type': 'application/json',
       Prefer: 'resolution=merge-duplicates',
     },
-    body: JSON.stringify({ id, value, updated_at: new Date().toISOString() }),
+    body: bodyStr,
   });
   if (!res.ok) throw new Error(`Error guardando Mayor (${res.status})`);
-  return id;
+  return { id, payloadBytes };
 }
 
 export async function dbLoadMayor(empresa, anio, empresasPermitidas) {
