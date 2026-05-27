@@ -10935,7 +10935,7 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
       })()}
 
       {tab==="nominas"&&puedoVer("nominas")&&(
-        <NominasModule usuario={usuarioActual} canEdit={puedoEdit("nominas")} saldosBancos={saldosBancos}/>
+        <NominasModule usuario={usuarioActual} canEdit={puedoEdit("nominas")} saldosBancos={saldosBancos} empresasPermitidas={empresasPermitidas}/>
       )}
 
       {tab==="reporte"&&puedoVer("reporte")&&accesoCompletoEmpresas&&(
@@ -12445,7 +12445,7 @@ function sumNominaUSD(nom) {
     .reduce((s,it) => s + (Number(it.montoUSD)||0), 0);
 }
 
-function NominasModule({usuario, canEdit=false, saldosBancos={}}) {
+function NominasModule({usuario, canEdit=false, saldosBancos={}, empresasPermitidas}) {
   const [nominas, setNominas] = useState([]);
   const [cargando, setCargando] = useState(true);
   const [selNomina, setSelNomina] = useState(null); // id nomina abierta
@@ -12459,10 +12459,14 @@ function NominasModule({usuario, canEdit=false, saldosBancos={}}) {
   const nominasRef = useRef(nominas);
   useEffect(()=>{nominasRef.current=nominas;},[nominas]);
 
+  // Filtra por empresas permitidas. Sin restricción (admin/CFO) → devuelve todo.
+  const filtrarXEmpresa = (list) =>
+    (!empresasPermitidas?.length) ? list : list.filter(n => empresasPermitidas.includes(n.empresa));
+
   // Load
   useEffect(()=>{
     dbLoadNominas().then(d=>{
-      if(d?.nominas) setNominas(d.nominas);
+      if(d?.nominas) setNominas(filtrarXEmpresa(d.nominas));
       setCargando(false);
     });
   },[]);
@@ -12472,11 +12476,12 @@ function NominasModule({usuario, canEdit=false, saldosBancos={}}) {
     const interval = setInterval(()=>{
       dbLoadNominas().then(d=>{
         if(d?.nominas) {
+          const filtered = filtrarXEmpresa(d.nominas);
           setNominas(prev=>{
             // Solo actualizar si hay cambios reales (evitar re-render innecesario)
             const prevJSON = JSON.stringify(prev.map(n=>({id:n.id,estado:n.estado,aprobado1Por:n.aprobado1Por,aprobadoPor:n.aprobadoPor})));
-            const newJSON = JSON.stringify(d.nominas.map(n=>({id:n.id,estado:n.estado,aprobado1Por:n.aprobado1Por,aprobadoPor:n.aprobadoPor})));
-            if(prevJSON !== newJSON) return d.nominas;
+            const newJSON = JSON.stringify(filtered.map(n=>({id:n.id,estado:n.estado,aprobado1Por:n.aprobado1Por,aprobadoPor:n.aprobadoPor})));
+            if(prevJSON !== newJSON) return filtered;
             return prev;
           });
         }
@@ -12490,7 +12495,7 @@ function NominasModule({usuario, canEdit=false, saldosBancos={}}) {
     function onVisibility(){
       if(document.visibilityState === "visible"){
         dbLoadNominas().then(d=>{
-          if(d?.nominas) setNominas(d.nominas);
+          if(d?.nominas) setNominas(filtrarXEmpresa(d.nominas));
         }).catch(()=>{});
       }
     }
