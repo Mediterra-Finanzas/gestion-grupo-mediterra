@@ -918,18 +918,21 @@ function HubScreen({ usuario, modulosPermitidos, onSelectModulo, onLogout, onCam
               try {
                 const btn = document.activeElement;
                 if(btn) btn.textContent="⏳ Exportando...";
-                // Cargar todos los datos de Supabase
-                const res = await fetch(`${SUPA_URL}/rest/v1/calendario_data?select=id,value,updated_at`,{
+                // Cargar todos los datos de Supabase (excluir backups previos)
+                const res = await fetch(`${SUPA_URL}/rest/v1/calendario_data?select=id,value,updated_at&id=not.like.backup_*`,{
                   headers:{apikey:SUPA_KEY,Authorization:`Bearer ${SUPA_KEY}`}
                 });
                 const allData = await res.json();
+                if(!Array.isArray(allData)) {
+                  throw new Error("Supabase no devolvió una lista: " + JSON.stringify(allData).slice(0,200));
+                }
                 const backup = {
                   fecha: new Date().toISOString(),
                   usuario: usuario.nombre,
                   version: "Mediterra Hub Backup v1",
                   tablas: {}
                 };
-                (allData||[]).forEach(row=>{
+                allData.forEach(row=>{
                   try { backup.tablas[row.id] = {data:JSON.parse(row.value), updated_at:row.updated_at}; }
                   catch { backup.tablas[row.id] = {data:row.value, updated_at:row.updated_at}; }
                 });
@@ -1540,7 +1543,7 @@ export default function App(){
           });
           const allData = await allRes.json();
           const backupData = { fecha:new Date().toISOString(), version:"auto-v2" };
-          (allData||[]).forEach(row=>{
+          (Array.isArray(allData)?allData:[]).forEach(row=>{
             try { backupData[row.id] = typeof row.value==="string"?JSON.parse(row.value):row.value; }
             catch { backupData[row.id] = row.value; }
           });
@@ -1647,17 +1650,21 @@ export default function App(){
     // Esperar 5s después del login para no interferir con la carga
     const timer = setTimeout(async()=>{
       try {
-        const res = await fetch(`${SUPA_URL}/rest/v1/calendario_data?select=id,value,updated_at`,{
+        // Excluir filas backup_* (no se respaldan los respaldos previos)
+        const res = await fetch(`${SUPA_URL}/rest/v1/calendario_data?select=id,value,updated_at&id=not.like.backup_*`,{
           headers:{apikey:SUPA_KEY,Authorization:`Bearer ${SUPA_KEY}`}
         });
         const allData = await res.json();
+        if(!Array.isArray(allData)) {
+          throw new Error("Supabase no devolvió una lista: " + JSON.stringify(allData).slice(0,200));
+        }
         const backup = {
           fecha: new Date().toISOString(),
           usuario: usuarioActual.nombre,
           version: "Mediterra Hub Backup Automático v1",
           tablas: {}
         };
-        (allData||[]).forEach(row=>{
+        allData.forEach(row=>{
           try { backup.tablas[row.id] = {data:JSON.parse(row.value), updated_at:row.updated_at}; }
           catch { backup.tablas[row.id] = {data:row.value, updated_at:row.updated_at}; }
         });
