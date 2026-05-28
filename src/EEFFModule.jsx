@@ -1,4 +1,4 @@
-﻿/* eslint-disable */
+/* eslint-disable */
 import React, { useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import {
   parsearBalance, detectarFormatoBalance, fmtMonto, NOMBRES_MES,
@@ -11,7 +11,7 @@ import {
 
 const EMPRESAS = [
   'Mediterra','Allegria Foods','Allegria Service',
-  'Frisku Foods','Integrity Farms','Osiris','Allpa Farms','Allpa Farms PerÃº'
+  'Frisku Foods','Integrity Farms','Osiris','Allpa Farms','Allpa Farms Perú'
 ];
 const MESES = [1,2,3,4,5,6,7,8,9,10,11,12];
 
@@ -22,7 +22,7 @@ const C = {
   yellow:'#f59e0b', blue:'#3b82f6', purple:'#a855f7',
 };
 
-// â”€â”€ Mapeo categoriaIFRS â†’ grupo de secciÃ³n â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Mapeo categoriaIFRS → grupo de sección ──────────────────────────
 const CAT_GRUPO = {
   'Efectivo y Equivalentes':'Activo Corriente',
   'Otros Activos Financieros Corrientes':'Activo Corriente',
@@ -31,21 +31,21 @@ const CAT_GRUPO = {
   'Anticipos a Productores':'Activo Corriente',
   'CxC Entidades Relacionadas':'Activo Corriente',
   'Inventarios':'Activo Corriente',
-  'Inventarios AgrÃ­colas':'Activo Corriente',
+  'Inventarios Agrícolas':'Activo Corriente',
   'Activos por Impuestos':'Activo Corriente',
   'Pagos Anticipados':'Activo Corriente',
   'Impuestos Diferidos':'Activo Corriente',
   'Otras CxC':'Activo Corriente',
   'Otros Activos Corrientes':'Activo Corriente',
   'Propiedades, Planta y Equipo':'Activo No Corriente',
-  'Activos BiolÃ³gicos':'Activo No Corriente',
-  'DepreciaciÃ³n Acumulada (-)':'Activo No Corriente',
+  'Activos Biológicos':'Activo No Corriente',
+  'Depreciación Acumulada (-)':'Activo No Corriente',
   'Activos Intangibles':'Activo No Corriente',
-  'AmortizaciÃ³n Acumulada (-)':'Activo No Corriente',
+  'Amortización Acumulada (-)':'Activo No Corriente',
   'Inversiones en Asociadas/JV':'Activo No Corriente',
   'Inversiones en Otras Sociedades':'Activo No Corriente',
-  'PlusvalÃ­a':'Activo No Corriente',
-  'PlusvalÃ­a Negativa (-)':'Activo No Corriente',
+  'Plusvalía':'Activo No Corriente',
+  'Plusvalía Negativa (-)':'Activo No Corriente',
   'CxC Comerciales No Corrientes':'Activo No Corriente',
   'CxC Entidades Relacionadas No Corrientes':'Activo No Corriente',
   'Otros Activos No Corrientes':'Activo No Corriente',
@@ -81,24 +81,24 @@ const CAT_GRUPO = {
   'Ingresos por Ventas':'Ingreso Operacional',
   'Ingresos por Royalties / Fees':'Ingreso Operacional',
   'Costo de Ventas':'Costo Operacional',
-  'Costos Operacionales AgrÃ­colas':'Costo Operacional',
+  'Costos Operacionales Agrícolas':'Costo Operacional',
   'Remuneraciones':'Gasto Operacional',
   'Honorarios':'Gasto Operacional',
-  'Gastos de RepresentaciÃ³n':'Gasto Operacional',
-  'Gastos de AdministraciÃ³n y Ventas':'Gasto Operacional',
+  'Gastos de Representación':'Gasto Operacional',
+  'Gastos de Administración y Ventas':'Gasto Operacional',
   'Ingresos Financieros':'Ingreso No Operacional',
-  'ParticipaciÃ³n en Resultados Asociadas':'Ingreso No Operacional',
+  'Participación en Resultados Asociadas':'Ingreso No Operacional',
   'Otros Ingresos No Operacionales':'Ingreso No Operacional',
   'Gastos Financieros':'Gasto No Operacional',
-  'ParticipaciÃ³n en PÃ©rdidas Asociadas':'Gasto No Operacional',
-  'AmortizaciÃ³n PlusvalÃ­a':'Gasto No Operacional',
+  'Participación en Pérdidas Asociadas':'Gasto No Operacional',
+  'Amortización Plusvalía':'Gasto No Operacional',
   'Otros Gastos No Operacionales':'Gasto No Operacional',
   'Diferencias de Cambio / Corr. Monetaria':'No Operacional',
   'Impuesto a la Renta':'Impuesto',
   'Cuentas de Orden':'Cuentas de Orden',
 };
 
-// Orden de presentaciÃ³n dentro de cada secciÃ³n ESF
+// Orden de presentación dentro de cada sección ESF
 const ESF_SECCIONES = [
   { id:'ac',  label:'Activo Corriente',    totalLabel:'Total Activo Corriente',    grupo:'Activo Corriente'    },
   { id:'anc', label:'Activo No Corriente', totalLabel:'Total Activo No Corriente', grupo:'Activo No Corriente' },
@@ -107,7 +107,7 @@ const ESF_SECCIONES = [
   { id:'pat', label:'Patrimonio',          totalLabel:'Total Patrimonio',          grupo:'Patrimonio'          },
 ];
 
-// ER: id, grupo display, contribuciÃ³n al resultado (1=suma, -1=resta, 0=neto)
+// ER: id, grupo display, contribución al resultado (1=suma, -1=resta, 0=neto)
 const ER_BLOQUES = [
   { id:'ing_op',   label:'Ingresos Operacionales',    grupo:'Ingreso Operacional',    signo: 1 },
   { id:'costo_op', label:'Costos',                    grupo:'Costo Operacional',      signo:-1 },
@@ -118,25 +118,25 @@ const ER_BLOQUES = [
   { id:'imp',      label:'Impuesto a la Renta',        grupo:'Impuesto',               signo:-1 },
 ];
 
-// â”€â”€ Helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Helpers ──────────────────────────────────────────────────────────
 function valorSit(c) {
   const ia = c.inventarioActivo  || 0;
   const ip = c.inventarioPasivo  || 0;
-  if (c.tipoIFRS === 'Activo')     return ia - ip; // neto: activo âˆ’ contra-activo
-  if (c.tipoIFRS === 'Pasivo')     return ip - ia; // neto: pasivo âˆ’ saldo deudor anormal
-  if (c.tipoIFRS === 'Patrimonio') return ip - ia; // neto: patrimonio âˆ’ saldo deudor (pÃ©rdidas, dividendos)
+  if (c.tipoIFRS === 'Activo')     return ia - ip; // neto: activo − contra-activo
+  if (c.tipoIFRS === 'Pasivo')     return ip - ia; // neto: pasivo − saldo deudor anormal
+  if (c.tipoIFRS === 'Patrimonio') return ip - ia; // neto: patrimonio − saldo deudor (pérdidas, dividendos)
   return 0;
 }
 function valorERCuenta(c, signo) {
   const rg = c.resultadoGanancia || 0;
   const rp = c.resultadoPerdida  || 0;
-  if (signo ===  1) return rg - rp; // ingreso: neto (RG âˆ’ RP)
-  if (signo === -1) return rp - rg; // egreso:  neto (RP âˆ’ RG, positivo = egreso)
+  if (signo ===  1) return rg - rp; // ingreso: neto (RG − RP)
+  if (signo === -1) return rp - rg; // egreso:  neto (RP − RG, positivo = egreso)
   return rg - rp;
 }
 function fmt(v) { return fmtMonto(Math.abs(v), 0); }
 function fmtSig(v) {
-  if (Math.abs(v) < 0.01) return 'â€”';
+  if (Math.abs(v) < 0.01) return '—';
   return (v < 0 ? '(' : '') + fmtMonto(Math.abs(v), 0) + (v < 0 ? ')' : '');
 }
 
@@ -175,14 +175,14 @@ function calcER(cpg) {
   return { ingOp, costoOp, resB, gastoOp, resOp, ingNOp, gastNOp, noOp, resAntes, impuesto, resEjec };
 }
 
-// Normaliza cÃ³digos de cuenta para comparar entre EEFF y mayor:
-// strip puntos + trim. Contec "1.01.01.001" â†’ "101010001";
-// Megasystem "1101003" â†’ "1101003". Ambos lados normalizan igual.
+// Normaliza códigos de cuenta para comparar entre EEFF y mayor:
+// strip puntos + trim. Contec "1.01.01.001" → "101010001";
+// Megasystem "1101003" → "1101003". Ambos lados normalizan igual.
 function normalizeCodigo(code) {
   return String(code || '').trim().replace(/\./g, '');
 }
 
-// â”€â”€ Componentes de UI â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Componentes de UI ─────────────────────────────────────────────────
 function Btn({ onClick, children, color, disabled, active, small }) {
   return (
     <button onClick={onClick} disabled={disabled}
@@ -236,11 +236,11 @@ function LineaDivision({ label, valor, color }) {
 function SeccionESF({ sec, cuentas, expandedSecs, onToggleSec, expandedCats, onToggleCat, onCuentaClick, selectedCodigo }) {
   const isOpen = expandedSecs.has(sec.id);
 
-  // Agrupar cuentas de esta secciÃ³n por categoriaIFRS
+  // Agrupar cuentas de esta sección por categoriaIFRS
   const porCat = useMemo(() => {
     const m = new Map();
     for (const c of cuentas) {
-      const cat = c.categoriaIFRS || 'Sin CategorÃ­a';
+      const cat = c.categoriaIFRS || 'Sin Categoría';
       if (!m.has(cat)) m.set(cat, []);
       m.get(cat).push(c);
     }
@@ -254,11 +254,11 @@ function SeccionESF({ sec, cuentas, expandedSecs, onToggleSec, expandedCats, onT
 
   return (
     <>
-      {/* Cabecera de secciÃ³n */}
+      {/* Cabecera de sección */}
       <tr onClick={() => onToggleSec(sec.id)}
         style={{ background:C.card2, cursor:'pointer', borderTop:`1px solid ${C.border}` }}>
         <td style={{ padding:'8px 12px', fontSize:12, fontWeight:800, color:C.accentL }}>
-          <span style={{ marginRight:6, fontSize:10, color:C.muted }}>{isOpen ? 'â–¼' : 'â–¶'}</span>
+          <span style={{ marginRight:6, fontSize:10, color:C.muted }}>{isOpen ? '▼' : '▶'}</span>
           {sec.label}
         </td>
         <td style={{ padding:'8px 14px', textAlign:'right', fontSize:12,
@@ -273,13 +273,13 @@ function SeccionESF({ sec, cuentas, expandedSecs, onToggleSec, expandedCats, onT
         const catTotal = ccs.reduce((s, c) => s + valorSit(c), 0);
         return (
           <React.Fragment key={cat}>
-            {/* Cabecera de categorÃ­a */}
+            {/* Cabecera de categoría */}
             <tr onClick={() => onToggleCat(catKey)}
               style={{ background:C.bg, cursor:'pointer',
                 borderTop:`1px solid ${C.border}22` }}>
               <td style={{ padding:'5px 12px', paddingLeft:32,
                 fontSize:11, fontWeight:600, color:C.muted }}>
-                <span style={{ marginRight:6, fontSize:9, color:C.muted2 }}>{catOpen ? 'â–¼' : 'â–¶'}</span>
+                <span style={{ marginRight:6, fontSize:9, color:C.muted2 }}>{catOpen ? '▼' : '▶'}</span>
                 {cat}
               </td>
               <td style={{ padding:'5px 14px', textAlign:'right',
@@ -303,7 +303,7 @@ function SeccionESF({ sec, cuentas, expandedSecs, onToggleSec, expandedCats, onT
                   </td>
                   <td style={{ padding:'3px 14px', textAlign:'right',
                     fontSize:10, color: valorSit(c) !== 0 ? C.text : C.muted2, whiteSpace:'nowrap' }}>
-                    {valorSit(c) !== 0 ? fmt(valorSit(c)) : 'â€”'}
+                    {valorSit(c) !== 0 ? fmt(valorSit(c)) : '—'}
                   </td>
                 </tr>
               );
@@ -312,7 +312,7 @@ function SeccionESF({ sec, cuentas, expandedSecs, onToggleSec, expandedCats, onT
         );
       })}
 
-      {/* Total de secciÃ³n */}
+      {/* Total de sección */}
       {isOpen && (
         <LineaTotal label={sec.totalLabel} valor={total} nivel={0} />
       )}
@@ -326,7 +326,7 @@ function BloqueER({ bloque, cuentas, expandedSecs, onToggleSec, expandedCats, on
   const porCat = useMemo(() => {
     const m = new Map();
     for (const c of cuentas) {
-      const cat = c.categoriaIFRS || 'Sin CategorÃ­a';
+      const cat = c.categoriaIFRS || 'Sin Categoría';
       if (!m.has(cat)) m.set(cat, []);
       m.get(cat).push(c);
     }
@@ -348,7 +348,7 @@ function BloqueER({ bloque, cuentas, expandedSecs, onToggleSec, expandedCats, on
       <tr onClick={() => onToggleSec(bloque.id)}
         style={{ background:C.card2, cursor:'pointer', borderTop:`1px solid ${C.border}` }}>
         <td style={{ padding:'8px 12px', fontSize:12, fontWeight:800, color:headerColor }}>
-          <span style={{ marginRight:6, fontSize:10, color:C.muted }}>{isOpen ? 'â–¼' : 'â–¶'}</span>
+          <span style={{ marginRight:6, fontSize:10, color:C.muted }}>{isOpen ? '▼' : '▶'}</span>
           {bloque.label}
         </td>
         <td style={{ padding:'8px 14px', textAlign:'right', fontSize:12,
@@ -367,7 +367,7 @@ function BloqueER({ bloque, cuentas, expandedSecs, onToggleSec, expandedCats, on
               style={{ background:C.bg, cursor:'pointer', borderTop:`1px solid ${C.border}22` }}>
               <td style={{ padding:'5px 12px', paddingLeft:32,
                 fontSize:11, fontWeight:600, color:C.muted }}>
-                <span style={{ marginRight:6, fontSize:9, color:C.muted2 }}>{catOpen ? 'â–¼' : 'â–¶'}</span>
+                <span style={{ marginRight:6, fontSize:9, color:C.muted2 }}>{catOpen ? '▼' : '▶'}</span>
                 {cat}
               </td>
               <td style={{ padding:'5px 14px', textAlign:'right',
@@ -392,7 +392,7 @@ function BloqueER({ bloque, cuentas, expandedSecs, onToggleSec, expandedCats, on
                   </td>
                   <td style={{ padding:'3px 14px', textAlign:'right',
                     fontSize:10, color: v !== 0 ? C.text : C.muted2, whiteSpace:'nowrap' }}>
-                    {v !== 0 ? fmt(v) : 'â€”'}
+                    {v !== 0 ? fmt(v) : '—'}
                   </td>
                 </tr>
               );
@@ -411,20 +411,20 @@ function BloqueER({ bloque, cuentas, expandedSecs, onToggleSec, expandedCats, on
   );
 }
 
-// â”€â”€ Componente principal â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Componente principal ─────────────────────────────────────────────
 export default function EEFFModule({ canEdit, usuarioActual, empresasPermitidas }) {
   const isAdmin = usuarioActual?.rol === 'admin';
 
   // Empresas visibles para este usuario.
   // empresasPermitidas viene de FinanzasModule (getEmpresasPermitidasUsuario).
-  // VacÃ­o/undefined = acceso a todas (admin, CFO, retrocompat).
+  // Vacío/undefined = acceso a todas (admin, CFO, retrocompat).
   const empresasVisibles = useMemo(() => {
     if (!empresasPermitidas || empresasPermitidas.length === 0) return EMPRESAS;
     return EMPRESAS.filter(e => empresasPermitidas.includes(e));
   }, [empresasPermitidas]);
 
-  // â”€â”€ Selectores â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-  // Empresa inicial: Allegria Foods si estÃ¡ permitida, si no la primera autorizada.
+  // ── Selectores ──────────────────────────────────────────────────
+  // Empresa inicial: Allegria Foods si está permitida, si no la primera autorizada.
   const [empresa, setEmpresa] = useState(() => {
     if (!empresasPermitidas?.length) return 'Allegria Foods';
     if (empresasPermitidas.includes('Allegria Foods')) return 'Allegria Foods';
@@ -434,12 +434,12 @@ export default function EEFFModule({ canEdit, usuarioActual, empresasPermitidas 
   const [anio,    setAnio]    = useState(new Date().getFullYear());
   const [modo,    setModo]    = useState('mes'); // 'mes' | 'ytd'
 
-  // â”€â”€ Datos EEFF desde Supabase â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Datos EEFF desde Supabase ────────────────────────────────────
   const [eeffData,     setEeffData]     = useState(null);
   const [loadingData,  setLoadingData]  = useState(false);
   const [sinDatos,     setSinDatos]     = useState(false);
 
-  // â”€â”€ Cargar balance (flujo upload) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Cargar balance (flujo upload) ────────────────────────────────
   const [showUpload,    setShowUpload]    = useState(false);
   const [uploading,     setUploading]     = useState(false);
   const [uploadError,   setUploadError]   = useState(null);
@@ -448,7 +448,7 @@ export default function EEFFModule({ canEdit, usuarioActual, empresasPermitidas 
   const fileRefMes = useRef();
   const fileRefYtd = useRef();
 
-  // â”€â”€ Plan Maestro â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Plan Maestro ─────────────────────────────────────────────────
   const [planMaps,     setPlanMaps]     = useState(null);
   const [planMeta,     setPlanMeta]     = useState(null);
   const [planCargando, setPlanCargando] = useState(false);
@@ -456,14 +456,14 @@ export default function EEFFModule({ canEdit, usuarioActual, empresasPermitidas 
   const [planError,    setPlanError]    = useState(null);
   const planFileRef = useRef();
 
-  // â”€â”€ Expand/collapse â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Expand/collapse ──────────────────────────────────────────────
   const defaultExpandedSecs = new Set(
     ESF_SECCIONES.map(s => s.id).concat(ER_BLOQUES.map(b => b.id))
   );
   const [expandedSecs, setExpandedSecs] = useState(defaultExpandedSecs);
   const [expandedCats, setExpandedCats] = useState(new Set());
 
-  // â”€â”€ Drawer anÃ¡lisis de cuenta (Parte 4) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Drawer análisis de cuenta (Parte 4) ─────────────────────────
   const [cuentaSeleccionada,    setCuentaSeleccionada]    = useState(null);
   const [drawerTab,             setDrawerTab]             = useState('movimientos');
   const [mayorDrawer,           setMayorDrawer]           = useState(null);   // value obj de Supabase
@@ -474,14 +474,14 @@ export default function EEFFModule({ canEdit, usuarioActual, empresasPermitidas 
   const [drawerAnalisisError,   setDrawerAnalisisError]   = useState(null);
   const mayorDrawerUploadRef = useRef();
 
-  // Limpiar drawer cuando cambia empresa o aÃ±o
+  // Limpiar drawer cuando cambia empresa o año
   useEffect(() => {
     setCuentaSeleccionada(null); setDrawerTab('movimientos');
     setMayorDrawer(null); setMayorDrawerCargando(false);
     setDrawerAnalisisItems([]); setDrawerAnalisisOk(false); setDrawerAnalisisError(null);
   }, [empresa, anio]);
 
-  // Cerrar drawer al cambiar mes (sin limpiar mayorDrawer â€” es anual)
+  // Cerrar drawer al cambiar mes (sin limpiar mayorDrawer — es anual)
   useEffect(() => {
     setCuentaSeleccionada(null);
     setDrawerAnalisisItems([]); setDrawerAnalisisOk(false); setDrawerAnalisisError(null);
@@ -494,7 +494,7 @@ export default function EEFFModule({ canEdit, usuarioActual, empresasPermitidas 
     setExpandedCats(prev => { const s = new Set(prev); s.has(key)?s.delete(key):s.add(key); return s; });
   }, []);
 
-  // â”€â”€ Cargar Plan Maestro al montar â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Cargar Plan Maestro al montar ────────────────────────────────
   useEffect(() => {
     setPlanCargando(true);
     dbLoadPlanMaestro()
@@ -503,13 +503,13 @@ export default function EEFFModule({ canEdit, usuarioActual, empresasPermitidas 
       .finally(() => setPlanCargando(false));
   }, []);
 
-  // â”€â”€ Cargar EEFF desde Supabase cuando cambia empresa/mes/aÃ±o â”€â”€â”€â”€â”€
+  // ── Cargar EEFF desde Supabase cuando cambia empresa/mes/año ─────
   useEffect(() => {
-    // Defensa de datos: si la empresa seleccionada no estÃ¡ en la lista autorizada,
+    // Defensa de datos: si la empresa seleccionada no está en la lista autorizada,
     // redirigir sin emitir ninguna consulta a Supabase.
     if (empresasVisibles.length > 0 && !empresasVisibles.includes(empresa)) {
       setEmpresa(empresasVisibles[0]);
-      return; // el setEmpresa dispara re-render â†’ este useEffect se ejecuta de nuevo con empresa vÃ¡lida
+      return; // el setEmpresa dispara re-render → este useEffect se ejecuta de nuevo con empresa válida
     }
     setEeffData(null); setSinDatos(false); setShowUpload(false);
     setUploadError(null); setUploadFileMes(null); setUploadFileYtd(null);
@@ -523,7 +523,7 @@ export default function EEFFModule({ canEdit, usuarioActual, empresasPermitidas 
       .finally(() => setLoadingData(false));
   }, [empresa, mes, anio, empresasVisibles]);
 
-  // â”€â”€ Handler: upload Plan Maestro (admin) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Handler: upload Plan Maestro (admin) ─────────────────────────
   const handlePlanFile = useCallback(async (file) => {
     if (!file) return;
     setPlanGuardando(true); setPlanError(null);
@@ -537,7 +537,7 @@ export default function EEFFModule({ canEdit, usuarioActual, empresasPermitidas 
     finally { setPlanGuardando(false); if(planFileRef.current) planFileRef.current.value=''; }
   }, [usuarioActual]);
 
-  // â”€â”€ Handler: cargar los dos balances (Mes + YTD) y guardar â”€â”€â”€â”€â”€â”€â”€
+  // ── Handler: cargar los dos balances (Mes + YTD) y guardar ───────
   const handleCargarBalance = useCallback(async () => {
     if (!uploadFileMes || !uploadFileYtd || !planMaps) return;
     setUploading(true); setUploadError(null);
@@ -573,7 +573,7 @@ export default function EEFFModule({ canEdit, usuarioActual, empresasPermitidas 
     if (fileRefYtd.current) fileRefYtd.current.value = '';
   }, []);
 
-  // â”€â”€ Derived: cpg por fuente â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Derived: cpg por fuente ──────────────────────────────────────
   // cpgYtd: siempre acumulado (cuentas_ytd si existe, o legacy cuentas)
   const cpgYtd = useMemo(() => buildCpg(eeffData?.cuentas_ytd || eeffData?.cuentas), [eeffData]);
   // cpgMes: solo cuando hay formato nuevo (cuentas_mes)
@@ -586,7 +586,7 @@ export default function EEFFModule({ canEdit, usuarioActual, empresasPermitidas 
   // indica si este registro tiene dos balances (nuevo formato)
   const hasFormatoNuevo = !!eeffData?.cuentas_mes;
 
-  // â”€â”€ Totales ESF (siempre desde YTD) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Totales ESF (siempre desde YTD) ─────────────────────────────
   const sumGrupoEsf = (grupo) => (cpgYtd[grupo] || []).reduce((s, c) => s + valorSit(c), 0);
   const totalAC  = sumGrupoEsf('Activo Corriente');
   const totalANC = sumGrupoEsf('Activo No Corriente');
@@ -596,7 +596,7 @@ export default function EEFFModule({ canEdit, usuarioActual, empresasPermitidas 
   const totalP   = totalPC + totalPNC;
   const totalPat = sumGrupoEsf('Patrimonio');
 
-  // â”€â”€ Totales ER (fuente depende del toggle) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Totales ER (fuente depende del toggle) ───────────────────────
   const erYtd = calcER(cpgYtd);
   const erMes = calcER(cpgMes);
   const cpgER     = (modo === 'mes' && hasFormatoNuevo) ? cpgMes : cpgYtd;
@@ -616,7 +616,7 @@ export default function EEFFModule({ canEdit, usuarioActual, empresasPermitidas 
       .finally(() => setMayorDrawerCargando(false));
   }, [cuentaSeleccionada, drawerTab, mayorDrawer, mayorDrawerCargando, empresa, anio, empresasPermitidas]);
 
-  // Pre-cargar items de anÃ¡lisis cuando cambia la cuenta seleccionada
+  // Pre-cargar items de análisis cuando cambia la cuenta seleccionada
   useEffect(() => {
     if (!cuentaSeleccionada) { setDrawerAnalisisItems([]); return; }
     const existing = cuentaSeleccionada.composicion?.items || [];
@@ -624,7 +624,7 @@ export default function EEFFModule({ canEdit, usuarioActual, empresasPermitidas 
     setDrawerAnalisisOk(false); setDrawerAnalisisError(null);
   }, [cuentaSeleccionada]);
 
-  // â”€â”€ Callback click en cuenta â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Callback click en cuenta ────────────────────────────────────
   const handleCuentaClick = useCallback((cuenta) => {
     setCuentaSeleccionada(prev =>
       prev && normalizeCodigo(prev.codigo) === normalizeCodigo(cuenta.codigo) ? null : cuenta
@@ -641,15 +641,15 @@ export default function EEFFModule({ canEdit, usuarioActual, empresasPermitidas 
       .sort((a, b) => (a.fecha || '').localeCompare(b.fecha || ''));
   }, [cuentaSeleccionada, mayorDrawer]);
 
-  // Saldo y suma para el drawer anÃ¡lisis
+  // Saldo y suma para el drawer análisis
   const drawerSaldoRef = cuentaSeleccionada ? saldoEfectivo(cuentaSeleccionada) : 0;
   const drawerSuma     = drawerAnalisisItems.reduce((s, it) => s + (parseFloat(it.monto) || 0), 0);
 
-  // â”€â”€ Render â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Render ───────────────────────────────────────────────────────
   return (
     <div style={{ background:C.bg, color:C.text, padding:'20px 24px', minHeight:'60vh' }}>
 
-      {/* â”€â”€ Encabezado â”€â”€ */}
+      {/* ── Encabezado ── */}
       <div style={{ marginBottom:18, display:'flex', gap:16, alignItems:'flex-start',
         flexWrap:'wrap', justifyContent:'space-between' }}>
         <div>
@@ -657,7 +657,7 @@ export default function EEFFModule({ canEdit, usuarioActual, empresasPermitidas 
             Estados Financieros
           </div>
           <div style={{ fontSize:11, color:C.muted }}>
-            Grupo Mediterra â€” Etapa 1
+            Grupo Mediterra — Etapa 1
           </div>
         </div>
 
@@ -681,7 +681,7 @@ export default function EEFFModule({ canEdit, usuarioActual, empresasPermitidas 
         )}
       </div>
 
-      {/* â”€â”€ Selectores â”€â”€ */}
+      {/* ── Selectores ── */}
       <div style={{ display:'flex', gap:10, flexWrap:'wrap', marginBottom:16, alignItems:'flex-end' }}>
         <div style={{ display:'flex', flexDirection:'column', gap:3 }}>
           <label style={{ fontSize:9, color:C.muted, textTransform:'uppercase' }}>Empresa</label>
@@ -700,7 +700,7 @@ export default function EEFFModule({ canEdit, usuarioActual, empresasPermitidas 
           </select>
         </div>
         <div style={{ display:'flex', flexDirection:'column', gap:3 }}>
-          <label style={{ fontSize:9, color:C.muted, textTransform:'uppercase' }}>AÃ±o</label>
+          <label style={{ fontSize:9, color:C.muted, textTransform:'uppercase' }}>Año</label>
           <input type="number" value={anio} onChange={e => setAnio(Number(e.target.value))}
             style={{ padding:'6px 8px', width:72, borderRadius:6, background:C.card2, color:C.text,
               border:`1px solid ${C.border}`, fontSize:11 }} />
@@ -722,7 +722,7 @@ export default function EEFFModule({ canEdit, usuarioActual, empresasPermitidas 
               Mes
             </button>
             <button onClick={() => setModo('ytd')}
-              title="Resultado acumulado aÃ±o hasta el mes seleccionado"
+              title="Resultado acumulado año hasta el mes seleccionado"
               style={{ padding:'6px 14px', fontSize:11, fontWeight:600, cursor:'pointer',
                 background: modo==='ytd' ? `${C.accent}cc` : C.card2,
                 color: modo==='ytd' ? '#fff' : C.muted,
@@ -743,18 +743,18 @@ export default function EEFFModule({ canEdit, usuarioActual, empresasPermitidas 
         )}
       </div>
 
-      {/* â”€â”€ Loading â”€â”€ */}
+      {/* ── Loading ── */}
       {loadingData && (
         <div style={{ color:C.muted, fontSize:12, padding:'40px 0', textAlign:'center' }}>
           Cargando {NOMBRES_MES[mes]} {anio}...
         </div>
       )}
 
-      {/* â”€â”€ Sin datos + upload â”€â”€ */}
+      {/* ── Sin datos + upload ── */}
       {!loadingData && sinDatos && !showUpload && (
         <div style={{ textAlign:'center', padding:'60px 0' }}>
           <div style={{ fontSize:13, color:C.muted, marginBottom:16 }}>
-            No hay EEFF guardado para <strong style={{ color:C.text }}>{empresa}</strong> â€”{' '}
+            No hay EEFF guardado para <strong style={{ color:C.text }}>{empresa}</strong> —{' '}
             {NOMBRES_MES[mes]} {anio}
           </div>
           {canEdit && planMaps && (
@@ -764,23 +764,23 @@ export default function EEFFModule({ canEdit, usuarioActual, empresasPermitidas 
           )}
           {canEdit && !planMaps && (
             <div style={{ fontSize:11, color:C.yellow, marginTop:8 }}>
-              Primero carga el Plan Maestro (botÃ³n arriba a la derecha).
+              Primero carga el Plan Maestro (botón arriba a la derecha).
             </div>
           )}
           {!canEdit && (
             <div style={{ fontSize:11, color:C.muted, marginTop:8 }}>
-              Sin permisos de carga para este mÃ³dulo.
+              Sin permisos de carga para este módulo.
             </div>
           )}
         </div>
       )}
 
-      {/* â”€â”€ Panel de upload â”€â”€ */}
+      {/* ── Panel de upload ── */}
       {showUpload && (
         <div style={{ background:C.card2, border:`1px solid ${C.border}`, borderRadius:10,
           padding:'16px 20px', marginBottom:16 }}>
           <div style={{ fontSize:12, fontWeight:700, color:C.text, marginBottom:12 }}>
-            Cargar balances â€” {empresa} Â· {NOMBRES_MES[mes]} {anio}
+            Cargar balances — {empresa} · {NOMBRES_MES[mes]} {anio}
           </div>
           <div style={{ display:'flex', gap:12, flexWrap:'wrap', marginBottom:12 }}>
             {/* Balance del Mes */}
@@ -793,7 +793,7 @@ export default function EEFFModule({ canEdit, usuarioActual, empresasPermitidas 
                 <div style={{ fontSize:11, color:C.green, display:'flex', alignItems:'center', gap:6 }}>
                   <span>{uploadFileMes.name}</span>
                   <button onClick={() => { setUploadFileMes(null); if(fileRefMes.current) fileRefMes.current.value=''; }}
-                    style={{ background:'none', border:'none', cursor:'pointer', color:C.muted2, fontSize:12, lineHeight:1 }}>âœ•</button>
+                    style={{ background:'none', border:'none', cursor:'pointer', color:C.muted2, fontSize:12, lineHeight:1 }}>✕</button>
                 </div>
               ) : (
                 <>
@@ -815,7 +815,7 @@ export default function EEFFModule({ canEdit, usuarioActual, empresasPermitidas 
                 <div style={{ fontSize:11, color:C.green, display:'flex', alignItems:'center', gap:6 }}>
                   <span>{uploadFileYtd.name}</span>
                   <button onClick={() => { setUploadFileYtd(null); if(fileRefYtd.current) fileRefYtd.current.value=''; }}
-                    style={{ background:'none', border:'none', cursor:'pointer', color:C.muted2, fontSize:12, lineHeight:1 }}>âœ•</button>
+                    style={{ background:'none', border:'none', cursor:'pointer', color:C.muted2, fontSize:12, lineHeight:1 }}>✕</button>
                 </div>
               ) : (
                 <>
@@ -843,24 +843,24 @@ export default function EEFFModule({ canEdit, usuarioActual, empresasPermitidas 
         </div>
       )}
 
-      {/* â”€â”€ EEFF cargado â”€â”€ */}
+      {/* ── EEFF cargado ── */}
       {eeffData && !loadingData && (
         <>
-          {/* Metadata del perÃ­odo */}
+          {/* Metadata del período */}
           <div style={{ display:'flex', gap:16, marginBottom:16, flexWrap:'wrap', alignItems:'center' }}>
             <div style={{ fontSize:10, color:C.muted }}>
               {hasFormatoNuevo ? (
                 <>
-                  Mes: {eeffData.sistema_mes || '?'} Â· {eeffData.cuentas_mes?.length} cuentas
-                  {' Â· '}
-                  YTD: {eeffData.sistema_ytd || '?'} Â· {eeffData.cuentas_ytd?.length} cuentas
+                  Mes: {eeffData.sistema_mes || '?'} · {eeffData.cuentas_mes?.length} cuentas
+                  {' · '}
+                  YTD: {eeffData.sistema_ytd || '?'} · {eeffData.cuentas_ytd?.length} cuentas
                 </>
               ) : (
                 <>
-                  {eeffData.sistema === 'megasystem' ? 'Megasystem' : 'Contec'} Â· {eeffData.cuentas?.length} cuentas Â· <span style={{ color:C.yellow }}>formato legacy</span>
+                  {eeffData.sistema === 'megasystem' ? 'Megasystem' : 'Contec'} · {eeffData.cuentas?.length} cuentas · <span style={{ color:C.yellow }}>formato legacy</span>
                 </>
               )}
-              {' Â· '}Guardado{' '}
+              {' · '}Guardado{' '}
               {eeffData.fechaGuardado ? new Date(eeffData.fechaGuardado).toLocaleDateString('es-CL') : ''}
               {eeffData.guardadoPor ? ` por ${eeffData.guardadoPor}` : ''}
             </div>
@@ -875,12 +875,12 @@ export default function EEFFModule({ canEdit, usuarioActual, empresasPermitidas 
             </div>
           </div>
 
-          {/* â•â•â• ESTADO DE SITUACIÃ“N FINANCIERA â•â•â• */}
+          {/* ═══ ESTADO DE SITUACIÓN FINANCIERA ═══ */}
           <div style={{ marginBottom:32 }}>
             <div style={{ fontSize:13, fontWeight:900, color:C.accentL,
               marginBottom:10, paddingBottom:6, borderBottom:`2px solid ${C.accent}44`,
               letterSpacing:'0.04em', textTransform:'uppercase' }}>
-              Estado de SituaciÃ³n Financiera
+              Estado de Situación Financiera
             </div>
 
             <div style={{ overflowX:'auto', borderRadius:10, border:`1px solid ${C.border}` }}>
@@ -933,14 +933,14 @@ export default function EEFFModule({ canEdit, usuarioActual, empresasPermitidas 
                       expandedCats={expandedCats} onToggleCat={toggleCat}
                       onCuentaClick={handleCuentaClick} selectedCodigo={cuentaSeleccionada?.codigo} />
                   ))}
-                  {/* LÃ­nea derivada â€” siempre desde YTD para que el ESF cuadre */}
+                  {/* Línea derivada — siempre desde YTD para que el ESF cuadre */}
                   <tr style={{ background:`${C.purple}0d`, borderTop:`1px solid ${C.purple}33` }}>
                     <td style={{ padding:'6px 12px', paddingLeft:28,
                       fontSize:11, fontWeight:700, color:C.purple, fontStyle:'italic' }}>
-                      Resultado del PerÃ­odo (Acumulado)
+                      Resultado del Período (Acumulado)
                       <span style={{ fontSize:9, fontStyle:'normal', fontWeight:400,
                         color:C.muted, marginLeft:8 }}>
-                        derivado Â· YTD acumulado igual al Resultado del Ejercicio (ER YTD)
+                        derivado · YTD acumulado igual al Resultado del Ejercicio (ER YTD)
                       </span>
                     </td>
                     <td style={{ padding:'6px 14px', textAlign:'right',
@@ -954,7 +954,7 @@ export default function EEFFModule({ canEdit, usuarioActual, empresasPermitidas 
                   {Math.abs(totalA - totalPP) >= 1 && (
                     <tr style={{ background:`${C.red}11` }}>
                       <td colSpan={2} style={{ padding:'4px 12px', fontSize:10, color:C.red }}>
-                        âš  Diferencia A âˆ’ (P+Pat): {fmtMonto(totalA - totalPP, 2)}
+                        ⚠ Diferencia A − (P+Pat): {fmtMonto(totalA - totalPP, 2)}
                       </td>
                     </tr>
                   )}
@@ -963,7 +963,7 @@ export default function EEFFModule({ canEdit, usuarioActual, empresasPermitidas 
             </div>
           </div>
 
-          {/* â•â•â• ESTADO DE RESULTADOS â•â•â• */}
+          {/* ═══ ESTADO DE RESULTADOS ═══ */}
           <div style={{ marginBottom:32 }}>
             <div style={{ fontSize:13, fontWeight:900, color:C.accentL,
               marginBottom:10, paddingBottom:6, borderBottom:`2px solid ${C.accent}44`,
@@ -1040,13 +1040,13 @@ export default function EEFFModule({ canEdit, usuarioActual, empresasPermitidas 
             </div>
           </div>
 
-          {/* â•â•â• SIN CLASIFICAR (siempre desde YTD) â•â•â• */}
+          {/* ═══ SIN CLASIFICAR (siempre desde YTD) ═══ */}
           {sinClasYtd.length > 0 && (
             <div style={{ marginBottom:24 }}>
               <div style={{ fontSize:12, fontWeight:800, color:C.yellow, marginBottom:8 }}>
-                Sin Clasificar â€” {sinClasYtd.length} cuentas
+                Sin Clasificar — {sinClasYtd.length} cuentas
                 <span style={{ fontSize:10, fontWeight:400, color:C.muted, marginLeft:8 }}>
-                  (no encontradas en el Plan Maestro â€” agregar en la prÃ³xima versiÃ³n)
+                  (no encontradas en el Plan Maestro — agregar en la próxima versión)
                 </span>
               </div>
               <div style={{ overflowX:'auto', borderRadius:8,
@@ -1054,7 +1054,7 @@ export default function EEFFModule({ canEdit, usuarioActual, empresasPermitidas 
                 <table style={{ borderCollapse:'collapse', width:'100%', fontSize:11 }}>
                   <thead>
                     <tr style={{ background:C.bg2 }}>
-                      {['CÃ³digo','Nombre','SD','SA'].map(h => (
+                      {['Código','Nombre','SD','SA'].map(h => (
                         <th key={h} style={{ padding:'5px 12px',
                           textAlign:h==='SD'||h==='SA'?'right':'left',
                           fontSize:9, color:C.muted, fontWeight:700,
@@ -1073,10 +1073,10 @@ export default function EEFFModule({ canEdit, usuarioActual, empresasPermitidas 
                           fontFamily:'monospace', fontSize:10 }}>{c.codigo}</td>
                         <td style={{ padding:'4px 12px', color:C.text }}>{c.nombre}</td>
                         <td style={{ padding:'4px 12px', textAlign:'right', color:C.muted2 }}>
-                          {c.saldoDeudor ? fmtMonto(c.saldoDeudor,2) : 'â€”'}
+                          {c.saldoDeudor ? fmtMonto(c.saldoDeudor,2) : '—'}
                         </td>
                         <td style={{ padding:'4px 12px', textAlign:'right', color:C.muted2 }}>
-                          {c.saldoAcreedor ? fmtMonto(c.saldoAcreedor,2) : 'â€”'}
+                          {c.saldoAcreedor ? fmtMonto(c.saldoAcreedor,2) : '—'}
                         </td>
                       </tr>
                     ))}
@@ -1088,15 +1088,15 @@ export default function EEFFModule({ canEdit, usuarioActual, empresasPermitidas 
         </>
       )}
 
-      {/* â”€â”€ Panel diagnÃ³stico Libro Mayor (solo admin, Parte 1) â”€â”€ */}
-      {/* â•â• DRAWER â€” AnÃ¡lisis de Cuenta (Parte 4) â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• */}
+      {/* ── Panel diagnóstico Libro Mayor (solo admin, Parte 1) ── */}
+      {/* ══ DRAWER — Análisis de Cuenta (Parte 4) ══════════════════ */}
       {cuentaSeleccionada && (
         <>
           {/* Backdrop */}
           <div onClick={() => setCuentaSeleccionada(null)}
             style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.45)', zIndex:199 }} />
 
-          {/* Panel lateral derecho â€” 400px; a 1366px deja ~966px para el contenido */}
+          {/* Panel lateral derecho — 400px; a 1366px deja ~966px para el contenido */}
           <div style={{ position:'fixed', top:0, right:0, width:400, height:'100vh',
             background:C.bg2, borderLeft:`1px solid ${C.border}`, zIndex:200,
             display:'flex', flexDirection:'column', overflow:'hidden' }}>
@@ -1125,13 +1125,13 @@ export default function EEFFModule({ canEdit, usuarioActual, empresasPermitidas 
                 <button onClick={() => setCuentaSeleccionada(null)}
                   style={{ background:'none', border:'none', color:C.muted, cursor:'pointer',
                     fontSize:20, lineHeight:1, padding:'0 0 0 8px', flexShrink:0 }}>
-                  Ã—
+                  ×
                 </button>
               </div>
 
               {/* Tabs */}
               <div style={{ display:'flex', gap:6, marginTop:10 }}>
-                {[['movimientos','Movimientos'],['analisis','AnÃ¡lisis']].map(([id, label]) => (
+                {[['movimientos','Movimientos'],['analisis','Análisis']].map(([id, label]) => (
                   <button key={id} onClick={() => setDrawerTab(id)}
                     style={{ padding:'4px 12px', borderRadius:12, border:'none',
                       fontSize:11, fontWeight:600, cursor:'pointer',
@@ -1146,7 +1146,7 @@ export default function EEFFModule({ canEdit, usuarioActual, empresasPermitidas 
             {/* Contenido scrollable */}
             <div style={{ flex:1, overflowY:'auto', padding:'14px 16px' }}>
 
-              {/* â”€â”€ Tab: Movimientos â”€â”€ */}
+              {/* ── Tab: Movimientos ── */}
               {drawerTab === 'movimientos' && (() => {
                 if (mayorDrawerCargando) {
                   return <div style={{ fontSize:12, color:C.muted }}>Cargando mayor...</div>;
@@ -1223,17 +1223,17 @@ export default function EEFFModule({ canEdit, usuarioActual, empresasPermitidas 
                               color:C.muted }}>{m.fecha}</td>
                             <td style={{ padding:'3px 6px', maxWidth:160,
                               overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}
-                              title={m.glosa}>{m.glosa || 'â€”'}</td>
+                              title={m.glosa}>{m.glosa || '—'}</td>
                             <td style={{ padding:'3px 6px', textAlign:'right',
                               color: m.debe>0 ? C.text : C.muted2 }}>
-                              {m.debe > 0 ? fmtMonto(m.debe,2) : 'â€”'}
+                              {m.debe > 0 ? fmtMonto(m.debe,2) : '—'}
                             </td>
                             <td style={{ padding:'3px 6px', textAlign:'right',
                               color: m.haber>0 ? C.text : C.muted2 }}>
-                              {m.haber > 0 ? fmtMonto(m.haber,2) : 'â€”'}
+                              {m.haber > 0 ? fmtMonto(m.haber,2) : '—'}
                             </td>
                             <td style={{ padding:'3px 6px', textAlign:'right', color:C.muted2 }}>
-                              {m.saldo != null ? fmtMonto(m.saldo,2) : 'â€”'}
+                              {m.saldo != null ? fmtMonto(m.saldo,2) : '—'}
                             </td>
                           </tr>
                         ))}
@@ -1243,14 +1243,14 @@ export default function EEFFModule({ canEdit, usuarioActual, empresasPermitidas 
                 );
               })()}
 
-              {/* â”€â”€ Tab: AnÃ¡lisis manual â”€â”€ */}
+              {/* ── Tab: Análisis manual ── */}
               {drawerTab === 'analisis' && (
                 <>
                   <div style={{ fontSize:11, color:C.muted, marginBottom:8 }}>
                     Saldo cuenta (YTD): <strong style={{ color:C.text }}>{fmtMonto(drawerSaldoRef,2)}</strong>
                     {drawerAnalisisItems.length > 0 && (
                       <span style={{ marginLeft:14 }}>
-                        Suma lÃ­neas: <strong style={{ color:C.text }}>{fmtMonto(drawerSuma,2)}</strong>
+                        Suma líneas: <strong style={{ color:C.text }}>{fmtMonto(drawerSuma,2)}</strong>
                       </span>
                     )}
                   </div>
@@ -1259,7 +1259,7 @@ export default function EEFFModule({ canEdit, usuarioActual, empresasPermitidas 
                     <thead>
                       <tr style={{ background:C.bg }}>
                         <th style={{ padding:'3px 6px', textAlign:'left', fontSize:10, color:C.muted,
-                          borderBottom:`1px solid ${C.border}`, width:'46%' }}>DescripciÃ³n</th>
+                          borderBottom:`1px solid ${C.border}`, width:'46%' }}>Descripción</th>
                         <th style={{ padding:'3px 6px', textAlign:'right', fontSize:10, color:C.muted,
                           borderBottom:`1px solid ${C.border}`, width:'20%' }}>Monto</th>
                         <th style={{ padding:'3px 6px', textAlign:'left', fontSize:10, color:C.muted,
@@ -1275,7 +1275,7 @@ export default function EEFFModule({ canEdit, usuarioActual, empresasPermitidas 
                               onChange={e => setDrawerAnalisisItems(prev =>
                                 prev.map((x,i)=>i===idx?{...x,descripcion:e.target.value}:x))}
                               disabled={!canEdit}
-                              placeholder="DescripciÃ³n..."
+                              placeholder="Descripción..."
                               style={{ width:'100%', background:C.bg, color:C.text,
                                 border:`1px solid ${C.border}`, borderRadius:3,
                                 padding:'2px 5px', fontSize:11 }} />
@@ -1304,7 +1304,7 @@ export default function EEFFModule({ canEdit, usuarioActual, empresasPermitidas 
                             {canEdit && (
                               <button onClick={() => setDrawerAnalisisItems(prev=>prev.filter((_,i)=>i!==idx))}
                                 style={{ background:'none', border:'none', color:C.red,
-                                  cursor:'pointer', fontSize:15, lineHeight:1 }}>Ã—</button>
+                                  cursor:'pointer', fontSize:15, lineHeight:1 }}>×</button>
                             )}
                           </td>
                         </tr>
@@ -1312,7 +1312,7 @@ export default function EEFFModule({ canEdit, usuarioActual, empresasPermitidas 
                       {drawerAnalisisItems.length === 0 && (
                         <tr><td colSpan={4} style={{ padding:'8px 6px', color:C.muted,
                           fontSize:10, fontStyle:'italic' }}>
-                          Sin lÃ­neas.{canEdit ? ' Agrega una para comenzar.' : ''}
+                          Sin líneas.{canEdit ? ' Agrega una para comenzar.' : ''}
                         </td></tr>
                       )}
                     </tbody>
@@ -1323,7 +1323,7 @@ export default function EEFFModule({ canEdit, usuarioActual, empresasPermitidas 
                       <Btn small color={C.muted2}
                         onClick={() => setDrawerAnalisisItems(prev=>[
                           ...prev, {_id:Date.now(), descripcion:'', monto:'', nota:''}])}>
-                        + LÃ­nea
+                        + Línea
                       </Btn>
                       <Btn small color={C.purple} disabled={drawerAnalisisGuard}
                         onClick={async () => {
