@@ -8,6 +8,7 @@ import {
   parsearMayor, dbSaveMayor, dbLoadMayor,
   guardarComposicionCuenta, saldoEfectivo,
 } from './eeffHelpers.js';
+import { theme } from './theme';
 
 const EMPRESAS = [
   'Mediterra','Allegria Foods','Allegria Service',
@@ -15,11 +16,17 @@ const EMPRESAS = [
 ];
 const MESES = [1,2,3,4,5,6,7,8,9,10,11,12];
 
+// Paleta EEFF — re-exporta tokens del tema central + alias para
+// preservar nombres usados localmente. Cambios de paleta en src/theme.js.
 const C = {
-  bg:'#0f172a', bg2:'#1e293b', card:'#1e293b', card2:'#263247',
-  border:'#334155', text:'#f1f5f9', muted:'#64748b', muted2:'#475569',
-  accent:'#06b6d4', accentL:'#67e8f9', green:'#22c55e', red:'#ef4444',
-  yellow:'#f59e0b', blue:'#3b82f6', purple:'#a855f7',
+  ...theme,
+  card2:   theme.cardAlt,
+  accent:  theme.info,       // era cian claro, ahora info navy
+  accentL: theme.accent,     // dorado para destaque secundario
+  green:   theme.success,
+  red:     theme.danger,
+  yellow:  theme.warning,
+  blue:    theme.primary,
 };
 
 // ── Mapeo categoriaIFRS → grupo de sección ──────────────────────────
@@ -256,13 +263,13 @@ function SeccionESF({ sec, cuentas, expandedSecs, onToggleSec, expandedCats, onT
     <>
       {/* Cabecera de sección */}
       <tr onClick={() => onToggleSec(sec.id)}
-        style={{ background:C.card2, cursor:'pointer', borderTop:`1px solid ${C.border}` }}>
-        <td style={{ padding:'8px 12px', fontSize:12, fontWeight:800, color:C.accentL }}>
+        style={{ background:C.bg2, cursor:'pointer', borderTop:`1px solid ${C.border}` }}>
+        <td style={{ padding:'8px 12px', fontSize:12, fontWeight:800, color:C.primary }}>
           <span style={{ marginRight:6, fontSize:10, color:C.muted }}>{isOpen ? '▼' : '▶'}</span>
           {sec.label}
         </td>
         <td style={{ padding:'8px 14px', textAlign:'right', fontSize:12,
-          fontWeight:800, color:C.accentL, whiteSpace:'nowrap' }}>
+          fontWeight:800, color:C.primary, whiteSpace:'nowrap' }}>
           {isOpen ? '' : fmt(total)}
         </td>
       </tr>
@@ -275,11 +282,11 @@ function SeccionESF({ sec, cuentas, expandedSecs, onToggleSec, expandedCats, onT
           <React.Fragment key={cat}>
             {/* Cabecera de categoría */}
             <tr onClick={() => onToggleCat(catKey)}
-              style={{ background:C.bg, cursor:'pointer',
+              style={{ background:C.cardAlt, cursor:'pointer',
                 borderTop:`1px solid ${C.border}22` }}>
               <td style={{ padding:'5px 12px', paddingLeft:32,
                 fontSize:11, fontWeight:600, color:C.muted }}>
-                <span style={{ marginRight:6, fontSize:9, color:C.muted2 }}>{catOpen ? '▼' : '▶'}</span>
+                <span style={{ marginRight:6, fontSize:9, color:C.muted}}>{catOpen ? '▼' : '▶'}</span>
                 {cat}
               </td>
               <td style={{ padding:'5px 14px', textAlign:'right',
@@ -292,11 +299,11 @@ function SeccionESF({ sec, cuentas, expandedSecs, onToggleSec, expandedCats, onT
               return (
                 <tr key={c.codigo + i}
                   onClick={() => onCuentaClick && onCuentaClick(c)}
-                  style={{ background: isSelected ? `${C.accent}22` : i%2===0?C.bg:C.bg2,
+                  style={{ background: isSelected ? `${C.accent}22` : i%2===0?C.card:C.rowAlt,
                     borderTop:`1px solid ${C.border}11`,
                     cursor: onCuentaClick ? 'pointer' : 'default',
                     outline: isSelected ? `1px solid ${C.accent}55` : 'none' }}>
-                  <td style={{ padding:'3px 12px', paddingLeft:52, fontSize:10, color:C.muted2 }}>
+                  <td style={{ padding:'3px 12px', paddingLeft:52, fontSize:10, color:C.muted}}>
                     <span style={{ color: isSelected ? C.accent : C.muted2, marginRight:6,
                       fontFamily:'monospace', fontSize:9 }}>{c.codigo}</span>
                     {c.nombre || c.nombreOficial}
@@ -367,7 +374,7 @@ function BloqueER({ bloque, cuentas, expandedSecs, onToggleSec, expandedCats, on
               style={{ background:C.bg, cursor:'pointer', borderTop:`1px solid ${C.border}22` }}>
               <td style={{ padding:'5px 12px', paddingLeft:32,
                 fontSize:11, fontWeight:600, color:C.muted }}>
-                <span style={{ marginRight:6, fontSize:9, color:C.muted2 }}>{catOpen ? '▼' : '▶'}</span>
+                <span style={{ marginRight:6, fontSize:9, color:C.muted}}>{catOpen ? '▼' : '▶'}</span>
                 {cat}
               </td>
               <td style={{ padding:'5px 14px', textAlign:'right',
@@ -381,11 +388,11 @@ function BloqueER({ bloque, cuentas, expandedSecs, onToggleSec, expandedCats, on
               return (
                 <tr key={c.codigo + i}
                   onClick={() => onCuentaClick && onCuentaClick(c)}
-                  style={{ background: isSelected ? `${C.accent}22` : i%2===0?C.bg:C.bg2,
+                  style={{ background: isSelected ? `${C.accent}22` : i%2===0?C.card:C.rowAlt,
                     borderTop:`1px solid ${C.border}11`,
                     cursor: onCuentaClick ? 'pointer' : 'default',
                     outline: isSelected ? `1px solid ${C.accent}55` : 'none' }}>
-                  <td style={{ padding:'3px 12px', paddingLeft:52, fontSize:10, color:C.muted2 }}>
+                  <td style={{ padding:'3px 12px', paddingLeft:52, fontSize:10, color:C.muted}}>
                     <span style={{ color: isSelected ? C.accent : C.muted2, marginRight:6,
                       fontFamily:'monospace', fontSize:9 }}>{c.codigo}</span>
                     {c.nombre || c.nombreOficial}
@@ -653,7 +660,7 @@ export default function EEFFModule({ canEdit, usuarioActual, empresasPermitidas 
       <div style={{ marginBottom:18, display:'flex', gap:16, alignItems:'flex-start',
         flexWrap:'wrap', justifyContent:'space-between' }}>
         <div>
-          <div style={{ fontSize:16, fontWeight:900, color:C.accentL, marginBottom:2 }}>
+          <div style={{ fontSize:16, fontWeight:900, color:C.primary, marginBottom:2 }}>
             Estados Financieros
           </div>
           <div style={{ fontSize:11, color:C.muted }}>
@@ -778,7 +785,7 @@ export default function EEFFModule({ canEdit, usuarioActual, empresasPermitidas 
       {/* ── Panel de upload ── */}
       {showUpload && (
         <div style={{ background:C.card2, border:`1px solid ${C.border}`, borderRadius:10,
-          padding:'16px 20px', marginBottom:16 }}>
+          padding:'16px 20px', marginBottom:16, boxShadow:C.shadow }}>
           <div style={{ fontSize:12, fontWeight:700, color:C.text, marginBottom:12 }}>
             Cargar balances — {empresa} · {NOMBRES_MES[mes]} {anio}
           </div>
@@ -793,7 +800,7 @@ export default function EEFFModule({ canEdit, usuarioActual, empresasPermitidas 
                 <div style={{ fontSize:11, color:C.green, display:'flex', alignItems:'center', gap:6 }}>
                   <span>{uploadFileMes.name}</span>
                   <button onClick={() => { setUploadFileMes(null); if(fileRefMes.current) fileRefMes.current.value=''; }}
-                    style={{ background:'none', border:'none', cursor:'pointer', color:C.muted2, fontSize:12, lineHeight:1 }}>✕</button>
+                    style={{ background:'none', border:'none', cursor:'pointer', color:C.muted, fontSize:12, lineHeight:1 }}>✕</button>
                 </div>
               ) : (
                 <>
@@ -815,7 +822,7 @@ export default function EEFFModule({ canEdit, usuarioActual, empresasPermitidas 
                 <div style={{ fontSize:11, color:C.green, display:'flex', alignItems:'center', gap:6 }}>
                   <span>{uploadFileYtd.name}</span>
                   <button onClick={() => { setUploadFileYtd(null); if(fileRefYtd.current) fileRefYtd.current.value=''; }}
-                    style={{ background:'none', border:'none', cursor:'pointer', color:C.muted2, fontSize:12, lineHeight:1 }}>✕</button>
+                    style={{ background:'none', border:'none', cursor:'pointer', color:C.muted, fontSize:12, lineHeight:1 }}>✕</button>
                 </div>
               ) : (
                 <>
@@ -877,20 +884,20 @@ export default function EEFFModule({ canEdit, usuarioActual, empresasPermitidas 
 
           {/* ═══ ESTADO DE SITUACIÓN FINANCIERA ═══ */}
           <div style={{ marginBottom:32 }}>
-            <div style={{ fontSize:13, fontWeight:900, color:C.accentL,
+            <div style={{ fontSize:13, fontWeight:900, color:C.primary,
               marginBottom:10, paddingBottom:6, borderBottom:`2px solid ${C.accent}44`,
               letterSpacing:'0.04em', textTransform:'uppercase' }}>
               Estado de Situación Financiera
             </div>
 
-            <div style={{ overflowX:'auto', borderRadius:10, border:`1px solid ${C.border}` }}>
+            <div style={{ overflowX:'auto', borderRadius:10, border:`1px solid ${C.border}`, background:C.card, boxShadow:C.shadow }}>
               <table style={{ borderCollapse:'collapse', width:'100%' }}>
                 <thead>
-                  <tr style={{ background:C.bg2 }}>
+                  <tr style={{ background:C.primary }}>
                     <th style={{ padding:'8px 12px', textAlign:'left', fontSize:10,
-                      color:C.muted, fontWeight:700, textTransform:'uppercase' }}>Cuenta</th>
+                      color:C.primaryText, fontWeight:700, textTransform:'uppercase' }}>Cuenta</th>
                     <th style={{ padding:'8px 14px', textAlign:'right', fontSize:10,
-                      color:C.muted, fontWeight:700, textTransform:'uppercase', whiteSpace:'nowrap' }}>
+                      color:C.primaryText, fontWeight:700, textTransform:'uppercase', whiteSpace:'nowrap' }}>
                       Acumulado {NOMBRES_MES[mes]} {anio}
                     </th>
                   </tr>
@@ -965,20 +972,20 @@ export default function EEFFModule({ canEdit, usuarioActual, empresasPermitidas 
 
           {/* ═══ ESTADO DE RESULTADOS ═══ */}
           <div style={{ marginBottom:32 }}>
-            <div style={{ fontSize:13, fontWeight:900, color:C.accentL,
+            <div style={{ fontSize:13, fontWeight:900, color:C.primary,
               marginBottom:10, paddingBottom:6, borderBottom:`2px solid ${C.accent}44`,
               letterSpacing:'0.04em', textTransform:'uppercase' }}>
               Estado de Resultados
             </div>
 
-            <div style={{ overflowX:'auto', borderRadius:10, border:`1px solid ${C.border}` }}>
+            <div style={{ overflowX:'auto', borderRadius:10, border:`1px solid ${C.border}`, background:C.card, boxShadow:C.shadow }}>
               <table style={{ borderCollapse:'collapse', width:'100%' }}>
                 <thead>
-                  <tr style={{ background:C.bg2 }}>
+                  <tr style={{ background:C.primary }}>
                     <th style={{ padding:'8px 12px', textAlign:'left', fontSize:10,
-                      color:C.muted, fontWeight:700, textTransform:'uppercase' }}>Cuenta</th>
+                      color:C.primaryText, fontWeight:700, textTransform:'uppercase' }}>Cuenta</th>
                     <th style={{ padding:'8px 14px', textAlign:'right', fontSize:10,
-                      color:C.muted, fontWeight:700, textTransform:'uppercase', whiteSpace:'nowrap' }}>
+                      color:C.primaryText, fontWeight:700, textTransform:'uppercase', whiteSpace:'nowrap' }}>
                       {(modo === 'ytd' || !hasFormatoNuevo)
                         ? `Acum. ${NOMBRES_MES[mes]} ${anio}`
                         : `${NOMBRES_MES[mes]} ${anio}`}
@@ -1053,12 +1060,12 @@ export default function EEFFModule({ canEdit, usuarioActual, empresasPermitidas 
                 border:`1px solid ${C.yellow}44` }}>
                 <table style={{ borderCollapse:'collapse', width:'100%', fontSize:11 }}>
                   <thead>
-                    <tr style={{ background:C.bg2 }}>
+                    <tr style={{ background:C.primary }}>
                       {['Código','Nombre','SD','SA'].map(h => (
                         <th key={h} style={{ padding:'5px 12px',
                           textAlign:h==='SD'||h==='SA'?'right':'left',
-                          fontSize:9, color:C.muted, fontWeight:700,
-                          textTransform:'uppercase', borderBottom:`1px solid ${C.border}` }}>
+                          fontSize:9, color:C.primaryText, fontWeight:700,
+                          textTransform:'uppercase' }}>
                           {h}
                         </th>
                       ))}
@@ -1067,15 +1074,15 @@ export default function EEFFModule({ canEdit, usuarioActual, empresasPermitidas 
                   <tbody>
                     {sinClasYtd.map((c, i) => (
                       <tr key={c.codigo+i}
-                        style={{ background:i%2===0?C.bg:C.bg2,
+                        style={{ background:i%2===0?C.card:C.rowAlt,
                           borderBottom:`1px solid ${C.border}22` }}>
                         <td style={{ padding:'4px 12px', color:C.yellow,
                           fontFamily:'monospace', fontSize:10 }}>{c.codigo}</td>
                         <td style={{ padding:'4px 12px', color:C.text }}>{c.nombre}</td>
-                        <td style={{ padding:'4px 12px', textAlign:'right', color:C.muted2 }}>
+                        <td style={{ padding:'4px 12px', textAlign:'right', color:C.muted}}>
                           {c.saldoDeudor ? fmtMonto(c.saldoDeudor,2) : '—'}
                         </td>
-                        <td style={{ padding:'4px 12px', textAlign:'right', color:C.muted2 }}>
+                        <td style={{ padding:'4px 12px', textAlign:'right', color:C.muted}}>
                           {c.saldoAcreedor ? fmtMonto(c.saldoAcreedor,2) : '—'}
                         </td>
                       </tr>
@@ -1106,7 +1113,7 @@ export default function EEFFModule({ canEdit, usuarioActual, empresasPermitidas 
               background:C.bg, flexShrink:0 }}>
               <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start' }}>
                 <div style={{ flex:1, minWidth:0 }}>
-                  <div style={{ fontSize:10, fontFamily:'monospace', color:C.accentL,
+                  <div style={{ fontSize:10, fontFamily:'monospace', color:C.primary,
                     letterSpacing:1, marginBottom:2 }}>
                     {cuentaSeleccionada.codigo}
                   </div>
@@ -1193,7 +1200,7 @@ export default function EEFFModule({ canEdit, usuarioActual, empresasPermitidas 
                   return (
                     <div style={{ fontSize:12, color:C.muted }}>
                       Sin movimientos para {cuentaSeleccionada.codigo} en {anio}.
-                      <div style={{ fontSize:10, color:C.muted2, marginTop:4 }}>
+                      <div style={{ fontSize:10, color:C.muted, marginTop:4 }}>
                         Mayor cargado: {mayorDrawer.totalMovimientos?.toLocaleString('es-CL')} movimientos totales.
                       </div>
                     </div>
@@ -1206,11 +1213,11 @@ export default function EEFFModule({ canEdit, usuarioActual, empresasPermitidas 
                     </div>
                     <table style={{ width:'100%', borderCollapse:'collapse', fontSize:10 }}>
                       <thead>
-                        <tr style={{ background:C.bg }}>
+                        <tr style={{ background:C.primary }}>
                           {['Fecha','Glosa','Debe','Haber','Saldo'].map(h => (
                             <th key={h} style={{ padding:'3px 6px', textAlign:
                               ['Debe','Haber','Saldo'].includes(h)?'right':'left',
-                              color:C.muted, fontWeight:700, borderBottom:`1px solid ${C.border}`,
+                              color:C.primaryText, fontWeight:700,
                               whiteSpace:'nowrap', fontSize:9 }}>{h}</th>
                           ))}
                         </tr>
@@ -1232,7 +1239,7 @@ export default function EEFFModule({ canEdit, usuarioActual, empresasPermitidas 
                               color: m.haber>0 ? C.text : C.muted2 }}>
                               {m.haber > 0 ? fmtMonto(m.haber,2) : '—'}
                             </td>
-                            <td style={{ padding:'3px 6px', textAlign:'right', color:C.muted2 }}>
+                            <td style={{ padding:'3px 6px', textAlign:'right', color:C.muted}}>
                               {m.saldo != null ? fmtMonto(m.saldo,2) : '—'}
                             </td>
                           </tr>
@@ -1257,14 +1264,14 @@ export default function EEFFModule({ canEdit, usuarioActual, empresasPermitidas 
 
                   <table style={{ width:'100%', borderCollapse:'collapse', fontSize:11, marginBottom:10 }}>
                     <thead>
-                      <tr style={{ background:C.bg }}>
-                        <th style={{ padding:'3px 6px', textAlign:'left', fontSize:10, color:C.muted,
-                          borderBottom:`1px solid ${C.border}`, width:'46%' }}>Descripción</th>
-                        <th style={{ padding:'3px 6px', textAlign:'right', fontSize:10, color:C.muted,
-                          borderBottom:`1px solid ${C.border}`, width:'20%' }}>Monto</th>
-                        <th style={{ padding:'3px 6px', textAlign:'left', fontSize:10, color:C.muted,
-                          borderBottom:`1px solid ${C.border}`, width:'27%' }}>Nota</th>
-                        <th style={{ borderBottom:`1px solid ${C.border}`, width:'7%' }}></th>
+                      <tr style={{ background:C.primary }}>
+                        <th style={{ padding:'3px 6px', textAlign:'left', fontSize:10, color:C.primaryText,
+                          width:'46%' }}>Descripción</th>
+                        <th style={{ padding:'3px 6px', textAlign:'right', fontSize:10, color:C.primaryText,
+                          width:'20%' }}>Monto</th>
+                        <th style={{ padding:'3px 6px', textAlign:'left', fontSize:10, color:C.primaryText,
+                          width:'27%' }}>Nota</th>
+                        <th style={{ width:'7%' }}></th>
                       </tr>
                     </thead>
                     <tbody>
