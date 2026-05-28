@@ -5,6 +5,8 @@ import {
   parsearPlanMaestro, clasificarCuentas,
   dbLoadPlanMaestro, dbSavePlanMaestro,
   guardarEEFF, cargarEEFF, eeffId,
+  parsearMayor, dbSaveMayor, dbLoadMayor,
+  guardarComposicionCuenta, saldoEfectivo,
 } from './eeffHelpers.js';
 
 const EMPRESAS = [
@@ -173,6 +175,13 @@ function calcER(cpg) {
   return { ingOp, costoOp, resB, gastoOp, resOp, ingNOp, gastNOp, noOp, resAntes, impuesto, resEjec };
 }
 
+// Normaliza códigos de cuenta para comparar entre EEFF y mayor:
+// strip puntos + trim. Contec "1.01.01.001" → "101010001";
+// Megasystem "1101003" → "1101003". Ambos lados normalizan igual.
+function normalizeCodigo(code) {
+  return String(code || '').trim().replace(/\./g, '');
+}
+
 // ── Componentes de UI ─────────────────────────────────────────────────
 function Btn({ onClick, children, color, disabled, active, small }) {
   return (
@@ -224,7 +233,7 @@ function LineaDivision({ label, valor, color }) {
   );
 }
 
-function SeccionESF({ sec, cuentas, expandedSecs, onToggleSec, expandedCats, onToggleCat }) {
+function SeccionESF({ sec, cuentas, expandedSecs, onToggleSec, expandedCats, onToggleCat, onCuentaClick, selectedCodigo }) {
   const isOpen = expandedSecs.has(sec.id);
 
   // Agrupar cuentas de esta sección por categoriaIFRS
@@ -278,22 +287,27 @@ function SeccionESF({ sec, cuentas, expandedSecs, onToggleSec, expandedCats, onT
                 {catOpen ? '' : fmt(catTotal)}
               </td>
             </tr>
-            {catOpen && ccs.map((c, i) => (
-              <tr key={c.codigo + i}
-                style={{ background:i%2===0?C.bg:C.bg2, borderTop:`1px solid ${C.border}11` }}>
-                <td style={{ padding:'3px 12px', paddingLeft:52,
-                  fontSize:10, color:C.muted2 }}>
-                  <span style={{ color:C.muted2, marginRight:6, fontFamily:'monospace',
-                    fontSize:9 }}>{c.codigo}</span>
-                  {c.nombre || c.nombreOficial}
-                </td>
-                <td style={{ padding:'3px 14px', textAlign:'right',
-                  fontSize:10, color: valorSit(c) !== 0 ? C.text : C.muted2,
-                  whiteSpace:'nowrap' }}>
-                  {valorSit(c) !== 0 ? fmt(valorSit(c)) : '—'}
-                </td>
-              </tr>
-            ))}
+            {catOpen && ccs.map((c, i) => {
+              const isSelected = selectedCodigo && normalizeCodigo(selectedCodigo) === normalizeCodigo(c.codigo);
+              return (
+                <tr key={c.codigo + i}
+                  onClick={() => onCuentaClick && onCuentaClick(c)}
+                  style={{ background: isSelected ? `${C.accent}22` : i%2===0?C.bg:C.bg2,
+                    borderTop:`1px solid ${C.border}11`,
+                    cursor: onCuentaClick ? 'pointer' : 'default',
+                    outline: isSelected ? `1px solid ${C.accent}55` : 'none' }}>
+                  <td style={{ padding:'3px 12px', paddingLeft:52, fontSize:10, color:C.muted2 }}>
+                    <span style={{ color: isSelected ? C.accent : C.muted2, marginRight:6,
+                      fontFamily:'monospace', fontSize:9 }}>{c.codigo}</span>
+                    {c.nombre || c.nombreOficial}
+                  </td>
+                  <td style={{ padding:'3px 14px', textAlign:'right',
+                    fontSize:10, color: valorSit(c) !== 0 ? C.text : C.muted2, whiteSpace:'nowrap' }}>
+                    {valorSit(c) !== 0 ? fmt(valorSit(c)) : '—'}
+                  </td>
+                </tr>
+              );
+            })}
           </React.Fragment>
         );
       })}
@@ -306,7 +320,7 @@ function SeccionESF({ sec, cuentas, expandedSecs, onToggleSec, expandedCats, onT
   );
 }
 
-function BloqueER({ bloque, cuentas, expandedSecs, onToggleSec, expandedCats, onToggleCat }) {
+function BloqueER({ bloque, cuentas, expandedSecs, onToggleSec, expandedCats, onToggleCat, onCuentaClick, selectedCodigo }) {
   const isOpen = expandedSecs.has(bloque.id);
 
   const porCat = useMemo(() => {
@@ -363,11 +377,17 @@ function BloqueER({ bloque, cuentas, expandedSecs, onToggleSec, expandedCats, on
             </tr>
             {catOpen && ccs.map((c, i) => {
               const v = valorERCuenta(c, bloque.signo);
+              const isSelected = selectedCodigo && normalizeCodigo(selectedCodigo) === normalizeCodigo(c.codigo);
               return (
                 <tr key={c.codigo + i}
-                  style={{ background:i%2===0?C.bg:C.bg2, borderTop:`1px solid ${C.border}11` }}>
+                  onClick={() => onCuentaClick && onCuentaClick(c)}
+                  style={{ background: isSelected ? `${C.accent}22` : i%2===0?C.bg:C.bg2,
+                    borderTop:`1px solid ${C.border}11`,
+                    cursor: onCuentaClick ? 'pointer' : 'default',
+                    outline: isSelected ? `1px solid ${C.accent}55` : 'none' }}>
                   <td style={{ padding:'3px 12px', paddingLeft:52, fontSize:10, color:C.muted2 }}>
-                    <span style={{ color:C.muted2, marginRight:6, fontFamily:'monospace', fontSize:9 }}>{c.codigo}</span>
+                    <span style={{ color: isSelected ? C.accent : C.muted2, marginRight:6,
+                      fontFamily:'monospace', fontSize:9 }}>{c.codigo}</span>
                     {c.nombre || c.nombreOficial}
                   </td>
                   <td style={{ padding:'3px 14px', textAlign:'right',
@@ -442,6 +462,30 @@ export default function EEFFModule({ canEdit, usuarioActual, empresasPermitidas 
   );
   const [expandedSecs, setExpandedSecs] = useState(defaultExpandedSecs);
   const [expandedCats, setExpandedCats] = useState(new Set());
+
+  // ── Drawer análisis de cuenta (Parte 4) ─────────────────────────
+  const [cuentaSeleccionada,    setCuentaSeleccionada]    = useState(null);
+  const [drawerTab,             setDrawerTab]             = useState('movimientos');
+  const [mayorDrawer,           setMayorDrawer]           = useState(null);   // value obj de Supabase
+  const [mayorDrawerCargando,   setMayorDrawerCargando]   = useState(false);
+  const [drawerAnalisisItems,   setDrawerAnalisisItems]   = useState([]);
+  const [drawerAnalisisGuard,   setDrawerAnalisisGuard]   = useState(false);
+  const [drawerAnalisisOk,      setDrawerAnalisisOk]      = useState(false);
+  const [drawerAnalisisError,   setDrawerAnalisisError]   = useState(null);
+  const mayorDrawerUploadRef = useRef();
+
+  // Limpiar drawer cuando cambia empresa o año
+  useEffect(() => {
+    setCuentaSeleccionada(null); setDrawerTab('movimientos');
+    setMayorDrawer(null); setMayorDrawerCargando(false);
+    setDrawerAnalisisItems([]); setDrawerAnalisisOk(false); setDrawerAnalisisError(null);
+  }, [empresa, anio]);
+
+  // Cerrar drawer al cambiar mes (sin limpiar mayorDrawer — es anual)
+  useEffect(() => {
+    setCuentaSeleccionada(null);
+    setDrawerAnalisisItems([]); setDrawerAnalisisOk(false); setDrawerAnalisisError(null);
+  }, [mes]);
 
   const toggleSec = useCallback((id) => {
     setExpandedSecs(prev => { const s = new Set(prev); s.has(id)?s.delete(id):s.add(id); return s; });
@@ -561,6 +605,45 @@ export default function EEFFModule({ canEdit, usuarioActual, empresasPermitidas 
 
   // ESF cierra con resEjec acumulado (siempre YTD)
   const totalPP = totalP + totalPat + erYtd.resEjec;
+
+  // Cargar mayor lazy cuando el drawer abre el tab movimientos
+  useEffect(() => {
+    if (!cuentaSeleccionada || drawerTab !== 'movimientos' || mayorDrawer || mayorDrawerCargando) return;
+    setMayorDrawerCargando(true);
+    dbLoadMayor(empresa, anio, empresasPermitidas)
+      .then(val => setMayorDrawer(val))
+      .catch(() => {})
+      .finally(() => setMayorDrawerCargando(false));
+  }, [cuentaSeleccionada, drawerTab, mayorDrawer, mayorDrawerCargando, empresa, anio, empresasPermitidas]);
+
+  // Pre-cargar items de análisis cuando cambia la cuenta seleccionada
+  useEffect(() => {
+    if (!cuentaSeleccionada) { setDrawerAnalisisItems([]); return; }
+    const existing = cuentaSeleccionada.composicion?.items || [];
+    setDrawerAnalisisItems(existing.map((it, i) => ({ ...it, _id: i })));
+    setDrawerAnalisisOk(false); setDrawerAnalisisError(null);
+  }, [cuentaSeleccionada]);
+
+  // ── Callback click en cuenta ────────────────────────────────────
+  const handleCuentaClick = useCallback((cuenta) => {
+    setCuentaSeleccionada(prev =>
+      prev && normalizeCodigo(prev.codigo) === normalizeCodigo(cuenta.codigo) ? null : cuenta
+    );
+    setDrawerTab('movimientos');
+  }, []);
+
+  // Movimientos filtrados del mayor para la cuenta seleccionada
+  const drawerMovimientos = useMemo(() => {
+    if (!cuentaSeleccionada || !mayorDrawer?.movimientos) return [];
+    const norm = normalizeCodigo(cuentaSeleccionada.codigo);
+    return mayorDrawer.movimientos
+      .filter(m => normalizeCodigo(m.codigoCuenta) === norm)
+      .sort((a, b) => (a.fecha || '').localeCompare(b.fecha || ''));
+  }, [cuentaSeleccionada, mayorDrawer]);
+
+  // Saldo y suma para el drawer análisis
+  const drawerSaldoRef = cuentaSeleccionada ? saldoEfectivo(cuentaSeleccionada) : 0;
+  const drawerSuma     = drawerAnalisisItems.reduce((s, it) => s + (parseFloat(it.monto) || 0), 0);
 
   // ── Render ───────────────────────────────────────────────────────
   return (
@@ -822,7 +905,8 @@ export default function EEFFModule({ canEdit, usuarioActual, empresasPermitidas 
                     <SeccionESF key={sec.id} sec={sec}
                       cuentas={cpgYtd[sec.grupo] || []}
                       expandedSecs={expandedSecs} onToggleSec={toggleSec}
-                      expandedCats={expandedCats} onToggleCat={toggleCat} />
+                      expandedCats={expandedCats} onToggleCat={toggleCat}
+                      onCuentaClick={handleCuentaClick} selectedCodigo={cuentaSeleccionada?.codigo} />
                   ))}
                   <LineaDivision label="TOTAL ACTIVO" valor={totalA} />
 
@@ -837,7 +921,8 @@ export default function EEFFModule({ canEdit, usuarioActual, empresasPermitidas 
                     <SeccionESF key={sec.id} sec={sec}
                       cuentas={cpgYtd[sec.grupo] || []}
                       expandedSecs={expandedSecs} onToggleSec={toggleSec}
-                      expandedCats={expandedCats} onToggleCat={toggleCat} />
+                      expandedCats={expandedCats} onToggleCat={toggleCat}
+                      onCuentaClick={handleCuentaClick} selectedCodigo={cuentaSeleccionada?.codigo} />
                   ))}
                   <LineaTotal label="Total Pasivo" valor={totalP} />
                   <tr style={{ background:'transparent', height:4 }}><td colSpan={2}></td></tr>
@@ -845,7 +930,8 @@ export default function EEFFModule({ canEdit, usuarioActual, empresasPermitidas 
                     <SeccionESF key={sec.id} sec={sec}
                       cuentas={cpgYtd[sec.grupo] || []}
                       expandedSecs={expandedSecs} onToggleSec={toggleSec}
-                      expandedCats={expandedCats} onToggleCat={toggleCat} />
+                      expandedCats={expandedCats} onToggleCat={toggleCat}
+                      onCuentaClick={handleCuentaClick} selectedCodigo={cuentaSeleccionada?.codigo} />
                   ))}
                   {/* Línea derivada — siempre desde YTD para que el ESF cuadre */}
                   <tr style={{ background:`${C.purple}0d`, borderTop:`1px solid ${C.purple}33` }}>
@@ -902,33 +988,40 @@ export default function EEFFModule({ canEdit, usuarioActual, empresasPermitidas 
                 <tbody>
                   <BloqueER bloque={ER_BLOQUES[0]} cuentas={cpgER['Ingreso Operacional']||[]}
                     expandedSecs={expandedSecs} onToggleSec={toggleSec}
-                    expandedCats={expandedCats} onToggleCat={toggleCat} />
+                    expandedCats={expandedCats} onToggleCat={toggleCat}
+                    onCuentaClick={handleCuentaClick} selectedCodigo={cuentaSeleccionada?.codigo} />
                   <BloqueER bloque={ER_BLOQUES[1]} cuentas={cpgER['Costo Operacional']||[]}
                     expandedSecs={expandedSecs} onToggleSec={toggleSec}
-                    expandedCats={expandedCats} onToggleCat={toggleCat} />
+                    expandedCats={expandedCats} onToggleCat={toggleCat}
+                    onCuentaClick={handleCuentaClick} selectedCodigo={cuentaSeleccionada?.codigo} />
                   <LineaDivision label="RESULTADO BRUTO" valor={resB} />
 
                   <BloqueER bloque={ER_BLOQUES[2]} cuentas={cpgER['Gasto Operacional']||[]}
                     expandedSecs={expandedSecs} onToggleSec={toggleSec}
-                    expandedCats={expandedCats} onToggleCat={toggleCat} />
+                    expandedCats={expandedCats} onToggleCat={toggleCat}
+                    onCuentaClick={handleCuentaClick} selectedCodigo={cuentaSeleccionada?.codigo} />
                   <LineaDivision label="RESULTADO OPERACIONAL" valor={resOp} />
 
                   <BloqueER bloque={ER_BLOQUES[3]} cuentas={cpgER['Ingreso No Operacional']||[]}
                     expandedSecs={expandedSecs} onToggleSec={toggleSec}
-                    expandedCats={expandedCats} onToggleCat={toggleCat} />
+                    expandedCats={expandedCats} onToggleCat={toggleCat}
+                    onCuentaClick={handleCuentaClick} selectedCodigo={cuentaSeleccionada?.codigo} />
                   <BloqueER bloque={ER_BLOQUES[4]} cuentas={cpgER['Gasto No Operacional']||[]}
                     expandedSecs={expandedSecs} onToggleSec={toggleSec}
-                    expandedCats={expandedCats} onToggleCat={toggleCat} />
+                    expandedCats={expandedCats} onToggleCat={toggleCat}
+                    onCuentaClick={handleCuentaClick} selectedCodigo={cuentaSeleccionada?.codigo} />
                   {(cpgER['No Operacional']||[]).length > 0 && (
                     <BloqueER bloque={ER_BLOQUES[5]} cuentas={cpgER['No Operacional']||[]}
                       expandedSecs={expandedSecs} onToggleSec={toggleSec}
-                      expandedCats={expandedCats} onToggleCat={toggleCat} />
+                      expandedCats={expandedCats} onToggleCat={toggleCat}
+                      onCuentaClick={handleCuentaClick} selectedCodigo={cuentaSeleccionada?.codigo} />
                   )}
                   <LineaTotal label="Resultado antes de Impuesto" valor={resAntes} />
 
                   <BloqueER bloque={ER_BLOQUES[6]} cuentas={cpgER['Impuesto']||[]}
                     expandedSecs={expandedSecs} onToggleSec={toggleSec}
-                    expandedCats={expandedCats} onToggleCat={toggleCat} />
+                    expandedCats={expandedCats} onToggleCat={toggleCat}
+                    onCuentaClick={handleCuentaClick} selectedCodigo={cuentaSeleccionada?.codigo} />
                   <LineaDivision label="RESULTADO DEL EJERCICIO" valor={resEjec} />
                   {/* En vista Mes: referencia contextual del resultado acumulado YTD */}
                   {modo === 'mes' && hasFormatoNuevo && (
@@ -994,6 +1087,294 @@ export default function EEFFModule({ canEdit, usuarioActual, empresasPermitidas 
           )}
         </>
       )}
+
+      {/* ── Panel diagnóstico Libro Mayor (solo admin, Parte 1) ── */}
+      {/* ══ DRAWER — Análisis de Cuenta (Parte 4) ══════════════════ */}
+      {cuentaSeleccionada && (
+        <>
+          {/* Backdrop */}
+          <div onClick={() => setCuentaSeleccionada(null)}
+            style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.45)', zIndex:199 }} />
+
+          {/* Panel lateral derecho — 400px; a 1366px deja ~966px para el contenido */}
+          <div style={{ position:'fixed', top:0, right:0, width:400, height:'100vh',
+            background:C.bg2, borderLeft:`1px solid ${C.border}`, zIndex:200,
+            display:'flex', flexDirection:'column', overflow:'hidden' }}>
+
+            {/* Header */}
+            <div style={{ padding:'14px 16px', borderBottom:`1px solid ${C.border}`,
+              background:C.bg, flexShrink:0 }}>
+              <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start' }}>
+                <div style={{ flex:1, minWidth:0 }}>
+                  <div style={{ fontSize:10, fontFamily:'monospace', color:C.accentL,
+                    letterSpacing:1, marginBottom:2 }}>
+                    {cuentaSeleccionada.codigo}
+                  </div>
+                  <div style={{ fontSize:12, fontWeight:700, color:C.text,
+                    overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap',
+                    marginBottom:4 }}>
+                    {cuentaSeleccionada.nombre || cuentaSeleccionada.nombreOficial}
+                  </div>
+                  <div style={{ fontSize:11, color:C.muted }}>
+                    Saldo YTD:{' '}
+                    <strong style={{ color: drawerSaldoRef >= 0 ? C.text : C.red }}>
+                      {fmtMonto(drawerSaldoRef, 2)}
+                    </strong>
+                  </div>
+                </div>
+                <button onClick={() => setCuentaSeleccionada(null)}
+                  style={{ background:'none', border:'none', color:C.muted, cursor:'pointer',
+                    fontSize:20, lineHeight:1, padding:'0 0 0 8px', flexShrink:0 }}>
+                  ×
+                </button>
+              </div>
+
+              {/* Tabs */}
+              <div style={{ display:'flex', gap:6, marginTop:10 }}>
+                {[['movimientos','Movimientos'],['analisis','Análisis']].map(([id, label]) => (
+                  <button key={id} onClick={() => setDrawerTab(id)}
+                    style={{ padding:'4px 12px', borderRadius:12, border:'none',
+                      fontSize:11, fontWeight:600, cursor:'pointer',
+                      background: drawerTab===id ? C.accent : `${C.accent}22`,
+                      color: drawerTab===id ? '#fff' : C.accent }}>
+                    {label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Contenido scrollable */}
+            <div style={{ flex:1, overflowY:'auto', padding:'14px 16px' }}>
+
+              {/* ── Tab: Movimientos ── */}
+              {drawerTab === 'movimientos' && (() => {
+                if (mayorDrawerCargando) {
+                  return <div style={{ fontSize:12, color:C.muted }}>Cargando mayor...</div>;
+                }
+                if (!mayorDrawer) {
+                  return (
+                    <div>
+                      <div style={{ fontSize:12, color:C.muted, marginBottom:10 }}>
+                        No hay libro mayor cargado para {empresa} {anio}.
+                      </div>
+                      {canEdit && (
+                        <>
+                          <input type="file" accept=".xls,.xlsx" ref={mayorDrawerUploadRef}
+                            style={{ display:'none' }}
+                            onChange={async (e) => {
+                              const file = e.target.files?.[0];
+                              if (!file) return;
+                              e.target.value = '';
+                              setMayorDrawerCargando(true);
+                              try {
+                                const movimientos = await parsearMayor(file);
+                                const { id: savedId, payloadBytes } = await dbSaveMayor({
+                                  empresa, anio, movimientos,
+                                  guardadoPor: usuarioActual?.email || '',
+                                });
+                                const val = await dbLoadMayor(empresa, anio, empresasPermitidas);
+                                setMayorDrawer(val);
+                              } catch(err) {
+                                alert('Error cargando mayor: ' + err.message);
+                              } finally {
+                                setMayorDrawerCargando(false);
+                              }
+                            }}
+                          />
+                          <Btn color={C.accent} onClick={() => mayorDrawerUploadRef.current?.click()}>
+                            Cargar libro mayor (.xls/.xlsx)
+                          </Btn>
+                        </>
+                      )}
+                    </div>
+                  );
+                }
+                if (drawerMovimientos.length === 0) {
+                  return (
+                    <div style={{ fontSize:12, color:C.muted }}>
+                      Sin movimientos para {cuentaSeleccionada.codigo} en {anio}.
+                      <div style={{ fontSize:10, color:C.muted2, marginTop:4 }}>
+                        Mayor cargado: {mayorDrawer.totalMovimientos?.toLocaleString('es-CL')} movimientos totales.
+                      </div>
+                    </div>
+                  );
+                }
+                return (
+                  <div style={{ overflowX:'auto' }}>
+                    <div style={{ fontSize:10, color:C.muted, marginBottom:6 }}>
+                      {drawerMovimientos.length} movimiento{drawerMovimientos.length!==1?'s':''} en {anio}
+                    </div>
+                    <table style={{ width:'100%', borderCollapse:'collapse', fontSize:10 }}>
+                      <thead>
+                        <tr style={{ background:C.bg }}>
+                          {['Fecha','Glosa','Debe','Haber','Saldo'].map(h => (
+                            <th key={h} style={{ padding:'3px 6px', textAlign:
+                              ['Debe','Haber','Saldo'].includes(h)?'right':'left',
+                              color:C.muted, fontWeight:700, borderBottom:`1px solid ${C.border}`,
+                              whiteSpace:'nowrap', fontSize:9 }}>{h}</th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {drawerMovimientos.map((m, i) => (
+                          <tr key={i} style={{ background:i%2===0?C.bg:C.bg2,
+                            borderBottom:`1px solid ${C.border}11` }}>
+                            <td style={{ padding:'3px 6px', whiteSpace:'nowrap',
+                              color:C.muted }}>{m.fecha}</td>
+                            <td style={{ padding:'3px 6px', maxWidth:160,
+                              overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}
+                              title={m.glosa}>{m.glosa || '—'}</td>
+                            <td style={{ padding:'3px 6px', textAlign:'right',
+                              color: m.debe>0 ? C.text : C.muted2 }}>
+                              {m.debe > 0 ? fmtMonto(m.debe,2) : '—'}
+                            </td>
+                            <td style={{ padding:'3px 6px', textAlign:'right',
+                              color: m.haber>0 ? C.text : C.muted2 }}>
+                              {m.haber > 0 ? fmtMonto(m.haber,2) : '—'}
+                            </td>
+                            <td style={{ padding:'3px 6px', textAlign:'right', color:C.muted2 }}>
+                              {m.saldo != null ? fmtMonto(m.saldo,2) : '—'}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                );
+              })()}
+
+              {/* ── Tab: Análisis manual ── */}
+              {drawerTab === 'analisis' && (
+                <>
+                  <div style={{ fontSize:11, color:C.muted, marginBottom:8 }}>
+                    Saldo cuenta (YTD): <strong style={{ color:C.text }}>{fmtMonto(drawerSaldoRef,2)}</strong>
+                    {drawerAnalisisItems.length > 0 && (
+                      <span style={{ marginLeft:14 }}>
+                        Suma líneas: <strong style={{ color:C.text }}>{fmtMonto(drawerSuma,2)}</strong>
+                      </span>
+                    )}
+                  </div>
+
+                  <table style={{ width:'100%', borderCollapse:'collapse', fontSize:11, marginBottom:10 }}>
+                    <thead>
+                      <tr style={{ background:C.bg }}>
+                        <th style={{ padding:'3px 6px', textAlign:'left', fontSize:10, color:C.muted,
+                          borderBottom:`1px solid ${C.border}`, width:'46%' }}>Descripción</th>
+                        <th style={{ padding:'3px 6px', textAlign:'right', fontSize:10, color:C.muted,
+                          borderBottom:`1px solid ${C.border}`, width:'20%' }}>Monto</th>
+                        <th style={{ padding:'3px 6px', textAlign:'left', fontSize:10, color:C.muted,
+                          borderBottom:`1px solid ${C.border}`, width:'27%' }}>Nota</th>
+                        <th style={{ borderBottom:`1px solid ${C.border}`, width:'7%' }}></th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {drawerAnalisisItems.map((item, idx) => (
+                        <tr key={item._id ?? idx}>
+                          <td style={{ padding:'2px 3px' }}>
+                            <input value={item.descripcion||''}
+                              onChange={e => setDrawerAnalisisItems(prev =>
+                                prev.map((x,i)=>i===idx?{...x,descripcion:e.target.value}:x))}
+                              disabled={!canEdit}
+                              placeholder="Descripción..."
+                              style={{ width:'100%', background:C.bg, color:C.text,
+                                border:`1px solid ${C.border}`, borderRadius:3,
+                                padding:'2px 5px', fontSize:11 }} />
+                          </td>
+                          <td style={{ padding:'2px 3px' }}>
+                            <input value={item.monto??''}
+                              onChange={e => setDrawerAnalisisItems(prev =>
+                                prev.map((x,i)=>i===idx?{...x,monto:e.target.value}:x))}
+                              disabled={!canEdit}
+                              placeholder="0"
+                              style={{ width:'100%', background:C.bg, color:C.text,
+                                border:`1px solid ${C.border}`, borderRadius:3,
+                                padding:'2px 5px', fontSize:11, textAlign:'right' }} />
+                          </td>
+                          <td style={{ padding:'2px 3px' }}>
+                            <input value={item.nota||''}
+                              onChange={e => setDrawerAnalisisItems(prev =>
+                                prev.map((x,i)=>i===idx?{...x,nota:e.target.value}:x))}
+                              disabled={!canEdit}
+                              placeholder="Nota..."
+                              style={{ width:'100%', background:C.bg, color:C.text,
+                                border:`1px solid ${C.border}`, borderRadius:3,
+                                padding:'2px 5px', fontSize:11 }} />
+                          </td>
+                          <td style={{ padding:'2px 3px', textAlign:'center' }}>
+                            {canEdit && (
+                              <button onClick={() => setDrawerAnalisisItems(prev=>prev.filter((_,i)=>i!==idx))}
+                                style={{ background:'none', border:'none', color:C.red,
+                                  cursor:'pointer', fontSize:15, lineHeight:1 }}>×</button>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                      {drawerAnalisisItems.length === 0 && (
+                        <tr><td colSpan={4} style={{ padding:'8px 6px', color:C.muted,
+                          fontSize:10, fontStyle:'italic' }}>
+                          Sin líneas.{canEdit ? ' Agrega una para comenzar.' : ''}
+                        </td></tr>
+                      )}
+                    </tbody>
+                  </table>
+
+                  {canEdit && (
+                    <div style={{ display:'flex', gap:8, alignItems:'center', flexWrap:'wrap' }}>
+                      <Btn small color={C.muted2}
+                        onClick={() => setDrawerAnalisisItems(prev=>[
+                          ...prev, {_id:Date.now(), descripcion:'', monto:'', nota:''}])}>
+                        + Línea
+                      </Btn>
+                      <Btn small color={C.purple} disabled={drawerAnalisisGuard}
+                        onClick={async () => {
+                          setDrawerAnalisisGuard(true); setDrawerAnalisisOk(false); setDrawerAnalisisError(null);
+                          try {
+                            const itemsClean = drawerAnalisisItems.map(({_id,...r})=>({
+                              descripcion: r.descripcion||'',
+                              monto: r.monto!==''&&r.monto!=null ? parseFloat(r.monto)||0 : null,
+                              nota: r.nota||'',
+                            }));
+                            await guardarComposicionCuenta({
+                              empresa, anio, mes,
+                              codigoCuenta: cuentaSeleccionada.codigo,
+                              items: itemsClean,
+                              actualizadoPor: usuarioActual?.email||'',
+                            });
+                            // Actualizar en memoria
+                            const composicion = {
+                              items: itemsClean,
+                              actualizadoPor: usuarioActual?.email||'',
+                              fechaActualizacion: new Date().toISOString(),
+                            };
+                            setEeffData(prev => {
+                              if (!prev) return prev;
+                              const patch = list => list?.map(c =>
+                                normalizeCodigo(c.codigo)===normalizeCodigo(cuentaSeleccionada.codigo)
+                                  ? {...c, composicion} : c);
+                              if (prev.cuentas_ytd) return {...prev, cuentas_ytd:patch(prev.cuentas_ytd)};
+                              return {...prev, cuentas:patch(prev.cuentas)};
+                            });
+                            setCuentaSeleccionada(prev => prev ? {...prev, composicion} : prev);
+                            setDrawerAnalisisOk(true);
+                          } catch(err) {
+                            setDrawerAnalisisError(err.message);
+                          } finally {
+                            setDrawerAnalisisGuard(false);
+                          }
+                        }}>
+                        {drawerAnalisisGuard ? 'Guardando...' : 'Guardar'}
+                      </Btn>
+                      {drawerAnalisisOk && <span style={{fontSize:11,color:C.green}}>Guardado OK</span>}
+                      {drawerAnalisisError && <span style={{fontSize:11,color:C.red}}>{drawerAnalisisError}</span>}
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+          </div>
+        </>
+      )}
+
     </div>
   );
 }
