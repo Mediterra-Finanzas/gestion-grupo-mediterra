@@ -21,13 +21,20 @@ import {
   formatearMonto, buscarTC, convertirMonto,
   uploadArchivoFrisku, pathDesdeUrlStorage,
 } from "./friskuHelpers.js";
+import { theme } from "./theme";
 
-// ── Paleta Frisku — Slate neutro ──
+// ── Paleta Frisku ──
+// Re-exporta los tokens del tema central + alias para preservar los
+// nombres usados en este módulo. Cualquier cambio de paleta se hace
+// en src/theme.js.
 const C = {
-  bg:"#1e2533", bg2:"#263044", card:"#2d3a52", card2:"#334158", border:"#3d4f6e",
-  text:"#e2e8f0", muted:"#94a3b8", muted2:"#5a6a80",
-  blue:"#3b82f6", green:"#22c55e", yellow:"#f59e0b", accent:"#ef4444",
-  teal:"#14b8a6", purple:"#a855f7",
+  ...theme,
+  card2:  theme.cardAlt,
+  blue:   theme.primary,
+  green:  theme.success,
+  yellow: theme.warning,
+  accent: theme.danger,
+  teal:   theme.accent2,
 };
 
 const inputSt = {
@@ -271,15 +278,15 @@ function PackingListPanel({ oe, tiposEmbalaje, especies, exportadoras, clientes,
       <div style={{overflowX:"auto",marginBottom:10}}>
         <table style={{width:"100%",borderCollapse:"collapse",fontSize:11}}>
           <thead>
-            <tr style={{borderBottom:`1px solid ${C.border}`}}>
+            <tr style={{background:C.primary}}>
               {["#","Formato","N° Pallet","Cajas","Peso Neto kg","Peso Bruto kg",canEdit?"✕":""].map((h,i)=>(
-                <th key={i} style={{padding:"6px 8px",textAlign:i===0||i===2||i===3?"center":"left",color:C.muted,fontWeight:700,fontSize:10,whiteSpace:"nowrap"}}>{h}</th>
+                <th key={i} style={{padding:"6px 8px",textAlign:i===0||i===2||i===3?"center":"left",color:C.primaryText,fontWeight:700,fontSize:10,whiteSpace:"nowrap"}}>{h}</th>
               ))}
             </tr>
           </thead>
           <tbody>
             {(pl.pallets||[]).map((p,idx)=>(
-              <tr key={p.id||idx} style={{borderBottom:`1px solid ${C.border}22`}}>
+              <tr key={p.id||idx} style={{borderBottom:`1px solid ${C.border}22`, background:idx%2===0?C.card:C.rowAlt}}>
                 <td style={{padding:"4px 8px",textAlign:"center",color:C.muted2,fontFamily:"monospace",fontSize:10}}>{idx+1}</td>
                 <td style={{padding:"4px 4px"}}>
                   {canEdit
@@ -574,7 +581,7 @@ function mergeSimple(existentes, entrantes) {
 
 function Card({children, title, icon, action}) {
   return (
-    <div style={{background:C.card, borderRadius:14, padding:18, border:`1px solid ${C.border}`}}>
+    <div style={{background:C.card, borderRadius:14, padding:18, border:`1px solid ${C.border}`, boxShadow:C.shadow}}>
       {title && (
         <div style={{display:"flex", alignItems:"center", gap:8, marginBottom:14, borderBottom:`1px solid ${C.border}`, paddingBottom:10}}>
           {icon && <span style={{fontSize:18}}>{icon}</span>}
@@ -1019,6 +1026,7 @@ function ClienteCard({cliente, especies, paises, monedas, mercados, onEditar, on
     <div style={{
       background:C.card2, padding:14, borderRadius:10,
       border:`1px solid ${tieneAlertaDocs ? C.accent+"66" : cliente.activo===false ? C.border : C.green+"66"}`,
+      boxShadow:C.shadow,
       opacity: cliente.activo===false ? 0.65 : 1,
     }}>
       <div style={{display:"flex", justifyContent:"space-between", alignItems:"flex-start", gap:10, marginBottom:10}}>
@@ -1185,9 +1193,9 @@ function DocumentosTab({clientes}) {
         <div style={{background:C.card, borderRadius:14, border:`1px solid ${C.border}`, overflow:"hidden"}}>
           <table style={{width:"100%", borderCollapse:"collapse", fontSize:12}}>
             <thead>
-              <tr style={{background:C.card2, borderBottom:`1px solid ${C.border}`}}>
+              <tr style={{background:C.primary}}>
                 {["Cliente","Tipo","Nombre","Fecha","Vencimiento","Link"].map(h=>(
-                  <th key={h} style={{padding:"10px 14px", textAlign:"left", color:C.muted, fontWeight:600, fontSize:10, textTransform:"uppercase"}}>{h}</th>
+                  <th key={h} style={{padding:"10px 14px", textAlign:"left", color:C.primaryText, fontWeight:600, fontSize:10, textTransform:"uppercase"}}>{h}</th>
                 ))}
               </tr>
             </thead>
@@ -1196,7 +1204,7 @@ function DocumentosTab({clientes}) {
                 const vencido  = d.vencimiento && d.vencimiento < hoy;
                 const porVenc  = d.vencimiento && !vencido && d.vencimiento <= en30;
                 return (
-                  <tr key={d.id||i} style={{borderBottom:`1px solid ${C.border}`, background: vencido ? `${C.accent}09` : "transparent"}}>
+                  <tr key={d.id||i} style={{borderBottom:`1px solid ${C.border}`, background: vencido ? `${C.accent}09` : (i%2===0 ? C.card : C.rowAlt)}}>
                     <td style={{padding:"10px 14px", color:C.text, fontWeight:600}}>{d.clienteNombre}</td>
                     <td style={{padding:"10px 14px"}}>
                       <span style={{
@@ -1406,6 +1414,7 @@ function ExportadoraCard({exportadora, especies, paises, monedas, onEditar, onEl
     <div style={{
       background:C.card2, padding:14, borderRadius:10,
       border:`1px solid ${exportadora.activo===false?C.border:C.teal+"66"}`,
+      boxShadow:C.shadow,
       opacity: exportadora.activo===false ? 0.65 : 1,
     }}>
       <div style={{display:"flex", justifyContent:"space-between", alignItems:"flex-start", gap:10, marginBottom:10}}>
@@ -1936,26 +1945,26 @@ function ClosureProgramaPanel({closure, semanas, tiposEmbalaje, exportadoras, cl
           <div style={{overflowX:"auto", marginBottom:10}}>
             <table style={{borderCollapse:"collapse", width:"100%", fontSize:11}}>
               <thead>
-                <tr style={{background:C.bg2}}>
-                  <th style={{padding:"6px 10px", textAlign:"left", color:C.muted, fontWeight:600, border:`1px solid ${C.border}`, whiteSpace:"nowrap"}}>Semana (lunes)</th>
+                <tr style={{background:C.primary}}>
+                  <th style={{padding:"6px 10px", textAlign:"left", color:C.primaryText, fontWeight:600, whiteSpace:"nowrap"}}>Semana (lunes)</th>
                   {formatosClosure.map(cod=>{
                     const fmt = tiposEmbalaje.find(t=>t.codigo===cod);
                     return (
-                      <th key={cod} style={{padding:"6px 8px", textAlign:"right", color:C.muted, fontWeight:600, border:`1px solid ${C.border}`, whiteSpace:"nowrap", fontSize:10}}>
+                      <th key={cod} style={{padding:"6px 8px", textAlign:"right", color:C.primaryText, fontWeight:600, whiteSpace:"nowrap", fontSize:10}}>
                         {fmt?.nombre||cod}
                       </th>
                     );
                   })}
-                  <th style={{padding:"6px 8px", textAlign:"right", color:C.muted, fontWeight:600, border:`1px solid ${C.border}`}}>Total cjs</th>
-                  <th style={{padding:"6px 8px", textAlign:"center", color:C.muted, fontWeight:600, border:`1px solid ${C.border}`}}>Estado</th>
-                  {canEdit && <th style={{border:`1px solid ${C.border}`}}/>}
+                  <th style={{padding:"6px 8px", textAlign:"right", color:C.primaryText, fontWeight:600}}>Total cjs</th>
+                  <th style={{padding:"6px 8px", textAlign:"center", color:C.primaryText, fontWeight:600}}>Estado</th>
+                  {canEdit && <th/>}
                 </tr>
               </thead>
               <tbody>
                 {semanasOrdenadas.map((sem,i)=>{
                   const totalSem = Object.values(sem.cajasPorFormato||{}).reduce((s,v)=>s+Number(v||0),0);
                   return (
-                    <tr key={sem.id||i} style={{background: i%2===0?C.card:C.card2}}>
+                    <tr key={sem.id||i} style={{background: i%2===0?C.card:C.rowAlt}}>
                       <td style={{padding:"6px 10px", border:`1px solid ${C.border}`, whiteSpace:"nowrap"}}>
                         {formatFechaSemana(sem.fechaSemana)}
                       </td>
@@ -3945,7 +3954,7 @@ export default function FriskuComercialModule({
               <span style={{
                 fontSize:9, padding:"1px 6px", borderRadius:8,
                 background: t.id==="documentos" ? C.accent : tab===t.id ? C.blue : C.border,
-                color:"#fff", fontWeight:700,
+                color: (t.id==="documentos" || tab===t.id) ? "#fff" : C.muted, fontWeight:700,
               }}>{t.count}</span>
             )}
           </button>
