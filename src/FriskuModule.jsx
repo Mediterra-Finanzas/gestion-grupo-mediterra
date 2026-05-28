@@ -583,25 +583,27 @@ export const TIPOS_EMBARQUE_DEFAULT = [
 // ═══════════════════════════════════════════════════════════════════
 // TIPOS DE EMBALAJE — base, parametrizable por especie
 // ═══════════════════════════════════════════════════════════════════
+// Schema: pesos en kg como números. mercadoCodigo opcional (referencia a maestro_mercados).
+// Los presets cubren los formatos más comunes; el importador Excel los reemplaza.
 export const TIPOS_EMBALAJE_DEFAULT = [
   // CEREZAS
-  {codigo:"CHE-5KG-CB", nombre:"Caja Cereza 5kg",        especieCodigo:"CHE", kgPorUnidad:5.0,  unidad:"kg", observ:"Caja exportación estándar"},
-  {codigo:"CHE-25KG",   nombre:"Caja Cereza 2.5kg",      especieCodigo:"CHE", kgPorUnidad:2.5,  unidad:"kg", observ:""},
-  {codigo:"CHE-CLAM",   nombre:"Clamshell 500g × 10",    especieCodigo:"CHE", kgPorUnidad:5.0,  unidad:"kg", observ:"Retail-ready"},
+  {codigo:"CHE-5KG-CB", descripcion:"Caja Cereza 5kg",        descripcionEn:"Cherry Box 5kg",       especieCodigo:"CHE", pesoNeto:5.0,  pesoBruto:0, pesoEmbalado:0, mercadoCodigo:""},
+  {codigo:"CHE-25KG",   descripcion:"Caja Cereza 2.5kg",      descripcionEn:"Cherry Box 2.5kg",     especieCodigo:"CHE", pesoNeto:2.5,  pesoBruto:0, pesoEmbalado:0, mercadoCodigo:""},
+  {codigo:"CHE-CLAM",   descripcion:"Clamshell 500g × 10",    descripcionEn:"Clamshell 500g x 10",  especieCodigo:"CHE", pesoNeto:5.0,  pesoBruto:0, pesoEmbalado:0, mercadoCodigo:""},
   // ARÁNDANOS
-  {codigo:"BLB-125GR",  nombre:"Clamshell 125g × 12",    especieCodigo:"BLB", kgPorUnidad:1.5,  unidad:"kg", observ:"Retail Asia/EU"},
-  {codigo:"BLB-PINT",   nombre:"Pint × 12",              especieCodigo:"BLB", kgPorUnidad:2.04, unidad:"kg", observ:"USA - pint 170g"},
-  {codigo:"BLB-6OZ",    nombre:"Clamshell 6oz × 12",     especieCodigo:"BLB", kgPorUnidad:2.04, unidad:"kg", observ:"USA estándar"},
-  {codigo:"BLB-18OZ",   nombre:"Clamshell 18oz × 8",     especieCodigo:"BLB", kgPorUnidad:4.08, unidad:"kg", observ:"USA familiar"},
+  {codigo:"BLB-125GR",  descripcion:"Clamshell 125g × 12",    descripcionEn:"Clamshell 125g x 12",  especieCodigo:"BLB", pesoNeto:1.5,  pesoBruto:0, pesoEmbalado:0, mercadoCodigo:""},
+  {codigo:"BLB-PINT",   descripcion:"Pint × 12",              descripcionEn:"Pint x 12",            especieCodigo:"BLB", pesoNeto:2.04, pesoBruto:0, pesoEmbalado:0, mercadoCodigo:"USA"},
+  {codigo:"BLB-6OZ",    descripcion:"Clamshell 6oz × 12",     descripcionEn:"Clamshell 6oz x 12",   especieCodigo:"BLB", pesoNeto:2.04, pesoBruto:0, pesoEmbalado:0, mercadoCodigo:"USA"},
+  {codigo:"BLB-18OZ",   descripcion:"Clamshell 18oz × 8",     descripcionEn:"Clamshell 18oz x 8",   especieCodigo:"BLB", pesoNeto:4.08, pesoBruto:0, pesoEmbalado:0, mercadoCodigo:"USA"},
   // UVAS
-  {codigo:"GRP-82KG",   nombre:"Caja Uva 8.2kg",         especieCodigo:"GRP", kgPorUnidad:8.2,  unidad:"kg", observ:"USA"},
-  {codigo:"GRP-5KG",    nombre:"Caja Uva 5kg",           especieCodigo:"GRP", kgPorUnidad:5.0,  unidad:"kg", observ:"Europa"},
+  {codigo:"GRP-82KG",   descripcion:"Caja Uva 8.2kg",         descripcionEn:"Grape Box 8.2kg",      especieCodigo:"GRP", pesoNeto:8.2,  pesoBruto:0, pesoEmbalado:0, mercadoCodigo:"USA"},
+  {codigo:"GRP-5KG",    descripcion:"Caja Uva 5kg",           descripcionEn:"Grape Box 5kg",        especieCodigo:"GRP", pesoNeto:5.0,  pesoBruto:0, pesoEmbalado:0, mercadoCodigo:""},
   // CIRUELAS
-  {codigo:"PLM-5KG",    nombre:"Caja Ciruela 5kg",       especieCodigo:"PLM", kgPorUnidad:5.0,  unidad:"kg", observ:""},
+  {codigo:"PLM-5KG",    descripcion:"Caja Ciruela 5kg",       descripcionEn:"Plum Box 5kg",         especieCodigo:"PLM", pesoNeto:5.0,  pesoBruto:0, pesoEmbalado:0, mercadoCodigo:""},
   // KIWI
-  {codigo:"KWI-3KG",    nombre:"Caja Kiwi 3kg",          especieCodigo:"KWI", kgPorUnidad:3.0,  unidad:"kg", observ:""},
+  {codigo:"KWI-3KG",    descripcion:"Caja Kiwi 3kg",          descripcionEn:"Kiwi Box 3kg",         especieCodigo:"KWI", pesoNeto:3.0,  pesoBruto:0, pesoEmbalado:0, mercadoCodigo:""},
   // PALTAS
-  {codigo:"AVO-4KG",    nombre:"Caja Palta 4kg",         especieCodigo:"AVO", kgPorUnidad:4.0,  unidad:"kg", observ:""},
+  {codigo:"AVO-4KG",    descripcion:"Caja Palta 4kg",         descripcionEn:"Avocado Box 4kg",      especieCodigo:"AVO", pesoNeto:4.0,  pesoBruto:0, pesoEmbalado:0, mercadoCodigo:""},
 ];
 
 // ═══════════════════════════════════════════════════════════════════
@@ -729,6 +731,15 @@ export const ESPECIES_DEFAULT = [
   {codigo:"MNG", nombreEs:"Mango",       nombreEn:"Mango",        icono:"🥭", familia:"Tropicales", kgPorCajaDefault:4.0,  unidadComercial:"kg", temporadaInicio:"Oct", temporadaFin:"Feb", observ:""},
   {codigo:"STR", nombreEs:"Frutillas",   nombreEn:"Strawberries", icono:"🍓", familia:"Berries",    kgPorCajaDefault:2.5,  unidadComercial:"kg", temporadaInicio:"Sep", temporadaFin:"Feb", observ:""},
   {codigo:"RSP", nombreEs:"Frambuesas",  nombreEn:"Raspberries",  icono:"🩷", familia:"Berries",    kgPorCajaDefault:1.5,  unidadComercial:"kg", temporadaInicio:"Nov", temporadaFin:"Mar", observ:"Sin emoji oficial — se usa corazón rosa"},
+  // Agregadas desde maestro de embalajes del Excel — temporadas pendientes
+  {codigo:"ASP", nombreEs:"Espárragos",  nombreEn:"Asparagus",    icono:"🌱", familia:"Otros",      kgPorCajaDefault:5.0,  unidadComercial:"kg", temporadaInicio:"",    temporadaFin:"",    observ:""},
+  {codigo:"GNG", nombreEs:"Jengibre",    nombreEn:"Ginger",       icono:"🫚", familia:"Otros",      kgPorCajaDefault:12.0, unidadComercial:"kg", temporadaInicio:"",    temporadaFin:"",    observ:""},
+  {codigo:"POM", nombreEs:"Granada",     nombreEn:"Pomegranate",  icono:"🟥", familia:"Otros",      kgPorCajaDefault:3.8,  unidadComercial:"kg", temporadaInicio:"",    temporadaFin:"",    observ:"Sin emoji oficial — se usa cuadrado rojo"},
+  {codigo:"CUR", nombreEs:"Cúrcuma",     nombreEn:"Curcuma",      icono:"🟧", familia:"Otros",      kgPorCajaDefault:5.0,  unidadComercial:"kg", temporadaInicio:"",    temporadaFin:"",    observ:"Sin emoji oficial — se usa cuadrado naranja"},
+  {codigo:"GRF", nombreEs:"Pomelo",      nombreEn:"Grapefruit",   icono:"🍈", familia:"Cítricos",   kgPorCajaDefault:17.5, unidadComercial:"kg", temporadaInicio:"",    temporadaFin:"",    observ:""},
+  {codigo:"SAR", nombreEs:"Zarzaparrilla", nombreEn:"Zarzaparrilla", icono:"🍇", familia:"Berries", kgPorCajaDefault:2.1, unidadComercial:"kg", temporadaInicio:"",    temporadaFin:"",    observ:""},
+  {codigo:"GLB", nombreEs:"Aguaymanto",  nombreEn:"Golden Berry", icono:"🟡", familia:"Berries",    kgPorCajaDefault:15.0, unidadComercial:"kg", temporadaInicio:"",    temporadaFin:"",    observ:"kgCaja del Excel = 15.0 pero descEn sugiere 1.5kg (12×125g) — verificar"},
+  {codigo:"PLD", nombreEs:"Ciruela Dagen", nombreEn:"Plums Dagen", icono:"🟣", familia:"Carozos",   kgPorCajaDefault:2.5,  unidadComercial:"kg", temporadaInicio:"",    temporadaFin:"",    observ:"Variedad específica — NO confundir con Ciruelas (PLM)"},
 ];
 
 // ═══════════════════════════════════════════════════════════════════
@@ -855,8 +866,12 @@ function exportarCSV(data, nombre, columnas) {
     const s = String(v).replace(/"/g, '""');
     return /[,;"\n]/.test(s) ? `"${s}"` : s;
   };
+  // Si la columna define exportValue(row), se usa esa función para el CSV
+  // (sirve para resolver códigos a nombres legibles). Si no, valor crudo.
   const header = columnas.map(c => c.label).join(",");
-  const rows = data.map(row => columnas.map(c => escapar(row[c.key])).join(",")).join("\n");
+  const rows = data.map(row => columnas.map(c =>
+    escapar(c.exportValue ? c.exportValue(row) : row[c.key])
+  ).join(",")).join("\n");
   const csv = `${header}\n${rows}`;
   const blob = new Blob(["\ufeff" + csv], {type:"text/csv;charset=utf-8;"});
   const url = URL.createObjectURL(blob);
@@ -1634,6 +1649,348 @@ function TipoCambioEditor({tcData, setTcData, monedas, canEdit}) {
 }
 
 // ═══════════════════════════════════════════════════════════════════
+// IMPORTADOR DE EXCEL — Tipos de Embalaje
+// REEMPLAZA el maestro completo. Resuelve especies por nombre normalizado,
+// mercados por código. Renombra duplicados con sufijo y reporta todo en
+// el preview. Detecta errores de peso evidentes pero no los corrige.
+// ═══════════════════════════════════════════════════════════════════
+
+// Normalización compartida con el importador de entidades del comercial.
+const normEmb = (v) => String(v ?? "").replace(/\s+/g, " ").trim();
+const claveEmb = (v) => normEmb(v).toUpperCase()
+  .normalize("NFD").replace(/[̀-ͯ]/g, "");
+
+// Convierte texto con coma decimal y posibles espacios a número.
+// "2,04" → 2.04   "  1 234,5 " → 1234.5   "" → 0
+const parsearPeso = (v) => {
+  if(v === null || v === undefined || v === "") return 0;
+  const limpio = String(v).replace(/\s/g, "").replace(",", ".");
+  const n = parseFloat(limpio);
+  return Number.isFinite(n) ? n : 0;
+};
+
+// Limpia un código: quita tabs/whitespace y todo después de un tab
+// (vimos casos tipo "MANZ-1\t..." con basura pegada).
+const limpiarCodigoEmb = (v) => normEmb(v).replace(/\t.*$/, "").replace(/\s+$/, "");
+
+async function leerExcelEmbalajes(file) {
+  const XLSX = await import("xlsx");
+  const buf = await file.arrayBuffer();
+  const wb = XLSX.read(buf, {type:"array"});
+  const hoja = wb.Sheets[wb.SheetNames[0]];
+  const filas = XLSX.utils.sheet_to_json(hoja, {defval:""});
+  return filas.map(f => {
+    const o = {};
+    for(const k in f) o[normEmb(k).toLowerCase()] = f[k];
+    return o;
+  });
+}
+
+// Reduce a una forma "stem" eliminando sufijos comunes de plural/singular
+// en español e inglés. Tolera tildes (ya removidas por claveEmb).
+// Casos cubiertos:
+//   ARANDANO ↔ ARANDANOS (stem ARANDAN)
+//   UVA      ↔ UVAS      (stem UV)
+//   LIMON    ↔ LIMONES   (stem LIMON ↔ LIMON)
+//   MANDARIN ↔ MANDARINAS (stem MANDARIN ↔ MANDARIN, después de strip AS)
+//   BLUEBERRY ↔ BLUEBERRIES (Y vs IES → BLUEBERR)
+// El orden de las alternativas importa: IES antes que ES, OS antes que S, etc.
+function stemEsp(s) {
+  const k = claveEmb(s);
+  if(!k) return "";
+  return k.replace(/(IES|ES|AS|OS|S|Y|A|O|E|I)$/, "");
+}
+
+// Resuelve "AR - ARANDANO" → código del maestro_especies. Dos pasadas:
+// 1) Match exacto normalizado (codigo/nombreEs/nombreEn sin tildes, mayúsculas).
+// 2) Match por stem singular/plural tolerante. Solo si el stem tiene ≥2
+//    caracteres para evitar matches accidentales con códigos muy cortos.
+// Variantes compuestas tipo "CIRUELA DAGEN" NO se mapean: el stem conserva
+// la palabra completa (no se trocea por espacios), así que CIRUELA DAGEN
+// queda con stem distinto a CIRUEL (de Ciruelas) y no matchea — deseado.
+function resolverEspecieEmb(textoEspecie, especies) {
+  const t = normEmb(textoEspecie);
+  if(!t) return "";
+  // El Excel viene como "AR - ARANDANO" — partir y probar la parte nombre primero.
+  const partes = t.split("-").map(p => normEmb(p));
+  const candidatos = partes.length > 1 ? [partes[partes.length-1], ...partes] : partes;
+  // Pasada 1: exacto normalizado
+  for(const c of candidatos) {
+    const k = claveEmb(c);
+    if(!k) continue;
+    const exact = especies.find(e =>
+      claveEmb(e.nombreEs) === k ||
+      claveEmb(e.nombreEn) === k ||
+      claveEmb(e.codigo)   === k
+    );
+    if(exact) return exact.codigo;
+  }
+  // Pasada 2: stem tolerante (singular/plural)
+  for(const c of candidatos) {
+    const cStem = stemEsp(c);
+    if(cStem.length < 2) continue;
+    const stemMatch = especies.find(e =>
+      stemEsp(e.nombreEs) === cStem ||
+      stemEsp(e.nombreEn) === cStem
+    );
+    if(stemMatch) return stemMatch.codigo;
+  }
+  return "";
+}
+
+function ImportadorEmbalajesModal({tiposEmbalajeActuales, especies, mercados, onAplicar, onCerrar}) {
+  const [etapa, setEtapa] = useState("seleccion"); // seleccion | preview | listo
+  const [error, setError] = useState("");
+  const [plan, setPlan] = useState(null);
+  const fileRef = useRef(null);
+
+  const mercadosSet = useMemo(()=>{
+    const s = new Set();
+    (mercados||[]).forEach(m => { if(m.codigo) s.add(claveEmb(m.codigo)); });
+    return s;
+  },[mercados]);
+
+  const cargarArchivo = async (file) => {
+    if(!file) return;
+    setError("");
+    try {
+      const filasRaw = await leerExcelEmbalajes(file);
+      if(!filasRaw.length) { setError("El archivo no tiene filas de datos."); return; }
+
+      const errores = [];
+      const duplicadosRenombrados = []; // {original, asignado, fila}
+      const especiesSinMatch = new Map(); // textoOriginal -> count
+      const pesosSospechosos = []; // {codigo, razon}
+      let mercadosVacios = 0;
+      let mercadosSinMatch = 0;
+
+      const codigoCount = {};
+      const itemsFinales = [];
+
+      filasRaw.forEach((row, idx) => {
+        const filaExcel = idx + 2; // header + base 1
+        const codigoOrig = limpiarCodigoEmb(row.cod_articulo);
+        if(!codigoOrig) { errores.push(`Fila ${filaExcel}: sin cod_articulo — omitida`); return; }
+
+        // Códigos duplicados: sufijo -N
+        let codigoFinal = codigoOrig;
+        const nVistas = codigoCount[codigoOrig] || 0;
+        if(nVistas > 0) {
+          codigoFinal = `${codigoOrig}-${nVistas+1}`;
+          duplicadosRenombrados.push({original:codigoOrig, asignado:codigoFinal, fila:filaExcel});
+        }
+        codigoCount[codigoOrig] = nVistas + 1;
+
+        // Especie
+        const especieTexto = normEmb(row.especie);
+        const especieCodigo = resolverEspecieEmb(especieTexto, especies);
+        if(especieTexto && !especieCodigo) {
+          especiesSinMatch.set(especieTexto, (especiesSinMatch.get(especieTexto)||0) + 1);
+        }
+
+        // Mercado
+        const mercadoRaw = normEmb(row.cod_mercado);
+        let mercadoCodigo = "";
+        if(!mercadoRaw) {
+          mercadosVacios++;
+        } else if(mercadosSet.has(claveEmb(mercadoRaw))) {
+          // Buscar el código en su forma original (preservar case)
+          const m = mercados.find(m => claveEmb(m.codigo) === claveEmb(mercadoRaw));
+          mercadoCodigo = m ? m.codigo : "";
+        } else {
+          mercadosSinMatch++;
+        }
+
+        // Pesos
+        const pesoNeto     = parsearPeso(row.peso_neto);
+        const pesoBruto    = parsearPeso(row.peso_bruto);
+        const pesoEmbalado = parsearPeso(row.peso_embalado);
+
+        if(pesoNeto > 0 && pesoBruto > pesoNeto * 10) {
+          pesosSospechosos.push({codigo:codigoFinal, razon:`bruto ${pesoBruto} > 10× neto ${pesoNeto}`});
+        }
+        if(pesoNeto > 0 && pesoEmbalado > 0 && pesoEmbalado < pesoNeto) {
+          pesosSospechosos.push({codigo:codigoFinal, razon:`embalado ${pesoEmbalado} < neto ${pesoNeto}`});
+        }
+
+        itemsFinales.push({
+          codigo:        codigoFinal,
+          descripcion:   normEmb(row.descripcion),
+          descripcionEn: normEmb(row.descripcion_extranjera),
+          especieCodigo,
+          pesoNeto,
+          pesoBruto,
+          pesoEmbalado,
+          mercadoCodigo,
+        });
+      });
+
+      setPlan({
+        totalFilas: filasRaw.length,
+        itemsFinales,
+        actualesCount: tiposEmbalajeActuales.length,
+        errores,
+        duplicadosRenombrados,
+        especiesSinMatch: Array.from(especiesSinMatch.entries()),
+        pesosSospechosos,
+        mercadosVacios,
+        mercadosSinMatch,
+      });
+      setEtapa("preview");
+    } catch(e) {
+      console.error("[ImportadorEmbalajes] Error:", e);
+      setError("No se pudo leer el archivo. Verifica que sea un .xlsx válido. Detalle: " + e.message);
+    }
+  };
+
+  const confirmar = () => {
+    if(!plan) return;
+    onAplicar(plan.itemsFinales);
+    setEtapa("listo");
+  };
+
+  const ov = {position:"fixed", inset:0, background:"rgba(0,0,0,0.7)", zIndex:1000,
+    display:"flex", alignItems:"center", justifyContent:"center", padding:20};
+  const box = {background:C.card, borderRadius:14, border:`1px solid ${C.border}`,
+    width:"100%", maxWidth:680, maxHeight:"85vh", overflowY:"auto", padding:22};
+
+  const Seccion = ({titulo, color, children}) => (
+    <div style={{marginTop:12, padding:"10px 12px", background:`${color}18`,
+      border:`1px solid ${color}55`, borderRadius:8}}>
+      <div style={{color:color, fontWeight:700, fontSize:12, marginBottom:6}}>
+        {titulo}
+      </div>
+      <div style={{color:C.muted, fontSize:11, lineHeight:1.6}}>{children}</div>
+    </div>
+  );
+
+  return (
+    <div style={ov} onClick={(e)=>{ if(e.target===e.currentTarget) onCerrar(); }}>
+      <div style={box}>
+        <div style={{display:"flex", alignItems:"center", gap:8, marginBottom:16,
+          borderBottom:`1px solid ${C.border}`, paddingBottom:12}}>
+          <span style={{fontSize:22}}>📥</span>
+          <h3 style={{margin:0, color:C.text, fontSize:16, flex:1}}>Importar Tipos de Embalaje</h3>
+          <button onClick={onCerrar} style={btnSt(C.muted, true)}>✕ Cerrar</button>
+        </div>
+
+        {error && (
+          <div style={{padding:"10px 12px", background:`${C.accent}22`, border:`1px solid ${C.accent}66`,
+            borderRadius:8, color:C.text, fontSize:12, marginBottom:14}}>⚠️ {error}</div>
+        )}
+
+        {etapa === "seleccion" && (
+          <div>
+            <div style={{color:C.muted, fontSize:12, lineHeight:1.7, marginBottom:16}}>
+              Selecciona el archivo Excel con columnas: <code>cod_articulo</code>, <code>descripcion</code>, <code>descripcion_extranjera</code>, <code>especie</code>, <code>peso_neto</code>, <code>peso_bruto</code>, <code>peso_embalado</code>, <code>cod_mercado</code>.
+              <br/><br/>
+              <strong style={{color:C.accent}}>Atención:</strong> esta operación <strong>reemplaza el maestro completo</strong>. Los {tiposEmbalajeActuales.length} embalajes actuales se sustituyen por los del Excel. El preview te muestra el detalle antes de confirmar.
+            </div>
+            <input ref={fileRef} type="file" accept=".xlsx,.xls"
+              onChange={e=>cargarArchivo(e.target.files?.[0])}
+              style={{display:"none"}}/>
+            <button onClick={()=>fileRef.current?.click()} style={{...btnSt(C.blue), padding:"12px 20px", fontSize:13}}>
+              📂 Seleccionar archivo Excel
+            </button>
+          </div>
+        )}
+
+        {etapa === "preview" && plan && (
+          <div>
+            <div style={{padding:"10px 12px", background:C.card2, borderRadius:8, marginBottom:12}}>
+              <div style={{fontSize:12, color:C.text, lineHeight:1.7}}>
+                <div>Filas leídas: <strong>{plan.totalFilas}</strong></div>
+                <div>Embalajes a cargar: <strong style={{color:C.green}}>{plan.itemsFinales.length}</strong></div>
+                <div>Actuales a reemplazar: <strong style={{color:C.accent}}>{plan.actualesCount}</strong></div>
+              </div>
+            </div>
+
+            {plan.errores.length > 0 && (
+              <Seccion titulo={`⚠️ ${plan.errores.length} fila(s) omitidas`} color={C.yellow}>
+                <ul style={{margin:0, paddingLeft:18}}>
+                  {plan.errores.slice(0,8).map((e,i)=><li key={i}>{e}</li>)}
+                  {plan.errores.length>8 && <li>… y {plan.errores.length-8} más</li>}
+                </ul>
+              </Seccion>
+            )}
+
+            {plan.duplicadosRenombrados.length > 0 && (
+              <Seccion titulo={`🔁 ${plan.duplicadosRenombrados.length} código(s) duplicado(s) renombrado(s) con sufijo`} color={C.yellow}>
+                <div style={{maxHeight:140, overflowY:"auto"}}>
+                  <ul style={{margin:0, paddingLeft:18}}>
+                    {plan.duplicadosRenombrados.map((d,i)=>(
+                      <li key={i}>fila {d.fila}: <code>{d.original}</code> → <code>{d.asignado}</code></li>
+                    ))}
+                  </ul>
+                </div>
+                <div style={{marginTop:6, fontSize:10, color:C.muted2}}>
+                  Revísalos después del import; pueden ser errores tipográficos o variantes que necesitan código propio.
+                </div>
+              </Seccion>
+            )}
+
+            {plan.especiesSinMatch.length > 0 && (
+              <Seccion titulo={`🍒 ${plan.especiesSinMatch.length} especie(s) sin match en el maestro`} color={C.yellow}>
+                <ul style={{margin:0, paddingLeft:18}}>
+                  {plan.especiesSinMatch.map(([texto, count], i)=>(
+                    <li key={i}><code>{texto}</code> — {count} embalaje{count>1?"s":""}</li>
+                  ))}
+                </ul>
+                <div style={{marginTop:6, fontSize:10, color:C.muted2}}>
+                  Los embalajes se cargan igual con especie vacía. Agrega esas especies al maestro y reasígnalas manualmente.
+                </div>
+              </Seccion>
+            )}
+
+            {plan.pesosSospechosos.length > 0 && (
+              <Seccion titulo={`⚖️ ${plan.pesosSospechosos.length} embalaje(s) con pesos sospechosos`} color={C.accent}>
+                <div style={{maxHeight:140, overflowY:"auto"}}>
+                  <ul style={{margin:0, paddingLeft:18}}>
+                    {plan.pesosSospechosos.map((p,i)=>(
+                      <li key={i}><code>{p.codigo}</code>: {p.razon}</li>
+                    ))}
+                  </ul>
+                </div>
+                <div style={{marginTop:6, fontSize:10, color:C.muted2}}>
+                  Se cargan tal cual del Excel; revísalos a mano después.
+                </div>
+              </Seccion>
+            )}
+
+            {(plan.mercadosVacios > 0 || plan.mercadosSinMatch > 0) && (
+              <Seccion titulo="🎯 Mercados" color={C.blue}>
+                {plan.mercadosVacios > 0 && <div><strong>{plan.mercadosVacios}</strong> sin <code>cod_mercado</code> (esperado para muchos genéricos).</div>}
+                {plan.mercadosSinMatch > 0 && <div><strong>{plan.mercadosSinMatch}</strong> con código que no existe en el maestro (ej: "EU", "ASIA"). Se cargan con mercado vacío.</div>}
+              </Seccion>
+            )}
+
+            <div style={{display:"flex", gap:10, marginTop:18, justifyContent:"flex-end"}}>
+              <button onClick={()=>{setEtapa("seleccion"); setPlan(null);}} style={btnSt(C.muted, true)}>
+                ← Elegir otro archivo
+              </button>
+              <button onClick={confirmar} style={{...btnSt(C.green), padding:"8px 18px"}}>
+                ✓ Reemplazar maestro con {plan.itemsFinales.length} embalajes
+              </button>
+            </div>
+          </div>
+        )}
+
+        {etapa === "listo" && plan && (
+          <div style={{padding:20, textAlign:"center"}}>
+            <div style={{fontSize:42, marginBottom:10}}>✅</div>
+            <h3 style={{margin:"0 0 8px", color:C.text}}>Maestro reemplazado</h3>
+            <div style={{color:C.muted, fontSize:12, lineHeight:1.7, marginBottom:16}}>
+              {plan.itemsFinales.length} embalajes cargados. Los cambios se sincronizan a Supabase en ~1s.
+            </div>
+            <button onClick={onCerrar} style={{...btnSt(C.blue), padding:"8px 20px"}}>Cerrar</button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════
 // COMPONENTE PRINCIPAL
 // ═══════════════════════════════════════════════════════════════════
 export default function FriskuMaestrosModule({
@@ -1669,6 +2026,7 @@ export default function FriskuMaestrosModule({
   // Si el comercial pasa renderClientesTab, partir en "clientes"; si no, en "paises".
   const [tab, setTab] = useState(renderClientesTab ? "clientes" : "paises");
   const [guardando, setGuardando] = useState({});
+  const [importandoEmbalajes, setImportandoEmbalajes] = useState(false);
 
   // Cargar todos los maestros al montar
   useEffect(()=>{
@@ -1706,7 +2064,23 @@ export default function FriskuMaestrosModule({
       setShippingLines(Array.isArray(sl) ? sl : SHIPPING_LINES_DEFAULT);
       setLineasAereas(Array.isArray(la) ? la : LINEAS_AEREAS_DEFAULT);
       setTiposEmbarque(Array.isArray(te) ? te : TIPOS_EMBARQUE_DEFAULT);
-      setTiposEmbalaje(Array.isArray(tb) ? tb : TIPOS_EMBALAJE_DEFAULT);
+      // Migración silenciosa de schema viejo (nombre/kgPorUnidad/unidad/observ)
+      // a nuevo (descripcion/pesoNeto/...). Solo si el item no tiene descripcion.
+      // El usuario importa el Excel y reemplaza todo de todos modos.
+      const tbMigrado = (Array.isArray(tb) ? tb : TIPOS_EMBALAJE_DEFAULT).map(t => {
+        if(t.descripcion) return t;
+        return {
+          codigo:        t.codigo || "",
+          descripcion:   t.nombre || "",
+          descripcionEn: t.descripcionEn || "",
+          especieCodigo: t.especieCodigo || "",
+          pesoNeto:      Number(t.kgPorUnidad) || 0,
+          pesoBruto:     0,
+          pesoEmbalado:  0,
+          mercadoCodigo: t.mercadoCodigo || "",
+        };
+      });
+      setTiposEmbalaje(tbMigrado);
       setMercados(Array.isArray(me) ? me : MERCADOS_DEFAULT);
       setMonedas(Array.isArray(mo) ? mo : MONEDAS_DEFAULT);
       setEspecies(Array.isArray(es) ? es : ESPECIES_DEFAULT);
@@ -2075,83 +2449,73 @@ export default function FriskuMaestrosModule({
         />
       )}
 
-      {tab === "tipos_embalaje" && (()=> {
-        // Detectar items con `especie` legacy pero sin `especieCodigo` que puedan migrarse
-        const legacyMigrables = tiposEmbalaje.filter(t => {
-          if(t.especieCodigo) return false;
-          if(!t.especie) return false;
-          return especies.some(e => e.nombreEs.toLowerCase() === String(t.especie).toLowerCase());
-        });
-        const legacySinMatch = tiposEmbalaje.filter(t => {
-          if(t.especieCodigo) return false;
-          if(!t.especie) return false;
-          return !especies.some(e => e.nombreEs.toLowerCase() === String(t.especie).toLowerCase());
-        });
-        const migrarLegacy = () => {
-          if(!window.confirm(`Se asignará "especieCodigo" a ${legacyMigrables.length} embalaje${legacyMigrables.length>1?"s":""} basado en el campo "especie" actual. El campo legacy se mantiene como respaldo. ¿Continuar?`)) return;
-          setTiposEmbalaje(prev => prev.map(t => {
-            if(t.especieCodigo) return t;
-            const match = especies.find(e => e.nombreEs.toLowerCase() === String(t.especie||"").toLowerCase());
-            return match ? {...t, especieCodigo: match.codigo} : t;
-          }));
-        };
-        return (
-          <>
-            {(legacyMigrables.length > 0 || legacySinMatch.length > 0) && canEdit && (
-              <div style={{
-                marginBottom:14, padding:"10px 14px", borderRadius:8,
-                background:`${C.yellow}11`, border:`1px solid ${C.yellow}44`,
-                display:"flex", alignItems:"center", gap:12, flexWrap:"wrap",
-              }}>
-                <span style={{fontSize:18}}>⚠️</span>
-                <div style={{flex:1, fontSize:11, color:C.text, lineHeight:1.5}}>
-                  {legacyMigrables.length > 0 && (
-                    <div>
-                      <strong>{legacyMigrables.length}</strong> embalaje{legacyMigrables.length>1?"s":""} con especie legacy (texto libre) que se {legacyMigrables.length>1?"pueden":"puede"} vincular automáticamente al maestro de Especies.
-                    </div>
-                  )}
-                  {legacySinMatch.length > 0 && (
-                    <div style={{color:C.muted, marginTop:legacyMigrables.length?4:0}}>
-                      <strong>{legacySinMatch.length}</strong> con especie "{legacySinMatch.map(t=>t.especie).filter((v,i,a)=>a.indexOf(v)===i).join(", ")}" no tiene match en el maestro — agrega esa especie primero o edítalas manualmente.
-                    </div>
-                  )}
-                </div>
-                {legacyMigrables.length > 0 && (
-                  <button onClick={migrarLegacy} style={btnSt(C.yellow)}>
-                    🔗 Migrar {legacyMigrables.length} embalaje{legacyMigrables.length>1?"s":""}
-                  </button>
-                )}
+      {tab === "tipos_embalaje" && (
+        <>
+          {canEdit && (
+            <div style={{
+              marginBottom:14, padding:"10px 14px", borderRadius:8,
+              background:C.card2, border:`1px solid ${C.border}`,
+              display:"flex", alignItems:"center", gap:12, flexWrap:"wrap",
+            }}>
+              <span style={{fontSize:18}}>📥</span>
+              <div style={{flex:1, fontSize:11, color:C.muted, lineHeight:1.5}}>
+                <strong style={{color:C.text}}>Carga masiva desde Excel.</strong>{" "}
+                Reemplaza el maestro completo (los {tiposEmbalaje.length} actuales se sustituyen).
+                Resuelve especie por nombre y mercado por código; reporta duplicados y errores de peso en el preview.
               </div>
-            )}
-            <TablaMaestro
-              titulo="Tipos de Embalaje"
-              icono="📐"
-              datos={tiposEmbalaje}
-              setDatos={setTiposEmbalaje}
-              canEdit={canEdit}
-              presetsParcial={true}
-              onPresetRestore={()=>recargarPresets(tiposEmbalaje, TIPOS_EMBALAJE_DEFAULT, setTiposEmbalaje)}
-              busquedaPlaceholder="Buscar embalaje por especie o nombre..."
-              defaultItem={{codigo:"", nombre:"", especieCodigo:"", kgPorUnidad:0, unidad:"kg", observ:""}}
-              columnas={[
-                {key:"codigo",         label:"Código"},
-                {key:"nombre",         label:"Nombre"},
-                {key:"especieCodigo",  label:"Especie", options:especies.map(e=>({value:e.codigo, label:`${e.icono} ${e.nombreEs}`})),
-                  render:(v, row) => {
-                    if(v) {
-                      const e = especies.find(e=>e.codigo===v);
-                      return e ? <span>{e.icono} {e.nombreEs}</span> : v;
-                    }
-                    return row.especie ? <span style={{color:C.yellow}} title="Campo legacy — use el botón de migración">{row.especie}</span> : "—";
-                  }},
-                {key:"kgPorUnidad",    label:"Kg/Unidad", type:"number", align:"right"},
-                {key:"unidad",         label:"Unidad"},
-                {key:"observ",         label:"Observación"},
-              ]}
-            />
-          </>
-        );
-      })()}
+              <button onClick={()=>setImportandoEmbalajes(true)} style={btnSt(C.blue)}>
+                📥 Importar Excel
+              </button>
+            </div>
+          )}
+          <TablaMaestro
+            titulo="Tipos de Embalaje"
+            icono="📐"
+            datos={tiposEmbalaje}
+            setDatos={setTiposEmbalaje}
+            canEdit={canEdit}
+            presetsParcial={true}
+            onPresetRestore={()=>recargarPresets(tiposEmbalaje, TIPOS_EMBALAJE_DEFAULT, setTiposEmbalaje)}
+            busquedaPlaceholder="Buscar embalaje por código, descripción, especie..."
+            defaultItem={{codigo:"", descripcion:"", descripcionEn:"", especieCodigo:"", pesoNeto:0, pesoBruto:0, pesoEmbalado:0, mercadoCodigo:""}}
+            columnas={[
+              {key:"codigo",         label:"Código"},
+              {key:"descripcion",    label:"Descripción"},
+              {key:"descripcionEn",  label:"Descripción EN"},
+              {key:"especieCodigo",  label:"Especie",
+                options:especies.map(e=>({value:e.codigo, label:`${e.icono} ${e.nombreEs}`})),
+                render:(v) => {
+                  if(!v) return <span style={{color:C.muted2}}>—</span>;
+                  const e = especies.find(e=>e.codigo===v);
+                  return e ? <span>{e.icono} {e.nombreEs}</span> : v;
+                },
+                exportValue:(row) => {
+                  if(!row.especieCodigo) return "";
+                  const e = especies.find(e=>e.codigo===row.especieCodigo);
+                  return e ? e.nombreEs : row.especieCodigo;
+                }},
+              {key:"pesoNeto",       label:"P. Neto", type:"number", align:"right",
+                render:(v) => v ? Number(v).toFixed(2) : <span style={{color:C.muted2}}>—</span>},
+              {key:"pesoBruto",      label:"P. Bruto", type:"number", align:"right",
+                render:(v) => v ? Number(v).toFixed(2) : <span style={{color:C.muted2}}>—</span>},
+              {key:"pesoEmbalado",   label:"P. Embalado", type:"number", align:"right",
+                render:(v) => v ? Number(v).toFixed(2) : <span style={{color:C.muted2}}>—</span>},
+              {key:"mercadoCodigo",  label:"Mercado",
+                options:mercados.map(m=>({value:m.codigo, label:m.nombre})),
+                render:(v) => {
+                  if(!v) return <span style={{color:C.muted2}}>—</span>;
+                  const m = mercados.find(m=>m.codigo===v);
+                  return m ? <span>{m.nombre}</span> : v;
+                },
+                exportValue:(row) => {
+                  if(!row.mercadoCodigo) return "";
+                  const m = mercados.find(m=>m.codigo===row.mercadoCodigo);
+                  return m ? m.nombre : row.mercadoCodigo;
+                }},
+            ]}
+          />
+        </>
+      )}
 
       {tab === "mercados" && (
         <TablaMaestro
@@ -2285,6 +2649,16 @@ export default function FriskuMaestrosModule({
           <li>Las plantillas de Checklist se aplicarán automáticamente cuando crees una Orden de Embarque que coincida con su tipo+mercado (Fase siguiente)</li>
         </ul>
       </div>
+
+      {importandoEmbalajes && (
+        <ImportadorEmbalajesModal
+          tiposEmbalajeActuales={tiposEmbalaje}
+          especies={especies}
+          mercados={mercados}
+          onAplicar={(nuevos)=>{ setTiposEmbalaje(nuevos); }}
+          onCerrar={()=>setImportandoEmbalajes(false)}
+        />
+      )}
     </div>
   );
 }
