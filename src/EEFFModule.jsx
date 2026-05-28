@@ -6,6 +6,7 @@ import {
   dbLoadPlanMaestro, dbSavePlanMaestro,
   guardarEEFF, cargarEEFF, eeffId,
   parsearMayor, dbSaveMayor, dbLoadMayor,
+  guardarComposicionCuenta, saldoEfectivo,
 } from './eeffHelpers.js';
 
 const EMPRESAS = [
@@ -454,6 +455,13 @@ export default function EEFFModule({ canEdit, usuarioActual, empresasPermitidas 
   const [mayorRecargado,   setMayorRecargado]   = useState(undefined); // undefined=no intentado, null=vacío, obj=datos
   const mayorDiagRef = useRef();
 
+  // ── Análisis manual — diagnóstico provisional (Parte 3) ───────────
+  const [analisisCuenta,   setAnalisisCuenta]   = useState('');     // codigo seleccionado
+  const [analisisItems,    setAnalisisItems]    = useState([]);     // [{ id, descripcion, monto, nota }]
+  const [analisisGuardando,setAnalisisGuardando]= useState(false);
+  const [analisisOk,       setAnalisisOk]       = useState(false);
+  const [analisisError,    setAnalisisError]    = useState(null);
+
   // Limpiar panel del mayor cuando cambia empresa o año — evita guardar movimientos
   // de la empresa anterior bajo el id de la nueva (bug de integridad).
   useEffect(() => {
@@ -465,6 +473,7 @@ export default function EEFFModule({ canEdit, usuarioActual, empresasPermitidas 
     setMayorRecargando(false);
     setMayorRecargado(undefined);
     if (mayorDiagRef.current) mayorDiagRef.current.value = '';
+    setAnalisisCuenta(''); setAnalisisItems([]); setAnalisisOk(false); setAnalisisError(null);
   }, [empresa, anio]);
 
   const toggleSec = useCallback((id) => {
@@ -585,6 +594,12 @@ export default function EEFFModule({ canEdit, usuarioActual, empresasPermitidas 
 
   // ESF cierra con resEjec acumulado (siempre YTD)
   const totalPP = totalP + totalPat + erYtd.resEjec;
+
+  // ── Análisis manual: cuenta seleccionada y cálculos derivados ────
+  const analisisCuentasList = eeffData?.cuentas_ytd || eeffData?.cuentas || [];
+  const analisisCuentaObj   = analisisCuentasList.find(c => c.codigo === analisisCuenta) || null;
+  const analisisSaldoRef    = analisisCuentaObj ? saldoEfectivo(analisisCuentaObj) : null;
+  const analisisSuma        = analisisItems.reduce((s, it) => s + (parseFloat(it.monto) || 0), 0);
 
   // ── Render ───────────────────────────────────────────────────────
   return (
@@ -1214,6 +1229,207 @@ export default function EEFFModule({ canEdit, usuarioActual, empresasPermitidas 
               </div>
             </>
           )}
+
+          {/* ── Análisis manual — panel diagnóstico provisional (Parte 3) ── */}
+          <div style={{ marginTop:28, borderTop:`1px solid ${C.border}`, paddingTop:20 }}>
+            <div style={{ fontSize:11, fontWeight:700, color:C.purple, letterSpacing:1,
+              marginBottom:12, textTransform:'uppercase' }}>
+              Diagnóstico — Análisis Manual de Cuenta
+            </div>
+
+            {!eeffData ? (
+              <div style={{ fontSize:12, color:C.muted }}>
+                Carga un EEFF para {empresa} — {NOMBRES_MES[mes]} {anio} para usar este panel.
+              </div>
+            ) : (
+              <>
+                {/* Selector de cuenta */}
+                <div style={{ display:'flex', gap:12, alignItems:'center', flexWrap:'wrap', marginBottom:12 }}>
+                  <select
+                    value={analisisCuenta}
+                    onChange={e => {
+                      const codigo = e.target.value;
+                      setAnalisisCuenta(codigo);
+                      setAnalisisOk(false); setAnalisisError(null);
+                      if (codigo) {
+                        const c = analisisCuentasList.find(x => x.codigo === codigo);
+                        const existing = c?.composicion?.items || [];
+                        setAnalisisItems(existing.map((it, i) => ({ ...it, _id: i })));
+                      } else {
+                        setAnalisisItems([]);
+                      }
+                    }}
+                    style={{ background:C.bg, color:C.text, border:`1px solid ${C.border}`,
+                      borderRadius:4, padding:'5px 8px', fontSize:12, minWidth:340 }}>
+                    <option value="">— Seleccionar cuenta —</option>
+                    {analisisCuentasList
+                      .filter(c => c.grupo !== 'sinClasificar')
+                      .map(c => (
+                        <option key={c.codigo} value={c.codigo}>
+                          {c.codigo} — {c.nombre}
+                          {c.composicion?.items?.length ? ' *' : ''}
+                        </option>
+                      ))}
+                  </select>
+                  {analisisCuentaObj?.composicion?.fechaActualizacion && (
+                    <span style={{ fontSize:11, color:C.muted }}>
+                      Última edición: {new Date(analisisCuentaObj.composicion.fechaActualizacion).toLocaleString('es-CL')}
+                      {analisisCuentaObj.composicion.actualizadoPor && (
+                        <> · {analisisCuentaObj.composicion.actualizadoPor}</>
+                      )}
+                    </span>
+                  )}
+                </div>
+
+                {analisisCuenta && (
+                  <>
+                    {/* Referencia informativa: saldo y suma */}
+                    <div style={{ fontSize:11, color:C.muted, marginBottom:8 }}>
+                      Saldo cuenta (YTD): <strong style={{ color:C.text }}>
+                        {fmtMonto(analisisSaldoRef ?? 0, 2)}
+                      </strong>
+                      {analisisItems.length > 0 && (
+                        <span style={{ marginLeft:16 }}>
+                          Suma líneas: <strong style={{ color:C.text }}>
+                            {fmtMonto(analisisSuma, 2)}
+                          </strong>
+                        </span>
+                      )}
+                    </div>
+
+                    {/* Tabla de líneas */}
+                    <table style={{ width:'100%', borderCollapse:'collapse', fontSize:12, marginBottom:10 }}>
+                      <thead>
+                        <tr style={{ background:C.bg, color:C.muted }}>
+                          <th style={{ padding:'4px 8px', textAlign:'left',
+                            borderBottom:`1px solid ${C.border}`, width:'44%' }}>Descripción</th>
+                          <th style={{ padding:'4px 8px', textAlign:'right',
+                            borderBottom:`1px solid ${C.border}`, width:'18%' }}>Monto</th>
+                          <th style={{ padding:'4px 8px', textAlign:'left',
+                            borderBottom:`1px solid ${C.border}`, width:'31%' }}>Nota</th>
+                          <th style={{ borderBottom:`1px solid ${C.border}`, width:'7%' }}></th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {analisisItems.map((item, idx) => (
+                          <tr key={item._id ?? idx}>
+                            <td style={{ padding:'3px 4px' }}>
+                              <input
+                                value={item.descripcion || ''}
+                                onChange={e => setAnalisisItems(prev =>
+                                  prev.map((x, i) => i===idx ? {...x, descripcion:e.target.value} : x))}
+                                placeholder="Descripción..."
+                                style={{ width:'100%', background:C.bg2, color:C.text,
+                                  border:`1px solid ${C.border}`, borderRadius:3,
+                                  padding:'3px 6px', fontSize:12 }}
+                              />
+                            </td>
+                            <td style={{ padding:'3px 4px' }}>
+                              <input
+                                value={item.monto ?? ''}
+                                onChange={e => setAnalisisItems(prev =>
+                                  prev.map((x, i) => i===idx ? {...x, monto:e.target.value} : x))}
+                                placeholder="0"
+                                style={{ width:'100%', background:C.bg2, color:C.text,
+                                  border:`1px solid ${C.border}`, borderRadius:3,
+                                  padding:'3px 6px', fontSize:12, textAlign:'right' }}
+                              />
+                            </td>
+                            <td style={{ padding:'3px 4px' }}>
+                              <input
+                                value={item.nota || ''}
+                                onChange={e => setAnalisisItems(prev =>
+                                  prev.map((x, i) => i===idx ? {...x, nota:e.target.value} : x))}
+                                placeholder="Nota opcional..."
+                                style={{ width:'100%', background:C.bg2, color:C.text,
+                                  border:`1px solid ${C.border}`, borderRadius:3,
+                                  padding:'3px 6px', fontSize:12 }}
+                              />
+                            </td>
+                            <td style={{ padding:'3px 4px', textAlign:'center' }}>
+                              <button
+                                onClick={() => setAnalisisItems(prev => prev.filter((_,i) => i!==idx))}
+                                style={{ background:'none', border:'none', color:C.red,
+                                  cursor:'pointer', fontSize:16, lineHeight:1 }}>
+                                ×
+                              </button>
+                            </td>
+                          </tr>
+                        ))}
+                        {analisisItems.length === 0 && (
+                          <tr>
+                            <td colSpan={4} style={{ padding:'10px 8px', color:C.muted,
+                              fontSize:11, fontStyle:'italic' }}>
+                              Sin líneas — agrega una para comenzar el análisis.
+                            </td>
+                          </tr>
+                        )}
+                      </tbody>
+                    </table>
+
+                    {/* Acciones */}
+                    <div style={{ display:'flex', gap:10, alignItems:'center', flexWrap:'wrap' }}>
+                      <Btn
+                        color={C.muted2}
+                        onClick={() => setAnalisisItems(prev => [
+                          ...prev, { _id: Date.now(), descripcion:'', monto:'', nota:'' }
+                        ])}>
+                        + Agregar línea
+                      </Btn>
+                      {canEdit && (
+                        <Btn
+                          color={C.purple}
+                          disabled={analisisGuardando || !analisisCuenta}
+                          onClick={async () => {
+                            setAnalisisGuardando(true); setAnalisisOk(false); setAnalisisError(null);
+                            try {
+                              const itemsClean = analisisItems.map(({ _id, ...rest }) => ({
+                                descripcion: rest.descripcion || '',
+                                monto: rest.monto !== '' && rest.monto != null
+                                  ? parseFloat(rest.monto) || 0 : null,
+                                nota: rest.nota || '',
+                              }));
+                              await guardarComposicionCuenta({
+                                empresa, anio, mes,
+                                codigoCuenta: analisisCuenta,
+                                items: itemsClean,
+                                actualizadoPor: usuarioActual?.email || '',
+                              });
+                              // Refleja el cambio en memoria sin recargar Supabase
+                              setEeffData(prev => {
+                                if (!prev) return prev;
+                                const composicion = {
+                                  items: itemsClean,
+                                  actualizadoPor: usuarioActual?.email || '',
+                                  fechaActualizacion: new Date().toISOString(),
+                                };
+                                const patch = list => list?.map(c =>
+                                  c.codigo === analisisCuenta ? { ...c, composicion } : c);
+                                if (prev.cuentas_ytd) return { ...prev, cuentas_ytd: patch(prev.cuentas_ytd) };
+                                return { ...prev, cuentas: patch(prev.cuentas) };
+                              });
+                              setAnalisisOk(true);
+                            } catch(err) {
+                              setAnalisisError(err.message);
+                            } finally {
+                              setAnalisisGuardando(false);
+                            }
+                          }}>
+                          {analisisGuardando ? 'Guardando...' : 'Guardar análisis'}
+                        </Btn>
+                      )}
+                      {analisisOk && (
+                        <span style={{ fontSize:12, color:C.green }}>Guardado OK</span>
+                      )}
+                      {analisisError && (
+                        <span style={{ fontSize:12, color:C.red }}>{analisisError}</span>
+                      )}
+                    </div>
+                  </>
+                )}
+              </>
+            )}
+          </div>
         </div>
       )}
     </div>

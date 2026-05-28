@@ -536,6 +536,61 @@ export async function dbSaveMayor({ empresa, anio, movimientos, guardadoPor }) {
   return { id, payloadBytes };
 }
 
+// ═══════════════════════════════════════════════════════════════════
+// COMPOSICIÓN DE CUENTA — PERSISTENCIA (Etapa 2, Parte 3)
+//
+// Guarda el análisis manual de una cuenta dentro del mismo row EEFF.
+// composicion = { items: [{ descripcion, monto, nota }],
+//                 actualizadoPor, fechaActualizacion }
+//
+// Solo se muta cuentas_ytd (o cuentas en legacy). cuentas_mes no
+// se toca porque la composición referencia el saldo YTD.
+// ═══════════════════════════════════════════════════════════════════
+
+export async function guardarComposicionCuenta({
+  empresa, anio, mes, codigoCuenta, items, actualizadoPor,
+}) {
+  const current = await cargarEEFF(empresa, anio, mes);
+  if (!current) throw new Error(`No hay EEFF guardado para ${empresa} ${mes}/${anio}`);
+
+  const composicion = {
+    items: items || [],
+    actualizadoPor: actualizadoPor || '',
+    fechaActualizacion: new Date().toISOString(),
+  };
+
+  let updated = false;
+  const patchList = (list) => {
+    if (!list) return list;
+    return list.map(c => {
+      if (c.codigo === codigoCuenta) { updated = true; return { ...c, composicion }; }
+      return c;
+    });
+  };
+
+  let value;
+  if (current.cuentas_ytd) {
+    value = { ...current, cuentas_ytd: patchList(current.cuentas_ytd) };
+  } else {
+    value = { ...current, cuentas: patchList(current.cuentas) };
+  }
+
+  if (!updated) throw new Error(`Cuenta ${codigoCuenta} no encontrada en el EEFF`);
+
+  const id  = eeffId(empresa, anio, mes);
+  const res = await fetch(`${SUPA_URL}/rest/v1/calendario_data`, {
+    method:  'POST',
+    headers: {
+      apikey: SUPA_KEY, Authorization: `Bearer ${SUPA_KEY}`,
+      'Content-Type': 'application/json',
+      Prefer: 'resolution=merge-duplicates',
+    },
+    body: JSON.stringify({ id, value, updated_at: new Date().toISOString() }),
+  });
+  if (!res.ok) throw new Error(`Error guardando composición (${res.status})`);
+  return { id, codigoCuenta, composicion };
+}
+
 export async function dbLoadMayor(empresa, anio, empresasPermitidas) {
   if (empresasPermitidas && !empresasPermitidas.includes(empresa)) return null;
   const id  = mayorId(empresa, anio);
