@@ -4,6 +4,7 @@
 // Persistencia independiente: fila "osiris" en Supabase
 // ============================================================
 import React, { useState, useCallback, useMemo, useEffect, useRef } from "react";
+import { theme } from "./theme";
 
 const SUPA_URL = "https://bywovqayuzodbzwsriet.supabase.co";
 const SUPA_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJ5d292cWF5dXpvZGJ6d3NyaWV0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU2ODU1MDgsImV4cCI6MjA5MTI2MTUwOH0.s2x2O_CxE6rl8dBqFuyfQdMyRqSyjJQWXJXesmVGXtk";
@@ -57,15 +58,19 @@ async function dbSaveOsiris(value) {
 const TEMPORADAS_LIST = [];
 for(let y=2024;y<=2040;y++) TEMPORADAS_LIST.push(`${y}/${y+1}`);
 
+// Paleta Osiris — re-exporta tokens del tema central + alias en español
+// para preservar nombres locales (azul, verde, rojo, am, mo, gris, teal,
+// sl) y sus respectivos *Bg. Cambios de paleta en src/theme.js.
 const C = {
-  azul:"#2563eb",    azulBg:"#dbeafe",
-  verde:"#16a34a",   verdeBg:"#dcfce7",
-  rojo:"#dc2626",    rojoBg:"#fee2e2",
-  am:"#d97706",      amBg:"#fef3c7",
-  gris:"#64748b",    grisBg:"#f1f5f9",
-  mo:"#7c3aed",      moBg:"#ede9fe",
-  teal:"#0f766e",    tealBg:"#ccfbf1",
-  sl:"#1e293b",
+  ...theme,
+  azul:    theme.primary,   azulBg:  theme.infoBg,
+  verde:   theme.success,   verdeBg: theme.successBg,
+  rojo:    theme.danger,    rojoBg:  theme.dangerBg,
+  am:      theme.warning,   amBg:    theme.warningBg,
+  gris:    theme.muted,     grisBg:  theme.cardAlt,
+  mo:      theme.purple,    moBg:    theme.purpleBg,
+  teal:    theme.accent2,   tealBg:  theme.accent2Bg,
+  sl:      theme.text,
 };
 
 const $$ = v => (v!=null&&v!==""&&!isNaN(v))
@@ -101,7 +106,7 @@ function fechaAvisoTrim(año,trim) {
 function Th({cols}) {
   return (
     <thead>
-      <tr style={{background:"#0f172a",color:"#fff",fontSize:11}}>
+      <tr style={{background:C.primary,color:"#fff",fontSize:11}}>
         {cols.map((c,i)=>(
           <th key={i} style={{padding:"9px 10px",textAlign:c.c?"center":"left",fontWeight:600,whiteSpace:"nowrap",minWidth:c.w||70}}>
             {c.l}
@@ -122,7 +127,7 @@ function Cell({val,onChange,type="text",opts=null,can,ph=""}) {
     if(opts) return (
       <select value={tmp} onChange={e=>setTmp(e.target.value)}
         onBlur={()=>{onChange(tmp);setOn(false);}} autoFocus
-        style={{fontSize:12,borderRadius:6,border:"1px solid #93c5fd",padding:"3px 6px",background:"#eff6ff",width:"100%"}}>
+        style={{fontSize:12,borderRadius:6,border:`1px solid ${C.info}`,padding:"3px 6px",background:C.infoBg,width:"100%"}}>
         {opts.map(o=><option key={o} value={o}>{o}</option>)}
       </select>
     );
@@ -140,7 +145,7 @@ function Cell({val,onChange,type="text",opts=null,can,ph=""}) {
         onBlur={()=>{onChange(type==="number"?(parseFloat(tmp)||0):tmp);setOn(false);}}
         onKeyDown={e=>{if(e.key==="Enter"){onChange(type==="number"?(parseFloat(tmp)||0):tmp);setOn(false);}}}
         autoFocus
-        style={{fontSize:12,borderRadius:6,border:"1px solid #93c5fd",padding:"3px 6px",background:"#eff6ff",width:"100%",maxWidth:type==="number"?90:400}}
+        style={{fontSize:12,borderRadius:6,border:`1px solid ${C.info}`,padding:"3px 6px",background:C.infoBg,width:"100%",maxWidth:type==="number"?90:400}}
       />
     );
   }
@@ -154,8 +159,8 @@ function Cell({val,onChange,type="text",opts=null,can,ph=""}) {
 
 function BadgePago({pagado,onChange,can,onFechaPago}) {
   const s = pagado
-    ? {bg:"#dcfce7",col:"#16a34a",bdr:"#86efac",lbl:"✅ Pagado"}
-    : {bg:"#fef3c7",col:"#d97706",bdr:"#fde047",lbl:"⏳ Por cobrar"};
+    ? {bg:C.successBg,col:C.success,bdr:"#86efac",lbl:"✅ Pagado"}
+    : {bg:C.warningBg,col:C.warning,bdr:"#fde047",lbl:"⏳ Por cobrar"};
   function handleClick(){
     if(!can) return;
     if(!pagado){
@@ -182,8 +187,8 @@ function BadgePago({pagado,onChange,can,onFechaPago}) {
 function BadgeFact({nFact}) {
   const ok = nFact&&String(nFact).trim()!=="";
   return (
-    <span style={{background:ok?"#dbeafe":"#f1f5f9",color:ok?"#2563eb":"#64748b",
-      border:`1px solid ${ok?"#93c5fd":"#d1d5db"}`,borderRadius:20,
+    <span style={{background:ok?C.infoBg:C.cardAlt,color:ok?C.primary:C.muted,
+      border:`1px solid ${ok?"#93c5fd":C.border}`,borderRadius:20,
       padding:"2px 8px",fontSize:10,fontWeight:700,whiteSpace:"nowrap"}}>
       {ok?"📄 Facturado":"⏸ Pend. facturar"}
     </span>
@@ -241,7 +246,7 @@ function SelectorCliente({form,setForm,clientes,onSelect}){
           }
           // Reset después de seleccionar
           setTimeout(()=>setSelVal(""),50);
-        }} style={{width:"100%",padding:"7px 10px",borderRadius:8,border:"1px solid #93c5fd",fontSize:12,boxSizing:"border-box",color:"#2563eb"}}>
+        }} style={{width:"100%",padding:"7px 10px",borderRadius:8,border:`1px solid ${C.info}`,fontSize:12,boxSizing:"border-box",color:C.primary}}>
           <option value="">🔍 Seleccionar desde maestro de clientes...</option>
           {clientes.map(c=><option key={c.id} value={c.id}>
             {c.razonSocial}{c.nombreComercial&&c.nombreComercial!==c.razonSocial?` (${c.nombreComercial})`:""} — {c.pais}
@@ -250,7 +255,7 @@ function SelectorCliente({form,setForm,clientes,onSelect}){
       )}
       <input type="text" value={form.cliente||""} onChange={e=>setForm(p=>({...p,cliente:e.target.value}))}
         placeholder="O escribe el nombre del cliente..."
-        style={{width:"100%",padding:"7px 10px",borderRadius:8,border:"1px solid #d1d5db",fontSize:13,boxSizing:"border-box"}}/>
+        style={{width:"100%",padding:"7px 10px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:13,boxSizing:"border-box"}}/>
     </div>
   );
 }
@@ -262,8 +267,8 @@ function NombreCliente({nombre,clientes,onChange,can}) {
   return (
     <div style={{display:"flex",flexDirection:"column",gap:2}}>
       <Cell val={nombre} onChange={onChange} can={can}/>
-      {nc&&<span style={{fontSize:9,color:"#0f766e",background:"#f0fdfa",borderRadius:10,
-        padding:"1px 6px",fontWeight:600,border:"1px solid #99f6e4",whiteSpace:"nowrap"}}>
+      {nc&&<span style={{fontSize:9,color:C.accent2,background:C.accent2Bg,borderRadius:10,
+        padding:"1px 6px",fontWeight:600,border:`1px solid ${C.accent2}`,whiteSpace:"nowrap"}}>
         {nc}
       </span>}
     </div>
@@ -703,30 +708,30 @@ async function exportCSV(rowsOrSections, headers, nombre, opts={}) {
 function BarraFiltros({filtros, onExportar, exportLabel="📥 Exportar Excel"}) {
   return (
     <div style={{display:"flex",gap:8,marginBottom:14,flexWrap:"wrap",alignItems:"center",
-      background:"#f8fafc",borderRadius:10,padding:"8px 12px",border:"1px solid #e2e8f0"}}>
+      background:C.cardAlt,borderRadius:10,padding:"8px 12px",border:`1px solid ${C.border}`}}>
       {filtros.map(({label,opciones,valor,onChange,tipo})=>(
         tipo==="input"
           ? <div key={label} style={{display:"flex",alignItems:"center",gap:6}}>
-              <span style={{fontSize:11,color:"#64748b",fontWeight:600}}>{label}:</span>
+              <span style={{fontSize:11,color:C.muted,fontWeight:600}}>{label}:</span>
               <input value={valor} onChange={e=>onChange(e.target.value)} placeholder="Buscar..."
-                style={{padding:"4px 10px",borderRadius:8,border:"1px solid #d1d5db",fontSize:12,
+                style={{padding:"4px 10px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:12,
                   outline:"none",width:130}}/>
             </div>
           : <div key={label} style={{display:"flex",alignItems:"center",gap:5,flexWrap:"wrap"}}>
-              <span style={{fontSize:11,color:"#64748b",fontWeight:600}}>{label}:</span>
+              <span style={{fontSize:11,color:C.muted,fontWeight:600}}>{label}:</span>
               {opciones.map(op=>(
                 <button key={op} onClick={()=>onChange(op)}
                   style={{padding:"3px 10px",borderRadius:20,border:"none",cursor:"pointer",
                     fontSize:11,fontWeight:600,
-                    background:valor===op?"#1e293b":"#fff",
-                    color:valor===op?"#fff":"#475569"}}>
+                    background:valor===op?C.primary:C.card,
+                    color:valor===op?"#fff":C.muted}}>
                   {op}
                 </button>
               ))}
             </div>
       ))}
       <button onClick={onExportar}
-        style={{marginLeft:"auto",background:"#16a34a",color:"#fff",border:"none",
+        style={{marginLeft:"auto",background:C.success,color:"#fff",border:"none",
           borderRadius:8,padding:"5px 14px",cursor:"pointer",fontSize:12,fontWeight:700,
           whiteSpace:"nowrap"}}>
         {exportLabel}
@@ -907,17 +912,17 @@ function TotalPedidos({data,setData,rpData,setRpData,rcData,setRcData,fvData,set
     <div>
       {/* Mantenedor de regalías */}
       {can&&showRegalias&&(
-        <div style={{background:"#f0fdf4",border:"1px solid #86efac",borderRadius:12,padding:"16px 20px",marginBottom:16}}>
+        <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,padding:"16px 20px",marginBottom:16,boxShadow:C.shadow}}>
           <div style={{fontSize:13,fontWeight:700,color:C.verde,marginBottom:12}}>⚙️ Regalías por Vivero (US$/Planta)</div>
           <div style={{display:"flex",gap:12,flexWrap:"wrap"}}>
             {Object.entries(regalias).map(([vivero,val])=>(
-              <div key={vivero} style={{background:"#fff",borderRadius:8,padding:"10px 14px",border:"1px solid #bbf7d0",minWidth:200}}>
+              <div key={vivero} style={{background:C.card,borderRadius:8,padding:"10px 14px",border:`1px solid ${C.success}`,minWidth:200}}>
                 <div style={{fontSize:11,color:C.gris,fontWeight:600,marginBottom:6}}>{vivero}</div>
                 <div style={{display:"flex",alignItems:"center",gap:6}}>
                   <span style={{fontSize:12,color:C.gris}}>US$</span>
                   <input type="number" step="0.01" value={val}
                     onChange={e=>setRegalias(p=>({...p,[vivero]:parseFloat(e.target.value)||0}))}
-                    style={{width:80,padding:"5px 8px",borderRadius:6,border:"1px solid #86efac",fontSize:13,textAlign:"right"}}/>
+                    style={{width:80,padding:"5px 8px",borderRadius:6,border:`1px solid ${C.success}`,fontSize:13,textAlign:"right"}}/>
                   <span style={{fontSize:11,color:C.gris}}>/planta</span>
                 </div>
               </div>
@@ -933,17 +938,17 @@ function TotalPedidos({data,setData,rpData,setRpData,rcData,setRcData,fvData,set
           [confirmados,"Confirmados",C.azul,C.azulBg],
           [filtrado.length-confirmados,"Por confirmar",C.am,C.amBg],
         ].map(([v,l,c,bg])=>(
-          <div key={l} style={{background:bg,borderRadius:12,padding:"12px 18px",flex:1,minWidth:110}}>
-            <div style={{fontSize:11,color:c,fontWeight:600}}>{l}</div>
+          <div key={l} style={{background:C.card,borderRadius:12,padding:"12px 18px",flex:1,minWidth:110,border:`1px solid ${C.border}`,borderLeft:`4px solid ${c}`,boxShadow:C.shadow}}>
+            <div style={{fontSize:11,color:C.muted,fontWeight:600}}>{l}</div>
             <div style={{fontSize:20,fontWeight:800,color:c}}>{v}</div>
           </div>
         ))}
         <div style={{display:"flex",gap:8,alignSelf:"center",flexWrap:"wrap"}}>
-          <div style={{fontSize:11,color:"#64748b",fontStyle:"italic",alignSelf:"center",padding:"6px 12px",background:"#f0f9ff",border:"1px solid #bae6fd",borderRadius:6}}>
+          <div style={{fontSize:11,color:C.muted,fontStyle:"italic",alignSelf:"center",padding:"6px 12px",background:C.infoBg,border:`1px solid ${C.info}`,borderRadius:6}}>
             🔗 Datos derivados de Contratos Exp-Prod
           </div>
           {can&&<button onClick={()=>setShowRegalias(v=>!v)}
-            style={{background:showRegalias?"#16a34a":"#f1f5f9",color:showRegalias?"#fff":C.sl,border:"1px solid #e2e8f0",borderRadius:8,padding:"8px 14px",cursor:"pointer",fontSize:12,fontWeight:600}}>
+            style={{background:showRegalias?C.success:C.cardAlt,color:showRegalias?"#fff":C.sl,border:`1px solid ${C.border}`,borderRadius:8,padding:"8px 14px",cursor:"pointer",fontSize:12,fontWeight:600}}>
             ⚙️ Regalías
           </button>}
         </div>
@@ -975,7 +980,7 @@ function TotalPedidos({data,setData,rpData,setRpData,rcData,setRcData,fvData,set
       />
 
       <div style={{overflowX:"auto"}}>
-        <table style={{borderCollapse:"collapse",width:"100%",background:"#fff",borderRadius:10,overflow:"hidden"}}>
+        <table style={{borderCollapse:"collapse",width:"100%",background:C.card,borderRadius:10,overflow:"hidden"}}>
           <Th cols={[
             {l:"Estado",c:true,w:130},{l:"Cliente",w:130},{l:"País",w:70},{l:"Vivero",w:120},
             {l:"Fecha Pedido",c:true,w:110},{l:"Entrega",c:true,w:100},
@@ -989,7 +994,7 @@ function TotalPedidos({data,setData,rpData,setRpData,rcData,setRcData,fvData,set
           <tbody>
             {filtrado.map((r,i)=>(
               <tr key={r.id} style={{borderBottom:"1px solid #f1f5f9",
-                background:r.estado==="Confirmado"?"#f0fdf4":i%2===0?"#fff":"#fffbeb"}}>
+                background:r.estado==="Confirmado"?C.successBg:i%2===0?"#fff":C.warningBg}}>
                 <td style={{padding:"7px 10px",textAlign:"center"}}>
                   {can
                     ? <select value={r.estado||"Por confirmar"} onChange={e=>upd(r.id,"estado",e.target.value)}
@@ -1042,7 +1047,7 @@ function TotalPedidos({data,setData,rpData,setRpData,rcData,setRcData,fvData,set
                 </td>
                 <td style={{padding:"6px 10px",textAlign:"center",fontSize:11}}>
                   {(r.tandas||[]).length>0
-                    ? <span style={{background:"#dbeafe",color:"#1d4ed8",borderRadius:20,padding:"2px 8px",fontSize:10,fontWeight:700}}>
+                    ? <span style={{background:C.infoBg,color:C.primary,borderRadius:20,padding:"2px 8px",fontSize:10,fontWeight:700}}>
                         {(r.tandas||[]).length} tanda{(r.tandas||[]).length>1?"s":""}
                       </span>
                     : <span style={{color:C.gris,fontSize:10}}>—</span>
@@ -1060,7 +1065,7 @@ function TotalPedidos({data,setData,rpData,setRpData,rcData,setRcData,fvData,set
                 </td>
                 {can&&<td style={{padding:"4px 6px",textAlign:"center"}}>
                   {r._fromContract?(
-                    <span title="Eliminar el contrato productor para borrar este registro" style={{color:"#94a3b8",fontSize:14}}>🔒</span>
+                    <span title="Eliminar el contrato productor para borrar este registro" style={{color:C.muted2,fontSize:14}}>🔒</span>
                   ):(
                   <button onClick={()=>{
                     if(!window.confirm(`¿Eliminar pedido de "${r.cliente}"?\nTambién se eliminarán las filas vinculadas en Royalty/Planta, Royalty Comercial y Fee Vivero.`))return;
@@ -1077,7 +1082,7 @@ function TotalPedidos({data,setData,rpData,setRpData,rcData,setRcData,fvData,set
                       setFvData(prev=>prev.filter(x=>x.tpId!==id));
                     }
                   }}
-                    style={{background:"#fee2e2",border:"none",borderRadius:6,padding:"3px 8px",cursor:"pointer",fontSize:12,color:"#991b1b",fontWeight:700}}>×</button>
+                    style={{background:C.dangerBg,border:"none",borderRadius:6,padding:"3px 8px",cursor:"pointer",fontSize:12,color:C.danger,fontWeight:700}}>×</button>
                   )}
                 </td>}
               </tr>
@@ -1091,7 +1096,7 @@ function TotalPedidos({data,setData,rpData,setRpData,rcData,setRcData,fvData,set
 
       {modal&&(
         <div style={{position:"fixed",inset:0,background:"#0006",zIndex:300,display:"flex",alignItems:"center",justifyContent:"center"}}>
-          <div style={{background:"#fff",borderRadius:16,padding:28,width:560,maxWidth:"95vw",maxHeight:"92vh",overflowY:"auto",boxShadow:"0 8px 32px #0003"}}>
+          <div style={{background:C.card,borderRadius:16,padding:28,width:560,maxWidth:"95vw",maxHeight:"92vh",overflowY:"auto",boxShadow:"0 8px 32px #0003"}}>
             <h3 style={{margin:"0 0 16px",color:C.sl}}>Nuevo Pedido de Plantas</h3>
 
             <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
@@ -1114,18 +1119,18 @@ function TotalPedidos({data,setData,rpData,setRpData,rcData,setRcData,fvData,set
                   <label style={{fontSize:11,fontWeight:600,color:"#374151",display:"block",marginBottom:4}}>{l}</label>
                   {opts
                     ? <select value={form[c]||""} onChange={e=>setF(c,e.target.value)}
-                        style={{width:"100%",padding:"7px 10px",borderRadius:8,border:"1px solid #d1d5db",fontSize:13,boxSizing:"border-box"}}>
+                        style={{width:"100%",padding:"7px 10px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:13,boxSizing:"border-box"}}>
                         {opts.map(o=><option key={o}>{o}</option>)}
                       </select>
                     : <input type={t} value={form[c]||""} onChange={e=>setF(c,e.target.value)}
-                        style={{width:"100%",padding:"7px 10px",borderRadius:8,border:"1px solid #d1d5db",fontSize:13,boxSizing:"border-box"}}/>
+                        style={{width:"100%",padding:"7px 10px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:13,boxSizing:"border-box"}}/>
                   }
                 </div>
               ))}
             </div>
 
             {/* Sección Fee Vivero */}
-            <div style={{marginTop:16,background:"#f0fdf4",borderRadius:10,padding:"14px 16px",border:"1px solid #86efac"}}>
+            <div style={{marginTop:16,background:C.successBg,borderRadius:10,padding:"14px 16px",border:`1px solid ${C.success}`}}>
               <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
                 <div style={{fontSize:12,fontWeight:700,color:C.verde}}>🏭 Fee Vivero</div>
                 {form.nPlantas&&form.regaliaVivero&&(
@@ -1140,7 +1145,7 @@ function TotalPedidos({data,setData,rpData,setRpData,rcData,setRcData,fvData,set
               <div style={{marginBottom:12}}>
                 <label style={{fontSize:11,fontWeight:600,color:"#374151",display:"block",marginBottom:4}}>Regalía US$/planta</label>
                 <input type="number" step="0.01" value={form.regaliaVivero||""} onChange={e=>setF("regaliaVivero",e.target.value)}
-                  style={{width:200,padding:"7px 10px",borderRadius:8,border:"1px solid #86efac",fontSize:13,boxSizing:"border-box",outline:"none"}}/>
+                  style={{width:200,padding:"7px 10px",borderRadius:8,border:`1px solid ${C.success}`,fontSize:13,boxSizing:"border-box",outline:"none"}}/>
               </div>
 
               {/* Cuotas manuales */}
@@ -1177,7 +1182,7 @@ function TotalPedidos({data,setData,rpData,setRpData,rcData,setRcData,fvData,set
                 </div>
 
                 {(form.cuotasVivero||[]).length===0&&(
-                  <div style={{fontSize:11,color:"#94a3b8",fontStyle:"italic",padding:"8px 0"}}>
+                  <div style={{fontSize:11,color:C.muted2,fontStyle:"italic",padding:"8px 0"}}>
                     Agrega cuotas de pago — Anticipo, Saldo u otras cuotas personalizadas
                   </div>
                 )}
@@ -1200,22 +1205,22 @@ function TotalPedidos({data,setData,rpData,setRpData,rcData,setRcData,fvData,set
                     <input type="text" value={cq.label||""}
                       onChange={e=>{const arr=[...(form.cuotasVivero||[])];arr[ci]={...cq,label:e.target.value};setF("cuotasVivero",arr);}}
                       placeholder="Ej: Anticipo OC"
-                      style={{padding:"6px 8px",borderRadius:6,border:`1px solid ${cq.tipo==="Anticipo"?"#86efac":"#bfdbfe"}`,background:"#fff",fontSize:12,outline:"none"}}/>
+                      style={{padding:"6px 8px",borderRadius:6,border:`1px solid ${cq.tipo==="Anticipo"?"#86efac":"#bfdbfe"}`,background:C.card,fontSize:12,outline:"none"}}/>
                     <div style={{display:"flex",alignItems:"center",gap:2}}>
                       <input type="number" min="0" max="100" value={cq.pct||""}
                         onChange={e=>{const arr=[...(form.cuotasVivero||[])];const pct=Number(e.target.value)||0;arr[ci]={...cq,pct,monto:Math.round(totalBase*pct/100)};setF("cuotasVivero",arr);}}
                         placeholder={String(Math.round(pctRestante))}
-                        style={{width:"100%",padding:"6px 8px",borderRadius:6,border:"1px solid #d1d5db",background:"#fff",fontSize:12,outline:"none",textAlign:"right"}}/>
+                        style={{width:"100%",padding:"6px 8px",borderRadius:6,border:`1px solid ${C.border}`,background:C.card,fontSize:12,outline:"none",textAlign:"right"}}/>
                       <span style={{fontSize:10,color:C.gris}}>%</span>
                     </div>
-                    <div style={{padding:"6px 8px",borderRadius:6,border:"1px solid #e2e8f0",background:"#f8fafc",fontSize:12,textAlign:"right",color:C.verde,fontWeight:700}}>
+                    <div style={{padding:"6px 8px",borderRadius:6,border:`1px solid ${C.border}`,background:C.cardAlt,fontSize:12,textAlign:"right",color:C.verde,fontWeight:700}}>
                       {montoCalc>0?`$${montoCalc.toLocaleString("es-CL")}`:"—"}
                     </div>
                     <input type="date" value={cq.fechaPago||""}
                       onChange={e=>{const arr=[...(form.cuotasVivero||[])];arr[ci]={...cq,fechaPago:e.target.value};setF("cuotasVivero",arr);}}
-                      style={{padding:"6px 8px",borderRadius:6,border:"1px solid #d1d5db",background:"#fff",fontSize:12,outline:"none"}}/>
+                      style={{padding:"6px 8px",borderRadius:6,border:`1px solid ${C.border}`,background:C.card,fontSize:12,outline:"none"}}/>
                     <button type="button" onClick={()=>setF("cuotasVivero",(form.cuotasVivero||[]).filter((_,j)=>j!==ci))}
-                      style={{padding:"4px 8px",borderRadius:6,background:"#fee2e2",border:"none",color:"#991b1b",cursor:"pointer",fontSize:11}}>×</button>
+                      style={{padding:"4px 8px",borderRadius:6,background:C.dangerBg,border:"none",color:C.danger,cursor:"pointer",fontSize:11}}>×</button>
                   </div>
                   );
                 })}
@@ -1225,8 +1230,8 @@ function TotalPedidos({data,setData,rpData,setRpData,rcData,setRcData,fvData,set
                   const pctTotal=(form.cuotasVivero||[]).reduce((s,c)=>s+(Number(c.pct)||0),0);
                   const montoTotal=(form.cuotasVivero||[]).reduce((s,c)=>s+(c.pct>0?Math.round(((Number(form.nPlantas)||0)*(Number(form.regaliaVivero)||0))*(Number(c.pct)||0)/100):(c.monto||0)),0);
                   return (
-                    <div style={{display:"flex",gap:12,padding:"6px 8px",background:"#fff",borderRadius:6,border:"1px solid #86efac",fontSize:11,marginTop:4}}>
-                      <span style={{color:pctTotal===100?C.verde:"#dc2626",fontWeight:700}}>{pctTotal}% asignado {pctTotal===100?"✓":`(falta ${100-pctTotal}%)`}</span>
+                    <div style={{display:"flex",gap:12,padding:"6px 8px",background:C.card,borderRadius:6,border:`1px solid ${C.success}`,fontSize:11,marginTop:4}}>
+                      <span style={{color:pctTotal===100?C.verde:C.danger,fontWeight:700}}>{pctTotal}% asignado {pctTotal===100?"✓":`(falta ${100-pctTotal}%)`}</span>
                       <span style={{color:C.verde,fontWeight:700}}>Total cuotas: US${montoTotal.toLocaleString("es-CL")}</span>
                     </div>
                   );
@@ -1240,53 +1245,53 @@ function TotalPedidos({data,setData,rpData,setRpData,rcData,setRcData,fvData,set
                 <label style={{fontSize:11,fontWeight:600,color:"#374151",display:"block",marginBottom:4}}>N° Proforma</label>
                 <input type="text" value={form.nProforma||""} onChange={e=>setF("nProforma",e.target.value)}
                   placeholder="Ej: PRF-2026-001"
-                  style={{width:"100%",padding:"7px 10px",borderRadius:8,border:"1px solid #d1d5db",fontSize:13,boxSizing:"border-box",outline:"none"}}/>
+                  style={{width:"100%",padding:"7px 10px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:13,boxSizing:"border-box",outline:"none"}}/>
               </div>
               <div>
                 <label style={{fontSize:11,fontWeight:600,color:"#374151",display:"block",marginBottom:4}}>Fecha Proforma</label>
                 <input type="date" value={form.fechaProforma||""} onChange={e=>setF("fechaProforma",e.target.value)}
-                  style={{width:"100%",padding:"7px 10px",borderRadius:8,border:"1px solid #d1d5db",fontSize:13,boxSizing:"border-box",outline:"none"}}/>
+                  style={{width:"100%",padding:"7px 10px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:13,boxSizing:"border-box",outline:"none"}}/>
               </div>
             </div>
 
             {/* Tandas de entrega */}
-            <div style={{marginTop:12,background:"#eff6ff",borderRadius:10,padding:"14px 16px",border:"1px solid #bfdbfe"}}>
+            <div style={{marginTop:12,background:C.infoBg,borderRadius:10,padding:"14px 16px",border:`1px solid ${C.info}`}}>
               <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
-                <div style={{fontSize:12,fontWeight:700,color:"#1d4ed8"}}>📦 Tandas de Entrega</div>
+                <div style={{fontSize:12,fontWeight:700,color:C.primary}}>📦 Tandas de Entrega</div>
                 <button type="button" onClick={()=>setF("tandas",[...(form.tandas||[]),{fechaEntrega:"",nPlantas:"",nota:""}])}
-                  style={{fontSize:11,padding:"3px 10px",borderRadius:6,border:"1px dashed #93c5fd",background:"transparent",color:"#1d4ed8",cursor:"pointer"}}>
+                  style={{fontSize:11,padding:"3px 10px",borderRadius:6,border:"1px dashed #93c5fd",background:"transparent",color:C.primary,cursor:"pointer"}}>
                   + Agregar tanda
                 </button>
               </div>
               {(form.tandas||[]).length===0&&(
-                <div style={{fontSize:11,color:"#94a3b8"}}>Sin tandas definidas — entrega única en Trim. {form.trimEntrega} {form.añoEntrega}</div>
+                <div style={{fontSize:11,color:C.muted2}}>Sin tandas definidas — entrega única en Trim. {form.trimEntrega} {form.añoEntrega}</div>
               )}
               {(form.tandas||[]).map((t,ti)=>(
                 <div key={ti} style={{display:"grid",gridTemplateColumns:"1fr 1fr 2fr auto",gap:8,marginBottom:6,alignItems:"end"}}>
                   <div>
-                    <label style={{fontSize:10,color:"#64748b",display:"block",marginBottom:2}}>Fecha entrega</label>
+                    <label style={{fontSize:10,color:C.muted,display:"block",marginBottom:2}}>Fecha entrega</label>
                     <input type="date" value={t.fechaEntrega||""} onChange={e=>{const arr=[...(form.tandas||[])];arr[ti]={...t,fechaEntrega:e.target.value};setF("tandas",arr);}}
-                      style={{width:"100%",padding:"5px 8px",borderRadius:6,border:"1px solid #bfdbfe",fontSize:12,outline:"none"}}/>
+                      style={{width:"100%",padding:"5px 8px",borderRadius:6,border:`1px solid ${C.info}`,fontSize:12,outline:"none"}}/>
                   </div>
                   <div>
-                    <label style={{fontSize:10,color:"#64748b",display:"block",marginBottom:2}}>N° plantas</label>
+                    <label style={{fontSize:10,color:C.muted,display:"block",marginBottom:2}}>N° plantas</label>
                     <input type="number" value={t.nPlantas||""} placeholder="0" onChange={e=>{const arr=[...(form.tandas||[])];arr[ti]={...t,nPlantas:e.target.value};setF("tandas",arr);}}
-                      style={{width:"100%",padding:"5px 8px",borderRadius:6,border:"1px solid #bfdbfe",fontSize:12,outline:"none"}}/>
+                      style={{width:"100%",padding:"5px 8px",borderRadius:6,border:`1px solid ${C.info}`,fontSize:12,outline:"none"}}/>
                   </div>
                   <div>
-                    <label style={{fontSize:10,color:"#64748b",display:"block",marginBottom:2}}>Nota</label>
+                    <label style={{fontSize:10,color:C.muted,display:"block",marginBottom:2}}>Nota</label>
                     <input type="text" value={t.nota||""} placeholder="Variedad, condición..." onChange={e=>{const arr=[...(form.tandas||[])];arr[ti]={...t,nota:e.target.value};setF("tandas",arr);}}
-                      style={{width:"100%",padding:"5px 8px",borderRadius:6,border:"1px solid #bfdbfe",fontSize:12,outline:"none"}}/>
+                      style={{width:"100%",padding:"5px 8px",borderRadius:6,border:`1px solid ${C.info}`,fontSize:12,outline:"none"}}/>
                   </div>
                   <button type="button" onClick={()=>setF("tandas",(form.tandas||[]).filter((_,j)=>j!==ti))}
-                    style={{padding:"5px 8px",borderRadius:6,background:"#fee2e2",border:"none",color:"#991b1b",cursor:"pointer",fontSize:11}}>×</button>
+                    style={{padding:"5px 8px",borderRadius:6,background:C.dangerBg,border:"none",color:C.danger,cursor:"pointer",fontSize:11}}>×</button>
                 </div>
               ))}
             </div>
 
             <div style={{display:"flex",gap:10,justifyContent:"flex-end",marginTop:20}}>
               <button onClick={()=>{setModal(false);setForm(formVacio);}}
-                style={{padding:"8px 18px",borderRadius:8,border:"1px solid #d1d5db",background:"#fff",cursor:"pointer",fontSize:14}}>Cancelar</button>
+                style={{padding:"8px 18px",borderRadius:8,border:`1px solid ${C.border}`,background:C.card,cursor:"pointer",fontSize:14}}>Cancelar</button>
               <button onClick={agregar}
                 style={{padding:"8px 18px",borderRadius:8,border:"none",background:C.azul,color:"#fff",cursor:"pointer",fontSize:14,fontWeight:600}}>
                 {form.estado==="Confirmado"?"✅ Guardar y propagar":"💾 Guardar pedido"}
@@ -1400,7 +1405,7 @@ function RoyaltyPlanta({data,setData,tpData,can,clientes=[]}) {
 
   return (
     <div>
-      <div style={{background:"#f0fdf4",border:"1px solid #86efac",borderRadius:10,padding:"8px 14px",marginBottom:14,fontSize:12,color:"#15803d"}}>
+      <div style={{background:C.successBg,border:`1px solid ${C.success}`,borderRadius:10,padding:"8px 14px",marginBottom:14,fontSize:12,color:C.success}}>
         💡 <strong>Monto a Facturar</strong> = N° Plantas × US$/Planta &nbsp;·&nbsp;
         <strong>Monto a Cobrar</strong> = Facturar × (100% Chile sin WHT / 85% Perú y México WHT 15%)
       </div>
@@ -1417,7 +1422,7 @@ function RoyaltyPlanta({data,setData,tpData,can,clientes=[]}) {
             <div style={{fontSize:20,fontWeight:800,color:c}}>{v}</div>
           </div>
         ))}
-        <div style={{fontSize:11,color:"#64748b",fontStyle:"italic",alignSelf:"center",padding:"6px 12px",background:"#f0f9ff",border:"1px solid #bae6fd",borderRadius:6}}>
+        <div style={{fontSize:11,color:C.muted,fontStyle:"italic",alignSelf:"center",padding:"6px 12px",background:C.infoBg,border:`1px solid ${C.info}`,borderRadius:6}}>
           🔗 Derivado de Contratos Exp-Prod
         </div>
       </div>
@@ -1447,7 +1452,7 @@ function RoyaltyPlanta({data,setData,tpData,can,clientes=[]}) {
       />
 
       <div style={{overflowX:"auto"}}>
-        <table style={{borderCollapse:"collapse",width:"100%",background:"#fff",borderRadius:10,overflow:"hidden"}}>
+        <table style={{borderCollapse:"collapse",width:"100%",background:C.card,borderRadius:10,overflow:"hidden"}}>
           <Th cols={[
             {l:"Cliente",w:120},{l:"País",w:80},{l:"Vivero",w:120},{l:"Año",c:true,w:60},
             {l:"N° Plantas",c:true,w:100},{l:"US$/Planta",c:true,w:90},
@@ -1460,7 +1465,7 @@ function RoyaltyPlanta({data,setData,tpData,can,clientes=[]}) {
             {filtrado.map((r,i)=>{
               const facturado = r.nFact&&String(r.nFact).trim()!=="";
               return(
-                <tr key={r.id} style={{borderBottom:"1px solid #f1f5f9",background:i%2===0?"#fff":"#f8fafc"}}>
+                <tr key={r.id} style={{borderBottom:"1px solid #f1f5f9",background:i%2===0?"#fff":C.cardAlt}}>
                   <td style={{padding:"7px 10px",fontWeight:600}}>
                     <NombreCliente nombre={r.cliente} clientes={clientes} onChange={v=>upd(r.id,"cliente",v)} can={can&&!r._fromContract}/>
                   </td>
@@ -1472,8 +1477,8 @@ function RoyaltyPlanta({data,setData,tpData,can,clientes=[]}) {
                   <td style={{padding:"7px 10px",textAlign:"right",fontWeight:700,color:C.azul}}>{$$(r.montoFact)}</td>
                   <td style={{padding:"7px 10px",textAlign:"center",fontSize:11}}>
                     {whtLabel(r.pais)
-                      ? <span style={{background:"#fee2e2",color:"#dc2626",borderRadius:20,padding:"2px 8px",fontSize:10,fontWeight:700}}>{whtLabel(r.pais)}</span>
-                      : <span style={{background:"#dcfce7",color:"#16a34a",borderRadius:20,padding:"2px 8px",fontSize:10,fontWeight:700}}>Sin WHT</span>
+                      ? <span style={{background:C.dangerBg,color:C.danger,borderRadius:20,padding:"2px 8px",fontSize:10,fontWeight:700}}>{whtLabel(r.pais)}</span>
+                      : <span style={{background:C.successBg,color:C.success,borderRadius:20,padding:"2px 8px",fontSize:10,fontWeight:700}}>Sin WHT</span>
                     }
                   </td>
                   <td style={{padding:"7px 10px",textAlign:"right",fontWeight:700,color:C.verde}}>{$$(r.montoCobro)}</td>
@@ -1482,8 +1487,8 @@ function RoyaltyPlanta({data,setData,tpData,can,clientes=[]}) {
                   </td>
                   <td style={{padding:"7px 10px",textAlign:"center"}}>
                     <span style={{
-                      background:facturado?"#dbeafe":"#fef3c7",
-                      color:facturado?"#2563eb":"#d97706",
+                      background:facturado?C.infoBg:C.warningBg,
+                      color:facturado?C.primary:C.warning,
                       borderRadius:20,padding:"2px 10px",fontSize:11,fontWeight:700,whiteSpace:"nowrap"
                     }}>
                       {facturado?"📄 Facturado":"⏸ Pend. facturar"}
@@ -1497,7 +1502,7 @@ function RoyaltyPlanta({data,setData,tpData,can,clientes=[]}) {
                   </td>
                   {can&&<td style={{padding:"4px 6px",textAlign:"center"}}>
                     {r._fromContract?(
-                      <span title="Eliminar el contrato productor para borrar este registro" style={{color:"#94a3b8",fontSize:14}}>🔒</span>
+                      <span title="Eliminar el contrato productor para borrar este registro" style={{color:C.muted2,fontSize:14}}>🔒</span>
                     ):(
                     <button onClick={()=>{
                       if(!window.confirm(`¿Eliminar royalty de "${r.cliente}"?`))return;
@@ -1506,7 +1511,7 @@ function RoyaltyPlanta({data,setData,tpData,can,clientes=[]}) {
                         registroId:r.id});
                       setData(prev=>prev.filter(x=>x.id!==r.id));
                     }}
-                      style={{background:"#fee2e2",border:"none",borderRadius:6,padding:"3px 8px",cursor:"pointer",fontSize:12,color:"#991b1b",fontWeight:700}}>×</button>
+                      style={{background:C.dangerBg,border:"none",borderRadius:6,padding:"3px 8px",cursor:"pointer",fontSize:12,color:C.danger,fontWeight:700}}>×</button>
                     )}
                   </td>}
                 </tr>
@@ -1521,7 +1526,7 @@ function RoyaltyPlanta({data,setData,tpData,can,clientes=[]}) {
 
       {modal&&(
         <div style={{position:"fixed",inset:0,background:"#0006",zIndex:300,display:"flex",alignItems:"center",justifyContent:"center"}}>
-          <div style={{background:"#fff",borderRadius:16,padding:28,width:500,maxWidth:"94vw",maxHeight:"90vh",overflowY:"auto",boxShadow:"0 8px 32px #0003"}}>
+          <div style={{background:C.card,borderRadius:16,padding:28,width:500,maxWidth:"94vw",maxHeight:"90vh",overflowY:"auto",boxShadow:"0 8px 32px #0003"}}>
             <h3 style={{margin:"0 0 14px",color:C.sl}}>Nuevo Royalty por Planta</h3>
             {tpData.length>0&&(
               <div style={{marginBottom:12}}>
@@ -1529,7 +1534,7 @@ function RoyaltyPlanta({data,setData,tpData,can,clientes=[]}) {
                   📦 Importar desde Total Pedidos (opcional)
                 </label>
                 <select value={form.tpId||""} onChange={e=>seleccionarPedido(e.target.value)}
-                  style={{width:"100%",padding:"7px 10px",borderRadius:8,border:"1px solid #93c5fd",fontSize:12,color:"#2563eb"}}>
+                  style={{width:"100%",padding:"7px 10px",borderRadius:8,border:`1px solid ${C.info}`,fontSize:12,color:C.primary}}>
                   <option value="">— Seleccionar pedido —</option>
                   {tpData.map(tp=>(
                     <option key={tp.id} value={tp.id}>
@@ -1553,18 +1558,18 @@ function RoyaltyPlanta({data,setData,tpData,can,clientes=[]}) {
                   <label style={{fontSize:11,fontWeight:600,color:"#374151",display:"block",marginBottom:4}}>{l}</label>
                   {opts
                     ? <select value={form[c]||""} onChange={e=>setForm(p=>({...p,[c]:e.target.value}))}
-                        style={{width:"100%",padding:"7px 10px",borderRadius:8,border:"1px solid #d1d5db",fontSize:13,boxSizing:"border-box"}}>
+                        style={{width:"100%",padding:"7px 10px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:13,boxSizing:"border-box"}}>
                         {opts.map(o=><option key={o}>{o}</option>)}
                       </select>
                     : <input type={t} value={form[c]||""} onChange={e=>setForm(p=>({...p,[c]:e.target.value}))}
-                        style={{width:"100%",padding:"7px 10px",borderRadius:8,border:"1px solid #d1d5db",fontSize:13,boxSizing:"border-box"}}/>
+                        style={{width:"100%",padding:"7px 10px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:13,boxSizing:"border-box"}}/>
                   }
                 </div>
               ))}
             </div>
             {/* Plan de Pago en Cuotas */}
-            <div style={{marginTop:14,background:"#eff6ff",borderRadius:10,padding:"12px 14px",border:"1px solid #bfdbfe"}}>
-              <label style={{display:"flex",alignItems:"center",gap:8,cursor:"pointer",fontSize:13,fontWeight:600,color:"#1d4ed8",marginBottom:8}}>
+            <div style={{marginTop:14,background:C.infoBg,borderRadius:10,padding:"12px 14px",border:`1px solid ${C.info}`}}>
+              <label style={{display:"flex",alignItems:"center",gap:8,cursor:"pointer",fontSize:13,fontWeight:600,color:C.primary,marginBottom:8}}>
                 <input type="checkbox" checked={form.planPago||false} onChange={()=>setForm(p=>({...p,planPago:!p.planPago,cuotas:[]}))}/>
                 📅 Plan de pago en cuotas
               </label>
@@ -1581,19 +1586,19 @@ function RoyaltyPlanta({data,setData,tpData,can,clientes=[]}) {
                         monto:total/n,pagado:false,nFact:"",
                       }));
                       setForm(p=>({...p,nCuotas:n,cuotas}));
-                    }} style={{padding:"4px 8px",borderRadius:6,border:"1px solid #93c5fd",fontSize:12,outline:"none"}}>
+                    }} style={{padding:"4px 8px",borderRadius:6,border:`1px solid ${C.info}`,fontSize:12,outline:"none"}}>
                       {[2,3,4,6,12].map(n=><option key={n} value={n}>{n} cuotas</option>)}
                     </select>
-                    <span style={{fontSize:11,color:"#64748b"}}>
+                    <span style={{fontSize:11,color:C.muted}}>
                       Total: {$$(((Number(form.nPlantas)||0)*(Number(form.usdPlanta)||0)))}
                     </span>
                   </div>
                   {(form.cuotas||[]).map((c,ci)=>(
                     <div key={ci} style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:6,marginBottom:6,alignItems:"end"}}>
                       <div>
-                        <label style={{fontSize:10,color:"#64748b",display:"block",marginBottom:2}}>Mes cuota {ci+1}</label>
+                        <label style={{fontSize:10,color:C.muted,display:"block",marginBottom:2}}>Mes cuota {ci+1}</label>
                         <select value={c.mes||""} onChange={e=>{const arr=[...(form.cuotas||[])];arr[ci]={...c,mes:e.target.value};setForm(p=>({...p,cuotas:arr}));}}
-                          style={{width:"100%",padding:"5px 8px",borderRadius:6,border:"1px solid #93c5fd",fontSize:11,outline:"none"}}>
+                          style={{width:"100%",padding:"5px 8px",borderRadius:6,border:`1px solid ${C.info}`,fontSize:11,outline:"none"}}>
                           <option value="">— mes —</option>
                           {["Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"].map(m=>(
                             <option key={m} value={m}>{m}</option>
@@ -1601,14 +1606,14 @@ function RoyaltyPlanta({data,setData,tpData,can,clientes=[]}) {
                         </select>
                       </div>
                       <div>
-                        <label style={{fontSize:10,color:"#64748b",display:"block",marginBottom:2}}>% cuota</label>
+                        <label style={{fontSize:10,color:C.muted,display:"block",marginBottom:2}}>% cuota</label>
                         <input type="number" min="0" max="100" value={c.pct||""} onChange={e=>{const arr=[...(form.cuotas||[])];arr[ci]={...c,pct:Number(e.target.value),monto:((Number(form.nPlantas)||0)*(Number(form.usdPlanta)||0))*(Number(e.target.value)||0)/100};setForm(p=>({...p,cuotas:arr}));}}
-                          style={{width:"100%",padding:"5px 8px",borderRadius:6,border:"1px solid #93c5fd",fontSize:11,outline:"none"}}/>
+                          style={{width:"100%",padding:"5px 8px",borderRadius:6,border:`1px solid ${C.info}`,fontSize:11,outline:"none"}}/>
                       </div>
                       <div>
-                        <label style={{fontSize:10,color:"#64748b",display:"block",marginBottom:2}}>Monto US$</label>
+                        <label style={{fontSize:10,color:C.muted,display:"block",marginBottom:2}}>Monto US$</label>
                         <input readOnly value={$$(c.monto||0)}
-                          style={{width:"100%",padding:"5px 8px",borderRadius:6,border:"1px solid #e2e8f0",fontSize:11,background:"#f8fafc",outline:"none"}}/>
+                          style={{width:"100%",padding:"5px 8px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:11,background:C.cardAlt,outline:"none"}}/>
                       </div>
                     </div>
                   ))}
@@ -1621,7 +1626,7 @@ function RoyaltyPlanta({data,setData,tpData,can,clientes=[]}) {
               ✅ Marcar como Pagado
             </label>
             <div style={{display:"flex",gap:10,justifyContent:"flex-end",marginTop:20}}>
-              <button onClick={()=>setModal(false)} style={{padding:"8px 18px",borderRadius:8,border:"1px solid #d1d5db",background:"#fff",cursor:"pointer",fontSize:14}}>Cancelar</button>
+              <button onClick={()=>setModal(false)} style={{padding:"8px 18px",borderRadius:8,border:`1px solid ${C.border}`,background:C.card,cursor:"pointer",fontSize:14}}>Cancelar</button>
               <button onClick={agregar} style={{padding:"8px 18px",borderRadius:8,border:"none",background:C.azul,color:"#fff",cursor:"pointer",fontSize:14,fontWeight:600}}>Guardar</button>
             </div>
           </div>
@@ -1704,7 +1709,7 @@ function FeeEntrada({data,setData,ctData,can,clientes=[]}) {
 
   return (
     <div>
-      <div style={{background:"#eff6ff",border:"1px solid #bfdbfe",borderRadius:10,padding:"8px 14px",marginBottom:14,fontSize:12,color:"#1d4ed8"}}>
+      <div style={{background:C.infoBg,border:`1px solid ${C.info}`,borderRadius:10,padding:"8px 14px",marginBottom:14,fontSize:12,color:C.primary}}>
         💡 Los fees de entrada se generan automáticamente desde los contratos que tienen fee. El estado de facturación se actualiza al ingresar el N° de factura.
       </div>
 
@@ -1742,7 +1747,7 @@ function FeeEntrada({data,setData,ctData,can,clientes=[]}) {
       />
 
       <div style={{overflowX:"auto"}}>
-        <table style={{borderCollapse:"collapse",width:"100%",background:"#fff",borderRadius:10,overflow:"hidden"}}>
+        <table style={{borderCollapse:"collapse",width:"100%",background:C.card,borderRadius:10,overflow:"hidden"}}>
           <Th cols={[
             {l:"Cliente",w:150},{l:"País",w:80},{l:"Tipo Fee",w:130},
             {l:"Monto US$",c:true,w:110},{l:"N° Factura",c:true,w:110},
@@ -1753,7 +1758,7 @@ function FeeEntrada({data,setData,ctData,can,clientes=[]}) {
             {filtrado.map((r,i)=>{
               const facturado=r.nFact&&String(r.nFact).trim()!=="";
               return(
-                <tr key={r.id} style={{borderBottom:"1px solid #f1f5f9",background:i%2===0?"#fff":"#f8fafc"}}>
+                <tr key={r.id} style={{borderBottom:"1px solid #f1f5f9",background:i%2===0?"#fff":C.cardAlt}}>
                   <td style={{padding:"8px 12px",fontWeight:600}}>
                     <NombreCliente nombre={r.cliente} clientes={clientes} onChange={v=>upd(r.id,"cliente",v)} can={can}/>
                   </td>
@@ -1765,7 +1770,7 @@ function FeeEntrada({data,setData,ctData,can,clientes=[]}) {
                       {r.detalle||"—"}
                     </span>
                   </td>
-                  <td style={{padding:"8px 12px",textAlign:"right",fontWeight:700,color:C.mo}}>
+                  <td style={{padding:"8px 12px",textAlign:"right",fontWeight:700,color:C.text}}>
                     <Cell val={r.montoUSD||0} onChange={v=>upd(r.id,"montoUSD",parseFloat(v)||0)} type="number" can={can}/>
                   </td>
                   <td style={{padding:"8px 12px",textAlign:"center"}}>
@@ -1773,8 +1778,8 @@ function FeeEntrada({data,setData,ctData,can,clientes=[]}) {
                   </td>
                   <td style={{padding:"8px 12px",textAlign:"center"}}>
                     <span style={{
-                      background:facturado?"#dbeafe":"#fef3c7",
-                      color:facturado?"#2563eb":"#d97706",
+                      background:facturado?C.infoBg:C.warningBg,
+                      color:facturado?C.primary:C.warning,
                       borderRadius:20,padding:"2px 10px",fontSize:11,fontWeight:700,whiteSpace:"nowrap"
                     }}>
                       {facturado?"📄 Facturado":"⏸ Pend. facturar"}
@@ -1907,7 +1912,7 @@ function RoyaltyComercial({data,setData,tpData,can,clientes=[]}) {
       {alertas.length>0&&(
         <div style={{marginBottom:16}}>
           {alertas.map(r=>(
-            <div key={r.id} style={{background:"#fef3c7",border:"2px solid #fde047",borderRadius:12,
+            <div key={r.id} style={{background:C.warningBg,border:"2px solid #fde047",borderRadius:12,
               padding:"12px 16px",marginBottom:8,display:"flex",alignItems:"center",gap:12}}>
               <span style={{fontSize:22}}>⚠️</span>
               <div>
@@ -1921,7 +1926,7 @@ function RoyaltyComercial({data,setData,tpData,can,clientes=[]}) {
         </div>
       )}
 
-      <div style={{background:"#f0fdf4",border:"1px solid #86efac",borderRadius:10,padding:"8px 14px",marginBottom:14,fontSize:12,color:"#15803d"}}>
+      <div style={{background:C.successBg,border:`1px solid ${C.success}`,borderRadius:10,padding:"8px 14px",marginBottom:14,fontSize:12,color:C.success}}>
         💡 Royalty Comercial = Há productivas × US$/Há (default US$3.000) · Se cobra desde el 1er año de producción, repitiéndose cada año en el mismo trimestre. El usuario ajusta el US$/Há manualmente cada año según inflación.
       </div>
 
@@ -1937,7 +1942,7 @@ function RoyaltyComercial({data,setData,tpData,can,clientes=[]}) {
             <div style={{fontSize:20,fontWeight:800,color:c}}>{v}</div>
           </div>
         ))}
-        <div style={{fontSize:11,color:"#64748b",fontStyle:"italic",alignSelf:"center",padding:"6px 12px",background:"#f0f9ff",border:"1px solid #bae6fd",borderRadius:6}}>
+        <div style={{fontSize:11,color:C.muted,fontStyle:"italic",alignSelf:"center",padding:"6px 12px",background:C.infoBg,border:`1px solid ${C.info}`,borderRadius:6}}>
           🔗 Derivado de Contratos Exp-Prod
         </div>
       </div>
@@ -1967,7 +1972,7 @@ function RoyaltyComercial({data,setData,tpData,can,clientes=[]}) {
       />
 
       <div style={{overflowX:"auto"}}>
-        <table style={{borderCollapse:"collapse",width:"100%",background:"#fff",borderRadius:10,overflow:"hidden"}}>
+        <table style={{borderCollapse:"collapse",width:"100%",background:C.card,borderRadius:10,overflow:"hidden"}}>
           <Th cols={[
             {l:"Cliente",w:130},{l:"País",w:80},{l:"Há",c:true,w:80},{l:"US$/Há",c:true,w:90},
             {l:"Año cobro",c:true,w:90},{l:"Trim.",c:true,w:80},{l:"Mto.Facturar",c:true,w:120},{l:"WHT",c:true,w:70},
@@ -1980,13 +1985,13 @@ function RoyaltyComercial({data,setData,tpData,can,clientes=[]}) {
               const facturado=r.nFact&&String(r.nFact).trim()!=="";
               return(
                 <tr key={r.id} style={{borderBottom:"1px solid #f1f5f9",
-                  background:r.alertaActiva?"#fffbeb":i%2===0?"#fff":"#f8fafc"}}>
+                  background:r.alertaActiva?C.warningBg:i%2===0?"#fff":C.cardAlt}}>
                   <td style={{padding:"7px 10px",fontWeight:600}}>
                     <NombreCliente nombre={r.cliente} clientes={clientes} onChange={v=>upd(r.id,"cliente",v)} can={can&&!r._fromContract}/>
                   </td>
                   <td style={{padding:"7px 10px",fontSize:12,color:C.gris}}>{r.pais}</td>
                   <td style={{padding:"7px 10px",textAlign:"right",fontWeight:600,
-                    background:(!r.ha||r.ha===0)&&can?"#fffbeb":"transparent"}}>
+                    background:(!r.ha||r.ha===0)&&can?C.warningBg:"transparent"}}>
                     <Cell val={r.ha||""} onChange={v=>upd(r.id,"ha",parseFloat(v)||0)} type="number" can={can&&!r._fromContract} ph="Ingrese Há"/>
                   </td>
                   <td style={{padding:"7px 10px",textAlign:"center"}}>
@@ -1996,22 +2001,22 @@ function RoyaltyComercial({data,setData,tpData,can,clientes=[]}) {
                     {can ? (
                       <div style={{display:"flex",gap:4,justifyContent:"center",alignItems:"center"}}>
                         <select value={r.trimCobro||2} onChange={e=>upd(r.id,"trimCobro",parseInt(e.target.value))}
-                          style={{borderRadius:6,border:"1px solid #d1d5db",padding:"2px 4px",fontSize:11,fontWeight:700,color:C.mo,background:"#fff",cursor:"pointer"}}>
+                          style={{borderRadius:6,border:`1px solid ${C.border}`,padding:"2px 4px",fontSize:11,fontWeight:700,color:C.mo,background:C.card,cursor:"pointer"}}>
                           <option value="1">T1</option>
                           <option value="2">T2</option>
                           <option value="3">T3</option>
                           <option value="4">T4</option>
                         </select>
                         <input type="number" value={r.añoCobro||""} onChange={e=>upd(r.id,"añoCobro",parseInt(e.target.value)||r.añoCobro)}
-                          style={{width:58,borderRadius:6,border:"1px solid #d1d5db",padding:"2px 6px",fontSize:11,fontWeight:700,textAlign:"center"}}/>
+                          style={{width:58,borderRadius:6,border:`1px solid ${C.border}`,padding:"2px 6px",fontSize:11,fontWeight:700,textAlign:"center"}}/>
                       </div>
                     ) : <span>{TRIM_LABELS[r.trimCobro]} {r.añoCobro}</span>}
                   </td>
-                  <td style={{padding:"7px 10px",textAlign:"right",fontWeight:700,color:C.mo}}>{$$(r.montoFact)}</td>
+                  <td style={{padding:"7px 10px",textAlign:"right",fontWeight:700,color:C.text}}>{$$(r.montoFact)}</td>
                   <td style={{padding:"7px 10px",textAlign:"center",fontSize:11}}>
                     {whtLabel(r.pais)
-                      ? <span style={{background:"#fee2e2",color:"#dc2626",borderRadius:20,padding:"2px 8px",fontSize:10,fontWeight:700}}>{whtLabel(r.pais)}</span>
-                      : <span style={{background:"#dcfce7",color:"#16a34a",borderRadius:20,padding:"2px 8px",fontSize:10,fontWeight:700}}>Sin WHT</span>
+                      ? <span style={{background:C.dangerBg,color:C.danger,borderRadius:20,padding:"2px 8px",fontSize:10,fontWeight:700}}>{whtLabel(r.pais)}</span>
+                      : <span style={{background:C.successBg,color:C.success,borderRadius:20,padding:"2px 8px",fontSize:10,fontWeight:700}}>Sin WHT</span>
                     }
                   </td>
                   <td style={{padding:"7px 10px",textAlign:"right",fontWeight:700,color:C.verde}}>{$$(r.montoCobro)}</td>
@@ -2020,8 +2025,8 @@ function RoyaltyComercial({data,setData,tpData,can,clientes=[]}) {
                   </td>
                   <td style={{padding:"7px 10px",textAlign:"center"}}>
                     <span style={{
-                      background:facturado?"#dbeafe":"#fef3c7",
-                      color:facturado?"#2563eb":"#d97706",
+                      background:facturado?C.infoBg:C.warningBg,
+                      color:facturado?C.primary:C.warning,
                       borderRadius:20,padding:"2px 10px",fontSize:11,fontWeight:700,whiteSpace:"nowrap"
                     }}>
                       {facturado?"📄 Facturado":"⏸ Pend. facturar"}
@@ -2038,7 +2043,7 @@ function RoyaltyComercial({data,setData,tpData,can,clientes=[]}) {
                   </td>
                   {can&&<td style={{padding:"4px 6px",textAlign:"center"}}>
                     {r._fromContract?(
-                      <span title="Eliminar el contrato productor para borrar este registro" style={{color:"#94a3b8",fontSize:14}}>🔒</span>
+                      <span title="Eliminar el contrato productor para borrar este registro" style={{color:C.muted2,fontSize:14}}>🔒</span>
                     ):(
                     <button onClick={()=>{
                       if(!window.confirm(`¿Eliminar royalty comercial de "${r.cliente}" ${r.añoCobro}?`))return;
@@ -2047,7 +2052,7 @@ function RoyaltyComercial({data,setData,tpData,can,clientes=[]}) {
                         registroId:r.id});
                       setData(prev=>prev.filter(x=>x.id!==r.id));
                     }}
-                      style={{background:"#fee2e2",border:"none",borderRadius:6,padding:"3px 8px",cursor:"pointer",fontSize:12,color:"#991b1b",fontWeight:700}}>×</button>
+                      style={{background:C.dangerBg,border:"none",borderRadius:6,padding:"3px 8px",cursor:"pointer",fontSize:12,color:C.danger,fontWeight:700}}>×</button>
                     )}
                   </td>}
                 </tr>
@@ -2062,9 +2067,9 @@ function RoyaltyComercial({data,setData,tpData,can,clientes=[]}) {
 
       {modal&&(
         <div style={{position:"fixed",inset:0,background:"#0006",zIndex:300,display:"flex",alignItems:"center",justifyContent:"center"}}>
-          <div style={{background:"#fff",borderRadius:16,padding:28,width:500,maxWidth:"94vw",maxHeight:"90vh",overflowY:"auto",boxShadow:"0 8px 32px #0003"}}>
+          <div style={{background:C.card,borderRadius:16,padding:28,width:500,maxWidth:"94vw",maxHeight:"90vh",overflowY:"auto",boxShadow:"0 8px 32px #0003"}}>
             <h3 style={{margin:"0 0 14px",color:C.sl}}>Nuevo Royalty Comercial</h3>
-            <div style={{background:"#f0fdf4",borderRadius:8,padding:"10px 14px",marginBottom:14,fontSize:12,color:"#15803d"}}>
+            <div style={{background:C.successBg,borderRadius:8,padding:"10px 14px",marginBottom:14,fontSize:12,color:C.success}}>
               Se generarán registros anuales automáticamente para los años indicados, en el mismo trimestre.
             </div>
             <SelectorCliente form={form} setForm={setForm} clientes={clientes}/>
@@ -2081,22 +2086,22 @@ function RoyaltyComercial({data,setData,tpData,can,clientes=[]}) {
                   <label style={{fontSize:11,fontWeight:600,color:"#374151",display:"block",marginBottom:4}}>{l}</label>
                   {opts
                     ? <select value={form[c]||""} onChange={e=>setForm(p=>({...p,[c]:e.target.value}))}
-                        style={{width:"100%",padding:"7px 10px",borderRadius:8,border:"1px solid #d1d5db",fontSize:13,boxSizing:"border-box"}}>
+                        style={{width:"100%",padding:"7px 10px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:13,boxSizing:"border-box"}}>
                         {opts.map(o=><option key={o}>{o}</option>)}
                       </select>
                     : <input type={t} value={form[c]||""} onChange={e=>setForm(p=>({...p,[c]:e.target.value}))}
-                        style={{width:"100%",padding:"7px 10px",borderRadius:8,border:"1px solid #d1d5db",fontSize:13,boxSizing:"border-box"}}/>
+                        style={{width:"100%",padding:"7px 10px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:13,boxSizing:"border-box"}}/>
                   }
                 </div>
               ))}
             </div>
             {form.ha&&form.añoPrimerCobro&&(
-              <div style={{marginTop:12,background:"#f0f9ff",borderRadius:8,padding:"10px 14px",fontSize:12,color:C.azul}}>
+              <div style={{marginTop:12,background:C.infoBg,borderRadius:8,padding:"10px 14px",fontSize:12,color:C.azul}}>
                 📋 Se generarán <strong>{form.repetirAños} registros</strong> · {form.ha} Há × US${form.usdHa}/Há = <strong>US${((Number(form.ha)||0)*(Number(form.usdHa)||3000)).toLocaleString()}/año</strong>
               </div>
             )}
             <div style={{display:"flex",gap:10,justifyContent:"flex-end",marginTop:20}}>
-              <button onClick={()=>setModal(false)} style={{padding:"8px 18px",borderRadius:8,border:"1px solid #d1d5db",background:"#fff",cursor:"pointer",fontSize:14}}>Cancelar</button>
+              <button onClick={()=>setModal(false)} style={{padding:"8px 18px",borderRadius:8,border:`1px solid ${C.border}`,background:C.card,cursor:"pointer",fontSize:14}}>Cancelar</button>
               <button onClick={agregar} style={{padding:"8px 18px",borderRadius:8,border:"none",background:C.azul,color:"#fff",cursor:"pointer",fontSize:14,fontWeight:600}}>Generar Registros</button>
             </div>
           </div>
@@ -2184,7 +2189,7 @@ function FeeViveros({data,setData,tpData,can,clientes=[]}) {
             <div style={{fontSize:20,fontWeight:800,color:c}}>{v}</div>
           </div>
         ))}
-        <div style={{fontSize:11,color:"#64748b",fontStyle:"italic",alignSelf:"center",padding:"6px 12px",background:"#f0f9ff",border:"1px solid #bae6fd",borderRadius:6}}>
+        <div style={{fontSize:11,color:C.muted,fontStyle:"italic",alignSelf:"center",padding:"6px 12px",background:C.infoBg,border:`1px solid ${C.info}`,borderRadius:6}}>
           🔗 Derivado de Contratos Exp-Prod
         </div>
       </div>
@@ -2213,7 +2218,7 @@ function FeeViveros({data,setData,tpData,can,clientes=[]}) {
       />
 
       <div style={{overflowX:"auto"}}>
-        <table style={{borderCollapse:"collapse",width:"100%",background:"#fff",borderRadius:10,overflow:"hidden"}}>
+        <table style={{borderCollapse:"collapse",width:"100%",background:C.card,borderRadius:10,overflow:"hidden"}}>
           <Th cols={[
             {l:"Vivero",w:100},{l:"Empresa",w:140},{l:"País",w:70},{l:"Proforma",w:110},
             {l:"N° Plantas",c:true,w:90},{l:"Regalía US$",c:true,w:90},{l:"% Cobro",c:true,w:80},{l:"Total",c:true,w:100},
@@ -2226,7 +2231,7 @@ function FeeViveros({data,setData,tpData,can,clientes=[]}) {
             {filtrado.map((r,i)=>{
               const facturado=r.nFact&&String(r.nFact).trim()!=="";
               return(
-                <tr key={r.id} style={{borderBottom:"1px solid #f1f5f9",background:i%2===0?"#fff":"#f8fafc"}}>
+                <tr key={r.id} style={{borderBottom:"1px solid #f1f5f9",background:i%2===0?"#fff":C.cardAlt}}>
                   <td style={{padding:"7px 10px",fontSize:11}}><Cell val={r.vivero||""} onChange={v=>upd(r.id,"vivero",v)} opts={["Synergiabio","Agromillora"]} can={can&&!r._fromContract}/></td>
                   <td style={{padding:"7px 10px",fontWeight:600}}>
                     <NombreCliente nombre={r.empresa} clientes={clientes} onChange={v=>upd(r.id,"empresa",v)} can={can&&!r._fromContract}/>
@@ -2238,8 +2243,8 @@ function FeeViveros({data,setData,tpData,can,clientes=[]}) {
                     <Cell val={r.regalia||""} onChange={v=>upd(r.id,"regalia",parseFloat(v)||0)} type="number" can={can&&!r._fromContract} ph="0.45"/>
                   </td>
                   <td style={{padding:"7px 10px",textAlign:"center",fontSize:11}}>
-                    <span style={{background:pct(r.pais)===1?C.verdeBg:"#fee2e2",
-                      color:pct(r.pais)===1?C.verde:"#dc2626",
+                    <span style={{background:pct(r.pais)===1?C.verdeBg:C.dangerBg,
+                      color:pct(r.pais)===1?C.verde:C.danger,
                       borderRadius:20,padding:"2px 8px",fontSize:10,fontWeight:700}}>
                       {pct(r.pais)===1?"100%":"85%"}
                     </span>
@@ -2266,8 +2271,8 @@ function FeeViveros({data,setData,tpData,can,clientes=[]}) {
                   </td>
                   <td style={{padding:"7px 10px",textAlign:"center"}}>
                     <span style={{
-                      background:facturado?"#dbeafe":"#fef3c7",
-                      color:facturado?"#2563eb":"#d97706",
+                      background:facturado?C.infoBg:C.warningBg,
+                      color:facturado?C.primary:C.warning,
                       borderRadius:20,padding:"2px 10px",fontSize:11,fontWeight:700,whiteSpace:"nowrap"
                     }}>
                       {facturado?"📄 Facturado":"⏸ Pendiente"}
@@ -2278,7 +2283,7 @@ function FeeViveros({data,setData,tpData,can,clientes=[]}) {
                   </td>
                   {can&&<td style={{padding:"4px 6px",textAlign:"center"}}>
                     {r._fromContract?(
-                      <span title="Eliminar el contrato productor para borrar este registro" style={{color:"#94a3b8",fontSize:14}}>🔒</span>
+                      <span title="Eliminar el contrato productor para borrar este registro" style={{color:C.muted2,fontSize:14}}>🔒</span>
                     ):(
                     <button onClick={()=>{
                       if(!window.confirm(`¿Eliminar fee vivero de "${r.empresa}"?`))return;
@@ -2287,7 +2292,7 @@ function FeeViveros({data,setData,tpData,can,clientes=[]}) {
                         registroId:r.id});
                       setData(prev=>prev.filter(x=>x.id!==r.id));
                     }}
-                      style={{background:"#fee2e2",border:"none",borderRadius:6,padding:"3px 8px",cursor:"pointer",fontSize:12,color:"#991b1b",fontWeight:700}}>×</button>
+                      style={{background:C.dangerBg,border:"none",borderRadius:6,padding:"3px 8px",cursor:"pointer",fontSize:12,color:C.danger,fontWeight:700}}>×</button>
                     )}
                   </td>}
                 </tr>
@@ -2302,7 +2307,7 @@ function FeeViveros({data,setData,tpData,can,clientes=[]}) {
 
       {modal&&(
         <div style={{position:"fixed",inset:0,background:"#0006",zIndex:300,display:"flex",alignItems:"center",justifyContent:"center"}}>
-          <div style={{background:"#fff",borderRadius:16,padding:28,width:500,maxWidth:"94vw",maxHeight:"90vh",overflowY:"auto",boxShadow:"0 8px 32px #0003"}}>
+          <div style={{background:C.card,borderRadius:16,padding:28,width:500,maxWidth:"94vw",maxHeight:"90vh",overflowY:"auto",boxShadow:"0 8px 32px #0003"}}>
             <h3 style={{margin:"0 0 16px",color:C.sl}}>Nuevo Fee Vivero</h3>
             <div style={{display:"flex",flexDirection:"column",gap:6,marginBottom:12}}>
               <label style={{fontSize:11,fontWeight:600,color:"#374151"}}>Empresa *</label>
@@ -2311,14 +2316,14 @@ function FeeViveros({data,setData,tpData,can,clientes=[]}) {
                   const cli=clientes.find(c=>c.id===e.target.value);
                   if(!cli)return;
                   setForm(p=>({...p,empresa:cli.razonSocial||p.empresa,pais:cli.pais||p.pais}));
-                }} style={{width:"100%",padding:"7px 10px",borderRadius:8,border:"1px solid #93c5fd",fontSize:12,color:"#2563eb"}}>
+                }} style={{width:"100%",padding:"7px 10px",borderRadius:8,border:`1px solid ${C.info}`,fontSize:12,color:C.primary}}>
                   <option value="">🔍 Seleccionar desde maestro...</option>
                   {clientes.map(c=><option key={c.id} value={c.id}>{c.razonSocial} — {c.pais}</option>)}
                 </select>
               )}
               <input type="text" value={form.empresa} onChange={e=>setForm(p=>({...p,empresa:e.target.value}))}
                 placeholder="O escribe el nombre..."
-                style={{width:"100%",padding:"7px 10px",borderRadius:8,border:"1px solid #d1d5db",fontSize:13,boxSizing:"border-box"}}/>
+                style={{width:"100%",padding:"7px 10px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:13,boxSizing:"border-box"}}/>
             </div>
             <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
               {[
@@ -2337,17 +2342,17 @@ function FeeViveros({data,setData,tpData,can,clientes=[]}) {
                   <label style={{fontSize:11,fontWeight:600,color:"#374151",display:"block",marginBottom:4}}>{l}</label>
                   {opts
                     ? <select value={form[c]||""} onChange={e=>setForm(p=>({...p,[c]:e.target.value}))}
-                        style={{width:"100%",padding:"7px 10px",borderRadius:8,border:"1px solid #d1d5db",fontSize:13,boxSizing:"border-box"}}>
+                        style={{width:"100%",padding:"7px 10px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:13,boxSizing:"border-box"}}>
                         {opts.map(o=><option key={o}>{o}</option>)}
                       </select>
                     : <input type={t} value={form[c]||""} onChange={e=>setForm(p=>({...p,[c]:e.target.value}))}
-                        style={{width:"100%",padding:"7px 10px",borderRadius:8,border:"1px solid #d1d5db",fontSize:13,boxSizing:"border-box"}}/>
+                        style={{width:"100%",padding:"7px 10px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:13,boxSizing:"border-box"}}/>
                   }
                 </div>
               ))}
             </div>
             <div style={{display:"flex",gap:10,justifyContent:"flex-end",marginTop:20}}>
-              <button onClick={()=>setModal(false)} style={{padding:"8px 18px",borderRadius:8,border:"1px solid #d1d5db",background:"#fff",cursor:"pointer"}}>Cancelar</button>
+              <button onClick={()=>setModal(false)} style={{padding:"8px 18px",borderRadius:8,border:`1px solid ${C.border}`,background:C.card,cursor:"pointer"}}>Cancelar</button>
               <button onClick={agregar} style={{padding:"8px 18px",borderRadius:8,border:"none",background:C.azul,color:"#fff",cursor:"pointer",fontWeight:600}}>Guardar</button>
             </div>
           </div>
@@ -2388,7 +2393,7 @@ function GraficosPlantas({tpData,rpData}) {
   const topClientes = Object.entries(plantasPorCliente).sort((a,b)=>b[1]-a[1]).slice(0,10);
   const maxCli = topClientes[0]?.[1]||1;
 
-  const PAIS_COLOR = {Peru:"#3b82f6",Mexico:"#10b981",Chile:"#f59e0b",Corea:"#8b5cf6",España:"#ef4444"};
+  const PAIS_COLOR = {Peru:C.primary,Mexico:"#10b981",Chile:C.warning,Corea:"#8b5cf6",España:C.danger};
   const N = v => v>=1000000?`${(v/1000000).toFixed(1)}M`:v>=1000?`${Math.round(v/1000)}K`:v.toLocaleString("es-CL");
 
   return (
@@ -2402,15 +2407,15 @@ function GraficosPlantas({tpData,rpData}) {
           ["Clientes únicos", new Set(tpData.map(r=>r.cliente)).size, C.azul, C.azulBg],
           ["Años con pedidos", añosOrden.length, C.mo, C.moBg],
         ].map(([l,v,c,bg])=>(
-          <div key={l} style={{background:bg,borderRadius:12,padding:"14px 16px",border:`1px solid ${c}33`}}>
-            <div style={{fontSize:10,color:c,fontWeight:700,marginBottom:4}}>{l}</div>
+          <div key={l} style={{background:C.card,borderRadius:12,padding:"14px 16px",border:`1px solid ${C.border}`,borderLeft:`4px solid ${c}`,boxShadow:C.shadow}}>
+            <div style={{fontSize:10,color:C.muted,fontWeight:700,marginBottom:4}}>{l}</div>
             <div style={{fontSize:20,fontWeight:800,color:c}}>{v}</div>
           </div>
         ))}
       </div>
 
       {/* Barras por año */}
-      <div style={{background:"#fff",borderRadius:14,padding:20,boxShadow:"0 2px 10px #0001"}}>
+      <div style={{background:C.card,borderRadius:14,padding:20,boxShadow:"0 2px 10px #0001"}}>
         <h4 style={{margin:"0 0 16px",color:C.sl,fontSize:14}}>📅 Plantas vendidas por año</h4>
         <div style={{display:"flex",gap:8,alignItems:"flex-end",height:180,borderBottom:`2px solid ${C.teal}33`,padding:"0 8px 8px"}}>
           {añosOrden.map(año=>{
@@ -2431,12 +2436,12 @@ function GraficosPlantas({tpData,rpData}) {
       </div>
 
       {/* Por país */}
-      <div style={{background:"#fff",borderRadius:14,padding:20,boxShadow:"0 2px 10px #0001"}}>
+      <div style={{background:C.card,borderRadius:14,padding:20,boxShadow:"0 2px 10px #0001"}}>
         <h4 style={{margin:"0 0 16px",color:C.sl,fontSize:14}}>🌎 Plantas por país</h4>
         {paisesOrden.map(([pais,val])=>(
           <div key={pais} style={{display:"grid",gridTemplateColumns:"90px 1fr 90px",gap:10,alignItems:"center",marginBottom:10}}>
             <div style={{fontSize:12,fontWeight:600,color:PAIS_COLOR[pais]||C.sl}}>{pais}</div>
-            <div style={{background:"#f1f5f9",borderRadius:6,height:14,overflow:"hidden"}}>
+            <div style={{background:C.cardAlt,borderRadius:6,height:14,overflow:"hidden"}}>
               <div style={{width:`${(val/maxPais)*100}%`,height:"100%",background:PAIS_COLOR[pais]||C.teal,borderRadius:6,opacity:0.8}}/>
             </div>
             <div style={{textAlign:"right",fontSize:12,fontWeight:700,color:PAIS_COLOR[pais]||C.sl}}>{N(val)}</div>
@@ -2445,13 +2450,13 @@ function GraficosPlantas({tpData,rpData}) {
       </div>
 
       {/* Top 10 clientes */}
-      <div style={{background:"#fff",borderRadius:14,padding:20,boxShadow:"0 2px 10px #0001"}}>
+      <div style={{background:C.card,borderRadius:14,padding:20,boxShadow:"0 2px 10px #0001"}}>
         <h4 style={{margin:"0 0 16px",color:C.sl,fontSize:14}}>🏆 Top 10 clientes por plantas</h4>
         {topClientes.map(([cli,val],i)=>(
           <div key={cli} style={{display:"grid",gridTemplateColumns:"24px 140px 1fr 90px",gap:8,alignItems:"center",marginBottom:8}}>
             <div style={{fontSize:11,fontWeight:800,color:i<3?C.am:C.gris,textAlign:"center"}}>#{i+1}</div>
             <div style={{fontSize:12,fontWeight:600,color:C.sl,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{cli}</div>
-            <div style={{background:"#f1f5f9",borderRadius:6,height:12,overflow:"hidden"}}>
+            <div style={{background:C.cardAlt,borderRadius:6,height:12,overflow:"hidden"}}>
               <div style={{width:`${(val/maxCli)*100}%`,height:"100%",background:i===0?C.am:C.teal,borderRadius:6,opacity:0.75}}/>
             </div>
             <div style={{textAlign:"right",fontSize:12,fontWeight:700,color:C.teal}}>{N(val)}</div>
@@ -2460,11 +2465,11 @@ function GraficosPlantas({tpData,rpData}) {
       </div>
 
       {/* Tabla anual detallada */}
-      <div style={{background:"#fff",borderRadius:14,padding:20,boxShadow:"0 2px 10px #0001"}}>
+      <div style={{background:C.card,borderRadius:14,padding:20,boxShadow:"0 2px 10px #0001"}}>
         <h4 style={{margin:"0 0 14px",color:C.sl,fontSize:14}}>📋 Detalle por año y país</h4>
         <div style={{overflowX:"auto"}}>
           <table style={{borderCollapse:"collapse",width:"100%",fontSize:12}}>
-            <thead><tr style={{background:"#f8fafc"}}>
+            <thead><tr style={{background:C.primary}}>
               <th style={{padding:"8px 12px",textAlign:"left",color:C.gris,fontWeight:600}}>Año</th>
               {paisesOrden.map(([p])=><th key={p} style={{padding:"8px 12px",textAlign:"right",color:PAIS_COLOR[p]||C.sl,fontWeight:600}}>{p}</th>)}
               <th style={{padding:"8px 12px",textAlign:"right",color:C.sl,fontWeight:700}}>Total</th>
@@ -2477,14 +2482,14 @@ function GraficosPlantas({tpData,rpData}) {
                   porPaisAño[p]=(porPaisAño[p]||0)+(Number(r.nPlantas)||0);
                 });
                 return(
-                  <tr key={año} style={{borderTop:"1px solid #f1f5f9",background:i%2===0?"#fff":"#f8fafc"}}>
+                  <tr key={año} style={{borderTop:"1px solid #f1f5f9",background:i%2===0?"#fff":C.cardAlt}}>
                     <td style={{padding:"8px 12px",fontWeight:700,color:C.sl}}>{año}</td>
                     {paisesOrden.map(([p])=><td key={p} style={{padding:"8px 12px",textAlign:"right",color:porPaisAño[p]?PAIS_COLOR[p]||C.teal:C.gris}}>{porPaisAño[p]?N(porPaisAño[p]):"—"}</td>)}
                     <td style={{padding:"8px 12px",textAlign:"right",fontWeight:700,color:C.sl}}>{N(plantasPorAño[año])}</td>
                   </tr>
                 );
               })}
-              <tr style={{borderTop:"2px solid #e2e8f0",background:"#f0f9ff"}}>
+              <tr style={{borderTop:`2px solid ${C.border}`,background:C.cardAlt}}>
                 <td style={{padding:"8px 12px",fontWeight:800,color:C.sl}}>TOTAL</td>
                 {paisesOrden.map(([p,v])=><td key={p} style={{padding:"8px 12px",textAlign:"right",fontWeight:700,color:PAIS_COLOR[p]||C.teal}}>{N(v)}</td>)}
                 <td style={{padding:"8px 12px",textAlign:"right",fontWeight:800,color:C.teal,fontSize:13}}>{N(totalPlantas)}</td>
@@ -2606,8 +2611,8 @@ function ReconciliacionIQ({rpData, feData, rcData, tpData}) {
 
   // Estilo tarjeta país
   const TarjetaPais = ({pais, data, color, bgColor}) => (
-    <div style={{background:bgColor, borderRadius:12, padding:"14px 18px",
-      border:`1px solid ${color}44`, minWidth:260, flex:1}}>
+    <div style={{background:C.card, borderRadius:12, padding:"14px 18px",
+      border:`1px solid ${C.border}`, borderLeft:`4px solid ${color}`, boxShadow:C.shadow, minWidth:260, flex:1}}>
       <div style={{fontSize:10, color:C.gris, letterSpacing:1, marginBottom:4, fontWeight:700}}>
         🌍 {pais.toUpperCase()}
       </div>
@@ -2658,15 +2663,15 @@ function ReconciliacionIQ({rpData, feData, rcData, tpData}) {
         </div>
       </div>
       {items.length===0 ? (
-        <div style={{textAlign:"center", padding:24, color:"#94a3b8", fontSize:12,
-          background:"#f8fafc", borderRadius:10}}>
+        <div style={{textAlign:"center", padding:24, color:C.muted2, fontSize:12,
+          background:C.cardAlt, borderRadius:10}}>
           Sin registros
         </div>
       ) : (
         <div style={{overflowX:"auto", borderRadius:10, boxShadow:"0 1px 4px #0001"}}>
-          <table style={{width:"100%", borderCollapse:"collapse", background:"#fff", fontSize:11}}>
+          <table style={{width:"100%", borderCollapse:"collapse", background:C.card, fontSize:11}}>
             <thead>
-              <tr style={{background:"#0f172a", color:"#fff"}}>
+              <tr style={{background:C.primary, color:"#fff"}}>
                 <th style={{padding:"8px 10px", textAlign:"left", fontWeight:600}}>Concepto</th>
                 <th style={{padding:"8px 10px", textAlign:"left", fontWeight:600}}>Cliente</th>
                 <th style={{padding:"8px 10px", textAlign:"center", fontWeight:600}}>País</th>
@@ -2683,7 +2688,7 @@ function ReconciliacionIQ({rpData, feData, rcData, tpData}) {
             <tbody>
               {items.map((r,i)=>(
                 <tr key={`${r.tipo}_${r.id}`} style={{borderBottom:"1px solid #f1f5f9",
-                  background:i%2===0?"#fff":"#fafafa"}}>
+                  background:i%2===0?"#fff":C.rowAlt}}>
                   <td style={{padding:"6px 10px"}}>
                     <span style={{fontSize:10, background:r.tipo==="rp"?C.verdeBg:r.tipo==="fe"?C.azulBg:C.moBg,
                       color:r.tipo==="rp"?C.verde:r.tipo==="fe"?C.azul:C.mo,
@@ -2710,7 +2715,7 @@ function ReconciliacionIQ({rpData, feData, rcData, tpData}) {
               ))}
             </tbody>
             <tfoot>
-              <tr style={{background:"#f1f5f9", borderTop:"2px solid #cbd5e1"}}>
+              <tr style={{background:C.cardAlt, borderTop:`2px solid ${C.border2}`}}>
                 <td colSpan={7} style={{padding:"8px 10px", fontWeight:800, color:C.sl}}>TOTAL</td>
                 <td style={{padding:"8px 10px", textAlign:"right", fontWeight:900, color:C.sl, fontSize:13}}>{$$(tot)}</td>
                 <td style={{padding:"8px 10px", textAlign:"right", fontWeight:900, color:color, fontSize:13}}>{$$(totIQ)}</td>
@@ -2782,29 +2787,29 @@ function ReconciliacionIQ({rpData, feData, rcData, tpData}) {
 
       {/* Filtros */}
       <div style={{display:"flex", gap:10, marginBottom:16, flexWrap:"wrap", alignItems:"center",
-        background:"#f8fafc", borderRadius:10, padding:"10px 14px", border:"1px solid #e2e8f0"}}>
+        background:C.cardAlt, borderRadius:10, padding:"10px 14px", border:`1px solid ${C.border}`}}>
         <span style={{fontSize:11, color:C.gris, fontWeight:700}}>Filtros:</span>
         <select value={filtroPais} onChange={e=>setFiltroPais(e.target.value)}
-          style={{padding:"6px 10px", borderRadius:8, border:"1px solid #d1d5db", fontSize:12, outline:"none"}}>
+          style={{padding:"6px 10px", borderRadius:8, border:`1px solid ${C.border}`, fontSize:12, outline:"none"}}>
           {paises.map(p=><option key={p} value={p}>🌍 {p}</option>)}
         </select>
         <select value={filtroAño} onChange={e=>setFiltroAño(e.target.value)}
-          style={{padding:"6px 10px", borderRadius:8, border:"1px solid #d1d5db", fontSize:12, outline:"none"}}>
+          style={{padding:"6px 10px", borderRadius:8, border:`1px solid ${C.border}`, fontSize:12, outline:"none"}}>
           {años.map(a=><option key={a} value={a}>📅 {a}</option>)}
         </select>
         <input placeholder="🔍 Buscar cliente..." value={filtroCliente} onChange={e=>setFiltroCliente(e.target.value)}
-          style={{padding:"6px 10px", borderRadius:8, border:"1px solid #d1d5db", fontSize:12, outline:"none", minWidth:180}}/>
+          style={{padding:"6px 10px", borderRadius:8, border:`1px solid ${C.border}`, fontSize:12, outline:"none", minWidth:180}}/>
         {(filtroPais!=="Todos"||filtroAño!=="Todos"||filtroCliente)&&(
           <button onClick={()=>{setFiltroPais("Todos");setFiltroAño("Todos");setFiltroCliente("");}}
-            style={{padding:"5px 12px", borderRadius:8, background:"#fff", border:"1px solid #d1d5db",
+            style={{padding:"5px 12px", borderRadius:8, background:C.card, border:`1px solid ${C.border}`,
               cursor:"pointer", fontSize:11, color:C.gris}}>✕ Limpiar</button>
         )}
       </div>
 
       {/* KPIs Pagado / Pendiente */}
       <div style={{display:"flex", gap:12, marginBottom:20, flexWrap:"wrap"}}>
-        <div style={{background:"linear-gradient(135deg,#dcfce7,#bbf7d0)", borderRadius:12,
-          padding:"16px 20px", border:`2px solid ${C.verde}`, flex:1, minWidth:260}}>
+        <div style={{background:C.card, borderRadius:12,
+          padding:"16px 20px", border:`1px solid ${C.border}`, borderLeft:`4px solid ${C.verde}`, boxShadow:C.shadow, flex:1, minWidth:260}}>
           <div style={{fontSize:10, color:C.verde, letterSpacing:2, fontWeight:800, marginBottom:4}}>✅ IQ FIRME (PAGADO POR CLIENTE)</div>
           <div style={{fontSize:11, color:C.sl, marginBottom:1}}>Facturado + Cobrado</div>
           <div style={{fontSize:14, fontWeight:700, color:C.sl, marginBottom:4}}>{$$(totPagadoFact)}</div>
@@ -2821,8 +2826,8 @@ function ReconciliacionIQ({rpData, feData, rcData, tpData}) {
           <div style={{fontSize:10, color:C.gris, marginTop:4}}>{pagados.length} registros</div>
         </div>
 
-        <div style={{background:"linear-gradient(135deg,#fef3c7,#fde68a)", borderRadius:12,
-          padding:"16px 20px", border:`2px solid ${C.am}`, flex:1, minWidth:260}}>
+        <div style={{background:C.card, borderRadius:12,
+          padding:"16px 20px", border:`1px solid ${C.border}`, borderLeft:`4px solid ${C.am}`, boxShadow:C.shadow, flex:1, minWidth:260}}>
           <div style={{fontSize:10, color:C.am, letterSpacing:2, fontWeight:800, marginBottom:4}}>⏳ IQ PROYECTADO (POR COBRAR)</div>
           <div style={{fontSize:11, color:C.sl, marginBottom:1}}>Facturado por cobrar</div>
           <div style={{fontSize:14, fontWeight:700, color:C.sl, marginBottom:4}}>{$$(totPendienteFact)}</div>
@@ -2839,8 +2844,8 @@ function ReconciliacionIQ({rpData, feData, rcData, tpData}) {
           <div style={{fontSize:10, color:C.gris, marginTop:4}}>{pendientes.length} registros</div>
         </div>
 
-        <div style={{background:"linear-gradient(135deg,#dbeafe,#bfdbfe)", borderRadius:12,
-          padding:"16px 20px", border:`2px solid ${C.azul}`, flex:1, minWidth:260}}>
+        <div style={{background:C.card, borderRadius:12,
+          padding:"16px 20px", border:`1px solid ${C.border}`, borderLeft:`4px solid ${C.azul}`, boxShadow:C.shadow, flex:1, minWidth:260}}>
           <div style={{fontSize:10, color:C.azul, letterSpacing:2, fontWeight:800, marginBottom:4}}>📊 IQ TOTAL (FACTURADO)</div>
           <div style={{fontSize:11, color:C.sl, marginBottom:1}}>Base total facturada</div>
           <div style={{fontSize:14, fontWeight:700, color:C.sl, marginBottom:4}}>{$$(totPagadoFact+totPendienteFact)}</div>
@@ -2903,8 +2908,8 @@ function ReconciliacionIQ({rpData, feData, rcData, tpData}) {
       />
 
       {/* Nota explicativa */}
-      <div style={{background:"#f0f9ff", border:"1px solid #bae6fd", borderRadius:10,
-        padding:"12px 16px", fontSize:11, color:"#0c4a6e", marginTop:10}}>
+      <div style={{background:C.infoBg, border:`1px solid ${C.info}44`, borderRadius:10,
+        padding:"12px 16px", fontSize:11, color:C.info, marginTop:10}}>
         <strong>ℹ️ Metodología:</strong> La Reconciliación IQ calcula: <strong>(1)</strong> IQ bruto = 70% del monto facturado al cliente
         en los 3 conceptos (Fee Entrada + Royalty Planta + Royalty Comercial); <strong>(2)</strong> WHT = 10% de retención sobre el IQ bruto;
         <strong> (3)</strong> Pago Neto a IQ = IQ bruto − WHT.
@@ -3052,18 +3057,18 @@ function DashboardAnalitico({ctData,feData,rpData,rcData,tpData,especiesMaestro=
   },[rcFilt]);
 
   const KpiCard = ({label,val,sub,col}) => (
-    <div style={{flex:1,minWidth:160,background:"#fff",borderRadius:10,padding:"12px 14px",borderLeft:`4px solid ${col}`,boxShadow:"0 1px 4px #0001"}}>
-      <div style={{fontSize:10,color:"#64748b",fontWeight:700,textTransform:"uppercase",letterSpacing:0.5}}>{label}</div>
+    <div style={{flex:1,minWidth:160,background:C.card,borderRadius:10,padding:"12px 14px",borderLeft:`4px solid ${col}`,boxShadow:"0 1px 4px #0001"}}>
+      <div style={{fontSize:10,color:C.muted,fontWeight:700,textTransform:"uppercase",letterSpacing:0.5}}>{label}</div>
       <div style={{fontSize:18,fontWeight:900,color:col,marginTop:3}}>{val}</div>
-      {sub&&<div style={{fontSize:10,color:"#94a3b8",marginTop:3}}>{sub}</div>}
+      {sub&&<div style={{fontSize:10,color:C.muted2,marginTop:3}}>{sub}</div>}
     </div>
   );
 
   const fmt = (v) => `$${(parseFloat(v)||0).toLocaleString("en-US",{minimumFractionDigits:0,maximumFractionDigits:0})}`;
 
   // Bar chart simple en SVG
-  const BarChart = ({data, getLabel, getValue, color="#7c3aed", getColor=null, fmtVal=v=>v.toLocaleString()}) => {
-    if(data.length===0) return <div style={{padding:20,textAlign:"center",color:"#94a3b8",fontSize:12}}>Sin datos</div>;
+  const BarChart = ({data, getLabel, getValue, color=C.purple, getColor=null, fmtVal=v=>v.toLocaleString()}) => {
+    if(data.length===0) return <div style={{padding:20,textAlign:"center",color:C.muted2,fontSize:12}}>Sin datos</div>;
     const maxV = Math.max(...data.map(getValue),1);
     return (
       <div>
@@ -3073,11 +3078,11 @@ function DashboardAnalitico({ctData,feData,rpData,rcData,tpData,especiesMaestro=
           const barColor = getColor?getColor(d)||color:color;
           return (
             <div key={i} style={{display:"flex",alignItems:"center",gap:10,marginBottom:6}}>
-              <div style={{width:120,fontSize:11,color:"#475569",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",display:"flex",alignItems:"center",gap:6}}>
+              <div style={{width:120,fontSize:11,color:C.muted,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",display:"flex",alignItems:"center",gap:6}}>
                 {getColor&&<div style={{width:10,height:10,borderRadius:3,background:barColor,flexShrink:0,boxShadow:"0 1px 2px #0002"}}/>}
                 <span style={{overflow:"hidden",textOverflow:"ellipsis"}}>{getLabel(d)}</span>
               </div>
-              <div style={{flex:1,background:"#f1f5f9",height:24,borderRadius:6,overflow:"hidden",position:"relative"}}>
+              <div style={{flex:1,background:C.cardAlt,height:24,borderRadius:6,overflow:"hidden",position:"relative"}}>
                 <div style={{width:`${pct}%`,height:"100%",background:barColor,borderRadius:6,transition:"width 0.3s"}}/>
                 <div style={{position:"absolute",right:6,top:0,bottom:0,display:"flex",alignItems:"center",fontSize:10,fontWeight:700,color:"#fff",textShadow:"0 1px 2px #0006"}}>{fmtVal(v)}</div>
               </div>
@@ -3091,76 +3096,76 @@ function DashboardAnalitico({ctData,feData,rpData,rcData,tpData,especiesMaestro=
   return (
     <div style={{display:"flex",flexDirection:"column",gap:16}}>
       {/* Filtros */}
-      <div style={{background:"linear-gradient(135deg,#f0f9ff,#dbeafe)",border:"1px solid #93c5fd",borderRadius:12,padding:16}}>
-        <div style={{fontSize:12,fontWeight:700,color:"#1e3a8a",marginBottom:10}}>🔎 Filtros</div>
+      <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,padding:16,boxShadow:C.shadow}}>
+        <div style={{fontSize:12,fontWeight:700,color:C.text,marginBottom:10}}>🔎 Filtros</div>
         <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(180px,1fr))",gap:10}}>
           <div>
-            <div style={{fontSize:10,color:"#64748b",fontWeight:600,marginBottom:3}}>País</div>
-            <select value={filtroPais} onChange={e=>setFiltroPais(e.target.value)} style={{width:"100%",padding:"6px 10px",borderRadius:6,border:"1px solid #93c5fd",fontSize:12,background:"#fff"}}>
+            <div style={{fontSize:10,color:C.muted,fontWeight:600,marginBottom:3}}>País</div>
+            <select value={filtroPais} onChange={e=>setFiltroPais(e.target.value)} style={{width:"100%",padding:"6px 10px",borderRadius:6,border:`1px solid ${C.info}`,fontSize:12,background:C.card}}>
               {paises.map(p=><option key={p}>{p}</option>)}
             </select>
           </div>
           <div>
-            <div style={{fontSize:10,color:"#64748b",fontWeight:600,marginBottom:3}}>Especie</div>
-            <select value={filtroEspecie} onChange={e=>{setFiltroEspecie(e.target.value);setFiltroVariedad("Todos");}} style={{width:"100%",padding:"6px 10px",borderRadius:6,border:"1px solid #93c5fd",fontSize:12,background:"#fff"}}>
+            <div style={{fontSize:10,color:C.muted,fontWeight:600,marginBottom:3}}>Especie</div>
+            <select value={filtroEspecie} onChange={e=>{setFiltroEspecie(e.target.value);setFiltroVariedad("Todos");}} style={{width:"100%",padding:"6px 10px",borderRadius:6,border:`1px solid ${C.info}`,fontSize:12,background:C.card}}>
               {especies.map(p=><option key={p}>{p}</option>)}
             </select>
           </div>
           <div>
-            <div style={{fontSize:10,color:"#64748b",fontWeight:600,marginBottom:3}}>Variedad</div>
-            <select value={filtroVariedad} onChange={e=>setFiltroVariedad(e.target.value)} style={{width:"100%",padding:"6px 10px",borderRadius:6,border:"1px solid #93c5fd",fontSize:12,background:"#fff"}}>
+            <div style={{fontSize:10,color:C.muted,fontWeight:600,marginBottom:3}}>Variedad</div>
+            <select value={filtroVariedad} onChange={e=>setFiltroVariedad(e.target.value)} style={{width:"100%",padding:"6px 10px",borderRadius:6,border:`1px solid ${C.info}`,fontSize:12,background:C.card}}>
               {variedades.map(p=><option key={p}>{p}</option>)}
             </select>
           </div>
           <div>
-            <div style={{fontSize:10,color:"#64748b",fontWeight:600,marginBottom:3}}>Cliente</div>
+            <div style={{fontSize:10,color:C.muted,fontWeight:600,marginBottom:3}}>Cliente</div>
             <input value={filtroCliente} onChange={e=>setFiltroCliente(e.target.value)} placeholder="Buscar..."
-              style={{width:"100%",padding:"6px 10px",borderRadius:6,border:"1px solid #93c5fd",fontSize:12,boxSizing:"border-box"}}/>
+              style={{width:"100%",padding:"6px 10px",borderRadius:6,border:`1px solid ${C.info}`,fontSize:12,boxSizing:"border-box"}}/>
           </div>
           <div>
-            <div style={{fontSize:10,color:"#64748b",fontWeight:600,marginBottom:3}}>Temporada (RC)</div>
-            <select value={filtroTemp} onChange={e=>setFiltroTemp(e.target.value)} style={{width:"100%",padding:"6px 10px",borderRadius:6,border:"1px solid #93c5fd",fontSize:12,background:"#fff"}}>
+            <div style={{fontSize:10,color:C.muted,fontWeight:600,marginBottom:3}}>Temporada (RC)</div>
+            <select value={filtroTemp} onChange={e=>setFiltroTemp(e.target.value)} style={{width:"100%",padding:"6px 10px",borderRadius:6,border:`1px solid ${C.info}`,fontSize:12,background:C.card}}>
               {temporadas.map(p=><option key={p}>{p}</option>)}
             </select>
           </div>
           <div>
-            <div style={{fontSize:10,color:"#64748b",fontWeight:600,marginBottom:3}}>Estado cobranza</div>
-            <select value={filtroCobranza} onChange={e=>setFiltroCobranza(e.target.value)} style={{width:"100%",padding:"6px 10px",borderRadius:6,border:"1px solid #93c5fd",fontSize:12,background:"#fff"}}>
+            <div style={{fontSize:10,color:C.muted,fontWeight:600,marginBottom:3}}>Estado cobranza</div>
+            <select value={filtroCobranza} onChange={e=>setFiltroCobranza(e.target.value)} style={{width:"100%",padding:"6px 10px",borderRadius:6,border:`1px solid ${C.info}`,fontSize:12,background:C.card}}>
               <option>Todos</option><option>Pagado</option><option>Por cobrar</option>
             </select>
           </div>
           <div style={{display:"flex",alignItems:"flex-end"}}>
             <button onClick={()=>{setFiltroPais("Todos");setFiltroEspecie("Todos");setFiltroVariedad("Todos");setFiltroCliente("");setFiltroTemp("Todas");setFiltroCobranza("Todos");}}
-              style={{padding:"6px 12px",borderRadius:6,background:"#1e293b",color:"#fff",border:"none",cursor:"pointer",fontSize:11,fontWeight:600}}>↺ Reset</button>
+              style={{padding:"6px 12px",borderRadius:6,background:C.primary,color:"#fff",border:"none",cursor:"pointer",fontSize:11,fontWeight:600}}>↺ Reset</button>
           </div>
         </div>
       </div>
 
       {/* KPIs operativos */}
       <div style={{display:"flex",gap:12,flexWrap:"wrap"}}>
-        <KpiCard label="Plantaciones" val={tpFilt.length} sub={`${cantContratos} contrato${cantContratos!==1?"s":""}`} col="#15803d"/>
-        <KpiCard label="Plantas" val={totPlantas.toLocaleString()} sub={`${totHa.toFixed(2)} há totales`} col="#16a34a"/>
-        <KpiCard label="Ingresos facturables" val={fmt(totFact)} sub="100% USD bruto" col="#0f766e"/>
-        <KpiCard label="Neto cobrable" val={fmt(totNeto)} sub={`WHT ${fmt(totWHT)}`} col="#0d9488"/>
-        <KpiCard label="Cobrado" val={fmt(totPagado)} sub={`${totNeto>0?Math.round(totPagado/totNeto*100):0}% del neto`} col="#22c55e"/>
-        <KpiCard label="Por cobrar" val={fmt(porCobrar)} sub="Saldo pendiente" col="#f59e0b"/>
+        <KpiCard label="Plantaciones" val={tpFilt.length} sub={`${cantContratos} contrato${cantContratos!==1?"s":""}`} col={C.success}/>
+        <KpiCard label="Plantas" val={totPlantas.toLocaleString()} sub={`${totHa.toFixed(2)} há totales`} col={C.success}/>
+        <KpiCard label="Ingresos facturables" val={fmt(totFact)} sub="100% USD bruto" col={C.accent2}/>
+        <KpiCard label="Neto cobrable" val={fmt(totNeto)} sub={`WHT ${fmt(totWHT)}`} col={C.accent2}/>
+        <KpiCard label="Cobrado" val={fmt(totPagado)} sub={`${totNeto>0?Math.round(totPagado/totNeto*100):0}% del neto`} col={C.success}/>
+        <KpiCard label="Por cobrar" val={fmt(porCobrar)} sub="Saldo pendiente" col={C.warning}/>
       </div>
 
       {/* KPIs por concepto */}
-      <div style={{background:"#fff",borderRadius:12,padding:16,boxShadow:"0 1px 6px #0001"}}>
-        <div style={{fontSize:13,fontWeight:700,color:"#1e293b",marginBottom:12}}>💰 Ingresos por concepto</div>
+      <div style={{background:C.card,borderRadius:12,padding:16,boxShadow:"0 1px 6px #0001"}}>
+        <div style={{fontSize:13,fontWeight:700,color:C.text,marginBottom:12}}>💰 Ingresos por concepto</div>
         <div style={{overflowX:"auto"}}>
           <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
-            <thead><tr style={{background:"#f8fafc",borderBottom:"2px solid #e2e8f0"}}>
+            <thead><tr style={{background:C.primary}}>
               {["Concepto","Registros","Facturable","WHT","Neto","Cobrado","Por cobrar","%"].map(h=>(
-                <th key={h} style={{padding:"8px 10px",textAlign:h==="Concepto"?"left":"right",fontSize:11,fontWeight:700,color:"#475569"}}>{h}</th>
+                <th key={h} style={{padding:"8px 10px",textAlign:h==="Concepto"?"left":"right",fontSize:11,fontWeight:700,color:C.muted}}>{h}</th>
               ))}
             </tr></thead>
             <tbody>
               {[
-                {k:"💵 Contract Fee",  fact:cfFact, neto:cfNeto, pagado:cfPagado, n:feFilt.length, col:"#92400e"},
-                {k:"🌱 Royalty Planta", fact:rpFact, neto:rpNeto, pagado:rpPagado, n:rpFilt.length, col:"#15803d"},
-                {k:"📈 Royalty Comercial", fact:rcFact, neto:rcNeto, pagado:rcPagado, n:rcFilt.length, col:"#9d174d"},
+                {k:"💵 Contract Fee",  fact:cfFact, neto:cfNeto, pagado:cfPagado, n:feFilt.length, col:C.text},
+                {k:"🌱 Royalty Planta", fact:rpFact, neto:rpNeto, pagado:rpPagado, n:rpFilt.length, col:C.success},
+                {k:"📈 Royalty Comercial", fact:rcFact, neto:rcNeto, pagado:rcPagado, n:rcFilt.length, col:C.text},
               ].map(row=>{
                 const wht = row.fact - row.neto;
                 const pc = row.neto - row.pagado;
@@ -3170,26 +3175,26 @@ function DashboardAnalitico({ctData,feData,rpData,rcData,tpData,especiesMaestro=
                     <td style={{padding:"8px 10px",fontWeight:700,color:row.col}}>{row.k}</td>
                     <td style={{padding:"8px 10px",textAlign:"right"}}>{row.n}</td>
                     <td style={{padding:"8px 10px",textAlign:"right",fontWeight:600}}>{fmt(row.fact)}</td>
-                    <td style={{padding:"8px 10px",textAlign:"right",color:wht>0?"#dc2626":"#94a3b8"}}>{wht>0?`-${fmt(wht)}`:"—"}</td>
-                    <td style={{padding:"8px 10px",textAlign:"right",fontWeight:700,color:"#0f766e"}}>{fmt(row.neto)}</td>
-                    <td style={{padding:"8px 10px",textAlign:"right",fontWeight:700,color:"#22c55e"}}>{fmt(row.pagado)}</td>
-                    <td style={{padding:"8px 10px",textAlign:"right",fontWeight:700,color:"#f59e0b"}}>{fmt(pc)}</td>
+                    <td style={{padding:"8px 10px",textAlign:"right",color:wht>0?C.danger:C.muted2}}>{wht>0?`-${fmt(wht)}`:"—"}</td>
+                    <td style={{padding:"8px 10px",textAlign:"right",fontWeight:700,color:C.accent2}}>{fmt(row.neto)}</td>
+                    <td style={{padding:"8px 10px",textAlign:"right",fontWeight:700,color:C.success}}>{fmt(row.pagado)}</td>
+                    <td style={{padding:"8px 10px",textAlign:"right",fontWeight:700,color:C.warning}}>{fmt(pc)}</td>
                     <td style={{padding:"8px 10px",textAlign:"right"}}>
                       <span style={{padding:"2px 8px",borderRadius:10,fontSize:10,fontWeight:700,
-                        background:pctPag>=80?"#dcfce7":pctPag>=50?"#fef3c7":"#fee2e2",
-                        color:pctPag>=80?"#15803d":pctPag>=50?"#92400e":"#991b1b"}}>{pctPag}%</span>
+                        background:pctPag>=80?C.successBg:pctPag>=50?C.warningBg:C.dangerBg,
+                        color:pctPag>=80?C.success:pctPag>=50?C.text:C.danger}}>{pctPag}%</span>
                     </td>
                   </tr>
                 );
               })}
-              <tr style={{background:"#f0fdfa",fontWeight:900,borderTop:"2px solid #14b8a6"}}>
+              <tr style={{background:C.cardAlt,fontWeight:900,borderTop:`2px solid ${C.border2}`}}>
                 <td style={{padding:"10px"}}>TOTAL</td>
                 <td style={{padding:"10px",textAlign:"right"}}>{feFilt.length+rpFilt.length+rcFilt.length}</td>
-                <td style={{padding:"10px",textAlign:"right",color:"#0f766e"}}>{fmt(totFact)}</td>
-                <td style={{padding:"10px",textAlign:"right",color:"#dc2626"}}>{totWHT>0?`-${fmt(totWHT)}`:"—"}</td>
-                <td style={{padding:"10px",textAlign:"right",color:"#0f766e"}}>{fmt(totNeto)}</td>
-                <td style={{padding:"10px",textAlign:"right",color:"#22c55e"}}>{fmt(totPagado)}</td>
-                <td style={{padding:"10px",textAlign:"right",color:"#f59e0b"}}>{fmt(porCobrar)}</td>
+                <td style={{padding:"10px",textAlign:"right",color:C.accent2}}>{fmt(totFact)}</td>
+                <td style={{padding:"10px",textAlign:"right",color:C.danger}}>{totWHT>0?`-${fmt(totWHT)}`:"—"}</td>
+                <td style={{padding:"10px",textAlign:"right",color:C.accent2}}>{fmt(totNeto)}</td>
+                <td style={{padding:"10px",textAlign:"right",color:C.success}}>{fmt(totPagado)}</td>
+                <td style={{padding:"10px",textAlign:"right",color:C.warning}}>{fmt(porCobrar)}</td>
                 <td style={{padding:"10px",textAlign:"right"}}>{totNeto>0?Math.round(totPagado/totNeto*100):0}%</td>
               </tr>
             </tbody>
@@ -3199,29 +3204,29 @@ function DashboardAnalitico({ctData,feData,rpData,rcData,tpData,especiesMaestro=
 
       {/* Gráficos */}
       <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(360px,1fr))",gap:14}}>
-        <div style={{background:"#fff",borderRadius:12,padding:16,boxShadow:"0 1px 6px #0001"}}>
-          <div style={{fontSize:13,fontWeight:700,color:"#1e293b",marginBottom:12}}>🌿 Plantas por especie</div>
-          <BarChart data={plantasPorEspecie} getLabel={d=>d.especie} getValue={d=>d.plantas} color="#16a34a"
+        <div style={{background:C.card,borderRadius:12,padding:16,boxShadow:"0 1px 6px #0001"}}>
+          <div style={{fontSize:13,fontWeight:700,color:C.text,marginBottom:12}}>🌿 Plantas por especie</div>
+          <BarChart data={plantasPorEspecie} getLabel={d=>d.especie} getValue={d=>d.plantas} color={C.success}
             getColor={d=>{
               const esp = (especiesMaestro||[]).find(e=>e.nombre.toLowerCase().trim()===(d.especie||"").toLowerCase().trim());
-              return esp?.color || "#16a34a";
+              return esp?.color || C.success;
             }}
             fmtVal={v=>v.toLocaleString()}/>
         </div>
-        <div style={{background:"#fff",borderRadius:12,padding:16,boxShadow:"0 1px 6px #0001"}}>
-          <div style={{fontSize:13,fontWeight:700,color:"#1e293b",marginBottom:12}}>🌍 Hectáreas por país</div>
+        <div style={{background:C.card,borderRadius:12,padding:16,boxShadow:"0 1px 6px #0001"}}>
+          <div style={{fontSize:13,fontWeight:700,color:C.text,marginBottom:12}}>🌍 Hectáreas por país</div>
           <BarChart data={haPorPais} getLabel={d=>d.pais} getValue={d=>d.ha} color="#0284c7" fmtVal={v=>`${v.toFixed(2)} há`}/>
         </div>
-        <div style={{background:"#fff",borderRadius:12,padding:16,boxShadow:"0 1px 6px #0001",gridColumn:"1 / -1"}}>
-          <div style={{fontSize:13,fontWeight:700,color:"#1e293b",marginBottom:12}}>📈 Royalty Comercial — Comparativo por temporada</div>
+        <div style={{background:C.card,borderRadius:12,padding:16,boxShadow:"0 1px 6px #0001",gridColumn:"1 / -1"}}>
+          <div style={{fontSize:13,fontWeight:700,color:C.text,marginBottom:12}}>📈 Royalty Comercial — Comparativo por temporada</div>
           {ingresosPorTemporada.length===0?(
-            <div style={{padding:20,textAlign:"center",color:"#94a3b8",fontSize:12}}>Sin datos. Asegúrate que los contratos tengan plantaciones y temporada inicio definida.</div>
+            <div style={{padding:20,textAlign:"center",color:C.muted2,fontSize:12}}>Sin datos. Asegúrate que los contratos tengan plantaciones y temporada inicio definida.</div>
           ):(
             <div style={{overflowX:"auto"}}>
               <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
-                <thead><tr style={{background:"#fce7f3"}}>
+                <thead><tr style={{background:C.primary}}>
                   {["Temporada","Facturable","Cobrado","Por cobrar","%"].map(h=>(
-                    <th key={h} style={{padding:"7px 10px",textAlign:h==="Temporada"?"left":"right",fontSize:11,fontWeight:700,color:"#9d174d"}}>{h}</th>
+                    <th key={h} style={{padding:"7px 10px",textAlign:h==="Temporada"?"left":"right",fontSize:11,fontWeight:700,color:C.primaryText}}>{h}</th>
                   ))}
                 </tr></thead>
                 <tbody>
@@ -3230,14 +3235,14 @@ function DashboardAnalitico({ctData,feData,rpData,rcData,tpData,especiesMaestro=
                     const pctC = totT>0?Math.round(r.cobrado/totT*100):0;
                     return (
                       <tr key={r.temporada} style={{borderBottom:"1px solid #fce7f3"}}>
-                        <td style={{padding:"6px 10px",fontWeight:700,color:"#9d174d"}}>{r.temporada}</td>
+                        <td style={{padding:"6px 10px",fontWeight:700,color:C.text}}>{r.temporada}</td>
                         <td style={{padding:"6px 10px",textAlign:"right",fontWeight:600}}>{fmt(r.fact)}</td>
-                        <td style={{padding:"6px 10px",textAlign:"right",color:"#22c55e",fontWeight:700}}>{fmt(r.cobrado)}</td>
-                        <td style={{padding:"6px 10px",textAlign:"right",color:"#f59e0b",fontWeight:700}}>{fmt(r.porCobrar)}</td>
+                        <td style={{padding:"6px 10px",textAlign:"right",color:C.success,fontWeight:700}}>{fmt(r.cobrado)}</td>
+                        <td style={{padding:"6px 10px",textAlign:"right",color:C.warning,fontWeight:700}}>{fmt(r.porCobrar)}</td>
                         <td style={{padding:"6px 10px",textAlign:"right"}}>
                           <span style={{padding:"2px 8px",borderRadius:10,fontSize:10,fontWeight:700,
-                            background:pctC>=80?"#dcfce7":pctC>=50?"#fef3c7":"#fee2e2",
-                            color:pctC>=80?"#15803d":pctC>=50?"#92400e":"#991b1b"}}>{pctC}%</span>
+                            background:pctC>=80?C.successBg:pctC>=50?C.warningBg:C.dangerBg,
+                            color:pctC>=80?C.success:pctC>=50?C.text:C.danger}}>{pctC}%</span>
                         </td>
                       </tr>
                     );
@@ -3250,37 +3255,37 @@ function DashboardAnalitico({ctData,feData,rpData,rcData,tpData,especiesMaestro=
       </div>
 
       {/* Detalle plantaciones filtradas */}
-      <div style={{background:"#fff",borderRadius:12,padding:16,boxShadow:"0 1px 6px #0001"}}>
-        <div style={{fontSize:13,fontWeight:700,color:"#1e293b",marginBottom:12}}>📋 Plantaciones filtradas ({tpFilt.length})</div>
+      <div style={{background:C.card,borderRadius:12,padding:16,boxShadow:"0 1px 6px #0001"}}>
+        <div style={{fontSize:13,fontWeight:700,color:C.text,marginBottom:12}}>📋 Plantaciones filtradas ({tpFilt.length})</div>
         {tpFilt.length===0?(
-          <div style={{padding:20,textAlign:"center",color:"#94a3b8",fontSize:12}}>Sin plantaciones que coincidan con los filtros.</div>
+          <div style={{padding:20,textAlign:"center",color:C.muted2,fontSize:12}}>Sin plantaciones que coincidan con los filtros.</div>
         ):(
           <div style={{overflowX:"auto",maxHeight:340}}>
             <table style={{width:"100%",borderCollapse:"collapse",fontSize:11}}>
-              <thead style={{position:"sticky",top:0,zIndex:1}}><tr style={{background:"#f8fafc"}}>
-                {["Cliente","País","Especie","Variedad","Plantas","Há","Sublicenciatario","Estado"].map(h=>(
-                  <th key={h} style={{padding:"6px 8px",textAlign:h==="Plantas"||h==="Há"?"right":"left",fontSize:10,fontWeight:700,color:"#475569",borderBottom:"2px solid #e2e8f0"}}>{h}</th>
+              <thead style={{position:"sticky",top:0,zIndex:1}}><tr style={{background:C.primary}}>
+{["Cliente","País","Especie","Variedad","Plantas","Há","Sublicenciatario","Estado"].map(h=>(
+                  <th key={h} style={{padding:"6px 8px",textAlign:h==="Plantas"||h==="Há"?"right":"left",fontSize:10,fontWeight:700,color:C.muted,borderBottom:`2px solid ${C.border}`}}>{h}</th>
                 ))}
               </tr></thead>
               <tbody>
                 {tpFilt.map((p,i)=>{
                   const esp = (especiesMaestro||[]).find(e=>e.nombre.toLowerCase().trim()===(p.especie||"").toLowerCase().trim());
                   return (
-                  <tr key={p.id} style={{borderBottom:"1px solid #f1f5f9",background:i%2?"#f8fafc":"#fff"}}>
+                  <tr key={p.id} style={{borderBottom:"1px solid #f1f5f9",background:i%2?C.cardAlt:"#fff"}}>
                     <td style={{padding:"5px 8px",fontWeight:600}}>{p.cliente||"—"}</td>
                     <td style={{padding:"5px 8px"}}>{p.pais||"—"}</td>
                     <td style={{padding:"5px 8px"}}>
                       {esp&&<span style={{display:"inline-block",width:10,height:10,borderRadius:3,background:esp.color,marginRight:6,verticalAlign:"middle"}}/>}
                       {p.especie||"—"}
                     </td>
-                    <td style={{padding:"5px 8px",fontWeight:600,color:"#15803d"}}>{p.variedad||"—"}</td>
+                    <td style={{padding:"5px 8px",fontWeight:600,color:C.success}}>{p.variedad||"—"}</td>
                     <td style={{padding:"5px 8px",textAlign:"right"}}>{(parseFloat(p.nPlantas)||0).toLocaleString()}</td>
                     <td style={{padding:"5px 8px",textAlign:"right"}}>{(parseFloat(p.hectareas)||0).toFixed(2)}</td>
-                    <td style={{padding:"5px 8px",fontStyle:p.sublicenciatario?"normal":"italic",color:p.sublicenciatario?"#0284c7":"#94a3b8"}}>{p.sublicenciatario||"—"}</td>
+                    <td style={{padding:"5px 8px",fontStyle:p.sublicenciatario?"normal":"italic",color:p.sublicenciatario?"#0284c7":C.muted2}}>{p.sublicenciatario||"—"}</td>
                     <td style={{padding:"5px 8px"}}>
                       <span style={{padding:"2px 8px",borderRadius:10,fontSize:9,fontWeight:700,
-                        background:p.estado==="Productivo"?"#dcfce7":p.estado==="Plantado"?"#fef3c7":p.estado==="Anulado"?"#fee2e2":"#e0e7ff",
-                        color:p.estado==="Productivo"?"#15803d":p.estado==="Plantado"?"#92400e":p.estado==="Anulado"?"#991b1b":"#3730a3"}}>{p.estado||"Confirmado"}</span>
+                        background:p.estado==="Productivo"?C.successBg:p.estado==="Plantado"?C.warningBg:p.estado==="Anulado"?C.dangerBg:C.infoBg,
+                        color:p.estado==="Productivo"?C.success:p.estado==="Plantado"?C.text:p.estado==="Anulado"?C.danger:"#3730a3"}}>{p.estado||"Confirmado"}</span>
                     </td>
                   </tr>
                   );
@@ -3369,7 +3374,7 @@ function Resumen({rpData,feData,rcData,fvData,tpData}) {
 
   return (
     <div style={{display:"flex",flexDirection:"column",gap:20}}>
-      <div style={{background:"#fff",borderRadius:14,padding:20,boxShadow:"0 2px 10px #0001"}}>
+      <div style={{background:C.card,borderRadius:14,padding:20,boxShadow:"0 2px 10px #0001"}}>
         <h3 style={{margin:"0 0 16px",color:C.sl,fontSize:15,display:"flex",alignItems:"center",gap:8}}>
           📅 Calendario de Ingresos por Cobrar
           <span style={{fontSize:11,color:C.gris,fontWeight:400}}>— agrupado por año y mes</span>
@@ -3392,7 +3397,7 @@ function Resumen({rpData,feData,rcData,fvData,tpData}) {
             <div style={{overflowX:"auto"}}>
               <table style={{borderCollapse:"collapse",width:"100%",fontSize:12}}>
                 <thead>
-                  <tr style={{background:"#f8fafc",color:C.gris,fontSize:11}}>
+                  <tr style={{background:C.primary,color:C.primaryText,fontSize:11}}>
                     {["Mes","Royalty/Planta","Royalty Comercial","Fee Viveros","Fee Entrada","Total Mes"].map(h=>(
                       <th key={h} style={{padding:"8px 12px",textAlign:h==="Mes"?"left":"right",fontWeight:600,whiteSpace:"nowrap"}}>{h}</th>
                     ))}
@@ -3408,11 +3413,11 @@ function Resumen({rpData,feData,rcData,fvData,tpData}) {
                     const TIPO_COLOR={"rp":C.azul,"rc":C.mo,"fv":C.teal,"fe":C.verde};
                     return(
                       <React.Fragment key={r.key}>
-                        <tr style={{borderTop:"1px solid #f1f5f9",background:isOpen?"#eff6ff":i%2===0?"#fff":"#f8fafc",
+                        <tr style={{borderTop:"1px solid #f1f5f9",background:isOpen?C.infoBg:i%2===0?"#fff":C.cardAlt,
                           cursor:"pointer",transition:"background 0.15s"}}
                           onClick={()=>setExpandedMes(isOpen?null:r.key)}>
                           <td style={{padding:"9px 12px",fontWeight:700,color:C.sl,whiteSpace:"nowrap"}}>
-                            <span style={{marginRight:6,fontSize:11,color:isOpen?C.azul:"#94a3b8"}}>{isOpen?"▼":"▶"}</span>
+                            <span style={{marginRight:6,fontSize:11,color:isOpen?C.azul:C.muted2}}>{isOpen?"▼":"▶"}</span>
                             {MESES_CORTO[r.mes]} {r.año}
                             {pendientes.length>0&&<span style={{marginLeft:8,fontSize:10,background:C.azulBg,color:C.azul,borderRadius:10,padding:"1px 7px",fontWeight:700}}>{pendientes.length} pendiente{pendientes.length>1?"s":""}</span>}
                           </td>
@@ -3420,18 +3425,18 @@ function Resumen({rpData,feData,rcData,fvData,tpData}) {
                           <td style={{padding:"9px 12px",textAlign:"right",color:r.rc>0?C.mo:C.gris}}>{r.rc>0?$$(r.rc):"—"}</td>
                           <td style={{padding:"9px 12px",textAlign:"right",color:r.fv>0?C.teal:C.gris}}>{r.fv>0?$$(r.fv):"—"}</td>
                           <td style={{padding:"9px 12px",textAlign:"right",color:r.fe>0?C.verde:C.gris}}>{r.fe>0?$$(r.fe):"—"}</td>
-                          <td style={{padding:"9px 12px",textAlign:"right",fontWeight:700,color:C.sl,background:"#f0f9ff",fontSize:13}}>{$$(r.total)}</td>
+                          <td style={{padding:"9px 12px",textAlign:"right",fontWeight:700,color:C.sl,background:C.infoBg,fontSize:13}}>{$$(r.total)}</td>
                         </tr>
                         {isOpen&&(
                           <tr>
-                            <td colSpan={6} style={{padding:0,background:"#f8fbff",borderBottom:"2px solid #bfdbfe"}}>
+                            <td colSpan={6} style={{padding:0,background:C.infoBg,borderBottom:"2px solid #bfdbfe"}}>
                               <div style={{padding:"14px 20px"}}>
                                 {pendientes.length>0&&(
                                   <>
                                     <div style={{fontSize:11,fontWeight:700,color:C.azul,marginBottom:8,letterSpacing:1}}>POR COBRAR</div>
                                     <div style={{display:"flex",flexDirection:"column",gap:4,marginBottom:12}}>
                                       {pendientes.sort((a,b)=>b.monto-a.monto).map((c,ci)=>(
-                                        <div key={ci} style={{display:"flex",alignItems:"center",gap:10,background:"#fff",borderRadius:8,padding:"8px 12px",border:"1px solid #dbeafe"}}>
+                                        <div key={ci} style={{display:"flex",alignItems:"center",gap:10,background:C.card,borderRadius:8,padding:"8px 12px",border:"1px solid #dbeafe"}}>
                                           <span style={{fontSize:11,background:TIPO_COLOR[c.tipo]+"22",color:TIPO_COLOR[c.tipo],borderRadius:6,padding:"2px 8px",fontWeight:700,minWidth:110,textAlign:"center"}}>
                                             {TIPO_LABEL[c.tipo]}
                                           </span>
@@ -3447,11 +3452,11 @@ function Resumen({rpData,feData,rcData,fvData,tpData}) {
                                     <div style={{fontSize:11,fontWeight:700,color:C.verde,marginBottom:8,letterSpacing:1}}>YA COBRADO</div>
                                     <div style={{display:"flex",flexDirection:"column",gap:4}}>
                                       {pagados.sort((a,b)=>b.monto-a.monto).map((c,ci)=>(
-                                        <div key={ci} style={{display:"flex",alignItems:"center",gap:10,background:"#f0fdf4",borderRadius:8,padding:"8px 12px",border:"1px solid #bbf7d0",opacity:0.8}}>
+                                        <div key={ci} style={{display:"flex",alignItems:"center",gap:10,background:C.successBg,borderRadius:8,padding:"8px 12px",border:`1px solid ${C.success}`,opacity:0.8}}>
                                           <span style={{fontSize:11,background:TIPO_COLOR[c.tipo]+"22",color:TIPO_COLOR[c.tipo],borderRadius:6,padding:"2px 8px",fontWeight:700,minWidth:110,textAlign:"center"}}>
                                             {TIPO_LABEL[c.tipo]}
                                           </span>
-                                          <span style={{flex:1,fontSize:13,fontWeight:600,color:"#64748b"}}>{c.cliente}</span>
+                                          <span style={{flex:1,fontSize:13,fontWeight:600,color:C.muted}}>{c.cliente}</span>
                                           <span style={{fontSize:12,fontWeight:700,color:C.verde}}>✅ {$$(c.monto)}</span>
                                         </div>
                                       ))}
@@ -3466,13 +3471,13 @@ function Resumen({rpData,feData,rcData,fvData,tpData}) {
                       </React.Fragment>
                     );
                   })}
-                  <tr style={{borderTop:"2px solid #e2e8f0",background:"#f0f9ff"}}>
+                  <tr style={{borderTop:`2px solid ${C.border}`,background:C.cardAlt}}>
                     <td style={{padding:"9px 12px",fontWeight:800,color:C.sl}}>Total {año}</td>
                     <td style={{padding:"9px 12px",textAlign:"right",fontWeight:700,color:C.azul}}>{totalAnual[año].rp>0?$$(totalAnual[año].rp):"—"}</td>
-                    <td style={{padding:"9px 12px",textAlign:"right",fontWeight:700,color:C.mo}}>{totalAnual[año].rc>0?$$(totalAnual[año].rc):"—"}</td>
+                    <td style={{padding:"9px 12px",textAlign:"right",fontWeight:700,color:C.text}}>{totalAnual[año].rc>0?$$(totalAnual[año].rc):"—"}</td>
                     <td style={{padding:"9px 12px",textAlign:"right",fontWeight:700,color:C.teal}}>{totalAnual[año].fv>0?$$(totalAnual[año].fv):"—"}</td>
                     <td style={{padding:"9px 12px",textAlign:"right",fontWeight:700,color:C.verde}}>{totalAnual[año].fe>0?$$(totalAnual[año].fe):"—"}</td>
-                    <td style={{padding:"9px 12px",textAlign:"right",fontWeight:800,color:"#2563eb",fontSize:14}}>{$$(totalAnual[año].total)}</td>
+                    <td style={{padding:"9px 12px",textAlign:"right",fontWeight:800,color:C.primary,fontSize:14}}>{$$(totalAnual[año].total)}</td>
                   </tr>
                 </tbody>
               </table>
@@ -3485,7 +3490,7 @@ function Resumen({rpData,feData,rcData,fvData,tpData}) {
       {alertasRC.length>0&&(
         <div>
           {alertasRC.map(r=>(
-            <div key={r.id} style={{background:"#fef3c7",border:"2px solid #fde047",borderRadius:12,padding:"12px 16px",marginBottom:8,display:"flex",alignItems:"center",gap:10}}>
+            <div key={r.id} style={{background:C.warningBg,border:"2px solid #fde047",borderRadius:12,padding:"12px 16px",marginBottom:8,display:"flex",alignItems:"center",gap:10}}>
               <span style={{fontSize:22}}>⚠️</span>
               <div>
                 <div style={{fontWeight:700,fontSize:13,color:C.sl}}>Facturar próximamente — Royalty Comercial · {r.cliente}</div>
@@ -3502,8 +3507,8 @@ function Resumen({rpData,feData,rcData,fvData,tpData}) {
           ["📄 Total facturado",   $$(grandFacturado), C.mo,   C.moBg],
           ["⏳ Total por cobrar",  $$(grandPorCobrar), C.am,   C.amBg],
         ].map(([l,v,c,bg])=>(
-          <div key={l} style={{background:bg,borderRadius:12,padding:"16px 18px",border:`1px solid ${c}33`}}>
-            <div style={{fontSize:11,color:c,fontWeight:700,marginBottom:4}}>{l}</div>
+          <div key={l} style={{background:C.card,borderRadius:12,padding:"16px 18px",border:`1px solid ${C.border}`,borderLeft:`4px solid ${c}`,boxShadow:C.shadow}}>
+            <div style={{fontSize:11,color:C.muted,fontWeight:700,marginBottom:4}}>{l}</div>
             <div style={{fontSize:22,fontWeight:800,color:c}}>{v}</div>
           </div>
         ))}
@@ -3527,14 +3532,14 @@ function Resumen({rpData,feData,rcData,fvData,tpData}) {
           ["Fee Entrada por cobrar", $$(totFE_porCobrar), C.am,    C.amBg],
           ["Fee Entrada cobrado",    $$(totFE_cobrado),   C.verde, C.verdeBg],
         ].map(([l,v,c,bg])=>(
-          <div key={l} style={{background:bg,borderRadius:10,padding:"12px 14px"}}>
-            <div style={{fontSize:10,color:c,fontWeight:600,marginBottom:2}}>{l}</div>
+          <div key={l} style={{background:C.card,borderRadius:10,padding:"12px 14px",border:`1px solid ${C.border}`,borderLeft:`4px solid ${c}`,boxShadow:C.shadow}}>
+            <div style={{fontSize:10,color:C.muted,fontWeight:600,marginBottom:2}}>{l}</div>
             <div style={{fontSize:15,fontWeight:800,color:c}}>{v}</div>
           </div>
         ))}
       </div>
 
-      <div style={{background:"#fff",borderRadius:14,padding:20}}>
+      <div style={{background:C.card,borderRadius:14,padding:20}}>
         <h4 style={{margin:"0 0 14px",color:C.sl,fontSize:14}}>🌱 Plantas pedidas por año</h4>
         <div style={{display:"flex",gap:10,flexWrap:"wrap"}}>
           {Object.entries(pedidosPorAño).sort().map(([año,plantas])=>(
@@ -3547,7 +3552,7 @@ function Resumen({rpData,feData,rcData,fvData,tpData}) {
       </div>
 
       {topCli.length>0&&(
-        <div style={{background:"#fff",borderRadius:14,padding:20}}>
+        <div style={{background:C.card,borderRadius:14,padding:20}}>
           <h4 style={{margin:"0 0 14px",color:C.sl,fontSize:14}}>📊 Royalty/Planta por cobrar — Top clientes</h4>
           {topCli.map(([cli,monto])=>(
             <div key={cli} style={{marginBottom:10}}>
@@ -3555,7 +3560,7 @@ function Resumen({rpData,feData,rcData,fvData,tpData}) {
                 <span style={{fontSize:12,fontWeight:600,color:C.sl}}>{cli}</span>
                 <span style={{fontSize:12,fontWeight:700,color:C.azul}}>{$$(monto)}</span>
               </div>
-              <div style={{background:"#f1f5f9",borderRadius:6,height:8}}>
+              <div style={{background:C.cardAlt,borderRadius:6,height:8}}>
                 <div style={{background:C.azul,borderRadius:6,height:8,width:`${(monto/maxV)*100}%`}}/>
               </div>
             </div>
@@ -3564,11 +3569,11 @@ function Resumen({rpData,feData,rcData,fvData,tpData}) {
       )}
 
       {proximos.length>0&&(
-        <div style={{background:"#fff",borderRadius:14,padding:20}}>
+        <div style={{background:C.card,borderRadius:14,padding:20}}>
           <h4 style={{margin:"0 0 14px",color:C.sl,fontSize:14}}>🗓️ Próximos cobros Royalty/Planta (60 días)</h4>
           <div style={{overflowX:"auto"}}>
             <table style={{borderCollapse:"collapse",width:"100%",fontSize:12}}>
-              <thead><tr style={{background:"#f8fafc",color:C.gris,fontSize:11}}>
+              <thead><tr style={{background:C.primary,color:C.primaryText,fontSize:11}}>
                 {["Cliente","País","Vivero","Fecha","Monto Cobrar","Facturado"].map(h=>(
                   <th key={h} style={{padding:"7px 12px",textAlign:"left",fontWeight:600}}>{h}</th>
                 ))}
@@ -3577,7 +3582,7 @@ function Resumen({rpData,feData,rcData,fvData,tpData}) {
                 {proximos.map((r,i)=>{
                   const f=new Date(r.fechaPago);const d=Math.ceil((f-hoy)/(1000*60*60*24));
                   return (
-                    <tr key={r.id} style={{borderTop:"1px solid #f1f5f9",background:d<=7?"#fffbeb":"#fff"}}>
+                    <tr key={r.id} style={{borderTop:"1px solid #f1f5f9",background:d<=7?C.warningBg:"#fff"}}>
                       <td style={{padding:"7px 12px",fontWeight:600}}>{r.cliente}</td>
                       <td style={{padding:"7px 12px",color:C.gris}}>{r.pais}</td>
                       <td style={{padding:"7px 12px",color:C.gris,fontSize:11}}>{r.vivero}</td>
@@ -3641,16 +3646,16 @@ const VARIEDADES_INIT = [];
 const ESPECIES_INIT = [];
 // Paleta de colores sugeridos para especies
 const COLORES_ESPECIES = [
-  {nombre:"Rojo cereza",   hex:"#dc2626"},
+  {nombre:"Rojo cereza",   hex:C.danger},
   {nombre:"Azul arándano", hex:"#1e40af"},
-  {nombre:"Morado uva",    hex:"#7c3aed"},
-  {nombre:"Verde kiwi",    hex:"#16a34a"},
+  {nombre:"Morado uva",    hex:C.purple},
+  {nombre:"Verde kiwi",    hex:C.success},
   {nombre:"Naranja",       hex:"#ea580c"},
   {nombre:"Amarillo",      hex:"#ca8a04"},
   {nombre:"Rosa",          hex:"#db2777"},
-  {nombre:"Turquesa",      hex:"#0d9488"},
-  {nombre:"Marrón",        hex:"#78350f"},
-  {nombre:"Gris",          hex:"#475569"},
+  {nombre:"Turquesa",      hex:C.accent2},
+  {nombre:"Marrón",        hex:C.text},
+  {nombre:"Gris",          hex:C.muted},
 ];
 const MESES = ["Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"];
 const FORMAS_PAGO = ["Anual","Semestral","Trimestral","Mensual","A demanda","Contra entrega","Contra pago del cliente","Otro"];
@@ -3753,13 +3758,13 @@ const ESTADOS_DESPACHO = ["Programado","En tránsito","Entregado","Con observaci
 const ESTADOS_OC_VIVERO = ["Borrador","Enviada","Negociando","Confirmada","En producción","Lista","Despachada","Recibida","Anulada"];
 
 const SECCIONES_CT=[
-  {id:"empresa",         label:"🏢 Empresa",            color:"#2563eb"},
-  {id:"contrato",        label:"📄 Contrato",            color:"#7c3aed"},
-  {id:"rep",             label:"👤 Representante",       color:"#0f766e"},
-  {id:"ubicacion",       label:"🌱 Ubicación plantas",   color:"#16a34a"},
-  {id:"plantaciones",    label:"🌿 Plantaciones",        color:"#15803d"},
+  {id:"empresa",         label:"🏢 Empresa",            color:C.primary},
+  {id:"contrato",        label:"📄 Contrato",            color:C.purple},
+  {id:"rep",             label:"👤 Representante",       color:C.accent2},
+  {id:"ubicacion",       label:"🌱 Ubicación plantas",   color:C.success},
+  {id:"plantaciones",    label:"🌿 Plantaciones",        color:C.success},
   {id:"sublicenciatarios",label:"🤝 Sublicenciatarios",   color:"#0284c7"},
-  {id:"factura",         label:"💰 Facturación",         color:"#d97706"},
+  {id:"factura",         label:"💰 Facturación",         color:C.warning},
   {id:"cobros",          label:"💵 Cobros derivados",    color:"#be185d"},
 ];
 
@@ -3791,7 +3796,7 @@ function CampoNuevo({label,campo,tipo="text",opts=null,fullWidth=false,form,setF
       <label style={{fontSize:11,fontWeight:600,color:"#374151",display:"block",marginBottom:4}}>{label}</label>
       {opts
         ? <select value={val} onChange={e=>setF(campo,e.target.value)}
-            style={{width:"100%",padding:"7px 10px",borderRadius:8,border:"1px solid #d1d5db",fontSize:13,boxSizing:"border-box"}}>
+            style={{width:"100%",padding:"7px 10px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:13,boxSizing:"border-box"}}>
             {opts.map(o=><option key={o}>{o}</option>)}
           </select>
         : tipo==="checkbox"
@@ -3799,7 +3804,7 @@ function CampoNuevo({label,campo,tipo="text",opts=null,fullWidth=false,form,setF
               <input type="checkbox" checked={!!form?.[campo]} onChange={()=>setF(campo,!form?.[campo])}/> {label}
             </label>
           : <input type={tipo} value={val} onChange={e=>setF(campo,e.target.value)}
-              style={{width:"100%",padding:"7px 10px",borderRadius:8,border:"1px solid #d1d5db",fontSize:13,boxSizing:"border-box"}}/>
+              style={{width:"100%",padding:"7px 10px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:13,boxSizing:"border-box"}}/>
       }
     </div>
   );
@@ -3848,33 +3853,33 @@ function MaestroClientes({clientes,setClientes,can}){
   const CAMPOS=[["Razón Social *","razonSocial","text"],["Nombre Comercial","nombreComercial","text"],["TAX ID / RUC","taxID","text"],["País","pais","select"],["Dirección","direccion","text"],["Ciudad","ciudad","text"],["Representante Legal","repLegal","text"],["RUC Representante","rucRep","text"],["Contacto Cobranza","contactoCobranza","text"]];
 
   return(
-    <div style={{background:"#f0fdfa",border:"1px solid #99f6e4",borderRadius:12,padding:"16px 20px",marginBottom:16}}>
+    <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,padding:"16px 20px",marginBottom:16,boxShadow:C.shadow}}>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12,flexWrap:"wrap",gap:8}}>
-        <div style={{fontSize:13,fontWeight:700,color:"#0f766e"}}>👥 Maestro de Clientes</div>
+        <div style={{fontSize:13,fontWeight:700,color:C.accent2}}>👥 Maestro de Clientes</div>
         <div style={{display:"flex",gap:8}}>
           <input value={busq} onChange={e=>setBusq(e.target.value)} placeholder="Buscar..."
-            style={{padding:"5px 10px",borderRadius:6,border:"1px solid #99f6e4",fontSize:12,outline:"none"}}/>
+            style={{padding:"5px 10px",borderRadius:6,border:`1px solid ${C.accent2}`,fontSize:12,outline:"none"}}/>
           {can&&<button onClick={()=>{setShowForm(v=>!v);setEditId(null);setForm({razonSocial:"",nombreComercial:"",taxID:"",pais:"Peru",direccion:"",ciudad:"",repLegal:"",rucRep:"",contactoCobranza:""}); }}
-            style={{padding:"6px 14px",borderRadius:6,background:"#0f766e",color:"#fff",border:"none",cursor:"pointer",fontSize:12,fontWeight:600}}>
+            style={{padding:"6px 14px",borderRadius:6,background:C.accent2,color:"#fff",border:"none",cursor:"pointer",fontSize:12,fontWeight:600}}>
             {showForm&&!editId?"✕":"+ Nuevo cliente"}
           </button>}
         </div>
       </div>
 
       {showForm&&can&&(
-        <div style={{background:"#fff",borderRadius:10,padding:"14px 16px",marginBottom:12,border:"1px solid #99f6e4"}}>
-          <div style={{fontSize:12,fontWeight:700,color:"#0f766e",marginBottom:10}}>{editId?"Editar cliente":"Nuevo cliente"}</div>
+        <div style={{background:C.card,borderRadius:10,padding:"14px 16px",marginBottom:12,border:`1px solid ${C.accent2}`}}>
+          <div style={{fontSize:12,fontWeight:700,color:C.accent2,marginBottom:10}}>{editId?"Editar cliente":"Nuevo cliente"}</div>
           <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(190px,1fr))",gap:10,marginBottom:12}}>
             {CAMPOS.map(([lbl,campo,tipo])=>(
               <div key={campo}>
-                <div style={{fontSize:11,color:"#64748b",fontWeight:600,marginBottom:3}}>{lbl}</div>
+                <div style={{fontSize:11,color:C.muted,fontWeight:600,marginBottom:3}}>{lbl}</div>
                 {tipo==="select"
                   ? <select value={form[campo]} onChange={e=>setForm(p=>({...p,[campo]:e.target.value}))}
-                      style={{width:"100%",padding:"6px 8px",borderRadius:6,border:"1px solid #d1d5db",fontSize:12,outline:"none"}}>
+                      style={{width:"100%",padding:"6px 8px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:12,outline:"none"}}>
                       {["Peru","Mexico","Chile","Corea","España"].map(o=><option key={o}>{o}</option>)}
                     </select>
                   : <input type={tipo} value={form[campo]} onChange={e=>setForm(p=>({...p,[campo]:e.target.value}))}
-                      style={{width:"100%",padding:"6px 8px",borderRadius:6,border:"1px solid #d1d5db",fontSize:12,outline:"none",boxSizing:"border-box"}}/>
+                      style={{width:"100%",padding:"6px 8px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:12,outline:"none",boxSizing:"border-box"}}/>
                 }
               </div>
             ))}
@@ -3882,53 +3887,53 @@ function MaestroClientes({clientes,setClientes,can}){
           {/* Ubicaciones múltiples */}
           <div style={{marginBottom:12}}>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
-              <div style={{fontSize:11,color:"#64748b",fontWeight:600}}>📍 Campos / Predios del cliente</div>
+              <div style={{fontSize:11,color:C.muted,fontWeight:600}}>📍 Campos / Predios del cliente</div>
               <button type="button" onClick={()=>setForm(p=>({...p,ubicaciones:[...(p.ubicaciones||[]),{id:`ub_${Date.now()}`,nombre:"",region:"",direccion:""}]}))}
-                style={{padding:"3px 10px",borderRadius:6,background:"#0f766e",color:"#fff",border:"none",cursor:"pointer",fontSize:10,fontWeight:700}}>+ Ubicación</button>
+                style={{padding:"3px 10px",borderRadius:6,background:C.accent2,color:"#fff",border:"none",cursor:"pointer",fontSize:10,fontWeight:700}}>+ Ubicación</button>
             </div>
             {(form.ubicaciones||[]).map((ub,i)=>(
               <div key={ub.id} style={{display:"flex",gap:6,marginBottom:4,alignItems:"center",flexWrap:"wrap"}}>
                 <input value={ub.nombre||""} placeholder="Nombre del campo" onChange={e=>setForm(p=>({...p,ubicaciones:(p.ubicaciones||[]).map(u=>u.id===ub.id?{...u,nombre:e.target.value}:u)}))}
-                  style={{flex:1,minWidth:120,padding:"5px 8px",borderRadius:6,border:"1px solid #d1d5db",fontSize:11}}/>
+                  style={{flex:1,minWidth:120,padding:"5px 8px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:11}}/>
                 <input value={ub.region||""} placeholder="Región" onChange={e=>setForm(p=>({...p,ubicaciones:(p.ubicaciones||[]).map(u=>u.id===ub.id?{...u,region:e.target.value}:u)}))}
-                  style={{flex:1,minWidth:100,padding:"5px 8px",borderRadius:6,border:"1px solid #d1d5db",fontSize:11}}/>
+                  style={{flex:1,minWidth:100,padding:"5px 8px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:11}}/>
                 <input value={ub.direccion||""} placeholder="Dirección" onChange={e=>setForm(p=>({...p,ubicaciones:(p.ubicaciones||[]).map(u=>u.id===ub.id?{...u,direccion:e.target.value}:u)}))}
-                  style={{flex:1,minWidth:120,padding:"5px 8px",borderRadius:6,border:"1px solid #d1d5db",fontSize:11}}/>
+                  style={{flex:1,minWidth:120,padding:"5px 8px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:11}}/>
                 <input value={ub.coordenadas||""} placeholder="Coordenadas GPS" onChange={e=>setForm(p=>({...p,ubicaciones:(p.ubicaciones||[]).map(u=>u.id===ub.id?{...u,coordenadas:e.target.value}:u)}))}
-                  style={{flex:1,minWidth:120,padding:"5px 8px",borderRadius:6,border:"1px solid #d1d5db",fontSize:11}}/>
+                  style={{flex:1,minWidth:120,padding:"5px 8px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:11}}/>
                 <button onClick={()=>setForm(p=>({...p,ubicaciones:(p.ubicaciones||[]).filter(u=>u.id!==ub.id)}))}
-                  style={{background:"#fee2e2",border:"none",borderRadius:4,padding:"3px 6px",cursor:"pointer",fontSize:10,color:"#991b1b"}}>×</button>
+                  style={{background:C.dangerBg,border:"none",borderRadius:4,padding:"3px 6px",cursor:"pointer",fontSize:10,color:C.danger}}>×</button>
               </div>
             ))}
-            {(form.ubicaciones||[]).length===0&&<div style={{fontSize:10,color:"#94a3b8"}}>Sin ubicaciones. Agrega campos o predios del cliente.</div>}
+            {(form.ubicaciones||[]).length===0&&<div style={{fontSize:10,color:C.muted2}}>Sin ubicaciones. Agrega campos o predios del cliente.</div>}
           </div>
           <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}>
-            <button onClick={()=>{setShowForm(false);setEditId(null);}} style={{padding:"6px 16px",borderRadius:6,border:"1px solid #d1d5db",background:"#fff",cursor:"pointer",fontSize:12}}>Cancelar</button>
-            <button onClick={guardar} style={{padding:"6px 16px",borderRadius:6,background:"#0f766e",color:"#fff",border:"none",cursor:"pointer",fontSize:12,fontWeight:600}}>💾 Guardar</button>
+            <button onClick={()=>{setShowForm(false);setEditId(null);}} style={{padding:"6px 16px",borderRadius:6,border:`1px solid ${C.border}`,background:C.card,cursor:"pointer",fontSize:12}}>Cancelar</button>
+            <button onClick={guardar} style={{padding:"6px 16px",borderRadius:6,background:C.accent2,color:"#fff",border:"none",cursor:"pointer",fontSize:12,fontWeight:600}}>💾 Guardar</button>
           </div>
         </div>
       )}
 
       <div style={{overflowX:"auto"}}>
-        <table style={{borderCollapse:"collapse",width:"100%",background:"#fff",borderRadius:8,overflow:"hidden",fontSize:12}}>
-          <thead><tr style={{background:"#0f766e",color:"#fff"}}>
+        <table style={{borderCollapse:"collapse",width:"100%",background:C.card,borderRadius:8,overflow:"hidden",fontSize:12}}>
+          <thead><tr style={{background:C.primary,color:C.primaryText}}>
             {["Razón Social","Nombre Comercial","TAX ID","País","Ciudad","Rep. Legal","Contacto Cobranza",""].map(h=>(
               <th key={h} style={{padding:"7px 10px",textAlign:"left",fontWeight:600,fontSize:11,whiteSpace:"nowrap"}}>{h}</th>
             ))}
           </tr></thead>
           <tbody>
             {filtrado.map((c,i)=>(
-              <tr key={c.id} style={{borderBottom:"1px solid #f0fdfa",background:i%2===0?"#fff":"#f0fdfa"}}>
-                <td style={{padding:"6px 10px",fontWeight:600,color:"#0f766e"}}>{c.razonSocial}</td>
-                <td style={{padding:"6px 10px",color:"#64748b"}}>{c.nombreComercial||"—"}</td>
-                <td style={{padding:"6px 10px",color:"#64748b",fontSize:11}}>{c.taxID||"—"}</td>
-                <td style={{padding:"6px 10px",color:"#64748b"}}>{c.pais}</td>
-                <td style={{padding:"6px 10px",color:"#64748b"}}>{c.ciudad||"—"}</td>
-                <td style={{padding:"6px 10px",color:"#64748b",fontSize:11}}>{c.repLegal||"—"}</td>
-                <td style={{padding:"6px 10px",color:"#64748b",fontSize:11}}>{c.contactoCobranza||"—"}</td>
+              <tr key={c.id} style={{borderBottom:`1px solid ${C.border}22`,background:i%2===0?C.card:C.rowAlt}}>
+                <td style={{padding:"6px 10px",fontWeight:600,color:C.accent2}}>{c.razonSocial}</td>
+                <td style={{padding:"6px 10px",color:C.muted}}>{c.nombreComercial||"—"}</td>
+                <td style={{padding:"6px 10px",color:C.muted,fontSize:11}}>{c.taxID||"—"}</td>
+                <td style={{padding:"6px 10px",color:C.muted}}>{c.pais}</td>
+                <td style={{padding:"6px 10px",color:C.muted}}>{c.ciudad||"—"}</td>
+                <td style={{padding:"6px 10px",color:C.muted,fontSize:11}}>{c.repLegal||"—"}</td>
+                <td style={{padding:"6px 10px",color:C.muted,fontSize:11}}>{c.contactoCobranza||"—"}</td>
                 <td style={{padding:"6px 8px",textAlign:"center"}}>
                   {can&&<div style={{display:"flex",gap:4}}>
-                    <button onClick={()=>iniciarEdicion(c)} style={{background:"#dbeafe",border:"none",borderRadius:4,padding:"3px 8px",cursor:"pointer",fontSize:11,color:"#1d4ed8",fontWeight:600}}>✏️</button>
+                    <button onClick={()=>iniciarEdicion(c)} style={{background:C.infoBg,border:"none",borderRadius:4,padding:"3px 8px",cursor:"pointer",fontSize:11,color:C.primary,fontWeight:600}}>✏️</button>
                     <button onClick={()=>{
                       if(!window.confirm(`¿Eliminar cliente "${c.razonSocial}"?`))return;
                       window.auditLog&&window.auditLog("eliminar", {modulo:"osiris", seccion:"Maestro Clientes",
@@ -3936,12 +3941,12 @@ function MaestroClientes({clientes,setClientes,can}){
                         registroId:c.id});
                       setClientes(prev=>prev.filter(x=>x.id!==c.id));
                     }}
-                      style={{background:"#fee2e2",border:"none",borderRadius:4,padding:"3px 8px",cursor:"pointer",fontSize:11,color:"#991b1b",fontWeight:600}}>×</button>
+                      style={{background:C.dangerBg,border:"none",borderRadius:4,padding:"3px 8px",cursor:"pointer",fontSize:11,color:C.danger,fontWeight:600}}>×</button>
                   </div>}
                 </td>
               </tr>
             ))}
-            {filtrado.length===0&&<tr><td colSpan={8} style={{textAlign:"center",padding:20,color:"#94a3b8"}}>Sin clientes</td></tr>}
+            {filtrado.length===0&&<tr><td colSpan={8} style={{textAlign:"center",padding:20,color:C.muted2}}>Sin clientes</td></tr>}
           </tbody>
         </table>
       </div>
@@ -3994,64 +3999,64 @@ function MaestroViveristas({viveristas,setViveristas,can}){
   const CAMPOS=[["Razón Social *","razonSocial","text"],["Nombre Comercial","nombreComercial","text"],["TAX ID / RUC","taxID","text"],["País","pais","select"],["Dirección","direccion","text"],["Ciudad","ciudad","text"],["Representante Legal","repLegal","text"],["RUC Representante","rucRep","text"],["Contacto Cobranza","contactoCobranza","text"]];
 
   return(
-    <div style={{background:"#f0fdf4",border:"1px solid #86efac",borderRadius:12,padding:"16px 20px",marginBottom:16}}>
+    <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,padding:"16px 20px",marginBottom:16,boxShadow:C.shadow}}>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12,flexWrap:"wrap",gap:8}}>
-        <div style={{fontSize:13,fontWeight:700,color:"#16a34a"}}>🌱 Maestro de Viveristas</div>
+        <div style={{fontSize:13,fontWeight:700,color:C.success}}>🌱 Maestro de Viveristas</div>
         <div style={{display:"flex",gap:8}}>
           <input value={busq} onChange={e=>setBusq(e.target.value)} placeholder="Buscar..."
-            style={{padding:"5px 10px",borderRadius:6,border:"1px solid #86efac",fontSize:12,outline:"none"}}/>
+            style={{padding:"5px 10px",borderRadius:6,border:`1px solid ${C.success}`,fontSize:12,outline:"none"}}/>
           {can&&<button onClick={()=>{setShowForm(v=>!v);setEditId(null);setForm(VACIO);}}
-            style={{padding:"6px 14px",borderRadius:6,background:"#16a34a",color:"#fff",border:"none",cursor:"pointer",fontSize:12,fontWeight:600}}>
+            style={{padding:"6px 14px",borderRadius:6,background:C.success,color:"#fff",border:"none",cursor:"pointer",fontSize:12,fontWeight:600}}>
             {showForm&&!editId?"✕":"+ Nuevo viverista"}
           </button>}
         </div>
       </div>
 
       {showForm&&can&&(
-        <div style={{background:"#fff",borderRadius:10,padding:"14px 16px",marginBottom:12,border:"1px solid #86efac"}}>
-          <div style={{fontSize:12,fontWeight:700,color:"#16a34a",marginBottom:10}}>{editId?"Editar viverista":"Nuevo viverista"}</div>
+        <div style={{background:C.card,borderRadius:10,padding:"14px 16px",marginBottom:12,border:`1px solid ${C.success}`}}>
+          <div style={{fontSize:12,fontWeight:700,color:C.success,marginBottom:10}}>{editId?"Editar viverista":"Nuevo viverista"}</div>
           <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(190px,1fr))",gap:10,marginBottom:12}}>
             {CAMPOS.map(([lbl,campo,tipo])=>(
               <div key={campo}>
-                <div style={{fontSize:11,color:"#64748b",fontWeight:600,marginBottom:3}}>{lbl}</div>
+                <div style={{fontSize:11,color:C.muted,fontWeight:600,marginBottom:3}}>{lbl}</div>
                 {tipo==="select"
                   ? <select value={form[campo]} onChange={e=>setForm(p=>({...p,[campo]:e.target.value}))}
-                      style={{width:"100%",padding:"6px 8px",borderRadius:6,border:"1px solid #d1d5db",fontSize:12,outline:"none"}}>
+                      style={{width:"100%",padding:"6px 8px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:12,outline:"none"}}>
                       {["Chile","Peru","Mexico","Corea","España","Argentina","Otro"].map(o=><option key={o}>{o}</option>)}
                     </select>
                   : <input type={tipo} value={form[campo]} onChange={e=>setForm(p=>({...p,[campo]:e.target.value}))}
-                      style={{width:"100%",padding:"6px 8px",borderRadius:6,border:"1px solid #d1d5db",fontSize:12,outline:"none",boxSizing:"border-box"}}/>
+                      style={{width:"100%",padding:"6px 8px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:12,outline:"none",boxSizing:"border-box"}}/>
                 }
               </div>
             ))}
           </div>
           <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}>
-            <button onClick={()=>{setShowForm(false);setEditId(null);}} style={{padding:"6px 16px",borderRadius:6,border:"1px solid #d1d5db",background:"#fff",cursor:"pointer",fontSize:12}}>Cancelar</button>
-            <button onClick={guardar} style={{padding:"6px 16px",borderRadius:6,background:"#16a34a",color:"#fff",border:"none",cursor:"pointer",fontSize:12,fontWeight:600}}>💾 Guardar</button>
+            <button onClick={()=>{setShowForm(false);setEditId(null);}} style={{padding:"6px 16px",borderRadius:6,border:`1px solid ${C.border}`,background:C.card,cursor:"pointer",fontSize:12}}>Cancelar</button>
+            <button onClick={guardar} style={{padding:"6px 16px",borderRadius:6,background:C.success,color:"#fff",border:"none",cursor:"pointer",fontSize:12,fontWeight:600}}>💾 Guardar</button>
           </div>
         </div>
       )}
 
       <div style={{overflowX:"auto"}}>
-        <table style={{borderCollapse:"collapse",width:"100%",background:"#fff",borderRadius:8,overflow:"hidden",fontSize:12}}>
-          <thead><tr style={{background:"#16a34a",color:"#fff"}}>
+        <table style={{borderCollapse:"collapse",width:"100%",background:C.card,borderRadius:8,overflow:"hidden",fontSize:12}}>
+          <thead><tr style={{background:C.primary,color:C.primaryText}}>
             {["Razón Social","Nombre Comercial","TAX ID","País","Ciudad","Rep. Legal","Contacto Cobranza",""].map(h=>(
               <th key={h} style={{padding:"7px 10px",textAlign:"left",fontWeight:600,fontSize:11,whiteSpace:"nowrap"}}>{h}</th>
             ))}
           </tr></thead>
           <tbody>
             {filtrado.map((v,i)=>(
-              <tr key={v.id} style={{borderBottom:"1px solid #f0fdf4",background:i%2===0?"#fff":"#f0fdf4"}}>
-                <td style={{padding:"6px 10px",fontWeight:600,color:"#16a34a"}}>{v.razonSocial}</td>
-                <td style={{padding:"6px 10px",color:"#64748b"}}>{v.nombreComercial||"—"}</td>
-                <td style={{padding:"6px 10px",color:"#64748b",fontSize:11}}>{v.taxID||"—"}</td>
-                <td style={{padding:"6px 10px",color:"#64748b"}}>{v.pais}</td>
-                <td style={{padding:"6px 10px",color:"#64748b"}}>{v.ciudad||"—"}</td>
-                <td style={{padding:"6px 10px",color:"#64748b",fontSize:11}}>{v.repLegal||"—"}</td>
-                <td style={{padding:"6px 10px",color:"#64748b",fontSize:11}}>{v.contactoCobranza||"—"}</td>
+              <tr key={v.id} style={{borderBottom:`1px solid ${C.border}22`,background:i%2===0?C.card:C.rowAlt}}>
+                <td style={{padding:"6px 10px",fontWeight:600,color:C.success}}>{v.razonSocial}</td>
+                <td style={{padding:"6px 10px",color:C.muted}}>{v.nombreComercial||"—"}</td>
+                <td style={{padding:"6px 10px",color:C.muted,fontSize:11}}>{v.taxID||"—"}</td>
+                <td style={{padding:"6px 10px",color:C.muted}}>{v.pais}</td>
+                <td style={{padding:"6px 10px",color:C.muted}}>{v.ciudad||"—"}</td>
+                <td style={{padding:"6px 10px",color:C.muted,fontSize:11}}>{v.repLegal||"—"}</td>
+                <td style={{padding:"6px 10px",color:C.muted,fontSize:11}}>{v.contactoCobranza||"—"}</td>
                 <td style={{padding:"6px 8px",textAlign:"center"}}>
                   {can&&<div style={{display:"flex",gap:4}}>
-                    <button onClick={()=>iniciarEdicion(v)} style={{background:"#dbeafe",border:"none",borderRadius:4,padding:"3px 8px",cursor:"pointer",fontSize:11,color:"#1d4ed8",fontWeight:600}}>✏️</button>
+                    <button onClick={()=>iniciarEdicion(v)} style={{background:C.infoBg,border:"none",borderRadius:4,padding:"3px 8px",cursor:"pointer",fontSize:11,color:C.primary,fontWeight:600}}>✏️</button>
                     <button onClick={()=>{
                       if(!window.confirm(`¿Eliminar viverista "${v.razonSocial}"?`))return;
                       window.auditLog&&window.auditLog("eliminar", {modulo:"osiris", seccion:"Maestro Viveristas",
@@ -4059,12 +4064,12 @@ function MaestroViveristas({viveristas,setViveristas,can}){
                         registroId:v.id});
                       setViveristas(prev=>prev.filter(x=>x.id!==v.id));
                     }}
-                      style={{background:"#fee2e2",border:"none",borderRadius:4,padding:"3px 8px",cursor:"pointer",fontSize:11,color:"#991b1b",fontWeight:600}}>×</button>
+                      style={{background:C.dangerBg,border:"none",borderRadius:4,padding:"3px 8px",cursor:"pointer",fontSize:11,color:C.danger,fontWeight:600}}>×</button>
                   </div>}
                 </td>
               </tr>
             ))}
-            {filtrado.length===0&&<tr><td colSpan={8} style={{textAlign:"center",padding:20,color:"#94a3b8"}}>Sin viveristas. {can?"Agrega uno con \"+ Nuevo viverista\".":""}</td></tr>}
+            {filtrado.length===0&&<tr><td colSpan={8} style={{textAlign:"center",padding:20,color:C.muted2}}>Sin viveristas. {can?"Agrega uno con \"+ Nuevo viverista\".":""}</td></tr>}
           </tbody>
         </table>
       </div>
@@ -4229,7 +4234,7 @@ function OperacionTecnica({data, setData, ctData=[], clientes=[], especiesMaestr
     // Recomendaciones
     const recHTML = (arr, titulo) => {
       if(!Array.isArray(arr)||arr.length===0) return "";
-      return `<div style="margin-bottom:8px"><div style="font-weight:700;font-size:11px;color:#0f766e;margin-bottom:4px">${titulo}</div>${tableHTML(["Área","Acción","Responsable","Plazo","Prioridad"],arr.map(r=>[r.area,r.accion,r.responsable,r.plazo,`<span style="color:${r.prioridad==="Alta"?"#dc2626":r.prioridad==="Baja"?"#16a34a":"#d97706"};font-weight:700">${r.prioridad||"Media"}</span>`]))}</div>`;
+      return `<div style="margin-bottom:8px"><div style="font-weight:700;font-size:11px;color:#0f766e;margin-bottom:4px">${titulo}</div>${tableHTML(["Área","Acción","Responsable","Plazo","Prioridad"],arr.map(r=>[r.area,r.accion,r.responsable,r.plazo,`<span style="color:${r.prioridad==="Alta"?C.danger:r.prioridad==="Baja"?C.success:C.warning};font-weight:700">${r.prioridad||"Media"}</span>`]))}</div>`;
     };
 
     return `<!DOCTYPE html><html><head><meta charset="utf-8"><title>${inf.titulo||"Informe Técnico"}</title>
@@ -4391,7 +4396,7 @@ ${linkInforme}
   // ── UI Helpers ──
   const ClienteSelect = ({value, onChange, disabled}) => (
     <select disabled={disabled} value={value||""} onChange={e=>onChange(e.target.value)}
-      style={{width:"100%",padding:"7px 10px",borderRadius:6,border:"1px solid #d1d5db",fontSize:12,background:"#fff",boxSizing:"border-box"}}>
+      style={{width:"100%",padding:"7px 10px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:12,background:C.card,boxSizing:"border-box"}}>
       <option value="">— Seleccionar cliente —</option>
       {(ctData||[]).length>0&&<optgroup label="📜 Contratos">
         {(ctData||[]).map(c=><option key={c.id} value={c.id}>{c.razonSocial} · {c.pais}</option>)}
@@ -4415,40 +4420,40 @@ ${linkInforme}
     const handleBlur = () => { if(type!=="number") onChange(localVal); };
     return(
       <div>
-        <div style={{fontSize:11,color:"#64748b",fontWeight:600,marginBottom:3}}>{label}</div>
+        <div style={{fontSize:11,color:C.muted,fontWeight:600,marginBottom:3}}>{label}</div>
         {rows>0?<textarea disabled={disabled} value={localVal} onChange={handleChange} onBlur={handleBlur} placeholder={placeholder} rows={rows}
-          style={{width:"100%",padding:"7px 10px",borderRadius:6,border:"1px solid #d1d5db",fontSize:12,resize:"vertical",boxSizing:"border-box"}}/>
+          style={{width:"100%",padding:"7px 10px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:12,resize:"vertical",boxSizing:"border-box"}}/>
         :<input type={type} disabled={disabled} value={localVal} onChange={handleChange} onBlur={handleBlur} placeholder={placeholder}
-          style={{width:"100%",padding:"7px 10px",borderRadius:6,border:"1px solid #d1d5db",fontSize:12,boxSizing:"border-box"}}/>}
+          style={{width:"100%",padding:"7px 10px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:12,boxSizing:"border-box"}}/>}
       </div>
     );
   };
   const Select = ({label,value,onChange,opts=[],disabled=false}) => (
     <div>
-      <div style={{fontSize:11,color:"#64748b",fontWeight:600,marginBottom:3}}>{label}</div>
+      <div style={{fontSize:11,color:C.muted,fontWeight:600,marginBottom:3}}>{label}</div>
       <select disabled={disabled} value={value||""} onChange={e=>onChange(e.target.value)}
-        style={{width:"100%",padding:"7px 10px",borderRadius:6,border:"1px solid #d1d5db",fontSize:12,background:"#fff",boxSizing:"border-box"}}>
+        style={{width:"100%",padding:"7px 10px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:12,background:C.card,boxSizing:"border-box"}}>
         <option value="">— Seleccionar —</option>
         {opts.map(o=><option key={o} value={o}>{o}</option>)}
       </select>
     </div>
   );
   const BadgeEstado = ({estado}) => {
-    const c = {"Programada":"#3b82f6","Realizada":"#16a34a","Cancelada":"#94a3b8","Reprogramada":"#d97706",
-      "Borrador":"#64748b","En revisión":"#d97706","Aprobado":"#2563eb","Rechazado":"#dc2626","Enviado":"#16a34a",
-      "Técnica":"#0f766e","Comercial":"#2563eb","Test Block":"#7c3aed","Recepción":"#d97706","Día de campo":"#16a34a","Vivero":"#0284c7",
-    }[estado]||"#64748b";
+    const c = {"Programada":C.primary,"Realizada":C.success,"Cancelada":C.muted2,"Reprogramada":C.warning,
+      "Borrador":C.muted,"En revisión":C.warning,"Aprobado":C.primary,"Rechazado":C.danger,"Enviado":C.success,
+      "Técnica":C.accent2,"Comercial":C.primary,"Test Block":C.purple,"Recepción":C.warning,"Día de campo":C.success,"Vivero":"#0284c7",
+    }[estado]||C.muted;
     return <span style={{padding:"3px 10px",borderRadius:20,fontSize:10,fontWeight:700,background:`${c}18`,color:c,border:`1px solid ${c}33`,whiteSpace:"nowrap"}}>{estado}</span>;
   };
   function ModalForm({titulo, onSave, children}) {
     return (
       <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:20}} onClick={()=>setModal(null)}>
-        <div style={{background:"#fff",borderRadius:16,padding:"24px 28px",maxWidth:620,width:"100%",maxHeight:"85vh",overflow:"auto",boxShadow:"0 24px 64px #0004"}} onClick={e=>e.stopPropagation()}>
-          <div style={{fontSize:16,fontWeight:800,color:"#1e293b",marginBottom:16}}>{titulo}</div>
+        <div style={{background:C.card,borderRadius:16,padding:"24px 28px",maxWidth:620,width:"100%",maxHeight:"85vh",overflow:"auto",boxShadow:"0 24px 64px #0004"}} onClick={e=>e.stopPropagation()}>
+          <div style={{fontSize:16,fontWeight:800,color:C.text,marginBottom:16}}>{titulo}</div>
           {children}
           <div style={{display:"flex",gap:8,justifyContent:"flex-end",marginTop:20}}>
-            <button onClick={()=>setModal(null)} style={{padding:"8px 20px",borderRadius:8,border:"1px solid #d1d5db",background:"#fff",cursor:"pointer",fontSize:12}}>Cancelar</button>
-            <button onClick={onSave} style={{padding:"8px 20px",borderRadius:8,background:"#1e293b",color:"#fff",border:"none",cursor:"pointer",fontSize:12,fontWeight:700}}>💾 Guardar</button>
+            <button onClick={()=>setModal(null)} style={{padding:"8px 20px",borderRadius:8,border:`1px solid ${C.border}`,background:C.card,cursor:"pointer",fontSize:12}}>Cancelar</button>
+            <button onClick={onSave} style={{padding:"8px 20px",borderRadius:8,background:C.primary,color:"#fff",border:"none",cursor:"pointer",fontSize:12,fontWeight:700}}>💾 Guardar</button>
           </div>
         </div>
       </div>
@@ -4457,21 +4462,21 @@ ${linkInforme}
   function TablaGenerica({cols, rows, onEdit, onDel, emptyMsg, extraAction}) {
     return (
       <div style={{overflowX:"auto"}}>
-        <table style={{width:"100%",borderCollapse:"collapse",fontSize:12,background:"#fff",borderRadius:10,overflow:"hidden",border:"1px solid #e2e8f0"}}>
-          <thead><tr style={{background:"#1e293b",color:"#fff"}}>
+        <table style={{width:"100%",borderCollapse:"collapse",fontSize:12,background:C.card,borderRadius:10,overflow:"hidden",border:`1px solid ${C.border}`}}>
+          <thead><tr style={{background:C.primary,color:"#fff"}}>
             {cols.map(c=><th key={c.label} style={{padding:"8px 10px",textAlign:c.right?"right":"left",fontSize:11,fontWeight:700,whiteSpace:"nowrap",width:c.w||"auto"}}>{c.label}</th>)}
             {(can||extraAction)&&<th style={{padding:"8px 10px",width:90}}></th>}
           </tr></thead>
           <tbody>
-            {rows.length===0&&<tr><td colSpan={cols.length+(can||extraAction?1:0)} style={{textAlign:"center",padding:32,color:"#94a3b8",fontSize:13}}>{emptyMsg||"Sin registros"}</td></tr>}
+            {rows.length===0&&<tr><td colSpan={cols.length+(can||extraAction?1:0)} style={{textAlign:"center",padding:32,color:C.muted2,fontSize:13}}>{emptyMsg||"Sin registros"}</td></tr>}
             {rows.map((r,i)=>(
-              <tr key={r.id} style={{borderBottom:"1px solid #f1f5f9",background:i%2?"#f8fafc":"#fff"}}>
+              <tr key={r.id} style={{borderBottom:"1px solid #f1f5f9",background:i%2?C.cardAlt:"#fff"}}>
                 {cols.map(c=><td key={c.label} style={{padding:"7px 10px",textAlign:c.right?"right":"left",...(c.style||{})}}>{c.render?c.render(r):r[c.field]||"—"}</td>)}
                 {(can||extraAction)&&<td style={{padding:"4px 6px",textAlign:"center"}}>
                   <div style={{display:"flex",gap:4,justifyContent:"center"}}>
                     {extraAction&&extraAction(r)}
-                    {can&&<button onClick={()=>onEdit(r)} style={{background:"#dbeafe",border:"none",borderRadius:4,padding:"3px 8px",cursor:"pointer",fontSize:11,color:"#1d4ed8",fontWeight:600}}>✏️</button>}
-                    {can&&<button onClick={()=>onDel(r)} style={{background:"#fee2e2",border:"none",borderRadius:4,padding:"3px 8px",cursor:"pointer",fontSize:11,color:"#991b1b",fontWeight:600}}>×</button>}
+                    {can&&<button onClick={()=>onEdit(r)} style={{background:C.infoBg,border:"none",borderRadius:4,padding:"3px 8px",cursor:"pointer",fontSize:11,color:C.primary,fontWeight:600}}>✏️</button>}
+                    {can&&<button onClick={()=>onDel(r)} style={{background:C.dangerBg,border:"none",borderRadius:4,padding:"3px 8px",cursor:"pointer",fontSize:11,color:C.danger,fontWeight:600}}>×</button>}
                   </div>
                 </td>}
               </tr>
@@ -4494,12 +4499,12 @@ ${linkInforme}
       {/* KPIs */}
       <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(130px,1fr))",gap:10,marginBottom:16}}>
         {[
-          {label:"Visitas programadas",val:kpis.visitasProg,col:"#3b82f6",bg:"#dbeafe"},
-          {label:"Visitas realizadas",val:kpis.visitasRealizadas,col:"#16a34a",bg:"#dcfce7"},
-          {label:"Sin informe",val:kpis.informesPend,col:"#dc2626",bg:"#fee2e2"},
-          {label:"Informes en revisión",val:kpis.informesRevision,col:"#d97706",bg:"#fef3c7"},
-          {label:"Técnicos",val:kpis.tecnicos,col:"#0f766e",bg:"#ccfbf1"},
-          {label:"Entregables pend.",val:kpis.entregablesPend,col:"#7c3aed",bg:"#ede9fe"},
+          {label:"Visitas programadas",val:kpis.visitasProg,col:C.primary,bg:C.infoBg},
+          {label:"Visitas realizadas",val:kpis.visitasRealizadas,col:C.success,bg:C.successBg},
+          {label:"Sin informe",val:kpis.informesPend,col:C.danger,bg:C.dangerBg},
+          {label:"Informes en revisión",val:kpis.informesRevision,col:C.warning,bg:C.warningBg},
+          {label:"Técnicos",val:kpis.tecnicos,col:C.accent2,bg:C.accent2Bg},
+          {label:"Entregables pend.",val:kpis.entregablesPend,col:C.purple,bg:C.purpleBg},
         ].map(k=>(
           <div key={k.label} style={{background:k.bg,borderRadius:10,padding:"10px 14px"}}>
             <div style={{fontSize:10,color:k.col,fontWeight:600}}>{k.label}</div>
@@ -4512,11 +4517,11 @@ ${linkInforme}
       <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:16}}>
         {TABS.map(t=>(
           <button key={t.id} onClick={()=>{setSubTab(t.id);setFiltroTipo("Todos");setFiltroEstado("Todos");setBusq("");setInformeDetalle(null);}}
-            style={{padding:"8px 14px",borderRadius:8,border:subTab===t.id?"2px solid #1e293b":"1px solid #e2e8f0",
-              background:subTab===t.id?"#1e293b":"#fff",color:subTab===t.id?"#fff":"#1e293b",
+            style={{padding:"8px 14px",borderRadius:8,border:subTab===t.id?"2px solid #1e293b":`1px solid ${C.border}`,
+              background:subTab===t.id?C.primary:C.card,color:subTab===t.id?"#fff":C.text,
               cursor:"pointer",fontSize:12,fontWeight:600,display:"flex",alignItems:"center",gap:6}}>
             {t.label}
-            {t.badge&&<span style={{background:subTab===t.id?"#fff":"#dc2626",color:subTab===t.id?"#1e293b":"#fff",borderRadius:10,padding:"1px 7px",fontSize:10,fontWeight:800}}>{t.badge}</span>}
+            {t.badge&&<span style={{background:subTab===t.id?"#fff":C.danger,color:subTab===t.id?C.primary:C.card,borderRadius:10,padding:"1px 7px",fontSize:10,fontWeight:800}}>{t.badge}</span>}
           </button>
         ))}
       </div>
@@ -4524,12 +4529,12 @@ ${linkInforme}
       {/* Barra filtros */}
       <div style={{display:"flex",gap:8,marginBottom:14,flexWrap:"wrap",alignItems:"center"}}>
         <input value={busq} onChange={e=>setBusq(e.target.value)} placeholder="Buscar..."
-          style={{padding:"7px 12px",borderRadius:6,border:"1px solid #d1d5db",fontSize:12,flex:1,minWidth:150,outline:"none"}}/>
+          style={{padding:"7px 12px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:12,flex:1,minWidth:150,outline:"none"}}/>
         {can&&subTab!=="informes"&&<button onClick={()=>{
           if(subTab==="visitas") abrirNuevo("visita", VACIO_VISITA);
           else if(subTab==="equipo") abrirNuevo("tecnico", VACIO_TECNICO);
           else if(subTab==="entregables") abrirNuevo("entregable", VACIO_ENTREGABLE);
-        }} style={{padding:"8px 16px",borderRadius:8,background:"#1e293b",color:"#fff",border:"none",cursor:"pointer",fontSize:12,fontWeight:700}}>+ Agregar</button>}
+        }} style={{padding:"8px 16px",borderRadius:8,background:C.primary,color:"#fff",border:"none",cursor:"pointer",fontSize:12,fontWeight:700}}>+ Agregar</button>}
       </div>
 
       {/* ════ TAB: VISITAS ════ */}
@@ -4543,9 +4548,9 @@ ${linkInforme}
           {label:"Estado",render:r=><BadgeEstado estado={r.estado}/>,w:110},
           {label:"Informe",render:r=>{
             const inf = informes.find(i=>i.visitaId===r.id);
-            if(inf) return <span onClick={()=>{setSubTab("informes");setInformeDetalle(inf.id);}} style={{color:"#2563eb",cursor:"pointer",fontSize:11,fontWeight:600,textDecoration:"underline"}}>📝 Ver</span>;
-            if(r.estado==="Realizada"&&can) return <button onClick={()=>crearInformeDesdeVisita(r)} style={{padding:"3px 8px",borderRadius:6,background:"#16a34a",color:"#fff",border:"none",cursor:"pointer",fontSize:10,fontWeight:700}}>📝 Crear</button>;
-            return <span style={{color:"#94a3b8",fontSize:10}}>—</span>;
+            if(inf) return <span onClick={()=>{setSubTab("informes");setInformeDetalle(inf.id);}} style={{color:C.primary,cursor:"pointer",fontSize:11,fontWeight:600,textDecoration:"underline"}}>📝 Ver</span>;
+            if(r.estado==="Realizada"&&can) return <button onClick={()=>crearInformeDesdeVisita(r)} style={{padding:"3px 8px",borderRadius:6,background:C.success,color:"#fff",border:"none",cursor:"pointer",fontSize:10,fontWeight:700}}>📝 Crear</button>;
+            return <span style={{color:C.muted2,fontSize:10}}>—</span>;
           },w:80},
         ]}
         rows={filtrar(visitas)}
@@ -4566,37 +4571,37 @@ ${linkInforme}
         const updInf = (campo, valor) => updItem("informes", inf.id, {[campo]:valor});
         return (
           <div>
-            <button onClick={()=>setInformeDetalle(null)} style={{marginBottom:14,padding:"7px 14px",borderRadius:8,border:"1px solid #d1d5db",background:"#fff",cursor:"pointer",fontSize:12,fontWeight:600}}>← Volver</button>
+            <button onClick={()=>setInformeDetalle(null)} style={{marginBottom:14,padding:"7px 14px",borderRadius:8,border:`1px solid ${C.border}`,background:C.card,cursor:"pointer",fontSize:12,fontWeight:600}}>← Volver</button>
             {/* Vinculación con visita */}
-            {visita&&<div style={{padding:"8px 14px",background:"#f0f9ff",border:"1px solid #bae6fd",borderRadius:8,marginBottom:12,fontSize:12,color:"#0369a1"}}>
+            {visita&&<div style={{padding:"8px 14px",background:C.infoBg,border:`1px solid ${C.info}`,borderRadius:8,marginBottom:12,fontSize:12,color:C.info}}>
               🔗 Vinculado a visita: <strong>{visita.tipo}</strong> del {visita.fecha} — {visita.lugar||""} ({visita.estado})
             </div>}
             {/* Workflow */}
-            <div style={{display:"flex",gap:6,alignItems:"center",marginBottom:16,padding:"12px 16px",background:"#f8fafc",borderRadius:10,border:"1px solid #e2e8f0",flexWrap:"wrap"}}>
+            <div style={{display:"flex",gap:6,alignItems:"center",marginBottom:16,padding:"12px 16px",background:C.cardAlt,borderRadius:10,border:`1px solid ${C.border}`,flexWrap:"wrap"}}>
               {ESTADOS_INFORME.filter(e=>e!=="Rechazado").map((est,i)=>{
                 const activo = inf.estado===est||(est==="Borrador"&&inf.estado==="Rechazado");
                 const pasado = ESTADOS_INFORME.indexOf(inf.estado)>ESTADOS_INFORME.indexOf(est);
-                const col = {Borrador:"#64748b","En revisión":"#d97706",Aprobado:"#2563eb",Enviado:"#16a34a"}[est]||"#64748b";
+                const col = {Borrador:C.muted,"En revisión":C.warning,Aprobado:C.primary,Enviado:C.success}[est]||C.muted;
                 return <React.Fragment key={est}>
-                  {i>0&&<div style={{width:24,height:2,background:pasado?col:"#e2e8f0"}}/>}
-                  <div style={{padding:"6px 14px",borderRadius:20,fontSize:11,fontWeight:700,background:activo?`${col}22`:"#f1f5f9",color:activo?col:"#94a3b8",border:`1.5px solid ${activo?col:"#e2e8f0"}`}}>
+                  {i>0&&<div style={{width:24,height:2,background:pasado?col:C.border}}/>}
+                  <div style={{padding:"6px 14px",borderRadius:20,fontSize:11,fontWeight:700,background:activo?`${col}22`:C.cardAlt,color:activo?col:C.muted2,border:`1.5px solid ${activo?col:C.border}`}}>
                     {est==="Borrador"&&inf.estado==="Rechazado"?"⚠️ Rechazado":est}
                   </div>
                 </React.Fragment>;
               })}
               <div style={{marginLeft:"auto",display:"flex",gap:6,flexWrap:"wrap"}}>
-                {puedeEditar&&inf.estado==="Borrador"&&<button onClick={()=>updInf("estado","En revisión")} style={{padding:"6px 14px",borderRadius:8,background:"#d97706",color:"#fff",border:"none",cursor:"pointer",fontSize:11,fontWeight:700}}>📤 Enviar a revisión</button>}
-                {puedeEditar&&inf.estado==="Rechazado"&&<button onClick={()=>updInf("estado","En revisión")} style={{padding:"6px 14px",borderRadius:8,background:"#d97706",color:"#fff",border:"none",cursor:"pointer",fontSize:11,fontWeight:700}}>📤 Reenviar</button>}
+                {puedeEditar&&inf.estado==="Borrador"&&<button onClick={()=>updInf("estado","En revisión")} style={{padding:"6px 14px",borderRadius:8,background:C.warning,color:"#fff",border:"none",cursor:"pointer",fontSize:11,fontWeight:700}}>📤 Enviar a revisión</button>}
+                {puedeEditar&&inf.estado==="Rechazado"&&<button onClick={()=>updInf("estado","En revisión")} style={{padding:"6px 14px",borderRadius:8,background:C.warning,color:"#fff",border:"none",cursor:"pointer",fontSize:11,fontWeight:700}}>📤 Reenviar</button>}
                 {puedeAprobar&&<>
-                  <button onClick={()=>updItem("informes",inf.id,{estado:"Aprobado",revisor:nombreUsuario,revisorCargo:"Gerente Técnico",fechaAprobacion:new Date().toISOString().slice(0,10)})} style={{padding:"6px 14px",borderRadius:8,background:"#16a34a",color:"#fff",border:"none",cursor:"pointer",fontSize:11,fontWeight:700}}>✅ Aprobar</button>
-                  <button onClick={()=>{const obs=window.prompt("Observaciones del rechazo:");if(obs===null)return;updItem("informes",inf.id,{estado:"Rechazado",observacionesRechazo:obs,revisor:nombreUsuario});}} style={{padding:"6px 14px",borderRadius:8,background:"#dc2626",color:"#fff",border:"none",cursor:"pointer",fontSize:11,fontWeight:700}}>❌ Rechazar</button>
+                  <button onClick={()=>updItem("informes",inf.id,{estado:"Aprobado",revisor:nombreUsuario,revisorCargo:"Gerente Técnico",fechaAprobacion:new Date().toISOString().slice(0,10)})} style={{padding:"6px 14px",borderRadius:8,background:C.success,color:"#fff",border:"none",cursor:"pointer",fontSize:11,fontWeight:700}}>✅ Aprobar</button>
+                  <button onClick={()=>{const obs=window.prompt("Observaciones del rechazo:");if(obs===null)return;updItem("informes",inf.id,{estado:"Rechazado",observacionesRechazo:obs,revisor:nombreUsuario});}} style={{padding:"6px 14px",borderRadius:8,background:C.danger,color:"#fff",border:"none",cursor:"pointer",fontSize:11,fontWeight:700}}>❌ Rechazar</button>
                 </>}
-                <button onClick={()=>generarPDF(inf)} style={{padding:"6px 14px",borderRadius:8,background:"#1e293b",color:"#fff",border:"none",cursor:"pointer",fontSize:11,fontWeight:700}}>📄 PDF</button>
-                <button onClick={()=>{const w=window.open('','_blank');w.document.write(generarHTMLInforme(inf));w.document.close();setTimeout(()=>w.print(),300);}} style={{padding:"6px 14px",borderRadius:8,background:"#475569",color:"#fff",border:"none",cursor:"pointer",fontSize:11,fontWeight:700}}>🖨️ Imprimir</button>
-                {puedeEnviar&&<button onClick={()=>{setEmailsEnvio(ct?.email||"");setEnvioModal(true);}} style={{padding:"6px 14px",borderRadius:8,background:"#2563eb",color:"#fff",border:"none",cursor:"pointer",fontSize:11,fontWeight:700}}>📧 Email</button>}
+                <button onClick={()=>generarPDF(inf)} style={{padding:"6px 14px",borderRadius:8,background:C.primary,color:"#fff",border:"none",cursor:"pointer",fontSize:11,fontWeight:700}}>📄 PDF</button>
+                <button onClick={()=>{const w=window.open('','_blank');w.document.write(generarHTMLInforme(inf));w.document.close();setTimeout(()=>w.print(),300);}} style={{padding:"6px 14px",borderRadius:8,background:C.muted,color:"#fff",border:"none",cursor:"pointer",fontSize:11,fontWeight:700}}>🖨️ Imprimir</button>
+                {puedeEnviar&&<button onClick={()=>{setEmailsEnvio(ct?.email||"");setEnvioModal(true);}} style={{padding:"6px 14px",borderRadius:8,background:C.primary,color:"#fff",border:"none",cursor:"pointer",fontSize:11,fontWeight:700}}>📧 Email</button>}
               </div>
             </div>
-            {inf.estado==="Rechazado"&&inf.observacionesRechazo&&<div style={{padding:"10px 14px",background:"#fef2f2",border:"1px solid #fecaca",borderRadius:8,marginBottom:14,fontSize:12,color:"#991b1b"}}>❌ <strong>Rechazado por {inf.revisor}:</strong> {inf.observacionesRechazo}</div>}
+            {inf.estado==="Rechazado"&&inf.observacionesRechazo&&<div style={{padding:"10px 14px",background:C.dangerBg,border:`1px solid ${C.danger}`,borderRadius:8,marginBottom:14,fontSize:12,color:C.danger}}>❌ <strong>Rechazado por {inf.revisor}:</strong> {inf.observacionesRechazo}</div>}
             {/* Formulario Informe Técnico — 13 secciones */}
             {(()=>{
               const SECCIONES=[
@@ -4636,12 +4641,12 @@ ${linkInforme}
               const delFromArr = (campo, id) => updArr(campo, getArr(campo).filter(x=>x.id!==id));
 
               return(
-                <div style={{background:"#fff",border:"1px solid #e2e8f0",borderRadius:12,overflow:"hidden"}}>
+                <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,overflow:"hidden"}}>
                   {/* Tabs de secciones */}
-                  <div style={{display:"flex",flexWrap:"wrap",gap:0,borderBottom:"1px solid #e2e8f0",background:"#f8fafc",padding:"8px 12px 0"}}>
+                  <div style={{display:"flex",flexWrap:"wrap",gap:0,borderBottom:`1px solid ${C.border}`,background:C.cardAlt,padding:"8px 12px 0"}}>
                     {SECCIONES.map(s=>(
                       <button key={s.id} onClick={()=>setSecTab(s.id)}
-                        style={{padding:"6px 10px",fontSize:10,fontWeight:secTab===s.id?700:500,color:secTab===s.id?"#7c3aed":"#64748b",background:"transparent",border:"none",borderBottom:secTab===s.id?"2px solid #7c3aed":"2px solid transparent",cursor:"pointer",marginBottom:-1}}>{s.label}</button>
+                        style={{padding:"6px 10px",fontSize:10,fontWeight:secTab===s.id?700:500,color:secTab===s.id?C.purple:C.muted,background:"transparent",border:"none",borderBottom:secTab===s.id?"2px solid #7c3aed":"2px solid transparent",cursor:"pointer",marginBottom:-1}}>{s.label}</button>
                     ))}
                   </div>
                   <div style={{padding:"20px 24px"}}>
@@ -4652,26 +4657,26 @@ ${linkInforme}
                       <Select label="Tipo visita *" value={inf.tipo} onChange={v=>updInf("tipo",v)} opts={TIPOS_VISITA} disabled={!puedeEditar}/>
                       <Input label="Título / N° informe *" value={inf.titulo} onChange={v=>updInf("titulo",v)} disabled={!puedeEditar}/>
                       <Input label="Fecha visita *" value={inf.fecha} onChange={v=>updInf("fecha",v)} type="date" disabled={!puedeEditar}/>
-                      <div><div style={{fontSize:11,color:"#64748b",fontWeight:600,marginBottom:3}}>Cliente</div><ClienteSelect value={inf.ctId} onChange={v=>updInf("ctId",v)} disabled={!puedeEditar}/></div>
+                      <div><div style={{fontSize:11,color:C.muted,fontWeight:600,marginBottom:3}}>Cliente</div><ClienteSelect value={inf.ctId} onChange={v=>updInf("ctId",v)} disabled={!puedeEditar}/></div>
                       <Input label="Campo / Predio" value={inf.lugar} onChange={v=>updInf("lugar",v)} disabled={!puedeEditar}/>
                       <Input label="Ubicación" value={inf.ubicacion} onChange={v=>updInf("ubicacion",v)} disabled={!puedeEditar}/>
-                      <div><div style={{fontSize:11,color:"#64748b",fontWeight:600,marginBottom:3}}>Especie</div>
+                      <div><div style={{fontSize:11,color:C.muted,fontWeight:600,marginBottom:3}}>Especie</div>
                         <select disabled={!puedeEditar} value={inf.especie||""} onChange={e=>updInf("especie",e.target.value)}
-                          style={{width:"100%",padding:"7px 10px",borderRadius:6,border:"1px solid #d1d5db",fontSize:12,boxSizing:"border-box"}}>
+                          style={{width:"100%",padding:"7px 10px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:12,boxSizing:"border-box"}}>
                           <option value="">— Seleccionar —</option>
                           {especiesMaestro.filter(e=>e.nombre||e.especie).map(e=>{const n=e.nombre||e.especie;return <option key={e.id} value={n}>{n}</option>;})}
                         </select></div>
-                      <div><div style={{fontSize:11,color:"#64748b",fontWeight:600,marginBottom:3}}>Denominación (variedad)</div>
+                      <div><div style={{fontSize:11,color:C.muted,fontWeight:600,marginBottom:3}}>Denominación (variedad)</div>
                         <select disabled={!puedeEditar} value={inf.variedad||""} onChange={e=>updInf("variedad",e.target.value)}
-                          style={{width:"100%",padding:"7px 10px",borderRadius:6,border:"1px solid #d1d5db",fontSize:12,boxSizing:"border-box"}}>
+                          style={{width:"100%",padding:"7px 10px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:12,boxSizing:"border-box"}}>
                           <option value="">— Seleccionar —</option>
                           {variedadesMaestro.filter(v=>!inf.especie||v.especie===inf.especie).map(v=><option key={v.id} value={v.variedad}>{v.nRegistro?`${v.nRegistro} · ${v.variedad}`:v.variedad}</option>)}
                         </select></div>
                       <Input label="Mes/Año plantación" value={inf.mesAnioPlantacion} onChange={v=>updInf("mesAnioPlantacion",v)} disabled={!puedeEditar} placeholder="Ej: Marzo 2024"/>
                       <Input label="Superficie evaluada (há)" value={inf.superficie} onChange={v=>updInf("superficie",v)} disabled={!puedeEditar}/>
-                      <div><div style={{fontSize:11,color:"#64748b",fontWeight:600,marginBottom:3}}>Temporada</div>
+                      <div><div style={{fontSize:11,color:C.muted,fontWeight:600,marginBottom:3}}>Temporada</div>
                         <select disabled={!puedeEditar} value={inf.temporada||""} onChange={e=>updInf("temporada",e.target.value)}
-                          style={{width:"100%",padding:"7px 10px",borderRadius:6,border:"1px solid #d1d5db",fontSize:12,boxSizing:"border-box"}}>
+                          style={{width:"100%",padding:"7px 10px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:12,boxSizing:"border-box"}}>
                           <option value="">— Seleccionar —</option>
                           {TEMPORADAS_LIST.map(t=><option key={t} value={t}>{t}</option>)}
                         </select></div>
@@ -4716,17 +4721,17 @@ ${linkInforme}
                       <div style={{height:8}}/>
                       <Input label="Recomendaciones nutricionales" value={inf.nutricionRec} onChange={v=>updInf("nutricionRec",v)} rows={2} disabled={!puedeEditar}/>
                       <div style={{marginTop:12,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-                        <div style={{fontSize:12,fontWeight:700,color:"#1e293b"}}>Tabla de aplicaciones</div>
-                        {puedeEditar&&<button onClick={()=>addToArr("nutricionAplicaciones",{fecha:"",producto:"",dosis:"",via:"",objetivo:"",obs:""})} style={{padding:"4px 12px",borderRadius:6,background:"#7c3aed",border:"none",color:"#fff",cursor:"pointer",fontSize:10,fontWeight:700}}>+ Agregar</button>}
+                        <div style={{fontSize:12,fontWeight:700,color:C.text}}>Tabla de aplicaciones</div>
+                        {puedeEditar&&<button onClick={()=>addToArr("nutricionAplicaciones",{fecha:"",producto:"",dosis:"",via:"",objetivo:"",obs:""})} style={{padding:"4px 12px",borderRadius:6,background:C.purple,border:"none",color:"#fff",cursor:"pointer",fontSize:10,fontWeight:700}}>+ Agregar</button>}
                       </div>
                       {getArr("nutricionAplicaciones").length>0&&(
                         <div style={{overflowX:"auto",marginTop:8}}>
                           <table style={{width:"100%",borderCollapse:"collapse",fontSize:11}}>
-                            <thead><tr style={{background:"#f8fafc"}}>{["Fecha","Producto","Dosis","Vía","Objetivo","Obs",""].map(h=><th key={h} style={{padding:"5px 8px",textAlign:"left",color:"#64748b",fontSize:10}}>{h}</th>)}</tr></thead>
+                            <thead><tr style={{background:C.primary}}>{["Fecha","Producto","Dosis","Vía","Objetivo","Obs",""].map(h=><th key={h} style={{padding:"5px 8px",textAlign:"left",color:C.muted,fontSize:10}}>{h}</th>)}</tr></thead>
                             <tbody>{getArr("nutricionAplicaciones").map(a=>(
                               <tr key={a.id} style={{borderBottom:"1px solid #f1f5f9"}}>
-                                {["fecha","producto","dosis","via","objetivo","obs"].map(f=><td key={f} style={{padding:"4px 6px"}}><input disabled={!puedeEditar} value={a[f]||""} onChange={e=>updInArr("nutricionAplicaciones",a.id,f,e.target.value)} style={{width:"100%",padding:"3px 5px",border:"1px solid #e2e8f0",borderRadius:4,fontSize:10,boxSizing:"border-box"}}/></td>)}
-                                <td>{puedeEditar&&<button onClick={()=>delFromArr("nutricionAplicaciones",a.id)} style={{background:"#fef2f2",border:"none",borderRadius:4,padding:"2px 6px",cursor:"pointer",fontSize:10,color:"#991b1b"}}>🗑</button>}</td>
+                                {["fecha","producto","dosis","via","objetivo","obs"].map(f=><td key={f} style={{padding:"4px 6px"}}><input disabled={!puedeEditar} value={a[f]||""} onChange={e=>updInArr("nutricionAplicaciones",a.id,f,e.target.value)} style={{width:"100%",padding:"3px 5px",border:`1px solid ${C.border}`,borderRadius:4,fontSize:10,boxSizing:"border-box"}}/></td>)}
+                                <td>{puedeEditar&&<button onClick={()=>delFromArr("nutricionAplicaciones",a.id)} style={{background:C.dangerBg,border:"none",borderRadius:4,padding:"2px 6px",cursor:"pointer",fontSize:10,color:C.danger}}>🗑</button>}</td>
                               </tr>))}</tbody>
                           </table>
                         </div>
@@ -4738,22 +4743,22 @@ ${linkInforme}
                   {secTab==="fitosanitario"&&(
                     <div>
                       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
-                        <div style={{fontSize:12,fontWeight:700,color:"#1e293b"}}>Aplicaciones fitosanitarias</div>
-                        {puedeEditar&&<button onClick={()=>addToArr("fitoAplicaciones",{fecha:"",producto:"",dosis:"",objetivo:"",resultado:"",rec:""})} style={{padding:"4px 12px",borderRadius:6,background:"#7c3aed",border:"none",color:"#fff",cursor:"pointer",fontSize:10,fontWeight:700}}>+ Agregar</button>}
+                        <div style={{fontSize:12,fontWeight:700,color:C.text}}>Aplicaciones fitosanitarias</div>
+                        {puedeEditar&&<button onClick={()=>addToArr("fitoAplicaciones",{fecha:"",producto:"",dosis:"",objetivo:"",resultado:"",rec:""})} style={{padding:"4px 12px",borderRadius:6,background:C.purple,border:"none",color:"#fff",cursor:"pointer",fontSize:10,fontWeight:700}}>+ Agregar</button>}
                       </div>
                       {getArr("fitoAplicaciones").length>0&&(
                         <div style={{overflowX:"auto"}}>
                           <table style={{width:"100%",borderCollapse:"collapse",fontSize:11}}>
-                            <thead><tr style={{background:"#f8fafc"}}>{["Fecha","Producto","Dosis","Objetivo","Resultado","Recomendación",""].map(h=><th key={h} style={{padding:"5px 8px",textAlign:"left",color:"#64748b",fontSize:10}}>{h}</th>)}</tr></thead>
+                            <thead><tr style={{background:C.primary}}>{["Fecha","Producto","Dosis","Objetivo","Resultado","Recomendación",""].map(h=><th key={h} style={{padding:"5px 8px",textAlign:"left",color:C.muted,fontSize:10}}>{h}</th>)}</tr></thead>
                             <tbody>{getArr("fitoAplicaciones").map(a=>(
                               <tr key={a.id} style={{borderBottom:"1px solid #f1f5f9"}}>
-                                {["fecha","producto","dosis","objetivo","resultado","rec"].map(f=><td key={f} style={{padding:"4px 6px"}}><input disabled={!puedeEditar} value={a[f]||""} onChange={e=>updInArr("fitoAplicaciones",a.id,f,e.target.value)} style={{width:"100%",padding:"3px 5px",border:"1px solid #e2e8f0",borderRadius:4,fontSize:10,boxSizing:"border-box"}}/></td>)}
-                                <td>{puedeEditar&&<button onClick={()=>delFromArr("fitoAplicaciones",a.id)} style={{background:"#fef2f2",border:"none",borderRadius:4,padding:"2px 6px",cursor:"pointer",fontSize:10,color:"#991b1b"}}>🗑</button>}</td>
+                                {["fecha","producto","dosis","objetivo","resultado","rec"].map(f=><td key={f} style={{padding:"4px 6px"}}><input disabled={!puedeEditar} value={a[f]||""} onChange={e=>updInArr("fitoAplicaciones",a.id,f,e.target.value)} style={{width:"100%",padding:"3px 5px",border:`1px solid ${C.border}`,borderRadius:4,fontSize:10,boxSizing:"border-box"}}/></td>)}
+                                <td>{puedeEditar&&<button onClick={()=>delFromArr("fitoAplicaciones",a.id)} style={{background:C.dangerBg,border:"none",borderRadius:4,padding:"2px 6px",cursor:"pointer",fontSize:10,color:C.danger}}>🗑</button>}</td>
                               </tr>))}</tbody>
                           </table>
                         </div>
                       )}
-                      {getArr("fitoAplicaciones").length===0&&<div style={{padding:16,textAlign:"center",color:"#94a3b8",fontSize:11}}>Sin aplicaciones registradas.</div>}
+                      {getArr("fitoAplicaciones").length===0&&<div style={{padding:16,textAlign:"center",color:C.muted2,fontSize:11}}>Sin aplicaciones registradas.</div>}
                     </div>
                   )}
 
@@ -4766,18 +4771,18 @@ ${linkInforme}
                         const updL = (f,v) => updInf(key, {...d,[f]:v});
                         return(
                           <div key={lab} style={{display:"grid",gridTemplateColumns:"2fr 1fr 1fr 2fr 2fr",gap:8,alignItems:"center",padding:"6px 0",borderBottom:"1px solid #f1f5f9",fontSize:11}}>
-                            <div style={{fontWeight:600,color:"#1e293b"}}>{lab}</div>
-                            <select disabled={!puedeEditar} value={d.estado||""} onChange={e=>updL("estado",e.target.value)} style={{padding:"4px 6px",borderRadius:4,border:"1px solid #e2e8f0",fontSize:10}}>
+                            <div style={{fontWeight:600,color:C.text}}>{lab}</div>
+                            <select disabled={!puedeEditar} value={d.estado||""} onChange={e=>updL("estado",e.target.value)} style={{padding:"4px 6px",borderRadius:4,border:`1px solid ${C.border}`,fontSize:10}}>
                               <option value="">—</option><option>Realizado</option><option>Pendiente</option><option>No aplica</option>
                             </select>
-                            <select disabled={!puedeEditar} value={d.calidad||""} onChange={e=>updL("calidad",e.target.value)} style={{padding:"4px 6px",borderRadius:4,border:"1px solid #e2e8f0",fontSize:10}}>
+                            <select disabled={!puedeEditar} value={d.calidad||""} onChange={e=>updL("calidad",e.target.value)} style={{padding:"4px 6px",borderRadius:4,border:`1px solid ${C.border}`,fontSize:10}}>
                               <option value="">—</option>{CALIDAD_EJEC.map(c=><option key={c}>{c}</option>)}
                             </select>
-                            <input disabled={!puedeEditar} value={d.obs||""} placeholder="Observación" onChange={e=>updL("obs",e.target.value)} style={{padding:"4px 6px",borderRadius:4,border:"1px solid #e2e8f0",fontSize:10}}/>
-                            <input disabled={!puedeEditar} value={d.rec||""} placeholder="Recomendación" onChange={e=>updL("rec",e.target.value)} style={{padding:"4px 6px",borderRadius:4,border:"1px solid #e2e8f0",fontSize:10}}/>
+                            <input disabled={!puedeEditar} value={d.obs||""} placeholder="Observación" onChange={e=>updL("obs",e.target.value)} style={{padding:"4px 6px",borderRadius:4,border:`1px solid ${C.border}`,fontSize:10}}/>
+                            <input disabled={!puedeEditar} value={d.rec||""} placeholder="Recomendación" onChange={e=>updL("rec",e.target.value)} style={{padding:"4px 6px",borderRadius:4,border:`1px solid ${C.border}`,fontSize:10}}/>
                           </div>);
                       })}
-                      <div style={{fontSize:9,color:"#94a3b8",marginTop:6}}>Columnas: Labor | Estado | Calidad ejecución | Observación | Recomendación</div>
+                      <div style={{fontSize:9,color:C.muted2,marginTop:6}}>Columnas: Labor | Estado | Calidad ejecución | Observación | Recomendación</div>
                       {puedeEditar&&<button onClick={()=>{
                         const nueva=window.prompt("Nombre de la nueva labor:");
                         if(nueva&&nueva.trim()){
@@ -4787,7 +4792,7 @@ ${linkInforme}
                           const extras=Array.isArray(inf.laboresExtra)?inf.laboresExtra:[];
                           if(!extras.includes(nueva.trim())) updInf("laboresExtra",[...extras,nueva.trim()]);
                         }
-                      }} style={{marginTop:6,padding:"4px 12px",borderRadius:6,background:"#7c3aed",border:"none",color:"#fff",cursor:"pointer",fontSize:10,fontWeight:700}}>+ Agregar otra labor</button>}
+                      }} style={{marginTop:6,padding:"4px 12px",borderRadius:6,background:C.purple,border:"none",color:"#fff",cursor:"pointer",fontSize:10,fontWeight:700}}>+ Agregar otra labor</button>}
                       {/* Labores extra personalizadas */}
                       {(Array.isArray(inf.laboresExtra)?inf.laboresExtra:[]).map(lab=>{
                         const key = `labor_${lab.replace(/[^a-zA-Z]/g,"_")}`;
@@ -4795,15 +4800,15 @@ ${linkInforme}
                         const updL = (f,v) => updInf(key, {...d,[f]:v});
                         return(
                           <div key={lab} style={{display:"grid",gridTemplateColumns:"2fr 1fr 1fr 2fr 2fr",gap:8,alignItems:"center",padding:"6px 0",borderBottom:"1px solid #f1f5f9",fontSize:11}}>
-                            <div style={{fontWeight:600,color:"#1e293b"}}>{lab} ✨</div>
-                            <select disabled={!puedeEditar} value={d.estado||""} onChange={e=>updL("estado",e.target.value)} style={{padding:"4px 6px",borderRadius:4,border:"1px solid #e2e8f0",fontSize:10}}>
+                            <div style={{fontWeight:600,color:C.text}}>{lab} ✨</div>
+                            <select disabled={!puedeEditar} value={d.estado||""} onChange={e=>updL("estado",e.target.value)} style={{padding:"4px 6px",borderRadius:4,border:`1px solid ${C.border}`,fontSize:10}}>
                               <option value="">—</option><option>Realizado</option><option>Pendiente</option><option>No aplica</option>
                             </select>
-                            <select disabled={!puedeEditar} value={d.calidad||""} onChange={e=>updL("calidad",e.target.value)} style={{padding:"4px 6px",borderRadius:4,border:"1px solid #e2e8f0",fontSize:10}}>
+                            <select disabled={!puedeEditar} value={d.calidad||""} onChange={e=>updL("calidad",e.target.value)} style={{padding:"4px 6px",borderRadius:4,border:`1px solid ${C.border}`,fontSize:10}}>
                               <option value="">—</option>{CALIDAD_EJEC.map(cc=><option key={cc}>{cc}</option>)}
                             </select>
-                            <input disabled={!puedeEditar} value={d.obs||""} placeholder="Observación" onChange={e=>updL("obs",e.target.value)} style={{padding:"4px 6px",borderRadius:4,border:"1px solid #e2e8f0",fontSize:10}}/>
-                            <input disabled={!puedeEditar} value={d.rec||""} placeholder="Recomendación" onChange={e=>updL("rec",e.target.value)} style={{padding:"4px 6px",borderRadius:4,border:"1px solid #e2e8f0",fontSize:10}}/>
+                            <input disabled={!puedeEditar} value={d.obs||""} placeholder="Observación" onChange={e=>updL("obs",e.target.value)} style={{padding:"4px 6px",borderRadius:4,border:`1px solid ${C.border}`,fontSize:10}}/>
+                            <input disabled={!puedeEditar} value={d.rec||""} placeholder="Recomendación" onChange={e=>updL("rec",e.target.value)} style={{padding:"4px 6px",borderRadius:4,border:`1px solid ${C.border}`,fontSize:10}}/>
                           </div>);
                       })}
                     </div>
@@ -4813,21 +4818,21 @@ ${linkInforme}
                   {secTab==="sanidad"&&(
                     <div>
                       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
-                        <div style={{fontSize:12,fontWeight:700,color:"#1e293b"}}>Problemas detectados</div>
-                        {puedeEditar&&<button onClick={()=>addToArr("sanidadProblemas",{problema:"",tipo:"Plaga",incidencia:"Baja",severidad:"Baja",sector:"",accion:""})} style={{padding:"4px 12px",borderRadius:6,background:"#7c3aed",border:"none",color:"#fff",cursor:"pointer",fontSize:10,fontWeight:700}}>+ Agregar</button>}
+                        <div style={{fontSize:12,fontWeight:700,color:C.text}}>Problemas detectados</div>
+                        {puedeEditar&&<button onClick={()=>addToArr("sanidadProblemas",{problema:"",tipo:"Plaga",incidencia:"Baja",severidad:"Baja",sector:"",accion:""})} style={{padding:"4px 12px",borderRadius:6,background:C.purple,border:"none",color:"#fff",cursor:"pointer",fontSize:10,fontWeight:700}}>+ Agregar</button>}
                       </div>
                       {getArr("sanidadProblemas").map(p=>(
                         <div key={p.id} style={{display:"grid",gridTemplateColumns:"2fr 1fr 1fr 1fr 1fr 2fr auto",gap:6,padding:"6px 0",borderBottom:"1px solid #f1f5f9",fontSize:11,alignItems:"center"}}>
-                          <input disabled={!puedeEditar} value={p.problema||""} placeholder="Problema" onChange={e=>updInArr("sanidadProblemas",p.id,"problema",e.target.value)} style={{padding:"4px 6px",borderRadius:4,border:"1px solid #e2e8f0",fontSize:10}}/>
-                          <select disabled={!puedeEditar} value={p.tipo||""} onChange={e=>updInArr("sanidadProblemas",p.id,"tipo",e.target.value)} style={{padding:"4px 6px",borderRadius:4,border:"1px solid #e2e8f0",fontSize:10}}>{TIPOS_PROB.map(t=><option key={t}>{t}</option>)}</select>
-                          <select disabled={!puedeEditar} value={p.incidencia||""} onChange={e=>updInArr("sanidadProblemas",p.id,"incidencia",e.target.value)} style={{padding:"4px 6px",borderRadius:4,border:"1px solid #e2e8f0",fontSize:10}}>{NIVELES.map(n=><option key={n}>{n}</option>)}</select>
-                          <select disabled={!puedeEditar} value={p.severidad||""} onChange={e=>updInArr("sanidadProblemas",p.id,"severidad",e.target.value)} style={{padding:"4px 6px",borderRadius:4,border:"1px solid #e2e8f0",fontSize:10}}>{NIVELES.map(n=><option key={n}>{n}</option>)}</select>
-                          <input disabled={!puedeEditar} value={p.sector||""} placeholder="Sector" onChange={e=>updInArr("sanidadProblemas",p.id,"sector",e.target.value)} style={{padding:"4px 6px",borderRadius:4,border:"1px solid #e2e8f0",fontSize:10}}/>
-                          <input disabled={!puedeEditar} value={p.accion||""} placeholder="Acción recomendada" onChange={e=>updInArr("sanidadProblemas",p.id,"accion",e.target.value)} style={{padding:"4px 6px",borderRadius:4,border:"1px solid #e2e8f0",fontSize:10}}/>
-                          {puedeEditar&&<button onClick={()=>delFromArr("sanidadProblemas",p.id)} style={{background:"#fef2f2",border:"none",borderRadius:4,padding:"2px 6px",cursor:"pointer",fontSize:10,color:"#991b1b"}}>🗑</button>}
+                          <input disabled={!puedeEditar} value={p.problema||""} placeholder="Problema" onChange={e=>updInArr("sanidadProblemas",p.id,"problema",e.target.value)} style={{padding:"4px 6px",borderRadius:4,border:`1px solid ${C.border}`,fontSize:10}}/>
+                          <select disabled={!puedeEditar} value={p.tipo||""} onChange={e=>updInArr("sanidadProblemas",p.id,"tipo",e.target.value)} style={{padding:"4px 6px",borderRadius:4,border:`1px solid ${C.border}`,fontSize:10}}>{TIPOS_PROB.map(t=><option key={t}>{t}</option>)}</select>
+                          <select disabled={!puedeEditar} value={p.incidencia||""} onChange={e=>updInArr("sanidadProblemas",p.id,"incidencia",e.target.value)} style={{padding:"4px 6px",borderRadius:4,border:`1px solid ${C.border}`,fontSize:10}}>{NIVELES.map(n=><option key={n}>{n}</option>)}</select>
+                          <select disabled={!puedeEditar} value={p.severidad||""} onChange={e=>updInArr("sanidadProblemas",p.id,"severidad",e.target.value)} style={{padding:"4px 6px",borderRadius:4,border:`1px solid ${C.border}`,fontSize:10}}>{NIVELES.map(n=><option key={n}>{n}</option>)}</select>
+                          <input disabled={!puedeEditar} value={p.sector||""} placeholder="Sector" onChange={e=>updInArr("sanidadProblemas",p.id,"sector",e.target.value)} style={{padding:"4px 6px",borderRadius:4,border:`1px solid ${C.border}`,fontSize:10}}/>
+                          <input disabled={!puedeEditar} value={p.accion||""} placeholder="Acción recomendada" onChange={e=>updInArr("sanidadProblemas",p.id,"accion",e.target.value)} style={{padding:"4px 6px",borderRadius:4,border:`1px solid ${C.border}`,fontSize:10}}/>
+                          {puedeEditar&&<button onClick={()=>delFromArr("sanidadProblemas",p.id)} style={{background:C.dangerBg,border:"none",borderRadius:4,padding:"2px 6px",cursor:"pointer",fontSize:10,color:C.danger}}>🗑</button>}
                         </div>
                       ))}
-                      {getArr("sanidadProblemas").length===0&&<div style={{padding:16,textAlign:"center",color:"#94a3b8",fontSize:11}}>Sin problemas registrados.</div>}
+                      {getArr("sanidadProblemas").length===0&&<div style={{padding:16,textAlign:"center",color:C.muted2,fontSize:11}}>Sin problemas registrados.</div>}
                     </div>
                   )}
 
@@ -4867,20 +4872,20 @@ ${linkInforme}
                         return(
                           <div key={grupo} style={{marginBottom:16}}>
                             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
-                              <div style={{fontSize:12,fontWeight:700,color:"#1e293b"}}>{grupo}</div>
-                              {puedeEditar&&<button onClick={()=>addToArr(campo,{area:"",accion:"",responsable:"",plazo:"",prioridad:"Media"})} style={{padding:"3px 10px",borderRadius:6,background:"#7c3aed",border:"none",color:"#fff",cursor:"pointer",fontSize:10,fontWeight:700}}>+</button>}
+                              <div style={{fontSize:12,fontWeight:700,color:C.text}}>{grupo}</div>
+                              {puedeEditar&&<button onClick={()=>addToArr(campo,{area:"",accion:"",responsable:"",plazo:"",prioridad:"Media"})} style={{padding:"3px 10px",borderRadius:6,background:C.purple,border:"none",color:"#fff",cursor:"pointer",fontSize:10,fontWeight:700}}>+</button>}
                             </div>
                             {getArr(campo).map(r=>(
                               <div key={r.id} style={{display:"grid",gridTemplateColumns:"1fr 2fr 1fr 1fr 1fr auto",gap:6,padding:"4px 0",borderBottom:"1px solid #f1f5f9",fontSize:11,alignItems:"center"}}>
-                                <select disabled={!puedeEditar} value={r.area||""} onChange={e=>updInArr(campo,r.id,"area",e.target.value)} style={{padding:"4px 6px",borderRadius:4,border:"1px solid #e2e8f0",fontSize:10}}><option value="">Área</option>{AREAS_REC.map(a=><option key={a}>{a}</option>)}</select>
-                                <input disabled={!puedeEditar} value={r.accion||""} placeholder="Acción" onChange={e=>updInArr(campo,r.id,"accion",e.target.value)} style={{padding:"4px 6px",borderRadius:4,border:"1px solid #e2e8f0",fontSize:10}}/>
-                                <input disabled={!puedeEditar} value={r.responsable||""} placeholder="Responsable" onChange={e=>updInArr(campo,r.id,"responsable",e.target.value)} style={{padding:"4px 6px",borderRadius:4,border:"1px solid #e2e8f0",fontSize:10}}/>
-                                <input disabled={!puedeEditar} value={r.plazo||""} placeholder="Plazo" onChange={e=>updInArr(campo,r.id,"plazo",e.target.value)} style={{padding:"4px 6px",borderRadius:4,border:"1px solid #e2e8f0",fontSize:10}}/>
-                                <select disabled={!puedeEditar} value={r.prioridad||"Media"} onChange={e=>updInArr(campo,r.id,"prioridad",e.target.value)} style={{padding:"4px 6px",borderRadius:4,border:"1px solid #e2e8f0",fontSize:10,fontWeight:700,color:r.prioridad==="Alta"?"#dc2626":r.prioridad==="Baja"?"#16a34a":"#d97706"}}>{PRIORIDADES.map(p=><option key={p}>{p}</option>)}</select>
-                                {puedeEditar&&<button onClick={()=>delFromArr(campo,r.id)} style={{background:"#fef2f2",border:"none",borderRadius:4,padding:"2px 6px",cursor:"pointer",fontSize:10,color:"#991b1b"}}>🗑</button>}
+                                <select disabled={!puedeEditar} value={r.area||""} onChange={e=>updInArr(campo,r.id,"area",e.target.value)} style={{padding:"4px 6px",borderRadius:4,border:`1px solid ${C.border}`,fontSize:10}}><option value="">Área</option>{AREAS_REC.map(a=><option key={a}>{a}</option>)}</select>
+                                <input disabled={!puedeEditar} value={r.accion||""} placeholder="Acción" onChange={e=>updInArr(campo,r.id,"accion",e.target.value)} style={{padding:"4px 6px",borderRadius:4,border:`1px solid ${C.border}`,fontSize:10}}/>
+                                <input disabled={!puedeEditar} value={r.responsable||""} placeholder="Responsable" onChange={e=>updInArr(campo,r.id,"responsable",e.target.value)} style={{padding:"4px 6px",borderRadius:4,border:`1px solid ${C.border}`,fontSize:10}}/>
+                                <input disabled={!puedeEditar} value={r.plazo||""} placeholder="Plazo" onChange={e=>updInArr(campo,r.id,"plazo",e.target.value)} style={{padding:"4px 6px",borderRadius:4,border:`1px solid ${C.border}`,fontSize:10}}/>
+                                <select disabled={!puedeEditar} value={r.prioridad||"Media"} onChange={e=>updInArr(campo,r.id,"prioridad",e.target.value)} style={{padding:"4px 6px",borderRadius:4,border:`1px solid ${C.border}`,fontSize:10,fontWeight:700,color:r.prioridad==="Alta"?C.danger:r.prioridad==="Baja"?C.success:C.warning}}>{PRIORIDADES.map(p=><option key={p}>{p}</option>)}</select>
+                                {puedeEditar&&<button onClick={()=>delFromArr(campo,r.id)} style={{background:C.dangerBg,border:"none",borderRadius:4,padding:"2px 6px",cursor:"pointer",fontSize:10,color:C.danger}}>🗑</button>}
                               </div>
                             ))}
-                            {getArr(campo).length===0&&<div style={{padding:8,color:"#94a3b8",fontSize:10}}>Sin recomendaciones.</div>}
+                            {getArr(campo).length===0&&<div style={{padding:8,color:C.muted2,fontSize:10}}>Sin recomendaciones.</div>}
                           </div>);
                       })}
                     </div>
@@ -4889,7 +4894,7 @@ ${linkInforme}
                   {/* L. FOTOS */}
                   {secTab==="fotos"&&(
                     <div>
-                      <div style={{fontSize:11,color:"#64748b",fontWeight:600,marginBottom:8}}>Registro fotográfico</div>
+                      <div style={{fontSize:11,color:C.muted,fontWeight:600,marginBottom:8}}>Registro fotográfico</div>
                       {(()=>{
                         const fotos = getArr("fotosInforme");
                         return(
@@ -4897,20 +4902,20 @@ ${linkInforme}
                             {fotos.length>0&&(
                               <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(200px,1fr))",gap:10,marginBottom:12}}>
                                 {fotos.map(f=>(
-                                  <div key={f.id} style={{border:"1px solid #e2e8f0",borderRadius:8,overflow:"hidden"}}>
+                                  <div key={f.id} style={{border:`1px solid ${C.border}`,borderRadius:8,overflow:"hidden"}}>
                                     {f.url&&<img src={f.url} alt="" style={{width:"100%",height:120,objectFit:"cover"}} onError={e=>{e.target.style.display="none";}}/>}
                                     <div style={{padding:8,fontSize:10}}>
-                                      <input disabled={!puedeEditar} value={f.descripcion||""} placeholder="Descripción" onChange={e=>updInArr("fotosInforme",f.id,"descripcion",e.target.value)} style={{width:"100%",padding:"3px 5px",border:"1px solid #e2e8f0",borderRadius:4,fontSize:10,marginBottom:4,boxSizing:"border-box"}}/>
-                                      <select disabled={!puedeEditar} value={f.categoria||""} onChange={e=>updInArr("fotosInforme",f.id,"categoria",e.target.value)} style={{width:"100%",padding:"3px 5px",border:"1px solid #e2e8f0",borderRadius:4,fontSize:10,marginBottom:4}}>
+                                      <input disabled={!puedeEditar} value={f.descripcion||""} placeholder="Descripción" onChange={e=>updInArr("fotosInforme",f.id,"descripcion",e.target.value)} style={{width:"100%",padding:"3px 5px",border:`1px solid ${C.border}`,borderRadius:4,fontSize:10,marginBottom:4,boxSizing:"border-box"}}/>
+                                      <select disabled={!puedeEditar} value={f.categoria||""} onChange={e=>updInArr("fotosInforme",f.id,"categoria",e.target.value)} style={{width:"100%",padding:"3px 5px",border:`1px solid ${C.border}`,borderRadius:4,fontSize:10,marginBottom:4}}>
                                         <option value="">Categoría</option>{CATS_FOTO.map(c=><option key={c}>{c}</option>)}</select>
-                                      {puedeEditar&&<button onClick={()=>delFromArr("fotosInforme",f.id)} style={{background:"#fef2f2",border:"none",borderRadius:4,padding:"2px 6px",cursor:"pointer",fontSize:10,color:"#991b1b",width:"100%"}}>🗑 Eliminar</button>}
+                                      {puedeEditar&&<button onClick={()=>delFromArr("fotosInforme",f.id)} style={{background:C.dangerBg,border:"none",borderRadius:4,padding:"2px 6px",cursor:"pointer",fontSize:10,color:C.danger,width:"100%"}}>🗑 Eliminar</button>}
                                     </div>
                                   </div>
                                 ))}
                               </div>
                             )}
                             {puedeEditar&&<div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
-                              <label style={{padding:"6px 14px",borderRadius:8,background:"#16a34a",color:"#fff",cursor:"pointer",fontSize:11,fontWeight:700,display:"inline-flex",alignItems:"center",gap:4}}>
+                              <label style={{padding:"6px 14px",borderRadius:8,background:C.success,color:"#fff",cursor:"pointer",fontSize:11,fontWeight:700,display:"inline-flex",alignItems:"center",gap:4}}>
                                 📷 Subir foto
                                 <input type="file" accept="image/*" multiple style={{display:"none"}} onChange={async(e)=>{
                                   const files=Array.from(e.target.files||[]);if(!files.length)return;
@@ -4932,9 +4937,9 @@ ${linkInforme}
                               <button onClick={()=>{
                                 const url=window.prompt("Pega la URL de la foto:");
                                 if(url&&url.trim()) addToArr("fotosInforme",{url:url.trim(),descripcion:"",categoria:"",sector:""});
-                              }} style={{padding:"6px 14px",borderRadius:8,background:"#f1f5f9",border:"1px solid #d1d5db",cursor:"pointer",fontSize:11,fontWeight:600}}>🔗 URL</button>
+                              }} style={{padding:"6px 14px",borderRadius:8,background:C.cardAlt,border:`1px solid ${C.border}`,cursor:"pointer",fontSize:11,fontWeight:600}}>🔗 URL</button>
                             </div>}
-                            {fotos.length===0&&<div style={{padding:20,textAlign:"center",color:"#94a3b8",fontSize:11}}>Sin fotos. Agrega URLs de imágenes.</div>}
+                            {fotos.length===0&&<div style={{padding:20,textAlign:"center",color:C.muted2,fontSize:11}}>Sin fotos. Agrega URLs de imágenes.</div>}
                           </div>
                         );
                       })()}
@@ -4955,10 +4960,10 @@ ${linkInforme}
 
                   </div>
                   {/* Firmas */}
-                  <div style={{padding:"12px 24px",background:"#f8fafc",borderTop:"1px solid #e2e8f0",display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:12,fontSize:12}}>
-                    <div><div style={{fontSize:10,color:"#94a3b8"}}>Elaborado por</div><div style={{fontWeight:600}}>{inf.responsable||"—"}</div></div>
-                    <div><div style={{fontSize:10,color:"#94a3b8"}}>Revisado por</div><div style={{fontWeight:600}}>{inf.revisor||"(Pendiente)"}</div>{inf.fechaAprobacion&&<div style={{fontSize:10,color:"#16a34a"}}>Aprobado {inf.fechaAprobacion}</div>}</div>
-                    <div><div style={{fontSize:10,color:"#94a3b8"}}>Estado</div><BadgeEstado estado={inf.estado}/></div>
+                  <div style={{padding:"12px 24px",background:C.cardAlt,borderTop:`1px solid ${C.border}`,display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:12,fontSize:12}}>
+                    <div><div style={{fontSize:10,color:C.muted2}}>Elaborado por</div><div style={{fontWeight:600}}>{inf.responsable||"—"}</div></div>
+                    <div><div style={{fontSize:10,color:C.muted2}}>Revisado por</div><div style={{fontWeight:600}}>{inf.revisor||"(Pendiente)"}</div>{inf.fechaAprobacion&&<div style={{fontSize:10,color:C.success}}>Aprobado {inf.fechaAprobacion}</div>}</div>
+                    <div><div style={{fontSize:10,color:C.muted2}}>Estado</div><BadgeEstado estado={inf.estado}/></div>
                   </div>
                 </div>
               );
@@ -4968,7 +4973,7 @@ ${linkInforme}
               if(ok){updItem("informes",inf.id,{estado:"Enviado",emailsDestino:emailsEnvio,fechaEnvio:new Date().toISOString().slice(0,10)});setEnvioModal(false);alert("✅ Enviado.");}
             }}>
               <Input label="Emails destino (separados por coma) *" value={emailsEnvio} onChange={v=>setEmailsEnvio(v)} placeholder="cliente@empresa.com, otro@empresa.com"/>
-              <div style={{fontSize:11,color:"#64748b",marginTop:8}}>💡 Se enviará resumen del informe. Estado cambiará a "Enviado".</div>
+              <div style={{fontSize:11,color:C.muted,marginTop:8}}>💡 Se enviará resumen del informe. Estado cambiará a "Enviado".</div>
             </ModalForm>}
           </div>
         );
@@ -4977,7 +4982,7 @@ ${linkInforme}
           cols={[
             {label:"Fecha",field:"fecha",w:90},
             {label:"Tipo",render:r=><BadgeEstado estado={r.tipo}/>,w:110},
-            {label:"Título",render:r=><span style={{fontWeight:600,cursor:"pointer",color:"#2563eb",textDecoration:"underline"}} onClick={()=>setInformeDetalle(r.id)}>{r.titulo||"(sin título)"}</span>},
+            {label:"Título",render:r=><span style={{fontWeight:600,cursor:"pointer",color:C.primary,textDecoration:"underline"}} onClick={()=>setInformeDetalle(r.id)}>{r.titulo||"(sin título)"}</span>},
             {label:"Cliente",render:r=>r.ctId?nombreCliente(r.ctId):"—"},
             {label:"Responsable",field:"responsable"},
             {label:"Estado",render:r=><BadgeEstado estado={r.estado}/>,w:110},
@@ -5008,26 +5013,26 @@ ${linkInforme}
       {/* ════ TAB: ENTREGABLES ════ */}
       {subTab==="entregables"&&(
         entregables.length===0?(
-          <div style={{textAlign:"center",padding:32,color:"#94a3b8",border:"1px dashed #e2e8f0",borderRadius:10}}>Sin entregables.</div>
+          <div style={{textAlign:"center",padding:32,color:C.muted2,border:"1px dashed #e2e8f0",borderRadius:10}}>Sin entregables.</div>
         ):(
           entregables.map((e,ei)=>{
             const ct=(ctData||[]).find(c=>c.id===e.ctId);
             const comp=e.items.filter(i=>i.entregado).length;
             return (
-              <div key={e.id||ei} style={{background:"#fff",border:"1px solid #e2e8f0",borderRadius:10,padding:"14px 18px",marginBottom:12}}>
+              <div key={e.id||ei} style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:10,padding:"14px 18px",marginBottom:12}}>
                 <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
-                  <div><div style={{fontWeight:700,fontSize:13}}>{ct?.razonSocial||"—"} · {e.sublicenciatario||"General"}</div><div style={{fontSize:11,color:"#64748b"}}>{comp}/{e.items.length} entregados</div></div>
+                  <div><div style={{fontWeight:700,fontSize:13}}>{ct?.razonSocial||"—"} · {e.sublicenciatario||"General"}</div><div style={{fontSize:11,color:C.muted}}>{comp}/{e.items.length} entregados</div></div>
                   {can&&<div style={{display:"flex",gap:4}}>
-                    <button onClick={()=>abrirEditar("entregable",e)} style={{background:"#dbeafe",border:"none",borderRadius:4,padding:"3px 8px",cursor:"pointer",fontSize:11,color:"#1d4ed8",fontWeight:600}}>✏️</button>
-                    <button onClick={()=>delItem("entregables",e.id,`Entregables ${ct?.razonSocial||""}`)} style={{background:"#fee2e2",border:"none",borderRadius:4,padding:"3px 8px",cursor:"pointer",fontSize:11,color:"#991b1b",fontWeight:600}}>×</button>
+                    <button onClick={()=>abrirEditar("entregable",e)} style={{background:C.infoBg,border:"none",borderRadius:4,padding:"3px 8px",cursor:"pointer",fontSize:11,color:C.primary,fontWeight:600}}>✏️</button>
+                    <button onClick={()=>delItem("entregables",e.id,`Entregables ${ct?.razonSocial||""}`)} style={{background:C.dangerBg,border:"none",borderRadius:4,padding:"3px 8px",cursor:"pointer",fontSize:11,color:C.danger,fontWeight:600}}>×</button>
                   </div>}
                 </div>
-                <div style={{height:8,background:"#f1f5f9",borderRadius:4,overflow:"hidden",marginBottom:8}}><div style={{height:"100%",background:"#16a34a",borderRadius:4,width:`${(comp/Math.max(e.items.length,1))*100}%`}}/></div>
+                <div style={{height:8,background:C.cardAlt,borderRadius:4,overflow:"hidden",marginBottom:8}}><div style={{height:"100%",background:C.success,borderRadius:4,width:`${(comp/Math.max(e.items.length,1))*100}%`}}/></div>
                 <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(200px,1fr))",gap:6}}>
                   {e.items.map((item,ii)=>(
-                    <label key={ii} style={{display:"flex",alignItems:"center",gap:8,padding:"6px 10px",borderRadius:6,background:item.entregado?"#f0fdf4":"#fff",border:`1px solid ${item.entregado?"#86efac":"#e2e8f0"}`,cursor:can?"pointer":"default",fontSize:12}}>
-                      <input type="checkbox" disabled={!can} checked={item.entregado} onChange={()=>{const ni=[...e.items];ni[ii]={...ni[ii],entregado:!ni[ii].entregado,fecha:!ni[ii].entregado?new Date().toISOString().slice(0,10):""};updItem("entregables",e.id,{items:ni});}} style={{accentColor:"#16a34a"}}/>
-                      <span style={{textDecoration:item.entregado?"line-through":"none",color:item.entregado?"#16a34a":"#1e293b"}}>{item.nombre}</span>
+                    <label key={ii} style={{display:"flex",alignItems:"center",gap:8,padding:"6px 10px",borderRadius:6,background:item.entregado?C.successBg:"#fff",border:`1px solid ${item.entregado?"#86efac":C.border}`,cursor:can?"pointer":"default",fontSize:12}}>
+                      <input type="checkbox" disabled={!can} checked={item.entregado} onChange={()=>{const ni=[...e.items];ni[ii]={...ni[ii],entregado:!ni[ii].entregado,fecha:!ni[ii].entregado?new Date().toISOString().slice(0,10):""};updItem("entregables",e.id,{items:ni});}} style={{accentColor:C.success}}/>
+                      <span style={{textDecoration:item.entregado?"line-through":"none",color:item.entregado?C.success:C.text}}>{item.nombre}</span>
                     </label>
                   ))}
                 </div>
@@ -5042,7 +5047,7 @@ ${linkInforme}
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
           <Select label="Tipo *" value={form.tipo} onChange={v=>setForm(p=>({...p,tipo:v}))} opts={TIPOS_VISITA}/>
           <Input label="Fecha *" value={form.fecha} onChange={v=>setForm(p=>({...p,fecha:v}))} type="date"/>
-          <div><div style={{fontSize:11,color:"#64748b",fontWeight:600,marginBottom:3}}>Cliente</div><ClienteSelect value={form.ctId} onChange={v=>setForm(p=>({...p,ctId:v}))}/></div>
+          <div><div style={{fontSize:11,color:C.muted,fontWeight:600,marginBottom:3}}>Cliente</div><ClienteSelect value={form.ctId} onChange={v=>setForm(p=>({...p,ctId:v}))}/></div>
           <Select label="Estado" value={form.estado} onChange={v=>setForm(p=>({...p,estado:v}))} opts={ESTADOS_VISITA}/>
           <Input label="Lugar" value={form.lugar} onChange={v=>setForm(p=>({...p,lugar:v}))} placeholder="Fundo, ciudad..."/>
           <Input label="Responsable" value={form.responsable} onChange={v=>setForm(p=>({...p,responsable:v}))}/>
@@ -5050,8 +5055,8 @@ ${linkInforme}
         <Input label="Objetivo" value={form.objetivo} onChange={v=>setForm(p=>({...p,objetivo:v}))} rows={2}/>
         <Input label="Resultado / Observaciones" value={form.resultado} onChange={v=>setForm(p=>({...p,resultado:v}))} rows={2}/>
         {form.tipo==="Test Block"&&(<>
-          <div style={{marginTop:10,padding:"10px 14px",background:"#ede9fe",borderRadius:8,border:"1px solid #c4b5fd"}}>
-            <div style={{fontSize:12,fontWeight:700,color:"#5b21b6",marginBottom:8}}>🧪 Datos del Test Block</div>
+          <div style={{marginTop:10,padding:"10px 14px",background:C.purpleBg,borderRadius:8,border:`1px solid ${C.purple}`}}>
+            <div style={{fontSize:12,fontWeight:700,color:C.purple,marginBottom:8}}>🧪 Datos del Test Block</div>
             <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
               <Input label="Nombre del ensayo" value={form.testBlockNombre} onChange={v=>setForm(p=>({...p,testBlockNombre:v}))} placeholder="Test Atlas 2026"/>
               <Input label="Especie" value={form.testBlockEspecie} onChange={v=>setForm(p=>({...p,testBlockEspecie:v}))} placeholder="Arándano"/>
@@ -5067,9 +5072,9 @@ ${linkInforme}
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
           <Input label="Nombre *" value={form.nombre} onChange={v=>setForm(p=>({...p,nombre:v}))}/>
           <Select label="Rol" value={form.rol} onChange={v=>setForm(p=>({...p,rol:v}))} opts={["Asesor por especie","Técnico part time","Asesoría integral (AI)","Documentación técnica","Otro"]}/>
-          <div><div style={{fontSize:11,color:"#64748b",fontWeight:600,marginBottom:3}}>Especie</div>
+          <div><div style={{fontSize:11,color:C.muted,fontWeight:600,marginBottom:3}}>Especie</div>
             <select value={form.especie||""} onChange={e=>setForm(p=>({...p,especie:e.target.value}))}
-              style={{width:"100%",padding:"7px 10px",borderRadius:6,border:"1px solid #d1d5db",fontSize:12}}>
+              style={{width:"100%",padding:"7px 10px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:12}}>
               <option value="">— Seleccionar —</option>
               {especiesMaestro.filter(e=>e.nombre||e.especie).map(e=>{const n=e.nombre||e.especie;return <option key={e.id} value={n}>{n}</option>;})}
             </select></div>
@@ -5082,13 +5087,13 @@ ${linkInforme}
 
       {modal==="entregable"&&<ModalForm titulo={form._editId?"Editar entregables":"Nuevo checklist"} onSave={()=>guardarForm("entregables",VACIO_ENTREGABLE)}>
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:14}}>
-          <div><div style={{fontSize:11,color:"#64748b",fontWeight:600,marginBottom:3}}>Cliente *</div><ClienteSelect value={form.ctId} onChange={v=>setForm(p=>({...p,ctId:v}))}/></div>
+          <div><div style={{fontSize:11,color:C.muted,fontWeight:600,marginBottom:3}}>Cliente *</div><ClienteSelect value={form.ctId} onChange={v=>setForm(p=>({...p,ctId:v}))}/></div>
           <Input label="Sublicenciatario" value={form.sublicenciatario} onChange={v=>setForm(p=>({...p,sublicenciatario:v}))}/>
         </div>
         <div style={{fontSize:11,fontWeight:700,marginBottom:8}}>Checklist:</div>
         {(form.items||[]).map((item,i)=>(
-          <label key={i} style={{display:"flex",alignItems:"center",gap:8,padding:"6px 10px",borderRadius:6,background:item.entregado?"#f0fdf4":"#fff",border:"1px solid #e2e8f0",marginBottom:4,fontSize:12,cursor:"pointer"}}>
-            <input type="checkbox" checked={item.entregado} onChange={()=>{const ni=[...(form.items||[])];ni[i]={...ni[i],entregado:!ni[i].entregado};setForm(p=>({...p,items:ni}));}} style={{accentColor:"#16a34a"}}/>
+          <label key={i} style={{display:"flex",alignItems:"center",gap:8,padding:"6px 10px",borderRadius:6,background:item.entregado?C.successBg:"#fff",border:`1px solid ${C.border}`,marginBottom:4,fontSize:12,cursor:"pointer"}}>
+            <input type="checkbox" checked={item.entregado} onChange={()=>{const ni=[...(form.items||[])];ni[i]={...ni[i],entregado:!ni[i].entregado};setForm(p=>({...p,items:ni}));}} style={{accentColor:C.success}}/>
             {item.nombre}
           </label>
         ))}
@@ -5195,40 +5200,40 @@ function MaestroEspecies({especies,setEspecies,can,obtentores=[],contratos=[],va
     (e.observaciones||"").toLowerCase().includes(busq.toLowerCase()));
 
   return(
-    <div style={{background:"#f0fdfa",border:"1px solid #5eead4",borderRadius:12,padding:"16px 20px",marginBottom:16}}>
+    <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,padding:"16px 20px",marginBottom:16,boxShadow:C.shadow}}>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12,flexWrap:"wrap",gap:8}}>
         <div style={{fontSize:13,fontWeight:700,color:"#115e59"}}>🌳 Maestro de Especies</div>
         <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
           <input value={busq} onChange={e=>setBusq(e.target.value)} placeholder="Buscar..."
-            style={{padding:"5px 10px",borderRadius:6,border:"1px solid #5eead4",fontSize:12,outline:"none"}}/>
+            style={{padding:"5px 10px",borderRadius:6,border:`1px solid ${C.accent2}`,fontSize:12,outline:"none"}}/>
           {can&&sugerencias.length>0&&<button onClick={importarTodas}
-            style={{padding:"6px 12px",borderRadius:6,background:"#7c3aed",color:"#fff",border:"none",cursor:"pointer",fontSize:11,fontWeight:600}}>
+            style={{padding:"6px 12px",borderRadius:6,background:C.purple,color:"#fff",border:"none",cursor:"pointer",fontSize:11,fontWeight:600}}>
             📥 Importar {sugerencias.length} detectadas
           </button>}
           {can&&<button onClick={()=>{setShowForm(v=>!v);setEditId(null);setForm(VACIO);}}
-            style={{padding:"6px 14px",borderRadius:6,background:"#0d9488",color:"#fff",border:"none",cursor:"pointer",fontSize:12,fontWeight:600}}>
+            style={{padding:"6px 14px",borderRadius:6,background:C.accent2,color:"#fff",border:"none",cursor:"pointer",fontSize:12,fontWeight:600}}>
             {showForm&&!editId?"✕":"+ Nueva especie"}
           </button>}
         </div>
       </div>
 
       {showForm&&can&&(
-        <div style={{background:"#fff",borderRadius:10,padding:"14px 16px",marginBottom:12,border:"1px solid #5eead4"}}>
+        <div style={{background:C.card,borderRadius:10,padding:"14px 16px",marginBottom:12,border:`1px solid ${C.accent2}`}}>
           <div style={{fontSize:12,fontWeight:700,color:"#115e59",marginBottom:10}}>{editId?"Editar especie":"Nueva especie"}</div>
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:10}}>
             <div>
-              <div style={{fontSize:11,color:"#64748b",fontWeight:600,marginBottom:3}}>Nombre *</div>
+              <div style={{fontSize:11,color:C.muted,fontWeight:600,marginBottom:3}}>Nombre *</div>
               <input value={form.nombre} placeholder="Cerezo, Arándano, Uva..." onChange={e=>setForm(p=>({...p,nombre:e.target.value}))}
-                style={{width:"100%",padding:"6px 8px",borderRadius:6,border:"1px solid #d1d5db",fontSize:12,outline:"none",boxSizing:"border-box"}}/>
+                style={{width:"100%",padding:"6px 8px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:12,outline:"none",boxSizing:"border-box"}}/>
             </div>
             <div>
-              <div style={{fontSize:11,color:"#64748b",fontWeight:600,marginBottom:3}}>Observaciones</div>
+              <div style={{fontSize:11,color:C.muted,fontWeight:600,marginBottom:3}}>Observaciones</div>
               <input value={form.observaciones} onChange={e=>setForm(p=>({...p,observaciones:e.target.value}))}
-                style={{width:"100%",padding:"6px 8px",borderRadius:6,border:"1px solid #d1d5db",fontSize:12,outline:"none",boxSizing:"border-box"}}/>
+                style={{width:"100%",padding:"6px 8px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:12,outline:"none",boxSizing:"border-box"}}/>
             </div>
           </div>
           <div style={{marginBottom:10}}>
-            <div style={{fontSize:11,color:"#64748b",fontWeight:600,marginBottom:6}}>Color identificador</div>
+            <div style={{fontSize:11,color:C.muted,fontWeight:600,marginBottom:6}}>Color identificador</div>
             <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
               {COLORES_ESPECIES.map(c=>(
                 <button key={c.hex} type="button" onClick={()=>setForm(p=>({...p,color:c.hex}))}
@@ -5242,20 +5247,20 @@ function MaestroEspecies({especies,setEspecies,can,obtentores=[],contratos=[],va
             <div style={{marginTop:8,padding:"6px 12px",background:form.color,color:"#fff",borderRadius:6,fontSize:11,fontWeight:700,display:"inline-block",textShadow:"0 1px 2px #0006"}}>Vista previa: {form.nombre||"Especie"}</div>
           </div>
           <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}>
-            <button onClick={()=>{setShowForm(false);setEditId(null);}} style={{padding:"6px 16px",borderRadius:6,border:"1px solid #d1d5db",background:"#fff",cursor:"pointer",fontSize:12}}>Cancelar</button>
-            <button onClick={guardar} style={{padding:"6px 16px",borderRadius:6,background:"#0d9488",color:"#fff",border:"none",cursor:"pointer",fontSize:12,fontWeight:600}}>💾 Guardar</button>
+            <button onClick={()=>{setShowForm(false);setEditId(null);}} style={{padding:"6px 16px",borderRadius:6,border:`1px solid ${C.border}`,background:C.card,cursor:"pointer",fontSize:12}}>Cancelar</button>
+            <button onClick={guardar} style={{padding:"6px 16px",borderRadius:6,background:C.accent2,color:"#fff",border:"none",cursor:"pointer",fontSize:12,fontWeight:600}}>💾 Guardar</button>
           </div>
         </div>
       )}
 
       {/* Sugerencias detectadas no importadas */}
       {sugerencias.length>0&&can&&!showForm&&(
-        <div style={{background:"#fff",border:"1px dashed #fb923c",borderRadius:10,padding:"10px 14px",marginBottom:12}}>
-          <div style={{fontSize:11,fontWeight:700,color:"#c2410c",marginBottom:8}}>💡 {sugerencias.length} especies detectadas en uso pero no en el maestro:</div>
+        <div style={{background:C.card,border:"1px dashed #fb923c",borderRadius:10,padding:"10px 14px",marginBottom:12}}>
+          <div style={{fontSize:11,fontWeight:700,color:C.warning,marginBottom:8}}>💡 {sugerencias.length} especies detectadas en uso pero no en el maestro:</div>
           <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
             {sugerencias.map((s,i)=>(
               <button key={s.nombre} onClick={()=>importarSugerencia(s,(especies||[]).length+i)} title={`Detectada en: ${s.fuente}`}
-                style={{padding:"4px 10px",borderRadius:14,background:"#fff7ed",border:"1px solid #fb923c",cursor:"pointer",fontSize:11,color:"#c2410c",fontWeight:600}}>
+                style={{padding:"4px 10px",borderRadius:14,background:C.warningBg,border:"1px solid #fb923c",cursor:"pointer",fontSize:11,color:C.warning,fontWeight:600}}>
                 + {s.nombre}
               </button>
             ))}
@@ -5264,8 +5269,8 @@ function MaestroEspecies({especies,setEspecies,can,obtentores=[],contratos=[],va
       )}
 
       <div style={{overflowX:"auto"}}>
-        <table style={{borderCollapse:"collapse",width:"100%",background:"#fff",borderRadius:8,overflow:"hidden",fontSize:12}}>
-          <thead><tr style={{background:"#0d9488",color:"#fff"}}>
+        <table style={{borderCollapse:"collapse",width:"100%",background:C.card,borderRadius:8,overflow:"hidden",fontSize:12}}>
+          <thead><tr style={{background:C.primary,color:C.primaryText}}>
             {["","Nombre","Variedades","Plantaciones","Observaciones",""].map(h=>(
               <th key={h} style={{padding:"7px 10px",textAlign:"left",fontWeight:600,fontSize:11,whiteSpace:"nowrap"}}>{h}</th>
             ))}
@@ -5277,17 +5282,17 @@ function MaestroEspecies({especies,setEspecies,can,obtentores=[],contratos=[],va
               const nPlantaciones = (contratos||[]).reduce((s,c)=>
                 s + ((c.plantaciones||[]).filter(p=>p.especie?.toLowerCase().trim() === e.nombre.toLowerCase().trim()).length), 0);
               return (
-                <tr key={e.id} style={{borderBottom:"1px solid #ccfbf1",background:i%2===0?"#fff":"#f0fdfa"}}>
+                <tr key={e.id} style={{borderBottom:`1px solid ${C.border}22`,background:i%2===0?C.card:C.rowAlt}}>
                   <td style={{padding:"6px 10px",width:32}}>
-                    <div style={{width:24,height:24,borderRadius:6,background:e.color||"#475569",boxShadow:"0 1px 3px #0002"}}/>
+                    <div style={{width:24,height:24,borderRadius:6,background:e.color||C.muted,boxShadow:"0 1px 3px #0002"}}/>
                   </td>
-                  <td style={{padding:"6px 10px",fontWeight:700,color:"#1e293b"}}>{e.nombre}</td>
-                  <td style={{padding:"6px 10px",color:"#64748b"}}>{nVariedades>0?<span style={{padding:"2px 8px",borderRadius:10,background:"#fef3c7",color:"#92400e",fontSize:10,fontWeight:700}}>{nVariedades}</span>:"—"}</td>
-                  <td style={{padding:"6px 10px",color:"#64748b"}}>{nPlantaciones>0?<span style={{padding:"2px 8px",borderRadius:10,background:"#dcfce7",color:"#15803d",fontSize:10,fontWeight:700}}>{nPlantaciones}</span>:"—"}</td>
-                  <td style={{padding:"6px 10px",color:"#64748b",fontSize:11}}>{e.observaciones||"—"}</td>
+                  <td style={{padding:"6px 10px",fontWeight:700,color:C.text}}>{e.nombre}</td>
+                  <td style={{padding:"6px 10px",color:C.muted}}>{nVariedades>0?<span style={{padding:"2px 8px",borderRadius:10,background:C.warningBg,color:C.text,fontSize:10,fontWeight:700}}>{nVariedades}</span>:"—"}</td>
+                  <td style={{padding:"6px 10px",color:C.muted}}>{nPlantaciones>0?<span style={{padding:"2px 8px",borderRadius:10,background:C.successBg,color:C.success,fontSize:10,fontWeight:700}}>{nPlantaciones}</span>:"—"}</td>
+                  <td style={{padding:"6px 10px",color:C.muted,fontSize:11}}>{e.observaciones||"—"}</td>
                   <td style={{padding:"6px 8px",textAlign:"center"}}>
                     {can&&<div style={{display:"flex",gap:4}}>
-                      <button onClick={()=>iniciarEdicion(e)} style={{background:"#dbeafe",border:"none",borderRadius:4,padding:"3px 8px",cursor:"pointer",fontSize:11,color:"#1d4ed8",fontWeight:600}}>✏️</button>
+                      <button onClick={()=>iniciarEdicion(e)} style={{background:C.infoBg,border:"none",borderRadius:4,padding:"3px 8px",cursor:"pointer",fontSize:11,color:C.primary,fontWeight:600}}>✏️</button>
                       <button onClick={()=>{
                         if(nVariedades>0||nPlantaciones>0) {
                           if(!window.confirm(`Esta especie está en uso por ${nVariedades} variedad(es) y ${nPlantaciones} plantación(es). ¿Eliminar de todos modos? (los registros que la usan no se borran, solo perderán el link al maestro)`))return;
@@ -5299,13 +5304,13 @@ function MaestroEspecies({especies,setEspecies,can,obtentores=[],contratos=[],va
                           registroId:e.id});
                         setEspecies(prev=>(prev||[]).filter(x=>x.id!==e.id));
                       }}
-                        style={{background:"#fee2e2",border:"none",borderRadius:4,padding:"3px 8px",cursor:"pointer",fontSize:11,color:"#991b1b",fontWeight:600}}>×</button>
+                        style={{background:C.dangerBg,border:"none",borderRadius:4,padding:"3px 8px",cursor:"pointer",fontSize:11,color:C.danger,fontWeight:600}}>×</button>
                     </div>}
                   </td>
                 </tr>
               );
             })}
-            {filtrado.length===0&&<tr><td colSpan={6} style={{textAlign:"center",padding:20,color:"#94a3b8"}}>Sin especies. {can?(sugerencias.length>0?`Hay ${sugerencias.length} especies detectadas listas para importar arriba.`:"Agrega una con \"+ Nueva especie\"."):""}</td></tr>}
+            {filtrado.length===0&&<tr><td colSpan={6} style={{textAlign:"center",padding:20,color:C.muted2}}>Sin especies. {can?(sugerencias.length>0?`Hay ${sugerencias.length} especies detectadas listas para importar arriba.`:"Agrega una con \"+ Nueva especie\"."):""}</td></tr>}
           </tbody>
         </table>
       </div>
@@ -5402,29 +5407,29 @@ function MaestroVariedades({variedades,setVariedades,can,obtentores=[],especies=
     (v.obtentor||"").toLowerCase().includes(busq.toLowerCase()));
 
   return(
-    <div style={{background:"#fef3c7",border:"1px solid #fbbf24",borderRadius:12,padding:"16px 20px",marginBottom:16}}>
+    <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,padding:"16px 20px",marginBottom:16,boxShadow:C.shadow}}>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12,flexWrap:"wrap",gap:8}}>
-        <div style={{fontSize:13,fontWeight:700,color:"#78350f"}}>🌿 Maestro de Variedades</div>
+        <div style={{fontSize:13,fontWeight:700,color:C.text}}>🌿 Maestro de Variedades</div>
         <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
           <input value={busq} onChange={e=>setBusq(e.target.value)} placeholder="Buscar..."
-            style={{padding:"5px 10px",borderRadius:6,border:"1px solid #fbbf24",fontSize:12,outline:"none"}}/>
+            style={{padding:"5px 10px",borderRadius:6,border:`1px solid ${C.warning}`,fontSize:12,outline:"none"}}/>
           {can&&sugerencias.length>0&&<button onClick={importarTodas}
-            style={{padding:"6px 12px",borderRadius:6,background:"#7c3aed",color:"#fff",border:"none",cursor:"pointer",fontSize:11,fontWeight:600}}>
+            style={{padding:"6px 12px",borderRadius:6,background:C.purple,color:"#fff",border:"none",cursor:"pointer",fontSize:11,fontWeight:600}}>
             📥 Importar {sugerencias.length} desde Obtentores
           </button>}
           {can&&<button onClick={()=>{setShowForm(v=>!v);setEditId(null);setForm(VACIO);}}
-            style={{padding:"6px 14px",borderRadius:6,background:"#d97706",color:"#fff",border:"none",cursor:"pointer",fontSize:12,fontWeight:600}}>
+            style={{padding:"6px 14px",borderRadius:6,background:C.warning,color:"#fff",border:"none",cursor:"pointer",fontSize:12,fontWeight:600}}>
             {showForm&&!editId?"✕":"+ Nueva variedad"}
           </button>}
         </div>
       </div>
 
       {showForm&&can&&(
-        <div style={{background:"#fff",borderRadius:10,padding:"14px 16px",marginBottom:12,border:"1px solid #fbbf24"}}>
-          <div style={{fontSize:12,fontWeight:700,color:"#78350f",marginBottom:10}}>{editId?"Editar variedad":"Nueva variedad"}</div>
+        <div style={{background:C.card,borderRadius:10,padding:"14px 16px",marginBottom:12,border:`1px solid ${C.warning}`}}>
+          <div style={{fontSize:12,fontWeight:700,color:C.text,marginBottom:10}}>{editId?"Editar variedad":"Nueva variedad"}</div>
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:10}}>
             <div>
-              <div style={{fontSize:11,color:"#64748b",fontWeight:600,marginBottom:3}}>Especie *</div>
+              <div style={{fontSize:11,color:C.muted,fontWeight:600,marginBottom:3}}>Especie *</div>
               {(especies||[]).length>0?(
                 <div style={{display:"flex",gap:4}}>
                   <select value={form.especie||""} onChange={e=>{
@@ -5444,7 +5449,7 @@ function MaestroVariedades({variedades,setVariedades,can,obtentores=[],especies=
                       setForm(p=>({...p,especie:e.target.value}));
                     }
                   }}
-                    style={{flex:1,padding:"6px 8px",borderRadius:6,border:"1px solid #d1d5db",fontSize:12,outline:"none",boxSizing:"border-box",background:"#fff"}}>
+                    style={{flex:1,padding:"6px 8px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:12,outline:"none",boxSizing:"border-box",background:C.card}}>
                     <option value="">— Seleccionar —</option>
                     {(especies||[]).map(e=><option key={e.id} value={e.nombre}>{e.nombre}</option>)}
                     <option value="__nueva__">＋ Crear nueva...</option>
@@ -5456,46 +5461,46 @@ function MaestroVariedades({variedades,setVariedades,can,obtentores=[],especies=
                 </div>
               ):(
                 <input value={form.especie} placeholder="Cerezo, Arándano, Uva..." onChange={e=>setForm(p=>({...p,especie:e.target.value}))}
-                  style={{width:"100%",padding:"6px 8px",borderRadius:6,border:"1px solid #d1d5db",fontSize:12,outline:"none",boxSizing:"border-box"}}/>
+                  style={{width:"100%",padding:"6px 8px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:12,outline:"none",boxSizing:"border-box"}}/>
               )}
             </div>
             <div>
-              <div style={{fontSize:11,color:"#64748b",fontWeight:600,marginBottom:3}}>Variedad *</div>
+              <div style={{fontSize:11,color:C.muted,fontWeight:600,marginBottom:3}}>Variedad *</div>
               <input value={form.variedad} placeholder="Royal Dawn, Sweet Heart..." onChange={e=>setForm(p=>({...p,variedad:e.target.value}))}
-                style={{width:"100%",padding:"6px 8px",borderRadius:6,border:"1px solid #d1d5db",fontSize:12,outline:"none",boxSizing:"border-box"}}/>
+                style={{width:"100%",padding:"6px 8px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:12,outline:"none",boxSizing:"border-box"}}/>
             </div>
             <div>
-              <div style={{fontSize:11,color:"#64748b",fontWeight:600,marginBottom:3}}>Obtentor</div>
+              <div style={{fontSize:11,color:C.muted,fontWeight:600,marginBottom:3}}>Obtentor</div>
               <select value={form.obtentor||""} onChange={e=>setForm(p=>({...p,obtentor:e.target.value}))}
-                style={{width:"100%",padding:"6px 8px",borderRadius:6,border:"1px solid #d1d5db",fontSize:12,boxSizing:"border-box"}}>
+                style={{width:"100%",padding:"6px 8px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:12,boxSizing:"border-box"}}>
                 <option value="">— Seleccionar obtentor —</option>
                 {[...new Set((obtentores||[]).map(o=>o.obtentor||o.razonSocial).filter(Boolean))].sort().map(o=><option key={o} value={o}>{o}</option>)}
               </select>
             </div>
             <div>
-              <div style={{fontSize:11,color:"#64748b",fontWeight:600,marginBottom:3}}>N° Registro</div>
+              <div style={{fontSize:11,color:C.muted,fontWeight:600,marginBottom:3}}>N° Registro</div>
               <input value={form.nRegistro||""} placeholder="Ej: 2024-001234" onChange={e=>setForm(p=>({...p,nRegistro:e.target.value}))}
-                style={{width:"100%",padding:"6px 8px",borderRadius:6,border:"1px solid #d1d5db",fontSize:12,outline:"none",boxSizing:"border-box"}}/>
+                style={{width:"100%",padding:"6px 8px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:12,outline:"none",boxSizing:"border-box"}}/>
             </div>
             <div>
-              <div style={{fontSize:11,color:"#64748b",fontWeight:600,marginBottom:3}}>Observaciones</div>
+              <div style={{fontSize:11,color:C.muted,fontWeight:600,marginBottom:3}}>Observaciones</div>
               <input value={form.observaciones} onChange={e=>setForm(p=>({...p,observaciones:e.target.value}))}
-                style={{width:"100%",padding:"6px 8px",borderRadius:6,border:"1px solid #d1d5db",fontSize:12,outline:"none",boxSizing:"border-box"}}/>
+                style={{width:"100%",padding:"6px 8px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:12,outline:"none",boxSizing:"border-box"}}/>
             </div>
           </div>
           {/* Royalty por obtentor */}
-          <div style={{marginTop:10,padding:12,background:"#fffbeb",borderRadius:8,border:"1px solid #fde68a"}}>
-            <div style={{fontSize:11,fontWeight:700,color:"#92400e",marginBottom:8}}>💰 Royalty al Obtentor</div>
+          <div style={{marginTop:10,padding:12,background:C.warningBg,borderRadius:8,border:`1px solid ${C.warning}`}}>
+            <div style={{fontSize:11,fontWeight:700,color:C.text,marginBottom:8}}>💰 Royalty al Obtentor</div>
             <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr 1fr",gap:10}}>
               <div>
-                <div style={{fontSize:10,color:"#78350f",fontWeight:600,marginBottom:3}}>% sobre venta</div>
+                <div style={{fontSize:10,color:C.text,fontWeight:600,marginBottom:3}}>% sobre venta</div>
                 <div style={{display:"flex",alignItems:"center",gap:4,marginBottom:4}}>
                   <input type="number" step="0.1" value={form.royaltyPct||""} placeholder="0" onChange={e=>setForm(p=>({...p,royaltyPct:e.target.value}))}
-                    style={{width:"100%",padding:"5px 8px",borderRadius:6,border:"1px solid #fde68a",fontSize:12,textAlign:"right"}}/>
-                  <span style={{fontSize:11,color:"#92400e"}}>%</span>
+                    style={{width:"100%",padding:"5px 8px",borderRadius:6,border:`1px solid ${C.warning}`,fontSize:12,textAlign:"right"}}/>
+                  <span style={{fontSize:11,color:C.text}}>%</span>
                 </div>
                 <select value={form.royaltyPctPeriod||""} onChange={e=>setForm(p=>({...p,royaltyPctPeriod:e.target.value}))}
-                  style={{width:"100%",padding:"4px 6px",borderRadius:6,border:"1px solid #fde68a",fontSize:10,background:"#fff"}}>
+                  style={{width:"100%",padding:"4px 6px",borderRadius:6,border:`1px solid ${C.warning}`,fontSize:10,background:C.card}}>
                   <option value="">Periodicidad</option>
                   <option value="Mensual">Mensual</option>
                   <option value="Trimestral">Trimestral</option>
@@ -5506,14 +5511,14 @@ function MaestroVariedades({variedades,setVariedades,can,obtentores=[],especies=
                 </select>
               </div>
               <div>
-                <div style={{fontSize:10,color:"#78350f",fontWeight:600,marginBottom:3}}>% por planta</div>
+                <div style={{fontSize:10,color:C.text,fontWeight:600,marginBottom:3}}>% por planta</div>
                 <div style={{display:"flex",alignItems:"center",gap:4,marginBottom:4}}>
                   <input type="number" step="0.1" value={form.royaltyPlanta||""} placeholder="0" onChange={e=>setForm(p=>({...p,royaltyPlanta:e.target.value}))}
-                    style={{width:"100%",padding:"5px 8px",borderRadius:6,border:"1px solid #fde68a",fontSize:12,textAlign:"right"}}/>
-                  <span style={{fontSize:11,color:"#92400e"}}>%</span>
+                    style={{width:"100%",padding:"5px 8px",borderRadius:6,border:`1px solid ${C.warning}`,fontSize:12,textAlign:"right"}}/>
+                  <span style={{fontSize:11,color:C.text}}>%</span>
                 </div>
                 <select value={form.royaltyPlantaPeriod||""} onChange={e=>setForm(p=>({...p,royaltyPlantaPeriod:e.target.value}))}
-                  style={{width:"100%",padding:"4px 6px",borderRadius:6,border:"1px solid #fde68a",fontSize:10,background:"#fff"}}>
+                  style={{width:"100%",padding:"4px 6px",borderRadius:6,border:`1px solid ${C.warning}`,fontSize:10,background:C.card}}>
                   <option value="">Periodicidad</option>
                   <option value="Mensual">Mensual</option>
                   <option value="Trimestral">Trimestral</option>
@@ -5524,14 +5529,14 @@ function MaestroVariedades({variedades,setVariedades,can,obtentores=[],especies=
                 </select>
               </div>
               <div>
-                <div style={{fontSize:10,color:"#78350f",fontWeight:600,marginBottom:3}}>% por Há plantada</div>
+                <div style={{fontSize:10,color:C.text,fontWeight:600,marginBottom:3}}>% por Há plantada</div>
                 <div style={{display:"flex",alignItems:"center",gap:4,marginBottom:4}}>
                   <input type="number" step="0.1" value={form.royaltyHa||""} placeholder="0" onChange={e=>setForm(p=>({...p,royaltyHa:e.target.value}))}
-                    style={{width:"100%",padding:"5px 8px",borderRadius:6,border:"1px solid #fde68a",fontSize:12,textAlign:"right"}}/>
-                  <span style={{fontSize:11,color:"#92400e"}}>%</span>
+                    style={{width:"100%",padding:"5px 8px",borderRadius:6,border:`1px solid ${C.warning}`,fontSize:12,textAlign:"right"}}/>
+                  <span style={{fontSize:11,color:C.text}}>%</span>
                 </div>
                 <select value={form.royaltyHaPeriod||""} onChange={e=>setForm(p=>({...p,royaltyHaPeriod:e.target.value}))}
-                  style={{width:"100%",padding:"4px 6px",borderRadius:6,border:"1px solid #fde68a",fontSize:10,background:"#fff"}}>
+                  style={{width:"100%",padding:"4px 6px",borderRadius:6,border:`1px solid ${C.warning}`,fontSize:10,background:C.card}}>
                   <option value="">Periodicidad</option>
                   <option value="Mensual">Mensual</option>
                   <option value="Trimestral">Trimestral</option>
@@ -5542,14 +5547,14 @@ function MaestroVariedades({variedades,setVariedades,can,obtentores=[],especies=
                 </select>
               </div>
               <div>
-                <div style={{fontSize:10,color:"#78350f",fontWeight:600,marginBottom:3}}>% Contract Fee</div>
+                <div style={{fontSize:10,color:C.text,fontWeight:600,marginBottom:3}}>% Contract Fee</div>
                 <div style={{display:"flex",alignItems:"center",gap:4,marginBottom:4}}>
                   <input type="number" step="0.1" value={form.royaltyContractFee||""} placeholder="0" onChange={e=>setForm(p=>({...p,royaltyContractFee:e.target.value}))}
-                    style={{width:"100%",padding:"5px 8px",borderRadius:6,border:"1px solid #fde68a",fontSize:12,textAlign:"right"}}/>
-                  <span style={{fontSize:11,color:"#92400e"}}>%</span>
+                    style={{width:"100%",padding:"5px 8px",borderRadius:6,border:`1px solid ${C.warning}`,fontSize:12,textAlign:"right"}}/>
+                  <span style={{fontSize:11,color:C.text}}>%</span>
                 </div>
                 <select value={form.royaltyContractFeePeriod||""} onChange={e=>setForm(p=>({...p,royaltyContractFeePeriod:e.target.value}))}
-                  style={{width:"100%",padding:"4px 6px",borderRadius:6,border:"1px solid #fde68a",fontSize:10,background:"#fff"}}>
+                  style={{width:"100%",padding:"4px 6px",borderRadius:6,border:`1px solid ${C.warning}`,fontSize:10,background:C.card}}>
                   <option value="">Periodicidad</option>
                   <option value="Mensual">Mensual</option>
                   <option value="Trimestral">Trimestral</option>
@@ -5562,37 +5567,37 @@ function MaestroVariedades({variedades,setVariedades,can,obtentores=[],especies=
             </div>
           </div>
           <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}>
-            <button onClick={()=>{setShowForm(false);setEditId(null);}} style={{padding:"6px 16px",borderRadius:6,border:"1px solid #d1d5db",background:"#fff",cursor:"pointer",fontSize:12}}>Cancelar</button>
-            <button onClick={guardar} style={{padding:"6px 16px",borderRadius:6,background:"#d97706",color:"#fff",border:"none",cursor:"pointer",fontSize:12,fontWeight:600}}>💾 Guardar</button>
+            <button onClick={()=>{setShowForm(false);setEditId(null);}} style={{padding:"6px 16px",borderRadius:6,border:`1px solid ${C.border}`,background:C.card,cursor:"pointer",fontSize:12}}>Cancelar</button>
+            <button onClick={guardar} style={{padding:"6px 16px",borderRadius:6,background:C.warning,color:"#fff",border:"none",cursor:"pointer",fontSize:12,fontWeight:600}}>💾 Guardar</button>
           </div>
         </div>
       )}
 
       <div style={{overflowX:"auto"}}>
-        <table style={{borderCollapse:"collapse",width:"100%",background:"#fff",borderRadius:8,overflow:"hidden",fontSize:12}}>
-          <thead><tr style={{background:"#d97706",color:"#fff"}}>
+        <table style={{borderCollapse:"collapse",width:"100%",background:C.card,borderRadius:8,overflow:"hidden",fontSize:12}}>
+          <thead><tr style={{background:C.primary,color:C.primaryText}}>
             {["Especie","Denominación","Obtentor","Variedad","Royalty","Observaciones",""].map(h=>(
               <th key={h} style={{padding:"7px 10px",textAlign:"left",fontWeight:600,fontSize:11,whiteSpace:"nowrap"}}>{h}</th>
             ))}
           </tr></thead>
           <tbody>
             {filtrado.map((v,i)=>(
-              <tr key={v.id} style={{borderBottom:"1px solid #fef3c7",background:i%2===0?"#fff":"#fffbeb"}}>
-                <td style={{padding:"6px 10px",fontWeight:600,color:"#78350f"}}>{v.especie}</td>
-                <td style={{padding:"6px 10px",fontWeight:600,color:"#1e293b"}}>{v.variedad}</td>
-                <td style={{padding:"6px 10px",color:"#64748b"}}>{v.obtentor||"—"}</td>
-                <td style={{padding:"6px 10px",color:"#64748b"}}>{v.nRegistro||"—"}</td>
-                <td style={{padding:"6px 10px",fontSize:10,color:"#92400e"}}>
+              <tr key={v.id} style={{borderBottom:`1px solid ${C.border}22`,background:i%2===0?C.card:C.rowAlt}}>
+                <td style={{padding:"6px 10px",fontWeight:600,color:C.text}}>{v.especie}</td>
+                <td style={{padding:"6px 10px",fontWeight:600,color:C.text}}>{v.variedad}</td>
+                <td style={{padding:"6px 10px",color:C.muted}}>{v.obtentor||"—"}</td>
+                <td style={{padding:"6px 10px",color:C.muted}}>{v.nRegistro||"—"}</td>
+                <td style={{padding:"6px 10px",fontSize:10,color:C.text}}>
                   {v.royaltyPct?`${v.royaltyPct}% venta · `:""}
                   {v.royaltyPlanta?`${v.royaltyPlanta}%/pl · `:""}
                   {v.royaltyHa?`${v.royaltyHa}%/há · `:""}
                   {v.royaltyContractFee?`${v.royaltyContractFee}% CF`:""}
                   {!v.royaltyPct&&!v.royaltyPlanta&&!v.royaltyHa&&!v.royaltyContractFee?"—":""}
                 </td>
-                <td style={{padding:"6px 10px",color:"#64748b",fontSize:11}}>{v.observaciones||"—"}</td>
+                <td style={{padding:"6px 10px",color:C.muted,fontSize:11}}>{v.observaciones||"—"}</td>
                 <td style={{padding:"6px 8px",textAlign:"center"}}>
                   {can&&<div style={{display:"flex",gap:4}}>
-                    <button onClick={()=>iniciarEdicion(v)} style={{background:"#dbeafe",border:"none",borderRadius:4,padding:"3px 8px",cursor:"pointer",fontSize:11,color:"#1d4ed8",fontWeight:600}}>✏️</button>
+                    <button onClick={()=>iniciarEdicion(v)} style={{background:C.infoBg,border:"none",borderRadius:4,padding:"3px 8px",cursor:"pointer",fontSize:11,color:C.primary,fontWeight:600}}>✏️</button>
                     <button onClick={()=>{
                       if(!window.confirm(`¿Eliminar variedad "${v.especie} · ${v.variedad}"?`))return;
                       window.auditLog&&window.auditLog("eliminar", {modulo:"osiris", seccion:"Maestro Variedades",
@@ -5600,12 +5605,12 @@ function MaestroVariedades({variedades,setVariedades,can,obtentores=[],especies=
                         registroId:v.id});
                       setVariedades(prev=>(prev||[]).filter(x=>x.id!==v.id));
                     }}
-                      style={{background:"#fee2e2",border:"none",borderRadius:4,padding:"3px 8px",cursor:"pointer",fontSize:11,color:"#991b1b",fontWeight:600}}>×</button>
+                      style={{background:C.dangerBg,border:"none",borderRadius:4,padding:"3px 8px",cursor:"pointer",fontSize:11,color:C.danger,fontWeight:600}}>×</button>
                   </div>}
                 </td>
               </tr>
             ))}
-            {filtrado.length===0&&<tr><td colSpan={6} style={{textAlign:"center",padding:20,color:"#94a3b8"}}>Sin variedades. {can?(sugerencias.length>0?`Hay ${sugerencias.length} sugerencias desde obtentores.`:"Agrega una con \"+ Nueva variedad\"."):""}</td></tr>}
+            {filtrado.length===0&&<tr><td colSpan={6} style={{textAlign:"center",padding:20,color:C.muted2}}>Sin variedades. {can?(sugerencias.length>0?`Hay ${sugerencias.length} sugerencias desde obtentores.`:"Agrega una con \"+ Nueva variedad\"."):""}</td></tr>}
           </tbody>
         </table>
       </div>
@@ -6018,7 +6023,7 @@ function ControlContratos({data,setData,clientes,setClientes,variedadesMaestro=[
     return(
       <div>
         <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:16,flexWrap:"wrap"}}>
-          <button onClick={()=>{setVista("tabla");setSel(null);}} style={{background:"#f1f5f9",border:"none",borderRadius:8,padding:"7px 14px",cursor:"pointer",fontSize:13,color:C.sl,fontWeight:600}}>← Volver</button>
+          <button onClick={()=>{setVista("tabla");setSel(null);}} style={{background:C.cardAlt,border:"none",borderRadius:8,padding:"7px 14px",cursor:"pointer",fontSize:13,color:C.sl,fontWeight:600}}>← Volver</button>
           <h2 style={{margin:0,fontSize:17,fontWeight:800,color:C.sl,flex:1}}>{r.razonSocial}</h2>
           <span style={{fontSize:11,background:r.pais==="Peru"?C.verdeBg:r.pais==="Mexico"?C.azulBg:C.amBg,
             color:r.pais==="Peru"?C.verde:r.pais==="Mexico"?C.azul:C.am,borderRadius:20,padding:"3px 12px",fontWeight:700}}>
@@ -6028,7 +6033,7 @@ function ControlContratos({data,setData,clientes,setClientes,variedadesMaestro=[
             color:r.firmadoLicenciado&&r.firmadoOsiris?C.verde:C.am,borderRadius:20,padding:"3px 12px",fontWeight:700}}>
             {r.firmadoLicenciado&&r.firmadoOsiris?"✅ Firmado completo":"⏳ Pendiente firma"}
           </span>
-          {can&&<button onClick={()=>eliminar(r.id)} style={{background:"#fee2e2",border:"none",borderRadius:8,padding:"7px 14px",cursor:"pointer",fontSize:12,color:"#991b1b",fontWeight:600}}>🗑 Eliminar</button>}
+          {can&&<button onClick={()=>eliminar(r.id)} style={{background:C.dangerBg,border:"none",borderRadius:8,padding:"7px 14px",cursor:"pointer",fontSize:12,color:C.danger,fontWeight:600}}>🗑 Eliminar</button>}
         </div>
 
         <div style={{display:"flex",gap:6,marginBottom:16,flexWrap:"wrap"}}>
@@ -6042,7 +6047,7 @@ function ControlContratos({data,setData,clientes,setClientes,variedadesMaestro=[
           ))}
         </div>
 
-        <div style={{background:"#fff",borderRadius:14,padding:24,boxShadow:"0 2px 10px #0001"}}>
+        <div style={{background:C.card,borderRadius:14,padding:24,boxShadow:"0 2px 10px #0001"}}>
           {sec==="empresa"&&(
             <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(220px,1fr))",gap:16}}>
               <Campo label="Razón Social" campo="razonSocial" r={r}/>
@@ -6063,9 +6068,9 @@ function ControlContratos({data,setData,clientes,setClientes,variedadesMaestro=[
                 <div>
                   <div style={{fontSize:11,color:C.gris,fontWeight:600,marginBottom:4}}>Renovable</div>
                   <label style={{display:"flex",alignItems:"center",gap:8,cursor:can?"pointer":"default",
-                    background:r.renovable?"#dbeafe":"#f1f5f9",border:`1px solid ${r.renovable?"#60a5fa":"#d1d5db"}`,
-                    borderRadius:8,padding:"7px 12px",fontSize:12,fontWeight:600,color:r.renovable?"#1d4ed8":"#94a3b8"}}>
-                    <input type="checkbox" disabled={!can} checked={!!r.renovable} onChange={()=>upd(r.id,"renovable",!r.renovable)} style={{accentColor:"#2563eb"}}/>
+                    background:r.renovable?C.infoBg:C.cardAlt,border:`1px solid ${r.renovable?"#60a5fa":C.border}`,
+                    borderRadius:8,padding:"7px 12px",fontSize:12,fontWeight:600,color:r.renovable?C.primary:C.muted2}}>
+                    <input type="checkbox" disabled={!can} checked={!!r.renovable} onChange={()=>upd(r.id,"renovable",!r.renovable)} style={{accentColor:C.primary}}/>
                     🔄 Contrato renovable
                   </label>
                 </div>
@@ -6075,27 +6080,27 @@ function ControlContratos({data,setData,clientes,setClientes,variedadesMaestro=[
               </div>
               {/* Acciones documento */}
               {r.linkContrato&&(
-                <div style={{background:"#eff6ff",borderRadius:10,padding:"12px 16px",marginBottom:16,border:"1px solid #bfdbfe",display:"flex",gap:10,alignItems:"center",flexWrap:"wrap"}}>
+                <div style={{background:C.infoBg,borderRadius:10,padding:"12px 16px",marginBottom:16,border:`1px solid ${C.info}`,display:"flex",gap:10,alignItems:"center",flexWrap:"wrap"}}>
                   <span style={{fontSize:12,fontWeight:700,color:C.azul}}>📄 Contrato:</span>
                   <a href={r.linkContrato} target="_blank" rel="noreferrer"
                     style={{background:C.azul,color:"#fff",borderRadius:6,padding:"5px 12px",fontSize:12,fontWeight:600,textDecoration:"none"}}>
                     👁 Ver
                   </a>
                   <a href={r.linkContrato} download
-                    style={{background:"#16a34a",color:"#fff",borderRadius:6,padding:"5px 12px",fontSize:12,fontWeight:600,textDecoration:"none"}}>
+                    style={{background:C.success,color:"#fff",borderRadius:6,padding:"5px 12px",fontSize:12,fontWeight:600,textDecoration:"none"}}>
                     ⬇️ Descargar
                   </a>
                   <button onClick={()=>{const w=window.open(r.linkContrato,"_blank");w&&setTimeout(()=>w.print(),1500);}}
-                    style={{background:"#7c3aed",color:"#fff",borderRadius:6,padding:"5px 12px",fontSize:12,fontWeight:600,border:"none",cursor:"pointer"}}>
+                    style={{background:C.purple,color:"#fff",borderRadius:6,padding:"5px 12px",fontSize:12,fontWeight:600,border:"none",cursor:"pointer"}}>
                     🖨️ Imprimir
                   </button>
                 </div>
               )}
               {/* Año de prueba */}
-              <div style={{background:"#fefce8",borderRadius:12,padding:16,marginBottom:16,border:"1px solid #fde047"}}>
+              <div style={{background:C.warningBg,borderRadius:12,padding:16,marginBottom:16,border:`1px solid ${C.warning}`}}>
                 <div style={{fontSize:12,fontWeight:700,color:"#854d0e",marginBottom:10}}>🧪 Año de prueba</div>
                 <div style={{display:"flex",gap:16,alignItems:"center",flexWrap:"wrap"}}>
-                  <label style={{display:"flex",alignItems:"center",gap:8,cursor:can?"pointer":"default",fontSize:13,fontWeight:600,color:r.tieneAnioPrueba?"#854d0e":"#94a3b8"}}>
+                  <label style={{display:"flex",alignItems:"center",gap:8,cursor:can?"pointer":"default",fontSize:13,fontWeight:600,color:r.tieneAnioPrueba?"#854d0e":C.muted2}}>
                     <input type="checkbox" checked={r.tieneAnioPrueba||false} disabled={!can} onChange={()=>upd(r.id,"tieneAnioPrueba",!r.tieneAnioPrueba)}/>
                     Tiene año de prueba
                   </label>
@@ -6105,7 +6110,7 @@ function ControlContratos({data,setData,clientes,setClientes,variedadesMaestro=[
                       {can
                         ? <input type="number" min="1" max="5" value={r.cantAnioPrueba||1}
                             onChange={e=>upd(r.id,"cantAnioPrueba",parseInt(e.target.value)||1)}
-                            style={{width:60,padding:"5px 8px",borderRadius:6,border:"1px solid #fde047",fontSize:13,textAlign:"center"}}/>
+                            style={{width:60,padding:"5px 8px",borderRadius:6,border:`1px solid ${C.warning}`,fontSize:13,textAlign:"center"}}/>
                         : <span style={{fontWeight:700,color:"#854d0e"}}>{r.cantAnioPrueba||1}</span>
                       }
                       <span style={{fontSize:12,color:"#854d0e"}}>año(s)</span>
@@ -6114,10 +6119,10 @@ function ControlContratos({data,setData,clientes,setClientes,variedadesMaestro=[
                 </div>
               </div>
               {/* Multa */}
-              <div style={{background:"#fff1f2",borderRadius:12,padding:16,marginBottom:16,border:"1px solid #fecdd3"}}>
+              <div style={{background:C.dangerBg,borderRadius:12,padding:16,marginBottom:16,border:`1px solid ${C.danger}`}}>
                 <div style={{fontSize:12,fontWeight:700,color:"#9f1239",marginBottom:10}}>⚠️ Multa por incumplimiento</div>
                 <div style={{display:"flex",gap:16,alignItems:"center",flexWrap:"wrap"}}>
-                  <label style={{display:"flex",alignItems:"center",gap:8,cursor:can?"pointer":"default",fontSize:13,fontWeight:600,color:r.llevaMulta?"#9f1239":"#94a3b8"}}>
+                  <label style={{display:"flex",alignItems:"center",gap:8,cursor:can?"pointer":"default",fontSize:13,fontWeight:600,color:r.llevaMulta?"#9f1239":C.muted2}}>
                     <input type="checkbox" checked={r.llevaMulta||false} disabled={!can} onChange={()=>upd(r.id,"llevaMulta",!r.llevaMulta)}/>
                     Lleva multa
                   </label>
@@ -6128,7 +6133,7 @@ function ControlContratos({data,setData,clientes,setClientes,variedadesMaestro=[
                         {can
                           ? <input type="number" min="0" value={r.haMinContrato||0}
                               onChange={e=>upd(r.id,"haMinContrato",parseFloat(e.target.value)||0)}
-                              style={{width:90,padding:"5px 8px",borderRadius:6,border:"1px solid #fecdd3",fontSize:13,textAlign:"right"}}/>
+                              style={{width:90,padding:"5px 8px",borderRadius:6,border:`1px solid ${C.danger}`,fontSize:13,textAlign:"right"}}/>
                           : <span style={{fontWeight:700,color:"#9f1239"}}>{r.haMinContrato||0}</span>
                         }
                         <span style={{fontSize:12,color:"#9f1239"}}>Há</span>
@@ -6138,7 +6143,7 @@ function ControlContratos({data,setData,clientes,setClientes,variedadesMaestro=[
                         {can
                           ? <input type="number" min="0" value={r.montoMulta||0}
                               onChange={e=>upd(r.id,"montoMulta",parseFloat(e.target.value)||0)}
-                              style={{width:120,padding:"5px 8px",borderRadius:6,border:"1px solid #fecdd3",fontSize:13,textAlign:"right"}}/>
+                              style={{width:120,padding:"5px 8px",borderRadius:6,border:`1px solid ${C.danger}`,fontSize:13,textAlign:"right"}}/>
                           : <span style={{fontWeight:700,color:"#9f1239"}}>{r.montoMulta?`${r.moneda||"USD"} ${Number(r.montoMulta).toLocaleString("es-CL")}`:0}</span>
                         }
                       </div>
@@ -6147,7 +6152,7 @@ function ControlContratos({data,setData,clientes,setClientes,variedadesMaestro=[
                         {can
                           ? <textarea value={r.descMulta||""} onChange={e=>upd(r.id,"descMulta",e.target.value)}
                               rows={2} placeholder="Ej: USD 5,000 por cada hectárea no plantada bajo el mínimo contractual..."
-                              style={{flex:1,padding:"5px 8px",borderRadius:6,border:"1px solid #fecdd3",fontSize:12,resize:"vertical",minWidth:250}}/>
+                              style={{flex:1,padding:"5px 8px",borderRadius:6,border:`1px solid ${C.danger}`,fontSize:12,resize:"vertical",minWidth:250}}/>
                           : <span style={{fontSize:12,color:"#9f1239"}}>{r.descMulta||"—"}</span>
                         }
                       </div>
@@ -6156,21 +6161,21 @@ function ControlContratos({data,setData,clientes,setClientes,variedadesMaestro=[
                 </div>
               </div>
               {/* Firmas */}
-              <div style={{background:"#f8fafc",borderRadius:12,padding:16,marginBottom:16}}>
+              <div style={{background:C.cardAlt,borderRadius:12,padding:16,marginBottom:16}}>
                 <div style={{fontSize:12,fontWeight:700,color:C.sl,marginBottom:12}}>Estado de Firmas del Contrato</div>
                 <div style={{display:"flex",gap:12,flexWrap:"wrap"}}>
                   {[["firmadoLicenciado","Firmado Licenciado"],["firmadoOsiris","Firmado OSIRIS"]].map(([campo,label])=>(
                     <label key={campo} style={{display:"flex",alignItems:"center",gap:8,cursor:can?"pointer":"default",
                       background:r[campo]?C.verdeBg:C.rojoBg,border:`1px solid ${r[campo]?"#86efac":"#fca5a5"}`,
                       borderRadius:10,padding:"9px 18px",fontSize:13,fontWeight:600,color:r[campo]?C.verde:C.rojo}}>
-                      <input type="checkbox" checked={r[campo]} disabled={!can} onChange={()=>upd(r.id,campo,!r[campo])} style={{accentColor:r[campo]?"#16a34a":"#dc2626"}}/>
+                      <input type="checkbox" checked={r[campo]} disabled={!can} onChange={()=>upd(r.id,campo,!r[campo])} style={{accentColor:r[campo]?C.success:C.danger}}/>
                       {r[campo]?"✅":"❌"} {label}
                     </label>
                   ))}
                 </div>
               </div>
               {/* Anexos mejorados */}
-              <div style={{background:"#f8fafc",borderRadius:12,padding:16,marginBottom:16}}>
+              <div style={{background:C.cardAlt,borderRadius:12,padding:16,marginBottom:16}}>
                 <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
                   <div style={{fontSize:12,fontWeight:700,color:C.sl}}>Anexos del contrato</div>
                   {can&&(
@@ -6188,9 +6193,9 @@ function ControlContratos({data,setData,clientes,setClientes,variedadesMaestro=[
                   {[["anexo1","Anexo 1"],["anexo2","Anexo 2"],["anexo3","Anexo 3"]].map(([campo,label])=>{
                     const anx = typeof r[campo]==="object" ? r[campo] : {activo:!!r[campo],firmadoOsiris:false,firmadoLicenciado:false,tipo:""};
                     return(
-                      <div key={campo} style={{background:"#fff",borderRadius:8,padding:"10px 14px",border:`1px solid ${anx.activo?"#93c5fd":"#e2e8f0"}`}}>
+                      <div key={campo} style={{background:C.card,borderRadius:8,padding:"10px 14px",border:`1px solid ${anx.activo?"#93c5fd":C.border}`}}>
                         <div style={{display:"flex",alignItems:"center",gap:12,flexWrap:"wrap"}}>
-                          <label style={{display:"flex",alignItems:"center",gap:6,cursor:can?"pointer":"default",fontSize:13,fontWeight:700,color:anx.activo?C.azul:"#94a3b8",minWidth:80}}>
+                          <label style={{display:"flex",alignItems:"center",gap:6,cursor:can?"pointer":"default",fontSize:13,fontWeight:700,color:anx.activo?C.azul:C.muted2,minWidth:80}}>
                             <input type="checkbox" checked={anx.activo} disabled={!can}
                               onChange={()=>upd(r.id,campo,{...anx,activo:!anx.activo})}/>
                             {anx.activo?"📎":"○"} {label}
@@ -6199,16 +6204,16 @@ function ControlContratos({data,setData,clientes,setClientes,variedadesMaestro=[
                             <>
                               <select value={anx.tipo||""} disabled={!can}
                                 onChange={e=>upd(r.id,campo,{...anx,tipo:e.target.value})}
-                                style={{padding:"5px 8px",borderRadius:6,border:"1px solid #93c5fd",fontSize:12,flex:1,minWidth:180}}>
+                                style={{padding:"5px 8px",borderRadius:6,border:`1px solid ${C.info}`,fontSize:12,flex:1,minWidth:180}}>
                                 <option value="">— Tipo de anexo —</option>
                                 {tiposAnexo.map(t=><option key={t} value={t}>{t}</option>)}
                               </select>
-                              <label style={{display:"flex",alignItems:"center",gap:5,fontSize:11,fontWeight:600,color:anx.firmadoOsiris?C.verde:"#94a3b8",cursor:can?"pointer":"default"}}>
+                              <label style={{display:"flex",alignItems:"center",gap:5,fontSize:11,fontWeight:600,color:anx.firmadoOsiris?C.verde:C.muted2,cursor:can?"pointer":"default"}}>
                                 <input type="checkbox" checked={anx.firmadoOsiris||false} disabled={!can}
                                   onChange={()=>upd(r.id,campo,{...anx,firmadoOsiris:!anx.firmadoOsiris})}/>
                                 {anx.firmadoOsiris?"✅":"❌"} OSIRIS
                               </label>
-                              <label style={{display:"flex",alignItems:"center",gap:5,fontSize:11,fontWeight:600,color:anx.firmadoLicenciado?C.verde:"#94a3b8",cursor:can?"pointer":"default"}}>
+                              <label style={{display:"flex",alignItems:"center",gap:5,fontSize:11,fontWeight:600,color:anx.firmadoLicenciado?C.verde:C.muted2,cursor:can?"pointer":"default"}}>
                                 <input type="checkbox" checked={anx.firmadoLicenciado||false} disabled={!can}
                                   onChange={()=>upd(r.id,campo,{...anx,firmadoLicenciado:!anx.firmadoLicenciado})}/>
                                 {anx.firmadoLicenciado?"✅":"❌"} Licenciado
@@ -6217,20 +6222,20 @@ function ControlContratos({data,setData,clientes,setClientes,variedadesMaestro=[
                           )}
                         </div>
                         {anx.activo&&(
-                          <div style={{display:"flex",gap:8,alignItems:"center",marginTop:8,paddingTop:8,borderTop:"1px solid #e2e8f0",flexWrap:"wrap"}}>
+                          <div style={{display:"flex",gap:8,alignItems:"center",marginTop:8,paddingTop:8,borderTop:`1px solid ${C.border}`,flexWrap:"wrap"}}>
                             <span style={{fontSize:11,color:C.gris,fontWeight:600}}>📎 Link OneDrive:</span>
                             {can
                               ? <input value={anx.link||""} onChange={e=>upd(r.id,campo,{...anx,link:e.target.value})}
-                                  placeholder="https://..." style={{flex:1,minWidth:200,padding:"4px 8px",borderRadius:6,border:"1px solid #d1d5db",fontSize:11,outline:"none"}}/>
+                                  placeholder="https://..." style={{flex:1,minWidth:200,padding:"4px 8px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:11,outline:"none"}}/>
                               : <span style={{fontSize:11,color:C.gris}}>{anx.link||"—"}</span>
                             }
                             {anx.link&&<>
                               <a href={anx.link} target="_blank" rel="noreferrer"
                                 style={{background:C.azul,color:"#fff",borderRadius:5,padding:"3px 10px",fontSize:11,fontWeight:600,textDecoration:"none"}}>👁 Ver</a>
                               <a href={anx.link} download
-                                style={{background:"#16a34a",color:"#fff",borderRadius:5,padding:"3px 10px",fontSize:11,fontWeight:600,textDecoration:"none"}}>⬇️</a>
+                                style={{background:C.success,color:"#fff",borderRadius:5,padding:"3px 10px",fontSize:11,fontWeight:600,textDecoration:"none"}}>⬇️</a>
                               <button onClick={()=>{const w=window.open(anx.link,"_blank");w&&setTimeout(()=>w.print(),1500);}}
-                                style={{background:"#7c3aed",color:"#fff",borderRadius:5,padding:"3px 10px",fontSize:11,fontWeight:600,border:"none",cursor:"pointer"}}>🖨️</button>
+                                style={{background:C.purple,color:"#fff",borderRadius:5,padding:"3px 10px",fontSize:11,fontWeight:600,border:"none",cursor:"pointer"}}>🖨️</button>
                             </>}
                           </div>
                         )}
@@ -6251,9 +6256,9 @@ function ControlContratos({data,setData,clientes,setClientes,variedadesMaestro=[
                       upd(r.id, "anexosExtra", extras);
                     };
                     return(
-                      <div key={anx.id||`extra_${idxExtra}`} style={{background:"#fff",borderRadius:8,padding:"10px 14px",border:`1px solid ${anx.activo?"#c4b5fd":"#e2e8f0"}`}}>
+                      <div key={anx.id||`extra_${idxExtra}`} style={{background:C.card,borderRadius:8,padding:"10px 14px",border:`1px solid ${anx.activo?"#c4b5fd":C.border}`}}>
                         <div style={{display:"flex",alignItems:"center",gap:12,flexWrap:"wrap"}}>
-                          <label style={{display:"flex",alignItems:"center",gap:6,cursor:can?"pointer":"default",fontSize:13,fontWeight:700,color:anx.activo?C.mo:"#94a3b8",minWidth:80}}>
+                          <label style={{display:"flex",alignItems:"center",gap:6,cursor:can?"pointer":"default",fontSize:13,fontWeight:700,color:anx.activo?C.mo:C.muted2,minWidth:80}}>
                             <input type="checkbox" checked={anx.activo} disabled={!can}
                               onChange={()=>updExtra({activo:!anx.activo})}/>
                             {anx.activo?"📎":"○"} {label}
@@ -6262,16 +6267,16 @@ function ControlContratos({data,setData,clientes,setClientes,variedadesMaestro=[
                             <>
                               <select value={anx.tipo||""} disabled={!can}
                                 onChange={e=>updExtra({tipo:e.target.value})}
-                                style={{padding:"5px 8px",borderRadius:6,border:"1px solid #c4b5fd",fontSize:12,flex:1,minWidth:180}}>
+                                style={{padding:"5px 8px",borderRadius:6,border:`1px solid ${C.purple}`,fontSize:12,flex:1,minWidth:180}}>
                                 <option value="">— Tipo de anexo —</option>
                                 {tiposAnexo.map(t=><option key={t} value={t}>{t}</option>)}
                               </select>
-                              <label style={{display:"flex",alignItems:"center",gap:5,fontSize:11,fontWeight:600,color:anx.firmadoOsiris?C.verde:"#94a3b8",cursor:can?"pointer":"default"}}>
+                              <label style={{display:"flex",alignItems:"center",gap:5,fontSize:11,fontWeight:600,color:anx.firmadoOsiris?C.verde:C.muted2,cursor:can?"pointer":"default"}}>
                                 <input type="checkbox" checked={anx.firmadoOsiris||false} disabled={!can}
                                   onChange={()=>updExtra({firmadoOsiris:!anx.firmadoOsiris})}/>
                                 {anx.firmadoOsiris?"✅":"❌"} OSIRIS
                               </label>
-                              <label style={{display:"flex",alignItems:"center",gap:5,fontSize:11,fontWeight:600,color:anx.firmadoLicenciado?C.verde:"#94a3b8",cursor:can?"pointer":"default"}}>
+                              <label style={{display:"flex",alignItems:"center",gap:5,fontSize:11,fontWeight:600,color:anx.firmadoLicenciado?C.verde:C.muted2,cursor:can?"pointer":"default"}}>
                                 <input type="checkbox" checked={anx.firmadoLicenciado||false} disabled={!can}
                                   onChange={()=>updExtra({firmadoLicenciado:!anx.firmadoLicenciado})}/>
                                 {anx.firmadoLicenciado?"✅":"❌"} Licenciado
@@ -6286,20 +6291,20 @@ function ControlContratos({data,setData,clientes,setClientes,variedadesMaestro=[
                           )}
                         </div>
                         {anx.activo&&(
-                          <div style={{display:"flex",gap:8,alignItems:"center",marginTop:8,paddingTop:8,borderTop:"1px solid #e2e8f0",flexWrap:"wrap"}}>
+                          <div style={{display:"flex",gap:8,alignItems:"center",marginTop:8,paddingTop:8,borderTop:`1px solid ${C.border}`,flexWrap:"wrap"}}>
                             <span style={{fontSize:11,color:C.gris,fontWeight:600}}>📎 Link OneDrive:</span>
                             {can
                               ? <input value={anx.link||""} onChange={e=>updExtra({link:e.target.value})}
-                                  placeholder="https://..." style={{flex:1,minWidth:200,padding:"4px 8px",borderRadius:6,border:"1px solid #d1d5db",fontSize:11,outline:"none"}}/>
+                                  placeholder="https://..." style={{flex:1,minWidth:200,padding:"4px 8px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:11,outline:"none"}}/>
                               : <span style={{fontSize:11,color:C.gris}}>{anx.link||"—"}</span>
                             }
                             {anx.link&&<>
                               <a href={anx.link} target="_blank" rel="noreferrer"
                                 style={{background:C.azul,color:"#fff",borderRadius:5,padding:"3px 10px",fontSize:11,fontWeight:600,textDecoration:"none"}}>👁 Ver</a>
                               <a href={anx.link} download
-                                style={{background:"#16a34a",color:"#fff",borderRadius:5,padding:"3px 10px",fontSize:11,fontWeight:600,textDecoration:"none"}}>⬇️</a>
+                                style={{background:C.success,color:"#fff",borderRadius:5,padding:"3px 10px",fontSize:11,fontWeight:600,textDecoration:"none"}}>⬇️</a>
                               <button onClick={()=>{const w=window.open(anx.link,"_blank");w&&setTimeout(()=>w.print(),1500);}}
-                                style={{background:"#7c3aed",color:"#fff",borderRadius:5,padding:"3px 10px",fontSize:11,fontWeight:600,border:"none",cursor:"pointer"}}>🖨️</button>
+                                style={{background:C.purple,color:"#fff",borderRadius:5,padding:"3px 10px",fontSize:11,fontWeight:600,border:"none",cursor:"pointer"}}>🖨️</button>
                             </>}
                           </div>
                         )}
@@ -6312,8 +6317,8 @@ function ControlContratos({data,setData,clientes,setClientes,variedadesMaestro=[
                 <div style={{fontSize:11,color:C.gris,fontWeight:600,marginBottom:6}}>Notas / Observaciones</div>
                 {can
                   ? <textarea value={r.notas||""} onChange={e=>upd(r.id,"notas",e.target.value)} rows={3} placeholder="Agrega observaciones del contrato..."
-                      style={{width:"100%",padding:"10px 12px",borderRadius:8,border:"1px solid #d1d5db",fontSize:13,resize:"vertical",boxSizing:"border-box"}}/>
-                  : <div style={{fontSize:13,color:C.sl,background:"#f8fafc",borderRadius:8,padding:"10px 12px",minHeight:56}}>{r.notas||<span style={{color:"#cbd5e1"}}>Sin notas</span>}</div>
+                      style={{width:"100%",padding:"10px 12px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:13,resize:"vertical",boxSizing:"border-box"}}/>
+                  : <div style={{fontSize:13,color:C.sl,background:C.cardAlt,borderRadius:8,padding:"10px 12px",minHeight:56}}>{r.notas||<span style={{color:"#cbd5e1"}}>Sin notas</span>}</div>
                 }
               </div>
             </div>
@@ -6325,20 +6330,20 @@ function ControlContratos({data,setData,clientes,setClientes,variedadesMaestro=[
             </div>
           )}
           {sec==="ubicacion"&&(
-            <div style={{padding:14,background:"#f0fdf4",borderRadius:8,fontSize:12,color:"#16a34a"}}>
+            <div style={{padding:14,background:C.successBg,borderRadius:8,fontSize:12,color:C.success}}>
               📍 La ubicación se define en cada plantación seleccionando el predio del cliente.
             </div>
           )}
           {sec==="factura"&&(
             <>
-              <div style={{padding:"10px 14px",background:"#fef3c7",borderRadius:8,border:"1px solid #fde68a",marginBottom:14,fontSize:11,color:"#78350f"}}>
+              <div style={{padding:"10px 14px",background:C.warningBg,borderRadius:8,border:`1px solid ${C.warning}`,marginBottom:14,fontSize:11,color:C.text}}>
                 💡 <strong>Recordatorio fiscal:</strong> Contract Fee no lleva WHT. Royalty Planta y Royalty Comercial sí están sujetos a WHT 15% en Perú/México (en Chile, sin WHT).
               </div>
               <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(210px,1fr))",gap:16}}>
                 <div>
                   <div style={{fontSize:11,color:C.gris,fontWeight:600,marginBottom:4}}>Tipo Contract Fee</div>
                   <Cell val={r.tipoContractFee} onChange={v=>upd(r.id,"tipoContractFee",v)} opts={TIPOS_FEE} can={can}/>
-                  <div style={{fontSize:9,color:"#94a3b8",marginTop:3}}>Sin WHT</div>
+                  <div style={{fontSize:9,color:C.muted2,marginTop:3}}>Sin WHT</div>
                 </div>
                 <div>
                   <div style={{fontSize:11,color:C.gris,fontWeight:600,marginBottom:4}}>Monto Contract Fee (USD)</div>
@@ -6347,19 +6352,19 @@ function ControlContratos({data,setData,clientes,setClientes,variedadesMaestro=[
                 <div>
                   <div style={{fontSize:11,color:C.gris,fontWeight:600,marginBottom:4}}>Valor Royalty/Planta (USD)</div>
                   <Cell val={r.valorRoyaltyPlanta} onChange={v=>upd(r.id,"valorRoyaltyPlanta",parseFloat(v)||0)} type="number" can={can}/>
-                  <div style={{fontSize:9,color:pct(r.pais)===1?"#94a3b8":"#dc2626",marginTop:3}}>{pct(r.pais)===1?"Sin WHT (Chile)":"WHT 15% — neto = "+(((Number(r.valorRoyaltyPlanta)||0)*0.85).toFixed(2))+" USD/planta"}</div>
+                  <div style={{fontSize:9,color:pct(r.pais)===1?C.muted2:C.danger,marginTop:3}}>{pct(r.pais)===1?"Sin WHT (Chile)":"WHT 15% — neto = "+(((Number(r.valorRoyaltyPlanta)||0)*0.85).toFixed(2))+" USD/planta"}</div>
                 </div>
                 <div>
                   <div style={{fontSize:11,color:C.gris,fontWeight:600,marginBottom:4}}>Valor Royalty Comercial (USD/Há)</div>
                   <Cell val={r.valorRoyaltyComercial} onChange={v=>upd(r.id,"valorRoyaltyComercial",parseFloat(v)||0)} type="number" can={can}/>
-                  <div style={{fontSize:9,color:pct(r.pais)===1?"#94a3b8":"#dc2626",marginTop:3}}>{pct(r.pais)===1?"Sin WHT (Chile)":"WHT 15% — neto = $"+(((Number(r.valorRoyaltyComercial)||0)*0.85).toFixed(0))+"/há"}</div>
+                  <div style={{fontSize:9,color:pct(r.pais)===1?C.muted2:C.danger,marginTop:3}}>{pct(r.pais)===1?"Sin WHT (Chile)":"WHT 15% — neto = $"+(((Number(r.valorRoyaltyComercial)||0)*0.85).toFixed(0))+"/há"}</div>
                 </div>
                 <div style={{display:"flex",alignItems:"flex-end",paddingBottom:4}}>
                   <label style={{display:"flex",alignItems:"center",gap:8,cursor:can?"pointer":"default",
-                    background:r.royaltyInflacion?C.amBg:"#f1f5f9",border:`1px solid ${r.royaltyInflacion?"#fde047":"#d1d5db"}`,
+                    background:r.royaltyInflacion?C.amBg:C.cardAlt,border:`1px solid ${r.royaltyInflacion?"#fde047":C.border}`,
                     borderRadius:10,padding:"9px 14px",fontSize:13,fontWeight:600,
-                    color:r.royaltyInflacion?C.am:"#94a3b8"}}>
-                    <input type="checkbox" checked={r.royaltyInflacion||false} disabled={!can} onChange={()=>upd(r.id,"royaltyInflacion",!r.royaltyInflacion)} style={{accentColor:"#d97706"}}/>
+                    color:r.royaltyInflacion?C.am:C.muted2}}>
+                    <input type="checkbox" checked={r.royaltyInflacion||false} disabled={!can} onChange={()=>upd(r.id,"royaltyInflacion",!r.royaltyInflacion)} style={{accentColor:C.warning}}/>
                     📈 Sujeto a Inflación
                   </label>
                 </div>
@@ -6370,7 +6375,7 @@ function ControlContratos({data,setData,clientes,setClientes,variedadesMaestro=[
           {/* ── SECCIÓN: PLANTACIONES (variedades plantadas) ── */}
           {sec==="plantaciones"&&(<>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12,flexWrap:"wrap",gap:8}}>
-              <div style={{fontSize:13,color:"#475569"}}>
+              <div style={{fontSize:13,color:C.muted}}>
                 🌿 Plantaciones del licenciatario principal — variedades, plantas y hectáreas que generan los royalties.
               </div>
               {can&&<button onClick={()=>{
@@ -6389,19 +6394,19 @@ function ControlContratos({data,setData,clientes,setClientes,variedadesMaestro=[
                 };
                 const next = [...(r.plantaciones||[]), nuevaPlant];
                 upd(r.id,"plantaciones",next);
-              }} style={{background:"#15803d",color:"#fff",border:"none",borderRadius:8,padding:"7px 14px",cursor:"pointer",fontSize:12,fontWeight:700}}>+ Agregar plantación</button>}
+              }} style={{background:C.success,color:"#fff",border:"none",borderRadius:8,padding:"7px 14px",cursor:"pointer",fontSize:12,fontWeight:700}}>+ Agregar plantación</button>}
             </div>
 
             {(r.plantaciones||[]).length===0?(
-              <div style={{padding:30,textAlign:"center",color:"#94a3b8",border:"1px dashed #e2e8f0",borderRadius:10}}>
+              <div style={{padding:30,textAlign:"center",color:C.muted2,border:"1px dashed #e2e8f0",borderRadius:10}}>
                 <div style={{fontSize:32,marginBottom:8}}>🌿</div>
                 <div style={{fontSize:12}}>Sin plantaciones registradas. {can?"Haz clic en \"+ Agregar plantación\" para empezar.":""}</div>
-                <div style={{fontSize:11,color:"#64748b",marginTop:6}}>💡 Las plantaciones alimentan automáticamente Royalty Planta (cantidad × USD/planta) y Royalty Comercial (há × USD/há).</div>
+                <div style={{fontSize:11,color:C.muted,marginTop:6}}>💡 Las plantaciones alimentan automáticamente Royalty Planta (cantidad × USD/planta) y Royalty Comercial (há × USD/há).</div>
               </div>
             ):(<>
               <div style={{overflowX:"auto"}}>
-                <table style={{width:"100%",borderCollapse:"collapse",fontSize:12,background:"#fff",borderRadius:10,overflow:"hidden",border:"1px solid #e2e8f0"}}>
-                  <thead><tr style={{background:"#15803d",color:"#fff"}}>
+                <table style={{width:"100%",borderCollapse:"collapse",fontSize:12,background:C.card,borderRadius:10,overflow:"hidden",border:`1px solid ${C.border}`}}>
+                  <thead><tr style={{background:C.primary,color:C.primaryText}}>
                     {["Campo","Especie","Denominación","Plantas","Hectáreas","Fecha plantación","N° Cot. Vivero","Sublicenciatario","Vivero","Fee USD/planta","Estado",""].map(h=>(
                       <th key={h} style={{padding:"8px 10px",textAlign:"left",fontSize:11,fontWeight:700,whiteSpace:"nowrap"}}>{h}</th>
                     ))}
@@ -6453,7 +6458,7 @@ function ControlContratos({data,setData,clientes,setClientes,variedadesMaestro=[
                       // Variedad coincide con maestro (para el dual-mode)
                       const enMaestro = (variedadesMaestro||[]).some(v=>v.id===p.variedad_id);
                       return (
-                        <tr key={p.id} style={{borderBottom:"1px solid #f1f5f9",background:i%2?"#f8fafc":"#fff"}}>
+                        <tr key={p.id} style={{borderBottom:"1px solid #f1f5f9",background:i%2?C.cardAlt:"#fff"}}>
                           {/* Campo: selector de ubicación del cliente */}
                           <td style={{padding:"6px 8px",minWidth:120}}>
                             {(()=>{
@@ -6465,13 +6470,13 @@ function ControlContratos({data,setData,clientes,setClientes,variedadesMaestro=[
                                   const ub = ubics.find(u=>u.id===e.target.value);
                                   if(ub) updPlMulti({ubicacionId:ub.id, nombrePredio:ub.nombre});
                                   else updPlMulti({ubicacionId:"", nombrePredio:""});
-                                }} style={{width:"100%",padding:"4px 6px",borderRadius:4,border:"1px solid #d1d5db",fontSize:11,background:"#f0fdf4"}}>
+                                }} style={{width:"100%",padding:"4px 6px",borderRadius:4,border:`1px solid ${C.border}`,fontSize:11,background:C.successBg}}>
                                   <option value="">— Campo —</option>
                                   {ubics.map(u=><option key={u.id} value={u.id}>{u.nombre}</option>)}
                                 </select>
                               ) : (
                                 <input disabled={!can} value={p.nombrePredio||""} placeholder="Campo" onChange={e=>updPl("nombrePredio",e.target.value)}
-                                  style={{width:"100%",padding:"4px 6px",borderRadius:4,border:"1px solid #d1d5db",fontSize:11}}/>
+                                  style={{width:"100%",padding:"4px 6px",borderRadius:4,border:`1px solid ${C.border}`,fontSize:11}}/>
                               );
                             })()}
                           </td>
@@ -6501,7 +6506,7 @@ function ControlContratos({data,setData,clientes,setClientes,variedadesMaestro=[
                                     variedad: variedadActualOK ? p.variedad : "",
                                   });
                                 }
-                              }} style={{flex:1,padding:"5px 8px",borderRadius:6,border:"1px solid #d1d5db",fontSize:11,background:"#fff"}}>
+                              }} style={{flex:1,padding:"5px 8px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:11,background:C.card}}>
                                 <option value="">— Seleccionar —</option>
                                 {(especiesMaestro||[]).map(e=><option key={e.id} value={e.nombre}>{e.nombre}</option>)}
                                 {can&&<option value="__nueva__">＋ Crear nueva especie...</option>}
@@ -6532,7 +6537,7 @@ function ControlContratos({data,setData,clientes,setClientes,variedadesMaestro=[
                                   } else {
                                     seleccionarVariedad(e.target.value);
                                   }
-                                }} style={{width:"100%",padding:"5px 8px",borderRadius:6,border:"1px solid #d1d5db",fontSize:11,background:p.especie?"#fff":"#f1f5f9"}}>
+                                }} style={{width:"100%",padding:"5px 8px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:11,background:p.especie?"#fff":C.cardAlt}}>
                                   <option value="">{p.especie?"— Seleccionar —":"(Selecciona especie primero)"}</option>
                                   {variedadesFiltradas.map(v=>(
                                     <option key={v.id} value={v.id}>{v.nRegistro?`${v.nRegistro} · `:""}{v.variedad}{v.obtentor?` · ${v.obtentor}`:""}</option>
@@ -6551,23 +6556,23 @@ function ControlContratos({data,setData,clientes,setClientes,variedadesMaestro=[
                                 actualizarOCEnVivero(p.vivero_id, p.vivero_oc_id, {plantas:n, total:n*(p.vivero_fee_usd||0)});
                               }
                             }}
-                              style={{width:90,padding:"5px 8px",borderRadius:6,border:"1px solid #d1d5db",fontSize:11,textAlign:"right"}}/>
+                              style={{width:90,padding:"5px 8px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:11,textAlign:"right"}}/>
                           </td>
                           <td style={{padding:"6px 8px"}}>
                             <input type="number" step="0.01" disabled={!can} value={p.hectareas||0} onChange={e=>updPl("hectareas",parseFloat(e.target.value)||0)}
-                              style={{width:80,padding:"5px 8px",borderRadius:6,border:"1px solid #d1d5db",fontSize:11,textAlign:"right"}}/>
+                              style={{width:80,padding:"5px 8px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:11,textAlign:"right"}}/>
                           </td>
                           <td style={{padding:"6px 8px"}}>
                             <input type="date" disabled={!can} value={p.fechaPlantacion||""} onChange={e=>updPl("fechaPlantacion",e.target.value)}
-                              style={{padding:"5px 8px",borderRadius:6,border:"1px solid #d1d5db",fontSize:11}}/>
+                              style={{padding:"5px 8px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:11}}/>
                           </td>
                           <td style={{padding:"6px 8px"}}>
                             <input disabled={!can} value={p.nCotizacionVivero||""} placeholder="N° Cot." onChange={e=>updPl("nCotizacionVivero",e.target.value)}
-                              style={{width:80,padding:"5px 8px",borderRadius:6,border:"1px solid #d1d5db",fontSize:11}}/>
+                              style={{width:80,padding:"5px 8px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:11}}/>
                           </td>
                           <td style={{padding:"6px 8px"}}>
                             <select disabled={!can} value={p.sublicenciatario_id||""} onChange={e=>seleccionarSublic(e.target.value)}
-                              style={{padding:"5px 8px",borderRadius:6,border:"1px solid #d1d5db",fontSize:11,background:"#fff",maxWidth:160}}>
+                              style={{padding:"5px 8px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:11,background:C.card,maxWidth:160}}>
                               <option value="">— Sin sublicencia —</option>
                               {(r.sublicenciatarios||[]).map(s=><option key={s.id} value={s.id}>{s.razonSocial}</option>)}
                             </select>
@@ -6576,14 +6581,14 @@ function ControlContratos({data,setData,clientes,setClientes,variedadesMaestro=[
                           <td style={{padding:"6px 8px"}}>
                             {(viverosData||[]).length>0?(
                               <select disabled={!can} value={p.vivero_id||""} onChange={e=>seleccionarVivero(e.target.value)}
-                                style={{padding:"5px 8px",borderRadius:6,border:"1px solid #d1d5db",fontSize:11,background:"#fff",maxWidth:170}}>
+                                style={{padding:"5px 8px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:11,background:C.card,maxWidth:170}}>
                                 <option value="">— Sin vivero —</option>
                                 {(viverosData||[]).map(v=>(
                                   <option key={v.id} value={v.id}>{v.viverista || "Sin nombre"}{v.pais?` · ${v.pais}`:""}</option>
                                 ))}
                               </select>
                             ):(
-                              <span style={{fontSize:10,color:"#94a3b8",fontStyle:"italic"}}>Sin contratos vivero</span>
+                              <span style={{fontSize:10,color:C.muted2,fontStyle:"italic"}}>Sin contratos vivero</span>
                             )}
                           </td>
                           {/* NUEVO: Fee USD/planta */}
@@ -6597,28 +6602,28 @@ function ControlContratos({data,setData,clientes,setClientes,variedadesMaestro=[
                                   actualizarOCEnVivero(p.vivero_id, p.vivero_oc_id, {fee, total:(p.nPlantas||0)*fee});
                                 }
                               }}
-                              style={{width:80,padding:"5px 8px",borderRadius:6,border:"1px solid #d1d5db",fontSize:11,textAlign:"right",background:p.vivero_id?"#fff":"#f1f5f9"}}/>
+                              style={{width:80,padding:"5px 8px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:11,textAlign:"right",background:p.vivero_id?"#fff":C.cardAlt}}/>
                             {p.vivero_id&&p.nPlantas>0&&(p.vivero_fee_usd||0)>0&&(
-                              <div style={{fontSize:9,color:"#64748b",marginTop:2,textAlign:"right"}}>
+                              <div style={{fontSize:9,color:C.muted,marginTop:2,textAlign:"right"}}>
                                 Total: ${N(((p.nPlantas||0)*(p.vivero_fee_usd||0)).toFixed(0))}
                               </div>
                             )}
                             {p.vivero_id&&!p.vivero_oc_id&&p.nPlantas>0&&(p.vivero_fee_usd||0)>0&&can&&(
                               <button onClick={()=>generarOCEnVivero(p)}
                                 title="Generar OC en el contrato del vivero"
-                                style={{marginTop:3,padding:"2px 6px",borderRadius:4,background:"#0d9488",color:"#fff",border:"none",fontSize:9,cursor:"pointer",fontWeight:600,display:"block",width:"100%"}}>
+                                style={{marginTop:3,padding:"2px 6px",borderRadius:4,background:C.accent2,color:"#fff",border:"none",fontSize:9,cursor:"pointer",fontWeight:600,display:"block",width:"100%"}}>
                                 ⚡ Generar OC
                               </button>
                             )}
                             {p.vivero_oc_id&&(
-                              <div style={{fontSize:9,color:"#0d9488",marginTop:2,fontWeight:600,textAlign:"right"}}>
+                              <div style={{fontSize:9,color:C.accent2,marginTop:2,fontWeight:600,textAlign:"right"}}>
                                 ✓ OC vinculada
                               </div>
                             )}
                           </td>
                           <td style={{padding:"6px 8px"}}>
                             <select disabled={!can} value={p.estado||"Confirmado"} onChange={e=>updPl("estado",e.target.value)}
-                              style={{padding:"5px 8px",borderRadius:6,border:"1px solid #d1d5db",fontSize:11,background:"#fff"}}>
+                              style={{padding:"5px 8px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:11,background:C.card}}>
                               <option>Confirmado</option><option>Plantado</option><option>Productivo</option><option>Anulado</option>
                             </select>
                           </td>
@@ -6633,27 +6638,27 @@ function ControlContratos({data,setData,clientes,setClientes,variedadesMaestro=[
                               }
                               const next = (r.plantaciones||[]).filter(x=>x.id!==p.id);
                               upd(r.id,"plantaciones",next);
-                            }} style={{background:"#fef2f2",border:"none",borderRadius:6,padding:"4px 8px",cursor:"pointer",fontSize:11,color:"#991b1b"}}>🗑</button>}
+                            }} style={{background:C.dangerBg,border:"none",borderRadius:6,padding:"4px 8px",cursor:"pointer",fontSize:11,color:C.danger}}>🗑</button>}
                           </td>
                         </tr>
                       );
                     })}
-                    <tr style={{background:"#f0fdf4",fontWeight:800}}>
-                      <td colSpan={2} style={{padding:"7px 10px",color:"#15803d"}}>TOTALES</td>
-                      <td style={{padding:"7px 10px",color:"#15803d",textAlign:"right"}}>{N((r.plantaciones||[]).reduce((s,p)=>s+(parseFloat(p.nPlantas)||0),0))}</td>
-                      <td style={{padding:"7px 10px",color:"#15803d",textAlign:"right"}}>{N((r.plantaciones||[]).reduce((s,p)=>s+(parseFloat(p.hectareas)||0),0).toFixed(2))}</td>
+                    <tr style={{background:C.successBg,fontWeight:800}}>
+                      <td colSpan={2} style={{padding:"7px 10px",color:C.success}}>TOTALES</td>
+                      <td style={{padding:"7px 10px",color:C.success,textAlign:"right"}}>{N((r.plantaciones||[]).reduce((s,p)=>s+(parseFloat(p.nPlantas)||0),0))}</td>
+                      <td style={{padding:"7px 10px",color:C.success,textAlign:"right"}}>{N((r.plantaciones||[]).reduce((s,p)=>s+(parseFloat(p.hectareas)||0),0).toFixed(2))}</td>
                       <td colSpan={3}></td>
-                      <td style={{padding:"7px 10px",color:"#dc2626",textAlign:"right"}} title="Total egreso por viveros">${N((r.plantaciones||[]).reduce((s,p)=>s+((parseFloat(p.nPlantas)||0)*(parseFloat(p.vivero_fee_usd)||0)),0).toFixed(0))}</td>
+                      <td style={{padding:"7px 10px",color:C.danger,textAlign:"right"}} title="Total egreso por viveros">${N((r.plantaciones||[]).reduce((s,p)=>s+((parseFloat(p.nPlantas)||0)*(parseFloat(p.vivero_fee_usd)||0)),0).toFixed(0))}</td>
                       <td colSpan={2}></td>
                     </tr>
                   </tbody>
                 </table>
               </div>
-              <div style={{marginTop:12,padding:12,background:"#f0fdf4",borderRadius:10,fontSize:11,color:"#14532d",borderLeft:"4px solid #16a34a"}}>
+              <div style={{marginTop:12,padding:12,background:C.successBg,borderRadius:10,fontSize:11,color:C.success,borderLeft:"4px solid #16a34a"}}>
                 💡 <strong>Royalty Planta estimado:</strong> {(r.plantaciones||[]).reduce((s,p)=>s+(parseFloat(p.nPlantas)||0),0)} plantas × ${r.valorRoyaltyPlanta||1}/planta = <strong>${N(((r.plantaciones||[]).reduce((s,p)=>s+(parseFloat(p.nPlantas)||0),0)*(r.valorRoyaltyPlanta||1)).toFixed(2))}</strong> (100% facturado, {pct(r.pais)===1?"sin WHT":"15% WHT"})
                 <br/>
                 💡 <strong>Royalty Comercial anual:</strong> {N((r.plantaciones||[]).reduce((s,p)=>s+(parseFloat(p.hectareas)||0),0).toFixed(2))} há × ${N(r.valorRoyaltyComercial||0)}/há = <strong>${N(((r.plantaciones||[]).reduce((s,p)=>s+(parseFloat(p.hectareas)||0),0)*(r.valorRoyaltyComercial||0)).toFixed(2))}</strong>/temporada (100% facturado)
-                {(r.plantaciones||[]).some(p=>p.vivero_id)&&<><br/>💸 <strong style={{color:"#dc2626"}}>Egreso por viveros:</strong> ${N((r.plantaciones||[]).reduce((s,p)=>s+((parseFloat(p.nPlantas)||0)*(parseFloat(p.vivero_fee_usd)||0)),0).toFixed(0))} (one-time, USD)</>}
+                {(r.plantaciones||[]).some(p=>p.vivero_id)&&<><br/>💸 <strong style={{color:C.danger}}>Egreso por viveros:</strong> ${N((r.plantaciones||[]).reduce((s,p)=>s+((parseFloat(p.nPlantas)||0)*(parseFloat(p.vivero_fee_usd)||0)),0).toFixed(0))} (one-time, USD)</>}
               </div>
             </>)}
           </>)}
@@ -6661,7 +6666,7 @@ function ControlContratos({data,setData,clientes,setClientes,variedadesMaestro=[
           {/* ── SECCIÓN: SUBLICENCIATARIOS (informativo) ── */}
           {sec==="sublicenciatarios"&&(<>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12,flexWrap:"wrap",gap:8}}>
-              <div style={{fontSize:13,color:"#475569"}}>
+              <div style={{fontSize:13,color:C.muted}}>
                 🤝 Empresas sublicenciatarias del licenciatario principal — <em>solo informativo, sin impacto financiero directo</em>.
               </div>
               {can&&<button onClick={()=>{
@@ -6678,7 +6683,7 @@ function ControlContratos({data,setData,clientes,setClientes,variedadesMaestro=[
               }} style={{background:"#0284c7",color:"#fff",border:"none",borderRadius:8,padding:"7px 14px",cursor:"pointer",fontSize:12,fontWeight:700}}>+ Agregar sublicenciatario</button>}
             </div>
             {(r.sublicenciatarios||[]).length===0?(
-              <div style={{padding:30,textAlign:"center",color:"#94a3b8",border:"1px dashed #e2e8f0",borderRadius:10}}>
+              <div style={{padding:30,textAlign:"center",color:C.muted2,border:"1px dashed #e2e8f0",borderRadius:10}}>
                 <div style={{fontSize:32,marginBottom:8}}>🤝</div>
                 <div style={{fontSize:12}}>Sin sublicenciatarios. {can?"Agrega uno con el botón de arriba.":""}</div>
               </div>
@@ -6690,67 +6695,67 @@ function ControlContratos({data,setData,clientes,setClientes,variedadesMaestro=[
                     upd(r.id,"sublicenciatarios",next);
                   };
                   return (
-                    <div key={s.id} style={{background:"#fff",border:"1px solid #bae6fd",borderRadius:10,padding:14}}>
+                    <div key={s.id} style={{background:C.card,border:`1px solid ${C.info}`,borderRadius:10,padding:14}}>
                       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
-                        <div style={{fontSize:13,fontWeight:700,color:"#0c4a6e"}}>🤝 {s.razonSocial||"(sin nombre)"}</div>
+                        <div style={{fontSize:13,fontWeight:700,color:C.info}}>🤝 {s.razonSocial||"(sin nombre)"}</div>
                         {can&&<button onClick={()=>{
                           if(!window.confirm(`¿Eliminar al sublicenciatario "${s.razonSocial||"(sin nombre)"}"?`))return;
                           const next = (r.sublicenciatarios||[]).filter(x=>x.id!==s.id);
                           upd(r.id,"sublicenciatarios",next);
-                        }} style={{background:"#fef2f2",border:"none",borderRadius:6,padding:"4px 8px",cursor:"pointer",fontSize:11,color:"#991b1b"}}>🗑</button>}
+                        }} style={{background:C.dangerBg,border:"none",borderRadius:6,padding:"4px 8px",cursor:"pointer",fontSize:11,color:C.danger}}>🗑</button>}
                       </div>
                       <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(200px,1fr))",gap:10}}>
                         <div>
-                          <div style={{fontSize:10,color:"#64748b",fontWeight:600,marginBottom:3}}>Razón Social</div>
+                          <div style={{fontSize:10,color:C.muted,fontWeight:600,marginBottom:3}}>Razón Social</div>
                           <input disabled={!can} value={s.razonSocial||""} onChange={e=>updSub("razonSocial",e.target.value)}
-                            style={{width:"100%",padding:"6px 8px",borderRadius:6,border:"1px solid #d1d5db",fontSize:11,boxSizing:"border-box"}}/>
+                            style={{width:"100%",padding:"6px 8px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:11,boxSizing:"border-box"}}/>
                         </div>
                         <div>
-                          <div style={{fontSize:10,color:"#64748b",fontWeight:600,marginBottom:3}}>País</div>
+                          <div style={{fontSize:10,color:C.muted,fontWeight:600,marginBottom:3}}>País</div>
                           <select disabled={!can} value={s.pais||"Peru"} onChange={e=>updSub("pais",e.target.value)}
-                            style={{width:"100%",padding:"6px 8px",borderRadius:6,border:"1px solid #d1d5db",fontSize:11,boxSizing:"border-box",background:"#fff"}}>
+                            style={{width:"100%",padding:"6px 8px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:11,boxSizing:"border-box",background:C.card}}>
                             <option>Peru</option><option>Chile</option><option>Mexico</option><option>Colombia</option><option>Otro</option>
                           </select>
                         </div>
                         <div>
-                          <div style={{fontSize:10,color:"#64748b",fontWeight:600,marginBottom:3}}>RUC / Tax ID</div>
+                          <div style={{fontSize:10,color:C.muted,fontWeight:600,marginBottom:3}}>RUC / Tax ID</div>
                           <input disabled={!can} value={s.taxID||""} onChange={e=>updSub("taxID",e.target.value)}
-                            style={{width:"100%",padding:"6px 8px",borderRadius:6,border:"1px solid #d1d5db",fontSize:11,boxSizing:"border-box"}}/>
+                            style={{width:"100%",padding:"6px 8px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:11,boxSizing:"border-box"}}/>
                         </div>
                         <div>
-                          <div style={{fontSize:10,color:"#64748b",fontWeight:600,marginBottom:3}}>Nombre del Predio</div>
+                          <div style={{fontSize:10,color:C.muted,fontWeight:600,marginBottom:3}}>Nombre del Predio</div>
                           <input disabled={!can} value={s.nombrePredio||""} onChange={e=>updSub("nombrePredio",e.target.value)}
-                            style={{width:"100%",padding:"6px 8px",borderRadius:6,border:"1px solid #d1d5db",fontSize:11,boxSizing:"border-box"}}/>
+                            style={{width:"100%",padding:"6px 8px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:11,boxSizing:"border-box"}}/>
                         </div>
                         <div style={{gridColumn:"span 2"}}>
-                          <div style={{fontSize:10,color:"#64748b",fontWeight:600,marginBottom:3}}>Dirección Predio</div>
+                          <div style={{fontSize:10,color:C.muted,fontWeight:600,marginBottom:3}}>Dirección Predio</div>
                           <input disabled={!can} value={s.direccionPredio||""} onChange={e=>updSub("direccionPredio",e.target.value)}
-                            style={{width:"100%",padding:"6px 8px",borderRadius:6,border:"1px solid #d1d5db",fontSize:11,boxSizing:"border-box"}}/>
+                            style={{width:"100%",padding:"6px 8px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:11,boxSizing:"border-box"}}/>
                         </div>
                         <div>
-                          <div style={{fontSize:10,color:"#64748b",fontWeight:600,marginBottom:3}}>Región / Estado</div>
+                          <div style={{fontSize:10,color:C.muted,fontWeight:600,marginBottom:3}}>Región / Estado</div>
                           <input disabled={!can} value={s.region||""} onChange={e=>updSub("region",e.target.value)}
-                            style={{width:"100%",padding:"6px 8px",borderRadius:6,border:"1px solid #d1d5db",fontSize:11,boxSizing:"border-box"}}/>
+                            style={{width:"100%",padding:"6px 8px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:11,boxSizing:"border-box"}}/>
                         </div>
                         <div>
-                          <div style={{fontSize:10,color:"#64748b",fontWeight:600,marginBottom:3}}>Hectáreas</div>
+                          <div style={{fontSize:10,color:C.muted,fontWeight:600,marginBottom:3}}>Hectáreas</div>
                           <input type="number" step="0.01" disabled={!can} value={s.hectareas||0} onChange={e=>updSub("hectareas",parseFloat(e.target.value)||0)}
-                            style={{width:"100%",padding:"6px 8px",borderRadius:6,border:"1px solid #d1d5db",fontSize:11,boxSizing:"border-box",textAlign:"right"}}/>
+                            style={{width:"100%",padding:"6px 8px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:11,boxSizing:"border-box",textAlign:"right"}}/>
                         </div>
                         <div>
-                          <div style={{fontSize:10,color:"#64748b",fontWeight:600,marginBottom:3}}>Plantas</div>
+                          <div style={{fontSize:10,color:C.muted,fontWeight:600,marginBottom:3}}>Plantas</div>
                           <input type="number" disabled={!can} value={s.plantas||0} onChange={e=>updSub("plantas",parseInt(e.target.value)||0)}
-                            style={{width:"100%",padding:"6px 8px",borderRadius:6,border:"1px solid #d1d5db",fontSize:11,boxSizing:"border-box",textAlign:"right"}}/>
+                            style={{width:"100%",padding:"6px 8px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:11,boxSizing:"border-box",textAlign:"right"}}/>
                         </div>
                         <div style={{gridColumn:"span 2"}}>
-                          <div style={{fontSize:10,color:"#64748b",fontWeight:600,marginBottom:3}}>Variedades cultivadas</div>
+                          <div style={{fontSize:10,color:C.muted,fontWeight:600,marginBottom:3}}>Variedades cultivadas</div>
                           <input disabled={!can} value={s.variedades||""} placeholder="Royal Dawn, Sweet Heart..." onChange={e=>updSub("variedades",e.target.value)}
-                            style={{width:"100%",padding:"6px 8px",borderRadius:6,border:"1px solid #d1d5db",fontSize:11,boxSizing:"border-box"}}/>
+                            style={{width:"100%",padding:"6px 8px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:11,boxSizing:"border-box"}}/>
                         </div>
                         <div style={{gridColumn:"1 / -1"}}>
-                          <div style={{fontSize:10,color:"#64748b",fontWeight:600,marginBottom:3}}>Observaciones</div>
+                          <div style={{fontSize:10,color:C.muted,fontWeight:600,marginBottom:3}}>Observaciones</div>
                           <input disabled={!can} value={s.observaciones||""} onChange={e=>updSub("observaciones",e.target.value)}
-                            style={{width:"100%",padding:"6px 8px",borderRadius:6,border:"1px solid #d1d5db",fontSize:11,boxSizing:"border-box"}}/>
+                            style={{width:"100%",padding:"6px 8px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:11,boxSizing:"border-box"}}/>
                         </div>
                       </div>
                     </div>
@@ -6762,55 +6767,55 @@ function ControlContratos({data,setData,clientes,setClientes,variedadesMaestro=[
 
           {/* ── SECCIÓN: COBROS DERIVADOS ── */}
           {sec==="cobros"&&(<>
-            <div style={{fontSize:13,color:"#475569",marginBottom:12}}>
+            <div style={{fontSize:13,color:C.muted,marginBottom:12}}>
               💵 Configuración de cobros derivada de plantaciones. Contract Fee: <strong>100% sin WHT</strong>. Royalty Planta/Comercial: <strong>{pct(r.pais)===1?"100% sin WHT":"85% (WHT 15%)"}</strong> en {r.pais}.
             </div>
 
             {/* Sub-sección 1: Contract Fee — SIN WHT */}
-            <div style={{background:"#fff",border:"1px solid #fde68a",borderRadius:10,padding:14,marginBottom:14}}>
-              <div style={{fontSize:13,fontWeight:800,color:"#92400e",marginBottom:10}}>💰 Contract Fee <span style={{fontSize:10,fontWeight:500,color:"#78350f"}}>(100% — sin retención)</span></div>
+            <div style={{background:C.card,border:`1px solid ${C.warning}`,borderRadius:10,padding:14,marginBottom:14}}>
+              <div style={{fontSize:13,fontWeight:800,color:C.text,marginBottom:10}}>💰 Contract Fee <span style={{fontSize:10,fontWeight:500,color:C.text}}>(100% — sin retención)</span></div>
               {r.tipoContractFee==="Sin Contract Fee"?(
-                <div style={{padding:14,background:"#fef3c7",borderRadius:8,fontSize:12,color:"#78350f"}}>Este contrato no contempla Contract Fee. Configurable en la sección Facturación.</div>
+                <div style={{padding:14,background:C.warningBg,borderRadius:8,fontSize:12,color:C.text}}>Este contrato no contempla Contract Fee. Configurable en la sección Facturación.</div>
               ):(
                 <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(160px,1fr))",gap:10,alignItems:"end"}}>
                   <div>
-                    <div style={{fontSize:10,color:"#64748b",fontWeight:600,marginBottom:3}}>Monto USD</div>
-                    <div style={{padding:"7px 10px",background:"#f8fafc",borderRadius:6,fontSize:13,fontWeight:700,color:"#92400e"}}>${N(r.montoContractFee||0)}</div>
+                    <div style={{fontSize:10,color:C.muted,fontWeight:600,marginBottom:3}}>Monto USD</div>
+                    <div style={{padding:"7px 10px",background:C.cardAlt,borderRadius:6,fontSize:13,fontWeight:700,color:C.text}}>${N(r.montoContractFee||0)}</div>
                   </div>
                   <div>
-                    <div style={{fontSize:10,color:"#64748b",fontWeight:600,marginBottom:3}}>Neto cobro (USD)</div>
-                    <div style={{padding:"7px 10px",background:"#dcfce7",borderRadius:6,fontSize:13,fontWeight:700,color:"#15803d"}}>${N(r.montoContractFee||0)}</div>
+                    <div style={{fontSize:10,color:C.muted,fontWeight:600,marginBottom:3}}>Neto cobro (USD)</div>
+                    <div style={{padding:"7px 10px",background:C.successBg,borderRadius:6,fontSize:13,fontWeight:700,color:C.success}}>${N(r.montoContractFee||0)}</div>
                   </div>
                   <div>
-                    <div style={{fontSize:10,color:"#64748b",fontWeight:600,marginBottom:3}}>N° Factura</div>
+                    <div style={{fontSize:10,color:C.muted,fontWeight:600,marginBottom:3}}>N° Factura</div>
                     <input disabled={!can} value={r.contractFeeNFact||""} onChange={e=>upd(r.id,"contractFeeNFact",e.target.value)}
-                      style={{width:"100%",padding:"6px 8px",borderRadius:6,border:"1px solid #d1d5db",fontSize:11,boxSizing:"border-box"}}/>
+                      style={{width:"100%",padding:"6px 8px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:11,boxSizing:"border-box"}}/>
                   </div>
                   <div>
-                    <div style={{fontSize:10,color:"#64748b",fontWeight:600,marginBottom:3}}>Estado</div>
-                    <label style={{display:"flex",alignItems:"center",gap:6,cursor:can?"pointer":"default",padding:"7px 10px",background:r.contractFeePagado?"#dcfce7":"#fef3c7",borderRadius:6,fontSize:11,fontWeight:700,color:r.contractFeePagado?"#15803d":"#92400e"}}>
+                    <div style={{fontSize:10,color:C.muted,fontWeight:600,marginBottom:3}}>Estado</div>
+                    <label style={{display:"flex",alignItems:"center",gap:6,cursor:can?"pointer":"default",padding:"7px 10px",background:r.contractFeePagado?C.successBg:C.warningBg,borderRadius:6,fontSize:11,fontWeight:700,color:r.contractFeePagado?C.success:C.text}}>
                       <input type="checkbox" disabled={!can} checked={!!r.contractFeePagado} onChange={e=>upd(r.id,"contractFeePagado",e.target.checked)}/>
                       {r.contractFeePagado?"✅ Pagado":"⏳ Por cobrar"}
                     </label>
                   </div>
                   {r.contractFeePagado&&<div>
-                    <div style={{fontSize:10,color:"#64748b",fontWeight:600,marginBottom:3}}>Fecha pago</div>
+                    <div style={{fontSize:10,color:C.muted,fontWeight:600,marginBottom:3}}>Fecha pago</div>
                     <input type="date" disabled={!can} value={r.contractFeeFechaPago||""} onChange={e=>upd(r.id,"contractFeeFechaPago",e.target.value)}
-                      style={{width:"100%",padding:"6px 8px",borderRadius:6,border:"1px solid #d1d5db",fontSize:11,boxSizing:"border-box"}}/>
+                      style={{width:"100%",padding:"6px 8px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:11,boxSizing:"border-box"}}/>
                   </div>}
                 </div>
               )}
             </div>
 
             {/* Sub-sección 2: Royalty Planta - cuotas */}
-            <div style={{background:"#fff",border:"1px solid #bbf7d0",borderRadius:10,padding:14,marginBottom:14}}>
+            <div style={{background:C.card,border:`1px solid ${C.success}`,borderRadius:10,padding:14,marginBottom:14}}>
               <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
-                <div style={{fontSize:13,fontWeight:800,color:"#15803d"}}>🌱 Royalty Planta — Plan de cuotas</div>
+                <div style={{fontSize:13,fontWeight:800,color:C.success}}>🌱 Royalty Planta — Plan de cuotas</div>
                 {can&&<button onClick={()=>{
                   const nuevaCuota = {id:`cuo_${Date.now()}`, descripcion:"Nueva cuota", pct:0, fechaEvento:""};
                   const next = [...(r.rpPlantaCuotas||[]), nuevaCuota];
                   upd(r.id,"rpPlantaCuotas",next);
-                }} style={{background:"#16a34a",color:"#fff",border:"none",borderRadius:6,padding:"5px 10px",cursor:"pointer",fontSize:11,fontWeight:600}}>+ Cuota</button>}
+                }} style={{background:C.success,color:"#fff",border:"none",borderRadius:6,padding:"5px 10px",cursor:"pointer",fontSize:11,fontWeight:600}}>+ Cuota</button>}
               </div>
               {(()=>{
                 const totPlantas = (r.plantaciones||[]).reduce((s,p)=>s+(parseFloat(p.nPlantas)||0),0);
@@ -6820,13 +6825,13 @@ function ControlContratos({data,setData,clientes,setClientes,variedadesMaestro=[
                 const sumPct = cuotas.reduce((s,c)=>s+(parseFloat(c.pct)||0),0);
                 return (
                   <>
-                    <div style={{padding:10,background:"#f0fdf4",borderRadius:8,marginBottom:10,fontSize:11,color:"#14532d"}}>
-                      <strong>Base:</strong> {N(totPlantas)} plantas × ${valorPP}/planta = <strong>${N(totRP.toFixed(2))}</strong> · Suma cuotas: <strong style={{color:Math.abs(sumPct-100)<0.01?"#15803d":"#dc2626"}}>{sumPct}%</strong>
+                    <div style={{padding:10,background:C.successBg,borderRadius:8,marginBottom:10,fontSize:11,color:C.success}}>
+                      <strong>Base:</strong> {N(totPlantas)} plantas × ${valorPP}/planta = <strong>${N(totRP.toFixed(2))}</strong> · Suma cuotas: <strong style={{color:Math.abs(sumPct-100)<0.01?C.success:C.danger}}>{sumPct}%</strong>
                     </div>
                     <table style={{width:"100%",borderCollapse:"collapse",fontSize:11}}>
-                      <thead><tr style={{background:"#dcfce7"}}>
+                      <thead><tr style={{background:C.successBg}}>
                         {["Descripción","%","Monto Fact.","Monto Cobro","Fecha evento","Pagado","Fecha pago","N° Fact.",""].map(h=>(
-                          <th key={h} style={{padding:"6px 8px",textAlign:"left",fontSize:10,fontWeight:700,color:"#14532d"}}>{h}</th>
+                          <th key={h} style={{padding:"6px 8px",textAlign:"left",fontSize:10,fontWeight:700,color:C.success}}>{h}</th>
                         ))}
                       </tr></thead>
                       <tbody>
@@ -6840,34 +6845,34 @@ function ControlContratos({data,setData,clientes,setClientes,variedadesMaestro=[
                             <tr key={c.id} style={{borderBottom:"1px solid #f1f5f9"}}>
                               <td style={{padding:"5px 8px"}}>
                                 <input disabled={!can} value={c.descripcion||""} onChange={e=>updCuo("descripcion",e.target.value)}
-                                  style={{width:"100%",padding:"4px 6px",borderRadius:4,border:"1px solid #d1d5db",fontSize:11,boxSizing:"border-box"}}/>
+                                  style={{width:"100%",padding:"4px 6px",borderRadius:4,border:`1px solid ${C.border}`,fontSize:11,boxSizing:"border-box"}}/>
                               </td>
                               <td style={{padding:"5px 8px"}}>
                                 <input type="number" disabled={!can} value={c.pct||0} onChange={e=>updCuo("pct",parseFloat(e.target.value)||0)}
-                                  style={{width:60,padding:"4px 6px",borderRadius:4,border:"1px solid #d1d5db",fontSize:11,textAlign:"right"}}/>
+                                  style={{width:60,padding:"4px 6px",borderRadius:4,border:`1px solid ${C.border}`,fontSize:11,textAlign:"right"}}/>
                               </td>
-                              <td style={{padding:"5px 8px",fontWeight:700,color:"#15803d"}}>${N(monto.toFixed(2))}</td>
-                              <td style={{padding:"5px 8px",fontWeight:700,color:"#16a34a"}}>${N((monto*pct(r.pais)).toFixed(2))}</td>
+                              <td style={{padding:"5px 8px",fontWeight:700,color:C.success}}>${N(monto.toFixed(2))}</td>
+                              <td style={{padding:"5px 8px",fontWeight:700,color:C.success}}>${N((monto*pct(r.pais)).toFixed(2))}</td>
                               <td style={{padding:"5px 8px"}}>
                                 <input type="date" disabled={!can} value={c.fechaEvento||""} onChange={e=>updCuo("fechaEvento",e.target.value)}
-                                  style={{padding:"4px 6px",borderRadius:4,border:"1px solid #d1d5db",fontSize:11}}/>
+                                  style={{padding:"4px 6px",borderRadius:4,border:`1px solid ${C.border}`,fontSize:11}}/>
                               </td>
                               <td style={{padding:"5px 8px",textAlign:"center"}}>
                                 <input type="checkbox" disabled={!can} checked={!!c.pagado} onChange={e=>updCuo("pagado",e.target.checked)}/>
                               </td>
                               <td style={{padding:"5px 8px"}}>
                                 <input type="date" disabled={!can || !c.pagado} value={c.fechaPago||""} onChange={e=>updCuo("fechaPago",e.target.value)}
-                                  style={{padding:"4px 6px",borderRadius:4,border:"1px solid #d1d5db",fontSize:11,opacity:c.pagado?1:0.5}}/>
+                                  style={{padding:"4px 6px",borderRadius:4,border:`1px solid ${C.border}`,fontSize:11,opacity:c.pagado?1:0.5}}/>
                               </td>
                               <td style={{padding:"5px 8px"}}>
                                 <input disabled={!can} value={c.nFact||""} onChange={e=>updCuo("nFact",e.target.value)}
-                                  style={{width:80,padding:"4px 6px",borderRadius:4,border:"1px solid #d1d5db",fontSize:11}}/>
+                                  style={{width:80,padding:"4px 6px",borderRadius:4,border:`1px solid ${C.border}`,fontSize:11}}/>
                               </td>
                               <td style={{padding:"5px 8px"}}>
                                 {can&&<button onClick={()=>{
                                   const next = cuotas.filter(x=>x.id!==c.id);
                                   upd(r.id,"rpPlantaCuotas",next);
-                                }} style={{background:"#fef2f2",border:"none",borderRadius:4,padding:"3px 6px",cursor:"pointer",fontSize:10,color:"#991b1b"}}>×</button>}
+                                }} style={{background:C.dangerBg,border:"none",borderRadius:4,padding:"3px 6px",cursor:"pointer",fontSize:10,color:C.danger}}>×</button>}
                               </td>
                             </tr>
                           );
@@ -6880,39 +6885,39 @@ function ControlContratos({data,setData,clientes,setClientes,variedadesMaestro=[
             </div>
 
             {/* Sub-sección 3: Royalty Comercial — Calendario por temporada */}
-            <div style={{background:"#fff",border:"1px solid #fbcfe8",borderRadius:10,padding:14}}>
-              <div style={{fontSize:13,fontWeight:800,color:"#9d174d",marginBottom:10}}>📈 Royalty Comercial — Calendario por temporada</div>
+            <div style={{background:C.card,border:`1px solid ${C.warning}`,borderRadius:10,padding:14}}>
+              <div style={{fontSize:13,fontWeight:800,color:C.text,marginBottom:10}}>📈 Royalty Comercial — Calendario por temporada</div>
               <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(180px,1fr))",gap:10,marginBottom:12}}>
                 <div>
-                  <div style={{fontSize:10,color:"#64748b",fontWeight:600,marginBottom:3}}>Temporada inicio</div>
+                  <div style={{fontSize:10,color:C.muted,fontWeight:600,marginBottom:3}}>Temporada inicio</div>
                   <select disabled={!can} value={r.rcInicioTemporada||""} onChange={e=>upd(r.id,"rcInicioTemporada",e.target.value)}
-                    style={{width:"100%",padding:"6px 8px",borderRadius:6,border:"1px solid #d1d5db",fontSize:11,boxSizing:"border-box",background:"#fff"}}>
+                    style={{width:"100%",padding:"6px 8px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:11,boxSizing:"border-box",background:C.card}}>
                     <option value="">— Seleccionar —</option>
                     {TEMPORADAS_LIST.map(t=><option key={t} value={t}>{t}</option>)}
                   </select>
                 </div>
                 <div>
-                  <div style={{fontSize:10,color:"#64748b",fontWeight:600,marginBottom:3}}>Mes de cobro</div>
+                  <div style={{fontSize:10,color:C.muted,fontWeight:600,marginBottom:3}}>Mes de cobro</div>
                   <select disabled={!can} value={r.rcMesCobro||RC_MES_DEFAULT_POR_PAIS[r.pais]||"Abril"} onChange={e=>upd(r.id,"rcMesCobro",e.target.value)}
-                    style={{width:"100%",padding:"6px 8px",borderRadius:6,border:"1px solid #d1d5db",fontSize:11,boxSizing:"border-box",background:"#fff"}}>
+                    style={{width:"100%",padding:"6px 8px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:11,boxSizing:"border-box",background:C.card}}>
                     {MESES.map(m=><option key={m}>{m}</option>)}
                   </select>
-                  <div style={{fontSize:9,color:"#94a3b8",marginTop:2}}>Default {r.pais}: {RC_MES_DEFAULT_POR_PAIS[r.pais]||"—"}</div>
+                  <div style={{fontSize:9,color:C.muted2,marginTop:2}}>Default {r.pais}: {RC_MES_DEFAULT_POR_PAIS[r.pais]||"—"}</div>
                 </div>
                 <div>
-                  <div style={{fontSize:10,color:"#64748b",fontWeight:600,marginBottom:3}}>USD/há</div>
-                  <div style={{padding:"7px 10px",background:"#fdf2f8",borderRadius:6,fontSize:13,fontWeight:700,color:"#9d174d"}}>${N(r.valorRoyaltyComercial||0)}</div>
+                  <div style={{fontSize:10,color:C.muted,fontWeight:600,marginBottom:3}}>USD/há</div>
+                  <div style={{padding:"7px 10px",background:C.purpleBg,borderRadius:6,fontSize:13,fontWeight:700,color:C.text}}>${N(r.valorRoyaltyComercial||0)}</div>
                 </div>
                 <div>
-                  <div style={{fontSize:10,color:"#64748b",fontWeight:600,marginBottom:3}}>Há totales</div>
-                  <div style={{padding:"7px 10px",background:"#f8fafc",borderRadius:6,fontSize:13,fontWeight:700,color:"#1e293b"}}>{N(((r.plantaciones||[]).reduce((s,p)=>s+(parseFloat(p.hectareas)||0),0)).toFixed(2))} há</div>
+                  <div style={{fontSize:10,color:C.muted,fontWeight:600,marginBottom:3}}>Há totales</div>
+                  <div style={{padding:"7px 10px",background:C.cardAlt,borderRadius:6,fontSize:13,fontWeight:700,color:C.text}}>{N(((r.plantaciones||[]).reduce((s,p)=>s+(parseFloat(p.hectareas)||0),0)).toFixed(2))} há</div>
                 </div>
               </div>
 
               {(()=>{
                 const haTotal = (r.plantaciones||[]).reduce((s,p)=>s+(parseFloat(p.hectareas)||0),0);
-                if(haTotal===0) return <div style={{padding:14,background:"#fdf2f8",borderRadius:8,fontSize:11,color:"#9d174d"}}>⚠️ Aún no hay hectáreas registradas en Plantaciones. Agrega plantaciones para ver el calendario.</div>;
-                if(!r.rcInicioTemporada) return <div style={{padding:14,background:"#fdf2f8",borderRadius:8,fontSize:11,color:"#9d174d"}}>⚠️ Define la "Temporada inicio" arriba (ej. 2026/2027) para ver el calendario.</div>;
+                if(haTotal===0) return <div style={{padding:14,background:C.purpleBg,borderRadius:8,fontSize:11,color:C.text}}>⚠️ Aún no hay hectáreas registradas en Plantaciones. Agrega plantaciones para ver el calendario.</div>;
+                if(!r.rcInicioTemporada) return <div style={{padding:14,background:C.purpleBg,borderRadius:8,fontSize:11,color:C.text}}>⚠️ Define la "Temporada inicio" arriba (ej. 2026/2027) para ver el calendario.</div>;
                 const valor = parseFloat(r.valorRoyaltyComercial)||0;
                 const temps = temporadasEntre(r.rcInicioTemporada, r.fechaTermino);
                 const pagos = r.rcPagos||{};
@@ -6924,16 +6929,16 @@ function ControlContratos({data,setData,clientes,setClientes,variedadesMaestro=[
                 const totalAcumulado = temps.length * haTotal * valor;
                 return (
                   <>
-                    <div style={{padding:10,background:"#fdf2f8",borderRadius:8,marginBottom:10,fontSize:11,color:"#9d174d"}}>
+                    <div style={{padding:10,background:C.purpleBg,borderRadius:8,marginBottom:10,fontSize:11,color:C.text}}>
                       <strong>{temps.length}</strong> temporada{temps.length!==1?"s":""} desde {r.rcInicioTemporada}
                       {r.fechaTermino?` hasta término ${r.fechaTermino}`:" (10 años proyectados)"} ·
                       Total facturable acumulado: <strong>${N(totalAcumulado.toFixed(2))}</strong>
                     </div>
                     <div style={{overflowX:"auto"}}>
                       <table style={{width:"100%",borderCollapse:"collapse",fontSize:11}}>
-                        <thead><tr style={{background:"#fce7f3"}}>
+                        <thead><tr style={{background:C.primary}}>
                           {["Temporada","Mes cobro","Há","$/há","Bruto","WHT","Neto","Pagado","Fecha pago","N° Fact."].map(h=>(
-                            <th key={h} style={{padding:"6px 8px",textAlign:"left",fontSize:10,fontWeight:700,color:"#9d174d"}}>{h}</th>
+                            <th key={h} style={{padding:"6px 8px",textAlign:"left",fontSize:10,fontWeight:700,color:C.primaryText}}>{h}</th>
                           ))}
                         </tr></thead>
                         <tbody>
@@ -6943,24 +6948,24 @@ function ControlContratos({data,setData,clientes,setClientes,variedadesMaestro=[
                             const neto = bruto - wht;
                             const p = pagos[t] || {};
                             return (
-                              <tr key={t} style={{borderBottom:"1px solid #fce7f3",background:p.pagado?"#f0fdf4":""}}>
-                                <td style={{padding:"5px 8px",fontWeight:700,color:"#9d174d"}}>{t}</td>
+                              <tr key={t} style={{borderBottom:"1px solid #fce7f3",background:p.pagado?C.successBg:""}}>
+                                <td style={{padding:"5px 8px",fontWeight:700,color:C.text}}>{t}</td>
                                 <td style={{padding:"5px 8px"}}>{r.rcMesCobro||RC_MES_DEFAULT_POR_PAIS[r.pais]||"—"} {parseInt(t.split("/")[1])}</td>
                                 <td style={{padding:"5px 8px",textAlign:"right"}}>{N(haTotal.toFixed(2))}</td>
                                 <td style={{padding:"5px 8px",textAlign:"right"}}>${N(valor)}</td>
-                                <td style={{padding:"5px 8px",textAlign:"right",fontWeight:700,color:"#9d174d"}}>${N(bruto.toFixed(2))}</td>
-                                <td style={{padding:"5px 8px",textAlign:"right",color:"#dc2626"}}>{wht>0?`-$${N(wht.toFixed(2))}`:"—"}</td>
-                                <td style={{padding:"5px 8px",textAlign:"right",fontWeight:700,color:"#15803d"}}>${N(neto.toFixed(2))}</td>
+                                <td style={{padding:"5px 8px",textAlign:"right",fontWeight:700,color:C.text}}>${N(bruto.toFixed(2))}</td>
+                                <td style={{padding:"5px 8px",textAlign:"right",color:C.danger}}>{wht>0?`-$${N(wht.toFixed(2))}`:"—"}</td>
+                                <td style={{padding:"5px 8px",textAlign:"right",fontWeight:700,color:C.success}}>${N(neto.toFixed(2))}</td>
                                 <td style={{padding:"5px 8px",textAlign:"center"}}>
                                   <input type="checkbox" disabled={!can} checked={!!p.pagado} onChange={e=>updPago(t,"pagado",e.target.checked)}/>
                                 </td>
                                 <td style={{padding:"5px 8px"}}>
                                   <input type="date" disabled={!can || !p.pagado} value={p.fechaPago||""} onChange={e=>updPago(t,"fechaPago",e.target.value)}
-                                    style={{padding:"4px 6px",borderRadius:4,border:"1px solid #d1d5db",fontSize:11,opacity:p.pagado?1:0.5}}/>
+                                    style={{padding:"4px 6px",borderRadius:4,border:`1px solid ${C.border}`,fontSize:11,opacity:p.pagado?1:0.5}}/>
                                 </td>
                                 <td style={{padding:"5px 8px"}}>
                                   <input disabled={!can} value={p.nFact||""} onChange={e=>updPago(t,"nFact",e.target.value)}
-                                    style={{width:80,padding:"4px 6px",borderRadius:4,border:"1px solid #d1d5db",fontSize:11}}/>
+                                    style={{width:80,padding:"4px 6px",borderRadius:4,border:`1px solid ${C.border}`,fontSize:11}}/>
                                 </td>
                               </tr>
                             );
@@ -6982,23 +6987,23 @@ function ControlContratos({data,setData,clientes,setClientes,variedadesMaestro=[
     return(
       <div>
         <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:20}}>
-          <button onClick={()=>{setVista("tabla");setForm(formVacio);setClienteSelId("");}} style={{background:"#f1f5f9",border:"none",borderRadius:8,padding:"7px 14px",cursor:"pointer",fontSize:13,color:C.sl,fontWeight:600}}>← Volver</button>
+          <button onClick={()=>{setVista("tabla");setForm(formVacio);setClienteSelId("");}} style={{background:C.cardAlt,border:"none",borderRadius:8,padding:"7px 14px",cursor:"pointer",fontSize:13,color:C.sl,fontWeight:600}}>← Volver</button>
           <h2 style={{margin:0,fontSize:16,fontWeight:800,color:C.sl}}>Nuevo Contrato</h2>
         </div>
         <div style={{display:"flex",flexDirection:"column",gap:14}}>
           {/* Selector de cliente con autocompletado */}
-          <div style={{background:"#eff6ff",borderRadius:12,padding:"14px 20px",border:"1px solid #bfdbfe"}}>
+          <div style={{background:C.infoBg,borderRadius:12,padding:"14px 20px",border:`1px solid ${C.info}`}}>
             <div style={{fontSize:12,fontWeight:700,color:C.azul,marginBottom:8}}>🔍 Seleccionar cliente existente (opcional)</div>
             <div style={{display:"flex",gap:10,alignItems:"center",flexWrap:"wrap"}}>
               <select value={clienteSelId} onChange={e=>autocompletarCliente(e.target.value)}
-                style={{flex:1,minWidth:200,padding:"8px 12px",borderRadius:8,border:"1px solid #93c5fd",fontSize:13}}>
+                style={{flex:1,minWidth:200,padding:"8px 12px",borderRadius:8,border:`1px solid ${C.info}`,fontSize:13}}>
                 <option value="">— Buscar cliente —</option>
                 {clientes.map(c=><option key={c.id} value={c.id}>{c.razonSocial}{c.nombreComercial&&c.nombreComercial!==c.razonSocial?` (${c.nombreComercial})`:""}</option>)}
               </select>
               {clienteSelId&&<span style={{fontSize:11,color:C.azul,background:C.azulBg,borderRadius:20,padding:"3px 10px"}}>✓ Datos autocompletados</span>}
             </div>
           </div>
-          <div style={{background:"#fff",borderRadius:12,padding:20,boxShadow:"0 1px 6px #0001"}}>
+          <div style={{background:C.card,borderRadius:12,padding:20,boxShadow:"0 1px 6px #0001"}}>
             <div style={{fontSize:13,fontWeight:700,color:C.azul,marginBottom:14}}>🏢 Antecedentes Empresa</div>
             <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(200px,1fr))",gap:12}}>
               <CampoNuevo label="Razón Social *" campo="razonSocial" form={form} setF={setF}/>
@@ -7009,7 +7014,7 @@ function ControlContratos({data,setData,clientes,setClientes,variedadesMaestro=[
               <CampoNuevo label="Ciudad" campo="ciudad" form={form} setF={setF}/>
             </div>
           </div>
-          <div style={{background:"#fff",borderRadius:12,padding:20,boxShadow:"0 1px 6px #0001"}}>
+          <div style={{background:C.card,borderRadius:12,padding:20,boxShadow:"0 1px 6px #0001"}}>
             <div style={{fontSize:13,fontWeight:700,color:C.mo,marginBottom:14}}>📄 Datos del Contrato</div>
             <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(200px,1fr))",gap:12}}>
               <CampoNuevo label="Tipo Contrato" campo="tipoContrato" opts={tiposContrato} form={form} setF={setF}/>
@@ -7019,9 +7024,9 @@ function ControlContratos({data,setData,clientes,setClientes,variedadesMaestro=[
               <div>
                 <div style={{fontSize:11,color:C.gris,fontWeight:600,marginBottom:4}}>Renovable</div>
                 <label style={{display:"flex",alignItems:"center",gap:8,cursor:"pointer",
-                  background:form.renovable?"#dbeafe":"#f1f5f9",border:`1px solid ${form.renovable?"#60a5fa":"#d1d5db"}`,
-                  borderRadius:8,padding:"7px 12px",fontSize:12,fontWeight:600,color:form.renovable?"#1d4ed8":"#94a3b8"}}>
-                  <input type="checkbox" checked={!!form.renovable} onChange={()=>setF("renovable",!form.renovable)} style={{accentColor:"#2563eb"}}/>
+                  background:form.renovable?C.infoBg:C.cardAlt,border:`1px solid ${form.renovable?"#60a5fa":C.border}`,
+                  borderRadius:8,padding:"7px 12px",fontSize:12,fontWeight:600,color:form.renovable?C.primary:C.muted2}}>
+                  <input type="checkbox" checked={!!form.renovable} onChange={()=>setF("renovable",!form.renovable)} style={{accentColor:C.primary}}/>
                   🔄 Contrato renovable
                 </label>
               </div>
@@ -7030,9 +7035,9 @@ function ControlContratos({data,setData,clientes,setClientes,variedadesMaestro=[
               <CampoNuevo label="📎 Link OneDrive contrato" campo="linkContrato" form={form} setF={setF}/>
             </div>
             {/* Año de prueba */}
-            <div style={{marginTop:14,background:"#fefce8",borderRadius:10,padding:"12px 14px",border:"1px solid #fde047"}}>
+            <div style={{marginTop:14,background:C.warningBg,borderRadius:10,padding:"12px 14px",border:`1px solid ${C.warning}`}}>
               <div style={{display:"flex",gap:16,alignItems:"center",flexWrap:"wrap"}}>
-                <label style={{display:"flex",alignItems:"center",gap:6,cursor:"pointer",fontSize:13,fontWeight:600,color:form.tieneAnioPrueba?"#854d0e":"#94a3b8"}}>
+                <label style={{display:"flex",alignItems:"center",gap:6,cursor:"pointer",fontSize:13,fontWeight:600,color:form.tieneAnioPrueba?"#854d0e":C.muted2}}>
                   <input type="checkbox" checked={form.tieneAnioPrueba||false} onChange={()=>setF("tieneAnioPrueba",!form.tieneAnioPrueba)}/>
                   🧪 Tiene año de prueba
                 </label>
@@ -7041,16 +7046,16 @@ function ControlContratos({data,setData,clientes,setClientes,variedadesMaestro=[
                     <span style={{fontSize:12,color:"#854d0e"}}>Duración:</span>
                     <input type="number" min="1" max="5" value={form.cantAnioPrueba||1}
                       onChange={e=>setF("cantAnioPrueba",parseInt(e.target.value)||1)}
-                      style={{width:60,padding:"5px 8px",borderRadius:6,border:"1px solid #fde047",fontSize:13,textAlign:"center"}}/>
+                      style={{width:60,padding:"5px 8px",borderRadius:6,border:`1px solid ${C.warning}`,fontSize:13,textAlign:"center"}}/>
                     <span style={{fontSize:12,color:"#854d0e"}}>año(s)</span>
                   </div>
                 )}
               </div>
             </div>
             {/* Multa */}
-            <div style={{marginTop:10,background:"#fff1f2",borderRadius:10,padding:"12px 14px",border:"1px solid #fecdd3"}}>
+            <div style={{marginTop:10,background:C.dangerBg,borderRadius:10,padding:"12px 14px",border:`1px solid ${C.danger}`}}>
               <div style={{display:"flex",gap:16,alignItems:"center",flexWrap:"wrap"}}>
-                <label style={{display:"flex",alignItems:"center",gap:6,cursor:"pointer",fontSize:13,fontWeight:600,color:form.llevaMulta?"#9f1239":"#94a3b8"}}>
+                <label style={{display:"flex",alignItems:"center",gap:6,cursor:"pointer",fontSize:13,fontWeight:600,color:form.llevaMulta?"#9f1239":C.muted2}}>
                   <input type="checkbox" checked={form.llevaMulta||false} onChange={()=>setF("llevaMulta",!form.llevaMulta)}/>
                   ⚠️ Lleva multa por incumplimiento
                 </label>
@@ -7060,20 +7065,20 @@ function ControlContratos({data,setData,clientes,setClientes,variedadesMaestro=[
                       <span style={{fontSize:12,color:"#9f1239"}}>Mínimo Há:</span>
                       <input type="number" min="0" value={form.haMinContrato||0}
                         onChange={e=>setF("haMinContrato",parseFloat(e.target.value)||0)}
-                        style={{width:90,padding:"5px 8px",borderRadius:6,border:"1px solid #fecdd3",fontSize:13,textAlign:"right"}}/>
+                        style={{width:90,padding:"5px 8px",borderRadius:6,border:`1px solid ${C.danger}`,fontSize:13,textAlign:"right"}}/>
                       <span style={{fontSize:12,color:"#9f1239"}}>Há</span>
                     </div>
                     <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
                       <span style={{fontSize:12,color:"#9f1239"}}>Monto multa ({form.moneda||"USD"}):</span>
                       <input type="number" min="0" value={form.montoMulta||0}
                         onChange={e=>setF("montoMulta",parseFloat(e.target.value)||0)}
-                        style={{width:120,padding:"5px 8px",borderRadius:6,border:"1px solid #fecdd3",fontSize:13,textAlign:"right"}}/>
+                        style={{width:120,padding:"5px 8px",borderRadius:6,border:`1px solid ${C.danger}`,fontSize:13,textAlign:"right"}}/>
                     </div>
                     <div style={{display:"flex",alignItems:"flex-start",gap:8}}>
                       <span style={{fontSize:12,color:"#9f1239",whiteSpace:"nowrap",marginTop:4}}>Descripción:</span>
                       <textarea value={form.descMulta||""} onChange={e=>setF("descMulta",e.target.value)}
                         rows={2} placeholder="Ej: USD 5,000 por cada hectárea no plantada bajo el mínimo contractual..."
-                        style={{flex:1,padding:"5px 8px",borderRadius:6,border:"1px solid #fecdd3",fontSize:12,resize:"vertical",minWidth:250}}/>
+                        style={{flex:1,padding:"5px 8px",borderRadius:6,border:`1px solid ${C.danger}`,fontSize:12,resize:"vertical",minWidth:250}}/>
                     </div>
                   </div>
                 )}
@@ -7084,7 +7089,7 @@ function ControlContratos({data,setData,clientes,setClientes,variedadesMaestro=[
               <div style={{fontSize:12,fontWeight:700,color:C.sl,marginBottom:8}}>Firmas contrato principal</div>
               <div style={{display:"flex",gap:14,flexWrap:"wrap",marginBottom:14}}>
                 {[["firmadoLicenciado","✅ Firmado Licenciado"],["firmadoOsiris","✅ Firmado OSIRIS"]].map(([c,l])=>(
-                  <label key={c} style={{display:"flex",alignItems:"center",gap:6,cursor:"pointer",fontSize:12,fontWeight:600,color:form[c]?C.verde:"#94a3b8"}}>
+                  <label key={c} style={{display:"flex",alignItems:"center",gap:6,cursor:"pointer",fontSize:12,fontWeight:600,color:form[c]?C.verde:C.muted2}}>
                     <input type="checkbox" checked={form[c]||false} onChange={()=>setF(c,!form[c])}/>{l}
                   </label>
                 ))}
@@ -7103,24 +7108,24 @@ function ControlContratos({data,setData,clientes,setClientes,variedadesMaestro=[
                 {[["anexo1","Anexo 1"],["anexo2","Anexo 2"],["anexo3","Anexo 3"]].map(([c,label])=>{
                   const anx = form[c]||{activo:false,firmadoOsiris:false,firmadoLicenciado:false,tipo:""};
                   return(
-                    <div key={c} style={{background:"#f8fafc",borderRadius:8,padding:"10px 14px",border:`1px solid ${anx.activo?"#93c5fd":"#e2e8f0"}`}}>
+                    <div key={c} style={{background:C.cardAlt,borderRadius:8,padding:"10px 14px",border:`1px solid ${anx.activo?"#93c5fd":C.border}`}}>
                       <div style={{display:"flex",alignItems:"center",gap:12,flexWrap:"wrap"}}>
-                        <label style={{display:"flex",alignItems:"center",gap:6,cursor:"pointer",fontSize:13,fontWeight:700,color:anx.activo?C.azul:"#94a3b8",minWidth:80}}>
+                        <label style={{display:"flex",alignItems:"center",gap:6,cursor:"pointer",fontSize:13,fontWeight:700,color:anx.activo?C.azul:C.muted2,minWidth:80}}>
                           <input type="checkbox" checked={anx.activo||false} onChange={()=>setF(c,{...anx,activo:!anx.activo})}/>
                           {anx.activo?"📎":"○"} {label}
                         </label>
                         {anx.activo&&(
                           <>
                             <select value={anx.tipo||""} onChange={e=>setF(c,{...anx,tipo:e.target.value})}
-                              style={{padding:"5px 8px",borderRadius:6,border:"1px solid #93c5fd",fontSize:12,flex:1,minWidth:180}}>
+                              style={{padding:"5px 8px",borderRadius:6,border:`1px solid ${C.info}`,fontSize:12,flex:1,minWidth:180}}>
                               <option value="">— Tipo de anexo —</option>
                               {tiposAnexo.map(t=><option key={t} value={t}>{t}</option>)}
                             </select>
-                            <label style={{display:"flex",alignItems:"center",gap:5,fontSize:11,fontWeight:600,color:anx.firmadoOsiris?C.verde:"#94a3b8",cursor:"pointer"}}>
+                            <label style={{display:"flex",alignItems:"center",gap:5,fontSize:11,fontWeight:600,color:anx.firmadoOsiris?C.verde:C.muted2,cursor:"pointer"}}>
                               <input type="checkbox" checked={anx.firmadoOsiris||false} onChange={()=>setF(c,{...anx,firmadoOsiris:!anx.firmadoOsiris})}/>
                               {anx.firmadoOsiris?"✅":"❌"} OSIRIS
                             </label>
-                            <label style={{display:"flex",alignItems:"center",gap:5,fontSize:11,fontWeight:600,color:anx.firmadoLicenciado?C.verde:"#94a3b8",cursor:"pointer"}}>
+                            <label style={{display:"flex",alignItems:"center",gap:5,fontSize:11,fontWeight:600,color:anx.firmadoLicenciado?C.verde:C.muted2,cursor:"pointer"}}>
                               <input type="checkbox" checked={anx.firmadoLicenciado||false} onChange={()=>setF(c,{...anx,firmadoLicenciado:!anx.firmadoLicenciado})}/>
                               {anx.firmadoLicenciado?"✅":"❌"} Licenciado
                             </label>
@@ -7144,24 +7149,24 @@ function ControlContratos({data,setData,clientes,setClientes,variedadesMaestro=[
                     setF("anexosExtra", extras);
                   };
                   return(
-                    <div key={anx.id||`extra_${idxExtra}`} style={{background:"#f8fafc",borderRadius:8,padding:"10px 14px",border:`1px solid ${anx.activo?"#c4b5fd":"#e2e8f0"}`}}>
+                    <div key={anx.id||`extra_${idxExtra}`} style={{background:C.cardAlt,borderRadius:8,padding:"10px 14px",border:`1px solid ${anx.activo?"#c4b5fd":C.border}`}}>
                       <div style={{display:"flex",alignItems:"center",gap:12,flexWrap:"wrap"}}>
-                        <label style={{display:"flex",alignItems:"center",gap:6,cursor:"pointer",fontSize:13,fontWeight:700,color:anx.activo?C.mo:"#94a3b8",minWidth:80}}>
+                        <label style={{display:"flex",alignItems:"center",gap:6,cursor:"pointer",fontSize:13,fontWeight:700,color:anx.activo?C.mo:C.muted2,minWidth:80}}>
                           <input type="checkbox" checked={anx.activo||false} onChange={()=>updExtraForm({activo:!anx.activo})}/>
                           {anx.activo?"📎":"○"} {label}
                         </label>
                         {anx.activo&&(
                           <>
                             <select value={anx.tipo||""} onChange={e=>updExtraForm({tipo:e.target.value})}
-                              style={{padding:"5px 8px",borderRadius:6,border:"1px solid #c4b5fd",fontSize:12,flex:1,minWidth:180}}>
+                              style={{padding:"5px 8px",borderRadius:6,border:`1px solid ${C.purple}`,fontSize:12,flex:1,minWidth:180}}>
                               <option value="">— Tipo de anexo —</option>
                               {tiposAnexo.map(t=><option key={t} value={t}>{t}</option>)}
                             </select>
-                            <label style={{display:"flex",alignItems:"center",gap:5,fontSize:11,fontWeight:600,color:anx.firmadoOsiris?C.verde:"#94a3b8",cursor:"pointer"}}>
+                            <label style={{display:"flex",alignItems:"center",gap:5,fontSize:11,fontWeight:600,color:anx.firmadoOsiris?C.verde:C.muted2,cursor:"pointer"}}>
                               <input type="checkbox" checked={anx.firmadoOsiris||false} onChange={()=>updExtraForm({firmadoOsiris:!anx.firmadoOsiris})}/>
                               {anx.firmadoOsiris?"✅":"❌"} OSIRIS
                             </label>
-                            <label style={{display:"flex",alignItems:"center",gap:5,fontSize:11,fontWeight:600,color:anx.firmadoLicenciado?C.verde:"#94a3b8",cursor:"pointer"}}>
+                            <label style={{display:"flex",alignItems:"center",gap:5,fontSize:11,fontWeight:600,color:anx.firmadoLicenciado?C.verde:C.muted2,cursor:"pointer"}}>
                               <input type="checkbox" checked={anx.firmadoLicenciado||false} onChange={()=>updExtraForm({firmadoLicenciado:!anx.firmadoLicenciado})}/>
                               {anx.firmadoLicenciado?"✅":"❌"} Licenciado
                             </label>
@@ -7179,13 +7184,13 @@ function ControlContratos({data,setData,clientes,setClientes,variedadesMaestro=[
             </div>
           </div>
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14}}>
-            <div style={{background:"#fff",borderRadius:12,padding:20,boxShadow:"0 1px 6px #0001"}}>
+            <div style={{background:C.card,borderRadius:12,padding:20,boxShadow:"0 1px 6px #0001"}}>
               <div style={{fontSize:13,fontWeight:700,color:C.teal,marginBottom:14}}>👤 Representante</div>
               <CampoNuevo label="Nombre" campo="nombreRep" form={form} setF={setF}/>
               <div style={{marginTop:12}}><CampoNuevo label="Personería" campo="personeria" form={form} setF={setF}/></div>
             </div>
           </div>
-          <div style={{background:"#fff",borderRadius:12,padding:20,boxShadow:"0 1px 6px #0001"}}>
+          <div style={{background:C.card,borderRadius:12,padding:20,boxShadow:"0 1px 6px #0001"}}>
             <div style={{fontSize:13,fontWeight:700,color:C.am,marginBottom:14}}>💰 Facturación</div>
             <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(200px,1fr))",gap:12}}>
               <CampoNuevo label="Tipo Contract Fee" campo="tipoContractFee" opts={TIPOS_FEE} form={form} setF={setF}/>
@@ -7202,14 +7207,14 @@ function ControlContratos({data,setData,clientes,setClientes,variedadesMaestro=[
             <div style={{marginTop:12}}>
               <label style={{fontSize:11,fontWeight:600,color:"#374151",display:"block",marginBottom:4}}>Notas / Observaciones</label>
               <textarea value={form.notas} onChange={e=>setF("notas",e.target.value)} rows={2} placeholder="Notas adicionales del contrato..."
-                style={{width:"100%",padding:"8px 10px",borderRadius:8,border:"1px solid #d1d5db",fontSize:13,resize:"vertical",boxSizing:"border-box"}}/>
+                style={{width:"100%",padding:"8px 10px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:13,resize:"vertical",boxSizing:"border-box"}}/>
             </div>
           </div>
 
           {/* Plantaciones + RC Setup en modo NUEVO */}
-          <div style={{background:"#fff",borderRadius:12,padding:20,boxShadow:"0 1px 6px #0001"}}>
+          <div style={{background:C.card,borderRadius:12,padding:20,boxShadow:"0 1px 6px #0001"}}>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14,flexWrap:"wrap",gap:8}}>
-              <div style={{fontSize:13,fontWeight:700,color:"#15803d"}}>🌿 Plantaciones (variedades plantadas)</div>
+              <div style={{fontSize:13,fontWeight:700,color:C.success}}>🌿 Plantaciones (variedades plantadas)</div>
               <button onClick={()=>{
                 const variedadDefault = (variedadesMaestro||[])[0];
                 const nuevaPlant = {
@@ -7221,17 +7226,17 @@ function ControlContratos({data,setData,clientes,setClientes,variedadesMaestro=[
                   sublicenciatario_id:"", sublicenciatario_nombre:"", estado:"Confirmado",
                 };
                 setF("plantaciones",[...(form.plantaciones||[]), nuevaPlant]);
-              }} style={{background:"#15803d",color:"#fff",border:"none",borderRadius:8,padding:"6px 12px",cursor:"pointer",fontSize:12,fontWeight:700}}>+ Agregar plantación</button>
+              }} style={{background:C.success,color:"#fff",border:"none",borderRadius:8,padding:"6px 12px",cursor:"pointer",fontSize:12,fontWeight:700}}>+ Agregar plantación</button>
             </div>
             {(form.plantaciones||[]).length===0?(
-              <div style={{padding:20,textAlign:"center",color:"#94a3b8",border:"1px dashed #e2e8f0",borderRadius:8,fontSize:12}}>
+              <div style={{padding:20,textAlign:"center",color:C.muted2,border:"1px dashed #e2e8f0",borderRadius:8,fontSize:12}}>
                 Sin plantaciones. Agrega al menos una para que se calculen los royalties.
               </div>
             ):(
               <div style={{overflowX:"auto"}}>
                 <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
-                  <thead><tr style={{background:"#dcfce7"}}>
-                    {["Campo","Especie","Denominación","Plantas","Há","Fecha plant.","N° Cot. Vivero","Sublicenciatario","Vivero","Fee USD/planta",""].map(h=>(<th key={h} style={{padding:"6px 8px",textAlign:"left",fontSize:11,fontWeight:700,color:"#14532d"}}>{h}</th>))}
+                  <thead><tr style={{background:C.successBg}}>
+                    {["Campo","Especie","Denominación","Plantas","Há","Fecha plant.","N° Cot. Vivero","Sublicenciatario","Vivero","Fee USD/planta",""].map(h=>(<th key={h} style={{padding:"6px 8px",textAlign:"left",fontSize:11,fontWeight:700,color:C.success}}>{h}</th>))}
                   </tr></thead>
                   <tbody>
                     {(form.plantaciones||[]).map(p=>{
@@ -7273,13 +7278,13 @@ function ControlContratos({data,setData,clientes,setClientes,variedadesMaestro=[
                                   const ub = ubics.find(u=>u.id===e.target.value);
                                   if(ub) updPlMulti({ubicacionId:ub.id, nombrePredio:ub.nombre});
                                   else updPlMulti({ubicacionId:"", nombrePredio:""});
-                                }} style={{width:"100%",padding:"4px 6px",borderRadius:4,border:"1px solid #d1d5db",fontSize:11,background:"#f0fdf4"}}>
+                                }} style={{width:"100%",padding:"4px 6px",borderRadius:4,border:`1px solid ${C.border}`,fontSize:11,background:C.successBg}}>
                                   <option value="">— Campo —</option>
                                   {ubics.map(u=><option key={u.id} value={u.id}>{u.nombre}</option>)}
                                 </select>
                               ) : (
                                 <input value={p.nombrePredio||""} placeholder="Campo" onChange={e=>updPl("nombrePredio",e.target.value)}
-                                  style={{width:"100%",padding:"4px 6px",borderRadius:4,border:"1px solid #d1d5db",fontSize:11}}/>
+                                  style={{width:"100%",padding:"4px 6px",borderRadius:4,border:`1px solid ${C.border}`,fontSize:11}}/>
                               );
                             })()}
                           </td>
@@ -7305,7 +7310,7 @@ function ControlContratos({data,setData,clientes,setClientes,variedadesMaestro=[
                                   const variedadActualOK = (variedadesMaestro||[]).some(v=>v.id===p.variedad_id && v.especie===e.target.value);
                                   updPlMulti({especie:e.target.value, variedad_id: variedadActualOK ? p.variedad_id : "", variedad: variedadActualOK ? p.variedad : ""});
                                 }
-                              }} style={{flex:1,padding:"5px 7px",borderRadius:5,border:"1px solid #d1d5db",fontSize:11,background:"#fff"}}>
+                              }} style={{flex:1,padding:"5px 7px",borderRadius:5,border:`1px solid ${C.border}`,fontSize:11,background:C.card}}>
                                 <option value="">— Seleccionar —</option>
                                 {(especiesMaestro||[]).map(e=><option key={e.id} value={e.nombre}>{e.nombre}</option>)}
                                 <option value="__nueva__">＋ Crear nueva especie...</option>
@@ -7336,7 +7341,7 @@ function ControlContratos({data,setData,clientes,setClientes,variedadesMaestro=[
                                   } else {
                                     seleccionarVar(e.target.value);
                                   }
-                                }} style={{padding:"5px 7px",borderRadius:5,border:"1px solid #d1d5db",fontSize:11,background:p.especie?"#fff":"#f1f5f9",width:"100%"}}>
+                                }} style={{padding:"5px 7px",borderRadius:5,border:`1px solid ${C.border}`,fontSize:11,background:p.especie?"#fff":C.cardAlt,width:"100%"}}>
                                   <option value="">{p.especie?"— Seleccionar —":"(Selecciona especie primero)"}</option>
                                   {variedadesFiltradas.map(v=>(<option key={v.id} value={v.id}>{v.nRegistro?`${v.nRegistro} · `:""}{v.variedad}</option>))}
                                   {p.especie&&<option value="__nueva__">＋ Crear nueva variedad...</option>}
@@ -7345,21 +7350,21 @@ function ControlContratos({data,setData,clientes,setClientes,variedadesMaestro=[
                             })()}
                           </td>
                           <td style={{padding:"5px 8px"}}>
-                            <input type="number" value={p.nPlantas||0} onChange={e=>updPl("nPlantas",parseInt(e.target.value)||0)} style={{width:80,padding:"5px 7px",borderRadius:5,border:"1px solid #d1d5db",fontSize:11,textAlign:"right"}}/>
+                            <input type="number" value={p.nPlantas||0} onChange={e=>updPl("nPlantas",parseInt(e.target.value)||0)} style={{width:80,padding:"5px 7px",borderRadius:5,border:`1px solid ${C.border}`,fontSize:11,textAlign:"right"}}/>
                           </td>
                           <td style={{padding:"5px 8px"}}>
-                            <input type="number" step="0.01" value={p.hectareas||0} onChange={e=>updPl("hectareas",parseFloat(e.target.value)||0)} style={{width:70,padding:"5px 7px",borderRadius:5,border:"1px solid #d1d5db",fontSize:11,textAlign:"right"}}/>
+                            <input type="number" step="0.01" value={p.hectareas||0} onChange={e=>updPl("hectareas",parseFloat(e.target.value)||0)} style={{width:70,padding:"5px 7px",borderRadius:5,border:`1px solid ${C.border}`,fontSize:11,textAlign:"right"}}/>
                           </td>
                           <td style={{padding:"5px 8px"}}>
-                            <input type="date" value={p.fechaPlantacion||""} onChange={e=>updPl("fechaPlantacion",e.target.value)} style={{padding:"5px 7px",borderRadius:5,border:"1px solid #d1d5db",fontSize:11}}/>
+                            <input type="date" value={p.fechaPlantacion||""} onChange={e=>updPl("fechaPlantacion",e.target.value)} style={{padding:"5px 7px",borderRadius:5,border:`1px solid ${C.border}`,fontSize:11}}/>
                           </td>
                           <td style={{padding:"5px 8px"}}>
                             <input value={p.nCotizacionVivero||""} placeholder="N° Cot." onChange={e=>updPl("nCotizacionVivero",e.target.value)}
-                              style={{width:80,padding:"5px 7px",borderRadius:5,border:"1px solid #d1d5db",fontSize:11}}/>
+                              style={{width:80,padding:"5px 7px",borderRadius:5,border:`1px solid ${C.border}`,fontSize:11}}/>
                           </td>
                           <td style={{padding:"5px 8px"}}>
                             <select value={p.sublicenciatario_id||""} onChange={e=>seleccionarSub(e.target.value)}
-                              style={{padding:"5px 7px",borderRadius:5,border:"1px solid #d1d5db",fontSize:11,background:"#fff",maxWidth:140}}>
+                              style={{padding:"5px 7px",borderRadius:5,border:`1px solid ${C.border}`,fontSize:11,background:C.card,maxWidth:140}}>
                               <option value="">— Sin sublicencia —</option>
                               {(form.sublicenciatarios||[]).map(s=><option key={s.id} value={s.id}>{s.razonSocial||"(sin nombre)"}</option>)}
                             </select>
@@ -7368,12 +7373,12 @@ function ControlContratos({data,setData,clientes,setClientes,variedadesMaestro=[
                           <td style={{padding:"5px 8px"}}>
                             {(viverosData||[]).length>0?(
                               <select value={p.vivero_id||""} onChange={e=>seleccionarViv(e.target.value)}
-                                style={{padding:"5px 7px",borderRadius:5,border:"1px solid #d1d5db",fontSize:11,background:"#fff",maxWidth:160}}>
+                                style={{padding:"5px 7px",borderRadius:5,border:`1px solid ${C.border}`,fontSize:11,background:C.card,maxWidth:160}}>
                                 <option value="">— Sin vivero —</option>
                                 {(viverosData||[]).map(v=>(<option key={v.id} value={v.id}>{v.viverista||"Sin nombre"}</option>))}
                               </select>
                             ):(
-                              <span style={{fontSize:10,color:"#94a3b8",fontStyle:"italic"}}>Sin contratos</span>
+                              <span style={{fontSize:10,color:C.muted2,fontStyle:"italic"}}>Sin contratos</span>
                             )}
                           </td>
                           {/* NUEVO: Fee USD/planta */}
@@ -7381,13 +7386,13 @@ function ControlContratos({data,setData,clientes,setClientes,variedadesMaestro=[
                             <input type="number" step="0.001" disabled={!p.vivero_id} value={p.vivero_fee_usd||0}
                               placeholder={p.vivero_id?"0.00":"—"}
                               onChange={e=>updPl("vivero_fee_usd",parseFloat(e.target.value)||0)}
-                              style={{width:75,padding:"5px 7px",borderRadius:5,border:"1px solid #d1d5db",fontSize:11,textAlign:"right",background:p.vivero_id?"#fff":"#f1f5f9"}}/>
+                              style={{width:75,padding:"5px 7px",borderRadius:5,border:`1px solid ${C.border}`,fontSize:11,textAlign:"right",background:p.vivero_id?"#fff":C.cardAlt}}/>
                           </td>
                           <td style={{padding:"5px 8px"}}>
                             <button onClick={()=>{
                               const next = (form.plantaciones||[]).filter(x=>x.id!==p.id);
                               setF("plantaciones",next);
-                            }} style={{background:"#fef2f2",border:"none",borderRadius:5,padding:"3px 7px",cursor:"pointer",fontSize:10,color:"#991b1b"}}>×</button>
+                            }} style={{background:C.dangerBg,border:"none",borderRadius:5,padding:"3px 7px",cursor:"pointer",fontSize:10,color:C.danger}}>×</button>
                           </td>
                         </tr>
                       );
@@ -7396,14 +7401,14 @@ function ControlContratos({data,setData,clientes,setClientes,variedadesMaestro=[
                 </table>
               </div>
             )}
-            <div style={{marginTop:14,padding:12,background:"#fffbeb",borderRadius:8,fontSize:11,color:"#78350f"}}>
+            <div style={{marginTop:14,padding:12,background:C.warningBg,borderRadius:8,fontSize:11,color:C.text}}>
               ⚙️ <strong>Configuración Royalty Comercial:</strong> Se cobra 1 vez al año en el mes definido, por cada hectárea plantada.
             </div>
             <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(180px,1fr))",gap:10,marginTop:10}}>
               <div>
                 <label style={{fontSize:11,fontWeight:600,color:"#374151",display:"block",marginBottom:3}}>Temporada inicio</label>
                 <select value={form.rcInicioTemporada||""} onChange={e=>setF("rcInicioTemporada",e.target.value)}
-                  style={{width:"100%",padding:"7px 10px",borderRadius:6,border:"1px solid #d1d5db",fontSize:12,boxSizing:"border-box",background:"#fff"}}>
+                  style={{width:"100%",padding:"7px 10px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:12,boxSizing:"border-box",background:C.card}}>
                   <option value="">— Seleccionar —</option>
                   {TEMPORADAS_LIST.map(t=><option key={t} value={t}>{t}</option>)}
                 </select>
@@ -7411,16 +7416,16 @@ function ControlContratos({data,setData,clientes,setClientes,variedadesMaestro=[
               <div>
                 <label style={{fontSize:11,fontWeight:600,color:"#374151",display:"block",marginBottom:3}}>Mes de cobro</label>
                 <select value={form.rcMesCobro||RC_MES_DEFAULT_POR_PAIS[form.pais]||"Abril"} onChange={e=>setF("rcMesCobro",e.target.value)}
-                  style={{width:"100%",padding:"7px 10px",borderRadius:6,border:"1px solid #d1d5db",fontSize:12,boxSizing:"border-box",background:"#fff"}}>
+                  style={{width:"100%",padding:"7px 10px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:12,boxSizing:"border-box",background:C.card}}>
                   {MESES.map(m=><option key={m}>{m}</option>)}
                 </select>
-                <div style={{fontSize:9,color:"#94a3b8",marginTop:2}}>Default {form.pais}: {RC_MES_DEFAULT_POR_PAIS[form.pais]||"—"}</div>
+                <div style={{fontSize:9,color:C.muted2,marginTop:2}}>Default {form.pais}: {RC_MES_DEFAULT_POR_PAIS[form.pais]||"—"}</div>
               </div>
             </div>
           </div>
 
           <div style={{display:"flex",gap:10,justifyContent:"flex-end",paddingBottom:16}}>
-            <button onClick={()=>{setVista("tabla");setForm(formVacio);}} style={{padding:"9px 22px",borderRadius:8,border:"1px solid #d1d5db",background:"#fff",cursor:"pointer",fontSize:14}}>Cancelar</button>
+            <button onClick={()=>{setVista("tabla");setForm(formVacio);}} style={{padding:"9px 22px",borderRadius:8,border:`1px solid ${C.border}`,background:C.card,cursor:"pointer",fontSize:14}}>Cancelar</button>
             <button onClick={guardarNuevo} style={{padding:"9px 22px",borderRadius:8,border:"none",background:C.azul,color:"#fff",cursor:"pointer",fontSize:14,fontWeight:600}}>Guardar contrato</button>
           </div>
         </div>
@@ -7432,39 +7437,39 @@ function ControlContratos({data,setData,clientes,setClientes,variedadesMaestro=[
     <div>
       <div style={{display:"flex",gap:12,marginBottom:16,flexWrap:"wrap"}}>
         {[[data.length,"Total contratos",C.azul,C.azulBg],[totalFirmados,"Firmados completos",C.verde,C.verdeBg],[data.length-totalFirmados,"Pendientes firma",C.am,C.amBg]].map(([v,l,c,bg])=>(
-          <div key={l} style={{background:bg,borderRadius:12,padding:"12px 18px",flex:1,minWidth:120}}>
-            <div style={{fontSize:11,color:c,fontWeight:600}}>{l}</div>
+          <div key={l} style={{background:C.card,borderRadius:12,padding:"12px 18px",flex:1,minWidth:120,border:`1px solid ${C.border}`,borderLeft:`4px solid ${c}`,boxShadow:C.shadow}}>
+            <div style={{fontSize:11,color:C.muted,fontWeight:600}}>{l}</div>
             <div style={{fontSize:22,fontWeight:800,color:c}}>{v}</div>
           </div>
         ))}
         <div style={{display:"flex",gap:8,alignSelf:"center",flexWrap:"wrap"}}>
           {can&&<button onClick={()=>{setVista("nuevo");setForm(formVacio);setClienteSelId("");}} style={{background:C.azul,color:"#fff",border:"none",borderRadius:8,padding:"8px 18px",cursor:"pointer",fontSize:13,fontWeight:700}}>+ Nuevo contrato</button>}
           <button onClick={async ()=>exportarContratos(filtrado)}
-            style={{background:"#16a34a",color:"#fff",border:"none",borderRadius:8,padding:"8px 14px",cursor:"pointer",fontSize:12,fontWeight:700}}>
+            style={{background:C.success,color:"#fff",border:"none",borderRadius:8,padding:"8px 14px",cursor:"pointer",fontSize:12,fontWeight:700}}>
             ⬇️ Exportar Excel
           </button>
           {can&&<button onClick={()=>{setShowMantenedor(v=>!v);setShowClientes(false);setShowVariedades(false);setShowEspecies(false);}}
-            style={{background:showMantenedor?"#1e293b":"#f1f5f9",color:showMantenedor?"#fff":"#1e293b",border:"1px solid #e2e8f0",borderRadius:8,padding:"8px 14px",cursor:"pointer",fontSize:12,fontWeight:600}}>
+            style={{background:showMantenedor?C.primary:C.cardAlt,color:showMantenedor?"#fff":C.text,border:`1px solid ${C.border}`,borderRadius:8,padding:"8px 14px",cursor:"pointer",fontSize:12,fontWeight:600}}>
             ⚙️ Tipos
           </button>}
           {can&&<button onClick={()=>{setShowClientes(v=>!v);setShowMantenedor(false);setShowVariedades(false);setShowEspecies(false);}}
-            style={{background:showClientes?"#0f766e":"#f1f5f9",color:showClientes?"#fff":"#1e293b",border:"1px solid #e2e8f0",borderRadius:8,padding:"8px 14px",cursor:"pointer",fontSize:12,fontWeight:600}}>
+            style={{background:showClientes?C.accent2:C.cardAlt,color:showClientes?"#fff":C.text,border:`1px solid ${C.border}`,borderRadius:8,padding:"8px 14px",cursor:"pointer",fontSize:12,fontWeight:600}}>
             👥 Clientes
           </button>}
-          <span style={{fontSize:10,color:"#94a3b8",padding:"8px 10px"}}>🌳🌿 Maestro Especies/Variedades → en Contratos Obtentores</span>
+          <span style={{fontSize:10,color:C.muted2,padding:"8px 10px"}}>🌳🌿 Maestro Especies/Variedades → en Contratos Obtentores</span>
         </div>
       </div>
 
       {/* Mantenedor tipos */}
       {showMantenedor&&can&&(
-        <div style={{background:"#f8fafc",border:"1px solid #e2e8f0",borderRadius:12,padding:"16px 20px",marginBottom:16}}>
-          <div style={{fontSize:13,fontWeight:700,color:"#1e293b",marginBottom:12}}>⚙️ Mantenedor de tipos</div>
+        <div style={{background:C.cardAlt,border:`1px solid ${C.border}`,borderRadius:12,padding:"16px 20px",marginBottom:16}}>
+          <div style={{fontSize:13,fontWeight:700,color:C.text,marginBottom:12}}>⚙️ Mantenedor de tipos</div>
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:20}}>
             <div>
               <div style={{fontSize:11,fontWeight:700,color:C.azul,marginBottom:8}}>Tipos de contrato</div>
               <div style={{display:"flex",flexDirection:"column",gap:4,marginBottom:8,maxHeight:160,overflowY:"auto"}}>
                 {tiposContrato.map((t,i)=>(
-                  <div key={i} style={{display:"flex",alignItems:"center",gap:6,background:"#fff",borderRadius:6,padding:"5px 10px",border:"1px solid #e2e8f0"}}>
+                  <div key={i} style={{display:"flex",alignItems:"center",gap:6,background:C.card,borderRadius:6,padding:"5px 10px",border:`1px solid ${C.border}`}}>
                     <span style={{flex:1,fontSize:12}}>{t}</span>
                     {i>=TIPOS_CONTRATO_BASE.length&&(
                       <button onClick={()=>setTiposContrato(p=>p.filter((_,j)=>j!==i))}
@@ -7475,7 +7480,7 @@ function ControlContratos({data,setData,clientes,setClientes,variedadesMaestro=[
               </div>
               <div style={{display:"flex",gap:6}}>
                 <input value={nuevoTipo} onChange={e=>setNuevoTipo(e.target.value)} placeholder="Nuevo tipo..."
-                  style={{flex:1,padding:"6px 10px",borderRadius:6,border:"1px solid #d1d5db",fontSize:12,outline:"none"}}
+                  style={{flex:1,padding:"6px 10px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:12,outline:"none"}}
                   onKeyDown={e=>{if(e.key==="Enter"&&nuevoTipo.trim()&&!tiposContrato.includes(nuevoTipo.trim())){setTiposContrato(p=>[...p,nuevoTipo.trim()]);setNuevoTipo("");}}}/>
                 <button onClick={()=>{if(nuevoTipo.trim()&&!tiposContrato.includes(nuevoTipo.trim())){setTiposContrato(p=>[...p,nuevoTipo.trim()]);setNuevoTipo("");}}}
                   style={{padding:"6px 12px",borderRadius:6,background:C.azul,color:"#fff",border:"none",cursor:"pointer",fontSize:12,fontWeight:600}}>+</button>
@@ -7485,7 +7490,7 @@ function ControlContratos({data,setData,clientes,setClientes,variedadesMaestro=[
               <div style={{fontSize:11,fontWeight:700,color:C.mo,marginBottom:8}}>Tipos de anexo</div>
               <div style={{display:"flex",flexDirection:"column",gap:4,marginBottom:8,maxHeight:160,overflowY:"auto"}}>
                 {tiposAnexo.map((t,i)=>(
-                  <div key={i} style={{display:"flex",alignItems:"center",gap:6,background:"#fff",borderRadius:6,padding:"5px 10px",border:"1px solid #e2e8f0"}}>
+                  <div key={i} style={{display:"flex",alignItems:"center",gap:6,background:C.card,borderRadius:6,padding:"5px 10px",border:`1px solid ${C.border}`}}>
                     <span style={{flex:1,fontSize:12}}>{t}</span>
                     {i>=TIPOS_ANEXO_BASE.length&&(
                       <button onClick={()=>setTiposAnexo(p=>p.filter((_,j)=>j!==i))}
@@ -7496,7 +7501,7 @@ function ControlContratos({data,setData,clientes,setClientes,variedadesMaestro=[
               </div>
               <div style={{display:"flex",gap:6}}>
                 <input value={nuevoAnexo} onChange={e=>setNuevoAnexo(e.target.value)} placeholder="Nuevo tipo de anexo..."
-                  style={{flex:1,padding:"6px 10px",borderRadius:6,border:"1px solid #d1d5db",fontSize:12,outline:"none"}}
+                  style={{flex:1,padding:"6px 10px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:12,outline:"none"}}
                   onKeyDown={e=>{if(e.key==="Enter"&&nuevoAnexo.trim()&&!tiposAnexo.includes(nuevoAnexo.trim())){setTiposAnexo(p=>[...p,nuevoAnexo.trim()]);setNuevoAnexo("");}}}/>
                 <button onClick={()=>{if(nuevoAnexo.trim()&&!tiposAnexo.includes(nuevoAnexo.trim())){setTiposAnexo(p=>[...p,nuevoAnexo.trim()]);setNuevoAnexo("");}}}
                   style={{padding:"6px 12px",borderRadius:6,background:C.mo,color:"#fff",border:"none",cursor:"pointer",fontSize:12,fontWeight:600}}>+</button>
@@ -7513,21 +7518,21 @@ function ControlContratos({data,setData,clientes,setClientes,variedadesMaestro=[
 
       <div style={{display:"flex",gap:8,marginBottom:14,flexWrap:"wrap",alignItems:"center"}}>
         <input value={busq} onChange={e=>setBusq(e.target.value)} placeholder="Buscar empresa..."
-          style={{padding:"7px 12px",borderRadius:8,border:"1px solid #d1d5db",fontSize:13,minWidth:200}}/>
+          style={{padding:"7px 12px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:13,minWidth:200}}/>
         {["Todos",...PAISES].map(p=>(
           <button key={p} onClick={()=>setFiltroPais(p)}
             style={{padding:"4px 12px",borderRadius:20,border:"none",cursor:"pointer",fontSize:12,fontWeight:600,
-              background:filtroPais===p?"#1e293b":"#fff",color:filtroPais===p?"#fff":C.sl}}>
+              background:filtroPais===p?C.primary:C.card,color:filtroPais===p?"#fff":C.sl}}>
             {p}
           </button>
         ))}
       </div>
       <div style={{overflowX:"auto"}}>
-        <table style={{borderCollapse:"collapse",width:"100%",background:"#fff",borderRadius:10,overflow:"hidden"}}>
+        <table style={{borderCollapse:"collapse",width:"100%",background:C.card,borderRadius:10,overflow:"hidden"}}>
           <Th cols={[{l:"Empresa",w:160},{l:"País",w:80},{l:"Tipo",w:100},{l:"Fecha",c:true,w:100},{l:"Firmas",c:true,w:140},{l:"Anexos",c:true,w:90},{l:"Contract Fee",c:true,w:110},{l:"R./Planta",c:true,w:90},{l:"R./Comercial",c:true,w:110},{l:"",c:true,w:70}]}/>
           <tbody>
             {filtrado.map((r,i)=>(
-              <tr key={r.id} style={{borderBottom:"1px solid #f1f5f9",background:i%2===0?"#fff":"#f8fafc",cursor:"pointer"}}
+              <tr key={r.id} style={{borderBottom:"1px solid #f1f5f9",background:i%2===0?"#fff":C.cardAlt,cursor:"pointer"}}
                 onClick={()=>{setSel(r.id);setVista("detalle");setSec("empresa");}}>
                 <td style={{padding:"9px 12px",fontWeight:700,color:C.sl}}>{r.razonSocial}</td>
                 <td style={{padding:"9px 12px",fontSize:12,color:C.gris}}>{r.pais}</td>
@@ -7550,7 +7555,7 @@ function ControlContratos({data,setData,clientes,setClientes,variedadesMaestro=[
                     return todos.length ? todos.join(" · ") : "—";
                   })()}
                 </td>
-                <td style={{padding:"9px 12px",textAlign:"right",fontSize:12,color:C.mo,fontWeight:600}}>{r.tipoContractFee==="Sin Contract Fee"?"Sin fee":$$(r.montoContractFee)}</td>
+                <td style={{padding:"9px 12px",textAlign:"right",fontSize:12,color:C.text,fontWeight:600}}>{r.tipoContractFee==="Sin Contract Fee"?"Sin fee":$$(r.montoContractFee)}</td>
                 <td style={{padding:"9px 12px",textAlign:"center",fontSize:12}}>{r.valorRoyaltyPlanta?`$${r.valorRoyaltyPlanta}/pl`:"—"}</td>
                 <td style={{padding:"9px 12px",textAlign:"center",fontSize:12}}>
                   {r.valorRoyaltyComercial?`$${r.valorRoyaltyComercial}/há`:"—"}
@@ -7610,11 +7615,11 @@ function diasParaVencer(fechaStr) {
 // ── Helper: estado de vigencia con color ──
 function estadoVigencia(fechaStr) {
   const d = diasParaVencer(fechaStr);
-  if(d === null)  return {label:"Sin fecha",   color:"#94a3b8", bg:"#f1f5f9", icon:"❔"};
-  if(d < 0)       return {label:`Vencido hace ${Math.abs(d)} d.`, color:"#dc2626", bg:"#fee2e2", icon:"⚠️"};
-  if(d <= 30)     return {label:`Vence en ${d} d.`, color:"#dc2626", bg:"#fee2e2", icon:"🔴"};
-  if(d <= 90)     return {label:`Vence en ${d} d.`, color:"#d97706", bg:"#fef3c7", icon:"🟡"};
-  return {label:`Vigente (${d} d.)`, color:"#16a34a", bg:"#dcfce7", icon:"🟢"};
+  if(d === null)  return {label:"Sin fecha",   color:C.muted2, bg:C.cardAlt, icon:"❔"};
+  if(d < 0)       return {label:`Vencido hace ${Math.abs(d)} d.`, color:C.danger, bg:C.dangerBg, icon:"⚠️"};
+  if(d <= 30)     return {label:`Vence en ${d} d.`, color:C.danger, bg:C.dangerBg, icon:"🔴"};
+  if(d <= 90)     return {label:`Vence en ${d} d.`, color:C.warning, bg:C.warningBg, icon:"🟡"};
+  return {label:`Vigente (${d} d.)`, color:C.success, bg:C.successBg, icon:"🟢"};
 }
 
 // ── Export Excel: Contratos Obtentores ──
@@ -8119,7 +8124,7 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
 
   // ── HUB INTERNO OSIRIS ─────────────────────────────────────
   if(subApp===null) return(
-    <div style={{fontFamily:"sans-serif",background:"#0d1117",minHeight:"100vh",padding:"20px 20px 40px"}}>
+    <div style={{fontFamily:"sans-serif",background:C.bg,minHeight:"100vh",padding:"20px 20px 40px"}}>
       <NavBar breadcrumbItems={[
         {label:"Mediterra", onClick:onBack},
         {label:"Osiris Plant Management"},
@@ -8172,7 +8177,7 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
               <div key={cid} draggable={!!esAdmin} onDragStart={e=>{if(!esAdmin)return;handleDragStart(e,cid);}} onDragOver={e=>{if(!esAdmin)return;e.preventDefault();e.dataTransfer.dropEffect="move";}} onDrop={e=>{if(!esAdmin)return;handleDrop(e,cid);}} onDragEnd={()=>{setTimeout(()=>{window._didDrag=false;},100);window._dragCard=null;}} onClick={()=>handleCardClick(d.onClick)}
                 style={{background:`linear-gradient(135deg,#1c2333,${d.grad})`,borderRadius:16,padding:"24px 20px",border:`1px solid ${d.border}`,cursor:"pointer",transition:"all 0.2s",position:"relative",overflow:"hidden"}}
                 onMouseEnter={e=>e.currentTarget.style.transform="translateY(-2px)"} onMouseLeave={e=>e.currentTarget.style.transform="translateY(0)"}>
-                {esAdmin&&<div style={{position:"absolute",top:8,right:10,fontSize:10,color:"#475569",cursor:"grab"}} title="Arrastra para reordenar">⋮⋮</div>}
+                {esAdmin&&<div style={{position:"absolute",top:8,right:10,fontSize:10,color:C.muted,cursor:"grab"}} title="Arrastra para reordenar">⋮⋮</div>}
                 <div style={{fontSize:32,marginBottom:10}}>{d.emoji}</div>
                 <div style={{fontWeight:800,fontSize:16,color:"#e6edf3",marginBottom:4}}>{d.label}</div>
                 <div style={{fontSize:11,color:"#8b949e",marginBottom:12}}>{d.desc}</div>
@@ -8191,9 +8196,9 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
           ["🌿 Royalty filas",  rpData.length,         "#34d399"],
           ["🌱 Fee Vivero",     fvData.filter(r=>!r.pagado).length+" pend.", "#f87171"],
         ].map(([l,v,c])=>(
-          <div key={l} style={{background:"#21283b",border:"1px solid #30363d",borderLeft:`4px solid ${c}`,
-            borderRadius:10,padding:"12px 16px",flex:1,minWidth:140}}>
-            <div style={{fontSize:10,color:"#8b949e",fontWeight:600,marginBottom:4}}>{l}</div>
+          <div key={l} style={{background:C.card,border:`1px solid ${C.border}`,borderLeft:`4px solid ${c}`,
+            borderRadius:10,padding:"12px 16px",flex:1,minWidth:140,boxShadow:C.shadow}}>
+            <div style={{fontSize:10,color:C.muted,fontWeight:600,marginBottom:4}}>{l}</div>
             <div style={{fontSize:20,fontWeight:900,color:c}}>{v}</div>
           </div>
         ))}
@@ -8203,19 +8208,19 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
 
   // ── CONTROL CONTRATOS ──────────────────────────────────────
   if(subApp==="contratos") return(
-    <div style={{fontFamily:"sans-serif",background:"#0d1117",minHeight:"100vh",padding:"20px 20px 40px"}}>
+    <div style={{fontFamily:"sans-serif",background:C.bg,minHeight:"100vh",padding:"20px 20px 40px"}}>
       <NavBar breadcrumbItems={[
         {label:"Mediterra", onClick:onBack},
         {label:"Osiris Hub", onClick:()=>setSubApp(null)},
         {label:"Contratos Exp-Prod"},
       ]}/>
       {canVerContratos&&!canContratos&&(
-        <div style={{background:"linear-gradient(135deg,#fef3c7,#fde68a)",border:"1px solid #f59e0b",
+        <div style={{background:C.warningBg,border:`1px solid ${C.warning}`,
           borderRadius:10,padding:"10px 16px",marginBottom:14,display:"flex",alignItems:"center",gap:10}}>
           <span style={{fontSize:20}}>👁</span>
           <div style={{flex:1}}>
-            <div style={{fontSize:12,fontWeight:800,color:"#92400e"}}>Modo solo lectura</div>
-            <div style={{fontSize:11,color:"#78350f"}}>
+            <div style={{fontSize:12,fontWeight:800,color:C.text}}>Modo solo lectura</div>
+            <div style={{fontSize:11,color:C.text}}>
               {esConsulta
                 ? "Tu rol es de Consulta. Puedes visualizar y exportar los datos a Excel, pero no modificar contratos."
                 : "Tienes permiso de \"Solo ver\" en Contratos. Puedes visualizar y exportar los datos a Excel, pero no modificarlos. Contacta al administrador si necesitas editar."}
@@ -8223,7 +8228,7 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
           </div>
         </div>
       )}
-      <div style={{background:"#fff",borderRadius:14,padding:20,boxShadow:"0 2px 10px #0001"}}>
+      <div style={{background:C.card,borderRadius:14,padding:20,boxShadow:"0 2px 10px #0001"}}>
         {canVerContratos
         ? <ControlContratos
             data={ctData} setData={setCt}
@@ -8238,7 +8243,7 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
             tiposContratoPersist={Array.isArray(osirisData?.tiposContrato)?osirisData.tiposContrato:undefined}
             setTiposContratoPersist={(next)=>setOsirisData(prev=>({...prev, tiposContrato: next}))}
             can={canContratos}/>
-        : <div style={{textAlign:"center",padding:40,color:"#94a3b8"}}>Sin acceso a Contratos</div>
+        : <div style={{textAlign:"center",padding:40,color:C.muted2}}>Sin acceso a Contratos</div>
       }
       </div>
     </div>
@@ -8378,7 +8383,7 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
       const vig = estadoVigencia(c.f_vencimiento);
 
       return (
-        <div style={{fontFamily:"sans-serif",background:"#0d1117",minHeight:"100vh",padding:"20px 20px 40px"}}>
+        <div style={{fontFamily:"sans-serif",background:C.bg,minHeight:"100vh",padding:"20px 20px 40px"}}>
           <NavBar breadcrumbItems={[
             {label:"Mediterra", onClick:onBack},
             {label:"Osiris Hub", onClick:()=>{setSubApp(null);setObtDetalle(null);}},
@@ -8386,12 +8391,12 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
             {label:c.obtentor},
           ]}/>
           {canVerObtentores&&!canObtentores&&(
-            <div style={{background:"linear-gradient(135deg,#fef3c7,#fde68a)",border:"1px solid #f59e0b",
+            <div style={{background:C.warningBg,border:`1px solid ${C.warning}`,
               borderRadius:10,padding:"10px 16px",marginBottom:14,display:"flex",alignItems:"center",gap:10}}>
               <span style={{fontSize:20}}>👁</span>
               <div style={{flex:1}}>
-                <div style={{fontSize:12,fontWeight:800,color:"#92400e"}}>Modo solo lectura</div>
-                <div style={{fontSize:11,color:"#78350f"}}>
+                <div style={{fontSize:12,fontWeight:800,color:C.text}}>Modo solo lectura</div>
+                <div style={{fontSize:11,color:C.text}}>
                   {esConsulta
                     ? "Tu rol es de Consulta. Puedes visualizar y exportar los datos a Excel, pero no modificar contratos obtentores."
                     : "Tienes permiso de \"Solo ver\" en Contratos Obtentores. Puedes visualizar y exportar pero no modificar."}
@@ -8427,59 +8432,59 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
             {TABS_OBT.map(t=>(
               <button key={t.id} onClick={()=>setObtTab(t.id)}
                 style={{padding:"8px 16px",borderRadius:8,border:"none",cursor:"pointer",fontWeight:obtTab===t.id?700:500,fontSize:12,
-                  background:obtTab===t.id?"#7c3aed":"#21283b",color:obtTab===t.id?"#fff":"#8b949e"}}>
+                  background:obtTab===t.id?C.purple:"#21283b",color:obtTab===t.id?"#fff":"#8b949e"}}>
                 {t.label}
               </button>
             ))}
           </div>
 
-          <div style={{background:"#fff",borderRadius:14,padding:20,boxShadow:"0 2px 10px #0001"}}>
+          <div style={{background:C.card,borderRadius:14,padding:20,boxShadow:"0 2px 10px #0001"}}>
             {/* TAB GENERAL */}
             {obtTab==="general"&&(
               <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:16}}>
-                <div style={{gridColumn:"1/-1",fontSize:12,fontWeight:700,color:"#7c3aed",borderBottom:"1px solid #e2e8f0",paddingBottom:6}}>🏢 Datos del Obtentor</div>
+                <div style={{gridColumn:"1/-1",fontSize:12,fontWeight:700,color:C.purple,borderBottom:`1px solid ${C.border}`,paddingBottom:6}}>🏢 Datos del Obtentor</div>
                 {[["Nombre del Obtentor *","obtentor","text"],["País","pais","text"],["Contacto","contacto","text"],["Email contacto","emailContacto","email"],["Teléfono","telefonoContacto","text"],["Representante legal","representanteLegal","text"]].map(([lbl,f,t])=>(
-                  <div key={f}><label style={{fontSize:11,fontWeight:600,color:"#475569",display:"block",marginBottom:4}}>{lbl}</label>
+                  <div key={f}><label style={{fontSize:11,fontWeight:600,color:C.muted,display:"block",marginBottom:4}}>{lbl}</label>
                     <input type={t} disabled={!canObtentores} value={c[f]||""} onChange={e=>updateContrato(c.id,{[f]:e.target.value})}
-                      style={{width:"100%",padding:"8px 12px",borderRadius:8,border:"1px solid #d1d5db",fontSize:13,boxSizing:"border-box",background:canObtentores?"#fff":"#f8fafc"}}/></div>
+                      style={{width:"100%",padding:"8px 12px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:13,boxSizing:"border-box",background:canObtentores?"#fff":C.cardAlt}}/></div>
                 ))}
-                <div style={{gridColumn:"1/-1",fontSize:12,fontWeight:700,color:"#7c3aed",borderBottom:"1px solid #e2e8f0",paddingBottom:6,marginTop:8}}>📄 Datos del Contrato</div>
+                <div style={{gridColumn:"1/-1",fontSize:12,fontWeight:700,color:C.purple,borderBottom:`1px solid ${C.border}`,paddingBottom:6,marginTop:8}}>📄 Datos del Contrato</div>
                 {[["Fecha Inicio","f_inicio","date"],["Fecha Vencimiento","f_vencimiento","date"]].map(([lbl,f,t])=>(
-                  <div key={f}><label style={{fontSize:11,fontWeight:600,color:"#475569",display:"block",marginBottom:4}}>{lbl}</label>
+                  <div key={f}><label style={{fontSize:11,fontWeight:600,color:C.muted,display:"block",marginBottom:4}}>{lbl}</label>
                     <input type={t} disabled={!canObtentores} value={c[f]||""} onChange={e=>updateContrato(c.id,{[f]:e.target.value})}
-                      style={{width:"100%",padding:"8px 12px",borderRadius:8,border:"1px solid #d1d5db",fontSize:13,boxSizing:"border-box",background:canObtentores?"#fff":"#f8fafc"}}/></div>
+                      style={{width:"100%",padding:"8px 12px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:13,boxSizing:"border-box",background:canObtentores?"#fff":C.cardAlt}}/></div>
                 ))}
-                <div><label style={{fontSize:11,fontWeight:600,color:"#475569",display:"block",marginBottom:4}}>Estado del Contrato</label>
+                <div><label style={{fontSize:11,fontWeight:600,color:C.muted,display:"block",marginBottom:4}}>Estado del Contrato</label>
                   <select disabled={!canObtentores} value={c.estado_contrato||"Borrador"} onChange={e=>updateContrato(c.id,{estado_contrato:e.target.value})}
-                    style={{width:"100%",padding:"8px 12px",borderRadius:8,border:"1px solid #d1d5db",fontSize:13,boxSizing:"border-box",background:canObtentores?"#fff":"#f8fafc"}}>
+                    style={{width:"100%",padding:"8px 12px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:13,boxSizing:"border-box",background:canObtentores?"#fff":C.cardAlt}}>
                     {ESTADOS_CONTRATO_OBT.map(s=><option key={s} value={s}>{s}</option>)}</select></div>
-                <div><label style={{fontSize:11,fontWeight:600,color:"#475569",display:"block",marginBottom:4}}>Exclusividad</label>
+                <div><label style={{fontSize:11,fontWeight:600,color:C.muted,display:"block",marginBottom:4}}>Exclusividad</label>
                   <select disabled={!canObtentores} value={c.exclusividad||"No"} onChange={e=>updateContrato(c.id,{exclusividad:e.target.value})}
-                    style={{width:"100%",padding:"8px 12px",borderRadius:8,border:"1px solid #d1d5db",fontSize:13,boxSizing:"border-box",background:canObtentores?"#fff":"#f8fafc"}}>
+                    style={{width:"100%",padding:"8px 12px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:13,boxSizing:"border-box",background:canObtentores?"#fff":C.cardAlt}}>
                     <option value="No">No exclusivo</option><option value="Exclusivo">Exclusivo</option><option value="Semi-exclusivo">Semi-exclusivo</option></select></div>
                 {c.exclusividad&&c.exclusividad!=="No"&&(
-                  <div><label style={{fontSize:11,fontWeight:600,color:"#475569",display:"block",marginBottom:4}}>Tipo exclusividad</label>
+                  <div><label style={{fontSize:11,fontWeight:600,color:C.muted,display:"block",marginBottom:4}}>Tipo exclusividad</label>
                     <input disabled={!canObtentores} value={c.tipoExclusividad||""} placeholder="Por territorio, por especie..." onChange={e=>updateContrato(c.id,{tipoExclusividad:e.target.value})}
-                      style={{width:"100%",padding:"8px 12px",borderRadius:8,border:"1px solid #d1d5db",fontSize:13,boxSizing:"border-box"}}/></div>
+                      style={{width:"100%",padding:"8px 12px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:13,boxSizing:"border-box"}}/></div>
                 )}
-                <div style={{gridColumn:"1/-1"}}><label style={{fontSize:11,fontWeight:600,color:"#475569",display:"block",marginBottom:4}}>Territorios autorizados</label>
+                <div style={{gridColumn:"1/-1"}}><label style={{fontSize:11,fontWeight:600,color:C.muted,display:"block",marginBottom:4}}>Territorios autorizados</label>
                   <input disabled={!canObtentores} value={c.territorios||""} placeholder="Chile, Perú, México..." onChange={e=>updateContrato(c.id,{territorios:e.target.value})}
-                    style={{width:"100%",padding:"8px 12px",borderRadius:8,border:"1px solid #d1d5db",fontSize:13,boxSizing:"border-box"}}/></div>
-                <div style={{gridColumn:"1/-1"}}><label style={{fontSize:11,fontWeight:600,color:"#475569",display:"block",marginBottom:4}}>Obligaciones contractuales</label>
+                    style={{width:"100%",padding:"8px 12px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:13,boxSizing:"border-box"}}/></div>
+                <div style={{gridColumn:"1/-1"}}><label style={{fontSize:11,fontWeight:600,color:C.muted,display:"block",marginBottom:4}}>Obligaciones contractuales</label>
                   <textarea disabled={!canObtentores} value={c.obligaciones||""} placeholder="Reportes anuales, mínimos, mantención PBR..." onChange={e=>updateContrato(c.id,{obligaciones:e.target.value})}
-                    style={{width:"100%",padding:"8px 12px",borderRadius:8,border:"1px solid #d1d5db",fontSize:13,minHeight:60,boxSizing:"border-box"}}/></div>
-                <div><label style={{fontSize:11,fontWeight:600,color:"#475569",display:"flex",alignItems:"center",gap:8,cursor:canObtentores?"pointer":"default"}}>
+                    style={{width:"100%",padding:"8px 12px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:13,minHeight:60,boxSizing:"border-box"}}/></div>
+                <div><label style={{fontSize:11,fontWeight:600,color:C.muted,display:"flex",alignItems:"center",gap:8,cursor:canObtentores?"pointer":"default"}}>
                     <input type="checkbox" disabled={!canObtentores} checked={!!c.renovable} onChange={e=>updateContrato(c.id,{renovable:e.target.checked})}/> Contrato renovable</label></div>
-                {c.renovable&&(<div><label style={{fontSize:11,fontWeight:600,color:"#475569",display:"block",marginBottom:4}}>📆 Nueva Fecha Vencimiento</label>
+                {c.renovable&&(<div><label style={{fontSize:11,fontWeight:600,color:C.muted,display:"block",marginBottom:4}}>📆 Nueva Fecha Vencimiento</label>
                     <input type="date" disabled={!canObtentores} value={c.f_vencimiento_nueva||""} onChange={e=>updateContrato(c.id,{f_vencimiento_nueva:e.target.value})}
-                      style={{width:"100%",padding:"8px 12px",borderRadius:8,border:"1px solid #93c5fd",fontSize:13,boxSizing:"border-box",background:"#eff6ff"}}/></div>)}
-                <div style={{gridColumn:"1/-1"}}><label style={{fontSize:11,fontWeight:600,color:"#475569",display:"block",marginBottom:4}}>📎 Link al contrato</label>
+                      style={{width:"100%",padding:"8px 12px",borderRadius:8,border:`1px solid ${C.info}`,fontSize:13,boxSizing:"border-box",background:C.infoBg}}/></div>)}
+                <div style={{gridColumn:"1/-1"}}><label style={{fontSize:11,fontWeight:600,color:C.muted,display:"block",marginBottom:4}}>📎 Link al contrato</label>
                   <input disabled={!canObtentores} value={c.doc_contrato||""} placeholder="https://..." onChange={e=>updateContrato(c.id,{doc_contrato:e.target.value})}
-                    style={{width:"100%",padding:"8px 12px",borderRadius:8,border:"1px solid #d1d5db",fontSize:13,boxSizing:"border-box"}}/>
-                  {c.doc_contrato&&<a href={c.doc_contrato} target="_blank" rel="noopener noreferrer" style={{fontSize:11,color:"#7c3aed",marginTop:4,display:"inline-block",fontWeight:700}}>📄 Abrir</a>}</div>
-                <div style={{gridColumn:"1/-1"}}><label style={{fontSize:11,fontWeight:600,color:"#475569",display:"block",marginBottom:4}}>Observaciones</label>
+                    style={{width:"100%",padding:"8px 12px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:13,boxSizing:"border-box"}}/>
+                  {c.doc_contrato&&<a href={c.doc_contrato} target="_blank" rel="noopener noreferrer" style={{fontSize:11,color:C.purple,marginTop:4,display:"inline-block",fontWeight:700}}>📄 Abrir</a>}</div>
+                <div style={{gridColumn:"1/-1"}}><label style={{fontSize:11,fontWeight:600,color:C.muted,display:"block",marginBottom:4}}>Observaciones</label>
                   <textarea disabled={!canObtentores} value={c.observaciones||""} onChange={e=>updateContrato(c.id,{observaciones:e.target.value})}
-                    style={{width:"100%",padding:"8px 12px",borderRadius:8,border:"1px solid #d1d5db",fontSize:13,minHeight:80,boxSizing:"border-box"}}/></div>
+                    style={{width:"100%",padding:"8px 12px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:13,minHeight:80,boxSizing:"border-box"}}/></div>
               </div>
             )}
 
@@ -8487,13 +8492,13 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
             {obtTab==="especies"&&(
               <div>
                 <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
-                  <div style={{fontWeight:700,color:"#1e293b"}}>Especies, Variedades y DHE del Contrato</div>
-                  {canObtentores&&<button onClick={()=>{setEspForm({especie:"",variedad:"",observaciones:"",dhe:[]});setEspModal(true);}} style={{padding:"6px 14px",borderRadius:8,background:"#7c3aed",border:"none",color:"#fff",cursor:"pointer",fontSize:12,fontWeight:700}}>+ Agregar Especie/Variedad</button>}
+                  <div style={{fontWeight:700,color:C.text}}>Especies, Variedades y DHE del Contrato</div>
+                  {canObtentores&&<button onClick={()=>{setEspForm({especie:"",variedad:"",observaciones:"",dhe:[]});setEspModal(true);}} style={{padding:"6px 14px",borderRadius:8,background:C.purple,border:"none",color:"#fff",cursor:"pointer",fontSize:12,fontWeight:700}}>+ Agregar Especie/Variedad</button>}
                 </div>
-                <div style={{background:"#fef3c7",border:"1px solid #fbbf24",borderRadius:8,padding:"8px 12px",marginBottom:12,fontSize:11,color:"#78350f"}}>
+                <div style={{background:C.warningBg,border:`1px solid ${C.warning}`,borderRadius:8,padding:"8px 12px",marginBottom:12,fontSize:11,color:C.text}}>
                   💡 Cada variedad puede tener su propio estado de DHE (Distinción, Homogeneidad y Estabilidad). Al obtener la aprobación del DHE, adjunta el documento.
                 </div>
-                {especies.length===0?<div style={{padding:30,textAlign:"center",color:"#94a3b8"}}>No hay especies registradas.</div>:(
+                {especies.length===0?<div style={{padding:30,textAlign:"center",color:C.muted2}}>No hay especies registradas.</div>:(
                   <div style={{display:"flex",flexDirection:"column",gap:12}}>
                     {especies.map(e=>{
                       // Migrar DHE plano a array si es necesario
@@ -8509,89 +8514,89 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
                         updateContrato(c.id,{especies:especies.map(x=>x.id===e.id?{...x,dhe:newDhe}:x)});
                       };
                       return (
-                        <div key={e.id} style={{border:"1px solid #e2e8f0",borderRadius:10,padding:14,background:"#fff"}}>
+                        <div key={e.id} style={{border:`1px solid ${C.border}`,borderRadius:10,padding:14,background:C.card}}>
                           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10,flexWrap:"wrap",gap:8}}>
                             <div>
-                              <span style={{fontWeight:800,fontSize:14,color:"#1e293b"}}>🌿 {e.especie}</span>
-                              <span style={{fontSize:13,color:"#475569",marginLeft:6}}>— {e.variedad}</span>
+                              <span style={{fontWeight:800,fontSize:14,color:C.text}}>🌿 {e.especie}</span>
+                              <span style={{fontSize:13,color:C.muted,marginLeft:6}}>— {e.variedad}</span>
                             </div>
                             <div style={{display:"flex",gap:6,alignItems:"center"}}>
-                              {nAprobados>0&&<span style={{fontSize:10,fontWeight:700,padding:"3px 10px",borderRadius:20,background:"#dcfce7",color:"#16a34a"}}>✅ {nAprobados} DHE aprobado{nAprobados>1?"s":""}</span>}
-                              <span style={{fontSize:10,fontWeight:700,padding:"3px 10px",borderRadius:20,background:"#7c3aed22",color:"#7c3aed"}}>{dheArr.length} país{dheArr.length!==1?"es":""}</span>
-                              {canObtentores&&<button onClick={()=>delEspecie(e.id)} style={{background:"#fef2f2",border:"none",borderRadius:6,padding:"4px 8px",cursor:"pointer",fontSize:11}}>🗑</button>}
+                              {nAprobados>0&&<span style={{fontSize:10,fontWeight:700,padding:"3px 10px",borderRadius:20,background:C.successBg,color:C.success}}>✅ {nAprobados} DHE aprobado{nAprobados>1?"s":""}</span>}
+                              <span style={{fontSize:10,fontWeight:700,padding:"3px 10px",borderRadius:20,background:"#7c3aed22",color:C.purple}}>{dheArr.length} país{dheArr.length!==1?"es":""}</span>
+                              {canObtentores&&<button onClick={()=>delEspecie(e.id)} style={{background:C.dangerBg,border:"none",borderRadius:6,padding:"4px 8px",cursor:"pointer",fontSize:11}}>🗑</button>}
                             </div>
                           </div>
                           {/* Obs variedad */}
                           <div style={{marginBottom:10,fontSize:11}}>
-                            <span style={{color:"#64748b",fontWeight:600}}>Obs. variedad: </span>
+                            <span style={{color:C.muted,fontWeight:600}}>Obs. variedad: </span>
                             <input disabled={!canObtentores} value={e.observaciones||""} placeholder="Notas..." onChange={ev=>updateContrato(c.id,{especies:especies.map(x=>x.id===e.id?{...x,observaciones:ev.target.value}:x)})}
-                              style={{width:"60%",padding:"4px 8px",border:"1px solid #e2e8f0",borderRadius:6,fontSize:11,boxSizing:"border-box"}}/>
+                              style={{width:"60%",padding:"4px 8px",border:`1px solid ${C.border}`,borderRadius:6,fontSize:11,boxSizing:"border-box"}}/>
                           </div>
                           {/* DHE multi-país */}
-                          <div style={{background:"#f8fafc",borderRadius:8,padding:10}}>
+                          <div style={{background:C.cardAlt,borderRadius:8,padding:10}}>
                             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
-                              <div style={{fontSize:11,fontWeight:700,color:"#475569"}}>📋 Registros DHE por país</div>
+                              <div style={{fontSize:11,fontWeight:700,color:C.muted}}>📋 Registros DHE por país</div>
                               {canObtentores&&<button onClick={()=>{
                                 const nd={id:`dhe_${Date.now()}`,pais:"",estado:"No iniciado",fecha_solicitud:"",fecha_aprob:"",nRegistro:"",doc:"",observaciones:""};
                                 updateContrato(c.id,{especies:especies.map(x=>x.id===e.id?{...x,dhe:[...dheArr,nd]}:x)});
-                              }} style={{padding:"3px 10px",borderRadius:6,background:"#7c3aed",border:"none",color:"#fff",cursor:"pointer",fontSize:10,fontWeight:700}}>+ País DHE</button>}
+                              }} style={{padding:"3px 10px",borderRadius:6,background:C.purple,border:"none",color:"#fff",cursor:"pointer",fontSize:10,fontWeight:700}}>+ País DHE</button>}
                             </div>
                             {dheArr.length===0?(
-                              <div style={{padding:12,textAlign:"center",color:"#94a3b8",fontSize:11,border:"1px dashed #e2e8f0",borderRadius:6}}>Sin registros DHE. Agrega un país.</div>
+                              <div style={{padding:12,textAlign:"center",color:C.muted2,fontSize:11,border:"1px dashed #e2e8f0",borderRadius:6}}>Sin registros DHE. Agrega un país.</div>
                             ):(
                               <div style={{display:"flex",flexDirection:"column",gap:8}}>
                                 {dheArr.map(d=>{
-                                  const dColor=d.estado==="Aprobado"?"#16a34a":d.estado==="Rechazado"||d.estado==="Vencido"?"#dc2626":d.estado==="En proceso"||d.estado==="Solicitado"?"#d97706":"#64748b";
+                                  const dColor=d.estado==="Aprobado"?C.success:d.estado==="Rechazado"||d.estado==="Vencido"?C.danger:d.estado==="En proceso"||d.estado==="Solicitado"?C.warning:C.muted;
                                   return(
-                                    <div key={d.id} style={{border:"1px solid #e2e8f0",borderRadius:8,padding:10,background:d.estado==="Aprobado"?"#f0fdf4":"#fff"}}>
+                                    <div key={d.id} style={{border:`1px solid ${C.border}`,borderRadius:8,padding:10,background:d.estado==="Aprobado"?C.successBg:"#fff"}}>
                                       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
                                         <div style={{display:"flex",gap:8,alignItems:"center"}}>
                                           <select disabled={!canObtentores} value={d.pais||""} onChange={ev=>updDhe(d.id,"pais",ev.target.value)}
-                                            style={{padding:"4px 8px",borderRadius:6,border:"1px solid #d1d5db",fontSize:11,fontWeight:700,minWidth:120}}>
+                                            style={{padding:"4px 8px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:11,fontWeight:700,minWidth:120}}>
                                             <option value="">— País —</option>
                                             {PAISES_DHE.map(p=><option key={p} value={p}>{p}</option>)}
                                           </select>
                                           <span style={{fontSize:10,fontWeight:700,padding:"2px 8px",borderRadius:12,background:dColor+"22",color:dColor}}>{d.estado}</span>
                                         </div>
-                                        {canObtentores&&<button onClick={()=>delDhe(d.id)} style={{background:"#fef2f2",border:"none",borderRadius:4,padding:"2px 6px",cursor:"pointer",fontSize:10,color:"#991b1b"}}>🗑</button>}
+                                        {canObtentores&&<button onClick={()=>delDhe(d.id)} style={{background:C.dangerBg,border:"none",borderRadius:4,padding:"2px 6px",cursor:"pointer",fontSize:10,color:C.danger}}>🗑</button>}
                                       </div>
                                       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr 1fr",gap:8,fontSize:11}}>
                                         <div>
-                                          <div style={{color:"#64748b",fontWeight:600,marginBottom:2}}>Estado</div>
+                                          <div style={{color:C.muted,fontWeight:600,marginBottom:2}}>Estado</div>
                                           <select disabled={!canObtentores} value={d.estado||"No iniciado"} onChange={ev=>updDhe(d.id,"estado",ev.target.value)}
-                                            style={{width:"100%",padding:"4px 6px",border:"1px solid #e2e8f0",borderRadius:6,fontSize:11,boxSizing:"border-box",fontWeight:700}}>
+                                            style={{width:"100%",padding:"4px 6px",border:`1px solid ${C.border}`,borderRadius:6,fontSize:11,boxSizing:"border-box",fontWeight:700}}>
                                             {ESTADOS_DHE.map(s=><option key={s} value={s}>{s}</option>)}
                                           </select>
                                         </div>
                                         <div>
-                                          <div style={{color:"#64748b",fontWeight:600,marginBottom:2}}>F. Solicitud</div>
+                                          <div style={{color:C.muted,fontWeight:600,marginBottom:2}}>F. Solicitud</div>
                                           <input type="date" disabled={!canObtentores} value={d.fecha_solicitud||""} onChange={ev=>updDhe(d.id,"fecha_solicitud",ev.target.value)}
-                                            style={{width:"100%",padding:"4px 6px",border:"1px solid #e2e8f0",borderRadius:6,fontSize:11,boxSizing:"border-box"}}/>
+                                            style={{width:"100%",padding:"4px 6px",border:`1px solid ${C.border}`,borderRadius:6,fontSize:11,boxSizing:"border-box"}}/>
                                         </div>
                                         <div>
-                                          <div style={{color:"#64748b",fontWeight:600,marginBottom:2}}>F. Aprobación</div>
+                                          <div style={{color:C.muted,fontWeight:600,marginBottom:2}}>F. Aprobación</div>
                                           <input type="date" disabled={!canObtentores} value={d.fecha_aprob||""} onChange={ev=>updDhe(d.id,"fecha_aprob",ev.target.value)}
-                                            style={{width:"100%",padding:"4px 6px",border:"1px solid #e2e8f0",borderRadius:6,fontSize:11,boxSizing:"border-box"}}/>
+                                            style={{width:"100%",padding:"4px 6px",border:`1px solid ${C.border}`,borderRadius:6,fontSize:11,boxSizing:"border-box"}}/>
                                         </div>
                                         <div>
-                                          <div style={{color:"#64748b",fontWeight:600,marginBottom:2}}>N° Registro</div>
+                                          <div style={{color:C.muted,fontWeight:600,marginBottom:2}}>N° Registro</div>
                                           <input disabled={!canObtentores} value={d.nRegistro||""} placeholder="Ej: 2024-001" onChange={ev=>updDhe(d.id,"nRegistro",ev.target.value)}
-                                            style={{width:"100%",padding:"4px 6px",border:"1px solid #e2e8f0",borderRadius:6,fontSize:11,boxSizing:"border-box"}}/>
+                                            style={{width:"100%",padding:"4px 6px",border:`1px solid ${C.border}`,borderRadius:6,fontSize:11,boxSizing:"border-box"}}/>
                                         </div>
                                       </div>
                                       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,fontSize:11,marginTop:6}}>
                                         <div>
-                                          <div style={{color:"#64748b",fontWeight:600,marginBottom:2}}>📎 Doc DHE</div>
+                                          <div style={{color:C.muted,fontWeight:600,marginBottom:2}}>📎 Doc DHE</div>
                                           <div style={{display:"flex",gap:4}}>
                                             <input disabled={!canObtentores} value={d.doc||""} placeholder="https://..." onChange={ev=>updDhe(d.id,"doc",ev.target.value)}
-                                              style={{flex:1,padding:"4px 6px",border:"1px solid #e2e8f0",borderRadius:6,fontSize:11,boxSizing:"border-box"}}/>
+                                              style={{flex:1,padding:"4px 6px",border:`1px solid ${C.border}`,borderRadius:6,fontSize:11,boxSizing:"border-box"}}/>
                                             {d.doc&&<a href={d.doc} target="_blank" rel="noopener noreferrer" style={{fontSize:12}}>📎</a>}
                                           </div>
                                         </div>
                                         <div>
-                                          <div style={{color:"#64748b",fontWeight:600,marginBottom:2}}>Observaciones</div>
+                                          <div style={{color:C.muted,fontWeight:600,marginBottom:2}}>Observaciones</div>
                                           <input disabled={!canObtentores} value={d.observaciones||""} onChange={ev=>updDhe(d.id,"observaciones",ev.target.value)}
-                                            style={{width:"100%",padding:"4px 6px",border:"1px solid #e2e8f0",borderRadius:6,fontSize:11,boxSizing:"border-box"}}/>
+                                            style={{width:"100%",padding:"4px 6px",border:`1px solid ${C.border}`,borderRadius:6,fontSize:11,boxSizing:"border-box"}}/>
                                         </div>
                                       </div>
                                     </div>
@@ -8612,54 +8617,54 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
             {obtTab==="pbr"&&(
               <div>
                 <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
-                  <div style={{fontWeight:700,color:"#1e293b"}}>Registro PBR — Protección de Obtenciones Vegetales</div>
+                  <div style={{fontWeight:700,color:C.text}}>Registro PBR — Protección de Obtenciones Vegetales</div>
                   {canObtentores&&<button onClick={()=>{
                     if(especies.length===0){alert("Primero debes agregar al menos una especie en la pestaña Especies/Variedades.");return;}
                     setPbrForm({especie:especies[0]?.especie||"",pais:"",estado:"Pendiente",f_solicitud:"",f_resolucion:"",doc_solicitud:"",doc_resolucion:"",observaciones:""});
                     setPbrModal(true);
-                  }} style={{padding:"6px 14px",borderRadius:8,background:"#f59e0b",border:"none",color:"#fff",cursor:"pointer",fontSize:12,fontWeight:700}}>+ Nuevo Registro PBR</button>}
+                  }} style={{padding:"6px 14px",borderRadius:8,background:C.warning,border:"none",color:"#fff",cursor:"pointer",fontSize:12,fontWeight:700}}>+ Nuevo Registro PBR</button>}
                 </div>
-                {pbr.length===0?<div style={{padding:30,textAlign:"center",color:"#94a3b8"}}>No hay registros PBR.</div>:(
+                {pbr.length===0?<div style={{padding:30,textAlign:"center",color:C.muted2}}>No hay registros PBR.</div>:(
                   <div style={{display:"flex",flexDirection:"column",gap:12}}>
                     {pbr.map(p=>(
-                      <div key={p.id} style={{border:"1px solid #e2e8f0",borderRadius:10,padding:16,background:p.estado==="Aprobado"?"#f0fdf4":p.estado==="Rechazado"?"#fef2f2":"#fff"}}>
+                      <div key={p.id} style={{border:`1px solid ${C.border}`,borderRadius:10,padding:16,background:p.estado==="Aprobado"?C.successBg:p.estado==="Rechazado"?C.dangerBg:"#fff"}}>
                         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
                           <div style={{fontWeight:700,fontSize:13}}>🌿 {p.especie} — 🌍 {p.pais}</div>
                           <div style={{display:"flex",gap:6,alignItems:"center"}}>
                             <select disabled={!canObtentores} value={p.estado||"Pendiente"} onChange={e=>updatePBR(p.id,{estado:e.target.value})}
-                              style={{padding:"4px 8px",borderRadius:6,border:"1px solid #d1d5db",fontSize:11,
-                                background:p.estado==="Otorgado"||p.estado==="Vigente"?"#dcfce7":p.estado==="Denegado"||p.estado==="Vencido"||p.estado==="Retirado"?"#fee2e2":"#fef9c3",
+                              style={{padding:"4px 8px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:11,
+                                background:p.estado==="Otorgado"||p.estado==="Vigente"?C.successBg:p.estado==="Denegado"||p.estado==="Vencido"||p.estado==="Retirado"?C.dangerBg:"#fef9c3",
                                 fontWeight:700}}>
                               {ESTADOS_PBR.map(s=><option key={s} value={s}>{s}</option>)}
                             </select>
-                            {canObtentores&&<button onClick={()=>delPBR(p.id)} style={{background:"#fef2f2",border:"none",borderRadius:6,padding:"4px 8px",cursor:"pointer",fontSize:11}}>🗑</button>}
+                            {canObtentores&&<button onClick={()=>delPBR(p.id)} style={{background:C.dangerBg,border:"none",borderRadius:6,padding:"4px 8px",cursor:"pointer",fontSize:11}}>🗑</button>}
                           </div>
                         </div>
                         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr 1fr",gap:10,fontSize:11}}>
                           <div>
-                            <div style={{color:"#64748b",fontWeight:600,marginBottom:2}}>Fecha Solicitud</div>
+                            <div style={{color:C.muted,fontWeight:600,marginBottom:2}}>Fecha Solicitud</div>
                             <input type="date" disabled={!canObtentores} value={p.f_solicitud||""} onChange={e=>updatePBR(p.id,{f_solicitud:e.target.value})}
-                              style={{width:"100%",padding:"4px 8px",border:"1px solid #e2e8f0",borderRadius:6,fontSize:11,boxSizing:"border-box"}}/>
+                              style={{width:"100%",padding:"4px 8px",border:`1px solid ${C.border}`,borderRadius:6,fontSize:11,boxSizing:"border-box"}}/>
                           </div>
                           <div>
-                            <div style={{color:"#64748b",fontWeight:600,marginBottom:2}}>Fecha Resolución</div>
+                            <div style={{color:C.muted,fontWeight:600,marginBottom:2}}>Fecha Resolución</div>
                             <input type="date" disabled={!canObtentores} value={p.f_resolucion||""} onChange={e=>updatePBR(p.id,{f_resolucion:e.target.value})}
-                              style={{width:"100%",padding:"4px 8px",border:"1px solid #e2e8f0",borderRadius:6,fontSize:11,boxSizing:"border-box"}}/>
+                              style={{width:"100%",padding:"4px 8px",border:`1px solid ${C.border}`,borderRadius:6,fontSize:11,boxSizing:"border-box"}}/>
                           </div>
                           <div>
-                            <div style={{color:"#64748b",fontWeight:600,marginBottom:2}}>Doc. Solicitud (link)</div>
+                            <div style={{color:C.muted,fontWeight:600,marginBottom:2}}>Doc. Solicitud (link)</div>
                             <input disabled={!canObtentores} value={p.doc_solicitud||""} onChange={e=>updatePBR(p.id,{doc_solicitud:e.target.value})} placeholder="URL documento..."
-                              style={{width:"100%",padding:"4px 8px",border:"1px solid #e2e8f0",borderRadius:6,fontSize:11,boxSizing:"border-box"}}/>
+                              style={{width:"100%",padding:"4px 8px",border:`1px solid ${C.border}`,borderRadius:6,fontSize:11,boxSizing:"border-box"}}/>
                           </div>
                           <div>
-                            <div style={{color:"#64748b",fontWeight:600,marginBottom:2}}>Doc. Resolución (link)</div>
+                            <div style={{color:C.muted,fontWeight:600,marginBottom:2}}>Doc. Resolución (link)</div>
                             <input disabled={!canObtentores} value={p.doc_resolucion||""} onChange={e=>updatePBR(p.id,{doc_resolucion:e.target.value})} placeholder="URL documento..."
-                              style={{width:"100%",padding:"4px 8px",border:"1px solid #e2e8f0",borderRadius:6,fontSize:11,boxSizing:"border-box"}}/>
+                              style={{width:"100%",padding:"4px 8px",border:`1px solid ${C.border}`,borderRadius:6,fontSize:11,boxSizing:"border-box"}}/>
                           </div>
                         </div>
                         <div style={{marginTop:8}}>
                           <input disabled={!canObtentores} value={p.observaciones||""} onChange={e=>updatePBR(p.id,{observaciones:e.target.value})} placeholder="Observaciones PBR..."
-                            style={{width:"100%",padding:"4px 8px",border:"1px solid #e2e8f0",borderRadius:6,fontSize:11,boxSizing:"border-box"}}/>
+                            style={{width:"100%",padding:"4px 8px",border:`1px solid ${C.border}`,borderRadius:6,fontSize:11,boxSizing:"border-box"}}/>
                         </div>
                       </div>
                     ))}
@@ -8672,38 +8677,38 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
             {obtTab==="royalties"&&(
               <div>
                 <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
-                  <div style={{fontWeight:700,color:"#1e293b"}}>💰 Royalties que Osiris paga al obtentor</div>
+                  <div style={{fontWeight:700,color:C.text}}>💰 Royalties que Osiris paga al obtentor</div>
                   {canObtentores&&<button onClick={()=>{
                     const nr={id:`roy_${Date.now()}`,tipo:"Por planta",especie:"",variedad:"",valor:0,moneda:"USD",frecuencia:"Anual",observaciones:""};
                     updateContrato(c.id,{royaltiesObtentor:[...(c.royaltiesObtentor||[]),nr]});
-                  }} style={{padding:"6px 14px",borderRadius:8,background:"#7c3aed",border:"none",color:"#fff",cursor:"pointer",fontSize:12,fontWeight:700}}>+ Agregar</button>}
+                  }} style={{padding:"6px 14px",borderRadius:8,background:C.purple,border:"none",color:"#fff",cursor:"pointer",fontSize:12,fontWeight:700}}>+ Agregar</button>}
                 </div>
                 {(c.royaltiesObtentor||[]).length===0?(
-                  <div style={{padding:30,textAlign:"center",color:"#94a3b8",border:"1px dashed #e2e8f0",borderRadius:10}}>
+                  <div style={{padding:30,textAlign:"center",color:C.muted2,border:"1px dashed #e2e8f0",borderRadius:10}}>
                     <div style={{fontSize:32,marginBottom:8}}>💰</div><div style={{fontSize:12}}>Sin royalties definidos.</div></div>
                 ):(
                   <div style={{overflowX:"auto"}}>
-                    <table style={{width:"100%",borderCollapse:"collapse",fontSize:12,background:"#fff",borderRadius:10,overflow:"hidden",border:"1px solid #e2e8f0"}}>
-                      <thead><tr style={{background:"#7c3aed",color:"#fff"}}>
+                    <table style={{width:"100%",borderCollapse:"collapse",fontSize:12,background:C.card,borderRadius:10,overflow:"hidden",border:`1px solid ${C.border}`}}>
+                      <thead><tr style={{background:C.primary,color:C.primaryText}}>
                         {["Tipo","Especie","Variedad","Valor","Moneda","Frecuencia","Obs.",""].map(h=><th key={h} style={{padding:"8px 10px",textAlign:"left",fontSize:11,fontWeight:700}}>{h}</th>)}
                       </tr></thead>
                       <tbody>{(c.royaltiesObtentor||[]).map((r,i)=>{
                         const upd=(f,v)=>{const nx=(c.royaltiesObtentor||[]).map(x=>x.id===r.id?{...x,[f]:v}:x);updateContrato(c.id,{royaltiesObtentor:nx});};
-                        return(<tr key={r.id} style={{borderBottom:"1px solid #f1f5f9",background:i%2?"#f8fafc":"#fff"}}>
-                          <td style={{padding:"6px 8px"}}><select disabled={!canObtentores} value={r.tipo||""} onChange={e=>upd("tipo",e.target.value)} style={{padding:"5px 8px",borderRadius:6,border:"1px solid #d1d5db",fontSize:11}}>{TIPOS_ROYALTY_OBTENTOR.map(t=><option key={t}>{t}</option>)}</select></td>
-                          <td style={{padding:"6px 8px"}}><input disabled={!canObtentores} value={r.especie||""} onChange={e=>upd("especie",e.target.value)} placeholder="Todas" style={{width:80,padding:"5px 8px",borderRadius:6,border:"1px solid #d1d5db",fontSize:11}}/></td>
-                          <td style={{padding:"6px 8px"}}><input disabled={!canObtentores} value={r.variedad||""} onChange={e=>upd("variedad",e.target.value)} placeholder="Todas" style={{width:80,padding:"5px 8px",borderRadius:6,border:"1px solid #d1d5db",fontSize:11}}/></td>
-                          <td style={{padding:"6px 8px"}}><input type="number" step="0.01" disabled={!canObtentores} value={r.valor||0} onChange={e=>upd("valor",parseFloat(e.target.value)||0)} style={{width:70,padding:"5px 8px",borderRadius:6,border:"1px solid #d1d5db",fontSize:11,textAlign:"right"}}/></td>
-                          <td style={{padding:"6px 8px"}}><select disabled={!canObtentores} value={r.moneda||"USD"} onChange={e=>upd("moneda",e.target.value)} style={{padding:"5px 8px",borderRadius:6,border:"1px solid #d1d5db",fontSize:11}}>{MONEDAS.map(m=><option key={m}>{m}</option>)}</select></td>
-                          <td style={{padding:"6px 8px"}}><select disabled={!canObtentores} value={r.frecuencia||"Anual"} onChange={e=>upd("frecuencia",e.target.value)} style={{padding:"5px 8px",borderRadius:6,border:"1px solid #d1d5db",fontSize:11}}>{["Anual","Semestral","Trimestral","Por evento","Única vez"].map(f=><option key={f}>{f}</option>)}</select></td>
-                          <td style={{padding:"6px 8px"}}><input disabled={!canObtentores} value={r.observaciones||""} onChange={e=>upd("observaciones",e.target.value)} style={{width:"100%",padding:"5px 8px",borderRadius:6,border:"1px solid #d1d5db",fontSize:11,boxSizing:"border-box"}}/></td>
-                          <td style={{padding:"6px 8px"}}>{canObtentores&&<button onClick={()=>{if(!window.confirm("¿Eliminar?"))return;updateContrato(c.id,{royaltiesObtentor:(c.royaltiesObtentor||[]).filter(x=>x.id!==r.id)});}} style={{background:"#fef2f2",border:"none",borderRadius:6,padding:"4px 8px",cursor:"pointer",fontSize:11,color:"#991b1b"}}>🗑</button>}</td>
+                        return(<tr key={r.id} style={{borderBottom:"1px solid #f1f5f9",background:i%2?C.cardAlt:"#fff"}}>
+                          <td style={{padding:"6px 8px"}}><select disabled={!canObtentores} value={r.tipo||""} onChange={e=>upd("tipo",e.target.value)} style={{padding:"5px 8px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:11}}>{TIPOS_ROYALTY_OBTENTOR.map(t=><option key={t}>{t}</option>)}</select></td>
+                          <td style={{padding:"6px 8px"}}><input disabled={!canObtentores} value={r.especie||""} onChange={e=>upd("especie",e.target.value)} placeholder="Todas" style={{width:80,padding:"5px 8px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:11}}/></td>
+                          <td style={{padding:"6px 8px"}}><input disabled={!canObtentores} value={r.variedad||""} onChange={e=>upd("variedad",e.target.value)} placeholder="Todas" style={{width:80,padding:"5px 8px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:11}}/></td>
+                          <td style={{padding:"6px 8px"}}><input type="number" step="0.01" disabled={!canObtentores} value={r.valor||0} onChange={e=>upd("valor",parseFloat(e.target.value)||0)} style={{width:70,padding:"5px 8px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:11,textAlign:"right"}}/></td>
+                          <td style={{padding:"6px 8px"}}><select disabled={!canObtentores} value={r.moneda||"USD"} onChange={e=>upd("moneda",e.target.value)} style={{padding:"5px 8px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:11}}>{MONEDAS.map(m=><option key={m}>{m}</option>)}</select></td>
+                          <td style={{padding:"6px 8px"}}><select disabled={!canObtentores} value={r.frecuencia||"Anual"} onChange={e=>upd("frecuencia",e.target.value)} style={{padding:"5px 8px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:11}}>{["Anual","Semestral","Trimestral","Por evento","Única vez"].map(f=><option key={f}>{f}</option>)}</select></td>
+                          <td style={{padding:"6px 8px"}}><input disabled={!canObtentores} value={r.observaciones||""} onChange={e=>upd("observaciones",e.target.value)} style={{width:"100%",padding:"5px 8px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:11,boxSizing:"border-box"}}/></td>
+                          <td style={{padding:"6px 8px"}}>{canObtentores&&<button onClick={()=>{if(!window.confirm("¿Eliminar?"))return;updateContrato(c.id,{royaltiesObtentor:(c.royaltiesObtentor||[]).filter(x=>x.id!==r.id)});}} style={{background:C.dangerBg,border:"none",borderRadius:6,padding:"4px 8px",cursor:"pointer",fontSize:11,color:C.danger}}>🗑</button>}</td>
                         </tr>);
                       })}</tbody>
                     </table>
                   </div>
                 )}
-                <div style={{marginTop:12,padding:10,background:"#ede9fe",borderRadius:8,fontSize:11,color:"#5b21b6"}}>
+                <div style={{marginTop:12,padding:10,background:C.purpleBg,borderRadius:8,fontSize:11,color:C.purple}}>
                   💡 Royalties que <strong>Osiris paga al obtentor</strong>. Distintos de los que Osiris <strong>cobra a productores</strong>.
                 </div>
               </div>
@@ -8712,44 +8717,44 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
             {/* TAB CONDICIONES COMERCIALES */}
             {obtTab==="condiciones"&&(
               <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:16}}>
-                <div><label style={{fontSize:11,fontWeight:600,color:"#475569",display:"block",marginBottom:4}}>Mínimo garantizado</label>
+                <div><label style={{fontSize:11,fontWeight:600,color:C.muted,display:"block",marginBottom:4}}>Mínimo garantizado</label>
                   <div style={{display:"flex",gap:8}}>
-                    <input type="number" step="0.01" disabled={!canObtentores} value={c.minimoGarantizado||0} onChange={e=>updateContrato(c.id,{minimoGarantizado:parseFloat(e.target.value)||0})} style={{flex:1,padding:"8px 12px",borderRadius:8,border:"1px solid #d1d5db",fontSize:13,textAlign:"right"}}/>
-                    <select disabled={!canObtentores} value={c.monedaMinimo||"USD"} onChange={e=>updateContrato(c.id,{monedaMinimo:e.target.value})} style={{width:80,padding:"8px",borderRadius:8,border:"1px solid #d1d5db",fontSize:13}}>{MONEDAS.map(m=><option key={m}>{m}</option>)}</select>
+                    <input type="number" step="0.01" disabled={!canObtentores} value={c.minimoGarantizado||0} onChange={e=>updateContrato(c.id,{minimoGarantizado:parseFloat(e.target.value)||0})} style={{flex:1,padding:"8px 12px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:13,textAlign:"right"}}/>
+                    <select disabled={!canObtentores} value={c.monedaMinimo||"USD"} onChange={e=>updateContrato(c.id,{monedaMinimo:e.target.value})} style={{width:80,padding:"8px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:13}}>{MONEDAS.map(m=><option key={m}>{m}</option>)}</select>
                   </div></div>
-                <div><label style={{fontSize:11,fontWeight:600,color:"#475569",display:"block",marginBottom:4}}>Frecuencia reportes</label>
-                  <select disabled={!canObtentores} value={c.frecuenciaReportes||""} onChange={e=>updateContrato(c.id,{frecuenciaReportes:e.target.value})} style={{width:"100%",padding:"8px 12px",borderRadius:8,border:"1px solid #d1d5db",fontSize:13}}>
+                <div><label style={{fontSize:11,fontWeight:600,color:C.muted,display:"block",marginBottom:4}}>Frecuencia reportes</label>
+                  <select disabled={!canObtentores} value={c.frecuenciaReportes||""} onChange={e=>updateContrato(c.id,{frecuenciaReportes:e.target.value})} style={{width:"100%",padding:"8px 12px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:13}}>
                     <option value="">— Sin definir —</option><option>Mensual</option><option>Trimestral</option><option>Semestral</option><option>Anual</option></select></div>
-                <div><label style={{fontSize:11,fontWeight:600,color:"#475569",display:"block",marginBottom:4}}>Próximo reporte</label>
-                  <input type="date" disabled={!canObtentores} value={c.proximoReporte||""} onChange={e=>updateContrato(c.id,{proximoReporte:e.target.value})} style={{width:"100%",padding:"8px 12px",borderRadius:8,border:"1px solid #d1d5db",fontSize:13}}/></div>
-                <div><label style={{fontSize:11,fontWeight:600,color:"#475569",display:"flex",alignItems:"center",gap:8,cursor:canObtentores?"pointer":"default",marginTop:24}}>
+                <div><label style={{fontSize:11,fontWeight:600,color:C.muted,display:"block",marginBottom:4}}>Próximo reporte</label>
+                  <input type="date" disabled={!canObtentores} value={c.proximoReporte||""} onChange={e=>updateContrato(c.id,{proximoReporte:e.target.value})} style={{width:"100%",padding:"8px 12px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:13}}/></div>
+                <div><label style={{fontSize:11,fontWeight:600,color:C.muted,display:"flex",alignItems:"center",gap:8,cursor:canObtentores?"pointer":"default",marginTop:24}}>
                     <input type="checkbox" disabled={!canObtentores} checked={!!c.derechoAuditoria} onChange={e=>updateContrato(c.id,{derechoAuditoria:e.target.checked})}/> Obtentor tiene derecho a auditoría</label></div>
-                <div style={{gridColumn:"1/-1"}}><label style={{fontSize:11,fontWeight:600,color:"#475569",display:"block",marginBottom:4}}>Calendario de pagos</label>
+                <div style={{gridColumn:"1/-1"}}><label style={{fontSize:11,fontWeight:600,color:C.muted,display:"block",marginBottom:4}}>Calendario de pagos</label>
                   <textarea disabled={!canObtentores} value={c.calendarioPagos||""} placeholder="Pago anual en marzo, mínimo en enero..." onChange={e=>updateContrato(c.id,{calendarioPagos:e.target.value})}
-                    style={{width:"100%",padding:"8px 12px",borderRadius:8,border:"1px solid #d1d5db",fontSize:13,minHeight:80,boxSizing:"border-box"}}/></div>
+                    style={{width:"100%",padding:"8px 12px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:13,minHeight:80,boxSizing:"border-box"}}/></div>
               </div>
             )}
 
             {/* TAB LEGAL/FIRMAS */}
             {obtTab==="legal"&&(
               <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:20}}>
-                <div style={{border:"1px solid #e2e8f0",borderRadius:10,padding:16}}>
-                  <div style={{fontWeight:700,marginBottom:12,color:"#1e293b"}}>📝 Firmas del Contrato</div>
+                <div style={{border:`1px solid ${C.border}`,borderRadius:10,padding:16}}>
+                  <div style={{fontWeight:700,marginBottom:12,color:C.text}}>📝 Firmas del Contrato</div>
                   <label style={{display:"flex",alignItems:"center",gap:8,cursor:canObtentores?"pointer":"default",padding:"8px 0",borderBottom:"1px solid #f1f5f9"}}>
                     <input type="checkbox" disabled={!canObtentores} checked={!!c.firma_obtentor} onChange={e=>updateContrato(c.id,{firma_obtentor:e.target.checked})}/>
-                    <span style={{fontWeight:600,color:c.firma_obtentor?"#16a34a":"#94a3b8"}}>{c.firma_obtentor?"✅":"⬜"} Firma Obtentor</span>
+                    <span style={{fontWeight:600,color:c.firma_obtentor?C.success:C.muted2}}>{c.firma_obtentor?"✅":"⬜"} Firma Obtentor</span>
                   </label>
                   <label style={{display:"flex",alignItems:"center",gap:8,cursor:canObtentores?"pointer":"default",padding:"8px 0"}}>
                     <input type="checkbox" disabled={!canObtentores} checked={!!c.firma_osiris} onChange={e=>updateContrato(c.id,{firma_osiris:e.target.checked})}/>
-                    <span style={{fontWeight:600,color:c.firma_osiris?"#16a34a":"#94a3b8"}}>{c.firma_osiris?"✅":"⬜"} Firma Osiris</span>
+                    <span style={{fontWeight:600,color:c.firma_osiris?C.success:C.muted2}}>{c.firma_osiris?"✅":"⬜"} Firma Osiris</span>
                   </label>
                 </div>
-                <div style={{border:"1px solid #e2e8f0",borderRadius:10,padding:16}}>
-                  <div style={{fontWeight:700,marginBottom:12,color:"#1e293b"}}>📄 Documentación Legal</div>
-                  <label style={{fontSize:11,fontWeight:600,color:"#475569",display:"block",marginBottom:4}}>Enlace documento legal</label>
+                <div style={{border:`1px solid ${C.border}`,borderRadius:10,padding:16}}>
+                  <div style={{fontWeight:700,marginBottom:12,color:C.text}}>📄 Documentación Legal</div>
+                  <label style={{fontSize:11,fontWeight:600,color:C.muted,display:"block",marginBottom:4}}>Enlace documento legal</label>
                   <input disabled={!canObtentores} value={c.doc_legal||""} onChange={e=>updateContrato(c.id,{doc_legal:e.target.value})} placeholder="URL del documento legal..."
-                    style={{width:"100%",padding:"8px 12px",borderRadius:8,border:"1px solid #d1d5db",fontSize:13,boxSizing:"border-box",background:canObtentores?"#fff":"#f8fafc"}}/>
-                  {c.doc_legal&&<a href={c.doc_legal} target="_blank" rel="noopener noreferrer" style={{fontSize:11,color:"#7c3aed",marginTop:6,display:"inline-block"}}>📎 Abrir documento</a>}
+                    style={{width:"100%",padding:"8px 12px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:13,boxSizing:"border-box",background:canObtentores?"#fff":C.cardAlt}}/>
+                  {c.doc_legal&&<a href={c.doc_legal} target="_blank" rel="noopener noreferrer" style={{fontSize:11,color:C.purple,marginTop:6,display:"inline-block"}}>📎 Abrir documento</a>}
                 </div>
               </div>
             )}
@@ -8758,26 +8763,26 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
             {obtTab==="anexos"&&(
               <div>
                 <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
-                  <div style={{fontWeight:700,color:"#1e293b"}}>📎 Anexos del Contrato</div>
-                  {canObtentores&&<button onClick={()=>{setAnxForm({descripcion:"",fecha:"",enlace:"",observaciones:""});setAnxModal(true);}} style={{padding:"6px 14px",borderRadius:8,background:"#7c3aed",border:"none",color:"#fff",cursor:"pointer",fontSize:12,fontWeight:700}}>+ Agregar Anexo</button>}
+                  <div style={{fontWeight:700,color:C.text}}>📎 Anexos del Contrato</div>
+                  {canObtentores&&<button onClick={()=>{setAnxForm({descripcion:"",fecha:"",enlace:"",observaciones:""});setAnxModal(true);}} style={{padding:"6px 14px",borderRadius:8,background:C.purple,border:"none",color:"#fff",cursor:"pointer",fontSize:12,fontWeight:700}}>+ Agregar Anexo</button>}
                 </div>
-                {anexos.length===0?<div style={{padding:30,textAlign:"center",color:"#94a3b8"}}>No hay anexos registrados.</div>:(
+                {anexos.length===0?<div style={{padding:30,textAlign:"center",color:C.muted2}}>No hay anexos registrados.</div>:(
                   <div style={{display:"flex",flexDirection:"column",gap:10}}>
                     {anexos.map(a=>(
-                      <div key={a.id} style={{border:"1px solid #e2e8f0",borderRadius:10,padding:12,display:"flex",gap:12,alignItems:"center"}}>
+                      <div key={a.id} style={{border:`1px solid ${C.border}`,borderRadius:10,padding:12,display:"flex",gap:12,alignItems:"center"}}>
                         <div style={{flex:1}}>
                           <div style={{fontWeight:600,fontSize:13,marginBottom:4}}>{a.descripcion}</div>
                           <div style={{display:"flex",gap:10,fontSize:11}}>
                             <input type="date" disabled={!canObtentores} value={a.fecha||""} onChange={e=>updateAnexo(a.id,{fecha:e.target.value})}
-                              style={{padding:"3px 8px",border:"1px solid #e2e8f0",borderRadius:6,fontSize:11}}/>
+                              style={{padding:"3px 8px",border:`1px solid ${C.border}`,borderRadius:6,fontSize:11}}/>
                             <input disabled={!canObtentores} value={a.enlace||""} onChange={e=>updateAnexo(a.id,{enlace:e.target.value})} placeholder="Enlace documento..."
-                              style={{flex:1,padding:"3px 8px",border:"1px solid #e2e8f0",borderRadius:6,fontSize:11}}/>
+                              style={{flex:1,padding:"3px 8px",border:`1px solid ${C.border}`,borderRadius:6,fontSize:11}}/>
                             <input disabled={!canObtentores} value={a.observaciones||""} onChange={e=>updateAnexo(a.id,{observaciones:e.target.value})} placeholder="Notas..."
-                              style={{flex:1,padding:"3px 8px",border:"1px solid #e2e8f0",borderRadius:6,fontSize:11}}/>
+                              style={{flex:1,padding:"3px 8px",border:`1px solid ${C.border}`,borderRadius:6,fontSize:11}}/>
                           </div>
                         </div>
-                        {a.enlace&&<a href={a.enlace} target="_blank" rel="noopener noreferrer" style={{fontSize:11,color:"#7c3aed"}}>📎</a>}
-                        {canObtentores&&<button onClick={()=>delAnexo(a.id)} style={{background:"#fef2f2",border:"none",borderRadius:6,padding:"4px 8px",cursor:"pointer",fontSize:11}}>🗑</button>}
+                        {a.enlace&&<a href={a.enlace} target="_blank" rel="noopener noreferrer" style={{fontSize:11,color:C.purple}}>📎</a>}
+                        {canObtentores&&<button onClick={()=>delAnexo(a.id)} style={{background:C.dangerBg,border:"none",borderRadius:6,padding:"4px 8px",cursor:"pointer",fontSize:11}}>🗑</button>}
                       </div>
                     ))}
                   </div>
@@ -8789,21 +8794,21 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
           {/* Sub-modal: Agregar Especie */}
           {espModal&&(
             <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:10000}} onClick={()=>setEspModal(false)}>
-              <div onClick={e=>e.stopPropagation()} style={{background:"#fff",borderRadius:16,padding:24,width:540,maxHeight:"85vh",overflowY:"auto"}}>
-                <h3 style={{margin:"0 0 16px",color:"#1e293b"}}>🌿 Nueva Especie/Variedad</h3>
+              <div onClick={e=>e.stopPropagation()} style={{background:C.card,borderRadius:16,padding:24,width:540,maxHeight:"85vh",overflowY:"auto"}}>
+                <h3 style={{margin:"0 0 16px",color:C.text}}>🌿 Nueva Especie/Variedad</h3>
                 <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:12}}>
                   <div>
-                    <label style={{fontSize:11,fontWeight:600,color:"#475569",display:"block",marginBottom:4}}>Especie <span style={{color:"#dc2626"}}>*</span></label>
+                    <label style={{fontSize:11,fontWeight:600,color:C.muted,display:"block",marginBottom:4}}>Especie <span style={{color:C.danger}}>*</span></label>
                     <select value={espForm.especie||""} onChange={e=>setEspForm(p=>({...p,especie:e.target.value,variedad:""}))}
-                      style={{width:"100%",padding:"8px 12px",borderRadius:8,border:"1px solid #d1d5db",fontSize:13,boxSizing:"border-box",background:"#fff"}}>
+                      style={{width:"100%",padding:"8px 12px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:13,boxSizing:"border-box",background:C.card}}>
                       <option value="">— Seleccionar especie —</option>
                       {especiesMaestro.filter(e=>e.nombre||e.especie).map(e=>{const n=e.nombre||e.especie;return <option key={e.id} value={n}>{n}</option>;})}
                     </select>
                   </div>
                   <div>
-                    <label style={{fontSize:11,fontWeight:600,color:"#475569",display:"block",marginBottom:4}}>Denominación <span style={{color:"#dc2626"}}>*</span></label>
+                    <label style={{fontSize:11,fontWeight:600,color:C.muted,display:"block",marginBottom:4}}>Denominación <span style={{color:C.danger}}>*</span></label>
                     <select value={espForm.variedad||""} onChange={e=>setEspForm(p=>({...p,variedad:e.target.value}))}
-                      style={{width:"100%",padding:"8px 12px",borderRadius:8,border:"1px solid #d1d5db",fontSize:13,boxSizing:"border-box",background:"#fff"}}>
+                      style={{width:"100%",padding:"8px 12px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:13,boxSizing:"border-box",background:C.card}}>
                       <option value="">— Seleccionar denominación —</option>
                       {(()=>{
                         const espSel = (espForm.especie||"").trim().toLowerCase();
@@ -8817,70 +8822,70 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
                   </div>
                 </div>
                 <div style={{marginBottom:12}}>
-                  <label style={{fontSize:11,fontWeight:600,color:"#475569",display:"block",marginBottom:4}}>Observaciones de la variedad</label>
+                  <label style={{fontSize:11,fontWeight:600,color:C.muted,display:"block",marginBottom:4}}>Observaciones de la variedad</label>
                   <textarea value={espForm.observaciones||""} onChange={e=>setEspForm(p=>({...p,observaciones:e.target.value}))}
-                    style={{width:"100%",padding:"8px 12px",borderRadius:8,border:"1px solid #d1d5db",fontSize:13,minHeight:50,boxSizing:"border-box"}}/>
+                    style={{width:"100%",padding:"8px 12px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:13,minHeight:50,boxSizing:"border-box"}}/>
                 </div>
                 {/* Sección DHE multi-país */}
-                <div style={{padding:12,background:"#fef3c7",borderRadius:8,border:"1px solid #fbbf24",marginBottom:12}}>
+                <div style={{padding:12,background:C.warningBg,borderRadius:8,border:`1px solid ${C.warning}`,marginBottom:12}}>
                   <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
-                    <div style={{fontSize:12,fontWeight:800,color:"#78350f"}}>📋 DHE (Distinción, Homogeneidad y Estabilidad)</div>
+                    <div style={{fontSize:12,fontWeight:800,color:C.text}}>📋 DHE (Distinción, Homogeneidad y Estabilidad)</div>
                     <button onClick={()=>{
                       const nd={id:`dhe_${Date.now()}`,pais:"",estado:"No iniciado",fecha_solicitud:"",fecha_aprob:"",nRegistro:"",doc:"",observaciones:""};
                       setEspForm(p=>({...p,dhe:[...(p.dhe||[]),nd]}));
-                    }} type="button" style={{padding:"4px 12px",borderRadius:6,background:"#7c3aed",border:"none",color:"#fff",cursor:"pointer",fontSize:11,fontWeight:700}}>+ País DHE</button>
+                    }} type="button" style={{padding:"4px 12px",borderRadius:6,background:C.purple,border:"none",color:"#fff",cursor:"pointer",fontSize:11,fontWeight:700}}>+ País DHE</button>
                   </div>
-                  <div style={{fontSize:11,color:"#78350f",marginBottom:8}}>Agrega un registro DHE por cada país donde aplique.</div>
+                  <div style={{fontSize:11,color:C.text,marginBottom:8}}>Agrega un registro DHE por cada país donde aplique.</div>
                   {(espForm.dhe||[]).length===0?(
-                    <div style={{padding:12,textAlign:"center",color:"#92400e",fontSize:11,border:"1px dashed #fbbf24",borderRadius:6}}>Sin registros DHE. Click en "+ País DHE" para agregar.</div>
+                    <div style={{padding:12,textAlign:"center",color:C.text,fontSize:11,border:"1px dashed #fbbf24",borderRadius:6}}>Sin registros DHE. Click en "+ País DHE" para agregar.</div>
                   ):(
                     <div style={{display:"flex",flexDirection:"column",gap:8}}>
                       {(espForm.dhe||[]).map((d,idx)=>{
                         const updD=(f,v)=>setEspForm(p=>({...p,dhe:(p.dhe||[]).map(x=>x.id===d.id?{...x,[f]:v}:x)}));
                         return(
-                          <div key={d.id} style={{border:"1px solid #fde68a",borderRadius:8,padding:10,background:"#fffbeb"}}>
+                          <div key={d.id} style={{border:`1px solid ${C.warning}`,borderRadius:8,padding:10,background:C.warningBg}}>
                             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
-                              <div style={{fontSize:11,fontWeight:700,color:"#78350f"}}>País DHE #{idx+1}</div>
+                              <div style={{fontSize:11,fontWeight:700,color:C.text}}>País DHE #{idx+1}</div>
                               <button onClick={()=>setEspForm(p=>({...p,dhe:(p.dhe||[]).filter(x=>x.id!==d.id)}))} type="button"
-                                style={{background:"#fef2f2",border:"none",borderRadius:4,padding:"2px 8px",cursor:"pointer",fontSize:10,color:"#991b1b"}}>🗑</button>
+                                style={{background:C.dangerBg,border:"none",borderRadius:4,padding:"2px 8px",cursor:"pointer",fontSize:10,color:C.danger}}>🗑</button>
                             </div>
                             <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,marginBottom:6}}>
                               <div>
-                                <label style={{fontSize:10,fontWeight:600,color:"#475569",display:"block",marginBottom:2}}>País *</label>
+                                <label style={{fontSize:10,fontWeight:600,color:C.muted,display:"block",marginBottom:2}}>País *</label>
                                 <select value={d.pais||""} onChange={e=>updD("pais",e.target.value)}
-                                  style={{width:"100%",padding:"6px 8px",borderRadius:6,border:"1px solid #d1d5db",fontSize:11,boxSizing:"border-box",background:"#fff"}}>
+                                  style={{width:"100%",padding:"6px 8px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:11,boxSizing:"border-box",background:C.card}}>
                                   <option value="">— Seleccionar —</option>
                                   {PAISES_DHE.map(p=><option key={p} value={p}>{p}</option>)}
                                 </select>
                               </div>
                               <div>
-                                <label style={{fontSize:10,fontWeight:600,color:"#475569",display:"block",marginBottom:2}}>Estado</label>
+                                <label style={{fontSize:10,fontWeight:600,color:C.muted,display:"block",marginBottom:2}}>Estado</label>
                                 <select value={d.estado||"No iniciado"} onChange={e=>updD("estado",e.target.value)}
-                                  style={{width:"100%",padding:"6px 8px",borderRadius:6,border:"1px solid #d1d5db",fontSize:11,boxSizing:"border-box",background:"#fff"}}>
+                                  style={{width:"100%",padding:"6px 8px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:11,boxSizing:"border-box",background:C.card}}>
                                   {ESTADOS_DHE.map(s=><option key={s} value={s}>{s}</option>)}
                                 </select>
                               </div>
                               <div>
-                                <label style={{fontSize:10,fontWeight:600,color:"#475569",display:"block",marginBottom:2}}>N° Registro</label>
+                                <label style={{fontSize:10,fontWeight:600,color:C.muted,display:"block",marginBottom:2}}>N° Registro</label>
                                 <input value={d.nRegistro||""} placeholder="Ej: 2024-001" onChange={e=>updD("nRegistro",e.target.value)}
-                                  style={{width:"100%",padding:"6px 8px",borderRadius:6,border:"1px solid #d1d5db",fontSize:11,boxSizing:"border-box"}}/>
+                                  style={{width:"100%",padding:"6px 8px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:11,boxSizing:"border-box"}}/>
                               </div>
                             </div>
                             <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8}}>
                               <div>
-                                <label style={{fontSize:10,fontWeight:600,color:"#475569",display:"block",marginBottom:2}}>F. Solicitud</label>
+                                <label style={{fontSize:10,fontWeight:600,color:C.muted,display:"block",marginBottom:2}}>F. Solicitud</label>
                                 <input type="date" value={d.fecha_solicitud||""} onChange={e=>updD("fecha_solicitud",e.target.value)}
-                                  style={{width:"100%",padding:"6px 8px",borderRadius:6,border:"1px solid #d1d5db",fontSize:11,boxSizing:"border-box"}}/>
+                                  style={{width:"100%",padding:"6px 8px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:11,boxSizing:"border-box"}}/>
                               </div>
                               <div>
-                                <label style={{fontSize:10,fontWeight:600,color:"#475569",display:"block",marginBottom:2}}>F. Aprobación</label>
+                                <label style={{fontSize:10,fontWeight:600,color:C.muted,display:"block",marginBottom:2}}>F. Aprobación</label>
                                 <input type="date" value={d.fecha_aprob||""} onChange={e=>updD("fecha_aprob",e.target.value)}
-                                  style={{width:"100%",padding:"6px 8px",borderRadius:6,border:"1px solid #d1d5db",fontSize:11,boxSizing:"border-box"}}/>
+                                  style={{width:"100%",padding:"6px 8px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:11,boxSizing:"border-box"}}/>
                               </div>
                               <div>
-                                <label style={{fontSize:10,fontWeight:600,color:"#475569",display:"block",marginBottom:2}}>📎 Doc DHE</label>
+                                <label style={{fontSize:10,fontWeight:600,color:C.muted,display:"block",marginBottom:2}}>📎 Doc DHE</label>
                                 <input value={d.doc||""} placeholder="https://..." onChange={e=>updD("doc",e.target.value)}
-                                  style={{width:"100%",padding:"6px 8px",borderRadius:6,border:"1px solid #d1d5db",fontSize:11,boxSizing:"border-box"}}/>
+                                  style={{width:"100%",padding:"6px 8px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:11,boxSizing:"border-box"}}/>
                               </div>
                             </div>
                           </div>
@@ -8890,8 +8895,8 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
                   )}
                 </div>
                 <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}>
-                  <button onClick={()=>setEspModal(false)} style={{padding:"8px 16px",borderRadius:8,border:"1px solid #d1d5db",background:"#fff",cursor:"pointer"}}>Cancelar</button>
-                  <button onClick={guardarEspecie} style={{padding:"8px 16px",borderRadius:8,background:"#7c3aed",border:"none",color:"#fff",cursor:"pointer",fontWeight:700}}>Guardar</button>
+                  <button onClick={()=>setEspModal(false)} style={{padding:"8px 16px",borderRadius:8,border:`1px solid ${C.border}`,background:C.card,cursor:"pointer"}}>Cancelar</button>
+                  <button onClick={guardarEspecie} style={{padding:"8px 16px",borderRadius:8,background:C.purple,border:"none",color:"#fff",cursor:"pointer",fontWeight:700}}>Guardar</button>
                 </div>
               </div>
             </div>
@@ -8900,25 +8905,25 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
           {/* Sub-modal: Agregar PBR */}
           {pbrModal&&(
             <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:10000}} onClick={()=>setPbrModal(false)}>
-              <div onClick={e=>e.stopPropagation()} style={{background:"#fff",borderRadius:16,padding:24,width:540,maxHeight:"85vh",overflowY:"auto"}}>
-                <h3 style={{margin:"0 0 16px",color:"#1e293b"}}>📜 Nuevo Registro PBR</h3>
+              <div onClick={e=>e.stopPropagation()} style={{background:C.card,borderRadius:16,padding:24,width:540,maxHeight:"85vh",overflowY:"auto"}}>
+                <h3 style={{margin:"0 0 16px",color:C.text}}>📜 Nuevo Registro PBR</h3>
                 <div style={{marginBottom:12}}>
-                  <label style={{fontSize:11,fontWeight:600,color:"#475569",display:"block",marginBottom:4}}>Especie <span style={{color:"#dc2626"}}>*</span></label>
+                  <label style={{fontSize:11,fontWeight:600,color:C.muted,display:"block",marginBottom:4}}>Especie <span style={{color:C.danger}}>*</span></label>
                   <select value={pbrForm.especie||""} onChange={e=>setPbrForm(p=>({...p,especie:e.target.value,variedades:[]}))}
-                    style={{width:"100%",padding:"8px 12px",borderRadius:8,border:"1px solid #d1d5db",fontSize:13,boxSizing:"border-box",background:"#fff"}}>
+                    style={{width:"100%",padding:"8px 12px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:13,boxSizing:"border-box",background:C.card}}>
                     <option value="">— Seleccionar especie —</option>
                     {especiesMaestro.filter(e=>e.nombre||e.especie).map(e=>{const n=e.nombre||e.especie;return <option key={e.id} value={n}>{n}</option>;})}
                   </select>
                 </div>
                 <div style={{marginBottom:12}}>
-                  <label style={{fontSize:11,fontWeight:600,color:"#475569",display:"block",marginBottom:4}}>Variedades (seleccionar una o más)</label>
-                  <div style={{maxHeight:120,overflowY:"auto",border:"1px solid #d1d5db",borderRadius:8,padding:8,background:"#fff"}}>
+                  <label style={{fontSize:11,fontWeight:600,color:C.muted,display:"block",marginBottom:4}}>Variedades (seleccionar una o más)</label>
+                  <div style={{maxHeight:120,overflowY:"auto",border:`1px solid ${C.border}`,borderRadius:8,padding:8,background:C.card}}>
                     {variedadesMaestro.filter(v=>!pbrForm.especie||v.especie===pbrForm.especie).length===0
-                      ? <div style={{fontSize:11,color:"#94a3b8",padding:4}}>Sin variedades para esta especie</div>
+                      ? <div style={{fontSize:11,color:C.muted2,padding:4}}>Sin variedades para esta especie</div>
                       : variedadesMaestro.filter(v=>!pbrForm.especie||v.especie===pbrForm.especie).map(v=>{
                           const sel = (pbrForm.variedades||[]).includes(v.variedad);
                           return (
-                            <label key={v.id} style={{display:"flex",alignItems:"center",gap:6,padding:"3px 4px",cursor:"pointer",fontSize:12,color:sel?"#1e293b":"#64748b",background:sel?"#ede9fe":"transparent",borderRadius:4,marginBottom:2}}>
+                            <label key={v.id} style={{display:"flex",alignItems:"center",gap:6,padding:"3px 4px",cursor:"pointer",fontSize:12,color:sel?C.primary:C.muted,background:sel?C.purpleBg:"transparent",borderRadius:4,marginBottom:2}}>
                               <input type="checkbox" checked={sel} onChange={()=>setPbrForm(p=>{
                                 const cur = p.variedades||[];
                                 return {...p, variedades: sel ? cur.filter(x=>x!==v.variedad) : [...cur, v.variedad]};
@@ -8931,47 +8936,47 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
                   </div>
                 </div>
                 <div style={{marginBottom:12}}>
-                  <label style={{fontSize:11,fontWeight:600,color:"#475569",display:"block",marginBottom:4}}>País de Inscripción <span style={{color:"#dc2626"}}>*</span></label>
+                  <label style={{fontSize:11,fontWeight:600,color:C.muted,display:"block",marginBottom:4}}>País de Inscripción <span style={{color:C.danger}}>*</span></label>
                   <input value={pbrForm.pais||""} placeholder="Chile, Perú, México..." onChange={e=>setPbrForm(p=>({...p,pais:e.target.value}))}
-                    style={{width:"100%",padding:"8px 12px",borderRadius:8,border:"1px solid #d1d5db",fontSize:13,boxSizing:"border-box"}}/>
+                    style={{width:"100%",padding:"8px 12px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:13,boxSizing:"border-box"}}/>
                 </div>
                 <div style={{marginBottom:12}}>
-                  <label style={{fontSize:11,fontWeight:600,color:"#475569",display:"block",marginBottom:4}}>Estado</label>
+                  <label style={{fontSize:11,fontWeight:600,color:C.muted,display:"block",marginBottom:4}}>Estado</label>
                   <select value={pbrForm.estado||"Pendiente"} onChange={e=>setPbrForm(p=>({...p,estado:e.target.value}))}
-                    style={{width:"100%",padding:"8px 12px",borderRadius:8,border:"1px solid #d1d5db",fontSize:13,boxSizing:"border-box",background:"#fff"}}>
+                    style={{width:"100%",padding:"8px 12px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:13,boxSizing:"border-box",background:C.card}}>
                     {ESTADOS_PBR.map(s=><option key={s} value={s}>{s}</option>)}
                   </select>
                 </div>
                 <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:12}}>
                   <div>
-                    <label style={{fontSize:11,fontWeight:600,color:"#475569",display:"block",marginBottom:4}}>Fecha Solicitud</label>
+                    <label style={{fontSize:11,fontWeight:600,color:C.muted,display:"block",marginBottom:4}}>Fecha Solicitud</label>
                     <input type="date" value={pbrForm.f_solicitud||""} onChange={e=>setPbrForm(p=>({...p,f_solicitud:e.target.value}))}
-                      style={{width:"100%",padding:"8px 12px",borderRadius:8,border:"1px solid #d1d5db",fontSize:13,boxSizing:"border-box"}}/>
+                      style={{width:"100%",padding:"8px 12px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:13,boxSizing:"border-box"}}/>
                   </div>
                   <div>
-                    <label style={{fontSize:11,fontWeight:600,color:"#475569",display:"block",marginBottom:4}}>Fecha Resolución</label>
+                    <label style={{fontSize:11,fontWeight:600,color:C.muted,display:"block",marginBottom:4}}>Fecha Resolución</label>
                     <input type="date" value={pbrForm.f_resolucion||""} onChange={e=>setPbrForm(p=>({...p,f_resolucion:e.target.value}))}
-                      style={{width:"100%",padding:"8px 12px",borderRadius:8,border:"1px solid #d1d5db",fontSize:13,boxSizing:"border-box"}}/>
+                      style={{width:"100%",padding:"8px 12px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:13,boxSizing:"border-box"}}/>
                   </div>
                 </div>
                 <div style={{marginBottom:12}}>
-                  <label style={{fontSize:11,fontWeight:600,color:"#475569",display:"block",marginBottom:4}}>Doc. Solicitud (URL)</label>
+                  <label style={{fontSize:11,fontWeight:600,color:C.muted,display:"block",marginBottom:4}}>Doc. Solicitud (URL)</label>
                   <input value={pbrForm.doc_solicitud||""} onChange={e=>setPbrForm(p=>({...p,doc_solicitud:e.target.value}))}
-                    style={{width:"100%",padding:"8px 12px",borderRadius:8,border:"1px solid #d1d5db",fontSize:13,boxSizing:"border-box"}}/>
+                    style={{width:"100%",padding:"8px 12px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:13,boxSizing:"border-box"}}/>
                 </div>
                 <div style={{marginBottom:12}}>
-                  <label style={{fontSize:11,fontWeight:600,color:"#475569",display:"block",marginBottom:4}}>Doc. Resolución (URL)</label>
+                  <label style={{fontSize:11,fontWeight:600,color:C.muted,display:"block",marginBottom:4}}>Doc. Resolución (URL)</label>
                   <input value={pbrForm.doc_resolucion||""} onChange={e=>setPbrForm(p=>({...p,doc_resolucion:e.target.value}))}
-                    style={{width:"100%",padding:"8px 12px",borderRadius:8,border:"1px solid #d1d5db",fontSize:13,boxSizing:"border-box"}}/>
+                    style={{width:"100%",padding:"8px 12px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:13,boxSizing:"border-box"}}/>
                 </div>
                 <div style={{marginBottom:12}}>
-                  <label style={{fontSize:11,fontWeight:600,color:"#475569",display:"block",marginBottom:4}}>Observaciones</label>
+                  <label style={{fontSize:11,fontWeight:600,color:C.muted,display:"block",marginBottom:4}}>Observaciones</label>
                   <textarea value={pbrForm.observaciones||""} onChange={e=>setPbrForm(p=>({...p,observaciones:e.target.value}))}
-                    style={{width:"100%",padding:"8px 12px",borderRadius:8,border:"1px solid #d1d5db",fontSize:13,minHeight:60,boxSizing:"border-box"}}/>
+                    style={{width:"100%",padding:"8px 12px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:13,minHeight:60,boxSizing:"border-box"}}/>
                 </div>
                 <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}>
-                  <button onClick={()=>setPbrModal(false)} style={{padding:"8px 16px",borderRadius:8,border:"1px solid #d1d5db",background:"#fff",cursor:"pointer"}}>Cancelar</button>
-                  <button onClick={guardarPBR} style={{padding:"8px 16px",borderRadius:8,background:"#f59e0b",border:"none",color:"#fff",cursor:"pointer",fontWeight:700}}>Guardar PBR</button>
+                  <button onClick={()=>setPbrModal(false)} style={{padding:"8px 16px",borderRadius:8,border:`1px solid ${C.border}`,background:C.card,cursor:"pointer"}}>Cancelar</button>
+                  <button onClick={guardarPBR} style={{padding:"8px 16px",borderRadius:8,background:C.warning,border:"none",color:"#fff",cursor:"pointer",fontWeight:700}}>Guardar PBR</button>
                 </div>
               </div>
             </div>
@@ -8980,31 +8985,31 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
           {/* Sub-modal: Agregar Anexo */}
           {anxModal&&(
             <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:10000}} onClick={()=>setAnxModal(false)}>
-              <div onClick={e=>e.stopPropagation()} style={{background:"#fff",borderRadius:16,padding:24,width:480,maxHeight:"80vh",overflowY:"auto"}}>
-                <h3 style={{margin:"0 0 16px",color:"#1e293b"}}>📎 Nuevo Anexo</h3>
+              <div onClick={e=>e.stopPropagation()} style={{background:C.card,borderRadius:16,padding:24,width:480,maxHeight:"80vh",overflowY:"auto"}}>
+                <h3 style={{margin:"0 0 16px",color:C.text}}>📎 Nuevo Anexo</h3>
                 <div style={{marginBottom:12}}>
-                  <label style={{fontSize:11,fontWeight:600,color:"#475569",display:"block",marginBottom:4}}>Descripción <span style={{color:"#dc2626"}}>*</span></label>
+                  <label style={{fontSize:11,fontWeight:600,color:C.muted,display:"block",marginBottom:4}}>Descripción <span style={{color:C.danger}}>*</span></label>
                   <input value={anxForm.descripcion||""} placeholder="Adenda 2025, Carta compromiso..." onChange={e=>setAnxForm(p=>({...p,descripcion:e.target.value}))}
-                    style={{width:"100%",padding:"8px 12px",borderRadius:8,border:"1px solid #d1d5db",fontSize:13,boxSizing:"border-box"}}/>
+                    style={{width:"100%",padding:"8px 12px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:13,boxSizing:"border-box"}}/>
                 </div>
                 <div style={{marginBottom:12}}>
-                  <label style={{fontSize:11,fontWeight:600,color:"#475569",display:"block",marginBottom:4}}>Fecha</label>
+                  <label style={{fontSize:11,fontWeight:600,color:C.muted,display:"block",marginBottom:4}}>Fecha</label>
                   <input type="date" value={anxForm.fecha||""} onChange={e=>setAnxForm(p=>({...p,fecha:e.target.value}))}
-                    style={{width:"100%",padding:"8px 12px",borderRadius:8,border:"1px solid #d1d5db",fontSize:13,boxSizing:"border-box"}}/>
+                    style={{width:"100%",padding:"8px 12px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:13,boxSizing:"border-box"}}/>
                 </div>
                 <div style={{marginBottom:12}}>
-                  <label style={{fontSize:11,fontWeight:600,color:"#475569",display:"block",marginBottom:4}}>Enlace (URL)</label>
+                  <label style={{fontSize:11,fontWeight:600,color:C.muted,display:"block",marginBottom:4}}>Enlace (URL)</label>
                   <input value={anxForm.enlace||""} placeholder="https://..." onChange={e=>setAnxForm(p=>({...p,enlace:e.target.value}))}
-                    style={{width:"100%",padding:"8px 12px",borderRadius:8,border:"1px solid #d1d5db",fontSize:13,boxSizing:"border-box"}}/>
+                    style={{width:"100%",padding:"8px 12px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:13,boxSizing:"border-box"}}/>
                 </div>
                 <div style={{marginBottom:12}}>
-                  <label style={{fontSize:11,fontWeight:600,color:"#475569",display:"block",marginBottom:4}}>Observaciones</label>
+                  <label style={{fontSize:11,fontWeight:600,color:C.muted,display:"block",marginBottom:4}}>Observaciones</label>
                   <textarea value={anxForm.observaciones||""} onChange={e=>setAnxForm(p=>({...p,observaciones:e.target.value}))}
-                    style={{width:"100%",padding:"8px 12px",borderRadius:8,border:"1px solid #d1d5db",fontSize:13,minHeight:60,boxSizing:"border-box"}}/>
+                    style={{width:"100%",padding:"8px 12px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:13,minHeight:60,boxSizing:"border-box"}}/>
                 </div>
                 <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}>
-                  <button onClick={()=>setAnxModal(false)} style={{padding:"8px 16px",borderRadius:8,border:"1px solid #d1d5db",background:"#fff",cursor:"pointer"}}>Cancelar</button>
-                  <button onClick={guardarAnexo} style={{padding:"8px 16px",borderRadius:8,background:"#7c3aed",border:"none",color:"#fff",cursor:"pointer",fontWeight:700}}>Guardar</button>
+                  <button onClick={()=>setAnxModal(false)} style={{padding:"8px 16px",borderRadius:8,border:`1px solid ${C.border}`,background:C.card,cursor:"pointer"}}>Cancelar</button>
+                  <button onClick={guardarAnexo} style={{padding:"8px 16px",borderRadius:8,background:C.purple,border:"none",color:"#fff",cursor:"pointer",fontWeight:700}}>Guardar</button>
                 </div>
               </div>
             </div>
@@ -9017,7 +9022,7 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
     const totVencidos = obtData.filter(o=>{const d=diasParaVencer(o.f_vencimiento);return d!==null && d<0;}).length;
     const totPorVencer = obtData.filter(o=>{const d=diasParaVencer(o.f_vencimiento);return d!==null && d>=0 && d<=90;}).length;
     return (
-      <div style={{fontFamily:"sans-serif",background:"#0d1117",minHeight:"100vh",padding:"20px 20px 40px"}}>
+      <div style={{fontFamily:"sans-serif",background:C.bg,minHeight:"100vh",padding:"20px 20px 40px"}}>
         <NavBar breadcrumbItems={[
           {label:"Mediterra", onClick:onBack},
           {label:"Osiris Hub", onClick:()=>setSubApp(null)},
@@ -9025,12 +9030,12 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
         ]}/>
 
         {canVerObtentores&&!canObtentores&&(
-          <div style={{background:"linear-gradient(135deg,#fef3c7,#fde68a)",border:"1px solid #f59e0b",
+          <div style={{background:C.warningBg,border:`1px solid ${C.warning}`,
             borderRadius:10,padding:"10px 16px",marginBottom:14,display:"flex",alignItems:"center",gap:10}}>
             <span style={{fontSize:20}}>👁</span>
             <div style={{flex:1}}>
-              <div style={{fontSize:12,fontWeight:800,color:"#92400e"}}>Modo solo lectura</div>
-              <div style={{fontSize:11,color:"#78350f"}}>
+              <div style={{fontSize:12,fontWeight:800,color:C.text}}>Modo solo lectura</div>
+              <div style={{fontSize:11,color:C.text}}>
                 {esConsulta
                   ? "Tu rol es de Consulta. Puedes visualizar y exportar a Excel, pero no modificar contratos obtentores."
                   : "Tienes permiso de \"Solo ver\" en Contratos Obtentores. Puedes visualizar y exportar pero no modificar."}
@@ -9042,41 +9047,41 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
         {/* KPIs */}
         <div style={{display:"flex",gap:12,flexWrap:"wrap",marginBottom:16}}>
           {[
-            ["📊 Total contratos", obtData.length, "#7c3aed"],
-            ["⚠️ Vencidos",          totVencidos,    "#dc2626"],
-            ["⏳ Vencen ≤ 90 días", totPorVencer,  "#f59e0b"],
-            ["🌿 Especies totales", obtData.reduce((s,o)=>s+(o.especies||[]).length,0), "#16a34a"],
-            ["📜 PBR aprobados",    obtData.reduce((s,o)=>s+(o.pbr||[]).filter(p=>p.estado==="Aprobado").length,0), "#0f766e"],
+            ["📊 Total contratos", obtData.length, C.purple],
+            ["⚠️ Vencidos",          totVencidos,    C.danger],
+            ["⏳ Vencen ≤ 90 días", totPorVencer,  C.warning],
+            ["🌿 Especies totales", obtData.reduce((s,o)=>s+(o.especies||[]).length,0), C.success],
+            ["📜 PBR aprobados",    obtData.reduce((s,o)=>s+(o.pbr||[]).filter(p=>p.estado==="Aprobado").length,0), C.accent2],
           ].map(([l,v,c])=>(
-            <div key={l} style={{background:"#21283b",border:"1px solid #30363d",borderLeft:`4px solid ${c}`,
-              borderRadius:10,padding:"12px 16px",flex:1,minWidth:140}}>
-              <div style={{fontSize:10,color:"#8b949e",fontWeight:600,marginBottom:4}}>{l}</div>
+            <div key={l} style={{background:C.card,border:`1px solid ${C.border}`,borderLeft:`4px solid ${c}`,
+              borderRadius:10,padding:"12px 16px",flex:1,minWidth:140,boxShadow:C.shadow}}>
+              <div style={{fontSize:10,color:C.muted,fontWeight:600,marginBottom:4}}>{l}</div>
               <div style={{fontSize:20,fontWeight:900,color:c}}>{v}</div>
             </div>
           ))}
         </div>
 
-        <div style={{background:"#fff",borderRadius:14,padding:20,boxShadow:"0 2px 10px #0001"}}>
+        <div style={{background:C.card,borderRadius:14,padding:20,boxShadow:"0 2px 10px #0001"}}>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16,flexWrap:"wrap",gap:8}}>
-            <h3 style={{margin:0,fontSize:18,color:"#1e293b"}}>🧬 Contratos Obtentores</h3>
+            <h3 style={{margin:0,fontSize:18,color:C.text}}>🧬 Contratos Obtentores</h3>
             <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
               <button onClick={()=>{setShowEspeciesObt(p=>!p);setShowVariedadesObt(false);}}
-                style={{background:showEspeciesObt?"#0d9488":"#f1f5f9",color:showEspeciesObt?"#fff":"#1e293b",border:"1px solid #e2e8f0",borderRadius:8,padding:"8px 14px",cursor:"pointer",fontSize:12,fontWeight:600}}>
+                style={{background:showEspeciesObt?C.accent2:C.cardAlt,color:showEspeciesObt?"#fff":C.text,border:`1px solid ${C.border}`,borderRadius:8,padding:"8px 14px",cursor:"pointer",fontSize:12,fontWeight:600}}>
                 🌳 Especies</button>
               <button onClick={()=>{setShowVariedadesObt(p=>!p);setShowEspeciesObt(false);}}
-                style={{background:showVariedadesObt?"#0d9488":"#f1f5f9",color:showVariedadesObt?"#fff":"#1e293b",border:"1px solid #e2e8f0",borderRadius:8,padding:"8px 14px",cursor:"pointer",fontSize:12,fontWeight:600}}>
+                style={{background:showVariedadesObt?C.accent2:C.cardAlt,color:showVariedadesObt?"#fff":C.text,border:`1px solid ${C.border}`,borderRadius:8,padding:"8px 14px",cursor:"pointer",fontSize:12,fontWeight:600}}>
                 🌿 Variedades</button>
               <button onClick={()=>exportarObtentores(obtData)}
-                style={{padding:"8px 16px",borderRadius:8,background:"#0f766e",border:"none",color:"#fff",cursor:"pointer",fontSize:12,fontWeight:700}}>
+                style={{padding:"8px 16px",borderRadius:8,background:C.accent2,border:"none",color:"#fff",cursor:"pointer",fontSize:12,fontWeight:700}}>
                 📥 Exportar Excel</button>
               {canObtentores&&<button onClick={()=>{setObtForm(EMPTY_OBT);setObtEditId(null);setObtWizStep(1);setObtWizEspForm(EMPTY_ESP_INLINE);setObtWizPbrForm(EMPTY_PBR_INLINE);setObtModal(true);}}
-                style={{padding:"8px 16px",borderRadius:8,background:"#7c3aed",border:"none",color:"#fff",cursor:"pointer",fontSize:12,fontWeight:700}}>
+                style={{padding:"8px 16px",borderRadius:8,background:C.purple,border:"none",color:"#fff",cursor:"pointer",fontSize:12,fontWeight:700}}>
                 + Nuevo Contrato</button>}
             </div>
           </div>
           {showEspeciesObt&&<MaestroEspecies especies={especiesMaestro} setEspecies={setEspeciesMaestro} can={canObtentores} obtentores={obtData} contratos={ctData} variedades={variedadesMaestro}/>}
           {showVariedadesObt&&<MaestroVariedades variedades={variedadesMaestro} setVariedades={setVariedadesMaestro} can={canObtentores} obtentores={obtData} especies={especiesMaestro} setEspecies={setEspeciesMaestro}/>}
-          {obtData.length===0?<div style={{padding:40,textAlign:"center",color:"#94a3b8"}}>No hay contratos obtentores. {canObtentores?"Haz click en \"+ Nuevo Contrato\" para agregar.":""}</div>:(
+          {obtData.length===0?<div style={{padding:40,textAlign:"center",color:C.muted2}}>No hay contratos obtentores. {canObtentores?"Haz click en \"+ Nuevo Contrato\" para agregar.":""}</div>:(
             <div style={{display:"grid",gap:12}}>
               {obtData.map(o=>{
                 const vig = estadoVigencia(o.f_vencimiento);
@@ -9087,28 +9092,28 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
                 const isVencido = venc!==null && venc<0;
                 return (
                   <div key={o.id} onClick={()=>{setObtDetalle(o.id);setObtTab("general");}}
-                    style={{border:`1px solid ${isVencido?"#fca5a5":"#e2e8f0"}`,borderRadius:12,padding:"16px 20px",cursor:"pointer",
-                      background:isVencido?"#fef2f2":"#fff",transition:"all 0.15s"}}
+                    style={{border:`1px solid ${isVencido?"#fca5a5":C.border}`,borderRadius:12,padding:"16px 20px",cursor:"pointer",
+                      background:isVencido?C.dangerBg:"#fff",transition:"all 0.15s"}}
                     onMouseEnter={e=>e.currentTarget.style.boxShadow="0 4px 12px #0002"}
                     onMouseLeave={e=>e.currentTarget.style.boxShadow="none"}>
                     <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:8}}>
                       <div>
-                        <div style={{fontWeight:800,fontSize:15,color:"#1e293b"}}>🧬 {o.obtentor}</div>
-                        <div style={{fontSize:11,color:"#64748b",marginTop:2}}>
+                        <div style={{fontWeight:800,fontSize:15,color:C.text}}>🧬 {o.obtentor}</div>
+                        <div style={{fontSize:11,color:C.muted,marginTop:2}}>
                           {o.f_inicio&&`${o.f_inicio} → `}{o.f_vencimiento||"Sin vencimiento"}
                           <span style={{color:vig.color,marginLeft:8,fontWeight:700,background:vig.bg,padding:"2px 8px",borderRadius:10}}>{vig.icon} {vig.label}</span>
                         </div>
                       </div>
                       <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
-                        {firmado&&<span style={{fontSize:10,background:"rgba(34,197,94,0.15)",color:"#16a34a",padding:"3px 10px",borderRadius:20,fontWeight:700}}>✅ Firmado</span>}
-                        {o.renovable&&<span style={{fontSize:10,background:"rgba(96,165,250,0.15)",color:"#3b82f6",padding:"3px 10px",borderRadius:20,fontWeight:700}}>🔄</span>}
-                        <span style={{fontSize:10,background:"rgba(124,58,237,0.15)",color:"#7c3aed",padding:"3px 10px",borderRadius:20,fontWeight:700}}>{nEsp} esp.</span>
-                        <span style={{fontSize:10,background:"rgba(251,191,36,0.15)",color:"#d97706",padding:"3px 10px",borderRadius:20,fontWeight:700}}>{nPbr} PBR</span>
+                        {firmado&&<span style={{fontSize:10,background:"rgba(34,197,94,0.15)",color:C.success,padding:"3px 10px",borderRadius:20,fontWeight:700}}>✅ Firmado</span>}
+                        {o.renovable&&<span style={{fontSize:10,background:"rgba(96,165,250,0.15)",color:C.primary,padding:"3px 10px",borderRadius:20,fontWeight:700}}>🔄</span>}
+                        <span style={{fontSize:10,background:"rgba(124,58,237,0.15)",color:C.purple,padding:"3px 10px",borderRadius:20,fontWeight:700}}>{nEsp} esp.</span>
+                        <span style={{fontSize:10,background:"rgba(251,191,36,0.15)",color:C.warning,padding:"3px 10px",borderRadius:20,fontWeight:700}}>{nPbr} PBR</span>
                         {canObtentores&&<>
                           <button onClick={e=>{e.stopPropagation();setObtForm({...EMPTY_OBT,...o});setObtEditId(o.id);setObtWizStep(1);setObtWizEspForm(EMPTY_ESP_INLINE);setObtWizPbrForm(EMPTY_PBR_INLINE);setObtModal(true);}}
-                            style={{background:"#f0f9ff",border:"none",borderRadius:6,padding:"4px 10px",cursor:"pointer",fontSize:11}}>✏️</button>
+                            style={{background:C.infoBg,border:"none",borderRadius:6,padding:"4px 10px",cursor:"pointer",fontSize:11}}>✏️</button>
                           <button onClick={e=>{e.stopPropagation();eliminarObt(o.id);}}
-                            style={{background:"#fef2f2",border:"none",borderRadius:6,padding:"4px 10px",cursor:"pointer",fontSize:11}}>🗑</button>
+                            style={{background:C.dangerBg,border:"none",borderRadius:6,padding:"4px 10px",cursor:"pointer",fontSize:11}}>🗑</button>
                         </>}
                       </div>
                     </div>
@@ -9166,8 +9171,8 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
 
           // Estados visuales del stepper
           const Step = ({n, label, active, done}) => {
-            const bg = active?"#7c3aed":done?"#16a34a":"#e2e8f0";
-            const col = active||done?"#fff":"#94a3b8";
+            const bg = active?C.purple:done?C.success:C.border;
+            const col = active||done?"#fff":C.muted2;
             return (
               <div style={{display:"flex",alignItems:"center",gap:8,flex:1,minWidth:0}}>
                 <div style={{
@@ -9178,7 +9183,7 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
                 }}>{done?"✓":n}</div>
                 <div style={{
                   fontSize:11,fontWeight:active?700:500,
-                  color:active?"#1e293b":done?"#16a34a":"#94a3b8",
+                  color:active?C.primary:done?C.success:C.muted2,
                   whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"
                 }}>{label}</div>
               </div>
@@ -9198,41 +9203,41 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
 
           return (
           <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:9999}} onClick={()=>setObtModal(false)}>
-            <div onClick={e=>e.stopPropagation()} style={{background:"#fff",borderRadius:16,padding:24,width:680,maxHeight:"92vh",overflowY:"auto"}}>
-              <h3 style={{margin:"0 0 18px",color:"#1e293b"}}>{obtEditId?"✏️ Editar":"➕ Nuevo"} Contrato Obtentor</h3>
+            <div onClick={e=>e.stopPropagation()} style={{background:C.card,borderRadius:16,padding:24,width:680,maxHeight:"92vh",overflowY:"auto"}}>
+              <h3 style={{margin:"0 0 18px",color:C.text}}>{obtEditId?"✏️ Editar":"➕ Nuevo"} Contrato Obtentor</h3>
 
               {/* Stepper */}
-              <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:20,padding:"12px 8px",background:"#f8fafc",borderRadius:10}}>
+              <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:20,padding:"12px 8px",background:C.cardAlt,borderRadius:10}}>
                 <Step n={1} label="Cabecera"        active={obtWizStep===1} done={obtWizStep>1}/>
-                <div style={{flex:"0 0 30px",height:2,background:obtWizStep>1?"#16a34a":"#e2e8f0"}}/>
+                <div style={{flex:"0 0 30px",height:2,background:obtWizStep>1?C.success:C.border}}/>
                 <Step n={2} label="Especies / DHE"  active={obtWizStep===2} done={obtWizStep>2}/>
-                <div style={{flex:"0 0 30px",height:2,background:obtWizStep>2?"#16a34a":"#e2e8f0"}}/>
+                <div style={{flex:"0 0 30px",height:2,background:obtWizStep>2?C.success:C.border}}/>
                 <Step n={3} label="Registros PBR"   active={obtWizStep===3} done={false}/>
               </div>
 
               {/* PASO 1 — Cabecera */}
               {obtWizStep===1&&(<>
                 <div style={{marginBottom:12}}>
-                  <label style={{fontSize:11,fontWeight:600,color:"#475569",display:"block",marginBottom:4}}>Nombre del Obtentor <span style={{color:"#dc2626"}}>*</span></label>
+                  <label style={{fontSize:11,fontWeight:600,color:C.muted,display:"block",marginBottom:4}}>Nombre del Obtentor <span style={{color:C.danger}}>*</span></label>
                   <input value={obtForm.obtentor||""} placeholder="Ej. SunWorld, IFG, Bloom Fresh..." onChange={e=>setObtForm(p=>({...p,obtentor:e.target.value}))}
-                    style={{width:"100%",padding:"8px 12px",borderRadius:8,border:"1px solid #d1d5db",fontSize:13,boxSizing:"border-box"}}/>
+                    style={{width:"100%",padding:"8px 12px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:13,boxSizing:"border-box"}}/>
                 </div>
                 <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:12}}>
                   <div>
-                    <label style={{fontSize:11,fontWeight:600,color:"#475569",display:"block",marginBottom:4}}>Fecha Inicio</label>
+                    <label style={{fontSize:11,fontWeight:600,color:C.muted,display:"block",marginBottom:4}}>Fecha Inicio</label>
                     <input type="date" value={obtForm.f_inicio||""} onChange={e=>setObtForm(p=>({...p,f_inicio:e.target.value}))}
-                      style={{width:"100%",padding:"8px 12px",borderRadius:8,border:"1px solid #d1d5db",fontSize:13,boxSizing:"border-box"}}/>
+                      style={{width:"100%",padding:"8px 12px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:13,boxSizing:"border-box"}}/>
                   </div>
                   <div>
-                    <label style={{fontSize:11,fontWeight:600,color:"#475569",display:"block",marginBottom:4}}>Fecha Vencimiento</label>
+                    <label style={{fontSize:11,fontWeight:600,color:C.muted,display:"block",marginBottom:4}}>Fecha Vencimiento</label>
                     <input type="date" value={obtForm.f_vencimiento||""} onChange={e=>setObtForm(p=>({...p,f_vencimiento:e.target.value}))}
-                      style={{width:"100%",padding:"8px 12px",borderRadius:8,border:"1px solid #d1d5db",fontSize:13,boxSizing:"border-box"}}/>
+                      style={{width:"100%",padding:"8px 12px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:13,boxSizing:"border-box"}}/>
                   </div>
                 </div>
                 <div style={{marginBottom:12}}>
-                  <label style={{fontSize:11,fontWeight:600,color:"#475569",display:"block",marginBottom:4}}>Estado del Contrato</label>
+                  <label style={{fontSize:11,fontWeight:600,color:C.muted,display:"block",marginBottom:4}}>Estado del Contrato</label>
                   <select value={obtForm.estado_contrato||"Borrador"} onChange={e=>setObtForm(p=>({...p,estado_contrato:e.target.value}))}
-                    style={{width:"100%",padding:"8px 12px",borderRadius:8,border:"1px solid #d1d5db",fontSize:13,boxSizing:"border-box",background:"#fff"}}>
+                    style={{width:"100%",padding:"8px 12px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:13,boxSizing:"border-box",background:C.card}}>
                     {ESTADOS_CONTRATO_OBT.map(s=><option key={s} value={s}>{s}</option>)}
                   </select>
                 </div>
@@ -9242,12 +9247,12 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
                 </label>
                 {obtForm.renovable&&(
                   <div style={{marginBottom:12}}>
-                    <label style={{fontSize:11,fontWeight:600,color:"#475569",display:"block",marginBottom:4}}>📆 Nueva Fecha Vencimiento</label>
+                    <label style={{fontSize:11,fontWeight:600,color:C.muted,display:"block",marginBottom:4}}>📆 Nueva Fecha Vencimiento</label>
                     <input type="date" value={obtForm.f_vencimiento_nueva||""} onChange={e=>setObtForm(p=>({...p,f_vencimiento_nueva:e.target.value}))}
-                      style={{width:"100%",padding:"8px 12px",borderRadius:8,border:"1px solid #93c5fd",fontSize:13,boxSizing:"border-box",background:"#eff6ff"}}/>
+                      style={{width:"100%",padding:"8px 12px",borderRadius:8,border:`1px solid ${C.info}`,fontSize:13,boxSizing:"border-box",background:C.infoBg}}/>
                   </div>
                 )}
-                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:12,padding:12,background:"#f8fafc",borderRadius:8}}>
+                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:12,padding:12,background:C.cardAlt,borderRadius:8}}>
                   <label style={{display:"flex",alignItems:"center",gap:8,cursor:"pointer"}}>
                     <input type="checkbox" checked={!!obtForm.firma_obtentor} onChange={e=>setObtForm(p=>({...p,firma_obtentor:e.target.checked}))}/>
                     <span style={{fontSize:12}}>✅ Firma Obtentor</span>
@@ -9258,32 +9263,32 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
                   </label>
                 </div>
                 <div style={{marginBottom:12}}>
-                  <label style={{fontSize:11,fontWeight:600,color:"#475569",display:"block",marginBottom:4}}>📎 Link al contrato (OneDrive/Drive)</label>
+                  <label style={{fontSize:11,fontWeight:600,color:C.muted,display:"block",marginBottom:4}}>📎 Link al contrato (OneDrive/Drive)</label>
                   <input value={obtForm.doc_contrato||""} placeholder="https://..." onChange={e=>setObtForm(p=>({...p,doc_contrato:e.target.value}))}
-                    style={{width:"100%",padding:"8px 12px",borderRadius:8,border:"1px solid #d1d5db",fontSize:13,boxSizing:"border-box"}}/>
+                    style={{width:"100%",padding:"8px 12px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:13,boxSizing:"border-box"}}/>
                 </div>
                 <div style={{marginBottom:12}}>
-                  <label style={{fontSize:11,fontWeight:600,color:"#475569",display:"block",marginBottom:4}}>📄 Link doc. legal complementario</label>
+                  <label style={{fontSize:11,fontWeight:600,color:C.muted,display:"block",marginBottom:4}}>📄 Link doc. legal complementario</label>
                   <input value={obtForm.doc_legal||""} placeholder="https://..." onChange={e=>setObtForm(p=>({...p,doc_legal:e.target.value}))}
-                    style={{width:"100%",padding:"8px 12px",borderRadius:8,border:"1px solid #d1d5db",fontSize:13,boxSizing:"border-box"}}/>
+                    style={{width:"100%",padding:"8px 12px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:13,boxSizing:"border-box"}}/>
                 </div>
                 <div style={{marginBottom:12}}>
-                  <label style={{fontSize:11,fontWeight:600,color:"#475569",display:"block",marginBottom:4}}>Observaciones</label>
+                  <label style={{fontSize:11,fontWeight:600,color:C.muted,display:"block",marginBottom:4}}>Observaciones</label>
                   <textarea value={obtForm.observaciones||""} onChange={e=>setObtForm(p=>({...p,observaciones:e.target.value}))}
-                    style={{width:"100%",padding:"8px 12px",borderRadius:8,border:"1px solid #d1d5db",fontSize:13,minHeight:60,boxSizing:"border-box"}}/>
+                    style={{width:"100%",padding:"8px 12px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:13,minHeight:60,boxSizing:"border-box"}}/>
                 </div>
               </>)}
 
               {/* PASO 2 — Especies/Variedades + DHE */}
               {obtWizStep===2&&(<>
-                <div style={{background:"#ede9fe",border:"1px solid #c4b5fd",borderRadius:8,padding:"8px 12px",marginBottom:14,fontSize:11,color:"#5b21b6"}}>
+                <div style={{background:C.purpleBg,border:`1px solid ${C.purple}`,borderRadius:8,padding:"8px 12px",marginBottom:14,fontSize:11,color:C.purple}}>
                   💡 Agrega cada variedad cubierta por el contrato. Luego en el paso 3 podrás registrar PBR vinculados a estas variedades. <strong>Este paso es opcional</strong> — puedes saltarlo y agregar después desde la vista detalle.
                 </div>
 
                 {/* Lista de especies ya agregadas */}
                 {wizEspecies.length>0&&(
-                  <div style={{marginBottom:14,border:"1px solid #e2e8f0",borderRadius:10,overflow:"hidden"}}>
-                    <div style={{background:"#f8fafc",padding:"8px 12px",fontSize:11,fontWeight:700,color:"#475569"}}>
+                  <div style={{marginBottom:14,border:`1px solid ${C.border}`,borderRadius:10,overflow:"hidden"}}>
+                    <div style={{background:C.cardAlt,padding:"8px 12px",fontSize:11,fontWeight:700,color:C.muted}}>
                       Variedades agregadas ({wizEspecies.length})
                     </div>
                     {wizEspecies.map(e=>{
@@ -9293,13 +9298,13 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
                       return (
                         <div key={e.id} style={{padding:"10px 12px",borderTop:"1px solid #f1f5f9",display:"flex",justifyContent:"space-between",alignItems:"center",gap:8}}>
                           <div style={{flex:1,minWidth:0}}>
-                            <div style={{fontSize:13,fontWeight:700,color:"#1e293b"}}>🌿 {e.especie} — {e.variedad}</div>
-                            <div style={{fontSize:10,color:"#64748b",marginTop:2}}>
-                              {nDhe>0?<><span style={{color:nAprob>0?"#16a34a":"#d97706",fontWeight:700}}>DHE: {nDhe} país{nDhe!==1?"es":""}{nAprob>0?` (${nAprob} aprobado${nAprob>1?"s":""})`:""}
-                              </span> · {dheArr.map(d=>d.pais||"?").join(", ")}</>:<span style={{color:"#94a3b8"}}>Sin DHE</span>}
+                            <div style={{fontSize:13,fontWeight:700,color:C.text}}>🌿 {e.especie} — {e.variedad}</div>
+                            <div style={{fontSize:10,color:C.muted,marginTop:2}}>
+                              {nDhe>0?<><span style={{color:nAprob>0?C.success:C.warning,fontWeight:700}}>DHE: {nDhe} país{nDhe!==1?"es":""}{nAprob>0?` (${nAprob} aprobado${nAprob>1?"s":""})`:""}
+                              </span> · {dheArr.map(d=>d.pais||"?").join(", ")}</>:<span style={{color:C.muted2}}>Sin DHE</span>}
                             </div>
                           </div>
-                          <button onClick={()=>quitarEspWiz(e.id)} style={{background:"#fef2f2",border:"none",borderRadius:6,padding:"4px 8px",cursor:"pointer",fontSize:11,color:"#991b1b"}}>🗑</button>
+                          <button onClick={()=>quitarEspWiz(e.id)} style={{background:C.dangerBg,border:"none",borderRadius:6,padding:"4px 8px",cursor:"pointer",fontSize:11,color:C.danger}}>🗑</button>
                         </div>
                       );
                     })}
@@ -9307,21 +9312,21 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
                 )}
 
                 {/* Form inline para agregar nueva especie */}
-                <div style={{border:"1px dashed #c4b5fd",borderRadius:10,padding:14,background:"#faf5ff",marginBottom:12}}>
-                  <div style={{fontSize:12,fontWeight:700,color:"#5b21b6",marginBottom:10}}>+ Agregar nueva variedad</div>
+                <div style={{border:"1px dashed #c4b5fd",borderRadius:10,padding:14,background:C.purpleBg,marginBottom:12}}>
+                  <div style={{fontSize:12,fontWeight:700,color:C.purple,marginBottom:10}}>+ Agregar nueva variedad</div>
                   <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:10}}>
                     <div>
-                      <label style={{fontSize:11,fontWeight:600,color:"#475569",display:"block",marginBottom:3}}>Especie <span style={{color:"#dc2626"}}>*</span></label>
+                      <label style={{fontSize:11,fontWeight:600,color:C.muted,display:"block",marginBottom:3}}>Especie <span style={{color:C.danger}}>*</span></label>
                       <select value={obtWizEspForm.especie||""} onChange={e=>setObtWizEspForm(p=>({...p,especie:e.target.value,variedad:""}))}
-                        style={{width:"100%",padding:"7px 10px",borderRadius:6,border:"1px solid #d1d5db",fontSize:12,boxSizing:"border-box"}}>
+                        style={{width:"100%",padding:"7px 10px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:12,boxSizing:"border-box"}}>
                         <option value="">— Seleccionar —</option>
                         {especiesMaestro.filter(e=>e.nombre||e.especie).map(e=>{const n=e.nombre||e.especie;return <option key={e.id} value={n}>{n}</option>;})}
                       </select>
                     </div>
                     <div>
-                      <label style={{fontSize:11,fontWeight:600,color:"#475569",display:"block",marginBottom:3}}>Denominación <span style={{color:"#dc2626"}}>*</span></label>
+                      <label style={{fontSize:11,fontWeight:600,color:C.muted,display:"block",marginBottom:3}}>Denominación <span style={{color:C.danger}}>*</span></label>
                       <select value={obtWizEspForm.variedad||""} onChange={e=>setObtWizEspForm(p=>({...p,variedad:e.target.value}))}
-                        style={{width:"100%",padding:"7px 10px",borderRadius:6,border:"1px solid #d1d5db",fontSize:12,boxSizing:"border-box"}}>
+                        style={{width:"100%",padding:"7px 10px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:12,boxSizing:"border-box"}}>
                         <option value="">— Seleccionar —</option>
                         {(()=>{
                           const espSel = (obtWizEspForm.especie||"").trim().toLowerCase();
@@ -9334,77 +9339,77 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
                       </select>
                     </div>
                   </div>
-                  <div style={{padding:10,background:"#fef3c7",borderRadius:6,marginBottom:8}}>
+                  <div style={{padding:10,background:C.warningBg,borderRadius:6,marginBottom:8}}>
                     <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-                      <div style={{fontSize:11,fontWeight:700,color:"#78350f"}}>📋 DHE por país</div>
+                      <div style={{fontSize:11,fontWeight:700,color:C.text}}>📋 DHE por país</div>
                       <button onClick={()=>{
                         const nd={id:`dhe_${Date.now()}`,pais:"",estado:"No iniciado",fecha_solicitud:"",fecha_aprob:"",nRegistro:"",doc:"",observaciones:""};
                         setObtWizEspForm(p=>({...p,dhe:[...(p.dhe||[]),nd]}));
-                      }} type="button" style={{padding:"3px 10px",borderRadius:6,background:"#7c3aed",border:"none",color:"#fff",cursor:"pointer",fontSize:10,fontWeight:700}}>+ País</button>
+                      }} type="button" style={{padding:"3px 10px",borderRadius:6,background:C.purple,border:"none",color:"#fff",cursor:"pointer",fontSize:10,fontWeight:700}}>+ País</button>
                     </div>
-                    {(obtWizEspForm.dhe||[]).length===0&&<div style={{fontSize:10,color:"#92400e",marginTop:4}}>Opcional. Click "+ País" para agregar DHE.</div>}
+                    {(obtWizEspForm.dhe||[]).length===0&&<div style={{fontSize:10,color:C.text,marginTop:4}}>Opcional. Click "+ País" para agregar DHE.</div>}
                     {(obtWizEspForm.dhe||[]).map((d,idx)=>{
                       const updWD=(f,v)=>setObtWizEspForm(p=>({...p,dhe:(p.dhe||[]).map(x=>x.id===d.id?{...x,[f]:v}:x)}));
                       return(
-                        <div key={d.id} style={{border:"1px solid #fde68a",borderRadius:6,padding:8,marginTop:6,background:"#fffbeb"}}>
+                        <div key={d.id} style={{border:`1px solid ${C.warning}`,borderRadius:6,padding:8,marginTop:6,background:C.warningBg}}>
                           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4}}>
-                            <span style={{fontSize:10,fontWeight:700,color:"#78350f"}}>DHE #{idx+1}</span>
-                            <button onClick={()=>setObtWizEspForm(p=>({...p,dhe:(p.dhe||[]).filter(x=>x.id!==d.id)}))} type="button" style={{background:"#fef2f2",border:"none",borderRadius:4,padding:"1px 6px",cursor:"pointer",fontSize:10,color:"#991b1b"}}>🗑</button>
+                            <span style={{fontSize:10,fontWeight:700,color:C.text}}>DHE #{idx+1}</span>
+                            <button onClick={()=>setObtWizEspForm(p=>({...p,dhe:(p.dhe||[]).filter(x=>x.id!==d.id)}))} type="button" style={{background:C.dangerBg,border:"none",borderRadius:4,padding:"1px 6px",cursor:"pointer",fontSize:10,color:C.danger}}>🗑</button>
                           </div>
                           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:6,fontSize:11}}>
-                            <div><label style={{fontSize:10,color:"#475569",fontWeight:600}}>País</label>
-                              <select value={d.pais||""} onChange={e=>updWD("pais",e.target.value)} style={{width:"100%",padding:"5px 6px",borderRadius:4,border:"1px solid #d1d5db",fontSize:11,background:"#fff"}}><option value="">— País —</option>{PAISES_DHE.map(p=><option key={p}>{p}</option>)}</select></div>
-                            <div><label style={{fontSize:10,color:"#475569",fontWeight:600}}>Estado</label>
-                              <select value={d.estado||"No iniciado"} onChange={e=>updWD("estado",e.target.value)} style={{width:"100%",padding:"5px 6px",borderRadius:4,border:"1px solid #d1d5db",fontSize:11,background:"#fff"}}>{ESTADOS_DHE.map(s=><option key={s}>{s}</option>)}</select></div>
-                            <div><label style={{fontSize:10,color:"#475569",fontWeight:600}}>N° Registro</label>
-                              <input value={d.nRegistro||""} onChange={e=>updWD("nRegistro",e.target.value)} style={{width:"100%",padding:"5px 6px",borderRadius:4,border:"1px solid #d1d5db",fontSize:11,boxSizing:"border-box"}}/></div>
+                            <div><label style={{fontSize:10,color:C.muted,fontWeight:600}}>País</label>
+                              <select value={d.pais||""} onChange={e=>updWD("pais",e.target.value)} style={{width:"100%",padding:"5px 6px",borderRadius:4,border:`1px solid ${C.border}`,fontSize:11,background:C.card}}><option value="">— País —</option>{PAISES_DHE.map(p=><option key={p}>{p}</option>)}</select></div>
+                            <div><label style={{fontSize:10,color:C.muted,fontWeight:600}}>Estado</label>
+                              <select value={d.estado||"No iniciado"} onChange={e=>updWD("estado",e.target.value)} style={{width:"100%",padding:"5px 6px",borderRadius:4,border:`1px solid ${C.border}`,fontSize:11,background:C.card}}>{ESTADOS_DHE.map(s=><option key={s}>{s}</option>)}</select></div>
+                            <div><label style={{fontSize:10,color:C.muted,fontWeight:600}}>N° Registro</label>
+                              <input value={d.nRegistro||""} onChange={e=>updWD("nRegistro",e.target.value)} style={{width:"100%",padding:"5px 6px",borderRadius:4,border:`1px solid ${C.border}`,fontSize:11,boxSizing:"border-box"}}/></div>
                           </div>
                         </div>
                       );
                     })}
                   </div>
                   <div style={{marginBottom:8}}>
-                    <label style={{fontSize:11,fontWeight:600,color:"#475569",display:"block",marginBottom:3}}>Obs. variedad</label>
+                    <label style={{fontSize:11,fontWeight:600,color:C.muted,display:"block",marginBottom:3}}>Obs. variedad</label>
                     <input value={obtWizEspForm.observaciones||""} onChange={e=>setObtWizEspForm(p=>({...p,observaciones:e.target.value}))}
-                      style={{width:"100%",padding:"7px 10px",borderRadius:6,border:"1px solid #d1d5db",fontSize:12,boxSizing:"border-box"}}/>
+                      style={{width:"100%",padding:"7px 10px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:12,boxSizing:"border-box"}}/>
                   </div>
-                  <button onClick={agregarEspWiz} style={{width:"100%",padding:"8px 14px",borderRadius:8,background:"#7c3aed",border:"none",color:"#fff",cursor:"pointer",fontSize:12,fontWeight:700}}>+ Agregar variedad a la lista</button>
+                  <button onClick={agregarEspWiz} style={{width:"100%",padding:"8px 14px",borderRadius:8,background:C.purple,border:"none",color:"#fff",cursor:"pointer",fontSize:12,fontWeight:700}}>+ Agregar variedad a la lista</button>
                 </div>
               </>)}
 
               {/* PASO 3 — Registros PBR */}
               {obtWizStep===3&&(<>
-                <div style={{background:"#fef3c7",border:"1px solid #fbbf24",borderRadius:8,padding:"8px 12px",marginBottom:14,fontSize:11,color:"#78350f"}}>
+                <div style={{background:C.warningBg,border:`1px solid ${C.warning}`,borderRadius:8,padding:"8px 12px",marginBottom:14,fontSize:11,color:C.text}}>
                   💡 Cada PBR es un registro de Protección de Obtenciones Vegetales en un país específico, vinculado a una de las variedades del contrato. <strong>Este paso es opcional</strong>.
                 </div>
 
                 {wizEspecies.length===0?(
-                  <div style={{padding:30,textAlign:"center",color:"#94a3b8",border:"1px dashed #e2e8f0",borderRadius:10,marginBottom:12}}>
+                  <div style={{padding:30,textAlign:"center",color:C.muted2,border:"1px dashed #e2e8f0",borderRadius:10,marginBottom:12}}>
                     <div style={{fontSize:32,marginBottom:8}}>🌿</div>
                     <div style={{fontSize:12}}>Para registrar un PBR primero necesitas agregar al menos una variedad.</div>
-                    <button onClick={()=>setObtWizStep(2)} style={{marginTop:10,padding:"6px 14px",borderRadius:8,background:"#7c3aed",border:"none",color:"#fff",cursor:"pointer",fontSize:11,fontWeight:700}}>← Volver al paso 2</button>
+                    <button onClick={()=>setObtWizStep(2)} style={{marginTop:10,padding:"6px 14px",borderRadius:8,background:C.purple,border:"none",color:"#fff",cursor:"pointer",fontSize:11,fontWeight:700}}>← Volver al paso 2</button>
                   </div>
                 ):(<>
                   {/* Lista de PBR ya agregados */}
                   {wizPbr.length>0&&(
-                    <div style={{marginBottom:14,border:"1px solid #e2e8f0",borderRadius:10,overflow:"hidden"}}>
-                      <div style={{background:"#f8fafc",padding:"8px 12px",fontSize:11,fontWeight:700,color:"#475569"}}>
+                    <div style={{marginBottom:14,border:`1px solid ${C.border}`,borderRadius:10,overflow:"hidden"}}>
+                      <div style={{background:C.cardAlt,padding:"8px 12px",fontSize:11,fontWeight:700,color:C.muted}}>
                         PBR agregados ({wizPbr.length})
                       </div>
                       {wizPbr.map(p=>{
-                        const stCol = p.estado==="Aprobado"?"#16a34a":p.estado==="Rechazado"?"#dc2626":p.estado==="En Revisión"?"#0284c7":p.estado==="Solicitado"?"#7c3aed":"#d97706";
+                        const stCol = p.estado==="Aprobado"?C.success:p.estado==="Rechazado"?C.danger:p.estado==="En Revisión"?"#0284c7":p.estado==="Solicitado"?C.purple:C.warning;
                         return (
                           <div key={p.id} style={{padding:"10px 12px",borderTop:"1px solid #f1f5f9",display:"flex",justifyContent:"space-between",alignItems:"center",gap:8}}>
                             <div style={{flex:1,minWidth:0}}>
-                              <div style={{fontSize:13,fontWeight:700,color:"#1e293b"}}>📜 {p.especie} — 🌍 {p.pais}</div>
-                              <div style={{fontSize:10,color:"#64748b",marginTop:2}}>
-                                {(p.variedades||[p.variedad]).filter(Boolean).length>0&&<span style={{color:"#7c3aed"}}>🌱 {(p.variedades||[p.variedad]).filter(Boolean).join(", ")}</span>}
+                              <div style={{fontSize:13,fontWeight:700,color:C.text}}>📜 {p.especie} — 🌍 {p.pais}</div>
+                              <div style={{fontSize:10,color:C.muted,marginTop:2}}>
+                                {(p.variedades||[p.variedad]).filter(Boolean).length>0&&<span style={{color:C.purple}}>🌱 {(p.variedades||[p.variedad]).filter(Boolean).join(", ")}</span>}
                                 <span style={{color:stCol,fontWeight:700,marginLeft:6}}>{p.estado}</span>
                                 {p.f_solicitud&&` · Sol. ${p.f_solicitud}`}
                                 {p.f_resolucion&&` · Res. ${p.f_resolucion}`}
                               </div>
                             </div>
-                            <button onClick={()=>quitarPbrWiz(p.id)} style={{background:"#fef2f2",border:"none",borderRadius:6,padding:"4px 8px",cursor:"pointer",fontSize:11,color:"#991b1b"}}>🗑</button>
+                            <button onClick={()=>quitarPbrWiz(p.id)} style={{background:C.dangerBg,border:"none",borderRadius:6,padding:"4px 8px",cursor:"pointer",fontSize:11,color:C.danger}}>🗑</button>
                           </div>
                         );
                       })}
@@ -9412,20 +9417,20 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
                   )}
 
                   {/* Form inline para agregar nuevo PBR */}
-                  <div style={{border:"1px dashed #fbbf24",borderRadius:10,padding:14,background:"#fffbeb",marginBottom:12}}>
-                    <div style={{fontSize:12,fontWeight:700,color:"#78350f",marginBottom:10}}>+ Agregar nuevo registro PBR</div>
+                  <div style={{border:"1px dashed #fbbf24",borderRadius:10,padding:14,background:C.warningBg,marginBottom:12}}>
+                    <div style={{fontSize:12,fontWeight:700,color:C.text,marginBottom:10}}>+ Agregar nuevo registro PBR</div>
                     <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:10}}>
                       <div>
-                        <label style={{fontSize:11,fontWeight:600,color:"#475569",display:"block",marginBottom:3}}>Especie <span style={{color:"#dc2626"}}>*</span></label>
+                        <label style={{fontSize:11,fontWeight:600,color:C.muted,display:"block",marginBottom:3}}>Especie <span style={{color:C.danger}}>*</span></label>
                         <select value={obtWizPbrForm.especie||""} onChange={e=>setObtWizPbrForm(p=>({...p,especie:e.target.value,variedades:[]}))}
-                          style={{width:"100%",padding:"7px 10px",borderRadius:6,border:"1px solid #d1d5db",fontSize:12,boxSizing:"border-box",background:"#fff"}}>
+                          style={{width:"100%",padding:"7px 10px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:12,boxSizing:"border-box",background:C.card}}>
                           <option value="">— Seleccionar —</option>
                           {especiesMaestro.filter(e=>e.nombre||e.especie).map(e=>{const n=e.nombre||e.especie;return <option key={e.id} value={n}>{n}</option>;})}
                         </select>
                       </div>
                       <div>
-                        <label style={{fontSize:11,fontWeight:600,color:"#475569",display:"block",marginBottom:3}}>Variedades (seleccionar una o más)</label>
-                        <div style={{maxHeight:120,overflowY:"auto",border:"1px solid #d1d5db",borderRadius:6,padding:6,background:"#fff"}}>
+                        <label style={{fontSize:11,fontWeight:600,color:C.muted,display:"block",marginBottom:3}}>Variedades (seleccionar una o más)</label>
+                        <div style={{maxHeight:120,overflowY:"auto",border:`1px solid ${C.border}`,borderRadius:6,padding:6,background:C.card}}>
                           {(()=>{
                             const espSel = (obtWizPbrForm.especie||"").trim().toLowerCase();
                             const filtradas = espSel
@@ -9433,18 +9438,18 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
                               : variedadesMaestro;
                             // Si filtró y no hay resultados, mostrar todas como fallback
                             const lista = filtradas.length>0 ? filtradas : variedadesMaestro;
-                            if(lista.length===0) return <div style={{fontSize:11,color:"#94a3b8",padding:4}}>No hay variedades en el maestro</div>;
+                            if(lista.length===0) return <div style={{fontSize:11,color:C.muted2,padding:4}}>No hay variedades en el maestro</div>;
                             return lista.map(v=>{
                               const sel = (obtWizPbrForm.variedades||[]).includes(v.variedad);
                               return (
-                                <label key={v.id} style={{display:"flex",alignItems:"center",gap:6,padding:"3px 4px",cursor:"pointer",fontSize:11,color:sel?"#1e293b":"#64748b",background:sel?"#ede9fe":"transparent",borderRadius:4,marginBottom:2}}>
+                                <label key={v.id} style={{display:"flex",alignItems:"center",gap:6,padding:"3px 4px",cursor:"pointer",fontSize:11,color:sel?C.primary:C.muted,background:sel?C.purpleBg:"transparent",borderRadius:4,marginBottom:2}}>
                                   <input type="checkbox" checked={sel} onChange={()=>{
                                     setObtWizPbrForm(p=>{
                                       const cur = p.variedades||[];
                                       return {...p, variedades: sel ? cur.filter(x=>x!==v.variedad) : [...cur, v.variedad]};
                                     });
                                   }}/>
-                                  {v.especie?<span style={{color:"#94a3b8",fontSize:10}}>[{v.especie}] </span>:""}
+                                  {v.especie?<span style={{color:C.muted2,fontSize:10}}>[{v.especie}] </span>:""}
                                   {v.nRegistro?`${v.nRegistro} · `:""}{v.variedad}
                                 </label>
                               );
@@ -9455,59 +9460,59 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
                     </div>
                     <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:10}}>
                       <div>
-                        <label style={{fontSize:11,fontWeight:600,color:"#475569",display:"block",marginBottom:3}}>País <span style={{color:"#dc2626"}}>*</span></label>
+                        <label style={{fontSize:11,fontWeight:600,color:C.muted,display:"block",marginBottom:3}}>País <span style={{color:C.danger}}>*</span></label>
                         <input value={obtWizPbrForm.pais||""} placeholder="Chile, Perú, México..." onChange={e=>setObtWizPbrForm(p=>({...p,pais:e.target.value}))}
-                          style={{width:"100%",padding:"7px 10px",borderRadius:6,border:"1px solid #d1d5db",fontSize:12,boxSizing:"border-box"}}/>
+                          style={{width:"100%",padding:"7px 10px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:12,boxSizing:"border-box"}}/>
                       </div>
                       <div>
-                        <label style={{fontSize:11,fontWeight:600,color:"#475569",display:"block",marginBottom:3}}>Estado PBR</label>
+                        <label style={{fontSize:11,fontWeight:600,color:C.muted,display:"block",marginBottom:3}}>Estado PBR</label>
                         <select value={obtWizPbrForm.estado||"Pendiente"} onChange={e=>setObtWizPbrForm(p=>({...p,estado:e.target.value}))}
-                          style={{width:"100%",padding:"7px 10px",borderRadius:6,border:"1px solid #d1d5db",fontSize:12,boxSizing:"border-box",background:"#fff"}}>
+                          style={{width:"100%",padding:"7px 10px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:12,boxSizing:"border-box",background:C.card}}>
                           {ESTADOS_PBR.map(s=><option key={s} value={s}>{s}</option>)}
                         </select>
                       </div>
                     </div>
                     <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:10}}>
                       <div>
-                        <label style={{fontSize:11,fontWeight:600,color:"#475569",display:"block",marginBottom:3}}>Fecha Solicitud</label>
+                        <label style={{fontSize:11,fontWeight:600,color:C.muted,display:"block",marginBottom:3}}>Fecha Solicitud</label>
                         <input type="date" value={obtWizPbrForm.f_solicitud||""} onChange={e=>setObtWizPbrForm(p=>({...p,f_solicitud:e.target.value}))}
-                          style={{width:"100%",padding:"7px 10px",borderRadius:6,border:"1px solid #d1d5db",fontSize:12,boxSizing:"border-box"}}/>
+                          style={{width:"100%",padding:"7px 10px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:12,boxSizing:"border-box"}}/>
                       </div>
                       <div>
-                        <label style={{fontSize:11,fontWeight:600,color:"#475569",display:"block",marginBottom:3}}>Fecha Resolución</label>
+                        <label style={{fontSize:11,fontWeight:600,color:C.muted,display:"block",marginBottom:3}}>Fecha Resolución</label>
                         <input type="date" value={obtWizPbrForm.f_resolucion||""} onChange={e=>setObtWizPbrForm(p=>({...p,f_resolucion:e.target.value}))}
-                          style={{width:"100%",padding:"7px 10px",borderRadius:6,border:"1px solid #d1d5db",fontSize:12,boxSizing:"border-box"}}/>
+                          style={{width:"100%",padding:"7px 10px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:12,boxSizing:"border-box"}}/>
                       </div>
                     </div>
                     <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:10}}>
                       <div>
-                        <label style={{fontSize:11,fontWeight:600,color:"#475569",display:"block",marginBottom:3}}>📎 Doc. Solicitud (URL)</label>
+                        <label style={{fontSize:11,fontWeight:600,color:C.muted,display:"block",marginBottom:3}}>📎 Doc. Solicitud (URL)</label>
                         <input value={obtWizPbrForm.doc_solicitud||""} placeholder="https://..." onChange={e=>setObtWizPbrForm(p=>({...p,doc_solicitud:e.target.value}))}
-                          style={{width:"100%",padding:"7px 10px",borderRadius:6,border:"1px solid #d1d5db",fontSize:12,boxSizing:"border-box"}}/>
+                          style={{width:"100%",padding:"7px 10px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:12,boxSizing:"border-box"}}/>
                       </div>
                       <div>
-                        <label style={{fontSize:11,fontWeight:600,color:"#475569",display:"block",marginBottom:3}}>📎 Doc. Resolución (URL)</label>
+                        <label style={{fontSize:11,fontWeight:600,color:C.muted,display:"block",marginBottom:3}}>📎 Doc. Resolución (URL)</label>
                         <input value={obtWizPbrForm.doc_resolucion||""} placeholder="https://..." onChange={e=>setObtWizPbrForm(p=>({...p,doc_resolucion:e.target.value}))}
-                          style={{width:"100%",padding:"7px 10px",borderRadius:6,border:"1px solid #d1d5db",fontSize:12,boxSizing:"border-box"}}/>
+                          style={{width:"100%",padding:"7px 10px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:12,boxSizing:"border-box"}}/>
                       </div>
                     </div>
                     <div style={{marginBottom:10}}>
-                      <label style={{fontSize:11,fontWeight:600,color:"#475569",display:"block",marginBottom:3}}>Observaciones</label>
+                      <label style={{fontSize:11,fontWeight:600,color:C.muted,display:"block",marginBottom:3}}>Observaciones</label>
                       <input value={obtWizPbrForm.observaciones||""} onChange={e=>setObtWizPbrForm(p=>({...p,observaciones:e.target.value}))}
-                        style={{width:"100%",padding:"7px 10px",borderRadius:6,border:"1px solid #d1d5db",fontSize:12,boxSizing:"border-box"}}/>
+                        style={{width:"100%",padding:"7px 10px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:12,boxSizing:"border-box"}}/>
                     </div>
-                    <button onClick={agregarPbrWiz} style={{width:"100%",padding:"8px 14px",borderRadius:8,background:"#f59e0b",border:"none",color:"#fff",cursor:"pointer",fontSize:12,fontWeight:700}}>+ Agregar PBR a la lista</button>
+                    <button onClick={agregarPbrWiz} style={{width:"100%",padding:"8px 14px",borderRadius:8,background:C.warning,border:"none",color:"#fff",cursor:"pointer",fontSize:12,fontWeight:700}}>+ Agregar PBR a la lista</button>
                   </div>
                 </>)}
               </>)}
 
               {/* Footer wizard: navegación */}
-              <div style={{display:"flex",gap:8,justifyContent:"space-between",alignItems:"center",marginTop:18,paddingTop:14,borderTop:"1px solid #e2e8f0"}}>
-                <button onClick={()=>setObtModal(false)} style={{padding:"8px 16px",borderRadius:8,border:"1px solid #d1d5db",background:"#fff",cursor:"pointer",fontSize:12}}>Cancelar</button>
+              <div style={{display:"flex",gap:8,justifyContent:"space-between",alignItems:"center",marginTop:18,paddingTop:14,borderTop:`1px solid ${C.border}`}}>
+                <button onClick={()=>setObtModal(false)} style={{padding:"8px 16px",borderRadius:8,border:`1px solid ${C.border}`,background:C.card,cursor:"pointer",fontSize:12}}>Cancelar</button>
                 <div style={{display:"flex",gap:8}}>
-                  {obtWizStep>1&&<button onClick={()=>setObtWizStep(obtWizStep-1)} style={{padding:"8px 16px",borderRadius:8,border:"1px solid #d1d5db",background:"#f8fafc",cursor:"pointer",fontSize:12,fontWeight:600}}>← Anterior</button>}
-                  {obtWizStep<3&&<button onClick={()=>irPaso(obtWizStep+1)} style={{padding:"8px 16px",borderRadius:8,background:"#7c3aed",border:"none",color:"#fff",cursor:"pointer",fontSize:12,fontWeight:700}}>Siguiente →</button>}
-                  {obtWizStep===3&&<button onClick={guardarObt} style={{padding:"8px 18px",borderRadius:8,background:"#16a34a",border:"none",color:"#fff",cursor:"pointer",fontSize:13,fontWeight:700}}>{obtEditId?"💾 Guardar cambios":"✅ Crear contrato"}</button>}
+                  {obtWizStep>1&&<button onClick={()=>setObtWizStep(obtWizStep-1)} style={{padding:"8px 16px",borderRadius:8,border:`1px solid ${C.border}`,background:C.cardAlt,cursor:"pointer",fontSize:12,fontWeight:600}}>← Anterior</button>}
+                  {obtWizStep<3&&<button onClick={()=>irPaso(obtWizStep+1)} style={{padding:"8px 16px",borderRadius:8,background:C.purple,border:"none",color:"#fff",cursor:"pointer",fontSize:12,fontWeight:700}}>Siguiente →</button>}
+                  {obtWizStep===3&&<button onClick={guardarObt} style={{padding:"8px 18px",borderRadius:8,background:C.success,border:"none",color:"#fff",cursor:"pointer",fontSize:13,fontWeight:700}}>{obtEditId?"💾 Guardar cambios":"✅ Crear contrato"}</button>}
                 </div>
               </div>
             </div>
@@ -9828,7 +9833,7 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
       const vig = estadoVigencia(v.f_vencimiento);
 
       return (
-        <div style={{fontFamily:"sans-serif",background:"#0d1117",minHeight:"100vh",padding:"20px 20px 40px"}}>
+        <div style={{fontFamily:"sans-serif",background:C.bg,minHeight:"100vh",padding:"20px 20px 40px"}}>
           <NavBar breadcrumbItems={[
             {label:"Mediterra", onClick:onBack},
             {label:"Osiris Hub", onClick:()=>{setSubApp(null);setVivDetalle(null);}},
@@ -9836,12 +9841,12 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
             {label:v.viverista},
           ]}/>
           {canVerViveros&&!canViveros&&(
-            <div style={{background:"linear-gradient(135deg,#fef3c7,#fde68a)",border:"1px solid #f59e0b",
+            <div style={{background:C.warningBg,border:`1px solid ${C.warning}`,
               borderRadius:10,padding:"10px 16px",marginBottom:14,display:"flex",alignItems:"center",gap:10}}>
               <span style={{fontSize:20}}>👁</span>
               <div style={{flex:1}}>
-                <div style={{fontSize:12,fontWeight:800,color:"#92400e"}}>Modo solo lectura</div>
-                <div style={{fontSize:11,color:"#78350f"}}>
+                <div style={{fontSize:12,fontWeight:800,color:C.text}}>Modo solo lectura</div>
+                <div style={{fontSize:11,color:C.text}}>
                   {esConsulta
                     ? "Tu rol es de Consulta. Puedes visualizar y exportar pero no modificar contratos viveros."
                     : "Tienes permiso de \"Solo ver\" en Contratos Viveros."}
@@ -9876,65 +9881,65 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
             {TABS_VIV.map(t=>(
               <button key={t.id} onClick={()=>setVivTab(t.id)}
                 style={{padding:"8px 16px",borderRadius:8,border:"none",cursor:"pointer",fontWeight:vivTab===t.id?700:500,fontSize:12,
-                  background:vivTab===t.id?"#16a34a":"#21283b",color:vivTab===t.id?"#fff":"#8b949e"}}>
+                  background:vivTab===t.id?C.success:"#21283b",color:vivTab===t.id?"#fff":"#8b949e"}}>
                 {t.label}
               </button>
             ))}
           </div>
 
-          <div style={{background:"#fff",borderRadius:14,padding:20,boxShadow:"0 2px 10px #0001"}}>
+          <div style={{background:C.card,borderRadius:14,padding:20,boxShadow:"0 2px 10px #0001"}}>
             {/* TAB GENERAL */}
             {vivTab==="general"&&(
               <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:16}}>
                 {[["Viverista","viverista","text"],["País","pais","text"],["Fecha Contrato","f_contrato","date"],["Fecha Vencimiento","f_vencimiento","date"]].map(([lbl,f,t])=>(
                   <div key={f}>
-                    <label style={{fontSize:11,fontWeight:600,color:"#475569",display:"block",marginBottom:4}}>{lbl}</label>
+                    <label style={{fontSize:11,fontWeight:600,color:C.muted,display:"block",marginBottom:4}}>{lbl}</label>
                     <input type={t} disabled={!canViveros} value={v[f]||""} onChange={e=>updateVivero(v.id,{[f]:e.target.value})}
-                      style={{width:"100%",padding:"8px 12px",borderRadius:8,border:"1px solid #d1d5db",fontSize:13,boxSizing:"border-box",background:canViveros?"#fff":"#f8fafc"}}/>
+                      style={{width:"100%",padding:"8px 12px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:13,boxSizing:"border-box",background:canViveros?"#fff":C.cardAlt}}/>
                   </div>
                 ))}
                 <div>
-                  <label style={{fontSize:11,fontWeight:600,color:"#475569",display:"block",marginBottom:4}}>Forma de pago a Osiris</label>
+                  <label style={{fontSize:11,fontWeight:600,color:C.muted,display:"block",marginBottom:4}}>Forma de pago a Osiris</label>
                   <select disabled={!canViveros} value={v.forma_pago||""} onChange={e=>updateVivero(v.id,{forma_pago:e.target.value})}
-                    style={{width:"100%",padding:"8px 12px",borderRadius:8,border:"1px solid #d1d5db",fontSize:13,boxSizing:"border-box",background:canViveros?"#fff":"#f8fafc"}}>
+                    style={{width:"100%",padding:"8px 12px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:13,boxSizing:"border-box",background:canViveros?"#fff":C.cardAlt}}>
                     <option value="">— Seleccionar —</option>
                     {FORMAS_PAGO.map(s=><option key={s} value={s}>{s}</option>)}
                   </select>
                 </div>
                 <div>
-                  <label style={{fontSize:11,fontWeight:600,color:"#475569",display:"block",marginBottom:4}}>Mes estimado de pago</label>
+                  <label style={{fontSize:11,fontWeight:600,color:C.muted,display:"block",marginBottom:4}}>Mes estimado de pago</label>
                   {v.forma_pago==="Contra pago del cliente"
-                    ? <div style={{padding:"8px 12px",borderRadius:8,background:"#f1f5f9",fontSize:12,color:"#94a3b8"}}>No aplica (contra pago del cliente)</div>
+                    ? <div style={{padding:"8px 12px",borderRadius:8,background:C.cardAlt,fontSize:12,color:C.muted2}}>No aplica (contra pago del cliente)</div>
                     : <select disabled={!canViveros} value={v.mes_pago_estimado||""} onChange={e=>updateVivero(v.id,{mes_pago_estimado:e.target.value})}
-                        style={{width:"100%",padding:"8px 12px",borderRadius:8,border:"1px solid #d1d5db",fontSize:13,boxSizing:"border-box",background:canViveros?"#fff":"#f8fafc"}}>
+                        style={{width:"100%",padding:"8px 12px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:13,boxSizing:"border-box",background:canViveros?"#fff":C.cardAlt}}>
                         <option value="">— Seleccionar —</option>
                         {MESES.map(m=><option key={m} value={m}>{m}</option>)}
                       </select>
                   }
                 </div>
                 <div>
-                  <label style={{fontSize:11,fontWeight:600,color:"#475569",display:"block",marginBottom:4}}>Estado del Contrato</label>
+                  <label style={{fontSize:11,fontWeight:600,color:C.muted,display:"block",marginBottom:4}}>Estado del Contrato</label>
                   <select disabled={!canViveros} value={v.estado_contrato||"Borrador"} onChange={e=>updateVivero(v.id,{estado_contrato:e.target.value})}
-                    style={{width:"100%",padding:"8px 12px",borderRadius:8,border:"1px solid #d1d5db",fontSize:13,boxSizing:"border-box",background:canViveros?"#fff":"#f8fafc"}}>
+                    style={{width:"100%",padding:"8px 12px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:13,boxSizing:"border-box",background:canViveros?"#fff":C.cardAlt}}>
                     {ESTADOS_CONTRATO_OBT.map(s=><option key={s} value={s}>{s}</option>)}
                   </select>
                 </div>
                 <div style={{gridColumn:"1/-1"}}>
-                  <label style={{fontSize:11,fontWeight:600,color:"#475569",display:"block",marginBottom:4}}>📎 Link al contrato (OneDrive/Drive)</label>
+                  <label style={{fontSize:11,fontWeight:600,color:C.muted,display:"block",marginBottom:4}}>📎 Link al contrato (OneDrive/Drive)</label>
                   <input disabled={!canViveros} value={v.doc_contrato||""} placeholder="https://..." onChange={e=>updateVivero(v.id,{doc_contrato:e.target.value})}
-                    style={{width:"100%",padding:"8px 12px",borderRadius:8,border:"1px solid #d1d5db",fontSize:13,boxSizing:"border-box",background:canViveros?"#fff":"#f8fafc"}}/>
-                  {v.doc_contrato&&<a href={v.doc_contrato} target="_blank" rel="noopener noreferrer" style={{fontSize:11,color:"#16a34a",marginTop:6,display:"inline-block",fontWeight:700}}>📄 Abrir contrato</a>}
+                    style={{width:"100%",padding:"8px 12px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:13,boxSizing:"border-box",background:canViveros?"#fff":C.cardAlt}}/>
+                  {v.doc_contrato&&<a href={v.doc_contrato} target="_blank" rel="noopener noreferrer" style={{fontSize:11,color:C.success,marginTop:6,display:"inline-block",fontWeight:700}}>📄 Abrir contrato</a>}
                 </div>
                 <div>
-                  <label style={{fontSize:11,fontWeight:600,color:"#475569",display:"flex",alignItems:"center",gap:8,cursor:canViveros?"pointer":"default"}}>
+                  <label style={{fontSize:11,fontWeight:600,color:C.muted,display:"flex",alignItems:"center",gap:8,cursor:canViveros?"pointer":"default"}}>
                     <input type="checkbox" disabled={!canViveros} checked={!!v.renovable} onChange={e=>updateVivero(v.id,{renovable:e.target.checked})}/>
                     Contrato renovable
                   </label>
                   {v.renovable&&(
                     <div style={{marginTop:8}}>
-                      <label style={{fontSize:11,fontWeight:600,color:"#475569",display:"block",marginBottom:3}}>Período de renovación</label>
+                      <label style={{fontSize:11,fontWeight:600,color:C.muted,display:"block",marginBottom:3}}>Período de renovación</label>
                       <select disabled={!canViveros} value={v.periodoRenovacion||""} onChange={e=>updateVivero(v.id,{periodoRenovacion:e.target.value})}
-                        style={{width:"100%",padding:"7px 10px",borderRadius:6,border:"1px solid #d1d5db",fontSize:12,boxSizing:"border-box"}}>
+                        style={{width:"100%",padding:"7px 10px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:12,boxSizing:"border-box"}}>
                         <option value="">— Seleccionar —</option>
                         <option value="1 año">1 año</option><option value="2 años">2 años</option><option value="3 años">3 años</option>
                         <option value="5 años">5 años</option><option value="10 años">10 años</option><option value="Automático">Automático (mismo período original)</option>
@@ -9943,9 +9948,9 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
                   )}
                 </div>
                 <div style={{gridColumn:"1/-1"}}>
-                  <label style={{fontSize:11,fontWeight:600,color:"#475569",display:"block",marginBottom:4}}>Observaciones</label>
+                  <label style={{fontSize:11,fontWeight:600,color:C.muted,display:"block",marginBottom:4}}>Observaciones</label>
                   <textarea disabled={!canViveros} value={v.observaciones||""} onChange={e=>updateVivero(v.id,{observaciones:e.target.value})}
-                    style={{width:"100%",padding:"8px 12px",borderRadius:8,border:"1px solid #d1d5db",fontSize:13,minHeight:80,boxSizing:"border-box",background:canViveros?"#fff":"#f8fafc"}}/>
+                    style={{width:"100%",padding:"8px 12px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:13,minHeight:80,boxSizing:"border-box",background:canViveros?"#fff":C.cardAlt}}/>
                 </div>
               </div>
             )}
@@ -9954,13 +9959,13 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
             {vivTab==="variedades"&&(
               <div>
                 <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
-                  <div style={{fontWeight:700,color:"#1e293b"}}>🌱 Variedades Autorizadas a Producir</div>
-                  {canViveros&&<button onClick={()=>{setVvForm({especie:"",variedad:"",fee_usd:"",fee_pct:"",observaciones:""});setVvModal(true);}} style={{padding:"6px 14px",borderRadius:8,background:"#16a34a",border:"none",color:"#fff",cursor:"pointer",fontSize:12,fontWeight:700}}>+ Agregar Variedad</button>}
+                  <div style={{fontWeight:700,color:C.text}}>🌱 Variedades Autorizadas a Producir</div>
+                  {canViveros&&<button onClick={()=>{setVvForm({especie:"",variedad:"",fee_usd:"",fee_pct:"",observaciones:""});setVvModal(true);}} style={{padding:"6px 14px",borderRadius:8,background:C.success,border:"none",color:"#fff",cursor:"pointer",fontSize:12,fontWeight:700}}>+ Agregar Variedad</button>}
                 </div>
-                {variedades.length===0?<div style={{padding:30,textAlign:"center",color:"#94a3b8"}}>No hay variedades registradas.</div>:(
+                {variedades.length===0?<div style={{padding:30,textAlign:"center",color:C.muted2}}>No hay variedades registradas.</div>:(
                   <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
-                    <thead><tr style={{background:"#f8fafc"}}>
-                      {["Especie","Variedad","Formato planta","Fee USD/planta","Fee % s/venta","Observaciones",""].map(h=><th key={h} style={{padding:"8px 12px",textAlign:["Fee USD/planta","Fee % s/venta"].includes(h)?"right":"left",fontWeight:700,fontSize:10,color:"#64748b",borderBottom:"2px solid #e2e8f0"}}>{h}</th>)}
+                    <thead><tr style={{background:C.primary}}>
+                      {["Especie","Variedad","Formato planta","Fee USD/planta","Fee % s/venta","Observaciones",""].map(h=><th key={h} style={{padding:"8px 12px",textAlign:["Fee USD/planta","Fee % s/venta"].includes(h)?"right":"left",fontWeight:700,fontSize:10,color:C.muted,borderBottom:`2px solid ${C.border}`}}>{h}</th>)}
                     </tr></thead>
                     <tbody>
                       {variedades.map(x=>(
@@ -9969,7 +9974,7 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
                           <td style={{padding:"8px 12px"}}>{x.nRegistro?`${x.nRegistro} · `:""}{x.variedad}</td>
                           <td style={{padding:"8px 12px"}}>
                             <select disabled={!canViveros} value={x.formatoPlanta||""} onChange={ev=>updateVariedad(x.id,{formatoPlanta:ev.target.value})}
-                              style={{width:120,padding:"4px 8px",border:"1px solid #e2e8f0",borderRadius:6,fontSize:11,background:canViveros?"#fff":"#f8fafc"}}>
+                              style={{width:120,padding:"4px 8px",border:`1px solid ${C.border}`,borderRadius:6,fontSize:11,background:canViveros?"#fff":C.cardAlt}}>
                               <option value="">— Formato —</option>
                               <option value="Bandeja">Bandeja</option>
                               <option value="Bolsa 1L">Bolsa 1L</option>
@@ -9988,18 +9993,18 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
                           </td>
                           <td style={{padding:"8px 12px",textAlign:"right"}}>
                             <input type="number" disabled={!canViveros} value={x.fee_usd||0} onChange={ev=>updateVariedad(x.id,{fee_usd:parseFloat(ev.target.value)||0})}
-                              style={{width:90,padding:"4px 8px",border:"1px solid #e2e8f0",borderRadius:6,fontSize:12,textAlign:"right",background:canViveros?"#fff":"#f8fafc"}}/>
+                              style={{width:90,padding:"4px 8px",border:`1px solid ${C.border}`,borderRadius:6,fontSize:12,textAlign:"right",background:canViveros?"#fff":C.cardAlt}}/>
                           </td>
                           <td style={{padding:"8px 12px",textAlign:"right"}}>
                             <input type="number" disabled={!canViveros} value={x.fee_pct||0} onChange={ev=>updateVariedad(x.id,{fee_pct:parseFloat(ev.target.value)||0})}
-                              style={{width:70,padding:"4px 8px",border:"1px solid #e2e8f0",borderRadius:6,fontSize:12,textAlign:"right",background:canViveros?"#fff":"#f8fafc"}}/>
+                              style={{width:70,padding:"4px 8px",border:`1px solid ${C.border}`,borderRadius:6,fontSize:12,textAlign:"right",background:canViveros?"#fff":C.cardAlt}}/>
                           </td>
                           <td style={{padding:"8px 12px"}}>
                             <input disabled={!canViveros} value={x.observaciones||""} onChange={ev=>updateVariedad(x.id,{observaciones:ev.target.value})}
-                              style={{width:"100%",padding:"4px 8px",border:"1px solid #e2e8f0",borderRadius:6,fontSize:12,background:canViveros?"#fff":"#f8fafc"}} placeholder="Notas..."/>
+                              style={{width:"100%",padding:"4px 8px",border:`1px solid ${C.border}`,borderRadius:6,fontSize:12,background:canViveros?"#fff":C.cardAlt}} placeholder="Notas..."/>
                           </td>
                           <td style={{padding:"8px 12px"}}>
-                            {canViveros&&<button onClick={()=>delVariedad(x.id)} style={{background:"#fef2f2",border:"none",borderRadius:6,padding:"4px 10px",cursor:"pointer",fontSize:11}}>🗑</button>}
+                            {canViveros&&<button onClick={()=>delVariedad(x.id)} style={{background:C.dangerBg,border:"none",borderRadius:6,padding:"4px 10px",cursor:"pointer",fontSize:11}}>🗑</button>}
                           </td>
                         </tr>
                       ))}
@@ -10015,16 +10020,16 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
                 {/* Vista lista de OCs */}
                 {!ocActiva && (<>
                   <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12,flexWrap:"wrap",gap:8}}>
-                    <div style={{fontWeight:700,color:"#1e293b"}}>📦 Órdenes de Compra de Clientes</div>
+                    <div style={{fontWeight:700,color:C.text}}>📦 Órdenes de Compra de Clientes</div>
                     {canViveros&&<button onClick={()=>{
                       if(variedades.length===0){alert("Primero debes agregar al menos una variedad autorizada en la pestaña Variedades.");return;}
                       if(clientes.length===0){alert("No hay clientes en el Maestro de Clientes Osiris.");return;}
                       setOcForm({...EMPTY_OC, fecha_oc: new Date().toISOString().slice(0,10)});
                       setOcEditId(null);
                       setOcModal(true);
-                    }} style={{padding:"6px 14px",borderRadius:8,background:"#2563eb",border:"none",color:"#fff",cursor:"pointer",fontSize:12,fontWeight:700}}>+ Nueva OC</button>}
+                    }} style={{padding:"6px 14px",borderRadius:8,background:C.primary,border:"none",color:"#fff",cursor:"pointer",fontSize:12,fontWeight:700}}>+ Nueva OC</button>}
                   </div>
-                  <div style={{background:"#dbeafe",border:"1px solid #93c5fd",borderRadius:8,padding:"8px 12px",marginBottom:12,fontSize:11,color:"#1e3a8a"}}>
+                  <div style={{background:C.infoBg,border:`1px solid ${C.info}`,borderRadius:8,padding:"8px 12px",marginBottom:12,fontSize:11,color:C.primary}}>
                     💡 Cada OC representa una orden del cliente productor-exportador al viverista. El fee a Osiris se hereda de la variedad pero puedes editarlo. Cada OC tiene sus propias cuotas de pago.
                   </div>
                   {/* KPIs de OC */}
@@ -10036,27 +10041,27 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
                         const totPlantas = ordenesCompra.reduce((s,o)=>s+(parseFloat(o.cantidad_plantas)||0),0);
                         const totHa = ordenesCompra.reduce((s,o)=>s+(parseFloat(o.hectareas)||0),0);
                         return [
-                          ["📦 Total OC", ordenesCompra.length, "#2563eb"],
-                          ["🌱 Plantas", totPlantas.toLocaleString("es-CL"), "#16a34a"],
-                          ["📐 Há", totHa.toLocaleString("es-CL",{maximumFractionDigits:1}), "#0f766e"],
-                          ["💰 Fee total", $$(totFee), "#7c3aed"],
-                          ["✅ Cobrado", $$(totPagado), "#16a34a"],
-                          ["⏳ Por cobrar", $$(totFee-totPagado), "#f59e0b"],
+                          ["📦 Total OC", ordenesCompra.length, C.primary],
+                          ["🌱 Plantas", totPlantas.toLocaleString("es-CL"), C.success],
+                          ["📐 Há", totHa.toLocaleString("es-CL",{maximumFractionDigits:1}), C.accent2],
+                          ["💰 Fee total", $$(totFee), C.purple],
+                          ["✅ Cobrado", $$(totPagado), C.success],
+                          ["⏳ Por cobrar", $$(totFee-totPagado), C.warning],
                         ].map(([l,vv,c])=>(
-                          <div key={l} style={{background:"#fff",border:"1px solid #e2e8f0",borderLeft:`4px solid ${c}`,borderRadius:8,padding:"8px 12px"}}>
-                            <div style={{fontSize:9,color:"#64748b",fontWeight:600,marginBottom:2}}>{l}</div>
+                          <div key={l} style={{background:C.card,border:`1px solid ${C.border}`,borderLeft:`4px solid ${c}`,borderRadius:8,padding:"8px 12px"}}>
+                            <div style={{fontSize:9,color:C.muted,fontWeight:600,marginBottom:2}}>{l}</div>
                             <div style={{fontSize:14,fontWeight:800,color:c}}>{vv}</div>
                           </div>
                         ));
                       })()}
                     </div>
                   )}
-                  {ordenesCompra.length===0?<div style={{padding:30,textAlign:"center",color:"#94a3b8"}}>No hay OC registradas. {canViveros?"Crea una con \"+ Nueva OC\".":""}</div>:(
+                  {ordenesCompra.length===0?<div style={{padding:30,textAlign:"center",color:C.muted2}}>No hay OC registradas. {canViveros?"Crea una con \"+ Nueva OC\".":""}</div>:(
                     <div style={{overflowX:"auto"}}>
                       <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
-                        <thead><tr style={{background:"#f8fafc"}}>
+                        <thead><tr style={{background:C.primary}}>
                           {["N° OC","Fecha","Cliente","Variedad","Plantas","Há","Fee USD","Fee Total","Estado","Cuotas",""].map(h=>
-                            <th key={h} style={{padding:"8px 10px",textAlign:["Plantas","Há","Fee USD","Fee Total","Cuotas"].includes(h)?"right":"left",fontWeight:700,fontSize:10,color:"#64748b",borderBottom:"2px solid #e2e8f0",whiteSpace:"nowrap"}}>{h}</th>
+                            <th key={h} style={{padding:"8px 10px",textAlign:["Plantas","Há","Fee USD","Fee Total","Cuotas"].includes(h)?"right":"left",fontWeight:700,fontSize:10,color:C.muted,borderBottom:`2px solid ${C.border}`,whiteSpace:"nowrap"}}>{h}</th>
                           )}
                         </tr></thead>
                         <tbody>
@@ -10067,25 +10072,25 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
                             const diff = (parseFloat(oc.fee_total_usd)||0) - totCuotas;
                             return (
                               <tr key={oc.id} style={{borderBottom:"1px solid #f1f5f9",cursor:"pointer"}} onClick={()=>setOcDetalle(oc.id)}>
-                                <td style={{padding:"6px 10px",fontWeight:700,color:"#2563eb"}}>{oc.n_oc||"—"}</td>
+                                <td style={{padding:"6px 10px",fontWeight:700,color:C.primary}}>{oc.n_oc||"—"}</td>
                                 <td style={{padding:"6px 10px",fontSize:11}}>{oc.fecha_oc||"—"}</td>
                                 <td style={{padding:"6px 10px",fontWeight:600}}>{oc.cliente_nombre||"—"}</td>
                                 <td style={{padding:"6px 10px",fontSize:11}}>{oc.especie} · {oc.variedad}</td>
                                 <td style={{padding:"6px 10px",textAlign:"right"}}>{N(oc.cantidad_plantas)}</td>
                                 <td style={{padding:"6px 10px",textAlign:"right"}}>{N(oc.hectareas)}</td>
                                 <td style={{padding:"6px 10px",textAlign:"right"}}>{$$(oc.fee_usd_planta)}</td>
-                                <td style={{padding:"6px 10px",textAlign:"right",fontWeight:700,color:"#7c3aed"}}>{$$(oc.fee_total_usd)}</td>
+                                <td style={{padding:"6px 10px",textAlign:"right",fontWeight:700,color:C.text}}>{$$(oc.fee_total_usd)}</td>
                                 <td style={{padding:"6px 10px",fontSize:10}}>
-                                  <span style={{padding:"2px 8px",borderRadius:10,background:oc.estado_oc==="Pagada total"?"#dcfce7":oc.estado_oc==="Anulada"?"#fee2e2":"#fef3c7",color:oc.estado_oc==="Pagada total"?"#16a34a":oc.estado_oc==="Anulada"?"#dc2626":"#d97706",fontWeight:700}}>{oc.estado_oc||"—"}</span>
+                                  <span style={{padding:"2px 8px",borderRadius:10,background:oc.estado_oc==="Pagada total"?C.successBg:oc.estado_oc==="Anulada"?C.dangerBg:C.warningBg,color:oc.estado_oc==="Pagada total"?C.success:oc.estado_oc==="Anulada"?C.danger:C.warning,fontWeight:700}}>{oc.estado_oc||"—"}</span>
                                 </td>
                                 <td style={{padding:"6px 10px",textAlign:"right",fontSize:11}}>
-                                  <span style={{color:cuotasOk===cuotasArr.length&&cuotasArr.length>0?"#16a34a":"#64748b"}}>{cuotasOk}/{cuotasArr.length}</span>
-                                  {Math.abs(diff)>0.01&&cuotasArr.length>0&&<span title={`Diferencia: ${$$(diff)}`} style={{marginLeft:4,color:"#dc2626"}}>⚠️</span>}
+                                  <span style={{color:cuotasOk===cuotasArr.length&&cuotasArr.length>0?C.success:C.muted}}>{cuotasOk}/{cuotasArr.length}</span>
+                                  {Math.abs(diff)>0.01&&cuotasArr.length>0&&<span title={`Diferencia: ${$$(diff)}`} style={{marginLeft:4,color:C.danger}}>⚠️</span>}
                                 </td>
                                 <td style={{padding:"6px 10px"}}>
                                   {canViveros&&<>
-                                    <button onClick={e=>{e.stopPropagation();iniciarEdicionOC(oc);}} style={{background:"#dbeafe",border:"none",borderRadius:4,padding:"3px 8px",cursor:"pointer",fontSize:11,marginRight:4}}>✏️</button>
-                                    <button onClick={e=>{e.stopPropagation();eliminarOC(oc.id);}} style={{background:"#fef2f2",border:"none",borderRadius:4,padding:"3px 8px",cursor:"pointer",fontSize:11}}>🗑</button>
+                                    <button onClick={e=>{e.stopPropagation();iniciarEdicionOC(oc);}} style={{background:C.infoBg,border:"none",borderRadius:4,padding:"3px 8px",cursor:"pointer",fontSize:11,marginRight:4}}>✏️</button>
+                                    <button onClick={e=>{e.stopPropagation();eliminarOC(oc.id);}} style={{background:C.dangerBg,border:"none",borderRadius:4,padding:"3px 8px",cursor:"pointer",fontSize:11}}>🗑</button>
                                   </>}
                                 </td>
                               </tr>
@@ -10101,15 +10106,15 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
                 {ocActiva && (<>
                   <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
                     <div>
-                      <button onClick={()=>setOcDetalle(null)} style={{background:"#f1f5f9",border:"none",borderRadius:6,padding:"5px 12px",cursor:"pointer",fontSize:11,marginBottom:8}}>← Volver a la lista</button>
-                      <div style={{fontWeight:800,fontSize:16,color:"#1e293b"}}>📦 OC {ocActiva.n_oc} — {ocActiva.cliente_nombre}</div>
-                      <div style={{fontSize:11,color:"#64748b"}}>
+                      <button onClick={()=>setOcDetalle(null)} style={{background:C.cardAlt,border:"none",borderRadius:6,padding:"5px 12px",cursor:"pointer",fontSize:11,marginBottom:8}}>← Volver a la lista</button>
+                      <div style={{fontWeight:800,fontSize:16,color:C.text}}>📦 OC {ocActiva.n_oc} — {ocActiva.cliente_nombre}</div>
+                      <div style={{fontSize:11,color:C.muted}}>
                         {ocActiva.fecha_oc&&`📅 ${ocActiva.fecha_oc} · `}
                         🌿 {ocActiva.especie} · {ocActiva.variedad} ·
                         🌱 {N(ocActiva.cantidad_plantas)} plantas ·
                         📐 {N(ocActiva.hectareas)} há ·
                         💵 {$$(ocActiva.fee_usd_planta)}/planta ·
-                        💰 Total: <strong style={{color:"#7c3aed"}}>{$$(ocActiva.fee_total_usd)}</strong>
+                        💰 Total: <strong style={{color:C.text}}>{$$(ocActiva.fee_total_usd)}</strong>
                       </div>
                     </div>
                     {canViveros&&<button onClick={()=>{
@@ -10117,7 +10122,7 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
                       setCuotaForm({fecha:"",monto_usd:restante>0?restante.toFixed(2):"",pagado:false,fecha_pago:"",n_factura:"",observaciones:""});
                       setCuotaEditId(null);
                       setCuotaModal(true);
-                    }} style={{padding:"6px 14px",borderRadius:8,background:"#16a34a",border:"none",color:"#fff",cursor:"pointer",fontSize:12,fontWeight:700}}>+ Nueva Cuota</button>}
+                    }} style={{padding:"6px 14px",borderRadius:8,background:C.success,border:"none",color:"#fff",cursor:"pointer",fontSize:12,fontWeight:700}}>+ Nueva Cuota</button>}
                   </div>
                   {/* Verificación de suma */}
                   {(()=>{
@@ -10125,55 +10130,55 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
                     const diff = (parseFloat(ocActiva.fee_total_usd)||0) - totC;
                     if(Math.abs(diff)<0.01||(ocActiva.cuotas||[]).length===0) return null;
                     return (
-                      <div style={{background:"#fef2f2",border:"1px solid #fca5a5",borderRadius:8,padding:"8px 12px",marginBottom:12,fontSize:11,color:"#991b1b"}}>
+                      <div style={{background:C.dangerBg,border:`1px solid ${C.danger}`,borderRadius:8,padding:"8px 12px",marginBottom:12,fontSize:11,color:C.danger}}>
                         ⚠️ La suma de cuotas ({$$(totC)}) {diff>0?"es menor":"excede"} al fee total ({$$(ocActiva.fee_total_usd)}). Diferencia: <strong>{$$(Math.abs(diff))}</strong>
                       </div>
                     );
                   })()}
-                  {(ocActiva.cuotas||[]).length===0?<div style={{padding:30,textAlign:"center",color:"#94a3b8",border:"1px dashed #e2e8f0",borderRadius:10}}>Sin cuotas. {canViveros?"Agrega una con \"+ Nueva Cuota\".":""}</div>:(
+                  {(ocActiva.cuotas||[]).length===0?<div style={{padding:30,textAlign:"center",color:C.muted2,border:"1px dashed #e2e8f0",borderRadius:10}}>Sin cuotas. {canViveros?"Agrega una con \"+ Nueva Cuota\".":""}</div>:(
                     <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
-                      <thead><tr style={{background:"#f8fafc"}}>
+                      <thead><tr style={{background:C.primary}}>
                         {["Fecha estim.","Monto USD","Estado","Fecha pago","N° Factura","Observaciones",""].map(h=>
-                          <th key={h} style={{padding:"8px 10px",textAlign:["Monto USD"].includes(h)?"right":"left",fontWeight:700,fontSize:10,color:"#64748b",borderBottom:"2px solid #e2e8f0",whiteSpace:"nowrap"}}>{h}</th>
+                          <th key={h} style={{padding:"8px 10px",textAlign:["Monto USD"].includes(h)?"right":"left",fontWeight:700,fontSize:10,color:C.muted,borderBottom:`2px solid ${C.border}`,whiteSpace:"nowrap"}}>{h}</th>
                         )}
                       </tr></thead>
                       <tbody>
                         {(ocActiva.cuotas||[]).map(cu=>(
-                          <tr key={cu.id} style={{borderBottom:"1px solid #f1f5f9",background:cu.pagado?"#f0fdf4":"#fff"}}>
+                          <tr key={cu.id} style={{borderBottom:"1px solid #f1f5f9",background:cu.pagado?C.successBg:"#fff"}}>
                             <td style={{padding:"6px 10px",fontWeight:600}}>{cu.fecha}</td>
-                            <td style={{padding:"6px 10px",textAlign:"right",fontWeight:700,color:"#7c3aed"}}>{$$(cu.monto_usd)}</td>
+                            <td style={{padding:"6px 10px",textAlign:"right",fontWeight:700,color:C.text}}>{$$(cu.monto_usd)}</td>
                             <td style={{padding:"6px 10px"}}>
                               <span onClick={()=>togglePagadoCuota(cu.id)} style={{
                                 cursor:canViveros?"pointer":"default",
                                 padding:"3px 10px",borderRadius:20,fontSize:11,fontWeight:700,
-                                background:cu.pagado?"#dcfce7":"#fef3c7",
-                                color:cu.pagado?"#16a34a":"#d97706",
+                                background:cu.pagado?C.successBg:C.warningBg,
+                                color:cu.pagado?C.success:C.warning,
                                 border:`1px solid ${cu.pagado?"#86efac":"#fde047"}`,
                               }}>{cu.pagado?"✅ Pagado":"⏳ Por cobrar"}</span>
                             </td>
                             <td style={{padding:"6px 10px",fontSize:11}}>{cu.fecha_pago||"—"}</td>
                             <td style={{padding:"6px 10px",fontSize:11}}>{cu.n_factura||"—"}</td>
-                            <td style={{padding:"6px 10px",fontSize:11,color:"#64748b"}}>{cu.observaciones||"—"}</td>
+                            <td style={{padding:"6px 10px",fontSize:11,color:C.muted}}>{cu.observaciones||"—"}</td>
                             <td style={{padding:"6px 10px"}}>
                               {canViveros&&<>
                                 <button onClick={()=>{
                                   setCuotaForm({fecha:cu.fecha||"",monto_usd:cu.monto_usd||"",pagado:!!cu.pagado,fecha_pago:cu.fecha_pago||"",n_factura:cu.n_factura||"",observaciones:cu.observaciones||""});
                                   setCuotaEditId(cu.id);
                                   setCuotaModal(true);
-                                }} style={{background:"#dbeafe",border:"none",borderRadius:4,padding:"3px 8px",cursor:"pointer",fontSize:11,marginRight:4}}>✏️</button>
-                                <button onClick={()=>eliminarCuota(cu.id)} style={{background:"#fef2f2",border:"none",borderRadius:4,padding:"3px 8px",cursor:"pointer",fontSize:11}}>🗑</button>
+                                }} style={{background:C.infoBg,border:"none",borderRadius:4,padding:"3px 8px",cursor:"pointer",fontSize:11,marginRight:4}}>✏️</button>
+                                <button onClick={()=>eliminarCuota(cu.id)} style={{background:C.dangerBg,border:"none",borderRadius:4,padding:"3px 8px",cursor:"pointer",fontSize:11}}>🗑</button>
                               </>}
                             </td>
                           </tr>
                         ))}
                       </tbody>
                       <tfoot>
-                        <tr style={{background:"#f1f5f9",fontWeight:800}}>
+                        <tr style={{background:C.cardAlt,fontWeight:800}}>
                           <td style={{padding:"8px 10px"}}>TOTAL</td>
-                          <td style={{padding:"8px 10px",textAlign:"right",color:"#7c3aed"}}>{$$((ocActiva.cuotas||[]).reduce((s,c)=>s+(parseFloat(c.monto_usd)||0),0))}</td>
-                          <td colSpan={5} style={{padding:"8px 10px",fontSize:11,color:"#64748b"}}>
-                            Cobrado: <strong style={{color:"#16a34a"}}>{$$((ocActiva.cuotas||[]).filter(c=>c.pagado).reduce((s,c)=>s+(parseFloat(c.monto_usd)||0),0))}</strong>
-                            {" · "}Pendiente: <strong style={{color:"#d97706"}}>{$$((ocActiva.cuotas||[]).filter(c=>!c.pagado).reduce((s,c)=>s+(parseFloat(c.monto_usd)||0),0))}</strong>
+                          <td style={{padding:"8px 10px",textAlign:"right",color:C.text}}>{$$((ocActiva.cuotas||[]).reduce((s,c)=>s+(parseFloat(c.monto_usd)||0),0))}</td>
+                          <td colSpan={5} style={{padding:"8px 10px",fontSize:11,color:C.muted}}>
+                            Cobrado: <strong style={{color:C.success}}>{$$((ocActiva.cuotas||[]).filter(c=>c.pagado).reduce((s,c)=>s+(parseFloat(c.monto_usd)||0),0))}</strong>
+                            {" · "}Pendiente: <strong style={{color:C.warning}}>{$$((ocActiva.cuotas||[]).filter(c=>!c.pagado).reduce((s,c)=>s+(parseFloat(c.monto_usd)||0),0))}</strong>
                           </td>
                         </tr>
                       </tfoot>
@@ -10186,23 +10191,23 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
             {/* TAB LEGAL/FIRMAS */}
             {vivTab==="legal"&&(
               <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:20}}>
-                <div style={{border:"1px solid #e2e8f0",borderRadius:10,padding:16}}>
-                  <div style={{fontWeight:700,marginBottom:12,color:"#1e293b"}}>📝 Firmas del Contrato</div>
+                <div style={{border:`1px solid ${C.border}`,borderRadius:10,padding:16}}>
+                  <div style={{fontWeight:700,marginBottom:12,color:C.text}}>📝 Firmas del Contrato</div>
                   <label style={{display:"flex",alignItems:"center",gap:8,cursor:canViveros?"pointer":"default",padding:"8px 0",borderBottom:"1px solid #f1f5f9"}}>
                     <input type="checkbox" disabled={!canViveros} checked={!!v.firma_viverista} onChange={e=>updateVivero(v.id,{firma_viverista:e.target.checked})}/>
-                    <span style={{fontWeight:600,color:v.firma_viverista?"#16a34a":"#94a3b8"}}>{v.firma_viverista?"✅":"⬜"} Firma Viverista</span>
+                    <span style={{fontWeight:600,color:v.firma_viverista?C.success:C.muted2}}>{v.firma_viverista?"✅":"⬜"} Firma Viverista</span>
                   </label>
                   <label style={{display:"flex",alignItems:"center",gap:8,cursor:canViveros?"pointer":"default",padding:"8px 0"}}>
                     <input type="checkbox" disabled={!canViveros} checked={!!v.firma_osiris} onChange={e=>updateVivero(v.id,{firma_osiris:e.target.checked})}/>
-                    <span style={{fontWeight:600,color:v.firma_osiris?"#16a34a":"#94a3b8"}}>{v.firma_osiris?"✅":"⬜"} Firma Osiris</span>
+                    <span style={{fontWeight:600,color:v.firma_osiris?C.success:C.muted2}}>{v.firma_osiris?"✅":"⬜"} Firma Osiris</span>
                   </label>
                 </div>
-                <div style={{border:"1px solid #e2e8f0",borderRadius:10,padding:16}}>
-                  <div style={{fontWeight:700,marginBottom:12,color:"#1e293b"}}>📄 Documentación Legal</div>
-                  <label style={{fontSize:11,fontWeight:600,color:"#475569",display:"block",marginBottom:4}}>Enlace documento legal</label>
+                <div style={{border:`1px solid ${C.border}`,borderRadius:10,padding:16}}>
+                  <div style={{fontWeight:700,marginBottom:12,color:C.text}}>📄 Documentación Legal</div>
+                  <label style={{fontSize:11,fontWeight:600,color:C.muted,display:"block",marginBottom:4}}>Enlace documento legal</label>
                   <input disabled={!canViveros} value={v.doc_legal||""} onChange={e=>updateVivero(v.id,{doc_legal:e.target.value})} placeholder="URL del documento legal..."
-                    style={{width:"100%",padding:"8px 12px",borderRadius:8,border:"1px solid #d1d5db",fontSize:13,boxSizing:"border-box",background:canViveros?"#fff":"#f8fafc"}}/>
-                  {v.doc_legal&&<a href={v.doc_legal} target="_blank" rel="noopener noreferrer" style={{fontSize:11,color:"#16a34a",marginTop:6,display:"inline-block"}}>📎 Abrir documento</a>}
+                    style={{width:"100%",padding:"8px 12px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:13,boxSizing:"border-box",background:canViveros?"#fff":C.cardAlt}}/>
+                  {v.doc_legal&&<a href={v.doc_legal} target="_blank" rel="noopener noreferrer" style={{fontSize:11,color:C.success,marginTop:6,display:"inline-block"}}>📎 Abrir documento</a>}
                 </div>
               </div>
             )}
@@ -10211,26 +10216,26 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
             {vivTab==="anexos"&&(
               <div>
                 <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
-                  <div style={{fontWeight:700,color:"#1e293b"}}>📎 Anexos del Contrato</div>
-                  {canViveros&&<button onClick={()=>{setVAnxForm({descripcion:"",fecha:"",enlace:"",observaciones:""});setVAnxModal(true);}} style={{padding:"6px 14px",borderRadius:8,background:"#16a34a",border:"none",color:"#fff",cursor:"pointer",fontSize:12,fontWeight:700}}>+ Agregar Anexo</button>}
+                  <div style={{fontWeight:700,color:C.text}}>📎 Anexos del Contrato</div>
+                  {canViveros&&<button onClick={()=>{setVAnxForm({descripcion:"",fecha:"",enlace:"",observaciones:""});setVAnxModal(true);}} style={{padding:"6px 14px",borderRadius:8,background:C.success,border:"none",color:"#fff",cursor:"pointer",fontSize:12,fontWeight:700}}>+ Agregar Anexo</button>}
                 </div>
-                {anexos.length===0?<div style={{padding:30,textAlign:"center",color:"#94a3b8"}}>No hay anexos registrados.</div>:(
+                {anexos.length===0?<div style={{padding:30,textAlign:"center",color:C.muted2}}>No hay anexos registrados.</div>:(
                   <div style={{display:"flex",flexDirection:"column",gap:10}}>
                     {anexos.map(a=>(
-                      <div key={a.id} style={{border:"1px solid #e2e8f0",borderRadius:10,padding:12,display:"flex",gap:12,alignItems:"center"}}>
+                      <div key={a.id} style={{border:`1px solid ${C.border}`,borderRadius:10,padding:12,display:"flex",gap:12,alignItems:"center"}}>
                         <div style={{flex:1}}>
                           <div style={{fontWeight:600,fontSize:13,marginBottom:4}}>{a.descripcion}</div>
                           <div style={{display:"flex",gap:10,fontSize:11}}>
                             <input type="date" disabled={!canViveros} value={a.fecha||""} onChange={e=>updateVAnexo(a.id,{fecha:e.target.value})}
-                              style={{padding:"3px 8px",border:"1px solid #e2e8f0",borderRadius:6,fontSize:11}}/>
+                              style={{padding:"3px 8px",border:`1px solid ${C.border}`,borderRadius:6,fontSize:11}}/>
                             <input disabled={!canViveros} value={a.enlace||""} onChange={e=>updateVAnexo(a.id,{enlace:e.target.value})} placeholder="Enlace documento..."
-                              style={{flex:1,padding:"3px 8px",border:"1px solid #e2e8f0",borderRadius:6,fontSize:11}}/>
+                              style={{flex:1,padding:"3px 8px",border:`1px solid ${C.border}`,borderRadius:6,fontSize:11}}/>
                             <input disabled={!canViveros} value={a.observaciones||""} onChange={e=>updateVAnexo(a.id,{observaciones:e.target.value})} placeholder="Notas..."
-                              style={{flex:1,padding:"3px 8px",border:"1px solid #e2e8f0",borderRadius:6,fontSize:11}}/>
+                              style={{flex:1,padding:"3px 8px",border:`1px solid ${C.border}`,borderRadius:6,fontSize:11}}/>
                           </div>
                         </div>
-                        {a.enlace&&<a href={a.enlace} target="_blank" rel="noopener noreferrer" style={{fontSize:11,color:"#16a34a"}}>📎</a>}
-                        {canViveros&&<button onClick={()=>delVAnexo(a.id)} style={{background:"#fef2f2",border:"none",borderRadius:6,padding:"4px 8px",cursor:"pointer",fontSize:11}}>🗑</button>}
+                        {a.enlace&&<a href={a.enlace} target="_blank" rel="noopener noreferrer" style={{fontSize:11,color:C.success}}>📎</a>}
+                        {canViveros&&<button onClick={()=>delVAnexo(a.id)} style={{background:C.dangerBg,border:"none",borderRadius:6,padding:"4px 8px",cursor:"pointer",fontSize:11}}>🗑</button>}
                       </div>
                     ))}
                   </div>
@@ -10242,40 +10247,40 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
           {/* Sub-modal: Agregar Variedad */}
           {vvModal&&(
             <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:10000}} onClick={()=>setVvModal(false)}>
-              <div onClick={e=>e.stopPropagation()} style={{background:"#fff",borderRadius:16,padding:24,width:520,maxHeight:"85vh",overflowY:"auto"}}>
-                <h3 style={{margin:"0 0 16px",color:"#1e293b"}}>🌱 Nueva Variedad Autorizada</h3>
+              <div onClick={e=>e.stopPropagation()} style={{background:C.card,borderRadius:16,padding:24,width:520,maxHeight:"85vh",overflowY:"auto"}}>
+                <h3 style={{margin:"0 0 16px",color:C.text}}>🌱 Nueva Variedad Autorizada</h3>
                 <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:12}}>
                   <div>
-                    <label style={{fontSize:11,fontWeight:600,color:"#475569",display:"block",marginBottom:4}}>Especie <span style={{color:"#dc2626"}}>*</span></label>
+                    <label style={{fontSize:11,fontWeight:600,color:C.muted,display:"block",marginBottom:4}}>Especie <span style={{color:C.danger}}>*</span></label>
                     <input value={vvForm.especie||""} placeholder="Cerezo, Arándano..." onChange={e=>setVvForm(p=>({...p,especie:e.target.value}))}
-                      style={{width:"100%",padding:"8px 12px",borderRadius:8,border:"1px solid #d1d5db",fontSize:13,boxSizing:"border-box"}}/>
+                      style={{width:"100%",padding:"8px 12px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:13,boxSizing:"border-box"}}/>
                   </div>
                   <div>
-                    <label style={{fontSize:11,fontWeight:600,color:"#475569",display:"block",marginBottom:4}}>Variedad <span style={{color:"#dc2626"}}>*</span></label>
+                    <label style={{fontSize:11,fontWeight:600,color:C.muted,display:"block",marginBottom:4}}>Variedad <span style={{color:C.danger}}>*</span></label>
                     <input value={vvForm.variedad||""} placeholder="Royal Dawn..." onChange={e=>setVvForm(p=>({...p,variedad:e.target.value}))}
-                      style={{width:"100%",padding:"8px 12px",borderRadius:8,border:"1px solid #d1d5db",fontSize:13,boxSizing:"border-box"}}/>
+                      style={{width:"100%",padding:"8px 12px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:13,boxSizing:"border-box"}}/>
                   </div>
                 </div>
                 <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:12}}>
                   <div>
-                    <label style={{fontSize:11,fontWeight:600,color:"#475569",display:"block",marginBottom:4}}>Fee USD por planta</label>
+                    <label style={{fontSize:11,fontWeight:600,color:C.muted,display:"block",marginBottom:4}}>Fee USD por planta</label>
                     <input type="number" step="0.01" value={vvForm.fee_usd||""} placeholder="0.85" onChange={e=>setVvForm(p=>({...p,fee_usd:e.target.value}))}
-                      style={{width:"100%",padding:"8px 12px",borderRadius:8,border:"1px solid #d1d5db",fontSize:13,boxSizing:"border-box"}}/>
+                      style={{width:"100%",padding:"8px 12px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:13,boxSizing:"border-box"}}/>
                   </div>
                   <div>
-                    <label style={{fontSize:11,fontWeight:600,color:"#475569",display:"block",marginBottom:4}}>Fee % sobre venta</label>
+                    <label style={{fontSize:11,fontWeight:600,color:C.muted,display:"block",marginBottom:4}}>Fee % sobre venta</label>
                     <input type="number" step="0.1" value={vvForm.fee_pct||""} placeholder="3" onChange={e=>setVvForm(p=>({...p,fee_pct:e.target.value}))}
-                      style={{width:"100%",padding:"8px 12px",borderRadius:8,border:"1px solid #d1d5db",fontSize:13,boxSizing:"border-box"}}/>
+                      style={{width:"100%",padding:"8px 12px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:13,boxSizing:"border-box"}}/>
                   </div>
                 </div>
                 <div style={{marginBottom:12}}>
-                  <label style={{fontSize:11,fontWeight:600,color:"#475569",display:"block",marginBottom:4}}>Observaciones</label>
+                  <label style={{fontSize:11,fontWeight:600,color:C.muted,display:"block",marginBottom:4}}>Observaciones</label>
                   <textarea value={vvForm.observaciones||""} onChange={e=>setVvForm(p=>({...p,observaciones:e.target.value}))}
-                    style={{width:"100%",padding:"8px 12px",borderRadius:8,border:"1px solid #d1d5db",fontSize:13,minHeight:60,boxSizing:"border-box"}}/>
+                    style={{width:"100%",padding:"8px 12px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:13,minHeight:60,boxSizing:"border-box"}}/>
                 </div>
                 <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}>
-                  <button onClick={()=>setVvModal(false)} style={{padding:"8px 16px",borderRadius:8,border:"1px solid #d1d5db",background:"#fff",cursor:"pointer"}}>Cancelar</button>
-                  <button onClick={guardarVariedad} style={{padding:"8px 16px",borderRadius:8,background:"#16a34a",border:"none",color:"#fff",cursor:"pointer",fontWeight:700}}>Guardar</button>
+                  <button onClick={()=>setVvModal(false)} style={{padding:"8px 16px",borderRadius:8,border:`1px solid ${C.border}`,background:C.card,cursor:"pointer"}}>Cancelar</button>
+                  <button onClick={guardarVariedad} style={{padding:"8px 16px",borderRadius:8,background:C.success,border:"none",color:"#fff",cursor:"pointer",fontWeight:700}}>Guardar</button>
                 </div>
               </div>
             </div>
@@ -10284,31 +10289,31 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
           {/* Sub-modal: Agregar Anexo Vivero */}
           {vAnxModal&&(
             <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:10000}} onClick={()=>setVAnxModal(false)}>
-              <div onClick={e=>e.stopPropagation()} style={{background:"#fff",borderRadius:16,padding:24,width:480,maxHeight:"80vh",overflowY:"auto"}}>
-                <h3 style={{margin:"0 0 16px",color:"#1e293b"}}>📎 Nuevo Anexo</h3>
+              <div onClick={e=>e.stopPropagation()} style={{background:C.card,borderRadius:16,padding:24,width:480,maxHeight:"80vh",overflowY:"auto"}}>
+                <h3 style={{margin:"0 0 16px",color:C.text}}>📎 Nuevo Anexo</h3>
                 <div style={{marginBottom:12}}>
-                  <label style={{fontSize:11,fontWeight:600,color:"#475569",display:"block",marginBottom:4}}>Descripción <span style={{color:"#dc2626"}}>*</span></label>
+                  <label style={{fontSize:11,fontWeight:600,color:C.muted,display:"block",marginBottom:4}}>Descripción <span style={{color:C.danger}}>*</span></label>
                   <input value={vAnxForm.descripcion||""} placeholder="Adenda 2025, Carta compromiso..." onChange={e=>setVAnxForm(p=>({...p,descripcion:e.target.value}))}
-                    style={{width:"100%",padding:"8px 12px",borderRadius:8,border:"1px solid #d1d5db",fontSize:13,boxSizing:"border-box"}}/>
+                    style={{width:"100%",padding:"8px 12px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:13,boxSizing:"border-box"}}/>
                 </div>
                 <div style={{marginBottom:12}}>
-                  <label style={{fontSize:11,fontWeight:600,color:"#475569",display:"block",marginBottom:4}}>Fecha</label>
+                  <label style={{fontSize:11,fontWeight:600,color:C.muted,display:"block",marginBottom:4}}>Fecha</label>
                   <input type="date" value={vAnxForm.fecha||""} onChange={e=>setVAnxForm(p=>({...p,fecha:e.target.value}))}
-                    style={{width:"100%",padding:"8px 12px",borderRadius:8,border:"1px solid #d1d5db",fontSize:13,boxSizing:"border-box"}}/>
+                    style={{width:"100%",padding:"8px 12px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:13,boxSizing:"border-box"}}/>
                 </div>
                 <div style={{marginBottom:12}}>
-                  <label style={{fontSize:11,fontWeight:600,color:"#475569",display:"block",marginBottom:4}}>Enlace (URL)</label>
+                  <label style={{fontSize:11,fontWeight:600,color:C.muted,display:"block",marginBottom:4}}>Enlace (URL)</label>
                   <input value={vAnxForm.enlace||""} placeholder="https://..." onChange={e=>setVAnxForm(p=>({...p,enlace:e.target.value}))}
-                    style={{width:"100%",padding:"8px 12px",borderRadius:8,border:"1px solid #d1d5db",fontSize:13,boxSizing:"border-box"}}/>
+                    style={{width:"100%",padding:"8px 12px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:13,boxSizing:"border-box"}}/>
                 </div>
                 <div style={{marginBottom:12}}>
-                  <label style={{fontSize:11,fontWeight:600,color:"#475569",display:"block",marginBottom:4}}>Observaciones</label>
+                  <label style={{fontSize:11,fontWeight:600,color:C.muted,display:"block",marginBottom:4}}>Observaciones</label>
                   <textarea value={vAnxForm.observaciones||""} onChange={e=>setVAnxForm(p=>({...p,observaciones:e.target.value}))}
-                    style={{width:"100%",padding:"8px 12px",borderRadius:8,border:"1px solid #d1d5db",fontSize:13,minHeight:60,boxSizing:"border-box"}}/>
+                    style={{width:"100%",padding:"8px 12px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:13,minHeight:60,boxSizing:"border-box"}}/>
                 </div>
                 <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}>
-                  <button onClick={()=>setVAnxModal(false)} style={{padding:"8px 16px",borderRadius:8,border:"1px solid #d1d5db",background:"#fff",cursor:"pointer"}}>Cancelar</button>
-                  <button onClick={guardarVAnexo} style={{padding:"8px 16px",borderRadius:8,background:"#16a34a",border:"none",color:"#fff",cursor:"pointer",fontWeight:700}}>Guardar</button>
+                  <button onClick={()=>setVAnxModal(false)} style={{padding:"8px 16px",borderRadius:8,border:`1px solid ${C.border}`,background:C.card,cursor:"pointer"}}>Cancelar</button>
+                  <button onClick={guardarVAnexo} style={{padding:"8px 16px",borderRadius:8,background:C.success,border:"none",color:"#fff",cursor:"pointer",fontWeight:700}}>Guardar</button>
                 </div>
               </div>
             </div>
@@ -10317,31 +10322,31 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
           {/* Sub-modal: Nueva/Editar Orden de Compra */}
           {ocModal&&(
             <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:10000}} onClick={()=>setOcModal(false)}>
-              <div onClick={e=>e.stopPropagation()} style={{background:"#fff",borderRadius:16,padding:24,width:640,maxHeight:"90vh",overflowY:"auto"}}>
-                <h3 style={{margin:"0 0 16px",color:"#1e293b"}}>{ocEditId?"✏️ Editar":"➕ Nueva"} Orden de Compra</h3>
+              <div onClick={e=>e.stopPropagation()} style={{background:C.card,borderRadius:16,padding:24,width:640,maxHeight:"90vh",overflowY:"auto"}}>
+                <h3 style={{margin:"0 0 16px",color:C.text}}>{ocEditId?"✏️ Editar":"➕ Nueva"} Orden de Compra</h3>
 
                 {/* Datos básicos OC */}
                 <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:12}}>
                   <div>
-                    <label style={{fontSize:11,fontWeight:600,color:"#475569",display:"block",marginBottom:4}}>N° OC <span style={{color:"#dc2626"}}>*</span></label>
+                    <label style={{fontSize:11,fontWeight:600,color:C.muted,display:"block",marginBottom:4}}>N° OC <span style={{color:C.danger}}>*</span></label>
                     <input value={ocForm.n_oc||""} placeholder="OC-2026-001" onChange={e=>setOcForm(p=>({...p,n_oc:e.target.value}))}
-                      style={{width:"100%",padding:"8px 12px",borderRadius:8,border:"1px solid #d1d5db",fontSize:13,boxSizing:"border-box"}}/>
+                      style={{width:"100%",padding:"8px 12px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:13,boxSizing:"border-box"}}/>
                   </div>
                   <div>
-                    <label style={{fontSize:11,fontWeight:600,color:"#475569",display:"block",marginBottom:4}}>Fecha OC</label>
+                    <label style={{fontSize:11,fontWeight:600,color:C.muted,display:"block",marginBottom:4}}>Fecha OC</label>
                     <input type="date" value={ocForm.fecha_oc||""} onChange={e=>setOcForm(p=>({...p,fecha_oc:e.target.value}))}
-                      style={{width:"100%",padding:"8px 12px",borderRadius:8,border:"1px solid #d1d5db",fontSize:13,boxSizing:"border-box"}}/>
+                      style={{width:"100%",padding:"8px 12px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:13,boxSizing:"border-box"}}/>
                   </div>
                 </div>
 
                 {/* Cliente del Maestro */}
                 <div style={{marginBottom:12}}>
-                  <label style={{fontSize:11,fontWeight:600,color:"#475569",display:"block",marginBottom:4}}>Cliente (Maestro Osiris) <span style={{color:"#dc2626"}}>*</span></label>
+                  <label style={{fontSize:11,fontWeight:600,color:C.muted,display:"block",marginBottom:4}}>Cliente (Maestro Osiris) <span style={{color:C.danger}}>*</span></label>
                   <select value={ocForm.cliente_id||""} onChange={e=>{
                     const cli = clientes.find(c=>c.id===e.target.value);
                     setOcForm(p=>({...p,cliente_id:e.target.value,cliente_nombre:cli?.razonSocial||""}));
                   }}
-                    style={{width:"100%",padding:"8px 12px",borderRadius:8,border:"1px solid #d1d5db",fontSize:13,boxSizing:"border-box",background:"#fff"}}>
+                    style={{width:"100%",padding:"8px 12px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:13,boxSizing:"border-box",background:C.card}}>
                     <option value="">— Seleccionar cliente —</option>
                     {clientes.map(c=><option key={c.id} value={c.id}>{c.razonSocial} {c.pais?`(${c.pais})`:""}</option>)}
                   </select>
@@ -10350,16 +10355,16 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
                 {/* Variedad(es) del contrato — MULTI-ESPECIE */}
                 <div style={{marginBottom:12}}>
                   <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
-                    <label style={{fontSize:11,fontWeight:700,color:"#475569"}}>🌱 Especies / Variedades de la OC</label>
+                    <label style={{fontSize:11,fontWeight:700,color:C.muted}}>🌱 Especies / Variedades de la OC</label>
                     <button type="button" onClick={()=>setOcForm(p=>({...p,items:[...(p.items||[]),{id:`oci_${Date.now()}`,variedad_id:"",especie:"",variedad:"",cantidad_plantas:"",hectareas:"",fee_usd_planta:"",fee_total_usd:0}]}))}
-                      style={{padding:"4px 12px",borderRadius:6,background:"#2563eb",color:"#fff",border:"none",cursor:"pointer",fontSize:10,fontWeight:700}}>+ Agregar línea</button>
+                      style={{padding:"4px 12px",borderRadius:6,background:C.primary,color:"#fff",border:"none",cursor:"pointer",fontSize:10,fontWeight:700}}>+ Agregar línea</button>
                   </div>
                   {/* Items existentes */}
                   {(ocForm.items||[]).length>0?(
-                    <div style={{border:"1px solid #e2e8f0",borderRadius:8,overflow:"hidden"}}>
+                    <div style={{border:`1px solid ${C.border}`,borderRadius:8,overflow:"hidden"}}>
                       <table style={{width:"100%",borderCollapse:"collapse",fontSize:11}}>
-                        <thead><tr style={{background:"#f8fafc"}}>
-                          {["Variedad","Plantas","Há","Fee USD/pl","Fee total",""].map(h=><th key={h} style={{padding:"6px 8px",textAlign:"left",fontWeight:700,color:"#475569",fontSize:10}}>{h}</th>)}
+                        <thead><tr style={{background:C.primary}}>
+                          {["Variedad","Plantas","Há","Fee USD/pl","Fee total",""].map(h=><th key={h} style={{padding:"6px 8px",textAlign:"left",fontWeight:700,color:C.muted,fontSize:10}}>{h}</th>)}
                         </tr></thead>
                         <tbody>{(ocForm.items||[]).map((it,idx)=>(
                           <tr key={it.id} style={{borderTop:"1px solid #f1f5f9"}}>
@@ -10367,7 +10372,7 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
                               <select value={it.variedad_id||""} onChange={e=>{
                                 const vv=variedades.find(x=>x.id===e.target.value);
                                 setOcForm(p=>({...p,items:(p.items||[]).map(x=>x.id===it.id?{...x,variedad_id:e.target.value,especie:vv?.especie||"",variedad:vv?.variedad||"",fee_usd_planta:vv?.fee_usd||x.fee_usd_planta}:x)}));
-                              }} style={{width:"100%",padding:"5px 6px",borderRadius:4,border:"1px solid #d1d5db",fontSize:11}}>
+                              }} style={{width:"100%",padding:"5px 6px",borderRadius:4,border:`1px solid ${C.border}`,fontSize:11}}>
                                 <option value="">— Seleccionar —</option>
                                 {variedades.map(x=><option key={x.id} value={x.id}>{x.especie} · {x.nRegistro?`${x.nRegistro} · `:""}{x.variedad}</option>)}
                               </select>
@@ -10375,29 +10380,29 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
                             <td style={{padding:"4px 6px"}}><input type="number" value={it.cantidad_plantas||""} onChange={e=>{
                               const cant=e.target.value;const fee=parseFloat(it.fee_usd_planta)||0;
                               setOcForm(p=>({...p,items:(p.items||[]).map(x=>x.id===it.id?{...x,cantidad_plantas:cant,fee_total_usd:Math.round((parseFloat(cant)||0)*fee*100)/100}:x)}));
-                            }} style={{width:70,padding:"5px 6px",borderRadius:4,border:"1px solid #d1d5db",fontSize:11,textAlign:"right"}}/></td>
+                            }} style={{width:70,padding:"5px 6px",borderRadius:4,border:`1px solid ${C.border}`,fontSize:11,textAlign:"right"}}/></td>
                             <td style={{padding:"4px 6px"}}><input type="number" step="0.01" value={it.hectareas||""} onChange={e=>{
                               setOcForm(p=>({...p,items:(p.items||[]).map(x=>x.id===it.id?{...x,hectareas:e.target.value}:x)}));
-                            }} style={{width:60,padding:"5px 6px",borderRadius:4,border:"1px solid #d1d5db",fontSize:11,textAlign:"right"}}/></td>
+                            }} style={{width:60,padding:"5px 6px",borderRadius:4,border:`1px solid ${C.border}`,fontSize:11,textAlign:"right"}}/></td>
                             <td style={{padding:"4px 6px"}}><input type="number" step="0.001" value={it.fee_usd_planta||""} onChange={e=>{
                               const fee=e.target.value;const cant=parseFloat(it.cantidad_plantas)||0;
                               setOcForm(p=>({...p,items:(p.items||[]).map(x=>x.id===it.id?{...x,fee_usd_planta:fee,fee_total_usd:Math.round(cant*(parseFloat(fee)||0)*100)/100}:x)}));
-                            }} style={{width:70,padding:"5px 6px",borderRadius:4,border:"1px solid #d1d5db",fontSize:11,textAlign:"right"}}/></td>
-                            <td style={{padding:"4px 6px",fontWeight:700,color:"#7c3aed",fontSize:11}}>{$$(it.fee_total_usd||0)}</td>
+                            }} style={{width:70,padding:"5px 6px",borderRadius:4,border:`1px solid ${C.border}`,fontSize:11,textAlign:"right"}}/></td>
+                            <td style={{padding:"4px 6px",fontWeight:700,color:C.text,fontSize:11}}>{$$(it.fee_total_usd||0)}</td>
                             <td style={{padding:"4px 6px"}}><button onClick={()=>setOcForm(p=>({...p,items:(p.items||[]).filter(x=>x.id!==it.id)}))}
-                              style={{background:"#fee2e2",border:"none",borderRadius:4,padding:"2px 6px",cursor:"pointer",fontSize:10,color:"#991b1b"}}>×</button></td>
+                              style={{background:C.dangerBg,border:"none",borderRadius:4,padding:"2px 6px",cursor:"pointer",fontSize:10,color:C.danger}}>×</button></td>
                           </tr>
                         ))}</tbody>
                       </table>
                     </div>
                   ):(
-                    <div style={{padding:12,background:"#f8fafc",borderRadius:8,textAlign:"center",color:"#94a3b8",fontSize:11}}>
+                    <div style={{padding:12,background:C.cardAlt,borderRadius:8,textAlign:"center",color:C.muted2,fontSize:11}}>
                       Sin líneas. Click "+ Agregar línea" para agregar especies/variedades.
                     </div>
                   )}
                   {/* Migración: si la OC vieja tiene variedad_id directo, mostrar como línea legacy */}
                   {!ocForm.items?.length && ocForm.variedad_id && (
-                    <div style={{padding:8,background:"#fffbeb",borderRadius:6,fontSize:10,color:"#78350f",marginTop:6}}>
+                    <div style={{padding:8,background:C.warningBg,borderRadius:6,fontSize:10,color:C.text,marginTop:6}}>
                       ⚠️ Esta OC tiene formato antiguo (1 variedad). Al guardar se migrará al nuevo formato multi-línea.
                     </div>
                   )}
@@ -10414,36 +10419,36 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
                     setTimeout(()=>setOcForm(p=>({...p,fee_total_usd:totFee,cantidad_plantas:totPlantas,hectareas:totHa})),0);
                   }
                   return (
-                    <div style={{padding:12,background:"#ede9fe",borderRadius:8,border:"1px solid #c4b5fd",marginBottom:12,display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:8}}>
-                      <div style={{fontSize:11,color:"#5b21b6"}}>{items.length} línea(s) · {totPlantas.toLocaleString()} plantas · {totHa} há</div>
-                      <div><span style={{fontSize:12,fontWeight:700,color:"#5b21b6"}}>💰 Fee total: </span><span style={{fontSize:18,fontWeight:900,color:"#7c3aed"}}>{$$(totFee)}</span></div>
+                    <div style={{padding:12,background:C.purpleBg,borderRadius:8,border:`1px solid ${C.purple}`,marginBottom:12,display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:8}}>
+                      <div style={{fontSize:11,color:C.purple}}>{items.length} línea(s) · {totPlantas.toLocaleString()} plantas · {totHa} há</div>
+                      <div><span style={{fontSize:12,fontWeight:700,color:C.muted}}>💰 Fee total: </span><span style={{fontSize:18,fontWeight:900,color:C.text}}>{$$(totFee)}</span></div>
                     </div>
                   );
                 })()}
 
                 {/* Estado */}
                 <div style={{marginBottom:12}}>
-                  <label style={{fontSize:11,fontWeight:600,color:"#475569",display:"block",marginBottom:4}}>Estado de la OC</label>
+                  <label style={{fontSize:11,fontWeight:600,color:C.muted,display:"block",marginBottom:4}}>Estado de la OC</label>
                   <select value={ocForm.estado_oc||"Borrador"} onChange={e=>setOcForm(p=>({...p,estado_oc:e.target.value}))}
-                    style={{width:"100%",padding:"8px 12px",borderRadius:8,border:"1px solid #d1d5db",fontSize:13,boxSizing:"border-box",background:"#fff"}}>
+                    style={{width:"100%",padding:"8px 12px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:13,boxSizing:"border-box",background:C.card}}>
                     {ESTADOS_OC.map(s=><option key={s} value={s}>{s}</option>)}
                   </select>
                 </div>
 
                 <div style={{marginBottom:12}}>
-                  <label style={{fontSize:11,fontWeight:600,color:"#475569",display:"block",marginBottom:4}}>Observaciones</label>
+                  <label style={{fontSize:11,fontWeight:600,color:C.muted,display:"block",marginBottom:4}}>Observaciones</label>
                   <textarea value={ocForm.observaciones||""} onChange={e=>setOcForm(p=>({...p,observaciones:e.target.value}))}
-                    style={{width:"100%",padding:"8px 12px",borderRadius:8,border:"1px solid #d1d5db",fontSize:13,minHeight:60,boxSizing:"border-box"}}/>
+                    style={{width:"100%",padding:"8px 12px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:13,minHeight:60,boxSizing:"border-box"}}/>
                 </div>
 
                 {/* Info: las cuotas se gestionan tras crear la OC */}
-                {!ocEditId&&<div style={{background:"#fef3c7",border:"1px solid #fbbf24",borderRadius:8,padding:"8px 12px",marginBottom:12,fontSize:11,color:"#78350f"}}>
+                {!ocEditId&&<div style={{background:C.warningBg,border:`1px solid ${C.warning}`,borderRadius:8,padding:"8px 12px",marginBottom:12,fontSize:11,color:C.text}}>
                   💡 Tras crear la OC, podrás agregar las cuotas/fechas de pago entrando al detalle de la OC.
                 </div>}
 
                 <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}>
-                  <button onClick={()=>{setOcModal(false);setOcEditId(null);}} style={{padding:"8px 16px",borderRadius:8,border:"1px solid #d1d5db",background:"#fff",cursor:"pointer"}}>Cancelar</button>
-                  <button onClick={guardarOC} style={{padding:"8px 16px",borderRadius:8,background:"#2563eb",border:"none",color:"#fff",cursor:"pointer",fontWeight:700}}>{ocEditId?"Guardar cambios":"Crear OC"}</button>
+                  <button onClick={()=>{setOcModal(false);setOcEditId(null);}} style={{padding:"8px 16px",borderRadius:8,border:`1px solid ${C.border}`,background:C.card,cursor:"pointer"}}>Cancelar</button>
+                  <button onClick={guardarOC} style={{padding:"8px 16px",borderRadius:8,background:C.primary,border:"none",color:"#fff",cursor:"pointer",fontWeight:700}}>{ocEditId?"Guardar cambios":"Crear OC"}</button>
                 </div>
               </div>
             </div>
@@ -10452,46 +10457,46 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
           {/* Sub-modal: Nueva/Editar Cuota */}
           {cuotaModal&&(
             <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:10001}} onClick={()=>setCuotaModal(false)}>
-              <div onClick={e=>e.stopPropagation()} style={{background:"#fff",borderRadius:16,padding:24,width:520,maxHeight:"85vh",overflowY:"auto"}}>
-                <h3 style={{margin:"0 0 16px",color:"#1e293b"}}>{cuotaEditId?"✏️ Editar":"➕ Nueva"} Cuota de Pago</h3>
+              <div onClick={e=>e.stopPropagation()} style={{background:C.card,borderRadius:16,padding:24,width:520,maxHeight:"85vh",overflowY:"auto"}}>
+                <h3 style={{margin:"0 0 16px",color:C.text}}>{cuotaEditId?"✏️ Editar":"➕ Nueva"} Cuota de Pago</h3>
                 <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:12}}>
                   <div>
-                    <label style={{fontSize:11,fontWeight:600,color:"#475569",display:"block",marginBottom:4}}>Fecha estimada <span style={{color:"#dc2626"}}>*</span></label>
+                    <label style={{fontSize:11,fontWeight:600,color:C.muted,display:"block",marginBottom:4}}>Fecha estimada <span style={{color:C.danger}}>*</span></label>
                     <input type="date" value={cuotaForm.fecha||""} onChange={e=>setCuotaForm(p=>({...p,fecha:e.target.value}))}
-                      style={{width:"100%",padding:"8px 12px",borderRadius:8,border:"1px solid #d1d5db",fontSize:13,boxSizing:"border-box"}}/>
+                      style={{width:"100%",padding:"8px 12px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:13,boxSizing:"border-box"}}/>
                   </div>
                   <div>
-                    <label style={{fontSize:11,fontWeight:600,color:"#475569",display:"block",marginBottom:4}}>Monto USD <span style={{color:"#dc2626"}}>*</span></label>
+                    <label style={{fontSize:11,fontWeight:600,color:C.muted,display:"block",marginBottom:4}}>Monto USD <span style={{color:C.danger}}>*</span></label>
                     <input type="number" step="0.01" value={cuotaForm.monto_usd||""} onChange={e=>setCuotaForm(p=>({...p,monto_usd:e.target.value}))}
-                      style={{width:"100%",padding:"8px 12px",borderRadius:8,border:"1px solid #d1d5db",fontSize:13,boxSizing:"border-box",textAlign:"right"}}/>
+                      style={{width:"100%",padding:"8px 12px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:13,boxSizing:"border-box",textAlign:"right"}}/>
                   </div>
                 </div>
-                <label style={{display:"flex",alignItems:"center",gap:8,cursor:"pointer",marginBottom:12,padding:8,background:"#f8fafc",borderRadius:8}}>
+                <label style={{display:"flex",alignItems:"center",gap:8,cursor:"pointer",marginBottom:12,padding:8,background:C.cardAlt,borderRadius:8}}>
                   <input type="checkbox" checked={!!cuotaForm.pagado} onChange={e=>setCuotaForm(p=>({...p,pagado:e.target.checked,fecha_pago:e.target.checked&&!p.fecha_pago?new Date().toISOString().slice(0,10):p.fecha_pago}))}/>
                   <span style={{fontSize:12,fontWeight:600}}>✅ Cuota pagada</span>
                 </label>
                 {cuotaForm.pagado&&(
                   <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:12}}>
                     <div>
-                      <label style={{fontSize:11,fontWeight:600,color:"#475569",display:"block",marginBottom:4}}>Fecha de pago</label>
+                      <label style={{fontSize:11,fontWeight:600,color:C.muted,display:"block",marginBottom:4}}>Fecha de pago</label>
                       <input type="date" value={cuotaForm.fecha_pago||""} onChange={e=>setCuotaForm(p=>({...p,fecha_pago:e.target.value}))}
-                        style={{width:"100%",padding:"8px 12px",borderRadius:8,border:"1px solid #d1d5db",fontSize:13,boxSizing:"border-box"}}/>
+                        style={{width:"100%",padding:"8px 12px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:13,boxSizing:"border-box"}}/>
                     </div>
                     <div>
-                      <label style={{fontSize:11,fontWeight:600,color:"#475569",display:"block",marginBottom:4}}>N° Factura</label>
+                      <label style={{fontSize:11,fontWeight:600,color:C.muted,display:"block",marginBottom:4}}>N° Factura</label>
                       <input value={cuotaForm.n_factura||""} onChange={e=>setCuotaForm(p=>({...p,n_factura:e.target.value}))}
-                        style={{width:"100%",padding:"8px 12px",borderRadius:8,border:"1px solid #d1d5db",fontSize:13,boxSizing:"border-box"}}/>
+                        style={{width:"100%",padding:"8px 12px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:13,boxSizing:"border-box"}}/>
                     </div>
                   </div>
                 )}
                 <div style={{marginBottom:12}}>
-                  <label style={{fontSize:11,fontWeight:600,color:"#475569",display:"block",marginBottom:4}}>Observaciones</label>
+                  <label style={{fontSize:11,fontWeight:600,color:C.muted,display:"block",marginBottom:4}}>Observaciones</label>
                   <textarea value={cuotaForm.observaciones||""} onChange={e=>setCuotaForm(p=>({...p,observaciones:e.target.value}))}
-                    style={{width:"100%",padding:"8px 12px",borderRadius:8,border:"1px solid #d1d5db",fontSize:13,minHeight:50,boxSizing:"border-box"}}/>
+                    style={{width:"100%",padding:"8px 12px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:13,minHeight:50,boxSizing:"border-box"}}/>
                 </div>
                 <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}>
-                  <button onClick={()=>{setCuotaModal(false);setCuotaEditId(null);}} style={{padding:"8px 16px",borderRadius:8,border:"1px solid #d1d5db",background:"#fff",cursor:"pointer"}}>Cancelar</button>
-                  <button onClick={guardarCuota} style={{padding:"8px 16px",borderRadius:8,background:"#16a34a",border:"none",color:"#fff",cursor:"pointer",fontWeight:700}}>{cuotaEditId?"Guardar cambios":"Crear cuota"}</button>
+                  <button onClick={()=>{setCuotaModal(false);setCuotaEditId(null);}} style={{padding:"8px 16px",borderRadius:8,border:`1px solid ${C.border}`,background:C.card,cursor:"pointer"}}>Cancelar</button>
+                  <button onClick={guardarCuota} style={{padding:"8px 16px",borderRadius:8,background:C.success,border:"none",color:"#fff",cursor:"pointer",fontWeight:700}}>{cuotaEditId?"Guardar cambios":"Crear cuota"}</button>
                 </div>
               </div>
             </div>
@@ -10504,7 +10509,7 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
     const totVencidos = vivData.filter(v=>{const d=diasParaVencer(v.f_vencimiento);return d!==null && d<0;}).length;
     const totPorVencer = vivData.filter(v=>{const d=diasParaVencer(v.f_vencimiento);return d!==null && d>=0 && d<=90;}).length;
     return (
-      <div style={{fontFamily:"sans-serif",background:"#0d1117",minHeight:"100vh",padding:"20px 20px 40px"}}>
+      <div style={{fontFamily:"sans-serif",background:C.bg,minHeight:"100vh",padding:"20px 20px 40px"}}>
         <NavBar breadcrumbItems={[
           {label:"Mediterra", onClick:onBack},
           {label:"Osiris Hub", onClick:()=>setSubApp(null)},
@@ -10512,12 +10517,12 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
         ]}/>
 
         {canVerViveros&&!canViveros&&(
-          <div style={{background:"linear-gradient(135deg,#fef3c7,#fde68a)",border:"1px solid #f59e0b",
+          <div style={{background:C.warningBg,border:`1px solid ${C.warning}`,
             borderRadius:10,padding:"10px 16px",marginBottom:14,display:"flex",alignItems:"center",gap:10}}>
             <span style={{fontSize:20}}>👁</span>
             <div style={{flex:1}}>
-              <div style={{fontSize:12,fontWeight:800,color:"#92400e"}}>Modo solo lectura</div>
-              <div style={{fontSize:11,color:"#78350f"}}>
+              <div style={{fontSize:12,fontWeight:800,color:C.text}}>Modo solo lectura</div>
+              <div style={{fontSize:11,color:C.text}}>
                 {esConsulta
                   ? "Tu rol es de Consulta. Puedes visualizar y exportar pero no modificar contratos viveros."
                   : "Tienes permiso de \"Solo ver\" en Contratos Viveros."}
@@ -10535,16 +10540,16 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
             const totCobrado = vivData.reduce((s,v)=>s+(v.ordenesCompra||[]).reduce((ss,o)=>ss+((o.cuotas||[]).filter(c=>c.pagado).reduce((sss,c)=>sss+(parseFloat(c.monto_usd)||0),0)),0),0);
             const porCobrarOC = totFeeOC - totCobrado;
             return [
-              ["📊 Total viveros",   vivData.length, "#16a34a"],
-              ["⚠️ Vencidos",          totVencidos,    "#dc2626"],
-              ["⏳ Vencen ≤ 90 días", totPorVencer,  "#f59e0b"],
-              ["🌱 Variedades",       vivData.reduce((s,v)=>s+(v.variedades||[]).length,0), "#7c3aed"],
-              ["📦 OC totales",       totOC,           "#2563eb"],
+              ["📊 Total viveros",   vivData.length, C.success],
+              ["⚠️ Vencidos",          totVencidos,    C.danger],
+              ["⏳ Vencen ≤ 90 días", totPorVencer,  C.warning],
+              ["🌱 Variedades",       vivData.reduce((s,v)=>s+(v.variedades||[]).length,0), C.purple],
+              ["📦 OC totales",       totOC,           C.primary],
               ["💰 Por cobrar OC",    $$(porCobrarOC), "#fbbf24"],
             ].map(([l,v,c])=>(
-              <div key={l} style={{background:"#21283b",border:"1px solid #30363d",borderLeft:`4px solid ${c}`,
-                borderRadius:10,padding:"12px 16px",flex:1,minWidth:140}}>
-                <div style={{fontSize:10,color:"#8b949e",fontWeight:600,marginBottom:4}}>{l}</div>
+              <div key={l} style={{background:C.card,border:`1px solid ${C.border}`,borderLeft:`4px solid ${c}`,
+                borderRadius:10,padding:"12px 16px",flex:1,minWidth:140,boxShadow:C.shadow}}>
+                <div style={{fontSize:10,color:C.muted,fontWeight:600,marginBottom:4}}>{l}</div>
                 <div style={{fontSize:20,fontWeight:900,color:c}}>{v}</div>
               </div>
             ));
@@ -10553,27 +10558,27 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
 
         {/* Maestro de Viveristas (collapsible) */}
         {canVerViveros&&<div style={{marginBottom:16}}>
-          <details style={{background:"#f0fdf4",border:"1px solid #86efac",borderRadius:10}}>
-            <summary style={{padding:"10px 16px",cursor:"pointer",fontSize:12,fontWeight:700,color:"#16a34a"}}>🌱 Maestro de Viveristas ({(viveristas||[]).length})</summary>
+          <details style={{background:C.successBg,border:`1px solid ${C.success}`,borderRadius:10}}>
+            <summary style={{padding:"10px 16px",cursor:"pointer",fontSize:12,fontWeight:700,color:C.success}}>🌱 Maestro de Viveristas ({(viveristas||[]).length})</summary>
             <div style={{padding:"0 16px 16px"}}><MaestroViveristas viveristas={viveristas} setViveristas={setViveristas} can={canViveros}/></div>
           </details>
         </div>}
 
-        <div style={{background:"#fff",borderRadius:14,padding:20,boxShadow:"0 2px 10px #0001"}}>
+        <div style={{background:C.card,borderRadius:14,padding:20,boxShadow:"0 2px 10px #0001"}}>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16,flexWrap:"wrap",gap:8}}>
-            <h3 style={{margin:0,fontSize:18,color:"#1e293b"}}>🌱 Contratos Viveros</h3>
+            <h3 style={{margin:0,fontSize:18,color:C.text}}>🌱 Contratos Viveros</h3>
             <div style={{display:"flex",gap:8}}>
               <button onClick={()=>exportarViveros(vivData)}
-                style={{padding:"8px 16px",borderRadius:8,background:"#0f766e",border:"none",color:"#fff",cursor:"pointer",fontSize:12,fontWeight:700}}>
+                style={{padding:"8px 16px",borderRadius:8,background:C.accent2,border:"none",color:"#fff",cursor:"pointer",fontSize:12,fontWeight:700}}>
                 📥 Exportar Excel
               </button>
               {canViveros&&<button onClick={()=>{setVivForm(EMPTY_VIV);setVivEditId(null);setVivWizStep(1);setVivWizVvForm(EMPTY_VV_INLINE);setVivWizAnxForm(EMPTY_VANX_INLINE);setVivWizOcForm(EMPTY_OC_INLINE);setVivWizCuotaForm(EMPTY_CUOTA_INLINE);setVivWizOcExpandido(null);setVivModal(true);}}
-                style={{padding:"8px 16px",borderRadius:8,background:"#16a34a",border:"none",color:"#fff",cursor:"pointer",fontSize:12,fontWeight:700}}>
+                style={{padding:"8px 16px",borderRadius:8,background:C.success,border:"none",color:"#fff",cursor:"pointer",fontSize:12,fontWeight:700}}>
                 + Nuevo Vivero
               </button>}
             </div>
           </div>
-          {vivData.length===0?<div style={{padding:40,textAlign:"center",color:"#94a3b8"}}>No hay viveros registrados. {canViveros?"Haz click en \"+ Nuevo Vivero\" para agregar.":""}</div>:(
+          {vivData.length===0?<div style={{padding:40,textAlign:"center",color:C.muted2}}>No hay viveros registrados. {canViveros?"Haz click en \"+ Nuevo Vivero\" para agregar.":""}</div>:(
             <div style={{display:"grid",gap:12}}>
               {vivData.map(v=>{
                 const vig = estadoVigencia(v.f_vencimiento);
@@ -10583,27 +10588,27 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
                 const isVencido = venc!==null && venc<0;
                 return (
                   <div key={v.id} onClick={()=>{setVivDetalle(v.id);setVivTab("general");}}
-                    style={{border:`1px solid ${isVencido?"#fca5a5":"#e2e8f0"}`,borderRadius:12,padding:"16px 20px",cursor:"pointer",
-                      background:isVencido?"#fef2f2":"#fff",transition:"all 0.15s"}}
+                    style={{border:`1px solid ${isVencido?"#fca5a5":C.border}`,borderRadius:12,padding:"16px 20px",cursor:"pointer",
+                      background:isVencido?C.dangerBg:"#fff",transition:"all 0.15s"}}
                     onMouseEnter={e=>e.currentTarget.style.boxShadow="0 4px 12px #0002"}
                     onMouseLeave={e=>e.currentTarget.style.boxShadow="none"}>
                     <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:8}}>
                       <div>
-                        <div style={{fontWeight:800,fontSize:15,color:"#1e293b"}}>🌱 {v.viverista}{v.pais?<span style={{fontWeight:500,color:"#64748b"}}> · 🌍 {v.pais}</span>:null}</div>
-                        <div style={{fontSize:11,color:"#64748b",marginTop:2}}>
+                        <div style={{fontWeight:800,fontSize:15,color:C.text}}>🌱 {v.viverista}{v.pais?<span style={{fontWeight:500,color:C.muted}}> · 🌍 {v.pais}</span>:null}</div>
+                        <div style={{fontSize:11,color:C.muted,marginTop:2}}>
                           {v.f_contrato&&`${v.f_contrato} → `}{v.f_vencimiento||"Sin vencimiento"}
                           <span style={{color:vig.color,marginLeft:8,fontWeight:700,background:vig.bg,padding:"2px 8px",borderRadius:10}}>{vig.icon} {vig.label}</span>
                         </div>
                       </div>
                       <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
-                        {firmado&&<span style={{fontSize:10,background:"rgba(34,197,94,0.15)",color:"#16a34a",padding:"3px 10px",borderRadius:20,fontWeight:700}}>✅ Firmado</span>}
-                        {v.renovable&&<span style={{fontSize:10,background:"rgba(96,165,250,0.15)",color:"#3b82f6",padding:"3px 10px",borderRadius:20,fontWeight:700}}>🔄</span>}
-                        <span style={{fontSize:10,background:"rgba(22,163,74,0.15)",color:"#16a34a",padding:"3px 10px",borderRadius:20,fontWeight:700}}>{nVar} var.</span>
+                        {firmado&&<span style={{fontSize:10,background:"rgba(34,197,94,0.15)",color:C.success,padding:"3px 10px",borderRadius:20,fontWeight:700}}>✅ Firmado</span>}
+                        {v.renovable&&<span style={{fontSize:10,background:"rgba(96,165,250,0.15)",color:C.primary,padding:"3px 10px",borderRadius:20,fontWeight:700}}>🔄</span>}
+                        <span style={{fontSize:10,background:"rgba(22,163,74,0.15)",color:C.success,padding:"3px 10px",borderRadius:20,fontWeight:700}}>{nVar} var.</span>
                         {canViveros&&<>
                           <button onClick={e=>{e.stopPropagation();setVivForm({...EMPTY_VIV,...v});setVivEditId(v.id);setVivWizStep(1);setVivWizVvForm(EMPTY_VV_INLINE);setVivWizAnxForm(EMPTY_VANX_INLINE);setVivWizOcForm(EMPTY_OC_INLINE);setVivWizCuotaForm(EMPTY_CUOTA_INLINE);setVivWizOcExpandido(null);setVivModal(true);}}
-                            style={{background:"#f0f9ff",border:"none",borderRadius:6,padding:"4px 10px",cursor:"pointer",fontSize:11}}>✏️</button>
+                            style={{background:C.infoBg,border:"none",borderRadius:6,padding:"4px 10px",cursor:"pointer",fontSize:11}}>✏️</button>
                           <button onClick={e=>{e.stopPropagation();eliminarViv(v.id);}}
-                            style={{background:"#fef2f2",border:"none",borderRadius:6,padding:"4px 10px",cursor:"pointer",fontSize:11}}>🗑</button>
+                            style={{background:C.dangerBg,border:"none",borderRadius:6,padding:"4px 10px",cursor:"pointer",fontSize:11}}>🗑</button>
                         </>}
                       </div>
                     </div>
@@ -10736,8 +10741,8 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
 
           // Stepper helpers
           const Step = ({n, label, active, done}) => {
-            const bg = active?"#16a34a":done?"#0f766e":"#e2e8f0";
-            const col = active||done?"#fff":"#94a3b8";
+            const bg = active?C.success:done?C.accent2:C.border;
+            const col = active||done?"#fff":C.muted2;
             return (
               <div style={{display:"flex",alignItems:"center",gap:6,flex:1,minWidth:0}}>
                 <div style={{
@@ -10748,7 +10753,7 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
                 }}>{done?"✓":n}</div>
                 <div style={{
                   fontSize:10,fontWeight:active?700:500,
-                  color:active?"#1e293b":done?"#0f766e":"#94a3b8",
+                  color:active?C.primary:done?C.accent2:C.muted2,
                   whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"
                 }}>{label}</div>
               </div>
@@ -10770,84 +10775,84 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
 
           return (
           <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:9999}} onClick={()=>setVivModal(false)}>
-            <div onClick={e=>e.stopPropagation()} style={{background:"#fff",borderRadius:16,padding:24,width:760,maxHeight:"94vh",overflowY:"auto"}}>
-              <h3 style={{margin:"0 0 18px",color:"#1e293b"}}>{vivEditId?"✏️ Editar":"➕ Nuevo"} Contrato Vivero</h3>
+            <div onClick={e=>e.stopPropagation()} style={{background:C.card,borderRadius:16,padding:24,width:760,maxHeight:"94vh",overflowY:"auto"}}>
+              <h3 style={{margin:"0 0 18px",color:C.text}}>{vivEditId?"✏️ Editar":"➕ Nuevo"} Contrato Vivero</h3>
 
               {/* Stepper */}
-              <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:20,padding:"12px 8px",background:"#f8fafc",borderRadius:10}}>
+              <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:20,padding:"12px 8px",background:C.cardAlt,borderRadius:10}}>
                 <Step n={1} label="Cabecera"   active={vivWizStep===1} done={vivWizStep>1}/>
-                <div style={{flex:"0 0 18px",height:2,background:vivWizStep>1?"#0f766e":"#e2e8f0"}}/>
+                <div style={{flex:"0 0 18px",height:2,background:vivWizStep>1?C.accent2:C.border}}/>
                 <Step n={2} label="Variedades" active={vivWizStep===2} done={vivWizStep>2}/>
-                <div style={{flex:"0 0 18px",height:2,background:vivWizStep>2?"#0f766e":"#e2e8f0"}}/>
+                <div style={{flex:"0 0 18px",height:2,background:vivWizStep>2?C.accent2:C.border}}/>
                 <Step n={3} label="Anexos"     active={vivWizStep===3} done={vivWizStep>3}/>
-                <div style={{flex:"0 0 18px",height:2,background:vivWizStep>3?"#0f766e":"#e2e8f0"}}/>
+                <div style={{flex:"0 0 18px",height:2,background:vivWizStep>3?C.accent2:C.border}}/>
                 <Step n={4} label="OC Clientes" active={vivWizStep===4} done={vivWizStep>4}/>
-                <div style={{flex:"0 0 18px",height:2,background:vivWizStep>4?"#0f766e":"#e2e8f0"}}/>
+                <div style={{flex:"0 0 18px",height:2,background:vivWizStep>4?C.accent2:C.border}}/>
                 <Step n={5} label="Cuotas"     active={vivWizStep===5} done={false}/>
               </div>
 
               {/* PASO 1 — CABECERA */}
               {vivWizStep===1&&(<>
                 <div style={{marginBottom:12}}>
-                  <label style={{fontSize:11,fontWeight:600,color:"#475569",display:"block",marginBottom:4}}>Viverista <span style={{color:"#dc2626"}}>*</span></label>
+                  <label style={{fontSize:11,fontWeight:600,color:C.muted,display:"block",marginBottom:4}}>Viverista <span style={{color:C.danger}}>*</span></label>
                   {(viveristas||[]).length>0?(
                     <div style={{display:"grid",gridTemplateColumns:"1fr auto",gap:8}}>
                       <select value={(viveristas||[]).find(vv=>vv.razonSocial===vivForm.viverista)?.id||""} onChange={e=>{
                         const vrs = (viveristas||[]).find(x=>x.id===e.target.value);
                         if(vrs) setVivForm(p=>({...p,viverista:vrs.razonSocial,pais:p.pais||vrs.pais||""}));
                       }}
-                        style={{width:"100%",padding:"8px 12px",borderRadius:8,border:"1px solid #d1d5db",fontSize:13,boxSizing:"border-box",background:"#fff"}}>
+                        style={{width:"100%",padding:"8px 12px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:13,boxSizing:"border-box",background:C.card}}>
                         <option value="">— Seleccionar del Maestro —</option>
                         {(viveristas||[]).map(vrs=><option key={vrs.id} value={vrs.id}>{vrs.razonSocial} {vrs.pais?`(${vrs.pais})`:""}</option>)}
                       </select>
                       <input value={vivForm.viverista||""} placeholder="O escribir libre..." onChange={e=>setVivForm(p=>({...p,viverista:e.target.value}))}
-                        style={{padding:"8px 12px",borderRadius:8,border:"1px solid #d1d5db",fontSize:13,boxSizing:"border-box",width:220}}/>
+                        style={{padding:"8px 12px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:13,boxSizing:"border-box",width:220}}/>
                     </div>
                   ):(
                     <input value={vivForm.viverista||""} placeholder="Ej. Vivero La Esperanza, Genética del Sur..." onChange={e=>setVivForm(p=>({...p,viverista:e.target.value}))}
-                      style={{width:"100%",padding:"8px 12px",borderRadius:8,border:"1px solid #d1d5db",fontSize:13,boxSizing:"border-box"}}/>
+                      style={{width:"100%",padding:"8px 12px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:13,boxSizing:"border-box"}}/>
                   )}
-                  {(viveristas||[]).length===0&&<div style={{fontSize:10,color:"#64748b",marginTop:4}}>💡 Aún no hay viveristas en el Maestro. Puedes agregarlos después o escribir libremente aquí.</div>}
+                  {(viveristas||[]).length===0&&<div style={{fontSize:10,color:C.muted,marginTop:4}}>💡 Aún no hay viveristas en el Maestro. Puedes agregarlos después o escribir libremente aquí.</div>}
                 </div>
                 <div style={{marginBottom:12}}>
-                  <label style={{fontSize:11,fontWeight:600,color:"#475569",display:"block",marginBottom:4}}>País</label>
+                  <label style={{fontSize:11,fontWeight:600,color:C.muted,display:"block",marginBottom:4}}>País</label>
                   <input value={vivForm.pais||""} placeholder="Chile, Perú, México..." onChange={e=>setVivForm(p=>({...p,pais:e.target.value}))}
-                    style={{width:"100%",padding:"8px 12px",borderRadius:8,border:"1px solid #d1d5db",fontSize:13,boxSizing:"border-box"}}/>
+                    style={{width:"100%",padding:"8px 12px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:13,boxSizing:"border-box"}}/>
                 </div>
                 <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:12}}>
                   <div>
-                    <label style={{fontSize:11,fontWeight:600,color:"#475569",display:"block",marginBottom:4}}>Fecha Contrato</label>
+                    <label style={{fontSize:11,fontWeight:600,color:C.muted,display:"block",marginBottom:4}}>Fecha Contrato</label>
                     <input type="date" value={vivForm.f_contrato||""} onChange={e=>setVivForm(p=>({...p,f_contrato:e.target.value}))}
-                      style={{width:"100%",padding:"8px 12px",borderRadius:8,border:"1px solid #d1d5db",fontSize:13,boxSizing:"border-box"}}/>
+                      style={{width:"100%",padding:"8px 12px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:13,boxSizing:"border-box"}}/>
                   </div>
                   <div>
-                    <label style={{fontSize:11,fontWeight:600,color:"#475569",display:"block",marginBottom:4}}>Fecha Vencimiento</label>
+                    <label style={{fontSize:11,fontWeight:600,color:C.muted,display:"block",marginBottom:4}}>Fecha Vencimiento</label>
                     <input type="date" value={vivForm.f_vencimiento||""} onChange={e=>setVivForm(p=>({...p,f_vencimiento:e.target.value}))}
-                      style={{width:"100%",padding:"8px 12px",borderRadius:8,border:"1px solid #d1d5db",fontSize:13,boxSizing:"border-box"}}/>
+                      style={{width:"100%",padding:"8px 12px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:13,boxSizing:"border-box"}}/>
                   </div>
                 </div>
                 <div style={{marginBottom:12}}>
-                  <label style={{fontSize:11,fontWeight:600,color:"#475569",display:"block",marginBottom:4}}>Estado del Contrato</label>
+                  <label style={{fontSize:11,fontWeight:600,color:C.muted,display:"block",marginBottom:4}}>Estado del Contrato</label>
                   <select value={vivForm.estado_contrato||"Borrador"} onChange={e=>setVivForm(p=>({...p,estado_contrato:e.target.value}))}
-                    style={{width:"100%",padding:"8px 12px",borderRadius:8,border:"1px solid #d1d5db",fontSize:13,boxSizing:"border-box",background:"#fff"}}>
+                    style={{width:"100%",padding:"8px 12px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:13,boxSizing:"border-box",background:C.card}}>
                     {ESTADOS_CONTRATO_OBT.map(s=><option key={s} value={s}>{s}</option>)}
                   </select>
                 </div>
                 <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:12}}>
                   <div>
-                    <label style={{fontSize:11,fontWeight:600,color:"#475569",display:"block",marginBottom:4}}>Forma de pago a Osiris</label>
+                    <label style={{fontSize:11,fontWeight:600,color:C.muted,display:"block",marginBottom:4}}>Forma de pago a Osiris</label>
                     <select value={vivForm.forma_pago||""} onChange={e=>setVivForm(p=>({...p,forma_pago:e.target.value}))}
-                      style={{width:"100%",padding:"8px 12px",borderRadius:8,border:"1px solid #d1d5db",fontSize:13,boxSizing:"border-box",background:"#fff"}}>
+                      style={{width:"100%",padding:"8px 12px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:13,boxSizing:"border-box",background:C.card}}>
                       <option value="">— Seleccionar —</option>
                       {FORMAS_PAGO.map(s=><option key={s} value={s}>{s}</option>)}
                     </select>
                   </div>
                   <div>
-                    <label style={{fontSize:11,fontWeight:600,color:"#475569",display:"block",marginBottom:4}}>Mes estimado de pago</label>
+                    <label style={{fontSize:11,fontWeight:600,color:C.muted,display:"block",marginBottom:4}}>Mes estimado de pago</label>
                     {vivForm.forma_pago==="Contra pago del cliente"
-                      ? <div style={{padding:"8px 12px",borderRadius:8,background:"#f1f5f9",fontSize:12,color:"#94a3b8"}}>No aplica (contra pago del cliente)</div>
+                      ? <div style={{padding:"8px 12px",borderRadius:8,background:C.cardAlt,fontSize:12,color:C.muted2}}>No aplica (contra pago del cliente)</div>
                       : <select value={vivForm.mes_pago_estimado||""} onChange={e=>setVivForm(p=>({...p,mes_pago_estimado:e.target.value}))}
-                          style={{width:"100%",padding:"8px 12px",borderRadius:8,border:"1px solid #d1d5db",fontSize:13,boxSizing:"border-box",background:"#fff"}}>
+                          style={{width:"100%",padding:"8px 12px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:13,boxSizing:"border-box",background:C.card}}>
                           <option value="">— Seleccionar —</option>
                           {MESES.map(m=><option key={m} value={m}>{m}</option>)}
                         </select>
@@ -10860,9 +10865,9 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
                 </label>
                 {vivForm.renovable&&(
                   <div style={{marginBottom:12}}>
-                    <label style={{fontSize:11,fontWeight:600,color:"#475569",display:"block",marginBottom:3}}>Período de renovación</label>
+                    <label style={{fontSize:11,fontWeight:600,color:C.muted,display:"block",marginBottom:3}}>Período de renovación</label>
                     <select value={vivForm.periodoRenovacion||""} onChange={e=>setVivForm(p=>({...p,periodoRenovacion:e.target.value}))}
-                      style={{width:"100%",maxWidth:300,padding:"7px 10px",borderRadius:6,border:"1px solid #d1d5db",fontSize:12,boxSizing:"border-box"}}>
+                      style={{width:"100%",maxWidth:300,padding:"7px 10px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:12,boxSizing:"border-box"}}>
                       <option value="">— Seleccionar —</option>
                       <option value="1 año">1 año</option><option value="2 años">2 años</option><option value="3 años">3 años</option>
                       <option value="5 años">5 años</option><option value="10 años">10 años</option><option value="Automático">Automático</option>
@@ -10871,12 +10876,12 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
                 )}
                 {vivForm.renovable&&(
                   <div style={{marginBottom:12}}>
-                    <label style={{fontSize:11,fontWeight:600,color:"#475569",display:"block",marginBottom:4}}>📆 Nueva Fecha Vencimiento</label>
+                    <label style={{fontSize:11,fontWeight:600,color:C.muted,display:"block",marginBottom:4}}>📆 Nueva Fecha Vencimiento</label>
                     <input type="date" value={vivForm.f_vencimiento_nueva||""} onChange={e=>setVivForm(p=>({...p,f_vencimiento_nueva:e.target.value}))}
-                      style={{width:"100%",padding:"8px 12px",borderRadius:8,border:"1px solid #93c5fd",fontSize:13,boxSizing:"border-box",background:"#eff6ff"}}/>
+                      style={{width:"100%",padding:"8px 12px",borderRadius:8,border:`1px solid ${C.info}`,fontSize:13,boxSizing:"border-box",background:C.infoBg}}/>
                   </div>
                 )}
-                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:12,padding:12,background:"#f8fafc",borderRadius:8}}>
+                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:12,padding:12,background:C.cardAlt,borderRadius:8}}>
                   <label style={{display:"flex",alignItems:"center",gap:8,cursor:"pointer"}}>
                     <input type="checkbox" checked={!!vivForm.firma_viverista} onChange={e=>setVivForm(p=>({...p,firma_viverista:e.target.checked}))}/>
                     <span style={{fontSize:12}}>✅ Firma Viverista</span>
@@ -10887,64 +10892,64 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
                   </label>
                 </div>
                 <div style={{marginBottom:12}}>
-                  <label style={{fontSize:11,fontWeight:600,color:"#475569",display:"block",marginBottom:4}}>📎 Link al contrato (OneDrive/Drive)</label>
+                  <label style={{fontSize:11,fontWeight:600,color:C.muted,display:"block",marginBottom:4}}>📎 Link al contrato (OneDrive/Drive)</label>
                   <input value={vivForm.doc_contrato||""} placeholder="https://..." onChange={e=>setVivForm(p=>({...p,doc_contrato:e.target.value}))}
-                    style={{width:"100%",padding:"8px 12px",borderRadius:8,border:"1px solid #d1d5db",fontSize:13,boxSizing:"border-box"}}/>
+                    style={{width:"100%",padding:"8px 12px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:13,boxSizing:"border-box"}}/>
                 </div>
                 <div style={{marginBottom:12}}>
-                  <label style={{fontSize:11,fontWeight:600,color:"#475569",display:"block",marginBottom:4}}>📄 Link doc. legal complementario</label>
+                  <label style={{fontSize:11,fontWeight:600,color:C.muted,display:"block",marginBottom:4}}>📄 Link doc. legal complementario</label>
                   <input value={vivForm.doc_legal||""} placeholder="https://..." onChange={e=>setVivForm(p=>({...p,doc_legal:e.target.value}))}
-                    style={{width:"100%",padding:"8px 12px",borderRadius:8,border:"1px solid #d1d5db",fontSize:13,boxSizing:"border-box"}}/>
+                    style={{width:"100%",padding:"8px 12px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:13,boxSizing:"border-box"}}/>
                 </div>
                 <div style={{marginBottom:12}}>
-                  <label style={{fontSize:11,fontWeight:600,color:"#475569",display:"block",marginBottom:4}}>Observaciones</label>
+                  <label style={{fontSize:11,fontWeight:600,color:C.muted,display:"block",marginBottom:4}}>Observaciones</label>
                   <textarea value={vivForm.observaciones||""} onChange={e=>setVivForm(p=>({...p,observaciones:e.target.value}))}
-                    style={{width:"100%",padding:"8px 12px",borderRadius:8,border:"1px solid #d1d5db",fontSize:13,minHeight:60,boxSizing:"border-box"}}/>
+                    style={{width:"100%",padding:"8px 12px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:13,minHeight:60,boxSizing:"border-box"}}/>
                 </div>
               </>)}
 
               {/* PASO 2 — VARIEDADES */}
               {vivWizStep===2&&(<>
-                <div style={{background:"#dcfce7",border:"1px solid #86efac",borderRadius:8,padding:"8px 12px",marginBottom:14,fontSize:11,color:"#14532d"}}>
+                <div style={{background:C.successBg,border:`1px solid ${C.success}`,borderRadius:8,padding:"8px 12px",marginBottom:14,fontSize:11,color:C.success}}>
                   💡 Agrega las variedades autorizadas a producir por este viverista. <strong>Este paso es opcional</strong> — puedes saltar y agregar después desde el detalle.
                 </div>
 
                 {wizVariedades.length>0&&(
-                  <div style={{marginBottom:14,border:"1px solid #e2e8f0",borderRadius:10,overflow:"hidden"}}>
-                    <div style={{background:"#f8fafc",padding:"8px 12px",fontSize:11,fontWeight:700,color:"#475569"}}>
+                  <div style={{marginBottom:14,border:`1px solid ${C.border}`,borderRadius:10,overflow:"hidden"}}>
+                    <div style={{background:C.cardAlt,padding:"8px 12px",fontSize:11,fontWeight:700,color:C.muted}}>
                       Variedades agregadas ({wizVariedades.length})
                     </div>
                     {wizVariedades.map(v=>(
                       <div key={v.id} style={{padding:"10px 12px",borderTop:"1px solid #f1f5f9",display:"flex",justifyContent:"space-between",alignItems:"center",gap:8}}>
                         <div style={{flex:1,minWidth:0}}>
-                          <div style={{fontSize:13,fontWeight:700,color:"#1e293b"}}>🌿 {v.especie} — {v.variedad}</div>
-                          <div style={{fontSize:10,color:"#64748b",marginTop:2}}>
+                          <div style={{fontSize:13,fontWeight:700,color:C.text}}>🌿 {v.especie} — {v.variedad}</div>
+                          <div style={{fontSize:10,color:C.muted,marginTop:2}}>
                             {v.fee_usd?<>💵 ${v.fee_usd}/planta</>:null}
                             {v.fee_pct?<> · 📊 {v.fee_pct}% s/venta</>:null}
                             {v.observaciones?<> · {v.observaciones}</>:null}
                           </div>
                         </div>
-                        <button onClick={()=>quitarVarWiz(v.id)} style={{background:"#fef2f2",border:"none",borderRadius:6,padding:"4px 8px",cursor:"pointer",fontSize:11,color:"#991b1b"}}>🗑</button>
+                        <button onClick={()=>quitarVarWiz(v.id)} style={{background:C.dangerBg,border:"none",borderRadius:6,padding:"4px 8px",cursor:"pointer",fontSize:11,color:C.danger}}>🗑</button>
                       </div>
                     ))}
                   </div>
                 )}
 
-                <div style={{border:"1px dashed #86efac",borderRadius:10,padding:14,background:"#f0fdf4",marginBottom:12}}>
-                  <div style={{fontSize:12,fontWeight:700,color:"#14532d",marginBottom:10}}>+ Agregar nueva variedad</div>
+                <div style={{border:"1px dashed #86efac",borderRadius:10,padding:14,background:C.successBg,marginBottom:12}}>
+                  <div style={{fontSize:12,fontWeight:700,color:C.success,marginBottom:10}}>+ Agregar nueva variedad</div>
                   <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:10}}>
                     <div>
-                      <label style={{fontSize:11,fontWeight:600,color:"#475569",display:"block",marginBottom:3}}>Especie <span style={{color:"#dc2626"}}>*</span></label>
+                      <label style={{fontSize:11,fontWeight:600,color:C.muted,display:"block",marginBottom:3}}>Especie <span style={{color:C.danger}}>*</span></label>
                       <select value={vivWizVvForm.especie||""} onChange={e=>setVivWizVvForm(p=>({...p,especie:e.target.value,variedad:""}))}
-                        style={{width:"100%",padding:"7px 10px",borderRadius:6,border:"1px solid #d1d5db",fontSize:12,boxSizing:"border-box"}}>
+                        style={{width:"100%",padding:"7px 10px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:12,boxSizing:"border-box"}}>
                         <option value="">— Seleccionar —</option>
                         {especiesMaestro.filter(e=>e.nombre||e.especie).map(e=>{const n=e.nombre||e.especie;return <option key={e.id} value={n}>{n}</option>;})}
                       </select>
                     </div>
                     <div>
-                      <label style={{fontSize:11,fontWeight:600,color:"#475569",display:"block",marginBottom:3}}>Denominación <span style={{color:"#dc2626"}}>*</span></label>
+                      <label style={{fontSize:11,fontWeight:600,color:C.muted,display:"block",marginBottom:3}}>Denominación <span style={{color:C.danger}}>*</span></label>
                       <select value={vivWizVvForm.variedad||""} onChange={e=>setVivWizVvForm(p=>({...p,variedad:e.target.value}))}
-                        style={{width:"100%",padding:"7px 10px",borderRadius:6,border:"1px solid #d1d5db",fontSize:12,boxSizing:"border-box"}}>
+                        style={{width:"100%",padding:"7px 10px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:12,boxSizing:"border-box"}}>
                         <option value="">— Seleccionar —</option>
                         {variedadesMaestro.filter(v=>!vivWizVvForm.especie||v.especie===vivWizVvForm.especie).map(v=><option key={v.id} value={v.variedad}>{v.nRegistro?`${v.nRegistro} · ${v.variedad}`:v.variedad}</option>)}
                       </select>
@@ -10952,142 +10957,142 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
                   </div>
                   <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:10}}>
                     <div>
-                      <label style={{fontSize:11,fontWeight:600,color:"#475569",display:"block",marginBottom:3}}>Fee USD/planta</label>
+                      <label style={{fontSize:11,fontWeight:600,color:C.muted,display:"block",marginBottom:3}}>Fee USD/planta</label>
                       <input type="number" step="0.01" value={vivWizVvForm.fee_usd||""} placeholder="0.85" onChange={e=>setVivWizVvForm(p=>({...p,fee_usd:e.target.value}))}
-                        style={{width:"100%",padding:"7px 10px",borderRadius:6,border:"1px solid #d1d5db",fontSize:12,boxSizing:"border-box",textAlign:"right"}}/>
+                        style={{width:"100%",padding:"7px 10px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:12,boxSizing:"border-box",textAlign:"right"}}/>
                     </div>
                     <div>
-                      <label style={{fontSize:11,fontWeight:600,color:"#475569",display:"block",marginBottom:3}}>Fee % s/venta</label>
+                      <label style={{fontSize:11,fontWeight:600,color:C.muted,display:"block",marginBottom:3}}>Fee % s/venta</label>
                       <input type="number" step="0.1" value={vivWizVvForm.fee_pct||""} placeholder="3" onChange={e=>setVivWizVvForm(p=>({...p,fee_pct:e.target.value}))}
-                        style={{width:"100%",padding:"7px 10px",borderRadius:6,border:"1px solid #d1d5db",fontSize:12,boxSizing:"border-box",textAlign:"right"}}/>
+                        style={{width:"100%",padding:"7px 10px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:12,boxSizing:"border-box",textAlign:"right"}}/>
                     </div>
                   </div>
                   <div style={{marginBottom:10}}>
-                    <label style={{fontSize:11,fontWeight:600,color:"#475569",display:"block",marginBottom:3}}>Observaciones</label>
+                    <label style={{fontSize:11,fontWeight:600,color:C.muted,display:"block",marginBottom:3}}>Observaciones</label>
                     <input value={vivWizVvForm.observaciones||""} onChange={e=>setVivWizVvForm(p=>({...p,observaciones:e.target.value}))}
-                      style={{width:"100%",padding:"7px 10px",borderRadius:6,border:"1px solid #d1d5db",fontSize:12,boxSizing:"border-box"}}/>
+                      style={{width:"100%",padding:"7px 10px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:12,boxSizing:"border-box"}}/>
                   </div>
-                  <button onClick={agregarVarWiz} style={{width:"100%",padding:"8px 14px",borderRadius:8,background:"#16a34a",border:"none",color:"#fff",cursor:"pointer",fontSize:12,fontWeight:700}}>+ Agregar variedad a la lista</button>
+                  <button onClick={agregarVarWiz} style={{width:"100%",padding:"8px 14px",borderRadius:8,background:C.success,border:"none",color:"#fff",cursor:"pointer",fontSize:12,fontWeight:700}}>+ Agregar variedad a la lista</button>
                 </div>
               </>)}
 
               {/* PASO 3 — ANEXOS */}
               {vivWizStep===3&&(<>
-                <div style={{background:"#dbeafe",border:"1px solid #93c5fd",borderRadius:8,padding:"8px 12px",marginBottom:14,fontSize:11,color:"#1e3a8a"}}>
+                <div style={{background:C.infoBg,border:`1px solid ${C.info}`,borderRadius:8,padding:"8px 12px",marginBottom:14,fontSize:11,color:C.primary}}>
                   💡 Adjunta documentos complementarios al contrato (adendas, cartas compromiso, certificados...). <strong>Paso opcional</strong>.
                 </div>
 
                 {wizAnexos.length>0&&(
-                  <div style={{marginBottom:14,border:"1px solid #e2e8f0",borderRadius:10,overflow:"hidden"}}>
-                    <div style={{background:"#f8fafc",padding:"8px 12px",fontSize:11,fontWeight:700,color:"#475569"}}>
+                  <div style={{marginBottom:14,border:`1px solid ${C.border}`,borderRadius:10,overflow:"hidden"}}>
+                    <div style={{background:C.cardAlt,padding:"8px 12px",fontSize:11,fontWeight:700,color:C.muted}}>
                       Anexos agregados ({wizAnexos.length})
                     </div>
                     {wizAnexos.map(a=>(
                       <div key={a.id} style={{padding:"10px 12px",borderTop:"1px solid #f1f5f9",display:"flex",justifyContent:"space-between",alignItems:"center",gap:8}}>
                         <div style={{flex:1,minWidth:0}}>
-                          <div style={{fontSize:13,fontWeight:700,color:"#1e293b"}}>📎 {a.descripcion}</div>
-                          <div style={{fontSize:10,color:"#64748b",marginTop:2}}>
+                          <div style={{fontSize:13,fontWeight:700,color:C.text}}>📎 {a.descripcion}</div>
+                          <div style={{fontSize:10,color:C.muted,marginTop:2}}>
                             {a.fecha&&`📅 ${a.fecha}`}
-                            {a.enlace&&<> · <a href={a.enlace} target="_blank" rel="noopener noreferrer" style={{color:"#2563eb"}}>📎 Abrir</a></>}
+                            {a.enlace&&<> · <a href={a.enlace} target="_blank" rel="noopener noreferrer" style={{color:C.primary}}>📎 Abrir</a></>}
                             {a.observaciones&&` · ${a.observaciones}`}
                           </div>
                         </div>
-                        <button onClick={()=>quitarAnxWiz(a.id)} style={{background:"#fef2f2",border:"none",borderRadius:6,padding:"4px 8px",cursor:"pointer",fontSize:11,color:"#991b1b"}}>🗑</button>
+                        <button onClick={()=>quitarAnxWiz(a.id)} style={{background:C.dangerBg,border:"none",borderRadius:6,padding:"4px 8px",cursor:"pointer",fontSize:11,color:C.danger}}>🗑</button>
                       </div>
                     ))}
                   </div>
                 )}
 
-                <div style={{border:"1px dashed #93c5fd",borderRadius:10,padding:14,background:"#eff6ff",marginBottom:12}}>
-                  <div style={{fontSize:12,fontWeight:700,color:"#1e3a8a",marginBottom:10}}>+ Agregar nuevo anexo</div>
+                <div style={{border:"1px dashed #93c5fd",borderRadius:10,padding:14,background:C.infoBg,marginBottom:12}}>
+                  <div style={{fontSize:12,fontWeight:700,color:C.primary,marginBottom:10}}>+ Agregar nuevo anexo</div>
                   <div style={{marginBottom:10}}>
-                    <label style={{fontSize:11,fontWeight:600,color:"#475569",display:"block",marginBottom:3}}>Descripción <span style={{color:"#dc2626"}}>*</span></label>
+                    <label style={{fontSize:11,fontWeight:600,color:C.muted,display:"block",marginBottom:3}}>Descripción <span style={{color:C.danger}}>*</span></label>
                     <input value={vivWizAnxForm.descripcion||""} placeholder="Adenda 2026, Carta compromiso..." onChange={e=>setVivWizAnxForm(p=>({...p,descripcion:e.target.value}))}
-                      style={{width:"100%",padding:"7px 10px",borderRadius:6,border:"1px solid #d1d5db",fontSize:12,boxSizing:"border-box"}}/>
+                      style={{width:"100%",padding:"7px 10px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:12,boxSizing:"border-box"}}/>
                   </div>
                   <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:10}}>
                     <div>
-                      <label style={{fontSize:11,fontWeight:600,color:"#475569",display:"block",marginBottom:3}}>Fecha</label>
+                      <label style={{fontSize:11,fontWeight:600,color:C.muted,display:"block",marginBottom:3}}>Fecha</label>
                       <input type="date" value={vivWizAnxForm.fecha||""} onChange={e=>setVivWizAnxForm(p=>({...p,fecha:e.target.value}))}
-                        style={{width:"100%",padding:"7px 10px",borderRadius:6,border:"1px solid #d1d5db",fontSize:12,boxSizing:"border-box"}}/>
+                        style={{width:"100%",padding:"7px 10px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:12,boxSizing:"border-box"}}/>
                     </div>
                     <div>
-                      <label style={{fontSize:11,fontWeight:600,color:"#475569",display:"block",marginBottom:3}}>Enlace (URL)</label>
+                      <label style={{fontSize:11,fontWeight:600,color:C.muted,display:"block",marginBottom:3}}>Enlace (URL)</label>
                       <input value={vivWizAnxForm.enlace||""} placeholder="https://..." onChange={e=>setVivWizAnxForm(p=>({...p,enlace:e.target.value}))}
-                        style={{width:"100%",padding:"7px 10px",borderRadius:6,border:"1px solid #d1d5db",fontSize:12,boxSizing:"border-box"}}/>
+                        style={{width:"100%",padding:"7px 10px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:12,boxSizing:"border-box"}}/>
                     </div>
                   </div>
                   <div style={{marginBottom:10}}>
-                    <label style={{fontSize:11,fontWeight:600,color:"#475569",display:"block",marginBottom:3}}>Observaciones</label>
+                    <label style={{fontSize:11,fontWeight:600,color:C.muted,display:"block",marginBottom:3}}>Observaciones</label>
                     <input value={vivWizAnxForm.observaciones||""} onChange={e=>setVivWizAnxForm(p=>({...p,observaciones:e.target.value}))}
-                      style={{width:"100%",padding:"7px 10px",borderRadius:6,border:"1px solid #d1d5db",fontSize:12,boxSizing:"border-box"}}/>
+                      style={{width:"100%",padding:"7px 10px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:12,boxSizing:"border-box"}}/>
                   </div>
-                  <button onClick={agregarAnxWiz} style={{width:"100%",padding:"8px 14px",borderRadius:8,background:"#2563eb",border:"none",color:"#fff",cursor:"pointer",fontSize:12,fontWeight:700}}>+ Agregar anexo a la lista</button>
+                  <button onClick={agregarAnxWiz} style={{width:"100%",padding:"8px 14px",borderRadius:8,background:C.primary,border:"none",color:"#fff",cursor:"pointer",fontSize:12,fontWeight:700}}>+ Agregar anexo a la lista</button>
                 </div>
               </>)}
 
               {/* PASO 4 — ÓRDENES DE COMPRA */}
               {vivWizStep===4&&(<>
-                <div style={{background:"#ede9fe",border:"1px solid #c4b5fd",borderRadius:8,padding:"8px 12px",marginBottom:14,fontSize:11,color:"#5b21b6"}}>
+                <div style={{background:C.purpleBg,border:`1px solid ${C.purple}`,borderRadius:8,padding:"8px 12px",marginBottom:14,fontSize:11,color:C.purple}}>
                   💡 Cada OC es una orden del cliente productor-exportador al viverista. El fee a Osiris se hereda de la variedad pero puedes editarlo. Las cuotas/fechas de pago se configuran en el siguiente paso. <strong>Paso opcional</strong>.
                 </div>
 
                 {wizVariedades.length===0?(
-                  <div style={{padding:30,textAlign:"center",color:"#94a3b8",border:"1px dashed #e2e8f0",borderRadius:10,marginBottom:12}}>
+                  <div style={{padding:30,textAlign:"center",color:C.muted2,border:"1px dashed #e2e8f0",borderRadius:10,marginBottom:12}}>
                     <div style={{fontSize:32,marginBottom:8}}>🌿</div>
                     <div style={{fontSize:12}}>Para registrar una OC primero necesitas agregar al menos una variedad.</div>
-                    <button onClick={()=>setVivWizStep(2)} style={{marginTop:10,padding:"6px 14px",borderRadius:8,background:"#16a34a",border:"none",color:"#fff",cursor:"pointer",fontSize:11,fontWeight:700}}>← Volver al paso 2</button>
+                    <button onClick={()=>setVivWizStep(2)} style={{marginTop:10,padding:"6px 14px",borderRadius:8,background:C.success,border:"none",color:"#fff",cursor:"pointer",fontSize:11,fontWeight:700}}>← Volver al paso 2</button>
                   </div>
                 ):clientes.length===0?(
-                  <div style={{padding:30,textAlign:"center",color:"#94a3b8",border:"1px dashed #e2e8f0",borderRadius:10,marginBottom:12}}>
+                  <div style={{padding:30,textAlign:"center",color:C.muted2,border:"1px dashed #e2e8f0",borderRadius:10,marginBottom:12}}>
                     <div style={{fontSize:32,marginBottom:8}}>👥</div>
                     <div style={{fontSize:12}}>No hay clientes en el Maestro de Clientes Osiris. Carga al menos uno antes.</div>
                   </div>
                 ):(<>
                   {wizOCs.length>0&&(
-                    <div style={{marginBottom:14,border:"1px solid #e2e8f0",borderRadius:10,overflow:"hidden"}}>
-                      <div style={{background:"#f8fafc",padding:"8px 12px",fontSize:11,fontWeight:700,color:"#475569",display:"flex",justifyContent:"space-between"}}>
+                    <div style={{marginBottom:14,border:`1px solid ${C.border}`,borderRadius:10,overflow:"hidden"}}>
+                      <div style={{background:C.cardAlt,padding:"8px 12px",fontSize:11,fontWeight:700,color:C.muted,display:"flex",justifyContent:"space-between"}}>
                         <span>OC agregadas ({wizOCs.length})</span>
-                        <span style={{color:"#7c3aed"}}>Total fee: {$$(totFeeAllOC)}</span>
+                        <span style={{color:C.purple}}>Total fee: {$$(totFeeAllOC)}</span>
                       </div>
                       {wizOCs.map(oc=>(
                         <div key={oc.id} style={{padding:"10px 12px",borderTop:"1px solid #f1f5f9",display:"flex",justifyContent:"space-between",alignItems:"center",gap:8}}>
                           <div style={{flex:1,minWidth:0}}>
-                            <div style={{fontSize:13,fontWeight:700,color:"#1e293b"}}>📦 OC {oc.n_oc} — {oc.cliente_nombre}</div>
-                            <div style={{fontSize:10,color:"#64748b",marginTop:2}}>
+                            <div style={{fontSize:13,fontWeight:700,color:C.text}}>📦 OC {oc.n_oc} — {oc.cliente_nombre}</div>
+                            <div style={{fontSize:10,color:C.muted,marginTop:2}}>
                               🌿 {oc.especie} · {oc.variedad} · {N(oc.cantidad_plantas)} plantas
                               {oc.hectareas?` · ${N(oc.hectareas)} há`:""}
                               {oc.fee_usd_planta?` · $${oc.fee_usd_planta}/planta`:""}
-                              <span style={{color:"#7c3aed",fontWeight:700,marginLeft:6}}>= {$$(oc.fee_total_usd)}</span>
+                              <span style={{color:C.purple,fontWeight:700,marginLeft:6}}>= {$$(oc.fee_total_usd)}</span>
                             </div>
                           </div>
-                          <button onClick={()=>quitarOcWiz(oc.id)} style={{background:"#fef2f2",border:"none",borderRadius:6,padding:"4px 8px",cursor:"pointer",fontSize:11,color:"#991b1b"}}>🗑</button>
+                          <button onClick={()=>quitarOcWiz(oc.id)} style={{background:C.dangerBg,border:"none",borderRadius:6,padding:"4px 8px",cursor:"pointer",fontSize:11,color:C.danger}}>🗑</button>
                         </div>
                       ))}
                     </div>
                   )}
 
-                  <div style={{border:"1px dashed #c4b5fd",borderRadius:10,padding:14,background:"#faf5ff",marginBottom:12}}>
-                    <div style={{fontSize:12,fontWeight:700,color:"#5b21b6",marginBottom:10}}>+ Agregar nueva OC</div>
+                  <div style={{border:"1px dashed #c4b5fd",borderRadius:10,padding:14,background:C.purpleBg,marginBottom:12}}>
+                    <div style={{fontSize:12,fontWeight:700,color:C.purple,marginBottom:10}}>+ Agregar nueva OC</div>
                     <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:10}}>
                       <div>
-                        <label style={{fontSize:11,fontWeight:600,color:"#475569",display:"block",marginBottom:3}}>N° OC <span style={{color:"#dc2626"}}>*</span></label>
+                        <label style={{fontSize:11,fontWeight:600,color:C.muted,display:"block",marginBottom:3}}>N° OC <span style={{color:C.danger}}>*</span></label>
                         <input value={vivWizOcForm.n_oc||""} placeholder="OC-2026-001" onChange={e=>setVivWizOcForm(p=>({...p,n_oc:e.target.value}))}
-                          style={{width:"100%",padding:"7px 10px",borderRadius:6,border:"1px solid #d1d5db",fontSize:12,boxSizing:"border-box"}}/>
+                          style={{width:"100%",padding:"7px 10px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:12,boxSizing:"border-box"}}/>
                       </div>
                       <div>
-                        <label style={{fontSize:11,fontWeight:600,color:"#475569",display:"block",marginBottom:3}}>Fecha OC</label>
+                        <label style={{fontSize:11,fontWeight:600,color:C.muted,display:"block",marginBottom:3}}>Fecha OC</label>
                         <input type="date" value={vivWizOcForm.fecha_oc||""} onChange={e=>setVivWizOcForm(p=>({...p,fecha_oc:e.target.value}))}
-                          style={{width:"100%",padding:"7px 10px",borderRadius:6,border:"1px solid #d1d5db",fontSize:12,boxSizing:"border-box"}}/>
+                          style={{width:"100%",padding:"7px 10px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:12,boxSizing:"border-box"}}/>
                       </div>
                     </div>
                     <div style={{marginBottom:10}}>
-                      <label style={{fontSize:11,fontWeight:600,color:"#475569",display:"block",marginBottom:3}}>Cliente <span style={{color:"#dc2626"}}>*</span></label>
+                      <label style={{fontSize:11,fontWeight:600,color:C.muted,display:"block",marginBottom:3}}>Cliente <span style={{color:C.danger}}>*</span></label>
                       <select value={vivWizOcForm.cliente_id||""} onChange={e=>{
                         const cli = clientes.find(c=>c.id===e.target.value);
                         setVivWizOcForm(p=>({...p,cliente_id:e.target.value,cliente_nombre:cli?.razonSocial||"",plantacion_id:""}));
                       }}
-                        style={{width:"100%",padding:"7px 10px",borderRadius:6,border:"1px solid #d1d5db",fontSize:12,boxSizing:"border-box",background:"#fff"}}>
+                        style={{width:"100%",padding:"7px 10px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:12,boxSizing:"border-box",background:C.card}}>
                         <option value="">— Seleccionar cliente —</option>
                         {clientes.map(c=><option key={c.id} value={c.id}>{c.razonSocial} {c.pais?`(${c.pais})`:""}</option>)}
                       </select>
@@ -11102,12 +11107,12 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
                       });
                       return plantaciones.length>0?(
                         <div style={{marginBottom:10}}>
-                          <label style={{fontSize:11,fontWeight:600,color:"#475569",display:"block",marginBottom:3}}>📍 Plantación (del contrato exp-prod)</label>
+                          <label style={{fontSize:11,fontWeight:600,color:C.muted,display:"block",marginBottom:3}}>📍 Plantación (del contrato exp-prod)</label>
                           <select value={vivWizOcForm.plantacion_id||""} onChange={e=>{
                             const pl=plantaciones.find(p=>p.id===e.target.value);
                             if(pl) setVivWizOcForm(p=>({...p,plantacion_id:pl.id,hectareas:pl.hectareas||p.hectareas,cantidad_plantas:pl.nPlantas||p.cantidad_plantas,campo:pl.nombrePredio||""}));
                           }}
-                            style={{width:"100%",padding:"7px 10px",borderRadius:6,border:"1px solid #d1d5db",fontSize:12,boxSizing:"border-box",background:"#f0fdf4"}}>
+                            style={{width:"100%",padding:"7px 10px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:12,boxSizing:"border-box",background:C.successBg}}>
                             <option value="">— Vincular a plantación (opcional) —</option>
                             {plantaciones.map(p=><option key={p.id} value={p.id}>{p.especie} · {p.variedad_nombre||p.variedad||"—"} · {p.nPlantas||0} plantas · {p.hectareas||0} há{p.nombrePredio?` · ${p.nombrePredio}`:""}</option>)}
                           </select>
@@ -11115,85 +11120,85 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
                       ):null;
                     })()}
                     <div style={{marginBottom:10}}>
-                      <label style={{fontSize:11,fontWeight:600,color:"#475569",display:"block",marginBottom:3}}>Variedad <span style={{color:"#dc2626"}}>*</span></label>
+                      <label style={{fontSize:11,fontWeight:600,color:C.muted,display:"block",marginBottom:3}}>Variedad <span style={{color:C.danger}}>*</span></label>
                       <select value={vivWizOcForm.variedad_id||""} onChange={e=>seleccionarVariedadWizOC(e.target.value)}
-                        style={{width:"100%",padding:"7px 10px",borderRadius:6,border:"1px solid #d1d5db",fontSize:12,boxSizing:"border-box",background:"#fff"}}>
+                        style={{width:"100%",padding:"7px 10px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:12,boxSizing:"border-box",background:C.card}}>
                         <option value="">— Seleccionar variedad —</option>
                         {wizVariedades.map(x=><option key={x.id} value={x.id}>{x.especie} · {x.variedad} {x.fee_usd?`(fee $${x.fee_usd})`:""}</option>)}
                       </select>
                     </div>
                     <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:10,marginBottom:10}}>
                       <div>
-                        <label style={{fontSize:11,fontWeight:600,color:"#475569",display:"block",marginBottom:3}}>Plantas</label>
+                        <label style={{fontSize:11,fontWeight:600,color:C.muted,display:"block",marginBottom:3}}>Plantas</label>
                         <input type="number" value={vivWizOcForm.cantidad_plantas||""} onChange={e=>{
                           const cant = e.target.value;
                           setVivWizOcForm(p=>({...p,cantidad_plantas:cant,fee_total_usd:calcFeeTotalWiz(cant,p.fee_usd_planta)}));
                         }}
-                          style={{width:"100%",padding:"7px 10px",borderRadius:6,border:"1px solid #d1d5db",fontSize:12,boxSizing:"border-box",textAlign:"right"}}/>
+                          style={{width:"100%",padding:"7px 10px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:12,boxSizing:"border-box",textAlign:"right"}}/>
                       </div>
                       <div>
-                        <label style={{fontSize:11,fontWeight:600,color:"#475569",display:"block",marginBottom:3}}>Hectáreas</label>
+                        <label style={{fontSize:11,fontWeight:600,color:C.muted,display:"block",marginBottom:3}}>Hectáreas</label>
                         <input type="number" step="0.01" value={vivWizOcForm.hectareas||""} onChange={e=>setVivWizOcForm(p=>({...p,hectareas:e.target.value}))}
-                          style={{width:"100%",padding:"7px 10px",borderRadius:6,border:"1px solid #d1d5db",fontSize:12,boxSizing:"border-box",textAlign:"right"}}/>
+                          style={{width:"100%",padding:"7px 10px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:12,boxSizing:"border-box",textAlign:"right"}}/>
                       </div>
                       <div>
-                        <label style={{fontSize:11,fontWeight:600,color:"#475569",display:"block",marginBottom:3}}>Fee USD/planta</label>
+                        <label style={{fontSize:11,fontWeight:600,color:C.muted,display:"block",marginBottom:3}}>Fee USD/planta</label>
                         <input type="number" step="0.001" value={vivWizOcForm.fee_usd_planta||""} onChange={e=>{
                           const fee = e.target.value;
                           setVivWizOcForm(p=>({...p,fee_usd_planta:fee,fee_total_usd:calcFeeTotalWiz(p.cantidad_plantas,fee)}));
                         }}
-                          style={{width:"100%",padding:"7px 10px",borderRadius:6,border:"1px solid #d1d5db",fontSize:12,boxSizing:"border-box",textAlign:"right"}}/>
+                          style={{width:"100%",padding:"7px 10px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:12,boxSizing:"border-box",textAlign:"right"}}/>
                       </div>
                     </div>
-                    <div style={{padding:8,background:"#ede9fe",borderRadius:6,marginBottom:10,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-                      <span style={{fontSize:11,fontWeight:700,color:"#5b21b6"}}>💰 Fee total:</span>
-                      <span style={{fontSize:14,fontWeight:900,color:"#7c3aed"}}>{$$(vivWizOcForm.fee_total_usd)}</span>
+                    <div style={{padding:8,background:C.purpleBg,borderRadius:6,marginBottom:10,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                      <span style={{fontSize:11,fontWeight:700,color:C.purple}}>💰 Fee total:</span>
+                      <span style={{fontSize:14,fontWeight:900,color:C.purple}}>{$$(vivWizOcForm.fee_total_usd)}</span>
                     </div>
                     <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:10}}>
                       <div>
-                        <label style={{fontSize:11,fontWeight:600,color:"#475569",display:"block",marginBottom:3}}>Estado OC</label>
+                        <label style={{fontSize:11,fontWeight:600,color:C.muted,display:"block",marginBottom:3}}>Estado OC</label>
                         <select value={vivWizOcForm.estado_oc||"Borrador"} onChange={e=>setVivWizOcForm(p=>({...p,estado_oc:e.target.value}))}
-                          style={{width:"100%",padding:"7px 10px",borderRadius:6,border:"1px solid #d1d5db",fontSize:12,boxSizing:"border-box",background:"#fff"}}>
+                          style={{width:"100%",padding:"7px 10px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:12,boxSizing:"border-box",background:C.card}}>
                           {ESTADOS_OC.map(s=><option key={s} value={s}>{s}</option>)}
                         </select>
                       </div>
                       <div>
-                        <label style={{fontSize:11,fontWeight:600,color:"#475569",display:"block",marginBottom:3}}>Observaciones</label>
+                        <label style={{fontSize:11,fontWeight:600,color:C.muted,display:"block",marginBottom:3}}>Observaciones</label>
                         <input value={vivWizOcForm.observaciones||""} onChange={e=>setVivWizOcForm(p=>({...p,observaciones:e.target.value}))}
-                          style={{width:"100%",padding:"7px 10px",borderRadius:6,border:"1px solid #d1d5db",fontSize:12,boxSizing:"border-box"}}/>
+                          style={{width:"100%",padding:"7px 10px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:12,boxSizing:"border-box"}}/>
                       </div>
                     </div>
-                    <button onClick={agregarOcWiz} style={{width:"100%",padding:"8px 14px",borderRadius:8,background:"#7c3aed",border:"none",color:"#fff",cursor:"pointer",fontSize:12,fontWeight:700}}>+ Agregar OC a la lista</button>
+                    <button onClick={agregarOcWiz} style={{width:"100%",padding:"8px 14px",borderRadius:8,background:C.purple,border:"none",color:"#fff",cursor:"pointer",fontSize:12,fontWeight:700}}>+ Agregar OC a la lista</button>
                   </div>
                 </>)}
               </>)}
 
               {/* PASO 5 — CUOTAS POR OC */}
               {vivWizStep===5&&(<>
-                <div style={{background:"#fef3c7",border:"1px solid #fbbf24",borderRadius:8,padding:"8px 12px",marginBottom:14,fontSize:11,color:"#78350f"}}>
+                <div style={{background:C.warningBg,border:`1px solid ${C.warning}`,borderRadius:8,padding:"8px 12px",marginBottom:14,fontSize:11,color:C.text}}>
                   💡 Para cada OC del paso anterior, agrega las cuotas/fechas de pago. Haz clic en una OC para expandirla. <strong>Paso opcional</strong> — puedes saltar y agregar después desde el detalle.
                 </div>
 
                 {wizOCs.length===0?(
-                  <div style={{padding:30,textAlign:"center",color:"#94a3b8",border:"1px dashed #e2e8f0",borderRadius:10,marginBottom:12}}>
+                  <div style={{padding:30,textAlign:"center",color:C.muted2,border:"1px dashed #e2e8f0",borderRadius:10,marginBottom:12}}>
                     <div style={{fontSize:32,marginBottom:8}}>📦</div>
                     <div style={{fontSize:12}}>No hay OC para configurar cuotas. {wizVariedades.length>0?"Vuelve al paso 4 para agregarlas.":"O salta a crear el contrato sin cuotas."}</div>
-                    {wizVariedades.length>0&&<button onClick={()=>setVivWizStep(4)} style={{marginTop:10,padding:"6px 14px",borderRadius:8,background:"#7c3aed",border:"none",color:"#fff",cursor:"pointer",fontSize:11,fontWeight:700}}>← Volver al paso 4</button>}
+                    {wizVariedades.length>0&&<button onClick={()=>setVivWizStep(4)} style={{marginTop:10,padding:"6px 14px",borderRadius:8,background:C.purple,border:"none",color:"#fff",cursor:"pointer",fontSize:11,fontWeight:700}}>← Volver al paso 4</button>}
                   </div>
                 ):(<>
                   {/* Resumen */}
                   <div style={{display:"flex",gap:10,marginBottom:12,flexWrap:"wrap"}}>
-                    <div style={{flex:1,minWidth:140,background:"#f8fafc",padding:"10px 12px",borderRadius:8,borderLeft:"4px solid #7c3aed"}}>
-                      <div style={{fontSize:9,color:"#64748b",fontWeight:600}}>Total fee OC</div>
-                      <div style={{fontSize:16,fontWeight:900,color:"#7c3aed"}}>{$$(totFeeAllOC)}</div>
+                    <div style={{flex:1,minWidth:140,background:C.cardAlt,padding:"10px 12px",borderRadius:8,borderLeft:"4px solid #7c3aed"}}>
+                      <div style={{fontSize:9,color:C.muted,fontWeight:600}}>Total fee OC</div>
+                      <div style={{fontSize:16,fontWeight:900,color:C.purple}}>{$$(totFeeAllOC)}</div>
                     </div>
-                    <div style={{flex:1,minWidth:140,background:"#f8fafc",padding:"10px 12px",borderRadius:8,borderLeft:"4px solid #16a34a"}}>
-                      <div style={{fontSize:9,color:"#64748b",fontWeight:600}}>Total cuotas</div>
-                      <div style={{fontSize:16,fontWeight:900,color:"#16a34a"}}>{$$(totCuotasAllOC)}</div>
+                    <div style={{flex:1,minWidth:140,background:C.cardAlt,padding:"10px 12px",borderRadius:8,borderLeft:"4px solid #16a34a"}}>
+                      <div style={{fontSize:9,color:C.muted,fontWeight:600}}>Total cuotas</div>
+                      <div style={{fontSize:16,fontWeight:900,color:C.success}}>{$$(totCuotasAllOC)}</div>
                     </div>
-                    <div style={{flex:1,minWidth:140,background:Math.abs(totFeeAllOC-totCuotasAllOC)<0.01?"#dcfce7":"#fef2f2",padding:"10px 12px",borderRadius:8,borderLeft:`4px solid ${Math.abs(totFeeAllOC-totCuotasAllOC)<0.01?"#16a34a":"#dc2626"}`}}>
-                      <div style={{fontSize:9,color:"#64748b",fontWeight:600}}>Diferencia</div>
-                      <div style={{fontSize:16,fontWeight:900,color:Math.abs(totFeeAllOC-totCuotasAllOC)<0.01?"#16a34a":"#dc2626"}}>{$$(totFeeAllOC-totCuotasAllOC)}</div>
+                    <div style={{flex:1,minWidth:140,background:Math.abs(totFeeAllOC-totCuotasAllOC)<0.01?C.successBg:C.dangerBg,padding:"10px 12px",borderRadius:8,borderLeft:`4px solid ${Math.abs(totFeeAllOC-totCuotasAllOC)<0.01?C.success:C.danger}`}}>
+                      <div style={{fontSize:9,color:C.muted,fontWeight:600}}>Diferencia</div>
+                      <div style={{fontSize:16,fontWeight:900,color:Math.abs(totFeeAllOC-totCuotasAllOC)<0.01?C.success:C.danger}}>{$$(totFeeAllOC-totCuotasAllOC)}</div>
                     </div>
                   </div>
 
@@ -11203,46 +11208,46 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
                     const diff = (parseFloat(oc.fee_total_usd)||0) - totC;
                     const diffOk = Math.abs(diff)<0.01;
                     return (
-                      <div key={oc.id} style={{border:"1px solid #e2e8f0",borderRadius:10,marginBottom:10,overflow:"hidden"}}>
+                      <div key={oc.id} style={{border:`1px solid ${C.border}`,borderRadius:10,marginBottom:10,overflow:"hidden"}}>
                         <div onClick={()=>setVivWizOcExpandido(expandido?null:oc.id)}
-                          style={{padding:"10px 12px",background:expandido?"#fef3c7":"#fff",cursor:"pointer",display:"flex",justifyContent:"space-between",alignItems:"center",gap:8}}>
+                          style={{padding:"10px 12px",background:expandido?C.warningBg:"#fff",cursor:"pointer",display:"flex",justifyContent:"space-between",alignItems:"center",gap:8}}>
                           <div style={{flex:1,minWidth:0}}>
-                            <div style={{fontSize:13,fontWeight:700,color:"#1e293b"}}>{expandido?"▼":"▶"} OC {oc.n_oc} — {oc.cliente_nombre}</div>
-                            <div style={{fontSize:10,color:"#64748b",marginTop:2}}>
+                            <div style={{fontSize:13,fontWeight:700,color:C.text}}>{expandido?"▼":"▶"} OC {oc.n_oc} — {oc.cliente_nombre}</div>
+                            <div style={{fontSize:10,color:C.muted,marginTop:2}}>
                               🌿 {oc.especie} · {oc.variedad} ·
                               💰 {$$(oc.fee_total_usd)} ·
                               📋 {(oc.cuotas||[]).length} cuota{(oc.cuotas||[]).length!==1?"s":""}
-                              {!diffOk&&<span style={{color:"#dc2626",marginLeft:6}}>⚠️ diff {$$(diff)}</span>}
+                              {!diffOk&&<span style={{color:C.danger,marginLeft:6}}>⚠️ diff {$$(diff)}</span>}
                             </div>
                           </div>
                         </div>
 
                         {expandido&&(
-                          <div style={{padding:14,background:"#fffbeb",borderTop:"1px solid #fde68a"}}>
+                          <div style={{padding:14,background:C.warningBg,borderTop:`1px solid ${C.warning}`}}>
                             {/* Lista cuotas existentes */}
                             {(oc.cuotas||[]).length>0&&(
-                              <div style={{marginBottom:12,background:"#fff",borderRadius:8,overflow:"hidden",border:"1px solid #fde68a"}}>
+                              <div style={{marginBottom:12,background:C.card,borderRadius:8,overflow:"hidden",border:`1px solid ${C.warning}`}}>
                                 <table style={{width:"100%",borderCollapse:"collapse",fontSize:11}}>
                                   <thead>
-                                    <tr style={{background:"#fef3c7"}}>
-                                      <th style={{padding:"6px 8px",textAlign:"left",fontWeight:700,color:"#78350f"}}>Fecha</th>
-                                      <th style={{padding:"6px 8px",textAlign:"right",fontWeight:700,color:"#78350f"}}>Monto USD</th>
-                                      <th style={{padding:"6px 8px",textAlign:"left",fontWeight:700,color:"#78350f"}}>Estado</th>
-                                      <th style={{padding:"6px 8px",textAlign:"left",fontWeight:700,color:"#78350f"}}>N° Fact.</th>
+                                    <tr style={{background:C.warningBg}}>
+                                      <th style={{padding:"6px 8px",textAlign:"left",fontWeight:700,color:C.text}}>Fecha</th>
+                                      <th style={{padding:"6px 8px",textAlign:"right",fontWeight:700,color:C.text}}>Monto USD</th>
+                                      <th style={{padding:"6px 8px",textAlign:"left",fontWeight:700,color:C.text}}>Estado</th>
+                                      <th style={{padding:"6px 8px",textAlign:"left",fontWeight:700,color:C.text}}>N° Fact.</th>
                                       <th style={{padding:"6px 8px"}}></th>
                                     </tr>
                                   </thead>
                                   <tbody>
                                     {(oc.cuotas||[]).map(cu=>(
-                                      <tr key={cu.id} style={{borderTop:"1px solid #fef3c7",background:cu.pagado?"#f0fdf4":"#fff"}}>
+                                      <tr key={cu.id} style={{borderTop:"1px solid #fef3c7",background:cu.pagado?C.successBg:"#fff"}}>
                                         <td style={{padding:"5px 8px",fontWeight:600}}>{cu.fecha}</td>
-                                        <td style={{padding:"5px 8px",textAlign:"right",fontWeight:700,color:"#7c3aed"}}>{$$(cu.monto_usd)}</td>
+                                        <td style={{padding:"5px 8px",textAlign:"right",fontWeight:700,color:C.purple}}>{$$(cu.monto_usd)}</td>
                                         <td style={{padding:"5px 8px"}}>
-                                          <span style={{padding:"2px 6px",borderRadius:10,fontSize:9,fontWeight:700,background:cu.pagado?"#dcfce7":"#fef3c7",color:cu.pagado?"#16a34a":"#d97706"}}>{cu.pagado?"✅ Pagado":"⏳ Por cobrar"}</span>
+                                          <span style={{padding:"2px 6px",borderRadius:10,fontSize:9,fontWeight:700,background:cu.pagado?C.successBg:C.warningBg,color:cu.pagado?C.success:C.warning}}>{cu.pagado?"✅ Pagado":"⏳ Por cobrar"}</span>
                                         </td>
                                         <td style={{padding:"5px 8px",fontSize:10}}>{cu.n_factura||"—"}</td>
                                         <td style={{padding:"5px 8px"}}>
-                                          <button onClick={()=>quitarCuotaWiz(oc.id, cu.id)} style={{background:"#fef2f2",border:"none",borderRadius:4,padding:"2px 6px",cursor:"pointer",fontSize:10,color:"#991b1b"}}>🗑</button>
+                                          <button onClick={()=>quitarCuotaWiz(oc.id, cu.id)} style={{background:C.dangerBg,border:"none",borderRadius:4,padding:"2px 6px",cursor:"pointer",fontSize:10,color:C.danger}}>🗑</button>
                                         </td>
                                       </tr>
                                     ))}
@@ -11251,18 +11256,18 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
                               </div>
                             )}
                             {/* Form para agregar cuota nueva */}
-                            <div style={{background:"#fff",borderRadius:8,padding:10,border:"1px dashed #fbbf24"}}>
-                              <div style={{fontSize:11,fontWeight:700,color:"#78350f",marginBottom:8}}>+ Agregar cuota a esta OC</div>
+                            <div style={{background:C.card,borderRadius:8,padding:10,border:"1px dashed #fbbf24"}}>
+                              <div style={{fontSize:11,fontWeight:700,color:C.text,marginBottom:8}}>+ Agregar cuota a esta OC</div>
                               <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:8}}>
                                 <div>
-                                  <label style={{fontSize:10,fontWeight:600,color:"#475569",display:"block",marginBottom:2}}>Fecha estim. <span style={{color:"#dc2626"}}>*</span></label>
+                                  <label style={{fontSize:10,fontWeight:600,color:C.muted,display:"block",marginBottom:2}}>Fecha estim. <span style={{color:C.danger}}>*</span></label>
                                   <input type="date" value={vivWizCuotaForm.fecha||""} onChange={e=>setVivWizCuotaForm(p=>({...p,fecha:e.target.value}))}
-                                    style={{width:"100%",padding:"6px 8px",borderRadius:6,border:"1px solid #d1d5db",fontSize:11,boxSizing:"border-box"}}/>
+                                    style={{width:"100%",padding:"6px 8px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:11,boxSizing:"border-box"}}/>
                                 </div>
                                 <div>
-                                  <label style={{fontSize:10,fontWeight:600,color:"#475569",display:"block",marginBottom:2}}>Monto USD <span style={{color:"#dc2626"}}>*</span></label>
+                                  <label style={{fontSize:10,fontWeight:600,color:C.muted,display:"block",marginBottom:2}}>Monto USD <span style={{color:C.danger}}>*</span></label>
                                   <input type="number" step="0.01" value={vivWizCuotaForm.monto_usd||""} placeholder={diff>0?`Sugerido: ${diff.toFixed(2)}`:""} onChange={e=>setVivWizCuotaForm(p=>({...p,monto_usd:e.target.value}))}
-                                    style={{width:"100%",padding:"6px 8px",borderRadius:6,border:"1px solid #d1d5db",fontSize:11,boxSizing:"border-box",textAlign:"right"}}/>
+                                    style={{width:"100%",padding:"6px 8px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:11,boxSizing:"border-box",textAlign:"right"}}/>
                                 </div>
                               </div>
                               <label style={{display:"flex",alignItems:"center",gap:6,cursor:"pointer",marginBottom:8,fontSize:11}}>
@@ -11272,22 +11277,22 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
                               {vivWizCuotaForm.pagado&&(
                                 <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:8}}>
                                   <div>
-                                    <label style={{fontSize:10,fontWeight:600,color:"#475569",display:"block",marginBottom:2}}>Fecha pago</label>
+                                    <label style={{fontSize:10,fontWeight:600,color:C.muted,display:"block",marginBottom:2}}>Fecha pago</label>
                                     <input type="date" value={vivWizCuotaForm.fecha_pago||""} onChange={e=>setVivWizCuotaForm(p=>({...p,fecha_pago:e.target.value}))}
-                                      style={{width:"100%",padding:"6px 8px",borderRadius:6,border:"1px solid #d1d5db",fontSize:11,boxSizing:"border-box"}}/>
+                                      style={{width:"100%",padding:"6px 8px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:11,boxSizing:"border-box"}}/>
                                   </div>
                                   <div>
-                                    <label style={{fontSize:10,fontWeight:600,color:"#475569",display:"block",marginBottom:2}}>N° Factura</label>
+                                    <label style={{fontSize:10,fontWeight:600,color:C.muted,display:"block",marginBottom:2}}>N° Factura</label>
                                     <input value={vivWizCuotaForm.n_factura||""} onChange={e=>setVivWizCuotaForm(p=>({...p,n_factura:e.target.value}))}
-                                      style={{width:"100%",padding:"6px 8px",borderRadius:6,border:"1px solid #d1d5db",fontSize:11,boxSizing:"border-box"}}/>
+                                      style={{width:"100%",padding:"6px 8px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:11,boxSizing:"border-box"}}/>
                                   </div>
                                 </div>
                               )}
                               <div style={{marginBottom:8}}>
                                 <input value={vivWizCuotaForm.observaciones||""} placeholder="Observaciones..." onChange={e=>setVivWizCuotaForm(p=>({...p,observaciones:e.target.value}))}
-                                  style={{width:"100%",padding:"6px 8px",borderRadius:6,border:"1px solid #d1d5db",fontSize:11,boxSizing:"border-box"}}/>
+                                  style={{width:"100%",padding:"6px 8px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:11,boxSizing:"border-box"}}/>
                               </div>
-                              <button onClick={()=>agregarCuotaWiz(oc.id)} style={{width:"100%",padding:"7px 12px",borderRadius:6,background:"#f59e0b",border:"none",color:"#fff",cursor:"pointer",fontSize:11,fontWeight:700}}>+ Agregar cuota</button>
+                              <button onClick={()=>agregarCuotaWiz(oc.id)} style={{width:"100%",padding:"7px 12px",borderRadius:6,background:C.warning,border:"none",color:"#fff",cursor:"pointer",fontSize:11,fontWeight:700}}>+ Agregar cuota</button>
                             </div>
                           </div>
                         )}
@@ -11298,12 +11303,12 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
               </>)}
 
               {/* Footer wizard: navegación */}
-              <div style={{display:"flex",gap:8,justifyContent:"space-between",alignItems:"center",marginTop:18,paddingTop:14,borderTop:"1px solid #e2e8f0"}}>
-                <button onClick={()=>setVivModal(false)} style={{padding:"8px 16px",borderRadius:8,border:"1px solid #d1d5db",background:"#fff",cursor:"pointer",fontSize:12}}>Cancelar</button>
+              <div style={{display:"flex",gap:8,justifyContent:"space-between",alignItems:"center",marginTop:18,paddingTop:14,borderTop:`1px solid ${C.border}`}}>
+                <button onClick={()=>setVivModal(false)} style={{padding:"8px 16px",borderRadius:8,border:`1px solid ${C.border}`,background:C.card,cursor:"pointer",fontSize:12}}>Cancelar</button>
                 <div style={{display:"flex",gap:8}}>
-                  {vivWizStep>1&&<button onClick={()=>setVivWizStep(vivWizStep-1)} style={{padding:"8px 16px",borderRadius:8,border:"1px solid #d1d5db",background:"#f8fafc",cursor:"pointer",fontSize:12,fontWeight:600}}>← Anterior</button>}
-                  {vivWizStep<5&&<button onClick={()=>irPaso(vivWizStep+1)} style={{padding:"8px 16px",borderRadius:8,background:"#16a34a",border:"none",color:"#fff",cursor:"pointer",fontSize:12,fontWeight:700}}>Siguiente →</button>}
-                  {vivWizStep===5&&<button onClick={guardarViv} style={{padding:"8px 18px",borderRadius:8,background:"#16a34a",border:"none",color:"#fff",cursor:"pointer",fontSize:13,fontWeight:700}}>{vivEditId?"💾 Guardar cambios":"✅ Crear vivero"}</button>}
+                  {vivWizStep>1&&<button onClick={()=>setVivWizStep(vivWizStep-1)} style={{padding:"8px 16px",borderRadius:8,border:`1px solid ${C.border}`,background:C.cardAlt,cursor:"pointer",fontSize:12,fontWeight:600}}>← Anterior</button>}
+                  {vivWizStep<5&&<button onClick={()=>irPaso(vivWizStep+1)} style={{padding:"8px 16px",borderRadius:8,background:C.success,border:"none",color:"#fff",cursor:"pointer",fontSize:12,fontWeight:700}}>Siguiente →</button>}
+                  {vivWizStep===5&&<button onClick={guardarViv} style={{padding:"8px 18px",borderRadius:8,background:C.success,border:"none",color:"#fff",cursor:"pointer",fontSize:13,fontWeight:700}}>{vivEditId?"💾 Guardar cambios":"✅ Crear vivero"}</button>}
                 </div>
               </div>
             </div>
@@ -11318,15 +11323,15 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
   // ── SEGUIMIENTO TAREAS OSIRIS ──────────────────────────────
   if(subApp==="tareas") {
     return (
-      <div style={{fontFamily:"sans-serif",background:"#0d1117",minHeight:"100vh",padding:"20px 20px 40px"}}>
+      <div style={{fontFamily:"sans-serif",background:C.bg,minHeight:"100vh",padding:"20px 20px 40px"}}>
         <NavBar breadcrumbItems={[
           {label:"Mediterra", onClick:onBack},
           {label:"Osiris Hub", onClick:()=>setSubApp(null)},
           {label:"Seguimiento Tareas"},
         ]}/>
-        <div style={{background:"#fff",borderRadius:14,padding:20,boxShadow:"0 2px 10px #0001",textAlign:"center",color:"#64748b",minHeight:300,display:"flex",alignItems:"center",justifyContent:"center",flexDirection:"column"}}>
+        <div style={{background:C.card,borderRadius:14,padding:20,boxShadow:"0 2px 10px #0001",textAlign:"center",color:C.muted,minHeight:300,display:"flex",alignItems:"center",justifyContent:"center",flexDirection:"column"}}>
           <div style={{fontSize:48,marginBottom:16}}>✅</div>
-          <h3 style={{color:"#1e293b",margin:"0 0 8px"}}>Seguimiento de Tareas Osiris</h3>
+          <h3 style={{color:C.text,margin:"0 0 8px"}}>Seguimiento de Tareas Osiris</h3>
           <p style={{fontSize:13}}>Módulo en construcción — próximamente con las mismas funcionalidades del seguimiento de tareas principal.</p>
         </div>
       </div>
@@ -11335,7 +11340,7 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
 
   // ── INGRESOS OSIRIS ────────────────────────────────────────
   return (
-    <div style={{fontFamily:"sans-serif",background:"#0d1117",minHeight:"100vh",padding:"20px 20px 40px"}}>
+    <div style={{fontFamily:"sans-serif",background:C.bg,minHeight:"100vh",padding:"20px 20px 40px"}}>
       <NavBar showPorCobrar breadcrumbItems={[
         {label:"Mediterra", onClick:onBack},
         {label:"Osiris Hub", onClick:()=>setSubApp(null)},
@@ -11350,19 +11355,19 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
               background:subTab===id?"#0f2d4a":"#fff",color:subTab===id?"#fff":C.sl,
               boxShadow:subTab===id?"0 2px 8px #0f2d4a44":"0 1px 4px #0001",position:"relative"}}>
             {label}
-            {badge>0&&<span style={{position:"absolute",top:-4,right:-4,background:"#ef4444",color:"#fff",borderRadius:"50%",width:16,height:16,fontSize:9,display:"flex",alignItems:"center",justifyContent:"center",fontWeight:700}}>{badge}</span>}
+            {badge>0&&<span style={{position:"absolute",top:-4,right:-4,background:C.danger,color:"#fff",borderRadius:"50%",width:16,height:16,fontSize:9,display:"flex",alignItems:"center",justifyContent:"center",fontWeight:700}}>{badge}</span>}
           </button>
         ))}
       </div>
 
       {/* Banner modo solo lectura */}
       {!canIngresos&&(
-        <div style={{background:"linear-gradient(135deg,#fef3c7,#fde68a)",border:"1px solid #f59e0b",
+        <div style={{background:C.warningBg,border:`1px solid ${C.warning}`,
           borderRadius:10,padding:"10px 16px",marginBottom:14,display:"flex",alignItems:"center",gap:10}}>
           <span style={{fontSize:20}}>👁</span>
           <div style={{flex:1}}>
-            <div style={{fontSize:12,fontWeight:800,color:"#92400e"}}>Modo solo lectura</div>
-            <div style={{fontSize:11,color:"#78350f"}}>
+            <div style={{fontSize:12,fontWeight:800,color:C.text}}>Modo solo lectura</div>
+            <div style={{fontSize:11,color:C.text}}>
               {esConsulta
                 ? "Tu rol es de Consulta. Puedes visualizar y exportar los datos a Excel, pero no modificarlos."
                 : "Tienes permiso de \"Solo ver\" en esta sección. Puedes visualizar y exportar los datos a Excel, pero no modificarlos. Contacta al administrador si necesitas editar."}
@@ -11373,13 +11378,13 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
 
       {/* Maestro clientes accesible desde Ingresos también */}
       {can&&<div style={{marginBottom:16}}>
-        <details style={{background:"#f0fdfa",border:"1px solid #99f6e4",borderRadius:10}}>
-          <summary style={{padding:"10px 16px",cursor:"pointer",fontSize:12,fontWeight:700,color:"#0f766e"}}>👥 Maestro de Clientes</summary>
+        <details style={{background:C.accent2Bg,border:`1px solid ${C.accent2}`,borderRadius:10}}>
+          <summary style={{padding:"10px 16px",cursor:"pointer",fontSize:12,fontWeight:700,color:C.accent2}}>👥 Maestro de Clientes</summary>
           <div style={{padding:"0 16px 16px"}}><MaestroClientes clientes={clientes} setClientes={setClientes} can={can}/></div>
         </details>
       </div>}
       {/* Contenido */}
-      <div style={{background:"#fff",borderRadius:14,padding:20,boxShadow:"0 2px 10px #0001"}}>
+      <div style={{background:C.card,borderRadius:14,padding:20,boxShadow:"0 2px 10px #0001"}}>
         {subTab==="resumen"          &&<Resumen        rpData={rpData} feData={feData} rcData={rcData} fvData={fvData} tpData={tpData}/>}
         {subTab==="dashboard"        &&<DashboardAnalitico ctData={ctData} feData={feData} rpData={rpData} rcData={rcData} tpData={tpData} especiesMaestro={especiesMaestro}/>}
         {subTab==="graficos"         &&<GraficosPlantas tpData={tpData} rpData={rpData}/>}
