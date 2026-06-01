@@ -1,5 +1,6 @@
 /* eslint-disable */
 import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
+import { theme } from "./theme";
 
 // Componente DateInput: evita re-renders al escribir año en campos date
 function DateInput({value, onChange, disabled, style}) {
@@ -17,13 +18,26 @@ const SUPA_URL = "https://bywovqayuzodbzwsriet.supabase.co";
 const SUPA_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJ5d292cWF5dXpvZGJ6d3NyaWV0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU2ODU1MDgsImV4cCI6MjA5MTI2MTUwOH0.s2x2O_CxE6rl8dBqFuyfQdMyRqSyjJQWXJXesmVGXtk";
 
 // Colores
+// Paleta Allegria — re-exporta tokens del tema central + alias para
+// preservar nombres locales. El accent original era rojo oscuro #b91c1c
+// (uso como destaque tipo "alerta importante", no como CTA primario),
+// por lo que se aliasea a theme.danger. Cambios de paleta en src/theme.js.
 const C = {
-  bg: "#0d1117", bg2: "#161b22", card: "#1c2333", card2: "#21283b",
-  border: "#30363d", border2: "#484f58", text: "#e6edf3", muted: "#8b949e", muted2: "#484f58",
-  accent: "#b91c1c", accentL: "#ef4444", red: "#ef4444", green: "#16a34a", yellow: "#f59e0b",
-  blue: "#3b82f6", teal: "#0f766e", sl: "#e6edf3", gris: "#8b949e",
-  verdeBg: "#dcfce7", verde: "#16a34a", amBg: "#fef3c7", am: "#d97706",
-  azulBg: "#dbeafe", azul: "#3b82f6", grisBg: "#f1f5f9",
+  ...theme,
+  card2:   theme.cardAlt,
+  accent:  theme.danger,
+  accentL: theme.accent,    // acento dorado para destacar
+  red:     theme.danger,
+  green:   theme.success,
+  yellow:  theme.warning,
+  blue:    theme.primary,
+  teal:    theme.accent2,
+  sl:      theme.text,      // "sl" era text claro en dark
+  gris:    theme.muted,
+  verde:   theme.success,   verdeBg: theme.successBg,
+  am:      theme.warning,   amBg:    theme.warningBg,
+  azul:    theme.primary,   azulBg:  theme.infoBg,
+  grisBg:  theme.cardAlt,
 };
 
 const FRUTAS = ["Cerezas", "Ciruelas d'Agen", "Arándanos", "Uvas", "Zarzaparrilla"];
@@ -115,7 +129,7 @@ function MaestroAllegria({especies, setEspecies, variedades, setVariedades, can}
           </div>
           <div style={{overflowX:"auto"}}>
             <table style={{width:"100%",borderCollapse:"collapse",fontSize:11}}>
-              <thead><tr style={{background:C.bg2}}>{["Especie","Variedad","Obtentor","Obs.",""].map(h=><th key={h} style={{padding:"6px 10px",textAlign:"left",color:C.muted,fontWeight:700,fontSize:10}}>{h}</th>)}</tr></thead>
+              <thead><tr style={{background:C.primary}}>{["Especie","Variedad","Obtentor","Obs.",""].map(h=><th key={h} style={{padding:"6px 10px",textAlign:"left",color:C.primaryText,fontWeight:700,fontSize:10}}>{h}</th>)}</tr></thead>
               <tbody>{variedades.map((v,i)=>(
                 <tr key={v.id} style={{borderBottom:`1px solid ${C.border}22`}}>
                   <td style={{padding:"6px 10px"}}><span style={{fontSize:9,padding:"2px 8px",borderRadius:10,fontWeight:700,background:`${(especies.find(e=>e.nombre===v.especie)||{}).color||"#6366f1"}22`,color:(especies.find(e=>e.nombre===v.especie)||{}).color||"#6366f1"}}>{v.especie}</span></td>
@@ -258,7 +272,7 @@ function NavBar({breadcrumbItems=[], onLogout}) {
 }
 
 function Card({children, style={}}) {
-  return <div style={{background:C.card,borderRadius:14,padding:20,border:`1px solid ${C.border}`,marginBottom:16,boxShadow:"0 2px 10px #0001",...style}}>{children}</div>;
+  return <div style={{background:C.card,borderRadius:14,padding:20,border:`1px solid ${C.border}`,marginBottom:16,boxShadow:C.shadow,...style}}>{children}</div>;
 }
 
 function KPI({label, value, color=C.green, sub=""}) {
@@ -732,7 +746,7 @@ function ProductoresModule({data, setData, can}) {
               ):(
                 <div style={{overflowX:"auto"}}>
                   <table style={{width:"100%",borderCollapse:"collapse",fontSize:11}}>
-                    <thead><tr style={{background:C.bg2}}>{["Fruta","Variedad","Semana","Kg estimado",""].map(h=><th key={h} style={{padding:"6px 10px",textAlign:"left",color:C.muted,fontWeight:700,fontSize:10}}>{h}</th>)}</tr></thead>
+                    <thead><tr style={{background:C.primary}}>{["Fruta","Variedad","Semana","Kg estimado",""].map(h=><th key={h} style={{padding:"6px 10px",textAlign:"left",color:C.primaryText,fontWeight:700,fontSize:10}}>{h}</th>)}</tr></thead>
                     <tbody>{kgPactados.map(kp=>{
                       const updKp=(f,v)=>updContrato("kgPactados",kgPactados.map(x=>x.id===kp.id?{...x,[f]:v}:x));
                       return(<tr key={kp.id} style={{borderBottom:`1px solid ${C.border}22`}}>
@@ -992,16 +1006,16 @@ function ProductoresModule({data, setData, can}) {
       </div>
       <div style={{overflowX:"auto",borderRadius:10,border:`1px solid ${C.border}`}}>
         <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
-          <thead><tr style={{background:C.bg2}}>
-            {["Productor","País","Región","Comuna","Frutas","Há","Contrato",""].map(h=><th key={h} style={{padding:"8px 12px",textAlign:"left",color:C.muted,fontWeight:700,fontSize:10}}>{h}</th>)}
+          <thead><tr style={{background:C.primary}}>
+            {["Productor","País","Región","Comuna","Frutas","Há","Contrato",""].map(h=><th key={h} style={{padding:"8px 12px",textAlign:"left",color:C.primaryText,fontWeight:700,fontSize:10}}>{h}</th>)}
           </tr></thead>
           <tbody>
             {filtrado.map((p,i)=>{
               const est=(p.contrato||{}).estado||"Sin contrato";
               const estCol=est==="Firmado"||est==="Vigente"?"#16a34a":est==="Vencido"?"#dc2626":"#d97706";
               return(
-                <tr key={p.id} onClick={()=>setDetalle(p.id)} style={{borderBottom:`1px solid ${C.border}22`,background:i%2===0?"transparent":`${C.border}08`,cursor:"pointer"}}
-                  onMouseEnter={e=>e.currentTarget.style.background=`${C.teal}11`} onMouseLeave={e=>e.currentTarget.style.background=i%2===0?"transparent":`${C.border}08`}>
+                <tr key={p.id} onClick={()=>setDetalle(p.id)} style={{borderBottom:`1px solid ${C.border}22`,background:i%2===0?C.card:C.rowAlt,cursor:"pointer"}}
+                  onMouseEnter={e=>e.currentTarget.style.background=`${C.teal}11`} onMouseLeave={e=>e.currentTarget.style.background=i%2===0?C.card:C.rowAlt}>
                   <td style={{padding:"8px 12px",fontWeight:600,color:C.text}}>{p.nombre}</td>
                   <td style={{padding:"8px 12px",color:C.muted}}>{p.pais||"—"}</td>
                   <td style={{padding:"8px 12px",color:C.muted,fontSize:11}}>{p.region||"—"}</td>
@@ -1150,7 +1164,7 @@ function EmbarquesModule({data, setData, clientes, productores, stockPT, setStoc
             <div style={{fontWeight:700,color:C.text,fontSize:13,marginBottom:8}}>📊 Distribución por productor</div>
             <div style={{overflowX:"auto",borderRadius:10,border:`1px solid ${C.border}`,marginBottom:16}}>
               <table style={{width:"100%",borderCollapse:"collapse",fontSize:11}}>
-                <thead><tr style={{background:C.bg2}}>{["Productor","Pallets","Cajas","Kg neto","% del embarque"].map(h=><th key={h} style={{padding:"6px 10px",textAlign:"left",color:C.muted,fontWeight:700,fontSize:10}}>{h}</th>)}</tr></thead>
+                <thead><tr style={{background:C.primary}}>{["Productor","Pallets","Cajas","Kg neto","% del embarque"].map(h=><th key={h} style={{padding:"6px 10px",textAlign:"left",color:C.primaryText,fontWeight:700,fontSize:10}}>{h}</th>)}</tr></thead>
                 <tbody>{Object.entries(prodResumen).map(([prod,r],i)=>{
                   const pct = emb.totalCajas>0?Math.round(r.cajas/emb.totalCajas*100):0;
                   return(<tr key={prod} style={{borderBottom:`1px solid ${C.border}22`}}>
@@ -1167,7 +1181,7 @@ function EmbarquesModule({data, setData, clientes, productores, stockPT, setStoc
             <div style={{fontWeight:700,color:C.text,fontSize:13,marginBottom:8}}>📦 Pallets en este embarque ({palletsEmb.length})</div>
             <div style={{overflowX:"auto",borderRadius:10,border:`1px solid ${C.border}`}}>
               <table style={{width:"100%",borderCollapse:"collapse",fontSize:11}}>
-                <thead><tr style={{background:C.bg2}}>{["Código","Productor","Fruta","Variedad","Calibre","Color","Embalaje","Cajas","Kg"].map(h=><th key={h} style={{padding:"5px 8px",textAlign:"left",color:C.muted,fontWeight:700,fontSize:10}}>{h}</th>)}</tr></thead>
+                <thead><tr style={{background:C.primary}}>{["Código","Productor","Fruta","Variedad","Calibre","Color","Embalaje","Cajas","Kg"].map(h=><th key={h} style={{padding:"5px 8px",textAlign:"left",color:C.primaryText,fontWeight:700,fontSize:10}}>{h}</th>)}</tr></thead>
                 <tbody>{palletsEmb.map((p,i)=>(
                   <tr key={p.id||i} style={{borderBottom:`1px solid ${C.border}22`}}>
                     <td style={{padding:"5px 8px",fontFamily:"monospace",fontWeight:600}}>{p.codigoPallet}</td>
@@ -1259,7 +1273,7 @@ function EmbarquesModule({data, setData, clientes, productores, stockPT, setStoc
       </div>
       <div style={{overflowX:"auto",borderRadius:10,border:`1px solid ${C.border}`}}>
         <table style={{width:"100%",borderCollapse:"collapse",fontSize:11}}>
-          <thead><tr style={{background:C.bg2}}>{["Contenedor","Vía","Destino","Pallets","Cajas","Productores","Estado","ETD",""].map(h=><th key={h} style={{padding:"6px 10px",textAlign:"left",color:C.muted,fontWeight:700,fontSize:10}}>{h}</th>)}</tr></thead>
+          <thead><tr style={{background:C.primary}}>{["Contenedor","Vía","Destino","Pallets","Cajas","Productores","Estado","ETD",""].map(h=><th key={h} style={{padding:"6px 10px",textAlign:"left",color:C.primaryText,fontWeight:700,fontSize:10}}>{h}</th>)}</tr></thead>
           <tbody>{filtrado.map((e,i)=>(
             <tr key={e.id} onClick={()=>setDetalle(e.id)} style={{borderBottom:`1px solid ${C.border}22`,cursor:"pointer"}} onMouseEnter={ev=>ev.currentTarget.style.background=`${C.blue}11`} onMouseLeave={ev=>ev.currentTarget.style.background="transparent"}>
               <td style={{padding:"6px 10px",fontWeight:700,color:C.text,fontFamily:"monospace"}}>{e.contenedor}</td>
@@ -1294,7 +1308,7 @@ function EmbarquesModule({data, setData, clientes, productores, stockPT, setStoc
             <div style={{fontWeight:700,color:C.text,fontSize:13,marginBottom:8}}>📦 Seleccionar pallets disponibles ({disponibles.length} aprobados SAG)</div>
             <div style={{maxHeight:300,overflowY:"auto",border:`1px solid ${C.border}`,borderRadius:10,marginBottom:16}}>
               <table style={{width:"100%",borderCollapse:"collapse",fontSize:10}}>
-                <thead><tr style={{background:C.bg2,position:"sticky",top:0}}>{["☑","Código","Productor","Fruta","Variedad","Calibre","Cajas","Kg"].map(h=><th key={h} style={{padding:"5px 8px",textAlign:"left",color:C.muted,fontWeight:700,fontSize:9}}>{h}</th>)}</tr></thead>
+                <thead><tr style={{background:C.primary,position:"sticky",top:0}}>{["☑","Código","Productor","Fruta","Variedad","Calibre","Cajas","Kg"].map(h=><th key={h} style={{padding:"5px 8px",textAlign:"left",color:C.primaryText,fontWeight:700,fontSize:9}}>{h}</th>)}</tr></thead>
                 <tbody>{disponibles.map(p=>(
                   <tr key={p.id} style={{borderBottom:`1px solid ${C.border}22`,background:selPallets.includes(p.id)?`${C.blue}11`:"transparent",cursor:"pointer"}} onClick={()=>setSelPallets(prev=>prev.includes(p.id)?prev.filter(x=>x!==p.id):[...prev,p.id])}>
                     <td style={{padding:"5px 8px"}}><input type="checkbox" checked={selPallets.includes(p.id)} readOnly/></td>
@@ -1411,7 +1425,7 @@ function LiquidacionesModule({data, setData, embarques, productores, can, tempor
         {/* Tabla por productor */}
         <div style={{overflowX:"auto",borderRadius:10,border:`1px solid ${C.border}`}}>
           <table style={{width:"100%",borderCollapse:"collapse",fontSize:11}}>
-            <thead><tr style={{background:C.bg2}}>{["Productor","Cajas","%","Retorno bruto","Comisión","Gastos proceso","Flete","Neto liq.","Anticipo","Neto a pagar","Estado"].map(h=><th key={h} style={{padding:"6px 8px",textAlign:"left",color:C.muted,fontWeight:700,fontSize:9}}>{h}</th>)}</tr></thead>
+            <thead><tr style={{background:C.primary}}>{["Productor","Cajas","%","Retorno bruto","Comisión","Gastos proceso","Flete","Neto liq.","Anticipo","Neto a pagar","Estado"].map(h=><th key={h} style={{padding:"6px 8px",textAlign:"left",color:C.primaryText,fontWeight:700,fontSize:9}}>{h}</th>)}</tr></thead>
             <tbody>{lineas.map(ln=>(
               <tr key={ln.id} style={{borderBottom:`1px solid ${C.border}22`}}>
                 <td style={{padding:"6px 8px",fontWeight:600,color:C.text}}>{ln.productor}</td>
@@ -1446,7 +1460,7 @@ function LiquidacionesModule({data, setData, embarques, productores, can, tempor
       </div>
       <div style={{overflowX:"auto",borderRadius:10,border:`1px solid ${C.border}`}}>
         <table style={{width:"100%",borderCollapse:"collapse",fontSize:11}}>
-          <thead><tr style={{background:C.bg2}}>{["Fecha","Contenedor","Cajas","Liq. Cliente USD","Productores","Estado",""].map(h=><th key={h} style={{padding:"6px 10px",textAlign:"left",color:C.muted,fontWeight:700,fontSize:10}}>{h}</th>)}</tr></thead>
+          <thead><tr style={{background:C.primary}}>{["Fecha","Contenedor","Cajas","Liq. Cliente USD","Productores","Estado",""].map(h=><th key={h} style={{padding:"6px 10px",textAlign:"left",color:C.primaryText,fontWeight:700,fontSize:10}}>{h}</th>)}</tr></thead>
           <tbody>{data.filter(l=>l.temporada===temporada).map((l,i)=>(
             <tr key={l.id} onClick={()=>setDetalle(l.id)} style={{borderBottom:`1px solid ${C.border}22`,cursor:"pointer"}} onMouseEnter={e=>e.currentTarget.style.background=`${C.green}11`} onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
               <td style={{padding:"6px 10px",color:C.muted}}>{l.fechaCreacion}</td>
@@ -1507,7 +1521,7 @@ function LiquidacionClienteModule({data, setData, embarques, can, temporada}) {
       </div>
       <div style={{overflowX:"auto",borderRadius:10,border:`1px solid ${C.border}`}}>
         <table style={{width:"100%",borderCollapse:"collapse",fontSize:11}}>
-          <thead><tr style={{background:C.bg2}}>{["Fecha","Contenedor","Monto USD","N° Doc","Obs.",""].map(h=><th key={h} style={{padding:"6px 10px",textAlign:"left",color:C.muted,fontWeight:700,fontSize:10}}>{h}</th>)}</tr></thead>
+          <thead><tr style={{background:C.primary}}>{["Fecha","Contenedor","Monto USD","N° Doc","Obs.",""].map(h=><th key={h} style={{padding:"6px 10px",textAlign:"left",color:C.primaryText,fontWeight:700,fontSize:10}}>{h}</th>)}</tr></thead>
           <tbody>{data.filter(l=>l.temporada===temporada).map((l,i)=>(
             <tr key={l.id} style={{borderBottom:`1px solid ${C.border}22`}}>
               <td style={{padding:"6px 10px",color:C.muted}}>{l.fecha||"—"}</td>
@@ -1590,13 +1604,13 @@ function AnticiposModule({data, setData, clientes, productores, can, temporada})
 
       <div style={{overflowX:"auto",borderRadius:10,border:`1px solid ${C.border}`}}>
         <table style={{width:"100%",borderCollapse:"collapse",fontSize:11}}>
-          <thead><tr style={{background:C.bg2}}>
+          <thead><tr style={{background:C.primary}}>
             {[subTab==="productores"?"Productor":"Cliente","Fruta","Temporada","Monto","Moneda","Fecha","N° Doc","Estado"].map(h=>
-              <th key={h} style={{padding:"8px 10px",textAlign:h==="Monto"?"right":"left",color:C.muted,fontWeight:700,fontSize:10}}>{h}</th>)}
+              <th key={h} style={{padding:"8px 10px",textAlign:h==="Monto"?"right":"left",color:C.primaryText,fontWeight:700,fontSize:10}}>{h}</th>)}
           </tr></thead>
           <tbody>
             {lista.map((a,i)=>(
-              <tr key={a.id} style={{borderBottom:`1px solid ${C.border}22`,background:i%2===0?"transparent":`${C.border}08`}}>
+              <tr key={a.id} style={{borderBottom:`1px solid ${C.border}22`,background:i%2===0?C.card:C.rowAlt}}>
                 <td style={{padding:"7px 10px",fontWeight:600,color:C.text}}>{a.entidad}</td>
                 <td style={{padding:"7px 10px",color:C.muted}}>{a.fruta||"—"}</td>
                 <td style={{padding:"7px 10px",color:C.muted}}>{a.temporada||"—"}</td>
@@ -1677,13 +1691,13 @@ function CobranzaModule({data, setData, embarques, liquidaciones, can, temporada
 
       <div style={{overflowX:"auto",borderRadius:10,border:`1px solid ${C.border}`}}>
         <table style={{width:"100%",borderCollapse:"collapse",fontSize:11}}>
-          <thead><tr style={{background:C.bg2}}>
+          <thead><tr style={{background:C.primary}}>
             {["Contenedor","Cliente","Fruta","Monto Pendiente","Monto Cobrado","Fecha Cobro","Estado","N° Doc"].map(h=>
-              <th key={h} style={{padding:"8px 10px",textAlign:h.includes("Monto")?"right":"left",color:C.muted,fontWeight:700,fontSize:10}}>{h}</th>)}
+              <th key={h} style={{padding:"8px 10px",textAlign:h.includes("Monto")?"right":"left",color:C.primaryText,fontWeight:700,fontSize:10}}>{h}</th>)}
           </tr></thead>
           <tbody>
             {enriched.map((c,i)=>(
-              <tr key={c.id} style={{borderBottom:`1px solid ${C.border}22`,background:i%2===0?"transparent":`${C.border}08`}}>
+              <tr key={c.id} style={{borderBottom:`1px solid ${C.border}22`,background:i%2===0?C.card:C.rowAlt}}>
                 <td style={{padding:"7px 10px",fontWeight:700,color:C.text}}>{c.emb.contenedor||"—"}</td>
                 <td style={{padding:"7px 10px",color:C.muted}}>{c.emb.cliente||c.cliente||"—"}</td>
                 <td style={{padding:"7px 10px"}}><span style={{fontSize:10,background:`${C.accent}22`,color:C.accentL,padding:"2px 8px",borderRadius:10,fontWeight:600}}>{c.emb.fruta||"—"}</span></td>
@@ -1759,9 +1773,9 @@ function ProgramaComercialModule({data, setData, productores, clientes, can}) {
           </div>
           <div style={{overflowX:"auto",borderRadius:10,border:`1px solid ${C.border}`}}>
             <table style={{width:"100%",borderCollapse:"collapse",fontSize:11}}>
-              <thead><tr style={{background:C.bg2}}>{["Semana","Productor","Fruta","Variedad","Kg Est.","Kg Real","Cliente","Estado"].map(h=><th key={h} style={{padding:"6px 10px",textAlign:"left",color:C.muted,fontWeight:700,fontSize:10}}>{h}</th>)}</tr></thead>
+              <thead><tr style={{background:C.primary}}>{["Semana","Productor","Fruta","Variedad","Kg Est.","Kg Real","Cliente","Estado"].map(h=><th key={h} style={{padding:"6px 10px",textAlign:"left",color:C.primaryText,fontWeight:700,fontSize:10}}>{h}</th>)}</tr></thead>
               <tbody>{data.map((r,i)=>(
-                <tr key={r.id} style={{borderBottom:`1px solid ${C.border}22`,background:i%2?"transparent":`${C.border}08`}}>
+                <tr key={r.id} style={{borderBottom:`1px solid ${C.border}22`,background:i%2?C.rowAlt:C.card}}>
                   <td style={{padding:"6px 10px",fontWeight:600,color:C.text}}>{r.semana}</td>
                   <td style={{padding:"6px 10px",color:C.muted}}>{r.productor}</td>
                   <td style={{padding:"6px 10px"}}><span style={{fontSize:9,background:`${C.teal}22`,color:C.teal,padding:"1px 6px",borderRadius:10,fontWeight:600}}>{r.fruta}</span></td>
@@ -1783,7 +1797,7 @@ function ProgramaComercialModule({data, setData, productores, clientes, can}) {
           </div>
           <div style={{overflowX:"auto",borderRadius:10,border:`1px solid ${C.border}`}}>
             <table style={{width:"100%",borderCollapse:"collapse",fontSize:11}}>
-              <thead><tr style={{background:C.bg2}}>{["Semana","Productor","Fruta","Variedad",tab==="asignacion"?"Cliente":"","Kg Est.","Kg Real","Estado",""].map(h=>h?<th key={h} style={{padding:"6px 10px",textAlign:"left",color:C.muted,fontWeight:700,fontSize:10}}>{h}</th>:null)}</tr></thead>
+              <thead><tr style={{background:C.primary}}>{["Semana","Productor","Fruta","Variedad",tab==="asignacion"?"Cliente":"","Kg Est.","Kg Real","Estado",""].map(h=>h?<th key={h} style={{padding:"6px 10px",textAlign:"left",color:C.primaryText,fontWeight:700,fontSize:10}}>{h}</th>:null)}</tr></thead>
               <tbody>{filtrado.map((r,i)=>(
                 <tr key={r.id} style={{borderBottom:`1px solid ${C.border}22`}}>
                   <td style={{padding:"6px 10px",fontWeight:600,color:C.text}}>{r.semana}</td>
@@ -1871,9 +1885,9 @@ function RecepcionProcesoModule({data, setData, productores, can}) {
       </div>
       <div style={{overflowX:"auto",borderRadius:10,border:`1px solid ${C.border}`}}>
         <table style={{width:"100%",borderCollapse:"collapse",fontSize:11}}>
-          <thead><tr style={{background:C.bg2}}>{["Fecha","Productor","Fruta","Variedad","Bins","Kg bruto","Kg neto","QC","Estado",tab!=="recepcion"?"Cajas":"",""].map(h=>h!==""?<th key={h} style={{padding:"6px 10px",textAlign:"left",color:C.muted,fontWeight:700,fontSize:10}}>{h}</th>:null)}</tr></thead>
+          <thead><tr style={{background:C.primary}}>{["Fecha","Productor","Fruta","Variedad","Bins","Kg bruto","Kg neto","QC","Estado",tab!=="recepcion"?"Cajas":"",""].map(h=>h!==""?<th key={h} style={{padding:"6px 10px",textAlign:"left",color:C.primaryText,fontWeight:700,fontSize:10}}>{h}</th>:null)}</tr></thead>
           <tbody>{filtrado.map((r,i)=>(
-            <tr key={r.id} style={{borderBottom:`1px solid ${C.border}22`,background:i%2?"transparent":`${C.border}08`}}>
+            <tr key={r.id} style={{borderBottom:`1px solid ${C.border}22`,background:i%2?C.rowAlt:C.card}}>
               <td style={{padding:"6px 10px",fontWeight:600,color:C.text}}>{r.fecha}</td>
               <td style={{padding:"6px 10px",color:C.muted}}>{r.productor}</td>
               <td style={{padding:"6px 10px"}}><span style={{fontSize:9,background:`${C.accent}22`,color:C.accent,padding:"1px 6px",borderRadius:10,fontWeight:600}}>{r.fruta}</span></td>
@@ -1957,9 +1971,9 @@ function StockPalletsModule({data, setData, can}) {
       </div>
       <div style={{overflowX:"auto",borderRadius:10,border:`1px solid ${C.border}`}}>
         <table style={{width:"100%",borderCollapse:"collapse",fontSize:11}}>
-          <thead><tr style={{background:C.bg2}}>{["Código","Fruta","Variedad","Calibre","Color","Embalaje","Cajas","Kg neto","SAG","Disponible",""].map(h=><th key={h} style={{padding:"6px 10px",textAlign:"left",color:C.muted,fontWeight:700,fontSize:10}}>{h}</th>)}</tr></thead>
+          <thead><tr style={{background:C.primary}}>{["Código","Fruta","Variedad","Calibre","Color","Embalaje","Cajas","Kg neto","SAG","Disponible",""].map(h=><th key={h} style={{padding:"6px 10px",textAlign:"left",color:C.primaryText,fontWeight:700,fontSize:10}}>{h}</th>)}</tr></thead>
           <tbody>{filtrado.map((p,i)=>(
-            <tr key={p.id} style={{borderBottom:`1px solid ${C.border}22`,background:i%2?"transparent":`${C.border}08`}}>
+            <tr key={p.id} style={{borderBottom:`1px solid ${C.border}22`,background:i%2?C.rowAlt:C.card}}>
               <td style={{padding:"6px 10px",fontWeight:700,color:C.text,fontFamily:"monospace"}}>{p.codigoPallet}</td>
               <td style={{padding:"6px 10px"}}><span style={{fontSize:9,background:`${C.teal}22`,color:C.teal,padding:"1px 6px",borderRadius:10,fontWeight:600}}>{p.fruta}</span></td>
               <td style={{padding:"6px 10px",color:C.muted}}>{p.variedad||"—"}</td>
@@ -2051,11 +2065,11 @@ function MaterialesInventarioModule({data, setData, recetas, setRecetas, embarqu
           </div>
           <div style={{overflowX:"auto",borderRadius:10,border:`1px solid ${C.border}`}}>
             <table style={{width:"100%",borderCollapse:"collapse",fontSize:11}}>
-              <thead><tr style={{background:C.bg2}}>{["Material","Categoría","Unidad","Proveedor","Costo ref.","Stock mín.","Stock actual",""].map(h=><th key={h} style={{padding:"6px 10px",textAlign:"left",color:C.muted,fontWeight:700,fontSize:10}}>{h}</th>)}</tr></thead>
+              <thead><tr style={{background:C.primary}}>{["Material","Categoría","Unidad","Proveedor","Costo ref.","Stock mín.","Stock actual",""].map(h=><th key={h} style={{padding:"6px 10px",textAlign:"left",color:C.primaryText,fontWeight:700,fontSize:10}}>{h}</th>)}</tr></thead>
               <tbody>{materiales.map((m,i)=>{
                 const stock = calcStock(m.id);
                 return(
-                  <tr key={m.id} style={{borderBottom:`1px solid ${C.border}22`,background:i%2?"transparent":`${C.border}08`}}>
+                  <tr key={m.id} style={{borderBottom:`1px solid ${C.border}22`,background:i%2?C.rowAlt:C.card}}>
                     <td style={{padding:"6px 10px",fontWeight:600,color:C.text}}>{m.nombre}</td>
                     <td style={{padding:"6px 10px"}}><span style={{fontSize:9,background:`#854d0e22`,color:"#854d0e",padding:"1px 6px",borderRadius:10,fontWeight:600}}>{m.categoria}</span></td>
                     <td style={{padding:"6px 10px",color:C.muted}}>{m.unidad}</td>
@@ -2100,20 +2114,20 @@ function MaterialesInventarioModule({data, setData, recetas, setRecetas, embarqu
         <div>
           <div style={{overflowX:"auto",borderRadius:10,border:`1px solid ${C.border}`}}>
             <table style={{width:"100%",borderCollapse:"collapse",fontSize:11}}>
-              <thead><tr style={{background:C.bg2}}>{["Material","Ingresos","Consumos","Stock actual","Mínimo","Estado"].map(h=><th key={h} style={{padding:"8px 12px",textAlign:"left",color:C.muted,fontWeight:700,fontSize:10}}>{h}</th>)}</tr></thead>
+              <thead><tr style={{background:C.primary}}>{["Material","Ingresos","Consumos","Stock actual","Mínimo","Estado"].map(h=><th key={h} style={{padding:"8px 12px",textAlign:"left",color:C.primaryText,fontWeight:700,fontSize:10}}>{h}</th>)}</tr></thead>
               <tbody>{materiales.map((m,i)=>{
                 const ing = (m.ingresos||[]).reduce((s,x)=>s+(parseFloat(x.cantidad)||0),0);
                 const con = (m.consumos||[]).reduce((s,x)=>s+(parseFloat(x.cantidad)||0),0);
                 const stock = ing - con;
                 const bajo = stock < (m.stockMinimo||0);
                 return(
-                  <tr key={m.id} style={{borderBottom:`1px solid ${C.border}22`,background:bajo?"#fef2f2":i%2?"transparent":`${C.border}08`}}>
+                  <tr key={m.id} style={{borderBottom:`1px solid ${C.border}22`,background:bajo?C.dangerBg:i%2?C.rowAlt:C.card}}>
                     <td style={{padding:"8px 12px",fontWeight:600,color:C.text}}>{m.nombre}</td>
                     <td style={{padding:"8px 12px",textAlign:"right",color:C.green}}>{ing.toLocaleString()}</td>
-                    <td style={{padding:"8px 12px",textAlign:"right",color:"#dc2626"}}>{con.toLocaleString()}</td>
-                    <td style={{padding:"8px 12px",textAlign:"right",fontWeight:800,color:bajo?"#dc2626":C.green}}>{stock.toLocaleString()}</td>
+                    <td style={{padding:"8px 12px",textAlign:"right",color:C.danger}}>{con.toLocaleString()}</td>
+                    <td style={{padding:"8px 12px",textAlign:"right",fontWeight:800,color:bajo?C.danger:C.green}}>{stock.toLocaleString()}</td>
                     <td style={{padding:"8px 12px",textAlign:"right",color:C.muted}}>{m.stockMinimo||0}</td>
-                    <td style={{padding:"8px 12px"}}>{bajo?<span style={{fontSize:9,padding:"2px 8px",borderRadius:10,fontWeight:700,background:"#fee2e2",color:"#dc2626"}}>🔴 Bajo mínimo</span>:<span style={{fontSize:9,padding:"2px 8px",borderRadius:10,fontWeight:700,background:`${C.green}22`,color:C.green}}>✅ OK</span>}</td>
+                    <td style={{padding:"8px 12px"}}>{bajo?<span style={{fontSize:9,padding:"2px 8px",borderRadius:10,fontWeight:700,background:C.dangerBg,color:C.danger}}>🔴 Bajo mínimo</span>:<span style={{fontSize:9,padding:"2px 8px",borderRadius:10,fontWeight:700,background:`${C.green}22`,color:C.green}}>✅ OK</span>}</td>
                   </tr>);})}
                 {materiales.length===0&&<tr><td colSpan={6} style={{padding:30,textAlign:"center",color:C.muted2}}>Sin materiales registrados</td></tr>}
               </tbody>
@@ -2164,11 +2178,11 @@ function MaterialesInventarioModule({data, setData, recetas, setRecetas, embarqu
 
 function PlaceholderModule({icon,title,desc}) {
   return (
-    <div style={{padding:40,textAlign:"center",color:"#94a3b8"}}>
+    <div style={{padding:40,textAlign:"center",color:C.muted}}>
       <div style={{fontSize:56,marginBottom:16}}>{icon}</div>
-      <div style={{fontSize:18,fontWeight:700,color:"#1e293b",marginBottom:8}}>{title}</div>
-      <div style={{fontSize:13,color:"#64748b",maxWidth:500,margin:"0 auto",lineHeight:1.6}}>{desc}</div>
-      <div style={{marginTop:20,padding:"12px 20px",background:"#f1f5f9",borderRadius:10,display:"inline-block",fontSize:12,color:"#475569"}}>🚧 Módulo en construcción</div>
+      <div style={{fontSize:18,fontWeight:700,color:C.text,marginBottom:8}}>{title}</div>
+      <div style={{fontSize:13,color:C.muted,maxWidth:500,margin:"0 auto",lineHeight:1.6}}>{desc}</div>
+      <div style={{marginTop:20,padding:"12px 20px",background:C.cardAlt,borderRadius:10,display:"inline-block",fontSize:12,color:C.muted}}>🚧 Módulo en construcción</div>
     </div>
   );
 }

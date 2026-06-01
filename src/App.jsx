@@ -4,6 +4,7 @@ import OsirisModule from "./OsirisModule.jsx";
 import FinanzasModule, { EMPRESAS_KEYS_ALL } from "./FinanzasModule.jsx";
 import AllegriaModule from "./AllegriaModule.jsx";
 import FriskuComercialModule from "./FriskuComercialModule.jsx";
+import { theme as C } from "./theme";
 
 // ═══════════════════════════════════════════════════════════════════
 // ErrorBoundary: captura crash por archivos obsoletos tras deploy
@@ -21,7 +22,7 @@ class AppErrorBoundary extends React.Component {
   }
   render() {
     if(this.state.hasError) {
-      return React.createElement("div", {style:{minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",background:"#0d1117",fontFamily:"sans-serif"}},
+      return React.createElement("div", {style:{minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",background:C.bg,fontFamily:"sans-serif"}},
         React.createElement("div", {style:{textAlign:"center",color:"#e6edf3",maxWidth:400,padding:40}},
           React.createElement("div", {style:{fontSize:48,marginBottom:16}}, "🔄"),
           React.createElement("h2", {style:{margin:"0 0 12px",fontSize:18}}, "Nueva versión disponible"),
@@ -29,7 +30,7 @@ class AppErrorBoundary extends React.Component {
             "Se actualizó la aplicación. Tu trabajo está guardado en la nube. Haz click para cargar la nueva versión."),
           React.createElement("button", {
             onClick:()=>window.location.reload(),
-            style:{padding:"12px 28px",borderRadius:10,background:"#2563eb",color:"#fff",border:"none",cursor:"pointer",fontSize:14,fontWeight:700}
+            style:{padding:"12px 28px",borderRadius:10,background:C.primary,color:"#fff",border:"none",cursor:"pointer",fontSize:14,fontWeight:700}
           }, "Actualizar ahora"),
           React.createElement("div", {style:{marginTop:16,fontSize:11,color:"#484f58"}}, "Los datos no se pierden — están guardados en Supabase")
         )
@@ -291,10 +292,10 @@ const ROLES = [
 
 // Módulos disponibles — agregar aquí nuevos módulos en el futuro
 const MODULOS_DISPONIBLES = [
-  {id:"tareas",   label:"Seguimiento Tareas",      sublabel:"Administración y Finanzas", icon:"📋", color:"#2563eb", bg:"#dbeafe", grad:"linear-gradient(135deg,#1e3a5f,#2563eb)"},
-  {id:"osiris",   label:"Osiris Plant Management", sublabel:"Genética Diferenciada",       icon:"🌿", color:"#0f766e", bg:"#ccfbf1", grad:"linear-gradient(135deg,#0f2d4a,#0f766e)"},
+  {id:"tareas",   label:"Seguimiento Tareas",      sublabel:"Administración y Finanzas", icon:"📋", color:C.primary, bg:C.infoBg, grad:"linear-gradient(135deg,#1e3a5f,#2563eb)"},
+  {id:"osiris",   label:"Osiris Plant Management", sublabel:"Genética Diferenciada",       icon:"🌿", color:C.accent2, bg:C.accent2Bg, grad:"linear-gradient(135deg,#0f2d4a,#0f766e)"},
   {id:"finanzas", label:"Finanzas",                sublabel:"Flujo de Caja Grupo Mediterra", icon:"💼", color:"#0d6b3a", bg:"#d1fae5", grad:"linear-gradient(135deg,#0d2137,#0a3d2b)"},
-  {id:"allegria", label:"Allegria Foods",           sublabel:"Exportación Fruta Fresca",  icon:"🍒", color:"#b91c1c", bg:"#fee2e2", grad:"linear-gradient(135deg,#1a0a0a,#b91c1c)"},
+  {id:"allegria", label:"Allegria Foods",           sublabel:"Exportación Fruta Fresca",  icon:"🍒", color:"#b91c1c", bg:C.dangerBg, grad:"linear-gradient(135deg,#1a0a0a,#b91c1c)"},
   {id:"frisku",   label:"Frisku Foods",             sublabel:"Connecting Quality",          icon:"🔗", color:"#0ea5e9", bg:"#e0f2fe", grad:"linear-gradient(135deg,#0c1929,#0ea5e9)"},
 ];
 
@@ -367,11 +368,11 @@ function getRecordatoriosActivos(nombre,anio,mes,esAdm){
 }
 
 const SEMAFORO={
-  verde:   {label:"Completado", color:"#22c55e",bg:"#dcfce7",border:"#86efac"},
+  verde:   {label:"Completado", color:C.success,bg:C.successBg,border:"#86efac"},
   amarillo:{label:"En proceso", color:"#eab308",bg:"#fef9c3",border:"#fde047"},
-  rojo:    {label:"Pendiente",  color:"#ef4444",bg:"#fee2e2",border:"#fca5a5"},
-  gris:    {label:"Sin iniciar",color:"#9ca3af",bg:"#f3f4f6",border:"#d1d5db"},
-  na:      {label:"No Aplica",  color:"#475569",bg:"#f1f5f9",border:"#94a3b8"},
+  rojo:    {label:"Pendiente",  color:C.danger,bg:C.dangerBg,border:"#fca5a5"},
+  gris:    {label:"Sin iniciar",color:C.muted2,bg:"#f3f4f6",border:C.border},
+  na:      {label:"No Aplica",  color:C.muted,bg:C.cardAlt,border:C.muted2},
 };
 const ORDEN_SEM=["gris","verde","amarillo","rojo","na"];
 
@@ -385,12 +386,12 @@ const WORKERS_BASE=[
 ];
 
 const CATEGORIAS={
-  "Finanzas":      {color:"#3b82f6",bg:"#dbeafe"},
+  "Finanzas":      {color:C.primary,bg:C.infoBg},
   "Contabilidad":  {color:"#8b5cf6",bg:"#ede9fe"},
-  "Tesoreria":     {color:"#f59e0b",bg:"#fef3c7"},
-  "Tributario":    {color:"#ef4444",bg:"#fee2e2"},
+  "Tesoreria":     {color:C.warning,bg:C.warningBg},
+  "Tributario":    {color:C.danger,bg:C.dangerBg},
   "Administracion":{color:"#10b981",bg:"#d1fae5"},
-  "Gerencia":      {color:"#6366f1",bg:"#e0e7ff"},
+  "Gerencia":      {color:C.primary,bg:C.infoBg},
 };
 
 const TAREAS_BASE=[
@@ -525,8 +526,8 @@ const TABS_PERMISOS_CONFIG = {
 
 const NIVELES_PERM = ["editar","ver","sin_acceso"];
 const NIVEL_LABEL  = {editar:"✏️ Editar", ver:"👁 Solo ver", sin_acceso:"🚫 Sin acceso"};
-const NIVEL_COLOR  = {editar:"#166534", ver:"#1d4ed8", sin_acceso:"#991b1b"};
-const NIVEL_BG     = {editar:"#dcfce7", ver:"#dbeafe",  sin_acceso:"#fee2e2"};
+const NIVEL_COLOR  = {editar:C.success, ver:C.primary, sin_acceso:C.danger};
+const NIVEL_BG     = {editar:C.successBg, ver:C.infoBg,  sin_acceso:C.dangerBg};
 
 // Obtiene el permiso de un usuario sobre una pestaña específica de un módulo
 // Admin siempre tiene "editar". Si no hay config, default = "editar"
@@ -635,7 +636,7 @@ function PanelPermisos({ usuarios, setUsuarios, onClose }) {
 
   return (
     <div style={{position:"fixed",inset:0,background:"#000a",zIndex:400,display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"sans-serif",padding:16}}>
-      <div style={{background:"#fff",borderRadius:20,width:"100%",maxWidth:820,maxHeight:"90vh",overflowY:"auto",boxShadow:"0 24px 64px #0006"}}>
+      <div style={{background:C.card,borderRadius:20,width:"100%",maxWidth:820,maxHeight:"90vh",overflowY:"auto",boxShadow:"0 24px 64px #0006"}}>
         <div style={{background:"linear-gradient(135deg,#1e3a5f,#2563eb)",borderRadius:"20px 20px 0 0",padding:"20px 28px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
           <div>
             <div style={{fontSize:11,color:"rgba(255,255,255,0.6)",letterSpacing:2,marginBottom:2}}>ADMINISTRACIÓN</div>
@@ -646,7 +647,7 @@ function PanelPermisos({ usuarios, setUsuarios, onClose }) {
 
         <div style={{padding:"24px 28px"}}>
           <div style={{display:"flex",gap:10,marginBottom:20,flexWrap:"wrap"}}>
-            <div style={{fontSize:12,color:"#64748b",fontWeight:600,alignSelf:"center"}}>Módulos:</div>
+            <div style={{fontSize:12,color:C.muted,fontWeight:600,alignSelf:"center"}}>Módulos:</div>
             {MODULOS_DISPONIBLES.map(m=>(
               <span key={m.id} style={{background:m.bg,color:m.color,border:`1px solid ${m.color}44`,borderRadius:20,padding:"3px 12px",fontSize:11,fontWeight:700}}>
                 {m.icon} {m.label}
@@ -654,33 +655,33 @@ function PanelPermisos({ usuarios, setUsuarios, onClose }) {
             ))}
           </div>
 
-          <div style={{fontSize:12,color:"#94a3b8",fontWeight:700,marginBottom:8,letterSpacing:1}}>USUARIOS ACTIVOS</div>
+          <div style={{fontSize:12,color:C.muted2,fontWeight:700,marginBottom:8,letterSpacing:1}}>USUARIOS ACTIVOS</div>
           <div style={{display:"flex",flexDirection:"column",gap:10,marginBottom:24}}>
             {activos.map(u => {
               const mods = Array.isArray(u.modulos) ? u.modulos : (u.rol==="admin"?["tareas","osiris"]:["tareas"]);
               const isExpanded = expandedTabUser === u.nombre;
               return (
-                <div key={u.nombre} style={{background:"#f8fafc",borderRadius:12,border:"1px solid #e2e8f0",overflow:"hidden"}}>
+                <div key={u.nombre} style={{background:C.cardAlt,borderRadius:12,border:`1px solid ${C.border}`,overflow:"hidden"}}>
                   {/* Fila principal */}
                   <div style={{padding:"14px 18px",display:"flex",justifyContent:"space-between",alignItems:"flex-start",flexWrap:"wrap",gap:10}}>
                     <div style={{flex:1,minWidth:160}}>
                       <div style={{display:"flex",alignItems:"center",gap:8}}>
-                        <span style={{fontWeight:700,fontSize:14,color:"#1e293b"}}>{u.nombre}</span>
-                        <span style={{fontSize:10,background:u.rol==="admin"?"#fef3c7":u.rol==="consulta"?"#ede9fe":"#dcfce7",color:u.rol==="admin"?"#92400e":u.rol==="consulta"?"#6d28d9":"#166534",borderRadius:20,padding:"1px 8px",fontWeight:700}}>
+                        <span style={{fontWeight:700,fontSize:14,color:C.text}}>{u.nombre}</span>
+                        <span style={{fontSize:10,background:u.rol==="admin"?C.warningBg:u.rol==="consulta"?"#ede9fe":C.successBg,color:u.rol==="admin"?"#92400e":u.rol==="consulta"?"#6d28d9":C.success,borderRadius:20,padding:"1px 8px",fontWeight:700}}>
                           {u.rol==="admin"?"Admin":u.rol==="gerente_tecnico"?"Gte. Técnico":u.rol==="consulta"?"Consulta":"Editor"}
                         </span>
                       </div>
-                      <div style={{fontSize:11,color:"#64748b",marginTop:2}}>{u.cargo}</div>
+                      <div style={{fontSize:11,color:C.muted,marginTop:2}}>{u.cargo}</div>
                     </div>
 
                     <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center"}}>
-                      <span style={{fontSize:11,color:"#64748b",fontWeight:600}}>Acceso a:</span>
+                      <span style={{fontSize:11,color:C.muted,fontWeight:600}}>Acceso a:</span>
                       {MODULOS_DISPONIBLES.map(m=>{
                         const tiene = u.rol==="admin" || mods.includes(m.id);
                         return (
                           <label key={m.id} style={{display:"flex",alignItems:"center",gap:5,cursor:u.rol==="admin"?"not-allowed":"pointer",
-                            background:tiene?m.bg:"#f1f5f9",border:`1px solid ${tiene?m.color+"66":"#d1d5db"}`,
-                            borderRadius:8,padding:"5px 12px",fontSize:12,fontWeight:600,color:tiene?m.color:"#94a3b8",
+                            background:tiene?m.bg:C.cardAlt,border:`1px solid ${tiene?m.color+"66":C.border}`,
+                            borderRadius:8,padding:"5px 12px",fontSize:12,fontWeight:600,color:tiene?m.color:C.muted2,
                             opacity:u.rol==="admin"?0.7:1}}>
                             <input type="checkbox" checked={tiene} disabled={u.rol==="admin"}
                               onChange={()=>toggleModulo(u.nombre,m.id)}
@@ -693,39 +694,39 @@ function PanelPermisos({ usuarios, setUsuarios, onClose }) {
 
                     <div style={{display:"flex",gap:8,alignItems:"center"}}>
                       <select value={u.rol} onChange={e=>setRol(u.nombre,e.target.value)}
-                        style={{padding:"5px 8px",borderRadius:8,border:"1px solid #d1d5db",fontSize:11,cursor:"pointer",background:"#fff"}}>
+                        style={{padding:"5px 8px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:11,cursor:"pointer",background:C.card}}>
                         <option value="editor">Editor</option>
                         <option value="consulta">Consulta</option>
                         <option value="admin">Admin</option>
                       </select>
                       {u.rol!=="admin"&&(
                         <button onClick={()=>setExpandedTabUser(isExpanded?null:u.nombre)}
-                          style={{background:isExpanded?"#e0e7ff":"#f1f5f9",color:isExpanded?"#4f46e5":"#64748b",border:"none",
+                          style={{background:isExpanded?C.infoBg:C.cardAlt,color:isExpanded?C.primary:C.muted,border:"none",
                             borderRadius:8,padding:"5px 10px",cursor:"pointer",fontSize:11,fontWeight:600}}>
                           🗂 Pestañas {isExpanded?"▴":"▾"}
                         </button>
                       )}
                       <button onClick={()=>toggleActivar(u.nombre)}
-                        style={{background:"#fee2e2",color:"#991b1b",border:"none",borderRadius:8,padding:"5px 10px",cursor:"pointer",fontSize:11,fontWeight:600}}>
+                        style={{background:C.dangerBg,color:C.danger,border:"none",borderRadius:8,padding:"5px 10px",cursor:"pointer",fontSize:11,fontWeight:600}}>
                         Desactivar
                       </button>
                     </div>
                   </div>
-                  {u.rol==="admin"&&<div style={{padding:"0 18px 10px",fontSize:10,color:"#64748b"}}>⚙️ Admin tiene acceso automático a todos los módulos y pestañas</div>}
-                  {u.rol==="gerente_tecnico"&&<div style={{padding:"0 18px 10px",fontSize:10,color:"#64748b"}}>🔬 Gte. Técnico tiene acceso completo al módulo Osiris</div>}
+                  {u.rol==="admin"&&<div style={{padding:"0 18px 10px",fontSize:10,color:C.muted}}>⚙️ Admin tiene acceso automático a todos los módulos y pestañas</div>}
+                  {u.rol==="gerente_tecnico"&&<div style={{padding:"0 18px 10px",fontSize:10,color:C.muted}}>🔬 Gte. Técnico tiene acceso completo al módulo Osiris</div>}
 
                   {/* Sección permisos por pestaña (expandible) */}
                   {isExpanded&&u.rol!=="admin"&&(
-                    <div style={{borderTop:"1px solid #e2e8f0",background:"#fff",padding:"16px 18px"}}>
-                      <div style={{fontSize:12,fontWeight:700,color:"#1e293b",marginBottom:12}}>
-                        🗂 Permisos por pestaña — <span style={{color:"#64748b",fontWeight:500}}>define qué puede ver/editar en cada pestaña de cada módulo</span>
+                    <div style={{borderTop:`1px solid ${C.border}`,background:C.card,padding:"16px 18px"}}>
+                      <div style={{fontSize:12,fontWeight:700,color:C.text,marginBottom:12}}>
+                        🗂 Permisos por pestaña — <span style={{color:C.muted,fontWeight:500}}>define qué puede ver/editar en cada pestaña de cada módulo</span>
                       </div>
                       <div style={{display:"flex",flexDirection:"column",gap:14}}>
                         {MODULOS_DISPONIBLES.filter(m=>u.rol==="admin"||mods.includes(m.id)).map(mod=>{
                           const tabs = TABS_PERMISOS_CONFIG[mod.id] || [];
                           if(tabs.length===0) return null;
                           return (
-                            <div key={mod.id} style={{background:"#f8fafc",borderRadius:10,padding:"12px 14px",border:`1px solid ${mod.color}33`}}>
+                            <div key={mod.id} style={{background:C.cardAlt,borderRadius:10,padding:"12px 14px",border:`1px solid ${mod.color}33`}}>
                               <div style={{fontSize:11,fontWeight:700,color:mod.color,marginBottom:10}}>
                                 {mod.icon} {mod.label}
                               </div>
@@ -734,13 +735,13 @@ function PanelPermisos({ usuarios, setUsuarios, onClose }) {
                                   const nivel = getTabPerm(u, mod.id, tab.id);
                                   return (
                                     <div key={tab.id} style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
-                                      <div style={{minWidth:160,fontSize:12,color:"#374151",fontWeight:500}}>{tab.label}</div>
+                                      <div style={{minWidth:160,fontSize:12,color:C.text,fontWeight:500}}>{tab.label}</div>
                                       <div style={{display:"flex",gap:5}}>
                                         {NIVELES_PERM.map(n=>(
                                           <button key={n} onClick={()=>setTabPerm(u.nombre,mod.id,tab.id,n)}
                                             style={{padding:"4px 12px",borderRadius:20,fontSize:11,fontWeight:600,cursor:"pointer",border:"none",
-                                              background:nivel===n?NIVEL_BG[n]:"#e2e8f0",
-                                              color:nivel===n?NIVEL_COLOR[n]:"#64748b",
+                                              background:nivel===n?NIVEL_BG[n]:C.border,
+                                              color:nivel===n?NIVEL_COLOR[n]:C.muted,
                                               outline:nivel===n?`2px solid ${NIVEL_COLOR[n]}`:"none"}}>
                                             {NIVEL_LABEL[n]}
                                           </button>
@@ -761,7 +762,7 @@ function PanelPermisos({ usuarios, setUsuarios, onClose }) {
                         const sinSeleccion = arr.length === 0;
                         return (
                           <div style={{marginTop:14,background:"#fefce8",borderRadius:10,padding:"12px 14px",border:"1px solid #fde68a"}}>
-                            <div style={{fontSize:11,fontWeight:700,color:"#854d0e",marginBottom:8}}>
+                            <div style={{fontSize:11,fontWeight:700,color:C.warning,marginBottom:8}}>
                               💰 Empresas visibles en Finanzas
                               <span style={{color:"#92400e",fontWeight:500,marginLeft:6}}>
                                 — Sin selección = acceso a todas las empresas
@@ -772,14 +773,14 @@ function PanelPermisos({ usuarios, setUsuarios, onClose }) {
                                 const marcada = arr.includes(emp);
                                 return (
                                   <label key={emp} style={{display:"flex",alignItems:"center",gap:5,cursor:"pointer",
-                                    background:marcada?"#fef3c7":(sinSeleccion?"#fffbeb":"#f1f5f9"),
-                                    border:`1px solid ${marcada?"#f59e0b":"#e2e8f0"}`,
+                                    background:marcada?C.warningBg:(sinSeleccion?C.warningBg:C.cardAlt),
+                                    border:`1px solid ${marcada?C.warning:C.border}`,
                                     borderRadius:8,padding:"4px 10px",fontSize:11,fontWeight:600,
-                                    color:marcada?"#92400e":(sinSeleccion?"#a16207":"#64748b"),
+                                    color:marcada?"#92400e":(sinSeleccion?"#a16207":C.muted),
                                     opacity:sinSeleccion?0.85:1}}>
                                     <input type="checkbox" checked={marcada}
                                       onChange={()=>toggleEmpresaFinanzas(u.nombre,emp)}
-                                      style={{cursor:"pointer",accentColor:"#f59e0b"}}/>
+                                      style={{cursor:"pointer",accentColor:C.warning}}/>
                                     {emp}
                                   </label>
                                 );
@@ -791,7 +792,7 @@ function PanelPermisos({ usuarios, setUsuarios, onClose }) {
                               </div>
                             )}
                             {!sinSeleccion && (
-                              <div style={{fontSize:10,color:"#854d0e",marginTop:8}}>
+                              <div style={{fontSize:10,color:C.warning,marginTop:8}}>
                                 {arr.length} de {EMPRESAS_KEYS_ALL.length} empresas seleccionadas
                                 {arr.length < EMPRESAS_KEYS_ALL.length - 1 && " · sin acceso a consolidado, intercompany ni dashboard"}
                               </div>
@@ -808,15 +809,15 @@ function PanelPermisos({ usuarios, setUsuarios, onClose }) {
 
           {inactivos.length>0&&(
             <>
-              <div style={{fontSize:12,color:"#94a3b8",fontWeight:700,marginBottom:8,letterSpacing:1}}>USUARIOS INACTIVOS</div>
+              <div style={{fontSize:12,color:C.muted2,fontWeight:700,marginBottom:8,letterSpacing:1}}>USUARIOS INACTIVOS</div>
               {inactivos.map(u=>(
-                <div key={u.nombre} style={{background:"#f8fafc",borderRadius:12,padding:"12px 18px",border:"1px solid #e2e8f0",display:"flex",justifyContent:"space-between",alignItems:"center",opacity:0.6,marginBottom:8}}>
+                <div key={u.nombre} style={{background:C.cardAlt,borderRadius:12,padding:"12px 18px",border:`1px solid ${C.border}`,display:"flex",justifyContent:"space-between",alignItems:"center",opacity:0.6,marginBottom:8}}>
                   <div>
-                    <span style={{fontWeight:600,fontSize:13,color:"#64748b"}}>{u.nombre}</span>
-                    <span style={{fontSize:11,background:"#fee2e2",color:"#991b1b",borderRadius:20,padding:"1px 8px",marginLeft:8,fontWeight:700}}>Inactivo</span>
+                    <span style={{fontWeight:600,fontSize:13,color:C.muted}}>{u.nombre}</span>
+                    <span style={{fontSize:11,background:C.dangerBg,color:C.danger,borderRadius:20,padding:"1px 8px",marginLeft:8,fontWeight:700}}>Inactivo</span>
                   </div>
                   <button onClick={()=>toggleActivar(u.nombre)}
-                    style={{background:"#dcfce7",color:"#166534",border:"none",borderRadius:8,padding:"5px 12px",cursor:"pointer",fontSize:11,fontWeight:600}}>
+                    style={{background:C.successBg,color:C.success,border:"none",borderRadius:8,padding:"5px 12px",cursor:"pointer",fontSize:11,fontWeight:600}}>
                     Activar
                   </button>
                 </div>
@@ -827,7 +828,7 @@ function PanelPermisos({ usuarios, setUsuarios, onClose }) {
           {/* ── Agregar nuevo usuario ── */}
           <NuevoUsuarioForm setUsuarios={setUsuarios}/>
 
-          <div style={{background:"#dbeafe",borderRadius:10,padding:"10px 14px",fontSize:12,color:"#1d4ed8",marginTop:8}}>
+          <div style={{background:C.infoBg,borderRadius:10,padding:"10px 14px",fontSize:12,color:C.primary,marginTop:8}}>
             💾 Los cambios se guardan automáticamente en tiempo real.
           </div>
         </div>
@@ -866,29 +867,29 @@ function NuevoUsuarioForm({setUsuarios}) {
   return(
     <div style={{marginTop:16}}>
       <button onClick={()=>setOpen(v=>!v)}
-        style={{background:open?"#1e3a5f":"#f1f5f9",color:open?"#fff":"#1e293b",border:"1px solid #e2e8f0",
+        style={{background:open?C.primary:C.cardAlt,color:open?"#fff":C.text,border:`1px solid ${C.border}`,
           borderRadius:10,padding:"9px 20px",cursor:"pointer",fontSize:13,fontWeight:700,width:"100%",textAlign:"left"}}>
         {open?"✕ Cancelar":"+ Agregar nuevo usuario"}
       </button>
       {open&&(
-        <div style={{background:"#f8fafc",borderRadius:12,border:"1px solid #e2e8f0",padding:"18px 20px",marginTop:8}}>
-          <div style={{fontSize:13,fontWeight:800,color:"#1e293b",marginBottom:14}}>Nuevo usuario</div>
+        <div style={{background:C.cardAlt,borderRadius:12,border:`1px solid ${C.border}`,padding:"18px 20px",marginTop:8}}>
+          <div style={{fontSize:13,fontWeight:800,color:C.text,marginBottom:14}}>Nuevo usuario</div>
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:12}}>
             {[["Nombre completo *","nombre","text"],["Cargo","cargo","text"],["Email *","email","email"],["PIN (mín. 4 dígitos) *","pin","password"]].map(([lbl,campo,tipo])=>(
               <div key={campo}>
-                <div style={{fontSize:11,color:"#64748b",fontWeight:600,marginBottom:4}}>{lbl}</div>
+                <div style={{fontSize:11,color:C.muted,fontWeight:600,marginBottom:4}}>{lbl}</div>
                 <input type={tipo} value={form[campo]} onChange={e=>setForm(p=>({...p,[campo]:e.target.value}))}
-                  style={{width:"100%",padding:"8px 10px",borderRadius:8,border:"1px solid #d1d5db",fontSize:13,boxSizing:"border-box",outline:"none"}}/>
+                  style={{width:"100%",padding:"8px 10px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:13,boxSizing:"border-box",outline:"none"}}/>
               </div>
             ))}
           </div>
           <div style={{marginBottom:12}}>
-            <div style={{fontSize:11,color:"#64748b",fontWeight:600,marginBottom:6}}>Rol</div>
+            <div style={{fontSize:11,color:C.muted,fontWeight:600,marginBottom:6}}>Rol</div>
             <div style={{display:"flex",gap:8}}>
-              {[["editor","Editor","#dcfce7","#166534"],["consulta","Consulta","#ede9fe","#6d28d9"],["admin","Admin","#fef3c7","#92400e"]].map(([v,l,bg,col])=>(
+              {[["editor","Editor",C.successBg,C.success],["consulta","Consulta","#ede9fe","#6d28d9"],["admin","Admin",C.warningBg,"#92400e"]].map(([v,l,bg,col])=>(
                 <button key={v} onClick={()=>setForm(p=>({...p,rol:v,modulos:v==="admin"?MODULOS_DISPONIBLES.map(m=>m.id):p.modulos}))}
                   style={{padding:"6px 16px",borderRadius:20,border:"none",cursor:"pointer",fontSize:12,fontWeight:700,
-                    background:form.rol===v?bg:"#e2e8f0",color:form.rol===v?col:"#64748b"}}>
+                    background:form.rol===v?bg:C.border,color:form.rol===v?col:C.muted}}>
                   {l}
                 </button>
               ))}
@@ -896,14 +897,14 @@ function NuevoUsuarioForm({setUsuarios}) {
           </div>
           {form.rol!=="admin"&&(
             <div style={{marginBottom:12}}>
-              <div style={{fontSize:11,color:"#64748b",fontWeight:600,marginBottom:6}}>Acceso a módulos</div>
+              <div style={{fontSize:11,color:C.muted,fontWeight:600,marginBottom:6}}>Acceso a módulos</div>
               <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
                 {MODULOS_DISPONIBLES.map(m=>(
                   <label key={m.id} style={{display:"flex",alignItems:"center",gap:5,cursor:"pointer",
-                    background:form.modulos.includes(m.id)?m.bg:"#f1f5f9",
-                    border:`1px solid ${form.modulos.includes(m.id)?m.color+"66":"#d1d5db"}`,
+                    background:form.modulos.includes(m.id)?m.bg:C.cardAlt,
+                    border:`1px solid ${form.modulos.includes(m.id)?m.color+"66":C.border}`,
                     borderRadius:8,padding:"5px 12px",fontSize:12,fontWeight:600,
-                    color:form.modulos.includes(m.id)?m.color:"#94a3b8"}}>
+                    color:form.modulos.includes(m.id)?m.color:C.muted2}}>
                     <input type="checkbox" checked={form.modulos.includes(m.id)} onChange={()=>toggleMod(m.id)}
                       style={{accentColor:m.color}}/>
                     {m.icon} {m.label}
@@ -912,9 +913,9 @@ function NuevoUsuarioForm({setUsuarios}) {
               </div>
             </div>
           )}
-          {err&&<div style={{color:"#ef4444",fontSize:12,marginBottom:8}}>{err}</div>}
+          {err&&<div style={{color:C.danger,fontSize:12,marginBottom:8}}>{err}</div>}
           <button onClick={guardar}
-            style={{padding:"9px 24px",borderRadius:8,background:"#2563eb",color:"#fff",border:"none",
+            style={{padding:"9px 24px",borderRadius:8,background:C.primary,color:"#fff",border:"none",
               cursor:"pointer",fontSize:13,fontWeight:700}}>
             💾 Guardar usuario
           </button>
@@ -955,22 +956,22 @@ function HubScreen({ usuario, modulosPermitidos, onSelectModulo, onLogout, onCam
         <PanelPermisos usuarios={usuarios} setUsuarios={setUsuarios} onClose={()=>setMostrarPermisos(false)}/>
       )}
 
-      <div style={{padding:"24px 32px 0", display:"flex", justifyContent:"space-between", alignItems:"center", flexWrap:"wrap", gap:12, borderBottom:"1px solid #e2e8f0", paddingBottom:16}}>
+      <div style={{padding:"24px 32px 0", display:"flex", justifyContent:"space-between", alignItems:"center", flexWrap:"wrap", gap:12, borderBottom:`1px solid ${C.border}`, paddingBottom:16}}>
         <div style={{display:"flex", alignItems:"center", gap:14}}>
           <MediterraLogo size={52}/>
           <div>
-            <div style={{fontSize:10, letterSpacing:4, color:"#0f766e", fontWeight:700, textTransform:"uppercase"}}>MEDITERRA</div>
-            <div style={{fontSize:18, fontWeight:800, color:"#1e293b", lineHeight:1.2}}>Gestión Grupo Mediterra</div>
+            <div style={{fontSize:10, letterSpacing:4, color:C.accent2, fontWeight:700, textTransform:"uppercase"}}>MEDITERRA</div>
+            <div style={{fontSize:18, fontWeight:800, color:C.text, lineHeight:1.2}}>Gestión Grupo Mediterra</div>
           </div>
         </div>
         <div style={{display:"flex", gap:8, alignItems:"center", flexWrap:"wrap"}}>
-          <div style={{fontSize:11, color:"#64748b", textAlign:"right"}}>
+          <div style={{fontSize:11, color:C.muted, textAlign:"right"}}>
             <div style={{textTransform:"capitalize"}}>{fechaStr}</div>
-            <div>Hola, <strong style={{color:"#1e293b"}}>{usuario.nombre.split(" ")[0]}</strong> · {usuario.cargo}</div>
+            <div>Hola, <strong style={{color:C.text}}>{usuario.nombre.split(" ")[0]}</strong> · {usuario.cargo}</div>
           </div>
           {usuario.rol === "admin" && (
             <button onClick={()=>setMostrarPermisos(true)}
-              style={{background:"#f1f5f9", border:"1px solid #e2e8f0", color:"#1e293b", borderRadius:8, padding:"6px 14px", cursor:"pointer", fontSize:12, fontWeight:600}}>
+              style={{background:C.cardAlt, border:`1px solid ${C.border}`, color:C.text, borderRadius:8, padding:"6px 14px", cursor:"pointer", fontSize:12, fontWeight:600}}>
               ⚙️ Permisos
             </button>
           )}
@@ -1011,7 +1012,7 @@ function HubScreen({ usuario, modulosPermitidos, onSelectModulo, onLogout, onCam
                 alert("❌ Error al generar respaldo: "+e.message);
               }
             }}
-              style={{background:"#dbeafe", border:"1px solid #93c5fd", color:"#1e40af", borderRadius:8, padding:"6px 14px", cursor:"pointer", fontSize:12, fontWeight:600}}>
+              style={{background:C.infoBg, border:"1px solid #93c5fd", color:"#1e40af", borderRadius:8, padding:"6px 14px", cursor:"pointer", fontSize:12, fontWeight:600}}>
               💾 Respaldo
             </button>
           )}
@@ -1054,22 +1055,22 @@ function HubScreen({ usuario, modulosPermitidos, onSelectModulo, onLogout, onCam
               };
               input.click();
             }}
-              style={{background:"#fef3c7", border:"1px solid #fde68a", color:"#92400e", borderRadius:8, padding:"6px 14px", cursor:"pointer", fontSize:12, fontWeight:600}}>
+              style={{background:C.warningBg, border:"1px solid #fde68a", color:"#92400e", borderRadius:8, padding:"6px 14px", cursor:"pointer", fontSize:12, fontWeight:600}}>
               📤 Restaurar
             </button>
           )}
           {!esSoloConsulta(usuario.nombre) &&
-            <button onClick={onCambiarPin} style={{background:"#f1f5f9", border:"1px solid #e2e8f0", color:"#1e293b", borderRadius:8, padding:"6px 14px", cursor:"pointer", fontSize:12}}>🔑 PIN</button>
+            <button onClick={onCambiarPin} style={{background:C.cardAlt, border:`1px solid ${C.border}`, color:C.text, borderRadius:8, padding:"6px 14px", cursor:"pointer", fontSize:12}}>🔑 PIN</button>
           }
-          <button onClick={onLogout} style={{background:"#fee2e2", border:"1px solid #fca5a5", color:"#991b1b", borderRadius:8, padding:"6px 14px", cursor:"pointer", fontSize:12}}>Salir</button>
+          <button onClick={onLogout} style={{background:C.dangerBg, border:"1px solid #fca5a5", color:C.danger, borderRadius:8, padding:"6px 14px", cursor:"pointer", fontSize:12}}>Salir</button>
         </div>
       </div>
 
       <div style={{textAlign:"center", padding:"40px 24px 28px"}}>
-        <div style={{fontSize:28, fontWeight:900, color:"#1e293b", marginBottom:6}}>Hola, {usuario.nombre.split(" ")[0]} 👋</div>
-        <h2 style={{margin:0, fontSize:18, fontWeight:500, color:"#64748b", lineHeight:1.4}}>¿Qué deseas gestionar hoy?</h2>
+        <div style={{fontSize:28, fontWeight:900, color:C.text, marginBottom:6}}>Hola, {usuario.nombre.split(" ")[0]} 👋</div>
+        <h2 style={{margin:0, fontSize:18, fontWeight:500, color:C.muted, lineHeight:1.4}}>¿Qué deseas gestionar hoy?</h2>
         {modulosPermitidos.length === 0 && (
-          <p style={{color:"#94a3b8", fontSize:14, marginTop:16}}>No tienes módulos asignados. Contacta al administrador.</p>
+          <p style={{color:C.muted2, fontSize:14, marginTop:16}}>No tienes módulos asignados. Contacta al administrador.</p>
         )}
       </div>
 
@@ -1140,11 +1141,11 @@ function ConfigTab({todasTareas,getFrecuencia,WORKERS,CATEGORIAS,FRECUENCIAS,
   const [cfgFiltroFrec,setCfgFiltroFrec]=useState("");
 
   const FREC_META={
-    "Diaria":    {icon:"📋",desc:"Lunes a Viernes",   bg:"#eff6ff",color:"#1d4ed8"},
-    "Semanal":   {icon:"📅",desc:"Una vez por semana", bg:"#f0fdf4",color:"#16a34a"},
+    "Diaria":    {icon:"📋",desc:"Lunes a Viernes",   bg:C.infoBg,color:C.primary},
+    "Semanal":   {icon:"📅",desc:"Una vez por semana", bg:"#f0fdf4",color:C.success},
     "Quincenal": {icon:"🗓",desc:"1ra y 2da quincena", bg:"#fefce8",color:"#ca8a04"},
     "Mensual":   {icon:"📆",desc:"Una vez al mes",     bg:"#fdf4ff",color:"#9333ea"},
-    "Anual":     {icon:"📌",desc:"Una vez al año",     bg:"#fff7ed",color:"#ea580c"},
+    "Anual":     {icon:"📌",desc:"Una vez al año",     bg:"#fff7ed",color:C.warning},
   };
 
   const tareasFiltradas=todasTareas().filter(t=>{
@@ -1170,42 +1171,42 @@ function ConfigTab({todasTareas,getFrecuencia,WORKERS,CATEGORIAS,FRECUENCIAS,
     <div>
       {/* Filtros */}
       <div style={{display:"flex",gap:10,alignItems:"center",marginBottom:16,flexWrap:"wrap"}}>
-        <div style={{fontWeight:700,fontSize:15,color:"#1e293b",marginRight:8}}>⚙️ Gestión de Tareas</div>
+        <div style={{fontWeight:700,fontSize:15,color:C.text,marginRight:8}}>⚙️ Gestión de Tareas</div>
         <select value={cfgFiltroPersona} onChange={e=>setCfgFiltroPersona(e.target.value)}
-          style={{padding:"6px 10px",borderRadius:8,border:"1px solid #d1d5db",fontSize:12,outline:"none"}}>
+          style={{padding:"6px 10px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:12,outline:"none"}}>
           <option value="">👤 Todas las personas</option>
           {WORKERS.map(w=><option key={w.nombre} value={w.nombre}>{w.nombre.split(" ")[0]} {w.nombre.split(" ")[1]||""}</option>)}
         </select>
         <select value={cfgFiltroFrec} onChange={e=>setCfgFiltroFrec(e.target.value)}
-          style={{padding:"6px 10px",borderRadius:8,border:"1px solid #d1d5db",fontSize:12,outline:"none"}}>
+          style={{padding:"6px 10px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:12,outline:"none"}}>
           <option value="">🔁 Todas las frecuencias</option>
           {FRECUENCIAS.map(f=><option key={f}>{f}</option>)}
         </select>
         {!puedeEditConfig&&(
-          <span style={{marginLeft:"auto",background:"#fef3c7",borderRadius:8,padding:"4px 10px",fontSize:11,color:"#92400e"}}>Solo lectura</span>
+          <span style={{marginLeft:"auto",background:C.warningBg,borderRadius:8,padding:"4px 10px",fontSize:11,color:"#92400e"}}>Solo lectura</span>
         )}
       </div>
 
       {grupos.length===0&&(
-        <div style={{textAlign:"center",padding:40,color:"#94a3b8",fontSize:13}}>Sin tareas con los filtros seleccionados</div>
+        <div style={{textAlign:"center",padding:40,color:C.muted2,fontSize:13}}>Sin tareas con los filtros seleccionados</div>
       )}
 
       {grupos.map(({frec,tareas})=>{
-        const meta=FREC_META[frec]||{icon:"📋",desc:"",bg:"#f8fafc",color:"#64748b"};
+        const meta=FREC_META[frec]||{icon:"📋",desc:"",bg:C.cardAlt,color:C.muted};
         return (
           <div key={frec} style={{marginBottom:24}}>
             <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:8,padding:"8px 14px",
               background:meta.bg,borderRadius:10,border:`1px solid ${meta.color}33`}}>
               <span style={{fontSize:16}}>{meta.icon}</span>
               <span style={{fontWeight:800,fontSize:14,color:meta.color}}>{frec}</span>
-              <span style={{fontSize:11,color:"#64748b"}}>— {meta.desc}</span>
+              <span style={{fontSize:11,color:C.muted}}>— {meta.desc}</span>
               <span style={{marginLeft:"auto",background:`${meta.color}22`,color:meta.color,
                 borderRadius:20,padding:"2px 10px",fontSize:11,fontWeight:700}}>{tareas.length} tareas</span>
             </div>
             <div style={{overflowX:"auto",borderRadius:10,boxShadow:"0 1px 3px #0001"}}>
-              <table style={{width:"100%",borderCollapse:"collapse",background:"#fff",fontSize:12}}>
+              <table style={{width:"100%",borderCollapse:"collapse",background:C.card,fontSize:12}}>
                 <thead>
-                  <tr style={{background:"#1e293b",color:"#fff"}}>
+                  <tr style={{background:C.primary,color:C.primaryText}}>
                     {["Tarea","Responsable","Supervisor","Categoría","Frecuencia","Fecha Venc.","Depende De",""].map(h=>(
                       <th key={h} style={{padding:"7px 10px",textAlign:"left",fontWeight:600,fontSize:11,whiteSpace:"nowrap"}}>{h}</th>
                     ))}
@@ -1214,12 +1215,12 @@ function ConfigTab({todasTareas,getFrecuencia,WORKERS,CATEGORIAS,FRECUENCIAS,
                 <tbody>
                   {tareas.map((t,ti)=>{
                     const isEditing=editandoTarea===t.id;
-                    const cat=CATEGORIAS[t.categoria]||{color:"#64748b",bg:"#f1f5f9"};
+                    const cat=CATEGORIAS[t.categoria]||{color:C.muted,bg:C.cardAlt};
                     const ovr=tareasOverrides[t.id]||{};
                     const fechaVenc=ovr.fechaVenc||t.fechaVenc||"";
                     const depDe=ovr.dependeDe!==undefined?ovr.dependeDe:t.dependeDe;
                     if(isEditing) return (
-                      <tr key={t.id} style={{background:"#eff6ff",borderBottom:"2px solid #3b82f6"}}>
+                      <tr key={t.id} style={{background:C.infoBg,borderBottom:"2px solid #3b82f6"}}>
                         <td style={{padding:"5px 8px"}}>
                           <input value={formEditTarea.nombre||""} onChange={e=>setFormEditTarea(p=>({...p,nombre:e.target.value}))}
                             style={{width:"100%",padding:"4px 7px",borderRadius:6,border:"1px solid #3b82f6",fontSize:12,outline:"none",boxSizing:"border-box"}}/>
@@ -1274,26 +1275,26 @@ function ConfigTab({todasTareas,getFrecuencia,WORKERS,CATEGORIAS,FRECUENCIAS,
                         </td>
                         <td style={{padding:"5px 8px",whiteSpace:"nowrap"}}>
                           <button onClick={()=>guardarTarea(t)}
-                            style={{padding:"4px 10px",borderRadius:6,background:"#2563eb",color:"#fff",
+                            style={{padding:"4px 10px",borderRadius:6,background:C.primary,color:"#fff",
                               border:"none",cursor:"pointer",fontSize:11,marginRight:4}}>✓ Guardar</button>
                           <button onClick={()=>setEditandoTarea(null)}
-                            style={{padding:"4px 8px",borderRadius:6,background:"#f1f5f9",
-                              color:"#64748b",border:"1px solid #d1d5db",cursor:"pointer",fontSize:11}}>✕</button>
+                            style={{padding:"4px 8px",borderRadius:6,background:C.cardAlt,
+                              color:C.muted,border:`1px solid ${C.border}`,cursor:"pointer",fontSize:11}}>✕</button>
                         </td>
                       </tr>
                     );
                     return (
-                      <tr key={t.id} style={{borderBottom:"1px solid #f1f5f9",background:ti%2===0?"#fff":"#fafafa"}}>
+                      <tr key={t.id} style={{borderBottom:`1px solid ${C.border}`,background:ti%2===0?"#fff":C.rowAlt}}>
                         <td style={{padding:"7px 10px",fontWeight:500,maxWidth:280}}>
                           <div>{ovr.nombre||t.nombre}</div>
-                          <div style={{fontSize:10,color:"#94a3b8"}}>{t.id}</div>
+                          <div style={{fontSize:10,color:C.muted2}}>{t.id}</div>
                         </td>
                         <td style={{padding:"7px 10px"}}>
-                          <span style={{background:"#dbeafe",color:"#1d4ed8",borderRadius:20,padding:"2px 8px",fontSize:11}}>
+                          <span style={{background:C.infoBg,color:C.primary,borderRadius:20,padding:"2px 8px",fontSize:11}}>
                             {(ovr.responsable||t.responsable)?.split(" ")[0]}
                           </span>
                         </td>
-                        <td style={{padding:"7px 10px",color:"#64748b",fontSize:11}}>
+                        <td style={{padding:"7px 10px",color:C.muted,fontSize:11}}>
                           {(ovr.supervisor||t.supervisor)?.split(" ")[0]||"—"}
                         </td>
                         <td style={{padding:"7px 10px"}}>
@@ -1302,26 +1303,26 @@ function ConfigTab({todasTareas,getFrecuencia,WORKERS,CATEGORIAS,FRECUENCIAS,
                           </span>
                         </td>
                         <td style={{padding:"7px 10px"}}>
-                          <span style={{background:"#f0fdf4",color:"#16a34a",borderRadius:20,padding:"2px 8px",fontSize:10,fontWeight:600}}>
+                          <span style={{background:"#f0fdf4",color:C.success,borderRadius:20,padding:"2px 8px",fontSize:10,fontWeight:600}}>
                             {getFrecuencia(t.id)}
                           </span>
                           {getFrecuencia(t.id)==="Semanal"&&(
-                            <div style={{fontSize:10,color:"#64748b",marginTop:2}}>
+                            <div style={{fontSize:10,color:C.muted,marginTop:2}}>
                               {["Lunes","Martes","Miércoles","Jueves","Viernes"][tareasOverrides[t.id]?.diaLimiteSem??t.diaLimiteSem??0]}
                             </div>
                           )}
                         </td>
                         <td style={{padding:"7px 10px",whiteSpace:"nowrap"}}>
                           {fechaVenc
-                            ? <span style={{background:"#fef3c7",color:"#92400e",borderRadius:6,padding:"2px 8px",fontSize:11,fontWeight:600}}>
+                            ? <span style={{background:C.warningBg,color:"#92400e",borderRadius:6,padding:"2px 8px",fontSize:11,fontWeight:600}}>
                                 📅 {new Date(fechaVenc+"T12:00:00").toLocaleDateString("es-CL",{day:"2-digit",month:"short",year:"numeric"})}
                               </span>
-                            : <span style={{color:"#94a3b8",fontSize:11}}>— sin fecha —</span>}
+                            : <span style={{color:C.muted2,fontSize:11}}>— sin fecha —</span>}
                         </td>
                         <td style={{padding:"7px 10px",fontSize:11}}>
                           {depDe
-                            ? <span style={{background:"#fef3c7",color:"#92400e",borderRadius:20,padding:"2px 8px",fontSize:10}}>→ {depDe}</span>
-                            : <span style={{color:"#d1d5db"}}>—</span>}
+                            ? <span style={{background:C.warningBg,color:"#92400e",borderRadius:20,padding:"2px 8px",fontSize:10}}>→ {depDe}</span>
+                            : <span style={{color:C.border}}>—</span>}
                         </td>
                         <td style={{padding:"7px 8px"}}>
                           {puedeEditConfig&&(
@@ -1337,8 +1338,8 @@ function ConfigTab({todasTareas,getFrecuencia,WORKERS,CATEGORIAS,FRECUENCIAS,
                                 dependeDe:  depDe,
                               });
                             }}
-                              style={{padding:"3px 10px",borderRadius:6,background:"#f8fafc",
-                                border:"1px solid #d1d5db",cursor:"pointer",fontSize:11,color:"#475569"}}>✏️ Editar</button>
+                              style={{padding:"3px 10px",borderRadius:6,background:C.cardAlt,
+                                border:`1px solid ${C.border}`,cursor:"pointer",fontSize:11,color:C.muted}}>✏️ Editar</button>
                           )}
                         </td>
                       </tr>
@@ -2360,7 +2361,7 @@ Equipo Mediterra`);
       const sup=getSupervisor(t.id);
       const supActivo=est.estadoResp==="verde"&&sup&&est.estadoResp!=="na";
       const semSup=SEMAFORO[supActivo?est.estadoSup:"gris"];
-      const cat=CATEGORIAS[t.categoria]||{color:"#64748b",bg:"#f1f5f9"};
+      const cat=CATEGORIAS[t.categoria]||{color:C.muted,bg:C.cardAlt};
       const com=comentarios[key]||"";
       const vencida=estaVencida(t,key,numSem)&&est.estadoResp!=="na";
       const proxima=!vencida&&estaProxima(t,key,numSem)&&est.estadoResp!=="na";
@@ -2377,36 +2378,36 @@ Equipo Mediterra`);
         return `${DIAS_SEMANA[getConfig(t.id).diaLimiteSem??t.diaLimiteSem]}`;
       })();
       return(
-        <tr key={key} style={{borderBottom:"1px solid #f1f5f9",opacity:esNA?0.55:1,
-          background:!depOk?"#f8f8ff":esNA?"#f8fafc":vencida?"#fff5f5":proxima?"#fffbeb":i%2===0?"#fff":"#f8fafc",
+        <tr key={key} style={{borderBottom:`1px solid ${C.border}`,opacity:esNA?0.55:1,
+          background:!depOk?"#f8f8ff":esNA?C.cardAlt:vencida?"#fff5f5":proxima?C.warningBg:i%2===0?"#fff":C.cardAlt,
           borderLeft:!depOk?"4px solid #c4b5fd":esNA?"4px solid #94a3b8":vencida?"4px solid #ef4444":proxima?"4px solid #f59e0b":"4px solid transparent"}}>
           <td style={{padding:"9px 14px"}}>
             <div style={{display:"flex",alignItems:"center",gap:6}}>
               {!depOk&&<span title={`Depende de: ${getNombreDep(t)}`} style={{fontSize:11}}>🔒</span>}
-              {vencida&&depOk&&!esNA&&<span style={{color:"#ef4444",fontWeight:700,fontSize:11}}>!!</span>}
-              {proxima&&depOk&&!esNA&&<span style={{color:"#f59e0b",fontWeight:700,fontSize:11}}>!</span>}
+              {vencida&&depOk&&!esNA&&<span style={{color:C.danger,fontWeight:700,fontSize:11}}>!!</span>}
+              {proxima&&depOk&&!esNA&&<span style={{color:C.warning,fontWeight:700,fontSize:11}}>!</span>}
               {esNA&&<span style={{fontSize:11}}>⊘</span>}
-              <div style={{fontWeight:500,color:!depOk?"#7c3aed":esNA?"#94a3b8":vencida?"#ef4444":"#1e293b",fontSize:13,textDecoration:esNA?"line-through":"none"}}>{t.nombre}</div>
+              <div style={{fontWeight:500,color:!depOk?C.purple:esNA?C.muted2:vencida?C.danger:C.text,fontSize:13,textDecoration:esNA?"line-through":"none"}}>{t.nombre}</div>
             </div>
             <div style={{display:"flex",gap:6,marginTop:2,flexWrap:"wrap"}}>
               <span style={{fontSize:10,background:cat.bg,color:cat.color,borderRadius:20,padding:"1px 8px",fontWeight:600}}>{t.categoria}</span>
-              <span style={{fontSize:10,color:"#94a3b8"}}>{frec} · {diaLabel}</span>
+              <span style={{fontSize:10,color:C.muted2}}>{frec} · {diaLabel}</span>
             </div>
           </td>
-          <td style={{textAlign:"center",padding:"9px 8px",fontSize:12,color:"#374151"}}>{t.responsable.split(" ")[0]}</td>
+          <td style={{textAlign:"center",padding:"9px 8px",fontSize:12,color:C.text}}>{t.responsable.split(" ")[0]}</td>
           <td style={{textAlign:"center",padding:"9px 8px"}}>
             <button onClick={()=>ciclarResp(key,t,numSem)}
               style={{width:28,height:28,borderRadius:"50%",background:semResp.color,border:`3px solid ${semResp.border}`,cursor:puedeResp?"pointer":"not-allowed",outline:"none",opacity:puedeResp?1:0.4,boxShadow:"0 2px 6px #0002",transition:"transform 0.1s",backgroundImage:est.estadoResp==="na"?"repeating-linear-gradient(45deg,transparent,transparent 3px,rgba(0,0,0,0.15) 3px,rgba(0,0,0,0.15) 6px)":undefined}}
               onMouseEnter={e=>{if(puedeResp)e.target.style.transform="scale(1.2)";}} onMouseLeave={e=>e.target.style.transform="scale(1)"}/>
           </td>
-          <td style={{textAlign:"center",padding:"9px 8px",fontSize:12,color:"#374151"}}>{sup?sup.split(" ")[0]:<span style={{color:"#d1d5db"}}>-</span>}</td>
+          <td style={{textAlign:"center",padding:"9px 8px",fontSize:12,color:C.text}}>{sup?sup.split(" ")[0]:<span style={{color:C.border}}>-</span>}</td>
           <td style={{textAlign:"center",padding:"9px 8px"}}>
-            {sup?<button onClick={()=>ciclarSup(key,t)} style={{width:28,height:28,borderRadius:"50%",background:supActivo?semSup.color:"#e5e7eb",border:`3px solid ${supActivo?semSup.border:"#d1d5db"}`,cursor:(supActivo&&puedeSup)?"pointer":"not-allowed",outline:"none",opacity:(supActivo&&puedeSup)?1:0.4}}/>
-            :<span style={{color:"#d1d5db",fontSize:12}}>-</span>}
+            {sup?<button onClick={()=>ciclarSup(key,t)} style={{width:28,height:28,borderRadius:"50%",background:supActivo?semSup.color:"#e5e7eb",border:`3px solid ${supActivo?semSup.border:C.border}`,cursor:(supActivo&&puedeSup)?"pointer":"not-allowed",outline:"none",opacity:(supActivo&&puedeSup)?1:0.4}}/>
+            :<span style={{color:C.border,fontSize:12}}>-</span>}
           </td>
           <td style={{textAlign:"center",padding:"9px 8px"}}>
             <button onClick={()=>{setEditComentario(key);setTextoComentario(com);}}
-              style={{background:com?"#dbeafe":"#f1f5f9",border:"none",borderRadius:8,padding:"4px 10px",cursor:"pointer",fontSize:11,color:com?"#1d4ed8":"#9ca3af",maxWidth:100,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+              style={{background:com?C.infoBg:C.cardAlt,border:"none",borderRadius:8,padding:"4px 10px",cursor:"pointer",fontSize:11,color:com?C.primary:C.muted2,maxWidth:100,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
               {com?`[${com.substring(0,10)}...]`:"+"}
             </button>
           </td>
@@ -2416,7 +2417,7 @@ Equipo Mediterra`);
   }
 
   const encabezadoTabla=(
-    <thead><tr style={{background:"#1e3a5f",color:"#fff",fontSize:12}}>
+    <thead><tr style={{background:C.primary,color:C.primaryText,fontSize:12}}>
       <th style={{padding:"10px 14px",textAlign:"left",minWidth:240}}>Tarea</th>
       <th style={{padding:"10px 8px",textAlign:"center",minWidth:90}}>Responsable</th>
       <th style={{padding:"10px 8px",textAlign:"center",minWidth:70}}>Estado</th>
@@ -2489,85 +2490,85 @@ Equipo Mediterra`);
 
   // ── RENDER PRINCIPAL ──────────────────────────────────────────────
   if(cargando) return (
-    <div style={{display:"flex",alignItems:"center",justifyContent:"center",height:"100vh",fontFamily:"sans-serif",color:"#64748b",fontSize:15}}>
+    <div style={{display:"flex",alignItems:"center",justifyContent:"center",height:"100vh",fontFamily:"sans-serif",color:C.muted,fontSize:15}}>
       Cargando...
     </div>
   );
 
   if(!usuarioActual||workerPendiente) return (
-    <div style={{minHeight:"100vh",background:"linear-gradient(160deg,#0f172a,#1e3a5f)",display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"sans-serif",padding:20}}>
-      <div style={{background:"#fff",borderRadius:20,padding:"36px 40px",maxWidth:420,width:"100%",boxShadow:"0 24px 64px rgba(0,0,0,0.5)"}}>
+    <div style={{minHeight:"100vh",background:`linear-gradient(160deg, ${C.bg} 0%, ${C.bg2} 100%)`,display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"sans-serif",padding:20}}>
+      <div style={{background:C.card,borderRadius:20,padding:"36px 40px",maxWidth:420,width:"100%",boxShadow:"0 24px 64px rgba(0,0,0,0.5)"}}>
         <div style={{textAlign:"center",marginBottom:28}}>
           <img src="/med.png" alt="Mediterra" style={{height:56,objectFit:"contain",marginBottom:12}} onError={e=>{e.target.style.display="none";}}/>
-          <div style={{fontSize:11,letterSpacing:3,color:"#94a3b8",marginBottom:4}}>GRUPO MEDITERRA</div>
-          <div style={{fontSize:20,fontWeight:900,color:"#1e293b"}}>Gestión Interna</div>
+          <div style={{fontSize:11,letterSpacing:3,color:C.muted2,marginBottom:4}}>GRUPO MEDITERRA</div>
+          <div style={{fontSize:20,fontWeight:900,color:C.text}}>Gestión Interna</div>
         </div>
 
         {modalPin==="cambiar"&&(
-          <div style={{background:"#fefce8",borderRadius:12,padding:"14px 16px",marginBottom:16,border:"1px solid #fde047",fontSize:13,color:"#854d0e"}}>
+          <div style={{background:"#fefce8",borderRadius:12,padding:"14px 16px",marginBottom:16,border:"1px solid #fde047",fontSize:13,color:C.warning}}>
             🔑 Debes cambiar tu PIN temporal antes de continuar.
           </div>
         )}
 
         {modalPin==="cambiar"?(
           <div style={{display:"flex",flexDirection:"column",gap:10}}>
-            <div style={{fontSize:13,fontWeight:700,color:"#1e293b",marginBottom:4}}>Cambiar PIN</div>
+            <div style={{fontSize:13,fontWeight:700,color:C.text,marginBottom:4}}>Cambiar PIN</div>
             {[["PIN actual","password",pinActual,setPinActual],["PIN nuevo (mín. 4 dígitos)","password",pinNuevo,setPinNuevo],["Confirmar PIN nuevo","password",pinConfirm,setPinConfirm]].map(([lbl,type,val,set])=>(
               <div key={lbl}>
-                <div style={{fontSize:11,color:"#64748b",marginBottom:3}}>{lbl}</div>
+                <div style={{fontSize:11,color:C.muted,marginBottom:3}}>{lbl}</div>
                 <input type={type} value={val} onChange={e=>set(e.target.value)} placeholder="••••"
-                  style={{width:"100%",padding:"9px 12px",borderRadius:8,border:"1px solid #d1d5db",fontSize:14,boxSizing:"border-box",outline:"none"}}/>
+                  style={{width:"100%",padding:"9px 12px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:14,boxSizing:"border-box",outline:"none"}}/>
               </div>
             ))}
-            {pinError&&<div style={{color:"#ef4444",fontSize:12}}>{pinError}</div>}
+            {pinError&&<div style={{color:C.danger,fontSize:12}}>{pinError}</div>}
             <button onClick={handleCambiarPin}
-              style={{padding:"10px",borderRadius:8,background:"#2563eb",color:"#fff",border:"none",fontWeight:700,fontSize:14,cursor:"pointer",marginTop:4}}>
+              style={{padding:"10px",borderRadius:8,background:C.primary,color:"#fff",border:"none",fontWeight:700,fontSize:14,cursor:"pointer",marginTop:4}}>
               Guardar nuevo PIN
             </button>
           </div>
         ):(
           <>
             <div style={{marginBottom:12}}>
-              <div style={{fontSize:11,color:"#64748b",marginBottom:4}}>Email corporativo</div>
+              <div style={{fontSize:11,color:C.muted,marginBottom:4}}>Email corporativo</div>
               <input type="email" value={loginEmail} onChange={e=>setLoginEmail(e.target.value)}
                 onKeyDown={e=>e.key==="Enter"&&document.getElementById("login-pin-input")?.focus()}
                 placeholder="tu.nombre@grupomediterra.cl" autoComplete="email"
-                style={{width:"100%",padding:"10px 12px",borderRadius:8,border:"1px solid #d1d5db",fontSize:13,
+                style={{width:"100%",padding:"10px 12px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:13,
                   outline:"none",boxSizing:"border-box"}}/>
             </div>
             <div style={{marginBottom:16}}>
-              <div style={{fontSize:11,color:"#64748b",marginBottom:4}}>PIN de acceso</div>
+              <div style={{fontSize:11,color:C.muted,marginBottom:4}}>PIN de acceso</div>
               <input id="login-pin-input" type="password" value={loginPin} onChange={e=>setLoginPin(e.target.value)}
                 onKeyDown={e=>e.key==="Enter"&&handleLogin()} placeholder="••••"
-                style={{width:"100%",padding:"10px 12px",borderRadius:8,border:"1px solid #d1d5db",fontSize:16,
+                style={{width:"100%",padding:"10px 12px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:16,
                   textAlign:"center",letterSpacing:6,outline:"none",boxSizing:"border-box"}}/>
             </div>
-            {loginError&&<div style={{color:"#ef4444",fontSize:12,marginBottom:10,textAlign:"center"}}>{loginError}</div>}
+            {loginError&&<div style={{color:C.danger,fontSize:12,marginBottom:10,textAlign:"center"}}>{loginError}</div>}
             <button onClick={handleLogin}
               style={{width:"100%",padding:"11px",borderRadius:8,background:"linear-gradient(135deg,#1e3a5f,#2563eb)",
                 color:"#fff",border:"none",fontWeight:700,fontSize:14,cursor:"pointer"}}>
               Ingresar
             </button>
             <div style={{marginTop:16,textAlign:"center"}}>
-              <button onClick={()=>setModalPin("reset")} style={{background:"none",border:"none",color:"#94a3b8",fontSize:12,cursor:"pointer"}}>
+              <button onClick={()=>setModalPin("reset")} style={{background:"none",border:"none",color:C.muted2,fontSize:12,cursor:"pointer"}}>
                 ¿Olvidaste tu PIN?
               </button>
             </div>
             {modalPin==="reset"&&(
-              <div style={{marginTop:16,background:"#f8fafc",borderRadius:10,padding:"14px 16px",border:"1px solid #e2e8f0"}}>
-                <div style={{fontSize:12,fontWeight:700,color:"#1e293b",marginBottom:8}}>Recuperar PIN por email</div>
+              <div style={{marginTop:16,background:C.cardAlt,borderRadius:10,padding:"14px 16px",border:`1px solid ${C.border}`}}>
+                <div style={{fontSize:12,fontWeight:700,color:C.text,marginBottom:8}}>Recuperar PIN por email</div>
                 <input type="email" value={resetEmail||loginEmail} onChange={e=>setResetEmail(e.target.value)}
                   placeholder="tu.nombre@grupomediterra.cl"
-                  style={{width:"100%",padding:"8px 10px",borderRadius:8,border:"1px solid #d1d5db",
+                  style={{width:"100%",padding:"8px 10px",borderRadius:8,border:`1px solid ${C.border}`,
                     fontSize:13,marginBottom:8,outline:"none",boxSizing:"border-box"}}/>
                 <button onClick={()=>handleResetPin()}
                   disabled={resetEnviando||!(resetEmail||loginEmail)}
                   style={{width:"100%",padding:"8px",borderRadius:8,
-                    background:(resetEnviando||!(resetEmail||loginEmail))?"#94a3b8":"#2563eb",
+                    background:(resetEnviando||!(resetEmail||loginEmail))?C.muted2:C.primary,
                     color:"#fff",border:"none",fontWeight:700,fontSize:13,cursor:"pointer"}}>
                   {resetEnviando?"Enviando...":"Enviar PIN temporal"}
                 </button>
-                {resetMsg&&<div style={{fontSize:11,color:"#64748b",marginTop:6,textAlign:"center"}}>{resetMsg}</div>}
+                {resetMsg&&<div style={{fontSize:11,color:C.muted,marginTop:6,textAlign:"center"}}>{resetMsg}</div>}
               </div>
             )}
           </>
@@ -2581,7 +2582,7 @@ Equipo Mediterra`);
 
   // Módulo activo
   if(moduloActivo==="finanzas") return (
-    <div style={{fontFamily:"sans-serif",background:"#0d1117",minHeight:"100vh",padding:"20px"}}>
+    <div style={{fontFamily:"sans-serif",background:C.bg,minHeight:"100vh",padding:"20px"}}>
       <FinanzasModule
         usuarioActual={usuarioFresco}
         esAdmin={esAdmin}
@@ -2594,7 +2595,7 @@ Equipo Mediterra`);
   );
 
   if(moduloActivo==="osiris") return (
-    <div style={{fontFamily:"sans-serif",background:"#0d1117",minHeight:"100vh"}}>
+    <div style={{fontFamily:"sans-serif",background:C.bg,minHeight:"100vh"}}>
       <OsirisModule
         usuarioActual={usuarioFresco}
         esAdmin={esAdmin}
@@ -2607,7 +2608,7 @@ Equipo Mediterra`);
   );
 
   if(moduloActivo==="allegria") return (
-    <div style={{fontFamily:"sans-serif",background:"#0d1117",minHeight:"100vh"}}>
+    <div style={{fontFamily:"sans-serif",background:C.bg,minHeight:"100vh"}}>
       <AllegriaModule
         usuarioActual={usuarioFresco}
         esAdmin={esAdmin}
@@ -2620,7 +2621,7 @@ Equipo Mediterra`);
   );
 
   if(moduloActivo==="frisku") return (
-    <div style={{fontFamily:"sans-serif",background:"#0d1117",minHeight:"100vh"}}>
+    <div style={{fontFamily:"sans-serif",background:C.bg,minHeight:"100vh"}}>
       <FriskuComercialModule
         usuarioActual={usuarioFresco}
         esAdmin={esAdmin}
@@ -2646,17 +2647,17 @@ Equipo Mediterra`);
     const puedeEditConfig   = getTabPerm(usuarioFresco,"tareas","config")    === "editar";
 
     return (
-      <div style={{fontFamily:"sans-serif",background:"#f1f5f9",minHeight:"100vh"}}>
+      <div style={{fontFamily:"sans-serif",background:C.cardAlt,minHeight:"100vh"}}>
         {/* Modal editar comentario */}
         {editComentario&&(
           <div style={{position:"fixed",inset:0,background:"#0006",zIndex:300,display:"flex",alignItems:"center",justifyContent:"center"}}>
-            <div style={{background:"#fff",borderRadius:12,padding:24,width:380,boxShadow:"0 8px 32px #0003"}}>
+            <div style={{background:C.card,borderRadius:12,padding:24,width:380,boxShadow:"0 8px 32px #0003"}}>
               <div style={{fontWeight:700,fontSize:15,marginBottom:10}}>Comentario</div>
               <textarea value={textoComentario} onChange={e=>setTextoComentario(e.target.value)}
-                style={{width:"100%",height:80,borderRadius:8,border:"1px solid #d1d5db",padding:8,fontSize:13,resize:"vertical",outline:"none",boxSizing:"border-box"}}/>
+                style={{width:"100%",height:80,borderRadius:8,border:`1px solid ${C.border}`,padding:8,fontSize:13,resize:"vertical",outline:"none",boxSizing:"border-box"}}/>
               <div style={{display:"flex",gap:8,justifyContent:"flex-end",marginTop:10}}>
-                <button onClick={()=>setEditComentario(null)} style={{padding:"6px 16px",borderRadius:8,border:"1px solid #d1d5db",background:"#fff",cursor:"pointer",fontSize:13}}>Cancelar</button>
-                <button onClick={guardarComentario} style={{padding:"6px 16px",borderRadius:8,background:"#2563eb",color:"#fff",border:"none",cursor:"pointer",fontWeight:700,fontSize:13}}>Guardar</button>
+                <button onClick={()=>setEditComentario(null)} style={{padding:"6px 16px",borderRadius:8,border:`1px solid ${C.border}`,background:C.card,cursor:"pointer",fontSize:13}}>Cancelar</button>
+                <button onClick={guardarComentario} style={{padding:"6px 16px",borderRadius:8,background:C.primary,color:"#fff",border:"none",cursor:"pointer",fontWeight:700,fontSize:13}}>Guardar</button>
               </div>
             </div>
           </div>
@@ -2666,7 +2667,7 @@ Equipo Mediterra`);
         {modalAlertasTareas&&(
           <div style={{position:"fixed",inset:0,background:"#000a",zIndex:350,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}
             onClick={()=>setModalAlertasTareas(null)}>
-            <div style={{background:"#fff",borderRadius:16,padding:0,width:"100%",maxWidth:600,
+            <div style={{background:C.card,borderRadius:16,padding:0,width:"100%",maxWidth:600,
               boxShadow:"0 24px 64px #0005",maxHeight:"85vh",overflow:"hidden",display:"flex",flexDirection:"column"}}
               onClick={e=>e.stopPropagation()}>
               {/* Header */}
@@ -2675,7 +2676,7 @@ Equipo Mediterra`);
                 <span style={{fontSize:28}}>📌</span>
                 <div style={{flex:1}}>
                   <div style={{fontSize:16,fontWeight:800,color:"#fff"}}>Tareas Puntuales Próximas</div>
-                  <div style={{fontSize:11,color:"#94a3b8"}}>
+                  <div style={{fontSize:11,color:C.muted2}}>
                     {modalAlertasTareas.tareas.filter(t=>t.vencida).length > 0
                       ? `⚠️ ${modalAlertasTareas.tareas.filter(t=>t.vencida).length} vencida(s) · ${modalAlertasTareas.tareas.filter(t=>!t.vencida).length} próxima(s)`
                       : `${modalAlertasTareas.tareas.length} tarea(s) en los próximos 30 días`}
@@ -2690,32 +2691,32 @@ Equipo Mediterra`);
               {/* Lista */}
               <div style={{overflowY:"auto",padding:"12px 16px",flex:1}}>
                 {modalAlertasTareas.tareas.map((t,i)=>{
-                  const cat = CATEGORIAS[t.categoria]||{color:"#64748b",bg:"#f1f5f9"};
+                  const cat = CATEGORIAS[t.categoria]||{color:C.muted,bg:C.cardAlt};
                   return (
                     <div key={i} style={{display:"flex",alignItems:"center",gap:12,padding:"10px 12px",
                       borderRadius:10,marginBottom:6,
-                      background:t.vencida?"#fff5f5":t.hoy?"#fef3c7":t.diff<=7?"#fffbeb":"#f8fafc",
-                      border:`1px solid ${t.vencida?"#fecaca":t.hoy?"#fde68a":t.diff<=7?"#fef3c7":"#e2e8f0"}`}}>
+                      background:t.vencida?"#fff5f5":t.hoy?C.warningBg:t.diff<=7?C.warningBg:C.cardAlt,
+                      border:`1px solid ${t.vencida?"#fecaca":t.hoy?"#fde68a":t.diff<=7?C.warningBg:C.border}`}}>
                       {/* Indicador */}
                       <div style={{width:40,height:40,borderRadius:"50%",display:"flex",alignItems:"center",justifyContent:"center",
                         fontSize:18,flexShrink:0,
-                        background:t.vencida?"#fee2e2":t.hoy?"#fef3c7":t.diff<=7?"#dbeafe":"#f1f5f9"}}>
+                        background:t.vencida?C.dangerBg:t.hoy?C.warningBg:t.diff<=7?C.infoBg:C.cardAlt}}>
                         {t.vencida?"⚠️":t.hoy?"🔴":t.diff<=7?"⏰":"📌"}
                       </div>
                       {/* Info */}
                       <div style={{flex:1,minWidth:0}}>
-                        <div style={{fontWeight:700,fontSize:13,color:"#1e293b",marginBottom:2}}>{t.nombre}</div>
+                        <div style={{fontWeight:700,fontSize:13,color:C.text,marginBottom:2}}>{t.nombre}</div>
                         <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
-                          <span style={{fontSize:10,color:"#64748b"}}>👤 {t.responsable}</span>
-                          <span style={{fontSize:10,color:"#94a3b8"}}>🔍 {t.supervisor}</span>
+                          <span style={{fontSize:10,color:C.muted}}>👤 {t.responsable}</span>
+                          <span style={{fontSize:10,color:C.muted2}}>🔍 {t.supervisor}</span>
                           <span style={{fontSize:9,background:cat.bg,color:cat.color,padding:"1px 6px",borderRadius:12,fontWeight:600}}>{t.categoria}</span>
                         </div>
                       </div>
                       {/* Fecha + días */}
                       <div style={{textAlign:"right",flexShrink:0}}>
-                        <div style={{fontSize:12,fontWeight:700,color:t.vencida?"#dc2626":t.hoy?"#d97706":"#1e293b"}}>{t.fecha}</div>
+                        <div style={{fontSize:12,fontWeight:700,color:t.vencida?C.danger:t.hoy?C.warning:C.text}}>{t.fecha}</div>
                         <div style={{fontSize:11,fontWeight:600,marginTop:2,padding:"2px 8px",borderRadius:12,display:"inline-block",
-                          background:t.vencida?"#dc2626":t.hoy?"#d97706":t.diff<=7?"#2563eb":"#64748b",
+                          background:t.vencida?C.danger:t.hoy?C.warning:t.diff<=7?C.primary:C.muted,
                           color:"#fff"}}>
                           {t.vencida?`Vencida ${Math.abs(t.diff)}d`:t.hoy?"HOY":`${t.diff}d`}
                         </div>
@@ -2725,9 +2726,9 @@ Equipo Mediterra`);
                 })}
               </div>
               {/* Footer */}
-              <div style={{padding:"12px 20px",borderTop:"1px solid #e2e8f0",textAlign:"center"}}>
+              <div style={{padding:"12px 20px",borderTop:`1px solid ${C.border}`,textAlign:"center"}}>
                 <button onClick={()=>{setModalAlertasTareas(null);setTab("puntual");}}
-                  style={{padding:"8px 24px",borderRadius:8,background:"#2563eb",color:"#fff",
+                  style={{padding:"8px 24px",borderRadius:8,background:C.primary,color:"#fff",
                     border:"none",cursor:"pointer",fontWeight:700,fontSize:13}}>
                   📌 Ver todas las tareas puntuales
                 </button>
@@ -2752,39 +2753,39 @@ Equipo Mediterra`);
         return (
           <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.6)",zIndex:300,
             display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
-            <div style={{background:"#1e293b",border:"1px solid #ef444444",borderRadius:16,
+            <div style={{background:C.card,border:`1px solid ${C.danger}44`,borderRadius:16,
               width:520,maxWidth:"95vw",maxHeight:"80vh",display:"flex",flexDirection:"column",
-              boxShadow:"0 24px 64px rgba(0,0,0,0.7)"}}>
-              <div style={{padding:"16px 20px",borderBottom:"1px solid #334155",
+              boxShadow:C.shadow}}>
+              <div style={{padding:"16px 20px",borderBottom:`1px solid ${C.border}`,
                 display:"flex",alignItems:"center",gap:10}}>
                 <span style={{fontSize:22}}>⚠️</span>
                 <div style={{flex:1}}>
-                  <div style={{fontSize:14,fontWeight:800,color:"#f87171"}}>
+                  <div style={{fontSize:14,fontWeight:800,color:C.danger}}>
                     Tareas Vencidas — {vencidas.length}
                   </div>
-                  <div style={{fontSize:11,color:"#94a3b8"}}>{MESES[mes]} {anio}</div>
+                  <div style={{fontSize:11,color:C.muted}}>{MESES[mes]} {anio}</div>
                 </div>
                 <button onClick={()=>setModalVencidas(false)}
-                  style={{background:"transparent",border:"none",color:"#94a3b8",cursor:"pointer",fontSize:20}}>×</button>
+                  style={{background:"transparent",border:"none",color:C.muted,cursor:"pointer",fontSize:20}}>×</button>
               </div>
               <div style={{overflowY:"auto",padding:"12px 20px",display:"flex",flexDirection:"column",gap:8}}>
                 {vencidas.length===0&&(
-                  <div style={{textAlign:"center",padding:32,color:"#94a3b8"}}>Sin tareas vencidas ✓</div>
+                  <div style={{textAlign:"center",padding:32,color:C.muted}}>Sin tareas vencidas ✓</div>
                 )}
                 {vencidas.map(({tarea,semana,key},i)=>{
                   const est=estados[key];
                   const resp=est?.estadoResp||"gris";
                   const sup2=est?.estadoSup||"gris";
-                  const col={"rojo":"#ef4444","amarillo":"#f59e0b","verde":"#22c55e","gris":"#64748b"};
+                  const col={"rojo":C.danger,"amarillo":C.warning,"verde":C.success,"gris":C.muted};
                   return (
-                    <div key={i} style={{background:"#0f172a",borderRadius:10,padding:"10px 14px",
-                      border:"1px solid #ef444433"}}>
+                    <div key={i} style={{background:C.dangerBg,borderRadius:10,padding:"10px 14px",
+                      border:`1px solid ${C.danger}33`}}>
                       <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:4}}>
-                        <span style={{width:8,height:8,borderRadius:"50%",background:"#ef4444",flexShrink:0}}/>
-                        <span style={{fontSize:13,fontWeight:700,color:"#f1f5f9",flex:1}}>{tarea.nombre}</span>
-                        {semana&&<span style={{fontSize:10,color:"#94a3b8",background:"#1e293b",borderRadius:6,padding:"1px 6px"}}>S{semana.num}</span>}
+                        <span style={{width:8,height:8,borderRadius:"50%",background:C.danger,flexShrink:0}}/>
+                        <span style={{fontSize:13,fontWeight:700,color:C.text,flex:1}}>{tarea.nombre}</span>
+                        {semana&&<span style={{fontSize:10,color:C.muted,background:C.card,borderRadius:6,padding:"1px 6px"}}>S{semana.num}</span>}
                       </div>
-                      <div style={{display:"flex",gap:12,paddingLeft:16,fontSize:11,color:"#94a3b8",flexWrap:"wrap"}}>
+                      <div style={{display:"flex",gap:12,paddingLeft:16,fontSize:11,color:C.muted,flexWrap:"wrap"}}>
                         <span>👤 {tarea.responsable}</span>
                         {getSupervisor(tarea.id)&&<span>🔍 {getSupervisor(tarea.id)}</span>}
                         <span style={{marginLeft:"auto",display:"flex",gap:6}}>
@@ -2796,10 +2797,10 @@ Equipo Mediterra`);
                   );
                 })}
               </div>
-              <div style={{padding:"12px 20px",borderTop:"1px solid #334155",display:"flex",justifyContent:"flex-end"}}>
+              <div style={{padding:"12px 20px",borderTop:`1px solid ${C.border}`,display:"flex",justifyContent:"flex-end"}}>
                 <button onClick={()=>setModalVencidas(false)}
-                  style={{padding:"8px 20px",borderRadius:8,background:"#334155",
-                    border:"none",color:"#f1f5f9",cursor:"pointer",fontSize:12,fontWeight:600}}>
+                  style={{padding:"8px 20px",borderRadius:8,background:C.cardAlt,
+                    border:`1px solid ${C.border}`,color:C.text,cursor:"pointer",fontSize:12,fontWeight:600}}>
                   Cerrar
                 </button>
               </div>
@@ -2811,26 +2812,26 @@ Equipo Mediterra`);
       {/* Modal notificación dependencia */}
         {modalNotif&&(
           <div style={{position:"fixed",inset:0,background:"#0006",zIndex:300,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
-            <div style={{background:"#fff",borderRadius:16,padding:24,maxWidth:420,width:"100%",boxShadow:"0 8px 32px #0003"}}>
-              <div style={{fontWeight:800,fontSize:15,color:"#1e293b",marginBottom:8}}>
+            <div style={{background:C.card,borderRadius:16,padding:24,maxWidth:420,width:"100%",boxShadow:"0 8px 32px #0003"}}>
+              <div style={{fontWeight:800,fontSize:15,color:C.text,marginBottom:8}}>
                 ✅ Tarea completada: "{modalNotif.tarea.nombre}"
               </div>
-              <div style={{fontSize:13,color:"#64748b",marginBottom:12}}>
+              <div style={{fontSize:13,color:C.muted,marginBottom:12}}>
                 Las siguientes tareas han sido desbloqueadas:
               </div>
               {modalNotif.dependientes.map(d=>(
-                <div key={d.id} style={{background:"#f0fdf4",borderRadius:8,padding:"8px 12px",border:"1px solid #86efac",marginBottom:6,fontSize:13,color:"#166534",fontWeight:600}}>
+                <div key={d.id} style={{background:"#f0fdf4",borderRadius:8,padding:"8px 12px",border:"1px solid #86efac",marginBottom:6,fontSize:13,color:C.success,fontWeight:600}}>
                   🔓 {d.nombre}
                 </div>
               ))}
               <textarea value={textoNotif} onChange={e=>setTextoNotif(e.target.value)} placeholder="Nota adicional (opcional)..."
-                style={{width:"100%",height:60,borderRadius:8,border:"1px solid #d1d5db",padding:8,fontSize:12,marginTop:8,resize:"none",outline:"none",boxSizing:"border-box"}}/>
+                style={{width:"100%",height:60,borderRadius:8,border:`1px solid ${C.border}`,padding:8,fontSize:12,marginTop:8,resize:"none",outline:"none",boxSizing:"border-box"}}/>
               <div style={{display:"flex",gap:8,marginTop:12,justifyContent:"flex-end"}}>
-                <button onClick={()=>setModalNotif(null)} style={{padding:"7px 16px",borderRadius:8,border:"1px solid #d1d5db",background:"#fff",cursor:"pointer",fontSize:13}}>
+                <button onClick={()=>setModalNotif(null)} style={{padding:"7px 16px",borderRadius:8,border:`1px solid ${C.border}`,background:C.card,cursor:"pointer",fontSize:13}}>
                   Cerrar sin notificar
                 </button>
                 <button onClick={enviarNotifDependencia} disabled={enviandoNotif}
-                  style={{padding:"7px 16px",borderRadius:8,background:enviandoNotif?"#94a3b8":"#2563eb",color:"#fff",border:"none",cursor:"pointer",fontWeight:700,fontSize:13}}>
+                  style={{padding:"7px 16px",borderRadius:8,background:enviandoNotif?C.muted2:C.primary,color:"#fff",border:"none",cursor:"pointer",fontWeight:700,fontSize:13}}>
                   {enviandoNotif?"Enviando...":"📧 Notificar"}
                 </button>
               </div>
@@ -2853,22 +2854,22 @@ Equipo Mediterra`);
           </div>
           <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
             {estadoGuardadoUI&&<span style={{fontSize:11,color:"rgba(255,255,255,0.7)"}}>{estadoGuardadoUI.icon} {estadoGuardadoUI.text}</span>}
-            {totalVencidas>0&&<button onClick={()=>setModalVencidas(true)} style={{background:"#ef4444",color:"#fff",borderRadius:20,padding:"3px 10px",fontSize:11,fontWeight:700,border:"none",cursor:"pointer"}}>⚠ {totalVencidas} vencidas</button>}
+            {totalVencidas>0&&<button onClick={()=>setModalVencidas(true)} style={{background:C.danger,color:"#fff",borderRadius:20,padding:"3px 10px",fontSize:11,fontWeight:700,border:"none",cursor:"pointer"}}>⚠ {totalVencidas} vencidas</button>}
             <button onClick={doLogout} style={{background:"rgba(248,113,113,0.2)",border:"none",color:"#fca5a5",borderRadius:8,padding:"5px 12px",cursor:"pointer",fontSize:12}}>Salir</button>
           </div>
         </div>
 
         {/* Controles */}
-        <div style={{background:"#fff",borderBottom:"1px solid #e2e8f0",padding:"10px 24px",display:"flex",gap:10,alignItems:"center",flexWrap:"wrap"}}>
+        <div style={{background:C.card,borderBottom:`1px solid ${C.border}`,padding:"10px 24px",display:"flex",gap:10,alignItems:"center",flexWrap:"wrap"}}>
           <div style={{display:"flex",gap:6,alignItems:"center"}}>
             <button onClick={()=>setMes(m=>{const nm=m===0?11:m-1;if(nm===11)setAnio(a=>a-1);return nm;})}
-              style={{padding:"5px 10px",borderRadius:6,border:"1px solid #d1d5db",background:"#fff",cursor:"pointer",fontSize:13}}>‹</button>
+              style={{padding:"5px 10px",borderRadius:6,border:`1px solid ${C.border}`,background:C.card,cursor:"pointer",fontSize:13}}>‹</button>
             <span style={{fontWeight:700,fontSize:14,minWidth:120,textAlign:"center"}}>{MESES[mes]} {anio}</span>
             <button onClick={()=>setMes(m=>{const nm=m===11?0:m+1;if(nm===0)setAnio(a=>a+1);return nm;})}
-              style={{padding:"5px 10px",borderRadius:6,border:"1px solid #d1d5db",background:"#fff",cursor:"pointer",fontSize:13}}>›</button>
+              style={{padding:"5px 10px",borderRadius:6,border:`1px solid ${C.border}`,background:C.card,cursor:"pointer",fontSize:13}}>›</button>
           </div>
           <select value={filtroPersona} onChange={e=>setFiltroPersona(e.target.value)}
-            style={{padding:"6px 10px",borderRadius:8,border:"1px solid #d1d5db",fontSize:12,outline:"none"}}>
+            style={{padding:"6px 10px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:12,outline:"none"}}>
             <option value="">Todas las personas</option>
             {WORKERS.filter(w=>esAdmin(usuarioActual?.nombre)||w.nombre===usuarioActual?.nombre||(usuarioActual?.equipo||[]).includes(w.nombre)).map(w=><option key={w.nombre} value={w.nombre}>{w.nombre.split(" ")[0]}</option>)}
           </select>
@@ -2876,7 +2877,7 @@ Equipo Mediterra`);
             <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
               {recsActivos.map(r=>(
                 <button key={r.id} onClick={()=>{setModalEmail({...r,workerNombre:usuarioActual.nombre,workerEmail:usuarioActual.email});}}
-                  style={{background:"#fef3c7",border:"1px solid #fde68a",borderRadius:8,padding:"4px 10px",fontSize:11,cursor:"pointer",color:"#92400e",fontWeight:600}}>
+                  style={{background:C.warningBg,border:"1px solid #fde68a",borderRadius:8,padding:"4px 10px",fontSize:11,cursor:"pointer",color:"#92400e",fontWeight:600}}>
                   📬 {r.titulo}
                 </button>
               ))}
@@ -2884,7 +2885,7 @@ Equipo Mediterra`);
           )}
           {esAdmin(usuarioActual.nombre)&&puedeEditConfig&&(
             <button onClick={()=>setMostrarFormTarea(v=>!v)}
-              style={{marginLeft:"auto",padding:"6px 14px",borderRadius:8,background:mostrarFormTarea?"#1e3a5f":"#f1f5f9",color:mostrarFormTarea?"#fff":"#1e293b",border:"1px solid #d1d5db",cursor:"pointer",fontSize:12,fontWeight:600}}>
+              style={{marginLeft:"auto",padding:"6px 14px",borderRadius:8,background:mostrarFormTarea?C.primary:C.cardAlt,color:mostrarFormTarea?"#fff":C.text,border:`1px solid ${C.border}`,cursor:"pointer",fontSize:12,fontWeight:600}}>
               {mostrarFormTarea?"✕ Cancelar":"+ Nueva Tarea"}
             </button>
           )}
@@ -2893,16 +2894,16 @@ Equipo Mediterra`);
         {/* Modal email recordatorio */}
         {modalEmail&&(
           <div style={{position:"fixed",inset:0,background:"#0007",zIndex:300,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
-            <div style={{background:"#fff",borderRadius:16,padding:24,maxWidth:460,width:"100%",boxShadow:"0 8px 32px #0004"}}>
+            <div style={{background:C.card,borderRadius:16,padding:24,maxWidth:460,width:"100%",boxShadow:"0 8px 32px #0004"}}>
               <div style={{fontWeight:800,fontSize:15,marginBottom:4}}>📬 {modalEmail.titulo}</div>
-              <div style={{fontSize:12,color:"#64748b",marginBottom:14}}>Vence el {modalEmail.fechaVence?.toLocaleDateString("es-CL")}</div>
+              <div style={{fontSize:12,color:C.muted,marginBottom:14}}>Vence el {modalEmail.fechaVence?.toLocaleDateString("es-CL")}</div>
               {modalEmail.destinatarios.map(nombre=>{
                 const w=WORKERS.find(x=>x.nombre===nombre);if(!w)return null;
                 return(
-                  <div key={nombre} style={{background:"#f8fafc",borderRadius:8,padding:"8px 12px",marginBottom:6,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                  <div key={nombre} style={{background:C.cardAlt,borderRadius:8,padding:"8px 12px",marginBottom:6,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
                     <span style={{fontSize:13,fontWeight:600}}>{nombre}</span>
                     <button onClick={()=>enviarEmailPersona(w,[{...modalEmail}])}
-                      style={{background:"#2563eb",color:"#fff",border:"none",borderRadius:8,padding:"5px 12px",cursor:"pointer",fontSize:12,fontWeight:600}}>
+                      style={{background:C.primary,color:"#fff",border:"none",borderRadius:8,padding:"5px 12px",cursor:"pointer",fontSize:12,fontWeight:600}}>
                       📧 Enviar
                     </button>
                   </div>
@@ -2911,63 +2912,63 @@ Equipo Mediterra`);
               <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:12}}>
                 {recsActivos.map(r=>(
                   <button key={r.id} onClick={()=>{setRecsDone(p=>({...p,[recKey(r.id)]:true}));}}
-                    style={{background:"#dcfce7",border:"none",borderRadius:8,padding:"5px 12px",cursor:"pointer",fontSize:11,color:"#166534",fontWeight:600}}>
+                    style={{background:C.successBg,border:"none",borderRadius:8,padding:"5px 12px",cursor:"pointer",fontSize:11,color:C.success,fontWeight:600}}>
                     ✓ Marcar {r.titulo} como enviado
                   </button>
                 ))}
               </div>
-              <button onClick={()=>setModalEmail(null)} style={{padding:"7px 20px",borderRadius:8,border:"1px solid #d1d5db",background:"#fff",cursor:"pointer",fontSize:13}}>Cerrar</button>
+              <button onClick={()=>setModalEmail(null)} style={{padding:"7px 20px",borderRadius:8,border:`1px solid ${C.border}`,background:C.card,cursor:"pointer",fontSize:13}}>Cerrar</button>
             </div>
           </div>
         )}
 
         {/* Formulario nueva tarea */}
         {mostrarFormTarea&&puedeEditConfig&&(
-          <div style={{background:"#fff",borderBottom:"1px solid #e2e8f0",padding:"14px 24px"}}>
+          <div style={{background:C.card,borderBottom:`1px solid ${C.border}`,padding:"14px 24px"}}>
             <div style={{fontWeight:700,fontSize:14,marginBottom:10}}>Nueva Tarea</div>
             <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
               {[["Nombre","nombre","text",nuevaTarea.nombre],["Responsable","responsable","",nuevaTarea.responsable],["Supervisor","supervisor","",nuevaTarea.supervisor],["Depende de ID","dependeDe","text",nuevaTarea.dependeDe]].map(([lbl,field,type,val])=>(
                 field==="responsable"||field==="supervisor"?(
                   <div key={field}>
-                    <div style={{fontSize:10,color:"#64748b",marginBottom:2}}>{lbl}</div>
+                    <div style={{fontSize:10,color:C.muted,marginBottom:2}}>{lbl}</div>
                     <select value={val} onChange={e=>setNuevaTarea(p=>({...p,[field]:e.target.value}))}
-                      style={{padding:"6px 10px",borderRadius:8,border:"1px solid #d1d5db",fontSize:12,outline:"none"}}>
+                      style={{padding:"6px 10px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:12,outline:"none"}}>
                       <option value="">— {lbl} —</option>
                       {WORKERS.map(w=><option key={w.nombre} value={w.nombre}>{w.nombre.split(" ")[0]}</option>)}
                     </select>
                   </div>
                 ):(
                   <div key={field}>
-                    <div style={{fontSize:10,color:"#64748b",marginBottom:2}}>{lbl}</div>
+                    <div style={{fontSize:10,color:C.muted,marginBottom:2}}>{lbl}</div>
                     <input type={type||"text"} value={val} onChange={e=>setNuevaTarea(p=>({...p,[field]:e.target.value}))}
-                      style={{padding:"6px 10px",borderRadius:8,border:"1px solid #d1d5db",fontSize:12,outline:"none",width:field==="nombre"?220:100}}/>
+                      style={{padding:"6px 10px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:12,outline:"none",width:field==="nombre"?220:100}}/>
                   </div>
                 )
               ))}
               <div>
-                <div style={{fontSize:10,color:"#64748b",marginBottom:2}}>Categoría</div>
+                <div style={{fontSize:10,color:C.muted,marginBottom:2}}>Categoría</div>
                 <select value={nuevaTarea.categoria} onChange={e=>setNuevaTarea(p=>({...p,categoria:e.target.value}))}
-                  style={{padding:"6px 10px",borderRadius:8,border:"1px solid #d1d5db",fontSize:12,outline:"none"}}>
+                  style={{padding:"6px 10px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:12,outline:"none"}}>
                   {Object.keys(CATEGORIAS).map(c=><option key={c}>{c}</option>)}
                 </select>
               </div>
               <div>
-                <div style={{fontSize:10,color:"#64748b",marginBottom:2}}>Frecuencia</div>
+                <div style={{fontSize:10,color:C.muted,marginBottom:2}}>Frecuencia</div>
                 <select value={nuevaTarea.frecuencia} onChange={e=>setNuevaTarea(p=>({...p,frecuencia:e.target.value}))}
-                  style={{padding:"6px 10px",borderRadius:8,border:"1px solid #d1d5db",fontSize:12,outline:"none"}}>
+                  style={{padding:"6px 10px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:12,outline:"none"}}>
                   {FRECUENCIAS.map(f=><option key={f}>{f}</option>)}
                 </select>
               </div>
               {nuevaTarea.frecuencia==="Puntual"&&(
                 <div>
-                  <div style={{fontSize:10,color:"#64748b",marginBottom:2}}>Fecha límite</div>
+                  <div style={{fontSize:10,color:C.muted,marginBottom:2}}>Fecha límite</div>
                   <input type="date" value={nuevaTarea.fechaPuntual||""}
                     onChange={e=>setNuevaTarea(p=>({...p,fechaPuntual:e.target.value}))}
-                    style={{padding:"6px 10px",borderRadius:8,border:"1px solid #d1d5db",fontSize:12,outline:"none"}}/>
+                    style={{padding:"6px 10px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:12,outline:"none"}}/>
                 </div>
               )}
               <div style={{alignSelf:"flex-end"}}>
-                <button onClick={agregarTarea} style={{padding:"7px 18px",borderRadius:8,background:"#2563eb",color:"#fff",border:"none",cursor:"pointer",fontWeight:700,fontSize:13}}>
+                <button onClick={agregarTarea} style={{padding:"7px 18px",borderRadius:8,background:C.primary,color:"#fff",border:"none",cursor:"pointer",fontWeight:700,fontSize:13}}>
                   + Agregar
                 </button>
               </div>
@@ -2977,7 +2978,7 @@ Equipo Mediterra`);
 
 
         {/* Tab navigation bar */}
-        <div style={{background:"#fff",borderBottom:"1px solid #e2e8f0",padding:"0 24px",display:"flex",gap:0,overflowX:"auto"}}>
+        <div style={{background:C.card,borderBottom:`1px solid ${C.border}`,padding:"0 24px",display:"flex",gap:0,overflowX:"auto"}}>
           {[
             {id:"diaria",    label:"📋 Diarias",    show:puedeVerDiaria},
             {id:"semanal",   label:"📅 Semanales",  show:puedeVerSemanal},
@@ -2988,9 +2989,9 @@ Equipo Mediterra`);
             {id:"config",    label:"⚙️ Config",    show:puedeVerConfig},
           ].filter(t=>t.show).map(t=>(
             <button key={t.id} onClick={()=>setTab(t.id)}
-              style={{padding:"12px 18px",border:"none",borderBottom:`3px solid ${tab===t.id?"#2563eb":"transparent"}`,
+              style={{padding:"12px 18px",border:"none",borderBottom:`3px solid ${tab===t.id?C.primary:"transparent"}`,
                 background:"transparent",cursor:"pointer",fontSize:12,fontWeight:tab===t.id?700:400,
-                color:tab===t.id?"#2563eb":"#64748b",whiteSpace:"nowrap",transition:"all 0.15s"}}>
+                color:tab===t.id?C.primary:C.muted,whiteSpace:"nowrap",transition:"all 0.15s"}}>
               {t.label}
             </button>
           ))}
@@ -3002,11 +3003,11 @@ Equipo Mediterra`);
             <div>
               {/* Selector semana */}
               <div style={{display:"flex",gap:6,marginBottom:14,flexWrap:"wrap",alignItems:"center"}}>
-                <span style={{fontSize:12,color:"#64748b",fontWeight:600}}>Semana:</span>
+                <span style={{fontSize:12,color:C.muted,fontWeight:600}}>Semana:</span>
                 {semanas.map(s=>(
                   <button key={s.num} onClick={()=>setSemanaActiva(s.num)}
-                    style={{padding:"5px 12px",borderRadius:8,border:`1px solid ${semanaActiva===s.num?"#2563eb":"#d1d5db"}`,
-                      background:semanaActiva===s.num?"#dbeafe":"#fff",color:semanaActiva===s.num?"#1d4ed8":"#374151",
+                    style={{padding:"5px 12px",borderRadius:8,border:`1px solid ${semanaActiva===s.num?C.primary:C.border}`,
+                      background:semanaActiva===s.num?C.infoBg:"#fff",color:semanaActiva===s.num?C.primary:C.text,
                       cursor:"pointer",fontSize:12,fontWeight:600}}>
                     S{s.num} (ISO {s.iso})
                   </button>
@@ -3014,11 +3015,11 @@ Equipo Mediterra`);
               </div>
               {semanas.filter(s=>s.num===semanaActiva).map(s=>(
                 <div key={s.num}>
-                  <div style={{fontSize:12,color:"#64748b",marginBottom:8}}>
+                  <div style={{fontSize:12,color:C.muted,marginBottom:8}}>
                     Semana del {s.inicioSem.toLocaleDateString("es-CL")} al {new Date(s.inicioSem.getTime()+6*86400000).toLocaleDateString("es-CL")}
                   </div>
                   <div style={{overflowX:"auto",borderRadius:12,boxShadow:"0 1px 4px #0001"}}>
-                    <table style={{width:"100%",borderCollapse:"collapse",background:"#fff"}}>
+                    <table style={{width:"100%",borderCollapse:"collapse",background:C.card}}>
                       {encabezadoTabla}
                       <tbody>
                         <TablaFilas
@@ -3036,7 +3037,7 @@ Equipo Mediterra`);
 
           {tab==="mensual"&&puedeVerMensual&&(
             <div style={{overflowX:"auto",borderRadius:12,boxShadow:"0 1px 4px #0001"}}>
-              <table style={{width:"100%",borderCollapse:"collapse",background:"#fff"}}>
+              <table style={{width:"100%",borderCollapse:"collapse",background:C.card}}>
                 {encabezadoTabla}
                 <tbody>
                   <TablaFilas
@@ -3050,18 +3051,18 @@ Equipo Mediterra`);
           )}
 
           {(!puedeVerSemanal&&tab==="semanal"||!puedeVerDiaria&&tab==="diaria"||!puedeVerQuincenal&&tab==="quincenal"||!puedeVerAnual&&tab==="anual")&&(
-            <div style={{textAlign:"center",padding:40,color:"#94a3b8",fontSize:14}}>🚫 No tienes acceso a la vista semanal.</div>
+            <div style={{textAlign:"center",padding:40,color:C.muted2,fontSize:14}}>🚫 No tienes acceso a la vista semanal.</div>
           )}
           {!puedeVerMensual&&tab==="mensual"&&(
-            <div style={{textAlign:"center",padding:40,color:"#94a3b8",fontSize:14}}>🚫 No tienes acceso a la vista mensual.</div>
+            <div style={{textAlign:"center",padding:40,color:C.muted2,fontSize:14}}>🚫 No tienes acceso a la vista mensual.</div>
           )}
 
           {/* TAREAS PUNTUALES */}
           {tab==="puntual"&&(
             <div>
               <div style={{marginBottom:16,display:"flex",alignItems:"center",gap:12,flexWrap:"wrap"}}>
-                <h3 style={{margin:0,fontSize:15,color:"#1e293b"}}>📌 Tareas Puntuales</h3>
-                <span style={{fontSize:11,color:"#64748b"}}>Tareas con fecha específica · Alerta 30 días antes</span>
+                <h3 style={{margin:0,fontSize:15,color:C.text}}>📌 Tareas Puntuales</h3>
+                <span style={{fontSize:11,color:C.muted}}>Tareas con fecha específica · Alerta 30 días antes</span>
               </div>
               {(()=>{
                 const puntuales = todasTareas().filter(t=>getFrecuencia(t.id)==="Puntual"&&!isBloqueada(t.id));
@@ -3073,22 +3074,22 @@ Equipo Mediterra`);
                   return fa.localeCompare(fb);
                 });
                 if(sorted.length===0) return (
-                  <div style={{textAlign:"center",padding:40,color:"#94a3b8",fontSize:13}}>
+                  <div style={{textAlign:"center",padding:40,color:C.muted2,fontSize:13}}>
                     No hay tareas puntuales programadas. Usa el botón "+ Agregar tarea" en la pestaña Config para crear una con frecuencia "Puntual".
                   </div>
                 );
                 return (
                   <div style={{overflowX:"auto",borderRadius:12,boxShadow:"0 1px 4px #0001"}}>
-                    <table style={{width:"100%",borderCollapse:"collapse",background:"#fff"}}>
+                    <table style={{width:"100%",borderCollapse:"collapse",background:C.card}}>
                       <thead>
-                        <tr style={{background:"#f8fafc",borderBottom:"2px solid #e2e8f0"}}>
-                          <th style={{padding:"10px 14px",textAlign:"left",fontSize:11,color:"#475569",fontWeight:700}}>Tarea</th>
-                          <th style={{padding:"10px 14px",textAlign:"left",fontSize:11,color:"#475569",fontWeight:700}}>Responsable</th>
-                          <th style={{padding:"10px 14px",textAlign:"left",fontSize:11,color:"#475569",fontWeight:700}}>Supervisor</th>
-                          <th style={{padding:"10px 14px",textAlign:"center",fontSize:11,color:"#475569",fontWeight:700}}>Fecha</th>
-                          <th style={{padding:"10px 14px",textAlign:"center",fontSize:11,color:"#475569",fontWeight:700}}>Días restantes</th>
-                          <th style={{padding:"10px 14px",textAlign:"center",fontSize:11,color:"#475569",fontWeight:700}}>Estado</th>
-                          <th style={{padding:"10px 14px",textAlign:"center",fontSize:11,color:"#475569",fontWeight:700}}>Supervisor</th>
+                        <tr style={{background:C.cardAlt,borderBottom:`2px solid ${C.border}`}}>
+                          <th style={{padding:"10px 14px",textAlign:"left",fontSize:11,color:C.muted,fontWeight:700}}>Tarea</th>
+                          <th style={{padding:"10px 14px",textAlign:"left",fontSize:11,color:C.muted,fontWeight:700}}>Responsable</th>
+                          <th style={{padding:"10px 14px",textAlign:"left",fontSize:11,color:C.muted,fontWeight:700}}>Supervisor</th>
+                          <th style={{padding:"10px 14px",textAlign:"center",fontSize:11,color:C.muted,fontWeight:700}}>Fecha</th>
+                          <th style={{padding:"10px 14px",textAlign:"center",fontSize:11,color:C.muted,fontWeight:700}}>Días restantes</th>
+                          <th style={{padding:"10px 14px",textAlign:"center",fontSize:11,color:C.muted,fontWeight:700}}>Estado</th>
+                          <th style={{padding:"10px 14px",textAlign:"center",fontSize:11,color:C.muted,fontWeight:700}}>Supervisor</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -3107,27 +3108,27 @@ Equipo Mediterra`);
                           const semSup = SEMAFORO[supActivo?est.estadoSup:"gris"];
                           const puedeResp = puedeEditar(t,true);
                           const puedeSup = puedeEditar(t,false);
-                          const cat = CATEGORIAS[t.categoria]||{color:"#64748b",bg:"#f1f5f9"};
+                          const cat = CATEGORIAS[t.categoria]||{color:C.muted,bg:C.cardAlt};
                           return (
-                            <tr key={key} style={{borderBottom:"1px solid #f1f5f9",
-                              background:completada?"#f0fdf4":vencida?"#fff5f5":proxima?"#fffbeb":i%2===0?"#fff":"#f8fafc"}}>
+                            <tr key={key} style={{borderBottom:`1px solid ${C.border}`,
+                              background:completada?"#f0fdf4":vencida?"#fff5f5":proxima?C.warningBg:i%2===0?"#fff":C.cardAlt}}>
                               <td style={{padding:"10px 14px"}}>
-                                <div style={{fontWeight:600,fontSize:12,color:"#1e293b"}}>{t.nombre}</div>
+                                <div style={{fontWeight:600,fontSize:12,color:C.text}}>{t.nombre}</div>
                                 <div style={{display:"flex",gap:6,marginTop:4}}>
                                   <span style={{fontSize:9,background:cat.bg,color:cat.color,padding:"1px 8px",borderRadius:20,fontWeight:600}}>{t.categoria}</span>
                                 </div>
                               </td>
-                              <td style={{padding:"10px 14px",fontSize:12,color:"#475569"}}>{t.responsable}</td>
-                              <td style={{padding:"10px 14px",fontSize:12,color:"#475569"}}>{sup||"—"}</td>
+                              <td style={{padding:"10px 14px",fontSize:12,color:C.muted}}>{t.responsable}</td>
+                              <td style={{padding:"10px 14px",fontSize:12,color:C.muted}}>{sup||"—"}</td>
                               <td style={{padding:"10px 14px",textAlign:"center",fontSize:12,fontWeight:600,
-                                color:vencida?"#dc2626":proxima?"#d97706":"#1e293b"}}>
+                                color:vencida?C.danger:proxima?C.warning:C.text}}>
                                 {fechaObj ? fechaObj.toLocaleDateString("es-CL",{day:"2-digit",month:"short",year:"numeric"}) : "—"}
                               </td>
                               <td style={{padding:"10px 14px",textAlign:"center"}}>
                                 {diff !== null ? (
                                   <span style={{fontSize:11,fontWeight:700,padding:"3px 10px",borderRadius:20,
-                                    background:completada?"#dcfce7":vencida?"#fee2e2":proxima&&diff<=7?"#fef3c7":proxima?"#dbeafe":"#f1f5f9",
-                                    color:completada?"#16a34a":vencida?"#dc2626":proxima&&diff<=7?"#d97706":proxima?"#2563eb":"#64748b"}}>
+                                    background:completada?C.successBg:vencida?C.dangerBg:proxima&&diff<=7?C.warningBg:proxima?C.infoBg:C.cardAlt,
+                                    color:completada?C.success:vencida?C.danger:proxima&&diff<=7?C.warning:proxima?C.primary:C.muted}}>
                                     {completada?"✅ Completada":vencida?`⚠️ Vencida ${Math.abs(diff)}d`:diff===0?"🔴 Hoy":`${diff}d`}
                                   </span>
                                 ) : "—"}
@@ -3164,7 +3165,7 @@ Equipo Mediterra`);
 
           {tab==="diaria"&&puedeVerDiaria&&(
             <div style={{overflowX:"auto",borderRadius:12,boxShadow:"0 1px 4px #0001"}}>
-              <table style={{width:"100%",borderCollapse:"collapse",background:"#fff"}}>
+              <table style={{width:"100%",borderCollapse:"collapse",background:C.card}}>
                 {encabezadoTabla}
                 <tbody>
                   <TablaFilas
@@ -3179,7 +3180,7 @@ Equipo Mediterra`);
 
           {tab==="quincenal"&&puedeVerQuincenal&&(
             <div style={{overflowX:"auto",borderRadius:12,boxShadow:"0 1px 4px #0001"}}>
-              <table style={{width:"100%",borderCollapse:"collapse",background:"#fff"}}>
+              <table style={{width:"100%",borderCollapse:"collapse",background:C.card}}>
                 {encabezadoTabla}
                 <tbody>
                   <TablaFilas
@@ -3194,7 +3195,7 @@ Equipo Mediterra`);
 
           {tab==="anual"&&puedeVerAnual&&(
             <div style={{overflowX:"auto",borderRadius:12,boxShadow:"0 1px 4px #0001"}}>
-              <table style={{width:"100%",borderCollapse:"collapse",background:"#fff"}}>
+              <table style={{width:"100%",borderCollapse:"collapse",background:C.card}}>
                 {encabezadoTabla}
                 <tbody>
                   <TablaFilas
@@ -3237,10 +3238,10 @@ Equipo Mediterra`);
   return (
     <AppErrorBoundary>
       {nuevaVersion&&(
-        <div style={{position:"fixed",bottom:20,right:20,zIndex:99999,background:"#1e293b",color:"#fff",padding:"12px 20px",borderRadius:12,boxShadow:"0 4px 20px #0004",display:"flex",alignItems:"center",gap:12,fontSize:13,fontFamily:"sans-serif"}}>
+        <div style={{position:"fixed",bottom:20,right:20,zIndex:99999,background:C.primary,color:C.primaryText,padding:"12px 20px",borderRadius:12,boxShadow:C.shadow,display:"flex",alignItems:"center",gap:12,fontSize:13,fontFamily:"sans-serif"}}>
           <span>🔄 Nueva versión disponible</span>
-          <button onClick={()=>window.location.reload()} style={{padding:"6px 16px",borderRadius:8,background:"#2563eb",color:"#fff",border:"none",cursor:"pointer",fontWeight:700,fontSize:12}}>Actualizar</button>
-          <button onClick={()=>setNuevaVersion(false)} style={{background:"none",border:"none",color:"#64748b",cursor:"pointer",fontSize:16}}>×</button>
+          <button onClick={()=>window.location.reload()} style={{padding:"6px 16px",borderRadius:8,background:C.primary,color:"#fff",border:"none",cursor:"pointer",fontWeight:700,fontSize:12}}>Actualizar</button>
+          <button onClick={()=>setNuevaVersion(false)} style={{background:"none",border:"none",color:C.muted,cursor:"pointer",fontSize:16}}>×</button>
         </div>
       )}
       <HubScreen

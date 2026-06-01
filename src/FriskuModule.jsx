@@ -12,16 +12,24 @@ import {
   buscarTC, formatearMonto,
   loadConSeed,
 } from "./friskuHelpers.js";
+import { theme } from "./theme";
 
 const SUPA_URL = "https://bywovqayuzodbzwsriet.supabase.co";
 const SUPA_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJ5d292cWF5dXpvZGJ6d3NyaWV0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU2ODU1MDgsImV4cCI6MjA5MTI2MTUwOH0.s2x2O_CxE6rl8dBqFuyfQdMyRqSyjJQWXJXesmVGXtk";
 
-// ── Paleta Frisku — Slate neutro ──
+// ── Paleta Frisku ──
+// Re-exporta los tokens del tema central + alias para preservar los
+// nombres usados en este módulo (blue, accent, teal). Cualquier cambio
+// de paleta se hace en src/theme.js.
 const C = {
-  bg:"#1e2533", bg2:"#263044", card:"#2d3a52", card2:"#334158", border:"#3d4f6e",
-  text:"#e2e8f0", muted:"#94a3b8", muted2:"#5a6a80",
-  blue:"#3b82f6", green:"#22c55e", yellow:"#f59e0b", accent:"#ef4444",
-  teal:"#14b8a6", purple:"#a855f7",
+  ...theme,
+  card2:  theme.cardAlt,    // alias histórico
+  blue:   theme.primary,    // botones/links principales
+  green:  theme.success,    // semáforos OK
+  yellow: theme.warning,    // semáforos warning
+  accent: theme.danger,     // CTAs destructivos / alerta (era #ef4444 rojo)
+  teal:   theme.accent2,    // badges teal
+  // purple ya viene del tema central
 };
 
 // ── Persistencia genérica para maestros ──
@@ -847,7 +855,7 @@ const btnSt = (color=C.blue, ghost=false) => ({
 
 function Card({children, title, icon}) {
   return (
-    <div style={{background:C.card, borderRadius:14, padding:18, border:`1px solid ${C.border}`}}>
+    <div style={{background:C.card, borderRadius:14, padding:18, border:`1px solid ${C.border}`, boxShadow:C.shadow}}>
       {title && (
         <div style={{display:"flex", alignItems:"center", gap:8, marginBottom:14, borderBottom:`1px solid ${C.border}`, paddingBottom:10}}>
           {icon && <span style={{fontSize:18}}>{icon}</span>}
@@ -1030,16 +1038,16 @@ function TablaMaestro({titulo, icono, datos, setDatos, columnas, defaultItem, ca
       <div style={{overflowX:"auto", borderRadius:8, border:`1px solid ${C.border}`}}>
         <table style={{borderCollapse:"collapse", width:"100%", fontSize:11, minWidth:600}}>
           <thead>
-            <tr style={{background:C.bg2}}>
+            <tr style={{background:C.primary}}>
               {columnas.map(c => (
                 <th key={c.key} style={{padding:"8px 10px", textAlign:c.align||"left",
-                  color:C.muted, fontWeight:700, fontSize:10, textTransform:"uppercase",
-                  letterSpacing:0.4, borderBottom:`2px solid ${C.border}`, whiteSpace:"nowrap"}}>
+                  color:C.primaryText, fontWeight:700, fontSize:10, textTransform:"uppercase",
+                  letterSpacing:0.4, whiteSpace:"nowrap"}}>
                   {c.label}
                 </th>
               ))}
               {canEdit && <th style={{padding:"8px 10px", textAlign:"center",
-                color:C.muted, fontWeight:700, fontSize:10, borderBottom:`2px solid ${C.border}`}}>Acciones</th>}
+                color:C.primaryText, fontWeight:700, fontSize:10}}>Acciones</th>}
             </tr>
           </thead>
           <tbody>
@@ -1076,7 +1084,7 @@ function TablaMaestro({titulo, icono, datos, setDatos, columnas, defaultItem, ca
               const id = item.codigo || item.id;
               const isEditing = editingId === id;
               return (
-                <tr key={id} style={{borderBottom:`1px solid ${C.border}22`, background:idx%2===0?"transparent":`${C.border}06`}}>
+                <tr key={id} style={{borderBottom:`1px solid ${C.border}22`, background:idx%2===0?C.card:C.rowAlt}}>
                   {columnas.map(c => (
                     <td key={c.key} style={{padding:"6px 10px", textAlign:c.align||"left", color:C.text, fontSize:11}}>
                       {isEditing ? (
@@ -1574,12 +1582,12 @@ function TipoCambioEditor({tcData, setTcData, monedas, canEdit}) {
       <div style={{overflowX:"auto", borderRadius:8, border:`1px solid ${C.border}`}}>
         <table style={{borderCollapse:"collapse", width:"100%", fontSize:11, minWidth:600}}>
           <thead>
-            <tr style={{background:C.bg2}}>
-              <th style={{padding:"8px 10px", textAlign:"left", color:C.muted, fontWeight:700, fontSize:10, borderBottom:`2px solid ${C.border}`}}>Par</th>
-              <th style={{padding:"8px 10px", textAlign:"left", color:C.muted, fontWeight:700, fontSize:10, borderBottom:`2px solid ${C.border}`}}>Fecha</th>
-              <th style={{padding:"8px 10px", textAlign:"right", color:C.muted, fontWeight:700, fontSize:10, borderBottom:`2px solid ${C.border}`}}>Valor</th>
-              <th style={{padding:"8px 10px", textAlign:"center", color:C.muted, fontWeight:700, fontSize:10, borderBottom:`2px solid ${C.border}`}}>Fuente</th>
-              {canEdit && <th style={{padding:"8px 10px", textAlign:"center", color:C.muted, fontWeight:700, fontSize:10, borderBottom:`2px solid ${C.border}`}}>Acciones</th>}
+            <tr style={{background:C.primary}}>
+              <th style={{padding:"8px 10px", textAlign:"left", color:C.primaryText, fontWeight:700, fontSize:10}}>Par</th>
+              <th style={{padding:"8px 10px", textAlign:"left", color:C.primaryText, fontWeight:700, fontSize:10}}>Fecha</th>
+              <th style={{padding:"8px 10px", textAlign:"right", color:C.primaryText, fontWeight:700, fontSize:10}}>Valor</th>
+              <th style={{padding:"8px 10px", textAlign:"center", color:C.primaryText, fontWeight:700, fontSize:10}}>Fuente</th>
+              {canEdit && <th style={{padding:"8px 10px", textAlign:"center", color:C.primaryText, fontWeight:700, fontSize:10}}>Acciones</th>}
             </tr>
           </thead>
           <tbody>
@@ -1588,11 +1596,11 @@ function TipoCambioEditor({tcData, setTcData, monedas, canEdit}) {
                 {filas.length ? "Sin resultados con esos filtros" : "Sin tasas cargadas. Click \"🔄 Actualizar hoy\" para empezar."}
               </td></tr>
             )}
-            {filasFiltradas.map(f => {
+            {filasFiltradas.map((f, idx) => {
               const key = `${f.par}__${f.fecha}`;
               const isEditing = editingKey === key;
               return (
-                <tr key={key} style={{borderBottom:`1px solid ${C.border}22`}}>
+                <tr key={key} style={{borderBottom:`1px solid ${C.border}22`, background:idx%2===0?C.card:C.rowAlt}}>
                   {isEditing ? (
                     <>
                       <td style={{padding:"6px 10px"}}>
@@ -2253,7 +2261,7 @@ export default function FriskuMaestrosModule({
                     <span style={{
                       fontSize:9, padding:"1px 6px", borderRadius:8,
                       background:tab===t.id ? C.blue : C.border,
-                      color:"#fff", fontWeight:700,
+                      color:tab===t.id ? "#fff" : C.muted, fontWeight:700,
                     }}>{t.count}</span>
                   </button>
                 ))}
