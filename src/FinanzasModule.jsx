@@ -11159,17 +11159,20 @@ async function dbLoadNominas(empresasPermitidas) {
 
 // Guarda nóminas: si migrado → upsert por empresa;
 // si no migrado → sobreescribe blob legacy.
-async function dbSaveNominas(nominas) {
+// Devuelve true si TODOS los upserts respondieron ok; false si alguno falló.
+// opts.keepalive=true permite que el request sobreviva a un beforeunload (flush en recarga/cierre).
+async function dbSaveNominas(nominas, opts={}) {
+  const keepalive = !!opts.keepalive;
   try {
     const migrado = await dbNominasMigrado();
     if (!migrado) {
-      await fetch(`${SUPA_URL}/rest/v1/calendario_data`,{
-        method:"POST",
+      const res = await fetch(`${SUPA_URL}/rest/v1/calendario_data`,{
+        method:"POST", keepalive,
         headers:{apikey:SUPA_KEY,Authorization:`Bearer ${SUPA_KEY}`,
           "Content-Type":"application/json",Prefer:"resolution=merge-duplicates"},
         body:JSON.stringify({id:"nominas",value:JSON.stringify({nominas}),updated_at:new Date().toISOString()})
       });
-      return;
+      return res.ok;
     }
     // v2: agrupar por empresa y upsert cada fila
     const grupos = {};
@@ -11177,10 +11180,10 @@ async function dbSaveNominas(nominas) {
       const emp = n.empresa;
       if (emp) { if (!grupos[emp]) grupos[emp]=[]; grupos[emp].push(n); }
     }
-    await Promise.all(Object.entries(grupos).map(([emp, noms]) => {
+    const resultados = await Promise.all(Object.entries(grupos).map(([emp, noms]) => {
       const slug = slugEmpresaNom(emp);
       return fetch(`${SUPA_URL}/rest/v1/calendario_data`,{
-        method:"POST",
+        method:"POST", keepalive,
         headers:{apikey:SUPA_KEY,Authorization:`Bearer ${SUPA_KEY}`,
           "Content-Type":"application/json",Prefer:"resolution=merge-duplicates"},
         body:JSON.stringify({
@@ -11190,7 +11193,8 @@ async function dbSaveNominas(nominas) {
         })
       });
     }));
-  } catch(e){console.error(e);}
+    return resultados.every(r=>r.ok);
+  } catch(e){console.error(e);return false;}
 }
 
 // ─────────────────────────────────────────────────────────────────
@@ -11579,7 +11583,7 @@ function PanelBancosNomina({empresa, saldosBancos}) {
 // ─────────────────────────────────────────────────────────────────
 // VISTA NÓMINA DETALLE
 // ─────────────────────────────────────────────────────────────────
-function NominaDetalle({nomina, onUpdate, onBack, usuario, canEdit, saldosBancos, nominasHermanas=[], onSwitchNomina, onCrearYAbrir, onCrearNueva}) {
+function NominaDetalle({nomina, onUpdate, onBack, usuario, canEdit, saldosBancos, nominasHermanas=[], onSwitchNomina, onCrearYAbrir, onCrearNueva, onAplazar}) {
   const nom = nomina;
   const esCFO = usuario?.rol==="admin" || usuario?.esCFO;
   const [soloVer, setSoloVer] = useState(false);
@@ -11606,12 +11610,21 @@ function NominaDetalle({nomina, onUpdate, onBack, usuario, canEdit, saldosBancos
         const itemNuevo = {...itemLimpio, id: `item_${Date.now()}_${Math.random().toString(36).slice(2,7)}`};
         // Quitar el item de la nómina actual
         const itemsSinAplazado = val.filter(it=>it.id !== aplazado.id);
-        onUpdate({...nom, items: itemsSinAplazado});
-        // Crear/agregar a la nómina de la semana destino
-        if(onCrearYAbrir) {
-          onCrearYAbrir(nom.empresa, semDest, nom.año, itemNuevo);
+        const nombreItem = aplazado.proveedor||aplazado.tipoDoc||"sin nombre";
+        // Guardado verificado: el padre mueve el item y persiste con await; el alert
+        // de éxito SOLO se muestra si Supabase confirmó el guardado (res.ok).
+        if(onAplazar) {
+          Promise.resolve(
+            onAplazar({nomOrigen: nom, itemsSinAplazado, empresa: nom.empresa, semDest, añoDest: nom.año, itemNuevo})
+          ).then(ok=>{
+            if(ok) alert(`✅ Item "${nombreItem}" aplazado a la semana ${semDest}.\nSe eliminó de esta nómina.`);
+            else   alert(`⚠️ No se pudo aplazar "${nombreItem}" a la semana ${semDest}.\nEl cambio NO se guardó. Revisa tu conexión y reintenta.`);
+          });
+        } else {
+          // Fallback legacy (no debería ocurrir si el padre pasa onAplazar)
+          onUpdate({...nom, items: itemsSinAplazado});
+          if(onCrearYAbrir) onCrearYAbrir(nom.empresa, semDest, nom.año, itemNuevo);
         }
-        alert(`✅ Item "${aplazado.proveedor||aplazado.tipoDoc}" aplazado a la semana ${semDest}.\nSe eliminó de esta nómina.`);
         return;
       }
     }
@@ -12771,12 +12784,37 @@ function NominasModule({usuario, canEdit=false, saldosBancos={}, empresasPermiti
 
   // Save (debounce 800ms) — dbSaveNominas agrupa por empresa en v2
   const saveTimer = useRef(null);
+  const pendingSaveRef = useRef(null); // última lista pendiente de guardar (para flush en recarga/cierre)
   function saveNominas(list) {
     clearTimeout(saveTimer.current);
+    pendingSaveRef.current = list;
     saveTimer.current = setTimeout(()=>{
+      saveTimer.current = null;
+      pendingSaveRef.current = null;
       dbSaveNominas(list);
     }, 800);
   }
+  // Fuerza el guardado pendiente del debounce (si lo hay) antes de recargar/cerrar/desmontar.
+  // keepalive=true permite que el request sobreviva al beforeunload.
+  function flushNominas(keepalive=false) {
+    if(saveTimer.current) {
+      clearTimeout(saveTimer.current);
+      saveTimer.current = null;
+      const list = pendingSaveRef.current;
+      pendingSaveRef.current = null;
+      if(list) dbSaveNominas(list, {keepalive});
+    }
+  }
+  // Flush ante recarga/cierre de pestaña (beforeunload) y ante desmontaje del módulo.
+  useEffect(()=>{
+    const onBeforeUnload = ()=>flushNominas(true);
+    window.addEventListener("beforeunload", onBeforeUnload);
+    return ()=>{
+      window.removeEventListener("beforeunload", onBeforeUnload);
+      flushNominas(false);
+    };
+  // eslint-disable-next-line
+  },[]);
 
   function updNomina(nom) {
     setNominas(prev=>{
@@ -12953,6 +12991,33 @@ function NominasModule({usuario, canEdit=false, saldosBancos={}, empresasPermiti
       }}
       onCrearNueva={(empresa, semana, año)=>{
         crearNomina(empresa, semana, año);
+      }}
+      onAplazar={async ({nomOrigen, itemsSinAplazado, empresa, semDest, añoDest, itemNuevo})=>{
+        // Mueve el item (quita de origen + agrega a destino) y persiste con await + verificación.
+        // Usa nominasRef.current (estado más reciente) para evitar lecturas obsoletas.
+        const prevList = nominasRef.current;
+        let base = prevList.map(n=> n.id===nomOrigen.id ? {...n, items: itemsSinAplazado} : n);
+        const dest = base.find(n=>n.empresa===empresa && n.semana===semDest && n.año===añoDest);
+        if(!dest) {
+          const nuevaDest = nominaVacia(empresa, semDest, añoDest);
+          nuevaDest.items.push(itemNuevo);
+          base = [...base, nuevaDest];
+        } else {
+          base = base.map(n=> n.id===dest.id ? {...n, items:[...(n.items||[]), itemNuevo]} : n);
+        }
+        // Cancelar cualquier guardado debounced pendiente para que no pise este guardado.
+        clearTimeout(saveTimer.current); saveTimer.current=null; pendingSaveRef.current=null;
+        setNominas(base);
+        const ok = await dbSaveNominas(base);
+        if(!ok) {
+          // Revertir el cambio local: el guardado no se confirmó.
+          setNominas(prevList);
+          return false;
+        }
+        window.auditLog&&window.auditLog("editar", {modulo:"finanzas", seccion:"nóminas",
+          descripcion:`Aplazó item "${itemNuevo.proveedor||itemNuevo.tipoDoc||"s/n"}" de ${empresa} S${nomOrigen.semana} → S${semDest}/${añoDest}`,
+          registroId:nomOrigen.id});
+        return true;
       }}
     />
   );
