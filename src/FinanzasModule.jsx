@@ -12998,12 +12998,29 @@ function NominasModule({usuario, canEdit=false, saldosBancos={}, empresasPermiti
         const prevList = nominasRef.current;
         let base = prevList.map(n=> n.id===nomOrigen.id ? {...n, items: itemsSinAplazado} : n);
         const dest = base.find(n=>n.empresa===empresa && n.semana===semDest && n.año===añoDest);
+        // PARTE B — Anti-huérfano de sección custom.
+        // Si el item pertenece a una sección personalizada (extra_XXX), su
+        // definición {id,label} vive solo en la nómina ORIGEN. Al mover el item
+        // hay que garantizar que la nómina DESTINO tenga esa sección en
+        // seccionesExtra; si no, el item queda huérfano e invisible en la UI.
+        // Ver audit/DIAGNOSTICO-FACTURAS-PERDIDAS.md.
+        let secDef = null;
+        if(typeof itemNuevo.seccion==="string" && itemNuevo.seccion.startsWith("extra_")) {
+          secDef = (nomOrigen.seccionesExtra||[]).find(s=>s.id===itemNuevo.seccion)
+                   || {id:itemNuevo.seccion, label:"Sección recuperada"};
+        }
         if(!dest) {
           const nuevaDest = nominaVacia(empresa, semDest, añoDest);
           nuevaDest.items.push(itemNuevo);
+          if(secDef) nuevaDest.seccionesExtra=[...(nuevaDest.seccionesExtra||[]), secDef];
           base = [...base, nuevaDest];
         } else {
-          base = base.map(n=> n.id===dest.id ? {...n, items:[...(n.items||[]), itemNuevo]} : n);
+          base = base.map(n=>{
+            if(n.id!==dest.id) return n;
+            let secs = n.seccionesExtra||[];
+            if(secDef && !secs.some(s=>s.id===secDef.id)) secs=[...secs, secDef];
+            return {...n, items:[...(n.items||[]), itemNuevo], seccionesExtra:secs};
+          });
         }
         // Cancelar cualquier guardado debounced pendiente para que no pise este guardado.
         clearTimeout(saveTimer.current); saveTimer.current=null; pendingSaveRef.current=null;
