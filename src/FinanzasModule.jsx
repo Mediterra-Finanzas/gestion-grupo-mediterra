@@ -1358,12 +1358,13 @@ function buildEmpresas(params, allegraComisionArandanos) {
 // ═══════════════════════════════════════════════════════════════════
 // Las 8 empresas existentes en el módulo Finanzas.
 export const EMPRESAS_KEYS_ALL = [
-  "Mediterra","Allegria Service","Allegria Foods","Frisku Foods",
+  "Mediterra","Allegria Service","Allegria Foods","Frisku Foods","Frisku Foods Perú",
   "Osiris","Integrity Farms","Allpa Farms","Allpa Farms Perú",
 ];
 // Empresas que entran al consolidado del grupo.
 // Allpa Farms Perú queda fuera por IAS 28 (método patrimonio).
-const EMPRESAS_KEYS_CONSOLIDADO = EMPRESAS_KEYS_ALL.filter(n => n !== "Allpa Farms Perú");
+// Frisku Foods Perú existe solo en Nóminas (no en el consolidado de Finanzas).
+const EMPRESAS_KEYS_CONSOLIDADO = EMPRESAS_KEYS_ALL.filter(n => n !== "Allpa Farms Perú" && n !== "Frisku Foods Perú");
 
 // Acceso completo a Finanzas si: admin, CFO, sin array (retrocompat),
 // array vacío, o array contiene TODAS las empresas del consolidado.
@@ -10978,7 +10979,7 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
 // ═══════════════════════════════════════════════════════════════════
 
 const EMPRESAS_NOM = [
-  "Allegria Foods","Allegria Service","Frisku Foods",
+  "Allegria Foods","Allegria Service","Frisku Foods","Frisku Foods Perú",
   "Allpa Farms","Allpa Farms Perú","Mediterra","Integrity Farms","Osiris",
 ];
 
@@ -11008,6 +11009,14 @@ const $$clp = (v) => {
 const $$usd = (v) => {
   return "USD " + Number(v).toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2});
 };
+const $$pen = (v) => {
+  return "S/" + Number(v).toLocaleString("es-CL",{minimumFractionDigits:2,maximumFractionDigits:2});
+};
+// Empresas peruanas capturan en PEN (en vez de CLP) sus secciones de moneda local.
+// Mismo criterio que PanelBancosNomina (bancos peruanos + PEN).
+function esEmpresaPeruanaNom(empresa) {
+  return !!empresa && empresa.includes("Perú");
+}
 
 function semanaISO(date) {
   const d = new Date(date);
@@ -11057,7 +11066,7 @@ function itemVacio(seccion) {
     id: `item_${Date.now()}_${Math.random().toString(36).slice(2,7)}`,
     seccion,
     tipoDoc:"", proveedor:"", rut:"", nDoc:"", fDoc:"", fVenc:"",
-    semVenc:"", concepto:"", montoCLP:0, montoUSD:0, comentario:"",
+    semVenc:"", concepto:"", montoCLP:0, montoUSD:0, montoPEN:0, comentario:"",
     pagado:false, anticipo:false,
   };
 }
@@ -11211,6 +11220,11 @@ function TablaItems({items, seccion, onChange, canEdit, tc, moneda="ambas", sema
   const rows = items.filter(it=>it.seccion===seccion);
   const soloUSD = moneda==="usd";
   const soloCLP = moneda==="clp";
+  const soloPEN = moneda==="pen";
+  // Columnas visibles. PEN sustituye la columna de moneda local (CLP) en empresas peruanas.
+  const showCLP = !soloUSD && !soloPEN;
+  const showUSD = !soloCLP && !soloPEN;
+  const showPEN = soloPEN;
 
   function updItem(id, field, val) {
     let updated = {...items.find(it=>it.id===id), [field]:val};
@@ -11236,6 +11250,7 @@ function TablaItems({items, seccion, onChange, canEdit, tc, moneda="ambas", sema
 
   const totalCLP = rows.reduce((s,it)=>s+(Number(it.montoCLP)||0),0);
   const totalUSD = rows.reduce((s,it)=>s+(Number(it.montoUSD)||0),0);
+  const totalPEN = rows.reduce((s,it)=>s+(Number(it.montoPEN)||0),0);
   const totalAnticipoCLP = rows.reduce((s,it)=>{
     if(Number(it.montoCLP) && !Number(it.montoUSD)) return s+(Number(it.anticipo)||0);
     return s;
@@ -11244,13 +11259,18 @@ function TablaItems({items, seccion, onChange, canEdit, tc, moneda="ambas", sema
     if(Number(it.montoUSD)) return s+(Number(it.anticipo)||0);
     return s;
   },0);
+  const totalAnticipoPEN = rows.reduce((s,it)=>{
+    if(Number(it.montoPEN) && !Number(it.montoUSD)) return s+(Number(it.anticipo)||0);
+    return s;
+  },0);
   const totalAnticipo = totalAnticipoCLP + totalAnticipoUSD;
   const totalSaldoCLP = totalCLP - totalAnticipoCLP;
   const totalSaldoUSD = totalUSD - totalAnticipoUSD;
+  const totalSaldoPEN = totalPEN - totalAnticipoPEN;
 
-  const montoLabel = soloUSD ? "Monto USD" : soloCLP ? "Monto CLP" : null;
+  const montoLabel = soloUSD ? "Monto USD" : soloPEN ? "Monto PEN" : soloCLP ? "Monto CLP" : null;
   const headers = ["Tipo Doc","Proveedor / Nombre","RUT","N° Doc","F. Doc","F. Venc","Sem","Concepto",
-    ...(soloUSD ? ["Monto USD"] : soloCLP ? ["Monto CLP"] : ["Monto CLP","Monto USD"]),
+    ...(soloUSD ? ["Monto USD"] : soloPEN ? ["Monto PEN"] : soloCLP ? ["Monto CLP"] : ["Monto CLP","Monto USD"]),
     "Anticipo","Saldo a Pagar","Comentario",""];
   const colSpanTotal = 8;
   const colSpanEnd = soloUSD||soloCLP ? 2 : 2;
@@ -11268,7 +11288,7 @@ function TablaItems({items, seccion, onChange, canEdit, tc, moneda="ambas", sema
             <tr style={{background:C.primary}}>
               {headers.map(h=>(
                 <th key={h} style={{padding:"6px 8px",color:C.muted,fontWeight:600,fontSize:10,
-                  textAlign:h==="Monto CLP"||h==="Monto USD"?"right":"left",
+                  textAlign:h==="Monto CLP"||h==="Monto USD"||h==="Monto PEN"?"right":"left",
                   whiteSpace:"nowrap",borderBottom:`1px solid ${C.border}`}}>{h}</th>
               ))}
             </tr>
@@ -11388,14 +11408,21 @@ function TablaItems({items, seccion, onChange, canEdit, tc, moneda="ambas", sema
                     ? <input value={it.concepto} onChange={e=>updItem(it.id,"concepto",e.target.value)} style={inputSt} placeholder="Descripción"/>
                     : <span style={{color:C.text}}>{it.concepto||"—"}</span>}
                 </td>
-                {!soloUSD&&(
+                {showCLP&&(
                 <td style={{padding:"3px 6px",minWidth:100,textAlign:"right"}}>
                   {canEdit
                     ? <input type="number" value={it.montoCLP||""} onChange={e=>updItem(it.id,"montoCLP",Number(e.target.value))} style={{...inputSt,textAlign:"right"}} placeholder="0"/>
                     : <span style={{color:it.montoCLP?C.text:C.muted2,fontWeight:it.montoCLP?600:400}}>{it.montoCLP?$$clp(it.montoCLP):"—"}</span>}
                 </td>
                 )}
-                {!soloCLP&&(
+                {showPEN&&(
+                <td style={{padding:"3px 6px",minWidth:100,textAlign:"right"}}>
+                  {canEdit
+                    ? <input type="number" value={it.montoPEN||""} onChange={e=>updItem(it.id,"montoPEN",Number(e.target.value))} style={{...inputSt,textAlign:"right"}} placeholder="0"/>
+                    : <span style={{color:it.montoPEN?"#f97316":C.muted2,fontWeight:it.montoPEN?600:400}}>{it.montoPEN?$$pen(it.montoPEN):"—"}</span>}
+                </td>
+                )}
+                {showUSD&&(
                 <td style={{padding:"3px 6px",minWidth:100,textAlign:"right"}}>
                   {canEdit
                     ? <input type="number" value={it.montoUSD||""} onChange={e=>updItem(it.id,"montoUSD",Number(e.target.value))} style={{...inputSt,textAlign:"right"}} placeholder="0"/>
@@ -11407,15 +11434,15 @@ function TablaItems({items, seccion, onChange, canEdit, tc, moneda="ambas", sema
                     ? <input type="number" value={it.anticipo||""} onChange={e=>updItem(it.id,"anticipo",Number(e.target.value)||0)}
                         style={{...inputSt,textAlign:"right",width:80}} placeholder="0"/>
                     : <span style={{fontSize:11,color:it.anticipo?C.yellow:C.muted2,fontWeight:it.anticipo?600:400}}>
-                        {it.anticipo?(soloUSD||(!soloUSD&&!soloCLP)?$$usd(it.anticipo):$$clp(it.anticipo)):"—"}
+                        {it.anticipo?(soloPEN?$$pen(it.anticipo):soloUSD||(!soloUSD&&!soloCLP)?$$usd(it.anticipo):$$clp(it.anticipo)):"—"}
                       </span>}
                 </td>
                 <td style={{padding:"3px 6px",textAlign:"right",minWidth:90}}>
                   {(()=>{
-                    const monto = soloUSD ? (Number(it.montoUSD)||0) : soloCLP ? (Number(it.montoCLP)||0) : (Number(it.montoUSD)||Number(it.montoCLP)||0);
+                    const monto = soloUSD ? (Number(it.montoUSD)||0) : soloPEN ? (Number(it.montoPEN)||0) : soloCLP ? (Number(it.montoCLP)||0) : (Number(it.montoUSD)||Number(it.montoCLP)||0);
                     const antic = Number(it.anticipo)||0;
                     const saldo = monto - antic;
-                    const fmt = soloUSD||(!soloUSD&&!soloCLP) ? $$usd : $$clp;
+                    const fmt = soloPEN ? $$pen : soloUSD||(!soloUSD&&!soloCLP) ? $$usd : $$clp;
                     return <span style={{fontWeight:700,fontSize:11,color:saldo>0?C.green:saldo<0?C.red:C.muted2}}>{saldo?fmt(saldo):"—"}</span>;
                   })()}
                 </td>
@@ -11460,29 +11487,38 @@ function TablaItems({items, seccion, onChange, canEdit, tc, moneda="ambas", sema
                 <td colSpan={8} style={{padding:"6px 10px",fontWeight:700,color:C.text,fontSize:11}}>
                   Total sección
                 </td>
-                {!soloUSD&&(
+                {showCLP&&(
                 <td style={{padding:"6px 8px",textAlign:"right",fontWeight:800,color:C.yellow,fontSize:12}}>
                   {totalCLP?$$clp(totalCLP):"—"}
                 </td>
                 )}
-                {!soloCLP&&(
+                {showPEN&&(
+                <td style={{padding:"6px 8px",textAlign:"right",fontWeight:800,color:"#f97316",fontSize:12}}>
+                  {totalPEN?$$pen(totalPEN):"—"}
+                </td>
+                )}
+                {showUSD&&(
                 <td style={{padding:"6px 8px",textAlign:"right",fontWeight:800,color:C.blue,fontSize:12}}>
                   {totalUSD?$$usd(totalUSD):"—"}
                 </td>
                 )}
                 <td style={{padding:"6px 8px",textAlign:"right",fontWeight:700,fontSize:11}}>
+                  {soloPEN&&totalAnticipoPEN?<span style={{color:"#f97316"}}>{$$pen(totalAnticipoPEN)}</span>:null}
+                  {soloPEN&&!totalAnticipoPEN?"—":null}
                   {soloCLP&&totalAnticipoCLP?<span style={{color:C.yellow}}>{$$clp(totalAnticipoCLP)}</span>:null}
                   {soloUSD&&totalAnticipoUSD?<span style={{color:C.blue}}>{$$usd(totalAnticipoUSD)}</span>:null}
-                  {!soloUSD&&!soloCLP?(
+                  {!soloUSD&&!soloCLP&&!soloPEN?(
                     <>{totalAnticipoCLP?<span style={{color:C.yellow}}>{$$clp(totalAnticipoCLP)}</span>:null}{totalAnticipoCLP&&totalAnticipoUSD?" / ":""}{totalAnticipoUSD?<span style={{color:C.blue}}>{$$usd(totalAnticipoUSD)}</span>:null}{!totalAnticipoCLP&&!totalAnticipoUSD?"—":""}</>
-                  ):(!totalAnticipoCLP&&!totalAnticipoUSD?"—":null)}
+                  ):(!soloPEN&&!totalAnticipoCLP&&!totalAnticipoUSD?"—":null)}
                 </td>
                 <td style={{padding:"6px 8px",textAlign:"right",fontWeight:800,fontSize:12}}>
+                  {soloPEN&&totalSaldoPEN?<span style={{color:C.green}}>{$$pen(totalSaldoPEN)}</span>:null}
+                  {soloPEN&&!totalSaldoPEN?"—":null}
                   {soloCLP&&totalSaldoCLP?<span style={{color:C.green}}>{$$clp(totalSaldoCLP)}</span>:null}
                   {soloUSD&&totalSaldoUSD?<span style={{color:C.green}}>{$$usd(totalSaldoUSD)}</span>:null}
-                  {!soloUSD&&!soloCLP?(
+                  {!soloUSD&&!soloCLP&&!soloPEN?(
                     <>{totalSaldoCLP?<span style={{color:C.green}}>{$$clp(totalSaldoCLP)}</span>:null}{totalSaldoCLP&&totalSaldoUSD?" / ":""}{totalSaldoUSD?<span style={{color:C.green}}>{$$usd(totalSaldoUSD)}</span>:null}{!totalSaldoCLP&&!totalSaldoUSD?"—":""}</>
-                  ):(!totalSaldoCLP&&!totalSaldoUSD?"—":null)}
+                  ):(!soloPEN&&!totalSaldoCLP&&!totalSaldoUSD?"—":null)}
                 </td>
                 <td colSpan={2}/>
               </tr>
@@ -11948,6 +11984,8 @@ function NominaDetalle({nomina, onUpdate, onBack, usuario, canEdit, saldosBancos
   const itemsValidos = nom.items.filter(it=>seccionesValidas.has(it.seccion));
   const totCLP = itemsValidos.reduce((s,it)=>s+(Number(it.montoCLP)||0),0);
   const totUSD = itemsValidos.reduce((s,it)=>s+(Number(it.montoUSD)||0),0);
+  const totPEN = itemsValidos.reduce((s,it)=>s+(Number(it.montoPEN)||0),0);
+  const nomEsPeruana = esEmpresaPeruanaNom(nom.empresa);
   // Descontar anticipos para mostrar el neto real a pagar
   const totAnticipoCLP = itemsValidos.reduce((s,it)=>{
     if(Number(it.montoCLP) && !Number(it.montoUSD)) return s+(Number(it.anticipo)||0);
@@ -11957,24 +11995,30 @@ function NominaDetalle({nomina, onUpdate, onBack, usuario, canEdit, saldosBancos
     if(Number(it.montoUSD)) return s+(Number(it.anticipo)||0);
     return s;
   },0);
+  const totAnticipoPEN = itemsValidos.reduce((s,it)=>{
+    if(Number(it.montoPEN) && !Number(it.montoUSD)) return s+(Number(it.anticipo)||0);
+    return s;
+  },0);
   const netoCLP = totCLP - totAnticipoCLP;
   const netoUSD = totUSD - totAnticipoUSD;
+  const netoPEN = totPEN - totAnticipoPEN;
 
   // Saldo bancos: tomar de saldosBancos reales (pestaña Saldos Bancos) para esta empresa
-  const {totBancosCLP, totBancosUSD} = React.useMemo(()=>{
-    if(!saldosBancos) return {totBancosCLP:0, totBancosUSD:0};
+  const {totBancosCLP, totBancosUSD, totBancosPEN} = React.useMemo(()=>{
+    if(!saldosBancos) return {totBancosCLP:0, totBancosUSD:0, totBancosPEN:0};
     const bancosChile = ["BCI","BICE","Security","Chile","Santander"];
     const bancosPeruana = ["Scotiabank Perú","BBVA Perú"];
     const esPeruana = nom.empresa.includes("Perú");
     const bancosList = esPeruana ? bancosPeruana : bancosChile;
-    let clp=0, usd=0;
+    let clp=0, usd=0, penTot=0;
     bancosList.forEach(banco=>{
       clp += Number(saldosBancos[`${nom.empresa}||${banco}||clp`]?.monto)||0;
       usd += Number(saldosBancos[`${nom.empresa}||${banco}||usd`]?.monto)||0;
       const pen = Number(saldosBancos[`${nom.empresa}||${banco}||pen`]?.monto)||0;
-      clp += pen;
+      // Empresa peruana: PEN va a su propia línea; chilena: se mantiene el comportamiento previo (suma a CLP).
+      if(esPeruana) penTot += pen; else clp += pen;
     });
-    return {totBancosCLP:clp, totBancosUSD:usd};
+    return {totBancosCLP:clp, totBancosUSD:usd, totBancosPEN:penTot};
   },[saldosBancos, nom.empresa]);
 
   // ── Lógica de autorización ──────────────────────────────
@@ -12206,12 +12250,19 @@ function NominaDetalle({nomina, onUpdate, onBack, usuario, canEdit, saldosBancos
           {/* Totales — visible en impresión */}
           <div style={{background:C.card2,borderRadius:10,padding:"12px 16px",border:`1px solid ${C.border}`}}>
             <div className="info-label" style={{fontSize:10,color:C.muted,fontWeight:600,marginBottom:8}}>TOTALES NÓMINA</div>
-            <div style={{display:"flex",justifyContent:"space-between",marginBottom:4}}>
+            {!nomEsPeruana&&<div style={{display:"flex",justifyContent:"space-between",marginBottom:4}}>
               <span style={{color:C.muted,fontSize:12}}>Total CLP</span>
               <span className="info-value" style={{fontWeight:800,fontSize:14,color:C.yellow}}>{netoCLP?$$clp(netoCLP):"—"}</span>
-            </div>
-            {totAnticipoCLP>0&&<div style={{display:"flex",justifyContent:"space-between",marginBottom:4}}>
+            </div>}
+            {!nomEsPeruana&&totAnticipoCLP>0&&<div style={{display:"flex",justifyContent:"space-between",marginBottom:4}}>
               <span style={{color:C.muted,fontSize:10}}>  (Bruto: {$$clp(totCLP)} - Anticipo: {$$clp(totAnticipoCLP)})</span>
+            </div>}
+            {nomEsPeruana&&<div style={{display:"flex",justifyContent:"space-between",marginBottom:4}}>
+              <span style={{color:C.muted,fontSize:12}}>Total PEN</span>
+              <span className="info-value" style={{fontWeight:800,fontSize:14,color:"#f97316"}}>{netoPEN?$$pen(netoPEN):"—"}</span>
+            </div>}
+            {nomEsPeruana&&totAnticipoPEN>0&&<div style={{display:"flex",justifyContent:"space-between",marginBottom:4}}>
+              <span style={{color:C.muted,fontSize:10}}>  (Bruto: {$$pen(totPEN)} - Anticipo: {$$pen(totAnticipoPEN)})</span>
             </div>}
             <div style={{display:"flex",justifyContent:"space-between",marginBottom:8}}>
               <span style={{color:C.muted,fontSize:12}}>Total USD</span>
@@ -12223,10 +12274,14 @@ function NominaDetalle({nomina, onUpdate, onBack, usuario, canEdit, saldosBancos
             {/* Saldo bancos: solo pantalla, no impresión */}
             <div className="nomina-kpis-header" style={{borderTop:`1px solid ${C.border}`,paddingTop:8,marginTop:4}}>
               <div style={{fontSize:10,color:C.muted,fontWeight:600,marginBottom:4}}>SALDO BANCOS</div>
-              <div style={{display:"flex",justifyContent:"space-between",marginBottom:2}}>
+              {!nomEsPeruana&&<div style={{display:"flex",justifyContent:"space-between",marginBottom:2}}>
                 <span style={{color:C.muted,fontSize:11}}>CLP</span>
                 <span style={{fontWeight:700,fontSize:12,color:C.yellow}}>{totBancosCLP?$$clp(totBancosCLP):"—"}</span>
-              </div>
+              </div>}
+              {nomEsPeruana&&<div style={{display:"flex",justifyContent:"space-between",marginBottom:2}}>
+                <span style={{color:C.muted,fontSize:11}}>PEN</span>
+                <span style={{fontWeight:700,fontSize:12,color:"#f97316"}}>{totBancosPEN?$$pen(totBancosPEN):"—"}</span>
+              </div>}
               <div style={{display:"flex",justifyContent:"space-between"}}>
                 <span style={{color:C.muted,fontSize:11}}>USD</span>
                 <span style={{fontWeight:700,fontSize:12,color:C.blue}}>{totBancosUSD?$$usd(totBancosUSD):"—"}</span>
@@ -12278,10 +12333,13 @@ function NominaDetalle({nomina, onUpdate, onBack, usuario, canEdit, saldosBancos
           if(!canEdit && !hasItems) return null;
           const esSecUSD = sec.id==="emp_rel_usd"||sec.id==="pagos_usd";
           const esSecCLP = !esSecUSD; // proveedores, anticipos, rendiciones, servipag, emp_rel_clp
-          const monedaSec = esSecUSD ? "usd" : "clp";
+          const esPeruana = esEmpresaPeruanaNom(nom.empresa);
+          // Empresa peruana: las secciones de moneda local se capturan en PEN, no CLP.
+          const monedaSec = esSecUSD ? "usd" : (esPeruana ? "pen" : "clp");
           const secItems = nom.items.filter(it=>it.seccion===sec.id);
           const secTotCLP = secItems.reduce((s,it)=>s+(Number(it.montoCLP)||0),0);
           const secTotUSD = secItems.reduce((s,it)=>s+(Number(it.montoUSD)||0),0);
+          const secTotPEN = secItems.reduce((s,it)=>s+(Number(it.montoPEN)||0),0);
           return (
             <div key={sec.id} style={{marginBottom:4}}>
               <div style={{display:"flex",alignItems:"center",gap:8,
@@ -12297,7 +12355,12 @@ function NominaDetalle({nomina, onUpdate, onBack, usuario, canEdit, saldosBancos
                 <span style={{fontSize:11,color:C.muted}}>
                   ({secItems.length} items)
                 </span>
-                {!esSecUSD&&(
+                {!esSecUSD&&esPeruana&&(
+                <span style={{marginLeft:"auto",fontWeight:700,fontSize:12,color:"#f97316"}}>
+                  {$$pen(secTotPEN)}
+                </span>
+                )}
+                {!esSecUSD&&!esPeruana&&(
                 <span style={{marginLeft:"auto",fontWeight:700,fontSize:12,color:C.yellow}}>
                   {$$clp(secTotCLP)}
                 </span>
@@ -12384,7 +12447,7 @@ function NominaDetalle({nomina, onUpdate, onBack, usuario, canEdit, saldosBancos
                 <th style={{width:"5%"}}>F. Venc</th>
                 <th style={{width:"2%"}}>S</th>
                 <th style={{width:"9%"}}>Concepto</th>
-                <th style={{width:"7%",textAlign:"right"}}>CLP</th>
+                <th style={{width:"7%",textAlign:"right"}}>{nomEsPeruana?"PEN":"CLP"}</th>
                 <th style={{width:"6%",textAlign:"right"}}>USD</th>
                 <th style={{width:"6%",textAlign:"right"}}>Anticipo</th>
                 <th style={{width:"7%",textAlign:"right"}}>Saldo</th>
@@ -12395,17 +12458,18 @@ function NominaDetalle({nomina, onUpdate, onBack, usuario, canEdit, saldosBancos
               {([...SECCIONES,...(nom.seccionesExtra||[])]).map(sec=>{
                 const secItems = nom.items.filter(it=>it.seccion===sec.id);
                 if(secItems.length === 0) return null;
-                const stCLP = secItems.reduce((s,it)=>s+(Number(it.montoCLP)||0),0);
+                const fmtLocal = nomEsPeruana ? $$pen : $$clp;
+                const stLocal = secItems.reduce((s,it)=>s+(Number(nomEsPeruana?it.montoPEN:it.montoCLP)||0),0);
                 const stUSD = secItems.reduce((s,it)=>s+(Number(it.montoUSD)||0),0);
-                const stAnticCLP = secItems.reduce((s,it)=>{
-                  if(Number(it.montoCLP) && !Number(it.montoUSD)) return s+(Number(it.anticipo)||0);
+                const stAnticLocal = secItems.reduce((s,it)=>{
+                  if(Number(nomEsPeruana?it.montoPEN:it.montoCLP) && !Number(it.montoUSD)) return s+(Number(it.anticipo)||0);
                   return s;
                 },0);
                 const stAnticUSD = secItems.reduce((s,it)=>{
                   if(Number(it.montoUSD)) return s+(Number(it.anticipo)||0);
                   return s;
                 },0);
-                const stSaldoCLP = stCLP - stAnticCLP;
+                const stSaldoLocal = stLocal - stAnticLocal;
                 const stSaldoUSD = stUSD - stAnticUSD;
                 return (
                   <React.Fragment key={sec.id}>
@@ -12413,12 +12477,12 @@ function NominaDetalle({nomina, onUpdate, onBack, usuario, canEdit, saldosBancos
                       <td colSpan={13}>{sec.label} ({secItems.length})</td>
                     </tr>
                     {secItems.map(it=>{
-                      const clp = Number(it.montoCLP)||0;
+                      const local = Number(nomEsPeruana?it.montoPEN:it.montoCLP)||0;
                       const usd = Number(it.montoUSD)||0;
                       const antic = Number(it.anticipo)||0;
-                      const monto = usd || clp;
+                      const monto = usd || local;
                       const saldo = monto - antic;
-                      const fmtItem = usd ? $$usd : $$clp;
+                      const fmtItem = usd ? $$usd : fmtLocal;
                       return (
                         <tr key={it.id}>
                           <td style={{fontSize:"6.5px"}}>{it.tipoDoc||"—"}</td>
@@ -12429,7 +12493,7 @@ function NominaDetalle({nomina, onUpdate, onBack, usuario, canEdit, saldosBancos
                           <td style={{fontSize:"6.5px"}}>{it.fVenc||"—"}</td>
                           <td style={{textAlign:"center"}}>{it.semVenc?`S${it.semVenc}`:"—"}</td>
                           <td style={{fontSize:"6.5px"}}>{it.concepto||"—"}</td>
-                          <td className="num">{clp?$$clp(clp):"—"}</td>
+                          <td className="num">{local?fmtLocal(local):"—"}</td>
                           <td className="num">{usd?$$usd(usd):"—"}</td>
                           <td className="num">{antic?fmtItem(antic):"—"}</td>
                           <td className="num" style={{fontWeight:600}}>{saldo?fmtItem(saldo):"—"}</td>
@@ -12439,10 +12503,10 @@ function NominaDetalle({nomina, onUpdate, onBack, usuario, canEdit, saldosBancos
                     })}
                     <tr className="subtotal-row">
                       <td colSpan={8} style={{textAlign:"right"}}>Subtotal</td>
-                      <td className="num">{stCLP?$$clp(stCLP):"—"}</td>
+                      <td className="num">{stLocal?fmtLocal(stLocal):"—"}</td>
                       <td className="num">{stUSD?$$usd(stUSD):"—"}</td>
-                      <td className="num">{stAnticCLP?$$clp(stAnticCLP):""}{stAnticCLP&&stAnticUSD?" / ":""}{stAnticUSD?$$usd(stAnticUSD):""}{!stAnticCLP&&!stAnticUSD?"—":""}</td>
-                      <td className="num" style={{fontWeight:700}}>{stSaldoCLP?$$clp(stSaldoCLP):""}{stSaldoCLP&&stSaldoUSD?" / ":""}{stSaldoUSD?$$usd(stSaldoUSD):""}{!stSaldoCLP&&!stSaldoUSD?"—":""}</td>
+                      <td className="num">{stAnticLocal?fmtLocal(stAnticLocal):""}{stAnticLocal&&stAnticUSD?" / ":""}{stAnticUSD?$$usd(stAnticUSD):""}{!stAnticLocal&&!stAnticUSD?"—":""}</td>
+                      <td className="num" style={{fontWeight:700}}>{stSaldoLocal?fmtLocal(stSaldoLocal):""}{stSaldoLocal&&stSaldoUSD?" / ":""}{stSaldoUSD?$$usd(stSaldoUSD):""}{!stSaldoLocal&&!stSaldoUSD?"—":""}</td>
                       <td></td>
                     </tr>
                   </React.Fragment>
@@ -12452,24 +12516,25 @@ function NominaDetalle({nomina, onUpdate, onBack, usuario, canEdit, saldosBancos
                 // Calcular anticipos separados por moneda (solo items con sección válida)
                 const _secValPrint = new Set([...SECCIONES,...(nom.seccionesExtra||[])].map(s=>s.id));
                 const _itemsValPrint = nom.items.filter(it=>_secValPrint.has(it.seccion));
-                const gAnticCLP = _itemsValPrint.reduce((s,it)=>{
-                  if(Number(it.montoCLP) && !Number(it.montoUSD)) return s+(Number(it.anticipo)||0);
+                const fmtLocalT = nomEsPeruana ? $$pen : $$clp;
+                const totLocal = nomEsPeruana ? totPEN : totCLP;
+                const gAnticLocal = _itemsValPrint.reduce((s,it)=>{
+                  if(Number(nomEsPeruana?it.montoPEN:it.montoCLP) && !Number(it.montoUSD)) return s+(Number(it.anticipo)||0);
                   return s;
                 },0);
                 const gAnticUSD = _itemsValPrint.reduce((s,it)=>{
                   if(Number(it.montoUSD)) return s+(Number(it.anticipo)||0);
                   return s;
                 },0);
-                const gSaldoCLP = totCLP - gAnticCLP;
+                const gSaldoLocal = totLocal - gAnticLocal;
                 const gSaldoUSD = totUSD - gAnticUSD;
-                const gAnticTotal = gAnticCLP + gAnticUSD;
                 return (
                   <tr className="total-row">
                     <td colSpan={8} style={{textAlign:"right"}}>TOTAL NÓMINA</td>
-                    <td className="num">{totCLP?$$clp(totCLP):"—"}</td>
+                    <td className="num">{totLocal?fmtLocalT(totLocal):"—"}</td>
                     <td className="num">{totUSD?$$usd(totUSD):"—"}</td>
-                    <td className="num">{gAnticCLP?$$clp(gAnticCLP):""}{gAnticCLP&&gAnticUSD?" / ":""}{gAnticUSD?$$usd(gAnticUSD):""}{!gAnticCLP&&!gAnticUSD?"—":""}</td>
-                    <td className="num" style={{fontWeight:800}}>{gSaldoCLP?$$clp(gSaldoCLP):""}{gSaldoCLP&&gSaldoUSD?" / ":""}{gSaldoUSD?$$usd(gSaldoUSD):""}{!gSaldoCLP&&!gSaldoUSD?"—":""}</td>
+                    <td className="num">{gAnticLocal?fmtLocalT(gAnticLocal):""}{gAnticLocal&&gAnticUSD?" / ":""}{gAnticUSD?$$usd(gAnticUSD):""}{!gAnticLocal&&!gAnticUSD?"—":""}</td>
+                    <td className="num" style={{fontWeight:800}}>{gSaldoLocal?fmtLocalT(gSaldoLocal):""}{gSaldoLocal&&gSaldoUSD?" / ":""}{gSaldoUSD?$$usd(gSaldoUSD):""}{!gSaldoLocal&&!gSaldoUSD?"—":""}</td>
                     <td></td>
                   </tr>
                 );
@@ -12514,6 +12579,14 @@ function sumNominaUSD(nom) {
   return nom.items
     .filter(it => seccionesValidas.has(it.seccion))
     .reduce((s,it) => s + (Number(it.montoUSD)||0), 0);
+}
+
+function sumNominaPEN(nom) {
+  if(!nom || !Array.isArray(nom.items)) return 0;
+  const seccionesValidas = new Set([...SECCIONES, ...(nom.seccionesExtra||[])].map(s=>s.id));
+  return nom.items
+    .filter(it => seccionesValidas.has(it.seccion))
+    .reduce((s,it) => s + (Number(it.montoPEN)||0), 0);
 }
 
 // ─────────────────────────────────────────────────────────────────
@@ -13154,8 +13227,9 @@ function NominasModule({usuario, canEdit=false, saldosBancos={}, empresasPermiti
           const noms = nominasAño.filter(n=>n.empresa===emp);
           const totCLP = noms.reduce((s,n)=>s+sumNominaCLP(n),0);
           const totUSD = noms.reduce((s,n)=>s+sumNominaUSD(n),0);
+          const totPEN = noms.reduce((s,n)=>s+sumNominaPEN(n),0);
           const cantNom = noms.length;
-          return {emp, totCLP, totUSD, cantNom, noms};
+          return {emp, totCLP, totUSD, totPEN, esPeruana:esEmpresaPeruanaNom(emp), cantNom, noms};
         }).filter(r=>r.cantNom>0);
 
         const grandTotCLP = resumenEmpresas.reduce((s,r)=>s+r.totCLP,0);
@@ -13180,7 +13254,7 @@ function NominasModule({usuario, canEdit=false, saldosBancos={}, empresasPermiti
                   <tr style={{background:C.primary}}>
                     <th style={{padding:"10px 14px",textAlign:"left",color:C.muted,fontWeight:700,fontSize:11}}>Empresa</th>
                     <th style={{padding:"10px 10px",textAlign:"center",color:C.muted,fontWeight:600,fontSize:11}}>Nóminas</th>
-                    <th style={{padding:"10px 10px",textAlign:"right",color:C.muted,fontWeight:600,fontSize:11}}>Total CLP</th>
+                    <th style={{padding:"10px 10px",textAlign:"right",color:C.muted,fontWeight:600,fontSize:11}}>Total CLP / PEN</th>
                     <th style={{padding:"10px 10px",textAlign:"right",color:C.muted,fontWeight:600,fontSize:11}}>Total USD</th>
                   </tr>
                 </thead>
@@ -13189,7 +13263,9 @@ function NominasModule({usuario, canEdit=false, saldosBancos={}, empresasPermiti
                     <tr key={r.emp} style={{borderBottom:`1px solid ${C.border}22`,background:i%2===0?"transparent":`${C.border}11`}}>
                       <td style={{padding:"10px 14px",fontWeight:600,color:C.text}}>{r.emp}</td>
                       <td style={{padding:"8px 10px",textAlign:"center",color:C.muted,fontSize:11}}>{r.cantNom}</td>
-                      <td style={{padding:"8px 10px",textAlign:"right",fontWeight:700,color:r.totCLP?C.yellow:C.muted2}}>{r.totCLP?$$clp(r.totCLP):"—"}</td>
+                      {r.esPeruana
+                        ? <td style={{padding:"8px 10px",textAlign:"right",fontWeight:700,color:r.totPEN?"#f97316":C.muted2}}>{r.totPEN?$$pen(r.totPEN):"—"}</td>
+                        : <td style={{padding:"8px 10px",textAlign:"right",fontWeight:700,color:r.totCLP?C.yellow:C.muted2}}>{r.totCLP?$$clp(r.totCLP):"—"}</td>}
                       <td style={{padding:"8px 10px",textAlign:"right",fontWeight:700,color:r.totUSD?C.blue:C.muted2}}>{r.totUSD?$$usd(r.totUSD):"—"}</td>
                     </tr>
                   ))}
