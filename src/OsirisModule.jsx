@@ -2621,6 +2621,436 @@ function GraficosPlantas({tpData,rpData}) {
 }
 
 // ══════════════════════════════════════════════════════════════════
+// PAGO A OBTENTORES
+// ══════════════════════════════════════════════════════════════════
+
+// Determina si un ingreso cobrado al cliente aplica a una regla del obtentor.
+// Matching: si la regla tiene especie/variedad vacío → aplica a todo.
+function ingresoMatchRegla(regla, especie, variedad) {
+  const espOk = !regla.especie || regla.especie.trim()==="" ||
+    (especie||"").toLowerCase().trim() === regla.especie.toLowerCase().trim();
+  const varOk = !regla.variedad || regla.variedad.trim()==="" ||
+    (variedad||"").toLowerCase().trim() === regla.variedad.toLowerCase().trim();
+  return espOk && varOk;
+}
+
+// Calcula el monto adeudado al obtentor por un ingreso cobrado al cliente.
+function calcMontoObtentor(regla, montoFact, nPlantas, ha) {
+  if(regla.tipoCalculo==="porcentaje")  return montoFact * (Number(regla.valor)||0) / 100;
+  if(regla.tipoCalculo==="usd_planta")  return (Number(nPlantas)||0) * (Number(regla.valor)||0);
+  if(regla.tipoCalculo==="usd_ha")      return (Number(ha)||0) * (Number(regla.valor)||0);
+  return 0;
+}
+
+// Construye el detalle de deuda de un obtentor a partir de los ingresos cobrados.
+function calcularDeudaObtentor(obt, ctData, feData, rpData, rcData) {
+  const reglas = obt.participacionIngresos || [];
+  if(reglas.length===0) return {deudaBruta:0, whtTotal:0, netoAPagar:0, items:[]};
+
+  // Mapa ctId → {especie, variedad}
+  const ctMap = {};
+  (ctData||[]).forEach(ct => { ctMap[ct.id] = { especie: ct.especie||"", variedad: ct.variedad||"" }; });
+
+  const items = [];
+
+  // Contract Fee
+  const reglasFC = reglas.filter(r=>r.tipoIngreso==="contract_fee");
+  if(reglasFC.length>0) {
+    (feData||[]).filter(r=>resolveEstadoCF(r)==="pagado").forEach(r=>{
+      const ct = ctMap[r.ctId] || {};
+      reglasFC.forEach(regla=>{
+        if(!ingresoMatchRegla(regla, ct.especie, ct.variedad)) return;
+        const montoBase = Number(r.montoUSD)||0;
+        const deuda = calcMontoObtentor(regla, montoBase, 0, 0);
+        if(deuda<=0) return;
+        const wht = deuda * (Number(regla.wht)||0)/100;
+        items.push({
+          tipo:"contract_fee", tipoLabel:"Contract Fee",
+          cliente:r.cliente, especie:ct.especie, variedad:ct.variedad,
+          montoFact:montoBase, deudaBruta:deuda, wht, neto:deuda-wht,
+          ingresoId:r.id, reglaId:regla.id,
+          descripcion:`Contract Fee — ${r.cliente} (${ct.especie||"—"})`,
+          fechaRef: r.fechaPago||"",
+        });
+      });
+    });
+  }
+
+  // Royalty Planta
+  const reglasRP = reglas.filter(r=>r.tipoIngreso==="royalty_planta");
+  if(reglasRP.length>0) {
+    (rpData||[]).filter(r=>resolveEstadoCF(r)==="pagado"||!!r.pagado).forEach(r=>{
+      const ct = ctMap[r.ctId] || {};
+      reglasRP.forEach(regla=>{
+        if(!ingresoMatchRegla(regla, ct.especie, ct.variedad)) return;
+        const montoBase = Number(r.montoFact)||0;
+        const nPlantas  = Number(r.nPlantas)||0;
+        const deuda = calcMontoObtentor(regla, montoBase, nPlantas, 0);
+        if(deuda<=0) return;
+        const wht = deuda * (Number(regla.wht)||0)/100;
+        items.push({
+          tipo:"royalty_planta", tipoLabel:"Royalty Planta",
+          cliente:r.cliente, especie:ct.especie, variedad:ct.variedad,
+          montoFact:montoBase, deudaBruta:deuda, wht, neto:deuda-wht,
+          ingresoId:r.id, reglaId:regla.id,
+          descripcion:`Royalty Planta — ${r.cliente} (${r.descripcionCuota||""}) — ${ct.especie||"—"}`,
+          fechaRef: r.fechaPago||"",
+        });
+      });
+    });
+  }
+
+  // Royalty Comercial
+  const reglasRC = reglas.filter(r=>r.tipoIngreso==="royalty_comercial");
+  if(reglasRC.length>0) {
+    (rcData||[]).filter(r=>resolveEstadoCF(r)==="pagado"||!!r.pagado).forEach(r=>{
+      const ct = ctMap[r.ctId] || {};
+      reglasRC.forEach(regla=>{
+        if(!ingresoMatchRegla(regla, ct.especie, ct.variedad)) return;
+        const montoBase = Number(r.montoFact)||0;
+        const ha        = Number(r.ha)||0;
+        const deuda = calcMontoObtentor(regla, montoBase, 0, ha);
+        if(deuda<=0) return;
+        const wht = deuda * (Number(regla.wht)||0)/100;
+        items.push({
+          tipo:"royalty_comercial", tipoLabel:"Royalty Comercial",
+          cliente:r.cliente, especie:ct.especie, variedad:ct.variedad,
+          montoFact:montoBase, deudaBruta:deuda, wht, neto:deuda-wht,
+          ingresoId:r.id, reglaId:regla.id,
+          descripcion:`Royalty Comercial — ${r.cliente} ${r.añoCobro||""} T${r.trimCobro||""} — ${ct.especie||"—"}`,
+          fechaRef: r.fechaPago||"",
+        });
+      });
+    });
+  }
+
+  const deudaBruta = items.reduce((s,x)=>s+x.deudaBruta,0);
+  const whtTotal   = items.reduce((s,x)=>s+x.wht,0);
+  const netoAPagar = deudaBruta - whtTotal;
+  return { deudaBruta, whtTotal, netoAPagar, items };
+}
+
+function PagoObtentores({obtentoresData, ctData, feData, rpData, rcData, pagosData, setPagos, can}) {
+  const [vistaDetalle, setVistaDetalle] = useState(null); // obtentorId seleccionado para detalle
+  const [modal, setModal] = useState(false);
+  const [form, setForm] = useState({
+    obtentorId:"", concepto:"", fecha:new Date().toISOString().slice(0,10),
+    monto:0, wht:0, nFact:"", observaciones:"", estado:"por_pagar",
+  });
+
+  // Calcular deuda por obtentor
+  const resumenObtentores = useMemo(()=>{
+    return (obtentoresData||[]).map(obt=>{
+      const {deudaBruta, whtTotal, netoAPagar, items} = calcularDeudaObtentor(obt, ctData, feData, rpData, rcData);
+      // Ya pagado: sum pagos registrados a este obtentor
+      const pagosObt = (pagosData||[]).filter(p=>p.obtentorId===obt.id);
+      const yaPagado  = pagosObt.filter(p=>p.estado==="pagado").reduce((s,p)=>s+(Number(p.monto)||0),0);
+      const saldo     = netoAPagar - yaPagado;
+      return { obt, deudaBruta, whtTotal, netoAPagar, yaPagado, saldo, items, pagosObt };
+    }).filter(x=>x.deudaBruta>0||x.pagosObt.length>0); // solo obtentores con actividad
+  },[obtentoresData,ctData,feData,rpData,rcData,pagosData]);
+
+  const COLOR_TIPO = {contract_fee:"#f59e0b",royalty_planta:C.success,royalty_comercial:C.primary};
+
+  function guardarPago(){
+    if(!form.obtentorId){alert("Selecciona un obtentor.");return;}
+    if(!form.monto||isNaN(form.monto)){alert("Ingresa el monto.");return;}
+    const np={...form, id:`po_${Date.now()}`, monto:parseFloat(form.monto)||0, wht:parseFloat(form.wht)||0};
+    setPagos(prev=>[...prev,np]);
+    window.auditLog&&window.auditLog("crear",{modulo:"osiris",seccion:"Pago Obtentores",
+      descripcion:`Registró pago al obtentor "${(obtentoresData||[]).find(o=>o.id===form.obtentorId)?.obtentor||form.obtentorId}": $${np.monto}`,registroId:np.id});
+    setModal(false);
+    setForm({obtentorId:"",concepto:"",fecha:new Date().toISOString().slice(0,10),monto:0,wht:0,nFact:"",observaciones:"",estado:"por_pagar"});
+  }
+
+  const detalle = vistaDetalle ? resumenObtentores.find(x=>x.obt.id===vistaDetalle) : null;
+
+  return (
+    <div>
+      <div style={{background:"#e0f2fe",border:"1px solid #7dd3fc",borderRadius:10,padding:"8px 14px",marginBottom:16,fontSize:12,color:"#0369a1"}}>
+        💡 <strong>Base de cálculo:</strong> % del obtentor se aplica sobre el <strong>monto facturado al cliente</strong> (bruto). El cliente paga neto (descontado WHT cliente), pero al obtentor se le debe sobre el bruto.
+      </div>
+
+      {detalle?(
+        /* ── Vista detalle de un obtentor ── */
+        <div>
+          <button onClick={()=>setVistaDetalle(null)}
+            style={{background:C.cardAlt,border:`1px solid ${C.border}`,borderRadius:8,padding:"6px 14px",cursor:"pointer",fontSize:12,marginBottom:16}}>
+            ← Volver al resumen
+          </button>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
+            <div>
+              <div style={{fontSize:16,fontWeight:800,color:C.text}}>{detalle.obt.obtentor}</div>
+              <div style={{fontSize:11,color:C.muted}}>{detalle.obt.pais}</div>
+            </div>
+            <div style={{display:"flex",gap:10}}>
+              {[
+                [$$(detalle.deudaBruta),"Deuda bruta","#f59e0b","#fef9c3"],
+                [$$(detalle.whtTotal),"WHT retenido",C.danger,C.dangerBg],
+                [$$(detalle.netoAPagar),"Neto a pagar","#0891b2","#e0f2fe"],
+                [$$(detalle.yaPagado),  "Ya pagado",   C.success,C.successBg],
+                [$$(Math.max(0,detalle.saldo)),"Saldo pendiente",detalle.saldo>0?C.danger:C.success,detalle.saldo>0?C.dangerBg:C.successBg],
+              ].map(([v,l,c,bg])=>(
+                <div key={l} style={{background:bg,borderRadius:10,padding:"8px 14px",textAlign:"center",minWidth:110}}>
+                  <div style={{fontSize:10,color:c,fontWeight:600}}>{l}</div>
+                  <div style={{fontSize:16,fontWeight:800,color:c}}>{v}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Tabla items de deuda */}
+          <div style={{fontWeight:700,color:C.text,marginBottom:8,fontSize:13}}>Detalle de deuda generada</div>
+          <div style={{overflowX:"auto",marginBottom:20}}>
+            <table style={{width:"100%",borderCollapse:"collapse",fontSize:11,background:C.card,borderRadius:10,overflow:"hidden"}}>
+              <thead><tr style={{background:"#0891b2",color:"#fff"}}>
+                {["Tipo","Cliente","Especie","Variedad","Mto. Facturado","Deuda bruta","WHT obt.","Neto obt.","Fecha ref."].map(h=>(
+                  <th key={h} style={{padding:"7px 10px",textAlign:"left",fontWeight:700,fontSize:10}}>{h}</th>
+                ))}
+              </tr></thead>
+              <tbody>
+                {detalle.items.map((it,i)=>(
+                  <tr key={`${it.ingresoId}_${it.reglaId}`} style={{borderBottom:"1px solid #f1f5f9",background:i%2?"#f8fafc":"#fff"}}>
+                    <td style={{padding:"6px 10px"}}>
+                      <span style={{background:COLOR_TIPO[it.tipo]+"22",color:COLOR_TIPO[it.tipo],borderRadius:20,padding:"2px 8px",fontSize:10,fontWeight:700}}>{it.tipoLabel}</span>
+                    </td>
+                    <td style={{padding:"6px 10px",fontWeight:600,fontSize:11}}>{it.cliente}</td>
+                    <td style={{padding:"6px 10px",fontSize:11,color:C.gris}}>{it.especie||"—"}</td>
+                    <td style={{padding:"6px 10px",fontSize:11,color:C.gris}}>{it.variedad||"—"}</td>
+                    <td style={{padding:"6px 10px",textAlign:"right",fontWeight:600}}>{$$(it.montoFact)}</td>
+                    <td style={{padding:"6px 10px",textAlign:"right",fontWeight:700,color:"#f59e0b"}}>{$$(it.deudaBruta)}</td>
+                    <td style={{padding:"6px 10px",textAlign:"right",color:C.danger}}>{it.wht>0?$$(it.wht):"—"}</td>
+                    <td style={{padding:"6px 10px",textAlign:"right",fontWeight:700,color:"#0891b2"}}>{$$(it.neto)}</td>
+                    <td style={{padding:"6px 10px",fontSize:11,color:C.muted}}>{it.fechaRef||"—"}</td>
+                  </tr>
+                ))}
+                {detalle.items.length===0&&(
+                  <tr><td colSpan={9} style={{padding:24,textAlign:"center",color:C.muted,fontSize:12}}>
+                    Sin ingresos cobrados al cliente que generen deuda con este obtentor todavía.
+                  </td></tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+
+          {/* Pagos registrados */}
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+            <div style={{fontWeight:700,color:C.text,fontSize:13}}>Pagos registrados a {detalle.obt.obtentor}</div>
+            {can&&<button onClick={()=>{setForm(p=>({...p,obtentorId:detalle.obt.id}));setModal(true);}}
+              style={{background:"#0891b2",border:"none",borderRadius:8,padding:"6px 14px",cursor:"pointer",fontSize:12,color:"#fff",fontWeight:700}}>
+              + Registrar pago
+            </button>}
+          </div>
+          <div style={{overflowX:"auto"}}>
+            <table style={{width:"100%",borderCollapse:"collapse",fontSize:11,background:C.card,borderRadius:10,overflow:"hidden"}}>
+              <thead><tr style={{background:C.primary,color:C.primaryText}}>
+                {["Fecha","Concepto","Monto bruto","WHT","Neto pagado","N° Fact. obtentor","Estado",""].map(h=>(
+                  <th key={h} style={{padding:"7px 10px",textAlign:"left",fontWeight:700,fontSize:10}}>{h}</th>
+                ))}
+              </tr></thead>
+              <tbody>
+                {detalle.pagosObt.map((p,i)=>(
+                  <tr key={p.id} style={{borderBottom:"1px solid #f1f5f9",background:i%2?"#f8fafc":"#fff"}}>
+                    <td style={{padding:"6px 10px"}}>{p.fecha||"—"}</td>
+                    <td style={{padding:"6px 10px",fontWeight:600}}>{p.concepto||"—"}</td>
+                    <td style={{padding:"6px 10px",textAlign:"right",fontWeight:700}}>{$$(p.monto)}</td>
+                    <td style={{padding:"6px 10px",textAlign:"right",color:C.danger}}>{(p.wht>0)?$$(p.wht):"—"}</td>
+                    <td style={{padding:"6px 10px",textAlign:"right",fontWeight:700,color:"#0891b2"}}>{$$((Number(p.monto)||0)-(Number(p.wht)||0))}</td>
+                    <td style={{padding:"6px 10px"}}>{p.nFact||"—"}</td>
+                    <td style={{padding:"6px 10px"}}>
+                      {can?(
+                        <select value={p.estado||"por_pagar"} onChange={e=>{
+                          setPagos(prev=>prev.map(x=>x.id===p.id?{...x,estado:e.target.value}:x));
+                        }} style={{padding:"3px 8px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:11,
+                          background:p.estado==="pagado"?C.successBg:C.warningBg,
+                          color:p.estado==="pagado"?C.success:C.warning}}>
+                          <option value="por_pagar">⏳ Por pagar</option>
+                          <option value="pagado">✅ Pagado</option>
+                        </select>
+                      ):(
+                        <span style={{background:p.estado==="pagado"?C.successBg:C.warningBg,
+                          color:p.estado==="pagado"?C.success:C.warning,
+                          borderRadius:20,padding:"2px 8px",fontSize:10,fontWeight:700}}>
+                          {p.estado==="pagado"?"✅ Pagado":"⏳ Por pagar"}
+                        </span>
+                      )}
+                    </td>
+                    <td style={{padding:"6px 10px"}}>
+                      {can&&<button onClick={()=>{
+                        if(!window.confirm("¿Eliminar pago?"))return;
+                        setPagos(prev=>prev.filter(x=>x.id!==p.id));
+                      }} style={{background:C.dangerBg,border:"none",borderRadius:6,padding:"3px 8px",cursor:"pointer",fontSize:10,color:C.danger}}>×</button>}
+                    </td>
+                  </tr>
+                ))}
+                {detalle.pagosObt.length===0&&(
+                  <tr><td colSpan={8} style={{padding:24,textAlign:"center",color:C.muted,fontSize:12}}>Sin pagos registrados.</td></tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      ):(
+        /* ── Vista resumen por obtentor ── */
+        <div>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
+            <div style={{fontSize:13,color:C.muted}}>
+              {resumenObtentores.length===0
+                ? "Ningún obtentor tiene reglas de participación configuradas aún."
+                : `${resumenObtentores.length} obtentores con actividad`}
+            </div>
+            {can&&<button onClick={()=>{setForm({obtentorId:"",concepto:"",fecha:new Date().toISOString().slice(0,10),monto:0,wht:0,nFact:"",observaciones:"",estado:"por_pagar"});setModal(true);}}
+              style={{background:"#0891b2",border:"none",borderRadius:8,padding:"7px 16px",cursor:"pointer",fontSize:12,color:"#fff",fontWeight:700}}>
+              + Registrar pago
+            </button>}
+          </div>
+
+          {resumenObtentores.length===0?(
+            <div style={{padding:40,textAlign:"center",color:C.muted,border:"1px dashed #e2e8f0",borderRadius:12}}>
+              <div style={{fontSize:32,marginBottom:8}}>💳</div>
+              <div style={{fontWeight:600,marginBottom:4}}>Sin actividad registrada</div>
+              <div style={{fontSize:12}}>Configura las reglas de participación en los contratos de obtentores (tab Royalties → "Participación en Ingresos") y marca ingresos de clientes como Pagado.</div>
+            </div>
+          ):(
+            <div style={{overflowX:"auto"}}>
+              <table style={{width:"100%",borderCollapse:"collapse",background:C.card,borderRadius:12,overflow:"hidden",boxShadow:"0 1px 6px #0001"}}>
+                <thead><tr style={{background:"#0891b2",color:"#fff"}}>
+                  {["Obtentor","País","Deuda bruta","WHT retenido","Neto a pagar","Ya pagado","Saldo pendiente",""].map(h=>(
+                    <th key={h} style={{padding:"10px 14px",textAlign:"left",fontSize:11,fontWeight:700}}>{h}</th>
+                  ))}
+                </tr></thead>
+                <tbody>
+                  {resumenObtentores.map((row,i)=>(
+                    <tr key={row.obt.id} style={{borderBottom:"1px solid #f1f5f9",background:i%2?"#f8fafc":"#fff",cursor:"pointer"}}
+                      onClick={()=>setVistaDetalle(row.obt.id)}>
+                      <td style={{padding:"10px 14px",fontWeight:700}}>{row.obt.obtentor}</td>
+                      <td style={{padding:"10px 14px",fontSize:12,color:C.gris}}>{row.obt.pais}</td>
+                      <td style={{padding:"10px 14px",textAlign:"right",fontWeight:600,color:"#f59e0b"}}>{$$(row.deudaBruta)}</td>
+                      <td style={{padding:"10px 14px",textAlign:"right",color:C.danger}}>{row.whtTotal>0?$$(row.whtTotal):"—"}</td>
+                      <td style={{padding:"10px 14px",textAlign:"right",fontWeight:700,color:"#0891b2"}}>{$$(row.netoAPagar)}</td>
+                      <td style={{padding:"10px 14px",textAlign:"right",color:C.success,fontWeight:600}}>{row.yaPagado>0?$$(row.yaPagado):"—"}</td>
+                      <td style={{padding:"10px 14px",textAlign:"right"}}>
+                        <span style={{background:row.saldo>0?C.dangerBg:C.successBg,color:row.saldo>0?C.danger:C.success,
+                          borderRadius:20,padding:"3px 12px",fontWeight:800,fontSize:12,whiteSpace:"nowrap"}}>
+                          {row.saldo>0?$$(row.saldo):"✅ Al día"}
+                        </span>
+                      </td>
+                      <td style={{padding:"10px 14px"}}>
+                        <span style={{fontSize:11,color:"#0891b2",fontWeight:600}}>Ver detalle →</span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {/* Todos los pagos registrados */}
+          {(pagosData||[]).length>0&&(
+            <div style={{marginTop:24}}>
+              <div style={{fontWeight:700,color:C.text,marginBottom:10,fontSize:13}}>Todos los pagos registrados</div>
+              <div style={{overflowX:"auto"}}>
+                <table style={{width:"100%",borderCollapse:"collapse",fontSize:11,background:C.card,borderRadius:10,overflow:"hidden"}}>
+                  <thead><tr style={{background:C.primary,color:C.primaryText}}>
+                    {["Fecha","Obtentor","Concepto","Monto bruto","WHT","Neto","N° Fact.","Estado"].map(h=>(
+                      <th key={h} style={{padding:"7px 10px",textAlign:"left",fontWeight:700,fontSize:10}}>{h}</th>
+                    ))}
+                  </tr></thead>
+                  <tbody>
+                    {[...(pagosData||[])].sort((a,b)=>(b.fecha||"").localeCompare(a.fecha||"")).map((p,i)=>{
+                      const obt=(obtentoresData||[]).find(o=>o.id===p.obtentorId);
+                      return(
+                        <tr key={p.id} style={{borderBottom:"1px solid #f1f5f9",background:i%2?"#f8fafc":"#fff"}}>
+                          <td style={{padding:"6px 10px"}}>{p.fecha||"—"}</td>
+                          <td style={{padding:"6px 10px",fontWeight:600}}>{obt?.obtentor||p.obtentorId}</td>
+                          <td style={{padding:"6px 10px"}}>{p.concepto||"—"}</td>
+                          <td style={{padding:"6px 10px",textAlign:"right",fontWeight:700}}>{$$(p.monto)}</td>
+                          <td style={{padding:"6px 10px",textAlign:"right",color:C.danger}}>{p.wht>0?$$(p.wht):"—"}</td>
+                          <td style={{padding:"6px 10px",textAlign:"right",fontWeight:700,color:"#0891b2"}}>{$$((Number(p.monto)||0)-(Number(p.wht)||0))}</td>
+                          <td style={{padding:"6px 10px"}}>{p.nFact||"—"}</td>
+                          <td style={{padding:"6px 10px"}}>
+                            <span style={{background:p.estado==="pagado"?C.successBg:C.warningBg,
+                              color:p.estado==="pagado"?C.success:C.warning,
+                              borderRadius:20,padding:"2px 8px",fontSize:10,fontWeight:700}}>
+                              {p.estado==="pagado"?"✅ Pagado":"⏳ Por pagar"}
+                            </span>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Modal: registrar pago */}
+      {modal&&(
+        <div style={{position:"fixed",inset:0,background:"#0006",zIndex:400,display:"flex",alignItems:"center",justifyContent:"center"}}>
+          <div style={{background:C.card,borderRadius:16,padding:28,width:500,maxWidth:"94vw",boxShadow:"0 8px 32px #0003"}}>
+            <h3 style={{margin:"0 0 16px",color:"#0891b2"}}>💳 Registrar pago a obtentor</h3>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+              <div style={{gridColumn:"1/-1"}}>
+                <label style={{fontSize:11,fontWeight:600,color:C.muted,display:"block",marginBottom:4}}>Obtentor *</label>
+                <select value={form.obtentorId||""} onChange={e=>setForm(p=>({...p,obtentorId:e.target.value}))}
+                  style={{width:"100%",padding:"8px 12px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:13,boxSizing:"border-box"}}>
+                  <option value="">— Seleccionar obtentor —</option>
+                  {(obtentoresData||[]).map(o=><option key={o.id} value={o.id}>{o.obtentor} ({o.pais})</option>)}
+                </select>
+              </div>
+              <div style={{gridColumn:"1/-1"}}>
+                <label style={{fontSize:11,fontWeight:600,color:C.muted,display:"block",marginBottom:4}}>Concepto</label>
+                <input value={form.concepto||""} onChange={e=>setForm(p=>({...p,concepto:e.target.value}))} placeholder="Ej: Royalty Planta 2025 — Cereza"
+                  style={{width:"100%",padding:"8px 12px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:13,boxSizing:"border-box"}}/>
+              </div>
+              {[["Fecha pago","fecha","date"],["N° Factura obtentor","nFact","text"]].map(([l,c,t])=>(
+                <div key={c}>
+                  <label style={{fontSize:11,fontWeight:600,color:C.muted,display:"block",marginBottom:4}}>{l}</label>
+                  <input type={t} value={form[c]||""} onChange={e=>setForm(p=>({...p,[c]:e.target.value}))}
+                    style={{width:"100%",padding:"8px 12px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:13,boxSizing:"border-box"}}/>
+                </div>
+              ))}
+              <div>
+                <label style={{fontSize:11,fontWeight:600,color:C.muted,display:"block",marginBottom:4}}>Monto bruto (USD) *</label>
+                <input type="number" step="0.01" value={form.monto||""} onChange={e=>setForm(p=>({...p,monto:e.target.value}))}
+                  style={{width:"100%",padding:"8px 12px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:13,boxSizing:"border-box"}}/>
+              </div>
+              <div>
+                <label style={{fontSize:11,fontWeight:600,color:C.muted,display:"block",marginBottom:4}}>WHT retenido (USD)</label>
+                <input type="number" step="0.01" value={form.wht||""} onChange={e=>setForm(p=>({...p,wht:e.target.value}))}
+                  style={{width:"100%",padding:"8px 12px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:13,boxSizing:"border-box"}}/>
+                {form.monto>0&&<div style={{fontSize:10,color:C.muted,marginTop:3}}>Neto: {$$(parseFloat(form.monto||0)-parseFloat(form.wht||0))}</div>}
+              </div>
+              <div style={{gridColumn:"1/-1"}}>
+                <label style={{fontSize:11,fontWeight:600,color:C.muted,display:"block",marginBottom:4}}>Estado</label>
+                <select value={form.estado||"por_pagar"} onChange={e=>setForm(p=>({...p,estado:e.target.value}))}
+                  style={{width:"100%",padding:"8px 12px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:13,boxSizing:"border-box"}}>
+                  <option value="por_pagar">⏳ Por pagar</option>
+                  <option value="pagado">✅ Pagado</option>
+                </select>
+              </div>
+              <div style={{gridColumn:"1/-1"}}>
+                <label style={{fontSize:11,fontWeight:600,color:C.muted,display:"block",marginBottom:4}}>Observaciones</label>
+                <textarea value={form.observaciones||""} onChange={e=>setForm(p=>({...p,observaciones:e.target.value}))} rows={2}
+                  style={{width:"100%",padding:"8px 12px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:12,boxSizing:"border-box",resize:"vertical"}}/>
+              </div>
+            </div>
+            <div style={{display:"flex",gap:10,marginTop:18,justifyContent:"flex-end"}}>
+              <button onClick={()=>setModal(false)}
+                style={{padding:"8px 20px",borderRadius:8,border:`1px solid ${C.border}`,background:C.card,cursor:"pointer",fontSize:13}}>Cancelar</button>
+              <button onClick={guardarPago}
+                style={{padding:"8px 20px",borderRadius:8,border:"none",background:"#0891b2",color:"#fff",cursor:"pointer",fontSize:13,fontWeight:700}}>Guardar pago</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ══════════════════════════════════════════════════════════════════
 // RECONCILIACIÓN IQ — 70% de lo facturado (FE + RP + RC)
 // ══════════════════════════════════════════════════════════════════
 function ReconciliacionIQ({rpData, feData, rcData, tpData}) {
@@ -8070,6 +8500,12 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
 
   const fvData  = useMemo(()=>(osirisData?.feeViveros??[]).filter(r=>!r.tpId||tpIds.has(r.tpId)),[osirisData,tpIds]);
 
+  // Pagos a obtentores
+  const pagosObtentor = useMemo(()=>Array.isArray(osirisData?.pagosObtentor)?osirisData.pagosObtentor:[], [osirisData]);
+  const setPagosObtentor = useCallback((updater)=>{
+    setOsirisData(prev=>({...prev, pagosObtentor: typeof updater==="function"?updater(prev?.pagosObtentor||[]):updater}));
+  },[setOsirisData]);
+
   // feData: Contract Fee derivado del contrato (formato actual mantenido)
   const feData = useMemo(()=>{
     const raw = osirisData?.feeEntrada || [];
@@ -8188,6 +8624,7 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
     {id:"feeEntrada",       label:"📄 Fee Entrada",       badge:0},
     {id:"royaltyComercial", label:"📈 Royalty Comercial", badge:alertasRC},
     {id:"feeViveros",       label:"🏭 Fee Viveros",       badge:0},
+    {id:"pagoObtentores",   label:"💳 Pago Obtentores",  badge:0},
     {id:"reconciliacionIQ", label:"🧾 Reconciliación IQ", badge:0},
   ];
 
@@ -8836,6 +9273,93 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
                 )}
                 <div style={{marginTop:12,padding:10,background:C.purpleBg,borderRadius:8,fontSize:11,color:C.purple}}>
                   💡 Royalties que <strong>Osiris paga al obtentor</strong>. Distintos de los que Osiris <strong>cobra a productores</strong>.
+                </div>
+
+                {/* ── Participación en ingresos Osiris ── */}
+                <div style={{marginTop:20,borderTop:`2px solid ${C.border}`,paddingTop:16}}>
+                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
+                    <div>
+                      <div style={{fontWeight:700,color:C.text,marginBottom:2}}>📊 Participación en Ingresos Osiris</div>
+                      <div style={{fontSize:11,color:C.muted}}>Define qué % del ingreso facturado al cliente le corresponde al obtentor, por tipo de ingreso.</div>
+                    </div>
+                    {canObtentores&&<button onClick={()=>{
+                      const nr={id:`pi_${Date.now()}`,tipoIngreso:"royalty_planta",especie:"",variedad:"",tipoCalculo:"porcentaje",valor:0,wht:0};
+                      updateContrato(c.id,{participacionIngresos:[...(c.participacionIngresos||[]),nr]});
+                    }} style={{padding:"6px 14px",borderRadius:8,background:"#0891b2",border:"none",color:"#fff",cursor:"pointer",fontSize:12,fontWeight:700,whiteSpace:"nowrap"}}>+ Regla</button>}
+                  </div>
+                  {(c.participacionIngresos||[]).length===0?(
+                    <div style={{padding:24,textAlign:"center",color:C.muted2,border:"1px dashed #e2e8f0",borderRadius:10,fontSize:12}}>
+                      Sin reglas definidas. El obtentor no tiene participación configurada en los ingresos de Osiris.
+                    </div>
+                  ):(
+                    <div style={{overflowX:"auto"}}>
+                      <table style={{width:"100%",borderCollapse:"collapse",fontSize:12,background:C.card,borderRadius:10,overflow:"hidden",border:`1px solid #bae6fd`}}>
+                        <thead><tr style={{background:"#0891b2",color:"#fff"}}>
+                          {["Tipo Ingreso","Especie","Variedad","Tipo Cálculo","Valor","WHT obtentor %",""].map(h=>(
+                            <th key={h} style={{padding:"8px 10px",textAlign:"left",fontSize:11,fontWeight:700}}>{h}</th>
+                          ))}
+                        </tr></thead>
+                        <tbody>{(c.participacionIngresos||[]).map((pi,i)=>{
+                          const updPi=(f,v)=>{
+                            const nx=(c.participacionIngresos||[]).map(x=>x.id===pi.id?{...x,[f]:v}:x);
+                            updateContrato(c.id,{participacionIngresos:nx});
+                          };
+                          const labelTipo={royalty_planta:"🌱 Royalty Planta",royalty_comercial:"📈 Royalty Comercial",contract_fee:"💰 Contract Fee"};
+                          return(
+                            <tr key={pi.id} style={{borderBottom:"1px solid #f1f5f9",background:i%2?C.cardAlt:"#fff"}}>
+                              <td style={{padding:"6px 8px"}}>
+                                <select disabled={!canObtentores} value={pi.tipoIngreso||"royalty_planta"} onChange={e=>updPi("tipoIngreso",e.target.value)}
+                                  style={{padding:"5px 8px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:11}}>
+                                  <option value="royalty_planta">🌱 Royalty Planta</option>
+                                  <option value="royalty_comercial">📈 Royalty Comercial</option>
+                                  <option value="contract_fee">💰 Contract Fee</option>
+                                </select>
+                              </td>
+                              <td style={{padding:"6px 8px"}}>
+                                <input disabled={!canObtentores} value={pi.especie||""} onChange={e=>updPi("especie",e.target.value)} placeholder="Todas"
+                                  style={{width:90,padding:"5px 8px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:11}}/>
+                              </td>
+                              <td style={{padding:"6px 8px"}}>
+                                <input disabled={!canObtentores} value={pi.variedad||""} onChange={e=>updPi("variedad",e.target.value)} placeholder="Todas"
+                                  style={{width:90,padding:"5px 8px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:11}}/>
+                              </td>
+                              <td style={{padding:"6px 8px"}}>
+                                <select disabled={!canObtentores} value={pi.tipoCalculo||"porcentaje"} onChange={e=>updPi("tipoCalculo",e.target.value)}
+                                  style={{padding:"5px 8px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:11}}>
+                                  <option value="porcentaje">% sobre factura</option>
+                                  <option value="usd_planta">USD / planta</option>
+                                  <option value="usd_ha">USD / há</option>
+                                </select>
+                              </td>
+                              <td style={{padding:"6px 8px"}}>
+                                <div style={{display:"flex",alignItems:"center",gap:4}}>
+                                  <input type="number" step="0.01" disabled={!canObtentores} value={pi.valor||0} onChange={e=>updPi("valor",parseFloat(e.target.value)||0)}
+                                    style={{width:70,padding:"5px 8px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:11,textAlign:"right"}}/>
+                                  <span style={{fontSize:10,color:C.muted}}>{pi.tipoCalculo==="porcentaje"?"%":pi.tipoCalculo==="usd_planta"?"$/pl":"$/há"}</span>
+                                </div>
+                              </td>
+                              <td style={{padding:"6px 8px"}}>
+                                <div style={{display:"flex",alignItems:"center",gap:4}}>
+                                  <input type="number" step="0.1" min="0" max="100" disabled={!canObtentores} value={pi.wht||0} onChange={e=>updPi("wht",parseFloat(e.target.value)||0)}
+                                    style={{width:60,padding:"5px 8px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:11,textAlign:"right"}}/>
+                                  <span style={{fontSize:10,color:C.muted}}>%</span>
+                                </div>
+                              </td>
+                              <td style={{padding:"6px 8px"}}>
+                                {canObtentores&&<button onClick={()=>{
+                                  if(!window.confirm("¿Eliminar regla?"))return;
+                                  updateContrato(c.id,{participacionIngresos:(c.participacionIngresos||[]).filter(x=>x.id!==pi.id)});
+                                }} style={{background:C.dangerBg,border:"none",borderRadius:6,padding:"4px 8px",cursor:"pointer",fontSize:11,color:C.danger}}>🗑</button>}
+                              </td>
+                            </tr>
+                          );
+                        })}</tbody>
+                      </table>
+                    </div>
+                  )}
+                  <div style={{marginTop:10,padding:10,background:"#e0f2fe",borderRadius:8,fontSize:11,color:"#0369a1"}}>
+                    💡 Base de cálculo: siempre sobre el <strong>monto facturado al cliente</strong> (bruto, sin descontar WHT). El WHT del obtentor se aplica al monto calculado antes de pagar.
+                  </div>
                 </div>
               </div>
             )}
@@ -11519,6 +12043,7 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
         {subTab==="feeEntrada"       &&<FeeEntrada       data={feData} setData={setFe} ctData={ctData} can={canIngresos} clientes={clientes}/>}
         {subTab==="royaltyComercial" &&<RoyaltyComercial data={rcData} setData={setRc} tpData={tpData} can={canIngresos} clientes={clientes}/>}
         {subTab==="feeViveros"       &&<FeeViveros       data={fvData} setData={setFv} tpData={tpData} can={canIngresos} clientes={clientes}/>}
+        {subTab==="pagoObtentores"   &&<PagoObtentores obtentoresData={obtentoresData} ctData={ctData} feData={feData} rpData={rpData} rcData={rcData} pagosData={pagosObtentor} setPagos={setPagosObtentor} can={canIngresos}/>}
         {subTab==="reconciliacionIQ" &&<ReconciliacionIQ rpData={rpData} feData={feData} rcData={rcData} tpData={tpData}/>}
       </div>
     </div>
