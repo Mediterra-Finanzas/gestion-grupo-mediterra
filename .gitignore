@@ -23,3 +23,8 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 .claude/
+
+# Backups / snapshots con datos reales (emails, PINs) — NUNCA commitear
+audit/*BACKUP*.json
+audit/osiris-snapshot-*/
+*.backup
