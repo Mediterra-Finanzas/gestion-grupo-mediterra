@@ -8019,10 +8019,10 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
   },[]);  // Solo al montar el componente
 
   // PERMISOS OSIRIS
-  // Edición requiere: (a) rol editor/admin Y (b) permiso "editar" en la pestaña activa
+  // Edición requiere: (a) rol editor/admin/gerente_tecnico Y (b) permiso "editar" en la pestaña activa
   // Si la pestaña tiene permiso "ver", no puede editar aunque sea editor
   const rolActual = usuarioActual?.rol || "editor";
-  const esEditorOAdmin = rolActual === "editor" || rolActual === "admin";
+  const esEditorOAdmin = rolActual === "editor" || rolActual === "admin" || rolActual === "gerente_tecnico";
   const esConsulta = rolActual === "consulta";
   // Admin tiene acceso total; editor/consulta dependen de tabPermisos
   const permContratos   = tabPermisos?.contratos || "editar";
