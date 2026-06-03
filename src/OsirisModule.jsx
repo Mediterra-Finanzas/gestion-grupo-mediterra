@@ -6979,7 +6979,10 @@ function ControlContratos({data,setData,clientes,setClientes,variedadesMaestro=[
                               <td style={{padding:"5px 8px",textAlign:"center"}}>
                                 <BadgeEstadoCF
                                   estado={c.estadoCF&&ESTADOS_CF[c.estadoCF]?c.estadoCF:(c.pagado?"pagado":"porCobrar")}
-                                  onChange={v=>{updCuo("estadoCF",v);updCuo("pagado",v==="pagado");}}
+                                  onChange={v=>{
+                                    const next=cuotas.map(x=>x.id===c.id?{...x,estadoCF:v,pagado:v==="pagado"}:x);
+                                    upd(r.id,"rpPlantaCuotas",next);
+                                  }}
                                   can={can}
                                 />
                               </td>
