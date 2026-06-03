@@ -28,3 +28,10 @@ yarn-error.log*
 audit/*BACKUP*.json
 audit/osiris-snapshot-*/
 *.backup
+
+# Wildcard para cualquier .env.X (notas, backups, variantes)
+.env*
+
+# Supabase CLI: cache local / temp del proyecto
+supabase/.temp/
+
