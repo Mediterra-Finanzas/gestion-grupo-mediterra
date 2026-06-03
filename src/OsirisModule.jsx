@@ -1960,17 +1960,20 @@ function RoyaltyComercial({data,setData,tpData,can,clientes=[]}) {
   const años=["Todos",...Array.from(new Set(calc.map(r=>r.añoCobro))).sort()];
   const paises=["Todos",...Array.from(new Set(calc.map(r=>r.pais).filter(Boolean))).sort()];
 
-  const filtrado=calc.filter(r=>
-    (filtroPais==="Todos"||r.pais===filtroPais)&&
-    (filtroAño==="Todos"||r.añoCobro===Number(filtroAño))&&
-    (filtroCobro==="Todos"||(filtroCobro==="Pagado"?r.pagado:!r.pagado))&&
-    (!filtroCli||r.cliente?.toLowerCase().includes(filtroCli.toLowerCase()))
-  );
+  const filtrado=calc.filter(r=>{
+    const ecf=resolveEstadoCF(r);
+    return (
+      (filtroPais==="Todos"||r.pais===filtroPais)&&
+      (filtroAño==="Todos"||r.añoCobro===Number(filtroAño))&&
+      (filtroCobro==="Todos"||filtroCobro===ecf)&&
+      (!filtroCli||r.cliente?.toLowerCase().includes(filtroCli.toLowerCase()))
+    );
+  });
 
   const alertas=calc.filter(r=>r.alertaActiva);
   const totFact=filtrado.reduce((s,r)=>s+r.montoFact,0);
   const totCobro=filtrado.reduce((s,r)=>s+r.montoCobro,0);
-  const totPend=filtrado.filter(r=>!r.pagado).reduce((s,r)=>s+r.montoCobro,0);
+  const totPend=filtrado.filter(r=>resolveEstadoCF(r)!=="pagado").reduce((s,r)=>s+r.montoCobro,0);
 
   function upd(id,c,v){
     setData(prev=>prev.map(r=>{
@@ -1981,7 +1984,8 @@ function RoyaltyComercial({data,setData,tpData,can,clientes=[]}) {
           registroId:id, campo:c,
           valorAnterior:String(r[c]||""), valorNuevo:String(v||"")});
       }
-      return r.id===id?{...r,[c]:v,...(c==="ha"?{_haEditado:true}:{})}:r;
+      const extra = c==="estadoCF"?{pagado:v==="pagado"}:{};
+      return r.id===id?{...r,[c]:v,...(c==="ha"?{_haEditado:true}:{}), ...extra}:r;
     }));
   }
 
@@ -2060,7 +2064,9 @@ function RoyaltyComercial({data,setData,tpData,can,clientes=[]}) {
           {label:"Cliente",tipo:"input",valor:filtroCli,onChange:setFiltroCli},
           {label:"País",opciones:paises,valor:filtroPais,onChange:setFiltroPais},
           {label:"Año cobro",opciones:años,valor:filtroAño,onChange:v=>setFiltroAño(String(v))},
-          {label:"Cobro",opciones:["Todos","Pagado","Por cobrar"],valor:filtroCobro,onChange:setFiltroCobro},
+          {label:"Cobro",opciones:["Todos",...Object.keys(ESTADOS_CF)],
+            opcionesLabels:["Todos",...Object.values(ESTADOS_CF).map(e=>e.lbl)],
+            valor:filtroCobro,onChange:setFiltroCobro},
         ]}
         onExportar={async ()=>exportCSV(
           filtrado.map(r=>[r.cliente,r.pais,r.ha||0,r.usdHa||3000,
@@ -2141,7 +2147,7 @@ function RoyaltyComercial({data,setData,tpData,can,clientes=[]}) {
                     </span>
                   </td>
                   <td style={{padding:"7px 10px",textAlign:"center"}}>
-                    <BadgePago pagado={r.pagado} onChange={v=>upd(r.id,"pagado",v)} onFechaPago={f=>upd(r.id,"fechaPago",f)} can={can}/>
+                    <BadgeEstadoCF estado={resolveEstadoCF(r)} onChange={v=>upd(r.id,"estadoCF",v)} can={can}/>
                   </td>
                   <td style={{padding:"7px 10px",textAlign:"center"}}>
                     {r.alertaActiva
@@ -2243,7 +2249,8 @@ function FeeViveros({data,setData,tpData,can,clientes=[]}) {
         registroId:id, campo:c,
         valorAnterior:String(r[c]||""), valorNuevo:String(v||"")});
     }
-    return {...r,[c]:v};
+    const extra = c==="estadoCF"?{pagado:v==="pagado"}:{};
+    return {...r,[c]:v,...extra};
   }));
 
   // Filtrar huérfanos: si el registro viene de un pedido (tpId), verificar que el pedido aún existe
@@ -2257,13 +2264,14 @@ function FeeViveros({data,setData,tpData,can,clientes=[]}) {
     }
     if(filtroPais!=="Todos"&&r.pais!==filtroPais)return false;
     if(filtroVivero!=="Todos"&&r.vivero!==filtroVivero)return false;
-    if(filtroCobro!=="Todos"&&(filtroCobro==="Pagado"?!r.pagado:r.pagado))return false;
+    const ecf=resolveEstadoCF(r);
+    if(filtroCobro!=="Todos"&&filtroCobro!==ecf)return false;
     if(filtroCli&&!r.empresa?.toLowerCase().includes(filtroCli.toLowerCase()))return false;
     return true;
   });
 
   const totFacturado=filtrado.filter(r=>r.nFact&&String(r.nFact).trim()!=="").reduce((s,r)=>s+(Number(r.montoFact)||0),0);
-  const totPorCobrar=filtrado.filter(r=>!r.pagado).reduce((s,r)=>s+(Number(r.montoFact)||0),0);
+  const totPorCobrar=filtrado.filter(r=>resolveEstadoCF(r)!=="pagado").reduce((s,r)=>s+(Number(r.montoFact)||0),0);
   const paises=["Todos",...Array.from(new Set(data.map(r=>r.pais).filter(Boolean))).sort()];
   const viveros=["Todos",...Array.from(new Set(data.map(r=>r.vivero).filter(Boolean))).sort()];
 
@@ -2308,7 +2316,9 @@ function FeeViveros({data,setData,tpData,can,clientes=[]}) {
           {label:"Vivero",opciones:viveros,valor:filtroVivero,onChange:setFiltroVivero},
           {label:"País",opciones:paises,valor:filtroPais,onChange:setFiltroPais},
           {label:"Factura",opciones:["Todos","Facturado","Pendiente"],valor:filtroFact,onChange:setFiltroFact},
-          {label:"Pago",opciones:["Todos","Pagado","Por pagar"],valor:filtroCobro,onChange:setFiltroCobro},
+          {label:"Pago",opciones:["Todos",...Object.keys(ESTADOS_CF)],
+            opcionesLabels:["Todos",...Object.values(ESTADOS_CF).map(e=>e.lbl)],
+            valor:filtroCobro,onChange:setFiltroCobro},
         ]}
         onExportar={async ()=>exportCSV(
           filtrado.map(r=>[r.vivero||"",r.empresa,r.pais,r.proforma||"",
@@ -2387,7 +2397,7 @@ function FeeViveros({data,setData,tpData,can,clientes=[]}) {
                     </span>
                   </td>
                   <td style={{padding:"7px 10px",textAlign:"center"}}>
-                    <BadgePago pagado={r.pagado} onChange={v=>upd(r.id,"pagado",v)} onFechaPago={f=>upd(r.id,"fechaPago",f)} can={can}/>
+                    <BadgeEstadoCF estado={resolveEstadoCF(r)} onChange={v=>upd(r.id,"estadoCF",v)} can={can}/>
                   </td>
                   {can&&<td style={{padding:"4px 6px",textAlign:"center"}}>
                     {r._fromContract?(
@@ -6901,16 +6911,17 @@ function ControlContratos({data,setData,clientes,setClientes,variedadesMaestro=[
                   </div>
                   <div>
                     <div style={{fontSize:10,color:C.muted,fontWeight:600,marginBottom:3}}>Estado</div>
-                    <label style={{display:"flex",alignItems:"center",gap:6,cursor:can?"pointer":"default",padding:"7px 10px",background:r.contractFeePagado?C.successBg:C.warningBg,borderRadius:6,fontSize:11,fontWeight:700,color:r.contractFeePagado?C.success:C.text}}>
-                      <input type="checkbox" disabled={!can} checked={!!r.contractFeePagado} onChange={e=>upd(r.id,"contractFeePagado",e.target.checked)}/>
-                      {r.contractFeePagado?"✅ Pagado":"⏳ Por cobrar"}
-                    </label>
+                    <BadgeEstadoCF
+                      estado={r.contractFeeEstado&&ESTADOS_CF[r.contractFeeEstado]?r.contractFeeEstado:(r.contractFeePagado?"pagado":"porCobrar")}
+                      onChange={v=>{upd(r.id,"contractFeeEstado",v);upd(r.id,"contractFeePagado",v==="pagado");}}
+                      can={can}
+                    />
                   </div>
-                  {r.contractFeePagado&&<div>
+                  <div>
                     <div style={{fontSize:10,color:C.muted,fontWeight:600,marginBottom:3}}>Fecha pago</div>
                     <input type="date" disabled={!can} value={r.contractFeeFechaPago||""} onChange={e=>upd(r.id,"contractFeeFechaPago",e.target.value)}
                       style={{width:"100%",padding:"6px 8px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:11,boxSizing:"border-box"}}/>
-                  </div>}
+                  </div>
                 </div>
               )}
             </div>
@@ -6938,7 +6949,7 @@ function ControlContratos({data,setData,clientes,setClientes,variedadesMaestro=[
                     </div>
                     <table style={{width:"100%",borderCollapse:"collapse",fontSize:11}}>
                       <thead><tr style={{background:C.successBg}}>
-                        {["Descripción","%","Monto Fact.","Monto Cobro","Fecha evento","Pagado","Fecha pago","N° Fact.",""].map(h=>(
+                        {["Descripción","%","Monto Fact.","Monto Cobro","Fecha evento","Estado Cobro","Fecha pago","N° Fact.",""].map(h=>(
                           <th key={h} style={{padding:"6px 8px",textAlign:"left",fontSize:10,fontWeight:700,color:C.success}}>{h}</th>
                         ))}
                       </tr></thead>
@@ -6966,11 +6977,15 @@ function ControlContratos({data,setData,clientes,setClientes,variedadesMaestro=[
                                   style={{padding:"4px 6px",borderRadius:4,border:`1px solid ${C.border}`,fontSize:11}}/>
                               </td>
                               <td style={{padding:"5px 8px",textAlign:"center"}}>
-                                <input type="checkbox" disabled={!can} checked={!!c.pagado} onChange={e=>updCuo("pagado",e.target.checked)}/>
+                                <BadgeEstadoCF
+                                  estado={c.estadoCF&&ESTADOS_CF[c.estadoCF]?c.estadoCF:(c.pagado?"pagado":"porCobrar")}
+                                  onChange={v=>{updCuo("estadoCF",v);updCuo("pagado",v==="pagado");}}
+                                  can={can}
+                                />
                               </td>
                               <td style={{padding:"5px 8px"}}>
-                                <input type="date" disabled={!can || !c.pagado} value={c.fechaPago||""} onChange={e=>updCuo("fechaPago",e.target.value)}
-                                  style={{padding:"4px 6px",borderRadius:4,border:`1px solid ${C.border}`,fontSize:11,opacity:c.pagado?1:0.5}}/>
+                                <input type="date" disabled={!can} value={c.fechaPago||""} onChange={e=>updCuo("fechaPago",e.target.value)}
+                                  style={{padding:"4px 6px",borderRadius:4,border:`1px solid ${C.border}`,fontSize:11}}/>
                               </td>
                               <td style={{padding:"5px 8px"}}>
                                 <input disabled={!can} value={c.nFact||""} onChange={e=>updCuo("nFact",e.target.value)}
