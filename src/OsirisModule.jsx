@@ -195,6 +195,73 @@ function BadgeFact({nFact}) {
   );
 }
 
+// ── Estados de cobro (6 niveles) ─────────────────────────
+const ESTADOS_CF = {
+  porCobrar:      { lbl:"Por cobrar",           bg:"#fef9c3", col:"#b45309", bdr:"#fde047",  icon:"⏳" },
+  facturado:      { lbl:"Facturado",            bg:"#dbeafe", col:"#1d4ed8", bdr:"#93c5fd",  icon:"📄" },
+  cobradoParcial: { lbl:"Cobrado parcialmente", bg:"#ffedd5", col:"#c2410c", bdr:"#fb923c",  icon:"⚡" },
+  pagado:         { lbl:"Pagado",               bg:"#dcfce7", col:"#15803d", bdr:"#86efac",  icon:"✅" },
+  enDisputa:      { lbl:"En disputa",           bg:"#fee2e2", col:"#dc2626", bdr:"#fca5a5",  icon:"⚠️"  },
+  anulado:        { lbl:"Anulado",              bg:"#f3f4f6", col:"#6b7280", bdr:"#d1d5db",  icon:"🚫" },
+};
+
+// Deriva estado legible (backwards-compatible: lee estadoCF si existe, sino mapea desde pagado booleano)
+function resolveEstadoCF(r) {
+  if (r.estadoCF && ESTADOS_CF[r.estadoCF]) return r.estadoCF;
+  return r.pagado ? "pagado" : "porCobrar";
+}
+
+function BadgeEstadoCF({estado, onChange, can}) {
+  const [open, setOpen] = React.useState(false);
+  const key = (estado && ESTADOS_CF[estado]) ? estado : "porCobrar";
+  const e = ESTADOS_CF[key];
+  const ref = React.useRef(null);
+
+  // Cerrar dropdown al hacer click fuera
+  React.useEffect(()=>{
+    if (!open) return;
+    function handleOut(ev) { if(ref.current && !ref.current.contains(ev.target)) setOpen(false); }
+    document.addEventListener("mousedown", handleOut);
+    return ()=>document.removeEventListener("mousedown", handleOut);
+  }, [open]);
+
+  if (!can) return (
+    <span style={{background:e.bg,color:e.col,border:`1px solid ${e.bdr}`,borderRadius:20,
+      padding:"2px 10px",fontSize:11,fontWeight:700,whiteSpace:"nowrap"}}>
+      {e.icon} {e.lbl}
+    </span>
+  );
+
+  return (
+    <div ref={ref} style={{position:"relative",display:"inline-block"}}>
+      <button onClick={()=>setOpen(v=>!v)} style={{
+        background:e.bg,color:e.col,border:`1px solid ${e.bdr}`,borderRadius:20,
+        padding:"2px 10px",fontSize:11,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap",
+        display:"flex",alignItems:"center",gap:4,
+      }}>
+        {e.icon} {e.lbl} <span style={{fontSize:9,opacity:0.7}}>▾</span>
+      </button>
+      {open && (
+        <div style={{position:"absolute",top:"calc(100% + 4px)",left:0,zIndex:300,
+          background:"#fff",borderRadius:10,boxShadow:"0 4px 20px #0002",
+          border:"1px solid #e2e8f0",minWidth:210,overflow:"hidden"}}>
+          {Object.entries(ESTADOS_CF).map(([k,v])=>(
+            <div key={k} onClick={()=>{onChange(k);setOpen(false);}}
+              style={{padding:"8px 14px",cursor:"pointer",display:"flex",alignItems:"center",gap:8,
+                background:k===key?"#f8fafc":"#fff",fontWeight:k===key?700:400,
+                fontSize:12,color:v.col,borderLeft:`3px solid ${k===key?v.bdr:"transparent"}`}}
+              onMouseEnter={e2=>e2.currentTarget.style.background="#f8fafc"}
+              onMouseLeave={e2=>e2.currentTarget.style.background=k===key?"#f8fafc":"#fff"}>
+              <span style={{fontSize:14}}>{v.icon}</span>
+              <span>{v.lbl}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 
 
 // ── Datos base ────────────────────────────────────────────
@@ -709,7 +776,7 @@ function BarraFiltros({filtros, onExportar, exportLabel="📥 Exportar Excel"}) 
   return (
     <div style={{display:"flex",gap:8,marginBottom:14,flexWrap:"wrap",alignItems:"center",
       background:C.cardAlt,borderRadius:10,padding:"8px 12px",border:`1px solid ${C.border}`}}>
-      {filtros.map(({label,opciones,valor,onChange,tipo})=>(
+      {filtros.map(({label,opciones,opcionesLabels,valor,onChange,tipo})=>(
         tipo==="input"
           ? <div key={label} style={{display:"flex",alignItems:"center",gap:6}}>
               <span style={{fontSize:11,color:C.muted,fontWeight:600}}>{label}:</span>
@@ -719,13 +786,13 @@ function BarraFiltros({filtros, onExportar, exportLabel="📥 Exportar Excel"}) 
             </div>
           : <div key={label} style={{display:"flex",alignItems:"center",gap:5,flexWrap:"wrap"}}>
               <span style={{fontSize:11,color:C.muted,fontWeight:600}}>{label}:</span>
-              {opciones.map(op=>(
+              {opciones.map((op,oi)=>(
                 <button key={op} onClick={()=>onChange(op)}
                   style={{padding:"3px 10px",borderRadius:20,border:"none",cursor:"pointer",
                     fontSize:11,fontWeight:600,
                     background:valor===op?C.primary:C.card,
                     color:valor===op?"#fff":C.muted}}>
-                  {op}
+                  {opcionesLabels?opcionesLabels[oi]:op}
                 </button>
               ))}
             </div>
@@ -1347,17 +1414,20 @@ function RoyaltyPlanta({data,setData,tpData,can,clientes=[]}) {
     return{...r,montoFact:mf,montoCobro:mf*pct(r.pais)};
   }),[dataConSync]);
 
-  const filtrado=calc.filter(r=>
-    (filtroPais==="Todos"||r.pais===filtroPais)&&
-    (filtroAño==="Todos"||(r.añoEntrega||r.año)===Number(filtroAño))&&
-    (filtroCobro==="Todos"||(filtroCobro==="Pagado"?r.pagado:!r.pagado))&&
-    (filtroFact==="Todos"||(filtroFact==="Facturado"?r.nFact&&r.nFact.trim()!=="":!r.nFact||r.nFact.trim()===""))&&
-    (!filtroCli||r.cliente?.toLowerCase().includes(filtroCli.toLowerCase()))
-  );
+  const filtrado=calc.filter(r=>{
+    const ecf = resolveEstadoCF(r);
+    return (
+      (filtroPais==="Todos"||r.pais===filtroPais)&&
+      (filtroAño==="Todos"||(r.añoEntrega||r.año)===Number(filtroAño))&&
+      (filtroCobro==="Todos"||filtroCobro===ecf)&&
+      (filtroFact==="Todos"||(filtroFact==="Facturado"?r.nFact&&r.nFact.trim()!=="":!r.nFact||r.nFact.trim()===""))&&
+      (!filtroCli||r.cliente?.toLowerCase().includes(filtroCli.toLowerCase()))
+    );
+  });
 
   const totFact=filtrado.reduce((s,r)=>s+r.montoFact,0);
   const totCobro=filtrado.reduce((s,r)=>s+r.montoCobro,0);
-  const totPend=filtrado.filter(r=>!r.pagado).reduce((s,r)=>s+r.montoCobro,0);
+  const totPend=filtrado.filter(r=>resolveEstadoCF(r)!=="pagado").reduce((s,r)=>s+r.montoCobro,0);
 
   function upd(id,c,v){
     setData(prev=>prev.map(r=>{
@@ -1369,8 +1439,14 @@ function RoyaltyPlanta({data,setData,tpData,can,clientes=[]}) {
           valorAnterior:String(r[c]||""), valorNuevo:String(v||"")});
       }
       const updated={...r,[c]:v};
-      // Si se ingresa N° factura, marcar como Facturado automáticamente
-      if(c==="nFact"&&v&&String(v).trim()!=="") updated.facturado=true;
+      // Si se ingresa N° factura y aún está "por cobrar", avanzar a "facturado"
+      if(c==="nFact"&&v&&String(v).trim()!==""){
+        updated.facturado=true;
+        const ecfActual=resolveEstadoCF(r);
+        if(ecfActual==="porCobrar") { updated.estadoCF="facturado"; }
+      }
+      // Sincronizar pagado booleano al cambiar estadoCF
+      if(c==="estadoCF") updated.pagado=(v==="pagado");
       return updated;
     }));
   }
@@ -1432,16 +1508,22 @@ function RoyaltyPlanta({data,setData,tpData,can,clientes=[]}) {
           {label:"Cliente",tipo:"input",valor:filtroCli,onChange:setFiltroCli},
           {label:"País",opciones:paises,valor:filtroPais,onChange:setFiltroPais},
           {label:"Año",opciones:años,valor:filtroAño,onChange:v=>setFiltroAño(String(v))},
-          {label:"Cobro",opciones:["Todos","Pagado","Por cobrar"],valor:filtroCobro,onChange:setFiltroCobro},
+          {label:"Cobro",opciones:["Todos",...Object.keys(ESTADOS_CF)],
+            opcionesLabels:["Todos",...Object.values(ESTADOS_CF).map(e=>e.lbl)],
+            valor:filtroCobro,onChange:setFiltroCobro},
           {label:"Factura",opciones:["Todos","Facturado","Pendiente"],valor:filtroFact,onChange:setFiltroFact},
         ]}
         onExportar={async ()=>exportCSV(
-          filtrado.map(r=>[r.cliente,r.pais,r.vivero||"",r.añoEntrega||r.año||"",
-            r.nPlantas,r.usdPlanta,r.montoFact.toFixed(2),r.montoCobro.toFixed(2),
-            r.nFact||"",r.nFact&&r.nFact.trim()?"Facturado":"Pend. facturar",
-            r.pagado?"Pagado":"Por cobrar",r.fechaPago||""]),
+          filtrado.map(r=>{
+            const pctFact=r.montoFact>0&&r.montoFacturado?((Number(r.montoFacturado)/r.montoFact)*100).toFixed(1)+"%":"";
+            return [r.cliente,r.pais,r.vivero||"",r.añoEntrega||r.año||"",
+              r.nPlantas,r.usdPlanta,r.montoFact.toFixed(2),r.montoCobro.toFixed(2),
+              r.nFact||"",r.montoFacturado||"",pctFact,
+              r.nFact&&r.nFact.trim()?"Facturado":"Pend. facturar",
+              ESTADOS_CF[resolveEstadoCF(r)]?.lbl||"Por cobrar",r.fechaPago||""];
+          }),
           ["Cliente","País","Vivero","Año","N° Plantas","US$/Planta","Mto.Facturar","Mto.Cobrar",
-           "N° Factura","Est.Factura","Est.Cobro","Fecha Pago"],
+           "N° Factura","Mto.Facturado","% Cobrado","Est.Factura","Est.Cobro","Fecha Pago"],
           "RoyaltyPlanta",
           {
             tituloDoc: "Royalty por Planta",
@@ -1457,8 +1539,8 @@ function RoyaltyPlanta({data,setData,tpData,can,clientes=[]}) {
             {l:"Cliente",w:120},{l:"País",w:80},{l:"Vivero",w:120},{l:"Año",c:true,w:60},
             {l:"N° Plantas",c:true,w:100},{l:"US$/Planta",c:true,w:90},
             {l:"Mto. Facturar",c:true,w:120},{l:"WHT",c:true,w:70},{l:"Mto. Cobrar",c:true,w:120},
-            {l:"N° Factura",c:true,w:110},{l:"Est. Factura",c:true,w:130},
-            {l:"Estado Cobro",c:true,w:120},{l:"Fecha Pago",c:true,w:110},
+            {l:"N° Factura",c:true,w:110},{l:"Mto. Facturado",c:true,w:120},{l:"Est. Factura",c:true,w:130},
+            {l:"Estado Cobro",c:true,w:160},{l:"Fecha Pago",c:true,w:110},
             ...(can?[{l:"",c:true,w:40}]:[]),
           ]}/>
           <tbody>
@@ -1486,6 +1568,21 @@ function RoyaltyPlanta({data,setData,tpData,can,clientes=[]}) {
                     <Cell val={r.nFact||""} onChange={v=>upd(r.id,"nFact",v)} can={can} ph="F-001"/>
                   </td>
                   <td style={{padding:"7px 10px",textAlign:"center"}}>
+                    {/* Monto Facturado + % del total */}
+                    <div style={{display:"flex",flexDirection:"column",alignItems:"center",gap:3}}>
+                      <Cell val={r.montoFacturado||""} onChange={v=>upd(r.id,"montoFacturado",parseFloat(v)||"")} type="number" can={can} ph="0"/>
+                      {r.montoFacturado&&r.montoFact>0?(
+                        <span style={{
+                          background: ((Number(r.montoFacturado)/r.montoFact)>=0.999)?C.successBg:C.infoBg,
+                          color: ((Number(r.montoFacturado)/r.montoFact)>=0.999)?C.success:C.primary,
+                          borderRadius:20,padding:"1px 8px",fontSize:10,fontWeight:700,whiteSpace:"nowrap"
+                        }}>
+                          {((Number(r.montoFacturado)/r.montoFact)*100).toFixed(1)}% del total
+                        </span>
+                      ):null}
+                    </div>
+                  </td>
+                  <td style={{padding:"7px 10px",textAlign:"center"}}>
                     <span style={{
                       background:facturado?C.infoBg:C.warningBg,
                       color:facturado?C.primary:C.warning,
@@ -1495,7 +1592,7 @@ function RoyaltyPlanta({data,setData,tpData,can,clientes=[]}) {
                     </span>
                   </td>
                   <td style={{padding:"7px 10px",textAlign:"center"}}>
-                    <BadgePago pagado={r.pagado} onChange={v=>upd(r.id,"pagado",v)} onFechaPago={f=>upd(r.id,"fechaPago",f)} can={can}/>
+                    <BadgeEstadoCF estado={resolveEstadoCF(r)} onChange={v=>upd(r.id,"estadoCF",v)} can={can}/>
                   </td>
                   <td style={{padding:"7px 10px",textAlign:"center",fontSize:12}}>
                     <Cell val={r.fechaPago||""} onChange={v=>upd(r.id,"fechaPago",v)} type="date" can={can}/>
@@ -1517,7 +1614,7 @@ function RoyaltyPlanta({data,setData,tpData,can,clientes=[]}) {
                 </tr>
               );
             })}
-            {filtrado.length===0&&<tr><td colSpan={14} style={{textAlign:"center",padding:32,color:C.gris,fontSize:13}}>
+            {filtrado.length===0&&<tr><td colSpan={15} style={{textAlign:"center",padding:32,color:C.gris,fontSize:13}}>
               Sin registros.
             </td></tr>}
           </tbody>
@@ -1648,25 +1745,32 @@ function FeeEntrada({data,setData,ctData,can,clientes=[]}) {
   // No necesitamos computar dataConSync aquí
   const dataConSync = data;
 
-  const filtrado=dataConSync.filter(r=>
-    (filtroPais==="Todos"||r.pais===filtroPais)&&
-    (filtroCobro==="Todos"||(filtroCobro==="Pagado"?r.pagado:!r.pagado))&&
-    (!filtroCli||r.cliente?.toLowerCase().includes(filtroCli.toLowerCase()))
-  );
+  const filtrado=dataConSync.filter(r=>{
+    const ecf = resolveEstadoCF(r);
+    return (
+      (filtroPais==="Todos"||r.pais===filtroPais)&&
+      (filtroCobro==="Todos"||filtroCobro===ecf)&&
+      (!filtroCli||r.cliente?.toLowerCase().includes(filtroCli.toLowerCase()))
+    );
+  });
 
-  const totCobrado=filtrado.filter(r=>r.pagado).reduce((s,r)=>s+(r.montoUSD||0),0);
-  const totPend=filtrado.filter(r=>!r.pagado).reduce((s,r)=>s+(r.montoUSD||0),0);
+  const totCobrado=filtrado.filter(r=>resolveEstadoCF(r)==="pagado").reduce((s,r)=>s+(r.montoUSD||0),0);
+  const totPend=filtrado.filter(r=>resolveEstadoCF(r)!=="pagado").reduce((s,r)=>s+(r.montoUSD||0),0);
 
   function upd(id,c,v){
     // Buscar en los datos RAW de Supabase (osirisData.feeEntrada)
     // data es feData (vista calculada), setData es setFe (actualiza raw)
     const fromSync = dataConSync.find(r=>r.id===id);
 
+    // Si cambia estadoCF → mantener pagado sincronizado (compat. legado)
+    const extra = {};
+    if (c === "estadoCF") extra.pagado = (v === "pagado");
+
     setData(prev=>{
       // Buscar si ya existe en raw por id o ctId
       const ctId = fromSync?.ctId;
       const existeIdx = prev.findIndex(r=>r.id===id || (ctId && r.ctId===ctId));
-      
+
       if(existeIdx >= 0) {
         // Ya existe en raw → actualizar
         const updated = [...prev];
@@ -1677,7 +1781,7 @@ function FeeEntrada({data,setData,ctData,can,clientes=[]}) {
             registroId:id, campo:c,
             valorAnterior:String(old[c]||""), valorNuevo:String(v||"")});
         }
-        updated[existeIdx] = {...old, [c]:v};
+        updated[existeIdx] = {...old, [c]:v, ...extra};
         return updated;
       } else {
         // No existe en raw → crear desde la vista calculada
@@ -1696,8 +1800,10 @@ function FeeEntrada({data,setData,ctData,can,clientes=[]}) {
             detalle: fromSync.detalle,
             nFact: fromSync.nFact || "",
             pagado: fromSync.pagado || false,
+            estadoCF: resolveEstadoCF(fromSync),
             fechaPago: fromSync.fechaPago || "",
             [c]: v,
+            ...extra,
           }];
         }
         return prev;
@@ -1730,12 +1836,14 @@ function FeeEntrada({data,setData,ctData,can,clientes=[]}) {
         filtros={[
           {label:"Cliente",tipo:"input",valor:filtroCli,onChange:setFiltroCli},
           {label:"País",opciones:paises,valor:filtroPais,onChange:setFiltroPais},
-          {label:"Cobro",opciones:["Todos","Pagado","Por cobrar"],valor:filtroCobro,onChange:setFiltroCobro},
+          {label:"Cobro",opciones:["Todos",...Object.keys(ESTADOS_CF)],
+            opcionesLabels:["Todos",...Object.values(ESTADOS_CF).map(e=>e.lbl)],
+            valor:filtroCobro,onChange:setFiltroCobro},
         ]}
         onExportar={async ()=>exportCSV(
           filtrado.map(r=>[r.cliente,r.pais,r.detalle||"",r.montoUSD||0,
             r.nFact||"",r.nFact&&r.nFact.trim()?"Facturado":"Pend. facturar",
-            r.pagado?"Pagado":"Por cobrar",r.fechaPago||""]),
+            ESTADOS_CF[resolveEstadoCF(r)]?.lbl||"Por cobrar",r.fechaPago||""]),
           ["Cliente","País","Tipo Fee","Monto US$","N° Factura","Est. Factura","Est. Cobro","Fecha Pago"],
           "FeeEntrada",
           {
@@ -1786,7 +1894,7 @@ function FeeEntrada({data,setData,ctData,can,clientes=[]}) {
                     </span>
                   </td>
                   <td style={{padding:"8px 12px",textAlign:"center"}}>
-                    <BadgePago pagado={r.pagado} onChange={v=>upd(r.id,"pagado",v)} onFechaPago={f=>upd(r.id,"fechaPago",f)} can={can}/>
+                    <BadgeEstadoCF estado={resolveEstadoCF(r)} onChange={v=>upd(r.id,"estadoCF",v)} can={can}/>
                   </td>
                   <td style={{padding:"8px 12px",textAlign:"center",fontSize:12}}>
                     <Cell val={r.fechaPago||""} onChange={v=>upd(r.id,"fechaPago",v)} type="date" can={can}/>
