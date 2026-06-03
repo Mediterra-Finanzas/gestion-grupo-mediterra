@@ -4313,8 +4313,12 @@ const SECCIONES_CT=[
   {id:"plantaciones",    label:"🌿 Plantaciones",        color:C.success},
   {id:"sublicenciatarios",label:"🤝 Sublicenciatarios",   color:"#0284c7"},
   {id:"factura",         label:"💰 Facturación",         color:C.warning},
+  {id:"ordenes",         label:"🧾 Órdenes de Compra",   color:"#7c3aed"},
   {id:"cobros",          label:"💵 Cobros derivados",    color:"#be185d"},
 ];
+
+// Estados de la Orden de Compra (cliente)
+const ESTADOS_OC_CLIENTE = ["Borrador","Emitida","Confirmada","En producción","Despachada","Facturada","Anulada"];
 
 const CONTRATOS_INIT=[
   {id:"ct1",razonSocial:"Agroextiende",taxID:"",pais:"Peru",direccion:"",ciudad:"",tipoContrato:"Licencia",moneda:"USD",fechaContrato:"2024-09-23",fechaTermino:"",firmadoLicenciado:true,firmadoOsiris:true,verDigital:"",anexo1:true,anexo2:false,anexo3:false,nombreRep:"",personeria:"",nombrePredio:"",direccionPredio:"",cuartel:"",region:"",ciudadPredio:"",coordenadas:"",tipoContractFee:"Sin Devolución",montoContractFee:30000,valorRoyaltyPlanta:0.85,valorRoyaltyComercial:3000,royaltyInflacion:false,mesFacuracionRC:"Abril",notas:""},
@@ -6195,8 +6199,52 @@ function derivarRoyaltyPlantaDesdeContratos(ctData) {
   const out = [];
   (ctData||[]).forEach(ct => {
     const totPlantas = (ct.plantaciones||[]).reduce((s,p)=>s+(Number(p.nPlantas)||0),0);
-    if(totPlantas===0) return;
     const valorPorPlanta = Number(ct.valorRoyaltyPlanta)||1;
+
+    // ── NUEVO: modelo OC + Facturas ──
+    // Si el contrato tiene facturas Royalty Planta, derivar de ellas (reemplaza el modelo de cuotas %).
+    // Backward-compatible: contratos sin facturasRP siguen el modelo legacy intacto.
+    const facturasRP = ct.facturasRP || [];
+    if(facturasRP.length > 0) {
+      const ordenes = ct.ordenesCompra || [];
+      const plantasDeOC = (oc) => (oc.plantacionIds||[]).reduce((s,pid)=>{
+        const pl = (ct.plantaciones||[]).find(p=>p.id===pid);
+        return s + (pl ? (Number(pl.nPlantas)||0) : 0);
+      },0);
+      const montoDeOC = (oc) => plantasDeOC(oc) * valorPorPlanta;
+      facturasRP.forEach((f,idx)=>{
+        const montoAuto = (f.ocIds||[]).reduce((s,ocId)=>{const oc=ordenes.find(o=>o.id===ocId);return s+(oc?montoDeOC(oc):0);},0);
+        const montoFact = (f.montoFacturado!=null && f.montoFacturado!=="") ? (Number(f.montoFacturado)||0) : montoAuto;
+        // Saltar facturas vacías en borrador (sin monto ni N° factura)
+        if(montoFact<=0 && !(f.n_factura&&String(f.n_factura).trim()!=="")) return;
+        const nPlantasFact = (f.ocIds||[]).reduce((s,ocId)=>{const oc=ordenes.find(o=>o.id===ocId);return s+(oc?plantasDeOC(oc):0);},0);
+        out.push({
+          id: `rp_${ct.id}_${f.id||idx}`,
+          ctId: ct.id,
+          cuotaId: f.id||`frp_${idx}`,
+          cliente: ct.razonSocial,
+          pais: ct.pais,
+          nPlantas: nPlantasFact || totPlantas,
+          usdPlanta: valorPorPlanta,
+          descripcionCuota: (f.n_factura&&String(f.n_factura).trim()!=="") ? `Factura ${f.n_factura}` : `Factura RP ${idx+1}`,
+          pctCuota: (totPlantas>0&&valorPorPlanta>0) ? (montoFact/(totPlantas*valorPorPlanta))*100 : 0,
+          montoFact: montoFact,
+          montoCobro: montoFact * pct(ct.pais),
+          whtPct: pct(ct.pais)===1 ? 0 : 15,
+          fechaEvento: f.fecha || "",
+          pagado: resolveEstadoCF(f)==="pagado",
+          estadoCF: resolveEstadoCF(f),
+          fechaPago: f.fechaPago || "",
+          nFact: f.n_factura || "",
+          _fromContract: true,
+          _fromFactura: true,
+        });
+      });
+      return; // contrato gestionado por OC/facturas: no aplicar modelo legacy
+    }
+
+    // ── LEGACY: modelo de cuotas % (sin cambios) ──
+    if(totPlantas===0) return;
     const montoTotalUSD = totPlantas * valorPorPlanta;
     const cuotas = ct.rpPlantaCuotas && ct.rpPlantaCuotas.length>0 ? ct.rpPlantaCuotas : RP_CUOTAS_DEFAULT;
     cuotas.forEach((cuo, idx) => {
@@ -6359,6 +6407,271 @@ async function exportarContratos(filtrado) {
     subtituloDoc: "Osiris Plant Management · Grupo Mediterra",
     filtros: `${filtrado.length} contratos exportados`,
   });
+}
+
+// ══════════════════════════════════════════════════════════════════
+// SECCIÓN ÓRDENES DE COMPRA + FACTURAS ROYALTY PLANTA (dentro del contrato)
+// ══════════════════════════════════════════════════════════════════
+function OrdenesCompraSec({r, upd, can}) {
+  const plantaciones = r.plantaciones || [];
+  const ordenes = r.ordenesCompra || [];
+  const facturas = r.facturasRP || [];
+  const valorPP = Number(r.valorRoyaltyPlanta) || 1;
+  const whtPct = pct(r.pais)===1 ? 0 : 15;
+
+  // Helpers de derivación
+  const plantasDeOC = (oc) => (oc.plantacionIds||[]).reduce((s,pid)=>{
+    const pl = plantaciones.find(p=>p.id===pid);
+    return s + (pl ? (Number(pl.nPlantas)||0) : 0);
+  },0);
+  const montoDeOC = (oc) => plantasDeOC(oc) * valorPP;
+  const montoDeFactura = (f) => {
+    // Si tiene monto manual, usarlo; sino sumar las OC
+    if(f.montoFacturado!=null && f.montoFacturado!=="") return Number(f.montoFacturado)||0;
+    return (f.ocIds||[]).reduce((s,ocId)=>{
+      const oc = ordenes.find(o=>o.id===ocId);
+      return s + (oc ? montoDeOC(oc) : 0);
+    },0);
+  };
+
+  // Totales de cuadre
+  const totalPlantas = plantaciones.reduce((s,p)=>s+(Number(p.nPlantas)||0),0);
+  const totalEsperado = totalPlantas * valorPP;
+  const totalFacturado = facturas.reduce((s,f)=>s+montoDeFactura(f),0);
+  const pendiente = totalEsperado - totalFacturado;
+
+  // CRUD OC
+  const addOC = () => {
+    const nuevo = {id:`oc_${Date.now()}`, n_oc:"", fecha_oc:"", plantacionIds:[], estado:"Borrador", observaciones:""};
+    upd(r.id,"ordenesCompra",[...ordenes,nuevo]);
+  };
+  const updOC = (id,campo,valor) => {
+    upd(r.id,"ordenesCompra",ordenes.map(o=>o.id===id?{...o,[campo]:valor}:o));
+  };
+  const delOC = (id) => {
+    if(!window.confirm("¿Eliminar orden de compra?"))return;
+    upd(r.id,"ordenesCompra",ordenes.filter(o=>o.id!==id));
+    // Quitar referencia en facturas
+    upd(r.id,"facturasRP",facturas.map(f=>({...f,ocIds:(f.ocIds||[]).filter(x=>x!==id)})));
+  };
+  const togglePlantacionEnOC = (ocId, pid) => {
+    const oc = ordenes.find(o=>o.id===ocId);
+    if(!oc) return;
+    const has = (oc.plantacionIds||[]).includes(pid);
+    const next = has ? (oc.plantacionIds||[]).filter(x=>x!==pid) : [...(oc.plantacionIds||[]),pid];
+    updOC(ocId,"plantacionIds",next);
+  };
+
+  // CRUD Facturas
+  const addFactura = () => {
+    const nueva = {id:`frp_${Date.now()}`, n_factura:"", fecha:"", ocIds:[], montoFacturado:"", estadoCF:"porCobrar", fechaPago:"", observaciones:""};
+    upd(r.id,"facturasRP",[...facturas,nueva]);
+  };
+  const updFactura = (id,campo,valor) => {
+    let next = facturas.map(f=>f.id===id?{...f,[campo]:valor}:f);
+    if(campo==="estadoCF") next = next.map(f=>f.id===id?{...f,pagado:valor==="pagado"}:f);
+    upd(r.id,"facturasRP",next);
+  };
+  const delFactura = (id) => {
+    if(!window.confirm("¿Eliminar factura?"))return;
+    upd(r.id,"facturasRP",facturas.filter(f=>f.id!==id));
+  };
+  const toggleOCEnFactura = (fId, ocId) => {
+    const f = facturas.find(x=>x.id===fId);
+    if(!f) return;
+    const has = (f.ocIds||[]).includes(ocId);
+    const next = has ? (f.ocIds||[]).filter(x=>x!==ocId) : [...(f.ocIds||[]),ocId];
+    updFactura(fId,"ocIds",next);
+  };
+
+  const colorEstadoOC = {Borrador:"#94a3b8",Emitida:"#0891b2",Confirmada:"#2563eb","En producción":"#7c3aed",Despachada:"#d97706",Facturada:"#15803d",Anulada:"#dc2626"};
+
+  return (
+    <div>
+      {/* Panel de cuadre */}
+      <div style={{background:"#faf5ff",border:"1px solid #d8b4fe",borderRadius:12,padding:16,marginBottom:18}}>
+        <div style={{fontSize:13,fontWeight:800,color:"#7c3aed",marginBottom:10}}>📊 Cuadre Royalty Planta</div>
+        <div style={{display:"flex",gap:12,flexWrap:"wrap"}}>
+          {[
+            [`${N(totalPlantas)}`,"Plantas totales","#7c3aed","#f3e8ff"],
+            [`$${N(valorPP)}`,"US$/planta","#7c3aed","#f3e8ff"],
+            [$$(totalEsperado),"Total esperado","#1d4ed8","#dbeafe"],
+            [$$(totalFacturado),"Facturado a la fecha","#15803d","#dcfce7"],
+            [$$(Math.max(0,pendiente)),pendiente<-0.5?"⚠️ Sobre-facturado":"Pendiente por facturar",pendiente<-0.5?"#dc2626":"#d97706",pendiente<-0.5?"#fee2e2":"#fef9c3"],
+          ].map(([v,l,c,bg])=>(
+            <div key={l} style={{background:bg,borderRadius:10,padding:"10px 16px",flex:1,minWidth:120}}>
+              <div style={{fontSize:10,color:c,fontWeight:600}}>{l}</div>
+              <div style={{fontSize:18,fontWeight:800,color:c}}>{pendiente<-0.5&&l.includes("Sobre")?$$(Math.abs(pendiente)):v}</div>
+            </div>
+          ))}
+        </div>
+        {plantaciones.length===0&&(
+          <div style={{marginTop:10,fontSize:11,color:"#9333ea"}}>⚠️ Aún no hay plantaciones registradas. Agrégalas en la tab "Plantaciones" para poder asociarlas a las OC.</div>
+        )}
+      </div>
+
+      {/* ÓRDENES DE COMPRA */}
+      <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,padding:16,marginBottom:18}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
+          <div>
+            <div style={{fontSize:13,fontWeight:800,color:C.text}}>🧾 Órdenes de Compra</div>
+            <div style={{fontSize:11,color:C.muted}}>Cada OC referencia plantaciones del contrato. Plantas y monto se calculan automáticamente.</div>
+          </div>
+          {can&&<button onClick={addOC} style={{background:"#7c3aed",border:"none",borderRadius:8,padding:"7px 14px",cursor:"pointer",fontSize:12,color:"#fff",fontWeight:700,whiteSpace:"nowrap"}}>+ Orden de Compra</button>}
+        </div>
+        {ordenes.length===0?(
+          <div style={{padding:24,textAlign:"center",color:C.muted2,border:"1px dashed #e2e8f0",borderRadius:10,fontSize:12}}>Sin órdenes de compra registradas.</div>
+        ):(
+          <div style={{display:"flex",flexDirection:"column",gap:10}}>
+            {ordenes.map(oc=>{
+              const nPl = plantasDeOC(oc);
+              const monto = montoDeOC(oc);
+              return(
+                <div key={oc.id} style={{border:`1px solid ${C.border}`,borderRadius:10,padding:12,background:"#fff"}}>
+                  <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(140px,1fr))",gap:10,alignItems:"end",marginBottom:10}}>
+                    <div>
+                      <div style={{fontSize:10,color:C.muted,fontWeight:600,marginBottom:3}}>N° OC</div>
+                      <input disabled={!can} value={oc.n_oc||""} onChange={e=>updOC(oc.id,"n_oc",e.target.value)} placeholder="OC-001"
+                        style={{width:"100%",padding:"6px 8px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:12,boxSizing:"border-box"}}/>
+                    </div>
+                    <div>
+                      <div style={{fontSize:10,color:C.muted,fontWeight:600,marginBottom:3}}>Fecha OC</div>
+                      <input type="date" disabled={!can} value={oc.fecha_oc||""} onChange={e=>updOC(oc.id,"fecha_oc",e.target.value)}
+                        style={{width:"100%",padding:"6px 8px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:12,boxSizing:"border-box"}}/>
+                    </div>
+                    <div>
+                      <div style={{fontSize:10,color:C.muted,fontWeight:600,marginBottom:3}}>Estado</div>
+                      <select disabled={!can} value={oc.estado||"Borrador"} onChange={e=>updOC(oc.id,"estado",e.target.value)}
+                        style={{width:"100%",padding:"6px 8px",borderRadius:6,border:`1px solid ${colorEstadoOC[oc.estado]||C.border}`,fontSize:12,boxSizing:"border-box",color:colorEstadoOC[oc.estado]||C.text,fontWeight:600}}>
+                        {ESTADOS_OC_CLIENTE.map(e=><option key={e}>{e}</option>)}
+                      </select>
+                    </div>
+                    <div>
+                      <div style={{fontSize:10,color:C.muted,fontWeight:600,marginBottom:3}}>Plantas (auto)</div>
+                      <div style={{padding:"6px 8px",background:C.cardAlt,borderRadius:6,fontSize:13,fontWeight:700,color:"#7c3aed"}}>{N(nPl)}</div>
+                    </div>
+                    <div>
+                      <div style={{fontSize:10,color:C.muted,fontWeight:600,marginBottom:3}}>Monto US$ (auto)</div>
+                      <div style={{padding:"6px 8px",background:"#dbeafe",borderRadius:6,fontSize:13,fontWeight:700,color:"#1d4ed8"}}>{$$(monto)}</div>
+                    </div>
+                    {can&&<div><button onClick={()=>delOC(oc.id)} style={{background:C.dangerBg,border:"none",borderRadius:6,padding:"7px 10px",cursor:"pointer",fontSize:12,color:C.danger,fontWeight:700}}>🗑 Eliminar</button></div>}
+                  </div>
+                  {/* Selección de plantaciones */}
+                  <div style={{borderTop:`1px solid ${C.border}`,paddingTop:8}}>
+                    <div style={{fontSize:10,color:C.muted,fontWeight:600,marginBottom:6}}>Plantaciones asociadas:</div>
+                    {plantaciones.length===0?(
+                      <div style={{fontSize:11,color:C.muted2}}>No hay plantaciones para asociar.</div>
+                    ):(
+                      <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
+                        {plantaciones.map(pl=>{
+                          const sel = (oc.plantacionIds||[]).includes(pl.id);
+                          return(
+                            <button key={pl.id} disabled={!can} onClick={()=>togglePlantacionEnOC(oc.id,pl.id)}
+                              style={{padding:"4px 10px",borderRadius:20,border:sel?"none":`1px solid ${C.border}`,cursor:can?"pointer":"default",
+                                background:sel?"#7c3aed":"#fff",color:sel?"#fff":C.muted,fontSize:11,fontWeight:600}}>
+                              {sel?"✓ ":""}{pl.variedad||pl.especie||"Plantación"} · {N(pl.nPlantas||0)} pl
+                            </button>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                  {oc.observaciones!==undefined&&(
+                    <input disabled={!can} value={oc.observaciones||""} onChange={e=>updOC(oc.id,"observaciones",e.target.value)} placeholder="Observaciones..."
+                      style={{width:"100%",marginTop:8,padding:"5px 8px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:11,boxSizing:"border-box"}}/>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      {/* FACTURAS ROYALTY PLANTA */}
+      <div style={{background:C.card,border:`1px solid #86efac`,borderRadius:12,padding:16}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
+          <div>
+            <div style={{fontSize:13,fontWeight:800,color:C.success}}>💵 Facturas Royalty Planta</div>
+            <div style={{fontSize:11,color:C.muted}}>Cada factura agrupa 1 o varias OC. El monto se autocalcula (editable). Estado de cobro de 6 niveles.</div>
+          </div>
+          {can&&<button onClick={addFactura} style={{background:C.success,border:"none",borderRadius:8,padding:"7px 14px",cursor:"pointer",fontSize:12,color:"#fff",fontWeight:700,whiteSpace:"nowrap"}}>+ Factura</button>}
+        </div>
+        {facturas.length===0?(
+          <div style={{padding:24,textAlign:"center",color:C.muted2,border:"1px dashed #e2e8f0",borderRadius:10,fontSize:12}}>Sin facturas registradas.</div>
+        ):(
+          <div style={{display:"flex",flexDirection:"column",gap:10}}>
+            {facturas.map(f=>{
+              const montoAuto = (f.ocIds||[]).reduce((s,ocId)=>{const oc=ordenes.find(o=>o.id===ocId);return s+(oc?montoDeOC(oc):0);},0);
+              const montoFinal = montoDeFactura(f);
+              const montoCobro = montoFinal * pct(r.pais);
+              return(
+                <div key={f.id} style={{border:`1px solid #bbf7d0`,borderRadius:10,padding:12,background:"#fff"}}>
+                  <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(130px,1fr))",gap:10,alignItems:"end",marginBottom:10}}>
+                    <div>
+                      <div style={{fontSize:10,color:C.muted,fontWeight:600,marginBottom:3}}>N° Factura</div>
+                      <input disabled={!can} value={f.n_factura||""} onChange={e=>updFactura(f.id,"n_factura",e.target.value)} placeholder="F-001"
+                        style={{width:"100%",padding:"6px 8px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:12,boxSizing:"border-box"}}/>
+                    </div>
+                    <div>
+                      <div style={{fontSize:10,color:C.muted,fontWeight:600,marginBottom:3}}>Fecha</div>
+                      <input type="date" disabled={!can} value={f.fecha||""} onChange={e=>updFactura(f.id,"fecha",e.target.value)}
+                        style={{width:"100%",padding:"6px 8px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:12,boxSizing:"border-box"}}/>
+                    </div>
+                    <div>
+                      <div style={{fontSize:10,color:C.muted,fontWeight:600,marginBottom:3}}>Monto facturado US$</div>
+                      <input type="number" disabled={!can} value={f.montoFacturado!=null&&f.montoFacturado!==""?f.montoFacturado:montoAuto||""}
+                        onChange={e=>updFactura(f.id,"montoFacturado",e.target.value)} placeholder={N(montoAuto)}
+                        style={{width:"100%",padding:"6px 8px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:12,boxSizing:"border-box",textAlign:"right",fontWeight:700}}/>
+                      {f.montoFacturado!=null&&f.montoFacturado!==""&&Math.abs(Number(f.montoFacturado)-montoAuto)>0.5&&montoAuto>0&&(
+                        <div style={{fontSize:9,color:C.warning,marginTop:2}}>Auto: {$$(montoAuto)}</div>
+                      )}
+                    </div>
+                    <div>
+                      <div style={{fontSize:10,color:C.muted,fontWeight:600,marginBottom:3}}>Neto cobro {whtPct>0?`(WHT ${whtPct}%)`:""}</div>
+                      <div style={{padding:"6px 8px",background:C.successBg,borderRadius:6,fontSize:13,fontWeight:700,color:C.success}}>{$$(montoCobro)}</div>
+                    </div>
+                    <div>
+                      <div style={{fontSize:10,color:C.muted,fontWeight:600,marginBottom:3}}>Estado cobro</div>
+                      <BadgeEstadoCF estado={resolveEstadoCF(f)} onChange={v=>updFactura(f.id,"estadoCF",v)} can={can}/>
+                    </div>
+                    <div>
+                      <div style={{fontSize:10,color:C.muted,fontWeight:600,marginBottom:3}}>Fecha pago</div>
+                      <input type="date" disabled={!can} value={f.fechaPago||""} onChange={e=>updFactura(f.id,"fechaPago",e.target.value)}
+                        style={{width:"100%",padding:"6px 8px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:12,boxSizing:"border-box"}}/>
+                    </div>
+                    {can&&<div><button onClick={()=>delFactura(f.id)} style={{background:C.dangerBg,border:"none",borderRadius:6,padding:"7px 10px",cursor:"pointer",fontSize:12,color:C.danger,fontWeight:700}}>🗑</button></div>}
+                  </div>
+                  {/* Selección de OC */}
+                  <div style={{borderTop:"1px solid #f1f5f9",paddingTop:8}}>
+                    <div style={{fontSize:10,color:C.muted,fontWeight:600,marginBottom:6}}>Órdenes de compra incluidas:</div>
+                    {ordenes.length===0?(
+                      <div style={{fontSize:11,color:C.muted2}}>Crea órdenes de compra primero para asociarlas.</div>
+                    ):(
+                      <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
+                        {ordenes.map(oc=>{
+                          const sel = (f.ocIds||[]).includes(oc.id);
+                          return(
+                            <button key={oc.id} disabled={!can} onClick={()=>toggleOCEnFactura(f.id,oc.id)}
+                              style={{padding:"4px 10px",borderRadius:20,border:sel?"none":`1px solid ${C.border}`,cursor:can?"pointer":"default",
+                                background:sel?C.success:"#fff",color:sel?"#fff":C.muted,fontSize:11,fontWeight:600}}>
+                              {sel?"✓ ":""}{oc.n_oc||"OC s/n"} · {$$(montoDeOC(oc))}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+        <div style={{marginTop:12,padding:10,background:C.successBg,borderRadius:8,fontSize:11,color:C.success}}>
+          💡 Estas facturas alimentan el Royalty Planta global cuando el contrato tiene OC. El % a la firma sigue gestionándose en "Cobros derivados".
+        </div>
+      </div>
+    </div>
+  );
 }
 
 function ControlContratos({data,setData,clientes,setClientes,variedadesMaestro=[],setVariedadesMaestro,especiesMaestro=[],setEspeciesMaestro,obtentoresData=[],viverosData=[],setViveros,can,tiposAnexoPersist,setTiposAnexoPersist,tiposContratoPersist,setTiposContratoPersist}){
@@ -7534,6 +7847,11 @@ function ControlContratos({data,setData,clientes,setClientes,variedadesMaestro=[
               })()}
             </div>
           </>)}
+
+          {/* ── SECCIÓN: ÓRDENES DE COMPRA + FACTURAS ROYALTY PLANTA ── */}
+          {sec==="ordenes"&&(
+            <OrdenesCompraSec r={r} upd={upd} can={can}/>
+          )}
         </div>
       </div>
     );
