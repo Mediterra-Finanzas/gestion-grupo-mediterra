@@ -5,6 +5,7 @@ import FinanzasModule, { EMPRESAS_KEYS_ALL } from "./FinanzasModule.jsx";
 import AllegriaModule from "./AllegriaModule.jsx";
 import FriskuComercialModule from "./FriskuComercialModule.jsx";
 import { theme as C } from "./theme";
+import { ensureSupabaseSession, clearOsirisSession, getOsirisAccessToken, refreshOsirisSession } from "./data/supabase-auth";
 
 // ═══════════════════════════════════════════════════════════════════
 // ErrorBoundary: captura crash por archivos obsoletos tras deploy
@@ -1687,6 +1688,10 @@ export default function App(){
         // Restaurar el módulo donde estaba
         const savedModulo = sessionStorage.getItem('mediterra_modulo');
         if(savedModulo) setModuloActivo(savedModulo);
+        // E1.5 auth dual: sin PIN al restaurar → si el token expiró, intentar refresh (no bloquea).
+        if(process.env.REACT_APP_AUTH_DUAL === 'true' && !getOsirisAccessToken()){
+          refreshOsirisSession();
+        }
       } else {
         sessionStorage.removeItem('mediterra_usuario');
         sessionStorage.removeItem('mediterra_modulo');
@@ -1999,6 +2004,8 @@ export default function App(){
     setModuloActivo(null);
     sessionStorage.removeItem('mediterra_usuario');
     sessionStorage.removeItem('mediterra_modulo');
+    // E1.5 auth dual: limpiar sesión Supabase de Osiris.
+    if(process.env.REACT_APP_AUTH_DUAL === 'true') clearOsirisSession();
     window._auditUsuarioActual = null;
   }
 
@@ -2032,6 +2039,11 @@ export default function App(){
         window._auditUsuarioActual = w;
         window.auditLog("login", {modulo:"sistema", seccion:"autenticación",
           descripcion:`${w.nombre} (${w.rol}) inició sesión`});
+        // E1.5 auth dual (fire-and-forget): obtener sesión Supabase para Osiris relacional.
+        if(process.env.REACT_APP_AUTH_DUAL === 'true'){
+          ensureSupabaseSession(emailInput, loginPin.trim())
+            .then(r=>{ if(!r.ok) console.warn("[osiris-auth] sin sesión:", r.error); });
+        }
       }
     }else{
       setLoginError("PIN incorrecto.");
@@ -2083,6 +2095,11 @@ export default function App(){
         setUsuarioActual(workerPendiente);
         sessionStorage.setItem('mediterra_usuario', workerPendiente.nombre);
         window._auditUsuarioActual = workerPendiente;
+        // E1.5 auth dual: emitir sesión Supabase con el PIN nuevo (ya persistido arriba).
+        if(process.env.REACT_APP_AUTH_DUAL === 'true'){
+          ensureSupabaseSession(workerPendiente.email, pinNuevo)
+            .then(r=>{ if(!r.ok) console.warn("[osiris-auth] sin sesión:", r.error); });
+        }
         setWorkerPendiente(null);
       }
       window.auditLog("cambio_pin", {modulo:"sistema", seccion:"autenticación",
