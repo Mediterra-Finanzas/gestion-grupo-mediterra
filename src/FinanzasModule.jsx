@@ -1,6 +1,7 @@
 /* eslint-disable */
 import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import EEFFModule from './EEFFModule.jsx';
+import RendicionesModule from './RendicionesModule.jsx';
 import { theme } from './theme';
 
 // ═══════════════════════════════════════════════════════════════════
@@ -10235,6 +10236,7 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
     {id:"reporte",  label:"📅 Reporte Semanal"},
     {id:"auditoria",label:"🔍 Auditoría"},
     {id:"eeff",     label:"📑 EEFF"},
+    {id:"rendiciones",label:"🧾 Rendiciones"},
   ];
   // Solo mostrar pestañas a las que el usuario tiene acceso
   // Auditoría: solo admin
@@ -10966,6 +10968,10 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
 
       {tab==="eeff"&&(
         <EEFFModule canEdit={puedoEdit("eeff")} usuarioActual={usuarioActual} empresasPermitidas={empresasPermitidas}/>
+      )}
+
+      {tab==="rendiciones"&&puedoVer("rendiciones")&&(
+        <RendicionesModule usuarioActual={usuarioActual} esAdmin={esAdmin}/>
       )}
 
     </div>

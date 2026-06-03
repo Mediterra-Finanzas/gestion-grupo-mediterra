@@ -45,6 +45,7 @@ Aplicación web interna para la gestión financiera y operativa de **Grupo Medit
 - `FriskuModule.jsx` (~1.500 L) — **Maestros globales de Frisku** (a pesar del nombre del archivo, internamente es `FriskuMaestrosModule`): 11 tabs — Países, Ciudades, Puertos, Aeropuertos, Shipping Lines, Tipos Embarque, **Especies** (Fase 2), Tipos Embalaje, Mercados, Monedas, **Tipo de Cambio histórico** (Fase 2, con APIs), Checklist Docs
 - `FriskuComercialModule.jsx` (~960 L, **nuevo Fase 2**) — módulo comercial: Dashboard, **Clientes** (CRUD con especies + comisiones + overrides), **Exportadoras** (CRUD), placeholders para Contratos / Programa / Embarques / Liquidaciones, embed de Maestros + TC
 - `friskuHelpers.js` (~290 L, **nuevo Fase 2**) — helpers compartidos: persistencia genérica, modelo de comisión Frisku, formateo de montos, búsqueda TC, conversión multimoneda, integración mindicador.cl + frankfurter.app
+- `RendicionesModule.jsx` — **Rendiciones de gasto del personal**: cada trabajador carga sus propios gastos con respaldos (boletas/facturas en Supabase Storage) y workflow de aprobación (borrador → enviada → aprobada/rechazada → pagada). Se renderiza como **pestaña "🧾 Rendiciones" DENTRO de FinanzasModule** (no es un tile aparte del hub). Sub-tabs internos: Mis Rendiciones (todos), Por Aprobar / Pagos / Reportes (solo aprobadores = admin o `esCFO`). Reutiliza `dbLoadGeneric/dbSaveGeneric` y `uploadArchivoFrisku` (bucket `frisku-docs`, prefijo `rendiciones/`) de `friskuHelpers.js`. Persiste en `calendario_data` id=`rendiciones`. Independiente del flujo de caja. **Multimoneda con conversión para pago**: cada rendición tiene `monedaPago` (default CLP) y `fechaTC`; cada gasto se convierte a la moneda de pago **triangulando vía USD** (`convertir()` usa `buscarTC` de `friskuHelpers`, con par inverso). Ej. soles: `PEN→USD→CLP`. Las APIs gratis NO cubren PEN, así que el par `USD-PEN` debe cargarse manual en Maestros → Tipo de Cambio; los gastos sin TC se marcan ⚠ y se excluyen del total. Reportes totaliza en CLP equivalente. **Acceso**: en el merge de usuarios de `App.jsx`, a quien no tenga el módulo `finanzas` se le otorga, pero con TODAS las pestañas financieras en `sin_acceso` y solo `rendiciones` en `editar` → así todo el personal puede cargar gastos sin ver datos financieros sensibles. Quienes ya tenían Finanzas (Angelo, Carol) conservan acceso completo.
 - `emailHelper.js` — utilidades de email
 
 **Nota histórica**: el archivo `FriskuModule.jsx` se llamó así por compatibilidad con imports anteriores, pero su contenido es el módulo de Maestros (la cabecera del archivo lo declara explícitamente). El módulo Frisku que ve el usuario al entrar a "Frisku Foods" es `FriskuComercialModule`, el cual embebe `FriskuModule` (Maestros) dentro de su sub-tab "🗂️ Maestros + TC".
@@ -58,6 +59,7 @@ Tabla principal: `calendario_data` con columnas `id` (string), `value` (JSON), `
 - `id="osiris"` → módulo Osiris
 - `id="allegria"` → módulo Allegria
 - `id="nominas"` → módulo nóminas
+- `id="rendiciones"` → módulo rendiciones de gasto (array de rendiciones con gastos + adjuntos + historial workflow)
 
 **Maestros Frisku (11 ids):**
 - `maestro_paises`, `maestro_ciudades`, `maestro_puertos`, `maestro_aeropuertos`, `maestro_shipping_lines`
@@ -110,6 +112,8 @@ Sub-tabs dentro de FinanzasModule:
 5. **Nóminas** — nóminas de pago semanales con workflow autorización
 6. **Reporte Semanal** — PDF ejecutivo del flujo grupo
 7. **Auditoría** — log de cambios
+8. **EEFF** — carga balance + P&L (EEFFModule)
+9. **Rendiciones** — rendiciones de gasto del personal (RendicionesModule embebido)
 
 #### Conceptos clave del flujo de caja
 
@@ -277,5 +281,5 @@ export default function MiModulo({ canEdit, ... }) {
 
 ---
 
-**Última actualización**: 2026-05-19 — Fase 2 Frisku entregada (Especies + TC + Clientes + Exportadoras).
+**Última actualización**: 2026-06-03 — Módulo Rendiciones de Gasto del personal agregado (carga por trabajador + workflow de aprobación + adjuntos).
 **Mantener este archivo actualizado** después de cambios mayores en estructura, módulos nuevos, o decisiones de arquitectura importantes.

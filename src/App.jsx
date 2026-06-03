@@ -503,6 +503,7 @@ const TABS_PERMISOS_CONFIG = {
     {id:"params",    label:"⚡ Parámetros"},
     {id:"auditoria", label:"🔍 Auditoría"},
     {id:"eeff",      label:"📑 EEFF"},
+    {id:"rendiciones",label:"🧾 Rendiciones"},
   ],
   allegria: [
     {id:"clientes",      label:"👥 Clientes Importadores"},
@@ -1533,6 +1534,21 @@ export default function App(){
                 desactivado: saved.desactivado || false,   // admin desactiva
                 tab_permisos: saved.tab_permisos || {},    // admin configura permisos
               };
+              // Rendiciones vive como pestaña DENTRO de Finanzas y la usa todo el
+              // personal para cargar sus gastos. A quien no tenga Finanzas se le
+              // entrega el módulo pero con TODAS las pestañas financieras bloqueadas:
+              // solo ve la pestaña Rendiciones (acceso de finanzas intacto para
+              // quienes ya lo tenían, ej. Carol Machuca).
+              if(!merged_u.modulos.includes("finanzas")){
+                merged_u.modulos = [...merged_u.modulos, "finanzas"];
+                merged_u.tab_permisos.finanzas = {
+                  ...(merged_u.tab_permisos.finanzas||{}),
+                  dashboard:"sin_acceso", flujo:"sin_acceso", bancos:"sin_acceso",
+                  creditos:"sin_acceso", nominas:"sin_acceso", params:"sin_acceso",
+                  reporte:"sin_acceso", auditoria:"sin_acceso", eeff:"sin_acceso",
+                  rendiciones:"editar",
+                };
+              }
               // Asegurar que tab_permisos tenga todos los tabs definidos en TABS_PERMISOS_CONFIG
               // Si hay tabs nuevos que no existían cuando se guardaron los permisos, inicializarlos
               (merged_u.modulos||[]).forEach(mod=>{
