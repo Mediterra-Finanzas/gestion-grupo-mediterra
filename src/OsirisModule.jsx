@@ -2765,6 +2765,23 @@ function PagoObtentores({obtentoresData, ctData, feData, rpData, rcData, pagosDa
 
   const detalle = vistaDetalle ? resumenObtentores.find(x=>x.obt.id===vistaDetalle) : null;
 
+  // ── Conciliación consolidada CFO ──
+  const concilia = useMemo(()=>{
+    const allItems = resumenObtentores.flatMap(r=>r.items);
+    const facturadoCliente = allItems.reduce((s,x)=>s+(x.montoFact||0),0);
+    const deudaBruta = resumenObtentores.reduce((s,r)=>s+r.deudaBruta,0);
+    const whtTotal   = resumenObtentores.reduce((s,r)=>s+r.whtTotal,0);
+    const netoAPagar = resumenObtentores.reduce((s,r)=>s+r.netoAPagar,0);
+    const yaPagado   = resumenObtentores.reduce((s,r)=>s+r.yaPagado,0);
+    const saldo      = resumenObtentores.reduce((s,r)=>s+Math.max(0,r.saldo),0);
+    const margenOsiris = facturadoCliente - deudaBruta;
+    // Desglose por tipo de ingreso
+    const porTipo = {};
+    ["contract_fee","royalty_planta","royalty_comercial"].forEach(t=>{ porTipo[t]={facturado:0,deuda:0}; });
+    allItems.forEach(x=>{ if(porTipo[x.tipo]){ porTipo[x.tipo].facturado+=(x.montoFact||0); porTipo[x.tipo].deuda+=(x.deudaBruta||0); } });
+    return { facturadoCliente, deudaBruta, whtTotal, netoAPagar, yaPagado, saldo, margenOsiris, porTipo };
+  },[resumenObtentores]);
+
   return (
     <div>
       <div style={{background:"#e0f2fe",border:"1px solid #7dd3fc",borderRadius:10,padding:"8px 14px",marginBottom:16,fontSize:12,color:"#0369a1"}}>
@@ -2893,6 +2910,44 @@ function PagoObtentores({obtentoresData, ctData, feData, rpData, rcData, pagosDa
       ):(
         /* ── Vista resumen por obtentor ── */
         <div>
+          {/* Conciliación consolidada CFO */}
+          {resumenObtentores.length>0&&(
+            <div style={{background:"linear-gradient(135deg,#0c4a6e,#0e7490)",borderRadius:14,padding:18,marginBottom:18,color:"#fff"}}>
+              <div style={{fontSize:13,fontWeight:800,marginBottom:12,opacity:0.95}}>📋 Conciliación consolidada — todos los obtentores</div>
+              <div style={{display:"flex",gap:12,flexWrap:"wrap",marginBottom:14}}>
+                {[
+                  [$$(concilia.facturadoCliente),"Facturado a clientes",false],
+                  [$$(concilia.deudaBruta),"Deuda obtentores (bruta)",false],
+                  [$$(concilia.margenOsiris),"Margen Osiris",true],
+                  [$$(concilia.yaPagado),"Ya pagado",false],
+                  [$$(concilia.saldo),"Saldo pendiente",false],
+                ].map(([v,l,hl])=>(
+                  <div key={l} style={{background:hl?"rgba(255,255,255,0.22)":"rgba(255,255,255,0.1)",borderRadius:10,padding:"10px 16px",flex:1,minWidth:130}}>
+                    <div style={{fontSize:10,opacity:0.85,fontWeight:600}}>{l}</div>
+                    <div style={{fontSize:19,fontWeight:800}}>{v}</div>
+                  </div>
+                ))}
+              </div>
+              {/* Desglose por tipo de ingreso */}
+              <div style={{display:"flex",gap:10,flexWrap:"wrap"}}>
+                {[["contract_fee","💰 Contract Fee"],["royalty_planta","🌱 Royalty Planta"],["royalty_comercial","📈 Royalty Comercial"]].map(([k,lbl])=>{
+                  const d=concilia.porTipo[k]||{facturado:0,deuda:0};
+                  if(d.facturado===0&&d.deuda===0) return null;
+                  const margen=d.facturado-d.deuda;
+                  const pctObt=d.facturado>0?(d.deuda/d.facturado*100):0;
+                  return(
+                    <div key={k} style={{background:"rgba(255,255,255,0.08)",borderRadius:10,padding:"8px 14px",flex:1,minWidth:180,fontSize:11}}>
+                      <div style={{fontWeight:700,marginBottom:4}}>{lbl}</div>
+                      <div style={{display:"flex",justifyContent:"space-between",opacity:0.9}}><span>Facturado:</span><span>{$$(d.facturado)}</span></div>
+                      <div style={{display:"flex",justifyContent:"space-between",opacity:0.9}}><span>→ Obtentor ({pctObt.toFixed(0)}%):</span><span>{$$(d.deuda)}</span></div>
+                      <div style={{display:"flex",justifyContent:"space-between",fontWeight:700,marginTop:2,borderTop:"1px solid rgba(255,255,255,0.2)",paddingTop:2}}><span>Margen Osiris:</span><span>{$$(margen)}</span></div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
             <div style={{fontSize:13,color:C.muted}}>
               {resumenObtentores.length===0
