@@ -394,21 +394,19 @@ const WORKERS_BASE=[
 function garantizarAccesoRendiciones(u){
   const mods = Array.isArray(u.modulos) ? u.modulos : ["tareas"];
   const yaTeniaFinanzas = mods.includes("finanzas");
+  // El maestro de permisos (lo que el admin configura en Gestión de Usuarios y
+  // queda persistido en Supabase) es la ÚNICA fuente de verdad para quien YA tiene
+  // el módulo Finanzas. Esta función es PURAMENTE ADITIVA: nunca degrada ni
+  // reescribe las pestañas de un usuario existente → un cambio de permisos del
+  // admin jamás se pierde, aunque la app auto-guarde el merge en cada carga.
+  // Solo PROVISIONA a quien aún NO tiene Finanzas: le entrega el módulo con todo
+  // bloqueado salvo Rendiciones (para que todo el personal pueda cargar gastos).
+  // Idempotente.
+  if(yaTeniaFinanzas) return u;
   const finanzasPrev = u.tab_permisos?.finanzas || {};
-  // Perfil "solo rendiciones": no tenía Finanzas, o TODAS las pestañas financieras
-  // core están explícitamente en "sin_acceso". Basta con que UNA tenga acceso
-  // (ej. Carol con nominas="editar" aunque dashboard="sin_acceso") para considerarlo
-  // usuario real de Finanzas y NO tocarle nada. Un permiso sin definir (undefined)
-  // cae en visible por defecto → también cuenta como "tiene acceso".
-  // "reporte" se excluye a propósito del core: si estaba sin definir en un usuario
-  // ya migrado, igual se vuelve a bloquear abajo (preserva el fix de Reporte Semanal).
-  const FIN_CORE = ["dashboard","flujo","bancos","creditos","nominas","params","auditoria","eeff"];
-  const todasBloqueadas = FIN_CORE.every(t => finanzasPrev[t] === "sin_acceso");
-  const esSoloRendiciones = !yaTeniaFinanzas || todasBloqueadas;
-  if(yaTeniaFinanzas && !esSoloRendiciones) return u;
   return {
     ...u,
-    modulos: yaTeniaFinanzas ? mods : [...mods, "finanzas"],
+    modulos: [...mods, "finanzas"],
     tab_permisos: {
       ...(u.tab_permisos||{}),
       finanzas: {
@@ -1879,10 +1877,21 @@ export default function App(){
               (merged_u.modulos||[]).forEach(mod=>{
                 const tabsDef = TABS_PERMISOS_CONFIG[mod] || [];
                 if(tabsDef.length > 0 && !merged_u.tab_permisos[mod]) merged_u.tab_permisos[mod] = {};
+                // Nivel por defecto para pestañas nuevas (aún sin definir). Normalmente
+                // "editar" (el admin restringe después). EXCEPCIÓN: en Finanzas, si el
+                // usuario es "solo rendiciones" (todas sus pestañas core definidas están
+                // en sin_acceso), las pestañas nuevas se inicializan bloqueadas para no
+                // filtrarle acceso al agregar pestañas a futuro (preserva el fix de Reporte).
+                let defNivel = "editar";
+                if(mod === "finanzas"){
+                  const tp = merged_u.tab_permisos.finanzas || {};
+                  const core = ["dashboard","flujo","bancos","creditos","nominas","params","auditoria","eeff"];
+                  const definidas = core.filter(t=>tp[t]!==undefined);
+                  if(definidas.length>0 && definidas.every(t=>tp[t]==="sin_acceso")) defNivel = "sin_acceso";
+                }
                 tabsDef.forEach(t=>{
                   if(merged_u.tab_permisos[mod] && merged_u.tab_permisos[mod][t.id] === undefined) {
-                    // Tab nuevo: dar acceso "editar" por defecto (admin puede restringir después)
-                    merged_u.tab_permisos[mod][t.id] = "editar";
+                    merged_u.tab_permisos[mod][t.id] = defNivel;
                   }
                 });
               });
