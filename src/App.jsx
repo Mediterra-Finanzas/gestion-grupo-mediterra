@@ -386,6 +386,32 @@ const WORKERS_BASE=[
   {nombre:"Nicolás Fuenzalida",cargo:"Gerente Técnico",       email:"nfuenzalida@osirisplant.com",pin:"8271",rol:"gerente_tecnico",modulos:["osiris"],esCFO:false},
 ];
 
+// Rendiciones vive como pestaña DENTRO de Finanzas y la usa todo el personal
+// para cargar sus gastos. A quien no tenga Finanzas se le entrega el módulo con
+// TODAS las pestañas financieras bloqueadas y solo Rendiciones visible. Para
+// hacer a alguien aprobador (ve todas + aprueba + paga), subir su pestaña
+// Rendiciones a "editar" en Gestión de Usuarios (se respeta acá). Idempotente.
+function garantizarAccesoRendiciones(u){
+  const mods = Array.isArray(u.modulos) ? u.modulos : ["tareas"];
+  if(mods.includes("finanzas")) return u;
+  const finanzasPrev = u.tab_permisos?.finanzas || {};
+  return {
+    ...u,
+    modulos: [...mods, "finanzas"],
+    tab_permisos: {
+      ...(u.tab_permisos||{}),
+      finanzas: {
+        ...finanzasPrev,
+        dashboard:"sin_acceso", flujo:"sin_acceso", bancos:"sin_acceso",
+        creditos:"sin_acceso", nominas:"sin_acceso", params:"sin_acceso",
+        reporte:"sin_acceso", auditoria:"sin_acceso", eeff:"sin_acceso",
+        // "ver" = carga SOLO las suyas; "editar" = aprobador. Se preserva.
+        rendiciones: finanzasPrev.rendiciones || "ver",
+      },
+    },
+  };
+}
+
 const CATEGORIAS={
   "Finanzas":      {color:C.primary,bg:C.infoBg},
   "Contabilidad":  {color:"#8b5cf6",bg:"#ede9fe"},
@@ -618,8 +644,9 @@ function CadenaAprobEditor({ u, usuarios, onChange }) {
   );
 }
 
-function PanelPermisos({ usuarios, setUsuarios, onClose }) {
+function PanelPermisos({ usuarios, setUsuarios, onClose, pinsPersonalizados = {} }) {
   const [expandedTabUser, setExpandedTabUser] = useState(null); // nombre del usuario expandido
+  const [pinVisible, setPinVisible] = useState(null); // nombre del usuario con PIN revelado
 
   function toggleModulo(nombreU, modId) {
     setUsuarios(prev => prev.map(u => {
@@ -736,13 +763,31 @@ function PanelPermisos({ usuarios, setUsuarios, onClose }) {
                   {/* Fila principal */}
                   <div style={{padding:"14px 18px",display:"flex",justifyContent:"space-between",alignItems:"flex-start",flexWrap:"wrap",gap:10}}>
                     <div style={{flex:1,minWidth:160}}>
-                      <div style={{display:"flex",alignItems:"center",gap:8}}>
+                      <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
                         <span style={{fontWeight:700,fontSize:14,color:C.text}}>{u.nombre}</span>
                         <span style={{fontSize:10,background:u.rol==="admin"?C.warningBg:u.rol==="consulta"?"#ede9fe":C.successBg,color:u.rol==="admin"?"#92400e":u.rol==="consulta"?"#6d28d9":C.success,borderRadius:20,padding:"1px 8px",fontWeight:700}}>
                           {u.rol==="admin"?"Admin":u.rol==="gerente_tecnico"?"Gte. Técnico":u.rol==="consulta"?"Consulta":"Editor"}
                         </span>
+                        {(()=>{
+                          const cambiado = !!pinsPersonalizados[u.nombre];
+                          const temp = pinsPersonalizados[u.nombre+"_temp"];
+                          const visible = pinVisible===u.nombre;
+                          return (
+                            <button onClick={()=>setPinVisible(visible?null:u.nombre)}
+                              title={cambiado?"El usuario cambió su PIN (privado)":"Mostrar PIN asignado"}
+                              style={{display:"flex",alignItems:"center",gap:5,background:visible?C.infoBg:C.cardAlt,
+                                border:`1px solid ${C.border}`,color:visible?C.primary:C.muted,borderRadius:8,
+                                padding:"2px 9px",cursor:"pointer",fontSize:11,fontWeight:600}}>
+                              🔑 {visible
+                                ? (cambiado
+                                    ? <span style={{color:C.muted2}}>cambiado por el usuario{temp?` · temp: ${temp}`:""}</span>
+                                    : <span style={{fontFamily:"monospace",fontWeight:800,letterSpacing:1}}>{u.pin}{temp?` · temp: ${temp}`:""}</span>)
+                                : "Ver PIN"}
+                            </button>
+                          );
+                        })()}
                       </div>
-                      <div style={{fontSize:11,color:C.muted,marginTop:2}}>{u.cargo}</div>
+                      <div style={{fontSize:11,color:C.muted,marginTop:2}}>{u.cargo} · {u.email}</div>
                     </div>
 
                     <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center"}}>
@@ -905,6 +950,9 @@ function PanelPermisos({ usuarios, setUsuarios, onClose }) {
           {/* ── Agregar nuevo usuario ── */}
           <NuevoUsuarioForm setUsuarios={setUsuarios}/>
 
+          {/* ── Carga masiva (solo Rendiciones) ── */}
+          <CargaMasivaUsuariosForm usuarios={usuarios} setUsuarios={setUsuarios}/>
+
           <div style={{background:C.infoBg,borderRadius:10,padding:"10px 14px",fontSize:12,color:C.primary,marginTop:8}}>
             💾 Los cambios se guardan automáticamente en tiempo real.
           </div>
@@ -1002,10 +1050,126 @@ function NuevoUsuarioForm({setUsuarios}) {
   );
 }
 
+// Carga masiva de usuarios — pegar lista (nombre; email; PIN opcional) y crear
+// todos de una. Pensado para dar acceso "Solo Rendiciones" al personal.
+function CargaMasivaUsuariosForm({ usuarios, setUsuarios }) {
+  const [open,setOpen]=useState(false);
+  const [texto,setTexto]=useState("");
+  const [soloRend,setSoloRend]=useState(true);
+  const [resultado,setResultado]=useState(null); // {creados:[], errores:[]}
+
+  // Divide cada línea por ; tab o coma. Espera: nombre, email, [pin], [cargo]
+  function parseLinea(linea){
+    const partes=linea.split(/[;\t,]/).map(s=>s.trim());
+    return {nombre:partes[0]||"", email:partes[1]||"", pin:partes[2]||"", cargo:partes[3]||""};
+  }
+  const genPin=()=>String(Math.floor(1000+Math.random()*9000));
+
+  function procesar(){
+    const lineas=texto.split("\n").map(l=>l.trim()).filter(Boolean);
+    const creados=[], errores=[];
+    // Sets para detectar duplicados (existentes + dentro del mismo lote)
+    const nombresUsados=new Set(usuarios.map(u=>(u.nombre||"").toLowerCase()));
+    const emailsUsados=new Set(usuarios.map(u=>(u.email||"").toLowerCase()));
+    lineas.forEach((linea,i)=>{
+      const n=i+1;
+      const {nombre,email,pin,cargo}=parseLinea(linea);
+      if(!nombre){errores.push(`Línea ${n}: falta el nombre.`);return;}
+      if(!email){errores.push(`Línea ${n} (${nombre}): falta el email.`);return;}
+      if(nombresUsados.has(nombre.toLowerCase())){errores.push(`Línea ${n}: ya existe el nombre "${nombre}".`);return;}
+      if(emailsUsados.has(email.toLowerCase())){errores.push(`Línea ${n}: ya existe el email "${email}".`);return;}
+      const pinFinal=(pin && pin.length>=4) ? pin : genPin();
+      const base={nombre, cargo:cargo||"Personal", email, pin:pinFinal, rol:"editor",
+        modulos: soloRend ? [] : ["tareas"], esCFO:false, desactivado:false};
+      const u=garantizarAccesoRendiciones(base);
+      creados.push(u);
+      nombresUsados.add(nombre.toLowerCase());
+      emailsUsados.add(email.toLowerCase());
+    });
+    if(creados.length){
+      setUsuarios(prev=>[...prev,...creados]);
+      creados.forEach(u=>window.auditLog("crear_usuario",{modulo:"sistema",seccion:"permisos",
+        descripcion:`Creó usuario "${u.nombre}" (carga masiva, ${soloRend?"solo Rendiciones":"con Tareas"})`,
+        registroId:u.nombre, campo:"usuario", valorAnterior:"", valorNuevo:u.email}));
+    }
+    setResultado({creados,errores});
+    if(creados.length) setTexto("");
+  }
+
+  return(
+    <div style={{marginTop:8}}>
+      <button onClick={()=>{setOpen(v=>!v);setResultado(null);}}
+        style={{background:open?C.primary:C.cardAlt,color:open?"#fff":C.text,border:`1px solid ${C.border}`,
+          borderRadius:10,padding:"9px 20px",cursor:"pointer",fontSize:13,fontWeight:700,width:"100%",textAlign:"left"}}>
+        {open?"✕ Cerrar carga masiva":"⇪ Carga masiva de usuarios"}
+      </button>
+      {open&&(
+        <div style={{background:C.cardAlt,borderRadius:12,border:`1px solid ${C.border}`,padding:"18px 20px",marginTop:8}}>
+          <div style={{fontSize:13,fontWeight:800,color:C.text,marginBottom:6}}>Pegar lista de usuarios</div>
+          <div style={{fontSize:11,color:C.muted,marginBottom:10,lineHeight:1.5}}>
+            Una persona por línea. Formato: <b>Nombre ; Email ; PIN ; Cargo</b><br/>
+            PIN y Cargo son opcionales (si falta el PIN se genera uno de 4 dígitos). Separadores válidos: <b>;</b> tab o coma.
+          </div>
+          <textarea value={texto} onChange={e=>setTexto(e.target.value)} rows={7}
+            placeholder={"Juan Pérez; jperez@grupomediterra.cl; 4821\nMaría Soto; msoto@grupomediterra.cl\nPedro Díaz, pdiaz@grupomediterra.cl, 7392, Bodega"}
+            style={{width:"100%",padding:"10px 12px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:13,
+              boxSizing:"border-box",outline:"none",fontFamily:"monospace",resize:"vertical"}}/>
+          <label style={{display:"flex",alignItems:"center",gap:8,margin:"12px 0",fontSize:12,fontWeight:600,color:C.text,cursor:"pointer"}}>
+            <input type="checkbox" checked={soloRend} onChange={e=>setSoloRend(e.target.checked)} style={{accentColor:C.primary}}/>
+            Solo Rendiciones (sin acceso a Tareas ni datos financieros)
+          </label>
+          <button onClick={procesar} disabled={!texto.trim()}
+            style={{padding:"9px 24px",borderRadius:8,background:texto.trim()?C.primary:C.border,color:"#fff",border:"none",
+              cursor:texto.trim()?"pointer":"default",fontSize:13,fontWeight:700}}>
+            👥 Crear usuarios
+          </button>
+
+          {resultado&&(
+            <div style={{marginTop:14}}>
+              {resultado.creados.length>0&&(
+                <div style={{background:C.successBg,borderRadius:10,padding:"12px 14px",marginBottom:10}}>
+                  <div style={{fontSize:12,fontWeight:800,color:C.success,marginBottom:8}}>
+                    ✅ {resultado.creados.length} usuario(s) creado(s)
+                  </div>
+                  <div style={{display:"grid",gridTemplateColumns:"1fr 1fr auto",gap:"3px 12px",fontSize:11,color:C.text}}>
+                    <div style={{fontWeight:700,color:C.muted}}>Nombre</div>
+                    <div style={{fontWeight:700,color:C.muted}}>Email</div>
+                    <div style={{fontWeight:700,color:C.muted}}>PIN</div>
+                    {resultado.creados.map(u=>(
+                      <React.Fragment key={u.nombre}>
+                        <div>{u.nombre}</div>
+                        <div style={{color:C.muted2}}>{u.email}</div>
+                        <div style={{fontFamily:"monospace",fontWeight:700}}>{u.pin}</div>
+                      </React.Fragment>
+                    ))}
+                  </div>
+                  <div style={{fontSize:10,color:C.muted,marginTop:8}}>
+                    Anota/comunica los PIN ahora: por seguridad esta tabla desaparece al cerrar.
+                  </div>
+                </div>
+              )}
+              {resultado.errores.length>0&&(
+                <div style={{background:C.dangerBg,borderRadius:10,padding:"12px 14px"}}>
+                  <div style={{fontSize:12,fontWeight:800,color:C.danger,marginBottom:6}}>
+                    ⚠ {resultado.errores.length} línea(s) omitida(s)
+                  </div>
+                  {resultado.errores.map((e,i)=>(
+                    <div key={i} style={{fontSize:11,color:C.danger}}>{e}</div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ══════════════════════════════════════════════════════════════════════
 // PANTALLA HUB
 // ══════════════════════════════════════════════════════════════════════
-function HubScreen({ usuario, modulosPermitidos, onSelectModulo, onLogout, onCambiarPin, esSoloConsulta, usuarios, setUsuarios }) {
+function HubScreen({ usuario, modulosPermitidos, onSelectModulo, onLogout, onCambiarPin, esSoloConsulta, usuarios, setUsuarios, pinsPersonalizados }) {
   const hoy = new Date();
   const fechaStr = hoy.toLocaleDateString("es-CL", {weekday:"long", day:"numeric", month:"long", year:"numeric"});
   const [mostrarPermisos, setMostrarPermisos] = useState(false);
@@ -1030,7 +1194,7 @@ function HubScreen({ usuario, modulosPermitidos, onSelectModulo, onLogout, onCam
       <div style={{position:"relative",zIndex:1}}>
 
       {mostrarPermisos && (
-        <PanelPermisos usuarios={usuarios} setUsuarios={setUsuarios} onClose={()=>setMostrarPermisos(false)}/>
+        <PanelPermisos usuarios={usuarios} setUsuarios={setUsuarios} onClose={()=>setMostrarPermisos(false)} pinsPersonalizados={pinsPersonalizados}/>
       )}
 
       <div style={{padding:"24px 32px 0", display:"flex", justifyContent:"space-between", alignItems:"center", flexWrap:"wrap", gap:12, borderBottom:`1px solid ${C.border}`, paddingBottom:16}}>
@@ -1601,7 +1765,7 @@ export default function App(){
               if(!saved) return wb;
               // WORKERS_BASE es fuente de verdad para: nombre, cargo, email, pin, esCFO
               // Supabase es fuente de verdad para: rol, modulos, tab_permisos, desactivado
-              const merged_u = {
+              let merged_u = {
                 ...wb,                                    // base: nombre, cargo, email, pin, esCFO
                 rol: saved.rol || wb.rol,                 // admin configura rol
                 modulos: (Array.isArray(saved.modulos) && saved.modulos.length > 0)
@@ -1617,24 +1781,7 @@ export default function App(){
                   ? saved.cadenaAprobacion
                   : (Array.isArray(wb.cadenaAprobacion) ? wb.cadenaAprobacion : []),
               };
-              // Rendiciones vive como pestaña DENTRO de Finanzas y la usa todo el
-              // personal para cargar sus gastos. A quien no tenga Finanzas se le
-              // entrega el módulo pero con TODAS las pestañas financieras bloqueadas:
-              // solo ve la pestaña Rendiciones (acceso de finanzas intacto para
-              // quienes ya lo tenían, ej. Carol Machuca).
-              if(!merged_u.modulos.includes("finanzas")){
-                merged_u.modulos = [...merged_u.modulos, "finanzas"];
-                merged_u.tab_permisos.finanzas = {
-                  ...(merged_u.tab_permisos.finanzas||{}),
-                  dashboard:"sin_acceso", flujo:"sin_acceso", bancos:"sin_acceso",
-                  creditos:"sin_acceso", nominas:"sin_acceso", params:"sin_acceso",
-                  reporte:"sin_acceso", auditoria:"sin_acceso", eeff:"sin_acceso",
-                  // "ver" = trabajador carga SOLO las suyas. Para hacer a alguien
-                  // aprobador (ve todas + aprueba + paga), subir a "editar" en
-                  // Gestión de Usuarios → Finanzas → Rendiciones.
-                  rendiciones:"ver",
-                };
-              }
+              merged_u = garantizarAccesoRendiciones(merged_u);
               // Asegurar que tab_permisos tenga todos los tabs definidos en TABS_PERMISOS_CONFIG
               // Si hay tabs nuevos que no existían cuando se guardaron los permisos, inicializarlos
               (merged_u.modulos||[]).forEach(mod=>{
@@ -1652,7 +1799,9 @@ export default function App(){
             // Usuarios extra agregados desde la app (no están en WORKERS_BASE)
             const baseEmails = new Set(WORKERS_BASE.map(wb=>(wb.email||"").toLowerCase()));
             const baseNames = new Set(WORKERS_BASE.map(wb=>wb.nombre));
-            const extras=d.usuarios.filter(u=>!baseNames.has(u.nombre) && !baseEmails.has((u.email||"").toLowerCase()));
+            const extras=d.usuarios
+              .filter(u=>!baseNames.has(u.nombre) && !baseEmails.has((u.email||"").toLowerCase()))
+              .map(garantizarAccesoRendiciones);
             return[...merged,...extras];
           });
           if(d.estados)setEstados(prev=>({...prev,...d.estados}));
@@ -3373,6 +3522,7 @@ Equipo Mediterra`);
         esSoloConsulta={esSoloConsulta}
         usuarios={usuarios}
         setUsuarios={setUsuarios}
+        pinsPersonalizados={pinsPersonalizados}
       />
     </AppErrorBoundary>
   );
