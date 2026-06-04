@@ -3679,7 +3679,7 @@ function Consolidado({empresas,saldosBancos,realData={},addedLinesGlobal={},subL
 
 
   return(
-    <div style={{display:"flex",flexDirection:"column",gap:14}}>
+    <div style={{display:"flex",flexDirection:"column",gap:14,minWidth:0}}>
       {/* KPIs */}
       <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(160px,1fr))",gap:10}}>
         <KPI label="Saldo Inicial Consolidado" value={$$(saldoIniConsolidado)} color={C.blue}/>
@@ -3751,7 +3751,7 @@ function Consolidado({empresas,saldosBancos,realData={},addedLinesGlobal={},subL
 
       {/* Vista sumada */}
       {vistaConsolidado==="sumada"&&(
-        <div style={{overflowX:"auto",overflowY:"auto",maxHeight:"80vh",borderRadius:12,border:`1px solid ${C.border}`}}>
+        <div style={{overflowX:"auto",overflowY:"auto",maxHeight:"80vh",borderRadius:12,border:`1px solid ${C.border}`,minWidth:0,maxWidth:"100%"}}>
           <table id="flujo-table-consolidado" style={{borderCollapse:"separate",borderSpacing:0,fontSize:11,minWidth:600}}>
             <THead/>
             <tbody>
@@ -3774,7 +3774,7 @@ function Consolidado({empresas,saldosBancos,realData={},addedLinesGlobal={},subL
 
       {/* Vista por empresa - solo subtotales por categoría */}
       {vistaConsolidado==="por_empresa"&&(
-        <div style={{overflowX:"auto",overflowY:"auto",maxHeight:"80vh",borderRadius:12,border:`1px solid ${C.border}`}}>
+        <div style={{overflowX:"auto",overflowY:"auto",maxHeight:"80vh",borderRadius:12,border:`1px solid ${C.border}`,minWidth:0,maxWidth:"100%"}}>
           <table style={{borderCollapse:"separate",borderSpacing:0,fontSize:11,minWidth:600}}>
             <THead/>
             <tbody>
@@ -6303,7 +6303,7 @@ function Creditos({empresas, creditosData=CREDITOS_DEFAULT, onSaveCreditos, canE
   const deudaList=Object.entries(deudaEmp).sort((a,b)=>b[1]-a[1]);
   const maxD=deudaList[0]?.[1]||1;
   return (
-    <div style={{display:"flex",flexDirection:"column",gap:14}}>
+    <div style={{display:"flex",flexDirection:"column",gap:14,minWidth:0}}>
       <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:10}}>
         <KPI label="Deuda Total Q1-2026" value={$$(CREDITOS_TRIM.saldos[0])} color={C.red}/>
         <KPI label="Pagos Q1-2026"       value={$$(CREDITOS_TRIM.pagos[0])}  color={C.yellow}/>
@@ -6357,7 +6357,7 @@ function Creditos({empresas, creditosData=CREDITOS_DEFAULT, onSaveCreditos, canE
         </select>
       </div>
       <Card style={{padding:0,overflow:"hidden"}}>
-        <div style={{overflowX:"auto"}}>
+        <div style={{overflowX:"auto",minWidth:0,maxWidth:"100%"}}>
           <table style={{width:"100%",borderCollapse:"collapse",fontSize:11}}>
             <thead><tr style={{background:C.primary}}>
               {["#","Empresa","Acreedor","Tipo","Monto","Cuota","Desembolso","Vencimiento","Tasa","Renovación",...(canEdit?["Acciones"]:[])
@@ -10733,6 +10733,8 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
       background:`linear-gradient(160deg, ${C.bg} 0%, ${C.bg2} 100%)`,
       padding:"20px",
       paddingBottom:40,
+      maxWidth:"100%",
+      overflowX:"hidden",
     }}>
       {/* ── Header ─────────────────────────────────────────── */}
       <div style={{
