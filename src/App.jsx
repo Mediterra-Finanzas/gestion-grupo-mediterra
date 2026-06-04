@@ -378,10 +378,10 @@ const SEMAFORO={
 const ORDEN_SEM=["gris","verde","amarillo","rojo","na"];
 
 const WORKERS_BASE=[
-  {nombre:"Milagros Becerra",cargo:"Sec. Administrativa",     email:"Mbecerra@grupomediterra.cl",pin:"4827",rol:"editor", modulos:["tareas"],                    esCFO:false},
-  {nombre:"Carol Machuca",   cargo:"Analista Finanzas",       email:"cmachuca@grupomediterra.cl",pin:"3159",rol:"editor", modulos:["tareas","osiris","finanzas"], esCFO:false},
-  {nombre:"Michelle Garcia", cargo:"Contadora General",       email:"mgarcia@grupomediterra.cl", pin:"7413",rol:"editor", modulos:["tareas"],                    esCFO:false},
-  {nombre:"Pablo Duran",     cargo:"Asistente Contable",      email:"pduran@grupomediterra.cl",  pin:"2986",rol:"editor", modulos:["tareas"],                    esCFO:false},
+  {nombre:"Milagros Becerra",cargo:"Sec. Administrativa",     email:"Mbecerra@grupomediterra.cl",pin:"4827",rol:"editor", modulos:["tareas"],                    esCFO:false, rendVerTodas:true},
+  {nombre:"Carol Machuca",   cargo:"Analista Finanzas",       email:"cmachuca@grupomediterra.cl",pin:"3159",rol:"editor", modulos:["tareas","osiris","finanzas"], esCFO:false, rendVerTodas:true},
+  {nombre:"Michelle Garcia", cargo:"Contadora General",       email:"mgarcia@grupomediterra.cl", pin:"7413",rol:"editor", modulos:["tareas"],                    esCFO:false, rendVerTodas:true},
+  {nombre:"Pablo Duran",     cargo:"Asistente Contable",      email:"pduran@grupomediterra.cl",  pin:"2986",rol:"editor", modulos:["tareas"],                    esCFO:false, rendVerTodas:true},
   {nombre:"Angelo Huerta",   cargo:"Gerencia Adm. y Finanzas",email:"ahuerta@grupomediterra.cl", pin:"6054",rol:"admin",  modulos:["tareas","osiris","finanzas"], esCFO:true},
   {nombre:"Nicolás Fuenzalida",cargo:"Gerente Técnico",       email:"nfuenzalida@osirisplant.com",pin:"8271",rol:"gerente_tecnico",modulos:["osiris"],esCFO:false},
 ];
@@ -729,6 +729,18 @@ function PanelPermisos({ usuarios, setUsuarios, onClose, pinsPersonalizados = {}
     }));
   }
 
+  // Flag "ve todas las rendiciones" (supervisor): lectura de TODAS + Reportes + Pagos.
+  function setVerTodas(nombreU, val) {
+    setUsuarios(prev => prev.map(u => {
+      if(u.nombre !== nombreU) return u;
+      window.auditLog("cambio_permiso", {modulo:"sistema", seccion:"permisos",
+        descripcion:`${val?"Activó":"Desactivó"} "ve todas las rendiciones" para ${nombreU}`,
+        registroId:nombreU, campo:"rendVerTodas",
+        valorAnterior:String(!!u.rendVerTodas), valorNuevo:String(!!val)});
+      return { ...u, rendVerTodas: !!val };
+    }));
+  }
+
   const activos = usuarios.filter(u => !u.desactivado);
   const inactivos = usuarios.filter(u => u.desactivado);
 
@@ -921,6 +933,24 @@ function PanelPermisos({ usuarios, setUsuarios, onClose, pinsPersonalizados = {}
                       {mods.includes("finanzas")&&(
                         <CadenaAprobEditor u={u} usuarios={usuarios}
                           onChange={(nueva)=>setCadenaAprob(u.nombre,nueva)}/>
+                      )}
+
+                      {/* ── Supervisor: ve todas las rendiciones (lectura) ── */}
+                      {mods.includes("finanzas")&&(
+                        <label style={{marginTop:10,display:"flex",alignItems:"flex-start",gap:8,
+                          background:C.cardAlt,borderRadius:10,padding:"10px 12px",border:`1px solid ${C.border}`,cursor:"pointer"}}>
+                          <input type="checkbox" checked={!!u.rendVerTodas || u.rol==="admin" || !!u.esCFO}
+                            disabled={u.rol==="admin" || !!u.esCFO}
+                            onChange={e=>setVerTodas(u.nombre,e.target.checked)}
+                            style={{marginTop:2,cursor:(u.rol==="admin"||u.esCFO)?"default":"pointer"}}/>
+                          <span style={{fontSize:11.5,color:C.text}}>
+                            <b>Ve todas las rendiciones</b> (supervisor)
+                            <div style={{fontSize:10,color:C.muted,marginTop:2}}>
+                              Visualiza TODAS las rendiciones del grupo (solo lectura; solo el dueño puede modificarlas) y accede a Reportes y Pagos.
+                              {(u.rol==="admin"||u.esCFO) && <span style={{color:C.muted2}}> Admin/CFO siempre lo tienen.</span>}
+                            </div>
+                          </span>
+                        </label>
                       )}
                     </div>
                   )}
@@ -1780,6 +1810,10 @@ export default function App(){
                 cadenaAprobacion: Array.isArray(saved.cadenaAprobacion)
                   ? saved.cadenaAprobacion
                   : (Array.isArray(wb.cadenaAprobacion) ? wb.cadenaAprobacion : []),
+                // admin marca al supervisor que ve todas las rendiciones (lectura + Reportes + Pagos)
+                rendVerTodas: typeof saved.rendVerTodas === "boolean"
+                  ? saved.rendVerTodas
+                  : !!wb.rendVerTodas,
               };
               merged_u = garantizarAccesoRendiciones(merged_u);
               // Asegurar que tab_permisos tenga todos los tabs definidos en TABS_PERMISOS_CONFIG

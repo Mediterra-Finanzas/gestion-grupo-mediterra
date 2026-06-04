@@ -676,13 +676,18 @@ function meTocaAprobar(r, miEmail, esAprobador) {
 export default function RendicionesModule({ usuarioActual, esAdmin, esSoloConsulta, tabPermisos, nivelRendiciones, usuarios = [], onBack, onLogout }) {
   const nombreUsuario = usuarioActual?.nombre || "—";
   const admin = typeof esAdmin === "function" ? esAdmin(nombreUsuario) : !!esAdmin;
-  // Nivel de permiso de la pestaña Rendiciones (lo pasa FinanzasModule):
-  //   "editar"     → aprobador: ve TODAS, aprueba, paga, reportes
-  //   "ver"        → trabajador: ve y carga SOLO las suyas
-  //   "sin_acceso" → no llega acá (FinanzasModule no renderiza la pestaña)
-  // Admin siempre es aprobador. esCFO se mantiene como fallback retrocompatible.
+  // Tres roles:
+  //   "ver"      → trabajador: carga y ve SOLO las suyas (+ bandeja "Por Aprobar"
+  //                si figura en la cadena de alguien).
+  //   "editar"   → aprobador: lo suyo + las que le toca aprobar. NO ve todas.
+  //   verTodas   → supervisor: ve TODAS (solo lectura; solo el dueño modifica),
+  //                con Reportes y Pagos. Se activa por usuario con el flag
+  //                rendVerTodas en Gestión de Usuarios (admin/CFO siempre lo tienen).
+  //   "sin_acceso" → no llega acá (FinanzasModule no renderiza la pestaña).
   const esCFO = !!usuarioActual?.esCFO;
-  const esAprobador = admin || esCFO || nivelRendiciones === "editar";
+  const verTodas = admin || esCFO || !!usuarioActual?.rendVerTodas;
+  // Puede aprobar (supervisor, editor, o fallback legacy para rendiciones sin cadena).
+  const esAprobador = verTodas || nivelRendiciones === "editar";
   const miEmail = (usuarioActual?.email || "").toLowerCase();
 
   const [rendiciones, setRendiciones] = useState([]);
@@ -838,10 +843,10 @@ export default function RendicionesModule({ usuarioActual, esAdmin, esSoloConsul
   const porAprobar = useMemo(
     () => rendiciones.filter(r => {
       if (r.estado !== "enviada") return false;
-      if (admin) return true;  // admin ve todas las pendientes (para aprobar lo suyo o reasignar)
+      if (verTodas) return true;  // supervisor/admin ve todas las pendientes (aprobar lo suyo o reasignar)
       return meTocaAprobar(r, miEmail, esAprobador);
     }).sort((a, b) => new Date(a.enviadoEn || 0) - new Date(b.enviadoEn || 0)),
-    [rendiciones, admin, miEmail, esAprobador]
+    [rendiciones, verTodas, miEmail, esAprobador]
   );
   // Un supervisor que figura en alguna cadena ve la bandeja "Por Aprobar"
   // aunque su nivel de pestaña sea "ver" (solo carga lo suyo).
@@ -861,8 +866,8 @@ export default function RendicionesModule({ usuarioActual, esAdmin, esSoloConsul
   const TABS = [
     { id: "mis", label: "🧾 Mis Rendiciones", show: true },
     { id: "aprobar", label: `✅ Por Aprobar${porAprobar.length ? ` (${porAprobar.length})` : ""}`, show: muestraAprobar },
-    { id: "pagos", label: `💵 Pagos${paraPago.length ? ` (${paraPago.length})` : ""}`, show: esAprobador },
-    { id: "reportes", label: "📊 Reportes", show: esAprobador },
+    { id: "pagos", label: `💵 Pagos${paraPago.length ? ` (${paraPago.length})` : ""}`, show: verTodas },
+    { id: "reportes", label: "📊 Reportes", show: verTodas },
   ].filter(t => t.show);
 
   if (cargando) {
@@ -877,7 +882,7 @@ export default function RendicionesModule({ usuarioActual, esAdmin, esSoloConsul
           {onBack && <Btn kind="ghost" small onClick={onBack}>← Volver</Btn>}
           <div>
             <div style={{ fontSize: 22, fontWeight: 800 }}>🧾 Rendiciones de Gasto</div>
-            <div style={{ fontSize: 12.5, color: C.muted }}>{nombreUsuario}{usuarioActual?.cargo ? ` · ${usuarioActual.cargo}` : ""}{esAprobador ? " · Aprobador" : ""}</div>
+            <div style={{ fontSize: 12.5, color: C.muted }}>{nombreUsuario}{usuarioActual?.cargo ? ` · ${usuarioActual.cargo}` : ""}{verTodas ? " · Supervisor" : (esAprobador ? " · Aprobador" : "")}</div>
           </div>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
@@ -912,10 +917,10 @@ export default function RendicionesModule({ usuarioActual, esAdmin, esSoloConsul
           onReasignar={r => { setReasignar({ id: r.id }); setNuevoAprob(""); }}
         />
       )}
-      {tab === "pagos" && esAprobador && (
+      {tab === "pagos" && verTodas && (
         <BandejaPagos rends={paraPago} onAbrir={setEditId} onPagar={marcarPagada} tcData={tcData} />
       )}
-      {tab === "reportes" && esAprobador && (
+      {tab === "reportes" && verTodas && (
         <Reportes rends={rendiciones} filtroEstado={filtroEstado} setFiltroEstado={setFiltroEstado}
           busca={busca} setBusca={setBusca} onAbrir={setEditId} tcData={tcData} />
       )}
