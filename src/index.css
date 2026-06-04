@@ -16,6 +16,17 @@ html, body {
 /* Medios nunca desbordan su contenedor */
 img, video, canvas { max-width: 100%; height: auto; }
 
+/* Todo contenedor con scroll horizontal queda acotado al viewport (menos los
+   paddings típicos de App+módulo), para que la tabla scrollee DENTRO de su
+   marco y no empuje la página (evita la línea/sombra vertical y el page-scroll).
+   Las cotas inline precisas (ej. Finanzas con calc(100vw - 80px)) tienen
+   prioridad sobre esta por especificidad de estilo inline. */
+[style*="overflow-x: auto"],
+[style*="overflow-x:auto"] {
+  max-width: calc(100vw - 40px);
+  min-width: 0;
+}
+
 /* NOTA: no se usa overflow-x:hidden global porque rompe el scroll
    horizontal de tablas anchas (ej. Flujo de Caja, 65 meses) que viven
    en contenedores con overflow:auto y columnas sticky. El recorte de
