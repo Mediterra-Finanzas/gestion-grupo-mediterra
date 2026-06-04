@@ -10046,7 +10046,7 @@ function ReporteHistorial({historial, onUpdate, canEdit}) {
 // ═══════════════════════════════════════════════════════════════════
 // MÓDULO PRINCIPAL
 // ═══════════════════════════════════════════════════════════════════
-export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermisos={}}) {
+export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermisos={},usuarios=[]}) {
   const [tab,setTab]=useState("dashboard");
   const [empTab,setEmpTab]=useState("Mediterra");
   const [flujoSubTab,setFlujoSubTab]=useState("flujo"); // "flujo" | "params"
@@ -10971,7 +10971,7 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
       )}
 
       {tab==="rendiciones"&&puedoVer("rendiciones")&&(
-        <RendicionesModule usuarioActual={usuarioActual} esAdmin={esAdmin}/>
+        <RendicionesModule usuarioActual={usuarioActual} esAdmin={esAdmin} nivelRendiciones={perm("rendiciones")} usuarios={usuarios}/>
       )}
 
     </div>

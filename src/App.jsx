@@ -561,6 +561,63 @@ function getTabPermisosModulo(usuario, modulo) {
 // ══════════════════════════════════════════════════════════════════════
 // PANEL DE PERMISOS
 // ══════════════════════════════════════════════════════════════════════
+// Editor de la cadena de aprobación de rendiciones de un usuario.
+// La cadena es una lista ORDENADA de emails de aprobadores. El 1º = supervisor.
+// Vacía = flujo de 1 paso (cualquier aprobador). Se aplica orden estricto.
+function CadenaAprobEditor({ u, usuarios, onChange }) {
+  const miniBtn = { border:"none", background:C.cardAlt, borderRadius:6, padding:"3px 7px",
+    cursor:"pointer", fontSize:11, fontWeight:700, color:C.muted };
+  const cadena = Array.isArray(u.cadenaAprobacion) ? u.cadenaAprobacion : [];
+  const byEmail = (e) => usuarios.find(x => (x.email||"").toLowerCase() === (e||"").toLowerCase());
+  const disponibles = usuarios.filter(x =>
+    !x.desactivado && (x.email||"").trim() &&
+    (x.email||"").toLowerCase() !== (u.email||"").toLowerCase() &&
+    !cadena.some(e => e.toLowerCase() === (x.email||"").toLowerCase())
+  );
+  const add = (email) => { if(email) onChange([...cadena, email.toLowerCase()]); };
+  const remove = (i) => onChange(cadena.filter((_,idx)=>idx!==i));
+  const move = (i, dir) => {
+    const j = i + dir; if (j < 0 || j >= cadena.length) return;
+    const cp = [...cadena]; [cp[i], cp[j]] = [cp[j], cp[i]]; onChange(cp);
+  };
+  return (
+    <div style={{marginTop:14, background:C.infoBg, borderRadius:10, padding:"12px 14px", border:`1px solid ${C.primary}33`}}>
+      <div style={{fontSize:11,fontWeight:700,color:C.primary,marginBottom:4}}>
+        🧾 Cadena de aprobación de rendiciones
+      </div>
+      <div style={{fontSize:10,color:C.muted,marginBottom:10}}>
+        Orden en que se aprueban las rendiciones de <b>{u.nombre}</b>. El 1º es el supervisor; luego pasa al siguiente, y así hasta el final. Vacía = la aprueba cualquier aprobador (1 paso).
+      </div>
+      {cadena.length===0 && <div style={{fontSize:11,color:C.muted2,fontStyle:"italic",marginBottom:8}}>Sin cadena definida — flujo de 1 paso.</div>}
+      {cadena.length>0 && (
+        <div style={{display:"flex",flexDirection:"column",gap:6,marginBottom:10}}>
+          {cadena.map((email,i)=>{
+            const ap = byEmail(email);
+            return (
+              <div key={email+i} style={{display:"flex",alignItems:"center",gap:8,background:C.card,borderRadius:8,padding:"6px 10px",border:`1px solid ${C.border}`}}>
+                <span style={{fontSize:11,fontWeight:700,color:C.primary,minWidth:16}}>{i+1}.</span>
+                <span style={{flex:1,fontSize:12,color:C.text}}>
+                  {ap ? ap.nombre : email}
+                  {i===0 && <span style={{fontSize:9,color:C.muted2,marginLeft:6}}>(supervisor)</span>}
+                  {!ap && <span style={{fontSize:9,color:C.danger,marginLeft:6}}>⚠ usuario no encontrado</span>}
+                </span>
+                <button onClick={()=>move(i,-1)} disabled={i===0} style={{...miniBtn,opacity:i===0?0.3:1}}>▲</button>
+                <button onClick={()=>move(i,1)} disabled={i===cadena.length-1} style={{...miniBtn,opacity:i===cadena.length-1?0.3:1}}>▼</button>
+                <button onClick={()=>remove(i)} style={{...miniBtn,color:C.danger}}>✕</button>
+              </div>
+            );
+          })}
+        </div>
+      )}
+      <select value="" onChange={e=>{add(e.target.value); e.target.value="";}}
+        style={{padding:"6px 8px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:12,background:C.card,cursor:"pointer",width:"100%",maxWidth:320}}>
+        <option value="">+ Agregar aprobador…</option>
+        {disponibles.map(x=>(<option key={x.email||x.nombre} value={(x.email||"").toLowerCase()}>{x.nombre}{x.cargo?` · ${x.cargo}`:""}</option>))}
+      </select>
+    </div>
+  );
+}
+
 function PanelPermisos({ usuarios, setUsuarios, onClose }) {
   const [expandedTabUser, setExpandedTabUser] = useState(null); // nombre del usuario expandido
 
@@ -630,6 +687,18 @@ function PanelPermisos({ usuarios, setUsuarios, onClose }) {
         descripcion:`Cambió permiso de ${nombreU} en ${modulo}/${tabId} de "${nivelAnt}" a "${nivel}"`,
         registroId:nombreU, campo:`${modulo}.${tabId}`, valorAnterior:nivelAnt, valorNuevo:nivel});
       return { ...u, tab_permisos: tp };
+    }));
+  }
+
+  function setCadenaAprob(nombreU, nuevaCadena) {
+    setUsuarios(prev => prev.map(u => {
+      if(u.nombre !== nombreU) return u;
+      window.auditLog("cambio_permiso", {modulo:"sistema", seccion:"permisos",
+        descripcion:`Cambió cadena de aprobación de rendiciones de ${nombreU}`,
+        registroId:nombreU, campo:"cadenaAprobacion",
+        valorAnterior:(Array.isArray(u.cadenaAprobacion)?u.cadenaAprobacion:[]).join(" → ")||"(1 paso)",
+        valorNuevo:nuevaCadena.join(" → ")||"(1 paso)"});
+      return { ...u, cadenaAprobacion: nuevaCadena };
     }));
   }
 
@@ -802,6 +871,12 @@ function PanelPermisos({ usuarios, setUsuarios, onClose }) {
                           </div>
                         );
                       })()}
+
+                      {/* ── Cadena de aprobación de rendiciones ── */}
+                      {mods.includes("finanzas")&&(
+                        <CadenaAprobEditor u={u} usuarios={usuarios}
+                          onChange={(nueva)=>setCadenaAprob(u.nombre,nueva)}/>
+                      )}
                     </div>
                   )}
                 </div>
@@ -1533,6 +1608,14 @@ export default function App(){
                   ? saved.modulos : wb.modulos,           // admin configura módulos
                 desactivado: saved.desactivado || false,   // admin desactiva
                 tab_permisos: saved.tab_permisos || {},    // admin configura permisos
+                // admin configura restricción de empresas en Finanzas (persiste)
+                empresas_permitidas: Array.isArray(saved.empresas_permitidas)
+                  ? saved.empresas_permitidas
+                  : (Array.isArray(wb.empresas_permitidas) ? wb.empresas_permitidas : []),
+                // admin configura cadena de aprobación de rendiciones (orden de aprobadores)
+                cadenaAprobacion: Array.isArray(saved.cadenaAprobacion)
+                  ? saved.cadenaAprobacion
+                  : (Array.isArray(wb.cadenaAprobacion) ? wb.cadenaAprobacion : []),
               };
               // Rendiciones vive como pestaña DENTRO de Finanzas y la usa todo el
               // personal para cargar sus gastos. A quien no tenga Finanzas se le
@@ -1546,7 +1629,10 @@ export default function App(){
                   dashboard:"sin_acceso", flujo:"sin_acceso", bancos:"sin_acceso",
                   creditos:"sin_acceso", nominas:"sin_acceso", params:"sin_acceso",
                   reporte:"sin_acceso", auditoria:"sin_acceso", eeff:"sin_acceso",
-                  rendiciones:"editar",
+                  // "ver" = trabajador carga SOLO las suyas. Para hacer a alguien
+                  // aprobador (ve todas + aprueba + paga), subir a "editar" en
+                  // Gestión de Usuarios → Finanzas → Rendiciones.
+                  rendiciones:"ver",
                 };
               }
               // Asegurar que tab_permisos tenga todos los tabs definidos en TABS_PERMISOS_CONFIG
@@ -2621,6 +2707,7 @@ Equipo Mediterra`);
         esAdmin={esAdmin}
         esSoloConsulta={esSoloConsulta}
         tabPermisos={tabPermisosFinanzas}
+        usuarios={usuarios}
         onBack={()=>setModuloActivo(null)}
         onLogout={doLogout}
       />

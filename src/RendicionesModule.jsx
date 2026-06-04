@@ -9,6 +9,7 @@
 // Adjuntos en Supabase Storage (bucket frisku-docs, prefijo rendiciones/).
 // ═══════════════════════════════════════════════════════════════════
 import React, { useState, useEffect, useMemo, useRef, useCallback } from "react";
+import * as XLSX from "xlsx";
 import { theme as T } from "./theme";
 import {
   dbLoadGeneric, dbSaveGeneric,
@@ -40,7 +41,8 @@ const CATEGORIAS = [
 ];
 const CAT_MAP = Object.fromEntries(CATEGORIAS.map(c => [c.v, c]));
 
-const MONEDAS = ["CLP", "USD", "PEN", "EUR"];
+const MONEDAS = ["CLP", "USD", "EUR", "PEN", "CNY", "GBP", "BRL", "MXN", "AUD", "CAD", "JPY"];
+const SIM_MONEDA = { CLP: "$", USD: "US$", EUR: "€", PEN: "S/", CNY: "¥", GBP: "£", BRL: "R$", MXN: "MX$", AUD: "A$", CAD: "C$", JPY: "¥" };
 
 const TIPOS_DOC = ["Boleta", "Factura", "Boleta honorarios", "Voucher", "Ticket", "Sin documento", "Otro"];
 
@@ -60,7 +62,7 @@ const nowISO = () => new Date().toISOString();
 function fmtMonto(n, moneda = "CLP") {
   const v = Number(n) || 0;
   if (moneda === "CLP") return "$" + v.toLocaleString("es-CL", { maximumFractionDigits: 0 });
-  const sym = moneda === "USD" ? "US$" : moneda === "EUR" ? "€" : moneda === "PEN" ? "S/" : "";
+  const sym = SIM_MONEDA[moneda] || (moneda + " ");
   return sym + v.toLocaleString("es-CL", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
@@ -89,10 +91,15 @@ function fmtTotales(t) {
 // Convierte un monto de `origen` a `destino` triangulando por USD cuando no
 // existe el par directo. USD es el pivote del maestro de TC del proyecto.
 // Retorna { ok, val, chain, usd, tASrc, tToDst } o { ok:false, chain, faltan }.
-function convertir(monto, origen, destino, fecha, tcData) {
+// `tcManual` (opcional) = { [moneda]: tasa } donde tasa = cuántos `destino`
+// vale 1 unidad de esa moneda. Tiene prioridad sobre el maestro de TC: es el
+// "tipo de cambio de la rendición" que define el trabajador / aprobador.
+function convertir(monto, origen, destino, fecha, tcData, tcManual) {
   const m = Number(monto) || 0;
   origen = origen || "CLP"; destino = destino || "CLP";
   if (origen === destino) return { ok: true, val: m, chain: null, usd: null };
+  const man = tcManual && Number(tcManual[origen]) > 0 ? Number(tcManual[origen]) : null;
+  if (man != null) return { ok: true, val: m * man, chain: `${origen}→${destino} (manual)`, usd: null, rate: man, manual: true };
   const directo = buscarTC(origen, destino, fecha, tcData);
   if (directo != null) return { ok: true, val: m * directo, chain: `${origen}→${destino}`, usd: null, rate: directo };
   // triangular vía USD: origen→USD→destino
@@ -106,14 +113,466 @@ function convertir(monto, origen, destino, fecha, tcData) {
 }
 
 // Suma de gastos convertida a la moneda de pago. Devuelve total + faltantes de TC.
-function totalConvertido(gastos, monedaPago, fecha, tcData) {
+function totalConvertido(gastos, monedaPago, fecha, tcData, tcManual) {
   let total = 0; const faltan = new Set();
   (gastos || []).forEach(g => {
-    const r = convertir(g.monto, g.moneda || "CLP", monedaPago, fecha, tcData);
+    const r = convertir(g.monto, g.moneda || "CLP", monedaPago, fecha, tcData, tcManual);
     if (r.ok) total += r.val;
     else Object.keys(r.faltan || {}).forEach(k => { if (r.faltan[k]) faltan.add(k); });
   });
   return { total, faltan: [...faltan] };
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// Exportación: Excel (SheetJS) + PDF con respaldos (jsPDF + pdf-lib)
+// ───────────────────────────────────────────────────────────────────
+// jsPDF y pdf-lib se cargan por CDN dinámico (no son dependencias npm,
+// no inflan el bundle), igual que el patrón del Reporte Semanal.
+
+// Logo por empresa (archivos en /public). Las que no tienen logo van con
+// el nombre en texto hasta que Angelo entregue los archivos.
+const LOGO_EMPRESA = {
+  "Mediterra Holding":        "/med.png",
+  "Allegria Foods":           "/allegria-logo.jpg",
+  "Allegria Service":         "/allegria-service-logo.png",
+  "Frisku Foods":             "/frisku.png",
+  "Osiris Plant Management":  "/osiris-logo.jpg",
+  "Integrity Farms":          "/integrity-logo.png",
+  "Allpa Farms Chile":        "/allpa-chile-logo.png",
+  "Allpa Farms Perú":         "/allpa-peru-logo.png",
+};
+
+let _jsPDFp = null;
+function loadJsPDF() {
+  if (window.jspdf?.jsPDF) return Promise.resolve(window.jspdf.jsPDF);
+  if (_jsPDFp) return _jsPDFp;
+  _jsPDFp = new Promise((resolve, reject) => {
+    const s1 = document.createElement("script");
+    s1.src = "https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js";
+    s1.onload = () => {
+      const s2 = document.createElement("script");
+      s2.src = "https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js";
+      s2.onload = () => resolve(window.jspdf.jsPDF);
+      s2.onerror = reject;
+      document.body.appendChild(s2);
+    };
+    s1.onerror = reject;
+    document.body.appendChild(s1);
+  });
+  return _jsPDFp;
+}
+let _exceljsP = null;
+function loadExcelJS() {
+  if (window.ExcelJS) return Promise.resolve(window.ExcelJS);
+  if (_exceljsP) return _exceljsP;
+  _exceljsP = new Promise((resolve, reject) => {
+    const s = document.createElement("script");
+    s.src = "https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.4.0/exceljs.min.js";
+    s.onload = () => resolve(window.ExcelJS);
+    s.onerror = reject;
+    document.body.appendChild(s);
+  });
+  return _exceljsP;
+}
+let _pdfLibp = null;
+function loadPdfLib() {
+  if (window.PDFLib) return Promise.resolve(window.PDFLib);
+  if (_pdfLibp) return _pdfLibp;
+  _pdfLibp = new Promise((resolve, reject) => {
+    const s = document.createElement("script");
+    s.src = "https://unpkg.com/pdf-lib@1.17.1/dist/pdf-lib.min.js";
+    s.onload = () => resolve(window.PDFLib);
+    s.onerror = reject;
+    document.body.appendChild(s);
+  });
+  return _pdfLibp;
+}
+
+async function urlToArrayBuffer(url) {
+  const r = await fetch(url);
+  if (!r.ok) throw new Error("fetch " + r.status);
+  return new Uint8Array(await r.arrayBuffer());
+}
+async function urlToDataURL(url) {
+  const r = await fetch(url);
+  if (!r.ok) throw new Error("fetch " + r.status);
+  const b = await r.blob();
+  return await new Promise((res, rej) => {
+    const fr = new FileReader();
+    fr.onload = () => res(fr.result);
+    fr.onerror = rej;
+    fr.readAsDataURL(b);
+  });
+}
+// Tamaño natural de una imagen (para escalar el logo sin deformarlo).
+function imgNaturalSize(src) {
+  return new Promise((res) => {
+    const im = new Image();
+    im.onload = () => res({ w: im.naturalWidth, h: im.naturalHeight });
+    im.onerror = () => res(null);
+    im.src = src;
+  });
+}
+const extDe = (s) => (s || "").split("?")[0].split(".").pop().toLowerCase();
+const slug = (s) => (s || "").normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[^a-zA-Z0-9]+/g, "_");
+
+// Distintas monedas de los gastos que NO son la moneda de pago (para mostrar TC).
+function monedasExtranjeras(gastos, monedaPago) {
+  const set = new Set();
+  (gastos || []).forEach(g => { const m = g.moneda || "CLP"; if (m !== monedaPago) set.add(m); });
+  return [...set];
+}
+
+// ── Excel por rendición — formato corporativo con logo (ExcelJS vía CDN) ──
+const XL_NAVY = "1E2761", XL_LIGHT = "EAEEF4", XL_GREY = "5A5A5A", XL_ZEBRA = "F6F8FB", XL_TOTAL = "DCE3F0", XL_BORDER = "C9D2E0";
+async function exportarRendicionExcel(rend, tcData) {
+  const monedaPago = rend.monedaPago || "CLP";
+  const fechaTC = rend.fechaTC || rend.periodo || hoyISO();
+  const tcManual = rend.tcManual || {};
+  let ExcelJS;
+  try { ExcelJS = await loadExcelJS(); }
+  catch (e) { return exportarRendicionExcelSimple(rend, tcData); }
+
+  const argb = (hex) => "FF" + hex;
+  const thin = { style: "thin", color: { argb: argb(XL_BORDER) } };
+  const borderAll = { top: thin, bottom: thin, left: thin, right: thin };
+
+  const wb = new ExcelJS.Workbook();
+  wb.creator = "Grupo Mediterra";
+  const ws = wb.addWorksheet("Rendición " + rend.folio, { views: [{ showGridLines: false }] });
+  ws.columns = [
+    { width: 5 }, { width: 13 }, { width: 22 }, { width: 34 },
+    { width: 18 }, { width: 14 }, { width: 9 }, { width: 15 }, { width: 17 }, { width: 22 },
+  ];
+  const NCOL = 10;
+
+  // Logo (flota sobre el encabezado)
+  const logoPath = LOGO_EMPRESA[rend.empresa];
+  if (logoPath) {
+    try {
+      const dataUrl = await urlToDataURL(logoPath);
+      const base64 = dataUrl.split(",")[1];
+      let ext = dataUrl.substring(dataUrl.indexOf("/") + 1, dataUrl.indexOf(";")).toLowerCase();
+      if (ext === "jpg") ext = "jpeg";
+      if (ext === "png" || ext === "jpeg") {
+        const imgId = wb.addImage({ base64, extension: ext });
+        // Respeta el aspecto natural del logo dentro de una caja máx 170x56 px
+        const sz = await imgNaturalSize(dataUrl);
+        let w = 150, h = 56;
+        if (sz && sz.w > 0 && sz.h > 0) {
+          const s = Math.min(170 / sz.w, 56 / sz.h);
+          w = Math.round(sz.w * s); h = Math.round(sz.h * s);
+        }
+        ws.addImage(imgId, { tl: { col: 0.15, row: 0.15 }, ext: { width: w, height: h } });
+      }
+    } catch (e) {}
+  }
+
+  // Fila 1 (fondo blanco): logo flota a la izquierda + empresa en navy a la derecha
+  ws.mergeCells(1, 1, 1, NCOL);
+  ws.getRow(1).height = 52;
+  const t = ws.getCell(1, 1);
+  t.value = (rend.empresa || "").toUpperCase();
+  t.font = { name: "Calibri", size: 16, bold: true, color: { argb: argb(XL_NAVY) } };
+  t.alignment = { vertical: "middle", horizontal: "right", indent: 1 };
+
+  // Fila 2: banda navy con el subtítulo
+  ws.mergeCells(2, 1, 2, NCOL);
+  ws.getRow(2).height = 22;
+  const st = ws.getCell(2, 1);
+  st.value = `RENDICIÓN DE GASTOS   ·   Folio #${rend.folio}`;
+  st.fill = { type: "pattern", pattern: "solid", fgColor: { argb: argb(XL_NAVY) } };
+  st.font = { name: "Calibri", size: 11, bold: true, color: { argb: "FFFFFFFF" } };
+  st.alignment = { vertical: "middle", horizontal: "left", indent: 1 };
+
+  // Bloque de datos (dos columnas de pares etiqueta/valor)
+  const info = [
+    ["Trabajador", rend.trabajador || "—", "Empresa", rend.empresa || "—"],
+    ["Cargo", rend.cargo || "—", "Fecha de rendición", fmtFecha(rend.periodo)],
+    ["Título / Glosa", rend.titulo || "—", "Estado", (ESTADOS[rend.estado] || {}).l || rend.estado],
+    ["Moneda de pago", monedaPago, "Fecha tipo de cambio", fmtFecha(fechaTC)],
+  ];
+  let r = 4;
+  info.forEach(row => {
+    const setPair = (cLabel, label, cVal, valColEnd, value) => {
+      const lc = ws.getCell(r, cLabel);
+      lc.value = label; lc.font = { bold: true, color: { argb: argb(XL_NAVY) }, size: 10 };
+      lc.alignment = { vertical: "middle" };
+      ws.mergeCells(r, cVal, r, valColEnd);
+      const vc = ws.getCell(r, cVal);
+      vc.value = value; vc.font = { size: 10, color: { argb: argb(XL_GREY) } };
+      vc.alignment = { vertical: "middle" };
+    };
+    setPair(1, row[0], 2, 5, row[1]);   // izquierda: A label, B:E value
+    setPair(6, row[2], 7, NCOL, row[3]); // derecha: F label, G:J value
+    ws.getRow(r).height = 18;
+    r++;
+  });
+
+  // Tipos de cambio aplicados (manual o maestro)
+  const extranjeras = monedasExtranjeras(rend.gastos, monedaPago);
+  if (extranjeras.length) {
+    r++;
+    const hc = ws.getCell(r, 1);
+    hc.value = "Tipos de cambio de la rendición";
+    hc.font = { bold: true, size: 10, color: { argb: argb(XL_NAVY) } };
+    r++;
+    extranjeras.forEach(cur => {
+      const man = Number(tcManual[cur]) > 0 ? Number(tcManual[cur]) : null;
+      const auto = man == null ? buscarTC(cur, monedaPago, fechaTC, tcData) : null;
+      const tasa = man != null ? man : auto;
+      const c = ws.getCell(r, 1);
+      ws.mergeCells(r, 1, r, NCOL);
+      c.value = tasa != null
+        ? `1 ${cur} = ${tasa.toLocaleString("es-CL", { maximumFractionDigits: 6 })} ${monedaPago}   (${man != null ? "manual" : "maestro"})`
+        : `1 ${cur} = ⚠ sin tipo de cambio`;
+      c.font = { size: 9.5, color: { argb: tasa != null ? argb(XL_GREY) : "FFB42318" } };
+      r++;
+    });
+  }
+
+  // Tabla de gastos
+  r++;
+  const headRow = r;
+  const cab = ["#", "Fecha gasto", "Categoría", "Glosa", "Tipo doc", "N° doc", "Moneda", "Monto", `Equiv. ${monedaPago}`, "Conversión"];
+  cab.forEach((h, i) => {
+    const c = ws.getCell(headRow, i + 1);
+    c.value = h;
+    c.fill = { type: "pattern", pattern: "solid", fgColor: { argb: argb(XL_NAVY) } };
+    c.font = { bold: true, color: { argb: "FFFFFFFF" }, size: 10 };
+    c.alignment = { vertical: "middle", horizontal: i >= 7 ? "right" : "left", wrapText: true };
+    c.border = borderAll;
+  });
+  ws.getRow(headRow).height = 22;
+  r++;
+
+  (rend.gastos || []).forEach((g, i) => {
+    const cv = convertir(g.monto, g.moneda || "CLP", monedaPago, fechaTC, tcData, tcManual);
+    const vals = [
+      i + 1, fmtFecha(g.fecha), (CAT_MAP[g.categoria] || {}).l || g.categoria, g.glosa || "",
+      g.docTipo || "", g.docNumero || "", g.moneda || "CLP", Number(g.monto) || 0,
+      cv.ok ? Math.round(cv.val * 100) / 100 : "SIN TC", cv.chain || "—",
+    ];
+    vals.forEach((v, ci) => {
+      const c = ws.getCell(r, ci + 1);
+      c.value = v;
+      c.border = borderAll;
+      c.font = { size: 9.5, color: { argb: "FF1A1A1A" } };
+      c.alignment = { vertical: "middle", horizontal: ci === 0 ? "center" : (ci === 7 || ci === 8) ? "right" : "left", wrapText: ci === 3 };
+      if (i % 2 === 1) c.fill = { type: "pattern", pattern: "solid", fgColor: { argb: argb(XL_ZEBRA) } };
+      if (ci === 7 || ci === 8) {
+        const mon = ci === 7 ? (g.moneda || "CLP") : monedaPago;
+        if (typeof v === "number") c.numFmt = mon === "CLP" ? '#,##0' : '#,##0.00';
+        if (ci === 8 && v === "SIN TC") c.font = { size: 9.5, bold: true, color: { argb: "FFB42318" } };
+      }
+    });
+    r++;
+  });
+
+  // Fila total
+  const { total, faltan } = totalConvertido(rend.gastos, monedaPago, fechaTC, tcData, tcManual);
+  ws.mergeCells(r, 1, r, 7);
+  const tl = ws.getCell(r, 1);
+  tl.value = `TOTAL A PAGAR (${monedaPago})`;
+  tl.alignment = { horizontal: "right", vertical: "middle" };
+  tl.font = { bold: true, size: 11, color: { argb: argb(XL_NAVY) } };
+  for (let ci = 1; ci <= NCOL; ci++) {
+    const c = ws.getCell(r, ci);
+    c.fill = { type: "pattern", pattern: "solid", fgColor: { argb: argb(XL_TOTAL) } };
+    c.border = borderAll;
+  }
+  ws.mergeCells(r, 8, r, 9);
+  const tv = ws.getCell(r, 8);
+  tv.value = Math.round(total * 100) / 100;
+  tv.numFmt = monedaPago === "CLP" ? '#,##0' : '#,##0.00';
+  tv.alignment = { horizontal: "right", vertical: "middle" };
+  tv.font = { bold: true, size: 12, color: { argb: argb(XL_NAVY) } };
+  ws.getRow(r).height = 24;
+  r++;
+  if (faltan.length) {
+    ws.mergeCells(r, 1, r, NCOL);
+    const wc = ws.getCell(r, 1);
+    wc.value = "⚠ Total parcial: faltan tipos de cambio (" + faltan.join(", ") + "). Se excluyen los gastos sin TC.";
+    wc.font = { size: 9.5, italic: true, color: { argb: "FFB42318" } };
+    r++;
+  }
+
+  // Pie
+  r += 1;
+  ws.mergeCells(r, 1, r, NCOL);
+  const ft = ws.getCell(r, 1);
+  ft.value = `Generado el ${fmtFecha(hoyISO())} · Grupo Mediterra · ${rend.gastos?.length || 0} gasto(s)`;
+  ft.font = { size: 8.5, italic: true, color: { argb: "FF9AA3B2" } };
+
+  const buf = await wb.xlsx.writeBuffer();
+  const blob = new Blob([buf], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = `Rendicion_${rend.folio}_${slug(rend.trabajador)}.xlsx`;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+}
+
+// Respaldo: Excel plano con SheetJS si ExcelJS no carga (sin estilos/logo).
+function exportarRendicionExcelSimple(rend, tcData) {
+  const monedaPago = rend.monedaPago || "CLP";
+  const fechaTC = rend.fechaTC || rend.periodo || hoyISO();
+  const tcManual = rend.tcManual || {};
+  const cabecera = [
+    ["RENDICIÓN DE GASTOS"], ["Empresa", rend.empresa], ["Folio", "#" + rend.folio],
+    ["Trabajador", rend.trabajador], ["Cargo", rend.cargo || ""], ["Título / Glosa", rend.titulo || ""],
+    ["Fecha de rendición", fmtFecha(rend.periodo)], ["Estado", (ESTADOS[rend.estado] || {}).l || rend.estado],
+    ["Moneda de pago", monedaPago], ["Fecha tipo de cambio", fmtFecha(fechaTC)], [],
+  ];
+  const cab = ["#", "Fecha gasto", "Categoría", "Glosa", "Tipo doc", "N° doc", "Moneda", "Monto", `Equiv. ${monedaPago}`, "Conversión"];
+  const filas = (rend.gastos || []).map((g, i) => {
+    const r = convertir(g.monto, g.moneda || "CLP", monedaPago, fechaTC, tcData, tcManual);
+    return [i + 1, fmtFecha(g.fecha), (CAT_MAP[g.categoria] || {}).l || g.categoria, g.glosa || "",
+      g.docTipo || "", g.docNumero || "", g.moneda || "CLP", Number(g.monto) || 0,
+      r.ok ? Math.round(r.val * 100) / 100 : "SIN TC", r.chain || "—"];
+  });
+  const { total, faltan } = totalConvertido(rend.gastos, monedaPago, fechaTC, tcData, tcManual);
+  const totalFila = [[], ["", "", "", "", "", "", `TOTAL ${monedaPago}`, "", Math.round(total * 100) / 100, faltan.length ? "⚠ faltan TC: " + faltan.join(", ") : ""]];
+  const ws = XLSX.utils.aoa_to_sheet([...cabecera, cab, ...filas, ...totalFila]);
+  ws["!cols"] = [{ wch: 4 }, { wch: 13 }, { wch: 20 }, { wch: 32 }, { wch: 14 }, { wch: 14 }, { wch: 8 }, { wch: 14 }, { wch: 16 }, { wch: 18 }];
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, "Rendición " + rend.folio);
+  XLSX.writeFile(wb, `Rendicion_${rend.folio}_${slug(rend.trabajador)}.xlsx`);
+}
+
+// ── PDF por rendición, con los respaldos anexados (imágenes + PDFs) ──
+async function exportarRendicionPDF(rend, tcData) {
+  const monedaPago = rend.monedaPago || "CLP";
+  const fechaTC = rend.fechaTC || rend.periodo || hoyISO();
+  const tcManual = rend.tcManual || {};
+  const jsPDF = await loadJsPDF();
+  const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
+  const W = doc.internal.pageSize.getWidth();
+
+  // Encabezado: logo (o nombre) + datos a la derecha
+  const logoPath = LOGO_EMPRESA[rend.empresa];
+  let logoW = 0;
+  if (logoPath) {
+    try {
+      const dataUrl = await urlToDataURL(logoPath);
+      // Respeta el aspecto natural dentro de una caja máx 40x22 mm
+      const sz = await imgNaturalSize(dataUrl);
+      let w = 34, h = 17;
+      if (sz && sz.w > 0 && sz.h > 0) {
+        const s = Math.min(40 / sz.w, 22 / sz.h);
+        w = sz.w * s; h = sz.h * s;
+      }
+      doc.addImage(dataUrl, logoPath.endsWith(".png") ? "PNG" : "JPEG", 14, 9, w, h, undefined, "FAST");
+      logoW = w;
+    } catch (e) { /* sin logo */ }
+  }
+  const tx = logoW ? 14 + logoW + 6 : 14;
+  doc.setFont("helvetica", "bold"); doc.setFontSize(15); doc.setTextColor(30, 39, 97);
+  doc.text(rend.empresa, tx, 18);
+  doc.setFont("helvetica", "normal"); doc.setFontSize(11); doc.setTextColor(90, 90, 90);
+  doc.text("Rendición de gastos", tx, 25);
+  doc.setFontSize(9); doc.setTextColor(60, 60, 60);
+  const rx = W - 14;
+  doc.text(`Folio: #${rend.folio}`, rx, 13, { align: "right" });
+  doc.text(`Fecha: ${fmtFecha(rend.periodo)}`, rx, 18, { align: "right" });
+  doc.text(`Estado: ${(ESTADOS[rend.estado] || {}).l || rend.estado}`, rx, 23, { align: "right" });
+
+  let y = 33;
+  doc.setDrawColor(205); doc.line(14, y, W - 14, y); y += 6;
+  doc.setFontSize(10); doc.setTextColor(30, 30, 30);
+  const linea = (lbl, val) => {
+    doc.setFont("helvetica", "bold"); doc.text(lbl, 14, y);
+    doc.setFont("helvetica", "normal"); doc.text(String(val || "—"), 44, y); y += 5;
+  };
+  linea("Trabajador:", `${rend.trabajador}${rend.cargo ? " · " + rend.cargo : ""}`);
+  linea("Glosa:", rend.titulo);
+  linea("Moneda pago:", `${monedaPago}  (TC ${fmtFecha(fechaTC)})`);
+  const extranjeras = monedasExtranjeras(rend.gastos, monedaPago);
+  extranjeras.forEach(cur => {
+    const man = Number(tcManual[cur]) > 0 ? Number(tcManual[cur]) : null;
+    const tasa = man != null ? man : buscarTC(cur, monedaPago, fechaTC, tcData);
+    linea(`TC ${cur}:`, tasa != null
+      ? `1 ${cur} = ${tasa.toLocaleString("es-CL", { maximumFractionDigits: 6 })} ${monedaPago} (${man != null ? "manual" : "maestro"})`
+      : "⚠ sin tipo de cambio");
+  });
+
+  const body = (rend.gastos || []).map((g, i) => {
+    const r = convertir(g.monto, g.moneda || "CLP", monedaPago, fechaTC, tcData, tcManual);
+    return [
+      i + 1, fmtFecha(g.fecha), (CAT_MAP[g.categoria] || {}).l || g.categoria, g.glosa || "",
+      `${g.docTipo || ""}${g.docNumero ? " " + g.docNumero : ""}`,
+      fmtMonto(g.monto, g.moneda || "CLP"), r.ok ? fmtMonto(r.val, monedaPago) : "sin TC",
+    ];
+  });
+  const { total, faltan } = totalConvertido(rend.gastos, monedaPago, fechaTC, tcData, tcManual);
+  doc.autoTable({
+    startY: y + 2,
+    head: [["#", "Fecha", "Categoría", "Glosa", "Documento", "Monto", `Equiv. ${monedaPago}`]],
+    body,
+    foot: [["", "", "", "", `TOTAL ${monedaPago}`, "", fmtMonto(total, monedaPago)]],
+    styles: { fontSize: 8, cellPadding: 1.8 },
+    headStyles: { fillColor: [30, 39, 97], textColor: 255 },
+    footStyles: { fillColor: [234, 238, 244], textColor: [30, 39, 97], fontStyle: "bold" },
+    columnStyles: { 0: { cellWidth: 8 }, 5: { halign: "right" }, 6: { halign: "right" } },
+    margin: { left: 14, right: 14 },
+  });
+  let afterY = doc.lastAutoTable.finalY + 6;
+  if (faltan.length) {
+    doc.setTextColor(192, 57, 43); doc.setFontSize(8);
+    doc.text(`Gastos sin TC excluidos del total (faltan: ${faltan.join(", ")}).`, 14, afterY); afterY += 6;
+  }
+  const cad = Array.isArray(rend.cadena) ? rend.cadena : [];
+  if (cad.length) {
+    doc.setTextColor(60, 60, 60); doc.setFont("helvetica", "bold"); doc.setFontSize(9);
+    doc.text("Aprobaciones:", 14, afterY); afterY += 5; doc.setFont("helvetica", "normal");
+    cad.forEach((p, i) => {
+      const ap = (rend.aprobaciones || []).find(a => a.nivel === i || (a.email || "").toLowerCase() === (p.email || "").toLowerCase());
+      doc.text(`${i + 1}. ${p.nombre}${i === 0 ? " (supervisor)" : ""} — ${ap ? "aprobó " + fmtFecha(ap.fecha) : "pendiente"}`, 16, afterY);
+      afterY += 4.5;
+    });
+  }
+
+  // Anexar respaldos en un único PDF con pdf-lib
+  const adjuntos = (rend.gastos || []).filter(g => g.adjuntoUrl).map(g => ({ url: g.adjuntoUrl, nombre: g.adjuntoNombre || "respaldo" }));
+  const summaryBytes = doc.output("arraybuffer");
+  if (!adjuntos.length) {
+    doc.save(`Rendicion_${rend.folio}_${slug(rend.trabajador)}.pdf`);
+    return { okAdjuntos: 0, fallidos: 0 };
+  }
+  const PDFLib = await loadPdfLib();
+  const out = await PDFLib.PDFDocument.create();
+  const sum = await PDFLib.PDFDocument.load(summaryBytes);
+  (await out.copyPages(sum, sum.getPageIndices())).forEach(p => out.addPage(p));
+  let okAdjuntos = 0, fallidos = 0;
+  for (const a of adjuntos) {
+    try {
+      const ext = extDe(a.nombre) || extDe(a.url);
+      const bytes = await urlToArrayBuffer(a.url);
+      if (ext === "pdf") {
+        const src = await PDFLib.PDFDocument.load(bytes);
+        (await out.copyPages(src, src.getPageIndices())).forEach(p => out.addPage(p));
+      } else if (["jpg", "jpeg", "png"].includes(ext)) {
+        const img = ext === "png" ? await out.embedPng(bytes) : await out.embedJpg(bytes);
+        const page = out.addPage(PDFLib.PageSizes.A4);
+        const { width: pw, height: ph } = page.getSize();
+        const margin = 28;
+        const maxW = pw - margin * 2, maxH = ph - margin * 2 - 24;
+        const scale = Math.min(maxW / img.width, maxH / img.height, 1);
+        const w = img.width * scale, h = img.height * scale;
+        page.drawText(`Respaldo: ${a.nombre}`, { x: margin, y: ph - margin + 6, size: 9 });
+        page.drawImage(img, { x: (pw - w) / 2, y: margin + (maxH - h) / 2, width: w, height: h });
+      } else { fallidos++; continue; }
+      okAdjuntos++;
+    } catch (e) { fallidos++; }
+  }
+  const finalBytes = await out.save();
+  const blob = new Blob([finalBytes], { type: "application/pdf" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url; link.download = `Rendicion_${rend.folio}_${slug(rend.trabajador)}.pdf`;
+  link.click();
+  URL.revokeObjectURL(url);
+  return { okAdjuntos, fallidos };
 }
 
 // ── UI primitivos ──────────────────────────────────────────────────
@@ -183,13 +642,48 @@ function Modal({ children, onClose, width = 720, title }) {
 }
 
 // ═══════════════════════════════════════════════════════════════════
+// Cadena de aprobación (multinivel, orden estricto)
+// ───────────────────────────────────────────────────────────────────
+// El trabajador tiene una cadena ORDENADA de aprobadores (1º = supervisor),
+// configurada en Gestión de Usuarios (campo cadenaAprobacion = [emails]).
+// Al ENVIAR, la cadena se CONGELA en la rendición como [{email, nombre}] para
+// que cambios posteriores en la config no rompan rendiciones en curso.
+//   • nivelActual  = índice del aprobador que debe actuar ahora.
+//   • aprobaciones = registro de cada nivel ya aprobado.
+// Sin cadena → flujo retrocompatible de 1 paso (cualquier aprobador).
+function resolverCadena(usuarioTrabajador, usuarios) {
+  const raw = Array.isArray(usuarioTrabajador?.cadenaAprobacion) ? usuarioTrabajador.cadenaAprobacion : [];
+  return raw.map(item => {
+    const email = (typeof item === "string" ? item : item?.email || "").toLowerCase();
+    const u = (usuarios || []).find(x => (x.email || "").toLowerCase() === email);
+    return { email, nombre: u?.nombre || (typeof item === "object" ? item?.nombre : "") || email };
+  }).filter(x => x.email);
+}
+function pasoActual(r) {
+  if (!Array.isArray(r?.cadena) || !r.cadena.length) return null;
+  return r.cadena[r.nivelActual || 0] || null;
+}
+// ¿Le toca a este usuario aprobar la rendición ahora?
+function meTocaAprobar(r, miEmail, esAprobador) {
+  const paso = pasoActual(r);
+  if (!paso) return esAprobador;  // sin cadena → cualquier aprobador (legacy)
+  return (paso.email || "").toLowerCase() === (miEmail || "").toLowerCase();
+}
+
+// ═══════════════════════════════════════════════════════════════════
 // Componente principal
 // ═══════════════════════════════════════════════════════════════════
-export default function RendicionesModule({ usuarioActual, esAdmin, esSoloConsulta, tabPermisos, onBack, onLogout }) {
+export default function RendicionesModule({ usuarioActual, esAdmin, esSoloConsulta, tabPermisos, nivelRendiciones, usuarios = [], onBack, onLogout }) {
   const nombreUsuario = usuarioActual?.nombre || "—";
   const admin = typeof esAdmin === "function" ? esAdmin(nombreUsuario) : !!esAdmin;
+  // Nivel de permiso de la pestaña Rendiciones (lo pasa FinanzasModule):
+  //   "editar"     → aprobador: ve TODAS, aprueba, paga, reportes
+  //   "ver"        → trabajador: ve y carga SOLO las suyas
+  //   "sin_acceso" → no llega acá (FinanzasModule no renderiza la pestaña)
+  // Admin siempre es aprobador. esCFO se mantiene como fallback retrocompatible.
   const esCFO = !!usuarioActual?.esCFO;
-  const esAprobador = admin || esCFO;
+  const esAprobador = admin || esCFO || nivelRendiciones === "editar";
+  const miEmail = (usuarioActual?.email || "").toLowerCase();
 
   const [rendiciones, setRendiciones] = useState([]);
   const [tcData, setTcData] = useState({});
@@ -199,6 +693,8 @@ export default function RendicionesModule({ usuarioActual, esAdmin, esSoloConsul
   const [editId, setEditId] = useState(null);   // rendición abierta en el editor
   const [revisar, setRevisar] = useState(null);  // {id, accion:"aprobar"|"rechazar"}
   const [comentario, setComentario] = useState("");
+  const [reasignar, setReasignar] = useState(null);  // {id} — reasignar aprobador actual (admin)
+  const [nuevoAprob, setNuevoAprob] = useState("");  // email del reemplazo
   const [filtroEstado, setFiltroEstado] = useState("todos");
   const [busca, setBusca] = useState("");
 
@@ -279,16 +775,55 @@ export default function RendicionesModule({ usuarioActual, esAdmin, esSoloConsul
     if (!(r.gastos || []).length) { alert("Agrega al menos un gasto antes de enviar."); return; }
     const faltaMonto = r.gastos.some(g => !(Number(g.monto) > 0));
     if (faltaMonto) { alert("Hay gastos sin monto. Complétalos antes de enviar."); return; }
-    upsert(pushHist({ ...r, estado: "enviada", enviadoEn: nowISO() }, "enviada"));
+    // Congelar la cadena de aprobación del trabajador en la rendición.
+    const cadena = resolverCadena(usuarioActual, usuarios);
+    upsert(pushHist({
+      ...r, estado: "enviada", enviadoEn: nowISO(),
+      cadena, nivelActual: 0, aprobaciones: [],
+    }, "enviada"));
     setEditId(null);
   };
 
   const aprobarRechazar = (r, accion, coment) => {
-    const estado = accion === "aprobar" ? "aprobada" : "rechazada";
-    upsert(pushHist({
-      ...r, estado, comentarioRevisor: coment || "",
-      revisadoEn: nowISO(), revisadoPor: nombreUsuario,
-    }, estado, coment));
+    // Rechazo en cualquier nivel → vuelve al trabajador; al reenviar arranca de 0.
+    if (accion === "rechazar") {
+      upsert(pushHist({
+        ...r, estado: "rechazada", comentarioRevisor: coment || "",
+        revisadoEn: nowISO(), revisadoPor: nombreUsuario, nivelActual: 0,
+      }, "rechazada", coment));
+      return;
+    }
+    // Aprobación: avanza un nivel; al pasar el último → aprobada.
+    const cadena = Array.isArray(r.cadena) ? r.cadena : [];
+    const idx = r.nivelActual || 0;
+    const aprobaciones = [...(r.aprobaciones || []),
+      { email: miEmail, nombre: nombreUsuario, fecha: nowISO(), comentario: coment || "", nivel: idx }];
+    const esUltimo = !cadena.length || idx >= cadena.length - 1;
+    if (esUltimo) {
+      upsert(pushHist({
+        ...r, estado: "aprobada", aprobaciones,
+        revisadoEn: nowISO(), revisadoPor: nombreUsuario, comentarioRevisor: coment || "",
+        nivelActual: cadena.length ? idx + 1 : 0,
+      }, "aprobada", coment));
+    } else {
+      const sig = cadena[idx + 1];
+      upsert(pushHist({
+        ...r, estado: "enviada", aprobaciones, nivelActual: idx + 1,
+      }, `aprobó nivel ${idx + 1}`, (coment ? coment + " · " : "") + (sig ? `pasa a ${sig.nombre}` : "")));
+    }
+  };
+
+  // Reasignar el aprobador del paso pendiente (solo admin) — destraba ausencias.
+  const reasignarPaso = (r, nuevoEmail) => {
+    const u = (usuarios || []).find(x => (x.email || "").toLowerCase() === (nuevoEmail || "").toLowerCase());
+    if (!u) return;
+    const cadena = [...(r.cadena || [])];
+    if (!cadena.length) return;
+    const idx = r.nivelActual || 0;
+    const anterior = cadena[idx];
+    cadena[idx] = { email: (u.email || "").toLowerCase(), nombre: u.nombre };
+    upsert(pushHist({ ...r, cadena }, "reasignó aprobador",
+      `Nivel ${idx + 1}: ${anterior?.nombre || "?"} → ${u.nombre}`));
   };
 
   const marcarPagada = (r) => {
@@ -301,9 +836,20 @@ export default function RendicionesModule({ usuarioActual, esAdmin, esSoloConsul
     [rendiciones, nombreUsuario]
   );
   const porAprobar = useMemo(
-    () => rendiciones.filter(r => r.estado === "enviada").sort((a, b) => new Date(a.enviadoEn || 0) - new Date(b.enviadoEn || 0)),
-    [rendiciones]
+    () => rendiciones.filter(r => {
+      if (r.estado !== "enviada") return false;
+      if (admin) return true;  // admin ve todas las pendientes (para aprobar lo suyo o reasignar)
+      return meTocaAprobar(r, miEmail, esAprobador);
+    }).sort((a, b) => new Date(a.enviadoEn || 0) - new Date(b.enviadoEn || 0)),
+    [rendiciones, admin, miEmail, esAprobador]
   );
+  // Un supervisor que figura en alguna cadena ve la bandeja "Por Aprobar"
+  // aunque su nivel de pestaña sea "ver" (solo carga lo suyo).
+  const esAprobadorEnCadena = useMemo(
+    () => rendiciones.some(r => Array.isArray(r.cadena) && r.cadena.some(p => (p.email || "").toLowerCase() === miEmail)),
+    [rendiciones, miEmail]
+  );
+  const muestraAprobar = esAprobador || esAprobadorEnCadena;
   const paraPago = useMemo(
     () => rendiciones.filter(r => r.estado === "aprobada").sort((a, b) => new Date(a.revisadoEn || 0) - new Date(b.revisadoEn || 0)),
     [rendiciones]
@@ -314,7 +860,7 @@ export default function RendicionesModule({ usuarioActual, esAdmin, esSoloConsul
   // ── Tabs visibles según rol ──
   const TABS = [
     { id: "mis", label: "🧾 Mis Rendiciones", show: true },
-    { id: "aprobar", label: `✅ Por Aprobar${porAprobar.length ? ` (${porAprobar.length})` : ""}`, show: esAprobador },
+    { id: "aprobar", label: `✅ Por Aprobar${porAprobar.length ? ` (${porAprobar.length})` : ""}`, show: muestraAprobar },
     { id: "pagos", label: `💵 Pagos${paraPago.length ? ` (${paraPago.length})` : ""}`, show: esAprobador },
     { id: "reportes", label: "📊 Reportes", show: esAprobador },
   ].filter(t => t.show);
@@ -358,10 +904,12 @@ export default function RendicionesModule({ usuarioActual, esAdmin, esSoloConsul
           onAbrir={setEditId} onEliminar={eliminarRendicion} tcData={tcData}
         />
       )}
-      {tab === "aprobar" && esAprobador && (
+      {tab === "aprobar" && muestraAprobar && (
         <BandejaAprobar rends={porAprobar} onAbrir={setEditId} tcData={tcData}
+          miEmail={miEmail} esAprobador={esAprobador} admin={admin}
           onAprobar={r => { setRevisar({ id: r.id, accion: "aprobar" }); setComentario(""); }}
           onRechazar={r => { setRevisar({ id: r.id, accion: "rechazar" }); setComentario(""); }}
+          onReasignar={r => { setReasignar({ id: r.id }); setNuevoAprob(""); }}
         />
       )}
       {tab === "pagos" && esAprobador && (
@@ -386,11 +934,22 @@ export default function RendicionesModule({ usuarioActual, esAdmin, esSoloConsul
         const r = rendiciones.find(x => x.id === revisar.id);
         if (!r) return null;
         const esAprob = revisar.accion === "aprobar";
+        const cad = Array.isArray(r.cadena) ? r.cadena : [];
+        const idx = r.nivelActual || 0;
+        const sig = cad[idx + 1];
         return (
           <Modal width={480} title={esAprob ? `Aprobar rendición #${r.folio}` : `Rechazar rendición #${r.folio}`} onClose={() => setRevisar(null)}>
             <div style={{ fontSize: 13, color: C.muted, marginBottom: 12 }}>
               {r.trabajador} · {fmtTotales(totalesPorMoneda(r.gastos))} · {(r.gastos || []).length} gasto(s)
             </div>
+            {cad.length > 1 && (
+              <div style={{ fontSize: 12, background: C.infoBg, color: C.primary, borderRadius: 8, padding: "8px 10px", marginBottom: 12 }}>
+                Cadena: nivel <b>{idx + 1}</b> de {cad.length}.{" "}
+                {esAprob
+                  ? (sig ? <>Al aprobar pasa a <b>{sig.nombre}</b>.</> : <>Eres el último nivel: al aprobar queda <b>aprobada</b>.</>)
+                  : <>Al rechazar vuelve al trabajador y deberá reenviarla desde el nivel 1.</>}
+              </div>
+            )}
             <Field label={esAprob ? "Comentario (opcional)" : "Motivo del rechazo"}>
               <textarea value={comentario} onChange={e => setComentario(e.target.value)}
                 style={{ ...inputStyle, height: 80, resize: "vertical" }}
@@ -402,6 +961,44 @@ export default function RendicionesModule({ usuarioActual, esAdmin, esSoloConsul
                 disabled={!esAprob && !comentario.trim()}
                 onClick={() => { aprobarRechazar(r, revisar.accion, comentario); setRevisar(null); }}>
                 {esAprob ? "Aprobar" : "Rechazar"}
+              </Btn>
+            </div>
+          </Modal>
+        );
+      })()}
+
+      {/* Modal reasignar aprobador (solo admin) */}
+      {reasignar && (() => {
+        const r = rendiciones.find(x => x.id === reasignar.id);
+        if (!r) return null;
+        const cad = Array.isArray(r.cadena) ? r.cadena : [];
+        const idx = r.nivelActual || 0;
+        const actual = cad[idx];
+        const disponibles = (usuarios || []).filter(x =>
+          !x.desactivado && (x.email || "").trim() &&
+          (x.email || "").toLowerCase() !== (actual?.email || "").toLowerCase()
+        );
+        return (
+          <Modal width={460} title={`Reasignar aprobador · #${r.folio}`} onClose={() => setReasignar(null)}>
+            <div style={{ fontSize: 13, color: C.muted, marginBottom: 12 }}>
+              {r.trabajador} · esperando aprobación de <b style={{ color: C.text }}>{actual?.nombre || "—"}</b> (nivel {idx + 1} de {cad.length}).
+            </div>
+            <div style={{ fontSize: 12, color: C.muted, marginBottom: 12 }}>
+              Reasigna este paso a otra persona (ej. el aprobador está de vacaciones). Solo afecta esta rendición; la configuración del trabajador no se modifica.
+            </div>
+            <Field label="Nuevo aprobador para este paso">
+              <select value={nuevoAprob} onChange={e => setNuevoAprob(e.target.value)} style={inputStyle}>
+                <option value="">Selecciona…</option>
+                {disponibles.map(x => (
+                  <option key={x.email} value={(x.email || "").toLowerCase()}>{x.nombre}{x.cargo ? ` · ${x.cargo}` : ""}</option>
+                ))}
+              </select>
+            </Field>
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 16 }}>
+              <Btn kind="ghost" onClick={() => setReasignar(null)}>Cancelar</Btn>
+              <Btn kind="primary" disabled={!nuevoAprob}
+                onClick={() => { reasignarPaso(r, nuevoAprob); setReasignar(null); }}>
+                Reasignar
               </Btn>
             </div>
           </Modal>
@@ -419,7 +1016,7 @@ function RendCard({ r, children, onClick, mostrarTrabajador, tcData }) {
   const monedaPago = r.monedaPago || "CLP";
   const monedas = Object.keys(totales).filter(k => totales[k]);
   const requiereConv = tcData && (monedas.length > 1 || (monedas[0] && monedas[0] !== monedaPago));
-  const conv = requiereConv ? totalConvertido(r.gastos, monedaPago, r.fechaTC || r.periodo, tcData) : null;
+  const conv = requiereConv ? totalConvertido(r.gastos, monedaPago, r.fechaTC || r.periodo, tcData, r.tcManual) : null;
   return (
     <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: 14, boxShadow: C.shadowSm }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 10 }}>
@@ -485,7 +1082,7 @@ function MisRendiciones({ rends, onCrear, onAbrir, onEliminar, tcData }) {
 // ───────────────────────────────────────────────────────────────────
 // Tab: Por Aprobar
 // ───────────────────────────────────────────────────────────────────
-function BandejaAprobar({ rends, onAbrir, onAprobar, onRechazar, tcData }) {
+function BandejaAprobar({ rends, onAbrir, onAprobar, onRechazar, onReasignar, tcData, miEmail, esAprobador, admin }) {
   return (
     <div>
       <div style={{ fontSize: 13, color: C.muted, marginBottom: 14 }}>{rends.length} rendición(es) esperando revisión</div>
@@ -495,15 +1092,37 @@ function BandejaAprobar({ rends, onAbrir, onAprobar, onRechazar, tcData }) {
         </div>
       )}
       <div style={{ display: "grid", gap: 10 }}>
-        {rends.map(r => (
-          <RendCard key={r.id} r={r} onClick={() => onAbrir(r.id)} mostrarTrabajador tcData={tcData}>
-            <Btn kind="ghost" small onClick={() => onAbrir(r.id)}>Revisar detalle</Btn>
-            <div style={{ display: "flex", gap: 6 }}>
-              <Btn kind="success" small onClick={() => onAprobar(r)}>Aprobar</Btn>
-              <Btn kind="danger" small onClick={() => onRechazar(r)}>Rechazar</Btn>
-            </div>
-          </RendCard>
-        ))}
+        {rends.map(r => {
+          const cad = Array.isArray(r.cadena) ? r.cadena : [];
+          const idx = r.nivelActual || 0;
+          const actual = cad[idx];
+          const miTurno = meTocaAprobar(r, miEmail, esAprobador);
+          return (
+            <RendCard key={r.id} r={r} onClick={() => onAbrir(r.id)} mostrarTrabajador tcData={tcData}>
+              <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                <Btn kind="ghost" small onClick={() => onAbrir(r.id)}>Revisar detalle</Btn>
+                {cad.length > 1 && (
+                  <span style={{ fontSize: 10.5, color: miTurno ? C.success : C.muted2 }}>
+                    {miTurno ? "Te toca aprobar" : `Esperando a ${actual?.nombre || "—"}`} · nivel {idx + 1}/{cad.length}
+                  </span>
+                )}
+              </div>
+              <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+                {miTurno ? (
+                  <>
+                    <Btn kind="success" small onClick={() => onAprobar(r)}>Aprobar</Btn>
+                    <Btn kind="danger" small onClick={() => onRechazar(r)}>Rechazar</Btn>
+                  </>
+                ) : (
+                  <span style={{ fontSize: 11, color: C.muted2, fontStyle: "italic" }}>No es tu turno</span>
+                )}
+                {admin && cad.length > 0 && (
+                  <Btn kind="ghost" small onClick={() => onReasignar(r)}>↻ Reasignar</Btn>
+                )}
+              </div>
+            </RendCard>
+          );
+        })}
       </div>
     </div>
   );
@@ -552,7 +1171,7 @@ function Reportes({ rends, filtroEstado, setFiltroEstado, busca, setBusca, onAbr
     filtradas.forEach(rd => {
       const fecha = rd.fechaTC || rd.periodo;
       (rd.gastos || []).forEach(g => {
-        const c = convertir(g.monto, g.moneda || "CLP", "CLP", fecha, tcData);
+        const c = convertir(g.monto, g.moneda || "CLP", "CLP", fecha, tcData, rd.monedaPago === "CLP" ? rd.tcManual : null);
         if (!c.ok) { r.sinTC += 1; return; }
         r.totalCLP += c.val;
         r.porEmpresa[rd.empresa] = (r.porEmpresa[rd.empresa] || 0) + c.val;
@@ -567,7 +1186,7 @@ function Reportes({ rends, filtroEstado, setFiltroEstado, busca, setBusca, onAbr
     filtradas.forEach(r => {
       const fecha = r.fechaTC || r.periodo;
       (r.gastos || []).forEach(g => {
-        const c = convertir(g.monto, g.moneda || "CLP", "CLP", fecha, tcData);
+        const c = convertir(g.monto, g.moneda || "CLP", "CLP", fecha, tcData, r.monedaPago === "CLP" ? r.tcManual : null);
         filas.push([
           r.folio, ESTADOS[r.estado]?.l || r.estado, r.trabajador, r.empresa, r.titulo,
           g.fecha || "", CAT_MAP[g.categoria]?.l || g.categoria || "", (g.glosa || "").replace(/"/g, "'"),
@@ -645,6 +1264,25 @@ function EditorRendicion({ rend, upsert, onClose, onEnviar, esDueno, esAprobador
   // La fecha/moneda de pago la define quien paga (aprobador) incluso después de enviada.
   const editableTC = esAprobador || editable;
   const [subiendo, setSubiendo] = useState(null); // id de gasto subiendo archivo
+  const [exportando, setExportando] = useState(null); // "excel" | "pdf" | null
+
+  const descargarExcel = async () => {
+    setExportando("excel");
+    try { await exportarRendicionExcel(rend, tcData); }
+    catch (e) { alert("No se pudo generar el Excel: " + (e?.message || e)); }
+    finally { setExportando(null); }
+  };
+  const descargarPDF = async () => {
+    setExportando("pdf");
+    try {
+      const res = await exportarRendicionPDF(rend, tcData);
+      if (res && res.fallidos > 0) {
+        alert(`PDF generado. ${res.okAdjuntos} respaldo(s) anexado(s); ${res.fallidos} no se pudieron incrustar (formato no soportado o error de descarga).`);
+      }
+    } catch (e) {
+      alert("No se pudo generar el PDF: " + (e?.message || e));
+    } finally { setExportando(null); }
+  };
 
   const monedaPago = rend.monedaPago || "CLP";
   const fechaTC = rend.fechaTC || rend.periodo || hoyISO();
@@ -699,6 +1337,28 @@ function EditorRendicion({ rend, upsert, onClose, onEnviar, esDueno, esAprobador
         )}
       </div>
 
+      {/* Progreso de la cadena de aprobación (si tiene cadena multinivel) */}
+      {Array.isArray(rend.cadena) && rend.cadena.length > 1 && (
+        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginBottom: 16, background: C.bg2, borderRadius: 10, padding: "10px 12px" }}>
+          <span style={{ fontSize: 11, color: C.muted, fontWeight: 700 }}>CADENA:</span>
+          {rend.cadena.map((p, i) => {
+            const idx = rend.nivelActual || 0;
+            const aprobada = rend.estado === "aprobada" || rend.estado === "pagada" || i < idx;
+            const enCurso = (rend.estado === "enviada") && i === idx;
+            const color = aprobada ? C.success : enCurso ? C.warning : C.muted2;
+            const bg = aprobada ? C.successBg : enCurso ? C.warningBg : C.cardAlt;
+            return (
+              <span key={p.email + i} style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
+                {i > 0 && <span style={{ color: C.muted2, fontSize: 12 }}>→</span>}
+                <span style={{ fontSize: 11.5, fontWeight: 600, color, background: bg, borderRadius: 7, padding: "3px 9px" }}>
+                  {aprobada ? "✓ " : enCurso ? "⏳ " : ""}{p.nombre}{i === 0 ? " (sup.)" : ""}
+                </span>
+              </span>
+            );
+          })}
+        </div>
+      )}
+
       {/* Datos generales (encabezado): trabajador (arriba) + empresa + fecha rendición */}
       <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr", gap: 12, marginBottom: 14 }}>
         <Field label="Título / Glosa">
@@ -725,6 +1385,49 @@ function EditorRendicion({ rend, upsert, onClose, onEnviar, esDueno, esAprobador
           <input type="date" value={fechaTC} disabled={!editableTC} onChange={e => setCampo("fechaTC", e.target.value)} style={inputStyle} />
         </Field>
       </div>
+
+      {/* Tipo de cambio de la rendición (manual por moneda) */}
+      {(() => {
+        const extranjeras = monedasExtranjeras(rend.gastos, monedaPago);
+        if (!extranjeras.length) return null;
+        const tcManual = rend.tcManual || {};
+        const setTCManual = (cur, val) => {
+          const next = { ...(rend.tcManual || {}) };
+          if (val === "" || val == null) delete next[cur]; else next[cur] = Number(val);
+          setCampo("tcManual", next);
+        };
+        return (
+          <div style={{ marginBottom: 18, background: C.bg2, border: `1px solid ${C.border}`, borderRadius: 10, padding: 12 }}>
+            <div style={{ fontSize: 12.5, fontWeight: 800, color: C.muted, marginBottom: 8 }}>
+              Tipo de cambio de la rendición
+              <span style={{ fontWeight: 500, color: C.muted2 }}> · déjalo vacío para usar el del maestro; escribe un valor para fijarlo manualmente</span>
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(230px, 1fr))", gap: 10 }}>
+              {extranjeras.map(cur => {
+                const man = Number(tcManual[cur]) > 0 ? tcManual[cur] : "";
+                const auto = buscarTC(cur, monedaPago, fechaTC, tcData);
+                return (
+                  <div key={cur} style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                    <span style={{ fontSize: 12.5, fontWeight: 700, minWidth: 58 }}>1 {cur} =</span>
+                    <input
+                      type="number" step="any" disabled={!editableTC}
+                      value={man}
+                      placeholder={auto != null ? auto.toLocaleString("es-CL", { maximumFractionDigits: 6 }) : "sin TC"}
+                      onChange={e => setTCManual(cur, e.target.value)}
+                      style={{ ...inputStyle, textAlign: "right", flex: 1 }} />
+                    <span style={{ fontSize: 12.5, fontWeight: 700 }}>{monedaPago}</span>
+                  </div>
+                );
+              })}
+            </div>
+            <div style={{ fontSize: 11, color: C.muted2, marginTop: 8 }}>
+              {extranjeras.some(cur => !(Number((rend.tcManual || {})[cur]) > 0) && buscarTC(cur, monedaPago, fechaTC, tcData) == null)
+                ? "⚠ Hay monedas sin tipo de cambio en el maestro: ingrésalo manualmente o no se podrán convertir."
+                : "Los campos en gris usan el valor del maestro (mindicador / frankfurter / manual)."}
+            </div>
+          </div>
+        );
+      })()}
 
       {/* Gastos */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
@@ -784,7 +1487,7 @@ function EditorRendicion({ rend, upsert, onClose, onEnviar, esDueno, esAprobador
               </div>
             </div>
             {(g.moneda || "CLP") !== monedaPago && Number(g.monto) > 0 && (() => {
-              const r = convertir(g.monto, g.moneda || "CLP", monedaPago, fechaTC, tcData);
+              const r = convertir(g.monto, g.moneda || "CLP", monedaPago, fechaTC, tcData, rend.tcManual);
               if (r.ok) {
                 return (
                   <div style={{ fontSize: 11.5, color: C.muted, marginTop: 6, display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
@@ -811,7 +1514,7 @@ function EditorRendicion({ rend, upsert, onClose, onEnviar, esDueno, esAprobador
 
       {/* Total */}
       {(() => {
-        const conv = totalConvertido(rend.gastos, monedaPago, fechaTC, tcData);
+        const conv = totalConvertido(rend.gastos, monedaPago, fechaTC, tcData, rend.tcManual);
         const variasMonedas = Object.keys(totales).filter(k => totales[k]).length > 1 || (Object.keys(totales)[0] && Object.keys(totales)[0] !== monedaPago);
         return (
           <div style={{ marginTop: 16, paddingTop: 14, borderTop: `1px solid ${C.border}` }}>
@@ -855,7 +1558,13 @@ function EditorRendicion({ rend, upsert, onClose, onEnviar, esDueno, esAprobador
             <Btn kind="ghost" style={{ color: C.danger, borderColor: C.danger }} onClick={() => onEliminar(rend)}>Eliminar</Btn>
           )}
         </div>
-        <div style={{ display: "flex", gap: 8 }}>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+          <Btn kind="ghost" onClick={descargarExcel} disabled={exportando === "excel" || !(rend.gastos || []).length}>
+            {exportando === "excel" ? "Generando…" : "⬇ Excel"}
+          </Btn>
+          <Btn kind="ghost" onClick={descargarPDF} disabled={exportando === "pdf" || !(rend.gastos || []).length}>
+            {exportando === "pdf" ? "Generando…" : "🖨 PDF + respaldos"}
+          </Btn>
           <Btn kind="ghost" onClick={onClose}>Cerrar</Btn>
           {editable && <Btn kind="success" onClick={() => onEnviar(rend)}>📤 Enviar a aprobación</Btn>}
         </div>
