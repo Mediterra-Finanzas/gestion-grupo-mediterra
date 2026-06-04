@@ -2318,7 +2318,7 @@ function ParamsIntegrity({selSeason, paramsIF, setParamsIF, readOnly}) {
         )}
       </div>
 
-      <div style={{overflowX:"auto"}}>
+      <div style={{overflowX:"auto",minWidth:0,maxWidth:"calc(100vw - 80px)"}}>
         <table style={{width:"100%",borderCollapse:"collapse",fontSize:11}}>
           <thead>
             <tr style={{background:C.primary}}>
@@ -3009,7 +3009,7 @@ function TabParametros({empNombre,empColor="#2563eb",
       {!esAllegriaService&&!esIntegrity&&!esAllpa&&(resumenAllegria.length>0||resumenEmp.length>0)&&(
         <Card>
           <SectionTitle>Resumen Proyectado — Todas las Temporadas</SectionTitle>
-          <div style={{overflowX:"auto"}}>
+          <div style={{overflowX:"auto",minWidth:0,maxWidth:"calc(100vw - 80px)"}}>
             <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
               <thead><tr style={{background:C.primary}}>
                 {(esAllegria
@@ -3918,7 +3918,7 @@ function ResumenSemanal({empresas, empNames}) {
             style={{padding:"6px 12px",borderRadius:8,border:`1px solid ${C.border}`,background:C.card2,color:C.text,cursor:selIdx>=semanasDisponibles.length-1?"default":"pointer",opacity:selIdx>=semanasDisponibles.length-1?0.4:1}}>▶</button>
         </div>
       </div>
-      <div style={{overflowX:"auto"}}>
+      <div style={{overflowX:"auto",minWidth:0,maxWidth:"calc(100vw - 80px)"}}>
         <table style={{width:"100%",borderCollapse:"collapse",fontSize:11}}>
           <thead>
             <tr style={{background:C.primary}}>
@@ -4140,7 +4140,7 @@ function MatrizMensualConsolidado({empresas, empNames, flujoPorEmp={}, acumPorEm
       </div>
 
       {/* Tabla matriz: filas = empresas, columnas = meses */}
-      <div style={{overflowX:"auto", borderRadius:12, border:`1px solid ${C.border}`}}>
+      <div style={{overflowX:"auto", borderRadius:12, border:`1px solid ${C.border}`,minWidth:0,maxWidth:"calc(100vw - 80px)"}}>
         <table style={{borderCollapse:"collapse", fontSize:10, minWidth:600, width:"100%"}}>
           <thead>
             <tr style={{background:C.primary}}>
@@ -4578,7 +4578,7 @@ function WaterfallConsolidado({empresas, saldosBancos, saldoIniPorEmp={}, acumPo
       </Card>
 
       {/* Tabla Waterfall */}
-      <div style={{overflowX:"auto",borderRadius:12,border:`1px solid ${C.border}`,marginTop:12}}>
+      <div style={{overflowX:"auto",borderRadius:12,border:`1px solid ${C.border}`,marginTop:12,minWidth:0,maxWidth:"calc(100vw - 80px)"}}>
         <table style={{borderCollapse:"collapse",fontSize:11,width:"100%",minWidth:1000}}>
           <thead>
             <tr style={{background:C.primary}}>
@@ -6322,7 +6322,7 @@ function Creditos({empresas, creditosData=CREDITOS_DEFAULT, onSaveCreditos, canE
       </Card>
       <Card style={{padding:"12px 16px"}}>
         <SectionTitle>Saldo Deuda por Trimestre</SectionTitle>
-        <div style={{overflowX:"auto"}}>
+        <div style={{overflowX:"auto",minWidth:0,maxWidth:"calc(100vw - 80px)"}}>
           <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
             <thead><tr style={{background:C.primary}}>
               {["Trimestre","Pagos","Saldo Deuda"].map(h=><th key={h} style={{padding:"7px 12px",fontWeight:600,fontSize:10,color:C.muted,textTransform:"uppercase",borderBottom:`1px solid ${C.border}`,textAlign:h==="Trimestre"?"left":"right"}}>{h}</th>)}
@@ -6435,7 +6435,7 @@ function Creditos({empresas, creditosData=CREDITOS_DEFAULT, onSaveCreditos, canE
             Deuda pendiente por empresa al 30 de junio de cada año
           </div>
         </div>
-        <div style={{overflowX:"auto"}}>
+        <div style={{overflowX:"auto",minWidth:0,maxWidth:"calc(100vw - 80px)"}}>
           <table style={{width:"100%",borderCollapse:"collapse",fontSize:11}}>
             <thead>
               <tr style={{background:C.primary}}>
@@ -7473,7 +7473,7 @@ function Intercompany({transferencias=[],onSave,empresas={},canEdit}) {
 
       {/* Tabla */}
       <Card style={{padding:0,overflow:"hidden"}}>
-        <div style={{overflowX:"auto"}}>
+        <div style={{overflowX:"auto",minWidth:0,maxWidth:"calc(100vw - 80px)"}}>
           <table style={{width:"100%",borderCollapse:"collapse",fontSize:11}}>
             <thead>
               <tr style={{background:C.primary}}>
@@ -10013,7 +10013,7 @@ function ReporteHistorial({historial, onUpdate, canEdit}) {
       {ordenado.length === 0 ? (
         <div style={{padding:30,textAlign:"center",color:C.muted2,fontSize:11,fontStyle:"italic"}}>Sin reportes generados todavía</div>
       ) : (
-        <div style={{overflowX:"auto"}}>
+        <div style={{overflowX:"auto",minWidth:0,maxWidth:"calc(100vw - 80px)"}}>
           <table style={{width:"100%",borderCollapse:"collapse",fontSize:11}}>
             <thead>
               <tr style={{borderBottom:`1px solid ${C.border}`}}>
@@ -13788,7 +13788,7 @@ function ParamsFrisku({selSeason, paramsFrisku, setParamsFrisku, readOnly}) {
 
       {/* Tabla de meses para la especie seleccionada */}
       {esp&&(
-        <div style={{overflowX:"auto"}}>
+        <div style={{overflowX:"auto",minWidth:0,maxWidth:"calc(100vw - 80px)"}}>
           <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
             <thead>
               <tr style={{background:C.primary}}>
