@@ -16,6 +16,16 @@ import {
   uploadArchivoFrisku, eliminarArchivoFrisku, pathDesdeUrlStorage,
   buscarTC,
 } from "./friskuHelpers";
+import { enviarEmail } from "./emailHelper";
+
+const APP_URL = "https://gestion-grupo-mediterra.vercel.app";
+
+// Destinatarios del aviso "rendición lista para pago" (analista de finanzas, administración y gerencia).
+const EMAILS_PAGO = [
+  "cmachuca@grupomediterra.cl",  // Carol Machuca — Analista Finanzas
+  "Mbecerra@grupomediterra.cl",  // Milagros Becerra — Administración
+  "ahuerta@grupomediterra.cl",   // Angelo Huerta — Gerencia
+];
 
 const C = { ...T };
 
@@ -827,17 +837,39 @@ export default function RendicionesModule({ usuarioActual, esAdmin, esSoloConsul
     if (editId === r.id) setEditId(null);
   };
 
+  // ── Notificaciones por correo ──
+  // Avisa a los aprobadores/pagadores aunque no estén mirando la app.
+  const notif = (to, subject, message) => {
+    const dest = (Array.isArray(to) ? to : [to]).map(e => (e || "").trim()).filter(Boolean);
+    if (!dest.length) return;
+    // No bloquea el flujo: si el correo falla, la rendición igual avanza.
+    enviarEmail({ to: [...new Set(dest)].join(","), subject, message, modulo: "mediterra" })
+      .catch(e => console.warn("[Rendiciones] notif falló:", e?.message || e));
+  };
+  // Pagadores = quienes ven todas y cargan a pago (CFO / supervisores con rendVerTodas).
+  const emailsPagadores = () => (usuarios || [])
+    .filter(u => u.esCFO || u.rendVerTodas)
+    .map(u => u.email).filter(Boolean);
+
   const enviar = (r) => {
     if (!r.titulo?.trim()) { alert("Ponle un título/glosa a la rendición antes de enviarla."); return; }
     if (!(r.gastos || []).length) { alert("Agrega al menos un gasto antes de enviar."); return; }
     const faltaMonto = r.gastos.some(g => !(Number(g.monto) > 0));
     if (faltaMonto) { alert("Hay gastos sin monto. Complétalos antes de enviar."); return; }
+    const sinRespaldo = r.gastos.filter(g => !g.adjuntoUrl).length;
+    if (sinRespaldo) { alert(`Hay ${sinRespaldo} gasto(s) sin respaldo adjunto. Cada gasto debe llevar su boleta, factura o comprobante (foto o PDF) antes de enviar.`); return; }
     // Congelar la cadena de aprobación del trabajador en la rendición.
     const cadena = resolverCadena(usuarioActual, usuarios);
     upsert(pushHist({
       ...r, estado: "enviada", enviadoEn: nowISO(),
       cadena, nivelActual: 0, aprobaciones: [],
     }, "enviada"));
+    // Avisar al primer aprobador (o a los pagadores si no hay cadena definida).
+    const destino = cadena.length ? [cadena[0].email] : emailsPagadores();
+    notif(destino,
+      `Rendición #${r.folio} por aprobar — ${nombreUsuario}`,
+      `${nombreUsuario} envió la rendición #${r.folio} "${r.titulo}" para tu aprobación.\n\n` +
+      `Ingresa a ${APP_URL}, pestaña Finanzas → Rendiciones → Por Aprobar.`);
     setEditId(null);
   };
 
@@ -848,6 +880,11 @@ export default function RendicionesModule({ usuarioActual, esAdmin, esSoloConsul
         ...r, estado: "rechazada", comentarioRevisor: coment || "",
         revisadoEn: nowISO(), revisadoPor: nombreUsuario, nivelActual: 0,
       }, "rechazada", coment));
+      notif([r.trabajadorEmail],
+        `Rendición #${r.folio} rechazada`,
+        `${nombreUsuario} rechazó tu rendición #${r.folio} "${r.titulo}".\n` +
+        (coment ? `Motivo: ${coment}\n` : "") +
+        `\nCorrige lo indicado y vuelve a enviarla en ${APP_URL}, pestaña Finanzas → Rendiciones.`);
       return;
     }
     // Aprobación: avanza un nivel; al pasar el último → aprobada.
@@ -862,11 +899,21 @@ export default function RendicionesModule({ usuarioActual, esAdmin, esSoloConsul
         revisadoEn: nowISO(), revisadoPor: nombreUsuario, comentarioRevisor: coment || "",
         nivelActual: cadena.length ? idx + 1 : 0,
       }, "aprobada", coment));
+      // Aprobación final → avisar a finanzas/administración/gerencia para cargar a pago.
+      notif(EMAILS_PAGO,
+        `Rendición #${r.folio} aprobada — lista para pago`,
+        `La rendición #${r.folio} "${r.titulo}" de ${r.trabajador} quedó aprobada y está lista para cargar a pago.\n\n` +
+        `Ingresa a ${APP_URL}, pestaña Finanzas → Rendiciones → Pagos.`);
     } else {
       const sig = cadena[idx + 1];
       upsert(pushHist({
         ...r, estado: "enviada", aprobaciones, nivelActual: idx + 1,
       }, `aprobó nivel ${idx + 1}`, (coment ? coment + " · " : "") + (sig ? `pasa a ${sig.nombre}` : "")));
+      // Avisar al siguiente aprobador de la cadena.
+      if (sig) notif([sig.email],
+        `Rendición #${r.folio} por aprobar — ${r.trabajador}`,
+        `La rendición #${r.folio} "${r.titulo}" de ${r.trabajador} avanzó y queda pendiente de tu aprobación.\n\n` +
+        `Ingresa a ${APP_URL}, pestaña Finanzas → Rendiciones → Por Aprobar.`);
     }
   };
 
@@ -1544,12 +1591,12 @@ function EditorRendicion({ rend, upsert, onClose, onEnviar, esDueno, esAprobador
                     {editable && <button onClick={() => quitarAdjunto(g)} title="Quitar" style={{ border: "none", background: "none", color: C.danger, cursor: "pointer", fontSize: 16 }}>×</button>}
                   </>
                 ) : editable ? (
-                  <label style={{ fontSize: 12.5, color: C.primary, fontWeight: 700, cursor: "pointer", border: `1px dashed ${C.border2}`, padding: "6px 12px", borderRadius: 8 }}>
-                    {subiendo === g.id ? "Subiendo…" : "📎 Adjuntar boleta"}
+                  <label title="Obligatorio: cada gasto debe llevar su respaldo" style={{ fontSize: 12.5, color: C.danger, fontWeight: 700, cursor: "pointer", border: `1px dashed ${C.danger}`, background: C.dangerBg, padding: "6px 12px", borderRadius: 8 }}>
+                    {subiendo === g.id ? "Subiendo…" : "📎 Adjuntar respaldo *"}
                     <input type="file" accept="image/*,application/pdf" style={{ display: "none" }} disabled={subiendo === g.id}
                       onChange={e => { const f = e.target.files?.[0]; e.target.value = ""; subirAdjunto(g, f); }} />
                   </label>
-                ) : <span style={{ fontSize: 12, color: C.muted2 }}>Sin respaldo</span>}
+                ) : <span style={{ fontSize: 12, color: C.danger }}>⚠ Sin respaldo</span>}
               </div>
             </div>
             {(g.moneda || "CLP") !== monedaPago && Number(g.monto) > 0 && (() => {
