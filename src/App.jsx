@@ -395,11 +395,16 @@ function garantizarAccesoRendiciones(u){
   const mods = Array.isArray(u.modulos) ? u.modulos : ["tareas"];
   const yaTeniaFinanzas = mods.includes("finanzas");
   const finanzasPrev = u.tab_permisos?.finanzas || {};
-  // Perfil "solo rendiciones": no tenía Finanzas, o ya estaba bloqueado (dashboard
-  // en sin_acceso). A los usuarios de Finanzas reales (dashboard con acceso) NO se
-  // les toca. Esto reaplica el candado a los ya migrados aunque hayan quedado con
-  // alguna pestaña nueva sin definir (ej. "reporte") que antes caía en "editar".
-  const esSoloRendiciones = !yaTeniaFinanzas || finanzasPrev.dashboard === "sin_acceso";
+  // Perfil "solo rendiciones": no tenía Finanzas, o TODAS las pestañas financieras
+  // core están explícitamente en "sin_acceso". Basta con que UNA tenga acceso
+  // (ej. Carol con nominas="editar" aunque dashboard="sin_acceso") para considerarlo
+  // usuario real de Finanzas y NO tocarle nada. Un permiso sin definir (undefined)
+  // cae en visible por defecto → también cuenta como "tiene acceso".
+  // "reporte" se excluye a propósito del core: si estaba sin definir en un usuario
+  // ya migrado, igual se vuelve a bloquear abajo (preserva el fix de Reporte Semanal).
+  const FIN_CORE = ["dashboard","flujo","bancos","creditos","nominas","params","auditoria","eeff"];
+  const todasBloqueadas = FIN_CORE.every(t => finanzasPrev[t] === "sin_acceso");
+  const esSoloRendiciones = !yaTeniaFinanzas || todasBloqueadas;
   if(yaTeniaFinanzas && !esSoloRendiciones) return u;
   return {
     ...u,
