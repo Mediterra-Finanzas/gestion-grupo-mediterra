@@ -3751,7 +3751,7 @@ function Consolidado({empresas,saldosBancos,realData={},addedLinesGlobal={},subL
 
       {/* Vista sumada */}
       {vistaConsolidado==="sumada"&&(
-        <div style={{overflowX:"auto",overflowY:"auto",maxHeight:"80vh",borderRadius:12,border:`1px solid ${C.border}`,minWidth:0,maxWidth:"100%"}}>
+        <div style={{overflowX:"auto",overflowY:"auto",maxHeight:"80vh",borderRadius:12,border:`1px solid ${C.border}`,minWidth:0,maxWidth:"calc(100vw - 80px)"}}>
           <table id="flujo-table-consolidado" style={{borderCollapse:"separate",borderSpacing:0,fontSize:11,minWidth:600}}>
             <THead/>
             <tbody>
@@ -3774,7 +3774,7 @@ function Consolidado({empresas,saldosBancos,realData={},addedLinesGlobal={},subL
 
       {/* Vista por empresa - solo subtotales por categoría */}
       {vistaConsolidado==="por_empresa"&&(
-        <div style={{overflowX:"auto",overflowY:"auto",maxHeight:"80vh",borderRadius:12,border:`1px solid ${C.border}`,minWidth:0,maxWidth:"100%"}}>
+        <div style={{overflowX:"auto",overflowY:"auto",maxHeight:"80vh",borderRadius:12,border:`1px solid ${C.border}`,minWidth:0,maxWidth:"calc(100vw - 80px)"}}>
           <table style={{borderCollapse:"separate",borderSpacing:0,fontSize:11,minWidth:600}}>
             <THead/>
             <tbody>
@@ -6357,7 +6357,7 @@ function Creditos({empresas, creditosData=CREDITOS_DEFAULT, onSaveCreditos, canE
         </select>
       </div>
       <Card style={{padding:0,overflow:"hidden"}}>
-        <div style={{overflowX:"auto",minWidth:0,maxWidth:"100%"}}>
+        <div style={{overflowX:"auto",minWidth:0,maxWidth:"calc(100vw - 80px)"}}>
           <table style={{width:"100%",borderCollapse:"collapse",fontSize:11}}>
             <thead><tr style={{background:C.primary}}>
               {["#","Empresa","Acreedor","Tipo","Monto","Cuota","Desembolso","Vencimiento","Tasa","Renovación",...(canEdit?["Acciones"]:[])
