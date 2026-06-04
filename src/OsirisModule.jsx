@@ -1046,7 +1046,7 @@ function TotalPedidos({data,setData,rpData,setRpData,rcData,setRcData,fvData,set
         )}
       />
 
-      <div style={{overflowX:"auto"}}>
+      <div style={{overflowX:"auto",minWidth:0,maxWidth:"calc(100vw - 40px)"}}>
         <table style={{borderCollapse:"collapse",width:"100%",background:C.card,borderRadius:10,overflow:"hidden"}}>
           <Th cols={[
             {l:"Estado",c:true,w:130},{l:"Cliente",w:130},{l:"País",w:70},{l:"Vivero",w:120},
@@ -1533,7 +1533,7 @@ function RoyaltyPlanta({data,setData,tpData,can,clientes=[]}) {
         )}
       />
 
-      <div style={{overflowX:"auto"}}>
+      <div style={{overflowX:"auto",minWidth:0,maxWidth:"calc(100vw - 40px)"}}>
         <table style={{borderCollapse:"collapse",width:"100%",background:C.card,borderRadius:10,overflow:"hidden"}}>
           <Th cols={[
             {l:"Cliente",w:120},{l:"País",w:80},{l:"Vivero",w:120},{l:"Año",c:true,w:60},
@@ -1854,7 +1854,7 @@ function FeeEntrada({data,setData,ctData,can,clientes=[]}) {
         )}
       />
 
-      <div style={{overflowX:"auto"}}>
+      <div style={{overflowX:"auto",minWidth:0,maxWidth:"calc(100vw - 40px)"}}>
         <table style={{borderCollapse:"collapse",width:"100%",background:C.card,borderRadius:10,overflow:"hidden"}}>
           <Th cols={[
             {l:"Cliente",w:150},{l:"País",w:80},{l:"Tipo Fee",w:130},
@@ -2085,7 +2085,7 @@ function RoyaltyComercial({data,setData,tpData,can,clientes=[]}) {
         )}
       />
 
-      <div style={{overflowX:"auto"}}>
+      <div style={{overflowX:"auto",minWidth:0,maxWidth:"calc(100vw - 40px)"}}>
         <table style={{borderCollapse:"collapse",width:"100%",background:C.card,borderRadius:10,overflow:"hidden"}}>
           <Th cols={[
             {l:"Cliente",w:130},{l:"País",w:80},{l:"Há",c:true,w:80},{l:"US$/Há",c:true,w:90},
@@ -2335,7 +2335,7 @@ function FeeViveros({data,setData,tpData,can,clientes=[]}) {
         )}
       />
 
-      <div style={{overflowX:"auto"}}>
+      <div style={{overflowX:"auto",minWidth:0,maxWidth:"calc(100vw - 40px)"}}>
         <table style={{borderCollapse:"collapse",width:"100%",background:C.card,borderRadius:10,overflow:"hidden"}}>
           <Th cols={[
             {l:"Vivero",w:100},{l:"Empresa",w:140},{l:"País",w:70},{l:"Proforma",w:110},
@@ -2585,7 +2585,7 @@ function GraficosPlantas({tpData,rpData}) {
       {/* Tabla anual detallada */}
       <div style={{background:C.card,borderRadius:14,padding:20,boxShadow:"0 2px 10px #0001"}}>
         <h4 style={{margin:"0 0 14px",color:C.sl,fontSize:14}}>📋 Detalle por año y país</h4>
-        <div style={{overflowX:"auto"}}>
+        <div style={{overflowX:"auto",minWidth:0,maxWidth:"calc(100vw - 40px)"}}>
           <table style={{borderCollapse:"collapse",width:"100%",fontSize:12}}>
             <thead><tr style={{background:C.primary}}>
               <th style={{padding:"8px 12px",textAlign:"left",color:C.gris,fontWeight:600}}>Año</th>
@@ -2818,7 +2818,7 @@ function PagoObtentores({obtentoresData, ctData, feData, rpData, rcData, pagosDa
 
           {/* Tabla items de deuda */}
           <div style={{fontWeight:700,color:C.text,marginBottom:8,fontSize:13}}>Detalle de deuda generada</div>
-          <div style={{overflowX:"auto",marginBottom:20}}>
+          <div style={{overflowX:"auto",marginBottom:20,minWidth:0,maxWidth:"calc(100vw - 40px)"}}>
             <table style={{width:"100%",borderCollapse:"collapse",fontSize:11,background:C.card,borderRadius:10,overflow:"hidden"}}>
               <thead><tr style={{background:"#0891b2",color:"#fff"}}>
                 {["Tipo","Cliente","Especie","Variedad","Mto. Facturado","Deuda bruta","WHT obt.","Neto obt.","Fecha ref."].map(h=>(
@@ -2858,7 +2858,7 @@ function PagoObtentores({obtentoresData, ctData, feData, rpData, rcData, pagosDa
               + Registrar pago
             </button>}
           </div>
-          <div style={{overflowX:"auto"}}>
+          <div style={{overflowX:"auto",minWidth:0,maxWidth:"calc(100vw - 40px)"}}>
             <table style={{width:"100%",borderCollapse:"collapse",fontSize:11,background:C.card,borderRadius:10,overflow:"hidden"}}>
               <thead><tr style={{background:C.primary,color:C.primaryText}}>
                 {["Fecha","Concepto","Monto bruto","WHT","Neto pagado","N° Fact. obtentor","Estado",""].map(h=>(
@@ -2967,7 +2967,7 @@ function PagoObtentores({obtentoresData, ctData, feData, rpData, rcData, pagosDa
               <div style={{fontSize:12}}>Configura las reglas de participación en los contratos de obtentores (tab Royalties → "Participación en Ingresos") y marca ingresos de clientes como Pagado.</div>
             </div>
           ):(
-            <div style={{overflowX:"auto"}}>
+            <div style={{overflowX:"auto",minWidth:0,maxWidth:"calc(100vw - 40px)"}}>
               <table style={{width:"100%",borderCollapse:"collapse",background:C.card,borderRadius:12,overflow:"hidden",boxShadow:"0 1px 6px #0001"}}>
                 <thead><tr style={{background:"#0891b2",color:"#fff"}}>
                   {["Obtentor","País","Deuda bruta","WHT retenido","Neto a pagar","Ya pagado","Saldo pendiente",""].map(h=>(
@@ -3004,7 +3004,7 @@ function PagoObtentores({obtentoresData, ctData, feData, rpData, rcData, pagosDa
           {(pagosData||[]).length>0&&(
             <div style={{marginTop:24}}>
               <div style={{fontWeight:700,color:C.text,marginBottom:10,fontSize:13}}>Todos los pagos registrados</div>
-              <div style={{overflowX:"auto"}}>
+              <div style={{overflowX:"auto",minWidth:0,maxWidth:"calc(100vw - 40px)"}}>
                 <table style={{width:"100%",borderCollapse:"collapse",fontSize:11,background:C.card,borderRadius:10,overflow:"hidden"}}>
                   <thead><tr style={{background:C.primary,color:C.primaryText}}>
                     {["Fecha","Obtentor","Concepto","Monto bruto","WHT","Neto","N° Fact.","Estado"].map(h=>(
@@ -3271,7 +3271,7 @@ function ReconciliacionIQ({rpData, feData, rcData, tpData}) {
           Sin registros
         </div>
       ) : (
-        <div style={{overflowX:"auto", borderRadius:10, boxShadow:"0 1px 4px #0001"}}>
+        <div style={{overflowX:"auto", borderRadius:10, boxShadow:"0 1px 4px #0001",minWidth:0,maxWidth:"calc(100vw - 40px)"}}>
           <table style={{width:"100%", borderCollapse:"collapse", background:C.card, fontSize:11}}>
             <thead>
               <tr style={{background:C.primary, color:"#fff"}}>
@@ -3757,7 +3757,7 @@ function DashboardAnalitico({ctData,feData,rpData,rcData,tpData,especiesMaestro=
       {/* KPIs por concepto */}
       <div style={{background:C.card,borderRadius:12,padding:16,boxShadow:"0 1px 6px #0001"}}>
         <div style={{fontSize:13,fontWeight:700,color:C.text,marginBottom:12}}>💰 Ingresos por concepto</div>
-        <div style={{overflowX:"auto"}}>
+        <div style={{overflowX:"auto",minWidth:0,maxWidth:"calc(100vw - 40px)"}}>
           <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
             <thead><tr style={{background:C.primary}}>
               {["Concepto","Registros","Facturable","WHT","Neto","Cobrado","Por cobrar","%"].map(h=>(
@@ -3825,7 +3825,7 @@ function DashboardAnalitico({ctData,feData,rpData,rcData,tpData,especiesMaestro=
           {ingresosPorTemporada.length===0?(
             <div style={{padding:20,textAlign:"center",color:C.muted2,fontSize:12}}>Sin datos. Asegúrate que los contratos tengan plantaciones y temporada inicio definida.</div>
           ):(
-            <div style={{overflowX:"auto"}}>
+            <div style={{overflowX:"auto",minWidth:0,maxWidth:"calc(100vw - 40px)"}}>
               <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
                 <thead><tr style={{background:C.primary}}>
                   {["Temporada","Facturable","Cobrado","Por cobrar","%"].map(h=>(
@@ -3863,7 +3863,7 @@ function DashboardAnalitico({ctData,feData,rpData,rcData,tpData,especiesMaestro=
         {tpFilt.length===0?(
           <div style={{padding:20,textAlign:"center",color:C.muted2,fontSize:12}}>Sin plantaciones que coincidan con los filtros.</div>
         ):(
-          <div style={{overflowX:"auto",maxHeight:340}}>
+          <div style={{overflowX:"auto",maxHeight:340,minWidth:0,maxWidth:"calc(100vw - 40px)"}}>
             <table style={{width:"100%",borderCollapse:"collapse",fontSize:11}}>
               <thead style={{position:"sticky",top:0,zIndex:1}}><tr style={{background:C.primary}}>
 {["Cliente","País","Especie","Variedad","Plantas","Há","Sublicenciatario","Estado"].map(h=>(
@@ -3997,7 +3997,7 @@ function Resumen({rpData,feData,rcData,fvData,tpData}) {
               </div>
             </div>
 
-            <div style={{overflowX:"auto"}}>
+            <div style={{overflowX:"auto",minWidth:0,maxWidth:"calc(100vw - 40px)"}}>
               <table style={{borderCollapse:"collapse",width:"100%",fontSize:12}}>
                 <thead>
                   <tr style={{background:C.primary,color:C.primaryText,fontSize:11}}>
@@ -4174,7 +4174,7 @@ function Resumen({rpData,feData,rcData,fvData,tpData}) {
       {proximos.length>0&&(
         <div style={{background:C.card,borderRadius:14,padding:20}}>
           <h4 style={{margin:"0 0 14px",color:C.sl,fontSize:14}}>🗓️ Próximos cobros Royalty/Planta (60 días)</h4>
-          <div style={{overflowX:"auto"}}>
+          <div style={{overflowX:"auto",minWidth:0,maxWidth:"calc(100vw - 40px)"}}>
             <table style={{borderCollapse:"collapse",width:"100%",fontSize:12}}>
               <thead><tr style={{background:C.primary,color:C.primaryText,fontSize:11}}>
                 {["Cliente","País","Vivero","Fecha","Monto Cobrar","Facturado"].map(h=>(
@@ -4521,7 +4521,7 @@ function MaestroClientes({clientes,setClientes,can}){
         </div>
       )}
 
-      <div style={{overflowX:"auto"}}>
+      <div style={{overflowX:"auto",minWidth:0,maxWidth:"calc(100vw - 40px)"}}>
         <table style={{borderCollapse:"collapse",width:"100%",background:C.card,borderRadius:8,overflow:"hidden",fontSize:12}}>
           <thead><tr style={{background:C.primary,color:C.primaryText}}>
             {["Razón Social","Nombre Comercial","TAX ID","País","Ciudad","Rep. Legal","Contacto Cobranza",""].map(h=>(
@@ -4644,7 +4644,7 @@ function MaestroViveristas({viveristas,setViveristas,can}){
         </div>
       )}
 
-      <div style={{overflowX:"auto"}}>
+      <div style={{overflowX:"auto",minWidth:0,maxWidth:"calc(100vw - 40px)"}}>
         <table style={{borderCollapse:"collapse",width:"100%",background:C.card,borderRadius:8,overflow:"hidden",fontSize:12}}>
           <thead><tr style={{background:C.primary,color:C.primaryText}}>
             {["Razón Social","Nombre Comercial","TAX ID","País","Ciudad","Rep. Legal","Contacto Cobranza",""].map(h=>(
@@ -5068,7 +5068,7 @@ ${linkInforme}
   }
   function TablaGenerica({cols, rows, onEdit, onDel, emptyMsg, extraAction}) {
     return (
-      <div style={{overflowX:"auto"}}>
+      <div style={{overflowX:"auto",minWidth:0,maxWidth:"calc(100vw - 40px)"}}>
         <table style={{width:"100%",borderCollapse:"collapse",fontSize:12,background:C.card,borderRadius:10,overflow:"hidden",border:`1px solid ${C.border}`}}>
           <thead><tr style={{background:C.primary,color:"#fff"}}>
             {cols.map(c=><th key={c.label} style={{padding:"8px 10px",textAlign:c.right?"right":"left",fontSize:11,fontWeight:700,whiteSpace:"nowrap",width:c.w||"auto"}}>{c.label}</th>)}
@@ -5332,7 +5332,7 @@ ${linkInforme}
                         {puedeEditar&&<button onClick={()=>addToArr("nutricionAplicaciones",{fecha:"",producto:"",dosis:"",via:"",objetivo:"",obs:""})} style={{padding:"4px 12px",borderRadius:6,background:C.purple,border:"none",color:"#fff",cursor:"pointer",fontSize:10,fontWeight:700}}>+ Agregar</button>}
                       </div>
                       {getArr("nutricionAplicaciones").length>0&&(
-                        <div style={{overflowX:"auto",marginTop:8}}>
+                        <div style={{overflowX:"auto",marginTop:8,minWidth:0,maxWidth:"calc(100vw - 40px)"}}>
                           <table style={{width:"100%",borderCollapse:"collapse",fontSize:11}}>
                             <thead><tr style={{background:C.primary}}>{["Fecha","Producto","Dosis","Vía","Objetivo","Obs",""].map(h=><th key={h} style={{padding:"5px 8px",textAlign:"left",color:C.muted,fontSize:10}}>{h}</th>)}</tr></thead>
                             <tbody>{getArr("nutricionAplicaciones").map(a=>(
@@ -5354,7 +5354,7 @@ ${linkInforme}
                         {puedeEditar&&<button onClick={()=>addToArr("fitoAplicaciones",{fecha:"",producto:"",dosis:"",objetivo:"",resultado:"",rec:""})} style={{padding:"4px 12px",borderRadius:6,background:C.purple,border:"none",color:"#fff",cursor:"pointer",fontSize:10,fontWeight:700}}>+ Agregar</button>}
                       </div>
                       {getArr("fitoAplicaciones").length>0&&(
-                        <div style={{overflowX:"auto"}}>
+                        <div style={{overflowX:"auto",minWidth:0,maxWidth:"calc(100vw - 40px)"}}>
                           <table style={{width:"100%",borderCollapse:"collapse",fontSize:11}}>
                             <thead><tr style={{background:C.primary}}>{["Fecha","Producto","Dosis","Objetivo","Resultado","Recomendación",""].map(h=><th key={h} style={{padding:"5px 8px",textAlign:"left",color:C.muted,fontSize:10}}>{h}</th>)}</tr></thead>
                             <tbody>{getArr("fitoAplicaciones").map(a=>(
@@ -5875,7 +5875,7 @@ function MaestroEspecies({especies,setEspecies,can,obtentores=[],contratos=[],va
         </div>
       )}
 
-      <div style={{overflowX:"auto"}}>
+      <div style={{overflowX:"auto",minWidth:0,maxWidth:"calc(100vw - 40px)"}}>
         <table style={{borderCollapse:"collapse",width:"100%",background:C.card,borderRadius:8,overflow:"hidden",fontSize:12}}>
           <thead><tr style={{background:C.primary,color:C.primaryText}}>
             {["","Nombre","Variedades","Plantaciones","Observaciones",""].map(h=>(
@@ -6180,7 +6180,7 @@ function MaestroVariedades({variedades,setVariedades,can,obtentores=[],especies=
         </div>
       )}
 
-      <div style={{overflowX:"auto"}}>
+      <div style={{overflowX:"auto",minWidth:0,maxWidth:"calc(100vw - 40px)"}}>
         <table style={{borderCollapse:"collapse",width:"100%",background:C.card,borderRadius:8,overflow:"hidden",fontSize:12}}>
           <thead><tr style={{background:C.primary,color:C.primaryText}}>
             {["Especie","Denominación","Obtentor","Variedad","Royalty","Observaciones",""].map(h=>(
@@ -7320,7 +7320,7 @@ function ControlContratos({data,setData,clientes,setClientes,variedadesMaestro=[
                 <div style={{fontSize:11,color:C.muted,marginTop:6}}>💡 Las plantaciones alimentan automáticamente Royalty Planta (cantidad × USD/planta) y Royalty Comercial (há × USD/há).</div>
               </div>
             ):(<>
-              <div style={{overflowX:"auto"}}>
+              <div style={{overflowX:"auto",minWidth:0,maxWidth:"calc(100vw - 40px)"}}>
                 <table style={{width:"100%",borderCollapse:"collapse",fontSize:12,background:C.card,borderRadius:10,overflow:"hidden",border:`1px solid ${C.border}`}}>
                   <thead><tr style={{background:C.primary,color:C.primaryText}}>
                     {["Campo","Especie","Denominación","Plantas","Hectáreas","Fecha plantación","N° Cot. Vivero","Sublicenciatario","Vivero","Fee USD/planta","Estado",""].map(h=>(
@@ -7858,7 +7858,7 @@ function ControlContratos({data,setData,clientes,setClientes,variedadesMaestro=[
                       {r.fechaTermino?` hasta término ${r.fechaTermino}`:" (10 años proyectados)"} ·
                       Total facturable acumulado: <strong>${N(totalAcumulado.toFixed(2))}</strong>
                     </div>
-                    <div style={{overflowX:"auto"}}>
+                    <div style={{overflowX:"auto",minWidth:0,maxWidth:"calc(100vw - 40px)"}}>
                       <table style={{width:"100%",borderCollapse:"collapse",fontSize:11}}>
                         <thead><tr style={{background:C.primary}}>
                           {["Temporada","Mes cobro","Há","$/há","Bruto","WHT","Neto","Pagado","Fecha pago","N° Fact."].map(h=>(
@@ -8162,7 +8162,7 @@ function ControlContratos({data,setData,clientes,setClientes,variedadesMaestro=[
                 Sin plantaciones. Agrega al menos una para que se calculen los royalties.
               </div>
             ):(
-              <div style={{overflowX:"auto"}}>
+              <div style={{overflowX:"auto",minWidth:0,maxWidth:"calc(100vw - 40px)"}}>
                 <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
                   <thead><tr style={{background:C.successBg}}>
                     {["Campo","Especie","Denominación","Plantas","Há","Fecha plant.","N° Cot. Vivero","Sublicenciatario","Vivero","Fee USD/planta",""].map(h=>(<th key={h} style={{padding:"6px 8px",textAlign:"left",fontSize:11,fontWeight:700,color:C.success}}>{h}</th>))}
@@ -8456,7 +8456,7 @@ function ControlContratos({data,setData,clientes,setClientes,variedadesMaestro=[
           </button>
         ))}
       </div>
-      <div style={{overflowX:"auto"}}>
+      <div style={{overflowX:"auto",minWidth:0,maxWidth:"calc(100vw - 40px)"}}>
         <table style={{borderCollapse:"collapse",width:"100%",background:C.card,borderRadius:10,overflow:"hidden"}}>
           <Th cols={[{l:"Empresa",w:160},{l:"País",w:80},{l:"Tipo",w:100},{l:"Fecha",c:true,w:100},{l:"Firmas",c:true,w:140},{l:"Anexos",c:true,w:90},{l:"Contract Fee",c:true,w:110},{l:"R./Planta",c:true,w:90},{l:"R./Comercial",c:true,w:110},{l:"",c:true,w:70}]}/>
           <tbody>
@@ -9060,7 +9060,7 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
 
   // ── HUB INTERNO OSIRIS ─────────────────────────────────────
   if(subApp===null) return(
-    <div style={{fontFamily:"sans-serif",background:C.bg,minHeight:"100vh",padding:"20px 20px 40px"}}>
+    <div style={{fontFamily:"sans-serif",background:C.bg,minHeight:"100vh",padding:"20px 20px 40px",maxWidth:"100%",overflowX:"hidden"}}>
       <NavBar breadcrumbItems={[
         {label:"Mediterra", onClick:onBack},
         {label:"Osiris Plant Management"},
@@ -9144,7 +9144,7 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
 
   // ── CONTROL CONTRATOS ──────────────────────────────────────
   if(subApp==="contratos") return(
-    <div style={{fontFamily:"sans-serif",background:C.bg,minHeight:"100vh",padding:"20px 20px 40px"}}>
+    <div style={{fontFamily:"sans-serif",background:C.bg,minHeight:"100vh",padding:"20px 20px 40px",maxWidth:"100%",overflowX:"hidden"}}>
       <NavBar breadcrumbItems={[
         {label:"Mediterra", onClick:onBack},
         {label:"Osiris Hub", onClick:()=>setSubApp(null)},
@@ -9319,7 +9319,7 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
       const vig = estadoVigencia(c.f_vencimiento);
 
       return (
-        <div style={{fontFamily:"sans-serif",background:C.bg,minHeight:"100vh",padding:"20px 20px 40px"}}>
+        <div style={{fontFamily:"sans-serif",background:C.bg,minHeight:"100vh",padding:"20px 20px 40px",maxWidth:"100%",overflowX:"hidden"}}>
           <NavBar breadcrumbItems={[
             {label:"Mediterra", onClick:onBack},
             {label:"Osiris Hub", onClick:()=>{setSubApp(null);setObtDetalle(null);}},
@@ -9624,7 +9624,7 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
                   <div style={{padding:30,textAlign:"center",color:C.muted2,border:"1px dashed #e2e8f0",borderRadius:10}}>
                     <div style={{fontSize:32,marginBottom:8}}>💰</div><div style={{fontSize:12}}>Sin royalties definidos.</div></div>
                 ):(
-                  <div style={{overflowX:"auto"}}>
+                  <div style={{overflowX:"auto",minWidth:0,maxWidth:"calc(100vw - 40px)"}}>
                     <table style={{width:"100%",borderCollapse:"collapse",fontSize:12,background:C.card,borderRadius:10,overflow:"hidden",border:`1px solid ${C.border}`}}>
                       <thead><tr style={{background:C.primary,color:C.primaryText}}>
                         {["Tipo","Especie","Variedad","Valor","Moneda","Frecuencia","Obs.",""].map(h=><th key={h} style={{padding:"8px 10px",textAlign:"left",fontSize:11,fontWeight:700}}>{h}</th>)}
@@ -9666,7 +9666,7 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
                       Sin reglas definidas. El obtentor no tiene participación configurada en los ingresos de Osiris.
                     </div>
                   ):(
-                    <div style={{overflowX:"auto"}}>
+                    <div style={{overflowX:"auto",minWidth:0,maxWidth:"calc(100vw - 40px)"}}>
                       <table style={{width:"100%",borderCollapse:"collapse",fontSize:12,background:C.card,borderRadius:10,overflow:"hidden",border:`1px solid #bae6fd`}}>
                         <thead><tr style={{background:"#0891b2",color:"#fff"}}>
                           {["Tipo Ingreso","Especie","Variedad","Tipo Cálculo","Valor","WHT obtentor %",""].map(h=>(
@@ -10046,7 +10046,7 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
     const totVencidos = obtData.filter(o=>{const d=diasParaVencer(o.f_vencimiento);return d!==null && d<0;}).length;
     const totPorVencer = obtData.filter(o=>{const d=diasParaVencer(o.f_vencimiento);return d!==null && d>=0 && d<=90;}).length;
     return (
-      <div style={{fontFamily:"sans-serif",background:C.bg,minHeight:"100vh",padding:"20px 20px 40px"}}>
+      <div style={{fontFamily:"sans-serif",background:C.bg,minHeight:"100vh",padding:"20px 20px 40px",maxWidth:"100%",overflowX:"hidden"}}>
         <NavBar breadcrumbItems={[
           {label:"Mediterra", onClick:onBack},
           {label:"Osiris Hub", onClick:()=>setSubApp(null)},
@@ -10553,7 +10553,7 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
     const opData = osirisData?.opTecnica || {};
     const canOp = esEditorOAdmin; // usar mismos permisos base
     return (
-      <div style={{fontFamily:"sans-serif",background:C.bg,minHeight:"100vh",padding:"20px 20px 40px"}}>
+      <div style={{fontFamily:"sans-serif",background:C.bg,minHeight:"100vh",padding:"20px 20px 40px",maxWidth:"100%",overflowX:"hidden"}}>
         <NavBar breadcrumbItems={[
           {label:"Mediterra", onClick:onBack},
           {label:"Osiris Hub", onClick:()=>setSubApp(null)},
@@ -10855,7 +10855,7 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
       const vig = estadoVigencia(v.f_vencimiento);
 
       return (
-        <div style={{fontFamily:"sans-serif",background:C.bg,minHeight:"100vh",padding:"20px 20px 40px"}}>
+        <div style={{fontFamily:"sans-serif",background:C.bg,minHeight:"100vh",padding:"20px 20px 40px",maxWidth:"100%",overflowX:"hidden"}}>
           <NavBar breadcrumbItems={[
             {label:"Mediterra", onClick:onBack},
             {label:"Osiris Hub", onClick:()=>{setSubApp(null);setVivDetalle(null);}},
@@ -11080,7 +11080,7 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
                     </div>
                   )}
                   {ordenesCompra.length===0?<div style={{padding:30,textAlign:"center",color:C.muted2}}>No hay OC registradas. {canViveros?"Crea una con \"+ Nueva OC\".":""}</div>:(
-                    <div style={{overflowX:"auto"}}>
+                    <div style={{overflowX:"auto",minWidth:0,maxWidth:"calc(100vw - 40px)"}}>
                       <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
                         <thead><tr style={{background:C.primary}}>
                           {["N° OC","Fecha","Cliente","Variedad","Plantas","Há","Fee USD","Fee Total","Estado","Cuotas",""].map(h=>
@@ -11532,7 +11532,7 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
     const totVencidos = vivData.filter(v=>{const d=diasParaVencer(v.f_vencimiento);return d!==null && d<0;}).length;
     const totPorVencer = vivData.filter(v=>{const d=diasParaVencer(v.f_vencimiento);return d!==null && d>=0 && d<=90;}).length;
     return (
-      <div style={{fontFamily:"sans-serif",background:C.bg,minHeight:"100vh",padding:"20px 20px 40px"}}>
+      <div style={{fontFamily:"sans-serif",background:C.bg,minHeight:"100vh",padding:"20px 20px 40px",maxWidth:"100%",overflowX:"hidden"}}>
         <NavBar breadcrumbItems={[
           {label:"Mediterra", onClick:onBack},
           {label:"Osiris Hub", onClick:()=>setSubApp(null)},
@@ -12346,7 +12346,7 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
   // ── SEGUIMIENTO TAREAS OSIRIS ──────────────────────────────
   if(subApp==="tareas") {
     return (
-      <div style={{fontFamily:"sans-serif",background:C.bg,minHeight:"100vh",padding:"20px 20px 40px"}}>
+      <div style={{fontFamily:"sans-serif",background:C.bg,minHeight:"100vh",padding:"20px 20px 40px",maxWidth:"100%",overflowX:"hidden"}}>
         <NavBar breadcrumbItems={[
           {label:"Mediterra", onClick:onBack},
           {label:"Osiris Hub", onClick:()=>setSubApp(null)},
@@ -12363,7 +12363,7 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
 
   // ── INGRESOS OSIRIS ────────────────────────────────────────
   return (
-    <div style={{fontFamily:"sans-serif",background:C.bg,minHeight:"100vh",padding:"20px 20px 40px"}}>
+    <div style={{fontFamily:"sans-serif",background:C.bg,minHeight:"100vh",padding:"20px 20px 40px",maxWidth:"100%",overflowX:"hidden"}}>
       <NavBar showPorCobrar breadcrumbItems={[
         {label:"Mediterra", onClick:onBack},
         {label:"Osiris Hub", onClick:()=>setSubApp(null)},
