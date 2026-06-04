@@ -1,0 +1,43 @@
+/* ============================================================
+   Responsive foundations — Gestión Grupo Mediterra
+   Mejora legibilidad y encuadre en móviles, tablets y desktop
+   SIN tocar los estilos inline de cada módulo.
+   Cargado una sola vez desde index.js → aplica a toda la app.
+   ============================================================ */
+
+/* box-sizing global: el padding deja de inflar el ancho y causar desbordes */
+*, *::before, *::after { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  max-width: 100%;
+  overflow-x: hidden;           /* mata el scroll/recorte horizontal de la página */
+  -webkit-text-size-adjust: 100%; /* iOS no reescala el texto al rotar */
+}
+
+#root { max-width: 100%; overflow-x: hidden; }
+
+/* Medios nunca desbordan su contenedor */
+img, video, canvas { max-width: 100%; height: auto; }
+
+/* ------------------------------------------------------------
+   MÓVIL (≤ 700px)
+   ------------------------------------------------------------ */
+@media (max-width: 700px) {
+
+  /* Tarjetas de modal: hijos directos de un overlay a pantalla completa
+     (position:fixed; inset:0). El cap + min-width:0 corrige el bug del
+     hijo flex que ignora maxWidth y se sale de la pantalla. */
+  div[style*="inset: 0"] > div,
+  div[style*="inset:0"]  > div {
+    max-width: 96vw !important;
+    min-width: 0 !important;
+  }
+
+  /* Inputs a ≥16px evita el auto-zoom molesto de iOS al enfocar campos.
+     Solo afecta el render en pantalla, no la lógica. */
+  input, select, textarea {
+    font-size: 16px !important;
+    max-width: 100%;
+  }
+}

@@ -680,7 +680,7 @@ function Modal({ children, onClose, width = 720, title }) {
   const esMovil = useEsMovil();
   return (
     <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "#0007", zIndex: 400, display: "flex", alignItems: "flex-start", justifyContent: "center", padding: esMovil ? "10px 8px" : "40px 16px", overflowX: "hidden", overflowY: "auto" }}>
-      <div onClick={e => e.stopPropagation()} style={{ background: C.card, borderRadius: 14, width, maxWidth: "100%", overflowX: "hidden", boxShadow: "0 12px 48px #0004" }}>
+      <div onClick={e => e.stopPropagation()} style={{ background: C.card, borderRadius: 14, width, maxWidth: "100%", minWidth: 0, overflowX: "hidden", boxShadow: "0 12px 48px #0004" }}>
         {title && (
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: esMovil ? "13px 16px" : "16px 22px", borderBottom: `1px solid ${C.border}` }}>
             <div style={{ fontWeight: 800, fontSize: 16, color: C.text }}>{title}</div>
