@@ -5085,7 +5085,7 @@ function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit,saldosBanc
     const saldoIni = saldoBancoUSD != null ? saldoBancoUSD : emp.saldo_ini;
 
     return (
-      <div style={{overflowX:"auto",overflowY:"auto",maxHeight:"80vh",borderRadius:12,border:`1px solid ${C.border}`,position:"relative"}}>
+      <div style={{overflowX:"auto",overflowY:"auto",maxHeight:"80vh",borderRadius:12,border:`1px solid ${C.border}`,position:"relative",minWidth:0,maxWidth:"calc(100vw - 80px)"}}>
         <table style={{borderCollapse:"separate",borderSpacing:0,fontSize:11,minWidth:600}}>
           <thead style={{position:"sticky",top:0,zIndex:5}}>
             {/* Fila 1: temporadas */}
