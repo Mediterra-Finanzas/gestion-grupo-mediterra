@@ -644,9 +644,29 @@ function CadenaAprobEditor({ u, usuarios, onChange }) {
   );
 }
 
-function PanelPermisos({ usuarios, setUsuarios, onClose, pinsPersonalizados = {} }) {
+function PanelPermisos({ usuarios, setUsuarios, onClose, pinsPersonalizados = {}, setPinsPersonalizados }) {
   const [expandedTabUser, setExpandedTabUser] = useState(null); // nombre del usuario expandido
   const [pinVisible, setPinVisible] = useState(null); // nombre del usuario con PIN revelado
+
+  // PIN activo de un usuario: el personalizado si lo cambió, si no el de base.
+  const pinActivoDe = (u) => pinsPersonalizados[u.nombre] || u.pin;
+
+  // Admin fija un nuevo PIN para un usuario (queda como su PIN activo y borra cualquier temporal pendiente).
+  function cambiarPinAdmin(u) {
+    if (!setPinsPersonalizados) return;
+    const actual = pinActivoDe(u);
+    const nuevo = (window.prompt(`Nuevo PIN para ${u.nombre} (mínimo 4 dígitos):`, actual) || "").trim();
+    if (!nuevo) return;
+    if (nuevo.length < 4) { alert("El PIN debe tener al menos 4 dígitos."); return; }
+    setPinsPersonalizados(prev => {
+      const next = { ...prev, [u.nombre]: nuevo };
+      delete next[u.nombre + "_temp"];
+      return next;
+    });
+    window.auditLog("cambio_pin", {modulo:"sistema", seccion:"permisos",
+      descripcion:`Admin cambió el PIN de ${u.nombre}`, registroId:u.nombre, campo:"pin"});
+    alert(`PIN de ${u.nombre} actualizado.`);
+  }
 
   function toggleModulo(nombreU, modId) {
     setUsuarios(prev => prev.map(u => {
@@ -784,18 +804,27 @@ function PanelPermisos({ usuarios, setUsuarios, onClose, pinsPersonalizados = {}
                           const cambiado = !!pinsPersonalizados[u.nombre];
                           const temp = pinsPersonalizados[u.nombre+"_temp"];
                           const visible = pinVisible===u.nombre;
+                          const pinAct = pinActivoDe(u);
                           return (
-                            <button onClick={()=>setPinVisible(visible?null:u.nombre)}
-                              title={cambiado?"El usuario cambió su PIN (privado)":"Mostrar PIN asignado"}
-                              style={{display:"flex",alignItems:"center",gap:5,background:visible?C.infoBg:C.cardAlt,
-                                border:`1px solid ${C.border}`,color:visible?C.primary:C.muted,borderRadius:8,
-                                padding:"2px 9px",cursor:"pointer",fontSize:11,fontWeight:600}}>
-                              🔑 {visible
-                                ? (cambiado
-                                    ? <span style={{color:C.muted2}}>cambiado por el usuario{temp?` · temp: ${temp}`:""}</span>
-                                    : <span style={{fontFamily:"monospace",fontWeight:800,letterSpacing:1}}>{u.pin}{temp?` · temp: ${temp}`:""}</span>)
-                                : "Ver PIN"}
-                            </button>
+                            <>
+                              <button onClick={()=>setPinVisible(visible?null:u.nombre)}
+                                title={cambiado?"PIN actual (el usuario lo cambió)":"PIN asignado"}
+                                style={{display:"flex",alignItems:"center",gap:5,background:visible?C.infoBg:C.cardAlt,
+                                  border:`1px solid ${C.border}`,color:visible?C.primary:C.muted,borderRadius:8,
+                                  padding:"2px 9px",cursor:"pointer",fontSize:11,fontWeight:600}}>
+                                🔑 {visible
+                                  ? <span style={{fontFamily:"monospace",fontWeight:800,letterSpacing:1}}>{pinAct}{cambiado?<span style={{fontFamily:"sans-serif",fontWeight:600,letterSpacing:0,color:C.muted2}}> (cambiado)</span>:""}{temp?` · temp: ${temp}`:""}</span>
+                                  : "Ver PIN"}
+                              </button>
+                              {setPinsPersonalizados && (
+                                <button onClick={()=>cambiarPinAdmin(u)}
+                                  title="Cambiar el PIN de este usuario"
+                                  style={{background:C.cardAlt,border:`1px solid ${C.border}`,color:C.muted,borderRadius:8,
+                                    padding:"2px 9px",cursor:"pointer",fontSize:11,fontWeight:600}}>
+                                  ✏️ Cambiar PIN
+                                </button>
+                              )}
+                            </>
                           );
                         })()}
                       </div>
@@ -1199,7 +1228,7 @@ function CargaMasivaUsuariosForm({ usuarios, setUsuarios }) {
 // ══════════════════════════════════════════════════════════════════════
 // PANTALLA HUB
 // ══════════════════════════════════════════════════════════════════════
-function HubScreen({ usuario, modulosPermitidos, onSelectModulo, onLogout, onCambiarPin, esSoloConsulta, usuarios, setUsuarios, pinsPersonalizados }) {
+function HubScreen({ usuario, modulosPermitidos, onSelectModulo, onLogout, onCambiarPin, esSoloConsulta, usuarios, setUsuarios, pinsPersonalizados, setPinsPersonalizados }) {
   const hoy = new Date();
   const fechaStr = hoy.toLocaleDateString("es-CL", {weekday:"long", day:"numeric", month:"long", year:"numeric"});
   const [mostrarPermisos, setMostrarPermisos] = useState(false);
@@ -1224,7 +1253,7 @@ function HubScreen({ usuario, modulosPermitidos, onSelectModulo, onLogout, onCam
       <div style={{position:"relative",zIndex:1}}>
 
       {mostrarPermisos && (
-        <PanelPermisos usuarios={usuarios} setUsuarios={setUsuarios} onClose={()=>setMostrarPermisos(false)} pinsPersonalizados={pinsPersonalizados}/>
+        <PanelPermisos usuarios={usuarios} setUsuarios={setUsuarios} onClose={()=>setMostrarPermisos(false)} pinsPersonalizados={pinsPersonalizados} setPinsPersonalizados={setPinsPersonalizados}/>
       )}
 
       <div style={{padding:"24px 32px 0", display:"flex", justifyContent:"space-between", alignItems:"center", flexWrap:"wrap", gap:12, borderBottom:`1px solid ${C.border}`, paddingBottom:16}}>
@@ -1658,11 +1687,20 @@ export default function App(){
   const [loginPin,setLoginPin]=useState("");
   const [loginError,setLoginError]=useState("");
 
-  // ── Auto-reload on new Vercel deploy ─────────────────────────────
+  // ── Detección de nuevo deploy: actualización sin interrumpir ──────
   useEffect(()=>{
     // URL de producción fija — evita redirigir a URLs internas protegidas de Vercel
     const PROD_URL = 'https://gestion-grupo-mediterra.vercel.app';
     let currentBundle = null;
+    let updatePendiente = false;
+
+    // Recarga "invisible": solo si hay versión nueva pendiente Y el usuario NO está
+    // mirando la pestaña (minimizada o en otra pestaña). Así estrena la versión sin
+    // interrumpir lo que está escribiendo; al volver ya está en la nueva.
+    function recargarSiOculto() {
+      if(updatePendiente && document.hidden) window.location.reload();
+    }
+
     async function checkNewDeploy() {
       try {
         const res = await fetch(`${PROD_URL}/`, {cache:'no-store'});
@@ -1671,16 +1709,24 @@ export default function App(){
         const match = html.match(/\/static\/js\/main\.[a-f0-9]+\.js/);
         const bundle = match ? match[0] : null;
         if(!bundle) return;
-        if(currentBundle === null) { currentBundle = bundle; }
-        else if(bundle !== currentBundle) {
-          // Recargar siempre a la URL de producción
-          window.location.href = PROD_URL;
+        if(currentBundle === null) { currentBundle = bundle; return; }
+        if(bundle !== currentBundle) {
+          currentBundle = bundle;
+          updatePendiente = true;
+          if(document.hidden) {
+            // No está mirando: actualiza en silencio.
+            window.location.reload();
+          } else {
+            // Está trabajando: banner no intrusivo. Se recargará solo cuando deje la pestaña.
+            setNuevaVersion(true);
+          }
         }
       } catch(e) {}
     }
     const initialCheck = setTimeout(checkNewDeploy, 5000);
     const interval = setInterval(checkNewDeploy, 30 * 1000);
-    return () => { clearTimeout(initialCheck); clearInterval(interval); };
+    document.addEventListener('visibilitychange', recargarSiOculto);
+    return () => { clearTimeout(initialCheck); clearInterval(interval); document.removeEventListener('visibilitychange', recargarSiOculto); };
   }, []);
   // ─────────────────────────────────────────────────────────────────
   const [pinsPersonalizados,setPinsPersonalizados]=useState({});
@@ -3541,10 +3587,13 @@ Equipo Mediterra`);
   return (
     <AppErrorBoundary>
       {nuevaVersion&&(
-        <div style={{position:"fixed",bottom:20,right:20,zIndex:99999,background:C.primary,color:C.primaryText,padding:"12px 20px",borderRadius:12,boxShadow:C.shadow,display:"flex",alignItems:"center",gap:12,fontSize:13,fontFamily:"sans-serif"}}>
-          <span>🔄 Nueva versión disponible</span>
-          <button onClick={()=>window.location.reload()} style={{padding:"6px 16px",borderRadius:8,background:C.primary,color:"#fff",border:"none",cursor:"pointer",fontWeight:700,fontSize:12}}>Actualizar</button>
-          <button onClick={()=>setNuevaVersion(false)} style={{background:"none",border:"none",color:C.muted,cursor:"pointer",fontSize:16}}>×</button>
+        <div style={{position:"fixed",bottom:20,right:20,zIndex:99999,maxWidth:320,background:C.card,color:C.text,padding:"14px 18px",borderRadius:12,boxShadow:"0 8px 32px #0004",border:`1px solid ${C.border}`,display:"flex",flexDirection:"column",gap:8,fontSize:13,fontFamily:"sans-serif"}}>
+          <div style={{fontWeight:700,display:"flex",alignItems:"center",gap:8}}>🔄 Nueva versión disponible</div>
+          <div style={{fontSize:12,color:C.muted,lineHeight:1.5}}>Puedes seguir trabajando sin problema. Cuando termines lo que estás cargando, haz click en Actualizar para usar la versión nueva.</div>
+          <div style={{display:"flex",gap:8,marginTop:4,justifyContent:"flex-end"}}>
+            <button onClick={()=>setNuevaVersion(false)} style={{background:"none",border:`1px solid ${C.border}`,color:C.muted,borderRadius:8,padding:"6px 14px",cursor:"pointer",fontWeight:600,fontSize:12}}>Después</button>
+            <button onClick={()=>window.location.reload()} style={{padding:"6px 16px",borderRadius:8,background:C.primary,color:"#fff",border:"none",cursor:"pointer",fontWeight:700,fontSize:12}}>Actualizar</button>
+          </div>
         </div>
       )}
       <HubScreen
@@ -3557,6 +3606,7 @@ Equipo Mediterra`);
         usuarios={usuarios}
         setUsuarios={setUsuarios}
         pinsPersonalizados={pinsPersonalizados}
+        setPinsPersonalizados={setPinsPersonalizados}
       />
     </AppErrorBoundary>
   );
