@@ -216,6 +216,45 @@ function imgNaturalSize(src) {
 const extDe = (s) => (s || "").split("?")[0].split(".").pop().toLowerCase();
 const slug = (s) => (s || "").normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[^a-zA-Z0-9]+/g, "_");
 
+// Comprime/normaliza una imagen antes de subir:
+//  • Convierte HEIC/HEIF (cámara iPhone) → JPEG dibujándola en un canvas.
+//  • Reescala al lado máximo indicado y reduce peso (fotos de celular suelen
+//    pesar varios MB y/o venir en formatos que el bucket rechaza).
+// Si no es imagen (ej. PDF) o algo falla, devuelve el archivo original.
+async function comprimirImagen(file, maxLado = 1800, calidad = 0.82) {
+  if (!file) return file;
+  const esImagen = /^image\//i.test(file.type || "") || /\.(jpe?g|png|heic|heif|webp|gif|bmp)$/i.test(file.name || "");
+  if (!esImagen) return file;
+  try {
+    const dataUrl = await new Promise((res, rej) => {
+      const fr = new FileReader();
+      fr.onload = () => res(fr.result);
+      fr.onerror = () => rej(new Error("read"));
+      fr.readAsDataURL(file);
+    });
+    const img = await new Promise((res, rej) => {
+      const im = new Image();
+      im.onload = () => res(im);
+      im.onerror = () => rej(new Error("decode"));
+      im.src = dataUrl;
+    });
+    const W = img.naturalWidth || img.width, H = img.naturalHeight || img.height;
+    if (!W || !H) return file;
+    const escala = Math.min(1, maxLado / Math.max(W, H));
+    const w = Math.max(1, Math.round(W * escala)), h = Math.max(1, Math.round(H * escala));
+    const canvas = document.createElement("canvas");
+    canvas.width = w; canvas.height = h;
+    const ctx = canvas.getContext("2d");
+    ctx.drawImage(img, 0, 0, w, h);
+    const blob = await new Promise(res => canvas.toBlob(res, "image/jpeg", calidad));
+    if (!blob || blob.size === 0) return file;
+    const nombre = (file.name || "foto").replace(/\.[^.]+$/, "") + ".jpg";
+    return new File([blob], nombre, { type: "image/jpeg" });
+  } catch (e) {
+    return file; // fallback: sube el original
+  }
+}
+
 // Distintas monedas de los gastos que NO son la moneda de pago (para mostrar TC).
 function monedasExtranjeras(gastos, monedaPago) {
   const set = new Set();
@@ -614,11 +653,23 @@ function EstadoBadge({ estado }) {
 
 function Field({ label, children, style }) {
   return (
-    <label style={{ display: "flex", flexDirection: "column", gap: 4, ...style }}>
+    <label style={{ display: "flex", flexDirection: "column", gap: 4, minWidth: 0, ...style }}>
       <span style={{ fontSize: 11.5, fontWeight: 700, color: C.muted }}>{label}</span>
       {children}
     </label>
   );
+}
+
+// Detecta pantalla angosta (móvil) para reflujo responsivo (sin media queries en JSX).
+function useEsMovil(bp = 680) {
+  const [m, setM] = useState(typeof window !== "undefined" ? window.innerWidth < bp : false);
+  useEffect(() => {
+    const on = () => setM(window.innerWidth < bp);
+    window.addEventListener("resize", on);
+    on();
+    return () => window.removeEventListener("resize", on);
+  }, [bp]);
+  return m;
 }
 const inputStyle = {
   padding: "7px 10px", borderRadius: 8, border: `1px solid ${C.border}`,
@@ -626,16 +677,17 @@ const inputStyle = {
 };
 
 function Modal({ children, onClose, width = 720, title }) {
+  const esMovil = useEsMovil();
   return (
-    <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "#0007", zIndex: 400, display: "flex", alignItems: "flex-start", justifyContent: "center", padding: "40px 16px", overflowY: "auto" }}>
-      <div onClick={e => e.stopPropagation()} style={{ background: C.card, borderRadius: 14, width, maxWidth: "100%", boxShadow: "0 12px 48px #0004" }}>
+    <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "#0007", zIndex: 400, display: "flex", alignItems: "flex-start", justifyContent: "center", padding: esMovil ? "10px 8px" : "40px 16px", overflowX: "hidden", overflowY: "auto" }}>
+      <div onClick={e => e.stopPropagation()} style={{ background: C.card, borderRadius: 14, width, maxWidth: "100%", overflowX: "hidden", boxShadow: "0 12px 48px #0004" }}>
         {title && (
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "16px 22px", borderBottom: `1px solid ${C.border}` }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: esMovil ? "13px 16px" : "16px 22px", borderBottom: `1px solid ${C.border}` }}>
             <div style={{ fontWeight: 800, fontSize: 16, color: C.text }}>{title}</div>
             <button onClick={onClose} style={{ border: "none", background: "none", fontSize: 22, cursor: "pointer", color: C.muted, lineHeight: 1 }}>×</button>
           </div>
         )}
-        <div style={{ padding: 22 }}>{children}</div>
+        <div style={{ padding: esMovil ? 14 : 22 }}>{children}</div>
       </div>
     </div>
   );
@@ -1265,6 +1317,7 @@ function MiniBreakdown({ title, data, mapLabel = (k) => k }) {
 // Editor de una rendición (con gastos + adjuntos)
 // ───────────────────────────────────────────────────────────────────
 function EditorRendicion({ rend, upsert, onClose, onEnviar, esDueno, esAprobador, onEliminar, tcData }) {
+  const esMovil = useEsMovil();
   const editable = esDueno && (rend.estado === "borrador" || rend.estado === "rechazada");
   // La fecha/moneda de pago la define quien paga (aprobador) incluso después de enviada.
   const editableTC = esAprobador || editable;
@@ -1313,19 +1366,27 @@ function EditorRendicion({ rend, upsert, onClose, onEnviar, esDueno, esAprobador
 
   const subirAdjunto = async (g, file) => {
     if (!file) return;
-    if (file.size > 10 * 1024 * 1024) { alert("El archivo supera 10 MB."); return; }
     setSubiendo(g.id);
-    const ext = (file.name.split(".").pop() || "dat").toLowerCase();
+    // Normaliza la foto (HEIC del iPhone → JPEG, reescala y baja peso).
+    let f = file;
+    try { f = await comprimirImagen(file); } catch (e) { f = file; }
+    if (f.size > 10 * 1024 * 1024) {
+      setSubiendo(null);
+      alert("El archivo pesa más de 10 MB incluso optimizado. Toma la foto en menor resolución o sube un PDF más liviano.");
+      return;
+    }
+    const ext = (f.name.split(".").pop() || "dat").toLowerCase();
     const path = `rendiciones/${rend.id}/${g.id}_${Date.now()}.${ext}`;
-    const url = await uploadArchivoFrisku(file, path);
+    const url = await uploadArchivoFrisku(f, path);
     setSubiendo(null);
     if (url) {
       // si había uno previo, borrarlo
       const prev = pathDesdeUrlStorage(g.adjuntoUrl);
       if (prev && prev !== path) await eliminarArchivoFrisku(prev);
-      upsert({ ...rend, gastos: rend.gastos.map(x => x.id === g.id ? { ...x, adjuntoUrl: url, adjuntoNombre: file.name } : x) });
+      upsert({ ...rend, gastos: rend.gastos.map(x => x.id === g.id ? { ...x, adjuntoUrl: url, adjuntoNombre: f.name } : x) });
     } else {
-      alert("No se pudo subir el archivo. Reintenta.");
+      const detalle = uploadArchivoFrisku.lastError ? `\n\nDetalle: ${uploadArchivoFrisku.lastError}` : "";
+      alert("No se pudo subir el archivo. Revisa tu conexión y reintenta." + detalle);
     }
   };
 
@@ -1365,7 +1426,7 @@ function EditorRendicion({ rend, upsert, onClose, onEnviar, esDueno, esAprobador
       )}
 
       {/* Datos generales (encabezado): trabajador (arriba) + empresa + fecha rendición */}
-      <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr", gap: 12, marginBottom: 14 }}>
+      <div style={{ display: "grid", gridTemplateColumns: esMovil ? "1fr" : "2fr 1fr 1fr", gap: 12, marginBottom: 14 }}>
         <Field label="Título / Glosa">
           <input value={rend.titulo} disabled={!editable} onChange={e => setCampo("titulo", e.target.value)} style={inputStyle} placeholder="Ej: Viaje a terreno Curicó" />
         </Field>
@@ -1380,7 +1441,7 @@ function EditorRendicion({ rend, upsert, onClose, onEnviar, esDueno, esAprobador
       </div>
 
       {/* Pago / conversión multimoneda */}
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 18, background: C.bg2, border: `1px solid ${C.border}`, borderRadius: 10, padding: 12 }}>
+      <div style={{ display: "grid", gridTemplateColumns: esMovil ? "1fr" : "1fr 1fr", gap: 12, marginBottom: 18, background: C.bg2, border: `1px solid ${C.border}`, borderRadius: 10, padding: 12 }}>
         <Field label="Moneda de pago">
           <select value={monedaPago} disabled={!editableTC} onChange={e => setCampo("monedaPago", e.target.value)} style={inputStyle}>
             {MONEDAS.map(m => <option key={m} value={m}>{m}</option>)}
@@ -1443,7 +1504,7 @@ function EditorRendicion({ rend, upsert, onClose, onEnviar, esDueno, esAprobador
       <div style={{ display: "grid", gap: 8 }}>
         {(rend.gastos || []).map(g => (
           <div key={g.id} style={{ border: `1px solid ${C.border}`, borderRadius: 10, padding: 10, background: C.rowAlt }}>
-            <div style={{ display: "grid", gridTemplateColumns: "120px 150px 1fr 110px 90px 36px", gap: 8, alignItems: "end" }}>
+            <div style={{ display: "grid", gridTemplateColumns: esMovil ? "1fr 1fr" : "120px 150px 1fr 110px 90px 36px", gap: 8, alignItems: "end" }}>
               <Field label="Fecha">
                 <input type="date" value={g.fecha} disabled={!editable} onChange={e => setGasto(g.id, "fecha", e.target.value)} style={inputStyle} />
               </Field>
@@ -1452,7 +1513,7 @@ function EditorRendicion({ rend, upsert, onClose, onEnviar, esDueno, esAprobador
                   {CATEGORIAS.map(c => <option key={c.v} value={c.v}>{c.ic} {c.l}</option>)}
                 </select>
               </Field>
-              <Field label="Glosa / Detalle">
+              <Field label="Glosa / Detalle" style={esMovil ? { gridColumn: "1 / -1" } : undefined}>
                 <input value={g.glosa} disabled={!editable} onChange={e => setGasto(g.id, "glosa", e.target.value)} style={inputStyle} placeholder="Descripción del gasto" />
               </Field>
               <Field label="Monto">
@@ -1464,10 +1525,10 @@ function EditorRendicion({ rend, upsert, onClose, onEnviar, esDueno, esAprobador
                 </select>
               </Field>
               {editable
-                ? <button onClick={() => delGasto(g)} title="Eliminar gasto" style={{ height: 34, border: `1px solid ${C.danger}`, background: C.card, color: C.danger, borderRadius: 8, cursor: "pointer", fontWeight: 700 }}>×</button>
+                ? <button onClick={() => delGasto(g)} title="Eliminar gasto" style={{ height: 34, border: `1px solid ${C.danger}`, background: C.card, color: C.danger, borderRadius: 8, cursor: "pointer", fontWeight: 700, gridColumn: esMovil ? "1 / -1" : undefined }}>{esMovil ? "× Eliminar gasto" : "×"}</button>
                 : <span />}
             </div>
-            <div style={{ display: "grid", gridTemplateColumns: "150px 1fr auto", gap: 8, alignItems: "end", marginTop: 8 }}>
+            <div style={{ display: "grid", gridTemplateColumns: esMovil ? "1fr" : "150px 1fr auto", gap: 8, alignItems: "end", marginTop: 8 }}>
               <Field label="Tipo doc">
                 <select value={g.docTipo} disabled={!editable} onChange={e => setGasto(g.id, "docTipo", e.target.value)} style={inputStyle}>
                   {TIPOS_DOC.map(t => <option key={t} value={t}>{t}</option>)}
@@ -1557,7 +1618,7 @@ function EditorRendicion({ rend, upsert, onClose, onEnviar, esDueno, esAprobador
       )}
 
       {/* Acciones */}
-      <div style={{ display: "flex", justifyContent: "space-between", gap: 8, marginTop: 20 }}>
+      <div style={{ display: "flex", flexDirection: esMovil ? "column" : "row", justifyContent: "space-between", gap: 8, marginTop: 20 }}>
         <div>
           {esDueno && (rend.estado === "borrador" || rend.estado === "rechazada") && (
             <Btn kind="ghost" style={{ color: C.danger, borderColor: C.danger }} onClick={() => onEliminar(rend)}>Eliminar</Btn>

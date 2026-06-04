@@ -364,6 +364,7 @@ export async function ensureBucketFrisku() {
 // Retorna la URL pública si tuvo éxito, o null si falló.
 // path: e.g. "clientes/abc123/doc456/contrato.pdf"
 export async function uploadArchivoFrisku(file, path) {
+  uploadArchivoFrisku.lastError = null;
   try {
     await ensureBucketFrisku();
     const res = await fetch(`${STORAGE_BASE}/object/${STORAGE_BUCKET}/${path}`, {
@@ -378,11 +379,14 @@ export async function uploadArchivoFrisku(file, path) {
     });
     if (!res.ok) {
       const err = await res.json().catch(() => ({}));
-      console.error("[Storage] Upload falló:", err.message || res.status);
+      const msg = err.message || err.error || `HTTP ${res.status}`;
+      uploadArchivoFrisku.lastError = msg;
+      console.error("[Storage] Upload falló:", msg);
       return null;
     }
     return `${STORAGE_BASE}/object/public/${STORAGE_BUCKET}/${path}`;
   } catch (e) {
+    uploadArchivoFrisku.lastError = e.message || String(e);
     console.error("[Storage] Upload error:", e.message);
     return null;
   }
