@@ -27,6 +27,13 @@ const EMAILS_PAGO = [
   "ahuerta@grupomediterra.cl",   // Angelo Huerta — Gerencia
 ];
 
+// Usuarios autorizados a cargar rendiciones EN NOMBRE de otros (ej. secretaria por un gerente).
+// La rendición queda a nombre del trabajador elegido y usa SU cadena de aprobación;
+// se guarda creadaPor para trazabilidad. Los admin también pueden hacerlo.
+const EMAILS_RINDEN_POR_OTROS = [
+  "Mbecerra@grupomediterra.cl",  // Milagros Becerra
+];
+
 const C = { ...T };
 
 // ── Constantes de negocio ──────────────────────────────────────────
@@ -571,14 +578,26 @@ async function exportarRendicionPDF(rend, tcData) {
     doc.text(`Gastos sin TC excluidos del total (faltan: ${faltan.join(", ")}).`, 14, afterY); afterY += 6;
   }
   const cad = Array.isArray(rend.cadena) ? rend.cadena : [];
+  doc.setTextColor(60, 60, 60); doc.setFont("helvetica", "bold"); doc.setFontSize(9);
+  doc.text("Aprobaciones:", 14, afterY); afterY += 5; doc.setFont("helvetica", "normal");
   if (cad.length) {
-    doc.setTextColor(60, 60, 60); doc.setFont("helvetica", "bold"); doc.setFontSize(9);
-    doc.text("Aprobaciones:", 14, afterY); afterY += 5; doc.setFont("helvetica", "normal");
+    // Flujo con cadena: un renglón por nivel.
     cad.forEach((p, i) => {
       const ap = (rend.aprobaciones || []).find(a => a.nivel === i || (a.email || "").toLowerCase() === (p.email || "").toLowerCase());
       doc.text(`${i + 1}. ${p.nombre}${i === 0 ? " (supervisor)" : ""} — ${ap ? "aprobó " + fmtFecha(ap.fecha) : "pendiente"}`, 16, afterY);
       afterY += 4.5;
     });
+  } else if (rend.revisadoPor) {
+    // Flujo legacy (un paso): mostrar quién aprobó.
+    doc.text(`Aprobada por ${rend.revisadoPor}${rend.revisadoEn ? " — " + fmtFecha(rend.revisadoEn) : ""}.`, 16, afterY);
+    afterY += 4.5;
+  } else {
+    doc.text("Sin registro de aprobación.", 16, afterY); afterY += 4.5;
+  }
+  // Pago (cualquier flujo).
+  if (rend.pagadoPor) {
+    doc.text(`Pagada por ${rend.pagadoPor}${rend.pagadoEn ? " — " + fmtFecha(rend.pagadoEn) : ""}.`, 16, afterY);
+    afterY += 4.5;
   }
 
   // Anexar respaldos en un único PDF con pdf-lib
@@ -751,6 +770,8 @@ export default function RendicionesModule({ usuarioActual, esAdmin, esSoloConsul
   // Puede aprobar (supervisor, editor, o fallback legacy para rendiciones sin cadena).
   const esAprobador = verTodas || nivelRendiciones === "editar";
   const miEmail = (usuarioActual?.email || "").toLowerCase();
+  // Puede cargar rendiciones en nombre de otros (secretaria autorizada o admin).
+  const puedeRendirPorOtros = admin || EMAILS_RINDEN_POR_OTROS.map(e => e.toLowerCase()).includes(miEmail);
 
   const [rendiciones, setRendiciones] = useState([]);
   const [tcData, setTcData] = useState({});
@@ -819,6 +840,7 @@ export default function RendicionesModule({ usuarioActual, esAdmin, esSoloConsul
       empresa: EMPRESAS[0], titulo: "", periodo: hoyISO(),
       monedaPago: "CLP", fechaTC: hoyISO(),
       estado: "borrador", gastos: [], comentarioRevisor: "",
+      creadaPor: nombreUsuario, creadaPorEmail: miEmail,
       creadoEn: nowISO(), enviadoEn: null, revisadoEn: null, revisadoPor: null, pagadoEn: null, pagadoPor: null,
       historial: [{ accion: "creada", usuario: nombreUsuario, fecha: nowISO(), comentario: "" }],
     };
@@ -858,17 +880,20 @@ export default function RendicionesModule({ usuarioActual, esAdmin, esSoloConsul
     if (faltaMonto) { alert("Hay gastos sin monto. Complétalos antes de enviar."); return; }
     const sinRespaldo = r.gastos.filter(g => !g.adjuntoUrl).length;
     if (sinRespaldo) { alert(`Hay ${sinRespaldo} gasto(s) sin respaldo adjunto. Cada gasto debe llevar su boleta, factura o comprobante (foto o PDF) antes de enviar.`); return; }
-    // Congelar la cadena de aprobación del trabajador en la rendición.
-    const cadena = resolverCadena(usuarioActual, usuarios);
+    // Congelar la cadena de aprobación del TRABAJADOR (no de quien la carga).
+    // Si la cargó una secretaria en nombre de un gerente, usa la cadena del gerente.
+    const trabajadorUser = (usuarios || []).find(u => (u.email || "").toLowerCase() === (r.trabajadorEmail || "").toLowerCase()) || usuarioActual;
+    const cadena = resolverCadena(trabajadorUser, usuarios);
     upsert(pushHist({
       ...r, estado: "enviada", enviadoEn: nowISO(),
       cadena, nivelActual: 0, aprobaciones: [],
     }, "enviada"));
     // Avisar al primer aprobador (o a los pagadores si no hay cadena definida).
     const destino = cadena.length ? [cadena[0].email] : emailsPagadores();
+    const porEncargo = r.creadaPor && r.creadaPor !== r.trabajador ? ` (cargada por ${r.creadaPor})` : "";
     notif(destino,
-      `Rendición #${r.folio} por aprobar — ${nombreUsuario}`,
-      `${nombreUsuario} envió la rendición #${r.folio} "${r.titulo}" para tu aprobación.\n\n` +
+      `Rendición #${r.folio} por aprobar — ${r.trabajador}`,
+      `Se envió la rendición #${r.folio} "${r.titulo}" de ${r.trabajador}${porEncargo} para tu aprobación.\n\n` +
       `Ingresa a ${APP_URL}, pestaña Finanzas → Rendiciones → Por Aprobar.`);
     setEditId(null);
   };
@@ -936,7 +961,7 @@ export default function RendicionesModule({ usuarioActual, esAdmin, esSoloConsul
 
   // ── Vistas derivadas ──
   const misRendiciones = useMemo(
-    () => rendiciones.filter(r => r.trabajador === nombreUsuario).sort((a, b) => (b.folio || 0) - (a.folio || 0)),
+    () => rendiciones.filter(r => r.trabajador === nombreUsuario || r.creadaPor === nombreUsuario).sort((a, b) => (b.folio || 0) - (a.folio || 0)),
     [rendiciones, nombreUsuario]
   );
   const porAprobar = useMemo(
@@ -1004,7 +1029,7 @@ export default function RendicionesModule({ usuarioActual, esAdmin, esSoloConsul
 
       {tab === "mis" && (
         <MisRendiciones
-          rends={misRendiciones} onCrear={crearRendicion}
+          rends={misRendiciones} onCrear={crearRendicion} admin={admin}
           onAbrir={setEditId} onEliminar={eliminarRendicion} tcData={tcData}
         />
       )}
@@ -1028,8 +1053,9 @@ export default function RendicionesModule({ usuarioActual, esAdmin, esSoloConsul
       {editRend && (
         <EditorRendicion
           rend={editRend} upsert={upsert} onClose={() => setEditId(null)}
-          onEnviar={enviar} esDueno={editRend.trabajador === nombreUsuario}
-          esAprobador={esAprobador} onEliminar={eliminarRendicion} tcData={tcData}
+          onEnviar={enviar} esDueno={editRend.trabajador === nombreUsuario || editRend.creadaPor === nombreUsuario}
+          esAprobador={esAprobador} admin={admin} onEliminar={eliminarRendicion} tcData={tcData}
+          usuarios={usuarios} puedeRendirPorOtros={puedeRendirPorOtros}
         />
       )}
 
@@ -1157,7 +1183,7 @@ function RendCard({ r, children, onClick, mostrarTrabajador, tcData }) {
 // ───────────────────────────────────────────────────────────────────
 // Tab: Mis Rendiciones
 // ───────────────────────────────────────────────────────────────────
-function MisRendiciones({ rends, onCrear, onAbrir, onEliminar, tcData }) {
+function MisRendiciones({ rends, onCrear, onAbrir, onEliminar, tcData, admin }) {
   return (
     <div>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
@@ -1173,7 +1199,7 @@ function MisRendiciones({ rends, onCrear, onAbrir, onEliminar, tcData }) {
         {rends.map(r => (
           <RendCard key={r.id} r={r} onClick={() => onAbrir(r.id)} tcData={tcData}>
             <Btn kind="ghost" small onClick={() => onAbrir(r.id)}>{r.estado === "borrador" || r.estado === "rechazada" ? "Editar" : "Ver"}</Btn>
-            {(r.estado === "borrador" || r.estado === "rechazada") && (
+            {(r.estado === "borrador" || r.estado === "rechazada" || admin) && (
               <Btn kind="ghost" small style={{ color: C.danger, borderColor: C.danger }} onClick={() => onEliminar(r)}>Eliminar</Btn>
             )}
           </RendCard>
@@ -1363,7 +1389,7 @@ function MiniBreakdown({ title, data, mapLabel = (k) => k }) {
 // ───────────────────────────────────────────────────────────────────
 // Editor de una rendición (con gastos + adjuntos)
 // ───────────────────────────────────────────────────────────────────
-function EditorRendicion({ rend, upsert, onClose, onEnviar, esDueno, esAprobador, onEliminar, tcData }) {
+function EditorRendicion({ rend, upsert, onClose, onEnviar, esDueno, esAprobador, onEliminar, tcData, admin, usuarios = [], puedeRendirPorOtros }) {
   const esMovil = useEsMovil();
   const editable = esDueno && (rend.estado === "borrador" || rend.estado === "rechazada");
   // La fecha/moneda de pago la define quien paga (aprobador) incluso después de enviada.
@@ -1449,6 +1475,29 @@ function EditorRendicion({ rend, upsert, onClose, onEnviar, esDueno, esAprobador
           <span style={{ fontSize: 12.5, color: C.danger, background: C.dangerBg, padding: "3px 10px", borderRadius: 7 }}>❌ {rend.comentarioRevisor}</span>
         )}
       </div>
+
+      {/* Rendir en nombre de otra persona (delegación: ej. secretaria por gerente) */}
+      {puedeRendirPorOtros && editable && (
+        <div style={{ marginBottom: 16, background: C.bg2, borderRadius: 10, padding: "10px 12px", display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+          <span style={{ fontSize: 11, color: C.muted, fontWeight: 700 }}>RENDIR EN NOMBRE DE:</span>
+          <select
+            value={(rend.trabajadorEmail || "").toLowerCase()}
+            onChange={e => {
+              const u = (usuarios || []).find(x => (x.email || "").toLowerCase() === e.target.value);
+              if (u) upsert({ ...rend, trabajador: u.nombre || u.email, trabajadorEmail: u.email, cargo: u.cargo || u.rol || "" });
+            }}
+            style={{ padding: "6px 10px", borderRadius: 8, border: `1px solid ${C.border}`, fontSize: 13, background: C.card, color: C.text, minWidth: 220 }}
+          >
+            {!(usuarios || []).some(x => (x.email || "").toLowerCase() === (rend.trabajadorEmail || "").toLowerCase()) && (
+              <option value={(rend.trabajadorEmail || "").toLowerCase()}>{rend.trabajador || "—"}</option>
+            )}
+            {(usuarios || []).slice().sort((a, b) => (a.nombre || a.email || "").localeCompare(b.nombre || b.email || "")).map(u => (
+              <option key={u.email} value={(u.email || "").toLowerCase()}>{u.nombre || u.email}{u.cargo ? ` · ${u.cargo}` : ""}</option>
+            ))}
+          </select>
+          <span style={{ fontSize: 11.5, color: C.muted2 }}>La rendición queda a nombre del seleccionado y sigue su cadena de aprobación.</span>
+        </div>
+      )}
 
       {/* Progreso de la cadena de aprobación (si tiene cadena multinivel) */}
       {Array.isArray(rend.cadena) && rend.cadena.length > 1 && (
@@ -1667,8 +1716,10 @@ function EditorRendicion({ rend, upsert, onClose, onEnviar, esDueno, esAprobador
       {/* Acciones */}
       <div style={{ display: "flex", flexDirection: esMovil ? "column" : "row", justifyContent: "space-between", gap: 8, marginTop: 20 }}>
         <div>
-          {esDueno && (rend.estado === "borrador" || rend.estado === "rechazada") && (
-            <Btn kind="ghost" style={{ color: C.danger, borderColor: C.danger }} onClick={() => onEliminar(rend)}>Eliminar</Btn>
+          {((esDueno && (rend.estado === "borrador" || rend.estado === "rechazada")) || admin) && (
+            <Btn kind="ghost" style={{ color: C.danger, borderColor: C.danger }} onClick={() => onEliminar(rend)}>
+              {admin && rend.estado !== "borrador" && rend.estado !== "rechazada" ? "Eliminar (admin)" : "Eliminar"}
+            </Btn>
           )}
         </div>
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
