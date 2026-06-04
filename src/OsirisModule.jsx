@@ -9071,24 +9071,24 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
         <div style={{display:"flex",justifyContent:"center",marginBottom:12}}>
           <OsirisLogo height={60}/>
         </div>
-        <div style={{color:"#8b949e",fontSize:13}}>Genética Diferenciada</div>
+        <div style={{color:C.muted,fontSize:13}}>Genética Diferenciada</div>
       </div>
 
       {/* Hub cards — drag-and-drop */}
       {(()=>{
         const CARD_DEFS = {
           ingresos: {emoji:"💰",label:"Ingresos Osiris",desc:"Royalties, Fee Viveros, Total Pedidos y Resumen de cobros",grad:"#0f766e22",border:"#0f766e44",
-            onClick:()=>setSubApp("ingresos"),badges:()=><>{sinConfirmar>0&&<span style={{fontSize:10,background:"rgba(251,191,36,0.2)",color:"#fbbf24",padding:"3px 10px",borderRadius:20,fontWeight:700}}>{sinConfirmar} por confirmar</span>}{alertasRC>0&&<span style={{fontSize:10,background:"rgba(239,68,68,0.2)",color:"#f87171",padding:"3px 10px",borderRadius:20,fontWeight:700}}>⚠️ {alertasRC} alerta{alertasRC>1?"s":""}</span>}</>},
+            onClick:()=>setSubApp("ingresos"),badges:()=><>{sinConfirmar>0&&<span style={{fontSize:10,background:C.warningBg,color:C.warning,padding:"3px 10px",borderRadius:20,fontWeight:700}}>{sinConfirmar} por confirmar</span>}{alertasRC>0&&<span style={{fontSize:10,background:C.dangerBg,color:C.danger,padding:"3px 10px",borderRadius:20,fontWeight:700}}>⚠️ {alertasRC} alerta{alertasRC>1?"s":""}</span>}</>},
           contratos: {emoji:"📜",label:"Contratos Exportadores-Productores",desc:"Gestión de contratos con productores-exportadores",grad:"#2563eb22",border:"#2563eb44",
-            onClick:()=>setSubApp("contratos"),badges:()=><span style={{fontSize:10,background:"rgba(37,99,235,0.2)",color:"#93c5fd",padding:"3px 10px",borderRadius:20,fontWeight:700}}>{(ctData||[]).length} contratos</span>},
+            onClick:()=>setSubApp("contratos"),badges:()=><span style={{fontSize:10,background:C.infoBg,color:C.primary,padding:"3px 10px",borderRadius:20,fontWeight:700}}>{(ctData||[]).length} contratos</span>},
           obtentores: {emoji:"🧬",label:"Contratos Obtentores",desc:"Obtentores, variedades, DHE, PBR, Maestro Especies",grad:"#7c3aed22",border:"#7c3aed44",
             onClick:()=>{if(canVerObtentores)setSubApp("obtentores");},badges:()=>{
               const arr=Array.isArray(osirisData?.obtentores)?osirisData.obtentores:[];
-              return <span style={{fontSize:10,background:"rgba(124,58,237,0.2)",color:"#c4b5fd",padding:"3px 10px",borderRadius:20,fontWeight:700}}>{arr.length} contratos</span>;}},
+              return <span style={{fontSize:10,background:C.purpleBg,color:C.purple,padding:"3px 10px",borderRadius:20,fontWeight:700}}>{arr.length} contratos</span>;}},
           viveros: {emoji:"🌱",label:"Contratos Viveros",desc:"Viveros, variedades autorizadas, OC Clientes, Cuotas",grad:"#16a34a22",border:"#16a34a44",
             onClick:()=>{if(canVerViveros)setSubApp("viveros");},badges:()=>{
               const arr=Array.isArray(osirisData?.viveros)?osirisData.viveros:[];
-              return <span style={{fontSize:10,background:"rgba(22,163,74,0.2)",color:"#4ade80",padding:"3px 10px",borderRadius:20,fontWeight:700}}>{arr.length} viveros</span>;}},
+              return <span style={{fontSize:10,background:C.successBg,color:C.success,padding:"3px 10px",borderRadius:20,fontWeight:700}}>{arr.length} viveros</span>;}},
           opTecnica: {emoji:"🔬",label:"Operación Técnica",desc:"Visitas, informes, equipo técnico, entregables",grad:"#0ea5e922",border:"#0ea5e944",
             onClick:()=>setSubApp("opTecnica"),badges:()=>null},
           tareas: {emoji:"✅",label:"Seguimiento Tareas",desc:"Tareas operativas del equipo Osiris",grad:"#d9770622",border:"#d9770644",
@@ -9111,12 +9111,12 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
           <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(280px,1fr))",gap:16,maxWidth:700,margin:"0 auto 30px"}}>
             {order.map(cid=>{const d=CARD_DEFS[cid];if(!d)return null;return(
               <div key={cid} draggable={!!esAdmin} onDragStart={e=>{if(!esAdmin)return;handleDragStart(e,cid);}} onDragOver={e=>{if(!esAdmin)return;e.preventDefault();e.dataTransfer.dropEffect="move";}} onDrop={e=>{if(!esAdmin)return;handleDrop(e,cid);}} onDragEnd={()=>{setTimeout(()=>{window._didDrag=false;},100);window._dragCard=null;}} onClick={()=>handleCardClick(d.onClick)}
-                style={{background:`linear-gradient(135deg,#1c2333,${d.grad})`,borderRadius:16,padding:"24px 20px",border:`1px solid ${d.border}`,cursor:"pointer",transition:"all 0.2s",position:"relative",overflow:"hidden"}}
+                style={{background:`linear-gradient(135deg,#ffffff,${d.grad})`,borderRadius:16,padding:"24px 20px",border:`1px solid ${d.border}`,cursor:"pointer",transition:"all 0.2s",position:"relative",overflow:"hidden",boxShadow:"0 1px 6px #0001"}}
                 onMouseEnter={e=>e.currentTarget.style.transform="translateY(-2px)"} onMouseLeave={e=>e.currentTarget.style.transform="translateY(0)"}>
                 {esAdmin&&<div style={{position:"absolute",top:8,right:10,fontSize:10,color:C.muted,cursor:"grab"}} title="Arrastra para reordenar">⋮⋮</div>}
                 <div style={{fontSize:32,marginBottom:10}}>{d.emoji}</div>
-                <div style={{fontWeight:800,fontSize:16,color:"#e6edf3",marginBottom:4}}>{d.label}</div>
-                <div style={{fontSize:11,color:"#8b949e",marginBottom:12}}>{d.desc}</div>
+                <div style={{fontWeight:800,fontSize:16,color:C.text,marginBottom:4}}>{d.label}</div>
+                <div style={{fontSize:11,color:C.muted,marginBottom:12}}>{d.desc}</div>
                 <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>{d.badges()}</div>
                 <div style={{position:"absolute",right:16,bottom:16,fontSize:20,color:d.border}}>→</div>
               </div>);
@@ -9127,10 +9127,10 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
       {/* KPIs globales */}
       <div style={{display:"flex",gap:12,flexWrap:"wrap",maxWidth:700,margin:"0 auto"}}>
         {[
-          ["💵 Por cobrar",     $$(totPend),          "#fbbf24"],
-          ["📦 Pedidos",        tpData.length,         "#60a5fa"],
-          ["🌿 Royalty filas",  rpData.length,         "#34d399"],
-          ["🌱 Fee Vivero",     fvData.filter(r=>!r.pagado).length+" pend.", "#f87171"],
+          ["💵 Por cobrar",     $$(totPend),          C.warning],
+          ["📦 Pedidos",        tpData.length,         C.primary],
+          ["🌿 Royalty filas",  rpData.length,         C.success],
+          ["🌱 Fee Vivero",     fvData.filter(r=>!r.pagado).length+" pend.", C.danger],
         ].map(([l,v,c])=>(
           <div key={l} style={{background:C.card,border:`1px solid ${C.border}`,borderLeft:`4px solid ${c}`,
             borderRadius:10,padding:"12px 16px",flex:1,minWidth:140,boxShadow:C.shadow}}>
@@ -9341,24 +9341,24 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
             </div>
           )}
           {/* Header contrato */}
-          <div style={{background:"linear-gradient(135deg,#1e1b4b,#4338ca22)",borderRadius:14,padding:"20px 24px",marginBottom:16,border:"1px solid #4338ca44"}}>
+          <div style={{background:"linear-gradient(135deg,#faf5ff,#f5f3ff)",borderRadius:14,padding:"20px 24px",marginBottom:16,border:"1px solid #e9d5ff"}}>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:12}}>
               <div>
-                <div style={{fontSize:20,fontWeight:900,color:"#e6edf3"}}>🧬 {c.obtentor}</div>
-                <div style={{fontSize:11,color:"#8b949e",marginTop:4}}>
+                <div style={{fontSize:20,fontWeight:900,color:C.text}}>🧬 {c.obtentor}</div>
+                <div style={{fontSize:11,color:C.muted,marginTop:4}}>
                   {c.f_inicio&&`Desde ${c.f_inicio}`} {c.f_vencimiento&&` · Hasta ${c.f_vencimiento}`}
-                  {c.renovable&&c.f_vencimiento_nueva&&<span style={{color:"#60a5fa",marginLeft:6,fontWeight:700}}>🔄 Nueva: {c.f_vencimiento_nueva}</span>}
+                  {c.renovable&&c.f_vencimiento_nueva&&<span style={{color:C.primary,marginLeft:6,fontWeight:700}}>🔄 Nueva: {c.f_vencimiento_nueva}</span>}
                   <span style={{color:vig.color,marginLeft:8,fontWeight:700}}>{vig.icon} {vig.label}</span>
-                  {c.doc_contrato&&<a href={c.doc_contrato} target="_blank" rel="noopener noreferrer" style={{marginLeft:10,color:"#a78bfa",fontWeight:700,textDecoration:"none"}}>📄 Abrir contrato</a>}
+                  {c.doc_contrato&&<a href={c.doc_contrato} target="_blank" rel="noopener noreferrer" style={{marginLeft:10,color:C.purple,fontWeight:700,textDecoration:"none"}}>📄 Abrir contrato</a>}
                 </div>
               </div>
               <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
-                {c.estado_contrato&&<span style={{fontSize:10,background:"rgba(124,58,237,0.25)",color:"#c4b5fd",padding:"4px 10px",borderRadius:20,fontWeight:700,border:"1px solid #7c3aed44"}}>📋 {c.estado_contrato}</span>}
-                {c.firma_obtentor&&<span style={{fontSize:10,background:"rgba(34,197,94,0.2)",color:"#4ade80",padding:"4px 10px",borderRadius:20,fontWeight:700}}>✅ Firma Obtentor</span>}
-                {c.firma_osiris&&<span style={{fontSize:10,background:"rgba(34,197,94,0.2)",color:"#4ade80",padding:"4px 10px",borderRadius:20,fontWeight:700}}>✅ Firma Osiris</span>}
-                {c.renovable&&<span style={{fontSize:10,background:"rgba(96,165,250,0.2)",color:"#93c5fd",padding:"4px 10px",borderRadius:20,fontWeight:700}}>🔄 Renovable</span>}
-                <span style={{fontSize:10,background:"rgba(124,58,237,0.2)",color:"#c4b5fd",padding:"4px 10px",borderRadius:20,fontWeight:700}}>🌿 {especies.length} especies</span>
-                <span style={{fontSize:10,background:"rgba(251,191,36,0.2)",color:"#fbbf24",padding:"4px 10px",borderRadius:20,fontWeight:700}}>📜 {pbr.length} PBR</span>
+                {c.estado_contrato&&<span style={{fontSize:10,background:C.purpleBg,color:C.purple,padding:"4px 10px",borderRadius:20,fontWeight:700,border:`1px solid ${C.purple}33`}}>📋 {c.estado_contrato}</span>}
+                {c.firma_obtentor&&<span style={{fontSize:10,background:C.successBg,color:C.success,padding:"4px 10px",borderRadius:20,fontWeight:700}}>✅ Firma Obtentor</span>}
+                {c.firma_osiris&&<span style={{fontSize:10,background:C.successBg,color:C.success,padding:"4px 10px",borderRadius:20,fontWeight:700}}>✅ Firma Osiris</span>}
+                {c.renovable&&<span style={{fontSize:10,background:C.infoBg,color:C.primary,padding:"4px 10px",borderRadius:20,fontWeight:700}}>🔄 Renovable</span>}
+                <span style={{fontSize:10,background:C.purpleBg,color:C.purple,padding:"4px 10px",borderRadius:20,fontWeight:700}}>🌿 {especies.length} especies</span>
+                <span style={{fontSize:10,background:C.warningBg,color:C.warning,padding:"4px 10px",borderRadius:20,fontWeight:700}}>📜 {pbr.length} PBR</span>
               </div>
             </div>
           </div>
@@ -9368,7 +9368,8 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
             {TABS_OBT.map(t=>(
               <button key={t.id} onClick={()=>setObtTab(t.id)}
                 style={{padding:"8px 16px",borderRadius:8,border:"none",cursor:"pointer",fontWeight:obtTab===t.id?700:500,fontSize:12,
-                  background:obtTab===t.id?C.purple:"#21283b",color:obtTab===t.id?"#fff":"#8b949e"}}>
+                  background:obtTab===t.id?C.purple:"#fff",color:obtTab===t.id?"#fff":C.sl,
+                  boxShadow:obtTab===t.id?`0 2px 8px ${C.purple}55`:"0 1px 4px #0001"}}>
                 {t.label}
               </button>
             ))}
@@ -10876,23 +10877,23 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
             </div>
           )}
           {/* Header vivero */}
-          <div style={{background:"linear-gradient(135deg,#14532d,#16a34a22)",borderRadius:14,padding:"20px 24px",marginBottom:16,border:"1px solid #16a34a44"}}>
+          <div style={{background:"linear-gradient(135deg,#f0fdf4,#dcfce7)",borderRadius:14,padding:"20px 24px",marginBottom:16,border:"1px solid #bbf7d0"}}>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:12}}>
               <div>
-                <div style={{fontSize:20,fontWeight:900,color:"#e6edf3"}}>🌱 {v.viverista}</div>
-                <div style={{fontSize:11,color:"#8b949e",marginTop:4}}>
+                <div style={{fontSize:20,fontWeight:900,color:C.text}}>🌱 {v.viverista}</div>
+                <div style={{fontSize:11,color:C.muted,marginTop:4}}>
                   {v.pais&&`🌍 ${v.pais}`} {v.f_contrato&&` · Contrato ${v.f_contrato}`} {v.f_vencimiento&&` · Vence ${v.f_vencimiento}`}
-                  {v.renovable&&v.f_vencimiento_nueva&&<span style={{color:"#60a5fa",marginLeft:6,fontWeight:700}}>🔄 Nueva: {v.f_vencimiento_nueva}</span>}
+                  {v.renovable&&v.f_vencimiento_nueva&&<span style={{color:C.primary,marginLeft:6,fontWeight:700}}>🔄 Nueva: {v.f_vencimiento_nueva}</span>}
                   <span style={{color:vig.color,marginLeft:8,fontWeight:700}}>{vig.icon} {vig.label}</span>
-                  {v.doc_contrato&&<a href={v.doc_contrato} target="_blank" rel="noopener noreferrer" style={{marginLeft:10,color:"#86efac",fontWeight:700,textDecoration:"none"}}>📄 Abrir contrato</a>}
+                  {v.doc_contrato&&<a href={v.doc_contrato} target="_blank" rel="noopener noreferrer" style={{marginLeft:10,color:C.success,fontWeight:700,textDecoration:"none"}}>📄 Abrir contrato</a>}
                 </div>
               </div>
               <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
-                {v.estado_contrato&&<span style={{fontSize:10,background:"rgba(22,163,74,0.25)",color:"#86efac",padding:"4px 10px",borderRadius:20,fontWeight:700,border:"1px solid #16a34a44"}}>📋 {v.estado_contrato}</span>}
-                {v.firma_viverista&&<span style={{fontSize:10,background:"rgba(34,197,94,0.2)",color:"#4ade80",padding:"4px 10px",borderRadius:20,fontWeight:700}}>✅ Firma Viverista</span>}
-                {v.firma_osiris&&<span style={{fontSize:10,background:"rgba(34,197,94,0.2)",color:"#4ade80",padding:"4px 10px",borderRadius:20,fontWeight:700}}>✅ Firma Osiris</span>}
-                {v.renovable&&<span style={{fontSize:10,background:"rgba(96,165,250,0.2)",color:"#93c5fd",padding:"4px 10px",borderRadius:20,fontWeight:700}}>🔄 Renovable</span>}
-                <span style={{fontSize:10,background:"rgba(22,163,74,0.2)",color:"#4ade80",padding:"4px 10px",borderRadius:20,fontWeight:700}}>🌱 {variedades.length} variedades</span>
+                {v.estado_contrato&&<span style={{fontSize:10,background:C.successBg,color:C.success,padding:"4px 10px",borderRadius:20,fontWeight:700,border:`1px solid ${C.success}33`}}>📋 {v.estado_contrato}</span>}
+                {v.firma_viverista&&<span style={{fontSize:10,background:C.successBg,color:C.success,padding:"4px 10px",borderRadius:20,fontWeight:700}}>✅ Firma Viverista</span>}
+                {v.firma_osiris&&<span style={{fontSize:10,background:C.successBg,color:C.success,padding:"4px 10px",borderRadius:20,fontWeight:700}}>✅ Firma Osiris</span>}
+                {v.renovable&&<span style={{fontSize:10,background:C.infoBg,color:C.primary,padding:"4px 10px",borderRadius:20,fontWeight:700}}>🔄 Renovable</span>}
+                <span style={{fontSize:10,background:C.successBg,color:C.success,padding:"4px 10px",borderRadius:20,fontWeight:700}}>🌱 {variedades.length} variedades</span>
               </div>
             </div>
           </div>
@@ -10902,7 +10903,8 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
             {TABS_VIV.map(t=>(
               <button key={t.id} onClick={()=>setVivTab(t.id)}
                 style={{padding:"8px 16px",borderRadius:8,border:"none",cursor:"pointer",fontWeight:vivTab===t.id?700:500,fontSize:12,
-                  background:vivTab===t.id?C.success:"#21283b",color:vivTab===t.id?"#fff":"#8b949e"}}>
+                  background:vivTab===t.id?C.success:"#fff",color:vivTab===t.id?"#fff":C.sl,
+                  boxShadow:vivTab===t.id?`0 2px 8px ${C.success}55`:"0 1px 4px #0001"}}>
                 {t.label}
               </button>
             ))}
