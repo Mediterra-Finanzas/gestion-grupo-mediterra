@@ -393,11 +393,17 @@ const WORKERS_BASE=[
 // Rendiciones a "editar" en Gestión de Usuarios (se respeta acá). Idempotente.
 function garantizarAccesoRendiciones(u){
   const mods = Array.isArray(u.modulos) ? u.modulos : ["tareas"];
-  if(mods.includes("finanzas")) return u;
+  const yaTeniaFinanzas = mods.includes("finanzas");
   const finanzasPrev = u.tab_permisos?.finanzas || {};
+  // Perfil "solo rendiciones": no tenía Finanzas, o ya estaba bloqueado (dashboard
+  // en sin_acceso). A los usuarios de Finanzas reales (dashboard con acceso) NO se
+  // les toca. Esto reaplica el candado a los ya migrados aunque hayan quedado con
+  // alguna pestaña nueva sin definir (ej. "reporte") que antes caía en "editar".
+  const esSoloRendiciones = !yaTeniaFinanzas || finanzasPrev.dashboard === "sin_acceso";
+  if(yaTeniaFinanzas && !esSoloRendiciones) return u;
   return {
     ...u,
-    modulos: [...mods, "finanzas"],
+    modulos: yaTeniaFinanzas ? mods : [...mods, "finanzas"],
     tab_permisos: {
       ...(u.tab_permisos||{}),
       finanzas: {
@@ -526,6 +532,7 @@ const TABS_PERMISOS_CONFIG = {
     {id:"bancos",    label:"🏦 Saldos Bancos"},
     {id:"creditos",  label:"💳 Créditos"},
     {id:"nominas",   label:"📋 Nóminas"},
+    {id:"reporte",   label:"📅 Reporte Semanal"},
     {id:"params",    label:"⚡ Parámetros"},
     {id:"auditoria", label:"🔍 Auditoría"},
     {id:"eeff",      label:"📑 EEFF"},
@@ -3608,6 +3615,32 @@ Equipo Mediterra`);
         pinsPersonalizados={pinsPersonalizados}
         setPinsPersonalizados={setPinsPersonalizados}
       />
+      {/* Modal Cambiar PIN para usuario ya logueado (botón 🔑 PIN del Hub) */}
+      {modalPin==="cambiar" && !workerPendiente && (
+        <div style={{position:"fixed",inset:0,background:"#000a",zIndex:500,display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"sans-serif",padding:16}}>
+          <div style={{background:C.card,borderRadius:16,padding:"24px 28px",maxWidth:380,width:"100%",boxShadow:"0 24px 64px #0006"}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
+              <div style={{fontSize:15,fontWeight:800,color:C.text}}>🔑 Cambiar PIN</div>
+              <button onClick={()=>{setModalPin(null);setPinActual("");setPinNuevo("");setPinConfirm("");setPinError("");}}
+                style={{background:"none",border:"none",color:C.muted,cursor:"pointer",fontSize:18}}>×</button>
+            </div>
+            <div style={{display:"flex",flexDirection:"column",gap:10}}>
+              {[["PIN actual","password",pinActual,setPinActual],["PIN nuevo (mín. 4 dígitos)","password",pinNuevo,setPinNuevo],["Confirmar PIN nuevo","password",pinConfirm,setPinConfirm]].map(([lbl,type,val,set])=>(
+                <div key={lbl}>
+                  <div style={{fontSize:11,color:C.muted,marginBottom:3}}>{lbl}</div>
+                  <input type={type} value={val} onChange={e=>set(e.target.value)} placeholder="••••"
+                    style={{width:"100%",padding:"9px 12px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:14,boxSizing:"border-box",outline:"none"}}/>
+                </div>
+              ))}
+              {pinError&&<div style={{color:C.danger,fontSize:12}}>{pinError}</div>}
+              <button onClick={handleCambiarPin}
+                style={{padding:"10px",borderRadius:8,background:C.primary,color:"#fff",border:"none",fontWeight:700,fontSize:14,cursor:"pointer",marginTop:4}}>
+                Guardar nuevo PIN
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </AppErrorBoundary>
   );
 }
