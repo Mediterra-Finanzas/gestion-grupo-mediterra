@@ -262,6 +262,164 @@ function BadgeEstadoCF({estado, onChange, can}) {
   );
 }
 
+// ── Cobro parcial / en cuotas ────────────────────────────
+// Calcula totales de cobro a partir de un objeto cobrosInfo = {cobros:[{fecha,monto,pagado,...}], fechaEstimada}
+function calcCobros(total, info) {
+  const t = Number(total)||0;
+  const cobros = Array.isArray(info?.cobros) ? info.cobros : [];
+  const cobrado = cobros.filter(c=>c.pagado).reduce((s,c)=>s+(Number(c.monto)||0),0);
+  const comprometido = cobros.reduce((s,c)=>s+(Number(c.monto)||0),0); // todas las cuotas (pagadas o no)
+  const saldo = Math.round((t - cobrado)*100)/100;
+  const pendientes = cobros.filter(c=>!c.pagado).sort((a,b)=>String(a.fecha||"").localeCompare(String(b.fecha||"")));
+  const proxFecha = info?.fechaEstimada || (pendientes[0]?.fecha) || "";
+  return { total:t, cobrado:Math.round(cobrado*100)/100, comprometido:Math.round(comprometido*100)/100, saldo, pendientes, proxFecha, cobros };
+}
+
+// Celda + modal para registrar cobros parciales en cuotas de una factura
+function CobrosParcialesCell({ total, info, can, onChange }) {
+  const [open, setOpen] = React.useState(false);
+  const c0 = calcCobros(total, info);
+  const tieneInfo = c0.cobros.length>0 || (info?.fechaEstimada);
+  const EMPTY_C = {fecha:"",monto:"",pagado:false,nFact:"",observaciones:""};
+  const [draft, setDraft] = React.useState([]);
+  const [draftFecha, setDraftFecha] = React.useState("");
+  const [nueva, setNueva] = React.useState(EMPTY_C);
+  const [editId, setEditId] = React.useState(null);
+
+  function abrir(){
+    setDraft((c0.cobros||[]).map(x=>({...x})));
+    setDraftFecha(info?.fechaEstimada||"");
+    setNueva(EMPTY_C); setEditId(null); setOpen(true);
+  }
+  const d = calcCobros(total, {cobros:draft, fechaEstimada:draftFecha});
+  function commitNueva(){
+    if(!nueva.monto || isNaN(Number(nueva.monto))){ alert("El monto de la cuota es obligatorio."); return; }
+    if(editId){
+      setDraft(prev=>prev.map(x=>x.id===editId?{...x,...nueva,monto:Number(nueva.monto)}:x));
+    } else {
+      setDraft(prev=>[...prev,{id:`cob_${Date.now()}`,...nueva,monto:Number(nueva.monto)}]);
+    }
+    setNueva(EMPTY_C); setEditId(null);
+  }
+  function editar(x){ setNueva({fecha:x.fecha||"",monto:x.monto||"",pagado:!!x.pagado,nFact:x.nFact||"",observaciones:x.observaciones||""}); setEditId(x.id); }
+  function quitar(id){ setDraft(prev=>prev.filter(x=>x.id!==id)); if(editId===id){setNueva(EMPTY_C);setEditId(null);} }
+  function togglePagado(id){ setDraft(prev=>prev.map(x=>x.id===id?{...x,pagado:!x.pagado,fecha:(!x.pagado&&!x.fecha)?new Date().toISOString().slice(0,10):x.fecha}:x)); }
+  function guardar(){ onChange({cobros:draft, fechaEstimada:draftFecha}); setOpen(false); }
+
+  return (
+    <>
+      <div style={{display:"flex",flexDirection:"column",alignItems:"flex-start",gap:2,marginTop:4}}>
+        {tieneInfo && (
+          <div style={{fontSize:9,color:C.muted,lineHeight:1.4}}>
+            <span style={{color:C.success,fontWeight:700}}>Cobrado {$$(c0.cobrado)}</span>
+            {c0.saldo>0 && <span style={{color:C.warning,fontWeight:700,marginLeft:5}}>· Saldo {$$(c0.saldo)}</span>}
+            {c0.proxFecha && <span style={{marginLeft:5}}>· est. {c0.proxFecha}</span>}
+          </div>
+        )}
+        {can && (
+          <button onClick={abrir} style={{background:tieneInfo?C.warningBg:C.cardAlt,border:`1px solid ${C.border}`,borderRadius:6,padding:"2px 8px",cursor:"pointer",fontSize:9,fontWeight:700,color:C.muted,whiteSpace:"nowrap"}}>
+            💵 Cobros {c0.cobros.length>0?`(${c0.cobros.length})`:""}
+          </button>
+        )}
+      </div>
+
+      {open && (
+        <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:10000}} onClick={()=>setOpen(false)}>
+          <div onClick={e=>e.stopPropagation()} style={{background:C.card,borderRadius:14,padding:22,width:560,maxHeight:"92vh",overflowY:"auto"}}>
+            <h3 style={{margin:"0 0 4px",color:C.text,fontSize:16}}>💵 Cobros de la factura</h3>
+            <div style={{fontSize:11,color:C.muted,marginBottom:14}}>Registra cuánto se ha cobrado y en cuántas cuotas. Marca cada cuota como pagada cuando ingrese el dinero.</div>
+
+            {/* Resumen */}
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,marginBottom:14}}>
+              <div style={{background:C.cardAlt,borderRadius:8,padding:"8px 10px"}}>
+                <div style={{fontSize:9,color:C.muted,fontWeight:700}}>TOTAL FACTURA</div>
+                <div style={{fontSize:14,fontWeight:900,color:C.text}}>{$$(d.total)}</div>
+              </div>
+              <div style={{background:C.successBg,borderRadius:8,padding:"8px 10px"}}>
+                <div style={{fontSize:9,color:C.success,fontWeight:700}}>COBRADO</div>
+                <div style={{fontSize:14,fontWeight:900,color:C.success}}>{$$(d.cobrado)}</div>
+              </div>
+              <div style={{background:d.saldo>0?C.warningBg:C.successBg,borderRadius:8,padding:"8px 10px"}}>
+                <div style={{fontSize:9,color:d.saldo>0?C.warning:C.success,fontWeight:700}}>SALDO POR COBRAR</div>
+                <div style={{fontSize:14,fontWeight:900,color:d.saldo>0?C.warning:C.success}}>{$$(d.saldo)}</div>
+              </div>
+            </div>
+
+            <div style={{marginBottom:14}}>
+              <label style={{fontSize:11,fontWeight:600,color:C.muted,display:"block",marginBottom:3}}>📅 Fecha estimada de cobro del saldo</label>
+              <input type="date" value={draftFecha} onChange={e=>setDraftFecha(e.target.value)}
+                style={{padding:"7px 10px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:12}}/>
+              {d.comprometido>d.total && <div style={{fontSize:10,color:C.danger,marginTop:4}}>⚠️ Las cuotas suman {$$(d.comprometido)}, más que el total de la factura ({$$(d.total)}).</div>}
+            </div>
+
+            {/* Lista de cuotas */}
+            {draft.length>0 && (
+              <div style={{border:`1px solid ${C.border}`,borderRadius:10,overflow:"hidden",marginBottom:14}}>
+                <div style={{background:C.cardAlt,padding:"6px 12px",fontSize:10,fontWeight:700,color:C.muted}}>Cuotas de cobro ({draft.length})</div>
+                {draft.map(x=>(
+                  <div key={x.id} style={{padding:"8px 12px",borderTop:"1px solid #f1f5f9",display:"flex",alignItems:"center",gap:8}}>
+                    <button onClick={()=>togglePagado(x.id)} title="Marcar pagada/pendiente"
+                      style={{background:x.pagado?C.successBg:C.warningBg,color:x.pagado?C.success:C.warning,border:"none",borderRadius:20,padding:"2px 8px",cursor:"pointer",fontSize:10,fontWeight:700,whiteSpace:"nowrap"}}>
+                      {x.pagado?"✅ Pagada":"⏳ Pend."}
+                    </button>
+                    <div style={{flex:1,minWidth:0}}>
+                      <div style={{fontSize:12,fontWeight:700,color:C.text}}>{$$(x.monto)} {x.fecha?<span style={{fontSize:10,fontWeight:400,color:C.muted}}>· {x.fecha}</span>:null}</div>
+                      {(x.nFact||x.observaciones)&&<div style={{fontSize:9,color:C.muted}}>{x.nFact?`Fact ${x.nFact}`:""}{x.nFact&&x.observaciones?" · ":""}{x.observaciones||""}</div>}
+                    </div>
+                    <button onClick={()=>editar(x)} style={{background:C.cardAlt,border:`1px solid ${C.border}`,borderRadius:6,padding:"3px 7px",cursor:"pointer",fontSize:10}}>✏️</button>
+                    <button onClick={()=>quitar(x.id)} style={{background:C.dangerBg,border:"none",borderRadius:6,padding:"3px 7px",cursor:"pointer",fontSize:10,color:C.danger}}>🗑</button>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Form nueva/editar cuota */}
+            <div style={{border:`1px dashed ${editId?C.warning:C.border}`,borderRadius:10,padding:12,background:editId?C.warningBg:C.cardAlt,marginBottom:14}}>
+              <div style={{fontSize:11,fontWeight:700,color:editId?C.warning:C.muted,marginBottom:8,display:"flex",justifyContent:"space-between"}}>
+                <span>{editId?"✏️ Editando cuota":"+ Agregar cuota de cobro"}</span>
+                {editId&&<button onClick={()=>{setNueva(EMPTY_C);setEditId(null);}} style={{background:"transparent",border:`1px solid ${C.border}`,borderRadius:6,padding:"1px 7px",cursor:"pointer",fontSize:9,color:C.muted}}>✕</button>}
+              </div>
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:8}}>
+                <div>
+                  <label style={{fontSize:10,fontWeight:600,color:C.muted,display:"block",marginBottom:2}}>Monto USD *</label>
+                  <input type="number" step="0.01" value={nueva.monto} onChange={e=>setNueva(p=>({...p,monto:e.target.value}))}
+                    style={{width:"100%",padding:"6px 9px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:12,boxSizing:"border-box",textAlign:"right"}}/>
+                </div>
+                <div>
+                  <label style={{fontSize:10,fontWeight:600,color:C.muted,display:"block",marginBottom:2}}>Fecha (cobro o estimada)</label>
+                  <input type="date" value={nueva.fecha} onChange={e=>setNueva(p=>({...p,fecha:e.target.value}))}
+                    style={{width:"100%",padding:"6px 9px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:12,boxSizing:"border-box"}}/>
+                </div>
+              </div>
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:8}}>
+                <div>
+                  <label style={{fontSize:10,fontWeight:600,color:C.muted,display:"block",marginBottom:2}}>N° Factura/recibo</label>
+                  <input value={nueva.nFact} onChange={e=>setNueva(p=>({...p,nFact:e.target.value}))}
+                    style={{width:"100%",padding:"6px 9px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:12,boxSizing:"border-box"}}/>
+                </div>
+                <label style={{display:"flex",alignItems:"center",gap:6,cursor:"pointer",fontSize:11,marginTop:18}}>
+                  <input type="checkbox" checked={!!nueva.pagado} onChange={e=>setNueva(p=>({...p,pagado:e.target.checked}))}/>
+                  ✅ Ya cobrada
+                </label>
+              </div>
+              <input value={nueva.observaciones} placeholder="Observaciones..." onChange={e=>setNueva(p=>({...p,observaciones:e.target.value}))}
+                style={{width:"100%",padding:"6px 9px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:12,boxSizing:"border-box",marginBottom:8}}/>
+              <button onClick={commitNueva} style={{width:"100%",padding:"7px 12px",borderRadius:8,background:editId?C.warning:C.primary,border:"none",color:"#fff",cursor:"pointer",fontSize:12,fontWeight:700}}>
+                {editId?"💾 Guardar cuota":"+ Agregar cuota"}
+              </button>
+            </div>
+
+            <div style={{display:"flex",justifyContent:"flex-end",gap:8}}>
+              <button onClick={()=>setOpen(false)} style={{padding:"8px 16px",borderRadius:8,border:`1px solid ${C.border}`,background:C.card,cursor:"pointer",fontSize:12}}>Cancelar</button>
+              <button onClick={guardar} style={{padding:"8px 18px",borderRadius:8,background:C.success,border:"none",color:"#fff",cursor:"pointer",fontSize:13,fontWeight:700}}>💾 Guardar cobros</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+
 
 
 // ── Datos base ────────────────────────────────────────────
@@ -1593,6 +1751,7 @@ function RoyaltyPlanta({data,setData,tpData,can,clientes=[]}) {
                   </td>
                   <td style={{padding:"7px 10px",textAlign:"center"}}>
                     <BadgeEstadoCF estado={resolveEstadoCF(r)} onChange={v=>upd(r.id,"estadoCF",v)} can={can}/>
+                    <CobrosParcialesCell total={r.montoCobro} info={r.cobrosInfo} can={can} onChange={v=>upd(r.id,"cobrosInfo",v)}/>
                   </td>
                   <td style={{padding:"7px 10px",textAlign:"center",fontSize:12}}>
                     <Cell val={r.fechaPago||""} onChange={v=>upd(r.id,"fechaPago",v)} type="date" can={can}/>
@@ -1895,6 +2054,7 @@ function FeeEntrada({data,setData,ctData,can,clientes=[]}) {
                   </td>
                   <td style={{padding:"8px 12px",textAlign:"center"}}>
                     <BadgeEstadoCF estado={resolveEstadoCF(r)} onChange={v=>upd(r.id,"estadoCF",v)} can={can}/>
+                    <CobrosParcialesCell total={r.montoUSD} info={r.cobrosInfo} can={can} onChange={v=>upd(r.id,"cobrosInfo",v)}/>
                   </td>
                   <td style={{padding:"8px 12px",textAlign:"center",fontSize:12}}>
                     <Cell val={r.fechaPago||""} onChange={v=>upd(r.id,"fechaPago",v)} type="date" can={can}/>
@@ -2148,6 +2308,7 @@ function RoyaltyComercial({data,setData,tpData,can,clientes=[]}) {
                   </td>
                   <td style={{padding:"7px 10px",textAlign:"center"}}>
                     <BadgeEstadoCF estado={resolveEstadoCF(r)} onChange={v=>upd(r.id,"estadoCF",v)} can={can}/>
+                    <CobrosParcialesCell total={r.montoCobro} info={r.cobrosInfo} can={can} onChange={v=>upd(r.id,"cobrosInfo",v)}/>
                   </td>
                   <td style={{padding:"7px 10px",textAlign:"center"}}>
                     {r.alertaActiva
@@ -2398,6 +2559,7 @@ function FeeViveros({data,setData,tpData,can,clientes=[]}) {
                   </td>
                   <td style={{padding:"7px 10px",textAlign:"center"}}>
                     <BadgeEstadoCF estado={resolveEstadoCF(r)} onChange={v=>upd(r.id,"estadoCF",v)} can={can}/>
+                    <CobrosParcialesCell total={r.montoFact} info={r.cobrosInfo} can={can} onChange={v=>upd(r.id,"cobrosInfo",v)}/>
                   </td>
                   {can&&<td style={{padding:"4px 6px",textAlign:"center"}}>
                     {r._fromContract?(
@@ -8798,8 +8960,13 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
   const [vivWizVvForm, setVivWizVvForm] = useState(EMPTY_VV_INLINE);
   const [vivWizAnxForm, setVivWizAnxForm] = useState(EMPTY_VANX_INLINE);
   const [vivWizOcForm, setVivWizOcForm] = useState(EMPTY_OC_INLINE);
+  const [vivWizOcEditId, setVivWizOcEditId] = useState(null); // id de OC en edición dentro del wizard (paso 4)
+  const [vivWizVvEditId, setVivWizVvEditId] = useState(null); // id de variedad en edición (paso 2)
+  const [vivWizAnxEditId, setVivWizAnxEditId] = useState(null); // id de anexo en edición (paso 3)
   const [vivWizCuotaForm, setVivWizCuotaForm] = useState(EMPTY_CUOTA_INLINE);
   const [vivWizOcExpandido, setVivWizOcExpandido] = useState(null); // id de OC en paso 5 cuya sección de cuotas está abierta
+  const [vivGuardadoMsg, setVivGuardadoMsg] = useState(false); // feedback "guardado" del guardado parcial del wizard
+  const vivSnapshotRef = React.useRef(""); // snapshot del form al abrir el wizard, para detectar cambios sin guardar
   // Sub-modales Viveros
   const [vvModal, setVvModal] = useState(false);
   const [vvForm, setVvForm] = useState({especie:"",variedad:"",fee_usd:"",fee_pct:"",observaciones:""});
@@ -10644,8 +10811,41 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
       setVivWizVvForm(EMPTY_VV_INLINE);
       setVivWizAnxForm(EMPTY_VANX_INLINE);
       setVivWizOcForm(EMPTY_OC_INLINE);
+      setVivWizOcEditId(null);
       setVivWizCuotaForm(EMPTY_CUOTA_INLINE);
       setVivWizOcExpandido(null);
+    };
+
+    // Guardado parcial del wizard: persiste lo ingresado hasta ahora SIN cerrar el modal,
+    // y deja el contrato en modo edición para que sucesivas pulsaciones actualicen el mismo registro.
+    const guardarVivParcial = () => {
+      if(!canViveros) return;
+      if(!vivForm.viverista) { alert("Viverista es obligatorio para guardar."); return; }
+      if(vivForm.f_contrato && vivForm.f_vencimiento && new Date(vivForm.f_vencimiento) < new Date(vivForm.f_contrato)) {
+        alert("La fecha de vencimiento no puede ser anterior a la fecha de contrato."); return;
+      }
+      const id = vivEditId || `viv_${Date.now()}`;
+      const existing = vivEditId ? vivData.find(v=>v.id===vivEditId) : null;
+      const item = {...(existing||{}), ...vivForm, id};
+      item.variedades    = item.variedades    || [];
+      item.anexos        = item.anexos        || [];
+      item.ordenesCompra = item.ordenesCompra || [];
+      const yaExiste = vivData.some(v=>v.id===id);
+      const next = yaExiste ? vivData.map(v=>v.id===id?item:v) : [...vivData, item];
+      setViv(next);
+      if(!vivEditId) setVivEditId(id); // a partir de ahora se actualiza el mismo registro
+      vivSnapshotRef.current = JSON.stringify(vivForm); // baseline actualizado: lo guardado ya no es "cambio sin guardar"
+      window.auditLog && window.auditLog("editar", {modulo:"osiris", seccion:"Contratos Viveros",
+        descripcion:`Guardó (parcial) contrato vivero "${item.viverista}"${item.pais?` · ${item.pais}`:""}`});
+      setVivGuardadoMsg(true);
+      setTimeout(()=>setVivGuardadoMsg(false), 2200);
+    };
+
+    // Cierra el wizard avisando si hay cambios sin guardar
+    const cerrarWiz = () => {
+      const dirty = JSON.stringify(vivForm) !== vivSnapshotRef.current;
+      if(dirty && !window.confirm("Tienes cambios sin guardar en este contrato. Si cierras se perderán.\n\n¿Cerrar de todas formas? (usa 💾 Guardar para conservarlos)")) return;
+      setVivModal(false);
     };
 
     const updateVivero = (id, updates) => {
@@ -11059,8 +11259,18 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
                   {ordenesCompra.length>0&&(
                     <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(140px,1fr))",gap:8,marginBottom:14}}>
                       {(()=>{
+                        // Cobrado de una OC: si está "Pagada total" cuenta el fee completo aunque no tenga cuotas;
+                        // si está "Anulada" cuenta 0; en cualquier otro caso suma las cuotas marcadas pagadas.
+                        const cobradoDeOc = (o)=>{
+                          if(o.estado_oc==="Anulada") return 0;
+                          const fee = parseFloat(o.fee_total_usd)||0;
+                          const cuotasPag = (o.cuotas||[]).filter(c=>c.pagado).reduce((ss,c)=>ss+(parseFloat(c.monto_usd)||0),0);
+                          if(o.estado_oc==="Pagada total") return Math.max(fee, cuotasPag);
+                          return cuotasPag;
+                        };
                         const totFee = ordenesCompra.reduce((s,o)=>s+(parseFloat(o.fee_total_usd)||0),0);
-                        const totPagado = ordenesCompra.reduce((s,o)=>s+((o.cuotas||[]).filter(c=>c.pagado).reduce((ss,c)=>ss+(parseFloat(c.monto_usd)||0),0)),0);
+                        const totPagado = ordenesCompra.reduce((s,o)=>s+cobradoDeOc(o),0);
+                        const totPorCobrar = ordenesCompra.reduce((s,o)=> o.estado_oc==="Anulada"?s : s+Math.max(0,(parseFloat(o.fee_total_usd)||0)-cobradoDeOc(o)),0);
                         const totPlantas = ordenesCompra.reduce((s,o)=>s+(parseFloat(o.cantidad_plantas)||0),0);
                         const totHa = ordenesCompra.reduce((s,o)=>s+(parseFloat(o.hectareas)||0),0);
                         return [
@@ -11069,7 +11279,7 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
                           ["📐 Há", totHa.toLocaleString("es-CL",{maximumFractionDigits:1}), C.accent2],
                           ["💰 Fee total", $$(totFee), C.purple],
                           ["✅ Cobrado", $$(totPagado), C.success],
-                          ["⏳ Por cobrar", $$(totFee-totPagado), C.warning],
+                          ["⏳ Por cobrar", $$(totPorCobrar), C.warning],
                         ].map(([l,vv,c])=>(
                           <div key={l} style={{background:C.card,border:`1px solid ${C.border}`,borderLeft:`4px solid ${c}`,borderRadius:8,padding:"8px 12px"}}>
                             <div style={{fontSize:9,color:C.muted,fontWeight:600,marginBottom:2}}>{l}</div>
@@ -11558,10 +11768,17 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
         <div style={{display:"flex",gap:12,flexWrap:"wrap",marginBottom:16}}>
           {(()=>{
             // Agregar métricas de OC
+            const cobradoDeOc = (o)=>{
+              if(o.estado_oc==="Anulada") return 0;
+              const fee = parseFloat(o.fee_total_usd)||0;
+              const cuotasPag = (o.cuotas||[]).filter(c=>c.pagado).reduce((sss,c)=>sss+(parseFloat(c.monto_usd)||0),0);
+              if(o.estado_oc==="Pagada total") return Math.max(fee, cuotasPag);
+              return cuotasPag;
+            };
             const totOC = vivData.reduce((s,v)=>s+(v.ordenesCompra||[]).length,0);
             const totFeeOC = vivData.reduce((s,v)=>s+(v.ordenesCompra||[]).reduce((ss,o)=>ss+(parseFloat(o.fee_total_usd)||0),0),0);
-            const totCobrado = vivData.reduce((s,v)=>s+(v.ordenesCompra||[]).reduce((ss,o)=>ss+((o.cuotas||[]).filter(c=>c.pagado).reduce((sss,c)=>sss+(parseFloat(c.monto_usd)||0),0)),0),0);
-            const porCobrarOC = totFeeOC - totCobrado;
+            const totCobrado = vivData.reduce((s,v)=>s+(v.ordenesCompra||[]).reduce((ss,o)=>ss+cobradoDeOc(o),0),0);
+            const porCobrarOC = vivData.reduce((s,v)=>s+(v.ordenesCompra||[]).reduce((ss,o)=> o.estado_oc==="Anulada"?ss : ss+Math.max(0,(parseFloat(o.fee_total_usd)||0)-cobradoDeOc(o)),0),0);
             return [
               ["📊 Total viveros",   vivData.length, C.success],
               ["⚠️ Vencidos",          totVencidos,    C.danger],
@@ -11595,7 +11812,7 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
                 style={{padding:"8px 16px",borderRadius:8,background:C.accent2,border:"none",color:"#fff",cursor:"pointer",fontSize:12,fontWeight:700}}>
                 📥 Exportar Excel
               </button>
-              {canViveros&&<button onClick={()=>{setVivForm(EMPTY_VIV);setVivEditId(null);setVivWizStep(1);setVivWizVvForm(EMPTY_VV_INLINE);setVivWizAnxForm(EMPTY_VANX_INLINE);setVivWizOcForm(EMPTY_OC_INLINE);setVivWizCuotaForm(EMPTY_CUOTA_INLINE);setVivWizOcExpandido(null);setVivModal(true);}}
+              {canViveros&&<button onClick={()=>{setVivForm(EMPTY_VIV);setVivEditId(null);setVivWizStep(1);setVivWizVvForm(EMPTY_VV_INLINE);setVivWizAnxForm(EMPTY_VANX_INLINE);setVivWizOcForm(EMPTY_OC_INLINE);setVivWizOcEditId(null);setVivWizVvEditId(null);setVivWizAnxEditId(null);setVivWizCuotaForm(EMPTY_CUOTA_INLINE);setVivWizOcExpandido(null);vivSnapshotRef.current=JSON.stringify(EMPTY_VIV);setVivModal(true);}}
                 style={{padding:"8px 16px",borderRadius:8,background:C.success,border:"none",color:"#fff",cursor:"pointer",fontSize:12,fontWeight:700}}>
                 + Nuevo Vivero
               </button>}
@@ -11628,7 +11845,7 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
                         {v.renovable&&<span style={{fontSize:10,background:"rgba(96,165,250,0.15)",color:C.primary,padding:"3px 10px",borderRadius:20,fontWeight:700}}>🔄</span>}
                         <span style={{fontSize:10,background:"rgba(22,163,74,0.15)",color:C.success,padding:"3px 10px",borderRadius:20,fontWeight:700}}>{nVar} var.</span>
                         {canViveros&&<>
-                          <button onClick={e=>{e.stopPropagation();setVivForm({...EMPTY_VIV,...v});setVivEditId(v.id);setVivWizStep(1);setVivWizVvForm(EMPTY_VV_INLINE);setVivWizAnxForm(EMPTY_VANX_INLINE);setVivWizOcForm(EMPTY_OC_INLINE);setVivWizCuotaForm(EMPTY_CUOTA_INLINE);setVivWizOcExpandido(null);setVivModal(true);}}
+                          <button onClick={e=>{e.stopPropagation();setVivForm({...EMPTY_VIV,...v});setVivEditId(v.id);setVivWizStep(1);setVivWizVvForm(EMPTY_VV_INLINE);setVivWizAnxForm(EMPTY_VANX_INLINE);setVivWizOcForm(EMPTY_OC_INLINE);setVivWizOcEditId(null);setVivWizVvEditId(null);setVivWizAnxEditId(null);setVivWizCuotaForm(EMPTY_CUOTA_INLINE);setVivWizOcExpandido(null);vivSnapshotRef.current=JSON.stringify({...EMPTY_VIV,...v});setVivModal(true);}}
                             style={{background:C.infoBg,border:"none",borderRadius:6,padding:"4px 10px",cursor:"pointer",fontSize:11}}>✏️</button>
                           <button onClick={e=>{e.stopPropagation();eliminarViv(v.id);}}
                             style={{background:C.dangerBg,border:"none",borderRadius:6,padding:"4px 10px",cursor:"pointer",fontSize:11}}>🗑</button>
@@ -11653,17 +11870,28 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
             if(!vivWizVvForm.especie || !vivWizVvForm.variedad) {
               alert("Especie y Variedad son obligatorios."); return;
             }
-            const nueva = {
-              id:`vv_${Date.now()}`,
+            const datos = {
               especie:vivWizVvForm.especie.trim(),
               variedad:vivWizVvForm.variedad.trim(),
               fee_usd:parseFloat(vivWizVvForm.fee_usd)||0,
               fee_pct:parseFloat(vivWizVvForm.fee_pct)||0,
               observaciones:vivWizVvForm.observaciones||"",
             };
-            setVivForm(p=>({...p, variedades:[...(p.variedades||[]), nueva]}));
+            if(vivWizVvEditId){
+              setVivForm(p=>({...p, variedades:(p.variedades||[]).map(v=>v.id===vivWizVvEditId?{...v,...datos}:v)}));
+              setVivWizVvEditId(null);
+            } else {
+              setVivForm(p=>({...p, variedades:[...(p.variedades||[]), {id:`vv_${Date.now()}`, ...datos}]}));
+            }
             setVivWizVvForm(EMPTY_VV_INLINE);
           };
+          const editarVarWiz = (vid) => {
+            const v = wizVariedades.find(x=>x.id===vid);
+            if(!v) return;
+            setVivWizVvForm({especie:v.especie||"",variedad:v.variedad||"",fee_usd:v.fee_usd||"",fee_pct:v.fee_pct||"",observaciones:v.observaciones||""});
+            setVivWizVvEditId(vid);
+          };
+          const cancelarEdicionVarWiz = () => { setVivWizVvEditId(null); setVivWizVvForm(EMPTY_VV_INLINE); };
           const quitarVarWiz = (vid) => {
             const variedadRemovida = wizVariedades.find(v=>v.id===vid);
             if(!variedadRemovida) return;
@@ -11673,17 +11901,30 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
               if(!window.confirm(`Hay ${ocVinc.length} OC vinculada(s) a "${variedadRemovida.especie} · ${variedadRemovida.variedad}". Si la eliminas, esas OC quedarán huérfanas. ¿Continuar?`)) return;
             }
             setVivForm(p=>({...p, variedades:(p.variedades||[]).filter(v=>v.id!==vid)}));
+            if(vivWizVvEditId===vid) cancelarEdicionVarWiz();
           };
 
           // ── Helpers paso 3 (anexos) ──
           const agregarAnxWiz = () => {
             if(!vivWizAnxForm.descripcion) { alert("Descripción del anexo es obligatoria."); return; }
-            const nuevo = {id:`vanx_${Date.now()}`, ...vivWizAnxForm};
-            setVivForm(p=>({...p, anexos:[...(p.anexos||[]), nuevo]}));
+            if(vivWizAnxEditId){
+              setVivForm(p=>({...p, anexos:(p.anexos||[]).map(a=>a.id===vivWizAnxEditId?{...a,...vivWizAnxForm}:a)}));
+              setVivWizAnxEditId(null);
+            } else {
+              setVivForm(p=>({...p, anexos:[...(p.anexos||[]), {id:`vanx_${Date.now()}`, ...vivWizAnxForm}]}));
+            }
             setVivWizAnxForm(EMPTY_VANX_INLINE);
           };
+          const editarAnxWiz = (aid) => {
+            const a = wizAnexos.find(x=>x.id===aid);
+            if(!a) return;
+            setVivWizAnxForm({descripcion:a.descripcion||"",fecha:a.fecha||"",enlace:a.enlace||"",observaciones:a.observaciones||""});
+            setVivWizAnxEditId(aid);
+          };
+          const cancelarEdicionAnxWiz = () => { setVivWizAnxEditId(null); setVivWizAnxForm(EMPTY_VANX_INLINE); };
           const quitarAnxWiz = (aid) => {
             setVivForm(p=>({...p, anexos:(p.anexos||[]).filter(a=>a.id!==aid)}));
+            if(vivWizAnxEditId===aid) cancelarEdicionAnxWiz();
           };
 
           // ── Helpers paso 4 (OC) ──
@@ -11706,6 +11947,26 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
             const cli = clientes.find(c=>c.id===vivWizOcForm.cliente_id);
             const cant = parseFloat(vivWizOcForm.cantidad_plantas)||0;
             const fee  = parseFloat(vivWizOcForm.fee_usd_planta)||0;
+            if(vivWizOcEditId){
+              // Actualizar OC existente preservando id y cuotas
+              setVivForm(p=>({...p, ordenesCompra:(p.ordenesCompra||[]).map(o=>{
+                if(o.id!==vivWizOcEditId) return o;
+                return {
+                  ...o,
+                  ...vivWizOcForm,
+                  id:o.id,
+                  cliente_nombre: cli?.razonSocial || "",
+                  cantidad_plantas: cant,
+                  hectareas: parseFloat(vivWizOcForm.hectareas)||0,
+                  fee_usd_planta: fee,
+                  fee_total_usd: calcFeeTotalWiz(cant, fee),
+                  cuotas: o.cuotas || [],
+                };
+              })}));
+              setVivWizOcEditId(null);
+              setVivWizOcForm(EMPTY_OC_INLINE);
+              return;
+            }
             const nueva = {
               id:`oc_${Date.now()}`,
               ...vivWizOcForm,
@@ -11719,6 +11980,24 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
             setVivForm(p=>({...p, ordenesCompra:[...(p.ordenesCompra||[]), nueva]}));
             setVivWizOcForm(EMPTY_OC_INLINE);
           };
+          const editarOcWiz = (oid) => {
+            const oc = wizOCs.find(o=>o.id===oid);
+            if(!oc) return;
+            setVivWizOcForm({
+              n_oc:oc.n_oc||"", fecha_oc:oc.fecha_oc||"",
+              cliente_id:oc.cliente_id||"", cliente_nombre:oc.cliente_nombre||"",
+              plantacion_id:oc.plantacion_id||"", campo:oc.campo||"",
+              variedad_id:oc.variedad_id||"", especie:oc.especie||"", variedad:oc.variedad||"",
+              cantidad_plantas:oc.cantidad_plantas||"", hectareas:oc.hectareas||"",
+              fee_usd_planta:oc.fee_usd_planta||"", fee_total_usd:oc.fee_total_usd||0,
+              estado_oc:oc.estado_oc||"Borrador", observaciones:oc.observaciones||"",
+            });
+            setVivWizOcEditId(oid);
+          };
+          const cancelarEdicionOcWiz = () => {
+            setVivWizOcEditId(null);
+            setVivWizOcForm(EMPTY_OC_INLINE);
+          };
           const quitarOcWiz = (oid) => {
             const oc = wizOCs.find(o=>o.id===oid);
             if(oc && (oc.cuotas||[]).length>0) {
@@ -11726,6 +12005,7 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
             }
             setVivForm(p=>({...p, ordenesCompra:(p.ordenesCompra||[]).filter(o=>o.id!==oid)}));
             if(vivWizOcExpandido===oid) setVivWizOcExpandido(null);
+            if(vivWizOcEditId===oid) cancelarEdicionOcWiz();
           };
 
           // ── Helpers paso 5 (cuotas) ──
@@ -11797,7 +12077,7 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
           const totCuotasAllOC = wizOCs.reduce((s,o)=>s+(o.cuotas||[]).reduce((ss,c)=>ss+(parseFloat(c.monto_usd)||0),0),0);
 
           return (
-          <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:9999}} onClick={()=>setVivModal(false)}>
+          <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:9999}} onClick={cerrarWiz}>
             <div onClick={e=>e.stopPropagation()} style={{background:C.card,borderRadius:16,padding:24,width:760,maxHeight:"94vh",overflowY:"auto"}}>
               <h3 style={{margin:"0 0 18px",color:C.text}}>{vivEditId?"✏️ Editar":"➕ Nuevo"} Contrato Vivero</h3>
 
@@ -11943,23 +12223,29 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
                       Variedades agregadas ({wizVariedades.length})
                     </div>
                     {wizVariedades.map(v=>(
-                      <div key={v.id} style={{padding:"10px 12px",borderTop:"1px solid #f1f5f9",display:"flex",justifyContent:"space-between",alignItems:"center",gap:8}}>
+                      <div key={v.id} style={{padding:"10px 12px",borderTop:"1px solid #f1f5f9",display:"flex",justifyContent:"space-between",alignItems:"center",gap:8,background:vivWizVvEditId===v.id?C.warningBg:"transparent"}}>
                         <div style={{flex:1,minWidth:0}}>
-                          <div style={{fontSize:13,fontWeight:700,color:C.text}}>🌿 {v.especie} — {v.variedad}</div>
+                          <div style={{fontSize:13,fontWeight:700,color:C.text}}>🌿 {v.especie} — {v.variedad}{vivWizVvEditId===v.id?<span style={{color:C.warning,marginLeft:6,fontSize:10}}>✏️ editando…</span>:null}</div>
                           <div style={{fontSize:10,color:C.muted,marginTop:2}}>
                             {v.fee_usd?<>💵 ${v.fee_usd}/planta</>:null}
                             {v.fee_pct?<> · 📊 {v.fee_pct}% s/venta</>:null}
                             {v.observaciones?<> · {v.observaciones}</>:null}
                           </div>
                         </div>
-                        <button onClick={()=>quitarVarWiz(v.id)} style={{background:C.dangerBg,border:"none",borderRadius:6,padding:"4px 8px",cursor:"pointer",fontSize:11,color:C.danger}}>🗑</button>
+                        <div style={{display:"flex",gap:6,flexShrink:0}}>
+                          <button onClick={()=>editarVarWiz(v.id)} style={{background:C.cardAlt,border:`1px solid ${C.border}`,borderRadius:6,padding:"4px 8px",cursor:"pointer",fontSize:11,color:C.primary}}>✏️</button>
+                          <button onClick={()=>quitarVarWiz(v.id)} style={{background:C.dangerBg,border:"none",borderRadius:6,padding:"4px 8px",cursor:"pointer",fontSize:11,color:C.danger}}>🗑</button>
+                        </div>
                       </div>
                     ))}
                   </div>
                 )}
 
-                <div style={{border:"1px dashed #86efac",borderRadius:10,padding:14,background:C.successBg,marginBottom:12}}>
-                  <div style={{fontSize:12,fontWeight:700,color:C.success,marginBottom:10}}>+ Agregar nueva variedad</div>
+                <div style={{border:`1px dashed ${vivWizVvEditId?C.warning:"#86efac"}`,borderRadius:10,padding:14,background:vivWizVvEditId?C.warningBg:C.successBg,marginBottom:12}}>
+                  <div style={{fontSize:12,fontWeight:700,color:vivWizVvEditId?C.warning:C.success,marginBottom:10,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                    <span>{vivWizVvEditId?"✏️ Editando variedad":"+ Agregar nueva variedad"}</span>
+                    {vivWizVvEditId&&<button onClick={cancelarEdicionVarWiz} style={{background:"transparent",border:`1px solid ${C.border}`,borderRadius:6,padding:"2px 8px",cursor:"pointer",fontSize:10,color:C.muted}}>✕ Cancelar edición</button>}
+                  </div>
                   <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:10}}>
                     <div>
                       <label style={{fontSize:11,fontWeight:600,color:C.muted,display:"block",marginBottom:3}}>Especie <span style={{color:C.danger}}>*</span></label>
@@ -11995,7 +12281,7 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
                     <input value={vivWizVvForm.observaciones||""} onChange={e=>setVivWizVvForm(p=>({...p,observaciones:e.target.value}))}
                       style={{width:"100%",padding:"7px 10px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:12,boxSizing:"border-box"}}/>
                   </div>
-                  <button onClick={agregarVarWiz} style={{width:"100%",padding:"8px 14px",borderRadius:8,background:C.success,border:"none",color:"#fff",cursor:"pointer",fontSize:12,fontWeight:700}}>+ Agregar variedad a la lista</button>
+                  <button onClick={agregarVarWiz} style={{width:"100%",padding:"8px 14px",borderRadius:8,background:vivWizVvEditId?C.warning:C.success,border:"none",color:"#fff",cursor:"pointer",fontSize:12,fontWeight:700}}>{vivWizVvEditId?"💾 Guardar cambios de la variedad":"+ Agregar variedad a la lista"}</button>
                 </div>
               </>)}
 
@@ -12011,23 +12297,29 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
                       Anexos agregados ({wizAnexos.length})
                     </div>
                     {wizAnexos.map(a=>(
-                      <div key={a.id} style={{padding:"10px 12px",borderTop:"1px solid #f1f5f9",display:"flex",justifyContent:"space-between",alignItems:"center",gap:8}}>
+                      <div key={a.id} style={{padding:"10px 12px",borderTop:"1px solid #f1f5f9",display:"flex",justifyContent:"space-between",alignItems:"center",gap:8,background:vivWizAnxEditId===a.id?C.warningBg:"transparent"}}>
                         <div style={{flex:1,minWidth:0}}>
-                          <div style={{fontSize:13,fontWeight:700,color:C.text}}>📎 {a.descripcion}</div>
+                          <div style={{fontSize:13,fontWeight:700,color:C.text}}>📎 {a.descripcion}{vivWizAnxEditId===a.id?<span style={{color:C.warning,marginLeft:6,fontSize:10}}>✏️ editando…</span>:null}</div>
                           <div style={{fontSize:10,color:C.muted,marginTop:2}}>
                             {a.fecha&&`📅 ${a.fecha}`}
                             {a.enlace&&<> · <a href={a.enlace} target="_blank" rel="noopener noreferrer" style={{color:C.primary}}>📎 Abrir</a></>}
                             {a.observaciones&&` · ${a.observaciones}`}
                           </div>
                         </div>
-                        <button onClick={()=>quitarAnxWiz(a.id)} style={{background:C.dangerBg,border:"none",borderRadius:6,padding:"4px 8px",cursor:"pointer",fontSize:11,color:C.danger}}>🗑</button>
+                        <div style={{display:"flex",gap:6,flexShrink:0}}>
+                          <button onClick={()=>editarAnxWiz(a.id)} style={{background:C.cardAlt,border:`1px solid ${C.border}`,borderRadius:6,padding:"4px 8px",cursor:"pointer",fontSize:11,color:C.primary}}>✏️</button>
+                          <button onClick={()=>quitarAnxWiz(a.id)} style={{background:C.dangerBg,border:"none",borderRadius:6,padding:"4px 8px",cursor:"pointer",fontSize:11,color:C.danger}}>🗑</button>
+                        </div>
                       </div>
                     ))}
                   </div>
                 )}
 
-                <div style={{border:"1px dashed #93c5fd",borderRadius:10,padding:14,background:C.infoBg,marginBottom:12}}>
-                  <div style={{fontSize:12,fontWeight:700,color:C.primary,marginBottom:10}}>+ Agregar nuevo anexo</div>
+                <div style={{border:`1px dashed ${vivWizAnxEditId?C.warning:"#93c5fd"}`,borderRadius:10,padding:14,background:vivWizAnxEditId?C.warningBg:C.infoBg,marginBottom:12}}>
+                  <div style={{fontSize:12,fontWeight:700,color:vivWizAnxEditId?C.warning:C.primary,marginBottom:10,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                    <span>{vivWizAnxEditId?"✏️ Editando anexo":"+ Agregar nuevo anexo"}</span>
+                    {vivWizAnxEditId&&<button onClick={cancelarEdicionAnxWiz} style={{background:"transparent",border:`1px solid ${C.border}`,borderRadius:6,padding:"2px 8px",cursor:"pointer",fontSize:10,color:C.muted}}>✕ Cancelar edición</button>}
+                  </div>
                   <div style={{marginBottom:10}}>
                     <label style={{fontSize:11,fontWeight:600,color:C.muted,display:"block",marginBottom:3}}>Descripción <span style={{color:C.danger}}>*</span></label>
                     <input value={vivWizAnxForm.descripcion||""} placeholder="Adenda 2026, Carta compromiso..." onChange={e=>setVivWizAnxForm(p=>({...p,descripcion:e.target.value}))}
@@ -12050,7 +12342,7 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
                     <input value={vivWizAnxForm.observaciones||""} onChange={e=>setVivWizAnxForm(p=>({...p,observaciones:e.target.value}))}
                       style={{width:"100%",padding:"7px 10px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:12,boxSizing:"border-box"}}/>
                   </div>
-                  <button onClick={agregarAnxWiz} style={{width:"100%",padding:"8px 14px",borderRadius:8,background:C.primary,border:"none",color:"#fff",cursor:"pointer",fontSize:12,fontWeight:700}}>+ Agregar anexo a la lista</button>
+                  <button onClick={agregarAnxWiz} style={{width:"100%",padding:"8px 14px",borderRadius:8,background:vivWizAnxEditId?C.warning:C.primary,border:"none",color:"#fff",cursor:"pointer",fontSize:12,fontWeight:700}}>{vivWizAnxEditId?"💾 Guardar cambios del anexo":"+ Agregar anexo a la lista"}</button>
                 </div>
               </>)}
 
@@ -12079,9 +12371,9 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
                         <span style={{color:C.purple}}>Total fee: {$$(totFeeAllOC)}</span>
                       </div>
                       {wizOCs.map(oc=>(
-                        <div key={oc.id} style={{padding:"10px 12px",borderTop:"1px solid #f1f5f9",display:"flex",justifyContent:"space-between",alignItems:"center",gap:8}}>
+                        <div key={oc.id} style={{padding:"10px 12px",borderTop:"1px solid #f1f5f9",display:"flex",justifyContent:"space-between",alignItems:"center",gap:8,background:vivWizOcEditId===oc.id?C.warningBg:"transparent"}}>
                           <div style={{flex:1,minWidth:0}}>
-                            <div style={{fontSize:13,fontWeight:700,color:C.text}}>📦 OC {oc.n_oc} — {oc.cliente_nombre}</div>
+                            <div style={{fontSize:13,fontWeight:700,color:C.text}}>📦 OC {oc.n_oc} — {oc.cliente_nombre}{vivWizOcEditId===oc.id?<span style={{color:C.warning,marginLeft:6,fontSize:10}}>✏️ editando…</span>:null}</div>
                             <div style={{fontSize:10,color:C.muted,marginTop:2}}>
                               🌿 {oc.especie} · {oc.variedad} · {N(oc.cantidad_plantas)} plantas
                               {oc.hectareas?` · ${N(oc.hectareas)} há`:""}
@@ -12089,14 +12381,20 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
                               <span style={{color:C.purple,fontWeight:700,marginLeft:6}}>= {$$(oc.fee_total_usd)}</span>
                             </div>
                           </div>
-                          <button onClick={()=>quitarOcWiz(oc.id)} style={{background:C.dangerBg,border:"none",borderRadius:6,padding:"4px 8px",cursor:"pointer",fontSize:11,color:C.danger}}>🗑</button>
+                          <div style={{display:"flex",gap:6,flexShrink:0}}>
+                            <button onClick={()=>editarOcWiz(oc.id)} style={{background:C.accent2Bg||C.cardAlt,border:`1px solid ${C.border}`,borderRadius:6,padding:"4px 8px",cursor:"pointer",fontSize:11,color:C.accent2||C.primary}}>✏️</button>
+                            <button onClick={()=>quitarOcWiz(oc.id)} style={{background:C.dangerBg,border:"none",borderRadius:6,padding:"4px 8px",cursor:"pointer",fontSize:11,color:C.danger}}>🗑</button>
+                          </div>
                         </div>
                       ))}
                     </div>
                   )}
 
-                  <div style={{border:"1px dashed #c4b5fd",borderRadius:10,padding:14,background:C.purpleBg,marginBottom:12}}>
-                    <div style={{fontSize:12,fontWeight:700,color:C.purple,marginBottom:10}}>+ Agregar nueva OC</div>
+                  <div style={{border:`1px dashed ${vivWizOcEditId?C.warning:"#c4b5fd"}`,borderRadius:10,padding:14,background:vivWizOcEditId?C.warningBg:C.purpleBg,marginBottom:12}}>
+                    <div style={{fontSize:12,fontWeight:700,color:vivWizOcEditId?C.warning:C.purple,marginBottom:10,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                      <span>{vivWizOcEditId?"✏️ Editando OC":"+ Agregar nueva OC"}</span>
+                      {vivWizOcEditId&&<button onClick={cancelarEdicionOcWiz} style={{background:"transparent",border:`1px solid ${C.border}`,borderRadius:6,padding:"2px 8px",cursor:"pointer",fontSize:10,color:C.muted}}>✕ Cancelar edición</button>}
+                    </div>
                     <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:10}}>
                       <div>
                         <label style={{fontSize:11,fontWeight:600,color:C.muted,display:"block",marginBottom:3}}>N° OC <span style={{color:C.danger}}>*</span></label>
@@ -12191,7 +12489,7 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
                           style={{width:"100%",padding:"7px 10px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:12,boxSizing:"border-box"}}/>
                       </div>
                     </div>
-                    <button onClick={agregarOcWiz} style={{width:"100%",padding:"8px 14px",borderRadius:8,background:C.purple,border:"none",color:"#fff",cursor:"pointer",fontSize:12,fontWeight:700}}>+ Agregar OC a la lista</button>
+                    <button onClick={agregarOcWiz} style={{width:"100%",padding:"8px 14px",borderRadius:8,background:vivWizOcEditId?C.warning:C.purple,border:"none",color:"#fff",cursor:"pointer",fontSize:12,fontWeight:700}}>{vivWizOcEditId?"💾 Guardar cambios de la OC":"+ Agregar OC a la lista"}</button>
                   </div>
                 </>)}
               </>)}
@@ -12327,11 +12625,14 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
 
               {/* Footer wizard: navegación */}
               <div style={{display:"flex",gap:8,justifyContent:"space-between",alignItems:"center",marginTop:18,paddingTop:14,borderTop:`1px solid ${C.border}`}}>
-                <button onClick={()=>setVivModal(false)} style={{padding:"8px 16px",borderRadius:8,border:`1px solid ${C.border}`,background:C.card,cursor:"pointer",fontSize:12}}>Cancelar</button>
-                <div style={{display:"flex",gap:8}}>
+                <button onClick={cerrarWiz} style={{padding:"8px 16px",borderRadius:8,border:`1px solid ${C.border}`,background:C.card,cursor:"pointer",fontSize:12}}>Cancelar</button>
+                <div style={{display:"flex",gap:8,alignItems:"center"}}>
+                  {vivGuardadoMsg&&<span style={{fontSize:11,fontWeight:700,color:C.success}}>✓ Guardado</span>}
+                  {/* Guardar parcial: disponible en cualquier paso (no cierra el wizard) */}
+                  {canViveros&&<button onClick={guardarVivParcial} title="Guarda lo ingresado hasta ahora sin cerrar" style={{padding:"8px 14px",borderRadius:8,border:`1px solid ${C.success}`,background:C.successBg||C.card,color:C.success,cursor:"pointer",fontSize:12,fontWeight:700}}>💾 Guardar</button>}
                   {vivWizStep>1&&<button onClick={()=>setVivWizStep(vivWizStep-1)} style={{padding:"8px 16px",borderRadius:8,border:`1px solid ${C.border}`,background:C.cardAlt,cursor:"pointer",fontSize:12,fontWeight:600}}>← Anterior</button>}
                   {vivWizStep<5&&<button onClick={()=>irPaso(vivWizStep+1)} style={{padding:"8px 16px",borderRadius:8,background:C.success,border:"none",color:"#fff",cursor:"pointer",fontSize:12,fontWeight:700}}>Siguiente →</button>}
-                  {vivWizStep===5&&<button onClick={guardarViv} style={{padding:"8px 18px",borderRadius:8,background:C.success,border:"none",color:"#fff",cursor:"pointer",fontSize:13,fontWeight:700}}>{vivEditId?"💾 Guardar cambios":"✅ Crear vivero"}</button>}
+                  {vivWizStep===5&&<button onClick={guardarViv} style={{padding:"8px 18px",borderRadius:8,background:C.success,border:"none",color:"#fff",cursor:"pointer",fontSize:13,fontWeight:700}}>{vivEditId?"💾 Guardar y cerrar":"✅ Crear y cerrar"}</button>}
                 </div>
               </div>
             </div>
