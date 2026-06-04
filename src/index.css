@@ -10,15 +10,17 @@
 
 html, body {
   margin: 0;
-  max-width: 100%;
-  overflow-x: hidden;           /* mata el scroll/recorte horizontal de la página */
   -webkit-text-size-adjust: 100%; /* iOS no reescala el texto al rotar */
 }
 
-#root { max-width: 100%; overflow-x: hidden; }
-
 /* Medios nunca desbordan su contenedor */
 img, video, canvas { max-width: 100%; height: auto; }
+
+/* NOTA: no se usa overflow-x:hidden global porque rompe el scroll
+   horizontal de tablas anchas (ej. Flujo de Caja, 65 meses) que viven
+   en contenedores con overflow:auto y columnas sticky. El recorte de
+   modales se resuelve abajo con el cap por media query, sin afectar
+   el scroll de las tablas. */
 
 /* ------------------------------------------------------------
    MÓVIL (≤ 700px)
@@ -34,8 +36,7 @@ img, video, canvas { max-width: 100%; height: auto; }
     min-width: 0 !important;
   }
 
-  /* Inputs a ≥16px evita el auto-zoom molesto de iOS al enfocar campos.
-     Solo afecta el render en pantalla, no la lógica. */
+  /* Inputs a ≥16px evita el auto-zoom molesto de iOS al enfocar campos. */
   input, select, textarea {
     font-size: 16px !important;
     max-width: 100%;
