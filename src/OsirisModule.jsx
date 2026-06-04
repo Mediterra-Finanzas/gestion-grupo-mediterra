@@ -5102,7 +5102,7 @@ ${linkInforme}
   }
 
   return (
-    <div style={{fontFamily:"'IBM Plex Sans',system-ui,sans-serif"}}>
+    <div style={{fontFamily:"sans-serif"}}>
       {/* KPIs */}
       <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(130px,1fr))",gap:10,marginBottom:16}}>
         {[
@@ -10552,20 +10552,18 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
     const opData = osirisData?.opTecnica || {};
     const canOp = esEditorOAdmin; // usar mismos permisos base
     return (
-      <div style={{fontFamily:"'IBM Plex Sans',system-ui,sans-serif",minHeight:"100vh",
-        background:"linear-gradient(160deg,#0d1117,#161b22)",color:"#e6edf3",padding:20}}>
+      <div style={{fontFamily:"sans-serif",background:C.bg,minHeight:"100vh",padding:"20px 20px 40px"}}>
+        <NavBar breadcrumbItems={[
+          {label:"Mediterra", onClick:onBack},
+          {label:"Osiris Hub", onClick:()=>setSubApp(null)},
+          {label:"Operación Técnica"},
+        ]}/>
         <div style={{maxWidth:1300,margin:"0 auto"}}>
           {/* Header */}
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20,flexWrap:"wrap",gap:12}}>
-            <div style={{display:"flex",alignItems:"center",gap:12}}>
-              <button onClick={()=>setSubApp(null)}
-                style={{background:"#21283b",border:"1px solid #30363d",borderRadius:8,padding:"8px 14px",cursor:"pointer",color:"#e6edf3",fontSize:13,fontWeight:700}}>
-                ← Hub Osiris
-              </button>
-              <div>
-                <div style={{fontSize:22,fontWeight:900,color:"#e6edf3"}}>🔬 Operación Técnica</div>
-                <div style={{fontSize:11,color:"#8b949e"}}>Visitas · Informes · Test Blocks · Equipo · Medidas Correctivas · Entregables</div>
-              </div>
+            <div>
+              <div style={{fontSize:22,fontWeight:900,color:C.text}}>🔬 Operación Técnica</div>
+              <div style={{fontSize:11,color:C.muted}}>Visitas · Informes · Test Blocks · Equipo · Medidas Correctivas · Entregables</div>
             </div>
           </div>
           <OperacionTecnica
