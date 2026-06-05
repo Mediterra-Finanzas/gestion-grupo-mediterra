@@ -1142,22 +1142,29 @@ function TotalPedidos({data,setData,rpData,setRpData,rcData,setRcData,fvData,set
 
   // Actualizar estado de un pedido
   function upd(id,c,v) {
-    setData(prev=>prev.map(r=>{
-      if(r.id!==id) return r;
-      // Solo auditar si realmente cambió
-      if(String(r[c]||"") !== String(v||"")) {
-        window.auditLog&&window.auditLog("editar", {modulo:"osiris", seccion:"Total Pedidos",
-          descripcion:`Editó pedido de "${r.cliente}" · ${r.pais}: campo ${c}`,
-          registroId:id, campo:c,
-          valorAnterior:String(r[c]||""), valorNuevo:String(v||"")});
+    // fila puede ser manual o derivada de contrato (estas últimas no están en osirisData.totalPedidos)
+    const fila = (data||[]).find(r=>r.id===id);
+    if(fila && String(fila[c]||"") !== String(v||"")) {
+      window.auditLog&&window.auditLog("editar", {modulo:"osiris", seccion:"Total Pedidos",
+        descripcion:`Editó pedido de "${fila.cliente}" · ${fila.pais}: campo ${c}`,
+        registroId:id, campo:c,
+        valorAnterior:String(fila[c]||""), valorNuevo:String(v||"")});
+    }
+    setData(prev=>{
+      const arr = prev||[];
+      const idx = arr.findIndex(r=>r.id===id);
+      if(idx>=0){
+        const copy=[...arr]; copy[idx]={...copy[idx],[c]:v}; return copy;
       }
-      const updated = {...r,[c]:v};
-      // Si se confirma → propagar automáticamente
-      if(c==="estado" && v==="Confirmado") {
-        setTimeout(()=>propagarPedido(updated),0);
-      }
-      return updated;
-    }));
+      // Fila derivada sin override aún → guardar override sparse (solo el campo editado).
+      // El memo lo fusiona sobre la fila fresca del contrato.
+      return [...arr, {id, ctId:fila?.ctId, plantacionId:fila?.plantacionId, _fromContract:true, [c]:v}];
+    });
+    // Si se confirma → propagar automáticamente (solo pedidos manuales; los derivados de
+    // contrato ya generan Royalty/Planta, Comercial y Fee Vivero por la propia derivación).
+    if(c==="estado" && v==="Confirmado" && fila && !fila._fromContract) {
+      setTimeout(()=>propagarPedido({...fila,[c]:v}),0);
+    }
   }
 
   function agregar() {
@@ -9084,8 +9091,19 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
   //   Se preservan los pedidos manuales antiguos para no romper la transición.
   const tpData = useMemo(()=>{
     const fromContracts = derivarTotalPedidosDesdeContratos(ctData);
-    const manuales = (osirisData?.totalPedidos||[]).filter(r=>!r._fromContract && !r.ctId);
-    return [...fromContracts, ...manuales];
+    const raw = osirisData?.totalPedidos||[];
+    // Overrides: filas derivadas de contrato que el usuario editó (ej. vivero, estado).
+    // Se guardan en totalPedidos con el mismo id (tp_ctId_plantacionId) y se fusionan acá.
+    const overridesMap = {};
+    raw.forEach(r=>{ if(r.id) overridesMap[r.id]=r; });
+    const fromIds = new Set(fromContracts.map(r=>r.id));
+    const merged = fromContracts.map(rec=>{
+      const ov = overridesMap[rec.id];
+      return ov ? {...rec, ...ov, _fromContract:true, _hasOverride:true} : rec;
+    });
+    // Manuales: filas creadas a mano (sin ctId, sin _fromContract) y que no son override de una derivada.
+    const manuales = raw.filter(r=>!r._fromContract && !r.ctId && !fromIds.has(r.id));
+    return [...merged, ...manuales];
   },[osirisData, ctData]);
 
   const tpIds   = useMemo(()=>new Set(tpData.map(r=>r.id)),[tpData]);
