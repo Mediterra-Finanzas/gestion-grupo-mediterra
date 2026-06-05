@@ -430,6 +430,14 @@ const CATEGORIAS={
   "Gerencia":      {color:C.primary,bg:C.infoBg},
 };
 
+// Empresas para la apertura de tareas por sociedad (F29, cierres, análisis).
+// Lista propia del seguimiento contable/tributario; NO coincide con la lista
+// financiera (EMPRESAS_KEYS_ALL) — incluye sociedades que solo existen aquí.
+const EMPRESAS_TAREAS = [
+  "Inversiones Mediterra","Allegria Foods","Allegria Service","Allpa Farms",
+  "Osiris Plant Management","Integrity Farms","Montejato","Arrayan","Mesain","Frisku Foods",
+];
+
 const TAREAS_BASE=[
   {id:"s1", nombre:"Gestion documental",                                   responsable:"Milagros Becerra",supervisor:"Angelo Huerta",  categoria:"Administracion",frecuencia:"Semanal",diaLimiteSem:4,diaLimite:28,dependeDe:null},
   {id:"s2", nombre:"Preparacion de nominas de pago",                       responsable:"Milagros Becerra",supervisor:"Carol Machuca",  categoria:"Tesoreria",     frecuencia:"Semanal",diaLimiteSem:1,diaLimite:5, dependeDe:null},
@@ -445,7 +453,6 @@ const TAREAS_BASE=[
   {id:"s12",nombre:"Tareas de apoyo a Gerencia (reuniones, etc)",          responsable:"Milagros Becerra",supervisor:"Angelo Huerta",  categoria:"Gerencia",      frecuencia:"Semanal",diaLimiteSem:4,diaLimite:28,dependeDe:null},
   {id:"s13",nombre:"Cobranza de empresas",                                 responsable:"Carol Machuca",   supervisor:"Angelo Huerta",  categoria:"Finanzas",      frecuencia:"Semanal",diaLimiteSem:0,diaLimite:5, dependeDe:null},
   {id:"s14",nombre:"Primera Revision nominas de pago",                     responsable:"Carol Machuca",   supervisor:"",               categoria:"Tesoreria",     frecuencia:"Semanal",diaLimiteSem:1,diaLimite:5, dependeDe:"s2"},
-  {id:"s15",nombre:"Registro contable",                                    responsable:"Michelle Garcia", supervisor:"Angelo Huerta",  categoria:"Contabilidad",  frecuencia:"Semanal",diaLimiteSem:2,diaLimite:7, dependeDe:null},
   {id:"s16",nombre:"Conciliaciones",                                       responsable:"Michelle Garcia", supervisor:"Angelo Huerta",  categoria:"Contabilidad",  frecuencia:"Semanal",diaLimiteSem:3,diaLimite:7, dependeDe:null},
   {id:"s17",nombre:"Ingreso movimientos bancarios",                        responsable:"Pablo Duran",     supervisor:"Michelle Garcia",categoria:"Contabilidad",  frecuencia:"Semanal",diaLimiteSem:0,diaLimite:5, dependeDe:null},
   {id:"s18",nombre:"Registro pagos de nominas",                            responsable:"Pablo Duran",     supervisor:"Michelle Garcia",categoria:"Contabilidad",  frecuencia:"Semanal",diaLimiteSem:3,diaLimite:8, dependeDe:"s6"},
@@ -458,17 +465,17 @@ const TAREAS_BASE=[
   {id:"m7", nombre:"Primera Revision nominas Chile",                       responsable:"Carol Machuca",   supervisor:"",               categoria:"Tesoreria",     frecuencia:"Mensual",diaLimiteSem:0,diaLimite:5, dependeDe:null},
   {id:"m8", nombre:"Primera Revision nominas Peru",                        responsable:"Carol Machuca",   supervisor:"",               categoria:"Tesoreria",     frecuencia:"Mensual",diaLimiteSem:0,diaLimite:5, dependeDe:null},
   {id:"m9", nombre:"Retroalimentacion con Gerentes por desviaciones",      responsable:"Carol Machuca",   supervisor:"Angelo Huerta",  categoria:"Finanzas",      frecuencia:"Mensual",diaLimiteSem:0,diaLimite:22,dependeDe:"m1"},
-  {id:"m10",nombre:"Analisis de cuenta",                                   responsable:"Michelle Garcia", supervisor:"Angelo Huerta",  categoria:"Contabilidad",  frecuencia:"Mensual",diaLimiteSem:0,diaLimite:10,dependeDe:null},
-  {id:"m11",nombre:"Entrega Final Estados Financieros",                    responsable:"Michelle Garcia", supervisor:"Angelo Huerta",  categoria:"Contabilidad",  frecuencia:"Mensual",diaLimiteSem:0,diaLimite:15,dependeDe:"m12"},
-  {id:"m12",nombre:"Preparacion estados financieros grupo",                responsable:"Michelle Garcia", supervisor:"Angelo Huerta",  categoria:"Contabilidad",  frecuencia:"Mensual",diaLimiteSem:0,diaLimite:13,dependeDe:"m13"},
-  {id:"m13",nombre:"Cierre contable",                                      responsable:"Michelle Garcia", supervisor:"Angelo Huerta",  categoria:"Contabilidad",  frecuencia:"Mensual",diaLimiteSem:0,diaLimite:10,dependeDe:null},
-  {id:"m14",nombre:"Formulario 29",                                        responsable:"Michelle Garcia", supervisor:"Angelo Huerta",  categoria:"Tributario",    frecuencia:"Mensual",diaLimiteSem:0,diaLimite:12,dependeDe:null},
-  {id:"m15",nombre:"Formulario 50",                                        responsable:"Michelle Garcia", supervisor:"Angelo Huerta",  categoria:"Tributario",    frecuencia:"Mensual",diaLimiteSem:0,diaLimite:12,dependeDe:null},
-  {id:"m16",nombre:"Analisis registros contables",                         responsable:"Michelle Garcia", supervisor:"Angelo Huerta",  categoria:"Contabilidad",  frecuencia:"Mensual",diaLimiteSem:0,diaLimite:15,dependeDe:null},
-  {id:"m17",nombre:"Pago Formulario 29",                                   responsable:"Angelo Huerta",   supervisor:"",               categoria:"Tributario",    frecuencia:"Mensual",diaLimiteSem:0,diaLimite:20,dependeDe:"m14"},
+  {id:"m11",nombre:"Entrega Final Estados Financieros",                    responsable:"Carol Machuca",   supervisor:"Angelo Huerta",  categoria:"Contabilidad",  frecuencia:"Mensual",diaLimiteSem:0,diaLimite:15,dependeDe:"m13"},
+  {id:"m13",nombre:"Cierre contable y preparacion EEFF grupo",             responsable:"Michelle Garcia", supervisor:"Carol Machuca",  categoria:"Contabilidad",  frecuencia:"Mensual",diaLimiteSem:0,diaLimite:13,dependeDe:null, porEmpresa:true, coResponsables:["Pablo Duran"]},
+  {id:"m14",nombre:"Formulario 29",                                        responsable:"Pablo Duran",     supervisor:"Angelo Huerta",  categoria:"Tributario",    frecuencia:"Mensual",diaLimiteSem:0,diaLimite:12,dependeDe:null, porEmpresa:true, coResponsables:["Michelle Garcia"]},
+  {id:"m15",nombre:"Formulario 50",                                        responsable:"Michelle Garcia", supervisor:"Angelo Huerta",  categoria:"Tributario",    frecuencia:"Mensual",diaLimiteSem:0,diaLimite:12,dependeDe:null, coResponsables:["Pablo Duran"]},
+  {id:"m17",nombre:"Pago Formulario 29",                                   responsable:"Angelo Huerta",   supervisor:"",               categoria:"Tributario",    frecuencia:"Mensual",diaLimiteSem:0,diaLimite:20,dependeDe:"m14", porEmpresa:true},
   {id:"m18",nombre:"Pago Formulario 50",                                   responsable:"Angelo Huerta",   supervisor:"",               categoria:"Tributario",    frecuencia:"Mensual",diaLimiteSem:0,diaLimite:20,dependeDe:"m15"},
-  {id:"m19",nombre:"Analisis de cuenta",                                   responsable:"Pablo Duran",     supervisor:"Michelle Garcia",categoria:"Contabilidad",  frecuencia:"Mensual",diaLimiteSem:0,diaLimite:8, dependeDe:null},
-  {id:"m20",nombre:"Apoyo cierre",                                         responsable:"Pablo Duran",     supervisor:"Michelle Garcia",categoria:"Contabilidad",  frecuencia:"Mensual",diaLimiteSem:0,diaLimite:10,dependeDe:null},
+  {id:"m19",nombre:"Analisis de cuenta",                                   responsable:"Pablo Duran",     supervisor:"Angelo Huerta",  categoria:"Contabilidad",  frecuencia:"Mensual",diaLimiteSem:0,diaLimite:8, dependeDe:null, porEmpresa:true, coResponsables:["Michelle Garcia"]},
+  {id:"p1", nombre:"Inventarios",                                          responsable:"Pablo Duran",     supervisor:"Angelo Huerta",  categoria:"Contabilidad",  frecuencia:"Puntual",diaLimiteSem:0,diaLimite:0, dependeDe:null, fechaPuntual:""},
+  {id:"a1", nombre:"Formulario 22 (Renta anual)",                          responsable:"Michelle Garcia", supervisor:"Angelo Huerta",  categoria:"Tributario",    frecuencia:"Anual",  diaLimiteSem:0,diaLimite:30,dependeDe:null},
+  {id:"a2", nombre:"Declaraciones Juradas (DDJJ)",                         responsable:"Michelle Garcia", supervisor:"Angelo Huerta",  categoria:"Tributario",    frecuencia:"Anual",  diaLimiteSem:0,diaLimite:25,dependeDe:null},
+  {id:"a3", nombre:"Auditoria",                                            responsable:"Carol Machuca",   supervisor:"Angelo Huerta",  categoria:"Finanzas",      frecuencia:"Anual",  diaLimiteSem:0,diaLimite:30,dependeDe:null},
 ];
 
 function semanasDelMes(anio,mes){
@@ -485,6 +492,11 @@ function semanasDelMes(anio,mes){
   return semanas;
 }
 
+// Claves de estado de una tarea: si abre por empresa, una por sociedad
+// (sufijo "__<empresa>"); si no, la clave base tal cual.
+function clavesInstancia(t,baseKey){
+  return t.porEmpresa ? EMPRESAS_TAREAS.map(e=>`${baseKey}__${e}`) : [baseKey];
+}
 function fechaDiaSemana(ini,ds){const f=new Date(ini);f.setDate(ini.getDate()+ds);return f;}
 function semanaActivaDefault(semanas){
   const hoy=new Date();hoy.setHours(0,0,0,0);
@@ -1822,6 +1834,7 @@ export default function App(){
   const [mostrarFormTarea,setMostrarFormTarea]=useState(false);
   const [editandoTarea,setEditandoTarea]=useState(null);
   const [formEditTarea,setFormEditTarea]=useState({});
+  const [empExpand,setEmpExpand]=useState({}); // baseKey → bool (apertura por empresa)
 
   // osirisData ya NO vive en App.jsx — tiene su propia fila "osiris" en Supabase
   // OsirisModule maneja su propia carga/guardado independiente
@@ -2467,20 +2480,30 @@ export default function App(){
     if(esSoloConsulta(usuarioActual.nombre))return false;
     if(esAdmin(usuarioActual.nombre))return true;
     const sup=getSupervisor(tarea.id);
-    return esResp?tarea.responsable===usuarioActual.nombre:sup===usuarioActual.nombre;
+    // Una tarea puede tener varios responsables habilitados (cualquiera la marca)
+    const resps=[tarea.responsable,...(tarea.coResponsables||[])];
+    return esResp?resps.includes(usuarioActual.nombre):sup===usuarioActual.nombre;
   }
-  function dependenciaOk(tarea,numSemana){
+  // Nombres (solo primer nombre) de todos los responsables habilitados de la tarea
+  const respLabel=(t)=>[t.responsable,...(t.coResponsables||[])].map(r=>r.split(" ")[0]).join("/");
+  function dependenciaOk(tarea,numSemana,emp){
     const depId=getDependeDe(tarea.id);if(!depId)return true;
     const depT=getTareaById(depId);if(!depT)return true;
-    if(getFrecuencia(depT.id)==="Mensual"||getFrecuencia(depT.id)==="Puntual")return(estados[depId]?.estadoResp||"gris")==="verde";
-    if(numSemana===null||numSemana===undefined)return(estados[depId]?.estadoResp||"gris")==="verde";
-    return(estados[`${depId}_s${numSemana}`]?.estadoResp||"gris")==="verde";
+    const verde=(k)=>(estados[k]?.estadoResp||"gris")==="verde";
+    if(depT.porEmpresa){
+      // dep abierto por empresa: misma empresa si la hay, si no todas verdes
+      if(emp)return verde(`${depId}__${emp}`);
+      return EMPRESAS_TAREAS.every(e=>verde(`${depId}__${e}`));
+    }
+    if(getFrecuencia(depT.id)==="Mensual"||getFrecuencia(depT.id)==="Puntual")return verde(depId);
+    if(numSemana===null||numSemana===undefined)return verde(depId);
+    return verde(`${depId}_s${numSemana}`);
   }
   function getNombreDep(tarea){const id=getDependeDe(tarea.id);return getTareaById(id)?.nombre||null;}
 
-  function ciclarResp(key,tarea,numSemana){
+  function ciclarResp(key,tarea,numSemana,emp){
     if(!puedeEditar(tarea,true))return;
-    if(!dependenciaOk(tarea,numSemana)){
+    if(!dependenciaOk(tarea,numSemana,emp)){
       const depT=getTareaById(getDependeDe(tarea.id));
       if(depT)alert(`Esta tarea depende de:\n"${depT.nombre}"\nCompleta esa tarea primero.`);
       return;
@@ -2499,7 +2522,7 @@ export default function App(){
         if(supNombre){
           const supWorker = WORKERS.find(w=>w.nombre===supNombre);
           if(supWorker?.email){
-            const respNombre = tarea.responsable||usuarioActual?.nombre||"";
+            const respNombre = usuarioActual?.nombre||tarea.responsable||"";
             enviarNotificacion(
               supWorker.email,
               supNombre,
@@ -2590,8 +2613,8 @@ Equipo Mediterra`);
     const res={};WORKERS.forEach(w=>{res[w.nombre]=[];});
     todasTareas().filter(t=>!isBloqueada(t.id)).forEach(t=>{
       const frec=getFrecuencia(t.id);
-      if(frec==="Mensual"||frec==="Puntual"){if(estaVencida(t,t.id,null))res[t.responsable]?.push({...t,key:t.id});}
-      else semanas.forEach(s=>{const key=`${t.id}_s${s.num}`;if(estaVencida(t,key,s.num))res[t.responsable]?.push({...t,key});});
+      if(frec==="Mensual"||frec==="Puntual"){clavesInstancia(t,t.id).forEach(key=>{if(estaVencida(t,key,null))res[t.responsable]?.push({...t,key});});}
+      else semanas.forEach(s=>{clavesInstancia(t,`${t.id}_s${s.num}`).forEach(key=>{if(estaVencida(t,key,s.num))res[t.responsable]?.push({...t,key});});});
     });
     return res;
   }
@@ -2600,7 +2623,7 @@ Equipo Mediterra`);
     const cuerpo=encodeURIComponent(`Hola ${w.nombre.split(" ")[0]},\n\nLas siguientes tareas estan vencidas:\n\n`+tareas.map(t=>`- ${t.nombre}`).join('\n')+`\n\nhttps://gestion-grupo-mediterra.vercel.app\n\nSaludos`);
     window.open(`mailto:${w.email}?subject=${asunto}&body=${cuerpo}`);
   }
-  const totalVencidas=(()=>{let c=0;todasTareas().filter(t=>!isBloqueada(t.id)).forEach(t=>{const frec=getFrecuencia(t.id);if(frec==="Mensual"||frec==="Puntual"){if(estaVencida(t,t.id,null))c++;}else semanas.forEach(s=>{if(estaVencida(t,`${t.id}_s${s.num}`,s.num))c++;});});return c;})();
+  const totalVencidas=(()=>{let c=0;todasTareas().filter(t=>!isBloqueada(t.id)).forEach(t=>{const frec=getFrecuencia(t.id);if(frec==="Mensual"||frec==="Puntual"){clavesInstancia(t,t.id).forEach(k=>{if(estaVencida(t,k,null))c++;});}else semanas.forEach(s=>{clavesInstancia(t,`${t.id}_s${s.num}`).forEach(k=>{if(estaVencida(t,k,s.num))c++;});});});return c;})();
 
   function resumen(nombre){
     let v=0,a=0,r=0,g=0,total=0;
@@ -2608,7 +2631,7 @@ Equipo Mediterra`);
       const frec=getFrecuencia(t.id);const sup=getSupervisor(t.id);
       const esR=t.responsable===nombre;const esS=sup===nombre;
       if(!esR&&!esS)return;
-      const keys=frec==="Mensual"||frec==="Puntual"?[t.id]:semanas.map(s=>`${t.id}_s${s.num}`);
+      const keys=frec==="Mensual"||frec==="Puntual"?clavesInstancia(t,t.id):semanas.flatMap(s=>clavesInstancia(t,`${t.id}_s${s.num}`));
       keys.forEach(k=>{const e=(esR?estados[k]?.estadoResp:estados[k]?.estadoSup)||"gris";if(e==="na")return;total++;if(e==="verde")v++;else if(e==="amarillo")a++;else if(e==="rojo")r++;else g++;});
     });
     return{v,a,r,g,total,pct:total>0?Math.round((v/total)*100):0};
@@ -2725,6 +2748,88 @@ Equipo Mediterra`);
       const numSem=getSemana?getSemana():null;
       const frec=getFrecuencia(t.id);
       const key=(frec==="Mensual"||frec==="Diaria"||frec==="Quincenal"||frec==="Anual")?t.id:getKey(t);
+      // ── Tarea que se abre por empresa: fila padre expandible + sub-filas ──
+      if(t.porEmpresa){
+        const cat=CATEGORIAS[t.categoria]||{color:C.muted,bg:C.cardAlt};
+        const sup=getSupervisor(t.id);
+        const subs=EMPRESAS_TAREAS.map(emp=>({emp,k:`${key}__${emp}`}));
+        const nVerde=subs.filter(({k})=>estados[k]?.estadoResp==="verde").length;
+        const algunaVenc=subs.some(({k})=>estaVencida(t,k,numSem)&&estados[k]?.estadoResp!=="na");
+        const expanded=!!empExpand[key];
+        const diaLabel=frec==="Mensual"?`día ${getConfig(t.id).diaLimite||t.diaLimite}`:`${DIAS_SEMANA[getConfig(t.id).diaLimiteSem??t.diaLimiteSem]}`;
+        return(
+          <React.Fragment key={key}>
+            <tr onClick={()=>setEmpExpand(p=>({...p,[key]:!p[key]}))}
+              style={{borderBottom:`1px solid ${C.border}`,cursor:"pointer",
+                background:algunaVenc?"#fff5f5":i%2===0?"#fff":C.cardAlt,
+                borderLeft:algunaVenc?"4px solid #ef4444":"4px solid transparent"}}>
+              <td style={{padding:"9px 14px"}}>
+                <div style={{display:"flex",alignItems:"center",gap:6}}>
+                  <span style={{fontSize:11,color:C.muted2,width:12}}>{expanded?"▾":"▸"}</span>
+                  {algunaVenc&&<span style={{color:C.danger,fontWeight:700,fontSize:11}}>!!</span>}
+                  <div style={{fontWeight:600,color:algunaVenc?C.danger:C.text,fontSize:13}}>{t.nombre}</div>
+                </div>
+                <div style={{display:"flex",gap:6,marginTop:2,flexWrap:"wrap",paddingLeft:18}}>
+                  <span style={{fontSize:10,background:cat.bg,color:cat.color,borderRadius:20,padding:"1px 8px",fontWeight:600}}>{t.categoria}</span>
+                  <span style={{fontSize:10,color:C.muted2}}>{frec} · {diaLabel} · por empresa</span>
+                </div>
+              </td>
+              <td style={{textAlign:"center",padding:"9px 8px",fontSize:12,color:C.text}}>{respLabel(t)}</td>
+              <td style={{textAlign:"center",padding:"9px 8px"}}>
+                <span style={{fontSize:11,fontWeight:700,padding:"3px 10px",borderRadius:20,
+                  background:nVerde===subs.length?C.successBg:C.cardAlt,color:nVerde===subs.length?C.success:C.muted}}>
+                  {nVerde}/{subs.length}
+                </span>
+              </td>
+              <td style={{textAlign:"center",padding:"9px 8px",fontSize:12,color:C.text}}>{sup?sup.split(" ")[0]:<span style={{color:C.border}}>-</span>}</td>
+              <td style={{textAlign:"center",padding:"9px 8px"}}/>
+              <td style={{textAlign:"center",padding:"9px 8px"}}/>
+            </tr>
+            {expanded&&subs.map(({emp,k})=>{
+              const est=estados[k]||{estadoResp:"gris",estadoSup:"gris",aprobado:false};
+              const semResp=SEMAFORO[est.estadoResp]||SEMAFORO.gris;
+              const supActivo=est.estadoResp==="verde"&&sup&&est.estadoResp!=="na";
+              const semSup=SEMAFORO[supActivo?est.estadoSup:"gris"];
+              const com=comentarios[k]||"";
+              const esNA=est.estadoResp==="na";
+              const vencida=estaVencida(t,k,numSem)&&!esNA;
+              const proxima=!vencida&&estaProxima(t,k,numSem)&&!esNA;
+              const depOk=dependenciaOk(t,numSem,emp);
+              const puedeResp=puedeEditar(t,true);const puedeSup=puedeEditar(t,false);
+              return(
+                <tr key={k} style={{borderBottom:`1px solid ${C.border}`,opacity:esNA?0.55:1,
+                  background:!depOk?"#f8f8ff":esNA?C.cardAlt:vencida?"#fff5f5":proxima?C.warningBg:"#fcfcff",
+                  borderLeft:!depOk?"4px solid #c4b5fd":esNA?"4px solid #94a3b8":vencida?"4px solid #ef4444":proxima?"4px solid #f59e0b":"4px solid #e5e7eb"}}>
+                  <td style={{padding:"7px 14px 7px 34px"}}>
+                    <div style={{display:"flex",alignItems:"center",gap:6}}>
+                      {!depOk&&<span title={`Depende de: ${getNombreDep(t)}`} style={{fontSize:11}}>🔒</span>}
+                      {vencida&&depOk&&!esNA&&<span style={{color:C.danger,fontWeight:700,fontSize:11}}>!!</span>}
+                      {esNA&&<span style={{fontSize:11}}>⊘</span>}
+                      <div style={{fontSize:12,color:esNA?C.muted2:vencida?C.danger:C.muted,textDecoration:esNA?"line-through":"none"}}>{emp}</div>
+                    </div>
+                  </td>
+                  <td style={{textAlign:"center",padding:"7px 8px",fontSize:12,color:C.muted}}>{respLabel(t)}</td>
+                  <td style={{textAlign:"center",padding:"7px 8px"}}>
+                    <button onClick={()=>ciclarResp(k,t,numSem,emp)}
+                      style={{width:26,height:26,borderRadius:"50%",background:semResp.color,border:`3px solid ${semResp.border}`,cursor:puedeResp?"pointer":"not-allowed",outline:"none",opacity:puedeResp?1:0.4,boxShadow:"0 2px 6px #0002",backgroundImage:est.estadoResp==="na"?"repeating-linear-gradient(45deg,transparent,transparent 3px,rgba(0,0,0,0.15) 3px,rgba(0,0,0,0.15) 6px)":undefined}}/>
+                  </td>
+                  <td style={{textAlign:"center",padding:"7px 8px",fontSize:12,color:C.muted}}>{sup?sup.split(" ")[0]:<span style={{color:C.border}}>-</span>}</td>
+                  <td style={{textAlign:"center",padding:"7px 8px"}}>
+                    {sup?<button onClick={()=>ciclarSup(k,t)} style={{width:26,height:26,borderRadius:"50%",background:supActivo?semSup.color:"#e5e7eb",border:`3px solid ${supActivo?semSup.border:C.border}`,cursor:(supActivo&&puedeSup)?"pointer":"not-allowed",outline:"none",opacity:(supActivo&&puedeSup)?1:0.4}}/>
+                    :<span style={{color:C.border,fontSize:12}}>-</span>}
+                  </td>
+                  <td style={{textAlign:"center",padding:"7px 8px"}}>
+                    <button onClick={()=>{setEditComentario(k);setTextoComentario(com);}}
+                      style={{background:com?C.infoBg:C.cardAlt,border:"none",borderRadius:8,padding:"4px 10px",cursor:"pointer",fontSize:11,color:com?C.primary:C.muted2,maxWidth:100,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+                      {com?`[${com.substring(0,10)}...]`:"+"}
+                    </button>
+                  </td>
+                </tr>
+              );
+            })}
+          </React.Fragment>
+        );
+      }
       const est=estados[key]||{estadoResp:"gris",estadoSup:"gris",aprobado:false};
       const semResp=SEMAFORO[est.estadoResp]||SEMAFORO.gris;
       const sup=getSupervisor(t.id);
@@ -2763,7 +2868,7 @@ Equipo Mediterra`);
               <span style={{fontSize:10,color:C.muted2}}>{frec} · {diaLabel}</span>
             </div>
           </td>
-          <td style={{textAlign:"center",padding:"9px 8px",fontSize:12,color:C.text}}>{t.responsable.split(" ")[0]}</td>
+          <td style={{textAlign:"center",padding:"9px 8px",fontSize:12,color:C.text}}>{respLabel(t)}</td>
           <td style={{textAlign:"center",padding:"9px 8px"}}>
             <button onClick={()=>ciclarResp(key,t,numSem)}
               style={{width:28,height:28,borderRadius:"50%",background:semResp.color,border:`3px solid ${semResp.border}`,cursor:puedeResp?"pointer":"not-allowed",outline:"none",opacity:puedeResp?1:0.4,boxShadow:"0 2px 6px #0002",transition:"transform 0.1s",backgroundImage:est.estadoResp==="na"?"repeating-linear-gradient(45deg,transparent,transparent 3px,rgba(0,0,0,0.15) 3px,rgba(0,0,0,0.15) 6px)":undefined}}
@@ -3112,11 +3217,14 @@ Equipo Mediterra`);
         const vencidas=[];
         todasTareas().filter(t=>!isBloqueada(t.id)).forEach(t=>{
           if(getFrecuencia(t.id)==="Mensual"){
-            if(estaVencida(t,t.id,null)) vencidas.push({tarea:t,semana:null,key:t.id});
+            clavesInstancia(t,t.id).forEach(k=>{
+              if(estaVencida(t,k,null)) vencidas.push({tarea:t,semana:null,key:k,emp:t.porEmpresa?k.split("__")[1]:null});
+            });
           } else {
             semanas.forEach(s=>{
-              if(estaVencida(t,`${t.id}_s${s.num}`,s.num))
-                vencidas.push({tarea:t,semana:s,key:`${t.id}_s${s.num}`});
+              clavesInstancia(t,`${t.id}_s${s.num}`).forEach(k=>{
+                if(estaVencida(t,k,s.num)) vencidas.push({tarea:t,semana:s,key:k,emp:t.porEmpresa?k.split("__")[1]:null});
+              });
             });
           }
         });
@@ -3142,7 +3250,7 @@ Equipo Mediterra`);
                 {vencidas.length===0&&(
                   <div style={{textAlign:"center",padding:32,color:C.muted}}>Sin tareas vencidas ✓</div>
                 )}
-                {vencidas.map(({tarea,semana,key},i)=>{
+                {vencidas.map(({tarea,semana,key,emp},i)=>{
                   const est=estados[key];
                   const resp=est?.estadoResp||"gris";
                   const sup2=est?.estadoSup||"gris";
@@ -3153,6 +3261,7 @@ Equipo Mediterra`);
                       <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:4}}>
                         <span style={{width:8,height:8,borderRadius:"50%",background:C.danger,flexShrink:0}}/>
                         <span style={{fontSize:13,fontWeight:700,color:C.text,flex:1}}>{tarea.nombre}</span>
+                        {emp&&<span style={{fontSize:10,color:C.primary,background:C.infoBg,borderRadius:6,padding:"1px 6px"}}>{emp}</span>}
                         {semana&&<span style={{fontSize:10,color:C.muted,background:C.card,borderRadius:6,padding:"1px 6px"}}>S{semana.num}</span>}
                       </div>
                       <div style={{display:"flex",gap:12,paddingLeft:16,fontSize:11,color:C.muted,flexWrap:"wrap"}}>
