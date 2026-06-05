@@ -8995,6 +8995,30 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
     const t = setTimeout(()=>dbSaveOsiris(dataRef.current), 2000);
     return ()=>clearTimeout(t);
   },[osirisData, cargandoOsiris]);
+
+  // ── Anti-desborde global del módulo ────────────────────────────────
+  // Solución de raíz: ninguna celda de tabla parte en dos filas ni se sale
+  // del recuadro. white-space:nowrap evita el wrap; ellipsis + max-width
+  // cortan textos largos con "…"; los números (cortos) nunca se truncan.
+  // Combinado con los wrappers overflowX:auto, las tablas anchas hacen
+  // scroll horizontal en vez de desbordar la página.
+  useEffect(()=>{
+    const ID = "osiris-overflow-fix";
+    if(document.getElementById(ID)) return;
+    const st = document.createElement("style");
+    st.id = ID;
+    st.textContent = `
+      .osiris-root td, .osiris-root th {
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        max-width: 360px;
+      }
+      .osiris-root td > *, .osiris-root th > * { min-width: 0; }
+    `;
+    document.head.appendChild(st);
+    return ()=>{ const el=document.getElementById(ID); if(el) el.remove(); };
+  },[]);
   // subApp: null = hub Osiris | "ingresos" | "contratos"
   const [subApp,setSubApp]=useState(null);
   const [subTab,setSubTab]=useState("resumen");
@@ -9330,7 +9354,7 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
 
   // ── HUB INTERNO OSIRIS ─────────────────────────────────────
   if(subApp===null) return(
-    <div style={{fontFamily:"sans-serif",background:C.bg,minHeight:"100vh",padding:"20px 20px 40px",maxWidth:"100%",overflowX:"hidden"}}>
+    <div className="osiris-root" style={{fontFamily:"sans-serif",background:C.bg,minHeight:"100vh",padding:"20px 20px 40px",maxWidth:"100%",overflowX:"hidden"}}>
       <NavBar breadcrumbItems={[
         {label:"Mediterra", onClick:onBack},
         {label:"Osiris Plant Management"},
@@ -9418,7 +9442,7 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
 
   // ── CONTROL CONTRATOS ──────────────────────────────────────
   if(subApp==="contratos") return(
-    <div style={{fontFamily:"sans-serif",background:C.bg,minHeight:"100vh",padding:"20px 20px 40px",maxWidth:"100%",overflowX:"hidden"}}>
+    <div className="osiris-root" style={{fontFamily:"sans-serif",background:C.bg,minHeight:"100vh",padding:"20px 20px 40px",maxWidth:"100%",overflowX:"hidden"}}>
       <NavBar breadcrumbItems={[
         {label:"Mediterra", onClick:onBack},
         {label:"Osiris Hub", onClick:()=>setSubApp(null)},
@@ -9593,7 +9617,7 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
       const vig = estadoVigencia(c.f_vencimiento);
 
       return (
-        <div style={{fontFamily:"sans-serif",background:C.bg,minHeight:"100vh",padding:"20px 20px 40px",maxWidth:"100%",overflowX:"hidden"}}>
+        <div className="osiris-root" style={{fontFamily:"sans-serif",background:C.bg,minHeight:"100vh",padding:"20px 20px 40px",maxWidth:"100%",overflowX:"hidden"}}>
           <NavBar breadcrumbItems={[
             {label:"Mediterra", onClick:onBack},
             {label:"Osiris Hub", onClick:()=>{setSubApp(null);setObtDetalle(null);}},
@@ -10295,7 +10319,7 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
     const totVencidos = obtData.filter(o=>{const d=diasParaVencer(o.f_vencimiento);return d!==null && d<0;}).length;
     const totPorVencer = obtData.filter(o=>{const d=diasParaVencer(o.f_vencimiento);return d!==null && d>=0 && d<=90;}).length;
     return (
-      <div style={{fontFamily:"sans-serif",background:C.bg,minHeight:"100vh",padding:"20px 20px 40px",maxWidth:"100%",overflowX:"hidden"}}>
+      <div className="osiris-root" style={{fontFamily:"sans-serif",background:C.bg,minHeight:"100vh",padding:"20px 20px 40px",maxWidth:"100%",overflowX:"hidden"}}>
         <NavBar breadcrumbItems={[
           {label:"Mediterra", onClick:onBack},
           {label:"Osiris Hub", onClick:()=>setSubApp(null)},
@@ -10804,7 +10828,7 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
     const opData = osirisData?.opTecnica || {};
     const canOp = esEditorOAdmin; // usar mismos permisos base
     return (
-      <div style={{fontFamily:"sans-serif",background:C.bg,minHeight:"100vh",padding:"20px 20px 40px",maxWidth:"100%",overflowX:"hidden"}}>
+      <div className="osiris-root" style={{fontFamily:"sans-serif",background:C.bg,minHeight:"100vh",padding:"20px 20px 40px",maxWidth:"100%",overflowX:"hidden"}}>
         <NavBar breadcrumbItems={[
           {label:"Mediterra", onClick:onBack},
           {label:"Osiris Hub", onClick:()=>setSubApp(null)},
@@ -11170,7 +11194,7 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
       const vig = estadoVigencia(v.f_vencimiento);
 
       return (
-        <div style={{fontFamily:"sans-serif",background:C.bg,minHeight:"100vh",padding:"20px 20px 40px",maxWidth:"100%",overflowX:"hidden"}}>
+        <div className="osiris-root" style={{fontFamily:"sans-serif",background:C.bg,minHeight:"100vh",padding:"20px 20px 40px",maxWidth:"100%",overflowX:"hidden"}}>
           <NavBar breadcrumbItems={[
             {label:"Mediterra", onClick:onBack},
             {label:"Osiris Hub", onClick:()=>{setSubApp(null);setVivDetalle(null);}},
@@ -11857,7 +11881,7 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
     const totVencidos = vivData.filter(v=>{const d=diasParaVencer(v.f_vencimiento);return d!==null && d<0;}).length;
     const totPorVencer = vivData.filter(v=>{const d=diasParaVencer(v.f_vencimiento);return d!==null && d>=0 && d<=90;}).length;
     return (
-      <div style={{fontFamily:"sans-serif",background:C.bg,minHeight:"100vh",padding:"20px 20px 40px",maxWidth:"100%",overflowX:"hidden"}}>
+      <div className="osiris-root" style={{fontFamily:"sans-serif",background:C.bg,minHeight:"100vh",padding:"20px 20px 40px",maxWidth:"100%",overflowX:"hidden"}}>
         <NavBar breadcrumbItems={[
           {label:"Mediterra", onClick:onBack},
           {label:"Osiris Hub", onClick:()=>setSubApp(null)},
@@ -12762,7 +12786,7 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
   // ── SEGUIMIENTO TAREAS OSIRIS ──────────────────────────────
   if(subApp==="tareas") {
     return (
-      <div style={{fontFamily:"sans-serif",background:C.bg,minHeight:"100vh",padding:"20px 20px 40px",maxWidth:"100%",overflowX:"hidden"}}>
+      <div className="osiris-root" style={{fontFamily:"sans-serif",background:C.bg,minHeight:"100vh",padding:"20px 20px 40px",maxWidth:"100%",overflowX:"hidden"}}>
         <NavBar breadcrumbItems={[
           {label:"Mediterra", onClick:onBack},
           {label:"Osiris Hub", onClick:()=>setSubApp(null)},
@@ -12779,7 +12803,7 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
 
   // ── INGRESOS OSIRIS ────────────────────────────────────────
   return (
-    <div style={{fontFamily:"sans-serif",background:C.bg,minHeight:"100vh",padding:"20px 20px 40px",maxWidth:"100%",overflowX:"hidden"}}>
+    <div className="osiris-root" style={{fontFamily:"sans-serif",background:C.bg,minHeight:"100vh",padding:"20px 20px 40px",maxWidth:"100%",overflowX:"hidden"}}>
       <NavBar showPorCobrar breadcrumbItems={[
         {label:"Mediterra", onClick:onBack},
         {label:"Osiris Hub", onClick:()=>setSubApp(null)},
