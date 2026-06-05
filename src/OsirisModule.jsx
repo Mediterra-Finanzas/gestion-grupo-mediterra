@@ -80,6 +80,42 @@ const $$ = v => (v!=null&&v!==""&&!isNaN(v))
 const $$0 = v => (v!=null&&v!==""&&!isNaN(v))
   ? `$${Math.round(Number(v)).toLocaleString("es-CL")}`
   : "—";
+
+// Emoji por defecto según el nombre de la especie (fallback cuando no hay imagen/GIF cargado).
+const _EMOJI_ESPECIE = [
+  [/(arand|arán|blueberr|blue\b)/,"🫐"],
+  [/(framb|raspberr)/,"🫐"],
+  [/(mora|blackberr)/,"🫐"],
+  [/(cerez|cherr)/,"🍒"],
+  [/(clement|mandarin|tanger)/,"🍊"],
+  [/(naranj|orange)/,"🍊"],
+  [/(limon|limón|lmoner|lemon|lima)/,"🍋"],
+  [/(uva|grape|vid|parr)/,"🍇"],
+  [/(frutill|fresa|strawberr)/,"🍓"],
+  [/(manzan|apple|pomace)/,"🍎"],
+  [/(durazn|nectar|peach|carozo)/,"🍑"],
+  [/(damasc|albaric|apricot|ciruel|plum)/,"🍑"],
+  [/(pera|peral|pear)/,"🍐"],
+  [/(kiwi)/,"🥝"],
+  [/(palta|aguacat|avocad)/,"🥑"],
+  [/(mango)/,"🥭"],
+  [/(plátan|platan|banan)/,"🍌"],
+  [/(sandia|sandía|watermelon)/,"🍉"],
+  [/(melon|melón)/,"🍈"],
+  [/(piña|pina|ananas|pineapple)/,"🍍"],
+  [/(coco)/,"🥥"],
+  [/(tomate|tomato)/,"🍅"],
+  [/(granad|pomegran)/,"🔴"],
+  [/(aceitun|oliva|olive)/,"🫒"],
+  [/(higo|fig)/,"🍈"],
+  [/(nuez|nogal|walnut|almendr|almond|pistach|avellan)/,"🌰"],
+];
+function emojiEspecie(nombre){
+  const n=(nombre||"").toLowerCase().trim();
+  if(!n) return "";
+  for(const [re,em] of _EMOJI_ESPECIE){ if(re.test(n)) return em; }
+  return "";
+}
 const N = v => (v!=null&&!isNaN(v)) ? Number(v).toLocaleString("es-CL") : "—";
 
 // Porcentaje cobro según país
@@ -6040,12 +6076,14 @@ function MaestroEspecies({especies,setEspecies,can,obtentores=[],contratos=[],va
             <div style={{marginTop:8,padding:"6px 12px",background:form.color,color:"#fff",borderRadius:6,fontSize:11,fontWeight:700,display:"inline-block",textShadow:"0 1px 2px #0006"}}>Vista previa: {form.nombre||"Especie"}</div>
           </div>
           <div style={{marginBottom:10}}>
-            <div style={{fontSize:11,color:C.muted,fontWeight:600,marginBottom:3}}>Imagen / GIF de la fruta (URL) <span style={{fontWeight:400,color:C.muted2}}>— opcional, reemplaza el color</span></div>
+            <div style={{fontSize:11,color:C.muted,fontWeight:600,marginBottom:3}}>Imagen / GIF de la fruta (URL) <span style={{fontWeight:400,color:C.muted2}}>— opcional. Por defecto se usa el emoji de la fruta; si pegas un URL, esa imagen manda</span></div>
             <div style={{display:"flex",gap:10,alignItems:"center"}}>
               <input value={form.imagen} placeholder="https://...  (.gif, .png, .jpg)" onChange={e=>setForm(p=>({...p,imagen:e.target.value}))}
                 style={{flex:1,padding:"6px 8px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:12,outline:"none",boxSizing:"border-box"}}/>
-              <div style={{width:36,height:36,borderRadius:8,flexShrink:0,overflow:"hidden",border:`1px solid ${C.border}`,background:form.imagen?"#fff":form.color,display:"flex",alignItems:"center",justifyContent:"center"}}>
-                {form.imagen&&<img src={form.imagen} alt="" style={{width:"100%",height:"100%",objectFit:"cover"}} onError={e=>{e.target.style.display="none";}}/>}
+              <div style={{width:36,height:36,borderRadius:8,flexShrink:0,overflow:"hidden",border:`1px solid ${C.border}`,background:(form.imagen||emojiEspecie(form.nombre))?"#fff":form.color,display:"flex",alignItems:"center",justifyContent:"center",fontSize:22}}>
+                {form.imagen
+                  ? <img src={form.imagen} alt="" style={{width:"100%",height:"100%",objectFit:"cover"}} onError={e=>{e.target.style.display="none";}}/>
+                  : emojiEspecie(form.nombre)||null}
               </div>
             </div>
           </div>
@@ -6092,7 +6130,9 @@ function MaestroEspecies({especies,setEspecies,can,obtentores=[],contratos=[],va
                           <img src={e.imagen} alt={e.nombre} style={{width:"100%",height:"100%",objectFit:"cover"}}
                             onError={ev=>{ev.target.parentNode.style.background=e.color||C.muted;ev.target.style.display="none";}}/>
                         </div>
-                      : <div style={{width:24,height:24,borderRadius:6,background:e.color||C.muted,boxShadow:"0 1px 3px #0002"}}/>}
+                      : emojiEspecie(e.nombre)
+                        ? <div style={{width:26,height:26,borderRadius:6,display:"flex",alignItems:"center",justifyContent:"center",fontSize:18,background:"#fff",boxShadow:"0 1px 3px #0002"}}>{emojiEspecie(e.nombre)}</div>
+                        : <div style={{width:24,height:24,borderRadius:6,background:e.color||C.muted,boxShadow:"0 1px 3px #0002"}}/>}
                   </td>
                   <td style={{padding:"6px 10px",fontWeight:700,color:C.text}}>{e.nombre}</td>
                   <td style={{padding:"6px 10px",color:C.muted}}>{nVariedades>0?<span style={{padding:"2px 8px",borderRadius:10,background:C.warningBg,color:C.text,fontSize:10,fontWeight:700}}>{nVariedades}</span>:"—"}</td>
