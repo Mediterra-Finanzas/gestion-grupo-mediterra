@@ -1650,25 +1650,39 @@ function RoyaltyPlanta({data,setData,tpData,can,clientes=[]}) {
   const totPend=filtrado.filter(r=>resolveEstadoCF(r)!=="pagado").reduce((s,r)=>s+r.montoCobro,0);
 
   function upd(id,c,v){
-    setData(prev=>prev.map(r=>{
-      if(r.id!==id) return r;
-      if(String(r[c]||"") !== String(v||"")) {
-        window.auditLog&&window.auditLog("editar", {modulo:"osiris", seccion:"Royalty Planta",
-          descripcion:`Editó royalty/planta de "${r.cliente}" · ${r.pais}: campo ${c}`,
-          registroId:id, campo:c,
-          valorAnterior:String(r[c]||""), valorNuevo:String(v||"")});
-      }
+    // data es rpData (vista derivada + overrides); setData es setRp (array RAW).
+    // Las filas derivadas de contrato pueden NO existir aún en el RAW → hay que
+    // hacer upsert: si existe se actualiza, si no se crea una fila-override por id.
+    const fila = (dataConSync||[]).find(r=>r.id===id);
+    if(fila && String(fila[c]||"") !== String(v||"")) {
+      window.auditLog&&window.auditLog("editar", {modulo:"osiris", seccion:"Royalty Planta",
+        descripcion:`Editó royalty/planta de "${fila.cliente}" · ${fila.pais}: campo ${c}`,
+        registroId:id, campo:c,
+        valorAnterior:String(fila[c]||""), valorNuevo:String(v||"")});
+    }
+    // Aplica el cambio + efectos derivados (facturado / estadoCF / pagado)
+    function aplicar(r){
       const updated={...r,[c]:v};
       // Si se ingresa N° factura y aún está "por cobrar", avanzar a "facturado"
       if(c==="nFact"&&v&&String(v).trim()!==""){
         updated.facturado=true;
-        const ecfActual=resolveEstadoCF(r);
-        if(ecfActual==="porCobrar") { updated.estadoCF="facturado"; }
+        if(resolveEstadoCF(r)==="porCobrar") { updated.estadoCF="facturado"; }
       }
       // Sincronizar pagado booleano al cambiar estadoCF
       if(c==="estadoCF") updated.pagado=(v==="pagado");
       return updated;
-    }));
+    }
+    setData(prev=>{
+      const arr=prev||[];
+      const idx=arr.findIndex(r=>r.id===id);
+      if(idx>=0){ const copy=[...arr]; copy[idx]=aplicar(copy[idx]); return copy; }
+      // No existe en RAW → crear fila-override de la derivada (se fusiona por id en rpData)
+      if(fila){
+        return [...arr, aplicar({id, ctId:fila.ctId, cuotaId:fila.cuotaId, tpId:fila.tpId,
+          cliente:fila.cliente, pais:fila.pais, _fromContract:true})];
+      }
+      return arr;
+    });
   }
 
   function agregar(){
@@ -2200,17 +2214,30 @@ function RoyaltyComercial({data,setData,tpData,can,clientes=[]}) {
   const totPend=filtrado.filter(r=>resolveEstadoCF(r)!=="pagado").reduce((s,r)=>s+r.montoCobro,0);
 
   function upd(id,c,v){
-    setData(prev=>prev.map(r=>{
-      if(r.id!==id) return r;
-      if(String(r[c]||"") !== String(v||"")) {
-        window.auditLog&&window.auditLog("editar", {modulo:"osiris", seccion:"Royalty Comercial",
-          descripcion:`Editó royalty comercial de "${r.cliente}" · ${r.pais} ${r.añoCobro||""}: campo ${c}`,
-          registroId:id, campo:c,
-          valorAnterior:String(r[c]||""), valorNuevo:String(v||"")});
-      }
+    // data es rcData (vista derivada + overrides); setData es setRc (array RAW).
+    // Upsert: las filas derivadas de contrato pueden no existir aún en el RAW.
+    const fila = (dataConSync||[]).find(r=>r.id===id);
+    if(fila && String(fila[c]||"") !== String(v||"")) {
+      window.auditLog&&window.auditLog("editar", {modulo:"osiris", seccion:"Royalty Comercial",
+        descripcion:`Editó royalty comercial de "${fila.cliente}" · ${fila.pais} ${fila.añoCobro||""}: campo ${c}`,
+        registroId:id, campo:c,
+        valorAnterior:String(fila[c]||""), valorNuevo:String(v||"")});
+    }
+    function aplicar(r){
       const extra = c==="estadoCF"?{pagado:v==="pagado"}:{};
-      return r.id===id?{...r,[c]:v,...(c==="ha"?{_haEditado:true}:{}), ...extra}:r;
-    }));
+      return {...r,[c]:v,...(c==="ha"?{_haEditado:true}:{}), ...extra};
+    }
+    setData(prev=>{
+      const arr=prev||[];
+      const idx=arr.findIndex(r=>r.id===id);
+      if(idx>=0){ const copy=[...arr]; copy[idx]=aplicar(copy[idx]); return copy; }
+      if(fila){
+        return [...arr, aplicar({id, ctId:fila.ctId, tpId:fila.tpId,
+          cliente:fila.cliente, pais:fila.pais, añoCobro:fila.añoCobro, trimCobro:fila.trimCobro,
+          _fromContract:true})];
+      }
+      return arr;
+    });
   }
 
   function agregar(){
