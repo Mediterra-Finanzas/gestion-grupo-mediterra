@@ -35,3 +35,10 @@ audit/osiris-snapshot-*/
 # Supabase CLI: cache local / temp del proyecto
 supabase/.temp/
 
+# Artefactos generados de informes/manuales (output local, no es codigo de la app)
+# Los logos del grupo SI estan versionados en public/ (med.png, etc.)
+Manual_*.pdf
+gen_*.py
+manual_preview-*.png
+audit/gen_*.py
+
