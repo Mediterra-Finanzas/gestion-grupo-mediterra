@@ -9343,13 +9343,17 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
           ["📦 Pedidos",        tpData.length,         C.primary],
           ["🌿 Royalty filas",  rpData.length,         C.success],
           ["🌱 Fee Vivero",     fvData.filter(r=>!r.pagado).length+" pend.", C.danger],
-        ].map(([l,v,c])=>(
+        ].map(([l,v,c])=>{
+          const s=String(v);
+          const fs = s.length>12 ? 15 : s.length>9 ? 17 : 20;
+          return (
           <div key={l} style={{background:C.card,border:`1px solid ${C.border}`,borderLeft:`4px solid ${c}`,
             borderRadius:10,padding:"12px 16px",flex:1,minWidth:140,boxShadow:C.shadow,overflow:"hidden",boxSizing:"border-box"}}>
             <div style={{fontSize:10,color:C.muted,fontWeight:600,marginBottom:4}}>{l}</div>
-            <div style={{fontSize:20,fontWeight:900,color:c,lineHeight:1.1,overflowWrap:"anywhere"}}>{v}</div>
+            <div title={s} style={{fontSize:fs,fontWeight:900,color:c,lineHeight:1.1,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{v}</div>
           </div>
-        ))}
+          );
+        })}
       </div>
     </div>
   );
