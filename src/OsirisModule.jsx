@@ -9894,44 +9894,8 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
             {/* TAB ROYALTY AL OBTENTOR */}
             {obtTab==="royalties"&&(
               <div>
-                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
-                  <div style={{fontWeight:700,color:C.text}}>💰 Royalties que Osiris paga al obtentor</div>
-                  {canObtentores&&<button onClick={()=>{
-                    const nr={id:`roy_${Date.now()}`,tipo:"Por planta",especie:"",variedad:"",valor:0,moneda:"USD",frecuencia:"Anual",observaciones:""};
-                    updateContrato(c.id,{royaltiesObtentor:[...(c.royaltiesObtentor||[]),nr]});
-                  }} style={{padding:"6px 14px",borderRadius:8,background:C.purple,border:"none",color:"#fff",cursor:"pointer",fontSize:12,fontWeight:700}}>+ Agregar</button>}
-                </div>
-                {(c.royaltiesObtentor||[]).length===0?(
-                  <div style={{padding:30,textAlign:"center",color:C.muted2,border:"1px dashed #e2e8f0",borderRadius:10}}>
-                    <div style={{fontSize:32,marginBottom:8}}>💰</div><div style={{fontSize:12}}>Sin royalties definidos.</div></div>
-                ):(
-                  <div style={{overflowX:"auto",minWidth:0,maxWidth:"calc(100vw - 40px)"}}>
-                    <table style={{width:"100%",borderCollapse:"collapse",fontSize:12,background:C.card,borderRadius:10,overflow:"hidden",border:`1px solid ${C.border}`}}>
-                      <thead><tr style={{background:C.primary,color:C.primaryText}}>
-                        {["Tipo","Especie","Variedad","Valor","Moneda","Frecuencia","Obs.",""].map(h=><th key={h} style={{padding:"8px 10px",textAlign:"left",fontSize:11,fontWeight:700}}>{h}</th>)}
-                      </tr></thead>
-                      <tbody>{(c.royaltiesObtentor||[]).map((r,i)=>{
-                        const upd=(f,v)=>{const nx=(c.royaltiesObtentor||[]).map(x=>x.id===r.id?{...x,[f]:v}:x);updateContrato(c.id,{royaltiesObtentor:nx});};
-                        return(<tr key={r.id} style={{borderBottom:"1px solid #f1f5f9",background:i%2?C.cardAlt:"#fff"}}>
-                          <td style={{padding:"6px 8px"}}><select disabled={!canObtentores} value={r.tipo||""} onChange={e=>upd("tipo",e.target.value)} style={{padding:"5px 8px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:11}}>{TIPOS_ROYALTY_OBTENTOR.map(t=><option key={t}>{t}</option>)}</select></td>
-                          <td style={{padding:"6px 8px"}}><input disabled={!canObtentores} value={r.especie||""} onChange={e=>upd("especie",e.target.value)} placeholder="Todas" style={{width:80,padding:"5px 8px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:11}}/></td>
-                          <td style={{padding:"6px 8px"}}><input disabled={!canObtentores} value={r.variedad||""} onChange={e=>upd("variedad",e.target.value)} placeholder="Todas" style={{width:80,padding:"5px 8px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:11}}/></td>
-                          <td style={{padding:"6px 8px"}}><input type="number" step="0.01" disabled={!canObtentores} value={r.valor||0} onChange={e=>upd("valor",parseFloat(e.target.value)||0)} style={{width:70,padding:"5px 8px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:11,textAlign:"right"}}/></td>
-                          <td style={{padding:"6px 8px"}}><select disabled={!canObtentores} value={r.moneda||"USD"} onChange={e=>upd("moneda",e.target.value)} style={{padding:"5px 8px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:11}}>{MONEDAS.map(m=><option key={m}>{m}</option>)}</select></td>
-                          <td style={{padding:"6px 8px"}}><select disabled={!canObtentores} value={r.frecuencia||"Anual"} onChange={e=>upd("frecuencia",e.target.value)} style={{padding:"5px 8px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:11}}>{["Anual","Semestral","Trimestral","Por evento","Única vez"].map(f=><option key={f}>{f}</option>)}</select></td>
-                          <td style={{padding:"6px 8px"}}><input disabled={!canObtentores} value={r.observaciones||""} onChange={e=>upd("observaciones",e.target.value)} style={{width:"100%",padding:"5px 8px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:11,boxSizing:"border-box"}}/></td>
-                          <td style={{padding:"6px 8px"}}>{canObtentores&&<button onClick={()=>{if(!window.confirm("¿Eliminar?"))return;updateContrato(c.id,{royaltiesObtentor:(c.royaltiesObtentor||[]).filter(x=>x.id!==r.id)});}} style={{background:C.dangerBg,border:"none",borderRadius:6,padding:"4px 8px",cursor:"pointer",fontSize:11,color:C.danger}}>🗑</button>}</td>
-                        </tr>);
-                      })}</tbody>
-                    </table>
-                  </div>
-                )}
-                <div style={{marginTop:12,padding:10,background:C.purpleBg,borderRadius:8,fontSize:11,color:C.purple}}>
-                  💡 Royalties que <strong>Osiris paga al obtentor</strong>. Distintos de los que Osiris <strong>cobra a productores</strong>.
-                </div>
-
-                {/* ── Participación en ingresos Osiris ── */}
-                <div style={{marginTop:20,borderTop:`2px solid ${C.border}`,paddingTop:16}}>
+                {/* ── Participación en Ingresos Osiris (modelo único: % sobre lo facturado) ── */}
+                <div>
                   <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
                     <div>
                       <div style={{fontWeight:700,color:C.text,marginBottom:2}}>📊 Participación en Ingresos Osiris</div>
