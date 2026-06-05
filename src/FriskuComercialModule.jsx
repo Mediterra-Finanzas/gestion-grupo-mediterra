@@ -1769,6 +1769,47 @@ function formatFechaSemana(dateStr) {
   return d.toLocaleDateString("es-CL", {weekday:"short", day:"numeric", month:"short", year:"numeric"});
 }
 
+// N° de semana calendario ISO-8601 (lunes como primer día) de una fecha YYYY-MM-DD
+function getSemanaISO(dateStr) {
+  if(!dateStr) return null;
+  const d = new Date(dateStr + "T12:00:00");
+  const t = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
+  const day = t.getUTCDay() || 7;          // domingo=7
+  t.setUTCDate(t.getUTCDate() + 4 - day);  // jueves de la semana ISO
+  const anio = t.getUTCFullYear();
+  const inicioAnio = new Date(Date.UTC(anio, 0, 1));
+  const semana = Math.ceil((((t - inicioAnio) / 86400000) + 1) / 7);
+  return {semana, anio};
+}
+
+// "2026-W20" formateado para mostrar
+function formatSemanaISO(dateStr) {
+  const w = getSemanaISO(dateStr);
+  return w ? `S${String(w.semana).padStart(2,"0")} · ${w.anio}` : "";
+}
+
+// Token identificador de una entidad a partir de su código, quitando el
+// prefijo de tipo (CNEE-, CLI-, NOT-M-, NOT-AIR-, NOT-, EXP-/_). Permite
+// emparejar un cliente con sus notify guardados (ej. CNEE-IDEAL ↔ NOT-M-IDEAL).
+function tokenEntidad(cod) {
+  if(!cod) return "";
+  let s = String(cod).trim().toUpperCase();
+  s = s.replace(/^(CNEE|CLI|CONS)[-_]/, "");
+  s = s.replace(/^NOT[-_](M|AIR|MARITIMO|AEREO)[-_]/, "");
+  s = s.replace(/^NOT[-_]/, "");
+  s = s.replace(/^EXP[-_]/, "");
+  return s.trim();
+}
+
+// Mapea un registro de maestro_notify al objeto notify de la OE
+function notifyDesdeMaestro(n) {
+  return {
+    nombre:    n.nombre || n.razonSocial || "",
+    direccion: n.direccion || "",
+    contacto:  [n.nombreContacto, n.fono].filter(Boolean).join(" · "),
+  };
+}
+
 // Formulario para agregar/editar una semana del programa
 function ProgramaSemanaForm({semana, closure, tiposEmbalaje, onGuardar, onCancelar}) {
   const [buf, setBuf] = useState(()=>JSON.parse(JSON.stringify(semana)));
@@ -1809,7 +1850,7 @@ function ProgramaSemanaForm({semana, closure, tiposEmbalaje, onGuardar, onCancel
             onBlur={e=>setBuf(prev=>({...prev, fechaSemana:getMondayStr(e.target.value)}))}/>
           {buf.fechaSemana && (
             <div style={{fontSize:10, color:C.teal, marginTop:3}}>
-              Lunes: {formatFechaSemana(getMondayStr(buf.fechaSemana))}
+              {formatSemanaISO(getMondayStr(buf.fechaSemana))} — Lunes: {formatFechaSemana(getMondayStr(buf.fechaSemana))}
             </div>
           )}
         </div>
@@ -1946,7 +1987,7 @@ function ClosureProgramaPanel({closure, semanas, tiposEmbalaje, exportadoras, cl
             <table style={{borderCollapse:"collapse", width:"100%", fontSize:11}}>
               <thead>
                 <tr style={{background:C.primary}}>
-                  <th style={{padding:"6px 10px", textAlign:"left", color:C.primaryText, fontWeight:600, whiteSpace:"nowrap"}}>Semana (lunes)</th>
+                  <th style={{padding:"6px 10px", textAlign:"left", color:C.primaryText, fontWeight:600, whiteSpace:"nowrap"}}>N° / Semana (lunes)</th>
                   {formatosClosure.map(cod=>{
                     const fmt = tiposEmbalaje.find(t=>t.codigo===cod);
                     return (
@@ -1966,6 +2007,9 @@ function ClosureProgramaPanel({closure, semanas, tiposEmbalaje, exportadoras, cl
                   return (
                     <tr key={sem.id||i} style={{background: i%2===0?C.card:C.rowAlt}}>
                       <td style={{padding:"6px 10px", border:`1px solid ${C.border}`, whiteSpace:"nowrap"}}>
+                        <span style={{display:"inline-block", background:`${C.blue}22`, color:C.blue, fontWeight:700, fontFamily:"monospace", borderRadius:4, padding:"1px 6px", marginRight:6}}>
+                          {getSemanaISO(sem.fechaSemana)?.semana ? "S"+String(getSemanaISO(sem.fechaSemana).semana).padStart(2,"0") : "—"}
+                        </span>
                         {formatFechaSemana(sem.fechaSemana)}
                       </td>
                       {formatosClosure.map(cod=>(
@@ -2069,12 +2113,31 @@ function ClosureProgramaPanel({closure, semanas, tiposEmbalaje, exportadoras, cl
 // ═══════════════════════════════════════════════════════════════════
 // ORDEN DE EMBARQUE — FORM
 // ═══════════════════════════════════════════════════════════════════
-function OEForm({oe, exportadoras, clientes, especies, tiposEmbalaje, contratos,
+function OEForm({oe, exportadoras, clientes, notifys=[], especies, tiposEmbalaje, contratos,
   puertos, aeropuertos, shippingLines, lineasAereas, temporadas,
   onGuardar, onCancelar}) {
   const [buf, setBuf] = useState(()=>JSON.parse(JSON.stringify(oe)));
   const set = (k,v) => setBuf(prev=>({...prev,[k]:v}));
   const setNotify = (k,v) => setBuf(prev=>({...prev,notify:{...(prev.notify||{}), [k]:v}}));
+
+  // Notify guardados del cliente seleccionado (match por token de código).
+  // Un cliente puede tener varios (marítimo/aéreo/destino distinto).
+  const tokenCli = tokenEntidad(clientes.find(c=>c.id===buf.clienteId)?.codigoEntidad);
+  const notifysCliente = tokenCli
+    ? notifys.filter(n=>tokenEntidad(n.codigo)===tokenCli)
+    : [];
+  const aplicarNotify = (n) => { if(n) setBuf(prev=>({...prev, notify:notifyDesdeMaestro(n)})); };
+  const notifyVacio = !(buf.notify?.nombre||buf.notify?.direccion||buf.notify?.contacto);
+
+  // Autocompletar al elegir cliente / tipo de embarque, sólo si el notify
+  // está vacío: prioriza el que calce con el tipo de embarque.
+  useEffect(()=>{
+    if(!notifyVacio || notifysCliente.length===0) return;
+    const sub = buf.tipoEmbarque==="aereo" ? "aereo" : buf.tipoEmbarque==="maritimo" ? "maritimo" : null;
+    const pick = (sub && notifysCliente.find(n=>n.subtipo===sub)) || notifysCliente[0];
+    aplicarNotify(pick);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  },[buf.clienteId, buf.tipoEmbarque]);
   const setCajas = (cod,val) => setBuf(prev=>{
     const cpf = {...(prev.cajasPorFormato||{})};
     const n = Number(val);
@@ -2246,7 +2309,25 @@ function OEForm({oe, exportadoras, clientes, especies, tiposEmbalaje, contratos,
 
       {/* Notify */}
       <div style={{background:C.card,padding:10,borderRadius:6,border:`1px solid ${C.border}`,marginBottom:10}}>
-        <div style={{fontSize:11,fontWeight:700,color:C.muted,marginBottom:8}}>Notify</div>
+        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:8,marginBottom:8,flexWrap:"wrap"}}>
+          <div style={{fontSize:11,fontWeight:700,color:C.muted}}>Notify</div>
+          {notifysCliente.length>0 && (
+            <div style={{display:"flex",alignItems:"center",gap:6}}>
+              <span style={{fontSize:10,color:C.muted}}>Notify guardado del cliente:</span>
+              <select
+                value=""
+                onChange={e=>{ const n=notifysCliente.find(x=>x.codigo===e.target.value); aplicarNotify(n); e.target.value=""; }}
+                style={{...inputSt, padding:"3px 8px", fontSize:11, maxWidth:260}}>
+                <option value="">— elegir / autocompletar —</option>
+                {notifysCliente.map(n=>(
+                  <option key={n.codigo} value={n.codigo}>
+                    {n.subtipo==="aereo"?"✈ ":n.subtipo==="maritimo"?"🚢 ":""}{n.nombre} ({n.codigo})
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+        </div>
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8}}>
           <div>
             <div style={lblSt}>Nombre / Empresa</div>
@@ -2443,8 +2524,9 @@ function CarpetaComexPanel({ oe, onGuardar, canEdit }) {
                       <input type="file" id={`comex_${oe.id}_${idx}`} style={{display:"none"}}
                         onChange={e=>{ if(e.target.files[0]) handleUploadDoc(idx,e.target.files[0]); e.target.value=""; }}/>
                       <button onClick={()=>document.getElementById(`comex_${oe.id}_${idx}`)?.click()}
-                        disabled={isUploading} style={{...btnSt(C.purple,true),padding:"3px 8px",fontSize:10,flexShrink:0}}>
-                        {isUploading?"⏳":"📎"}
+                        disabled={isUploading} title="Subir archivo (PDF, imagen)"
+                        style={{...btnSt(C.purple),padding:"3px 9px",fontSize:10,flexShrink:0,whiteSpace:"nowrap"}}>
+                        {isUploading?"⏳ Subiendo…":doc.url?"📎 Reemplazar":"📎 Subir"}
                       </button>
                       {doc.url && (
                         <button onClick={()=>{ updDoc(idx,"url",""); updDoc(idx,"nombre",""); updDoc(idx,"fuente","manual"); updDoc(idx,"estado","pendiente"); }}
@@ -3224,6 +3306,7 @@ export default function FriskuComercialModule({
   const [aeropuertos,    setAeropuertos]    = useState(AEROPUERTOS_DEFAULT);
   const [shippingLines,  setShippingLines]  = useState(SHIPPING_LINES_DEFAULT);
   const [lineasAereas,   setLineasAereas]   = useState(LINEAS_AEREAS_DEFAULT);
+  const [notifys,        setNotifys]        = useState([]);
   const [tcData,         setTcData]         = useState({});
 
   // UI Órdenes de Embarque
@@ -3278,7 +3361,7 @@ export default function FriskuComercialModule({
   useEffect(()=>{
     let alive = true;
     (async ()=>{
-      const [cli, exp, con, pro, emb, liq, esp, pa, mo, me, tb, ci, tmp, pu, ae, sl, la, tc] = await Promise.all([
+      const [cli, exp, con, pro, emb, liq, esp, pa, mo, me, tb, ci, tmp, pu, ae, sl, la, nt, tc] = await Promise.all([
         dbLoadGeneric("frisku_clientes"),
         dbLoadGeneric("frisku_exportadoras"),
         dbLoadGeneric("frisku_contratos"),
@@ -3296,6 +3379,7 @@ export default function FriskuComercialModule({
         dbLoadGeneric("maestro_aeropuertos"),
         dbLoadGeneric("maestro_shipping_lines"),
         dbLoadGeneric("maestro_lineas_aereas"),
+        dbLoadGeneric("maestro_notify"),
         dbLoadGeneric("maestro_tc"),
       ]);
       if(!alive) return;
@@ -3320,6 +3404,7 @@ export default function FriskuComercialModule({
       setAeropuertos(Array.isArray(ae) && ae.length ? ae : AEROPUERTOS_DEFAULT);
       setShippingLines(Array.isArray(sl) && sl.length ? sl : SHIPPING_LINES_DEFAULT);
       setLineasAereas(Array.isArray(la) && la.length ? la : LINEAS_AEREAS_DEFAULT);
+      setNotifys(Array.isArray(nt) ? nt : []);
       if(tc && typeof tc === "object") setTcData(tc);
       setCargando(false);
     })();
@@ -3331,7 +3416,7 @@ export default function FriskuComercialModule({
   // Exportadoras). Garantiza que las altas/cambios hechos en el módulo
   // de Maestros se reflejen sin necesidad de recargar la página.
   const recargarMaestros = useCallback(async ()=>{
-    const [esp, pa, mo, me, tb, ci, tmp, pu, ae, sl, la, tc] = await Promise.all([
+    const [esp, pa, mo, me, tb, ci, tmp, pu, ae, sl, la, nt, tc] = await Promise.all([
       dbLoadGeneric("maestro_especies"),
       dbLoadGeneric("maestro_paises"),
       dbLoadGeneric("maestro_monedas"),
@@ -3343,6 +3428,7 @@ export default function FriskuComercialModule({
       dbLoadGeneric("maestro_aeropuertos"),
       dbLoadGeneric("maestro_shipping_lines"),
       dbLoadGeneric("maestro_lineas_aereas"),
+      dbLoadGeneric("maestro_notify"),
       dbLoadGeneric("maestro_tc"),
     ]);
     setEspecies(Array.isArray(esp) && esp.length ? esp : ESPECIES_DEFAULT);
@@ -3356,6 +3442,7 @@ export default function FriskuComercialModule({
     setAeropuertos(Array.isArray(ae) && ae.length ? ae : AEROPUERTOS_DEFAULT);
     setShippingLines(Array.isArray(sl) && sl.length ? sl : SHIPPING_LINES_DEFAULT);
     setLineasAereas(Array.isArray(la) && la.length ? la : LINEAS_AEREAS_DEFAULT);
+    setNotifys(Array.isArray(nt) ? nt : []);
     if(tc && typeof tc === "object") setTcData(tc);
   },[]);
 
@@ -4176,6 +4263,7 @@ export default function FriskuComercialModule({
                 oe={editandoOE}
                 exportadoras={exportadoras}
                 clientes={clientes}
+                notifys={notifys}
                 especies={especies}
                 tiposEmbalaje={tiposEmbalaje}
                 contratos={contratos}
