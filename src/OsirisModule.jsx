@@ -76,6 +76,10 @@ const C = {
 const $$ = v => (v!=null&&v!==""&&!isNaN(v))
   ? `$${Number(v).toLocaleString("es-CL",{minimumFractionDigits:0,maximumFractionDigits:2})}`
   : "—";
+// Variante sin decimales: para KPIs/recuadros donde el ancho es acotado y los decimales se desbordan.
+const $$0 = v => (v!=null&&v!==""&&!isNaN(v))
+  ? `$${Math.round(Number(v)).toLocaleString("es-CL")}`
+  : "—";
 const N = v => (v!=null&&!isNaN(v)) ? Number(v).toLocaleString("es-CL") : "—";
 
 // Porcentaje cobro según país
@@ -125,9 +129,10 @@ function Cell({val,onChange,type="text",opts=null,can,ph=""}) {
   if(!can) return <span style={{fontSize:12,color:C.sl,wordBreak:"break-all"}}>{val!=null&&val!==""?val:<span style={{color:"#cbd5e1"}}>—</span>}</span>;
   if(on) {
     if(opts) return (
-      <select value={tmp} onChange={e=>setTmp(e.target.value)}
-        onBlur={()=>{onChange(tmp);setOn(false);}} autoFocus
+      <select value={tmp??""} onChange={e=>{const nv=e.target.value;setTmp(nv);onChange(nv);setOn(false);}}
+        onBlur={()=>setOn(false)} autoFocus
         style={{fontSize:12,borderRadius:6,border:`1px solid ${C.info}`,padding:"3px 6px",background:C.infoBg,width:"100%"}}>
+        <option value="">— Seleccionar —</option>
         {opts.map(o=><option key={o} value={o}>{o}</option>)}
       </select>
     );
@@ -427,6 +432,16 @@ function CobrosParcialesCell({ total, info, can, onChange }) {
 const PAISES = ["Peru","Mexico","Chile","Corea","España"];
 const VIVEROS = ["Synergia Chile","Synergia Mexico","Agromillora Pe","Agromillora"];
 const TIPOS   = ["Anticipo","Entrega","Anticipo/Entrega"];
+
+// Año de un pedido/plantación: manual usa añoEntrega, derivado de contrato usa
+// fechaPlantacion. Antes el código leía r.año (inexistente) → todo caía en "?".
+function añoPedido(r){
+  if(r==null) return null;
+  if(r.año) return Number(r.año);
+  if(r.añoEntrega) return Number(r.añoEntrega);
+  if(r.fechaPlantacion){ const y=new Date(r.fechaPlantacion).getFullYear(); if(!isNaN(y)) return y; }
+  return null;
+}
 
 // Regalías por vivero (US$ por planta) — parametrizable
 const REGALIAS_VIVERO_BASE = {
@@ -1568,8 +1583,12 @@ function RoyaltyPlanta({data,setData,tpData,can,clientes=[]}) {
   },[data,tpData]);
 
   const calc=useMemo(()=>dataConSync.map(r=>{
-    const mf=(Number(r.nPlantas)||0)*(Number(r.usdPlanta)||0);
-    return{...r,montoFact:mf,montoCobro:mf*pct(r.pais)};
+    // Filas derivadas de contrato traen montoFact/montoCobro ya calculado (incluye
+    // fracción por cuota legacy y monto por factura/OC). No recalcular desde
+    // nPlantas×usdPlanta porque en legacy cada cuota lleva nPlantas=total → doble conteo.
+    const mf = r._fromContract ? (Number(r.montoFact)||0) : (Number(r.nPlantas)||0)*(Number(r.usdPlanta)||0);
+    const mc = r._fromContract ? (Number(r.montoCobro)||0) : mf*pct(r.pais);
+    return{...r,montoFact:mf,montoCobro:mc};
   }),[dataConSync]);
 
   const filtrado=calc.filter(r=>{
@@ -2107,8 +2126,10 @@ function RoyaltyComercial({data,setData,tpData,can,clientes=[]}) {
   const calc=useMemo(()=>{
     const ahora=new Date();ahora.setHours(0,0,0,0);
     return dataConSync.map(r=>{
-      const mf=(Number(r.ha)||0)*(Number(r.usdHa)||3000);
-      const mc=mf*pct(r.pais);
+      // Filas derivadas de contrato traen montoFact/montoCobro ya calculado (haTotal×valorPorHa).
+      // No recalcular desde r.ha/r.usdHa porque esas filas no tienen esos campos → quedaría en $0.
+      const mf = r._fromContract ? (Number(r.montoFact)||0) : (Number(r.ha)||0)*(Number(r.usdHa)||3000);
+      const mc = r._fromContract ? (Number(r.montoCobro)||0) : mf*pct(r.pais);
       const fAviso=fechaAvisoTrim(r.añoCobro,r.trimCobro);
       const fInicio=fechaInicioTrim(r.añoCobro,r.trimCobro);
       const diasAviso=Math.ceil((fAviso-ahora)/(1000*60*60*24));
@@ -2649,7 +2670,7 @@ function GraficosPlantas({tpData,rpData}) {
   const plantasPorPais = {};
   const plantasPorCliente = {};
   tpData.forEach(r=>{
-    const a = r.año||'?';
+    const a = añoPedido(r)||'?';
     const p = r.pais||'Otro';
     const c = r.cliente||'?';
     const n = Number(r.nPlantas)||0;
@@ -2757,7 +2778,7 @@ function GraficosPlantas({tpData,rpData}) {
             <tbody>
               {añosOrden.map((año,i)=>{
                 const porPaisAño = {};
-                tpData.filter(r=>r.año===Number(año)).forEach(r=>{
+                tpData.filter(r=>añoPedido(r)===Number(año)).forEach(r=>{
                   const p=r.pais||'Otro';
                   porPaisAño[p]=(porPaisAño[p]||0)+(Number(r.nPlantas)||0);
                 });
@@ -3314,14 +3335,17 @@ function ReconciliacionIQ({rpData, feData, rcData, tpData}) {
   }), [feData]);
 
   const rcCalc = useMemo(()=> (rcData||[]).map(r=>{
-    const mf = (Number(r.ha)||0)*(Number(r.usdHa)||0);
+    // Derivadas de contrato: usar montoFact precomputado (haTotal×valorPorHa); manuales: ha×usdHa
+    const haV = Number(r.ha ?? r.haTotal)||0;
+    const usdV = Number(r.usdHa ?? r.valorPorHa)||0;
+    const mf = r._fromContract ? (Number(r.montoFact)||0) : haV*usdV;
     const iq = mf * PCT_IQ;
     const wht = iq * PCT_WHT;
     return {
       id: r.id, concepto: "Royalty Comercial", tipo: "rc",
       cliente: r.cliente||"—", pais: r.pais||"—",
       año: r.añoCobro || "",
-      detalle: `${Number(r.ha)||0} há × $${Number(r.usdHa)||0}${r.trimCobro?` · T${r.trimCobro}`:""}`,
+      detalle: `${haV} há × $${usdV}${r.trimCobro?` · T${r.trimCobro}`:r.mesCobro?` · ${r.mesCobro}`:""}`,
       nFact: r.nFact||"", pagado: !!r.pagado, fechaPago: r.fechaPago||"",
       montoFact: mf,
       iq, wht, pagoNetoIQ: iq - wht,
@@ -4069,7 +4093,7 @@ function Resumen({rpData,feData,rcData,fvData,tpData}) {
   const [expandedMes,setExpandedMes]=useState(null);
 
   const rpCalc=rpData.map(r=>{const mf=(Number(r.nPlantas)||0)*(Number(r.usdPlanta)||0);return{...r,montoFact:mf,montoCobro:mf*pct(r.pais)};});
-  const rcCalc=rcData.map(r=>{const mf=(Number(r.ha)||0)*(Number(r.usdHa)||0);const fA=fechaAvisoTrim(r.añoCobro,r.trimCobro);const fI=fechaInicioTrim(r.añoCobro,r.trimCobro);return{...r,montoFact:mf,montoCobro:mf*pct(r.pais),alertaActiva:hoy>=fA&&hoy<fI&&!r.nFact};});
+  const rcCalc=rcData.map(r=>{const mf=r._fromContract?(Number(r.montoFact)||0):(Number(r.ha??r.haTotal)||0)*(Number(r.usdHa??r.valorPorHa)||0);const mc=r._fromContract?(Number(r.montoCobro)||0):mf*pct(r.pais);const fA=fechaAvisoTrim(r.añoCobro,r.trimCobro);const fI=fechaInicioTrim(r.añoCobro,r.trimCobro);return{...r,montoFact:mf,montoCobro:mc,alertaActiva:hoy>=fA&&hoy<fI&&!r.nFact};});
 
   const totRP_pendFact = rpCalc.filter(r=>!r.nFact||r.nFact.trim()==="").reduce((s,r)=>s+r.montoFact,0);
   const totRP_facturado= rpCalc.filter(r=>r.nFact&&r.nFact.trim()!=="").reduce((s,r)=>s+r.montoFact,0);
@@ -4098,7 +4122,7 @@ function Resumen({rpData,feData,rcData,fvData,tpData}) {
   const sinConfirmar=tpData.filter(r=>r.estado==="Por confirmar").length;
   const alertasRC=rcCalc.filter(r=>r.alertaActiva);
 
-  const pedidosPorAño={};tpData.forEach(r=>{pedidosPorAño[r.año]=(pedidosPorAño[r.año]||0)+(Number(r.nPlantas)||0);});
+  const pedidosPorAño={};tpData.forEach(r=>{const a=añoPedido(r);if(!a)return;pedidosPorAño[a]=(pedidosPorAño[a]||0)+(Number(r.nPlantas)||0);});
 
   const porCliente={};rpCalc.filter(r=>!r.pagado).forEach(r=>{porCliente[r.cliente]=(porCliente[r.cliente]||0)+r.montoCobro;});
   const topCli=Object.entries(porCliente).sort((a,b)=>b[1]-a[1]).slice(0,8);
@@ -5876,7 +5900,7 @@ ${linkInforme}
 // Catálogo central de especies (Cerezo, Arándano, Uva...) con color identificador
 function MaestroEspecies({especies,setEspecies,can,obtentores=[],contratos=[],variedades=[]}){
   const [editId,setEditId]=useState(null);
-  const VACIO={nombre:"",color:COLORES_ESPECIES[0].hex,observaciones:""};
+  const VACIO={nombre:"",color:COLORES_ESPECIES[0].hex,imagen:"",observaciones:""};
   const [form,setForm]=useState(VACIO);
   const [showForm,setShowForm]=useState(false);
   const [busq,setBusq]=useState("");
@@ -5960,7 +5984,7 @@ function MaestroEspecies({especies,setEspecies,can,obtentores=[],contratos=[],va
       descripcion:`Importó ${nuevas.length} especies detectadas (${nuevas.map(e=>e.nombre).join(", ")})`});
   }
   function iniciarEdicion(e){
-    setForm({nombre:e.nombre||"",color:e.color||COLORES_ESPECIES[0].hex,observaciones:e.observaciones||""});
+    setForm({nombre:e.nombre||"",color:e.color||COLORES_ESPECIES[0].hex,imagen:e.imagen||"",observaciones:e.observaciones||""});
     setEditId(e.id);setShowForm(true);
   }
 
@@ -6015,6 +6039,16 @@ function MaestroEspecies({especies,setEspecies,can,obtentores=[],contratos=[],va
             </div>
             <div style={{marginTop:8,padding:"6px 12px",background:form.color,color:"#fff",borderRadius:6,fontSize:11,fontWeight:700,display:"inline-block",textShadow:"0 1px 2px #0006"}}>Vista previa: {form.nombre||"Especie"}</div>
           </div>
+          <div style={{marginBottom:10}}>
+            <div style={{fontSize:11,color:C.muted,fontWeight:600,marginBottom:3}}>Imagen / GIF de la fruta (URL) <span style={{fontWeight:400,color:C.muted2}}>— opcional, reemplaza el color</span></div>
+            <div style={{display:"flex",gap:10,alignItems:"center"}}>
+              <input value={form.imagen} placeholder="https://...  (.gif, .png, .jpg)" onChange={e=>setForm(p=>({...p,imagen:e.target.value}))}
+                style={{flex:1,padding:"6px 8px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:12,outline:"none",boxSizing:"border-box"}}/>
+              <div style={{width:36,height:36,borderRadius:8,flexShrink:0,overflow:"hidden",border:`1px solid ${C.border}`,background:form.imagen?"#fff":form.color,display:"flex",alignItems:"center",justifyContent:"center"}}>
+                {form.imagen&&<img src={form.imagen} alt="" style={{width:"100%",height:"100%",objectFit:"cover"}} onError={e=>{e.target.style.display="none";}}/>}
+              </div>
+            </div>
+          </div>
           <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}>
             <button onClick={()=>{setShowForm(false);setEditId(null);}} style={{padding:"6px 16px",borderRadius:6,border:`1px solid ${C.border}`,background:C.card,cursor:"pointer",fontSize:12}}>Cancelar</button>
             <button onClick={guardar} style={{padding:"6px 16px",borderRadius:6,background:C.accent2,color:"#fff",border:"none",cursor:"pointer",fontSize:12,fontWeight:600}}>💾 Guardar</button>
@@ -6053,7 +6087,12 @@ function MaestroEspecies({especies,setEspecies,can,obtentores=[],contratos=[],va
               return (
                 <tr key={e.id} style={{borderBottom:`1px solid ${C.border}22`,background:i%2===0?C.card:C.rowAlt}}>
                   <td style={{padding:"6px 10px",width:32}}>
-                    <div style={{width:24,height:24,borderRadius:6,background:e.color||C.muted,boxShadow:"0 1px 3px #0002"}}/>
+                    {e.imagen
+                      ? <div style={{width:26,height:26,borderRadius:6,overflow:"hidden",background:"#fff",boxShadow:"0 1px 3px #0002"}}>
+                          <img src={e.imagen} alt={e.nombre} style={{width:"100%",height:"100%",objectFit:"cover"}}
+                            onError={ev=>{ev.target.parentNode.style.background=e.color||C.muted;ev.target.style.display="none";}}/>
+                        </div>
+                      : <div style={{width:24,height:24,borderRadius:6,background:e.color||C.muted,boxShadow:"0 1px 3px #0002"}}/>}
                   </td>
                   <td style={{padding:"6px 10px",fontWeight:700,color:C.text}}>{e.nombre}</td>
                   <td style={{padding:"6px 10px",color:C.muted}}>{nVariedades>0?<span style={{padding:"2px 8px",borderRadius:10,background:C.warningBg,color:C.text,fontSize:10,fontWeight:700}}>{nVariedades}</span>:"—"}</td>
@@ -6345,7 +6384,7 @@ function MaestroVariedades({variedades,setVariedades,can,obtentores=[],especies=
       <div style={{overflowX:"auto",minWidth:0,maxWidth:"calc(100vw - 40px)"}}>
         <table style={{borderCollapse:"collapse",width:"100%",background:C.card,borderRadius:8,overflow:"hidden",fontSize:12}}>
           <thead><tr style={{background:C.primary,color:C.primaryText}}>
-            {["Especie","Denominación","Obtentor","Variedad","Royalty","Observaciones",""].map(h=>(
+            {["Especie","Variedad","Obtentor","N° Registro","Royalty","Observaciones",""].map(h=>(
               <th key={h} style={{padding:"7px 10px",textAlign:"left",fontWeight:600,fontSize:11,whiteSpace:"nowrap"}}>{h}</th>
             ))}
           </tr></thead>
@@ -6379,7 +6418,7 @@ function MaestroVariedades({variedades,setVariedades,can,obtentores=[],especies=
                 </td>
               </tr>
             ))}
-            {filtrado.length===0&&<tr><td colSpan={6} style={{textAlign:"center",padding:20,color:C.muted2}}>Sin variedades. {can?(sugerencias.length>0?`Hay ${sugerencias.length} sugerencias desde obtentores.`:"Agrega una con \"+ Nueva variedad\"."):""}</td></tr>}
+            {filtrado.length===0&&<tr><td colSpan={7} style={{textAlign:"center",padding:20,color:C.muted2}}>Sin variedades. {can?(sugerencias.length>0?`Hay ${sugerencias.length} sugerencias desde obtentores.`:"Agrega una con \"+ Nueva variedad\"."):""}</td></tr>}
           </tbody>
         </table>
       </div>
@@ -6501,6 +6540,10 @@ function derivarRoyaltyComercialDesdeContratos(ctData) {
     if(valorPorHa===0) return;
     const inicioTemp = ct.rcInicioTemporada || temporadaActual();
     const mesCobro = ct.rcMesCobro || RC_MES_DEFAULT_POR_PAIS[ct.pais] || "Abril";
+    // Trimestre del mes de cobro (para alertas/calendario que usan trimCobro).
+    // Sin esto trimCobro queda undefined → fechaInicioTrim cae en enero.
+    const mesIdxRC = Math.max(0, MESES.indexOf(mesCobro));
+    const trimCobro = Math.floor(mesIdxRC/3)+1;
     const temps = temporadasEntre(inicioTemp, ct.fechaTermino);
     temps.forEach(temp => {
       const montoFact = haTotal * valorPorHa;
@@ -6520,6 +6563,7 @@ function derivarRoyaltyComercialDesdeContratos(ctData) {
         montoCobro,
         whtPct: pct(ct.pais)===1 ? 0 : 15,
         mesCobro,
+        trimCobro,
         añoCobro: parseInt(temp.split("/")[1]),
         pagado: !!pago.pagado,
         fechaPago: pago.fechaPago || "",
@@ -7645,8 +7689,8 @@ function ControlContratos({data,setData,clientes,setClientes,variedadesMaestro=[
                               style={{padding:"5px 8px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:11}}/>
                           </td>
                           <td style={{padding:"6px 8px"}}>
-                            <input disabled={!can} value={p.nCotizacionVivero||""} placeholder="N° Cot." onChange={e=>updPl("nCotizacionVivero",e.target.value)}
-                              style={{width:80,padding:"5px 8px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:11}}/>
+                            <input disabled={!can} value={p.nCotizacionVivero||""} placeholder="N° Cot." title={p.nCotizacionVivero||""} onChange={e=>updPl("nCotizacionVivero",e.target.value)}
+                              style={{width:140,padding:"5px 8px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:11}}/>
                           </td>
                           <td style={{padding:"6px 8px"}}>
                             <select disabled={!can} value={p.sublicenciatario_id||""} onChange={e=>seleccionarSublic(e.target.value)}
@@ -8450,8 +8494,8 @@ function ControlContratos({data,setData,clientes,setClientes,variedadesMaestro=[
                             <input type="date" value={p.fechaPlantacion||""} onChange={e=>updPl("fechaPlantacion",e.target.value)} style={{padding:"5px 7px",borderRadius:5,border:`1px solid ${C.border}`,fontSize:11}}/>
                           </td>
                           <td style={{padding:"5px 8px"}}>
-                            <input value={p.nCotizacionVivero||""} placeholder="N° Cot." onChange={e=>updPl("nCotizacionVivero",e.target.value)}
-                              style={{width:80,padding:"5px 7px",borderRadius:5,border:`1px solid ${C.border}`,fontSize:11}}/>
+                            <input value={p.nCotizacionVivero||""} placeholder="N° Cot." title={p.nCotizacionVivero||""} onChange={e=>updPl("nCotizacionVivero",e.target.value)}
+                              style={{width:140,padding:"5px 7px",borderRadius:5,border:`1px solid ${C.border}`,fontSize:11}}/>
                           </td>
                           <td style={{padding:"5px 8px"}}>
                             <select value={p.sublicenciatario_id||""} onChange={e=>seleccionarSub(e.target.value)}
@@ -8717,7 +8761,7 @@ function estadoVigencia(fechaStr) {
 async function exportarObtentores(obtData) {
   const sectionContratos = {
     titulo: "Contratos Obtentores",
-    headers: ["Obtentor","Estado Contrato","Fecha Inicio","Fecha Vencimiento","Renovable","Firma Obtentor","Firma Osiris","# Especies","# PBR","# Anexos","Días para vencer","Link Contrato","Link Doc. Legal","Observaciones"],
+    headers: ["Obtentor","Estado Contrato","Fecha Inicio","Fecha Vencimiento","Renovable","Firma Obtentor","Firma Osiris","# Especies","# Variedades","# PBR","# Anexos","Días para vencer","Link Contrato","Link Doc. Legal","Observaciones"],
     rows: obtData.map(o=>{
       const d = diasParaVencer(o.f_vencimiento);
       return [
@@ -8728,6 +8772,7 @@ async function exportarObtentores(obtData) {
         o.renovable?"Sí":"No",
         o.firma_obtentor?"Firmado":"Pendiente",
         o.firma_osiris?"Firmado":"Pendiente",
+        new Set((o.especies||[]).map(e=>(e.especie||"").trim()).filter(Boolean)).size,
         (o.especies||[]).length,
         (o.pbr||[]).length,
         (o.anexos||[]).length,
@@ -9294,15 +9339,15 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
       {/* KPIs globales */}
       <div style={{display:"flex",gap:12,flexWrap:"wrap",maxWidth:700,margin:"0 auto"}}>
         {[
-          ["💵 Por cobrar",     $$(totPend),          C.warning],
+          ["💵 Por cobrar",     $$0(totPend),          C.warning],
           ["📦 Pedidos",        tpData.length,         C.primary],
           ["🌿 Royalty filas",  rpData.length,         C.success],
           ["🌱 Fee Vivero",     fvData.filter(r=>!r.pagado).length+" pend.", C.danger],
         ].map(([l,v,c])=>(
           <div key={l} style={{background:C.card,border:`1px solid ${C.border}`,borderLeft:`4px solid ${c}`,
-            borderRadius:10,padding:"12px 16px",flex:1,minWidth:140,boxShadow:C.shadow}}>
+            borderRadius:10,padding:"12px 16px",flex:1,minWidth:140,boxShadow:C.shadow,overflow:"hidden",boxSizing:"border-box"}}>
             <div style={{fontSize:10,color:C.muted,fontWeight:600,marginBottom:4}}>{l}</div>
-            <div style={{fontSize:20,fontWeight:900,color:c}}>{v}</div>
+            <div style={{fontSize:20,fontWeight:900,color:c,lineHeight:1.1,overflowWrap:"anywhere"}}>{v}</div>
           </div>
         ))}
       </div>
@@ -9524,7 +9569,8 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
                 {c.firma_obtentor&&<span style={{fontSize:10,background:C.successBg,color:C.success,padding:"4px 10px",borderRadius:20,fontWeight:700}}>✅ Firma Obtentor</span>}
                 {c.firma_osiris&&<span style={{fontSize:10,background:C.successBg,color:C.success,padding:"4px 10px",borderRadius:20,fontWeight:700}}>✅ Firma Osiris</span>}
                 {c.renovable&&<span style={{fontSize:10,background:C.infoBg,color:C.primary,padding:"4px 10px",borderRadius:20,fontWeight:700}}>🔄 Renovable</span>}
-                <span style={{fontSize:10,background:C.purpleBg,color:C.purple,padding:"4px 10px",borderRadius:20,fontWeight:700}}>🌿 {especies.length} especies</span>
+                <span style={{fontSize:10,background:C.purpleBg,color:C.purple,padding:"4px 10px",borderRadius:20,fontWeight:700}}>🌳 {new Set(especies.map(e=>(e.especie||"").trim()).filter(Boolean)).size} especie(s)</span>
+                <span style={{fontSize:10,background:C.purpleBg,color:C.purple,padding:"4px 10px",borderRadius:20,fontWeight:700}}>🌿 {especies.length} variedad(es)</span>
                 <span style={{fontSize:10,background:C.warningBg,color:C.warning,padding:"4px 10px",borderRadius:20,fontWeight:700}}>📜 {pbr.length} PBR</span>
               </div>
             </div>
@@ -9731,7 +9777,7 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
                 {pbr.length===0?<div style={{padding:30,textAlign:"center",color:C.muted2}}>No hay registros PBR.</div>:(
                   <div style={{display:"flex",flexDirection:"column",gap:12}}>
                     {pbr.map(p=>(
-                      <div key={p.id} style={{border:`1px solid ${C.border}`,borderRadius:10,padding:16,background:p.estado==="Aprobado"?C.successBg:p.estado==="Rechazado"?C.dangerBg:"#fff"}}>
+                      <div key={p.id} style={{border:`1px solid ${C.border}`,borderRadius:10,padding:16,background:(p.estado==="Otorgado"||p.estado==="Vigente")?C.successBg:(p.estado==="Denegado"||p.estado==="Vencido"||p.estado==="Retirado")?C.dangerBg:"#fff"}}>
                         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
                           <div style={{fontWeight:700,fontSize:13}}>🌿 {p.especie} — 🌍 {p.pais}</div>
                           <div style={{display:"flex",gap:6,alignItems:"center"}}>
@@ -9756,12 +9802,18 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
                               style={{width:"100%",padding:"4px 8px",border:`1px solid ${C.border}`,borderRadius:6,fontSize:11,boxSizing:"border-box"}}/>
                           </div>
                           <div>
-                            <div style={{color:C.muted,fontWeight:600,marginBottom:2}}>Doc. Solicitud (link)</div>
+                            <div style={{color:C.muted,fontWeight:600,marginBottom:2,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                              <span>Doc. Solicitud (link)</span>
+                              {p.doc_solicitud&&<a href={p.doc_solicitud} target="_blank" rel="noopener noreferrer" style={{color:C.purple,fontWeight:700,textDecoration:"none"}}>🔗 Abrir</a>}
+                            </div>
                             <input disabled={!canObtentores} value={p.doc_solicitud||""} onChange={e=>updatePBR(p.id,{doc_solicitud:e.target.value})} placeholder="URL documento..."
                               style={{width:"100%",padding:"4px 8px",border:`1px solid ${C.border}`,borderRadius:6,fontSize:11,boxSizing:"border-box"}}/>
                           </div>
                           <div>
-                            <div style={{color:C.muted,fontWeight:600,marginBottom:2}}>Doc. Resolución (link)</div>
+                            <div style={{color:C.muted,fontWeight:600,marginBottom:2,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                              <span>Doc. Resolución (link)</span>
+                              {p.doc_resolucion&&<a href={p.doc_resolucion} target="_blank" rel="noopener noreferrer" style={{color:C.purple,fontWeight:700,textDecoration:"none"}}>🔗 Abrir</a>}
+                            </div>
                             <input disabled={!canObtentores} value={p.doc_resolucion||""} onChange={e=>updatePBR(p.id,{doc_resolucion:e.target.value})} placeholder="URL documento..."
                               style={{width:"100%",padding:"4px 8px",border:`1px solid ${C.border}`,borderRadius:6,fontSize:11,boxSizing:"border-box"}}/>
                           </div>
@@ -9865,18 +9917,22 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
                                   style={{width:90,padding:"5px 8px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:11}}/>
                               </td>
                               <td style={{padding:"6px 8px"}}>
-                                <select disabled={!canObtentores} value={pi.tipoCalculo||"porcentaje"} onChange={e=>updPi("tipoCalculo",e.target.value)}
-                                  style={{padding:"5px 8px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:11}}>
-                                  <option value="porcentaje">% sobre factura</option>
-                                  <option value="usd_planta">USD / planta</option>
-                                  <option value="usd_ha">USD / há</option>
-                                </select>
+                                {(pi.tipoCalculo && pi.tipoCalculo!=="porcentaje") ? (
+                                  <span title="Antes era USD/planta o USD/há. La participación del obtentor ahora es solo %. Ingresa el % correcto en la columna Valor y el aviso se quita." style={{fontSize:10,color:C.danger,fontWeight:700}}>⚠ {pi.tipoCalculo==="usd_planta"?"era USD/planta":"era USD/há"}</span>
+                                ) : (
+                                  <span style={{fontSize:11,color:C.muted,fontWeight:600}}>% sobre ingreso</span>
+                                )}
                               </td>
                               <td style={{padding:"6px 8px"}}>
                                 <div style={{display:"flex",alignItems:"center",gap:4}}>
-                                  <input type="number" step="0.01" disabled={!canObtentores} value={pi.valor||0} onChange={e=>updPi("valor",parseFloat(e.target.value)||0)}
+                                  <input type="number" step="0.01" disabled={!canObtentores} value={pi.valor||0} onChange={e=>{
+                                    const v=parseFloat(e.target.value)||0;
+                                    // Al editar el valor lo normalizamos a % (limpia datos legacy USD/planta o USD/há)
+                                    const nx=(c.participacionIngresos||[]).map(x=>x.id===pi.id?{...x,valor:v,tipoCalculo:"porcentaje"}:x);
+                                    updateContrato(c.id,{participacionIngresos:nx});
+                                  }}
                                     style={{width:70,padding:"5px 8px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:11,textAlign:"right"}}/>
-                                  <span style={{fontSize:10,color:C.muted}}>{pi.tipoCalculo==="porcentaje"?"%":pi.tipoCalculo==="usd_planta"?"$/pl":"$/há"}</span>
+                                  <span style={{fontSize:10,color:C.muted}}>%</span>
                                 </div>
                               </td>
                               <td style={{padding:"6px 8px"}}>
@@ -10241,8 +10297,9 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
             ["📊 Total contratos", obtData.length, C.purple],
             ["⚠️ Vencidos",          totVencidos,    C.danger],
             ["⏳ Vencen ≤ 90 días", totPorVencer,  C.warning],
-            ["🌿 Especies totales", obtData.reduce((s,o)=>s+(o.especies||[]).length,0), C.success],
-            ["📜 PBR aprobados",    obtData.reduce((s,o)=>s+(o.pbr||[]).filter(p=>p.estado==="Aprobado").length,0), C.accent2],
+            ["🌳 Especies distintas", new Set(obtData.flatMap(o=>(o.especies||[]).map(e=>(e.especie||"").trim()).filter(Boolean))).size, C.success],
+            ["🌿 Variedades totales", obtData.reduce((s,o)=>s+(o.especies||[]).length,0), C.teal||C.success],
+            ["📜 PBR vigentes",     obtData.reduce((s,o)=>s+(o.pbr||[]).filter(p=>p.estado==="Otorgado"||p.estado==="Vigente").length,0), C.accent2],
           ].map(([l,v,c])=>(
             <div key={l} style={{background:C.card,border:`1px solid ${C.border}`,borderLeft:`4px solid ${c}`,
               borderRadius:10,padding:"12px 16px",flex:1,minWidth:140,boxShadow:C.shadow}}>
@@ -10276,7 +10333,8 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
             <div style={{display:"grid",gap:12}}>
               {obtData.map(o=>{
                 const vig = estadoVigencia(o.f_vencimiento);
-                const nEsp = (o.especies||[]).length;
+                const nVar = (o.especies||[]).length;
+                const nEsp = new Set((o.especies||[]).map(e=>(e.especie||"").trim()).filter(Boolean)).size;
                 const nPbr = (o.pbr||[]).length;
                 const firmado = o.firma_obtentor && o.firma_osiris;
                 const venc = diasParaVencer(o.f_vencimiento);
@@ -10298,7 +10356,7 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
                       <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
                         {firmado&&<span style={{fontSize:10,background:"rgba(34,197,94,0.15)",color:C.success,padding:"3px 10px",borderRadius:20,fontWeight:700}}>✅ Firmado</span>}
                         {o.renovable&&<span style={{fontSize:10,background:"rgba(96,165,250,0.15)",color:C.primary,padding:"3px 10px",borderRadius:20,fontWeight:700}}>🔄</span>}
-                        <span style={{fontSize:10,background:"rgba(124,58,237,0.15)",color:C.purple,padding:"3px 10px",borderRadius:20,fontWeight:700}}>{nEsp} esp.</span>
+                        <span style={{fontSize:10,background:"rgba(124,58,237,0.15)",color:C.purple,padding:"3px 10px",borderRadius:20,fontWeight:700}}>{nEsp} esp. · {nVar} var.</span>
                         <span style={{fontSize:10,background:"rgba(251,191,36,0.15)",color:C.warning,padding:"3px 10px",borderRadius:20,fontWeight:700}}>{nPbr} PBR</span>
                         {canObtentores&&<>
                           <button onClick={e=>{e.stopPropagation();setObtForm({...EMPTY_OBT,...o});setObtEditId(o.id);setObtWizStep(1);setObtWizEspForm(EMPTY_ESP_INLINE);setObtWizPbrForm(EMPTY_PBR_INLINE);setObtModal(true);}}
@@ -10588,7 +10646,7 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
                         PBR agregados ({wizPbr.length})
                       </div>
                       {wizPbr.map(p=>{
-                        const stCol = p.estado==="Aprobado"?C.success:p.estado==="Rechazado"?C.danger:p.estado==="En Revisión"?"#0284c7":p.estado==="Solicitado"?C.purple:C.warning;
+                        const stCol = (p.estado==="Otorgado"||p.estado==="Vigente")?C.success:(p.estado==="Denegado"||p.estado==="Vencido"||p.estado==="Retirado")?C.danger:p.estado==="En Revisión"?"#0284c7":p.estado==="Solicitado"?C.purple:C.warning;
                         return (
                           <div key={p.id} style={{padding:"10px 12px",borderTop:"1px solid #f1f5f9",display:"flex",justifyContent:"space-between",alignItems:"center",gap:8}}>
                             <div style={{flex:1,minWidth:0}}>
@@ -10927,23 +10985,53 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
 
       const guardarOC = () => {
         if(!canViveros) return;
-        if(!ocForm.n_oc || !ocForm.cliente_id || !ocForm.variedad_id) {
-          alert("N° OC, Cliente y Variedad son obligatorios."); return;
+        const tieneItems = (ocForm.items||[]).length>0;
+        if(!ocForm.n_oc || !ocForm.cliente_id || (!tieneItems && !ocForm.variedad_id)) {
+          alert("N° OC, Cliente y al menos una Variedad son obligatorios."); return;
         }
         const cli = clientes.find(c=>c.id===ocForm.cliente_id);
-        const variedadSel = variedades.find(x=>x.id===ocForm.variedad_id);
-        const cantidad = parseFloat(ocForm.cantidad_plantas)||0;
-        const fee = parseFloat(ocForm.fee_usd_planta)||0;
         const id = ocEditId || `oc_${Date.now()}`;
+        // Normalizar líneas: usar items[] si existen; si no, migrar la variedad legacy a una línea.
+        let items = (ocForm.items||[]).map(it=>{
+          const vv = variedades.find(x=>x.id===it.variedad_id);
+          const cant = parseFloat(it.cantidad_plantas)||0;
+          const fee = parseFloat(it.fee_usd_planta)||0;
+          return {
+            ...it,
+            especie: vv?.especie || it.especie || "",
+            variedad: vv?.variedad || it.variedad || "",
+            cantidad_plantas: cant,
+            hectareas: parseFloat(it.hectareas)||0,
+            fee_usd_planta: fee,
+            fee_total_usd: calcFeeTotal(cant, fee),
+          };
+        });
+        if(!tieneItems && ocForm.variedad_id){
+          const variedadSel = variedades.find(x=>x.id===ocForm.variedad_id);
+          const cant = parseFloat(ocForm.cantidad_plantas)||0;
+          const fee = parseFloat(ocForm.fee_usd_planta)||0;
+          items = [{
+            id:`oci_${Date.now()}`, variedad_id: ocForm.variedad_id,
+            especie: variedadSel?.especie || "", variedad: variedadSel?.variedad || "",
+            cantidad_plantas: cant, hectareas: parseFloat(ocForm.hectareas)||0,
+            fee_usd_planta: fee, fee_total_usd: calcFeeTotal(cant, fee),
+          }];
+        }
+        const totPlantas = items.reduce((s,i)=>s+(Number(i.cantidad_plantas)||0),0);
+        const totHa = items.reduce((s,i)=>s+(Number(i.hectareas)||0),0);
+        const totFee = items.reduce((s,i)=>s+(Number(i.fee_total_usd)||0),0);
+        const primera = items[0]||{};
         const item = {
-          ...ocForm, id,
+          ...ocForm, id, items,
           cliente_nombre: cli?.razonSocial || ocForm.cliente_nombre || "",
-          especie: variedadSel?.especie || "",
-          variedad: variedadSel?.variedad || "",
-          cantidad_plantas: cantidad,
-          hectareas: parseFloat(ocForm.hectareas)||0,
-          fee_usd_planta: fee,
-          fee_total_usd: calcFeeTotal(cantidad, fee),
+          // Campos top-level: agregados (compatibilidad con vistas/cálculos legacy)
+          especie: primera.especie || "",
+          variedad: items.length>1 ? `${items.length} variedades` : (primera.variedad||""),
+          variedad_id: primera.variedad_id || ocForm.variedad_id || "",
+          cantidad_plantas: totPlantas,
+          hectareas: totHa,
+          fee_usd_planta: parseFloat(ocForm.fee_usd_planta)||primera.fee_usd_planta||0,
+          fee_total_usd: totFee,
           cuotas: ocForm.cuotas || [],
         };
         const next = ocEditId
@@ -10977,6 +11065,7 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
           fee_usd_planta: oc.fee_usd_planta||"", fee_total_usd: oc.fee_total_usd||0,
           estado_oc: oc.estado_oc||"Borrador", observaciones: oc.observaciones||"",
           cuotas: oc.cuotas||[],
+          items: Array.isArray(oc.items)?oc.items:[],
         });
         setOcEditId(oc.id);
         setOcModal(true);
