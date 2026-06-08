@@ -606,6 +606,20 @@ export async function guardarComposicionCuenta({
 // Caso numérico puro de Excel (sin guión, ≤8 dígitos): calcula DV.
 // ═══════════════════════════════════════════════════════════════════
 
+// ═══════════════════════════════════════════════════════════════════
+// RUT DESDE GLOSA MEGASYSTEM
+// Extrae el RUT embebido en glosas del tipo:
+//   "Prove.: 76.351.274-6 Docto.: FAC ELEC Nro.: 5730"
+//   "Cliente.: 77.997.049-3"
+// ═══════════════════════════════════════════════════════════════════
+
+export function extraerRutGlosaMega(glosa) {
+  if (!glosa) return null;
+  const m = String(glosa).match(/(?:Prove|Cliente)\.\:\s*([\d.]+\-[\dKk])/i);
+  if (!m) return null;
+  return normalizeRut(m[1]);
+}
+
 function _dvRut(body) {
   const digits = String(body).split('').reverse();
   let sum = 0, f = 2;

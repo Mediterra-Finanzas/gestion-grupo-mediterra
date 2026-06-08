@@ -7,7 +7,8 @@ import {
   guardarEEFF, cargarEEFF, eeffId,
   parsearMayor, dbSaveMayor, dbLoadMayor,
   guardarComposicionCuenta, saldoEfectivo,
-  normalizeRut, parseTercerosMegasystem, parseTercerosContec,
+  normalizeRut, extraerRutGlosaMega,
+  parseTercerosMegasystem, parseTercerosContec,
   mergeTerceros, dbSaveTercerosMaestro, dbLoadTercerosMaestro, dbSaveCategoriasAuxiliar,
 } from './eeffHelpers.js';
 import { theme } from './theme';
@@ -511,6 +512,8 @@ export default function EEFFModule({ canEdit, usuarioActual, empresasPermitidas 
   const [adminPanelOpen,    setAdminPanelOpen]    = useState(false);
   const tercerosMegaRef = useRef();
   const tercerosCteRef  = useRef();
+  // ── Auxiliar: filas expandidas por RUT en el drawer ──────────────
+  const [auxExpandedRuts, setAuxExpandedRuts] = useState(new Set());
   // ── Categorías Auxiliar (Parte 2) ─────────────────────────────────
   const [categoriasAuxiliar, setCategoriasAuxiliar] = useState(CATEGORIAS_AUXILIAR_DEFAULT);
   const [catAuxGuardando,    setCatAuxGuardando]    = useState(false);
@@ -521,12 +524,14 @@ export default function EEFFModule({ canEdit, usuarioActual, empresasPermitidas 
     setCuentaSeleccionada(null); setDrawerTab('movimientos');
     setMayorDrawer(null); setMayorDrawerCargando(false);
     setDrawerAnalisisItems([]); setDrawerAnalisisOk(false); setDrawerAnalisisError(null);
+    setAuxExpandedRuts(new Set());
   }, [empresa, anio]);
 
   // Cerrar drawer al cambiar mes (sin limpiar mayorDrawer — es anual)
   useEffect(() => {
     setCuentaSeleccionada(null);
     setDrawerAnalisisItems([]); setDrawerAnalisisOk(false); setDrawerAnalisisError(null);
+    setAuxExpandedRuts(new Set());
   }, [mes]);
 
   const toggleSec = useCallback((id) => {
@@ -800,6 +805,51 @@ export default function EEFFModule({ canEdit, usuarioActual, empresasPermitidas 
     [tercerosEntradas, tercerosPagina]
   );
   const tercerosTotalPags = Math.ceil(tercerosEntradas.length / TERCEROS_POR_PAG) || 1;
+
+  // ── Auxiliar: saldo agrupado por tercero (Parte 3+4) ─────────────
+  // Filtra a YTD (mes <= mes seleccionado) para cuadrar con saldo EEFF.
+  // Extrae rutNorm desde col[9] (Contec) o glosa (Megasystem).
+  const drawerAuxiliar = useMemo(() => {
+    if (!cuentaSeleccionada || !tieneAuxiliar(cuentaSeleccionada.categoriaIFRS)) return null;
+    const movYtd = drawerMovimientos.filter(m => m.mes <= mes);
+    if (!movYtd.length) return { filas: [], cobertura: { conRut: 0, total: 0, pct: 0 } };
+
+    const grupos = {};
+    let conRut = 0;
+    for (const m of movYtd) {
+      let rutNorm = null;
+      if (m.sistema === 'contec' && m.rutAuxiliar) {
+        rutNorm = normalizeRut(m.rutAuxiliar);
+      } else if (m.sistema === 'megasystem') {
+        rutNorm = extraerRutGlosaMega(m.glosa);
+      }
+      if (rutNorm) conRut++;
+      const key = rutNorm || '__sin_rut__';
+      if (!grupos[key]) grupos[key] = { rutNorm, debe: 0, haber: 0, movs: [] };
+      grupos[key].debe  += m.debe  || 0;
+      grupos[key].haber += m.haber || 0;
+      grupos[key].movs.push(m);
+    }
+
+    const esPasivo = cuentaSeleccionada.tipoIFRS === 'Pasivo';
+    const saldoFn  = (d, h) => esPasivo ? h - d : d - h;
+
+    const filas = Object.values(grupos).map(g => ({
+      ...g,
+      saldo:  saldoFn(g.debe, g.haber),
+      nombre: (g.rutNorm && tercerosMaestro?.[g.rutNorm]?.nombre) || null,
+    })).sort((a, b) => {
+      if (!a.rutNorm && b.rutNorm) return 1;
+      if (a.rutNorm && !b.rutNorm) return -1;
+      return Math.abs(b.saldo) - Math.abs(a.saldo);
+    });
+
+    return {
+      filas,
+      cobertura: { conRut, total: movYtd.length, pct: Math.round(conRut / movYtd.length * 100) },
+      labelSaldo: esPasivo ? 'Por pagar' : 'Por cobrar',
+    };
+  }, [cuentaSeleccionada, drawerMovimientos, mes, tercerosMaestro, tieneAuxiliar]);
 
   // ── Render ───────────────────────────────────────────────────────
   return (
@@ -1478,7 +1528,11 @@ export default function EEFFModule({ canEdit, usuarioActual, empresasPermitidas 
 
               {/* Tabs */}
               <div style={{ display:'flex', gap:6, marginTop:10 }}>
-                {[['movimientos','Movimientos'],['analisis','Análisis']].map(([id, label]) => (
+                {[
+                  ['movimientos', 'Movimientos'],
+                  ['analisis',   'Análisis'],
+                  ...(tieneAuxiliar(cuentaSeleccionada?.categoriaIFRS) ? [['auxiliar', 'Auxiliar']] : []),
+                ].map(([id, label]) => (
                   <button key={id} onClick={() => setDrawerTab(id)}
                     style={{ padding:'4px 12px', borderRadius:12, border:'none',
                       fontSize:11, fontWeight:600, cursor:'pointer',
@@ -1732,6 +1786,114 @@ export default function EEFFModule({ canEdit, usuarioActual, empresasPermitidas 
                   )}
                 </>
               )}
+
+              {/* ── Tab: Auxiliar (Parte 3+4) ── */}
+              {drawerTab === 'auxiliar' && (() => {
+                if (!drawerAuxiliar) return null;
+                if (!mayorDrawer) return (
+                  <div style={{ fontSize:12, color:C.muted }}>Carga primero el libro mayor para ver el auxiliar.</div>
+                );
+                const { filas, cobertura, labelSaldo } = drawerAuxiliar;
+
+                return (
+                  <div>
+                    {/* Cobertura */}
+                    <div style={{ fontSize:10, color:C.muted, marginBottom:10,
+                      display:'flex', gap:10, alignItems:'center', flexWrap:'wrap' }}>
+                      <span>
+                        {cobertura.conRut.toLocaleString('es-CL')} / {cobertura.total.toLocaleString('es-CL')} mov. con RUT{' '}
+                        <strong style={{ color: cobertura.pct >= 90 ? C.green : cobertura.pct >= 70 ? C.yellow : C.red }}>
+                          ({cobertura.pct}%)
+                        </strong>
+                      </span>
+                      <span style={{ color:C.muted2 }}>hasta {NOMBRES_MES[mes]} {anio}</span>
+                    </div>
+
+                    {filas.length === 0 ? (
+                      <div style={{ fontSize:11, color:C.muted }}>Sin movimientos YTD.</div>
+                    ) : (
+                      <div>
+                        {/* Cabecera */}
+                        <div style={{ display:'grid', gridTemplateColumns:'1fr 72px 72px 80px',
+                          padding:'4px 6px', background:C.bg2, borderRadius:5, marginBottom:3,
+                          fontSize:9, fontWeight:700, color:C.muted }}>
+                          <span>Tercero</span>
+                          <span style={{ textAlign:'right' }}>Debe</span>
+                          <span style={{ textAlign:'right' }}>Haber</span>
+                          <span style={{ textAlign:'right' }}>{labelSaldo}</span>
+                        </div>
+
+                        {filas.map(f => {
+                          const key = f.rutNorm || '__sin_rut__';
+                          const expanded = auxExpandedRuts.has(key);
+                          const saldoCol = f.saldo > 0.005 ? C.text : f.saldo < -0.005 ? C.red : C.muted;
+                          return (
+                            <div key={key} style={{ marginBottom:1 }}>
+                              {/* Fila resumen */}
+                              <div
+                                onClick={() => setAuxExpandedRuts(prev => {
+                                  const s = new Set(prev); s.has(key) ? s.delete(key) : s.add(key); return s;
+                                })}
+                                style={{ display:'grid', gridTemplateColumns:'1fr 72px 72px 80px',
+                                  padding:'5px 6px', borderRadius:5, cursor:'pointer',
+                                  background: expanded ? `${C.accent}14` : 'transparent',
+                                  border:`1px solid ${expanded ? C.accent+'44' : 'transparent'}`,
+                                  transition:'background 0.1s' }}>
+                                <div style={{ minWidth:0 }}>
+                                  <div style={{ fontSize:10, fontWeight:600, color:C.text,
+                                    overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
+                                    {expanded ? '▼' : '▶'}{' '}
+                                    {f.nombre || (f.rutNorm ? <span style={{ color:C.muted }}>(sin nombre)</span> : <span style={{ color:C.muted2 }}>Sin RUT</span>)}
+                                  </div>
+                                  {f.rutNorm && (
+                                    <div style={{ fontSize:9, color:C.muted, fontFamily:'monospace' }}>{f.rutNorm}</div>
+                                  )}
+                                  <div style={{ fontSize:9, color:C.muted2 }}>{f.movs.length} mov.</div>
+                                </div>
+                                <div style={{ textAlign:'right', fontSize:10, color:C.muted, alignSelf:'center' }}>
+                                  {fmtMonto(f.debe, 0)}
+                                </div>
+                                <div style={{ textAlign:'right', fontSize:10, color:C.muted, alignSelf:'center' }}>
+                                  {fmtMonto(f.haber, 0)}
+                                </div>
+                                <div style={{ textAlign:'right', fontSize:11, fontWeight:700, color:saldoCol, alignSelf:'center' }}>
+                                  {fmtMonto(Math.abs(f.saldo), 0)}
+                                  {f.saldo < -0.005 && <span style={{ fontSize:8, marginLeft:2 }}>CR</span>}
+                                </div>
+                              </div>
+
+                              {/* Detalle movimientos (expandible) */}
+                              {expanded && (
+                                <div style={{ marginLeft:10, marginBottom:4,
+                                  borderLeft:`2px solid ${C.accent}44`, paddingLeft:8 }}>
+                                  {f.movs.map((m, i) => (
+                                    <div key={i} style={{ display:'grid',
+                                      gridTemplateColumns:'78px 1fr 64px 64px',
+                                      gap:4, padding:'3px 2px', fontSize:9,
+                                      borderBottom:`1px solid ${C.border}22`,
+                                      color:C.muted }}>
+                                      <span style={{ whiteSpace:'nowrap' }}>{m.fecha}</span>
+                                      <span style={{ overflow:'hidden', textOverflow:'ellipsis',
+                                        whiteSpace:'nowrap' }} title={m.glosa}>{m.glosa || '—'}</span>
+                                      <span style={{ textAlign:'right', color: m.debe>0 ? C.text : C.muted2 }}>
+                                        {m.debe > 0 ? fmtMonto(m.debe, 0) : '—'}
+                                      </span>
+                                      <span style={{ textAlign:'right', color: m.haber>0 ? C.text : C.muted2 }}>
+                                        {m.haber > 0 ? fmtMonto(m.haber, 0) : '—'}
+                                      </span>
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
+
             </div>
           </div>
         </>
