@@ -688,6 +688,16 @@ export default function EEFFModule({ canEdit, usuarioActual, empresasPermitidas 
     });
   }, [usuarioActual]);
 
+  const handleEliminarTercero = useCallback((rut, nombre) => {
+    if (!window.confirm(`Eliminar "${nombre || rut}" del maestro?`)) return;
+    setTercerosMaestro(prev => {
+      const { [rut]: _, ...mapa } = prev;
+      dbSaveTercerosMaestro(mapa, usuarioActual?.nombre || '').catch(() => {});
+      return mapa;
+    });
+    setTerceroEditando(null);
+  }, [usuarioActual]);
+
   // ── Handler: Categorías Auxiliar (Parte 2) ───────────────────────
   const handleGuardarCategoriasAuxiliar = useCallback(async () => {
     setCatAuxGuardando(true); setCatAuxOk(false);
@@ -1000,9 +1010,15 @@ export default function EEFFModule({ canEdit, usuarioActual, empresasPermitidas 
                                     <Btn onClick={() => setTerceroEditando(null)} small>✕</Btn>
                                   </>
                                 ) : (
-                                  <Btn onClick={() => setTerceroEditando({rut, nombre: t.nombre||''})} small>
-                                    Editar
-                                  </Btn>
+                                  <>
+                                    <Btn onClick={() => setTerceroEditando({rut, nombre: t.nombre||''})} small>
+                                      Editar
+                                    </Btn>
+                                    {' '}
+                                    <Btn onClick={() => handleEliminarTercero(rut, t.nombre)} small color={C.red}>
+                                      ×
+                                    </Btn>
+                                  </>
                                 )}
                               </td>
                             </tr>
