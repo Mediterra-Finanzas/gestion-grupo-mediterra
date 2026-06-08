@@ -7,6 +7,8 @@ import {
   guardarEEFF, cargarEEFF, eeffId,
   parsearMayor, dbSaveMayor, dbLoadMayor,
   guardarComposicionCuenta, saldoEfectivo,
+  normalizeRut, parseTercerosMegasystem, parseTercerosContec,
+  mergeTerceros, dbSaveTercerosMaestro, dbLoadTercerosMaestro, dbSaveCategoriasAuxiliar,
 } from './eeffHelpers.js';
 import { theme } from './theme';
 
@@ -124,6 +126,24 @@ const ER_BLOQUES = [
   { id:'no_op',    label:'No Operacional',             grupo:'No Operacional',         signo: 0 },
   { id:'imp',      label:'Impuesto a la Renta',        grupo:'Impuesto',               signo:-1 },
 ];
+
+// ── Auxiliares contables: categorías que tienen desglose por tercero ──
+const CATEGORIAS_AUXILIAR_DEFAULT = [
+  'CxC Comerciales y Otras',
+  'CxC a Productores',
+  'CxP Comerciales y Otras',
+  'CxP a Productores',
+];
+
+// Todas las categorías del plan que podrían tener auxiliar (CxC o CxP)
+const CATS_POTENCIAL_AUXILIAR = Object.keys({
+  'CxC Comerciales y Otras':1, 'CxC a Productores':1, 'CxC Entidades Relacionadas':1,
+  'Otras CxC':1, 'CxC Comerciales No Corrientes':1, 'CxC Entidades Relacionadas No Corrientes':1,
+  'CxP Comerciales y Otras':1, 'CxP a Productores':1, 'CxP Entidades Relacionadas':1,
+  'CxP Comerciales No Corrientes':1, 'CxP Entidades Relacionadas No Corrientes':1,
+});
+
+const TERCEROS_POR_PAG = 20;
 
 // ── Helpers ──────────────────────────────────────────────────────────
 function valorSit(c) {
@@ -481,6 +501,21 @@ export default function EEFFModule({ canEdit, usuarioActual, empresasPermitidas 
   const [drawerAnalisisError,   setDrawerAnalisisError]   = useState(null);
   const mayorDrawerUploadRef = useRef();
 
+  // ── Maestro de Terceros (Parte 1) ─────────────────────────────────
+  const [tercerosMaestro,   setTercerosMaestro]   = useState(null);   // {[rutNorm]:{nombre,activo,fuente}}
+  const [tercerosCargando,  setTercerosCargando]  = useState(false);
+  const [tercerosMergeInfo, setTercerosMergeInfo] = useState(null);   // {nuevos, actualizados}
+  const [tercerosBusqueda,  setTercerosBusqueda]  = useState('');
+  const [tercerosPagina,    setTercerosPagina]    = useState(0);
+  const [terceroEditando,   setTerceroEditando]   = useState(null);   // {rut, nombre}
+  const [adminPanelOpen,    setAdminPanelOpen]    = useState(false);
+  const tercerosMegaRef = useRef();
+  const tercerosCteRef  = useRef();
+  // ── Categorías Auxiliar (Parte 2) ─────────────────────────────────
+  const [categoriasAuxiliar, setCategoriasAuxiliar] = useState(CATEGORIAS_AUXILIAR_DEFAULT);
+  const [catAuxGuardando,    setCatAuxGuardando]    = useState(false);
+  const [catAuxOk,           setCatAuxOk]           = useState(false);
+
   // Limpiar drawer cuando cambia empresa o año
   useEffect(() => {
     setCuentaSeleccionada(null); setDrawerTab('movimientos');
@@ -501,13 +536,29 @@ export default function EEFFModule({ canEdit, usuarioActual, empresasPermitidas 
     setExpandedCats(prev => { const s = new Set(prev); s.has(key)?s.delete(key):s.add(key); return s; });
   }, []);
 
-  // ── Cargar Plan Maestro al montar ────────────────────────────────
+  // Parte 2: indica si una categoriaIFRS tiene desglose por tercero
+  const tieneAuxiliar = useCallback((cat) => categoriasAuxiliar.includes(cat), [categoriasAuxiliar]);
+
+  // ── Cargar Plan Maestro + categoriasAuxiliar al montar ───────────
   useEffect(() => {
     setPlanCargando(true);
     dbLoadPlanMaestro()
-      .then(res => { if (res) { setPlanMaps(res.maps); setPlanMeta(res.meta); } })
+      .then(res => {
+        if (res) {
+          setPlanMaps(res.maps);
+          setPlanMeta(res.meta);
+          if (res.categoriasAuxiliar) setCategoriasAuxiliar(res.categoriasAuxiliar);
+        }
+      })
       .catch(() => {})
       .finally(() => setPlanCargando(false));
+  }, []);
+
+  // ── Cargar Maestro de Terceros al montar ─────────────────────────
+  useEffect(() => {
+    dbLoadTercerosMaestro()
+      .then(data => { if (data) setTercerosMaestro(data); })
+      .catch(() => {});
   }, []);
 
   // ── Cargar EEFF desde Supabase cuando cambia empresa/mes/año ─────
@@ -580,6 +631,77 @@ export default function EEFFModule({ canEdit, usuarioActual, empresasPermitidas 
     if (fileRefYtd.current) fileRefYtd.current.value = '';
   }, []);
 
+  // ── Handlers: Maestro de Terceros (Parte 1) ──────────────────────
+  const handleImportarTerceros = useCallback(async (file, fuente) => {
+    if (!file) return;
+    setTercerosCargando(true); setTercerosMergeInfo(null);
+    try {
+      const nuevos = fuente === 'megasystem'
+        ? await parseTercerosMegasystem(file)
+        : await parseTercerosContec(file);
+      const { mapa, stats } = mergeTerceros(tercerosMaestro, nuevos, fuente);
+      await dbSaveTercerosMaestro(mapa, usuarioActual?.nombre || usuarioActual?.email || '');
+      setTercerosMaestro(mapa);
+      setTercerosMergeInfo(stats);
+      setTercerosBusqueda(''); setTercerosPagina(0);
+    } catch(e) {
+      alert('Error importando terceros: ' + (e.message || String(e)));
+    } finally {
+      setTercerosCargando(false);
+      if (tercerosMegaRef.current) tercerosMegaRef.current.value = '';
+      if (tercerosCteRef.current)  tercerosCteRef.current.value  = '';
+    }
+  }, [tercerosMaestro, usuarioActual]);
+
+  const handleAgregarTerceroManual = useCallback(() => {
+    const rut = prompt('RUT (ej: 76.351.274-6):');
+    if (!rut) return;
+    const rutNorm = normalizeRut(rut);
+    if (!rutNorm) { alert('RUT inválido'); return; }
+    const nombre = prompt('Nombre / razón social:') || '';
+    setTercerosMaestro(prev => {
+      const mapa = { ...(prev || {}), [rutNorm]: {
+        nombre, activo: true, fuente: 'manual', updatedAt: new Date().toISOString(),
+      }};
+      dbSaveTercerosMaestro(mapa, usuarioActual?.nombre || '').catch(() => {});
+      return mapa;
+    });
+    setTercerosBusqueda(rutNorm); setTercerosPagina(0);
+  }, [usuarioActual]);
+
+  const handleGuardarTerceroEditando = useCallback(() => {
+    if (!terceroEditando) return;
+    const { rut, nombre } = terceroEditando;
+    setTercerosMaestro(prev => {
+      const mapa = { ...prev, [rut]: { ...(prev[rut]||{}), nombre, updatedAt: new Date().toISOString() }};
+      dbSaveTercerosMaestro(mapa, usuarioActual?.nombre || '').catch(() => {});
+      return mapa;
+    });
+    setTerceroEditando(null);
+  }, [terceroEditando, usuarioActual]);
+
+  const handleToggleTerceroActivo = useCallback((rut) => {
+    setTercerosMaestro(prev => {
+      const mapa = { ...prev, [rut]: { ...prev[rut], activo: !(prev[rut]?.activo !== false), updatedAt: new Date().toISOString() }};
+      dbSaveTercerosMaestro(mapa, usuarioActual?.nombre || '').catch(() => {});
+      return mapa;
+    });
+  }, [usuarioActual]);
+
+  // ── Handler: Categorías Auxiliar (Parte 2) ───────────────────────
+  const handleGuardarCategoriasAuxiliar = useCallback(async () => {
+    setCatAuxGuardando(true); setCatAuxOk(false);
+    try {
+      await dbSaveCategoriasAuxiliar(categoriasAuxiliar, usuarioActual?.nombre || usuarioActual?.email || '');
+      setCatAuxOk(true);
+      setTimeout(() => setCatAuxOk(false), 3000);
+    } catch(e) {
+      alert('Error guardando categorias: ' + (e.message || String(e)));
+    } finally {
+      setCatAuxGuardando(false);
+    }
+  }, [categoriasAuxiliar, usuarioActual]);
+
   // ── Derived: cpg por fuente ──────────────────────────────────────
   // cpgYtd: siempre acumulado (cuentas_ytd si existe, o legacy cuentas)
   const cpgYtd = useMemo(() => buildCpg(eeffData?.cuentas_ytd || eeffData?.cuentas), [eeffData]);
@@ -651,6 +773,23 @@ export default function EEFFModule({ canEdit, usuarioActual, empresasPermitidas 
   // Saldo y suma para el drawer análisis
   const drawerSaldoRef = cuentaSeleccionada ? saldoEfectivo(cuentaSeleccionada) : 0;
   const drawerSuma     = drawerAnalisisItems.reduce((s, it) => s + (parseFloat(it.monto) || 0), 0);
+
+  // ── Terceros: tabla filtrada + paginada ───────────────────────────
+  const tercerosEntradas = useMemo(() => {
+    if (!tercerosMaestro) return [];
+    const bq = tercerosBusqueda.toLowerCase().trim();
+    const todas = Object.entries(tercerosMaestro);
+    if (!bq) return todas;
+    return todas.filter(([rut, t]) =>
+      rut.toLowerCase().includes(bq) || (t.nombre||'').toLowerCase().includes(bq)
+    );
+  }, [tercerosMaestro, tercerosBusqueda]);
+
+  const tercerosPaginados = useMemo(() =>
+    tercerosEntradas.slice(tercerosPagina * TERCEROS_POR_PAG, (tercerosPagina + 1) * TERCEROS_POR_PAG),
+    [tercerosEntradas, tercerosPagina]
+  );
+  const tercerosTotalPags = Math.ceil(tercerosEntradas.length / TERCEROS_POR_PAG) || 1;
 
   // ── Render ───────────────────────────────────────────────────────
   return (
@@ -749,6 +888,191 @@ export default function EEFFModule({ canEdit, usuarioActual, empresasPermitidas 
           </div>
         )}
       </div>
+
+      {/* ── Panel Admin (Parte 1: Maestro Terceros + Parte 2: Categorías Auxiliar) ── */}
+      {isAdmin && (
+        <div style={{ marginBottom:14 }}>
+          <button onClick={() => setAdminPanelOpen(p => !p)}
+            style={{ background:'none', border:`1px solid ${C.border}`, borderRadius:6,
+              padding:'4px 12px', color:C.muted, cursor:'pointer', fontSize:10, fontWeight:600 }}>
+            {adminPanelOpen ? '▲' : '▼'} Panel Admin
+          </button>
+
+          {adminPanelOpen && (
+            <div style={{ marginTop:8, border:`1px solid ${C.border}`, borderRadius:10,
+              background:C.card2, padding:'14px 16px', display:'flex', flexDirection:'column', gap:14 }}>
+
+              {/* ── Maestro de Terceros ── */}
+              <div>
+                <div style={{ fontSize:11, fontWeight:800, color:C.text, marginBottom:8 }}>
+                  Maestro de Terceros
+                </div>
+
+                {/* Stats + botones de importación */}
+                <div style={{ display:'flex', gap:8, alignItems:'center', flexWrap:'wrap', marginBottom:8 }}>
+                  <span style={{ fontSize:10, color:C.muted }}>
+                    {tercerosMaestro
+                      ? `${Object.keys(tercerosMaestro).length.toLocaleString('es-CL')} RUTs registrados`
+                      : 'Sin maestro cargado'}
+                  </span>
+                  {tercerosMergeInfo && (
+                    <span style={{ fontSize:10, color:C.green }}>
+                      +{tercerosMergeInfo.nuevos} nuevos · {tercerosMergeInfo.actualizados} actualizados
+                    </span>
+                  )}
+                  <input ref={tercerosMegaRef} type="file" accept=".xls,.xlsx"
+                    onChange={e => handleImportarTerceros(e.target.files[0], 'megasystem')}
+                    style={{ display:'none' }} />
+                  <input ref={tercerosCteRef} type="file" accept=".xls,.xlsx"
+                    onChange={e => handleImportarTerceros(e.target.files[0], 'contec')}
+                    style={{ display:'none' }} />
+                  <Btn onClick={() => tercerosMegaRef.current?.click()} disabled={tercerosCargando} small>
+                    {tercerosCargando ? 'Procesando...' : 'Importar Megasystem'}
+                  </Btn>
+                  <Btn onClick={() => tercerosCteRef.current?.click()} disabled={tercerosCargando}
+                    small color={C.accent}>
+                    Importar Contec
+                  </Btn>
+                  <Btn onClick={handleAgregarTerceroManual} disabled={tercerosCargando}
+                    small color={C.green}>
+                    + Manual
+                  </Btn>
+                </div>
+
+                {/* Buscador + tabla */}
+                {tercerosMaestro && (
+                  <>
+                    <input
+                      value={tercerosBusqueda}
+                      onChange={e => { setTercerosBusqueda(e.target.value); setTercerosPagina(0); }}
+                      placeholder="Buscar RUT o nombre..."
+                      style={{ padding:'5px 10px', borderRadius:6, background:C.bg, color:C.text,
+                        border:`1px solid ${C.border}`, fontSize:11, width:260, marginBottom:6 }}
+                    />
+
+                    <div style={{ maxHeight:260, overflowY:'auto',
+                      border:`1px solid ${C.border}`, borderRadius:7 }}>
+                      <table style={{ width:'100%', borderCollapse:'collapse', fontSize:10 }}>
+                        <thead>
+                          <tr style={{ background:C.bg2 }}>
+                            <th style={{ padding:'5px 10px', textAlign:'left', fontWeight:700, color:C.muted, position:'sticky', top:0, background:C.bg2 }}>RUT</th>
+                            <th style={{ padding:'5px 10px', textAlign:'left', fontWeight:700, color:C.muted, position:'sticky', top:0, background:C.bg2 }}>Nombre</th>
+                            <th style={{ padding:'5px 8px',  textAlign:'center', fontWeight:700, color:C.muted, position:'sticky', top:0, background:C.bg2 }}>Fuente</th>
+                            <th style={{ padding:'5px 8px',  textAlign:'center', fontWeight:700, color:C.muted, position:'sticky', top:0, background:C.bg2 }}>Activo</th>
+                            <th style={{ padding:'5px 8px', position:'sticky', top:0, background:C.bg2 }}></th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {tercerosPaginados.length === 0 && (
+                            <tr><td colSpan={5} style={{ padding:'16px', textAlign:'center', color:C.muted2 }}>
+                              Sin resultados
+                            </td></tr>
+                          )}
+                          {tercerosPaginados.map(([rut, t]) => (
+                            <tr key={rut} style={{ borderTop:`1px solid ${C.border}`,
+                              background: terceroEditando?.rut===rut ? `${C.accent}12` : 'transparent' }}>
+                              <td style={{ padding:'5px 10px', fontFamily:'monospace', color:C.muted, whiteSpace:'nowrap' }}>
+                                {rut}
+                              </td>
+                              <td style={{ padding:'5px 10px' }}>
+                                {terceroEditando?.rut === rut ? (
+                                  <input value={terceroEditando.nombre}
+                                    onChange={e => setTerceroEditando(p => ({...p, nombre: e.target.value}))}
+                                    style={{ padding:'2px 6px', borderRadius:4, background:C.bg, color:C.text,
+                                      border:`1px solid ${C.accent}`, fontSize:10, width:'100%' }}
+                                  />
+                                ) : (
+                                  t.nombre || <span style={{ color:C.muted2 }}>—</span>
+                                )}
+                              </td>
+                              <td style={{ padding:'5px 8px', textAlign:'center', color:C.muted2, fontSize:9 }}>
+                                {t.fuente || '—'}
+                              </td>
+                              <td style={{ padding:'5px 8px', textAlign:'center' }}>
+                                <input type="checkbox" checked={t.activo !== false}
+                                  onChange={() => handleToggleTerceroActivo(rut)} />
+                              </td>
+                              <td style={{ padding:'5px 8px', textAlign:'right', whiteSpace:'nowrap' }}>
+                                {terceroEditando?.rut === rut ? (
+                                  <>
+                                    <Btn onClick={handleGuardarTerceroEditando} small color={C.green}>OK</Btn>
+                                    {' '}
+                                    <Btn onClick={() => setTerceroEditando(null)} small>✕</Btn>
+                                  </>
+                                ) : (
+                                  <Btn onClick={() => setTerceroEditando({rut, nombre: t.nombre||''})} small>
+                                    Editar
+                                  </Btn>
+                                )}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+
+                    {/* Paginación */}
+                    {tercerosTotalPags > 1 && (
+                      <div style={{ display:'flex', gap:6, alignItems:'center', marginTop:5,
+                        fontSize:10, color:C.muted }}>
+                        <Btn onClick={() => setTercerosPagina(p => Math.max(0, p-1))}
+                          disabled={tercerosPagina===0} small>‹</Btn>
+                        <span>{tercerosPagina+1} / {tercerosTotalPags}</span>
+                        <Btn onClick={() => setTercerosPagina(p => Math.min(tercerosTotalPags-1, p+1))}
+                          disabled={tercerosPagina===tercerosTotalPags-1} small>›</Btn>
+                        <span style={{ marginLeft:4 }}>
+                          {tercerosEntradas.length.toLocaleString('es-CL')} registros
+                        </span>
+                      </div>
+                    )}
+                  </>
+                )}
+              </div>
+
+              {/* ── Categorías Auxiliar ── */}
+              <div style={{ borderTop:`1px solid ${C.border}`, paddingTop:12 }}>
+                <div style={{ fontSize:11, fontWeight:800, color:C.text, marginBottom:3 }}>
+                  Categorias con auxiliar CxC / CxP
+                </div>
+                <div style={{ fontSize:10, color:C.muted, marginBottom:8 }}>
+                  Las cuentas de estas categorias mostrarán desglose por tercero (cliente/proveedor)
+                </div>
+                <div style={{ display:'flex', flexWrap:'wrap', gap:5, marginBottom:8 }}>
+                  {CATS_POTENCIAL_AUXILIAR.map(cat => {
+                    const activa = categoriasAuxiliar.includes(cat);
+                    return (
+                      <label key={cat} style={{ display:'flex', alignItems:'center', gap:4,
+                        cursor:'pointer', fontSize:10,
+                        color: activa ? C.text : C.muted,
+                        background: activa ? `${C.accent}22` : C.bg2,
+                        padding:'3px 8px', borderRadius:5,
+                        border:`1px solid ${activa ? C.accent : C.border}` }}>
+                        <input type="checkbox" checked={activa} style={{ margin:0 }}
+                          onChange={() => {
+                            setCategoriasAuxiliar(prev =>
+                              prev.includes(cat) ? prev.filter(c => c !== cat) : [...prev, cat]
+                            );
+                            setCatAuxOk(false);
+                          }}
+                        />
+                        {cat}
+                      </label>
+                    );
+                  })}
+                </div>
+                <div style={{ display:'flex', gap:8, alignItems:'center' }}>
+                  <Btn onClick={handleGuardarCategoriasAuxiliar} disabled={catAuxGuardando}
+                    small color={C.accent}>
+                    {catAuxGuardando ? 'Guardando...' : 'Guardar configuracion'}
+                  </Btn>
+                  {catAuxOk && <span style={{ fontSize:10, color:C.green }}>Guardado</span>}
+                </div>
+              </div>
+
+            </div>
+          )}
+        </div>
+      )}
 
       {/* ── Loading ── */}
       {loadingData && (

@@ -279,8 +279,9 @@ export async function dbLoadPlanMaestro() {
   if (!rows?.[0]?.value) return null;
   const val = rows[0].value;
   return {
-    maps: planObjToMaps(val),
-    meta: { version: val.version, cargadoEn: val.cargadoEn, cargadoPor: val.cargadoPor },
+    maps:               planObjToMaps(val),
+    meta:               { version: val.version, cargadoEn: val.cargadoEn, cargadoPor: val.cargadoPor },
+    categoriasAuxiliar: val.categoriasAuxiliar || null,
   };
 }
 
@@ -465,6 +466,9 @@ export async function parsearMayorContec(file) {
       if (!fechaStr) continue;
       const mes  = parseInt(fechaStr.substring(5, 7), 10);
       const anio = parseInt(fechaStr.substring(0, 4), 10);
+      // col[9]=RUT auxiliar, col[10]=tipoDoc, col[12]=vencimiento
+      const rutRaw9 = row[9] != null ? String(row[9]).trim() : '';
+      const vctoRaw = row[12] != null ? String(row[12]).trim() : '';
       movimientos.push({
         fecha:        fechaStr,
         tipo:         row[1] != null ? String(row[1]).trim() : '',
@@ -477,6 +481,9 @@ export async function parsearMayorContec(file) {
         nombreCuenta: cuentaActual.nombre,
         moneda:       '',   // Contec no incluye código de moneda por movimiento
         tc:           Number(row[4]) || null,
+        rutAuxiliar:  (rutRaw9 && rutRaw9 !== '0') ? rutRaw9 : null,
+        tipoDoc:      row[10] != null ? String(row[10]).trim() || null : null,
+        vencimiento:  /^\d{2}\/\d{2}\/\d{4}$/.test(vctoRaw) ? _parseFechaContec(vctoRaw) : null,
         mes,
         anio,
         sistema:      'contec',
@@ -589,6 +596,180 @@ export async function guardarComposicionCuenta({
   });
   if (!res.ok) throw new Error(`Error guardando composición (${res.status})`);
   return { id, codigoCuenta, composicion };
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// RUT CHILE — NORMALIZACIÓN
+// Forma canónica: cuerpo+dígito verificador sin puntos ni guión.
+// Ejemplos: "76.351.274-6" → "763512746", "24133442-2" → "241334422"
+// Caso especial: RUT foráneo corto con guión ej. "1000-6" → ya tiene DV.
+// Caso numérico puro de Excel (sin guión, ≤8 dígitos): calcula DV.
+// ═══════════════════════════════════════════════════════════════════
+
+function _dvRut(body) {
+  const digits = String(body).split('').reverse();
+  let sum = 0, f = 2;
+  for (const d of digits) { sum += Number(d) * f; f = f === 7 ? 2 : f + 1; }
+  const r = 11 - (sum % 11);
+  return r === 11 ? '0' : r === 10 ? 'K' : String(r);
+}
+
+export function normalizeRut(raw) {
+  if (raw == null || raw === '') return '';
+  let s = String(raw).trim().toUpperCase();
+  const hasHyphen = s.includes('-');                     // guión presente → DV ya incluido
+  s = s.replace(/\./g, '').replace(/,/g, '').replace(/\s/g, '');
+  if (hasHyphen) {
+    s = s.replace('-', '');                              // quitar guión, DV ya estaba
+  } else if (/^\d+$/.test(s) && s.length <= 8) {
+    s = s + _dvRut(s);                                   // número puro de Excel → calcular DV
+  }
+  s = s.replace(/k$/, 'K');
+  return s;
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// MAESTRO DE TERCEROS — PARSERS
+// Devuelven [{ rut: string (normalizado), nombre: string }]
+//
+// Megasystem: .xls con headers; busca columnas rut_prove / rut_cliente / rut
+//             y razon_social_prov / razon_social_cli / razon_social / nombre
+// Contec:     .xlsx con headers; busca columnas RUT y RAZON SOCIAL
+//             (los RUTs vienen en formato "XX.XXX.XXX-D" o "X,XXX,XXX-D")
+// ═══════════════════════════════════════════════════════════════════
+
+export async function parseTercerosMegasystem(file) {
+  const data = await file.arrayBuffer();
+  const wb = XLSX.read(data, { type: 'array' });
+  const ws = wb.Sheets[wb.SheetNames[0]];
+  const rows = XLSX.utils.sheet_to_json(ws, { defval: null });
+
+  const resultado = [];
+  for (const row of rows) {
+    const rutRaw = row['rut_prove'] ?? row['rut_cliente'] ?? row['rut'] ?? row['RUT'] ?? null;
+    const nombre = row['razon_social_prov'] ?? row['razon_social_cli'] ?? row['razon_social']
+                   ?? row['nombre'] ?? row['NOMBRE'] ?? '';
+    if (!rutRaw) continue;
+    const rut = normalizeRut(rutRaw);
+    if (!rut) continue;
+    resultado.push({ rut, nombre: String(nombre).trim() });
+  }
+  return resultado;
+}
+
+export async function parseTercerosContec(file) {
+  const data = await file.arrayBuffer();
+  const wb = XLSX.read(data, { type: 'array' });
+  const ws = wb.Sheets[wb.SheetNames[0]];
+  const rows = XLSX.utils.sheet_to_json(ws, { defval: null });
+
+  const resultado = [];
+  for (const row of rows) {
+    const rutRaw = row['RUT'] ?? row['Rut'] ?? row['rut']
+                   ?? row['RUT_PROVEEDOR'] ?? row['RUT_CLIENTE'] ?? null;
+    const nombre = row['RAZON SOCIAL'] ?? row['Razon Social'] ?? row['razon_social']
+                   ?? row['NOMBRE'] ?? row['Nombre'] ?? '';
+    if (!rutRaw) continue;
+    const rut = normalizeRut(rutRaw);
+    if (!rut) continue;
+    resultado.push({ rut, nombre: String(nombre).trim() });
+  }
+  return resultado;
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// MAESTRO DE TERCEROS — MERGE
+// existing  = mapa { [rutNorm]: { nombre, activo, fuente, updatedAt } } | null
+// nuevos    = [{ rut, nombre }]
+// fuente    = 'megasystem' | 'contec' | 'manual'
+// Regla: entradas 'manual' preservan su nombre (no se sobreescriben).
+// ═══════════════════════════════════════════════════════════════════
+
+export function mergeTerceros(existing, nuevos, fuente) {
+  const mapa = { ...(existing || {}) };
+  let nNuevos = 0, nActualizados = 0;
+  for (const { rut, nombre } of nuevos) {
+    if (!rut) continue;
+    if (mapa[rut]) {
+      const esManual = mapa[rut].fuente === 'manual';
+      if (!esManual && nombre && nombre !== mapa[rut].nombre) {
+        mapa[rut] = { ...mapa[rut], nombre, fuente, updatedAt: new Date().toISOString() };
+        nActualizados++;
+      }
+    } else {
+      mapa[rut] = { nombre, activo: true, fuente, updatedAt: new Date().toISOString() };
+      nNuevos++;
+    }
+  }
+  return { mapa, stats: { nuevos: nNuevos, actualizados: nActualizados } };
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// MAESTRO DE TERCEROS — PERSISTENCIA (id: terceros_maestro)
+// value = { terceros: {[rutNorm]:{nombre,activo,fuente,updatedAt}},
+//           totalRuts, guardadoEn, guardadoPor }
+// ═══════════════════════════════════════════════════════════════════
+
+export async function dbSaveTercerosMaestro(tercerosMapa, guardadoPor) {
+  const value = {
+    terceros:    tercerosMapa,
+    totalRuts:   Object.keys(tercerosMapa).length,
+    guardadoEn:  new Date().toISOString(),
+    guardadoPor: guardadoPor || '',
+  };
+  const res = await fetch(`${SUPA_URL}/rest/v1/calendario_data`, {
+    method: 'POST',
+    headers: {
+      apikey: SUPA_KEY, Authorization: `Bearer ${SUPA_KEY}`,
+      'Content-Type': 'application/json',
+      Prefer: 'resolution=merge-duplicates',
+    },
+    body: JSON.stringify({ id: 'terceros_maestro', value, updated_at: new Date().toISOString() }),
+  });
+  if (!res.ok) throw new Error(`Error guardando Maestro de Terceros (${res.status})`);
+  return value.totalRuts;
+}
+
+export async function dbLoadTercerosMaestro() {
+  const res = await fetch(
+    `${SUPA_URL}/rest/v1/calendario_data?id=eq.terceros_maestro&select=value`,
+    { headers: { apikey: SUPA_KEY, Authorization: `Bearer ${SUPA_KEY}` } }
+  );
+  const rows = await res.json();
+  if (!rows?.[0]?.value?.terceros) return null;
+  return rows[0].value.terceros;   // { [rutNorm]: {...} }
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// CATEGORÍAS AUXILIAR — PERSISTENCIA
+// Parcela solo el campo categoriasAuxiliar en maestro_plan_cuentas,
+// preservando mega/contec y demás metadatos del Plan Maestro.
+// ═══════════════════════════════════════════════════════════════════
+
+export async function dbSaveCategoriasAuxiliar(categorias, guardadoPor) {
+  // Leer row actual para no perder mega/contec
+  const res = await fetch(
+    `${SUPA_URL}/rest/v1/calendario_data?id=eq.maestro_plan_cuentas&select=value`,
+    { headers: { apikey: SUPA_KEY, Authorization: `Bearer ${SUPA_KEY}` } }
+  );
+  const rows = await res.json();
+  const val = rows?.[0]?.value || {};
+  const newValue = {
+    ...val,
+    categoriasAuxiliar:      categorias,
+    catAuxActualizadoEn:     new Date().toISOString(),
+    catAuxActualizadoPor:    guardadoPor || '',
+  };
+  const res2 = await fetch(`${SUPA_URL}/rest/v1/calendario_data`, {
+    method: 'POST',
+    headers: {
+      apikey: SUPA_KEY, Authorization: `Bearer ${SUPA_KEY}`,
+      'Content-Type': 'application/json',
+      Prefer: 'resolution=merge-duplicates',
+    },
+    body: JSON.stringify({ id: 'maestro_plan_cuentas', value: newValue, updated_at: new Date().toISOString() }),
+  });
+  if (!res2.ok) throw new Error(`Error guardando categorias auxiliar (${res2.status})`);
 }
 
 export async function dbLoadMayor(empresa, anio, empresasPermitidas) {
