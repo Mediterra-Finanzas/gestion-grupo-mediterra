@@ -5570,7 +5570,9 @@ function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit,saldosBanc
                     ));
                   })()}
                   {/* For CxC/Capital Calls: use saved subLines from Supabase */}
-                  {line.subLines&&expandedSubs[line.label]&&!line.label.includes("Préstamos")&&(subLines[line.label]||[]).map((sl,sli)=>{
+                  {/* Sub-líneas MANUALES (editables). Para Pago Préstamos se muestran ADEMÁS del
+                      desglose auto de Créditos; suman sobre el total (cuotas no registradas en Créditos). */}
+                  {line.subLines&&expandedSubs[line.label]&&(subLines[line.label]||[]).map((sl,sli)=>{
                     const slLabel=typeof sl==="string"?sl:sl.label;
                     const slVals =typeof sl==="string"?{}:(sl.vals||{});
                     // Guarda un valor: lee siempre del estado actual de subLines para evitar closures stale
