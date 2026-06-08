@@ -652,6 +652,22 @@ export function normalizeRut(raw) {
 //             (los RUTs vienen en formato "XX.XXX.XXX-D" o "X,XXX,XXX-D")
 // ═══════════════════════════════════════════════════════════════════
 
+// Extrae terceros únicos directamente de los movimientos ya cargados del mayor.
+// Útil para poblar el maestro sin necesitar un archivo separado.
+export function extraerTercerosDelMayor(movimientos) {
+  const vistos = {};
+  for (const m of movimientos) {
+    let rutNorm = null;
+    if (m.sistema === 'contec' && m.rutAuxiliar) {
+      rutNorm = normalizeRut(m.rutAuxiliar);
+    } else if (m.sistema === 'megasystem') {
+      rutNorm = extraerRutGlosaMega(m.glosa);
+    }
+    if (rutNorm && !vistos[rutNorm]) vistos[rutNorm] = { rut: rutNorm, nombre: '' };
+  }
+  return Object.values(vistos);
+}
+
 export async function parseTercerosMegasystem(file) {
   const data = await file.arrayBuffer();
   const wb = XLSX.read(data, { type: 'array' });

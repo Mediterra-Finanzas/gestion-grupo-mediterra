@@ -7,7 +7,7 @@ import {
   guardarEEFF, cargarEEFF, eeffId,
   parsearMayor, dbSaveMayor, dbLoadMayor,
   guardarComposicionCuenta, saldoEfectivo,
-  normalizeRut, extraerRutGlosaMega,
+  normalizeRut, extraerRutGlosaMega, extraerTercerosDelMayor,
   parseTercerosMegasystem, parseTercerosContec,
   mergeTerceros, dbSaveTercerosMaestro, dbLoadTercerosMaestro, dbSaveCategoriasAuxiliar,
 } from './eeffHelpers.js';
@@ -513,7 +513,9 @@ export default function EEFFModule({ canEdit, usuarioActual, empresasPermitidas 
   const tercerosMegaRef = useRef();
   const tercerosCteRef  = useRef();
   // ── Auxiliar: filas expandidas por RUT en el drawer ──────────────
-  const [auxExpandedRuts, setAuxExpandedRuts] = useState(new Set());
+  const [auxExpandedRuts,   setAuxExpandedRuts]   = useState(new Set());
+  const [auxNombreEdit,     setAuxNombreEdit]      = useState(null);   // {rut, nombre} inline en tab auxiliar
+  const [terceroExtrayendo, setTerceroExtrayendo]  = useState(false);
   // ── Categorías Auxiliar (Parte 2) ─────────────────────────────────
   const [categoriasAuxiliar, setCategoriasAuxiliar] = useState(CATEGORIAS_AUXILIAR_DEFAULT);
   const [catAuxGuardando,    setCatAuxGuardando]    = useState(false);
@@ -541,8 +543,13 @@ export default function EEFFModule({ canEdit, usuarioActual, empresasPermitidas 
     setExpandedCats(prev => { const s = new Set(prev); s.has(key)?s.delete(key):s.add(key); return s; });
   }, []);
 
-  // Parte 2: indica si una categoriaIFRS tiene desglose por tercero
-  const tieneAuxiliar = useCallback((cat) => categoriasAuxiliar.includes(cat), [categoriasAuxiliar]);
+  // Parte 2: indica si una categoriaIFRS tiene desglose por tercero.
+  // Doble check: config guardada OR detección automática por nombre (CxC/CxP).
+  const tieneAuxiliar = useCallback((cat) => {
+    if (!cat) return false;
+    if (categoriasAuxiliar.includes(cat)) return true;
+    return /CxC|CxP/i.test(cat);
+  }, [categoriasAuxiliar]);
 
   // ── Cargar Plan Maestro + categoriasAuxiliar al montar ───────────
   useEffect(() => {
@@ -717,6 +724,41 @@ export default function EEFFModule({ canEdit, usuarioActual, empresasPermitidas 
     }
   }, [categoriasAuxiliar, usuarioActual]);
 
+  // ── Handler: extrae RUTs del mayor ya cargado y los agrega al maestro ──
+  const handleExtraerTercerosDelMayor = useCallback(async () => {
+    setTerceroExtrayendo(true); setTercerosMergeInfo(null);
+    try {
+      const val = await dbLoadMayor(empresa, anio, empresasPermitidas);
+      if (!val?.movimientos?.length) { alert('No hay mayor cargado para ' + empresa + ' ' + anio); return; }
+      const nuevos = extraerTercerosDelMayor(val.movimientos);
+      const { mapa, stats } = mergeTerceros(tercerosMaestro, nuevos,
+        val.movimientos[0]?.sistema || 'contec');
+      await dbSaveTercerosMaestro(mapa, usuarioActual?.nombre || '');
+      setTercerosMaestro(mapa);
+      setTercerosMergeInfo(stats);
+      setTercerosBusqueda(''); setTercerosPagina(0);
+    } catch(e) {
+      alert('Error extrayendo terceros: ' + (e.message || String(e)));
+    } finally {
+      setTerceroExtrayendo(false);
+    }
+  }, [empresa, anio, empresasPermitidas, tercerosMaestro, usuarioActual]);
+
+  // ── Handler: guardar nombre asignado inline desde tab Auxiliar ───
+  const handleGuardarAuxNombre = useCallback(() => {
+    if (!auxNombreEdit) return;
+    const { rut, nombre } = auxNombreEdit;
+    setTercerosMaestro(prev => {
+      const mapa = { ...(prev || {}), [rut]: {
+        ...(prev?.[rut] || {}), nombre, fuente: prev?.[rut]?.fuente || 'manual',
+        updatedAt: new Date().toISOString(),
+      }};
+      dbSaveTercerosMaestro(mapa, usuarioActual?.nombre || '').catch(() => {});
+      return mapa;
+    });
+    setAuxNombreEdit(null);
+  }, [auxNombreEdit, usuarioActual]);
+
   // ── Derived: cpg por fuente ──────────────────────────────────────
   // cpgYtd: siempre acumulado (cuentas_ytd si existe, o legacy cuentas)
   const cpgYtd = useMemo(() => buildCpg(eeffData?.cuentas_ytd || eeffData?.cuentas), [eeffData]);
@@ -812,10 +854,13 @@ export default function EEFFModule({ canEdit, usuarioActual, empresasPermitidas 
   const drawerAuxiliar = useMemo(() => {
     if (!cuentaSeleccionada || !tieneAuxiliar(cuentaSeleccionada.categoriaIFRS)) return null;
     const movYtd = drawerMovimientos.filter(m => m.mes <= mes);
-    if (!movYtd.length) return { filas: [], cobertura: { conRut: 0, total: 0, pct: 0 } };
+    if (!movYtd.length) return { filas: [], cobertura: { conRut: 0, total: 0, pct: 0 }, totales: { debe:0, haber:0, saldo:0, vencido:0 } };
 
+    const today = new Date().toISOString().substring(0, 10);
+    const esPasivo = cuentaSeleccionada.tipoIFRS === 'Pasivo';
     const grupos = {};
     let conRut = 0;
+
     for (const m of movYtd) {
       let rutNorm = null;
       if (m.sistema === 'contec' && m.rutAuxiliar) {
@@ -825,14 +870,17 @@ export default function EEFFModule({ canEdit, usuarioActual, empresasPermitidas 
       }
       if (rutNorm) conRut++;
       const key = rutNorm || '__sin_rut__';
-      if (!grupos[key]) grupos[key] = { rutNorm, debe: 0, haber: 0, movs: [] };
+      if (!grupos[key]) grupos[key] = { rutNorm, debe: 0, haber: 0, vencido: 0, movs: [] };
       grupos[key].debe  += m.debe  || 0;
       grupos[key].haber += m.haber || 0;
+      // Vencimiento: lado "factura" según tipo de cuenta
+      if (m.vencimiento && m.vencimiento < today) {
+        grupos[key].vencido += esPasivo ? (m.haber || 0) : (m.debe || 0);
+      }
       grupos[key].movs.push(m);
     }
 
-    const esPasivo = cuentaSeleccionada.tipoIFRS === 'Pasivo';
-    const saldoFn  = (d, h) => esPasivo ? h - d : d - h;
+    const saldoFn = (d, h) => esPasivo ? h - d : d - h;
 
     const filas = Object.values(grupos).map(g => ({
       ...g,
@@ -844,10 +892,21 @@ export default function EEFFModule({ canEdit, usuarioActual, empresasPermitidas 
       return Math.abs(b.saldo) - Math.abs(a.saldo);
     });
 
+    const totales = filas.reduce((acc, f) => ({
+      debe:    acc.debe    + f.debe,
+      haber:   acc.haber   + f.haber,
+      saldo:   acc.saldo   + f.saldo,
+      vencido: acc.vencido + f.vencido,
+    }), { debe: 0, haber: 0, saldo: 0, vencido: 0 });
+
+    const hayVencimiento = movYtd.some(m => m.vencimiento);
+
     return {
       filas,
-      cobertura: { conRut, total: movYtd.length, pct: Math.round(conRut / movYtd.length * 100) },
-      labelSaldo: esPasivo ? 'Por pagar' : 'Por cobrar',
+      cobertura:    { conRut, total: movYtd.length, pct: Math.round(conRut / movYtd.length * 100) },
+      labelSaldo:   esPasivo ? 'Por pagar' : 'Por cobrar',
+      totales,
+      hayVencimiento,
     };
   }, [cuentaSeleccionada, drawerMovimientos, mes, tercerosMaestro, tieneAuxiliar]);
 
@@ -996,6 +1055,10 @@ export default function EEFFModule({ canEdit, usuarioActual, empresasPermitidas 
                   <Btn onClick={handleAgregarTerceroManual} disabled={tercerosCargando}
                     small color={C.green}>
                     + Manual
+                  </Btn>
+                  <Btn onClick={handleExtraerTercerosDelMayor}
+                    disabled={tercerosCargando || terceroExtrayendo} small color={C.accentL}>
+                    {terceroExtrayendo ? 'Extrayendo...' : `Extraer del mayor (${empresa} ${anio})`}
                   </Btn>
                 </div>
 
@@ -1791,64 +1854,118 @@ export default function EEFFModule({ canEdit, usuarioActual, empresasPermitidas 
               {drawerTab === 'auxiliar' && (() => {
                 if (!drawerAuxiliar) return null;
                 if (!mayorDrawer) return (
-                  <div style={{ fontSize:12, color:C.muted }}>Carga primero el libro mayor para ver el auxiliar.</div>
+                  <div style={{ fontSize:12, color:C.muted }}>
+                    Carga primero el libro mayor para ver el auxiliar.
+                  </div>
                 );
-                const { filas, cobertura, labelSaldo } = drawerAuxiliar;
+                const { filas, cobertura, labelSaldo, totales, hayVencimiento } = drawerAuxiliar;
+                const difVsEEFF = Math.abs(totales.saldo - Math.abs(drawerSaldoRef));
+                const cols = hayVencimiento
+                  ? '1fr 72px 72px 80px 72px'
+                  : '1fr 72px 72px 80px';
 
                 return (
                   <div>
                     {/* Cobertura */}
-                    <div style={{ fontSize:10, color:C.muted, marginBottom:10,
+                    <div style={{ fontSize:10, color:C.muted, marginBottom:8,
                       display:'flex', gap:10, alignItems:'center', flexWrap:'wrap' }}>
                       <span>
                         {cobertura.conRut.toLocaleString('es-CL')} / {cobertura.total.toLocaleString('es-CL')} mov. con RUT{' '}
-                        <strong style={{ color: cobertura.pct >= 90 ? C.green : cobertura.pct >= 70 ? C.yellow : C.red }}>
+                        <strong style={{ color: cobertura.pct>=90?C.green : cobertura.pct>=70?C.yellow : C.red }}>
                           ({cobertura.pct}%)
                         </strong>
                       </span>
-                      <span style={{ color:C.muted2 }}>hasta {NOMBRES_MES[mes]} {anio}</span>
+                      <span style={{ color:C.muted2 }}>YTD {NOMBRES_MES[mes]} {anio}</span>
                     </div>
+
+                    {/* Conciliación vs saldo EEFF */}
+                    {difVsEEFF > 1 && (
+                      <div style={{ fontSize:9, color:C.yellow, marginBottom:6, padding:'3px 8px',
+                        background:`${C.yellow}14`, borderRadius:5 }}>
+                        Diferencia vs saldo EEFF: {fmtMonto(difVsEEFF, 2)} (mov. sin RUT o fuera del período)
+                      </div>
+                    )}
 
                     {filas.length === 0 ? (
                       <div style={{ fontSize:11, color:C.muted }}>Sin movimientos YTD.</div>
                     ) : (
                       <div>
                         {/* Cabecera */}
-                        <div style={{ display:'grid', gridTemplateColumns:'1fr 72px 72px 80px',
-                          padding:'4px 6px', background:C.bg2, borderRadius:5, marginBottom:3,
-                          fontSize:9, fontWeight:700, color:C.muted }}>
+                        <div style={{ display:'grid', gridTemplateColumns:cols,
+                          padding:'4px 6px', background:C.primary, borderRadius:'5px 5px 0 0',
+                          fontSize:9, fontWeight:700, color:C.primaryText }}>
                           <span>Tercero</span>
                           <span style={{ textAlign:'right' }}>Debe</span>
                           <span style={{ textAlign:'right' }}>Haber</span>
                           <span style={{ textAlign:'right' }}>{labelSaldo}</span>
+                          {hayVencimiento && <span style={{ textAlign:'right', color:`${C.red}cc` }}>Vencido</span>}
                         </div>
 
+                        {/* Filas */}
                         {filas.map(f => {
-                          const key = f.rutNorm || '__sin_rut__';
-                          const expanded = auxExpandedRuts.has(key);
-                          const saldoCol = f.saldo > 0.005 ? C.text : f.saldo < -0.005 ? C.red : C.muted;
+                          const key   = f.rutNorm || '__sin_rut__';
+                          const expanded  = auxExpandedRuts.has(key);
+                          const editando  = auxNombreEdit?.rut === f.rutNorm;
+                          const saldoCol  = f.saldo > 0.005 ? C.text : f.saldo < -0.005 ? C.red : C.muted;
+                          const sinNombre = f.rutNorm && !f.nombre;
                           return (
                             <div key={key} style={{ marginBottom:1 }}>
                               {/* Fila resumen */}
-                              <div
+                              <div style={{ display:'grid', gridTemplateColumns:cols,
+                                padding:'5px 6px', cursor:'pointer',
+                                background: expanded ? `${C.accent}14` : 'transparent',
+                                border:`1px solid ${expanded ? C.accent+'44' : C.border+'44'}`,
+                                borderRadius: expanded ? '4px 4px 0 0' : 4,
+                                transition:'background 0.1s' }}
                                 onClick={() => setAuxExpandedRuts(prev => {
-                                  const s = new Set(prev); s.has(key) ? s.delete(key) : s.add(key); return s;
-                                })}
-                                style={{ display:'grid', gridTemplateColumns:'1fr 72px 72px 80px',
-                                  padding:'5px 6px', borderRadius:5, cursor:'pointer',
-                                  background: expanded ? `${C.accent}14` : 'transparent',
-                                  border:`1px solid ${expanded ? C.accent+'44' : 'transparent'}`,
-                                  transition:'background 0.1s' }}>
-                                <div style={{ minWidth:0 }}>
+                                  const s = new Set(prev); s.has(key)?s.delete(key):s.add(key); return s;
+                                })}>
+                                <div style={{ minWidth:0 }} onClick={e => e.stopPropagation()}>
                                   <div style={{ fontSize:10, fontWeight:600, color:C.text,
-                                    overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
-                                    {expanded ? '▼' : '▶'}{' '}
-                                    {f.nombre || (f.rutNorm ? <span style={{ color:C.muted }}>(sin nombre)</span> : <span style={{ color:C.muted2 }}>Sin RUT</span>)}
+                                    display:'flex', alignItems:'center', gap:4 }}>
+                                    <span style={{ cursor:'pointer' }}
+                                      onClick={() => setAuxExpandedRuts(prev => {
+                                        const s = new Set(prev); s.has(key)?s.delete(key):s.add(key); return s;
+                                      })}>
+                                      {expanded ? '▼' : '▶'}
+                                    </span>
+                                    {editando ? (
+                                      <input value={auxNombreEdit.nombre} autoFocus
+                                        onClick={e => e.stopPropagation()}
+                                        onChange={e => setAuxNombreEdit(p => ({...p, nombre: e.target.value}))}
+                                        onKeyDown={e => { if(e.key==='Enter') handleGuardarAuxNombre(); if(e.key==='Escape') setAuxNombreEdit(null); }}
+                                        style={{ padding:'1px 6px', borderRadius:4, background:C.bg, color:C.text,
+                                          border:`1px solid ${C.accent}`, fontSize:10, width:160 }}
+                                      />
+                                    ) : (
+                                      <span style={{ overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap',
+                                        color: !f.rutNorm ? C.muted2 : sinNombre ? C.yellow : C.text }}>
+                                        {f.nombre || (f.rutNorm ? '(sin nombre)' : 'Sin RUT')}
+                                      </span>
+                                    )}
+                                    {editando ? (
+                                      <>
+                                        <button onClick={e=>{e.stopPropagation();handleGuardarAuxNombre();}}
+                                          style={{ background:C.green, border:'none', color:'#fff', borderRadius:3,
+                                            fontSize:9, padding:'1px 6px', cursor:'pointer' }}>OK</button>
+                                        <button onClick={e=>{e.stopPropagation();setAuxNombreEdit(null);}}
+                                          style={{ background:'none', border:`1px solid ${C.border}`, color:C.muted,
+                                            borderRadius:3, fontSize:9, padding:'1px 5px', cursor:'pointer' }}>✕</button>
+                                      </>
+                                    ) : sinNombre && (
+                                      <button onClick={e=>{e.stopPropagation();setAuxNombreEdit({rut:f.rutNorm,nombre:''}); }}
+                                        title="Asignar nombre"
+                                        style={{ background:'none', border:`1px solid ${C.yellow}`, color:C.yellow,
+                                          borderRadius:3, fontSize:8, padding:'1px 5px', cursor:'pointer', flexShrink:0 }}>
+                                        + nombre
+                                      </button>
+                                    )}
                                   </div>
                                   {f.rutNorm && (
-                                    <div style={{ fontSize:9, color:C.muted, fontFamily:'monospace' }}>{f.rutNorm}</div>
+                                    <div style={{ fontSize:9, color:C.muted, fontFamily:'monospace', marginLeft:16 }}>
+                                      {f.rutNorm} · {f.movs.length} mov.
+                                    </div>
                                   )}
-                                  <div style={{ fontSize:9, color:C.muted2 }}>{f.movs.length} mov.</div>
                                 </div>
                                 <div style={{ textAlign:'right', fontSize:10, color:C.muted, alignSelf:'center' }}>
                                   {fmtMonto(f.debe, 0)}
@@ -1860,27 +1977,39 @@ export default function EEFFModule({ canEdit, usuarioActual, empresasPermitidas 
                                   {fmtMonto(Math.abs(f.saldo), 0)}
                                   {f.saldo < -0.005 && <span style={{ fontSize:8, marginLeft:2 }}>CR</span>}
                                 </div>
+                                {hayVencimiento && (
+                                  <div style={{ textAlign:'right', fontSize:10, fontWeight:600, alignSelf:'center',
+                                    color: f.vencido > 0.005 ? C.red : C.muted2 }}>
+                                    {f.vencido > 0.005 ? fmtMonto(f.vencido, 0) : '—'}
+                                  </div>
+                                )}
                               </div>
 
-                              {/* Detalle movimientos (expandible) */}
+                              {/* Movimientos expandidos */}
                               {expanded && (
-                                <div style={{ marginLeft:10, marginBottom:4,
-                                  borderLeft:`2px solid ${C.accent}44`, paddingLeft:8 }}>
+                                <div style={{ marginBottom:4, borderLeft:`2px solid ${C.accent}44`,
+                                  marginLeft:8, paddingLeft:8, background:`${C.accent}06` }}>
                                   {f.movs.map((m, i) => (
                                     <div key={i} style={{ display:'grid',
-                                      gridTemplateColumns:'78px 1fr 64px 64px',
+                                      gridTemplateColumns: hayVencimiento ? '78px 1fr 56px 56px 70px' : '78px 1fr 64px 64px',
                                       gap:4, padding:'3px 2px', fontSize:9,
-                                      borderBottom:`1px solid ${C.border}22`,
-                                      color:C.muted }}>
+                                      borderBottom:`1px solid ${C.border}22`, color:C.muted }}>
                                       <span style={{ whiteSpace:'nowrap' }}>{m.fecha}</span>
-                                      <span style={{ overflow:'hidden', textOverflow:'ellipsis',
-                                        whiteSpace:'nowrap' }} title={m.glosa}>{m.glosa || '—'}</span>
-                                      <span style={{ textAlign:'right', color: m.debe>0 ? C.text : C.muted2 }}>
-                                        {m.debe > 0 ? fmtMonto(m.debe, 0) : '—'}
+                                      <span style={{ overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}
+                                        title={m.glosa}>{m.glosa || '—'}</span>
+                                      <span style={{ textAlign:'right', color: m.debe>0?C.text:C.muted2 }}>
+                                        {m.debe>0 ? fmtMonto(m.debe,0) : '—'}
                                       </span>
-                                      <span style={{ textAlign:'right', color: m.haber>0 ? C.text : C.muted2 }}>
-                                        {m.haber > 0 ? fmtMonto(m.haber, 0) : '—'}
+                                      <span style={{ textAlign:'right', color: m.haber>0?C.text:C.muted2 }}>
+                                        {m.haber>0 ? fmtMonto(m.haber,0) : '—'}
                                       </span>
+                                      {hayVencimiento && (
+                                        <span style={{ textAlign:'right',
+                                          color: m.vencimiento && m.vencimiento < new Date().toISOString().substring(0,10)
+                                            ? C.red : C.muted2 }}>
+                                          {m.vencimiento || '—'}
+                                        </span>
+                                      )}
                                     </div>
                                   ))}
                                 </div>
@@ -1888,6 +2017,26 @@ export default function EEFFModule({ canEdit, usuarioActual, empresasPermitidas 
                             </div>
                           );
                         })}
+
+                        {/* Fila de totales */}
+                        <div style={{ display:'grid', gridTemplateColumns:cols,
+                          padding:'6px 6px', background:C.primary,
+                          borderRadius:'0 0 5px 5px', marginTop:2,
+                          fontSize:10, fontWeight:800, color:C.primaryText }}>
+                          <span>TOTAL</span>
+                          <span style={{ textAlign:'right' }}>{fmtMonto(totales.debe, 0)}</span>
+                          <span style={{ textAlign:'right' }}>{fmtMonto(totales.haber, 0)}</span>
+                          <span style={{ textAlign:'right',
+                            color: totales.saldo > 0.005 ? C.green : totales.saldo < -0.005 ? C.red : C.primaryText }}>
+                            {fmtMonto(Math.abs(totales.saldo), 0)}
+                          </span>
+                          {hayVencimiento && (
+                            <span style={{ textAlign:'right',
+                              color: totales.vencido > 0.005 ? C.red : C.primaryText }}>
+                              {totales.vencido > 0.005 ? fmtMonto(totales.vencido, 0) : '—'}
+                            </span>
+                          )}
+                        </div>
                       </div>
                     )}
                   </div>
