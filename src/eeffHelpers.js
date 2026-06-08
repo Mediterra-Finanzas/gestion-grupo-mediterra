@@ -812,3 +812,237 @@ export async function dbLoadMayor(empresa, anio, empresasPermitidas) {
   const rows = await res.json();
   return rows?.[0]?.value ?? null;
 }
+
+// ═══════════════════════════════════════════════════════════════════
+// EXPORTAR AUXILIAR → XLSX
+// filas, hayVencimiento, totales, cobertura, labelSaldo vienen del
+// drawerAuxiliar useMemo en EEFFModule.
+// ═══════════════════════════════════════════════════════════════════
+export function exportarAuxiliarXLSX({ filas, hayVencimiento, totales, cobertura, labelSaldo, cuenta, empresa, mes, anio }) {
+  const NM = ['','Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
+  const headers = ['RUT', 'Nombre', 'Debe', 'Haber', labelSaldo || 'Saldo'];
+  if (hayVencimiento) headers.push('Vencido');
+
+  const dataRows = filas.map(f => {
+    const r = [f.rutNorm || 'Sin RUT', f.nombre || '', f.debe, f.haber, Math.abs(f.saldo)];
+    if (hayVencimiento) r.push(f.vencido || 0);
+    return r;
+  });
+  const totRow = [
+    'TOTAL',
+    `${cobertura.conRut}/${cobertura.total} mov. con RUT (${cobertura.pct}%)`,
+    totales.debe, totales.haber, Math.abs(totales.saldo),
+  ];
+  if (hayVencimiento) totRow.push(totales.vencido || 0);
+  dataRows.push(totRow);
+
+  const ws = XLSX.utils.aoa_to_sheet([
+    [`Auxiliar — Cta. ${cuenta}`, '', `${empresa} · ${NM[mes]} ${anio}`],
+    [],
+    headers,
+    ...dataRows,
+  ]);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Auxiliar');
+  const fname = `auxiliar_${String(cuenta).replace(/\W/g,'_')}_${empresa.replace(/\s+/g,'_')}_${anio}_${String(mes).padStart(2,'0')}.xlsx`.toLowerCase();
+  XLSX.writeFile(wb, fname);
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// EXPORTAR EEFF COMPLETO → XLSX  (hojas ESF + ER)
+// cpgYtd y cpgMes son los mapas {grupo:[cuentas]} construidos por buildCpg.
+// ═══════════════════════════════════════════════════════════════════
+export function exportarEEFFXLSX({ cpgYtd, cpgMes, empresa, mes, anio }) {
+  const NM = ['','Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
+  const hasMes = cpgMes && Object.keys(cpgMes).length > 0;
+
+  // ── Hoja ESF ──────────────────────────────────────────────────────
+  const ESF_GRUPOS = ['Activo Corriente','Activo No Corriente','Pasivo Corriente','Pasivo No Corriente','Patrimonio'];
+  const esfRows = [];
+  esfRows.push([`Estado de Situación Financiera — ${empresa} · Acumulado ${NM[mes]} ${anio}`]);
+  esfRows.push([]);
+  esfRows.push(['Sección','Categoría','Código','Nombre','Saldo YTD']);
+  for (const grupo of ESF_GRUPOS) {
+    const cuentas = cpgYtd[grupo] || [];
+    if (!cuentas.length) continue;
+    let grupoTotal = 0;
+    for (const c of cuentas) {
+      const ia = c.inventarioActivo || 0, ip = c.inventarioPasivo || 0;
+      const v = c.tipoIFRS === 'Activo' ? ia - ip : ip - ia;
+      grupoTotal += v;
+      esfRows.push([grupo, c.categoriaIFRS || '', c.codigo, c.nombre || c.nombreOficial || '', v]);
+    }
+    esfRows.push([`TOTAL ${grupo.toUpperCase()}`, '', '', '', grupoTotal]);
+    esfRows.push([]);
+  }
+
+  // ── Hoja ER ───────────────────────────────────────────────────────
+  const ER_GRUPOS_MAP = [
+    { label:'Ingresos Operacionales', grupo:'Ingreso Operacional',   signo: 1 },
+    { label:'Costos',                 grupo:'Costo Operacional',     signo:-1 },
+    { label:'Gastos Operacionales',   grupo:'Gasto Operacional',     signo:-1 },
+    { label:'Ingresos No Oper.',      grupo:'Ingreso No Operacional',signo: 1 },
+    { label:'Gastos No Oper.',        grupo:'Gasto No Operacional',  signo:-1 },
+    { label:'No Operacional',         grupo:'No Operacional',        signo: 0 },
+    { label:'Impuesto a la Renta',    grupo:'Impuesto',              signo:-1 },
+  ];
+  const erRows = [];
+  erRows.push([`Estado de Resultados — ${empresa} · ${NM[mes]} ${anio}`]);
+  erRows.push([]);
+  const hdrER = ['Sección','Categoría','Código','Nombre','YTD'];
+  if (hasMes) hdrER.push(`${NM[mes]} (mes)`);
+  erRows.push(hdrER);
+
+  for (const { label, grupo, signo } of ER_GRUPOS_MAP) {
+    const cuentas = cpgYtd[grupo] || [];
+    if (!cuentas.length) continue;
+    let grupoTotal = 0;
+    for (const c of cuentas) {
+      const rg = c.resultadoGanancia || 0, rp = c.resultadoPerdida || 0;
+      const v = signo === 1 ? rg - rp : signo === -1 ? rp - rg : rg - rp;
+      grupoTotal += v;
+      const row = [label, c.categoriaIFRS || '', c.codigo, c.nombre || c.nombreOficial || '', v];
+      if (hasMes) {
+        const cM = (cpgMes[grupo] || []).find(x => x.codigo === c.codigo);
+        const rgM = cM?.resultadoGanancia || 0, rpM = cM?.resultadoPerdida || 0;
+        row.push(signo === 1 ? rgM - rpM : signo === -1 ? rpM - rgM : rgM - rpM);
+      }
+      erRows.push(row);
+    }
+    erRows.push([`TOTAL ${label.toUpperCase()}`, '', '', '', grupoTotal]);
+    erRows.push([]);
+  }
+
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(esfRows), 'ESF');
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(erRows),  'ER');
+  const fname = `eeff_${empresa.replace(/\s+/g,'_')}_${anio}_${String(mes).padStart(2,'0')}.xlsx`.toLowerCase();
+  XLSX.writeFile(wb, fname);
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// PRESUPUESTO (PPTO) — PERSISTENCIA
+// id: ppto_{empresa_slug}_{anio}_{mes_2d}
+// Mismo formato que EEFF pero solo guarda cuentas_ytd (=ppto acumulado).
+// ═══════════════════════════════════════════════════════════════════
+export function pptoid(empresa, anio, mes) {
+  const slug = empresa.toLowerCase().replace(/\s+/g,'_').replace(/[^a-z0-9_]/g,'');
+  return `ppto_${slug}_${anio}_${String(mes).padStart(2,'0')}`;
+}
+
+export async function guardarPpto({ empresa, mes, anio, clasif_ytd, sistema, formato, guardadoPor }) {
+  const enrich = (grupo) => (c) => ({ ...c, grupo, composicion: null, narrativa: null });
+  const cuentas_ytd = [
+    ...clasif_ytd.situacion.map(enrich('situacion')),
+    ...clasif_ytd.resultados.map(enrich('resultados')),
+    ...clasif_ytd.sinClasificar.map(enrich('sinClasificar')),
+  ];
+  const value = {
+    empresa, mes, anio, sistema, formato,
+    fechaGuardado: new Date().toISOString(),
+    guardadoPor: guardadoPor || '',
+    resumen_ytd: { totalCuentas: cuentas_ytd.length },
+    cuentas_ytd,
+  };
+  const id = pptoid(empresa, anio, mes);
+  const res = await fetch(`${SUPA_URL}/rest/v1/calendario_data`, {
+    method: 'POST',
+    headers: {
+      apikey: SUPA_KEY, Authorization: `Bearer ${SUPA_KEY}`,
+      'Content-Type': 'application/json', Prefer: 'resolution=merge-duplicates',
+    },
+    body: JSON.stringify({ id, value, updated_at: new Date().toISOString() }),
+  });
+  if (!res.ok) throw new Error(`Error guardando Ppto (${res.status})`);
+  return id;
+}
+
+export async function cargarPpto(empresa, anio, mes) {
+  const id = pptoid(empresa, anio, mes);
+  const res = await fetch(
+    `${SUPA_URL}/rest/v1/calendario_data?id=eq.${id}&select=value`,
+    { headers: { apikey: SUPA_KEY, Authorization: `Bearer ${SUPA_KEY}` } }
+  );
+  const rows = await res.json();
+  return rows?.[0]?.value ?? null;
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// RESUMEN MULTI-EMPRESA — BATCH STATUS
+// Devuelve [{empresa, tieneEEFF, fechaEEFF, guardadoPor, totalCuentas,
+//            tieneMayor, mayorMovs, mayorMeses}]
+// ═══════════════════════════════════════════════════════════════════
+export async function cargarResumenEstados(empresas, anio, mes) {
+  const eeffIds  = empresas.map(emp => eeffId(emp, anio, mes));
+  const mayorIds = empresas.map(emp => mayorId(emp, anio));
+  const hdrs     = { apikey: SUPA_KEY, Authorization: `Bearer ${SUPA_KEY}` };
+
+  const [resE, resM] = await Promise.all([
+    fetch(`${SUPA_URL}/rest/v1/calendario_data?id=in.(${eeffIds.join(',')})&select=id,value`, { headers: hdrs }),
+    fetch(`${SUPA_URL}/rest/v1/calendario_data?id=in.(${mayorIds.join(',')})&select=id,value->>'empresa',value->>'totalMovimientos',value->>'meses'`, { headers: hdrs }),
+  ]);
+
+  const byEeff  = {};
+  const byMayor = {};
+  if (resE.ok) { for (const r of (await resE.json() || [])) byEeff[r.id]  = r.value; }
+  if (resM.ok) { for (const r of (await resM.json() || [])) byMayor[r.id] = r; }
+
+  return empresas.map((emp, i) => {
+    const ev = byEeff[eeffIds[i]];
+    const mv = byMayor[mayorIds[i]];
+    return {
+      empresa:      emp,
+      tieneEEFF:    !!ev,
+      fechaEEFF:    ev?.fechaGuardado || null,
+      guardadoPor:  ev?.guardadoPor   || null,
+      sistemaEEFF:  ev?.sistema_ytd   || ev?.sistema || null,
+      totalCuentas: ev?.resumen_ytd?.totalCuentas || ev?.resumen?.totalCuentas || 0,
+      tieneMayor:   !!mv,
+      mayorMovs:    mv ? Number(mv['?column?'] || mv.totalMovimientos || 0) : 0,
+    };
+  });
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// CONSOLIDADO — AGREGAR CUENTAS CON FACTORES NCI
+// eeffsData = [{empresa, factor, cuentas}]
+// Produce array de cuentas consolidadas (empresa → 'Consolidado').
+// ═══════════════════════════════════════════════════════════════════
+export function consolidarCuentas(eeffsData) {
+  const mapa = new Map();
+  for (const { empresa, factor, cuentas } of eeffsData) {
+    if (!cuentas?.length) continue;
+    const f = factor ?? 1;
+    for (const c of cuentas) {
+      if (c.grupo === 'sinClasificar') continue;
+      const key = c.codigo;
+      if (!mapa.has(key)) {
+        mapa.set(key, {
+          ...c,
+          empresa:           'Consolidado',
+          debe:              (c.debe              || 0) * f,
+          haber:             (c.haber             || 0) * f,
+          saldoDeudor:       (c.saldoDeudor       || 0) * f,
+          saldoAcreedor:     (c.saldoAcreedor     || 0) * f,
+          inventarioActivo:  (c.inventarioActivo  || 0) * f,
+          inventarioPasivo:  (c.inventarioPasivo  || 0) * f,
+          resultadoPerdida:  (c.resultadoPerdida  || 0) * f,
+          resultadoGanancia: (c.resultadoGanancia || 0) * f,
+          _empresas: [empresa],
+        });
+      } else {
+        const acc = mapa.get(key);
+        acc.debe              += (c.debe              || 0) * f;
+        acc.haber             += (c.haber             || 0) * f;
+        acc.saldoDeudor       += (c.saldoDeudor       || 0) * f;
+        acc.saldoAcreedor     += (c.saldoAcreedor     || 0) * f;
+        acc.inventarioActivo  += (c.inventarioActivo  || 0) * f;
+        acc.inventarioPasivo  += (c.inventarioPasivo  || 0) * f;
+        acc.resultadoPerdida  += (c.resultadoPerdida  || 0) * f;
+        acc.resultadoGanancia += (c.resultadoGanancia || 0) * f;
+        if (!acc._empresas.includes(empresa)) acc._empresas.push(empresa);
+      }
+    }
+  }
+  return Array.from(mapa.values());
+}

@@ -10,6 +10,9 @@ import {
   normalizeRut, extraerRutGlosaMega, extraerTercerosDelMayor,
   parseTercerosMegasystem, parseTercerosContec,
   mergeTerceros, dbSaveTercerosMaestro, dbLoadTercerosMaestro, dbSaveCategoriasAuxiliar,
+  exportarAuxiliarXLSX, exportarEEFFXLSX,
+  pptoid, guardarPpto, cargarPpto,
+  cargarResumenEstados, consolidarCuentas,
 } from './eeffHelpers.js';
 import { theme } from './theme';
 
@@ -145,6 +148,12 @@ const CATS_POTENCIAL_AUXILIAR = Object.keys({
 });
 
 const TERCEROS_POR_PAG = 20;
+
+// ── Consolidado: empresas línea a línea + factores NCI ───────────────
+const EMPRESAS_LINEAALINEA = ['Mediterra','Allegria Foods','Allegria Service','Frisku Foods','Integrity Farms','Osiris'];
+const FACTORES_CONSOLIDADO = {
+  'Mediterra':1,'Allegria Foods':1,'Allegria Service':0.8,'Frisku Foods':0.9,'Integrity Farms':1,'Osiris':1,
+};
 
 // ── Helpers ──────────────────────────────────────────────────────────
 function valorSit(c) {
@@ -439,6 +448,219 @@ function BloqueER({ bloque, cuentas, expandedSecs, onToggleSec, expandedCats, on
   );
 }
 
+// ── Comparativo ER: tabla Real | Ppto | Var% | Año Ant | Var% ────────
+function TablaComparativoER({ erReal, cpgReal, cpgPpto, cpgAnt, mes, anio }) {
+  const hasPpto = cpgPpto && Object.values(cpgPpto).some(v => v.length > 0);
+  const hasAnt  = cpgAnt  && Object.values(cpgAnt).some(v => v.length > 0);
+  if (!hasPpto && !hasAnt) return null;
+
+  const erPpto = hasPpto ? calcER(cpgPpto) : null;
+  const erAnt  = hasAnt  ? calcER(cpgAnt)  : null;
+
+  const pctVar = (real, ref) => (ref && ref !== 0) ? ((real - ref) / Math.abs(ref)) * 100 : null;
+  const fmtPct = (v) => v == null ? '—' : `${v >= 0 ? '+' : ''}${v.toFixed(1)}%`;
+
+  const LINEAS = [
+    { label:'Ingresos Oper.',      key:'ingOp',    bold:false },
+    { label:'Costos',              key:'costoOp',  bold:false },
+    { label:'Resultado Bruto',     key:'resB',     bold:true  },
+    { label:'Gastos Oper.',        key:'gastoOp',  bold:false },
+    { label:'Res. Operacional',    key:'resOp',    bold:true  },
+    { label:'Ing. No Oper.',       key:'ingNOp',   bold:false },
+    { label:'Gto. No Oper.',       key:'gastNOp',  bold:false },
+    { label:'Res. antes Imp.',     key:'resAntes', bold:true  },
+    { label:'Impuesto',            key:'impuesto', bold:false },
+    { label:'RESULTADO EJERCICIO', key:'resEjec',  bold:true, divider:true },
+  ];
+
+  return (
+    <div style={{ marginTop:24, marginBottom:24 }}>
+      <div style={{ fontSize:12, fontWeight:800, color:C.primary, marginBottom:8,
+        paddingBottom:4, borderBottom:`1px solid ${C.border}` }}>
+        Análisis Comparativo — Estado de Resultados · {NOMBRES_MES[mes]} {anio}
+        <span style={{ fontSize:10, fontWeight:400, color:C.muted, marginLeft:10 }}>
+          {hasPpto && 'Ppto '}{hasAnt && `vs ${anio - 1}`}
+        </span>
+      </div>
+      <div style={{ overflowX:'auto', borderRadius:8, border:`1px solid ${C.border}`, background:C.card }}>
+        <table style={{ borderCollapse:'collapse', width:'100%', fontSize:11 }}>
+          <thead>
+            <tr style={{ background:C.primary }}>
+              <th style={{ padding:'6px 12px', textAlign:'left', color:C.primaryText, fontSize:10, minWidth:160 }}>Línea</th>
+              <th style={{ padding:'6px 10px', textAlign:'right', color:C.primaryText, fontSize:10, whiteSpace:'nowrap' }}>
+                Real YTD
+              </th>
+              {hasPpto && <>
+                <th style={{ padding:'6px 10px', textAlign:'right', color:`${C.primaryText}bb`, fontSize:10, whiteSpace:'nowrap' }}>Ppto</th>
+                <th style={{ padding:'6px 10px', textAlign:'right', color:C.yellow, fontSize:10 }}>Var%</th>
+              </>}
+              {hasAnt && <>
+                <th style={{ padding:'6px 10px', textAlign:'right', color:`${C.primaryText}bb`, fontSize:10, whiteSpace:'nowrap' }}>{anio-1}</th>
+                <th style={{ padding:'6px 10px', textAlign:'right', color:C.purple, fontSize:10 }}>Var%</th>
+              </>}
+            </tr>
+          </thead>
+          <tbody>
+            {LINEAS.map(({ label, key, bold, divider }) => {
+              const vR = erReal?.[key] ?? 0;
+              const vP = erPpto?.[key] ?? null;
+              const vA = erAnt?.[key]  ?? null;
+              const bg = bold ? `${C.accent}10` : 'transparent';
+              const colR = vR >= 0.005 ? C.text : vR < -0.005 ? C.red : C.muted2;
+              const pctP = hasPpto ? pctVar(vR, vP) : null;
+              const pctA = hasAnt  ? pctVar(vR, vA) : null;
+              return (
+                <tr key={key} style={{ background:bg,
+                  borderTop: divider ? `2px solid ${C.accent}44` : `1px solid ${C.border}22` }}>
+                  <td style={{ padding:'5px 12px', fontWeight: bold?700:400,
+                    fontSize: bold?12:11, color: bold?C.text:C.muted }}>
+                    {label}
+                  </td>
+                  <td style={{ padding:'5px 10px', textAlign:'right', fontWeight:bold?700:400, color:colR }}>
+                    {fmtSig(vR)}
+                  </td>
+                  {hasPpto && <>
+                    <td style={{ padding:'5px 10px', textAlign:'right', color:C.muted, fontSize:10 }}>
+                      {vP != null ? fmtSig(vP) : '—'}
+                    </td>
+                    <td style={{ padding:'5px 10px', textAlign:'right', fontSize:10,
+                      color: pctP == null ? C.muted2 : pctP >= 0 ? C.green : C.red }}>
+                      {fmtPct(pctP)}
+                    </td>
+                  </>}
+                  {hasAnt && <>
+                    <td style={{ padding:'5px 10px', textAlign:'right', color:C.muted, fontSize:10 }}>
+                      {vA != null ? fmtSig(vA) : '—'}
+                    </td>
+                    <td style={{ padding:'5px 10px', textAlign:'right', fontSize:10,
+                      color: pctA == null ? C.muted2 : pctA >= 0 ? C.green : C.red }}>
+                      {fmtPct(pctA)}
+                    </td>
+                  </>}
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+// ── Comparativo ESF: sección totales Real | Ppto | Dif | Año Ant | Dif ──
+function TablaComparativoESF({ cpgReal, cpgPpto, cpgAnt, totalA: tA, totalP: tP, totalPP: tPP, erYtd, mes, anio }) {
+  const hasPpto = cpgPpto && Object.values(cpgPpto).some(v => v.length > 0);
+  const hasAnt  = cpgAnt  && Object.values(cpgAnt).some(v => v.length > 0);
+  if (!hasPpto && !hasAnt) return null;
+
+  const sumGrupo = (cpg, grupo) => (cpg[grupo] || []).reduce((s, c) => {
+    const ia = c.inventarioActivo||0, ip = c.inventarioPasivo||0;
+    return s + (c.tipoIFRS==='Activo' ? ia-ip : ip-ia);
+  }, 0);
+  const erPptoVals = hasPpto ? calcER(cpgPpto) : null;
+  const erAntVals  = hasAnt  ? calcER(cpgAnt)  : null;
+
+  const GRUPOS = [
+    { label:'Activo Corriente',   grupo:'Activo Corriente',    seccion:'activo' },
+    { label:'Activo No Corriente',grupo:'Activo No Corriente', seccion:'activo' },
+    { label:'TOTAL ACTIVO',       key:'totalA', bold:true },
+    { label:'Pasivo Corriente',   grupo:'Pasivo Corriente',    seccion:'pasivo' },
+    { label:'Pasivo No Corriente',grupo:'Pasivo No Corriente', seccion:'pasivo' },
+    { label:'Patrimonio',         grupo:'Patrimonio',          seccion:'pat'    },
+    { label:'TOTAL PAS+PAT',      key:'totalPP', bold:true },
+  ];
+
+  const calcTotalA  = (cpg) => sumGrupo(cpg,'Activo Corriente') + sumGrupo(cpg,'Activo No Corriente');
+  const calcTotalPP = (cpg, er) => sumGrupo(cpg,'Pasivo Corriente') + sumGrupo(cpg,'Pasivo No Corriente')
+    + sumGrupo(cpg,'Patrimonio') + (er?.resEjec || 0);
+
+  const fmtDif = (real, ref) => {
+    if (ref == null) return '—';
+    const d = real - ref;
+    return (d >= 0 ? '+' : '') + fmtMonto(d, 0);
+  };
+  const difColor = (real, ref) => {
+    if (ref == null) return C.muted2;
+    const d = real - ref;
+    return d >= 0 ? C.green : C.red;
+  };
+
+  return (
+    <div style={{ marginTop:12, marginBottom:24 }}>
+      <div style={{ fontSize:12, fontWeight:800, color:C.primary, marginBottom:8,
+        paddingBottom:4, borderBottom:`1px solid ${C.border}` }}>
+        Análisis Comparativo — Estado de Situación Financiera · {NOMBRES_MES[mes]} {anio}
+      </div>
+      <div style={{ overflowX:'auto', borderRadius:8, border:`1px solid ${C.border}`, background:C.card }}>
+        <table style={{ borderCollapse:'collapse', width:'100%', fontSize:11 }}>
+          <thead>
+            <tr style={{ background:C.primary }}>
+              <th style={{ padding:'6px 12px', textAlign:'left', color:C.primaryText, fontSize:10, minWidth:180 }}>Sección</th>
+              <th style={{ padding:'6px 10px', textAlign:'right', color:C.primaryText, fontSize:10 }}>Real YTD</th>
+              {hasPpto && <>
+                <th style={{ padding:'6px 10px', textAlign:'right', color:`${C.primaryText}bb`, fontSize:10 }}>Ppto</th>
+                <th style={{ padding:'6px 10px', textAlign:'right', color:C.yellow, fontSize:10 }}>Dif</th>
+              </>}
+              {hasAnt && <>
+                <th style={{ padding:'6px 10px', textAlign:'right', color:`${C.primaryText}bb`, fontSize:10 }}>{anio-1}</th>
+                <th style={{ padding:'6px 10px', textAlign:'right', color:C.purple, fontSize:10 }}>Dif</th>
+              </>}
+            </tr>
+          </thead>
+          <tbody>
+            {GRUPOS.map(({ label, grupo, key, bold }) => {
+              let vR, vP = null, vA = null;
+              if (key === 'totalA') {
+                vR = tA;
+                if (hasPpto) vP = calcTotalA(cpgPpto);
+                if (hasAnt)  vA = calcTotalA(cpgAnt);
+              } else if (key === 'totalPP') {
+                vR = tPP;
+                if (hasPpto) vP = calcTotalPP(cpgPpto, erPptoVals);
+                if (hasAnt)  vA = calcTotalPP(cpgAnt, erAntVals);
+              } else {
+                vR = sumGrupo(cpgReal, grupo);
+                if (hasPpto) vP = sumGrupo(cpgPpto, grupo);
+                if (hasAnt)  vA = sumGrupo(cpgAnt, grupo);
+              }
+              return (
+                <tr key={label} style={{
+                  background: bold ? `${C.accent}10` : 'transparent',
+                  borderTop: bold ? `2px solid ${C.accent}44` : `1px solid ${C.border}22`,
+                }}>
+                  <td style={{ padding:'5px 12px', fontWeight:bold?700:400, color:bold?C.text:C.muted }}>
+                    {label}
+                  </td>
+                  <td style={{ padding:'5px 10px', textAlign:'right', fontWeight:bold?700:400,
+                    color: vR >= 0 ? C.text : C.red }}>
+                    {fmtSig(vR)}
+                  </td>
+                  {hasPpto && <>
+                    <td style={{ padding:'5px 10px', textAlign:'right', color:C.muted, fontSize:10 }}>
+                      {vP != null ? fmtSig(vP) : '—'}
+                    </td>
+                    <td style={{ padding:'5px 10px', textAlign:'right', fontSize:10, color:difColor(vR,vP) }}>
+                      {fmtDif(vR, vP)}
+                    </td>
+                  </>}
+                  {hasAnt && <>
+                    <td style={{ padding:'5px 10px', textAlign:'right', color:C.muted, fontSize:10 }}>
+                      {vA != null ? fmtSig(vA) : '—'}
+                    </td>
+                    <td style={{ padding:'5px 10px', textAlign:'right', fontSize:10, color:difColor(vR,vA) }}>
+                      {fmtDif(vR, vA)}
+                    </td>
+                  </>}
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
 // ── Componente principal ─────────────────────────────────────────────
 export default function EEFFModule({ canEdit, usuarioActual, empresasPermitidas }) {
   const isAdmin = usuarioActual?.rol === 'admin';
@@ -521,6 +743,27 @@ export default function EEFFModule({ canEdit, usuarioActual, empresasPermitidas 
   const [catAuxGuardando,    setCatAuxGuardando]    = useState(false);
   const [catAuxOk,           setCatAuxOk]           = useState(false);
 
+  // ── Vista módulo (Empresa | Resumen | Consolidado) ─────────────────
+  const [vistaModulo,       setVistaModulo]       = useState('empresa');
+
+  // ── Comparativo: Ppto + Año Anterior ──────────────────────────────
+  const [pptoData,          setPptoData]          = useState(null);
+  const [anioAntData,       setAnioAntData]       = useState(null);
+  const [showUploadPpto,    setShowUploadPpto]    = useState(false);
+  const [uploadFilePpto,    setUploadFilePpto]    = useState(null);
+  const [uploadingPpto,     setUploadingPpto]     = useState(false);
+  const [uploadPptoError,   setUploadPptoError]   = useState(null);
+  const fileRefPpto = useRef();
+
+  // ── Resumen multi-empresa ─────────────────────────────────────────
+  const [resumenData,       setResumenData]       = useState(null);
+  const [resumenCargando,   setResumenCargando]   = useState(false);
+
+  // ── Consolidado ───────────────────────────────────────────────────
+  const [consolidadoData,      setConsolidadoData]      = useState(null);  // cuentas[]
+  const [consolidadoCargando,  setConsolidadoCargando]  = useState(false);
+  const [consolidadoEstado,    setConsolidadoEstado]    = useState([]);     // [{empresa,cargada,factor}]
+
   // Limpiar drawer cuando cambia empresa o año
   useEffect(() => {
     setCuentaSeleccionada(null); setDrawerTab('movimientos');
@@ -592,6 +835,20 @@ export default function EEFFModule({ canEdit, usuarioActual, empresasPermitidas 
       .catch(() => setSinDatos(true))
       .finally(() => setLoadingData(false));
   }, [empresa, mes, anio, empresasVisibles]);
+
+  // ── Cargar Ppto cuando cambia empresa/mes/anio ───────────────────
+  useEffect(() => {
+    setPptoData(null);
+    if (!eeffData) return;
+    cargarPpto(empresa, anio, mes).then(d => setPptoData(d)).catch(() => {});
+  }, [empresa, mes, anio, eeffData]);
+
+  // ── Cargar Año Anterior cuando cambia empresa/mes/anio ────────────
+  useEffect(() => {
+    setAnioAntData(null);
+    if (!eeffData) return;
+    cargarEEFF(empresa, anio - 1, mes).then(d => setAnioAntData(d)).catch(() => {});
+  }, [empresa, mes, anio, eeffData]);
 
   // ── Handler: upload Plan Maestro (admin) ─────────────────────────
   const handlePlanFile = useCallback(async (file) => {
@@ -759,6 +1016,79 @@ export default function EEFFModule({ canEdit, usuarioActual, empresasPermitidas 
     setAuxNombreEdit(null);
   }, [auxNombreEdit, usuarioActual]);
 
+  // ── Handler: cargar Ppto (upload balance como presupuesto) ──────
+  const handleCargarPpto = useCallback(async () => {
+    if (!uploadFilePpto || !planMaps) return;
+    setUploadingPpto(true); setUploadPptoError(null);
+    try {
+      const fmt = detectarFormatoBalance(uploadFilePpto);
+      if (!fmt) throw new Error(`Formato no reconocido: ${uploadFilePpto.name}. Use .xls o .xlsx.`);
+      const cuentas = await parsearBalance(uploadFilePpto, empresa, mes, anio);
+      const clasif  = clasificarCuentas(cuentas, planMaps);
+      await guardarPpto({
+        empresa, mes, anio, clasif_ytd: clasif,
+        sistema: fmt, formato: fmt,
+        guardadoPor: usuarioActual?.nombre || usuarioActual?.email || '',
+      });
+      const d = await cargarPpto(empresa, anio, mes);
+      setPptoData(d);
+      setShowUploadPpto(false); setUploadFilePpto(null);
+    } catch(e) {
+      setUploadPptoError(e.message || String(e));
+    } finally {
+      setUploadingPpto(false);
+      if (fileRefPpto.current) fileRefPpto.current.value = '';
+    }
+  }, [empresa, mes, anio, planMaps, uploadFilePpto, usuarioActual]);
+
+  // ── Handler: cargar Resumen Grupo ────────────────────────────────
+  const handleCargarResumen = useCallback(async () => {
+    setResumenCargando(true);
+    try {
+      const data = await cargarResumenEstados(empresasVisibles, anio, mes);
+      setResumenData(data);
+    } catch(e) {
+      alert('Error cargando resumen: ' + (e.message || String(e)));
+    } finally {
+      setResumenCargando(false);
+    }
+  }, [empresasVisibles, anio, mes]);
+
+  // ── Handler: consolidar todas las empresas línea a línea ─────────
+  const handleConsolidar = useCallback(async () => {
+    setConsolidadoCargando(true); setConsolidadoData(null);
+    try {
+      const estado = [];
+      const eeffsData = [];
+      for (const emp of EMPRESAS_LINEAALINEA) {
+        const data = await cargarEEFF(emp, anio, mes);
+        const factor = FACTORES_CONSOLIDADO[emp] || 1;
+        estado.push({ empresa: emp, cargada: !!data, factor });
+        if (data) {
+          eeffsData.push({ empresa: emp, factor, cuentas: data.cuentas_ytd || data.cuentas });
+        }
+      }
+      setConsolidadoEstado(estado);
+      if (eeffsData.length > 0) setConsolidadoData(consolidarCuentas(eeffsData));
+    } catch(e) {
+      alert('Error consolidando: ' + (e.message || String(e)));
+    } finally {
+      setConsolidadoCargando(false);
+    }
+  }, [anio, mes]);
+
+  // ── Handler: exportar auxiliar ───────────────────────────────────
+  const handleExportarAuxiliar = useCallback(() => {
+    if (!drawerAuxiliar || !cuentaSeleccionada) return;
+    exportarAuxiliarXLSX({ ...drawerAuxiliar, cuenta: cuentaSeleccionada.codigo, empresa, mes, anio });
+  }, [drawerAuxiliar, cuentaSeleccionada, empresa, mes, anio]);
+
+  // ── Handler: exportar EEFF ───────────────────────────────────────
+  const handleExportarEEFF = useCallback(() => {
+    if (!eeffData) return;
+    exportarEEFFXLSX({ cpgYtd, cpgMes, empresa, mes, anio });
+  }, [eeffData, cpgYtd, cpgMes, empresa, mes, anio]);
+
   // ── Derived: cpg por fuente ──────────────────────────────────────
   // cpgYtd: siempre acumulado (cuentas_ytd si existe, o legacy cuentas)
   const cpgYtd = useMemo(() => buildCpg(eeffData?.cuentas_ytd || eeffData?.cuentas), [eeffData]);
@@ -791,6 +1121,14 @@ export default function EEFFModule({ canEdit, usuarioActual, empresasPermitidas 
 
   // ESF cierra con resEjec acumulado (siempre YTD)
   const totalPP = totalP + totalPat + erYtd.resEjec;
+
+  // ── Derived: comparativo ────────────────────────────────────────
+  const cpgPpto = useMemo(() => buildCpg(pptoData?.cuentas_ytd), [pptoData]);
+  const cpgAnt  = useMemo(() => buildCpg(anioAntData?.cuentas_ytd || anioAntData?.cuentas), [anioAntData]);
+
+  // ── Derived: consolidado ─────────────────────────────────────────
+  const cpgConsolidado = useMemo(() => buildCpg(consolidadoData), [consolidadoData]);
+  const erConsolidado  = useMemo(() => calcER(cpgConsolidado), [cpgConsolidado]);
 
   // Cargar mayor lazy cuando el drawer abre el tab movimientos
   useEffect(() => {
@@ -922,7 +1260,7 @@ export default function EEFFModule({ canEdit, usuarioActual, empresasPermitidas 
             Estados Financieros
           </div>
           <div style={{ fontSize:11, color:C.muted }}>
-            Grupo Mediterra — Etapa 1
+            Grupo Mediterra
           </div>
         </div>
 
@@ -1006,6 +1344,21 @@ export default function EEFFModule({ canEdit, usuarioActual, empresasPermitidas 
             </Btn>
           </div>
         )}
+      </div>
+
+      {/* ── Tabs de vista ── */}
+      <div style={{ display:'flex', gap:0, marginBottom:14,
+        borderRadius:7, overflow:'hidden', border:`1px solid ${C.border}`,
+        alignSelf:'flex-start', width:'fit-content' }}>
+        {[['empresa','Empresa'],['resumen','Resumen Grupo'],['consolidado','Consolidado']].map(([v,l]) => (
+          <button key={v} onClick={() => setVistaModulo(v)}
+            style={{ padding:'6px 18px', fontSize:11, fontWeight:600, cursor:'pointer',
+              background: vistaModulo===v ? `${C.accent}cc` : C.card2,
+              color: vistaModulo===v ? '#fff' : C.muted, border:'none',
+              transition:'all 0.15s', whiteSpace:'nowrap' }}>
+            {l}
+          </button>
+        ))}
       </div>
 
       {/* ── Panel Admin (Parte 1: Maestro Terceros + Parte 2: Categorías Auxiliar) ── */}
@@ -1324,7 +1677,7 @@ export default function EEFFModule({ canEdit, usuarioActual, empresasPermitidas 
               {eeffData.fechaGuardado ? new Date(eeffData.fechaGuardado).toLocaleDateString('es-CL') : ''}
               {eeffData.guardadoPor ? ` por ${eeffData.guardadoPor}` : ''}
             </div>
-            <div style={{ display:'flex', gap:4 }}>
+            <div style={{ display:'flex', gap:4, flexWrap:'wrap' }}>
               <Btn onClick={() => {
                 const all = new Set(ESF_SECCIONES.map(s=>s.id).concat(ER_BLOQUES.map(b=>b.id)));
                 setExpandedSecs(all); setExpandedCats(new Set());
@@ -1332,6 +1685,9 @@ export default function EEFFModule({ canEdit, usuarioActual, empresasPermitidas 
               <Btn onClick={() => {
                 setExpandedSecs(new Set()); setExpandedCats(new Set());
               }} color={C.muted} small>Colapsar todo</Btn>
+              <Btn onClick={handleExportarEEFF} color={C.green} small>
+                Exportar XLSX
+              </Btn>
             </div>
           </div>
 
@@ -1500,6 +1856,81 @@ export default function EEFFModule({ canEdit, usuarioActual, empresasPermitidas 
             </div>
           </div>
 
+          {/* ═══ ANÁLISIS COMPARATIVO ═══ */}
+          <div style={{ marginTop:8 }}>
+            {/* Panel upload ppto */}
+            {showUploadPpto && (
+              <div style={{ background:C.card2, border:`1px solid ${C.border}`, borderRadius:10,
+                padding:'14px 18px', marginBottom:12 }}>
+                <div style={{ fontSize:11, fontWeight:700, color:C.text, marginBottom:10 }}>
+                  Cargar Presupuesto — {empresa} · {NOMBRES_MES[mes]} {anio}
+                  <span style={{ fontSize:10, fontWeight:400, color:C.muted, marginLeft:8 }}>
+                    (balance .xls/.xlsx en formato YTD acumulado = ppto del período)
+                  </span>
+                </div>
+                <div style={{ display:'flex', gap:10, alignItems:'center', flexWrap:'wrap' }}>
+                  <input ref={fileRefPpto} type="file" accept=".xls,.xlsx"
+                    onChange={e => setUploadFilePpto(e.target.files[0])} style={{ display:'none' }} />
+                  {uploadFilePpto ? (
+                    <span style={{ fontSize:11, color:C.green }}>{uploadFilePpto.name}</span>
+                  ) : (
+                    <Btn onClick={() => fileRefPpto.current?.click()} color={C.accent} small>
+                      Seleccionar archivo
+                    </Btn>
+                  )}
+                  <Btn onClick={handleCargarPpto} color={C.green} small
+                    disabled={uploadingPpto || !uploadFilePpto}>
+                    {uploadingPpto ? 'Procesando...' : 'Guardar presupuesto'}
+                  </Btn>
+                  <Btn onClick={() => { setShowUploadPpto(false); setUploadFilePpto(null); setUploadPptoError(null); }}
+                    color={C.muted} small disabled={uploadingPpto}>
+                    Cancelar
+                  </Btn>
+                </div>
+                {uploadPptoError && (
+                  <div style={{ fontSize:10, color:C.red, marginTop:6 }}>{uploadPptoError}</div>
+                )}
+              </div>
+            )}
+
+            {/* Botón cargar ppto (si no hay ppto) + estado */}
+            {!showUploadPpto && canEdit && (
+              <div style={{ display:'flex', gap:8, alignItems:'center', marginBottom: (pptoData || anioAntData) ? 0 : 8 }}>
+                {pptoData ? (
+                  <span style={{ fontSize:10, color:C.muted }}>
+                    Ppto cargado · {new Date(pptoData.fechaGuardado).toLocaleDateString('es-CL')}
+                    {' · '}
+                    <button onClick={() => setShowUploadPpto(true)}
+                      style={{ background:'none', border:'none', cursor:'pointer',
+                        fontSize:10, color:C.accent, padding:0 }}>
+                      Reemplazar
+                    </button>
+                  </span>
+                ) : (
+                  <Btn onClick={() => setShowUploadPpto(true)} color={C.muted} small>
+                    + Cargar presupuesto
+                  </Btn>
+                )}
+                {anioAntData ? (
+                  <span style={{ fontSize:10, color:C.muted }}>
+                    · Año {anio-1} disponible
+                  </span>
+                ) : (
+                  <span style={{ fontSize:10, color:C.muted2 }}>· Sin datos {anio-1}</span>
+                )}
+              </div>
+            )}
+
+            {/* Tablas comparativas */}
+            <TablaComparativoESF
+              cpgReal={cpgYtd} cpgPpto={cpgPpto} cpgAnt={cpgAnt}
+              totalA={totalA} totalP={totalP} totalPP={totalPP}
+              erYtd={erYtd} mes={mes} anio={anio} />
+            <TablaComparativoER
+              erReal={erYtd} cpgReal={cpgYtd} cpgPpto={cpgPpto} cpgAnt={cpgAnt}
+              mes={mes} anio={anio} />
+          </div>
+
           {/* ═══ SIN CLASIFICAR (siempre desde YTD) ═══ */}
           {sinClasYtd.length > 0 && (
             <div style={{ marginBottom:24 }}>
@@ -1546,6 +1977,277 @@ export default function EEFFModule({ canEdit, usuarioActual, empresasPermitidas 
             </div>
           )}
         </>
+      )}
+
+      {/* ══ VISTA: RESUMEN GRUPO ══════════════════════════════════ */}
+      {vistaModulo === 'resumen' && (
+        <div style={{ marginTop:4 }}>
+          <div style={{ display:'flex', alignItems:'center', gap:12, marginBottom:16, flexWrap:'wrap' }}>
+            <span style={{ fontSize:13, fontWeight:800, color:C.primary }}>
+              Estado de carga — {NOMBRES_MES[mes]} {anio}
+            </span>
+            <Btn onClick={handleCargarResumen} disabled={resumenCargando} color={C.accent}>
+              {resumenCargando ? 'Cargando...' : resumenData ? 'Actualizar' : 'Cargar estado'}
+            </Btn>
+            {resumenData && (
+              <span style={{ fontSize:10, color:C.muted }}>
+                {resumenData.filter(r=>r.tieneEEFF).length}/{resumenData.length} empresas con balance ·{' '}
+                {resumenData.filter(r=>r.tieneMayor).length}/{resumenData.length} con mayor
+              </span>
+            )}
+          </div>
+
+          {resumenData && (
+            <div style={{ overflowX:'auto', borderRadius:10, border:`1px solid ${C.border}`,
+              background:C.card, boxShadow:C.shadow }}>
+              <table style={{ borderCollapse:'collapse', width:'100%', fontSize:11 }}>
+                <thead>
+                  <tr style={{ background:C.primary }}>
+                    {['Empresa','Balance','Cuentas','Libro Mayor','Sistema','Último guardado','Por'].map((h,i) => (
+                      <th key={h} style={{ padding:'7px 14px', textAlign:i>0&&i<4?'center':'left',
+                        color:C.primaryText, fontSize:10, fontWeight:700, whiteSpace:'nowrap' }}>
+                        {h}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {resumenData.map((r, i) => (
+                    <tr key={r.empresa} style={{ borderTop:`1px solid ${C.border}22`,
+                      background: i%2===0 ? C.card : C.rowAlt }}>
+                      <td style={{ padding:'7px 14px', fontWeight:600 }}>{r.empresa}</td>
+                      <td style={{ padding:'7px 14px', textAlign:'center' }}>
+                        <span style={{ color: r.tieneEEFF ? C.green : C.muted2, fontSize:15, fontWeight:700 }}>
+                          {r.tieneEEFF ? '✓' : '—'}
+                        </span>
+                      </td>
+                      <td style={{ padding:'7px 14px', textAlign:'center',
+                        color: r.totalCuentas > 0 ? C.text : C.muted2 }}>
+                        {r.tieneEEFF ? r.totalCuentas.toLocaleString('es-CL') : '—'}
+                      </td>
+                      <td style={{ padding:'7px 14px', textAlign:'center' }}>
+                        {r.tieneMayor ? (
+                          <span style={{ color:C.green, fontSize:10 }}>
+                            ✓
+                          </span>
+                        ) : (
+                          <span style={{ color:C.muted2 }}>—</span>
+                        )}
+                      </td>
+                      <td style={{ padding:'7px 14px', color:C.muted, fontSize:10 }}>
+                        {r.sistemaEEFF || '—'}
+                      </td>
+                      <td style={{ padding:'7px 14px', color:C.muted, fontSize:10, whiteSpace:'nowrap' }}>
+                        {r.fechaEEFF ? new Date(r.fechaEEFF).toLocaleDateString('es-CL') : '—'}
+                      </td>
+                      <td style={{ padding:'7px 14px', color:C.muted, fontSize:10 }}>
+                        {r.guardadoPor || '—'}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ══ VISTA: CONSOLIDADO ════════════════════════════════════ */}
+      {vistaModulo === 'consolidado' && (
+        <div style={{ marginTop:4 }}>
+          {/* Header + botón + estado */}
+          <div style={{ display:'flex', alignItems:'center', gap:12, marginBottom:16, flexWrap:'wrap' }}>
+            <span style={{ fontSize:13, fontWeight:800, color:C.primary }}>
+              Consolidado Grupo — {NOMBRES_MES[mes]} {anio}
+            </span>
+            <Btn onClick={handleConsolidar} disabled={consolidadoCargando} color={C.accent}>
+              {consolidadoCargando ? 'Consolidando...' : consolidadoData ? 'Actualizar' : 'Consolidar'}
+            </Btn>
+            {consolidadoEstado.length > 0 && (
+              <div style={{ display:'flex', gap:4, flexWrap:'wrap' }}>
+                {consolidadoEstado.map(e => (
+                  <span key={e.empresa} style={{ fontSize:9, padding:'2px 8px', borderRadius:10,
+                    background: e.cargada ? `${C.green}22` : `${C.red}22`,
+                    color: e.cargada ? C.green : C.red,
+                    border:`1px solid ${e.cargada ? C.green : C.red}44` }}>
+                    {e.empresa}{e.factor < 1 ? ` (${e.factor*100}%)` : ''} {e.cargada ? '✓' : '✗'}
+                  </span>
+                ))}
+              </div>
+            )}
+            {consolidadoData && (
+              <Btn onClick={() => exportarEEFFXLSX({ cpgYtd: cpgConsolidado, cpgMes: {}, empresa: 'Consolidado', mes, anio })}
+                color={C.green} small>
+                Exportar XLSX
+              </Btn>
+            )}
+          </div>
+
+          {consolidadoCargando && (
+            <div style={{ color:C.muted, fontSize:12, padding:'40px 0', textAlign:'center' }}>
+              Cargando datos de {EMPRESAS_LINEAALINEA.length} empresas...
+            </div>
+          )}
+
+          {!consolidadoCargando && consolidadoData && (() => {
+            const cpgC  = cpgConsolidado;
+            const erC   = erConsolidado;
+            const sumC  = (g) => (cpgC[g]||[]).reduce((s,c)=>s+valorSit(c), 0);
+            const tCAC  = sumC('Activo Corriente'), tCANC = sumC('Activo No Corriente');
+            const tCA   = tCAC + tCANC;
+            const tCPC  = sumC('Pasivo Corriente'), tCPNC = sumC('Pasivo No Corriente');
+            const tCP   = tCPC + tCPNC;
+            const tCPat = sumC('Patrimonio');
+            const tCPP  = tCP + tCPat + erC.resEjec;
+            return (
+              <>
+                {/* ESF Consolidado */}
+                <div style={{ marginBottom:28 }}>
+                  <div style={{ fontSize:12, fontWeight:900, color:C.primary, marginBottom:8,
+                    textTransform:'uppercase', letterSpacing:'0.03em' }}>
+                    Estado de Situación Financiera — Consolidado
+                  </div>
+                  <div style={{ overflowX:'auto', borderRadius:10, border:`1px solid ${C.border}`,
+                    background:C.card, boxShadow:C.shadow }}>
+                    <table style={{ borderCollapse:'collapse', width:'100%' }}>
+                      <thead>
+                        <tr style={{ background:C.primary }}>
+                          <th style={{ padding:'8px 12px', textAlign:'left', fontSize:10,
+                            color:C.primaryText, fontWeight:700, textTransform:'uppercase' }}>Cuenta</th>
+                          <th style={{ padding:'8px 14px', textAlign:'right', fontSize:10,
+                            color:C.primaryText, fontWeight:700, whiteSpace:'nowrap' }}>
+                            Consolidado {NOMBRES_MES[mes]} {anio}
+                          </th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        <tr style={{ background:`${C.accent}18` }}>
+                          <td colSpan={2} style={{ padding:'6px 12px', fontSize:11,
+                            fontWeight:800, color:C.accent, letterSpacing:'0.06em' }}>ACTIVOS</td>
+                        </tr>
+                        {ESF_SECCIONES.filter(s=>s.grupo.startsWith('Activo')).map(sec => (
+                          <SeccionESF key={sec.id} sec={sec} cuentas={cpgC[sec.grupo]||[]}
+                            expandedSecs={expandedSecs} onToggleSec={toggleSec}
+                            expandedCats={expandedCats} onToggleCat={toggleCat}
+                            onCuentaClick={null} selectedCodigo={null} />
+                        ))}
+                        <LineaDivision label="TOTAL ACTIVO" valor={tCA} />
+                        <tr style={{ background:`${C.blue}18` }}>
+                          <td colSpan={2} style={{ padding:'6px 12px', fontSize:11,
+                            fontWeight:800, color:C.blue, letterSpacing:'0.06em' }}>
+                            PASIVOS Y PATRIMONIO
+                          </td>
+                        </tr>
+                        {ESF_SECCIONES.filter(s=>s.grupo.startsWith('Pasivo')).map(sec => (
+                          <SeccionESF key={sec.id} sec={sec} cuentas={cpgC[sec.grupo]||[]}
+                            expandedSecs={expandedSecs} onToggleSec={toggleSec}
+                            expandedCats={expandedCats} onToggleCat={toggleCat}
+                            onCuentaClick={null} selectedCodigo={null} />
+                        ))}
+                        <LineaTotal label="Total Pasivo" valor={tCP} />
+                        <tr style={{ background:'transparent', height:4 }}><td colSpan={2}></td></tr>
+                        {ESF_SECCIONES.filter(s=>s.grupo==='Patrimonio').map(sec => (
+                          <SeccionESF key={sec.id} sec={sec} cuentas={cpgC[sec.grupo]||[]}
+                            expandedSecs={expandedSecs} onToggleSec={toggleSec}
+                            expandedCats={expandedCats} onToggleCat={toggleCat}
+                            onCuentaClick={null} selectedCodigo={null} />
+                        ))}
+                        <tr style={{ background:`${C.purple}0d`, borderTop:`1px solid ${C.purple}33` }}>
+                          <td style={{ padding:'6px 12px', paddingLeft:28, fontSize:11,
+                            fontWeight:700, color:C.purple, fontStyle:'italic' }}>
+                            Resultado del Período (Acumulado)
+                          </td>
+                          <td style={{ padding:'6px 14px', textAlign:'right', fontSize:12,
+                            fontWeight:800, fontStyle:'italic',
+                            color: erC.resEjec >= 0 ? C.green : C.red, whiteSpace:'nowrap' }}>
+                            {fmtSig(erC.resEjec)}
+                          </td>
+                        </tr>
+                        <LineaDivision label="TOTAL PASIVO + PATRIMONIO" valor={tCPP}
+                          color={Math.abs(tCA - tCPP) < 1 ? C.green : C.red} />
+                        {Math.abs(tCA - tCPP) >= 1 && (
+                          <tr style={{ background:`${C.red}11` }}>
+                            <td colSpan={2} style={{ padding:'4px 12px', fontSize:10, color:C.red }}>
+                              ⚠ Diferencia A − (P+Pat): {fmtMonto(tCA - tCPP, 2)}
+                              <span style={{ marginLeft:8, color:C.muted }}>
+                                (puede reflejar intercompany no eliminado)
+                              </span>
+                            </td>
+                          </tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+
+                {/* ER Consolidado */}
+                <div style={{ marginBottom:28 }}>
+                  <div style={{ fontSize:12, fontWeight:900, color:C.primary, marginBottom:8,
+                    textTransform:'uppercase', letterSpacing:'0.03em' }}>
+                    Estado de Resultados — Consolidado
+                  </div>
+                  <div style={{ overflowX:'auto', borderRadius:10, border:`1px solid ${C.border}`,
+                    background:C.card, boxShadow:C.shadow }}>
+                    <table style={{ borderCollapse:'collapse', width:'100%' }}>
+                      <thead>
+                        <tr style={{ background:C.primary }}>
+                          <th style={{ padding:'8px 12px', textAlign:'left', fontSize:10,
+                            color:C.primaryText, fontWeight:700, textTransform:'uppercase' }}>Cuenta</th>
+                          <th style={{ padding:'8px 14px', textAlign:'right', fontSize:10,
+                            color:C.primaryText, fontWeight:700, whiteSpace:'nowrap' }}>
+                            Acum. {NOMBRES_MES[mes]} {anio}
+                          </th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        <BloqueER bloque={ER_BLOQUES[0]} cuentas={cpgC['Ingreso Operacional']||[]}
+                          expandedSecs={expandedSecs} onToggleSec={toggleSec}
+                          expandedCats={expandedCats} onToggleCat={toggleCat}
+                          onCuentaClick={null} selectedCodigo={null} />
+                        <BloqueER bloque={ER_BLOQUES[1]} cuentas={cpgC['Costo Operacional']||[]}
+                          expandedSecs={expandedSecs} onToggleSec={toggleSec}
+                          expandedCats={expandedCats} onToggleCat={toggleCat}
+                          onCuentaClick={null} selectedCodigo={null} />
+                        <LineaDivision label="RESULTADO BRUTO" valor={erC.resB} />
+                        <BloqueER bloque={ER_BLOQUES[2]} cuentas={cpgC['Gasto Operacional']||[]}
+                          expandedSecs={expandedSecs} onToggleSec={toggleSec}
+                          expandedCats={expandedCats} onToggleCat={toggleCat}
+                          onCuentaClick={null} selectedCodigo={null} />
+                        <LineaDivision label="RESULTADO OPERACIONAL" valor={erC.resOp} />
+                        <BloqueER bloque={ER_BLOQUES[3]} cuentas={cpgC['Ingreso No Operacional']||[]}
+                          expandedSecs={expandedSecs} onToggleSec={toggleSec}
+                          expandedCats={expandedCats} onToggleCat={toggleCat}
+                          onCuentaClick={null} selectedCodigo={null} />
+                        <BloqueER bloque={ER_BLOQUES[4]} cuentas={cpgC['Gasto No Operacional']||[]}
+                          expandedSecs={expandedSecs} onToggleSec={toggleSec}
+                          expandedCats={expandedCats} onToggleCat={toggleCat}
+                          onCuentaClick={null} selectedCodigo={null} />
+                        {(cpgC['No Operacional']||[]).length > 0 && (
+                          <BloqueER bloque={ER_BLOQUES[5]} cuentas={cpgC['No Operacional']||[]}
+                            expandedSecs={expandedSecs} onToggleSec={toggleSec}
+                            expandedCats={expandedCats} onToggleCat={toggleCat}
+                            onCuentaClick={null} selectedCodigo={null} />
+                        )}
+                        <LineaTotal label="Resultado antes de Impuesto" valor={erC.resAntes} />
+                        <BloqueER bloque={ER_BLOQUES[6]} cuentas={cpgC['Impuesto']||[]}
+                          expandedSecs={expandedSecs} onToggleSec={toggleSec}
+                          expandedCats={expandedCats} onToggleCat={toggleCat}
+                          onCuentaClick={null} selectedCodigo={null} />
+                        <LineaDivision label="RESULTADO DEL EJERCICIO" valor={erC.resEjec} />
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </>
+            );
+          })()}
+
+          {!consolidadoCargando && !consolidadoData && (
+            <div style={{ textAlign:'center', padding:'60px 0', color:C.muted, fontSize:12 }}>
+              Presiona "Consolidar" para agregar los EEFF de las 6 empresas línea a línea.
+            </div>
+          )}
+        </div>
       )}
 
       {/* ── Panel diagnóstico Libro Mayor (solo admin, Parte 1) ── */}
@@ -1866,7 +2568,7 @@ export default function EEFFModule({ canEdit, usuarioActual, empresasPermitidas 
 
                 return (
                   <div>
-                    {/* Cobertura */}
+                    {/* Cobertura + Export */}
                     <div style={{ fontSize:10, color:C.muted, marginBottom:8,
                       display:'flex', gap:10, alignItems:'center', flexWrap:'wrap' }}>
                       <span>
@@ -1876,6 +2578,9 @@ export default function EEFFModule({ canEdit, usuarioActual, empresasPermitidas 
                         </strong>
                       </span>
                       <span style={{ color:C.muted2 }}>YTD {NOMBRES_MES[mes]} {anio}</span>
+                      <Btn onClick={handleExportarAuxiliar} color={C.green} small>
+                        Exportar XLSX
+                      </Btn>
                     </div>
 
                     {/* Conciliación vs saldo EEFF */}
