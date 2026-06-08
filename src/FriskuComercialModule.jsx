@@ -122,12 +122,13 @@ async function exportarPL_PDF(oe, pl, exportadora, cliente, especie, tiposEmbala
   const body = (pl.pallets||[]).map((p,i)=>[
     i+1,
     tiposEmbalaje.find(t=>t.codigo===p.formato)?.nombre||p.formato||"—",
+    p.calibre||"—",
     p.palletNum||"—",
     Number(p.cajas||0).toLocaleString("es-CL"),
     Number(p.pesoNetoKg||0).toLocaleString("es-CL"),
     Number(p.pesoBrutoKg||0).toLocaleString("es-CL"),
   ]);
-  body.push(["","TOTAL","",totalCajas.toLocaleString("es-CL"),totalNetoKg.toLocaleString("es-CL"),totalBrutoKg.toLocaleString("es-CL")]);
+  body.push(["","TOTAL","","",totalCajas.toLocaleString("es-CL"),totalNetoKg.toLocaleString("es-CL"),totalBrutoKg.toLocaleString("es-CL")]);
 
   doc.autoTable({
     startY:y,
@@ -135,9 +136,9 @@ async function exportarPL_PDF(oe, pl, exportadora, cliente, especie, tiposEmbala
     headStyles:{fillColor:[20,184,166],textColor:255,fontStyle:"bold",fontSize:8},
     styles:{fontSize:8,cellPadding:3},
     footStyles:{fillColor:[240,240,240],fontStyle:"bold"},
-    head:[["#","Formato","N° Pallet","Cajas","Peso Neto (kg)","Peso Bruto (kg)"]],
+    head:[["#","Formato","Calibre","N° Pallet","Cajas","Peso Neto (kg)","Peso Bruto (kg)"]],
     body,
-    columnStyles:{0:{halign:"center",cellWidth:8},2:{halign:"center",cellWidth:18},3:{halign:"right",cellWidth:20},4:{halign:"right",cellWidth:26},5:{halign:"right",cellWidth:26}},
+    columnStyles:{0:{halign:"center",cellWidth:8},2:{halign:"center",cellWidth:18},3:{halign:"center",cellWidth:18},4:{halign:"right",cellWidth:20},5:{halign:"right",cellWidth:26},6:{halign:"right",cellWidth:26}},
     margin:{left:m,right:m},
     didDrawRow:(data)=>{
       if(data.row.index===body.length-1){
@@ -187,6 +188,7 @@ async function exportarPL_Excel(oe, pl, exportadora, cliente, especie, tiposEmba
   const palletRows = pallets.map((p,i)=>`<Row>
     <Cell><ss:Data ss:Type="Number">${i+1}</ss:Data></Cell>
     ${cell(tiposEmbalaje.find(t=>t.codigo===p.formato)?.nombre||p.formato||"")}
+    ${cell(p.calibre||"")}
     <Cell><ss:Data ss:Type="Number">${Number(p.palletNum)||0}</ss:Data></Cell>
     <Cell><ss:Data ss:Type="Number">${Number(p.cajas)||0}</ss:Data></Cell>
     <Cell><ss:Data ss:Type="Number">${Number(p.pesoNetoKg)||0}</ss:Data></Cell>
@@ -194,7 +196,7 @@ async function exportarPL_Excel(oe, pl, exportadora, cliente, especie, tiposEmba
   </Row>`).join("");
 
   const totalRow = `<Row>
-    ${cell("")}${cell("TOTAL",true)}${cell("")}
+    ${cell("")}${cell("TOTAL",true)}${cell("")}${cell("")}
     <Cell><ss:Data ss:Type="Number">${totalCajas}</ss:Data></Cell>
     <Cell><ss:Data ss:Type="Number">${totalNetoKg}</ss:Data></Cell>
     <Cell><ss:Data ss:Type="Number">${totalBrutoKg}</ss:Data></Cell>
@@ -202,11 +204,11 @@ async function exportarPL_Excel(oe, pl, exportadora, cliente, especie, tiposEmba
 
   const xml = `<?xml version="1.0"?><Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet" xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet">
 <Worksheet ss:Name="Packing List"><Table>
-  <Row><Cell ss:MergeAcross="5"><ss:Data ss:Type="String">PACKING LIST — ${esc(oe.numero||oe.id)}</ss:Data></Cell></Row>
+  <Row><Cell ss:MergeAcross="6"><ss:Data ss:Type="String">PACKING LIST — ${esc(oe.numero||oe.id)}</ss:Data></Cell></Row>
   <Row/>
   ${infoRows}
   <Row/>
-  <Row>${["#","Formato","N° Pallet","Cajas","Peso Neto (kg)","Peso Bruto (kg)"].map(h=>cell(h,true)).join("")}</Row>
+  <Row>${["#","Formato","Calibre","N° Pallet","Cajas","Peso Neto (kg)","Peso Bruto (kg)"].map(h=>cell(h,true)).join("")}</Row>
   ${palletRows}
   ${totalRow}
   ${pl.observ?`<Row/><Row>${cell("Observaciones:",true)}${cell(pl.observ)}</Row>`:""}
@@ -232,7 +234,7 @@ function PackingListPanel({ oe, tiposEmbalaje, especies, exportadoras, clientes,
 
   function upd(k,v){ setPl(p=>({...p,[k]:v})); setDirty(true); }
   function addPallet(){
-    setPl(p=>({...p,pallets:[...(p.pallets||[]),{id:uid(),formato:formatosOE[0]||"",palletNum:(p.pallets||[]).length+1,cajas:0,pesoNetoKg:0,pesoBrutoKg:0}]}));
+    setPl(p=>({...p,pallets:[...(p.pallets||[]),{id:uid(),formato:formatosOE[0]||"",calibre:"",palletNum:(p.pallets||[]).length+1,cajas:0,pesoNetoKg:0,pesoBrutoKg:0}]}));
     setDirty(true);
   }
   function updPallet(idx,k,v){ setPl(p=>{ const ps=[...p.pallets]; ps[idx]={...ps[idx],[k]:v}; return {...p,pallets:ps}; }); setDirty(true); }
@@ -279,8 +281,8 @@ function PackingListPanel({ oe, tiposEmbalaje, especies, exportadoras, clientes,
         <table style={{width:"100%",borderCollapse:"collapse",fontSize:11}}>
           <thead>
             <tr style={{background:C.primary}}>
-              {["#","Formato","N° Pallet","Cajas","Peso Neto kg","Peso Bruto kg",canEdit?"✕":""].map((h,i)=>(
-                <th key={i} style={{padding:"6px 8px",textAlign:i===0||i===2||i===3?"center":"left",color:C.primaryText,fontWeight:700,fontSize:10,whiteSpace:"nowrap"}}>{h}</th>
+              {["#","Formato","Calibre","N° Pallet","Cajas","Peso Neto kg","Peso Bruto kg",canEdit?"✕":""].map((h,i)=>(
+                <th key={i} style={{padding:"6px 8px",textAlign:(h==="#"||h==="N° Pallet"||h==="Cajas")?"center":"left",color:C.primaryText,fontWeight:700,fontSize:10,whiteSpace:"nowrap"}}>{h}</th>
               ))}
             </tr>
           </thead>
@@ -295,6 +297,11 @@ function PackingListPanel({ oe, tiposEmbalaje, especies, exportadoras, clientes,
                         {!formatosOE.includes(p.formato)&&p.formato&&<option value={p.formato}>{p.formato}</option>}
                       </select>
                     : <span style={{color:C.text}}>{tiposEmbalaje.find(t=>t.codigo===p.formato)?.nombre||p.formato||"—"}</span>}
+                </td>
+                <td style={{padding:"4px 4px"}}>
+                  {canEdit
+                    ? <input value={p.calibre||""} onChange={e=>updPallet(idx,"calibre",e.target.value)} style={{...inputSt,padding:"4px 6px",width:75}}/>
+                    : <span style={{color:C.text}}>{p.calibre||"—"}</span>}
                 </td>
                 <td style={{padding:"4px 4px",textAlign:"center"}}>
                   {canEdit
@@ -315,7 +322,7 @@ function PackingListPanel({ oe, tiposEmbalaje, especies, exportadoras, clientes,
             ))}
             {hasPallets && (
               <tr style={{borderTop:`1px solid ${C.border}`,background:`${C.bg}66`}}>
-                <td colSpan={2} style={{padding:"6px 8px",fontSize:10,color:C.muted,fontWeight:700,textAlign:"right"}}>TOTAL</td>
+                <td colSpan={3} style={{padding:"6px 8px",fontSize:10,color:C.muted,fontWeight:700,textAlign:"right"}}>TOTAL</td>
                 <td style={{padding:"6px 8px",textAlign:"center",fontWeight:700,color:C.text,fontFamily:"monospace"}}>{(pl.pallets||[]).length}</td>
                 <td style={{padding:"6px 8px",textAlign:"center",fontWeight:700,color:C.text,fontFamily:"monospace"}}>{totalCajas.toLocaleString("es-CL")}</td>
                 <td style={{padding:"6px 8px",fontWeight:700,color:C.text,fontFamily:"monospace"}}>{totalNetoKg.toLocaleString("es-CL")}</td>
@@ -2194,7 +2201,7 @@ function OEForm({oe, exportadoras, clientes, notifys=[], especies, tiposEmbalaje
         <div>
           <div style={lblSt}>N° Embarque</div>
           <input value={buf.numero||""} onChange={e=>set("numero",e.target.value)}
-            placeholder="OE-2026-001" style={inputSt}/>
+            style={inputSt}/>
         </div>
         <div>
           <div style={lblSt}>Estado</div>
@@ -2267,7 +2274,7 @@ function OEForm({oe, exportadoras, clientes, notifys=[], especies, tiposEmbalaje
           <div style={lblSt}>{esAer?"Aerolínea":"Naviera"}</div>
           <input list="oe-naviera-list" value={buf.navieraAerolinea||""}
             onChange={e=>set("navieraAerolinea",e.target.value)}
-            placeholder={esAer?"LATAM Cargo":"Maersk Line"} style={inputSt}/>
+            style={inputSt}/>
           <datalist id="oe-naviera-list">
             {(esAer?lineasAereas:shippingLines).map(x=>(
               <option key={x.codigo} value={x.nombre}>{x.codigo} — {x.nombre}</option>
@@ -2277,7 +2284,7 @@ function OEForm({oe, exportadoras, clientes, notifys=[], especies, tiposEmbalaje
         <div>
           <div style={lblSt}>{esAer?"N° Vuelo":"N° Contenedor"}</div>
           <input value={buf.numeroContenedor||""} onChange={e=>set("numeroContenedor",e.target.value)}
-            placeholder={esAer?"LA800":"MSKU1234567"} style={inputSt}/>
+            style={inputSt}/>
         </div>
       </div>
 
@@ -2287,7 +2294,7 @@ function OEForm({oe, exportadoras, clientes, notifys=[], especies, tiposEmbalaje
           <div style={lblSt}>Origen *</div>
           <input list="oe-origen-list" value={buf.origen||""}
             onChange={e=>set("origen",e.target.value)}
-            placeholder={esMar?"Puerto Montt":"SCL"} style={inputSt}/>
+            style={inputSt}/>
           <datalist id="oe-origen-list">
             {origenDestOptions.map(p=>(
               <option key={p.codigo} value={p.nombre||p.codigo}>{p.codigo} — {p.nombre||p.ciudad}</option>
@@ -2298,7 +2305,7 @@ function OEForm({oe, exportadoras, clientes, notifys=[], especies, tiposEmbalaje
           <div style={lblSt}>Destino *</div>
           <input list="oe-destino-list" value={buf.destino||""}
             onChange={e=>set("destino",e.target.value)}
-            placeholder={esMar?"Rotterdam":"AMS"} style={inputSt}/>
+            style={inputSt}/>
           <datalist id="oe-destino-list">
             {origenDestOptions.map(p=>(
               <option key={p.codigo} value={p.nombre||p.codigo}>{p.codigo} — {p.nombre||p.ciudad}</option>
@@ -2311,19 +2318,30 @@ function OEForm({oe, exportadoras, clientes, notifys=[], especies, tiposEmbalaje
       <div style={{background:C.card,padding:10,borderRadius:6,border:`1px solid ${C.border}`,marginBottom:10}}>
         <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:8,marginBottom:8,flexWrap:"wrap"}}>
           <div style={{fontSize:11,fontWeight:700,color:C.muted}}>Notify</div>
-          {notifysCliente.length>0 && (
+          {notifys.length>0 && (
             <div style={{display:"flex",alignItems:"center",gap:6}}>
-              <span style={{fontSize:10,color:C.muted}}>Notify guardado del cliente:</span>
+              <span style={{fontSize:10,color:C.muted}}>Elegir del maestro:</span>
               <select
                 value=""
-                onChange={e=>{ const n=notifysCliente.find(x=>x.codigo===e.target.value); aplicarNotify(n); e.target.value=""; }}
-                style={{...inputSt, padding:"3px 8px", fontSize:11, maxWidth:260}}>
+                onChange={e=>{ const n=notifys.find(x=>x.codigo===e.target.value); aplicarNotify(n); e.target.value=""; }}
+                style={{...inputSt, padding:"3px 8px", fontSize:11, maxWidth:280}}>
                 <option value="">— elegir / autocompletar —</option>
-                {notifysCliente.map(n=>(
-                  <option key={n.codigo} value={n.codigo}>
-                    {n.subtipo==="aereo"?"✈ ":n.subtipo==="maritimo"?"🚢 ":""}{n.nombre} ({n.codigo})
-                  </option>
-                ))}
+                {notifysCliente.length>0 && (
+                  <optgroup label="Del cliente">
+                    {notifysCliente.map(n=>(
+                      <option key={"c_"+n.codigo} value={n.codigo}>
+                        {n.subtipo==="aereo"?"✈ ":n.subtipo==="maritimo"?"🚢 ":""}{n.nombre} ({n.codigo})
+                      </option>
+                    ))}
+                  </optgroup>
+                )}
+                <optgroup label="Todos los notify">
+                  {notifys.map(n=>(
+                    <option key={n.codigo} value={n.codigo}>
+                      {n.subtipo==="aereo"?"✈ ":n.subtipo==="maritimo"?"🚢 ":""}{n.nombre} ({n.codigo})
+                    </option>
+                  ))}
+                </optgroup>
               </select>
             </div>
           )}
@@ -2332,17 +2350,17 @@ function OEForm({oe, exportadoras, clientes, notifys=[], especies, tiposEmbalaje
           <div>
             <div style={lblSt}>Nombre / Empresa</div>
             <input value={buf.notify?.nombre||""} onChange={e=>setNotify("nombre",e.target.value)}
-              placeholder="Importador destino" style={inputSt}/>
+              style={inputSt}/>
           </div>
           <div>
             <div style={lblSt}>Dirección</div>
             <input value={buf.notify?.direccion||""} onChange={e=>setNotify("direccion",e.target.value)}
-              placeholder="123 Main St, Rotterdam" style={inputSt}/>
+              style={inputSt}/>
           </div>
           <div>
             <div style={lblSt}>Contacto / Teléfono</div>
             <input value={buf.notify?.contacto||""} onChange={e=>setNotify("contacto",e.target.value)}
-              placeholder="+31 6 00000000" style={inputSt}/>
+              style={inputSt}/>
           </div>
         </div>
       </div>
@@ -2494,7 +2512,11 @@ function CarpetaComexPanel({ oe, onGuardar, canEdit }) {
               return (
                 <div key={doc.id||idx} style={{display:"flex",gap:6,alignItems:"center",padding:"7px 10px",background:C.card,borderRadius:8,border:`1px solid ${doc.url?C.border:C.border+"44"}`}}>
                   <div style={{flex:1,minWidth:0}}>
-                    <div style={{fontSize:11,fontWeight:600,color:C.text,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{doc.tipo}</div>
+                    {canEdit && !isDefault
+                      ? <input value={doc.tipo==="Otro"?"":doc.tipo} onChange={e=>updDoc(idx,"tipo",e.target.value||"Otro")}
+                          placeholder="Nombre del documento" autoFocus={doc.tipo==="Otro"}
+                          style={{...inputSt,padding:"3px 6px",fontSize:11,fontWeight:600,width:"100%"}}/>
+                      : <div style={{fontSize:11,fontWeight:600,color:C.text,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{doc.tipo}</div>}
                     {doc.nombre&&doc.nombre!==doc.tipo&&<div style={{fontSize:9,color:C.muted,marginTop:1,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{doc.nombre}</div>}
                     {doc.fechaCarga&&<div style={{fontSize:9,color:C.muted2}}>{doc.fechaCarga}</div>}
                   </div>
@@ -2977,44 +2999,60 @@ const LIQ_ESTADOS = {
 };
 const LIQ_ESTADO_SIG = { borrador:"enviada", enviada:"pagada" };
 
-function LiquidacionForm({ liq, embarques, clientes, exportadoras, especies, monedas, tcData, onGuardar, onCancelar }) {
+function LiquidacionForm({ liq, embarques, clientes, exportadoras, especies, monedas, tiposEmbalaje=[], tcData, onGuardar, onCancelar }) {
   const hoyISO = new Date().toISOString().slice(0,10);
   const [form, setForm] = useState({
     oeId:             liq?.oeId             || "",
     estado:           liq?.estado           || "borrador",
     fechaLiquidacion: liq?.fechaLiquidacion || hoyISO,
-    baseNeta:         liq?.baseNeta != null ? String(liq.baseNeta) : "",
+    baseNetaManual:   liq?.baseNetaManual != null ? String(liq.baseNetaManual)
+                       : (liq?.ventaTotal == null && liq?.baseNeta != null ? String(liq.baseNeta) : ""),
     monedaBase:       liq?.monedaBase       || "USD",
     fechaTC:          liq?.fechaTC          || hoyISO,
     numeroFactura:    liq?.numeroFactura    || "",
     fechaFactura:     liq?.fechaFactura     || "",
     observ:           liq?.observ           || "",
   });
+  const [ventaPorPallet, setVentaPorPallet] = useState(()=> ({...(liq?.ventaPorPallet||{})}) );
+  const [gastosDestino,  setGastosDestino]  = useState(()=> Array.isArray(liq?.gastosDestino) ? liq.gastosDestino.map(g=>({...g})) : [] );
   const f = k => e => setForm(p=>({...p,[k]:e.target.value}));
 
   const oeSeleccionada  = embarques.find(e=>e.id===form.oeId);
   const clienteOE       = clientes.find(c=>c.id===oeSeleccionada?.clienteId);
   const exportadoraOE   = exportadoras.find(e=>e.id===oeSeleccionada?.exportadoraId);
   const especieOE       = especies.find(e=>e.codigo===oeSeleccionada?.especieCodigo);
-  const baseNetaNum     = parseFloat(String(form.baseNeta).replace(/[^\d.\-]/g,"")) || 0;
   const monedasMap      = Object.fromEntries(monedas.map(m=>[m.codigo,m]));
+  const tiposEmbMap     = Object.fromEntries((tiposEmbalaje||[]).map(t=>[t.codigo,t]));
+
+  const pallets   = oeSeleccionada?.packingList?.pallets || [];
+  const hayPallets = pallets.length > 0;
+  const setVentaPallet = (pid, v) => setVentaPorPallet(prev=>({...prev, [pid]: v===""? "" : Number(v)}));
+
+  const ventaPallets   = pallets.reduce((s,p)=> s + (Number(ventaPorPallet[p.id])||0), 0);
+  const baseNetaManual = parseFloat(String(form.baseNetaManual).replace(/[^\d.\-]/g,"")) || 0;
+  const ventaTotal     = hayPallets ? ventaPallets : baseNetaManual;
+
+  const addGasto = () => setGastosDestino(prev=>[...prev, {id:uid(), concepto:"", monto:""}]);
+  const updGasto = (idx,k,v) => setGastosDestino(prev=>{ const a=[...prev]; a[idx]={...a[idx],[k]:v}; return a; });
+  const delGasto = (idx) => setGastosDestino(prev=>prev.filter((_,i)=>i!==idx));
+  const gastosTotal = gastosDestino.reduce((s,g)=> s + (Number(g.monto)||0), 0);
+  const fob = ventaTotal - gastosTotal;
 
   const tcCalculado = form.monedaBase==="USD" ? 1
     : buscarTC(form.monedaBase, "USD", form.fechaTC, tcData);
-  const baseNetaUSD = form.monedaBase==="USD" ? baseNetaNum
-    : (tcCalculado!=null ? baseNetaNum*tcCalculado : null);
+  const aUSD = (v) => v==null ? null : (form.monedaBase==="USD" ? v : (tcCalculado!=null ? v*tcCalculado : null));
+  const ventaTotalUSD = aUSD(ventaTotal);
+  const fobUSD        = aUSD(fob);
 
-  const comision = (clienteOE && baseNetaNum>0)
-    ? calcularComisionFrisku(clienteOE, oeSeleccionada?.especieCodigo, "", baseNetaNum)
+  // Comisión Frisku sobre el PRECIO DE VENTA (base = venta destino)
+  const comision = (clienteOE && ventaTotal>0)
+    ? calcularComisionFrisku(clienteOE, oeSeleccionada?.especieCodigo, "", ventaTotal)
     : null;
-  const montoFriskuUSD = comision
-    ? (form.monedaBase==="USD" ? comision.montoComisionFrisku
-      : (tcCalculado!=null ? comision.montoComisionFrisku*tcCalculado : null))
-    : null;
+  const montoFriskuUSD = comision ? aUSD(comision.montoComisionFrisku) : null;
 
   const handleGuardar = () => {
     if(!form.oeId)       { alert("Selecciona una OE"); return; }
-    if(!baseNetaNum)     { alert("Ingresa la base neta"); return; }
+    if(!(ventaTotal>0))  { alert("Ingresa la venta (por pallet o base manual)"); return; }
     onGuardar({
       ...liq,
       id: liq?.id || uid(),
@@ -3022,11 +3060,21 @@ function LiquidacionForm({ liq, embarques, clientes, exportadoras, especies, mon
       temporada: oeSeleccionada?.temporada || "",
       estado: form.estado,
       fechaLiquidacion: form.fechaLiquidacion,
-      baseNeta: baseNetaNum,
+      // Detalle por pallet + venta/gastos/FOB
+      ventaPorPallet: {...ventaPorPallet},
+      ventaTotal,
+      ventaTotalUSD,
+      gastosDestino: gastosDestino.map(g=>({...g, monto:Number(g.monto)||0})),
+      gastosDestinoTotal: gastosTotal,
+      fob,
+      fobUSD,
+      baseNetaManual: hayPallets ? null : baseNetaManual,
+      // baseNeta = venta total (base de la comisión) — compat con tarjetas/agregados
+      baseNeta: ventaTotal,
+      baseNetaUSD: ventaTotalUSD,
       monedaBase: form.monedaBase,
       fechaTC: form.fechaTC,
       tcUsado: tcCalculado,
-      baseNetaUSD,
       cliPct:               comision?.cliPct               ?? 0,
       friPct:               comision?.friPct               ?? 0,
       friSobreBaseNeta:     comision?.friSobreBaseNeta      ?? 0,
@@ -3040,6 +3088,8 @@ function LiquidacionForm({ liq, embarques, clientes, exportadoras, especies, mon
       fechaActualizacion: new Date().toISOString(),
     });
   };
+
+  const fmt = (v) => formatearMonto(v, form.monedaBase, monedasMap);
 
   return (
     <div style={{background:C.card, borderRadius:14, padding:20, marginBottom:20, border:`1px solid ${C.border}`}}>
@@ -3072,11 +3122,7 @@ function LiquidacionForm({ liq, embarques, clientes, exportadoras, especies, mon
           )}
         </div>
 
-        {/* Base neta + moneda */}
-        <div>
-          <div style={lblSt}>Base neta *</div>
-          <input value={form.baseNeta} onChange={f("baseNeta")} style={inputSt} placeholder="0.00"/>
-        </div>
+        {/* Moneda + TC */}
         <div>
           <div style={lblSt}>Moneda</div>
           <select value={form.monedaBase} onChange={f("monedaBase")} style={inputSt}>
@@ -3085,8 +3131,6 @@ function LiquidacionForm({ liq, embarques, clientes, exportadoras, especies, mon
               : <><option value="USD">USD</option><option value="EUR">EUR</option><option value="CLP">CLP</option></>}
           </select>
         </div>
-
-        {/* TC — solo si moneda != USD */}
         {form.monedaBase!=="USD" && (<>
           <div>
             <div style={lblSt}>Fecha TC</div>
@@ -3102,22 +3146,123 @@ function LiquidacionForm({ liq, embarques, clientes, exportadoras, especies, mon
           </div>
         </>)}
 
-        {/* Preview comisión */}
-        {comision && (
-          <div style={{gridColumn:"1/-1", background:C.bg2, borderRadius:10, padding:12, border:`1px solid ${C.border}`}}>
-            <div style={{fontSize:11, fontWeight:700, color:C.teal, marginBottom:8}}>Preview comisión</div>
-            <div style={{display:"grid", gridTemplateColumns:"repeat(auto-fill, minmax(170px,1fr))", gap:8, fontSize:11}}>
-              <div><span style={{color:C.muted}}>Base neta: </span><span style={{fontWeight:600}}>{formatearMonto(baseNetaNum, form.monedaBase, monedasMap)}</span></div>
-              {form.monedaBase!=="USD" && baseNetaUSD!=null &&
-                <div><span style={{color:C.muted}}>Base USD: </span><span style={{fontWeight:600}}>USD {baseNetaUSD.toLocaleString("es-CL",{minimumFractionDigits:2,maximumFractionDigits:2})}</span></div>}
-              <div><span style={{color:C.muted}}>% cliente: </span><span>{comision.cliPct}%</span></div>
-              <div><span style={{color:C.muted}}>% Frisku s/cli: </span><span>{comision.friPct}%</span></div>
-              <div><span style={{color:C.muted}}>Frisku s/base: </span><span style={{color:C.yellow, fontWeight:700}}>{comision.friSobreBaseNeta.toFixed(4)}%</span></div>
-              <div><span style={{color:C.muted}}>Com. cliente: </span><span>{formatearMonto(comision.montoComisionCliente, form.monedaBase, monedasMap)}</span></div>
-              <div><span style={{color:C.muted}}>Com. Frisku: </span><span style={{color:C.green, fontWeight:700}}>{formatearMonto(comision.montoComisionFrisku, form.monedaBase, monedasMap)}</span></div>
-              {form.monedaBase!=="USD" && montoFriskuUSD!=null &&
-                <div><span style={{color:C.muted}}>Frisku USD: </span><span style={{color:C.green, fontWeight:700}}>USD {montoFriskuUSD.toLocaleString("es-CL",{minimumFractionDigits:2,maximumFractionDigits:2})}</span></div>}
+        {/* Detalle por pallet (packing list) */}
+        {form.oeId && (
+          <div style={{gridColumn:"1/-1"}}>
+            <div style={{fontSize:12, fontWeight:700, color:C.teal, marginBottom:6}}>
+              Detalle por pallet (packing list) — venta en {form.monedaBase}
             </div>
+            {hayPallets ? (
+              <div style={{overflowX:"auto"}}>
+                <table style={{width:"100%", borderCollapse:"collapse", fontSize:11}}>
+                  <thead>
+                    <tr style={{background:C.primary}}>
+                      {["#","Formato","Calibre","Cajas","Venta ("+form.monedaBase+")"].map((h,i)=>(
+                        <th key={i} style={{padding:"6px 8px", textAlign:(i===0||i===3)?"center":i===4?"right":"left", color:C.primaryText, fontWeight:700, fontSize:10, whiteSpace:"nowrap"}}>{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {pallets.map((p,idx)=>(
+                      <tr key={p.id||idx} style={{borderBottom:`1px solid ${C.border}22`, background:idx%2===0?C.card:C.rowAlt}}>
+                        <td style={{padding:"4px 8px", textAlign:"center", color:C.muted2, fontFamily:"monospace", fontSize:10}}>{p.palletNum||idx+1}</td>
+                        <td style={{padding:"4px 8px", color:C.text}}>{tiposEmbMap[p.formato]?.nombre||p.formato||"—"}</td>
+                        <td style={{padding:"4px 8px", color:C.text}}>{p.calibre||"—"}</td>
+                        <td style={{padding:"4px 8px", textAlign:"center", fontFamily:"monospace", color:C.text}}>{Number(p.cajas||0).toLocaleString("es-CL")}</td>
+                        <td style={{padding:"4px 4px", textAlign:"right"}}>
+                          <input type="number" step="0.01" value={ventaPorPallet[p.id] ?? ""}
+                            onChange={e=>setVentaPallet(p.id, e.target.value)}
+                            style={{...inputSt, width:120, textAlign:"right", padding:"4px 6px", fontFamily:"monospace"}}/>
+                        </td>
+                      </tr>
+                    ))}
+                    <tr style={{borderTop:`1px solid ${C.border}`, background:`${C.bg}66`}}>
+                      <td colSpan={3} style={{padding:"6px 8px", textAlign:"right", fontWeight:700, color:C.muted, fontSize:10}}>TOTAL VENTA</td>
+                      <td style={{padding:"6px 8px", textAlign:"center", fontWeight:700, fontFamily:"monospace", color:C.text}}>{pallets.reduce((s,p)=>s+Number(p.cajas||0),0).toLocaleString("es-CL")}</td>
+                      <td style={{padding:"6px 8px", textAlign:"right", fontWeight:700, fontFamily:"monospace", color:C.green}}>{fmt(ventaTotal)}</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <div style={{background:C.bg2, borderRadius:8, padding:10, border:`1px dashed ${C.border}`}}>
+                <div style={{fontSize:11, color:C.muted, marginBottom:6}}>
+                  Esta OE no tiene packing list cargado. Ingresa la venta total manualmente:
+                </div>
+                <input value={form.baseNetaManual} onChange={f("baseNetaManual")} style={{...inputSt, maxWidth:200}} placeholder="Venta total"/>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Gastos en destino */}
+        {form.oeId && (
+          <div style={{gridColumn:"1/-1"}}>
+            <div style={{display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:6}}>
+              <div style={{fontSize:12, fontWeight:700, color:C.accent}}>Gastos en destino</div>
+              <button onClick={addGasto} style={{...btnSt(C.accent,true), fontSize:11, padding:"3px 8px"}}>+ Agregar gasto</button>
+            </div>
+            {gastosDestino.length===0 ? (
+              <div style={{fontSize:11, color:C.muted, fontStyle:"italic"}}>Sin gastos en destino.</div>
+            ) : (
+              <div style={{display:"flex", flexDirection:"column", gap:5}}>
+                {gastosDestino.map((g,idx)=>(
+                  <div key={g.id||idx} style={{display:"flex", gap:6, alignItems:"center"}}>
+                    <input value={g.concepto} onChange={e=>updGasto(idx,"concepto",e.target.value)}
+                      list="gastos-destino-list" placeholder="Concepto (flete, handling, comisión destino…)"
+                      style={{...inputSt, flex:1, padding:"4px 8px", fontSize:11}}/>
+                    <input type="number" step="0.01" value={g.monto} onChange={e=>updGasto(idx,"monto",e.target.value)}
+                      placeholder="0.00" style={{...inputSt, width:120, textAlign:"right", padding:"4px 6px", fontFamily:"monospace"}}/>
+                    <button onClick={()=>delGasto(idx)} style={{...btnSt(C.accent,true), padding:"3px 8px", fontSize:11}}>×</button>
+                  </div>
+                ))}
+                <datalist id="gastos-destino-list">
+                  {["Flete marítimo","Flete aéreo","Handling","Comisión destino","Inspección / QC","Almacenaje","Transporte interno","Aduana destino","Otros"].map(c=>(
+                    <option key={c} value={c}/>
+                  ))}
+                </datalist>
+                <div style={{display:"flex", justifyContent:"flex-end", gap:8, fontSize:11, marginTop:2}}>
+                  <span style={{color:C.muted}}>Total gastos destino:</span>
+                  <span style={{fontWeight:700, color:C.accent, fontFamily:"monospace"}}>{fmt(gastosTotal)}</span>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Resumen Venta / FOB / Comisión */}
+        {form.oeId && ventaTotal>0 && (
+          <div style={{gridColumn:"1/-1", background:C.bg2, borderRadius:10, padding:12, border:`1px solid ${C.border}`}}>
+            <div style={{display:"grid", gridTemplateColumns:"repeat(auto-fill, minmax(150px,1fr))", gap:10, fontSize:12}}>
+              <div>
+                <div style={{color:C.muted, fontSize:10}}>Precio de venta</div>
+                <div style={{fontWeight:700, color:C.green}}>{fmt(ventaTotal)}</div>
+                {form.monedaBase!=="USD" && ventaTotalUSD!=null && <div style={{fontSize:10, color:C.muted}}>≈ USD {ventaTotalUSD.toLocaleString("es-CL",{maximumFractionDigits:2})}</div>}
+              </div>
+              <div>
+                <div style={{color:C.muted, fontSize:10}}>(−) Gastos destino</div>
+                <div style={{fontWeight:700, color:C.accent}}>{fmt(gastosTotal)}</div>
+              </div>
+              <div>
+                <div style={{color:C.muted, fontSize:10}}>(=) FOB</div>
+                <div style={{fontWeight:700, color:C.blue}}>{fmt(fob)}</div>
+                {form.monedaBase!=="USD" && fobUSD!=null && <div style={{fontSize:10, color:C.muted}}>≈ USD {fobUSD.toLocaleString("es-CL",{maximumFractionDigits:2})}</div>}
+              </div>
+            </div>
+            {comision && (
+              <div style={{marginTop:10, paddingTop:10, borderTop:`1px solid ${C.border}`}}>
+                <div style={{fontSize:11, fontWeight:700, color:C.teal, marginBottom:6}}>Comisión Frisku (base = precio de venta)</div>
+                <div style={{display:"grid", gridTemplateColumns:"repeat(auto-fill, minmax(160px,1fr))", gap:8, fontSize:11}}>
+                  <div><span style={{color:C.muted}}>% cliente: </span><span>{comision.cliPct}%</span></div>
+                  <div><span style={{color:C.muted}}>% Frisku s/cli: </span><span>{comision.friPct}%</span></div>
+                  <div><span style={{color:C.muted}}>% Frisku s/venta: </span><span style={{color:C.yellow, fontWeight:700}}>{comision.friSobreBaseNeta.toFixed(4)}%</span></div>
+                  <div><span style={{color:C.muted}}>Com. cliente: </span><span>{fmt(comision.montoComisionCliente)}</span></div>
+                  <div><span style={{color:C.muted}}>Com. Frisku: </span><span style={{color:C.green, fontWeight:700}}>{fmt(comision.montoComisionFrisku)}</span></div>
+                  {form.monedaBase!=="USD" && montoFriskuUSD!=null &&
+                    <div><span style={{color:C.muted}}>Frisku USD: </span><span style={{color:C.green, fontWeight:700}}>USD {montoFriskuUSD.toLocaleString("es-CL",{minimumFractionDigits:2,maximumFractionDigits:2})}</span></div>}
+                </div>
+              </div>
+            )}
           </div>
         )}
         {!clienteOE && form.oeId && (
@@ -3206,10 +3351,10 @@ function LiquidacionCard({ liq, embarques, clientes, exportadoras, especies, mon
       {/* Montos */}
       <div style={{display:"grid", gridTemplateColumns:"1fr 1fr", gap:8, fontSize:11}}>
         <div>
-          <div style={{color:C.muted, marginBottom:2}}>Base neta</div>
-          <div style={{color:C.text, fontWeight:600}}>{formatearMonto(liq.baseNeta, liq.monedaBase, monedasMap)}</div>
-          {liq.monedaBase!=="USD" && liq.baseNetaUSD!=null && (
-            <div style={{color:C.muted, fontSize:10}}>≈ USD {liq.baseNetaUSD.toLocaleString("es-CL",{maximumFractionDigits:0})}</div>
+          <div style={{color:C.muted, marginBottom:2}}>Precio de venta</div>
+          <div style={{color:C.text, fontWeight:600}}>{formatearMonto(liq.ventaTotal!=null?liq.ventaTotal:liq.baseNeta, liq.monedaBase, monedasMap)}</div>
+          {liq.monedaBase!=="USD" && (liq.ventaTotalUSD ?? liq.baseNetaUSD)!=null && (
+            <div style={{color:C.muted, fontSize:10}}>≈ USD {(liq.ventaTotalUSD ?? liq.baseNetaUSD).toLocaleString("es-CL",{maximumFractionDigits:0})}</div>
           )}
         </div>
         <div>
@@ -3221,10 +3366,24 @@ function LiquidacionCard({ liq, embarques, clientes, exportadoras, especies, mon
         </div>
       </div>
 
+      {/* Gastos destino + FOB */}
+      {(liq.gastosDestinoTotal>0 || liq.fob!=null) && (
+        <div style={{display:"grid", gridTemplateColumns:"1fr 1fr", gap:8, fontSize:11, borderTop:`1px solid ${C.border}`, paddingTop:8}}>
+          <div>
+            <div style={{color:C.muted, marginBottom:2}}>(−) Gastos destino</div>
+            <div style={{color:C.accent, fontWeight:600}}>{formatearMonto(liq.gastosDestinoTotal||0, liq.monedaBase, monedasMap)}</div>
+          </div>
+          <div>
+            <div style={{color:C.muted, marginBottom:2}}>(=) FOB</div>
+            <div style={{color:C.blue, fontWeight:700}}>{formatearMonto(liq.fob!=null?liq.fob:((liq.ventaTotal||liq.baseNeta||0)-(liq.gastosDestinoTotal||0)), liq.monedaBase, monedasMap)}</div>
+          </div>
+        </div>
+      )}
+
       {/* % aplicados */}
       <div style={{fontSize:10, color:C.muted}}>
         {liq.cliPct}% cliente × {liq.friPct}% Frisku =&nbsp;
-        <span style={{color:C.yellow}}>{(liq.friSobreBaseNeta||0).toFixed(4)}% s/base</span>
+        <span style={{color:C.yellow}}>{(liq.friSobreBaseNeta||0).toFixed(4)}% s/venta</span>
       </div>
 
       {/* Fechas y factura */}
@@ -3254,6 +3413,384 @@ function LiquidacionCard({ liq, embarques, clientes, exportadoras, especies, mon
           <button onClick={onEliminar} style={{...btnSt(C.accent,true), fontSize:10, padding:"3px 10px", marginLeft:"auto"}}>Eliminar</button>
         </div>
       )}
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// PO — Nota de cobro al cliente (agrupa comisiones de varios embarques)
+// ═══════════════════════════════════════════════════════════════════
+const PO_ESTADOS = {
+  borrador: { label:"Borrador", color:"#f59e0b" },
+  emitida:  { label:"Emitida",  color:"#3b82f6" },
+  pagada:   { label:"Pagada",   color:"#22c55e" },
+};
+const PO_ESTADO_SIG = { borrador:"emitida", emitida:"pagada" };
+
+// Comisión Frisku de una liquidación expresada en USD
+function comisionFriskuUSD(liq) {
+  if(!liq) return 0;
+  if(liq.monedaBase==="USD") return Number(liq.montoComisionFrisku)||0;
+  return Number(liq.montoComisionFriskuUSD)||0;
+}
+
+// Carga una imagen del /public como dataURL (para el logo del PDF)
+async function po_urlToDataURL(url) {
+  const resp = await fetch(url);
+  const blob = await resp.blob();
+  return await new Promise((res,rej)=>{
+    const r = new FileReader();
+    r.onloadend = () => res(r.result);
+    r.onerror = rej;
+    r.readAsDataURL(blob);
+  });
+}
+const PO_MESES_ES = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+function po_fechaLarga(iso){
+  if(!iso) iso = new Date().toISOString().slice(0,10);
+  const [y,mo,d] = String(iso).split("-").map(Number);
+  if(!y||!mo||!d) return iso;
+  return `${String(d).padStart(2,"0")} de ${PO_MESES_ES[mo-1]} de ${y}`;
+}
+
+// Factura de exportación (nota de cobro de comisión = "PO"), replica el formato real de Frisku.
+async function exportarPO_PDF(po, cliente, lineas, paises=[]) {
+  const JsPDF = await pl_loadJsPDF();
+  const doc = new JsPDF({ orientation:"portrait", unit:"mm", format:"a4" });
+  const W=210, m=14;
+  const BAND=[91,155,213], BANDTXT=[255,255,255], DARK=[55,55,55];
+  const moneda = po.moneda || "USD";
+  const total = (lineas||[]).reduce((s,l)=>s+(Number(l.comision)||0),0);
+  const fmt = v => Number(v||0).toLocaleString("es-CL",{minimumFractionDigits:2,maximumFractionDigits:2});
+
+  const band = (txt, y, h=8) => {
+    doc.setFillColor(...BAND); doc.rect(0,y,W,h,"F");
+    doc.setTextColor(...BANDTXT); doc.setFont("helvetica","bold"); doc.setFontSize(11);
+    doc.text(txt, W/2, y+h/2+1.6, {align:"center"});
+  };
+
+  // 1) Banda título
+  band("FACTURA DE EXPORTACION", 0, 10);
+
+  // 2) Datos emisor (izq) + logo (der)
+  let y = 16;
+  doc.setTextColor(...DARK); doc.setFont("helvetica","normal"); doc.setFontSize(10);
+  const emisor = ["Frisku Foods SPA","76.758.722-8","Candelaria Goyenechea 3868","sales@friskufoods.cl"];
+  emisor.forEach((l,i)=>doc.text(l, m, y+6+i*5));
+  try {
+    const logo = await po_urlToDataURL(process.env.PUBLIC_URL + "/frisku.png");
+    doc.addImage(logo, "PNG", W-m-46, y+2, 46, 22, undefined, "FAST");
+  } catch(e){ /* sin logo */ }
+  y += 6 + emisor.length*5 + 4;
+
+  // 3) Banda fecha
+  band(`Santiago, ${po_fechaLarga(po.fecha)}`, y, 9); y += 9 + 4;
+
+  // 4) Datos cliente
+  const paisCli = paises.find(p=>p.codigo===cliente?.paisCodigo)?.nombre || cliente?.pais || "";
+  doc.setTextColor(...DARK); doc.setFont("helvetica","normal"); doc.setFontSize(10);
+  const cliLineas = [cliente?.razonSocial||cliente?.nombre||"—", cliente?.direccion||"", paisCli].filter(Boolean);
+  cliLineas.forEach((l,i)=>doc.text(l, m, y+5+i*5));
+  y += 5 + cliLineas.length*5 + 3;
+
+  // 5) Banda concepto
+  band("CONCEPTO: COMISION POR VENTAS", y, 9); y += 9 + 3;
+
+  // 6) Tabla de embarques
+  const head = [["Exporter","Vessel Name","Container #","Commodity",`Comisión ${moneda}`]];
+  const body = (lineas||[]).map(l=>[
+    l.exporter||"—", l.vessel||"—", l.container||"—", l.commodity||"—", fmt(l.comision),
+  ]);
+  doc.autoTable({
+    startY:y, theme:"grid",
+    headStyles:{fillColor:BAND,textColor:255,fontStyle:"bold",fontSize:9,halign:"center"},
+    styles:{fontSize:9,cellPadding:2.4,textColor:DARK,lineColor:[200,200,200],lineWidth:0.1},
+    bodyStyles:{halign:"center"},
+    head, body,
+    columnStyles:{0:{halign:"center"},1:{halign:"center"},2:{halign:"center"},3:{halign:"center"},4:{halign:"right"}},
+    margin:{left:m,right:m},
+  });
+  y = doc.lastAutoTable.finalY;
+
+  // Fila total
+  doc.autoTable({
+    startY:y, theme:"grid",
+    styles:{fontSize:9,cellPadding:2.4,fontStyle:"bold",textColor:DARK,lineColor:[200,200,200],lineWidth:0.1},
+    body:[["Total Comisión a pagar", `${moneda} ${fmt(total)}`]],
+    columnStyles:{0:{halign:"center",cellWidth:W-2*m-42},1:{halign:"right",cellWidth:42}},
+    margin:{left:m,right:m},
+  });
+  y = doc.lastAutoTable.finalY + 10;
+
+  // 7) Banda info bancaria
+  band("FRISKU FOODS BANK INFORMATION", y, 9); y += 9 + 5;
+  doc.setTextColor(...DARK); doc.setFont("helvetica","normal"); doc.setFontSize(10);
+  const banco = [
+    "Bank Name: Banco BICE",
+    "Bank Address: Teatinos 220, Santiago, Chile",
+    "US DOLLAR Account Number: 013-01-05173-1",
+    "EURO Account Number: 14-20-100863-9",
+    "Swift Code: BICECLRM",
+    "Rut: 76.758.722-8",
+  ];
+  banco.forEach((l,i)=>doc.text(l, m, y+i*5));
+  y += banco.length*5 + 6;
+
+  if(po.observ){
+    doc.setFontSize(9); doc.setTextColor(110,110,110);
+    doc.text(`Observaciones: ${po.observ}`, m, y); y += 6;
+  }
+
+  // 8) Pie
+  const py = Math.max(y, 280);
+  doc.setDrawColor(200,200,200); doc.line(m, py, m, py+8);
+  doc.setTextColor(...DARK); doc.setFontSize(10);
+  doc.text("Company Name: Frisku Foods Spa", m+3, py+5);
+
+  doc.save(`PO_${po.numero||po.id}_${cliente?.nombre?cliente.nombre.replace(/\s+/g,"_").slice(0,20):"cliente"}.pdf`);
+}
+
+function POForm({ po, clientes, liquidaciones, embarques, especies, exportadoras=[], monedas=[], paises=[], tcData, pos, onGuardar, onCancelar }) {
+  const hoyISO = new Date().toISOString().slice(0,10);
+  const [form, setForm] = useState({
+    clienteId: po?.clienteId || "",
+    numero:    po?.numero    || "",
+    fecha:     po?.fecha     || hoyISO,
+    estado:    po?.estado    || "borrador",
+    observ:    po?.observ    || "",
+  });
+  const clienteSel = clientes.find(c=>c.id===form.clienteId);
+  const poMoneda = clienteSel?.monedaCodigo || "USD";  // factura se emite en la moneda del cliente
+  const [sel, setSel] = useState(()=> new Set(po?.liqIds || (po?.lineas||[]).map(l=>l.liqId)) );
+  const f = k => e => setForm(p=>({...p,[k]:e.target.value}));
+
+  // liqId → poId, para marcar las ya asignadas a OTRO po
+  const asignadas = useMemo(()=>{
+    const map = {};
+    (pos||[]).forEach(p=>{ if(p.id!==po?.id) (p.liqIds||(p.lineas||[]).map(l=>l.liqId)||[]).forEach(id=>{ map[id]=p.numero||p.id; }); });
+    return map;
+  },[pos, po]);
+
+  // Liquidaciones del cliente seleccionado
+  const liqsCliente = useMemo(()=>{
+    if(!form.clienteId) return [];
+    return liquidaciones.filter(liq=>{
+      const oe = embarques.find(e=>e.id===liq.oeId);
+      return oe && oe.clienteId===form.clienteId;
+    }).sort((a,b)=>(b.fechaLiquidacion||"").localeCompare(a.fechaLiquidacion||""));
+  },[liquidaciones, embarques, form.clienteId]);
+
+  const toggle = (id) => setSel(prev=>{ const s=new Set(prev); s.has(id)?s.delete(id):s.add(id); return s; });
+
+  // Comisión Frisku de una liq expresada en la moneda de la factura (poMoneda)
+  const comisionEnMoneda = (liq) => {
+    if(!liq) return 0;
+    if(liq.monedaBase===poMoneda) return Number(liq.montoComisionFrisku)||0;
+    const usd = comisionFriskuUSD(liq);
+    if(poMoneda==="USD") return usd;
+    const conv = convertirMonto(usd, "USD", poMoneda, form.fecha, tcData);
+    return conv!=null ? conv : usd;  // si no hay TC, deja USD (se marca aparte)
+  };
+
+  const lineas = useMemo(()=> liqsCliente.filter(liq=>sel.has(liq.id)).map(liq=>{
+    const oe = embarques.find(e=>e.id===liq.oeId);
+    const esp = especies.find(e=>e.codigo===oe?.especieCodigo);
+    const exp = exportadoras.find(x=>x.id===oe?.exportadoraId);
+    return {
+      liqId: liq.id, oeId: liq.oeId, oeNumero: oe?.numero||oe?.id?.slice(-6)||"?",
+      exporter: exp?.nombre||exp?.razonSocial||"—",
+      vessel: oe?.navieraAerolinea||"—",
+      container: oe?.numeroContenedor||oe?.contenedor||oe?.vuelo||"—",
+      commodity: (esp?.nombreEs||esp?.nombreEn||oe?.especieCodigo||"—").toUpperCase(),
+      especieNombre: [esp?.icono, esp?.nombreEs].filter(Boolean).join(" "),
+      ventaTotal: liq.ventaTotal!=null?liq.ventaTotal:liq.baseNeta, monedaBase: liq.monedaBase,
+      cliPct: liq.cliPct, friPct: liq.friPct,
+      montoComisionFrisku: liq.montoComisionFrisku, comisionUSD: comisionFriskuUSD(liq),
+      comision: comisionEnMoneda(liq),
+    };
+  }),[liqsCliente, sel, embarques, especies, exportadoras, poMoneda, form.fecha, tcData]);
+
+  const totalUSD     = lineas.reduce((s,l)=>s+(Number(l.comisionUSD)||0),0);
+  const totalMoneda  = lineas.reduce((s,l)=>s+(Number(l.comision)||0),0);
+
+  const handleGuardar = () => {
+    if(!form.clienteId) { alert("Selecciona un cliente"); return; }
+    if(lineas.length===0) { alert("Selecciona al menos un embarque"); return; }
+    onGuardar({
+      ...po,
+      id: po?.id || uid(),
+      clienteId: form.clienteId,
+      numero: form.numero,
+      fecha: form.fecha,
+      estado: form.estado,
+      observ: form.observ,
+      moneda: poMoneda,
+      liqIds: lineas.map(l=>l.liqId),
+      lineas,
+      totalComisionUSD: totalUSD,
+      totalComisionMoneda: totalMoneda,
+      fechaCreacion: po?.fechaCreacion || new Date().toISOString(),
+      fechaActualizacion: new Date().toISOString(),
+    });
+  };
+
+  return (
+    <div style={{background:C.card, borderRadius:14, padding:20, marginBottom:20, border:`1px solid ${C.border}`}}>
+      <h3 style={{margin:"0 0 16px", fontSize:14, color:C.text, fontWeight:700}}>
+        {po?.id ? "Editar PO (nota de cobro)" : "Nuevo PO (nota de cobro)"}
+      </h3>
+      <div style={{display:"grid", gridTemplateColumns:"repeat(auto-fill, minmax(180px,1fr))", gap:12, marginBottom:14}}>
+        <div style={{gridColumn:"1/-1"}}>
+          <div style={lblSt}>Cliente *</div>
+          <select value={form.clienteId} onChange={e=>{ setForm(p=>({...p,clienteId:e.target.value})); setSel(new Set()); }} style={inputSt}>
+            <option value="">— Selecciona un cliente —</option>
+            {[...clientes].filter(c=>c.activo!==false).sort((a,b)=>(a.nombre||"").localeCompare(b.nombre||"")).map(c=>(
+              <option key={c.id} value={c.id}>{c.nombre}{c.codigoEntidad?` (${c.codigoEntidad})`:""}</option>
+            ))}
+          </select>
+        </div>
+        <div>
+          <div style={lblSt}>N° PO</div>
+          <input value={form.numero} onChange={f("numero")} style={inputSt}/>
+        </div>
+        <div>
+          <div style={lblSt}>Fecha</div>
+          <input type="date" value={form.fecha} onChange={f("fecha")} style={inputSt}/>
+        </div>
+        <div>
+          <div style={lblSt}>Estado</div>
+          <select value={form.estado} onChange={f("estado")} style={inputSt}>
+            <option value="borrador">Borrador</option>
+            <option value="emitida">Emitida</option>
+            <option value="pagada">Pagada</option>
+          </select>
+        </div>
+      </div>
+
+      {/* Selección de embarques liquidados del cliente */}
+      {form.clienteId && (
+        <div style={{marginBottom:14}}>
+          <div style={{fontSize:12, fontWeight:700, color:C.teal, marginBottom:6}}>
+            Embarques liquidados del cliente — selecciona los que cobrarás
+          </div>
+          {liqsCliente.length===0 ? (
+            <div style={{fontSize:11, color:C.muted, fontStyle:"italic"}}>
+              Este cliente no tiene liquidaciones cargadas. Crea primero las liquidaciones por embarque.
+            </div>
+          ) : (
+            <div style={{overflowX:"auto"}}>
+              <table style={{width:"100%", borderCollapse:"collapse", fontSize:11}}>
+                <thead>
+                  <tr style={{background:C.primary}}>
+                    {["","OE","Especie","Venta","% com.","Comisión Frisku (USD)","Estado liq."].map((h,i)=>(
+                      <th key={i} style={{padding:"6px 8px", textAlign:i>=3&&i<=5?"right":"left", color:C.primaryText, fontWeight:700, fontSize:10, whiteSpace:"nowrap"}}>{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {liqsCliente.map((liq,idx)=>{
+                    const oe = embarques.find(e=>e.id===liq.oeId);
+                    const esp = especies.find(e=>e.codigo===oe?.especieCodigo);
+                    const yaEn = asignadas[liq.id];
+                    const checked = sel.has(liq.id);
+                    return (
+                      <tr key={liq.id} style={{borderBottom:`1px solid ${C.border}22`, background:checked?`${C.teal}11`:(idx%2===0?C.card:C.rowAlt)}}>
+                        <td style={{padding:"4px 8px", textAlign:"center"}}>
+                          <input type="checkbox" checked={checked} onChange={()=>toggle(liq.id)}/>
+                        </td>
+                        <td style={{padding:"4px 8px", color:C.text}}>
+                          {oe?.numero||liq.oeId?.slice(-6)}
+                          {yaEn && <div style={{fontSize:9, color:C.accent}}>ya en PO {yaEn}</div>}
+                        </td>
+                        <td style={{padding:"4px 8px", color:C.text}}>{esp?.icono} {esp?.nombreEs||"—"}</td>
+                        <td style={{padding:"4px 8px", textAlign:"right", fontFamily:"monospace", color:C.text}}>{Number(liq.ventaTotal!=null?liq.ventaTotal:liq.baseNeta||0).toLocaleString("es-CL",{maximumFractionDigits:0})} {liq.monedaBase}</td>
+                        <td style={{padding:"4px 8px", textAlign:"right", color:C.muted}}>{liq.cliPct||0}%×{liq.friPct||0}%</td>
+                        <td style={{padding:"4px 8px", textAlign:"right", fontFamily:"monospace", color:C.green, fontWeight:700}}>{comisionFriskuUSD(liq).toLocaleString("es-CL",{minimumFractionDigits:2,maximumFractionDigits:2})}</td>
+                        <td style={{padding:"4px 8px"}}><span style={{fontSize:9, color:LIQ_ESTADOS[liq.estado]?.color||C.muted}}>{LIQ_ESTADOS[liq.estado]?.label||liq.estado}</span></td>
+                      </tr>
+                    );
+                  })}
+                  <tr style={{borderTop:`1px solid ${C.border}`, background:`${C.bg}66`}}>
+                    <td colSpan={5} style={{padding:"6px 8px", textAlign:"right", fontWeight:700, color:C.muted, fontSize:10}}>TOTAL A COBRAR ({sel.size} embarque{sel.size===1?"":"s"}) · factura en {poMoneda}</td>
+                    <td style={{padding:"6px 8px", textAlign:"right", fontWeight:700, fontFamily:"monospace", color:C.green}}>
+                      {poMoneda} {totalMoneda.toLocaleString("es-CL",{minimumFractionDigits:2,maximumFractionDigits:2})}
+                      {poMoneda!=="USD" && <div style={{fontSize:9, color:C.muted, fontWeight:400}}>≈ USD {totalUSD.toLocaleString("es-CL",{minimumFractionDigits:2,maximumFractionDigits:2})}</div>}
+                    </td>
+                    <td/>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
+
+      <div style={{marginBottom:14}}>
+        <div style={lblSt}>Observaciones</div>
+        <textarea value={form.observ} onChange={f("observ")} style={{...inputSt, minHeight:50, resize:"vertical"}}/>
+      </div>
+
+      <div style={{display:"flex", gap:8}}>
+        <button onClick={handleGuardar} style={btnSt(C.green)}>Guardar PO</button>
+        <button onClick={onCancelar} style={btnSt(C.muted, true)}>Cancelar</button>
+      </div>
+    </div>
+  );
+}
+
+function POCard({ po, clientes, paises=[], onEditar, onEliminar, onAvanzarEstado, canEdit }) {
+  const cliente = clientes.find(c=>c.id===po.clienteId);
+  const lineas = po.lineas||[];
+  const moneda = po.moneda || "USD";
+  const total = po.totalComisionMoneda!=null ? po.totalComisionMoneda
+              : (po.totalComisionUSD!=null ? po.totalComisionUSD : lineas.reduce((s,l)=>s+(Number(l.comision)||Number(l.comisionUSD)||0),0));
+  const estadoInfo = PO_ESTADOS[po.estado] || {label:po.estado, color:"#94a3b8"};
+  const estadoSig  = PO_ESTADO_SIG[po.estado];
+  const [exporting, setExporting] = useState(false);
+  const handlePDF = async () => {
+    setExporting(true);
+    try{ await exportarPO_PDF(po, cliente, lineas, paises); }
+    catch(e){ alert("Error generando PDF: "+e.message); }
+    finally{ setExporting(false); }
+  };
+  return (
+    <div style={{background:C.card, borderRadius:12, border:`1px solid ${C.border}`, padding:16, display:"flex", flexDirection:"column", gap:10}}>
+      <div style={{display:"flex", justifyContent:"space-between", alignItems:"flex-start", gap:8}}>
+        <div>
+          <div style={{fontSize:13, fontWeight:700, color:C.text}}>{po.numero || `PO …${po.id?.slice(-6)||"?"}`}</div>
+          <div style={{fontSize:11, color:C.muted, marginTop:2}}>{cliente?.nombre||"?"} · {po.fecha||"—"}</div>
+        </div>
+        <span style={{fontSize:10, padding:"2px 9px", borderRadius:10, whiteSpace:"nowrap", background:`${estadoInfo.color}22`, color:estadoInfo.color, fontWeight:700, border:`1px solid ${estadoInfo.color}44`}}>{estadoInfo.label}</span>
+      </div>
+      <div style={{display:"grid", gridTemplateColumns:"1fr 1fr", gap:8, fontSize:11}}>
+        <div>
+          <div style={{color:C.muted, marginBottom:2}}>Embarques</div>
+          <div style={{color:C.text, fontWeight:600}}>{lineas.length}</div>
+        </div>
+        <div>
+          <div style={{color:C.muted, marginBottom:2}}>Total a cobrar</div>
+          <div style={{color:C.green, fontWeight:700}}>{moneda} {total.toLocaleString("es-CL",{minimumFractionDigits:2,maximumFractionDigits:2})}</div>
+        </div>
+      </div>
+      {lineas.length>0 && (
+        <div style={{fontSize:10, color:C.muted, borderTop:`1px solid ${C.border}`, paddingTop:8, maxHeight:80, overflowY:"auto"}}>
+          {lineas.map((l,i)=>(
+            <div key={i} style={{display:"flex", justifyContent:"space-between", gap:6}}>
+              <span style={{overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap"}}>{l.oeNumero} · {l.especieNombre||l.commodity}</span>
+              <span style={{fontFamily:"monospace", color:C.green, flexShrink:0}}>{(Number(l.comision)||Number(l.comisionUSD)||0).toLocaleString("es-CL",{maximumFractionDigits:2})}</span>
+            </div>
+          ))}
+        </div>
+      )}
+      {po.observ && <div style={{fontSize:10, color:C.muted, fontStyle:"italic"}}>{po.observ}</div>}
+      <div style={{display:"flex", gap:6, flexWrap:"wrap", marginTop:2}}>
+        <button onClick={handlePDF} disabled={exporting} style={{...btnSt(C.accent,true), fontSize:10, padding:"3px 10px"}}>{exporting?"…":"📄 PDF"}</button>
+        {canEdit && <button onClick={onEditar} style={{...btnSt(C.blue,true), fontSize:10, padding:"3px 10px"}}>Editar</button>}
+        {canEdit && estadoSig && (
+          <button onClick={()=>onAvanzarEstado(po, estadoSig)} style={{...btnSt(PO_ESTADOS[estadoSig]?.color||C.blue, true), fontSize:10, padding:"3px 10px"}}>→ {PO_ESTADOS[estadoSig]?.label}</button>
+        )}
+        {canEdit && <button onClick={onEliminar} style={{...btnSt(C.accent,true), fontSize:10, padding:"3px 10px", marginLeft:"auto"}}>Eliminar</button>}
+      </div>
     </div>
   );
 }
@@ -3291,6 +3828,7 @@ export default function FriskuComercialModule({
   const [programa,       setPrograma]       = useState([]);
   const [embarques,      setEmbarques]      = useState([]);
   const [liquidaciones,  setLiquidaciones]  = useState([]);
+  const [pos,            setPos]            = useState([]);  // PO / notas de cobro al cliente
 
   // Maestros (solo lectura para los selects del form). Se re-fetchan cada
   // vez que el usuario entra a un tab que los necesita, así reflejan
@@ -3356,18 +3894,25 @@ export default function FriskuComercialModule({
   const [filtroExpLiq,   setFiltroExpLiq]   = useState("");
   const [filtroCliLiq,   setFiltroCliLiq]   = useState("");
   const [filtroTempLiq,  setFiltroTempLiq]  = useState("");
+  // UI Liquidaciones — sub-vista: "liq" (por embarque) | "po" (cobro al cliente)
+  const [liqView,        setLiqView]        = useState("liq");
+  const [editandoPO,     setEditandoPO]     = useState(null);
+  const [creandoPO,      setCreandoPO]      = useState(false);
+  const [filtroCliPO,    setFiltroCliPO]    = useState("");
+  const [filtroEstadoPO, setFiltroEstadoPO] = useState("");
 
   // ── Carga inicial ──
   useEffect(()=>{
     let alive = true;
     (async ()=>{
-      const [cli, exp, con, pro, emb, liq, esp, pa, mo, me, tb, ci, tmp, pu, ae, sl, la, nt, tc] = await Promise.all([
+      const [cli, exp, con, pro, emb, liq, po, esp, pa, mo, me, tb, ci, tmp, pu, ae, sl, la, nt, tc] = await Promise.all([
         dbLoadGeneric("frisku_clientes"),
         dbLoadGeneric("frisku_exportadoras"),
         dbLoadGeneric("frisku_contratos"),
         dbLoadGeneric("frisku_programa"),
         dbLoadGeneric("frisku_embarques"),
         dbLoadGeneric("frisku_liquidaciones"),
+        dbLoadGeneric("frisku_po"),
         dbLoadGeneric("maestro_especies"),
         dbLoadGeneric("maestro_paises"),
         dbLoadGeneric("maestro_monedas"),
@@ -3389,6 +3934,7 @@ export default function FriskuComercialModule({
       setPrograma(Array.isArray(pro) ? pro : []);
       setEmbarques(Array.isArray(emb) ? emb : []);
       setLiquidaciones(Array.isArray(liq) ? liq : []);
+      setPos(Array.isArray(po) ? po : []);
       // Fallback a los DEFAULT cuando Supabase aún no tiene la fila del
       // maestro o está vacía. Mantiene el mismo comportamiento que
       // FriskuModule (Maestros) para que el form de Cliente nunca aparezca
@@ -3476,6 +4022,7 @@ export default function FriskuComercialModule({
   useAutoSave("frisku_programa", programa);
   useAutoSave("frisku_embarques", embarques);
   useAutoSave("frisku_liquidaciones", liquidaciones);
+  useAutoSave("frisku_po", pos);
 
   // ── Filtrado de clientes ──
   const clientesFiltrados = useMemo(()=>{
@@ -3776,6 +4323,32 @@ export default function FriskuComercialModule({
       return acc + (Number(v)||0);
     },0);
   },[liqFiltradas]);
+
+  // ── Handlers PO (notas de cobro al cliente) ──
+  const handleNuevoPO = () => { setCreandoPO(true); setEditandoPO(null); };
+  const handleEditarPO = (po) => { setCreandoPO(false); setEditandoPO(po); };
+  const handleEliminarPO = (po) => {
+    if(!window.confirm(`¿Eliminar PO "${po.numero||po.id?.slice(-6)}"? Esta acción no se puede deshacer.`)) return;
+    setPos(prev=>prev.filter(p=>p.id!==po.id));
+  };
+  const handleGuardarPO = (po) => {
+    if(creandoPO) setPos(prev=>[...prev, po]);
+    else          setPos(prev=>prev.map(p=>p.id===po.id?po:p));
+    setEditandoPO(null); setCreandoPO(false);
+  };
+  const handleAvanzarEstadoPO = (po, nuevoEstado) => {
+    setPos(prev=>prev.map(p=>p.id===po.id
+      ? {...p, estado:nuevoEstado, fechaActualizacion:new Date().toISOString()}
+      : p));
+  };
+
+  const posFiltrados = useMemo(()=>{
+    return pos.filter(po=>{
+      if(filtroCliPO    && po.clienteId !== filtroCliPO)    return false;
+      if(filtroEstadoPO && po.estado    !== filtroEstadoPO) return false;
+      return true;
+    }).sort((a,b)=>(b.fecha||"").localeCompare(a.fecha||""));
+  },[pos, filtroCliPO, filtroEstadoPO]);
 
   // ── Filtros Órdenes de Embarque ──
   const embarquesFiltrados = useMemo(()=>{
@@ -4359,6 +4932,25 @@ export default function FriskuComercialModule({
         )}
         {tab === "liquidaciones" && (
           <div>
+            {/* Toggle de vista: Liquidaciones | PO (cobro cliente) */}
+            <div style={{display:"flex", gap:6, marginBottom:16}}>
+              <button
+                onClick={()=>setLiqView("liq")}
+                style={{
+                  ...btnSt(liqView==="liq"?C.blue:C.muted, liqView!=="liq"),
+                  fontSize:13, padding:"8px 18px"
+                }}
+              >Liquidaciones</button>
+              <button
+                onClick={()=>setLiqView("po")}
+                style={{
+                  ...btnSt(liqView==="po"?C.teal:C.muted, liqView!=="po"),
+                  fontSize:13, padding:"8px 18px"
+                }}
+              >PO · Cobro cliente</button>
+            </div>
+
+            {liqView==="liq" && (<>
             {/* Form */}
             {(creandoLiq || editandoLiq) && (
               <LiquidacionForm
@@ -4368,6 +4960,7 @@ export default function FriskuComercialModule({
                 exportadoras={exportadoras}
                 especies={especies}
                 monedas={monedas}
+                tiposEmbalaje={tiposEmbalaje}
                 tcData={tcData}
                 onGuardar={handleGuardarLiq}
                 onCancelar={()=>{setEditandoLiq(null); setCreandoLiq(false);}}
@@ -4452,6 +5045,84 @@ export default function FriskuComercialModule({
                 )}
               </>
             )}
+            </>)}
+
+            {liqView==="po" && (<>
+              {(creandoPO || editandoPO) ? (
+                <POForm
+                  po={editandoPO}
+                  clientes={clientes}
+                  liquidaciones={liquidaciones}
+                  embarques={embarques}
+                  especies={especies}
+                  exportadoras={exportadoras}
+                  monedas={monedas}
+                  paises={paises}
+                  tcData={tcData}
+                  pos={pos}
+                  onGuardar={handleGuardarPO}
+                  onCancelar={()=>{setEditandoPO(null); setCreandoPO(false);}}
+                />
+              ) : (
+                <>
+                  {/* Toolbar PO */}
+                  <div style={{display:"flex", gap:8, flexWrap:"wrap", alignItems:"center", marginBottom:14}}>
+                    <select value={filtroCliPO} onChange={e=>setFiltroCliPO(e.target.value)} style={{...inputSt, maxWidth:180}}>
+                      <option value="">Todos los clientes</option>
+                      {clientes.filter(c=>c.activo!==false).sort((a,b)=>(a.nombre||"").localeCompare(b.nombre||"")).map(c=>(
+                        <option key={c.id} value={c.id}>{c.nombre}</option>
+                      ))}
+                    </select>
+                    <select value={filtroEstadoPO} onChange={e=>setFiltroEstadoPO(e.target.value)} style={{...inputSt, maxWidth:140}}>
+                      <option value="">Todos los estados</option>
+                      <option value="borrador">Borrador</option>
+                      <option value="emitida">Emitida</option>
+                      <option value="pagada">Pagada</option>
+                    </select>
+                    {(filtroCliPO||filtroEstadoPO) && (
+                      <button
+                        onClick={()=>{setFiltroCliPO(""); setFiltroEstadoPO("");}}
+                        style={{...btnSt(C.muted,true), fontSize:11}}
+                      >✕ Limpiar</button>
+                    )}
+                    <span style={{fontSize:11, color:C.muted}}>{posFiltrados.length} de {pos.length}</span>
+                    {permLiquidaciones.canEdit && (
+                      <button onClick={handleNuevoPO} style={{...btnSt(C.teal), marginLeft:"auto", whiteSpace:"nowrap"}}>
+                        + Nuevo PO
+                      </button>
+                    )}
+                    {!permLiquidaciones.canEdit && (
+                      <span style={{fontSize:10, padding:"3px 8px", borderRadius:4, background:`${C.blue}22`, color:C.blue, border:`1px solid ${C.blue}44`}}>
+                        👁 Solo lectura
+                      </span>
+                    )}
+                  </div>
+
+                  {posFiltrados.length===0 ? (
+                    <div style={{padding:50, textAlign:"center", color:C.muted, fontSize:13, background:C.card, borderRadius:14}}>
+                      {pos.length===0
+                        ? 'Sin notas de cobro (PO). Click "+ Nuevo PO" para emitir la primera.'
+                        : "Sin resultados con esos filtros."}
+                    </div>
+                  ) : (
+                    <div style={{display:"grid", gridTemplateColumns:"repeat(auto-fill, minmax(340px,1fr))", gap:14}}>
+                      {posFiltrados.map(po=>(
+                        <POCard
+                          key={po.id}
+                          po={po}
+                          clientes={clientes}
+                          paises={paises}
+                          onEditar={()=>handleEditarPO(po)}
+                          onEliminar={()=>handleEliminarPO(po)}
+                          onAvanzarEstado={handleAvanzarEstadoPO}
+                          canEdit={permLiquidaciones.canEdit}
+                        />
+                      ))}
+                    </div>
+                  )}
+                </>
+              )}
+            </>)}
           </div>
         )}
 
