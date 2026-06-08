@@ -1763,6 +1763,10 @@ export default function App(){
   const [mes,setMes]=useState(hoy.getMonth());
   const [anio,setAnio]=useState(hoy.getFullYear());
   const semanas=semanasDelMes(anio,mes);
+  // Clave de estado semanal: incluye año+mes para que cada semana de
+  // calendario sea única. Sin esto, la S1 de junio compartía estado con
+  // la S1 de julio/agosto/etc (las marcas se replicaban hacia adelante).
+  const semKey=(id,num)=>`${id}_s${num}_${anio}_${mes}`;
 
   const [usuarios,setUsuarios]=useState(WORKERS_BASE);
   const [tabUsuarios,setTabUsuarios]=useState("lista");
@@ -1806,7 +1810,7 @@ export default function App(){
 
   const [estados,setEstados]=useState(()=>{
     const est={};
-    TAREAS_BASE.filter(t=>t.frecuencia==="Semanal").forEach(t=>{semanasDelMes(hoy.getMonth(),hoy.getFullYear()).forEach(s=>{est[`${t.id}_s${s.num}`]={estadoResp:"gris",estadoSup:"gris",aprobado:false};});});
+    TAREAS_BASE.filter(t=>t.frecuencia==="Semanal").forEach(t=>{semanasDelMes(anio,mes).forEach(s=>{est[semKey(t.id,s.num)]={estadoResp:"gris",estadoSup:"gris",aprobado:false};});});
     TAREAS_BASE.filter(t=>t.frecuencia!=="Semanal").forEach(t=>{est[t.id]={estadoResp:"gris",estadoSup:"gris",aprobado:false};});
     return est;
   });
@@ -1845,7 +1849,7 @@ export default function App(){
     setEstados(prev=>{
       const n={...prev};
       todasTareas().filter(t=>getFrecuencia(t.id)!=="Mensual").forEach(t=>{
-        s.forEach(sw=>{const k=`${t.id}_s${sw.num}`;if(!n[k])n[k]={estadoResp:"gris",estadoSup:"gris",aprobado:false};});
+        s.forEach(sw=>{const k=semKey(t.id,sw.num);if(!n[k])n[k]={estadoResp:"gris",estadoSup:"gris",aprobado:false};});
       });
       return n;
     });
@@ -2495,7 +2499,7 @@ export default function App(){
     }
     if(getFrecuencia(depT.id)==="Mensual"||getFrecuencia(depT.id)==="Puntual")return verde(depId);
     if(numSemana===null||numSemana===undefined)return verde(depId);
-    return verde(`${depId}_s${numSemana}`);
+    return verde(semKey(depId,numSemana));
   }
   function getNombreDep(tarea){const id=getDependeDe(tarea.id);return getTareaById(id)?.nombre||null;}
 
@@ -2612,7 +2616,7 @@ Equipo Mediterra`);
     todasTareas().filter(t=>!isBloqueada(t.id)).forEach(t=>{
       const frec=getFrecuencia(t.id);
       if(frec==="Mensual"||frec==="Puntual"){clavesInstancia(t,t.id).forEach(key=>{if(estaVencida(t,key,null))res[t.responsable]?.push({...t,key});});}
-      else semanas.forEach(s=>{clavesInstancia(t,`${t.id}_s${s.num}`).forEach(key=>{if(estaVencida(t,key,s.num))res[t.responsable]?.push({...t,key});});});
+      else semanas.forEach(s=>{clavesInstancia(t,semKey(t.id,s.num)).forEach(key=>{if(estaVencida(t,key,s.num))res[t.responsable]?.push({...t,key});});});
     });
     return res;
   }
@@ -2621,7 +2625,7 @@ Equipo Mediterra`);
     const cuerpo=encodeURIComponent(`Hola ${w.nombre.split(" ")[0]},\n\nLas siguientes tareas estan vencidas:\n\n`+tareas.map(t=>`- ${t.nombre}`).join('\n')+`\n\nhttps://gestion-grupo-mediterra.vercel.app\n\nSaludos`);
     window.open(`mailto:${w.email}?subject=${asunto}&body=${cuerpo}`);
   }
-  const totalVencidas=(()=>{let c=0;todasTareas().filter(t=>!isBloqueada(t.id)).forEach(t=>{const frec=getFrecuencia(t.id);if(frec==="Mensual"||frec==="Puntual"){clavesInstancia(t,t.id).forEach(k=>{if(estaVencida(t,k,null))c++;});}else semanas.forEach(s=>{clavesInstancia(t,`${t.id}_s${s.num}`).forEach(k=>{if(estaVencida(t,k,s.num))c++;});});});return c;})();
+  const totalVencidas=(()=>{let c=0;todasTareas().filter(t=>!isBloqueada(t.id)).forEach(t=>{const frec=getFrecuencia(t.id);if(frec==="Mensual"||frec==="Puntual"){clavesInstancia(t,t.id).forEach(k=>{if(estaVencida(t,k,null))c++;});}else semanas.forEach(s=>{clavesInstancia(t,semKey(t.id,s.num)).forEach(k=>{if(estaVencida(t,k,s.num))c++;});});});return c;})();
 
   function resumen(nombre){
     let v=0,a=0,r=0,g=0,total=0;
@@ -2629,7 +2633,7 @@ Equipo Mediterra`);
       const frec=getFrecuencia(t.id);const sup=getSupervisor(t.id);
       const esR=t.responsable===nombre;const esS=sup===nombre;
       if(!esR&&!esS)return;
-      const keys=frec==="Mensual"||frec==="Puntual"?clavesInstancia(t,t.id):semanas.flatMap(s=>clavesInstancia(t,`${t.id}_s${s.num}`));
+      const keys=frec==="Mensual"||frec==="Puntual"?clavesInstancia(t,t.id):semanas.flatMap(s=>clavesInstancia(t,semKey(t.id,s.num)));
       keys.forEach(k=>{const e=(esR?estados[k]?.estadoResp:estados[k]?.estadoSup)||"gris";if(e==="na")return;total++;if(e==="verde")v++;else if(e==="amarillo")a++;else if(e==="rojo")r++;else g++;});
     });
     return{v,a,r,g,total,pct:total>0?Math.round((v/total)*100):0};
@@ -2730,7 +2734,7 @@ Equipo Mediterra`);
     setEstados(prev=>{
       const n={...prev};
       if(nuevaTarea.frecuencia==="Mensual"||nuevaTarea.frecuencia==="Puntual") n[id]={estadoResp:"gris",estadoSup:"gris",aprobado:false};
-      else semanas.forEach(s=>{n[`${id}_s${s.num}`]={estadoResp:"gris",estadoSup:"gris",aprobado:false};});
+      else semanas.forEach(s=>{n[semKey(id,s.num)]={estadoResp:"gris",estadoSup:"gris",aprobado:false};});
       return n;
     });
     setNuevaTarea({nombre:"",responsable:"",supervisor:"",categoria:"Finanzas",frecuencia:"Semanal",dependeDe:"",fechaPuntual:""});setMostrarFormTarea(false);
@@ -3220,7 +3224,7 @@ Equipo Mediterra`);
             });
           } else {
             semanas.forEach(s=>{
-              clavesInstancia(t,`${t.id}_s${s.num}`).forEach(k=>{
+              clavesInstancia(t,semKey(t.id,s.num)).forEach(k=>{
                 if(estaVencida(t,k,s.num)) vencidas.push({tarea:t,semana:s,key:k,emp:t.porEmpresa?k.split("__")[1]:null});
               });
             });
@@ -3501,7 +3505,7 @@ Equipo Mediterra`);
                       <tbody>
                         <TablaFilas
                           tareas={todasTareas().filter(t=>getFrecuencia(t.id)==="Semanal").sort((a,b)=>(tareasOverrides[a.id]?.diaLimiteSem??a.diaLimiteSem??0)-(tareasOverrides[b.id]?.diaLimiteSem??b.diaLimiteSem??0))}
-                          getKey={t=>`${t.id}_s${s.num}`}
+                          getKey={t=>semKey(t.id,s.num)}
                           getSemana={()=>s.num}
                         />
                       </tbody>
