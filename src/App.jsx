@@ -1938,6 +1938,23 @@ export default function App(){
               migr.__migrSemKey=true;
               estCargados=migr;
             }
+            // LIMPIEZA v2: deja la semana en curso y las futuras del mes actual en
+            // blanco (parten sin marcar), conservando las semanas ya pasadas como
+            // realizadas. Solo afecta al mes actual; los meses futuros ya nacen limpios.
+            if(!estCargados.__migrSemKeyV2){
+              const now=new Date();now.setHours(0,0,0,0);
+              const cy=now.getFullYear();const cm=now.getMonth();
+              const limpio={...estCargados};
+              semanasDelMes(cy,cm).forEach(s=>{
+                const fin=new Date(s.inicioSem);fin.setDate(s.inicioSem.getDate()+6);fin.setHours(0,0,0,0);
+                if(fin>=now){ // semana actual o futura → limpiar
+                  const suf=`_s${s.num}_${cy}_${cm}`;
+                  Object.keys(limpio).forEach(k=>{if(k.endsWith(suf))delete limpio[k];});
+                }
+              });
+              limpio.__migrSemKeyV2=true;
+              estCargados=limpio;
+            }
             setEstados(prev=>({...prev,...estCargados}));
           }
           if(d.comentarios)setComentarios(d.comentarios);
