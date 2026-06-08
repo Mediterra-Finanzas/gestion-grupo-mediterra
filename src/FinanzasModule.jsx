@@ -3479,11 +3479,23 @@ function Consolidado({empresas,saldosBancos,realData={},addedLinesGlobal={},subL
     return res;
   },[saldosBancos,empresas]); // eslint-disable-line
 
+  // Acumulado por empresa. El saldo banco es la posición REAL de HOY, así que
+  // el acumulado arranca en el mes actual (mesIdxHoy), no en el inicio del horizonte.
+  // Meses pasados → null (no hay saldo proyectable). Idéntico a acumArr de la vista por-empresa.
   const acumPorEmp=useMemo(()=>{
     const res={};
-    empNames.forEach(n=>{let a=saldoIniPorEmp[n]||0;res[n]=(flujoPorEmp[n]||[]).map(f=>{a+=(f||0);return a;});});
+    empNames.forEach(n=>{
+      const sIni=saldoIniPorEmp[n]||0;
+      let a=sIni;
+      res[n]=(flujoPorEmp[n]||[]).map((f,i)=>{
+        const num=Number(f)||0;
+        if(i<mesIdxHoy) return null;
+        if(i===mesIdxHoy){ a=sIni+num; return a; }
+        a+=num; return a;
+      });
+    });
     return res;
-  },[flujoPorEmp,saldoIniPorEmp]); // eslint-disable-line
+  },[flujoPorEmp,saldoIniPorEmp,mesIdxHoy]); // eslint-disable-line
 
   const flujoConsolidado=useMemo(()=>{
     const arr=Z65();
@@ -3497,9 +3509,22 @@ function Consolidado({empresas,saldosBancos,realData={},addedLinesGlobal={},subL
   );
 
   const acumConsolidado=useMemo(()=>{
-    let a=saldoIniConsolidado||0;
-    return flujoConsolidado.map(f=>{a+=(f||0);return a;});
-  },[flujoConsolidado,saldoIniConsolidado]);
+    const sIni=saldoIniConsolidado||0;
+    let a=sIni;
+    return flujoConsolidado.map((f,i)=>{
+      const num=Number(f)||0;
+      if(i<mesIdxHoy) return null;
+      if(i===mesIdxHoy){ a=sIni+num; return a; }
+      a+=num; return a;
+    });
+  },[flujoConsolidado,saldoIniConsolidado,mesIdxHoy]);
+
+  // Derivados null-safe para KPIs/gráfico (los meses pasados son null).
+  const {minAcum,minAcumIdx}=useMemo(()=>{
+    const valid=acumConsolidado.filter(v=>v!=null);
+    const mn=valid.length?Math.min(...valid):0;
+    return {minAcum:mn, minAcumIdx:acumConsolidado.indexOf(mn)};
+  },[acumConsolidado]);
 
   const cols=useMemo(()=>{
     if(agrup==="temporada") return SEASONS.map(s=>({key:s.key,label:s.label,indices:s.indices,tipo:"temporada",isFirstInSeason:true,nSems:1}));
@@ -3684,7 +3709,7 @@ function Consolidado({empresas,saldosBancos,realData={},addedLinesGlobal={},subL
       <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(160px,1fr))",gap:10}}>
         <KPI label="Saldo Inicial Consolidado" value={$$(saldoIniConsolidado)} color={C.blue}/>
         <KPI label="Flujo Total" value={$$(flujoConsolidado.reduce((a,b)=>a+(Number(b)||0),0))} color={cf(flujoConsolidado.reduce((a,b)=>a+(Number(b)||0),0))}/>
-        <KPI label={"Mínimo Acumulado ("+MESES_65[acumConsolidado.indexOf(Math.min(...acumConsolidado))]+")"} value={$$(Math.min(...acumConsolidado))} color={C.red}/>
+        <KPI label={"Mínimo Acumulado ("+(MESES_65[minAcumIdx]||"")+")"} value={$$(minAcum)} color={C.red}/>
         <KPI label="Saldo Final Jun-31" value={$$(acumConsolidado[acumConsolidado.length-1])} color={cf(acumConsolidado[acumConsolidado.length-1])}/>
         <KPI label="Empresas" value={empNamesConsolidado.length} color={C.yellow}/>
       </div>
@@ -3692,17 +3717,17 @@ function Consolidado({empresas,saldosBancos,realData={},addedLinesGlobal={},subL
       <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(140px,1fr))",gap:8}}>
         {SEASONS.map(s=>{
           const lastIdx = s.indices[s.indices.length-1];
-          const saldoCierre = acumConsolidado[lastIdx] || 0;
-          return <KPI key={s.key} label={"Cierre "+s.key} value={$$(saldoCierre)} color={saldoCierre<0?C.red:C.green}/>;
+          const saldoCierre = acumConsolidado[lastIdx];
+          return <KPI key={s.key} label={"Cierre "+s.key} value={saldoCierre==null?"—":$$(saldoCierre)} color={saldoCierre==null?C.muted:saldoCierre<0?C.red:C.green}/>;
         })}
       </div>
       {/* Gráfico */}
       <Card>
         <SectionTitle>Flujo Acumulado Consolidado · {empNamesConsolidado.length} empresas · Mar-26 → Jun-31</SectionTitle>
-        <LineChart months={MESES_65} values={acumConsolidado} color={C.accentL}/>
-        {Math.min(...acumConsolidado)<0&&(
+        <LineChart months={MESES_65.slice(mesIdxHoy)} values={acumConsolidado.slice(mesIdxHoy)} color={C.accentL}/>
+        {minAcum<0&&(
           <div style={{marginTop:8,padding:"8px 12px",background:`${C.red}18`,border:`1px solid ${C.red}33`,borderRadius:8,fontSize:11,color:C.muted}}>
-            ⚠️ Mínimo proyectado: <strong style={{color:C.red}}>{$$(Math.min(...acumConsolidado))}</strong>
+            ⚠️ Mínimo proyectado: <strong style={{color:C.red}}>{$$(minAcum)}</strong>
           </div>
         )}
       </Card>
@@ -4245,6 +4270,14 @@ function WaterfallConsolidado({empresas, saldosBancos, saldoIniPorEmp={}, acumPo
   const temporada = SEASONS.find(s=>s.key===temporadaSel) || SEASONS[0];
   const idx = temporada?.indices || [];
 
+  // Índice del mes actual: el saldo banco es la posición real de hoy, la acumulación arranca aquí.
+  const mesIdxHoy = useMemo(()=>{
+    const H=new Date();
+    const lb=`${MN[H.getMonth()]}-${String(H.getFullYear()).slice(2)}`;
+    const ix=MESES_65.indexOf(lb);
+    return ix>=0?ix:0;
+  },[]);
+
   // Construir conceptos por empresa
   const datos = useMemo(()=>{
     const res = {};
@@ -4288,19 +4321,20 @@ function WaterfallConsolidado({empresas, saldosBancos, saldoIniPorEmp={}, acumPo
       const flujoArr = flujoPorEmp[n] || [];
       const total = idx.reduce((s,i) => s + (Number(flujoArr[i])||0), 0);
       
-      // Saldo caja y final: calcular igual que el flujo (saldoIni + acumulado)
+      // Saldo caja y final: la acumulación arranca en el mes actual (saldo banco = posición real de hoy),
+      // no en el inicio del horizonte. Así no se doble-cuentan flujos de meses ya transcurridos.
       const saldoIni = saldoIniPorEmp[n] || 0;
       let acum = saldoIni;
       let saldoFinalCalc = saldoIni;
-      for(let i = 0; i <= lastIdx; i++) {
+      for(let i = mesIdxHoy; i <= lastIdx; i++) {
         acum += (Number(flujoArr[i])||0);
         if(i === lastIdx) saldoFinalCalc = acum;
       }
-      // Saldo caja: para T1 es saldoIni, para otras es acumulado antes del primer mes
+      // Saldo caja: acumulado desde hoy hasta antes del primer mes de la temporada.
       let saldoCajaCalc = saldoIni;
-      if(firstIdx > 0) {
+      if(firstIdx > mesIdxHoy) {
         let a = saldoIni;
-        for(let i = 0; i < firstIdx; i++) a += (Number(flujoArr[i])||0);
+        for(let i = mesIdxHoy; i < firstIdx; i++) a += (Number(flujoArr[i])||0);
         saldoCajaCalc = a;
       }
       const saldoCaja = saldoCajaCalc;
@@ -4317,7 +4351,7 @@ function WaterfallConsolidado({empresas, saldosBancos, saldoIniPorEmp={}, acumPo
       };
     });
     return res;
-  }, [empresas, saldosBancos, idx, saldoIniPorEmp, acumPorEmp, flujoPorEmp]); // eslint-disable-line
+  }, [empresas, saldosBancos, idx, saldoIniPorEmp, acumPorEmp, flujoPorEmp, mesIdxHoy]); // eslint-disable-line
 
   // Totales consolidados (suma horizontal)
   const totales = useMemo(()=>{
