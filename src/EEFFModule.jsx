@@ -1495,43 +1495,45 @@ export default function EEFFModule({ canEdit, usuarioActual, empresasPermitidas 
 
               {/* ── Tab: Movimientos ── */}
               {drawerTab === 'movimientos' && (() => {
+                // Input de subida siempre montado (para poder reemplazar mayor existente)
+                const inputMayor = canEdit && (
+                  <input type="file" accept=".xls,.xlsx" ref={mayorDrawerUploadRef}
+                    style={{ display:'none' }}
+                    onChange={async (e) => {
+                      const file = e.target.files?.[0];
+                      if (!file) return;
+                      e.target.value = '';
+                      setMayorDrawerCargando(true);
+                      try {
+                        const movimientos = await parsearMayor(file);
+                        await dbSaveMayor({
+                          empresa, anio, movimientos,
+                          guardadoPor: usuarioActual?.email || '',
+                        });
+                        const val = await dbLoadMayor(empresa, anio, empresasPermitidas);
+                        setMayorDrawer(val);
+                      } catch(err) {
+                        alert('Error cargando mayor: ' + err.message);
+                      } finally {
+                        setMayorDrawerCargando(false);
+                      }
+                    }}
+                  />
+                );
                 if (mayorDrawerCargando) {
                   return <div style={{ fontSize:12, color:C.muted }}>Cargando mayor...</div>;
                 }
                 if (!mayorDrawer) {
                   return (
                     <div>
+                      {inputMayor}
                       <div style={{ fontSize:12, color:C.muted, marginBottom:10 }}>
                         No hay libro mayor cargado para {empresa} {anio}.
                       </div>
                       {canEdit && (
-                        <>
-                          <input type="file" accept=".xls,.xlsx" ref={mayorDrawerUploadRef}
-                            style={{ display:'none' }}
-                            onChange={async (e) => {
-                              const file = e.target.files?.[0];
-                              if (!file) return;
-                              e.target.value = '';
-                              setMayorDrawerCargando(true);
-                              try {
-                                const movimientos = await parsearMayor(file);
-                                const { id: savedId, payloadBytes } = await dbSaveMayor({
-                                  empresa, anio, movimientos,
-                                  guardadoPor: usuarioActual?.email || '',
-                                });
-                                const val = await dbLoadMayor(empresa, anio, empresasPermitidas);
-                                setMayorDrawer(val);
-                              } catch(err) {
-                                alert('Error cargando mayor: ' + err.message);
-                              } finally {
-                                setMayorDrawerCargando(false);
-                              }
-                            }}
-                          />
-                          <Btn color={C.accent} onClick={() => mayorDrawerUploadRef.current?.click()}>
-                            Cargar libro mayor (.xls/.xlsx)
-                          </Btn>
-                        </>
+                        <Btn color={C.accent} onClick={() => mayorDrawerUploadRef.current?.click()}>
+                          Cargar libro mayor (.xls/.xlsx)
+                        </Btn>
                       )}
                     </div>
                   );
@@ -1539,17 +1541,30 @@ export default function EEFFModule({ canEdit, usuarioActual, empresasPermitidas 
                 if (drawerMovimientos.length === 0) {
                   return (
                     <div style={{ fontSize:12, color:C.muted }}>
+                      {inputMayor}
                       Sin movimientos para {cuentaSeleccionada.codigo} en {anio}.
-                      <div style={{ fontSize:10, color:C.muted, marginTop:4 }}>
+                      <div style={{ fontSize:10, color:C.muted, marginTop:4, marginBottom:8 }}>
                         Mayor cargado: {mayorDrawer.totalMovimientos?.toLocaleString('es-CL')} movimientos totales.
                       </div>
+                      {canEdit && (
+                        <Btn small onClick={() => mayorDrawerUploadRef.current?.click()}>
+                          Reemplazar mayor
+                        </Btn>
+                      )}
                     </div>
                   );
                 }
                 return (
                   <div style={{ overflowX:'auto' }}>
-                    <div style={{ fontSize:10, color:C.muted, marginBottom:6 }}>
-                      {drawerMovimientos.length} movimiento{drawerMovimientos.length!==1?'s':''} en {anio}
+                    {inputMayor}
+                    <div style={{ fontSize:10, color:C.muted, marginBottom:6,
+                      display:'flex', alignItems:'center', gap:10 }}>
+                      <span>{drawerMovimientos.length} movimiento{drawerMovimientos.length!==1?'s':''} en {anio}</span>
+                      {canEdit && (
+                        <Btn small onClick={() => mayorDrawerUploadRef.current?.click()}>
+                          Reemplazar mayor
+                        </Btn>
+                      )}
                     </div>
                     <table style={{ width:'100%', borderCollapse:'collapse', fontSize:10 }}>
                       <thead>
