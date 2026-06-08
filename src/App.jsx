@@ -1920,7 +1920,26 @@ export default function App(){
               .map(garantizarAccesoRendiciones);
             return[...merged,...extras];
           });
-          if(d.estados)setEstados(prev=>({...prev,...d.estados}));
+          if(d.estados){
+            let estCargados=d.estados;
+            // MIGRACIÓN semKey: las marcas viejas usaban clave sin fecha (id_sN),
+            // por lo que se replicaban en todos los meses. Se vuelcan una sola vez
+            // al mes actual para conservar lo ya marcado. Flag __migrSemKey evita repetir.
+            if(!estCargados.__migrSemKey){
+              const now=new Date();const cy=now.getFullYear();const cm=now.getMonth();
+              const migr={...estCargados};
+              Object.keys(estCargados).forEach(k=>{
+                if(/_s\d+$/.test(k)){
+                  const e=estCargados[k];
+                  const marcada=e&&((e.estadoResp&&e.estadoResp!=="gris")||(e.estadoSup&&e.estadoSup!=="gris")||e.aprobado);
+                  if(marcada){const nk=`${k}_${cy}_${cm}`;if(!migr[nk])migr[nk]={...e};}
+                }
+              });
+              migr.__migrSemKey=true;
+              estCargados=migr;
+            }
+            setEstados(prev=>({...prev,...estCargados}));
+          }
           if(d.comentarios)setComentarios(d.comentarios);
           if(d.tareasConfig)setTareasConfig(prev=>({...prev,...d.tareasConfig}));
           if(d.supervisores)setSupervisores(prev=>({...prev,...d.supervisores}));
