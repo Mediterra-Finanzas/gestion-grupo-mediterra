@@ -4538,6 +4538,14 @@ function temporadaActual() {
   const año = hoy.getMonth() >= 6 ? hoy.getFullYear() : hoy.getFullYear() - 1;
   return `${año}/${año+1}`;
 }
+function temporadaDeFecha(fecha) {
+  // Temporada operativa Jul–Jun. Devuelve "YYYY/YYYY+1" o "" si fecha inválida.
+  if(!fecha) return "";
+  const f = new Date(fecha);
+  if(isNaN(f.getTime())) return "";
+  const a = f.getMonth()>=6 ? f.getFullYear() : f.getFullYear()-1;
+  return `${a}/${a+1}`;
+}
 function temporadasEntre(inicioTemp, finFecha) {
   // inicioTemp formato "YYYY/YYYY+1", finFecha en formato fecha o vacío
   if(!inicioTemp) return [];
@@ -6524,12 +6532,52 @@ function derivarContractFeeDesdeContratos(ctData) {
     }));
 }
 
-function derivarRoyaltyPlantaDesdeContratos(ctData) {
+function derivarRoyaltyPlantaDesdeContratos(ctData, ocsByCt) {
   // Por cada cuota × contrato genera un registro
   const out = [];
   (ctData||[]).forEach(ct => {
     const totPlantas = (ct.plantaciones||[]).reduce((s,p)=>s+(Number(p.nPlantas)||0),0);
     const valorPorPlanta = Number(ct.valorRoyaltyPlanta)||1;
+
+    // ── MODELO OC VIVERO: deriva del despacho (tanda) de cada OC del vivero ──
+    // Gated: solo contratos con modeloIngresos==="oc". Base de facturación = despacho.
+    // Cada despacho de cada OC ligada al contrato genera un evento facturable de Royalty/Planta.
+    if(ct.modeloIngresos==="oc") {
+      const ocs = (ocsByCt && ocsByCt[ct.id]) || [];
+      ocs.forEach(oc => {
+        const despachos = oc.despachos||[];
+        // Si la OC tiene despachos → facturar por despacho. Si no, por la OC completa.
+        const eventos = despachos.length>0
+          ? despachos.map(d=>({key:d.id, nPlantas:Number(d.cantidad_despachada)||0, fecha:d.fecha_despacho||oc.fecha_oc||"", desc:`Despacho ${d.fecha_despacho||""}`}))
+          : [{key:"oc", nPlantas:Number(oc.cantidad_plantas)||0, fecha:oc.fecha_oc||"", desc:`OC ${oc.n_oc||""} (sin despachos)`}];
+        eventos.forEach(ev=>{
+          if(ev.nPlantas<=0) return;
+          const montoFact = ev.nPlantas * valorPorPlanta;
+          out.push({
+            id: `rp_${ct.id}_${oc.id}_${ev.key}`,
+            ctId: ct.id,
+            cuotaId: `${oc.id}_${ev.key}`,
+            cliente: ct.razonSocial,
+            pais: ct.pais,
+            nPlantas: ev.nPlantas,
+            usdPlanta: valorPorPlanta,
+            descripcionCuota: `OC ${oc.n_oc||""} · ${ev.desc}`,
+            pctCuota: 100,
+            montoFact,
+            montoCobro: montoFact * pct(ct.pais),
+            whtPct: pct(ct.pais)===1 ? 0 : 15,
+            fechaEvento: ev.fecha,
+            pagado: false,
+            fechaPago: "",
+            nFact: "",
+            _fromContract: true,
+            _fromOC: true,
+            _ocId: oc.id,
+          });
+        });
+      });
+      return; // contrato gestionado por OC vivero: no aplicar modelos legacy
+    }
 
     // ── NUEVO: modelo OC + Facturas ──
     // Si el contrato tiene facturas Royalty Planta, derivar de ellas (reemplaza el modelo de cuotas %).
@@ -6604,23 +6652,90 @@ function derivarRoyaltyPlantaDesdeContratos(ctData) {
   return out;
 }
 
-function derivarRoyaltyComercialDesdeContratos(ctData) {
+function derivarRoyaltyComercialDesdeContratos(ctData, ocsByCt) {
   // Por cada temporada × contrato genera un registro
   const out = [];
   (ctData||[]).forEach(ct => {
-    const haTotal = (ct.plantaciones||[]).reduce((s,p)=>s+(Number(p.hectareas)||0),0);
-    if(haTotal===0) return;
     const valorPorHa = Number(ct.valorRoyaltyComercial)||0;
     if(valorPorHa===0) return;
-    const inicioTemp = ct.rcInicioTemporada || temporadaActual();
     const mesCobro = ct.rcMesCobro || RC_MES_DEFAULT_POR_PAIS[ct.pais] || "Abril";
+    const mesIdxRC0 = Math.max(0, MESES.indexOf(mesCobro));
+    const trimCobro0 = Math.floor(mesIdxRC0/3)+1;
+    const inflPct = ct.royaltyInflacion ? (Number(ct.rcInflacionPct)||0) : 0;
+
+    // ── MODELO OC VIVERO: há plantadas vienen del despacho, y cada despacho empieza a
+    // cobrar RC desde la temporada de su fecha de plantación (cohorte). ──
+    if(ct.modeloIngresos==="oc") {
+      const ocs = (ocsByCt && ocsByCt[ct.id]) || [];
+      // Cohortes: agrupa há plantadas por temporada de plantación.
+      const cohortes = {}; // tempInicio -> haCohorte
+      ocs.forEach(oc=>(oc.despachos||[]).forEach(d=>{
+        const ha = Number(d.ha_plantadas)||0;
+        if(ha<=0) return;
+        const tIni = temporadaDeFecha(d.fecha_plantacion);
+        if(!tIni) return; // sin fecha de plantación no se puede iniciar el cobro
+        cohortes[tIni] = (cohortes[tIni]||0) + ha;
+      }));
+      const tempsInicio = Object.keys(cohortes);
+      if(tempsInicio.length===0) return;
+      // Temporada global de fin = la mayor entre las series de cada cohorte.
+      const fin = ct.fechaTermino;
+      // Acumula por temporada de cobro el monto (suma de cohortes activas, con su inflación propia).
+      const porTemp = {}; // temp -> {ha, monto}
+      tempsInicio.forEach(tIni=>{
+        const haC = cohortes[tIni];
+        const serie = temporadasEntre(tIni, fin);
+        serie.forEach((temp, idx)=>{
+          const factor = Math.pow(1+inflPct/100, idx);
+          const monto = haC * valorPorHa * factor;
+          if(!porTemp[temp]) porTemp[temp] = {ha:0, monto:0};
+          porTemp[temp].ha += haC;
+          porTemp[temp].monto += monto;
+        });
+      });
+      Object.keys(porTemp).sort().forEach(temp=>{
+        const {ha, monto} = porTemp[temp];
+        const pagosKey = ct.rcPagos || {};
+        const pago = pagosKey[temp] || {};
+        out.push({
+          id: `rc_${ct.id}_${temp.replace("/","")}`,
+          ctId: ct.id,
+          temporada: temp,
+          cliente: ct.razonSocial,
+          pais: ct.pais,
+          haTotal: ha,
+          valorPorHa,
+          inflPct,
+          factorInfl: ha>0 ? monto/(ha*valorPorHa) : 1,
+          valorPorHaInfl: ha>0 ? monto/ha : valorPorHa,
+          montoFact: monto,
+          montoCobro: monto * pct(ct.pais),
+          whtPct: pct(ct.pais)===1 ? 0 : 15,
+          mesCobro,
+          trimCobro: trimCobro0,
+          añoCobro: parseInt(temp.split("/")[1]),
+          pagado: !!pago.pagado,
+          fechaPago: pago.fechaPago || "",
+          nFact: pago.nFact || "",
+          _fromContract: true,
+          _fromOC: true,
+        });
+      });
+      return;
+    }
+
+    // ── LEGACY: plantaciones del contrato × temporadas ──
+    const haTotal = (ct.plantaciones||[]).reduce((s,p)=>s+(Number(p.hectareas)||0),0);
+    if(haTotal===0) return;
+    const inicioTemp = ct.rcInicioTemporada || temporadaActual();
     // Trimestre del mes de cobro (para alertas/calendario que usan trimCobro).
     // Sin esto trimCobro queda undefined → fechaInicioTrim cae en enero.
-    const mesIdxRC = Math.max(0, MESES.indexOf(mesCobro));
-    const trimCobro = Math.floor(mesIdxRC/3)+1;
+    const mesIdxRC = mesIdxRC0;
+    const trimCobro = trimCobro0;
     const temps = temporadasEntre(inicioTemp, ct.fechaTermino);
-    temps.forEach(temp => {
-      const montoFact = haTotal * valorPorHa;
+    temps.forEach((temp, tempIdx) => {
+      const factorInfl = Math.pow(1 + inflPct/100, tempIdx);
+      const montoFact = haTotal * valorPorHa * factorInfl;
       const montoCobro = montoFact * pct(ct.pais);
       // Pagos guardados por temporada en el contrato
       const pagosKey = ct.rcPagos || {};
@@ -6633,6 +6748,9 @@ function derivarRoyaltyComercialDesdeContratos(ctData) {
         pais: ct.pais,
         haTotal,
         valorPorHa,
+        inflPct,
+        factorInfl,
+        valorPorHaInfl: valorPorHa * factorInfl,
         montoFact,
         montoCobro,
         whtPct: pct(ct.pais)===1 ? 0 : 15,
@@ -6747,12 +6865,101 @@ async function exportarContratos(filtrado) {
 // ══════════════════════════════════════════════════════════════════
 // SECCIÓN ÓRDENES DE COMPRA + FACTURAS ROYALTY PLANTA (dentro del contrato)
 // ══════════════════════════════════════════════════════════════════
-function OrdenesCompraSec({r, upd, can}) {
+function OrdenesCompraSec({r, upd, can, ocsVivero=[]}) {
   const plantaciones = r.plantaciones || [];
   const ordenes = r.ordenesCompra || [];
   const facturas = r.facturasRP || [];
   const valorPP = Number(r.valorRoyaltyPlanta) || 1;
   const whtPct = pct(r.pais)===1 ? 0 : 15;
+
+  // ── MODO OC VIVERO: esta pestaña es ESPEJO de solo lectura de las OC del vivero ──
+  // Las OC reales se gestionan en Contratos Viveros; acá solo se visualizan + su royalty derivado.
+  if(r.modeloIngresos==="oc") {
+    const valorHa = Number(r.valorRoyaltyComercial)||0;
+    const factorNeto = pct(r.pais); // 1 = sin WHT, 0.85 = WHT 15%
+    let totPlantasDesp = 0, totHaPlant = 0, totRP = 0, totRC1 = 0;
+    ocsVivero.forEach(oc=>(oc.despachos||[]).forEach(d=>{
+      totPlantasDesp += Number(d.cantidad_despachada)||0;
+      totHaPlant += Number(d.ha_plantadas)||0;
+    }));
+    totRP = totPlantasDesp * valorPP;
+    totRC1 = totHaPlant * valorHa; // RC de la primera temporada (sin inflación)
+    return (
+      <div>
+        <div style={{background:C.infoBg||"#eff6ff",border:`1px solid ${C.azul||"#3b82f6"}`,borderRadius:12,padding:16,marginBottom:18}}>
+          <div style={{fontSize:13,fontWeight:800,color:C.azul||"#1d4ed8",marginBottom:6}}>🔗 Este contrato usa el modelo "OC del vivero"</div>
+          <div style={{fontSize:12,color:C.text,lineHeight:1.5}}>
+            Las órdenes de compra reales del cliente se gestionan en <strong>Contratos Viveros</strong> (con sus despachos). Esta vista es <strong>solo lectura</strong>: el Royalty/Planta y el Royalty Comercial se derivan automáticamente de los despachos de abajo. No cargues OC acá.
+          </div>
+        </div>
+        {/* Cuadre derivado */}
+        <div style={{background:"#faf5ff",border:"1px solid #d8b4fe",borderRadius:12,padding:16,marginBottom:18}}>
+          <div style={{fontSize:13,fontWeight:800,color:"#7c3aed",marginBottom:10}}>📊 Cuadre derivado de despachos</div>
+          <div style={{display:"flex",gap:12,flexWrap:"wrap"}}>
+            {[
+              [`${N(totPlantasDesp)}`,"Plantas despachadas","#7c3aed","#f3e8ff"],
+              [`${N(totHaPlant.toFixed(2))}`,"Há plantadas","#7c3aed","#f3e8ff"],
+              [$$(totRP),"Royalty/Planta (bruto)","#1d4ed8","#dbeafe"],
+              [$$(totRP*factorNeto),"RP neto"+(factorNeto<1?" (WHT 15%)":""),"#15803d","#dcfce7"],
+              [$$(totRC1),"RC 1ª temporada (bruto)","#d97706","#fef9c3"],
+            ].map(([v,l,c,bg])=>(
+              <div key={l} style={{background:bg,borderRadius:10,padding:"10px 16px",flex:1,minWidth:120}}>
+                <div style={{fontSize:10,color:c,fontWeight:600}}>{l}</div>
+                <div style={{fontSize:18,fontWeight:800,color:c}}>{v}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+        {/* Listado de OC del vivero ligadas */}
+        {ocsVivero.length===0?(
+          <div style={{padding:30,textAlign:"center",color:C.muted2,border:"1px dashed #e2e8f0",borderRadius:12,fontSize:12}}>
+            No hay OC del vivero ligadas a este contrato todavía.<br/>
+            Ve a <strong>Contratos Viveros</strong>, abre la OC del cliente y elígelo en "Contrato ligado".
+          </div>
+        ):ocsVivero.map(oc=>{
+          const desp = oc.despachos||[];
+          const plOC = desp.reduce((s,d)=>s+(Number(d.cantidad_despachada)||0),0);
+          return (
+            <div key={oc.id} style={{border:`1px solid ${C.border}`,borderRadius:12,padding:14,marginBottom:12}}>
+              <div style={{display:"flex",justifyContent:"space-between",flexWrap:"wrap",gap:8,marginBottom:8}}>
+                <div style={{fontWeight:800,color:C.text,fontSize:13}}>📦 OC {oc.n_oc||"(s/n)"} · {oc._viverista||""}</div>
+                <div style={{fontSize:11,color:C.muted}}>{oc.fecha_oc&&`📅 ${oc.fecha_oc} · `}{N(plOC)} plantas despachadas en {desp.length} tanda{desp.length!==1?"s":""}</div>
+              </div>
+              {desp.length===0?(
+                <div style={{fontSize:11,color:C.warning}}>⚠ Sin despachos cargados en esta OC.</div>
+              ):(
+                <table style={{width:"100%",borderCollapse:"collapse",fontSize:11}}>
+                  <thead><tr style={{background:C.primary}}>
+                    {["Despacho","Plantas","RP bruto","Fecha plantación","Há plant.","RC 1ª temp."].map(h=>
+                      <th key={h} style={{padding:"5px 8px",textAlign:["Plantas","RP bruto","Há plant.","RC 1ª temp."].includes(h)?"right":"left",fontSize:10,fontWeight:700,color:C.primaryText}}>{h}</th>)}
+                  </tr></thead>
+                  <tbody>
+                    {desp.map(d=>{
+                      const pl = Number(d.cantidad_despachada)||0;
+                      const ha = Number(d.ha_plantadas)||0;
+                      return (
+                        <tr key={d.id} style={{borderBottom:"1px solid #f1f5f9"}}>
+                          <td style={{padding:"5px 8px"}}>{d.fecha_despacho||"—"}</td>
+                          <td style={{padding:"5px 8px",textAlign:"right",fontWeight:700,color:C.text}}>{N(pl)}</td>
+                          <td style={{padding:"5px 8px",textAlign:"right"}}>{$$(pl*valorPP)}</td>
+                          <td style={{padding:"5px 8px"}}>{d.fecha_plantacion||<span style={{color:C.warning}}>⚠ sin fecha</span>}</td>
+                          <td style={{padding:"5px 8px",textAlign:"right"}}>{N(ha)}</td>
+                          <td style={{padding:"5px 8px",textAlign:"right"}}>{d.fecha_plantacion?$$(ha*valorHa):"—"}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              )}
+            </div>
+          );
+        })}
+        <div style={{fontSize:11,color:C.muted,marginTop:8}}>
+          El detalle por temporada (con inflación) y el estado de cobro se ven en las pestañas <strong>Royalty/Planta</strong> y <strong>Royalty Comercial</strong> del módulo de Ingresos.
+        </div>
+      </div>
+    );
+  }
 
   // Helpers de derivación
   const plantasDeOC = (oc) => (oc.plantacionIds||[]).reduce((s,pid)=>{
@@ -7052,7 +7259,11 @@ function ControlContratos({data,setData,clientes,setClientes,variedadesMaestro=[
     region:"",ciudadPredio:"",coordenadas:"",
     tipoContractFee:"Sin Devolución",montoContractFee:30000,
     valorRoyaltyPlanta:1.00,valorRoyaltyComercial:3000,
-    royaltyInflacion:false,mesFacuracionRC:"",notas:"",
+    royaltyInflacion:false,rcInflacionPct:0,mesFacuracionRC:"",notas:"",
+    // Modelo de ingresos: "legacy" = plantaciones del contrato + cuotas% (como hasta hoy).
+    // "oc" = deriva Royalty Planta / Comercial desde las OC del vivero + sus despachos.
+    // Default legacy → no cambia ningún número de los contratos existentes.
+    modeloIngresos:"legacy",
     // Nuevos campos sesión 9
     plantaciones:[],
     sublicenciatarios:[],
@@ -7555,7 +7766,7 @@ function ControlContratos({data,setData,clientes,setClientes,variedadesMaestro=[
                   <Cell val={r.valorRoyaltyComercial} onChange={v=>upd(r.id,"valorRoyaltyComercial",parseFloat(v)||0)} type="number" can={can}/>
                   <div style={{fontSize:9,color:pct(r.pais)===1?C.muted2:C.danger,marginTop:3}}>{pct(r.pais)===1?"Sin WHT (Chile)":"WHT 15% — neto = $"+(((Number(r.valorRoyaltyComercial)||0)*0.85).toFixed(0))+"/há"}</div>
                 </div>
-                <div style={{display:"flex",alignItems:"flex-end",paddingBottom:4}}>
+                <div style={{display:"flex",alignItems:"flex-end",paddingBottom:4,gap:10}}>
                   <label style={{display:"flex",alignItems:"center",gap:8,cursor:can?"pointer":"default",
                     background:r.royaltyInflacion?C.amBg:C.cardAlt,border:`1px solid ${r.royaltyInflacion?"#fde047":C.border}`,
                     borderRadius:10,padding:"9px 14px",fontSize:13,fontWeight:600,
@@ -7563,6 +7774,31 @@ function ControlContratos({data,setData,clientes,setClientes,variedadesMaestro=[
                     <input type="checkbox" checked={r.royaltyInflacion||false} disabled={!can} onChange={()=>upd(r.id,"royaltyInflacion",!r.royaltyInflacion)} style={{accentColor:C.warning}}/>
                     📈 Sujeto a Inflación
                   </label>
+                  {r.royaltyInflacion&&(
+                    <div style={{minWidth:120}}>
+                      <div style={{fontSize:11,color:C.gris,fontWeight:600,marginBottom:4}}>% inflación anual</div>
+                      <Cell val={r.rcInflacionPct} onChange={v=>upd(r.id,"rcInflacionPct",parseFloat(v)||0)} type="number" can={can}/>
+                    </div>
+                  )}
+                </div>
+              </div>
+              {/* Modelo de ingresos: legacy vs OC del vivero */}
+              <div style={{marginTop:14,padding:"12px 16px",borderRadius:12,border:`1px solid ${(r.modeloIngresos==="oc")?C.azul:C.border}`,background:(r.modeloIngresos==="oc")?(C.infoBg||C.cardAlt):C.cardAlt}}>
+                <div style={{display:"flex",alignItems:"center",gap:14,flexWrap:"wrap"}}>
+                  <div style={{fontSize:12,fontWeight:800,color:C.text}}>⚙️ Modelo de ingresos</div>
+                  <label style={{display:"flex",alignItems:"center",gap:6,fontSize:12,cursor:can?"pointer":"default"}}>
+                    <input type="radio" name={`moding_${r.id}`} disabled={!can} checked={(r.modeloIngresos||"legacy")!=="oc"} onChange={()=>upd(r.id,"modeloIngresos","legacy")}/>
+                    Legacy (plantaciones + cuotas %)
+                  </label>
+                  <label style={{display:"flex",alignItems:"center",gap:6,fontSize:12,cursor:can?"pointer":"default"}}>
+                    <input type="radio" name={`moding_${r.id}`} disabled={!can} checked={(r.modeloIngresos)==="oc"} onChange={()=>upd(r.id,"modeloIngresos","oc")}/>
+                    OC del vivero + despachos
+                  </label>
+                </div>
+                <div style={{fontSize:10,color:C.muted,marginTop:6}}>
+                  {(r.modeloIngresos==="oc")
+                    ? "Royalty/Planta y Royalty Comercial se derivan de las OC del vivero ligadas a este cliente (por despacho). RC arranca desde la fecha de plantación de cada despacho."
+                    : "Royalty/Planta y Comercial se calculan desde las plantaciones del contrato y las cuotas %. (Modo actual, no cambia números existentes.)"}
                 </div>
               </div>
             </>
@@ -8130,13 +8366,16 @@ function ControlContratos({data,setData,clientes,setClientes,variedadesMaestro=[
                   np[temp] = {...(np[temp]||{}), [campo]:valor};
                   upd(r.id,"rcPagos",np);
                 };
-                const totalAcumulado = temps.length * haTotal * valor;
+                const inflPct = r.royaltyInflacion ? (parseFloat(r.rcInflacionPct)||0) : 0;
+                const factorDe = (idx)=>Math.pow(1+inflPct/100, idx);
+                const totalAcumulado = temps.reduce((s,_,i)=>s + haTotal*valor*factorDe(i), 0);
                 return (
                   <>
                     <div style={{padding:10,background:C.purpleBg,borderRadius:8,marginBottom:10,fontSize:11,color:C.text}}>
                       <strong>{temps.length}</strong> temporada{temps.length!==1?"s":""} desde {r.rcInicioTemporada}
                       {r.fechaTermino?` hasta término ${r.fechaTermino}`:" (10 años proyectados)"} ·
                       Total facturable acumulado: <strong>${N(totalAcumulado.toFixed(2))}</strong>
+                      {inflPct>0?<span> · 📈 inflación <strong>{N(inflPct)}%</strong> anual compuesta</span>:null}
                     </div>
                     <div style={{overflowX:"auto",minWidth:0,maxWidth:"calc(100vw - 40px)"}}>
                       <table style={{width:"100%",borderCollapse:"collapse",fontSize:11}}>
@@ -8146,8 +8385,9 @@ function ControlContratos({data,setData,clientes,setClientes,variedadesMaestro=[
                           ))}
                         </tr></thead>
                         <tbody>
-                          {temps.map(t=>{
-                            const bruto = haTotal * valor;
+                          {temps.map((t,ti)=>{
+                            const valorInfl = valor * factorDe(ti);
+                            const bruto = haTotal * valorInfl;
                             const wht = bruto * (1-pct(r.pais));
                             const neto = bruto - wht;
                             const p = pagos[t] || {};
@@ -8156,7 +8396,7 @@ function ControlContratos({data,setData,clientes,setClientes,variedadesMaestro=[
                                 <td style={{padding:"5px 8px",fontWeight:700,color:C.text}}>{t}</td>
                                 <td style={{padding:"5px 8px"}}>{r.rcMesCobro||RC_MES_DEFAULT_POR_PAIS[r.pais]||"—"} {parseInt(t.split("/")[1])}</td>
                                 <td style={{padding:"5px 8px",textAlign:"right"}}>{N(haTotal.toFixed(2))}</td>
-                                <td style={{padding:"5px 8px",textAlign:"right"}}>${N(valor)}</td>
+                                <td style={{padding:"5px 8px",textAlign:"right"}}>${N(valorInfl.toFixed(2))}{inflPct>0&&ti>0?<span style={{fontSize:9,color:C.am,display:"block"}}>×{factorDe(ti).toFixed(3)}</span>:null}</td>
                                 <td style={{padding:"5px 8px",textAlign:"right",fontWeight:700,color:C.text}}>${N(bruto.toFixed(2))}</td>
                                 <td style={{padding:"5px 8px",textAlign:"right",color:C.danger}}>{wht>0?`-$${N(wht.toFixed(2))}`:"—"}</td>
                                 <td style={{padding:"5px 8px",textAlign:"right",fontWeight:700,color:C.success}}>${N(neto.toFixed(2))}</td>
@@ -8184,9 +8424,16 @@ function ControlContratos({data,setData,clientes,setClientes,variedadesMaestro=[
           </>)}
 
           {/* ── SECCIÓN: ÓRDENES DE COMPRA + FACTURAS ROYALTY PLANTA ── */}
-          {sec==="ordenes"&&(
-            <OrdenesCompraSec r={r} upd={upd} can={can}/>
-          )}
+          {sec==="ordenes"&&(()=>{
+            // OC reales del cliente que viven en el módulo Viveros, ligadas a este contrato.
+            const ocsVivero = [];
+            (viverosData||[]).forEach(v=>(v.ordenesCompra||[]).forEach(oc=>{
+              const ligada = (oc.contrato_id && oc.contrato_id===r.id) ||
+                             (!oc.contrato_id && oc.cliente_id && oc.cliente_id===r.clienteId);
+              if(ligada) ocsVivero.push({...oc, _viverista:v.viverista});
+            }));
+            return <OrdenesCompraSec r={r} upd={upd} can={can} ocsVivero={ocsVivero}/>;
+          })()}
         </div>
       </div>
     );
@@ -8404,8 +8651,8 @@ function ControlContratos({data,setData,clientes,setClientes,variedadesMaestro=[
             <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(200px,1fr))",gap:12}}>
               <CampoNuevo label="Tipo Contract Fee" campo="tipoContractFee" opts={TIPOS_FEE} form={form} setF={setF}/>
               <CampoNuevo label="Monto Contract Fee (USD)" campo="montoContractFee" tipo="number" form={form} setF={setF}/>
-              <CampoNuevo label="Royalty/Planta (USD)" campo="valorRoyaltyPlanta" tipo="number"/>
-              <CampoNuevo label="Royalty Comercial (USD/Há)" campo="valorRoyaltyComercial" tipo="number"/>
+              <CampoNuevo label="Royalty/Planta (USD)" campo="valorRoyaltyPlanta" tipo="number" form={form} setF={setF}/>
+              <CampoNuevo label="Royalty Comercial (USD/Há)" campo="valorRoyaltyComercial" tipo="number" form={form} setF={setF}/>
               <div style={{display:"flex",alignItems:"flex-end"}}>
                 <label style={{display:"flex",alignItems:"center",gap:8,cursor:"pointer",fontSize:12,fontWeight:600,color:C.sl}}>
                   <input type="checkbox" checked={form.royaltyInflacion||false} onChange={()=>setF("royaltyInflacion",!form.royaltyInflacion)}/>
@@ -8629,6 +8876,16 @@ function ControlContratos({data,setData,clientes,setClientes,variedadesMaestro=[
                   {MESES.map(m=><option key={m}>{m}</option>)}
                 </select>
                 <div style={{fontSize:9,color:C.muted2,marginTop:2}}>Default {form.pais}: {RC_MES_DEFAULT_POR_PAIS[form.pais]||"—"}</div>
+              </div>
+              <div>
+                <label style={{fontSize:11,fontWeight:600,color:"#374151",display:"flex",alignItems:"center",gap:6,marginBottom:3,cursor:"pointer"}}>
+                  <input type="checkbox" checked={form.royaltyInflacion||false} onChange={e=>setF("royaltyInflacion",e.target.checked)}/>
+                  📈 Sujeto a inflación
+                </label>
+                <input type="number" disabled={!form.royaltyInflacion} value={form.rcInflacionPct||""} placeholder="% anual"
+                  onChange={e=>setF("rcInflacionPct",parseFloat(e.target.value)||0)}
+                  style={{width:"100%",padding:"7px 10px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:12,boxSizing:"border-box",background:form.royaltyInflacion?C.card:C.cardAlt,opacity:form.royaltyInflacion?1:0.5}}/>
+                <div style={{fontSize:9,color:C.muted2,marginTop:2}}>% compuesto por temporada</div>
               </div>
             </div>
           </div>
@@ -9118,17 +9375,28 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
   // Modales para Órdenes de Compra dentro del vivero
   const [ocModal, setOcModal] = useState(false);
   const [ocEditId, setOcEditId] = useState(null);
+  // Despacho: tanda de plantas que sale del vivero al cliente. Lleva la fecha de
+  // plantación (desde cuándo corre el Royalty Comercial) y las há efectivamente plantadas.
+  const EMPTY_DESPACHO = {id:"",fecha_despacho:"",cantidad_despachada:"",
+    variedad_id:"",fecha_plantacion:"",ha_plantadas:"",
+    plantacion_id:"",estado:"Despachado",observaciones:""};
   const EMPTY_OC = {n_oc:"",fecha_oc:"",cliente_id:"",cliente_nombre:"",
+    contrato_id:"",
     variedad_id:"",especie:"",variedad:"",
     cantidad_plantas:"",hectareas:"",
-    fee_usd_planta:"",fee_total_usd:0,
+    fee_usd_planta:"",fee_total_usd:0,royalty_usd_planta:"",
     estado_oc:"Borrador",observaciones:"",
+    despachos:[],facturasRP:[],
     cuotas:[]};
   const [ocForm, setOcForm] = useState(EMPTY_OC);
   const [ocDetalle, setOcDetalle] = useState(null); // ID de OC para ver/editar cuotas
   const [cuotaModal, setCuotaModal] = useState(false);
   const [cuotaForm, setCuotaForm] = useState({fecha:"",monto_usd:"",pagado:false,fecha_pago:"",n_factura:"",observaciones:""});
   const [cuotaEditId, setCuotaEditId] = useState(null);
+  // Modal de despachos (tandas) dentro de una OC del vivero
+  const [despModal, setDespModal] = useState(false);
+  const [despForm, setDespForm] = useState(EMPTY_DESPACHO);
+  const [despEditId, setDespEditId] = useState(null);
 
   // Datos desde Supabase — sin datos de ejemplo (empezar desde cero)
   const ctData  = osirisData?.contratos       ?? CONTRATOS_INIT;
@@ -9137,6 +9405,23 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
   const variedadesMaestro = Array.isArray(osirisData?.variedades) ? osirisData.variedades : VARIEDADES_INIT;
   const especiesMaestro   = Array.isArray(osirisData?.especies)   ? osirisData.especies   : ESPECIES_INIT;
   const obtentoresData    = Array.isArray(osirisData?.obtentores) ? osirisData.obtentores : [];
+  // ── OCs del vivero agrupadas por contrato (para modeloIngresos="oc") ──
+  // Enlace: oc.contrato_id===ct.id, o por cliente (oc.cliente_id===ct.clienteId).
+  const ocsByContrato = useMemo(()=>{
+    const viveros = Array.isArray(osirisData?.viveros) ? osirisData.viveros : [];
+    const todasOCs = [];
+    viveros.forEach(v=>(v.ordenesCompra||[]).forEach(oc=>todasOCs.push({...oc, _viveroId:v.id, _viverista:v.viverista})));
+    const map = {};
+    (ctData||[]).forEach(ct=>{
+      const ocs = todasOCs.filter(oc=>
+        (oc.contrato_id && oc.contrato_id===ct.id) ||
+        (!oc.contrato_id && oc.cliente_id && oc.cliente_id===ct.clienteId)
+      );
+      if(ocs.length) map[ct.id]=ocs;
+    });
+    return map;
+  },[osirisData, ctData]);
+
   // ── Datos derivados desde el contrato (fuente de verdad) ──
   // tpData: Total Pedidos, ahora derivado de plantaciones del contrato.
   //   Se preservan los pedidos manuales antiguos para no romper la transición.
@@ -9161,7 +9446,7 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
 
   // rpData: Royalty Planta, derivado de cuotas del contrato + overrides manuales
   const rpData = useMemo(()=>{
-    const fromContracts = derivarRoyaltyPlantaDesdeContratos(ctData);
+    const fromContracts = derivarRoyaltyPlantaDesdeContratos(ctData, ocsByContrato);
     const raw = osirisData?.royaltyPlanta || [];
     // Aplicar overrides: si hay un registro manual con mismo id (rp_ctId_cuotaId), prevalece
     const overridesMap = {};
@@ -9175,11 +9460,11 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
     // Manuales legacy (sin ctId) se preservan
     const manualesLegacy = raw.filter(r=>!r.ctId && !r._fromContract);
     return [...merged, ...manualesLegacy];
-  },[osirisData, ctData]);
+  },[osirisData, ctData, ocsByContrato]);
 
   // rcData: Royalty Comercial derivado de plantaciones × temporadas
   const rcData = useMemo(()=>{
-    const fromContracts = derivarRoyaltyComercialDesdeContratos(ctData);
+    const fromContracts = derivarRoyaltyComercialDesdeContratos(ctData, ocsByContrato);
     const raw = osirisData?.royaltyComercial || [];
     const overridesMap = {};
     raw.forEach(r=>{ if(r.id) overridesMap[r.id]=r; });
@@ -9190,7 +9475,7 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
     });
     const manualesLegacy = raw.filter(r=>!r.ctId && !r._fromContract);
     return [...merged, ...manualesLegacy];
-  },[osirisData, ctData]);
+  },[osirisData, ctData, ocsByContrato]);
 
   const fvData  = useMemo(()=>(osirisData?.feeViveros??[]).filter(r=>!r.tpId||tpIds.has(r.tpId)),[osirisData,tpIds]);
 
@@ -11137,11 +11422,15 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
         setOcForm({
           n_oc: oc.n_oc||"", fecha_oc: oc.fecha_oc||"",
           cliente_id: oc.cliente_id||"", cliente_nombre: oc.cliente_nombre||"",
+          contrato_id: oc.contrato_id||"",
           variedad_id: oc.variedad_id||"", especie: oc.especie||"", variedad: oc.variedad||"",
           cantidad_plantas: oc.cantidad_plantas||"", hectareas: oc.hectareas||"",
           fee_usd_planta: oc.fee_usd_planta||"", fee_total_usd: oc.fee_total_usd||0,
+          royalty_usd_planta: oc.royalty_usd_planta||"",
           estado_oc: oc.estado_oc||"Borrador", observaciones: oc.observaciones||"",
           cuotas: oc.cuotas||[],
+          despachos: Array.isArray(oc.despachos)?oc.despachos:[],
+          facturasRP: Array.isArray(oc.facturasRP)?oc.facturasRP:[],
           items: Array.isArray(oc.items)?oc.items:[],
         });
         setOcEditId(oc.id);
@@ -11215,6 +11504,58 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
         const cuotasNew = (ocActiva?.cuotas||[]).map(c=>c.id===cid?{...c, pagado:!c.pagado, fecha_pago:fp}:c);
         const ocsNew = ordenesCompra.map(o=>o.id===ocActiva.id?{...o, cuotas: cuotasNew}:o);
         updateVivero(v.id, {ordenesCompra: ocsNew});
+      };
+
+      // ── Despachos (tandas de plantas que salen del vivero al cliente) ──
+      const guardarDespacho = () => {
+        if(!canViveros || !ocActiva) return;
+        if(!despForm.fecha_despacho || !despForm.cantidad_despachada) { alert("Fecha de despacho y cantidad despachada son obligatorias."); return; }
+        const vv = variedades.find(x=>x.id===despForm.variedad_id);
+        const id = despEditId || `desp_${Date.now()}`;
+        const item = {
+          id,
+          fecha_despacho: despForm.fecha_despacho,
+          cantidad_despachada: parseFloat(despForm.cantidad_despachada)||0,
+          variedad_id: despForm.variedad_id||"",
+          especie: vv?.especie || despForm.especie || "",
+          variedad: vv?.variedad || despForm.variedad || "",
+          fecha_plantacion: despForm.fecha_plantacion||"",
+          ha_plantadas: parseFloat(despForm.ha_plantadas)||0,
+          estado: despForm.estado||"Despachado",
+          observaciones: despForm.observaciones||"",
+        };
+        const despNew = despEditId
+          ? (ocActiva.despachos||[]).map(d=>d.id===despEditId?item:d)
+          : [...(ocActiva.despachos||[]), item];
+        despNew.sort((a,b)=>String(a.fecha_despacho).localeCompare(String(b.fecha_despacho)));
+        const ocsNew = ordenesCompra.map(o=>o.id===ocActiva.id?{...o, despachos: despNew}:o);
+        updateVivero(v.id, {ordenesCompra: ocsNew});
+        window.auditLog && window.auditLog(despEditId?"editar":"crear", {modulo:"osiris", seccion:"Despachos OC Vivero",
+          descripcion:`${despEditId?"Editó":"Registró"} despacho ${item.fecha_despacho} · ${N(item.cantidad_despachada)} plantas / ${N(item.ha_plantadas)} há en OC ${ocActiva.n_oc}`});
+        setDespModal(false);
+        setDespEditId(null);
+        setDespForm(EMPTY_DESPACHO);
+      };
+
+      const eliminarDespacho = (did) => {
+        if(!canViveros || !ocActiva) return;
+        if(!window.confirm("¿Eliminar este despacho?")) return;
+        const despNew = (ocActiva.despachos||[]).filter(d=>d.id!==did);
+        const ocsNew = ordenesCompra.map(o=>o.id===ocActiva.id?{...o, despachos: despNew}:o);
+        updateVivero(v.id, {ordenesCompra: ocsNew});
+        window.auditLog && window.auditLog("eliminar", {modulo:"osiris", seccion:"Despachos OC Vivero",
+          descripcion:`Eliminó despacho de OC ${ocActiva.n_oc}`});
+      };
+
+      const iniciarEdicionDespacho = (d) => {
+        setDespForm({
+          fecha_despacho: d.fecha_despacho||"", cantidad_despachada: d.cantidad_despachada||"",
+          variedad_id: d.variedad_id||"", especie: d.especie||"", variedad: d.variedad||"",
+          fecha_plantacion: d.fecha_plantacion||"", ha_plantadas: d.ha_plantadas||"",
+          plantacion_id: d.plantacion_id||"", estado: d.estado||"Despachado", observaciones: d.observaciones||"",
+        });
+        setDespEditId(d.id);
+        setDespModal(true);
       };
 
       const TABS_VIV = [{id:"general",label:"📋 General"},{id:"variedades",label:"🌱 Variedades Autorizadas"},{id:"oc",label:`📦 Órdenes de Compra (${ordenesCompra.length})`},{id:"legal",label:"⚖️ Legal/Firmas"},{id:"anexos",label:"📎 Anexos"}];
@@ -11523,6 +11864,70 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
                       setCuotaModal(true);
                     }} style={{padding:"6px 14px",borderRadius:8,background:C.success,border:"none",color:"#fff",cursor:"pointer",fontSize:12,fontWeight:700}}>+ Nueva Cuota</button>}
                   </div>
+                  {/* ── DESPACHOS (tandas de plantas que salen del vivero) ── */}
+                  {(()=>{
+                    const desp = ocActiva.despachos||[];
+                    const totDesp = desp.reduce((s,d)=>s+(parseFloat(d.cantidad_despachada)||0),0);
+                    const totHaPlant = desp.reduce((s,d)=>s+(parseFloat(d.ha_plantadas)||0),0);
+                    const totOC = parseFloat(ocActiva.cantidad_plantas)||0;
+                    const pend = totOC - totDesp;
+                    return (
+                      <div style={{border:`1px solid ${C.border}`,borderRadius:12,padding:14,marginBottom:16,background:C.cardAlt}}>
+                        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10,flexWrap:"wrap",gap:8}}>
+                          <div>
+                            <div style={{fontWeight:800,fontSize:13,color:C.text}}>🚚 Despachos (tandas)</div>
+                            <div style={{fontSize:10,color:C.muted}}>Cada despacho fija la fecha de plantación → desde ahí corre el Royalty Comercial. Las plantas despachadas alimentan el Fee Vivero.</div>
+                          </div>
+                          {canViveros&&<button onClick={()=>{
+                            const primeraVar = (ocActiva.items&&ocActiva.items[0])||{};
+                            setDespForm({...EMPTY_DESPACHO,
+                              variedad_id: ocActiva.variedad_id||primeraVar.variedad_id||"",
+                              cantidad_despachada: pend>0?pend:"",
+                              fecha_despacho:new Date().toISOString().slice(0,10)});
+                            setDespEditId(null);
+                            setDespModal(true);
+                          }} style={{padding:"6px 14px",borderRadius:8,background:C.azul||C.primary,border:"none",color:"#fff",cursor:"pointer",fontSize:12,fontWeight:700}}>+ Nuevo Despacho</button>}
+                        </div>
+                        {/* Resumen */}
+                        <div style={{display:"flex",gap:18,flexWrap:"wrap",marginBottom:desp.length?10:0,fontSize:11}}>
+                          <span style={{color:C.muted}}>Despachado: <strong style={{color:C.text}}>{N(totDesp)}</strong> / {N(totOC)} plantas</span>
+                          <span style={{color:C.muted}}>Há plantadas: <strong style={{color:C.text}}>{N(totHaPlant.toFixed(2))}</strong></span>
+                          <span style={{color:pend>0?C.warning:C.success}}>{pend>0?`Pendiente: ${N(pend)} plantas`:pend<0?`⚠️ Excede OC en ${N(Math.abs(pend))}`:"✅ OC completa"}</span>
+                        </div>
+                        {desp.length===0?(
+                          <div style={{padding:14,textAlign:"center",color:C.muted2,border:"1px dashed #e2e8f0",borderRadius:10,fontSize:11}}>Sin despachos. {canViveros?"Registra una tanda con \"+ Nuevo Despacho\".":""}</div>
+                        ):(
+                          <table style={{width:"100%",borderCollapse:"collapse",fontSize:11}}>
+                            <thead><tr style={{background:C.primary}}>
+                              {["Fecha despacho","Variedad","Plantas","Fecha plantación","Há plantadas","Estado","Obs.",""].map(h=>
+                                <th key={h} style={{padding:"6px 8px",textAlign:["Plantas","Há plantadas"].includes(h)?"right":"left",fontWeight:700,fontSize:10,color:C.primaryText,whiteSpace:"nowrap"}}>{h}</th>
+                              )}
+                            </tr></thead>
+                            <tbody>
+                              {desp.map(d=>(
+                                <tr key={d.id} style={{borderBottom:"1px solid #f1f5f9"}}>
+                                  <td style={{padding:"5px 8px",fontWeight:600}}>{d.fecha_despacho}</td>
+                                  <td style={{padding:"5px 8px"}}>{d.variedad||"—"}</td>
+                                  <td style={{padding:"5px 8px",textAlign:"right",fontWeight:700,color:C.text}}>{N(d.cantidad_despachada)}</td>
+                                  <td style={{padding:"5px 8px"}}>{d.fecha_plantacion||<span style={{color:C.warning}}>⚠ sin fecha</span>}</td>
+                                  <td style={{padding:"5px 8px",textAlign:"right"}}>{N(d.ha_plantadas)}</td>
+                                  <td style={{padding:"5px 8px"}}>{d.estado||"—"}</td>
+                                  <td style={{padding:"5px 8px",fontSize:10,color:C.muted}}>{d.observaciones||"—"}</td>
+                                  <td style={{padding:"5px 8px",whiteSpace:"nowrap"}}>
+                                    {canViveros&&<>
+                                      <button onClick={()=>iniciarEdicionDespacho(d)} style={{background:C.infoBg,border:"none",borderRadius:4,padding:"3px 8px",cursor:"pointer",fontSize:11,marginRight:4}}>✏️</button>
+                                      <button onClick={()=>eliminarDespacho(d.id)} style={{background:C.dangerBg,border:"none",borderRadius:4,padding:"3px 8px",cursor:"pointer",fontSize:11}}>🗑</button>
+                                    </>}
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        )}
+                      </div>
+                    );
+                  })()}
+                  <div style={{fontWeight:800,fontSize:13,color:C.text,marginBottom:8}}>💰 Cuotas / Facturación de la OC</div>
                   {/* Verificación de suma */}
                   {(()=>{
                     const totC = (ocActiva.cuotas||[]).reduce((s,c)=>s+(parseFloat(c.monto_usd)||0),0);
@@ -11743,13 +12148,30 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
                   <label style={{fontSize:11,fontWeight:600,color:C.muted,display:"block",marginBottom:4}}>Cliente (Maestro Osiris) <span style={{color:C.danger}}>*</span></label>
                   <select value={ocForm.cliente_id||""} onChange={e=>{
                     const cli = clientes.find(c=>c.id===e.target.value);
-                    setOcForm(p=>({...p,cliente_id:e.target.value,cliente_nombre:cli?.razonSocial||""}));
+                    // Al cambiar cliente, limpia el contrato ligado (deja que el usuario lo reasocie)
+                    setOcForm(p=>({...p,cliente_id:e.target.value,cliente_nombre:cli?.razonSocial||"",contrato_id:""}));
                   }}
                     style={{width:"100%",padding:"8px 12px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:13,boxSizing:"border-box",background:C.card}}>
                     <option value="">— Seleccionar cliente —</option>
                     {clientes.map(c=><option key={c.id} value={c.id}>{c.razonSocial} {c.pais?`(${c.pais})`:""}</option>)}
                   </select>
                 </div>
+
+                {/* Contrato ligado (opcional — define tarifas de royalty para modelo OC) */}
+                {(()=>{
+                  const ctsCliente = (ctData||[]).filter(ct=>!ocForm.cliente_id || ct.clienteId===ocForm.cliente_id);
+                  if(ctsCliente.length===0) return null;
+                  return (
+                    <div style={{marginBottom:12}}>
+                      <label style={{fontSize:11,fontWeight:600,color:C.muted,display:"block",marginBottom:4}}>Contrato ligado <span style={{fontWeight:400}}>(para Royalty/Planta y Comercial)</span></label>
+                      <select value={ocForm.contrato_id||""} onChange={e=>setOcForm(p=>({...p,contrato_id:e.target.value}))}
+                        style={{width:"100%",padding:"8px 12px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:13,boxSizing:"border-box",background:C.card}}>
+                        <option value="">— Auto por cliente —</option>
+                        {ctsCliente.map(ct=><option key={ct.id} value={ct.id}>{ct.razonSocial} · {ct.tipoContrato||"Contrato"} {ct.modeloIngresos==="oc"?"· [modelo OC]":""}</option>)}
+                      </select>
+                    </div>
+                  );
+                })()}
 
                 {/* Variedad(es) del contrato — MULTI-ESPECIE */}
                 <div style={{marginBottom:12}}>
@@ -11896,6 +12318,63 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
                 <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}>
                   <button onClick={()=>{setCuotaModal(false);setCuotaEditId(null);}} style={{padding:"8px 16px",borderRadius:8,border:`1px solid ${C.border}`,background:C.card,cursor:"pointer"}}>Cancelar</button>
                   <button onClick={guardarCuota} style={{padding:"8px 16px",borderRadius:8,background:C.success,border:"none",color:"#fff",cursor:"pointer",fontWeight:700}}>{cuotaEditId?"Guardar cambios":"Crear cuota"}</button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* ── MODAL DESPACHO ── */}
+          {despModal&&(
+            <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:10001}} onClick={()=>setDespModal(false)}>
+              <div onClick={e=>e.stopPropagation()} style={{background:C.card,borderRadius:16,padding:24,width:560,maxHeight:"85vh",overflowY:"auto"}}>
+                <h3 style={{margin:"0 0 4px",color:C.text}}>{despEditId?"✏️ Editar":"🚚 Nuevo"} Despacho</h3>
+                <div style={{fontSize:11,color:C.muted,marginBottom:16}}>Tanda de plantas que sale del vivero al cliente. La fecha de plantación marca desde cuándo corre el Royalty Comercial.</div>
+                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:12}}>
+                  <div>
+                    <label style={{fontSize:11,fontWeight:600,color:C.muted,display:"block",marginBottom:4}}>Fecha de despacho <span style={{color:C.danger}}>*</span></label>
+                    <input type="date" value={despForm.fecha_despacho||""} onChange={e=>setDespForm(p=>({...p,fecha_despacho:e.target.value}))}
+                      style={{width:"100%",padding:"8px 12px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:13,boxSizing:"border-box"}}/>
+                  </div>
+                  <div>
+                    <label style={{fontSize:11,fontWeight:600,color:C.muted,display:"block",marginBottom:4}}>Plantas despachadas <span style={{color:C.danger}}>*</span></label>
+                    <input type="number" value={despForm.cantidad_despachada||""} onChange={e=>setDespForm(p=>({...p,cantidad_despachada:e.target.value}))}
+                      style={{width:"100%",padding:"8px 12px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:13,boxSizing:"border-box",textAlign:"right"}}/>
+                  </div>
+                  <div>
+                    <label style={{fontSize:11,fontWeight:600,color:C.muted,display:"block",marginBottom:4}}>Variedad</label>
+                    <select value={despForm.variedad_id||""} onChange={e=>setDespForm(p=>({...p,variedad_id:e.target.value}))}
+                      style={{width:"100%",padding:"8px 12px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:13,boxSizing:"border-box",background:C.card}}>
+                      <option value="">— Toda la OC —</option>
+                      {variedades.map(vv=><option key={vv.id} value={vv.id}>{vv.especie} · {vv.variedad}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label style={{fontSize:11,fontWeight:600,color:C.muted,display:"block",marginBottom:4}}>Estado</label>
+                    <select value={despForm.estado||"Despachado"} onChange={e=>setDespForm(p=>({...p,estado:e.target.value}))}
+                      style={{width:"100%",padding:"8px 12px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:13,boxSizing:"border-box",background:C.card}}>
+                      {["Despachado","En tránsito","Recibido","Plantado"].map(s=><option key={s}>{s}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label style={{fontSize:11,fontWeight:600,color:C.muted,display:"block",marginBottom:4}}>Fecha de plantación</label>
+                    <input type="date" value={despForm.fecha_plantacion||""} onChange={e=>setDespForm(p=>({...p,fecha_plantacion:e.target.value}))}
+                      style={{width:"100%",padding:"8px 12px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:13,boxSizing:"border-box"}}/>
+                    <div style={{fontSize:9,color:C.muted2,marginTop:2}}>Desde aquí se cobra el Royalty Comercial</div>
+                  </div>
+                  <div>
+                    <label style={{fontSize:11,fontWeight:600,color:C.muted,display:"block",marginBottom:4}}>Há plantadas</label>
+                    <input type="number" step="0.01" value={despForm.ha_plantadas||""} onChange={e=>setDespForm(p=>({...p,ha_plantadas:e.target.value}))}
+                      style={{width:"100%",padding:"8px 12px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:13,boxSizing:"border-box",textAlign:"right"}}/>
+                  </div>
+                </div>
+                <div style={{marginBottom:16}}>
+                  <label style={{fontSize:11,fontWeight:600,color:C.muted,display:"block",marginBottom:4}}>Observaciones</label>
+                  <textarea value={despForm.observaciones||""} onChange={e=>setDespForm(p=>({...p,observaciones:e.target.value}))}
+                    style={{width:"100%",padding:"8px 12px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:13,minHeight:50,boxSizing:"border-box"}}/>
+                </div>
+                <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}>
+                  <button onClick={()=>{setDespModal(false);setDespEditId(null);}} style={{padding:"8px 16px",borderRadius:8,border:`1px solid ${C.border}`,background:C.card,cursor:"pointer"}}>Cancelar</button>
+                  <button onClick={guardarDespacho} style={{padding:"8px 16px",borderRadius:8,background:C.azul||C.primary,border:"none",color:"#fff",cursor:"pointer",fontWeight:700}}>{despEditId?"Guardar cambios":"Registrar despacho"}</button>
                 </div>
               </div>
             </div>
