@@ -6862,6 +6862,18 @@ async function exportarContratos(filtrado) {
   });
 }
 
+// Enlace robusto OC del vivero ↔ contrato Exp-Prod.
+// 1) contrato_id explícito manda. 2) si no hay, calza por clienteId. 3) fallback por nombre de cliente.
+function ocLigadaAContrato(oc, ct) {
+  if(!oc || !ct) return false;
+  if(oc.contrato_id) return oc.contrato_id===ct.id;        // explícito (si apunta a otro, no calza)
+  if(oc.cliente_id && ct.clienteId && oc.cliente_id===ct.clienteId) return true;
+  const norm = s => (s||"").toString().toLowerCase().trim();
+  const ocNom = norm(oc.cliente_nombre);
+  if(ocNom && (ocNom===norm(ct.razonSocial) || ocNom===norm(ct.cliente))) return true;
+  return false;
+}
+
 // ══════════════════════════════════════════════════════════════════
 // SECCIÓN ÓRDENES DE COMPRA + FACTURAS ROYALTY PLANTA (dentro del contrato)
 // ══════════════════════════════════════════════════════════════════
@@ -8428,9 +8440,7 @@ function ControlContratos({data,setData,clientes,setClientes,variedadesMaestro=[
             // OC reales del cliente que viven en el módulo Viveros, ligadas a este contrato.
             const ocsVivero = [];
             (viverosData||[]).forEach(v=>(v.ordenesCompra||[]).forEach(oc=>{
-              const ligada = (oc.contrato_id && oc.contrato_id===r.id) ||
-                             (!oc.contrato_id && oc.cliente_id && oc.cliente_id===r.clienteId);
-              if(ligada) ocsVivero.push({...oc, _viverista:v.viverista});
+              if(ocLigadaAContrato(oc, r)) ocsVivero.push({...oc, _viverista:v.viverista});
             }));
             return <OrdenesCompraSec r={r} upd={upd} can={can} ocsVivero={ocsVivero}/>;
           })()}
@@ -9413,10 +9423,7 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
     viveros.forEach(v=>(v.ordenesCompra||[]).forEach(oc=>todasOCs.push({...oc, _viveroId:v.id, _viverista:v.viverista})));
     const map = {};
     (ctData||[]).forEach(ct=>{
-      const ocs = todasOCs.filter(oc=>
-        (oc.contrato_id && oc.contrato_id===ct.id) ||
-        (!oc.contrato_id && oc.cliente_id && oc.cliente_id===ct.clienteId)
-      );
+      const ocs = todasOCs.filter(oc=>ocLigadaAContrato(oc, ct));
       if(ocs.length) map[ct.id]=ocs;
     });
     return map;
@@ -12159,16 +12166,22 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
 
                 {/* Contrato ligado (opcional — define tarifas de royalty para modelo OC) */}
                 {(()=>{
-                  const ctsCliente = (ctData||[]).filter(ct=>!ocForm.cliente_id || ct.clienteId===ocForm.cliente_id);
-                  if(ctsCliente.length===0) return null;
+                  const todos = (ctData||[]);
+                  if(todos.length===0) return null;
+                  // Mismo cliente primero, luego el resto (pero se pueden elegir todos).
+                  const mismoCli = todos.filter(ct=>ocForm.cliente_id && ct.clienteId===ocForm.cliente_id);
+                  const resto = todos.filter(ct=>!(ocForm.cliente_id && ct.clienteId===ocForm.cliente_id));
+                  const opt = ct=>(<option key={ct.id} value={ct.id}>{ct.razonSocial} · {ct.tipoContrato||"Contrato"}{ct.modeloIngresos==="oc"?" · [modelo OC]":""}</option>);
                   return (
                     <div style={{marginBottom:12}}>
                       <label style={{fontSize:11,fontWeight:600,color:C.muted,display:"block",marginBottom:4}}>Contrato ligado <span style={{fontWeight:400}}>(para Royalty/Planta y Comercial)</span></label>
                       <select value={ocForm.contrato_id||""} onChange={e=>setOcForm(p=>({...p,contrato_id:e.target.value}))}
                         style={{width:"100%",padding:"8px 12px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:13,boxSizing:"border-box",background:C.card}}>
                         <option value="">— Auto por cliente —</option>
-                        {ctsCliente.map(ct=><option key={ct.id} value={ct.id}>{ct.razonSocial} · {ct.tipoContrato||"Contrato"} {ct.modeloIngresos==="oc"?"· [modelo OC]":""}</option>)}
+                        {mismoCli.length>0&&<optgroup label="Mismo cliente">{mismoCli.map(opt)}</optgroup>}
+                        {resto.length>0&&<optgroup label="Otros contratos">{resto.map(opt)}</optgroup>}
                       </select>
+                      <div style={{fontSize:10,color:C.muted2,marginTop:3}}>Si lo dejas en "Auto por cliente", se liga por el cliente de arriba. Para forzar el enlace, elige el contrato aquí.</div>
                     </div>
                   );
                 })()}
