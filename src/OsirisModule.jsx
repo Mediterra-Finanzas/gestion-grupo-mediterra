@@ -8252,6 +8252,94 @@ function ControlContratos({data,setData,clientes,setClientes,variedadesMaestro=[
               )}
             </div>
 
+            {r.modeloIngresos==="oc" ? (()=>{
+              // Modelo OC: RP y RC derivados de los despachos de las OC del vivero ligadas (solo lectura).
+              const ocsViv=[];
+              (viverosData||[]).forEach(v=>(v.ordenesCompra||[]).forEach(oc=>{ if(ocLigadaAContrato(oc,r)) ocsViv.push(oc); }));
+              const ocsByCt={[r.id]:ocsViv};
+              const rpRows=derivarRoyaltyPlantaDesdeContratos([r],ocsByCt);
+              const rcRows=derivarRoyaltyComercialDesdeContratos([r],ocsByCt);
+              const rpFact=rpRows.reduce((s,x)=>s+(x.montoFact||0),0), rpCobro=rpRows.reduce((s,x)=>s+(x.montoCobro||0),0);
+              const rcFact=rcRows.reduce((s,x)=>s+(x.montoFact||0),0), rcCobro=rcRows.reduce((s,x)=>s+(x.montoCobro||0),0);
+              const inflPct=r.royaltyInflacion?(parseFloat(r.rcInflacionPct)||0):0;
+              return (<>
+                <div style={{padding:"10px 14px",background:C.infoBg||"#eff6ff",border:`1px solid ${C.azul||"#3b82f6"}`,borderRadius:10,marginBottom:14,fontSize:11,color:C.text}}>
+                  🔗 <strong>Modelo OC del vivero.</strong> Royalty/Planta y Comercial se derivan automáticamente de los despachos. Esta vista es <strong>solo lectura</strong>; carga/edita despachos en <strong>Contratos Viveros</strong>.
+                </div>
+                {ocsViv.length===0&&(
+                  <div style={{padding:14,background:C.purpleBg,borderRadius:8,fontSize:12,color:C.text,marginBottom:14}}>
+                    ⚠️ No hay OC del vivero ligadas a este contrato. Ve a <strong>Contratos Viveros</strong>, abre la OC y elígelo en "Contrato ligado".
+                  </div>
+                )}
+                {/* RP derivado */}
+                <div style={{background:C.card,border:`1px solid ${C.success}`,borderRadius:10,padding:14,marginBottom:14}}>
+                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10,flexWrap:"wrap",gap:6}}>
+                    <div style={{fontSize:13,fontWeight:800,color:C.success}}>🌱 Royalty Planta — derivado de despachos</div>
+                    <div style={{fontSize:11,color:C.muted}}>Fact: <strong style={{color:C.text}}>${N(rpFact.toFixed(2))}</strong> · Neto: <strong style={{color:C.success}}>${N(rpCobro.toFixed(2))}</strong></div>
+                  </div>
+                  {rpRows.length===0?(
+                    <div style={{padding:12,background:C.cardAlt,borderRadius:8,fontSize:11,color:C.muted}}>Sin despachos con plantas. Carga despachos en la OC del vivero.</div>
+                  ):(
+                    <div style={{overflowX:"auto",minWidth:0,maxWidth:"calc(100vw - 40px)"}}>
+                      <table style={{width:"100%",borderCollapse:"collapse",fontSize:11}}>
+                        <thead><tr style={{background:C.primary}}>
+                          {["OC / Despacho","Fecha","Plantas","$/planta","Bruto","Neto"].map(h=>(
+                            <th key={h} style={{padding:"6px 8px",textAlign:"left",fontSize:10,fontWeight:700,color:C.primaryText}}>{h}</th>
+                          ))}
+                        </tr></thead>
+                        <tbody>
+                          {rpRows.map(x=>(
+                            <tr key={x.id} style={{borderBottom:"1px solid #ecfdf5"}}>
+                              <td style={{padding:"5px 8px",color:C.text}}>{x.descripcionCuota}</td>
+                              <td style={{padding:"5px 8px"}}>{x.fechaEvento||"—"}</td>
+                              <td style={{padding:"5px 8px",textAlign:"right"}}>{N(x.nPlantas)}</td>
+                              <td style={{padding:"5px 8px",textAlign:"right"}}>${N(x.usdPlanta)}</td>
+                              <td style={{padding:"5px 8px",textAlign:"right",fontWeight:700,color:C.text}}>${N(x.montoFact.toFixed(2))}</td>
+                              <td style={{padding:"5px 8px",textAlign:"right",fontWeight:700,color:C.success}}>${N(x.montoCobro.toFixed(2))}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+                {/* RC derivado */}
+                <div style={{background:C.card,border:`1px solid ${C.warning}`,borderRadius:10,padding:14}}>
+                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10,flexWrap:"wrap",gap:6}}>
+                    <div style={{fontSize:13,fontWeight:800,color:C.text}}>📈 Royalty Comercial — por temporada {inflPct>0?<span style={{fontSize:10,color:C.am}}>(inflación {N(inflPct)}% anual)</span>:null}</div>
+                    <div style={{fontSize:11,color:C.muted}}>Fact: <strong style={{color:C.text}}>${N(rcFact.toFixed(2))}</strong> · Neto: <strong style={{color:C.success}}>${N(rcCobro.toFixed(2))}</strong></div>
+                  </div>
+                  {rcRows.length===0?(
+                    <div style={{padding:12,background:C.purpleBg,borderRadius:8,fontSize:11,color:C.text}}>Sin hectáreas plantadas con fecha de plantación. En cada despacho carga "Há plantadas" y "Fecha de plantación".</div>
+                  ):(
+                    <div style={{overflowX:"auto",minWidth:0,maxWidth:"calc(100vw - 40px)"}}>
+                      <table style={{width:"100%",borderCollapse:"collapse",fontSize:11}}>
+                        <thead><tr style={{background:C.primary}}>
+                          {["Temporada","Mes cobro","Há","$/há (infl)","Bruto","Neto","Pagado","N° Fact."].map(h=>(
+                            <th key={h} style={{padding:"6px 8px",textAlign:"left",fontSize:10,fontWeight:700,color:C.primaryText}}>{h}</th>
+                          ))}
+                        </tr></thead>
+                        <tbody>
+                          {rcRows.map(x=>(
+                            <tr key={x.id} style={{borderBottom:"1px solid #fef3c7",background:x.pagado?C.successBg:""}}>
+                              <td style={{padding:"5px 8px",fontWeight:700,color:C.text}}>{x.temporada}</td>
+                              <td style={{padding:"5px 8px"}}>{x.mesCobro} {x.añoCobro}</td>
+                              <td style={{padding:"5px 8px",textAlign:"right"}}>{N((x.haTotal||0).toFixed(2))}</td>
+                              <td style={{padding:"5px 8px",textAlign:"right"}}>${N((x.valorPorHaInfl||0).toFixed(2))}{x.factorInfl>1?<span style={{fontSize:9,color:C.am,display:"block"}}>×{x.factorInfl.toFixed(3)}</span>:null}</td>
+                              <td style={{padding:"5px 8px",textAlign:"right",fontWeight:700,color:C.text}}>${N(x.montoFact.toFixed(2))}</td>
+                              <td style={{padding:"5px 8px",textAlign:"right",fontWeight:700,color:C.success}}>${N(x.montoCobro.toFixed(2))}</td>
+                              <td style={{padding:"5px 8px",textAlign:"center"}}>{x.pagado?"✓":"—"}</td>
+                              <td style={{padding:"5px 8px"}}>{x.nFact||"—"}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                  <div style={{fontSize:10,color:C.muted2,marginTop:8}}>El estado de cobro (pagado / N° factura) por temporada se gestiona en la pestaña Royalty Comercial del módulo de Ingresos.</div>
+                </div>
+              </>);
+            })() : (<>
             {/* Sub-sección 2: Royalty Planta - cuotas */}
             <div style={{background:C.card,border:`1px solid ${C.success}`,borderRadius:10,padding:14,marginBottom:14}}>
               <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
@@ -8433,6 +8521,7 @@ function ControlContratos({data,setData,clientes,setClientes,variedadesMaestro=[
                 );
               })()}
             </div>
+            </>)}
           </>)}
 
           {/* ── SECCIÓN: ÓRDENES DE COMPRA + FACTURAS ROYALTY PLANTA ── */}
