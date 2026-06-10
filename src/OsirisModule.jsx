@@ -7466,6 +7466,30 @@ function ControlContratos({data,setData,clientes,setClientes,variedadesMaestro=[
     alert("Listo. El contrato quedó en modelo OC con la(s) OC del vivero generada(s).\n\nRevisa 'Cobros derivados' y 'Órdenes de Compra'. La data legacy sigue disponible si vuelves a modelo legacy.");
   }
 
+  // Deshacer la migración: borra las OC generadas por migración para este contrato
+  // y vuelve el contrato a modelo legacy. La data legacy (plantaciones/cuotas) nunca se tocó.
+  function deshacerMigracion(ct){
+    const migs = [];
+    (viverosData||[]).forEach(v=>(v.ordenesCompra||[]).forEach(oc=>{
+      if(oc._migradaDeContrato && oc.contrato_id===ct.id) migs.push({viveroId:v.id, ocId:oc.id, n_oc:oc.n_oc});
+    }));
+    const msg = migs.length>0
+      ? `Se eliminarán ${migs.length} OC generada(s) por migración (${migs.map(m=>m.n_oc).join(", ")}) y el contrato volverá a modelo legacy.\n\nLas plantaciones y cuotas legacy quedan intactas. ¿Continuar?`
+      : `El contrato volverá a modelo legacy. No se encontraron OC de migración para borrar.\n\n¿Continuar?`;
+    if(!window.confirm(msg)) return;
+    if(setViveros && migs.length>0){
+      const idsPorVivero = {};
+      migs.forEach(m=>{ (idsPorVivero[m.viveroId]=idsPorVivero[m.viveroId]||new Set()).add(m.ocId); });
+      setViveros(prev=>(prev||[]).map(v=> idsPorVivero[v.id]
+        ? {...v, ordenesCompra:(v.ordenesCompra||[]).filter(oc=>!idsPorVivero[v.id].has(oc.id))}
+        : v));
+    }
+    setData(prev=>prev.map(c=>c.id===ct.id?{...c, modeloIngresos:"legacy"}:c));
+    window.auditLog && window.auditLog("eliminar",{modulo:"osiris",seccion:"Migración a modelo OC",
+      descripcion:`Deshizo migración del contrato "${ct.razonSocial}": volvió a legacy y borró ${migs.length} OC de migración`});
+    alert("Migración deshecha. El contrato volvió a modelo legacy y se borraron las OC generadas. Tus plantaciones y cuotas siguen como estaban.");
+  }
+
   const filtrado=data.filter(r=>{
     const q=busq.toLowerCase();
     return (filtroPais==="Todos"||r.pais===filtroPais)&&
@@ -7922,9 +7946,15 @@ function ControlContratos({data,setData,clientes,setClientes,variedadesMaestro=[
               ocsViv.forEach(oc=>(oc.despachos||[]).forEach(d=>filas.push({...d, _oc:oc.n_oc})));
               const totPl=filas.reduce((s,d)=>s+(Number(d.cantidad_despachada)||0),0);
               const totHa=filas.reduce((s,d)=>s+(Number(d.ha_plantadas)||0),0);
+              const tieneMig = (viverosData||[]).some(v=>(v.ordenesCompra||[]).some(oc=>oc._migradaDeContrato && oc.contrato_id===r.id));
               return (<>
-                <div style={{padding:"10px 14px",background:C.infoBg||"#eff6ff",border:`1px solid ${C.azul||"#3b82f6"}`,borderRadius:10,marginBottom:14,fontSize:11,color:C.text}}>
-                  🔗 <strong>Modelo OC del vivero.</strong> Las plantaciones reales se derivan de los <strong>despachos</strong> de la OC del vivero. Esta vista es informativa; se carga/edita en <strong>Contratos Viveros</strong>.
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:10,marginBottom:14,flexWrap:"wrap"}}>
+                  <div style={{flex:1,minWidth:240,padding:"10px 14px",background:C.infoBg||"#eff6ff",border:`1px solid ${C.azul||"#3b82f6"}`,borderRadius:10,fontSize:11,color:C.text}}>
+                    🔗 <strong>Modelo OC del vivero.</strong> Las plantaciones reales se derivan de los <strong>despachos</strong> de la OC del vivero. Esta vista es informativa; se carga/edita en <strong>Contratos Viveros</strong>.
+                  </div>
+                  {can&&tieneMig&&<button onClick={()=>deshacerMigracion(r)}
+                    title="Vuelve el contrato a modelo legacy y borra las OC generadas por la migración (no toca tus plantaciones)"
+                    style={{background:C.card,color:C.danger,border:`1px solid ${C.danger}`,borderRadius:8,padding:"7px 14px",cursor:"pointer",fontSize:12,fontWeight:700,whiteSpace:"nowrap"}}>↩️ Deshacer migración</button>}
                 </div>
                 {filas.length===0?(
                   <div style={{padding:30,textAlign:"center",color:C.muted2,border:"1px dashed #e2e8f0",borderRadius:10}}>
