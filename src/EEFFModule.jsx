@@ -1077,18 +1077,6 @@ export default function EEFFModule({ canEdit, usuarioActual, empresasPermitidas 
     }
   }, [anio, mes]);
 
-  // ── Handler: exportar auxiliar ───────────────────────────────────
-  const handleExportarAuxiliar = useCallback(() => {
-    if (!drawerAuxiliar || !cuentaSeleccionada) return;
-    exportarAuxiliarXLSX({ ...drawerAuxiliar, cuenta: cuentaSeleccionada.codigo, empresa, mes, anio });
-  }, [drawerAuxiliar, cuentaSeleccionada, empresa, mes, anio]);
-
-  // ── Handler: exportar EEFF ───────────────────────────────────────
-  const handleExportarEEFF = useCallback(() => {
-    if (!eeffData) return;
-    exportarEEFFXLSX({ cpgYtd, cpgMes, empresa, mes, anio });
-  }, [eeffData, cpgYtd, cpgMes, empresa, mes, anio]);
-
   // ── Derived: cpg por fuente ──────────────────────────────────────
   // cpgYtd: siempre acumulado (cuentas_ytd si existe, o legacy cuentas)
   const cpgYtd = useMemo(() => buildCpg(eeffData?.cuentas_ytd || eeffData?.cuentas), [eeffData]);
@@ -1247,6 +1235,17 @@ export default function EEFFModule({ canEdit, usuarioActual, empresasPermitidas 
       hayVencimiento,
     };
   }, [cuentaSeleccionada, drawerMovimientos, mes, tercerosMaestro, tieneAuxiliar]);
+
+  // ── Handlers de export (van DESPUÉS de todos los derived values) ─
+  const handleExportarAuxiliar = useCallback(() => {
+    if (!drawerAuxiliar || !cuentaSeleccionada) return;
+    exportarAuxiliarXLSX({ ...drawerAuxiliar, cuenta: cuentaSeleccionada.codigo, empresa, mes, anio });
+  }, [drawerAuxiliar, cuentaSeleccionada, empresa, mes, anio]);
+
+  const handleExportarEEFF = useCallback(() => {
+    if (!eeffData) return;
+    exportarEEFFXLSX({ cpgYtd, cpgMes, empresa, mes, anio });
+  }, [eeffData, cpgYtd, cpgMes, empresa, mes, anio]);
 
   // ── Render ───────────────────────────────────────────────────────
   return (
