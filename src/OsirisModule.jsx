@@ -1654,7 +1654,7 @@ function RoyaltyPlanta({data,setData,tpData,can,clientes=[]}) {
     // Las filas derivadas de contrato pueden NO existir aún en el RAW → hay que
     // hacer upsert: si existe se actualiza, si no se crea una fila-override por id.
     const fila = (dataConSync||[]).find(r=>r.id===id);
-    if(fila && fila._fromOC) return; // modelo OC: el cobro se gestiona en el contrato; Ingresos es informativo
+    if(fila && fila._fromContract) return; // derivado de contrato: el cobro se gestiona en el contrato; Ingresos es informativo
     if(fila && String(fila[c]||"") !== String(v||"")) {
       window.auditLog&&window.auditLog("editar", {modulo:"osiris", seccion:"Royalty Planta",
         descripcion:`Editó royalty/planta de "${fila.cliente}" · ${fila.pais}: campo ${c}`,
@@ -1800,12 +1800,12 @@ function RoyaltyPlanta({data,setData,tpData,can,clientes=[]}) {
                   </td>
                   <td style={{padding:"7px 10px",textAlign:"right",fontWeight:700,color:C.verde}}>{$$(r.montoCobro)}</td>
                   <td style={{padding:"7px 10px",textAlign:"center"}}>
-                    <Cell val={r.nFact||""} onChange={v=>upd(r.id,"nFact",v)} can={can&&!r._fromOC} ph="F-001"/>
+                    <Cell val={r.nFact||""} onChange={v=>upd(r.id,"nFact",v)} can={can&&!r._fromContract} ph="F-001"/>
                   </td>
                   <td style={{padding:"7px 10px",textAlign:"center"}}>
                     {/* Monto Facturado + % del total */}
                     <div style={{display:"flex",flexDirection:"column",alignItems:"center",gap:3}}>
-                      <Cell val={r.montoFacturado||""} onChange={v=>upd(r.id,"montoFacturado",parseFloat(v)||"")} type="number" can={can&&!r._fromOC} ph="0"/>
+                      <Cell val={r.montoFacturado||""} onChange={v=>upd(r.id,"montoFacturado",parseFloat(v)||"")} type="number" can={can&&!r._fromContract} ph="0"/>
                       {r.montoFacturado&&r.montoFact>0?(
                         <span style={{
                           background: ((Number(r.montoFacturado)/r.montoFact)>=0.999)?C.successBg:C.infoBg,
@@ -1827,11 +1827,11 @@ function RoyaltyPlanta({data,setData,tpData,can,clientes=[]}) {
                     </span>
                   </td>
                   <td style={{padding:"7px 10px",textAlign:"center"}}>
-                    <BadgeEstadoCF estado={resolveEstadoCF(r)} onChange={v=>upd(r.id,"estadoCF",v)} can={can&&!r._fromOC}/>
-                    <CobrosParcialesCell total={r.montoCobro} info={r.cobrosInfo} can={can&&!r._fromOC} onChange={v=>upd(r.id,"cobrosInfo",v)}/>
+                    <BadgeEstadoCF estado={resolveEstadoCF(r)} onChange={v=>upd(r.id,"estadoCF",v)} can={can&&!r._fromContract}/>
+                    <CobrosParcialesCell total={r.montoCobro} info={r.cobrosInfo} can={can&&!r._fromContract} onChange={v=>upd(r.id,"cobrosInfo",v)}/>
                   </td>
                   <td style={{padding:"7px 10px",textAlign:"center",fontSize:12}}>
-                    <Cell val={r.fechaPago||""} onChange={v=>upd(r.id,"fechaPago",v)} type="date" can={can&&!r._fromOC}/>
+                    <Cell val={r.fechaPago||""} onChange={v=>upd(r.id,"fechaPago",v)} type="date" can={can&&!r._fromContract}/>
                   </td>
                   {can&&<td style={{padding:"4px 6px",textAlign:"center"}}>
                     {r._fromContract?(
@@ -2218,7 +2218,7 @@ function RoyaltyComercial({data,setData,tpData,can,clientes=[]}) {
     // data es rcData (vista derivada + overrides); setData es setRc (array RAW).
     // Upsert: las filas derivadas de contrato pueden no existir aún en el RAW.
     const fila = (dataConSync||[]).find(r=>r.id===id);
-    if(fila && fila._fromOC) return; // modelo OC: el cobro se gestiona en el contrato; Ingresos es informativo
+    if(fila && fila._fromContract) return; // derivado de contrato: el cobro se gestiona en el contrato; Ingresos es informativo
     if(fila && String(fila[c]||"") !== String(v||"")) {
       window.auditLog&&window.auditLog("editar", {modulo:"osiris", seccion:"Royalty Comercial",
         descripcion:`Editó royalty comercial de "${fila.cliente}" · ${fila.pais} ${fila.añoCobro||""}: campo ${c}`,
@@ -2388,7 +2388,7 @@ function RoyaltyComercial({data,setData,tpData,can,clientes=[]}) {
                   </td>
                   <td style={{padding:"7px 10px",textAlign:"right",fontWeight:700,color:C.verde}}>{$$(r.montoCobro)}</td>
                   <td style={{padding:"7px 10px",textAlign:"center"}}>
-                    <Cell val={r.nFact||""} onChange={v=>upd(r.id,"nFact",v)} can={can&&!r._fromOC} ph="F-001"/>
+                    <Cell val={r.nFact||""} onChange={v=>upd(r.id,"nFact",v)} can={can&&!r._fromContract} ph="F-001"/>
                   </td>
                   <td style={{padding:"7px 10px",textAlign:"center"}}>
                     <span style={{
@@ -2400,8 +2400,8 @@ function RoyaltyComercial({data,setData,tpData,can,clientes=[]}) {
                     </span>
                   </td>
                   <td style={{padding:"7px 10px",textAlign:"center"}}>
-                    <BadgeEstadoCF estado={resolveEstadoCF(r)} onChange={v=>upd(r.id,"estadoCF",v)} can={can&&!r._fromOC}/>
-                    <CobrosParcialesCell total={r.montoCobro} info={r.cobrosInfo} can={can&&!r._fromOC} onChange={v=>upd(r.id,"cobrosInfo",v)}/>
+                    <BadgeEstadoCF estado={resolveEstadoCF(r)} onChange={v=>upd(r.id,"estadoCF",v)} can={can&&!r._fromContract}/>
+                    <CobrosParcialesCell total={r.montoCobro} info={r.cobrosInfo} can={can&&!r._fromContract} onChange={v=>upd(r.id,"cobrosInfo",v)}/>
                   </td>
                   <td style={{padding:"7px 10px",textAlign:"center"}}>
                     {r.alertaActiva
@@ -6573,6 +6573,7 @@ function derivarRoyaltyPlantaDesdeContratos(ctData, ocsByCt) {
             fechaEvento: ev.fecha,
             pagado: !!pago.pagado,
             fechaPago: pago.fechaPago || "",
+            fechaEst: pago.fechaEst || "",
             nFact: pago.nFact || "",
             _fromContract: true,
             _fromOC: true,
@@ -6720,6 +6721,7 @@ function derivarRoyaltyComercialDesdeContratos(ctData, ocsByCt) {
           añoCobro: parseInt(temp.split("/")[1]),
           pagado: !!pago.pagado,
           fechaPago: pago.fechaPago || "",
+          fechaEst: pago.fechaEst || "",
           nFact: pago.nFact || "",
           _fromContract: true,
           _fromOC: true,
@@ -8337,12 +8339,13 @@ function ControlContratos({data,setData,clientes,setClientes,variedadesMaestro=[
                   <td style={{padding:"5px 8px",textAlign:"right"}}>${N((x.valorPorHaInfl||0).toFixed(2))}{x.factorInfl>1?<span style={{fontSize:9,color:C.am,display:"block"}}>×{x.factorInfl.toFixed(3)}</span>:null}</td>
                   <td style={{padding:"5px 8px",textAlign:"right",fontWeight:700,color:C.text}}>${N(x.montoFact.toFixed(2))}</td>
                   <td style={{padding:"5px 8px",textAlign:"right",fontWeight:700,color:C.success}}>${N(x.montoCobro.toFixed(2))}</td>
+                  <td style={{padding:"5px 8px"}}>{can?<input value={x.fechaEst||""} type="date" onChange={e=>updRcPago(x.temporada,"fechaEst",e.target.value)} style={inp}/>:(x.fechaEst||"—")}</td>
                   <td style={{padding:"5px 8px",textAlign:"center"}}>{editable&&can?<input type="checkbox" checked={!!x.pagado} onChange={e=>updRcPago(x.temporada,"pagado",e.target.checked)}/>:(x.pagado?"✓":"—")}</td>
                   <td style={{padding:"5px 8px"}}>{editable&&can?<input value={x.fechaPago||""} type="date" onChange={e=>updRcPago(x.temporada,"fechaPago",e.target.value)} style={inp}/>:(x.fechaPago||"—")}</td>
                   <td style={{padding:"5px 8px"}}>{editable&&can?<input value={x.nFact||""} onChange={e=>updRcPago(x.temporada,"nFact",e.target.value)} placeholder="F-000" style={{...inp,width:70}}/>:(x.nFact||"—")}</td>
                 </tr>
               );
-              const headRC=["Temporada","Mes cobro","Há","$/há (infl)","Bruto","Neto","Pagado","Fecha pago","N° Fact."];
+              const headRC=["Temporada","Mes cobro","Há","$/há (infl)","Bruto","Neto","Fecha est. cobro","Pagado","Fecha pago","N° Fact."];
               return (<>
                 <div style={{padding:"10px 14px",background:C.infoBg||"#eff6ff",border:`1px solid ${C.azul||"#3b82f6"}`,borderRadius:10,marginBottom:14,fontSize:11,color:C.text}}>
                   🔗 <strong>Modelo OC del vivero.</strong> Los montos se derivan de los despachos (se editan en <strong>Contratos Viveros</strong>). Aquí solo marcas el <strong>estado de cobro</strong>: pagado, fecha y N° de factura.
@@ -8364,7 +8367,7 @@ function ControlContratos({data,setData,clientes,setClientes,variedadesMaestro=[
                     <div style={{overflowX:"auto",minWidth:0,maxWidth:"calc(100vw - 40px)"}}>
                       <table style={{width:"100%",borderCollapse:"collapse",fontSize:11}}>
                         <thead><tr style={{background:C.primary}}>
-                          {["OC / Despacho","Fecha","Plantas","$/planta","Bruto","Neto","Pagado","Fecha pago","N° Fact."].map(h=>(
+                          {["OC / Despacho","Fecha","Plantas","$/planta","Bruto","Neto","Fecha est. cobro","Pagado","Fecha pago","N° Fact."].map(h=>(
                             <th key={h} style={{padding:"6px 8px",textAlign:"left",fontSize:10,fontWeight:700,color:C.primaryText}}>{h}</th>
                           ))}
                         </tr></thead>
@@ -8377,6 +8380,7 @@ function ControlContratos({data,setData,clientes,setClientes,variedadesMaestro=[
                               <td style={{padding:"5px 8px",textAlign:"right"}}>${N(x.usdPlanta)}</td>
                               <td style={{padding:"5px 8px",textAlign:"right",fontWeight:700,color:C.text}}>${N(x.montoFact.toFixed(2))}</td>
                               <td style={{padding:"5px 8px",textAlign:"right",fontWeight:700,color:C.success}}>${N(x.montoCobro.toFixed(2))}</td>
+                              <td style={{padding:"5px 8px"}}>{can?<input type="date" value={x.fechaEst||""} onChange={e=>updRpPago(x.cuotaId,"fechaEst",e.target.value)} style={inp}/>:(x.fechaEst||"—")}</td>
                               <td style={{padding:"5px 8px",textAlign:"center"}}>{can?<input type="checkbox" checked={!!x.pagado} onChange={e=>updRpPago(x.cuotaId,"pagado",e.target.checked)}/>:(x.pagado?"✓":"—")}</td>
                               <td style={{padding:"5px 8px"}}>{can?<input type="date" value={x.fechaPago||""} onChange={e=>updRpPago(x.cuotaId,"fechaPago",e.target.value)} style={inp}/>:(x.fechaPago||"—")}</td>
                               <td style={{padding:"5px 8px"}}>{can?<input value={x.nFact||""} onChange={e=>updRpPago(x.cuotaId,"nFact",e.target.value)} placeholder="F-000" style={{...inp,width:70}}/>:(x.nFact||"—")}</td>
