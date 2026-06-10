@@ -61,6 +61,8 @@ const S = {
   catLabel: { font:{ name:FONT, sz:10, bold:true, color:{rgb:NAVY} }, fill:{ fgColor:{rgb:GRAY} }, alignment:{ horizontal:'left' }, border:BORD },
   catNum:   { font:{ name:FONT, sz:10, bold:true }, fill:{ fgColor:{rgb:GRAY} }, alignment:{ horizontal:'right' }, numFmt:FMT, border:BORD },
   lineLabel:{ font:{ name:FONT, sz:10 }, alignment:{ horizontal:'left', indent:1 }, border:BORD },
+  linkLabel:{ font:{ name:FONT, sz:10, color:{rgb:'006100'} }, alignment:{ horizontal:'left', indent:2 }, border:BORD },
+  linkNum:  { font:{ name:FONT, sz:10, color:{rgb:'006100'} }, alignment:{ horizontal:'right' }, numFmt:FMT, border:BORD },
   input:    { font:{ name:FONT, sz:10, color:{rgb:INPUTBLUE} }, fill:{ fgColor:{rgb:YELLOW} }, alignment:{ horizontal:'right' }, numFmt:FMT, border:BORD },
   formula:  { font:{ name:FONT, sz:10 }, alignment:{ horizontal:'right' }, numFmt:FMT, border:BORD },
   sumLabel: { font:{ name:FONT, sz:10, bold:true }, alignment:{ horizontal:'left' }, border:BORD },
@@ -154,9 +156,13 @@ function buildStatement({ title, subtitle, cols, monthOrder, cats, saldoIniValue
     const catLines = def.lines || [];
     const firstLineRow = r + 1;
     catLines.forEach(ln => {
-      cells[ref(r+1,0)] = { t:'s', v:ln.label, s:S.lineLabel };
-      monthOrder.forEach((mc,k) => { const v=Number(ln.vals[k])||0; num[ref(r+1,mc.c)]=v; cells[ref(r+1,mc.c)] = { t:'n', v, s:S.input }; });
-      fillAdditive(cells, num, r+1, cols, S.formula);
+      const isLink = !!ln.cellFormula;
+      cells[ref(r+1,0)] = { t:'s', v:ln.label, s:isLink?S.linkLabel:S.lineLabel };
+      monthOrder.forEach((mc,k) => {
+        if (isLink) { const v=ln.cellNumber?ln.cellNumber(mc):0; num[ref(r+1,mc.c)]=v; cells[ref(r+1,mc.c)] = { t:'n', f:ln.cellFormula(mc), v, s:S.linkNum }; }
+        else { const v=Number(ln.vals[k])||0; num[ref(r+1,mc.c)]=v; cells[ref(r+1,mc.c)] = { t:'n', v, s:S.input }; }
+      });
+      fillAdditive(cells, num, r+1, cols, isLink?S.linkNum:S.formula);
       setLvl(r,2); r++;
     });
     const lastLineRow = r;
@@ -164,7 +170,7 @@ function buildStatement({ title, subtitle, cols, monthOrder, cats, saldoIniValue
     cells[ref(subRow,0)] = { t:'s', v:CAT_LABEL[cat], s:S.catLabel };
     monthOrder.forEach((mc,k) => {
       if (catLines.length > 0) {
-        const v = catLines.reduce((a,ln)=>a+(Number(ln.vals[k])||0),0);
+        let v = 0; for (let lr=firstLineRow; lr<=lastLineRow; lr++) v += num[ref(lr,mc.c)]||0;
         num[ref(subRow,mc.c)] = v;
         cells[ref(subRow,mc.c)] = { t:'n', f:`SUM(${ref(firstLineRow,mc.c)}:${ref(lastLineRow,mc.c)})`, v, s:S.catNum };
       } else if (def.monthFormula) {
@@ -297,11 +303,15 @@ export function exportarFlujoConsolidado({ empresasConOverrides, empNames, saldo
     });
   });
 
-  // hoja consolidado (categoría) → fórmulas cruzadas a hojas empresa + valor cacheado
+  // hoja consolidado (categoría) → una línea desplegable por empresa que
+  // enlaza a su hoja (fórmula + valor cacheado). El subtotal suma esas líneas.
   const consCats = CAT_ORDER.map(cat => ({
-    cat, lines:[],
-    monthFormula: (mc) => empNames.map(n => `'${sheetName[n]}'!${ref(empBuilt[n].catRows[cat], mc.c)}`).join('+'),
-    monthNumber:  (mc) => empNames.reduce((a,n)=>a+(empBuilt[n].num[ref(empBuilt[n].catRows[cat], mc.c)]||0),0),
+    cat,
+    lines: empNames.map(n => ({
+      label: `${empresasConOverrides[n].emoji || ''} ${n}`.trim(),
+      cellFormula: (mc) => `'${sheetName[n]}'!${ref(empBuilt[n].catRows[cat], mc.c)}`,
+      cellNumber:  (mc) => empBuilt[n].num[ref(empBuilt[n].catRows[cat], mc.c)] || 0,
+    })),
   }));
   const saldoIniCons = monthOrder[0] && empNames.map(n => `'${sheetName[n]}'!${ref(empBuilt[n].saldoIniRow, monthOrder[0].c)}`).join('+');
   const saldoIniConsNum = monthOrder[0] ? empNames.reduce((a,n)=>a+(empBuilt[n].num[ref(empBuilt[n].saldoIniRow, monthOrder[0].c)]||0),0) : 0;
