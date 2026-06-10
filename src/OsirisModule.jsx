@@ -1654,6 +1654,7 @@ function RoyaltyPlanta({data,setData,tpData,can,clientes=[]}) {
     // Las filas derivadas de contrato pueden NO existir aún en el RAW → hay que
     // hacer upsert: si existe se actualiza, si no se crea una fila-override por id.
     const fila = (dataConSync||[]).find(r=>r.id===id);
+    if(fila && fila._fromOC) return; // modelo OC: el cobro se gestiona en el contrato; Ingresos es informativo
     if(fila && String(fila[c]||"") !== String(v||"")) {
       window.auditLog&&window.auditLog("editar", {modulo:"osiris", seccion:"Royalty Planta",
         descripcion:`Editó royalty/planta de "${fila.cliente}" · ${fila.pais}: campo ${c}`,
@@ -1799,12 +1800,12 @@ function RoyaltyPlanta({data,setData,tpData,can,clientes=[]}) {
                   </td>
                   <td style={{padding:"7px 10px",textAlign:"right",fontWeight:700,color:C.verde}}>{$$(r.montoCobro)}</td>
                   <td style={{padding:"7px 10px",textAlign:"center"}}>
-                    <Cell val={r.nFact||""} onChange={v=>upd(r.id,"nFact",v)} can={can} ph="F-001"/>
+                    <Cell val={r.nFact||""} onChange={v=>upd(r.id,"nFact",v)} can={can&&!r._fromOC} ph="F-001"/>
                   </td>
                   <td style={{padding:"7px 10px",textAlign:"center"}}>
                     {/* Monto Facturado + % del total */}
                     <div style={{display:"flex",flexDirection:"column",alignItems:"center",gap:3}}>
-                      <Cell val={r.montoFacturado||""} onChange={v=>upd(r.id,"montoFacturado",parseFloat(v)||"")} type="number" can={can} ph="0"/>
+                      <Cell val={r.montoFacturado||""} onChange={v=>upd(r.id,"montoFacturado",parseFloat(v)||"")} type="number" can={can&&!r._fromOC} ph="0"/>
                       {r.montoFacturado&&r.montoFact>0?(
                         <span style={{
                           background: ((Number(r.montoFacturado)/r.montoFact)>=0.999)?C.successBg:C.infoBg,
@@ -1826,11 +1827,11 @@ function RoyaltyPlanta({data,setData,tpData,can,clientes=[]}) {
                     </span>
                   </td>
                   <td style={{padding:"7px 10px",textAlign:"center"}}>
-                    <BadgeEstadoCF estado={resolveEstadoCF(r)} onChange={v=>upd(r.id,"estadoCF",v)} can={can}/>
-                    <CobrosParcialesCell total={r.montoCobro} info={r.cobrosInfo} can={can} onChange={v=>upd(r.id,"cobrosInfo",v)}/>
+                    <BadgeEstadoCF estado={resolveEstadoCF(r)} onChange={v=>upd(r.id,"estadoCF",v)} can={can&&!r._fromOC}/>
+                    <CobrosParcialesCell total={r.montoCobro} info={r.cobrosInfo} can={can&&!r._fromOC} onChange={v=>upd(r.id,"cobrosInfo",v)}/>
                   </td>
                   <td style={{padding:"7px 10px",textAlign:"center",fontSize:12}}>
-                    <Cell val={r.fechaPago||""} onChange={v=>upd(r.id,"fechaPago",v)} type="date" can={can}/>
+                    <Cell val={r.fechaPago||""} onChange={v=>upd(r.id,"fechaPago",v)} type="date" can={can&&!r._fromOC}/>
                   </td>
                   {can&&<td style={{padding:"4px 6px",textAlign:"center"}}>
                     {r._fromContract?(
@@ -2217,6 +2218,7 @@ function RoyaltyComercial({data,setData,tpData,can,clientes=[]}) {
     // data es rcData (vista derivada + overrides); setData es setRc (array RAW).
     // Upsert: las filas derivadas de contrato pueden no existir aún en el RAW.
     const fila = (dataConSync||[]).find(r=>r.id===id);
+    if(fila && fila._fromOC) return; // modelo OC: el cobro se gestiona en el contrato; Ingresos es informativo
     if(fila && String(fila[c]||"") !== String(v||"")) {
       window.auditLog&&window.auditLog("editar", {modulo:"osiris", seccion:"Royalty Comercial",
         descripcion:`Editó royalty comercial de "${fila.cliente}" · ${fila.pais} ${fila.añoCobro||""}: campo ${c}`,
@@ -2386,7 +2388,7 @@ function RoyaltyComercial({data,setData,tpData,can,clientes=[]}) {
                   </td>
                   <td style={{padding:"7px 10px",textAlign:"right",fontWeight:700,color:C.verde}}>{$$(r.montoCobro)}</td>
                   <td style={{padding:"7px 10px",textAlign:"center"}}>
-                    <Cell val={r.nFact||""} onChange={v=>upd(r.id,"nFact",v)} can={can} ph="F-001"/>
+                    <Cell val={r.nFact||""} onChange={v=>upd(r.id,"nFact",v)} can={can&&!r._fromOC} ph="F-001"/>
                   </td>
                   <td style={{padding:"7px 10px",textAlign:"center"}}>
                     <span style={{
@@ -2398,8 +2400,8 @@ function RoyaltyComercial({data,setData,tpData,can,clientes=[]}) {
                     </span>
                   </td>
                   <td style={{padding:"7px 10px",textAlign:"center"}}>
-                    <BadgeEstadoCF estado={resolveEstadoCF(r)} onChange={v=>upd(r.id,"estadoCF",v)} can={can}/>
-                    <CobrosParcialesCell total={r.montoCobro} info={r.cobrosInfo} can={can} onChange={v=>upd(r.id,"cobrosInfo",v)}/>
+                    <BadgeEstadoCF estado={resolveEstadoCF(r)} onChange={v=>upd(r.id,"estadoCF",v)} can={can&&!r._fromOC}/>
+                    <CobrosParcialesCell total={r.montoCobro} info={r.cobrosInfo} can={can&&!r._fromOC} onChange={v=>upd(r.id,"cobrosInfo",v)}/>
                   </td>
                   <td style={{padding:"7px 10px",textAlign:"center"}}>
                     {r.alertaActiva
