@@ -96,23 +96,27 @@ function seasonKeyForMonthGroup(cols, i) {
   return '';
 }
 
-// Llena temp/grand de una fila aditiva con el estilo dado
-function fillAdditive(cells, r1, cols, sty) {
+// Llena temp/grand de una fila aditiva (con valor cacheado + estilo)
+function fillAdditive(cells, num, r1, cols, sty) {
   cols.forEach(col => {
     if (col.kind === 'temp') {
       const first = col.members[0], last = col.members[col.members.length - 1];
-      cells[ref(r1, col.c)] = { t:'n', f:`SUM(${ref(r1, first)}:${ref(r1, last)})`, s:sty };
+      const v = col.members.reduce((a,cc)=>a+(num[ref(r1,cc)]||0),0);
+      num[ref(r1,col.c)] = v;
+      cells[ref(r1, col.c)] = { t:'n', f:`SUM(${ref(r1, first)}:${ref(r1, last)})`, v, s:sty };
     } else if (col.kind === 'grand') {
       const parts = col.members.map(cc => ref(r1, cc)).join(',');
-      cells[ref(r1, col.c)] = { t:'n', f:`SUM(${parts})`, s:sty };
+      const v = col.members.reduce((a,cc)=>a+(num[ref(r1,cc)]||0),0);
+      num[ref(r1,col.c)] = v;
+      cells[ref(r1, col.c)] = { t:'n', f:`SUM(${parts})`, v, s:sty };
     }
   });
 }
 
 // ── construye una hoja de "estado de flujo" (empresa o consolidado) ──
-function buildStatement({ title, subtitle, cols, monthOrder, cats, saldoIniValue, saldoIniMonth0Formula }) {
+function buildStatement({ title, subtitle, cols, monthOrder, cats, saldoIniValue, saldoIniMonth0Formula, saldoIniMonth0Number }) {
   // cats: [{ cat, lines:[{label,vals}], monthFormula?(mc)->string }]
-  const cells = {}; const rows = []; const merges = [];
+  const cells = {}; const rows = []; const merges = []; const num = {};
   let r = 0;
   const setLvl = (r0, lvl) => { rows[r0] = { level:lvl }; };
   const catByKey = {}; cats.forEach(c => { catByKey[c.cat] = c; });
@@ -151,66 +155,82 @@ function buildStatement({ title, subtitle, cols, monthOrder, cats, saldoIniValue
     const firstLineRow = r + 1;
     catLines.forEach(ln => {
       cells[ref(r+1,0)] = { t:'s', v:ln.label, s:S.lineLabel };
-      monthOrder.forEach((mc,k) => { cells[ref(r+1,mc.c)] = { t:'n', v:Number(ln.vals[k])||0, s:S.input }; });
-      fillAdditive(cells, r+1, cols, S.formula);
+      monthOrder.forEach((mc,k) => { const v=Number(ln.vals[k])||0; num[ref(r+1,mc.c)]=v; cells[ref(r+1,mc.c)] = { t:'n', v, s:S.input }; });
+      fillAdditive(cells, num, r+1, cols, S.formula);
       setLvl(r,2); r++;
     });
     const lastLineRow = r;
     const subRow = r + 1; catRows[cat] = subRow;
     cells[ref(subRow,0)] = { t:'s', v:CAT_LABEL[cat], s:S.catLabel };
-    monthOrder.forEach(mc => {
-      if (catLines.length > 0) cells[ref(subRow,mc.c)] = { t:'n', f:`SUM(${ref(firstLineRow,mc.c)}:${ref(lastLineRow,mc.c)})`, s:S.catNum };
-      else if (def.monthFormula) cells[ref(subRow,mc.c)] = { t:'n', f:def.monthFormula(mc), s:S.catNum };
-      else cells[ref(subRow,mc.c)] = { t:'n', v:0, s:S.catNum };
+    monthOrder.forEach((mc,k) => {
+      if (catLines.length > 0) {
+        const v = catLines.reduce((a,ln)=>a+(Number(ln.vals[k])||0),0);
+        num[ref(subRow,mc.c)] = v;
+        cells[ref(subRow,mc.c)] = { t:'n', f:`SUM(${ref(firstLineRow,mc.c)}:${ref(lastLineRow,mc.c)})`, v, s:S.catNum };
+      } else if (def.monthFormula) {
+        const v = def.monthNumber ? def.monthNumber(mc) : 0;
+        num[ref(subRow,mc.c)] = v;
+        cells[ref(subRow,mc.c)] = { t:'n', f:def.monthFormula(mc), v, s:S.catNum };
+      } else {
+        num[ref(subRow,mc.c)] = 0;
+        cells[ref(subRow,mc.c)] = { t:'n', v:0, s:S.catNum };
+      }
     });
-    fillAdditive(cells, subRow, cols, S.catNum);
+    fillAdditive(cells, num, subRow, cols, S.catNum);
     setLvl(r,1); r++;
   });
 
   // (+) Ingresos del mes
   const ingRow = r + 1;
   cells[ref(ingRow,0)] = { t:'s', v:'(+) Ingresos del mes', s:S.sumLabel };
-  monthOrder.forEach(mc => { cells[ref(ingRow,mc.c)] = { t:'n', f:ING_CATS.map(c2=>ref(catRows[c2],mc.c)).join('+'), s:S.sumNum }; });
-  fillAdditive(cells, ingRow, cols, S.sumNum); setLvl(r,0); r++;
+  monthOrder.forEach(mc => { const v=ING_CATS.reduce((a,c2)=>a+(num[ref(catRows[c2],mc.c)]||0),0); num[ref(ingRow,mc.c)]=v; cells[ref(ingRow,mc.c)] = { t:'n', f:ING_CATS.map(c2=>ref(catRows[c2],mc.c)).join('+'), v, s:S.sumNum }; });
+  fillAdditive(cells, num, ingRow, cols, S.sumNum); setLvl(r,0); r++;
 
   // (−) Egresos del mes
   const egrRow = r + 1;
   cells[ref(egrRow,0)] = { t:'s', v:'(−) Egresos del mes', s:S.sumLabel };
-  monthOrder.forEach(mc => { cells[ref(egrRow,mc.c)] = { t:'n', f:EGR_CATS.map(c2=>ref(catRows[c2],mc.c)).join('+'), s:S.sumNum }; });
-  fillAdditive(cells, egrRow, cols, S.sumNum); setLvl(r,0); r++;
+  monthOrder.forEach(mc => { const v=EGR_CATS.reduce((a,c2)=>a+(num[ref(catRows[c2],mc.c)]||0),0); num[ref(egrRow,mc.c)]=v; cells[ref(egrRow,mc.c)] = { t:'n', f:EGR_CATS.map(c2=>ref(catRows[c2],mc.c)).join('+'), v, s:S.sumNum }; });
+  fillAdditive(cells, num, egrRow, cols, S.sumNum); setLvl(r,0); r++;
 
   // (=) Flujo neto
   const flujoRow = r + 1;
   cells[ref(flujoRow,0)] = { t:'s', v:'(=) Flujo neto', s:S.flujoLabel };
-  monthOrder.forEach(mc => { cells[ref(flujoRow,mc.c)] = { t:'n', f:`${ref(ingRow,mc.c)}-${ref(egrRow,mc.c)}`, s:S.flujoNum }; });
-  fillAdditive(cells, flujoRow, cols, S.flujoNum); setLvl(r,0); r++;
+  monthOrder.forEach(mc => { const v=(num[ref(ingRow,mc.c)]||0)-(num[ref(egrRow,mc.c)]||0); num[ref(flujoRow,mc.c)]=v; cells[ref(flujoRow,mc.c)] = { t:'n', f:`${ref(ingRow,mc.c)}-${ref(egrRow,mc.c)}`, v, s:S.flujoNum }; });
+  fillAdditive(cells, num, flujoRow, cols, S.flujoNum); setLvl(r,0); r++;
 
-  // (=) Saldo final caja
+  // (=) Saldo final caja  (necesita saldo inicial numérico → se calcula primero)
   const saldoFinRow = r + 1;
+  // pre-cálculo numérico del saldo inicial por mes
+  const saldoIniNum = {};
+  monthOrder.forEach((mc,k) => {
+    if (k === 0) saldoIniNum[mc.c] = saldoIniMonth0Number != null ? saldoIniMonth0Number : (Number(saldoIniValue)||0);
+    else saldoIniNum[mc.c] = saldoIniNum[monthOrder[k-1].c] + (num[ref(flujoRow,monthOrder[k-1].c)]||0);
+  });
   cells[ref(saldoFinRow,0)] = { t:'s', v:'(=) Saldo final caja', s:S.saldoLabel };
-  monthOrder.forEach(mc => { cells[ref(saldoFinRow,mc.c)] = { t:'n', f:`${ref(saldoIniRow,mc.c)}+${ref(flujoRow,mc.c)}`, s:S.saldoNum }; });
+  monthOrder.forEach(mc => { const v=(saldoIniNum[mc.c]||0)+(num[ref(flujoRow,mc.c)]||0); num[ref(saldoFinRow,mc.c)]=v; cells[ref(saldoFinRow,mc.c)] = { t:'n', f:`${ref(saldoIniRow,mc.c)}+${ref(flujoRow,mc.c)}`, v, s:S.saldoNum }; });
   cols.forEach(col => {
-    if (col.kind === 'temp') { const last=col.members[col.members.length-1]; cells[ref(saldoFinRow,col.c)]={t:'n',f:`${ref(saldoFinRow,last)}`,s:S.saldoNum}; }
-    else if (col.kind === 'grand') { const lm=monthOrder[monthOrder.length-1].c; cells[ref(saldoFinRow,col.c)]={t:'n',f:`${ref(saldoFinRow,lm)}`,s:S.saldoNum}; }
+    if (col.kind === 'temp') { const last=col.members[col.members.length-1]; const v=num[ref(saldoFinRow,last)]||0; num[ref(saldoFinRow,col.c)]=v; cells[ref(saldoFinRow,col.c)]={t:'n',f:`${ref(saldoFinRow,last)}`,v,s:S.saldoNum}; }
+    else if (col.kind === 'grand') { const lm=monthOrder[monthOrder.length-1].c; const v=num[ref(saldoFinRow,lm)]||0; num[ref(saldoFinRow,col.c)]=v; cells[ref(saldoFinRow,col.c)]={t:'n',f:`${ref(saldoFinRow,lm)}`,v,s:S.saldoNum}; }
   });
   setLvl(r,0); r++;
 
   // Saldo inicial: month0 input/formula; monthK = saldo final mes previo
   monthOrder.forEach((mc,k) => {
+    const v = saldoIniNum[mc.c]||0; num[ref(saldoIniRow,mc.c)]=v;
     if (k === 0) {
-      if (saldoIniMonth0Formula) cells[ref(saldoIniRow,mc.c)] = { t:'n', f:saldoIniMonth0Formula, s:S.saldoNum };
-      else cells[ref(saldoIniRow,mc.c)] = { t:'n', v:Number(saldoIniValue)||0, s:S.input };
+      if (saldoIniMonth0Formula) cells[ref(saldoIniRow,mc.c)] = { t:'n', f:saldoIniMonth0Formula, v, s:S.saldoNum };
+      else cells[ref(saldoIniRow,mc.c)] = { t:'n', v, s:S.input };
     } else {
       const prev = monthOrder[k-1].c;
-      cells[ref(saldoIniRow,mc.c)] = { t:'n', f:`${ref(saldoFinRow,prev)}`, s:S.saldoNum };
+      cells[ref(saldoIniRow,mc.c)] = { t:'n', f:`${ref(saldoFinRow,prev)}`, v, s:S.saldoNum };
     }
   });
   cols.forEach(col => {
-    if (col.kind === 'temp') { const first=col.members[0]; cells[ref(saldoIniRow,col.c)]={t:'n',f:`${ref(saldoIniRow,first)}`,s:S.saldoNum}; }
-    else if (col.kind === 'grand') { const fm=monthOrder[0].c; cells[ref(saldoIniRow,col.c)]={t:'n',f:`${ref(saldoIniRow,fm)}`,s:S.saldoNum}; }
+    if (col.kind === 'temp') { const first=col.members[0]; const v=num[ref(saldoIniRow,first)]||0; num[ref(saldoIniRow,col.c)]=v; cells[ref(saldoIniRow,col.c)]={t:'n',f:`${ref(saldoIniRow,first)}`,v,s:S.saldoNum}; }
+    else if (col.kind === 'grand') { const fm=monthOrder[0].c; const v=num[ref(saldoIniRow,fm)]||0; num[ref(saldoIniRow,col.c)]=v; cells[ref(saldoIniRow,col.c)]={t:'n',f:`${ref(saldoIniRow,fm)}`,v,s:S.saldoNum}; }
   });
 
-  return { cells, rows, merges, lastRow:r, lastCol:lastColIdx, catRows, saldoIniRow, flujoRow, saldoFinRow };
+  return { cells, rows, merges, num, lastRow:r, lastCol:lastColIdx, catRows, saldoIniRow, flujoRow, saldoFinRow };
 }
 
 function toSheet({ cells, rows, merges, lastRow, lastCol, cols }) {
@@ -277,23 +297,29 @@ export function exportarFlujoConsolidado({ empresasConOverrides, empNames, saldo
     });
   });
 
-  // hoja consolidado (categoría) → fórmulas cruzadas a hojas empresa
+  // hoja consolidado (categoría) → fórmulas cruzadas a hojas empresa + valor cacheado
   const consCats = CAT_ORDER.map(cat => ({
     cat, lines:[],
     monthFormula: (mc) => empNames.map(n => `'${sheetName[n]}'!${ref(empBuilt[n].catRows[cat], mc.c)}`).join('+'),
+    monthNumber:  (mc) => empNames.reduce((a,n)=>a+(empBuilt[n].num[ref(empBuilt[n].catRows[cat], mc.c)]||0),0),
   }));
   const saldoIniCons = monthOrder[0] && empNames.map(n => `'${sheetName[n]}'!${ref(empBuilt[n].saldoIniRow, monthOrder[0].c)}`).join('+');
+  const saldoIniConsNum = monthOrder[0] ? empNames.reduce((a,n)=>a+(empBuilt[n].num[ref(empBuilt[n].saldoIniRow, monthOrder[0].c)]||0),0) : 0;
   const cons = buildStatement({
     title:'🏛 Consolidado Grupo Mediterra',
     subtitle:`${empNames.length} empresas · Apr-26 → ${months[months.length-1].label}`,
     cols, monthOrder, cats:consCats,
     saldoIniMonth0Formula: saldoIniCons,
+    saldoIniMonth0Number: saldoIniConsNum,
   });
   XLSX.utils.book_append_sheet(wb, toSheet({ ...cons, cols }), 'Consolidado');
 
   empNames.forEach(n => {
     XLSX.utils.book_append_sheet(wb, toSheet({ ...empBuilt[n], cols }), sheetName[n]);
   });
+
+  // Consolidado = primera pestaña y activa al abrir; forzar recálculo
+  wb.Workbook = { ...(wb.Workbook||{}), Views:[{ activeTab:0 }], CalcPr:{ fullCalcOnLoad:true } };
 
   const fname = fileName || `Flujo_Consolidado_Mediterra_${months[months.length-1].label}.xlsx`;
   XLSX.writeFile(wb, fname);
