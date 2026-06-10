@@ -7822,6 +7822,52 @@ function ControlContratos({data,setData,clientes,setClientes,variedadesMaestro=[
 
           {/* ── SECCIÓN: PLANTACIONES (variedades plantadas) ── */}
           {sec==="plantaciones"&&(<>
+            {r.modeloIngresos==="oc" ? (()=>{
+              // Modelo OC: las plantaciones reales vienen de los despachos de la OC del vivero (informativo).
+              const ocsViv=[];
+              (viverosData||[]).forEach(v=>(v.ordenesCompra||[]).forEach(oc=>{ if(ocLigadaAContrato(oc,r)) ocsViv.push(oc); }));
+              const filas=[];
+              ocsViv.forEach(oc=>(oc.despachos||[]).forEach(d=>filas.push({...d, _oc:oc.n_oc})));
+              const totPl=filas.reduce((s,d)=>s+(Number(d.cantidad_despachada)||0),0);
+              const totHa=filas.reduce((s,d)=>s+(Number(d.ha_plantadas)||0),0);
+              return (<>
+                <div style={{padding:"10px 14px",background:C.infoBg||"#eff6ff",border:`1px solid ${C.azul||"#3b82f6"}`,borderRadius:10,marginBottom:14,fontSize:11,color:C.text}}>
+                  🔗 <strong>Modelo OC del vivero.</strong> Las plantaciones reales se derivan de los <strong>despachos</strong> de la OC del vivero. Esta vista es informativa; se carga/edita en <strong>Contratos Viveros</strong>.
+                </div>
+                {filas.length===0?(
+                  <div style={{padding:30,textAlign:"center",color:C.muted2,border:"1px dashed #e2e8f0",borderRadius:10}}>
+                    <div style={{fontSize:32,marginBottom:8}}>🌿</div>
+                    <div style={{fontSize:12}}>Sin despachos plantados todavía. Carga despachos en la OC del vivero ligada.</div>
+                  </div>
+                ):(
+                  <div style={{overflowX:"auto",minWidth:0,maxWidth:"calc(100vw - 40px)"}}>
+                    <table style={{width:"100%",borderCollapse:"collapse",fontSize:12,background:C.card,borderRadius:10,overflow:"hidden",border:`1px solid ${C.border}`}}>
+                      <thead><tr style={{background:C.primary,color:C.primaryText}}>
+                        {["OC","Especie · Variedad","Plantas","Há plantadas","Fecha plantación","Estado"].map(h=>(<th key={h} style={{padding:"7px 10px",textAlign:["Plantas","Há plantadas"].includes(h)?"right":"left",fontSize:10,fontWeight:700}}>{h}</th>))}
+                      </tr></thead>
+                      <tbody>
+                        {filas.map((d,i)=>(
+                          <tr key={`${d._oc}_${d.id||i}`} style={{borderBottom:"1px solid #f1f5f9",background:i%2?C.cardAlt:"#fff"}}>
+                            <td style={{padding:"7px 10px",fontWeight:700,color:C.primary}}>{d._oc||"—"}</td>
+                            <td style={{padding:"7px 10px"}}>{d.especie||""} {d.variedad?`· ${d.variedad}`:""}</td>
+                            <td style={{padding:"7px 10px",textAlign:"right"}}>{N(d.cantidad_despachada)}</td>
+                            <td style={{padding:"7px 10px",textAlign:"right"}}>{N((Number(d.ha_plantadas)||0).toFixed(2))}</td>
+                            <td style={{padding:"7px 10px"}}>{d.fecha_plantacion||<span style={{color:C.danger}}>sin fecha</span>}</td>
+                            <td style={{padding:"7px 10px"}}>{d.estado||"—"}</td>
+                          </tr>
+                        ))}
+                        <tr style={{background:C.successBg,fontWeight:700}}>
+                          <td colSpan={2} style={{padding:"7px 10px",color:C.success}}>TOTALES</td>
+                          <td style={{padding:"7px 10px",color:C.success,textAlign:"right"}}>{N(totPl)}</td>
+                          <td style={{padding:"7px 10px",color:C.success,textAlign:"right"}}>{N(totHa.toFixed(2))}</td>
+                          <td colSpan={2}></td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </>);
+            })() : (<>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12,flexWrap:"wrap",gap:8}}>
               <div style={{fontSize:13,color:C.muted}}>
                 🌿 Plantaciones del licenciatario principal — variedades, plantas y hectáreas que generan los royalties.
@@ -8108,6 +8154,7 @@ function ControlContratos({data,setData,clientes,setClientes,variedadesMaestro=[
                 💡 <strong>Royalty Comercial anual:</strong> {N((r.plantaciones||[]).reduce((s,p)=>s+(parseFloat(p.hectareas)||0),0).toFixed(2))} há × ${N(r.valorRoyaltyComercial||0)}/há = <strong>${N(((r.plantaciones||[]).reduce((s,p)=>s+(parseFloat(p.hectareas)||0),0)*(r.valorRoyaltyComercial||0)).toFixed(2))}</strong>/temporada (100% facturado)
                 {(r.plantaciones||[]).some(p=>p.vivero_id)&&<><br/>💸 <strong style={{color:C.danger}}>Egreso por viveros:</strong> ${N((r.plantaciones||[]).reduce((s,p)=>s+((parseFloat(p.nPlantas)||0)*(parseFloat(p.vivero_fee_usd)||0)),0).toFixed(0))} (one-time, USD)</>}
               </div>
+            </>)}
             </>)}
           </>)}
 
