@@ -12443,11 +12443,29 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
                       style={{width:"100%",padding:"8px 12px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:13,boxSizing:"border-box",textAlign:"right"}}/>
                   </div>
                   <div>
-                    <label style={{fontSize:11,fontWeight:600,color:C.muted,display:"block",marginBottom:4}}>Variedad</label>
+                    <label style={{fontSize:11,fontWeight:600,color:C.muted,display:"block",marginBottom:4}}>Variedad <span style={{fontWeight:400,color:C.muted2}}>(de la OC)</span></label>
                     <select value={despForm.variedad_id||""} onChange={e=>setDespForm(p=>({...p,variedad_id:e.target.value}))}
                       style={{width:"100%",padding:"8px 12px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:13,boxSizing:"border-box",background:C.card}}>
                       <option value="">— Toda la OC —</option>
-                      {variedades.map(vv=><option key={vv.id} value={vv.id}>{vv.especie} · {vv.variedad}</option>)}
+                      {(()=>{
+                        // Solo las variedades de esta OC (evita elegir una que no corresponde).
+                        const items=(ocActiva?.items||[]).filter(it=>it.variedad_id);
+                        const seen=new Set(); const opts=[];
+                        items.forEach(it=>{
+                          if(seen.has(it.variedad_id)) return; seen.add(it.variedad_id);
+                          const vm=variedades.find(x=>x.id===it.variedad_id);
+                          const lbl=vm?`${vm.especie} · ${vm.variedad}`:`${it.especie||""} · ${it.variedad||""}`;
+                          opts.push(<option key={it.variedad_id} value={it.variedad_id}>{lbl}</option>);
+                        });
+                        // Fallback: OC monovariedad (sin items)
+                        if(opts.length===0 && ocActiva?.variedad_id){
+                          const vm=variedades.find(x=>x.id===ocActiva.variedad_id);
+                          opts.push(<option key={ocActiva.variedad_id} value={ocActiva.variedad_id}>{vm?`${vm.especie} · ${vm.variedad}`:(ocActiva.variedad||"Variedad de la OC")}</option>);
+                        }
+                        // Último fallback: si la OC no tiene variedad asignada, mostrar el maestro.
+                        if(opts.length===0) return variedades.map(vv=><option key={vv.id} value={vv.id}>{vv.especie} · {vv.variedad}</option>);
+                        return opts;
+                      })()}
                     </select>
                   </div>
                   <div>
