@@ -6684,6 +6684,7 @@ function derivarRoyaltyComercialDesdeContratos(ctData, ocsByCt) {
       // Cohortes: agrupa há plantadas por temporada de plantación.
       const cohortes = {}; // tempInicio -> haCohorte
       ocs.forEach(oc=>(oc.despachos||[]).forEach(d=>{
+        if(d.tipo==="Prueba") return; // las plantaciones de prueba NO pagan Royalty Comercial
         const ha = Number(d.ha_plantadas)||0;
         if(ha<=0) return;
         const tIni = temporadaDeFecha(d.fecha_plantacion);
@@ -6740,7 +6741,8 @@ function derivarRoyaltyComercialDesdeContratos(ctData, ocsByCt) {
     }
 
     // ── LEGACY: plantaciones del contrato × temporadas ──
-    const haTotal = (ct.plantaciones||[]).reduce((s,p)=>s+(Number(p.hectareas)||0),0);
+    // Las plantaciones de prueba NO pagan Royalty Comercial (sí Royalty Planta).
+    const haTotal = (ct.plantaciones||[]).reduce((s,p)=>s+(p.tipoPlantacion==="Prueba"?0:(Number(p.hectareas)||0)),0);
     if(haTotal===0) return;
     const inicioTemp = ct.rcInicioTemporada || temporadaActual();
     // Trimestre del mes de cobro (para alertas/calendario que usan trimCobro).
@@ -7860,13 +7862,14 @@ function ControlContratos({data,setData,clientes,setClientes,variedadesMaestro=[
                   <div style={{overflowX:"auto",minWidth:0,maxWidth:"calc(100vw - 40px)"}}>
                     <table style={{width:"100%",borderCollapse:"collapse",fontSize:12,background:C.card,borderRadius:10,overflow:"hidden",border:`1px solid ${C.border}`}}>
                       <thead><tr style={{background:C.primary,color:C.primaryText}}>
-                        {["OC","Especie · Variedad","Plantas","Há plantadas","Fecha plantación","Estado"].map(h=>(<th key={h} style={{padding:"7px 10px",textAlign:["Plantas","Há plantadas"].includes(h)?"right":"left",fontSize:10,fontWeight:700}}>{h}</th>))}
+                        {["OC","Especie · Variedad","Tipo","Plantas","Há plantadas","Fecha plantación","Estado"].map(h=>(<th key={h} style={{padding:"7px 10px",textAlign:["Plantas","Há plantadas"].includes(h)?"right":"left",fontSize:10,fontWeight:700}}>{h}</th>))}
                       </tr></thead>
                       <tbody>
                         {filas.map((d,i)=>(
                           <tr key={`${d._oc}_${d.id||i}`} style={{borderBottom:"1px solid #f1f5f9",background:i%2?C.cardAlt:"#fff"}}>
                             <td style={{padding:"7px 10px",fontWeight:700,color:C.primary}}>{d._oc||"—"}</td>
                             <td style={{padding:"7px 10px"}}>{d.especie||""} {d.variedad?`· ${d.variedad}`:""}</td>
+                            <td style={{padding:"7px 10px"}}>{d.tipo==="Prueba"?<span style={{background:C.amBg||"#fef9c3",color:C.am,borderRadius:10,padding:"1px 8px",fontSize:10,fontWeight:700}}>Prueba</span>:<span style={{fontSize:10,color:C.muted}}>Comercial</span>}</td>
                             <td style={{padding:"7px 10px",textAlign:"right"}}>{N(d.cantidad_despachada)}</td>
                             <td style={{padding:"7px 10px",textAlign:"right"}}>{N((Number(d.ha_plantadas)||0).toFixed(2))}</td>
                             <td style={{padding:"7px 10px"}}>{d.fecha_plantacion||<span style={{color:C.danger}}>sin fecha</span>}</td>
@@ -7874,7 +7877,7 @@ function ControlContratos({data,setData,clientes,setClientes,variedadesMaestro=[
                           </tr>
                         ))}
                         <tr style={{background:C.successBg,fontWeight:700}}>
-                          <td colSpan={2} style={{padding:"7px 10px",color:C.success}}>TOTALES</td>
+                          <td colSpan={3} style={{padding:"7px 10px",color:C.success}}>TOTALES</td>
                           <td style={{padding:"7px 10px",color:C.success,textAlign:"right"}}>{N(totPl)}</td>
                           <td style={{padding:"7px 10px",color:C.success,textAlign:"right"}}>{N(totHa.toFixed(2))}</td>
                           <td colSpan={2}></td>
@@ -7901,6 +7904,7 @@ function ControlContratos({data,setData,clientes,setClientes,variedadesMaestro=[
                   fechaPlantacion:"",
                   sublicenciatario_id:"",
                   sublicenciatario_nombre:"",
+                  tipoPlantacion:"Comercial",
                   estado:"Confirmado",
                 };
                 const next = [...(r.plantaciones||[]), nuevaPlant];
@@ -7918,7 +7922,7 @@ function ControlContratos({data,setData,clientes,setClientes,variedadesMaestro=[
               <div style={{overflowX:"auto",minWidth:0,maxWidth:"calc(100vw - 40px)"}}>
                 <table style={{width:"100%",borderCollapse:"collapse",fontSize:12,background:C.card,borderRadius:10,overflow:"hidden",border:`1px solid ${C.border}`}}>
                   <thead><tr style={{background:C.primary,color:C.primaryText}}>
-                    {["Campo","Especie","Denominación","Plantas","Hectáreas","Fecha plantación","N° Cot. Vivero","Sublicenciatario","Vivero","Fee USD/planta","Estado",""].map(h=>(
+                    {["Campo","Especie","Denominación","Plantas","Hectáreas","Fecha plantación","N° Cot. Vivero","Sublicenciatario","Vivero","Fee USD/planta","Tipo","Estado",""].map(h=>(
                       <th key={h} style={{padding:"8px 10px",textAlign:"left",fontSize:11,fontWeight:700,whiteSpace:"nowrap"}}>{h}</th>
                     ))}
                   </tr></thead>
@@ -8133,6 +8137,12 @@ function ControlContratos({data,setData,clientes,setClientes,variedadesMaestro=[
                             )}
                           </td>
                           <td style={{padding:"6px 8px"}}>
+                            <select disabled={!can} value={p.tipoPlantacion||"Comercial"} onChange={e=>updPl("tipoPlantacion",e.target.value)} title={p.tipoPlantacion==="Prueba"?"Prueba: paga Royalty Planta, no Royalty Comercial":"Comercial: paga ambos"}
+                              style={{padding:"5px 8px",borderRadius:6,border:`1px solid ${p.tipoPlantacion==="Prueba"?(C.am||"#ca8a04"):C.border}`,fontSize:11,background:p.tipoPlantacion==="Prueba"?(C.amBg||"#fef9c3"):C.card,fontWeight:p.tipoPlantacion==="Prueba"?700:400}}>
+                              <option>Comercial</option><option>Prueba</option>
+                            </select>
+                          </td>
+                          <td style={{padding:"6px 8px"}}>
                             <select disabled={!can} value={p.estado||"Confirmado"} onChange={e=>updPl("estado",e.target.value)}
                               style={{padding:"5px 8px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:11,background:C.card}}>
                               <option>Confirmado</option><option>Plantado</option><option>Productivo</option><option>Anulado</option>
@@ -8168,7 +8178,7 @@ function ControlContratos({data,setData,clientes,setClientes,variedadesMaestro=[
               <div style={{marginTop:12,padding:12,background:C.successBg,borderRadius:10,fontSize:11,color:C.success,borderLeft:"4px solid #16a34a"}}>
                 💡 <strong>Royalty Planta estimado:</strong> {(r.plantaciones||[]).reduce((s,p)=>s+(parseFloat(p.nPlantas)||0),0)} plantas × ${r.valorRoyaltyPlanta||1}/planta = <strong>${N(((r.plantaciones||[]).reduce((s,p)=>s+(parseFloat(p.nPlantas)||0),0)*(r.valorRoyaltyPlanta||1)).toFixed(2))}</strong> (100% facturado, {pct(r.pais)===1?"sin WHT":"15% WHT"})
                 <br/>
-                💡 <strong>Royalty Comercial anual:</strong> {N((r.plantaciones||[]).reduce((s,p)=>s+(parseFloat(p.hectareas)||0),0).toFixed(2))} há × ${N(r.valorRoyaltyComercial||0)}/há = <strong>${N(((r.plantaciones||[]).reduce((s,p)=>s+(parseFloat(p.hectareas)||0),0)*(r.valorRoyaltyComercial||0)).toFixed(2))}</strong>/temporada (100% facturado)
+                💡 <strong>Royalty Comercial anual:</strong> {N((r.plantaciones||[]).reduce((s,p)=>s+(p.tipoPlantacion==="Prueba"?0:(parseFloat(p.hectareas)||0)),0).toFixed(2))} há comerciales × ${N(r.valorRoyaltyComercial||0)}/há = <strong>${N(((r.plantaciones||[]).reduce((s,p)=>s+(p.tipoPlantacion==="Prueba"?0:(parseFloat(p.hectareas)||0)),0)*(r.valorRoyaltyComercial||0)).toFixed(2))}</strong>/temporada (las plantaciones de prueba no pagan RC)
                 {(r.plantaciones||[]).some(p=>p.vivero_id)&&<><br/>💸 <strong style={{color:C.danger}}>Egreso por viveros:</strong> ${N((r.plantaciones||[]).reduce((s,p)=>s+((parseFloat(p.nPlantas)||0)*(parseFloat(p.vivero_fee_usd)||0)),0).toFixed(0))} (one-time, USD)</>}
               </div>
             </>)}
@@ -9654,7 +9664,7 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
   // Despacho: tanda de plantas que sale del vivero al cliente. Lleva la fecha de
   // plantación (desde cuándo corre el Royalty Comercial) y las há efectivamente plantadas.
   const EMPTY_DESPACHO = {id:"",fecha_despacho:"",cantidad_despachada:"",
-    variedad_id:"",fecha_plantacion:"",ha_plantadas:"",
+    variedad_id:"",fecha_plantacion:"",ha_plantadas:"",tipo:"Comercial",
     plantacion_id:"",estado:"Despachado",observaciones:""};
   const EMPTY_OC = {n_oc:"",fecha_oc:"",cliente_id:"",cliente_nombre:"",
     contrato_id:"",ubicacion_id:"",ubicacion_nombre:"",
@@ -11797,6 +11807,7 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
           variedad: vv?.variedad || despForm.variedad || "",
           fecha_plantacion: despForm.fecha_plantacion||"",
           ha_plantadas: parseFloat(despForm.ha_plantadas)||0,
+          tipo: despForm.tipo||"Comercial",
           estado: despForm.estado||"Despachado",
           observaciones: despForm.observaciones||"",
         };
@@ -11828,6 +11839,7 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
           fecha_despacho: d.fecha_despacho||"", cantidad_despachada: d.cantidad_despachada||"",
           variedad_id: d.variedad_id||"", especie: d.especie||"", variedad: d.variedad||"",
           fecha_plantacion: d.fecha_plantacion||"", ha_plantadas: d.ha_plantadas||"",
+          tipo: d.tipo||"Comercial",
           plantacion_id: d.plantacion_id||"", estado: d.estado||"Despachado", observaciones: d.observaciones||"",
         });
         setDespEditId(d.id);
@@ -12243,7 +12255,7 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
                         ):(
                           <table style={{width:"100%",borderCollapse:"collapse",fontSize:11}}>
                             <thead><tr style={{background:C.primary}}>
-                              {["Fecha despacho","Variedad","Plantas","Fecha plantación","Há plantadas","Estado","Obs.",""].map(h=>
+                              {["Fecha despacho","Variedad","Tipo","Plantas","Fecha plantación","Há plantadas","Estado","Obs.",""].map(h=>
                                 <th key={h} style={{padding:"6px 8px",textAlign:["Plantas","Há plantadas"].includes(h)?"right":"left",fontWeight:700,fontSize:10,color:C.primaryText,whiteSpace:"nowrap"}}>{h}</th>
                               )}
                             </tr></thead>
@@ -12252,6 +12264,7 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
                                 <tr key={d.id} style={{borderBottom:"1px solid #f1f5f9"}}>
                                   <td style={{padding:"5px 8px",fontWeight:600}}>{d.fecha_despacho}</td>
                                   <td style={{padding:"5px 8px"}}>{d.variedad||"—"}</td>
+                                  <td style={{padding:"5px 8px"}}>{d.tipo==="Prueba"?<span style={{background:C.amBg||"#fef9c3",color:C.am,borderRadius:10,padding:"1px 8px",fontSize:10,fontWeight:700}}>Prueba</span>:<span style={{fontSize:10,color:C.muted}}>Comercial</span>}</td>
                                   <td style={{padding:"5px 8px",textAlign:"right",fontWeight:700,color:C.text}}>{N(d.cantidad_despachada)}</td>
                                   <td style={{padding:"5px 8px"}}>{d.fecha_plantacion||<span style={{color:C.warning}}>⚠ sin fecha</span>}</td>
                                   <td style={{padding:"5px 8px",textAlign:"right"}}>{N(d.ha_plantadas)}</td>
@@ -12757,6 +12770,14 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
                     <label style={{fontSize:11,fontWeight:600,color:C.muted,display:"block",marginBottom:4}}>Há plantadas</label>
                     <input type="number" step="0.01" value={despForm.ha_plantadas||""} onChange={e=>setDespForm(p=>({...p,ha_plantadas:e.target.value}))}
                       style={{width:"100%",padding:"8px 12px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:13,boxSizing:"border-box",textAlign:"right"}}/>
+                  </div>
+                  <div>
+                    <label style={{fontSize:11,fontWeight:600,color:C.muted,display:"block",marginBottom:4}}>Tipo</label>
+                    <select value={despForm.tipo||"Comercial"} onChange={e=>setDespForm(p=>({...p,tipo:e.target.value}))}
+                      style={{width:"100%",padding:"8px 12px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:13,boxSizing:"border-box",background:C.card}}>
+                      {["Comercial","Prueba"].map(s=><option key={s}>{s}</option>)}
+                    </select>
+                    <div style={{fontSize:9,color:despForm.tipo==="Prueba"?C.am:C.muted2,marginTop:2}}>{despForm.tipo==="Prueba"?"Prueba: paga Royalty Planta, NO Royalty Comercial":"Comercial: paga ambos royalties"}</div>
                   </div>
                 </div>
                 <div style={{marginBottom:16}}>
