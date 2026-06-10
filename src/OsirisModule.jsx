@@ -7393,6 +7393,79 @@ function ControlContratos({data,setData,clientes,setClientes,variedadesMaestro=[
       registroId:ocId});
   }
 
+  // Migración NO destructiva: genera OC del vivero con despachos a partir de las
+  // plantaciones del contrato y pasa el contrato a modelo OC. La data legacy
+  // (plantaciones + cuotas) NO se borra; es reversible volviendo a modelo legacy.
+  function migrarContratoAModeloOC(ct){
+    if(!setViveros){ alert("Migración no disponible en este contexto."); return; }
+    const plts = ct.plantaciones||[];
+    if(plts.length===0){ alert("Este contrato no tiene plantaciones para migrar."); return; }
+    const conVivero = plts.filter(p=>p.vivero_id);
+    const sinVivero = plts.filter(p=>!p.vivero_id);
+    if(conVivero.length===0){ alert("Ninguna plantación tiene vivero asignado. Asigna el vivero (columna Vivero) antes de migrar."); return; }
+    // ¿Ya migrado?
+    const yaMig = (viverosData||[]).some(v=>(v.ordenesCompra||[]).some(oc=>oc._migradaDeContrato && oc.contrato_id===ct.id));
+    if(yaMig && !window.confirm("Este contrato ya tiene OC generadas por migración. ¿Generar otra tanda igual? (puede duplicar)")) return;
+    // Agrupa por vivero + fee (para que el Fee Vivero quede uniforme por OC)
+    const grupos = {};
+    conVivero.forEach(p=>{
+      const fee = Number(p.vivero_fee_usd)||0;
+      const key = `${p.vivero_id}__${fee}`;
+      if(!grupos[key]) grupos[key]={viveroId:p.vivero_id, fee, plts:[]};
+      grupos[key].plts.push(p);
+    });
+    const gruposArr = Object.values(grupos);
+    const resumen = gruposArr.map(g=>{
+      const viv=(viverosData||[]).find(v=>v.id===g.viveroId);
+      const totPl=g.plts.reduce((s,p)=>s+(Number(p.nPlantas)||0),0);
+      return `• ${viv?.viverista||"Vivero"}: ${g.plts.length} despacho(s), ${N(totPl)} plantas, fee $${g.fee}/planta`;
+    }).join("\n");
+    let msg=`Se generarán ${gruposArr.length} OC del vivero (con despachos) desde las plantaciones y el contrato pasará a modelo OC.\n\n${resumen}`;
+    if(sinVivero.length>0) msg+=`\n\n⚠️ ${sinVivero.length} plantación(es) SIN vivero no se migrarán. Asígnales vivero y vuelve a correr.`;
+    msg+=`\n\nLa información legacy (plantaciones y cuotas) NO se borra; es reversible. ¿Continuar?`;
+    if(!window.confirm(msg)) return;
+    const hoy = new Date().toISOString().slice(0,10);
+    const ocsPorVivero = {};
+    gruposArr.forEach((g, gi)=>{
+      const items = g.plts.map((p,i)=>({
+        id:`oci_mig_${ct.id}_${gi}_${i}`, variedad_id:p.variedad_id||"", especie:p.especie||"", variedad:p.variedad||"",
+        cantidad_plantas:Number(p.nPlantas)||0, hectareas:Number(p.hectareas)||0,
+        fee_usd_planta:g.fee, fee_total_usd:(Number(p.nPlantas)||0)*g.fee,
+      }));
+      const despachos = g.plts.map((p,i)=>({
+        id:`desp_mig_${ct.id}_${gi}_${i}`,
+        fecha_despacho:p.fechaPlantacion||hoy,
+        cantidad_despachada:Number(p.nPlantas)||0,
+        variedad_id:p.variedad_id||"", especie:p.especie||"", variedad:p.variedad||"",
+        fecha_plantacion:p.fechaPlantacion||"", ha_plantadas:Number(p.hectareas)||0,
+        tipo:p.tipoPlantacion||"Comercial", estado:"Plantado",
+        observaciones:`Migrado de plantación ${(p.especie||"")} ${(p.variedad||"")}`.trim(),
+      }));
+      const totPl=items.reduce((s,x)=>s+x.cantidad_plantas,0);
+      const totHa=items.reduce((s,x)=>s+x.hectareas,0);
+      const totFee=items.reduce((s,x)=>s+x.fee_total_usd,0);
+      const oc = {
+        id:`oc_mig_${ct.id}_${gi}_${Date.now()}`,
+        n_oc:`OC-MIG-${gi+1}`, fecha_oc:hoy,
+        cliente_id:ct.clienteId||"", cliente_nombre:ct.razonSocial||"",
+        contrato_id:ct.id,
+        especie:items[0]?.especie||"", variedad:items.length>1?`${items.length} variedades`:(items[0]?.variedad||""),
+        variedad_id:items[0]?.variedad_id||"",
+        cantidad_plantas:totPl, hectareas:totHa,
+        fee_usd_planta:g.fee, fee_total_usd:totFee,
+        estado_oc:"Confirmada", observaciones:`Generada por migración del contrato ${ct.razonSocial}`,
+        items, despachos, cuotas:[], facturasRP:[],
+        _migradaDeContrato:true,
+      };
+      (ocsPorVivero[g.viveroId]=ocsPorVivero[g.viveroId]||[]).push(oc);
+    });
+    setViveros(prev=>(prev||[]).map(v=> ocsPorVivero[v.id] ? {...v, ordenesCompra:[...(v.ordenesCompra||[]), ...ocsPorVivero[v.id]]} : v));
+    setData(prev=>prev.map(c=>c.id===ct.id?{...c, modeloIngresos:"oc"}:c));
+    window.auditLog && window.auditLog("crear",{modulo:"osiris",seccion:"Migración a modelo OC",
+      descripcion:`Migró contrato "${ct.razonSocial}" a modelo OC: ${gruposArr.reduce((s,g)=>s+g.plts.length,0)} despachos en ${Object.keys(ocsPorVivero).length} vivero(s)`});
+    alert("Listo. El contrato quedó en modelo OC con la(s) OC del vivero generada(s).\n\nRevisa 'Cobros derivados' y 'Órdenes de Compra'. La data legacy sigue disponible si vuelves a modelo legacy.");
+  }
+
   const filtrado=data.filter(r=>{
     const q=busq.toLowerCase();
     return (filtroPais==="Todos"||r.pais===filtroPais)&&
@@ -7892,6 +7965,10 @@ function ControlContratos({data,setData,clientes,setClientes,variedadesMaestro=[
               <div style={{fontSize:13,color:C.muted}}>
                 🌿 Plantaciones del licenciatario principal — variedades, plantas y hectáreas que generan los royalties.
               </div>
+              <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+              {can&&(r.plantaciones||[]).length>0&&<button onClick={()=>migrarContratoAModeloOC(r)}
+                title="Genera la OC del vivero con despachos desde estas plantaciones y pasa el contrato a modelo OC (no borra nada)"
+                style={{background:C.azul||C.primary,color:"#fff",border:"none",borderRadius:8,padding:"7px 14px",cursor:"pointer",fontSize:12,fontWeight:700}}>🔄 Pasar a modelo OC</button>}
               {can&&<button onClick={()=>{
                 const variedadDefault = (variedadesMaestro||[])[0];
                 const nuevaPlant = {
@@ -7910,6 +7987,7 @@ function ControlContratos({data,setData,clientes,setClientes,variedadesMaestro=[
                 const next = [...(r.plantaciones||[]), nuevaPlant];
                 upd(r.id,"plantaciones",next);
               }} style={{background:C.success,color:"#fff",border:"none",borderRadius:8,padding:"7px 14px",cursor:"pointer",fontSize:12,fontWeight:700}}>+ Agregar plantación</button>}
+              </div>
             </div>
 
             {(r.plantaciones||[]).length===0?(
