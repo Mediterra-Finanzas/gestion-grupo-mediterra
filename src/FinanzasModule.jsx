@@ -3,6 +3,7 @@ import React, { useState, useEffect, useCallback, useMemo, useRef } from "react"
 import EEFFModule from './EEFFModule.jsx';
 import RendicionesModule from './RendicionesModule.jsx';
 import { theme } from './theme';
+import { exportarFlujoConsolidado } from './flujoExportExcel.js';
 
 // ═══════════════════════════════════════════════════════════════════
 // TIEMPO: Mar-26 → Jun-31 (65 meses)
@@ -3450,6 +3451,7 @@ function Consolidado({empresas,saldosBancos,realData={},addedLinesGlobal={},subL
   // Solo se usa en "sumada" — en "por_empresa" el desglose ya es visual por empresa.
   const [expandedCats, setExpandedCats] = useState({});
   const toggleCat = cat => setExpandedCats(prev => ({...prev, [cat]: !prev[cat]}));
+  const [exportMsg, setExportMsg] = useState(null);
 
   // Construir empresas con overrides aplicados — lógica centralizada en buildEmpresasConOverrides
   const empresasConOverrides = useMemo(
@@ -3771,6 +3773,22 @@ function Consolidado({empresas,saldosBancos,realData={},addedLinesGlobal={},subL
             </div>
           )}
           </>)}
+          <div style={{marginLeft:"auto"}}>
+            <div style={{fontSize:10,color:C.muted,fontWeight:700,textTransform:"uppercase",letterSpacing:1,marginBottom:8}}>Exportar</div>
+            <Btn color={C.green} onClick={()=>{
+              try{
+                const f=exportarFlujoConsolidado({
+                  empresasConOverrides,
+                  empNames:empNamesConsolidado,
+                  saldoIniPorEmp,
+                  lastSeasonStartYear:2028,
+                });
+                setExportMsg("✓ "+f);
+              }catch(e){ console.error(e); setExportMsg("✗ Error al exportar"); }
+              setTimeout(()=>setExportMsg(null),5000);
+            }}>📥 Excel (hasta 28-29)</Btn>
+            {exportMsg&&<div style={{fontSize:10,color:C.muted,marginTop:6,maxWidth:220}}>{exportMsg}</div>}
+          </div>
         </div>
       </Card>
 
