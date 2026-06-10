@@ -234,7 +234,9 @@ function PackingListPanel({ oe, tiposEmbalaje, especies, exportadoras, clientes,
 
   function upd(k,v){ setPl(p=>({...p,[k]:v})); setDirty(true); }
   function addPallet(){
-    setPl(p=>({...p,pallets:[...(p.pallets||[]),{id:uid(),formato:formatosOE[0]||"",calibre:"",palletNum:(p.pallets||[]).length+1,cajas:0,pesoNetoKg:0,pesoBrutoKg:0}]}));
+    const fmt0 = formatosOE[0]||"";
+    const cal0 = (oe.calibrePorFormato||{})[fmt0]||"";
+    setPl(p=>({...p,pallets:[...(p.pallets||[]),{id:uid(),formato:fmt0,calibre:cal0,palletNum:(p.pallets||[]).length+1,cajas:0,pesoNetoKg:0,pesoBrutoKg:0}]}));
     setDirty(true);
   }
   function updPallet(idx,k,v){ setPl(p=>{ const ps=[...p.pallets]; ps[idx]={...ps[idx],[k]:v}; return {...p,pallets:ps}; }); setDirty(true); }
@@ -2151,6 +2153,11 @@ function OEForm({oe, exportadoras, clientes, notifys=[], especies, tiposEmbalaje
     if(!val||n===0) delete cpf[cod]; else cpf[cod]=n;
     return {...prev,cajasPorFormato:cpf};
   });
+  const setCalibre = (cod,val) => setBuf(prev=>{
+    const cal = {...(prev.calibrePorFormato||{})};
+    if(!val) delete cal[cod]; else cal[cod]=val;
+    return {...prev,calibrePorFormato:cal};
+  });
 
   const esMar = buf.tipoEmbarque==="maritimo";
   const esAer = buf.tipoEmbarque==="aereo";
@@ -2379,9 +2386,15 @@ function OEForm({oe, exportadoras, clientes, notifys=[], especies, tiposEmbalaje
                 <div style={{fontSize:10,color:C.muted,marginBottom:4}}>{fmt.nombre||fmt.codigo}</div>
                 <input type="number" min="0" step="1"
                   value={buf.cajasPorFormato?.[fmt.codigo]||""}
-                  placeholder="0"
+                  placeholder="Cajas"
                   style={{...inputSt,padding:"4px 8px",fontSize:13,fontFamily:"monospace",textAlign:"right"}}
                   onChange={e=>setCajas(fmt.codigo,e.target.value)}/>
+                <input type="text"
+                  value={buf.calibrePorFormato?.[fmt.codigo]||""}
+                  placeholder="Calibre"
+                  title="Calibre(s) de este formato — ej. 16 o 16/18/20"
+                  style={{...inputSt,padding:"4px 8px",fontSize:12,marginTop:4}}
+                  onChange={e=>setCalibre(fmt.codigo,e.target.value)}/>
               </div>
             ))}
           </div>
@@ -2633,7 +2646,7 @@ function OECard({oe, exportadoras, clientes, especies, tiposEmbalaje, onEditar, 
   const especie     = especies.find(e=>e.codigo===oe.especieCodigo);
   const totalCajas  = Object.values(oe.cajasPorFormato||{}).reduce((s,v)=>s+Number(v||0),0);
   const formatosConCajas = Object.entries(oe.cajasPorFormato||{})
-    .map(([cod,cajas])=>({fmt:tiposEmbalaje.find(t=>t.codigo===cod)||{nombre:cod},cajas:Number(cajas)}))
+    .map(([cod,cajas])=>({fmt:tiposEmbalaje.find(t=>t.codigo===cod)||{nombre:cod,codigo:cod},cajas:Number(cajas),calibre:(oe.calibrePorFormato||{})[cod]||""}))
     .filter(x=>x.cajas>0);
 
   const ESTADO_COLOR = {borrador:C.yellow,confirmado:C.green,despachado:C.blue,cancelado:C.muted};
@@ -2698,9 +2711,9 @@ function OECard({oe, exportadoras, clientes, especies, tiposEmbalaje, onEditar, 
       {/* Formatos */}
       {formatosConCajas.length>0 && (
         <div style={{display:"flex",flexWrap:"wrap",gap:4,marginBottom:8}}>
-          {formatosConCajas.map(({fmt,cajas})=>(
+          {formatosConCajas.map(({fmt,cajas,calibre})=>(
             <span key={fmt.codigo||fmt.nombre} style={{padding:"3px 10px",borderRadius:4,fontSize:10,background:`${C.blue}22`,color:C.blue,border:`1px solid ${C.blue}33`}}>
-              {fmt.nombre}: {cajas.toLocaleString("es-CL")} cjs
+              {fmt.nombre}: {cajas.toLocaleString("es-CL")} cjs{calibre?` · cal ${calibre}`:""}
             </span>
           ))}
         </div>
