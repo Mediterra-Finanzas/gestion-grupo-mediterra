@@ -388,7 +388,7 @@ function categoriaDestino(catRaw) {
 }
 
 async function leerExcelEntidades(file) {
-  const XLSX = await import("xlsx");
+  const XLSX = await import("xlsx-js-style");
   const buf = await file.arrayBuffer();
   const wb = XLSX.read(buf, {type:"array"});
   const hoja = wb.Sheets[wb.SheetNames[0]];

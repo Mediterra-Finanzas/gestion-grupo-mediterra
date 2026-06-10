@@ -1,27 +1,27 @@
 /* eslint-disable */
 // ═══════════════════════════════════════════════════════════════════
-// EXPORT FLUJO DE CAJA CONSOLIDADO → Excel (.xlsx)
+// EXPORT FLUJO DE CAJA CONSOLIDADO → Excel (.xlsx) con formato
 // ───────────────────────────────────────────────────────────────────
-// Genera un libro con:
 //   · Hoja "Consolidado" (nivel categoría) que referencia con FÓRMULAS
 //     a las hojas de cada empresa.
 //   · Una hoja por empresa del consolidado (nivel línea), con filas
 //     desplegables (outline) por categoría y meses agrupados por
 //     temporada (también desplegables).
 // Todas las celdas calculadas son FÓRMULAS Excel (SUMA, resta, saldo
-// arrastrado), de modo que el archivo recalcula al editar inputs.
+// arrastrado). Inputs editables en azul sobre fondo amarillo.
 //
 // Reutiliza el árbol `empresasConOverrides` que la app ya calcula, así
 // los números cuadran exactamente con lo que se ve en pantalla.
+// Usa xlsx-js-style (fork de SheetJS con soporte de estilos).
 // ═══════════════════════════════════════════════════════════════════
-import * as XLSX from 'xlsx';
+import * as XLSXns from 'xlsx-js-style';
+const XLSX = XLSXns.utils ? XLSXns : (XLSXns.default || XLSXns);
 
 const MN = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 
-// Misma generación que FinanzasModule: Apr-26 → Jun-31 (63 meses)
 function genMonths() {
   const out = [];
-  let y = 2026, m = 3;
+  let y = 2026, m = 3;                // Apr-26
   while (out.length < 63) {
     out.push({ label:`${MN[m]}-${String(y).slice(2)}`, y, m, idx:out.length });
     m++; if (m > 11) { m = 0; y++; }
@@ -30,29 +30,51 @@ function genMonths() {
 }
 function seasonOf(mo) { return mo.m >= 6 ? mo.y : mo.y - 1; }
 
-// Orden y etiquetas canónicas de categorías
 const CAT_ORDER = ['ing_op','ing_nop','egr_var','egr_fijo','egr_nop','imp'];
 const CAT_LABEL = {
-  ing_op:'Ingresos Operacionales',
-  ing_nop:'Ingresos No Operacionales',
-  egr_var:'Egresos Operacionales (variables)',
-  egr_fijo:'Costos Fijos / SG&A',
-  egr_nop:'Egresos No Operacionales',
-  imp:'Impuestos',
+  ing_op:'· Ingresos Operacionales',
+  ing_nop:'· Ingresos No Operacionales',
+  egr_var:'· Egresos Operacionales (variables)',
+  egr_fijo:'· Costos Fijos / SG&A',
+  egr_nop:'· Egresos No Operacionales',
+  imp:'· Impuestos',
 };
 const ING_CATS = ['ing_op','ing_nop'];
 const EGR_CATS = ['egr_var','egr_fijo','egr_nop','imp'];
 
-const NUMFMT = '#,##0;(#,##0);-';
+const FMT = '$#,##0;($#,##0);-';
+const FONT = 'Arial';
+const NAVY='1F3864', BLUE='305496', LBLUE='D9E1F2', GRAY='E7E6E6', YELLOW='FFF2CC', BORDERC='D9D9D9', INPUTBLUE='0000FF';
 
-const L = (c0) => XLSX.utils.encode_col(c0);            // 0-based col → "A"
-const ref = (r1, c0) => `${L(c0)}${r1}`;                // 1-based row, 0-based col
+const L = (c0) => XLSX.utils.encode_col(c0);
+const ref = (r1, c0) => `${L(c0)}${r1}`;
 
-// ── Construye la metadata de columnas (meses + total temporada + total) ──
+// ── estilos ─────────────────────────────────────────────────────────
+const thin = { style:'thin', color:{ rgb:BORDERC } };
+const BORD = { top:thin, bottom:thin, left:thin, right:thin };
+const S = {
+  title:    { font:{ name:FONT, sz:13, bold:true, color:{rgb:'FFFFFF'} }, fill:{ fgColor:{rgb:NAVY} }, alignment:{ horizontal:'left', vertical:'center' } },
+  titleSub: { font:{ name:FONT, sz:10, italic:true, color:{rgb:'FFFFFF'} }, fill:{ fgColor:{rgb:NAVY} }, alignment:{ horizontal:'left', vertical:'center' } },
+  seasonHdr:{ font:{ name:FONT, sz:10, bold:true, color:{rgb:'FFFFFF'} }, fill:{ fgColor:{rgb:BLUE} }, alignment:{ horizontal:'center', vertical:'center' }, border:BORD },
+  colHdr:   { font:{ name:FONT, sz:9, bold:true, color:{rgb:'FFFFFF'} }, fill:{ fgColor:{rgb:NAVY} }, alignment:{ horizontal:'center', vertical:'center' }, border:BORD },
+  concept:  { font:{ name:FONT, sz:10, bold:true, color:{rgb:'FFFFFF'} }, fill:{ fgColor:{rgb:NAVY} }, alignment:{ horizontal:'left', vertical:'center' }, border:BORD },
+  catLabel: { font:{ name:FONT, sz:10, bold:true, color:{rgb:NAVY} }, fill:{ fgColor:{rgb:GRAY} }, alignment:{ horizontal:'left' }, border:BORD },
+  catNum:   { font:{ name:FONT, sz:10, bold:true }, fill:{ fgColor:{rgb:GRAY} }, alignment:{ horizontal:'right' }, numFmt:FMT, border:BORD },
+  lineLabel:{ font:{ name:FONT, sz:10 }, alignment:{ horizontal:'left', indent:1 }, border:BORD },
+  input:    { font:{ name:FONT, sz:10, color:{rgb:INPUTBLUE} }, fill:{ fgColor:{rgb:YELLOW} }, alignment:{ horizontal:'right' }, numFmt:FMT, border:BORD },
+  formula:  { font:{ name:FONT, sz:10 }, alignment:{ horizontal:'right' }, numFmt:FMT, border:BORD },
+  sumLabel: { font:{ name:FONT, sz:10, bold:true }, alignment:{ horizontal:'left' }, border:BORD },
+  sumNum:   { font:{ name:FONT, sz:10, bold:true }, alignment:{ horizontal:'right' }, numFmt:FMT, border:BORD },
+  flujoLabel:{ font:{ name:FONT, sz:10, bold:true, color:{rgb:'FFFFFF'} }, fill:{ fgColor:{rgb:BLUE} }, alignment:{ horizontal:'left' }, border:BORD },
+  flujoNum: { font:{ name:FONT, sz:10, bold:true, color:{rgb:'FFFFFF'} }, fill:{ fgColor:{rgb:BLUE} }, alignment:{ horizontal:'right' }, numFmt:FMT, border:BORD },
+  saldoLabel:{ font:{ name:FONT, sz:10, bold:true }, fill:{ fgColor:{rgb:LBLUE} }, alignment:{ horizontal:'left' }, border:BORD },
+  saldoNum: { font:{ name:FONT, sz:10, bold:true }, fill:{ fgColor:{rgb:LBLUE} }, alignment:{ horizontal:'right' }, numFmt:FMT, border:BORD },
+};
+
 function buildColumns(months, seasons) {
-  const cols = [];        // {kind, c, label, monthIdx?, members?, seasonKey?}
-  const monthOrder = [];  // {c, monthIdx} en orden cronológico
-  let c = 1;              // col 0 = etiqueta
+  const cols = [];
+  const monthOrder = [];
+  let c = 1;
   seasons.forEach(s => {
     const members = [];
     s.months.forEach(mo => {
@@ -65,210 +87,154 @@ function buildColumns(months, seasons) {
     c++;
   });
   const tempCols = cols.filter(x => x.kind === 'temp').map(x => x.c);
-  cols.push({ kind:'grand', c, label:'Total', members:tempCols });
+  cols.push({ kind:'grand', c, label:'TOTAL', members:tempCols });
   return { cols, monthOrder, lastCol:c };
 }
 
-// Llena las columnas temp/grand de una fila ADITIVA, sumando las celdas
-// de meses de esa misma fila (las temp suman sus meses; grand suma temps).
-function fillAdditive(cells, r1, cols) {
-  cols.forEach(col => {
-    if (col.kind === 'temp') {
-      const first = col.members[0], last = col.members[col.members.length - 1];
-      cells[ref(r1, col.c)] = { t:'n', f:`SUM(${ref(r1, first)}:${ref(r1, last)})`, z:NUMFMT };
-    } else if (col.kind === 'grand') {
-      const parts = col.members.map(cc => ref(r1, cc)).join(',');
-      cells[ref(r1, col.c)] = { t:'n', f:`SUM(${parts})`, z:NUMFMT };
-    }
-  });
-}
-
-// ── Escribe un "estado de flujo" en una hoja ────────────────────────
-// catCellFn(cat, monthCol0) → string de fórmula (sin "=") para la celda
-//   de meses de la fila subtotal de categoría. Para empresa: SUMA vertical
-//   de líneas. Para consolidado: SUMA cruzada entre hojas.
-function buildSheet({ title, desc, cols, monthOrder, lines, saldoIni }) {
-  // lines: { cat: [ {label, vals:[...]} ] }  (vals indexado por monthOrder pos)
-  const cells = {};
-  const rows = [];        // !rows outline levels (0-based)
-  const merges = [];
-  let r = 0;              // 0-based row pointer
-  const setRowLevel = (r0, lvl) => { rows[r0] = { level:lvl }; };
-
-  // Fila 1: título
-  cells[ref(r+1, 0)] = { t:'s', v:title };
-  if (desc) cells[ref(r+1, 4)] = { t:'s', v:desc };
-  r++;
-  // Fila 2: cabecera de temporadas (merge sobre meses + temp)
-  const seasonHdrRow = r + 1;
-  // agrupamos por seasonKey contiguo
-  {
-    let i = 0;
-    while (i < cols.length) {
-      const col = cols[i];
-      if (col.kind === 'mes') {
-        // buscar rango de esta temporada (meses + su temp)
-        const sk = seasonKeyForMonthGroup(cols, i);
-        let j = i;
-        while (j < cols.length && !(cols[j].kind === 'temp')) j++;
-        // j apunta al temp de la temporada
-        const startC = cols[i].c, endC = cols[j].c;
-        cells[ref(seasonHdrRow, startC)] = { t:'s', v:`Temporada ${sk}` };
-        merges.push({ s:{ r:seasonHdrRow-1, c:startC }, e:{ r:seasonHdrRow-1, c:endC } });
-        i = j + 1;
-      } else { i++; }
-    }
-  }
-  r++;
-  // Fila 3: etiquetas de columna
-  const colHdrRow = r + 1;
-  cells[ref(colHdrRow, 0)] = { t:'s', v:'Concepto' };
-  cols.forEach(col => { cells[ref(colHdrRow, col.c)] = { t:'s', v:col.label }; });
-  r++;
-
-  // Fila: Saldo inicial caja
-  const saldoIniRow = r + 1;
-  cells[ref(saldoIniRow, 0)] = { t:'s', v:'Saldo inicial caja' };
-  setRowLevel(r, 0);
-  r++;
-
-  // Categorías → líneas (nivel 2) + subtotal (nivel 1)
-  const catRows = {};
-  CAT_ORDER.forEach(cat => {
-    const catLines = lines[cat] || [];
-    const firstLineRow = r + 1;
-    catLines.forEach(ln => {
-      cells[ref(r+1, 0)] = { t:'s', v:'    ' + ln.label };
-      monthOrder.forEach((mc, k) => {
-        const v = Number(ln.vals[k]) || 0;
-        cells[ref(r+1, mc.c)] = { t:'n', v, z:NUMFMT };
-      });
-      fillAdditive(cells, r+1, cols);
-      setRowLevel(r, 2);
-      r++;
-    });
-    const lastLineRow = r; // 1-based last line row = r (porque r ya avanzó)
-    // subtotal categoría
-    const subRow = r + 1;
-    catRows[cat] = subRow;
-    cells[ref(subRow, 0)] = { t:'s', v:CAT_LABEL[cat] };
-    monthOrder.forEach(mc => {
-      if (catLines.length > 0) {
-        cells[ref(subRow, mc.c)] = { t:'n', f:`SUM(${ref(firstLineRow, mc.c)}:${ref(lastLineRow, mc.c)})`, z:NUMFMT };
-      } else {
-        cells[ref(subRow, mc.c)] = { t:'n', v:0, z:NUMFMT };
-      }
-    });
-    fillAdditive(cells, subRow, cols);
-    setRowLevel(r, 1);
-    r++;
-  });
-
-  // (+) Ingresos del mes
-  const ingRow = r + 1;
-  cells[ref(ingRow, 0)] = { t:'s', v:'(+) Ingresos del mes' };
-  monthOrder.forEach(mc => {
-    const parts = ING_CATS.map(c2 => ref(catRows[c2], mc.c)).join('+');
-    cells[ref(ingRow, mc.c)] = { t:'n', f:parts, z:NUMFMT };
-  });
-  fillAdditive(cells, ingRow, cols);
-  setRowLevel(r, 0); r++;
-
-  // (−) Egresos del mes
-  const egrRow = r + 1;
-  cells[ref(egrRow, 0)] = { t:'s', v:'(−) Egresos del mes' };
-  monthOrder.forEach(mc => {
-    const parts = EGR_CATS.map(c2 => ref(catRows[c2], mc.c)).join('+');
-    cells[ref(egrRow, mc.c)] = { t:'n', f:parts, z:NUMFMT };
-  });
-  fillAdditive(cells, egrRow, cols);
-  setRowLevel(r, 0); r++;
-
-  // (=) Flujo neto
-  const flujoRow = r + 1;
-  cells[ref(flujoRow, 0)] = { t:'s', v:'(=) Flujo neto' };
-  monthOrder.forEach(mc => {
-    cells[ref(flujoRow, mc.c)] = { t:'n', f:`${ref(ingRow, mc.c)}-${ref(egrRow, mc.c)}`, z:NUMFMT };
-  });
-  fillAdditive(cells, flujoRow, cols);
-  setRowLevel(r, 0); r++;
-
-  // (=) Saldo final caja
-  const saldoFinRow = r + 1;
-  cells[ref(saldoFinRow, 0)] = { t:'s', v:'(=) Saldo final caja' };
-  monthOrder.forEach(mc => {
-    cells[ref(saldoFinRow, mc.c)] = { t:'n', f:`${ref(saldoIniRow, mc.c)}+${ref(flujoRow, mc.c)}`, z:NUMFMT };
-  });
-  // saldo final: temp = último mes de la temporada; grand = último mes total
-  cols.forEach(col => {
-    if (col.kind === 'temp') {
-      const last = col.members[col.members.length - 1];
-      cells[ref(saldoFinRow, col.c)] = { t:'n', f:`${ref(saldoFinRow, last)}`, z:NUMFMT };
-    } else if (col.kind === 'grand') {
-      const lastMonthCol = monthOrder[monthOrder.length - 1].c;
-      cells[ref(saldoFinRow, col.c)] = { t:'n', f:`${ref(saldoFinRow, lastMonthCol)}`, z:NUMFMT };
-    }
-  });
-  setRowLevel(r, 0); r++;
-
-  // ── Saldo inicial: month0 = input/cross-ref; monthK = saldo final mes previo ──
-  // (se llena al final porque depende de saldoFinRow)
-  monthOrder.forEach((mc, k) => {
-    if (k === 0) {
-      if (typeof saldoIni === 'string') cells[ref(saldoIniRow, mc.c)] = { t:'n', f:saldoIni, z:NUMFMT };
-      else cells[ref(saldoIniRow, mc.c)] = { t:'n', v:Number(saldoIni) || 0, z:NUMFMT };
-    } else {
-      const prev = monthOrder[k-1].c;
-      cells[ref(saldoIniRow, mc.c)] = { t:'n', f:`${ref(saldoFinRow, prev)}`, z:NUMFMT };
-    }
-  });
-  cols.forEach(col => {
-    if (col.kind === 'temp') {
-      const first = col.members[0];
-      cells[ref(saldoIniRow, col.c)] = { t:'n', f:`${ref(saldoIniRow, first)}`, z:NUMFMT };
-    } else if (col.kind === 'grand') {
-      const firstMonthCol = monthOrder[0].c;
-      cells[ref(saldoIniRow, col.c)] = { t:'n', f:`${ref(saldoIniRow, firstMonthCol)}`, z:NUMFMT };
-    }
-  });
-
-  return { cells, rows, merges, lastRow:r, lastCol:cols[cols.length-1].c,
-           catRows, saldoIniRow, flujoRow, saldoFinRow, ingRow, egrRow };
-}
-
 function seasonKeyForMonthGroup(cols, i) {
-  // el temp de la temporada lleva seasonKey; búscalo hacia adelante
   for (let j = i; j < cols.length; j++) if (cols[j].kind === 'temp') return cols[j].seasonKey;
   return '';
 }
 
-// Convierte el dict de celdas en worksheet con !ref, !cols, !rows, !merges
-function cellsToSheet({ cells, rows, merges, lastRow, lastCol, cols }) {
+// Llena temp/grand de una fila aditiva con el estilo dado
+function fillAdditive(cells, r1, cols, sty) {
+  cols.forEach(col => {
+    if (col.kind === 'temp') {
+      const first = col.members[0], last = col.members[col.members.length - 1];
+      cells[ref(r1, col.c)] = { t:'n', f:`SUM(${ref(r1, first)}:${ref(r1, last)})`, s:sty };
+    } else if (col.kind === 'grand') {
+      const parts = col.members.map(cc => ref(r1, cc)).join(',');
+      cells[ref(r1, col.c)] = { t:'n', f:`SUM(${parts})`, s:sty };
+    }
+  });
+}
+
+// ── construye una hoja de "estado de flujo" (empresa o consolidado) ──
+function buildStatement({ title, subtitle, cols, monthOrder, cats, saldoIniValue, saldoIniMonth0Formula }) {
+  // cats: [{ cat, lines:[{label,vals}], monthFormula?(mc)->string }]
+  const cells = {}; const rows = []; const merges = [];
+  let r = 0;
+  const setLvl = (r0, lvl) => { rows[r0] = { level:lvl }; };
+  const catByKey = {}; cats.forEach(c => { catByKey[c.cat] = c; });
+
+  // Fila 1: título (merge sobre toda la fila)
+  cells[ref(r+1,0)] = { t:'s', v:title, s:S.title };
+  const lastColIdx = cols[cols.length-1].c;
+  for (let c=1;c<=lastColIdx;c++) cells[ref(r+1,c)] = { t:'s', v:'', s: c<=4?S.title:S.title };
+  if (subtitle) cells[ref(r+1,5)] = { t:'s', v:subtitle, s:S.titleSub };
+  merges.push({ s:{r:r,c:0}, e:{r:r,c: subtitle?4:lastColIdx} });
+  rows[r] = { level:0, hpx:22 };
+  r++;
+
+  // Fila 2: cabecera de temporadas
+  const seasonHdrRow = r + 1;
+  { let i=0; while(i<cols.length){ const col=cols[i]; if(col.kind==='mes'){ const sk=seasonKeyForMonthGroup(cols,i); let j=i; while(j<cols.length && cols[j].kind!=='temp') j++; cells[ref(seasonHdrRow,cols[i].c)]={t:'s',v:`Temporada ${sk}`,s:S.seasonHdr}; for(let cc=cols[i].c+1;cc<=cols[j].c;cc++) cells[ref(seasonHdrRow,cc)]={t:'s',v:'',s:S.seasonHdr}; merges.push({s:{r:seasonHdrRow-1,c:cols[i].c},e:{r:seasonHdrRow-1,c:cols[j].c}}); i=j+1;} else i++; } }
+  cells[ref(seasonHdrRow,0)] = { t:'s', v:'', s:S.seasonHdr };
+  setLvl(r,0); r++;
+
+  // Fila 3: etiquetas de columna
+  const colHdrRow = r + 1;
+  cells[ref(colHdrRow,0)] = { t:'s', v:'Concepto', s:S.concept };
+  cols.forEach(col => { cells[ref(colHdrRow,col.c)] = { t:'s', v:col.label, s:S.colHdr }; });
+  setLvl(r,0); r++;
+
+  // Saldo inicial caja
+  const saldoIniRow = r + 1;
+  cells[ref(saldoIniRow,0)] = { t:'s', v:'Saldo inicial caja', s:S.saldoLabel };
+  setLvl(r,0); r++;
+
+  // Categorías
+  const catRows = {};
+  CAT_ORDER.forEach(cat => {
+    const def = catByKey[cat] || { lines:[] };
+    const catLines = def.lines || [];
+    const firstLineRow = r + 1;
+    catLines.forEach(ln => {
+      cells[ref(r+1,0)] = { t:'s', v:ln.label, s:S.lineLabel };
+      monthOrder.forEach((mc,k) => { cells[ref(r+1,mc.c)] = { t:'n', v:Number(ln.vals[k])||0, s:S.input }; });
+      fillAdditive(cells, r+1, cols, S.formula);
+      setLvl(r,2); r++;
+    });
+    const lastLineRow = r;
+    const subRow = r + 1; catRows[cat] = subRow;
+    cells[ref(subRow,0)] = { t:'s', v:CAT_LABEL[cat], s:S.catLabel };
+    monthOrder.forEach(mc => {
+      if (catLines.length > 0) cells[ref(subRow,mc.c)] = { t:'n', f:`SUM(${ref(firstLineRow,mc.c)}:${ref(lastLineRow,mc.c)})`, s:S.catNum };
+      else if (def.monthFormula) cells[ref(subRow,mc.c)] = { t:'n', f:def.monthFormula(mc), s:S.catNum };
+      else cells[ref(subRow,mc.c)] = { t:'n', v:0, s:S.catNum };
+    });
+    fillAdditive(cells, subRow, cols, S.catNum);
+    setLvl(r,1); r++;
+  });
+
+  // (+) Ingresos del mes
+  const ingRow = r + 1;
+  cells[ref(ingRow,0)] = { t:'s', v:'(+) Ingresos del mes', s:S.sumLabel };
+  monthOrder.forEach(mc => { cells[ref(ingRow,mc.c)] = { t:'n', f:ING_CATS.map(c2=>ref(catRows[c2],mc.c)).join('+'), s:S.sumNum }; });
+  fillAdditive(cells, ingRow, cols, S.sumNum); setLvl(r,0); r++;
+
+  // (−) Egresos del mes
+  const egrRow = r + 1;
+  cells[ref(egrRow,0)] = { t:'s', v:'(−) Egresos del mes', s:S.sumLabel };
+  monthOrder.forEach(mc => { cells[ref(egrRow,mc.c)] = { t:'n', f:EGR_CATS.map(c2=>ref(catRows[c2],mc.c)).join('+'), s:S.sumNum }; });
+  fillAdditive(cells, egrRow, cols, S.sumNum); setLvl(r,0); r++;
+
+  // (=) Flujo neto
+  const flujoRow = r + 1;
+  cells[ref(flujoRow,0)] = { t:'s', v:'(=) Flujo neto', s:S.flujoLabel };
+  monthOrder.forEach(mc => { cells[ref(flujoRow,mc.c)] = { t:'n', f:`${ref(ingRow,mc.c)}-${ref(egrRow,mc.c)}`, s:S.flujoNum }; });
+  fillAdditive(cells, flujoRow, cols, S.flujoNum); setLvl(r,0); r++;
+
+  // (=) Saldo final caja
+  const saldoFinRow = r + 1;
+  cells[ref(saldoFinRow,0)] = { t:'s', v:'(=) Saldo final caja', s:S.saldoLabel };
+  monthOrder.forEach(mc => { cells[ref(saldoFinRow,mc.c)] = { t:'n', f:`${ref(saldoIniRow,mc.c)}+${ref(flujoRow,mc.c)}`, s:S.saldoNum }; });
+  cols.forEach(col => {
+    if (col.kind === 'temp') { const last=col.members[col.members.length-1]; cells[ref(saldoFinRow,col.c)]={t:'n',f:`${ref(saldoFinRow,last)}`,s:S.saldoNum}; }
+    else if (col.kind === 'grand') { const lm=monthOrder[monthOrder.length-1].c; cells[ref(saldoFinRow,col.c)]={t:'n',f:`${ref(saldoFinRow,lm)}`,s:S.saldoNum}; }
+  });
+  setLvl(r,0); r++;
+
+  // Saldo inicial: month0 input/formula; monthK = saldo final mes previo
+  monthOrder.forEach((mc,k) => {
+    if (k === 0) {
+      if (saldoIniMonth0Formula) cells[ref(saldoIniRow,mc.c)] = { t:'n', f:saldoIniMonth0Formula, s:S.saldoNum };
+      else cells[ref(saldoIniRow,mc.c)] = { t:'n', v:Number(saldoIniValue)||0, s:S.input };
+    } else {
+      const prev = monthOrder[k-1].c;
+      cells[ref(saldoIniRow,mc.c)] = { t:'n', f:`${ref(saldoFinRow,prev)}`, s:S.saldoNum };
+    }
+  });
+  cols.forEach(col => {
+    if (col.kind === 'temp') { const first=col.members[0]; cells[ref(saldoIniRow,col.c)]={t:'n',f:`${ref(saldoIniRow,first)}`,s:S.saldoNum}; }
+    else if (col.kind === 'grand') { const fm=monthOrder[0].c; cells[ref(saldoIniRow,col.c)]={t:'n',f:`${ref(saldoIniRow,fm)}`,s:S.saldoNum}; }
+  });
+
+  return { cells, rows, merges, lastRow:r, lastCol:lastColIdx, catRows, saldoIniRow, flujoRow, saldoFinRow };
+}
+
+function toSheet({ cells, rows, merges, lastRow, lastCol, cols }) {
   const ws = {};
   Object.keys(cells).forEach(addr => { ws[addr] = cells[addr]; });
   ws['!ref'] = `A1:${L(lastCol)}${lastRow}`;
-  // anchos + outline de columnas (meses nivel 1, temp/grand nivel 0)
-  const wcols = [{ wch:34 }];
+  const wcols = [{ wch:36 }];
   for (let c = 1; c <= lastCol; c++) {
     const meta = cols.find(x => x.c === c);
     const lvl = meta && meta.kind === 'mes' ? 1 : 0;
-    wcols[c] = { wch:11, level:lvl };
+    wcols[c] = { wch: meta && meta.kind === 'grand' ? 13 : 11.5, level:lvl };
   }
   ws['!cols'] = wcols;
   ws['!rows'] = rows.map(rr => rr || { level:0 });
   if (merges.length) ws['!merges'] = merges;
-  // resumen de outline arriba/izquierda = false (default Excel: abajo/derecha)
+  // congelar: fila de meses (3) + columna concepto (A)
+  ws['!freeze'] = { xSplit:1, ySplit:3, topLeftCell:'B4', activePane:'bottomRight', state:'frozen' };
   return ws;
 }
 
 // ═══════════════════════════════════════════════════════════════════
-// API principal
-// ═══════════════════════════════════════════════════════════════════
 export function exportarFlujoConsolidado({ empresasConOverrides, empNames, saldoIniPorEmp, lastSeasonStartYear = 2028, fileName }) {
-  // 1. meses dentro del horizonte (hasta temporada lastSeasonStartYear)
   const allMonths = genMonths();
   const months = allMonths.filter(mo => seasonOf(mo) <= lastSeasonStartYear);
-  // temporadas (orden cronológico, contiguas)
   const seasonsMap = {};
   months.forEach(mo => {
     const sy = seasonOf(mo);
@@ -281,102 +247,52 @@ export function exportarFlujoConsolidado({ empresasConOverrides, empNames, saldo
 
   const wb = XLSX.utils.book_new();
 
-  // 2. Hojas por empresa (línea) — primero las construimos para capturar filas
-  const empBuilt = {};       // empName → resultado buildSheet
-  const sheetName = {};      // empName → nombre de hoja (<=31 chars, único)
-  const usedNames = new Set();
+  // nombres de hoja únicos
+  const sheetName = {}; const usedNames = new Set();
   empNames.forEach(n => {
     let nm = n.replace(/[\\/?*\[\]:]/g, '').slice(0, 28);
     let base = nm, i = 2;
     while (usedNames.has(nm)) { nm = `${base}_${i++}`.slice(0,31); }
-    usedNames.add(nm);
-    sheetName[n] = nm;
+    usedNames.add(nm); sheetName[n] = nm;
   });
 
+  // hojas empresa
+  const empBuilt = {};
   empNames.forEach(n => {
     const emp = empresasConOverrides[n];
-    // líneas por categoría (omite líneas todo-cero en el horizonte)
-    const lines = {};
-    CAT_ORDER.forEach(cat => {
+    const cats = CAT_ORDER.map(cat => {
       const sec = (emp.sections || []).find(s => s.cat === cat);
-      const arr = [];
-      if (sec) {
-        sec.lines.forEach(ln => {
-          const vals = months.map(mo => Number(ln.proy[mo.idx]) || 0);
-          if (vals.some(v => v !== 0)) arr.push({ label:ln.label, vals });
-        });
-      }
-      lines[cat] = arr;
+      const lines = [];
+      if (sec) sec.lines.forEach(ln => {
+        const vals = months.map(mo => Number(ln.proy[mo.idx]) || 0);
+        if (vals.some(v => v !== 0)) lines.push({ label:ln.label, vals });
+      });
+      return { cat, lines };
     });
-    const saldoIni = Number(saldoIniPorEmp?.[n]) || 0;
-    empBuilt[n] = buildSheet({
-      title:`${emp.emoji || ''} ${n}`.trim(), desc:emp.desc || '',
-      cols, monthOrder, lines, saldoIni,
+    empBuilt[n] = buildStatement({
+      title:`${emp.emoji || ''} ${n}`.trim(),
+      subtitle: emp.desc || '',
+      cols, monthOrder, cats,
+      saldoIniValue: Number(saldoIniPorEmp?.[n]) || 0,
     });
   });
 
-  // 3. Hoja Consolidado (categoría) — referencia cruzada a hojas empresa
-  const consCells = {}; const consRows = []; const consMerges = [];
-  {
-    // construimos un buildSheet "manual" para consolidado a nivel categoría
-    const cells = {}; const rows = []; const merges = [];
-    let r = 0;
-    const setLvl = (r0, lvl) => { rows[r0] = { level:lvl }; };
-    cells[ref(r+1,0)] = { t:'s', v:'🏛 Consolidado Grupo Mediterra' };
-    cells[ref(r+1,4)] = { t:'s', v:`${empNames.length} empresas · Apr-26 → ${months[months.length-1].label}` };
-    r++;
-    const seasonHdrRow = r+1;
-    { let i=0; while(i<cols.length){ const col=cols[i]; if(col.kind==='mes'){ const sk=seasonKeyForMonthGroup(cols,i); let j=i; while(j<cols.length && cols[j].kind!=='temp') j++; cells[ref(seasonHdrRow,cols[i].c)]={t:'s',v:`Temporada ${sk}`}; merges.push({s:{r:seasonHdrRow-1,c:cols[i].c},e:{r:seasonHdrRow-1,c:cols[j].c}}); i=j+1;} else i++; } }
-    r++;
-    const colHdrRow=r+1;
-    cells[ref(colHdrRow,0)]={t:'s',v:'Concepto'};
-    cols.forEach(col=>{cells[ref(colHdrRow,col.c)]={t:'s',v:col.label};});
-    r++;
-    const saldoIniRow=r+1;
-    cells[ref(saldoIniRow,0)]={t:'s',v:'Saldo inicial caja'};
-    setLvl(r,0); r++;
-    // categorías: month cell = suma cruzada de subtotales por empresa
-    const catRows={};
-    CAT_ORDER.forEach(cat=>{
-      const subRow=r+1; catRows[cat]=subRow;
-      cells[ref(subRow,0)]={t:'s',v:CAT_LABEL[cat]};
-      monthOrder.forEach(mc=>{
-        const parts = empNames.map(n=>`'${sheetName[n]}'!${ref(empBuilt[n].catRows[cat], mc.c)}`).join('+');
-        cells[ref(subRow,mc.c)]={t:'n',f:parts,z:NUMFMT};
-      });
-      fillAdditive(cells, subRow, cols);
-      setLvl(r,1); r++;
-    });
-    const ingRow=r+1; cells[ref(ingRow,0)]={t:'s',v:'(+) Ingresos del mes'};
-    monthOrder.forEach(mc=>{cells[ref(ingRow,mc.c)]={t:'n',f:ING_CATS.map(c2=>ref(catRows[c2],mc.c)).join('+'),z:NUMFMT};});
-    fillAdditive(cells,ingRow,cols); setLvl(r,0); r++;
-    const egrRow=r+1; cells[ref(egrRow,0)]={t:'s',v:'(−) Egresos del mes'};
-    monthOrder.forEach(mc=>{cells[ref(egrRow,mc.c)]={t:'n',f:EGR_CATS.map(c2=>ref(catRows[c2],mc.c)).join('+'),z:NUMFMT};});
-    fillAdditive(cells,egrRow,cols); setLvl(r,0); r++;
-    const flujoRow=r+1; cells[ref(flujoRow,0)]={t:'s',v:'(=) Flujo neto'};
-    monthOrder.forEach(mc=>{cells[ref(flujoRow,mc.c)]={t:'n',f:`${ref(ingRow,mc.c)}-${ref(egrRow,mc.c)}`,z:NUMFMT};});
-    fillAdditive(cells,flujoRow,cols); setLvl(r,0); r++;
-    const saldoFinRow=r+1; cells[ref(saldoFinRow,0)]={t:'s',v:'(=) Saldo final caja'};
-    monthOrder.forEach(mc=>{cells[ref(saldoFinRow,mc.c)]={t:'n',f:`${ref(saldoIniRow,mc.c)}+${ref(flujoRow,mc.c)}`,z:NUMFMT};});
-    cols.forEach(col=>{ if(col.kind==='temp'){const last=col.members[col.members.length-1];cells[ref(saldoFinRow,col.c)]={t:'n',f:`${ref(saldoFinRow,last)}`,z:NUMFMT};} else if(col.kind==='grand'){const lm=monthOrder[monthOrder.length-1].c;cells[ref(saldoFinRow,col.c)]={t:'n',f:`${ref(saldoFinRow,lm)}`,z:NUMFMT};} });
-    setLvl(r,0); r++;
-    // saldo inicial: month0 = suma cruzada saldo inicial empresas; monthK = saldo fin previo
-    monthOrder.forEach((mc,k)=>{
-      if(k===0){ const parts=empNames.map(n=>`'${sheetName[n]}'!${ref(empBuilt[n].saldoIniRow, mc.c)}`).join('+'); cells[ref(saldoIniRow,mc.c)]={t:'n',f:parts,z:NUMFMT}; }
-      else { const prev=monthOrder[k-1].c; cells[ref(saldoIniRow,mc.c)]={t:'n',f:`${ref(saldoFinRow,prev)}`,z:NUMFMT}; }
-    });
-    cols.forEach(col=>{ if(col.kind==='temp'){const first=col.members[0];cells[ref(saldoIniRow,col.c)]={t:'n',f:`${ref(saldoIniRow,first)}`,z:NUMFMT};} else if(col.kind==='grand'){const fm=monthOrder[0].c;cells[ref(saldoIniRow,col.c)]={t:'n',f:`${ref(saldoIniRow,fm)}`,z:NUMFMT};} });
+  // hoja consolidado (categoría) → fórmulas cruzadas a hojas empresa
+  const consCats = CAT_ORDER.map(cat => ({
+    cat, lines:[],
+    monthFormula: (mc) => empNames.map(n => `'${sheetName[n]}'!${ref(empBuilt[n].catRows[cat], mc.c)}`).join('+'),
+  }));
+  const saldoIniCons = monthOrder[0] && empNames.map(n => `'${sheetName[n]}'!${ref(empBuilt[n].saldoIniRow, monthOrder[0].c)}`).join('+');
+  const cons = buildStatement({
+    title:'🏛 Consolidado Grupo Mediterra',
+    subtitle:`${empNames.length} empresas · Apr-26 → ${months[months.length-1].label}`,
+    cols, monthOrder, cats:consCats,
+    saldoIniMonth0Formula: saldoIniCons,
+  });
+  XLSX.utils.book_append_sheet(wb, toSheet({ ...cons, cols }), 'Consolidado');
 
-    const lastCol = cols[cols.length-1].c;
-    const ws = cellsToSheet({ cells, rows, merges, lastRow:r, lastCol, cols });
-    XLSX.utils.book_append_sheet(wb, ws, 'Consolidado');
-  }
-
-  // 4. Append hojas empresa
   empNames.forEach(n => {
-    const b = empBuilt[n];
-    const ws = cellsToSheet({ cells:b.cells, rows:b.rows, merges:b.merges, lastRow:b.lastRow, lastCol:b.lastCol, cols });
-    XLSX.utils.book_append_sheet(wb, ws, sheetName[n]);
+    XLSX.utils.book_append_sheet(wb, toSheet({ ...empBuilt[n], cols }), sheetName[n]);
   });
 
   const fname = fileName || `Flujo_Consolidado_Mediterra_${months[months.length-1].label}.xlsx`;

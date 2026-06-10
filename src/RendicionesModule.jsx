@@ -9,7 +9,7 @@
 // Adjuntos en Supabase Storage (bucket frisku-docs, prefijo rendiciones/).
 // ═══════════════════════════════════════════════════════════════════
 import React, { useState, useEffect, useMemo, useRef, useCallback } from "react";
-import * as XLSX from "xlsx";
+import * as XLSX from "xlsx-js-style";
 import { theme as T } from "./theme";
 import {
   dbLoadGeneric, dbSaveGeneric,

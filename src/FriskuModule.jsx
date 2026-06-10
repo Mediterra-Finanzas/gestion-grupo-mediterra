@@ -1682,7 +1682,7 @@ const parsearPeso = (v) => {
 const limpiarCodigoEmb = (v) => normEmb(v).replace(/\t.*$/, "").replace(/\s+$/, "");
 
 async function leerExcelEmbalajes(file) {
-  const XLSX = await import("xlsx");
+  const XLSX = await import("xlsx-js-style");
   const buf = await file.arrayBuffer();
   const wb = XLSX.read(buf, {type:"array"});
   const hoja = wb.Sheets[wb.SheetNames[0]];
