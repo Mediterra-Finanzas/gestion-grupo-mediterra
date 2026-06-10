@@ -7288,10 +7288,11 @@ function ControlContratos({data,setData,clientes,setClientes,variedadesMaestro=[
     tipoContractFee:"Sin Devolución",montoContractFee:30000,
     valorRoyaltyPlanta:1.00,valorRoyaltyComercial:3000,
     royaltyInflacion:false,rcInflacionPct:0,mesFacuracionRC:"",notas:"",
-    // Modelo de ingresos: "legacy" = plantaciones del contrato + cuotas% (como hasta hoy).
+    // Modelo de ingresos: "legacy" = plantaciones del contrato + cuotas% (contratos antiguos).
     // "oc" = deriva Royalty Planta / Comercial desde las OC del vivero + sus despachos.
-    // Default legacy → no cambia ningún número de los contratos existentes.
-    modeloIngresos:"legacy",
+    // Los NUEVOS contratos arrancan en "oc" (ingresos desde la OC del vivero).
+    // Los contratos ya guardados sin este campo se tratan como legacy en la derivación, así que no cambian.
+    modeloIngresos:"oc",
     // Nuevos campos sesión 9
     plantaciones:[],
     sublicenciatarios:[],
@@ -8906,6 +8907,25 @@ function ControlContratos({data,setData,clientes,setClientes,variedadesMaestro=[
                   <input type="checkbox" checked={form.royaltyInflacion||false} onChange={()=>setF("royaltyInflacion",!form.royaltyInflacion)}/>
                   📈 Sujeto a Inflación
                 </label>
+              </div>
+            </div>
+            {/* Modelo de ingresos del contrato nuevo */}
+            <div style={{marginTop:12,padding:"12px 14px",borderRadius:10,border:`1px solid ${(form.modeloIngresos||"oc")==="oc"?C.azul:C.border}`,background:(form.modeloIngresos||"oc")==="oc"?(C.azulBg||C.cardAlt):C.cardAlt}}>
+              <div style={{display:"flex",alignItems:"center",gap:14,flexWrap:"wrap"}}>
+                <div style={{fontSize:12,fontWeight:800,color:C.text}}>⚙️ Modelo de ingresos</div>
+                <label style={{display:"flex",alignItems:"center",gap:6,fontSize:12,cursor:"pointer"}}>
+                  <input type="radio" name="modeling_nuevo" checked={(form.modeloIngresos||"oc")==="oc"} onChange={()=>setF("modeloIngresos","oc")}/>
+                  OC del vivero + despachos
+                </label>
+                <label style={{display:"flex",alignItems:"center",gap:6,fontSize:12,cursor:"pointer"}}>
+                  <input type="radio" name="modeling_nuevo" checked={(form.modeloIngresos||"oc")==="legacy"} onChange={()=>setF("modeloIngresos","legacy")}/>
+                  Legacy (plantaciones + cuotas %)
+                </label>
+              </div>
+              <div style={{fontSize:10,color:C.muted,marginTop:6}}>
+                {(form.modeloIngresos||"oc")==="oc"
+                  ? "Recomendado para nuevos: Royalty Planta/Comercial y Fee Vivero se derivan de las OC del vivero y sus despachos."
+                  : "Modo antiguo: cargas plantaciones y cuotas % dentro del contrato."}
               </div>
             </div>
             <div style={{marginTop:12}}>
