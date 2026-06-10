@@ -7240,6 +7240,7 @@ function ControlContratos({data,setData,clientes,setClientes,variedadesMaestro=[
   const [sec,setSec]=useState("empresa");
   const [busq,setBusq]=useState("");
   const [filtroPais,setFiltroPais]=useState("Todos");
+  const [ordenCt,setOrdenCt]=useState("nombre"); // nombre | pais
   // Mantenedores: si vienen como props (persistidos), usamos esos. Sino, fallback al state local.
   const [tiposContratoLocal,setTiposContratoLocal]=useState(TIPOS_CONTRATO_BASE);
   const [tiposAnexoLocal,setTiposAnexoLocal]=useState(TIPOS_ANEXO_BASE);
@@ -7380,10 +7381,14 @@ function ControlContratos({data,setData,clientes,setClientes,variedadesMaestro=[
       registroId:ocId});
   }
 
-  const filtrado=data.filter(r=>
-    (filtroPais==="Todos"||r.pais===filtroPais)&&
-    (!busq||r.razonSocial.toLowerCase().includes(busq.toLowerCase()))
-  );
+  const filtrado=data.filter(r=>{
+    const q=busq.toLowerCase();
+    return (filtroPais==="Todos"||r.pais===filtroPais)&&
+      (!busq||[r.razonSocial,r.pais,r.tipoContrato].some(f=>String(f||"").toLowerCase().includes(q)));
+  }).sort((a,b)=>{
+    if(ordenCt==="pais") return String(a.pais||"").localeCompare(String(b.pais||""))||String(a.razonSocial||"").localeCompare(String(b.razonSocial||""));
+    return String(a.razonSocial||"").localeCompare(String(b.razonSocial||""));
+  });
   const actual=data.find(r=>r.id===sel);
   const totalFirmados=data.filter(r=>r.firmadoLicenciado&&r.firmadoOsiris).length;
 
@@ -9217,8 +9222,8 @@ function ControlContratos({data,setData,clientes,setClientes,variedadesMaestro=[
       {/* Maestros Especies/Variedades → ahora en Contratos Obtentores */}
 
       <div style={{display:"flex",gap:8,marginBottom:14,flexWrap:"wrap",alignItems:"center"}}>
-        <input value={busq} onChange={e=>setBusq(e.target.value)} placeholder="Buscar empresa..."
-          style={{padding:"7px 12px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:13,minWidth:200}}/>
+        <input value={busq} onChange={e=>setBusq(e.target.value)} placeholder="Buscar por empresa, país o tipo..."
+          style={{padding:"7px 12px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:13,minWidth:220}}/>
         {["Todos",...PAISES].map(p=>(
           <button key={p} onClick={()=>setFiltroPais(p)}
             style={{padding:"4px 12px",borderRadius:20,border:"none",cursor:"pointer",fontSize:12,fontWeight:600,
@@ -9226,6 +9231,14 @@ function ControlContratos({data,setData,clientes,setClientes,variedadesMaestro=[
             {p}
           </button>
         ))}
+        <div style={{marginLeft:"auto",display:"flex",alignItems:"center",gap:6}}>
+          <span style={{fontSize:11,color:C.muted,fontWeight:600}}>Ordenar:</span>
+          <select value={ordenCt} onChange={e=>setOrdenCt(e.target.value)}
+            style={{padding:"6px 10px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:12,background:C.card}}>
+            <option value="nombre">Nombre (A–Z)</option>
+            <option value="pais">País, luego nombre</option>
+          </select>
+        </div>
       </div>
       <div style={{overflowX:"auto",minWidth:0,maxWidth:"calc(100vw - 40px)"}}>
         <table style={{borderCollapse:"collapse",width:"100%",background:C.card,borderRadius:10,overflow:"hidden"}}>
@@ -9615,7 +9628,7 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
     variedad_id:"",fecha_plantacion:"",ha_plantadas:"",
     plantacion_id:"",estado:"Despachado",observaciones:""};
   const EMPTY_OC = {n_oc:"",fecha_oc:"",cliente_id:"",cliente_nombre:"",
-    contrato_id:"",
+    contrato_id:"",ubicacion_id:"",ubicacion_nombre:"",
     variedad_id:"",especie:"",variedad:"",
     cantidad_plantas:"",hectareas:"",
     fee_usd_planta:"",fee_total_usd:0,royalty_usd_planta:"",
@@ -9623,6 +9636,8 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
     despachos:[],facturasRP:[],
     cuotas:[]};
   const [ocForm, setOcForm] = useState(EMPTY_OC);
+  const [ocBusca, setOcBusca] = useState("");   // filtro lista de OC (cliente / N° OC)
+  const [varBusca, setVarBusca] = useState(""); // filtro variedades autorizadas
   const [ocDetalle, setOcDetalle] = useState(null); // ID de OC para ver/editar cuotas
   const [cuotaModal, setCuotaModal] = useState(false);
   const [cuotaForm, setCuotaForm] = useState({fecha:"",monto_usd:"",pagado:false,fecha_pago:"",n_factura:"",observaciones:""});
@@ -11654,6 +11669,7 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
           n_oc: oc.n_oc||"", fecha_oc: oc.fecha_oc||"",
           cliente_id: oc.cliente_id||"", cliente_nombre: oc.cliente_nombre||"",
           contrato_id: oc.contrato_id||"",
+          ubicacion_id: oc.ubicacion_id||"", ubicacion_nombre: oc.ubicacion_nombre||"",
           variedad_id: oc.variedad_id||"", especie: oc.especie||"", variedad: oc.variedad||"",
           cantidad_plantas: oc.cantidad_plantas||"", hectareas: oc.hectareas||"",
           fee_usd_planta: oc.fee_usd_planta||"", fee_total_usd: oc.fee_total_usd||0,
@@ -11930,13 +11946,24 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
                   <div style={{fontWeight:700,color:C.text}}>🌱 Variedades Autorizadas a Producir</div>
                   {canViveros&&<button onClick={()=>{setVvForm({especie:"",variedad:"",fee_usd:"",fee_pct:"",observaciones:""});setVvModal(true);}} style={{padding:"6px 14px",borderRadius:8,background:C.success,border:"none",color:"#fff",cursor:"pointer",fontSize:12,fontWeight:700}}>+ Agregar Variedad</button>}
                 </div>
-                {variedades.length===0?<div style={{padding:30,textAlign:"center",color:C.muted2}}>No hay variedades registradas.</div>:(
+                {variedades.length>0&&(
+                  <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:10,flexWrap:"wrap"}}>
+                    <input value={varBusca} onChange={e=>setVarBusca(e.target.value)} placeholder="🔎 Buscar por especie, variedad o N° registro..."
+                      style={{flex:1,minWidth:220,padding:"7px 12px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:12,outline:"none"}}/>
+                    {varBusca&&<button onClick={()=>setVarBusca("")} style={{background:C.cardAlt,border:`1px solid ${C.border}`,borderRadius:8,padding:"6px 12px",cursor:"pointer",fontSize:11}}>Limpiar</button>}
+                  </div>
+                )}
+                {variedades.length===0?<div style={{padding:30,textAlign:"center",color:C.muted2}}>No hay variedades registradas.</div>:(()=>{
+                  const q=varBusca.trim().toLowerCase();
+                  const varsFiltradas=q?variedades.filter(x=>[x.especie,x.variedad,x.nRegistro].some(f=>String(f||"").toLowerCase().includes(q))):variedades;
+                  if(varsFiltradas.length===0) return <div style={{padding:24,textAlign:"center",color:C.muted2,fontSize:12}}>Sin variedades que coincidan con "{varBusca}".</div>;
+                  return (
                   <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
                     <thead><tr style={{background:C.primary}}>
                       {["Especie","Variedad","Formato planta","Fee USD/planta","Fee % s/venta","Observaciones",""].map(h=><th key={h} style={{padding:"8px 12px",textAlign:["Fee USD/planta","Fee % s/venta"].includes(h)?"right":"left",fontWeight:700,fontSize:10,color:C.muted,borderBottom:`2px solid ${C.border}`}}>{h}</th>)}
                     </tr></thead>
                     <tbody>
-                      {variedades.map(x=>(
+                      {varsFiltradas.map(x=>(
                         <tr key={x.id} style={{borderBottom:"1px solid #f1f5f9"}}>
                           <td style={{padding:"8px 12px",fontWeight:600}}>{x.especie}</td>
                           <td style={{padding:"8px 12px"}}>{x.nRegistro?`${x.nRegistro} · `:""}{x.variedad}</td>
@@ -11978,7 +12005,8 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
                       ))}
                     </tbody>
                   </table>
-                )}
+                  );
+                })()}
               </div>
             )}
 
@@ -12034,7 +12062,18 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
                       })()}
                     </div>
                   )}
-                  {ordenesCompra.length===0?<div style={{padding:30,textAlign:"center",color:C.muted2}}>No hay OC registradas. {canViveros?"Crea una con \"+ Nueva OC\".":""}</div>:(
+                  {ordenesCompra.length>0&&(
+                    <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:10,flexWrap:"wrap"}}>
+                      <input value={ocBusca} onChange={e=>setOcBusca(e.target.value)} placeholder="🔎 Buscar por N° OC, cliente o variedad..."
+                        style={{flex:1,minWidth:220,padding:"7px 12px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:12,outline:"none"}}/>
+                      {ocBusca&&<button onClick={()=>setOcBusca("")} style={{background:C.cardAlt,border:`1px solid ${C.border}`,borderRadius:8,padding:"6px 12px",cursor:"pointer",fontSize:11}}>Limpiar</button>}
+                    </div>
+                  )}
+                  {ordenesCompra.length===0?<div style={{padding:30,textAlign:"center",color:C.muted2}}>No hay OC registradas. {canViveros?"Crea una con \"+ Nueva OC\".":""}</div>:(()=>{
+                    const q=ocBusca.trim().toLowerCase();
+                    const ordenesFiltradas=q?ordenesCompra.filter(oc=>[oc.n_oc,oc.cliente_nombre,oc.especie,oc.variedad].some(f=>String(f||"").toLowerCase().includes(q))):ordenesCompra;
+                    if(ordenesFiltradas.length===0) return <div style={{padding:24,textAlign:"center",color:C.muted2,fontSize:12}}>Sin OC que coincidan con "{ocBusca}".</div>;
+                    return (
                     <div style={{overflowX:"auto",minWidth:0,maxWidth:"calc(100vw - 40px)"}}>
                       <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
                         <thead><tr style={{background:C.primary}}>
@@ -12043,7 +12082,7 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
                           )}
                         </tr></thead>
                         <tbody>
-                          {ordenesCompra.map(oc=>{
+                          {ordenesFiltradas.map(oc=>{
                             const cuotasArr = oc.cuotas||[];
                             const totCuotas = cuotasArr.reduce((s,c)=>s+(parseFloat(c.monto_usd)||0),0);
                             const cuotasOk = cuotasArr.filter(c=>c.pagado).length;
@@ -12077,7 +12116,8 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
                         </tbody>
                       </table>
                     </div>
-                  )}
+                    );
+                  })()}
                 </>)}
 
                 {/* Vista detalle OC con cuotas */}
@@ -12088,6 +12128,7 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
                       <div style={{fontWeight:800,fontSize:16,color:C.text}}>📦 OC {ocActiva.n_oc} — {ocActiva.cliente_nombre}</div>
                       <div style={{fontSize:11,color:C.muted}}>
                         {ocActiva.fecha_oc&&`📅 ${ocActiva.fecha_oc} · `}
+                        {ocActiva.ubicacion_nombre&&`📍 ${ocActiva.ubicacion_nombre} · `}
                         🌿 {ocActiva.especie} · {ocActiva.variedad} ·
                         🌱 {N(ocActiva.cantidad_plantas)} plantas ·
                         📐 {N(ocActiva.hectareas)} há ·
@@ -12423,7 +12464,7 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
                   <select value={ocForm.cliente_id||""} onChange={e=>{
                     const cli = clientes.find(c=>c.id===e.target.value);
                     // Al cambiar cliente, limpia el contrato ligado (deja que el usuario lo reasocie)
-                    setOcForm(p=>({...p,cliente_id:e.target.value,cliente_nombre:cli?.razonSocial||"",contrato_id:""}));
+                    setOcForm(p=>({...p,cliente_id:e.target.value,cliente_nombre:cli?.razonSocial||"",contrato_id:"",ubicacion_id:"",ubicacion_nombre:""}));
                   }}
                     style={{width:"100%",padding:"8px 12px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:13,boxSizing:"border-box",background:C.card}}>
                     <option value="">— Seleccionar cliente —</option>
@@ -12449,6 +12490,30 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
                         {resto.length>0&&<optgroup label="Otros contratos">{resto.map(opt)}</optgroup>}
                       </select>
                       <div style={{fontSize:10,color:C.muted2,marginTop:3}}>Si lo dejas en "Auto por cliente", se liga por el cliente de arriba. Para forzar el enlace, elige el contrato aquí.</div>
+                    </div>
+                  );
+                })()}
+
+                {/* Ubicación / predio del cliente (desde el Maestro de Clientes) */}
+                {(()=>{
+                  const cli = clientes.find(c=>c.id===ocForm.cliente_id);
+                  const ubics = cli?.ubicaciones || [];
+                  return (
+                    <div style={{marginBottom:12}}>
+                      <label style={{fontSize:11,fontWeight:600,color:C.muted,display:"block",marginBottom:4}}>Ubicación / predio <span style={{fontWeight:400}}>(del Maestro de Clientes)</span></label>
+                      {!ocForm.cliente_id ? (
+                        <div style={{fontSize:11,color:C.muted2,padding:"8px 12px",background:C.cardAlt,borderRadius:8}}>Selecciona primero el cliente.</div>
+                      ) : ubics.length===0 ? (
+                        <div style={{fontSize:11,color:C.muted2,padding:"8px 12px",background:C.cardAlt,borderRadius:8}}>Este cliente no tiene ubicaciones registradas. Agrégalas en <strong>Maestro de Clientes</strong>.</div>
+                      ) : (
+                        <select value={ocForm.ubicacion_id||""} onChange={e=>{
+                          const ub = ubics.find(u=>u.id===e.target.value);
+                          setOcForm(p=>({...p,ubicacion_id:e.target.value,ubicacion_nombre:ub?.nombre||""}));
+                        }} style={{width:"100%",padding:"8px 12px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:13,boxSizing:"border-box",background:C.card}}>
+                          <option value="">— Seleccionar ubicación —</option>
+                          {ubics.map(u=><option key={u.id} value={u.id}>{u.nombre}{u.region?` · ${u.region}`:""}</option>)}
+                        </select>
+                      )}
                     </div>
                   );
                 })()}
