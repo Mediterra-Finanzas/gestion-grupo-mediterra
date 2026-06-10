@@ -231,6 +231,7 @@ function PackingListPanel({ oe, tiposEmbalaje, especies, exportadoras, clientes,
   const cliente     = clientes.find(c=>c.id===oe.clienteId);
   const especie     = especies.find(e=>e.codigo===oe.especieCodigo);
   const formatosOE  = Object.entries(oe.cajasPorFormato||{}).filter(([,v])=>Number(v)>0).map(([cod])=>cod);
+  const calibresEsp = calibresDeEspecie(especie);
 
   function upd(k,v){ setPl(p=>({...p,[k]:v})); setDirty(true); }
   function addPallet(){
@@ -302,7 +303,13 @@ function PackingListPanel({ oe, tiposEmbalaje, especies, exportadoras, clientes,
                 </td>
                 <td style={{padding:"4px 4px"}}>
                   {canEdit
-                    ? <input value={p.calibre||""} onChange={e=>updPallet(idx,"calibre",e.target.value)} style={{...inputSt,padding:"4px 6px",width:75}}/>
+                    ? (calibresEsp.length>0
+                        ? <select value={p.calibre||""} onChange={e=>updPallet(idx,"calibre",e.target.value)} style={{...inputSt,padding:"4px 6px",width:90}}>
+                            <option value="">—</option>
+                            {calibresEsp.map(cal=><option key={cal} value={cal}>{cal}</option>)}
+                            {p.calibre && !calibresEsp.includes(p.calibre) && <option value={p.calibre}>{p.calibre}</option>}
+                          </select>
+                        : <input value={p.calibre||""} onChange={e=>updPallet(idx,"calibre",e.target.value)} style={{...inputSt,padding:"4px 6px",width:75}}/>)
                     : <span style={{color:C.text}}>{p.calibre||"—"}</span>}
                 </td>
                 <td style={{padding:"4px 4px",textAlign:"center"}}>
@@ -2118,6 +2125,27 @@ function ClosureProgramaPanel({closure, semanas, tiposEmbalaje, exportadoras, cl
   );
 }
 
+// Calibres por defecto por especie (fallback si el maestro no los define).
+// El usuario puede sobrescribir en Maestros → Especies (campo "Calibres").
+const CALIBRES_DEFAULT = {
+  AVO:"12,14,16,18,20,22,24,26,28,30,32",
+  CHE:"L,XL,J,XJ,2J,3J,4J",
+  BLB:"Jumbo,Extra-Large,Large,Medium",
+  GRP:"M,L,XL,J",
+  PLM:"30,35,40,45,50,55,60",
+  KWI:"18,22,25,27,30,33,36,39,42",
+  MNG:"6,7,8,9,10,12,14",
+  POM:"8,10,12,14,16",
+};
+// "12,14 / 16" → ["12","14","16"]
+function parseCalibres(str){
+  return String(str||"").split(/[,/;|]+/).map(s=>s.trim()).filter(Boolean);
+}
+function calibresDeEspecie(especieObj){
+  const raw = especieObj?.calibres || CALIBRES_DEFAULT[especieObj?.codigo] || "";
+  return parseCalibres(raw);
+}
+
 // ═══════════════════════════════════════════════════════════════════
 // ═══════════════════════════════════════════════════════════════════
 // ORDEN DE EMBARQUE — FORM
@@ -2168,6 +2196,7 @@ function OEForm({oe, exportadoras, clientes, notifys=[], especies, tiposEmbalaje
   const formatosDisp = tiposEmbalaje.filter(t=>
     t.especieCodigo===buf.especieCodigo || (especieObj && t.especie===especieObj.nombreEs)
   );
+  const calibresDisp = calibresDeEspecie(especieObj);
 
   // Al seleccionar BC, auto-completa campos desde el closure
   const handleClosureChange = (closureId) => {
@@ -2389,12 +2418,27 @@ function OEForm({oe, exportadoras, clientes, notifys=[], especies, tiposEmbalaje
                   placeholder="Cajas"
                   style={{...inputSt,padding:"4px 8px",fontSize:13,fontFamily:"monospace",textAlign:"right"}}
                   onChange={e=>setCajas(fmt.codigo,e.target.value)}/>
-                <input type="text"
-                  value={buf.calibrePorFormato?.[fmt.codigo]||""}
-                  placeholder="Calibre"
-                  title="Calibre(s) de este formato — ej. 16 o 16/18/20"
-                  style={{...inputSt,padding:"4px 8px",fontSize:12,marginTop:4}}
-                  onChange={e=>setCalibre(fmt.codigo,e.target.value)}/>
+                {calibresDisp.length>0 ? (
+                  <select
+                    value={buf.calibrePorFormato?.[fmt.codigo]||""}
+                    title="Calibre de este formato (según especie)"
+                    style={{...inputSt,padding:"4px 8px",fontSize:12,marginTop:4}}
+                    onChange={e=>setCalibre(fmt.codigo,e.target.value)}>
+                    <option value="">Calibre…</option>
+                    {calibresDisp.map(cal=><option key={cal} value={cal}>{cal}</option>)}
+                    {/* preserva un calibre custom previo que no esté en la lista */}
+                    {buf.calibrePorFormato?.[fmt.codigo] && !calibresDisp.includes(buf.calibrePorFormato[fmt.codigo]) && (
+                      <option value={buf.calibrePorFormato[fmt.codigo]}>{buf.calibrePorFormato[fmt.codigo]}</option>
+                    )}
+                  </select>
+                ) : (
+                  <input type="text"
+                    value={buf.calibrePorFormato?.[fmt.codigo]||""}
+                    placeholder="Calibre"
+                    title="Define los calibres de esta especie en Maestros → Especies"
+                    style={{...inputSt,padding:"4px 8px",fontSize:12,marginTop:4}}
+                    onChange={e=>setCalibre(fmt.codigo,e.target.value)}/>
+                )}
               </div>
             ))}
           </div>

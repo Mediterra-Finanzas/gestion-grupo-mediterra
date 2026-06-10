@@ -723,26 +723,26 @@ export const MONEDAS_DEFAULT = [
 // Reemplaza el string libre `especie` que vive en TIPOS_EMBALAJE_DEFAULT.
 // ═══════════════════════════════════════════════════════════════════
 export const ESPECIES_DEFAULT = [
-  {codigo:"CHE", nombreEs:"Cerezas",     nombreEn:"Cherries",     icono:"🍒", familia:"Carozos",    kgPorCajaDefault:5.0,  unidadComercial:"kg", temporadaInicio:"Nov", temporadaFin:"Feb", observ:"Especie principal Allegria"},
-  {codigo:"BLB", nombreEs:"Arándanos",   nombreEn:"Blueberries",  icono:"🫐", familia:"Berries",    kgPorCajaDefault:1.5,  unidadComercial:"kg", temporadaInicio:"Oct", temporadaFin:"Mar", observ:"Allpa Perú + Chile"},
-  {codigo:"GRP", nombreEs:"Uvas",        nombreEn:"Grapes",       icono:"🍇", familia:"Berries",    kgPorCajaDefault:8.2,  unidadComercial:"kg", temporadaInicio:"Dic", temporadaFin:"Abr", observ:""},
-  {codigo:"PLM", nombreEs:"Ciruelas",    nombreEn:"Plums",        icono:"🟣", familia:"Carozos",    kgPorCajaDefault:5.0,  unidadComercial:"kg", temporadaInicio:"Dic", temporadaFin:"Mar", observ:"Sin emoji oficial — se usa círculo morado"},
+  {codigo:"CHE", nombreEs:"Cerezas",     nombreEn:"Cherries",     icono:"🍒", familia:"Carozos",    kgPorCajaDefault:5.0,  unidadComercial:"kg", calibres:"L,XL,J,XJ,2J,3J,4J", temporadaInicio:"Nov", temporadaFin:"Feb", observ:"Especie principal Allegria"},
+  {codigo:"BLB", nombreEs:"Arándanos",   nombreEn:"Blueberries",  icono:"🫐", familia:"Berries",    kgPorCajaDefault:1.5,  unidadComercial:"kg", calibres:"Jumbo,Extra-Large,Large,Medium", temporadaInicio:"Oct", temporadaFin:"Mar", observ:"Allpa Perú + Chile"},
+  {codigo:"GRP", nombreEs:"Uvas",        nombreEn:"Grapes",       icono:"🍇", familia:"Berries",    kgPorCajaDefault:8.2,  unidadComercial:"kg", calibres:"M,L,XL,J", temporadaInicio:"Dic", temporadaFin:"Abr", observ:""},
+  {codigo:"PLM", nombreEs:"Ciruelas",    nombreEn:"Plums",        icono:"🟣", familia:"Carozos",    kgPorCajaDefault:5.0,  unidadComercial:"kg", calibres:"30,35,40,45,50,55,60", temporadaInicio:"Dic", temporadaFin:"Mar", observ:"Sin emoji oficial — se usa círculo morado"},
   {codigo:"PCH", nombreEs:"Duraznos",    nombreEn:"Peaches",      icono:"🍑", familia:"Carozos",    kgPorCajaDefault:5.0,  unidadComercial:"kg", temporadaInicio:"Nov", temporadaFin:"Feb", observ:""},
   {codigo:"NCT", nombreEs:"Nectarinas",  nombreEn:"Nectarines",   icono:"🍑", familia:"Carozos",    kgPorCajaDefault:5.0,  unidadComercial:"kg", temporadaInicio:"Nov", temporadaFin:"Feb", observ:""},
-  {codigo:"KWI", nombreEs:"Kiwi",        nombreEn:"Kiwifruit",    icono:"🥝", familia:"Otros",      kgPorCajaDefault:3.0,  unidadComercial:"kg", temporadaInicio:"Abr", temporadaFin:"Oct", observ:""},
-  {codigo:"AVO", nombreEs:"Paltas",      nombreEn:"Avocados",     icono:"🥑", familia:"Tropicales", kgPorCajaDefault:4.0,  unidadComercial:"kg", temporadaInicio:"Jul", temporadaFin:"Mar", observ:""},
+  {codigo:"KWI", nombreEs:"Kiwi",        nombreEn:"Kiwifruit",    icono:"🥝", familia:"Otros",      kgPorCajaDefault:3.0,  unidadComercial:"kg", calibres:"18,22,25,27,30,33,36,39,42", temporadaInicio:"Abr", temporadaFin:"Oct", observ:""},
+  {codigo:"AVO", nombreEs:"Paltas",      nombreEn:"Avocados",     icono:"🥑", familia:"Tropicales", kgPorCajaDefault:4.0,  unidadComercial:"kg", calibres:"12,14,16,18,20,22,24,26,28,30,32", temporadaInicio:"Jul", temporadaFin:"Mar", observ:""},
   {codigo:"APL", nombreEs:"Manzanas",    nombreEn:"Apples",       icono:"🍎", familia:"Pomáceas",   kgPorCajaDefault:18.0, unidadComercial:"kg", temporadaInicio:"Mar", temporadaFin:"Sep", observ:""},
   {codigo:"PER", nombreEs:"Peras",       nombreEn:"Pears",        icono:"🍐", familia:"Pomáceas",   kgPorCajaDefault:18.0, unidadComercial:"kg", temporadaInicio:"Feb", temporadaFin:"Jul", observ:""},
   {codigo:"ORG", nombreEs:"Naranjas",    nombreEn:"Oranges",      icono:"🍊", familia:"Cítricos",   kgPorCajaDefault:15.0, unidadComercial:"kg", temporadaInicio:"Jun", temporadaFin:"Dic", observ:""},
   {codigo:"LMN", nombreEs:"Limones",     nombreEn:"Lemons",       icono:"🍋", familia:"Cítricos",   kgPorCajaDefault:15.0, unidadComercial:"kg", temporadaInicio:"May", temporadaFin:"Sep", observ:""},
   {codigo:"MND", nombreEs:"Mandarinas",  nombreEn:"Mandarins",    icono:"🍊", familia:"Cítricos",   kgPorCajaDefault:10.0, unidadComercial:"kg", temporadaInicio:"May", temporadaFin:"Sep", observ:""},
-  {codigo:"MNG", nombreEs:"Mango",       nombreEn:"Mango",        icono:"🥭", familia:"Tropicales", kgPorCajaDefault:4.0,  unidadComercial:"kg", temporadaInicio:"Oct", temporadaFin:"Feb", observ:""},
+  {codigo:"MNG", nombreEs:"Mango",       nombreEn:"Mango",        icono:"🥭", familia:"Tropicales", kgPorCajaDefault:4.0,  unidadComercial:"kg", calibres:"6,7,8,9,10,12,14", temporadaInicio:"Oct", temporadaFin:"Feb", observ:""},
   {codigo:"STR", nombreEs:"Frutillas",   nombreEn:"Strawberries", icono:"🍓", familia:"Berries",    kgPorCajaDefault:2.5,  unidadComercial:"kg", temporadaInicio:"Sep", temporadaFin:"Feb", observ:""},
   {codigo:"RSP", nombreEs:"Frambuesas",  nombreEn:"Raspberries",  icono:"🩷", familia:"Berries",    kgPorCajaDefault:1.5,  unidadComercial:"kg", temporadaInicio:"Nov", temporadaFin:"Mar", observ:"Sin emoji oficial — se usa corazón rosa"},
   // Agregadas desde maestro de embalajes del Excel — temporadas pendientes
   {codigo:"ASP", nombreEs:"Espárragos",  nombreEn:"Asparagus",    icono:"🌱", familia:"Otros",      kgPorCajaDefault:5.0,  unidadComercial:"kg", temporadaInicio:"",    temporadaFin:"",    observ:""},
   {codigo:"GNG", nombreEs:"Jengibre",    nombreEn:"Ginger",       icono:"🫚", familia:"Otros",      kgPorCajaDefault:12.0, unidadComercial:"kg", temporadaInicio:"",    temporadaFin:"",    observ:""},
-  {codigo:"POM", nombreEs:"Granada",     nombreEn:"Pomegranate",  icono:"🟥", familia:"Otros",      kgPorCajaDefault:3.8,  unidadComercial:"kg", temporadaInicio:"",    temporadaFin:"",    observ:"Sin emoji oficial — se usa cuadrado rojo"},
+  {codigo:"POM", nombreEs:"Granada",     nombreEn:"Pomegranate",  icono:"🟥", familia:"Otros",      kgPorCajaDefault:3.8,  unidadComercial:"kg", calibres:"8,10,12,14,16", temporadaInicio:"",    temporadaFin:"",    observ:"Sin emoji oficial — se usa cuadrado rojo"},
   {codigo:"CUR", nombreEs:"Cúrcuma",     nombreEn:"Curcuma",      icono:"🟧", familia:"Otros",      kgPorCajaDefault:5.0,  unidadComercial:"kg", temporadaInicio:"",    temporadaFin:"",    observ:"Sin emoji oficial — se usa cuadrado naranja"},
   {codigo:"GRF", nombreEs:"Pomelo",      nombreEn:"Grapefruit",   icono:"🍈", familia:"Cítricos",   kgPorCajaDefault:17.5, unidadComercial:"kg", temporadaInicio:"",    temporadaFin:"",    observ:""},
   {codigo:"SAR", nombreEs:"Zarzaparrilla", nombreEn:"Zarzaparrilla", icono:"🍇", familia:"Berries", kgPorCajaDefault:2.1, unidadComercial:"kg", temporadaInicio:"",    temporadaFin:"",    observ:""},
@@ -2434,7 +2434,7 @@ export default function FriskuMaestrosModule({
           presetsParcial={true}
           onPresetRestore={()=>recargarPresets(especies, ESPECIES_DEFAULT, setEspecies)}
           busquedaPlaceholder="Buscar especie por código, nombre o familia..."
-          defaultItem={{codigo:"", nombreEs:"", nombreEn:"", icono:"🍎", familia:"Otros", kgPorCajaDefault:0, unidadComercial:"kg", temporadaInicio:"", temporadaFin:"", observ:""}}
+          defaultItem={{codigo:"", nombreEs:"", nombreEn:"", icono:"🍎", familia:"Otros", kgPorCajaDefault:0, unidadComercial:"kg", calibres:"", temporadaInicio:"", temporadaFin:"", observ:""}}
           columnas={[
             {key:"icono",             label:"",          align:"center", render:(v)=>v||"🍎"},
             {key:"codigo",            label:"Código"},
@@ -2450,6 +2450,7 @@ export default function FriskuMaestrosModule({
             ]},
             {key:"kgPorCajaDefault",  label:"Kg/Caja", type:"number", align:"right"},
             {key:"unidadComercial",   label:"Unidad", align:"center"},
+            {key:"calibres",          label:"Calibres", render:(v)=>v||"—"},
             {key:"temporadaInicio",   label:"Temp. Inicio", align:"center"},
             {key:"temporadaFin",      label:"Temp. Fin", align:"center"},
             {key:"observ",            label:"Observación"},
