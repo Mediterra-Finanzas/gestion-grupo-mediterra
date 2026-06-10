@@ -4746,7 +4746,16 @@ function MaestroClientes({clientes,setClientes,can}){
             {CAMPOS.map(([lbl,campo,tipo])=>(
               <div key={campo}>
                 <div style={{fontSize:11,color:C.muted,fontWeight:600,marginBottom:3}}>{lbl}</div>
-                {tipo==="select"
+                {tipo==="select" && campo==="pais"
+                  ? <select value={form.pais||""} onChange={e=>{
+                        if(e.target.value==="__nuevo__"){ const n=window.prompt("Nombre del país a agregar:"); if(n&&n.trim()) setForm(p=>({...p,pais:n.trim()})); return; }
+                        setForm(p=>({...p,pais:e.target.value}));
+                      }}
+                      style={{width:"100%",padding:"6px 8px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:12,outline:"none"}}>
+                      {Array.from(new Set([...PAISES,...(clientes||[]).map(c=>c.pais).filter(Boolean),form.pais].filter(Boolean))).sort().map(o=><option key={o} value={o}>{o}</option>)}
+                      <option value="__nuevo__">➕ Agregar país…</option>
+                    </select>
+                  : tipo==="select"
                   ? <select value={form[campo]} onChange={e=>setForm(p=>({...p,[campo]:e.target.value}))}
                       style={{width:"100%",padding:"6px 8px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:12,outline:"none"}}>
                       {["Peru","Mexico","Chile","Corea","España"].map(o=><option key={o}>{o}</option>)}
@@ -7483,7 +7492,7 @@ function ControlContratos({data,setData,clientes,setClientes,variedadesMaestro=[
               <Campo label="Razón Social" campo="razonSocial" r={r}/>
               <Campo label="Nombre Comercial" campo="nombreComercial" r={r}/>
               <Campo label="Tax ID / RUC" campo="taxID" r={r}/>
-              <Campo label="País" campo="pais" opts={PAISES} r={r}/>
+              <Campo label="País" campo="pais" opts={Array.from(new Set([...PAISES,...clientes.map(c=>c.pais).filter(Boolean),r.pais].filter(Boolean)))} r={r}/>
               <Campo label="Dirección" campo="direccion" r={r}/>
               <Campo label="Ciudad" campo="ciudad" r={r}/>
             </div>
@@ -8704,7 +8713,7 @@ function ControlContratos({data,setData,clientes,setClientes,variedadesMaestro=[
               <CampoNuevo label="Razón Social *" campo="razonSocial" form={form} setF={setF}/>
               <CampoNuevo label="Nombre Comercial" campo="nombreComercial" form={form} setF={setF}/>
               <CampoNuevo label="Tax ID / RUC" campo="taxID"/>
-              <CampoNuevo label="País" campo="pais" opts={PAISES} form={form} setF={setF}/>
+              <CampoNuevo label="País" campo="pais" opts={Array.from(new Set([...PAISES,...clientes.map(c=>c.pais).filter(Boolean),form.pais].filter(Boolean)))} form={form} setF={setF}/>
               <CampoNuevo label="Dirección" campo="direccion" form={form} setF={setF}/>
               <CampoNuevo label="Ciudad" campo="ciudad" form={form} setF={setF}/>
             </div>
@@ -9224,7 +9233,7 @@ function ControlContratos({data,setData,clientes,setClientes,variedadesMaestro=[
       <div style={{display:"flex",gap:8,marginBottom:14,flexWrap:"wrap",alignItems:"center"}}>
         <input value={busq} onChange={e=>setBusq(e.target.value)} placeholder="Buscar por empresa, país o tipo..."
           style={{padding:"7px 12px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:13,minWidth:220}}/>
-        {["Todos",...PAISES].map(p=>(
+        {["Todos",...Array.from(new Set(data.map(r=>r.pais).filter(Boolean))).sort()].map(p=>(
           <button key={p} onClick={()=>setFiltroPais(p)}
             style={{padding:"4px 12px",borderRadius:20,border:"none",cursor:"pointer",fontSize:12,fontWeight:600,
               background:filtroPais===p?C.primary:C.card,color:filtroPais===p?"#fff":C.sl}}>
