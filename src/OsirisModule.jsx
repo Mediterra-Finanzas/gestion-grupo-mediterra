@@ -7393,9 +7393,10 @@ function ControlContratos({data,setData,clientes,setClientes,variedadesMaestro=[
       registroId:ocId});
   }
 
-  // Migración NO destructiva: genera OC del vivero con despachos a partir de las
-  // plantaciones del contrato y pasa el contrato a modelo OC. La data legacy
-  // (plantaciones + cuotas) NO se borra; es reversible volviendo a modelo legacy.
+  // Migración NO destructiva a modelo OC. Prioriza ENLAZAR las OC del vivero que ya
+  // existen (por N° Cot. Vivero = n_oc de la OC) agregándoles el despacho de la
+  // plantación; solo crea una OC nueva si no encuentra ninguna coincidente. La data
+  // legacy (plantaciones + cuotas) NO se borra; es reversible volviendo a legacy.
   function migrarContratoAModeloOC(ct){
     if(!setViveros){ alert("Migración no disponible en este contexto."); return; }
     const plts = ct.plantaciones||[];
@@ -7403,91 +7404,127 @@ function ControlContratos({data,setData,clientes,setClientes,variedadesMaestro=[
     const conVivero = plts.filter(p=>p.vivero_id);
     const sinVivero = plts.filter(p=>!p.vivero_id);
     if(conVivero.length===0){ alert("Ninguna plantación tiene vivero asignado. Asigna el vivero (columna Vivero) antes de migrar."); return; }
-    // ¿Ya migrado?
-    const yaMig = (viverosData||[]).some(v=>(v.ordenesCompra||[]).some(oc=>oc._migradaDeContrato && oc.contrato_id===ct.id));
-    if(yaMig && !window.confirm("Este contrato ya tiene OC generadas por migración. ¿Generar otra tanda igual? (puede duplicar)")) return;
-    // Agrupa por vivero + fee (para que el Fee Vivero quede uniforme por OC)
-    const grupos = {};
-    conVivero.forEach(p=>{
-      const fee = Number(p.vivero_fee_usd)||0;
-      const key = `${p.vivero_id}__${fee}`;
-      if(!grupos[key]) grupos[key]={viveroId:p.vivero_id, fee, plts:[]};
-      grupos[key].plts.push(p);
-    });
-    const gruposArr = Object.values(grupos);
-    const resumen = gruposArr.map(g=>{
-      const viv=(viverosData||[]).find(v=>v.id===g.viveroId);
-      const totPl=g.plts.reduce((s,p)=>s+(Number(p.nPlantas)||0),0);
-      return `• ${viv?.viverista||"Vivero"}: ${g.plts.length} despacho(s), ${N(totPl)} plantas, fee $${g.fee}/planta`;
-    }).join("\n");
-    let msg=`Se generarán ${gruposArr.length} OC del vivero (con despachos) desde las plantaciones y el contrato pasará a modelo OC.\n\n${resumen}`;
-    if(sinVivero.length>0) msg+=`\n\n⚠️ ${sinVivero.length} plantación(es) SIN vivero no se migrarán. Asígnales vivero y vuelve a correr.`;
-    msg+=`\n\nLa información legacy (plantaciones y cuotas) NO se borra; es reversible. ¿Continuar?`;
-    if(!window.confirm(msg)) return;
+
+    const norm = s => (s||"").toString().trim().toLowerCase();
+    // Busca la OC existente que corresponde a la plantación.
+    const buscarOC = (p) => {
+      // 1) enlace explícito previo
+      if(p.vivero_oc_id){
+        for(const v of (viverosData||[])){ const oc=(v.ordenesCompra||[]).find(o=>o.id===p.vivero_oc_id); if(oc) return {viveroId:v.id, ocId:oc.id}; }
+      }
+      const ncot = norm(p.nCotizacionVivero);
+      if(!ncot) return null;
+      // 2) por n_oc + variedad dentro del vivero de la plantación
+      for(const v of (viverosData||[])){
+        if(p.vivero_id && v.id!==p.vivero_id) continue;
+        const exacta=(v.ordenesCompra||[]).find(o=>norm(o.n_oc)===ncot && ((p.variedad_id&&o.variedad_id===p.variedad_id)||norm(o.variedad)===norm(p.variedad)));
+        if(exacta) return {viveroId:v.id, ocId:exacta.id};
+      }
+      // 3) por n_oc dentro del vivero (sin calzar variedad)
+      for(const v of (viverosData||[])){
+        if(p.vivero_id && v.id!==p.vivero_id) continue;
+        const porNum=(v.ordenesCompra||[]).find(o=>norm(o.n_oc)===ncot);
+        if(porNum) return {viveroId:v.id, ocId:porNum.id};
+      }
+      return null;
+    };
+
     const hoy = new Date().toISOString().slice(0,10);
-    const ocsPorVivero = {};
-    gruposArr.forEach((g, gi)=>{
-      const items = g.plts.map((p,i)=>({
-        id:`oci_mig_${ct.id}_${gi}_${i}`, variedad_id:p.variedad_id||"", especie:p.especie||"", variedad:p.variedad||"",
-        cantidad_plantas:Number(p.nPlantas)||0, hectareas:Number(p.hectareas)||0,
-        fee_usd_planta:g.fee, fee_total_usd:(Number(p.nPlantas)||0)*g.fee,
-      }));
-      const despachos = g.plts.map((p,i)=>({
-        id:`desp_mig_${ct.id}_${gi}_${i}`,
-        fecha_despacho:p.fechaPlantacion||hoy,
-        cantidad_despachada:Number(p.nPlantas)||0,
-        variedad_id:p.variedad_id||"", especie:p.especie||"", variedad:p.variedad||"",
-        fecha_plantacion:p.fechaPlantacion||"", ha_plantadas:Number(p.hectareas)||0,
-        tipo:p.tipoPlantacion||"Comercial", estado:"Plantado",
-        observaciones:`Migrado de plantación ${(p.especie||"")} ${(p.variedad||"")}`.trim(),
-      }));
-      const totPl=items.reduce((s,x)=>s+x.cantidad_plantas,0);
-      const totHa=items.reduce((s,x)=>s+x.hectareas,0);
-      const totFee=items.reduce((s,x)=>s+x.fee_total_usd,0);
-      const oc = {
-        id:`oc_mig_${ct.id}_${gi}_${Date.now()}`,
-        n_oc:`OC-MIG-${gi+1}`, fecha_oc:hoy,
-        cliente_id:ct.clienteId||"", cliente_nombre:ct.razonSocial||"",
-        contrato_id:ct.id,
-        especie:items[0]?.especie||"", variedad:items.length>1?`${items.length} variedades`:(items[0]?.variedad||""),
-        variedad_id:items[0]?.variedad_id||"",
-        cantidad_plantas:totPl, hectareas:totHa,
-        fee_usd_planta:g.fee, fee_total_usd:totFee,
-        estado_oc:"Confirmada", observaciones:`Generada por migración del contrato ${ct.razonSocial}`,
-        items, despachos, cuotas:[], facturasRP:[],
-        _migradaDeContrato:true,
-      };
-      (ocsPorVivero[g.viveroId]=ocsPorVivero[g.viveroId]||[]).push(oc);
+    const despachoDe = (p) => ({
+      id:`desp_mig_${p.id}`,
+      fecha_despacho:p.fechaPlantacion||hoy,
+      cantidad_despachada:Number(p.nPlantas)||0,
+      variedad_id:p.variedad_id||"", especie:p.especie||"", variedad:p.variedad||"",
+      fecha_plantacion:p.fechaPlantacion||"", ha_plantadas:Number(p.hectareas)||0,
+      tipo:p.tipoPlantacion||"Comercial", estado:"Plantado",
+      observaciones:`Migrado de plantación ${(p.especie||"")} ${(p.variedad||"")}`.trim(),
     });
-    setViveros(prev=>(prev||[]).map(v=> ocsPorVivero[v.id] ? {...v, ordenesCompra:[...(v.ordenesCompra||[]), ...ocsPorVivero[v.id]]} : v));
+
+    // Plan: enlazar (a OC existente) vs crear (nueva)
+    const enlaces = {};  // ocId -> {viveroId, despachos:[]}
+    const sinMatch = []; // plantaciones sin OC existente
+    conVivero.forEach(p=>{
+      const m = buscarOC(p);
+      if(m){
+        if(!enlaces[m.ocId]) enlaces[m.ocId]={viveroId:m.viveroId, despachos:[]};
+        enlaces[m.ocId].despachos.push(despachoDe(p));
+      } else { sinMatch.push(p); }
+    });
+
+    const nEnlazar = Object.keys(enlaces).length;
+    let msg=`Migración a modelo OC del contrato "${ct.razonSocial}":\n\n• Se ENLAZARÁN ${nEnlazar} OC del vivero que ya existen (se les agrega el despacho de cada plantación; no se crean duplicadas).`;
+    if(sinMatch.length>0) msg+=`\n• ${sinMatch.length} plantación(es) sin OC coincidente: se creará 1 OC nueva agrupándolas.`;
+    if(sinVivero.length>0) msg+=`\n• ⚠️ ${sinVivero.length} plantación(es) SIN vivero quedan fuera (asígnales vivero y vuelve a correr).`;
+    msg+=`\n\nLa data legacy (plantaciones/cuotas) NO se borra; es reversible. ¿Continuar?`;
+    if(!window.confirm(msg)) return;
+
+    // OC nuevas para las plantaciones sin match (agrupadas por vivero+fee)
+    const nuevasPorVivero = {};
+    if(sinMatch.length>0){
+      const grupos = {};
+      sinMatch.forEach(p=>{ const fee=Number(p.vivero_fee_usd)||0; const k=`${p.vivero_id}__${fee}`; (grupos[k]=grupos[k]||{viveroId:p.vivero_id,fee,plts:[]}).plts.push(p); });
+      Object.values(grupos).forEach((g,gi)=>{
+        const despachos=g.plts.map(despachoDe);
+        const totPl=g.plts.reduce((s,p)=>s+(Number(p.nPlantas)||0),0);
+        const totHa=g.plts.reduce((s,p)=>s+(Number(p.hectareas)||0),0);
+        const oc={ id:`oc_mig_${ct.id}_${gi}_${Date.now()}`, n_oc:`OC-MIG-${gi+1}`, fecha_oc:hoy,
+          cliente_id:ct.clienteId||"", cliente_nombre:ct.razonSocial||"", contrato_id:ct.id,
+          especie:g.plts[0]?.especie||"", variedad:g.plts.length>1?`${g.plts.length} variedades`:(g.plts[0]?.variedad||""),
+          variedad_id:g.plts[0]?.variedad_id||"", cantidad_plantas:totPl, hectareas:totHa,
+          fee_usd_planta:g.fee, fee_total_usd:totPl*g.fee, estado_oc:"Confirmada",
+          observaciones:`Generada por migración del contrato ${ct.razonSocial}`, items:[], despachos, cuotas:[], facturasRP:[], _migradaDeContrato:true };
+        (nuevasPorVivero[g.viveroId]=nuevasPorVivero[g.viveroId]||[]).push(oc);
+      });
+    }
+
+    setViveros(prev=>(prev||[]).map(v=>{
+      let ocs = v.ordenesCompra||[];
+      // 1) enlazar OC existentes: set contrato_id + agregar despachos (sin duplicar por id)
+      ocs = ocs.map(oc=>{
+        const e = enlaces[oc.id];
+        if(!e || e.viveroId!==v.id) return oc;
+        const yaIds = new Set((oc.despachos||[]).map(d=>d.id));
+        const nuevos = e.despachos.filter(d=>!yaIds.has(d.id));
+        return { ...oc, contrato_id:ct.id, cliente_id:oc.cliente_id||ct.clienteId||"", cliente_nombre:oc.cliente_nombre||ct.razonSocial||"",
+          despachos:[...(oc.despachos||[]), ...nuevos] };
+      });
+      // 2) agregar OC nuevas de este vivero
+      if(nuevasPorVivero[v.id]) ocs = [...ocs, ...nuevasPorVivero[v.id]];
+      return {...v, ordenesCompra: ocs};
+    }));
     setData(prev=>prev.map(c=>c.id===ct.id?{...c, modeloIngresos:"oc"}:c));
     window.auditLog && window.auditLog("crear",{modulo:"osiris",seccion:"Migración a modelo OC",
-      descripcion:`Migró contrato "${ct.razonSocial}" a modelo OC: ${gruposArr.reduce((s,g)=>s+g.plts.length,0)} despachos en ${Object.keys(ocsPorVivero).length} vivero(s)`});
-    alert("Listo. El contrato quedó en modelo OC con la(s) OC del vivero generada(s).\n\nRevisa 'Cobros derivados' y 'Órdenes de Compra'. La data legacy sigue disponible si vuelves a modelo legacy.");
+      descripcion:`Migró "${ct.razonSocial}" a modelo OC: enlazó ${nEnlazar} OC existentes y creó ${Object.values(nuevasPorVivero).reduce((s,a)=>s+a.length,0)} OC nuevas`});
+    alert(`Listo. Se enlazaron ${nEnlazar} OC existentes (con sus despachos)${sinMatch.length>0?` y se crearon ${Object.values(nuevasPorVivero).reduce((s,a)=>s+a.length,0)} OC nuevas`:""}. El contrato quedó en modelo OC.\n\nRevisa 'Cobros derivados' y 'Órdenes de Compra'.`);
   }
 
-  // Deshacer la migración: borra las OC generadas por migración para este contrato
-  // y vuelve el contrato a modelo legacy. La data legacy (plantaciones/cuotas) nunca se tocó.
+  // Deshacer la migración: borra las OC creadas por migración, y a las OC existentes
+  // que se enlazaron les quita el contrato_id y los despachos agregados (desp_mig_*).
+  // Vuelve el contrato a modelo legacy. La data legacy (plantaciones/cuotas) nunca se tocó.
   function deshacerMigracion(ct){
-    const migs = [];
+    let creadas=0, enlazadas=0;
     (viverosData||[]).forEach(v=>(v.ordenesCompra||[]).forEach(oc=>{
-      if(oc._migradaDeContrato && oc.contrato_id===ct.id) migs.push({viveroId:v.id, ocId:oc.id, n_oc:oc.n_oc});
+      if(oc.contrato_id!==ct.id) return;
+      if(oc._migradaDeContrato) creadas++; else enlazadas++;
     }));
-    const msg = migs.length>0
-      ? `Se eliminarán ${migs.length} OC generada(s) por migración (${migs.map(m=>m.n_oc).join(", ")}) y el contrato volverá a modelo legacy.\n\nLas plantaciones y cuotas legacy quedan intactas. ¿Continuar?`
-      : `El contrato volverá a modelo legacy. No se encontraron OC de migración para borrar.\n\n¿Continuar?`;
+    const msg = `Se deshará la migración del contrato "${ct.razonSocial}":\n\n• Se BORRARÁN ${creadas} OC creada(s) por la migración.\n• Se DESENLAZARÁN ${enlazadas} OC existente(s) (se les quita el vínculo y los despachos agregados; la OC y su data original quedan).\n• El contrato vuelve a modelo legacy.\n\nLas plantaciones y cuotas legacy quedan intactas. ¿Continuar?`;
     if(!window.confirm(msg)) return;
-    if(setViveros && migs.length>0){
-      const idsPorVivero = {};
-      migs.forEach(m=>{ (idsPorVivero[m.viveroId]=idsPorVivero[m.viveroId]||new Set()).add(m.ocId); });
-      setViveros(prev=>(prev||[]).map(v=> idsPorVivero[v.id]
-        ? {...v, ordenesCompra:(v.ordenesCompra||[]).filter(oc=>!idsPorVivero[v.id].has(oc.id))}
-        : v));
+    if(setViveros){
+      setViveros(prev=>(prev||[]).map(v=>({
+        ...v,
+        ordenesCompra:(v.ordenesCompra||[])
+          // borra las creadas por migración para este contrato
+          .filter(oc=>!(oc._migradaDeContrato && oc.contrato_id===ct.id))
+          // desenlaza las existentes: quita contrato_id y los despachos desp_mig_*
+          .map(oc=> oc.contrato_id===ct.id
+            ? {...oc, contrato_id:"", despachos:(oc.despachos||[]).filter(d=>!String(d.id||"").startsWith("desp_mig_"))}
+            : oc)
+      })));
     }
     setData(prev=>prev.map(c=>c.id===ct.id?{...c, modeloIngresos:"legacy"}:c));
     window.auditLog && window.auditLog("eliminar",{modulo:"osiris",seccion:"Migración a modelo OC",
-      descripcion:`Deshizo migración del contrato "${ct.razonSocial}": volvió a legacy y borró ${migs.length} OC de migración`});
-    alert("Migración deshecha. El contrato volvió a modelo legacy y se borraron las OC generadas. Tus plantaciones y cuotas siguen como estaban.");
+      descripcion:`Deshizo migración del contrato "${ct.razonSocial}": volvió a legacy, borró ${creadas} OC creadas y desenlazó ${enlazadas} existentes`});
+    alert("Migración deshecha. El contrato volvió a modelo legacy. Las OC existentes se desenlazaron (sin borrarlas) y se quitaron los despachos de migración. Tus plantaciones y cuotas siguen como estaban.");
   }
 
   const filtrado=data.filter(r=>{
@@ -7946,7 +7983,7 @@ function ControlContratos({data,setData,clientes,setClientes,variedadesMaestro=[
               ocsViv.forEach(oc=>(oc.despachos||[]).forEach(d=>filas.push({...d, _oc:oc.n_oc})));
               const totPl=filas.reduce((s,d)=>s+(Number(d.cantidad_despachada)||0),0);
               const totHa=filas.reduce((s,d)=>s+(Number(d.ha_plantadas)||0),0);
-              const tieneMig = (viverosData||[]).some(v=>(v.ordenesCompra||[]).some(oc=>oc._migradaDeContrato && oc.contrato_id===r.id));
+              const tieneMig = (viverosData||[]).some(v=>(v.ordenesCompra||[]).some(oc=>oc.contrato_id===r.id && (oc._migradaDeContrato || (oc.despachos||[]).some(d=>String(d.id||"").startsWith("desp_mig_")))));
               return (<>
                 <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:10,marginBottom:14,flexWrap:"wrap"}}>
                   <div style={{flex:1,minWidth:240,padding:"10px 14px",background:C.infoBg||"#eff6ff",border:`1px solid ${C.azul||"#3b82f6"}`,borderRadius:10,fontSize:11,color:C.text}}>
