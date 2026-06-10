@@ -8402,7 +8402,23 @@ function ControlContratos({data,setData,clientes,setClientes,variedadesMaestro=[
                       </table>
                     </div>
                   )}
-                  <div style={{fontSize:10,color:C.muted2,marginTop:8}}>El estado de cobro del Fee Vivero (cuotas / pagos al vivero) se gestiona en la OC dentro de <strong>Contratos Viveros</strong>.</div>
+                  {ocsViv.length>0&&(
+                    <div style={{display:"flex",flexWrap:"wrap",gap:8,marginTop:10}}>
+                      {ocsViv.map(oc=>{
+                        const est=oc.fvEstadoCobro||"Por cobrar";
+                        const col=est==="Pagada"?C.success:est==="Facturada"?(C.azul||C.primary):C.warning;
+                        const bg=est==="Pagada"?C.successBg:est==="Facturada"?(C.infoBg||"#eff6ff"):C.warningBg;
+                        return (
+                          <div key={oc.id} style={{border:`1px solid ${col}`,background:bg,borderRadius:8,padding:"5px 10px",fontSize:11}}>
+                            <strong style={{color:C.text}}>OC {oc.n_oc||"s/n"}</strong> · <span style={{color:col,fontWeight:700}}>{est}</span>
+                            {oc.fvFactura?<span style={{color:C.muted}}> · Fact {oc.fvFactura}</span>:null}
+                            {oc.fvFechaPago?<span style={{color:C.muted}}> · pago {oc.fvFechaPago}</span>:null}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                  <div style={{fontSize:10,color:C.muted2,marginTop:8}}>El estado de cobro del Fee Vivero (N° factura, vencimiento, pago) se gestiona en la OC dentro de <strong>Contratos Viveros</strong>. Aquí es informativo.</div>
                 </div>
               </>);
             })() : (<>
@@ -11720,6 +11736,13 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
         setDespModal(true);
       };
 
+      // Facturación del Fee Vivero (se cobra al vivero). Campos a nivel de OC.
+      const updOcFee = (campo, val) => {
+        if(!canViveros || !ocActiva) return;
+        const ocsNew = ordenesCompra.map(o=>o.id===ocActiva.id?{...o, [campo]: val}:o);
+        updateVivero(v.id, {ordenesCompra: ocsNew});
+      };
+
       const TABS_VIV = [{id:"general",label:"📋 General"},{id:"variedades",label:"🌱 Variedades Autorizadas"},{id:"oc",label:`📦 Órdenes de Compra (${ordenesCompra.length})`},{id:"legal",label:"⚖️ Legal/Firmas"},{id:"anexos",label:"📎 Anexos"}];
       const vig = estadoVigencia(v.f_vencimiento);
 
@@ -12026,6 +12049,42 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
                       setCuotaModal(true);
                     }} style={{padding:"6px 14px",borderRadius:8,background:C.success,border:"none",color:"#fff",cursor:"pointer",fontSize:12,fontWeight:700}}>+ Nueva Cuota</button>}
                   </div>
+                  {/* ── FACTURACIÓN AL VIVERO (Fee Vivero) ── */}
+                  {(()=>{
+                    const estados=["Por cobrar","Facturada","Pagada"];
+                    const est=ocActiva.fvEstadoCobro||"Por cobrar";
+                    const colEst=est==="Pagada"?C.success:est==="Facturada"?C.azul||C.primary:C.warning;
+                    const ip={padding:"6px 8px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:12,boxSizing:"border-box",width:"100%",background:C.card};
+                    return (
+                      <div style={{border:`1px solid ${C.purple||"#7c3aed"}`,borderRadius:12,padding:14,marginBottom:16,background:C.card}}>
+                        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10,flexWrap:"wrap",gap:6}}>
+                          <div style={{fontSize:13,fontWeight:800,color:C.purple||"#7c3aed"}}>💵 Facturación al vivero (Fee)</div>
+                          <div style={{fontSize:12,color:C.muted}}>Fee total: <strong style={{color:C.text}}>{$$(ocActiva.fee_total_usd)}</strong></div>
+                        </div>
+                        <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(160px,1fr))",gap:10}}>
+                          <div>
+                            <div style={{fontSize:10,color:C.muted,fontWeight:600,marginBottom:3}}>N° Factura</div>
+                            <input disabled={!canViveros} value={ocActiva.fvFactura||""} onChange={e=>updOcFee("fvFactura",e.target.value)} placeholder="F-000" style={ip}/>
+                          </div>
+                          <div>
+                            <div style={{fontSize:10,color:C.muted,fontWeight:600,marginBottom:3}}>Fecha vencimiento</div>
+                            <input disabled={!canViveros} type="date" value={ocActiva.fvFechaVenc||""} onChange={e=>updOcFee("fvFechaVenc",e.target.value)} style={ip}/>
+                          </div>
+                          <div>
+                            <div style={{fontSize:10,color:C.muted,fontWeight:600,marginBottom:3}}>Fecha pago</div>
+                            <input disabled={!canViveros} type="date" value={ocActiva.fvFechaPago||""} onChange={e=>updOcFee("fvFechaPago",e.target.value)} style={ip}/>
+                          </div>
+                          <div>
+                            <div style={{fontSize:10,color:C.muted,fontWeight:600,marginBottom:3}}>Estado de cobro</div>
+                            <select disabled={!canViveros} value={est} onChange={e=>updOcFee("fvEstadoCobro",e.target.value)} style={{...ip,color:colEst,fontWeight:700}}>
+                              {estados.map(s=><option key={s} value={s}>{s}</option>)}
+                            </select>
+                          </div>
+                        </div>
+                        <div style={{fontSize:10,color:C.muted2,marginTop:8}}>El Fee Vivero se factura por concepto (no se agrupa con RP/RC). Este es el cobro de Osiris al vivero por esta OC.</div>
+                      </div>
+                    );
+                  })()}
                   {/* ── DESPACHOS (tandas de plantas que salen del vivero) ── */}
                   {(()=>{
                     const desp = ocActiva.despachos||[];
