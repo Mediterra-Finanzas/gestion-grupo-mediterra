@@ -4,6 +4,7 @@ import OsirisModule from "./OsirisModule.jsx";
 import FinanzasModule, { EMPRESAS_KEYS_ALL } from "./FinanzasModule.jsx";
 import AllegriaModule from "./AllegriaModule.jsx";
 import FriskuComercialModule from "./FriskuComercialModule.jsx";
+import ContabilidadModule from "./ContabilidadModule.jsx";
 import { theme as C } from "./theme";
 import { ensureSupabaseSession, clearOsirisSession, getOsirisAccessToken, refreshOsirisSession } from "./data/supabase-auth";
 
@@ -298,6 +299,7 @@ const MODULOS_DISPONIBLES = [
   {id:"finanzas", label:"Finanzas",                sublabel:"Flujo de Caja Grupo Mediterra", icon:"💼", color:"#0d6b3a", bg:"#d1fae5", grad:"linear-gradient(135deg,#0d2137,#0a3d2b)"},
   {id:"allegria", label:"Allegria Foods",           sublabel:"Exportación Fruta Fresca",  icon:"🍒", color:"#b91c1c", bg:C.dangerBg, grad:"linear-gradient(135deg,#1a0a0a,#b91c1c)"},
   {id:"frisku",   label:"Frisku Foods",             sublabel:"Connecting Quality",          icon:"🔗", color:"#0ea5e9", bg:"#e0f2fe", grad:"linear-gradient(135deg,#0c1929,#0ea5e9)"},
+  {id:"contabilidad", label:"Contabilidad",         sublabel:"Sistema Contable Grupo Mediterra", icon:"📒", color:"#a78bfa", bg:"#1e1a2e", grad:"linear-gradient(135deg,#1a1230,#5b21b6)"},
 ];
 
 // Feriados de Chile (fijos + variables conocidos 2026-2031)
@@ -379,10 +381,10 @@ const ORDEN_SEM=["gris","verde","amarillo","rojo","na"];
 
 const WORKERS_BASE=[
   {nombre:"Milagros Becerra",cargo:"Sec. Administrativa",     email:"Mbecerra@grupomediterra.cl",pin:"4827",rol:"editor", modulos:["tareas"],                    esCFO:false, rendVerTodas:true},
-  {nombre:"Carol Machuca",   cargo:"Analista Finanzas",       email:"cmachuca@grupomediterra.cl",pin:"3159",rol:"editor", modulos:["tareas","osiris","finanzas"], esCFO:false, rendVerTodas:true},
-  {nombre:"Michelle Garcia", cargo:"Contadora General",       email:"mgarcia@grupomediterra.cl", pin:"7413",rol:"editor", modulos:["tareas"],                    esCFO:false, rendVerTodas:true},
-  {nombre:"Pablo Duran",     cargo:"Asistente Contable",      email:"pduran@grupomediterra.cl",  pin:"2986",rol:"editor", modulos:["tareas"],                    esCFO:false, rendVerTodas:true},
-  {nombre:"Angelo Huerta",   cargo:"Gerencia Adm. y Finanzas",email:"ahuerta@grupomediterra.cl", pin:"6054",rol:"admin",  modulos:["tareas","osiris","finanzas"], esCFO:true},
+  {nombre:"Carol Machuca",   cargo:"Analista Finanzas",       email:"cmachuca@grupomediterra.cl",pin:"3159",rol:"editor", modulos:["tareas","osiris","finanzas","contabilidad"], esCFO:false, rendVerTodas:true},
+  {nombre:"Michelle Garcia", cargo:"Contadora General",       email:"mgarcia@grupomediterra.cl", pin:"7413",rol:"editor", modulos:["tareas","contabilidad"],     esCFO:false, rendVerTodas:true},
+  {nombre:"Pablo Duran",     cargo:"Asistente Contable",      email:"pduran@grupomediterra.cl",  pin:"2986",rol:"editor", modulos:["tareas","contabilidad"],     esCFO:false, rendVerTodas:true},
+  {nombre:"Angelo Huerta",   cargo:"Gerencia Adm. y Finanzas",email:"ahuerta@grupomediterra.cl", pin:"6054",rol:"admin",  modulos:["tareas","osiris","finanzas","contabilidad"], esCFO:true},
   {nombre:"Nicolás Fuenzalida",cargo:"Gerente Técnico",       email:"nfuenzalida@osirisplant.com",pin:"8271",rol:"gerente_tecnico",modulos:["osiris"],esCFO:false},
 ];
 
@@ -3142,6 +3144,17 @@ Equipo Mediterra`);
         tabPermisos={getTabPermisosModulo(usuarioFresco,"frisku")}
         onBack={()=>setModuloActivo(null)}
         onLogout={doLogout}
+      />
+    </div>
+  );
+
+  if(moduloActivo==="contabilidad") return (
+    <div style={{fontFamily:"sans-serif",background:"#0f1117",minHeight:"100vh"}}>
+      <ContabilidadModule
+        usuario={usuarioFresco}
+        canEdit={!esSoloConsulta}
+        esCFO={usuarioFresco?.esCFO}
+        onBack={()=>setModuloActivo(null)}
       />
     </div>
   );
