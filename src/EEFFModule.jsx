@@ -716,7 +716,7 @@ export default function EEFFModule({ canEdit, usuarioActual, empresasPermitidas 
   // ── Drawer análisis de cuenta (Parte 4) ─────────────────────────
   const [cuentaSeleccionada,    setCuentaSeleccionada]    = useState(null);
   const [drawerTab,             setDrawerTab]             = useState('movimientos');
-  const [mayorDrawer,           setMayorDrawer]           = useState(null);   // value obj de Supabase
+  const [mayorDrawer,           setMayorDrawer]           = useState(undefined); // undefined=sin intentar, null=no existe, obj=cargado
   const [mayorDrawerCargando,   setMayorDrawerCargando]   = useState(false);
   const [drawerAnalisisItems,   setDrawerAnalisisItems]   = useState([]);
   const [drawerAnalisisGuard,   setDrawerAnalisisGuard]   = useState(false);
@@ -767,7 +767,7 @@ export default function EEFFModule({ canEdit, usuarioActual, empresasPermitidas 
   // Limpiar drawer cuando cambia empresa o año
   useEffect(() => {
     setCuentaSeleccionada(null); setDrawerTab('movimientos');
-    setMayorDrawer(null); setMayorDrawerCargando(false);
+    setMayorDrawer(undefined); setMayorDrawerCargando(false);
     setDrawerAnalisisItems([]); setDrawerAnalisisOk(false); setDrawerAnalisisError(null);
     setAuxExpandedRuts(new Set());
   }, [empresa, anio]);
@@ -1120,7 +1120,7 @@ export default function EEFFModule({ canEdit, usuarioActual, empresasPermitidas 
 
   // Cargar mayor lazy cuando el drawer abre el tab movimientos
   useEffect(() => {
-    if (!cuentaSeleccionada || drawerTab !== 'movimientos' || mayorDrawer || mayorDrawerCargando) return;
+    if (!cuentaSeleccionada || drawerTab !== 'movimientos' || mayorDrawer !== undefined || mayorDrawerCargando) return;
     setMayorDrawerCargando(true);
     dbLoadMayor(empresa, anio, empresasPermitidas)
       .then(val => setMayorDrawer(val))
