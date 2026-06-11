@@ -54,26 +54,26 @@ async function supaUpsert(table, data, onConflict = "id") {
 
 // ─── Paleta ─────────────────────────────────────────────────────────────────
 const C = {
-  bg: "#0f1117",
-  bgCard: "#1a1d27",
-  bgInput: "#252836",
-  border: "#2e3347",
-  borderLight: "#3d4466",
-  text: "#e8eaf0",
-  textMuted: "#8b92a8",
-  textDim: "#5a6080",
-  primary: "#6c8ef5",
-  primaryHover: "#5a7ce8",
-  success: "#4caf7d",
-  successBg: "#1a2e24",
-  warning: "#f5a623",
-  warningBg: "#2e2414",
-  danger: "#e05c5c",
-  dangerBg: "#2e1a1a",
-  info: "#5bc0de",
-  infoBg: "#1a2830",
-  teal: "#4ecdc4",
-  tealBg: "#1a2e2d",
+  bg: "#f0f2f8",
+  bgCard: "#ffffff",
+  bgInput: "#f5f7fc",
+  border: "#dde2f0",
+  borderLight: "#c8cfe8",
+  text: "#1a2040",
+  textMuted: "#5a6494",
+  textDim: "#8f99c0",
+  primary: "#4f6ff0",
+  primaryHover: "#3d5de0",
+  success: "#27a96c",
+  successBg: "#eafaf3",
+  warning: "#e09620",
+  warningBg: "#fef7e6",
+  danger: "#d94040",
+  dangerBg: "#fdeaea",
+  info: "#2e90c8",
+  infoBg: "#e6f4fc",
+  teal: "#1aafa8",
+  tealBg: "#e4f7f6",
 };
 
 // ─── Componentes auxiliares ──────────────────────────────────────────────────
@@ -344,7 +344,7 @@ function Th({ children, style = {} }) {
   return (
     <th
       style={{
-        background: "#141720",
+        background: "#eef0f8",
         color: C.textMuted,
         fontWeight: 600,
         fontSize: 11,
@@ -481,7 +481,15 @@ function EmpresasTab({ canEdit }) {
     setSaving(true);
     setError("");
     try {
-      await supaUpdate("empresas", editItem.id, { rut: editItem.rut, activa: editItem.activa });
+      await supaUpdate("empresas", editItem.id, {
+        rut:            editItem.rut,
+        razon_social:   editItem.razon_social,
+        nombre_fantasia:editItem.nombre_fantasia,
+        direccion:      editItem.direccion,
+        rep_legal:      editItem.rep_legal,
+        ci_rep_legal:   editItem.ci_rep_legal,
+        activa:         editItem.activa,
+      });
       setOk("Guardado correctamente");
       setEditItem(null);
       load();
@@ -492,8 +500,12 @@ function EmpresasTab({ canEdit }) {
     setSaving(false);
   };
 
-  const metodLabel = { "linea_linea": "Línea a línea", "patrimonio": "Método patrimonio" };
-  const monedaLabel = { "USD": "USD", "PEN": "PEN", "CLP": "CLP" };
+  const metodLabel = {
+    line_by_line:   "Línea a línea",
+    equity_method:  "Método patrimonio",
+    linea_linea:    "Línea a línea",
+    patrimonio:     "Método patrimonio",
+  };
 
   return (
     <div>
@@ -503,31 +515,40 @@ function EmpresasTab({ canEdit }) {
         <thead>
           <tr>
             <Th>Código</Th>
-            <Th>Nombre</Th>
+            <Th>Razón Social / Nombre</Th>
+            <Th>Nombre de Fantasía</Th>
             <Th>RUT</Th>
+            <Th>Representante Legal</Th>
+            <Th>C.I. Rep. Legal</Th>
             <Th>Moneda</Th>
             <Th>Método consol.</Th>
             <Th>NCI%</Th>
-            <Th>Sistema</Th>
             <Th>Activa</Th>
             {canEdit && <Th></Th>}
           </tr>
         </thead>
         <tbody>
           {loading ? (
-            <LoadingRow cols={canEdit ? 9 : 8} />
+            <LoadingRow cols={canEdit ? 11 : 10} />
           ) : empresas.length === 0 ? (
-            <EmptyRow cols={canEdit ? 9 : 8} />
+            <EmptyRow cols={canEdit ? 11 : 10} />
           ) : (
             empresas.map((e) => (
               <Tr key={e.id}>
-                <Td><span style={{ fontFamily: "monospace", color: C.primary }}>{e.codigo}</span></Td>
-                <Td style={{ fontWeight: 500 }}>{e.nombre}</Td>
+                <Td><span style={{ fontFamily: "monospace", color: C.primary, fontWeight: 600 }}>{e.codigo}</span></Td>
+                <Td style={{ fontWeight: 500 }}>
+                  <div>{e.razon_social || e.nombre}</div>
+                  {e.razon_social && e.razon_social !== e.nombre && (
+                    <div style={{ fontSize: 11, color: C.textMuted }}>{e.nombre}</div>
+                  )}
+                </Td>
+                <Td style={{ color: C.textMuted }}>{e.nombre_fantasia || "—"}</Td>
                 <Td style={{ color: C.textMuted }}>{e.rut || "—"}</Td>
+                <Td style={{ color: C.textMuted }}>{e.rep_legal || "—"}</Td>
+                <Td style={{ color: C.textMuted }}>{e.ci_rep_legal || "—"}</Td>
                 <Td><Badge label={e.moneda_func || "USD"} color="info" /></Td>
                 <Td style={{ color: C.textMuted, fontSize: 12 }}>{metodLabel[e.method_consol] || e.method_consol}</Td>
-                <Td style={{ color: C.textMuted }}>{e.nci_pct != null ? `${e.nci_pct}%` : "—"}</Td>
-                <Td style={{ color: C.textMuted, fontSize: 12 }}>{e.sistema_origen || "—"}</Td>
+                <Td style={{ color: C.textMuted }}>{e.nci_pct != null ? `${(e.nci_pct * 100).toFixed(1)}%` : "—"}</Td>
                 <Td>
                   <Badge label={e.activa ? "Activa" : "Inactiva"} color={e.activa ? "success" : "muted"} />
                 </Td>
@@ -543,7 +564,7 @@ function EmpresasTab({ canEdit }) {
       </TableWrapper>
 
       {editItem && (
-        <Modal title={`Editar — ${editItem.nombre}`} onClose={() => setEditItem(null)}>
+        <Modal title={`Editar — ${editItem.codigo} ${editItem.nombre}`} onClose={() => setEditItem(null)} width={580}>
           <ErrorMsg msg={error} />
           <div
             style={{
@@ -551,17 +572,44 @@ function EmpresasTab({ canEdit }) {
               border: `1px solid ${C.border}`,
               borderRadius: 6,
               padding: "10px 14px",
-              marginBottom: 14,
+              marginBottom: 16,
               fontSize: 12,
               color: C.textMuted,
             }}
           >
-            Los campos Código, Nombre, Moneda, Método y Sistema son informativos y no se pueden modificar aquí.
+            Código, Nombre, Moneda, Método y Sistema son informativos y no se modifican aquí.
           </div>
-          <Field label="RUT">{textInput(editItem.rut || "", (v) => setEditItem((x) => ({ ...x, rut: v })))}</Field>
+
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0 16px" }}>
+            <Field label="Razón Social">
+              {textInput(editItem.razon_social || "", (v) => setEditItem((x) => ({ ...x, razon_social: v })), "Razón social legal")}
+            </Field>
+            <Field label="Nombre de Fantasía">
+              {textInput(editItem.nombre_fantasia || "", (v) => setEditItem((x) => ({ ...x, nombre_fantasia: v })), "Nombre comercial")}
+            </Field>
+          </div>
+
+          <Field label="RUT Empresa">
+            {textInput(editItem.rut || "", (v) => setEditItem((x) => ({ ...x, rut: v })), "12.345.678-9")}
+          </Field>
+
+          <Field label="Dirección">
+            {textInput(editItem.direccion || "", (v) => setEditItem((x) => ({ ...x, direccion: v })), "Calle, número, ciudad")}
+          </Field>
+
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0 16px" }}>
+            <Field label="Representante Legal">
+              {textInput(editItem.rep_legal || "", (v) => setEditItem((x) => ({ ...x, rep_legal: v })), "Nombre completo")}
+            </Field>
+            <Field label="C.I. Representante Legal">
+              {textInput(editItem.ci_rep_legal || "", (v) => setEditItem((x) => ({ ...x, ci_rep_legal: v })), "RUT o cédula")}
+            </Field>
+          </div>
+
           <Field label="Estado">
             {checkInput(editItem.activa, (v) => setEditItem((x) => ({ ...x, activa: v })), "Empresa activa")}
           </Field>
+
           <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 8 }}>
             <Btn color="ghost" onClick={() => setEditItem(null)}>Cancelar</Btn>
             <Btn color="primary" onClick={handleSave} disabled={saving}>{saving ? "Guardando..." : "Guardar"}</Btn>
@@ -1974,7 +2022,7 @@ const TABS = [
 // Tabs que requieren selector de empresa
 const TABS_CON_EMPRESA = new Set(["plan_cuentas", "centros_costo", "periodos", "mapeo"]);
 
-export default function ContabilidadModule({ usuario, canEdit, esCFO }) {
+export default function ContabilidadModule({ usuario, canEdit, esCFO, onBack }) {
   const [tabActiva, setTabActiva] = useState("empresas");
   const [empresas, setEmpresas] = useState([]);
   const [empresaId, setEmpresaId] = useState("");
@@ -2022,16 +2070,44 @@ export default function ContabilidadModule({ usuario, canEdit, esCFO }) {
         style={{
           background: C.bgCard,
           borderBottom: `1px solid ${C.border}`,
-          padding: "14px 24px",
+          padding: "12px 24px",
           display: "flex",
           alignItems: "center",
           gap: 16,
           flexWrap: "wrap",
+          boxShadow: "0 1px 4px rgba(0,0,0,0.06)",
         }}
       >
+        {/* Botón volver */}
+        {onBack && (
+          <button
+            onClick={onBack}
+            style={{
+              background: "none",
+              border: `1px solid ${C.border}`,
+              borderRadius: 6,
+              color: C.textMuted,
+              cursor: "pointer",
+              fontSize: 13,
+              padding: "5px 12px",
+              display: "flex",
+              alignItems: "center",
+              gap: 5,
+              whiteSpace: "nowrap",
+              transition: "all 0.15s",
+            }}
+            onMouseEnter={(e) => { e.currentTarget.style.borderColor = C.primary; e.currentTarget.style.color = C.primary; }}
+            onMouseLeave={(e) => { e.currentTarget.style.borderColor = C.border; e.currentTarget.style.color = C.textMuted; }}
+          >
+            ← Inicio
+          </button>
+        )}
+
         <div>
-          <h2 style={{ margin: 0, fontSize: 17, fontWeight: 700, color: C.text }}>Contabilidad</h2>
-          <p style={{ margin: "2px 0 0", fontSize: 12, color: C.textMuted }}>Maestros del sistema contable</p>
+          <h2 style={{ margin: 0, fontSize: 17, fontWeight: 700, color: C.text }}>
+            Sistema Contable
+          </h2>
+          <p style={{ margin: "2px 0 0", fontSize: 12, color: C.textMuted }}>Grupo Mediterra — Maestros</p>
         </div>
 
         {/* Selector de empresa (solo en tabs que lo necesitan) */}
