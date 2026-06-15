@@ -6720,9 +6720,16 @@ function derivarRoyaltyComercialDesdeContratos(ctData, ocsByCt) {
         });
       });
       Object.keys(porTemp).sort().forEach(temp=>{
-        const {ha, haNuevas, monto, cohortes:cohs} = porTemp[temp];
+        const {ha:haDeriv, haNuevas, monto:montoDeriv, cohortes:cohs} = porTemp[temp];
         const pagosKey = ct.rcPagos || {};
         const pago = pagosKey[temp] || {};
+        // $/há efectivo de la temporada (con inflación combinada de cohortes).
+        const vphInfl = haDeriv>0 ? montoDeriv/haDeriv : valorPorHa;
+        // Override manual de há a cobrar (ej. el cliente reporta menos producción).
+        const haOv = pago.haCobrar;
+        const tieneOv = haOv!==undefined && haOv!==null && String(haOv).trim()!=="" && !isNaN(Number(haOv));
+        const ha = tieneOv ? Number(haOv) : haDeriv;
+        const monto = tieneOv ? ha * vphInfl : montoDeriv;
         out.push({
           id: `rc_${ct.id}_${temp.replace("/","")}`,
           ctId: ct.id,
@@ -6730,12 +6737,14 @@ function derivarRoyaltyComercialDesdeContratos(ctData, ocsByCt) {
           cliente: ct.razonSocial,
           pais: ct.pais,
           haTotal: ha,
+          haDeriv,
+          haAjustada: tieneOv,
           haNuevas,
           cohortesNuevas: cohs,
           valorPorHa,
           inflPct,
-          factorInfl: ha>0 ? monto/(ha*valorPorHa) : 1,
-          valorPorHaInfl: ha>0 ? monto/ha : valorPorHa,
+          factorInfl: vphInfl>0 ? vphInfl/valorPorHa : 1,
+          valorPorHaInfl: vphInfl,
           montoFact: monto,
           montoCobro: monto * pct(ct.pais),
           whtPct: pct(ct.pais)===1 ? 0 : 15,
@@ -8521,7 +8530,11 @@ function ControlContratos({data,setData,clientes,setClientes,variedadesMaestro=[
                   <td style={{padding:"5px 8px",fontWeight:700,color:C.text}}>{x.temporada}</td>
                   <td style={{padding:"5px 8px"}}>{x.mesCobro} {x.añoCobro}</td>
                   <td style={{padding:"5px 8px",textAlign:"right"}} title={(x.cohortesNuevas||[]).map(c=>`${N(c.ha)} há plantadas en ${c.desde}`).join(" · ")}>{(x.haNuevas||0)>0?<span style={{color:C.am,fontWeight:700}}>+{N((x.haNuevas||0).toFixed(2))}</span>:<span style={{color:C.muted2}}>—</span>}</td>
-                  <td style={{padding:"5px 8px",textAlign:"right",fontWeight:600}}>{N((x.haTotal||0).toFixed(2))}</td>
+                  <td style={{padding:"5px 8px",textAlign:"right"}}>{can
+                    ? <input type="number" step="0.01" value={x.haTotal||0} onChange={e=>updRcPago(x.temporada,"haCobrar",e.target.value)}
+                        title={x.haAjustada?`Ajustado manualmente. Derivado de despachos: ${N((x.haDeriv||0).toFixed(2))} há. (Vacía o borra para volver al derivado.)`:"Há a cobrar (derivada de despachos). Edítala si el cliente reporta menos producción."}
+                        style={{...inp,width:78,textAlign:"right",borderColor:x.haAjustada?C.am:C.border,fontWeight:x.haAjustada?700:400,color:x.haAjustada?C.am:C.text}}/>
+                    : N((x.haTotal||0).toFixed(2))}{x.haAjustada?<div style={{fontSize:9,color:C.muted2}}>der: {N((x.haDeriv||0).toFixed(2))}</div>:null}</td>
                   <td style={{padding:"5px 8px",textAlign:"right"}}>${N((x.valorPorHaInfl||0).toFixed(2))}{x.factorInfl>1?<span style={{fontSize:9,color:C.am,display:"block"}}>×{x.factorInfl.toFixed(3)}</span>:null}</td>
                   <td style={{padding:"5px 8px",textAlign:"right",fontWeight:700,color:C.text}}>${N(x.montoFact.toFixed(2))}</td>
                   <td style={{padding:"5px 8px",textAlign:"right",fontWeight:700,color:C.success}}>${N(x.montoCobro.toFixed(2))}</td>
