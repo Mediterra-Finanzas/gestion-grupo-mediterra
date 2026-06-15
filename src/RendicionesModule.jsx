@@ -44,6 +44,7 @@ const EMPRESAS = [
 
 const CATEGORIAS = [
   { v: "movilizacion", l: "Movilización / Taxi", ic: "🚕" },
+  { v: "kilometraje",  l: "Kilometraje (auto propio)", ic: "🚗" },
   { v: "combustible",  l: "Combustible",         ic: "⛽" },
   { v: "peajes",       l: "Peajes / TAG",        ic: "🛣️" },
   { v: "estacionamiento", l: "Estacionamiento",  ic: "🅿️" },
@@ -789,6 +790,7 @@ export default function RendicionesModule({ usuarioActual, esAdmin, esSoloConsul
 
   const [rendiciones, setRendiciones] = useState([]);
   const [tcData, setTcData] = useState({});
+  const [config, setConfig] = useState({ valorKm: 0 }); // config global (valor por km, etc.) — solo admin la edita
   const [cargando, setCargando] = useState(true);
   const [guardando, setGuardando] = useState(false);
   const [tab, setTab] = useState("mis");
@@ -804,13 +806,15 @@ export default function RendicionesModule({ usuarioActual, esAdmin, esSoloConsul
   useEffect(() => {
     let alive = true;
     (async () => {
-      const [data, tc] = await Promise.all([
+      const [data, tc, cfg] = await Promise.all([
         dbLoadGeneric("rendiciones"),
         dbLoadGeneric("maestro_tc"),
+        dbLoadGeneric("rendiciones_config"),
       ]);
       if (alive) {
         setRendiciones(Array.isArray(data) ? data : []);
         setTcData(tc && typeof tc === "object" ? tc : {});
+        setConfig(cfg && typeof cfg === "object" ? { valorKm: 0, ...cfg } : { valorKm: 0 });
         setCargando(false);
       }
     })();
@@ -839,6 +843,14 @@ export default function RendicionesModule({ usuarioActual, esAdmin, esSoloConsul
       const cp = [...prev]; cp[i] = rend; return cp;
     });
   }, []);
+
+  // Solo el administrador actualiza el valor por kilómetro (config global, persistida aparte).
+  const guardarValorKm = useCallback(async (v) => {
+    if (!admin) return;
+    const next = { ...config, valorKm: Math.max(0, Number(v) || 0) };
+    setConfig(next);
+    await dbSaveGeneric("rendiciones_config", next);
+  }, [admin, config]);
 
   const pushHist = (r, accion, comentario = "") => ({
     ...r,
@@ -892,7 +904,7 @@ export default function RendicionesModule({ usuarioActual, esAdmin, esSoloConsul
     if (!(r.gastos || []).length) { alert("Agrega al menos un gasto antes de enviar."); return; }
     const faltaMonto = r.gastos.some(g => !(Number(g.monto) > 0));
     if (faltaMonto) { alert("Hay gastos sin monto. Complétalos antes de enviar."); return; }
-    const sinRespaldo = r.gastos.filter(g => !g.adjuntoUrl).length;
+    const sinRespaldo = r.gastos.filter(g => !g.adjuntoUrl && g.categoria !== "kilometraje").length;
     if (sinRespaldo) { alert(`Hay ${sinRespaldo} gasto(s) sin respaldo adjunto. Cada gasto debe llevar su boleta, factura o comprobante (foto o PDF) antes de enviar.`); return; }
     // Congelar la cadena de aprobación del TRABAJADOR (no de quien la carga).
     // Si la cargó una secretaria en nombre de un gerente, usa la cadena del gerente.
@@ -1045,6 +1057,7 @@ export default function RendicionesModule({ usuarioActual, esAdmin, esSoloConsul
         <MisRendiciones
           rends={misRendiciones} onCrear={crearRendicion} admin={admin}
           onAbrir={setEditId} onEliminar={eliminarRendicion} tcData={tcData}
+          valorKm={config.valorKm} onGuardarValorKm={guardarValorKm}
         />
       )}
       {tab === "aprobar" && muestraAprobar && (
@@ -1070,6 +1083,7 @@ export default function RendicionesModule({ usuarioActual, esAdmin, esSoloConsul
           onEnviar={enviar} esDueno={editRend.trabajador === nombreUsuario || editRend.creadaPor === nombreUsuario}
           esAprobador={esAprobador} admin={admin} onEliminar={eliminarRendicion} tcData={tcData}
           usuarios={usuarios} puedeRendirPorOtros={puedeRendirPorOtros}
+          valorKm={config.valorKm}
         />
       )}
 
@@ -1197,9 +1211,31 @@ function RendCard({ r, children, onClick, mostrarTrabajador, tcData }) {
 // ───────────────────────────────────────────────────────────────────
 // Tab: Mis Rendiciones
 // ───────────────────────────────────────────────────────────────────
-function MisRendiciones({ rends, onCrear, onAbrir, onEliminar, tcData, admin }) {
+function MisRendiciones({ rends, onCrear, onAbrir, onEliminar, tcData, admin, valorKm = 0, onGuardarValorKm }) {
+  const [editKm, setEditKm] = useState(false);
+  const [kmVal, setKmVal] = useState("");
   return (
     <div>
+      {/* Valor por kilómetro — visible para todos, editable solo por admin */}
+      <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", marginBottom: 12, background: C.bg2, border: `1px solid ${C.border}`, borderRadius: 10, padding: "9px 12px" }}>
+        <span style={{ fontSize: 13 }}>🚗</span>
+        <span style={{ fontSize: 12.5, fontWeight: 700, color: C.muted }}>Valor por kilómetro:</span>
+        {editKm ? (
+          <>
+            <input type="number" autoFocus value={kmVal} onChange={e => setKmVal(e.target.value)}
+              style={{ width: 110, padding: "5px 9px", borderRadius: 7, border: `1px solid ${C.primary}`, fontSize: 13, textAlign: "right" }} placeholder="$/km" />
+            <Btn small onClick={() => { onGuardarValorKm?.(kmVal); setEditKm(false); }}>Guardar</Btn>
+            <Btn small kind="ghost" onClick={() => setEditKm(false)}>Cancelar</Btn>
+          </>
+        ) : (
+          <>
+            <span style={{ fontSize: 14, fontWeight: 800, color: C.text }}>{fmtMonto(valorKm, "CLP")} <span style={{ fontSize: 11, fontWeight: 600, color: C.muted2 }}>/ km</span></span>
+            {admin
+              ? <Btn small kind="ghost" onClick={() => { setKmVal(String(valorKm || "")); setEditKm(true); }}>Editar</Btn>
+              : <span style={{ fontSize: 11, color: C.muted2 }}>(lo actualiza el administrador)</span>}
+          </>
+        )}
+      </div>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
         <div style={{ fontSize: 13, color: C.muted }}>{rends.length} rendición(es)</div>
         <Btn onClick={onCrear}>+ Nueva rendición</Btn>
@@ -1405,7 +1441,7 @@ function MiniBreakdown({ title, data, mapLabel = (k) => k }) {
 // ───────────────────────────────────────────────────────────────────
 // Editor de una rendición (con gastos + adjuntos)
 // ───────────────────────────────────────────────────────────────────
-function EditorRendicion({ rend, upsert, onClose, onEnviar, esDueno, esAprobador, onEliminar, tcData, admin, usuarios = [], puedeRendirPorOtros }) {
+function EditorRendicion({ rend, upsert, onClose, onEnviar, esDueno, esAprobador, onEliminar, tcData, admin, usuarios = [], puedeRendirPorOtros, valorKm = 0 }) {
   const esMovil = useEsMovil();
   const editable = esDueno && (rend.estado === "borrador" || rend.estado === "rechazada");
   // La fecha/moneda de pago la define quien paga (aprobador) incluso después de enviada.
@@ -1458,6 +1494,20 @@ function EditorRendicion({ rend, upsert, onClose, onEnviar, esDueno, esAprobador
       setGastoMulti(g.id, { docTipo: nuevo, neto, iva: (Number(g.monto) || 0) - neto });
     } else {
       setGasto(g.id, "docTipo", nuevo);
+    }
+  };
+  // Kilometraje: monto = km × valor fijo por km (CLP). El valor lo fija el administrador.
+  const setGastoKm = (g, kmRaw) => {
+    const km = kmRaw === "" ? "" : (Number(kmRaw) || 0);
+    setGastoMulti(g.id, { km, monto: (Number(km) || 0) * (Number(valorKm) || 0) });
+  };
+  // Al elegir categoría: si es Kilometraje, fuerza CLP, sin documento, y recalcula el monto.
+  const setCategoria = (g, cat) => {
+    if (cat === "kilometraje") {
+      const km = Number(g.km) || 0;
+      setGastoMulti(g.id, { categoria: cat, moneda: "CLP", docTipo: "Sin documento", monto: km * (Number(valorKm) || 0) });
+    } else {
+      setGasto(g.id, "categoria", cat);
     }
   };
   const delGasto = async (g) => {
@@ -1640,21 +1690,21 @@ function EditorRendicion({ rend, upsert, onClose, onEnviar, esDueno, esAprobador
                 <input type="date" value={g.fecha} disabled={!editable} onChange={e => setGasto(g.id, "fecha", e.target.value)} style={inputStyle} />
               </Field>
               <Field label="Categoría">
-                <select value={g.categoria} disabled={!editable} onChange={e => setGasto(g.id, "categoria", e.target.value)} style={inputStyle}>
+                <select value={g.categoria} disabled={!editable} onChange={e => setCategoria(g, e.target.value)} style={inputStyle}>
                   {CATEGORIAS.map(c => <option key={c.v} value={c.v}>{c.ic} {c.l}</option>)}
                 </select>
               </Field>
               <Field label="Glosa / Detalle" style={esMovil ? { gridColumn: "1 / -1" } : undefined}>
                 <input value={g.glosa} disabled={!editable} onChange={e => setGasto(g.id, "glosa", e.target.value)} style={inputStyle} placeholder="Descripción del gasto" />
               </Field>
-              <Field label={g.docTipo === "Factura" ? "Total" : "Monto"}>
-                <input type="number" value={g.monto} disabled={!editable || g.docTipo === "Factura"}
+              <Field label={(g.docTipo === "Factura" || g.categoria === "kilometraje") ? "Total" : "Monto"}>
+                <input type="number" value={g.monto} disabled={!editable || g.docTipo === "Factura" || g.categoria === "kilometraje"}
                   onChange={e => setGasto(g.id, "monto", e.target.value)}
-                  style={{ ...inputStyle, textAlign: "right", ...(g.docTipo === "Factura" ? { background: C.cardAlt, fontWeight: 700 } : {}) }}
-                  placeholder="0" title={g.docTipo === "Factura" ? "Total = Neto + IVA (se calcula abajo)" : undefined} />
+                  style={{ ...inputStyle, textAlign: "right", ...((g.docTipo === "Factura" || g.categoria === "kilometraje") ? { background: C.cardAlt, fontWeight: 700 } : {}) }}
+                  placeholder="0" title={g.categoria === "kilometraje" ? "Total = Km × valor por km" : g.docTipo === "Factura" ? "Total = Neto + IVA (se calcula abajo)" : undefined} />
               </Field>
               <Field label="Moneda">
-                <select value={g.moneda} disabled={!editable} onChange={e => setGasto(g.id, "moneda", e.target.value)} style={inputStyle}>
+                <select value={g.moneda} disabled={!editable || g.categoria === "kilometraje"} onChange={e => setGasto(g.id, "moneda", e.target.value)} style={inputStyle}>
                   {MONEDAS.map(m => <option key={m} value={m}>{m}</option>)}
                 </select>
               </Field>
@@ -1672,7 +1722,9 @@ function EditorRendicion({ rend, upsert, onClose, onEnviar, esDueno, esAprobador
                 <input value={g.docNumero} disabled={!editable} onChange={e => setGasto(g.id, "docNumero", e.target.value)} style={inputStyle} placeholder="Folio / N°" />
               </Field>
               <div style={{ display: "flex", alignItems: "center", gap: 8, paddingBottom: 2 }}>
-                {g.adjuntoUrl ? (
+                {g.categoria === "kilometraje" ? (
+                  <span style={{ fontSize: 12, color: C.muted2 }}>🚗 Calculado por km · no requiere respaldo</span>
+                ) : g.adjuntoUrl ? (
                   <>
                     <a href={g.adjuntoUrl} target="_blank" rel="noreferrer" style={{ fontSize: 12.5, color: C.primary, fontWeight: 700, textDecoration: "none", maxWidth: 180, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>📎 {g.adjuntoNombre || "Ver respaldo"}</a>
                     {editable && <button onClick={() => quitarAdjunto(g)} title="Quitar" style={{ border: "none", background: "none", color: C.danger, cursor: "pointer", fontSize: 16 }}>×</button>}
@@ -1698,6 +1750,23 @@ function EditorRendicion({ rend, upsert, onClose, onEnviar, esDueno, esAprobador
                 <Field label="Total">
                   <input type="number" value={g.monto ?? ""} readOnly disabled style={{ ...inputStyle, textAlign: "right", background: C.cardAlt, fontWeight: 700 }} />
                 </Field>
+              </div>
+            )}
+            {/* Desglose de kilometraje: Km × valor por km (fijo, admin) = Total */}
+            {g.categoria === "kilometraje" && (
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8, marginTop: 8, background: C.bg2, border: `1px solid ${C.border}`, borderRadius: 8, padding: "8px 10px", alignItems: "end" }}>
+                <Field label="Km recorridos">
+                  <input type="number" value={g.km ?? ""} disabled={!editable} onChange={e => setGastoKm(g, e.target.value)} style={{ ...inputStyle, textAlign: "right" }} placeholder="0" />
+                </Field>
+                <Field label="Valor por km">
+                  <input type="text" value={fmtMonto(valorKm, "CLP")} readOnly disabled style={{ ...inputStyle, textAlign: "right", background: C.cardAlt }} title="Valor fijo definido por el administrador" />
+                </Field>
+                <Field label="Total (CLP)">
+                  <input type="text" value={fmtMonto(Number(g.monto) || 0, "CLP")} readOnly disabled style={{ ...inputStyle, textAlign: "right", background: C.cardAlt, fontWeight: 700 }} />
+                </Field>
+                {!(Number(valorKm) > 0) && (
+                  <div style={{ gridColumn: "1 / -1", fontSize: 11, color: C.danger }}>⚠ El administrador aún no define el valor por km (queda en $0). Pídeselo para que el cálculo funcione.</div>
+                )}
               </div>
             )}
             {(g.moneda || "CLP") !== monedaPago && Number(g.monto) > 0 && (() => {
