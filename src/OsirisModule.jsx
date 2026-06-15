@@ -8525,8 +8525,17 @@ function ControlContratos({data,setData,clientes,setClientes,variedadesMaestro=[
               const updRpPago=(cid,campo,val)=>{ const np={...(r.rpPagos||{})}; np[cid]={...(np[cid]||{}),[campo]:val}; upd(r.id,"rpPagos",np); };
               const updRcPago=(temp,campo,val)=>{ const np={...(r.rcPagos||{})}; np[temp]={...(np[temp]||{}),[campo]:val}; upd(r.id,"rcPagos",np); };
               const inp={padding:"3px 6px",borderRadius:4,border:`1px solid ${C.border}`,fontSize:11};
-              const filaRC=(x,editable)=>(
-                <tr key={x.id} style={{borderBottom:"1px solid #fef3c7",background:x.pagado?C.successBg:""}}>
+              // Parcialidades del RC por temporada (para dividir el cobro en varias líneas/facturas)
+              const parcialesDe=(temp)=>(((r.rcPagos||{})[temp]||{}).parciales)||[];
+              const addParcial=(temp)=>updRcPago(temp,"parciales",[...parcialesDe(temp),{id:`pc_${Date.now()}`,glosa:"",monto:"",nFact:"",fechaEst:"",fechaPago:"",pagado:false}]);
+              const updParcial=(temp,id,campo,val)=>updRcPago(temp,"parciales",parcialesDe(temp).map(p=>p.id===id?{...p,[campo]:val}:p));
+              const delParcial=(temp,id)=>updRcPago(temp,"parciales",parcialesDe(temp).filter(p=>p.id!==id));
+              const filaRC=(x,editable)=>{
+                const parciales=parcialesDe(x.temporada);
+                const sumParc=parciales.reduce((s,p)=>s+(Number(p.monto)||0),0);
+                const factorWht=pct(x.pais);
+                return (<React.Fragment key={x.id}>
+                <tr style={{borderBottom:parciales.length?"none":"1px solid #fef3c7",background:x.pagado?C.successBg:""}}>
                   <td style={{padding:"5px 8px",fontWeight:700,color:C.text}}>{x.temporada}</td>
                   <td style={{padding:"5px 8px"}}>{x.mesCobro} {x.añoCobro}</td>
                   <td style={{padding:"5px 8px",textAlign:"right"}} title={(x.cohortesNuevas||[]).map(c=>`${N(c.ha)} há plantadas en ${c.desde}`).join(" · ")}>{(x.haNuevas||0)>0?<span style={{color:C.am,fontWeight:700}}>+{N((x.haNuevas||0).toFixed(2))}</span>:<span style={{color:C.muted2}}>—</span>}</td>
@@ -8538,12 +8547,37 @@ function ControlContratos({data,setData,clientes,setClientes,variedadesMaestro=[
                   <td style={{padding:"5px 8px",textAlign:"right"}}>${N((x.valorPorHaInfl||0).toFixed(2))}{x.factorInfl>1?<span style={{fontSize:9,color:C.am,display:"block"}}>×{x.factorInfl.toFixed(3)}</span>:null}</td>
                   <td style={{padding:"5px 8px",textAlign:"right",fontWeight:700,color:C.text}}>${N(x.montoFact.toFixed(2))}</td>
                   <td style={{padding:"5px 8px",textAlign:"right",fontWeight:700,color:C.success}}>${N(x.montoCobro.toFixed(2))}</td>
-                  <td style={{padding:"5px 8px"}}>{can?<input value={x.fechaEst||""} type="date" onChange={e=>updRcPago(x.temporada,"fechaEst",e.target.value)} style={inp}/>:(x.fechaEst||"—")}</td>
-                  <td style={{padding:"5px 8px",textAlign:"center"}}>{editable&&can?<input type="checkbox" checked={!!x.pagado} onChange={e=>updRcPago(x.temporada,"pagado",e.target.checked)}/>:(x.pagado?"✓":"—")}</td>
-                  <td style={{padding:"5px 8px"}}>{editable&&can?<input value={x.fechaPago||""} type="date" onChange={e=>updRcPago(x.temporada,"fechaPago",e.target.value)} style={inp}/>:(x.fechaPago||"—")}</td>
-                  <td style={{padding:"5px 8px"}}>{editable&&can?<input value={x.nFact||""} onChange={e=>updRcPago(x.temporada,"nFact",e.target.value)} placeholder="F-000" style={{...inp,width:70}}/>:(x.nFact||"—")}</td>
+                  <td style={{padding:"5px 8px"}}>{can&&!parciales.length?<input value={x.fechaEst||""} type="date" onChange={e=>updRcPago(x.temporada,"fechaEst",e.target.value)} style={inp}/>:(parciales.length?"—":(x.fechaEst||"—"))}</td>
+                  <td style={{padding:"5px 8px",textAlign:"center"}}>{!parciales.length&&editable&&can?<input type="checkbox" checked={!!x.pagado} onChange={e=>updRcPago(x.temporada,"pagado",e.target.checked)}/>:(parciales.length?"—":(x.pagado?"✓":"—"))}</td>
+                  <td style={{padding:"5px 8px"}}>{!parciales.length&&editable&&can?<input value={x.fechaPago||""} type="date" onChange={e=>updRcPago(x.temporada,"fechaPago",e.target.value)} style={inp}/>:(parciales.length?"—":(x.fechaPago||"—"))}</td>
+                  <td style={{padding:"5px 8px",whiteSpace:"nowrap"}}>
+                    {!parciales.length&&(editable&&can?<input value={x.nFact||""} onChange={e=>updRcPago(x.temporada,"nFact",e.target.value)} placeholder="F-000" style={{...inp,width:62}}/>:(x.nFact||"—"))}
+                    {can&&<button onClick={()=>addParcial(x.temporada)} title="Parcializar: agregar línea de cobro" style={{marginLeft:4,background:C.infoBg,border:`1px solid ${C.border}`,borderRadius:4,padding:"2px 6px",cursor:"pointer",fontSize:11,fontWeight:700}}>＋</button>}
+                  </td>
                 </tr>
-              );
+                {parciales.map((p,pi)=>{
+                  const neto=(Number(p.monto)||0)*factorWht;
+                  return (<tr key={p.id} style={{borderBottom:pi===parciales.length-1?"1px solid #fef3c7":"none",background:p.pagado?C.successBg:C.cardAlt}}>
+                    <td style={{padding:"4px 8px",color:C.muted,fontSize:10}}>↳ parcial</td>
+                    <td style={{padding:"4px 8px"}} colSpan={3}>{can?<input value={p.glosa||""} onChange={e=>updParcial(x.temporada,p.id,"glosa",e.target.value)} placeholder="Glosa (ej. 1ª cuota)" style={{...inp,width:"95%"}}/>:p.glosa}</td>
+                    <td style={{padding:"4px 8px",textAlign:"right",fontSize:10,color:C.muted2}}>parcial</td>
+                    <td style={{padding:"4px 8px",textAlign:"right"}}>{can?<input type="number" value={p.monto||""} onChange={e=>updParcial(x.temporada,p.id,"monto",e.target.value)} placeholder="0" style={{...inp,width:80,textAlign:"right"}}/>:`$${N((Number(p.monto)||0).toFixed(2))}`}</td>
+                    <td style={{padding:"4px 8px",textAlign:"right",fontWeight:700,color:C.success}}>${N(neto.toFixed(2))}</td>
+                    <td style={{padding:"4px 8px"}}>{can?<input type="date" value={p.fechaEst||""} onChange={e=>updParcial(x.temporada,p.id,"fechaEst",e.target.value)} style={inp}/>:(p.fechaEst||"—")}</td>
+                    <td style={{padding:"4px 8px",textAlign:"center"}}>{can?<input type="checkbox" checked={!!p.pagado} onChange={e=>updParcial(x.temporada,p.id,"pagado",e.target.checked)}/>:(p.pagado?"✓":"—")}</td>
+                    <td style={{padding:"4px 8px"}}>{can?<input type="date" value={p.fechaPago||""} onChange={e=>updParcial(x.temporada,p.id,"fechaPago",e.target.value)} style={inp}/>:(p.fechaPago||"—")}</td>
+                    <td style={{padding:"4px 8px",whiteSpace:"nowrap"}}>{can?<input value={p.nFact||""} onChange={e=>updParcial(x.temporada,p.id,"nFact",e.target.value)} placeholder="F-000" style={{...inp,width:62}}/>:(p.nFact||"—")}{can&&<button onClick={()=>delParcial(x.temporada,p.id)} title="Eliminar línea" style={{marginLeft:4,background:C.dangerBg,border:"none",borderRadius:4,padding:"2px 6px",cursor:"pointer",fontSize:11}}>🗑</button>}</td>
+                  </tr>);
+                })}
+                {parciales.length>0&&(
+                  <tr style={{borderBottom:"1px solid #fef3c7",background:C.cardAlt}}>
+                    <td colSpan={6} style={{padding:"3px 8px",textAlign:"right",fontSize:10,color:C.muted}}>Suma parcial vs Neto temporada:</td>
+                    <td style={{padding:"3px 8px",textAlign:"right",fontSize:10,fontWeight:700,color:Math.abs(sumParc*factorWht-x.montoCobro)<1?C.success:C.warning}}>${N((sumParc*factorWht).toFixed(2))} / ${N(x.montoCobro.toFixed(2))}</td>
+                    <td colSpan={4}></td>
+                  </tr>
+                )}
+                </React.Fragment>);
+              };
               const headRC=["Temporada","Mes cobro","Há que entran","Há en cobro","$/há (infl)","Bruto","Neto","Fecha est. cobro","Pagado","Fecha pago","N° Fact."];
               return (<>
                 <div style={{padding:"10px 14px",background:C.infoBg||"#eff6ff",border:`1px solid ${C.azul||"#3b82f6"}`,borderRadius:10,marginBottom:14,fontSize:11,color:C.text}}>
