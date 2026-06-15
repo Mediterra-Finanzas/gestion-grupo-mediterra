@@ -8738,14 +8738,21 @@ function ControlContratos({data,setData,clientes,setClientes,variedadesMaestro=[
                   {ocsViv.length>0&&(
                     <div style={{display:"flex",flexWrap:"wrap",gap:8,marginTop:10}}>
                       {ocsViv.map(oc=>{
-                        const est=oc.fvEstadoCobro||"Por cobrar";
+                        const fvs=(oc.fvFacturas)||[];
+                        // Estado resumen: si hay facturas usa el "menor" estado (Por cobrar < Facturada < Pagada); si no, el campo legacy.
+                        const orden={"Por cobrar":0,"Facturada":1,"Pagada":2};
+                        let est, nfacts;
+                        if(fvs.length){
+                          est = fvs.reduce((m,f)=> (orden[f.estado||"Por cobrar"]<orden[m]?(f.estado||"Por cobrar"):m), "Pagada");
+                          nfacts = fvs.map(f=>f.n_factura).filter(Boolean).join(", ");
+                        } else { est=oc.fvEstadoCobro||"Por cobrar"; nfacts=oc.fvFactura||""; }
                         const col=est==="Pagada"?C.success:est==="Facturada"?(C.azul||C.primary):C.warning;
                         const bg=est==="Pagada"?C.successBg:est==="Facturada"?(C.infoBg||"#eff6ff"):C.warningBg;
                         return (
                           <div key={oc.id} style={{border:`1px solid ${col}`,background:bg,borderRadius:8,padding:"5px 10px",fontSize:11}}>
                             <strong style={{color:C.text}}>OC {oc.n_oc||"s/n"}</strong> · <span style={{color:col,fontWeight:700}}>{est}</span>
-                            {oc.fvFactura?<span style={{color:C.muted}}> · Fact {oc.fvFactura}</span>:null}
-                            {oc.fvFechaPago?<span style={{color:C.muted}}> · pago {oc.fvFechaPago}</span>:null}
+                            {fvs.length>1?<span style={{color:C.muted}}> · {fvs.length} facturas</span>:null}
+                            {nfacts?<span style={{color:C.muted}}> · {nfacts}</span>:null}
                           </div>
                         );
                       })}
@@ -12107,6 +12114,18 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
         const ocsNew = ordenesCompra.map(o=>o.id===ocActiva.id?{...o, [campo]: val}:o);
         updateVivero(v.id, {ordenesCompra: ocsNew});
       };
+      // Facturas al vivero por OC (puede haber varias por OC; una factura para varias OC = repetir el N° en cada OC).
+      const fvFacturasDe = () => {
+        const arr = (ocActiva && ocActiva.fvFacturas) || [];
+        if(arr.length) return arr;
+        // Compatibilidad: si había una factura en el formato antiguo, la muestra como primera línea.
+        if(ocActiva && (ocActiva.fvFactura||ocActiva.fvFechaPago||ocActiva.fvFechaVenc))
+          return [{id:"fv_legacy", n_factura:ocActiva.fvFactura||"", monto:"", fecha_venc:ocActiva.fvFechaVenc||"", fecha_pago:ocActiva.fvFechaPago||"", estado:ocActiva.fvEstadoCobro||"Por cobrar"}];
+        return [];
+      };
+      const addFvFactura = () => updOcFee("fvFacturas",[...fvFacturasDe(),{id:`fv_${Date.now()}`,n_factura:"",monto:"",fecha_venc:"",fecha_pago:"",estado:"Por cobrar"}]);
+      const updFvFactura = (id,campo,val) => updOcFee("fvFacturas", fvFacturasDe().map(f=>f.id===id?{...f,[campo]:val}:f));
+      const delFvFactura = (id) => updOcFee("fvFacturas", fvFacturasDe().filter(f=>f.id!==id));
 
       const TABS_VIV = [{id:"general",label:"📋 General"},{id:"variedades",label:"🌱 Variedades Autorizadas"},{id:"oc",label:`📦 Órdenes de Compra (${ordenesCompra.length})`},{id:"legal",label:"⚖️ Legal/Firmas"},{id:"anexos",label:"📎 Anexos"}];
       const vig = estadoVigencia(v.f_vencimiento);
@@ -12439,39 +12458,45 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
                       setCuotaModal(true);
                     }} style={{padding:"6px 14px",borderRadius:8,background:C.success,border:"none",color:"#fff",cursor:"pointer",fontSize:12,fontWeight:700}}>+ Nueva Cuota</button>}
                   </div>
-                  {/* ── FACTURACIÓN AL VIVERO (Fee Vivero) ── */}
+                  {/* ── FACTURACIÓN AL VIVERO (Fee Vivero) — varias facturas por OC ── */}
                   {(()=>{
                     const estados=["Por cobrar","Facturada","Pagada"];
-                    const est=ocActiva.fvEstadoCobro||"Por cobrar";
-                    const colEst=est==="Pagada"?C.success:est==="Facturada"?C.azul||C.primary:C.warning;
-                    const ip={padding:"6px 8px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:12,boxSizing:"border-box",width:"100%",background:C.card};
+                    const colDe=(e)=> e==="Pagada"?C.success : e==="Facturada"?(C.azul||C.primary) : C.warning;
+                    const ip={padding:"5px 7px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:11,boxSizing:"border-box",width:"100%",background:C.card};
+                    const facturas=fvFacturasDe();
+                    const sumFv=facturas.reduce((s,f)=>s+(Number(f.monto)||0),0);
+                    const feeTot=parseFloat(ocActiva.fee_total_usd)||0;
                     return (
                       <div style={{border:`1px solid ${C.purple||"#7c3aed"}`,borderRadius:12,padding:14,marginBottom:16,background:C.card}}>
-                        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10,flexWrap:"wrap",gap:6}}>
+                        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8,flexWrap:"wrap",gap:6}}>
                           <div style={{fontSize:13,fontWeight:800,color:C.purple||"#7c3aed"}}>💵 Facturación al vivero (Fee)</div>
-                          <div style={{fontSize:12,color:C.muted}}>Fee total: <strong style={{color:C.text}}>{$$(ocActiva.fee_total_usd)}</strong></div>
+                          <div style={{fontSize:12,color:C.muted}}>Fee total: <strong style={{color:C.text}}>{$$(feeTot)}</strong>{facturas.length>0&&<> · Facturado: <strong style={{color:Math.abs(sumFv-feeTot)<1?C.success:C.warning}}>{$$(sumFv)}</strong></>}</div>
                         </div>
-                        <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(160px,1fr))",gap:10}}>
-                          <div>
-                            <div style={{fontSize:10,color:C.muted,fontWeight:600,marginBottom:3}}>N° Factura</div>
-                            <input disabled={!canViveros} value={ocActiva.fvFactura||""} onChange={e=>updOcFee("fvFactura",e.target.value)} placeholder="F-000" style={ip}/>
+                        {facturas.length===0?(
+                          <div style={{padding:10,background:C.cardAlt,borderRadius:8,fontSize:11,color:C.muted}}>Sin facturas. Agrega una con "+ Factura".</div>
+                        ):(
+                          <div style={{overflowX:"auto",minWidth:0,maxWidth:"calc(100vw - 60px)"}}>
+                            <table style={{width:"100%",borderCollapse:"collapse",fontSize:11}}>
+                              <thead><tr style={{background:C.primary}}>
+                                {["N° Factura","Monto","Vencimiento","Fecha pago","Estado",""].map(h=><th key={h} style={{padding:"5px 8px",textAlign:"left",fontSize:10,fontWeight:700,color:C.primaryText}}>{h}</th>)}
+                              </tr></thead>
+                              <tbody>
+                                {facturas.map(f=>(
+                                  <tr key={f.id} style={{borderBottom:"1px solid #f3e8ff",background:f.estado==="Pagada"?C.successBg:""}}>
+                                    <td style={{padding:"4px 8px"}}>{canViveros?<input value={f.n_factura||""} onChange={e=>updFvFactura(f.id,"n_factura",e.target.value)} placeholder="F-000" style={{...ip,width:90}}/>:(f.n_factura||"—")}</td>
+                                    <td style={{padding:"4px 8px",textAlign:"right"}}>{canViveros?<input type="number" value={f.monto||""} onChange={e=>updFvFactura(f.id,"monto",e.target.value)} placeholder="0" style={{...ip,width:90,textAlign:"right"}}/>:`$${N((Number(f.monto)||0).toFixed(2))}`}</td>
+                                    <td style={{padding:"4px 8px"}}>{canViveros?<input type="date" value={f.fecha_venc||""} onChange={e=>updFvFactura(f.id,"fecha_venc",e.target.value)} style={ip}/>:(f.fecha_venc||"—")}</td>
+                                    <td style={{padding:"4px 8px"}}>{canViveros?<input type="date" value={f.fecha_pago||""} onChange={e=>updFvFactura(f.id,"fecha_pago",e.target.value)} style={ip}/>:(f.fecha_pago||"—")}</td>
+                                    <td style={{padding:"4px 8px"}}>{canViveros?<select value={f.estado||"Por cobrar"} onChange={e=>updFvFactura(f.id,"estado",e.target.value)} style={{...ip,color:colDe(f.estado||"Por cobrar"),fontWeight:700}}>{estados.map(s=><option key={s} value={s}>{s}</option>)}</select>:(f.estado||"Por cobrar")}</td>
+                                    <td style={{padding:"4px 8px"}}>{canViveros&&<button onClick={()=>delFvFactura(f.id)} style={{background:C.dangerBg,border:"none",borderRadius:4,padding:"2px 8px",cursor:"pointer",fontSize:11}}>🗑</button>}</td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
                           </div>
-                          <div>
-                            <div style={{fontSize:10,color:C.muted,fontWeight:600,marginBottom:3}}>Fecha vencimiento</div>
-                            <input disabled={!canViveros} type="date" value={ocActiva.fvFechaVenc||""} onChange={e=>updOcFee("fvFechaVenc",e.target.value)} style={ip}/>
-                          </div>
-                          <div>
-                            <div style={{fontSize:10,color:C.muted,fontWeight:600,marginBottom:3}}>Fecha pago</div>
-                            <input disabled={!canViveros} type="date" value={ocActiva.fvFechaPago||""} onChange={e=>updOcFee("fvFechaPago",e.target.value)} style={ip}/>
-                          </div>
-                          <div>
-                            <div style={{fontSize:10,color:C.muted,fontWeight:600,marginBottom:3}}>Estado de cobro</div>
-                            <select disabled={!canViveros} value={est} onChange={e=>updOcFee("fvEstadoCobro",e.target.value)} style={{...ip,color:colEst,fontWeight:700}}>
-                              {estados.map(s=><option key={s} value={s}>{s}</option>)}
-                            </select>
-                          </div>
-                        </div>
-                        <div style={{fontSize:10,color:C.muted2,marginTop:8}}>El Fee Vivero se factura por concepto (no se agrupa con RP/RC). Este es el cobro de Osiris al vivero por esta OC.</div>
+                        )}
+                        {canViveros&&<button onClick={addFvFactura} style={{marginTop:8,background:C.purple||"#7c3aed",color:"#fff",border:"none",borderRadius:6,padding:"5px 12px",cursor:"pointer",fontSize:11,fontWeight:700}}>+ Factura</button>}
+                        <div style={{fontSize:10,color:C.muted2,marginTop:8}}>Puedes cargar varias facturas para esta OC. Si una misma factura cubre varias OC, repite el mismo N° de factura en cada OC.</div>
                       </div>
                     );
                   })()}
