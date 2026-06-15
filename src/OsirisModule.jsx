@@ -6696,6 +6696,11 @@ function derivarRoyaltyComercialDesdeContratos(ctData, ocsByCt) {
         if(!tIni) return; // sin fecha de plantación no se puede iniciar el cobro
         cohortes[tIni] = (cohortes[tIni]||0) + ha;
       }));
+      // Há comerciales comprometidas pero sin despacho: cohortes manuales con su temporada de inicio.
+      (ct.rcHaManual||[]).forEach(m=>{
+        const ha = Number(m.ha)||0; const tIni = m.desde;
+        if(ha>0 && tIni) cohortes[tIni] = (cohortes[tIni]||0) + ha;
+      });
       const tempsInicio = Object.keys(cohortes);
       if(tempsInicio.length===0) return;
       // Temporada global de fin = la mayor entre las series de cada cohorte.
@@ -7313,6 +7318,8 @@ function ControlContratos({data,setData,clientes,setClientes,variedadesMaestro=[
       {id:"cuo_plantacion", descripcion:"A la plantación",    pct:50, fechaEvento:""},
     ],
     rcPagos:{},   // {temporada: {pagado, fechaPago, nFact}}
+    haComercialContrato:0,  // há comerciales comprometidas del contrato (referencia para reconciliar RC)
+    rcHaManual:[],          // há comerciales sin despacho: [{id, ha, desde:"AAAA/AAAA"}] que entran al RC
     contractFeePagado:false, contractFeeFechaPago:"", contractFeeNFact:"",
     // Multa
     llevaMulta:false,haMinContrato:0,
@@ -8577,6 +8584,49 @@ function ControlContratos({data,setData,clientes,setClientes,variedadesMaestro=[
                     <div style={{fontSize:13,fontWeight:800,color:C.text}}>📈 Royalty Comercial <span style={{fontSize:10,fontWeight:500,color:C.muted}}>(paga el cliente)</span> {inflPct>0?<span style={{fontSize:10,color:C.am}}>· inflación {N(inflPct)}%/año</span>:null}</div>
                     <div style={{fontSize:11,color:C.muted}}>Fact total: <strong style={{color:C.text}}>${N(rcFact.toFixed(2))}</strong> · Neto: <strong style={{color:C.success}}>${N(rcCobro.toFixed(2))}</strong></div>
                   </div>
+                  {/* Reconciliación: há comerciales vs há en cobro (depende del año de plantación) */}
+                  {(()=>{
+                    const comDesp=[];
+                    (viverosData||[]).forEach(v=>(v.ordenesCompra||[]).forEach(oc=>{ if(!ocLigadaAContrato(oc,r))return; (oc.despachos||[]).forEach(d=>{ if(d.tipo==="Prueba")return; const ha=Number(d.ha_plantadas)||0; if(ha<=0)return; comDesp.push({viveroId:v.id, ocId:oc.id, d, n_oc:oc.n_oc}); }); }));
+                    const haComTotal=comDesp.reduce((s,x)=>s+(Number(x.d.ha_plantadas)||0),0);
+                    if(haComTotal<=0) return null;
+                    const sinFecha=comDesp.filter(x=>!temporadaDeFecha(x.d.fecha_plantacion));
+                    const haSinFecha=sinFecha.reduce((s,x)=>s+(Number(x.d.ha_plantadas)||0),0);
+                    const haEnCobro=haComTotal-haSinFecha;
+                    const cuadra=Math.abs(haSinFecha)<0.01;
+                    const asignar=(viveroId,ocId,despId,temp)=>{
+                      if(!setViveros||!temp) return;
+                      const y=parseInt(temp.split("/")[0]); const fecha=`${y}-07-01`;
+                      setViveros(prev=>(prev||[]).map(v=>v.id!==viveroId?v:{...v, ordenesCompra:(v.ordenesCompra||[]).map(oc=>oc.id!==ocId?oc:{...oc, despachos:(oc.despachos||[]).map(d=>d.id!==despId?d:{...d, fecha_plantacion:fecha})})}));
+                    };
+                    return (
+                      <div style={{marginBottom:10,padding:"8px 12px",borderRadius:8,border:`1px solid ${cuadra?C.success:C.warning}`,background:cuadra?C.successBg:C.warningBg,fontSize:11,color:C.text}}>
+                        <div style={{display:"flex",gap:16,flexWrap:"wrap",alignItems:"center"}}>
+                          <span>📐 Há comerciales: <strong>{N(haComTotal.toFixed(2))}</strong></span>
+                          <span>En cobro: <strong style={{color:cuadra?C.success:C.warning}}>{N(haEnCobro.toFixed(2))}</strong></span>
+                          {cuadra
+                            ? <span style={{color:C.success,fontWeight:700}}>✓ Todas las há comerciales están en cobro</span>
+                            : <span style={{color:C.warning,fontWeight:700}}>⚠ Faltan {N(haSinFecha.toFixed(2))} há sin temporada de cobro</span>}
+                        </div>
+                        {sinFecha.length>0&&can&&(
+                          <div style={{marginTop:8,borderTop:`1px dashed ${C.warning}`,paddingTop:8}}>
+                            <div style={{fontSize:10,color:C.muted,marginBottom:6}}>Indica desde qué temporada se empiezan a cobrar (el RC arranca según el año de plantación):</div>
+                            {sinFecha.map(x=>(
+                              <div key={x.d.id} style={{display:"flex",alignItems:"center",gap:8,marginBottom:4,flexWrap:"wrap"}}>
+                                <span style={{minWidth:230}}>OC {x.n_oc} · {x.d.variedad||x.d.especie||"—"} · <strong>{N((Number(x.d.ha_plantadas)||0).toFixed(2))} há</strong></span>
+                                <select defaultValue="" onChange={e=>{ if(e.target.value) asignar(x.viveroId,x.ocId,x.d.id,e.target.value); }}
+                                  style={{padding:"4px 8px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:11,background:C.card}}>
+                                  <option value="">— Temporada inicio —</option>
+                                  {TEMPORADAS_LIST.map(t=><option key={t} value={t}>{t}</option>)}
+                                </select>
+                              </div>
+                            ))}
+                            <div style={{fontSize:9,color:C.muted2,marginTop:2}}>Al elegir la temporada se fija la fecha de plantación (1-jul del año de inicio) en el despacho, y entra al cobro.</div>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })()}
                   {rcRows.length===0?(
                     <div style={{padding:12,background:C.purpleBg,borderRadius:8,fontSize:11,color:C.text}}>Sin hectáreas plantadas con fecha de plantación. En cada despacho carga "Há plantadas" y "Fecha de plantación".</div>
                   ):(<>
