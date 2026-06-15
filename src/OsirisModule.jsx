@@ -6563,9 +6563,12 @@ function derivarRoyaltyPlantaDesdeContratos(ctData, ocsByCt) {
           : [{key:"oc", nPlantas:Number(oc.cantidad_plantas)||0, fecha:oc.fecha_oc||"", desc:`OC ${oc.n_oc||""} (sin despachos)`}];
         eventos.forEach(ev=>{
           if(ev.nPlantas<=0) return;
-          const montoFact = ev.nPlantas * valorPorPlanta;
+          const brutoTeorico = ev.nPlantas * valorPorPlanta; // referencia: plantas × US$/planta
           const cuotaId = `${oc.id}_${ev.key}`;
           const pago = (ct.rpPagos||{})[cuotaId] || {};
+          // Monto facturado real (lo que dice la factura). Si aún no se factura, se usa el teórico como proyección.
+          const montoFacturado = Number(pago.montoFacturado)||0;
+          const baseCobro = montoFacturado>0 ? montoFacturado : brutoTeorico;
           out.push({
             id: `rp_${ct.id}_${oc.id}_${ev.key}`,
             ctId: ct.id,
@@ -6576,8 +6579,10 @@ function derivarRoyaltyPlantaDesdeContratos(ctData, ocsByCt) {
             usdPlanta: valorPorPlanta,
             descripcionCuota: `OC ${oc.n_oc||""} · ${ev.desc}`,
             pctCuota: 100,
-            montoFact,
-            montoCobro: montoFact * pct(ct.pais),
+            brutoTeorico,
+            montoFacturado,
+            montoFact: baseCobro,                  // base de cobro = facturado (o teórico si no hay factura)
+            montoCobro: baseCobro * pct(ct.pais),  // = monto facturado − WHT
             whtPct: pct(ct.pais)===1 ? 0 : 15,
             fechaEvento: ev.fecha,
             pagado: !!pago.pagado,
@@ -6696,20 +6701,21 @@ function derivarRoyaltyComercialDesdeContratos(ctData, ocsByCt) {
       // Temporada global de fin = la mayor entre las series de cada cohorte.
       const fin = ct.fechaTermino;
       // Acumula por temporada de cobro el monto (suma de cohortes activas, con su inflación propia).
-      const porTemp = {}; // temp -> {ha, monto}
+      const porTemp = {}; // temp -> {ha (acumulada activa), haNuevas (cohorte que entra), monto, cohortes:[]}
       tempsInicio.forEach(tIni=>{
         const haC = cohortes[tIni];
         const serie = temporadasEntre(tIni, fin);
         serie.forEach((temp, idx)=>{
           const factor = Math.pow(1+inflPct/100, idx);
           const monto = haC * valorPorHa * factor;
-          if(!porTemp[temp]) porTemp[temp] = {ha:0, monto:0};
+          if(!porTemp[temp]) porTemp[temp] = {ha:0, haNuevas:0, monto:0, cohortes:[]};
           porTemp[temp].ha += haC;
           porTemp[temp].monto += monto;
+          if(idx===0){ porTemp[temp].haNuevas += haC; porTemp[temp].cohortes.push({desde:tIni, ha:haC}); } // cohorte que arranca este año
         });
       });
       Object.keys(porTemp).sort().forEach(temp=>{
-        const {ha, monto} = porTemp[temp];
+        const {ha, haNuevas, monto, cohortes:cohs} = porTemp[temp];
         const pagosKey = ct.rcPagos || {};
         const pago = pagosKey[temp] || {};
         out.push({
@@ -6719,6 +6725,8 @@ function derivarRoyaltyComercialDesdeContratos(ctData, ocsByCt) {
           cliente: ct.razonSocial,
           pais: ct.pais,
           haTotal: ha,
+          haNuevas,
+          cohortesNuevas: cohs,
           valorPorHa,
           inflPct,
           factorInfl: ha>0 ? monto/(ha*valorPorHa) : 1,
@@ -8505,7 +8513,8 @@ function ControlContratos({data,setData,clientes,setClientes,variedadesMaestro=[
                 <tr key={x.id} style={{borderBottom:"1px solid #fef3c7",background:x.pagado?C.successBg:""}}>
                   <td style={{padding:"5px 8px",fontWeight:700,color:C.text}}>{x.temporada}</td>
                   <td style={{padding:"5px 8px"}}>{x.mesCobro} {x.añoCobro}</td>
-                  <td style={{padding:"5px 8px",textAlign:"right"}}>{N((x.haTotal||0).toFixed(2))}</td>
+                  <td style={{padding:"5px 8px",textAlign:"right"}} title={(x.cohortesNuevas||[]).map(c=>`${N(c.ha)} há plantadas en ${c.desde}`).join(" · ")}>{(x.haNuevas||0)>0?<span style={{color:C.am,fontWeight:700}}>+{N((x.haNuevas||0).toFixed(2))}</span>:<span style={{color:C.muted2}}>—</span>}</td>
+                  <td style={{padding:"5px 8px",textAlign:"right",fontWeight:600}}>{N((x.haTotal||0).toFixed(2))}</td>
                   <td style={{padding:"5px 8px",textAlign:"right"}}>${N((x.valorPorHaInfl||0).toFixed(2))}{x.factorInfl>1?<span style={{fontSize:9,color:C.am,display:"block"}}>×{x.factorInfl.toFixed(3)}</span>:null}</td>
                   <td style={{padding:"5px 8px",textAlign:"right",fontWeight:700,color:C.text}}>${N(x.montoFact.toFixed(2))}</td>
                   <td style={{padding:"5px 8px",textAlign:"right",fontWeight:700,color:C.success}}>${N(x.montoCobro.toFixed(2))}</td>
@@ -8515,7 +8524,7 @@ function ControlContratos({data,setData,clientes,setClientes,variedadesMaestro=[
                   <td style={{padding:"5px 8px"}}>{editable&&can?<input value={x.nFact||""} onChange={e=>updRcPago(x.temporada,"nFact",e.target.value)} placeholder="F-000" style={{...inp,width:70}}/>:(x.nFact||"—")}</td>
                 </tr>
               );
-              const headRC=["Temporada","Mes cobro","Há","$/há (infl)","Bruto","Neto","Fecha est. cobro","Pagado","Fecha pago","N° Fact."];
+              const headRC=["Temporada","Mes cobro","Há que entran","Há en cobro","$/há (infl)","Bruto","Neto","Fecha est. cobro","Pagado","Fecha pago","N° Fact."];
               return (<>
                 <div style={{padding:"10px 14px",background:C.infoBg||"#eff6ff",border:`1px solid ${C.azul||"#3b82f6"}`,borderRadius:10,marginBottom:14,fontSize:11,color:C.text}}>
                   🔗 <strong>Modelo OC del vivero.</strong> Los montos se derivan de los despachos (se editan en <strong>Contratos Viveros</strong>). Aquí solo marcas el <strong>estado de cobro</strong>: pagado, fecha y N° de factura.
@@ -8537,7 +8546,7 @@ function ControlContratos({data,setData,clientes,setClientes,variedadesMaestro=[
                     <div style={{overflowX:"auto",minWidth:0,maxWidth:"calc(100vw - 40px)"}}>
                       <table style={{width:"100%",borderCollapse:"collapse",fontSize:11}}>
                         <thead><tr style={{background:C.primary}}>
-                          {["OC / Despacho","Fecha","Plantas","$/planta","Bruto","Neto","Fecha est. cobro","Pagado","Fecha pago","N° Fact."].map(h=>(
+                          {["OC / Despacho","Fecha","Plantas","$/planta","Bruto teórico","Monto Facturado","Neto (− WHT)","Fecha est. cobro","Pagado","Fecha pago","N° Fact."].map(h=>(
                             <th key={h} style={{padding:"6px 8px",textAlign:"left",fontSize:10,fontWeight:700,color:C.primaryText}}>{h}</th>
                           ))}
                         </tr></thead>
@@ -8548,8 +8557,9 @@ function ControlContratos({data,setData,clientes,setClientes,variedadesMaestro=[
                               <td style={{padding:"5px 8px"}}>{x.fechaEvento||"—"}</td>
                               <td style={{padding:"5px 8px",textAlign:"right"}}>{N(x.nPlantas)}</td>
                               <td style={{padding:"5px 8px",textAlign:"right"}}>${N(x.usdPlanta)}</td>
-                              <td style={{padding:"5px 8px",textAlign:"right",fontWeight:700,color:C.text}}>${N(x.montoFact.toFixed(2))}</td>
-                              <td style={{padding:"5px 8px",textAlign:"right",fontWeight:700,color:C.success}}>${N(x.montoCobro.toFixed(2))}</td>
+                              <td style={{padding:"5px 8px",textAlign:"right",color:C.muted}} title="Plantas × US$/planta (referencia)">${N((x.brutoTeorico||0).toFixed(2))}</td>
+                              <td style={{padding:"5px 8px",textAlign:"right"}}>{can?<input type="number" value={x.montoFacturado||""} onChange={e=>updRpPago(x.cuotaId,"montoFacturado",parseFloat(e.target.value)||0)} placeholder={(x.brutoTeorico||0).toFixed(0)} style={{...inp,width:90,textAlign:"right"}}/>:(x.montoFacturado?`$${N(x.montoFacturado.toFixed(2))}`:"—")}</td>
+                              <td style={{padding:"5px 8px",textAlign:"right",fontWeight:700,color:C.success}} title={x.whtPct>0?`Monto facturado − WHT ${x.whtPct}%`:"Sin WHT"}>${N(x.montoCobro.toFixed(2))}</td>
                               <td style={{padding:"5px 8px"}}>{can?<input type="date" value={x.fechaEst||""} onChange={e=>updRpPago(x.cuotaId,"fechaEst",e.target.value)} style={inp}/>:(x.fechaEst||"—")}</td>
                               <td style={{padding:"5px 8px",textAlign:"center"}}>{can?<input type="checkbox" checked={!!x.pagado} onChange={e=>updRpPago(x.cuotaId,"pagado",e.target.checked)}/>:(x.pagado?"✓":"—")}</td>
                               <td style={{padding:"5px 8px"}}>{can?<input type="date" value={x.fechaPago||""} onChange={e=>updRpPago(x.cuotaId,"fechaPago",e.target.value)} style={inp}/>:(x.fechaPago||"—")}</td>
