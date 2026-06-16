@@ -233,6 +233,7 @@ git push origin main
 6. **Cuando haya dudas sobre números o lógica**, generar logs de debug temporales en consola, mostrar a Angelo para verificar, y después limpiar logs
 7. **Commits frecuentes y descriptivos** — facilita rollback si algo se rompe
 8. **No agregar dependencias npm** sin avisar (mantener bundle pequeño)
+9. **Patrón de persistencia anti-borrado (OBLIGATORIO para todo módulo nuevo)**: la función de carga DEBE propagar el error de red (lanzar excepción), NUNCA devolver defaults/`{}`/`null` en `catch`. El componente marca `cargaOkRef.current = true` solo tras una carga exitosa, y TODO guardado/auto-save se bloquea si `cargaOkRef` es false. Sin esto, un parpadeo de conexión deja el estado vacío y el auto-save lo escribe encima en Supabase (borró toda la fila `main` el 2026-06-16). El backup diario es genérico, así que un `id` nuevo queda respaldado solo.
 
 ## Skills útiles disponibles
 
@@ -281,5 +282,5 @@ export default function MiModulo({ canEdit, ... }) {
 
 ---
 
-**Última actualización**: 2026-06-03 — Módulo Rendiciones de Gasto del personal agregado (carga por trabajador + workflow de aprobación + adjuntos).
+**Última actualización**: 2026-06-16 — Fix crítico de persistencia: gate de carga exitosa (`cargaOkRef`) en todos los módulos para que un fallo de red no sobrescriba Supabase con defaults (incidente que borró la fila `main`). Backup diario ahora genérico (cubre cualquier fila/módulo futuro) + retención automática (30 días + mensual). Ver regla 9.
 **Mantener este archivo actualizado** después de cambios mayores en estructura, módulos nuevos, o decisiones de arquitectura importantes.
