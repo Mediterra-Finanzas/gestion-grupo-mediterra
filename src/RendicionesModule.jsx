@@ -1038,6 +1038,12 @@ export default function RendicionesModule({ usuarioActual, esAdmin, esSoloConsul
     () => rendiciones.filter(r => r.estado === "aprobada").sort((a, b) => new Date(a.revisadoEn || 0) - new Date(b.revisadoEn || 0)),
     [rendiciones]
   );
+  // Aprobadas por mí, aún no pagadas: las puedo devolver al trabajador desde "Por Aprobar".
+  const aprobadasMias = useMemo(
+    () => rendiciones.filter(r => r.estado === "aprobada" && (admin || r.revisadoPor === nombreUsuario))
+      .sort((a, b) => new Date(b.revisadoEn || 0) - new Date(a.revisadoEn || 0)),
+    [rendiciones, admin, nombreUsuario]
+  );
 
   const editRend = rendiciones.find(r => r.id === editId) || null;
 
@@ -1092,6 +1098,7 @@ export default function RendicionesModule({ usuarioActual, esAdmin, esSoloConsul
       {tab === "aprobar" && muestraAprobar && (
         <BandejaAprobar rends={porAprobar} onAbrir={setEditId} tcData={tcData}
           miEmail={miEmail} esAprobador={esAprobador} admin={admin}
+          aprobadasMias={aprobadasMias} onDevolver={devolverParaCorreccion}
           onAprobar={r => { setRevisar({ id: r.id, accion: "aprobar" }); setComentario(""); }}
           onRechazar={r => { setRevisar({ id: r.id, accion: "rechazar" }); setComentario(""); }}
           onReasignar={r => { setReasignar({ id: r.id }); setNuevoAprob(""); }}
@@ -1295,13 +1302,32 @@ function MisRendiciones({ rends, onCrear, onAbrir, onEliminar, tcData, admin, va
 // ───────────────────────────────────────────────────────────────────
 // Tab: Por Aprobar
 // ───────────────────────────────────────────────────────────────────
-function BandejaAprobar({ rends, onAbrir, onAprobar, onRechazar, onReasignar, tcData, miEmail, esAprobador, admin }) {
+function BandejaAprobar({ rends, onAbrir, onAprobar, onRechazar, onReasignar, tcData, miEmail, esAprobador, admin, aprobadasMias = [], onDevolver }) {
   return (
     <div>
       <div style={{ fontSize: 13, color: C.muted, marginBottom: 14 }}>{rends.length} rendición(es) esperando revisión</div>
       {!rends.length && (
         <div style={{ textAlign: "center", padding: "50px 20px", color: C.muted2, background: C.card, borderRadius: 12, border: `1px dashed ${C.border}` }}>
           No hay rendiciones pendientes de aprobación. ✓
+        </div>
+      )}
+      {/* Aprobadas por mí, aún no pagadas: puedo devolverlas si faltó/sobra un gasto */}
+      {aprobadasMias.length > 0 && (
+        <div style={{ marginTop: rends.length ? 22 : 0 }}>
+          <div style={{ fontSize: 12.5, fontWeight: 800, color: C.muted, marginBottom: 4 }}>Aprobadas por ti · pendientes de pago</div>
+          <div style={{ fontSize: 11.5, color: C.muted2, marginBottom: 12 }}>Si al trabajador le faltó incorporar un gasto, puedes devolvérsela para que la corrija.</div>
+          <div style={{ display: "grid", gap: 10 }}>
+            {aprobadasMias.map(r => (
+              <RendCard key={r.id} r={r} onClick={() => onAbrir(r.id)} mostrarTrabajador tcData={tcData}>
+                <Btn kind="ghost" small onClick={() => onAbrir(r.id)}>Ver detalle</Btn>
+                <Btn kind="ghost" small style={{ color: C.warning, borderColor: C.warning }} onClick={() => {
+                  const motivo = window.prompt("Devolver al trabajador para corregir/incorporar un gasto.\n\nNota para el trabajador (opcional):", "Falta incorporar un gasto.");
+                  if (motivo === null) return;
+                  onDevolver?.(r, motivo);
+                }}>↩ Devolver para corrección</Btn>
+              </RendCard>
+            ))}
+          </div>
         </div>
       )}
       <div style={{ display: "grid", gap: 10 }}>
