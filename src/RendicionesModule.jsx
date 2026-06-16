@@ -122,10 +122,12 @@ function fmtTotales(t) {
 // `tcManual` (opcional) = { [moneda]: tasa } donde tasa = cuántos `destino`
 // vale 1 unidad de esa moneda. Tiene prioridad sobre el maestro de TC: es el
 // "tipo de cambio de la rendición" que define el trabajador / aprobador.
-function convertir(monto, origen, destino, fecha, tcData, tcManual) {
+function convertir(monto, origen, destino, fecha, tcData, tcManual, tcGasto) {
   const m = Number(monto) || 0;
   origen = origen || "CLP"; destino = destino || "CLP";
   if (origen === destino) return { ok: true, val: m, chain: null, usd: null };
+  // Prioridad máxima: tipo de cambio que el trabajador puso en ESTE gasto.
+  if (Number(tcGasto) > 0) return { ok: true, val: m * Number(tcGasto), chain: `${origen}→${destino}`, usd: null, rate: Number(tcGasto), manual: true };
   const man = tcManual && Number(tcManual[origen]) > 0 ? Number(tcManual[origen]) : null;
   if (man != null) return { ok: true, val: m * man, chain: `${origen}→${destino} (manual)`, usd: null, rate: man, manual: true };
   const directo = buscarTC(origen, destino, fecha, tcData);
@@ -144,7 +146,7 @@ function convertir(monto, origen, destino, fecha, tcData, tcManual) {
 function totalConvertido(gastos, monedaPago, fecha, tcData, tcManual) {
   let total = 0; const faltan = new Set();
   (gastos || []).forEach(g => {
-    const r = convertir(g.monto, g.moneda || "CLP", monedaPago, fecha, tcData, tcManual);
+    const r = convertir(g.monto, g.moneda || "CLP", monedaPago, fecha, tcData, tcManual, g.tc);
     if (r.ok) total += r.val;
     else Object.keys(r.faltan || {}).forEach(k => { if (r.faltan[k]) faltan.add(k); });
   });
@@ -414,7 +416,7 @@ async function exportarRendicionExcel(rend, tcData) {
   r++;
 
   (rend.gastos || []).forEach((g, i) => {
-    const cv = convertir(g.monto, g.moneda || "CLP", monedaPago, fechaTC, tcData, tcManual);
+    const cv = convertir(g.monto, g.moneda || "CLP", monedaPago, fechaTC, tcData, tcManual, g.tc);
     const vals = [
       i + 1, fmtFecha(g.fecha), (CAT_MAP[g.categoria] || {}).l || g.categoria, g.glosa || "",
       g.docTipo || "", g.docNumero || "", g.moneda || "CLP", Number(g.monto) || 0,
@@ -493,7 +495,7 @@ function exportarRendicionExcelSimple(rend, tcData) {
   ];
   const cab = ["#", "Fecha gasto", "Categoría", "Glosa", "Tipo doc", "N° doc", "Moneda", "Neto", "IVA", "Total", `Equiv. ${monedaPago}`, "Conversión"];
   const filas = (rend.gastos || []).map((g, i) => {
-    const r = convertir(g.monto, g.moneda || "CLP", monedaPago, fechaTC, tcData, tcManual);
+    const r = convertir(g.monto, g.moneda || "CLP", monedaPago, fechaTC, tcData, tcManual, g.tc);
     const esFactura = g.docTipo === "Factura";
     return [i + 1, fmtFecha(g.fecha), (CAT_MAP[g.categoria] || {}).l || g.categoria, g.glosa || "",
       g.docTipo || "", g.docNumero || "", g.moneda || "CLP",
@@ -568,7 +570,7 @@ async function exportarRendicionPDF(rend, tcData) {
   });
 
   const body = (rend.gastos || []).map((g, i) => {
-    const r = convertir(g.monto, g.moneda || "CLP", monedaPago, fechaTC, tcData, tcManual);
+    const r = convertir(g.monto, g.moneda || "CLP", monedaPago, fechaTC, tcData, tcManual, g.tc);
     return [
       i + 1, fmtFecha(g.fecha), (CAT_MAP[g.categoria] || {}).l || g.categoria, g.glosa || "",
       `${g.docTipo || ""}${g.docNumero ? " " + g.docNumero : ""}`,
@@ -1351,7 +1353,7 @@ function Reportes({ rends, filtroEstado, setFiltroEstado, busca, setBusca, onAbr
     filtradas.forEach(rd => {
       const fecha = rd.fechaTC || rd.periodo;
       (rd.gastos || []).forEach(g => {
-        const c = convertir(g.monto, g.moneda || "CLP", "CLP", fecha, tcData, rd.monedaPago === "CLP" ? rd.tcManual : null);
+        const c = convertir(g.monto, g.moneda || "CLP", "CLP", fecha, tcData, rd.monedaPago === "CLP" ? rd.tcManual : null, g.tc);
         if (!c.ok) { r.sinTC += 1; return; }
         r.totalCLP += c.val;
         r.porEmpresa[rd.empresa] = (r.porEmpresa[rd.empresa] || 0) + c.val;
@@ -1366,7 +1368,7 @@ function Reportes({ rends, filtroEstado, setFiltroEstado, busca, setBusca, onAbr
     filtradas.forEach(r => {
       const fecha = r.fechaTC || r.periodo;
       (r.gastos || []).forEach(g => {
-        const c = convertir(g.monto, g.moneda || "CLP", "CLP", fecha, tcData, r.monedaPago === "CLP" ? r.tcManual : null);
+        const c = convertir(g.monto, g.moneda || "CLP", "CLP", fecha, tcData, r.monedaPago === "CLP" ? r.tcManual : null, g.tc);
         const esFactura = g.docTipo === "Factura";
         filas.push([
           r.folio, ESTADOS[r.estado]?.l || r.estado, r.trabajador, r.empresa, r.titulo,
@@ -1633,48 +1635,7 @@ function EditorRendicion({ rend, upsert, onClose, onEnviar, esDueno, esAprobador
         </Field>
       </div>
 
-      {/* Tipo de cambio de la rendición (manual por moneda) */}
-      {(() => {
-        const extranjeras = monedasExtranjeras(rend.gastos, monedaPago);
-        if (!extranjeras.length) return null;
-        const tcManual = rend.tcManual || {};
-        const setTCManual = (cur, val) => {
-          const next = { ...(rend.tcManual || {}) };
-          if (val === "" || val == null) delete next[cur]; else next[cur] = Number(val);
-          setCampo("tcManual", next);
-        };
-        return (
-          <div style={{ marginBottom: 18, background: C.bg2, border: `1px solid ${C.border}`, borderRadius: 10, padding: 12 }}>
-            <div style={{ fontSize: 12.5, fontWeight: 800, color: C.muted, marginBottom: 8 }}>
-              Tipo de cambio de la rendición
-              <span style={{ fontWeight: 500, color: C.muted2 }}> · déjalo vacío para usar el del maestro; escribe un valor para fijarlo manualmente</span>
-            </div>
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(230px, 1fr))", gap: 10 }}>
-              {extranjeras.map(cur => {
-                const man = Number(tcManual[cur]) > 0 ? tcManual[cur] : "";
-                const auto = buscarTC(cur, monedaPago, fechaTC, tcData);
-                return (
-                  <div key={cur} style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                    <span style={{ fontSize: 12.5, fontWeight: 700, minWidth: 58 }}>1 {cur} =</span>
-                    <input
-                      type="number" step="any" disabled={!editableTC}
-                      value={man}
-                      placeholder={auto != null ? auto.toLocaleString("es-CL", { maximumFractionDigits: 6 }) : "sin TC"}
-                      onChange={e => setTCManual(cur, e.target.value)}
-                      style={{ ...inputStyle, textAlign: "right", flex: 1 }} />
-                    <span style={{ fontSize: 12.5, fontWeight: 700 }}>{monedaPago}</span>
-                  </div>
-                );
-              })}
-            </div>
-            <div style={{ fontSize: 11, color: C.muted2, marginTop: 8 }}>
-              {extranjeras.some(cur => !(Number((rend.tcManual || {})[cur]) > 0) && buscarTC(cur, monedaPago, fechaTC, tcData) == null)
-                ? "⚠ Hay monedas sin tipo de cambio en el maestro: ingrésalo manualmente o no se podrán convertir."
-                : "Los campos en gris usan el valor del maestro (mindicador / frankfurter / manual)."}
-            </div>
-          </div>
-        );
-      })()}
+      {/* El tipo de cambio se ingresa por gasto (más abajo, en cada gasto en moneda extranjera). */}
 
       {/* Gastos */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
@@ -1769,20 +1730,37 @@ function EditorRendicion({ rend, upsert, onClose, onEnviar, esDueno, esAprobador
                 )}
               </div>
             )}
-            {(g.moneda || "CLP") !== monedaPago && Number(g.monto) > 0 && (() => {
-              const r = convertir(g.monto, g.moneda || "CLP", monedaPago, fechaTC, tcData, rend.tcManual);
-              if (r.ok) {
-                return (
-                  <div style={{ fontSize: 11.5, color: C.muted, marginTop: 6, display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-                    <span>🔁 {r.chain}:</span>
-                    {r.usd != null && <span>≈ {fmtMonto(r.usd, "USD")} →</span>}
-                    <span style={{ fontWeight: 800, color: C.accent2 }}>{fmtMonto(r.val, monedaPago)}</span>
-                  </div>
-                );
-              }
+            {/* Tipo de cambio de ESTE gasto (cuando está en otra moneda que la de pago) */}
+            {(g.moneda || "CLP") !== monedaPago && g.categoria !== "kilometraje" && (() => {
+              const autoRate = (rend.tcManual && Number(rend.tcManual[g.moneda]) > 0)
+                ? Number(rend.tcManual[g.moneda])
+                : buscarTC(g.moneda || "CLP", monedaPago, fechaTC, tcData);
+              const usaPropio = Number(g.tc) > 0;
+              const r = convertir(g.monto, g.moneda || "CLP", monedaPago, fechaTC, tcData, rend.tcManual, g.tc);
               return (
-                <div style={{ fontSize: 11.5, color: C.danger, marginTop: 6, background: C.dangerBg, padding: "5px 9px", borderRadius: 7 }}>
-                  ⚠ Falta TC para convertir ({Object.keys(r.faltan || {}).filter(k => r.faltan[k]).join(", ")}). Cárgalo en Maestros → Tipo de Cambio.
+                <div style={{ marginTop: 8, background: C.bg2, border: `1px solid ${C.border}`, borderRadius: 8, padding: "8px 10px" }}>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: C.muted, marginBottom: 6 }}>🔁 Conversión a {monedaPago}</div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                    <span style={{ fontSize: 12.5, fontWeight: 700 }}>1 {g.moneda || "CLP"} =</span>
+                    <input type="number" step="any" disabled={!editableTC} value={g.tc ?? ""}
+                      placeholder={autoRate != null ? autoRate.toLocaleString("es-CL", { maximumFractionDigits: 6 }) : "ingresa el TC"}
+                      onChange={e => setGasto(g.id, "tc", e.target.value)}
+                      style={{ ...inputStyle, width: 140, textAlign: "right" }} />
+                    <span style={{ fontSize: 12.5, fontWeight: 700 }}>{monedaPago}</span>
+                    {Number(g.monto) > 0 && r.ok && (
+                      <>
+                        <span style={{ fontSize: 12.5, color: C.muted2 }}>→</span>
+                        <span style={{ fontWeight: 800, color: C.accent2 }}>{fmtMonto(r.val, monedaPago)}</span>
+                      </>
+                    )}
+                  </div>
+                  <div style={{ fontSize: 10.5, color: usaPropio ? C.accent2 : C.muted2, marginTop: 5 }}>
+                    {usaPropio
+                      ? "✓ Usando el tipo de cambio que ingresaste para este gasto."
+                      : autoRate != null
+                        ? "Vacío = usa el TC de la app. Escribe un valor para fijar el tuyo."
+                        : "⚠ La app no tiene TC para esta moneda: ingrésalo aquí para convertir."}
+                  </div>
                 </div>
               );
             })()}
