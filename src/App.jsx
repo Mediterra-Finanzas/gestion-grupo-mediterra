@@ -70,13 +70,17 @@ const SUPA_URL = "https://bywovqayuzodbzwsriet.supabase.co";
 const SUPA_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJ5d292cWF5dXpvZGJ6d3NyaWV0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU2ODU1MDgsImV4cCI6MjA5MTI2MTUwOH0.s2x2O_CxE6rl8dBqFuyfQdMyRqSyjJQWXJXesmVGXtk";
 
 async function dbLoad() {
-  try {
-    const res = await fetch(`${SUPA_URL}/rest/v1/calendario_data?id=eq.main&select=value`, {
-      headers: { apikey: SUPA_KEY, Authorization: `Bearer ${SUPA_KEY}` }
-    });
-    const data = await res.json();
-    return data?.[0]?.value || null;
-  } catch { return null; }
+  // NO atrapar el error acá: si la lectura falla (red/timeout/HTTP), la
+  // excepción DEBE propagar para que el caller sepa que la carga no fue
+  // exitosa y NO habilite el auto-guardado (que sobrescribiría Supabase con
+  // los defaults en memoria → borrado de usuarios/PINs/estados). Devolver
+  // null SOLO cuando la fila existe pero está vacía (instalación nueva).
+  const res = await fetch(`${SUPA_URL}/rest/v1/calendario_data?id=eq.main&select=value`, {
+    headers: { apikey: SUPA_KEY, Authorization: `Bearer ${SUPA_KEY}` }
+  });
+  if(!res.ok) throw new Error(`dbLoad HTTP ${res.status}`);
+  const data = await res.json();
+  return data?.[0]?.value || null;
 }
 
 async function dbSave(value) {
@@ -1822,6 +1826,12 @@ export default function App(){
   const [semanaActiva,setSemanaActiva]=useState(()=>semanaActivaDefault(semanasDelMes(hoy.getMonth(),hoy.getFullYear())));
   const [guardado,setGuardado]=useState("idle");
   const [cargando,setCargando]=useState(true);
+  // GUARD anti-borrado: el auto-guardado solo se habilita tras una carga
+  // EXITOSA desde Supabase. Si dbLoad() falla (red/timeout), este flag queda
+  // en false y NO se guarda nada → así un parpadeo de conexión al abrir la app
+  // ya no sobrescribe el `main` con los defaults en memoria (bug que borró
+  // usuarios, PINs y estados). Se reactiva recargando la página.
+  const cargaOkRef = useRef(false);
   const [editComentario,setEditComentario]=useState(null);
   const [textoComentario,setTextoComentario]=useState("");
   const [filtroPersona,setFiltroPersona]=useState("");
@@ -1992,7 +2002,18 @@ export default function App(){
           if(d.anio!==undefined)setAnio(d.anio);
           // osirisData protección ahora vive en OsirisModule
         }
-      }catch(e){console.error("Error cargando:",e);}
+        // Llegamos acá sin excepción → la lectura de Supabase fue EXITOSA
+        // (con datos, o fila vacía legítima). Recién ahora habilitamos el
+        // auto-guardado y sembramos el contador anti-pérdida con el conteo
+        // realmente leído (para que una escritura posterior con menos usuarios
+        // quede bloqueada en dbSave).
+        cargaOkRef.current = true;
+        if(d && Array.isArray(d.usuarios)) window._lastSavedUsersCount = d.usuarios.length;
+      }catch(e){
+        // Carga fallida: dejamos cargaOkRef en false → el auto-guardado NO
+        // correrá esta sesión, evitando sobrescribir Supabase con los defaults.
+        console.error("Error cargando (auto-guardado DESHABILITADO esta sesión para no sobrescribir datos):",e);
+      }
       setCargando(false);
 
       // ── Backup automático diario ──
@@ -2382,6 +2403,7 @@ export default function App(){
   // Auto-guardado general (debounce 2000ms) — ya NO incluye osirisData
   useEffect(()=>{
     if(cargando)return;
+    if(!cargaOkRef.current)return; // no guardar si la carga inicial falló
     const t=setTimeout(()=>guardar(estados,comentarios,tareasConfig,supervisores,tareasExtra,pinsPersonalizados,recsDone,recsComentarios,usuarios,mes,anio),2000);
     return()=>clearTimeout(t);
   },[estados,comentarios,tareasConfig,supervisores,tareasExtra,pinsPersonalizados,recsDone,recsComentarios,usuarios,mes,anio,cargando,guardar]);
@@ -2389,6 +2411,7 @@ export default function App(){
   // Guardado inmediato al cambiar usuarios (permisos, roles, activar/desactivar)
   useEffect(()=>{
     if(cargando) return;
+    if(!cargaOkRef.current) return; // no guardar si la carga inicial falló
     // Guardar de inmediato con los valores más frescos
     const t=setTimeout(()=>guardarAhora(), 300);
     return()=>clearTimeout(t);
