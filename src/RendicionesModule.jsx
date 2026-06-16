@@ -1098,7 +1098,9 @@ export default function RendicionesModule({ usuarioActual, esAdmin, esSoloConsul
         />
       )}
       {tab === "pagos" && verTodas && (
-        <BandejaPagos rends={paraPago} onAbrir={setEditId} onPagar={marcarPagada} tcData={tcData} />
+        <BandejaPagos rends={paraPago} onAbrir={setEditId} onPagar={marcarPagada} tcData={tcData}
+          puedeDevolver={r => r.estado === "aprobada" && (admin || r.revisadoPor === nombreUsuario)}
+          onDevolver={devolverParaCorreccion} />
       )}
       {tab === "reportes" && verTodas && (
         <Reportes rends={rendiciones} filtroEstado={filtroEstado} setFiltroEstado={setFiltroEstado}
@@ -1342,7 +1344,7 @@ function BandejaAprobar({ rends, onAbrir, onAprobar, onRechazar, onReasignar, tc
 // ───────────────────────────────────────────────────────────────────
 // Tab: Pagos
 // ───────────────────────────────────────────────────────────────────
-function BandejaPagos({ rends, onAbrir, onPagar, tcData }) {
+function BandejaPagos({ rends, onAbrir, onPagar, tcData, puedeDevolver, onDevolver }) {
   return (
     <div>
       <div style={{ fontSize: 13, color: C.muted, marginBottom: 14 }}>{rends.length} rendición(es) aprobada(s) pendiente(s) de pago</div>
@@ -1355,6 +1357,13 @@ function BandejaPagos({ rends, onAbrir, onPagar, tcData }) {
         {rends.map(r => (
           <RendCard key={r.id} r={r} onClick={() => onAbrir(r.id)} mostrarTrabajador tcData={tcData}>
             <Btn kind="ghost" small onClick={() => onAbrir(r.id)}>Ver detalle</Btn>
+            {puedeDevolver?.(r) && (
+              <Btn kind="ghost" small style={{ color: C.warning, borderColor: C.warning }} onClick={() => {
+                const motivo = window.prompt("Devolver al trabajador para corregir/incorporar un gasto.\n\nNota para el trabajador (opcional):", "Falta incorporar un gasto.");
+                if (motivo === null) return;
+                onDevolver?.(r, motivo);
+              }}>↩ Devolver</Btn>
+            )}
             <Btn kind="accent" small onClick={() => onPagar(r)}>Marcar pagada</Btn>
           </RendCard>
         ))}
@@ -1589,6 +1598,16 @@ function EditorRendicion({ rend, upsert, onClose, onEnviar, esDueno, esAprobador
         <span style={{ fontSize: 12.5, color: C.muted }}>{rend.trabajador}{rend.cargo ? ` · ${rend.cargo}` : ""}</span>
         {rend.estado === "rechazada" && rend.comentarioRevisor && (
           <span style={{ fontSize: 12.5, color: C.danger, background: C.dangerBg, padding: "3px 10px", borderRadius: 7 }}>❌ {rend.comentarioRevisor}</span>
+        )}
+        {puedeDevolver && (
+          <button onClick={() => {
+            const motivo = window.prompt("Devolver al trabajador para corregir/incorporar un gasto.\n\nNota para el trabajador (opcional):", "Falta incorporar un gasto.");
+            if (motivo === null) return;
+            onDevolver?.(rend, motivo);
+            onClose();
+          }} style={{ marginLeft: "auto", background: C.warningBg, color: C.warning, border: `1px solid ${C.warning}`, borderRadius: 8, padding: "7px 14px", cursor: "pointer", fontSize: 12.5, fontWeight: 800, whiteSpace: "nowrap" }}>
+            ↩ Devolver para corrección
+          </button>
         )}
       </div>
 
@@ -1857,14 +1876,6 @@ function EditorRendicion({ rend, upsert, onClose, onEnviar, esDueno, esAprobador
           <Btn kind="ghost" onClick={descargarPDF} disabled={exportando === "pdf" || !(rend.gastos || []).length}>
             {exportando === "pdf" ? "Generando…" : "🖨 PDF + respaldos"}
           </Btn>
-          {puedeDevolver && (
-            <Btn kind="ghost" style={{ color: C.warning, borderColor: C.warning }} onClick={() => {
-              const motivo = window.prompt("Devolver al trabajador para corregir/incorporar un gasto.\n\nNota para el trabajador (opcional):", "Falta incorporar un gasto.");
-              if (motivo === null) return; // canceló
-              onDevolver?.(rend, motivo);
-              onClose();
-            }}>↩ Devolver para corrección</Btn>
-          )}
           <Btn kind="ghost" onClick={onClose}>Cerrar</Btn>
           {editable && <Btn kind="success" onClick={() => onEnviar(rend)}>📤 Enviar a aprobación</Btn>}
         </div>
