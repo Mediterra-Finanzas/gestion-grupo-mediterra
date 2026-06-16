@@ -692,7 +692,8 @@ function Badge({ children, color, bg, style }) {
   );
 }
 
-function EstadoBadge({ estado }) {
+function EstadoBadge({ estado, devuelta }) {
+  if (devuelta && estado === "rechazada") return <Badge color={C.warning} bg={C.warningBg}>↩ Devuelta para corrección</Badge>;
   const e = ESTADOS[estado] || ESTADOS.borrador;
   return <Badge color={e.color} bg={e.bg}>{e.ic} {e.l}</Badge>;
 }
@@ -925,7 +926,7 @@ export default function RendicionesModule({ usuarioActual, esAdmin, esSoloConsul
     const cadena = resolverCadena(trabajadorUser, usuarios);
     upsert(pushHist({
       ...r, estado: "enviada", enviadoEn: nowISO(),
-      cadena, nivelActual: 0, aprobaciones: [],
+      cadena, nivelActual: 0, aprobaciones: [], devuelta: false,
     }, "enviada"));
     // Avisar al primer aprobador (o a los pagadores si no hay cadena definida).
     const destino = cadena.length ? [cadena[0].email] : emailsPagadores();
@@ -996,6 +997,21 @@ export default function RendicionesModule({ usuarioActual, esAdmin, esSoloConsul
 
   const marcarPagada = (r) => {
     upsert(pushHist({ ...r, estado: "pagada", pagadoEn: nowISO(), pagadoPor: nombreUsuario }, "pagada"));
+  };
+
+  // Devolver una rendición YA APROBADA (no pagada) al trabajador para que corrija/incorpore un gasto.
+  // La usa quien la aprobó o un admin. Al reenviarla, vuelve a pasar por la cadena desde el nivel 1.
+  const devolverParaCorreccion = (r, motivo) => {
+    upsert(pushHist({
+      ...r, estado: "rechazada", devuelta: true,
+      comentarioRevisor: motivo || "Devuelta para incorporar o corregir un gasto.",
+      revisadoEn: nowISO(), revisadoPor: nombreUsuario, nivelActual: 0, aprobaciones: [],
+    }, "devuelta para corrección", motivo));
+    notif([r.trabajadorEmail],
+      `Rendición #${r.folio} devuelta para corrección`,
+      `${nombreUsuario} devolvió tu rendición #${r.folio} "${r.titulo}" para que incorpores o corrijas un gasto.\n` +
+      (motivo ? `Nota: ${motivo}\n` : "") +
+      `\nAgrégalo y vuelve a enviarla en ${APP_URL}, pestaña Finanzas → Rendiciones. Volverá a pasar por la aprobación.`);
   };
 
   // ── Vistas derivadas ──
@@ -1097,6 +1113,8 @@ export default function RendicionesModule({ usuarioActual, esAdmin, esSoloConsul
           esAprobador={esAprobador} admin={admin} onEliminar={eliminarRendicion} tcData={tcData}
           usuarios={usuarios} puedeRendirPorOtros={puedeRendirPorOtros}
           valorKm={config.valorKm}
+          puedeDevolver={editRend.estado === "aprobada" && (admin || editRend.revisadoPor === nombreUsuario)}
+          onDevolver={devolverParaCorreccion}
         />
       )}
 
@@ -1194,7 +1212,7 @@ function RendCard({ r, children, onClick, mostrarTrabajador, tcData }) {
         <div onClick={onClick} style={{ cursor: onClick ? "pointer" : "default", flex: 1 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
             <span style={{ fontWeight: 800, fontSize: 15 }}>#{r.folio}</span>
-            <EstadoBadge estado={r.estado} />
+            <EstadoBadge estado={r.estado} devuelta={r.devuelta} />
             <span style={{ fontSize: 13.5, fontWeight: 600 }}>{r.titulo || <i style={{ color: C.muted2 }}>Sin título</i>}</span>
           </div>
           <div style={{ fontSize: 12, color: C.muted, marginTop: 5 }}>
@@ -1454,7 +1472,7 @@ function MiniBreakdown({ title, data, mapLabel = (k) => k }) {
 // ───────────────────────────────────────────────────────────────────
 // Editor de una rendición (con gastos + adjuntos)
 // ───────────────────────────────────────────────────────────────────
-function EditorRendicion({ rend, upsert, onClose, onEnviar, esDueno, esAprobador, onEliminar, tcData, admin, usuarios = [], puedeRendirPorOtros, valorKm = 0 }) {
+function EditorRendicion({ rend, upsert, onClose, onEnviar, esDueno, esAprobador, onEliminar, tcData, admin, usuarios = [], puedeRendirPorOtros, valorKm = 0, puedeDevolver = false, onDevolver }) {
   const esMovil = useEsMovil();
   const editable = esDueno && (rend.estado === "borrador" || rend.estado === "rechazada");
   // La fecha/moneda de pago la define quien paga (aprobador) incluso después de enviada.
@@ -1567,7 +1585,7 @@ function EditorRendicion({ rend, upsert, onClose, onEnviar, esDueno, esAprobador
     <Modal width={900} title={`Rendición #${rend.folio}`} onClose={onClose}>
       {/* Cabecera estado */}
       <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 16, flexWrap: "wrap" }}>
-        <EstadoBadge estado={rend.estado} />
+        <EstadoBadge estado={rend.estado} devuelta={rend.devuelta} />
         <span style={{ fontSize: 12.5, color: C.muted }}>{rend.trabajador}{rend.cargo ? ` · ${rend.cargo}` : ""}</span>
         {rend.estado === "rechazada" && rend.comentarioRevisor && (
           <span style={{ fontSize: 12.5, color: C.danger, background: C.dangerBg, padding: "3px 10px", borderRadius: 7 }}>❌ {rend.comentarioRevisor}</span>
@@ -1839,6 +1857,14 @@ function EditorRendicion({ rend, upsert, onClose, onEnviar, esDueno, esAprobador
           <Btn kind="ghost" onClick={descargarPDF} disabled={exportando === "pdf" || !(rend.gastos || []).length}>
             {exportando === "pdf" ? "Generando…" : "🖨 PDF + respaldos"}
           </Btn>
+          {puedeDevolver && (
+            <Btn kind="ghost" style={{ color: C.warning, borderColor: C.warning }} onClick={() => {
+              const motivo = window.prompt("Devolver al trabajador para corregir/incorporar un gasto.\n\nNota para el trabajador (opcional):", "Falta incorporar un gasto.");
+              if (motivo === null) return; // canceló
+              onDevolver?.(rend, motivo);
+              onClose();
+            }}>↩ Devolver para corrección</Btn>
+          )}
           <Btn kind="ghost" onClick={onClose}>Cerrar</Btn>
           {editable && <Btn kind="success" onClick={() => onEnviar(rend)}>📤 Enviar a aprobación</Btn>}
         </div>
