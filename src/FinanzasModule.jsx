@@ -63,17 +63,17 @@ const SUPA_URL = "https://bywovqayuzodbzwsriet.supabase.co";
 const SUPA_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJ5d292cWF5dXpvZGJ6d3NyaWV0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU2ODU1MDgsImV4cCI6MjA5MTI2MTUwOH0.s2x2O_CxE6rl8dBqFuyfQdMyRqSyjJQWXJXesmVGXtk";
 
 async function dbLoad() {
-  try {
-    const r = await fetch(`${SUPA_URL}/rest/v1/calendario_data?id=eq.finanzas&select=value`,
-      { headers:{ apikey:SUPA_KEY, Authorization:`Bearer ${SUPA_KEY}` }});
-    const d = await r.json();
-    const parsed = d?.[0]?.value ? JSON.parse(d[0].value) : {};
-    console.log("[dbLoad] keys:", Object.keys(parsed), "saldos_bancos keys:", Object.keys(parsed.saldos_bancos||{}).length);
-    return parsed;
-  } catch(e) {
-    console.error("[dbLoad] error:", e);
-    return {};
-  }
+  // NO atrapar el error: si la lectura falla (red/HTTP), la excepción DEBE
+  // propagar para que el caller NO habilite el guardado (que sobrescribiría
+  // los 4.6 MB de Finanzas con los defaults vacíos en memoria). Solo se
+  // devuelve {} cuando la fila existe pero está vacía (instalación nueva).
+  const r = await fetch(`${SUPA_URL}/rest/v1/calendario_data?id=eq.finanzas&select=value`,
+    { headers:{ apikey:SUPA_KEY, Authorization:`Bearer ${SUPA_KEY}` }});
+  if(!r.ok) throw new Error(`dbLoad finanzas HTTP ${r.status}`);
+  const d = await r.json();
+  const parsed = d?.[0]?.value ? JSON.parse(d[0].value) : {};
+  console.log("[dbLoad] keys:", Object.keys(parsed), "saldos_bancos keys:", Object.keys(parsed.saldos_bancos||{}).length);
+  return parsed;
 }
 async function dbSave(data) {
   try {
@@ -10363,7 +10363,9 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
   }
 
   useEffect(()=>{
-    dbLoad().then(d=>{ applyData(d); setLoading(false); window._finLoadTime = Date.now(); });
+    dbLoad()
+      .then(d=>{ applyData(d); cargaOkRef.current = true; setLoading(false); window._finLoadTime = Date.now(); })
+      .catch(e=>{ console.error("[Finanzas] Carga falló — GUARDADO DESHABILITADO esta sesión (no se sobrescribe Supabase):", e); setLoading(false); });
 
     // ── Supabase Realtime — sincronización instantánea entre usuarios ──
     // Escucha cambios en la fila "finanzas" de calendario_data
@@ -10435,6 +10437,11 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
   const subLinesRef      = React.useRef(subLines);
   const addedLinesRef    = React.useRef(addedLinesGlobal);
   const intercompanyRef  = React.useRef(intercompany);
+  // GUARD anti-borrado: solo se permite guardar tras una carga EXITOSA desde
+  // Supabase. Si dbLoad() falla (red/timeout), queda en false y persistAll no
+  // escribe nada → un parpadeo de conexión no puede sobrescribir Finanzas con
+  // los defaults vacíos en memoria.
+  const cargaOkRef       = React.useRef(false);
   useEffect(()=>{ realDataRef.current     = realData;     },[realData]);
   useEffect(()=>{ paramsRef.current       = params;       },[params]);
   useEffect(()=>{ allegraComisionArandanosRef.current = allegraComisionArandanos; },[allegraComisionArandanos]);
@@ -10505,6 +10512,12 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
   // Helper centralizado - siempre usa los valores mas recientes
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const persistAll = useCallback((overrides={})=>{
+    // GUARD anti-borrado: si la carga inicial falló, NO escribir (evita
+    // sobrescribir Supabase con los defaults vacíos en memoria).
+    if(!cargaOkRef.current) {
+      console.warn("[persistAll] Bloqueado — la carga inicial falló; no se guarda para no borrar datos.");
+      return Promise.resolve(false);
+    }
     // No guardar durante los primeros 10 segundos después de cargar (evita sobreescribir con datos vacíos)
     if(window._finLoadTime && (Date.now() - window._finLoadTime) < 10000) {
       console.log("[persistAll] Bloqueado — app aún cargando");
@@ -11225,7 +11238,12 @@ async function dbLoadNominas(empresasPermitidas) {
       return data?.[0]?.value ? JSON.parse(data[0].value).nominas || [] : [];
     }));
     return { nominas: resultados.flat() };
-  } catch { return null; }
+  } catch(e) {
+    // Propagar: el caller debe distinguir "carga falló" de "vacío" para no
+    // habilitar el guardado y sobrescribir las nóminas con una lista vacía.
+    console.error("[Nominas] Error cargando:", e);
+    throw e;
+  }
 }
 
 // Guarda nóminas: si migrado → upsert por empresa;
@@ -12876,11 +12894,18 @@ function NominasModule({usuario, canEdit=false, saldosBancos={}, empresasPermiti
   const [vistaBusqueda, setVistaBusqueda] = useState(false);
   const nominasRef = useRef(nominas);
   useEffect(()=>{nominasRef.current=nominas;},[nominas]);
+  // GUARD anti-borrado: solo se guarda tras una carga EXITOSA. Si la carga
+  // inicial falla, no se escribe nada (evita sobrescribir nóminas con []).
+  const cargaOkRef = useRef(false);
 
   // Load — dbLoadNominas aplica el filtro por empresa (legacy en memoria, v2 en consulta)
   useEffect(()=>{
     dbLoadNominas(empresasPermitidas).then(d=>{
       if(d?.nominas) setNominas(d.nominas);
+      cargaOkRef.current = true;
+      setCargando(false);
+    }).catch(e=>{
+      console.error("[Nominas] Carga falló — GUARDADO DESHABILITADO esta sesión:", e);
       setCargando(false);
     });
   },[]);
@@ -12921,6 +12946,7 @@ function NominasModule({usuario, canEdit=false, saldosBancos={}, empresasPermiti
   const saveTimer = useRef(null);
   const pendingSaveRef = useRef(null); // última lista pendiente de guardar (para flush en recarga/cierre)
   function saveNominas(list) {
+    if(!cargaOkRef.current){ console.warn("[Nominas] save bloqueado — la carga inicial falló."); return; }
     clearTimeout(saveTimer.current);
     pendingSaveRef.current = list;
     saveTimer.current = setTimeout(()=>{
@@ -12932,6 +12958,7 @@ function NominasModule({usuario, canEdit=false, saldosBancos={}, empresasPermiti
   // Fuerza el guardado pendiente del debounce (si lo hay) antes de recargar/cerrar/desmontar.
   // keepalive=true permite que el request sobreviva al beforeunload.
   function flushNominas(keepalive=false) {
+    if(!cargaOkRef.current) return;
     if(saveTimer.current) {
       clearTimeout(saveTimer.current);
       saveTimer.current = null;

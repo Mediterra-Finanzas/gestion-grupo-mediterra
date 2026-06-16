@@ -3915,6 +3915,8 @@ export default function FriskuComercialModule({
   const [filtroTempOE,    setFiltroTempOE]    = useState("");
 
   const [cargando, setCargando] = useState(true);
+  // GUARD anti-borrado: solo se guarda tras una carga EXITOSA.
+  const cargaOkRef = useRef(false);
   const [tab, setTab] = useState("clientes");
   const [guardando, setGuardando] = useState({});
   const [importando, setImportando] = useState(false);
@@ -3962,6 +3964,7 @@ export default function FriskuComercialModule({
   useEffect(()=>{
     let alive = true;
     (async ()=>{
+     try {
       const [cli, exp, con, pro, emb, liq, po, esp, pa, mo, me, tb, ci, tmp, pu, ae, sl, la, nt, tc] = await Promise.all([
         dbLoadGeneric("frisku_clientes"),
         dbLoadGeneric("frisku_exportadoras"),
@@ -4009,7 +4012,13 @@ export default function FriskuComercialModule({
       setLineasAereas(Array.isArray(la) && la.length ? la : LINEAS_AEREAS_DEFAULT);
       setNotifys(Array.isArray(nt) ? nt : []);
       if(tc && typeof tc === "object") setTcData(tc);
-      setCargando(false);
+      cargaOkRef.current = true; // carga exitosa → habilita auto-save
+     } catch(e) {
+      // Carga fallida: NO habilitar guardado (evita sobrescribir clientes/
+      // exportadoras/etc. con listas vacías ante un parpadeo de conexión).
+      console.error("[FriskuComercial] Carga falló — GUARDADO DESHABILITADO esta sesión:", e);
+     }
+     if(alive) setCargando(false);
     })();
     return ()=>{alive=false;};
   },[]);
@@ -4019,6 +4028,7 @@ export default function FriskuComercialModule({
   // Exportadoras). Garantiza que las altas/cambios hechos en el módulo
   // de Maestros se reflejen sin necesidad de recargar la página.
   const recargarMaestros = useCallback(async ()=>{
+   try {
     const [esp, pa, mo, me, tb, ci, tmp, pu, ae, sl, la, nt, tc] = await Promise.all([
       dbLoadGeneric("maestro_especies"),
       dbLoadGeneric("maestro_paises"),
@@ -4047,6 +4057,11 @@ export default function FriskuComercialModule({
     setLineasAereas(Array.isArray(la) && la.length ? la : LINEAS_AEREAS_DEFAULT);
     setNotifys(Array.isArray(nt) ? nt : []);
     if(tc && typeof tc === "object") setTcData(tc);
+   } catch(e) {
+    // Recarga de maestros falló (solo lectura para selects): mantener lo que
+    // ya estaba en memoria. No afecta el guardado de datos comerciales.
+    console.error("[FriskuComercial] Recarga de maestros falló:", e);
+   }
   },[]);
 
   // Refrescar maestros al entrar a tabs que los necesitan
@@ -4063,7 +4078,7 @@ export default function FriskuComercialModule({
     const timer = useRef(null);
     const primero = useRef(true);
     useEffect(()=>{
-      if(cargando || !listo) return;
+      if(cargando || !listo || !cargaOkRef.current) return;
       if(primero.current) { primero.current = false; return; }
       if(timer.current) clearTimeout(timer.current);
       setGuardando(g => ({...g, [id]:true}));

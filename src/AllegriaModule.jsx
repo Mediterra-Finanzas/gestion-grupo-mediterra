@@ -225,9 +225,15 @@ async function dbLoadAllegria() {
     const res = await fetch(`${SUPA_URL}/rest/v1/calendario_data?id=eq.allegria&select=value`, {
       headers: { apikey: SUPA_KEY, Authorization: `Bearer ${SUPA_KEY}` }
     });
+    if(!res.ok) throw new Error(`dbLoadAllegria HTTP ${res.status}`);
     const data = await res.json();
     return data?.[0]?.value ? (typeof data[0].value === "string" ? JSON.parse(data[0].value) : data[0].value) : null;
-  } catch { return null; }
+  } catch(e) {
+    // Propagar: el caller no debe habilitar el guardado si la carga falló
+    // (si no, sobrescribiría Allegria con los defaults vacíos).
+    console.error("[Allegria] Error cargando:", e);
+    throw e;
+  }
 }
 
 async function dbSaveAllegria(value) {
@@ -2199,18 +2205,26 @@ export default function AllegriaModule({usuarioActual, esAdmin, esSoloConsulta, 
   const rolActual = usuarioActual?.rol || "editor";
   const can = rolActual === "admin" || (rolActual === "editor" && !esSoloConsulta(usuarioActual?.nombre));
 
+  // GUARD anti-borrado: solo se guarda tras una carga EXITOSA.
+  const cargaOkRef = useRef(false);
+
   // Cargar datos
   useEffect(()=>{
     (async()=>{
-      const d = await dbLoadAllegria();
-      if(d) {
-        setData(d);
-        // Inicializar protección anti-pérdida
-        window._lastSavedAllegria = {};
-        ["clientes","productores","embarques","liquidaciones","liqCliente","anticipos","cobranza","recepciones","stockPT","materiales","recetas","programaComercial"].forEach(k=>{
-          if(Array.isArray(d[k])) window._lastSavedAllegria[k] = d[k].length;
-        });
-        console.log("[Allegria] Protección anti-pérdida:", JSON.stringify(window._lastSavedAllegria));
+      try {
+        const d = await dbLoadAllegria();
+        if(d) {
+          setData(d);
+          // Inicializar protección anti-pérdida
+          window._lastSavedAllegria = {};
+          ["clientes","productores","embarques","liquidaciones","liqCliente","anticipos","cobranza","recepciones","stockPT","materiales","recetas","programaComercial"].forEach(k=>{
+            if(Array.isArray(d[k])) window._lastSavedAllegria[k] = d[k].length;
+          });
+          console.log("[Allegria] Protección anti-pérdida:", JSON.stringify(window._lastSavedAllegria));
+        }
+        cargaOkRef.current = true; // carga exitosa (con datos o fila vacía)
+      } catch(e) {
+        console.error("[Allegria] Carga falló — GUARDADO DESHABILITADO esta sesión:", e);
       }
       setCargando(false);
     })();
@@ -2221,6 +2235,7 @@ export default function AllegriaModule({usuarioActual, esAdmin, esSoloConsulta, 
   useEffect(()=>{dataRef.current=data;},[data]);
   useEffect(()=>{
     if(cargando) return;
+    if(!cargaOkRef.current) return; // no guardar si la carga inicial falló
     const t=setTimeout(()=>dbSaveAllegria(dataRef.current), 2000);
     return()=>clearTimeout(t);
   },[data, cargando]);

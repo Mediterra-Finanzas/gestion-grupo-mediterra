@@ -10,16 +10,19 @@ export const SUPA_URL = "https://bywovqayuzodbzwsriet.supabase.co";
 export const SUPA_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJ5d292cWF5dXpvZGJ6d3NyaWV0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU2ODU1MDgsImV4cCI6MjA5MTI2MTUwOH0.s2x2O_CxE6rl8dBqFuyfQdMyRqSyjJQWXJXesmVGXtk";
 
 export async function dbLoadGeneric(id) {
-  try {
-    const res = await fetch(`${SUPA_URL}/rest/v1/calendario_data?id=eq.${id}&select=value`, {
-      headers: { apikey: SUPA_KEY, Authorization: `Bearer ${SUPA_KEY}` }
-    });
-    const rows = await res.json();
-    if (rows?.[0]?.value) {
-      return typeof rows[0].value === "string" ? JSON.parse(rows[0].value) : rows[0].value;
-    }
-    return null;
-  } catch (e) { console.error(`[Frisku:${id}] Error cargando:`, e); return null; }
+  // NO atrapar el error: si la lectura falla (red/HTTP), la excepción DEBE
+  // propagar para que el caller NO habilite el guardado (que sobrescribiría
+  // los datos en Supabase con los defaults vacíos en memoria). Solo se
+  // devuelve null cuando la fila existe pero está vacía / no existe.
+  const res = await fetch(`${SUPA_URL}/rest/v1/calendario_data?id=eq.${id}&select=value`, {
+    headers: { apikey: SUPA_KEY, Authorization: `Bearer ${SUPA_KEY}` }
+  });
+  if (!res.ok) throw new Error(`dbLoadGeneric ${id} HTTP ${res.status}`);
+  const rows = await res.json();
+  if (rows?.[0]?.value) {
+    return typeof rows[0].value === "string" ? JSON.parse(rows[0].value) : rows[0].value;
+  }
+  return null;
 }
 
 export async function dbSaveGeneric(id, value) {
@@ -42,25 +45,25 @@ export async function dbSaveGeneric(id, value) {
 // (incluso si el usuario lo dejó vacío deliberadamente).
 // ═══════════════════════════════════════════════════════════════════
 export async function loadConSeed(id, defaults) {
-  try {
-    const res = await fetch(
-      `${SUPA_URL}/rest/v1/calendario_data?id=eq.${id}&select=value`,
-      { headers: { apikey: SUPA_KEY, Authorization: `Bearer ${SUPA_KEY}` } }
-    );
-    const rows = await res.json();
-    if (Array.isArray(rows) && rows.length > 0) {
-      // Fila existe: retornar lo que tenga (incluido array vacío)
-      const v = rows[0].value;
-      return typeof v === "string" ? JSON.parse(v) : v;
-    }
-    // Fila NO existe: sembrar defaults y retornarlos
-    await dbSaveGeneric(id, defaults);
-    console.log(`[Seed:${id}] Sembrado con ${Array.isArray(defaults) ? defaults.length : "?"} items`);
-    return defaults;
-  } catch (e) {
-    console.error(`[Seed:${id}] Error:`, e);
-    return defaults; // fallback en memoria si la red falla
+  // En error de red NO atrapamos para devolver defaults: eso, combinado con
+  // el auto-save del módulo, sembraba los defaults ENCIMA de los datos reales
+  // en Supabase ante un parpadeo de conexión. Ahora la excepción propaga y el
+  // caller deja el guardado deshabilitado esa sesión.
+  const res = await fetch(
+    `${SUPA_URL}/rest/v1/calendario_data?id=eq.${id}&select=value`,
+    { headers: { apikey: SUPA_KEY, Authorization: `Bearer ${SUPA_KEY}` } }
+  );
+  if (!res.ok) throw new Error(`loadConSeed ${id} HTTP ${res.status}`);
+  const rows = await res.json();
+  if (Array.isArray(rows) && rows.length > 0) {
+    // Fila existe: retornar lo que tenga (incluido array vacío)
+    const v = rows[0].value;
+    return typeof v === "string" ? JSON.parse(v) : v;
   }
+  // Fila NO existe (lectura OK, sin filas): sembrar defaults y retornarlos
+  await dbSaveGeneric(id, defaults);
+  console.log(`[Seed:${id}] Sembrado con ${Array.isArray(defaults) ? defaults.length : "?"} items`);
+  return defaults;
 }
 
 // ═══════════════════════════════════════════════════════════════════

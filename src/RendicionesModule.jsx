@@ -804,21 +804,30 @@ export default function RendicionesModule({ usuarioActual, esAdmin, esSoloConsul
   const [filtroEstado, setFiltroEstado] = useState("todos");
   const [busca, setBusca] = useState("");
 
+  // GUARD anti-borrado: solo se guarda tras una carga EXITOSA. Si la carga
+  // falla, no se escribe nada (evita sobrescribir las rendiciones con []).
+  const cargaOkRef = useRef(false);
+
   // ── Carga inicial ──
   useEffect(() => {
     let alive = true;
     (async () => {
-      const [data, tc, cfg] = await Promise.all([
-        dbLoadGeneric("rendiciones"),
-        dbLoadGeneric("maestro_tc"),
-        dbLoadGeneric("rendiciones_config"),
-      ]);
-      if (alive) {
-        setRendiciones(Array.isArray(data) ? data : []);
-        setTcData(tc && typeof tc === "object" ? tc : {});
-        setConfig(cfg && typeof cfg === "object" ? { valorKm: 0, ...cfg } : { valorKm: 0 });
-        setCargando(false);
+      try {
+        const [data, tc, cfg] = await Promise.all([
+          dbLoadGeneric("rendiciones"),
+          dbLoadGeneric("maestro_tc"),
+          dbLoadGeneric("rendiciones_config"),
+        ]);
+        if (alive) {
+          setRendiciones(Array.isArray(data) ? data : []);
+          setTcData(tc && typeof tc === "object" ? tc : {});
+          setConfig(cfg && typeof cfg === "object" ? { valorKm: 0, ...cfg } : { valorKm: 0 });
+          cargaOkRef.current = true; // carga exitosa → habilita auto-save
+        }
+      } catch (e) {
+        console.error("[Rendiciones] Carga falló — GUARDADO DESHABILITADO esta sesión:", e);
       }
+      if (alive) setCargando(false);
     })();
     return () => { alive = false; };
   }, []);
@@ -828,6 +837,7 @@ export default function RendicionesModule({ usuarioActual, esAdmin, esSoloConsul
   const primero = useRef(true);
   useEffect(() => {
     if (cargando) return;
+    if (!cargaOkRef.current) return; // no guardar si la carga inicial falló
     if (primero.current) { primero.current = false; return; }
     if (timer.current) clearTimeout(timer.current);
     setGuardando(true);
@@ -849,6 +859,7 @@ export default function RendicionesModule({ usuarioActual, esAdmin, esSoloConsul
   // Solo el administrador actualiza el valor por kilómetro (config global, persistida aparte).
   const guardarValorKm = useCallback(async (v) => {
     if (!admin) return;
+    if (!cargaOkRef.current) { console.warn("[Rendiciones] config no guardada — carga inicial falló."); return; }
     const next = { ...config, valorKm: Math.max(0, Number(v) || 0) };
     setConfig(next);
     await dbSaveGeneric("rendiciones_config", next);

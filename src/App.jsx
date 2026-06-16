@@ -2026,8 +2026,14 @@ export default function App(){
         });
         const exists = await chk.json();
         if(!exists || exists.length===0) {
-          // Leer todos los datos actuales
-          const allRes = await fetch(`${SUPA_URL}/rest/v1/calendario_data?id=in.(main,allegria,finanzas,nominas,osiris,frisku)&select=id,value`,{
+          // Leer todos los datos actuales. Cobertura ampliada (2026-06-16):
+          // además de los módulos de negocio, ahora respalda rendiciones, los
+          // maestros de Frisku (maestro_*), los datos comerciales (frisku_*) y
+          // las nóminas migradas por empresa (nominas_*). Antes solo cubría
+          // main/allegria/finanzas/nominas/osiris/frisku → rendiciones y
+          // maestros quedaban sin respaldo.
+          const backupFiltro = "or=(id.in.(main,allegria,finanzas,nominas,osiris,frisku,rendiciones,rendiciones_config),id.like.maestro_*,id.like.frisku_*,id.like.nominas_*)";
+          const allRes = await fetch(`${SUPA_URL}/rest/v1/calendario_data?${backupFiltro}&select=id,value`,{
             headers:{apikey:SUPA_KEY,Authorization:`Bearer ${SUPA_KEY}`}
           });
           const allData = await allRes.json();

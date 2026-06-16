@@ -38,12 +38,17 @@ async function dbLoadMaestro(id) {
     const res = await fetch(`${SUPA_URL}/rest/v1/calendario_data?id=eq.${id}&select=value`, {
       headers: { apikey: SUPA_KEY, Authorization: `Bearer ${SUPA_KEY}` }
     });
+    if(!res.ok) throw new Error(`dbLoadMaestro ${id} HTTP ${res.status}`);
     const rows = await res.json();
     if(rows?.[0]?.value) {
       return typeof rows[0].value === "string" ? JSON.parse(rows[0].value) : rows[0].value;
     }
     return null;
-  } catch(e) { console.error(`[Maestro:${id}] Error cargando:`, e); return null; }
+  } catch(e) {
+    // Propagar: el caller no debe habilitar el guardado si la carga falló.
+    console.error(`[Maestro:${id}] Error cargando:`, e);
+    throw e;
+  }
 }
 
 async function dbSaveMaestro(id, value) {
@@ -2031,6 +2036,8 @@ export default function FriskuMaestrosModule({
   const [consignatarios, setConsignatarios] = useState([]);
 
   const [cargando, setCargando] = useState(true);
+  // GUARD anti-borrado: solo se guarda tras una carga EXITOSA de maestros.
+  const cargaOkRef = useRef(false);
   // Si el comercial pasa renderClientesTab, partir en "clientes"; si no, en "paises".
   const [tab, setTab] = useState(renderClientesTab ? "clientes" : "paises");
   const [guardando, setGuardando] = useState({});
@@ -2040,6 +2047,7 @@ export default function FriskuMaestrosModule({
   useEffect(()=>{
     let alive = true;
     (async ()=>{
+     try {
       // loadConSeed: si la fila no existe en Supabase, graba defaults
       // y los retorna (queda persistido para todos los usuarios).
       // dbLoadMaestro normal para los que NO se siembran (Ciudades vacío
@@ -2097,7 +2105,14 @@ export default function FriskuMaestrosModule({
       setTemporadas(Array.isArray(tmp) ? tmp : TEMPORADAS_DEFAULT);
       setNotify(Array.isArray(nt) ? nt : []);
       setConsignatarios(Array.isArray(cn) ? cn : []);
-      setCargando(false);
+      cargaOkRef.current = true; // carga exitosa → habilita auto-save
+     } catch(e) {
+      // Carga fallida: mantenemos los defaults en memoria para que la UI no
+      // quede rota, pero NO habilitamos el guardado (cargaOkRef sigue false)
+      // → así un parpadeo de conexión no siembra defaults encima de los datos.
+      console.error("[Maestros] Carga falló — GUARDADO DESHABILITADO esta sesión:", e);
+     }
+     if(alive) setCargando(false);
     })();
     return ()=>{alive=false;};
   },[]);
@@ -2107,7 +2122,7 @@ export default function FriskuMaestrosModule({
     const timer = useRef(null);
     const primero = useRef(true);
     useEffect(()=>{
-      if(cargando || !listo) return;
+      if(cargando || !listo || !cargaOkRef.current) return;
       if(primero.current) { primero.current = false; return; }
       if(timer.current) clearTimeout(timer.current);
       setGuardando(g => ({...g, [id]:true}));
