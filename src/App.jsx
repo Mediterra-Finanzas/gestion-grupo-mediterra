@@ -2026,18 +2026,18 @@ export default function App(){
         });
         const exists = await chk.json();
         if(!exists || exists.length===0) {
-          // Leer todos los datos actuales. Cobertura ampliada (2026-06-16):
-          // además de los módulos de negocio, ahora respalda rendiciones, los
-          // maestros de Frisku (maestro_*), los datos comerciales (frisku_*) y
-          // las nóminas migradas por empresa (nominas_*). Antes solo cubría
-          // main/allegria/finanzas/nominas/osiris/frisku → rendiciones y
-          // maestros quedaban sin respaldo.
-          const backupFiltro = "or=(id.in.(main,allegria,finanzas,nominas,osiris,frisku,rendiciones,rendiciones_config),id.like.maestro_*,id.like.frisku_*,id.like.nominas_*)";
+          // Leer TODAS las filas de datos (backup genérico, 2026-06-16): se
+          // respalda cualquier fila presente y futura — así un módulo nuevo
+          // queda cubierto automáticamente, sin tener que agregarlo a mano.
+          // Se EXCLUYEN: los propios backups (backup_*), los snapshots manuales
+          // de restauración (main_pre_restore_*) y el log de auditoría
+          // (audit_log, que es enorme y tiene su propia retención).
+          const backupFiltro = "and=(id.not.like.backup_*,id.not.like.main_pre_restore_*,id.neq.audit_log)";
           const allRes = await fetch(`${SUPA_URL}/rest/v1/calendario_data?${backupFiltro}&select=id,value`,{
             headers:{apikey:SUPA_KEY,Authorization:`Bearer ${SUPA_KEY}`}
           });
           const allData = await allRes.json();
-          const backupData = { fecha:new Date().toISOString(), version:"auto-v2" };
+          const backupData = { fecha:new Date().toISOString(), version:"auto-v3" };
           (Array.isArray(allData)?allData:[]).forEach(row=>{
             try { backupData[row.id] = typeof row.value==="string"?JSON.parse(row.value):row.value; }
             catch { backupData[row.id] = row.value; }
@@ -2047,7 +2047,38 @@ export default function App(){
             headers:{apikey:SUPA_KEY,Authorization:`Bearer ${SUPA_KEY}`,"Content-Type":"application/json",Prefer:"resolution=merge-duplicates"},
             body:JSON.stringify({id:backupId, value:backupData, updated_at:new Date().toISOString()})
           });
-          console.log(`[Backup] ✅ Backup automático creado: ${backupId}`);
+          console.log(`[Backup] ✅ Backup automático creado: ${backupId} (${Object.keys(backupData).length-2} filas)`);
+
+          // ── Retención de backups ──
+          // Conserva: todos los de los últimos 30 días + el del día 1 de cada
+          // mes (histórico mensual). Borra el resto. Protecciones: nunca toca
+          // los 7 más recientes y borra a lo sumo 20 por corrida. Así se evita
+          // que los backups crezcan sin límite y consuman la cuota de Supabase.
+          try {
+            const lst = await fetch(`${SUPA_URL}/rest/v1/calendario_data?id=like.backup_*&select=id`,{
+              headers:{apikey:SUPA_KEY,Authorization:`Bearer ${SUPA_KEY}`}
+            });
+            const filas = await lst.json();
+            const ids = (Array.isArray(filas)?filas:[]).map(r=>r.id).sort(); // asc por fecha
+            const recientes = new Set(ids.slice(-7)); // los 7 más nuevos: intocables
+            const corte = new Date(); corte.setDate(corte.getDate()-30);
+            const aBorrar = ids.filter(id=>{
+              if(recientes.has(id)) return false;
+              const fecha = id.slice(7);               // "YYYY-MM-DD"
+              const d = new Date(fecha);
+              if(isNaN(d.getTime())) return false;      // formato raro → no tocar
+              if(d >= corte) return false;              // dentro de 30 días → conservar
+              if(fecha.endsWith("-01")) return false;   // día 1 → histórico mensual
+              return true;
+            }).slice(0,20);                             // tope de seguridad por corrida
+            for(const id of aBorrar){
+              await fetch(`${SUPA_URL}/rest/v1/calendario_data?id=eq.${id}`,{
+                method:"DELETE",
+                headers:{apikey:SUPA_KEY,Authorization:`Bearer ${SUPA_KEY}`}
+              });
+            }
+            if(aBorrar.length) console.log(`[Backup] 🧹 Retención: ${aBorrar.length} backup(s) antiguo(s) eliminado(s).`);
+          } catch(e){ console.warn("[Backup] Error en retención (no crítico):", e); }
         } else {
           console.log(`[Backup] Ya existe backup de hoy: ${backupId}`);
         }
