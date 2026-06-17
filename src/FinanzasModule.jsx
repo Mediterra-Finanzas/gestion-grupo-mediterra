@@ -4,6 +4,8 @@ import EEFFModule from './EEFFModule.jsx';
 import RendicionesModule from './RendicionesModule.jsx';
 import { theme } from './theme';
 import { exportarFlujoConsolidado } from './flujoExportExcel.js';
+import { uploadDocNomina, urlFirmadaNomina } from './friskuHelpers';
+import { esLineaRelacionada, hashArchivo, docsActivos, tieneRespaldo, pathDocNomina, coberturaNomina, siguienteCorrelativo } from './expedienteHelpers';
 
 // ═══════════════════════════════════════════════════════════════════
 // TIEMPO: Mar-26 → Jun-31 (65 meses)
@@ -11152,6 +11154,8 @@ function itemVacio(seccion) {
     // Expediente Digital (Fase 0): soft-delete + trazabilidad por línea.
     estadoLinea:"activa", // "activa" | "inactiva" | "reemplazada"
     historial:[],         // [{accion, usuario, fecha, detalle?}]
+    // Expediente Digital (Fase 1): respaldo documental por línea.
+    documentos:[],        // [{id,nombre,path,principal,mime,sizeKB,hash,subidoPor,fechaSubida,estado,interno,voucher}]
   };
 }
 
@@ -11309,9 +11313,16 @@ function BadgeEstado({estado}) {
 // ─────────────────────────────────────────────────────────────────
 // TABLA ITEMS (por sección)
 // ─────────────────────────────────────────────────────────────────
-function TablaItems({items, seccion, onChange, canEdit, tc, moneda="ambas", semanaNomina, tiposDocExtra=[], onAddTipoDoc, usuario}) {
+function TablaItems({items, seccion, onChange, canEdit, tc, moneda="ambas", semanaNomina, tiposDocExtra=[], onAddTipoDoc, usuario, nominaId, empresa, anioNom}) {
   // Vista de edición: solo líneas activas (las inactivadas quedan en data y se ven en Vista Auditoría — Fase 3).
   const rows = items.filter(it=>it.seccion===seccion && lineaActiva(it));
+  // Modal de documentos de respaldo (Expediente Digital — Fase 1).
+  const [docsItemId, setDocsItemId] = useState(null);
+  const docsItem = docsItemId ? items.find(x=>x.id===docsItemId) : null;
+  // Actualiza una línea puntual (usado por el modal de documentos).
+  function updItemObj(itemActualizado) {
+    onChange(items.map(x=>x.id===itemActualizado.id?itemActualizado:x));
+  }
   const soloUSD = moneda==="usd";
   const soloCLP = moneda==="clp";
   const soloPEN = moneda==="pen";
@@ -11566,6 +11577,12 @@ function TablaItems({items, seccion, onChange, canEdit, tc, moneda="ambas", sema
                     : <span style={{color:C.muted,fontSize:10}}>{it.comentario||""}</span>}
                 </td>
                 <td style={{padding:"3px 6px",textAlign:"center",whiteSpace:"nowrap"}}>
+                  <button onClick={()=>setDocsItemId(it.id)}
+                    title={tieneRespaldo(it)?`${docsActivos(it).length} documento(s) de respaldo`:"Sin respaldo — adjuntar documento"}
+                    style={{background:`${C.border}33`,border:"none",borderRadius:5,
+                      padding:"3px 7px",cursor:"pointer",fontSize:11,color:C.text,marginRight:3}}>
+                    {tieneRespaldo(it)?"🟢":"🔴"} 📎{docsActivos(it).length||""}
+                  </button>
                   {canEdit&&(
                     <>
                       <button onClick={()=>updItem(it.id,"pagado",!it.pagado)}
@@ -11635,6 +11652,274 @@ function TablaItems({items, seccion, onChange, canEdit, tc, moneda="ambas", sema
           + Agregar fila
         </button>
       )}
+      {docsItem&&(
+        <DocsLineaModal
+          item={docsItem}
+          canEdit={canEdit}
+          usuario={usuario}
+          nominaId={nominaId}
+          empresa={empresa}
+          anioNom={anioNom}
+          onUpdateItem={updItemObj}
+          onClose={()=>setDocsItemId(null)}
+        />
+      )}
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────
+// EXPEDIENTE DIGITAL — MODAL DE DOCUMENTOS POR LÍNEA (Fase 1)
+// Adjuntar (1+), ver/descargar (URL firmada), soft-delete, principal,
+// y generación de Documento Interno para líneas de empresas relacionadas.
+// ─────────────────────────────────────────────────────────────────
+function DocsLineaModal({item, canEdit, usuario, nominaId, empresa, anioNom, onUpdateItem, onClose}) {
+  const [subiendo, setSubiendo] = useState(false);
+  const [err, setErr] = useState("");
+  const [dragOver, setDragOver] = useState(false);
+  const [genInterno, setGenInterno] = useState(false);
+  const fileRef = useRef(null);
+
+  const activos = docsActivos(item);
+  const tieneRespaldoExterno = activos.some(d=>!d.interno);
+  const puedeInterno = canEdit && esLineaRelacionada(item) && !tieneRespaldoExterno;
+  const ahora = ()=>new Date().toISOString();
+  const nombreUsr = usuario?.nombre || "—";
+
+  // Moneda/monto de la línea (para el voucher interno).
+  const montoLinea = Number(item.montoUSD) ? Number(item.montoUSD)
+    : Number(item.montoPEN) ? Number(item.montoPEN)
+    : Number(item.montoCLP) || 0;
+  const monedaLinea = Number(item.montoUSD) ? "USD"
+    : Number(item.montoPEN) ? "PEN" : "CLP";
+
+  async function subirArchivos(fileList) {
+    const files = Array.from(fileList||[]);
+    if(!files.length) return;
+    setErr(""); setSubiendo(true);
+    const nuevos = []; const fallidos = [];
+    for(const file of files) {
+      const docId = `doc_${Date.now()}_${Math.random().toString(36).slice(2,7)}`;
+      const path = pathDocNomina(empresa, nominaId, item.id, docId, file.name);
+      const hash = await hashArchivo(file);
+      const r = await uploadDocNomina(file, path);
+      if(r?.ok) {
+        nuevos.push({
+          id:docId, nombre:file.name, path, principal:false,
+          mime:file.type||"", sizeKB:Math.round((file.size||0)/1024), hash,
+          subidoPor:nombreUsr, fechaSubida:ahora(), estado:"activo", interno:false, voucher:null,
+        });
+      } else {
+        fallidos.push(`${file.name}: ${uploadDocNomina.lastError||"error"}`);
+      }
+    }
+    if(nuevos.length) {
+      const histo = nuevos.map(d=>({accion:"doc_adjuntado", usuario:nombreUsr, fecha:ahora(), detalle:d.nombre}));
+      onUpdateItem({...item, documentos:[...(item.documentos||[]), ...nuevos], historial:[...(item.historial||[]), ...histo]});
+    }
+    if(fallidos.length) setErr(`No se subieron ${fallidos.length}: ${fallidos.join(" · ")}`);
+    setSubiendo(false);
+    if(fileRef.current) fileRef.current.value="";
+  }
+
+  async function verDoc(doc) {
+    const url = await urlFirmadaNomina(doc.path);
+    if(url) window.open(url, "_blank", "noopener");
+    else alert(`No se pudo generar el enlace del documento.\n${urlFirmadaNomina.lastError||""}`);
+  }
+
+  function quitarDoc(doc) {
+    if(!window.confirm(`¿Quitar "${doc.nombre}"?\n\nNo se elimina del almacenamiento: se marca inactivo y queda en el historial.`)) return;
+    const documentos = (item.documentos||[]).map(d=>d.id===doc.id?{...d, estado:"inactivo"}:d);
+    const histo = {accion:"doc_eliminado", usuario:nombreUsr, fecha:ahora(), detalle:doc.nombre};
+    onUpdateItem({...item, documentos, historial:[...(item.historial||[]), histo]});
+  }
+
+  function marcarPrincipal(doc) {
+    const documentos = (item.documentos||[]).map(d=>({...d, principal: d.id===doc.id}));
+    onUpdateItem({...item, documentos});
+  }
+
+  async function generarVoucherPDF(voucher) {
+    const jsPDF = await reporte_loadJsPDF();
+    const doc = new jsPDF({orientation:"portrait", unit:"mm", format:"a4"});
+    let y = 22;
+    doc.setFontSize(15); doc.setFont(undefined,"bold");
+    doc.text("DOCUMENTO INTERNO DE RESPALDO", 105, y, {align:"center"}); y+=7;
+    doc.setFontSize(10); doc.setFont(undefined,"normal");
+    doc.text("Movimiento entre empresas relacionadas", 105, y, {align:"center"}); y+=12;
+    doc.setDrawColor(180); doc.line(20, y, 190, y); y+=10;
+    const fila=(et,val)=>{ doc.setFont(undefined,"bold"); doc.text(`${et}:`,20,y); doc.setFont(undefined,"normal"); doc.text(String(val||"—"),70,y); y+=8; };
+    fila("Correlativo", voucher.correlativo);
+    fila("Identificador", voucher.identificador);
+    fila("Empresa origen", voucher.empresaOrigen);
+    fila("Empresa destino", voucher.empresaDestino);
+    fila("Fecha", voucher.fecha);
+    fila("Monto", `${voucher.moneda} ${Number(voucher.monto).toLocaleString("es-CL")}`);
+    fila("Concepto", voucher.concepto);
+    fila("Generado por", voucher.generadoPor);
+    fila("Generado el", new Date(voucher.generadoEn).toLocaleString("es-CL"));
+    if(voucher.observaciones){ y+=2; doc.setFont(undefined,"bold"); doc.text("Observaciones:",20,y); y+=6; doc.setFont(undefined,"normal");
+      doc.text(doc.splitTextToSize(voucher.observaciones,170),20,y); }
+    return doc.output("blob");
+  }
+
+  async function confirmarInterno(empresaDestino, concepto, observaciones) {
+    if(!empresaDestino?.trim()){ alert("Indica la empresa destino."); return; }
+    setErr(""); setSubiendo(true);
+    try {
+      const correlativo = await siguienteCorrelativo(empresa, anioNom || new Date().getFullYear());
+      const voucher = {
+        empresaOrigen:empresa, empresaDestino:empresaDestino.trim(),
+        fecha:new Date().toISOString().slice(0,10),
+        monto:montoLinea, moneda:monedaLinea, concepto:(concepto||"").trim(),
+        observaciones:(observaciones||"").trim(),
+        generadoPor:nombreUsr, correlativo,
+        identificador:(crypto.randomUUID?crypto.randomUUID():`id_${Date.now()}_${Math.random().toString(36).slice(2)}`),
+        generadoEn:ahora(),
+      };
+      const blob = await generarVoucherPDF(voucher);
+      const fileName = `${correlativo}.pdf`;
+      const file = new File([blob], fileName, {type:"application/pdf"});
+      const docId = `doc_${Date.now()}_${Math.random().toString(36).slice(2,7)}`;
+      const path = pathDocNomina(empresa, nominaId, item.id, docId, fileName);
+      const hash = await hashArchivo(file);
+      const r = await uploadDocNomina(file, path);
+      if(!r?.ok){ setErr(`No se pudo guardar el documento interno: ${uploadDocNomina.lastError||"error"}`); setSubiendo(false); return; }
+      const nuevoDoc = {
+        id:docId, nombre:fileName, path, principal:true,
+        mime:"application/pdf", sizeKB:Math.round((file.size||0)/1024), hash,
+        subidoPor:nombreUsr, fechaSubida:ahora(), estado:"activo", interno:true, voucher,
+      };
+      const histo = {accion:"doc_interno_generado", usuario:nombreUsr, fecha:ahora(), detalle:correlativo};
+      onUpdateItem({...item, documentos:[...(item.documentos||[]), nuevoDoc], historial:[...(item.historial||[]), histo]});
+      setGenInterno(false);
+    } catch(e) {
+      setErr(`Error generando el documento interno: ${e.message||e}`);
+    }
+    setSubiendo(false);
+  }
+
+  const fmtFecha = (iso)=>{ try{ return new Date(iso).toLocaleString("es-CL"); }catch{ return iso||"—"; } };
+
+  return (
+    <div onClick={onClose} style={{position:"fixed",inset:0,background:"#0008",zIndex:1000,
+      display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
+      <div onClick={e=>e.stopPropagation()} style={{background:C.card,borderRadius:12,border:`1px solid ${C.border}`,
+        width:"min(640px,96vw)",maxHeight:"90vh",overflowY:"auto",padding:18,boxShadow:"0 12px 40px #0006"}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:4}}>
+          <div>
+            <div style={{fontSize:14,fontWeight:800,color:C.text}}>Documentos de respaldo</div>
+            <div style={{fontSize:11.5,color:C.muted}}>{item.proveedor||item.concepto||item.tipoDoc||"Línea de pago"} · {monedaLinea} {montoLinea?montoLinea.toLocaleString("es-CL"):"—"}</div>
+          </div>
+          <button onClick={onClose} style={{background:"transparent",border:"none",color:C.muted,fontSize:20,cursor:"pointer"}}>×</button>
+        </div>
+        <div style={{fontSize:12,fontWeight:700,margin:"6px 0 10px",color:tieneRespaldo(item)?C.green:"#ef4444"}}>
+          {tieneRespaldo(item)?`🟢 Con respaldo (${activos.length})`:"🔴 Sin respaldo"}
+        </div>
+
+        {/* Lista de documentos activos */}
+        {activos.length===0&&(
+          <div style={{color:C.muted2,fontSize:12,padding:"10px 0"}}>No hay documentos adjuntos.</div>
+        )}
+        {activos.map(doc=>(
+          <div key={doc.id} style={{display:"flex",alignItems:"center",gap:8,padding:"7px 9px",
+            border:`1px solid ${C.border}`,borderRadius:8,marginBottom:6,background:C.card2}}>
+            <span style={{fontSize:16}}>{doc.interno?"🧾":"📄"}</span>
+            <div style={{flex:1,minWidth:0}}>
+              <div style={{fontSize:12,fontWeight:600,color:C.text,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>
+                {doc.nombre} {doc.principal&&<span style={{color:C.yellow}} title="Documento principal">★</span>}
+                {doc.interno&&<span style={{fontSize:10,color:C.muted,marginLeft:4}}>(interno {doc.voucher?.correlativo||""})</span>}
+              </div>
+              <div style={{fontSize:10,color:C.muted}}>
+                {doc.subidoPor} · {fmtFecha(doc.fechaSubida)}{doc.sizeKB?` · ${doc.sizeKB} KB`:""}{doc.hash?` · sha256:${doc.hash.slice(0,8)}…`:""}
+              </div>
+            </div>
+            <button onClick={()=>verDoc(doc)} title="Ver / descargar"
+              style={{background:`${C.blue}22`,border:"none",borderRadius:6,padding:"4px 9px",cursor:"pointer",fontSize:11,color:C.blue}}>Ver</button>
+            {canEdit&&!doc.principal&&(
+              <button onClick={()=>marcarPrincipal(doc)} title="Marcar como principal"
+                style={{background:`${C.border}44`,border:"none",borderRadius:6,padding:"4px 8px",cursor:"pointer",fontSize:11,color:C.muted}}>★</button>
+            )}
+            {canEdit&&(
+              <button onClick={()=>quitarDoc(doc)} title="Quitar (soft-delete)"
+                style={{background:"#fee2e233",border:"none",borderRadius:6,padding:"4px 8px",cursor:"pointer",fontSize:11,color:"#ef4444"}}>×</button>
+            )}
+          </div>
+        ))}
+
+        {err&&<div style={{color:"#ef4444",fontSize:11,margin:"6px 0"}}>{err}</div>}
+
+        {/* Zona de carga */}
+        {canEdit&&!genInterno&&(
+          <div
+            onDragOver={e=>{e.preventDefault();setDragOver(true);}}
+            onDragLeave={()=>setDragOver(false)}
+            onDrop={e=>{e.preventDefault();setDragOver(false);subirArchivos(e.dataTransfer.files);}}
+            style={{marginTop:10,padding:"16px",border:`1.5px dashed ${dragOver?C.blue:C.border2}`,borderRadius:10,
+              textAlign:"center",background:dragOver?`${C.blue}11`:"transparent",cursor:"pointer"}}
+            onClick={()=>fileRef.current&&fileRef.current.click()}>
+            <div style={{fontSize:12,color:C.muted}}>{subiendo?"Subiendo…":"Arrastra archivos aquí o haz clic para seleccionar"}</div>
+            <div style={{fontSize:10,color:C.muted2,marginTop:2}}>PDF · Excel · Word · imágenes · varios a la vez</div>
+            <input ref={fileRef} type="file" multiple style={{display:"none"}}
+              onChange={e=>subirArchivos(e.target.files)}/>
+          </div>
+        )}
+
+        {/* Documento interno (solo líneas relacionadas sin respaldo externo) */}
+        {puedeInterno&&!genInterno&&(
+          <button onClick={()=>setGenInterno(true)} disabled={subiendo}
+            style={{marginTop:10,width:"100%",padding:"9px",borderRadius:8,border:`1px solid ${C.yellow}`,
+              background:`${C.yellow}1a`,color:C.text,cursor:"pointer",fontSize:12,fontWeight:700}}>
+            🧾 Generar documento interno (empresa relacionada)
+          </button>
+        )}
+        {genInterno&&(
+          <FormDocInterno
+            empresaOrigen={empresa}
+            destinoSugerido={item.proveedor||""}
+            concepto={item.concepto||""}
+            monedaLinea={monedaLinea} montoLinea={montoLinea}
+            subiendo={subiendo}
+            onCancel={()=>setGenInterno(false)}
+            onConfirm={confirmarInterno}
+          />
+        )}
+      </div>
+    </div>
+  );
+}
+
+// Mini-formulario para el documento interno intercompañía.
+function FormDocInterno({empresaOrigen, destinoSugerido, concepto:conceptoIni, monedaLinea, montoLinea, subiendo, onCancel, onConfirm}) {
+  const [destino, setDestino] = useState(destinoSugerido||"");
+  const [concepto, setConcepto] = useState(conceptoIni||"");
+  const [obs, setObs] = useState("");
+  const inp = {padding:"6px 8px",borderRadius:6,border:`1px solid ${C.border}`,background:C.card2,color:C.text,fontSize:12,width:"100%",boxSizing:"border-box"};
+  const opciones = EMPRESAS_NOM.filter(e=>e!==empresaOrigen);
+  return (
+    <div style={{marginTop:10,padding:12,border:`1px solid ${C.yellow}`,borderRadius:10,background:`${C.yellow}0d`}}>
+      <div style={{fontSize:12.5,fontWeight:800,color:C.text,marginBottom:8}}>🧾 Documento interno de respaldo</div>
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
+        <div><label style={{fontSize:10,color:C.muted}}>Empresa origen</label>
+          <div style={{...inp,opacity:0.7}}>{empresaOrigen}</div></div>
+        <div><label style={{fontSize:10,color:C.muted}}>Empresa destino</label>
+          <input list="emp-destino-list" value={destino} onChange={e=>setDestino(e.target.value)} style={inp} placeholder="Empresa relacionada"/>
+          <datalist id="emp-destino-list">{opciones.map(e=><option key={e} value={e}/>)}</datalist></div>
+        <div><label style={{fontSize:10,color:C.muted}}>Monto</label>
+          <div style={{...inp,opacity:0.7}}>{monedaLinea} {montoLinea?montoLinea.toLocaleString("es-CL"):"—"}</div></div>
+        <div><label style={{fontSize:10,color:C.muted}}>Concepto</label>
+          <input value={concepto} onChange={e=>setConcepto(e.target.value)} style={inp} placeholder="Concepto"/></div>
+      </div>
+      <div style={{marginTop:8}}><label style={{fontSize:10,color:C.muted}}>Observaciones (opcional)</label>
+        <input value={obs} onChange={e=>setObs(e.target.value)} style={inp} placeholder="Observaciones"/></div>
+      <div style={{display:"flex",gap:8,justifyContent:"flex-end",marginTop:10}}>
+        <button onClick={onCancel} disabled={subiendo} style={{padding:"7px 14px",borderRadius:7,border:`1px solid ${C.border}`,background:"transparent",color:C.muted,cursor:"pointer",fontSize:12}}>Cancelar</button>
+        <button onClick={()=>onConfirm(destino, concepto, obs)} disabled={subiendo}
+          style={{padding:"7px 14px",borderRadius:7,border:"none",background:C.green,color:"#fff",cursor:"pointer",fontSize:12,fontWeight:700}}>
+          {subiendo?"Generando…":"Generar PDF"}
+        </button>
+      </div>
     </div>
   );
 }
@@ -12438,6 +12723,24 @@ function NominaDetalle({nomina, onUpdate, onBack, usuario, canEdit, saldosBancos
           <PanelBancosNomina empresa={nom.empresa} saldosBancos={saldosBancos}/>
         </div>
 
+        {/* Cobertura documental (Expediente Digital — Fase 1) */}
+        {(()=>{
+          const cob = coberturaNomina(nom);
+          const colPct = cob.pct>=100?C.green:cob.pct>=60?C.yellow:"#ef4444";
+          return (
+            <div style={{display:"flex",alignItems:"center",gap:16,flexWrap:"wrap",
+              background:C.card2,border:`1px solid ${C.border}`,borderRadius:10,padding:"10px 16px",marginBottom:20}}>
+              <div style={{fontSize:11,fontWeight:700,color:C.muted}}>📑 RESPALDO DOCUMENTAL</div>
+              <div style={{fontSize:12,color:C.green,fontWeight:700}}>🟢 {cob.conRespaldo} con respaldo</div>
+              <div style={{fontSize:12,color:"#ef4444",fontWeight:700}}>🔴 {cob.sinRespaldo} sin respaldo</div>
+              <div style={{flex:1,minWidth:120,height:8,background:`${C.border}66`,borderRadius:6,overflow:"hidden"}}>
+                <div style={{width:`${cob.pct}%`,height:"100%",background:colPct}}/>
+              </div>
+              <div style={{fontSize:13,fontWeight:800,color:colPct}}>{cob.pct}% cobertura</div>
+            </div>
+          );
+        })()}
+
         {/* Secciones de items */}
         {([...SECCIONES,...(nom.seccionesExtra||[])]).map(sec=>{
           const hasItems = nom.items.some(it=>it.seccion===sec.id && lineaActiva(it));
@@ -12493,6 +12796,9 @@ function NominaDetalle({nomina, onUpdate, onBack, usuario, canEdit, saldosBancos
                 tiposDocExtra={nom.tiposDocExtra||[]}
                 onAddTipoDoc={n=>{const extras=nom.tiposDocExtra||[];if(!extras.includes(n))upd("tiposDocExtra",[...extras,n]);}}
                 usuario={usuario}
+                nominaId={nom.id}
+                empresa={nom.empresa}
+                anioNom={nom.año}
               />
             </div>
           );
@@ -12541,6 +12847,11 @@ function NominaDetalle({nomina, onUpdate, onBack, usuario, canEdit, saldosBancos
                 Semana {nom.semana} · Año {nom.año} · Fecha: {nom.fecha || "—"}
                 {nom.tc ? ` · T.C: $${nom.tc.toLocaleString("es-CL")}` : ""}
               </div>
+              {(()=>{ const cob=coberturaNomina(nom); return (
+                <div style={{fontSize:9,color:"#475569",marginTop:2}}>
+                  Respaldo documental: {cob.conRespaldo}/{cob.total} líneas ({cob.pct}%)
+                </div>
+              );})()}
             </div>
             <div className="meta">
               <div>Estado: {(ESTADOS_FLUJO.find(e=>e.id===nom.estado)||{}).label || nom.estado}</div>
@@ -12609,7 +12920,12 @@ function NominaDetalle({nomina, onUpdate, onBack, usuario, canEdit, saldosBancos
                           <td className="num">{usd?$$usd(usd):"—"}</td>
                           <td className="num">{antic?fmtItem(antic):"—"}</td>
                           <td className="num" style={{fontWeight:600}}>{saldo?fmtItem(saldo):"—"}</td>
-                          <td style={{fontSize:"6px",wordBreak:"break-word",maxWidth:"80px"}}>{it.comentario||""}</td>
+                          <td style={{fontSize:"6px",wordBreak:"break-word",maxWidth:"80px"}}>
+                            {it.comentario||""}
+                            {docsActivos(it).length>0
+                              ? <div style={{marginTop:1,color:"#166534"}}>📎 {docsActivos(it).map(d=>`${d.nombre}${d.principal?" ★":""}${d.interno?" (interno)":""}`).join(", ")}</div>
+                              : <div style={{marginTop:1,color:"#b91c1c"}}>Sin respaldo</div>}
+                          </td>
                         </tr>
                       );
                     })}
@@ -12653,6 +12969,41 @@ function NominaDetalle({nomina, onUpdate, onBack, usuario, canEdit, saldosBancos
               })()}
             </tbody>
           </table>
+
+          {/* Anexo: inventario de respaldos documentales (Expediente Digital) */}
+          {(()=>{
+            const conDocs = nom.items.filter(it=>lineaActiva(it) && docsActivos(it).length>0);
+            if(conDocs.length===0) return null;
+            return (
+              <div style={{marginTop:14}}>
+                <div style={{fontSize:10,fontWeight:700,color:"#1e293b",marginBottom:4,borderBottom:"1px solid #cbd5e1",paddingBottom:2}}>
+                  Anexo — Respaldos documentales
+                </div>
+                <table className="print-table">
+                  <thead>
+                    <tr>
+                      <th style={{width:"22%"}}>Línea</th>
+                      <th style={{width:"34%"}}>Documento</th>
+                      <th style={{width:"10%"}}>Tipo</th>
+                      <th style={{width:"18%"}}>Correlativo interno</th>
+                      <th style={{width:"16%"}}>SHA-256</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {conDocs.flatMap(it=>docsActivos(it).map(d=>(
+                      <tr key={d.id}>
+                        <td style={{fontSize:"6.5px"}}>{it.proveedor||it.concepto||it.tipoDoc||"—"}</td>
+                        <td style={{fontSize:"6.5px"}}>{d.nombre}{d.principal?" ★":""}</td>
+                        <td style={{fontSize:"6.5px"}}>{d.interno?"Interno":"Adjunto"}</td>
+                        <td style={{fontSize:"6.5px"}}>{d.voucher?.correlativo||"—"}</td>
+                        <td style={{fontSize:"6px"}}>{d.hash?`${d.hash.slice(0,12)}…`:"—"}</td>
+                      </tr>
+                    )))}
+                  </tbody>
+                </table>
+              </div>
+            );
+          })()}
 
           <div className="print-footer">
             {[
