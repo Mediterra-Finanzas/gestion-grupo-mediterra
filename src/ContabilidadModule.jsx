@@ -2488,11 +2488,1405 @@ function MapeoCodosTab({ empresaId, canEdit }) {
   );
 }
 
+// ─── Tab 8: Libro Diario ─────────────────────────────────────────────────────
+
+const TIPOS_ASIENTO = [
+  { value: "manual", label: "Manual" },
+  { value: "apertura", label: "Apertura período" },
+  { value: "cierre", label: "Cierre período" },
+  { value: "lote_compras", label: "Lote compras" },
+  { value: "lote_ventas", label: "Lote ventas" },
+  { value: "honorarios", label: "Honorarios" },
+  { value: "remuneraciones", label: "Remuneraciones" },
+  { value: "inventario", label: "Inventario" },
+  { value: "activo_fijo", label: "Activo fijo" },
+  { value: "ajuste", label: "Ajuste" },
+  { value: "diferencia_tc", label: "Dif. tipo de cambio" },
+];
+
+const LIBROS_OPTS = [
+  { value: "ambos", label: "Ambos (Trib + IFRS)" },
+  { value: "tributario", label: "Tributario" },
+  { value: "ifrs", label: "IFRS" },
+];
+
+const MESES_OPTS = [
+  { value: 1, label: "Enero" }, { value: 2, label: "Febrero" },
+  { value: 3, label: "Marzo" }, { value: 4, label: "Abril" },
+  { value: 5, label: "Mayo" }, { value: 6, label: "Junio" },
+  { value: 7, label: "Julio" }, { value: 8, label: "Agosto" },
+  { value: 9, label: "Septiembre" }, { value: 10, label: "Octubre" },
+  { value: 11, label: "Noviembre" }, { value: 12, label: "Diciembre" },
+];
+
+function lineaBlankLD(orden) {
+  return {
+    _key: Math.random().toString(36).slice(2),
+    orden,
+    cuenta_id: null,
+    cuenta_codigo: "",
+    cuenta_nombre: "",
+    debe: "",
+    haber: "",
+    libro: "ambos",
+    glosa: "",
+    cuartel_id: "",
+    auxiliar_id: "",
+    moneda: "CLP",
+    monto_me: "",
+    tc_valor: "",
+    _cuentaData: null,
+    _err: "",
+  };
+}
+
+function asientoBlankLD(empresaId) {
+  const hoy = new Date();
+  return {
+    empresa_id: empresaId,
+    anio: hoy.getFullYear(),
+    mes: hoy.getMonth() + 1,
+    fecha: hoy.toISOString().slice(0, 10),
+    tipo: "manual",
+    libro: "ambos",
+    glosa: "",
+    moneda: "CLP",
+    estado: "borrador",
+  };
+}
+
+function parseMonto(v) {
+  if (v === "" || v === null || v === undefined) return 0;
+  return parseFloat(String(v).replace(/\./g, "").replace(",", ".")) || 0;
+}
+
+function fmtCLP(n) {
+  if (!n && n !== 0) return "";
+  return Math.round(n).toLocaleString("es-CL");
+}
+
+function LibroDiarioTab({ empresaId, canEdit, usuario }) {
+  const [vista, setVista] = useState("lista"); // 'lista' | 'editor' | 'masivo'
+
+  // ── Lista ────────────────────────────────────────────────────────────────────
+  const [asientos, setAsientos] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [listError, setListError] = useState("");
+  const [listOk, setListOk] = useState("");
+  const hoy = new Date();
+  const [filtroAnio, setFiltroAnio] = useState(hoy.getFullYear());
+  const [filtroMes, setFiltroMes] = useState(hoy.getMonth() + 1);
+  const [filtroTipo, setFiltroTipo] = useState("");
+  const [filtroEstado, setFiltroEstado] = useState("");
+  const [buscar, setBuscar] = useState("");
+  const cargaOkRef = useRef(false);
+
+  // ── Datos auxiliares ──────────────────────────────────────────────────────────
+  const [cuentas, setCuentas] = useState([]);
+  const [cuarteles, setCuarteles] = useState([]);
+  const [auxiliares, setAuxiliares] = useState([]);
+  const [homologacion, setHomologacion] = useState([]);
+  const auxCargadoRef = useRef(false);
+
+  // ── Editor ───────────────────────────────────────────────────────────────────
+  const [asiento, setAsiento] = useState(null);
+  const [lineas, setLineas] = useState([]);
+  const [lineasEliminadas, setLineasEliminadas] = useState([]);
+  const [guardando, setGuardando] = useState(false);
+  const [edError, setEdError] = useState("");
+  const [edOk, setEdOk] = useState("");
+  const [loadingLineas, setLoadingLineas] = useState(false);
+
+  // ── Masivo ───────────────────────────────────────────────────────────────────
+  const [mPaso, setMPaso] = useState(1);
+  const [mArchivo, setMArchivo] = useState("");
+  const [mRows, setMRows] = useState([]);
+  const [mHeaders, setMHeaders] = useState([]);
+  const [mSistema, setMSistema] = useState("contec");
+  const [mCols, setMCols] = useState({ fecha: "", nroAsiento: "", glosaCab: "", codigoOrigen: "", glosaLinea: "", debe: "", haber: "", libroLinea: "" });
+  const [mGrupos, setMGrupos] = useState([]); // [{key, fecha, glosa, tipo, lineas:[{...}]}]
+  const [mMapa, setMMapa] = useState({}); // { codigo_origen: cuenta_id }
+  const [mEstado, setMEstado] = useState("borrador");
+  const [mGuardando, setMGuardando] = useState(false);
+  const [mError, setMError] = useState("");
+  const [mOk, setMOk] = useState("");
+  const mFileRef = useRef();
+
+  // ── Carga asientos ───────────────────────────────────────────────────────────
+  const loadAsientos = useCallback(async () => {
+    if (!empresaId) return;
+    setLoading(true);
+    setListError("");
+    try {
+      const data = await supaSelect(
+        "contab_asientos",
+        `empresa_id=eq.${empresaId}&anio=eq.${filtroAnio}&mes=eq.${filtroMes}&order=numero.desc`
+      );
+      setAsientos(data || []);
+      cargaOkRef.current = true;
+    } catch (e) {
+      setListError("Error cargando asientos: " + e.message);
+      throw e;
+    } finally {
+      setLoading(false);
+    }
+  }, [empresaId, filtroAnio, filtroMes]);
+
+  useEffect(() => {
+    cargaOkRef.current = false;
+    loadAsientos();
+  }, [loadAsientos]);
+
+  // ── Carga datos auxiliares (cuentas, cuarteles, auxiliares, homologación) ────
+  const loadAuxData = useCallback(async () => {
+    if (!empresaId || auxCargadoRef.current) return;
+    try {
+      const [c, cu, ax, hom] = await Promise.all([
+        supaSelect("contab_plan_cuentas", `empresa_id=eq.${empresaId}&activa=eq.true&order=codigo.asc`),
+        supaSelect("cc_jerarquia", `empresa_id=eq.${empresaId}`),
+        supaSelect("contab_auxiliares", `empresa_id=eq.${empresaId}&activo=eq.true&order=nombre.asc`),
+        supaSelect("contab_homologacion", `empresa_id=eq.${empresaId}&activa=eq.true`),
+      ]);
+      setCuentas(c || []);
+      setCuarteles(cu || []);
+      setAuxiliares(ax || []);
+      setHomologacion(hom || []);
+      auxCargadoRef.current = true;
+    } catch (e) {
+      console.error("Error cargando datos auxiliares:", e.message);
+    }
+  }, [empresaId]);
+
+  useEffect(() => {
+    auxCargadoRef.current = false;
+    loadAuxData();
+  }, [loadAuxData]);
+
+  // ── Memoized ─────────────────────────────────────────────────────────────────
+  const cuentasHoja = useMemo(() => cuentas.filter((c) => c.nivel === 2), [cuentas]);
+
+  const cuentasOpts = useMemo(
+    () => [{ value: "", label: "— Seleccionar cuenta —" }].concat(
+      cuentasHoja.map((c) => ({ value: c.id, label: `${c.codigo} — ${c.nombre}` }))
+    ),
+    [cuentasHoja]
+  );
+
+  const cuartelesOpts = useMemo(
+    () => [{ value: "", label: "— Sin CeCo —" }].concat(
+      cuarteles.map((c) => ({ value: c.cuartel_id, label: `${c.campo_codigo}.${c.sector_codigo}.${c.cuartel_codigo} — ${c.cuartel_nombre}` }))
+    ),
+    [cuarteles]
+  );
+
+  const auxiliaresOpts = useMemo(
+    () => [{ value: "", label: "— Sin auxiliar —" }].concat(
+      auxiliares.map((a) => ({ value: a.id, label: `${a.rut || ""} ${a.nombre}`.trim() }))
+    ),
+    [auxiliares]
+  );
+
+  const aniosOpts = useMemo(() => {
+    const base = hoy.getFullYear();
+    return [-1, 0, 1, 2].map((d) => ({ value: base - d, label: String(base - d) }));
+  }, []);
+
+  const asientosFiltrados = useMemo(() => {
+    let arr = asientos;
+    if (filtroTipo) arr = arr.filter((a) => a.tipo === filtroTipo);
+    if (filtroEstado) arr = arr.filter((a) => a.estado === filtroEstado);
+    if (buscar) {
+      const q = buscar.toLowerCase();
+      arr = arr.filter(
+        (a) =>
+          String(a.numero || "").includes(q) ||
+          (a.glosa || "").toLowerCase().includes(q)
+      );
+    }
+    return arr;
+  }, [asientos, filtroTipo, filtroEstado, buscar]);
+
+  // ── Cuadre del editor ─────────────────────────────────────────────────────────
+  const totalDebe = useMemo(
+    () => lineas.reduce((s, l) => s + parseMonto(l.debe), 0),
+    [lineas]
+  );
+  const totalHaber = useMemo(
+    () => lineas.reduce((s, l) => s + parseMonto(l.haber), 0),
+    [lineas]
+  );
+  const cuadrado = Math.abs(totalDebe - totalHaber) < 0.005;
+
+  // ── Errores de validación por línea ──────────────────────────────────────────
+  const erroresLineas = useMemo(() => {
+    return lineas.map((l) => {
+      const errs = [];
+      if (!l.cuenta_id) errs.push("Sin cuenta");
+      else {
+        const cd = l._cuentaData;
+        if (cd) {
+          if (cd.nivel === 1) errs.push("Cuenta agrupador (nivel 1)");
+          if (cd.usa_ceco && !l.cuartel_id) errs.push("CeCo obligatorio");
+          if (cd.usa_auxiliar && !l.auxiliar_id) errs.push("Auxiliar obligatorio");
+        }
+      }
+      if (parseMonto(l.debe) === 0 && parseMonto(l.haber) === 0) errs.push("Debe o Haber > 0");
+      if (parseMonto(l.debe) > 0 && parseMonto(l.haber) > 0) errs.push("Solo Debe O Haber");
+      return errs;
+    });
+  }, [lineas]);
+
+  const hayErroresLineas = erroresLineas.some((e) => e.length > 0);
+  const puedeGuardar = lineas.length > 0 && !hayErroresLineas;
+  const puedeMayorizar = puedeGuardar && cuadrado && asiento?.estado === "borrador";
+
+  // ── Abrir editor ──────────────────────────────────────────────────────────────
+  const abrirNuevo = () => {
+    setAsiento(asientoBlankLD(empresaId));
+    setLineas([lineaBlankLD(1), lineaBlankLD(2)]);
+    setLineasEliminadas([]);
+    setEdError("");
+    setEdOk("");
+    setVista("editor");
+  };
+
+  const abrirEditar = async (a) => {
+    setAsiento({ ...a });
+    setEdError("");
+    setEdOk("");
+    setLoadingLineas(true);
+    setVista("editor");
+    try {
+      const data = await supaSelect(
+        "contab_asientos_lineas",
+        `asiento_id=eq.${a.id}&order=orden.asc`
+      );
+      const raw = data || [];
+      const lns = raw.map((l) => {
+        const cd = cuentas.find((c) => c.id === l.cuenta_id) || null;
+        return {
+          ...lineaBlankLD(l.orden),
+          id: l.id,
+          orden: l.orden,
+          cuenta_id: l.cuenta_id,
+          cuenta_codigo: l.cuenta_codigo || "",
+          cuenta_nombre: l.cuenta_nombre || "",
+          debe: l.debe > 0 ? fmtCLP(l.debe) : "",
+          haber: l.haber > 0 ? fmtCLP(l.haber) : "",
+          libro: l.libro || "ambos",
+          glosa: l.glosa || "",
+          cuartel_id: l.cuartel_id || "",
+          auxiliar_id: l.auxiliar_id || "",
+          moneda: l.moneda || "CLP",
+          monto_me: l.monto_me || "",
+          tc_valor: l.tc_valor || "",
+          _cuentaData: cd,
+        };
+      });
+      setLineas(lns.length ? lns : [lineaBlankLD(1), lineaBlankLD(2)]);
+      setLineasEliminadas([]);
+    } catch (e) {
+      setEdError("Error cargando líneas: " + e.message);
+    }
+    setLoadingLineas(false);
+  };
+
+  // ── Lookup cuenta por código ──────────────────────────────────────────────────
+  const resolverCuentaCodigo = (codigo) => {
+    const cd = cuentasHoja.find(
+      (c) => c.codigo.trim().toLowerCase() === codigo.trim().toLowerCase()
+    );
+    return cd || null;
+  };
+
+  const updateLinea = (idx, field, value) => {
+    setLineas((prev) =>
+      prev.map((l, i) => {
+        if (i !== idx) return l;
+        const updated = { ...l, [field]: value };
+        if (field === "cuenta_codigo") {
+          const cd = resolverCuentaCodigo(value);
+          updated._cuentaData = cd;
+          updated.cuenta_id = cd ? cd.id : null;
+          updated.cuenta_nombre = cd ? cd.nombre : "";
+          if (cd) {
+            if (!cd.usa_ceco) updated.cuartel_id = "";
+            if (!cd.usa_auxiliar) updated.auxiliar_id = "";
+            if (!cd.acepta_me) { updated.moneda = "CLP"; updated.monto_me = ""; updated.tc_valor = ""; }
+          }
+        }
+        if (field === "cuenta_id") {
+          const cd = cuentas.find((c) => c.id === value) || null;
+          updated._cuentaData = cd;
+          updated.cuenta_codigo = cd ? cd.codigo : "";
+          updated.cuenta_nombre = cd ? cd.nombre : "";
+        }
+        return updated;
+      })
+    );
+  };
+
+  const agregarLinea = () =>
+    setLineas((prev) => [...prev, lineaBlankLD(prev.length + 1)]);
+
+  const eliminarLinea = (idx) => {
+    setLineas((prev) => {
+      const l = prev[idx];
+      if (l.id) setLineasEliminadas((d) => [...d, l.id]);
+      return prev.filter((_, i) => i !== idx).map((l, i) => ({ ...l, orden: i + 1 }));
+    });
+  };
+
+  // ── Guardar asiento (cabecera + líneas) ───────────────────────────────────────
+  const handleGuardar = async () => {
+    if (!cargaOkRef.current) { setEdError("Lista no cargada aún, espera un momento"); return; }
+    if (!asiento.glosa?.trim()) { setEdError("La glosa es obligatoria"); return; }
+    if (!puedeGuardar) { setEdError("Corrige los errores en las líneas antes de guardar"); return; }
+    setGuardando(true);
+    setEdError("");
+    try {
+      const payload = {
+        empresa_id: empresaId,
+        anio: Number(asiento.anio),
+        mes: Number(asiento.mes),
+        fecha: asiento.fecha,
+        tipo: asiento.tipo,
+        libro: asiento.libro,
+        glosa: asiento.glosa.trim(),
+        moneda: asiento.moneda || "CLP",
+        estado: "borrador",
+        usuario_crea: usuario?.id || null,
+        total_debe: totalDebe,
+        total_haber: totalHaber,
+      };
+
+      let asientoId = asiento.id;
+      if (!asientoId) {
+        const [nuevo] = await supaInsert("contab_asientos", payload);
+        asientoId = nuevo.id;
+        setAsiento((a) => ({ ...a, id: asientoId, numero: nuevo.numero }));
+      } else {
+        await supaUpdate("contab_asientos", asientoId, {
+          ...payload,
+          updated_at: new Date().toISOString(),
+        });
+      }
+
+      // Eliminar líneas borradas
+      for (const lid of lineasEliminadas) {
+        await supaFetch(`contab_asientos_lineas?id=eq.${lid}`, { method: "DELETE" });
+      }
+      setLineasEliminadas([]);
+
+      // Upsert líneas
+      const payloadLineas = lineas.map((l, i) => ({
+        ...(l.id ? { id: l.id } : {}),
+        asiento_id: asientoId,
+        orden: i + 1,
+        cuenta_id: l.cuenta_id,
+        cuenta_codigo: l.cuenta_codigo,
+        cuenta_nombre: l.cuenta_nombre,
+        debe: parseMonto(l.debe),
+        haber: parseMonto(l.haber),
+        libro: l.libro || "ambos",
+        glosa: l.glosa || null,
+        cuartel_id: l.cuartel_id || null,
+        auxiliar_id: l.auxiliar_id || null,
+        moneda: l.moneda || "CLP",
+        monto_me: parseMonto(l.monto_me) || null,
+        tc_valor: parseMonto(l.tc_valor) || null,
+      }));
+      await supaUpsert("contab_asientos_lineas", payloadLineas, "id");
+
+      // Actualizar totales en cabecera
+      await supaUpdate("contab_asientos", asientoId, {
+        total_debe: totalDebe,
+        total_haber: totalHaber,
+      });
+
+      setEdOk("Asiento guardado");
+      loadAsientos();
+      setTimeout(() => setEdOk(""), 3000);
+    } catch (e) {
+      setEdError("Error guardando: " + e.message);
+    }
+    setGuardando(false);
+  };
+
+  const handleMayorizar = async () => {
+    if (!puedeMayorizar) return;
+    setGuardando(true);
+    setEdError("");
+    try {
+      await handleGuardar();
+      await supaUpdate("contab_asientos", asiento.id, {
+        estado: "mayorizado",
+        fecha_mayorizado: new Date().toISOString(),
+        usuario_mayorizo: usuario?.id || null,
+      });
+      setAsiento((a) => ({ ...a, estado: "mayorizado" }));
+      setEdOk("Asiento mayorizado correctamente");
+      loadAsientos();
+      setTimeout(() => setEdOk(""), 4000);
+    } catch (e) {
+      setEdError("Error al mayorizar: " + e.message);
+    }
+    setGuardando(false);
+  };
+
+  // ── Masivo: archivo ───────────────────────────────────────────────────────────
+  const resetMasivo = () => {
+    setMPaso(1); setMArchivo(""); setMRows([]); setMHeaders([]);
+    setMSistema("contec"); setMOk(""); setMError("");
+    setMGrupos([]); setMMapa({});
+    setMCols({ fecha: "", nroAsiento: "", glosaCab: "", codigoOrigen: "", glosaLinea: "", debe: "", haber: "", libroLinea: "" });
+    if (mFileRef.current) mFileRef.current.value = "";
+  };
+
+  const handleMasivoArchivo = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    setMArchivo(file.name);
+    setMError("");
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      try {
+        const wb = XLSX.read(ev.target.result, { type: "binary" });
+        const ws = wb.Sheets[wb.SheetNames[0]];
+        const rows = XLSX.utils.sheet_to_json(ws, { defval: "", raw: false });
+        if (!rows.length) { setMError("Archivo vacío"); return; }
+        const hdrs = Object.keys(rows[0]);
+        setMRows(rows);
+        setMHeaders(hdrs);
+        // Auto-asignar columnas comunes
+        const fn = (cands) => hdrs.find((h) => cands.some((c) => h.toLowerCase().includes(c))) || "";
+        setMCols({
+          fecha: fn(["fecha"]),
+          nroAsiento: fn(["nro_asiento", "numero", "asiento", "comprobante", "nro"]),
+          glosaCab: fn(["glosa_cab", "descripcion_cab", "glosa_asiento"]),
+          codigoOrigen: fn(["codigo", "cuenta", "cta"]),
+          glosaLinea: fn(["glosa", "descripcion", "detalle"]),
+          debe: fn(["debe", "debito", "debit"]),
+          haber: fn(["haber", "credito", "credit"]),
+          libroLinea: fn(["libro"]),
+        });
+        setMPaso(2);
+      } catch (err) {
+        setMError("Error leyendo archivo: " + err.message);
+      }
+    };
+    reader.readAsBinaryString(file);
+    e.target.value = "";
+  };
+
+  const handleMasivoAplicarHom = () => {
+    if (!mCols.codigoOrigen || !mCols.debe || !mCols.haber || !mCols.fecha) {
+      setMError("Selecciona al menos: fecha, código origen, debe y haber");
+      return;
+    }
+    setMError("");
+    // Construir mapa de homologación: codigo_origen → cuenta
+    const mapaHom = {};
+    homologacion.forEach((h) => {
+      if (h.cuenta_id) mapaHom[h.codigo_origen] = { cuenta_id: h.cuenta_id, cuenta_codigo: h.codigo_destino || "" };
+    });
+    setMMapa(mapaHom);
+
+    // Agrupar filas por nroAsiento (o por índice si no hay columna)
+    const grupos = [];
+    let grupoActual = null;
+    let nroAnterior = null;
+
+    mRows.forEach((row, i) => {
+      const nro = mCols.nroAsiento ? String(row[mCols.nroAsiento] || i) : String(i);
+      if (nro !== nroAnterior) {
+        if (grupoActual) grupos.push(grupoActual);
+        grupoActual = {
+          _key: nro + "_" + i,
+          nro_origen: nro,
+          fecha: row[mCols.fecha] || "",
+          glosa: mCols.glosaCab ? String(row[mCols.glosaCab] || "") : `Asiento importado ${nro}`,
+          lineas: [],
+        };
+        nroAnterior = nro;
+      }
+      const codOrigen = String(row[mCols.codigoOrigen] || "").trim();
+      const hom = mapaHom[codOrigen];
+      grupoActual.lineas.push({
+        _key: Math.random().toString(36).slice(2),
+        codigo_origen: codOrigen,
+        glosa: mCols.glosaLinea ? String(row[mCols.glosaLinea] || "") : "",
+        debe: parseMonto(row[mCols.debe]),
+        haber: parseMonto(row[mCols.haber]),
+        libro: mCols.libroLinea ? (row[mCols.libroLinea] || "ambos") : "ambos",
+        cuenta_id: hom ? hom.cuenta_id : null,
+        cuenta_codigo: hom ? hom.cuenta_codigo : "",
+        _sinHom: !hom,
+      });
+    });
+    if (grupoActual) grupos.push(grupoActual);
+    setMGrupos(grupos);
+    setMPaso(3);
+  };
+
+  const setMasivoLineaCuenta = (gIdx, lIdx, cuentaId) => {
+    const c = cuentas.find((c) => c.id === cuentaId);
+    setMGrupos((prev) =>
+      prev.map((g, gi) =>
+        gi !== gIdx ? g : {
+          ...g,
+          lineas: g.lineas.map((l, li) =>
+            li !== lIdx ? l : { ...l, cuenta_id: cuentaId, cuenta_codigo: c ? c.codigo : "", _sinHom: !cuentaId }
+          ),
+        }
+      )
+    );
+  };
+
+  const mLineasTotal = useMemo(() => mGrupos.reduce((s, g) => s + g.lineas.length, 0), [mGrupos]);
+  const mLineasHom = useMemo(() => mGrupos.reduce((s, g) => s + g.lineas.filter((l) => !l._sinHom).length, 0), [mGrupos]);
+  const mLineasSin = mLineasTotal - mLineasHom;
+  const mLineasSinArr = useMemo(
+    () => mGrupos.flatMap((g, gi) => g.lineas.map((l, li) => ({ ...l, _gi: gi, _li: li })).filter((l) => l._sinHom)),
+    [mGrupos]
+  );
+
+  const handleMasivoGenerar = async () => {
+    if (!cargaOkRef.current) { setMError("Espera a que la lista cargue antes de importar"); return; }
+    setMGuardando(true);
+    setMError("");
+    let creados = 0;
+    try {
+      for (const g of mGrupos) {
+        const lineasValidas = g.lineas.filter((l) => l.cuenta_id);
+        if (!lineasValidas.length) continue;
+        const debe = lineasValidas.reduce((s, l) => s + l.debe, 0);
+        const haber = lineasValidas.reduce((s, l) => s + l.haber, 0);
+        const [nuevo] = await supaInsert("contab_asientos", {
+          empresa_id: empresaId,
+          anio: filtroAnio,
+          mes: filtroMes,
+          fecha: g.fecha || `${filtroAnio}-${String(filtroMes).padStart(2, "0")}-01`,
+          tipo: "manual",
+          libro: "ambos",
+          glosa: g.glosa || "Asiento importado",
+          moneda: "CLP",
+          estado: mEstado,
+          usuario_crea: usuario?.id || null,
+          total_debe: debe,
+          total_haber: haber,
+          ...(mEstado === "mayorizado" ? { fecha_mayorizado: new Date().toISOString() } : {}),
+        });
+        await supaInsert("contab_asientos_lineas",
+          lineasValidas.map((l, i) => ({
+            asiento_id: nuevo.id,
+            orden: i + 1,
+            cuenta_id: l.cuenta_id,
+            cuenta_codigo: l.cuenta_codigo,
+            debe: l.debe,
+            haber: l.haber,
+            libro: l.libro || "ambos",
+            glosa: l.glosa || null,
+            moneda: "CLP",
+          }))
+        );
+        creados++;
+      }
+      setMOk(`${creados} asientos creados en ${mEstado}`);
+      setMPaso(4);
+      loadAsientos();
+    } catch (e) {
+      setMError("Error al generar asientos: " + e.message);
+    }
+    setMGuardando(false);
+  };
+
+  // ── Helpers UI ────────────────────────────────────────────────────────────────
+  const badgeEstado = (estado) => {
+    const map = {
+      borrador: { bg: "#E6F1FB", color: "#185FA5", label: "Borrador" },
+      mayorizado: { bg: "#EAF3DE", color: "#3B6D11", label: "Mayorizado" },
+    };
+    const s = map[estado] || { bg: "#F1EFE8", color: "#5F5E5A", label: estado };
+    return (
+      <span style={{ background: s.bg, color: s.color, borderRadius: 10, padding: "2px 8px", fontSize: 11, fontWeight: 600 }}>
+        {s.label}
+      </span>
+    );
+  };
+
+  const badgeLibro = (libro) => {
+    const map = { tributario: "#854F0B", ifrs: "#185FA5", ambos: "#3B6D11" };
+    const col = map[libro] || C.textMuted;
+    return <span style={{ color: col, fontSize: 11, fontWeight: 500 }}>{libro || "—"}</span>;
+  };
+
+  const colEstadoBg = (a) => {
+    if (a.estado === "borrador" && a.total_debe !== a.total_haber) return "rgba(226,75,74,0.04)";
+    return "transparent";
+  };
+
+  const aniosRange = [hoy.getFullYear() - 1, hoy.getFullYear(), hoy.getFullYear() + 1];
+
+  // ═══════════════════════════════════════════════════════════════════════════════
+  // RENDER
+  // ═══════════════════════════════════════════════════════════════════════════════
+
+  // ── VISTA: LISTA ──────────────────────────────────────────────────────────────
+  if (vista === "lista") {
+    return (
+      <div>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 14, alignItems: "center" }}>
+          <SelectInput
+            value={filtroAnio}
+            onChange={(v) => setFiltroAnio(Number(v))}
+            options={aniosRange.map((a) => ({ value: a, label: String(a) }))}
+            style={{ width: 90 }}
+          />
+          <SelectInput
+            value={filtroMes}
+            onChange={(v) => setFiltroMes(Number(v))}
+            options={MESES_OPTS.map((m) => ({ value: m.value, label: m.label }))}
+            style={{ width: 140 }}
+          />
+          <SelectInput
+            value={filtroTipo}
+            onChange={setFiltroTipo}
+            options={[{ value: "", label: "Todos los tipos" }].concat(TIPOS_ASIENTO)}
+            style={{ width: 160 }}
+          />
+          <SelectInput
+            value={filtroEstado}
+            onChange={setFiltroEstado}
+            options={[{ value: "", label: "Todos los estados" }, { value: "borrador", label: "Borrador" }, { value: "mayorizado", label: "Mayorizado" }]}
+            style={{ width: 140 }}
+          />
+          <SearchInput value={buscar} onChange={setBuscar} placeholder="Buscar glosa o N°..." />
+          <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
+            <Btn color="ghost" size="sm" onClick={() => { setVista("masivo"); resetMasivo(); }}>
+              ⬆ Carga masiva histórica
+            </Btn>
+            {canEdit && (
+              <Btn color="primary" size="sm" onClick={abrirNuevo}>
+                + Nuevo asiento
+              </Btn>
+            )}
+          </div>
+        </div>
+
+        <ErrorMsg msg={listError} />
+        <SuccessMsg msg={listOk} />
+
+        {loading ? (
+          <div style={{ padding: 32, textAlign: "center", color: C.textMuted }}>Cargando...</div>
+        ) : (
+          <>
+            <TableWrapper>
+              <thead>
+                <tr>
+                  <Th style={{ width: 90 }}>N°</Th>
+                  <Th style={{ width: 90 }}>Fecha</Th>
+                  <Th style={{ width: 110 }}>Tipo</Th>
+                  <Th>Glosa</Th>
+                  <Th style={{ width: 70 }}>Libro</Th>
+                  <Th style={{ width: 110, textAlign: "right" }}>Debe</Th>
+                  <Th style={{ width: 110, textAlign: "right" }}>Haber</Th>
+                  <Th style={{ width: 90 }}>Estado</Th>
+                  <Th style={{ width: 80 }}></Th>
+                </tr>
+              </thead>
+              <tbody>
+                {asientosFiltrados.length === 0 ? (
+                  <EmptyRow cols={9} msg="Sin asientos en este período" />
+                ) : (
+                  asientosFiltrados.map((a) => (
+                    <Tr key={a.id} onClick={() => abrirEditar(a)}>
+                      <Td>
+                        <span style={{ fontFamily: "monospace", color: C.primary }}>
+                          {a.numero ? `N°${a.numero}` : "—"}
+                        </span>
+                      </Td>
+                      <Td style={{ color: C.textMuted, fontSize: 12 }}>{a.fecha}</Td>
+                      <Td style={{ color: C.textMuted, fontSize: 12 }}>{a.tipo}</Td>
+                      <Td style={{ background: colEstadoBg(a) }}>
+                        {a.glosa}
+                        {a.estado === "borrador" && a.total_debe !== a.total_haber && (
+                          <span style={{ color: C.danger, fontSize: 11, marginLeft: 8 }}>
+                            ⚠ descuadrado
+                          </span>
+                        )}
+                      </Td>
+                      <Td>{badgeLibro(a.libro)}</Td>
+                      <Td style={{ textAlign: "right", fontFamily: "monospace", fontSize: 12, color: C.info }}>
+                        {fmtCLP(a.total_debe)}
+                      </Td>
+                      <Td style={{ textAlign: "right", fontFamily: "monospace", fontSize: 12, color: C.success }}>
+                        {fmtCLP(a.total_haber)}
+                      </Td>
+                      <Td>{badgeEstado(a.estado)}</Td>
+                      <Td>
+                        <Btn size="sm" color="ghost" onClick={(e) => { e.stopPropagation(); abrirEditar(a); }}>
+                          {a.estado === "mayorizado" ? "Ver" : "Editar"}
+                        </Btn>
+                      </Td>
+                    </Tr>
+                  ))
+                )}
+              </tbody>
+            </TableWrapper>
+            <div style={{ display: "flex", justifyContent: "space-between", marginTop: 8, fontSize: 12, color: C.textMuted }}>
+              <span>{asientosFiltrados.length} asientos</span>
+              {asientos.some((a) => a.estado === "borrador" && a.total_debe !== a.total_haber) && (
+                <span style={{ color: C.danger }}>⚠ hay borradores descuadrados</span>
+              )}
+            </div>
+          </>
+        )}
+      </div>
+    );
+  }
+
+  // ── VISTA: EDITOR ─────────────────────────────────────────────────────────────
+  if (vista === "editor") {
+    const readOnly = asiento?.estado === "mayorizado";
+    return (
+      <div>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 16 }}>
+          <Btn color="ghost" size="sm" onClick={() => setVista("lista")}>← Volver</Btn>
+          <span style={{ fontWeight: 600, fontSize: 15, color: C.text }}>
+            {asiento?.id ? `Asiento ${asiento.numero ? `N°${asiento.numero}` : "(sin número)"}` : "Nuevo asiento"}
+          </span>
+          {asiento?.id && badgeEstado(asiento.estado)}
+          <div style={{ marginLeft: "auto", display: "flex", gap: 8, alignItems: "center" }}>
+            {cuadrado ? (
+              <span style={{ fontSize: 12, color: C.success, fontWeight: 600 }}>✓ Cuadrado: {fmtCLP(totalDebe)}</span>
+            ) : (
+              <span style={{ fontSize: 12, color: C.danger, fontWeight: 600 }}>
+                ✗ Diferencia: {fmtCLP(Math.abs(totalDebe - totalHaber))}
+              </span>
+            )}
+          </div>
+        </div>
+
+        <ErrorMsg msg={edError} />
+        <SuccessMsg msg={edOk} />
+
+        {loadingLineas ? (
+          <div style={{ padding: 32, textAlign: "center", color: C.textMuted }}>Cargando líneas...</div>
+        ) : (
+          <>
+            {/* ── Cabecera del asiento ── */}
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "110px 140px 180px 160px 80px 180px",
+                gap: 12,
+                marginBottom: 18,
+                background: "#141720",
+                border: `1px solid ${C.border}`,
+                borderRadius: 8,
+                padding: "12px 16px",
+              }}
+            >
+              <Field label="Fecha" required>
+                <input
+                  type="date"
+                  value={asiento?.fecha || ""}
+                  disabled={readOnly}
+                  onChange={(e) => setAsiento((a) => ({ ...a, fecha: e.target.value }))}
+                  style={{ background: C.bgInput, border: `1px solid ${C.border}`, borderRadius: 6, color: C.text, fontSize: 13, padding: "6px 8px", width: "100%", outline: "none" }}
+                />
+              </Field>
+              <Field label="Período">
+                <div style={{ display: "flex", gap: 4 }}>
+                  <SelectInput
+                    value={String(asiento?.mes || 1)}
+                    onChange={(v) => setAsiento((a) => ({ ...a, mes: Number(v) }))}
+                    options={MESES_OPTS.map((m) => ({ value: String(m.value), label: m.label.slice(0, 3) }))}
+                    style={{ flex: 1 }}
+                    disabled={readOnly}
+                  />
+                  <SelectInput
+                    value={String(asiento?.anio || hoy.getFullYear())}
+                    onChange={(v) => setAsiento((a) => ({ ...a, anio: Number(v) }))}
+                    options={aniosRange.map((a) => ({ value: String(a), label: String(a) }))}
+                    style={{ width: 72 }}
+                    disabled={readOnly}
+                  />
+                </div>
+              </Field>
+              <Field label="Tipo">
+                <SelectInput
+                  value={asiento?.tipo || "manual"}
+                  onChange={(v) => setAsiento((a) => ({ ...a, tipo: v }))}
+                  options={TIPOS_ASIENTO}
+                  style={{ width: "100%" }}
+                  disabled={readOnly}
+                />
+              </Field>
+              <Field label="Libro asiento">
+                <SelectInput
+                  value={asiento?.libro || "ambos"}
+                  onChange={(v) => setAsiento((a) => ({ ...a, libro: v }))}
+                  options={LIBROS_OPTS}
+                  style={{ width: "100%" }}
+                  disabled={readOnly}
+                />
+              </Field>
+              <Field label="Moneda">
+                <SelectInput
+                  value={asiento?.moneda || "CLP"}
+                  onChange={(v) => setAsiento((a) => ({ ...a, moneda: v }))}
+                  options={["CLP", "USD", "EUR", "UF", "PEN"].map((m) => ({ value: m, label: m }))}
+                  style={{ width: "100%" }}
+                  disabled={readOnly}
+                />
+              </Field>
+              <Field label="Glosa" required>
+                {textInput(
+                  asiento?.glosa || "",
+                  (v) => setAsiento((a) => ({ ...a, glosa: v })),
+                  "Descripción del asiento",
+                  readOnly
+                )}
+              </Field>
+            </div>
+
+            {/* ── Grilla de líneas ── */}
+            <p style={{ fontSize: 11, color: C.textMuted, marginBottom: 6, fontWeight: 500, textTransform: "uppercase", letterSpacing: "0.05em" }}>
+              Líneas del asiento
+            </p>
+            <div style={{ overflowX: "auto", border: `1px solid ${C.border}`, borderRadius: 8, marginBottom: 10 }}>
+              <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+                <thead>
+                  <tr>
+                    <Th style={{ width: 28 }}>#</Th>
+                    <Th style={{ width: 100 }}>Código</Th>
+                    <Th style={{ minWidth: 160 }}>Cuenta / Glosa línea</Th>
+                    <Th style={{ width: 130 }}>Libro línea</Th>
+                    <Th style={{ width: 130 }}>CeCo / Cuartel</Th>
+                    <Th style={{ width: 130 }}>Auxiliar</Th>
+                    <Th style={{ width: 110, textAlign: "right" }}>Debe CLP</Th>
+                    <Th style={{ width: 110, textAlign: "right" }}>Haber CLP</Th>
+                    {!readOnly && <Th style={{ width: 28 }}></Th>}
+                  </tr>
+                </thead>
+                <tbody>
+                  {lineas.map((l, i) => {
+                    const errs = erroresLineas[i] || [];
+                    const tieneErr = errs.length > 0;
+                    const cd = l._cuentaData;
+                    return (
+                      <tr
+                        key={l._key || i}
+                        style={{ background: tieneErr ? "rgba(226,75,74,0.04)" : i % 2 === 0 ? "transparent" : "rgba(255,255,255,0.01)" }}
+                      >
+                        <Td style={{ color: C.textDim, textAlign: "center" }}>{i + 1}</Td>
+                        <Td>
+                          <input
+                            value={l.cuenta_codigo}
+                            placeholder="Código"
+                            disabled={readOnly}
+                            onChange={(e) => updateLinea(i, "cuenta_codigo", e.target.value)}
+                            onBlur={(e) => updateLinea(i, "cuenta_codigo", e.target.value)}
+                            style={{
+                              background: l.cuenta_id ? C.bgInput : "rgba(226,75,74,0.08)",
+                              border: `1px solid ${l.cuenta_id ? C.border : C.danger}`,
+                              borderRadius: 5,
+                              color: C.primary,
+                              fontFamily: "monospace",
+                              fontSize: 12,
+                              padding: "4px 7px",
+                              width: "100%",
+                              outline: "none",
+                            }}
+                          />
+                        </Td>
+                        <Td style={{ minWidth: 240 }}>
+                          <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+                            {l.cuenta_nombre ? (
+                              <span style={{ fontSize: 11, color: C.text }}>{l.cuenta_nombre}</span>
+                            ) : (
+                              <SelectInput
+                                value={l.cuenta_id || ""}
+                                onChange={(v) => updateLinea(i, "cuenta_id", v)}
+                                options={cuentasOpts}
+                                style={{ width: "100%", fontSize: 11 }}
+                                disabled={readOnly}
+                              />
+                            )}
+                            <input
+                              value={l.glosa}
+                              placeholder="Glosa línea (opcional)"
+                              disabled={readOnly}
+                              onChange={(e) => updateLinea(i, "glosa", e.target.value)}
+                              style={{ background: C.bgInput, border: `1px solid ${C.border}`, borderRadius: 5, color: C.textMuted, fontSize: 11, padding: "3px 7px", width: "100%", outline: "none" }}
+                            />
+                            {tieneErr && (
+                              <span style={{ color: C.danger, fontSize: 10 }}>{errs.join(" · ")}</span>
+                            )}
+                          </div>
+                        </Td>
+                        <Td>
+                          <SelectInput
+                            value={l.libro || "ambos"}
+                            onChange={(v) => updateLinea(i, "libro", v)}
+                            options={LIBROS_OPTS}
+                            style={{ width: "100%", fontSize: 11 }}
+                            disabled={readOnly}
+                          />
+                        </Td>
+                        <Td>
+                          {cd?.usa_ceco ? (
+                            <SelectInput
+                              value={l.cuartel_id || ""}
+                              onChange={(v) => updateLinea(i, "cuartel_id", v)}
+                              options={cuartelesOpts}
+                              style={{ width: "100%", fontSize: 11, borderColor: (!l.cuartel_id ? C.danger : C.border) }}
+                              disabled={readOnly}
+                            />
+                          ) : (
+                            <span style={{ color: C.textDim, fontSize: 11 }}>—</span>
+                          )}
+                        </Td>
+                        <Td>
+                          {cd?.usa_auxiliar ? (
+                            <SelectInput
+                              value={l.auxiliar_id || ""}
+                              onChange={(v) => updateLinea(i, "auxiliar_id", v)}
+                              options={auxiliaresOpts}
+                              style={{ width: "100%", fontSize: 11, borderColor: (!l.auxiliar_id ? C.danger : C.border) }}
+                              disabled={readOnly}
+                            />
+                          ) : (
+                            <span style={{ color: C.textDim, fontSize: 11 }}>—</span>
+                          )}
+                        </Td>
+                        <Td style={{ textAlign: "right" }}>
+                          <input
+                            value={l.debe}
+                            placeholder="0"
+                            disabled={readOnly || parseMonto(l.haber) > 0}
+                            onChange={(e) => updateLinea(i, "debe", e.target.value)}
+                            style={{
+                              background: parseMonto(l.debe) > 0 ? "rgba(24,95,165,0.06)" : C.bgInput,
+                              border: `1px solid ${parseMonto(l.debe) > 0 ? C.info : C.border}`,
+                              borderRadius: 5,
+                              color: C.info,
+                              fontFamily: "monospace",
+                              fontSize: 12,
+                              padding: "4px 7px",
+                              width: "100%",
+                              textAlign: "right",
+                              outline: "none",
+                            }}
+                          />
+                        </Td>
+                        <Td style={{ textAlign: "right" }}>
+                          <input
+                            value={l.haber}
+                            placeholder="0"
+                            disabled={readOnly || parseMonto(l.debe) > 0}
+                            onChange={(e) => updateLinea(i, "haber", e.target.value)}
+                            style={{
+                              background: parseMonto(l.haber) > 0 ? "rgba(29,158,117,0.06)" : C.bgInput,
+                              border: `1px solid ${parseMonto(l.haber) > 0 ? C.success : C.border}`,
+                              borderRadius: 5,
+                              color: C.success,
+                              fontFamily: "monospace",
+                              fontSize: 12,
+                              padding: "4px 7px",
+                              width: "100%",
+                              textAlign: "right",
+                              outline: "none",
+                            }}
+                          />
+                        </Td>
+                        {!readOnly && (
+                          <Td>
+                            <button
+                              onClick={() => eliminarLinea(i)}
+                              style={{ background: "none", border: "none", color: C.textDim, cursor: "pointer", fontSize: 16, padding: "0 4px", lineHeight: 1 }}
+                            >
+                              ×
+                            </button>
+                          </Td>
+                        )}
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+
+            {/* ── Footer: controles + cuadre ── */}
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 16 }}>
+              <div>
+                {!readOnly && (
+                  <Btn color="ghost" size="sm" onClick={agregarLinea}>+ Agregar línea</Btn>
+                )}
+              </div>
+              {/* Panel cuadre */}
+              <div
+                style={{
+                  border: `1px solid ${cuadrado ? C.success : C.danger}`,
+                  borderRadius: 8,
+                  padding: "10px 16px",
+                  background: cuadrado ? "rgba(39,169,108,0.05)" : "rgba(217,64,64,0.05)",
+                  minWidth: 220,
+                }}
+              >
+                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4, fontSize: 13 }}>
+                  <span style={{ color: C.textMuted }}>Total Debe</span>
+                  <span style={{ color: C.info, fontFamily: "monospace" }}>{fmtCLP(totalDebe)}</span>
+                </div>
+                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 8, fontSize: 13 }}>
+                  <span style={{ color: C.textMuted }}>Total Haber</span>
+                  <span style={{ color: C.success, fontFamily: "monospace" }}>{fmtCLP(totalHaber)}</span>
+                </div>
+                <div
+                  style={{
+                    borderTop: `1px solid ${C.border}`,
+                    paddingTop: 8,
+                    textAlign: "center",
+                    fontSize: 12,
+                    fontWeight: 600,
+                    color: cuadrado ? C.success : C.danger,
+                  }}
+                >
+                  {cuadrado ? "✓ Asiento cuadrado" : `✗ Diferencia: ${fmtCLP(Math.abs(totalDebe - totalHaber))}`}
+                </div>
+              </div>
+            </div>
+
+            {/* ── Botonera ── */}
+            <div
+              style={{
+                display: "flex",
+                gap: 8,
+                marginTop: 16,
+                paddingTop: 14,
+                borderTop: `1px solid ${C.border}`,
+                alignItems: "center",
+              }}
+            >
+              <Btn color="ghost" onClick={() => setVista("lista")}>Volver</Btn>
+              {!readOnly && (
+                <>
+                  <Btn color="primary" onClick={handleGuardar} disabled={guardando || !puedeGuardar}>
+                    {guardando ? "Guardando..." : "Guardar borrador"}
+                  </Btn>
+                  <Btn
+                    color="success"
+                    onClick={handleMayorizar}
+                    disabled={guardando || !puedeMayorizar}
+                    style={{ opacity: puedeMayorizar ? 1 : 0.45 }}
+                  >
+                    Mayorizar →
+                  </Btn>
+                  {!puedeMayorizar && (
+                    <span style={{ fontSize: 11, color: C.textMuted }}>
+                      {!cuadrado ? "Debe cuadrar para mayorizar" : hayErroresLineas ? "Corrige errores en líneas" : ""}
+                    </span>
+                  )}
+                </>
+              )}
+              {readOnly && (
+                <span style={{ fontSize: 12, color: C.textMuted }}>
+                  Asiento mayorizado — solo lectura. Para modificar, crear un contra-asiento.
+                </span>
+              )}
+            </div>
+          </>
+        )}
+      </div>
+    );
+  }
+
+  // ── VISTA: MASIVO ──────────────────────────────────────────────────────────────
+  if (vista === "masivo") {
+    const stepLabels = ["Cargar archivo", "Mapear columnas", "Aplicar homologación", "Generar asientos"];
+    return (
+      <div>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 16 }}>
+          <Btn color="ghost" size="sm" onClick={() => { setVista("lista"); resetMasivo(); }}>← Volver</Btn>
+          <span style={{ fontWeight: 600, fontSize: 15, color: C.text }}>Carga masiva histórica</span>
+          {mArchivo && <Badge label={mArchivo} color="muted" />}
+          {mSistema && <Badge label={mSistema.charAt(0).toUpperCase() + mSistema.slice(1)} color="info" />}
+        </div>
+
+        {/* Stepper */}
+        <div style={{ display: "flex", alignItems: "center", marginBottom: 20 }}>
+          {stepLabels.map((lbl, idx) => {
+            const num = idx + 1;
+            const done = mPaso > num;
+            const active = mPaso === num;
+            return (
+              <React.Fragment key={lbl}>
+                <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                  <div
+                    style={{
+                      width: 26, height: 26, borderRadius: "50%", display: "flex",
+                      alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 700,
+                      background: done ? C.success : active ? C.primary : C.bgInput,
+                      color: done || active ? "#fff" : C.textMuted,
+                      border: done || active ? "none" : `1px solid ${C.border}`,
+                      flexShrink: 0,
+                    }}
+                  >
+                    {done ? "✓" : num}
+                  </div>
+                  <span style={{ fontSize: 12, whiteSpace: "nowrap", color: done ? C.success : active ? C.primary : C.textMuted, fontWeight: active ? 600 : 400 }}>
+                    {lbl}
+                  </span>
+                </div>
+                {idx < stepLabels.length - 1 && (
+                  <div style={{ flex: 1, height: 1, background: C.border, margin: "0 8px", minWidth: 8 }} />
+                )}
+              </React.Fragment>
+            );
+          })}
+        </div>
+
+        <ErrorMsg msg={mError} />
+
+        {/* Paso 1 */}
+        {mPaso === 1 && (
+          <div>
+            <div style={{ marginBottom: 12, display: "flex", gap: 10, alignItems: "center" }}>
+              <span style={{ fontSize: 13, color: C.textMuted }}>Sistema origen:</span>
+              <SelectInput
+                value={mSistema}
+                onChange={setMSistema}
+                options={["contec", "megasystem", "softland", "defontana", "manual"].map((s) => ({ value: s, label: s.charAt(0).toUpperCase() + s.slice(1) }))}
+                style={{ width: 160 }}
+              />
+            </div>
+            <div
+              style={{
+                border: `2px dashed ${C.border}`, borderRadius: 10, padding: 40,
+                textAlign: "center", background: C.bgInput, cursor: "pointer",
+              }}
+              onClick={() => mFileRef.current?.click()}
+            >
+              <div style={{ fontSize: 32, marginBottom: 10 }}>📊</div>
+              <p style={{ fontWeight: 600, fontSize: 14, color: C.text, marginBottom: 6 }}>
+                Cargar libro diario histórico de {mSistema}
+              </p>
+              <p style={{ fontSize: 12, color: C.textMuted, marginBottom: 16 }}>
+                Excel (.xlsx) o CSV — una fila por línea de asiento
+              </p>
+              <Btn color="primary">Seleccionar archivo</Btn>
+              <input ref={mFileRef} type="file" accept=".xlsx,.xls,.csv" style={{ display: "none" }} onChange={handleMasivoArchivo} />
+            </div>
+          </div>
+        )}
+
+        {/* Paso 2: Mapear columnas */}
+        {mPaso === 2 && (
+          <div>
+            <p style={{ fontSize: 12, color: C.textMuted, marginBottom: 12 }}>
+              Archivo: <strong style={{ color: C.text }}>{mArchivo}</strong> · {mRows.length} filas
+            </p>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 10, marginBottom: 16 }}>
+              {[
+                { key: "fecha", label: "Fecha del asiento *" },
+                { key: "nroAsiento", label: "N° asiento origen" },
+                { key: "glosaCab", label: "Glosa cabecera" },
+                { key: "codigoOrigen", label: "Código cuenta origen *" },
+                { key: "glosaLinea", label: "Glosa línea" },
+                { key: "debe", label: "Debe *" },
+                { key: "haber", label: "Haber *" },
+                { key: "libroLinea", label: "Libro línea" },
+              ].map(({ key, label }) => (
+                <Field key={key} label={label}>
+                  <SelectInput
+                    value={mCols[key] || ""}
+                    onChange={(v) => setMCols((c) => ({ ...c, [key]: v }))}
+                    options={[{ value: "", label: "— No mapear —" }].concat(mHeaders.map((h) => ({ value: h, label: h })))}
+                    style={{ width: "100%" }}
+                  />
+                </Field>
+              ))}
+            </div>
+            <div style={{ overflowX: "auto", border: `1px solid ${C.border}`, borderRadius: 8, maxHeight: 220, overflowY: "auto", marginBottom: 14 }}>
+              <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11 }}>
+                <thead>
+                  <tr>{mHeaders.map((h) => <Th key={h}>{h}</Th>)}</tr>
+                </thead>
+                <tbody>
+                  {mRows.slice(0, 10).map((row, i) => (
+                    <tr key={i}>
+                      {mHeaders.map((h) => (
+                        <Td key={h} style={{ fontSize: 11, color: Object.values(mCols).includes(h) ? C.text : C.textDim }}>
+                          {String(row[h] ?? "")}
+                        </Td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <div style={{ display: "flex", gap: 8 }}>
+              <Btn color="ghost" onClick={resetMasivo}>Volver</Btn>
+              <Btn
+                color="primary"
+                onClick={handleMasivoAplicarHom}
+                disabled={!mCols.fecha || !mCols.codigoOrigen || !mCols.debe || !mCols.haber}
+              >
+                Aplicar homologación →
+              </Btn>
+            </div>
+          </div>
+        )}
+
+        {/* Paso 3: Resultados homologación */}
+        {mPaso === 3 && (
+          <div>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12, marginBottom: 16 }}>
+              {[
+                { num: mGrupos.length, lbl: "comprobantes", col: C.primary },
+                { num: mLineasTotal, lbl: "líneas totales", col: C.text },
+                { num: mLineasHom, lbl: "homologadas ✓", col: C.success },
+                { num: mLineasSin, lbl: "sin homologar ⚠", col: mLineasSin > 0 ? C.warning : C.textMuted },
+              ].map(({ num, lbl, col }) => (
+                <div key={lbl} style={{ background: "#141720", border: `1px solid ${C.border}`, borderRadius: 8, padding: "10px 14px", textAlign: "center" }}>
+                  <div style={{ fontSize: 24, fontWeight: 700, color: col }}>{num}</div>
+                  <div style={{ fontSize: 11, color: C.textMuted, marginTop: 3 }}>{lbl}</div>
+                </div>
+              ))}
+            </div>
+
+            {mLineasSin > 0 && (
+              <>
+                <p style={{ fontSize: 12, color: C.textMuted, marginBottom: 8 }}>
+                  Códigos sin homologar — asigna una cuenta o se omitirán:
+                </p>
+                <div style={{ overflowX: "auto", border: `1px solid ${C.border}`, borderRadius: 8, maxHeight: 260, overflowY: "auto", marginBottom: 14 }}>
+                  <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+                    <thead>
+                      <tr>
+                        <Th>Asiento origen</Th>
+                        <Th>Cód. origen</Th>
+                        <Th>Glosa línea</Th>
+                        <Th style={{ width: 100, textAlign: "right" }}>Debe</Th>
+                        <Th style={{ width: 100, textAlign: "right" }}>Haber</Th>
+                        <Th style={{ width: 230 }}>Cuenta maestro</Th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {mLineasSinArr.map((l) => (
+                        <Tr key={l._key}>
+                          <Td style={{ color: C.textMuted, fontSize: 11 }}>{mGrupos[l._gi]?.nro_origen}</Td>
+                          <Td><span style={{ fontFamily: "monospace", color: C.danger }}>{l.codigo_origen}</span></Td>
+                          <Td style={{ color: C.textMuted, fontSize: 11 }}>{l.glosa}</Td>
+                          <Td style={{ textAlign: "right", fontFamily: "monospace", color: C.info }}>{l.debe > 0 ? fmtCLP(l.debe) : ""}</Td>
+                          <Td style={{ textAlign: "right", fontFamily: "monospace", color: C.success }}>{l.haber > 0 ? fmtCLP(l.haber) : ""}</Td>
+                          <Td>
+                            <SelectInput
+                              value=""
+                              onChange={(v) => setMasivoLineaCuenta(l._gi, l._li, v)}
+                              options={cuentasOpts}
+                              style={{ width: "100%", fontSize: 11 }}
+                            />
+                          </Td>
+                        </Tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </>
+            )}
+
+            <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+              <Btn color="ghost" onClick={() => setMPaso(2)}>Volver</Btn>
+              {mLineasSin > 0 && (
+                <span style={{ fontSize: 12, color: C.warning }}>
+                  {mLineasSin} líneas se omitirán si no se mapean
+                </span>
+              )}
+              <Btn color="primary" onClick={() => setMPaso(4)} style={{ marginLeft: "auto" }}>
+                Revisar y confirmar →
+              </Btn>
+            </div>
+          </div>
+        )}
+
+        {/* Paso 4: Confirmar */}
+        {mPaso === 4 && !mOk && (
+          <div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginBottom: 16 }}>
+              <div>
+                <p style={{ fontSize: 12, fontWeight: 600, color: C.textMuted, marginBottom: 8, textTransform: "uppercase", letterSpacing: "0.05em" }}>
+                  Estado de destino
+                </p>
+                <div style={{ display: "flex", flexDirection: "column", gap: 8, fontSize: 13 }}>
+                  <label style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer" }}>
+                    <input type="radio" name="mEstado" checked={mEstado === "borrador"} onChange={() => setMEstado("borrador")} />
+                    Crear en <strong>Borrador</strong> (revisar antes de mayorizar)
+                  </label>
+                  <label style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer" }}>
+                    <input type="radio" name="mEstado" checked={mEstado === "mayorizado"} onChange={() => setMEstado("mayorizado")} />
+                    Crear y <strong>mayorizar directamente</strong>
+                  </label>
+                </div>
+              </div>
+              <div>
+                <p style={{ fontSize: 12, fontWeight: 600, color: C.textMuted, marginBottom: 8, textTransform: "uppercase", letterSpacing: "0.05em" }}>
+                  Resumen
+                </p>
+                <table style={{ fontSize: 13, width: "100%" }}>
+                  <tbody>
+                    {[
+                      ["Sistema origen", mSistema],
+                      ["Comprobantes a crear", mGrupos.length],
+                      ["Líneas homologadas", mLineasHom],
+                      ["Líneas omitidas", mLineasSin],
+                      ["Período destino", `${MESES_OPTS.find((m) => m.value === filtroMes)?.label || filtroMes} ${filtroAnio}`],
+                    ].map(([k, v]) => (
+                      <tr key={k}>
+                        <td style={{ color: C.textMuted, paddingBottom: 4, paddingRight: 12 }}>{k}</td>
+                        <td style={{ fontWeight: 500 }}>{String(v)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+            <div style={{ display: "flex", gap: 8, borderTop: `1px solid ${C.border}`, paddingTop: 14 }}>
+              <Btn color="ghost" onClick={() => setMPaso(3)}>Volver</Btn>
+              <Btn color="success" onClick={handleMasivoGenerar} disabled={mGuardando}>
+                {mGuardando ? "Generando..." : `Generar ${mGrupos.length} comprobantes`}
+              </Btn>
+            </div>
+          </div>
+        )}
+
+        {/* Completado */}
+        {mOk && (
+          <div style={{ background: C.successBg, border: `1px solid ${C.success}`, borderRadius: 10, padding: "28px 20px", textAlign: "center" }}>
+            <div style={{ fontSize: 36, marginBottom: 10 }}>✅</div>
+            <p style={{ fontSize: 15, fontWeight: 600, color: C.success, marginBottom: 8 }}>Importación completada</p>
+            <p style={{ fontSize: 13, color: C.textMuted, marginBottom: 16 }}>{mOk}</p>
+            <div style={{ display: "flex", gap: 10, justifyContent: "center" }}>
+              <Btn color="ghost" onClick={resetMasivo}>Nueva importación</Btn>
+              <Btn color="primary" onClick={() => { setVista("lista"); resetMasivo(); }}>Ver lista de asientos</Btn>
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  return null;
+}
+
 // ─── Componente principal ────────────────────────────────────────────────────
 
 const TABS = [
   { key: "empresas", label: "Empresas" },
   { key: "plan_cuentas", label: "Plan de Cuentas" },
+  { key: "libro_diario", label: "Libro Diario" },
   { key: "auxiliares", label: "Auxiliares" },
   { key: "centros_costo", label: "Centros de Costo" },
   { key: "tipos_doc", label: "Tipos de Documento" },
@@ -2501,7 +3895,7 @@ const TABS = [
 ];
 
 // Tabs que requieren selector de empresa
-const TABS_CON_EMPRESA = new Set(["plan_cuentas", "centros_costo", "periodos", "mapeo"]);
+const TABS_CON_EMPRESA = new Set(["plan_cuentas", "libro_diario", "centros_costo", "periodos", "mapeo"]);
 
 export default function ContabilidadModule({ usuario, canEdit, esCFO, onBack }) {
   const [tabActiva, setTabActiva] = useState("empresas");
@@ -2657,6 +4051,14 @@ export default function ContabilidadModule({ usuario, canEdit, esCFO, onBack }) 
             empresaId={empresaId}
             setEmpresaId={setEmpresaId}
             canEdit={canEdit || esCFO}
+          />
+        )}
+
+        {tabActiva === "libro_diario" && (
+          <LibroDiarioTab
+            empresaId={empresaId}
+            canEdit={canEdit || esCFO}
+            usuario={usuario}
           />
         )}
 
