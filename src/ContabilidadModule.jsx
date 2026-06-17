@@ -1,5 +1,6 @@
 /* eslint-disable */
 import React, { useState, useEffect, useMemo, useCallback, useRef } from "react";
+import * as XLSX from "xlsx-js-style";
 
 // ─── Supabase ───────────────────────────────────────────────────────────────
 const SUPA_URL = "https://bywovqayuzodbzwsriet.supabase.co";
@@ -622,23 +623,84 @@ function EmpresasTab({ canEdit }) {
 
 // ─── Tab 2: Plan de Cuentas ──────────────────────────────────────────────────
 
-const TIPOS_CUENTA = ["Activo", "Pasivo", "Patrimonio", "Ingreso", "Gasto", "Resultado"];
-const NATURALEZAS = ["deudora", "acreedora"];
+const TIPOS_PC = [
+  { value: "A", label: "Activo" },
+  { value: "P", label: "Pasivo" },
+  { value: "I", label: "Ingreso" },
+  { value: "E", label: "Egreso" },
+  { value: "O", label: "Orden" },
+];
+const COLOR_TIPO_PC = {
+  A: C.primary, P: C.warning, I: C.success, E: C.danger, O: C.textMuted,
+};
+
+// ── Helpers de detección de sistema para el importador ──────────────────────
+
+function normHeader(s) { return String(s).toLowerCase().trim().replace(/\s+/g, "_"); }
+
+function detectarSistema(headers) {
+  const h = headers.map(normHeader);
+  const esContec =
+    h.includes("cuenta") || h.includes("nombre_cuenta") || h.includes("descripcion");
+  const esMega =
+    (h.includes("codigo") || h.includes("código")) &&
+    (h.includes("nombre") || h.includes("descripción") || h.includes("descripcion"));
+  if (esContec && !esMega) return "contec";
+  if (esMega && !esContec) return "megasystem";
+  return null;
+}
+
+function mapearColumnas(sistema, headers) {
+  const find = (candidates) =>
+    headers.find((c) => candidates.includes(normHeader(c))) || headers[0];
+  if (sistema === "contec") {
+    return {
+      colCodigo: find(["cuenta"]),
+      colNombre: find(["nombre_cuenta", "descripcion", "nombre"]),
+    };
+  }
+  if (sistema === "megasystem") {
+    return {
+      colCodigo: find(["codigo", "código"]),
+      colNombre: find(["nombre", "descripción", "descripcion"]),
+    };
+  }
+  return { colCodigo: headers[0], colNombre: headers[1] };
+}
+
+function autoMatchCuentas(rows, cuentas, colCodigo, colNombre) {
+  return rows.map((r) => {
+    const codOrigen = String(r[colCodigo] || "").trim();
+    const nomOrigen = String(r[colNombre] || "").trim().toLowerCase();
+    let match = cuentas.find((c) => c.codigo === codOrigen);
+    if (!match) match = cuentas.find((c) => c.nombre.toLowerCase() === nomOrigen);
+    if (!match && nomOrigen.length > 3)
+      match = cuentas.find((c) => c.nombre.toLowerCase().includes(nomOrigen.slice(0, 8)));
+    return {
+      codigo_origen: codOrigen,
+      nombre_origen: String(r[colNombre] || "").trim(),
+      cuenta_id: match ? match.id : null,
+      codigo_destino: match ? match.codigo : null,
+    };
+  });
+}
+
+// ── Tab Plan de Cuentas ─────────────────────────────────────────────────────
 
 function PlanCuentasTab({ empresas, empresaId, setEmpresaId, canEdit }) {
+  const [subTab, setSubTab] = useState("plan"); // 'plan' | 'importar'
+
+  // ── Sub-tab Plan ───────────────────────────────────────────────────────────
   const [cuentas, setCuentas] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [ok, setOk] = useState("");
   const [buscar, setBuscar] = useState("");
   const [filtroTipo, setFiltroTipo] = useState("");
-  const [filtroImputable, setFiltroImputable] = useState("");
-  const [modal, setModal] = useState(null); // null | { mode: 'add'|'edit', item }
+  const [filtroLibro, setFiltroLibro] = useState("");
   const [expanded, setExpanded] = useState({});
-  const [importModal, setImportModal] = useState(false);
-  const [importPreview, setImportPreview] = useState(null);
-  const [importando, setImportando] = useState(false);
-  const fileRef = useRef();
+  const [modal, setModal] = useState(null);
+  const cargaOkRef = useRef(false);
 
   const load = useCallback(async () => {
     if (!empresaId) return;
@@ -646,94 +708,88 @@ function PlanCuentasTab({ empresas, empresaId, setEmpresaId, canEdit }) {
     setError("");
     try {
       const data = await supaSelect(
-        "plan_cuentas",
-        `empresa_id=eq.${empresaId}&order=codigo.asc`
+        "contab_plan_cuentas",
+        `empresa_id=eq.${empresaId}&activa=eq.true&order=codigo.asc`
       );
       setCuentas(data || []);
+      cargaOkRef.current = true;
     } catch (e) {
-      setError(e.message);
+      setError("Error cargando plan: " + e.message);
+      throw e; // patrón anti-borrado: propagar
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   }, [empresaId]);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => { cargaOkRef.current = false; load(); }, [load]);
 
   const cuentasFiltradas = useMemo(() => {
     let arr = cuentas;
     if (buscar) {
       const q = buscar.toLowerCase();
-      arr = arr.filter((c) => c.codigo?.toLowerCase().includes(q) || c.nombre?.toLowerCase().includes(q));
+      arr = arr.filter((c) =>
+        c.codigo?.toLowerCase().includes(q) || c.nombre?.toLowerCase().includes(q)
+      );
     }
-    if (filtroTipo) arr = arr.filter((c) => c.tipo_cuenta === filtroTipo);
-    if (filtroImputable === "si") arr = arr.filter((c) => c.imputable);
-    if (filtroImputable === "no") arr = arr.filter((c) => !c.imputable);
+    if (filtroTipo) arr = arr.filter((c) => c.tipo === filtroTipo);
+    if (filtroLibro === "trib") arr = arr.filter((c) => c.aplica_trib);
+    if (filtroLibro === "ifrs") arr = arr.filter((c) => c.aplica_ifrs);
     return arr;
-  }, [cuentas, buscar, filtroTipo, filtroImputable]);
+  }, [cuentas, buscar, filtroTipo, filtroLibro]);
 
   const porTipo = useMemo(() => {
-    const grupos = {};
-    for (const t of TIPOS_CUENTA) {
-      grupos[t] = cuentasFiltradas.filter((c) => c.tipo_cuenta === t);
-    }
-    return grupos;
+    const g = {};
+    TIPOS_PC.forEach(({ value }) => {
+      g[value] = cuentasFiltradas.filter((c) => c.tipo === value);
+    });
+    return g;
   }, [cuentasFiltradas]);
 
-  const cuentasOpts = useMemo(
-    () =>
-      [{ value: "", label: "— Sin padre —" }].concat(
-        cuentas.map((c) => ({ value: c.id, label: `${c.codigo} — ${c.nombre}` }))
-      ),
-    [cuentas]
-  );
-
   const initModal = (mode, item = null) => {
-    if (mode === "add") {
-      setModal({
-        mode,
-        item: {
-          empresa_id: empresaId,
-          codigo: "",
-          codigo_padre: null,
-          nombre: "",
-          nivel: 1,
-          tipo_cuenta: "Activo",
-          naturaleza: "deudora",
-          imputable: false,
-          requiere_auxiliar: false,
-          requiere_cc: false,
-          activa: true,
-        },
-      });
-    } else {
-      setModal({ mode, item: { ...item } });
-    }
+    const defaults = {
+      empresa_id: empresaId, codigo: "", nombre: "", nombre_corto: "",
+      tipo: "A", subtipo: "", nivel: 2, mueve: true, padre_codigo: "",
+      aplica_trib: true, aplica_ifrs: true, acepta_me: false,
+      usa_ceco: false, usa_auxiliar: false, activa: true,
+      ifrs_nombre: "", clasif_ifrs: "", orden_display: 0,
+    };
+    setModal({ mode, item: mode === "add" ? defaults : { ...defaults, ...item } });
+    setError("");
   };
 
   const handleSave = async () => {
     const { mode, item } = modal;
-    if (!item.codigo || !item.nombre) {
+    if (!item.codigo?.trim() || !item.nombre?.trim()) {
       setError("Código y nombre son obligatorios");
       return;
     }
+    if (!cargaOkRef.current) { setError("Carga pendiente, intenta de nuevo"); return; }
     setError("");
     try {
       const payload = {
         empresa_id: empresaId,
         codigo: item.codigo.trim(),
-        codigo_padre: item.codigo_padre || null,
         nombre: item.nombre.trim(),
-        nivel: item.nivel || 1,
-        tipo_cuenta: item.tipo_cuenta,
-        naturaleza: item.naturaleza,
-        imputable: !!item.imputable,
-        requiere_auxiliar: !!item.requiere_auxiliar,
-        requiere_cc: !!item.requiere_cc,
+        nombre_corto: item.nombre_corto?.trim() || null,
+        tipo: item.tipo,
+        subtipo: item.subtipo || null,
+        nivel: Number(item.nivel) || 2,
+        mueve: item.nivel === 1 ? false : !!item.mueve,
+        padre_codigo: item.padre_codigo?.trim() || null,
+        aplica_trib: !!item.aplica_trib,
+        aplica_ifrs: !!item.aplica_ifrs,
+        acepta_me: !!item.acepta_me,
+        usa_ceco: !!item.usa_ceco,
+        usa_auxiliar: !!item.usa_auxiliar,
         activa: item.activa !== false,
+        ifrs_nombre: item.ifrs_nombre?.trim() || null,
+        clasif_ifrs: item.clasif_ifrs?.trim() || null,
+        orden_display: Number(item.orden_display) || 0,
       };
       if (mode === "add") {
-        await supaInsert("plan_cuentas", payload);
+        await supaInsert("contab_plan_cuentas", payload);
       } else {
-        await supaUpdate("plan_cuentas", item.id, payload);
+        await supaUpdate("contab_plan_cuentas", item.id, payload);
       }
       setOk(mode === "add" ? "Cuenta creada" : "Cuenta actualizada");
       setModal(null);
@@ -745,297 +801,722 @@ function PlanCuentasTab({ empresas, empresaId, setEmpresaId, canEdit }) {
   };
 
   const handleToggleActiva = async (item) => {
+    if (!cargaOkRef.current) return;
     try {
-      await supaUpdate("plan_cuentas", item.id, { activa: !item.activa });
+      await supaUpdate("contab_plan_cuentas", item.id, { activa: !item.activa });
       load();
     } catch (e) {
       setError(e.message);
     }
   };
 
-  const handleImportFile = (e) => {
+  // ── Sub-tab Importar ───────────────────────────────────────────────────────
+  const [paso, setPaso] = useState(1); // 1-4
+  const [archivoNombre, setArchivoNombre] = useState("");
+  const [rowsRaw, setRowsRaw] = useState([]);
+  const [headers, setHeaders] = useState([]);
+  const [sistemaDetectado, setSistemaDetectado] = useState(null);
+  const [sistemaManual, setSistemaManual] = useState("");
+  const [colCodigo, setColCodigo] = useState("");
+  const [colNombre, setColNombre] = useState("");
+  const [mapeo, setMapeo] = useState([]); // [{codigo_origen, nombre_origen, cuenta_id, codigo_destino}]
+  const [importando, setImportando] = useState(false);
+  const [importOk, setImportOk] = useState("");
+  const [importError, setImportError] = useState("");
+  const fileRef = useRef();
+
+  const sistemaFinal = sistemaDetectado || sistemaManual || "manual";
+
+  const resetImport = () => {
+    setPaso(1); setArchivoNombre(""); setRowsRaw([]); setHeaders([]);
+    setSistemaDetectado(null); setSistemaManual("");
+    setColCodigo(""); setColNombre(""); setMapeo([]);
+    setImportOk(""); setImportError("");
+    if (fileRef.current) fileRef.current.value = "";
+  };
+
+  const handleArchivoChange = (e) => {
     const file = e.target.files[0];
     if (!file) return;
+    setArchivoNombre(file.name);
+    setImportError("");
     const reader = new FileReader();
     reader.onload = (ev) => {
       try {
-        const XLSX = window.XLSX;
-        if (!XLSX) { setError("SheetJS no está disponible"); return; }
         const wb = XLSX.read(ev.target.result, { type: "binary" });
         const ws = wb.Sheets[wb.SheetNames[0]];
-        const rows = XLSX.utils.sheet_to_json(ws, { defval: "" });
-        setImportPreview(rows);
-        setImportModal(true);
+        const rows = XLSX.utils.sheet_to_json(ws, { defval: "", raw: false });
+        if (!rows.length) { setImportError("El archivo está vacío"); return; }
+        const hdrs = Object.keys(rows[0]);
+        setRowsRaw(rows);
+        setHeaders(hdrs);
+        const det = detectarSistema(hdrs);
+        setSistemaDetectado(det);
+        const { colCodigo: cC, colNombre: cN } = mapearColumnas(det || "manual", hdrs);
+        setColCodigo(cC);
+        setColNombre(cN);
+        setPaso(2);
       } catch (err) {
-        setError("Error leyendo el archivo: " + err.message);
+        setImportError("Error leyendo el archivo: " + err.message);
       }
     };
     reader.readAsBinaryString(file);
     e.target.value = "";
   };
 
-  const handleConfirmImport = async () => {
-    if (!importPreview) return;
+  const handlePasarAMapeo = () => {
+    if (!colCodigo || !colNombre) { setImportError("Selecciona las columnas de código y nombre"); return; }
+    const matched = autoMatchCuentas(rowsRaw, cuentas, colCodigo, colNombre);
+    setMapeo(matched);
+    setPaso(3);
+  };
+
+  const setMapeoItem = (idx, cuenta_id, codigo_destino) => {
+    setMapeo((prev) =>
+      prev.map((m, i) => i === idx ? { ...m, cuenta_id, codigo_destino } : m)
+    );
+  };
+
+  const totalMapeadas = mapeo.filter((m) => m.cuenta_id).length;
+  const totalSinMapear = mapeo.length - totalMapeadas;
+
+  const handleConfirmarImport = async () => {
+    if (!cargaOkRef.current) { setImportError("Carga pendiente, recarga el plan primero"); return; }
     setImportando(true);
-    setError("");
+    setImportError("");
     try {
-      const payload = importPreview.map((r) => ({
-        empresa_id: empresaId,
-        codigo: String(r.codigo || "").trim(),
-        nombre: String(r.nombre || "").trim(),
-        tipo_cuenta: r.tipo_cuenta || "Activo",
-        naturaleza: r.naturaleza || "deudora",
-        imputable: r.imputable === true || r.imputable === "TRUE" || r.imputable === 1,
-        requiere_auxiliar: false,
-        requiere_cc: false,
-        codigo_padre: r.codigo_padre ? String(r.codigo_padre).trim() : null,
-        nivel: r.nivel ? Number(r.nivel) : 1,
-        activa: true,
-      })).filter((r) => r.codigo && r.nombre);
-      await supaUpsert("plan_cuentas", payload, "empresa_id,codigo");
-      setOk(`${payload.length} cuentas importadas`);
-      setImportModal(false);
-      setImportPreview(null);
-      load();
-      setTimeout(() => setOk(""), 4000);
+      const payload = mapeo
+        .filter((m) => m.codigo_origen)
+        .map((m) => ({
+          empresa_id: empresaId,
+          sistema_origen: sistemaFinal,
+          codigo_origen: m.codigo_origen,
+          nombre_origen: m.nombre_origen || null,
+          cuenta_id: m.cuenta_id || null,
+          codigo_destino: m.codigo_destino || null,
+          activa: true,
+        }));
+      await supaUpsert(
+        "contab_homologacion",
+        payload,
+        "empresa_id,sistema_origen,codigo_origen"
+      );
+      setImportOk(`${payload.length} códigos importados a homologación (${totalMapeadas} mapeados, ${totalSinMapear} sin mapear)`);
+      setPaso(4);
     } catch (e) {
-      setError(e.message);
+      setImportError(e.message);
     }
     setImportando(false);
   };
 
-  const coloresTipo = {
-    Activo: C.primary,
-    Pasivo: C.warning,
-    Patrimonio: C.teal,
-    Ingreso: C.success,
-    Gasto: C.danger,
-    Resultado: C.info,
-  };
+  // ── Render ─────────────────────────────────────────────────────────────────
+
+  const subTabStyle = (key) => ({
+    background: "none",
+    border: "none",
+    borderBottom: subTab === key ? `2px solid ${C.primary}` : "2px solid transparent",
+    color: subTab === key ? C.primary : C.textMuted,
+    cursor: "pointer",
+    fontSize: 13,
+    fontWeight: subTab === key ? 600 : 400,
+    padding: "10px 16px",
+    transition: "color 0.15s",
+    whiteSpace: "nowrap",
+  });
 
   return (
     <div>
-      {/* Controles */}
-      <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 14, alignItems: "center" }}>
-        <SearchInput value={buscar} onChange={setBuscar} placeholder="Buscar por código o nombre..." />
-        <SelectInput
-          value={filtroTipo}
-          onChange={setFiltroTipo}
-          options={[{ value: "", label: "Todos los tipos" }].concat(
-            TIPOS_CUENTA.map((t) => ({ value: t, label: t }))
-          )}
-        />
-        <SelectInput
-          value={filtroImputable}
-          onChange={setFiltroImputable}
-          options={[
-            { value: "", label: "Imputable: todos" },
-            { value: "si", label: "Imputable: sí" },
-            { value: "no", label: "Imputable: no" },
-          ]}
-        />
-        <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
-          <Btn color="ghost" size="sm" onClick={() => { fileRef.current && fileRef.current.click(); }}>
-            Importar desde Excel
-          </Btn>
-          <input ref={fileRef} type="file" accept=".xlsx,.xls,.csv" style={{ display: "none" }} onChange={handleImportFile} />
-          {canEdit && (
-            <Btn color="primary" size="sm" onClick={() => initModal("add")}>
-              + Agregar cuenta
-            </Btn>
-          )}
-        </div>
+      {/* Sub-tabs */}
+      <div style={{ display: "flex", borderBottom: `1px solid ${C.border}`, marginBottom: 16 }}>
+        <button style={subTabStyle("plan")} onClick={() => setSubTab("plan")}>
+          Plan de cuentas
+        </button>
+        <button style={subTabStyle("importar")} onClick={() => { setSubTab("importar"); resetImport(); }}>
+          Importar / homologar
+        </button>
       </div>
 
-      <ErrorMsg msg={error} />
-      <SuccessMsg msg={ok} />
-
-      {loading ? (
-        <div style={{ padding: 32, textAlign: "center", color: C.textMuted }}>Cargando...</div>
-      ) : (
-        TIPOS_CUENTA.map((tipo) => {
-          const grupo = porTipo[tipo];
-          if (grupo.length === 0 && (buscar || filtroTipo || filtroImputable)) return null;
-          const abierto = expanded[tipo] !== false;
-          return (
-            <div key={tipo} style={{ marginBottom: 10 }}>
-              <div
-                onClick={() => setExpanded((x) => ({ ...x, [tipo]: !abierto }))}
-                style={{
-                  background: "#141720",
-                  border: `1px solid ${C.border}`,
-                  borderRadius: abierto ? "8px 8px 0 0" : 8,
-                  padding: "9px 14px",
-                  cursor: "pointer",
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 10,
-                  userSelect: "none",
-                }}
-              >
-                <span style={{ color: coloresTipo[tipo], fontWeight: 700, fontSize: 13 }}>{tipo}</span>
-                <Badge label={grupo.length} color="muted" />
-                <span style={{ marginLeft: "auto", color: C.textDim, fontSize: 12 }}>{abierto ? "▲" : "▼"}</span>
-              </div>
-              {abierto && (
-                <div style={{ border: `1px solid ${C.border}`, borderTop: "none", borderRadius: "0 0 8px 8px", overflow: "hidden" }}>
-                  <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
-                    <thead>
-                      <tr>
-                        <Th>Código</Th>
-                        <Th>Nombre</Th>
-                        <Th>Nivel</Th>
-                        <Th>Naturaleza</Th>
-                        <Th>Imputable</Th>
-                        <Th>Req. Aux.</Th>
-                        <Th>Activa</Th>
-                        {canEdit && <Th></Th>}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {grupo.length === 0 ? (
-                        <tr>
-                          <td colSpan={canEdit ? 8 : 7} style={{ padding: "14px 12px", color: C.textDim, fontSize: 12 }}>
-                            Sin cuentas
-                          </td>
-                        </tr>
-                      ) : (
-                        grupo.map((c) => (
-                          <Tr key={c.id}>
-                            <Td>
-                              <span style={{ fontFamily: "monospace", color: C.primary, paddingLeft: c.nivel > 1 ? (c.nivel - 1) * 14 : 0 }}>
-                                {c.codigo}
-                              </span>
-                            </Td>
-                            <Td>{c.nombre}</Td>
-                            <Td><Badge label={`N${c.nivel}`} color="muted" /></Td>
-                            <Td style={{ color: C.textMuted, fontSize: 12 }}>{c.naturaleza}</Td>
-                            <Td>{c.imputable ? <Badge label="Sí" color="success" /> : <Badge label="No" color="muted" />}</Td>
-                            <Td>{c.requiere_auxiliar ? <Badge label="Sí" color="teal" /> : "—"}</Td>
-                            <Td>
-                              <Badge label={c.activa ? "Activa" : "Inactiva"} color={c.activa ? "success" : "muted"} />
-                            </Td>
-                            {canEdit && (
-                              <Td>
-                                <div style={{ display: "flex", gap: 6 }}>
-                                  <Btn size="sm" color="ghost" onClick={() => initModal("edit", c)}>Editar</Btn>
-                                  <Btn size="sm" color={c.activa ? "warning" : "success"} onClick={() => handleToggleActiva(c)}>
-                                    {c.activa ? "Desactivar" : "Activar"}
-                                  </Btn>
-                                </div>
-                              </Td>
-                            )}
-                          </Tr>
-                        ))
-                      )}
-                    </tbody>
-                  </table>
-                </div>
+      {/* ── SUB-TAB: PLAN DE CUENTAS ── */}
+      {subTab === "plan" && (
+        <div>
+          <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 14, alignItems: "center" }}>
+            <SearchInput value={buscar} onChange={setBuscar} placeholder="Buscar por código o nombre..." />
+            <SelectInput
+              value={filtroTipo}
+              onChange={setFiltroTipo}
+              options={[{ value: "", label: "Todos los tipos" }].concat(
+                TIPOS_PC.map((t) => ({ value: t.value, label: `${t.value} — ${t.label}` }))
+              )}
+            />
+            <SelectInput
+              value={filtroLibro}
+              onChange={setFiltroLibro}
+              options={[
+                { value: "", label: "Trib + IFRS" },
+                { value: "trib", label: "Solo tributario" },
+                { value: "ifrs", label: "Solo IFRS" },
+              ]}
+            />
+            <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
+              {canEdit && (
+                <Btn color="primary" size="sm" onClick={() => initModal("add")}>
+                  + Nueva cuenta
+                </Btn>
               )}
             </div>
-          );
-        })
-      )}
+          </div>
 
-      {/* Modal agregar/editar */}
-      {modal && (
-        <Modal
-          title={modal.mode === "add" ? "Nueva cuenta" : `Editar — ${modal.item.codigo}`}
-          onClose={() => { setModal(null); setError(""); }}
-          width={560}
-        >
           <ErrorMsg msg={error} />
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0 16px" }}>
-            <Field label="Código" required>
-              {textInput(modal.item.codigo, (v) => setModal((x) => ({ ...x, item: { ...x.item, codigo: v } })))}
-            </Field>
-            <Field label="Nivel (1-6)">
-              {textInput(String(modal.item.nivel || 1), (v) => setModal((x) => ({ ...x, item: { ...x.item, nivel: parseInt(v) || 1 } })))}
-            </Field>
-          </div>
-          <Field label="Nombre" required>
-            {textInput(modal.item.nombre, (v) => setModal((x) => ({ ...x, item: { ...x.item, nombre: v } })))}
-          </Field>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0 16px" }}>
-            <Field label="Tipo de cuenta">
-              <SelectInput
-                value={modal.item.tipo_cuenta || "Activo"}
-                onChange={(v) => setModal((x) => ({ ...x, item: { ...x.item, tipo_cuenta: v } }))}
-                options={TIPOS_CUENTA.map((t) => ({ value: t, label: t }))}
-                style={{ width: "100%" }}
-              />
-            </Field>
-            <Field label="Naturaleza">
-              <SelectInput
-                value={modal.item.naturaleza || "deudora"}
-                onChange={(v) => setModal((x) => ({ ...x, item: { ...x.item, naturaleza: v } }))}
-                options={NATURALEZAS.map((n) => ({ value: n, label: n }))}
-                style={{ width: "100%" }}
-              />
-            </Field>
-          </div>
-          <Field label="Cuenta padre">
-            <SelectInput
-              value={modal.item.codigo_padre || ""}
-              onChange={(v) => setModal((x) => ({ ...x, item: { ...x.item, codigo_padre: v || null } }))}
-              options={cuentasOpts.filter((o) => !o.value || o.value !== modal.item.id)}
-              style={{ width: "100%" }}
-            />
-          </Field>
-          <div style={{ display: "flex", gap: 20, flexWrap: "wrap", marginBottom: 14 }}>
-            {checkInput(modal.item.imputable, (v) => setModal((x) => ({ ...x, item: { ...x.item, imputable: v } })), "Imputable")}
-            {checkInput(modal.item.requiere_auxiliar, (v) => setModal((x) => ({ ...x, item: { ...x.item, requiere_auxiliar: v } })), "Requiere auxiliar")}
-            {checkInput(modal.item.requiere_cc, (v) => setModal((x) => ({ ...x, item: { ...x.item, requiere_cc: v } })), "Requiere CC")}
-            {checkInput(modal.item.activa !== false, (v) => setModal((x) => ({ ...x, item: { ...x.item, activa: v } })), "Activa")}
-          </div>
-          <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
-            <Btn color="ghost" onClick={() => { setModal(null); setError(""); }}>Cancelar</Btn>
-            <Btn color="primary" onClick={handleSave}>
-              {modal.mode === "add" ? "Crear cuenta" : "Guardar cambios"}
-            </Btn>
-          </div>
-        </Modal>
-      )}
+          <SuccessMsg msg={ok} />
 
-      {/* Modal importar */}
-      {importModal && importPreview && (
-        <Modal title="Previsualizar importación" onClose={() => setImportModal(false)} width={700}>
-          <ErrorMsg msg={error} />
-          <p style={{ color: C.textMuted, fontSize: 13, marginBottom: 12 }}>
-            Se importarán <strong style={{ color: C.text }}>{importPreview.length}</strong> filas. Verificar antes de confirmar.
-          </p>
-          <div style={{ overflowX: "auto", maxHeight: 320, overflowY: "auto", border: `1px solid ${C.border}`, borderRadius: 6 }}>
-            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
-              <thead>
-                <tr>
-                  {Object.keys(importPreview[0] || {}).map((k) => <Th key={k}>{k}</Th>)}
-                </tr>
-              </thead>
-              <tbody>
-                {importPreview.slice(0, 50).map((row, i) => (
-                  <tr key={i} style={{ background: i % 2 === 0 ? "transparent" : "rgba(255,255,255,0.02)" }}>
-                    {Object.values(row).map((v, j) => (
-                      <td key={j} style={{ padding: "5px 10px", borderBottom: `1px solid ${C.border}`, color: C.textMuted }}>
-                        {String(v)}
-                      </td>
-                    ))}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          {importPreview.length > 50 && (
-            <p style={{ color: C.textDim, fontSize: 11, marginTop: 6 }}>
-              Mostrando 50 de {importPreview.length} filas
-            </p>
+          {loading ? (
+            <div style={{ padding: 32, textAlign: "center", color: C.textMuted }}>Cargando...</div>
+          ) : (
+            TIPOS_PC.map(({ value, label }) => {
+              const grupo = porTipo[value] || [];
+              if (grupo.length === 0 && (buscar || filtroTipo)) return null;
+              const abierto = expanded[value] !== false;
+              return (
+                <div key={value} style={{ marginBottom: 10 }}>
+                  <div
+                    onClick={() => setExpanded((x) => ({ ...x, [value]: !abierto }))}
+                    style={{
+                      background: "#141720", border: `1px solid ${C.border}`,
+                      borderRadius: abierto ? "8px 8px 0 0" : 8, padding: "9px 14px",
+                      cursor: "pointer", display: "flex", alignItems: "center", gap: 10,
+                      userSelect: "none",
+                    }}
+                  >
+                    <span style={{ color: COLOR_TIPO_PC[value], fontWeight: 700, fontSize: 13 }}>
+                      {value} — {label}
+                    </span>
+                    <Badge label={grupo.length} color="muted" />
+                    <span style={{ marginLeft: "auto", color: C.textDim, fontSize: 12 }}>
+                      {abierto ? "▲" : "▼"}
+                    </span>
+                  </div>
+                  {abierto && (
+                    <div style={{ border: `1px solid ${C.border}`, borderTop: "none", borderRadius: "0 0 8px 8px", overflowX: "auto" }}>
+                      <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+                        <thead>
+                          <tr>
+                            <Th>Código</Th>
+                            <Th>Nombre</Th>
+                            <Th style={{ width: 50 }}>Nivel</Th>
+                            <Th style={{ width: 50 }}>Trib</Th>
+                            <Th style={{ width: 50 }}>IFRS</Th>
+                            <Th style={{ width: 50 }}>ME</Th>
+                            <Th style={{ width: 60 }}>CeCo</Th>
+                            <Th style={{ width: 70 }}>Estado</Th>
+                            {canEdit && <Th style={{ width: 120 }}></Th>}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {grupo.length === 0 ? (
+                            <tr>
+                              <td colSpan={canEdit ? 9 : 8} style={{ padding: "14px 12px", color: C.textDim, fontSize: 12 }}>
+                                Sin cuentas en este tipo
+                              </td>
+                            </tr>
+                          ) : (
+                            grupo.map((c) => (
+                              <Tr key={c.id}>
+                                <Td>
+                                  <span
+                                    style={{
+                                      fontFamily: "monospace",
+                                      color: c.nivel === 1 ? C.textMuted : C.primary,
+                                      fontWeight: c.nivel === 1 ? 600 : 400,
+                                      paddingLeft: c.nivel === 1 ? 0 : 16,
+                                    }}
+                                  >
+                                    {c.codigo}
+                                  </span>
+                                </Td>
+                                <Td style={{ fontWeight: c.nivel === 1 ? 600 : 400 }}>{c.nombre}</Td>
+                                <Td>
+                                  <Badge label={c.nivel === 1 ? "Agrup." : "Hoja"} color={c.nivel === 1 ? "muted" : "info"} />
+                                </Td>
+                                <Td style={{ textAlign: "center", fontSize: 15 }}>
+                                  {c.aplica_trib ? <span style={{ color: C.success }}>✓</span> : <span style={{ color: C.textDim }}>—</span>}
+                                </Td>
+                                <Td style={{ textAlign: "center", fontSize: 15 }}>
+                                  {c.aplica_ifrs ? <span style={{ color: C.success }}>✓</span> : <span style={{ color: C.textDim }}>—</span>}
+                                </Td>
+                                <Td style={{ textAlign: "center", fontSize: 15 }}>
+                                  {c.acepta_me ? <span style={{ color: C.teal }}>✓</span> : <span style={{ color: C.textDim }}>—</span>}
+                                </Td>
+                                <Td style={{ textAlign: "center", fontSize: 15 }}>
+                                  {c.usa_ceco ? <span style={{ color: C.teal }}>✓</span> : <span style={{ color: C.textDim }}>—</span>}
+                                </Td>
+                                <Td>
+                                  <Badge label={c.activa ? "Activa" : "Inactiva"} color={c.activa ? "success" : "muted"} />
+                                </Td>
+                                {canEdit && (
+                                  <Td>
+                                    <div style={{ display: "flex", gap: 6 }}>
+                                      <Btn size="sm" color="ghost" onClick={() => initModal("edit", c)}>Editar</Btn>
+                                      <Btn
+                                        size="sm"
+                                        color={c.activa ? "warning" : "success"}
+                                        onClick={() => handleToggleActiva(c)}
+                                      >
+                                        {c.activa ? "Desact." : "Activar"}
+                                      </Btn>
+                                    </div>
+                                  </Td>
+                                )}
+                              </Tr>
+                            ))
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+              );
+            })
           )}
-          <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 14 }}>
-            <Btn color="ghost" onClick={() => setImportModal(false)}>Cancelar</Btn>
-            <Btn color="success" onClick={handleConfirmImport} disabled={importando}>
-              {importando ? "Importando..." : "Confirmar importación"}
-            </Btn>
+
+          {/* Modal agregar/editar */}
+          {modal && (
+            <Modal
+              title={modal.mode === "add" ? "Nueva cuenta" : `Editar — ${modal.item.codigo}`}
+              onClose={() => { setModal(null); setError(""); }}
+              width={600}
+            >
+              <ErrorMsg msg={error} />
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0 16px" }}>
+                <Field label="Código" required>
+                  {textInput(modal.item.codigo, (v) =>
+                    setModal((x) => ({ ...x, item: { ...x.item, codigo: v } }))
+                  )}
+                </Field>
+                <Field label="Nombre corto">
+                  {textInput(modal.item.nombre_corto || "", (v) =>
+                    setModal((x) => ({ ...x, item: { ...x.item, nombre_corto: v } }))
+                  )}
+                </Field>
+              </div>
+              <Field label="Nombre" required>
+                {textInput(modal.item.nombre, (v) =>
+                  setModal((x) => ({ ...x, item: { ...x.item, nombre: v } }))
+                )}
+              </Field>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "0 16px" }}>
+                <Field label="Tipo">
+                  <SelectInput
+                    value={modal.item.tipo || "A"}
+                    onChange={(v) => setModal((x) => ({ ...x, item: { ...x.item, tipo: v } }))}
+                    options={TIPOS_PC.map((t) => ({ value: t.value, label: `${t.value} — ${t.label}` }))}
+                    style={{ width: "100%" }}
+                  />
+                </Field>
+                <Field label="Subtipo">
+                  {textInput(modal.item.subtipo || "", (v) =>
+                    setModal((x) => ({ ...x, item: { ...x.item, subtipo: v } }))
+                  )}
+                </Field>
+                <Field label="Nivel">
+                  <SelectInput
+                    value={String(modal.item.nivel || 2)}
+                    onChange={(v) => setModal((x) => ({ ...x, item: { ...x.item, nivel: Number(v) } }))}
+                    options={[
+                      { value: "1", label: "1 — Agrupador" },
+                      { value: "2", label: "2 — Hoja (acepta asientos)" },
+                    ]}
+                    style={{ width: "100%" }}
+                  />
+                </Field>
+              </div>
+              <Field label="Código padre (agrupador)">
+                <SelectInput
+                  value={modal.item.padre_codigo || ""}
+                  onChange={(v) =>
+                    setModal((x) => ({ ...x, item: { ...x.item, padre_codigo: v || null } }))
+                  }
+                  options={[{ value: "", label: "— Sin padre —" }].concat(
+                    cuentas
+                      .filter((c) => c.nivel === 1 && c.codigo !== modal.item.codigo)
+                      .map((c) => ({ value: c.codigo, label: `${c.codigo} — ${c.nombre}` }))
+                  )}
+                  style={{ width: "100%" }}
+                />
+              </Field>
+              <div style={{ display: "flex", gap: 20, flexWrap: "wrap", marginBottom: 8 }}>
+                {checkInput(!!modal.item.aplica_trib, (v) =>
+                  setModal((x) => ({ ...x, item: { ...x.item, aplica_trib: v } })),
+                  "Aplica tributario"
+                )}
+                {checkInput(!!modal.item.aplica_ifrs, (v) =>
+                  setModal((x) => ({ ...x, item: { ...x.item, aplica_ifrs: v } })),
+                  "Aplica IFRS"
+                )}
+                {checkInput(!!modal.item.acepta_me, (v) =>
+                  setModal((x) => ({ ...x, item: { ...x.item, acepta_me: v } })),
+                  "Acepta moneda extranjera"
+                )}
+                {checkInput(!!modal.item.usa_ceco, (v) =>
+                  setModal((x) => ({ ...x, item: { ...x.item, usa_ceco: v } })),
+                  "Requiere centro de costo"
+                )}
+                {checkInput(!!modal.item.usa_auxiliar, (v) =>
+                  setModal((x) => ({ ...x, item: { ...x.item, usa_auxiliar: v } })),
+                  "Requiere auxiliar"
+                )}
+                {checkInput(modal.item.activa !== false, (v) =>
+                  setModal((x) => ({ ...x, item: { ...x.item, activa: v } })),
+                  "Activa"
+                )}
+              </div>
+              <div style={{ borderTop: `1px solid ${C.border}`, paddingTop: 12, marginBottom: 12 }}>
+                <p style={{ fontSize: 11, color: C.textMuted, marginBottom: 8, fontWeight: 600 }}>
+                  CLASIFICACIÓN IFRS (opcional)
+                </p>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0 16px" }}>
+                  <Field label="Nombre IFRS">
+                    {textInput(modal.item.ifrs_nombre || "", (v) =>
+                      setModal((x) => ({ ...x, item: { ...x.item, ifrs_nombre: v } }))
+                    )}
+                  </Field>
+                  <Field label="Clasificación IFRS">
+                    {textInput(modal.item.clasif_ifrs || "", (v) =>
+                      setModal((x) => ({ ...x, item: { ...x.item, clasif_ifrs: v } }))
+                    )}
+                  </Field>
+                </div>
+              </div>
+              <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+                <Btn color="ghost" onClick={() => { setModal(null); setError(""); }}>Cancelar</Btn>
+                <Btn color="primary" onClick={handleSave}>
+                  {modal.mode === "add" ? "Crear cuenta" : "Guardar cambios"}
+                </Btn>
+              </div>
+            </Modal>
+          )}
+        </div>
+      )}
+
+      {/* ── SUB-TAB: IMPORTAR / HOMOLOGAR ── */}
+      {subTab === "importar" && (
+        <div>
+          {/* Stepper */}
+          <div style={{ display: "flex", alignItems: "center", marginBottom: 20 }}>
+            {["Cargar archivo", "Vista previa", "Mapear cuentas", "Confirmar"].map((lbl, idx) => {
+              const num = idx + 1;
+              const done = paso > num;
+              const active = paso === num;
+              return (
+                <React.Fragment key={lbl}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                    <div
+                      style={{
+                        width: 26, height: 26, borderRadius: "50%", display: "flex",
+                        alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 700,
+                        background: done ? C.success : active ? C.primary : C.bgInput,
+                        color: done || active ? "#fff" : C.textMuted,
+                        border: done || active ? "none" : `1px solid ${C.border}`,
+                        flexShrink: 0,
+                      }}
+                    >
+                      {done ? "✓" : num}
+                    </div>
+                    <span
+                      style={{
+                        fontSize: 12, whiteSpace: "nowrap",
+                        color: done ? C.success : active ? C.primary : C.textMuted,
+                        fontWeight: active ? 600 : 400,
+                      }}
+                    >
+                      {lbl}
+                    </span>
+                  </div>
+                  {idx < 3 && (
+                    <div style={{ flex: 1, height: 1, background: C.border, margin: "0 8px", minWidth: 10 }} />
+                  )}
+                </React.Fragment>
+              );
+            })}
           </div>
-        </Modal>
+
+          <ErrorMsg msg={importError} />
+          <SuccessMsg msg={importOk} />
+
+          {/* PASO 1: Cargar archivo */}
+          {paso === 1 && (
+            <div>
+              <div
+                style={{
+                  border: `2px dashed ${C.border}`, borderRadius: 10, padding: 36,
+                  textAlign: "center", background: C.bgInput,
+                }}
+              >
+                <div style={{ fontSize: 32, marginBottom: 10 }}>📊</div>
+                <p style={{ fontWeight: 600, fontSize: 14, color: C.text, marginBottom: 6 }}>
+                  Cargar archivo Excel o CSV del sistema de origen
+                </p>
+                <p style={{ fontSize: 12, color: C.textMuted, marginBottom: 16 }}>
+                  Contec o Megasystem — se detecta automáticamente
+                </p>
+                <Btn color="primary" onClick={() => fileRef.current?.click()}>
+                  Seleccionar archivo
+                </Btn>
+                <input
+                  ref={fileRef}
+                  type="file"
+                  accept=".xlsx,.xls,.csv"
+                  style={{ display: "none" }}
+                  onChange={handleArchivoChange}
+                />
+              </div>
+            </div>
+          )}
+
+          {/* PASO 2: Vista previa + confirmar detección */}
+          {paso === 2 && (
+            <div>
+              <div
+                style={{
+                  background: "#141720", border: `1px solid ${C.border}`, borderRadius: 8,
+                  padding: "12px 16px", marginBottom: 14,
+                  display: "flex", flexWrap: "wrap", gap: 12, alignItems: "center",
+                }}
+              >
+                <span style={{ fontSize: 13, color: C.text }}>
+                  📄 <strong>{archivoNombre}</strong> — {rowsRaw.length} filas
+                </span>
+                {sistemaDetectado ? (
+                  <Badge
+                    label={`Sistema detectado: ${sistemaDetectado.toUpperCase()}`}
+                    color="success"
+                  />
+                ) : (
+                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <span style={{ fontSize: 12, color: C.warning }}>⚠ No detectado — seleccionar:</span>
+                    <SelectInput
+                      value={sistemaManual}
+                      onChange={setSistemaManual}
+                      options={[
+                        { value: "", label: "— Seleccionar —" },
+                        { value: "contec", label: "Contec" },
+                        { value: "megasystem", label: "Megasystem" },
+                        { value: "softland", label: "Softland" },
+                        { value: "defontana", label: "Defontana" },
+                        { value: "manual", label: "Manual" },
+                      ]}
+                      style={{ width: 160 }}
+                    />
+                  </div>
+                )}
+              </div>
+              <div style={{ display: "flex", gap: 16, marginBottom: 14, flexWrap: "wrap" }}>
+                <Field label="Columna de código origen">
+                  <SelectInput
+                    value={colCodigo}
+                    onChange={setColCodigo}
+                    options={headers.map((h) => ({ value: h, label: h }))}
+                    style={{ width: 200 }}
+                  />
+                </Field>
+                <Field label="Columna de nombre origen">
+                  <SelectInput
+                    value={colNombre}
+                    onChange={setColNombre}
+                    options={headers.map((h) => ({ value: h, label: h }))}
+                    style={{ width: 200 }}
+                  />
+                </Field>
+              </div>
+              <div
+                style={{
+                  overflowX: "auto", maxHeight: 260, overflowY: "auto",
+                  border: `1px solid ${C.border}`, borderRadius: 8, marginBottom: 16,
+                }}
+              >
+                <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+                  <thead>
+                    <tr>
+                      {headers.map((h) => <Th key={h}>{h}</Th>)}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {rowsRaw.slice(0, 20).map((row, i) => (
+                      <tr key={i} style={{ background: i % 2 === 0 ? "transparent" : "rgba(255,255,255,0.02)" }}>
+                        {headers.map((h) => (
+                          <td
+                            key={h}
+                            style={{
+                              padding: "5px 10px", borderBottom: `1px solid ${C.border}`,
+                              color: h === colCodigo || h === colNombre ? C.text : C.textMuted,
+                              fontWeight: h === colCodigo ? 600 : 400,
+                            }}
+                          >
+                            {String(row[h] ?? "")}
+                          </td>
+                        ))}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              {rowsRaw.length > 20 && (
+                <p style={{ fontSize: 11, color: C.textDim, marginBottom: 12 }}>
+                  Mostrando 20 de {rowsRaw.length} filas
+                </p>
+              )}
+              <div style={{ display: "flex", gap: 8 }}>
+                <Btn color="ghost" onClick={resetImport}>Volver</Btn>
+                <Btn
+                  color="primary"
+                  onClick={handlePasarAMapeo}
+                  disabled={!colCodigo || !colNombre || (!sistemaDetectado && !sistemaManual)}
+                >
+                  Continuar — mapear cuentas →
+                </Btn>
+              </div>
+            </div>
+          )}
+
+          {/* PASO 3: Mapeo de códigos a plan maestro */}
+          {paso === 3 && (
+            <div>
+              <div
+                style={{
+                  display: "flex", gap: 20, marginBottom: 14,
+                  background: "#141720", border: `1px solid ${C.border}`,
+                  borderRadius: 8, padding: "10px 16px", flexWrap: "wrap",
+                }}
+              >
+                <span style={{ fontSize: 13, color: C.text }}>
+                  <strong>{mapeo.length}</strong> <span style={{ color: C.textMuted }}>códigos</span>
+                </span>
+                <span style={{ fontSize: 13, color: C.success }}>
+                  <strong>{totalMapeadas}</strong> mapeados automáticamente
+                </span>
+                <span style={{ fontSize: 13, color: totalSinMapear > 0 ? C.warning : C.textMuted }}>
+                  <strong>{totalSinMapear}</strong> sin mapear
+                </span>
+                <Badge label={sistemaFinal.toUpperCase()} color="info" />
+              </div>
+              <p style={{ fontSize: 12, color: C.textMuted, marginBottom: 10 }}>
+                Revisa y completa los códigos sin cuenta destino. Los sin mapear se guardarán con
+                <code style={{ marginLeft: 4 }}>cuenta_id = null</code> para resolverlos luego.
+              </p>
+              <div
+                style={{
+                  overflowX: "auto", maxHeight: 380, overflowY: "auto",
+                  border: `1px solid ${C.border}`, borderRadius: 8, marginBottom: 16,
+                }}
+              >
+                <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+                  <thead>
+                    <tr>
+                      <Th>Código origen</Th>
+                      <Th>Nombre origen</Th>
+                      <Th style={{ width: 280 }}>Cuenta maestro destino</Th>
+                      <Th style={{ width: 90 }}>Estado</Th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {mapeo.map((m, i) => (
+                      <Tr key={i}>
+                        <Td>
+                          <span style={{ fontFamily: "monospace", color: C.primary }}>{m.codigo_origen}</span>
+                        </Td>
+                        <Td style={{ color: C.textMuted }}>{m.nombre_origen}</Td>
+                        <Td>
+                          <SelectInput
+                            value={m.cuenta_id || ""}
+                            onChange={(v) => {
+                              const c = cuentas.find((c) => c.id === v);
+                              setMapeoItem(i, v || null, c ? c.codigo : null);
+                            }}
+                            options={[{ value: "", label: "— Sin mapear —" }].concat(
+                              cuentas
+                                .filter((c) => c.nivel === 2)
+                                .map((c) => ({ value: c.id, label: `${c.codigo} — ${c.nombre}` }))
+                            )}
+                            style={{ width: "100%", fontSize: 11 }}
+                          />
+                        </Td>
+                        <Td>
+                          {m.cuenta_id ? (
+                            <Badge label="✓ mapeado" color="success" />
+                          ) : (
+                            <Badge label="sin mapear" color="muted" />
+                          )}
+                        </Td>
+                      </Tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <div style={{ display: "flex", gap: 8 }}>
+                <Btn color="ghost" onClick={() => setPaso(2)}>Volver</Btn>
+                <Btn color="primary" onClick={() => setPaso(4)}>
+                  Revisar resumen →
+                </Btn>
+              </div>
+            </div>
+          )}
+
+          {/* PASO 4: Confirmar */}
+          {paso === 4 && !importOk && (
+            <div>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12, marginBottom: 16 }}>
+                {[
+                  { num: mapeo.length, lbl: "códigos a importar", col: C.text },
+                  { num: totalMapeadas, lbl: "mapeados a cuenta maestro", col: C.success },
+                  { num: totalSinMapear, lbl: "sin mapear (cuenta_id=null)", col: totalSinMapear > 0 ? C.warning : C.textMuted },
+                ].map(({ num, lbl, col }) => (
+                  <div
+                    key={lbl}
+                    style={{
+                      background: "#141720", border: `1px solid ${C.border}`, borderRadius: 8,
+                      padding: "12px 14px", textAlign: "center",
+                    }}
+                  >
+                    <div style={{ fontSize: 28, fontWeight: 700, color: col }}>{num}</div>
+                    <div style={{ fontSize: 11, color: C.textMuted, marginTop: 4 }}>{lbl}</div>
+                  </div>
+                ))}
+              </div>
+              <div
+                style={{
+                  background: C.infoBg, border: `1px solid ${C.info}`, borderRadius: 8,
+                  padding: "10px 14px", marginBottom: 16, fontSize: 12, color: C.info,
+                }}
+              >
+                Se hará upsert en <code>contab_homologacion</code> con{" "}
+                <code>sistema_origen = '{sistemaFinal}'</code>. Los registros existentes con el
+                mismo código se actualizarán (no se duplican).
+              </div>
+              <div style={{ display: "flex", gap: 8 }}>
+                <Btn color="ghost" onClick={() => setPaso(3)}>Volver</Btn>
+                <Btn color="success" onClick={handleConfirmarImport} disabled={importando}>
+                  {importando ? "Importando..." : `Importar ${mapeo.length} registros a homologación`}
+                </Btn>
+              </div>
+            </div>
+          )}
+
+          {/* PASO 4 completado */}
+          {importOk && (
+            <div
+              style={{
+                background: C.successBg, border: `1px solid ${C.success}`, borderRadius: 10,
+                padding: "24px 20px", textAlign: "center",
+              }}
+            >
+              <div style={{ fontSize: 32, marginBottom: 8 }}>✅</div>
+              <p style={{ fontSize: 15, fontWeight: 600, color: C.success, marginBottom: 8 }}>
+                Importación completada
+              </p>
+              <p style={{ fontSize: 13, color: C.textMuted, marginBottom: 16 }}>{importOk}</p>
+              <Btn color="ghost" onClick={resetImport}>Nueva importación</Btn>
+            </div>
+          )}
+        </div>
       )}
     </div>
   );
