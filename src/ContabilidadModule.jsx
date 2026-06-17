@@ -2229,157 +2229,192 @@ function PeriodosTab({ empresaId, canEdit }) {
   );
 }
 
-// ─── Tab 7: Mapeo de Códigos ─────────────────────────────────────────────────
+// ─── Tab 7: Homologación ─────────────────────────────────────────────────────
 
 const SISTEMAS_ORIGEN = ["megasystem", "contec", "otro"];
 
-function MapeoCodosTab({ empresaId, canEdit }) {
-  const [mapeos, setMapeos] = useState([]);
+function HomologacionTab({ empresaId, canEdit }) {
+  const [homologaciones, setHomologaciones] = useState([]);
+  const [cuentas, setCuentas] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [ok, setOk] = useState("");
   const [sistema, setSistema] = useState("megasystem");
-  const [modal, setModal] = useState(null);
-  const [importModal, setImportModal] = useState(false);
-  const [importPreview, setImportPreview] = useState(null);
-  const [importando, setImportando] = useState(false);
-  const fileRef = useRef();
+  const [filtro, setFiltro] = useState("todos"); // todos | sin_asignar | asignados
+  const [busqueda, setBusqueda] = useState("");
+  const [modalAsignar, setModalAsignar] = useState(null);
+  const [buscaCuenta, setBuscaCuenta] = useState("");
+  const [guardando, setGuardando] = useState(false);
 
-  const load = useCallback(async () => {
+  const loadData = useCallback(async () => {
     if (!empresaId) return;
     setLoading(true);
     setError("");
     try {
-      const data = await supaSelect(
-        "mapeo_codigos",
-        `empresa_id=eq.${empresaId}&sistema_origen=eq.${sistema}&order=codigo_origen.asc`
-      );
-      setMapeos(data || []);
+      const [homos, plan] = await Promise.all([
+        supaSelect(
+          "contab_homologacion",
+          `empresa_id=eq.${empresaId}&sistema_origen=eq.${sistema}&deleted_at=is.null&order=codigo_origen.asc`
+        ),
+        supaSelect(
+          "contab_plan_cuentas",
+          `empresa_id=eq.${empresaId}&activa=eq.true&deleted_at=is.null&order=orden_display.asc,codigo.asc`
+        ),
+      ]);
+      setHomologaciones(homos || []);
+      setCuentas(plan || []);
     } catch (e) {
-      setError(e.message);
+      setError("Error cargando datos: " + e.message);
     }
     setLoading(false);
   }, [empresaId, sistema]);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => { loadData(); }, [loadData]);
 
-  const initModal = (mode, item = null) => {
-    if (mode === "add") {
-      setModal({
-        mode,
-        item: { empresa_id: empresaId, sistema_origen: sistema, codigo_origen: "", nombre_origen: "", codigo_nuevo: "", activo: true },
+  const filasFiltradas = useMemo(() => {
+    let rows = homologaciones;
+    if (filtro === "sin_asignar") rows = rows.filter((r) => !r.cuenta_id);
+    else if (filtro === "asignados") rows = rows.filter((r) => !!r.cuenta_id);
+    if (busqueda.trim()) {
+      const q = busqueda.trim().toLowerCase();
+      rows = rows.filter(
+        (r) =>
+          (r.codigo_origen || "").toLowerCase().includes(q) ||
+          (r.nombre_origen || "").toLowerCase().includes(q)
+      );
+    }
+    return rows;
+  }, [homologaciones, filtro, busqueda]);
+
+  const cuentasFiltradas = useMemo(() => {
+    if (!buscaCuenta.trim()) return cuentas;
+    const q = buscaCuenta.trim().toLowerCase();
+    return cuentas.filter(
+      (c) =>
+        (c.codigo || "").toLowerCase().includes(q) ||
+        (c.nombre || "").toLowerCase().includes(q)
+    );
+  }, [cuentas, buscaCuenta]);
+
+  const totalAsignados = useMemo(
+    () => homologaciones.filter((r) => !!r.cuenta_id).length,
+    [homologaciones]
+  );
+
+  const handleAsignar = async (cuentaSeleccionada) => {
+    if (!modalAsignar) return;
+    setGuardando(true);
+    setError("");
+    try {
+      await supaUpdate("contab_homologacion", modalAsignar.homologacion.id, {
+        cuenta_id: cuentaSeleccionada.id,
       });
-    } else {
-      setModal({ mode, item: { ...item } });
-    }
-  };
-
-  const handleSave = async () => {
-    const { mode, item } = modal;
-    if (!item.codigo_origen || !item.codigo_nuevo) { setError("Código origen y código nuevo son obligatorios"); return; }
-    setError("");
-    try {
-      const payload = {
-        empresa_id: empresaId,
-        sistema_origen: sistema,
-        codigo_origen: item.codigo_origen.trim(),
-        nombre_origen: item.nombre_origen || "",
-        codigo_nuevo: item.codigo_nuevo.trim(),
-        activo: item.activo !== false,
-      };
-      if (mode === "add") {
-        await supaInsert("mapeo_codigos", payload);
-      } else {
-        await supaUpdate("mapeo_codigos", item.id, payload);
-      }
-      setOk(mode === "add" ? "Mapeo creado" : "Mapeo actualizado");
-      setModal(null);
-      load();
-      setTimeout(() => setOk(""), 3000);
-    } catch (e) {
-      setError(e.message);
-    }
-  };
-
-  const handleToggle = async (item) => {
-    try {
-      await supaUpdate("mapeo_codigos", item.id, { activo: !item.activo });
-      load();
-    } catch (e) {
-      setError(e.message);
-    }
-  };
-
-  const handleImportFile = (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = (ev) => {
-      try {
-        const XLSX = window.XLSX;
-        if (!XLSX) { setError("SheetJS no está disponible"); return; }
-        const wb = XLSX.read(ev.target.result, { type: "binary" });
-        const ws = wb.Sheets[wb.SheetNames[0]];
-        const rows = XLSX.utils.sheet_to_json(ws, { defval: "" });
-        setImportPreview(rows);
-        setImportModal(true);
-      } catch (err) {
-        setError("Error leyendo el archivo: " + err.message);
-      }
-    };
-    reader.readAsBinaryString(file);
-    e.target.value = "";
-  };
-
-  const handleConfirmImport = async () => {
-    if (!importPreview) return;
-    setImportando(true);
-    setError("");
-    try {
-      const payload = importPreview
-        .map((r) => ({
-          empresa_id: empresaId,
-          sistema_origen: sistema,
-          codigo_origen: String(r.codigo_origen || "").trim(),
-          nombre_origen: String(r.nombre_origen || "").trim(),
-          codigo_nuevo: String(r.codigo_nuevo || "").trim(),
-          activo: true,
-        }))
-        .filter((r) => r.codigo_origen && r.codigo_nuevo);
-      await supaUpsert("mapeo_codigos", payload, "empresa_id,sistema_origen,codigo_origen");
-      setOk(`${payload.length} mapeos importados`);
-      setImportModal(false);
-      setImportPreview(null);
-      load();
+      setOk(`Cuenta "${cuentaSeleccionada.codigo} – ${cuentaSeleccionada.nombre}" asignada`);
+      setModalAsignar(null);
+      setBuscaCuenta("");
+      await loadData();
       setTimeout(() => setOk(""), 4000);
     } catch (e) {
+      setError("Error al guardar: " + e.message);
+    }
+    setGuardando(false);
+  };
+
+  const handleDesasignar = async (homo) => {
+    setError("");
+    try {
+      await supaUpdate("contab_homologacion", homo.id, { cuenta_id: null });
+      setOk("Cuenta desasignada");
+      await loadData();
+      setTimeout(() => setOk(""), 3000);
+    } catch (e) {
+      setError("Error al desasignar: " + e.message);
+    }
+  };
+
+  const handleToggleActivo = async (homo) => {
+    setError("");
+    try {
+      await supaUpdate("contab_homologacion", homo.id, { activo: !homo.activo });
+      await loadData();
+    } catch (e) {
       setError(e.message);
     }
-    setImportando(false);
   };
+
+  const cuentaMap = useMemo(() => {
+    const m = {};
+    cuentas.forEach((c) => { m[c.id] = c; });
+    return m;
+  }, [cuentas]);
+
+  const pct = homologaciones.length > 0
+    ? Math.round((totalAsignados / homologaciones.length) * 100)
+    : 0;
 
   return (
     <div>
+      {/* Barra de progreso */}
+      {homologaciones.length > 0 && (
+        <div style={{ marginBottom: 16, background: C.surface2, borderRadius: 8, padding: "10px 14px" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+            <span style={{ fontSize: 13, color: C.textMuted }}>
+              Progreso de homologación —{" "}
+              <strong style={{ color: C.text }}>{totalAsignados}</strong>{" "}
+              de <strong style={{ color: C.text }}>{homologaciones.length}</strong> códigos asignados
+            </span>
+            <span style={{ fontSize: 13, fontWeight: 700, color: pct === 100 ? C.success : C.warning }}>
+              {pct}%
+            </span>
+          </div>
+          <div style={{ height: 6, background: C.border, borderRadius: 3, overflow: "hidden" }}>
+            <div
+              style={{
+                height: "100%",
+                width: `${pct}%`,
+                background: pct === 100 ? C.success : C.primary,
+                borderRadius: 3,
+                transition: "width 0.4s",
+              }}
+            />
+          </div>
+        </div>
+      )}
+
+      {/* Controles */}
       <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 14, alignItems: "center" }}>
         <SelectInput
           value={sistema}
           onChange={setSistema}
           options={SISTEMAS_ORIGEN.map((s) => ({ value: s, label: s.charAt(0).toUpperCase() + s.slice(1) }))}
         />
-        <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
-          {canEdit && empresaId && (
-            <>
-              <Btn color="ghost" size="sm" onClick={() => fileRef.current && fileRef.current.click()}>
-                Importar desde Excel
-              </Btn>
-              <input ref={fileRef} type="file" accept=".xlsx,.xls,.csv" style={{ display: "none" }} onChange={handleImportFile} />
-              <Btn color="primary" size="sm" onClick={() => initModal("add")}>+ Agregar mapeo</Btn>
-            </>
-          )}
-        </div>
+        <SelectInput
+          value={filtro}
+          onChange={setFiltro}
+          options={[
+            { value: "todos", label: "Todos" },
+            { value: "sin_asignar", label: "Sin asignar" },
+            { value: "asignados", label: "Asignados" },
+          ]}
+        />
+        <input
+          type="text"
+          placeholder="Buscar código o nombre..."
+          value={busqueda}
+          onChange={(e) => setBusqueda(e.target.value)}
+          style={{
+            padding: "6px 10px", borderRadius: 6, border: `1px solid ${C.border}`,
+            background: C.inputBg, color: C.text, fontSize: 13, width: 200,
+          }}
+        />
+        <span style={{ marginLeft: "auto", fontSize: 12, color: C.textDim }}>
+          {filasFiltradas.length} registros
+        </span>
       </div>
+
       <ErrorMsg msg={error} />
       <SuccessMsg msg={ok} />
+
       {!empresaId ? (
         <div style={{ padding: 32, textAlign: "center", color: C.textMuted }}>Selecciona una empresa.</div>
       ) : (
@@ -2389,7 +2424,7 @@ function MapeoCodosTab({ empresaId, canEdit }) {
               <Th>Código origen</Th>
               <Th>Nombre origen</Th>
               <Th style={{ textAlign: "center" }}>→</Th>
-              <Th>Código nuevo</Th>
+              <Th>Cuenta interna</Th>
               <Th>Estado</Th>
               {canEdit && <Th></Th>}
             </tr>
@@ -2397,90 +2432,131 @@ function MapeoCodosTab({ empresaId, canEdit }) {
           <tbody>
             {loading ? (
               <LoadingRow cols={canEdit ? 6 : 5} />
-            ) : mapeos.length === 0 ? (
+            ) : filasFiltradas.length === 0 ? (
               <EmptyRow cols={canEdit ? 6 : 5} />
             ) : (
-              mapeos.map((m) => (
-                <Tr key={m.id}>
-                  <Td><span style={{ fontFamily: "monospace", color: C.warning }}>{m.codigo_origen}</span></Td>
-                  <Td style={{ color: C.textMuted }}>{m.nombre_origen || "—"}</Td>
-                  <Td style={{ textAlign: "center", color: C.textDim }}>→</Td>
-                  <Td><span style={{ fontFamily: "monospace", color: C.primary }}>{m.codigo_nuevo}</span></Td>
-                  <Td><Badge label={m.activo ? "Activo" : "Inactivo"} color={m.activo ? "success" : "muted"} /></Td>
-                  {canEdit && (
+              filasFiltradas.map((h) => {
+                const cuenta = h.cuenta_id ? cuentaMap[h.cuenta_id] : null;
+                return (
+                  <Tr key={h.id}>
                     <Td>
-                      <div style={{ display: "flex", gap: 6 }}>
-                        <Btn size="sm" color="ghost" onClick={() => initModal("edit", m)}>Editar</Btn>
-                        <Btn size="sm" color={m.activo ? "warning" : "success"} onClick={() => handleToggle(m)}>
-                          {m.activo ? "Desactivar" : "Activar"}
-                        </Btn>
-                      </div>
+                      <span style={{ fontFamily: "monospace", color: C.warning }}>{h.codigo_origen}</span>
                     </Td>
-                  )}
-                </Tr>
-              ))
+                    <Td style={{ color: C.textMuted, fontSize: 12 }}>{h.nombre_origen || "—"}</Td>
+                    <Td style={{ textAlign: "center", color: C.textDim }}>→</Td>
+                    <Td>
+                      {cuenta ? (
+                        <span>
+                          <span style={{ fontFamily: "monospace", color: C.primary, fontSize: 12 }}>
+                            {cuenta.codigo}
+                          </span>
+                          <span style={{ color: C.text, fontSize: 12, marginLeft: 6 }}>
+                            {cuenta.nombre}
+                          </span>
+                        </span>
+                      ) : (
+                        <span style={{ color: C.textDim, fontSize: 12, fontStyle: "italic" }}>Sin asignar</span>
+                      )}
+                    </Td>
+                    <Td>
+                      <Badge
+                        label={h.activo !== false ? "Activo" : "Inactivo"}
+                        color={h.activo !== false ? "success" : "muted"}
+                      />
+                    </Td>
+                    {canEdit && (
+                      <Td>
+                        <div style={{ display: "flex", gap: 6 }}>
+                          <Btn
+                            size="sm"
+                            color={cuenta ? "ghost" : "primary"}
+                            onClick={() => { setBuscaCuenta(""); setModalAsignar({ homologacion: h }); }}
+                          >
+                            {cuenta ? "Cambiar" : "Asignar"}
+                          </Btn>
+                          {cuenta && (
+                            <Btn size="sm" color="danger" onClick={() => handleDesasignar(h)}>
+                              Quitar
+                            </Btn>
+                          )}
+                          <Btn
+                            size="sm"
+                            color={h.activo !== false ? "warning" : "success"}
+                            onClick={() => handleToggleActivo(h)}
+                          >
+                            {h.activo !== false ? "Off" : "On"}
+                          </Btn>
+                        </div>
+                      </Td>
+                    )}
+                  </Tr>
+                );
+              })
             )}
           </tbody>
         </TableWrapper>
       )}
 
-      {modal && (
+      {/* Modal selector de cuenta */}
+      {modalAsignar && (
         <Modal
-          title={modal.mode === "add" ? "Nuevo mapeo" : "Editar mapeo"}
-          onClose={() => { setModal(null); setError(""); }}
+          title={`Asignar cuenta — ${modalAsignar.homologacion.codigo_origen}`}
+          onClose={() => { setModalAsignar(null); setBuscaCuenta(""); setError(""); }}
+          width={640}
         >
           <ErrorMsg msg={error} />
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0 16px" }}>
-            <Field label="Código origen" required>
-              {textInput(modal.item.codigo_origen, (v) => setModal((x) => ({ ...x, item: { ...x.item, codigo_origen: v } })))}
-            </Field>
-            <Field label="Código nuevo" required>
-              {textInput(modal.item.codigo_nuevo, (v) => setModal((x) => ({ ...x, item: { ...x.item, codigo_nuevo: v } })))}
-            </Field>
-          </div>
-          <Field label="Nombre origen">
-            {textInput(modal.item.nombre_origen || "", (v) => setModal((x) => ({ ...x, item: { ...x.item, nombre_origen: v } })))}
-          </Field>
-          {checkInput(modal.item.activo !== false, (v) => setModal((x) => ({ ...x, item: { ...x.item, activo: v } })), "Activo")}
-          <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 14 }}>
-            <Btn color="ghost" onClick={() => { setModal(null); setError(""); }}>Cancelar</Btn>
-            <Btn color="primary" onClick={handleSave}>{modal.mode === "add" ? "Crear" : "Guardar"}</Btn>
-          </div>
-        </Modal>
-      )}
-
-      {importModal && importPreview && (
-        <Modal title="Previsualizar importación" onClose={() => setImportModal(false)} width={600}>
-          <ErrorMsg msg={error} />
-          <p style={{ color: C.textMuted, fontSize: 13, marginBottom: 12 }}>
-            <strong style={{ color: C.text }}>{importPreview.length}</strong> filas detectadas.
-            Se requieren columnas: <code style={{ color: C.info }}>codigo_origen</code>, <code style={{ color: C.info }}>nombre_origen</code>, <code style={{ color: C.info }}>codigo_nuevo</code>.
+          <p style={{ fontSize: 12, color: C.textMuted, marginBottom: 10 }}>
+            {modalAsignar.homologacion.nombre_origen && (
+              <span>Origen: <em>{modalAsignar.homologacion.nombre_origen}</em> — </span>
+            )}
+            Selecciona la cuenta del plan interno que corresponde.
           </p>
-          <div style={{ overflowX: "auto", maxHeight: 280, overflowY: "auto", border: `1px solid ${C.border}`, borderRadius: 6 }}>
+          <input
+            type="text"
+            placeholder="Buscar por código o nombre..."
+            value={buscaCuenta}
+            onChange={(e) => setBuscaCuenta(e.target.value)}
+            autoFocus
+            style={{
+              width: "100%", padding: "7px 10px", borderRadius: 6,
+              border: `1px solid ${C.border}`, background: C.inputBg,
+              color: C.text, fontSize: 13, marginBottom: 10, boxSizing: "border-box",
+            }}
+          />
+          <div style={{ maxHeight: 340, overflowY: "auto", border: `1px solid ${C.border}`, borderRadius: 6 }}>
             <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
               <thead>
-                <tr>
-                  {Object.keys(importPreview[0] || {}).map((k) => <Th key={k}>{k}</Th>)}
+                <tr style={{ background: C.surface2 }}>
+                  <Th>Código</Th>
+                  <Th>Nombre</Th>
+                  <Th>Tipo</Th>
+                  <Th>Clasif. IFRS</Th>
                 </tr>
               </thead>
               <tbody>
-                {importPreview.slice(0, 30).map((row, i) => (
-                  <tr key={i} style={{ background: i % 2 === 0 ? "transparent" : "rgba(255,255,255,0.02)" }}>
-                    {Object.values(row).map((v, j) => (
-                      <td key={j} style={{ padding: "5px 10px", borderBottom: `1px solid ${C.border}`, color: C.textMuted }}>
-                        {String(v)}
-                      </td>
-                    ))}
-                  </tr>
-                ))}
+                {cuentasFiltradas.length === 0 ? (
+                  <tr><td colSpan={4} style={{ padding: "16px", textAlign: "center", color: C.textDim }}>Sin resultados</td></tr>
+                ) : (
+                  cuentasFiltradas.map((c) => (
+                    <tr
+                      key={c.id}
+                      onClick={() => !guardando && handleAsignar(c)}
+                      style={{ cursor: "pointer", background: "transparent", borderBottom: `1px solid ${C.border}` }}
+                      onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(255,255,255,0.05)"; }}
+                      onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
+                    >
+                      <td style={{ padding: "6px 10px", fontFamily: "monospace", color: C.primary }}>{c.codigo}</td>
+                      <td style={{ padding: "6px 10px", color: C.text }}>{c.nombre}</td>
+                      <td style={{ padding: "6px 10px", color: C.textMuted }}>{c.tipo}</td>
+                      <td style={{ padding: "6px 10px", color: C.textDim, fontSize: 11 }}>{c.clasif_ifrs || "—"}</td>
+                    </tr>
+                  ))
+                )}
               </tbody>
             </table>
           </div>
-          <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 14 }}>
-            <Btn color="ghost" onClick={() => setImportModal(false)}>Cancelar</Btn>
-            <Btn color="success" onClick={handleConfirmImport} disabled={importando}>
-              {importando ? "Importando..." : "Confirmar importación"}
-            </Btn>
+          <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 12 }}>
+            <Btn color="ghost" onClick={() => { setModalAsignar(null); setBuscaCuenta(""); }}>Cancelar</Btn>
           </div>
         </Modal>
       )}
@@ -5735,7 +5811,7 @@ const TABS = [
   { key: "centros_costo", label: "Centros de Costo" },
   { key: "tipos_doc", label: "Tipos de Documento" },
   { key: "periodos", label: "Períodos" },
-  { key: "mapeo", label: "Mapeo de Códigos" },
+  { key: "mapeo", label: "Homologación" },
   { key: "informes_analitica", label: "Informes y Analítica" },
 ];
 
@@ -5932,7 +6008,7 @@ export default function ContabilidadModule({ usuario, canEdit, esCFO, onBack }) 
         )}
 
         {tabActiva === "mapeo" && (
-          <MapeoCodosTab empresaId={empresaId} canEdit={canEdit || esCFO} />
+          <HomologacionTab empresaId={empresaId} canEdit={canEdit || esCFO} />
         )}
 
         {tabActiva === "informes_analitica" && (
