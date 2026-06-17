@@ -3881,12 +3881,1150 @@ function LibroDiarioTab({ empresaId, canEdit, usuario }) {
   return null;
 }
 
+// ─── CentralizacionSiiTab ────────────────────────────────────────────────────
+
+const MESES_LABEL_C = ["","Ene","Feb","Mar","Abr","May","Jun","Jul","Ago","Sep","Oct","Nov","Dic"];
+
+function fmtM(n) {
+  if (n == null || n === "") return "—";
+  return "$" + Math.round(Number(n)).toLocaleString("es-CL");
+}
+
+function fmtD(s) {
+  if (!s) return "—";
+  return new Date(s + "T12:00:00").toLocaleDateString("es-CL", { day: "2-digit", month: "2-digit", year: "2-digit" });
+}
+
+const TIPO_DOC_LABEL = {
+  "33": "Factura afecta (33)", "34": "Factura exenta (34)", "39": "Boleta (39)",
+  "46": "Liquidación (46)", "52": "G. despacho (52)", "56": "Nota débito (56)",
+  "61": "Nota crédito (61)", "110": "F. Export. (110)",
+};
+
+const BSTG = {
+  pendiente: { bg: C.infoBg, color: C.info },
+  mapeado: { bg: C.tealBg, color: C.teal },
+  centralizado: { bg: C.successBg, color: C.success },
+  ignorado: { bg: "#f0efe8", color: C.textDim },
+};
+
+const BLOTE = {
+  borrador: { bg: C.warningBg, color: C.warning },
+  validado: { bg: C.infoBg, color: C.info },
+  centralizado: { bg: C.successBg, color: C.success },
+  anulado: { bg: C.dangerBg, color: C.danger },
+};
+
+function BadgeSt({ estado }) {
+  const s = BSTG[estado] || { bg: "#eee", color: "#666" };
+  return <span style={{ background: s.bg, color: s.color, borderRadius: 10, padding: "2px 8px", fontSize: 11, fontWeight: 600, whiteSpace: "nowrap" }}>{estado}</span>;
+}
+
+function BadgeLt({ estado }) {
+  const s = BLOTE[estado] || { bg: "#eee", color: "#666" };
+  return <span style={{ background: s.bg, color: s.color, borderRadius: 10, padding: "2px 8px", fontSize: 11, fontWeight: 600, whiteSpace: "nowrap" }}>{estado}</span>;
+}
+
+function parsearRCV(workbook) {
+  const sheetName = workbook.SheetNames[0];
+  const rows = XLSX.utils.sheet_to_json(workbook.Sheets[sheetName], { defval: "" });
+  if (!rows.length) return [];
+
+  const findCol = (row, candidates) => {
+    for (const c of candidates) {
+      const k = Object.keys(row).find(k => k.trim().toLowerCase() === c.toLowerCase());
+      if (k) return k;
+    }
+    return null;
+  };
+
+  const sample = rows[0];
+  const kFolio   = findCol(sample, ["Folio","N Folio","Nro Folio","N° Folio","folio"]);
+  const kTipo    = findCol(sample, ["Tipo DTE","Tipo Doc","Tipo","tipo_dte","TipoDTE"]);
+  const kRut     = findCol(sample, ["RUT Emisor","Rut Emisor","RUT","Rut","rut_emisor"]);
+  const kNombre  = findCol(sample, ["Razón Social","Razon Social","Nombre","razon_social"]);
+  const kFecha   = findCol(sample, ["Fecha Docto.","Fecha Doc","Fecha Documento","Fecha","fecha_doc"]);
+  const kNeto    = findCol(sample, ["Monto Neto","Neto","monto_neto"]);
+  const kIva     = findCol(sample, ["Monto IVA","IVA","iva","Iva"]);
+  const kExento  = findCol(sample, ["Monto Exento","Exento","exento"]);
+  const kTotal   = findCol(sample, ["Monto Total","Total","total"]);
+
+  const parseMonto = (v) => {
+    if (v == null || v === "") return 0;
+    return Number(String(v).replace(/[$. ]/g, "").replace(",", ".")) || 0;
+  };
+
+  const parseFecha = (v) => {
+    if (!v) return null;
+    if (typeof v === "number") {
+      const d = new Date((v - 25569) * 86400 * 1000);
+      return d.toISOString().slice(0, 10);
+    }
+    const s = String(v).trim();
+    const parts = s.split(/[\/\-]/);
+    if (parts.length === 3) {
+      if (parts[2].length === 4) return `${parts[2]}-${parts[1].padStart(2,"0")}-${parts[0].padStart(2,"0")}`;
+      return s;
+    }
+    return s;
+  };
+
+  return rows.map(r => ({
+    tipo_doc_sii: kTipo ? String(r[kTipo]).trim() : "33",
+    folio: kFolio ? String(r[kFolio]).trim() : "",
+    fecha_doc: kFecha ? parseFecha(r[kFecha]) : null,
+    rut_emisor: kRut ? String(r[kRut]).trim() : "",
+    nombre_emisor: kNombre ? String(r[kNombre]).trim() : "",
+    monto_neto: kNeto ? parseMonto(r[kNeto]) : 0,
+    monto_iva: kIva ? parseMonto(r[kIva]) : 0,
+    monto_exento: kExento ? parseMonto(r[kExento]) : 0,
+    monto_total: kTotal ? parseMonto(r[kTotal]) : 0,
+  })).filter(r => r.folio);
+}
+
+function calcularAsientoLote(docsSel, asignaciones, reglaCompras, cuentaMap) {
+  const lineas = [];
+  let totalDebe = 0;
+  let totalHaber = 0;
+  let ivaAcum = 0;
+  let provAcum = 0;
+
+  docsSel.forEach((doc, i) => {
+    const asig = asignaciones[doc.id] || {};
+    const esNC = doc.tipo_doc_sii === "61" || doc.tipo_doc_sii === "56";
+    const signo = esNC ? -1 : 1;
+
+    const neto = Math.abs(Number(doc.monto_neto || 0));
+    const iva = Math.abs(Number(doc.monto_iva || 0));
+    const total = Math.abs(Number(doc.monto_total || 0)) || (neto + iva);
+
+    const ctaGasto = cuentaMap[asig.cuenta_id] || {};
+    if (asig.cuenta_id && neto > 0) {
+      const montoLinea = neto * signo;
+      if (montoLinea >= 0) {
+        lineas.push({ tipo: "D", cuenta_id: asig.cuenta_id, cuenta_codigo: ctaGasto.codigo || "", cuenta_nombre: ctaGasto.nombre || "", debe: Math.abs(montoLinea), haber: 0, glosa: `${TIPO_DOC_LABEL[doc.tipo_doc_sii] || doc.tipo_doc_sii} Fo.${doc.folio} — ${(doc.nombre_emisor || "").slice(0,30)}`, cuartel_id: asig.cuartel_id || null });
+        totalDebe += Math.abs(montoLinea);
+      } else {
+        lineas.push({ tipo: "H", cuenta_id: asig.cuenta_id, cuenta_codigo: ctaGasto.codigo || "", cuenta_nombre: ctaGasto.nombre || "", debe: 0, haber: Math.abs(montoLinea), glosa: `NC Fo.${doc.folio} — ${(doc.nombre_emisor || "").slice(0,30)}`, cuartel_id: asig.cuartel_id || null });
+        totalHaber += Math.abs(montoLinea);
+      }
+    }
+    ivaAcum += iva * signo;
+    provAcum += total * signo;
+  });
+
+  if (reglaCompras) {
+    const ctaIva = cuentaMap[reglaCompras.cta_iva_cf_id] || {};
+    const ctaProv = cuentaMap[reglaCompras.cta_proveedores_id] || {};
+
+    if (reglaCompras.cta_iva_cf_id && Math.abs(ivaAcum) > 0) {
+      if (ivaAcum >= 0) {
+        lineas.push({ tipo: "D", cuenta_id: reglaCompras.cta_iva_cf_id, cuenta_codigo: ctaIva.codigo || "", cuenta_nombre: ctaIva.nombre || "", debe: ivaAcum, haber: 0, glosa: "IVA Crédito Fiscal", cuartel_id: null });
+        totalDebe += ivaAcum;
+      } else {
+        lineas.push({ tipo: "H", cuenta_id: reglaCompras.cta_iva_cf_id, cuenta_codigo: ctaIva.codigo || "", cuenta_nombre: ctaIva.nombre || "", debe: 0, haber: Math.abs(ivaAcum), glosa: "IVA Crédito Fiscal — reversa NC", cuartel_id: null });
+        totalHaber += Math.abs(ivaAcum);
+      }
+    }
+
+    if (reglaCompras.cta_proveedores_id && Math.abs(provAcum) > 0) {
+      if (provAcum >= 0) {
+        lineas.push({ tipo: "H", cuenta_id: reglaCompras.cta_proveedores_id, cuenta_codigo: ctaProv.codigo || "", cuenta_nombre: ctaProv.nombre || "", debe: 0, haber: provAcum, glosa: "Proveedores — centralización lote", cuartel_id: null });
+        totalHaber += provAcum;
+      } else {
+        lineas.push({ tipo: "D", cuenta_id: reglaCompras.cta_proveedores_id, cuenta_codigo: ctaProv.codigo || "", cuenta_nombre: ctaProv.nombre || "", debe: Math.abs(provAcum), haber: 0, glosa: "Proveedores — reversa NC", cuartel_id: null });
+        totalDebe += Math.abs(provAcum);
+      }
+    }
+  }
+
+  return { lineas, totalDebe: Math.round(totalDebe * 100) / 100, totalHaber: Math.round(totalHaber * 100) / 100 };
+}
+
+function CentralizacionSiiTab({ empresaId, canEdit, usuario }) {
+  const [vista, setVista] = useState("staging");
+  const [stagingDocs, setStagingDocs] = useState([]);
+  const [lotes, setLotes] = useState([]);
+  const [cuentas, setCuentas] = useState([]);
+  const [cuarteles, setCuarteles] = useState([]);
+  const [reglaCompras, setReglaCompras] = useState(null);
+  const [reglaVentas, setReglaVentas] = useState(null);
+  const [rutOverrides, setRutOverrides] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const [ok, setOk] = useState("");
+  const cargaOkRef = useRef(false);
+  const now = new Date();
+
+  // Filtros staging
+  const [filtroAnio, setFiltroAnio] = useState(now.getFullYear());
+  const [filtroMes, setFiltroMes] = useState(now.getMonth() + 1);
+  const [filtroTipo, setFiltroTipo] = useState("compras");
+  const [filtroEstado, setFiltroEstado] = useState("");
+  const [selIds, setSelIds] = useState(new Set());
+
+  // Upload modal
+  const [showUpload, setShowUpload] = useState(false);
+  const [upAnio, setUpAnio] = useState(now.getFullYear());
+  const [upMes, setUpMes] = useState(now.getMonth() + 1);
+  const [upTipo, setUpTipo] = useState("compras");
+  const [upFileName, setUpFileName] = useState("");
+  const [upRows, setUpRows] = useState([]);
+  const [upError, setUpError] = useState("");
+  const [uploading, setUploading] = useState(false);
+  const uploadRef = useRef();
+
+  // Nuevo lote wizard
+  const [lPaso, setLPaso] = useState(1);
+  const [lDocsSel, setLDocsSel] = useState([]);
+  const [lAsig, setLAsig] = useState({});
+  const [lLibro, setLLibro] = useState("ambos");
+  const [lGlosa, setLGlosa] = useState("");
+  const [lAnio, setLAnio] = useState(now.getFullYear());
+  const [lMes, setLMes] = useState(now.getMonth() + 1);
+  const [guardandoLote, setGuardandoLote] = useState(false);
+  const [loteError, setLoteError] = useState("");
+
+  // Historial filtros
+  const [hAnio, setHAnio] = useState(now.getFullYear());
+  const [hMes, setHMes] = useState(now.getMonth() + 1);
+  const [hTipo, setHTipo] = useState("");
+  const [hEstado, setHEstado] = useState("");
+  const [detalleLote, setDetalleLote] = useState(null);
+  const [detalleLineas, setDetalleLineas] = useState([]);
+  const [anulando, setAnulando] = useState("");
+
+  // Reglas edit
+  const [rcEdit, setRcEdit] = useState({ cta_proveedores_id: "", cta_iva_cf_id: "", cta_gasto_id: "", cuartel_id: "" });
+  const [rvEdit, setRvEdit] = useState({ cta_clientes_id: "", cta_iva_deb_id: "", cta_ingreso_id: "", cuartel_id: "" });
+  const [rutOvEdit, setRutOvEdit] = useState([]);
+  const [nuevoRut, setNuevoRut] = useState({ rut: "", nombre_ref: "", cuenta_id: "", cuartel_id: "" });
+  const [guardandoReglas, setGuardandoReglas] = useState(false);
+
+  // Mapa rápido de cuentas por ID
+  const cuentaMap = useMemo(() => {
+    const m = {};
+    cuentas.forEach(c => { m[c.id] = c; });
+    return m;
+  }, [cuentas]);
+
+  const cuartelMap = useMemo(() => {
+    const m = {};
+    cuarteles.forEach(c => { m[c.id || c.cuartel_id] = c; });
+    return m;
+  }, [cuarteles]);
+
+  const cuentaOpts = useMemo(() => cuentas.map(c => ({ value: c.id, label: `${c.codigo} — ${c.nombre}` })), [cuentas]);
+  const cuartelOpts = useMemo(() => [{ value: "", label: "Sin CeCo" }, ...cuarteles.map(c => ({ value: c.id || c.cuartel_id, label: c.nombre || c.cuartel_nombre || c.id }))], [cuarteles]);
+
+  const loadStaging = useCallback(async () => {
+    if (!empresaId) return;
+    setLoading(true);
+    setError("");
+    try {
+      const parts = [
+        `empresa_id=eq.${empresaId}`,
+        `periodo_anio=eq.${filtroAnio}`,
+        `periodo_mes=eq.${filtroMes}`,
+        filtroTipo ? `tipo=eq.${filtroTipo}` : "",
+        filtroEstado ? `estado=eq.${filtroEstado}` : "",
+        "order=created_at.desc",
+      ].filter(Boolean);
+      const data = await supaSelect("doc_sii_staging", parts.join("&"));
+      setStagingDocs(data || []);
+      cargaOkRef.current = true;
+    } catch (e) {
+      setError("Error cargando staging: " + e.message);
+      throw e;
+    } finally {
+      setLoading(false);
+    }
+  }, [empresaId, filtroAnio, filtroMes, filtroTipo, filtroEstado]);
+
+  useEffect(() => { cargaOkRef.current = false; loadStaging(); }, [loadStaging]);
+
+  const loadLotes = useCallback(async () => {
+    if (!empresaId) return;
+    try {
+      const parts = [
+        `empresa_id=eq.${empresaId}`,
+        `periodo_anio=eq.${hAnio}`,
+        `periodo_mes=eq.${hMes}`,
+        hTipo ? `tipo=eq.${hTipo}` : "",
+        hEstado ? `estado=eq.${hEstado}` : "",
+        "order=created_at.desc",
+      ].filter(Boolean);
+      const data = await supaSelect("doc_lotes", parts.join("&"));
+      setLotes(data || []);
+    } catch (e) {
+      console.error("Error lotes:", e);
+    }
+  }, [empresaId, hAnio, hMes, hTipo, hEstado]);
+
+  useEffect(() => { if (vista === "historial") loadLotes(); }, [vista, loadLotes]);
+
+  const loadAux = useCallback(async () => {
+    if (!empresaId) return;
+    try {
+      const [c, cu, r] = await Promise.all([
+        supaSelect("contab_plan_cuentas", `empresa_id=eq.${empresaId}&activa=eq.true&nivel=eq.2&mueve=eq.true&order=codigo.asc`),
+        supaSelect("cc_jerarquia", `empresa_id=eq.${empresaId}&order=nombre.asc`),
+        supaSelect("contab_reglas_centralizacion", `empresa_id=eq.${empresaId}&activa=eq.true`),
+      ]);
+      setCuentas(c || []);
+      setCuarteles(cu || []);
+      const rc = (r || []).find(x => x.tipo_origen === "lote_compras");
+      const rv = (r || []).find(x => x.tipo_origen === "lote_ventas");
+      const rRut = (r || []).find(x => x.tipo_origen === "rut_overrides");
+      setReglaCompras(rc ? (rc.lineas[0] || null) : null);
+      setReglaVentas(rv ? (rv.lineas[0] || null) : null);
+      const ovs = rRut ? rRut.lineas : [];
+      setRutOverrides(ovs);
+      setRcEdit(rc ? (rc.lineas[0] || { cta_proveedores_id: "", cta_iva_cf_id: "", cta_gasto_id: "", cuartel_id: "" }) : { cta_proveedores_id: "", cta_iva_cf_id: "", cta_gasto_id: "", cuartel_id: "" });
+      setRvEdit(rv ? (rv.lineas[0] || { cta_clientes_id: "", cta_iva_deb_id: "", cta_ingreso_id: "", cuartel_id: "" }) : { cta_clientes_id: "", cta_iva_deb_id: "", cta_ingreso_id: "", cuartel_id: "" });
+      setRutOvEdit(ovs);
+    } catch (e) {
+      console.error("Error aux:", e);
+    }
+  }, [empresaId]);
+
+  useEffect(() => { loadAux(); }, [loadAux]);
+
+  const aplicarReglaRut = useCallback((doc) => {
+    if (!doc) return {};
+    const ov = rutOverrides.find(r => r.rut === doc.rut_emisor);
+    if (ov) return { cuenta_id: ov.cuenta_id || "", cuartel_id: ov.cuartel_id || "" };
+    if (reglaCompras) return { cuenta_id: reglaCompras.cta_gasto_id || "", cuartel_id: reglaCompras.cuartel_id || "" };
+    return { cuenta_id: "", cuartel_id: "" };
+  }, [rutOverrides, reglaCompras]);
+
+  const iniciarLote = (docs) => {
+    const asig = {};
+    docs.forEach(d => { asig[d.id] = aplicarReglaRut(d); });
+    setLDocsSel(docs);
+    setLAsig(asig);
+    setLGlosa(`Compras ${MESES_LABEL_C[filtroMes]} ${filtroAnio}`);
+    setLAnio(filtroAnio);
+    setLMes(filtroMes);
+    setLPaso(1);
+    setLoteError("");
+    setVista("lote");
+  };
+
+  const asientoPreview = useMemo(() => {
+    if (!lDocsSel.length) return { lineas: [], totalDebe: 0, totalHaber: 0 };
+    return calcularAsientoLote(lDocsSel, lAsig, reglaCompras, cuentaMap);
+  }, [lDocsSel, lAsig, reglaCompras, cuentaMap]);
+
+  const lCuadrado = Math.abs(asientoPreview.totalDebe - asientoPreview.totalHaber) < 0.01;
+
+  const handleGuardarLote = async () => {
+    if (!cargaOkRef.current) { setLoteError("No se puede guardar: carga inicial incompleta."); return; }
+    if (!lCuadrado) { setLoteError("El asiento no cuadra. Verifica la asignación de cuentas."); return; }
+    if (!reglaCompras?.cta_proveedores_id || !reglaCompras?.cta_iva_cf_id) {
+      setLoteError("Configura las cuentas en la pestaña Reglas antes de centralizar."); return;
+    }
+    setGuardandoLote(true);
+    setLoteError("");
+    try {
+      const [nuevoLote] = await supaInsert("doc_lotes", {
+        empresa_id: empresaId,
+        tipo: filtroTipo || "compras",
+        periodo_anio: lAnio,
+        periodo_mes: lMes,
+        fecha_desde: lDocsSel.reduce((mn, d) => (!mn || (d.fecha_doc && d.fecha_doc < mn)) ? d.fecha_doc : mn, null),
+        fecha_hasta: lDocsSel.reduce((mx, d) => (!mx || (d.fecha_doc && d.fecha_doc > mx)) ? d.fecha_doc : mx, null),
+        glosa: lGlosa.trim() || `Centralización ${MESES_LABEL_C[lMes]} ${lAnio}`,
+        estado: "borrador",
+        total_neto: lDocsSel.reduce((s, d) => s + Number(d.monto_neto || 0), 0),
+        total_iva: lDocsSel.reduce((s, d) => s + Number(d.monto_iva || 0), 0),
+        total_exento: lDocsSel.reduce((s, d) => s + Number(d.monto_exento || 0), 0),
+        total_bruto: lDocsSel.reduce((s, d) => s + Number(d.monto_total || 0), 0),
+        usuario_crea: usuario?.id || null,
+      });
+      const loteId = nuevoLote.id;
+
+      const lineasLote = lDocsSel.map((doc, i) => ({
+        lote_id: loteId,
+        orden: i + 1,
+        tipo_doc: TIPO_DOC_LABEL[doc.tipo_doc_sii] || doc.tipo_doc_sii || "factura_afecta",
+        folio: doc.folio,
+        fecha_doc: doc.fecha_doc,
+        neto: Number(doc.monto_neto || 0),
+        iva: Number(doc.monto_iva || 0),
+        exento: Number(doc.monto_exento || 0),
+        total: Number(doc.monto_total || 0),
+        cuenta_id: lAsig[doc.id]?.cuenta_id || null,
+        cuartel_id: lAsig[doc.id]?.cuartel_id || null,
+        rut_contraparte: doc.rut_emisor,
+        nombre_contraparte: doc.nombre_emisor,
+        libro: lLibro,
+      }));
+      const lineasLoteGuardadas = await supaInsert("doc_lotes_lineas", lineasLote);
+
+      const [nuevoAsiento] = await supaInsert("contab_asientos", {
+        empresa_id: empresaId,
+        anio: lAnio,
+        mes: lMes,
+        fecha: nuevoLote.fecha_hasta || new Date().toISOString().slice(0, 10),
+        tipo: "centraliz_compras",
+        libro: lLibro,
+        glosa: lGlosa.trim() || `Centralización ${MESES_LABEL_C[lMes]} ${lAnio}`,
+        moneda: "CLP",
+        estado: "borrador",
+        total_debe: asientoPreview.totalDebe,
+        total_haber: asientoPreview.totalHaber,
+        usuario_crea: usuario?.id || null,
+      });
+      const asientoId = nuevoAsiento.id;
+
+      await supaInsert("contab_asientos_lineas", asientoPreview.lineas.map((l, i) => ({
+        asiento_id: asientoId,
+        orden: i + 1,
+        cuenta_id: l.cuenta_id,
+        cuenta_codigo: l.cuenta_codigo,
+        cuenta_nombre: l.cuenta_nombre,
+        debe: l.debe,
+        haber: l.haber,
+        libro: lLibro,
+        glosa: l.glosa || null,
+        cuartel_id: l.cuartel_id || null,
+        moneda: "CLP",
+      })));
+
+      await supaUpdate("doc_lotes", loteId, { asiento_id: asientoId });
+
+      const loteLineasMap = {};
+      (lineasLoteGuardadas || []).forEach((ll, i) => {
+        if (lDocsSel[i]) loteLineasMap[lDocsSel[i].id] = ll.id;
+      });
+      for (const doc of lDocsSel) {
+        await supaFetch(`doc_sii_staging?id=eq.${doc.id}`, {
+          method: "PATCH",
+          body: JSON.stringify({ estado: "centralizado", lote_linea_id: loteLineasMap[doc.id] || null }),
+        });
+      }
+
+      setOk(`Lote creado y asiento ${nuevoAsiento.numero || asientoId.slice(0, 8)} generado en borrador.`);
+      setTimeout(() => setOk(""), 5000);
+      setVista("historial");
+      loadStaging();
+      loadLotes();
+    } catch (e) {
+      setLoteError("Error al generar lote: " + e.message);
+    }
+    setGuardandoLote(false);
+  };
+
+  const handleIgnorar = async (ids) => {
+    if (!cargaOkRef.current) return;
+    try {
+      for (const id of ids) {
+        await supaFetch(`doc_sii_staging?id=eq.${id}`, { method: "PATCH", body: JSON.stringify({ estado: "ignorado" }) });
+      }
+      setSelIds(new Set());
+      loadStaging();
+    } catch (e) {
+      setError("Error: " + e.message);
+    }
+  };
+
+  const handleAnularLote = async (lote) => {
+    if (!window.confirm(`¿Confirma anular el lote? Esta acción ${lote.estado === "centralizado" ? "generará un asiento de reversa" : "eliminará el asiento borrador"}.`)) return;
+    setAnulando(lote.id);
+    try {
+      if (lote.estado === "borrador" || lote.estado === "validado") {
+        if (lote.asiento_id) {
+          await supaFetch(`contab_asientos_lineas?asiento_id=eq.${lote.asiento_id}`, { method: "DELETE" });
+          await supaFetch(`contab_asientos?id=eq.${lote.asiento_id}`, { method: "DELETE" });
+        }
+        const lineas = await supaSelect("doc_lotes_lineas", `lote_id=eq.${lote.id}`);
+        for (const ll of (lineas || [])) {
+          await supaFetch(`doc_sii_staging?lote_linea_id=eq.${ll.id}`, { method: "PATCH", body: JSON.stringify({ estado: "mapeado", lote_linea_id: null }) });
+        }
+        await supaFetch(`doc_lotes_lineas?lote_id=eq.${lote.id}`, { method: "DELETE" });
+        await supaUpdate("doc_lotes", lote.id, { estado: "anulado", asiento_id: null });
+      } else if (lote.estado === "centralizado") {
+        const asientoOrig = lote.asiento_id ? await supaSelect("contab_asientos", `id=eq.${lote.asiento_id}`) : [];
+        const lineasOrig = lote.asiento_id ? await supaSelect("contab_asientos_lineas", `asiento_id=eq.${lote.asiento_id}&order=orden.asc`) : [];
+        const anio = lote.periodo_anio;
+        const mes = lote.periodo_mes;
+        const orig = asientoOrig?.[0] || {};
+        const [asientoRev] = await supaInsert("contab_asientos", {
+          empresa_id: empresaId,
+          anio, mes,
+          fecha: new Date().toISOString().slice(0, 10),
+          tipo: "reversa",
+          libro: orig.libro || "ambos",
+          glosa: `REVERSA — ${orig.glosa || "Lote " + lote.id.slice(0, 8)}`,
+          moneda: "CLP",
+          estado: "borrador",
+          total_debe: orig.total_haber || 0,
+          total_haber: orig.total_debe || 0,
+          usuario_crea: usuario?.id || null,
+        });
+        await supaInsert("contab_asientos_lineas", (lineasOrig || []).map((l, i) => ({
+          asiento_id: asientoRev.id,
+          orden: i + 1,
+          cuenta_id: l.cuenta_id,
+          cuenta_codigo: l.cuenta_codigo,
+          cuenta_nombre: l.cuenta_nombre,
+          debe: l.haber,
+          haber: l.debe,
+          libro: l.libro || "ambos",
+          glosa: l.glosa || null,
+          cuartel_id: l.cuartel_id || null,
+          moneda: l.moneda || "CLP",
+        })));
+        const lineas = await supaSelect("doc_lotes_lineas", `lote_id=eq.${lote.id}`);
+        for (const ll of (lineas || [])) {
+          await supaFetch(`doc_sii_staging?lote_linea_id=eq.${ll.id}`, { method: "PATCH", body: JSON.stringify({ estado: "mapeado", lote_linea_id: null }) });
+        }
+        await supaUpdate("doc_lotes", lote.id, { estado: "anulado" });
+        setOk(`Asiento de reversa ${asientoRev.numero || asientoRev.id.slice(0,8)} generado en borrador.`);
+        setTimeout(() => setOk(""), 5000);
+      }
+      loadLotes();
+      loadStaging();
+    } catch (e) {
+      setError("Error al anular: " + e.message);
+    }
+    setAnulando("");
+  };
+
+  const handleUploadArchivo = (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setUpFileName(file.name);
+    setUpError("");
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      try {
+        const wb = XLSX.read(ev.target.result, { type: "array" });
+        const rows = parsearRCV(wb);
+        if (!rows.length) { setUpError("No se encontraron filas válidas."); return; }
+        setUpRows(rows);
+      } catch (err) {
+        setUpError("Error leyendo archivo: " + err.message);
+      }
+    };
+    reader.readAsArrayBuffer(file);
+  };
+
+  const handleCargarStaging = async () => {
+    if (!upRows.length) { setUpError("Carga un archivo primero."); return; }
+    if (!cargaOkRef.current) { setUpError("Error de conexión. Recarga la página."); return; }
+    setUploading(true);
+    setUpError("");
+    try {
+      const payload = upRows.map(r => ({
+        empresa_id: empresaId,
+        tipo: upTipo,
+        periodo_anio: upAnio,
+        periodo_mes: upMes,
+        tipo_doc_sii: r.tipo_doc_sii,
+        folio: r.folio,
+        fecha_doc: r.fecha_doc,
+        rut_emisor: r.rut_emisor,
+        nombre_emisor: r.nombre_emisor,
+        monto_neto: r.monto_neto,
+        monto_iva: r.monto_iva,
+        monto_exento: r.monto_exento,
+        monto_total: r.monto_total,
+        estado: rutOverrides.some(ov => ov.rut === r.rut_emisor) || reglaCompras?.cta_gasto_id ? "mapeado" : "pendiente",
+        fuente: "rcv_descarga",
+        archivo_origen: upFileName,
+      }));
+      await supaInsert("doc_sii_staging", payload);
+      setOk(`${payload.length} documentos cargados al staging.`);
+      setTimeout(() => setOk(""), 4000);
+      setShowUpload(false);
+      setUpRows([]); setUpFileName("");
+      if (uploadRef.current) uploadRef.current.value = "";
+      loadStaging();
+    } catch (e) {
+      setUpError("Error al guardar: " + e.message);
+    }
+    setUploading(false);
+  };
+
+  const handleGuardarReglas = async () => {
+    if (!empresaId) return;
+    setGuardandoReglas(true);
+    try {
+      await supaUpsert("contab_reglas_centralizacion", {
+        empresa_id: empresaId,
+        tipo_origen: "lote_compras",
+        nombre: "Centralización Compras",
+        activa: true,
+        lineas: [rcEdit],
+      }, "empresa_id,tipo_origen");
+      await supaUpsert("contab_reglas_centralizacion", {
+        empresa_id: empresaId,
+        tipo_origen: "lote_ventas",
+        nombre: "Centralización Ventas",
+        activa: true,
+        lineas: [rvEdit],
+      }, "empresa_id,tipo_origen");
+      await supaUpsert("contab_reglas_centralizacion", {
+        empresa_id: empresaId,
+        tipo_origen: "rut_overrides",
+        nombre: "Overrides por RUT",
+        activa: true,
+        lineas: rutOvEdit,
+      }, "empresa_id,tipo_origen");
+      await loadAux();
+      setOk("Reglas guardadas.");
+      setTimeout(() => setOk(""), 3000);
+    } catch (e) {
+      setError("Error guardando reglas: " + e.message);
+    }
+    setGuardandoReglas(false);
+  };
+
+  const ANIOS = [now.getFullYear() - 1, now.getFullYear(), now.getFullYear() + 1];
+  const MESES = [1,2,3,4,5,6,7,8,9,10,11,12].map(m => ({ value: m, label: MESES_LABEL_C[m] }));
+
+  const seleccionados = stagingDocs.filter(d => selIds.has(d.id));
+  const puedeIniciarLote = seleccionados.length > 0 && seleccionados.every(d => d.estado === "pendiente" || d.estado === "mapeado");
+
+  const cardS = { background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: 8, padding: "14px 16px", marginBottom: 12 };
+  const thS = { padding: "6px 8px", fontSize: 11, fontWeight: 600, color: C.textMuted, textAlign: "left", borderBottom: `1px solid ${C.border}`, background: C.bgInput, whiteSpace: "nowrap" };
+  const tdS = { padding: "6px 8px", fontSize: 12, borderBottom: `0.5px solid ${C.border}`, verticalAlign: "middle" };
+  const tdR = { ...tdS, textAlign: "right" };
+  const inpS = { width: "100%", padding: "5px 8px", fontSize: 12, border: `1px solid ${C.border}`, borderRadius: 5, background: C.bgInput, color: C.text };
+  const selS = { ...inpS, width: "auto" };
+  const rowFlex = { display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginBottom: 10 };
+  const labelS = { fontSize: 11, color: C.textMuted, whiteSpace: "nowrap" };
+
+  // ── Selector de año/mes ──────────────────────────────────────────────────────
+  const AnioMesSel = ({ anio, setAnio, mes, setMes }) => (
+    <>
+      <select style={selS} value={mes} onChange={e => setMes(Number(e.target.value))}>
+        {MESES.map(m => <option key={m.value} value={m.value}>{m.label}</option>)}
+      </select>
+      <select style={selS} value={anio} onChange={e => setAnio(Number(e.target.value))}>
+        {ANIOS.map(a => <option key={a} value={a}>{a}</option>)}
+      </select>
+    </>
+  );
+
+  // ── TABS internos ────────────────────────────────────────────────────────────
+  const VTABS = [
+    { key: "staging", label: "Staging SII" },
+    { key: "lote", label: "Nuevo lote" },
+    { key: "historial", label: "Historial de lotes" },
+    { key: "reglas", label: "Reglas" },
+  ];
+
+  return (
+    <div>
+      {/* Header status */}
+      {ok && <div style={{ background: C.successBg, border: `1px solid ${C.success}`, borderRadius: 6, padding: "8px 14px", marginBottom: 12, fontSize: 13, color: C.success }}>{ok}</div>}
+      {error && <div style={{ background: C.dangerBg, border: `1px solid ${C.danger}`, borderRadius: 6, padding: "8px 14px", marginBottom: 12, fontSize: 13, color: C.danger }}>{error} <button onClick={() => setError("")} style={{ marginLeft: 8, background: "none", border: "none", cursor: "pointer", color: C.danger, fontWeight: 700 }}>×</button></div>}
+
+      {/* Sub-tabs */}
+      <div style={{ display: "flex", gap: 0, borderBottom: `1px solid ${C.border}`, marginBottom: 18 }}>
+        {VTABS.map(t => {
+          const act = vista === t.key;
+          return (
+            <button key={t.key} onClick={() => setVista(t.key)} style={{ background: "none", border: "none", borderBottom: act ? `2px solid ${C.primary}` : "2px solid transparent", color: act ? C.primary : C.textMuted, cursor: "pointer", fontSize: 13, fontWeight: act ? 600 : 400, padding: "8px 16px", whiteSpace: "nowrap" }}>
+              {t.label}
+            </button>
+          );
+        })}
+      </div>
+
+      {/* ─── VISTA STAGING ─── */}
+      {vista === "staging" && (
+        <div>
+          <div style={rowFlex}>
+            <Btn color="ghost" onClick={() => { /* placeholder SII API */ alert("Integración SII API pendiente de certificado digital."); }}>⬇ Sincronizar SII (API)</Btn>
+            <Btn color="primary" onClick={() => setShowUpload(true)}>↑ Cargar RCV (CSV/Excel)</Btn>
+            <span style={{ flex: 1 }} />
+            <span style={labelS}>Período:</span>
+            <AnioMesSel anio={filtroAnio} setAnio={setFiltroAnio} mes={filtroMes} setMes={setFiltroMes} />
+            <select style={selS} value={filtroTipo} onChange={e => setFiltroTipo(e.target.value)}>
+              <option value="">Todos</option>
+              <option value="compras">Compras</option>
+              <option value="ventas">Ventas</option>
+            </select>
+            <select style={selS} value={filtroEstado} onChange={e => setFiltroEstado(e.target.value)}>
+              <option value="">Todos los estados</option>
+              <option value="pendiente">Pendiente</option>
+              <option value="mapeado">Mapeado</option>
+              <option value="centralizado">Centralizado</option>
+              <option value="ignorado">Ignorado</option>
+            </select>
+            <Btn color="ghost" size="sm" onClick={loadStaging}>↻</Btn>
+          </div>
+
+          {loading ? <div style={{ padding: 24, textAlign: "center", color: C.textDim }}>Cargando...</div> : (
+            <>
+              <div style={{ overflowX: "auto" }}>
+                <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 900 }}>
+                  <thead>
+                    <tr>
+                      <th style={thS}><input type="checkbox" onChange={e => { if (e.target.checked) setSelIds(new Set(stagingDocs.map(d => d.id))); else setSelIds(new Set()); }} /></th>
+                      <th style={thS}>Folio</th>
+                      <th style={thS}>Tipo doc</th>
+                      <th style={thS}>Fecha</th>
+                      <th style={thS}>RUT emisor</th>
+                      <th style={thS}>Nombre emisor</th>
+                      <th style={{ ...thS, textAlign: "right" }}>Neto</th>
+                      <th style={{ ...thS, textAlign: "right" }}>IVA</th>
+                      <th style={{ ...thS, textAlign: "right" }}>Total</th>
+                      <th style={thS}>Fuente</th>
+                      <th style={thS}>Estado</th>
+                      <th style={thS}>Cuenta sugerida</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {stagingDocs.length === 0 && (
+                      <tr><td colSpan={12} style={{ ...tdS, textAlign: "center", color: C.textDim, padding: 24 }}>Sin documentos para este período / filtro</td></tr>
+                    )}
+                    {stagingDocs.map(doc => {
+                      const sel = selIds.has(doc.id);
+                      const ov = rutOverrides.find(r => r.rut === doc.rut_emisor);
+                      const ctaSugerida = ov ? cuentaMap[ov.cuenta_id] : (reglaCompras ? cuentaMap[reglaCompras.cta_gasto_id] : null);
+                      return (
+                        <tr key={doc.id} style={{ background: sel ? "#f0f4ff" : "transparent" }} onClick={() => { const s = new Set(selIds); if (s.has(doc.id)) s.delete(doc.id); else s.add(doc.id); setSelIds(s); }}>
+                          <td style={tdS} onClick={e => e.stopPropagation()}><input type="checkbox" checked={sel} onChange={() => { const s = new Set(selIds); if (s.has(doc.id)) s.delete(doc.id); else s.add(doc.id); setSelIds(s); }} /></td>
+                          <td style={{ ...tdS, fontFamily: "monospace" }}>{doc.folio}</td>
+                          <td style={{ ...tdS, fontSize: 11 }}>{TIPO_DOC_LABEL[doc.tipo_doc_sii] || doc.tipo_doc_sii}</td>
+                          <td style={tdS}>{fmtD(doc.fecha_doc)}</td>
+                          <td style={{ ...tdS, fontFamily: "monospace", fontSize: 11 }}>{doc.rut_emisor}</td>
+                          <td style={{ ...tdS, maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{doc.nombre_emisor}</td>
+                          <td style={tdR}>{fmtM(doc.monto_neto)}</td>
+                          <td style={tdR}>{fmtM(doc.monto_iva)}</td>
+                          <td style={tdR}>{fmtM(doc.monto_total)}</td>
+                          <td style={tdS}><span style={{ background: doc.fuente === "rcv_descarga" ? C.successBg : C.infoBg, color: doc.fuente === "rcv_descarga" ? C.success : C.info, fontSize: 10, padding: "1px 5px", borderRadius: 3, fontFamily: "monospace" }}>{doc.fuente}</span></td>
+                          <td style={tdS}><BadgeSt estado={doc.estado} /></td>
+                          <td style={{ ...tdS, fontSize: 11, color: ctaSugerida ? C.textMuted : C.danger }}>{ctaSugerida ? `${ctaSugerida.codigo} ${ctaSugerida.nombre}` : "— sin regla"}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+              <div style={{ display: "flex", gap: 8, marginTop: 10, alignItems: "center" }}>
+                <Btn color="primary" disabled={!puedeIniciarLote} onClick={() => iniciarLote(seleccionados)}>
+                  Centralizar seleccionados ({seleccionados.length}) →
+                </Btn>
+                <Btn color="ghost" disabled={selIds.size === 0} onClick={() => handleIgnorar([...selIds])}>Ignorar seleccionados</Btn>
+                {selIds.size > 0 && <span style={{ fontSize: 12, color: C.textMuted }}>{selIds.size} seleccionado(s)</span>}
+              </div>
+            </>
+          )}
+
+          {/* Upload Modal */}
+          {showUpload && (
+            <Modal title="Cargar RCV desde portal SII" onClose={() => { setShowUpload(false); setUpRows([]); setUpFileName(""); setUpError(""); }} width={600}>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginBottom: 14 }}>
+                <div>
+                  <div style={{ marginBottom: 8 }}>
+                    <label style={labelS}>Período</label>
+                    <div style={{ display: "flex", gap: 6, marginTop: 3 }}>
+                      <AnioMesSel anio={upAnio} setAnio={setUpAnio} mes={upMes} setMes={setUpMes} />
+                    </div>
+                  </div>
+                  <div style={{ marginBottom: 8 }}>
+                    <label style={labelS}>Tipo</label>
+                    <select style={{ ...inpS, marginTop: 3 }} value={upTipo} onChange={e => setUpTipo(e.target.value)}>
+                      <option value="compras">Compras</option>
+                      <option value="ventas">Ventas</option>
+                      <option value="honorarios">Honorarios</option>
+                    </select>
+                  </div>
+                </div>
+                <div>
+                  <div style={{ border: `1.5px dashed ${C.border}`, borderRadius: 6, padding: "20px 14px", textAlign: "center" }}>
+                    <div style={{ fontSize: 28, marginBottom: 6, color: C.textDim }}>📄</div>
+                    <div style={{ fontSize: 12, color: C.textMuted, marginBottom: 8 }}>Formato RCV SII: Folio, Tipo DTE, RUT, Neto, IVA, Total</div>
+                    {upFileName && <div style={{ fontSize: 11, color: C.success, marginBottom: 6, fontWeight: 600 }}>✓ {upFileName} — {upRows.length} filas</div>}
+                    <input ref={uploadRef} type="file" accept=".csv,.xlsx,.xls" style={{ display: "none" }} onChange={handleUploadArchivo} />
+                    <Btn size="sm" color="ghost" onClick={() => uploadRef.current?.click()}>Seleccionar archivo</Btn>
+                  </div>
+                </div>
+              </div>
+              {upError && <div style={{ color: C.danger, fontSize: 12, marginBottom: 8 }}>{upError}</div>}
+              {upRows.length > 0 && (
+                <div style={{ fontSize: 12, color: C.textMuted, marginBottom: 10, background: C.bgInput, borderRadius: 5, padding: "8px 12px" }}>
+                  Previsualización: {upRows.length} documentos detectados — Neto total: {fmtM(upRows.reduce((s, r) => s + r.monto_neto, 0))}
+                </div>
+              )}
+              <div style={{ display: "flex", gap: 8 }}>
+                <Btn color="primary" disabled={uploading || !upRows.length} onClick={handleCargarStaging}>{uploading ? "Cargando..." : `Importar ${upRows.length} docs`}</Btn>
+                <Btn color="ghost" onClick={() => { setShowUpload(false); setUpRows([]); setUpFileName(""); setUpError(""); }}>Cancelar</Btn>
+              </div>
+            </Modal>
+          )}
+        </div>
+      )}
+
+      {/* ─── VISTA NUEVO LOTE ─── */}
+      {vista === "lote" && (
+        <div>
+          {/* Stepper */}
+          <div style={{ display: "flex", alignItems: "center", gap: 0, marginBottom: 20 }}>
+            {["Docs + cabecera", "Asignación contable", "Confirmar"].map((label, i) => {
+              const paso = i + 1;
+              const act = lPaso === paso;
+              const done = lPaso > paso;
+              return (
+                <React.Fragment key={paso}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: act ? C.primary : done ? C.success : C.textDim, cursor: done ? "pointer" : "default" }} onClick={() => done && setLPaso(paso)}>
+                    <div style={{ width: 22, height: 22, borderRadius: "50%", background: act ? C.primary : done ? C.success : C.bgInput, color: act || done ? "#fff" : C.textDim, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 600, border: `1px solid ${act ? C.primary : done ? C.success : C.border}` }}>{done ? "✓" : paso}</div>
+                    <span style={{ fontWeight: act ? 600 : 400 }}>{label}</span>
+                  </div>
+                  {i < 2 && <div style={{ flex: 1, height: 1, background: C.border, margin: "0 8px" }} />}
+                </React.Fragment>
+              );
+            })}
+          </div>
+
+          {loteError && <div style={{ background: C.dangerBg, border: `1px solid ${C.danger}`, borderRadius: 6, padding: "8px 14px", marginBottom: 12, fontSize: 13, color: C.danger }}>{loteError}</div>}
+
+          {/* Paso 1 */}
+          {lPaso === 1 && (
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+              <div style={cardS}>
+                <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 10 }}>Documentos seleccionados ({lDocsSel.length})</div>
+                <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                  <thead><tr><th style={thS}>Folio</th><th style={thS}>Emisor</th><th style={{ ...thS, textAlign: "right" }}>Total</th></tr></thead>
+                  <tbody>
+                    {lDocsSel.map(d => (
+                      <tr key={d.id}><td style={{ ...tdS, fontFamily: "monospace", fontSize: 11 }}>{d.folio}</td><td style={{ ...tdS, fontSize: 11, maxWidth: 160, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{d.nombre_emisor}</td><td style={tdR}>{fmtM(d.monto_total)}</td></tr>
+                    ))}
+                    <tr style={{ fontWeight: 600 }}>
+                      <td colSpan={2} style={{ ...tdS, borderTop: `1px solid ${C.border}` }}>Total</td>
+                      <td style={{ ...tdR, borderTop: `1px solid ${C.border}` }}>{fmtM(lDocsSel.reduce((s, d) => s + Number(d.monto_total || 0), 0))}</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+              <div style={cardS}>
+                <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 12 }}>Cabecera del lote</div>
+                {[
+                  { label: "Glosa", el: <input style={inpS} value={lGlosa} onChange={e => setLGlosa(e.target.value)} /> },
+                  { label: "Período", el: <div style={{ display: "flex", gap: 6 }}><AnioMesSel anio={lAnio} setAnio={setLAnio} mes={lMes} setMes={setLMes} /></div> },
+                  { label: "Libro contable", el: <select style={inpS} value={lLibro} onChange={e => setLLibro(e.target.value)}><option value="tributario">Tributario</option><option value="ambos">Ambos (Tributario + IFRS)</option><option value="ifrs">IFRS</option></select> },
+                ].map(({ label, el }) => (
+                  <div key={label} style={{ marginBottom: 10 }}>
+                    <label style={{ ...labelS, display: "block", marginBottom: 3 }}>{label}</label>
+                    {el}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Paso 2 */}
+          {lPaso === 2 && (
+            <div>
+              <div style={{ ...cardS, background: C.infoBg, border: `1px solid ${C.info}` }}>
+                <div style={{ fontSize: 12, color: C.info }}>Las cuentas Proveedores e IVA CF se asignan automáticamente desde las Reglas. Aquí defines la cuenta de gasto/activo y CeCo por cada documento.</div>
+              </div>
+              {lDocsSel.map(doc => (
+                <div key={doc.id} style={cardS}>
+                  <div style={{ fontWeight: 600, fontSize: 12, marginBottom: 10, display: "flex", justifyContent: "space-between" }}>
+                    <span>{TIPO_DOC_LABEL[doc.tipo_doc_sii] || doc.tipo_doc_sii} — Fo.{doc.folio} — {doc.nombre_emisor}</span>
+                    <span style={{ color: C.textMuted }}>{fmtM(doc.monto_total)}</span>
+                  </div>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                    <div>
+                      <label style={{ ...labelS, display: "block", marginBottom: 3 }}>Cuenta gasto / activo</label>
+                      <select style={inpS} value={lAsig[doc.id]?.cuenta_id || ""} onChange={e => setLAsig(a => ({ ...a, [doc.id]: { ...a[doc.id], cuenta_id: e.target.value } }))}>
+                        <option value="">— seleccionar —</option>
+                        {cuentaOpts.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                      </select>
+                    </div>
+                    <div>
+                      <label style={{ ...labelS, display: "block", marginBottom: 3 }}>Centro de costo</label>
+                      <select style={inpS} value={lAsig[doc.id]?.cuartel_id || ""} onChange={e => setLAsig(a => ({ ...a, [doc.id]: { ...a[doc.id], cuartel_id: e.target.value } }))}>
+                        {cuartelOpts.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                      </select>
+                    </div>
+                  </div>
+                </div>
+              ))}
+              <div style={{ marginTop: 4, ...cardS, background: C.bgInput }}>
+                <div style={{ fontWeight: 600, fontSize: 12, marginBottom: 8 }}>Cuentas automáticas (desde regla de centralización)</div>
+                <div style={{ display: "flex", gap: 24, fontSize: 12 }}>
+                  <span style={{ color: C.textMuted }}>Proveedores (HABER): <strong>{reglaCompras ? (cuentaMap[reglaCompras.cta_proveedores_id]?.codigo || "—") : "— sin configurar"}</strong></span>
+                  <span style={{ color: C.textMuted }}>IVA CF (DEBE): <strong>{reglaCompras ? (cuentaMap[reglaCompras.cta_iva_cf_id]?.codigo || "—") : "— sin configurar"}</strong></span>
+                </div>
+                {(!reglaCompras?.cta_proveedores_id || !reglaCompras?.cta_iva_cf_id) && (
+                  <div style={{ color: C.danger, fontSize: 11, marginTop: 6 }}>⚠ Configura estas cuentas en la pestaña Reglas antes de continuar.</div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Paso 3 — Preview */}
+          {lPaso === 3 && (
+            <div>
+              <div style={cardS}>
+                <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 12 }}>Preview — Asiento borrador a generar</div>
+                <div style={{ background: C.bgInput, borderRadius: 6, padding: 12 }}>
+                  <div style={{ display: "grid", gridTemplateColumns: "2fr 3fr 1fr 1fr", gap: 8, fontSize: 11, fontWeight: 600, color: C.textMuted, paddingBottom: 6, borderBottom: `1px solid ${C.border}`, marginBottom: 4 }}>
+                    <span>Cuenta</span><span>Glosa</span><span style={{ textAlign: "right" }}>Debe</span><span style={{ textAlign: "right" }}>Haber</span>
+                  </div>
+                  {asientoPreview.lineas.map((l, i) => (
+                    <div key={i} style={{ display: "grid", gridTemplateColumns: "2fr 3fr 1fr 1fr", gap: 8, fontSize: 12, padding: "3px 0", borderBottom: `0.5px solid ${C.border}` }}>
+                      <span style={{ fontFamily: "monospace", fontSize: 11 }}>{l.cuenta_codigo} <span style={{ color: C.textMuted, fontFamily: "inherit" }}>{l.cuenta_nombre}</span></span>
+                      <span style={{ color: C.textMuted, fontSize: 11 }}>{l.glosa}</span>
+                      <span style={{ textAlign: "right", color: l.debe > 0 ? C.success : "transparent" }}>{l.debe > 0 ? fmtM(l.debe) : ""}</span>
+                      <span style={{ textAlign: "right", color: l.haber > 0 ? C.info : "transparent" }}>{l.haber > 0 ? fmtM(l.haber) : ""}</span>
+                    </div>
+                  ))}
+                  <div style={{ display: "grid", gridTemplateColumns: "2fr 3fr 1fr 1fr", gap: 8, fontSize: 12, fontWeight: 600, padding: "8px 0 0", borderTop: `1px solid ${C.borderLight}`, marginTop: 4 }}>
+                    <span /><span>Total</span>
+                    <span style={{ textAlign: "right", color: C.success }}>{fmtM(asientoPreview.totalDebe)}</span>
+                    <span style={{ textAlign: "right", color: C.info }}>{fmtM(asientoPreview.totalHaber)}</span>
+                  </div>
+                </div>
+                <div style={{ marginTop: 8, fontSize: 12, color: lCuadrado ? C.success : C.danger, fontWeight: 600 }}>
+                  {lCuadrado ? "✓ Asiento cuadrado" : `⚠ Descuadre: ${fmtM(Math.abs(asientoPreview.totalDebe - asientoPreview.totalHaber))}`}
+                </div>
+                <div style={{ marginTop: 8, fontSize: 12, color: C.textMuted }}>
+                  Libro: <strong>{lLibro}</strong> · Período: <strong>{MESES_LABEL_C[lMes]} {lAnio}</strong> · Estado: <strong>borrador</strong>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Botones de navegación */}
+          <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
+            {lPaso > 1 && <Btn color="ghost" onClick={() => setLPaso(p => p - 1)}>← Anterior</Btn>}
+            {lPaso < 3 && <Btn color="primary" onClick={() => setLPaso(p => p + 1)}>Siguiente →</Btn>}
+            {lPaso === 3 && <Btn color="success" disabled={!lCuadrado || guardandoLote} onClick={handleGuardarLote}>{guardandoLote ? "Generando..." : "Generar lote borrador"}</Btn>}
+            <Btn color="ghost" onClick={() => setVista("staging")}>← Volver al staging</Btn>
+          </div>
+        </div>
+      )}
+
+      {/* ─── VISTA HISTORIAL ─── */}
+      {vista === "historial" && (
+        <div>
+          <div style={rowFlex}>
+            <AnioMesSel anio={hAnio} setAnio={setHAnio} mes={hMes} setMes={setHMes} />
+            <select style={selS} value={hTipo} onChange={e => setHTipo(e.target.value)}>
+              <option value="">Todos los tipos</option>
+              <option value="compras">Compras</option>
+              <option value="ventas">Ventas</option>
+              <option value="honorarios">Honorarios</option>
+            </select>
+            <select style={selS} value={hEstado} onChange={e => setHEstado(e.target.value)}>
+              <option value="">Todos los estados</option>
+              <option value="borrador">Borrador</option>
+              <option value="validado">Validado</option>
+              <option value="centralizado">Centralizado</option>
+              <option value="anulado">Anulado</option>
+            </select>
+            <Btn color="ghost" size="sm" onClick={loadLotes}>↻</Btn>
+          </div>
+
+          <div style={{ ...cardS, background: C.warningBg, border: `1px solid ${C.warning}`, fontSize: 12, color: C.warning }}>
+            <strong>Anulación:</strong> Lote en <em>borrador/validado</em> → elimina el asiento y libera los documentos. Lote <em>centralizado</em> (mayorizado) → genera asiento de reversa automático y libera el lote.
+          </div>
+
+          <div style={{ overflowX: "auto" }}>
+            <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 900 }}>
+              <thead>
+                <tr>
+                  <th style={thS}>Tipo</th>
+                  <th style={thS}>Período</th>
+                  <th style={thS}>Fecha desde</th>
+                  <th style={thS}>Fecha hasta</th>
+                  <th style={{ ...thS, textAlign: "right" }}>Neto</th>
+                  <th style={{ ...thS, textAlign: "right" }}>IVA</th>
+                  <th style={{ ...thS, textAlign: "right" }}>Total</th>
+                  <th style={thS}>Estado</th>
+                  <th style={thS}>Asiento</th>
+                  <th style={thS}>Acciones</th>
+                </tr>
+              </thead>
+              <tbody>
+                {lotes.length === 0 && <tr><td colSpan={10} style={{ ...tdS, textAlign: "center", color: C.textDim, padding: 24 }}>Sin lotes para este período</td></tr>}
+                {lotes.map(lote => (
+                  <tr key={lote.id} style={{ opacity: lote.estado === "anulado" ? 0.6 : 1 }}>
+                    <td style={tdS}>{lote.tipo}</td>
+                    <td style={tdS}>{MESES_LABEL_C[lote.periodo_mes]} {lote.periodo_anio}</td>
+                    <td style={tdS}>{fmtD(lote.fecha_desde)}</td>
+                    <td style={tdS}>{fmtD(lote.fecha_hasta)}</td>
+                    <td style={tdR}>{fmtM(lote.total_neto)}</td>
+                    <td style={tdR}>{fmtM(lote.total_iva)}</td>
+                    <td style={tdR}>{fmtM(lote.total_bruto)}</td>
+                    <td style={tdS}><BadgeLt estado={lote.estado} /></td>
+                    <td style={{ ...tdS, fontFamily: "monospace", fontSize: 11, color: C.info }}>{lote.asiento_id ? lote.asiento_id.slice(0, 8) + "…" : "—"}</td>
+                    <td style={tdS}>
+                      <div style={{ display: "flex", gap: 4 }}>
+                        <Btn size="sm" color="ghost" onClick={async () => {
+                          const lineas = await supaSelect("doc_lotes_lineas", `lote_id=eq.${lote.id}&order=orden.asc`);
+                          setDetalleLineas(lineas || []);
+                          setDetalleLote(lote);
+                        }}>Ver</Btn>
+                        {lote.estado !== "anulado" && canEdit && (
+                          <Btn size="sm" color="danger" disabled={anulando === lote.id} onClick={() => handleAnularLote(lote)}>{anulando === lote.id ? "..." : "Anular"}</Btn>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          {detalleLote && (
+            <Modal title={`Detalle lote — ${detalleLote.tipo} ${MESES_LABEL_C[detalleLote.periodo_mes]} ${detalleLote.periodo_anio}`} onClose={() => setDetalleLote(null)} width={700}>
+              <div style={{ marginBottom: 10, fontSize: 12, color: C.textMuted }}>
+                Estado: <BadgeLt estado={detalleLote.estado} /> · Total bruto: <strong>{fmtM(detalleLote.total_bruto)}</strong>
+              </div>
+              <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                <thead><tr>
+                  <th style={thS}>#</th><th style={thS}>Tipo doc</th><th style={thS}>Folio</th>
+                  <th style={thS}>Fecha</th><th style={thS}>Contraparte</th>
+                  <th style={{ ...thS, textAlign: "right" }}>Neto</th><th style={{ ...thS, textAlign: "right" }}>Total</th>
+                </tr></thead>
+                <tbody>
+                  {detalleLineas.map(l => (
+                    <tr key={l.id}>
+                      <td style={tdS}>{l.orden}</td>
+                      <td style={{ ...tdS, fontSize: 11 }}>{l.tipo_doc}</td>
+                      <td style={{ ...tdS, fontFamily: "monospace" }}>{l.folio}</td>
+                      <td style={tdS}>{fmtD(l.fecha_doc)}</td>
+                      <td style={{ ...tdS, fontSize: 11 }}>{l.nombre_contraparte}</td>
+                      <td style={tdR}>{fmtM(l.neto)}</td>
+                      <td style={tdR}>{fmtM(l.total)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </Modal>
+          )}
+        </div>
+      )}
+
+      {/* ─── VISTA REGLAS ─── */}
+      {vista === "reglas" && (
+        <div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginBottom: 16 }}>
+            {/* Compras */}
+            <div style={cardS}>
+              <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 12 }}>Cuentas por defecto — Compras</div>
+              {[
+                { label: "Cuenta Proveedores (HABER)", key: "cta_proveedores_id" },
+                { label: "Cuenta IVA Crédito Fiscal (DEBE)", key: "cta_iva_cf_id" },
+                { label: "Cuenta gasto por defecto (DEBE)", key: "cta_gasto_id" },
+              ].map(({ label, key }) => (
+                <div key={key} style={{ marginBottom: 10 }}>
+                  <label style={{ ...labelS, display: "block", marginBottom: 3 }}>{label}</label>
+                  <select style={inpS} value={rcEdit[key] || ""} onChange={e => setRcEdit(r => ({ ...r, [key]: e.target.value }))}>
+                    <option value="">— sin asignar —</option>
+                    {cuentaOpts.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                  </select>
+                </div>
+              ))}
+              <div style={{ marginBottom: 10 }}>
+                <label style={{ ...labelS, display: "block", marginBottom: 3 }}>CeCo por defecto</label>
+                <select style={inpS} value={rcEdit.cuartel_id || ""} onChange={e => setRcEdit(r => ({ ...r, cuartel_id: e.target.value }))}>
+                  {cuartelOpts.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                </select>
+              </div>
+            </div>
+            {/* Ventas */}
+            <div style={cardS}>
+              <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 12 }}>Cuentas por defecto — Ventas</div>
+              {[
+                { label: "Cuenta Clientes (DEBE)", key: "cta_clientes_id" },
+                { label: "Cuenta IVA Débito Fiscal (HABER)", key: "cta_iva_deb_id" },
+                { label: "Cuenta ingresos por defecto (HABER)", key: "cta_ingreso_id" },
+              ].map(({ label, key }) => (
+                <div key={key} style={{ marginBottom: 10 }}>
+                  <label style={{ ...labelS, display: "block", marginBottom: 3 }}>{label}</label>
+                  <select style={inpS} value={rvEdit[key] || ""} onChange={e => setRvEdit(r => ({ ...r, [key]: e.target.value }))}>
+                    <option value="">— sin asignar —</option>
+                    {cuentaOpts.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                  </select>
+                </div>
+              ))}
+              <div style={{ marginBottom: 10 }}>
+                <label style={{ ...labelS, display: "block", marginBottom: 3 }}>CeCo por defecto</label>
+                <select style={inpS} value={rvEdit.cuartel_id || ""} onChange={e => setRvEdit(r => ({ ...r, cuartel_id: e.target.value }))}>
+                  {cuartelOpts.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                </select>
+              </div>
+            </div>
+          </div>
+
+          {/* Overrides por RUT */}
+          <div style={cardS}>
+            <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 8 }}>Overrides por emisor (RUT)</div>
+            <div style={{ fontSize: 11, color: C.textMuted, marginBottom: 12 }}>Si un RUT tiene regla específica, sobreescribe la cuenta gasto y CeCo por defecto al mapear documentos desde staging.</div>
+            <table style={{ width: "100%", borderCollapse: "collapse", marginBottom: 12 }}>
+              <thead>
+                <tr>
+                  <th style={thS}>RUT emisor</th>
+                  <th style={thS}>Nombre referencial</th>
+                  <th style={thS}>Cuenta gasto/activo</th>
+                  <th style={thS}>CeCo</th>
+                  <th style={thS}></th>
+                </tr>
+              </thead>
+              <tbody>
+                {rutOvEdit.length === 0 && <tr><td colSpan={5} style={{ ...tdS, color: C.textDim, textAlign: "center" }}>Sin reglas por RUT</td></tr>}
+                {rutOvEdit.map((ov, i) => (
+                  <tr key={i}>
+                    <td style={{ ...tdS, fontFamily: "monospace", fontSize: 11 }}>{ov.rut}</td>
+                    <td style={{ ...tdS, fontSize: 11 }}>{ov.nombre_ref}</td>
+                    <td style={{ ...tdS, fontSize: 11 }}>{cuentaMap[ov.cuenta_id] ? `${cuentaMap[ov.cuenta_id].codigo} ${cuentaMap[ov.cuenta_id].nombre}` : "—"}</td>
+                    <td style={{ ...tdS, fontSize: 11 }}>{cuartelMap[ov.cuartel_id]?.nombre || cuartelMap[ov.cuartel_id]?.cuartel_nombre || "Sin CeCo"}</td>
+                    <td style={tdS}>
+                      <Btn size="sm" color="danger" onClick={() => setRutOvEdit(a => a.filter((_, j) => j !== i))}>✕</Btn>
+                    </td>
+                  </tr>
+                ))}
+                {/* Nueva fila */}
+                <tr>
+                  <td style={tdS}><input style={inpS} placeholder="76.xxx.xxx-x" value={nuevoRut.rut} onChange={e => setNuevoRut(r => ({ ...r, rut: e.target.value }))} /></td>
+                  <td style={tdS}><input style={inpS} placeholder="Nombre empresa" value={nuevoRut.nombre_ref} onChange={e => setNuevoRut(r => ({ ...r, nombre_ref: e.target.value }))} /></td>
+                  <td style={tdS}>
+                    <select style={inpS} value={nuevoRut.cuenta_id} onChange={e => setNuevoRut(r => ({ ...r, cuenta_id: e.target.value }))}>
+                      <option value="">— seleccionar —</option>
+                      {cuentaOpts.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                    </select>
+                  </td>
+                  <td style={tdS}>
+                    <select style={inpS} value={nuevoRut.cuartel_id} onChange={e => setNuevoRut(r => ({ ...r, cuartel_id: e.target.value }))}>
+                      {cuartelOpts.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                    </select>
+                  </td>
+                  <td style={tdS}>
+                    <Btn size="sm" color="primary" disabled={!nuevoRut.rut || !nuevoRut.cuenta_id} onClick={() => {
+                      if (!nuevoRut.rut) return;
+                      setRutOvEdit(a => [...a, { ...nuevoRut }]);
+                      setNuevoRut({ rut: "", nombre_ref: "", cuenta_id: "", cuartel_id: "" });
+                    }}>+ Agregar</Btn>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+            <Btn color="primary" disabled={guardandoReglas} onClick={handleGuardarReglas}>{guardandoReglas ? "Guardando..." : "Guardar reglas"}</Btn>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── Componente principal ────────────────────────────────────────────────────
 
 const TABS = [
   { key: "empresas", label: "Empresas" },
   { key: "plan_cuentas", label: "Plan de Cuentas" },
   { key: "libro_diario", label: "Libro Diario" },
+  { key: "centralizacion_sii", label: "Centralización SII" },
   { key: "auxiliares", label: "Auxiliares" },
   { key: "centros_costo", label: "Centros de Costo" },
   { key: "tipos_doc", label: "Tipos de Documento" },
@@ -3895,7 +5033,7 @@ const TABS = [
 ];
 
 // Tabs que requieren selector de empresa
-const TABS_CON_EMPRESA = new Set(["plan_cuentas", "libro_diario", "centros_costo", "periodos", "mapeo"]);
+const TABS_CON_EMPRESA = new Set(["plan_cuentas", "libro_diario", "centralizacion_sii", "centros_costo", "periodos", "mapeo"]);
 
 export default function ContabilidadModule({ usuario, canEdit, esCFO, onBack }) {
   const [tabActiva, setTabActiva] = useState("empresas");
@@ -4056,6 +5194,14 @@ export default function ContabilidadModule({ usuario, canEdit, esCFO, onBack }) 
 
         {tabActiva === "libro_diario" && (
           <LibroDiarioTab
+            empresaId={empresaId}
+            canEdit={canEdit || esCFO}
+            usuario={usuario}
+          />
+        )}
+
+        {tabActiva === "centralizacion_sii" && (
+          <CentralizacionSiiTab
             empresaId={empresaId}
             canEdit={canEdit || esCFO}
             usuario={usuario}
