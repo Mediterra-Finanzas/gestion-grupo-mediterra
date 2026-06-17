@@ -11136,6 +11136,12 @@ const AÑOS_NOM = Array.from({length:12},(_,i)=>2024+i); // 2024-2035
 // ─────────────────────────────────────────────────────────────────
 let TIPOS_DOCUMENTO = ["Factura Electrónica","Factura Exenta","Factura Importación","Nota de Cobro","Rendición","Remuneraciones","Boleta de Honorarios","Convenio TGR"];
 
+// Una línea cuenta como "activa" salvo que esté inactivada/reemplazada.
+// Lectura defensiva: las nóminas históricas no traen estadoLinea → se tratan como activas.
+function lineaActiva(it) {
+  return (it?.estadoLinea || "activa") === "activa";
+}
+
 function itemVacio(seccion) {
   return {
     id: `item_${Date.now()}_${Math.random().toString(36).slice(2,7)}`,
@@ -11143,6 +11149,9 @@ function itemVacio(seccion) {
     tipoDoc:"", proveedor:"", rut:"", nDoc:"", fDoc:"", fVenc:"",
     semVenc:"", concepto:"", montoCLP:0, montoUSD:0, montoPEN:0, comentario:"",
     pagado:false, anticipo:false,
+    // Expediente Digital (Fase 0): soft-delete + trazabilidad por línea.
+    estadoLinea:"activa", // "activa" | "inactiva" | "reemplazada"
+    historial:[],         // [{accion, usuario, fecha, detalle?}]
   };
 }
 
@@ -11300,8 +11309,9 @@ function BadgeEstado({estado}) {
 // ─────────────────────────────────────────────────────────────────
 // TABLA ITEMS (por sección)
 // ─────────────────────────────────────────────────────────────────
-function TablaItems({items, seccion, onChange, canEdit, tc, moneda="ambas", semanaNomina, tiposDocExtra=[], onAddTipoDoc}) {
-  const rows = items.filter(it=>it.seccion===seccion);
+function TablaItems({items, seccion, onChange, canEdit, tc, moneda="ambas", semanaNomina, tiposDocExtra=[], onAddTipoDoc, usuario}) {
+  // Vista de edición: solo líneas activas (las inactivadas quedan en data y se ven en Vista Auditoría — Fase 3).
+  const rows = items.filter(it=>it.seccion===seccion && lineaActiva(it));
   const soloUSD = moneda==="usd";
   const soloCLP = moneda==="clp";
   const soloPEN = moneda==="pen";
@@ -11328,8 +11338,16 @@ function TablaItems({items, seccion, onChange, canEdit, tc, moneda="ambas", sema
   function addItem() {
     onChange([...items, itemVacio(seccion)]);
   }
+  // Soft-delete (Fase 0): nunca se borra físicamente. Se marca inactiva,
+  // se excluye de totales/export y queda registrada en el historial de la línea.
   function delItem(id) {
-    onChange(items.filter(it=>it.id!==id));
+    if(!window.confirm("¿Inactivar esta línea?\n\nNo se elimina: queda registrada en el historial y se excluye de los totales. Podrás verla en la Vista Auditoría."))return;
+    const nombreUsr = usuario?.nombre || "—";
+    const ahora = new Date().toISOString();
+    onChange(items.map(it=>it.id===id
+      ? {...it, estadoLinea:"inactiva",
+          historial:[...(it.historial||[]), {accion:"linea_inactivada", usuario:nombreUsr, fecha:ahora}]}
+      : it));
   }
 
   const totalCLP = rows.reduce((s,it)=>s+(Number(it.montoCLP)||0),0);
@@ -11798,7 +11816,7 @@ function NominaDetalle({nomina, onUpdate, onBack, usuario, canEdit, saldosBancos
     const allSecs=[...SECCIONES,...(nom.seccionesExtra||[])];
     let grandTotalCLP=0, grandTotalUSD=0;
     allSecs.forEach(sec=>{
-      const secItems=nom.items.filter(it=>it.seccion===sec.id);
+      const secItems=nom.items.filter(it=>it.seccion===sec.id && lineaActiva(it));
       if(secItems.length===0) return;
       // Fila título sección
       rowsXml+=`<row r="${currentRow}" ht="20" customHeight="1"><c r="A${currentRow}" t="inlineStr" s="7"><is><t>${escXml(sec.label)} (${secItems.length})</t></is></c>`;
@@ -11860,7 +11878,7 @@ function NominaDetalle({nomina, onUpdate, onBack, usuario, canEdit, saldosBancos
     });
     // Total general - separar anticipos por moneda (solo items con sección válida)
     const _seccionesValExp = new Set([...SECCIONES,...(nom.seccionesExtra||[])].map(s=>s.id));
-    const _itemsValExp = nom.items.filter(it=>_seccionesValExp.has(it.seccion));
+    const _itemsValExp = nom.items.filter(it=>_seccionesValExp.has(it.seccion) && lineaActiva(it));
     const grandAnticCLP = _itemsValExp.reduce((s,it)=>{
       if(Number(it.montoCLP) && !Number(it.montoUSD)) return s+(Number(it.anticipo)||0);
       return s;
@@ -12074,7 +12092,7 @@ function NominaDetalle({nomina, onUpdate, onBack, usuario, canEdit, saldosBancos
   // Totales
   // Solo sumar items que pertenecen a secciones válidas (evita items fantasma)
   const seccionesValidas = new Set([...SECCIONES,...(nom.seccionesExtra||[])].map(s=>s.id));
-  const itemsValidos = nom.items.filter(it=>seccionesValidas.has(it.seccion));
+  const itemsValidos = nom.items.filter(it=>seccionesValidas.has(it.seccion) && lineaActiva(it));
   const totCLP = itemsValidos.reduce((s,it)=>s+(Number(it.montoCLP)||0),0);
   const totUSD = itemsValidos.reduce((s,it)=>s+(Number(it.montoUSD)||0),0);
   const totPEN = itemsValidos.reduce((s,it)=>s+(Number(it.montoPEN)||0),0);
@@ -12422,14 +12440,14 @@ function NominaDetalle({nomina, onUpdate, onBack, usuario, canEdit, saldosBancos
 
         {/* Secciones de items */}
         {([...SECCIONES,...(nom.seccionesExtra||[])]).map(sec=>{
-          const hasItems = nom.items.some(it=>it.seccion===sec.id);
+          const hasItems = nom.items.some(it=>it.seccion===sec.id && lineaActiva(it));
           if(!canEdit && !hasItems) return null;
           const esSecUSD = sec.id==="emp_rel_usd"||sec.id==="pagos_usd";
           const esSecCLP = !esSecUSD; // proveedores, anticipos, rendiciones, servipag, emp_rel_clp
           const esPeruana = esEmpresaPeruanaNom(nom.empresa);
           // Empresa peruana: las secciones de moneda local se capturan en PEN, no CLP.
           const monedaSec = esSecUSD ? "usd" : (esPeruana ? "pen" : "clp");
-          const secItems = nom.items.filter(it=>it.seccion===sec.id);
+          const secItems = nom.items.filter(it=>it.seccion===sec.id && lineaActiva(it));
           const secTotCLP = secItems.reduce((s,it)=>s+(Number(it.montoCLP)||0),0);
           const secTotUSD = secItems.reduce((s,it)=>s+(Number(it.montoUSD)||0),0);
           const secTotPEN = secItems.reduce((s,it)=>s+(Number(it.montoPEN)||0),0);
@@ -12474,6 +12492,7 @@ function NominaDetalle({nomina, onUpdate, onBack, usuario, canEdit, saldosBancos
                 semanaNomina={nom.semana}
                 tiposDocExtra={nom.tiposDocExtra||[]}
                 onAddTipoDoc={n=>{const extras=nom.tiposDocExtra||[];if(!extras.includes(n))upd("tiposDocExtra",[...extras,n]);}}
+                usuario={usuario}
               />
             </div>
           );
@@ -12549,7 +12568,7 @@ function NominaDetalle({nomina, onUpdate, onBack, usuario, canEdit, saldosBancos
             </thead>
             <tbody>
               {([...SECCIONES,...(nom.seccionesExtra||[])]).map(sec=>{
-                const secItems = nom.items.filter(it=>it.seccion===sec.id);
+                const secItems = nom.items.filter(it=>it.seccion===sec.id && lineaActiva(it));
                 if(secItems.length === 0) return null;
                 const fmtLocal = nomEsPeruana ? $$pen : $$clp;
                 const stLocal = secItems.reduce((s,it)=>s+(Number(nomEsPeruana?it.montoPEN:it.montoCLP)||0),0);
@@ -12608,7 +12627,7 @@ function NominaDetalle({nomina, onUpdate, onBack, usuario, canEdit, saldosBancos
               {(()=>{
                 // Calcular anticipos separados por moneda (solo items con sección válida)
                 const _secValPrint = new Set([...SECCIONES,...(nom.seccionesExtra||[])].map(s=>s.id));
-                const _itemsValPrint = nom.items.filter(it=>_secValPrint.has(it.seccion));
+                const _itemsValPrint = nom.items.filter(it=>_secValPrint.has(it.seccion) && lineaActiva(it));
                 const fmtLocalT = nomEsPeruana ? $$pen : $$clp;
                 const totLocal = nomEsPeruana ? totPEN : totCLP;
                 const gAnticLocal = _itemsValPrint.reduce((s,it)=>{
@@ -12662,7 +12681,7 @@ function sumNominaCLP(nom) {
   if(!nom || !Array.isArray(nom.items)) return 0;
   const seccionesValidas = new Set([...SECCIONES, ...(nom.seccionesExtra||[])].map(s=>s.id));
   return nom.items
-    .filter(it => seccionesValidas.has(it.seccion))
+    .filter(it => seccionesValidas.has(it.seccion) && lineaActiva(it))
     .reduce((s,it) => s + (Number(it.montoCLP)||0), 0);
 }
 
@@ -12670,7 +12689,7 @@ function sumNominaUSD(nom) {
   if(!nom || !Array.isArray(nom.items)) return 0;
   const seccionesValidas = new Set([...SECCIONES, ...(nom.seccionesExtra||[])].map(s=>s.id));
   return nom.items
-    .filter(it => seccionesValidas.has(it.seccion))
+    .filter(it => seccionesValidas.has(it.seccion) && lineaActiva(it))
     .reduce((s,it) => s + (Number(it.montoUSD)||0), 0);
 }
 
@@ -12678,7 +12697,7 @@ function sumNominaPEN(nom) {
   if(!nom || !Array.isArray(nom.items)) return 0;
   const seccionesValidas = new Set([...SECCIONES, ...(nom.seccionesExtra||[])].map(s=>s.id));
   return nom.items
-    .filter(it => seccionesValidas.has(it.seccion))
+    .filter(it => seccionesValidas.has(it.seccion) && lineaActiva(it))
     .reduce((s,it) => s + (Number(it.montoPEN)||0), 0);
 }
 
@@ -13468,7 +13487,7 @@ function NominasModule({usuario, canEdit=false, saldosBancos={}, empresasPermiti
                 </thead>
                 <tbody>
                   {[...SECCIONES].map((sec,si)=>{
-                    const allItems = nominasAño.flatMap(n=>n.items.filter(it=>it.seccion===sec.id));
+                    const allItems = nominasAño.flatMap(n=>n.items.filter(it=>it.seccion===sec.id && lineaActiva(it)));
                     if(allItems.length===0) return null;
                     const esUSD = sec.id==="emp_rel_usd"||sec.id==="pagos_usd";
                     const sCLP = allItems.reduce((s,it)=>s+(Number(it.montoCLP)||0),0);

@@ -415,3 +415,100 @@ export function pathDesdeUrlStorage(url) {
   const idx = url.indexOf(prefix);
   return idx !== -1 ? url.slice(idx + prefix.length) : null;
 }
+
+// ═══════════════════════════════════════════════════════════════════
+// SUPABASE STORAGE — Expediente Digital de Nóminas (Fase 0)
+// Bucket: nominas-docs (PRIVADO). A diferencia de frisku-docs, los
+// documentos NO se sirven por URL pública: se accede vía URL firmada de
+// expiración corta. En el JSON de la nómina se guarda SOLO el path.
+// El bucket se crea manualmente en el dashboard (el key 'anon' no puede
+// crear buckets); estas funciones no asumen que ya exista y reportan el
+// error si falta o si RLS bloquea la operación.
+// ═══════════════════════════════════════════════════════════════════
+
+export const NOMINAS_BUCKET = "nominas-docs";
+
+// Verificación idempotente/best-effort del bucket. Con key 'anon' lo normal
+// es que devuelva error de permisos (el bucket se crea en el dashboard);
+// 409 = ya existe. Nunca lanza: solo informa true/false.
+export async function ensureBucketNominas() {
+  try {
+    const res = await fetch(`${STORAGE_BASE}/bucket`, {
+      method: "POST",
+      headers: { apikey: SUPA_KEY, Authorization: `Bearer ${SUPA_KEY}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ id: NOMINAS_BUCKET, name: NOMINAS_BUCKET, public: false }),
+    });
+    return res.ok || res.status === 409;
+  } catch {
+    return false;
+  }
+}
+
+// Sube un File al bucket PRIVADO nominas-docs.
+// Devuelve { ok, path, error }. NO retorna URL pública (el bucket es privado);
+// para mostrar el documento usar urlFirmadaNomina(path) bajo demanda.
+// path sugerido: `nominas/{empresaSlug}/{nominaId}/{itemId}/{archivo}`
+export async function uploadDocNomina(file, path) {
+  uploadDocNomina.lastError = null;
+  try {
+    const res = await fetch(`${STORAGE_BASE}/object/${NOMINAS_BUCKET}/${path}`, {
+      method: "POST",
+      headers: {
+        apikey: SUPA_KEY,
+        Authorization: `Bearer ${SUPA_KEY}`,
+        "Content-Type": file.type || "application/octet-stream",
+        "x-upsert": "true",
+      },
+      body: file,
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      const msg = err.message || err.error || `HTTP ${res.status}`;
+      uploadDocNomina.lastError = msg;
+      console.error("[Storage/nominas] Upload falló:", msg);
+      return { ok: false, path: null, error: msg };
+    }
+    return { ok: true, path, error: null };
+  } catch (e) {
+    uploadDocNomina.lastError = e.message || String(e);
+    console.error("[Storage/nominas] Upload error:", e.message);
+    return { ok: false, path: null, error: uploadDocNomina.lastError };
+  }
+}
+
+// Genera una URL firmada (temporal) para ver/descargar un documento privado.
+// ttlSegundos: validez (default 1h). Devuelve la URL absoluta o null.
+// La URL NO debe persistirse: expira. Se genera bajo demanda al abrir el doc.
+export async function urlFirmadaNomina(path, ttlSegundos = 3600) {
+  urlFirmadaNomina.lastError = null;
+  try {
+    const res = await fetch(`${STORAGE_BASE}/object/sign/${NOMINAS_BUCKET}/${path}`, {
+      method: "POST",
+      headers: { apikey: SUPA_KEY, Authorization: `Bearer ${SUPA_KEY}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ expiresIn: ttlSegundos }),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      const msg = err.message || err.error || `HTTP ${res.status}`;
+      urlFirmadaNomina.lastError = msg;
+      console.error("[Storage/nominas] Firma falló:", msg);
+      return null;
+    }
+    const data = await res.json();
+    // Supabase responde { signedURL: "/object/sign/bucket/path?token=..." }
+    const rel = data.signedURL || data.signedUrl;
+    if (!rel) { urlFirmadaNomina.lastError = "Respuesta sin signedURL"; return null; }
+    return rel.startsWith("http") ? rel : `${STORAGE_BASE}${rel}`;
+  } catch (e) {
+    urlFirmadaNomina.lastError = e.message || String(e);
+    console.error("[Storage/nominas] Firma error:", e.message);
+    return null;
+  }
+}
+
+// URL pública directa al bucket privado. DEBE fallar (400/403) si el bucket
+// está bien configurado como privado. Solo se usa en el auto-test de
+// privacidad de Fase 0 — no usar en el flujo normal.
+export function urlPublicaDirectaNominaTest(path) {
+  return `${STORAGE_BASE}/object/public/${NOMINAS_BUCKET}/${path}`;
+}
