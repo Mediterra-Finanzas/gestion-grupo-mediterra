@@ -5020,6 +5020,712 @@ function CentralizacionSiiTab({ empresaId, canEdit, usuario }) {
 
 // ─── Componente principal ────────────────────────────────────────────────────
 
+// ─── InformesAnaliticaTab ─────────────────────────────────────────────────────
+
+function InformesAnaliticaTab({ empresaId, canEdit, usuario }) {
+  const now = new Date();
+  const anoActual = now.getFullYear();
+  const mesActual = now.getMonth() + 1;
+
+  const [subTab, setSubTab] = useState("reportes");
+  const [modoTemporal, setModoTemporal] = useState("mes");
+  const [filtroAnio, setFiltroAnio] = useState(anoActual);
+  const [filtroMes, setFiltroMes] = useState(mesActual);
+  const [filtroTemporada, setFiltroTemporada] = useState(
+    mesActual >= 7 ? anoActual + 1 : anoActual
+  );
+  const [filtroLibro, setFiltroLibro] = useState("tributario");
+  const [reporteActivo, setReporteActivo] = useState("balance");
+  const [filtroCampo, setFiltroCampo] = useState("");
+  const [filtroSector, setFiltroSector] = useState("");
+  const [filtroCuartel, setFiltroCuartel] = useState("");
+
+  const [balanceData, setBalanceData] = useState([]);
+  const [costosData, setCostosData] = useState([]);
+  const [jerarquiaData, setJerarquiaData] = useState([]);
+  const [loadingBal, setLoadingBal] = useState(false);
+  const [loadingCos, setLoadingCos] = useState(false);
+  const [errorBal, setErrorBal] = useState("");
+  const [errorCos, setErrorCos] = useState("");
+  const cargaOkRef = useRef(false);
+
+  const [narTexto, setNarTexto] = useState("");
+  const [generando, setGenerando] = useState(false);
+
+  const ANIOS = [anoActual - 1, anoActual, anoActual + 1];
+  const TEMPORADAS = ANIOS.map(y => ({ value: y, label: `T${y} (Jul ${y - 1}–Jun ${y})` }));
+
+  useEffect(() => {
+    if (!empresaId) return;
+    supaSelect("cc_jerarquia", `empresa_id=eq.${empresaId}&order=campo_nombre.asc`)
+      .then(d => setJerarquiaData(d || []))
+      .catch(() => {});
+  }, [empresaId]);
+
+  const camposOpts = useMemo(() => {
+    const s = new Set((jerarquiaData || []).map(j => j.campo_nombre).filter(Boolean));
+    return [...s];
+  }, [jerarquiaData]);
+
+  const sectoresOpts = useMemo(() => {
+    const s = new Set(
+      (jerarquiaData || [])
+        .filter(j => !filtroCampo || j.campo_nombre === filtroCampo)
+        .map(j => j.sector_nombre)
+        .filter(Boolean)
+    );
+    return [...s];
+  }, [jerarquiaData, filtroCampo]);
+
+  const cuartelesOpts = useMemo(() => {
+    return (jerarquiaData || []).filter(
+      j =>
+        (!filtroCampo || j.campo_nombre === filtroCampo) &&
+        (!filtroSector || j.sector_nombre === filtroSector)
+    );
+  }, [jerarquiaData, filtroCampo, filtroSector]);
+
+  const loadBalance = useCallback(async () => {
+    if (!empresaId) return;
+    setLoadingBal(true);
+    setErrorBal("");
+    try {
+      let q = `empresa_id=eq.${empresaId}`;
+      if (filtroLibro !== "ambos") q += `&libro=eq.${filtroLibro}`;
+      q += "&order=orden_display.asc,codigo.asc";
+      const data = await supaSelect("contab_balance_8_columnas", q);
+      setBalanceData(data || []);
+      cargaOkRef.current = true;
+    } catch (e) {
+      setErrorBal("Error cargando balance: " + e.message);
+      throw e;
+    } finally {
+      setLoadingBal(false);
+    }
+  }, [empresaId, filtroLibro]);
+
+  const loadCostos = useCallback(async () => {
+    if (!empresaId) return;
+    setLoadingCos(true);
+    setErrorCos("");
+    try {
+      let q = `empresa_id=eq.${empresaId}`;
+      if (modoTemporal === "mes") {
+        q += `&anio=eq.${filtroAnio}&mes=eq.${filtroMes}`;
+      } else if (modoTemporal === "anio") {
+        q += `&anio=eq.${filtroAnio}`;
+      } else {
+        const tA = filtroTemporada;
+        q += `&or=(and(anio.eq.${tA - 1},mes.gte.7),and(anio.eq.${tA},mes.lte.6))`;
+      }
+      if (filtroCampo) q += `&campo_nombre=eq.${encodeURIComponent(filtroCampo)}`;
+      if (filtroSector) q += `&sector_nombre=eq.${encodeURIComponent(filtroSector)}`;
+      if (filtroCuartel) q += `&cuartel_id=eq.${filtroCuartel}`;
+      q += "&order=costo_neto.desc";
+      const data = await supaSelect("contab_costos_cuartel", q);
+      setCostosData(data || []);
+    } catch (e) {
+      setErrorCos("Error cargando costos: " + e.message);
+    } finally {
+      setLoadingCos(false);
+    }
+  }, [empresaId, modoTemporal, filtroAnio, filtroMes, filtroTemporada, filtroCampo, filtroSector, filtroCuartel]);
+
+  useEffect(() => {
+    cargaOkRef.current = false;
+    loadBalance();
+    loadCostos();
+  }, [loadBalance, loadCostos]);
+
+  const balPorTipo = useMemo(() => {
+    const g = { A: [], P: [], I: [], E: [], O: [] };
+    (balanceData || []).forEach(r => { if (g[r.tipo]) g[r.tipo].push(r); });
+    return g;
+  }, [balanceData]);
+
+  const ratios = useMemo(() => {
+    if (!balanceData.length) return null;
+    const sum = (rows, field) => rows.reduce((s, r) => s + Number(r[field] || 0), 0);
+    const totalActivo = sum(balPorTipo.A, "balance_activo");
+    const totalPasivo = sum(balPorTipo.P, "balance_pasivo");
+    const ingresos = sum(balPorTipo.I, "resultado_ingreso");
+    const egresos = sum(balPorTipo.E, "resultado_egreso");
+    const utilidad = ingresos - egresos;
+    const patrimonio = totalActivo - totalPasivo;
+    const acCte = sum(balPorTipo.A.filter(r => (r.clasif_ifrs || "").includes("Corriente")), "balance_activo");
+    const pCte = sum(balPorTipo.P.filter(r => (r.clasif_ifrs || "").includes("Corriente")), "balance_pasivo");
+    return {
+      totalActivo, totalPasivo, ingresos, egresos, utilidad, patrimonio, acCte, pCte,
+      roa: totalActivo > 0 ? (utilidad / totalActivo) * 100 : null,
+      roe: patrimonio > 0 ? (utilidad / patrimonio) * 100 : null,
+      razonCte: pCte > 0 ? acCte / pCte : null,
+      pruebaAcida: pCte > 0 ? (acCte / pCte) * 0.80 : null,
+      apalancamiento: patrimonio > 0 ? totalPasivo / patrimonio : null,
+    };
+  }, [balanceData, balPorTipo]);
+
+  const costosPorCuartel = useMemo(() => {
+    const mapa = {};
+    (costosData || []).forEach(r => {
+      const key = r.cuartel_id || r.cuartel_nombre || r.campo_nombre;
+      if (!mapa[key]) mapa[key] = { ...r, costo_neto: 0, total_debe: 0 };
+      mapa[key].costo_neto += Number(r.costo_neto || 0);
+      mapa[key].total_debe += Number(r.total_debe || 0);
+    });
+    return Object.values(mapa).sort((a, b) => b.costo_neto - a.costo_neto);
+  }, [costosData]);
+
+  const totalCostos = costosPorCuartel.reduce((s, c) => s + c.costo_neto, 0);
+  const totalHas = costosPorCuartel.reduce((s, c) => s + Number(c.hectareas || 0), 0);
+
+  const handleAplicar = () => { cargaOkRef.current = false; loadBalance(); loadCostos(); };
+
+  const generarNarrativa = () => {
+    setGenerando(true);
+    setTimeout(() => {
+      const r = ratios;
+      const periodo =
+        modoTemporal === "mes" ? `${MESES_LABEL_C[filtroMes]} ${filtroAnio}` :
+        modoTemporal === "anio" ? `Año ${filtroAnio}` :
+        `Temporada ${filtroTemporada} (Jul ${filtroTemporada - 1}–Jun ${filtroTemporada})`;
+      const semCte = !r?.razonCte ? "sin datos" : r.razonCte >= 2 ? "adecuada" : r.razonCte >= 1.5 ? "en vigilancia" : "crítica";
+      const semRoa = !r?.roa ? "sin datos" : r.roa >= 15 ? "satisfactorio" : r.roa >= 8 ? "moderado" : "bajo";
+      const avgHa = totalHas > 0 ? totalCostos / totalHas : 0;
+      const devs = [];
+      if (r?.razonCte != null && r.razonCte < 2) {
+        devs.push({
+          icon: r.razonCte < 1.5 ? "●" : "◐", sev: r.razonCte < 1.5 ? "CRÍTICA" : "MEDIA",
+          titulo: "Liquidez corriente bajo umbral mínimo",
+          detalle: `La razón corriente de ${r.razonCte.toFixed(2)}× se ubica bajo el mínimo recomendado de 2.0× para empresas agroexportadoras.`,
+          rec: "Acelerar gestión de cobros y renegociar plazos con proveedores estratégicos.",
+        });
+      }
+      if (r?.roa != null && r.roa < 12) {
+        devs.push({
+          icon: r.roa < 6 ? "●" : "◐", sev: r.roa < 6 ? "ALTA" : "MEDIA",
+          titulo: "ROA por debajo del benchmark sectorial (12–22%)",
+          detalle: `El retorno sobre activos de ${r.roa.toFixed(1)}% está bajo el rango objetivo para el sector frutícola exportador.`,
+          rec: "Revisar activos fijos subexplotados y evaluar restructuración de cartera de activos.",
+        });
+      }
+      if (costosPorCuartel.length > 0 && avgHa > 0) {
+        const c = costosPorCuartel[0];
+        const haC = Number(c.hectareas) || 1;
+        const cHa = c.costo_neto / haC;
+        if (cHa > avgHa * 1.15) {
+          devs.push({
+            icon: "◐", sev: "MEDIA",
+            titulo: `CeCo con mayor costo/há: ${c.cuartel_nombre || c.campo_nombre}`,
+            detalle: `Costo/há de ${fmtM(Math.round(cHa))}, un ${((cHa / avgHa - 1) * 100).toFixed(1)}% sobre el promedio de ${fmtM(Math.round(avgHa))}/há.`,
+            rec: `Revisar plan de aplicaciones en este cuartel para el próximo ciclo agrícola.`,
+          });
+        }
+      }
+      if (devs.length === 0) {
+        devs.push({ icon: "○", sev: "BAJA", titulo: "Indicadores dentro de parámetros", detalle: "No se detectan desviaciones significativas en el período.", rec: "Mantener monitoreo mensual." });
+      }
+      const lines = [
+        `${"═".repeat(54)}`,
+        `INFORME EJECUTIVO — ANÁLISIS CONTABLE`,
+        `Período: ${periodo} | Libro: ${filtroLibro.toUpperCase()}`,
+        `Generado: ${new Date().toLocaleDateString("es-CL")}`,
+        `${"═".repeat(54)}`,
+        ``,
+        `RESUMEN EJECUTIVO`,
+        r ? `La empresa registra un ROA de ${r.roa != null ? r.roa.toFixed(1) + "%" : "n/d"} y un ROE de ${r.roe != null ? r.roe.toFixed(1) + "%" : "n/d"}, con razón corriente ${r.razonCte != null ? r.razonCte.toFixed(2) + "×" : "n/d"} (${semCte}) y apalancamiento ${r.apalancamiento != null ? r.apalancamiento.toFixed(2) + "×" : "n/d"}. Rentabilidad sobre activos: ${semRoa}.` : "Sin datos de balance.",
+        costosPorCuartel.length ? `Costos CeCo totalizan ${fmtM(Math.round(totalCostos))} en ${costosPorCuartel.length} centros activos${avgHa > 0 ? `, promedio ${fmtM(Math.round(avgHa))}/há` : ""}.` : "",
+        ``,
+        `PRINCIPALES DESVIACIONES`,
+        ...devs.slice(0, 3).map((d, i) => `${i + 1}. ${d.icon} [${d.sev}] ${d.titulo}\n   ${d.detalle}\n   → ${d.rec}`),
+        ``,
+        `INDICADORES CLAVE`,
+        r ? [
+          `• ROA: ${r.roa != null ? r.roa.toFixed(1) + "%" : "n/d"} (bench. 12–22%)  ROE: ${r.roe != null ? r.roe.toFixed(1) + "%" : "n/d"} (bench. 15–30%)`,
+          `• Razón corriente: ${r.razonCte != null ? r.razonCte.toFixed(2) + "×" : "n/d"} (mín. 2.0×)  Prueba ácida: ${r.pruebaAcida != null ? r.pruebaAcida.toFixed(2) + "×" : "n/d"} (mín. 1.5×)`,
+          `• Apalancamiento: ${r.apalancamiento != null ? r.apalancamiento.toFixed(2) + "×" : "n/d"} (ópt. <0.5×)`,
+          `• Ingresos acum.: ${fmtM(Math.round(r.ingresos))}  Egresos acum.: ${fmtM(Math.round(r.egresos))}`,
+          `• Utilidad neta: ${fmtM(Math.round(r.utilidad))}  Patrimonio: ${fmtM(Math.round(r.patrimonio))}`,
+        ].join("\n") : "Sin datos.",
+        ``,
+        `${"─".repeat(54)}`,
+        `Fuentes: contab_balance_8_columnas · contab_costos_cuartel`,
+        `Editable antes de distribución.`,
+        `${"─".repeat(54)}`,
+      ].filter(l => l !== null && l !== undefined).join("\n");
+      setNarTexto(lines);
+      setGenerando(false);
+    }, 600);
+  };
+
+  const exportarExcel = () => {
+    const src = reporteActivo === "costos_cuartel" ? costosPorCuartel : balanceData;
+    if (!src.length) return;
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(src), reporteActivo === "costos_cuartel" ? "Costos CeCo" : "Balance");
+    XLSX.writeFile(wb, `informe_${reporteActivo}_${filtroAnio}.xlsx`);
+  };
+
+  // ── Estilos ────────────────────────────────────────────────────────────────────
+  const cardS = { background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: 8, padding: "14px 16px", marginBottom: 12 };
+  const thS = { padding: "5px 8px", fontSize: 10, fontWeight: 600, color: C.textMuted, borderBottom: `1px solid ${C.border}`, background: C.bgInput, textAlign: "left", whiteSpace: "nowrap" };
+  const thR = { ...thS, textAlign: "right" };
+  const tdS = { padding: "5px 8px", fontSize: 11, borderBottom: `0.5px solid ${C.border}`, verticalAlign: "middle" };
+  const tdR = { ...tdS, textAlign: "right", fontFamily: "monospace", fontSize: 10 };
+  const selS = { padding: "4px 8px", fontSize: 11, border: `1px solid ${C.border}`, borderRadius: 5, background: C.bgInput, color: C.text, cursor: "pointer" };
+  const rowFlex = { display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginBottom: 8 };
+  const lbl = { fontSize: 11, color: C.textMuted, whiteSpace: "nowrap" };
+
+  const RadioBtn = ({ label, active, onClick }) => (
+    <button onClick={onClick} style={{ padding: "4px 10px", fontSize: 11, border: `1px solid ${active ? C.primary : C.border}`, borderRadius: 5, background: active ? C.primary : C.bgCard, color: active ? "#fff" : C.textMuted, cursor: "pointer" }}>
+      {label}
+    </button>
+  );
+
+  const RepTab = ({ id, label }) => (
+    <button onClick={() => setReporteActivo(id)} style={{ background: "none", border: "none", borderBottom: reporteActivo === id ? `2px solid ${C.success}` : "2px solid transparent", color: reporteActivo === id ? C.success : C.textMuted, cursor: "pointer", fontSize: 12, fontWeight: reporteActivo === id ? 600 : 400, padding: "6px 14px", whiteSpace: "nowrap" }}>
+      {label}
+    </button>
+  );
+
+  const semRatio = (val, good, warn, higherBetter) => {
+    if (val == null) return { color: C.textDim, label: "N/D", bg: "#f0eff8" };
+    const ok = higherBetter ? val >= good : val <= good;
+    const med = higherBetter ? val >= warn : val <= warn;
+    if (ok) return { color: C.success, label: "Saludable", bg: C.successBg };
+    if (med) return { color: C.warning, label: "Vigilar", bg: C.warningBg };
+    return { color: C.danger, label: "Crítico", bg: C.dangerBg };
+  };
+
+  const RatioCard = ({ label, val, good, warn, higherBetter, fmt, bench, max }) => {
+    const sem = semRatio(val, good, warn, higherBetter);
+    const display = val == null ? "N/D" : fmt === "pct" ? `${val.toFixed(1)}%` : `${val.toFixed(2)}×`;
+    const pct = max > 0 && val != null ? Math.min((Math.abs(val) / max) * 100, 100) : 0;
+    return (
+      <div style={{ background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: 8, padding: "14px 14px 10px" }}>
+        <div style={{ fontSize: 10, color: C.textMuted, marginBottom: 6 }}>{label}</div>
+        <div style={{ fontSize: 22, fontWeight: 700, color: sem.color, marginBottom: 6 }}>{display}</div>
+        <div style={{ height: 4, background: C.border, borderRadius: 2, marginBottom: 8 }}>
+          <div style={{ height: 4, width: `${pct}%`, background: sem.color, borderRadius: 2 }} />
+        </div>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+          <span style={{ background: sem.bg, color: sem.color, borderRadius: 10, padding: "2px 8px", fontSize: 10, fontWeight: 600 }}>{sem.label}</span>
+          <span style={{ fontSize: 9, color: C.textDim }}>{bench}</span>
+        </div>
+      </div>
+    );
+  };
+
+  const PanelFiltros = ({ conCeCo }) => (
+    <div style={{ ...cardS, paddingBottom: 10, marginBottom: 10 }}>
+      <div style={rowFlex}>
+        <span style={lbl}>Período:</span>
+        <RadioBtn label="Mes" active={modoTemporal === "mes"} onClick={() => setModoTemporal("mes")} />
+        <RadioBtn label="Año calendario" active={modoTemporal === "anio"} onClick={() => setModoTemporal("anio")} />
+        <RadioBtn label="Temporada agrícola (Jul–Jun)" active={modoTemporal === "temporada"} onClick={() => setModoTemporal("temporada")} />
+      </div>
+      <div style={rowFlex}>
+        {modoTemporal === "mes" && (
+          <>
+            <select style={selS} value={filtroMes} onChange={e => setFiltroMes(Number(e.target.value))}>
+              {[1,2,3,4,5,6,7,8,9,10,11,12].map(m => <option key={m} value={m}>{MESES_LABEL_C[m]}</option>)}
+            </select>
+            <select style={selS} value={filtroAnio} onChange={e => setFiltroAnio(Number(e.target.value))}>
+              {ANIOS.map(a => <option key={a} value={a}>{a}</option>)}
+            </select>
+          </>
+        )}
+        {modoTemporal === "anio" && (
+          <select style={selS} value={filtroAnio} onChange={e => setFiltroAnio(Number(e.target.value))}>
+            {ANIOS.map(a => <option key={a} value={a}>{a}</option>)}
+          </select>
+        )}
+        {modoTemporal === "temporada" && (
+          <select style={selS} value={filtroTemporada} onChange={e => setFiltroTemporada(Number(e.target.value))}>
+            {TEMPORADAS.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
+          </select>
+        )}
+        <span style={{ ...lbl, marginLeft: 4 }}>Libro:</span>
+        <select style={selS} value={filtroLibro} onChange={e => setFiltroLibro(e.target.value)}>
+          <option value="tributario">Tributario</option>
+          <option value="ifrs">IFRS</option>
+          <option value="ambos">Ambos</option>
+        </select>
+        {conCeCo && (
+          <>
+            <span style={{ ...lbl, marginLeft: 4 }}>CeCo:</span>
+            <select style={selS} value={filtroCampo} onChange={e => { setFiltroCampo(e.target.value); setFiltroSector(""); setFiltroCuartel(""); }}>
+              <option value="">Todos los campos</option>
+              {camposOpts.map(c => <option key={c} value={c}>{c}</option>)}
+            </select>
+            <select style={selS} value={filtroSector} onChange={e => { setFiltroSector(e.target.value); setFiltroCuartel(""); }}>
+              <option value="">Todos los sectores</option>
+              {sectoresOpts.map(s => <option key={s} value={s}>{s}</option>)}
+            </select>
+            <select style={selS} value={filtroCuartel} onChange={e => setFiltroCuartel(e.target.value)}>
+              <option value="">Todos los cuarteles</option>
+              {cuartelesOpts.map(c => <option key={c.cuartel_id} value={c.cuartel_id}>{c.cuartel_nombre || c.cuartel_id}</option>)}
+            </select>
+          </>
+        )}
+        <Btn size="sm" color="primary" onClick={handleAplicar}>↻ Aplicar</Btn>
+        <Btn size="sm" color="ghost" onClick={exportarExcel}>↓ Excel</Btn>
+      </div>
+      {reporteActivo !== "costos_cuartel" && (
+        <div style={{ fontSize: 10, color: C.textDim, marginTop: 2 }}>
+          Balance y Estado de Resultados acumulan todos los asientos mayorizados desde el inicio. El filtro de período aplica solo a Costos CeCo.
+        </div>
+      )}
+    </div>
+  );
+
+  return (
+    <div>
+      {/* Tabs principales */}
+      <div style={{ display: "flex", gap: 0, borderBottom: `1px solid ${C.border}`, marginBottom: 18 }}>
+        {[{ id: "reportes", label: "Reportes EEFF" }, { id: "ratios", label: "Ratios financieros" }, { id: "narrativa", label: "Narrativa ejecutiva" }].map(t => (
+          <button key={t.id} onClick={() => setSubTab(t.id)} style={{ background: "none", border: "none", borderBottom: subTab === t.id ? `2px solid ${C.primary}` : "2px solid transparent", color: subTab === t.id ? C.primary : C.textMuted, cursor: "pointer", fontSize: 13, fontWeight: subTab === t.id ? 600 : 400, padding: "8px 18px", whiteSpace: "nowrap" }}>
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      {/* ── REPORTES EEFF ────────────────────────────────────────────────────── */}
+      {subTab === "reportes" && (
+        <div>
+          <PanelFiltros conCeCo={reporteActivo === "costos_cuartel"} />
+          <div style={{ display: "flex", gap: 0, borderBottom: `0.5px solid ${C.border}`, marginBottom: 14 }}>
+            <RepTab id="balance" label="Balance general (8 columnas)" />
+            <RepTab id="estado_resultado" label="Estado de resultados" />
+            <RepTab id="costos_cuartel" label="Costos por CeCo" />
+          </div>
+          {errorBal && <div style={{ background: C.dangerBg, border: `1px solid ${C.danger}`, borderRadius: 6, padding: "8px 14px", marginBottom: 10, fontSize: 12, color: C.danger }}>{errorBal}</div>}
+          {errorCos && reporteActivo === "costos_cuartel" && <div style={{ background: C.dangerBg, border: `1px solid ${C.danger}`, borderRadius: 6, padding: "8px 14px", marginBottom: 10, fontSize: 12, color: C.danger }}>{errorCos}</div>}
+
+          {/* Balance 8 columnas */}
+          {reporteActivo === "balance" && (
+            loadingBal ? <div style={{ padding: 28, textAlign: "center", color: C.textDim }}>Cargando balance...</div> : (
+              <div style={{ overflowX: "auto" }}>
+                <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 820, fontSize: 11 }}>
+                  <colgroup>
+                    <col style={{ width: 68 }} /><col /><col style={{ width: 80 }} /><col style={{ width: 80 }} />
+                    <col style={{ width: 80 }} /><col style={{ width: 80 }} /><col style={{ width: 80 }} />
+                    <col style={{ width: 80 }} /><col style={{ width: 80 }} /><col style={{ width: 80 }} />
+                  </colgroup>
+                  <thead>
+                    <tr>
+                      <th style={thS} rowSpan={2}>Cód.</th>
+                      <th style={thS} rowSpan={2}>Cuenta</th>
+                      <th style={{ ...thR, borderLeft: `1px solid ${C.borderLight}` }} colSpan={2}>Saldo</th>
+                      <th style={{ ...thR, borderLeft: `1px solid ${C.borderLight}` }} colSpan={2}>Ajuste</th>
+                      <th style={{ ...thR, borderLeft: `1px solid ${C.borderLight}` }} colSpan={2}>Aj. saldo</th>
+                      <th style={{ ...thR, borderLeft: `1px solid ${C.borderLight}` }}>Balance</th>
+                      <th style={thR}>Resultado</th>
+                    </tr>
+                    <tr>
+                      <th style={{ ...thR, borderLeft: `1px solid ${C.borderLight}` }}>Deudor</th><th style={thR}>Acreedor</th>
+                      <th style={{ ...thR, borderLeft: `1px solid ${C.borderLight}` }}>Debe</th><th style={thR}>Haber</th>
+                      <th style={{ ...thR, borderLeft: `1px solid ${C.borderLight}` }}>Deudor</th><th style={thR}>Acreedor</th>
+                      <th style={{ ...thR, borderLeft: `1px solid ${C.borderLight}` }}>Act/Pas</th>
+                      <th style={thR}>Ing/Egr</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {balanceData.length === 0 && (
+                      <tr><td colSpan={10} style={{ ...tdS, textAlign: "center", color: C.textDim, padding: 28 }}>Sin datos. Verifique que existan asientos mayorizados para la empresa y libro seleccionados.</td></tr>
+                    )}
+                    {["A", "P", "I", "E"].map(tipo => {
+                      const rows = balPorTipo[tipo] || [];
+                      if (!rows.length) return null;
+                      const tipoLabel = { A: "ACTIVO", P: "PASIVO Y PATRIMONIO", I: "INGRESOS", E: "EGRESOS" }[tipo];
+                      const sumD = rows.reduce((s, r) => s + Number(r.saldo_deudor || 0), 0);
+                      const sumA = rows.reduce((s, r) => s + Number(r.saldo_acreedor || 0), 0);
+                      const sumBal = rows.reduce((s, r) => s + Number(r.balance_activo || 0) + Number(r.balance_pasivo || 0), 0);
+                      const sumRes = rows.reduce((s, r) => s + Number(r.resultado_ingreso || 0) + Number(r.resultado_egreso || 0), 0);
+                      return (
+                        <React.Fragment key={tipo}>
+                          <tr style={{ background: C.bgInput }}>
+                            <td colSpan={10} style={{ ...tdS, fontWeight: 700, fontSize: 11, letterSpacing: 0.5 }}>{tipoLabel}</td>
+                          </tr>
+                          {rows.map(r => {
+                            const balVal = Number(r.balance_activo || 0) + Number(r.balance_pasivo || 0);
+                            const resVal = Number(r.resultado_ingreso || 0) + Number(r.resultado_egreso || 0);
+                            return (
+                              <tr key={r.codigo}>
+                                <td style={{ ...tdS, fontFamily: "monospace", fontSize: 10, color: C.textMuted }}>{r.codigo}</td>
+                                <td style={{ ...tdS, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 180 }} title={r.nombre}>{r.nombre}</td>
+                                <td style={{ ...tdR, borderLeft: `1px solid ${C.borderLight}`, color: Number(r.saldo_deudor) > 0 ? C.info : "transparent" }}>{Number(r.saldo_deudor) > 0 ? fmtM(r.saldo_deudor) : ""}</td>
+                                <td style={{ ...tdR, color: Number(r.saldo_acreedor) > 0 ? C.danger : "transparent" }}>{Number(r.saldo_acreedor) > 0 ? fmtM(r.saldo_acreedor) : ""}</td>
+                                <td style={{ ...tdR, borderLeft: `1px solid ${C.borderLight}`, color: C.textDim }}>—</td>
+                                <td style={{ ...tdR, color: C.textDim }}>—</td>
+                                <td style={{ ...tdR, borderLeft: `1px solid ${C.borderLight}`, color: Number(r.saldo_aj_deudor) > 0 ? C.info : "transparent" }}>{Number(r.saldo_aj_deudor) > 0 ? fmtM(r.saldo_aj_deudor) : ""}</td>
+                                <td style={{ ...tdR, color: Number(r.saldo_aj_acreedor) > 0 ? C.danger : "transparent" }}>{Number(r.saldo_aj_acreedor) > 0 ? fmtM(r.saldo_aj_acreedor) : ""}</td>
+                                <td style={{ ...tdR, borderLeft: `1px solid ${C.borderLight}`, color: balVal > 0 ? C.text : "transparent" }}>{balVal > 0 ? fmtM(balVal) : ""}</td>
+                                <td style={{ ...tdR, color: resVal > 0 ? C.text : "transparent" }}>{resVal > 0 ? fmtM(resVal) : ""}</td>
+                              </tr>
+                            );
+                          })}
+                          <tr style={{ background: C.bgInput, fontWeight: 600, borderTop: `1px solid ${C.border}` }}>
+                            <td colSpan={2} style={{ ...tdS, fontWeight: 600 }}>Total {tipoLabel}</td>
+                            <td style={{ ...tdR, borderLeft: `1px solid ${C.borderLight}`, fontWeight: 600, color: C.info }}>{sumD > 0 ? fmtM(sumD) : ""}</td>
+                            <td style={{ ...tdR, fontWeight: 600, color: C.danger }}>{sumA > 0 ? fmtM(sumA) : ""}</td>
+                            <td style={{ ...tdR, borderLeft: `1px solid ${C.borderLight}`, color: C.textDim }}>—</td>
+                            <td style={{ ...tdR, color: C.textDim }}>—</td>
+                            <td style={{ ...tdR, borderLeft: `1px solid ${C.borderLight}`, fontWeight: 600, color: C.info }}>{sumD > 0 ? fmtM(sumD) : ""}</td>
+                            <td style={{ ...tdR, fontWeight: 600, color: C.danger }}>{sumA > 0 ? fmtM(sumA) : ""}</td>
+                            <td style={{ ...tdR, borderLeft: `1px solid ${C.borderLight}`, fontWeight: 600, color: C.primary }}>{sumBal > 0 ? fmtM(sumBal) : ""}</td>
+                            <td style={{ ...tdR, fontWeight: 600, color: C.primary }}>{sumRes > 0 ? fmtM(sumRes) : ""}</td>
+                          </tr>
+                        </React.Fragment>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )
+          )}
+
+          {/* Estado de Resultados */}
+          {reporteActivo === "estado_resultado" && (
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 300px", gap: 14 }}>
+              <div>
+                {loadingBal ? <div style={{ padding: 28, textAlign: "center", color: C.textDim }}>Cargando...</div> : (
+                  <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                    <thead><tr><th style={thS}>Cuenta</th><th style={thR}>Monto acum.</th><th style={thR}>% s/ing.</th></tr></thead>
+                    <tbody>
+                      {(() => {
+                        const ing = balPorTipo.I || [];
+                        const egr = balPorTipo.E || [];
+                        const totalIng = ing.reduce((s, r) => s + Number(r.resultado_ingreso || 0), 0);
+                        const totalEgr = egr.reduce((s, r) => s + Number(r.resultado_egreso || 0), 0);
+                        const utilidad = totalIng - totalEgr;
+                        const pct = n => totalIng > 0 ? `${((n / totalIng) * 100).toFixed(1)}%` : "—";
+                        return (
+                          <>
+                            <tr style={{ background: C.bgInput }}><td colSpan={3} style={{ ...tdS, fontWeight: 700 }}>Ingresos operacionales</td></tr>
+                            {ing.map(r => <tr key={r.codigo}><td style={{ ...tdS, paddingLeft: 18 }}>{r.nombre}</td><td style={{ ...tdR, color: C.success }}>{fmtM(r.resultado_ingreso)}</td><td style={{ ...tdR, color: C.textMuted }}>100%</td></tr>)}
+                            {ing.length === 0 && <tr><td colSpan={3} style={{ ...tdS, paddingLeft: 18, color: C.textDim, fontStyle: "italic" }}>Sin cuentas de ingreso (tipo I)</td></tr>}
+                            <tr style={{ background: C.successBg, borderTop: `1px solid ${C.border}` }}>
+                              <td style={{ ...tdS, fontWeight: 600 }}>Total ingresos</td>
+                              <td style={{ ...tdR, fontWeight: 600, color: C.success }}>{fmtM(totalIng)}</td>
+                              <td style={{ ...tdR, fontWeight: 600, color: C.success }}>100%</td>
+                            </tr>
+                            <tr style={{ background: C.bgInput }}><td colSpan={3} style={{ ...tdS, fontWeight: 700, paddingTop: 12 }}>Egresos</td></tr>
+                            {egr.map(r => <tr key={r.codigo}><td style={{ ...tdS, paddingLeft: 18 }}>{r.nombre}</td><td style={{ ...tdR, color: C.danger }}>{fmtM(r.resultado_egreso)}</td><td style={{ ...tdR, color: C.textMuted }}>{pct(r.resultado_egreso)}</td></tr>)}
+                            {egr.length === 0 && <tr><td colSpan={3} style={{ ...tdS, paddingLeft: 18, color: C.textDim, fontStyle: "italic" }}>Sin cuentas de egreso (tipo E)</td></tr>}
+                            <tr style={{ background: C.dangerBg, borderTop: `1px solid ${C.border}` }}>
+                              <td style={{ ...tdS, fontWeight: 600 }}>Total egresos</td>
+                              <td style={{ ...tdR, fontWeight: 600, color: C.danger }}>{fmtM(totalEgr)}</td>
+                              <td style={{ ...tdR, fontWeight: 600, color: C.danger }}>{pct(totalEgr)}</td>
+                            </tr>
+                            <tr style={{ borderTop: `2px solid ${C.border}`, background: utilidad >= 0 ? C.successBg : C.dangerBg }}>
+                              <td style={{ ...tdS, fontWeight: 700, fontSize: 13 }}>Utilidad del ejercicio</td>
+                              <td style={{ ...tdR, fontWeight: 700, fontSize: 13, color: utilidad >= 0 ? C.success : C.danger }}>{fmtM(utilidad)}</td>
+                              <td style={{ ...tdR, fontWeight: 700, color: utilidad >= 0 ? C.success : C.danger }}>{pct(utilidad)}</td>
+                            </tr>
+                          </>
+                        );
+                      })()}
+                    </tbody>
+                  </table>
+                )}
+              </div>
+              <div style={{ ...cardS, background: C.bgInput, alignSelf: "start" }}>
+                <div style={{ fontSize: 11, fontWeight: 600, color: C.textMuted, marginBottom: 12 }}>Estructura de egresos</div>
+                {(() => {
+                  const egr = balPorTipo.E || [];
+                  const totalEgr = egr.reduce((s, r) => s + Number(r.resultado_egreso || 0), 0);
+                  return egr.sort((a, b) => Number(b.resultado_egreso) - Number(a.resultado_egreso)).slice(0, 10).map(r => {
+                    const p = totalEgr > 0 ? (Number(r.resultado_egreso) / totalEgr) * 100 : 0;
+                    return (
+                      <div key={r.codigo} style={{ marginBottom: 10 }}>
+                        <div style={{ display: "flex", justifyContent: "space-between", fontSize: 10, marginBottom: 2 }}>
+                          <span style={{ color: C.textMuted, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 170 }}>{r.nombre}</span>
+                          <span style={{ fontFamily: "monospace", color: C.textDim, marginLeft: 4 }}>{p.toFixed(1)}%</span>
+                        </div>
+                        <div style={{ height: 4, background: C.border, borderRadius: 2 }}>
+                          <div style={{ height: 4, width: `${Math.min(p, 100)}%`, background: C.danger, borderRadius: 2, opacity: 0.7 }} />
+                        </div>
+                      </div>
+                    );
+                  });
+                })()}
+                {(balPorTipo.E || []).length === 0 && <div style={{ fontSize: 11, color: C.textDim, fontStyle: "italic" }}>Sin cuentas de egreso.</div>}
+              </div>
+            </div>
+          )}
+
+          {/* Costos por CeCo */}
+          {reporteActivo === "costos_cuartel" && (
+            loadingCos ? <div style={{ padding: 28, textAlign: "center", color: C.textDim }}>Cargando costos...</div> : (
+              <>
+                <div style={{ fontSize: 11, color: C.textMuted, marginBottom: 10 }}>
+                  {modoTemporal === "temporada" ? `Temporada ${filtroTemporada} (Jul ${filtroTemporada - 1}–Jun ${filtroTemporada})` : modoTemporal === "anio" ? `Año ${filtroAnio}` : `${MESES_LABEL_C[filtroMes]} ${filtroAnio}`}
+                  {" "}· Solo asientos mayorizados con CeCo asignado (cuartel_id). Costo/há en rojo = +15% sobre promedio.
+                </div>
+                <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                  <thead><tr>
+                    <th style={thS}>Campo</th><th style={thS}>Sector</th><th style={thS}>Cuartel</th>
+                    <th style={thS}>Especie</th><th style={thS}>Variedad</th>
+                    <th style={thR}>Há</th><th style={thR}>Costo total</th><th style={thR}>$/há</th><th style={thR}>% total</th>
+                  </tr></thead>
+                  <tbody>
+                    {costosPorCuartel.length === 0 && (
+                      <tr><td colSpan={9} style={{ ...tdS, textAlign: "center", color: C.textDim, padding: 28 }}>Sin costos con CeCo asignado para el período/filtro seleccionado.</td></tr>
+                    )}
+                    {costosPorCuartel.map((c, i) => {
+                      const pct = totalCostos > 0 ? (c.costo_neto / totalCostos) * 100 : 0;
+                      const ha = Number(c.hectareas) || 1;
+                      const cHa = c.costo_neto / ha;
+                      const avgHa = totalHas > 0 ? totalCostos / totalHas : 0;
+                      const esAlto = avgHa > 0 && cHa > avgHa * 1.15;
+                      return (
+                        <tr key={i} style={esAlto ? { background: "#fff9f0" } : {}}>
+                          <td style={tdS}>{c.campo_nombre}</td>
+                          <td style={tdS}>{c.sector_nombre}</td>
+                          <td style={tdS}>{c.cuartel_nombre}</td>
+                          <td style={tdS}>{c.especie}</td>
+                          <td style={tdS}>{c.variedad}</td>
+                          <td style={tdR}>{Number(c.hectareas || 0).toFixed(1)}</td>
+                          <td style={tdR}>{fmtM(Math.round(c.costo_neto))}</td>
+                          <td style={{ ...tdR, color: esAlto ? C.danger : C.success, fontWeight: esAlto ? 600 : 400 }}>{fmtM(Math.round(cHa))}</td>
+                          <td style={tdR}>{pct.toFixed(1)}%</td>
+                        </tr>
+                      );
+                    })}
+                    {costosPorCuartel.length > 0 && (
+                      <tr style={{ fontWeight: 700, borderTop: `2px solid ${C.border}`, background: C.bgInput }}>
+                        <td colSpan={5} style={tdS}>Total general</td>
+                        <td style={{ ...tdR, fontWeight: 700 }}>{totalHas.toFixed(1)}</td>
+                        <td style={{ ...tdR, fontWeight: 700 }}>{fmtM(Math.round(totalCostos))}</td>
+                        <td style={{ ...tdR, fontWeight: 700 }}>{totalHas > 0 ? fmtM(Math.round(totalCostos / totalHas)) : "—"}</td>
+                        <td style={{ ...tdR, fontWeight: 700 }}>100%</td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </>
+            )
+          )}
+        </div>
+      )}
+
+      {/* ── RATIOS FINANCIEROS ────────────────────────────────────────────────── */}
+      {subTab === "ratios" && (
+        <div>
+          <div style={{ ...rowFlex, marginBottom: 14 }}>
+            <span style={lbl}>Libro para ratios:</span>
+            <select style={selS} value={filtroLibro} onChange={e => setFiltroLibro(e.target.value)}>
+              <option value="tributario">Tributario</option><option value="ifrs">IFRS</option>
+            </select>
+            <Btn size="sm" color="primary" onClick={loadBalance}>↻ Recalcular</Btn>
+          </div>
+          {loadingBal && <div style={{ padding: 28, textAlign: "center", color: C.textDim }}>Calculando ratios...</div>}
+          {!loadingBal && (
+            <>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(165px, 1fr))", gap: 10, marginBottom: 16 }}>
+                <RatioCard label="ROA — Retorno sobre activos" val={ratios?.roa} good={15} warn={8} higherBetter fmt="pct" bench="Bench. 12–22%" max={30} />
+                <RatioCard label="ROE — Retorno sobre patrimonio" val={ratios?.roe} good={18} warn={10} higherBetter fmt="pct" bench="Bench. 15–30%" max={40} />
+                <RatioCard label="Razón corriente" val={ratios?.razonCte} good={2} warn={1.5} higherBetter fmt="ratio" bench="Mín. 2.0×" max={4} />
+                <RatioCard label="Prueba ácida" val={ratios?.pruebaAcida} good={1.5} warn={1} higherBetter fmt="ratio" bench="Mín. 1.5×" max={3} />
+                <RatioCard label="Apalancamiento" val={ratios?.apalancamiento} good={0.4} warn={0.6} higherBetter={false} fmt="ratio" bench="Ópt. <0.5×" max={2} />
+              </div>
+              {ratios && ratios.totalActivo > 0 && (
+                <div style={cardS}>
+                  <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 12 }}>Composición del balance</div>
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 8, marginBottom: 12 }}>
+                    {[
+                      { label: "Total activo", value: ratios.totalActivo, color: C.info },
+                      { label: "Total pasivo", value: ratios.totalPasivo, color: C.danger },
+                      { label: "Patrimonio", value: ratios.patrimonio, color: C.teal },
+                      { label: "Utilidad neta", value: ratios.utilidad, color: ratios.utilidad >= 0 ? C.success : C.danger },
+                    ].map(k => (
+                      <div key={k.label} style={{ background: C.bgInput, borderRadius: 6, padding: "10px 12px" }}>
+                        <div style={{ fontSize: 10, color: C.textMuted, marginBottom: 4 }}>{k.label}</div>
+                        <div style={{ fontSize: 15, fontWeight: 600, color: k.color }}>{fmtM(Math.round(k.value))}</div>
+                      </div>
+                    ))}
+                  </div>
+                  <div style={{ fontSize: 10, color: C.textMuted, marginBottom: 4 }}>Estructura financiera (Activo = Pasivo + Patrimonio)</div>
+                  <div style={{ display: "flex", height: 14, borderRadius: 4, overflow: "hidden" }}>
+                    <div title="Pasivo" style={{ background: C.danger, width: `${(ratios.totalPasivo / ratios.totalActivo) * 100}%`, opacity: 0.75 }} />
+                    <div title="Patrimonio" style={{ background: C.teal, flex: 1, opacity: 0.75 }} />
+                  </div>
+                  <div style={{ display: "flex", gap: 14, marginTop: 5, fontSize: 10, color: C.textMuted }}>
+                    <span><span style={{ display: "inline-block", width: 8, height: 8, background: C.danger, borderRadius: 2, marginRight: 4, opacity: 0.75 }} />Pasivo {ratios.totalActivo > 0 ? ((ratios.totalPasivo / ratios.totalActivo) * 100).toFixed(0) : 0}%</span>
+                    <span><span style={{ display: "inline-block", width: 8, height: 8, background: C.teal, borderRadius: 2, marginRight: 4, opacity: 0.75 }} />Patrimonio {ratios.totalActivo > 0 ? ((ratios.patrimonio / ratios.totalActivo) * 100).toFixed(0) : 0}%</span>
+                  </div>
+                </div>
+              )}
+              {(!ratios || !ratios.totalActivo) && (
+                <div style={{ ...cardS, background: C.warningBg, border: `1px solid ${C.warning}`, color: C.warning, fontSize: 12 }}>
+                  Sin saldos acumulados disponibles. Asegúrese de que existan asientos mayorizados para esta empresa y libro. Los ratios corriente/prueba ácida requieren además que las cuentas tengan <code>clasif_ifrs</code> configurado en el plan de cuentas.
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      )}
+
+      {/* ── NARRATIVA EJECUTIVA ───────────────────────────────────────────────── */}
+      {subTab === "narrativa" && (
+        <div style={{ display: "grid", gridTemplateColumns: "230px 1fr", gap: 14, alignItems: "start" }}>
+          <div style={cardS}>
+            <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 14 }}>Parámetros del informe</div>
+            <div style={{ marginBottom: 10 }}>
+              <div style={{ ...lbl, display: "block", marginBottom: 3 }}>Período</div>
+              <div style={{ display: "flex", gap: 4, marginBottom: 6 }}>
+                {[["mes","Mes"],["anio","Año"],["temporada","Temp."]].map(([v,l]) => (
+                  <button key={v} onClick={() => setModoTemporal(v)} style={{ flex: 1, padding: "3px 0", fontSize: 10, border: `1px solid ${modoTemporal===v ? C.primary : C.border}`, borderRadius: 4, background: modoTemporal===v ? C.primary : C.bgCard, color: modoTemporal===v ? "#fff" : C.textMuted, cursor: "pointer" }}>{l}</button>
+                ))}
+              </div>
+              {modoTemporal === "mes" && <div style={{ display: "flex", gap: 4 }}>
+                <select style={{ ...selS, flex: 1 }} value={filtroMes} onChange={e => setFiltroMes(Number(e.target.value))}>{[1,2,3,4,5,6,7,8,9,10,11,12].map(m => <option key={m} value={m}>{MESES_LABEL_C[m]}</option>)}</select>
+                <select style={{ ...selS, flex: 1 }} value={filtroAnio} onChange={e => setFiltroAnio(Number(e.target.value))}>{ANIOS.map(a => <option key={a} value={a}>{a}</option>)}</select>
+              </div>}
+              {modoTemporal === "anio" && <select style={{ ...selS, width: "100%" }} value={filtroAnio} onChange={e => setFiltroAnio(Number(e.target.value))}>{ANIOS.map(a => <option key={a} value={a}>{a}</option>)}</select>}
+              {modoTemporal === "temporada" && <select style={{ ...selS, width: "100%" }} value={filtroTemporada} onChange={e => setFiltroTemporada(Number(e.target.value))}>{TEMPORADAS.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}</select>}
+            </div>
+            <div style={{ marginBottom: 12 }}>
+              <div style={{ ...lbl, display: "block", marginBottom: 3 }}>Libro</div>
+              <select style={{ ...selS, width: "100%" }} value={filtroLibro} onChange={e => setFiltroLibro(e.target.value)}>
+                <option value="tributario">Tributario</option><option value="ifrs">IFRS</option>
+              </select>
+            </div>
+            <Btn color="primary" style={{ width: "100%", marginBottom: 6 }} disabled={generando} onClick={() => { cargaOkRef.current = false; Promise.all([loadBalance(), loadCostos()]).then(() => generarNarrativa()); }}>
+              {generando ? "Generando..." : "Generar narrativa"}
+            </Btn>
+            {narTexto && (
+              <div style={{ display: "flex", gap: 6 }}>
+                <Btn size="sm" color="ghost" style={{ flex: 1 }} onClick={() => { try { navigator.clipboard.writeText(narTexto); } catch (_) {} }}>Copiar</Btn>
+                <Btn size="sm" color="ghost" style={{ flex: 1 }} onClick={() => { const blob = new Blob([narTexto], { type: "text/plain" }); const url = URL.createObjectURL(blob); const a = document.createElement("a"); a.href = url; a.download = `informe_ejecutivo_${filtroAnio}.txt`; a.click(); URL.revokeObjectURL(url); }}>.txt</Btn>
+              </div>
+            )}
+            <div style={{ marginTop: 14, fontSize: 10, color: C.textDim, lineHeight: 1.5 }}>
+              Análisis determinista — sin IA externa. El texto generado es editable antes de distribuir.
+            </div>
+          </div>
+          <div style={cardS}>
+            <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 10 }}>Informe ejecutivo</div>
+            {!narTexto && !generando && (
+              <div style={{ padding: "40px 0", textAlign: "center", color: C.textDim, fontSize: 13 }}>
+                <div style={{ fontSize: 30, marginBottom: 10 }}>📄</div>
+                Configure los parámetros y presione "Generar narrativa".
+              </div>
+            )}
+            {generando && <div style={{ padding: "40px 0", textAlign: "center", color: C.textMuted, fontSize: 13 }}>Analizando saldos y costos...</div>}
+            {narTexto && (
+              <textarea value={narTexto} onChange={e => setNarTexto(e.target.value)} style={{ width: "100%", minHeight: 430, padding: "12px 14px", fontSize: 12, lineHeight: 1.7, fontFamily: "monospace", border: `1px solid ${C.border}`, borderRadius: 6, background: C.bgInput, color: C.text, resize: "vertical", boxSizing: "border-box" }} />
+            )}
+            <div style={{ marginTop: 8, fontSize: 10, color: C.textDim }}>Fuentes: contab_balance_8_columnas · contab_costos_cuartel · contab_saldos_acumulados · Editable antes de exportar.</div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+
 const TABS = [
   { key: "empresas", label: "Empresas" },
   { key: "plan_cuentas", label: "Plan de Cuentas" },
@@ -5030,10 +5736,11 @@ const TABS = [
   { key: "tipos_doc", label: "Tipos de Documento" },
   { key: "periodos", label: "Períodos" },
   { key: "mapeo", label: "Mapeo de Códigos" },
+  { key: "informes_analitica", label: "Informes y Analítica" },
 ];
 
 // Tabs que requieren selector de empresa
-const TABS_CON_EMPRESA = new Set(["plan_cuentas", "libro_diario", "centralizacion_sii", "centros_costo", "periodos", "mapeo"]);
+const TABS_CON_EMPRESA = new Set(["plan_cuentas", "libro_diario", "centralizacion_sii", "centros_costo", "periodos", "mapeo", "informes_analitica"]);
 
 export default function ContabilidadModule({ usuario, canEdit, esCFO, onBack }) {
   const [tabActiva, setTabActiva] = useState("empresas");
@@ -5226,6 +5933,14 @@ export default function ContabilidadModule({ usuario, canEdit, esCFO, onBack }) 
 
         {tabActiva === "mapeo" && (
           <MapeoCodosTab empresaId={empresaId} canEdit={canEdit || esCFO} />
+        )}
+
+        {tabActiva === "informes_analitica" && (
+          <InformesAnaliticaTab
+            empresaId={empresaId}
+            canEdit={canEdit || esCFO}
+            usuario={usuario}
+          />
         )}
       </div>
     </div>
