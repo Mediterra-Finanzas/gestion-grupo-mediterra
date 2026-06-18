@@ -7,6 +7,7 @@ import FriskuComercialModule from "./FriskuComercialModule.jsx";
 import ContabilidadModule from "./ContabilidadModule.jsx";
 import { theme as C } from "./theme";
 import { ensureSupabaseSession, clearOsirisSession, getOsirisAccessToken, refreshOsirisSession } from "./data/supabase-auth";
+import { installGuard, USE_GUARD } from "./guardClient";
 
 // ═══════════════════════════════════════════════════════════════════
 // ErrorBoundary: captura crash por archivos obsoletos tras deploy
@@ -67,6 +68,8 @@ const EMAILJS_KEY      = process.env.REACT_APP_EMAILJS_KEY;
 const FECHA_INICIO     = new Date(2026, 3, 13);
 
 const SUPA_URL = "https://bywovqayuzodbzwsriet.supabase.co";
+// Etapa 3 seguridad: si el interruptor está prendido, enruta la base por el guardia.
+installGuard(SUPA_URL);
 const SUPA_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJ5d292cWF5dXpvZGJ6d3NyaWV0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU2ODU1MDgsImV4cCI6MjA5MTI2MTUwOH0.s2x2O_CxE6rl8dBqFuyfQdMyRqSyjJQWXJXesmVGXtk";
 
 async function dbLoad() {
@@ -2474,7 +2477,7 @@ export default function App(){
     window._auditUsuarioActual = null;
   }
 
-  function handleLogin(){
+  async function handleLogin(){
     const emailInput = loginEmail.trim().toLowerCase();
     const w=WORKERS.find(x=>x.email&&x.email.toLowerCase()===emailInput);
     if(!w){
@@ -2484,6 +2487,46 @@ export default function App(){
         usuario:"(desconocido)", email:emailInput});
       return;
     }
+
+    // Etapa 3 seguridad: con el guardia prendido, el PIN se valida en el SERVIDOR.
+    if (USE_GUARD) {
+      try {
+        const r = await fetch('/api/login', {
+          method:'POST', credentials:'include',
+          headers:{'Content-Type':'application/json'},
+          body: JSON.stringify({ email: emailInput, pin: loginPin.trim() }),
+        });
+        const j = await r.json().catch(()=>({}));
+        if (!r.ok || !j.ok) {
+          setLoginError(r.status===403 ? "Usuario desactivado." : "PIN incorrecto.");
+          window.auditLog("login_fallido", {modulo:"sistema", seccion:"autenticación",
+            descripcion:`PIN incorrecto para ${w.nombre}`, usuario:w.nombre, email:w.email});
+          return;
+        }
+        setLoginError("");
+        if (j.pinTemporal) {
+          setWorkerPendiente(w);
+          setModalPin("cambiar");
+          window._auditUsuarioActual = w;
+          window.auditLog("login_pin_temporal", {modulo:"sistema", seccion:"autenticación",
+            descripcion:`${w.nombre} ingresó con PIN temporal — debe cambiarlo`});
+        } else {
+          setUsuarioActual(w);
+          sessionStorage.setItem('mediterra_usuario', w.nombre);
+          window._auditUsuarioActual = w;
+          window.auditLog("login", {modulo:"sistema", seccion:"autenticación",
+            descripcion:`${w.nombre} (${w.rol}) inició sesión`});
+          if(process.env.REACT_APP_AUTH_DUAL === 'true'){
+            ensureSupabaseSession(emailInput, loginPin.trim())
+              .then(r=>{ if(!r.ok) console.warn("[osiris-auth] sin sesión:", r.error); });
+          }
+        }
+      } catch (e) {
+        setLoginError("No se pudo conectar con el servidor. Intenta de nuevo.");
+      }
+      return;
+    }
+
     const pinOk=getPinActivo(w);
     const pinTemp=pinsPersonalizados[w.nombre+"_temp"];
     const esTemp=pinTemp&&loginPin.trim()===pinTemp;
