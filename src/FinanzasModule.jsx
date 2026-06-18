@@ -11222,6 +11222,28 @@ const VALIDACION_RESPALDO = {
   seccionesExentas: ["anticipos"],  // secciones que no requieren documento
 };
 
+// Logo por empresa de nómina (archivos en /public). Los nombres difieren de
+// los de Rendiciones (ej. "Mediterra" vs "Mediterra Holding").
+const LOGO_NOMINA = {
+  "Allegria Foods":    "/allegria-logo.jpg",
+  "Allegria Service":  "/allegria-service-logo.png",
+  "Frisku Foods":      "/frisku.png",
+  "Frisku Foods Perú": "/frisku.png",
+  "Allpa Farms":       "/allpa-chile-logo.png",
+  "Allpa Farms Perú":  "/allpa-peru-logo.png",
+  "Mediterra":         "/med.png",
+  "Integrity Farms":   "/integrity-logo.png",
+  "Osiris":            "/osiris-logo.jpg",
+};
+async function urlToDataURLNom(url) {
+  const r = await fetch(url); if(!r.ok) throw new Error("logo HTTP "+r.status);
+  const b = await r.blob();
+  return await new Promise((res,rej)=>{ const fr=new FileReader(); fr.onload=()=>res(fr.result); fr.onerror=rej; fr.readAsDataURL(b); });
+}
+function imgNaturalSizeNom(src) {
+  return new Promise((res)=>{ const im=new Image(); im.onload=()=>res({w:im.naturalWidth,h:im.naturalHeight}); im.onerror=()=>res(null); im.src=src; });
+}
+
 // Loader lazy de pdf-lib (vía CDN, sin agregar dependencia al bundle) para
 // fusionar la nómina + sus respaldos en un único PDF consolidado.
 async function loadPdfLib() {
@@ -12271,30 +12293,82 @@ function NominaDetalle({nomina, onUpdate, onBack, usuario, canEdit, saldosBancos
     try {
       const jsPDF = await reporte_loadJsPDF();
       const PDFLib = await loadPdfLib();
-      // 1) Portada/resumen (índice) con jsPDF
-      const sdoc = new jsPDF({orientation:"portrait", unit:"mm", format:"a4"});
-      let y=20;
-      sdoc.setFontSize(15); sdoc.setFont(undefined,"bold");
-      sdoc.text("EXPEDIENTE DE NÓMINA", 105, y, {align:"center"}); y+=7;
-      sdoc.setFontSize(11); sdoc.setFont(undefined,"normal");
-      sdoc.text(nombreFormal, 105, y, {align:"center"}); y+=10;
+      // 1) Portada = planilla formateada (como la impresión) con logo de la empresa.
+      const sdoc = new jsPDF({orientation:"landscape", unit:"mm", format:"a4"});
+      const pageW = sdoc.internal.pageSize.getWidth();
+      const NAVY=[30,39,97], LIGHT=[234,238,244];
+      // Logo
+      let headerX=14, logoBottom=12;
+      const logoPath = LOGO_NOMINA[nom.empresa];
+      if(logoPath){
+        try{
+          const durl = await urlToDataURLNom(logoPath);
+          const nat = await imgNaturalSizeNom(durl);
+          if(nat && nat.w){ const maxW=42,maxH=16; const sc=Math.min(maxW/nat.w,maxH/nat.h); const w=nat.w*sc,h=nat.h*sc;
+            sdoc.addImage(durl, logoPath.toLowerCase().endsWith(".png")?"PNG":"JPEG", 14, 9, w, h, undefined, "FAST");
+            headerX = 14+w+6; logoBottom = Math.max(logoBottom, 9+h);
+          }
+        }catch{/* sin logo */}
+      }
+      sdoc.setFontSize(14); sdoc.setFont(undefined,"bold"); sdoc.setTextColor(...NAVY);
+      sdoc.text(nombreFormal, headerX, 16);
+      sdoc.setFontSize(8); sdoc.setFont(undefined,"normal"); sdoc.setTextColor(90);
+      sdoc.text(`Semana ${nom.semana} · Año ${nom.año} · Fecha: ${nom.fecha||"—"}${nom.tc?` · T.C: $${nom.tc.toLocaleString("es-CL")}`:""}`, headerX, 22);
       const cob = coberturaNomina(nom);
-      sdoc.setFontSize(9);
-      [`Empresa: ${nom.empresa}    Semana: ${nom.semana} / ${nom.año}    Fecha: ${nom.fecha||"—"}`,
-       `Estado: ${(ESTADOS_FLUJO.find(e=>e.id===nom.estado)||{}).label||nom.estado}`,
-       `Cobertura documental: ${cob.conRespaldo}/${cob.total} (${cob.pct}%)`].forEach(l=>{sdoc.text(l,15,y);y+=6;});
-      y+=2; sdoc.setFont(undefined,"bold"); sdoc.text("Detalle de pagos y respaldos:",15,y); y+=6; sdoc.setFont(undefined,"normal");
+      sdoc.text(`Respaldo documental: ${cob.conRespaldo}/${cob.total} líneas (${cob.pct}%)`, headerX, 27);
+      sdoc.text(`Estado: ${(ESTADOS_FLUJO.find(e=>e.id===nom.estado)||{}).label||nom.estado}`, pageW-14, 13, {align:"right"});
+      sdoc.text(`Impreso: ${new Date().toLocaleDateString("es-CL")}`, pageW-14, 18, {align:"right"});
+      // Tabla de líneas por sección
+      const locLabel = nomEsPeruana?"PEN":"CLP";
+      const fmtLoc = nomEsPeruana?$$pen:$$clp;
+      const head=[["Tipo Doc","Proveedor","RUT","N° Doc","F.Doc","F.Venc","S","Concepto",locLabel,"USD","Anticipo","Saldo","Observaciones / Respaldo"]];
+      const body=[]; let totLoc=0, totUSD=0;
       for(const sec of [...SECCIONES,...(nom.seccionesExtra||[])]){
         const its=nom.items.filter(it=>it.seccion===sec.id && lineaActiva(it)); if(!its.length) continue;
-        if(y>275){sdoc.addPage();y=20;}
-        sdoc.setFont(undefined,"bold"); sdoc.text(sec.label,15,y); y+=5; sdoc.setFont(undefined,"normal");
+        body.push([{content:`${sec.label} (${its.length})`, colSpan:13, styles:{fontStyle:'bold', fillColor:LIGHT, textColor:NAVY}}]);
+        let sLoc=0,sUSD=0;
         for(const it of its){
-          if(y>282){sdoc.addPage();y=20;}
-          const m = Number(it.montoUSD)?`USD ${Number(it.montoUSD).toLocaleString("es-CL")}`:Number(it.montoPEN)?`PEN ${Number(it.montoPEN).toLocaleString("es-CL")}`:`CLP ${Number(it.montoCLP||0).toLocaleString("es-CL")}`;
-          const linea=`  • ${it.proveedor||it.concepto||"—"} — ${m} — ${tieneRespaldo(it)?docsActivos(it).length+" doc(s)":"SIN RESPALDO"}`;
-          const wrapped=sdoc.splitTextToSize(linea,180); sdoc.text(wrapped,15,y); y+=5*wrapped.length;
+          const loc=Number(nomEsPeruana?it.montoPEN:it.montoCLP)||0, usd=Number(it.montoUSD)||0, ant=Number(it.anticipo)||0;
+          const saldo=(usd||loc)-ant; sLoc+=loc; sUSD+=usd;
+          const respaldo = tieneRespaldo(it) ? docsActivos(it).map(d=>d.nombre+(d.principal?" ★":"")).join(", ") : "Sin respaldo";
+          body.push([it.tipoDoc||"—", it.proveedor||"—", it.rut||"—", it.nDoc||"—", it.fDoc||"—", it.fVenc||"—", it.semVenc?`S${it.semVenc}`:"—", it.concepto||"—",
+            loc?fmtLoc(loc):"—", usd?$$usd(usd):"—", ant?(usd?$$usd(ant):fmtLoc(ant)):"—", saldo?(usd?$$usd(saldo):fmtLoc(saldo)):"—",
+            (it.comentario?it.comentario+" · ":"")+respaldo]);
         }
+        totLoc+=sLoc; totUSD+=sUSD;
+        body.push([{content:"Subtotal", colSpan:8, styles:{halign:'right',fontStyle:'bold'}}, sLoc?fmtLoc(sLoc):"—", sUSD?$$usd(sUSD):"—", "", "", ""]);
       }
+      body.push([{content:"TOTAL NÓMINA", colSpan:8, styles:{halign:'right',fontStyle:'bold',fillColor:NAVY,textColor:[255,255,255]}},
+        {content:totLoc?fmtLoc(totLoc):"—", styles:{fillColor:NAVY,textColor:[255,255,255],fontStyle:'bold'}},
+        {content:totUSD?$$usd(totUSD):"—", styles:{fillColor:NAVY,textColor:[255,255,255],fontStyle:'bold'}},
+        {content:"",styles:{fillColor:NAVY}},{content:"",styles:{fillColor:NAVY}},{content:"",styles:{fillColor:NAVY}}]);
+      sdoc.autoTable({ startY: Math.max(logoBottom,29)+4, head, body, theme:'grid',
+        styles:{fontSize:6.5, cellPadding:1.1, overflow:'linebreak', textColor:[40,40,40], lineColor:[210,210,210]},
+        headStyles:{fillColor:NAVY, textColor:[255,255,255], fontSize:6.5},
+        columnStyles:{8:{halign:'right'},9:{halign:'right'},10:{halign:'right'},11:{halign:'right'},12:{cellWidth:55}},
+        margin:{left:10,right:10} });
+      let afterY = sdoc.lastAutoTable.finalY + 7;
+      // Anexo respaldos
+      const docsRows=[];
+      nom.items.filter(it=>lineaActiva(it)&&docsActivos(it).length>0).forEach(it=>docsActivos(it).forEach(d=>{
+        docsRows.push([it.proveedor||it.concepto||"—", d.nombre+(d.principal?" ★":""), d.interno?"Interno":"Adjunto", d.voucher?.correlativo||"—", d.hash?d.hash.slice(0,16)+"…":"—"]);
+      }));
+      if(docsRows.length){
+        if(afterY>175){sdoc.addPage();afterY=20;}
+        sdoc.setFontSize(10); sdoc.setFont(undefined,"bold"); sdoc.setTextColor(...NAVY); sdoc.text("Anexo — Respaldos documentales",10,afterY);
+        sdoc.autoTable({ startY:afterY+2, head:[["Línea","Documento","Tipo","Correlativo interno","SHA-256"]], body:docsRows, theme:'grid',
+          styles:{fontSize:7,cellPadding:1.2}, headStyles:{fillColor:NAVY,textColor:[255,255,255]}, margin:{left:10,right:10} });
+        afterY = sdoc.lastAutoTable.finalY + 10;
+      }
+      // Firmas
+      if(afterY>165){sdoc.addPage();afterY=30;}
+      const colW=(pageW-20)/4; sdoc.setTextColor(90);
+      [["Preparada por",nom.preparadoPor],["Revisada por",nom.revisadoPor],["V°B° Aprobador",nom.aprobado1Por],["Aprobado CFO",nom.aprobadoPor]].forEach((fm,i)=>{
+        const cx=10+colW*i+colW/2;
+        if(fm[1]){ sdoc.setFontSize(8); sdoc.text(String(fm[1]), cx, afterY+10, {align:"center"}); }
+        sdoc.setDrawColor(150); sdoc.line(10+colW*i+10, afterY+13, 10+colW*(i+1)-10, afterY+13);
+        sdoc.setFontSize(8); sdoc.text(fm[0], cx, afterY+18, {align:"center"});
+      });
       const sBytes = sdoc.output("arraybuffer");
       // 2) Fusionar con pdf-lib
       const merged = await PDFLib.PDFDocument.create();
