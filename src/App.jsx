@@ -7,7 +7,7 @@ import FriskuComercialModule from "./FriskuComercialModule.jsx";
 import ContabilidadModule from "./ContabilidadModule.jsx";
 import { theme as C } from "./theme";
 import { ensureSupabaseSession, clearOsirisSession, getOsirisAccessToken, refreshOsirisSession } from "./data/supabase-auth";
-import { installGuard, USE_GUARD } from "./guardClient";
+import { installGuard, USE_GUARD, pollRow } from "./guardClient";
 
 // ═══════════════════════════════════════════════════════════════════
 // ErrorBoundary: captura crash por archivos obsoletos tras deploy
@@ -2101,6 +2101,27 @@ export default function App(){
       }
     }
     cargar();
+
+    // Aplica cambios entrantes de la fila "main" (Tareas) a la pantalla.
+    const aplicarMain = (d) => {
+      if(!d) return;
+      if(d.estados)       setEstados(prev=>({...prev,...d.estados}));
+      if(d.comentarios)   setComentarios(d.comentarios);
+      if(d.tareasConfig)  setTareasConfig(prev=>({...prev,...d.tareasConfig}));
+      if(d.supervisores)  setSupervisores(prev=>({...prev,...d.supervisores}));
+      if(d.tareasExtra)   setTareasExtra(d.tareasExtra);
+      if(d.pinsPersonalizados) setPinsPersonalizados(d.pinsPersonalizados);
+      if(d.recsDone)      setRecsDone(d.recsDone);
+      if(d.recsComentarios) setRecsComentarios(d.recsComentarios);
+    };
+
+    // Con el guardia prendido: sincronización por sondeo autenticado (la
+    // puerta vieja del WebSocket anónimo se cierra). Cubre el mismo caso de
+    // uso de Tareas, con unos segundos de diferencia en vez de instantáneo.
+    if (USE_GUARD) {
+      const stop = pollRow("main", aplicarMain);
+      return () => stop();
+    }
 
     // ── Supabase Realtime — sincronización instantánea entre usuarios ──
     // Escucha cambios en id:"main" → actualiza Tareas y Osiris en tiempo real
