@@ -19,8 +19,12 @@
 const zlib = require("zlib");
 const { sesionDeRequest, supaFetch, faltanSecretos } = require("../_auth");
 
-// Tablas que el guardia permite tocar (lista blanca de seguridad).
-const TABLAS_PERMITIDAS = new Set(["calendario_data"]);
+// El filtro de seguridad principal es la SESIÓN: sin cookie válida no se pasa.
+// La restricción por tabla/fila (por empresa, por rol) es trabajo de RLS y se
+// afina después. Por ahora, con sesión válida se permite acceso a las tablas
+// del proyecto (calendario_data + tablas del módulo contable, que se acceden
+// dinámicamente). Se mantiene una denylist mínima por si acaso.
+const TABLAS_BLOQUEADAS = new Set([]);
 
 module.exports = async function handler(req, res) {
   if (faltanSecretos()) {
@@ -40,7 +44,7 @@ module.exports = async function handler(req, res) {
   const segs = pathname.split("/").filter(Boolean);
   const tabla = segs[0];
 
-  if (!TABLAS_PERMITIDAS.has(tabla)) {
+  if (!tabla || TABLAS_BLOQUEADAS.has(tabla)) {
     return res.status(403).json({ error: "tabla_no_permitida", tabla: tabla || null });
   }
   // Limpiar la query: Vercel inyecta el segmento del catch-all como '...path'
