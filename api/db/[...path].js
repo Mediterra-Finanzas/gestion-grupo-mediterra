@@ -39,19 +39,13 @@ module.exports = async function handler(req, res) {
   const segs = pathname.split("/").filter(Boolean);
   const tabla = segs[0];
 
-  // Eco de diagnóstico temporal (se elimina luego)
-  if (urlObj.searchParams.get("__echo") === "1") {
-    return res.status(200).json({
-      url: req.url, pathname, segs, query: req.query || null,
-    });
-  }
-
   if (!TABLAS_PERMITIDAS.has(tabla)) {
     return res.status(403).json({ error: "tabla_no_permitida", tabla: tabla || null });
   }
+  // Limpiar la query: Vercel inyecta el segmento del catch-all como '...path'
   const params = new URLSearchParams(urlObj.searchParams);
+  params.delete("...path");
   params.delete("path");
-  params.delete("__echo");
   const qs = params.toString();
   const destino = segs.join("/") + (qs ? "?" + qs : "");
 
