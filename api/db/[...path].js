@@ -32,19 +32,26 @@ module.exports = async function handler(req, res) {
     return res.status(401).json({ error: "sin_sesion" });
   }
 
-  // 2) Tabla (segmentos del catch-all) + querystring real (sin 'path')
-  const q = req.query || {};
-  const segs = Array.isArray(q.path) ? q.path : (q.path ? [q.path] : []);
+  // 2) Tabla + querystring, parseando la URL real (robusto ante cómo
+  //    Vercel inyecta el segmento de ruta). Se descarta cualquier 'path'.
+  const urlObj = new URL(req.url, "http://local");
+  const pathname = urlObj.pathname.replace(/^\/api\/db\//, "").replace(/^\//, "");
+  const segs = pathname.split("/").filter(Boolean);
   const tabla = segs[0];
+
+  // Eco de diagnóstico temporal (se elimina luego)
+  if (urlObj.searchParams.get("__echo") === "1") {
+    return res.status(200).json({
+      url: req.url, pathname, segs, query: req.query || null,
+    });
+  }
+
   if (!TABLAS_PERMITIDAS.has(tabla)) {
     return res.status(403).json({ error: "tabla_no_permitida", tabla: tabla || null });
   }
-  const params = new URLSearchParams();
-  for (const [k, val] of Object.entries(q)) {
-    if (k === "path") continue;
-    if (Array.isArray(val)) val.forEach(v => params.append(k, v));
-    else params.append(k, val);
-  }
+  const params = new URLSearchParams(urlObj.searchParams);
+  params.delete("path");
+  params.delete("__echo");
   const qs = params.toString();
   const destino = segs.join("/") + (qs ? "?" + qs : "");
 
