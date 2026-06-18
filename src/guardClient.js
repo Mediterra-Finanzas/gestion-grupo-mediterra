@@ -66,6 +66,21 @@ export function installGuard(SUPA_URL) {
       // Envíos con cuerpo string (los grandes, ej. finanzas ~4.4MB) se
       // comprimen a gzip para no superar el tope de ~4.5MB de Vercel.
       const esEscritura = ["POST", "PUT", "PATCH", "DELETE"].includes(metodo);
+
+      // Registrar el updated_at de lo que ESTE usuario escribe, para que el
+      // sondeo de sincronización no re-aplique sus propios cambios (evita
+      // pisar ediciones en curso).
+      if (esEscritura && typeof nuevoInit.body === "string") {
+        try {
+          const obj = JSON.parse(nuevoInit.body);
+          const rec = Array.isArray(obj) ? obj[0] : obj;
+          if (rec && rec.id && rec.updated_at) {
+            window.__selfWrites = window.__selfWrites || {};
+            window.__selfWrites[rec.id] = rec.updated_at;
+          }
+        } catch (e) {}
+      }
+
       if (esEscritura && typeof nuevoInit.body === "string" && typeof CompressionStream !== "undefined") {
         return (async () => {
           try {
@@ -87,4 +102,41 @@ export function installGuard(SUPA_URL) {
     return orig(input, init);
   };
   try { console.log("[guard] redirector activo → /api/db"); } catch {}
+}
+
+// Sondeo de sincronización a través del guardia (reemplaza el WebSocket
+// realtime cuando el interruptor está prendido). Consulta solo la marca de
+// tiempo (barata) cada `intervalMs`; baja el valor completo SOLO cuando
+// cambió y el cambio NO es de este mismo usuario. Devuelve una función stop.
+export function pollRow(id, onChange, intervalMs = 8000) {
+  if (!USE_GUARD) return () => {};
+  let lastUpd = null, stopped = false, timer = null;
+  const url = (sel) => `/api/db/calendario_data?id=eq.${encodeURIComponent(id)}&select=${sel}`;
+  async function tick() {
+    if (stopped) return;
+    try {
+      const r = await fetch(url("updated_at"), { credentials: "include" });
+      if (r.ok) {
+        const rows = await r.json();
+        const upd = rows && rows[0] && rows[0].updated_at;
+        if (upd && upd !== lastUpd) {
+          const first = (lastUpd === null);
+          lastUpd = upd;
+          const selfUpd = window.__selfWrites && window.__selfWrites[id];
+          if (!first && upd !== selfUpd) {
+            const r2 = await fetch(url("value"), { credentials: "include" });
+            if (r2.ok) {
+              const rows2 = await r2.json();
+              let v = rows2 && rows2[0] && rows2[0].value;
+              if (typeof v === "string") { try { v = JSON.parse(v); } catch (e) {} }
+              if (v !== undefined && v !== null) onChange(v);
+            }
+          }
+        }
+      }
+    } catch (e) {}
+    if (!stopped) timer = setTimeout(tick, intervalMs);
+  }
+  timer = setTimeout(tick, intervalMs);
+  return () => { stopped = true; if (timer) clearTimeout(timer); };
 }

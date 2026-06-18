@@ -6,6 +6,7 @@ import { theme } from './theme';
 import { exportarFlujoConsolidado } from './flujoExportExcel.js';
 import { uploadDocNomina, urlFirmadaNomina } from './friskuHelpers';
 import { esLineaRelacionada, hashArchivo, docsActivos, tieneRespaldo, pathDocNomina, coberturaNomina, siguienteCorrelativo } from './expedienteHelpers';
+import { USE_GUARD, pollRow } from './guardClient';
 
 // ═══════════════════════════════════════════════════════════════════
 // TIEMPO: Mar-26 → Jun-31 (65 meses)
@@ -10368,6 +10369,13 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
     dbLoad()
       .then(d=>{ applyData(d); cargaOkRef.current = true; setLoading(false); window._finLoadTime = Date.now(); })
       .catch(e=>{ console.error("[Finanzas] Carga falló — GUARDADO DESHABILITADO esta sesión (no se sobrescribe Supabase):", e); setLoading(false); });
+
+    // Con el guardia prendido: sincronización por sondeo autenticado (la
+    // puerta vieja del WebSocket anónimo se cierra).
+    if (USE_GUARD) {
+      const stop = pollRow("finanzas", (d)=>{ if(d) applyData(d); });
+      return () => stop();
+    }
 
     // ── Supabase Realtime — sincronización instantánea entre usuarios ──
     // Escucha cambios en la fila "finanzas" de calendario_data
