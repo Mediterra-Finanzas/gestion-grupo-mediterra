@@ -109,7 +109,7 @@ Sub-tabs dentro de FinanzasModule:
 2. **Flujo Empresas** — flujo de caja proyectado por empresa + consolidado
 3. **Saldos Bancos** — saldos por banco/cuenta
 4. **Créditos** — créditos por empresa, cuotas, renovaciones
-5. **Nóminas** — nóminas de pago semanales con workflow autorización
+5. **Nóminas** — nóminas de pago semanales con workflow autorización. **Expediente Digital (Fases 0-6, jun-2026)**: respaldo documental por línea (bucket privado `nominas-docs` + URLs firmadas; helpers en `friskuHelpers.js` y `expedienteHelpers.js`), soft-delete de líneas/documentos/nóminas (nunca borrado físico: `estadoLinea`/`doc.estado`/`estadoNomina="inactiva"`), hash SHA-256 por documento, semáforo 🟢/🔴 + % cobertura por nómina, documento interno autogenerado para líneas de empresas relacionadas (`emp_rel_clp`/`emp_rel_usd`: correlativo `DI-{COD}-{AAAA}-{NNNNN}` + UUID + PDF), trazabilidad (`nomina.historial[]` + `window.auditLog` en transiciones), Vista Auditoría (`AuditoriaNominaModal`), validación de respaldo obligatorio al avanzar a "revision" (`VALIDACION_RESPALDO`, exime `anticipos`), y "Descargar Expediente" (ZIP resumen + documentos). La impresión incluye cobertura, respaldos por línea y anexos.
 6. **Reporte Semanal** — PDF ejecutivo del flujo grupo
 7. **Auditoría** — log de cambios
 8. **EEFF** — carga balance + P&L (EEFFModule)
