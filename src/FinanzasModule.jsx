@@ -11222,6 +11222,18 @@ const VALIDACION_RESPALDO = {
   seccionesExentas: ["anticipos"],  // secciones que no requieren documento
 };
 
+// Loader lazy de pdf-lib (vía CDN, sin agregar dependencia al bundle) para
+// fusionar la nómina + sus respaldos en un único PDF consolidado.
+async function loadPdfLib() {
+  if (window.PDFLib) return window.PDFLib;
+  await new Promise((res, rej) => {
+    const s = document.createElement("script");
+    s.src = "https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js";
+    s.onload = res; s.onerror = rej; document.head.appendChild(s);
+  });
+  return window.PDFLib;
+}
+
 // Devuelve las líneas que incumplen el respaldo obligatorio para avanzar.
 function lineasSinRespaldoObligatorio(nom) {
   return (nom?.items||[]).filter(it =>
@@ -12161,7 +12173,8 @@ function NominaDetalle({nomina, onUpdate, onBack, usuario, canEdit, saldosBancos
   const esCFO = usuario?.rol==="admin" || usuario?.esCFO;
   const [soloVer, setSoloVer] = useState(false);
   const [showAudit, setShowAudit] = useState(false);   // Vista Auditoría (Fase 3)
-  const [descExpediente, setDescExpediente] = useState(false); // Descargar Expediente (Fase 6)
+  const [descExpediente, setDescExpediente] = useState(false); // Descargar Expediente ZIP (Fase 6)
+  const [genPdf, setGenPdf] = useState(false);          // Expediente PDF consolidado
   // Estado bloqueado: nadie puede editar contenido una vez que tiene V°B° o está aprobada
   const estadoBloqueado = nom.estado === "aprobada" || nom.estado === "aprobada1";
   // editActivo: controla si se pueden modificar items/campos de la nómina
@@ -12250,6 +12263,82 @@ function NominaDetalle({nomina, onUpdate, onBack, usuario, canEdit, saldosBancos
       alert("No se pudo generar el expediente: "+(e.message||e));
     }
     setDescExpediente(false);
+  }
+
+  // ── Expediente PDF consolidado: nómina + todos los respaldos en UN solo PDF ──
+  async function expedientePDF() {
+    setGenPdf(true);
+    try {
+      const jsPDF = await reporte_loadJsPDF();
+      const PDFLib = await loadPdfLib();
+      // 1) Portada/resumen (índice) con jsPDF
+      const sdoc = new jsPDF({orientation:"portrait", unit:"mm", format:"a4"});
+      let y=20;
+      sdoc.setFontSize(15); sdoc.setFont(undefined,"bold");
+      sdoc.text("EXPEDIENTE DE NÓMINA", 105, y, {align:"center"}); y+=7;
+      sdoc.setFontSize(11); sdoc.setFont(undefined,"normal");
+      sdoc.text(nombreFormal, 105, y, {align:"center"}); y+=10;
+      const cob = coberturaNomina(nom);
+      sdoc.setFontSize(9);
+      [`Empresa: ${nom.empresa}    Semana: ${nom.semana} / ${nom.año}    Fecha: ${nom.fecha||"—"}`,
+       `Estado: ${(ESTADOS_FLUJO.find(e=>e.id===nom.estado)||{}).label||nom.estado}`,
+       `Cobertura documental: ${cob.conRespaldo}/${cob.total} (${cob.pct}%)`].forEach(l=>{sdoc.text(l,15,y);y+=6;});
+      y+=2; sdoc.setFont(undefined,"bold"); sdoc.text("Detalle de pagos y respaldos:",15,y); y+=6; sdoc.setFont(undefined,"normal");
+      for(const sec of [...SECCIONES,...(nom.seccionesExtra||[])]){
+        const its=nom.items.filter(it=>it.seccion===sec.id && lineaActiva(it)); if(!its.length) continue;
+        if(y>275){sdoc.addPage();y=20;}
+        sdoc.setFont(undefined,"bold"); sdoc.text(sec.label,15,y); y+=5; sdoc.setFont(undefined,"normal");
+        for(const it of its){
+          if(y>282){sdoc.addPage();y=20;}
+          const m = Number(it.montoUSD)?`USD ${Number(it.montoUSD).toLocaleString("es-CL")}`:Number(it.montoPEN)?`PEN ${Number(it.montoPEN).toLocaleString("es-CL")}`:`CLP ${Number(it.montoCLP||0).toLocaleString("es-CL")}`;
+          const linea=`  • ${it.proveedor||it.concepto||"—"} — ${m} — ${tieneRespaldo(it)?docsActivos(it).length+" doc(s)":"SIN RESPALDO"}`;
+          const wrapped=sdoc.splitTextToSize(linea,180); sdoc.text(wrapped,15,y); y+=5*wrapped.length;
+        }
+      }
+      const sBytes = sdoc.output("arraybuffer");
+      // 2) Fusionar con pdf-lib
+      const merged = await PDFLib.PDFDocument.create();
+      const sPdf = await PDFLib.PDFDocument.load(sBytes);
+      (await merged.copyPages(sPdf, sPdf.getPageIndices())).forEach(p=>merged.addPage(p));
+      const font = await merged.embedFont(PDFLib.StandardFonts.Helvetica);
+      const A4=[595.28,841.89];
+      const addImagePage=(img)=>{ const pg=merged.addPage(A4); const mg=30,maxW=A4[0]-2*mg,maxH=A4[1]-2*mg;
+        const sc=Math.min(maxW/img.width,maxH/img.height,1); const w=img.width*sc,h=img.height*sc;
+        pg.drawImage(img,{x:(A4[0]-w)/2,y:(A4[1]-h)/2,width:w,height:h}); };
+      const omitidos=[];
+      const itsDocs = nom.items.filter(it=>lineaActiva(it) && docsActivos(it).length>0);
+      for(const it of itsDocs){
+        for(const d of docsActivos(it)){
+          const url=await urlFirmadaNomina(d.path);
+          if(!url){ omitidos.push(d.nombre); continue; }
+          let buf; try{ const r=await fetch(url); if(!r.ok){omitidos.push(d.nombre);continue;} buf=await r.arrayBuffer(); }catch{ omitidos.push(d.nombre); continue; }
+          const mime=(d.mime||"").toLowerCase(), name=(d.nombre||"").toLowerCase();
+          try{
+            if(mime.includes("pdf")||name.endsWith(".pdf")){
+              const ext=await PDFLib.PDFDocument.load(buf,{ignoreEncryption:true});
+              (await merged.copyPages(ext, ext.getPageIndices())).forEach(p=>merged.addPage(p));
+            } else if(mime.includes("png")||name.endsWith(".png")){
+              addImagePage(await merged.embedPng(buf));
+            } else if(mime.includes("jpg")||mime.includes("jpeg")||name.endsWith(".jpg")||name.endsWith(".jpeg")){
+              addImagePage(await merged.embedJpg(buf));
+            } else { omitidos.push(`${d.nombre} (formato no visualizable)`); }
+          }catch{ omitidos.push(d.nombre); }
+        }
+      }
+      if(omitidos.length){
+        const pg=merged.addPage(A4); const h=A4[1];
+        pg.drawText("Documentos no incluidos (formato no visualizable o error):",{x:40,y:h-60,size:12,font});
+        omitidos.forEach((n,i)=>pg.drawText(`- ${n}`.slice(0,90),{x:50,y:h-90-i*16,size:10,font}));
+      }
+      const bytes=await merged.save();
+      const blob=new Blob([bytes],{type:"application/pdf"});
+      const url=URL.createObjectURL(blob);
+      window.open(url,"_blank");
+      window.auditLog && window.auditLog("exportar", {modulo:"finanzas", seccion:"nóminas", descripcion:`Generó expediente PDF ${nombreFormal}`, registroId:nom.id});
+    } catch(e){
+      alert("No se pudo generar el expediente PDF: "+(e.message||e));
+    }
+    setGenPdf(false);
   }
 
   // ── Export Excel ──────────────────────────────────
@@ -12793,10 +12882,15 @@ function NominaDetalle({nomina, onUpdate, onBack, usuario, canEdit, saldosBancos
             borderRadius:8,padding:"7px 12px",cursor:"pointer",fontSize:11}}>
           🔍 Auditoría
         </button>
+        <button onClick={expedientePDF} disabled={genPdf}
+          style={{background:genPdf?"transparent":`${C.blue}1a`,border:`1px solid ${C.blue}`,color:C.blue,
+            borderRadius:8,padding:"7px 12px",cursor:genPdf?"wait":"pointer",fontSize:11,fontWeight:700}}>
+          {genPdf?"📄 Generando…":"📄 Expediente PDF"}
+        </button>
         <button onClick={descargarExpediente} disabled={descExpediente}
           style={{background:"transparent",border:`1px solid ${C.border}`,color:C.muted,
             borderRadius:8,padding:"7px 12px",cursor:descExpediente?"wait":"pointer",fontSize:11}}>
-          {descExpediente?"⬇ Generando…":"⬇ Expediente"}
+          {descExpediente?"⬇ Generando…":"⬇ Expediente ZIP"}
         </button>
       </div>
 
