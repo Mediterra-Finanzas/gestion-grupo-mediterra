@@ -2508,9 +2508,20 @@ export default function App(){
 
   async function handleLogin(){
     const emailInput = loginEmail.trim().toLowerCase();
+    const pinInput = loginPin.trim();
+    // FASE 2a — Validación de formato (hints de UX; NO revelan si el usuario existe)
+    if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailInput) || emailInput.length>120){
+      setLoginError("Ingresa un correo válido.");
+      return;
+    }
+    if(!/^\d{4,10}$/.test(pinInput)){
+      setLoginError("El PIN debe tener entre 4 y 10 dígitos.");
+      return;
+    }
     const w=WORKERS.find(x=>x.email&&x.email.toLowerCase()===emailInput);
     if(!w){
-      setLoginError("Email no reconocido. Verifica tu dirección.");
+      // FASE 2a — Mensaje neutro: no revela si el correo existe (anti-enumeración)
+      setLoginError("Correo o PIN incorrecto.");
       window.auditLog("login_fallido", {modulo:"sistema", seccion:"autenticación",
         descripcion:`Intento de login con email no reconocido: ${emailInput}`,
         usuario:"(desconocido)", email:emailInput});
@@ -2527,7 +2538,7 @@ export default function App(){
         });
         const j = await r.json().catch(()=>({}));
         if (!r.ok || !j.ok) {
-          setLoginError(r.status===403 ? "Usuario desactivado." : "PIN incorrecto.");
+          setLoginError(r.status===403 ? "Tu cuenta no está activa. Contacta al administrador." : "Correo o PIN incorrecto.");
           window.auditLog("login_fallido", {modulo:"sistema", seccion:"autenticación",
             descripcion:`PIN incorrecto para ${w.nombre}`, usuario:w.nombre, email:w.email});
           return;
@@ -2566,6 +2577,13 @@ export default function App(){
     const esTemp=pinTemp&&loginPin.trim()===pinTemp;
     const esOk=loginPin.trim()===pinOk;
     if(esOk||esTemp){
+      // FASE 2a — bloquear ingreso de usuarios desactivados (antes no se revisaba acá)
+      if(w.desactivado){
+        setLoginError("Tu cuenta no está activa. Contacta al administrador.");
+        window.auditLog("login_fallido", {modulo:"sistema", seccion:"autenticación",
+          descripcion:`Login bloqueado: cuenta desactivada (${w.nombre})`, usuario:w.nombre, email:w.email});
+        return;
+      }
       setLoginError("");
       if(esTemp&&!esOk){
         // PIN temporal: guardar worker pendiente y mostrar cambio PIN ANTES de entrar
@@ -2588,7 +2606,8 @@ export default function App(){
         }
       }
     }else{
-      setLoginError("PIN incorrecto.");
+      // FASE 2a — mensaje neutro (anti-enumeración); el detalle real va al audit log
+      setLoginError("Correo o PIN incorrecto.");
       window.auditLog("login_fallido", {modulo:"sistema", seccion:"autenticación",
         descripcion:`PIN incorrecto para ${w.nombre}`,
         usuario:w.nombre, email:w.email});
@@ -2596,7 +2615,12 @@ export default function App(){
   }
 
   async function handleResetPin(){
-    const emailReset=(resetEmail||loginEmail||"").trim().toLowerCase();const w=WORKERS.find(x=>x.email&&x.email.toLowerCase()===emailReset);if(!w){setResetMsg("Email no reconocido.");return;}
+    const emailReset=(resetEmail||loginEmail||"").trim().toLowerCase();
+    // FASE 2a — mismo mensaje exista o no la cuenta (anti-enumeración)
+    const MSG_NEUTRAL="Si el correo corresponde a una cuenta, te enviamos un PIN temporal.";
+    if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailReset)){setResetMsg("Ingresa un correo válido.");return;}
+    const w=WORKERS.find(x=>x.email&&x.email.toLowerCase()===emailReset);
+    if(!w){setResetMsg(MSG_NEUTRAL);return;}
     setResetEnviando(true);
     const temporal=String(Math.floor(1000+Math.random()*9000));
     const nuevosPins={...pinsPersonalizados,[w.nombre+"_temp"]:temporal};
@@ -2604,7 +2628,7 @@ export default function App(){
     await dbSave({estados,comentarios,tareasConfig,supervisores,tareasExtra,pinsPersonalizados:nuevosPins,recsDone,recsComentarios,usuarios,mes,anio});
     try{
       await enviarEmail(w.email,w.nombre,"PIN temporal - Mediterra",`Tu PIN temporal es: ${temporal}\nIngresa con este PIN y cambialo inmediatamente.\n\nhttps://gestion-grupo-mediterra.vercel.app`);
-      setResetMsg("PIN enviado a "+w.email);
+      setResetMsg(MSG_NEUTRAL);
       window.auditLog("reset_pin", {modulo:"sistema", seccion:"autenticación",
         descripcion:`Se envió PIN temporal a ${w.nombre} (${w.email})`,
         usuario:w.nombre, email:w.email});
@@ -3183,14 +3207,14 @@ Equipo Mediterra`);
               <div style={{fontSize:11,color:C.muted,marginBottom:4}}>Email corporativo</div>
               <input type="email" value={loginEmail} onChange={e=>setLoginEmail(e.target.value)}
                 onKeyDown={e=>e.key==="Enter"&&document.getElementById("login-pin-input")?.focus()}
-                placeholder="tu.nombre@grupomediterra.cl" autoComplete="email"
+                placeholder="tu.nombre@grupomediterra.cl" autoComplete="email" maxLength={120}
                 style={{width:"100%",padding:"10px 12px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:13,
                   outline:"none",boxSizing:"border-box"}}/>
             </div>
             <div style={{marginBottom:16}}>
               <div style={{fontSize:11,color:C.muted,marginBottom:4}}>PIN de acceso</div>
               <input id="login-pin-input" type="password" value={loginPin} onChange={e=>setLoginPin(e.target.value)}
-                onKeyDown={e=>e.key==="Enter"&&handleLogin()} placeholder="••••"
+                onKeyDown={e=>e.key==="Enter"&&handleLogin()} placeholder="••••" maxLength={10} inputMode="numeric"
                 style={{width:"100%",padding:"10px 12px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:16,
                   textAlign:"center",letterSpacing:6,outline:"none",boxSizing:"border-box"}}/>
             </div>
