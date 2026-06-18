@@ -2593,7 +2593,7 @@ export default function App(){
       // FASE 2b — rollout controlado: por ahora la migración forzada (PIN 6 dígitos +
       // celular) solo aplica al admin para probarla; el resto sigue entrando normal.
       // Para activarla a TODO el equipo, cambiar FORZAR_MIGRACION_TODOS a true.
-      const FORZAR_MIGRACION_TODOS = false;
+      const FORZAR_MIGRACION_TODOS = true;
       const necesitaMigrar = !credH || !tieneTel;
       const debeMigrar = (esTemp&&!esOk) || (necesitaMigrar && (FORZAR_MIGRACION_TODOS || w.rol==="admin"));
       if(debeMigrar){
