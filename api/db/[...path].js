@@ -12,6 +12,9 @@
 //
 // Espejo de PostgREST: /api/db/calendario_data?id=eq.main&select=value
 //   → https://...supabase.co/rest/v1/calendario_data?id=eq.main&select=value
+//
+// NOTA: se usa req.query (no req.url) porque Vercel inyecta el segmento
+// de ruta ('path') en la query del catch-all; lo excluimos al reconstruir.
 
 const { sesionDeRequest, supaFetch, faltanSecretos } = require("../_auth");
 
@@ -29,14 +32,21 @@ module.exports = async function handler(req, res) {
     return res.status(401).json({ error: "sin_sesion" });
   }
 
-  // 2) Reconstruir path + querystring tal cual (espejo de PostgREST)
-  //    req.url = "/api/db/calendario_data?id=eq.main&select=value"
-  const url = req.url || "";
-  const resto = url.replace(/^\/api\/db\//, ""); // "calendario_data?..."
-  const tabla = resto.split("?")[0].split("/")[0];
+  // 2) Tabla (segmentos del catch-all) + querystring real (sin 'path')
+  const q = req.query || {};
+  const segs = Array.isArray(q.path) ? q.path : (q.path ? [q.path] : []);
+  const tabla = segs[0];
   if (!TABLAS_PERMITIDAS.has(tabla)) {
-    return res.status(403).json({ error: "tabla_no_permitida", tabla });
+    return res.status(403).json({ error: "tabla_no_permitida", tabla: tabla || null });
   }
+  const params = new URLSearchParams();
+  for (const [k, val] of Object.entries(q)) {
+    if (k === "path") continue;
+    if (Array.isArray(val)) val.forEach(v => params.append(k, v));
+    else params.append(k, val);
+  }
+  const qs = params.toString();
+  const destino = segs.join("/") + (qs ? "?" + qs : "");
 
   // 3) Cuerpo (para POST/PATCH): re-serializar si Vercel ya lo parseó
   let body;
@@ -53,8 +63,7 @@ module.exports = async function handler(req, res) {
   if (req.headers["accept"]) headers["Accept"] = req.headers["accept"];
 
   try {
-    const r = await supaFetch(resto, { method: req.method, headers, body });
-    // Reenviar estado y cuerpo tal cual
+    const r = await supaFetch(destino, { method: req.method, headers, body });
     const text = await r.text();
     res.status(r.status);
     const ct = r.headers.get("content-type");
