@@ -8,6 +8,7 @@ import ContabilidadModule from "./ContabilidadModule.jsx";
 import { theme as C } from "./theme";
 import { ensureSupabaseSession, clearOsirisSession, getOsirisAccessToken, refreshOsirisSession } from "./data/supabase-auth";
 import { installGuard, USE_GUARD, pollRow } from "./guardClient";
+import { hashPin, verifyPin, pinNuevoValido, normalizarCelular } from "./pinHash";
 
 // ═══════════════════════════════════════════════════════════════════
 // ErrorBoundary: captura crash por archivos obsoletos tras deploy
@@ -1768,6 +1769,8 @@ export default function App(){
   const [pinNuevo,setPinNuevo]=useState("");
   const [pinConfirm,setPinConfirm]=useState("");
   const [pinError,setPinError]=useState("");
+  const [telNuevo,setTelNuevo]=useState("");   // FASE 2b: celular en migración/cambio de PIN
+  const [telReset,setTelReset]=useState("");   // FASE 2b: celular en recuperación
 
   const [mes,setMes]=useState(hoy.getMonth());
   const [anio,setAnio]=useState(hoy.getFullYear());
@@ -2572,12 +2575,14 @@ export default function App(){
       return;
     }
 
-    const pinOk=getPinActivo(w);
     const pinTemp=pinsPersonalizados[w.nombre+"_temp"];
-    const esTemp=pinTemp&&loginPin.trim()===pinTemp;
-    const esOk=loginPin.trim()===pinOk;
+    const credH=pinsPersonalizados[w.nombre+"_h"];        // FASE 2b: credencial cifrada (si ya migró)
+    const tieneTel=!!pinsPersonalizados[w.nombre+"_tel"]; // FASE 2b: ¿ya registró celular?
+    const esTemp=!!(pinTemp&&pinInput===pinTemp);
+    // FASE 2b: si ya migró, validar contra el PIN cifrado; si no, contra el PIN legacy.
+    const esOk = credH ? await verifyPin(pinInput, credH) : (pinInput===getPinActivo(w));
     if(esOk||esTemp){
-      // FASE 2a — bloquear ingreso de usuarios desactivados (antes no se revisaba acá)
+      // FASE 2a — bloquear ingreso de usuarios desactivados
       if(w.desactivado){
         setLoginError("Tu cuenta no está activa. Contacta al administrador.");
         window.auditLog("login_fallido", {modulo:"sistema", seccion:"autenticación",
@@ -2585,15 +2590,19 @@ export default function App(){
         return;
       }
       setLoginError("");
-      if(esTemp&&!esOk){
-        // PIN temporal: guardar worker pendiente y mostrar cambio PIN ANTES de entrar
+      // FASE 2b — rollout controlado: por ahora la migración forzada (PIN 6 dígitos +
+      // celular) solo aplica al admin para probarla; el resto sigue entrando normal.
+      // Para activarla a TODO el equipo, cambiar FORZAR_MIGRACION_TODOS a true.
+      const FORZAR_MIGRACION_TODOS = false;
+      const necesitaMigrar = !credH || !tieneTel;
+      const debeMigrar = (esTemp&&!esOk) || (necesitaMigrar && (FORZAR_MIGRACION_TODOS || w.rol==="admin"));
+      if(debeMigrar){
         setWorkerPendiente(w);
         setModalPin("cambiar");
         window._auditUsuarioActual = w;
         window.auditLog("login_pin_temporal", {modulo:"sistema", seccion:"autenticación",
-          descripcion:`${w.nombre} ingresó con PIN temporal — debe cambiarlo`});
+          descripcion:`${w.nombre} debe actualizar PIN/celular antes de entrar`});
       } else {
-        // PIN normal: entrar directo
         setUsuarioActual(w);
         sessionStorage.setItem('mediterra_usuario', w.nombre);
         window._auditUsuarioActual = w;
@@ -2601,7 +2610,7 @@ export default function App(){
           descripcion:`${w.nombre} (${w.rol}) inició sesión`});
         // E1.5 auth dual (fire-and-forget): obtener sesión Supabase para Osiris relacional.
         if(process.env.REACT_APP_AUTH_DUAL === 'true'){
-          ensureSupabaseSession(emailInput, loginPin.trim())
+          ensureSupabaseSession(emailInput, pinInput)
             .then(r=>{ if(!r.ok) console.warn("[osiris-auth] sin sesión:", r.error); });
         }
       }
@@ -2616,13 +2625,21 @@ export default function App(){
 
   async function handleResetPin(){
     const emailReset=(resetEmail||loginEmail||"").trim().toLowerCase();
-    // FASE 2a — mismo mensaje exista o no la cuenta (anti-enumeración)
-    const MSG_NEUTRAL="Si el correo corresponde a una cuenta, te enviamos un PIN temporal.";
+    // FASE 2a/2b — mismo mensaje exista o no la cuenta / coincida o no el celular (anti-enumeración)
+    const MSG_NEUTRAL="Si los datos corresponden a una cuenta, te enviamos un PIN temporal al correo.";
     if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailReset)){setResetMsg("Ingresa un correo válido.");return;}
     const w=WORKERS.find(x=>x.email&&x.email.toLowerCase()===emailReset);
+    // FASE 2b: si la cuenta ya registró celular, exigir que coincida (segundo factor).
+    // Si aún no migró (sin celular), se mantiene la recuperación solo por email.
+    const telReg = w ? pinsPersonalizados[w.nombre+"_tel"] : null;
+    if(telReg){
+      const nc=normalizarCelular(telReset);
+      if(!nc.ok || nc.tel!==telReg){ setResetMsg(MSG_NEUTRAL); return; }
+    }
     if(!w){setResetMsg(MSG_NEUTRAL);return;}
     setResetEnviando(true);
-    const temporal=String(Math.floor(1000+Math.random()*9000));
+    // FASE 2b: PIN temporal de 6 dígitos, aleatorio criptográfico
+    const temporal=String(crypto.getRandomValues(new Uint32Array(1))[0]%1000000).padStart(6,"0");
     const nuevosPins={...pinsPersonalizados,[w.nombre+"_temp"]:temporal};
     setPinsPersonalizados(nuevosPins);
     await dbSave({estados,comentarios,tareasConfig,supervisores,tareasExtra,pinsPersonalizados:nuevosPins,recsDone,recsComentarios,usuarios,mes,anio});
@@ -2641,21 +2658,37 @@ export default function App(){
     // Puede venir de login con PIN temporal (workerPendiente) o desde perfil (usuarioActual)
     const worker = workerPendiente || usuarioActual;
     if(!worker) return;
-    const po=getPinActivo(worker);
+    const credH=pinsPersonalizados[worker.nombre+"_h"];   // FASE 2b
     const pinTemp=pinsPersonalizados[worker.nombre+"_temp"];
-    // Validar contra PIN temporal (flujo reset) o PIN normal (flujo cambio desde perfil)
-    const pinActualValido=pinActual===po||(pinTemp&&pinActual===pinTemp);
-    if(!pinActualValido){setPinError("PIN actual incorrecto.");return;}
-    if(pinNuevo.length<4){setPinError("Minimo 4 digitos.");return;}
+    // Validar PIN actual: cifrado si ya migró, legacy si no; o el temporal (flujo reset)
+    const actualOk = credH ? await verifyPin(pinActual, credH) : (pinActual===getPinActivo(worker));
+    const actualTempOk = !!(pinTemp && pinActual===pinTemp);
+    if(!actualOk && !actualTempOk){setPinError("PIN actual incorrecto.");return;}
+    // FASE 2b: PIN nuevo de 6 dígitos, no obvio
+    const vp=pinNuevoValido(pinNuevo);
+    if(!vp.ok){setPinError(vp.msg);return;}
     if(pinNuevo!==pinConfirm){setPinError("Los PINs no coinciden.");return;}
-    const nuevosPins={...pinsPersonalizados,[worker.nombre]:pinNuevo};
+    // FASE 2b: celular requerido si aún no tiene uno (o si lo ingresó para actualizarlo)
+    const yaTieneTel=!!pinsPersonalizados[worker.nombre+"_tel"];
+    let telNorm=pinsPersonalizados[worker.nombre+"_tel"];
+    if(!yaTieneTel || telNuevo.trim()){
+      const nc=normalizarCelular(telNuevo);
+      if(!nc.ok){setPinError(nc.msg);return;}
+      telNorm=nc.tel;
+    }
+    // FASE 2b: cifrar el PIN y guardar; borrar el PIN en texto plano (override + temporal)
+    const cred=await hashPin(pinNuevo);
+    const nuevosPins={...pinsPersonalizados};
+    nuevosPins[worker.nombre+"_h"]=JSON.stringify(cred);
+    if(telNorm) nuevosPins[worker.nombre+"_tel"]=telNorm;
+    delete nuevosPins[worker.nombre];
     delete nuevosPins[worker.nombre+"_temp"];
     setPinsPersonalizados(nuevosPins);
     // Esperar confirmación de guardado antes de continuar
     try {
       await dbSave({estados,comentarios,tareasConfig,supervisores,tareasExtra,
         pinsPersonalizados:nuevosPins,recsDone,recsComentarios,usuarios,mes,anio});
-      setPinActual("");setPinNuevo("");setPinConfirm("");setModalPin(null);
+      setPinActual("");setPinNuevo("");setPinConfirm("");setTelNuevo("");setModalPin(null);
       // Si venía de login con temporal, ahora sí entrar a la app
       if(workerPendiente){
         setUsuarioActual(workerPendiente);
@@ -3181,24 +3214,29 @@ Equipo Mediterra`);
 
         {modalPin==="cambiar"&&(
           <div style={{background:"#fefce8",borderRadius:12,padding:"14px 16px",marginBottom:16,border:"1px solid #fde047",fontSize:13,color:C.warning}}>
-            🔑 Debes cambiar tu PIN temporal antes de continuar.
+            🔑 Por seguridad, crea un PIN de 6 dígitos y registra tu celular antes de continuar.
           </div>
         )}
 
         {modalPin==="cambiar"?(
           <div style={{display:"flex",flexDirection:"column",gap:10}}>
-            <div style={{fontSize:13,fontWeight:700,color:C.text,marginBottom:4}}>Cambiar PIN</div>
-            {[["PIN actual","password",pinActual,setPinActual],["PIN nuevo (mín. 4 dígitos)","password",pinNuevo,setPinNuevo],["Confirmar PIN nuevo","password",pinConfirm,setPinConfirm]].map(([lbl,type,val,set])=>(
+            <div style={{fontSize:13,fontWeight:700,color:C.text,marginBottom:4}}>Actualizar acceso</div>
+            {[["PIN actual","password",pinActual,setPinActual,"••••"],["PIN nuevo (6 dígitos)","password",pinNuevo,setPinNuevo,"••••••"],["Confirmar PIN nuevo","password",pinConfirm,setPinConfirm,"••••••"]].map(([lbl,type,val,set,ph])=>(
               <div key={lbl}>
                 <div style={{fontSize:11,color:C.muted,marginBottom:3}}>{lbl}</div>
-                <input type={type} value={val} onChange={e=>set(e.target.value)} placeholder="••••"
+                <input type={type} value={val} onChange={e=>set(e.target.value)} placeholder={ph} maxLength={10} inputMode="numeric"
                   style={{width:"100%",padding:"9px 12px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:14,boxSizing:"border-box",outline:"none"}}/>
               </div>
             ))}
+            <div>
+              <div style={{fontSize:11,color:C.muted,marginBottom:3}}>Celular (para recuperar tu PIN)</div>
+              <input type="tel" value={telNuevo} onChange={e=>setTelNuevo(e.target.value)} placeholder="9 1234 5678" maxLength={15} inputMode="tel"
+                style={{width:"100%",padding:"9px 12px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:14,boxSizing:"border-box",outline:"none"}}/>
+            </div>
             {pinError&&<div style={{color:C.danger,fontSize:12}}>{pinError}</div>}
             <button onClick={handleCambiarPin}
               style={{padding:"10px",borderRadius:8,background:C.primary,color:"#fff",border:"none",fontWeight:700,fontSize:14,cursor:"pointer",marginTop:4}}>
-              Guardar nuevo PIN
+              Guardar
             </button>
           </div>
         ):(
@@ -3231,9 +3269,13 @@ Equipo Mediterra`);
             </div>
             {modalPin==="reset"&&(
               <div style={{marginTop:16,background:C.cardAlt,borderRadius:10,padding:"14px 16px",border:`1px solid ${C.border}`}}>
-                <div style={{fontSize:12,fontWeight:700,color:C.text,marginBottom:8}}>Recuperar PIN por email</div>
+                <div style={{fontSize:12,fontWeight:700,color:C.text,marginBottom:8}}>Recuperar PIN</div>
                 <input type="email" value={resetEmail||loginEmail} onChange={e=>setResetEmail(e.target.value)}
                   placeholder="tu.nombre@grupomediterra.cl"
+                  style={{width:"100%",padding:"8px 10px",borderRadius:8,border:`1px solid ${C.border}`,
+                    fontSize:13,marginBottom:8,outline:"none",boxSizing:"border-box"}}/>
+                <input type="tel" value={telReset} onChange={e=>setTelReset(e.target.value)}
+                  placeholder="Celular registrado (9 1234 5678)" inputMode="tel" maxLength={15}
                   style={{width:"100%",padding:"8px 10px",borderRadius:8,border:`1px solid ${C.border}`,
                     fontSize:13,marginBottom:8,outline:"none",boxSizing:"border-box"}}/>
                 <button onClick={()=>handleResetPin()}

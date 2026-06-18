@@ -25,6 +25,35 @@ const ALLOWED_ORIGINS = (Deno.env.get("ALLOWED_ORIGINS") ?? "")
 
 const MAX_BODY = 2048; // bytes — el body legítimo es minúsculo
 
+// FASE 2b — verificación de PIN cifrado {v,iter,salt,hash} (PBKDF2-HMAC-SHA256,
+// 32 bytes). Mismo formato que src/pinHash.js y api/login.js.
+function hexToBytes(hex: string): Uint8Array {
+  const a = new Uint8Array(hex.length / 2);
+  for (let i = 0; i < a.length; i++) a[i] = parseInt(hex.substr(i * 2, 2), 16);
+  return a;
+}
+function bytesToHex(buf: Uint8Array): string {
+  let s = "";
+  for (let i = 0; i < buf.length; i++) s += buf[i].toString(16).padStart(2, "0");
+  return s;
+}
+async function verifyPinHash(pin: string, credStr: string): Promise<boolean> {
+  try {
+    const c = JSON.parse(credStr);
+    if (!c?.salt || !c?.hash) return false;
+    const key = await crypto.subtle.importKey(
+      "raw", new TextEncoder().encode(pin), { name: "PBKDF2" }, false, ["deriveBits"],
+    );
+    const bits = await crypto.subtle.deriveBits(
+      { name: "PBKDF2", salt: hexToBytes(c.salt), iterations: c.iter || 100000, hash: "SHA-256" },
+      key, 256,
+    );
+    return bytesToHex(new Uint8Array(bits)) === c.hash;
+  } catch {
+    return false;
+  }
+}
+
 // ---------- CORS ----------
 function corsHeaders(origin: string | null): Record<string, string> {
   const h: Record<string, string> = {
@@ -116,9 +145,16 @@ Deno.serve(async (req: Request): Promise<Response> => {
 
     // 4. Validar PIN (fiel a App.jsx: activo = pinsPersonalizados[nombre] || u.pin; + temporal)
     const nombre = String(u.nombre ?? "");
-    const activePin = pinsPersonalizados[nombre] || (u.pin as string | undefined);
+    const credH = pinsPersonalizados[`${nombre}_h`]; // FASE 2b: PIN cifrado (si ya migró)
     const tempPin = pinsPersonalizados[`${nombre}_temp`];
-    const ok = !!activePin && pinNorm === String(activePin);
+    // FASE 2b: si ya migró validar contra el hash; si no, contra el PIN legacy.
+    let ok: boolean;
+    if (credH) {
+      ok = await verifyPinHash(pinNorm, credH);
+    } else {
+      const activePin = pinsPersonalizados[nombre] || (u.pin as string | undefined);
+      ok = !!activePin && pinNorm === String(activePin);
+    }
     const temp = !!tempPin && pinNorm === String(tempPin);
     if (!ok && !temp) {
       return json(401, { error: "invalid_credentials" }, origin);

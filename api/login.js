@@ -19,7 +19,22 @@
 //   403 { ok:false, error:"desactivado" }
 //   503 { ok:false, error:"no_configurado" }
 
+const crypto = require("crypto");
 const { crearToken, cookieSesion, supaFetch, faltanSecretos } = require("./_auth");
+
+// FASE 2b — verifica un PIN contra una credencial cifrada {v,iter,salt,hash}
+// (mismo formato que src/pinHash.js: PBKDF2-HMAC-SHA256, 32 bytes).
+function verifyPinHash(pin, credStr) {
+  try {
+    const c = typeof credStr === "string" ? JSON.parse(credStr) : credStr;
+    if (!c || !c.salt || !c.hash) return false;
+    const calc = crypto.pbkdf2Sync(String(pin), Buffer.from(c.salt, "hex"), c.iter || 100000, 32, "sha256").toString("hex");
+    if (calc.length !== c.hash.length) return false;
+    return crypto.timingSafeEqual(Buffer.from(calc), Buffer.from(c.hash));
+  } catch (e) {
+    return false;
+  }
+}
 
 module.exports = async function handler(req, res) {
   if (req.method !== "POST") {
@@ -54,11 +69,14 @@ module.exports = async function handler(req, res) {
   if (!u) return res.status(401).json({ ok: false, error: "credenciales" });
   if (u.desactivado) return res.status(403).json({ ok: false, error: "desactivado" });
 
-  const pinEfectivo = String(pinsPersonalizados[u.nombre] || u.pin || "");
+  const credH = pinsPersonalizados[u.nombre + "_h"]; // FASE 2b: PIN cifrado (si ya migró)
   const pinTemp = pinsPersonalizados[u.nombre + "_temp"]
     ? String(pinsPersonalizados[u.nombre + "_temp"]) : "";
 
-  const esOk = pinEfectivo && pin === pinEfectivo;
+  // FASE 2b: si ya migró validar contra el hash; si no, contra el PIN legacy en texto plano.
+  const esOk = credH
+    ? verifyPinHash(pin, credH)
+    : (!!(pinsPersonalizados[u.nombre] || u.pin) && pin === String(pinsPersonalizados[u.nombre] || u.pin));
   const esTemp = pinTemp && pin === pinTemp;
   if (!esOk && !esTemp) {
     return res.status(401).json({ ok: false, error: "credenciales" });
