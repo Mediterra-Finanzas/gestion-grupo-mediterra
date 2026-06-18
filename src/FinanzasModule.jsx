@@ -11212,6 +11212,26 @@ function labelAccionNom(accion) {
   return ({ creada:"Creada", avance:"Avanzó estado", devolucion:"Devuelta", inactivada:"Inactivada" })[accion] || accion;
 }
 
+// Fase 4 — Validación de respaldo documental obligatorio para avanzar de estado.
+// Regla simple (sin clasificación): toda línea ACTIVA con monto ≠ 0 que no esté
+// en una sección exenta debe tener al menos un documento de respaldo para poder
+// AVANZAR hacia el estado configurado (por defecto: al enviar a revisión).
+const VALIDACION_RESPALDO = {
+  activo: true,
+  estadoQueExige: "revision",       // se valida al avanzar HACIA este estado
+  seccionesExentas: ["anticipos"],  // secciones que no requieren documento
+};
+
+// Devuelve las líneas que incumplen el respaldo obligatorio para avanzar.
+function lineasSinRespaldoObligatorio(nom) {
+  return (nom?.items||[]).filter(it =>
+    lineaActiva(it) &&
+    !VALIDACION_RESPALDO.seccionesExentas.includes(it.seccion) &&
+    (Number(it.montoCLP)||Number(it.montoUSD)||Number(it.montoPEN)) &&
+    !tieneRespaldo(it)
+  );
+}
+
 // ─────────────────────────────────────────────────────────────────
 // SUPABASE LOAD/SAVE — particionado por empresa (v2)
 // ─────────────────────────────────────────────────────────────────
@@ -11944,6 +11964,121 @@ function FormDocInterno({empresaOrigen, destinoSugerido, concepto:conceptoIni, m
 }
 
 // ─────────────────────────────────────────────────────────────────
+// EXPEDIENTE DIGITAL — VISTA AUDITORÍA (Fase 3)
+// Read-only, expandible por línea: datos + documentos + comentarios +
+// historial. Revela también líneas/documentos inactivados (soft-delete).
+// ─────────────────────────────────────────────────────────────────
+function AuditoriaNominaModal({nomina, onClose}) {
+  const nom = nomina;
+  const [abierta, setAbierta] = useState({});
+  const nombreFormal = `Nómina ${nom.empresa} S${nom.semana} N°${nom.numero||1}`;
+  const cob = coberturaNomina(nom);
+  const fmt = (iso)=>{ try{ return new Date(iso).toLocaleString("es-CL"); }catch{ return iso||"—"; } };
+  const verDoc = async (d)=>{ const u=await urlFirmadaNomina(d.path); if(u) window.open(u,"_blank","noopener"); else alert("No se pudo abrir el documento.\n"+(urlFirmadaNomina.lastError||"")); };
+  const montoStr = (it)=> Number(it.montoUSD)?`USD ${Number(it.montoUSD).toLocaleString("es-CL")}`
+    : Number(it.montoPEN)?`PEN ${Number(it.montoPEN).toLocaleString("es-CL")}`
+    : `CLP ${Number(it.montoCLP||0).toLocaleString("es-CL")}`;
+  const secs = [...SECCIONES,...(nom.seccionesExtra||[])];
+  const colPct = cob.pct>=100?C.green:cob.pct>=60?C.yellow:"#ef4444";
+
+  return (
+    <div onClick={onClose} style={{position:"fixed",inset:0,background:"#0009",zIndex:1100,
+      display:"flex",alignItems:"flex-start",justifyContent:"center",padding:"4vh 16px",overflowY:"auto"}}>
+      <div onClick={e=>e.stopPropagation()} style={{background:C.card,borderRadius:12,border:`1px solid ${C.border}`,
+        width:"min(880px,98vw)",maxHeight:"92vh",overflowY:"auto",padding:20,boxShadow:"0 12px 40px #0007"}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:8}}>
+          <div>
+            <div style={{fontSize:15,fontWeight:800,color:C.text}}>🔍 Vista Auditoría</div>
+            <div style={{fontSize:11.5,color:C.muted}}>{nombreFormal} · {nom.empresa}</div>
+          </div>
+          <button onClick={onClose} style={{background:"transparent",border:"none",color:C.muted,fontSize:22,cursor:"pointer"}}>×</button>
+        </div>
+        <div style={{fontSize:12,fontWeight:700,color:colPct,marginBottom:12}}>
+          Cobertura documental: {cob.conRespaldo}/{cob.total} líneas ({cob.pct}%)
+        </div>
+
+        {/* Historial de la nómina */}
+        {(nom.historial||[]).length>0&&(
+          <div style={{marginBottom:14,border:`1px solid ${C.border}`,borderRadius:8,overflow:"hidden"}}>
+            <div style={{background:C.bg2,padding:"6px 10px",fontSize:11,fontWeight:700,color:C.muted}}>Historial de la nómina</div>
+            {(nom.historial||[]).slice().reverse().map((h,i)=>(
+              <div key={i} style={{display:"flex",gap:10,padding:"5px 10px",borderTop:`1px solid ${C.border}22`,fontSize:10.5,alignItems:"baseline"}}>
+                <span style={{color:C.muted2,whiteSpace:"nowrap"}}>{fmt(h.fecha)}</span>
+                <span style={{fontWeight:700,color:C.text}}>{labelAccionNom(h.accion)}</span>
+                <span style={{color:C.muted}}>{h.estadoDesde?`${h.estadoDesde} → ${h.estadoHacia}`:""}{h.motivo?` · ${h.motivo}`:""}</span>
+                <span style={{marginLeft:"auto",color:C.muted2}}>{h.usuario}</span>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Líneas por sección (incluye inactivadas) */}
+        {secs.map(sec=>{
+          const its = (nom.items||[]).filter(it=>it.seccion===sec.id);
+          if(its.length===0) return null;
+          return (
+            <div key={sec.id} style={{marginBottom:12}}>
+              <div style={{fontSize:11,fontWeight:700,color:C.muted,marginBottom:4}}>{sec.label}</div>
+              {its.map(it=>{
+                const inactiva = !lineaActiva(it);
+                const docs = it.documentos||[];
+                const activosDocs = docs.filter(d=>(d.estado||"activo")==="activo");
+                const exp = !!abierta[it.id];
+                return (
+                  <div key={it.id} style={{border:`1px solid ${C.border}`,borderRadius:8,marginBottom:6,
+                    opacity:inactiva?0.55:1,background:C.card2}}>
+                    <div onClick={()=>setAbierta(s=>({...s,[it.id]:!s[it.id]}))}
+                      style={{display:"flex",alignItems:"center",gap:8,padding:"7px 10px",cursor:"pointer"}}>
+                      <span style={{fontSize:11}}>{exp?"▼":"▶"}</span>
+                      <span style={{fontSize:12}}>{activosDocs.length>0?"🟢":"🔴"}</span>
+                      <span style={{fontWeight:600,fontSize:12,color:C.text,textDecoration:inactiva?"line-through":"none"}}>
+                        {it.proveedor||it.concepto||it.tipoDoc||"—"}
+                      </span>
+                      {inactiva&&<span style={{fontSize:9,color:"#ef4444",fontWeight:700}}>INACTIVA</span>}
+                      <span style={{marginLeft:"auto",fontSize:11,color:C.muted}}>{montoStr(it)} · 📎{activosDocs.length}</span>
+                    </div>
+                    {exp&&(
+                      <div style={{padding:"4px 12px 12px 30px",fontSize:11,color:C.muted}}>
+                        <div style={{marginBottom:6,color:C.text}}>
+                          RUT {it.rut||"—"} · N°Doc {it.nDoc||"—"} · F.Doc {it.fDoc||"—"} · Venc {it.fVenc||"—"}
+                          {it.concepto?` · ${it.concepto}`:""}{it.comentario?` · Obs: ${it.comentario}`:""}
+                        </div>
+                        {/* Documentos (todos, marca estado) */}
+                        <div style={{fontWeight:700,color:C.muted,marginBottom:3}}>Documentos</div>
+                        {docs.length===0&&<div style={{color:C.muted2}}>Sin documentos.</div>}
+                        {docs.map(d=>(
+                          <div key={d.id} style={{display:"flex",alignItems:"center",gap:8,padding:"3px 0",
+                            opacity:(d.estado||"activo")==="activo"?1:0.5}}>
+                            <span>{d.interno?"🧾":"📄"}</span>
+                            <span style={{color:C.text}}>{d.nombre}{d.principal?" ★":""}{d.interno&&d.voucher?.correlativo?` (${d.voucher.correlativo})`:""}</span>
+                            {(d.estado||"activo")!=="activo"&&<span style={{fontSize:9,color:"#ef4444"}}>({d.estado})</span>}
+                            <span style={{color:C.muted2,fontSize:9}}>{d.subidoPor} · {fmt(d.fechaSubida)}{d.hash?` · sha256:${d.hash.slice(0,8)}…`:""}</span>
+                            <button onClick={()=>verDoc(d)} style={{marginLeft:"auto",background:`${C.blue}22`,border:"none",borderRadius:6,padding:"2px 8px",cursor:"pointer",fontSize:10,color:C.blue}}>Ver</button>
+                          </div>
+                        ))}
+                        {/* Historial de la línea */}
+                        {(it.historial||[]).length>0&&(
+                          <div style={{marginTop:6}}>
+                            <div style={{fontWeight:700,color:C.muted,marginBottom:3}}>Historial de la línea</div>
+                            {(it.historial||[]).slice().reverse().map((h,i)=>(
+                              <div key={i} style={{fontSize:10,color:C.muted2}}>{fmt(h.fecha)} · {h.accion} · {h.usuario}{h.detalle?` · ${h.detalle}`:""}</div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────
 // PANEL BANCOS
 // ─────────────────────────────────────────────────────────────────
 // PanelBancos: muestra saldos desde saldosBancos existente (read-only por empresa)
@@ -12025,6 +12160,8 @@ function NominaDetalle({nomina, onUpdate, onBack, usuario, canEdit, saldosBancos
   const nom = nomina;
   const esCFO = usuario?.rol==="admin" || usuario?.esCFO;
   const [soloVer, setSoloVer] = useState(false);
+  const [showAudit, setShowAudit] = useState(false);   // Vista Auditoría (Fase 3)
+  const [descExpediente, setDescExpediente] = useState(false); // Descargar Expediente (Fase 6)
   // Estado bloqueado: nadie puede editar contenido una vez que tiene V°B° o está aprobada
   const estadoBloqueado = nom.estado === "aprobada" || nom.estado === "aprobada1";
   // editActivo: controla si se pueden modificar items/campos de la nómina
@@ -12067,6 +12204,52 @@ function NominaDetalle({nomina, onUpdate, onBack, usuario, canEdit, saldosBancos
       }
     }
     onUpdate({...nom, [field]:val});
+  }
+
+  // ── Descargar Expediente (Fase 6): ZIP con resumen + documentos por línea ──
+  async function descargarExpediente() {
+    setDescExpediente(true);
+    try {
+      if(!window.JSZip){ await new Promise((res,rej)=>{const s=document.createElement("script");s.src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js";s.onload=res;s.onerror=rej;document.head.appendChild(s);}); }
+      const zip = new window.JSZip();
+      const carpeta = `Nomina_${nom.empresa.replace(/[^a-zA-Z0-9]+/g,"_")}_${nom.año}_S${nom.semana}_N${nom.numero||1}`;
+      const root = zip.folder(carpeta);
+      const cob = coberturaNomina(nom);
+      let resumen = `${nombreFormal}\n`;
+      resumen += `Empresa: ${nom.empresa}\nSemana: ${nom.semana} / Año: ${nom.año}\nFecha: ${nom.fecha||"—"}\n`;
+      resumen += `Estado: ${(ESTADOS_FLUJO.find(e=>e.id===nom.estado)||{}).label||nom.estado}\n`;
+      resumen += `Cobertura documental: ${cob.conRespaldo}/${cob.total} (${cob.pct}%)\n\nDETALLE DE PAGOS\n`;
+      for(const sec of [...SECCIONES,...(nom.seccionesExtra||[])]){
+        const its = nom.items.filter(it=>it.seccion===sec.id && lineaActiva(it));
+        if(!its.length) continue;
+        resumen += `\n[${sec.label}]\n`;
+        for(const it of its){
+          const m = Number(it.montoUSD)?`USD ${it.montoUSD}`:Number(it.montoPEN)?`PEN ${it.montoPEN}`:`CLP ${it.montoCLP||0}`;
+          resumen += `  - ${it.proveedor||it.concepto||"—"} · ${m} · ${tieneRespaldo(it)?docsActivos(it).length+" doc(s)":"SIN RESPALDO"}\n`;
+        }
+      }
+      if((nom.historial||[]).length){ resumen += `\nHISTORIAL\n`; for(const h of nom.historial) resumen += `  ${h.fecha} · ${labelAccionNom(h.accion)} · ${h.usuario}${h.motivo?" · "+h.motivo:""}\n`; }
+      root.file("01_Resumen.txt", resumen);
+      let idx=2; const fallos=[];
+      const itsConDocs = nom.items.filter(it=>lineaActiva(it) && docsActivos(it).length>0);
+      for(const it of itsConDocs){
+        const sub = root.folder(`${String(idx).padStart(2,"0")}_${(it.proveedor||it.concepto||"Pago").replace(/[^a-zA-Z0-9]+/g,"_").slice(0,40)}`);
+        for(const d of docsActivos(it)){
+          const url = await urlFirmadaNomina(d.path);
+          if(!url){ fallos.push(d.nombre); continue; }
+          try{ const r=await fetch(url); if(!r.ok){fallos.push(d.nombre);continue;} sub.file(d.nombre, await r.blob()); }
+          catch{ fallos.push(d.nombre); }
+        }
+        idx++;
+      }
+      if(fallos.length) root.file("_documentos_no_incluidos.txt", fallos.join("\n"));
+      const out = await zip.generateAsync({type:"blob"});
+      const a=document.createElement("a"); a.href=URL.createObjectURL(out); a.download=`${carpeta}.zip`; a.click(); URL.revokeObjectURL(a.href);
+      window.auditLog && window.auditLog("exportar", {modulo:"finanzas", seccion:"nóminas", descripcion:`Descargó expediente ${nombreFormal}`, registroId:nom.id});
+    } catch(e){
+      alert("No se pudo generar el expediente: "+(e.message||e));
+    }
+    setDescExpediente(false);
   }
 
   // ── Export Excel ──────────────────────────────────
@@ -12310,6 +12493,16 @@ function NominaDetalle({nomina, onUpdate, onBack, usuario, canEdit, saldosBancos
     const idx = flujo.indexOf(nom.estado);
     if(idx >= flujo.length-1) return;
     const next = flujo[idx+1];
+    // Fase 4: bloquear el avance si faltan respaldos obligatorios.
+    if(VALIDACION_RESPALDO.activo && next===VALIDACION_RESPALDO.estadoQueExige){
+      const faltan = lineasSinRespaldoObligatorio(nom);
+      if(faltan.length){
+        alert(`No se puede enviar a revisión: ${faltan.length} línea(s) sin respaldo documental.\n\n`+
+          faltan.map(it=>`• ${it.proveedor||it.concepto||it.tipoDoc||"(sin nombre)"}`).join("\n")+
+          `\n\nAdjunta el documento (o genera el documento interno en líneas de empresas relacionadas) antes de avanzar.`);
+        return;
+      }
+    }
     const ahora = new Date().toISOString().slice(0,10);
     let patch = {estado: next};
     if(next==="preparada")  patch.preparadoPor  = usuario?.nombre||"";
@@ -12594,6 +12787,16 @@ function NominaDetalle({nomina, onUpdate, onBack, usuario, canEdit, saldosBancos
           style={{background:"transparent",border:`1px solid ${C.border}`,color:C.muted,
             borderRadius:8,padding:"7px 12px",cursor:"pointer",fontSize:11}}>
           🖨️ Imprimir
+        </button>
+        <button onClick={()=>setShowAudit(true)}
+          style={{background:"transparent",border:`1px solid ${C.border}`,color:C.muted,
+            borderRadius:8,padding:"7px 12px",cursor:"pointer",fontSize:11}}>
+          🔍 Auditoría
+        </button>
+        <button onClick={descargarExpediente} disabled={descExpediente}
+          style={{background:"transparent",border:`1px solid ${C.border}`,color:C.muted,
+            borderRadius:8,padding:"7px 12px",cursor:descExpediente?"wait":"pointer",fontSize:11}}>
+          {descExpediente?"⬇ Generando…":"⬇ Expediente"}
         </button>
       </div>
 
@@ -13098,6 +13301,9 @@ function NominaDetalle({nomina, onUpdate, onBack, usuario, canEdit, saldosBancos
         </div>
 
       </div>
+      {showAudit&&(
+        <AuditoriaNominaModal nomina={nom} onClose={()=>setShowAudit(false)}/>
+      )}
     </div>
   );
 }
