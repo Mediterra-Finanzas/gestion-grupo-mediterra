@@ -11190,7 +11190,26 @@ function nominaVacia(empresa, semana, año, numero=1) {
     bancos: Object.fromEntries(BANCOS.map(b=>[b,{clp:0,usd:0}])),
     notas: "",
     seccionesExtra: [], // [{id, label}] custom sections
+    // Expediente Digital (Fase 2): trazabilidad + soft-delete de la nómina.
+    estadoNomina: "activa", // "activa" | "inactiva"
+    historial: [],          // [{accion, usuario, fecha, estadoDesde?, estadoHacia?, motivo?, detalle?}]
   };
+}
+
+// La nómina cuenta como activa salvo que esté inactivada (soft-delete).
+// Lectura defensiva: las nóminas históricas no traen estadoNomina → activas.
+function nominaActiva(nom) {
+  return (nom?.estadoNomina || "activa") !== "inactiva";
+}
+
+// Construye una entrada de historial de nómina con usuario + timestamp.
+function entradaHistorialNom(accion, usuario, extra = {}) {
+  return { accion, usuario: usuario?.nombre || "—", fecha: new Date().toISOString(), ...extra };
+}
+
+// Etiqueta legible para una acción del historial de nómina.
+function labelAccionNom(accion) {
+  return ({ creada:"Creada", avance:"Avanzó estado", devolucion:"Devuelta", inactivada:"Inactivada" })[accion] || accion;
 }
 
 // ─────────────────────────────────────────────────────────────────
@@ -12331,6 +12350,11 @@ function NominaDetalle({nomina, onUpdate, onBack, usuario, canEdit, saldosBancos
           `🏆 Nómina APROBADA — ${nom.empresa} S${nom.semana}`, notifMsg).catch(()=>{});
       }
     }
+    // Trazabilidad (Fase 2): historial de la nómina + log de auditoría central.
+    patch.historial = [...(nom.historial||[]), entradaHistorialNom("avance", usuario, {estadoDesde: nom.estado, estadoHacia: next})];
+    window.auditLog && window.auditLog("editar", {modulo:"finanzas", seccion:"nóminas",
+      descripcion:`${nombreFormal}: ${nom.estado} → ${next}`, registroId:nom.id,
+      campo:"estado", valorAnterior:nom.estado, valorNuevo:next});
     onUpdate({...nom,...patch});
   }
 
@@ -12342,6 +12366,11 @@ function NominaDetalle({nomina, onUpdate, onBack, usuario, canEdit, saldosBancos
     if(!comentario || !comentario.trim()) { alert("Debe ingresar un motivo para devolver la nómina."); return; }
     const prev = flujo[idx-1];
     const patch = {estado: prev, ultimaDevolucion: {por: usuario?.nombre||"", fecha: new Date().toISOString(), motivo: comentario.trim(), desdeEstado: nom.estado}};
+    // Trazabilidad (Fase 2): historial de la nómina + log de auditoría central.
+    patch.historial = [...(nom.historial||[]), entradaHistorialNom("devolucion", usuario, {estadoDesde: nom.estado, estadoHacia: prev, motivo: comentario.trim()})];
+    window.auditLog && window.auditLog("editar", {modulo:"finanzas", seccion:"nóminas",
+      descripcion:`${nombreFormal}: devuelta ${nom.estado} → ${prev}. Motivo: ${comentario.trim()}`, registroId:nom.id,
+      campo:"estado", valorAnterior:nom.estado, valorNuevo:prev});
 
     // Notificaciones según quién devuelve
     if(window._enviarNotificacion) {
@@ -12741,6 +12770,23 @@ function NominaDetalle({nomina, onUpdate, onBack, usuario, canEdit, saldosBancos
           );
         })()}
 
+        {/* Historial de la nómina (Expediente Digital — Fase 2) */}
+        {(nom.historial||[]).length>0&&(
+          <details className="no-print" style={{marginBottom:20}}>
+            <summary style={{cursor:"pointer",fontSize:12,fontWeight:700,color:C.muted}}>🕘 Historial de la nómina ({(nom.historial||[]).length})</summary>
+            <div style={{marginTop:8,border:`1px solid ${C.border}`,borderRadius:8,overflow:"hidden"}}>
+              {(nom.historial||[]).slice().reverse().map((h,i)=>(
+                <div key={i} style={{display:"flex",gap:10,padding:"6px 10px",borderBottom:`1px solid ${C.border}22`,fontSize:11,alignItems:"baseline"}}>
+                  <span style={{color:C.muted2,whiteSpace:"nowrap"}}>{(()=>{try{return new Date(h.fecha).toLocaleString("es-CL");}catch{return h.fecha||"—";}})()}</span>
+                  <span style={{fontWeight:700,color:C.text,whiteSpace:"nowrap"}}>{labelAccionNom(h.accion)}</span>
+                  <span style={{color:C.muted}}>{h.estadoDesde?`${h.estadoDesde} → ${h.estadoHacia}`:""}{h.motivo?` · ${h.motivo}`:""}</span>
+                  <span style={{marginLeft:"auto",color:C.muted2,whiteSpace:"nowrap"}}>{h.usuario}</span>
+                </div>
+              ))}
+            </div>
+          </details>
+        )}
+
         {/* Secciones de items */}
         {([...SECCIONES,...(nom.seccionesExtra||[])]).map(sec=>{
           const hasItems = nom.items.some(it=>it.seccion===sec.id && lineaActiva(it));
@@ -13004,6 +13050,35 @@ function NominaDetalle({nomina, onUpdate, onBack, usuario, canEdit, saldosBancos
               </div>
             );
           })()}
+
+          {/* Anexo: historial de la nómina (Expediente Digital — Fase 2) */}
+          {(nom.historial||[]).length>0&&(
+            <div style={{marginTop:14}}>
+              <div style={{fontSize:10,fontWeight:700,color:"#1e293b",marginBottom:4,borderBottom:"1px solid #cbd5e1",paddingBottom:2}}>
+                Anexo — Historial de la nómina
+              </div>
+              <table className="print-table">
+                <thead>
+                  <tr>
+                    <th style={{width:"24%"}}>Fecha/Hora</th>
+                    <th style={{width:"18%"}}>Acción</th>
+                    <th style={{width:"36%"}}>Detalle</th>
+                    <th style={{width:"22%"}}>Usuario</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(nom.historial||[]).map((h,i)=>(
+                    <tr key={i}>
+                      <td style={{fontSize:"6.5px"}}>{(()=>{try{return new Date(h.fecha).toLocaleString("es-CL");}catch{return h.fecha||"—";}})()}</td>
+                      <td style={{fontSize:"6.5px"}}>{labelAccionNom(h.accion)}</td>
+                      <td style={{fontSize:"6.5px"}}>{h.estadoDesde?`${h.estadoDesde} → ${h.estadoHacia}`:""}{h.motivo?` · ${h.motivo}`:""}</td>
+                      <td style={{fontSize:"6.5px"}}>{h.usuario}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
 
           <div className="print-footer">
             {[
@@ -13420,22 +13495,30 @@ function NominasModule({usuario, canEdit=false, saldosBancos={}, empresasPermiti
     // Calcular N° secuencial: contar cuántas ya existen para esta empresa/semana/año
     const existentes = nominas.filter(n=>n.empresa===empresa && n.semana===Number(s) && n.año===Number(a));
     const numero = existentes.length + 1;
-    const nom = nominaVacia(empresa, s, a, numero);
+    const base = nominaVacia(empresa, s, a, numero);
+    const nom = {...base, historial:[entradaHistorialNom("creada", usuario)]};
     updNomina(nom);
+    window.auditLog && window.auditLog("crear", {modulo:"finanzas", seccion:"nóminas",
+      descripcion:`Creó nómina ${empresa} · S${s}/${a} N°${numero}`, registroId:nom.id});
     setSelNomina(nom.id);
   }
 
+  // Soft-delete (Fase 2): la nómina no se borra físicamente. Se marca inactiva,
+  // se oculta de las listas/totales y se conserva para auditoría.
   function eliminarNomina(id) {
-    if(!window.confirm("¿Eliminar esta nómina?")) return;
+    if(!window.confirm("¿Inactivar esta nómina?\n\nNo se elimina: se oculta de las listas y queda registrada para auditoría.")) return;
     setNominas(prev=>{
       const nom = prev.find(n=>n.id===id);
-      const next = prev.filter(n=>n.id!==id);
+      const next = prev.map(n=>n.id===id
+        ? {...n, estadoNomina:"inactiva", historial:[...(n.historial||[]), entradaHistorialNom("inactivada", usuario)]}
+        : n);
       saveNominas(next);
       if(nom) window.auditLog&&window.auditLog("eliminar", {modulo:"finanzas", seccion:"nóminas",
-        descripcion:`Eliminó nómina ${nom.empresa} · S${nom.semana}/${nom.año} (estado: ${nom.estado})`,
+        descripcion:`Inactivó nómina ${nom.empresa} · S${nom.semana}/${nom.año} (estado: ${nom.estado})`,
         registroId:id});
       return next;
     });
+    if(selNomina===id) setSelNomina(null);
   }
 
   // Print CSS
@@ -13573,6 +13656,7 @@ function NominasModule({usuario, canEdit=false, saldosBancos={}, empresasPermiti
 
   // Filtrar
   const nominasFiltradas = nominas.filter(n=>{
+    if(!nominaActiva(n)) return false; // soft-delete: ocultar inactivas (Fase 2)
     if(filtroAño    && n.año!==filtroAño)       return false;
     if(filtroSemana && n.semana!==filtroSemana) return false;
     if(filtroEmpresa && n.empresa!==filtroEmpresa) return false;
@@ -13703,8 +13787,8 @@ function NominasModule({usuario, canEdit=false, saldosBancos={}, empresasPermiti
       {vistaBusqueda&&busqGlobal.trim()&&(()=>{
         const q = busqGlobal.trim().toLowerCase();
         const resultados = [];
-        nominas.forEach(nom=>{
-          (nom.items||[]).forEach(it=>{
+        nominas.filter(nominaActiva).forEach(nom=>{
+          (nom.items||[]).filter(lineaActiva).forEach(it=>{
             const match = (it.proveedor||"").toLowerCase().includes(q)
               || (it.nDoc||"").includes(q)
               || (it.tipoDoc||"").toLowerCase().includes(q)
@@ -13759,7 +13843,7 @@ function NominasModule({usuario, canEdit=false, saldosBancos={}, empresasPermiti
 
       {/* ══════ VISTA RESUMEN ANUAL ══════ */}
       {vistaResumen&&(()=>{
-        const nominasAño = nominas.filter(n=>n.año===filtroAño);
+        const nominasAño = nominas.filter(n=>n.año===filtroAño && nominaActiva(n));
         // Semanas con datos
         const semsConDatos = [...new Set(nominasAño.map(n=>n.semana))].sort((a,b)=>a-b);
 
