@@ -2013,6 +2013,14 @@ export default function App(){
         cargaOkRef.current = true;
         if(d && Array.isArray(d.usuarios)) window._lastSavedUsersCount = d.usuarios.length;
       }catch(e){
+        if (USE_GUARD && String(e && e.message).includes("401")) {
+          // Con el guardia: aún no hay sesión (el usuario no ha iniciado sesión).
+          // No es un error de carga: mostramos el login y reintentamos la carga
+          // automáticamente apenas el login tenga éxito.
+          window._cargarTrasLogin = cargar;
+          setCargando(false);
+          return;
+        }
         // Carga fallida: dejamos cargaOkRef en false → el auto-guardado NO
         // correrá esta sesión, evitando sobrescribir Supabase con los defaults.
         console.error("Error cargando (auto-guardado DESHABILITADO esta sesión para no sobrescribir datos):",e);
@@ -2520,6 +2528,11 @@ export default function App(){
             ensureSupabaseSession(emailInput, loginPin.trim())
               .then(r=>{ if(!r.ok) console.warn("[osiris-auth] sin sesión:", r.error); });
           }
+        }
+        // Ya hay sesión válida: cargar los datos que se aplazaron al inicio.
+        if (window._cargarTrasLogin) {
+          const f = window._cargarTrasLogin; window._cargarTrasLogin = null;
+          setCargando(true); f();
         }
       } catch (e) {
         setLoginError("No se pudo conectar con el servidor. Intenta de nuevo.");

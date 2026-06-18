@@ -19,6 +19,17 @@
 
 export const USE_GUARD = (process.env.REACT_APP_USE_GUARD === "true");
 
+// Comprime un string a gzip (devuelve Uint8Array). Usa CompressionStream
+// (disponible en navegadores Chromium/Edge/Firefox modernos).
+async function gzipString(str) {
+  const cs = new CompressionStream("gzip");
+  const writer = cs.writable.getWriter();
+  writer.write(new TextEncoder().encode(str));
+  writer.close();
+  const ab = await new Response(cs.readable).arrayBuffer();
+  return new Uint8Array(ab);
+}
+
 export function installGuard(SUPA_URL) {
   if (!USE_GUARD) return;                 // interruptor apagado → no hacer nada
   if (typeof window === "undefined") return;
@@ -43,13 +54,32 @@ export function installGuard(SUPA_URL) {
       h.delete("apikey");
       h.delete("Authorization");
 
+      const metodo = (init.method || (typeof input !== "string" && input && input.method) || "GET").toUpperCase();
       const nuevoInit = Object.assign({}, init, {
-        method: init.method || (typeof input !== "string" && input && input.method) || "GET",
+        method: metodo,
         headers: h,
         credentials: "include",
       });
       // Conservar el body si venía en init
       if (init.body != null) nuevoInit.body = init.body;
+
+      // Envíos con cuerpo string (los grandes, ej. finanzas ~4.4MB) se
+      // comprimen a gzip para no superar el tope de ~4.5MB de Vercel.
+      const esEscritura = ["POST", "PUT", "PATCH", "DELETE"].includes(metodo);
+      if (esEscritura && typeof nuevoInit.body === "string" && typeof CompressionStream !== "undefined") {
+        return (async () => {
+          try {
+            const gz = await gzipString(nuevoInit.body);
+            h.set("Content-Type", "application/octet-stream");
+            h.set("X-Gzip", "1");
+            nuevoInit.body = gz;
+          } catch (e) {
+            // Si la compresión falla, se envía sin comprimir (puede dar 413 si es grande)
+            try { console.warn("[guard] gzip falló, envío sin comprimir:", e && e.message); } catch {}
+          }
+          return orig(nuevaUrl, nuevoInit);
+        })();
+      }
 
       return orig(nuevaUrl, nuevoInit);
     }

@@ -16,6 +16,7 @@
 // NOTA: se usa req.query (no req.url) porque Vercel inyecta el segmento
 // de ruta ('path') en la query del catch-all; lo excluimos al reconstruir.
 
+const zlib = require("zlib");
 const { sesionDeRequest, supaFetch, faltanSecretos } = require("../_auth");
 
 // Tablas que el guardia permite tocar (lista blanca de seguridad).
@@ -49,10 +50,21 @@ module.exports = async function handler(req, res) {
   const qs = params.toString();
   const destino = segs.join("/") + (qs ? "?" + qs : "");
 
-  // 3) Cuerpo (para POST/PATCH): re-serializar si Vercel ya lo parseó
+  // 3) Cuerpo (para POST/PATCH). Si viene comprimido (X-Gzip), se descomprime
+  //    aquí: el cliente comprime los envíos grandes (ej. finanzas ~4.4MB) para
+  //    no superar el tope de ~4.5MB de las funciones de Vercel.
   let body;
   if (["POST", "PATCH", "PUT", "DELETE"].includes(req.method)) {
-    if (req.body == null) body = undefined;
+    if (req.headers["x-gzip"] === "1") {
+      const raw = Buffer.isBuffer(req.body)
+        ? req.body
+        : Buffer.from(req.body || "", typeof req.body === "string" ? "binary" : undefined);
+      try {
+        body = zlib.gunzipSync(raw).toString("utf8");
+      } catch (e) {
+        return res.status(400).json({ error: "gzip_invalido", detalle: String(e && e.message || e) });
+      }
+    } else if (req.body == null) body = undefined;
     else if (typeof req.body === "string") body = req.body;
     else body = JSON.stringify(req.body);
   }
