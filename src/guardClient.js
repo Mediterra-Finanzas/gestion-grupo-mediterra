@@ -17,7 +17,10 @@
 //   - Archivos/Storage (${SUPA_URL}/storage/v1/...) → se blindan aparte.
 //   - APIs externas (mindicador, frankfurter, emailjs) y /api/* propios.
 
-export const USE_GUARD = (process.env.REACT_APP_USE_GUARD === "true");
+// TEMP 2026-06-18: guardia DESACTIVADO por incidente de login. La app vuelve
+// a su comportamiento original (acceso directo + login cliente) mientras se
+// diagnostica. Re-activar restaurando: process.env.REACT_APP_USE_GUARD === "true".
+export const USE_GUARD = false;
 
 // Comprime un string a gzip (devuelve Uint8Array). Usa CompressionStream
 // (disponible en navegadores Chromium/Edge/Firefox modernos).
