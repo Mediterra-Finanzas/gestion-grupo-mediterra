@@ -6647,20 +6647,23 @@ function derivarRoyaltyPlantaDesdeContratos(ctData, ocsByCt) {
     const montoTotalUSD = totPlantas * valorPorPlanta;
     const cuotas = ct.rpPlantaCuotas && ct.rpPlantaCuotas.length>0 ? ct.rpPlantaCuotas : RP_CUOTAS_DEFAULT;
     cuotas.forEach((cuo, idx) => {
-      const pctCuota = (Number(cuo.pct)||0)/100;
-      const montoCuota = montoTotalUSD * pctCuota;
+      // Tanda por PLANTAS (nuevo): monto = plantas de la tanda × US$/planta.
+      // Compatibilidad: si la cuota antigua trae % y no plantas, se usa el %.
+      const tienePlantas = cuo.nPlantas!==undefined && cuo.nPlantas!==null && cuo.nPlantas!=="";
+      const plantasCuota = tienePlantas ? (Number(cuo.nPlantas)||0) : totPlantas*((Number(cuo.pct)||0)/100);
+      const montoCuota = plantasCuota * valorPorPlanta;
       out.push({
         id: `rp_${ct.id}_${cuo.id||idx}`,
         ctId: ct.id,
         cuotaId: cuo.id||`cuo_${idx}`,
         cliente: ct.razonSocial,
         pais: ct.pais,
-        nPlantas: totPlantas,
+        nPlantas: Math.round(plantasCuota),
         usdPlanta: valorPorPlanta,
-        descripcionCuota: cuo.descripcion||`Cuota ${idx+1}`,
-        pctCuota: Number(cuo.pct)||0,
-        montoFact: montoCuota,                 // 100%
-        montoCobro: montoCuota * pct(ct.pais), // con WHT
+        descripcionCuota: cuo.descripcion||`Tanda ${idx+1}`,
+        pctCuota: totPlantas>0 ? (plantasCuota/totPlantas)*100 : 0,
+        montoFact: montoCuota,
+        montoCobro: montoCuota * pct(ct.pais), // = monto facturado − WHT
         whtPct: pct(ct.pais)===1 ? 0 : 15,
         fechaEvento: cuo.fechaEvento || "",
         pagado: !!cuo.pagado,
@@ -8767,33 +8770,37 @@ function ControlContratos({data,setData,clientes,setClientes,variedadesMaestro=[
             {/* Sub-sección 2: Royalty Planta - cuotas */}
             <div style={{background:C.card,border:`1px solid ${C.success}`,borderRadius:10,padding:14,marginBottom:14}}>
               <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
-                <div style={{fontSize:13,fontWeight:800,color:C.success}}>🌱 Royalty Planta — Plan de cuotas</div>
+                <div style={{fontSize:13,fontWeight:800,color:C.success}}>🌱 Royalty Planta — Facturación por tandas (plantas)</div>
                 {can&&<button onClick={()=>{
-                  const nuevaCuota = {id:`cuo_${Date.now()}`, descripcion:"Nueva cuota", pct:0, fechaEvento:""};
+                  const nuevaCuota = {id:`cuo_${Date.now()}`, descripcion:"Tanda", nPlantas:"", fechaEvento:""};
                   const next = [...(r.rpPlantaCuotas||[]), nuevaCuota];
                   upd(r.id,"rpPlantaCuotas",next);
-                }} style={{background:C.success,color:"#fff",border:"none",borderRadius:6,padding:"5px 10px",cursor:"pointer",fontSize:11,fontWeight:600}}>+ Cuota</button>}
+                }} style={{background:C.success,color:"#fff",border:"none",borderRadius:6,padding:"5px 10px",cursor:"pointer",fontSize:11,fontWeight:600}}>+ Tanda</button>}
               </div>
               {(()=>{
                 const totPlantas = (r.plantaciones||[]).reduce((s,p)=>s+(parseFloat(p.nPlantas)||0),0);
                 const valorPP = parseFloat(r.valorRoyaltyPlanta)||1;
                 const totRP = totPlantas * valorPP;
                 const cuotas = r.rpPlantaCuotas||[];
-                const sumPct = cuotas.reduce((s,c)=>s+(parseFloat(c.pct)||0),0);
+                // Plantas de cada tanda (compat: si la cuota vieja trae %, se traduce a plantas).
+                const plantasDe = (c)=> (c.nPlantas!==undefined&&c.nPlantas!=="") ? (parseFloat(c.nPlantas)||0) : (totPlantas*(parseFloat(c.pct)||0)/100);
+                const sumPl = cuotas.reduce((s,c)=>s+plantasDe(c),0);
+                const exceso = sumPl>totPlantas+0.5;
                 return (
                   <>
                     <div style={{padding:10,background:C.successBg,borderRadius:8,marginBottom:10,fontSize:11,color:C.success}}>
-                      <strong>Base:</strong> {N(totPlantas)} plantas × ${valorPP}/planta = <strong>${N(totRP.toFixed(2))}</strong> · Suma cuotas: <strong style={{color:Math.abs(sumPct-100)<0.01?C.success:C.danger}}>{sumPct}%</strong>
+                      <strong>Base:</strong> {N(totPlantas)} plantas × ${valorPP}/planta = <strong>${N(totRP.toFixed(2))}</strong> · Facturado en tandas: <strong style={{color:exceso?C.danger:C.success}}>{N(sumPl)} plantas</strong> de {N(totPlantas)}{exceso?" ⚠ excede el total":""}
                     </div>
                     <table style={{width:"100%",borderCollapse:"collapse",fontSize:11}}>
                       <thead><tr style={{background:C.successBg}}>
-                        {["Descripción","%","Monto Fact.","Monto Cobro","Fecha evento","Estado Cobro","Fecha pago","N° Fact.",""].map(h=>(
+                        {["Descripción","Plantas (tanda)","Monto Fact.","Monto Cobro","Fecha evento","Estado Cobro","Fecha pago","N° Fact.",""].map(h=>(
                           <th key={h} style={{padding:"6px 8px",textAlign:"left",fontSize:10,fontWeight:700,color:C.success}}>{h}</th>
                         ))}
                       </tr></thead>
                       <tbody>
                         {cuotas.map(c=>{
-                          const monto = totRP * (parseFloat(c.pct)||0)/100;
+                          const plc = plantasDe(c);
+                          const monto = plc * valorPP;
                           const updCuo = (campo, valor) => {
                             const next = cuotas.map(x=>x.id===c.id?{...x,[campo]:valor}:x);
                             upd(r.id,"rpPlantaCuotas",next);
@@ -8805,8 +8812,8 @@ function ControlContratos({data,setData,clientes,setClientes,variedadesMaestro=[
                                   style={{width:"100%",padding:"4px 6px",borderRadius:4,border:`1px solid ${C.border}`,fontSize:11,boxSizing:"border-box"}}/>
                               </td>
                               <td style={{padding:"5px 8px"}}>
-                                <input type="number" disabled={!can} value={c.pct||0} onChange={e=>updCuo("pct",parseFloat(e.target.value)||0)}
-                                  style={{width:60,padding:"4px 6px",borderRadius:4,border:`1px solid ${C.border}`,fontSize:11,textAlign:"right"}}/>
+                                <input type="number" disabled={!can} value={c.nPlantas!==undefined&&c.nPlantas!==""?c.nPlantas:(c.pct?Math.round(plc):"")} placeholder="0" onChange={e=>updCuo("nPlantas",e.target.value)}
+                                  style={{width:90,padding:"4px 6px",borderRadius:4,border:`1px solid ${C.border}`,fontSize:11,textAlign:"right"}}/>
                               </td>
                               <td style={{padding:"5px 8px",fontWeight:700,color:C.success}}>${N(monto.toFixed(2))}</td>
                               <td style={{padding:"5px 8px",fontWeight:700,color:C.success}}>${N((monto*pct(r.pais)).toFixed(2))}</td>
@@ -9865,11 +9872,10 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
       {saveState==="saving"
         ? <span style={{color:C.muted,fontWeight:600}}>💾 Guardando…</span>
         : saveState==="dirty"
-        ? <>
-            <span style={{color:C.am,fontWeight:800}}>● Cambios sin guardar</span>
-            <button onClick={guardarAhora} style={{background:C.success,color:"#fff",border:"none",borderRadius:6,padding:"4px 12px",cursor:"pointer",fontWeight:800,fontSize:11}}>Guardar ahora</button>
-          </>
+        ? <span style={{color:C.am,fontWeight:800}}>● Cambios sin guardar</span>
         : <span style={{color:C.success,fontWeight:800}}>✓ Guardado{saveTs?` · ${saveTs.toLocaleTimeString("es-CL",{hour:"2-digit",minute:"2-digit"})}`:""}</span>}
+      <button onClick={guardarAhora} disabled={saveState==="saving"} title="Guardar ahora en el servidor"
+        style={{background:saveState==="dirty"?C.success:C.cardAlt,color:saveState==="dirty"?"#fff":C.sl,border:`1px solid ${saveState==="dirty"?C.success:C.border}`,borderRadius:6,padding:"4px 12px",cursor:saveState==="saving"?"default":"pointer",fontWeight:800,fontSize:11,opacity:saveState==="saving"?0.6:1}}>💾 Guardar ahora</button>
     </div>
   );
 
