@@ -10307,6 +10307,7 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
         {label:"Osiris Hub", onClick:()=>setSubApp(null)},
         {label:"Contratos Exp-Prod"},
       ]}/>
+      <button onClick={()=>setSubApp(null)} style={{background:C.cardAlt,border:"none",borderRadius:8,padding:"7px 14px",cursor:"pointer",fontSize:13,color:C.sl,fontWeight:600,marginBottom:12}}>← Volver al Hub</button>
       {canVerContratos&&!canContratos&&(
         <div style={{background:C.warningBg,border:`1px solid ${C.warning}`,
           borderRadius:10,padding:"10px 16px",marginBottom:14,display:"flex",alignItems:"center",gap:10}}>
@@ -11185,7 +11186,7 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
           {label:"Osiris Hub", onClick:()=>setSubApp(null)},
           {label:"Contratos Obtentores"},
         ]}/>
-
+        <button onClick={()=>setSubApp(null)} style={{background:C.cardAlt,border:"none",borderRadius:8,padding:"7px 14px",cursor:"pointer",fontSize:13,color:C.sl,fontWeight:600,marginBottom:12}}>← Volver al Hub</button>
         {canVerObtentores&&!canObtentores&&(
           <div style={{background:C.warningBg,border:`1px solid ${C.warning}`,
             borderRadius:10,padding:"10px 16px",marginBottom:14,display:"flex",alignItems:"center",gap:10}}>
@@ -11695,6 +11696,7 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
           {label:"Operación Técnica"},
         ]}/>
         <div style={{maxWidth:1300,margin:"0 auto"}}>
+          <button onClick={()=>setSubApp(null)} style={{background:C.cardAlt,border:"none",borderRadius:8,padding:"7px 14px",cursor:"pointer",fontSize:13,color:C.sl,fontWeight:600,marginBottom:12}}>← Volver al Hub</button>
           {/* Header */}
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20,flexWrap:"wrap",gap:12}}>
             <div>
@@ -13088,6 +13090,7 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
           {label:"Osiris Hub", onClick:()=>setSubApp(null)},
           {label:"Contratos Viveros"},
         ]}/>
+        <button onClick={()=>setSubApp(null)} style={{background:C.cardAlt,border:"none",borderRadius:8,padding:"7px 14px",cursor:"pointer",fontSize:13,color:C.sl,fontWeight:600,marginBottom:12}}>← Volver al Hub</button>
 
         {canVerViveros&&!canViveros&&(
           <div style={{background:C.warningBg,border:`1px solid ${C.warning}`,
@@ -13993,6 +13996,7 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
           {label:"Osiris Hub", onClick:()=>setSubApp(null)},
           {label:"Seguimiento Tareas"},
         ]}/>
+        <button onClick={()=>setSubApp(null)} style={{background:C.cardAlt,border:"none",borderRadius:8,padding:"7px 14px",cursor:"pointer",fontSize:13,color:C.sl,fontWeight:600,marginBottom:12}}>← Volver al Hub</button>
         <div style={{background:C.card,borderRadius:14,padding:20,boxShadow:"0 2px 10px #0001",textAlign:"center",color:C.muted,minHeight:300,display:"flex",alignItems:"center",justifyContent:"center",flexDirection:"column"}}>
           <div style={{fontSize:48,marginBottom:16}}>✅</div>
           <h3 style={{color:C.text,margin:"0 0 8px"}}>Seguimiento de Tareas Osiris</h3>
@@ -14010,6 +14014,7 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
         {label:"Osiris Hub", onClick:()=>setSubApp(null)},
         {label:"Ingresos Osiris"},
       ]}/>
+      <button onClick={()=>setSubApp(null)} style={{background:C.cardAlt,border:"none",borderRadius:8,padding:"7px 14px",cursor:"pointer",fontSize:13,color:C.sl,fontWeight:600,marginBottom:12}}>← Volver al Hub</button>
 
       {/* Sub-tabs */}
       <div style={{display:"flex",gap:6,marginBottom:16,flexWrap:"wrap",alignItems:"center"}}>
