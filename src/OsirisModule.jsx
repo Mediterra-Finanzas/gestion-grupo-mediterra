@@ -8517,7 +8517,21 @@ function ControlContratos({data,setData,clientes,setClientes,variedadesMaestro=[
               const cuotasRP=r.rpPlantaCuotas||[];
               const plantasDeRP=(c)=> (c.nPlantas!==undefined&&c.nPlantas!=="")?(parseFloat(c.nPlantas)||0):(totPlantasC*(parseFloat(c.pct)||0)/100);
               const sumPlRP=cuotasRP.reduce((s,c)=>s+plantasDeRP(c),0);
+              // Tope: la suma facturada en tandas no puede superar las plantas de TODAS las OC del cliente.
+              const totPlantasOC=ocsViv.reduce((s,oc)=>s+(Number(oc.cantidad_plantas)||0),0);
+              const topePlantas = totPlantasOC>0 ? totPlantasOC : totPlantasC; // si no hay OC, usa la base del contrato
+              const excedeRP = topePlantas>0 && sumPlRP>topePlantas+0.5;
               const updCuoRP=(id,campo,valor)=>upd(r.id,"rpPlantaCuotas",cuotasRP.map(x=>x.id===id?{...x,[campo]:valor}:x));
+              // Editar plantas de una tanda con tope: no deja superar la suma de las OC del cliente.
+              const updTandaPlantas=(id,val)=>{
+                const v=parseFloat(val)||0;
+                const otras=cuotasRP.filter(x=>x.id!==id).reduce((s,x)=>s+plantasDeRP(x),0);
+                const maxTanda=Math.max(0, topePlantas-otras);
+                if(topePlantas>0 && v>maxTanda){
+                  alert(`Las plantas facturadas no pueden superar las ${N(topePlantas)} plantas de las OC del cliente. Disponible para esta tanda: ${N(maxTanda)}. Se ajustó a ese máximo.`);
+                  updCuoRP(id,"nPlantas",maxTanda);
+                } else { updCuoRP(id,"nPlantas",val); }
+              };
               const updCuoEstadoRP=(id,v)=>upd(r.id,"rpPlantaCuotas",cuotasRP.map(x=>x.id===id?{...x,estadoCF:v,pagado:v==="pagado"}:x));
               const addTanda=()=>upd(r.id,"rpPlantaCuotas",[...cuotasRP,{id:`cuo_${Date.now()}`,descripcion:"Tanda",nPlantas:"",fechaEvento:""}]);
               const delTanda=(id)=>upd(r.id,"rpPlantaCuotas",cuotasRP.filter(x=>x.id!==id));
@@ -8605,8 +8619,8 @@ function ControlContratos({data,setData,clientes,setClientes,variedadesMaestro=[
                       <button onClick={addTanda} style={{background:C.success,color:"#fff",border:"none",borderRadius:6,padding:"5px 10px",cursor:"pointer",fontSize:11,fontWeight:700}}>+ Tanda</button>
                     </div>}
                   </div>
-                  <div style={{padding:10,background:C.successBg,borderRadius:8,marginBottom:10,fontSize:11,color:C.success}}>
-                    <strong>US$/planta:</strong> ${valorPP} · Facturado en tandas: <strong>{N(sumPlRP)} plantas</strong> = <strong>${N((sumPlRP*valorPP).toFixed(2))}</strong>{totPlantasC>0?` · base contrato ${N(totPlantasC)} plantas`:""}{(sumPlRP>totPlantasC+0.5&&totPlantasC>0)?" ⚠ excede la base":""}
+                  <div style={{padding:10,background:excedeRP?C.dangerBg:C.successBg,borderRadius:8,marginBottom:10,fontSize:11,color:excedeRP?C.danger:C.success}}>
+                    <strong>US$/planta:</strong> ${valorPP} · Facturado en tandas: <strong>{N(sumPlRP)} plantas</strong> = <strong>${N((sumPlRP*valorPP).toFixed(2))}</strong>{topePlantas>0?` · tope ${N(topePlantas)} plantas (${totPlantasOC>0?"suma OC del cliente":"base contrato"})`:""}{excedeRP?` ⚠ excede el tope por ${N(sumPlRP-topePlantas)} plantas`:""}
                   </div>
                   {cuotasRP.length===0?(
                     <div style={{padding:12,background:C.cardAlt,borderRadius:8,fontSize:11,color:C.muted}}>Sin tandas. Agrega una con "+ Tanda" (o "Sugerir desde despachos" si la OC tiene despachos cargados).</div>
@@ -8622,7 +8636,7 @@ function ControlContratos({data,setData,clientes,setClientes,variedadesMaestro=[
                           {cuotasRP.map(c=>{ const plc=plantasDeRP(c); const monto=plc*valorPP; return (
                             <tr key={c.id} style={{borderBottom:"1px solid #ecfdf5",background:c.pagado?C.successBg:""}}>
                               <td style={{padding:"5px 8px"}}><input disabled={!can} value={c.descripcion||""} onChange={e=>updCuoRP(c.id,"descripcion",e.target.value)} style={{width:"100%",padding:"4px 6px",borderRadius:4,border:`1px solid ${C.border}`,fontSize:11,boxSizing:"border-box"}}/></td>
-                              <td style={{padding:"5px 8px"}}><input type="number" disabled={!can} value={c.nPlantas!==undefined&&c.nPlantas!==""?c.nPlantas:(c.pct?Math.round(plc):"")} placeholder="0" onChange={e=>updCuoRP(c.id,"nPlantas",e.target.value)} style={{width:90,padding:"4px 6px",borderRadius:4,border:`1px solid ${C.border}`,fontSize:11,textAlign:"right"}}/></td>
+                              <td style={{padding:"5px 8px"}}><input type="number" disabled={!can} value={c.nPlantas!==undefined&&c.nPlantas!==""?c.nPlantas:(c.pct?Math.round(plc):"")} placeholder="0" onChange={e=>updTandaPlantas(c.id,e.target.value)} style={{width:90,padding:"4px 6px",borderRadius:4,border:`1px solid ${excedeRP?C.danger:C.border}`,fontSize:11,textAlign:"right"}}/></td>
                               <td style={{padding:"5px 8px",textAlign:"right",fontWeight:700,color:C.text}}>${N(monto.toFixed(2))}</td>
                               <td style={{padding:"5px 8px",textAlign:"right",fontWeight:700,color:C.success}}>${N((monto*pct(r.pais)).toFixed(2))}</td>
                               <td style={{padding:"5px 8px"}}><input type="date" disabled={!can} value={c.fechaEvento||""} onChange={e=>updCuoRP(c.id,"fechaEvento",e.target.value)} style={inp}/></td>
