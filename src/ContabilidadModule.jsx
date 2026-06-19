@@ -838,6 +838,111 @@ function PlanCuentasTab({ empresas, empresaId, setEmpresaId, canEdit }) {
 
   const sistemaFinal = sistemaDetectado || sistemaManual || "manual";
 
+  // ── Sub-tab: Importar Plan Megasystem ────────────────────────────────────
+  const [ipPaso, setIpPaso] = useState(1);
+  const [ipRows, setIpRows] = useState([]);
+  const [ipFilename, setIpFilename] = useState("");
+  const [ipError, setIpError] = useState("");
+  const [ipOk, setIpOk] = useState("");
+  const [ipImportando, setIpImportando] = useState(false);
+  const ipFileRef = useRef();
+
+  const inferirTipoCuenta = (codigo) => {
+    const d = String(codigo || "")[0];
+    if (d === "1") return "A";
+    if (d === "2" || d === "3") return "P";
+    if (d === "4") return "I";
+    if (d === "5" || d === "6") return "E";
+    return "O";
+  };
+
+  const parsearPlanMegasystem = (rows) =>
+    rows.map((r) => {
+      const cod = String(r["pla_cuenta"] || "").trim();
+      if (!cod) return null;
+      const niv = parseInt(r["pla_nivcta"] || "2", 10);
+      const nivel = niv <= 1 ? 1 : 2;
+      const est = String(r["pla_estado"] || "A").toUpperCase().trim();
+      const activa = !est || est === "A" || est === "1" || est === "S" || est === "ACTIVO";
+      const cc = String(r["pla_cencos"] || "").toUpperCase().trim();
+      const usa_ceco = cc === "S" || cc === "SI" || cc === "1";
+      return {
+        codigo: cod,
+        nombre: String(r["pla_nombre"] || "").trim(),
+        nivel,
+        mueve: nivel === 2,
+        tipo: inferirTipoCuenta(cod),
+        aplica_trib: true,
+        aplica_ifrs: true,
+        acepta_me: false,
+        usa_ceco,
+        activa,
+        subtipo: String(r["pla_clasif"] || "").trim() || null,
+      };
+    }).filter(Boolean);
+
+  const handleIpArchivo = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    setIpFilename(file.name);
+    setIpError("");
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      try {
+        const wb = XLSX.read(ev.target.result, { type: "binary" });
+        const ws = wb.Sheets[wb.SheetNames[0]];
+        const rows = XLSX.utils.sheet_to_json(ws, { defval: "", raw: false });
+        if (!rows.length) { setIpError("El archivo está vacío"); return; }
+        const hdrs = Object.keys(rows[0]);
+        if (!hdrs.includes("pla_cuenta")) {
+          setIpError(`Columna 'pla_cuenta' no encontrada. Columnas disponibles: ${hdrs.join(", ")}`);
+          return;
+        }
+        setIpRows(parsearPlanMegasystem(rows));
+        setIpPaso(2);
+      } catch (err) {
+        setIpError("Error leyendo archivo: " + err.message);
+      }
+    };
+    reader.readAsBinaryString(file);
+    e.target.value = "";
+  };
+
+  const resetIpImport = () => {
+    setIpPaso(1); setIpRows([]); setIpFilename(""); setIpError(""); setIpOk(""); setIpImportando(false);
+    if (ipFileRef.current) ipFileRef.current.value = "";
+  };
+
+  const handleIpConfirmar = async () => {
+    if (!cargaOkRef.current) { setIpError("Recarga el plan primero"); return; }
+    setIpImportando(true);
+    setIpError("");
+    try {
+      const payload = ipRows.map((r) => ({
+        empresa_id: empresaId,
+        codigo: r.codigo,
+        nombre: r.nombre,
+        nivel: r.nivel,
+        mueve: r.mueve,
+        tipo: r.tipo,
+        aplica_trib: r.aplica_trib,
+        aplica_ifrs: r.aplica_ifrs,
+        acepta_me: r.acepta_me,
+        usa_ceco: r.usa_ceco,
+        usa_auxiliar: false,
+        activa: r.activa,
+        subtipo: r.subtipo || null,
+      }));
+      await supaUpsert("contab_plan_cuentas", payload, "empresa_id,codigo");
+      setIpOk(`${payload.length} cuentas importadas al plan maestro`);
+      setIpPaso(3);
+      load();
+    } catch (e) {
+      setIpError(e.message);
+    }
+    setIpImportando(false);
+  };
+
   const resetImport = () => {
     setPaso(1); setArchivoNombre(""); setRowsRaw([]); setHeaders([]);
     setSistemaDetectado(null); setSistemaManual("");
@@ -957,6 +1062,9 @@ function PlanCuentasTab({ empresas, empresaId, setEmpresaId, canEdit }) {
         </button>
         <button style={subTabStyle("importar")} onClick={() => { setSubTab("importar"); resetImport(); }}>
           Importar / homologar
+        </button>
+        <button style={subTabStyle("importar_plan")} onClick={() => { setSubTab("importar_plan"); resetIpImport(); }}>
+          Importar Plan Megasystem
         </button>
       </div>
 
@@ -1538,6 +1646,113 @@ function PlanCuentasTab({ empresas, empresaId, setEmpresaId, canEdit }) {
               </p>
               <p style={{ fontSize: 13, color: C.textMuted, marginBottom: 16 }}>{importOk}</p>
               <Btn color="ghost" onClick={resetImport}>Nueva importación</Btn>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── SUB-TAB: IMPORTAR PLAN MEGASYSTEM ── */}
+      {subTab === "importar_plan" && (
+        <div>
+          <ErrorMsg msg={ipError} />
+
+          {/* PASO 1: Cargar archivo */}
+          {ipPaso === 1 && (
+            <div>
+              <div style={{ background: "#141720", border: `1px solid ${C.border}`, borderRadius: 8, padding: "12px 14px", marginBottom: 16, fontSize: 12, color: C.textMuted }}>
+                Importa el Plan de Cuentas desde el Excel de <strong style={{ color: C.text }}>Megasystem</strong>.
+                Columnas requeridas: <code>pla_cuenta</code>, <code>pla_nombre</code>, <code>pla_nivcta</code>.
+                Opcionales: <code>pla_estado</code>, <code>pla_cencos</code>, <code>pla_clasif</code>.
+                El <strong style={{ color: C.text }}>Tipo</strong> se infiere del primer dígito del código (1=Activo, 2-3=Pasivo, 4=Ingreso, 5-6=Egreso) y es editable por fila antes de confirmar.
+              </div>
+              <div style={{ border: `2px dashed ${C.border}`, borderRadius: 10, padding: 36, textAlign: "center", background: C.bgInput }}>
+                <div style={{ fontSize: 32, marginBottom: 10 }}>📊</div>
+                <p style={{ fontWeight: 600, fontSize: 14, color: C.text, marginBottom: 6 }}>Cargar Plan de Cuenta Allpa.xls</p>
+                <p style={{ fontSize: 12, color: C.textMuted, marginBottom: 16 }}>Formato Megasystem — columnas pla_cuenta / pla_nombre / pla_nivcta</p>
+                <Btn color="primary" onClick={() => ipFileRef.current?.click()}>Seleccionar archivo</Btn>
+                <input ref={ipFileRef} type="file" accept=".xlsx,.xls,.csv" style={{ display: "none" }} onChange={handleIpArchivo} />
+              </div>
+            </div>
+          )}
+
+          {/* PASO 2: Preview + confirmación */}
+          {ipPaso === 2 && (
+            <div>
+              <div style={{ display: "flex", gap: 12, marginBottom: 14, flexWrap: "wrap", alignItems: "center" }}>
+                <span style={{ fontSize: 13, color: C.text }}>📄 <strong>{ipFilename}</strong></span>
+                <Badge label={`${ipRows.length} cuentas`} color="info" />
+                <Badge label={`${ipRows.filter((r) => r.nivel === 1).length} agrupadores`} color="muted" />
+                <Badge label={`${ipRows.filter((r) => r.nivel === 2).length} hojas`} color="success" />
+              </div>
+              <p style={{ fontSize: 12, color: C.textMuted, marginBottom: 10 }}>
+                Revisa el <strong>Tipo</strong> inferido — corrige por fila si es necesario. El resto se puede ajustar cuenta por cuenta después de importar.
+              </p>
+              <div style={{ overflowX: "auto", maxHeight: 440, overflowY: "auto", border: `1px solid ${C.border}`, borderRadius: 8, marginBottom: 14 }}>
+                <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+                  <thead>
+                    <tr>
+                      <Th>Código</Th>
+                      <Th>Nombre</Th>
+                      <Th style={{ width: 95 }}>Nivel</Th>
+                      <Th style={{ width: 140 }}>Tipo</Th>
+                      <Th style={{ width: 48, textAlign: "center" }}>Trib</Th>
+                      <Th style={{ width: 48, textAlign: "center" }}>IFRS</Th>
+                      <Th style={{ width: 48, textAlign: "center" }}>CeCo</Th>
+                      <Th style={{ width: 72 }}>Activa</Th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {ipRows.map((r, i) => (
+                      <Tr key={i}>
+                        <Td>
+                          <span style={{ fontFamily: "monospace", color: r.nivel === 1 ? C.textMuted : COLOR_TIPO_PC[r.tipo] || C.primary, fontWeight: r.nivel === 1 ? 600 : 400, paddingLeft: r.nivel === 1 ? 0 : 12 }}>
+                            {r.codigo}
+                          </span>
+                        </Td>
+                        <Td style={{ fontWeight: r.nivel === 1 ? 600 : 400 }}>{r.nombre}</Td>
+                        <Td>
+                          <Badge label={r.nivel === 1 ? "Agrupador" : "Hoja"} color={r.nivel === 1 ? "muted" : "info"} />
+                        </Td>
+                        <Td>
+                          <SelectInput
+                            value={r.tipo}
+                            onChange={(v) => setIpRows((prev) => prev.map((x, j) => j === i ? { ...x, tipo: v } : x))}
+                            options={TIPOS_PC.map((t) => ({ value: t.value, label: `${t.value} — ${t.label}` }))}
+                            style={{ width: "100%", fontSize: 11 }}
+                          />
+                        </Td>
+                        <Td style={{ textAlign: "center", color: C.success }}>✓</Td>
+                        <Td style={{ textAlign: "center", color: C.success }}>✓</Td>
+                        <Td style={{ textAlign: "center" }}>
+                          {r.usa_ceco ? <span style={{ color: C.teal }}>✓</span> : <span style={{ color: C.textDim }}>—</span>}
+                        </Td>
+                        <Td>
+                          <Badge label={r.activa ? "Activa" : "Inact."} color={r.activa ? "success" : "muted"} />
+                        </Td>
+                      </Tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <div style={{ display: "flex", gap: 8 }}>
+                <Btn color="ghost" onClick={resetIpImport}>Volver</Btn>
+                <Btn color="success" onClick={handleIpConfirmar} disabled={ipImportando || !ipRows.length}>
+                  {ipImportando ? "Importando..." : `Importar ${ipRows.length} cuentas al plan maestro`}
+                </Btn>
+              </div>
+            </div>
+          )}
+
+          {/* PASO 3: Completado */}
+          {ipPaso === 3 && (
+            <div style={{ background: C.successBg, border: `1px solid ${C.success}`, borderRadius: 10, padding: "24px 20px", textAlign: "center" }}>
+              <div style={{ fontSize: 32, marginBottom: 8 }}>✅</div>
+              <p style={{ fontSize: 15, fontWeight: 600, color: C.success, marginBottom: 8 }}>Plan de cuentas importado</p>
+              <p style={{ fontSize: 13, color: C.textMuted, marginBottom: 16 }}>{ipOk}</p>
+              <div style={{ display: "flex", gap: 8, justifyContent: "center" }}>
+                <Btn color="ghost" onClick={resetIpImport}>Nueva importación</Btn>
+                <Btn color="primary" onClick={() => setSubTab("plan")}>Ver plan de cuentas</Btn>
+              </div>
             </div>
           )}
         </div>
