@@ -9,6 +9,36 @@
 export const SUPA_URL = "https://bywovqayuzodbzwsriet.supabase.co";
 export const SUPA_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJ5d292cWF5dXpvZGJ6d3NyaWV0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU2ODU1MDgsImV4cCI6MjA5MTI2MTUwOH0.s2x2O_CxE6rl8dBqFuyfQdMyRqSyjJQWXJXesmVGXtk";
 
+// FASE 4A — guardia de archivos. Cuando el interruptor está prendido, las
+// operaciones de Storage piden URLs firmadas al servidor (/api/storage) en
+// vez de usar la llave pública. Así funcionan aun con los buckets cerrados.
+import { USE_GUARD } from "./guardClient";
+
+// Pide al guardia una operación de Storage. Devuelve el JSON de respuesta.
+async function guardStorage(op, bucket, path, expiresIn) {
+  const res = await fetch("/api/storage", {
+    method: "POST", credentials: "include",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ op, bucket, path, expiresIn }),
+  });
+  const j = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(j.error || `HTTP ${res.status}`);
+  return j;
+}
+
+// Sube un File usando una URL de subida firmada por el guardia (no pasa por
+// la función serverless → sin tope de tamaño).
+async function guardUpload(bucket, path, file) {
+  const { url } = await guardStorage("upload-url", bucket, path);
+  if (!url) throw new Error("sin_url_subida");
+  const up = await fetch(url, {
+    method: "PUT",
+    headers: { "Content-Type": file.type || "application/octet-stream", "x-upsert": "true" },
+    body: file,
+  });
+  if (!up.ok) { const t = await up.text().catch(() => ""); throw new Error(`subida ${up.status} ${t.slice(0,80)}`); }
+}
+
 export async function dbLoadGeneric(id) {
   // NO atrapar el error: si la lectura falla (red/HTTP), la excepción DEBE
   // propagar para que el caller NO habilite el guardado (que sobrescribiría
@@ -368,6 +398,16 @@ export async function ensureBucketFrisku() {
 // path: e.g. "clientes/abc123/doc456/contrato.pdf"
 export async function uploadArchivoFrisku(file, path) {
   uploadArchivoFrisku.lastError = null;
+  if (USE_GUARD) {
+    try {
+      await guardUpload(STORAGE_BUCKET, path, file);
+      return `${STORAGE_BASE}/object/public/${STORAGE_BUCKET}/${path}`;
+    } catch (e) {
+      uploadArchivoFrisku.lastError = e.message || String(e);
+      console.error("[Storage] guard upload falló:", uploadArchivoFrisku.lastError);
+      return null;
+    }
+  }
   try {
     await ensureBucketFrisku();
     const res = await fetch(`${STORAGE_BASE}/object/${STORAGE_BUCKET}/${path}`, {
@@ -397,6 +437,11 @@ export async function uploadArchivoFrisku(file, path) {
 
 // Elimina un archivo del bucket.
 export async function eliminarArchivoFrisku(path) {
+  if (USE_GUARD) {
+    try { await guardStorage("delete", STORAGE_BUCKET, path); }
+    catch (e) { console.warn("[Storage] guard delete:", e.message); }
+    return;
+  }
   try {
     await fetch(`${STORAGE_BASE}/object/${STORAGE_BUCKET}/${path}`, {
       method: "DELETE",
@@ -450,6 +495,16 @@ export async function ensureBucketNominas() {
 // path sugerido: `nominas/{empresaSlug}/{nominaId}/{itemId}/{archivo}`
 export async function uploadDocNomina(file, path) {
   uploadDocNomina.lastError = null;
+  if (USE_GUARD) {
+    try {
+      await guardUpload(NOMINAS_BUCKET, path, file);
+      return { ok: true, path, error: null };
+    } catch (e) {
+      uploadDocNomina.lastError = e.message || String(e);
+      console.error("[Storage/nominas] guard upload:", uploadDocNomina.lastError);
+      return { ok: false, path: null, error: uploadDocNomina.lastError };
+    }
+  }
   try {
     const res = await fetch(`${STORAGE_BASE}/object/${NOMINAS_BUCKET}/${path}`, {
       method: "POST",
@@ -481,6 +536,16 @@ export async function uploadDocNomina(file, path) {
 // La URL NO debe persistirse: expira. Se genera bajo demanda al abrir el doc.
 export async function urlFirmadaNomina(path, ttlSegundos = 3600) {
   urlFirmadaNomina.lastError = null;
+  if (USE_GUARD) {
+    try {
+      const { url } = await guardStorage("sign", NOMINAS_BUCKET, path, ttlSegundos);
+      return url || null;
+    } catch (e) {
+      urlFirmadaNomina.lastError = e.message || String(e);
+      console.error("[Storage/nominas] guard sign:", urlFirmadaNomina.lastError);
+      return null;
+    }
+  }
   try {
     const res = await fetch(`${STORAGE_BASE}/object/sign/${NOMINAS_BUCKET}/${path}`, {
       method: "POST",
