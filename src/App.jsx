@@ -4031,22 +4031,27 @@ Equipo Mediterra`);
         <div style={{position:"fixed",inset:0,background:"#000a",zIndex:500,display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"sans-serif",padding:16}}>
           <div style={{background:C.card,borderRadius:16,padding:"24px 28px",maxWidth:380,width:"100%",boxShadow:"0 24px 64px #0006"}}>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
-              <div style={{fontSize:15,fontWeight:800,color:C.text}}>🔑 Cambiar PIN</div>
-              <button onClick={()=>{setModalPin(null);setPinActual("");setPinNuevo("");setPinConfirm("");setPinError("");}}
+              <div style={{fontSize:15,fontWeight:800,color:C.text}}>🔑 Cambiar clave</div>
+              <button onClick={()=>{setModalPin(null);setPinActual("");setPinNuevo("");setPinConfirm("");setTelNuevo("");setPinError("");}}
                 style={{background:"none",border:"none",color:C.muted,cursor:"pointer",fontSize:18}}>×</button>
             </div>
             <div style={{display:"flex",flexDirection:"column",gap:10}}>
-              {[["PIN actual","password",pinActual,setPinActual],["PIN nuevo (mín. 4 dígitos)","password",pinNuevo,setPinNuevo],["Confirmar PIN nuevo","password",pinConfirm,setPinConfirm]].map(([lbl,type,val,set])=>(
+              {[["Clave actual","password",pinActual,setPinActual],["Clave nueva (mín. 6, letras y/o números)","password",pinNuevo,setPinNuevo],["Confirmar clave nueva","password",pinConfirm,setPinConfirm]].map(([lbl,type,val,set])=>(
                 <div key={lbl}>
                   <div style={{fontSize:11,color:C.muted,marginBottom:3}}>{lbl}</div>
-                  <input type={type} value={val} onChange={e=>set(e.target.value)} placeholder="••••"
+                  <input type={type} value={val} onChange={e=>set(e.target.value)} placeholder="••••••" maxLength={64} autoComplete="new-password"
                     style={{width:"100%",padding:"9px 12px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:14,boxSizing:"border-box",outline:"none"}}/>
                 </div>
               ))}
+              <div>
+                <div style={{fontSize:11,color:C.muted,marginBottom:3}}>Celular (opcional — vacío para mantener el actual)</div>
+                <input type="tel" value={telNuevo} onChange={e=>setTelNuevo(e.target.value)} placeholder="9 1234 5678" maxLength={15} inputMode="tel"
+                  style={{width:"100%",padding:"9px 12px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:14,boxSizing:"border-box",outline:"none"}}/>
+              </div>
               {pinError&&<div style={{color:C.danger,fontSize:12}}>{pinError}</div>}
               <button onClick={handleCambiarPin}
                 style={{padding:"10px",borderRadius:8,background:C.primary,color:"#fff",border:"none",fontWeight:700,fontSize:14,cursor:"pointer",marginTop:4}}>
-                Guardar nuevo PIN
+                Guardar
               </button>
             </div>
           </div>
