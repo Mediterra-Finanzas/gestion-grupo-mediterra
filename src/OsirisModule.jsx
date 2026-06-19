@@ -10483,6 +10483,7 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
             {label:"Contratos Obtentores", onClick:()=>setObtDetalle(null)},
             {label:c.obtentor},
           ]}/>
+          <button onClick={()=>setObtDetalle(null)} style={{background:C.cardAlt,border:"none",borderRadius:8,padding:"7px 14px",cursor:"pointer",fontSize:13,color:C.sl,fontWeight:600,marginBottom:12}}>← Volver a Obtentores</button>
           {canVerObtentores&&!canObtentores&&(
             <div style={{background:C.warningBg,border:`1px solid ${C.warning}`,
               borderRadius:10,padding:"10px 16px",marginBottom:14,display:"flex",alignItems:"center",gap:10}}>
@@ -12138,6 +12139,7 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
             {label:"Contratos Viveros", onClick:()=>setVivDetalle(null)},
             {label:v.viverista},
           ]}/>
+          <button onClick={()=>setVivDetalle(null)} style={{background:C.cardAlt,border:"none",borderRadius:8,padding:"7px 14px",cursor:"pointer",fontSize:13,color:C.sl,fontWeight:600,marginBottom:12}}>← Volver a Viveros</button>
           {canVerViveros&&!canViveros&&(
             <div style={{background:C.warningBg,border:`1px solid ${C.warning}`,
               borderRadius:10,padding:"10px 16px",marginBottom:14,display:"flex",alignItems:"center",gap:10}}>
