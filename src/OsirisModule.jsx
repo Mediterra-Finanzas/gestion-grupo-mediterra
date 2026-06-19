@@ -8609,6 +8609,7 @@ function ControlContratos({data,setData,clientes,setClientes,variedadesMaestro=[
               return (<>
                 <div style={{padding:"10px 14px",background:C.infoBg||"#eff6ff",border:`1px solid ${C.azul||"#3b82f6"}`,borderRadius:10,marginBottom:14,fontSize:11,color:C.text}}>
                   💵 <strong>Cobros del cliente.</strong> Royalty Planta por <strong>tandas de plantas</strong> y Royalty Comercial por <strong>bloques de há + temporada</strong>. Si la OC del vivero tiene despachos, puedes usar "Sugerir desde despachos" para prellenar.
+                  <div style={{marginTop:4,color:C.muted}}>ℹ️ Las bases (US$/planta, US$/há, Contract Fee e inflación) se definen en la pestaña <strong>Facturación</strong>. El US$/planta del Fee Vivero se define en la OC (Contratos Viveros).</div>
                 </div>
                 {/* ROYALTY PLANTA — por tandas de plantas (entrada directa) */}
                 <div style={{background:C.card,border:`1px solid ${C.success}`,borderRadius:10,padding:14,marginBottom:14}}>
@@ -8620,7 +8621,7 @@ function ControlContratos({data,setData,clientes,setClientes,variedadesMaestro=[
                     </div>}
                   </div>
                   <div style={{padding:10,background:excedeRP?C.dangerBg:C.successBg,borderRadius:8,marginBottom:10,fontSize:11,color:excedeRP?C.danger:C.success}}>
-                    <strong>US$/planta:</strong> ${valorPP} · Facturado en tandas: <strong>{N(sumPlRP)} plantas</strong> = <strong>${N((sumPlRP*valorPP).toFixed(2))}</strong>{topePlantas>0?` · tope ${N(topePlantas)} plantas (${totPlantasOC>0?"suma OC del cliente":"base contrato"})`:""}{excedeRP?` ⚠ excede el tope por ${N(sumPlRP-topePlantas)} plantas`:""}
+                    <strong>US$/planta:</strong> ${valorPP} <span style={{fontSize:9,color:C.muted2}}>(se define en Facturación)</span> · Facturado en tandas: <strong>{N(sumPlRP)} plantas</strong> = <strong>${N((sumPlRP*valorPP).toFixed(2))}</strong>{topePlantas>0?` · tope ${N(topePlantas)} plantas (${totPlantasOC>0?"suma OC del cliente":"base contrato"})`:""}{excedeRP?` ⚠ excede el tope por ${N(sumPlRP-topePlantas)} plantas`:""}
                   </div>
                   {cuotasRP.length===0?(
                     <div style={{padding:12,background:C.cardAlt,borderRadius:8,fontSize:11,color:C.muted}}>Sin tandas. Agrega una con "+ Tanda" (o "Sugerir desde despachos" si la OC tiene despachos cargados).</div>
