@@ -856,6 +856,37 @@ function PlanCuentasTab({ empresas, empresaId, setEmpresaId, canEdit }) {
     return "O";
   };
 
+  // Naturaleza: D=deudora (aumenta por Debe), H=acreedora (aumenta por Haber)
+  const inferirNaturaleza = (codigo, nombre) => {
+    const d = String(codigo || "")[0];
+    const nom = String(nombre || "").toLowerCase();
+    // Contra-activos: depreciación, amortización, provisión, castigo → H aunque código empiece en 1
+    const esContra = /deprec|amort|prov[is]|castigo|deterioro/.test(nom);
+    if (d === "1") return esContra ? "H" : "D";
+    if (d === "2" || d === "3") return "H"; // Pasivo y Patrimonio → acreedoras
+    if (d === "4") return "H";              // Ingresos → acreedoras
+    if (d === "5" || d === "6") return "D"; // Gastos → deudoras
+    return null;
+  };
+
+  const inferirClasifESF = (codigo) => {
+    const d1 = String(codigo || "")[0];
+    const d2 = Number(String(codigo || "")[1] || 0);
+    if (d1 === "1") return d2 <= 3 ? "Activo Corriente" : "Activo No Corriente";
+    if (d1 === "2") return d2 <= 2 ? "Pasivo Corriente" : "Pasivo No Corriente";
+    if (d1 === "3") return "Patrimonio";
+    return null;
+  };
+
+  const inferirClasifERI = (codigo) => {
+    const d1 = String(codigo || "")[0];
+    const d2 = Number(String(codigo || "")[1] || 0);
+    if (d1 === "4") return d2 <= 1 ? "Ingresos Ordinarios" : "Otros Ingresos";
+    if (d1 === "5") return d2 <= 1 ? "Costo de Ventas" : "Gastos Administracion";
+    if (d1 === "6") return d2 <= 1 ? "Gastos Financieros" : "Otros Gastos";
+    return null;
+  };
+
   const parsearPlanMegasystem = (rows) =>
     rows.map((r) => {
       const cod = String(r["pla_cuenta"] || "").trim();
@@ -866,12 +897,16 @@ function PlanCuentasTab({ empresas, empresaId, setEmpresaId, canEdit }) {
       const activa = !est || est === "A" || est === "1" || est === "S" || est === "ACTIVO";
       const cc = String(r["pla_cencos"] || "").toUpperCase().trim();
       const usa_ceco = cc === "S" || cc === "SI" || cc === "1";
+      const nom = String(r["pla_nombre"] || "").trim();
       return {
         codigo: cod,
-        nombre: String(r["pla_nombre"] || "").trim(),
+        nombre: nom,
         nivel,
         mueve: nivel === 2,
         tipo: inferirTipoCuenta(cod),
+        naturaleza: inferirNaturaleza(cod, nom),
+        clasificacion_esf: inferirClasifESF(cod),
+        clasificacion_eri: inferirClasifERI(cod),
         aplica_trib: true,
         aplica_ifrs: true,
         acepta_me: false,
@@ -925,6 +960,9 @@ function PlanCuentasTab({ empresas, empresaId, setEmpresaId, canEdit }) {
         nivel: r.nivel,
         mueve: r.mueve,
         tipo: r.tipo,
+        naturaleza: r.naturaleza || null,
+        clasificacion_esf: r.clasificacion_esf || null,
+        clasificacion_eri: r.clasificacion_eri || null,
         aplica_trib: r.aplica_trib,
         aplica_ifrs: r.aplica_ifrs,
         acepta_me: r.acepta_me,
@@ -1693,44 +1731,50 @@ function PlanCuentasTab({ empresas, empresaId, setEmpresaId, canEdit }) {
                     <tr>
                       <Th>Código</Th>
                       <Th>Nombre</Th>
-                      <Th style={{ width: 95 }}>Nivel</Th>
-                      <Th style={{ width: 140 }}>Tipo</Th>
-                      <Th style={{ width: 48, textAlign: "center" }}>Trib</Th>
-                      <Th style={{ width: 48, textAlign: "center" }}>IFRS</Th>
-                      <Th style={{ width: 48, textAlign: "center" }}>CeCo</Th>
-                      <Th style={{ width: 72 }}>Activa</Th>
+                      <Th style={{ width: 90 }}>Nivel</Th>
+                      <Th style={{ width: 130 }}>Tipo</Th>
+                      <Th style={{ width: 36, textAlign: "center" }}>Nat.</Th>
+                      <Th>Clasificación ESF / ERI</Th>
+                      <Th style={{ width: 44, textAlign: "center" }}>CeCo</Th>
+                      <Th style={{ width: 66 }}>Activa</Th>
                     </tr>
                   </thead>
                   <tbody>
-                    {ipRows.map((r, i) => (
-                      <Tr key={i}>
-                        <Td>
-                          <span style={{ fontFamily: "monospace", color: r.nivel === 1 ? C.textMuted : COLOR_TIPO_PC[r.tipo] || C.primary, fontWeight: r.nivel === 1 ? 600 : 400, paddingLeft: r.nivel === 1 ? 0 : 12 }}>
-                            {r.codigo}
-                          </span>
-                        </Td>
-                        <Td style={{ fontWeight: r.nivel === 1 ? 600 : 400 }}>{r.nombre}</Td>
-                        <Td>
-                          <Badge label={r.nivel === 1 ? "Agrupador" : "Hoja"} color={r.nivel === 1 ? "muted" : "info"} />
-                        </Td>
-                        <Td>
-                          <SelectInput
-                            value={r.tipo}
-                            onChange={(v) => setIpRows((prev) => prev.map((x, j) => j === i ? { ...x, tipo: v } : x))}
-                            options={TIPOS_PC.map((t) => ({ value: t.value, label: `${t.value} — ${t.label}` }))}
-                            style={{ width: "100%", fontSize: 11 }}
-                          />
-                        </Td>
-                        <Td style={{ textAlign: "center", color: C.success }}>✓</Td>
-                        <Td style={{ textAlign: "center", color: C.success }}>✓</Td>
-                        <Td style={{ textAlign: "center" }}>
-                          {r.usa_ceco ? <span style={{ color: C.teal }}>✓</span> : <span style={{ color: C.textDim }}>—</span>}
-                        </Td>
-                        <Td>
-                          <Badge label={r.activa ? "Activa" : "Inact."} color={r.activa ? "success" : "muted"} />
-                        </Td>
-                      </Tr>
-                    ))}
+                    {ipRows.map((r, i) => {
+                      const clasif = r.clasificacion_esf || r.clasificacion_eri || "—";
+                      const esContraActivo = r.naturaleza === "H" && r.tipo === "A";
+                      return (
+                        <Tr key={i}>
+                          <Td>
+                            <span style={{ fontFamily: "monospace", color: esContraActivo ? C.warning : r.nivel === 1 ? C.textMuted : COLOR_TIPO_PC[r.tipo] || C.primary, fontWeight: r.nivel === 1 ? 600 : 400, paddingLeft: r.nivel === 1 ? 0 : 12 }}>
+                              {r.codigo}
+                            </span>
+                          </Td>
+                          <Td style={{ fontWeight: r.nivel === 1 ? 600 : 400 }}>{r.nombre}</Td>
+                          <Td>
+                            <Badge label={r.nivel === 1 ? "Agrupador" : "Hoja"} color={r.nivel === 1 ? "muted" : "info"} />
+                          </Td>
+                          <Td>
+                            <SelectInput
+                              value={r.tipo}
+                              onChange={(v) => setIpRows((prev) => prev.map((x, j) => j === i ? { ...x, tipo: v } : x))}
+                              options={TIPOS_PC.map((t) => ({ value: t.value, label: `${t.value} — ${t.label}` }))}
+                              style={{ width: "100%", fontSize: 11 }}
+                            />
+                          </Td>
+                          <Td style={{ textAlign: "center", fontWeight: 700, color: r.naturaleza === "H" ? C.warning : C.teal, fontSize: 12 }}>
+                            {r.naturaleza || "—"}
+                          </Td>
+                          <Td style={{ fontSize: 11, color: C.textMuted }}>{clasif}</Td>
+                          <Td style={{ textAlign: "center" }}>
+                            {r.usa_ceco ? <span style={{ color: C.teal }}>✓</span> : <span style={{ color: C.textDim }}>—</span>}
+                          </Td>
+                          <Td>
+                            <Badge label={r.activa ? "Activa" : "Inact."} color={r.activa ? "success" : "muted"} />
+                          </Td>
+                        </Tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
