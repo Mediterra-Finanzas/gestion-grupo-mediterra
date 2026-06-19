@@ -46,7 +46,8 @@ async function dbSaveOsiris(value) {
       method: "POST",
       headers: { apikey: SUPA_KEY, Authorization: `Bearer ${SUPA_KEY}`,
         "Content-Type": "application/json", Prefer: "resolution=merge-duplicates" },
-      body: JSON.stringify({ id: "osiris", value, updated_at: new Date().toISOString() })
+      body: JSON.stringify({ id: "osiris", value, updated_at: new Date().toISOString() }),
+      keepalive: true   // permite que el guardado complete aunque se cierre/refresque la página
     });
     const keys = value ? Object.keys(value).filter(k=>(Array.isArray(value[k])&&value[k].length>0)||k==="hubCardsOrder").map(k=>Array.isArray(value[k])?`${k}:${value[k].length}`:k).join(", ") : "VACÍO";
     console.log(`[Osiris] ✅ Guardado: ${keys||"sin arrays"}`);
@@ -9828,6 +9829,13 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
     return ()=>clearTimeout(t);
   },[osirisData, cargandoOsiris]);
 
+  // Flush al cerrar/refrescar: guarda lo pendiente del debounce para no perder cambios recién hechos.
+  useEffect(()=>{
+    const flush = ()=>{ try{ if(!cargandoOsiris && dataRef.current) dbSaveOsiris(dataRef.current); }catch(e){} };
+    window.addEventListener("beforeunload", flush);
+    return ()=>window.removeEventListener("beforeunload", flush);
+  },[cargandoOsiris]);
+
   // ── Anti-desborde global del módulo ────────────────────────────────
   // Solución de raíz: ninguna celda de tabla parte en dos filas ni se sale
   // del recuadro. white-space:nowrap evita el wrap; ellipsis + max-width
@@ -11821,7 +11829,8 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
     const updateVivero = (id, updates) => {
       if(!canViveros) return;
       const before = vivData.find(v=>v.id===id);
-      setViv(vivData.map(v=>v.id===id?{...v,...updates}:v));
+      // Funcional: parte del estado más reciente para no pisar ediciones concurrentes.
+      setOsirisData(prev=>({...prev, viveros:(prev.viveros||[]).map(v=>v.id===id?{...v,...updates}:v)}));
       const campo = Object.keys(updates).join(", ");
       window.auditLog && window.auditLog("editar", {modulo:"osiris", seccion:"Contratos Viveros",
         descripcion:`Editó vivero "${before?.viverista||""}": campo ${campo}`});
@@ -12111,24 +12120,27 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
         setDespModal(true);
       };
 
-      // Facturación del Fee Vivero (se cobra al vivero). Campos a nivel de OC.
-      const updOcFee = (campo, val) => {
-        if(!canViveros || !ocActiva) return;
-        const ocsNew = ordenesCompra.map(o=>o.id===ocActiva.id?{...o, [campo]: val}:o);
-        updateVivero(v.id, {ordenesCompra: ocsNew});
+      // Mutación FUNCIONAL de una OC: lee el estado más reciente (prev), no el closure.
+      // Evita que ediciones rápidas (varias facturas seguidas) se pisen entre sí.
+      const mutarOC = (ocId, fn) => {
+        if(!canViveros) return;
+        setOsirisData(prev=>({...prev, viveros:(prev.viveros||[]).map(vv=> vv.id!==v.id ? vv
+          : {...vv, ordenesCompra:(vv.ordenesCompra||[]).map(o=> o.id!==ocId ? o : fn(o))})}));
       };
-      // Facturas al vivero por OC (puede haber varias por OC; una factura para varias OC = repetir el N° en cada OC).
-      const fvFacturasDe = () => {
-        const arr = (ocActiva && ocActiva.fvFacturas) || [];
+      // Normaliza las facturas del Fee Vivero de una OC (con compatibilidad al formato antiguo de una sola factura).
+      const fvDe = (oc) => {
+        const arr = (oc && oc.fvFacturas) || [];
         if(arr.length) return arr;
-        // Compatibilidad: si había una factura en el formato antiguo, la muestra como primera línea.
-        if(ocActiva && (ocActiva.fvFactura||ocActiva.fvFechaPago||ocActiva.fvFechaVenc))
-          return [{id:"fv_legacy", n_factura:ocActiva.fvFactura||"", monto:"", fecha_venc:ocActiva.fvFechaVenc||"", fecha_pago:ocActiva.fvFechaPago||"", estado:ocActiva.fvEstadoCobro||"Por cobrar"}];
+        if(oc && (oc.fvFactura||oc.fvFechaPago||oc.fvFechaVenc))
+          return [{id:"fv_legacy", n_factura:oc.fvFactura||"", monto:"", fecha_venc:oc.fvFechaVenc||"", fecha_pago:oc.fvFechaPago||"", estado:oc.fvEstadoCobro||"Por cobrar"}];
         return [];
       };
-      const addFvFactura = () => updOcFee("fvFacturas",[...fvFacturasDe(),{id:`fv_${Date.now()}`,n_factura:"",monto:"",fecha_venc:"",fecha_pago:"",estado:"Por cobrar"}]);
-      const updFvFactura = (id,campo,val) => updOcFee("fvFacturas", fvFacturasDe().map(f=>f.id===id?{...f,[campo]:val}:f));
-      const delFvFactura = (id) => updOcFee("fvFacturas", fvFacturasDe().filter(f=>f.id!==id));
+      // Para el render (lee la OC activa del closure; sólo muestra).
+      const fvFacturasDe = () => fvDe(ocActiva);
+      const updOcFee = (campo, val) => { if(ocActiva) mutarOC(ocActiva.id, o=>({...o, [campo]: val})); };
+      const addFvFactura = () => { if(ocActiva) mutarOC(ocActiva.id, o=>({...o, fvFacturas:[...fvDe(o), {id:`fv_${Date.now()}_${Math.floor(Math.random()*1000)}`,n_factura:"",monto:"",fecha_venc:"",fecha_pago:"",estado:"Por cobrar"}]})); };
+      const updFvFactura = (id,campo,val) => { if(ocActiva) mutarOC(ocActiva.id, o=>({...o, fvFacturas: fvDe(o).map(f=>f.id===id?{...f,[campo]:val}:f)})); };
+      const delFvFactura = (id) => { if(ocActiva) mutarOC(ocActiva.id, o=>({...o, fvFacturas: fvDe(o).filter(f=>f.id!==id)})); };
 
       const TABS_VIV = [{id:"general",label:"📋 General"},{id:"variedades",label:"🌱 Variedades Autorizadas"},{id:"oc",label:`📦 Órdenes de Compra (${ordenesCompra.length})`},{id:"legal",label:"⚖️ Legal/Firmas"},{id:"anexos",label:"📎 Anexos"}];
       const vig = estadoVigencia(v.f_vencimiento);
