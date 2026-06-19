@@ -641,9 +641,10 @@ function normHeader(s) { return String(s).toLowerCase().trim().replace(/\s+/g, "
 function detectarSistema(headers) {
   const h = headers.map(normHeader);
   const esContec =
-    h.includes("cuenta") || h.includes("nombre_cuenta") || h.includes("descripcion");
+    h.includes("cuenta") || h.includes("nombre_cuenta") || h.includes("descripcion") ||
+    h.includes("cod_cuenta") || h.includes("codigo_cuenta") || h.includes("num_cuenta");
   const esMega =
-    (h.includes("codigo") || h.includes("código")) &&
+    (h.includes("codigo") || h.includes("código") || h.includes("cod")) &&
     (h.includes("nombre") || h.includes("descripción") || h.includes("descripcion"));
   if (esContec && !esMega) return "contec";
   if (esMega && !esContec) return "megasystem";
@@ -651,21 +652,31 @@ function detectarSistema(headers) {
 }
 
 function mapearColumnas(sistema, headers) {
+  // Busca la primera columna cuyo nombre normalizado esté en la lista de candidatos.
+  // Si no encuentra ninguna, devuelve null en lugar de headers[0] para no mapear en silencio.
   const find = (candidates) =>
-    headers.find((c) => candidates.includes(normHeader(c))) || headers[0];
+    headers.find((c) => candidates.includes(normHeader(c))) || null;
+
   if (sistema === "contec") {
+    // Prioriza columnas con código de cuenta; fallback a la columna numérica más larga
+    const colCodigo =
+      find(["cuenta", "cod_cuenta", "codigo_cuenta", "num_cuenta", "cta", "codigo"]) ||
+      headers.find((h) => {
+        // heurística: columna cuyos primeros valores parecen códigos largos (>= 5 chars)
+        return null; // sin datos aquí; usuario elige en paso 2
+      }) || headers[0];
     return {
-      colCodigo: find(["cuenta"]),
-      colNombre: find(["nombre_cuenta", "descripcion", "nombre"]),
+      colCodigo,
+      colNombre: find(["nombre_cuenta", "descripcion", "descripción", "glosa", "nombre"]) || headers[1] || headers[0],
     };
   }
   if (sistema === "megasystem") {
     return {
-      colCodigo: find(["codigo", "código"]),
-      colNombre: find(["nombre", "descripción", "descripcion"]),
+      colCodigo: find(["codigo", "código", "cod", "cta"]) || headers[0],
+      colNombre: find(["nombre", "descripción", "descripcion", "glosa"]) || headers[1] || headers[0],
     };
   }
-  return { colCodigo: headers[0], colNombre: headers[1] };
+  return { colCodigo: headers[0], colNombre: headers[1] || headers[0] };
 }
 
 function autoMatchCuentas(rows, cuentas, colCodigo, colNombre) {
@@ -885,17 +896,30 @@ function PlanCuentasTab({ empresas, empresaId, setEmpresaId, canEdit }) {
     setImportando(true);
     setImportError("");
     try {
-      const payload = mapeo
-        .filter((m) => m.codigo_origen)
+      const payloadRaw = mapeo
+        .filter((m) => m.codigo_origen && String(m.codigo_origen).trim())
         .map((m) => ({
           empresa_id: empresaId,
           sistema_origen: sistemaFinal,
-          codigo_origen: m.codigo_origen,
+          codigo_origen: String(m.codigo_origen).trim(),
           nombre_origen: m.nombre_origen || null,
           cuenta_id: m.cuenta_id || null,
           codigo_destino: m.codigo_destino || null,
           activa: true,
         }));
+      // Deduplicar por clave única (empresa_id, sistema_origen, codigo_origen)
+      const seen = new Set();
+      const payload = payloadRaw.filter((r) => {
+        const k = `${r.empresa_id}||${r.sistema_origen}||${r.codigo_origen}`;
+        if (seen.has(k)) return false;
+        seen.add(k);
+        return true;
+      });
+      if (payload.length === 0) {
+        setImportError("Sin códigos válidos para importar. Verifica las columnas seleccionadas en el paso 2.");
+        setImportando(false);
+        return;
+      }
       await supaUpsert(
         "contab_homologacion",
         payload,
