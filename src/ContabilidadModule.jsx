@@ -688,8 +688,8 @@ function autoMatchCuentas(rows, cuentas, colCodigo, colNombre) {
     if (!match && nomOrigen.length > 3)
       match = cuentas.find((c) => c.nombre.toLowerCase().includes(nomOrigen.slice(0, 8)));
     return {
-      codigo_origen: codOrigen,
-      nombre_origen: String(r[colNombre] || "").trim(),
+      codigo_externo: codOrigen,
+      nombre_externo: String(r[colNombre] || "").trim(),
       cuenta_id: match ? match.id : null,
       codigo_destino: match ? match.codigo : null,
     };
@@ -830,7 +830,7 @@ function PlanCuentasTab({ empresas, empresaId, setEmpresaId, canEdit }) {
   const [sistemaManual, setSistemaManual] = useState("");
   const [colCodigo, setColCodigo] = useState("");
   const [colNombre, setColNombre] = useState("");
-  const [mapeo, setMapeo] = useState([]); // [{codigo_origen, nombre_origen, cuenta_id, codigo_destino}]
+  const [mapeo, setMapeo] = useState([]); // [{codigo_externo, nombre_externo, cuenta_id, codigo_destino}]
   const [importando, setImportando] = useState(false);
   const [importOk, setImportOk] = useState("");
   const [importError, setImportError] = useState("");
@@ -897,20 +897,20 @@ function PlanCuentasTab({ empresas, empresaId, setEmpresaId, canEdit }) {
     setImportError("");
     try {
       const payloadRaw = mapeo
-        .filter((m) => m.codigo_origen && String(m.codigo_origen).trim())
+        .filter((m) => m.codigo_externo && String(m.codigo_externo).trim())
         .map((m) => ({
           empresa_id: empresaId,
           sistema_origen: sistemaFinal,
-          codigo_origen: String(m.codigo_origen).trim(),
-          nombre_origen: m.nombre_origen || null,
+          codigo_externo: String(m.codigo_externo).trim(),
+          nombre_externo: m.nombre_externo || null,
           cuenta_id: m.cuenta_id || null,
           codigo_destino: m.codigo_destino || null,
           activa: true,
         }));
-      // Deduplicar por clave única (empresa_id, sistema_origen, codigo_origen)
+      // Deduplicar por clave única (empresa_id, sistema_origen, codigo_externo)
       const seen = new Set();
       const payload = payloadRaw.filter((r) => {
-        const k = `${r.empresa_id}||${r.sistema_origen}||${r.codigo_origen}`;
+        const k = `${r.empresa_id}||${r.sistema_origen}||${r.codigo_externo}`;
         if (seen.has(k)) return false;
         seen.add(k);
         return true;
@@ -923,7 +923,7 @@ function PlanCuentasTab({ empresas, empresaId, setEmpresaId, canEdit }) {
       await supaUpsert(
         "contab_homologacion",
         payload,
-        "empresa_id,sistema_origen,codigo_origen"
+        "empresa_id,sistema_origen,codigo_externo"
       );
       setImportOk(`${payload.length} códigos importados a homologación (${totalMapeadas} mapeados, ${totalSinMapear} sin mapear)`);
       setPaso(4);
@@ -1445,9 +1445,9 @@ function PlanCuentasTab({ empresas, empresaId, setEmpresaId, canEdit }) {
                     {mapeo.map((m, i) => (
                       <Tr key={i}>
                         <Td>
-                          <span style={{ fontFamily: "monospace", color: C.primary }}>{m.codigo_origen}</span>
+                          <span style={{ fontFamily: "monospace", color: C.primary }}>{m.codigo_externo}</span>
                         </Td>
-                        <Td style={{ color: C.textMuted }}>{m.nombre_origen}</Td>
+                        <Td style={{ color: C.textMuted }}>{m.nombre_externo}</Td>
                         <Td>
                           <SelectInput
                             value={m.cuenta_id || ""}
@@ -2278,7 +2278,7 @@ function HomologacionTab({ empresaId, canEdit }) {
       const [homos, plan] = await Promise.all([
         supaSelect(
           "contab_homologacion",
-          `empresa_id=eq.${empresaId}&sistema_origen=eq.${sistema}&deleted_at=is.null&order=codigo_origen.asc`
+          `empresa_id=eq.${empresaId}&sistema_origen=eq.${sistema}&deleted_at=is.null&order=codigo_externo.asc`
         ),
         supaSelect(
           "contab_plan_cuentas",
@@ -2303,8 +2303,8 @@ function HomologacionTab({ empresaId, canEdit }) {
       const q = busqueda.trim().toLowerCase();
       rows = rows.filter(
         (r) =>
-          (r.codigo_origen || "").toLowerCase().includes(q) ||
-          (r.nombre_origen || "").toLowerCase().includes(q)
+          (r.codigo_externo || "").toLowerCase().includes(q) ||
+          (r.nombre_externo || "").toLowerCase().includes(q)
       );
     }
     return rows;
@@ -2464,9 +2464,9 @@ function HomologacionTab({ empresaId, canEdit }) {
                 return (
                   <Tr key={h.id}>
                     <Td>
-                      <span style={{ fontFamily: "monospace", color: C.warning }}>{h.codigo_origen}</span>
+                      <span style={{ fontFamily: "monospace", color: C.warning }}>{h.codigo_externo}</span>
                     </Td>
-                    <Td style={{ color: C.textMuted, fontSize: 12 }}>{h.nombre_origen || "—"}</Td>
+                    <Td style={{ color: C.textMuted, fontSize: 12 }}>{h.nombre_externo || "—"}</Td>
                     <Td style={{ textAlign: "center", color: C.textDim }}>→</Td>
                     <Td>
                       {cuenta ? (
@@ -2524,14 +2524,14 @@ function HomologacionTab({ empresaId, canEdit }) {
       {/* Modal selector de cuenta */}
       {modalAsignar && (
         <Modal
-          title={`Asignar cuenta — ${modalAsignar.homologacion.codigo_origen}`}
+          title={`Asignar cuenta — ${modalAsignar.homologacion.codigo_externo}`}
           onClose={() => { setModalAsignar(null); setBuscaCuenta(""); setError(""); }}
           width={640}
         >
           <ErrorMsg msg={error} />
           <p style={{ fontSize: 12, color: C.textMuted, marginBottom: 10 }}>
-            {modalAsignar.homologacion.nombre_origen && (
-              <span>Origen: <em>{modalAsignar.homologacion.nombre_origen}</em> — </span>
+            {modalAsignar.homologacion.nombre_externo && (
+              <span>Origen: <em>{modalAsignar.homologacion.nombre_externo}</em> — </span>
             )}
             Selecciona la cuenta del plan interno que corresponde.
           </p>
@@ -2705,7 +2705,7 @@ function LibroDiarioTab({ empresaId, canEdit, usuario }) {
   const [mSistema, setMSistema] = useState("contec");
   const [mCols, setMCols] = useState({ fecha: "", nroAsiento: "", glosaCab: "", codigoOrigen: "", glosaLinea: "", debe: "", haber: "", libroLinea: "" });
   const [mGrupos, setMGrupos] = useState([]); // [{key, fecha, glosa, tipo, lineas:[{...}]}]
-  const [mMapa, setMMapa] = useState({}); // { codigo_origen: cuenta_id }
+  const [mMapa, setMMapa] = useState({}); // { codigo_externo: cuenta_id }
   const [mEstado, setMEstado] = useState("borrador");
   const [mGuardando, setMGuardando] = useState(false);
   const [mError, setMError] = useState("");
@@ -3085,10 +3085,10 @@ function LibroDiarioTab({ empresaId, canEdit, usuario }) {
       return;
     }
     setMError("");
-    // Construir mapa de homologación: codigo_origen → cuenta
+    // Construir mapa de homologación: codigo_externo → cuenta
     const mapaHom = {};
     homologacion.forEach((h) => {
-      if (h.cuenta_id) mapaHom[h.codigo_origen] = { cuenta_id: h.cuenta_id, cuenta_codigo: h.codigo_destino || "" };
+      if (h.cuenta_id) mapaHom[h.codigo_externo] = { cuenta_id: h.cuenta_id, cuenta_codigo: h.codigo_destino || "" };
     });
     setMMapa(mapaHom);
 
@@ -3114,7 +3114,7 @@ function LibroDiarioTab({ empresaId, canEdit, usuario }) {
       const hom = mapaHom[codOrigen];
       grupoActual.lineas.push({
         _key: Math.random().toString(36).slice(2),
-        codigo_origen: codOrigen,
+        codigo_externo: codOrigen,
         glosa: mCols.glosaLinea ? String(row[mCols.glosaLinea] || "") : "",
         debe: parseMonto(row[mCols.debe]),
         haber: parseMonto(row[mCols.haber]),
@@ -3878,7 +3878,7 @@ function LibroDiarioTab({ empresaId, canEdit, usuario }) {
                       {mLineasSinArr.map((l) => (
                         <Tr key={l._key}>
                           <Td style={{ color: C.textMuted, fontSize: 11 }}>{mGrupos[l._gi]?.nro_origen}</Td>
-                          <Td><span style={{ fontFamily: "monospace", color: C.danger }}>{l.codigo_origen}</span></Td>
+                          <Td><span style={{ fontFamily: "monospace", color: C.danger }}>{l.codigo_externo}</span></Td>
                           <Td style={{ color: C.textMuted, fontSize: 11 }}>{l.glosa}</Td>
                           <Td style={{ textAlign: "right", fontFamily: "monospace", color: C.info }}>{l.debe > 0 ? fmtCLP(l.debe) : ""}</Td>
                           <Td style={{ textAlign: "right", fontFamily: "monospace", color: C.success }}>{l.haber > 0 ? fmtCLP(l.haber) : ""}</Td>
