@@ -58,12 +58,17 @@ export async function verifyPin(pin, cred) {
   }
 }
 
-// Validación de PIN nuevo: exactamente 6 dígitos, no obvio.
+// Validación de clave nueva: mínimo 6 caracteres alfanuméricos (letras y/o
+// números), no obvia. FASE 3: se permite alfanumérico (antes era 6 dígitos).
 export function pinNuevoValido(pin) {
-  if (!/^\d{6}$/.test(pin)) return { ok: false, msg: "El PIN debe ser de 6 dígitos." };
-  if (/^(\d)\1{5}$/.test(pin)) return { ok: false, msg: "No uses un PIN con todos los dígitos iguales." };
-  const seqUp = "0123456789", seqDown = "9876543210";
-  if (seqUp.includes(pin) || seqDown.includes(pin)) return { ok: false, msg: "No uses una secuencia (ej. 123456)." };
+  if (!/^[A-Za-z0-9]{6,64}$/.test(pin)) {
+    return { ok: false, msg: "Mínimo 6 caracteres, solo letras y/o números." };
+  }
+  if (/^(.)\1+$/.test(pin)) return { ok: false, msg: "No uses todos los caracteres iguales." };
+  // Si es solo numérica, bloquear secuencias obvias
+  if (/^\d+$/.test(pin) && ("0123456789".includes(pin) || "9876543210".includes(pin))) {
+    return { ok: false, msg: "No uses una secuencia (ej. 123456)." };
+  }
   return { ok: true };
 }
 

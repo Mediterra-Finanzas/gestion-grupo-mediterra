@@ -2509,6 +2509,23 @@ export default function App(){
     window._auditUsuarioActual = null;
   }
 
+  // FASE 3 — Cierre de sesión automático por inactividad (30 min sin actividad)
+  useEffect(()=>{
+    if(!usuarioActual) return;
+    const MS = 30*60*1000;
+    let timer;
+    const cerrar = ()=>{
+      try{ window.auditLog && window.auditLog("logout",{modulo:"sistema",seccion:"autenticación",
+        descripcion:`Cierre automático por inactividad (${usuarioActual.nombre})`}); }catch(e){}
+      doLogout();
+    };
+    const reset = ()=>{ clearTimeout(timer); timer=setTimeout(cerrar, MS); };
+    const evs=["mousemove","mousedown","keydown","touchstart","scroll"];
+    evs.forEach(e=>window.addEventListener(e,reset,{passive:true}));
+    reset();
+    return ()=>{ clearTimeout(timer); evs.forEach(e=>window.removeEventListener(e,reset)); };
+  },[usuarioActual]); // eslint-disable-line
+
   async function handleLogin(){
     const emailInput = loginEmail.trim().toLowerCase();
     const pinInput = loginPin.trim();
@@ -2517,8 +2534,8 @@ export default function App(){
       setLoginError("Ingresa un correo válido.");
       return;
     }
-    if(!/^\d{4,10}$/.test(pinInput)){
-      setLoginError("El PIN debe tener entre 4 y 10 dígitos.");
+    if(pinInput.length<4 || pinInput.length>64){
+      setLoginError("Clave inválida.");
       return;
     }
     const w=WORKERS.find(x=>x.email&&x.email.toLowerCase()===emailInput);
@@ -2595,7 +2612,13 @@ export default function App(){
       // Para activarla a TODO el equipo, cambiar FORZAR_MIGRACION_TODOS a true.
       const FORZAR_MIGRACION_TODOS = true;
       const necesitaMigrar = !credH || !tieneTel;
-      const debeMigrar = (esTemp&&!esOk) || (necesitaMigrar && (FORZAR_MIGRACION_TODOS || w.rol==="admin"));
+      // FASE 3: vencimiento de clave a los 60 días (fuerza cambio al entrar)
+      let pinVencido = false;
+      try {
+        const cj = credH ? JSON.parse(credH) : null;
+        if (cj && cj.fecha) pinVencido = (Date.now() - new Date(cj.fecha).getTime())/86400000 > 60;
+      } catch(e){}
+      const debeMigrar = (esTemp&&!esOk) || pinVencido || (necesitaMigrar && (FORZAR_MIGRACION_TODOS || w.rol==="admin"));
       if(debeMigrar){
         setWorkerPendiente(w);
         setModalPin("cambiar");
@@ -2676,10 +2699,21 @@ export default function App(){
       if(!nc.ok){setPinError(nc.msg);return;}
       telNorm=nc.tel;
     }
-    // FASE 2b: cifrar el PIN y guardar; borrar el PIN en texto plano (override + temporal)
+    // FASE 3: no repetir las últimas 3 claves (comparación cifrada)
+    const credActualStr = pinsPersonalizados[worker.nombre+"_h"];
+    let hist=[]; try{ hist=JSON.parse(pinsPersonalizados[worker.nombre+"_hist"]||"[]"); }catch(e){ hist=[]; }
+    const credActualObj = credActualStr ? (typeof credActualStr==="string"?JSON.parse(credActualStr):credActualStr) : null;
+    const recientes = [credActualObj, ...hist].filter(Boolean).slice(0,3);
+    for(const c of recientes){
+      if(await verifyPin(pinNuevo, c)){ setPinError("No puedes repetir tus últimas 3 claves."); return; }
+    }
+    // FASE 2b/3: cifrar la clave (con fecha de cambio) y guardar; borrar el texto plano (override + temporal)
     const cred=await hashPin(pinNuevo);
+    cred.fecha=new Date().toISOString().slice(0,10);
+    const histGuardar=recientes.map(c=>({salt:c.salt,hash:c.hash,iter:c.iter})); // últimas 3 anteriores
     const nuevosPins={...pinsPersonalizados};
     nuevosPins[worker.nombre+"_h"]=JSON.stringify(cred);
+    nuevosPins[worker.nombre+"_hist"]=JSON.stringify(histGuardar);
     if(telNorm) nuevosPins[worker.nombre+"_tel"]=telNorm;
     delete nuevosPins[worker.nombre];
     delete nuevosPins[worker.nombre+"_temp"];
@@ -3221,10 +3255,10 @@ Equipo Mediterra`);
         {modalPin==="cambiar"?(
           <div style={{display:"flex",flexDirection:"column",gap:10}}>
             <div style={{fontSize:13,fontWeight:700,color:C.text,marginBottom:4}}>Actualizar acceso</div>
-            {[["PIN actual","password",pinActual,setPinActual,"••••"],["PIN nuevo (6 dígitos)","password",pinNuevo,setPinNuevo,"••••••"],["Confirmar PIN nuevo","password",pinConfirm,setPinConfirm,"••••••"]].map(([lbl,type,val,set,ph])=>(
+            {[["Clave actual","password",pinActual,setPinActual],["Clave nueva (mín. 6, letras y/o números)","password",pinNuevo,setPinNuevo],["Confirmar clave nueva","password",pinConfirm,setPinConfirm]].map(([lbl,type,val,set])=>(
               <div key={lbl}>
                 <div style={{fontSize:11,color:C.muted,marginBottom:3}}>{lbl}</div>
-                <input type={type} value={val} onChange={e=>set(e.target.value)} placeholder={ph} maxLength={10} inputMode="numeric"
+                <input type={type} value={val} onChange={e=>set(e.target.value)} placeholder="••••••" maxLength={64} autoComplete="new-password"
                   style={{width:"100%",padding:"9px 12px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:14,boxSizing:"border-box",outline:"none"}}/>
               </div>
             ))}
@@ -3252,7 +3286,7 @@ Equipo Mediterra`);
             <div style={{marginBottom:16}}>
               <div style={{fontSize:11,color:C.muted,marginBottom:4}}>PIN de acceso</div>
               <input id="login-pin-input" type="password" value={loginPin} onChange={e=>setLoginPin(e.target.value)}
-                onKeyDown={e=>e.key==="Enter"&&handleLogin()} placeholder="••••" maxLength={10} inputMode="numeric"
+                onKeyDown={e=>e.key==="Enter"&&handleLogin()} placeholder="Tu clave" maxLength={64} autoComplete="current-password"
                 style={{width:"100%",padding:"10px 12px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:16,
                   textAlign:"center",letterSpacing:6,outline:"none",boxSizing:"border-box"}}/>
             </div>
