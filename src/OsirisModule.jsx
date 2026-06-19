@@ -37,7 +37,7 @@ async function dbSaveOsiris(value) {
       }
       if(arraysQueCayeron >= 3) {
         console.warn(`[dbSaveOsiris] ⚠️ BLOQUEADO: ${arraysQueCayeron} arrays cayeron simultáneamente.`);
-        return;
+        return false;
       }
       if(!window._lastSavedOsiris) window._lastSavedOsiris = {};
       for(const k of protectedKeys) { if(Array.isArray(value[k])) window._lastSavedOsiris[k] = value[k].length; }
@@ -51,7 +51,8 @@ async function dbSaveOsiris(value) {
     });
     const keys = value ? Object.keys(value).filter(k=>(Array.isArray(value[k])&&value[k].length>0)||k==="hubCardsOrder").map(k=>Array.isArray(value[k])?`${k}:${value[k].length}`:k).join(", ") : "VACÍO";
     console.log(`[Osiris] ✅ Guardado: ${keys||"sin arrays"}`);
-  } catch(e) { console.error("[Osiris] Error guardando:", e); }
+    return true;
+  } catch(e) { console.error("[Osiris] Error guardando:", e); return false; }
 }
 
 // ── Paleta ────────────────────────────────────────────────
@@ -9822,19 +9823,55 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
     })();
   },[]);
 
-  // Auto-guardado independiente (debounce 2s)
+  // Indicador de guardado: "saved" | "dirty" | "saving"
+  const [saveState, setSaveState] = useState("saved");
+  const [saveTs, setSaveTs] = useState(null);
+  const primeraCargaRef = useRef(true);
+
+  // Auto-guardado (debounce 2s) + estado del indicador
   useEffect(()=>{
     if(cargandoOsiris) return;
-    const t = setTimeout(()=>dbSaveOsiris(dataRef.current), 2000);
+    // El primer render tras cargar no es un cambio del usuario.
+    if(primeraCargaRef.current){ primeraCargaRef.current=false; return; }
+    setSaveState(s=> s==="saving" ? s : "dirty");
+    const t = setTimeout(async ()=>{
+      setSaveState("saving");
+      const ok = await dbSaveOsiris(dataRef.current);
+      setSaveState(ok?"saved":"dirty");
+      if(ok) setSaveTs(new Date());
+    }, 2000);
     return ()=>clearTimeout(t);
   },[osirisData, cargandoOsiris]);
 
-  // Flush al cerrar/refrescar: guarda lo pendiente del debounce para no perder cambios recién hechos.
+  // Guardar inmediato (botón)
+  const guardarAhora = async ()=>{
+    setSaveState("saving");
+    const ok = await dbSaveOsiris(dataRef.current);
+    setSaveState(ok?"saved":"dirty");
+    if(ok) setSaveTs(new Date());
+  };
+
+  // Flush al cerrar/refrescar: guarda lo pendiente para no perder cambios recién hechos.
   useEffect(()=>{
     const flush = ()=>{ try{ if(!cargandoOsiris && dataRef.current) dbSaveOsiris(dataRef.current); }catch(e){} };
     window.addEventListener("beforeunload", flush);
     return ()=>window.removeEventListener("beforeunload", flush);
   },[cargandoOsiris]);
+
+  // Chip global de guardado (se inyecta en todas las vistas del módulo)
+  const guardadoChip = (
+    <div style={{position:"fixed",right:16,bottom:16,zIndex:99999,display:"flex",alignItems:"center",gap:8,
+      background:"#fff",border:`1px solid ${C.border}`,borderRadius:10,padding:"7px 12px",boxShadow:"0 4px 16px #0003",fontSize:12}}>
+      {saveState==="saving"
+        ? <span style={{color:C.muted,fontWeight:600}}>💾 Guardando…</span>
+        : saveState==="dirty"
+        ? <>
+            <span style={{color:C.am,fontWeight:800}}>● Cambios sin guardar</span>
+            <button onClick={guardarAhora} style={{background:C.success,color:"#fff",border:"none",borderRadius:6,padding:"4px 12px",cursor:"pointer",fontWeight:800,fontSize:11}}>Guardar ahora</button>
+          </>
+        : <span style={{color:C.success,fontWeight:800}}>✓ Guardado{saveTs?` · ${saveTs.toLocaleTimeString("es-CL",{hour:"2-digit",minute:"2-digit"})}`:""}</span>}
+    </div>
+  );
 
   // ── Anti-desborde global del módulo ────────────────────────────────
   // Solución de raíz: ninguna celda de tabla parte en dos filas ni se sale
@@ -10222,6 +10259,7 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
   // ── HUB INTERNO OSIRIS ─────────────────────────────────────
   if(subApp===null) return(
     <div className="osiris-root" style={{fontFamily:"sans-serif",background:C.bg,minHeight:"100vh",padding:"20px 20px 40px",maxWidth:"100%",overflowX:"hidden"}}>
+      {guardadoChip}
       <NavBar breadcrumbItems={[
         {label:"Mediterra", onClick:onBack},
         {label:"Osiris Plant Management"},
@@ -10310,6 +10348,7 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
   // ── CONTROL CONTRATOS ──────────────────────────────────────
   if(subApp==="contratos") return(
     <div className="osiris-root" style={{fontFamily:"sans-serif",background:C.bg,minHeight:"100vh",padding:"20px 20px 40px",maxWidth:"100%",overflowX:"hidden"}}>
+      {guardadoChip}
       <NavBar breadcrumbItems={[
         {label:"Mediterra", onClick:onBack},
         {label:"Osiris Hub", onClick:()=>setSubApp(null)},
@@ -10486,6 +10525,7 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
 
       return (
         <div className="osiris-root" style={{fontFamily:"sans-serif",background:C.bg,minHeight:"100vh",padding:"20px 20px 40px",maxWidth:"100%",overflowX:"hidden"}}>
+          {guardadoChip}
           <NavBar breadcrumbItems={[
             {label:"Mediterra", onClick:onBack},
             {label:"Osiris Hub", onClick:()=>{setSubApp(null);setObtDetalle(null);}},
@@ -11189,6 +11229,7 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
     const totPorVencer = obtData.filter(o=>{const d=diasParaVencer(o.f_vencimiento);return d!==null && d>=0 && d<=90;}).length;
     return (
       <div className="osiris-root" style={{fontFamily:"sans-serif",background:C.bg,minHeight:"100vh",padding:"20px 20px 40px",maxWidth:"100%",overflowX:"hidden"}}>
+        {guardadoChip}
         <NavBar breadcrumbItems={[
           {label:"Mediterra", onClick:onBack},
           {label:"Osiris Hub", onClick:()=>setSubApp(null)},
@@ -11698,6 +11739,7 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
     const canOp = esEditorOAdmin; // usar mismos permisos base
     return (
       <div className="osiris-root" style={{fontFamily:"sans-serif",background:C.bg,minHeight:"100vh",padding:"20px 20px 40px",maxWidth:"100%",overflowX:"hidden"}}>
+        {guardadoChip}
         <NavBar breadcrumbItems={[
           {label:"Mediterra", onClick:onBack},
           {label:"Osiris Hub", onClick:()=>setSubApp(null)},
@@ -12147,6 +12189,7 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
 
       return (
         <div className="osiris-root" style={{fontFamily:"sans-serif",background:C.bg,minHeight:"100vh",padding:"20px 20px 40px",maxWidth:"100%",overflowX:"hidden"}}>
+          {guardadoChip}
           <NavBar breadcrumbItems={[
             {label:"Mediterra", onClick:onBack},
             {label:"Osiris Hub", onClick:()=>{setSubApp(null);setVivDetalle(null);}},
@@ -13097,6 +13140,7 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
     const totPorVencer = vivData.filter(v=>{const d=diasParaVencer(v.f_vencimiento);return d!==null && d>=0 && d<=90;}).length;
     return (
       <div className="osiris-root" style={{fontFamily:"sans-serif",background:C.bg,minHeight:"100vh",padding:"20px 20px 40px",maxWidth:"100%",overflowX:"hidden"}}>
+        {guardadoChip}
         <NavBar breadcrumbItems={[
           {label:"Mediterra", onClick:onBack},
           {label:"Osiris Hub", onClick:()=>setSubApp(null)},
@@ -14003,6 +14047,7 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
   if(subApp==="tareas") {
     return (
       <div className="osiris-root" style={{fontFamily:"sans-serif",background:C.bg,minHeight:"100vh",padding:"20px 20px 40px",maxWidth:"100%",overflowX:"hidden"}}>
+        {guardadoChip}
         <NavBar breadcrumbItems={[
           {label:"Mediterra", onClick:onBack},
           {label:"Osiris Hub", onClick:()=>setSubApp(null)},
@@ -14021,6 +14066,7 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
   // ── INGRESOS OSIRIS ────────────────────────────────────────
   return (
     <div className="osiris-root" style={{fontFamily:"sans-serif",background:C.bg,minHeight:"100vh",padding:"20px 20px 40px",maxWidth:"100%",overflowX:"hidden"}}>
+      {guardadoChip}
       <NavBar showPorCobrar breadcrumbItems={[
         {label:"Mediterra", onClick:onBack},
         {label:"Osiris Hub", onClick:()=>setSubApp(null)},
