@@ -6552,10 +6552,9 @@ function derivarRoyaltyPlantaDesdeContratos(ctData, ocsByCt) {
     const totPlantas = (ct.plantaciones||[]).reduce((s,p)=>s+(Number(p.nPlantas)||0),0);
     const valorPorPlanta = Number(ct.valorRoyaltyPlanta)||1;
 
-    // ── MODELO OC VIVERO: deriva del despacho (tanda) de cada OC del vivero ──
-    // Gated: solo contratos con modeloIngresos==="oc". Base de facturación = despacho.
-    // Cada despacho de cada OC ligada al contrato genera un evento facturable de Royalty/Planta.
-    if(ct.modeloIngresos==="oc") {
+    // ── RP por DESPACHOS (respaldo): solo si la OC tiene despachos y NO hay tandas declaradas en el contrato.
+    // Las tandas (rpPlantaCuotas) tienen prioridad y se calculan en la rama unificada de más abajo.
+    if(ct.modeloIngresos==="oc" && !(ct.rpPlantaCuotas||[]).length) {
       const ocs = (ocsByCt && ocsByCt[ct.id]) || [];
       ocs.forEach(oc => {
         const despachos = oc.despachos||[];
@@ -6687,9 +6686,9 @@ function derivarRoyaltyComercialDesdeContratos(ctData, ocsByCt) {
     const trimCobro0 = Math.floor(mesIdxRC0/3)+1;
     const inflPct = ct.royaltyInflacion ? (Number(ct.rcInflacionPct)||0) : 0;
 
-    // ── MODELO OC VIVERO: há plantadas vienen del despacho, y cada despacho empieza a
-    // cobrar RC desde la temporada de su fecha de plantación (cohorte). ──
-    if(ct.modeloIngresos==="oc") {
+    // ── RC por BLOQUES Há+temporada (unificado): se usa si hay cohortes declaradas (rcCohortes)
+    // o si el contrato es modelo OC. Si no hay declaradas, cae a los despachos como respaldo.
+    if(ct.modeloIngresos==="oc" || (ct.rcCohortes||[]).some(c=>(Number(c.ha)||0)>0 && c.desde)) {
       const ocs = (ocsByCt && ocsByCt[ct.id]) || [];
       // Cohortes de cobro: { tempInicio -> há que arrancan esa temporada }.
       const cohortes = {};
@@ -8505,15 +8504,24 @@ function ControlContratos({data,setData,clientes,setClientes,variedadesMaestro=[
               )}
             </div>
 
-            {r.modeloIngresos==="oc" ? (()=>{
-              // Modelo OC: RP, RC y Fee Vivero derivados de los despachos de las OC del vivero ligadas.
+            {(()=>{
+              // Cobros del contrato — entrada directa unificada (igual para todos los contratos).
               const ocsViv=[];
               (viverosData||[]).forEach(v=>(v.ordenesCompra||[]).forEach(oc=>{ if(ocLigadaAContrato(oc,r)) ocsViv.push(oc); }));
               const ocsByCt={[r.id]:ocsViv};
-              const rpRows=derivarRoyaltyPlantaDesdeContratos([r],ocsByCt);
               const rcRows=derivarRoyaltyComercialDesdeContratos([r],ocsByCt);
-              const rpFact=rpRows.reduce((s,x)=>s+(x.montoFact||0),0), rpCobro=rpRows.reduce((s,x)=>s+(x.montoCobro||0),0);
               const rcFact=rcRows.reduce((s,x)=>s+(x.montoFact||0),0), rcCobro=rcRows.reduce((s,x)=>s+(x.montoCobro||0),0);
+              // Royalty Planta por tandas de plantas (entrada directa en el contrato).
+              const totPlantasC=(r.plantaciones||[]).reduce((s,p)=>s+(parseFloat(p.nPlantas)||0),0);
+              const valorPP=parseFloat(r.valorRoyaltyPlanta)||1;
+              const cuotasRP=r.rpPlantaCuotas||[];
+              const plantasDeRP=(c)=> (c.nPlantas!==undefined&&c.nPlantas!=="")?(parseFloat(c.nPlantas)||0):(totPlantasC*(parseFloat(c.pct)||0)/100);
+              const sumPlRP=cuotasRP.reduce((s,c)=>s+plantasDeRP(c),0);
+              const updCuoRP=(id,campo,valor)=>upd(r.id,"rpPlantaCuotas",cuotasRP.map(x=>x.id===id?{...x,[campo]:valor}:x));
+              const updCuoEstadoRP=(id,v)=>upd(r.id,"rpPlantaCuotas",cuotasRP.map(x=>x.id===id?{...x,estadoCF:v,pagado:v==="pagado"}:x));
+              const addTanda=()=>upd(r.id,"rpPlantaCuotas",[...cuotasRP,{id:`cuo_${Date.now()}`,descripcion:"Tanda",nPlantas:"",fechaEvento:""}]);
+              const delTanda=(id)=>upd(r.id,"rpPlantaCuotas",cuotasRP.filter(x=>x.id!==id));
+              const sugerirTandas=()=>{ const t=[]; ocsViv.forEach(oc=>(oc.despachos||[]).forEach(d=>{ if(d.tipo==="Prueba")return; const pl=Number(d.cantidad_despachada)||0; if(pl<=0)return; t.push({id:`cuo_${Date.now()}_${t.length}`,descripcion:`OC ${oc.n_oc||""} · ${d.fecha_despacho||""}`,nPlantas:pl,fechaEvento:d.fecha_despacho||""}); })); if(t.length===0){alert("No hay despachos con plantas para sugerir.");return;} if(cuotasRP.length>0&&!window.confirm("Reemplaza las tandas actuales con las de los despachos. ¿Continuar?"))return; upd(r.id,"rpPlantaCuotas",t); };
               const inflPct=r.royaltyInflacion?(parseFloat(r.rcInflacionPct)||0):0;
               // Fee Vivero: lo paga el vivero. plantas despachadas × fee_usd_planta de la OC.
               let feeVivTot=0; const feeVivRows=[];
@@ -8528,7 +8536,6 @@ function ControlContratos({data,setData,clientes,setClientes,variedadesMaestro=[
               const rcFuturas=rcRows.filter(x=>x.temporada>tempActual);
               const rcFutFact=rcFuturas.reduce((s,x)=>s+(x.montoFact||0),0), rcFutCobro=rcFuturas.reduce((s,x)=>s+(x.montoCobro||0),0);
               // Editores de estado de cobro (se guardan en el contrato).
-              const updRpPago=(cid,campo,val)=>{ const np={...(r.rpPagos||{})}; np[cid]={...(np[cid]||{}),[campo]:val}; upd(r.id,"rpPagos",np); };
               const updRcPago=(temp,campo,val)=>{ const np={...(r.rcPagos||{})}; np[temp]={...(np[temp]||{}),[campo]:val}; upd(r.id,"rcPagos",np); };
               const inp={padding:"3px 6px",borderRadius:4,border:`1px solid ${C.border}`,fontSize:11};
               // Parcialidades del RC por temporada (para dividir el cobro en varias líneas/facturas)
@@ -8587,45 +8594,43 @@ function ControlContratos({data,setData,clientes,setClientes,variedadesMaestro=[
               const headRC=["Temporada","Mes cobro","Há que entran","Há en cobro","$/há (infl)","Bruto","Neto","Fecha est. cobro","Pagado","Fecha pago","N° Fact."];
               return (<>
                 <div style={{padding:"10px 14px",background:C.infoBg||"#eff6ff",border:`1px solid ${C.azul||"#3b82f6"}`,borderRadius:10,marginBottom:14,fontSize:11,color:C.text}}>
-                  🔗 <strong>Modelo OC del vivero.</strong> Los montos se derivan de los despachos (se editan en <strong>Contratos Viveros</strong>). Aquí solo marcas el <strong>estado de cobro</strong>: pagado, fecha y N° de factura.
+                  💵 <strong>Cobros del cliente.</strong> Royalty Planta por <strong>tandas de plantas</strong> y Royalty Comercial por <strong>bloques de há + temporada</strong>. Si la OC del vivero tiene despachos, puedes usar "Sugerir desde despachos" para prellenar.
                 </div>
-                {ocsViv.length===0&&(
-                  <div style={{padding:14,background:C.purpleBg,borderRadius:8,fontSize:12,color:C.text,marginBottom:14}}>
-                    ⚠️ No hay OC del vivero ligadas a este contrato. Ve a <strong>Contratos Viveros</strong>, abre la OC y elígelo en "Contrato ligado".
-                  </div>
-                )}
-                {/* RP derivado */}
+                {/* ROYALTY PLANTA — por tandas de plantas (entrada directa) */}
                 <div style={{background:C.card,border:`1px solid ${C.success}`,borderRadius:10,padding:14,marginBottom:14}}>
                   <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10,flexWrap:"wrap",gap:6}}>
-                    <div style={{fontSize:13,fontWeight:800,color:C.success}}>🌱 Royalty Planta <span style={{fontSize:10,fontWeight:500,color:C.muted}}>(paga el cliente)</span></div>
-                    <div style={{fontSize:11,color:C.muted}}>Fact: <strong style={{color:C.text}}>${N(rpFact.toFixed(2))}</strong> · Neto: <strong style={{color:C.success}}>${N(rpCobro.toFixed(2))}</strong></div>
+                    <div style={{fontSize:13,fontWeight:800,color:C.success}}>🌱 Royalty Planta <span style={{fontSize:10,fontWeight:500,color:C.muted}}>(paga el cliente · factura por tandas de plantas)</span></div>
+                    {can&&<div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+                      {ocsViv.some(oc=>(oc.despachos||[]).length>0)&&<button onClick={sugerirTandas} style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:6,padding:"5px 10px",cursor:"pointer",fontSize:11}}>Sugerir desde despachos</button>}
+                      <button onClick={addTanda} style={{background:C.success,color:"#fff",border:"none",borderRadius:6,padding:"5px 10px",cursor:"pointer",fontSize:11,fontWeight:700}}>+ Tanda</button>
+                    </div>}
                   </div>
-                  {rpRows.length===0?(
-                    <div style={{padding:12,background:C.cardAlt,borderRadius:8,fontSize:11,color:C.muted}}>Sin despachos con plantas. Carga despachos en la OC del vivero.</div>
+                  <div style={{padding:10,background:C.successBg,borderRadius:8,marginBottom:10,fontSize:11,color:C.success}}>
+                    <strong>US$/planta:</strong> ${valorPP} · Facturado en tandas: <strong>{N(sumPlRP)} plantas</strong> = <strong>${N((sumPlRP*valorPP).toFixed(2))}</strong>{totPlantasC>0?` · base contrato ${N(totPlantasC)} plantas`:""}{(sumPlRP>totPlantasC+0.5&&totPlantasC>0)?" ⚠ excede la base":""}
+                  </div>
+                  {cuotasRP.length===0?(
+                    <div style={{padding:12,background:C.cardAlt,borderRadius:8,fontSize:11,color:C.muted}}>Sin tandas. Agrega una con "+ Tanda" (o "Sugerir desde despachos" si la OC tiene despachos cargados).</div>
                   ):(
                     <div style={{overflowX:"auto",minWidth:0,maxWidth:"calc(100vw - 40px)"}}>
                       <table style={{width:"100%",borderCollapse:"collapse",fontSize:11}}>
                         <thead><tr style={{background:C.primary}}>
-                          {["OC / Despacho","Fecha","Plantas","$/planta","Bruto teórico","Monto Facturado","Neto (− WHT)","Fecha est. cobro","Pagado","Fecha pago","N° Fact."].map(h=>(
+                          {["Descripción","Plantas (tanda)","Monto Fact.","Monto Cobro","Fecha factura","Estado","Fecha pago","N° Fact.",""].map(h=>(
                             <th key={h} style={{padding:"6px 8px",textAlign:"left",fontSize:10,fontWeight:700,color:C.primaryText}}>{h}</th>
                           ))}
                         </tr></thead>
                         <tbody>
-                          {rpRows.map(x=>(
-                            <tr key={x.id} style={{borderBottom:"1px solid #ecfdf5",background:x.pagado?C.successBg:""}}>
-                              <td style={{padding:"5px 8px",color:C.text}}>{x.descripcionCuota}</td>
-                              <td style={{padding:"5px 8px"}}>{x.fechaEvento||"—"}</td>
-                              <td style={{padding:"5px 8px",textAlign:"right"}}>{N(x.nPlantas)}</td>
-                              <td style={{padding:"5px 8px",textAlign:"right"}}>${N(x.usdPlanta)}</td>
-                              <td style={{padding:"5px 8px",textAlign:"right",color:C.muted}} title="Plantas × US$/planta (referencia)">${N((x.brutoTeorico||0).toFixed(2))}</td>
-                              <td style={{padding:"5px 8px",textAlign:"right"}}>{can?<input type="number" value={x.montoFacturado||""} onChange={e=>updRpPago(x.cuotaId,"montoFacturado",parseFloat(e.target.value)||0)} placeholder={(x.brutoTeorico||0).toFixed(0)} style={{...inp,width:90,textAlign:"right"}}/>:(x.montoFacturado?`$${N(x.montoFacturado.toFixed(2))}`:"—")}</td>
-                              <td style={{padding:"5px 8px",textAlign:"right",fontWeight:700,color:C.success}} title={x.whtPct>0?`Monto facturado − WHT ${x.whtPct}%`:"Sin WHT"}>${N(x.montoCobro.toFixed(2))}</td>
-                              <td style={{padding:"5px 8px"}}>{can?<input type="date" value={x.fechaEst||""} onChange={e=>updRpPago(x.cuotaId,"fechaEst",e.target.value)} style={inp}/>:(x.fechaEst||"—")}</td>
-                              <td style={{padding:"5px 8px",textAlign:"center"}}>{can?<input type="checkbox" checked={!!x.pagado} onChange={e=>updRpPago(x.cuotaId,"pagado",e.target.checked)}/>:(x.pagado?"✓":"—")}</td>
-                              <td style={{padding:"5px 8px"}}>{can?<input type="date" value={x.fechaPago||""} onChange={e=>updRpPago(x.cuotaId,"fechaPago",e.target.value)} style={inp}/>:(x.fechaPago||"—")}</td>
-                              <td style={{padding:"5px 8px"}}>{can?<input value={x.nFact||""} onChange={e=>updRpPago(x.cuotaId,"nFact",e.target.value)} placeholder="F-000" style={{...inp,width:70}}/>:(x.nFact||"—")}</td>
-                            </tr>
-                          ))}
+                          {cuotasRP.map(c=>{ const plc=plantasDeRP(c); const monto=plc*valorPP; return (
+                            <tr key={c.id} style={{borderBottom:"1px solid #ecfdf5",background:c.pagado?C.successBg:""}}>
+                              <td style={{padding:"5px 8px"}}><input disabled={!can} value={c.descripcion||""} onChange={e=>updCuoRP(c.id,"descripcion",e.target.value)} style={{width:"100%",padding:"4px 6px",borderRadius:4,border:`1px solid ${C.border}`,fontSize:11,boxSizing:"border-box"}}/></td>
+                              <td style={{padding:"5px 8px"}}><input type="number" disabled={!can} value={c.nPlantas!==undefined&&c.nPlantas!==""?c.nPlantas:(c.pct?Math.round(plc):"")} placeholder="0" onChange={e=>updCuoRP(c.id,"nPlantas",e.target.value)} style={{width:90,padding:"4px 6px",borderRadius:4,border:`1px solid ${C.border}`,fontSize:11,textAlign:"right"}}/></td>
+                              <td style={{padding:"5px 8px",textAlign:"right",fontWeight:700,color:C.text}}>${N(monto.toFixed(2))}</td>
+                              <td style={{padding:"5px 8px",textAlign:"right",fontWeight:700,color:C.success}}>${N((monto*pct(r.pais)).toFixed(2))}</td>
+                              <td style={{padding:"5px 8px"}}><input type="date" disabled={!can} value={c.fechaEvento||""} onChange={e=>updCuoRP(c.id,"fechaEvento",e.target.value)} style={inp}/></td>
+                              <td style={{padding:"5px 8px",textAlign:"center"}}><BadgeEstadoCF estado={c.estadoCF&&ESTADOS_CF[c.estadoCF]?c.estadoCF:(c.pagado?"pagado":"porCobrar")} onChange={v=>updCuoEstadoRP(c.id,v)} can={can}/></td>
+                              <td style={{padding:"5px 8px"}}><input type="date" disabled={!can} value={c.fechaPago||""} onChange={e=>updCuoRP(c.id,"fechaPago",e.target.value)} style={inp}/></td>
+                              <td style={{padding:"5px 8px"}}><input disabled={!can} value={c.nFact||""} onChange={e=>updCuoRP(c.id,"nFact",e.target.value)} placeholder="F-000" style={{...inp,width:70}}/></td>
+                              <td style={{padding:"5px 8px"}}>{can&&<button onClick={()=>delTanda(c.id)} style={{background:C.dangerBg,border:"none",borderRadius:4,padding:"3px 6px",cursor:"pointer",fontSize:10,color:C.danger}}>×</button>}</td>
+                            </tr>);})}
                         </tbody>
                       </table>
                     </div>
@@ -8766,193 +8771,7 @@ function ControlContratos({data,setData,clientes,setClientes,variedadesMaestro=[
                   <div style={{fontSize:10,color:C.muted2,marginTop:8}}>El estado de cobro del Fee Vivero (N° factura, vencimiento, pago) se gestiona en la OC dentro de <strong>Contratos Viveros</strong>. Aquí es informativo.</div>
                 </div>
               </>);
-            })() : (<>
-            {/* Sub-sección 2: Royalty Planta - cuotas */}
-            <div style={{background:C.card,border:`1px solid ${C.success}`,borderRadius:10,padding:14,marginBottom:14}}>
-              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
-                <div style={{fontSize:13,fontWeight:800,color:C.success}}>🌱 Royalty Planta — Facturación por tandas (plantas)</div>
-                {can&&<button onClick={()=>{
-                  const nuevaCuota = {id:`cuo_${Date.now()}`, descripcion:"Tanda", nPlantas:"", fechaEvento:""};
-                  const next = [...(r.rpPlantaCuotas||[]), nuevaCuota];
-                  upd(r.id,"rpPlantaCuotas",next);
-                }} style={{background:C.success,color:"#fff",border:"none",borderRadius:6,padding:"5px 10px",cursor:"pointer",fontSize:11,fontWeight:600}}>+ Tanda</button>}
-              </div>
-              {(()=>{
-                const totPlantas = (r.plantaciones||[]).reduce((s,p)=>s+(parseFloat(p.nPlantas)||0),0);
-                const valorPP = parseFloat(r.valorRoyaltyPlanta)||1;
-                const totRP = totPlantas * valorPP;
-                const cuotas = r.rpPlantaCuotas||[];
-                // Plantas de cada tanda (compat: si la cuota vieja trae %, se traduce a plantas).
-                const plantasDe = (c)=> (c.nPlantas!==undefined&&c.nPlantas!=="") ? (parseFloat(c.nPlantas)||0) : (totPlantas*(parseFloat(c.pct)||0)/100);
-                const sumPl = cuotas.reduce((s,c)=>s+plantasDe(c),0);
-                const exceso = sumPl>totPlantas+0.5;
-                return (
-                  <>
-                    <div style={{padding:10,background:C.successBg,borderRadius:8,marginBottom:10,fontSize:11,color:C.success}}>
-                      <strong>Base:</strong> {N(totPlantas)} plantas × ${valorPP}/planta = <strong>${N(totRP.toFixed(2))}</strong> · Facturado en tandas: <strong style={{color:exceso?C.danger:C.success}}>{N(sumPl)} plantas</strong> de {N(totPlantas)}{exceso?" ⚠ excede el total":""}
-                    </div>
-                    <table style={{width:"100%",borderCollapse:"collapse",fontSize:11}}>
-                      <thead><tr style={{background:C.successBg}}>
-                        {["Descripción","Plantas (tanda)","Monto Fact.","Monto Cobro","Fecha evento","Estado Cobro","Fecha pago","N° Fact.",""].map(h=>(
-                          <th key={h} style={{padding:"6px 8px",textAlign:"left",fontSize:10,fontWeight:700,color:C.success}}>{h}</th>
-                        ))}
-                      </tr></thead>
-                      <tbody>
-                        {cuotas.map(c=>{
-                          const plc = plantasDe(c);
-                          const monto = plc * valorPP;
-                          const updCuo = (campo, valor) => {
-                            const next = cuotas.map(x=>x.id===c.id?{...x,[campo]:valor}:x);
-                            upd(r.id,"rpPlantaCuotas",next);
-                          };
-                          return (
-                            <tr key={c.id} style={{borderBottom:"1px solid #f1f5f9"}}>
-                              <td style={{padding:"5px 8px"}}>
-                                <input disabled={!can} value={c.descripcion||""} onChange={e=>updCuo("descripcion",e.target.value)}
-                                  style={{width:"100%",padding:"4px 6px",borderRadius:4,border:`1px solid ${C.border}`,fontSize:11,boxSizing:"border-box"}}/>
-                              </td>
-                              <td style={{padding:"5px 8px"}}>
-                                <input type="number" disabled={!can} value={c.nPlantas!==undefined&&c.nPlantas!==""?c.nPlantas:(c.pct?Math.round(plc):"")} placeholder="0" onChange={e=>updCuo("nPlantas",e.target.value)}
-                                  style={{width:90,padding:"4px 6px",borderRadius:4,border:`1px solid ${C.border}`,fontSize:11,textAlign:"right"}}/>
-                              </td>
-                              <td style={{padding:"5px 8px",fontWeight:700,color:C.success}}>${N(monto.toFixed(2))}</td>
-                              <td style={{padding:"5px 8px",fontWeight:700,color:C.success}}>${N((monto*pct(r.pais)).toFixed(2))}</td>
-                              <td style={{padding:"5px 8px"}}>
-                                <input type="date" disabled={!can} value={c.fechaEvento||""} onChange={e=>updCuo("fechaEvento",e.target.value)}
-                                  style={{padding:"4px 6px",borderRadius:4,border:`1px solid ${C.border}`,fontSize:11}}/>
-                              </td>
-                              <td style={{padding:"5px 8px",textAlign:"center"}}>
-                                <BadgeEstadoCF
-                                  estado={c.estadoCF&&ESTADOS_CF[c.estadoCF]?c.estadoCF:(c.pagado?"pagado":"porCobrar")}
-                                  onChange={v=>{
-                                    const next=cuotas.map(x=>x.id===c.id?{...x,estadoCF:v,pagado:v==="pagado"}:x);
-                                    upd(r.id,"rpPlantaCuotas",next);
-                                  }}
-                                  can={can}
-                                />
-                              </td>
-                              <td style={{padding:"5px 8px"}}>
-                                <input type="date" disabled={!can} value={c.fechaPago||""} onChange={e=>updCuo("fechaPago",e.target.value)}
-                                  style={{padding:"4px 6px",borderRadius:4,border:`1px solid ${C.border}`,fontSize:11}}/>
-                              </td>
-                              <td style={{padding:"5px 8px"}}>
-                                <input disabled={!can} value={c.nFact||""} onChange={e=>updCuo("nFact",e.target.value)}
-                                  style={{width:80,padding:"4px 6px",borderRadius:4,border:`1px solid ${C.border}`,fontSize:11}}/>
-                              </td>
-                              <td style={{padding:"5px 8px"}}>
-                                {can&&<button onClick={()=>{
-                                  const next = cuotas.filter(x=>x.id!==c.id);
-                                  upd(r.id,"rpPlantaCuotas",next);
-                                }} style={{background:C.dangerBg,border:"none",borderRadius:4,padding:"3px 6px",cursor:"pointer",fontSize:10,color:C.danger}}>×</button>}
-                              </td>
-                            </tr>
-                          );
-                        })}
-                      </tbody>
-                    </table>
-                  </>
-                );
-              })()}
-            </div>
-
-            {/* Sub-sección 3: Royalty Comercial — Calendario por temporada */}
-            <div style={{background:C.card,border:`1px solid ${C.warning}`,borderRadius:10,padding:14}}>
-              <div style={{fontSize:13,fontWeight:800,color:C.text,marginBottom:10}}>📈 Royalty Comercial — Calendario por temporada</div>
-              <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(180px,1fr))",gap:10,marginBottom:12}}>
-                <div>
-                  <div style={{fontSize:10,color:C.muted,fontWeight:600,marginBottom:3}}>Temporada inicio</div>
-                  <select disabled={!can} value={r.rcInicioTemporada||""} onChange={e=>upd(r.id,"rcInicioTemporada",e.target.value)}
-                    style={{width:"100%",padding:"6px 8px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:11,boxSizing:"border-box",background:C.card}}>
-                    <option value="">— Seleccionar —</option>
-                    {TEMPORADAS_LIST.map(t=><option key={t} value={t}>{t}</option>)}
-                  </select>
-                </div>
-                <div>
-                  <div style={{fontSize:10,color:C.muted,fontWeight:600,marginBottom:3}}>Mes de cobro</div>
-                  <select disabled={!can} value={r.rcMesCobro||RC_MES_DEFAULT_POR_PAIS[r.pais]||"Abril"} onChange={e=>upd(r.id,"rcMesCobro",e.target.value)}
-                    style={{width:"100%",padding:"6px 8px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:11,boxSizing:"border-box",background:C.card}}>
-                    {MESES.map(m=><option key={m}>{m}</option>)}
-                  </select>
-                  <div style={{fontSize:9,color:C.muted2,marginTop:2}}>Default {r.pais}: {RC_MES_DEFAULT_POR_PAIS[r.pais]||"—"}</div>
-                </div>
-                <div>
-                  <div style={{fontSize:10,color:C.muted,fontWeight:600,marginBottom:3}}>USD/há</div>
-                  <div style={{padding:"7px 10px",background:C.purpleBg,borderRadius:6,fontSize:13,fontWeight:700,color:C.text}}>${N(r.valorRoyaltyComercial||0)}</div>
-                </div>
-                <div>
-                  <div style={{fontSize:10,color:C.muted,fontWeight:600,marginBottom:3}}>Há totales</div>
-                  <div style={{padding:"7px 10px",background:C.cardAlt,borderRadius:6,fontSize:13,fontWeight:700,color:C.text}}>{N(((r.plantaciones||[]).reduce((s,p)=>s+(parseFloat(p.hectareas)||0),0)).toFixed(2))} há</div>
-                </div>
-              </div>
-
-              {(()=>{
-                const haTotal = (r.plantaciones||[]).reduce((s,p)=>s+(parseFloat(p.hectareas)||0),0);
-                if(haTotal===0) return <div style={{padding:14,background:C.purpleBg,borderRadius:8,fontSize:11,color:C.text}}>⚠️ Aún no hay hectáreas registradas en Plantaciones. Agrega plantaciones para ver el calendario.</div>;
-                if(!r.rcInicioTemporada) return <div style={{padding:14,background:C.purpleBg,borderRadius:8,fontSize:11,color:C.text}}>⚠️ Define la "Temporada inicio" arriba (ej. 2026/2027) para ver el calendario.</div>;
-                const valor = parseFloat(r.valorRoyaltyComercial)||0;
-                const temps = temporadasEntre(r.rcInicioTemporada, r.fechaTermino);
-                const pagos = r.rcPagos||{};
-                const updPago = (temp, campo, valor) => {
-                  const np = {...(r.rcPagos||{})};
-                  np[temp] = {...(np[temp]||{}), [campo]:valor};
-                  upd(r.id,"rcPagos",np);
-                };
-                const inflPct = r.royaltyInflacion ? (parseFloat(r.rcInflacionPct)||0) : 0;
-                const factorDe = (idx)=>Math.pow(1+inflPct/100, idx);
-                const totalAcumulado = temps.reduce((s,_,i)=>s + haTotal*valor*factorDe(i), 0);
-                return (
-                  <>
-                    <div style={{padding:10,background:C.purpleBg,borderRadius:8,marginBottom:10,fontSize:11,color:C.text}}>
-                      <strong>{temps.length}</strong> temporada{temps.length!==1?"s":""} desde {r.rcInicioTemporada}
-                      {r.fechaTermino?` hasta término ${r.fechaTermino}`:" (10 años proyectados)"} ·
-                      Total facturable acumulado: <strong>${N(totalAcumulado.toFixed(2))}</strong>
-                      {inflPct>0?<span> · 📈 inflación <strong>{N(inflPct)}%</strong> anual compuesta</span>:null}
-                    </div>
-                    <div style={{overflowX:"auto",minWidth:0,maxWidth:"calc(100vw - 40px)"}}>
-                      <table style={{width:"100%",borderCollapse:"collapse",fontSize:11}}>
-                        <thead><tr style={{background:C.primary}}>
-                          {["Temporada","Mes cobro","Há","$/há","Bruto","WHT","Neto","Pagado","Fecha pago","N° Fact."].map(h=>(
-                            <th key={h} style={{padding:"6px 8px",textAlign:"left",fontSize:10,fontWeight:700,color:C.primaryText}}>{h}</th>
-                          ))}
-                        </tr></thead>
-                        <tbody>
-                          {temps.map((t,ti)=>{
-                            const valorInfl = valor * factorDe(ti);
-                            const bruto = haTotal * valorInfl;
-                            const wht = bruto * (1-pct(r.pais));
-                            const neto = bruto - wht;
-                            const p = pagos[t] || {};
-                            return (
-                              <tr key={t} style={{borderBottom:"1px solid #fce7f3",background:p.pagado?C.successBg:""}}>
-                                <td style={{padding:"5px 8px",fontWeight:700,color:C.text}}>{t}</td>
-                                <td style={{padding:"5px 8px"}}>{r.rcMesCobro||RC_MES_DEFAULT_POR_PAIS[r.pais]||"—"} {parseInt(t.split("/")[1])}</td>
-                                <td style={{padding:"5px 8px",textAlign:"right"}}>{N(haTotal.toFixed(2))}</td>
-                                <td style={{padding:"5px 8px",textAlign:"right"}}>${N(valorInfl.toFixed(2))}{inflPct>0&&ti>0?<span style={{fontSize:9,color:C.am,display:"block"}}>×{factorDe(ti).toFixed(3)}</span>:null}</td>
-                                <td style={{padding:"5px 8px",textAlign:"right",fontWeight:700,color:C.text}}>${N(bruto.toFixed(2))}</td>
-                                <td style={{padding:"5px 8px",textAlign:"right",color:C.danger}}>{wht>0?`-$${N(wht.toFixed(2))}`:"—"}</td>
-                                <td style={{padding:"5px 8px",textAlign:"right",fontWeight:700,color:C.success}}>${N(neto.toFixed(2))}</td>
-                                <td style={{padding:"5px 8px",textAlign:"center"}}>
-                                  <input type="checkbox" disabled={!can} checked={!!p.pagado} onChange={e=>updPago(t,"pagado",e.target.checked)}/>
-                                </td>
-                                <td style={{padding:"5px 8px"}}>
-                                  <input type="date" disabled={!can || !p.pagado} value={p.fechaPago||""} onChange={e=>updPago(t,"fechaPago",e.target.value)}
-                                    style={{padding:"4px 6px",borderRadius:4,border:`1px solid ${C.border}`,fontSize:11,opacity:p.pagado?1:0.5}}/>
-                                </td>
-                                <td style={{padding:"5px 8px"}}>
-                                  <input disabled={!can} value={p.nFact||""} onChange={e=>updPago(t,"nFact",e.target.value)}
-                                    style={{width:80,padding:"4px 6px",borderRadius:4,border:`1px solid ${C.border}`,fontSize:11}}/>
-                                </td>
-                              </tr>
-                            );
-                          })}
-                        </tbody>
-                      </table>
-                    </div>
-                  </>
-                );
-              })()}
-            </div>
-            </>)}
+            })()}
           </>)}
 
           {/* ── SECCIÓN: ÓRDENES DE COMPRA + FACTURAS ROYALTY PLANTA ── */}
