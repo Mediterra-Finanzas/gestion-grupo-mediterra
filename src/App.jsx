@@ -2269,17 +2269,11 @@ export default function App(){
           });
         }
 
-        // También guardar el backup en Supabase como registro adicional
-        await fetch(`${SUPA_URL}/rest/v1/calendario_data`,{
-          method:"POST",
-          headers:{apikey:SUPA_KEY,Authorization:`Bearer ${SUPA_KEY}`,
-            "Content-Type":"application/json",Prefer:"resolution=merge-duplicates"},
-          body:JSON.stringify({
-            id:`backup_${new Date().toISOString().slice(0,10)}`,
-            value:backupJSON,
-            updated_at:new Date().toISOString()
-          })
-        });
+        // NOTA (FASE 4A): se ELIMINÓ la escritura duplicada del backup a Supabase.
+        // El respaldo diario en la base ya lo crea el respaldo automático (más
+        // arriba, "[Backup]"). Este escribía una copia gigante (doble-codificada)
+        // que (a) reventaba el límite del servidor al pasar por el guardia (error
+        // 500) y (b) pisaba al backup bueno. Aquí solo se envía el email resumen.
 
         console.log("✅ Respaldo diario completado y enviado por email");
       } catch(e) {
