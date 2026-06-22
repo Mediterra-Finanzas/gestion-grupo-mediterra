@@ -635,6 +635,33 @@ const COLOR_TIPO_PC = {
   A: C.primary, P: C.warning, C: "#7B5EA7", I: C.success, E: C.danger, O: C.textMuted,
 };
 
+const NATURALEZA_OPT = [
+  { value: "", label: "— (no aplica)" },
+  { value: "D", label: "D — Deudora (aumenta al debitar)" },
+  { value: "H", label: "H — Acreedora (aumenta al acreditar)" },
+];
+
+const CLASIF_ESF_OPT = [
+  { value: "", label: "— seleccione —" },
+  { value: "Activo Corriente", label: "Activo Corriente" },
+  { value: "Activo No Corriente", label: "Activo No Corriente" },
+  { value: "Pasivo Corriente", label: "Pasivo Corriente" },
+  { value: "Pasivo No Corriente", label: "Pasivo No Corriente" },
+  { value: "Patrimonio", label: "Patrimonio" },
+];
+
+const CLASIF_ERI_OPT = [
+  { value: "", label: "— seleccione —" },
+  { value: "Ingresos Ordinarios", label: "Ingresos Ordinarios" },
+  { value: "Costo de Ventas", label: "Costo de Ventas" },
+  { value: "Gastos Operacionales", label: "Gastos Operacionales" },
+  { value: "Gastos de Administración y Ventas", label: "GAV" },
+  { value: "Depreciación y Amortización", label: "Depreciación y Amortización" },
+  { value: "Resultado No Operacional", label: "Resultado No Operacional" },
+  { value: "Corrección Monetaria", label: "Corrección Monetaria" },
+  { value: "Impuesto a la Renta", label: "Impuesto a la Renta" },
+];
+
 // ── Helpers de detección de sistema para el importador ──────────────────────
 
 function normHeader(s) { return String(s).toLowerCase().trim().replace(/\s+/g, "_"); }
@@ -697,6 +724,52 @@ function autoMatchCuentas(rows, cuentas, colCodigo, colNombre) {
   });
 }
 
+// ── Helpers alta manual ─────────────────────────────────────────────────────
+
+function proponerCodigoHijo(padreCodigo, cuentas) {
+  if (!padreCodigo) return "";
+  const descendientes = cuentas
+    .filter((c) => c.codigo !== padreCodigo && c.codigo.startsWith(padreCodigo))
+    .map((c) => c.codigo);
+  if (descendientes.length === 0) return padreCodigo + "01";
+  const minLen = Math.min(...descendientes.map((c) => c.length));
+  const directos = descendientes.filter((c) => c.length === minLen);
+  const maxCodigo = directos.reduce((m, c) => (c > m ? c : m), directos[0]);
+  const maxNum = parseInt(maxCodigo, 10);
+  if (isNaN(maxNum)) return "";
+  const propuesto = String(maxNum + 1).padStart(maxCodigo.length, "0");
+  if (!propuesto.startsWith(padreCodigo)) return null; // overflow de rango
+  return propuesto;
+}
+
+async function logAudit(empresaId, tabla, registroId, accion, datosAntes, datosDespues) {
+  // audit_log con anon key bloqueado por RLS (SELECT-only). Se activará al agregar guardia/proxy.
+  const NIL_UUID = "00000000-0000-0000-0000-000000000000";
+  try {
+    await supaInsert("audit_log", {
+      usuario_id: NIL_UUID,
+      empresa_id: empresaId,
+      tabla,
+      registro_id: registroId || null,
+      accion,
+      datos_antes: datosAntes || null,
+      datos_despues: datosDespues || null,
+      modulo: "plan_cuentas",
+    });
+  } catch (_) {
+    console.warn("[audit_log] write bloqueado (anon policy):", accion, tabla, registroId);
+  }
+}
+
+function validarCoherenciaTipo(tipo, clasif_esf, clasif_eri, mueve) {
+  if (!mueve) return null; // agrupadores no requieren clasificación
+  if (["A", "P", "C"].includes(tipo) && !clasif_esf)
+    return `Tipo ${tipo} requiere Clasificación ESF (cuenta hoja)`;
+  if (["I", "E"].includes(tipo) && !clasif_eri)
+    return `Tipo ${tipo} requiere Clasificación ERI (cuenta hoja)`;
+  return null;
+}
+
 // ── Tab Plan de Cuentas ─────────────────────────────────────────────────────
 
 function PlanCuentasTab({ empresas, empresaId, setEmpresaId, canEdit }) {
@@ -712,6 +785,8 @@ function PlanCuentasTab({ empresas, empresaId, setEmpresaId, canEdit }) {
   const [filtroLibro, setFiltroLibro] = useState("");
   const [expanded, setExpanded] = useState({});
   const [modal, setModal] = useState(null);
+  const [clasifDesbloq, setClasifDesbloq] = useState(false);
+  const [codigoSugerido, setCodigoSugerido] = useState(false);
   const cargaOkRef = useRef(false);
 
   const load = useCallback(async () => {
@@ -764,9 +839,54 @@ function PlanCuentasTab({ empresas, empresaId, setEmpresaId, canEdit }) {
       aplica_trib: true, aplica_ifrs: true, acepta_me: false,
       usa_ceco: false, usa_auxiliar: false, activa: true,
       ifrs_nombre: "", clasif_ifrs: "", orden_display: 0,
+      naturaleza: "", clasificacion_esf: "", clasificacion_eri: "",
+      _clasifHeredada: false, _mueveOriginal: true,
+      _tipoOriginal: "A", _clasifEsfOriginal: null, _clasifEriOriginal: null,
     };
-    setModal({ mode, item: mode === "add" ? defaults : { ...defaults, ...item } });
+    const data =
+      mode === "add"
+        ? defaults
+        : {
+            ...defaults,
+            ...item,
+            naturaleza: item.naturaleza || "",
+            clasificacion_esf: item.clasificacion_esf || "",
+            clasificacion_eri: item.clasificacion_eri || "",
+            _clasifHeredada: false,
+            _mueveOriginal: item.mueve !== false,
+            _tipoOriginal: item.tipo,
+            _clasifEsfOriginal: item.clasificacion_esf || null,
+            _clasifEriOriginal: item.clasificacion_eri || null,
+          };
+    setModal({ mode, item: data });
+    setClasifDesbloq(false);
+    setCodigoSugerido(false);
     setError("");
+  };
+
+  const onPadreChange = (padreCodigo) => {
+    if (!padreCodigo) {
+      setModal((x) => ({ ...x, item: { ...x.item, padre_codigo: "" } }));
+      setCodigoSugerido(false);
+      return;
+    }
+    const padre = cuentas.find((c) => c.codigo === padreCodigo);
+    const propuesto = proponerCodigoHijo(padreCodigo, cuentas);
+    setModal((x) => ({
+      ...x,
+      item: {
+        ...x.item,
+        padre_codigo: padreCodigo,
+        codigo: propuesto || x.item.codigo,
+        tipo: padre?.tipo || x.item.tipo,
+        naturaleza: padre?.naturaleza || x.item.naturaleza,
+        clasificacion_esf: padre?.clasificacion_esf || x.item.clasificacion_esf,
+        clasificacion_eri: padre?.clasificacion_eri || x.item.clasificacion_eri,
+        _clasifHeredada: !!padre,
+      },
+    }));
+    setCodigoSugerido(!!propuesto);
+    setClasifDesbloq(false);
   };
 
   const handleSave = async () => {
@@ -777,16 +897,97 @@ function PlanCuentasTab({ empresas, empresaId, setEmpresaId, canEdit }) {
     }
     if (!cargaOkRef.current) { setError("Carga pendiente, intenta de nuevo"); return; }
     setError("");
+
+    const codigoTrim = item.codigo.trim();
+    const nuevaMueve = item.nivel === 1 ? false : !!item.mueve;
+
+    // (a) Código único por empresa
+    const duplicado = cuentas.find(
+      (c) => c.codigo === codigoTrim && (mode === "add" || c.id !== item.id)
+    );
+    if (duplicado) {
+      setError(`El código ${codigoTrim} ya existe en el plan de esta empresa`);
+      return;
+    }
+
+    // (b) Padre existe y código comienza por su prefijo
+    if (item.padre_codigo) {
+      const padreExists = cuentas.find((c) => c.codigo === item.padre_codigo);
+      if (!padreExists) {
+        setError(`El código padre "${item.padre_codigo}" no existe en el plan`);
+        return;
+      }
+      if (!codigoTrim.startsWith(item.padre_codigo)) {
+        setError(`El código ${codigoTrim} no comienza con el prefijo del padre (${item.padre_codigo})`);
+        return;
+      }
+    }
+
+    // (c) Imputabilidad: mueve true → false requiere que no haya asientos
+    if (mode === "edit" && item._mueveOriginal === true && nuevaMueve === false) {
+      try {
+        const rows = await supaSelect("contab_asientos_lineas", `cuenta_id=eq.${item.id}&limit=1&select=id`);
+        if (rows && rows.length > 0) {
+          setError("Esta cuenta tiene asientos registrados y no puede convertirse en agrupador (quitar imputabilidad)");
+          return;
+        }
+      } catch (e) {
+        setError("No se pudo verificar asientos existentes: " + e.message);
+        return;
+      }
+    }
+
+    // Coherencia tipo ↔ clasificación (solo en cuentas hoja)
+    if (nuevaMueve) {
+      const coherErr = validarCoherenciaTipo(item.tipo, item.clasificacion_esf, item.clasificacion_eri, true);
+      if (coherErr) { setError(coherErr); return; }
+    }
+
+    // Advertencia si tipo cambia y la cuenta tiene asientos (solo edit)
+    if (mode === "edit" && item.tipo !== item._tipoOriginal) {
+      try {
+        const rows = await supaSelect("contab_asientos_lineas", `cuenta_id=eq.${item.id}&limit=1&select=id`);
+        if (rows && rows.length > 0) {
+          const ok = window.confirm(
+            `Esta cuenta tiene asientos registrados con tipo ${item._tipoOriginal}. ` +
+            `Cambiar a tipo ${item.tipo} puede afectar la presentación en EEFF. ¿Continuar?`
+          );
+          if (!ok) return;
+        }
+      } catch (_) {}
+    }
+
+    // Padre hoja → agrupador automático (crear hoja bajo una cuenta hoja)
+    let padreCuentaConvertir = null;
+    if (mode === "add" && item.padre_codigo) {
+      const padre = cuentas.find((c) => c.codigo === item.padre_codigo);
+      if (padre && padre.mueve === true) {
+        try {
+          const rows = await supaSelect("contab_asientos_lineas", `cuenta_id=eq.${padre.id}&limit=1&select=id`);
+          if (rows && rows.length > 0) {
+            setError(
+              `La cuenta padre ${padre.codigo} tiene asientos registrados y no puede convertirse en agrupador. Seleccione otro padre.`
+            );
+            return;
+          }
+          padreCuentaConvertir = padre;
+        } catch (e) {
+          setError("No se pudo verificar el padre: " + e.message);
+          return;
+        }
+      }
+    }
+
     try {
       const payload = {
         empresa_id: empresaId,
-        codigo: item.codigo.trim(),
+        codigo: codigoTrim,
         nombre: item.nombre.trim(),
         nombre_corto: item.nombre_corto?.trim() || null,
         tipo: item.tipo,
         subtipo: item.subtipo || null,
         nivel: Number(item.nivel) || 2,
-        mueve: item.nivel === 1 ? false : !!item.mueve,
+        mueve: nuevaMueve,
         padre_codigo: item.padre_codigo?.trim() || null,
         aplica_trib: !!item.aplica_trib,
         aplica_ifrs: !!item.aplica_ifrs,
@@ -797,14 +998,37 @@ function PlanCuentasTab({ empresas, empresaId, setEmpresaId, canEdit }) {
         ifrs_nombre: item.ifrs_nombre?.trim() || null,
         clasif_ifrs: item.clasif_ifrs?.trim() || null,
         orden_display: Number(item.orden_display) || 0,
+        naturaleza: item.naturaleza || null,
+        clasificacion_esf: item.clasificacion_esf || null,
+        clasificacion_eri: item.clasificacion_eri || null,
       };
+
+      let savedId = item.id;
       if (mode === "add") {
-        await supaInsert("contab_plan_cuentas", payload);
+        const result = await supaInsert("contab_plan_cuentas", payload);
+        savedId = result?.[0]?.id;
       } else {
         await supaUpdate("contab_plan_cuentas", item.id, payload);
       }
+
+      // Audit: sobrescritura de clasificación heredada
+      if (item._clasifHeredada && clasifDesbloq) {
+        await logAudit(
+          empresaId, "contab_plan_cuentas", savedId, "editar",
+          { clasificacion_esf: item._clasifEsfOriginal, clasificacion_eri: item._clasifEriOriginal },
+          { clasificacion_esf: item.clasificacion_esf, clasificacion_eri: item.clasificacion_eri, nota: "override_clasificacion_manual" }
+        );
+      }
+
+      // Convertir padre de hoja a agrupador
+      if (padreCuentaConvertir) {
+        await supaUpdate("contab_plan_cuentas", padreCuentaConvertir.id, { mueve: false, nivel: 1 });
+      }
+
       setOk(mode === "add" ? "Cuenta creada" : "Cuenta actualizada");
       setModal(null);
+      setClasifDesbloq(false);
+      setCodigoSugerido(false);
       load();
       setTimeout(() => setOk(""), 3000);
     } catch (e) {
@@ -1251,121 +1475,192 @@ function PlanCuentasTab({ empresas, empresaId, setEmpresaId, canEdit }) {
           )}
 
           {/* Modal agregar/editar */}
-          {modal && (
-            <Modal
-              title={modal.mode === "add" ? "Nueva cuenta" : `Editar — ${modal.item.codigo}`}
-              onClose={() => { setModal(null); setError(""); }}
-              width={600}
-            >
-              <ErrorMsg msg={error} />
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0 16px" }}>
-                <Field label="Código" required>
-                  {textInput(modal.item.codigo, (v) =>
-                    setModal((x) => ({ ...x, item: { ...x.item, codigo: v } }))
-                  )}
-                </Field>
-                <Field label="Nombre corto">
-                  {textInput(modal.item.nombre_corto || "", (v) =>
-                    setModal((x) => ({ ...x, item: { ...x.item, nombre_corto: v } }))
-                  )}
-                </Field>
-              </div>
-              <Field label="Nombre" required>
-                {textInput(modal.item.nombre, (v) =>
-                  setModal((x) => ({ ...x, item: { ...x.item, nombre: v } }))
-                )}
-              </Field>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "0 16px" }}>
-                <Field label="Tipo">
+          {modal && (() => {
+            const isAdd = modal.mode === "add";
+            const it = modal.item;
+            const upd = (patch) => setModal((x) => ({ ...x, item: { ...x.item, ...patch } }));
+            const locked = it._clasifHeredada && !clasifDesbloq;
+            const padreSel = it.padre_codigo ? cuentas.find((c) => c.codigo === it.padre_codigo) : null;
+            const padreEsHoja = padreSel && padreSel.mueve === true;
+            const esESF = ["A", "P", "C"].includes(it.tipo);
+            const esERI = ["I", "E"].includes(it.tipo);
+            return (
+              <Modal
+                title={isAdd ? "Nueva cuenta" : `Editar — ${it.codigo}`}
+                onClose={() => { setModal(null); setClasifDesbloq(false); setCodigoSugerido(false); setError(""); }}
+                width={620}
+              >
+                <ErrorMsg msg={error} />
+
+                {/* ── Cuenta padre — PRIMER CAMPO ── */}
+                <Field label={isAdd ? "Cuenta padre (agrupador)" : "Código padre"}>
                   <SelectInput
-                    value={modal.item.tipo || "A"}
-                    onChange={(v) => setModal((x) => ({ ...x, item: { ...x.item, tipo: v } }))}
-                    options={TIPOS_PC.map((t) => ({ value: t.value, label: `${t.value} — ${t.label}` }))}
+                    value={it.padre_codigo || ""}
+                    onChange={isAdd ? onPadreChange : (v) => upd({ padre_codigo: v || null })}
+                    options={[{ value: "", label: "— Sin padre (nivel raíz) —" }].concat(
+                      cuentas
+                        .filter((c) => c.codigo !== it.codigo)
+                        .map((c) => ({
+                          value: c.codigo,
+                          label: `${c.codigo} — ${c.nombre}${c.mueve ? " [hoja]" : ""}`,
+                        }))
+                    )}
                     style={{ width: "100%" }}
                   />
                 </Field>
-                <Field label="Subtipo">
-                  {textInput(modal.item.subtipo || "", (v) =>
-                    setModal((x) => ({ ...x, item: { ...x.item, subtipo: v } }))
-                  )}
-                </Field>
-                <Field label="Nivel">
-                  <SelectInput
-                    value={String(modal.item.nivel || 2)}
-                    onChange={(v) => setModal((x) => ({ ...x, item: { ...x.item, nivel: Number(v) } }))}
-                    options={[
-                      { value: "1", label: "1 — Agrupador" },
-                      { value: "2", label: "2 — Hoja (acepta asientos)" },
-                    ]}
-                    style={{ width: "100%" }}
-                  />
-                </Field>
-              </div>
-              <Field label="Código padre (agrupador)">
-                <SelectInput
-                  value={modal.item.padre_codigo || ""}
-                  onChange={(v) =>
-                    setModal((x) => ({ ...x, item: { ...x.item, padre_codigo: v || null } }))
-                  }
-                  options={[{ value: "", label: "— Sin padre —" }].concat(
-                    cuentas
-                      .filter((c) => c.nivel === 1 && c.codigo !== modal.item.codigo)
-                      .map((c) => ({ value: c.codigo, label: `${c.codigo} — ${c.nombre}` }))
-                  )}
-                  style={{ width: "100%" }}
-                />
-              </Field>
-              <div style={{ display: "flex", gap: 20, flexWrap: "wrap", marginBottom: 8 }}>
-                {checkInput(!!modal.item.aplica_trib, (v) =>
-                  setModal((x) => ({ ...x, item: { ...x.item, aplica_trib: v } })),
-                  "Aplica tributario"
+                {isAdd && padreEsHoja && (
+                  <div style={{ background: C.warningBg, border: `1px solid ${C.warning}`, borderRadius: 6, padding: "7px 12px", fontSize: 12, color: C.warning, marginBottom: 12 }}>
+                    La cuenta padre actualmente acepta asientos. Al guardar, pasara a ser agrupador automaticamente (si no tiene asientos).
+                  </div>
                 )}
-                {checkInput(!!modal.item.aplica_ifrs, (v) =>
-                  setModal((x) => ({ ...x, item: { ...x.item, aplica_ifrs: v } })),
-                  "Aplica IFRS"
+                {isAdd && it.padre_codigo && proponerCodigoHijo(it.padre_codigo, cuentas) === null && (
+                  <div style={{ background: C.dangerBg, border: `1px solid ${C.danger}`, borderRadius: 6, padding: "7px 12px", fontSize: 12, color: C.danger, marginBottom: 12 }}>
+                    El rango de codigos bajo este padre esta lleno. Edite el codigo propuesto manualmente.
+                  </div>
                 )}
-                {checkInput(!!modal.item.acepta_me, (v) =>
-                  setModal((x) => ({ ...x, item: { ...x.item, acepta_me: v } })),
-                  "Acepta moneda extranjera"
-                )}
-                {checkInput(!!modal.item.usa_ceco, (v) =>
-                  setModal((x) => ({ ...x, item: { ...x.item, usa_ceco: v } })),
-                  "Requiere centro de costo"
-                )}
-                {checkInput(!!modal.item.usa_auxiliar, (v) =>
-                  setModal((x) => ({ ...x, item: { ...x.item, usa_auxiliar: v } })),
-                  "Requiere auxiliar"
-                )}
-                {checkInput(modal.item.activa !== false, (v) =>
-                  setModal((x) => ({ ...x, item: { ...x.item, activa: v } })),
-                  "Activa"
-                )}
-              </div>
-              <div style={{ borderTop: `1px solid ${C.border}`, paddingTop: 12, marginBottom: 12 }}>
-                <p style={{ fontSize: 11, color: C.textMuted, marginBottom: 8, fontWeight: 600 }}>
-                  CLASIFICACIÓN IFRS (opcional)
-                </p>
+
+                {/* ── Código + Nombre ── */}
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0 16px" }}>
-                  <Field label="Nombre IFRS">
-                    {textInput(modal.item.ifrs_nombre || "", (v) =>
-                      setModal((x) => ({ ...x, item: { ...x.item, ifrs_nombre: v } }))
-                    )}
+                  <Field label="Código" required>
+                    <div style={{ position: "relative" }}>
+                      {textInput(it.codigo, (v) => { setCodigoSugerido(false); upd({ codigo: v }); })}
+                      {codigoSugerido && (
+                        <span style={{ position: "absolute", right: 8, top: "50%", transform: "translateY(-50%)", fontSize: 10, color: C.info, pointerEvents: "none" }}>
+                          auto
+                        </span>
+                      )}
+                    </div>
                   </Field>
-                  <Field label="Clasificación IFRS">
-                    {textInput(modal.item.clasif_ifrs || "", (v) =>
-                      setModal((x) => ({ ...x, item: { ...x.item, clasif_ifrs: v } }))
-                    )}
+                  <Field label="Nombre corto">
+                    {textInput(it.nombre_corto || "", (v) => upd({ nombre_corto: v }))}
                   </Field>
                 </div>
-              </div>
-              <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
-                <Btn color="ghost" onClick={() => { setModal(null); setError(""); }}>Cancelar</Btn>
-                <Btn color="primary" onClick={handleSave}>
-                  {modal.mode === "add" ? "Crear cuenta" : "Guardar cambios"}
-                </Btn>
-              </div>
-            </Modal>
-          )}
+                <Field label="Nombre" required>
+                  {textInput(it.nombre, (v) => upd({ nombre: v }))}
+                </Field>
+
+                {/* ── Clasificación contable ── */}
+                <div style={{ borderTop: `1px solid ${C.border}`, paddingTop: 12, marginBottom: 4 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+                    <p style={{ fontSize: 11, color: C.textMuted, fontWeight: 600, margin: 0 }}>
+                      CLASIFICACION CONTABLE
+                    </p>
+                    {it._clasifHeredada && (
+                      <Btn
+                        size="sm"
+                        color={clasifDesbloq ? "warning" : "ghost"}
+                        onClick={() => setClasifDesbloq((v) => !v)}
+                      >
+                        {clasifDesbloq ? "Bloquear clasificacion" : "Editar clasificacion"}
+                      </Btn>
+                    )}
+                  </div>
+                  {locked && (
+                    <p style={{ fontSize: 11, color: C.textMuted, fontStyle: "italic", marginBottom: 10 }}>
+                      Clasificacion heredada del padre. Usa "Editar clasificacion" para sobrescribir.
+                    </p>
+                  )}
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "0 16px" }}>
+                    <Field label="Tipo">
+                      <SelectInput
+                        value={it.tipo || "A"}
+                        onChange={(v) => upd({ tipo: v })}
+                        options={TIPOS_PC.map((t) => ({ value: t.value, label: `${t.value} — ${t.label}` }))}
+                        disabled={locked}
+                        style={{ width: "100%" }}
+                      />
+                    </Field>
+                    <Field label="Naturaleza">
+                      <SelectInput
+                        value={it.naturaleza || ""}
+                        onChange={(v) => upd({ naturaleza: v })}
+                        options={NATURALEZA_OPT}
+                        disabled={locked}
+                        style={{ width: "100%" }}
+                      />
+                    </Field>
+                    <Field label="Subtipo">
+                      {textInput(it.subtipo || "", (v) => upd({ subtipo: v }), "", locked)}
+                    </Field>
+                  </div>
+                  {esESF && (
+                    <Field label="Clasificacion ESF">
+                      <SelectInput
+                        value={it.clasificacion_esf || ""}
+                        onChange={(v) => upd({ clasificacion_esf: v })}
+                        options={CLASIF_ESF_OPT}
+                        disabled={locked}
+                        style={{ width: "100%" }}
+                      />
+                    </Field>
+                  )}
+                  {esERI && (
+                    <Field label="Clasificacion ERI">
+                      <SelectInput
+                        value={it.clasificacion_eri || ""}
+                        onChange={(v) => upd({ clasificacion_eri: v })}
+                        options={CLASIF_ERI_OPT}
+                        disabled={locked}
+                        style={{ width: "100%" }}
+                      />
+                    </Field>
+                  )}
+                </div>
+
+                {/* ── Nivel / Imputabilidad ── */}
+                <div style={{ borderTop: `1px solid ${C.border}`, paddingTop: 12, marginBottom: 4 }}>
+                  <p style={{ fontSize: 11, color: C.textMuted, fontWeight: 600, marginBottom: 10 }}>
+                    IMPUTABILIDAD Y OPCIONES
+                  </p>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0 16px" }}>
+                    <Field label="Nivel">
+                      <SelectInput
+                        value={String(it.nivel || 2)}
+                        onChange={(v) => upd({ nivel: Number(v) })}
+                        options={[
+                          { value: "1", label: "1 — Agrupador (no acepta asientos)" },
+                          { value: "2", label: "2 — Hoja (acepta asientos)" },
+                        ]}
+                        style={{ width: "100%" }}
+                      />
+                    </Field>
+                  </div>
+                  <div style={{ display: "flex", gap: 20, flexWrap: "wrap", marginTop: 8 }}>
+                    {checkInput(!!it.aplica_trib, (v) => upd({ aplica_trib: v }), "Aplica tributario")}
+                    {checkInput(!!it.aplica_ifrs, (v) => upd({ aplica_ifrs: v }), "Aplica IFRS")}
+                    {checkInput(!!it.acepta_me, (v) => upd({ acepta_me: v }), "Acepta moneda extranjera")}
+                    {checkInput(!!it.usa_ceco, (v) => upd({ usa_ceco: v }), "Requiere centro de costo")}
+                    {checkInput(!!it.usa_auxiliar, (v) => upd({ usa_auxiliar: v }), "Requiere auxiliar")}
+                    {checkInput(it.activa !== false, (v) => upd({ activa: v }), "Activa")}
+                  </div>
+                </div>
+
+                {/* ── Clasificación IFRS (opcional) ── */}
+                <div style={{ borderTop: `1px solid ${C.border}`, paddingTop: 12, marginBottom: 12 }}>
+                  <p style={{ fontSize: 11, color: C.textMuted, marginBottom: 8, fontWeight: 600 }}>
+                    CLASIFICACION IFRS (opcional)
+                  </p>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0 16px" }}>
+                    <Field label="Nombre IFRS">
+                      {textInput(it.ifrs_nombre || "", (v) => upd({ ifrs_nombre: v }))}
+                    </Field>
+                    <Field label="Clasificacion IFRS">
+                      {textInput(it.clasif_ifrs || "", (v) => upd({ clasif_ifrs: v }))}
+                    </Field>
+                  </div>
+                </div>
+
+                <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+                  <Btn color="ghost" onClick={() => { setModal(null); setClasifDesbloq(false); setCodigoSugerido(false); setError(""); }}>
+                    Cancelar
+                  </Btn>
+                  <Btn color="primary" onClick={handleSave}>
+                    {isAdd ? "Crear cuenta" : "Guardar cambios"}
+                  </Btn>
+                </div>
+              </Modal>
+            );
+          })()}
         </div>
       )}
 
