@@ -726,19 +726,36 @@ function autoMatchCuentas(rows, cuentas, colCodigo, colNombre) {
 
 // ── Helpers alta manual ─────────────────────────────────────────────────────
 
+function prefijoEfectivo(codigo) {
+  // Jerarquía por prefijo sin ceros de relleno al final (spec: agrupador 1101000 -> prefijo 1101)
+  return codigo.replace(/0+$/, "") || codigo;
+}
+
 function proponerCodigoHijo(padreCodigo, cuentas) {
   if (!padreCodigo) return "";
+  const prefijo = prefijoEfectivo(padreCodigo);
+
   const descendientes = cuentas
-    .filter((c) => c.codigo !== padreCodigo && c.codigo.startsWith(padreCodigo))
+    .filter((c) => c.codigo !== padreCodigo && c.codigo.startsWith(prefijo))
     .map((c) => c.codigo);
-  if (descendientes.length === 0) return padreCodigo + "01";
+
+  if (descendientes.length === 0) {
+    // Sin hijos aún: proponer padre+1 al mismo ancho (ej. 1101000 -> 1101001)
+    const padreNum = parseInt(padreCodigo, 10);
+    if (isNaN(padreNum)) return "";
+    const propuesto = String(padreNum + 1).padStart(padreCodigo.length, "0");
+    if (!propuesto.startsWith(prefijo)) return null; // overflow
+    return propuesto;
+  }
+
+  // Hijos directos = códigos al nivel de menor profundidad
   const minLen = Math.min(...descendientes.map((c) => c.length));
   const directos = descendientes.filter((c) => c.length === minLen);
   const maxCodigo = directos.reduce((m, c) => (c > m ? c : m), directos[0]);
   const maxNum = parseInt(maxCodigo, 10);
   if (isNaN(maxNum)) return "";
   const propuesto = String(maxNum + 1).padStart(maxCodigo.length, "0");
-  if (!propuesto.startsWith(padreCodigo)) return null; // overflow de rango
+  if (!propuesto.startsWith(prefijo)) return null; // overflow de rango
   return propuesto;
 }
 
@@ -910,15 +927,18 @@ function PlanCuentasTab({ empresas, empresaId, setEmpresaId, canEdit }) {
       return;
     }
 
-    // (b) Padre existe y código comienza por su prefijo
+    // (b) Padre existe y código pertenece al rango del padre (prefijo efectivo sin ceros al final)
     if (item.padre_codigo) {
       const padreExists = cuentas.find((c) => c.codigo === item.padre_codigo);
       if (!padreExists) {
         setError(`El código padre "${item.padre_codigo}" no existe en el plan`);
         return;
       }
-      if (!codigoTrim.startsWith(item.padre_codigo)) {
-        setError(`El código ${codigoTrim} no comienza con el prefijo del padre (${item.padre_codigo})`);
+      const prefijoPadre = prefijoEfectivo(item.padre_codigo);
+      if (!codigoTrim.startsWith(prefijoPadre)) {
+        setError(
+          `El código ${codigoTrim} no pertenece al rango del padre ${item.padre_codigo} (prefijo: ${prefijoPadre})`
+        );
         return;
       }
     }
