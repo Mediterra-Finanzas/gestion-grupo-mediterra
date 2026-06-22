@@ -69,15 +69,31 @@ Vistas: `contab_balance_8_columnas`, `contab_costos_cuartel`, `contab_saldos_acu
 - `moneda_presentacion char(3)` — moneda del consolidado del grupo (USD)
 - `regimen_tributario text` (ProPyme, semi-integrado, etc.)
 
-**contab_plan_cuentas — atributos explícitos, NO inferir tipo del primer dígito:**
+**contab_plan_cuentas — atributos explícitos. El tipo NO se infiere del primer dígito:**
 - `naturaleza char(1)` D/H (deudora/acreedora)
 - `mueve (= imputable) boolean` — true solo en cuentas hoja; los agrupadores tienen mueve=false
 - `nivel int`, `cuenta_padre_id`
 - `exige_auxiliar boolean`, `exige_centro_costo boolean`
 - `moneda char(3) null` (null = moneda funcional de la empresa)
-- `clasificacion_esf text` (Activo corriente, Activo no corriente, Pasivo corriente, Pasivo no corriente, Patrimonio)
-- `clasificacion_eri text` (Ingresos, Costo de venta, GAV, No operacional…)
-- `tipo char(1)` (A/P/C/I/E) — derivado, editable, el dígito es solo sugerencia inicial del wizard
+- `clasificacion_esf text` (Activo Corriente, Activo No Corriente, Pasivo Corriente, Pasivo No Corriente, Patrimonio)
+- `clasificacion_eri text` (Costo de Ventas, Gastos Operacionales, Gastos Admin. y Ventas (GAV), Resultado No Operacional, Correccion Monetaria, Impuesto a la Renta, Ingresos Ordinarios, Ingresos Financieros, Otros Ingresos)
+- `tipo char(1)` (A/P/C/I/E/O) — derivado del campo `pla_clasif` del export de Megasystem (o equivalente de CONTEC), editable por el usuario. El primer dígito del código es solo pista de contexto.
+
+**Regla de derivación tipo por sistema origen:**
+
+*Megasystem (`pla_clasif`):*
+- pla_clasif=1 → tipo=A (Activo)
+- pla_clasif=2 → tipo=P (Pasivo), **EXCEPTO** subcódigos 27xxxxx → tipo=C (Capital y Patrimonio)
+- pla_clasif=3 → tipo=I (Ingreso)
+- pla_clasif=4 → tipo=E (Egreso)
+- pla_clasif=6 → tipo=O (Orden)
+
+La regla genérica "1=A, 2=P, 3=C, 4=I, 5/6=E" era un supuesto inicial que quedó **desmentida** por el plan real de Allpa Farms (Megasystem): dígito 3=Ingresos, dígito 4=Egresos, Capital y Patrimonio está en el sub-rango 27xxxxx dentro del dígito 2. No existe dígito 5 en ese plan.
+
+*CONTEC:* pendiente de inspección del export real (adapter_contec, Fase 2).
+
+**Jerarquía y subtotales del balance:**
+La jerarquía se determina por prefijo de código, no por `pla_nivcta`. La cuenta A es padre de B si el código de A (sin ceros de relleno) es prefijo del de B. Los subtotales del balance 8 columnas suman saldos de hojas hacia sus agrupadores por prefijo. `cuenta_padre_id` es FK de refuerzo para integridad; la vista de balance puede derivar la jerarquía por prefijo en SQL.
 
 **contab_homologacion — soportar múltiples orígenes:**
 - `sistema_origen text` (CONTEC, MEGASYSTEM, MANUAL)
