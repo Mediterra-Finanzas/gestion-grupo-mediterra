@@ -626,12 +626,13 @@ function EmpresasTab({ canEdit }) {
 const TIPOS_PC = [
   { value: "A", label: "Activo" },
   { value: "P", label: "Pasivo" },
+  { value: "C", label: "Capital y Patrimonio" },
   { value: "I", label: "Ingreso" },
   { value: "E", label: "Egreso" },
   { value: "O", label: "Orden" },
 ];
 const COLOR_TIPO_PC = {
-  A: C.primary, P: C.warning, I: C.success, E: C.danger, O: C.textMuted,
+  A: C.primary, P: C.warning, C: "#7B5EA7", I: C.success, E: C.danger, O: C.textMuted,
 };
 
 // ── Helpers de detección de sistema para el importador ──────────────────────
@@ -850,7 +851,8 @@ function PlanCuentasTab({ empresas, empresaId, setEmpresaId, canEdit }) {
   const inferirTipoCuenta = (codigo) => {
     const d = String(codigo || "")[0];
     if (d === "1") return "A";
-    if (d === "2" || d === "3") return "P";
+    if (d === "2") return "P";
+    if (d === "3") return "C";
     if (d === "4") return "I";
     if (d === "5" || d === "6") return "E";
     return "O";
@@ -3097,7 +3099,7 @@ function LibroDiarioTab({ empresaId, canEdit, usuario }) {
 
   const hayErroresLineas = erroresLineas.some((e) => e.length > 0);
   const puedeGuardar = lineas.length > 0 && !hayErroresLineas;
-  const puedeMayorizar = puedeGuardar && cuadrado && asiento?.estado === "borrador";
+  const puedeContabilizar = puedeGuardar && cuadrado && asiento?.estado === "borrador";
 
   // ── Abrir editor ──────────────────────────────────────────────────────────────
   const abrirNuevo = () => {
@@ -3272,23 +3274,23 @@ function LibroDiarioTab({ empresaId, canEdit, usuario }) {
     setGuardando(false);
   };
 
-  const handleMayorizar = async () => {
-    if (!puedeMayorizar) return;
+  const handleContabilizar = async () => {
+    if (!puedeContabilizar) return;
     setGuardando(true);
     setEdError("");
     try {
       await handleGuardar();
       await supaUpdate("contab_asientos", asiento.id, {
-        estado: "mayorizado",
+        estado: "contabilizado",
         fecha_mayorizado: new Date().toISOString(),
         usuario_mayorizo: usuario?.id || null,
       });
-      setAsiento((a) => ({ ...a, estado: "mayorizado" }));
-      setEdOk("Asiento mayorizado correctamente");
+      setAsiento((a) => ({ ...a, estado: "contabilizado" }));
+      setEdOk("Asiento contabilizado correctamente");
       loadAsientos();
       setTimeout(() => setEdOk(""), 4000);
     } catch (e) {
-      setEdError("Error al mayorizar: " + e.message);
+      setEdError("Error al contabilizar: " + e.message);
     }
     setGuardando(false);
   };
@@ -3434,7 +3436,7 @@ function LibroDiarioTab({ empresaId, canEdit, usuario }) {
           usuario_crea: usuario?.id || null,
           total_debe: debe,
           total_haber: haber,
-          ...(mEstado === "mayorizado" ? { fecha_mayorizado: new Date().toISOString() } : {}),
+          ...(mEstado === "contabilizado" ? { fecha_mayorizado: new Date().toISOString() } : {}),
         });
         await supaInsert("contab_asientos_lineas",
           lineasValidas.map((l, i) => ({
@@ -3463,8 +3465,10 @@ function LibroDiarioTab({ empresaId, canEdit, usuario }) {
   // ── Helpers UI ────────────────────────────────────────────────────────────────
   const badgeEstado = (estado) => {
     const map = {
-      borrador: { bg: "#E6F1FB", color: "#185FA5", label: "Borrador" },
-      mayorizado: { bg: "#EAF3DE", color: "#3B6D11", label: "Mayorizado" },
+      borrador:      { bg: "#E6F1FB", color: "#185FA5", label: "Borrador" },
+      cuadrado:      { bg: "#FDF3D0", color: "#7A5C00", label: "Cuadrado" },
+      contabilizado: { bg: "#EAF3DE", color: "#3B6D11", label: "Contabilizado" },
+      anulado:       { bg: "#FDE8E8", color: "#9B1C1C", label: "Anulado" },
     };
     const s = map[estado] || { bg: "#F1EFE8", color: "#5F5E5A", label: estado };
     return (
@@ -3517,7 +3521,7 @@ function LibroDiarioTab({ empresaId, canEdit, usuario }) {
           <SelectInput
             value={filtroEstado}
             onChange={setFiltroEstado}
-            options={[{ value: "", label: "Todos los estados" }, { value: "borrador", label: "Borrador" }, { value: "mayorizado", label: "Mayorizado" }]}
+            options={[{ value: "", label: "Todos los estados" }, { value: "borrador", label: "Borrador" }, { value: "cuadrado", label: "Cuadrado" }, { value: "contabilizado", label: "Contabilizado" }, { value: "anulado", label: "Anulado" }]}
             style={{ width: 140 }}
           />
           <SearchInput value={buscar} onChange={setBuscar} placeholder="Buscar glosa o N°..." />
@@ -3585,7 +3589,7 @@ function LibroDiarioTab({ empresaId, canEdit, usuario }) {
                       <Td>{badgeEstado(a.estado)}</Td>
                       <Td>
                         <Btn size="sm" color="ghost" onClick={(e) => { e.stopPropagation(); abrirEditar(a); }}>
-                          {a.estado === "mayorizado" ? "Ver" : "Editar"}
+                          {a.estado === "contabilizado" ? "Ver" : "Editar"}
                         </Btn>
                       </Td>
                     </Tr>
@@ -3607,7 +3611,7 @@ function LibroDiarioTab({ empresaId, canEdit, usuario }) {
 
   // ── VISTA: EDITOR ─────────────────────────────────────────────────────────────
   if (vista === "editor") {
-    const readOnly = asiento?.estado === "mayorizado";
+    const readOnly = asiento?.estado === "contabilizado" || asiento?.estado === "anulado";
     return (
       <div>
         <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 16 }}>
@@ -3937,22 +3941,22 @@ function LibroDiarioTab({ empresaId, canEdit, usuario }) {
                   </Btn>
                   <Btn
                     color="success"
-                    onClick={handleMayorizar}
-                    disabled={guardando || !puedeMayorizar}
-                    style={{ opacity: puedeMayorizar ? 1 : 0.45 }}
+                    onClick={handleContabilizar}
+                    disabled={guardando || !puedeContabilizar}
+                    style={{ opacity: puedeContabilizar ? 1 : 0.45 }}
                   >
-                    Mayorizar →
+                    Contabilizar →
                   </Btn>
-                  {!puedeMayorizar && (
+                  {!puedeContabilizar && (
                     <span style={{ fontSize: 11, color: C.textMuted }}>
-                      {!cuadrado ? "Debe cuadrar para mayorizar" : hayErroresLineas ? "Corrige errores en líneas" : ""}
+                      {!cuadrado ? "Debe cuadrar para contabilizar" : hayErroresLineas ? "Corrige errores en líneas" : ""}
                     </span>
                   )}
                 </>
               )}
               {readOnly && (
                 <span style={{ fontSize: 12, color: C.textMuted }}>
-                  Asiento mayorizado — solo lectura. Para modificar, crear un contra-asiento.
+                  Asiento contabilizado — solo lectura. Para modificar, crear un contra-asiento.
                 </span>
               )}
             </div>
@@ -4182,11 +4186,11 @@ function LibroDiarioTab({ empresaId, canEdit, usuario }) {
                 <div style={{ display: "flex", flexDirection: "column", gap: 8, fontSize: 13 }}>
                   <label style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer" }}>
                     <input type="radio" name="mEstado" checked={mEstado === "borrador"} onChange={() => setMEstado("borrador")} />
-                    Crear en <strong>Borrador</strong> (revisar antes de mayorizar)
+                    Crear en <strong>Borrador</strong> (revisar antes de contabilizar)
                   </label>
                   <label style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer" }}>
-                    <input type="radio" name="mEstado" checked={mEstado === "mayorizado"} onChange={() => setMEstado("mayorizado")} />
-                    Crear y <strong>mayorizar directamente</strong>
+                    <input type="radio" name="mEstado" checked={mEstado === "contabilizado"} onChange={() => setMEstado("contabilizado")} />
+                    Crear y <strong>contabilizar directamente</strong>
                   </label>
                 </div>
               </div>
@@ -5185,7 +5189,7 @@ function CentralizacionSiiTab({ empresaId, canEdit, usuario }) {
           </div>
 
           <div style={{ ...cardS, background: C.warningBg, border: `1px solid ${C.warning}`, fontSize: 12, color: C.warning }}>
-            <strong>Anulación:</strong> Lote en <em>borrador/validado</em> → elimina el asiento y libera los documentos. Lote <em>centralizado</em> (mayorizado) → genera asiento de reversa automático y libera el lote.
+            <strong>Anulación:</strong> Lote en <em>borrador/validado</em> → elimina el asiento y libera los documentos. Lote <em>centralizado</em> (contabilizado) → genera asiento de reversa automático y libera el lote.
           </div>
 
           <div style={{ overflowX: "auto" }}>
@@ -5731,7 +5735,7 @@ function InformesAnaliticaTab({ empresaId, canEdit, usuario }) {
       </div>
       {reporteActivo !== "costos_cuartel" && (
         <div style={{ fontSize: 10, color: C.textDim, marginTop: 2 }}>
-          Balance y Estado de Resultados acumulan todos los asientos mayorizados desde el inicio. El filtro de período aplica solo a Costos CeCo.
+          Balance y Estado de Resultados acumulan todos los asientos contabilizados desde el inicio. El filtro de período aplica solo a Costos CeCo.
         </div>
       )}
     </div>
@@ -5790,12 +5794,12 @@ function InformesAnaliticaTab({ empresaId, canEdit, usuario }) {
                   </thead>
                   <tbody>
                     {balanceData.length === 0 && (
-                      <tr><td colSpan={10} style={{ ...tdS, textAlign: "center", color: C.textDim, padding: 28 }}>Sin datos. Verifique que existan asientos mayorizados para la empresa y libro seleccionados.</td></tr>
+                      <tr><td colSpan={10} style={{ ...tdS, textAlign: "center", color: C.textDim, padding: 28 }}>Sin datos. Verifique que existan asientos contabilizados para la empresa y libro seleccionados.</td></tr>
                     )}
-                    {["A", "P", "I", "E"].map(tipo => {
+                    {["A", "P", "C", "I", "E"].map(tipo => {
                       const rows = balPorTipo[tipo] || [];
                       if (!rows.length) return null;
-                      const tipoLabel = { A: "ACTIVO", P: "PASIVO Y PATRIMONIO", I: "INGRESOS", E: "EGRESOS" }[tipo];
+                      const tipoLabel = { A: "ACTIVO", P: "PASIVO", C: "CAPITAL Y PATRIMONIO", I: "INGRESOS", E: "EGRESOS" }[tipo];
                       const sumD = rows.reduce((s, r) => s + Number(r.saldo_deudor || 0), 0);
                       const sumA = rows.reduce((s, r) => s + Number(r.saldo_acreedor || 0), 0);
                       const sumBal = rows.reduce((s, r) => s + Number(r.balance_activo || 0) + Number(r.balance_pasivo || 0), 0);
@@ -5919,7 +5923,7 @@ function InformesAnaliticaTab({ empresaId, canEdit, usuario }) {
               <>
                 <div style={{ fontSize: 11, color: C.textMuted, marginBottom: 10 }}>
                   {modoTemporal === "temporada" ? `Temporada ${filtroTemporada} (Jul ${filtroTemporada - 1}–Jun ${filtroTemporada})` : modoTemporal === "anio" ? `Año ${filtroAnio}` : `${MESES_LABEL_C[filtroMes]} ${filtroAnio}`}
-                  {" "}· Solo asientos mayorizados con CeCo asignado (cuartel_id). Costo/há en rojo = +15% sobre promedio.
+                  {" "}· Solo asientos contabilizados con CeCo asignado (cuartel_id). Costo/há en rojo = +15% sobre promedio.
                 </div>
                 <table style={{ width: "100%", borderCollapse: "collapse" }}>
                   <thead><tr>
@@ -6017,7 +6021,7 @@ function InformesAnaliticaTab({ empresaId, canEdit, usuario }) {
               )}
               {(!ratios || !ratios.totalActivo) && (
                 <div style={{ ...cardS, background: C.warningBg, border: `1px solid ${C.warning}`, color: C.warning, fontSize: 12 }}>
-                  Sin saldos acumulados disponibles. Asegúrese de que existan asientos mayorizados para esta empresa y libro. Los ratios corriente/prueba ácida requieren además que las cuentas tengan <code>clasif_ifrs</code> configurado en el plan de cuentas.
+                  Sin saldos acumulados disponibles. Asegúrese de que existan asientos contabilizados para esta empresa y libro. Los ratios corriente/prueba ácida requieren además que las cuentas tengan <code>clasif_ifrs</code> configurado en el plan de cuentas.
                 </div>
               )}
             </>
