@@ -11711,8 +11711,12 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
     const updateVivero = (id, updates) => {
       if(!canViveros) return;
       const before = vivData.find(v=>v.id===id);
-      // Funcional: parte del estado más reciente para no pisar ediciones concurrentes.
-      setOsirisData(prev=>({...prev, viveros:(prev.viveros||[]).map(v=>v.id===id?{...v,...updates}:v)}));
+      // Funcional + guardado inmediato (no espera el debounce, para no perder lo recién editado).
+      setOsirisData(prev=>{
+        const next={...prev, viveros:(prev.viveros||[]).map(v=>v.id===id?{...v,...updates}:v)};
+        Promise.resolve().then(()=>dbSaveOsiris(next));
+        return next;
+      });
       const campo = Object.keys(updates).join(", ");
       window.auditLog && window.auditLog("editar", {modulo:"osiris", seccion:"Contratos Viveros",
         descripcion:`Editó vivero "${before?.viverista||""}": campo ${campo}`});
@@ -12006,8 +12010,13 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
       // Evita que ediciones rápidas (varias facturas seguidas) se pisen entre sí.
       const mutarOC = (ocId, fn) => {
         if(!canViveros) return;
-        setOsirisData(prev=>({...prev, viveros:(prev.viveros||[]).map(vv=> vv.id!==v.id ? vv
-          : {...vv, ordenesCompra:(vv.ordenesCompra||[]).map(o=> o.id!==ocId ? o : fn(o))})}));
+        // Funcional + guardado inmediato: garantiza que la factura/edición de la OC quede guardada al toque.
+        setOsirisData(prev=>{
+          const next={...prev, viveros:(prev.viveros||[]).map(vv=> vv.id!==v.id ? vv
+            : {...vv, ordenesCompra:(vv.ordenesCompra||[]).map(o=> o.id!==ocId ? o : fn(o))})};
+          Promise.resolve().then(()=>dbSaveOsiris(next));
+          return next;
+        });
       };
       // Normaliza las facturas del Fee Vivero de una OC (con compatibilidad al formato antiguo de una sola factura).
       const fvDe = (oc) => {
