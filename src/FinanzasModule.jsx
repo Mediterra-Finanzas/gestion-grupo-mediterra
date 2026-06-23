@@ -11281,15 +11281,21 @@ const AUTODOC_SECCIONES = ["emp_rel_clp", "emp_rel_usd", "anticipos"];
 function requiereDocInterno(item) { return AUTODOC_SECCIONES.includes(item?.seccion); }
 
 // Genera el PDF (blob) del voucher interno. Plantilla según tipo:
-// "anticipo" → vale a trabajador; "intercompania" → traspaso entre empresas.
+// "anticipo" → vale a trabajador; "intercompania" → traspaso entre empresas;
+// "general" → pago sin documento externo (ej. arriendo de oficina).
 async function generarVoucherPDFBlob(voucher) {
   const jsPDF = await reporte_loadJsPDF();
   const doc = new jsPDF({orientation:"portrait", unit:"mm", format:"a4"});
-  let y = 22; const esAnticipo = voucher.tipo === "anticipo";
+  let y = 22;
+  const T = ({
+    anticipo:     ["VALE DE ANTICIPO DE SUELDO", "Anticipo a trabajador"],
+    intercompania:["DOCUMENTO INTERNO DE RESPALDO", "Movimiento entre empresas relacionadas"],
+    general:      ["DOCUMENTO INTERNO DE RESPALDO", "Respaldo de pago sin documento externo"],
+  })[voucher.tipo] || ["DOCUMENTO INTERNO DE RESPALDO", ""];
   doc.setFontSize(15); doc.setFont(undefined,"bold");
-  doc.text(esAnticipo?"VALE DE ANTICIPO DE SUELDO":"DOCUMENTO INTERNO DE RESPALDO", 105, y, {align:"center"}); y+=7;
+  doc.text(T[0], 105, y, {align:"center"}); y+=7;
   doc.setFontSize(10); doc.setFont(undefined,"normal");
-  doc.text(esAnticipo?"Anticipo a trabajador":"Movimiento entre empresas relacionadas", 105, y, {align:"center"}); y+=12;
+  doc.text(T[1], 105, y, {align:"center"}); y+=12;
   doc.setDrawColor(180); doc.line(20, y, 190, y); y+=10;
   const fila=(et,val)=>{ doc.setFont(undefined,"bold"); doc.text(`${et}:`,20,y); doc.setFont(undefined,"normal"); doc.text(String(val||"—"),75,y); y+=8; };
   fila("Correlativo", voucher.correlativo);
@@ -11311,17 +11317,21 @@ async function generarVoucherPDFBlob(voucher) {
 // ctx: { empresa, nominaId, anio, fecha }. overrides opcional: {contraparte, concepto, observaciones}.
 async function generarDocInternoLinea(ctx, item, usuario, overrides = {}) {
   const esAnticipo = item.seccion === "anticipos";
+  const esRel = item.seccion === "emp_rel_clp" || item.seccion === "emp_rel_usd";
+  const tipo = esAnticipo ? "anticipo" : esRel ? "intercompania" : "general";
+  const contraparteLabel = tipo==="anticipo" ? "Beneficiario / Trabajador" : tipo==="general" ? "Beneficiario" : "Empresa destino";
+  const conceptoDefault = tipo==="anticipo" ? "Anticipo de sueldo" : tipo==="general" ? "Pago sin documento externo" : "Movimiento entre empresas relacionadas";
   const monto  = Number(item.montoUSD) ? Number(item.montoUSD) : Number(item.montoPEN) ? Number(item.montoPEN) : Number(item.montoCLP)||0;
   const moneda = Number(item.montoUSD) ? "USD" : Number(item.montoPEN) ? "PEN" : "CLP";
   const correlativo = await siguienteCorrelativo(ctx.empresa, ctx.anio || new Date().getFullYear());
   const voucher = {
-    tipo: esAnticipo ? "anticipo" : "intercompania",
+    tipo,
     empresaOrigen: ctx.empresa,
-    contraparteLabel: esAnticipo ? "Beneficiario / Trabajador" : "Empresa destino",
+    contraparteLabel,
     contraparte: (overrides.contraparte != null ? overrides.contraparte : item.proveedor) || "—",
     fecha: ctx.fecha || new Date().toISOString().slice(0,10),
     monto, moneda,
-    concepto: ((overrides.concepto != null ? overrides.concepto : item.concepto) || "").trim() || (esAnticipo ? "Anticipo de sueldo" : "Movimiento entre empresas relacionadas"),
+    concepto: ((overrides.concepto != null ? overrides.concepto : item.concepto) || "").trim() || conceptoDefault,
     observaciones: (overrides.observaciones || "").trim(),
     generadoPor: usuario?.nombre || "—",
     correlativo,
@@ -11831,8 +11841,15 @@ function DocsLineaModal({item, canEdit, usuario, nominaId, empresa, anioNom, fec
 
   const activos = docsActivos(item);
   const tieneRespaldoExterno = activos.some(d=>!d.interno);
-  const puedeInterno = canEdit && requiereDocInterno(item) && !tieneRespaldoExterno;
+  // El documento interno se puede generar manualmente en CUALQUIER línea editable
+  // sin respaldo externo (ej. arriendo de oficina). La AUTO-generación sigue solo
+  // para empresas relacionadas y anticipos (requiereDocInterno).
+  const puedeInterno = canEdit && !tieneRespaldoExterno;
   const esAnticipo = item.seccion === "anticipos";
+  const tipoInterno = esAnticipo ? "anticipo" : esLineaRelacionada(item) ? "intercompania" : "general";
+  const docInternoLabel = tipoInterno==="anticipo" ? "Beneficiario / Trabajador" : tipoInterno==="general" ? "Beneficiario" : "Empresa destino";
+  const docInternoTitulo = tipoInterno==="anticipo" ? "Vale de anticipo de sueldo" : "Documento interno de respaldo";
+  const docInternoHint = tipoInterno==="anticipo" ? "(anticipo de sueldo)" : tipoInterno==="general" ? "(pago sin factura)" : "(empresa relacionada)";
   const ahora = ()=>new Date().toISOString();
   const nombreUsr = usuario?.nombre || "—";
 
@@ -11891,7 +11908,7 @@ function DocsLineaModal({item, canEdit, usuario, nominaId, empresa, anioNom, fec
   }
 
   async function confirmarInterno(contraparte, concepto, observaciones) {
-    if(!contraparte?.trim()){ alert(esAnticipo?"Indica el beneficiario/trabajador.":"Indica la empresa destino."); return; }
+    if(!contraparte?.trim()){ alert(`Indica ${docInternoLabel.toLowerCase()}.`); return; }
     setErr(""); setSubiendo(true);
     try {
       const doc = await generarDocInternoLinea(
@@ -11975,18 +11992,20 @@ function DocsLineaModal({item, canEdit, usuario, nominaId, empresa, anioNom, fec
           </div>
         )}
 
-        {/* Documento interno (empresas relacionadas / anticipos, sin respaldo externo) */}
+        {/* Documento interno: cualquier línea editable sin respaldo externo */}
         {puedeInterno&&!genInterno&&(
           <button onClick={()=>setGenInterno(true)} disabled={subiendo}
             style={{marginTop:10,width:"100%",padding:"9px",borderRadius:8,border:`1px solid ${C.yellow}`,
               background:`${C.yellow}1a`,color:C.text,cursor:"pointer",fontSize:12,fontWeight:700}}>
-            🧾 Generar documento interno {esAnticipo?"(anticipo de sueldo)":"(empresa relacionada)"}
+            🧾 Generar documento interno {docInternoHint}
           </button>
         )}
         {genInterno&&(
           <FormDocInterno
             empresaOrigen={empresa}
-            esAnticipo={esAnticipo}
+            destinoLabel={docInternoLabel}
+            titulo={docInternoTitulo}
+            mostrarDatalist={tipoInterno==="intercompania"}
             destinoSugerido={item.proveedor||""}
             concepto={item.concepto||""}
             monedaLinea={monedaLinea} montoLinea={montoLinea}
@@ -12001,22 +12020,22 @@ function DocsLineaModal({item, canEdit, usuario, nominaId, empresa, anioNom, fec
 }
 
 // Mini-formulario para el documento interno (intercompañía o anticipo).
-function FormDocInterno({empresaOrigen, esAnticipo, destinoSugerido, concepto:conceptoIni, monedaLinea, montoLinea, subiendo, onCancel, onConfirm}) {
+function FormDocInterno({empresaOrigen, destinoLabel="Empresa destino", titulo="Documento interno de respaldo", mostrarDatalist=false, destinoSugerido, concepto:conceptoIni, monedaLinea, montoLinea, subiendo, onCancel, onConfirm}) {
   const [destino, setDestino] = useState(destinoSugerido||"");
   const [concepto, setConcepto] = useState(conceptoIni||"");
   const [obs, setObs] = useState("");
   const inp = {padding:"6px 8px",borderRadius:6,border:`1px solid ${C.border}`,background:C.card2,color:C.text,fontSize:12,width:"100%",boxSizing:"border-box"};
   const opciones = EMPRESAS_NOM.filter(e=>e!==empresaOrigen);
-  const destinoLabel = esAnticipo ? "Beneficiario / Trabajador" : "Empresa destino";
+  const ph = destinoLabel==="Empresa destino" ? "Empresa relacionada" : destinoLabel.includes("Trabajador") ? "Nombre del trabajador" : "Nombre / glosa del beneficiario";
   return (
     <div style={{marginTop:10,padding:12,border:`1px solid ${C.yellow}`,borderRadius:10,background:`${C.yellow}0d`}}>
-      <div style={{fontSize:12.5,fontWeight:800,color:C.text,marginBottom:8}}>🧾 {esAnticipo?"Vale de anticipo de sueldo":"Documento interno de respaldo"}</div>
+      <div style={{fontSize:12.5,fontWeight:800,color:C.text,marginBottom:8}}>🧾 {titulo}</div>
       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
         <div><label style={{fontSize:10,color:C.muted}}>Empresa origen</label>
           <div style={{...inp,opacity:0.7}}>{empresaOrigen}</div></div>
         <div><label style={{fontSize:10,color:C.muted}}>{destinoLabel}</label>
-          <input list={esAnticipo?undefined:"emp-destino-list"} value={destino} onChange={e=>setDestino(e.target.value)} style={inp} placeholder={esAnticipo?"Nombre del trabajador":"Empresa relacionada"}/>
-          {!esAnticipo&&<datalist id="emp-destino-list">{opciones.map(e=><option key={e} value={e}/>)}</datalist>}</div>
+          <input list={mostrarDatalist?"emp-destino-list":undefined} value={destino} onChange={e=>setDestino(e.target.value)} style={inp} placeholder={ph}/>
+          {mostrarDatalist&&<datalist id="emp-destino-list">{opciones.map(e=><option key={e} value={e}/>)}</datalist>}</div>
         <div><label style={{fontSize:10,color:C.muted}}>Monto</label>
           <div style={{...inp,opacity:0.7}}>{monedaLinea} {montoLinea?montoLinea.toLocaleString("es-CL"):"—"}</div></div>
         <div><label style={{fontSize:10,color:C.muted}}>Concepto</label>
