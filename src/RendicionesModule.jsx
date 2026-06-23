@@ -45,6 +45,7 @@ const EMPRESAS = [
 const CATEGORIAS = [
   { v: "movilizacion", l: "Movilización / Taxi", ic: "🚕" },
   { v: "kilometraje",  l: "Kilometraje (auto propio)", ic: "🚗" },
+  { v: "pasajes_aereos", l: "Pasajes aéreos",   ic: "✈️" },
   { v: "combustible",  l: "Combustible",         ic: "⛽" },
   { v: "peajes",       l: "Peajes / TAG",        ic: "🛣️" },
   { v: "estacionamiento", l: "Estacionamiento",  ic: "🅿️" },
@@ -493,21 +494,22 @@ function exportarRendicionExcelSimple(rend, tcData) {
     ["Fecha de rendición", fmtFecha(rend.periodo)], ["Estado", (ESTADOS[rend.estado] || {}).l || rend.estado],
     ["Moneda de pago", monedaPago], ["Fecha tipo de cambio", fmtFecha(fechaTC)], [],
   ];
-  const cab = ["#", "Fecha gasto", "Categoría", "Glosa", "Tipo doc", "N° doc", "Moneda", "Neto", "IVA", "Total", `Equiv. ${monedaPago}`, "Conversión"];
+  const cab = ["#", "Fecha gasto", "Categoría", "Glosa", "Tipo doc", "N° doc", "Moneda", "Neto", "IVA", "Exento", "Total", `Equiv. ${monedaPago}`, "Conversión"];
   const filas = (rend.gastos || []).map((g, i) => {
     const r = convertir(g.monto, g.moneda || "CLP", monedaPago, fechaTC, tcData, tcManual, g.tc);
     const esFactura = g.docTipo === "Factura";
     return [i + 1, fmtFecha(g.fecha), (CAT_MAP[g.categoria] || {}).l || g.categoria, g.glosa || "",
       g.docTipo || "", g.docNumero || "", g.moneda || "CLP",
-      esFactura ? (Number(g.neto) || 0) : "", esFactura ? (Number(g.iva) || 0) : "", Number(g.monto) || 0,
+      esFactura ? (Number(g.neto) || 0) : "", esFactura ? (Number(g.iva) || 0) : "", esFactura ? (Number(g.exento) || 0) : "", Number(g.monto) || 0,
       r.ok ? Math.round(r.val * 100) / 100 : "SIN TC", r.chain || "—"];
   });
   const { total, faltan } = totalConvertido(rend.gastos, monedaPago, fechaTC, tcData, tcManual);
   const totNeto = (rend.gastos || []).reduce((s, g) => s + (g.docTipo === "Factura" ? (Number(g.neto) || 0) : 0), 0);
   const totIVA = (rend.gastos || []).reduce((s, g) => s + (g.docTipo === "Factura" ? (Number(g.iva) || 0) : 0), 0);
-  const totalFila = [[], ["", "", "", "", "", "", "TOTALES", totNeto || "", totIVA || "", "", "", ""], ["", "", "", "", "", "", `TOTAL ${monedaPago}`, "", "", "", Math.round(total * 100) / 100, faltan.length ? "⚠ faltan TC: " + faltan.join(", ") : ""]];
+  const totExento = (rend.gastos || []).reduce((s, g) => s + (g.docTipo === "Factura" ? (Number(g.exento) || 0) : 0), 0);
+  const totalFila = [[], ["", "", "", "", "", "", "TOTALES", totNeto || "", totIVA || "", totExento || "", "", "", ""], ["", "", "", "", "", "", `TOTAL ${monedaPago}`, "", "", "", "", Math.round(total * 100) / 100, faltan.length ? "⚠ faltan TC: " + faltan.join(", ") : ""]];
   const ws = XLSX.utils.aoa_to_sheet([...cabecera, cab, ...filas, ...totalFila]);
-  ws["!cols"] = [{ wch: 4 }, { wch: 13 }, { wch: 20 }, { wch: 32 }, { wch: 14 }, { wch: 14 }, { wch: 8 }, { wch: 13 }, { wch: 12 }, { wch: 14 }, { wch: 16 }, { wch: 18 }];
+  ws["!cols"] = [{ wch: 4 }, { wch: 13 }, { wch: 20 }, { wch: 32 }, { wch: 14 }, { wch: 14 }, { wch: 8 }, { wch: 13 }, { wch: 12 }, { wch: 12 }, { wch: 14 }, { wch: 16 }, { wch: 18 }];
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, "Rendición " + rend.folio);
   XLSX.writeFile(wb, `Rendicion_${rend.folio}_${slug(rend.trabajador)}.xlsx`);
@@ -1428,7 +1430,7 @@ function Reportes({ rends, filtroEstado, setFiltroEstado, busca, setBusca, onAbr
   }, [filtradas, tcData]);
 
   const exportCSV = () => {
-    const filas = [["Folio", "Estado", "Trabajador", "Empresa", "Título", "Fecha gasto", "Categoría", "Glosa", "Doc", "N° Doc", "Moneda", "Neto", "IVA", "Total", "Total CLP equiv", "Adjunto"]];
+    const filas = [["Folio", "Estado", "Trabajador", "Empresa", "Título", "Fecha gasto", "Categoría", "Glosa", "Doc", "N° Doc", "Moneda", "Neto", "IVA", "Exento", "Total", "Total CLP equiv", "Adjunto"]];
     filtradas.forEach(r => {
       const fecha = r.fechaTC || r.periodo;
       (r.gastos || []).forEach(g => {
@@ -1438,7 +1440,7 @@ function Reportes({ rends, filtroEstado, setFiltroEstado, busca, setBusca, onAbr
           r.folio, ESTADOS[r.estado]?.l || r.estado, r.trabajador, r.empresa, r.titulo,
           g.fecha || "", CAT_MAP[g.categoria]?.l || g.categoria || "", (g.glosa || "").replace(/"/g, "'"),
           g.docTipo || "", g.docNumero || "", g.moneda || "CLP",
-          esFactura ? (Number(g.neto) || 0) : "", esFactura ? (Number(g.iva) || 0) : "", Number(g.monto) || 0,
+          esFactura ? (Number(g.neto) || 0) : "", esFactura ? (Number(g.iva) || 0) : "", esFactura ? (Number(g.exento) || 0) : "", Number(g.monto) || 0,
           c.ok ? Math.round(c.val) : "sin TC", g.adjuntoUrl ? "sí" : "no",
         ]);
       });
@@ -1544,14 +1546,15 @@ function EditorRendicion({ rend, upsert, onClose, onEnviar, esDueno, esAprobador
   };
   const setGasto = (gid, k, v) => upsert({ ...rend, gastos: rend.gastos.map(g => g.id === gid ? { ...g, [k]: v } : g) });
   const setGastoMulti = (gid, patch) => upsert({ ...rend, gastos: rend.gastos.map(g => g.id === gid ? { ...g, ...patch } : g) });
-  // Desglose de factura: mantiene monto = neto + IVA. IVA Chile 19% por defecto al editar neto, pero editable.
+  // Desglose de factura: monto = neto + IVA + exento. IVA Chile 19% por defecto al editar neto, pero editable.
   const setGastoFactura = (g, field, rawVal) => {
     const num = rawVal === "" ? "" : (Number(rawVal) || 0);
-    let neto = g.neto, iva = g.iva;
+    let neto = g.neto, iva = g.iva, exento = g.exento;
     if (field === "neto") { neto = num; iva = (num === "" ? "" : Math.round(Number(num) * 0.19)); }
+    else if (field === "exento") { exento = num; }
     else { iva = num; }
-    const total = (Number(neto) || 0) + (Number(iva) || 0);
-    setGastoMulti(g.id, { neto, iva, monto: total });
+    const total = (Number(neto) || 0) + (Number(iva) || 0) + (Number(exento) || 0);
+    setGastoMulti(g.id, { neto, iva, exento, monto: total });
   };
   // Al cambiar el tipo de doc a Factura, separa el monto existente en neto + IVA (19%).
   const setDocTipo = (g, nuevo) => {
@@ -1773,14 +1776,17 @@ function EditorRendicion({ rend, upsert, onClose, onEnviar, esDueno, esAprobador
                 ) : <span style={{ fontSize: 12, color: C.danger }}>⚠ Sin respaldo</span>}
               </div>
             </div>
-            {/* Desglose de factura: Neto + IVA + Total */}
+            {/* Desglose de factura: Neto + IVA + Exento + Total */}
             {g.docTipo === "Factura" && (
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8, marginTop: 8, background: C.bg2, border: `1px solid ${C.border}`, borderRadius: 8, padding: "8px 10px", alignItems: "end" }}>
-                <Field label="Neto">
+              <div style={{ display: "grid", gridTemplateColumns: esMovil ? "1fr 1fr" : "1fr 1fr 1fr 1fr", gap: 8, marginTop: 8, background: C.bg2, border: `1px solid ${C.border}`, borderRadius: 8, padding: "8px 10px", alignItems: "end" }}>
+                <Field label="Neto (afecto)">
                   <input type="number" value={g.neto ?? ""} disabled={!editable} onChange={e => setGastoFactura(g, "neto", e.target.value)} style={{ ...inputStyle, textAlign: "right" }} placeholder="0" />
                 </Field>
                 <Field label={Number(g.neto) > 0 ? `IVA (${Math.round((Number(g.iva) || 0) / Number(g.neto) * 100)}%)` : "IVA (19%)"}>
                   <input type="number" value={g.iva ?? ""} disabled={!editable} onChange={e => setGastoFactura(g, "iva", e.target.value)} style={{ ...inputStyle, textAlign: "right" }} placeholder="0" />
+                </Field>
+                <Field label="Exento">
+                  <input type="number" value={g.exento ?? ""} disabled={!editable} onChange={e => setGastoFactura(g, "exento", e.target.value)} style={{ ...inputStyle, textAlign: "right" }} placeholder="0" />
                 </Field>
                 <Field label="Total">
                   <input type="number" value={g.monto ?? ""} readOnly disabled style={{ ...inputStyle, textAlign: "right", background: C.cardAlt, fontWeight: 700 }} />
