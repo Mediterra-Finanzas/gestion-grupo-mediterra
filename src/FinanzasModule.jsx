@@ -11457,6 +11457,42 @@ async function dbSaveNominas(nominas, opts={}) {
   } catch(e){console.error(e);return false;}
 }
 
+// ─── Catálogo GLOBAL de tipos de documento (persistente) ───────────
+// Los tipos que el usuario agrega con "+ Agregar nuevo..." se guardan en la
+// fila calendario_data id="nominas_tipos_doc" para que queden disponibles en
+// TODAS las nóminas y tras recargar (no solo donde se crearon).
+async function dbLoadTiposDocExtra() {
+  const res = await fetch(`${SUPA_URL}/rest/v1/calendario_data?id=eq.nominas_tipos_doc&select=value`,{
+    headers:{apikey:SUPA_KEY,Authorization:`Bearer ${SUPA_KEY}`}
+  });
+  if(!res.ok) throw new Error("tipos_doc HTTP "+res.status);
+  const data = await res.json();
+  const v = data?.[0]?.value;
+  if(!v) return [];
+  const arr = typeof v==="string" ? JSON.parse(v) : v;
+  return Array.isArray(arr) ? arr : [];
+}
+async function dbSaveTiposDocExtra(tipos) {
+  await fetch(`${SUPA_URL}/rest/v1/calendario_data`,{
+    method:"POST",
+    headers:{apikey:SUPA_KEY,Authorization:`Bearer ${SUPA_KEY}`,"Content-Type":"application/json",Prefer:"resolution=merge-duplicates"},
+    body:JSON.stringify({id:"nominas_tipos_doc",value:JSON.stringify(tipos),updated_at:new Date().toISOString()})
+  });
+}
+// Agrega un tipo nuevo al catálogo global (read-modify-write, best-effort).
+// Si la persistencia falla, el tipo igual queda en memoria y en tiposDocExtra
+// de la nómina (respaldo), así no se pierde en esa sesión.
+async function agregarTipoDocGlobal(n) {
+  if(!n) return;
+  if(!TIPOS_DOCUMENTO.includes(n)) TIPOS_DOCUMENTO.push(n);
+  try {
+    const actuales = await dbLoadTiposDocExtra();
+    if(!actuales.includes(n)) await dbSaveTiposDocExtra([...actuales, n]);
+  } catch(e) {
+    console.warn("[Nominas] no se pudo guardar el tipo de documento global:", e?.message||e);
+  }
+}
+
 // ─────────────────────────────────────────────────────────────────
 // BADGE ESTADO
 // ─────────────────────────────────────────────────────────────────
@@ -11583,7 +11619,8 @@ function TablaItems({items, seccion, onChange, canEdit, tc, moneda="ambas", sema
                             if(nuevo&&nuevo.trim()){
                               const n=nuevo.trim();
                               if(!TIPOS_DOCUMENTO.includes(n)) TIPOS_DOCUMENTO.push(n);
-                              if(onAddTipoDoc) onAddTipoDoc(n);
+                              agregarTipoDocGlobal(n);          // catálogo global persistente
+                              if(onAddTipoDoc) onAddTipoDoc(n); // respaldo por nómina
                               updItem(it.id,"tipoDoc",n);
                             }
                           } else {
@@ -13807,6 +13844,7 @@ function NominasModule({usuario, canEdit=false, saldosBancos={}, empresasPermiti
   // GUARD anti-borrado: solo se guarda tras una carga EXITOSA. Si la carga
   // inicial falla, no se escribe nada (evita sobrescribir nóminas con []).
   const cargaOkRef = useRef(false);
+  const [tiposDocVersion, setTiposDocVersion] = useState(0); // fuerza re-render al cargar el catálogo global
 
   // Load — dbLoadNominas aplica el filtro por empresa (legacy en memoria, v2 en consulta)
   useEffect(()=>{
@@ -13818,6 +13856,15 @@ function NominasModule({usuario, canEdit=false, saldosBancos={}, empresasPermiti
       console.error("[Nominas] Carga falló — GUARDADO DESHABILITADO esta sesión:", e);
       setCargando(false);
     });
+  },[]);
+
+  // Catálogo global de tipos de documento: cargar y fusionar con los por defecto.
+  useEffect(()=>{
+    dbLoadTiposDocExtra().then(extras=>{
+      let changed=false;
+      (extras||[]).forEach(t=>{ if(t && !TIPOS_DOCUMENTO.includes(t)){ TIPOS_DOCUMENTO.push(t); changed=true; } });
+      if(changed) setTiposDocVersion(v=>v+1);
+    }).catch(()=>{});
   },[]);
 
   // Auto-refresh nóminas cada 30s para sincronizar cambios de otros usuarios
