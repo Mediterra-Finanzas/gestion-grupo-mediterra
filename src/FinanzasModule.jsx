@@ -3784,12 +3784,11 @@ function Consolidado({empresas,saldosBancos,realData={},addedLinesGlobal={},subL
                   empresasConOverrides,
                   empNames:empNamesConsolidado,
                   saldoIniPorEmp,
-                  lastSeasonStartYear:2028,
                 });
                 setExportMsg("✓ "+f);
               }catch(e){ console.error(e); setExportMsg("✗ Error al exportar"); }
               setTimeout(()=>setExportMsg(null),5000);
-            }}>📥 Excel (hasta 28-29)</Btn>
+            }}>📥 Excel (flujo completo)</Btn>
             {exportMsg&&<div style={{fontSize:10,color:C.muted,marginTop:6,maxWidth:220}}>{exportMsg}</div>}
           </div>
         </div>

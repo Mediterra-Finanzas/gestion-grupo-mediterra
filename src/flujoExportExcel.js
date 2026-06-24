@@ -258,9 +258,10 @@ function toSheet({ cells, rows, merges, lastRow, lastCol, cols }) {
 }
 
 // ═══════════════════════════════════════════════════════════════════
-export function exportarFlujoConsolidado({ empresasConOverrides, empNames, saldoIniPorEmp, lastSeasonStartYear = 2028, fileName }) {
+export function exportarFlujoConsolidado({ empresasConOverrides, empNames, saldoIniPorEmp, lastSeasonStartYear = null, fileName }) {
   const allMonths = genMonths();
-  const months = allMonths.filter(mo => seasonOf(mo) <= lastSeasonStartYear);
+  // lastSeasonStartYear null → flujo completo (hasta la última temporada proyectada)
+  const months = lastSeasonStartYear == null ? allMonths : allMonths.filter(mo => seasonOf(mo) <= lastSeasonStartYear);
   const seasonsMap = {};
   months.forEach(mo => {
     const sy = seasonOf(mo);
