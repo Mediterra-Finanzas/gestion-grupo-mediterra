@@ -1415,15 +1415,25 @@ function Reportes({ rends, filtroEstado, setFiltroEstado, busca, setBusca, onAbr
   // Resumen en CLP equivalente: todo gasto se convierte a CLP vía TC (triangulando
   // por USD). Los gastos sin TC disponible se cuentan aparte como "sin convertir".
   const resumen = useMemo(() => {
-    const r = { totalCLP: 0, porEmpresa: {}, porCategoria: {}, sinTC: 0 };
+    const r = {
+      totalCLP: 0, sinTC: 0, nGastos: 0,
+      porEmpresa: {}, porCategoria: {}, porTrabajador: {},
+      catEmpresa: {}, catTrabajador: {},   // cruces: { categoria: { empresa|trabajador: monto } }
+    };
     filtradas.forEach(rd => {
       const fecha = rd.fechaTC || rd.periodo;
+      const emp = rd.empresa || "—";
+      const trab = rd.trabajador || "—";
       (rd.gastos || []).forEach(g => {
         const c = convertir(g.monto, g.moneda || "CLP", "CLP", fecha, tcData, rd.monedaPago === "CLP" ? rd.tcManual : null, g.tc);
         if (!c.ok) { r.sinTC += 1; return; }
-        r.totalCLP += c.val;
-        r.porEmpresa[rd.empresa] = (r.porEmpresa[rd.empresa] || 0) + c.val;
-        r.porCategoria[g.categoria] = (r.porCategoria[g.categoria] || 0) + c.val;
+        const cat = CAT_MAP[g.categoria]?.l || g.categoria || "Otros";
+        r.totalCLP += c.val; r.nGastos += 1;
+        r.porEmpresa[emp] = (r.porEmpresa[emp] || 0) + c.val;
+        r.porCategoria[cat] = (r.porCategoria[cat] || 0) + c.val;
+        r.porTrabajador[trab] = (r.porTrabajador[trab] || 0) + c.val;
+        (r.catEmpresa[cat] = r.catEmpresa[cat] || {})[emp] = (r.catEmpresa[cat][emp] || 0) + c.val;
+        (r.catTrabajador[cat] = r.catTrabajador[cat] || {})[trab] = (r.catTrabajador[cat][trab] || 0) + c.val;
       });
     });
     return r;
@@ -1465,19 +1475,10 @@ function Reportes({ rends, filtroEstado, setFiltroEstado, busca, setBusca, onAbr
         <Btn kind="ghost" onClick={exportCSV}>⬇ Exportar CSV</Btn>
       </div>
 
-      {/* Resumen */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(200px,1fr))", gap: 12, marginBottom: 18 }}>
-        <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: 14 }}>
-          <div style={{ fontSize: 11.5, color: C.muted, fontWeight: 700 }}>TOTAL CLP EQUIVALENTE</div>
-          <div style={{ fontSize: 22, fontWeight: 800, color: C.primary, marginTop: 4 }}>{fmtMonto(resumen.totalCLP, "CLP")}</div>
-          <div style={{ fontSize: 11.5, color: C.muted2, marginTop: 2 }}>
-            {filtradas.length} rendición(es){resumen.sinTC > 0 ? ` · ⚠ ${resumen.sinTC} gasto(s) sin TC` : ""}
-          </div>
-        </div>
-        <MiniBreakdown title="Por empresa" data={resumen.porEmpresa} />
-        <MiniBreakdown title="Por categoría" data={resumen.porCategoria} mapLabel={k => CAT_MAP[k]?.l || k} />
-      </div>
+      {/* Dashboard de gráficos */}
+      <ReportesDashboard resumen={resumen} nRend={filtradas.length} />
 
+      <div style={{ fontSize: 12.5, fontWeight: 800, color: C.muted, margin: "4px 0 8px" }}>DETALLE ({filtradas.length})</div>
       <div style={{ display: "grid", gap: 10 }}>
         {filtradas.map(r => (
           <RendCard key={r.id} r={r} onClick={() => onAbrir(r.id)} mostrarTrabajador tcData={tcData}>
@@ -1502,6 +1503,147 @@ function MiniBreakdown({ title, data, mapLabel = (k) => k }) {
           <span style={{ fontWeight: 700, color: C.muted }}>{fmtMonto(v, "CLP")}</span>
         </div>
       ))}
+    </div>
+  );
+}
+
+// Paleta estable para gráficos (empresas, trabajadores, etc.)
+const PALETA = ["#2563eb", "#16a34a", "#d97706", "#dc2626", "#7c3aed", "#0891b2", "#db2777", "#65a30d", "#ca8a04", "#0d9488", "#9333ea", "#e11d48", "#475569", "#0369a1"];
+function colorMap(keys) {
+  const m = {}; keys.forEach((k, i) => { m[k] = PALETA[i % PALETA.length]; });
+  return (k) => m[k] || "#94a3b8";
+}
+
+// Gráfico de barras horizontales simple (una dimensión).
+function BarChart({ data, color = C.primary, empty = "Sin datos." }) {
+  const items = Object.entries(data).filter(([, v]) => v > 0).sort((a, b) => b[1] - a[1]);
+  if (!items.length) return <div style={{ fontSize: 12, color: C.muted2, padding: 8 }}>{empty}</div>;
+  const mx = items[0][1] || 1;
+  const total = items.reduce((s, [, v]) => s + v, 0);
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+      {items.map(([k, v]) => (
+        <div key={k}>
+          <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, marginBottom: 3, gap: 8 }}>
+            <span style={{ color: C.text, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{k}</span>
+            <span style={{ color: C.muted, whiteSpace: "nowrap" }}><strong style={{ color: C.text }}>{fmtMonto(v, "CLP")}</strong> · {total ? Math.round(v / total * 100) : 0}%</span>
+          </div>
+          <div style={{ height: 10, background: C.bg2, borderRadius: 6, overflow: "hidden" }}>
+            <div style={{ width: `${Math.max(2, v / mx * 100)}%`, height: "100%", background: color, borderRadius: 6 }} />
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// Barras apiladas: cada fila (categoría) dividida por color según la dimensión cruzada (empresa/trabajador).
+function StackedBars({ data, empty = "Sin datos." }) {
+  const rows = Object.entries(data).map(([rk, segs]) => ({
+    rk, total: Object.values(segs).reduce((s, v) => s + v, 0), segs,
+  })).filter(r => r.total > 0).sort((a, b) => b.total - a.total);
+  if (!rows.length) return <div style={{ fontSize: 12, color: C.muted2, padding: 8 }}>{empty}</div>;
+  const mx = rows[0].total || 1;
+  // Claves de segmento ordenadas por monto total (para leyenda y colores estables).
+  const segTot = {};
+  rows.forEach(r => Object.entries(r.segs).forEach(([k, v]) => { segTot[k] = (segTot[k] || 0) + v; }));
+  const segKeys = Object.keys(segTot).sort((a, b) => segTot[b] - segTot[a]);
+  const cf = colorMap(segKeys);
+  return (
+    <div>
+      <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+        {rows.map(r => (
+          <div key={r.rk}>
+            <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, marginBottom: 3, gap: 8 }}>
+              <span style={{ color: C.text, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.rk}</span>
+              <span style={{ color: C.text, fontWeight: 700, whiteSpace: "nowrap" }}>{fmtMonto(r.total, "CLP")}</span>
+            </div>
+            <div style={{ display: "flex", height: 12, width: `${Math.max(3, r.total / mx * 100)}%`, borderRadius: 6, overflow: "hidden", background: C.bg2 }}>
+              {Object.entries(r.segs).sort((a, b) => b[1] - a[1]).map(([sk, sv]) => (
+                <div key={sk} title={`${sk}: ${fmtMonto(sv, "CLP")}`} style={{ width: `${sv / r.total * 100}%`, background: cf(sk) }} />
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 10, marginTop: 12 }}>
+        {segKeys.map(sk => (
+          <span key={sk} style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 11, color: C.muted }}>
+            <span style={{ width: 10, height: 10, borderRadius: 3, background: cf(sk), flexShrink: 0 }} />{sk}
+          </span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function ChartCard({ title, children, right }) {
+  return (
+    <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: 16 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12, gap: 8, flexWrap: "wrap" }}>
+        <div style={{ fontSize: 12.5, fontWeight: 800, color: C.muted }}>{title}</div>
+        {right}
+      </div>
+      {children}
+    </div>
+  );
+}
+
+// Mini selector de segmentos (pills).
+function Seg({ value, onChange, opts }) {
+  return (
+    <div style={{ display: "inline-flex", gap: 4, background: C.bg2, borderRadius: 8, padding: 3 }}>
+      {opts.map(o => (
+        <button key={o.v} onClick={() => onChange(o.v)} style={{
+          border: "none", cursor: "pointer", borderRadius: 6, padding: "4px 12px", fontSize: 11.5, fontWeight: 700,
+          background: value === o.v ? C.card : "transparent", color: value === o.v ? C.primary : C.muted2,
+          boxShadow: value === o.v ? "0 1px 3px #0001" : "none",
+        }}>{o.l}</button>
+      ))}
+    </div>
+  );
+}
+
+function ReportesDashboard({ resumen, nRend }) {
+  const [dim, setDim] = useState("empresa");       // 2ª barra: por empresa / trabajador
+  const [cruce, setCruce] = useState("empresa");   // stacked: concepto × empresa / trabajador
+  const promedio = nRend ? resumen.totalCLP / nRend : 0;
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 14, marginBottom: 18 }}>
+      {/* KPIs */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(150px,1fr))", gap: 12 }}>
+        {[
+          ["Total CLP equiv.", fmtMonto(resumen.totalCLP, "CLP"), C.primary],
+          ["Rendiciones", String(nRend), C.accent2],
+          ["Gastos", String(resumen.nGastos), C.success],
+          ["Promedio / rendición", fmtMonto(promedio, "CLP"), C.warning],
+        ].map(([l, v, col]) => (
+          <div key={l} style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: 14 }}>
+            <div style={{ fontSize: 11, color: C.muted, fontWeight: 700 }}>{l.toUpperCase()}</div>
+            <div style={{ fontSize: 19, fontWeight: 800, color: col, marginTop: 4 }}>{v}</div>
+          </div>
+        ))}
+      </div>
+      {resumen.sinTC > 0 && (
+        <div style={{ fontSize: 11.5, color: C.warning, background: C.warningBg, border: `1px solid ${C.warning}`, borderRadius: 8, padding: "6px 10px" }}>
+          ⚠ {resumen.sinTC} gasto(s) sin tipo de cambio quedaron fuera de los totales. Cárgalo en el gasto o en Maestros → TC.
+        </div>
+      )}
+      {/* Fila de 2 gráficos */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(280px,1fr))", gap: 12 }}>
+        <ChartCard title="GASTOS POR CONCEPTO">
+          <BarChart data={resumen.porCategoria} color={C.primary} />
+        </ChartCard>
+        <ChartCard title={dim === "empresa" ? "GASTOS POR EMPRESA" : "GASTOS POR TRABAJADOR"}
+          right={<Seg value={dim} onChange={setDim} opts={[{ v: "empresa", l: "Empresa" }, { v: "trabajador", l: "Trabajador" }]} />}>
+          <BarChart data={dim === "empresa" ? resumen.porEmpresa : resumen.porTrabajador} color={C.accent2} />
+        </ChartCard>
+      </div>
+      {/* Cruce concepto × dimensión (stacked) */}
+      <ChartCard title={cruce === "empresa" ? "CONCEPTO × EMPRESA" : "CONCEPTO × TRABAJADOR"}
+        right={<Seg value={cruce} onChange={setCruce} opts={[{ v: "empresa", l: "× Empresa" }, { v: "trabajador", l: "× Trabajador" }]} />}>
+        <StackedBars data={cruce === "empresa" ? resumen.catEmpresa : resumen.catTrabajador} />
+      </ChartCard>
     </div>
   );
 }
