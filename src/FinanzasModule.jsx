@@ -4,6 +4,7 @@ import EEFFModule from './EEFFModule.jsx';
 import RendicionesModule from './RendicionesModule.jsx';
 import { theme } from './theme';
 import { exportarFlujoConsolidado } from './flujoExportExcel.js';
+import * as XLSX from 'xlsx-js-style'; // SheetJS (fork con estilos) — ya instalado
 import { uploadDocNomina, urlFirmadaNomina } from './friskuHelpers';
 import { esLineaRelacionada, hashArchivo, docsActivos, tieneRespaldo, pathDocNomina, coberturaNomina, siguienteCorrelativo } from './expedienteHelpers';
 import { USE_GUARD, pollRow } from './guardClient';
@@ -6283,6 +6284,7 @@ function Creditos({empresas, creditosData=CREDITOS_DEFAULT, onSaveCreditos, canE
   // Lista de empresas para el <select> del modal: filtrar por permisos
   const EMP_SELECT = ["Mediterra","Allegria Foods","Allegria Service","Frisku Foods","Osiris","Integrity Farms","Allpa Farms","Allpa Farms Perú"]
     .filter(e => esPermitida(e));
+  const [vistaCred,setVistaCred]=useState("creditos"); // "creditos" | "saldomes"
   const [busq,setBusq]=useState("");
   const [filtEmp,setFiltEmp]=useState("Todas");
   const [filtPagado,setFiltPagado]=useState("Todos"); // "Todos" | "Pendientes" | "Pagados"
@@ -6360,6 +6362,19 @@ function Creditos({empresas, creditosData=CREDITOS_DEFAULT, onSaveCreditos, canE
   const maxD=deudaList[0]?.[1]||1;
   return (
     <div style={{display:"flex",flexDirection:"column",gap:14,minWidth:0}}>
+      {/* Subpestañas de Créditos */}
+      <div style={{display:"flex",gap:6}}>
+        {[["creditos","💳 Créditos"],["saldomes","📅 Saldo por Mes"]].map(([id,lbl])=>(
+          <button key={id} onClick={()=>setVistaCred(id)}
+            style={{padding:"7px 16px",borderRadius:8,border:`1px solid ${vistaCred===id?C.blue:C.border}`,
+              background:vistaCred===id?C.blue:"transparent",color:vistaCred===id?"#fff":C.muted,
+              cursor:"pointer",fontSize:12,fontWeight:700}}>{lbl}</button>
+        ))}
+      </div>
+
+      {vistaCred==="saldomes" && <SaldoDeudaPorMes creditos={creditosVisibles} empresas={empresas}/>}
+
+      {vistaCred==="creditos" && (<>
       <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:10}}>
         <KPI label="Deuda Total Q1-2026" value={$$(CREDITOS_TRIM.saldos[0])} color={C.red}/>
         <KPI label="Pagos Q1-2026"       value={$$(CREDITOS_TRIM.pagos[0])}  color={C.yellow}/>
@@ -6910,7 +6925,159 @@ function Creditos({empresas, creditosData=CREDITOS_DEFAULT, onSaveCreditos, canE
           </div>
         </div>
       )}
+      </>)}
     </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────
+// SALDO DE DEUDA POR MES — subvista de Créditos
+// Filas: meses desde el mes actual hasta el último vencimiento.
+// Columnas: una por empresa + Total Grupo. Saldo al cierre del mes M =
+// suma de cuotas (cuota/monto) con f_venc posterior al último día de M,
+// de créditos no pagados (+ cuotas de renovación Capital+Interés).
+// Montos en USD; toggle a CLP convierte con TC editable.
+// ─────────────────────────────────────────────────────────────────
+const MESES_ABR_SD = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
+const MES2NUM_SD = {Ene:'01',Feb:'02',Mar:'03',Abr:'04',May:'05',Jun:'06',Jul:'07',Ago:'08',Sep:'09',Oct:'10',Nov:'11',Dic:'12'};
+function isoFinMes(y,m){ const d=new Date(y,m+1,0); return `${y}-${String(m+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; }
+// Fecha (día 28) de una cuota de renovación, para comparar con cierres.
+function fechaCuotaRenov(cq){
+  if(!cq?.anio||!cq?.mes) return '';
+  return `${cq.anio}-${MES2NUM_SD[cq.mes]||'06'}-28`;
+}
+// Saldo de un crédito al cierre de fechaISO.
+function saldoCreditoAt(c, fechaISO){
+  let d = (!c.pagado && c.f_venc && c.f_venc>fechaISO) ? (Number(c.cuota)||0) : 0;
+  if(c.renovable)(c.cuotas_renovacion||[]).forEach(cq=>{
+    if((cq.tipo||'Solo Interés')==='Capital+Interés'){
+      const f = fechaCuotaRenov(cq);
+      if(f && f>fechaISO) d += Number(cq.monto)||0;
+    }
+  });
+  return d;
+}
+
+function SaldoDeudaPorMes({creditos=[], empresas={}}){
+  const [moneda,setMoneda]=useState("USD"); // USD | CLP
+  const [tc,setTc]=useState(950);
+
+  // Meses: desde el mes actual hasta el último vencimiento registrado.
+  const meses = useMemo(()=>{
+    let maxISO="";
+    creditos.forEach(c=>{
+      if(c.f_venc && c.f_venc>maxISO) maxISO=c.f_venc;
+      if(c.renovable)(c.cuotas_renovacion||[]).forEach(cq=>{
+        const f=fechaCuotaRenov(cq); if(f&&f>maxISO) maxISO=f;
+      });
+    });
+    const now=new Date(); let y=now.getFullYear(), m=now.getMonth();
+    const out=[];
+    const maxY = maxISO?Number(maxISO.slice(0,4)):y;
+    const maxM = maxISO?Number(maxISO.slice(5,7))-1:m;
+    let cy=y, cm=m, guard=0;
+    while((cy<maxY || (cy===maxY && cm<=maxM)) && guard<240){
+      out.push({label:`${MESES_ABR_SD[cm]}-${String(cy).slice(2)}`, endISO:isoFinMes(cy,cm)});
+      cm++; if(cm>11){cm=0;cy++;} guard++;
+    }
+    if(out.length===0) out.push({label:`${MESES_ABR_SD[m]}-${String(y).slice(2)}`, endISO:isoFinMes(y,m)});
+    return out;
+  },[creditos]);
+
+  const emps = useMemo(()=>[...new Set(creditos.map(c=>c.empresa).filter(Boolean))].sort(),[creditos]);
+  // matriz[empIndex][mesIndex] = saldo en USD
+  const matriz = useMemo(()=> emps.map(emp=>{
+    const ec = creditos.filter(c=>c.empresa===emp);
+    return meses.map(mm=> ec.reduce((s,c)=>s+saldoCreditoAt(c,mm.endISO),0));
+  }),[emps,meses,creditos]);
+
+  const factor = moneda==="CLP" ? (Number(tc)||0) : 1;
+  const sym = moneda==="CLP" ? "$" : "US$";
+  const conv = (usd)=> usd*factor;            // a moneda de visualización
+  const fmtK = (usd)=>{ const v=conv(usd); return v ? `${sym} ${Math.round(v/1000).toLocaleString("es-CL")} K` : "—"; };
+  const totalMes = (i)=> emps.reduce((s,_,e)=>s+matriz[e][i],0);
+
+  function exportarExcel(){
+    const aoa = [["Mes", ...emps, "Total Grupo"]];
+    meses.forEach((mm,i)=>{
+      const row=[mm.label];
+      emps.forEach((_,e)=> row.push(Math.round(conv(matriz[e][i]))));
+      row.push(Math.round(conv(totalMes(i))));
+      aoa.push(row);
+    });
+    const ws = XLSX.utils.aoa_to_sheet(aoa);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Saldo por Mes");
+    const now=new Date(); const mm=String(now.getMonth()+1).padStart(2,'0'); const yyyy=now.getFullYear();
+    XLSX.writeFile(wb, `Saldo_Deuda_Grupo_${mm}${yyyy}.xlsx`);
+  }
+
+  return (
+    <Card style={{padding:0,overflow:"hidden"}}>
+      <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap",padding:"12px 16px",borderBottom:`1px solid ${C.border}`}}>
+        <div style={{flex:1,minWidth:160}}>
+          <SectionTitle>Saldo de Deuda por Mes</SectionTitle>
+          <div style={{fontSize:10,color:C.muted}}>Saldo pendiente al cierre de cada mes · valores en miles ({moneda})</div>
+        </div>
+        <div style={{display:"flex",gap:4}}>
+          {["USD","CLP"].map(mo=>(
+            <button key={mo} onClick={()=>setMoneda(mo)}
+              style={{padding:"5px 12px",borderRadius:7,border:`1px solid ${moneda===mo?C.blue:C.border}`,
+                background:moneda===mo?C.blue:"transparent",color:moneda===mo?"#fff":C.muted,cursor:"pointer",fontSize:11,fontWeight:700}}>{mo}</button>
+          ))}
+        </div>
+        {moneda==="CLP"&&(
+          <label style={{fontSize:10,color:C.muted,display:"flex",alignItems:"center",gap:5}}>
+            TC (CLP/USD)
+            <input type="number" value={tc} onChange={e=>setTc(e.target.value)}
+              style={{width:70,padding:"4px 7px",background:C.card2,border:`1px solid ${C.border}`,borderRadius:6,color:C.text,fontSize:11,outline:"none"}}/>
+          </label>
+        )}
+        <button onClick={exportarExcel}
+          style={{padding:"6px 14px",borderRadius:8,background:C.green,border:"none",color:"#fff",cursor:"pointer",fontSize:11,fontWeight:700}}>
+          📥 Exportar a Excel
+        </button>
+      </div>
+      <div style={{overflowX:"auto",minWidth:0,maxWidth:"calc(100vw - 80px)"}}>
+        <table style={{borderCollapse:"collapse",fontSize:11,whiteSpace:"nowrap"}}>
+          <thead>
+            <tr style={{background:C.primary}}>
+              <th style={{padding:"8px 14px",fontWeight:700,fontSize:10,color:C.text,textAlign:"left",
+                borderBottom:`1px solid ${C.border}`,position:"sticky",left:0,background:C.bg2,zIndex:1,minWidth:90}}>Mes</th>
+              {emps.map(emp=>{ const e=empresas[emp]||{emoji:"🏢"}; return (
+                <th key={emp} style={{padding:"8px 14px",fontWeight:600,fontSize:10,color:C.muted,textAlign:"right",
+                  borderBottom:`1px solid ${C.border}`,textTransform:"uppercase"}}>{e.emoji} {emp}</th>
+              );})}
+              <th style={{padding:"8px 14px",fontWeight:800,fontSize:10,color:C.text,textAlign:"right",
+                borderBottom:`1px solid ${C.border}`,borderLeft:`1px solid ${C.border}`}}>Total Grupo</th>
+            </tr>
+          </thead>
+          <tbody>
+            {meses.map((mm,i)=>(
+              <tr key={mm.endISO} style={{borderBottom:`1px solid ${C.border}22`}}>
+                <td style={{padding:"7px 14px",fontWeight:700,color:C.text,position:"sticky",left:0,
+                  background:C.card,zIndex:1,borderRight:`1px solid ${C.border}22`}}>{mm.label}</td>
+                {emps.map((emp,e)=>{
+                  const usd=matriz[e][i];
+                  const sube = i>0 && usd>matriz[e][i-1]; // saldo aumentó (refinanciamiento / nueva deuda)
+                  return (
+                    <td key={emp} style={{padding:"7px 14px",textAlign:"right",
+                      color:usd?C.text:C.muted2, fontWeight:usd?600:400,
+                      background:sube?`${C.yellow}22`:"transparent"}}>
+                      {fmtK(usd)}{sube&&<span title="Saldo subió respecto al mes anterior" style={{color:C.yellow,marginLeft:3}}>▲</span>}
+                    </td>
+                  );
+                })}
+                <td style={{padding:"7px 14px",textAlign:"right",fontWeight:800,
+                  color:totalMes(i)?C.red:C.green,borderLeft:`1px solid ${C.border}`}}>
+                  {totalMes(i)?fmtK(totalMes(i)):"✓"}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </Card>
   );
 }
 
