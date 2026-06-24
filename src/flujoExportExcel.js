@@ -43,8 +43,11 @@ const ING_CATS = ['ing_op','ing_nop'];
 const EGR_CATS = ['egr_var','egr_fijo','egr_nop','imp'];
 
 const FMT = '$#,##0;($#,##0);-';
-// formato con color por signo: verde positivo, rojo negativo, gris el cero
+// formato con color por signo: verde positivo, rojo negativo
 const FMT_SIGN = '[Green]$#,##0;[Red]($#,##0);-';
+// formato por naturaleza: ingresos siempre verde, egresos siempre rojo
+const FMT_GREEN = '[Green]$#,##0;[Green]($#,##0);-';
+const FMT_RED   = '[Red]$#,##0;[Red]($#,##0);-';
 const FONT = 'Arial';
 const NAVY='1F3864', BLUE='305496', LBLUE='D9E1F2', GRAY='E7E6E6', YELLOW='FFF2CC', BORDERC='D9D9D9', INPUTBLUE='0000FF';
 
@@ -61,14 +64,18 @@ const S = {
   colHdr:   { font:{ name:FONT, sz:9, bold:true, color:{rgb:'FFFFFF'} }, fill:{ fgColor:{rgb:NAVY} }, alignment:{ horizontal:'center', vertical:'center' }, border:BORD },
   concept:  { font:{ name:FONT, sz:10, bold:true, color:{rgb:'FFFFFF'} }, fill:{ fgColor:{rgb:NAVY} }, alignment:{ horizontal:'left', vertical:'center' }, border:BORD },
   catLabel: { font:{ name:FONT, sz:10, bold:true, color:{rgb:NAVY} }, fill:{ fgColor:{rgb:GRAY} }, alignment:{ horizontal:'left' }, border:BORD },
-  catNum:   { font:{ name:FONT, sz:10, bold:true }, fill:{ fgColor:{rgb:GRAY} }, alignment:{ horizontal:'right' }, numFmt:FMT, border:BORD },
+  catNumIng:{ font:{ name:FONT, sz:10, bold:true }, fill:{ fgColor:{rgb:GRAY} }, alignment:{ horizontal:'right' }, numFmt:FMT_GREEN, border:BORD },
+  catNumEgr:{ font:{ name:FONT, sz:10, bold:true }, fill:{ fgColor:{rgb:GRAY} }, alignment:{ horizontal:'right' }, numFmt:FMT_RED, border:BORD },
   lineLabel:{ font:{ name:FONT, sz:10 }, alignment:{ horizontal:'left', indent:1 }, border:BORD },
-  linkLabel:{ font:{ name:FONT, sz:10, color:{rgb:'006100'} }, alignment:{ horizontal:'left', indent:2 }, border:BORD },
-  linkNum:  { font:{ name:FONT, sz:10, color:{rgb:'006100'} }, alignment:{ horizontal:'right' }, numFmt:FMT, border:BORD },
+  linkLabel:{ font:{ name:FONT, sz:10 }, alignment:{ horizontal:'left', indent:2 }, border:BORD },
+  linkNumIng:{ font:{ name:FONT, sz:10 }, alignment:{ horizontal:'right' }, numFmt:FMT_GREEN, border:BORD },
+  linkNumEgr:{ font:{ name:FONT, sz:10 }, alignment:{ horizontal:'right' }, numFmt:FMT_RED, border:BORD },
   input:    { font:{ name:FONT, sz:10, color:{rgb:INPUTBLUE} }, fill:{ fgColor:{rgb:YELLOW} }, alignment:{ horizontal:'right' }, numFmt:FMT, border:BORD },
-  formula:  { font:{ name:FONT, sz:10 }, alignment:{ horizontal:'right' }, numFmt:FMT, border:BORD },
+  formulaIng:{ font:{ name:FONT, sz:10 }, alignment:{ horizontal:'right' }, numFmt:FMT_GREEN, border:BORD },
+  formulaEgr:{ font:{ name:FONT, sz:10 }, alignment:{ horizontal:'right' }, numFmt:FMT_RED, border:BORD },
   sumLabel: { font:{ name:FONT, sz:10, bold:true }, alignment:{ horizontal:'left' }, border:BORD },
-  sumNum:   { font:{ name:FONT, sz:10, bold:true }, alignment:{ horizontal:'right' }, numFmt:FMT, border:BORD },
+  sumNumIng:{ font:{ name:FONT, sz:10, bold:true }, alignment:{ horizontal:'right' }, numFmt:FMT_GREEN, border:BORD },
+  sumNumEgr:{ font:{ name:FONT, sz:10, bold:true }, alignment:{ horizontal:'right' }, numFmt:FMT_RED, border:BORD },
   flujoLabel:{ font:{ name:FONT, sz:10, bold:true }, fill:{ fgColor:{rgb:GRAY} }, alignment:{ horizontal:'left' }, border:BORD },
   flujoNum: { font:{ name:FONT, sz:10, bold:true }, fill:{ fgColor:{rgb:GRAY} }, alignment:{ horizontal:'right' }, numFmt:FMT_SIGN, border:BORD },
   saldoLabel:{ font:{ name:FONT, sz:10, bold:true }, fill:{ fgColor:{rgb:LBLUE} }, alignment:{ horizontal:'left' }, border:BORD },
@@ -154,6 +161,10 @@ function buildStatement({ title, subtitle, cols, monthOrder, cats, saldoIniValue
   // Categorías
   const catRows = {};
   CAT_ORDER.forEach(cat => {
+    const isIng = ING_CATS.includes(cat);
+    const natNum  = isIng ? S.catNumIng  : S.catNumEgr;
+    const natLink = isIng ? S.linkNumIng : S.linkNumEgr;
+    const natFx   = isIng ? S.formulaIng : S.formulaEgr;
     const def = catByKey[cat] || { lines:[] };
     const catLines = def.lines || [];
     const firstLineRow = r + 1;
@@ -161,10 +172,10 @@ function buildStatement({ title, subtitle, cols, monthOrder, cats, saldoIniValue
       const isLink = !!ln.cellFormula;
       cells[ref(r+1,0)] = { t:'s', v:ln.label, s:isLink?S.linkLabel:S.lineLabel };
       monthOrder.forEach((mc,k) => {
-        if (isLink) { const v=ln.cellNumber?ln.cellNumber(mc):0; num[ref(r+1,mc.c)]=v; cells[ref(r+1,mc.c)] = { t:'n', f:ln.cellFormula(mc), v, s:S.linkNum }; }
+        if (isLink) { const v=ln.cellNumber?ln.cellNumber(mc):0; num[ref(r+1,mc.c)]=v; cells[ref(r+1,mc.c)] = { t:'n', f:ln.cellFormula(mc), v, s:natLink }; }
         else { const v=Number(ln.vals[k])||0; num[ref(r+1,mc.c)]=v; cells[ref(r+1,mc.c)] = { t:'n', v, s:S.input }; }
       });
-      fillAdditive(cells, num, r+1, cols, isLink?S.linkNum:S.formula);
+      fillAdditive(cells, num, r+1, cols, isLink?natLink:natFx);
       setLvl(r,2); r++;
     });
     const lastLineRow = r;
@@ -174,31 +185,31 @@ function buildStatement({ title, subtitle, cols, monthOrder, cats, saldoIniValue
       if (catLines.length > 0) {
         let v = 0; for (let lr=firstLineRow; lr<=lastLineRow; lr++) v += num[ref(lr,mc.c)]||0;
         num[ref(subRow,mc.c)] = v;
-        cells[ref(subRow,mc.c)] = { t:'n', f:`SUM(${ref(firstLineRow,mc.c)}:${ref(lastLineRow,mc.c)})`, v, s:S.catNum };
+        cells[ref(subRow,mc.c)] = { t:'n', f:`SUM(${ref(firstLineRow,mc.c)}:${ref(lastLineRow,mc.c)})`, v, s:natNum };
       } else if (def.monthFormula) {
         const v = def.monthNumber ? def.monthNumber(mc) : 0;
         num[ref(subRow,mc.c)] = v;
-        cells[ref(subRow,mc.c)] = { t:'n', f:def.monthFormula(mc), v, s:S.catNum };
+        cells[ref(subRow,mc.c)] = { t:'n', f:def.monthFormula(mc), v, s:natNum };
       } else {
         num[ref(subRow,mc.c)] = 0;
-        cells[ref(subRow,mc.c)] = { t:'n', v:0, s:S.catNum };
+        cells[ref(subRow,mc.c)] = { t:'n', v:0, s:natNum };
       }
     });
-    fillAdditive(cells, num, subRow, cols, S.catNum);
+    fillAdditive(cells, num, subRow, cols, natNum);
     setLvl(r,1); r++;
   });
 
   // (+) Ingresos del mes
   const ingRow = r + 1;
   cells[ref(ingRow,0)] = { t:'s', v:'(+) Ingresos del mes', s:S.sumLabel };
-  monthOrder.forEach(mc => { const v=ING_CATS.reduce((a,c2)=>a+(num[ref(catRows[c2],mc.c)]||0),0); num[ref(ingRow,mc.c)]=v; cells[ref(ingRow,mc.c)] = { t:'n', f:ING_CATS.map(c2=>ref(catRows[c2],mc.c)).join('+'), v, s:S.sumNum }; });
-  fillAdditive(cells, num, ingRow, cols, S.sumNum); setLvl(r,0); r++;
+  monthOrder.forEach(mc => { const v=ING_CATS.reduce((a,c2)=>a+(num[ref(catRows[c2],mc.c)]||0),0); num[ref(ingRow,mc.c)]=v; cells[ref(ingRow,mc.c)] = { t:'n', f:ING_CATS.map(c2=>ref(catRows[c2],mc.c)).join('+'), v, s:S.sumNumIng }; });
+  fillAdditive(cells, num, ingRow, cols, S.sumNumIng); setLvl(r,0); r++;
 
   // (−) Egresos del mes
   const egrRow = r + 1;
   cells[ref(egrRow,0)] = { t:'s', v:'(−) Egresos del mes', s:S.sumLabel };
-  monthOrder.forEach(mc => { const v=EGR_CATS.reduce((a,c2)=>a+(num[ref(catRows[c2],mc.c)]||0),0); num[ref(egrRow,mc.c)]=v; cells[ref(egrRow,mc.c)] = { t:'n', f:EGR_CATS.map(c2=>ref(catRows[c2],mc.c)).join('+'), v, s:S.sumNum }; });
-  fillAdditive(cells, num, egrRow, cols, S.sumNum); setLvl(r,0); r++;
+  monthOrder.forEach(mc => { const v=EGR_CATS.reduce((a,c2)=>a+(num[ref(catRows[c2],mc.c)]||0),0); num[ref(egrRow,mc.c)]=v; cells[ref(egrRow,mc.c)] = { t:'n', f:EGR_CATS.map(c2=>ref(catRows[c2],mc.c)).join('+'), v, s:S.sumNumEgr }; });
+  fillAdditive(cells, num, egrRow, cols, S.sumNumEgr); setLvl(r,0); r++;
 
   // (=) Flujo neto
   const flujoRow = r + 1;
