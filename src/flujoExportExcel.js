@@ -43,6 +43,8 @@ const ING_CATS = ['ing_op','ing_nop'];
 const EGR_CATS = ['egr_var','egr_fijo','egr_nop','imp'];
 
 const FMT = '$#,##0;($#,##0);-';
+// formato con color por signo: verde positivo, rojo negativo, gris el cero
+const FMT_SIGN = '[Green]$#,##0;[Red]($#,##0);-';
 const FONT = 'Arial';
 const NAVY='1F3864', BLUE='305496', LBLUE='D9E1F2', GRAY='E7E6E6', YELLOW='FFF2CC', BORDERC='D9D9D9', INPUTBLUE='0000FF';
 
@@ -67,10 +69,10 @@ const S = {
   formula:  { font:{ name:FONT, sz:10 }, alignment:{ horizontal:'right' }, numFmt:FMT, border:BORD },
   sumLabel: { font:{ name:FONT, sz:10, bold:true }, alignment:{ horizontal:'left' }, border:BORD },
   sumNum:   { font:{ name:FONT, sz:10, bold:true }, alignment:{ horizontal:'right' }, numFmt:FMT, border:BORD },
-  flujoLabel:{ font:{ name:FONT, sz:10, bold:true, color:{rgb:'FFFFFF'} }, fill:{ fgColor:{rgb:BLUE} }, alignment:{ horizontal:'left' }, border:BORD },
-  flujoNum: { font:{ name:FONT, sz:10, bold:true, color:{rgb:'FFFFFF'} }, fill:{ fgColor:{rgb:BLUE} }, alignment:{ horizontal:'right' }, numFmt:FMT, border:BORD },
+  flujoLabel:{ font:{ name:FONT, sz:10, bold:true }, fill:{ fgColor:{rgb:GRAY} }, alignment:{ horizontal:'left' }, border:BORD },
+  flujoNum: { font:{ name:FONT, sz:10, bold:true }, fill:{ fgColor:{rgb:GRAY} }, alignment:{ horizontal:'right' }, numFmt:FMT_SIGN, border:BORD },
   saldoLabel:{ font:{ name:FONT, sz:10, bold:true }, fill:{ fgColor:{rgb:LBLUE} }, alignment:{ horizontal:'left' }, border:BORD },
-  saldoNum: { font:{ name:FONT, sz:10, bold:true }, fill:{ fgColor:{rgb:LBLUE} }, alignment:{ horizontal:'right' }, numFmt:FMT, border:BORD },
+  saldoNum: { font:{ name:FONT, sz:10, bold:true }, fill:{ fgColor:{rgb:LBLUE} }, alignment:{ horizontal:'right' }, numFmt:FMT_SIGN, border:BORD },
 };
 
 function buildColumns(months, seasons) {
