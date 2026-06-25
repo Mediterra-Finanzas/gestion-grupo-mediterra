@@ -79,12 +79,11 @@ async function dbLoad() {
   // exitosa y NO habilite el auto-guardado (que sobrescribiría Supabase con
   // los defaults en memoria → borrado de usuarios/PINs/estados). Devolver
   // null SOLO cuando la fila existe pero está vacía (instalación nueva).
-  // Anti-caché: param único + no-store. Algunas redes corporativas (proxy)
-  // sirven una respuesta vieja cacheada de Supabase → el usuario carga datos
-  // desactualizados (PIN viejo) y no puede entrar. El param único hace que la
-  // URL sea distinta cada vez, así ningún proxy/navegador puede reusar caché.
-  const res = await fetch(`${SUPA_URL}/rest/v1/calendario_data?id=eq.main&select=value&_=${Date.now()}`, {
-    headers: { apikey: SUPA_KEY, Authorization: `Bearer ${SUPA_KEY}`, "Cache-Control": "no-cache" },
+  // Anti-caché por HEADERS (NO por query param: PostgREST/Supabase rechaza con
+  // 400 cualquier parámetro extra en la URL). cache:no-store evita la caché del
+  // navegador; Cache-Control/Pragma piden a los intermediarios revalidar.
+  const res = await fetch(`${SUPA_URL}/rest/v1/calendario_data?id=eq.main&select=value`, {
+    headers: { apikey: SUPA_KEY, Authorization: `Bearer ${SUPA_KEY}`, "Cache-Control": "no-cache", "Pragma": "no-cache" },
     cache: "no-store"
   });
   if(!res.ok) throw new Error(`dbLoad HTTP ${res.status}`);
@@ -138,11 +137,10 @@ async function dbSave(value) {
 // volvía a su PIN base). Esta fila SOLO se escribe cuando alguien cambia su PIN,
 // nunca en el auto-guardado de Tareas, así ninguna sesión vieja puede revertirla.
 async function dbLoadPins() {
-  // Anti-caché (ver dbLoad): el login DEBE leer el PIN vigente, nunca uno viejo
-  // cacheado por un proxy de red — si no, el usuario no puede entrar con su PIN
-  // recién cambiado.
-  const res = await fetch(`${SUPA_URL}/rest/v1/calendario_data?id=eq.pins&select=value&_=${Date.now()}`, {
-    headers: { apikey: SUPA_KEY, Authorization: `Bearer ${SUPA_KEY}`, "Cache-Control": "no-cache" },
+  // Anti-caché por HEADERS (NO por query param: PostgREST rechaza con 400). El
+  // login debe leer el PIN vigente, nunca uno viejo cacheado.
+  const res = await fetch(`${SUPA_URL}/rest/v1/calendario_data?id=eq.pins&select=value`, {
+    headers: { apikey: SUPA_KEY, Authorization: `Bearer ${SUPA_KEY}`, "Cache-Control": "no-cache", "Pragma": "no-cache" },
     cache: "no-store"
   });
   if(!res.ok) throw new Error(`dbLoadPins HTTP ${res.status}`);
