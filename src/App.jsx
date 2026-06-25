@@ -873,12 +873,15 @@ function PanelPermisos({ usuarios, setUsuarios, onClose, pinsPersonalizados = {}
                           {u.rol==="admin"?"Admin":u.rol==="gerente_tecnico"?"Gte. Técnico":u.rol==="consulta"?"Consulta":"Editor"}
                         </span>
                         {(()=>{
-                          // El usuario con PIN SEGURO (cifrado) tiene su clave en `_h`,
-                          // irreversible: no se puede mostrar. El override en texto plano
-                          // (`[nombre]`) sí. Antes el panel mostraba el PIN base aunque
-                          // hubiera `_h`, confundiendo (parecía que el PIN era el base).
-                          const seguro = !!pinsPersonalizados[u.nombre+"_h"];
-                          const cambiado = !!pinsPersonalizados[u.nombre] || seguro;
+                          // Visibilidad del PIN en el panel:
+                          //  - Si hay copia en texto plano (`[nombre]`) → se muestra (admin la ve).
+                          //    Desde el pedido de Angelo, el auto-cambio del usuario también deja
+                          //    esta copia plana, así que sus cambios son visibles.
+                          //  - Si solo hay `_h` (cifrado, sin copia plana) → no se puede mostrar
+                          //    (irreversible): se indica "PIN seguro".
+                          const plano = pinsPersonalizados[u.nombre];
+                          const seguro = !!pinsPersonalizados[u.nombre+"_h"] && !plano;
+                          const cambiado = !!plano || !!pinsPersonalizados[u.nombre+"_h"];
                           const temp = pinsPersonalizados[u.nombre+"_temp"];
                           const visible = pinVisible===u.nombre;
                           const pinAct = pinActivoDe(u);
@@ -2790,10 +2793,14 @@ export default function App(){
     cred.fecha=new Date().toISOString().slice(0,10);
     const histGuardar=recientes.map(c=>({salt:c.salt,hash:c.hash,iter:c.iter})); // últimas 3 anteriores
     const nuevosPins={...pinsPersonalizados};
-    nuevosPins[worker.nombre+"_h"]=JSON.stringify(cred);
+    nuevosPins[worker.nombre+"_h"]=JSON.stringify(cred);          // hash: el login valida contra esto (seguro)
     nuevosPins[worker.nombre+"_hist"]=JSON.stringify(histGuardar);
     if(telNorm) nuevosPins[worker.nombre+"_tel"]=telNorm;
-    delete nuevosPins[worker.nombre];
+    // VISIBILIDAD ADMIN (pedido de Angelo): guardar también el PIN en texto
+    // plano para que el admin lo vea en el panel de Permisos cuando el usuario
+    // cambia su clave. Nota de seguridad: esto deja el PIN legible en la base;
+    // el login SIGUE validando contra el hash _h, no contra este texto plano.
+    nuevosPins[worker.nombre]=pinNuevo;
     delete nuevosPins[worker.nombre+"_temp"];
     setPinsPersonalizados(nuevosPins);
     // Esperar confirmación de guardado antes de continuar
