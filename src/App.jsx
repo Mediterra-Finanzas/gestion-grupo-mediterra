@@ -124,6 +124,35 @@ async function dbSave(value) {
   } catch(e) { console.error("Error guardando:", e); }
 }
 
+// ── Fila dedicada de PINs (id="pins") ──
+// Los PINs personalizados (cifrados _h, historial _hist, celular _tel, overrides
+// y temporales _temp) viven aquí como FUENTE DE VERDAD, separados de la fila
+// `main` del módulo Tareas. Antes vivían dentro de `main`, que se sobrescribe
+// completa en cada auto-guardado de Tareas y se aplica por WebSocket: una sesión
+// con copia vieja revertía los PINs (borraba el _h recién creado → el usuario
+// volvía a su PIN base). Esta fila SOLO se escribe cuando alguien cambia su PIN,
+// nunca en el auto-guardado de Tareas, así ninguna sesión vieja puede revertirla.
+async function dbLoadPins() {
+  const res = await fetch(`${SUPA_URL}/rest/v1/calendario_data?id=eq.pins&select=value`, {
+    headers: { apikey: SUPA_KEY, Authorization: `Bearer ${SUPA_KEY}` }
+  });
+  if(!res.ok) throw new Error(`dbLoadPins HTTP ${res.status}`);
+  const data = await res.json();
+  return data?.[0]?.value || null;   // null = fila no existe todavía (migración)
+}
+async function dbSavePins(pins) {
+  try {
+    await fetch(`${SUPA_URL}/rest/v1/calendario_data`, {
+      method: "POST",
+      headers: {
+        apikey: SUPA_KEY, Authorization: `Bearer ${SUPA_KEY}`,
+        "Content-Type": "application/json", Prefer: "resolution=merge-duplicates"
+      },
+      body: JSON.stringify({ id: "pins", value: pins, updated_at: new Date().toISOString() })
+    });
+  } catch(e) { console.error("[pins] Error guardando fila dedicada:", e); }
+}
+
 // ═══════════════════════════════════════════════════════════════════
 // SISTEMA DE AUDITORÍA — Registra acciones de usuarios
 // Retención: 24 meses · Acceso: solo admin
@@ -681,16 +710,22 @@ function PanelPermisos({ usuarios, setUsuarios, onClose, pinsPersonalizados = {}
   // PIN activo de un usuario: el personalizado si lo cambió, si no el de base.
   const pinActivoDe = (u) => pinsPersonalizados[u.nombre] || u.pin;
 
-  // Admin fija un nuevo PIN para un usuario (queda como su PIN activo y borra cualquier temporal pendiente).
+  // Admin fija un nuevo PIN para un usuario (queda como su PIN activo y borra
+  // cualquier temporal pendiente). IMPORTANTE: si el usuario tenía PIN SEGURO
+  // cifrado (`_h`), hay que borrarlo — si no, el login sigue prefiriendo el `_h`
+  // y el PIN nuevo no tomaría efecto (bug histórico del reseteo del admin).
   function cambiarPinAdmin(u) {
     if (!setPinsPersonalizados) return;
-    const actual = pinActivoDe(u);
-    const nuevo = (window.prompt(`Nuevo PIN para ${u.nombre} (mínimo 4 dígitos):`, actual) || "").trim();
+    const seguro = !!pinsPersonalizados[u.nombre+"_h"];
+    const sugerido = seguro ? "" : pinActivoDe(u);
+    const nuevo = (window.prompt(`Nuevo PIN para ${u.nombre} (mínimo 4 dígitos):`, sugerido) || "").trim();
     if (!nuevo) return;
     if (nuevo.length < 4) { alert("El PIN debe tener al menos 4 dígitos."); return; }
     setPinsPersonalizados(prev => {
       const next = { ...prev, [u.nombre]: nuevo };
       delete next[u.nombre + "_temp"];
+      delete next[u.nombre + "_h"];     // baja el PIN seguro: ahora manda el plano
+      delete next[u.nombre + "_hist"];  // y limpia el historial cifrado asociado
       return next;
     });
     window.auditLog("cambio_pin", {modulo:"sistema", seccion:"permisos",
@@ -831,20 +866,27 @@ function PanelPermisos({ usuarios, setUsuarios, onClose, pinsPersonalizados = {}
                           {u.rol==="admin"?"Admin":u.rol==="gerente_tecnico"?"Gte. Técnico":u.rol==="consulta"?"Consulta":"Editor"}
                         </span>
                         {(()=>{
-                          const cambiado = !!pinsPersonalizados[u.nombre];
+                          // El usuario con PIN SEGURO (cifrado) tiene su clave en `_h`,
+                          // irreversible: no se puede mostrar. El override en texto plano
+                          // (`[nombre]`) sí. Antes el panel mostraba el PIN base aunque
+                          // hubiera `_h`, confundiendo (parecía que el PIN era el base).
+                          const seguro = !!pinsPersonalizados[u.nombre+"_h"];
+                          const cambiado = !!pinsPersonalizados[u.nombre] || seguro;
                           const temp = pinsPersonalizados[u.nombre+"_temp"];
                           const visible = pinVisible===u.nombre;
                           const pinAct = pinActivoDe(u);
                           return (
                             <>
                               <button onClick={()=>setPinVisible(visible?null:u.nombre)}
-                                title={cambiado?"PIN actual (el usuario lo cambió)":"PIN asignado"}
+                                title={seguro?"PIN seguro cifrado (no visible). Usa 'Cambiar PIN' para asignar uno nuevo.":cambiado?"PIN actual (el usuario lo cambió)":"PIN asignado"}
                                 style={{display:"flex",alignItems:"center",gap:5,background:visible?C.infoBg:C.cardAlt,
                                   border:`1px solid ${C.border}`,color:visible?C.primary:C.muted,borderRadius:8,
                                   padding:"2px 9px",cursor:"pointer",fontSize:11,fontWeight:600}}>
-                                🔑 {visible
-                                  ? <span style={{fontFamily:"monospace",fontWeight:800,letterSpacing:1}}>{pinAct}{cambiado?<span style={{fontFamily:"sans-serif",fontWeight:600,letterSpacing:0,color:C.muted2}}> (cambiado)</span>:""}{temp?` · temp: ${temp}`:""}</span>
-                                  : "Ver PIN"}
+                                {seguro ? "🔒" : "🔑"} {visible
+                                  ? (seguro
+                                      ? <span style={{fontFamily:"sans-serif",fontWeight:700,color:C.muted2}}>PIN seguro (cifrado, no visible){temp?` · temp: ${temp}`:""}</span>
+                                      : <span style={{fontFamily:"monospace",fontWeight:800,letterSpacing:1}}>{pinAct}{cambiado?<span style={{fontFamily:"sans-serif",fontWeight:600,letterSpacing:0,color:C.muted2}}> (cambiado)</span>:""}{temp?` · temp: ${temp}`:""}</span>)
+                                  : (seguro ? "PIN seguro" : "Ver PIN")}
                               </button>
                               {setPinsPersonalizados && (
                                 <button onClick={()=>cambiarPinAdmin(u)}
@@ -1981,6 +2023,17 @@ export default function App(){
           if(d.tareasExtra)setTareasExtra(d.tareasExtra);
           if(d.tareasOverrides)setTareasOverrides(prev=>({...prev,...d.tareasOverrides}));
           if(d.pinsPersonalizados)setPinsPersonalizados(d.pinsPersonalizados);
+          // FUENTE DE VERDAD de PINs: la fila dedicada `pins`. Si existe, manda
+          // sobre la copia (posiblemente revertida) que venga en `main`. Si aún
+          // no existe (primera vez tras el deploy), se siembra desde main.
+          try {
+            const pinsRow = await dbLoadPins();
+            if(pinsRow && typeof pinsRow === "object"){
+              setPinsPersonalizados(pinsRow);
+            } else if(d.pinsPersonalizados){
+              await dbSavePins(d.pinsPersonalizados); // migración: sembrar fila dedicada
+            }
+          } catch(e){ console.warn("[pins] No se pudo leer la fila dedicada (se usa la copia de main):", e); }
           if(d.recsDone)setRecsDone(d.recsDone);
           if(d.recsComentarios)setRecsComentarios(d.recsComentarios);
           if(d.osirisData){
@@ -2113,7 +2166,8 @@ export default function App(){
       if(d.tareasConfig)  setTareasConfig(prev=>({...prev,...d.tareasConfig}));
       if(d.supervisores)  setSupervisores(prev=>({...prev,...d.supervisores}));
       if(d.tareasExtra)   setTareasExtra(d.tareasExtra);
-      if(d.pinsPersonalizados) setPinsPersonalizados(d.pinsPersonalizados);
+      // PINs NO se aplican desde el sync de `main`: su fuente de verdad es la
+      // fila `pins`. Aplicarlos acá revertía cambios recientes (bug histórico).
       if(d.recsDone)      setRecsDone(d.recsDone);
       if(d.recsComentarios) setRecsComentarios(d.recsComentarios);
     };
@@ -2155,7 +2209,8 @@ export default function App(){
               if(d.tareasConfig)  setTareasConfig(prev=>({...prev,...d.tareasConfig}));
               if(d.supervisores)  setSupervisores(prev=>({...prev,...d.supervisores}));
               if(d.tareasExtra)   setTareasExtra(d.tareasExtra);
-              if(d.pinsPersonalizados) setPinsPersonalizados(d.pinsPersonalizados);
+              // PINs NO se aplican desde el sync de `main` (fuente de verdad =
+              // fila `pins`). Aplicarlos acá revertía cambios recientes.
               if(d.recsDone)      setRecsDone(d.recsDone);
               if(d.recsComentarios) setRecsComentarios(d.recsComentarios);
               // osirisData se restaura desde su propia fila "osiris"
@@ -2483,6 +2538,17 @@ export default function App(){
     return()=>clearTimeout(t);
   },[usuarios,cargando]); // eslint-disable-line
 
+  // Persistir los PINs en su FILA DEDICADA `pins` cuando cambian (admin fija PIN,
+  // auto-cambio del usuario, reseteo/temporal). Es la fuente de verdad y NUNCA se
+  // toca en el auto-guardado de Tareas → ninguna sesión vieja puede revertirla.
+  // (No corre durante la carga porque `cargando` sigue true mientras se aplica.)
+  useEffect(()=>{
+    if(cargando) return;
+    if(!cargaOkRef.current) return;
+    const t=setTimeout(()=>{ dbSavePins(pinsPersonalizados); }, 500);
+    return()=>clearTimeout(t);
+  },[pinsPersonalizados]); // eslint-disable-line
+
   function getPinActivo(w){return pinsPersonalizados[w.nombre]||w.pin;}
 
   // Helper central de logout con auditoría
@@ -2586,12 +2652,22 @@ export default function App(){
       return;
     }
 
-    const pinTemp=pinsPersonalizados[w.nombre+"_temp"];
-    const credH=pinsPersonalizados[w.nombre+"_h"];        // FASE 2b: credencial cifrada (si ya migró)
-    const tieneTel=!!pinsPersonalizados[w.nombre+"_tel"]; // FASE 2b: ¿ya registró celular?
+    // Releer los PINs FRESCOS desde su fila dedicada `pins` (fuente de verdad)
+    // por si otro admin/dispositivo reseteó el PIN mientras esta pantalla estaba
+    // abierta. Si la red falla, se usa lo que haya en memoria. Esto reemplaza la
+    // antigua propagación por realtime (que revertía PINs), garantizando que el
+    // login siempre valide contra el PIN vigente.
+    let PP = pinsPersonalizados;
+    try {
+      const fresh = await dbLoadPins();
+      if(fresh && typeof fresh === "object"){ PP = fresh; setPinsPersonalizados(fresh); }
+    } catch(e){ console.warn("[pins] login: no se pudo releer la fila dedicada, se usa memoria:", e); }
+    const pinTemp=PP[w.nombre+"_temp"];
+    const credH=PP[w.nombre+"_h"];        // FASE 2b: credencial cifrada (si ya migró)
+    const tieneTel=!!PP[w.nombre+"_tel"]; // FASE 2b: ¿ya registró celular?
     const esTemp=!!(pinTemp&&pinInput===pinTemp);
     // FASE 2b: si ya migró, validar contra el PIN cifrado; si no, contra el PIN legacy.
-    const esOk = credH ? await verifyPin(pinInput, credH) : (pinInput===getPinActivo(w));
+    const esOk = credH ? await verifyPin(pinInput, credH) : (pinInput===(PP[w.nombre]||w.pin));
     if(esOk||esTemp){
       // FASE 2a — bloquear ingreso de usuarios desactivados
       if(w.desactivado){
@@ -2659,6 +2735,7 @@ export default function App(){
     const temporal=String(crypto.getRandomValues(new Uint32Array(1))[0]%1000000).padStart(6,"0");
     const nuevosPins={...pinsPersonalizados,[w.nombre+"_temp"]:temporal};
     setPinsPersonalizados(nuevosPins);
+    await dbSavePins(nuevosPins); // fuente de verdad de PINs (no esperar al efecto)
     await dbSave({estados,comentarios,tareasConfig,supervisores,tareasExtra,pinsPersonalizados:nuevosPins,recsDone,recsComentarios,usuarios,mes,anio});
     try{
       await enviarEmail(w.email,w.nombre,"PIN temporal - Mediterra",`Tu PIN temporal es: ${temporal}\nIngresa con este PIN y cambialo inmediatamente.\n\nhttps://gestion-grupo-mediterra.vercel.app`);
@@ -2714,6 +2791,7 @@ export default function App(){
     setPinsPersonalizados(nuevosPins);
     // Esperar confirmación de guardado antes de continuar
     try {
+      await dbSavePins(nuevosPins); // fuente de verdad de PINs (no esperar al efecto)
       await dbSave({estados,comentarios,tareasConfig,supervisores,tareasExtra,
         pinsPersonalizados:nuevosPins,recsDone,recsComentarios,usuarios,mes,anio});
       setPinActual("");setPinNuevo("");setPinConfirm("");setTelNuevo("");setModalPin(null);
