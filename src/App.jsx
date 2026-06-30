@@ -1143,7 +1143,7 @@ function NuevoUsuarioForm({setUsuarios, usuarios=[], pinsPersonalizados={}, setP
     const vp=pinNuevoValido(form.pin.trim());
     if(!vp.ok){setErr(vp.msg);return;}
     if(usuarios.find(u=>u.nombre===form.nombre)){setErr("Ya existe un usuario con ese nombre.");return;}
-    const cred=await hashPin(form.pin.trim()); cred.fecha=new Date().toISOString().slice(0,10);
+    const cred=await hashPin(form.pin.trim()); cred.fecha=new Date().toISOString().slice(0,10); cred.pol="6dig";
     const mods=form.rol==="admin"?MODULOS_DISPONIBLES.map(m=>m.id):form.modulos;
     // El usuario se guarda SIN PIN base en claro (pin:""); su credencial es el hash `_h`.
     setUsuarios(prev=>[...prev,{...form,pin:"",modulos:mods,esCFO:form.rol==="admin",desactivado:false}]);
@@ -1255,7 +1255,7 @@ function CargaMasivaUsuariosForm({ usuarios, setUsuarios, pinsPersonalizados={},
         modulos: soloRend ? [] : ["tareas"], esCFO:false, desactivado:false};
       const u=garantizarAccesoRendiciones(base);
       if(pin && pinNuevoValido(pin).ok){
-        const cred=await hashPin(pin); cred.fecha=new Date().toISOString().slice(0,10);
+        const cred=await hashPin(pin); cred.fecha=new Date().toISOString().slice(0,10); cred.pol="6dig";
         nuevosH[nombre+"_h"]=JSON.stringify(cred);
       }
       creados.push(u);
@@ -2771,15 +2771,20 @@ export default function App(){
       return;
     }
     setLoginError("");
-    // Migración: si aún no tiene PIN cifrado (entró con PIN base/plano) o su PIN
-    // venció (60 días), se le fuerza a crear un PIN nuevo de 6 dígitos ahora.
-    // Así migra del texto plano al hash sin quedar colgado. El celular es opcional.
+    // Migración / política de PIN. Se fuerza a crear un PIN nuevo de 6 dígitos si:
+    //  - no tiene PIN cifrado (entró con PIN base/plano), o
+    //  - su `_h` no tiene el SELLO de política `pol:"6dig"` (hash viejo que no
+    //    garantiza ser exactamente 6 dígitos válidos — no se puede saber el largo
+    //    desde el hash, así que se re-crea), o
+    //  - el PIN venció (60 días).
     let pinVencido = false;
+    let credCj = null;
     try {
-      const cj = credH ? JSON.parse(credH) : null;
-      if (cj && cj.fecha) pinVencido = (Date.now() - new Date(cj.fecha).getTime())/86400000 > 60;
+      credCj = credH ? JSON.parse(credH) : null;
+      if (credCj && credCj.fecha) pinVencido = (Date.now() - new Date(credCj.fecha).getTime())/86400000 > 60;
     } catch(e){}
-    const debeMigrar = !credH || pinVencido;
+    const cumplePolitica = !!(credCj && credCj.pol === "6dig");
+    const debeMigrar = !cumplePolitica || pinVencido;
     if(debeMigrar){
       setWorkerPendiente(w);
       setModalPin("cambiar");
@@ -2874,6 +2879,7 @@ export default function App(){
     // FASE 2b/3: cifrar la clave (con fecha de cambio) y guardar; borrar el texto plano (override + temporal)
     const cred=await hashPin(pinNuevo);
     cred.fecha=new Date().toISOString().slice(0,10);
+    cred.pol="6dig"; // sello de política: PIN de exactamente 6 dígitos (validado por pinNuevoValido)
     const histGuardar=recientes.map(c=>({salt:c.salt,hash:c.hash,iter:c.iter})); // últimas 3 anteriores
     const nuevosPins={...pinsPersonalizados};
     nuevosPins[worker.nombre+"_h"]=JSON.stringify(cred);          // hash: el login valida contra esto (seguro)
@@ -3104,7 +3110,7 @@ Equipo Mediterra`);
     if(!vp.ok){alert(vp.msg);return;}
     if(usuarios.find(u=>u.nombre===formUsuario.nombre)){alert("Ya existe un usuario con ese nombre.");return;}
     if(usuarios.find(u=>u.email.toLowerCase()===formUsuario.email.trim().toLowerCase())){alert("Ya existe un usuario con ese email.");return;}
-    const cred=await hashPin(formUsuario.pin.trim()); cred.fecha=new Date().toISOString().slice(0,10);
+    const cred=await hashPin(formUsuario.pin.trim()); cred.fecha=new Date().toISOString().slice(0,10); cred.pol="6dig";
     // El usuario se guarda SIN PIN base en claro (pin:""); su credencial es el hash `_h`.
     setUsuarios(prev=>[...prev,{...formUsuario,pin:"",modulos:formUsuario.modulos||["tareas"],esCFO:formUsuario.rol==="admin",desactivado:false}]);
     const next={...pinsPersonalizados,[formUsuario.nombre+"_h"]:JSON.stringify(cred)};
