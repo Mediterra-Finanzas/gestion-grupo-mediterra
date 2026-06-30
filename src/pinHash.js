@@ -58,16 +58,21 @@ export async function verifyPin(pin, cred) {
   }
 }
 
-// Validación de clave nueva: mínimo 6 caracteres alfanuméricos (letras y/o
-// números), no obvia. FASE 3: se permite alfanumérico (antes era 6 dígitos).
+// Validación de clave nueva: EXACTAMENTE 6 dígitos numéricos, no triviales.
+// - Rechaza todo lo que no sean 6 dígitos (no alfanumérico, no otra longitud).
+// - Rechaza 6 dígitos iguales (111111).
+// - Rechaza secuencias consecutivas ascendentes o descendentes, incluidas las
+//   parciales largas (123456, 234567, 654321, 987654, etc.): basta con que los
+//   6 dígitos sean un tramo de "0123456789" o de "9876543210".
 export function pinNuevoValido(pin) {
-  if (!/^[A-Za-z0-9]{6,64}$/.test(pin)) {
-    return { ok: false, msg: "Mínimo 6 caracteres, solo letras y/o números." };
+  if (!/^\d{6}$/.test(pin)) {
+    return { ok: false, msg: "El PIN debe ser exactamente 6 dígitos numéricos." };
   }
-  if (/^(.)\1+$/.test(pin)) return { ok: false, msg: "No uses todos los caracteres iguales." };
-  // Si es solo numérica, bloquear secuencias obvias
-  if (/^\d+$/.test(pin) && ("0123456789".includes(pin) || "9876543210".includes(pin))) {
-    return { ok: false, msg: "No uses una secuencia (ej. 123456)." };
+  if (/^(\d)\1{5}$/.test(pin)) {
+    return { ok: false, msg: "No uses 6 dígitos iguales (ej. 111111)." };
+  }
+  if ("0123456789".includes(pin) || "9876543210".includes(pin)) {
+    return { ok: false, msg: "No uses una secuencia (ej. 123456, 654321)." };
   }
   return { ok: true };
 }

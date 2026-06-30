@@ -160,6 +160,45 @@ async function dbSavePins(pins) {
   } catch(e) { console.error("[pins] Error guardando fila dedicada:", e); }
 }
 
+// ── Código provisorio de recuperación (HASHEADO + expiración) ──
+// El _temp deja de guardarse en texto plano: se almacena la misma credencial
+// PBKDF2 que un PIN (hashPin) + un campo `exp` (timestamp ms). Vence a los 45
+// min. Se compara por hash, nunca por igualdad de texto. Regla: mientras exista
+// un _temp (vigente o vencido), el PIN antiguo queda inhabilitado en el login.
+const TEMP_TTL_MS = 45 * 60 * 1000; // 45 minutos
+
+function genCodigo6() {
+  return String(crypto.getRandomValues(new Uint32Array(1))[0] % 1000000).padStart(6, "0");
+}
+// Devuelve el JSON string a guardar en pinsPersonalizados[`${nombre}_temp`].
+async function crearTempCred(codigo) {
+  const cred = await hashPin(codigo);        // {v,iter,salt,hash}
+  cred.exp = Date.now() + TEMP_TTL_MS;       // expiración
+  return JSON.stringify(cred);
+}
+// Interpreta el _temp guardado. Soporta el formato nuevo (JSON cred con exp) y,
+// por transición, el legacy en texto plano (sin exp).
+function estadoTemp(rawTemp) {
+  if (!rawTemp) return { existe: false, vigente: false, expirado: false, cred: null, legacy: false };
+  let cred = null;
+  try {
+    if (typeof rawTemp === "string" && rawTemp.trim().startsWith("{")) cred = JSON.parse(rawTemp);
+    else if (rawTemp && typeof rawTemp === "object") cred = rawTemp;
+  } catch (e) { cred = null; }
+  if (cred && cred.salt && cred.hash) {
+    const expirado = !!(cred.exp && Date.now() > cred.exp);
+    return { existe: true, vigente: !expirado, expirado, cred, legacy: false };
+  }
+  // legacy: _temp en texto plano (emitido antes de esta mejora) → sin expiración
+  return { existe: true, vigente: true, expirado: false, cred: null, legacy: true, plano: String(rawTemp) };
+}
+// Verifica un código contra el estado del _temp (async por el hash).
+async function verificarTemp(codigo, est) {
+  if (!est || !est.existe || !est.vigente) return false;
+  if (est.legacy) return String(codigo) === est.plano;
+  return await verifyPin(codigo, est.cred);
+}
+
 // ═══════════════════════════════════════════════════════════════════
 // SISTEMA DE AUDITORÍA — Registra acciones de usuarios
 // Retención: 24 meses · Acceso: solo admin
@@ -712,32 +751,29 @@ function CadenaAprobEditor({ u, usuarios, onChange }) {
 
 function PanelPermisos({ usuarios, setUsuarios, onClose, pinsPersonalizados = {}, setPinsPersonalizados }) {
   const [expandedTabUser, setExpandedTabUser] = useState(null); // nombre del usuario expandido
-  const [pinVisible, setPinVisible] = useState(null); // nombre del usuario con PIN revelado
 
-  // PIN activo de un usuario: el personalizado si lo cambió, si no el de base.
-  const pinActivoDe = (u) => pinsPersonalizados[u.nombre] || u.pin;
-
-  // Admin fija un nuevo PIN para un usuario (queda como su PIN activo y borra
-  // cualquier temporal pendiente). IMPORTANTE: si el usuario tenía PIN SEGURO
-  // cifrado (`_h`), hay que borrarlo — si no, el login sigue prefiriendo el `_h`
-  // y el PIN nuevo no tomaría efecto (bug histórico del reseteo del admin).
-  function cambiarPinAdmin(u) {
+  // Admin RESETEA el PIN de un usuario: emite un CÓDIGO PROVISORIO (hasheado +
+  // expiración 45 min). NO expone ni fija ningún PIN en texto plano. El usuario
+  // entra con el código (su PIN anterior queda INHABILITADO) y crea uno nuevo
+  // de 6 dígitos. Es la herramienta para destrabar a cualquiera sin acceso.
+  async function resetearPinAdmin(u) {
     if (!setPinsPersonalizados) return;
-    const seguro = !!pinsPersonalizados[u.nombre+"_h"];
-    const sugerido = seguro ? "" : pinActivoDe(u);
-    const nuevo = (window.prompt(`Nuevo PIN para ${u.nombre} (mínimo 4 dígitos):`, sugerido) || "").trim();
-    if (!nuevo) return;
-    if (nuevo.length < 4) { alert("El PIN debe tener al menos 4 dígitos."); return; }
-    setPinsPersonalizados(prev => {
-      const next = { ...prev, [u.nombre]: nuevo };
-      delete next[u.nombre + "_temp"];
-      delete next[u.nombre + "_h"];     // baja el PIN seguro: ahora manda el plano
-      delete next[u.nombre + "_hist"];  // y limpia el historial cifrado asociado
-      return next;
-    });
-    window.auditLog("cambio_pin", {modulo:"sistema", seccion:"permisos",
-      descripcion:`Admin cambió el PIN de ${u.nombre}`, registroId:u.nombre, campo:"pin"});
-    alert(`PIN de ${u.nombre} actualizado.`);
+    if (!window.confirm(`¿Resetear el PIN de ${u.nombre}?\n\nSe generará un código provisorio (vence en 45 min). Su PIN actual quedará INHABILITADO y deberá crear uno nuevo de 6 dígitos al ingresar.`)) return;
+    try {
+      const codigo = genCodigo6();
+      const tempCred = await crearTempCred(codigo);
+      const next = { ...pinsPersonalizados, [u.nombre + "_temp"]: tempCred };
+      setPinsPersonalizados(next);
+      await dbSavePins(next);
+      // Enviar por correo (best-effort) y mostrar el código al admin UNA vez,
+      // para poder entregarlo si el correo no llega a la casilla del usuario.
+      enviarEmail(u.email, u.nombre, "Código provisorio - Mediterra", `Tu código provisorio es: ${codigo}\n\nVence en 45 minutos. Al ingresar deberás crear un PIN nuevo de 6 dígitos. Tu PIN anterior quedó inhabilitado.\n\nhttps://gestion-grupo-mediterra.vercel.app`).catch(()=>{});
+      window.auditLog("reset_pin", {modulo:"sistema", seccion:"permisos",
+        descripcion:`Admin reseteó el PIN de ${u.nombre} (código provisorio emitido)`, registroId:u.nombre});
+      window.alert(`Código provisorio para ${u.nombre}:\n\n        ${codigo}\n\nVence en 45 minutos. Compártelo con el usuario (también se envió por correo).\nAl ingresar deberá crear un PIN nuevo de 6 dígitos. Su PIN anterior quedó inhabilitado.`);
+    } catch (e) {
+      window.alert("No se pudo generar el código provisorio. Intenta de nuevo.");
+    }
   }
 
   function toggleModulo(nombreU, modId) {
@@ -873,37 +909,27 @@ function PanelPermisos({ usuarios, setUsuarios, onClose, pinsPersonalizados = {}
                           {u.rol==="admin"?"Admin":u.rol==="gerente_tecnico"?"Gte. Técnico":u.rol==="consulta"?"Consulta":"Editor"}
                         </span>
                         {(()=>{
-                          // Visibilidad del PIN en el panel:
-                          //  - Si hay copia en texto plano (`[nombre]`) → se muestra (admin la ve).
-                          //    Desde el pedido de Angelo, el auto-cambio del usuario también deja
-                          //    esta copia plana, así que sus cambios son visibles.
-                          //  - Si solo hay `_h` (cifrado, sin copia plana) → no se puede mostrar
-                          //    (irreversible): se indica "PIN seguro".
-                          const plano = pinsPersonalizados[u.nombre];
-                          const seguro = !!pinsPersonalizados[u.nombre+"_h"] && !plano;
-                          const cambiado = !!plano || !!pinsPersonalizados[u.nombre+"_h"];
-                          const temp = pinsPersonalizados[u.nombre+"_temp"];
-                          const visible = pinVisible===u.nombre;
-                          const pinAct = pinActivoDe(u);
+                          // SEGURIDAD: el panel NUNCA muestra el PIN (van hasheados).
+                          // Solo indica el ESTADO y ofrece "Resetear PIN" (emite un
+                          // código provisorio para que el usuario cree uno nuevo).
+                          const est = estadoTemp(pinsPersonalizados[u.nombre+"_temp"]);
+                          const tieneHash = !!pinsPersonalizados[u.nombre+"_h"];
+                          let label, color, bg, title;
+                          if(est.existe && est.vigente){ label="⏳ Código provisorio vigente"; color="#92400e"; bg=C.warningBg; title="Tiene un código provisorio pendiente; su PIN anterior está inhabilitado."; }
+                          else if(tieneHash){ label="🔒 PIN configurado"; color=C.success; bg=C.successBg; title="PIN cifrado, no visible (por seguridad)."; }
+                          else { label="⚠ PIN base (sin migrar)"; color="#92400e"; bg=C.warningBg; title="Aún usa el PIN base; migrará a uno cifrado al ingresar."; }
                           return (
                             <>
-                              <button onClick={()=>setPinVisible(visible?null:u.nombre)}
-                                title={seguro?"PIN seguro cifrado (no visible). Usa 'Cambiar PIN' para asignar uno nuevo.":cambiado?"PIN actual (el usuario lo cambió)":"PIN asignado"}
-                                style={{display:"flex",alignItems:"center",gap:5,background:visible?C.infoBg:C.cardAlt,
-                                  border:`1px solid ${C.border}`,color:visible?C.primary:C.muted,borderRadius:8,
-                                  padding:"2px 9px",cursor:"pointer",fontSize:11,fontWeight:600}}>
-                                {seguro ? "🔒" : "🔑"} {visible
-                                  ? (seguro
-                                      ? <span style={{fontFamily:"sans-serif",fontWeight:700,color:C.muted2}}>PIN seguro (cifrado, no visible){temp?` · temp: ${temp}`:""}</span>
-                                      : <span style={{fontFamily:"monospace",fontWeight:800,letterSpacing:1}}>{pinAct}{cambiado?<span style={{fontFamily:"sans-serif",fontWeight:600,letterSpacing:0,color:C.muted2}}> (cambiado)</span>:""}{temp?` · temp: ${temp}`:""}</span>)
-                                  : (seguro ? "PIN seguro" : "Ver PIN")}
-                              </button>
+                              <span title={title} style={{display:"inline-flex",alignItems:"center",gap:5,background:bg,
+                                border:`1px solid ${color}33`,color:color,borderRadius:8,padding:"2px 9px",fontSize:11,fontWeight:700}}>
+                                {label}
+                              </span>
                               {setPinsPersonalizados && (
-                                <button onClick={()=>cambiarPinAdmin(u)}
-                                  title="Cambiar el PIN de este usuario"
+                                <button onClick={()=>resetearPinAdmin(u)}
+                                  title="Emite un código provisorio para que el usuario cree un PIN nuevo. No expone el PIN."
                                   style={{background:C.cardAlt,border:`1px solid ${C.border}`,color:C.muted,borderRadius:8,
                                     padding:"2px 9px",cursor:"pointer",fontSize:11,fontWeight:600}}>
-                                  ✏️ Cambiar PIN
+                                  🔄 Resetear PIN
                                 </button>
                               )}
                             </>
@@ -1890,6 +1916,11 @@ export default function App(){
   // ya no sobrescribe el `main` con los defaults en memoria (bug que borró
   // usuarios, PINs y estados). Se reactiva recargando la página.
   const cargaOkRef = useRef(false);
+  // Cuando el login relee los PINs frescos de la fila `pins`, hace
+  // setPinsPersonalizados(...) solo para tener el estado al día. Eso NO debe
+  // re-escribir la fila (el login no cambia PINs). Este flag salta UNA vez el
+  // auto-guardado de la fila `pins` para ese caso.
+  const skipPinsSaveRef = useRef(false);
   const [editComentario,setEditComentario]=useState(null);
   const [textoComentario,setTextoComentario]=useState("");
   const [filtroPersona,setFiltroPersona]=useState("");
@@ -2511,7 +2542,9 @@ export default function App(){
       supervisores: supervisoresRef.current,
       tareasExtra:  tareasExtraRef.current,
       tareasOverrides: tareasOverridesRef.current,
-      pinsPersonalizados: pinsRef.current,
+      // PINs NO se escriben en `main`: su única fuente de verdad es la fila
+      // `pins` (dbSavePins). Antes el auto-save de Tareas reescribía los PINs y
+      // una sesión vieja los revertía. Por eso se quitaron de este payload.
       recsDone:     recsDoneRef.current,
       recsComentarios: recsComRef.current,
       usuarios:     usuariosRef.current,
@@ -2525,8 +2558,9 @@ export default function App(){
 
   const guardar=useCallback((est,com,tc,sup,te,pins,rd,rc,usrs,m,a)=>{
     setGuardado("guardando");
+    // PINs (pins) NO se incluyen: su fuente de verdad es la fila `pins`.
     dbSave({estados:est,comentarios:com,tareasConfig:tc,supervisores:sup,tareasExtra:te,
-      pinsPersonalizados:pins,recsDone:rd,recsComentarios:rc,usuarios:usrs,mes:m,anio:a})
+      recsDone:rd,recsComentarios:rc,usuarios:usrs,mes:m,anio:a})
       .then(()=>{setGuardado("ok");setTimeout(()=>setGuardado("idle"),2000);})
       .catch(()=>{setGuardado("error");setTimeout(()=>setGuardado("idle"),3000);});
   },[]);
@@ -2555,6 +2589,9 @@ export default function App(){
   useEffect(()=>{
     if(cargando) return;
     if(!cargaOkRef.current) return;
+    // El login (re-read de PINs frescos) marca este flag para NO re-escribir la
+    // fila: el login nunca cambia un PIN, solo lo lee.
+    if(skipPinsSaveRef.current){ skipPinsSaveRef.current=false; return; }
     const t=setTimeout(()=>{ dbSavePins(pinsPersonalizados); }, 500);
     return()=>clearTimeout(t);
   },[pinsPersonalizados]); // eslint-disable-line
@@ -2670,59 +2707,82 @@ export default function App(){
     let PP = pinsPersonalizados;
     try {
       const fresh = await dbLoadPins();
-      if(fresh && typeof fresh === "object"){ PP = fresh; setPinsPersonalizados(fresh); }
+      // skipPinsSaveRef: el login solo LEE PINs; no debe re-escribir la fila.
+      if(fresh && typeof fresh === "object"){ PP = fresh; skipPinsSaveRef.current = true; setPinsPersonalizados(fresh); }
     } catch(e){ console.warn("[pins] login: no se pudo releer la fila dedicada, se usa memoria:", e); }
-    const pinTemp=PP[w.nombre+"_temp"];
-    const credH=PP[w.nombre+"_h"];        // FASE 2b: credencial cifrada (si ya migró)
-    const tieneTel=!!PP[w.nombre+"_tel"]; // FASE 2b: ¿ya registró celular?
-    const esTemp=!!(pinTemp&&pinInput===pinTemp);
-    // FASE 2b: si ya migró, validar contra el PIN cifrado; si no, contra el PIN legacy.
-    const esOk = credH ? await verifyPin(pinInput, credH) : (pinInput===(PP[w.nombre]||w.pin));
-    if(esOk||esTemp){
-      // FASE 2a — bloquear ingreso de usuarios desactivados
-      if(w.desactivado){
-        setLoginError("Tu cuenta no está activa. Contacta al administrador.");
+
+    // Bloquear cuentas desactivadas antes de validar credenciales.
+    if(w.desactivado){
+      setLoginError("Tu cuenta no está activa. Contacta al administrador.");
+      window.auditLog("login_fallido", {modulo:"sistema", seccion:"autenticación",
+        descripcion:`Login bloqueado: cuenta desactivada (${w.nombre})`, usuario:w.nombre, email:w.email});
+      return;
+    }
+
+    // ── REGLA CRÍTICA: el código provisorio INHABILITA el PIN antiguo ──
+    // Mientras exista un _temp (vigente o vencido), el único acceso es el
+    // código provisorio; el PIN viejo se rechaza.
+    const estTemp = estadoTemp(PP[w.nombre+"_temp"]);
+    if(estTemp.existe){
+      if(estTemp.expirado){
+        setLoginError("El código provisorio venció. Solicita uno nuevo con \"¿Olvidaste tu PIN?\".");
         window.auditLog("login_fallido", {modulo:"sistema", seccion:"autenticación",
-          descripcion:`Login bloqueado: cuenta desactivada (${w.nombre})`, usuario:w.nombre, email:w.email});
+          descripcion:`Código provisorio vencido (${w.nombre})`, usuario:w.nombre, email:w.email});
         return;
       }
-      setLoginError("");
-      // FASE 2b — rollout controlado: por ahora la migración forzada (PIN 6 dígitos +
-      // celular) solo aplica al admin para probarla; el resto sigue entrando normal.
-      // Para activarla a TODO el equipo, cambiar FORZAR_MIGRACION_TODOS a true.
-      const FORZAR_MIGRACION_TODOS = true;
-      const necesitaMigrar = !credH || !tieneTel;
-      // FASE 3: vencimiento de clave a los 60 días (fuerza cambio al entrar)
-      let pinVencido = false;
-      try {
-        const cj = credH ? JSON.parse(credH) : null;
-        if (cj && cj.fecha) pinVencido = (Date.now() - new Date(cj.fecha).getTime())/86400000 > 60;
-      } catch(e){}
-      const debeMigrar = (esTemp&&!esOk) || pinVencido || (necesitaMigrar && (FORZAR_MIGRACION_TODOS || w.rol==="admin"));
-      if(debeMigrar){
-        setWorkerPendiente(w);
-        setModalPin("cambiar");
-        window._auditUsuarioActual = w;
-        window.auditLog("login_pin_temporal", {modulo:"sistema", seccion:"autenticación",
-          descripcion:`${w.nombre} debe actualizar PIN/celular antes de entrar`});
-      } else {
-        setUsuarioActual(w);
-        sessionStorage.setItem('mediterra_usuario', w.nombre);
-        window._auditUsuarioActual = w;
-        window.auditLog("login", {modulo:"sistema", seccion:"autenticación",
-          descripcion:`${w.nombre} (${w.rol}) inició sesión`});
-        // E1.5 auth dual (fire-and-forget): obtener sesión Supabase para Osiris relacional.
-        if(process.env.REACT_APP_AUTH_DUAL === 'true'){
-          ensureSupabaseSession(emailInput, pinInput)
-            .then(r=>{ if(!r.ok) console.warn("[osiris-auth] sin sesión:", r.error); });
-        }
+      const codigoOk = await verificarTemp(pinInput, estTemp);
+      if(!codigoOk){
+        setLoginError("Tu PIN anterior quedó inhabilitado. Ingresa el código provisorio que te enviamos por correo.");
+        window.auditLog("login_fallido", {modulo:"sistema", seccion:"autenticación",
+          descripcion:`Intento con PIN antiguo habiendo código provisorio vigente (${w.nombre})`, usuario:w.nombre, email:w.email});
+        return;
       }
-    }else{
-      // FASE 2a — mensaje neutro (anti-enumeración); el detalle real va al audit log
+      // Código correcto → forzar la creación de un PIN nuevo (el viejo no entra).
+      setLoginError("");
+      setWorkerPendiente(w);
+      setModalPin("cambiar");
+      window._auditUsuarioActual = w;
+      window.auditLog("login_pin_temporal", {modulo:"sistema", seccion:"autenticación",
+        descripcion:`${w.nombre} ingresó con código provisorio — debe crear un PIN nuevo`});
+      return;
+    }
+
+    // ── Sin código provisorio: validación normal del PIN ──
+    const credH=PP[w.nombre+"_h"];        // credencial cifrada (si ya migró)
+    const esOk = credH ? await verifyPin(pinInput, credH) : (pinInput===(PP[w.nombre]||w.pin));
+    if(!esOk){
       setLoginError("Correo o PIN incorrecto.");
       window.auditLog("login_fallido", {modulo:"sistema", seccion:"autenticación",
-        descripcion:`PIN incorrecto para ${w.nombre}`,
-        usuario:w.nombre, email:w.email});
+        descripcion:`PIN incorrecto para ${w.nombre}`, usuario:w.nombre, email:w.email});
+      return;
+    }
+    setLoginError("");
+    // Migración: si aún no tiene PIN cifrado (entró con PIN base/plano) o su PIN
+    // venció (60 días), se le fuerza a crear un PIN nuevo de 6 dígitos ahora.
+    // Así migra del texto plano al hash sin quedar colgado. El celular es opcional.
+    let pinVencido = false;
+    try {
+      const cj = credH ? JSON.parse(credH) : null;
+      if (cj && cj.fecha) pinVencido = (Date.now() - new Date(cj.fecha).getTime())/86400000 > 60;
+    } catch(e){}
+    const debeMigrar = !credH || pinVencido;
+    if(debeMigrar){
+      setWorkerPendiente(w);
+      setModalPin("cambiar");
+      window._auditUsuarioActual = w;
+      window.auditLog("login_pin_temporal", {modulo:"sistema", seccion:"autenticación",
+        descripcion:`${w.nombre} debe actualizar su PIN antes de entrar`});
+    } else {
+      setUsuarioActual(w);
+      sessionStorage.setItem('mediterra_usuario', w.nombre);
+      window._auditUsuarioActual = w;
+      window.auditLog("login", {modulo:"sistema", seccion:"autenticación",
+        descripcion:`${w.nombre} (${w.rol}) inició sesión`});
+      // E1.5 auth dual (fire-and-forget): obtener sesión Supabase para Osiris relacional.
+      if(process.env.REACT_APP_AUTH_DUAL === 'true'){
+        ensureSupabaseSession(emailInput, pinInput)
+          .then(r=>{ if(!r.ok) console.warn("[osiris-auth] sin sesión:", r.error); });
+      }
     }
   }
 
@@ -2741,14 +2801,16 @@ export default function App(){
     }
     if(!w){setResetMsg(MSG_NEUTRAL);return;}
     setResetEnviando(true);
-    // FASE 2b: PIN temporal de 6 dígitos, aleatorio criptográfico
-    const temporal=String(crypto.getRandomValues(new Uint32Array(1))[0]%1000000).padStart(6,"0");
-    const nuevosPins={...pinsPersonalizados,[w.nombre+"_temp"]:temporal};
+    // Código provisorio de 6 dígitos: se guarda HASHEADO + expiración (45 min),
+    // nunca en texto plano. Al emitirlo, el PIN antiguo queda inhabilitado en el
+    // login (la regla la aplica handleLogin). Solo se escribe la fila `pins`.
+    const codigo=genCodigo6();
+    const tempCred=await crearTempCred(codigo);
+    const nuevosPins={...pinsPersonalizados,[w.nombre+"_temp"]:tempCred};
     setPinsPersonalizados(nuevosPins);
-    await dbSavePins(nuevosPins); // fuente de verdad de PINs (no esperar al efecto)
-    await dbSave({estados,comentarios,tareasConfig,supervisores,tareasExtra,pinsPersonalizados:nuevosPins,recsDone,recsComentarios,usuarios,mes,anio});
+    await dbSavePins(nuevosPins); // fuente de verdad de PINs
     try{
-      await enviarEmail(w.email,w.nombre,"PIN temporal - Mediterra",`Tu PIN temporal es: ${temporal}\nIngresa con este PIN y cambialo inmediatamente.\n\nhttps://gestion-grupo-mediterra.vercel.app`);
+      await enviarEmail(w.email,w.nombre,"Código provisorio - Mediterra",`Tu código provisorio es: ${codigo}\n\nVence en 45 minutos. Al ingresar deberás crear un PIN nuevo de 6 dígitos. Tu PIN anterior quedó inhabilitado.\n\nhttps://gestion-grupo-mediterra.vercel.app`);
       setResetMsg(MSG_NEUTRAL);
       window.auditLog("reset_pin", {modulo:"sistema", seccion:"autenticación",
         descripcion:`Se envió PIN temporal a ${w.nombre} (${w.email})`,
@@ -2762,20 +2824,27 @@ export default function App(){
     // Puede venir de login con PIN temporal (workerPendiente) o desde perfil (usuarioActual)
     const worker = workerPendiente || usuarioActual;
     if(!worker) return;
-    const credH=pinsPersonalizados[worker.nombre+"_h"];   // FASE 2b
-    const pinTemp=pinsPersonalizados[worker.nombre+"_temp"];
-    // Validar PIN actual: cifrado si ya migró, legacy si no; o el temporal (flujo reset)
-    const actualOk = credH ? await verifyPin(pinActual, credH) : (pinActual===getPinActivo(worker));
-    const actualTempOk = !!(pinTemp && pinActual===pinTemp);
-    if(!actualOk && !actualTempOk){setPinError("PIN actual incorrecto.");return;}
+    const credH=pinsPersonalizados[worker.nombre+"_h"];
+    // Si hay un código provisorio vigente, el PIN antiguo NO sirve ni acá:
+    // se valida SOLO contra el código (hasheado + expiración).
+    const estTempCambio = estadoTemp(pinsPersonalizados[worker.nombre+"_temp"]);
+    if(estTempCambio.existe){
+      if(estTempCambio.expirado){ setPinError("El código provisorio venció. Solicita uno nuevo desde \"¿Olvidaste tu PIN?\"."); return; }
+      const codigoOk = await verificarTemp(pinActual, estTempCambio);
+      if(!codigoOk){ setPinError("Código provisorio incorrecto."); return; }
+    } else {
+      const actualOk = credH ? await verifyPin(pinActual, credH) : (pinActual===getPinActivo(worker));
+      if(!actualOk){ setPinError("PIN actual incorrecto."); return; }
+    }
     // FASE 2b: PIN nuevo de 6 dígitos, no obvio
     const vp=pinNuevoValido(pinNuevo);
     if(!vp.ok){setPinError(vp.msg);return;}
     if(pinNuevo!==pinConfirm){setPinError("Los PINs no coinciden.");return;}
-    // FASE 2b: celular requerido si aún no tiene uno (o si lo ingresó para actualizarlo)
-    const yaTieneTel=!!pinsPersonalizados[worker.nombre+"_tel"];
+    // Celular OPCIONAL (segundo factor de recuperación). Solo se valida si el
+    // usuario ingresó uno; nunca bloquea (hay usuarios en el extranjero que no
+    // tienen número chileno y antes quedaban colgados en la migración).
     let telNorm=pinsPersonalizados[worker.nombre+"_tel"];
-    if(!yaTieneTel || telNuevo.trim()){
+    if(telNuevo.trim()){
       const nc=normalizarCelular(telNuevo);
       if(!nc.ok){setPinError(nc.msg);return;}
       telNorm=nc.tel;
@@ -2796,18 +2865,16 @@ export default function App(){
     nuevosPins[worker.nombre+"_h"]=JSON.stringify(cred);          // hash: el login valida contra esto (seguro)
     nuevosPins[worker.nombre+"_hist"]=JSON.stringify(histGuardar);
     if(telNorm) nuevosPins[worker.nombre+"_tel"]=telNorm;
-    // VISIBILIDAD ADMIN (pedido de Angelo): guardar también el PIN en texto
-    // plano para que el admin lo vea en el panel de Permisos cuando el usuario
-    // cambia su clave. Nota de seguridad: esto deja el PIN legible en la base;
-    // el login SIGUE validando contra el hash _h, no contra este texto plano.
-    nuevosPins[worker.nombre]=pinNuevo;
+    // SEGURIDAD: el PIN NUNCA se guarda en texto plano. Se elimina cualquier
+    // override plano residual y el código provisorio (queda invalidado al
+    // completarse el cambio). Solo queda el hash `_h`.
+    delete nuevosPins[worker.nombre];
     delete nuevosPins[worker.nombre+"_temp"];
     setPinsPersonalizados(nuevosPins);
-    // Esperar confirmación de guardado antes de continuar
+    // Esperar confirmación de guardado antes de continuar. Solo se escribe la
+    // fila `pins` (los PINs no van más en `main`).
     try {
-      await dbSavePins(nuevosPins); // fuente de verdad de PINs (no esperar al efecto)
-      await dbSave({estados,comentarios,tareasConfig,supervisores,tareasExtra,
-        pinsPersonalizados:nuevosPins,recsDone,recsComentarios,usuarios,mes,anio});
+      await dbSavePins(nuevosPins); // fuente de verdad de PINs (único lugar que se escribe)
       setPinActual("");setPinNuevo("");setPinConfirm("");setTelNuevo("");setModalPin(null);
       // Si venía de login con temporal, ahora sí entrar a la app
       if(workerPendiente){
@@ -3035,33 +3102,31 @@ Equipo Mediterra`);
   }
   function guardarEdicionUsuario(){
     if(!formUsuario.nombre.trim()||!formUsuario.email.trim()){alert("Nombre y email son obligatorios.");return;}
-    setUsuarios(prev=>prev.map(u=>u.nombre===usuarioEditando?{...u,...formUsuario,esCFO:formUsuario.rol==="admin"}:u));
-    if(formUsuario.pin)setPinsPersonalizados(prev=>({...prev,[usuarioEditando]:formUsuario.pin}));
+    // No se fija el PIN desde la edición (nunca en texto plano). Para cambiar el
+    // acceso de un usuario se usa "Resetear PIN" (código provisorio).
+    const {pin, ...resto}=formUsuario;
+    setUsuarios(prev=>prev.map(u=>u.nombre===usuarioEditando?{...u,...resto,esCFO:formUsuario.rol==="admin"}:u));
     setUsuarioEditando(null);setFormUsuario({nombre:"",cargo:"",email:"",pin:"",rol:"editor",modulos:["tareas"]});setTabUsuarios("lista");
   }
   function toggleDesactivarUsuario(nombre){
     if(nombre===usuarioActual.nombre){alert("No puedes desactivarte a ti mismo.");return;}
     setUsuarios(prev=>prev.map(u=>u.nombre===nombre?{...u,desactivado:!u.desactivado}:u));
   }
-  function resetPinUsuario(nombre){
-    const pin=String(Math.floor(1000+Math.random()*9000));
-    setPinsPersonalizados(prev=>({...prev,[nombre]:pin}));
+  async function resetPinUsuario(nombre){
     const u = usuarios.find(x=>x.nombre===nombre);
-    if(u?.email) {
-      const mensaje = `Hola ${nombre},\n\nTu PIN de acceso ha sido reseteado.\n\n🔑 Tu nuevo PIN temporal: ${pin}\n\n⚠️ Por seguridad, cambia tu PIN después de ingresar desde Configuración.\n\nSaludos,\nGrupo Mediterra`;
-      fetch("/api/send-email", {
-        method:"POST", headers:{"Content-Type":"application/json"},
-        body:JSON.stringify({to:u.email, subject:"🔑 PIN reseteado — Gestión Grupo Mediterra", message:mensaje, modulo:"mediterra"})
-      }).then(r=>{if(!r.ok)throw new Error();console.log(`[Email] ✅ Reset PIN enviado a ${u.email}`);})
-        .catch(()=>{
-          fetch("https://api.emailjs.com/api/v1.0/email/send", {
-            method:"POST", headers:{"Content-Type":"application/json"},
-            body:JSON.stringify({service_id:"service_ahuerta",template_id:"template_notif_tarea",user_id:"bwCBq7JXlEwCTzWNe",
-              template_params:{name:"Grupo Mediterra",to_email:u.email,to_name:nombre,subject:"🔑 PIN reseteado — Gestión Grupo Mediterra",message:mensaje}})
-          }).catch(e=>console.warn("[Email] Fallback también falló:", e));
-        });
+    if(!u) return;
+    // Reset por código PROVISORIO (hasheado + expiración). No fija ni expone PIN.
+    const codigo = genCodigo6();
+    const tempCred = await crearTempCred(codigo);
+    const next = {...pinsPersonalizados, [nombre+"_temp"]: tempCred};
+    setPinsPersonalizados(next);
+    await dbSavePins(next);
+    if(u.email){
+      enviarEmail(u.email, nombre, "Código provisorio - Mediterra", `Hola ${nombre},\n\nTu código provisorio es: ${codigo}\n\nVence en 45 minutos. Al ingresar deberás crear un PIN nuevo de 6 dígitos. Tu PIN anterior quedó inhabilitado.\n\nhttps://gestion-grupo-mediterra.vercel.app`).catch(()=>{});
     }
-    alert(`PIN reseteado para ${nombre}.\nNuevo PIN: ${pin}\n📧 Se envió email al usuario con el nuevo PIN.`);
+    window.auditLog("reset_pin", {modulo:"sistema", seccion:"permisos",
+      descripcion:`Admin reseteó el PIN de ${nombre} (código provisorio emitido)`, registroId:nombre});
+    alert(`Código provisorio para ${nombre}:\n\n        ${codigo}\n\nVence en 45 minutos. Compártelo con el usuario (también se envió por correo).\nAl ingresar deberá crear un PIN nuevo de 6 dígitos. Su PIN anterior quedó inhabilitado.`);
   }
   function iniciarEdicion(u){
     setFormUsuario({nombre:u.nombre,cargo:u.cargo||"",email:u.email,pin:"",rol:u.rol||"editor",modulos:Array.isArray(u.modulos)?u.modulos:["tareas"]});
