@@ -1115,10 +1115,10 @@ function PanelPermisos({ usuarios, setUsuarios, onClose, pinsPersonalizados = {}
           )}
 
           {/* ── Agregar nuevo usuario ── */}
-          <NuevoUsuarioForm setUsuarios={setUsuarios}/>
+          <NuevoUsuarioForm setUsuarios={setUsuarios} usuarios={usuarios} pinsPersonalizados={pinsPersonalizados} setPinsPersonalizados={setPinsPersonalizados}/>
 
           {/* ── Carga masiva (solo Rendiciones) ── */}
-          <CargaMasivaUsuariosForm usuarios={usuarios} setUsuarios={setUsuarios}/>
+          <CargaMasivaUsuariosForm usuarios={usuarios} setUsuarios={setUsuarios} pinsPersonalizados={pinsPersonalizados} setPinsPersonalizados={setPinsPersonalizados}/>
 
           <div style={{background:C.infoBg,borderRadius:10,padding:"10px 14px",fontSize:12,color:C.primary,marginTop:8}}>
             💾 Los cambios se guardan automáticamente en tiempo real.
@@ -1130,21 +1130,26 @@ function PanelPermisos({ usuarios, setUsuarios, onClose, pinsPersonalizados = {}
 }
 
 // Formulario nuevo usuario — separado para mantener su propio estado
-function NuevoUsuarioForm({setUsuarios}) {
+function NuevoUsuarioForm({setUsuarios, usuarios=[], pinsPersonalizados={}, setPinsPersonalizados}) {
   const [open,setOpen]=useState(false);
   const [form,setForm]=useState({nombre:"",cargo:"",email:"",pin:"",rol:"editor",modulos:["tareas"]});
   const [err,setErr]=useState("");
 
-  function guardar(){
+  async function guardar(){
     setErr("");
     if(!form.nombre.trim()){setErr("El nombre es obligatorio.");return;}
     if(!form.email.trim()){setErr("El email es obligatorio.");return;}
-    if(!form.pin.trim()||form.pin.length<4){setErr("El PIN debe tener al menos 4 dígitos.");return;}
-    setUsuarios(prev=>{
-      if(prev.find(u=>u.nombre===form.nombre)){setErr("Ya existe un usuario con ese nombre.");return prev;}
-      const mods=form.rol==="admin"?MODULOS_DISPONIBLES.map(m=>m.id):form.modulos;
-      return[...prev,{...form,modulos:mods,esCFO:form.rol==="admin",desactivado:false}];
-    });
+    // PIN inicial: 6 dígitos válidos. Se guarda HASHEADO (nunca en texto plano).
+    const vp=pinNuevoValido(form.pin.trim());
+    if(!vp.ok){setErr(vp.msg);return;}
+    if(usuarios.find(u=>u.nombre===form.nombre)){setErr("Ya existe un usuario con ese nombre.");return;}
+    const cred=await hashPin(form.pin.trim()); cred.fecha=new Date().toISOString().slice(0,10);
+    const mods=form.rol==="admin"?MODULOS_DISPONIBLES.map(m=>m.id):form.modulos;
+    // El usuario se guarda SIN PIN base en claro (pin:""); su credencial es el hash `_h`.
+    setUsuarios(prev=>[...prev,{...form,pin:"",modulos:mods,esCFO:form.rol==="admin",desactivado:false}]);
+    const next={...pinsPersonalizados,[form.nombre+"_h"]:JSON.stringify(cred)};
+    if(setPinsPersonalizados) setPinsPersonalizados(next);
+    await dbSavePins(next);
     setForm({nombre:"",cargo:"",email:"",pin:"",rol:"editor",modulos:["tareas"]});
     setOpen(false);setErr("");
   }
@@ -1167,7 +1172,7 @@ function NuevoUsuarioForm({setUsuarios}) {
         <div style={{background:C.cardAlt,borderRadius:12,border:`1px solid ${C.border}`,padding:"18px 20px",marginTop:8}}>
           <div style={{fontSize:13,fontWeight:800,color:C.text,marginBottom:14}}>Nuevo usuario</div>
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:12}}>
-            {[["Nombre completo *","nombre","text"],["Cargo","cargo","text"],["Email *","email","email"],["PIN (mín. 4 dígitos) *","pin","password"]].map(([lbl,campo,tipo])=>(
+            {[["Nombre completo *","nombre","text"],["Cargo","cargo","text"],["Email *","email","email"],["PIN inicial (6 dígitos) *","pin","password"]].map(([lbl,campo,tipo])=>(
               <div key={campo}>
                 <div style={{fontSize:11,color:C.muted,fontWeight:600,marginBottom:4}}>{lbl}</div>
                 <input type={tipo} value={form[campo]} onChange={e=>setForm(p=>({...p,[campo]:e.target.value}))}
@@ -1219,7 +1224,7 @@ function NuevoUsuarioForm({setUsuarios}) {
 
 // Carga masiva de usuarios — pegar lista (nombre; email; PIN opcional) y crear
 // todos de una. Pensado para dar acceso "Solo Rendiciones" al personal.
-function CargaMasivaUsuariosForm({ usuarios, setUsuarios }) {
+function CargaMasivaUsuariosForm({ usuarios, setUsuarios, pinsPersonalizados={}, setPinsPersonalizados }) {
   const [open,setOpen]=useState(false);
   const [texto,setTexto]=useState("");
   const [soloRend,setSoloRend]=useState(true);
@@ -1230,31 +1235,40 @@ function CargaMasivaUsuariosForm({ usuarios, setUsuarios }) {
     const partes=linea.split(/[;\t,]/).map(s=>s.trim());
     return {nombre:partes[0]||"", email:partes[1]||"", pin:partes[2]||"", cargo:partes[3]||""};
   }
-  const genPin=()=>String(Math.floor(1000+Math.random()*9000));
 
-  function procesar(){
+  async function procesar(){
     const lineas=texto.split("\n").map(l=>l.trim()).filter(Boolean);
-    const creados=[], errores=[];
+    const creados=[], errores=[]; const nuevosH={};
     // Sets para detectar duplicados (existentes + dentro del mismo lote)
     const nombresUsados=new Set(usuarios.map(u=>(u.nombre||"").toLowerCase()));
     const emailsUsados=new Set(usuarios.map(u=>(u.email||"").toLowerCase()));
-    lineas.forEach((linea,i)=>{
+    for(let i=0;i<lineas.length;i++){
       const n=i+1;
-      const {nombre,email,pin,cargo}=parseLinea(linea);
-      if(!nombre){errores.push(`Línea ${n}: falta el nombre.`);return;}
-      if(!email){errores.push(`Línea ${n} (${nombre}): falta el email.`);return;}
-      if(nombresUsados.has(nombre.toLowerCase())){errores.push(`Línea ${n}: ya existe el nombre "${nombre}".`);return;}
-      if(emailsUsados.has(email.toLowerCase())){errores.push(`Línea ${n}: ya existe el email "${email}".`);return;}
-      const pinFinal=(pin && pin.length>=4) ? pin : genPin();
-      const base={nombre, cargo:cargo||"Personal", email, pin:pinFinal, rol:"editor",
+      const {nombre,email,pin,cargo}=parseLinea(lineas[i]);
+      if(!nombre){errores.push(`Línea ${n}: falta el nombre.`);continue;}
+      if(!email){errores.push(`Línea ${n} (${nombre}): falta el email.`);continue;}
+      if(nombresUsados.has(nombre.toLowerCase())){errores.push(`Línea ${n}: ya existe el nombre "${nombre}".`);continue;}
+      if(emailsUsados.has(email.toLowerCase())){errores.push(`Línea ${n}: ya existe el email "${email}".`);continue;}
+      // PIN inicial: si la línea trae un PIN de 6 dígitos válido, se guarda HASHEADO.
+      // Si no, el usuario crea su PIN con "¿Olvidaste tu PIN?" (correo). Nunca en claro.
+      const base={nombre, cargo:cargo||"Personal", email, pin:"", rol:"editor",
         modulos: soloRend ? [] : ["tareas"], esCFO:false, desactivado:false};
       const u=garantizarAccesoRendiciones(base);
+      if(pin && pinNuevoValido(pin).ok){
+        const cred=await hashPin(pin); cred.fecha=new Date().toISOString().slice(0,10);
+        nuevosH[nombre+"_h"]=JSON.stringify(cred);
+      }
       creados.push(u);
       nombresUsados.add(nombre.toLowerCase());
       emailsUsados.add(email.toLowerCase());
-    });
+    }
     if(creados.length){
       setUsuarios(prev=>[...prev,...creados]);
+      if(Object.keys(nuevosH).length){
+        const next={...pinsPersonalizados,...nuevosH};
+        if(setPinsPersonalizados) setPinsPersonalizados(next);
+        await dbSavePins(next);
+      }
       creados.forEach(u=>window.auditLog("crear_usuario",{modulo:"sistema",seccion:"permisos",
         descripcion:`Creó usuario "${u.nombre}" (carga masiva, ${soloRend?"solo Rendiciones":"con Tareas"})`,
         registroId:u.nombre, campo:"usuario", valorAnterior:"", valorNuevo:u.email}));
@@ -3083,11 +3097,19 @@ Equipo Mediterra`);
     }
   }
 
-  function agregarUsuario(){
-    if(!formUsuario.nombre.trim()||!formUsuario.email.trim()||!formUsuario.pin.trim()){alert("Nombre, email y PIN son obligatorios.");return;}
+  async function agregarUsuario(){
+    if(!formUsuario.nombre.trim()||!formUsuario.email.trim()){alert("Nombre y email son obligatorios.");return;}
+    // PIN inicial: 6 dígitos válidos. Se guarda HASHEADO (nunca en texto plano).
+    const vp=pinNuevoValido(formUsuario.pin.trim());
+    if(!vp.ok){alert(vp.msg);return;}
     if(usuarios.find(u=>u.nombre===formUsuario.nombre)){alert("Ya existe un usuario con ese nombre.");return;}
     if(usuarios.find(u=>u.email.toLowerCase()===formUsuario.email.trim().toLowerCase())){alert("Ya existe un usuario con ese email.");return;}
-    setUsuarios(prev=>[...prev,{...formUsuario,modulos:formUsuario.modulos||["tareas"],esCFO:formUsuario.rol==="admin",desactivado:false}]);
+    const cred=await hashPin(formUsuario.pin.trim()); cred.fecha=new Date().toISOString().slice(0,10);
+    // El usuario se guarda SIN PIN base en claro (pin:""); su credencial es el hash `_h`.
+    setUsuarios(prev=>[...prev,{...formUsuario,pin:"",modulos:formUsuario.modulos||["tareas"],esCFO:formUsuario.rol==="admin",desactivado:false}]);
+    const next={...pinsPersonalizados,[formUsuario.nombre+"_h"]:JSON.stringify(cred)};
+    setPinsPersonalizados(next);
+    await dbSavePins(next);
     if(copiarDe){
       todasTareas().filter(t=>t.responsable===copiarDe).forEach(t=>{
         const id=`custom_${Date.now()}_${t.id}`;
@@ -3095,9 +3117,9 @@ Equipo Mediterra`);
         setTareasConfig(prev=>({...prev,[id]:{...getConfig(t.id),bloqueada:false}}));
       });
     }
-    // Enviar email de bienvenida
+    // Enviar el PIN inicial por correo (el hash queda en la base, el correo lleva el valor).
     enviarEmailBienvenida(formUsuario.nombre.trim(), formUsuario.email.trim(), formUsuario.pin.trim(), formUsuario.rol);
-    alert(`✅ Usuario "${formUsuario.nombre}" creado.\n📧 Se envió email de bienvenida a ${formUsuario.email} con su PIN temporal.`);
+    alert(`✅ Usuario "${formUsuario.nombre}" creado.\n📧 Se envió email de bienvenida a ${formUsuario.email} con su PIN inicial.`);
     setFormUsuario({nombre:"",cargo:"",email:"",pin:"",rol:"editor",modulos:["tareas"]});setCopiarDe("");setTabUsuarios("lista");
   }
   function guardarEdicionUsuario(){
