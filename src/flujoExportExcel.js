@@ -43,10 +43,12 @@ const ING_CATS = ['ing_op','ing_nop'];
 const EGR_CATS = ['egr_var','egr_fijo','egr_nop','imp'];
 
 const FMT = '$#,##0;($#,##0);-';
+// [Color10] = verde oscuro (008000), legible; [Green] de Excel es verde
+// fosforescente (00FF00) e ilegible sobre blanco.
 // formato con color por signo: verde positivo, rojo negativo
-const FMT_SIGN = '[Green]$#,##0;[Red]($#,##0);-';
+const FMT_SIGN = '[Color10]$#,##0;[Red]($#,##0);-';
 // formato por naturaleza: ingresos siempre verde, egresos siempre rojo
-const FMT_GREEN = '[Green]$#,##0;[Green]($#,##0);-';
+const FMT_GREEN = '[Color10]$#,##0;[Color10]($#,##0);-';
 const FMT_RED   = '[Red]$#,##0;[Red]($#,##0);-';
 const FONT = 'Arial';
 const NAVY='1F3864', BLUE='305496', LBLUE='D9E1F2', GRAY='E7E6E6', YELLOW='FFF2CC', BORDERC='D9D9D9', INPUTBLUE='0000FF';
