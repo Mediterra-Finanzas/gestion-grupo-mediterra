@@ -2265,6 +2265,8 @@ function defaultParamsAllpaPeru() {
 function calcAllpaPeruIngresos(paramsAP) {
   const arr = Z65();
   MESES_INFO.forEach(mo => {
+    // Abr-May-Jun 2026 en cero (mismo criterio que los costos); 2027+ intacto
+    if (mo.y === 2026 && mo.m >= 3 && mo.m <= 5) return;
     const yp = paramsAP?.[mo.y];
     if (!yp) return;
     const kg = Number(yp.kgMes?.[mo.m]) || 0;

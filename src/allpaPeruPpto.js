@@ -134,6 +134,9 @@ export function buildAllpaPeruLineas() {
   const out = { egr_var:[], egr_fijo:[] };
   ALLPA_PERU_PPTO_2026.forEach(ln => {
     const proy = horizon.map(({ y, cm }) => {
+      // Abr-May-Jun 2026 (cm 3,4,5) van en cero; el patrón base se conserva
+      // para que 2027+ sigan proyectando esos meses con el +5%.
+      if (y === 2026 && cm >= 3 && cm <= 5) return 0;
       const f = Math.pow(1 + ALLPA_PERU_GROWTH, y - 2026);
       return Math.round(((ln.base[cm] || 0) * f) * 100) / 100;
     });
