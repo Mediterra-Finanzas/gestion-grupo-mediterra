@@ -4,7 +4,7 @@ import EEFFModule from './EEFFModule.jsx';
 import RendicionesModule from './RendicionesModule.jsx';
 import { theme } from './theme';
 import { exportarFlujoConsolidado } from './flujoExportExcel.js';
-import { buildAllpaPeruLineas } from './allpaPeruPpto.js';
+import { buildAllpaPeruLineas, ALLPA_PERU_KG_2026, ALLPA_PERU_PRECIO_2026 } from './allpaPeruPpto.js';
 import * as XLSX from 'xlsx-js-style'; // SheetJS (fork con estilos) — ya instalado
 import { uploadDocNomina, urlFirmadaNomina } from './friskuHelpers';
 import { esLineaRelacionada, hashArchivo, docsActivos, tieneRespaldo, pathDocNomina, coberturaNomina, siguienteCorrelativo } from './expedienteHelpers';
@@ -2253,6 +2253,92 @@ function ParamsAllpa({selSeason, paramsAF, setParamsAF, readOnly}) {
   );
 }
 
+// ── Parámetros Allpa Farms Perú (INGRESOS: kilos × precio, por año) ──
+function defaultParamsAllpaPeru() {
+  // { [año]: { precioKg, kgMes:[12] Ene..Dic } } — replica 2026 en cada año
+  const p = {};
+  for (let y = 2026; y <= 2031; y++) {
+    p[y] = { precioKg: ALLPA_PERU_PRECIO_2026, kgMes: [...ALLPA_PERU_KG_2026] };
+  }
+  return p;
+}
+function calcAllpaPeruIngresos(paramsAP) {
+  const arr = Z65();
+  MESES_INFO.forEach(mo => {
+    const yp = paramsAP?.[mo.y];
+    if (!yp) return;
+    const kg = Number(yp.kgMes?.[mo.m]) || 0;
+    const pr = Number(yp.precioKg) || 0;
+    arr[mo.idx] = kg * pr;
+  });
+  return arr;
+}
+function ParamsAllpaPeru({ paramsAP, setParamsAP, readOnly }) {
+  const YEARS = [2026,2027,2028,2029,2030,2031];
+  const MESN = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
+  const [selY, setSelY] = useState(2026);
+  const d = paramsAP?.[selY] || { precioKg:0, kgMes:Array(12).fill(0) };
+  const precio = Number(d.precioKg) || 0;
+  const kgMes = d.kgMes || Array(12).fill(0);
+  const totKg = kgMes.reduce((s,k)=>s+(Number(k)||0),0);
+  const totIng = totKg * precio;
+  const ro = readOnly || !setParamsAP;
+  const ensure = (n) => { if(!n[selY]) n[selY]={precioKg:0,kgMes:Array(12).fill(0)}; if(!n[selY].kgMes) n[selY].kgMes=Array(12).fill(0); };
+  function updPrecio(v){ setParamsAP(prev=>{const n=JSON.parse(JSON.stringify(prev||{}));ensure(n);n[selY].precioKg=Number(v)||0;return n;}); }
+  function updKg(mi,v){ setParamsAP(prev=>{const n=JSON.parse(JSON.stringify(prev||{}));ensure(n);n[selY].kgMes[mi]=Number(v)||0;return n;}); }
+  function copiar2026(){ setParamsAP(prev=>{const n=JSON.parse(JSON.stringify(prev||{}));n[selY]=JSON.parse(JSON.stringify(n[2026]||{precioKg:ALLPA_PERU_PRECIO_2026,kgMes:[...ALLPA_PERU_KG_2026]}));return n;}); }
+  const inp = {width:90,padding:"4px 6px",background:C.bg2,border:`1px solid ${C.border}`,borderRadius:6,color:C.text,fontSize:11,textAlign:"right"};
+  return (
+    <div style={{display:"flex",flexDirection:"column",gap:14}}>
+      <Card>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12,flexWrap:"wrap",gap:8}}>
+          <SectionTitle>⚡ Ingresos — Allpa Farms Perú
+            <span style={{fontSize:10,color:C.muted,fontWeight:400,marginLeft:8}}>Producción de kilos × precio USD/kg, por año</span>
+          </SectionTitle>
+          {!ro && selY!==2026 && <Btn small color={C.muted} onClick={copiar2026}>⧉ Copiar de 2026</Btn>}
+        </div>
+        <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:14}}>
+          {YEARS.map(y=>(<Btn key={y} active={selY===y} onClick={()=>setSelY(y)} color="#7c3aed">{y}</Btn>))}
+        </div>
+        <div style={{display:"flex",gap:16,alignItems:"center",flexWrap:"wrap",marginBottom:12}}>
+          <label style={{fontSize:12,color:C.muted}}>Precio USD/kg&nbsp;
+            <input type="number" step="0.01" disabled={ro} value={precio||""} onChange={e=>updPrecio(e.target.value)} style={{...inp,width:80}}/>
+          </label>
+          <div style={{fontSize:12,color:C.muted}}>Producción total: <strong style={{color:C.text}}>{Math.round(totKg).toLocaleString("es-CL")} kg</strong></div>
+          <div style={{fontSize:12,color:C.muted}}>Ingreso año: <strong style={{color:"#22c55e"}}>{$$(totIng)}</strong></div>
+        </div>
+        <div style={{overflowX:"auto"}}>
+          <table style={{borderCollapse:"collapse",fontSize:11,minWidth:520}}>
+            <thead><tr style={{color:C.muted}}>
+              <th style={{textAlign:"left",padding:"6px 8px"}}>Mes</th>
+              {MESN.map(m=><th key={m} style={{padding:"6px 6px",textAlign:"right"}}>{m}</th>)}
+            </tr></thead>
+            <tbody>
+              <tr>
+                <td style={{padding:"6px 8px",color:C.muted}}>Kilos</td>
+                {MESN.map((m,mi)=>(
+                  <td key={m} style={{padding:"3px 4px"}}>
+                    <input type="number" disabled={ro} value={kgMes[mi]||""} onChange={e=>updKg(mi,e.target.value)} style={inp}/>
+                  </td>
+                ))}
+              </tr>
+              <tr style={{borderTop:`1px solid ${C.border}`}}>
+                <td style={{padding:"6px 8px",color:C.muted}}>Ingreso</td>
+                {MESN.map((m,mi)=>{const v=(Number(kgMes[mi])||0)*precio;return(
+                  <td key={m} style={{padding:"6px 6px",textAlign:"right",color:v?"#22c55e":C.muted2,fontWeight:v?700:400}}>{v?$$(v):"—"}</td>
+                );})}
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <div style={{fontSize:10,color:C.muted,marginTop:10,fontStyle:"italic"}}>
+          El ingreso se registra en el mes de producción. Editable por año. Los costos crecen +5%/año automáticamente (definidos en código).
+        </div>
+      </Card>
+    </div>
+  );
+}
+
 // ── Parámetros Integrity Farms ────────────────────────────────────
 function defaultParamsIntegrity() {
   // { seasonKey: { clientes: [{nombre, ha, usd_ha, mes_cobro}] } }
@@ -2777,6 +2863,7 @@ function TabParametros({empNombre,empColor="#2563eb",
   paramsAS,setParamsAS,       // Allegria Service (kg × especie)
   paramsIF,setParamsIF,       // Integrity Farms (clientes × há)
   paramsAF,setParamsAF,       // Allpa Farms (variedades × kg)
+  paramsAP,setParamsAP,       // Allpa Farms Perú (kilos × precio, ingresos)
   paramsFrisku,setParamsFrisku, // Frisku Foods (contenedores × especie)
   readOnly=false}) {
 
@@ -2789,6 +2876,7 @@ function TabParametros({empNombre,empColor="#2563eb",
   const esAllegriaService = empNombre === "Allegria Service";
   const esIntegrity       = empNombre === "Integrity Farms";
   const esAllpa           = empNombre === "Allpa Farms";
+  const esAllpaPeru       = empNombre === "Allpa Farms Perú";
 
   // Productos de esta empresa en la temporada seleccionada
   const productos = paramsEmp?.[selSeason] || {};
@@ -2860,7 +2948,8 @@ function TabParametros({empNombre,empColor="#2563eb",
         </div>
       )}
 
-      {/* Selector temporada — siempre visible */}
+      {/* Selector temporada — Allpa Perú usa su propio selector de año */}
+      {!esAllpaPeru&&(
       <Card>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12,flexWrap:"wrap",gap:8}}>
           <SectionTitle>
@@ -2878,6 +2967,7 @@ function TabParametros({empNombre,empColor="#2563eb",
           ))}
         </div>
       </Card>
+      )}
 
       {/* ── ALLEGRIA FOODS: selector fruta ── */}
       {esAllegria&&(
@@ -2924,6 +3014,14 @@ function TabParametros({empNombre,empColor="#2563eb",
           readOnly={readOnly}/>
       )}
 
+      {/* ── ALLPA FARMS PERÚ: ingresos (kilos × precio) por año ── */}
+      {esAllpaPeru&&(
+        <ParamsAllpaPeru
+          paramsAP={paramsAP||defaultParamsAllpaPeru()}
+          setParamsAP={setParamsAP||function(){}}
+          readOnly={readOnly}/>
+      )}
+
       {/* ── ALLEGRIA SERVICE: kg por especie × mes ── */}
       {esAllegriaService&&(
         <ParamsAllegriaService
@@ -2943,7 +3041,7 @@ function TabParametros({empNombre,empColor="#2563eb",
       )}
 
       {/* ── OTRAS EMPRESAS: lista de productos ── */}
-      {!esAllegria&&!esAllegriaService&&!esIntegrity&&!esAllpa&&!esFrisku&&(
+      {!esAllegria&&!esAllegriaService&&!esIntegrity&&!esAllpa&&!esFrisku&&!esAllpaPeru&&(
         <div style={{display:"flex",gap:14}}>
           {/* Panel izquierdo: lista productos */}
           <div style={{width:200,flexShrink:0,display:"flex",flexDirection:"column",gap:6}}>
@@ -10288,6 +10386,8 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
   const [paramsFrisku,setParamsFrisku]=useState(defaultParamsFrisku);
   // paramsAF: parámetros específicos Allpa Farms
   const [paramsAF,setParamsAF]=useState(defaultParamsAllpa);
+  // paramsAP: ingresos Allpa Farms Perú (kilos × precio, por año)
+  const [paramsAP,setParamsAP]=useState(defaultParamsAllpaPeru);
   // subLines: { empresa: { lineLabel: [nombre1, nombre2, ...] } }
   const [subLines,setSubLines]=useState({});
   // addedLines: { empresa: { cat: [{label, vals:{idx:val}}] } } — filas agregadas por usuario
@@ -10436,16 +10536,19 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
     const apEmp = base["Allpa Farms Perú"];
     if(apEmp) {
       const { egr_var:apVar, egr_fijo:apFijo } = buildAllpaPeruLineas();
+      const apIng = calcAllpaPeruIngresos(paramsAP);   // ingresos = kilos × precio (parámetros)
       const nextAP = JSON.parse(JSON.stringify(apEmp));
       nextAP.sections = nextAP.sections.map(sec=>{
         if(sec.cat==="egr_var")  return {...sec, lines: apVar.map(l=>({...l, formula:true}))};
         if(sec.cat==="egr_fijo") return {...sec, lines: apFijo.map(l=>({...l, formula:true}))};
+        if(sec.cat==="ing_op")   return {...sec, lines: sec.lines.map(l=>
+          l.label==="Exportación Arándanos" ? {...l, proy:[...apIng], formula:true} : l)};
         return sec;
       });
       base["Allpa Farms Perú"] = nextAP;
     }
     return base;
-  },[params,allegraComisionArandanos,paramsAS,paramsIF,paramsAF,creditosData,paramsFrisku]);
+  },[params,allegraComisionArandanos,paramsAS,paramsIF,paramsAF,paramsAP,creditosData,paramsFrisku]);
 
   // Empresas con overrides aplicados — para Dashboard y cualquier otro consumer que no sea Consolidado
   const empresasConOverridesMain = useMemo(
@@ -10540,6 +10643,7 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
         return merged;
       });
     }
+    if(d?.params_ap)    setParamsAP(prev=>({...defaultParamsAllpaPeru(),...d.params_ap}));
     if(d?.sub_lines)    setSubLines(d.sub_lines);
     if(d?.added_lines)  setAddedLinesGlobal(d.added_lines);
     if(d?.intercompany)   setIntercompany(d.intercompany||[]);
@@ -10626,6 +10730,7 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
   const paramsIFRef     = React.useRef(paramsIF);
   const paramsFriskuRef = React.useRef(paramsFrisku);
   const paramsAFRef     = React.useRef(paramsAF);
+  const paramsAPRef     = React.useRef(paramsAP);
   const subLinesRef      = React.useRef(subLines);
   const addedLinesRef    = React.useRef(addedLinesGlobal);
   const intercompanyRef  = React.useRef(intercompany);
@@ -10644,6 +10749,7 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
   useEffect(()=>{ paramsIFRef.current     = paramsIF;     },[paramsIF]);
   useEffect(()=>{ paramsFriskuRef.current = paramsFrisku; },[paramsFrisku]);
   useEffect(()=>{ paramsAFRef.current     = paramsAF;     },[paramsAF]);
+  useEffect(()=>{ paramsAPRef.current     = paramsAP;     },[paramsAP]);
   useEffect(()=>{ subLinesRef.current     = subLines;     },[subLines]);
   useEffect(()=>{ addedLinesRef.current   = addedLinesGlobal; },[addedLinesGlobal]);
   useEffect(()=>{ intercompanyRef.current = intercompany; },[intercompany]);
@@ -10726,6 +10832,7 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
       params_frisku:   overrides.params_frisku !== undefined ? overrides.params_frisku : paramsFriskuRef.current,
       params_if:       overrides.params_if       !== undefined ? overrides.params_if       : paramsIFRef.current,
       params_af:       overrides.params_af       !== undefined ? overrides.params_af       : paramsAFRef.current,
+      params_ap:       overrides.params_ap       !== undefined ? overrides.params_ap       : paramsAPRef.current,
       sub_lines:       overrides.sub_lines       !== undefined ? overrides.sub_lines       : subLinesRef.current,
       added_lines:     overrides.added_lines     !== undefined ? overrides.added_lines     : addedLinesRef.current,
       intercompany:    overrides.intercompany    !== undefined ? overrides.intercompany    : intercompanyRef.current,
@@ -10843,6 +10950,17 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
       const next = typeof updater === "function" ? updater(prev) : updater;
       paramsAFRef.current = next;
       setTimeout(()=>persistAll({ params_af:next })
+        .then(ok=>{setSaved(ok?"✅ Guardado":"⚠️ Error");setTimeout(()=>setSaved(null),2000);}),0);
+      return next;
+    });
+  },[persistAll]);
+
+  // Guardar paramsAP de Allpa Farms Perú (ingresos)
+  const handleSaveParamsAP = useCallback((updater) => {
+    setParamsAP(prev=>{
+      const next = typeof updater === "function" ? updater(prev) : updater;
+      paramsAPRef.current = next;
+      setTimeout(()=>persistAll({ params_ap:next })
         .then(ok=>{setSaved(ok?"✅ Guardado":"⚠️ Error");setTimeout(()=>setSaved(null),2000);}),0);
       return next;
     });
@@ -11164,6 +11282,8 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
                 setParamsFrisku={empTab==="Frisku Foods"&&puedoEdit("flujo")?handleSaveParamsFrisku:undefined}
                 paramsAF={empTab==="Allpa Farms"?paramsAF:undefined}
                 setParamsAF={empTab==="Allpa Farms"&&puedoEdit("flujo")?handleSaveParamsAF:undefined}
+                paramsAP={empTab==="Allpa Farms Perú"?paramsAP:undefined}
+                setParamsAP={empTab==="Allpa Farms Perú"&&puedoEdit("flujo")?handleSaveParamsAP:undefined}
                 readOnly={!puedoEdit("flujo")}
               />
             );

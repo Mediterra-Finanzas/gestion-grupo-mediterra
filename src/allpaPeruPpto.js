@@ -8,6 +8,12 @@
 // ═══════════════════════════════════════════════════════════════════
 export const ALLPA_PERU_GROWTH = 0.05;
 
+// ── INGRESOS base 2026 (parametrizables, editables en la app) ──
+// Producción de kilos por mes calendario (Ene..Dic) y precio USD/kg.
+// Ingreso mensual = kilos_mes × precio. Cosecha Jun–Dic. Total 2026 = US$5.635.322.
+export const ALLPA_PERU_KG_2026 = [0,0,0,0,0,1406.59,71979.11,199387.15,328168.69,325172.44,81270.21,17219.82];
+export const ALLPA_PERU_PRECIO_2026 = 5.5;
+
 // cat: egr_var | egr_fijo · base: 12 meses Ene..Dic 2026 (USD)
 export const ALLPA_PERU_PPTO_2026 = [
   { cat:'egr_var', label:'Var Campo · PROGRAMA FITOSANITARIO', base:[42435.8,28257.4,34051.2,19176.2,25734.6,30019,25384.4,15946.2,29434.9,14006.7,12272.5,27889.2] },
