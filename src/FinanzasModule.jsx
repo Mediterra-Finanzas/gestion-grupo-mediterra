@@ -4497,7 +4497,10 @@ function MatrizMensualConsolidado({empresas, empNames, flujoPorEmp={}, acumPorEm
 }
 
 function WaterfallConsolidado({empresas, saldosBancos, saldoIniPorEmp={}, acumPorEmp={}, flujoPorEmp={}}) {
-  const empNames = Object.keys(empresas).filter(n => EMPRESAS_KEYS_CONSOLIDADO.includes(n));
+  // Solo en esta vista (waterfall) se incorpora Allpa Perú. En el resto del
+  // consolidado queda excluido (IAS 28). La fila "Participación Controladora"
+  // refleja el 26% de Mediterra sobre su saldo final.
+  const empNames = Object.keys(empresas).filter(n => EMPRESAS_KEYS_CONSOLIDADO.includes(n) || n === "Allpa Farms Perú");
   const [temporadaSel, setTemporadaSel] = useState(SEASONS[0]?.key || "");
   const [mostrarControladora, setMostrarControladora] = useState(true);
 
