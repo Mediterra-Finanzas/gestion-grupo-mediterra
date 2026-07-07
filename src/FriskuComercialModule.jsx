@@ -3243,18 +3243,24 @@ function LiquidacionForm({ liq, embarques, clientes, exportadoras, especies, mon
                 <table style={{width:"100%", borderCollapse:"collapse", fontSize:11}}>
                   <thead>
                     <tr style={{background:C.primary}}>
-                      {["#","Formato","Calibre","Cajas","Merma (cjs)","Venta ("+form.monedaBase+")"].map((h,i)=>(
-                        <th key={i} style={{padding:"6px 8px", textAlign:(i===0||i===3||i===4)?"center":i===5?"right":"left", color:C.primaryText, fontWeight:700, fontSize:10, whiteSpace:"nowrap"}}>{h}</th>
+                      {["#","Formato","Calibre","Cajas","Merma (cjs)","Venta ("+form.monedaBase+")","€/caja"].map((h,i)=>(
+                        <th key={i} style={{padding:"6px 8px", textAlign:(i===0||i===3||i===4)?"center":(i===5||i===6)?"right":"left", color:C.primaryText, fontWeight:700, fontSize:10, whiteSpace:"nowrap"}}>{h}</th>
                       ))}
                     </tr>
                   </thead>
                   <tbody>
-                    {pallets.map((p,idx)=>(
+                    {pallets.map((p,idx)=>{
+                      const cajasP = Number(p.cajas||0);
+                      const mermaP = Number(mermaPorPallet[p.id]||0);
+                      const vendidasP = Math.max(0, cajasP - mermaP);
+                      const ventaP = Number(ventaPorPallet[p.id]||0);
+                      const precioCajaP = vendidasP>0 ? ventaP/vendidasP : 0;
+                      return (
                       <tr key={p.id||idx} style={{borderBottom:`1px solid ${C.border}22`, background:idx%2===0?C.card:C.rowAlt}}>
                         <td style={{padding:"4px 8px", textAlign:"center", color:C.muted2, fontFamily:"monospace", fontSize:10}}>{p.palletNum||idx+1}</td>
                         <td style={{padding:"4px 8px", color:C.text}}>{tiposEmbMap[p.formato]?.nombre||p.formato||"—"}</td>
                         <td style={{padding:"4px 8px", color:C.text}}>{p.calibre||"—"}</td>
-                        <td style={{padding:"4px 8px", textAlign:"center", fontFamily:"monospace", color:C.text}}>{Number(p.cajas||0).toLocaleString("es-CL")}</td>
+                        <td style={{padding:"4px 8px", textAlign:"center", fontFamily:"monospace", color:C.text}}>{cajasP.toLocaleString("es-CL")}</td>
                         <td style={{padding:"4px 4px", textAlign:"center"}}>
                           <input type="number" step="1" min="0" value={mermaPorPallet[p.id] ?? ""}
                             onChange={e=>setMermaPallet(p.id, e.target.value)}
@@ -3266,13 +3272,16 @@ function LiquidacionForm({ liq, embarques, clientes, exportadoras, especies, mon
                             onChange={e=>setVentaPallet(p.id, e.target.value)}
                             style={{...inputSt, width:120, textAlign:"right", padding:"4px 6px", fontFamily:"monospace"}}/>
                         </td>
+                        <td style={{padding:"4px 8px", textAlign:"right", fontFamily:"monospace", color:precioCajaP>0?C.teal:C.muted, fontSize:10}}>{precioCajaP>0?fmt(precioCajaP):"—"}</td>
                       </tr>
-                    ))}
+                      );
+                    })}
                     <tr style={{borderTop:`1px solid ${C.border}`, background:`${C.bg}66`}}>
                       <td colSpan={3} style={{padding:"6px 8px", textAlign:"right", fontWeight:700, color:C.muted, fontSize:10}}>TOTAL VENTA</td>
                       <td style={{padding:"6px 8px", textAlign:"center", fontWeight:700, fontFamily:"monospace", color:C.text}}>{cajasEmbarcadas.toLocaleString("es-CL")}</td>
                       <td style={{padding:"6px 8px", textAlign:"center", fontWeight:700, fontFamily:"monospace", color:cajasMerma>0?C.accent:C.muted}}>{cajasMerma>0?cajasMerma.toLocaleString("es-CL"):"—"}</td>
                       <td style={{padding:"6px 8px", textAlign:"right", fontWeight:700, fontFamily:"monospace", color:C.green}}>{fmt(ventaTotal)}</td>
+                      <td style={{padding:"6px 8px", textAlign:"right", fontWeight:700, fontFamily:"monospace", color:C.teal, fontSize:10}}>{precioPromCaja>0?fmt(precioPromCaja):"—"}</td>
                     </tr>
                   </tbody>
                 </table>
