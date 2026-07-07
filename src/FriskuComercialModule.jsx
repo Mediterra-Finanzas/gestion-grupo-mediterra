@@ -232,6 +232,12 @@ function PackingListPanel({ oe, tiposEmbalaje, especies, exportadoras, clientes,
   const especie     = especies.find(e=>e.codigo===oe.especieCodigo);
   const formatosOE  = Object.entries(oe.cajasPorFormato||{}).filter(([,v])=>Number(v)>0).map(([cod])=>cod);
   const calibresEsp = calibresDeEspecie(especie);
+  // Formatos disponibles en el PL: los de la OE + todos los de la especie en el maestro
+  // (así se pueden despachar formatos —ej. cajas de 10 kg— que no se cargaron en la OE).
+  const formatosEspecie = (tiposEmbalaje||[])
+    .filter(t=>t.especieCodigo===oe.especieCodigo || (especie && t.especie===especie.nombreEs))
+    .map(t=>t.codigo);
+  const formatosPL  = [...new Set([...formatosOE, ...formatosEspecie])];
 
   function upd(k,v){ setPl(p=>({...p,[k]:v})); setDirty(true); }
   function addPallet(){
@@ -296,8 +302,8 @@ function PackingListPanel({ oe, tiposEmbalaje, especies, exportadoras, clientes,
                 <td style={{padding:"4px 4px"}}>
                   {canEdit
                     ? <select value={p.formato} onChange={e=>updPallet(idx,"formato",e.target.value)} style={{...inputSt,padding:"4px 6px",width:130}}>
-                        {formatosOE.map(cod=><option key={cod} value={cod}>{tiposEmbalaje.find(t=>t.codigo===cod)?.nombre||cod}</option>)}
-                        {!formatosOE.includes(p.formato)&&p.formato&&<option value={p.formato}>{p.formato}</option>}
+                        {formatosPL.map(cod=><option key={cod} value={cod}>{tiposEmbalaje.find(t=>t.codigo===cod)?.nombre||cod}</option>)}
+                        {!formatosPL.includes(p.formato)&&p.formato&&<option value={p.formato}>{p.formato}</option>}
                       </select>
                     : <span style={{color:C.text}}>{tiposEmbalaje.find(t=>t.codigo===p.formato)?.nombre||p.formato||"—"}</span>}
                 </td>
@@ -3071,7 +3077,9 @@ function LiquidacionForm({ liq, embarques, clientes, exportadoras, especies, mon
     observ:           liq?.observ           || "",
   });
   const [ventaPorPallet, setVentaPorPallet] = useState(()=> ({...(liq?.ventaPorPallet||{})}) );
+  const [mermaPorPallet, setMermaPorPallet] = useState(()=> ({...(liq?.mermaPorPallet||{})}) );
   const [gastosDestino,  setGastosDestino]  = useState(()=> Array.isArray(liq?.gastosDestino) ? liq.gastosDestino.map(g=>({...g})) : [] );
+  const [anticipo,       setAnticipo]       = useState(()=> liq?.anticipo!=null ? String(liq.anticipo) : "");
   const f = k => e => setForm(p=>({...p,[k]:e.target.value}));
 
   const oeSeleccionada  = embarques.find(e=>e.id===form.oeId);
@@ -3084,16 +3092,25 @@ function LiquidacionForm({ liq, embarques, clientes, exportadoras, especies, mon
   const pallets   = oeSeleccionada?.packingList?.pallets || [];
   const hayPallets = pallets.length > 0;
   const setVentaPallet = (pid, v) => setVentaPorPallet(prev=>({...prev, [pid]: v===""? "" : Number(v)}));
+  const setMermaPallet = (pid, v) => setMermaPorPallet(prev=>({...prev, [pid]: v===""? "" : Number(v)}));
 
   const ventaPallets   = pallets.reduce((s,p)=> s + (Number(ventaPorPallet[p.id])||0), 0);
   const baseNetaManual = parseFloat(String(form.baseNetaManual).replace(/[^\d.\-]/g,"")) || 0;
   const ventaTotal     = hayPallets ? ventaPallets : baseNetaManual;
+
+  // Cajas y merma
+  const cajasEmbarcadas = pallets.reduce((s,p)=> s + (Number(p.cajas)||0), 0);
+  const cajasMerma      = pallets.reduce((s,p)=> s + (Number(mermaPorPallet[p.id])||0), 0);
+  const cajasVendidas   = Math.max(0, cajasEmbarcadas - cajasMerma);
+  const precioPromCaja  = cajasVendidas>0 ? ventaTotal / cajasVendidas : 0;
 
   const addGasto = () => setGastosDestino(prev=>[...prev, {id:uid(), concepto:"", monto:""}]);
   const updGasto = (idx,k,v) => setGastosDestino(prev=>{ const a=[...prev]; a[idx]={...a[idx],[k]:v}; return a; });
   const delGasto = (idx) => setGastosDestino(prev=>prev.filter((_,i)=>i!==idx));
   const gastosTotal = gastosDestino.reduce((s,g)=> s + (Number(g.monto)||0), 0);
   const fob = ventaTotal - gastosTotal;
+  const anticipoNum = parseFloat(String(anticipo).replace(/[^\d.\-]/g,"")) || 0;
+  const saldoLiquidacion = fob - anticipoNum;   // saldo a liquidar al exportador (comisión Frisku es aparte)
 
   const tcCalculado = form.monedaBase==="USD" ? 1
     : buscarTC(form.monedaBase, "USD", form.fechaTC, tcData);
@@ -3121,10 +3138,22 @@ function LiquidacionForm({ liq, embarques, clientes, exportadoras, especies, mon
       ventaPorPallet: {...ventaPorPallet},
       ventaTotal,
       ventaTotalUSD,
+      // Cajas / merma / precio por caja
+      mermaPorPallet: {...mermaPorPallet},
+      cajasEmbarcadas,
+      cajasMerma,
+      cajasVendidas,
+      precioPromCaja,
+      precioPromCajaUSD: aUSD(precioPromCaja),
       gastosDestino: gastosDestino.map(g=>({...g, monto:Number(g.monto)||0})),
       gastosDestinoTotal: gastosTotal,
       fob,
       fobUSD,
+      // Anticipo y saldo a liquidar al exportador (independiente de la comisión Frisku)
+      anticipo: anticipoNum,
+      anticipoUSD: aUSD(anticipoNum),
+      saldoLiquidacion,
+      saldoLiquidacionUSD: aUSD(saldoLiquidacion),
       baseNetaManual: hayPallets ? null : baseNetaManual,
       // baseNeta = venta total (base de la comisión) — compat con tarjetas/agregados
       baseNeta: ventaTotal,
@@ -3214,8 +3243,8 @@ function LiquidacionForm({ liq, embarques, clientes, exportadoras, especies, mon
                 <table style={{width:"100%", borderCollapse:"collapse", fontSize:11}}>
                   <thead>
                     <tr style={{background:C.primary}}>
-                      {["#","Formato","Calibre","Cajas","Venta ("+form.monedaBase+")"].map((h,i)=>(
-                        <th key={i} style={{padding:"6px 8px", textAlign:(i===0||i===3)?"center":i===4?"right":"left", color:C.primaryText, fontWeight:700, fontSize:10, whiteSpace:"nowrap"}}>{h}</th>
+                      {["#","Formato","Calibre","Cajas","Merma (cjs)","Venta ("+form.monedaBase+")"].map((h,i)=>(
+                        <th key={i} style={{padding:"6px 8px", textAlign:(i===0||i===3||i===4)?"center":i===5?"right":"left", color:C.primaryText, fontWeight:700, fontSize:10, whiteSpace:"nowrap"}}>{h}</th>
                       ))}
                     </tr>
                   </thead>
@@ -3226,6 +3255,12 @@ function LiquidacionForm({ liq, embarques, clientes, exportadoras, especies, mon
                         <td style={{padding:"4px 8px", color:C.text}}>{tiposEmbMap[p.formato]?.nombre||p.formato||"—"}</td>
                         <td style={{padding:"4px 8px", color:C.text}}>{p.calibre||"—"}</td>
                         <td style={{padding:"4px 8px", textAlign:"center", fontFamily:"monospace", color:C.text}}>{Number(p.cajas||0).toLocaleString("es-CL")}</td>
+                        <td style={{padding:"4px 4px", textAlign:"center"}}>
+                          <input type="number" step="1" min="0" value={mermaPorPallet[p.id] ?? ""}
+                            onChange={e=>setMermaPallet(p.id, e.target.value)}
+                            placeholder="0"
+                            style={{...inputSt, width:70, textAlign:"center", padding:"4px 6px", fontFamily:"monospace"}}/>
+                        </td>
                         <td style={{padding:"4px 4px", textAlign:"right"}}>
                           <input type="number" step="0.01" value={ventaPorPallet[p.id] ?? ""}
                             onChange={e=>setVentaPallet(p.id, e.target.value)}
@@ -3235,7 +3270,8 @@ function LiquidacionForm({ liq, embarques, clientes, exportadoras, especies, mon
                     ))}
                     <tr style={{borderTop:`1px solid ${C.border}`, background:`${C.bg}66`}}>
                       <td colSpan={3} style={{padding:"6px 8px", textAlign:"right", fontWeight:700, color:C.muted, fontSize:10}}>TOTAL VENTA</td>
-                      <td style={{padding:"6px 8px", textAlign:"center", fontWeight:700, fontFamily:"monospace", color:C.text}}>{pallets.reduce((s,p)=>s+Number(p.cajas||0),0).toLocaleString("es-CL")}</td>
+                      <td style={{padding:"6px 8px", textAlign:"center", fontWeight:700, fontFamily:"monospace", color:C.text}}>{cajasEmbarcadas.toLocaleString("es-CL")}</td>
+                      <td style={{padding:"6px 8px", textAlign:"center", fontWeight:700, fontFamily:"monospace", color:cajasMerma>0?C.accent:C.muted}}>{cajasMerma>0?cajasMerma.toLocaleString("es-CL"):"—"}</td>
                       <td style={{padding:"6px 8px", textAlign:"right", fontWeight:700, fontFamily:"monospace", color:C.green}}>{fmt(ventaTotal)}</td>
                     </tr>
                   </tbody>
@@ -3287,6 +3323,16 @@ function LiquidacionForm({ liq, embarques, clientes, exportadoras, especies, mon
           </div>
         )}
 
+        {/* Anticipo */}
+        {form.oeId && (
+          <div>
+            <div style={lblSt}>Anticipo ({form.monedaBase})</div>
+            <input type="number" step="0.01" value={anticipo} onChange={e=>setAnticipo(e.target.value)}
+              placeholder="0.00" style={{...inputSt, textAlign:"right", fontFamily:"monospace"}}/>
+            <div style={{fontSize:9, color:C.muted, marginTop:2}}>Adelanto ya pagado — se descuenta del saldo a liquidar</div>
+          </div>
+        )}
+
         {/* Resumen Venta / FOB / Comisión */}
         {form.oeId && ventaTotal>0 && (
           <div style={{gridColumn:"1/-1", background:C.bg2, borderRadius:10, padding:12, border:`1px solid ${C.border}`}}>
@@ -3296,6 +3342,18 @@ function LiquidacionForm({ liq, embarques, clientes, exportadoras, especies, mon
                 <div style={{fontWeight:700, color:C.green}}>{fmt(ventaTotal)}</div>
                 {form.monedaBase!=="USD" && ventaTotalUSD!=null && <div style={{fontSize:10, color:C.muted}}>≈ USD {ventaTotalUSD.toLocaleString("es-CL",{maximumFractionDigits:2})}</div>}
               </div>
+              {cajasVendidas>0 && (
+                <div>
+                  <div style={{color:C.muted, fontSize:10}}>Cajas vendidas{cajasMerma>0?` (−${cajasMerma} merma)`:""}</div>
+                  <div style={{fontWeight:700, color:C.text, fontFamily:"monospace"}}>{cajasVendidas.toLocaleString("es-CL")}</div>
+                </div>
+              )}
+              {precioPromCaja>0 && (
+                <div>
+                  <div style={{color:C.muted, fontSize:10}}>Precio prom / caja</div>
+                  <div style={{fontWeight:700, color:C.teal, fontFamily:"monospace"}}>{fmt(precioPromCaja)}</div>
+                </div>
+              )}
               <div>
                 <div style={{color:C.muted, fontSize:10}}>(−) Gastos destino</div>
                 <div style={{fontWeight:700, color:C.accent}}>{fmt(gastosTotal)}</div>
@@ -3305,6 +3363,16 @@ function LiquidacionForm({ liq, embarques, clientes, exportadoras, especies, mon
                 <div style={{fontWeight:700, color:C.blue}}>{fmt(fob)}</div>
                 {form.monedaBase!=="USD" && fobUSD!=null && <div style={{fontSize:10, color:C.muted}}>≈ USD {fobUSD.toLocaleString("es-CL",{maximumFractionDigits:2})}</div>}
               </div>
+              {anticipoNum>0 && (<>
+                <div>
+                  <div style={{color:C.muted, fontSize:10}}>(−) Anticipo</div>
+                  <div style={{fontWeight:700, color:C.accent}}>{fmt(anticipoNum)}</div>
+                </div>
+                <div>
+                  <div style={{color:C.muted, fontSize:10}}>(=) Saldo a liquidar</div>
+                  <div style={{fontWeight:700, color:C.yellow}}>{fmt(saldoLiquidacion)}</div>
+                </div>
+              </>)}
             </div>
             {comision && (
               <div style={{marginTop:10, paddingTop:10, borderTop:`1px solid ${C.border}`}}>
@@ -3413,6 +3481,9 @@ function LiquidacionCard({ liq, embarques, clientes, exportadoras, especies, mon
           {liq.monedaBase!=="USD" && (liq.ventaTotalUSD ?? liq.baseNetaUSD)!=null && (
             <div style={{color:C.muted, fontSize:10}}>≈ USD {(liq.ventaTotalUSD ?? liq.baseNetaUSD).toLocaleString("es-CL",{maximumFractionDigits:0})}</div>
           )}
+          {liq.precioPromCaja>0 && (
+            <div style={{color:C.teal, fontSize:10}}>{formatearMonto(liq.precioPromCaja, liq.monedaBase, monedasMap)}/caja{liq.cajasVendidas>0?` · ${liq.cajasVendidas.toLocaleString("es-CL")} cjs`:""}{liq.cajasMerma>0?` · ${liq.cajasMerma} merma`:""}</div>
+          )}
         </div>
         <div>
           <div style={{color:C.muted, marginBottom:2}}>Comisión Frisku</div>
@@ -3433,6 +3504,20 @@ function LiquidacionCard({ liq, embarques, clientes, exportadoras, especies, mon
           <div>
             <div style={{color:C.muted, marginBottom:2}}>(=) FOB</div>
             <div style={{color:C.blue, fontWeight:700}}>{formatearMonto(liq.fob!=null?liq.fob:((liq.ventaTotal||liq.baseNeta||0)-(liq.gastosDestinoTotal||0)), liq.monedaBase, monedasMap)}</div>
+          </div>
+        </div>
+      )}
+
+      {/* Anticipo + saldo a liquidar */}
+      {liq.anticipo>0 && (
+        <div style={{display:"grid", gridTemplateColumns:"1fr 1fr", gap:8, fontSize:11}}>
+          <div>
+            <div style={{color:C.muted, marginBottom:2}}>(−) Anticipo</div>
+            <div style={{color:C.accent, fontWeight:600}}>{formatearMonto(liq.anticipo||0, liq.monedaBase, monedasMap)}</div>
+          </div>
+          <div>
+            <div style={{color:C.muted, marginBottom:2}}>(=) Saldo a liquidar</div>
+            <div style={{color:C.yellow, fontWeight:700}}>{formatearMonto(liq.saldoLiquidacion!=null?liq.saldoLiquidacion:((liq.fob||0)-(liq.anticipo||0)), liq.monedaBase, monedasMap)}</div>
           </div>
         </div>
       )}
