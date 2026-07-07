@@ -10654,8 +10654,10 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
       const apKgCos = calcAllpaPeruCostosKg(paramsAP);   // cosecha + packing = US$/kg × kilos
       const nextAP = JSON.parse(JSON.stringify(apEmp));
       nextAP.sections = nextAP.sections.map(sec=>{
-        if(sec.cat==="egr_var")  return {...sec, lines: [...apVar, ...apKgCos].map(l=>({...l, formula:true}))};
-        if(sec.cat==="egr_fijo") return {...sec, lines: apFijo.map(l=>({...l, formula:true}))};
+        // Var Campo/Otros (apVar) y Costos Fijos (apFijo) quedan EDITABLES por celda
+        // (sin formula). Cosecha/packing US$/kg y los ingresos siguen ⚡ (por parámetro).
+        if(sec.cat==="egr_var")  return {...sec, lines: [...apVar, ...apKgCos.map(l=>({...l, formula:true}))]};
+        if(sec.cat==="egr_fijo") return {...sec, lines: apFijo};
         if(sec.cat==="ing_op")   return {...sec, lines: sec.lines.map(l=>
           l.label==="Exportación Arándanos" ? {...l, proy:[...apIng], formula:true} : l)};
         return sec;
