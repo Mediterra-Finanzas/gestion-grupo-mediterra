@@ -4,6 +4,7 @@ import EEFFModule from './EEFFModule.jsx';
 import RendicionesModule from './RendicionesModule.jsx';
 import { theme } from './theme';
 import { exportarFlujoConsolidado } from './flujoExportExcel.js';
+import { buildAllpaPeruLineas } from './allpaPeruPpto.js';
 import * as XLSX from 'xlsx-js-style'; // SheetJS (fork con estilos) — ya instalado
 import { uploadDocNomina, urlFirmadaNomina } from './friskuHelpers';
 import { esLineaRelacionada, hashArchivo, docsActivos, tieneRespaldo, pathDocNomina, coberturaNomina, siguienteCorrelativo } from './expedienteHelpers';
@@ -10427,6 +10428,21 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
         })};
       });
       base["Frisku Foods"] = nextFrisku;
+    }
+
+    // Inject Allpa Farms Perú — presupuesto de costos 2026 con +5%/año.
+    // Reemplaza líneas de egr_var (var campo + packing + otros) y egr_fijo
+    // (fijo campo + admin). Flujo aparte (fuera del consolidado).
+    const apEmp = base["Allpa Farms Perú"];
+    if(apEmp) {
+      const { egr_var:apVar, egr_fijo:apFijo } = buildAllpaPeruLineas();
+      const nextAP = JSON.parse(JSON.stringify(apEmp));
+      nextAP.sections = nextAP.sections.map(sec=>{
+        if(sec.cat==="egr_var")  return {...sec, lines: apVar.map(l=>({...l, formula:true}))};
+        if(sec.cat==="egr_fijo") return {...sec, lines: apFijo.map(l=>({...l, formula:true}))};
+        return sec;
+      });
+      base["Allpa Farms Perú"] = nextAP;
     }
     return base;
   },[params,allegraComisionArandanos,paramsAS,paramsIF,paramsAF,creditosData,paramsFrisku]);
