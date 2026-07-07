@@ -2258,21 +2258,38 @@ function defaultParamsAllpaPeru() {
   // { [año]: { precioKg, kgMes:[12] Ene..Dic } } — replica 2026 en cada año
   const p = {};
   for (let y = 2026; y <= 2031; y++) {
-    p[y] = { precioKg: ALLPA_PERU_PRECIO_2026, kgMes: [...ALLPA_PERU_KG_2026] };
+    p[y] = { precioKg: ALLPA_PERU_PRECIO_2026, kgMes: [...ALLPA_PERU_KG_2026], anticipos: [] };
   }
   return p;
 }
 function calcAllpaPeruIngresos(paramsAP) {
   const arr = Z65();
-  MESES_INFO.forEach(mo => {
-    // Abr-May-Jun 2026 en cero (mismo criterio que los costos); 2027+ intacto
-    if (mo.y === 2026 && mo.m >= 3 && mo.m <= 5) return;
-    const yp = paramsAP?.[mo.y];
-    if (!yp) return;
-    const kg = Number(yp.kgMes?.[mo.m]) || 0;
-    const pr = Number(yp.precioKg) || 0;
-    arr[mo.idx] = kg * pr;
-  });
+  for (let y = 2026; y <= 2031; y++) {
+    const yp = paramsAP?.[y];
+    if (!yp) continue;
+    const precio = Number(yp.precioKg) || 0;
+    const kgMes = yp.kgMes || [];
+    const totalYear = kgMes.reduce((s,k)=>s+(Number(k)||0),0) * precio;
+    const ants = Array.isArray(yp.anticipos) ? yp.anticipos : [];
+    if (ants.length === 0) {
+      // Sin anticipos → ingreso por mes de producción (kilos × precio)
+      MESES_INFO.forEach(mo => { if (mo.y === y) arr[mo.idx] += (Number(kgMes[mo.m])||0) * precio; });
+    } else {
+      // Anticipos: USD/kg × kilos del mes del anticipo. Liquidación = saldo.
+      let antTot = 0; const liqs = [];
+      ants.forEach(a => {
+        const info = MESES_INFO.find(x => x.label === a.mes);
+        if (!info) return;
+        if (a.liq) { liqs.push(info); return; }
+        const cash = (Number(a.usdKg)||0) * (Number(kgMes[info.m])||0);
+        arr[info.idx] += cash; antTot += cash;
+      });
+      const saldo = Math.max(0, totalYear - antTot);
+      if (liqs.length) { const each = saldo / liqs.length; liqs.forEach(info => { arr[info.idx] += each; }); }
+    }
+  }
+  // Abr-May-Jun 2026 en cero (mismo criterio que los costos); 2027+ intacto
+  MESES_INFO.forEach(mo => { if (mo.y === 2026 && mo.m >= 3 && mo.m <= 5) arr[mo.idx] = 0; });
   return arr;
 }
 function ParamsAllpaPeru({ paramsAP, setParamsAP, readOnly }) {
@@ -2288,7 +2305,18 @@ function ParamsAllpaPeru({ paramsAP, setParamsAP, readOnly }) {
   const ensure = (n) => { if(!n[selY]) n[selY]={precioKg:0,kgMes:Array(12).fill(0)}; if(!n[selY].kgMes) n[selY].kgMes=Array(12).fill(0); };
   function updPrecio(v){ setParamsAP(prev=>{const n=JSON.parse(JSON.stringify(prev||{}));ensure(n);n[selY].precioKg=Number(v)||0;return n;}); }
   function updKg(mi,v){ setParamsAP(prev=>{const n=JSON.parse(JSON.stringify(prev||{}));ensure(n);n[selY].kgMes[mi]=Number(v)||0;return n;}); }
-  function copiar2026(){ setParamsAP(prev=>{const n=JSON.parse(JSON.stringify(prev||{}));n[selY]=JSON.parse(JSON.stringify(n[2026]||{precioKg:ALLPA_PERU_PRECIO_2026,kgMes:[...ALLPA_PERU_KG_2026]}));return n;}); }
+  function copiar2026(){ setParamsAP(prev=>{const n=JSON.parse(JSON.stringify(prev||{}));n[selY]=JSON.parse(JSON.stringify(n[2026]||{precioKg:ALLPA_PERU_PRECIO_2026,kgMes:[...ALLPA_PERU_KG_2026],anticipos:[]}));return n;}); }
+  function ensureAnt(n){ ensure(n); if(!Array.isArray(n[selY].anticipos)) n[selY].anticipos=[]; }
+  function addAnt(){ setParamsAP(prev=>{const n=JSON.parse(JSON.stringify(prev||{}));ensureAnt(n);const yInfo=MESES_INFO.find(x=>x.y===selY&&x.m>=6)||MESES_INFO.find(x=>x.y===selY);n[selY].anticipos.push({mes:yInfo?yInfo.label:MESES_65[0],usdKg:0,liq:false});return n;}); }
+  function updAnt(ai,field,val){ setParamsAP(prev=>{const n=JSON.parse(JSON.stringify(prev||{}));ensureAnt(n);n[selY].anticipos[ai][field]=field==="usdKg"?(Number(val)||0):(field==="liq"?!!val:val);return n;}); }
+  function delAnt(ai){ setParamsAP(prev=>{const n=JSON.parse(JSON.stringify(prev||{}));ensureAnt(n);n[selY].anticipos.splice(ai,1);return n;}); }
+  const anticipos = Array.isArray(d.anticipos)?d.anticipos:[];
+  const mesOpts = MESES_INFO.filter(mo=>mo.y===selY||mo.y===selY+1).map(mo=>mo.label);
+  const kgDe = (mesLabel)=>{const info=MESES_INFO.find(x=>x.label===mesLabel);return info?(Number(kgMes[info.m])||0):0;};
+  const antCash = (a)=> a.liq?0:(Number(a.usdKg)||0)*kgDe(a.mes);
+  const antTot = anticipos.reduce((s,a)=>s+antCash(a),0);
+  const nLiq = anticipos.filter(a=>a.liq).length;
+  const saldoLiq = Math.max(0, totIng - antTot);
   const inp = {width:90,padding:"4px 6px",background:C.bg2,border:`1px solid ${C.border}`,borderRadius:6,color:C.text,fontSize:11,textAlign:"right"};
   return (
     <div style={{display:"flex",flexDirection:"column",gap:14}}>
@@ -2333,8 +2361,60 @@ function ParamsAllpaPeru({ paramsAP, setParamsAP, readOnly }) {
             </tbody>
           </table>
         </div>
-        <div style={{fontSize:10,color:C.muted,marginTop:10,fontStyle:"italic"}}>
-          El ingreso se registra en el mes de producción. Editable por año. Los costos crecen +5%/año automáticamente (definidos en código).
+        {/* ── Anticipos + Liquidación ── */}
+        <div style={{marginTop:18,borderTop:`1px solid ${C.border}`,paddingTop:14}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8,flexWrap:"wrap",gap:8}}>
+            <div style={{fontSize:12,fontWeight:700,color:C.text}}>💵 Anticipos {selY}
+              <span style={{fontSize:10,color:C.muted,fontWeight:400,marginLeft:8}}>USD/kg × kilos del mes; se descuentan del precio. La liquidación cobra el saldo.</span>
+            </div>
+            {!ro&&<Btn small color="#7c3aed" onClick={addAnt}>+ Anticipo</Btn>}
+          </div>
+          {anticipos.length===0 ? (
+            <div style={{fontSize:11,color:C.muted2,fontStyle:"italic"}}>Sin anticipos → el ingreso se registra por mes de producción (kilos × precio).</div>
+          ) : (
+            <table style={{borderCollapse:"collapse",fontSize:11,width:"100%",maxWidth:640}}>
+              <thead><tr style={{color:C.muted,textAlign:"left"}}>
+                <th style={{padding:"4px 6px"}}>Mes</th><th style={{padding:"4px 6px"}}>USD/kg</th>
+                <th style={{padding:"4px 6px"}}>Liquidación</th><th style={{padding:"4px 6px",textAlign:"right"}}>Cobro</th><th></th>
+              </tr></thead>
+              <tbody>
+                {anticipos.map((a,ai)=>(
+                  <tr key={ai} style={{borderTop:`1px solid ${C.border}22`}}>
+                    <td style={{padding:"3px 6px"}}>
+                      <select disabled={ro} value={a.mes} onChange={e=>updAnt(ai,"mes",e.target.value)}
+                        style={{...inp,width:90,textAlign:"left"}}>
+                        {mesOpts.map(m=><option key={m} value={m}>{m}</option>)}
+                      </select>
+                    </td>
+                    <td style={{padding:"3px 6px"}}>
+                      <input type="number" step="0.01" disabled={ro||a.liq} value={a.liq?"":(a.usdKg||"")}
+                        onChange={e=>updAnt(ai,"usdKg",e.target.value)} style={{...inp,width:70,opacity:a.liq?0.4:1}}/>
+                    </td>
+                    <td style={{padding:"3px 6px",textAlign:"center"}}>
+                      <input type="checkbox" disabled={ro} checked={!!a.liq} onChange={e=>updAnt(ai,"liq",e.target.checked)}/>
+                    </td>
+                    <td style={{padding:"3px 6px",textAlign:"right",color:a.liq?"#7c3aed":"#22c55e",fontWeight:700}}>
+                      {a.liq?$$(nLiq?saldoLiq/nLiq:0):$$(antCash(a))}
+                    </td>
+                    <td style={{padding:"3px 6px",textAlign:"center"}}>
+                      {!ro&&<button onClick={()=>delAnt(ai)} style={{background:"none",border:"none",color:C.red,cursor:"pointer",fontSize:12}}>🗑</button>}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+          {anticipos.length>0&&(
+            <div style={{display:"flex",gap:16,flexWrap:"wrap",marginTop:8,fontSize:11,color:C.muted}}>
+              <span>Anticipos: <strong style={{color:"#22c55e"}}>{$$(antTot)}</strong></span>
+              <span>Liquidación (saldo): <strong style={{color:"#7c3aed"}}>{$$(saldoLiq)}</strong></span>
+              <span>Total año: <strong style={{color:C.text}}>{$$(antTot+saldoLiq)}</strong> {Math.abs(antTot+saldoLiq-totIng)>1&&<span style={{color:C.red}}>≠ {$$(totIng)}</span>}</span>
+              {nLiq===0&&<span style={{color:C.red}}>⚠ Falta marcar una fila como Liquidación (el saldo no se cobra)</span>}
+            </div>
+          )}
+        </div>
+        <div style={{fontSize:10,color:C.muted,marginTop:12,fontStyle:"italic"}}>
+          Editable por año. Sin anticipos, el ingreso va por mes de producción. Los costos crecen +5%/año automáticamente (definidos en código).
         </div>
       </Card>
     </div>
