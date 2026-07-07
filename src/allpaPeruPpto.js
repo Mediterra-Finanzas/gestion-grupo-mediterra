@@ -14,6 +14,20 @@ export const ALLPA_PERU_GROWTH = 0.05;
 export const ALLPA_PERU_KG_2026 = [0,0,0,0,0,1406.59,71979.11,199387.15,328168.69,325172.44,81270.21,17219.82];
 export const ALLPA_PERU_PRECIO_2026 = 5.5;
 
+// Líneas de costo que pasan a modelo US$/kg × kilos (parametrizadas en la app).
+// Se EXCLUYEN de la base hardcodeada; se recalculan con las tasas y kilos.
+export const ALLPA_PERU_KG_COST_LINES = [
+  'Var Campo · COSECHA',
+  'Packing · Traslado a maquila',
+  'Packing · Servicio de maquila',
+  'Packing · Materiales',
+  'Packing · Servicio logístico',
+];
+// Tasas US$/kg por defecto (implícitas del ppto 2026). Editables por año en la app.
+export const ALLPA_PERU_RATES_2026 = { cosecha:0.7418, traslado:0.10, maquila:0.30, materiales:0.23, logistico:0.20 };
+// Líneas de agroquímicos que suben +40% en 2027 vs 2026 (luego +5%/año).
+const ALLPA_PERU_STEP40 = /FITOSANITARIO|FERTILIZANTES/;
+
 // cat: egr_var | egr_fijo · base: 12 meses Ene..Dic 2026 (USD)
 export const ALLPA_PERU_PPTO_2026 = [
   { cat:'egr_var', label:'Var Campo · PROGRAMA FITOSANITARIO', base:[42435.8,28257.4,34051.2,19176.2,25734.6,30019,25384.4,15946.2,29434.9,14006.7,12272.5,27889.2] },
@@ -133,11 +147,18 @@ export function buildAllpaPeruLineas() {
   while (horizon.length < 63) { horizon.push({ y, cm:m }); m++; if (m > 11) { m = 0; y++; } }
   const out = { egr_var:[], egr_fijo:[] };
   ALLPA_PERU_PPTO_2026.forEach(ln => {
+    if (ALLPA_PERU_KG_COST_LINES.includes(ln.label)) return; // van por US$/kg (calc aparte)
+    const step40 = ALLPA_PERU_STEP40.test(ln.label);
     const proy = horizon.map(({ y, cm }) => {
       // Abr-May-Jun 2026 (cm 3,4,5) van en cero; el patrón base se conserva
-      // para que 2027+ sigan proyectando esos meses con el +5%.
+      // para que 2027+ sigan proyectando esos meses.
       if (y === 2026 && cm >= 3 && cm <= 5) return 0;
-      const f = Math.pow(1 + ALLPA_PERU_GROWTH, y - 2026);
+      // Fito/fertilizantes: +40% en 2027 vs 2026, luego +5%/año sobre esa base.
+      // Resto: +5%/año calendario.
+      let f;
+      if (y === 2026) f = 1;
+      else if (step40) f = 1.40 * Math.pow(1 + ALLPA_PERU_GROWTH, y - 2027);
+      else f = Math.pow(1 + ALLPA_PERU_GROWTH, y - 2026);
       return Math.round(((ln.base[cm] || 0) * f) * 100) / 100;
     });
     (out[ln.cat] || (out[ln.cat] = [])).push({ label: ln.label, proy });

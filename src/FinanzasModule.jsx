@@ -4,7 +4,7 @@ import EEFFModule from './EEFFModule.jsx';
 import RendicionesModule from './RendicionesModule.jsx';
 import { theme } from './theme';
 import { exportarFlujoConsolidado } from './flujoExportExcel.js';
-import { buildAllpaPeruLineas, ALLPA_PERU_KG_2026, ALLPA_PERU_PRECIO_2026 } from './allpaPeruPpto.js';
+import { buildAllpaPeruLineas, ALLPA_PERU_KG_2026, ALLPA_PERU_PRECIO_2026, ALLPA_PERU_RATES_2026 } from './allpaPeruPpto.js';
 import * as XLSX from 'xlsx-js-style'; // SheetJS (fork con estilos) — ya instalado
 import { uploadDocNomina, urlFirmadaNomina } from './friskuHelpers';
 import { esLineaRelacionada, hashArchivo, docsActivos, tieneRespaldo, pathDocNomina, coberturaNomina, siguienteCorrelativo } from './expedienteHelpers';
@@ -2258,7 +2258,7 @@ function defaultParamsAllpaPeru() {
   // { [año]: { precioKg, kgMes:[12] Ene..Dic } } — replica 2026 en cada año
   const p = {};
   for (let y = 2026; y <= 2031; y++) {
-    p[y] = { precioKg: ALLPA_PERU_PRECIO_2026, kgMes: [...ALLPA_PERU_KG_2026], anticipos: [] };
+    p[y] = { precioKg: ALLPA_PERU_PRECIO_2026, kgMes: [...ALLPA_PERU_KG_2026], anticipos: [], ratesKg: {...ALLPA_PERU_RATES_2026} };
   }
   return p;
 }
@@ -2292,6 +2292,28 @@ function calcAllpaPeruIngresos(paramsAP) {
   MESES_INFO.forEach(mo => { if (mo.y === 2026 && mo.m >= 3 && mo.m <= 5) arr[mo.idx] = 0; });
   return arr;
 }
+// Costos variables parametrizados como US$/kg × kilos de producción.
+const ALLPA_PERU_KG_COST_DEFS = [
+  { key:'cosecha',    cat:'egr_var', label:'Var Campo · COSECHA (US$/kg)' },
+  { key:'traslado',   cat:'egr_var', label:'Packing · Traslado a maquila (US$/kg)' },
+  { key:'maquila',    cat:'egr_var', label:'Packing · Servicio de maquila (US$/kg)' },
+  { key:'materiales', cat:'egr_var', label:'Packing · Materiales (US$/kg)' },
+  { key:'logistico',  cat:'egr_var', label:'Packing · Servicio logístico (US$/kg)' },
+];
+function calcAllpaPeruCostosKg(paramsAP) {
+  const lines = ALLPA_PERU_KG_COST_DEFS.map(def => ({ cat:def.cat, label:def.label, proy:Z65() }));
+  MESES_INFO.forEach(mo => {
+    if (mo.y === 2026 && mo.m >= 3 && mo.m <= 5) return; // Abr-May-Jun 2026 = 0
+    const yp = paramsAP?.[mo.y];
+    if (!yp) return;
+    const kg = Number(yp.kgMes?.[mo.m]) || 0;
+    const rates = yp.ratesKg || {};
+    ALLPA_PERU_KG_COST_DEFS.forEach((def, li) => {
+      lines[li].proy[mo.idx] = kg * (Number(rates[def.key]) || 0);
+    });
+  });
+  return lines;
+}
 function ParamsAllpaPeru({ paramsAP, setParamsAP, readOnly }) {
   const YEARS = [2026,2027,2028,2029,2030,2031];
   const MESN = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
@@ -2310,6 +2332,9 @@ function ParamsAllpaPeru({ paramsAP, setParamsAP, readOnly }) {
   function addAnt(){ setParamsAP(prev=>{const n=JSON.parse(JSON.stringify(prev||{}));ensureAnt(n);const yInfo=MESES_INFO.find(x=>x.y===selY&&x.m>=6)||MESES_INFO.find(x=>x.y===selY);n[selY].anticipos.push({mes:yInfo?yInfo.label:MESES_65[0],usdKg:0,liq:false});return n;}); }
   function updAnt(ai,field,val){ setParamsAP(prev=>{const n=JSON.parse(JSON.stringify(prev||{}));ensureAnt(n);n[selY].anticipos[ai][field]=field==="usdKg"?(Number(val)||0):(field==="liq"?!!val:val);return n;}); }
   function delAnt(ai){ setParamsAP(prev=>{const n=JSON.parse(JSON.stringify(prev||{}));ensureAnt(n);n[selY].anticipos.splice(ai,1);return n;}); }
+  function updRate(key,val){ setParamsAP(prev=>{const n=JSON.parse(JSON.stringify(prev||{}));ensure(n);if(!n[selY].ratesKg)n[selY].ratesKg={};n[selY].ratesKg[key]=Number(val)||0;return n;}); }
+  const rates = d.ratesKg||{};
+  const RATE_DEFS=[{key:'cosecha',lbl:'Cosecha'},{key:'traslado',lbl:'Traslado maquila'},{key:'maquila',lbl:'Servicio maquila'},{key:'materiales',lbl:'Materiales'},{key:'logistico',lbl:'Servicio logístico'}];
   const anticipos = Array.isArray(d.anticipos)?d.anticipos:[];
   const mesOpts = MESES_INFO.filter(mo=>mo.y===selY||mo.y===selY+1).map(mo=>mo.label);
   const kgDe = (mesLabel)=>{const info=MESES_INFO.find(x=>x.label===mesLabel);return info?(Number(kgMes[info.m])||0):0;};
@@ -2413,8 +2438,31 @@ function ParamsAllpaPeru({ paramsAP, setParamsAP, readOnly }) {
             </div>
           )}
         </div>
+        {/* ── Costos US$/kg (cosecha + packing) ── */}
+        <div style={{marginTop:18,borderTop:`1px solid ${C.border}`,paddingTop:14}}>
+          <div style={{fontSize:12,fontWeight:700,color:C.text,marginBottom:8}}>🧺 Costos US$/kg {selY}
+            <span style={{fontSize:10,color:C.muted,fontWeight:400,marginLeft:8}}>Cosecha y packing = tasa × kilos de producción del mes</span>
+          </div>
+          <div style={{display:"flex",gap:12,flexWrap:"wrap"}}>
+            {RATE_DEFS.map(rd=>{
+              const r=Number(rates[rd.key])||0; const cost=r*totKg;
+              return (
+                <div key={rd.key} style={{border:`1px solid ${C.border}`,borderRadius:8,padding:"8px 10px",minWidth:130}}>
+                  <div style={{fontSize:10,color:C.muted,marginBottom:4}}>{rd.lbl}</div>
+                  <div style={{display:"flex",alignItems:"center",gap:4}}>
+                    <span style={{fontSize:11,color:C.muted}}>US$</span>
+                    <input type="number" step="0.01" disabled={ro} value={rates[rd.key]??""} onChange={e=>updRate(rd.key,e.target.value)} style={{...inp,width:66}}/>
+                    <span style={{fontSize:10,color:C.muted}}>/kg</span>
+                  </div>
+                  <div style={{fontSize:10,color:"#f59e0b",marginTop:4,fontWeight:700}}>{cost?$$(cost):"—"}/año</div>
+                </div>
+              );
+            })}
+          </div>
+          <div style={{fontSize:11,color:C.muted,marginTop:8}}>Total costos US$/kg {selY}: <strong style={{color:"#f59e0b"}}>{$$(RATE_DEFS.reduce((s,rd)=>s+(Number(rates[rd.key])||0)*totKg,0))}</strong></div>
+        </div>
         <div style={{fontSize:10,color:C.muted,marginTop:12,fontStyle:"italic"}}>
-          Editable por año. Sin anticipos, el ingreso va por mes de producción. Los costos crecen +5%/año automáticamente (definidos en código).
+          Editable por año. Sin anticipos, el ingreso va por mes de producción. Cosecha y packing salen por US$/kg × kilos. El resto de costos crece +5%/año (fito/fertilizantes +40% en 2027); definidos en código.
         </div>
       </Card>
     </div>
@@ -10618,10 +10666,11 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
     const apEmp = base["Allpa Farms Perú"];
     if(apEmp) {
       const { egr_var:apVar, egr_fijo:apFijo } = buildAllpaPeruLineas();
-      const apIng = calcAllpaPeruIngresos(paramsAP);   // ingresos = kilos × precio (parámetros)
+      const apIng   = calcAllpaPeruIngresos(paramsAP);   // ingresos = kilos × precio (parámetros)
+      const apKgCos = calcAllpaPeruCostosKg(paramsAP);   // cosecha + packing = US$/kg × kilos
       const nextAP = JSON.parse(JSON.stringify(apEmp));
       nextAP.sections = nextAP.sections.map(sec=>{
-        if(sec.cat==="egr_var")  return {...sec, lines: apVar.map(l=>({...l, formula:true}))};
+        if(sec.cat==="egr_var")  return {...sec, lines: [...apVar, ...apKgCos].map(l=>({...l, formula:true}))};
         if(sec.cat==="egr_fijo") return {...sec, lines: apFijo.map(l=>({...l, formula:true}))};
         if(sec.cat==="ing_op")   return {...sec, lines: sec.lines.map(l=>
           l.label==="Exportación Arándanos" ? {...l, proy:[...apIng], formula:true} : l)};
