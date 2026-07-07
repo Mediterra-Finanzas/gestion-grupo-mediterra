@@ -3082,6 +3082,17 @@ function LiquidacionForm({ liq, embarques, clientes, exportadoras, especies, mon
   const [anticipo,       setAnticipo]       = useState(()=> liq?.anticipo!=null ? String(liq.anticipo) : "");
   const f = k => e => setForm(p=>({...p,[k]:e.target.value}));
 
+  // Al elegir/cambiar la OE, la moneda de liquidación toma la del cliente
+  // (ej. Global Fruit Point → EUR). No pisa la moneda guardada al abrir a editar.
+  const primeraCargaLiq = useRef(true);
+  useEffect(()=>{
+    if(primeraCargaLiq.current){ primeraCargaLiq.current = false; return; }
+    const oe  = embarques.find(e=>e.id===form.oeId);
+    const cli = clientes.find(c=>c.id===oe?.clienteId);
+    if(cli?.monedaCodigo) setForm(p=>({...p, monedaBase: cli.monedaCodigo}));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  },[form.oeId]);
+
   const oeSeleccionada  = embarques.find(e=>e.id===form.oeId);
   const clienteOE       = clientes.find(c=>c.id===oeSeleccionada?.clienteId);
   const exportadoraOE   = exportadoras.find(e=>e.id===oeSeleccionada?.exportadoraId);
