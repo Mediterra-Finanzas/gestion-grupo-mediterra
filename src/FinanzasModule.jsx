@@ -10758,7 +10758,23 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
         return merged;
       });
     }
-    if(d?.params_ap)    setParamsAP(prev=>({...defaultParamsAllpaPeru(),...d.params_ap}));
+    if(d?.params_ap) {
+      // Merge PROFUNDO por año: conserva las tasas/valores por defecto si el
+      // guardado no los trae (evita perder ratesKg y dejar costos US$/kg en 0).
+      const def = defaultParamsAllpaPeru();
+      const merged = {};
+      for(let y=2026;y<=2031;y++){
+        const s = d.params_ap[y] || {};
+        merged[y] = {
+          precioKg: s.precioKg ?? def[y].precioKg,
+          kgMes: (Array.isArray(s.kgMes) && s.kgMes.length) ? s.kgMes : def[y].kgMes,
+          // solo anticipos del modelo nuevo (monto US$); descarta los antiguos usd/kg
+          anticipos: (Array.isArray(s.anticipos) ? s.anticipos : []).filter(a=>a && a.monto!=null),
+          ratesKg: {...def[y].ratesKg, ...(s.ratesKg||{})},
+        };
+      }
+      setParamsAP(merged);
+    }
     if(d?.sub_lines)    setSubLines(d.sub_lines);
     if(d?.added_lines)  setAddedLinesGlobal(d.added_lines);
     if(d?.intercompany)   setIntercompany(d.intercompany||[]);
