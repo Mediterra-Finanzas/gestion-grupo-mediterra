@@ -67,22 +67,22 @@ function mIdx(label) { return MESES_65.indexOf(label); }
 const SUPA_URL = "https://bywovqayuzodbzwsriet.supabase.co";
 const SUPA_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJ5d292cWF5dXpvZGJ6d3NyaWV0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU2ODU1MDgsImV4cCI6MjA5MTI2MTUwOH0.s2x2O_CxE6rl8dBqFuyfQdMyRqSyjJQWXJXesmVGXtk";
 
-async function dbLoad() {
+async function dbLoad(rowId="finanzas") {
   // NO atrapar el error: si la lectura falla (red/HTTP), la excepción DEBE
   // propagar para que el caller NO habilite el guardado (que sobrescribiría
   // los 4.6 MB de Finanzas con los defaults vacíos en memoria). Solo se
   // devuelve {} cuando la fila existe pero está vacía (instalación nueva).
-  const r = await fetch(`${SUPA_URL}/rest/v1/calendario_data?id=eq.finanzas&select=value`,
+  const r = await fetch(`${SUPA_URL}/rest/v1/calendario_data?id=eq.${rowId}&select=value`,
     { headers:{ apikey:SUPA_KEY, Authorization:`Bearer ${SUPA_KEY}` }});
-  if(!r.ok) throw new Error(`dbLoad finanzas HTTP ${r.status}`);
+  if(!r.ok) throw new Error(`dbLoad ${rowId} HTTP ${r.status}`);
   const d = await r.json();
   const parsed = d?.[0]?.value ? JSON.parse(d[0].value) : {};
-  console.log("[dbLoad] keys:", Object.keys(parsed), "saldos_bancos keys:", Object.keys(parsed.saldos_bancos||{}).length);
+  console.log("[dbLoad]", rowId, "keys:", Object.keys(parsed));
   return parsed;
 }
-async function dbSave(data) {
+async function dbSave(data, rowId="finanzas") {
   try {
-    const body = JSON.stringify({ id:"finanzas", value:JSON.stringify(data) });
+    const body = JSON.stringify({ id:rowId, value:JSON.stringify(data) });
     const r = await fetch(`${SUPA_URL}/rest/v1/calendario_data`, {
       method:"POST",
       headers:{ apikey:SUPA_KEY, Authorization:`Bearer ${SUPA_KEY}`,
@@ -10520,6 +10520,15 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
   const [historialReportes,setHistorialReportes]=useState([]);
   const [loading,setLoading]=useState(true);
   const [saved,setSaved]=useState(null);
+  // ── Escenarios (workspaces paralelos del flujo) ──
+  // escActivo: null = Base (original, fila "finanzas"); si no, id del escenario.
+  const [escenarios,setEscenarios]=useState([]);   // [{id,name,createdAt}]
+  const [escActivo,setEscActivo]=useState(null);
+  const [escBusy,setEscBusy]=useState(false);
+  const activeRowRef  = React.useRef("finanzas");   // fila destino de load/save
+  const escenariosRef = React.useRef([]);
+  useEffect(()=>{ escenariosRef.current = escenarios; },[escenarios]);
+  const rowIdDe = (id)=> id ? `finanzas_esc_${id}` : "finanzas";
 
   const esAdmin = usuarioActual?.rol==="admin";
   const canEdit = esAdmin || ["Angelo Huerta","Carol Machuca"].includes(usuarioActual?.nombre||"");
@@ -10794,8 +10803,12 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
 
     // Con el guardia prendido: sincronización por sondeo autenticado (la
     // puerta vieja del WebSocket anónimo se cierra).
+    // Cargar índice de escenarios (no crítico; si falla, queda solo Base)
+    dbLoad("finanzas_esc_index").then(ix=>{ if(Array.isArray(ix?.escenarios)) setEscenarios(ix.escenarios); }).catch(()=>{});
+
     if (USE_GUARD) {
-      const stop = pollRow("finanzas", (d)=>{ if(d) applyData(d); });
+      // Solo sincroniza cuando se está en Base (no pisar un escenario abierto)
+      const stop = pollRow("finanzas", (d)=>{ if(d && activeRowRef.current==="finanzas") applyData(d); });
       return () => stop();
     }
 
@@ -10831,7 +10844,7 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
         // Data change event
         if(msg.topic === TOPIC && (msg.event === "INSERT" || msg.event === "UPDATE")) {
           const record = msg.payload?.record;
-          if(record?.id === "finanzas" && record?.value) {
+          if(record?.id === "finanzas" && record?.value && activeRowRef.current==="finanzas") {
             try {
               const d = JSON.parse(record.value);
               applyData(d);
@@ -10972,8 +10985,75 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
       sub_lines:       overrides.sub_lines       !== undefined ? overrides.sub_lines       : subLinesRef.current,
       added_lines:     overrides.added_lines     !== undefined ? overrides.added_lines     : addedLinesRef.current,
       intercompany:    overrides.intercompany    !== undefined ? overrides.intercompany    : intercompanyRef.current,
-    });
+    }, activeRowRef.current);   // ← guarda en la fila activa (Base o escenario)
   },[]); // eslint-disable-line
+
+  // Snapshot completo del estado actual (para crear un escenario). Igual al
+  // payload de persistAll pero sin overrides.
+  const snapshotBlob = useCallback(()=>({
+    finanzas_real: realDataRef.current,
+    allegria_params: paramsRef.current,
+    allegria_comision_arandanos: allegraComisionArandanosRef.current,
+    saldos_bancos: saldosBancosRef.current,
+    params_emp: paramsEmpRef.current,
+    creditos_data: creditosRef.current,
+    params_as: paramsASRef.current,
+    params_frisku: paramsFriskuRef.current,
+    params_if: paramsIFRef.current,
+    params_af: paramsAFRef.current,
+    params_ap: paramsAPRef.current,
+    sub_lines: subLinesRef.current,
+    added_lines: addedLinesRef.current,
+    intercompany: intercompanyRef.current,
+  }),[]);
+
+  // Cambiar de escenario (id=null → Base). Carga la fila y aplica; el gate
+  // anti-borrado se resetea para no escribir hasta cargar OK.
+  const switchEscenario = useCallback(async (id)=>{
+    const rowId = rowIdDe(id);
+    if(rowId === activeRowRef.current) return;
+    setEscBusy(true); cargaOkRef.current = false;
+    try {
+      const d = await dbLoad(rowId);
+      activeRowRef.current = rowId;
+      setEscActivo(id);
+      applyData(d);
+      cargaOkRef.current = true;
+      window._finLoadTime = Date.now();
+    } catch(e){
+      console.error("[escenario] carga falló, se mantiene el actual:", e);
+      alert("No se pudo cargar el escenario. Se mantiene el actual.");
+    }
+    setEscBusy(false);
+  },[]); // eslint-disable-line
+
+  // Crear escenario = copia (snapshot) del estado actual en una fila propia.
+  const crearEscenario = useCallback(async (nombre)=>{
+    const nm = (nombre||"").trim(); if(!nm) return;
+    setEscBusy(true);
+    try {
+      const id = String(Date.now());
+      const blob = snapshotBlob();
+      const ok = await dbSave(blob, rowIdDe(id));
+      if(!ok) throw new Error("dbSave escenario falló");
+      const next = [...escenariosRef.current, {id, name:nm, createdAt:new Date().toISOString()}];
+      escenariosRef.current = next; setEscenarios(next);
+      await dbSave({ escenarios: next }, "finanzas_esc_index");
+      // Cambiar a él: los datos en memoria YA son el snapshot (válidos y
+      // cargados), solo redirige el destino de guardado. cargaOkRef sigue true.
+      activeRowRef.current = rowIdDe(id); setEscActivo(id);
+    } catch(e){ console.error("[escenario] crear falló:", e); alert("No se pudo crear el escenario."); }
+    setEscBusy(false);
+  },[snapshotBlob]);
+
+  const borrarEscenario = useCallback(async (id)=>{
+    const esc = escenariosRef.current.find(e=>e.id===id);
+    if(!esc || !window.confirm(`¿Borrar el escenario "${esc.name}"? (no afecta el original)`)) return;
+    const next = escenariosRef.current.filter(e=>e.id!==id);
+    escenariosRef.current = next; setEscenarios(next);
+    await dbSave({ escenarios: next }, "finanzas_esc_index");
+    if(escActivo===id) switchEscenario(null);
+  },[escActivo,switchEscenario]);
 
   const handleSaveReal=useCallback(async(empresa,mes,semana,vals)=>{
     const next=JSON.parse(JSON.stringify(realDataRef.current));
@@ -11306,6 +11386,47 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
 
       {tab==="flujo"&&puedoVer("flujo")&&(
         <div>
+          {/* ── Selector de escenarios (workspaces paralelos del flujo) ── */}
+          {accesoCompletoEmpresas&&(
+            <div style={{display:"flex",gap:6,flexWrap:"wrap",alignItems:"center",marginBottom:12,
+              padding:"8px 12px",borderRadius:10,
+              border:`1px solid ${escActivo?"#a78bfa":C.border}`,
+              background:escActivo?"#a78bfa14":C.card}}>
+              <span style={{fontSize:10,fontWeight:800,color:C.muted,textTransform:"uppercase",letterSpacing:1}}>Modelo</span>
+              <button onClick={()=>switchEscenario(null)} disabled={escBusy}
+                style={{padding:"5px 12px",borderRadius:8,cursor:"pointer",fontSize:11,fontWeight:700,
+                  border:`1px solid ${!escActivo?"#22c55e":C.border}`,
+                  background:!escActivo?"#22c55e22":"transparent",color:!escActivo?"#22c55e":C.muted}}>
+                🏦 Base (original)
+              </button>
+              {escenarios.map(e=>(
+                <button key={e.id} onClick={()=>switchEscenario(e.id)} disabled={escBusy}
+                  style={{padding:"5px 12px",borderRadius:8,cursor:"pointer",fontSize:11,fontWeight:700,
+                    border:`1px solid ${escActivo===e.id?"#a78bfa":C.border}`,
+                    background:escActivo===e.id?"#a78bfa33":"transparent",color:escActivo===e.id?"#a78bfa":C.muted}}>
+                  🧪 {e.name}
+                </button>
+              ))}
+              {puedoEdit("flujo")&&(
+                <button onClick={()=>{const n=window.prompt("Nombre del nuevo escenario (copia del estado actual):");if(n)crearEscenario(n);}} disabled={escBusy}
+                  style={{padding:"5px 12px",borderRadius:8,cursor:"pointer",fontSize:11,fontWeight:700,
+                    border:`1px dashed ${C.border}`,background:"transparent",color:C.muted}}>
+                  ＋ Nuevo escenario
+                </button>
+              )}
+              {escActivo&&puedoEdit("flujo")&&(
+                <button onClick={()=>borrarEscenario(escActivo)} disabled={escBusy}
+                  style={{padding:"5px 10px",borderRadius:8,cursor:"pointer",fontSize:11,
+                    border:`1px solid ${C.red}44`,background:"transparent",color:C.red}}>🗑 Borrar</button>
+              )}
+              {escBusy&&<span style={{fontSize:11,color:C.muted,fontStyle:"italic"}}>cargando…</span>}
+              {escActivo&&!escBusy&&(
+                <span style={{fontSize:11,color:"#a78bfa",fontWeight:700,marginLeft:"auto"}}>
+                  🧪 Escenario activo — los cambios NO afectan el original
+                </span>
+              )}
+            </div>
+          )}
           {/* Selector empresa + botón Consolidado */}
           <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:12,alignItems:"center"}}>
             {accesoCompletoEmpresas&&(<>
