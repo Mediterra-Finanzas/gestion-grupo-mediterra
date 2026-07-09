@@ -824,7 +824,7 @@ export default function RendicionesModule({ usuarioActual, esAdmin, esSoloConsul
         if (alive) {
           setRendiciones(Array.isArray(data) ? data : []);
           setTcData(tc && typeof tc === "object" ? tc : {});
-          setConfig(cfg && typeof cfg === "object" ? { valorKm: 0, ...cfg } : { valorKm: 0 });
+          setConfig(cfg && typeof cfg === "object" ? { valorKm: 0, personasExternas: [], ...cfg } : { valorKm: 0, personasExternas: [] });
           cargaOkRef.current = true; // carga exitosa → habilita auto-save
         }
       } catch (e) {
@@ -867,6 +867,15 @@ export default function RendicionesModule({ usuarioActual, esAdmin, esSoloConsul
     setConfig(next);
     await dbSaveGeneric("rendiciones_config", next);
   }, [admin, config]);
+
+  // Maestro de personas externas (no usuarios). Lo gestiona quien puede rendir por otros.
+  const guardarPersonasExternas = useCallback(async (list) => {
+    if (!puedeRendirPorOtros) return;
+    if (!cargaOkRef.current) { console.warn("[Rendiciones] personas externas no guardadas — carga inicial falló."); return; }
+    const next = { ...config, personasExternas: Array.isArray(list) ? list : [] };
+    setConfig(next);
+    await dbSaveGeneric("rendiciones_config", next);
+  }, [puedeRendirPorOtros, config]);
 
   const pushHist = (r, accion, comentario = "") => ({
     ...r,
@@ -924,8 +933,9 @@ export default function RendicionesModule({ usuarioActual, esAdmin, esSoloConsul
     if (sinRespaldo) { alert(`Hay ${sinRespaldo} gasto(s) sin respaldo adjunto. Cada gasto debe llevar su boleta, factura o comprobante (foto o PDF) antes de enviar.`); return; }
     // Congelar la cadena de aprobación del TRABAJADOR (no de quien la carga).
     // Si la cargó una secretaria en nombre de un gerente, usa la cadena del gerente.
+    // Persona externa (no usuario): sin cadena propia → la aprueban los aprobadores/CFO generales.
     const trabajadorUser = (usuarios || []).find(u => (u.email || "").toLowerCase() === (r.trabajadorEmail || "").toLowerCase()) || usuarioActual;
-    const cadena = resolverCadena(trabajadorUser, usuarios);
+    const cadena = r.trabajadorNoUsuario ? [] : resolverCadena(trabajadorUser, usuarios);
     upsert(pushHist({
       ...r, estado: "enviada", enviadoEn: nowISO(),
       cadena, nivelActual: 0, aprobaciones: [], devuelta: false,
@@ -1124,6 +1134,7 @@ export default function RendicionesModule({ usuarioActual, esAdmin, esSoloConsul
           esAprobador={esAprobador} admin={admin} onEliminar={eliminarRendicion} tcData={tcData}
           usuarios={usuarios} puedeRendirPorOtros={puedeRendirPorOtros}
           valorKm={config.valorKm}
+          personasExternas={config.personasExternas || []} onGuardarPersonas={guardarPersonasExternas}
           puedeDevolver={editRend.estado === "aprobada" && (admin || editRend.revisadoPor === nombreUsuario)}
           onDevolver={devolverParaCorreccion}
         />
@@ -1651,7 +1662,9 @@ function ReportesDashboard({ resumen, nRend }) {
 // ───────────────────────────────────────────────────────────────────
 // Editor de una rendición (con gastos + adjuntos)
 // ───────────────────────────────────────────────────────────────────
-function EditorRendicion({ rend, upsert, onClose, onEnviar, esDueno, esAprobador, onEliminar, tcData, admin, usuarios = [], puedeRendirPorOtros, valorKm = 0, puedeDevolver = false, onDevolver }) {
+function EditorRendicion({ rend, upsert, onClose, onEnviar, esDueno, esAprobador, onEliminar, tcData, admin, usuarios = [], puedeRendirPorOtros, valorKm = 0, personasExternas = [], onGuardarPersonas, puedeDevolver = false, onDevolver }) {
+  const [modalExt, setModalExt] = useState(false);
+  const [extForm, setExtForm] = useState({ nombre: "", cargo: "", email: "" });
   const esMovil = useEsMovil();
   const editable = esDueno && (rend.estado === "borrador" || rend.estado === "rechazada");
   // La fecha/moneda de pago la define quien paga (aprobador) incluso después de enviada.
@@ -1787,21 +1800,78 @@ function EditorRendicion({ rend, upsert, onClose, onEnviar, esDueno, esAprobador
         <div style={{ marginBottom: 16, background: C.bg2, borderRadius: 10, padding: "10px 12px", display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
           <span style={{ fontSize: 11, color: C.muted, fontWeight: 700 }}>RENDIR EN NOMBRE DE:</span>
           <select
-            value={(rend.trabajadorEmail || "").toLowerCase()}
+            value={rend.trabajadorExtId ? `ext:${rend.trabajadorExtId}` : (rend.trabajadorEmail || "").toLowerCase()}
             onChange={e => {
-              const u = (usuarios || []).find(x => (x.email || "").toLowerCase() === e.target.value);
-              if (u) upsert({ ...rend, trabajador: u.nombre || u.email, trabajadorEmail: u.email, cargo: u.cargo || u.rol || "" });
+              const val = e.target.value;
+              if (val.startsWith("ext:")) {
+                const p = (personasExternas || []).find(x => x.id === val.slice(4));
+                if (p) upsert({ ...rend, trabajador: p.nombre, trabajadorEmail: p.email || "", cargo: p.cargo || "", trabajadorExtId: p.id, trabajadorNoUsuario: true });
+              } else {
+                const u = (usuarios || []).find(x => (x.email || "").toLowerCase() === val);
+                if (u) upsert({ ...rend, trabajador: u.nombre || u.email, trabajadorEmail: u.email, cargo: u.cargo || u.rol || "", trabajadorExtId: null, trabajadorNoUsuario: false });
+              }
             }}
             style={{ padding: "6px 10px", borderRadius: 8, border: `1px solid ${C.border}`, fontSize: 13, background: C.card, color: C.text, minWidth: 220 }}
           >
-            {!(usuarios || []).some(x => (x.email || "").toLowerCase() === (rend.trabajadorEmail || "").toLowerCase()) && (
+            {/* Si el actual no está en ninguna lista, mostrarlo igual */}
+            {rend.trabajadorExtId && !(personasExternas || []).some(p => p.id === rend.trabajadorExtId) && (
+              <option value={`ext:${rend.trabajadorExtId}`}>{rend.trabajador || "—"} (externo)</option>
+            )}
+            {!rend.trabajadorExtId && !(usuarios || []).some(x => (x.email || "").toLowerCase() === (rend.trabajadorEmail || "").toLowerCase()) && (
               <option value={(rend.trabajadorEmail || "").toLowerCase()}>{rend.trabajador || "—"}</option>
             )}
-            {(usuarios || []).slice().sort((a, b) => (a.nombre || a.email || "").localeCompare(b.nombre || b.email || "")).map(u => (
-              <option key={u.email} value={(u.email || "").toLowerCase()}>{u.nombre || u.email}{u.cargo ? ` · ${u.cargo}` : ""}</option>
-            ))}
+            <optgroup label="Usuarios del sistema">
+              {(usuarios || []).slice().sort((a, b) => (a.nombre || a.email || "").localeCompare(b.nombre || b.email || "")).map(u => (
+                <option key={u.email} value={(u.email || "").toLowerCase()}>{u.nombre || u.email}{u.cargo ? ` · ${u.cargo}` : ""}</option>
+              ))}
+            </optgroup>
+            {(personasExternas || []).length > 0 && (
+              <optgroup label="Personas externas (no usuarios)">
+                {(personasExternas || []).slice().sort((a, b) => (a.nombre || "").localeCompare(b.nombre || "")).map(p => (
+                  <option key={p.id} value={`ext:${p.id}`}>{p.nombre}{p.cargo ? ` · ${p.cargo}` : ""}</option>
+                ))}
+              </optgroup>
+            )}
           </select>
-          <span style={{ fontSize: 11.5, color: C.muted2 }}>La rendición queda a nombre del seleccionado y sigue su cadena de aprobación.</span>
+          <button onClick={() => { setExtForm({ nombre: "", cargo: "", email: "" }); setModalExt(true); }}
+            style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 8, padding: "6px 12px", cursor: "pointer", fontSize: 12, fontWeight: 700, color: C.primary, whiteSpace: "nowrap" }}>
+            ＋ Persona externa
+          </button>
+          <span style={{ fontSize: 11.5, color: C.muted2 }}>
+            {rend.trabajadorNoUsuario ? "Persona externa: sin cadena propia, la aprueban los aprobadores/CFO generales." : "La rendición queda a nombre del seleccionado y sigue su cadena de aprobación."}
+          </span>
+        </div>
+      )}
+
+      {/* Modal: agregar persona externa (no usuario) */}
+      {modalExt && (
+        <div onClick={() => setModalExt(false)} style={{ position: "fixed", inset: 0, background: "#0007", zIndex: 500, display: "flex", alignItems: "flex-start", justifyContent: "center", padding: "40px 16px", overflowY: "auto" }}>
+          <div onClick={e => e.stopPropagation()} style={{ background: C.card, borderRadius: 14, width: 440, maxWidth: "100%", minWidth: 0, padding: 20, boxShadow: "0 12px 48px #0004" }}>
+            <div style={{ fontWeight: 800, fontSize: 15, marginBottom: 4 }}>Agregar persona externa</div>
+            <div style={{ fontSize: 12, color: C.muted2, marginBottom: 14 }}>Personas que no tienen cuenta en el sistema (terreno, choferes, externos). Queda guardada para reutilizarla.</div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+              <Field label="Nombre *">
+                <input value={extForm.nombre} onChange={e => setExtForm(f => ({ ...f, nombre: e.target.value }))} style={inputStyle} placeholder="Ej: Juan Pérez" />
+              </Field>
+              <Field label="Cargo / rol">
+                <input value={extForm.cargo} onChange={e => setExtForm(f => ({ ...f, cargo: e.target.value }))} style={inputStyle} placeholder="Ej: Chofer, Jornal, Externo" />
+              </Field>
+              <Field label="Email (opcional — para avisarle)">
+                <input value={extForm.email} onChange={e => setExtForm(f => ({ ...f, email: e.target.value }))} style={inputStyle} placeholder="opcional" />
+              </Field>
+            </div>
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 16 }}>
+              <Btn kind="ghost" onClick={() => setModalExt(false)}>Cancelar</Btn>
+              <Btn kind="success" onClick={() => {
+                const nombre = (extForm.nombre || "").trim();
+                if (!nombre) { alert("El nombre es obligatorio."); return; }
+                const nueva = { id: uid("ext"), nombre, cargo: (extForm.cargo || "").trim(), email: (extForm.email || "").trim().toLowerCase() };
+                onGuardarPersonas?.([...(personasExternas || []), nueva]);
+                upsert({ ...rend, trabajador: nueva.nombre, trabajadorEmail: nueva.email, cargo: nueva.cargo, trabajadorExtId: nueva.id, trabajadorNoUsuario: true });
+                setModalExt(false);
+              }}>Guardar y seleccionar</Btn>
+            </div>
+          </div>
         </div>
       )}
 
