@@ -19,6 +19,29 @@
 
 const round2 = (x) => Math.round((Number(x) || 0) * 100) / 100;
 
+// Suma meses a una fecha ISO ("YYYY-MM-DD") en UTC → ISO.
+export function addMesesISO(iso, meses) {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (isNaN(d)) return "";
+  d.setUTCMonth(d.getUTCMonth() + meses);
+  return d.toISOString().slice(0, 10);
+}
+
+// Genera cuotas "solo interés" cada `pasoMeses` (default 3 = trimestral),
+// empezando EN `fechaInicio` (el primer pago de interés, que puedes aplazar)
+// y hasta `fechaHasta` (exclusivo, típicamente la 1ª cuota de amortización).
+export function generarInteresPeriodico(fechaInicio, fechaHasta, pasoMeses = 3) {
+  const out = [];
+  if (!fechaInicio || !fechaHasta) return out;
+  let f = fechaInicio;
+  while (f && f < fechaHasta) {
+    out.push({ fecha_vencimiento: f, modo: "interes", cuota_total: "", amortizacion: "" });
+    f = addMesesISO(f, pasoMeses);
+  }
+  return out;
+}
+
 // Días reales entre dos fechas ISO ("YYYY-MM-DD"), Actual/365.
 export function diasEntreFechas(fDesde, fHasta) {
   if (!fDesde || !fHasta) return 0;
@@ -41,9 +64,14 @@ export function calcularAmortizacionSocio(capital, tasaEfectivaAnual, fechaDesem
     const dias = diasEntreFechas(fechaPrev, fecha);
     const interes = saldo * (Math.pow(factor, dias / 365) - 1);
     let cuotaTotal, amort;
-    if ((cu.modo || "cuota") === "amortizacion") {
+    const modo = cu.modo || "cuota";
+    if (modo === "amortizacion") {
       amort = Number(cu.amortizacion) || 0;
       cuotaTotal = amort + interes;
+    } else if (modo === "interes") {
+      // Solo interés: paga exactamente el interés del período; el capital no baja.
+      amort = 0;
+      cuotaTotal = interes;
     } else {
       cuotaTotal = Number(cu.cuota_total) || 0;
       amort = cuotaTotal - interes;      // si cuota < interés → amort < 0 (capitaliza)

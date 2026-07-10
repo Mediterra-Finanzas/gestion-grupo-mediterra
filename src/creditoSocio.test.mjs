@@ -1,6 +1,6 @@
 /* eslint-disable */
 // Tests de calcularAmortizacionSocio — ejecutar: node src/creditoSocio.test.mjs
-import { calcularAmortizacionSocio, diasEntreFechas } from './creditoSocio.js';
+import { calcularAmortizacionSocio, diasEntreFechas, generarInteresPeriodico } from './creditoSocio.js';
 
 let fallos = 0;
 const aprox = (a, b, tol = 0.02) => Math.abs(a - b) <= tol;
@@ -58,6 +58,33 @@ function check(nombre, cond, extra = "") {
   check("(c) interés período 1 exacto", aprox(r.filas[0].interes, iEsp1, 1), `${r.filas[0].interes} vs ${iEsp1.toFixed(2)}`);
   check("(c) interés período 2 exacto (sobre saldo 600k, 258 días)", aprox(r.filas[1].interes, iEsp2, 1), `${r.filas[1].interes} vs ${iEsp2.toFixed(2)}`);
   check("(c) cierra en cero", r.cierra, `saldoFinal=${r.saldoFinal}`);
+}
+
+// ── (d) interés aplazado + trimestral + amortización al final ─────
+// Desembolso 2026-08-30. Primer pago de INTERÉS aplazado a 2027-01-30, luego
+// trimestral hasta la amortización de 2028-01-30 (2 cuotas de 550.000).
+{
+  const desembolso = "2026-08-30";
+  const gen = generarInteresPeriodico("2027-01-30", "2028-01-30", 3); // 2027: Ene, Abr, Jul, Oct
+  check("(d) genera 4 cuotas de interés trimestral", gen.length === 4, `n=${gen.length}`);
+  check("(d) todas modo 'interes'", gen.every(c => c.modo === "interes"));
+  check("(d) primer pago aplazado a 2027-01-30", gen[0].fecha_vencimiento === "2027-01-30");
+  const cuotas = [
+    ...gen,
+    { fecha_vencimiento: "2028-01-30", modo: "amortizacion", amortizacion: 550000 },
+    { fecha_vencimiento: "2029-01-30", modo: "amortizacion", amortizacion: 550000 },
+  ];
+  const r = calcularAmortizacionSocio(1100000, 12.6, desembolso, cuotas);
+  // El primer pago de interés cubre ~5 meses (Ago-26→Ene-27): capital NO baja.
+  check("(d) primera cuota solo interés no amortiza", r.filas[0].amortizacion === 0 && r.filas[0].cuota_total > 0,
+    `amort=${r.filas[0].amortizacion} cuota=${r.filas[0].cuota_total}`);
+  check("(d) saldo tras interés trimestral sigue = capital", r.filas[3].saldo === 1100000, `saldo=${r.filas[3].saldo}`);
+  check("(d) cierra en cero", r.cierra, `saldoFinal=${r.saldoFinal}`);
+  // Con interés pagado trimestral, la cuota de amortización ya NO carga 3 años de interés:
+  const cuotaAmort1 = r.filas[4];
+  check("(d) cuota amortización 1 ≈ 550.000 + interés de 1 trimestre (no de años)",
+    cuotaAmort1.cuota_total < 600000, `cuota=${cuotaAmort1.cuota_total}`);
+  console.log(`     interés total (pagado en el camino) = ${r.totalInteres.toLocaleString("en-US")}`);
 }
 
 console.log(fallos === 0 ? "\nTODOS LOS TESTS PASARON ✓" : `\n${fallos} TEST(S) FALLARON ✗`);

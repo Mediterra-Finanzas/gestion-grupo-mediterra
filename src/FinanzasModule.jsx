@@ -5,7 +5,7 @@ import RendicionesModule from './RendicionesModule.jsx';
 import { theme } from './theme';
 import { exportarFlujoConsolidado } from './flujoExportExcel.js';
 import { buildAllpaPeruLineas, ALLPA_PERU_KG_2026, ALLPA_PERU_PRECIO_2026, ALLPA_PERU_RATES_2026 } from './allpaPeruPpto.js';
-import { calcularAmortizacionSocio } from './creditoSocio.js';
+import { calcularAmortizacionSocio, generarInteresPeriodico } from './creditoSocio.js';
 import * as XLSX from 'xlsx-js-style'; // SheetJS (fork con estilos) — ya instalado
 import { uploadDocNomina, urlFirmadaNomina } from './friskuHelpers';
 import { esLineaRelacionada, hashArchivo, docsActivos, tieneRespaldo, pathDocNomina, coberturaNomina, siguienteCorrelativo } from './expedienteHelpers';
@@ -6702,6 +6702,23 @@ function Creditos({empresas, creditosData=CREDITOS_DEFAULT, onSaveCreditos, canE
   const addCuotaSocio = ()=>setForm(p=>({...p,cuotas_socio:[...(p.cuotas_socio||[]),CUOTA_SOCIO_VACIA()]}));
   const updCuotaSocio = (ci,patch)=>setForm(p=>{const arr=[...(p.cuotas_socio||[])];arr[ci]={...arr[ci],...patch};return {...p,cuotas_socio:arr};});
   const delCuotaSocio = (ci)=>setForm(p=>({...p,cuotas_socio:(p.cuotas_socio||[]).filter((_,j)=>j!==ci)}));
+  // Genera cuotas "solo interés" trimestrales desde una fecha (aplazable) hasta la última cuota.
+  function generarInteresTrimestralSocio(){
+    const des = form.fecha_desembolso;
+    const existentes = (form.cuotas_socio||[]).filter(c=>c.fecha_vencimiento);
+    const amortiz = existentes.filter(c=>(c.modo||"cuota")!=="interes");
+    if(!des){ alert("Define primero la fecha de desembolso."); return; }
+    if(!amortiz.length){ alert("Agrega al menos una cuota de amortización (fecha final) primero."); return; }
+    const finISO = existentes.map(c=>c.fecha_vencimiento).sort().slice(-1)[0]; // última cuota
+    const inicio = window.prompt("Primer pago de interés (AAAA-MM-DD) — puedes aplazarlo (ej. la primera cuota de intereses):", des);
+    if(!inicio) return;
+    const gen = generarInteresPeriodico(inicio, finISO, 3);
+    if(!gen.length){ alert("No se generaron cuotas. Revisa que la fecha de inicio sea anterior a la última cuota."); return; }
+    const fechasExist = new Set(existentes.map(c=>c.fecha_vencimiento));
+    const nuevas = gen.filter(g=>!fechasExist.has(g.fecha_vencimiento));
+    const todas = [...existentes, ...nuevas].sort((a,b)=>a.fecha_vencimiento.localeCompare(b.fecha_vencimiento));
+    setForm(p=>({...p,cuotas_socio:todas}));
+  }
   // ── Helpers para múltiples renovaciones ──
   const updRen = (ri,patch)=>setForm(p=>{const arr=[...(p.renovaciones||[])];arr[ri]={...arr[ri],...patch};return {...p,renovaciones:arr};});
   const addRen = ()=>setForm(p=>({...p,renovaciones:[...(p.renovaciones||[]),{...RENOVACION_VACIA(),monto:(p.renovaciones||[]).length?"":p.monto}]}));
@@ -7262,9 +7279,11 @@ function Creditos({empresas, creditosData=CREDITOS_DEFAULT, onSaveCreditos, canE
               <div style={{padding:"12px 20px",borderTop:`1px solid ${C.border}`}}>
                 <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10,flexWrap:"wrap",gap:8}}>
                   <div style={{fontSize:12,fontWeight:800,color:C.blue}}>📅 Cuotas y Amortización</div>
-                  <div style={{display:"flex",gap:8}}>
+                  <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
                     <button type="button" onClick={addCuotaSocio}
                       style={{fontSize:11,padding:"4px 12px",borderRadius:6,border:`1px dashed ${C.blue}`,background:"transparent",color:C.blue,cursor:"pointer",fontWeight:700}}>+ Agregar cuota</button>
+                    <button type="button" onClick={generarInteresTrimestralSocio}
+                      style={{fontSize:11,padding:"4px 12px",borderRadius:6,border:`1px dashed ${C.orange}`,background:"transparent",color:C.orange,cursor:"pointer",fontWeight:700}}>📆 Interés trimestral</button>
                     <button type="button" onClick={exportCSV}
                       style={{fontSize:11,padding:"4px 12px",borderRadius:6,border:`1px solid ${C.border}`,background:"transparent",color:C.muted,cursor:"pointer"}}>⬇ CSV</button>
                   </div>
@@ -7281,13 +7300,18 @@ function Creditos({empresas, creditosData=CREDITOS_DEFAULT, onSaveCreditos, canE
                       style={{padding:"6px 8px",borderRadius:6,border:`1px solid ${C.border}`,background:C.card2,color:C.text,fontSize:12,outline:"none"}}/>
                     <select value={cu.modo||"cuota"} onChange={e=>updCuotaSocio(ci,{modo:e.target.value})}
                       style={{padding:"6px 8px",borderRadius:6,border:`1px solid ${C.border}`,background:C.card2,color:C.text,fontSize:11,outline:"none"}}>
+                      <option value="interes">Solo interés</option>
                       <option value="cuota">Cuota total</option>
                       <option value="amortizacion">Amortización</option>
                     </select>
+                    {(cu.modo||"cuota")==="interes"?(
+                      <div style={{padding:"6px 8px",borderRadius:6,border:`1px solid ${C.border}`,background:C.card,color:C.muted,fontSize:11,fontStyle:"italic",display:"flex",alignItems:"center"}}>= interés del período (auto)</div>
+                    ):(
                     <input type="number" placeholder={(cu.modo||"cuota")==="cuota"?"cuota total":"amortización"}
                       value={(cu.modo||"cuota")==="cuota"?(cu.cuota_total||""):(cu.amortizacion||"")}
                       onChange={e=>updCuotaSocio(ci,(cu.modo||"cuota")==="cuota"?{cuota_total:e.target.value}:{amortizacion:e.target.value})}
                       style={{padding:"6px 8px",borderRadius:6,border:`1px solid ${C.border}`,background:C.card2,color:C.text,fontSize:12,outline:"none"}}/>
+                    )}
                     <button type="button" onClick={()=>delCuotaSocio(ci)}
                       style={{padding:"4px 8px",borderRadius:6,background:"#fee2e2",border:"none",color:"#991b1b",cursor:"pointer",fontSize:11}}>×</button>
                   </div>
