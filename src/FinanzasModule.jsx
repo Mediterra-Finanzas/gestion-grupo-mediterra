@@ -138,11 +138,19 @@ function defaultFruta() {
   };
 }
 
+// Rebate de exportación (cobro diferido): parámetros por temporada.
+// usdKg = US$/kg exportado; pctKilos = % de kilos con rebate;
+// pagos = tabla mes→% de cobro (debe sumar 100%). kgBase = kg de cerezas.
+function defaultRebate() {
+  return { usdKg: 0.12, pctKilos: 100, pagos: [] };
+}
+
 function defaultParams() {
   const p = {};
   SEASON_KEYS.forEach(sk => {
     p[sk] = {};
     FRUTAS.forEach(f => { p[sk][f] = defaultFruta(); });
+    p[sk].rebate = defaultRebate();
   });
   return p;
 }
@@ -1337,9 +1345,30 @@ function calcComisionArandanosArr(config) {
   return proy;
 }
 
+// Rebate de exportación → proy[65]. Total temporada = kg cerezas × US$/kg × %kilos;
+// se distribuye por la tabla mes→% (misma mecánica que los cobros de arándanos).
+function calcRebateAllegria(params) {
+  const proy = Z65();
+  SEASON_KEYS.forEach(sk => {
+    const r = params?.[sk]?.rebate;
+    if (!r) return;
+    const kgBase   = Number(params?.[sk]?.cerezas?.kg) || 0;
+    const usdKg    = Number(r.usdKg) || 0;
+    const pctKilos = (Number(r.pctKilos) || 0) / 100;
+    const total    = kgBase * usdKg * pctKilos;
+    if (total <= 0) return;
+    (r.pagos || []).forEach(p => {
+      const i = mIdx(p.mes);
+      if (i >= 0) proy[i] += total * ((Number(p.pct) || 0) / 100);
+    });
+  });
+  return proy;
+}
+
 function buildAllegria(params, allegraComisionArandanos) {
   const { ing, cost, mat, srv } = calcAllegria(params);
   const arandanosProy = calcComisionArandanosArr(allegraComisionArandanos);
+  const rebateProy    = calcRebateAllegria(params);
   return {
     emoji:"🍒", color:"#b91c1c", saldo_ini:17433, desc:"Exportación frutas · Chile", hasFormula:true,
     sections:[
@@ -1350,7 +1379,7 @@ function buildAllegria(params, allegraComisionArandanos) {
         {label:"Ingreso por Allegria Service",  proy:Z65()},
         {label:"Ingresos por Paltas",           proy:Z65()},
         {label:"Liquidación Ciruelas",          proy:[...ing.ciruelas],  formula:true},
-        {label:"Rebates",                       proy:Z65()},
+        {label:"Otros ingresos - Rebate exportación (cobro diferido)", proy:[...rebateProy], formula:true},
       ]},
       { cat:"egr_var", label:"Egresos Operacionales", signo:-1, lines:[
         {label:"Comisión Exportadora",               proy:Z65()},
@@ -1619,6 +1648,74 @@ function DistList({items,onChange,totalMonto=0,esSemanal=false}) {
 // ═══════════════════════════════════════════════════════════════════
 
 // Parámetros específicos Allegria Foods (frutas) — conservado tal cual
+// Panel del Rebate de exportación (cobro diferido) — nivel temporada.
+// kgBase = kg de cerezas; total = kgBase × US$/kg × %kilos; reparto mes→% (DistList).
+function ParamsRebate({seasonKey, params, setParams}) {
+  const ro = !setParams;
+  const r  = params?.[seasonKey]?.rebate || defaultRebate();
+  const kgBase = Number(params?.[seasonKey]?.cerezas?.kg) || 0;
+  const upd = (field,val) => { if(ro) return; setParams(prev=>{
+    const next=JSON.parse(JSON.stringify(prev));
+    if(!next[seasonKey]) next[seasonKey]={};
+    if(!next[seasonKey].rebate) next[seasonKey].rebate=defaultRebate();
+    next[seasonKey].rebate[field]=val;
+    return next;
+  }); };
+  const usdKg    = Number(r.usdKg)||0;
+  const pctKilos = Number(r.pctKilos)||0;
+  const total    = kgBase * usdKg * (pctKilos/100);
+  const pctPagos = (r.pagos||[]).reduce((s,d)=>s+(Number(d.pct)||0),0);
+  const sumaOk   = Math.round(pctPagos)===100;
+  const iSt={width:90,padding:"5px 7px",background:C.card2,border:`1px solid ${C.border}`,borderRadius:6,color:C.text,fontSize:11,outline:"none",textAlign:"right"};
+  return (
+    <div style={{background:C.card2,borderRadius:12,padding:16,border:`1px solid ${C.border}`,marginTop:14}}>
+      <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:12}}>
+        <span style={{fontSize:20}}>💸</span>
+        <span style={{fontWeight:800,fontSize:14,color:C.text}}>Rebate exportación (cobro diferido)</span>
+        {total>0&&<span style={{fontSize:11,background:`${C.green}22`,color:C.green,borderRadius:20,padding:"2px 10px",fontWeight:700,marginLeft:"auto"}}>
+          Total temporada: {$$(total)}
+        </span>}
+      </div>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(150px,1fr))",gap:12,marginBottom:14}}>
+        <div>
+          <div style={{fontSize:10,color:C.muted,marginBottom:3}}>Rebate US$/kg exportado</div>
+          <div style={{display:"flex",alignItems:"center",gap:3}}>
+            <span style={{fontSize:11,color:C.muted}}>$</span>
+            <input type="number" step="0.01" disabled={ro} value={r.usdKg??""} placeholder="0.12"
+              onChange={e=>upd("usdKg",parseFloat(e.target.value)||0)} style={iSt}/>
+          </div>
+        </div>
+        <div>
+          <div style={{fontSize:10,color:C.muted,marginBottom:3}}>% de kilos con rebate</div>
+          <div style={{display:"flex",alignItems:"center",gap:3}}>
+            <input type="number" min="0" max="100" disabled={ro} value={r.pctKilos??""} placeholder="100"
+              onChange={e=>upd("pctKilos",parseFloat(e.target.value)||0)} style={iSt}/>
+            <span style={{fontSize:11,color:C.muted}}>%</span>
+          </div>
+        </div>
+        <div>
+          <div style={{fontSize:10,color:C.muted,marginBottom:3}}>KG cerezas (temporada)</div>
+          <div style={{padding:"5px 7px",fontSize:11,color:C.text}}>{kgBase.toLocaleString("en-US")} kg</div>
+        </div>
+      </div>
+      <div style={{background:`${C.green}0d`,border:`1px solid ${C.green}33`,borderRadius:10,padding:12}}>
+        <div style={{fontSize:11,fontWeight:700,color:C.green,marginBottom:4}}>📅 Tabla de cobro (mes → %)</div>
+        <div style={{fontSize:10,color:C.muted,marginBottom:10}}>
+          Total a repartir: <strong style={{color:C.text}}>{$$(total)}</strong>
+          {" · "}Asignado: <strong style={{color:sumaOk?C.green:C.warning}}>{pctPagos.toFixed(0)}%</strong>
+          {!sumaOk&&(r.pagos||[]).length>0&&<span style={{color:C.warning}}> ⚠ debe sumar 100%</span>}
+        </div>
+        <DistList items={r.pagos} onChange={ro?()=>{}:v=>upd("pagos",v)} totalMonto={total} esSemanal={true}/>
+      </div>
+      {kgBase===0&&(
+        <div style={{fontSize:10,color:C.muted,fontStyle:"italic",marginTop:8}}>
+          Ingresa los KG de cerezas de la temporada para calcular el rebate.
+        </div>
+      )}
+    </div>
+  );
+}
+
 function ParamsFruta({seasonKey,fruta,params,setParams}) {
   const p=params?.[seasonKey]?.[fruta]||defaultFruta();
   const upd=(field,val)=>setParams(prev=>{
@@ -3175,6 +3272,9 @@ function TabParametros({empNombre,empColor="#2563eb",
               seasonKey={selSeason} fruta={selFruta}
               params={params} setParams={setParams}/>
           )}
+          <ParamsRebate key={`rebate-${selSeason}`}
+            seasonKey={selSeason}
+            params={params} setParams={setParams}/>
         </Card>
       )}
 
