@@ -101,6 +101,21 @@ async function dbSave(data, rowId="finanzas") {
   }
 }
 
+// ── Saldos de bancos: fila DEDICADA y COMPARTIDA (finanzas_bancos) ──
+// Son la posición real de caja → viven fuera del blob del flujo para que
+// Base y TODOS los escenarios usen los mismos saldos (vivos, no congelados).
+async function dbLoadBancos() {
+  const r = await fetch(`${SUPA_URL}/rest/v1/calendario_data?id=eq.finanzas_bancos&select=value`,
+    { headers:{ apikey:SUPA_KEY, Authorization:`Bearer ${SUPA_KEY}` }});
+  if(!r.ok) throw new Error(`dbLoadBancos HTTP ${r.status}`);
+  const d = await r.json();
+  const v = d?.[0]?.value ? JSON.parse(d[0].value) : null;
+  return v?.saldos || null;
+}
+async function dbSaveBancos(saldos) {
+  return dbSave({ saldos }, "finanzas_bancos");
+}
+
 // ═══════════════════════════════════════════════════════════════════
 // PARÁMETROS ALLEGRIA FOODS
 // ═══════════════════════════════════════════════════════════════════
@@ -10753,7 +10768,8 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
       if(migrated) setAllegraComisionArandanos(migrated);
     }
     if(d?.params_emp) setParamsEmp(d.params_emp);
-    if(d?.saldos_bancos) setSaldosBancos(d.saldos_bancos);
+    // saldos_bancos NO se toma del blob (vive en fila dedicada compartida
+    // finanzas_bancos). Así un escenario no congela la posición real de caja.
     if(d?.params_as)    setParamsAS(prev=>({...defaultParamsAllegriaService(),...d.params_as}));
     if(d?.params_if)    setParamsIF(prev=>({...defaultParamsIntegrity(),...d.params_if}));
     if(d?.params_af) {
@@ -10798,7 +10814,19 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
 
   useEffect(()=>{
     dbLoad()
-      .then(d=>{ applyData(d); cargaOkRef.current = true; setLoading(false); window._finLoadTime = Date.now(); })
+      .then(d=>{
+        applyData(d);
+        // Saldos de bancos: fila dedicada compartida. Si aún no existe, se
+        // siembra desde el blob (migración una sola vez).
+        dbLoadBancos().then(sb=>{
+          if(sb && Object.keys(sb).length){ setSaldosBancos(sb); saldosBancosRef.current = sb; }
+          else if(d?.saldos_bancos && Object.keys(d.saldos_bancos).length){
+            setSaldosBancos(d.saldos_bancos); saldosBancosRef.current = d.saldos_bancos;
+            dbSaveBancos(d.saldos_bancos);
+          }
+        }).catch(()=>{});
+        cargaOkRef.current = true; setLoading(false); window._finLoadTime = Date.now();
+      })
       .catch(e=>{ console.error("[Finanzas] Carga falló — GUARDADO DESHABILITADO esta sesión (no se sobrescribe Supabase):", e); setLoading(false); });
 
     // Con el guardia prendido: sincronización por sondeo autenticado (la
@@ -10974,7 +11002,7 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
       finanzas_real:   overrides.finanzas_real   !== undefined ? overrides.finanzas_real   : realDataRef.current,
       allegria_params: overrides.allegria_params !== undefined ? overrides.allegria_params : paramsRef.current,
       allegria_comision_arandanos: overrides.allegria_comision_arandanos !== undefined ? overrides.allegria_comision_arandanos : allegraComisionArandanosRef.current,
-      saldos_bancos:   overrides.saldos_bancos   !== undefined ? overrides.saldos_bancos   : saldosBancosRef.current,
+      // saldos_bancos ya NO va en el blob (fila dedicada compartida finanzas_bancos)
       params_emp:      overrides.params_emp      !== undefined ? overrides.params_emp      : paramsEmpRef.current,
       creditos_data:   overrides.creditos_data !== undefined ? overrides.creditos_data : creditosRef.current,
       params_as:       overrides.params_as       !== undefined ? overrides.params_as       : paramsASRef.current,
@@ -10994,7 +11022,7 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
     finanzas_real: realDataRef.current,
     allegria_params: paramsRef.current,
     allegria_comision_arandanos: allegraComisionArandanosRef.current,
-    saldos_bancos: saldosBancosRef.current,
+    // saldos_bancos NO se copia al escenario (fila compartida finanzas_bancos)
     params_emp: paramsEmpRef.current,
     creditos_data: creditosRef.current,
     params_as: paramsASRef.current,
@@ -11018,6 +11046,8 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
       activeRowRef.current = rowId;
       setEscActivo(id);
       applyData(d);
+      // Bancos: siempre los compartidos/vivos (no los del snapshot del escenario)
+      try { const sb = await dbLoadBancos(); if(sb){ setSaldosBancos(sb); saldosBancosRef.current = sb; } } catch(_){}
       cargaOkRef.current = true;
       window._finLoadTime = Date.now();
     } catch(e){
@@ -11276,10 +11306,12 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
     setSaldosBancos(merged);
     saldosBancosRef.current = merged;
     setSaved("💾 Guardando…");
-    const ok=await persistAll({ saldos_bancos:merged });
+    // Guarda en la fila dedicada compartida → visible en Base y en TODOS los
+    // escenarios (posición real de caja, no congelada por escenario).
+    const ok=await dbSaveBancos(merged);
     setSaved(ok?"✅ Saldos guardados":"⚠️ Error al guardar — ver consola");
     setTimeout(()=>setSaved(null),4000);
-  },[persistAll, usuarioActual]);
+  },[usuarioActual]);
 
   useEffect(()=>{
     if(loading) return;
