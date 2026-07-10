@@ -584,17 +584,48 @@ function calcMontoRealCuota(cuotas, capital, tasaAnual, mesIngresoAnio) {
   });
 }
 
+// Normaliza las renovaciones de un crédito a un array. Soporta el formato
+// nuevo (c.renovaciones:[{monto,mes_ingreso,anio_ingreso,tasa_anual,cuotas}])
+// y el legacy (campos monto_renovacion/…/cuotas_renovacion como 1 renovación).
+function getRenovaciones(c) {
+  if (Array.isArray(c.renovaciones) && c.renovaciones.length) {
+    return c.renovaciones.map(r => ({
+      monto: r.monto,
+      mes_ingreso: r.mes_ingreso,
+      anio_ingreso: r.anio_ingreso,
+      tasa_anual: (r.tasa_anual != null && r.tasa_anual !== "") ? r.tasa_anual : c.tasa_anual,
+      cuotas: r.cuotas || [],
+    }));
+  }
+  if (c.monto_renovacion || (c.cuotas_renovacion||[]).length) {
+    return [{
+      monto: c.monto_renovacion,
+      mes_ingreso: c.mes_ingreso_renovacion,
+      anio_ingreso: c.anio_ingreso_renovacion,
+      tasa_anual: c.tasa_anual,
+      cuotas: c.cuotas_renovacion || [],
+    }];
+  }
+  return [];
+}
+// Cuotas calculadas (con interés/amort) de una renovación normalizada.
+function calcCuotasRenovacion(ren) {
+  return calcMontoRealCuota(ren.cuotas, ren.monto, ren.tasa_anual,
+    ren.mes_ingreso && ren.anio_ingreso ? `${ren.mes_ingreso}-${String(ren.anio_ingreso).slice(-2)}` : '');
+}
+
 function calcRenovacionesEmpresa(empresa, creditos=CREDITOS_DEFAULT) {
   const arr = Z65();
   creditos.filter(c => c.empresa === empresa && c.renovable).forEach(c => {
-    const cuotasCalc = calcMontoRealCuota(c.cuotas_renovacion, c.monto_renovacion, c.tasa_anual, c.mes_ingreso_renovacion&&c.anio_ingreso_renovacion?`${c.mes_ingreso_renovacion}-${String(c.anio_ingreso_renovacion).slice(-2)}`:'');
-    cuotasCalc.forEach(cq => {
-      if(!cq.mes || !cq.anio) return;
-      const monto = cq.montoReal || Number(cq.monto) || 0;
-      const mesEn = MES_ABR_TO_EN[cq.mes] || cq.mes;
-      const label = `${mesEn}-${String(cq.anio).slice(2)}`;
-      const i = mIdx(label);
-      if(i >= 0) arr[i] += monto;
+    getRenovaciones(c).forEach(ren => {
+      calcCuotasRenovacion(ren).forEach(cq => {
+        if(!cq.mes || !cq.anio) return;
+        const monto = cq.montoReal || Number(cq.monto) || 0;
+        const mesEn = MES_ABR_TO_EN[cq.mes] || cq.mes;
+        const label = `${mesEn}-${String(cq.anio).slice(2)}`;
+        const i = mIdx(label);
+        if(i >= 0) arr[i] += monto;
+      });
     });
   });
   return arr;
@@ -605,14 +636,15 @@ function calcRenovacionesDesglose(empresa, creditos=CREDITOS_DEFAULT) {
   creditos.filter(c => c.empresa === empresa && c.renovable).forEach(c => {
     const key = c.acreedor + " (Ren.)";
     if(!byAcreedor[key]) byAcreedor[key] = Z65();
-    const cuotasConInt = calcMontoRealCuota(c.cuotas_renovacion, c.monto_renovacion, c.tasa_anual, c.mes_ingreso_renovacion&&c.anio_ingreso_renovacion?`${c.mes_ingreso_renovacion}-${String(c.anio_ingreso_renovacion).slice(-2)}`:'');
-    cuotasConInt.forEach(cq => {
-      if(!cq.mes || !cq.anio) return;
-      const monto = cq.montoReal || Number(cq.monto) || 0;
-      const mesEn = MES_ABR_TO_EN[cq.mes] || cq.mes;
-      const label = `${mesEn}-${String(cq.anio).slice(2)}`;
-      const i = mIdx(label);
-      if(i >= 0) byAcreedor[key][i] += monto;
+    getRenovaciones(c).forEach(ren => {
+      calcCuotasRenovacion(ren).forEach(cq => {
+        if(!cq.mes || !cq.anio) return;
+        const monto = cq.montoReal || Number(cq.monto) || 0;
+        const mesEn = MES_ABR_TO_EN[cq.mes] || cq.mes;
+        const label = `${mesEn}-${String(cq.anio).slice(2)}`;
+        const i = mIdx(label);
+        if(i >= 0) byAcreedor[key][i] += monto;
+      });
     });
   });
   return byAcreedor;
@@ -621,11 +653,14 @@ function calcRenovacionesDesglose(empresa, creditos=CREDITOS_DEFAULT) {
 // Genera array de ingresos por renovación (nuevo préstamo recibido)
 function calcIngresoRenovacionEmpresa(empresa, creditos=CREDITOS_DEFAULT) {
   const arr = Z65();
-  creditos.filter(c => c.empresa === empresa && c.renovable && c.monto_renovacion && c.mes_ingreso_renovacion && c.anio_ingreso_renovacion).forEach(c => {
-    const mesEn = MES_ABR_TO_EN[c.mes_ingreso_renovacion] || c.mes_ingreso_renovacion;
-    const label = `${mesEn}-${String(c.anio_ingreso_renovacion).slice(2)}`;
-    const i = mIdx(label);
-    if(i >= 0) arr[i] += Number(c.monto_renovacion)||0;
+  creditos.filter(c => c.empresa === empresa && c.renovable).forEach(c => {
+    getRenovaciones(c).forEach(ren => {
+      if(!ren.monto || !ren.mes_ingreso || !ren.anio_ingreso) return;
+      const mesEn = MES_ABR_TO_EN[ren.mes_ingreso] || ren.mes_ingreso;
+      const label = `${mesEn}-${String(ren.anio_ingreso).slice(2)}`;
+      const i = mIdx(label);
+      if(i >= 0) arr[i] += Number(ren.monto)||0;
+    });
   });
   return arr;
 }
@@ -634,13 +669,16 @@ function calcIngresoRenovacionEmpresa(empresa, creditos=CREDITOS_DEFAULT) {
 // Retorna { acreedor: proy[64] } para desglose de ingresos por renovación
 function calcIngresoRenovacionDesglose(empresa, creditos=CREDITOS_DEFAULT) {
   const byAcreedor = {};
-  creditos.filter(c => c.empresa === empresa && c.renovable && c.monto_renovacion && c.mes_ingreso_renovacion && c.anio_ingreso_renovacion).forEach(c => {
-    const key = c.acreedor + " (Ingr. Ren.)";
-    if(!byAcreedor[key]) byAcreedor[key] = Z65();
-    const mesEn = MES_ABR_TO_EN[c.mes_ingreso_renovacion] || c.mes_ingreso_renovacion;
-    const label = `${mesEn}-${String(c.anio_ingreso_renovacion).slice(2)}`;
-    const i = mIdx(label);
-    if(i >= 0) byAcreedor[key][i] += Number(c.monto_renovacion)||0;
+  creditos.filter(c => c.empresa === empresa && c.renovable).forEach(c => {
+    getRenovaciones(c).forEach(ren => {
+      if(!ren.monto || !ren.mes_ingreso || !ren.anio_ingreso) return;
+      const key = c.acreedor + " (Ingr. Ren.)";
+      if(!byAcreedor[key]) byAcreedor[key] = Z65();
+      const mesEn = MES_ABR_TO_EN[ren.mes_ingreso] || ren.mes_ingreso;
+      const label = `${mesEn}-${String(ren.anio_ingreso).slice(2)}`;
+      const i = mIdx(label);
+      if(i >= 0) byAcreedor[key][i] += Number(ren.monto)||0;
+    });
   });
   return byAcreedor;
 }
@@ -6523,18 +6561,27 @@ function Creditos({empresas, creditosData=CREDITOS_DEFAULT, onSaveCreditos, canE
   const [editId,setEditId]=useState(null);
   const EMPTY_FORM = {
     empresa:"",acreedor:"",tipo_inst:"",monto:"",f_inicio:"",f_venc:"",tipo_cr:"Bullet",tasa:"",cuota:"",
-    // Renovación
+    // Renovación (soporta VARIAS): renovaciones:[{monto,mes_ingreso,anio_ingreso,tasa_anual,cuotas:[{tipo,mes,anio}]}]
     renovable:false,
-    tasa_anual:"",              // % tasa anual
-    cuotas_renovacion:[],       // [{mes:"Jun",anio:"2027",monto:"120000"}]
-    monto_renovacion:"",        // monto ingreso nuevo préstamo
-    mes_ingreso_renovacion:"",  // mes en que se recibe el nuevo préstamo
-    anio_ingreso_renovacion:"", // año en que se recibe el nuevo préstamo
+    tasa_anual:"",              // tasa por defecto (usada si una renovación no trae la suya)
+    renovaciones:[],
   };
   const [form,setForm]=useState(EMPTY_FORM);
+  const RENOVACION_VACIA = ()=>({ monto:"", mes_ingreso:"", anio_ingreso:"", tasa_anual:"", cuotas:[] });
 
   function openNew(){ setForm(EMPTY_FORM); setEditId(null); setModal(true); }
-  function openEdit(c){ setForm({...c,monto:String(c.monto),cuota:String(c.cuota)}); setEditId(c.n); setModal(true); }
+  function openEdit(c){
+    // Migra legacy (1 renovación en campos planos) → array renovaciones
+    setForm({...c, monto:String(c.monto), cuota:String(c.cuota), renovaciones: getRenovaciones(c)});
+    setEditId(c.n); setModal(true);
+  }
+  // ── Helpers para múltiples renovaciones ──
+  const updRen = (ri,patch)=>setForm(p=>{const arr=[...(p.renovaciones||[])];arr[ri]={...arr[ri],...patch};return {...p,renovaciones:arr};});
+  const addRen = ()=>setForm(p=>({...p,renovaciones:[...(p.renovaciones||[]),{...RENOVACION_VACIA(),monto:(p.renovaciones||[]).length?"":p.monto}]}));
+  const delRen = (ri)=>setForm(p=>({...p,renovaciones:(p.renovaciones||[]).filter((_,i)=>i!==ri)}));
+  const addRenCuota = (ri)=>setForm(p=>{const arr=[...(p.renovaciones||[])];arr[ri]={...arr[ri],cuotas:[...(arr[ri].cuotas||[]),{tipo:"Solo Interés",mes:"",anio:""}]};return {...p,renovaciones:arr};});
+  const updRenCuota = (ri,ci,patch)=>setForm(p=>{const arr=[...(p.renovaciones||[])];const cu=[...(arr[ri].cuotas||[])];cu[ci]={...cu[ci],...patch};arr[ri]={...arr[ri],cuotas:cu};return {...p,renovaciones:arr};});
+  const delRenCuota = (ri,ci)=>setForm(p=>{const arr=[...(p.renovaciones||[])];arr[ri]={...arr[ri],cuotas:(arr[ri].cuotas||[]).filter((_,j)=>j!==ci)};return {...p,renovaciones:arr};});
   function guardar(){
     if(!form.empresa||!form.acreedor||!form.monto||!form.f_venc){alert("Empresa, acreedor, monto y fecha son obligatorios.");return;}
     // Guardrail: no permitir crear/editar créditos de empresas fuera del subset
@@ -6551,6 +6598,13 @@ function Creditos({empresas, creditosData=CREDITOS_DEFAULT, onSaveCreditos, canE
       pagado: form.pagado === true ? true : false,
       f_venc: form.f_venc || "",
       f_inicio: form.f_inicio || "",
+      // Renovaciones en el formato nuevo (array). Limpia los campos legacy
+      // para que getRenovaciones use exclusivamente el array.
+      renovaciones: form.renovable ? (form.renovaciones||[]) : [],
+      cuotas_renovacion: undefined,
+      monto_renovacion: undefined,
+      mes_ingreso_renovacion: undefined,
+      anio_ingreso_renovacion: undefined,
     };
     // El payload al parent contiene SOLO el subset visible — el parent hace merge.
     const next=editId
@@ -6585,7 +6639,7 @@ function Creditos({empresas, creditosData=CREDITOS_DEFAULT, onSaveCreditos, canE
     // Deuda original (si no está pagado)
     if(!c.pagado) deudaEmp[c.empresa]+=c.monto;
     // Deuda renovación (cuotas pendientes de capital)
-    if(c.renovable)(c.cuotas_renovacion||[]).forEach(cq=>{
+    if(c.renovable)getRenovaciones(c).flatMap(r=>r.cuotas||[]).forEach(cq=>{
       if((cq.tipo||'Solo Interés')==='Capital+Interés') deudaEmp[c.empresa]+=(Number(cq.monto)||0);
     });
   });
@@ -6771,7 +6825,7 @@ function Creditos({empresas, creditosData=CREDITOS_DEFAULT, onSaveCreditos, canE
                       // Deuda original pendiente
                       let d = (!c.pagado && c.f_venc>fecha) ? (Number(c.cuota)||0) : 0;
                       // Cuotas de renovación pendientes (Capital+Interés aún no vencidas)
-                      if(c.renovable)(c.cuotas_renovacion||[]).forEach(cq=>{
+                      if(c.renovable)getRenovaciones(c).flatMap(r=>r.cuotas||[]).forEach(cq=>{
                         if((cq.tipo||'Solo Interés')==='Capital+Interés'){
                           const mesEn = ({Ene:'Jan',Feb:'Feb',Mar:'Mar',Abr:'Apr',May:'May',Jun:'Jun',Jul:'Jul',Ago:'Aug',Sep:'Sep',Oct:'Oct',Nov:'Nov',Dic:'Dec'})[cq.mes]||cq.mes;
                           const fCuota = cq.anio&&cq.mes ? `${cq.anio}-${String(['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'].indexOf(mesEn)+1).padStart(2,'0')}-28` : '';
@@ -6786,7 +6840,7 @@ function Creditos({empresas, creditosData=CREDITOS_DEFAULT, onSaveCreditos, canE
                   // Total inicial = saldo al cierre anterior (antes de Jun-26 = total deuda)
                   const totalInicial = empCreds.reduce((s,c)=>{
                     let d = Number(c.cuota)||0;
-                    if(c.renovable)(c.cuotas_renovacion||[]).forEach(cq=>{
+                    if(c.renovable)getRenovaciones(c).flatMap(r=>r.cuotas||[]).forEach(cq=>{
                       if((cq.tipo||'Solo Interés')==='Capital+Interés') d+=Number(cq.monto)||0;
                     });
                     return s+d;
@@ -6852,7 +6906,7 @@ function Creditos({empresas, creditosData=CREDITOS_DEFAULT, onSaveCreditos, canE
                   return CIERRES_F.map((fecha,i)=>{
                     const total = creditosVisibles.reduce((s,c)=>{
                       let d = (!c.pagado && c.f_venc>fecha)?(Number(c.cuota)||0):0;
-                      if(c.renovable)(c.cuotas_renovacion||[]).forEach(cq=>{
+                      if(c.renovable)getRenovaciones(c).flatMap(r=>r.cuotas||[]).forEach(cq=>{
                         if((cq.tipo||'Solo Interés')==='Capital+Interés'){
                           const fCuota=cq.anio&&cq.mes?`\${cq.anio}-\${MES_ABREV[cq.mes]||'06'}-28`:'';
                           if(fCuota>fecha) d+=Number(cq.monto)||0;
@@ -6901,23 +6955,27 @@ function Creditos({empresas, creditosData=CREDITOS_DEFAULT, onSaveCreditos, canE
                   creds.forEach(c=>{
                     eventos.push({fecha:c.f_venc,label:mesDeDate(c.f_venc),monto:c.cuota,tipo:"original",pagado:c.pagado,id:c.n});
                   });
-                  // Cuotas de renovación
-                  creds.filter(c=>c.renovable&&(c.cuotas_renovacion||[]).length>0).forEach(c=>{
-                    const cuotasCalc=calcMontoRealCuota(c.cuotas_renovacion,c.monto_renovacion,c.tasa_anual,c.mes_ingreso_renovacion&&c.anio_ingreso_renovacion?`${c.mes_ingreso_renovacion}-${String(c.anio_ingreso_renovacion).slice(-2)}`:'');
-                    cuotasCalc.forEach((cq,ci)=>{
-                      if(!cq.mes||!cq.anio) return;
-                      const mesEn=MES_A[cq.mes]||cq.mes;
-                      const label=`${mesEn}-${String(cq.anio).slice(2)}`;
-                      const fecha=`${cq.anio}-${String(Object.values(MES_A).indexOf(mesEn)+1).padStart(2,"0")}-15`;
-                      eventos.push({fecha,label,monto:cq.montoReal||0,tipo:cq.tipo||"Solo Interés",pagado:false,id:`ren-${c.n}-${ci}`,isRen:true});
+                  // Cuotas de renovación (todas las renovaciones del crédito)
+                  creds.filter(c=>c.renovable).forEach(c=>{
+                    getRenovaciones(c).forEach((ren,ri)=>{
+                      calcCuotasRenovacion(ren).forEach((cq,ci)=>{
+                        if(!cq.mes||!cq.anio) return;
+                        const mesEn=MES_A[cq.mes]||cq.mes;
+                        const label=`${mesEn}-${String(cq.anio).slice(2)}`;
+                        const fecha=`${cq.anio}-${String(Object.values(MES_A).indexOf(mesEn)+1).padStart(2,"0")}-15`;
+                        eventos.push({fecha,label,monto:cq.montoReal||0,tipo:cq.tipo||"Solo Interés",pagado:false,id:`ren-${c.n}-${ri}-${ci}`,isRen:true});
+                      });
                     });
                   });
-                  // Ingreso de renovación
-                  creds.filter(c=>c.renovable&&c.monto_renovacion&&c.mes_ingreso_renovacion&&c.anio_ingreso_renovacion).forEach(c=>{
-                    const mesEn=MES_A[c.mes_ingreso_renovacion]||c.mes_ingreso_renovacion;
-                    const label=`${mesEn}-${String(c.anio_ingreso_renovacion).slice(2)}`;
-                    const fecha=`${c.anio_ingreso_renovacion}-${String(Object.values(MES_A).indexOf(mesEn)+1).padStart(2,"0")}-01`;
-                    eventos.push({fecha,label,monto:Number(c.monto_renovacion),tipo:"ingreso",pagado:false,id:`ing-${c.n}`,isIngreso:true});
+                  // Ingreso de renovación (todas las renovaciones)
+                  creds.filter(c=>c.renovable).forEach(c=>{
+                    getRenovaciones(c).forEach((ren,ri)=>{
+                      if(!ren.monto||!ren.mes_ingreso||!ren.anio_ingreso) return;
+                      const mesEn=MES_A[ren.mes_ingreso]||ren.mes_ingreso;
+                      const label=`${mesEn}-${String(ren.anio_ingreso).slice(2)}`;
+                      const fecha=`${ren.anio_ingreso}-${String(Object.values(MES_A).indexOf(mesEn)+1).padStart(2,"0")}-01`;
+                      eventos.push({fecha,label,monto:Number(ren.monto),tipo:"ingreso",pagado:false,id:`ing-${c.n}-${ri}`,isIngreso:true});
+                    });
                   });
                   // Ordenar cronológicamente
                   eventos.sort((a,b)=>a.fecha.localeCompare(b.fecha));
@@ -7012,130 +7070,148 @@ function Creditos({empresas, creditosData=CREDITOS_DEFAULT, onSaveCreditos, canE
                     onChange={e=>setForm(p=>({
                       ...p,
                       renovable:e.target.checked,
-                      // Auto-llenar monto renovación con el monto del crédito
-                      monto_renovacion:e.target.checked&&!p.monto_renovacion?p.monto:p.monto_renovacion,
+                      renovaciones: e.target.checked && !(p.renovaciones||[]).length
+                        ? [{...RENOVACION_VACIA(), monto:p.monto}]
+                        : (p.renovaciones||[]),
                     }))}
                     style={{width:14,height:14}}/>
                   🔄 Crédito Renovable
                 </label>
                 {form.renovable&&<span style={{fontSize:10,color:C.green,fontWeight:600}}>
-                  Al pagarse, genera cuotas de renovación en el flujo
+                  Al pagarse, genera las cuotas de renovación en el flujo
                 </span>}
               </div>
               {form.renovable&&(
                 <div style={{background:`${C.green}08`,border:`1px solid ${C.green}33`,borderRadius:10,padding:"12px 14px"}}>
-
-                  {/* Ingreso del préstamo renovado */}
-                  <div style={{marginBottom:12,padding:"8px 12px",background:`${C.blue}11`,borderRadius:8,border:`1px solid ${C.blue}33`}}>
-                    <div style={{fontSize:11,fontWeight:700,color:C.blue,marginBottom:8}}>💰 Ingreso Nuevo Préstamo (Ing. No Operacional)</div>
-                    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:10}}>
-                      <div>
-                        <div style={{fontSize:10,color:C.muted,fontWeight:600,marginBottom:3}}>Monto Nuevo Préstamo (USD)</div>
-                        <input type="number" value={form.monto_renovacion||""} onChange={e=>setForm(p=>({...p,monto_renovacion:e.target.value}))}
-                          placeholder="Ej: 500000"
-                          style={{width:"100%",padding:"7px 10px",background:C.card2,border:`1px solid ${C.border}`,borderRadius:8,color:C.text,fontSize:12,outline:"none",boxSizing:"border-box"}}/>
-                      </div>
-                      <div>
-                        <div style={{fontSize:10,color:C.muted,fontWeight:600,marginBottom:3}}>Mes Ingreso</div>
-                        <select value={form.mes_ingreso_renovacion||""} onChange={e=>setForm(p=>({...p,mes_ingreso_renovacion:e.target.value,anio_ingreso_renovacion:p.anio_ingreso_renovacion||(p.f_venc?new Date(p.f_venc).getFullYear():new Date().getFullYear())}))}
-                          style={{width:"100%",padding:"7px 10px",background:C.card2,border:`1px solid ${C.border}`,borderRadius:8,color:C.text,fontSize:12,outline:"none"}}>
-                          <option value="">— mes —</option>
-                          {["Ene","Feb","Mar","Abr","May","Jun","Jul","Ago","Sep","Oct","Nov","Dic"].map(m=><option key={m}>{m}</option>)}
-                        </select>
-                      </div>
-                      <div>
-                        <div style={{fontSize:10,color:C.muted,fontWeight:600,marginBottom:3}}>Año Ingreso</div>
-                        <input type="number" value={form.anio_ingreso_renovacion||""} onChange={e=>setForm(p=>({...p,anio_ingreso_renovacion:e.target.value}))}
-                          placeholder={form.f_venc?String(new Date(form.f_venc).getFullYear()):"2026"}
-                          style={{width:"100%",padding:"7px 10px",background:C.card2,border:`1px solid ${C.border}`,borderRadius:8,color:C.text,fontSize:12,outline:"none",boxSizing:"border-box"}}/>
-                      </div>
-                    </div>
+                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+                    <div style={{fontSize:12,fontWeight:800,color:C.green}}>🔄 Renovaciones {(form.renovaciones||[]).length>1?`(${(form.renovaciones||[]).length})`:""}</div>
+                    <button type="button" onClick={addRen}
+                      style={{fontSize:11,padding:"4px 12px",borderRadius:6,border:"1px dashed #86efac",background:"transparent",color:C.green,cursor:"pointer",fontWeight:700}}>
+                      + Agregar renovación
+                    </button>
                   </div>
+                  {(form.renovaciones||[]).length===0&&(
+                    <div style={{fontSize:11,color:C.muted2,fontStyle:"italic"}}>Sin renovaciones — agrega al menos una.</div>
+                  )}
+                  {(form.renovaciones||[]).map((ren,ri)=>{
+                    const tasaEfectiva = (ren.tasa_anual!=null&&ren.tasa_anual!=="")?ren.tasa_anual:form.tasa_anual;
+                    return (
+                    <div key={ri} style={{border:`1px solid ${C.green}44`,borderRadius:10,padding:"10px 12px",marginBottom:12,background:C.card}}>
+                      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+                        <div style={{fontSize:11,fontWeight:800,color:C.text}}>Renovación {ri+1}</div>
+                        <button type="button" onClick={()=>delRen(ri)}
+                          style={{padding:"3px 10px",borderRadius:6,background:"#fee2e2",border:"none",color:"#991b1b",cursor:"pointer",fontSize:11}}>🗑 Quitar</button>
+                      </div>
 
-                  {/* Cuotas de pago de la renovación */}
-                  <div style={{marginBottom:10}}>
-                    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
-                      <div style={{fontSize:11,fontWeight:700,color:C.green}}>📅 Cuotas de Pago Renovación</div>
-                      <button type="button" onClick={()=>setForm(p=>({...p,cuotas_renovacion:[...(p.cuotas_renovacion||[]),{mes:"",anio:"",monto:""}]}))}
-                        style={{fontSize:11,padding:"3px 10px",borderRadius:6,border:"1px dashed #86efac",background:"transparent",color:C.green,cursor:"pointer"}}>
-                        + Agregar cuota
-                      </button>
-                    </div>
-                    <div style={{display:"grid",gridTemplateColumns:"1.5fr 0.8fr 0.8fr 1fr auto",gap:8,marginBottom:6,alignItems:"end"}}>
-                      <div style={{fontSize:10,color:C.muted,fontWeight:600}}>Tipo</div>
-                      <div style={{fontSize:10,color:C.muted,fontWeight:600}}>Mes</div>
-                      <div style={{fontSize:10,color:C.muted,fontWeight:600}}>Año</div>
-                      <div style={{fontSize:10,color:C.muted,fontWeight:600}}>Monto calculado</div>
-                      <div/>
-                    </div>
-                    {(form.cuotas_renovacion||[]).length===0&&(
-                      <div style={{fontSize:11,color:C.muted2,fontStyle:"italic"}}>Sin cuotas definidas — agrega al menos una</div>
-                    )}
-                    {(form.cuotas_renovacion||[]).map((cq,ci)=>{
-                      // Calcular monto automático con interés sobre saldo
-                      const _cap = Number(form.monto_renovacion)||0;
-                      const _n = (form.cuotas_renovacion||[]).length;
-                      const _nCap = (form.cuotas_renovacion||[]).filter(c=>(c.tipo||"Solo Interés")==="Capital+Interés").length;
-                      const _tMens = ((Number(form.tasa_anual)||0)/100)/12;
-                      const _amort = _nCap>0?_cap/_nCap:0;
-                      // Calcular saldo hasta esta cuota
-                      let _saldo = _cap;
-                      for(let _j=0;_j<ci;_j++){
-                        if(((form.cuotas_renovacion||[])[_j]?.tipo||"Solo Interés")==="Capital+Interés") _saldo=Math.max(0,_saldo-_amort);
-                      }
-                      // Meses desde ingreso (o cuota anterior) hasta esta cuota
-                      const _prevMes = ci===0
-                        ? (form.mes_ingreso_renovacion&&form.anio_ingreso_renovacion?{y:parseInt(form.anio_ingreso_renovacion),m:MES_ABR_NUM[form.mes_ingreso_renovacion]||1}:null)
-                        : ((form.cuotas_renovacion||[])[ci-1]?.mes&&(form.cuotas_renovacion||[])[ci-1]?.anio?{y:parseInt((form.cuotas_renovacion||[])[ci-1].anio),m:MES_ABR_NUM[(form.cuotas_renovacion||[])[ci-1].mes]||1}:null);
-                      const _thisMes = cq.mes&&cq.anio?{y:parseInt(cq.anio),m:MES_ABR_NUM[cq.mes]||1}:null;
-                      const _meses = _prevMes&&_thisMes?Math.max(1,(_thisMes.y-_prevMes.y)*12+(_thisMes.m-_prevMes.m)):1;
-                      const _interes = Math.round(_saldo*_tMens*_meses);
-                      const _esCap = (cq.tipo||"Solo Interés")==="Capital+Interés";
-                      const _montoCalc = _esCap?Math.round(_amort)+_interes:_interes;
-                      return (
-                      <div key={ci} style={{display:"grid",gridTemplateColumns:"1.5fr 0.8fr 0.8fr 1fr auto",gap:8,marginBottom:6,alignItems:"center"}}>
-                        <select value={cq.tipo||"Solo Interés"} onChange={e=>{const arr=[...(form.cuotas_renovacion||[])];arr[ci]={...cq,tipo:e.target.value};setForm(p=>({...p,cuotas_renovacion:arr}));}}
-                          style={{padding:"6px 8px",borderRadius:6,border:`1px solid ${C.border}`,background:C.card2,color:C.text,fontSize:11,outline:"none"}}>
-                          {["Solo Interés","Capital+Interés"].map(t=><option key={t}>{t}</option>)}
-                        </select>
-                        <select value={cq.mes||""} onChange={e=>{const arr=[...(form.cuotas_renovacion||[])];arr[ci]={...cq,mes:e.target.value};setForm(p=>({...p,cuotas_renovacion:arr}));}}
-                          style={{padding:"6px 8px",borderRadius:6,border:`1px solid ${C.border}`,background:C.card2,color:C.text,fontSize:12,outline:"none"}}>
-                          <option value="">— mes —</option>
-                          {["Ene","Feb","Mar","Abr","May","Jun","Jul","Ago","Sep","Oct","Nov","Dic"].map(m=><option key={m}>{m}</option>)}
-                        </select>
-                        <input type="number" value={cq.anio||""} placeholder="2026"
-                          onChange={e=>{const arr=[...(form.cuotas_renovacion||[])];arr[ci]={...cq,anio:e.target.value};setForm(p=>({...p,cuotas_renovacion:arr}));}}
-                          style={{padding:"6px 8px",borderRadius:6,border:`1px solid ${C.border}`,background:C.card2,color:C.text,fontSize:12,outline:"none"}}/>
-                        <div style={{background:C.card2,borderRadius:6,padding:"5px 8px",border:`1px solid ${_esCap?C.blue:C.orange}`}}>
-                          <div style={{fontWeight:700,fontSize:12,color:_esCap?C.blue:C.orange}}>{$$(_montoCalc)}</div>
-                          <div style={{fontSize:9,color:C.muted}}>
-                            {_esCap?`Cap: ${$$(Math.round(_amort))} + Int: ${$$(Math.round(_interes))}`:`Int: ${$$(Math.round(_interes))}`}
+                      {/* Ingreso del préstamo renovado */}
+                      <div style={{marginBottom:12,padding:"8px 12px",background:`${C.blue}11`,borderRadius:8,border:`1px solid ${C.blue}33`}}>
+                        <div style={{fontSize:11,fontWeight:700,color:C.blue,marginBottom:8}}>💰 Ingreso Nuevo Préstamo (Ing. No Operacional)</div>
+                        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:10}}>
+                          <div>
+                            <div style={{fontSize:10,color:C.muted,fontWeight:600,marginBottom:3}}>Monto Nuevo Préstamo (USD)</div>
+                            <input type="number" value={ren.monto||""} onChange={e=>updRen(ri,{monto:e.target.value})}
+                              placeholder="Ej: 500000"
+                              style={{width:"100%",padding:"7px 10px",background:C.card2,border:`1px solid ${C.border}`,borderRadius:8,color:C.text,fontSize:12,outline:"none",boxSizing:"border-box"}}/>
+                          </div>
+                          <div>
+                            <div style={{fontSize:10,color:C.muted,fontWeight:600,marginBottom:3}}>Mes Ingreso</div>
+                            <select value={ren.mes_ingreso||""} onChange={e=>updRen(ri,{mes_ingreso:e.target.value,anio_ingreso:ren.anio_ingreso||(form.f_venc?new Date(form.f_venc).getFullYear():new Date().getFullYear())})}
+                              style={{width:"100%",padding:"7px 10px",background:C.card2,border:`1px solid ${C.border}`,borderRadius:8,color:C.text,fontSize:12,outline:"none"}}>
+                              <option value="">— mes —</option>
+                              {["Ene","Feb","Mar","Abr","May","Jun","Jul","Ago","Sep","Oct","Nov","Dic"].map(m=><option key={m}>{m}</option>)}
+                            </select>
+                          </div>
+                          <div>
+                            <div style={{fontSize:10,color:C.muted,fontWeight:600,marginBottom:3}}>Año Ingreso</div>
+                            <input type="number" value={ren.anio_ingreso||""} onChange={e=>updRen(ri,{anio_ingreso:e.target.value})}
+                              placeholder={form.f_venc?String(new Date(form.f_venc).getFullYear()):"2026"}
+                              style={{width:"100%",padding:"7px 10px",background:C.card2,border:`1px solid ${C.border}`,borderRadius:8,color:C.text,fontSize:12,outline:"none",boxSizing:"border-box"}}/>
                           </div>
                         </div>
-                        <button type="button" onClick={()=>setForm(p=>({...p,cuotas_renovacion:(p.cuotas_renovacion||[]).filter((_,j)=>j!==ci)}))}
-                          style={{padding:"4px 8px",borderRadius:6,background:"#fee2e2",border:"none",color:"#991b1b",cursor:"pointer",fontSize:11}}>×</button>
                       </div>
-                      );
-                    })}
-                  </div>
 
-                  {/* Tasa */}
-                  <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
-                    <div>
-                      <div style={{fontSize:10,color:C.muted,fontWeight:600,marginBottom:3}}>Tasa Anual (%)</div>
-                      <input type="number" step="0.1" value={form.tasa_anual||""} onChange={e=>setForm(p=>({...p,tasa_anual:e.target.value}))}
-                        placeholder="Ej: 8.5"
-                        style={{width:"100%",padding:"7px 10px",background:C.card2,border:`1px solid ${C.border}`,borderRadius:8,color:C.text,fontSize:12,outline:"none",boxSizing:"border-box"}}/>
-                    </div>
-                    <div style={{display:"flex",alignItems:"flex-end",paddingBottom:4}}>
-                      <div style={{fontSize:10,color:C.muted,fontStyle:"italic"}}>
-                        {(form.cuotas_renovacion||[]).length>0&&(
-                          <>Total cuotas: <strong style={{color:C.green}}>{$$((()=>{const calc=calcMontoRealCuota(form.cuotas_renovacion,form.monto_renovacion,form.tasa_anual,form.mes_ingreso_renovacion&&form.anio_ingreso_renovacion?`${form.mes_ingreso_renovacion}-${String(form.anio_ingreso_renovacion).slice(-2)}`:'');return calc.reduce((s,c)=>s+(c.montoReal||0),0);})())}</strong></>
+                      {/* Cuotas de pago de esta renovación */}
+                      <div style={{marginBottom:10}}>
+                        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+                          <div style={{fontSize:11,fontWeight:700,color:C.green}}>📅 Cuotas de Pago</div>
+                          <button type="button" onClick={()=>addRenCuota(ri)}
+                            style={{fontSize:11,padding:"3px 10px",borderRadius:6,border:"1px dashed #86efac",background:"transparent",color:C.green,cursor:"pointer"}}>
+                            + Agregar cuota
+                          </button>
+                        </div>
+                        <div style={{display:"grid",gridTemplateColumns:"1.5fr 0.8fr 0.8fr 1fr auto",gap:8,marginBottom:6,alignItems:"end"}}>
+                          <div style={{fontSize:10,color:C.muted,fontWeight:600}}>Tipo</div>
+                          <div style={{fontSize:10,color:C.muted,fontWeight:600}}>Mes</div>
+                          <div style={{fontSize:10,color:C.muted,fontWeight:600}}>Año</div>
+                          <div style={{fontSize:10,color:C.muted,fontWeight:600}}>Monto calculado</div>
+                          <div/>
+                        </div>
+                        {(ren.cuotas||[]).length===0&&(
+                          <div style={{fontSize:11,color:C.muted2,fontStyle:"italic"}}>Sin cuotas — agrega al menos una</div>
                         )}
+                        {(ren.cuotas||[]).map((cq,ci)=>{
+                          const _cap = Number(ren.monto)||0;
+                          const _nCap = (ren.cuotas||[]).filter(c=>(c.tipo||"Solo Interés")==="Capital+Interés").length;
+                          const _tMens = ((Number(tasaEfectiva)||0)/100)/12;
+                          const _amort = _nCap>0?_cap/_nCap:0;
+                          let _saldo = _cap;
+                          for(let _j=0;_j<ci;_j++){
+                            if(((ren.cuotas||[])[_j]?.tipo||"Solo Interés")==="Capital+Interés") _saldo=Math.max(0,_saldo-_amort);
+                          }
+                          const _prevMes = ci===0
+                            ? (ren.mes_ingreso&&ren.anio_ingreso?{y:parseInt(ren.anio_ingreso),m:MES_ABR_NUM[ren.mes_ingreso]||1}:null)
+                            : ((ren.cuotas||[])[ci-1]?.mes&&(ren.cuotas||[])[ci-1]?.anio?{y:parseInt((ren.cuotas||[])[ci-1].anio),m:MES_ABR_NUM[(ren.cuotas||[])[ci-1].mes]||1}:null);
+                          const _thisMes = cq.mes&&cq.anio?{y:parseInt(cq.anio),m:MES_ABR_NUM[cq.mes]||1}:null;
+                          const _meses = _prevMes&&_thisMes?Math.max(1,(_thisMes.y-_prevMes.y)*12+(_thisMes.m-_prevMes.m)):1;
+                          const _interes = Math.round(_saldo*_tMens*_meses);
+                          const _esCap = (cq.tipo||"Solo Interés")==="Capital+Interés";
+                          const _montoCalc = _esCap?Math.round(_amort)+_interes:_interes;
+                          return (
+                          <div key={ci} style={{display:"grid",gridTemplateColumns:"1.5fr 0.8fr 0.8fr 1fr auto",gap:8,marginBottom:6,alignItems:"center"}}>
+                            <select value={cq.tipo||"Solo Interés"} onChange={e=>updRenCuota(ri,ci,{tipo:e.target.value})}
+                              style={{padding:"6px 8px",borderRadius:6,border:`1px solid ${C.border}`,background:C.card2,color:C.text,fontSize:11,outline:"none"}}>
+                              {["Solo Interés","Capital+Interés"].map(t=><option key={t}>{t}</option>)}
+                            </select>
+                            <select value={cq.mes||""} onChange={e=>updRenCuota(ri,ci,{mes:e.target.value})}
+                              style={{padding:"6px 8px",borderRadius:6,border:`1px solid ${C.border}`,background:C.card2,color:C.text,fontSize:12,outline:"none"}}>
+                              <option value="">— mes —</option>
+                              {["Ene","Feb","Mar","Abr","May","Jun","Jul","Ago","Sep","Oct","Nov","Dic"].map(m=><option key={m}>{m}</option>)}
+                            </select>
+                            <input type="number" value={cq.anio||""} placeholder="2026"
+                              onChange={e=>updRenCuota(ri,ci,{anio:e.target.value})}
+                              style={{padding:"6px 8px",borderRadius:6,border:`1px solid ${C.border}`,background:C.card2,color:C.text,fontSize:12,outline:"none"}}/>
+                            <div style={{background:C.card2,borderRadius:6,padding:"5px 8px",border:`1px solid ${_esCap?C.blue:C.orange}`}}>
+                              <div style={{fontWeight:700,fontSize:12,color:_esCap?C.blue:C.orange}}>{$$(_montoCalc)}</div>
+                              <div style={{fontSize:9,color:C.muted}}>
+                                {_esCap?`Cap: ${$$(Math.round(_amort))} + Int: ${$$(Math.round(_interes))}`:`Int: ${$$(Math.round(_interes))}`}
+                              </div>
+                            </div>
+                            <button type="button" onClick={()=>delRenCuota(ri,ci)}
+                              style={{padding:"4px 8px",borderRadius:6,background:"#fee2e2",border:"none",color:"#991b1b",cursor:"pointer",fontSize:11}}>×</button>
+                          </div>
+                          );
+                        })}
+                      </div>
+
+                      {/* Tasa por renovación + total */}
+                      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+                        <div>
+                          <div style={{fontSize:10,color:C.muted,fontWeight:600,marginBottom:3}}>Tasa Anual (%)</div>
+                          <input type="number" step="0.1" value={ren.tasa_anual||""} onChange={e=>updRen(ri,{tasa_anual:e.target.value})}
+                            placeholder={form.tasa_anual?String(form.tasa_anual):"Ej: 8.5"}
+                            style={{width:"100%",padding:"7px 10px",background:C.card2,border:`1px solid ${C.border}`,borderRadius:8,color:C.text,fontSize:12,outline:"none",boxSizing:"border-box"}}/>
+                        </div>
+                        <div style={{display:"flex",alignItems:"flex-end",paddingBottom:4}}>
+                          <div style={{fontSize:10,color:C.muted,fontStyle:"italic"}}>
+                            {(ren.cuotas||[]).length>0&&(
+                              <>Total cuotas: <strong style={{color:C.green}}>{$$((()=>{const calc=calcCuotasRenovacion({...ren,tasa_anual:tasaEfectiva});return calc.reduce((s,c)=>s+(c.montoReal||0),0);})())}</strong></>
+                            )}
+                          </div>
+                        </div>
                       </div>
                     </div>
-                  </div>
-
+                    );
+                  })}
                 </div>
               )}
             </div>
@@ -7180,7 +7256,7 @@ function fechaCuotaRenov(cq){
 // Saldo de un crédito al cierre de fechaISO.
 function saldoCreditoAt(c, fechaISO){
   let d = (!c.pagado && c.f_venc && c.f_venc>fechaISO) ? (Number(c.cuota)||0) : 0;
-  if(c.renovable)(c.cuotas_renovacion||[]).forEach(cq=>{
+  if(c.renovable)getRenovaciones(c).flatMap(r=>r.cuotas||[]).forEach(cq=>{
     if((cq.tipo||'Solo Interés')==='Capital+Interés'){
       const f = fechaCuotaRenov(cq);
       if(f && f>fechaISO) d += Number(cq.monto)||0;
@@ -7198,7 +7274,7 @@ function SaldoDeudaPorMes({creditos=[], empresas={}}){
     let maxISO="";
     creditos.forEach(c=>{
       if(c.f_venc && c.f_venc>maxISO) maxISO=c.f_venc;
-      if(c.renovable)(c.cuotas_renovacion||[]).forEach(cq=>{
+      if(c.renovable)getRenovaciones(c).flatMap(r=>r.cuotas||[]).forEach(cq=>{
         const f=fechaCuotaRenov(cq); if(f&&f>maxISO) maxISO=f;
       });
     });
