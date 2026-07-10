@@ -5,6 +5,7 @@ import RendicionesModule from './RendicionesModule.jsx';
 import { theme } from './theme';
 import { exportarFlujoConsolidado } from './flujoExportExcel.js';
 import { buildAllpaPeruLineas, ALLPA_PERU_KG_2026, ALLPA_PERU_PRECIO_2026, ALLPA_PERU_RATES_2026 } from './allpaPeruPpto.js';
+import { calcularAmortizacionSocio } from './creditoSocio.js';
 import * as XLSX from 'xlsx-js-style'; // SheetJS (fork con estilos) — ya instalado
 import { uploadDocNomina, urlFirmadaNomina } from './friskuHelpers';
 import { esLineaRelacionada, hashArchivo, docsActivos, tieneRespaldo, pathDocNomina, coberturaNomina, siguienteCorrelativo } from './expedienteHelpers';
@@ -459,10 +460,21 @@ const CREDITOS_TRIM = {
 function calcPrestamosEmpresa(empresa, creditos=CREDITOS_DEFAULT) {
   const arr = Z65();
   creditos.filter(c => c.empresa === empresa && !c.pagado).forEach(c => {
+    // Crédito de socio: cada cuota_total (interés + amortización) en su mes.
+    if(c.tipo_credito === "socio") {
+      const { filas } = calcularAmortizacionSocio(c.monto, c.tasa_efectiva_anual, c.fecha_desembolso, c.cuotas_socio);
+      filas.forEach(f => {
+        const mes = mesDeDate(f.fecha);
+        if(!mes || mes.includes("NaN")) return;
+        const i = mIdx(mes);
+        if(i >= 0 && f.cuota_total > 0) arr[i] += f.cuota_total;
+      });
+      return;
+    }
     if(!c.f_venc || !c.cuota) return;
     const cuota = Number(c.cuota)||0;
     if(cuota === 0) return;
-    
+
     if(c.tipo_cr === "Cuotas Mensuales" && c.f_inicio) {
       // Distribuir cuotas mensuales desde f_inicio hasta f_venc
       const inicio = new Date(c.f_inicio);
@@ -491,10 +503,13 @@ function calcPrestamosEmpresa(empresa, creditos=CREDITOS_DEFAULT) {
 // Calcula ingreso del préstamo (desembolso) en Ingresos No Operacionales
 function calcIngresosPrestamosEmpresa(empresa, creditos=CREDITOS_DEFAULT) {
   const arr = Z65();
-  creditos.filter(c => c.empresa === empresa && !c.pagado && c.f_inicio).forEach(c => {
+  creditos.filter(c => c.empresa === empresa && !c.pagado).forEach(c => {
+    // Socio: el desembolso (capital) entra como ingreso en su fecha.
+    const fechaIng = c.tipo_credito === "socio" ? c.fecha_desembolso : c.f_inicio;
+    if(!fechaIng) return;
     const monto = Number(c.monto)||0;
     if(monto === 0) return;
-    const mes = mesDeDate(c.f_inicio);
+    const mes = mesDeDate(fechaIng);
     if(!mes || mes.includes("NaN")) return;
     const i = mIdx(mes);
     if(i >= 0) arr[i] += monto;
@@ -6561,20 +6576,32 @@ function Creditos({empresas, creditosData=CREDITOS_DEFAULT, onSaveCreditos, canE
   const [editId,setEditId]=useState(null);
   const EMPTY_FORM = {
     empresa:"",acreedor:"",tipo_inst:"",monto:"",f_inicio:"",f_venc:"",tipo_cr:"Bullet",tasa:"",cuota:"",
+    tipo_credito:"banco",       // "banco" | "socio"
     // Renovación (soporta VARIAS): renovaciones:[{monto,mes_ingreso,anio_ingreso,tasa_anual,cuotas:[{tipo,mes,anio}]}]
     renovable:false,
     tasa_anual:"",              // tasa por defecto (usada si una renovación no trae la suya)
     renovaciones:[],
+    // Crédito de socio
+    moneda:"USD",
+    tasa_efectiva_anual:"",     // % efectiva anual (ej. 12.6)
+    fecha_desembolso:"",        // ISO
+    cuotas_socio:[],            // [{fecha_vencimiento, modo:"cuota"|"amortizacion", cuota_total, amortizacion}]
   };
   const [form,setForm]=useState(EMPTY_FORM);
   const RENOVACION_VACIA = ()=>({ monto:"", mes_ingreso:"", anio_ingreso:"", tasa_anual:"", cuotas:[] });
+  const CUOTA_SOCIO_VACIA = ()=>({ fecha_vencimiento:"", modo:"cuota", cuota_total:"", amortizacion:"" });
 
   function openNew(){ setForm(EMPTY_FORM); setEditId(null); setModal(true); }
   function openEdit(c){
     // Migra legacy (1 renovación en campos planos) → array renovaciones
-    setForm({...c, monto:String(c.monto), cuota:String(c.cuota), renovaciones: getRenovaciones(c)});
+    setForm({...c, monto:String(c.monto), cuota:String(c.cuota), tipo_credito:c.tipo_credito||"banco",
+      renovaciones: getRenovaciones(c), cuotas_socio:c.cuotas_socio||[]});
     setEditId(c.n); setModal(true);
   }
+  // ── Helpers cuotas de crédito de socio ──
+  const addCuotaSocio = ()=>setForm(p=>({...p,cuotas_socio:[...(p.cuotas_socio||[]),CUOTA_SOCIO_VACIA()]}));
+  const updCuotaSocio = (ci,patch)=>setForm(p=>{const arr=[...(p.cuotas_socio||[])];arr[ci]={...arr[ci],...patch};return {...p,cuotas_socio:arr};});
+  const delCuotaSocio = (ci)=>setForm(p=>({...p,cuotas_socio:(p.cuotas_socio||[]).filter((_,j)=>j!==ci)}));
   // ── Helpers para múltiples renovaciones ──
   const updRen = (ri,patch)=>setForm(p=>{const arr=[...(p.renovaciones||[])];arr[ri]={...arr[ri],...patch};return {...p,renovaciones:arr};});
   const addRen = ()=>setForm(p=>({...p,renovaciones:[...(p.renovaciones||[]),{...RENOVACION_VACIA(),monto:(p.renovaciones||[]).length?"":p.monto}]}));
@@ -6583,14 +6610,44 @@ function Creditos({empresas, creditosData=CREDITOS_DEFAULT, onSaveCreditos, canE
   const updRenCuota = (ri,ci,patch)=>setForm(p=>{const arr=[...(p.renovaciones||[])];const cu=[...(arr[ri].cuotas||[])];cu[ci]={...cu[ci],...patch};arr[ri]={...arr[ri],cuotas:cu};return {...p,renovaciones:arr};});
   const delRenCuota = (ri,ci)=>setForm(p=>{const arr=[...(p.renovaciones||[])];arr[ri]={...arr[ri],cuotas:(arr[ri].cuotas||[]).filter((_,j)=>j!==ci)};return {...p,renovaciones:arr};});
   function guardar(){
-    if(!form.empresa||!form.acreedor||!form.monto||!form.f_venc){alert("Empresa, acreedor, monto y fecha son obligatorios.");return;}
+    const esSocio = form.tipo_credito === "socio";
+    if(esSocio){
+      const cuotasVal = (form.cuotas_socio||[]).filter(cu=>cu.fecha_vencimiento);
+      if(!form.empresa||!form.acreedor||!form.monto||!form.fecha_desembolso||!form.tasa_efectiva_anual||cuotasVal.length===0){
+        alert("Socio: empresa, acreedor, capital, fecha desembolso, tasa y al menos una cuota con fecha son obligatorios."); return;
+      }
+    } else if(!form.empresa||!form.acreedor||!form.monto||!form.f_venc){
+      alert("Empresa, acreedor, monto y fecha son obligatorios.");return;
+    }
     // Guardrail: no permitir crear/editar créditos de empresas fuera del subset
     if(!esPermitida(form.empresa)){ alert("Empresa no permitida."); return; }
     // ID secuencial: usa nextCreditId del parent (sobre el blob completo) si está disponible;
     // fallback al cálculo local sobre el subset visible (para retrocompat).
     const maxNLocal = creditosVisibles.reduce((m,c)=> Math.max(m, typeof c.n === 'number' && c.n < 100000 ? c.n : 0), 0);
     const newN = editId || (typeof nextCreditId === 'number' ? nextCreditId : (maxNLocal + 1));
-    const item={
+    let item;
+    if(esSocio){
+      const cuotas = (form.cuotas_socio||[]).filter(cu=>cu.fecha_vencimiento);
+      const capital = parseFloat(form.monto)||0;
+      const res = calcularAmortizacionSocio(capital, form.tasa_efectiva_anual, form.fecha_desembolso, cuotas);
+      const fechaUlt = cuotas.length ? cuotas[cuotas.length-1].fecha_vencimiento : "";
+      item={
+        ...form,
+        n:newN, tipo_credito:"socio", tipo_inst:"Socio", moneda:"USD",
+        monto: capital,
+        cuota: 0,                       // no se usa: el flujo lee cuotas_socio
+        tasa: `${form.tasa_efectiva_anual}%`,
+        f_inicio: form.fecha_desembolso || "",
+        f_venc: fechaUlt,
+        cuotas_socio: cuotas,
+        amortizacion_calc: res.filas,   // tabla persistida
+        pagado: form.pagado === true,
+        renovable:false, renovaciones:[],
+        cuotas_renovacion:undefined, monto_renovacion:undefined,
+        mes_ingreso_renovacion:undefined, anio_ingreso_renovacion:undefined,
+      };
+    } else {
+    item={
       ...form,
       n: newN,
       monto: parseFloat(form.monto)||0,
@@ -6605,7 +6662,9 @@ function Creditos({empresas, creditosData=CREDITOS_DEFAULT, onSaveCreditos, canE
       monto_renovacion: undefined,
       mes_ingreso_renovacion: undefined,
       anio_ingreso_renovacion: undefined,
+      cuotas_socio: undefined, amortizacion_calc: undefined,
     };
+    }
     // El payload al parent contiene SOLO el subset visible — el parent hace merge.
     const next=editId
       ? creditosVisibles.map(c=>String(c.n)===String(editId)?item:c)
@@ -6729,7 +6788,9 @@ function Creditos({empresas, creditosData=CREDITOS_DEFAULT, onSaveCreditos, canE
                     background:c.pagado?`${C.green}08`:vencProx?`${C.yellow}08`:"transparent"}}>
                     <td style={{padding:"7px 12px",color:C.muted}}>{c.n}</td>
                     <td style={{padding:"7px 12px",fontWeight:600,color:e.color,whiteSpace:"nowrap"}}>{e.emoji} {c.empresa}</td>
-                    <td style={{padding:"7px 12px",color:C.text}}>{c.acreedor}</td>
+                    <td style={{padding:"7px 12px",color:C.text}}>{c.acreedor}
+                      {c.tipo_credito==="socio"&&<span style={{fontSize:9,marginLeft:4,background:`${C.blue}22`,color:C.blue,borderRadius:10,padding:"1px 6px",fontWeight:700}}>🤝 Socio</span>}
+                    </td>
                     <td style={{padding:"7px 12px"}}><span style={{fontSize:9,padding:"2px 7px",borderRadius:20,background:C.card2,border:`1px solid ${C.border}`,color:C.muted}}>{c.tipo_cr}</span></td>
                     <td style={{padding:"7px 12px",textAlign:"right",fontWeight:700,color:c.pagado?C.green:C.red}}>
                       {c.pagado?<span>✓ {$$(c.monto)}</span>:$$(c.monto)}
@@ -7017,22 +7078,44 @@ function Creditos({empresas, creditosData=CREDITOS_DEFAULT, onSaveCreditos, canE
       </Card>
 
       {/* Modal nuevo / editar crédito */}
-      {modal&&(
+      {modal&&(()=>{
+        const esSocio = form.tipo_credito === "socio";
+        const socioCuotas = (form.cuotas_socio||[]).filter(cu=>cu.fecha_vencimiento);
+        const amort = esSocio ? calcularAmortizacionSocio(form.monto, form.tasa_efectiva_anual, form.fecha_desembolso, socioCuotas) : null;
+        return (
         <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.8)",zIndex:400,
           display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
           <div style={{background:C.bg2,border:`1px solid ${C.blue}55`,borderRadius:16,
-            width:520,maxWidth:"95vw",boxShadow:"0 24px 64px rgba(0,0,0,0.7)"}}>
+            width:esSocio?900:520,maxWidth:"95vw",maxHeight:"92vh",overflowY:"auto",boxShadow:"0 24px 64px rgba(0,0,0,0.7)"}}>
             <div style={{padding:"14px 20px",borderBottom:`1px solid ${C.border}`,
               display:"flex",alignItems:"center",gap:10}}>
-              <span style={{fontSize:20}}>🏦</span>
+              <span style={{fontSize:20}}>{esSocio?"🤝":"🏦"}</span>
               <span style={{fontSize:13,fontWeight:800,color:C.text}}>
-                {editId?"Editar":"Nuevo"} Crédito
+                {editId?"Editar":"Nuevo"} {esSocio?"Crédito de Socio":"Crédito"}
               </span>
               <button onClick={()=>setModal(false)}
                 style={{marginLeft:"auto",background:"transparent",border:"none",color:C.muted,cursor:"pointer",fontSize:20}}>×</button>
             </div>
+            {/* Selector tipo de crédito */}
+            <div style={{padding:"12px 20px 0",display:"flex",gap:8,alignItems:"center"}}>
+              <span style={{fontSize:11,fontWeight:700,color:C.muted}}>Tipo de crédito:</span>
+              {[["banco","🏦 Bancario / Privado"],["socio","🤝 De Socio"]].map(([v,lbl])=>(
+                <button key={v} type="button" onClick={()=>setForm(p=>({...p,tipo_credito:v,
+                  cuotas_socio: v==="socio" && !(p.cuotas_socio||[]).length ? [CUOTA_SOCIO_VACIA(),CUOTA_SOCIO_VACIA()] : (p.cuotas_socio||[]),
+                  tasa_efectiva_anual: v==="socio" && !p.tasa_efectiva_anual ? "12.6" : p.tasa_efectiva_anual }))}
+                  style={{padding:"5px 14px",borderRadius:8,cursor:"pointer",fontSize:12,fontWeight:700,
+                    border:`1px solid ${form.tipo_credito===v?C.blue:C.border}`,
+                    background:form.tipo_credito===v?`${C.blue}22`:"transparent",color:form.tipo_credito===v?C.blue:C.muted}}>{lbl}</button>
+              ))}
+            </div>
             <div style={{padding:"16px 20px",display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
-              {[
+              {(esSocio?[
+                ["Empresa","empresa","select",EMP_SELECT],
+                ["Acreedor / Socio","acreedor","text",null],
+                ["Capital / Desembolso (USD)","monto","number",null],
+                ["Tasa efectiva anual (%)","tasa_efectiva_anual","number",null],
+                ["Fecha desembolso","fecha_desembolso","date",null],
+              ]:[
                 ["Empresa","empresa","select",EMP_SELECT],
                 ["Acreedor / Institución","acreedor","text",null],
                 ["Tipo institución","tipo_inst","text",null],
@@ -7042,7 +7125,7 @@ function Creditos({empresas, creditosData=CREDITOS_DEFAULT, onSaveCreditos, canE
                 ["Fecha desembolso","f_inicio","date",null],
                 ["Fecha vencimiento","f_venc","date",null],
                 ["Tasa (%)","tasa","text",null],
-              ].map(([lbl,field,type,opts])=>(
+              ]).map(([lbl,field,type,opts])=>(
                 <div key={field}>
                   <div style={{fontSize:10,color:C.muted,marginBottom:3,fontWeight:600}}>{lbl}</div>
                   {opts&&Array.isArray(opts)?(
@@ -7062,7 +7145,96 @@ function Creditos({empresas, creditosData=CREDITOS_DEFAULT, onSaveCreditos, canE
                 </div>
               ))}
             </div>
-            {/* Sección Renovación */}
+
+            {/* ── Sección Crédito de Socio: cuotas + tabla de amortización ── */}
+            {esSocio&&(()=>{
+              const fmtDMY=(iso)=>{ if(!iso) return ""; const p=String(iso).split("-"); return p.length===3?`${p[2]}-${p[1]}-${p[0]}`:iso; };
+              const exportCSV=()=>{
+                const head=["#","Fecha","Dias","Interes","Amortizacion","Cuota total","Saldo insoluto"];
+                const rows=(amort?.filas||[]).map(f=>[f.n,fmtDMY(f.fecha),f.dias,f.interes,f.amortizacion,f.cuota_total,f.saldo]);
+                const csv=[head,...rows,["","","","","Capital",amort?.capital,""],["","","","Total interes",amort?.totalInteres,"",""]]
+                  .map(r=>r.join(";")).join("\n");
+                const blob=new Blob(["﻿"+csv],{type:"text/csv;charset=utf-8;"});
+                const a=document.createElement("a");a.href=URL.createObjectURL(blob);
+                a.download=`amortizacion_socio_${(form.acreedor||"credito").replace(/\s+/g,"_")}.csv`;a.click();
+              };
+              return (
+              <div style={{padding:"12px 20px",borderTop:`1px solid ${C.border}`}}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10,flexWrap:"wrap",gap:8}}>
+                  <div style={{fontSize:12,fontWeight:800,color:C.blue}}>📅 Cuotas y Amortización</div>
+                  <div style={{display:"flex",gap:8}}>
+                    <button type="button" onClick={addCuotaSocio}
+                      style={{fontSize:11,padding:"4px 12px",borderRadius:6,border:`1px dashed ${C.blue}`,background:"transparent",color:C.blue,cursor:"pointer",fontWeight:700}}>+ Agregar cuota</button>
+                    <button type="button" onClick={exportCSV}
+                      style={{fontSize:11,padding:"4px 12px",borderRadius:6,border:`1px solid ${C.border}`,background:"transparent",color:C.muted,cursor:"pointer"}}>⬇ CSV</button>
+                  </div>
+                </div>
+
+                {/* Editor de cuotas */}
+                <div style={{display:"grid",gridTemplateColumns:"1.1fr 1.1fr 1.2fr auto",gap:8,marginBottom:6}}>
+                  {["Fecha vencimiento","Modo","Monto (USD)",""].map((h,i)=><div key={i} style={{fontSize:10,color:C.muted,fontWeight:600}}>{h}</div>)}
+                </div>
+                {(form.cuotas_socio||[]).length===0&&<div style={{fontSize:11,color:C.muted2,fontStyle:"italic",marginBottom:8}}>Sin cuotas — agrega al menos una.</div>}
+                {(form.cuotas_socio||[]).map((cu,ci)=>(
+                  <div key={ci} style={{display:"grid",gridTemplateColumns:"1.1fr 1.1fr 1.2fr auto",gap:8,marginBottom:6,alignItems:"center"}}>
+                    <input type="date" value={cu.fecha_vencimiento||""} onChange={e=>updCuotaSocio(ci,{fecha_vencimiento:e.target.value})}
+                      style={{padding:"6px 8px",borderRadius:6,border:`1px solid ${C.border}`,background:C.card2,color:C.text,fontSize:12,outline:"none"}}/>
+                    <select value={cu.modo||"cuota"} onChange={e=>updCuotaSocio(ci,{modo:e.target.value})}
+                      style={{padding:"6px 8px",borderRadius:6,border:`1px solid ${C.border}`,background:C.card2,color:C.text,fontSize:11,outline:"none"}}>
+                      <option value="cuota">Cuota total</option>
+                      <option value="amortizacion">Amortización</option>
+                    </select>
+                    <input type="number" placeholder={(cu.modo||"cuota")==="cuota"?"cuota total":"amortización"}
+                      value={(cu.modo||"cuota")==="cuota"?(cu.cuota_total||""):(cu.amortizacion||"")}
+                      onChange={e=>updCuotaSocio(ci,(cu.modo||"cuota")==="cuota"?{cuota_total:e.target.value}:{amortizacion:e.target.value})}
+                      style={{padding:"6px 8px",borderRadius:6,border:`1px solid ${C.border}`,background:C.card2,color:C.text,fontSize:12,outline:"none"}}/>
+                    <button type="button" onClick={()=>delCuotaSocio(ci)}
+                      style={{padding:"4px 8px",borderRadius:6,background:"#fee2e2",border:"none",color:"#991b1b",cursor:"pointer",fontSize:11}}>×</button>
+                  </div>
+                ))}
+
+                {/* Tabla de amortización calculada */}
+                {amort&&amort.filas.length>0&&(
+                  <div style={{marginTop:12,overflowX:"auto",border:`1px solid ${C.border}`,borderRadius:8}}>
+                    <table style={{width:"100%",borderCollapse:"collapse",fontSize:11}}>
+                      <thead><tr style={{background:C.primary}}>
+                        {["#","Fecha","Días","Interés","Amortización","Cuota total","Saldo insoluto"].map(h=>(
+                          <th key={h} style={{padding:"6px 10px",fontSize:10,color:C.muted,fontWeight:700,textAlign:h==="#"||h==="Fecha"?"left":"right",whiteSpace:"nowrap"}}>{h}</th>
+                        ))}
+                      </tr></thead>
+                      <tbody>
+                        {amort.filas.map(f=>(
+                          <tr key={f.n} style={{borderTop:`1px solid ${C.border}22`,background:f.capitaliza?"#fee2e211":"transparent"}}>
+                            <td style={{padding:"5px 10px",color:C.muted}}>{f.n}</td>
+                            <td style={{padding:"5px 10px",color:C.text,whiteSpace:"nowrap"}}>{fmtDMY(f.fecha)}{f.capitaliza&&<span title="La cuota no cubre el interés: se capitaliza" style={{color:C.red,marginLeft:4}}>⚠</span>}</td>
+                            <td style={{padding:"5px 10px",textAlign:"right",color:C.muted}}>{f.dias}</td>
+                            <td style={{padding:"5px 10px",textAlign:"right",color:C.orange}}>{$$(f.interes)}</td>
+                            <td style={{padding:"5px 10px",textAlign:"right",color:f.amortizacion<0?C.red:C.text,fontWeight:700}}>{$$(f.amortizacion)}</td>
+                            <td style={{padding:"5px 10px",textAlign:"right",color:C.text}}>{$$(f.cuota_total)}</td>
+                            <td style={{padding:"5px 10px",textAlign:"right",color:C.blue,fontWeight:700}}>{$$(f.saldo)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+
+                {/* Validación de cierre + total interés */}
+                {amort&&(
+                  <div style={{display:"flex",gap:16,flexWrap:"wrap",marginTop:10,fontSize:11}}>
+                    <span style={{color:C.muted}}>Capital: <strong style={{color:C.text}}>{$$(amort.capital)}</strong></span>
+                    <span style={{color:C.muted}}>Σ Amortizaciones: <strong style={{color:C.text}}>{$$(amort.sumaAmortizaciones)}</strong></span>
+                    <span style={{color:C.muted}}>Saldo final: <strong style={{color:amort.cierra?C.green:C.red}}>{$$(amort.saldoFinal)}</strong></span>
+                    <span style={{fontWeight:800,color:amort.cierra?C.green:C.red}}>{amort.cierra?"✓ Cierra en cero":"✗ NO cierra (Σ amort ≠ capital)"}</span>
+                    <span style={{color:C.muted,marginLeft:"auto"}}>Interés total vida: <strong style={{color:C.orange}}>{$$(amort.totalInteres)}</strong></span>
+                  </div>
+                )}
+              </div>
+              );
+            })()}
+
+            {/* Sección Renovación (solo créditos no-socio) */}
+            {!esSocio&&(
             <div style={{padding:"12px 20px",borderTop:`1px solid ${C.border}`}}>
               <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:8}}>
                 <label style={{display:"flex",alignItems:"center",gap:6,cursor:"pointer",fontSize:12,fontWeight:700,color:C.text}}>
@@ -7215,6 +7387,7 @@ function Creditos({empresas, creditosData=CREDITOS_DEFAULT, onSaveCreditos, canE
                 </div>
               )}
             </div>
+            )}
 
             <div style={{padding:"12px 20px",borderTop:`1px solid ${C.border}`,
               display:"flex",gap:8,justifyContent:"flex-end"}}>
@@ -7231,7 +7404,8 @@ function Creditos({empresas, creditosData=CREDITOS_DEFAULT, onSaveCreditos, canE
             </div>
           </div>
         </div>
-      )}
+        );
+      })()}
       </>)}
     </div>
   );
