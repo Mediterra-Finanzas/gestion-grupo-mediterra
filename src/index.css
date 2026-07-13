@@ -8,9 +8,30 @@
 /* box-sizing global: el padding deja de inflar el ancho y causar desbordes */
 *, *::before, *::after { box-sizing: border-box; }
 
+/* Fuente propia (Inter) — Dirección A "Institucional refinada".
+   Cargada desde public/index.html. */
+:root { --mediterra-font: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+
 html, body {
   margin: 0;
   -webkit-text-size-adjust: 100%; /* iOS no reescala el texto al rotar */
+  font-family: var(--mediterra-font);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Los contenedores raíz de la app usan fontFamily:"sans-serif" inline (App.jsx
+   y cada módulo). En vez de editar cada uno, flipeamos ese literal a Inter con
+   el mismo patrón de selección por atributo que ya usa este archivo abajo.
+   Los hijos heredan la fuente, así que un solo match por contenedor basta. */
+[style*="sans-serif"] { font-family: var(--mediterra-font) !important; }
+
+/* Focus visible en inputs — hoy varios ponen outline:none inline y quedan sin
+   señal de foco. Anillo sutil en el navy de marca (accesibilidad + prolijidad). */
+input:focus, select:focus, textarea:focus {
+  outline: none;
+  box-shadow: 0 0 0 2px rgba(30, 39, 97, 0.18) !important;
+  border-color: #1E2761 !important;
 }
 
 /* Medios nunca desbordan su contenedor */

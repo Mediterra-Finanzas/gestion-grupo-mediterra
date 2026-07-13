@@ -23,7 +23,7 @@ export const lightTheme = {
   cardAlt:   "#eaeef4",   // card hover / input bg
   border:    "#c5cedb",   // bordes estándar
   border2:   "#aab6c6",   // bordes destacados
-  rowAlt:    "#f4f6fa",   // zebra striping (apenas perceptible vs card #ffffff)
+  rowAlt:    "#eef2f8",   // zebra striping (contraste visible vs card #ffffff)
 
   // ── Texto ───────────────────────────────────────────────────────
   text:      "#1e2733",   // texto principal
@@ -49,6 +49,21 @@ export const lightTheme = {
   // ── Sombras ─────────────────────────────────────────────────────
   shadow:    "0 2px 8px rgba(16,24,40,0.10), 0 1px 3px rgba(16,24,40,0.06)",
   shadowSm:  "0 1px 3px rgba(16,24,40,0.08)",
+
+  // ── Tipografía (Dirección A) ────────────────────────────────────
+  // Stack de fuente. La carga real es global (public/index.html + index.css);
+  // este token queda disponible para usarlo explícito en JSX si se quiere.
+  font: "'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif",
+
+  // ── Escala de espaciado (base 4px) ──────────────────────────────
+  // Reemplaza los gaps ad-hoc (5,6,7,10,14,18…) por una escala consistente.
+  sp: { xs: 4, sm: 8, md: 12, lg: 16, xl: 24, xxl: 32 },
+
+  // ── Radios de borde ─────────────────────────────────────────────
+  radius: { sm: 6, md: 8, lg: 12, xl: 20 },
+
+  // ── Foco ────────────────────────────────────────────────────────
+  focusRing: "0 0 0 2px rgba(30,39,97,0.18)",
 };
 
 export const theme = lightTheme;
