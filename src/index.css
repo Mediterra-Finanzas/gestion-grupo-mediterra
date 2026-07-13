@@ -70,6 +70,10 @@ input:focus, select:focus, textarea:focus {
   .mdt-tile:hover { transform: translateY(-4px); box-shadow: 0 12px 40px rgba(0,0,0,0.25) !important; }
   /* CTAs sólidos: se oscurecen un pelo al hover (sirve para cualquier color). */
   .mdt-btn-solid:hover { filter: brightness(0.92); }
+  /* Tarjetas de módulo del hub: sombra más profunda + la flecha "Entrar" se desliza. */
+  .mdt-modcard:hover { box-shadow: 0 14px 34px rgba(16,24,40,0.16) !important; }
+  .mdt-modcard-arrow { transition: transform .16s; }
+  .mdt-modcard:hover .mdt-modcard-arrow { transform: translateX(6px); }
 
   /* Resaltado de fila al pasar el mouse — usa background-image (overlay) en
      vez de background-color, así tiñe ENCIMA del color propio de cada celda

@@ -1502,34 +1502,46 @@ function HubScreen({ usuario, modulosPermitidos, onSelectModulo, onLogout, onCam
         )}
       </div>
 
-      {/* Módulos — grilla ejecutiva de tarjetas planas con acento de marca */}
-      <div style={{maxWidth:1120, margin:"0 auto", padding:"16px 32px 0"}}>
-        <div style={{fontSize:11, fontWeight:700, color:C.muted2, textTransform:"uppercase", letterSpacing:1.4, marginBottom:14}}>Módulos</div>
-        <div style={{display:"grid", gridTemplateColumns:"repeat(auto-fill, minmax(240px, 1fr))", gap:16}}>
+      {/* Módulos — grilla ejecutiva: banda de marca con logo + cuerpo */}
+      <div style={{maxWidth:1160, margin:"0 auto", padding:"16px 32px 0"}}>
+        <div style={{fontSize:11, fontWeight:700, color:C.muted2, textTransform:"uppercase", letterSpacing:1.4, marginBottom:16}}>Módulos</div>
+        <div style={{display:"grid", gridTemplateColumns:"repeat(auto-fill, minmax(290px, 1fr))", gap:20}}>
           {MODULOS_DISPONIBLES.filter(m => modulosPermitidos.includes(m.id)).map(modulo => (
             <button key={modulo.id} onClick={() => onSelectModulo(modulo.id)}
-              className="mdt-lift"
+              className="mdt-lift mdt-modcard"
               style={{
                 background: C.card,
                 border: `1px solid ${C.border}`,
-                borderRadius: 14,
-                padding: "18px 18px 18px 22px",
+                borderRadius: 16,
+                padding: 0,
                 cursor: "pointer",
                 textAlign: "left",
-                position: "relative",
                 overflow: "hidden",
-                boxShadow: "0 1px 3px rgba(16,24,40,0.08)",
-                display: "flex", flexDirection: "column", gap: 10,
+                boxShadow: "0 2px 10px rgba(16,24,40,0.08)",
+                display: "flex", flexDirection: "column",
               }}
             >
-              <div style={{position:"absolute", left:0, top:0, bottom:0, width:4, background:modulo.color}}/>
-              <div style={{display:"flex", alignItems:"center", gap:12}}>
-                <div style={{width:40, height:40, borderRadius:11, background:`${modulo.color}1a`, color:modulo.color,
-                  display:"flex", alignItems:"center", justifyContent:"center", fontSize:21, flexShrink:0}}>{modulo.icon}</div>
-                <div style={{fontSize:15, fontWeight:800, color:C.text, lineHeight:1.2}}>{modulo.label}</div>
+              {/* Banda de marca — el logo claro se ve sobre el gradiente oscuro */}
+              <div style={{background: modulo.grad, height: 104, display:"flex", alignItems:"center", justifyContent:"center", padding:"0 20px", position:"relative"}}>
+                {modulo.id === "osiris"
+                  ? <OsirisLogoSmall/>
+                  : modulo.id === "finanzas"
+                  ? <img src="/med.png" alt="Mediterra" style={{height:52, objectFit:"contain"}} onError={e=>{e.target.style.display="none";}}/>
+                  : modulo.id === "allegria"
+                  ? <img src={ALLEGRIA_LOGO_B64} alt="Allegria Foods" style={{height:52, objectFit:"contain"}} onError={e=>{e.target.onerror=null;e.target.style.display="none";}}/>
+                  : modulo.id === "frisku"
+                  ? <img src="/frisku.png" alt="Frisku Foods" style={{height:48, objectFit:"contain"}} onError={e=>{e.target.style.display="none";}}/>
+                  : <div style={{fontSize:48, lineHeight:1}}>{modulo.icon}</div>
+                }
               </div>
-              <div style={{fontSize:12, color:C.muted, lineHeight:1.4}}>{modulo.sublabel}</div>
-              <div style={{position:"absolute", top:16, right:16, fontSize:16, color:C.muted2}}>→</div>
+              {/* Cuerpo */}
+              <div style={{padding:"18px 22px 20px", flex:1, display:"flex", flexDirection:"column"}}>
+                <div style={{fontSize:19, fontWeight:800, color:C.text, lineHeight:1.2}}>{modulo.label}</div>
+                <div style={{fontSize:13, color:C.muted, marginTop:5, lineHeight:1.45, flex:1}}>{modulo.sublabel}</div>
+                <div className="mdt-modcard-arrow" style={{marginTop:16, fontSize:13, fontWeight:700, color:modulo.color, display:"flex", alignItems:"center", gap:7}}>
+                  Entrar <span style={{fontSize:17, lineHeight:1}}>→</span>
+                </div>
+              </div>
             </button>
           ))}
         </div>
