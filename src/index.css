@@ -36,27 +36,44 @@ input:focus, select:focus, textarea:focus {
 
 /* ── Interactividad (Dirección A) ────────────────────────────────────
    Los estilos inline no soportan :hover, así que las clases viven acá.
-   .mdt-tab   → pestañas (nivel módulo y sub-tabs). Hover solo en inactivas.
-   .mdt-btn   → botones tipo Btn. Sutil realce al pasar el mouse.
-   .mdt-lift  → tarjetas/tiles que "levantan" al hover. */
-.mdt-tab { transition: background .14s, border-color .14s, color .14s, box-shadow .14s; }
-.mdt-tab:not(.mdt-tab--active):hover {
-  background: #eef2f8 !important;
-  border-color: #aab6c6 !important;
-  color: #1e2733 !important;
-}
-.mdt-btn { transition: background .12s, border-color .12s, color .12s, transform .06s; }
-.mdt-btn:not(.mdt-btn--active):hover { background: rgba(30,39,97,0.06) !important; border-color: #aab6c6 !important; }
-.mdt-btn:active { transform: scale(0.97); }
+   .mdt-tab   → pestañas (nivel módulo y sub-tabs).
+   .mdt-btn   → botones tipo Btn.
+   .mdt-lift  → tarjetas/tiles que "levantan".
+   Transiciones y feedback de :active van globales (sirven en touch);
+   los efectos :hover se limitan a dispositivos con mouse real más abajo. */
+.mdt-tab  { transition: background .14s, border-color .14s, color .14s, box-shadow .14s; }
+.mdt-btn  { transition: background .12s, border-color .12s, color .12s, transform .06s; }
 .mdt-lift { transition: transform .14s, box-shadow .14s; }
-.mdt-lift:hover { transform: translateY(-2px); }
 
-/* Resaltado de fila al pasar el mouse — usa background-image (overlay) en vez
-   de background-color, así tiñe ENCIMA del color propio de cada celda (las
-   celdas coloreadas por signo conservan su color, solo se oscurecen un poco).
-   Aplica a <td> dentro de tbody; los <th> de cabecera no se tocan. */
-tbody tr:hover > td {
-  background-image: linear-gradient(rgba(30, 39, 97, 0.055), rgba(30, 39, 97, 0.055));
+/* Feedback táctil/click: al presionar, el elemento "se hunde" un poco.
+   Funciona igual en desktop (click) y en móvil (tap). */
+.mdt-btn:active  { transform: scale(0.97); }
+.mdt-lift:active { transform: scale(0.985); }
+
+/* Efectos HOVER — SOLO en dispositivos con puntero fino y hover real
+   (mouse/trackpad). En pantallas táctiles no aplican, así se evita el
+   "sticky hover" (el último elemento tocado queda pegado resaltado). */
+@media (hover: hover) and (pointer: fine) {
+  .mdt-tab:not(.mdt-tab--active):hover {
+    background: #eef2f8 !important;
+    border-color: #aab6c6 !important;
+    color: #1e2733 !important;
+  }
+  .mdt-btn:not(.mdt-btn--active):hover {
+    background: rgba(30,39,97,0.06) !important;
+    border-color: #aab6c6 !important;
+  }
+  .mdt-lift:hover { transform: translateY(-2px); }
+  /* Tiles del hub: al hover suben un poco más y la sombra se profundiza. */
+  .mdt-tile:hover { transform: translateY(-4px); box-shadow: 0 12px 40px rgba(0,0,0,0.25) !important; }
+
+  /* Resaltado de fila al pasar el mouse — usa background-image (overlay) en
+     vez de background-color, así tiñe ENCIMA del color propio de cada celda
+     (las celdas coloreadas por signo conservan su color, solo se oscurecen un
+     poco). Aplica a <td> dentro de tbody; los <th> de cabecera no se tocan. */
+  tbody tr:hover > td {
+    background-image: linear-gradient(rgba(30, 39, 97, 0.055), rgba(30, 39, 97, 0.055));
+  }
 }
 
 /* Medios nunca desbordan su contenedor */

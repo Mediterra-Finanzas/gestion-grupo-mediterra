@@ -1499,21 +1499,19 @@ function HubScreen({ usuario, modulosPermitidos, onSelectModulo, onLogout, onCam
       <div style={{display:"flex", gap:24, justifyContent:"center", flexWrap:"wrap", padding:"0 32px", maxWidth:900, margin:"0 auto"}}>
         {MODULOS_DISPONIBLES.filter(m => modulosPermitidos.includes(m.id)).map(modulo => (
           <button key={modulo.id} onClick={() => onSelectModulo(modulo.id)}
+            className="mdt-lift mdt-tile"
             style={{
               background: modulo.grad,
               border: "1px solid rgba(255,255,255,0.15)",
               borderRadius: 20,
               padding: "32px 36px",
               cursor: "pointer",
-              width: 280,
+              width: "min(300px, 100%)",
               textAlign: "left",
               boxShadow: "0 4px 24px rgba(0,0,0,0.15)",
-              transition: "transform 0.15s, box-shadow 0.15s",
               position: "relative",
               overflow: "hidden",
             }}
-            onMouseEnter={e => { e.currentTarget.style.transform="translateY(-4px)"; e.currentTarget.style.boxShadow="0 12px 40px rgba(0,0,0,0.25)"; }}
-            onMouseLeave={e => { e.currentTarget.style.transform="translateY(0)"; e.currentTarget.style.boxShadow="0 4px 24px rgba(0,0,0,0.15)"; }}
           >
             {modulo.id === "osiris"
               ? <div style={{marginBottom:12}}><OsirisLogoSmall/></div>
