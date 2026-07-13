@@ -4777,6 +4777,7 @@ export default function FriskuComercialModule({
       <div style={{display:"flex", flexWrap:"wrap", gap:4, padding:"0 20px", borderBottom:`2px solid ${C.border}`, background:C.bg2}}>
         {tabs.map(t => (
           <button key={t.id} onClick={()=>setTab(t.id)}
+            className={`mdt-tab${tab===t.id?" mdt-tab--active":""}`}
             style={{
               padding:"11px 16px", border:"none", cursor:"pointer", fontSize:12,
               background: tab===t.id ? C.card : "transparent",

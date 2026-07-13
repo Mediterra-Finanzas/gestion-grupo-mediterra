@@ -1165,7 +1165,7 @@ function EmbarquesModule({data, setData, clientes, productores, stockPT, setStoc
           </div>
         </div>
         <div style={{display:"flex",gap:6,marginBottom:16,flexWrap:"wrap"}}>
-          {TABS_EMB.map(t=><button key={t.id} onClick={()=>setTab(t.id)} style={{padding:"8px 16px",borderRadius:8,border:tab===t.id?`2px solid ${C.blue}`:`1px solid ${C.border}`,background:tab===t.id?C.blue:"transparent",color:tab===t.id?"#fff":C.muted,cursor:"pointer",fontSize:12,fontWeight:700}}>{t.label}</button>)}
+          {TABS_EMB.map(t=><button key={t.id} onClick={()=>setTab(t.id)} className={`mdt-tab${tab===t.id?" mdt-tab--active":""}`} style={{padding:"8px 16px",borderRadius:8,border:tab===t.id?`2px solid ${C.blue}`:`1px solid ${C.border}`,background:tab===t.id?C.blue:"transparent",color:tab===t.id?"#fff":C.muted,cursor:"pointer",fontSize:12,fontWeight:700}}>{t.label}</button>)}
         </div>
 
         {tab==="plan"&&(
@@ -1894,7 +1894,7 @@ function RecepcionProcesoModule({data, setData, productores, can}) {
   return(
     <div>
       <div style={{display:"flex",gap:6,marginBottom:14,flexWrap:"wrap"}}>
-        {TABS.map(t=><button key={t.id} onClick={()=>setTab(t.id)} style={{padding:"8px 16px",borderRadius:8,border:tab===t.id?`2px solid #dc2626`:`1px solid ${C.border}`,background:tab===t.id?"#dc2626":"transparent",color:tab===t.id?"#fff":C.muted,cursor:"pointer",fontSize:12,fontWeight:700}}>{t.label}</button>)}
+        {TABS.map(t=><button key={t.id} onClick={()=>setTab(t.id)} className={`mdt-tab${tab===t.id?" mdt-tab--active":""}`} style={{padding:"8px 16px",borderRadius:8,border:tab===t.id?`2px solid #dc2626`:`1px solid ${C.border}`,background:tab===t.id?"#dc2626":"transparent",color:tab===t.id?"#fff":C.muted,cursor:"pointer",fontSize:12,fontWeight:700}}>{t.label}</button>)}
       </div>
       <div style={{display:"flex",gap:12,marginBottom:14,flexWrap:"wrap",alignItems:"center"}}>
         {can&&<button onClick={()=>{setEditId(null);setForm({fecha:"",productor:"",fruta:"",variedad:"",bins:0,kgBruto:0,kgNeto:0,qcRecepcion:"",estadoProceso:"Pendiente",resultadoProceso:{cajasObtenidas:0,descarte:0,merma:0},informeProductor:"",informeAllegria:"",observaciones:""});setModal(true);}}
@@ -2072,7 +2072,7 @@ function MaterialesInventarioModule({data, setData, recetas, setRecetas, embarqu
   return(
     <div>
       <div style={{display:"flex",gap:6,marginBottom:14,flexWrap:"wrap"}}>
-        {TABS.map(t=><button key={t.id} onClick={()=>setTab(t.id)} style={{padding:"8px 16px",borderRadius:8,border:tab===t.id?`2px solid #854d0e`:`1px solid ${C.border}`,background:tab===t.id?"#854d0e":"transparent",color:tab===t.id?"#fff":C.muted,cursor:"pointer",fontSize:12,fontWeight:700}}>{t.label}</button>)}
+        {TABS.map(t=><button key={t.id} onClick={()=>setTab(t.id)} className={`mdt-tab${tab===t.id?" mdt-tab--active":""}`} style={{padding:"8px 16px",borderRadius:8,border:tab===t.id?`2px solid #854d0e`:`1px solid ${C.border}`,background:tab===t.id?"#854d0e":"transparent",color:tab===t.id?"#fff":C.muted,cursor:"pointer",fontSize:12,fontWeight:700}}>{t.label}</button>)}
       </div>
 
       {tab==="maestro"&&(
