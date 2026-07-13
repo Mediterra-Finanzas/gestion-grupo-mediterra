@@ -11813,18 +11813,22 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
                   🧪 {e.name}
                 </button>
               ))}
-              {puedoEdit("flujo")&&(
+              {/* Crear/borrar escenario NO se muestran en el consolidado: ahí solo
+                  se cambia entre escenarios (arrastra/consolida lo de cada uno).
+                  La gestión de escenarios se hace desde las empresas. */}
+              {puedoEdit("flujo")&&empTab!=="_consolidado"&&empTab!=="_intercompany"&&(
                 <button onClick={()=>{const n=window.prompt("Nombre del nuevo escenario (copia del ORIGINAL, todas las empresas):");if(n)crearEscenario(n);}} disabled={escBusy}
                   style={{padding:"5px 12px",borderRadius:8,cursor:"pointer",fontSize:11,fontWeight:700,
                     border:`1px dashed ${C.border}`,background:"transparent",color:C.muted}}>
                   ＋ Nuevo escenario
                 </button>
               )}
-              {escActivo&&puedoEdit("flujo")&&(
+              {escActivo&&puedoEdit("flujo")&&empTab!=="_consolidado"&&empTab!=="_intercompany"&&(
                 <button onClick={()=>borrarEscenario(escActivo)} disabled={escBusy}
                   style={{padding:"5px 10px",borderRadius:8,cursor:"pointer",fontSize:11,
                     border:`1px solid ${C.red}44`,background:"transparent",color:C.red}}>🗑 Borrar</button>
               )}
+              {empTab==="_consolidado"&&<span style={{fontSize:10,color:C.muted,fontStyle:"italic"}}>Selecciona un escenario para ver su consolidado (la gestión se hace en las empresas)</span>}
               {escBusy&&<span style={{fontSize:11,color:C.muted,fontStyle:"italic"}}>cargando…</span>}
               {escActivo&&!escBusy&&(
                 <span style={{fontSize:11,color:"#a78bfa",fontWeight:700,marginLeft:"auto"}}>
