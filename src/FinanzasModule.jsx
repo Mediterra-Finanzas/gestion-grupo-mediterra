@@ -3819,7 +3819,7 @@ function buildEmpresasConOverrides(empresas, realData, addedLinesGlobal, subLine
 // ═══════════════════════════════════════════════════════════════════
 // CONSOLIDADO — dentro de Flujo Empresas
 // ═══════════════════════════════════════════════════════════════════
-function Consolidado({empresas,saldosBancos,realData={},addedLinesGlobal={},subLinesGlobal={}}) {
+function Consolidado({empresas,saldosBancos,realData={},addedLinesGlobal={},subLinesGlobal={},escenarioNombre=null}) {
   const empNames=Object.keys(empresas);
   const empNamesConsolidado = empNames.filter(n => EMPRESAS_KEYS_CONSOLIDADO.includes(n));
   const [vistaConsolidado,setVistaConsolidado]=useState("sumada");
@@ -4092,6 +4092,18 @@ function Consolidado({empresas,saldosBancos,realData={},addedLinesGlobal={},subL
 
   return(
     <div style={{display:"flex",flexDirection:"column",gap:14,minWidth:0}}>
+      {/* Encabezado consolidado — lleva el nombre del escenario activo */}
+      <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap",
+        padding:"10px 14px",borderRadius:10,
+        border:`1px solid ${escenarioNombre?"#a78bfa":C.border}`,
+        background:escenarioNombre?"#a78bfa14":C.card}}>
+        <span style={{fontSize:14,fontWeight:900,color:C.text}}>🏛 Flujo Consolidado Grupo Mediterra</span>
+        <span style={{fontSize:12,fontWeight:800,padding:"3px 12px",borderRadius:20,
+          background:escenarioNombre?"#a78bfa33":"#22c55e22",
+          color:escenarioNombre?"#a78bfa":"#22c55e"}}>
+          {escenarioNombre ? `🧪 ${escenarioNombre}` : "🏦 Base (original)"}
+        </span>
+      </div>
       {/* KPIs */}
       <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(160px,1fr))",gap:10}}>
         <KPI label="Saldo Inicial Consolidado" value={$$(saldoIniConsolidado)} color={C.blue}/>
@@ -4166,6 +4178,7 @@ function Consolidado({empresas,saldosBancos,realData={},addedLinesGlobal={},subL
                   empresasConOverrides,
                   empNames:empNamesConsolidado,
                   saldoIniPorEmp,
+                  escenarioNombre,
                 });
                 setExportMsg("✓ "+f);
               }catch(e){ console.error(e); setExportMsg("✗ Error al exportar"); }
@@ -11392,23 +11405,6 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
 
   // Snapshot completo del estado actual (para crear un escenario). Igual al
   // payload de persistAll pero sin overrides.
-  const snapshotBlob = useCallback(()=>({
-    finanzas_real: realDataRef.current,
-    allegria_params: paramsRef.current,
-    allegria_comision_arandanos: allegraComisionArandanosRef.current,
-    // saldos_bancos NO se copia al escenario (fila compartida finanzas_bancos)
-    params_emp: paramsEmpRef.current,
-    creditos_data: creditosRef.current,
-    params_as: paramsASRef.current,
-    params_frisku: paramsFriskuRef.current,
-    params_if: paramsIFRef.current,
-    params_af: paramsAFRef.current,
-    params_ap: paramsAPRef.current,
-    sub_lines: subLinesRef.current,
-    added_lines: addedLinesRef.current,
-    intercompany: intercompanyRef.current,
-  }),[]);
-
   // Cambiar de escenario (id=null → Base). Carga la fila y aplica; el gate
   // anti-borrado se resetea para no escribir hasta cargar OK.
   const switchEscenario = useCallback(async (id)=>{
@@ -11431,24 +11427,28 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
     setEscBusy(false);
   },[]); // eslint-disable-line
 
-  // Crear escenario = copia (snapshot) del estado actual en una fila propia.
+  // Crear escenario = copia del ORIGINAL (Base) en una fila propia, para TODAS
+  // las empresas. Cada escenario nuevo parte siempre del original, sin importar
+  // qué escenario esté activo al momento de crearlo.
   const crearEscenario = useCallback(async (nombre)=>{
     const nm = (nombre||"").trim(); if(!nm) return;
-    setEscBusy(true);
+    setEscBusy(true); cargaOkRef.current = false;
     try {
       const id = String(Date.now());
-      const blob = snapshotBlob();
-      const ok = await dbSave(blob, rowIdDe(id));
+      const base = await dbLoad("finanzas");   // ← siempre el original
+      const ok = await dbSave(base, rowIdDe(id));
       if(!ok) throw new Error("dbSave escenario falló");
       const next = [...escenariosRef.current, {id, name:nm, createdAt:new Date().toISOString()}];
       escenariosRef.current = next; setEscenarios(next);
       await dbSave({ escenarios: next }, "finanzas_esc_index");
-      // Cambiar a él: los datos en memoria YA son el snapshot (válidos y
-      // cargados), solo redirige el destino de guardado. cargaOkRef sigue true.
+      // Cargar el original en memoria y activar el nuevo escenario.
       activeRowRef.current = rowIdDe(id); setEscActivo(id);
+      applyData(base);
+      try { const sb = await dbLoadBancos(); if(sb){ setSaldosBancos(sb); saldosBancosRef.current = sb; } } catch(_){}
+      cargaOkRef.current = true; window._finLoadTime = Date.now();
     } catch(e){ console.error("[escenario] crear falló:", e); alert("No se pudo crear el escenario."); }
     setEscBusy(false);
-  },[snapshotBlob]);
+  },[]); // eslint-disable-line
 
   const borrarEscenario = useCallback(async (id)=>{
     const esc = escenariosRef.current.find(e=>e.id===id);
@@ -11814,7 +11814,7 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
                 </button>
               ))}
               {puedoEdit("flujo")&&(
-                <button onClick={()=>{const n=window.prompt("Nombre del nuevo escenario (copia del estado actual):");if(n)crearEscenario(n);}} disabled={escBusy}
+                <button onClick={()=>{const n=window.prompt("Nombre del nuevo escenario (copia del ORIGINAL, todas las empresas):");if(n)crearEscenario(n);}} disabled={escBusy}
                   style={{padding:"5px 12px",borderRadius:8,cursor:"pointer",fontSize:11,fontWeight:700,
                     border:`1px dashed ${C.border}`,background:"transparent",color:C.muted}}>
                   ＋ Nuevo escenario
@@ -11956,7 +11956,8 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
 
           {/* Consolidado */}
           {empTab==="_consolidado"&&accesoCompletoEmpresas&&(
-            <Consolidado empresas={empresas} saldosBancos={saldosBancos} realData={realData} addedLinesGlobal={addedLinesGlobal} subLinesGlobal={subLines}/>
+            <Consolidado empresas={empresas} saldosBancos={saldosBancos} realData={realData} addedLinesGlobal={addedLinesGlobal} subLinesGlobal={subLines}
+              escenarioNombre={escActivo ? (escenarios.find(e=>e.id===escActivo)?.name || "Escenario") : null}/>
           )}
           {/* Intercompany */}
           {empTab==="_intercompany"&&accesoCompletoEmpresas&&(

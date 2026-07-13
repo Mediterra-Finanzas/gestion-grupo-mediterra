@@ -273,7 +273,7 @@ function toSheet({ cells, rows, merges, lastRow, lastCol, cols }) {
 }
 
 // ═══════════════════════════════════════════════════════════════════
-export function exportarFlujoConsolidado({ empresasConOverrides, empNames, saldoIniPorEmp, lastSeasonStartYear = null, fileName }) {
+export function exportarFlujoConsolidado({ empresasConOverrides, empNames, saldoIniPorEmp, lastSeasonStartYear = null, fileName, escenarioNombre = null }) {
   const allMonths = genMonths();
   // lastSeasonStartYear null → flujo completo (hasta la última temporada proyectada)
   const months = lastSeasonStartYear == null ? allMonths : allMonths.filter(mo => seasonOf(mo) <= lastSeasonStartYear);
@@ -332,8 +332,8 @@ export function exportarFlujoConsolidado({ empresasConOverrides, empNames, saldo
   const saldoIniCons = monthOrder[0] && empNames.map(n => `'${sheetName[n]}'!${ref(empBuilt[n].saldoIniRow, monthOrder[0].c)}`).join('+');
   const saldoIniConsNum = monthOrder[0] ? empNames.reduce((a,n)=>a+(empBuilt[n].num[ref(empBuilt[n].saldoIniRow, monthOrder[0].c)]||0),0) : 0;
   const cons = buildStatement({
-    title:'🏛 Consolidado Grupo Mediterra',
-    subtitle:`${empNames.length} empresas · Apr-26 → ${months[months.length-1].label}`,
+    title:`🏛 Consolidado Grupo Mediterra${escenarioNombre?` — Escenario: ${escenarioNombre}`:''}`,
+    subtitle:`${escenarioNombre?`🧪 ${escenarioNombre} · `:''}${empNames.length} empresas · Apr-26 → ${months[months.length-1].label}`,
     cols, monthOrder, cats:consCats,
     saldoIniMonth0Formula: saldoIniCons,
     saldoIniMonth0Number: saldoIniConsNum,
@@ -347,7 +347,8 @@ export function exportarFlujoConsolidado({ empresasConOverrides, empNames, saldo
   // Consolidado = primera pestaña y activa al abrir; forzar recálculo
   wb.Workbook = { ...(wb.Workbook||{}), Views:[{ activeTab:0 }], CalcPr:{ fullCalcOnLoad:true } };
 
-  const fname = fileName || `Flujo_Consolidado_Mediterra_${months[months.length-1].label}.xlsx`;
+  const escTag = escenarioNombre ? `_${String(escenarioNombre).replace(/[^\w\-]+/g,'_').slice(0,30)}` : '';
+  const fname = fileName || `Flujo_Consolidado_Mediterra${escTag}_${months[months.length-1].label}.xlsx`;
   XLSX.writeFile(wb, fname);
   return fname;
 }
