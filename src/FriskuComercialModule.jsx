@@ -4753,7 +4753,7 @@ export default function FriskuComercialModule({
   return (
     <div style={{background:C.bg, minHeight:"100vh", color:C.text}}>
       {/* Header */}
-      <div style={{padding:"14px 20px", borderBottom:"1px solid rgba(255,255,255,0.10)", display:"flex", alignItems:"center", justifyContent:"space-between", flexWrap:"wrap", gap:10, background:"#0e2a40", boxShadow:"0 4px 16px rgba(16,24,40,0.20)"}}>
+      <div style={{padding:"14px 20px", borderBottom:"1px solid rgba(255,255,255,0.10)", display:"flex", alignItems:"center", justifyContent:"space-between", flexWrap:"wrap", gap:10, background:"#1E2761", boxShadow:"0 4px 16px rgba(16,24,40,0.20)"}}>
         <div style={{display:"flex", alignItems:"center", gap:14}}>
           <img
             src={`${process.env.PUBLIC_URL}/frisku.png`}
@@ -4769,7 +4769,7 @@ export default function FriskuComercialModule({
           {Object.values(guardando).some(Boolean)
             ? <span style={{color:"#fde68a"}}>💾 Guardando...</span>
             : <span style={{color:"#6ee7b7"}}>● Sincronizado</span>}
-          {onBack && <button onClick={onBack} style={{background:"rgba(255,255,255,0.10)",border:"1px solid rgba(255,255,255,0.22)",color:"#fff",borderRadius:8,padding:"7px 14px",cursor:"pointer",fontSize:12,fontWeight:600}}>← Volver</button>}
+          {onBack && <button onClick={onBack} style={{background:"rgba(255,255,255,0.10)",border:"1px solid rgba(255,255,255,0.22)",color:"#fff",borderRadius:8,padding:"7px 14px",cursor:"pointer",fontSize:12,fontWeight:600}}>← Mediterra</button>}
         </div>
       </div>
 

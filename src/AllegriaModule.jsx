@@ -264,7 +264,7 @@ async function dbSaveAllegria(value) {
 function NavBar({breadcrumbItems=[], onLogout}) {
   return (
     <div style={{
-      background:"#4a1218",
+      background:"#1E2761",
       borderRadius:14, padding:"14px 20px", marginBottom:20,
       display:"flex", justifyContent:"space-between", alignItems:"center", flexWrap:"wrap", gap:12,
       border:"1px solid rgba(255,255,255,0.10)", boxShadow:"0 4px 16px rgba(16,24,40,0.20)",

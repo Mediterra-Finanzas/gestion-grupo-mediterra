@@ -10043,7 +10043,7 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
   // IMPORTANTE: definida antes de cualquier return para que esté disponible en todos los casos
   const NavBar = ({breadcrumbItems, showPorCobrar=false}) => (
     <div style={{
-      background:"#0f2d4a",
+      background:"#1E2761",
       borderRadius:14,
       padding:"14px 20px",
       marginBottom:18,

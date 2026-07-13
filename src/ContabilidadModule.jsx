@@ -6466,7 +6466,7 @@ export default function ContabilidadModule({ usuario, canEdit, esCFO, onBack }) 
       {/* Header */}
       <div
         style={{
-          background: "#241a3d",
+          background: "#1E2761",
           borderBottom: "1px solid rgba(255,255,255,0.10)",
           padding: "14px 24px",
           display: "flex",
