@@ -1536,17 +1536,19 @@ function SectionTitle({children}) {
 }
 function KPI({label,value,color=C.green}) {
   return (
-    <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:10,padding:"12px 16px"}}>
-      <div style={{fontSize:10,color:C.muted,textTransform:"uppercase",letterSpacing:"0.5px",marginBottom:4}}>{label}</div>
-      <div style={{fontSize:18,fontWeight:800,color}}>{value}</div>
+    <div style={{position:"relative",background:C.card,border:`1px solid ${C.border}`,borderRadius:C.radius.md,padding:"12px 16px 12px 18px",boxShadow:C.shadowSm,overflow:"hidden"}}>
+      <div style={{position:"absolute",left:0,top:0,bottom:0,width:4,background:color}}/>
+      <div style={{fontSize:10,color:C.muted,textTransform:"uppercase",letterSpacing:"0.6px",fontWeight:600,marginBottom:5}}>{label}</div>
+      <div style={{fontSize:19,fontWeight:800,color,fontVariantNumeric:"tabular-nums",letterSpacing:"-0.2px"}}>{value}</div>
     </div>
   );
 }
 function Btn({onClick,active,children,color=C.accent,small=false}) {
   return (
     <button onClick={onClick}
-      style={{padding:small?"4px 10px":"6px 14px",borderRadius:8,cursor:"pointer",fontWeight:600,fontSize:small?10:11,
-        border:`1px solid ${active?color:C.border}`,background:active?`${color}33`:"transparent",color:active?color:C.muted}}>
+      style={{padding:small?"4px 10px":"6px 14px",borderRadius:C.radius.sm,cursor:"pointer",fontWeight:600,fontSize:small?10:11,
+        transition:"background .12s, border-color .12s, color .12s",
+        border:`1px solid ${active?color:C.border}`,background:active?`${color}1f`:"transparent",color:active?color:C.muted}}>
       {children}
     </button>
   );
@@ -3870,8 +3872,13 @@ function buildEmpresasConOverrides(empresas, realData, addedLinesGlobal, subLine
       lines: sec.lines.map(l => {
         if (overrides[l.label]) {
           const newProy = [...l.proy];
+          // Si la línea está controlada por parámetros desde cierto mes
+          // (_lockOverrideFromIdx), los overrides manuales en ese rango se ignoran.
+          const lockFrom = (typeof l._lockOverrideFromIdx === "number" && l._lockOverrideFromIdx >= 0)
+            ? l._lockOverrideFromIdx : null;
           Object.entries(overrides[l.label]).forEach(([idx, val]) => {
             const i = Number(idx);
+            if (lockFrom !== null && i >= lockFrom) return;
             if (!isNaN(i) && i >= 0 && i < newProy.length) {
               if (typeof val === "object" && val !== null) {
                 newProy[i] = Object.values(val).reduce((s, v) => s + (Number(v) || 0), 0);
@@ -5356,10 +5363,13 @@ function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit,saldosBanc
     const ov = proyOverrides[lineLabel]?.[idx];
     // Obtener valor base
     let base = 0;
+    let lockFrom = null;
     for(const sec of emp.sections){
       const l = sec.lines.find(x=>x.label===lineLabel);
-      if(l){ base = l.proy[idx]||0; break; }
+      if(l){ base = l.proy[idx]||0; if(typeof l._lockOverrideFromIdx==="number") lockFrom=l._lockOverrideFromIdx; break; }
     }
+    // Celda controlada por parámetros (ej. Osiris desde 27-28): ignora override manual.
+    if(lockFrom !== null && idx >= lockFrom) return base;
     if(ov === undefined) return base;
     if(typeof ov === "number") return ov;
     // ov es objeto con semanas: suma solo las semanas que el usuario ingresó
@@ -5383,11 +5393,13 @@ function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit,saldosBanc
   const getProySemana = useCallback((lineLabel, idx, semIdx, isLastInMonth) => {
     const ov = proyOverrides[lineLabel]?.[idx];
     let base = 0;
+    let lockFrom = null;
     for(const sec of emp.sections){
       const l = sec.lines.find(x=>x.label===lineLabel);
-      if(l){ base = l.proy[idx]||0; break; }
+      if(l){ base = l.proy[idx]||0; if(typeof l._lockOverrideFromIdx==="number") lockFrom=l._lockOverrideFromIdx; break; }
     }
-    if(ov === undefined) {
+    // Celda controlada por parámetros: ignora override, muestra base en la 1ª semana.
+    if(ov === undefined || (lockFrom !== null && idx >= lockFrom)) {
       // Sin override: mostrar el valor base COMPLETO en la primera semana
       return semIdx === 0 ? base : 0;
     }
@@ -6768,7 +6780,7 @@ function Dashboard({empresas, empresasConOverrides, saldosBancos}) {
   const maxIng=empTotals[0]?.totalIng||1;
   return (
     <div style={{display:"flex",flexDirection:"column",gap:14}}>
-      <div style={{display:"grid",gridTemplateColumns:"repeat(2,1fr)",gap:10}}>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(180px,1fr))",gap:10}}>
         <KPI label={`🇨🇱 Saldo Banco Chile`}  value={$$(saldoCajaChile)}  color={C.green}/>
         <KPI label={`🇵🇪 Saldo Banco Perú`}   value={$$(saldoCajaPerU)}   color={"#7c3aed"}/>
         <KPI label="Créditos Totales Q1-26" value={$$(8355763)}                 color={C.red}/>
@@ -8751,10 +8763,12 @@ function reporte_calcSaldoProyectadoMensual_v2(empNombre, realData, empresas, sa
   function getProy(lineLabel, idx) {
     const ov = proyOverrides[lineLabel]?.[idx];
     let base = 0;
+    let lockFrom = null;
     for(const sec of empData.sections){
       const l = sec.lines.find(x=>x.label===lineLabel);
-      if(l){ base = l.proy?.[idx]||0; break; }
+      if(l){ base = l.proy?.[idx]||0; if(typeof l._lockOverrideFromIdx==="number") lockFrom=l._lockOverrideFromIdx; break; }
     }
+    if(lockFrom !== null && idx >= lockFrom) return base;
     if(ov === undefined) return base;
     if(typeof ov === "number") return ov;
     if(typeof ov === "object" && ov !== null) {
@@ -8852,10 +8866,12 @@ function reporte_calcDetalleMensual(empNombre, realData, empresas, saldosBancos,
   function getProy(lineLabel, idx) {
     const ov = proyOverrides[lineLabel]?.[idx];
     let base = 0;
+    let lockFrom = null;
     for(const sec of empData.sections){
       const l = sec.lines.find(x=>x.label===lineLabel);
-      if(l){ base = l.proy?.[idx]||0; break; }
+      if(l){ base = l.proy?.[idx]||0; if(typeof l._lockOverrideFromIdx==="number") lockFrom=l._lockOverrideFromIdx; break; }
     }
+    if(lockFrom !== null && idx >= lockFrom) return base;
     if(ov === undefined) return base;
     if(typeof ov === "number") return ov;
     if(typeof ov === "object" && ov !== null) {
@@ -9035,10 +9051,12 @@ function reporte_getTopMovimientos(empNombre, realData, empresas, subLinesGlobal
   function getProy(lineLabel, idx) {
     const ov = proyOverrides[lineLabel]?.[idx];
     let base = 0;
+    let lockFrom = null;
     for(const sec of empData.sections){
       const l = sec.lines.find(x=>x.label===lineLabel);
-      if(l){ base = l.proy?.[idx]||0; break; }
+      if(l){ base = l.proy?.[idx]||0; if(typeof l._lockOverrideFromIdx==="number") lockFrom=l._lockOverrideFromIdx; break; }
     }
+    if(lockFrom !== null && idx >= lockFrom) return base;
     if(ov === undefined) return base;
     if(typeof ov === "number") return ov;
     if(typeof ov === "object" && ov !== null) {
@@ -11235,13 +11253,17 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
       //    base (hardcodeados); DESDE temporada 27-28 (seasonOf>=2027) se eliminan
       //    y mandan los parámetros (aunque estén en 0 hasta cargarlos).
       const DESDE_SEASON = 2027;
+      // Primer índice de mes cuya temporada ya está parametrizada. Desde acá los
+      // parámetros mandan y se ignoran los overrides manuales (_proyOverrides)
+      // que hubieran quedado cargados de antes.
+      const lockFromIdx = MESES_INFO.findIndex(mo => seasonOf(mo) >= DESDE_SEASON);
       nextOsi.sections = nextOsi.sections.map(sec=>{
         if(sec.cat!=="ing_op") return sec;
         return {...sec, lines: sec.lines.map(l=>{
           const arr = mapLinea[l.label];
           if(!arr) return l;
           const blended = MESES_INFO.map(mo => seasonOf(mo) >= DESDE_SEASON ? (arr[mo.idx]||0) : (l.proy[mo.idx]||0));
-          return {...l, proy:blended, formula:true};
+          return {...l, proy:blended, formula:true, _lockOverrideFromIdx:lockFromIdx};
         })};
       });
       // 2) Royalty IQ (costo) = 70% × (Royalty Comercial + Royalty por Planta)
