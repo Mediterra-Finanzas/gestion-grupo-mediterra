@@ -34,6 +34,23 @@ input:focus, select:focus, textarea:focus {
   border-color: #1E2761 !important;
 }
 
+/* ── Interactividad (Dirección A) ────────────────────────────────────
+   Los estilos inline no soportan :hover, así que las clases viven acá.
+   .mdt-tab   → pestañas (nivel módulo y sub-tabs). Hover solo en inactivas.
+   .mdt-btn   → botones tipo Btn. Sutil realce al pasar el mouse.
+   .mdt-lift  → tarjetas/tiles que "levantan" al hover. */
+.mdt-tab { transition: background .14s, border-color .14s, color .14s, box-shadow .14s; }
+.mdt-tab:not(.mdt-tab--active):hover {
+  background: #eef2f8 !important;
+  border-color: #aab6c6 !important;
+  color: #1e2733 !important;
+}
+.mdt-btn { transition: background .12s, border-color .12s, color .12s, transform .06s; }
+.mdt-btn:not(.mdt-btn--active):hover { background: rgba(30,39,97,0.06) !important; border-color: #aab6c6 !important; }
+.mdt-btn:active { transform: scale(0.97); }
+.mdt-lift { transition: transform .14s, box-shadow .14s; }
+.mdt-lift:hover { transform: translateY(-2px); }
+
 /* Medios nunca desbordan su contenedor */
 img, video, canvas { max-width: 100%; height: auto; }
 

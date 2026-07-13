@@ -3935,9 +3935,10 @@ Equipo Mediterra`);
             {id:"config",    label:"⚙️ Config",    show:puedeVerConfig},
           ].filter(t=>t.show).map(t=>(
             <button key={t.id} onClick={()=>setTab(t.id)}
+              className={`mdt-tab${tab===t.id?" mdt-tab--active":""}`}
               style={{padding:"12px 18px",border:"none",borderBottom:`3px solid ${tab===t.id?C.primary:"transparent"}`,
                 background:"transparent",cursor:"pointer",fontSize:12,fontWeight:tab===t.id?700:400,
-                color:tab===t.id?C.primary:C.muted,whiteSpace:"nowrap",transition:"all 0.15s"}}>
+                color:tab===t.id?C.primary:C.muted,whiteSpace:"nowrap"}}>
               {t.label}
             </button>
           ))}

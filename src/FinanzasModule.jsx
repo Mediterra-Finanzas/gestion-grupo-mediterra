@@ -1546,8 +1546,8 @@ function KPI({label,value,color=C.green}) {
 function Btn({onClick,active,children,color=C.accent,small=false}) {
   return (
     <button onClick={onClick}
+      className={`mdt-btn${active?" mdt-btn--active":""}`}
       style={{padding:small?"4px 10px":"6px 14px",borderRadius:C.radius.sm,cursor:"pointer",fontWeight:600,fontSize:small?10:11,
-        transition:"background .12s, border-color .12s, color .12s",
         border:`1px solid ${active?color:C.border}`,background:active?`${color}1f`:"transparent",color:active?color:C.muted}}>
       {children}
     </button>
@@ -12006,13 +12006,13 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
       <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:20}}>
         {TABS.map(t=>(
           <button key={t.id} onClick={()=>setTab(t.id)}
+            className={`mdt-tab${tab===t.id?" mdt-tab--active":""}`}
             style={{
               padding:"8px 18px",borderRadius:8,cursor:"pointer",fontWeight:600,fontSize:12,
               border:`1px solid ${tab===t.id?C.primary:C.border}`,
               background:tab===t.id?C.primary:C.card,
               color:tab===t.id?C.primaryText:C.text,
               boxShadow:tab===t.id?C.shadow:"none",
-              transition:"all 0.15s",
             }}>
             {t.label}
           </button>
