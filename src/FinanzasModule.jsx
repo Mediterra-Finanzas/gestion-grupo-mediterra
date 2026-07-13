@@ -12802,9 +12802,9 @@ function TablaItems({items, seccion, onChange, canEdit, tc, moneda="ambas", sema
           <thead>
             <tr style={{background:C.primary}}>
               {headers.map(h=>(
-                <th key={h} style={{padding:"6px 8px",color:C.muted,fontWeight:600,fontSize:10,
+                <th key={h} style={{padding:"6px 8px",color:"rgba(255,255,255,0.9)",fontWeight:600,fontSize:10,
                   textAlign:h==="Monto CLP"||h==="Monto USD"||h==="Monto PEN"?"right":"left",
-                  whiteSpace:"nowrap",borderBottom:`1px solid ${C.border}`}}>{h}</th>
+                  whiteSpace:"nowrap",borderBottom:`1px solid rgba(255,255,255,0.12)`}}>{h}</th>
               ))}
             </tr>
           </thead>
@@ -15530,7 +15530,7 @@ function NominasModule({usuario, canEdit=false, saldosBancos={}, empresasPermiti
                 <table style={{width:"100%",borderCollapse:"collapse",fontSize:11}}>
                   <thead><tr style={{background:C.primary}}>
                     {["Empresa","Semana","Tipo Doc","Proveedor","RUT","N° Doc","F. Venc","Concepto","CLP","USD","Estado Nómina"].map(h=>(
-                      <th key={h} style={{padding:"6px 8px",color:C.muted,fontWeight:600,fontSize:10,textAlign:h==="CLP"||h==="USD"?"right":"left",whiteSpace:"nowrap",borderBottom:`1px solid ${C.border}`}}>{h}</th>
+                      <th key={h} style={{padding:"6px 8px",color:"rgba(255,255,255,0.9)",fontWeight:600,fontSize:10,textAlign:h==="CLP"||h==="USD"?"right":"left",whiteSpace:"nowrap",borderBottom:`1px solid rgba(255,255,255,0.12)`}}>{h}</th>
                     ))}
                   </tr></thead>
                   <tbody>
@@ -15597,10 +15597,10 @@ function NominasModule({usuario, canEdit=false, saldosBancos={}, empresasPermiti
               <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
                 <thead>
                   <tr style={{background:C.primary}}>
-                    <th style={{padding:"10px 14px",textAlign:"left",color:C.muted,fontWeight:700,fontSize:11}}>Empresa</th>
-                    <th style={{padding:"10px 10px",textAlign:"center",color:C.muted,fontWeight:600,fontSize:11}}>Nóminas</th>
-                    <th style={{padding:"10px 10px",textAlign:"right",color:C.muted,fontWeight:600,fontSize:11}}>Total CLP / PEN</th>
-                    <th style={{padding:"10px 10px",textAlign:"right",color:C.muted,fontWeight:600,fontSize:11}}>Total USD</th>
+                    <th style={{padding:"10px 14px",textAlign:"left",color:"rgba(255,255,255,0.9)",fontWeight:700,fontSize:11}}>Empresa</th>
+                    <th style={{padding:"10px 10px",textAlign:"center",color:"rgba(255,255,255,0.9)",fontWeight:600,fontSize:11}}>Nóminas</th>
+                    <th style={{padding:"10px 10px",textAlign:"right",color:"rgba(255,255,255,0.9)",fontWeight:600,fontSize:11}}>Total CLP / PEN</th>
+                    <th style={{padding:"10px 10px",textAlign:"right",color:"rgba(255,255,255,0.9)",fontWeight:600,fontSize:11}}>Total USD</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -15634,10 +15634,10 @@ function NominasModule({usuario, canEdit=false, saldosBancos={}, empresasPermiti
               <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
                 <thead>
                   <tr style={{background:C.primary}}>
-                    <th style={{padding:"10px 14px",textAlign:"left",color:C.muted,fontWeight:700,fontSize:11}}>Categoría</th>
-                    <th style={{padding:"10px 10px",textAlign:"center",color:C.muted,fontWeight:600,fontSize:11}}>Items</th>
-                    <th style={{padding:"10px 10px",textAlign:"right",color:C.muted,fontWeight:600,fontSize:11}}>Total CLP</th>
-                    <th style={{padding:"10px 10px",textAlign:"right",color:C.muted,fontWeight:600,fontSize:11}}>Total USD</th>
+                    <th style={{padding:"10px 14px",textAlign:"left",color:"rgba(255,255,255,0.9)",fontWeight:700,fontSize:11}}>Categoría</th>
+                    <th style={{padding:"10px 10px",textAlign:"center",color:"rgba(255,255,255,0.9)",fontWeight:600,fontSize:11}}>Items</th>
+                    <th style={{padding:"10px 10px",textAlign:"right",color:"rgba(255,255,255,0.9)",fontWeight:600,fontSize:11}}>Total CLP</th>
+                    <th style={{padding:"10px 10px",textAlign:"right",color:"rgba(255,255,255,0.9)",fontWeight:600,fontSize:11}}>Total USD</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -15796,15 +15796,15 @@ function NominasModule({usuario, canEdit=false, saldosBancos={}, empresasPermiti
         <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
           <thead>
             <tr style={{background:C.primary}}>
-              <th style={{padding:"10px 14px",textAlign:"left",color:C.muted,fontWeight:700,fontSize:11}}>
+              <th style={{padding:"10px 14px",textAlign:"left",color:"rgba(255,255,255,0.9)",fontWeight:700,fontSize:11}}>
                 Empresa
               </th>
-              <th style={{padding:"10px 10px",textAlign:"center",color:C.muted,fontWeight:600,fontSize:11}}>Estado</th>
-              <th style={{padding:"10px 10px",textAlign:"right",color:C.muted,fontWeight:600,fontSize:11}}>Total CLP</th>
-              <th style={{padding:"10px 10px",textAlign:"right",color:C.muted,fontWeight:600,fontSize:11}}>Total USD</th>
-              <th style={{padding:"10px 10px",textAlign:"center",color:C.muted,fontWeight:600,fontSize:11}}>Preparada por</th>
-              <th style={{padding:"10px 10px",textAlign:"center",color:C.muted,fontWeight:600,fontSize:11}}>Aprobada por</th>
-              <th style={{padding:"10px 10px",textAlign:"center",color:C.muted,fontWeight:600,fontSize:11}}>Acciones</th>
+              <th style={{padding:"10px 10px",textAlign:"center",color:"rgba(255,255,255,0.9)",fontWeight:600,fontSize:11}}>Estado</th>
+              <th style={{padding:"10px 10px",textAlign:"right",color:"rgba(255,255,255,0.9)",fontWeight:600,fontSize:11}}>Total CLP</th>
+              <th style={{padding:"10px 10px",textAlign:"right",color:"rgba(255,255,255,0.9)",fontWeight:600,fontSize:11}}>Total USD</th>
+              <th style={{padding:"10px 10px",textAlign:"center",color:"rgba(255,255,255,0.9)",fontWeight:600,fontSize:11}}>Preparada por</th>
+              <th style={{padding:"10px 10px",textAlign:"center",color:"rgba(255,255,255,0.9)",fontWeight:600,fontSize:11}}>Aprobada por</th>
+              <th style={{padding:"10px 10px",textAlign:"center",color:"rgba(255,255,255,0.9)",fontWeight:600,fontSize:11}}>Acciones</th>
             </tr>
           </thead>
           <tbody>
@@ -16498,12 +16498,12 @@ function AuditoriaModule({usuario}) {
         <table style={{width:"100%", borderCollapse:"collapse", fontSize:11}}>
           <thead>
             <tr style={{background:C.primary}}>
-              <th style={{padding:"8px 10px", textAlign:"left", color:C.muted, fontWeight:700, fontSize:10}}>Fecha / Hora</th>
-              <th style={{padding:"8px 10px", textAlign:"left", color:C.muted, fontWeight:700, fontSize:10}}>Usuario</th>
-              <th style={{padding:"8px 10px", textAlign:"center", color:C.muted, fontWeight:700, fontSize:10}}>Acción</th>
-              <th style={{padding:"8px 10px", textAlign:"center", color:C.muted, fontWeight:700, fontSize:10}}>Módulo</th>
-              <th style={{padding:"8px 10px", textAlign:"left", color:C.muted, fontWeight:700, fontSize:10}}>Sección</th>
-              <th style={{padding:"8px 10px", textAlign:"left", color:C.muted, fontWeight:700, fontSize:10}}>Descripción</th>
+              <th style={{padding:"8px 10px", textAlign:"left", color:"rgba(255,255,255,0.9)", fontWeight:700, fontSize:10}}>Fecha / Hora</th>
+              <th style={{padding:"8px 10px", textAlign:"left", color:"rgba(255,255,255,0.9)", fontWeight:700, fontSize:10}}>Usuario</th>
+              <th style={{padding:"8px 10px", textAlign:"center", color:"rgba(255,255,255,0.9)", fontWeight:700, fontSize:10}}>Acción</th>
+              <th style={{padding:"8px 10px", textAlign:"center", color:"rgba(255,255,255,0.9)", fontWeight:700, fontSize:10}}>Módulo</th>
+              <th style={{padding:"8px 10px", textAlign:"left", color:"rgba(255,255,255,0.9)", fontWeight:700, fontSize:10}}>Sección</th>
+              <th style={{padding:"8px 10px", textAlign:"left", color:"rgba(255,255,255,0.9)", fontWeight:700, fontSize:10}}>Descripción</th>
               <th style={{padding:"8px 10px", textAlign:"center", color:C.muted, fontWeight:700, fontSize:10, width:40}}></th>
             </tr>
           </thead>
