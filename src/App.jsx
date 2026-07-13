@@ -3416,7 +3416,7 @@ Equipo Mediterra`);
 
   if(!usuarioActual||workerPendiente) return (
     <div style={{minHeight:"100vh",background:`linear-gradient(160deg, ${C.bg} 0%, ${C.bg2} 100%)`,display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"sans-serif",padding:20}}>
-      <div style={{background:C.card,borderRadius:20,padding:"36px 40px",maxWidth:420,width:"100%",boxShadow:"0 24px 64px rgba(0,0,0,0.5)"}}>
+      <div style={{background:C.card,borderRadius:20,padding:"36px 40px",maxWidth:420,width:"100%",boxShadow:"0 20px 60px rgba(16,24,40,0.28)",borderTop:`4px solid ${C.accent}`}}>
         <div style={{textAlign:"center",marginBottom:28}}>
           <img src="/med.png" alt="Mediterra" style={{height:56,objectFit:"contain",marginBottom:12}} onError={e=>{e.target.style.display="none";}}/>
           <div style={{fontSize:11,letterSpacing:3,color:C.muted2,marginBottom:4}}>GRUPO MEDITERRA</div>
@@ -3424,7 +3424,7 @@ Equipo Mediterra`);
         </div>
 
         {modalPin==="cambiar"&&(
-          <div style={{background:"#fefce8",borderRadius:12,padding:"14px 16px",marginBottom:16,border:"1px solid #fde047",fontSize:13,color:C.warning}}>
+          <div style={{background:C.warningBg,borderRadius:12,padding:"14px 16px",marginBottom:16,border:`1px solid ${C.warning}44`,fontSize:13,color:C.warning}}>
             🔑 Por seguridad, crea un PIN de 6 dígitos y registra tu celular antes de continuar.
           </div>
         )}
@@ -3468,9 +3468,9 @@ Equipo Mediterra`);
                   textAlign:"center",letterSpacing:6,outline:"none",boxSizing:"border-box"}}/>
             </div>
             {loginError&&<div style={{color:C.danger,fontSize:12,marginBottom:10,textAlign:"center"}}>{loginError}</div>}
-            <button onClick={handleLogin}
-              style={{width:"100%",padding:"11px",borderRadius:8,background:"linear-gradient(135deg,#1e3a5f,#2563eb)",
-                color:"#fff",border:"none",fontWeight:700,fontSize:14,cursor:"pointer"}}>
+            <button onClick={handleLogin} className="mdt-btn-solid"
+              style={{width:"100%",padding:"12px",borderRadius:8,background:C.primary,
+                color:"#fff",border:"none",fontWeight:700,fontSize:14,cursor:"pointer",letterSpacing:".3px"}}>
               Ingresar
             </button>
             <div style={{marginTop:16,textAlign:"center"}}>

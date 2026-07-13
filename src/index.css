@@ -41,14 +41,16 @@ input:focus, select:focus, textarea:focus {
    .mdt-lift  → tarjetas/tiles que "levantan".
    Transiciones y feedback de :active van globales (sirven en touch);
    los efectos :hover se limitan a dispositivos con mouse real más abajo. */
-.mdt-tab  { transition: background .14s, border-color .14s, color .14s, box-shadow .14s; }
-.mdt-btn  { transition: background .12s, border-color .12s, color .12s, transform .06s; }
-.mdt-lift { transition: transform .14s, box-shadow .14s; }
+.mdt-tab       { transition: background .14s, border-color .14s, color .14s, box-shadow .14s; }
+.mdt-btn       { transition: background .12s, border-color .12s, color .12s, transform .06s; }
+.mdt-btn-solid { transition: filter .12s, box-shadow .12s, transform .06s; }
+.mdt-lift      { transition: transform .14s, box-shadow .14s; }
 
 /* Feedback táctil/click: al presionar, el elemento "se hunde" un poco.
    Funciona igual en desktop (click) y en móvil (tap). */
-.mdt-btn:active  { transform: scale(0.97); }
-.mdt-lift:active { transform: scale(0.985); }
+.mdt-btn:active       { transform: scale(0.97); }
+.mdt-btn-solid:active { transform: scale(0.98); }
+.mdt-lift:active      { transform: scale(0.985); }
 
 /* Efectos HOVER — SOLO en dispositivos con puntero fino y hover real
    (mouse/trackpad). En pantallas táctiles no aplican, así se evita el
@@ -66,6 +68,8 @@ input:focus, select:focus, textarea:focus {
   .mdt-lift:hover { transform: translateY(-2px); }
   /* Tiles del hub: al hover suben un poco más y la sombra se profundiza. */
   .mdt-tile:hover { transform: translateY(-4px); box-shadow: 0 12px 40px rgba(0,0,0,0.25) !important; }
+  /* CTAs sólidos: se oscurecen un pelo al hover (sirve para cualquier color). */
+  .mdt-btn-solid:hover { filter: brightness(0.92); }
 
   /* Resaltado de fila al pasar el mouse — usa background-image (overlay) en
      vez de background-color, así tiñe ENCIMA del color propio de cada celda
@@ -96,6 +100,19 @@ img, video, canvas { max-width: 100%; height: auto; }
 [style*="overflow-y: auto"],
 [style*="overflow-y:auto"] {
   -webkit-overflow-scrolling: touch;
+}
+
+/* Scrollbars finas y branded — solo en dispositivos con puntero fino (desktop);
+   en táctiles el SO usa scrollbars overlay que no conviene pisar. */
+@media (pointer: fine) {
+  * { scrollbar-width: thin; scrollbar-color: #c5cedb transparent; }
+  ::-webkit-scrollbar { width: 10px; height: 10px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb {
+    background: #c5cedb; border-radius: 8px;
+    border: 2px solid transparent; background-clip: padding-box;
+  }
+  ::-webkit-scrollbar-thumb:hover { background: #aab6c6; }
 }
 
 /* NOTA: no se usa overflow-x:hidden global porque rompe el scroll
