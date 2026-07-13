@@ -1502,43 +1502,48 @@ function HubScreen({ usuario, modulosPermitidos, onSelectModulo, onLogout, onCam
         )}
       </div>
 
-      {/* Módulos — grilla ejecutiva: banda de marca con logo + cuerpo */}
+      {/* Módulos — tiles premium con marca, movimiento y glow por empresa */}
       <div style={{maxWidth:1160, margin:"0 auto", padding:"16px 32px 0"}}>
         <div style={{fontSize:11, fontWeight:700, color:C.muted2, textTransform:"uppercase", letterSpacing:1.4, marginBottom:16}}>Módulos</div>
-        <div style={{display:"grid", gridTemplateColumns:"repeat(auto-fill, minmax(290px, 1fr))", gap:20}}>
-          {MODULOS_DISPONIBLES.filter(m => modulosPermitidos.includes(m.id)).map(modulo => (
+        <div style={{display:"grid", gridTemplateColumns:"repeat(auto-fill, minmax(300px, 1fr))", gap:20}}>
+          {MODULOS_DISPONIBLES.filter(m => modulosPermitidos.includes(m.id)).map((modulo, i) => (
             <button key={modulo.id} onClick={() => onSelectModulo(modulo.id)}
-              className="mdt-lift mdt-modcard"
+              className="mdt-tile2"
               style={{
-                background: C.card,
-                border: `1px solid ${C.border}`,
-                borderRadius: 16,
-                padding: 0,
+                "--mod-glow": `${modulo.color}66`,
+                animationDelay: `${i*70}ms`,
+                background: modulo.grad,
+                border: "1px solid rgba(255,255,255,0.12)",
+                borderRadius: 18,
+                padding: "22px 24px",
+                minHeight: 178,
                 cursor: "pointer",
                 textAlign: "left",
-                overflow: "hidden",
-                boxShadow: "0 2px 10px rgba(16,24,40,0.08)",
+                color: "#fff",
+                boxShadow: "0 6px 20px rgba(16,24,40,0.18)",
                 display: "flex", flexDirection: "column",
               }}
             >
-              {/* Banda de marca — el logo claro se ve sobre el gradiente oscuro */}
-              <div style={{background: modulo.grad, height: 104, display:"flex", alignItems:"center", justifyContent:"center", padding:"0 20px", position:"relative"}}>
+              {/* Ícono de fondo (marca de agua) */}
+              <div className="mdt-tile2-wm" style={{position:"absolute", right:-12, bottom:-18, fontSize:120, lineHeight:1, opacity:0.09, pointerEvents:"none"}}>{modulo.icon}</div>
+              {/* Logo de la empresa (claro sobre el gradiente) */}
+              <div style={{height:50, display:"flex", alignItems:"center", marginBottom:14}}>
                 {modulo.id === "osiris"
                   ? <OsirisLogoSmall/>
                   : modulo.id === "finanzas"
-                  ? <img src="/med.png" alt="Mediterra" style={{height:52, objectFit:"contain"}} onError={e=>{e.target.style.display="none";}}/>
+                  ? <img src="/med.png" alt="Mediterra" style={{height:48, objectFit:"contain"}} onError={e=>{e.target.style.display="none";}}/>
                   : modulo.id === "allegria"
-                  ? <img src={ALLEGRIA_LOGO_B64} alt="Allegria Foods" style={{height:52, objectFit:"contain"}} onError={e=>{e.target.onerror=null;e.target.style.display="none";}}/>
+                  ? <img src={ALLEGRIA_LOGO_B64} alt="Allegria Foods" style={{height:48, objectFit:"contain"}} onError={e=>{e.target.onerror=null;e.target.style.display="none";}}/>
                   : modulo.id === "frisku"
-                  ? <img src="/frisku.png" alt="Frisku Foods" style={{height:48, objectFit:"contain"}} onError={e=>{e.target.style.display="none";}}/>
-                  : <div style={{fontSize:48, lineHeight:1}}>{modulo.icon}</div>
+                  ? <img src="/frisku.png" alt="Frisku Foods" style={{height:44, objectFit:"contain"}} onError={e=>{e.target.style.display="none";}}/>
+                  : <div style={{fontSize:44, lineHeight:1}}>{modulo.icon}</div>
                 }
               </div>
-              {/* Cuerpo */}
-              <div style={{padding:"18px 22px 20px", flex:1, display:"flex", flexDirection:"column"}}>
-                <div style={{fontSize:19, fontWeight:800, color:C.text, lineHeight:1.2}}>{modulo.label}</div>
-                <div style={{fontSize:13, color:C.muted, marginTop:5, lineHeight:1.45, flex:1}}>{modulo.sublabel}</div>
-                <div className="mdt-modcard-arrow" style={{marginTop:16, fontSize:13, fontWeight:700, color:modulo.color, display:"flex", alignItems:"center", gap:7}}>
+              {/* Info abajo */}
+              <div style={{marginTop:"auto", position:"relative", zIndex:1}}>
+                <div style={{fontSize:20, fontWeight:800, color:"#fff", lineHeight:1.15}}>{modulo.label}</div>
+                <div style={{fontSize:13, color:"rgba(255,255,255,0.72)", marginTop:4, lineHeight:1.4}}>{modulo.sublabel}</div>
+                <div className="mdt-tile2-arrow" style={{marginTop:14, fontSize:13, fontWeight:700, color:"#fff", display:"flex", alignItems:"center", gap:7}}>
                   Entrar <span style={{fontSize:17, lineHeight:1}}>→</span>
                 </div>
               </div>

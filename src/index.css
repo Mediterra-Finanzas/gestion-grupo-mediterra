@@ -52,6 +52,16 @@ input:focus, select:focus, textarea:focus {
 .mdt-btn-solid:active { transform: scale(0.98); }
 .mdt-lift:active      { transform: scale(0.985); }
 
+/* Tiles premium del hub: entrada animada escalonada + press en touch.
+   fill "backwards" aplica el estado inicial durante el animation-delay
+   (para el escalonado) pero NO al terminar, así el :hover puede tomar
+   el control del transform después. */
+.mdt-tile2 { position: relative; overflow: hidden; transition: transform .16s, box-shadow .18s;
+  animation: mdt-rise .5s cubic-bezier(.2,.7,.3,1) backwards; }
+.mdt-tile2:active { transform: scale(.985); }
+.mdt-tile2-arrow, .mdt-tile2-wm { transition: transform .18s; }
+@keyframes mdt-rise { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: none; } }
+
 /* Efectos HOVER — SOLO en dispositivos con puntero fino y hover real
    (mouse/trackpad). En pantallas táctiles no aplican, así se evita el
    "sticky hover" (el último elemento tocado queda pegado resaltado). */
@@ -74,6 +84,12 @@ input:focus, select:focus, textarea:focus {
   .mdt-modcard:hover { box-shadow: 0 14px 34px rgba(16,24,40,0.16) !important; }
   .mdt-modcard-arrow { transition: transform .16s; }
   .mdt-modcard:hover .mdt-modcard-arrow { transform: translateX(6px); }
+
+  /* Tiles premium del hub: levantan con glow en el color de la empresa,
+     la flecha se desliza y el ícono de fondo crece un poco. */
+  .mdt-tile2:hover { transform: translateY(-6px); box-shadow: 0 20px 46px var(--mod-glow) !important; }
+  .mdt-tile2:hover .mdt-tile2-arrow { transform: translateX(6px); }
+  .mdt-tile2:hover .mdt-tile2-wm { transform: scale(1.12) rotate(-5deg); }
 
   /* Resaltado de fila al pasar el mouse — usa background-image (overlay) en
      vez de background-color, así tiñe ENCIMA del color propio de cada celda
