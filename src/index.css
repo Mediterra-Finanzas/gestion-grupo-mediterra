@@ -71,6 +71,14 @@ img, video, canvas { max-width: 100%; height: auto; }
 [style*="overflow-x:auto"] {
   max-width: calc(100vw - 40px);
   min-width: 0;
+  -webkit-overflow-scrolling: touch; /* inercia de scroll en iOS/iPadOS */
+}
+
+/* Scroll con inercia también en contenedores con scroll vertical (tablas con
+   maxHeight + overflow-y:auto, ej. Flujo/Consolidado con thead sticky). */
+[style*="overflow-y: auto"],
+[style*="overflow-y:auto"] {
+  -webkit-overflow-scrolling: touch;
 }
 
 /* NOTA: no se usa overflow-x:hidden global porque rompe el scroll
@@ -98,4 +106,12 @@ img, video, canvas { max-width: 100%; height: auto; }
     font-size: 16px !important;
     max-width: 100%;
   }
+
+  /* Recuperar ancho horizontal: el cap calc(100vw - 80px) es una asunción de
+     desktop (paddings App+módulo). En móvil dejamos casi todo el ancho para
+     que las tablas anchas (Flujo 65 meses) scrolleen usando toda la pantalla. */
+  [style*="calc(100vw - 80px)"] { max-width: calc(100vw - 20px) !important; }
+
+  /* Tap targets cómodos para dedos en las pestañas. */
+  .mdt-tab { min-height: 42px; }
 }
