@@ -1931,6 +1931,7 @@ export default function App(){
   const [semanaActiva,setSemanaActiva]=useState(()=>semanaActivaDefault(semanasDelMes(hoy.getMonth(),hoy.getFullYear())));
   const [guardado,setGuardado]=useState("idle");
   const [cargando,setCargando]=useState(true);
+  const [cargaError,setCargaError]=useState(false); // solo UI: se activa si la carga inicial se cuelga (timeout). NO toca datos ni el gate anti-borrado.
   // GUARD anti-borrado: el auto-guardado solo se habilita tras una carga
   // EXITOSA desde Supabase. Si dbLoad() falla (red/timeout), este flag queda
   // en false y NO se guarda nada → así un parpadeo de conexión al abrir la app
@@ -2218,7 +2219,12 @@ export default function App(){
         // Se restaura en el useEffect que observa [usuarios, cargando] abajo
       }
     }
-    cargar();
+    // Red de seguridad SOLO visual: si la carga inicial se cuelga (fetch sin
+    // respuesta), a los 15s mostramos un aviso de "reintentar" en vez de dejar
+    // la pantalla pegada en "Cargando…". No aborta el fetch ni toca datos; si
+    // la carga resuelve (ok o error) se limpia el timeout y sigue el flujo normal.
+    const _cargaTimeout = setTimeout(()=>setCargaError(true), 15000);
+    Promise.resolve(cargar()).catch(()=>{}).finally(()=>clearTimeout(_cargaTimeout));
 
     // Aplica cambios entrantes de la fila "main" (Tareas) a la pantalla.
     const aplicarMain = (d) => {
@@ -3418,8 +3424,22 @@ Equipo Mediterra`);
 
   // ── RENDER PRINCIPAL ──────────────────────────────────────────────
   if(cargando) return (
-    <div style={{display:"flex",alignItems:"center",justifyContent:"center",height:"100vh",fontFamily:"sans-serif",color:C.muted,fontSize:15}}>
-      Cargando...
+    <div style={{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",height:"100vh",fontFamily:"sans-serif",gap:14,padding:24}}>
+      {cargaError ? (
+        <>
+          <div style={{fontSize:40,lineHeight:1}}>⚠️</div>
+          <div style={{fontSize:16,fontWeight:700,color:C.text,textAlign:"center"}}>No se pudo conectar con el servidor</div>
+          <div style={{fontSize:13,color:C.muted,textAlign:"center",maxWidth:360,lineHeight:1.5}}>
+            El servidor no respondió a tiempo (puede ser una interrupción temporal del servicio). Tus datos están a salvo.
+          </div>
+          <button onClick={()=>window.location.reload()} className="mdt-btn-solid"
+            style={{marginTop:6,padding:"10px 22px",borderRadius:8,background:C.primary,color:"#fff",border:"none",fontWeight:700,fontSize:14,cursor:"pointer"}}>
+            Reintentar
+          </button>
+        </>
+      ) : (
+        <div style={{color:C.muted,fontSize:15}}>Cargando...</div>
+      )}
     </div>
   );
 
