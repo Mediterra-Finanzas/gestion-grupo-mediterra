@@ -4051,11 +4051,11 @@ function Consolidado({empresas,saldosBancos,realData={},addedLinesGlobal={},subL
   const cols=useMemo(()=>{
     if(agrup==="temporada") return SEASONS.map(s=>({key:s.key,label:s.label,indices:s.indices,tipo:"temporada",isFirstInSeason:true,nSems:1}));
     return SEASONS.flatMap(s=>{
-      if(!openSeason[s.key]) return [{key:s.key,label:s.label,indices:s.indices,tipo:"season_col",collapsed:true,isFirstInSeason:true,nSems:1}];
-      if(agrup==="mes") return s.months.map((m,mi)=>({key:`${s.key}-${m}`,label:m,indices:[mIdx(m)],tipo:"mes",isFirstInSeason:mi===0,nSems:1,mes:m}));
+      if(!openSeason[s.key]) return [{key:s.key,sk:s.key,label:s.label,indices:s.indices,tipo:"season_col",collapsed:true,isFirstInSeason:true,nSems:1}];
+      if(agrup==="mes") return s.months.map((m,mi)=>({key:`${s.key}-${m}`,sk:s.key,label:m,indices:[mIdx(m)],tipo:"mes",isFirstInSeason:mi===0,nSems:1,mes:m}));
       return s.months.flatMap((m,mi)=>{
         const sems=SEMANAS_MES[m]||[];const nSems=sems.length||1;const midx=mIdx(m);
-        return sems.map((sw,si)=>({key:`${m}-${sw}`,label:sw,indices:[midx],tipo:"semana",nSems,mes:m,labelMes:m,semIdx:si,isFirstInSeason:mi===0&&si===0,isFirstInMes:si===0}));
+        return sems.map((sw,si)=>({key:`${m}-${sw}`,sk:s.key,label:sw,indices:[midx],tipo:"semana",nSems,mes:m,labelMes:m,semIdx:si,isFirstInSeason:mi===0&&si===0,isFirstInMes:si===0}));
       });
     });
   },[agrup,openSeason]);
@@ -4078,18 +4078,26 @@ function Consolidado({empresas,saldosBancos,realData={},addedLinesGlobal={},subL
         <th style={{padding:"9px 14px",textAlign:"left",color:C.muted,fontSize:10,position:"sticky",left:0,top:0,background:C.bg,zIndex:6,minWidth:180,borderRight:`1px solid ${C.border}`}}>
           {vistaConsolidado==="sumada"?"Concepto":"Empresa / Concepto"}
         </th>
-        {cols.map(col=>(
-          <th key={col.key} onClick={col.collapsed?()=>setOpenSeason(p=>({...p,[col.key]:true})):undefined}
+        {cols.map(col=>{
+          // Clic en la cabecera agrupa/desagrupa la temporada:
+          //  · temporada colapsada (season_col) → expandir (mostrar meses)
+          //  · mes/semana → colapsar (agrupar la temporada)
+          const clickable = col.tipo!=="temporada";
+          const onTh = clickable ? ()=>setOpenSeason(p=>({...p,[col.sk]: col.collapsed ? true : false})) : undefined;
+          const flecha = col.collapsed ? "▸ " : (col.isFirstInSeason ? "▾ " : "");
+          return (
+          <th key={col.key} onClick={onTh} title={clickable?(col.collapsed?"Clic: desagrupar temporada":"Clic: agrupar temporada"):undefined}
             style={{padding:"7px 7px",textAlign:"center",
               background:col.collapsed?C.bg2:col.tipo==="temporada"?C.card:C.bg,
               borderLeft:col.isFirstInSeason?`2px solid ${C.border2}`:`1px solid ${C.border}22`,
               fontSize:col.tipo==="temporada"?10:9,fontWeight:col.tipo==="temporada"?800:600,
               color:col.collapsed?C.accentL:col.tipo==="temporada"?"#fff":col.isFirstInSeason?C.accentL:C.muted,
               whiteSpace:"nowrap",minWidth:col.tipo==="temporada"?110:col.collapsed?80:agrup==="semana"?44:68,
-              cursor:col.collapsed?"pointer":"default"}}>
-            {col.collapsed?`▸ ${col.label}`:col.label}
+              cursor:clickable?"pointer":"default",userSelect:"none"}}>
+            {flecha}{col.label}
           </th>
-        ))}
+          );
+        })}
       </tr>
       {agrup==="semana"&&(()=>{
         const rendered={};const cells=[];
