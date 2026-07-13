@@ -1488,59 +1488,51 @@ function HubScreen({ usuario, modulosPermitidos, onSelectModulo, onLogout, onCam
         </div>
       </div>
 
-      <div style={{textAlign:"center", padding:"40px 24px 28px"}}>
-        <div style={{fontSize:28, fontWeight:900, color:C.text, marginBottom:6}}>Hola, {usuario.nombre.split(" ")[0]} 👋</div>
-        <h2 style={{margin:0, fontSize:18, fontWeight:500, color:C.muted, lineHeight:1.4}}>¿Qué deseas gestionar hoy?</h2>
+      {/* Franja de bienvenida ejecutiva */}
+      <div style={{maxWidth:1120, margin:"0 auto", padding:"30px 32px 6px"}}>
+        <div style={{fontSize:22, fontWeight:800, color:C.text, letterSpacing:"-0.2px"}}>
+          {(()=>{const h=hoy.getHours();return h<12?"Buenos días":h<20?"Buenas tardes":"Buenas noches";})()}, {usuario.nombre.split(" ")[0]}
+        </div>
+        <div style={{fontSize:13, color:C.muted, marginTop:3}}>
+          <span style={{textTransform:"capitalize"}}>{fechaStr}</span>
+          {" · Temporada "}{(()=>{const m=hoy.getMonth(),y=hoy.getFullYear(),sy=m>=6?y:y-1;return `${String(sy).slice(2)}-${String(sy+1).slice(2)}`;})()}
+        </div>
         {modulosPermitidos.length === 0 && (
           <p style={{color:C.muted2, fontSize:14, marginTop:16}}>No tienes módulos asignados. Contacta al administrador.</p>
         )}
       </div>
 
-      <div style={{display:"flex", gap:24, justifyContent:"center", flexWrap:"wrap", padding:"0 32px", maxWidth:900, margin:"0 auto"}}>
-        {MODULOS_DISPONIBLES.filter(m => modulosPermitidos.includes(m.id)).map(modulo => (
-          <button key={modulo.id} onClick={() => onSelectModulo(modulo.id)}
-            className="mdt-lift mdt-tile"
-            style={{
-              background: modulo.grad,
-              border: "1px solid rgba(255,255,255,0.15)",
-              borderRadius: 20,
-              padding: "32px 36px",
-              cursor: "pointer",
-              width: "min(300px, 100%)",
-              textAlign: "left",
-              boxShadow: "0 4px 24px rgba(0,0,0,0.15)",
-              position: "relative",
-              overflow: "hidden",
-            }}
-          >
-            {modulo.id === "osiris"
-              ? <div style={{marginBottom:12}}><OsirisLogoSmall/></div>
-              : modulo.id === "finanzas"
-              ? <div style={{marginBottom:12}}>
-                  <img src="/med.png" alt="Mediterra"
-                    style={{height:44,objectFit:"contain",display:"block"}}
-                    onError={e=>{e.target.style.display="none";}}/>
-                </div>
-              : modulo.id === "allegria"
-              ? <div style={{marginBottom:12}}>
-                  <img src={ALLEGRIA_LOGO_B64} alt="Allegria Foods"
-                    style={{height:44,objectFit:"contain",display:"block"}}
-                    onError={e=>{e.target.onerror=null;e.target.style.display="none";}}/>
-                </div>
-              : modulo.id === "frisku"
-              ? <div style={{marginBottom:12}}>
-                  <img src="/frisku.png" alt="Frisku Foods"
-                    style={{height:44,objectFit:"contain",display:"block"}}
-                    onError={e=>{e.target.style.display="none";}}/>
-                </div>
-              : <div style={{fontSize:40, marginBottom:14}}>{modulo.icon}</div>
-            }
-            <div style={{fontSize:17, fontWeight:800, color:"#fff", marginBottom:4}}>{modulo.label}</div>
-            <div style={{fontSize:12, color:"rgba(255,255,255,0.65)"}}>{modulo.sublabel}</div>
-            <div style={{position:"absolute", bottom:18, right:18, fontSize:18, color:"rgba(255,255,255,0.4)"}}>→</div>
-          </button>
-        ))}
-
+      {/* Módulos — grilla ejecutiva de tarjetas planas con acento de marca */}
+      <div style={{maxWidth:1120, margin:"0 auto", padding:"16px 32px 0"}}>
+        <div style={{fontSize:11, fontWeight:700, color:C.muted2, textTransform:"uppercase", letterSpacing:1.4, marginBottom:14}}>Módulos</div>
+        <div style={{display:"grid", gridTemplateColumns:"repeat(auto-fill, minmax(240px, 1fr))", gap:16}}>
+          {MODULOS_DISPONIBLES.filter(m => modulosPermitidos.includes(m.id)).map(modulo => (
+            <button key={modulo.id} onClick={() => onSelectModulo(modulo.id)}
+              className="mdt-lift"
+              style={{
+                background: C.card,
+                border: `1px solid ${C.border}`,
+                borderRadius: 14,
+                padding: "18px 18px 18px 22px",
+                cursor: "pointer",
+                textAlign: "left",
+                position: "relative",
+                overflow: "hidden",
+                boxShadow: "0 1px 3px rgba(16,24,40,0.08)",
+                display: "flex", flexDirection: "column", gap: 10,
+              }}
+            >
+              <div style={{position:"absolute", left:0, top:0, bottom:0, width:4, background:modulo.color}}/>
+              <div style={{display:"flex", alignItems:"center", gap:12}}>
+                <div style={{width:40, height:40, borderRadius:11, background:`${modulo.color}1a`, color:modulo.color,
+                  display:"flex", alignItems:"center", justifyContent:"center", fontSize:21, flexShrink:0}}>{modulo.icon}</div>
+                <div style={{fontSize:15, fontWeight:800, color:C.text, lineHeight:1.2}}>{modulo.label}</div>
+              </div>
+              <div style={{fontSize:12, color:C.muted, lineHeight:1.4}}>{modulo.sublabel}</div>
+              <div style={{position:"absolute", top:16, right:16, fontSize:16, color:C.muted2}}>→</div>
+            </button>
+          ))}
+        </div>
       </div>
 
       <div style={{textAlign:"center", marginTop:56, fontSize:10, color:"#cbd5e1", letterSpacing:2}}>
