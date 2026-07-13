@@ -11969,14 +11969,14 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
     }}>
       {/* ── Header ─────────────────────────────────────────── */}
       <div style={{
-        background:"linear-gradient(135deg,#0f1e3a,#1e3a5f)",
+        background:C.primary,
         borderRadius:14,
         padding:"14px 20px",
         marginBottom:20,
         display:"flex",justifyContent:"space-between",alignItems:"center",
         flexWrap:"wrap",gap:8,
-        border:`1px solid ${C.border2}`,
-        boxShadow:"0 4px 24px rgba(0,0,0,0.3)",
+        border:"1px solid rgba(255,255,255,0.10)",
+        boxShadow:"0 4px 16px rgba(16,24,40,0.20)",
       }}>
         <div style={{display:"flex",alignItems:"center",gap:14}}>
           <div style={{display:"flex",alignItems:"center",gap:8,fontSize:13,flexWrap:"wrap"}}>
