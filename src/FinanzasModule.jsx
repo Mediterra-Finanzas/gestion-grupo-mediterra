@@ -2641,6 +2641,93 @@ function calcIntegrity(paramsIF) {
   return ingArr;
 }
 
+// ── Parámetros de INGRESOS Osiris (temporal, hasta que vengan del módulo Osiris) ──
+// Cada línea es una lista de cobros: cantidad × tarifa en un mes.
+//   Royalty por Planta  = US$/planta × cantidad de plantas
+//   Royalty Comercial   = US$/há     × cantidad de há administradas
+//   Fee Vivero          = US$/planta × cantidad de plantas vendidas (regalía vivero)
+function defaultParamsOsiris() {
+  return { royaltyPlanta: [], royaltyComercial: [], feeVivero: [] };
+}
+function calcOsirisLinea(entries) {
+  const arr = Z65();
+  (entries || []).forEach(e => {
+    const cant = Number(e.cantidad) || 0;
+    const tarifa = Number(e.tarifa) || 0;
+    if (!cant || !tarifa || !e.mes_cobro) return;
+    const i = mIdx(e.mes_cobro);
+    if (i >= 0) arr[i] += cant * tarifa;
+  });
+  return arr;
+}
+function calcOsirisIngresos(p) {
+  return {
+    royaltyPlanta:    calcOsirisLinea(p?.royaltyPlanta),
+    royaltyComercial: calcOsirisLinea(p?.royaltyComercial),
+    feeVivero:        calcOsirisLinea(p?.feeVivero),
+  };
+}
+function ParamsOsiris({ paramsOsiris, setParamsOsiris, readOnly }) {
+  const p = paramsOsiris || defaultParamsOsiris();
+  const ro = readOnly || !setParamsOsiris;
+  const SECS = [
+    { key:'royaltyPlanta',    titulo:'🌱 Royalty por Planta',  unidad:'plantas',          tarifaLbl:'US$/planta', color:'#0f766e' },
+    { key:'royaltyComercial', titulo:'🌾 Royalty Comercial',   unidad:'há administradas', tarifaLbl:'US$/há',     color:'#2563eb' },
+    { key:'feeVivero',        titulo:'🪴 Fee Vivero',          unidad:'plantas vendidas', tarifaLbl:'US$/planta', color:'#7c3aed' },
+  ];
+  const upd = (key,i,field,val)=>setParamsOsiris(prev=>{const n=JSON.parse(JSON.stringify(prev||defaultParamsOsiris()));if(!n[key])n[key]=[];n[key][i]={...n[key][i],[field]:field==='mes_cobro'?val:(Number(val)||0)};return n;});
+  const add = (key)=>setParamsOsiris(prev=>{const n=JSON.parse(JSON.stringify(prev||defaultParamsOsiris()));if(!n[key])n[key]=[];n[key].push({mes_cobro:'',cantidad:0,tarifa:0});return n;});
+  const del = (key,i)=>setParamsOsiris(prev=>{const n=JSON.parse(JSON.stringify(prev||defaultParamsOsiris()));n[key]=(n[key]||[]).filter((_,j)=>j!==i);return n;});
+  const inp = {padding:"5px 8px",background:C.card2,border:`1px solid ${C.border}`,borderRadius:6,color:C.text,fontSize:11,outline:"none"};
+  return (
+    <div style={{display:"flex",flexDirection:"column",gap:14}}>
+      <Card>
+        <SectionTitle>⚡ Ingresos — Osiris
+          <span style={{fontSize:10,color:C.muted,fontWeight:400,marginLeft:8}}>Temporal — luego vendrán del módulo Osiris. Cantidad × tarifa cobrado en el mes indicado.</span>
+        </SectionTitle>
+        {SECS.map(sec=>{
+          const rows = p[sec.key]||[];
+          const total = rows.reduce((s,r)=>s+(Number(r.cantidad)||0)*(Number(r.tarifa)||0),0);
+          return (
+            <div key={sec.key} style={{marginTop:14,border:`1px solid ${sec.color}44`,borderRadius:10,padding:"10px 12px"}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8,flexWrap:"wrap",gap:8}}>
+                <div style={{fontSize:12,fontWeight:800,color:sec.color}}>{sec.titulo}
+                  <span style={{fontSize:10,color:C.muted,fontWeight:400,marginLeft:8}}>{sec.tarifaLbl} × {sec.unidad}</span>
+                </div>
+                <div style={{display:"flex",gap:10,alignItems:"center"}}>
+                  <span style={{fontSize:11,color:C.muted}}>Total: <strong style={{color:"#22c55e"}}>{$$(total)}</strong></span>
+                  {!ro&&<Btn small color={sec.color} onClick={()=>add(sec.key)}>+ Cobro</Btn>}
+                </div>
+              </div>
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr 1.1fr auto",gap:8,marginBottom:4}}>
+                {["Mes de cobro",`Cantidad (${sec.unidad})`,sec.tarifaLbl,"Ingreso",""].map((h,i)=><div key={i} style={{fontSize:10,color:C.muted,fontWeight:600}}>{h}</div>)}
+              </div>
+              {rows.length===0&&<div style={{fontSize:11,color:C.muted2,fontStyle:"italic"}}>Sin cobros — agrega uno.</div>}
+              {rows.map((r,i)=>{
+                const ing=(Number(r.cantidad)||0)*(Number(r.tarifa)||0);
+                return (
+                <div key={i} style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr 1.1fr auto",gap:8,marginBottom:6,alignItems:"center"}}>
+                  <select disabled={ro} value={r.mes_cobro||""} onChange={e=>upd(sec.key,i,'mes_cobro',e.target.value)} style={{...inp}}>
+                    <option value="">— mes —</option>
+                    {MESES_65.map(m=><option key={m} value={m}>{m}</option>)}
+                  </select>
+                  <input type="number" disabled={ro} value={r.cantidad||""} onChange={e=>upd(sec.key,i,'cantidad',e.target.value)} style={{...inp,textAlign:"right"}}/>
+                  <input type="number" step="0.01" disabled={ro} value={r.tarifa||""} onChange={e=>upd(sec.key,i,'tarifa',e.target.value)} style={{...inp,textAlign:"right"}}/>
+                  <div style={{fontSize:12,fontWeight:700,color:ing?"#22c55e":C.muted2,textAlign:"right"}}>{ing?$$(ing):"—"}</div>
+                  {!ro&&<button type="button" onClick={()=>del(sec.key,i)} style={{padding:"4px 8px",borderRadius:6,background:"#fee2e2",border:"none",color:"#991b1b",cursor:"pointer",fontSize:11}}>×</button>}
+                </div>
+                );
+              })}
+            </div>
+          );
+        })}
+        <div style={{fontSize:10,color:C.muted,marginTop:12,fontStyle:"italic"}}>
+          Cada línea alimenta su fila en el flujo (Royalty por Planta, Royalty Comercial, Fee Vivero). Puedes agregar varios cobros por año o repetir mes a mes.
+        </div>
+      </Card>
+    </div>
+  );
+}
 function ParamsIntegrity({selSeason, paramsIF, setParamsIF, readOnly}) {
   const clientes = paramsIF?.[selSeason]?.clientes || [];
 
@@ -3143,6 +3230,7 @@ function TabParametros({empNombre,empColor="#2563eb",
   paramsIF,setParamsIF,       // Integrity Farms (clientes × há)
   paramsAF,setParamsAF,       // Allpa Farms (variedades × kg)
   paramsAP,setParamsAP,       // Allpa Farms Perú (kilos × precio, ingresos)
+  paramsOsiris,setParamsOsiris, // Osiris (royalties + fee vivero, ingresos)
   paramsFrisku,setParamsFrisku, // Frisku Foods (contenedores × especie)
   readOnly=false}) {
 
@@ -3156,6 +3244,7 @@ function TabParametros({empNombre,empColor="#2563eb",
   const esIntegrity       = empNombre === "Integrity Farms";
   const esAllpa           = empNombre === "Allpa Farms";
   const esAllpaPeru       = empNombre === "Allpa Farms Perú";
+  const esOsiris          = empNombre === "Osiris";
 
   // Productos de esta empresa en la temporada seleccionada
   const productos = paramsEmp?.[selSeason] || {};
@@ -3227,8 +3316,8 @@ function TabParametros({empNombre,empColor="#2563eb",
         </div>
       )}
 
-      {/* Selector temporada — Allpa Perú usa su propio selector de año */}
-      {!esAllpaPeru&&(
+      {/* Selector temporada — Allpa Perú/Osiris usan su propio layout */}
+      {!esAllpaPeru&&!esOsiris&&(
       <Card>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12,flexWrap:"wrap",gap:8}}>
           <SectionTitle>
@@ -3304,6 +3393,14 @@ function TabParametros({empNombre,empColor="#2563eb",
           readOnly={readOnly}/>
       )}
 
+      {/* ── OSIRIS: royalties + fee vivero ── */}
+      {esOsiris&&(
+        <ParamsOsiris
+          paramsOsiris={paramsOsiris||defaultParamsOsiris()}
+          setParamsOsiris={setParamsOsiris||function(){}}
+          readOnly={readOnly}/>
+      )}
+
       {/* ── ALLEGRIA SERVICE: kg por especie × mes ── */}
       {esAllegriaService&&(
         <ParamsAllegriaService
@@ -3323,7 +3420,7 @@ function TabParametros({empNombre,empColor="#2563eb",
       )}
 
       {/* ── OTRAS EMPRESAS: lista de productos ── */}
-      {!esAllegria&&!esAllegriaService&&!esIntegrity&&!esAllpa&&!esFrisku&&!esAllpaPeru&&(
+      {!esAllegria&&!esAllegriaService&&!esIntegrity&&!esAllpa&&!esFrisku&&!esAllpaPeru&&!esOsiris&&(
         <div style={{display:"flex",gap:14}}>
           {/* Panel izquierdo: lista productos */}
           <div style={{width:200,flexShrink:0,display:"flex",flexDirection:"column",gap:6}}>
@@ -10907,6 +11004,8 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
   const [paramsAF,setParamsAF]=useState(defaultParamsAllpa);
   // paramsAP: ingresos Allpa Farms Perú (kilos × precio, por año)
   const [paramsAP,setParamsAP]=useState(defaultParamsAllpaPeru);
+  // paramsOsiris: ingresos Osiris (royalties + fee vivero) — temporal
+  const [paramsOsiris,setParamsOsiris]=useState(defaultParamsOsiris);
   // subLines: { empresa: { lineLabel: [nombre1, nombre2, ...] } }
   const [subLines,setSubLines]=useState({});
   // addedLines: { empresa: { cat: [{label, vals:{idx:val}}] } } — filas agregadas por usuario
@@ -11078,8 +11177,25 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
       });
       base["Allpa Farms Perú"] = nextAP;
     }
+
+    // Inject Osiris — ingresos parametrizados (royalties + fee vivero). Solo
+    // reemplaza una línea si tiene cobros cargados (si no, conserva la base).
+    const osiEmp = base["Osiris"];
+    if(osiEmp) {
+      const osi = calcOsirisIngresos(paramsOsiris);
+      const mapLinea = { "Royalty por Planta":osi.royaltyPlanta, "Royalty Comercial":osi.royaltyComercial, "Fee Vivero":osi.feeVivero };
+      const nextOsi = JSON.parse(JSON.stringify(osiEmp));
+      nextOsi.sections = nextOsi.sections.map(sec=>{
+        if(sec.cat!=="ing_op") return sec;
+        return {...sec, lines: sec.lines.map(l=>{
+          const arr = mapLinea[l.label];
+          return (arr && arr.some(v=>v)) ? {...l, proy:[...arr], formula:true} : l;
+        })};
+      });
+      base["Osiris"] = nextOsi;
+    }
     return base;
-  },[params,allegraComisionArandanos,paramsAS,paramsIF,paramsAF,paramsAP,creditosData,paramsFrisku]);
+  },[params,allegraComisionArandanos,paramsAS,paramsIF,paramsAF,paramsAP,paramsOsiris,creditosData,paramsFrisku]);
 
   // Empresas con overrides aplicados — para Dashboard y cualquier otro consumer que no sea Consolidado
   const empresasConOverridesMain = useMemo(
@@ -11192,6 +11308,7 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
       }
       setParamsAP(merged);
     }
+    if(d?.params_osiris) setParamsOsiris({...defaultParamsOsiris(),...d.params_osiris});
     if(d?.sub_lines)    setSubLines(d.sub_lines);
     if(d?.added_lines)  setAddedLinesGlobal(d.added_lines);
     if(d?.intercompany)   setIntercompany(d.intercompany||[]);
@@ -11295,6 +11412,7 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
   const paramsFriskuRef = React.useRef(paramsFrisku);
   const paramsAFRef     = React.useRef(paramsAF);
   const paramsAPRef     = React.useRef(paramsAP);
+  const paramsOsirisRef = React.useRef(paramsOsiris);
   const subLinesRef      = React.useRef(subLines);
   const addedLinesRef    = React.useRef(addedLinesGlobal);
   const intercompanyRef  = React.useRef(intercompany);
@@ -11314,6 +11432,7 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
   useEffect(()=>{ paramsFriskuRef.current = paramsFrisku; },[paramsFrisku]);
   useEffect(()=>{ paramsAFRef.current     = paramsAF;     },[paramsAF]);
   useEffect(()=>{ paramsAPRef.current     = paramsAP;     },[paramsAP]);
+  useEffect(()=>{ paramsOsirisRef.current = paramsOsiris; },[paramsOsiris]);
   useEffect(()=>{ subLinesRef.current     = subLines;     },[subLines]);
   useEffect(()=>{ addedLinesRef.current   = addedLinesGlobal; },[addedLinesGlobal]);
   useEffect(()=>{ intercompanyRef.current = intercompany; },[intercompany]);
@@ -11397,6 +11516,7 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
       params_if:       overrides.params_if       !== undefined ? overrides.params_if       : paramsIFRef.current,
       params_af:       overrides.params_af       !== undefined ? overrides.params_af       : paramsAFRef.current,
       params_ap:       overrides.params_ap       !== undefined ? overrides.params_ap       : paramsAPRef.current,
+      params_osiris:   overrides.params_osiris   !== undefined ? overrides.params_osiris   : paramsOsirisRef.current,
       sub_lines:       overrides.sub_lines       !== undefined ? overrides.sub_lines       : subLinesRef.current,
       added_lines:     overrides.added_lines     !== undefined ? overrides.added_lines     : addedLinesRef.current,
       intercompany:    overrides.intercompany    !== undefined ? overrides.intercompany    : intercompanyRef.current,
@@ -11581,6 +11701,17 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
       const next = typeof updater === "function" ? updater(prev) : updater;
       paramsAPRef.current = next;
       setTimeout(()=>persistAll({ params_ap:next })
+        .then(ok=>{setSaved(ok?"✅ Guardado":"⚠️ Error");setTimeout(()=>setSaved(null),2000);}),0);
+      return next;
+    });
+  },[persistAll]);
+
+  // Guardar paramsOsiris (ingresos Osiris)
+  const handleSaveParamsOsiris = useCallback((updater) => {
+    setParamsOsiris(prev=>{
+      const next = typeof updater === "function" ? updater(prev) : updater;
+      paramsOsirisRef.current = next;
+      setTimeout(()=>persistAll({ params_osiris:next })
         .then(ok=>{setSaved(ok?"✅ Guardado":"⚠️ Error");setTimeout(()=>setSaved(null),2000);}),0);
       return next;
     });
@@ -11951,6 +12082,8 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
                 setParamsAF={empTab==="Allpa Farms"&&puedoEdit("flujo")?handleSaveParamsAF:undefined}
                 paramsAP={empTab==="Allpa Farms Perú"?paramsAP:undefined}
                 setParamsAP={empTab==="Allpa Farms Perú"&&puedoEdit("flujo")?handleSaveParamsAP:undefined}
+                paramsOsiris={empTab==="Osiris"?paramsOsiris:undefined}
+                setParamsOsiris={empTab==="Osiris"&&puedoEdit("flujo")?handleSaveParamsOsiris:undefined}
                 readOnly={!puedoEdit("flujo")}
               />
             );
