@@ -16607,18 +16607,18 @@ function AuditoriaModule({usuario}) {
                   <strong>Campo:</strong> {eventoDetalle.campo}
                 </div>}
                 <div style={{display:"grid", gridTemplateColumns:"1fr 1fr", gap:8}}>
-                  <div style={{background:"#fee2e244", borderRadius:6, padding:"8px 10px",
-                    border:"1px solid #fecaca"}}>
-                    <div style={{fontSize:9, color:"#991b1b", fontWeight:700}}>ANTES</div>
-                    <div style={{fontSize:11, color:"#7f1d1d", marginTop:2, wordBreak:"break-word"}}>
-                      {eventoDetalle.valorAnterior||<em style={{color:"#94a3b8"}}>(vacío)</em>}
+                  <div style={{background:`${C.danger}14`, borderRadius:6, padding:"8px 10px",
+                    border:`1px solid ${C.danger}44`}}>
+                    <div style={{fontSize:9, color:C.danger, fontWeight:700}}>ANTES</div>
+                    <div style={{fontSize:11, color:C.danger, marginTop:2, wordBreak:"break-word"}}>
+                      {eventoDetalle.valorAnterior||<em style={{color:C.muted2}}>(vacío)</em>}
                     </div>
                   </div>
-                  <div style={{background:"#dcfce744", borderRadius:6, padding:"8px 10px",
-                    border:"1px solid #bbf7d0"}}>
-                    <div style={{fontSize:9, color:"#166534", fontWeight:700}}>DESPUÉS</div>
-                    <div style={{fontSize:11, color:"#14532d", marginTop:2, wordBreak:"break-word"}}>
-                      {eventoDetalle.valorNuevo||<em style={{color:"#94a3b8"}}>(vacío)</em>}
+                  <div style={{background:`${C.success}14`, borderRadius:6, padding:"8px 10px",
+                    border:`1px solid ${C.success}44`}}>
+                    <div style={{fontSize:9, color:C.success, fontWeight:700}}>DESPUÉS</div>
+                    <div style={{fontSize:11, color:C.success, marginTop:2, wordBreak:"break-word"}}>
+                      {eventoDetalle.valorNuevo||<em style={{color:C.muted2}}>(vacío)</em>}
                     </div>
                   </div>
                 </div>
