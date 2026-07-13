@@ -5401,6 +5401,7 @@ ${linkInforme}
       <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:16}}>
         {TABS.map(t=>(
           <button key={t.id} onClick={()=>{setSubTab(t.id);setFiltroTipo("Todos");setFiltroEstado("Todos");setBusq("");setInformeDetalle(null);}}
+            className={`mdt-tab${subTab===t.id?" mdt-tab--active":""}`}
             style={{padding:"8px 14px",borderRadius:8,border:subTab===t.id?"2px solid #1e293b":`1px solid ${C.border}`,
               background:subTab===t.id?C.primary:C.card,color:subTab===t.id?"#fff":C.text,
               cursor:"pointer",fontSize:12,fontWeight:600,display:"flex",alignItems:"center",gap:6}}>
