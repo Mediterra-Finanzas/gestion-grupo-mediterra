@@ -4753,7 +4753,7 @@ export default function FriskuComercialModule({
   return (
     <div style={{background:C.bg, minHeight:"100vh", color:C.text}}>
       {/* Header */}
-      <div style={{padding:"12px 20px", borderBottom:`1px solid ${C.border}`, display:"flex", alignItems:"center", justifyContent:"space-between", flexWrap:"wrap", gap:10, background:C.bg2}}>
+      <div style={{padding:"14px 20px", borderBottom:"1px solid rgba(255,255,255,0.10)", display:"flex", alignItems:"center", justifyContent:"space-between", flexWrap:"wrap", gap:10, background:"#0e2a40", boxShadow:"0 4px 16px rgba(16,24,40,0.20)"}}>
         <div style={{display:"flex", alignItems:"center", gap:14}}>
           <img
             src={`${process.env.PUBLIC_URL}/frisku.png`}
@@ -4761,15 +4761,15 @@ export default function FriskuComercialModule({
             style={{height:44, objectFit:"contain", borderRadius:6}}
           />
           <div>
-            <h2 style={{margin:0, fontSize:18, fontWeight:800, color:C.text, lineHeight:1.2}}>Frisku Foods</h2>
-            <div style={{fontSize:11, color:C.muted, fontWeight:400}}>Connecting Quality</div>
+            <h2 style={{margin:0, fontSize:18, fontWeight:800, color:"#fff", lineHeight:1.2}}>Frisku Foods</h2>
+            <div style={{fontSize:11, color:"rgba(255,255,255,0.6)", fontWeight:400}}>Connecting Quality</div>
           </div>
         </div>
-        <div style={{display:"flex", alignItems:"center", gap:10, fontSize:11, color:C.muted}}>
+        <div style={{display:"flex", alignItems:"center", gap:10, fontSize:11, color:"rgba(255,255,255,0.7)"}}>
           {Object.values(guardando).some(Boolean)
-            ? <span style={{color:C.yellow}}>💾 Guardando...</span>
-            : <span style={{color:C.green}}>● Sincronizado</span>}
-          {onBack && <button onClick={onBack} style={btnSt(C.muted, true)}>← Volver</button>}
+            ? <span style={{color:"#fde68a"}}>💾 Guardando...</span>
+            : <span style={{color:"#6ee7b7"}}>● Sincronizado</span>}
+          {onBack && <button onClick={onBack} style={{background:"rgba(255,255,255,0.10)",border:"1px solid rgba(255,255,255,0.22)",color:"#fff",borderRadius:8,padding:"7px 14px",cursor:"pointer",fontSize:12,fontWeight:600}}>← Volver</button>}
         </div>
       </div>
 

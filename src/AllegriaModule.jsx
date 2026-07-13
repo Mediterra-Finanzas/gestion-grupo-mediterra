@@ -263,16 +263,28 @@ async function dbSaveAllegria(value) {
 // ── Componentes compartidos ──
 function NavBar({breadcrumbItems=[], onLogout}) {
   return (
-    <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:20,flexWrap:"wrap"}}>
-      {breadcrumbItems.map((item,i)=>(
-        <React.Fragment key={i}>
-          {i>0&&<span style={{color:C.muted}}>›</span>}
-          {item.onClick
-            ? <button onClick={item.onClick} style={{background:"none",border:"none",color:C.muted,cursor:"pointer",fontSize:13,fontWeight:500,padding:0}}>{item.label}</button>
-            : <span style={{color:C.text,fontWeight:700,fontSize:14}}>{item.label}</span>}
-        </React.Fragment>
-      ))}
-      {onLogout&&<button onClick={onLogout} style={{marginLeft:"auto",background:"rgba(248,113,113,0.2)",border:"none",color:"#fca5a5",borderRadius:8,padding:"5px 12px",cursor:"pointer",fontSize:12}}>Salir</button>}
+    <div style={{
+      background:"#4a1218",
+      borderRadius:14, padding:"14px 20px", marginBottom:20,
+      display:"flex", justifyContent:"space-between", alignItems:"center", flexWrap:"wrap", gap:12,
+      border:"1px solid rgba(255,255,255,0.10)", boxShadow:"0 4px 16px rgba(16,24,40,0.20)",
+    }}>
+      <div style={{display:"flex",alignItems:"center",gap:14,flexWrap:"wrap"}}>
+        <div style={{display:"flex",alignItems:"center",gap:8,fontSize:13}}>
+          {breadcrumbItems.map((item,i)=>(
+            <React.Fragment key={i}>
+              {i>0&&<span style={{color:"rgba(255,255,255,0.35)"}}>›</span>}
+              {item.onClick
+                ? <button onClick={item.onClick} style={{background:"none",border:"none",color:"rgba(255,255,255,0.6)",cursor:"pointer",fontSize:13,fontWeight:500,padding:0}}>{item.label}</button>
+                : <span style={{color:"#fff",fontWeight:700,fontSize:14}}>{item.label}</span>}
+            </React.Fragment>
+          ))}
+        </div>
+        <div style={{borderLeft:"1px solid rgba(255,255,255,0.2)",paddingLeft:14,display:"flex",alignItems:"center"}}>
+          <AllegriaLogo height={30}/>
+        </div>
+      </div>
+      {onLogout&&<button onClick={onLogout} style={{background:"rgba(248,113,113,0.18)",border:"1px solid rgba(248,113,113,0.3)",color:"#fca5a5",borderRadius:8,padding:"7px 14px",cursor:"pointer",fontSize:12,fontWeight:600}}>Salir</button>}
     </div>
   );
 }

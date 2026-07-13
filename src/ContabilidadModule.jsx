@@ -6466,14 +6466,14 @@ export default function ContabilidadModule({ usuario, canEdit, esCFO, onBack }) 
       {/* Header */}
       <div
         style={{
-          background: C.bgCard,
-          borderBottom: `1px solid ${C.border}`,
-          padding: "12px 24px",
+          background: "#241a3d",
+          borderBottom: "1px solid rgba(255,255,255,0.10)",
+          padding: "14px 24px",
           display: "flex",
           alignItems: "center",
           gap: 16,
           flexWrap: "wrap",
-          boxShadow: "0 1px 4px rgba(0,0,0,0.06)",
+          boxShadow: "0 4px 16px rgba(16,24,40,0.20)",
         }}
       >
         {/* Botón volver */}
@@ -6481,39 +6481,39 @@ export default function ContabilidadModule({ usuario, canEdit, esCFO, onBack }) 
           <button
             onClick={onBack}
             style={{
-              background: "none",
-              border: `1px solid ${C.border}`,
-              borderRadius: 6,
-              color: C.textMuted,
+              background: "rgba(255,255,255,0.10)",
+              border: "1px solid rgba(255,255,255,0.22)",
+              borderRadius: 8,
+              color: "#fff",
               cursor: "pointer",
               fontSize: 13,
-              padding: "5px 12px",
+              padding: "6px 13px",
               display: "flex",
               alignItems: "center",
               gap: 5,
               whiteSpace: "nowrap",
-              transition: "all 0.15s",
             }}
-            onMouseEnter={(e) => { e.currentTarget.style.borderColor = C.primary; e.currentTarget.style.color = C.primary; }}
-            onMouseLeave={(e) => { e.currentTarget.style.borderColor = C.border; e.currentTarget.style.color = C.textMuted; }}
           >
             ← Inicio
           </button>
         )}
 
-        <div>
-          <h2 style={{ margin: 0, fontSize: 17, fontWeight: 700, color: C.text }}>
-            Sistema Contable
-          </h2>
-          <p style={{ margin: "2px 0 0", fontSize: 12, color: C.textMuted }}>Grupo Mediterra — Maestros</p>
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <span style={{ fontSize: 22 }}>📒</span>
+          <div>
+            <h2 style={{ margin: 0, fontSize: 17, fontWeight: 700, color: "#fff" }}>
+              Sistema Contable
+            </h2>
+            <p style={{ margin: "2px 0 0", fontSize: 12, color: "rgba(255,255,255,0.6)" }}>Grupo Mediterra — Maestros</p>
+          </div>
         </div>
 
         {/* Selector de empresa (solo en tabs que lo necesitan) */}
         {necesitaEmpresa && (
           <div style={{ display: "flex", alignItems: "center", gap: 8, marginLeft: "auto" }}>
-            <span style={{ fontSize: 12, color: C.textMuted, whiteSpace: "nowrap" }}>Empresa:</span>
+            <span style={{ fontSize: 12, color: "rgba(255,255,255,0.7)", whiteSpace: "nowrap" }}>Empresa:</span>
             {loadingEmpresas ? (
-              <span style={{ fontSize: 12, color: C.textDim }}>Cargando...</span>
+              <span style={{ fontSize: 12, color: "rgba(255,255,255,0.5)" }}>Cargando...</span>
             ) : (
               <SelectInput
                 value={empresaId}
