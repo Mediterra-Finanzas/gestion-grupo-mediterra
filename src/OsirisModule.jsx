@@ -10043,7 +10043,7 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
   // IMPORTANTE: definida antes de cualquier return para que esté disponible en todos los casos
   const NavBar = ({breadcrumbItems, showPorCobrar=false}) => (
     <div style={{
-      background:"linear-gradient(135deg,#0f2d4a,#1a5276)",
+      background:"#0f2d4a",
       borderRadius:14,
       padding:"14px 20px",
       marginBottom:18,
@@ -10052,6 +10052,8 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
       alignItems:"center",
       flexWrap:"wrap",
       gap:12,
+      border:"1px solid rgba(255,255,255,0.10)",
+      boxShadow:"0 4px 16px rgba(16,24,40,0.20)",
     }}>
       <div style={{display:"flex",alignItems:"center",gap:14,flexWrap:"wrap"}}>
         <div style={{display:"flex",alignItems:"center",gap:8,fontSize:13}}>
