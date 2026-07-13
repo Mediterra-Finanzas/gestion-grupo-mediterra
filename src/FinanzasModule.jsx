@@ -1321,6 +1321,7 @@ const EMPRESAS_STATIC = {
       { cat:'ing_nop', label:'Ingresos No Operacionales', signo:1, lines:[
         {label:'Capital Calls', proy:Z65(), subLines:true},
         {label:'Crédito BCI', proy:Z65()},
+        {label:'Ingresos Financiamiento', proy:Z65(), subLines:true},
         {label:'Ingreso Renovación', proy:calcIngresoRenovacionEmpresa('Osiris'), formula:true, subLines:true},
         {label:'Otros Ingresos No Operacionales', proy:Z65()},
       ]},
@@ -6908,6 +6909,13 @@ function Creditos({empresas, creditosData=CREDITOS_DEFAULT, onSaveCreditos, canE
     } else if(!form.empresa||!form.acreedor||!form.monto||!form.f_venc){
       alert("Empresa, acreedor, monto y fecha son obligatorios.");return;
     }
+    // Cuotas Mensuales: la "Fecha desembolso" (f_inicio) es obligatoria — define
+    // desde qué mes arrancan las cuotas. Sin ella, el reparto mensual no puede
+    // arrancar y todo el crédito colapsa en el mes de vencimiento.
+    if(!esSocio && form.tipo_cr === "Cuotas Mensuales" && !form.f_inicio){
+      alert("Cuotas Mensuales: la 'Fecha desembolso' es obligatoria. Define desde qué mes se reparten las cuotas (hasta el vencimiento). Sin ella, todo caería en el mes de vencimiento.");
+      return;
+    }
     // Guardrail: no permitir crear/editar créditos de empresas fuera del subset
     if(!esPermitida(form.empresa)){ alert("Empresa no permitida."); return; }
     // ID secuencial: usa nextCreditId del parent (sobre el blob completo) si está disponible;
@@ -7434,6 +7442,13 @@ function Creditos({empresas, creditosData=CREDITOS_DEFAULT, onSaveCreditos, canE
                 </div>
               ))}
             </div>
+
+            {!esSocio && form.tipo_cr==="Cuotas Mensuales" && (
+              <div style={{margin:"0 20px 12px",padding:"8px 12px",background:`${C.blue}12`,
+                border:`1px solid ${C.blue}33`,borderRadius:8,fontSize:10.5,color:C.text}}>
+                💡 En <b>Cuotas Mensuales</b>, la <b>Fecha desembolso</b> es obligatoria: define desde qué mes arrancan las cuotas, que se reparten mes a mes hasta el vencimiento. Sin ella, todo el crédito caería en el mes de vencimiento.
+              </div>
+            )}
 
             {/* ── Sección Crédito de Socio: cuotas + tabla de amortización ── */}
             {esSocio&&(()=>{
