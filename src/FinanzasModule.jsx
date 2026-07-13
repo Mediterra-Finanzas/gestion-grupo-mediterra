@@ -6997,6 +6997,7 @@ function Creditos({empresas, creditosData=CREDITOS_DEFAULT, onSaveCreditos, canE
       <div style={{display:"flex",gap:6}}>
         {[["creditos","💳 Créditos"],["saldomes","📅 Saldo por Mes"]].map(([id,lbl])=>(
           <button key={id} onClick={()=>setVistaCred(id)}
+            className={`mdt-tab${vistaCred===id?" mdt-tab--active":""}`}
             style={{padding:"7px 16px",borderRadius:8,border:`1px solid ${vistaCred===id?C.blue:C.border}`,
               background:vistaCred===id?C.blue:"transparent",color:vistaCred===id?"#fff":C.muted,
               cursor:"pointer",fontSize:12,fontWeight:700}}>{lbl}</button>
@@ -7027,7 +7028,7 @@ function Creditos({empresas, creditosData=CREDITOS_DEFAULT, onSaveCreditos, canE
         <div style={{overflowX:"auto",minWidth:0,maxWidth:"calc(100vw - 80px)"}}>
           <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
             <thead><tr style={{background:C.primary}}>
-              {["Trimestre","Pagos","Saldo Deuda"].map(h=><th key={h} style={{padding:"7px 12px",fontWeight:600,fontSize:10,color:C.muted,textTransform:"uppercase",borderBottom:`1px solid ${C.border}`,textAlign:h==="Trimestre"?"left":"right"}}>{h}</th>)}
+              {["Trimestre","Pagos","Saldo Deuda"].map(h=><th key={h} style={{padding:"8px 12px",fontWeight:700,fontSize:10,color:"rgba(255,255,255,0.9)",letterSpacing:"0.5px",textTransform:"uppercase",borderBottom:`1px solid rgba(255,255,255,0.12)`,textAlign:h==="Trimestre"?"left":"right"}}>{h}</th>)}
             </tr></thead>
             <tbody>
               {CREDITOS_TRIM.quarters.map((q,i)=>(
@@ -7042,7 +7043,7 @@ function Creditos({empresas, creditosData=CREDITOS_DEFAULT, onSaveCreditos, canE
         </div>
       </Card>
       <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center"}}>
-        {canEdit&&<button onClick={openNew}
+        {canEdit&&<button onClick={openNew} className="mdt-btn-solid"
           style={{padding:"7px 16px",borderRadius:8,background:C.blue,border:"none",
             color:"#fff",cursor:"pointer",fontSize:12,fontWeight:700}}>
           + Nuevo Crédito
@@ -7063,7 +7064,7 @@ function Creditos({empresas, creditosData=CREDITOS_DEFAULT, onSaveCreditos, canE
           <table style={{width:"100%",borderCollapse:"collapse",fontSize:11}}>
             <thead><tr style={{background:C.primary}}>
               {["#","Empresa","Acreedor","Tipo","Monto","Cuota","Desembolso","Vencimiento","Tasa","Renovación",...(canEdit?["Acciones"]:[])
-              ].map(h=><th key={h} style={{padding:"8px 12px",fontWeight:600,fontSize:10,color:C.muted,textTransform:"uppercase",borderBottom:`1px solid ${C.border}`,textAlign:["Monto","Cuota","Tasa"].includes(h)?"right":"left",whiteSpace:"nowrap"}}>{h}</th>)}
+              ].map(h=><th key={h} style={{padding:"8px 12px",fontWeight:700,fontSize:10,color:"rgba(255,255,255,0.9)",letterSpacing:"0.5px",textTransform:"uppercase",borderBottom:`1px solid rgba(255,255,255,0.12)`,textAlign:["Monto","Cuota","Tasa"].includes(h)?"right":"left",whiteSpace:"nowrap"}}>{h}</th>)}
             </tr></thead>
             <tbody>
               {filtered.map(c=>{
