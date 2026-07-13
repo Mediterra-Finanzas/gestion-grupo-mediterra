@@ -145,7 +145,7 @@ function MaestroAllegria({especies, setEspecies, variedades, setVariedades, can}
         </div>
       )}
       {modal&&(
-        <div style={{position:"fixed",inset:0,background:"#000a",zIndex:400,display:"flex",alignItems:"center",justifyContent:"center",padding:20}} onClick={()=>setModal(null)}>
+        <div style={{position:"fixed",inset:0,background:"rgba(16,24,40,0.55)",zIndex:400,display:"flex",alignItems:"center",justifyContent:"center",padding:20}} onClick={()=>setModal(null)}>
           <div style={{background:C.card,borderRadius:14,padding:24,maxWidth:400,width:"100%",border:`1px solid ${C.border}`}} onClick={e=>e.stopPropagation()}>
             <h3 style={{margin:"0 0 16px",color:C.text}}>{editId?"Editar":"Nueva"} {modal==="especie"?"Especie":"Variedad"}</h3>
             {modal==="especie"?(
@@ -466,7 +466,7 @@ function ClientesModule({data, setData, can}) {
 
       {/* Modal */}
       {modal&&(
-        <div style={{position:"fixed",inset:0,background:"#000a",zIndex:400,display:"flex",alignItems:"center",justifyContent:"center",padding:20}} onClick={()=>setModal(false)}>
+        <div style={{position:"fixed",inset:0,background:"rgba(16,24,40,0.55)",zIndex:400,display:"flex",alignItems:"center",justifyContent:"center",padding:20}} onClick={()=>setModal(false)}>
           <div style={{background:C.card,borderRadius:14,padding:24,maxWidth:580,width:"100%",border:`1px solid ${C.border}`,maxHeight:"90vh",overflowY:"auto"}} onClick={e=>e.stopPropagation()}>
             <h3 style={{margin:"0 0 16px",color:C.text}}>{editId?"Editar Cliente":"Nuevo Cliente Importador"}</h3>
             <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
@@ -1050,7 +1050,7 @@ function ProductoresModule({data, setData, can}) {
       </div>
       {/* Modal nuevo/editar (para creación rápida desde la lista) */}
       {modal&&(
-        <div style={{position:"fixed",inset:0,background:"#000a",zIndex:400,display:"flex",alignItems:"center",justifyContent:"center",padding:20}} onClick={()=>setModal(false)}>
+        <div style={{position:"fixed",inset:0,background:"rgba(16,24,40,0.55)",zIndex:400,display:"flex",alignItems:"center",justifyContent:"center",padding:20}} onClick={()=>setModal(false)}>
           <div style={{background:C.card,borderRadius:14,padding:24,maxWidth:600,width:"100%",border:`1px solid ${C.border}`,maxHeight:"85vh",overflowY:"auto"}} onClick={e=>e.stopPropagation()}>
             <h3 style={{margin:"0 0 16px",color:C.text}}>{editId?"Editar Productor":"Nuevo Productor"}</h3>
             {/* Datos empresa */}
@@ -1310,7 +1310,7 @@ function EmbarquesModule({data, setData, clientes, productores, stockPT, setStoc
       </div>
       {/* Modal nuevo embarque con selección de pallets */}
       {modal&&(
-        <div style={{position:"fixed",inset:0,background:"#000a",zIndex:400,display:"flex",alignItems:"center",justifyContent:"center",padding:20}} onClick={()=>setModal(false)}>
+        <div style={{position:"fixed",inset:0,background:"rgba(16,24,40,0.55)",zIndex:400,display:"flex",alignItems:"center",justifyContent:"center",padding:20}} onClick={()=>setModal(false)}>
           <div style={{background:C.card,borderRadius:14,padding:24,maxWidth:700,width:"100%",border:`1px solid ${C.border}`,maxHeight:"90vh",overflowY:"auto"}} onClick={e=>e.stopPropagation()}>
             <h3 style={{margin:"0 0 16px",color:C.text}}>🚢 Nuevo Embarque</h3>
             <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:12,marginBottom:16}}>
@@ -1494,7 +1494,7 @@ function LiquidacionesModule({data, setData, embarques, productores, can, tempor
         </table>
       </div>
       {modal&&(
-        <div style={{position:"fixed",inset:0,background:"#000a",zIndex:400,display:"flex",alignItems:"center",justifyContent:"center",padding:20}} onClick={()=>setModal(false)}>
+        <div style={{position:"fixed",inset:0,background:"rgba(16,24,40,0.55)",zIndex:400,display:"flex",alignItems:"center",justifyContent:"center",padding:20}} onClick={()=>setModal(false)}>
           <div style={{background:C.card,borderRadius:14,padding:24,maxWidth:480,width:"100%",border:`1px solid ${C.border}`}} onClick={e=>e.stopPropagation()}>
             <h3 style={{margin:"0 0 16px",color:C.text}}>Nueva Liquidación Productor</h3>
             <div style={{marginBottom:12}}><div style={{fontSize:10,color:C.muted,marginBottom:4}}>Embarque *</div>
@@ -1554,7 +1554,7 @@ function LiquidacionClienteModule({data, setData, embarques, can, temporada}) {
         </table>
       </div>
       {modal&&(
-        <div style={{position:"fixed",inset:0,background:"#000a",zIndex:400,display:"flex",alignItems:"center",justifyContent:"center",padding:20}} onClick={()=>setModal(false)}>
+        <div style={{position:"fixed",inset:0,background:"rgba(16,24,40,0.55)",zIndex:400,display:"flex",alignItems:"center",justifyContent:"center",padding:20}} onClick={()=>setModal(false)}>
           <div style={{background:C.card,borderRadius:14,padding:24,maxWidth:480,width:"100%",border:`1px solid ${C.border}`}} onClick={e=>e.stopPropagation()}>
             <h3 style={{margin:"0 0 16px",color:C.text}}>Nueva Liquidación Cliente</h3>
             <div style={{display:"grid",gap:12}}>
@@ -1652,7 +1652,7 @@ function AnticiposModule({data, setData, clientes, productores, can, temporada})
       </div>
 
       {modal&&(
-        <div style={{position:"fixed",inset:0,background:"#000a",zIndex:400,display:"flex",alignItems:"center",justifyContent:"center",padding:20}} onClick={()=>setModal(false)}>
+        <div style={{position:"fixed",inset:0,background:"rgba(16,24,40,0.55)",zIndex:400,display:"flex",alignItems:"center",justifyContent:"center",padding:20}} onClick={()=>setModal(false)}>
           <div style={{background:C.card,borderRadius:14,padding:24,maxWidth:480,width:"100%",border:`1px solid ${C.border}`}} onClick={e=>e.stopPropagation()}>
             <h3 style={{margin:"0 0 16px",color:C.text}}>💵 Nuevo Anticipo — {form.tipo==="productor"?"Productor":"Cliente"}</h3>
             <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
@@ -1835,7 +1835,7 @@ function ProgramaComercialModule({data, setData, productores, clientes, can}) {
         </div>
       )}
       {modal&&(
-        <div style={{position:"fixed",inset:0,background:"#000a",zIndex:400,display:"flex",alignItems:"center",justifyContent:"center",padding:20}} onClick={()=>setModal(false)}>
+        <div style={{position:"fixed",inset:0,background:"rgba(16,24,40,0.55)",zIndex:400,display:"flex",alignItems:"center",justifyContent:"center",padding:20}} onClick={()=>setModal(false)}>
           <div style={{background:C.card,borderRadius:14,padding:24,maxWidth:520,width:"100%",border:`1px solid ${C.border}`,maxHeight:"85vh",overflowY:"auto"}} onClick={e=>e.stopPropagation()}>
             <h3 style={{margin:"0 0 16px",color:C.text}}>{editId?"Editar":"Nuevo"} {tab==="asignacion"?"Asignación":"Programa Recepción"}</h3>
             <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
@@ -1923,7 +1923,7 @@ function RecepcionProcesoModule({data, setData, productores, can}) {
         </table>
       </div>
       {modal&&(
-        <div style={{position:"fixed",inset:0,background:"#000a",zIndex:400,display:"flex",alignItems:"center",justifyContent:"center",padding:20}} onClick={()=>setModal(false)}>
+        <div style={{position:"fixed",inset:0,background:"rgba(16,24,40,0.55)",zIndex:400,display:"flex",alignItems:"center",justifyContent:"center",padding:20}} onClick={()=>setModal(false)}>
           <div style={{background:C.card,borderRadius:14,padding:24,maxWidth:560,width:"100%",border:`1px solid ${C.border}`,maxHeight:"85vh",overflowY:"auto"}} onClick={e=>e.stopPropagation()}>
             <h3 style={{margin:"0 0 16px",color:C.text}}>{editId?"Editar":"Nueva"} Recepción</h3>
             <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
@@ -2009,7 +2009,7 @@ function StockPalletsModule({data, setData, can}) {
         </table>
       </div>
       {modal&&(
-        <div style={{position:"fixed",inset:0,background:"#000a",zIndex:400,display:"flex",alignItems:"center",justifyContent:"center",padding:20}} onClick={()=>setModal(false)}>
+        <div style={{position:"fixed",inset:0,background:"rgba(16,24,40,0.55)",zIndex:400,display:"flex",alignItems:"center",justifyContent:"center",padding:20}} onClick={()=>setModal(false)}>
           <div style={{background:C.card,borderRadius:14,padding:24,maxWidth:560,width:"100%",border:`1px solid ${C.border}`,maxHeight:"85vh",overflowY:"auto"}} onClick={e=>e.stopPropagation()}>
             <h3 style={{margin:"0 0 16px",color:C.text}}>{editId?"Editar":"Nuevo"} Pallet</h3>
             <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
@@ -2161,7 +2161,7 @@ function MaterialesInventarioModule({data, setData, recetas, setRecetas, embarqu
       )}
 
       {modal&&(
-        <div style={{position:"fixed",inset:0,background:"#000a",zIndex:400,display:"flex",alignItems:"center",justifyContent:"center",padding:20}} onClick={()=>setModal(false)}>
+        <div style={{position:"fixed",inset:0,background:"rgba(16,24,40,0.55)",zIndex:400,display:"flex",alignItems:"center",justifyContent:"center",padding:20}} onClick={()=>setModal(false)}>
           <div style={{background:C.card,borderRadius:14,padding:24,maxWidth:520,width:"100%",border:`1px solid ${C.border}`,maxHeight:"85vh",overflowY:"auto"}} onClick={e=>e.stopPropagation()}>
             <h3 style={{margin:"0 0 16px",color:C.text}}>{editId?"Editar":"Nuevo"} {modalType==="receta"?"Receta":"Material"}</h3>
             {modalType==="material"?(

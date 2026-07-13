@@ -16558,7 +16558,7 @@ function AuditoriaModule({usuario}) {
 
       {/* Modal detalle de evento */}
       {eventoDetalle&&(
-        <div style={{position:"fixed", inset:0, background:"#000a", zIndex:400,
+        <div style={{position:"fixed", inset:0, background:"rgba(16,24,40,0.55)", zIndex:400,
           display:"flex", alignItems:"center", justifyContent:"center", padding:20}}
           onClick={()=>setEventoDetalle(null)}>
           <div style={{background:C.card, borderRadius:14, padding:"20px 24px",

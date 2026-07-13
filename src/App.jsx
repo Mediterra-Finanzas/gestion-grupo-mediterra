@@ -873,7 +873,7 @@ function PanelPermisos({ usuarios, setUsuarios, onClose, pinsPersonalizados = {}
   const inactivos = usuarios.filter(u => u.desactivado);
 
   return (
-    <div style={{position:"fixed",inset:0,background:"#000a",zIndex:400,display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"sans-serif",padding:16}}>
+    <div style={{position:"fixed",inset:0,background:"rgba(16,24,40,0.55)",zIndex:400,display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"sans-serif",padding:16}}>
       <div style={{background:C.card,borderRadius:20,width:"100%",maxWidth:820,maxHeight:"90vh",overflowY:"auto",boxShadow:"0 24px 64px #0006"}}>
         <div style={{background:"linear-gradient(135deg,#1e3a5f,#2563eb)",borderRadius:"20px 20px 0 0",padding:"20px 28px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
           <div>
@@ -3614,7 +3614,7 @@ Equipo Mediterra`);
 
         {/* ═══ Modal alertas tareas puntuales al ingresar ═══ */}
         {modalAlertasTareas&&(
-          <div style={{position:"fixed",inset:0,background:"#000a",zIndex:350,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}
+          <div style={{position:"fixed",inset:0,background:"rgba(16,24,40,0.55)",zIndex:350,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}
             onClick={()=>setModalAlertasTareas(null)}>
             <div style={{background:C.card,borderRadius:16,padding:0,width:"100%",maxWidth:600,
               boxShadow:"0 24px 64px #0005",maxHeight:"85vh",overflow:"hidden",display:"flex",flexDirection:"column"}}
@@ -4215,7 +4215,7 @@ Equipo Mediterra`);
       />
       {/* Modal Cambiar PIN para usuario ya logueado (botón 🔑 PIN del Hub) */}
       {modalPin==="cambiar" && !workerPendiente && (
-        <div style={{position:"fixed",inset:0,background:"#000a",zIndex:500,display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"sans-serif",padding:16}}>
+        <div style={{position:"fixed",inset:0,background:"rgba(16,24,40,0.55)",zIndex:500,display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"sans-serif",padding:16}}>
           <div style={{background:C.card,borderRadius:16,padding:"24px 28px",maxWidth:380,width:"100%",boxShadow:"0 24px 64px #0006"}}>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
               <div style={{fontSize:15,fontWeight:800,color:C.text}}>🔑 Cambiar clave</div>
