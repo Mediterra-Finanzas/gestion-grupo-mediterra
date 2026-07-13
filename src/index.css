@@ -51,6 +51,14 @@ input:focus, select:focus, textarea:focus {
 .mdt-lift { transition: transform .14s, box-shadow .14s; }
 .mdt-lift:hover { transform: translateY(-2px); }
 
+/* Resaltado de fila al pasar el mouse — usa background-image (overlay) en vez
+   de background-color, así tiñe ENCIMA del color propio de cada celda (las
+   celdas coloreadas por signo conservan su color, solo se oscurecen un poco).
+   Aplica a <td> dentro de tbody; los <th> de cabecera no se tocan. */
+tbody tr:hover > td {
+  background-image: linear-gradient(rgba(30, 39, 97, 0.055), rgba(30, 39, 97, 0.055));
+}
+
 /* Medios nunca desbordan su contenedor */
 img, video, canvas { max-width: 100%; height: auto; }
 
