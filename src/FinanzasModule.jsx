@@ -8124,7 +8124,7 @@ function SaldosBancos({saldos,onSave,canEdit,empresasPermitidas}) {
         ))}
         <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:10,padding:"10px 14px",
           display:"flex",flexDirection:"column",justifyContent:"center"}}>
-          <button onClick={refreshFX} disabled={fxLoading}
+          <button onClick={refreshFX} disabled={fxLoading} className={fxLoading?"":"mdt-btn-solid"}
             style={{padding:"6px 10px",borderRadius:7,border:"none",fontSize:11,fontWeight:600,
               background:fxLoading?C.card2:C.accent,color:"#fff",cursor:fxLoading?"default":"pointer"}}>
             {fxLoading?"⟳ …":"🔄 Actualizar FX"}
@@ -8197,6 +8197,7 @@ function SaldosBancos({saldos,onSave,canEdit,empresasPermitidas}) {
             style={{padding:"6px 10px",background:C.card2,border:`1px solid ${C.border}`,
               borderRadius:8,color:C.text,fontSize:12,outline:"none"}}/>
           <button onClick={handleGuardar} disabled={saving||!hasDirty}
+            className={hasDirty&&!saving?"mdt-btn-solid":""}
             style={{padding:"7px 18px",borderRadius:8,
               border:`1px solid ${hasDirty?C.accent:C.border}`,
               background:saving||!hasDirty?C.card2:C.accent,
