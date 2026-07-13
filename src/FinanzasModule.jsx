@@ -1277,6 +1277,7 @@ const EMPRESAS_STATIC = {
       ]},
       { cat:'egr_var', label:'Egresos Operacionales', signo:-1, lines:[
         {label:'Costo Directo Variable', proy:Z65()},
+        {label:'Royalty IQ', proy:Z65()},
       ]},
       { cat:'egr_fijo', label:'Costos Fijos / SG\&A', signo:-1, lines:[
 {label:"Remuneración Administración", proy:ext([14250, 14250, 14250, 14250, 14250, 14250, 14250, 14250, 14250, 14250, 14250, 14250, 14250, 14250, 35625, 14250, 14250, 14250, 14250, 14250, 14250, 14250, 14250, 14250, 14250, 14250, 35625, 14250, 14250, 14250, 14250, 14250, 14250, 14250, 14250, 14250, 14250, 14250, 35625, 14250, 14250, 14250, 14250, 14250, 14250, 14250, 14250, 14250, 14250, 14250, 35625, 14250, 14250, 14250, 14250, 14250, 14250, 14250, 14250, 14250, 14250, 14250, 35625])},
@@ -2666,6 +2667,21 @@ function calcOsirisIngresos(p) {
     royaltyComercial: calcOsirisLinea(p?.royaltyComercial),
     feeVivero:        calcOsirisLinea(p?.feeVivero),
   };
+}
+// Royalty IQ (costo) = 70% × (Royalty Comercial + Royalty por Planta) del
+// trimestre, pagado con desfase: Dic-Feb→Mar, Mar-May→Jun, Jun-Ago→Sep,
+// Sep-Nov→Dic. Arranca en temporada 27-28 (primer pago Sep-2027).
+function calcRoyaltyIQ(rcArr, rpArr, { pct = 0.70, desdeSeason = 2027 } = {}) {
+  const arr = Z65();
+  const base = MESES_INFO.map(mo => (Number(rcArr?.[mo.idx])||0) + (Number(rpArr?.[mo.idx])||0));
+  MESES_INFO.forEach(mo => {
+    if (![2,5,8,11].includes(mo.m)) return;   // pagos en Mar, Jun, Sep, Dic
+    if (seasonOf(mo) < desdeSeason) return;    // a partir de temporada 27-28
+    let suma = 0;
+    for (let k = 1; k <= 3; k++) if (mo.idx - k >= 0) suma += base[mo.idx - k];
+    arr[mo.idx] = suma * pct;
+  });
+  return arr;
 }
 function ParamsOsiris({ paramsOsiris, setParamsOsiris, readOnly }) {
   const p = paramsOsiris || defaultParamsOsiris();
@@ -11185,12 +11201,23 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
       const osi = calcOsirisIngresos(paramsOsiris);
       const mapLinea = { "Royalty por Planta":osi.royaltyPlanta, "Royalty Comercial":osi.royaltyComercial, "Fee Vivero":osi.feeVivero };
       const nextOsi = JSON.parse(JSON.stringify(osiEmp));
+      // 1) Ingresos: reemplaza la línea solo si hay cobros cargados; si no, base.
       nextOsi.sections = nextOsi.sections.map(sec=>{
         if(sec.cat!=="ing_op") return sec;
         return {...sec, lines: sec.lines.map(l=>{
           const arr = mapLinea[l.label];
           return (arr && arr.some(v=>v)) ? {...l, proy:[...arr], formula:true} : l;
         })};
+      });
+      // 2) Royalty IQ (costo) = 70% × (Royalty Comercial + Royalty por Planta)
+      //    trimestral con desfase. Usa el ingreso REAL de esas líneas (base o params).
+      const ingOp = nextOsi.sections.find(s=>s.cat==="ing_op");
+      const rcArr = ingOp?.lines.find(l=>l.label==="Royalty Comercial")?.proy || Z65();
+      const rpArr = ingOp?.lines.find(l=>l.label==="Royalty por Planta")?.proy || Z65();
+      const iq = calcRoyaltyIQ(rcArr, rpArr);
+      nextOsi.sections = nextOsi.sections.map(sec=>{
+        if(sec.cat!=="egr_var") return sec;
+        return {...sec, lines: sec.lines.map(l=> l.label==="Royalty IQ" ? {...l, proy:[...iq], formula:true} : l)};
       });
       base["Osiris"] = nextOsi;
     }
