@@ -4082,7 +4082,7 @@ function Consolidado({empresas,saldosBancos,realData={},addedLinesGlobal={},subL
   const THead=()=>(
     <thead style={{position:"sticky",top:0,zIndex:5}}>
       <tr style={{background:C.bg}}>
-        <th style={{padding:"9px 14px",textAlign:"left",color:C.muted,fontSize:10,position:"sticky",left:0,top:0,background:C.bg,zIndex:6,minWidth:180,borderRight:`1px solid ${C.border}`}}>
+        <th style={{padding:"9px 14px",textAlign:"left",color:C.muted,fontSize:10,position:"sticky",left:0,top:0,background:C.bg,zIndex:6,minWidth:180,borderRight:`1px solid ${C.border}`,borderBottom:`2px solid ${C.border2}`}}>
           {vistaConsolidado==="sumada"?"Concepto":"Empresa / Concepto"}
         </th>
         {cols.map(col=>{
@@ -4097,6 +4097,7 @@ function Consolidado({empresas,saldosBancos,realData={},addedLinesGlobal={},subL
             style={{padding:"7px 7px",textAlign:"center",
               background:col.collapsed?C.bg2:col.tipo==="temporada"?C.card:C.bg,
               borderLeft:col.isFirstInSeason?`2px solid ${C.border2}`:`1px solid ${C.border}22`,
+              borderBottom:`2px solid ${C.border2}`,
               fontSize:col.tipo==="temporada"?10:9,fontWeight:col.tipo==="temporada"?800:600,
               color:col.collapsed?C.accentL:col.tipo==="temporada"?"#fff":col.isFirstInSeason?C.accentL:C.muted,
               whiteSpace:"nowrap",minWidth:col.tipo==="temporada"?110:col.collapsed?80:agrup==="semana"?44:68,
@@ -4294,9 +4295,10 @@ function Consolidado({empresas,saldosBancos,realData={},addedLinesGlobal={},subL
                 {id:"semanal",label:"📅 Resumen Semanal"}
               ].map(v=>(
                 <button key={v.id} onClick={()=>setVistaConsolidado(v.id)}
+                  className={`mdt-tab${vistaConsolidado===v.id?" mdt-tab--active":""}`}
                   style={{padding:"7px 18px",border:"none",cursor:"pointer",fontWeight:vistaConsolidado===v.id?800:500,fontSize:12,
                     background:vistaConsolidado===v.id?C.accent:"transparent",
-                    color:vistaConsolidado===v.id?"#fff":C.muted,transition:"all 0.15s"}}>
+                    color:vistaConsolidado===v.id?"#fff":C.muted}}>
                   {v.label}
                 </button>
               ))}
