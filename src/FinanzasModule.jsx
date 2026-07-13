@@ -5976,7 +5976,12 @@ function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit,saldosBanc
                         const isFirst=col.isFirstInSeason||col.isFirstInMonth;
                         // Permite editar líneas con fórmula SOLO si el mes pertenece a la temporada actual 2025-2026
                         const esTemporadaActual = SEASONS[0]?.indices?.includes(col.idx);
-                        const formulaBloquea = line.formula && !esTemporadaActual;
+                        // Royalty IQ (Osiris): por defecto se calcula 70% × (Royalty Comercial +
+                        // Royalty por Planta), pero se permite override manual en CUALQUIER
+                        // temporada. El valor ingresado manda; las celdas no editadas conservan
+                        // el cálculo automático. Marcado con "● Editado".
+                        const permiteOverrideManual = line.label === "Royalty IQ";
+                        const formulaBloquea = line.formula && !esTemporadaActual && !permiteOverrideManual;
                         const isEditable=canEdit && !formulaBloquea && !isTot && col.type!=="month_collapsed";
                         return (
                           <td key={`${col.mes}-${col.label}-${line.label}-${ci}`}
