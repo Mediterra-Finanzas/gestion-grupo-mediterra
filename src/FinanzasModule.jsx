@@ -10,6 +10,7 @@ import * as XLSX from 'xlsx-js-style'; // SheetJS (fork con estilos) — ya inst
 import { uploadDocNomina, urlFirmadaNomina } from './friskuHelpers';
 import { esLineaRelacionada, hashArchivo, docsActivos, tieneRespaldo, pathDocNomina, coberturaNomina, siguienteCorrelativo } from './expedienteHelpers';
 import { USE_GUARD, pollRow } from './guardClient';
+import { computeOverlay, applyOverlay } from './escenarioOverlay';
 
 // ═══════════════════════════════════════════════════════════════════
 // TIEMPO: Mar-26 → Jun-31 (65 meses)
@@ -11094,6 +11095,10 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
   const [escActivo,setEscActivo]=useState(null);
   const [escBusy,setEscBusy]=useState(false);
   const activeRowRef  = React.useRef("finanzas");   // fila destino de load/save
+  // Base vivo normalizado (blob completo). Los escenarios guardan solo su
+  // overlay (diff) contra esto, y al abrirlos se hace merge(base, overlay).
+  // Así los cambios del base fluyen a todos los escenarios.
+  const baseBlobRef   = React.useRef(null);
   const escenariosRef = React.useRef([]);
   useEffect(()=>{ escenariosRef.current = escenarios; },[escenarios]);
   const rowIdDe = (id)=> id ? `finanzas_esc_${id}` : "finanzas";
@@ -11424,6 +11429,7 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
     dbLoad()
       .then(d=>{
         applyData(d);
+        baseBlobRef.current = d;   // cache inicial del base (se re-cachea al editar/salir de Base)
         // Saldos de bancos: fila dedicada compartida. Si aún no existe, se
         // siembra desde el blob (migración una sola vez).
         dbLoadBancos().then(sb=>{
@@ -11608,7 +11614,7 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
       console.log("[persistAll] Bloqueado — app aún cargando");
       return Promise.resolve(true); // simular éxito para no mostrar error
     }
-    return dbSave({
+    const blob = {
       finanzas_real:   overrides.finanzas_real   !== undefined ? overrides.finanzas_real   : realDataRef.current,
       allegria_params: overrides.allegria_params !== undefined ? overrides.allegria_params : paramsRef.current,
       allegria_comision_arandanos: overrides.allegria_comision_arandanos !== undefined ? overrides.allegria_comision_arandanos : allegraComisionArandanosRef.current,
@@ -11624,23 +11630,81 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
       sub_lines:       overrides.sub_lines       !== undefined ? overrides.sub_lines       : subLinesRef.current,
       added_lines:     overrides.added_lines     !== undefined ? overrides.added_lines     : addedLinesRef.current,
       intercompany:    overrides.intercompany    !== undefined ? overrides.intercompany    : intercompanyRef.current,
-    }, activeRowRef.current);   // ← guarda en la fila activa (Base o escenario)
+    };
+    // Base: guarda el blob completo y actualiza el cache del base vivo.
+    if(activeRowRef.current === "finanzas"){
+      baseBlobRef.current = blob;
+      return dbSave(blob, "finanzas");
+    }
+    // Escenario: guarda SOLO su overlay (diff contra el base vivo). Si por
+    // alguna razón no hay base cacheado, NO escribimos (evita guardar un
+    // overlay gigante/erróneo).
+    if(!baseBlobRef.current){
+      console.warn("[persistAll] En escenario sin base cacheado — no se guarda el overlay.");
+      return Promise.resolve(true);
+    }
+    const overlay = computeOverlay(baseBlobRef.current, blob) || {};
+    return dbSave({ _overlay:true, data:overlay }, activeRowRef.current);
   },[]); // eslint-disable-line
 
-  // Snapshot completo del estado actual (para crear un escenario). Igual al
-  // payload de persistAll pero sin overrides.
-  // Cambiar de escenario (id=null → Base). Carga la fila y aplica; el gate
-  // anti-borrado se resetea para no escribir hasta cargar OK.
+  // Construye el blob completo del estado actual (para cachear el base vivo).
+  const buildBlob = useCallback(()=>({
+    finanzas_real: realDataRef.current,
+    allegria_params: paramsRef.current,
+    allegria_comision_arandanos: allegraComisionArandanosRef.current,
+    params_emp: paramsEmpRef.current,
+    creditos_data: creditosRef.current,
+    params_as: paramsASRef.current,
+    params_frisku: paramsFriskuRef.current,
+    params_if: paramsIFRef.current,
+    params_af: paramsAFRef.current,
+    params_ap: paramsAPRef.current,
+    params_osiris: paramsOsirisRef.current,
+    sub_lines: subLinesRef.current,
+    added_lines: addedLinesRef.current,
+    intercompany: intercompanyRef.current,
+  }),[]); // eslint-disable-line
+
+  // Cambiar de escenario (id=null → Base).
+  //  - A Base: carga la fila 'finanzas' y la aplica.
+  //  - A un escenario: estado = merge(base vivo, overlay del escenario). Así el
+  //    escenario hereda el base y solo pisa lo que él haya cambiado.
+  // El gate anti-borrado se resetea para no escribir hasta cargar OK.
   const switchEscenario = useCallback(async (id)=>{
     const rowId = rowIdDe(id);
     if(rowId === activeRowRef.current) return;
+    // Antes de salir de Base, cachear el base vivo (incluye ediciones sin guardar).
+    if(activeRowRef.current === "finanzas") baseBlobRef.current = buildBlob();
     setEscBusy(true); cargaOkRef.current = false;
     try {
-      const d = await dbLoad(rowId);
-      activeRowRef.current = rowId;
-      setEscActivo(id);
-      applyData(d);
-      // Bancos: siempre los compartidos/vivos (no los del snapshot del escenario)
+      if(id === null){
+        const base = await dbLoad("finanzas");
+        baseBlobRef.current = base;
+        activeRowRef.current = "finanzas";
+        setEscActivo(null);
+        applyData(base);
+      } else {
+        const base = baseBlobRef.current || await dbLoad("finanzas");
+        const row  = await dbLoad(rowId);
+        let overlay;
+        if(row && row._overlay){
+          overlay = row.data || {};
+        } else {
+          // Formato viejo (copia completa del base, sin ediciones propias) →
+          // migrar a HERENCIA PURA (overlay vacío) para que tome el base vivo.
+          // No se diffea contra el base actual: el base creció desde que se copió
+          // el escenario, y ese "drift" no es intención del escenario (marcaría
+          // borrados falsos, p.ej. params_osiris). Cualquier divergencia vieja se
+          // descarta a propósito → el escenario parte limpio desde el base.
+          overlay = {};
+          try { await dbSave({ _overlay:true, data:overlay }, rowId); } catch(_){}
+        }
+        const estado = applyOverlay(base, overlay);
+        activeRowRef.current = rowId;
+        setEscActivo(id);
+        applyData(estado);
+      }
+      // Bancos: siempre los compartidos/vivos (no los del escenario)
       try { const sb = await dbLoadBancos(); if(sb){ setSaldosBancos(sb); saldosBancosRef.current = sb; } } catch(_){}
       cargaOkRef.current = true;
       window._finLoadTime = Date.now();
@@ -11649,30 +11713,30 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
       alert("No se pudo cargar el escenario. Se mantiene el actual.");
     }
     setEscBusy(false);
-  },[]); // eslint-disable-line
+  },[buildBlob]); // eslint-disable-line
 
-  // Crear escenario = copia del ORIGINAL (Base) en una fila propia, para TODAS
-  // las empresas. Cada escenario nuevo parte siempre del original, sin importar
-  // qué escenario esté activo al momento de crearlo.
+  // Crear escenario = fila nueva con overlay VACÍO (hereda todo el base vivo).
   const crearEscenario = useCallback(async (nombre)=>{
     const nm = (nombre||"").trim(); if(!nm) return;
+    if(activeRowRef.current === "finanzas") baseBlobRef.current = buildBlob();
     setEscBusy(true); cargaOkRef.current = false;
     try {
       const id = String(Date.now());
-      const base = await dbLoad("finanzas");   // ← siempre el original
-      const ok = await dbSave(base, rowIdDe(id));
+      const ok = await dbSave({ _overlay:true, data:{} }, rowIdDe(id));
       if(!ok) throw new Error("dbSave escenario falló");
       const next = [...escenariosRef.current, {id, name:nm, createdAt:new Date().toISOString()}];
       escenariosRef.current = next; setEscenarios(next);
       await dbSave({ escenarios: next }, "finanzas_esc_index");
-      // Cargar el original en memoria y activar el nuevo escenario.
+      // Activar: base vivo + overlay vacío → estado = base.
+      const base = baseBlobRef.current || await dbLoad("finanzas");
+      baseBlobRef.current = base;
       activeRowRef.current = rowIdDe(id); setEscActivo(id);
       applyData(base);
       try { const sb = await dbLoadBancos(); if(sb){ setSaldosBancos(sb); saldosBancosRef.current = sb; } } catch(_){}
       cargaOkRef.current = true; window._finLoadTime = Date.now();
     } catch(e){ console.error("[escenario] crear falló:", e); alert("No se pudo crear el escenario."); }
     setEscBusy(false);
-  },[]); // eslint-disable-line
+  },[buildBlob]); // eslint-disable-line
 
   const borrarEscenario = useCallback(async (id)=>{
     const esc = escenariosRef.current.find(e=>e.id===id);
