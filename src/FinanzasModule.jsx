@@ -43,6 +43,11 @@ const SEASONS = (() => {
   return Object.values(map);
 })();
 const SEASON_KEYS = SEASONS.map(s => s.key);
+// Meses (labels) que pertenecen a una temporada (Jul→Jun). Fallback = todos.
+function mesesTemporada(seasonKey) {
+  const s = SEASONS.find(x => x.key === seasonKey);
+  return (s && s.months && s.months.length) ? s.months : MESES_65;
+}
 
 const SEMANAS_MES = {
   "Apr-26":["S14","S15","S16","S17"],
@@ -1575,7 +1580,7 @@ function LineChart({months,values,color=C.accentL,h=72}) {
 // ═══════════════════════════════════════════════════════════════════
 // TAB PARÁMETROS
 // ═══════════════════════════════════════════════════════════════════
-function AnticipList({items,onChange,label}) {
+function AnticipList({items,onChange,label,meses=MESES_65}) {
   const addRow=()=>onChange([...(items||[]),{mes:"",usd_kg:0}]);
   const updRow=(i,field,val)=>{const n=[...(items||[])];n[i]={...n[i],[field]:val};onChange(n);};
   const delRow=i=>onChange((items||[]).filter((_,j)=>j!==i));
@@ -1588,7 +1593,8 @@ function AnticipList({items,onChange,label}) {
             <select value={row.mes||""} onChange={e=>updRow(i,"mes",e.target.value)}
               style={{padding:"4px 7px",background:C.card2,border:`1px solid ${C.border}`,borderRadius:6,color:row.mes?C.text:C.muted,fontSize:11,outline:"none"}}>
               <option value="">— mes —</option>
-              {MESES_65.map(m=><option key={m} value={m}>{m}</option>)}
+              {meses.map(m=><option key={m} value={m}>{m}</option>)}
+              {row.mes&&!meses.includes(row.mes)&&<option value={row.mes}>{row.mes} (fuera de temp.)</option>}
             </select>
             <input type="number" value={row.usd_kg||""} placeholder="0"
               onChange={e=>updRow(i,"usd_kg",parseFloat(e.target.value)||0)}
@@ -1606,7 +1612,7 @@ function AnticipList({items,onChange,label}) {
   );
 }
 
-function DistList({items,onChange,totalMonto=0,esSemanal=false}) {
+function DistList({items,onChange,totalMonto=0,esSemanal=false,meses=MESES_65}) {
   const addRow=()=>onChange([...(items||[]),{mes:"",pct:0}]);
   const updRow=(i,field,val)=>{const n=[...(items||[])];n[i]={...n[i],[field]:val};onChange(n);};
   const delRow=i=>onChange((items||[]).filter((_,j)=>j!==i));
@@ -1620,7 +1626,8 @@ function DistList({items,onChange,totalMonto=0,esSemanal=false}) {
             <select value={row.mes||""} onChange={e=>updRow(i,"mes",e.target.value)}
               style={{padding:"4px 7px",background:C.card2,border:`1px solid ${C.border}`,borderRadius:6,color:row.mes?C.text:C.muted,fontSize:11,outline:"none"}}>
               <option value="">— mes —</option>
-              {MESES_65.map(m=><option key={m} value={m}>{m}</option>)}
+              {meses.map(m=><option key={m} value={m}>{m}</option>)}
+              {row.mes&&!meses.includes(row.mes)&&<option value={row.mes}>{row.mes} (fuera de temp.)</option>}
             </select>
             <input type="number" min="0" max="100" value={row.pct||""} placeholder="0"
               onChange={e=>updRow(i,"pct",parseFloat(e.target.value)||0)}
@@ -1706,7 +1713,7 @@ function ParamsRebate({seasonKey, params, setParams}) {
           {" · "}Asignado: <strong style={{color:sumaOk?C.green:C.warning}}>{pctPagos.toFixed(0)}%</strong>
           {!sumaOk&&(r.pagos||[]).length>0&&<span style={{color:C.warning}}> ⚠ debe sumar 100%</span>}
         </div>
-        <DistList items={r.pagos} onChange={ro?()=>{}:v=>upd("pagos",v)} totalMonto={total} esSemanal={true}/>
+        <DistList items={r.pagos} onChange={ro?()=>{}:v=>upd("pagos",v)} totalMonto={total} esSemanal={true} meses={mesesTemporada(seasonKey)}/>
       </div>
       {kgBase===0&&(
         <div style={{fontSize:10,color:C.muted,fontStyle:"italic",marginTop:8}}>
@@ -1719,6 +1726,7 @@ function ParamsRebate({seasonKey, params, setParams}) {
 
 function ParamsFruta({seasonKey,fruta,params,setParams}) {
   const p=params?.[seasonKey]?.[fruta]||defaultFruta();
+  const mesesSel=mesesTemporada(seasonKey);
   const upd=(field,val)=>setParams(prev=>{
     const next=JSON.parse(JSON.stringify(prev));
     if(!next[seasonKey]) next[seasonKey]={};
@@ -1765,7 +1773,7 @@ function ParamsFruta({seasonKey,fruta,params,setParams}) {
               <div style={{fontSize:10,color:C.muted,marginBottom:3}}>Mes que paga Perú</div>
               <select value={p.mes_liquidacion||""} onChange={e=>upd("mes_liquidacion",e.target.value)} style={selSt}>
                 <option value="">— mes —</option>
-                {MESES_65.map(m=><option key={m} value={m}>{m}</option>)}
+                {mesesSel.map(m=><option key={m} value={m}>{m}</option>)}
               </select>
             </div>
             {kg>0&&fob>0&&desc>0&&(
@@ -1801,24 +1809,24 @@ function ParamsFruta({seasonKey,fruta,params,setParams}) {
       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14}}>
         <div style={{background:`${C.green}0d`,border:`1px solid ${C.green}33`,borderRadius:10,padding:12}}>
           <div style={{fontSize:11,fontWeight:700,color:C.green,marginBottom:10}}>📥 Cobros al cliente</div>
-          <AnticipList label="Anticipos (US$/kg por mes)" items={p.anticipos_cliente} onChange={v=>upd("anticipos_cliente",v)}/>
+          <AnticipList label="Anticipos (US$/kg por mes)" items={p.anticipos_cliente} onChange={v=>upd("anticipos_cliente",v)} meses={mesesSel}/>
           <div style={{marginTop:10}}>
             <div style={{fontSize:10,color:C.muted,marginBottom:3}}>Mes liquidación final</div>
             <select value={p.mes_liquidacion||""} onChange={e=>upd("mes_liquidacion",e.target.value)} style={selSt}>
               <option value="">— mes —</option>
-              {MESES_65.map(m=><option key={m} value={m}>{m}</option>)}
+              {mesesSel.map(m=><option key={m} value={m}>{m}</option>)}
             </select>
             {antIngTot>0&&totalIng>0&&<div style={{fontSize:10,color:C.muted,marginTop:4}}>Anticipos: {$$(antIngTot)} · Liquidación: {$$(Math.max(0,totalIng-antIngTot))}</div>}
           </div>
         </div>
         <div style={{background:`${C.red}0d`,border:`1px solid ${C.red}33`,borderRadius:10,padding:12}}>
           <div style={{fontSize:11,fontWeight:700,color:C.red,marginBottom:10}}>📤 Pagos al productor</div>
-          <AnticipList label="Anticipos productor (US$/kg)" items={p.anticipos_productor} onChange={v=>upd("anticipos_productor",v)}/>
+          <AnticipList label="Anticipos productor (US$/kg)" items={p.anticipos_productor} onChange={v=>upd("anticipos_productor",v)} meses={mesesSel}/>
           <div style={{marginTop:10}}>
             <div style={{fontSize:10,color:C.muted,marginBottom:3}}>Mes saldo productor</div>
             <select value={p.mes_saldo_productor||""} onChange={e=>upd("mes_saldo_productor",e.target.value)} style={selSt}>
               <option value="">— mes —</option>
-              {MESES_65.map(m=><option key={m} value={m}>{m}</option>)}
+              {mesesSel.map(m=><option key={m} value={m}>{m}</option>)}
             </select>
           </div>
         </div>
@@ -1832,7 +1840,7 @@ function ParamsFruta({seasonKey,fruta,params,setParams}) {
                 Total: <strong style={{color:C.text}}>{$$(kg*matUsd)}</strong>
                 {" · "}Asignado: <strong style={{color:pctMat===100?C.green:C.warning}}>{pctMat.toFixed(0)}%</strong>
               </div>
-              <DistList items={p.dist_mat} onChange={v=>upd("dist_mat",v)} totalMonto={kg*matUsd}/>
+              <DistList items={p.dist_mat} onChange={v=>upd("dist_mat",v)} totalMonto={kg*matUsd} meses={mesesSel}/>
             </div>
           )}
           {srvUsd>0&&(
@@ -1842,7 +1850,7 @@ function ParamsFruta({seasonKey,fruta,params,setParams}) {
                 Total: <strong style={{color:C.text}}>{$$(kg*srvUsd)}</strong>
                 {" · "}Asignado: <strong style={{color:pctSrv===100?C.green:C.warning}}>{pctSrv.toFixed(0)}%</strong>
               </div>
-              <DistList items={p.dist_srv} onChange={v=>upd("dist_srv",v)} totalMonto={kg*srvUsd} esSemanal/>
+              <DistList items={p.dist_srv} onChange={v=>upd("dist_srv",v)} totalMonto={kg*srvUsd} esSemanal meses={mesesSel}/>
             </div>
           )}
         </div>
@@ -1856,6 +1864,7 @@ function ParamsFruta({seasonKey,fruta,params,setParams}) {
 // ── Parámetros genéricos: un "producto" por empresa ───────────────
 function ParamsProducto({seasonKey,prodId,paramsEmp,setParamsEmp,empColor="#2563eb"}) {
   const p = paramsEmp?.[seasonKey]?.[prodId] || defaultProducto();
+  const mesesSel = mesesTemporada(seasonKey);
   const upd=(field,val)=>setParamsEmp(prev=>{
     const next=JSON.parse(JSON.stringify(prev));
     if(!next[seasonKey]) next[seasonKey]={};
@@ -1942,7 +1951,7 @@ function ParamsProducto({seasonKey,prodId,paramsEmp,setParamsEmp,empColor="#2563
             <div style={{fontSize:10,color:C.muted,marginBottom:3}}>Mes liquidación final</div>
             <select value={p.mes_liquidacion||""} onChange={e=>upd("mes_liquidacion",e.target.value)} style={selSt}>
               <option value="">— mes —</option>
-              {MESES_65.map(m=><option key={m} value={m}>{m}</option>)}
+              {mesesSel.map(m=><option key={m} value={m}>{m}</option>)}
             </select>
             {antIngTot>0&&totalIng>0&&<div style={{fontSize:10,color:C.muted,marginTop:4}}>
               Anticipos: {$$(antIngTot)} · Liquidación: {$$(Math.max(0,totalIng-antIngTot))}
@@ -1960,7 +1969,7 @@ function ParamsProducto({seasonKey,prodId,paramsEmp,setParamsEmp,empColor="#2563
             <div style={{fontSize:10,color:C.muted,marginBottom:3}}>Mes saldo proveedor</div>
             <select value={p.mes_saldo_productor||""} onChange={e=>upd("mes_saldo_productor",e.target.value)} style={selSt}>
               <option value="">— mes —</option>
-              {MESES_65.map(m=><option key={m} value={m}>{m}</option>)}
+              {mesesSel.map(m=><option key={m} value={m}>{m}</option>)}
             </select>
           </div>
         </div>
@@ -1976,7 +1985,7 @@ function ParamsProducto({seasonKey,prodId,paramsEmp,setParamsEmp,empColor="#2563
                 Total: <strong style={{color:C.text}}>{$$(u*mU)}</strong>
                 {" · "}Asignado: <strong style={{color:pctMat===100?C.green:C.warning}}>{pctMat.toFixed(0)}%</strong>
               </div>
-              <DistList items={p.dist_mat} onChange={v=>upd("dist_mat",v)} totalMonto={u*mU}/>
+              <DistList items={p.dist_mat} onChange={v=>upd("dist_mat",v)} totalMonto={u*mU} meses={mesesSel}/>
             </div>
           )}
           {sU>0&&(
@@ -1986,7 +1995,7 @@ function ParamsProducto({seasonKey,prodId,paramsEmp,setParamsEmp,empColor="#2563
                 Total: <strong style={{color:C.text}}>{$$(u*sU)}</strong>
                 {" · "}Asignado: <strong style={{color:pctSrv===100?C.green:C.warning}}>{pctSrv.toFixed(0)}%</strong>
               </div>
-              <DistList items={p.dist_srv} onChange={v=>upd("dist_srv",v)} totalMonto={u*sU} esSemanal/>
+              <DistList items={p.dist_srv} onChange={v=>upd("dist_srv",v)} totalMonto={u*sU} esSemanal meses={mesesSel}/>
             </div>
           )}
         </div>
@@ -2008,7 +2017,7 @@ function AnticipListGen({items,onChange,totalUnits=0,label="usd_unit"}) {
             style={{padding:"4px 7px",background:C.card2,border:`1px solid ${C.border}`,
               borderRadius:6,color:row.mes?C.text:C.muted,fontSize:11,outline:"none"}}>
             <option value="">— mes —</option>
-            {MESES_65.map(m=><option key={m} value={m}>{m}</option>)}
+            {mesesSel.map(m=><option key={m} value={m}>{m}</option>)}
           </select>
           <input type="number" value={row[label]||""} placeholder="0"
             onChange={e=>updRow(i,label,parseFloat(e.target.value)||0)}
@@ -2118,6 +2127,7 @@ function calcAllpa(paramsAF) {
 function ParamsAllpa({selSeason, paramsAF, setParamsAF, readOnly}) {
   const [selVar, setSelVar] = useState(null);
   const [subTab, setSubTab] = useState("variedades"); // "variedades" | "cosecha" | "transporte"
+  const mesesSel = mesesTemporada(selSeason);
 
   const d = paramsAF?.[selSeason] || {variedades:[], cosecha:{usd_kg:0,semanas_pago:[]}, transporte:{costo_persona:0,personas:0,meses_pago:[]}};
   const variedades = d.variedades||[];
@@ -2247,7 +2257,7 @@ function ParamsAllpa({selSeason, paramsAF, setParamsAF, readOnly}) {
                       <select value={v.mes_liq||""} onChange={e=>updVar(selVar,"mes_liq",e.target.value)}
                         style={selSt} disabled={readOnly}>
                         <option value="">— mes —</option>
-                        {MESES_65.map(m=><option key={m}>{m}</option>)}
+                        {mesesSel.map(m=><option key={m}>{m}</option>)}
                       </select>
                     </div>
                   </div>
@@ -2294,7 +2304,7 @@ function ParamsAllpa({selSeason, paramsAF, setParamsAF, readOnly}) {
                       <select value={a.mes||""} onChange={e=>updVarAnt(selVar,ai,"mes",e.target.value)}
                         style={{...selSt,width:110}} disabled={readOnly}>
                         <option value="">— mes —</option>
-                        {MESES_65.map(m=><option key={m}>{m}</option>)}
+                        {mesesSel.map(m=><option key={m}>{m}</option>)}
                       </select>
                       <span style={{fontSize:10,color:C.muted}}>$</span>
                       <input type="number" step="0.01" value={a.usd_kg||""} placeholder="US$/kg"
@@ -2349,7 +2359,7 @@ function ParamsAllpa({selSeason, paramsAF, setParamsAF, readOnly}) {
                   updCosecha("semanas_pago",arr);}}
                   style={{...selSt,width:110}} disabled={readOnly}>
                   <option value="">— mes —</option>
-                  {MESES_65.map(m=><option key={m}>{m}</option>)}
+                  {mesesSel.map(m=><option key={m}>{m}</option>)}
                 </select>
                 <input type="number" min="0" max="100" value={sp.pct||""} placeholder="%"
                   onChange={e=>{const arr=[...(d.cosecha?.semanas_pago||[])];arr[i]={...sp,pct:Number(e.target.value)||0};updCosecha("semanas_pago",arr);}}
@@ -2648,7 +2658,10 @@ function calcIntegrity(paramsIF) {
 //   Royalty Comercial   = US$/há     × cantidad de há administradas
 //   Fee Vivero          = US$/planta × cantidad de plantas vendidas (regalía vivero)
 function defaultParamsOsiris() {
-  return { royaltyPlanta: [], royaltyComercial: [], feeVivero: [] };
+  // Por temporada: { seasonKey: { royaltyPlanta:[], royaltyComercial:[], feeVivero:[] } }
+  const p = {};
+  SEASON_KEYS.forEach(sk => { p[sk] = { royaltyPlanta:[], royaltyComercial:[], feeVivero:[] }; });
+  return p;
 }
 function calcOsirisLinea(entries) {
   const arr = Z65();
@@ -2662,10 +2675,12 @@ function calcOsirisLinea(entries) {
   return arr;
 }
 function calcOsirisIngresos(p) {
+  // Aplana los cobros de todas las temporadas (el mes_cobro es absoluto).
+  const flat = key => SEASON_KEYS.flatMap(sk => (p?.[sk]?.[key]) || []);
   return {
-    royaltyPlanta:    calcOsirisLinea(p?.royaltyPlanta),
-    royaltyComercial: calcOsirisLinea(p?.royaltyComercial),
-    feeVivero:        calcOsirisLinea(p?.feeVivero),
+    royaltyPlanta:    calcOsirisLinea(flat('royaltyPlanta')),
+    royaltyComercial: calcOsirisLinea(flat('royaltyComercial')),
+    feeVivero:        calcOsirisLinea(flat('feeVivero')),
   };
 }
 // Royalty IQ (costo) = 70% × (Royalty Comercial + Royalty por Planta) del
@@ -2683,26 +2698,29 @@ function calcRoyaltyIQ(rcArr, rpArr, { pct = 0.70, desdeSeason = 2027 } = {}) {
   });
   return arr;
 }
-function ParamsOsiris({ paramsOsiris, setParamsOsiris, readOnly }) {
+function ParamsOsiris({ selSeason, paramsOsiris, setParamsOsiris, readOnly }) {
   const p = paramsOsiris || defaultParamsOsiris();
   const ro = readOnly || !setParamsOsiris;
+  const sk = selSeason;
+  const mesesSeason = mesesTemporada(sk);
+  const ensure = (n)=>{ if(!n[sk]) n[sk]={royaltyPlanta:[],royaltyComercial:[],feeVivero:[]}; return n; };
   const SECS = [
     { key:'royaltyPlanta',    titulo:'🌱 Royalty por Planta',  unidad:'plantas',          tarifaLbl:'US$/planta', color:'#0f766e' },
     { key:'royaltyComercial', titulo:'🌾 Royalty Comercial',   unidad:'há administradas', tarifaLbl:'US$/há',     color:'#2563eb' },
     { key:'feeVivero',        titulo:'🪴 Fee Vivero',          unidad:'plantas vendidas', tarifaLbl:'US$/planta', color:'#7c3aed' },
   ];
-  const upd = (key,i,field,val)=>setParamsOsiris(prev=>{const n=JSON.parse(JSON.stringify(prev||defaultParamsOsiris()));if(!n[key])n[key]=[];n[key][i]={...n[key][i],[field]:field==='mes_cobro'?val:(Number(val)||0)};return n;});
-  const add = (key)=>setParamsOsiris(prev=>{const n=JSON.parse(JSON.stringify(prev||defaultParamsOsiris()));if(!n[key])n[key]=[];n[key].push({mes_cobro:'',cantidad:0,tarifa:0});return n;});
-  const del = (key,i)=>setParamsOsiris(prev=>{const n=JSON.parse(JSON.stringify(prev||defaultParamsOsiris()));n[key]=(n[key]||[]).filter((_,j)=>j!==i);return n;});
+  const upd = (key,i,field,val)=>setParamsOsiris(prev=>{const n=ensure(JSON.parse(JSON.stringify(prev||defaultParamsOsiris())));if(!n[sk][key])n[sk][key]=[];n[sk][key][i]={...n[sk][key][i],[field]:field==='mes_cobro'?val:(Number(val)||0)};return n;});
+  const add = (key)=>setParamsOsiris(prev=>{const n=ensure(JSON.parse(JSON.stringify(prev||defaultParamsOsiris())));if(!n[sk][key])n[sk][key]=[];n[sk][key].push({mes_cobro:'',cantidad:0,tarifa:0});return n;});
+  const del = (key,i)=>setParamsOsiris(prev=>{const n=ensure(JSON.parse(JSON.stringify(prev||defaultParamsOsiris())));n[sk][key]=(n[sk][key]||[]).filter((_,j)=>j!==i);return n;});
   const inp = {padding:"5px 8px",background:C.card2,border:`1px solid ${C.border}`,borderRadius:6,color:C.text,fontSize:11,outline:"none"};
   return (
     <div style={{display:"flex",flexDirection:"column",gap:14}}>
       <Card>
-        <SectionTitle>⚡ Ingresos — Osiris
-          <span style={{fontSize:10,color:C.muted,fontWeight:400,marginLeft:8}}>Temporal — luego vendrán del módulo Osiris. Cantidad × tarifa cobrado en el mes indicado.</span>
+        <SectionTitle>⚡ Ingresos — Osiris · {SEASONS.find(s=>s.key===sk)?.label||sk}
+          <span style={{fontSize:10,color:C.muted,fontWeight:400,marginLeft:8}}>Temporal — luego vendrán del módulo Osiris. Cantidad × tarifa cobrado en el mes (solo meses de la temporada).</span>
         </SectionTitle>
         {SECS.map(sec=>{
-          const rows = p[sec.key]||[];
+          const rows = p[sk]?.[sec.key]||[];
           const total = rows.reduce((s,r)=>s+(Number(r.cantidad)||0)*(Number(r.tarifa)||0),0);
           return (
             <div key={sec.key} style={{marginTop:14,border:`1px solid ${sec.color}44`,borderRadius:10,padding:"10px 12px"}}>
@@ -2725,7 +2743,8 @@ function ParamsOsiris({ paramsOsiris, setParamsOsiris, readOnly }) {
                 <div key={i} style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr 1.1fr auto",gap:8,marginBottom:6,alignItems:"center"}}>
                   <select disabled={ro} value={r.mes_cobro||""} onChange={e=>upd(sec.key,i,'mes_cobro',e.target.value)} style={{...inp}}>
                     <option value="">— mes —</option>
-                    {MESES_65.map(m=><option key={m} value={m}>{m}</option>)}
+                    {mesesSeason.map(m=><option key={m} value={m}>{m}</option>)}
+                    {r.mes_cobro&&!mesesSeason.includes(r.mes_cobro)&&<option value={r.mes_cobro}>{r.mes_cobro} (fuera de temporada)</option>}
                   </select>
                   <input type="number" disabled={ro} value={r.cantidad||""} onChange={e=>upd(sec.key,i,'cantidad',e.target.value)} style={{...inp,textAlign:"right"}}/>
                   <input type="number" step="0.01" disabled={ro} value={r.tarifa||""} onChange={e=>upd(sec.key,i,'tarifa',e.target.value)} style={{...inp,textAlign:"right"}}/>
@@ -2746,6 +2765,7 @@ function ParamsOsiris({ paramsOsiris, setParamsOsiris, readOnly }) {
 }
 function ParamsIntegrity({selSeason, paramsIF, setParamsIF, readOnly}) {
   const clientes = paramsIF?.[selSeason]?.clientes || [];
+  const mesesSel = mesesTemporada(selSeason);
 
   function updCli(ci, field, val) {
     if(readOnly) return;
@@ -2828,7 +2848,7 @@ function ParamsIntegrity({selSeason, paramsIF, setParamsIF, readOnly}) {
                     <select value={cli.mes_cobro||""} onChange={e=>updCli(ci,"mes_cobro",e.target.value)}
                       disabled={readOnly} style={{...iSt,width:110}}>
                       <option value="">— mes —</option>
-                      {MESES_65.map(m=><option key={m} value={m}>{m}</option>)}
+                      {mesesSel.map(m=><option key={m} value={m}>{m}</option>)}
                     </select>
                   </td>
                   <td style={{padding:"6px 10px",textAlign:"right",fontWeight:700,
@@ -2885,6 +2905,7 @@ const ESP_AS_LABEL = {cerezas:"Cerezas",ciruelas:"Ciruelas"};
 
 function ParamsAllegriaService({selSeason, paramsAS, setParamsAS, readOnly}) {
   const [selEsp, setSelEsp] = useState("cerezas");
+  const mesesSel = mesesTemporada(selSeason);
 
   const d = paramsAS?.[selSeason]?.[selEsp] || {kg_mes:{},usd_kg:0,mes_cobro:""};
 
@@ -3009,7 +3030,7 @@ function ParamsAllegriaService({selSeason, paramsAS, setParamsAS, readOnly}) {
                         fontSize:10,color:cob?C.text:C.muted,outline:"none"}}
                       disabled={readOnly}>
                       <option value="">cobrar en…</option>
-                      {MESES_65.map(m=><option key={m} value={m}>{m}</option>)}
+                      {mesesSel.map(m=><option key={m} value={m}>{m}</option>)}
                     </select>
                   )}
                   {ingMes>0&&(
@@ -3159,7 +3180,7 @@ function AllegriaComisionArandanosPanel({ config, setConfig, readOnly }) {
                 <div key={idx} style={{display:"flex",alignItems:"center",gap:8}}>
                   <select value={p.mes} onChange={e=>updPago(idx,"mes",e.target.value)} style={selSt}>
                     <option value="">— mes —</option>
-                    {MESES_65.map(m=><option key={m} value={m}>{m}</option>)}
+                    {mesesSel.map(m=><option key={m} value={m}>{m}</option>)}
                   </select>
                   <input type="number" value={p.pct||""} placeholder="%" onChange={e=>updPago(idx,"pct",parseFloat(e.target.value)||0)}
                     style={{...iSt,width:60}}/>
@@ -3332,8 +3353,8 @@ function TabParametros({empNombre,empColor="#2563eb",
         </div>
       )}
 
-      {/* Selector temporada — Allpa Perú/Osiris usan su propio layout */}
-      {!esAllpaPeru&&!esOsiris&&(
+      {/* Selector temporada — Allpa Perú usa su propio selector de año */}
+      {!esAllpaPeru&&(
       <Card>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12,flexWrap:"wrap",gap:8}}>
           <SectionTitle>
@@ -3409,9 +3430,10 @@ function TabParametros({empNombre,empColor="#2563eb",
           readOnly={readOnly}/>
       )}
 
-      {/* ── OSIRIS: royalties + fee vivero ── */}
+      {/* ── OSIRIS: royalties + fee vivero (por temporada) ── */}
       {esOsiris&&(
         <ParamsOsiris
+          selSeason={selSeason}
           paramsOsiris={paramsOsiris||defaultParamsOsiris()}
           setParamsOsiris={setParamsOsiris||function(){}}
           readOnly={readOnly}/>
@@ -11335,7 +11357,24 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
       }
       setParamsAP(merged);
     }
-    if(d?.params_osiris) setParamsOsiris({...defaultParamsOsiris(),...d.params_osiris});
+    if(d?.params_osiris) {
+      let po = d.params_osiris;
+      // Migración: formato viejo PLANO {royaltyPlanta:[],...} → por temporada
+      // (distribuye cada cobro a la temporada de su mes_cobro).
+      if(Array.isArray(po.royaltyPlanta)||Array.isArray(po.royaltyComercial)||Array.isArray(po.feeVivero)){
+        const def = defaultParamsOsiris();
+        ['royaltyPlanta','royaltyComercial','feeVivero'].forEach(key=>{
+          (po[key]||[]).forEach(e=>{
+            const info = MESES_INFO.find(x=>x.label===e.mes_cobro);
+            const skey = info ? `${seasonOf(info)}-${seasonOf(info)+1}` : SEASON_KEYS[0];
+            if(!def[skey]) def[skey]={royaltyPlanta:[],royaltyComercial:[],feeVivero:[]};
+            def[skey][key].push(e);
+          });
+        });
+        po = def;
+      }
+      setParamsOsiris({...defaultParamsOsiris(),...po});
+    }
     if(d?.sub_lines)    setSubLines(d.sub_lines);
     if(d?.added_lines)  setAddedLinesGlobal(d.added_lines);
     if(d?.intercompany)   setIntercompany(d.intercompany||[]);
