@@ -11231,12 +11231,17 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
       const osi = calcOsirisIngresos(paramsOsiris);
       const mapLinea = { "Royalty por Planta":osi.royaltyPlanta, "Royalty Comercial":osi.royaltyComercial, "Fee Vivero":osi.feeVivero };
       const nextOsi = JSON.parse(JSON.stringify(osiEmp));
-      // 1) Ingresos: reemplaza la línea solo si hay cobros cargados; si no, base.
+      // 1) Ingresos: mezcla por temporada. Hasta 26-27 se conservan los valores
+      //    base (hardcodeados); DESDE temporada 27-28 (seasonOf>=2027) se eliminan
+      //    y mandan los parámetros (aunque estén en 0 hasta cargarlos).
+      const DESDE_SEASON = 2027;
       nextOsi.sections = nextOsi.sections.map(sec=>{
         if(sec.cat!=="ing_op") return sec;
         return {...sec, lines: sec.lines.map(l=>{
           const arr = mapLinea[l.label];
-          return (arr && arr.some(v=>v)) ? {...l, proy:[...arr], formula:true} : l;
+          if(!arr) return l;
+          const blended = MESES_INFO.map(mo => seasonOf(mo) >= DESDE_SEASON ? (arr[mo.idx]||0) : (l.proy[mo.idx]||0));
+          return {...l, proy:blended, formula:true};
         })};
       });
       // 2) Royalty IQ (costo) = 70% × (Royalty Comercial + Royalty por Planta)
