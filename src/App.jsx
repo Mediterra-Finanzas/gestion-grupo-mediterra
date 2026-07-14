@@ -4048,8 +4048,10 @@ Equipo Mediterra`);
                   return fa.localeCompare(fb);
                 });
                 if(sorted.length===0) return (
-                  <div style={{textAlign:"center",padding:40,color:C.muted2,fontSize:13}}>
-                    No hay tareas puntuales programadas. Usa el botón "+ Agregar tarea" en la pestaña Config para crear una con frecuencia "Puntual".
+                  <div style={{textAlign:"center",padding:"48px 24px",background:C.card,borderRadius:12,border:`1px dashed ${C.border}`}}>
+                    <div style={{fontSize:40,marginBottom:10,opacity:0.85}}>📌</div>
+                    <div style={{fontSize:15,fontWeight:700,color:C.text,marginBottom:4}}>Sin tareas puntuales</div>
+                    <div style={{fontSize:13,color:C.muted,maxWidth:380,margin:"0 auto",lineHeight:1.5}}>Crea una desde la pestaña <strong style={{color:C.text}}>Config</strong> con el botón "+ Agregar tarea" y frecuencia "Puntual".</div>
                   </div>
                 );
                 return (

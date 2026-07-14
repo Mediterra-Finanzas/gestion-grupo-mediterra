@@ -1294,8 +1294,11 @@ function MisRendiciones({ rends, onCrear, onAbrir, onEliminar, tcData, admin, va
         <Btn onClick={onCrear}>+ Nueva rendición</Btn>
       </div>
       {!rends.length && (
-        <div style={{ textAlign: "center", padding: "50px 20px", color: C.muted2, background: C.card, borderRadius: 12, border: `1px dashed ${C.border}` }}>
-          No tienes rendiciones aún. Crea una para empezar a cargar tus gastos.
+        <div style={{ textAlign: "center", padding: "56px 20px", background: C.card, borderRadius: 12, border: `1px dashed ${C.border}` }}>
+          <div style={{ fontSize: 42, marginBottom: 10, opacity: 0.85 }}>🧾</div>
+          <div style={{ fontSize: 15, fontWeight: 700, color: C.text, marginBottom: 4 }}>Aún no tienes rendiciones</div>
+          <div style={{ fontSize: 13, color: C.muted, maxWidth: 340, margin: "0 auto 16px", lineHeight: 1.5 }}>Crea una para empezar a cargar tus gastos con sus respaldos.</div>
+          <Btn onClick={onCrear}>+ Nueva rendición</Btn>
         </div>
       )}
       <div style={{ display: "grid", gap: 10 }}>
