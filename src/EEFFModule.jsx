@@ -2255,7 +2255,7 @@ export default function EEFFModule({ canEdit, usuarioActual, empresasPermitidas 
         <>
           {/* Backdrop */}
           <div onClick={() => setCuentaSeleccionada(null)}
-            style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.45)', zIndex:199 }} />
+            style={{ position:'fixed', inset:0, background:'rgba(16,24,40,0.55)', zIndex:199 }} />
 
           {/* Panel lateral derecho — 400px; a 1366px deja ~966px para el contenido */}
           <div style={{ position:'fixed', top:0, right:0, width:400, height:'100vh',

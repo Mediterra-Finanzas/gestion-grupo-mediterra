@@ -728,7 +728,7 @@ const inputStyle = {
 function Modal({ children, onClose, width = 720, title }) {
   const esMovil = useEsMovil();
   return (
-    <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "#0007", zIndex: 400, display: "flex", alignItems: "flex-start", justifyContent: "center", padding: esMovil ? "10px 8px" : "40px 16px", overflowX: "hidden", overflowY: "auto" }}>
+    <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(16,24,40,0.55)", zIndex: 400, display: "flex", alignItems: "flex-start", justifyContent: "center", padding: esMovil ? "10px 8px" : "40px 16px", overflowX: "hidden", overflowY: "auto" }}>
       <div onClick={e => e.stopPropagation()} style={{ background: C.card, borderRadius: 14, width, maxWidth: "100%", minWidth: 0, overflowX: "hidden", boxShadow: "0 12px 48px #0004" }}>
         {title && (
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: esMovil ? "13px 16px" : "16px 22px", borderBottom: `1px solid ${C.border}` }}>
@@ -1845,7 +1845,7 @@ function EditorRendicion({ rend, upsert, onClose, onEnviar, esDueno, esAprobador
 
       {/* Modal: agregar persona externa (no usuario) */}
       {modalExt && (
-        <div onClick={() => setModalExt(false)} style={{ position: "fixed", inset: 0, background: "#0007", zIndex: 500, display: "flex", alignItems: "flex-start", justifyContent: "center", padding: "40px 16px", overflowY: "auto" }}>
+        <div onClick={() => setModalExt(false)} style={{ position: "fixed", inset: 0, background: "rgba(16,24,40,0.55)", zIndex: 500, display: "flex", alignItems: "flex-start", justifyContent: "center", padding: "40px 16px", overflowY: "auto" }}>
           <div onClick={e => e.stopPropagation()} style={{ background: C.card, borderRadius: 14, width: 440, maxWidth: "100%", minWidth: 0, padding: 20, boxShadow: "0 12px 48px #0004" }}>
             <div style={{ fontWeight: 800, fontSize: 15, marginBottom: 4 }}>Agregar persona externa</div>
             <div style={{ fontSize: 12, color: C.muted2, marginBottom: 14 }}>Personas que no tienen cuenta en el sistema (terreno, choferes, externos). Queda guardada para reutilizarla.</div>

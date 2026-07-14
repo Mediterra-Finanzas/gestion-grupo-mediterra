@@ -3627,7 +3627,7 @@ function ModalIngreso({emp,empNombre,mes,semana,existing,onSave,onClose}) {
   }
 
   return (
-    <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.85)",zIndex:500,
+    <div style={{position:"fixed",inset:0,background:"rgba(16,24,40,0.55)",zIndex:500,
       display:"flex",alignItems:"flex-start",justifyContent:"center",padding:20,overflowY:"auto"}}>
       <div style={{background:C.bg2,border:`1px solid ${emp.color}55`,borderRadius:16,
         width:540,maxWidth:"95vw",boxShadow:"0 24px 64px rgba(0,0,0,0.7)"}}>
@@ -7385,10 +7385,10 @@ function Creditos({empresas, creditosData=CREDITOS_DEFAULT, onSaveCreditos, canE
         const socioCuotas = (form.cuotas_socio||[]).filter(cu=>cu.fecha_vencimiento);
         const amort = esSocio ? calcularAmortizacionSocio(form.monto, form.tasa_efectiva_anual, form.fecha_desembolso, socioCuotas) : null;
         return (
-        <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.8)",zIndex:400,
+        <div style={{position:"fixed",inset:0,background:"rgba(16,24,40,0.6)",zIndex:400,
           display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
           <div style={{background:C.bg2,border:`1px solid ${C.blue}55`,borderRadius:16,
-            width:esSocio?900:520,maxWidth:"95vw",maxHeight:"92vh",overflowY:"auto",boxShadow:"0 24px 64px rgba(0,0,0,0.7)"}}>
+            width:esSocio?900:520,maxWidth:"95vw",maxHeight:"92vh",overflowY:"auto",boxShadow:"0 24px 64px rgba(16,24,40,0.4)"}}>
             <div style={{padding:"14px 20px",borderBottom:`1px solid ${C.border}`,
               display:"flex",alignItems:"center",gap:10}}>
               <span style={{fontSize:20}}>{esSocio?"🤝":"🏦"}</span>
@@ -7405,6 +7405,7 @@ function Creditos({empresas, creditosData=CREDITOS_DEFAULT, onSaveCreditos, canE
                 <button key={v} type="button" onClick={()=>setForm(p=>({...p,tipo_credito:v,
                   cuotas_socio: v==="socio" && !(p.cuotas_socio||[]).length ? [CUOTA_SOCIO_VACIA(),CUOTA_SOCIO_VACIA()] : (p.cuotas_socio||[]),
                   tasa_efectiva_anual: v==="socio" && !p.tasa_efectiva_anual ? "12.6" : p.tasa_efectiva_anual }))}
+                  className={`mdt-btn${form.tipo_credito===v?" mdt-btn--active":""}`}
                   style={{padding:"5px 14px",borderRadius:8,cursor:"pointer",fontSize:12,fontWeight:700,
                     border:`1px solid ${form.tipo_credito===v?C.blue:C.border}`,
                     background:form.tipo_credito===v?`${C.blue}22`:"transparent",color:form.tipo_credito===v?C.blue:C.muted}}>{lbl}</button>
@@ -7707,12 +7708,12 @@ function Creditos({empresas, creditosData=CREDITOS_DEFAULT, onSaveCreditos, canE
 
             <div style={{padding:"12px 20px",borderTop:`1px solid ${C.border}`,
               display:"flex",gap:8,justifyContent:"flex-end"}}>
-              <button onClick={()=>setModal(false)}
+              <button onClick={()=>setModal(false)} className="mdt-btn"
                 style={{padding:"8px 18px",borderRadius:8,border:`1px solid ${C.border}`,
                   background:"transparent",color:C.muted,cursor:"pointer",fontSize:12}}>
                 Cancelar
               </button>
-              <button onClick={guardar}
+              <button onClick={guardar} className="mdt-btn-solid"
                 style={{padding:"8px 18px",borderRadius:8,border:"none",
                   background:C.blue,color:"#fff",cursor:"pointer",fontSize:12,fontWeight:700}}>
                 💾 Guardar
@@ -8560,7 +8561,7 @@ function Intercompany({transferencias=[],onSave,empresas={},canEdit}) {
 
       {/* Modal nueva / editar transferencia */}
       {modal&&(
-        <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.8)",zIndex:400,
+        <div style={{position:"fixed",inset:0,background:"rgba(16,24,40,0.55)",zIndex:400,
           display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
           <div style={{background:C.bg2,border:`1px solid #f59e0b55`,borderRadius:16,
             width:520,maxWidth:"95vw",boxShadow:"0 24px 64px rgba(0,0,0,0.7)"}}>
@@ -13258,7 +13259,7 @@ function DocsLineaModal({item, canEdit, usuario, nominaId, empresa, anioNom, fec
   const fmtFecha = (iso)=>{ try{ return new Date(iso).toLocaleString("es-CL"); }catch{ return iso||"—"; } };
 
   return (
-    <div onClick={onClose} style={{position:"fixed",inset:0,background:"#0008",zIndex:1000,
+    <div onClick={onClose} style={{position:"fixed",inset:0,background:"rgba(16,24,40,0.55)",zIndex:1000,
       display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
       <div onClick={e=>e.stopPropagation()} style={{background:C.card,borderRadius:12,border:`1px solid ${C.border}`,
         width:"min(640px,96vw)",maxHeight:"90vh",overflowY:"auto",padding:18,boxShadow:"0 12px 40px #0006"}}>
@@ -13402,7 +13403,7 @@ function AuditoriaNominaModal({nomina, onClose}) {
   const colPct = cob.pct>=100?C.green:cob.pct>=60?C.yellow:"#ef4444";
 
   return (
-    <div onClick={onClose} style={{position:"fixed",inset:0,background:"#0009",zIndex:1100,
+    <div onClick={onClose} style={{position:"fixed",inset:0,background:"rgba(16,24,40,0.55)",zIndex:1100,
       display:"flex",alignItems:"flex-start",justifyContent:"center",padding:"4vh 16px",overflowY:"auto"}}>
       <div onClick={e=>e.stopPropagation()} style={{background:C.card,borderRadius:12,border:`1px solid ${C.border}`,
         width:"min(880px,98vw)",maxHeight:"92vh",overflowY:"auto",padding:20,boxShadow:"0 12px 40px #0007"}}>

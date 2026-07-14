@@ -133,7 +133,7 @@ function Modal({ title, onClose, children, width = 520 }) {
       style={{
         position: "fixed",
         inset: 0,
-        background: "rgba(0,0,0,0.7)",
+        background: "rgba(16,24,40,0.55)",
         zIndex: 1000,
         display: "flex",
         alignItems: "center",

@@ -367,7 +367,7 @@ function CobrosParcialesCell({ total, info, can, onChange }) {
       </div>
 
       {open && (
-        <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:10000}} onClick={()=>setOpen(false)}>
+        <div style={{position:"fixed",inset:0,background:"rgba(16,24,40,0.55)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:10000}} onClick={()=>setOpen(false)}>
           <div onClick={e=>e.stopPropagation()} style={{background:C.card,borderRadius:14,padding:22,width:560,maxHeight:"92vh",overflowY:"auto"}}>
             <h3 style={{margin:"0 0 4px",color:C.text,fontSize:16}}>💵 Cobros de la factura</h3>
             <div style={{fontSize:11,color:C.muted,marginBottom:14}}>Registra cuánto se ha cobrado y en cuántas cuotas. Marca cada cuota como pagada cuando ingrese el dinero.</div>
@@ -1380,7 +1380,7 @@ function TotalPedidos({data,setData,rpData,setRpData,rcData,setRcData,fvData,set
       </div>
 
       {modal&&(
-        <div style={{position:"fixed",inset:0,background:"#0006",zIndex:300,display:"flex",alignItems:"center",justifyContent:"center"}}>
+        <div style={{position:"fixed",inset:0,background:"rgba(16,24,40,0.55)",zIndex:300,display:"flex",alignItems:"center",justifyContent:"center"}}>
           <div style={{background:C.card,borderRadius:16,padding:28,width:560,maxWidth:"95vw",maxHeight:"92vh",overflowY:"auto",boxShadow:"0 8px 32px #0003"}}>
             <h3 style={{margin:"0 0 16px",color:C.sl}}>Nuevo Pedido de Plantas</h3>
 
@@ -1860,7 +1860,7 @@ function RoyaltyPlanta({data,setData,tpData,can,clientes=[]}) {
       </div>
 
       {modal&&(
-        <div style={{position:"fixed",inset:0,background:"#0006",zIndex:300,display:"flex",alignItems:"center",justifyContent:"center"}}>
+        <div style={{position:"fixed",inset:0,background:"rgba(16,24,40,0.55)",zIndex:300,display:"flex",alignItems:"center",justifyContent:"center"}}>
           <div style={{background:C.card,borderRadius:16,padding:28,width:500,maxWidth:"94vw",maxHeight:"90vh",overflowY:"auto",boxShadow:"0 8px 32px #0003"}}>
             <h3 style={{margin:"0 0 14px",color:C.sl}}>Nuevo Royalty por Planta</h3>
             {tpData.length>0&&(
@@ -2436,7 +2436,7 @@ function RoyaltyComercial({data,setData,tpData,can,clientes=[]}) {
       </div>
 
       {modal&&(
-        <div style={{position:"fixed",inset:0,background:"#0006",zIndex:300,display:"flex",alignItems:"center",justifyContent:"center"}}>
+        <div style={{position:"fixed",inset:0,background:"rgba(16,24,40,0.55)",zIndex:300,display:"flex",alignItems:"center",justifyContent:"center"}}>
           <div style={{background:C.card,borderRadius:16,padding:28,width:500,maxWidth:"94vw",maxHeight:"90vh",overflowY:"auto",boxShadow:"0 8px 32px #0003"}}>
             <h3 style={{margin:"0 0 14px",color:C.sl}}>Nuevo Royalty Comercial</h3>
             <div style={{background:C.successBg,borderRadius:8,padding:"10px 14px",marginBottom:14,fontSize:12,color:C.success}}>
@@ -2681,7 +2681,7 @@ function FeeViveros({data,setData,tpData,can,clientes=[]}) {
       </div>
 
       {modal&&(
-        <div style={{position:"fixed",inset:0,background:"#0006",zIndex:300,display:"flex",alignItems:"center",justifyContent:"center"}}>
+        <div style={{position:"fixed",inset:0,background:"rgba(16,24,40,0.55)",zIndex:300,display:"flex",alignItems:"center",justifyContent:"center"}}>
           <div style={{background:C.card,borderRadius:16,padding:28,width:500,maxWidth:"94vw",maxHeight:"90vh",overflowY:"auto",boxShadow:"0 8px 32px #0003"}}>
             <h3 style={{margin:"0 0 16px",color:C.sl}}>Nuevo Fee Vivero</h3>
             <div style={{display:"flex",flexDirection:"column",gap:6,marginBottom:12}}>
@@ -3300,7 +3300,7 @@ function PagoObtentores({obtentoresData, ctData, feData, rpData, rcData, pagosDa
 
       {/* Modal: registrar pago */}
       {modal&&(
-        <div style={{position:"fixed",inset:0,background:"#0006",zIndex:400,display:"flex",alignItems:"center",justifyContent:"center"}}>
+        <div style={{position:"fixed",inset:0,background:"rgba(16,24,40,0.55)",zIndex:400,display:"flex",alignItems:"center",justifyContent:"center"}}>
           <div style={{background:C.card,borderRadius:16,padding:28,width:500,maxWidth:"94vw",boxShadow:"0 8px 32px #0003"}}>
             <h3 style={{margin:"0 0 16px",color:"#0891b2"}}>💳 Registrar pago a obtentor</h3>
             <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
@@ -5331,7 +5331,7 @@ ${linkInforme}
   };
   function ModalForm({titulo, onSave, children}) {
     return (
-      <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:20}} onClick={()=>setModal(null)}>
+      <div style={{position:"fixed",inset:0,background:"rgba(16,24,40,0.55)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:20}} onClick={()=>setModal(null)}>
         <div style={{background:C.card,borderRadius:16,padding:"24px 28px",maxWidth:620,width:"100%",maxHeight:"85vh",overflow:"auto",boxShadow:"0 24px 64px #0004"}} onClick={e=>e.stopPropagation()}>
           <div style={{fontSize:16,fontWeight:800,color:C.text,marginBottom:16}}>{titulo}</div>
           {children}
@@ -10842,7 +10842,7 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
 
           {/* Sub-modal: Agregar Especie */}
           {espModal&&(
-            <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:10000}} onClick={()=>setEspModal(false)}>
+            <div style={{position:"fixed",inset:0,background:"rgba(16,24,40,0.55)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:10000}} onClick={()=>setEspModal(false)}>
               <div onClick={e=>e.stopPropagation()} style={{background:C.card,borderRadius:16,padding:24,width:540,maxHeight:"85vh",overflowY:"auto"}}>
                 <h3 style={{margin:"0 0 16px",color:C.text}}>🌿 Nueva Especie/Variedad</h3>
                 <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:12}}>
@@ -10953,7 +10953,7 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
 
           {/* Sub-modal: Agregar PBR */}
           {pbrModal&&(
-            <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:10000}} onClick={()=>setPbrModal(false)}>
+            <div style={{position:"fixed",inset:0,background:"rgba(16,24,40,0.55)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:10000}} onClick={()=>setPbrModal(false)}>
               <div onClick={e=>e.stopPropagation()} style={{background:C.card,borderRadius:16,padding:24,width:540,maxHeight:"85vh",overflowY:"auto"}}>
                 <h3 style={{margin:"0 0 16px",color:C.text}}>📜 Nuevo Registro PBR</h3>
                 <div style={{marginBottom:12}}>
@@ -11033,7 +11033,7 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
 
           {/* Sub-modal: Agregar Anexo */}
           {anxModal&&(
-            <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:10000}} onClick={()=>setAnxModal(false)}>
+            <div style={{position:"fixed",inset:0,background:"rgba(16,24,40,0.55)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:10000}} onClick={()=>setAnxModal(false)}>
               <div onClick={e=>e.stopPropagation()} style={{background:C.card,borderRadius:16,padding:24,width:480,maxHeight:"80vh",overflowY:"auto"}}>
                 <h3 style={{margin:"0 0 16px",color:C.text}}>📎 Nuevo Anexo</h3>
                 <div style={{marginBottom:12}}>
@@ -11254,7 +11254,7 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
           };
 
           return (
-          <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:9999}} onClick={()=>setObtModal(false)}>
+          <div style={{position:"fixed",inset:0,background:"rgba(16,24,40,0.55)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:9999}} onClick={()=>setObtModal(false)}>
             <div onClick={e=>e.stopPropagation()} style={{background:C.card,borderRadius:16,padding:24,width:680,maxHeight:"92vh",overflowY:"auto"}}>
               <h3 style={{margin:"0 0 18px",color:C.text}}>{obtEditId?"✏️ Editar":"➕ Nuevo"} Contrato Obtentor</h3>
 
@@ -12598,7 +12598,7 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
 
           {/* Sub-modal: Agregar Variedad */}
           {vvModal&&(
-            <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:10000}} onClick={()=>setVvModal(false)}>
+            <div style={{position:"fixed",inset:0,background:"rgba(16,24,40,0.55)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:10000}} onClick={()=>setVvModal(false)}>
               <div onClick={e=>e.stopPropagation()} style={{background:C.card,borderRadius:16,padding:24,width:520,maxHeight:"85vh",overflowY:"auto"}}>
                 <h3 style={{margin:"0 0 16px",color:C.text}}>🌱 Nueva Variedad Autorizada</h3>
                 <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:12}}>
@@ -12640,7 +12640,7 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
 
           {/* Sub-modal: Agregar Anexo Vivero */}
           {vAnxModal&&(
-            <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:10000}} onClick={()=>setVAnxModal(false)}>
+            <div style={{position:"fixed",inset:0,background:"rgba(16,24,40,0.55)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:10000}} onClick={()=>setVAnxModal(false)}>
               <div onClick={e=>e.stopPropagation()} style={{background:C.card,borderRadius:16,padding:24,width:480,maxHeight:"80vh",overflowY:"auto"}}>
                 <h3 style={{margin:"0 0 16px",color:C.text}}>📎 Nuevo Anexo</h3>
                 <div style={{marginBottom:12}}>
@@ -12673,7 +12673,7 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
 
           {/* Sub-modal: Nueva/Editar Orden de Compra */}
           {ocModal&&(
-            <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:10000}} onClick={()=>setOcModal(false)}>
+            <div style={{position:"fixed",inset:0,background:"rgba(16,24,40,0.55)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:10000}} onClick={()=>setOcModal(false)}>
               <div onClick={e=>e.stopPropagation()} style={{background:C.card,borderRadius:16,padding:24,width:640,maxHeight:"90vh",overflowY:"auto"}}>
                 <h3 style={{margin:"0 0 16px",color:C.text}}>{ocEditId?"✏️ Editar":"➕ Nueva"} Orden de Compra</h3>
 
@@ -12855,7 +12855,7 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
 
           {/* Sub-modal: Nueva/Editar Cuota */}
           {cuotaModal&&(
-            <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:10001}} onClick={()=>setCuotaModal(false)}>
+            <div style={{position:"fixed",inset:0,background:"rgba(16,24,40,0.55)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:10001}} onClick={()=>setCuotaModal(false)}>
               <div onClick={e=>e.stopPropagation()} style={{background:C.card,borderRadius:16,padding:24,width:520,maxHeight:"85vh",overflowY:"auto"}}>
                 <h3 style={{margin:"0 0 16px",color:C.text}}>{cuotaEditId?"✏️ Editar":"➕ Nueva"} Cuota de Pago</h3>
                 <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:12}}>
@@ -12903,7 +12903,7 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
 
           {/* ── MODAL DESPACHO ── */}
           {despModal&&(
-            <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:10001}} onClick={()=>setDespModal(false)}>
+            <div style={{position:"fixed",inset:0,background:"rgba(16,24,40,0.55)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:10001}} onClick={()=>setDespModal(false)}>
               <div onClick={e=>e.stopPropagation()} style={{background:C.card,borderRadius:16,padding:24,width:560,maxHeight:"85vh",overflowY:"auto"}}>
                 <h3 style={{margin:"0 0 4px",color:C.text}}>{despEditId?"✏️ Editar":"🚚 Nuevo"} Despacho</h3>
                 <div style={{fontSize:11,color:C.muted,marginBottom:16}}>Tanda de plantas que sale del vivero al cliente. La fecha de plantación marca desde cuándo corre el Royalty Comercial.</div>
@@ -13328,7 +13328,7 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
           const totCuotasAllOC = wizOCs.reduce((s,o)=>s+(o.cuotas||[]).reduce((ss,c)=>ss+(parseFloat(c.monto_usd)||0),0),0);
 
           return (
-          <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:9999}} onClick={cerrarWiz}>
+          <div style={{position:"fixed",inset:0,background:"rgba(16,24,40,0.55)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:9999}} onClick={cerrarWiz}>
             <div onClick={e=>e.stopPropagation()} style={{background:C.card,borderRadius:16,padding:24,width:760,maxHeight:"94vh",overflowY:"auto"}}>
               <h3 style={{margin:"0 0 18px",color:C.text}}>{vivEditId?"✏️ Editar":"➕ Nuevo"} Contrato Vivero</h3>
 

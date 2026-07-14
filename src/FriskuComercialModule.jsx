@@ -2928,7 +2928,7 @@ function ImportadorExcelModal({clientes, exportadoras, onAplicar, onCerrar}) {
     }
   };
 
-  const ov = {position:"fixed", inset:0, background:"rgba(0,0,0,0.7)", zIndex:1000,
+  const ov = {position:"fixed", inset:0, background:"rgba(16,24,40,0.55)", zIndex:1000,
     display:"flex", alignItems:"center", justifyContent:"center", padding:20};
   const box = {background:C.card, borderRadius:14, border:`1px solid ${C.border}`,
     width:"100%", maxWidth:620, maxHeight:"85vh", overflowY:"auto", padding:22};

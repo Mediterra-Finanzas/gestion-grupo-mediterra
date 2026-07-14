@@ -3619,7 +3619,7 @@ Equipo Mediterra`);
       <div style={{fontFamily:"sans-serif",background:C.cardAlt,minHeight:"100vh"}}>
         {/* Modal editar comentario */}
         {editComentario&&(
-          <div style={{position:"fixed",inset:0,background:"#0006",zIndex:300,display:"flex",alignItems:"center",justifyContent:"center"}}>
+          <div style={{position:"fixed",inset:0,background:"rgba(16,24,40,0.55)",zIndex:300,display:"flex",alignItems:"center",justifyContent:"center"}}>
             <div style={{background:C.card,borderRadius:12,padding:24,width:380,boxShadow:"0 8px 32px #0003"}}>
               <div style={{fontWeight:700,fontSize:15,marginBottom:10}}>Comentario</div>
               <textarea value={textoComentario} onChange={e=>setTextoComentario(e.target.value)}
@@ -3723,7 +3723,7 @@ Equipo Mediterra`);
           }
         });
         return (
-          <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.6)",zIndex:300,
+          <div style={{position:"fixed",inset:0,background:"rgba(16,24,40,0.55)",zIndex:300,
             display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
             <div style={{background:C.card,border:`1px solid ${C.danger}44`,borderRadius:16,
               width:520,maxWidth:"95vw",maxHeight:"80vh",display:"flex",flexDirection:"column",
@@ -3784,7 +3784,7 @@ Equipo Mediterra`);
 
       {/* Modal notificación dependencia */}
         {modalNotif&&(
-          <div style={{position:"fixed",inset:0,background:"#0006",zIndex:300,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
+          <div style={{position:"fixed",inset:0,background:"rgba(16,24,40,0.55)",zIndex:300,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
             <div style={{background:C.card,borderRadius:16,padding:24,maxWidth:420,width:"100%",boxShadow:"0 8px 32px #0003"}}>
               <div style={{fontWeight:800,fontSize:15,color:C.text,marginBottom:8}}>
                 ✅ Tarea completada: "{modalNotif.tarea.nombre}"
@@ -3866,7 +3866,7 @@ Equipo Mediterra`);
 
         {/* Modal email recordatorio */}
         {modalEmail&&(
-          <div style={{position:"fixed",inset:0,background:"#0007",zIndex:300,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
+          <div style={{position:"fixed",inset:0,background:"rgba(16,24,40,0.55)",zIndex:300,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
             <div style={{background:C.card,borderRadius:16,padding:24,maxWidth:460,width:"100%",boxShadow:"0 8px 32px #0004"}}>
               <div style={{fontWeight:800,fontSize:15,marginBottom:4}}>📬 {modalEmail.titulo}</div>
               <div style={{fontSize:12,color:C.muted,marginBottom:14}}>Vence el {modalEmail.fechaVence?.toLocaleDateString("es-CL")}</div>
