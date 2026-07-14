@@ -3083,6 +3083,10 @@ function AllegriaComisionArandanosPanel({ config, setConfig, readOnly }) {
 
   const iSt  = {width:90,padding:"5px 7px",background:C.card2,border:`1px solid ${C.border}`,borderRadius:6,color:C.text,fontSize:11,outline:"none",textAlign:"right"};
   const selSt= {padding:"5px 8px",background:C.card2,border:`1px solid ${C.border}`,borderRadius:6,fontSize:11,outline:"none",color:C.text,minWidth:110};
+  // Meses disponibles para la distribución de pagos del cobro. Se listan todos
+  // los meses de la proyección para poder cobrar en cualquier mes (ej. ene-2027),
+  // sin quedar limitado a la temporada del cobro.
+  const mesesSel = MESES_65;
 
   function startAdd() {
     const id = `cobro_${Date.now()}`;
