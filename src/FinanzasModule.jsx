@@ -3,7 +3,7 @@ import React, { useState, useEffect, useCallback, useMemo, useRef } from "react"
 import EEFFModule from './EEFFModule.jsx';
 import RendicionesModule from './RendicionesModule.jsx';
 import { theme } from './theme';
-import { exportarFlujoConsolidado } from './flujoExportExcel.js';
+import { exportarFlujoConsolidado, exportarFlujoEmpresa } from './flujoExportExcel.js';
 import { buildAllpaPeruLineas, ALLPA_PERU_KG_2026, ALLPA_PERU_PRECIO_2026, ALLPA_PERU_RATES_2026 } from './allpaPeruPpto.js';
 import { calcularAmortizacionSocio, generarInteresPeriodico } from './creditoSocio.js';
 import * as XLSX from 'xlsx-js-style'; // SheetJS (fork con estilos) — ya instalado
@@ -1474,9 +1474,10 @@ export const EMPRESAS_KEYS_ALL = [
   "Osiris","Integrity Farms","Allpa Farms","Allpa Farms Perú",
 ];
 // Empresas que entran al consolidado del grupo.
-// Allpa Farms Perú queda fuera por IAS 28 (método patrimonio).
+// Allpa Farms Chile y Perú quedan fuera del consolidado (método patrimonio, IAS 28).
 // Frisku Foods Perú existe solo en Nóminas (no en el consolidado de Finanzas).
-const EMPRESAS_KEYS_CONSOLIDADO = EMPRESAS_KEYS_ALL.filter(n => n !== "Allpa Farms Perú" && n !== "Frisku Foods Perú");
+const EMPRESAS_FUERA_CONSOLIDADO = ["Allpa Farms", "Allpa Farms Perú", "Frisku Foods Perú"];
+const EMPRESAS_KEYS_CONSOLIDADO = EMPRESAS_KEYS_ALL.filter(n => !EMPRESAS_FUERA_CONSOLIDADO.includes(n));
 
 // Acceso completo a Finanzas si: admin, CFO, sin array (retrocompat),
 // array vacío, o array contiene TODAS las empresas del consolidado.
@@ -5986,7 +5987,12 @@ function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit,saldosBanc
                         // Royalty por Planta), pero se permite override manual en CUALQUIER
                         // temporada. El valor ingresado manda; las celdas no editadas conservan
                         // el cálculo automático. Marcado con "● Editado".
-                        const permiteOverrideManual = line.label === "Royalty IQ";
+                        // Además de Royalty IQ, se permite override manual en líneas
+                        // marcadas con _permiteOverrideDesdeIdx a partir de ese índice
+                        // (Osiris ingresos: temporada 2026-2027 en adelante). El parámetro
+                        // solo aporta el valor por defecto; lo ingresado manda.
+                        const overrideDesde = typeof line._permiteOverrideDesdeIdx === "number" ? line._permiteOverrideDesdeIdx : null;
+                        const permiteOverrideManual = line.label === "Royalty IQ" || (overrideDesde !== null && col.idx >= overrideDesde);
                         const formulaBloquea = line.formula && !esTemporadaActual && !permiteOverrideManual;
                         const isEditable=canEdit && !formulaBloquea && !isTot && col.type!=="month_collapsed";
                         return (
@@ -11078,6 +11084,7 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
   const [tab,setTab]=useState("dashboard");
   const [empTab,setEmpTab]=useState("Mediterra");
   const [flujoSubTab,setFlujoSubTab]=useState("flujo"); // "flujo" | "params"
+  const [empExportMsg,setEmpExportMsg]=useState(null); // feedback export Excel por empresa
   const [realData,setRealData]=useState({});
   const [params,setParams]=useState(defaultParams);
   const [allegraComisionArandanos,setAllegraComisionArandanos]=useState(defaultAllegraComisionArandanos);
@@ -11280,20 +11287,23 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
       const mapLinea = { "Royalty por Planta":osi.royaltyPlanta, "Royalty Comercial":osi.royaltyComercial, "Fee Vivero":osi.feeVivero };
       const nextOsi = JSON.parse(JSON.stringify(osiEmp));
       // 1) Ingresos: mezcla por temporada. Hasta 26-27 se conservan los valores
-      //    base (hardcodeados); DESDE temporada 27-28 (seasonOf>=2027) se eliminan
-      //    y mandan los parámetros (aunque estén en 0 hasta cargarlos).
+      //    base (hardcodeados); DESDE temporada 27-28 (seasonOf>=2027) mandan los
+      //    parámetros como valor POR DEFECTO (aunque estén en 0 hasta cargarlos).
+      //    Sin bloqueo: el CFO puede editar manualmente cualquier celda de
+      //    temporada 2026-2027 en adelante y el override manual prevalece sobre
+      //    el parámetro (el parámetro solo aporta el default de la celda).
       const DESDE_SEASON = 2027;
-      // Primer índice de mes cuya temporada ya está parametrizada. Desde acá los
-      // parámetros mandan y se ignoran los overrides manuales (_proyOverrides)
-      // que hubieran quedado cargados de antes.
-      const lockFromIdx = MESES_INFO.findIndex(mo => seasonOf(mo) >= DESDE_SEASON);
+      // Primer índice editable manualmente: temporada 2026-2027 en adelante (Jul-26+).
+      // El parámetro aporta el valor por defecto; el CFO puede sobrescribir cualquier
+      // celda desde esa temporada y el override manual prevalece sobre el parámetro.
+      const overrideDesdeIdx = MESES_INFO.findIndex(mo => seasonOf(mo) >= 2026);
       nextOsi.sections = nextOsi.sections.map(sec=>{
         if(sec.cat!=="ing_op") return sec;
         return {...sec, lines: sec.lines.map(l=>{
           const arr = mapLinea[l.label];
           if(!arr) return l;
           const blended = MESES_INFO.map(mo => seasonOf(mo) >= DESDE_SEASON ? (arr[mo.idx]||0) : (l.proy[mo.idx]||0));
-          return {...l, proy:blended, formula:true, _lockOverrideFromIdx:lockFromIdx};
+          return {...l, proy:blended, formula:true, _permiteOverrideDesdeIdx:overrideDesdeIdx};
         })};
       });
       // 2) Royalty IQ (costo) = 70% × (Royalty Comercial + Royalty por Planta)
@@ -12219,13 +12229,31 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
                 : "Proyección de flujo de caja mensual y semanal"}
             </span>
             {flujoSubTab==="flujo"&&empTab!=="_consolidado"&&empTab!=="_intercompany"&&(
-              <button onClick={()=>window.print()}
-                style={{marginLeft:"auto",padding:"5px 12px",borderRadius:8,
-                  border:"1px solid #334155",background:"transparent",
-                  color:C.muted,cursor:"pointer",fontSize:11,display:"flex",
-                  alignItems:"center",gap:5}}>
-                🖨️ Imprimir PDF
-              </button>
+              <div style={{marginLeft:"auto",display:"flex",alignItems:"center",gap:8}}>
+                {empExportMsg&&<span style={{fontSize:10,color:C.muted,maxWidth:240,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{empExportMsg}</span>}
+                <button onClick={()=>{
+                  try{
+                    const emp=empresasConOverridesMain[empTab];
+                    const saldoIni=getSaldoBancoInicial(saldosBancos,empTab,empresas[empTab]?.saldo_ini);
+                    const f=exportarFlujoEmpresa({emp, empName:empTab, saldoIni});
+                    setEmpExportMsg("✓ "+f);
+                  }catch(e){ console.error(e); setEmpExportMsg("✗ Error al exportar"); }
+                  setTimeout(()=>setEmpExportMsg(null),5000);
+                }}
+                  style={{padding:"5px 12px",borderRadius:8,
+                    border:"1px solid #334155",background:"transparent",
+                    color:C.green,cursor:"pointer",fontSize:11,display:"flex",
+                    alignItems:"center",gap:5}}>
+                  📥 Excel
+                </button>
+                <button onClick={()=>window.print()}
+                  style={{padding:"5px 12px",borderRadius:8,
+                    border:"1px solid #334155",background:"transparent",
+                    color:C.muted,cursor:"pointer",fontSize:11,display:"flex",
+                    alignItems:"center",gap:5}}>
+                  🖨️ Imprimir PDF
+                </button>
+              </div>
             )}
           </div>
 
