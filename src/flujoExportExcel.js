@@ -273,6 +273,62 @@ function toSheet({ cells, rows, merges, lastRow, lastCol, cols }) {
 }
 
 // ═══════════════════════════════════════════════════════════════════
+// Helper interno: arma columnas (meses + temporadas + total) para un horizonte.
+function buildHorizonte(lastSeasonStartYear) {
+  const allMonths = genMonths();
+  const months = lastSeasonStartYear == null ? allMonths : allMonths.filter(mo => seasonOf(mo) <= lastSeasonStartYear);
+  const seasonsMap = {};
+  months.forEach(mo => {
+    const sy = seasonOf(mo);
+    const key = `${sy}-${sy+1}`;
+    if (!seasonsMap[key]) seasonsMap[key] = { key, sy, months:[] };
+    seasonsMap[key].months.push(mo);
+  });
+  const seasons = Object.values(seasonsMap).sort((a,b)=>a.sy-b.sy);
+  const { cols, monthOrder } = buildColumns(months, seasons);
+  return { months, cols, monthOrder };
+}
+
+// Arma las categorías (líneas con valores no nulos) de una empresa para el horizonte.
+function catsDeEmpresa(emp, months) {
+  return CAT_ORDER.map(cat => {
+    const sec = (emp.sections || []).find(s => s.cat === cat);
+    const lines = [];
+    if (sec) sec.lines.forEach(ln => {
+      const vals = months.map(mo => Number(ln.proy[mo.idx]) || 0);
+      if (vals.some(v => v !== 0)) lines.push({ label:ln.label, vals });
+    });
+    return { cat, lines };
+  });
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// EXPORT FLUJO DE UNA SOLA EMPRESA → Excel (.xlsx) — una hoja.
+// Reutiliza buildStatement, así los números cuadran con la pantalla.
+export function exportarFlujoEmpresa({ emp, empName, saldoIni = 0, lastSeasonStartYear = null, fileName }) {
+  if (!emp) throw new Error('Empresa sin datos');
+  const { months, cols, monthOrder } = buildHorizonte(lastSeasonStartYear);
+  const cats = catsDeEmpresa(emp, months);
+
+  const built = buildStatement({
+    title:`${emp.emoji || ''} ${empName}`.trim(),
+    subtitle: emp.desc || '',
+    cols, monthOrder, cats,
+    saldoIniValue: Number(saldoIni) || 0,
+  });
+
+  const wb = XLSX.utils.book_new();
+  const sheetNm = (String(empName).replace(/[\\/?*\[\]:]/g, '').slice(0, 28)) || 'Flujo';
+  XLSX.utils.book_append_sheet(wb, toSheet({ ...built, cols }), sheetNm);
+  wb.Workbook = { ...(wb.Workbook||{}), Views:[{ activeTab:0 }], CalcPr:{ fullCalcOnLoad:true } };
+
+  const safeName = String(empName).replace(/[^\w\-]+/g,'_').slice(0,40);
+  const fname = fileName || `Flujo_${safeName}_${months[months.length-1].label}.xlsx`;
+  XLSX.writeFile(wb, fname);
+  return fname;
+}
+
+// ═══════════════════════════════════════════════════════════════════
 export function exportarFlujoConsolidado({ empresasConOverrides, empNames, saldoIniPorEmp, lastSeasonStartYear = null, fileName, escenarioNombre = null }) {
   const allMonths = genMonths();
   // lastSeasonStartYear null → flujo completo (hasta la última temporada proyectada)
