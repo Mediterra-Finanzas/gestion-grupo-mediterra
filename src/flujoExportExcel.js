@@ -290,26 +290,256 @@ function buildHorizonte(lastSeasonStartYear) {
 }
 
 // Arma las categorías (líneas con valores no nulos) de una empresa para el horizonte.
-function catsDeEmpresa(emp, months) {
+// formulaLines (opcional): { [label]: { cellFormula(mc)->string } } — líneas cuyos
+// valores mensuales van como FÓRMULA Excel (ej. Allpa: SUMIF a la hoja Parametros)
+// en vez de inputs estáticos. El número cacheado se toma de emp.proy.
+function catsDeEmpresa(emp, months, formulaLines = null) {
   return CAT_ORDER.map(cat => {
     const sec = (emp.sections || []).find(s => s.cat === cat);
     const lines = [];
     if (sec) sec.lines.forEach(ln => {
       const vals = months.map(mo => Number(ln.proy[mo.idx]) || 0);
-      if (vals.some(v => v !== 0)) lines.push({ label:ln.label, vals });
+      const hasVal = vals.some(v => v !== 0);
+      const fl = formulaLines && formulaLines[ln.label];
+      if (fl) {
+        if (!hasVal) return;
+        lines.push({
+          label: ln.label,
+          cellFormula: fl.cellFormula,
+          cellNumber: (mc) => Number(ln.proy[mc.monthIdx]) || 0,
+        });
+      } else if (hasVal) {
+        lines.push({ label: ln.label, vals });
+      }
     });
     return { cat, lines };
   });
 }
 
+// ── estilos hoja Parámetros ──────────────────────────────────────────
+const PS = {
+  title:  { font:{ name:FONT, sz:13, bold:true, color:{rgb:'FFFFFF'} }, fill:{ fgColor:{rgb:NAVY} }, alignment:{ horizontal:'left', vertical:'center' } },
+  secHdr: { font:{ name:FONT, sz:11, bold:true, color:{rgb:'FFFFFF'} }, fill:{ fgColor:{rgb:BLUE} }, alignment:{ horizontal:'left', vertical:'center' }, border:BORD },
+  colHdr: { font:{ name:FONT, sz:9, bold:true, color:{rgb:'FFFFFF'} }, fill:{ fgColor:{rgb:NAVY} }, alignment:{ horizontal:'center', vertical:'center' }, border:BORD },
+  txt:    { font:{ name:FONT, sz:10 }, alignment:{ horizontal:'left' }, border:BORD },
+  txtSub: { font:{ name:FONT, sz:10, italic:true, color:{rgb:'595959'} }, alignment:{ horizontal:'left', indent:1 }, border:BORD },
+  inNum:  { font:{ name:FONT, sz:10, color:{rgb:INPUTBLUE} }, fill:{ fgColor:{rgb:YELLOW} }, alignment:{ horizontal:'right' }, numFmt:FMT, border:BORD },
+  inKg:   { font:{ name:FONT, sz:10, color:{rgb:INPUTBLUE} }, fill:{ fgColor:{rgb:YELLOW} }, alignment:{ horizontal:'right' }, numFmt:'#,##0', border:BORD },
+  inUsd:  { font:{ name:FONT, sz:10, color:{rgb:INPUTBLUE} }, fill:{ fgColor:{rgb:YELLOW} }, alignment:{ horizontal:'right' }, numFmt:'#,##0.00', border:BORD },
+  inTxt:  { font:{ name:FONT, sz:10, color:{rgb:INPUTBLUE} }, fill:{ fgColor:{rgb:YELLOW} }, alignment:{ horizontal:'center' }, border:BORD },
+  inPct:  { font:{ name:FONT, sz:10, color:{rgb:INPUTBLUE} }, fill:{ fgColor:{rgb:YELLOW} }, alignment:{ horizontal:'right' }, numFmt:'0.##', border:BORD },
+  der:    { font:{ name:FONT, sz:10 }, alignment:{ horizontal:'right' }, numFmt:FMT, border:BORD },
+  derB:   { font:{ name:FONT, sz:10, bold:true }, fill:{ fgColor:{rgb:GRAY} }, alignment:{ horizontal:'right' }, numFmt:FMT, border:BORD },
+  movMes: { font:{ name:FONT, sz:9 }, alignment:{ horizontal:'center' }, border:BORD },
+  movNum: { font:{ name:FONT, sz:9 }, alignment:{ horizontal:'right' }, numFmt:FMT, border:BORD },
+};
+
 // ═══════════════════════════════════════════════════════════════════
-// EXPORT FLUJO DE UNA SOLA EMPRESA → Excel (.xlsx) — una hoja.
+// HOJA "Parametros" — Allpa Farms (Chile). Inputs vivos + fórmulas.
+// Columnas A-G: inputs y derivados legibles.  Col H: separador.
+// Columnas-fuente (SUMIF del flujo): I/J Ingresos · K/L Cosecha · M/N Transporte.
+// Reproduce calcAllpa: ingresos = anticipos (US$/kg×kg) + liquidación
+// (max(0, kg×US$ − Σanticipos)); cosecha = kg_total_temp × US$/kg repartido
+// por %; transporte = costo_persona × personas por cada mes de pago.
+// ═══════════════════════════════════════════════════════════════════
+function buildParametrosAllpa(paramsAF, months) {
+  const labelByIdx = {}; months.forEach(mo => { labelByIdx[mo.idx] = mo.label; });
+  const cells = {}; const merges = []; const wrows = [];
+  const put = (r1, c0, cell) => { cells[ref(r1, c0)] = cell; };
+  // Columnas fuente para el SUMIF del flujo
+  const ING_MES=8, ING_MON=9, COS_MES=10, COS_MON=11, TRA_MES=12, TRA_MON=13;
+  const LAST_COL = 13;
+  let r = 1;
+
+  // Título
+  put(r,0,{ t:'s', v:'⚙ Parámetros — Allpa Farms (Chile)', s:PS.title });
+  for (let c=1;c<=LAST_COL;c++) put(r,c,{ t:'s', v:'', s:PS.title });
+  merges.push({ s:{r:r-1,c:0}, e:{r:r-1,c:7} });
+  put(r,ING_MES,{ t:'s', v:'Ingresos', s:PS.colHdr }); put(r,ING_MON,{ t:'s', v:'(fuente)', s:PS.colHdr });
+  put(r,COS_MES,{ t:'s', v:'Cosecha', s:PS.colHdr }); put(r,COS_MON,{ t:'s', v:'(fuente)', s:PS.colHdr });
+  put(r,TRA_MES,{ t:'s', v:'Transp.', s:PS.colHdr }); put(r,TRA_MON,{ t:'s', v:'(fuente)', s:PS.colHdr });
+  wrows[r-1] = { hpx:20 }; r++;
+  put(r,0,{ t:'s', v:'Celdas amarillas = editables. El flujo recalcula solo (SUMIF por mes).', s:PS.txtSub });
+  merges.push({ s:{r:r-1,c:0}, e:{r:r-1,c:7} }); r++;
+  r++;
+
+  const seasonKeys = Object.keys(paramsAF || {}).sort();
+
+  // ══ INGRESOS ══
+  put(r,0,{ t:'s', v:'① INGRESOS POR VARIEDAD (anticipos + liquidación)', s:PS.secHdr });
+  for (let c=1;c<=7;c++) put(r,c,{ t:'s', v:'', s:PS.secHdr });
+  merges.push({ s:{r:r-1,c:0}, e:{r:r-1,c:7} }); r++;
+  const IH = ['Temporada','Variedad / Concepto','kg total','US$/kg','Ingreso bruto','Σ Anticipos','Liquidación'];
+  IH.forEach((h,c)=>put(r,c,{ t:'s', v:h, s:PS.colHdr }));
+  put(r,ING_MES,{ t:'s', v:'Mes cobro', s:PS.colHdr }); put(r,ING_MON,{ t:'s', v:'Monto US$', s:PS.colHdr });
+  r++;
+
+  const kgCellsBySeason = {};   // temporada → [celdas kg de sus variedades] (para cosecha viva)
+  seasonKeys.forEach(sk => {
+    const d = paramsAF[sk] || {};
+    (d.variedades || []).forEach(v => {
+      const usd = Number(v.usd_kg) || 0;
+      const totalKg = Object.values(v.kg_mes || {}).reduce((s,k)=>s+(Number(k)||0),0);
+      const rV = r;
+      const kgCell = ref(rV, 2), usdCell = ref(rV, 3), ingBrutoCell = ref(rV, 4), sumAntCell = ref(rV, 5), liqCell = ref(rV, 6);
+      (kgCellsBySeason[sk] || (kgCellsBySeason[sk] = [])).push(kgCell);
+      // anticipos (filas siguientes)
+      const antRows = [];
+      let sumAnt = 0;
+      (v.anticipos || []).forEach(a => {
+        const antUsd = Number(a.usd_kg) || 0;
+        const monto = antUsd * totalKg; sumAnt += monto;
+        antRows.push({ mes:a.mes || '', antUsd, monto });
+      });
+      const ingBruto = totalKg * usd;
+      const liq = Math.max(0, ingBruto - sumAnt);
+      // fila variedad
+      put(rV,0,{ t:'s', v:sk, s:PS.txt });
+      put(rV,1,{ t:'s', v:v.nombre || '(variedad)', s:PS.txt });
+      put(rV,2,{ t:'n', v:totalKg, s:PS.inKg });
+      put(rV,3,{ t:'n', v:usd, s:PS.inUsd });
+      put(rV,4,{ t:'n', f:`${kgCell}*${usdCell}`, v:ingBruto, s:PS.der });
+      // liquidación fuente (en fila variedad): mes_liq + monto liq
+      put(rV,ING_MES,{ t:'s', v:v.mes_liq || '', s:PS.inTxt });
+      put(rV,ING_MON,{ t:'n', f:liqCell, v:liq, s:PS.movNum });
+      r++;
+      // filas anticipo
+      antRows.forEach(a => {
+        const rA = r;
+        const antUsdCell = ref(rA, 3);
+        put(rA,0,{ t:'s', v:'', s:PS.txt });
+        put(rA,1,{ t:'s', v:'   ↳ Anticipo', s:PS.txtSub });
+        put(rA,3,{ t:'n', v:a.antUsd, s:PS.inUsd });
+        put(rA,ING_MES,{ t:'s', v:a.mes, s:PS.inTxt });
+        put(rA,ING_MON,{ t:'n', f:`${antUsdCell}*${kgCell}`, v:a.monto, s:PS.movNum });
+        r++;
+      });
+      // Σ anticipos y liquidación (referencian las filas anticipo por columna J)
+      const jCells = antRows.map((_,i)=>ref(rV+1+i, ING_MON));
+      const sumAntF = jCells.length ? jCells.join('+') : '0';
+      put(rV,5,{ t:'n', f:sumAntF, v:sumAnt, s:PS.der });
+      put(rV,6,{ t:'n', f:`MAX(0,${ingBrutoCell}-${sumAntCell})`, v:liq, s:PS.derB });
+    });
+  });
+  r++;
+
+  // ══ COSECHA ══
+  put(r,0,{ t:'s', v:'② COSTO COSECHA (remuneración)', s:PS.secHdr });
+  for (let c=1;c<=7;c++) put(r,c,{ t:'s', v:'', s:PS.secHdr });
+  merges.push({ s:{r:r-1,c:0}, e:{r:r-1,c:7} }); r++;
+  ['Temporada','Concepto','US$/kg','kg total temp.','Costo total','%',''].forEach((h,c)=>put(r,c,{ t:'s', v:h, s:PS.colHdr }));
+  put(r,COS_MES,{ t:'s', v:'Mes pago', s:PS.colHdr }); put(r,COS_MON,{ t:'s', v:'Monto US$', s:PS.colHdr });
+  r++;
+
+  seasonKeys.forEach(sk => {
+    const d = paramsAF[sk] || {};
+    const cosecha = d.cosecha || {};
+    const usdCos = Number(cosecha.usd_kg) || 0;
+    let totalKgAll = 0;
+    (d.variedades || []).forEach(v => {
+      totalKgAll += Object.values(v.kg_mes || {}).reduce((s,k)=>s+(Number(k)||0),0);
+    });
+    const semanas = cosecha.semanas_pago || [];
+    if (usdCos === 0 && semanas.length === 0) return;
+    const rC = r;
+    const usdCosCell = ref(rC, 2), kgTotCell = ref(rC, 3), costoTotCell = ref(rC, 4);
+    const totalCos = totalKgAll * usdCos;
+    // kg total temp = suma VIVA de las celdas kg de las variedades de esta temporada
+    const kgRefs = kgCellsBySeason[sk] || [];
+    const kgTotF = kgRefs.length ? kgRefs.join('+') : '0';
+    put(rC,0,{ t:'s', v:sk, s:PS.txt });
+    put(rC,1,{ t:'s', v:'Cosecha', s:PS.txt });
+    put(rC,2,{ t:'n', v:usdCos, s:PS.inUsd });
+    put(rC,3,{ t:'n', f:kgTotF, v:totalKgAll, s:PS.der });   // kg total temp (fórmula viva)
+    put(rC,4,{ t:'n', f:`${usdCosCell}*${kgTotCell}`, v:totalCos, s:PS.derB });
+    r++;
+    semanas.forEach(sp => {
+      const rS = r; const pctCell = ref(rS, 5);
+      const pct = Number(sp.pct) || 0;
+      const monto = totalCos * (pct/100);
+      put(rS,0,{ t:'s', v:'', s:PS.txt });
+      put(rS,1,{ t:'s', v:'   ↳ Pago', s:PS.txtSub });
+      put(rS,5,{ t:'n', v:pct, s:PS.inPct });
+      put(rS,COS_MES,{ t:'s', v:sp.mes || '', s:PS.inTxt });
+      put(rS,COS_MON,{ t:'n', f:`${costoTotCell}*${pctCell}/100`, v:monto, s:PS.movNum });
+      r++;
+    });
+  });
+  r++;
+
+  // ══ TRANSPORTE ══
+  put(r,0,{ t:'s', v:'③ TRANSPORTE', s:PS.secHdr });
+  for (let c=1;c<=7;c++) put(r,c,{ t:'s', v:'', s:PS.secHdr });
+  merges.push({ s:{r:r-1,c:0}, e:{r:r-1,c:7} }); r++;
+  ['Temporada','Concepto','Costo/persona','Personas','Total','',''].forEach((h,c)=>put(r,c,{ t:'s', v:h, s:PS.colHdr }));
+  put(r,TRA_MES,{ t:'s', v:'Mes pago', s:PS.colHdr }); put(r,TRA_MON,{ t:'s', v:'Monto US$', s:PS.colHdr });
+  r++;
+
+  seasonKeys.forEach(sk => {
+    const d = paramsAF[sk] || {};
+    const trsp = d.transporte || {};
+    const costo = Number(trsp.costo_persona) || 0;
+    const personas = Number(trsp.personas) || 0;
+    const meses = trsp.meses_pago || [];
+    if (costo === 0 && personas === 0 && meses.length === 0) return;
+    const rT = r;
+    const costoCell = ref(rT, 2), persCell = ref(rT, 3), totCell = ref(rT, 4);
+    const total = costo * personas;
+    put(rT,0,{ t:'s', v:sk, s:PS.txt });
+    put(rT,1,{ t:'s', v:'Transporte', s:PS.txt });
+    put(rT,2,{ t:'n', v:costo, s:PS.inNum });
+    put(rT,3,{ t:'n', v:personas, s:PS.inNum });
+    put(rT,4,{ t:'n', f:`${costoCell}*${persCell}`, v:total, s:PS.derB });
+    r++;
+    meses.forEach(mp => {
+      const rM = r;
+      put(rM,0,{ t:'s', v:'', s:PS.txt });
+      put(rM,1,{ t:'s', v:'   ↳ Pago', s:PS.txtSub });
+      put(rM,TRA_MES,{ t:'s', v:mp || '', s:PS.inTxt });
+      put(rM,TRA_MON,{ t:'n', f:totCell, v:total, s:PS.movNum });
+      r++;
+    });
+  });
+
+  const lastRow = r;
+  const ws = {};
+  Object.keys(cells).forEach(a => ws[a] = cells[a]);
+  ws['!ref'] = `A1:${L(LAST_COL)}${lastRow}`;
+  ws['!cols'] = [
+    { wch:12 }, { wch:24 }, { wch:12 }, { wch:10 }, { wch:13 }, { wch:12 }, { wch:13 }, { wch:2 },
+    { wch:11 }, { wch:13 }, { wch:11 }, { wch:13 }, { wch:11 }, { wch:13 },
+  ];
+  if (wrows.length) ws['!rows'] = wrows.map(x => x || {});
+  if (merges.length) ws['!merges'] = merges;
+  ws['!freeze'] = { xSplit:0, ySplit:5, topLeftCell:'A6', activePane:'bottomLeft', state:'frozen' };
+
+  const sf = (mesCol, monCol) => (mc) =>
+    `SUMIF('Parametros'!$${L(mesCol)}:$${L(mesCol)},"${labelByIdx[mc.monthIdx]}",'Parametros'!$${L(monCol)}:$${L(monCol)})`;
+  const formulaLines = {
+    'Ingreso Exportación Cerezas': { cellFormula: sf(ING_MES, ING_MON) },
+    'Remuneración Cosecha':        { cellFormula: sf(COS_MES, COS_MON) },
+    'Transporte':                  { cellFormula: sf(TRA_MES, TRA_MON) },
+  };
+  return { ws, formulaLines };
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// EXPORT FLUJO DE UNA SOLA EMPRESA → Excel (.xlsx).
+// Hoja "<Empresa>" (flujo) + —para empresas con parámetros vivos— hoja
+// "Parametros" con inputs editables que recalculan el flujo vía fórmulas.
 // Reutiliza buildStatement, así los números cuadran con la pantalla.
-export function exportarFlujoEmpresa({ emp, empName, saldoIni = 0, lastSeasonStartYear = null, fileName }) {
+export function exportarFlujoEmpresa({ emp, empName, saldoIni = 0, lastSeasonStartYear = null, fileName, paramsAF = null }) {
   if (!emp) throw new Error('Empresa sin datos');
   const { months, cols, monthOrder } = buildHorizonte(lastSeasonStartYear);
-  const cats = catsDeEmpresa(emp, months);
 
+  // Empresas con hoja de parámetros viva (por ahora: Allpa Farms Chile)
+  let paramSheet = null, formulaLines = null;
+  if (empName === 'Allpa Farms' && paramsAF) {
+    const built = buildParametrosAllpa(paramsAF, months);
+    paramSheet = built.ws; formulaLines = built.formulaLines;
+  }
+
+  const cats = catsDeEmpresa(emp, months, formulaLines);
   const built = buildStatement({
     title:`${emp.emoji || ''} ${empName}`.trim(),
     subtitle: emp.desc || '',
@@ -320,6 +550,7 @@ export function exportarFlujoEmpresa({ emp, empName, saldoIni = 0, lastSeasonSta
   const wb = XLSX.utils.book_new();
   const sheetNm = (String(empName).replace(/[\\/?*\[\]:]/g, '').slice(0, 28)) || 'Flujo';
   XLSX.utils.book_append_sheet(wb, toSheet({ ...built, cols }), sheetNm);
+  if (paramSheet) XLSX.utils.book_append_sheet(wb, paramSheet, 'Parametros');
   wb.Workbook = { ...(wb.Workbook||{}), Views:[{ activeTab:0 }], CalcPr:{ fullCalcOnLoad:true } };
 
   const safeName = String(empName).replace(/[^\w\-]+/g,'_').slice(0,40);
