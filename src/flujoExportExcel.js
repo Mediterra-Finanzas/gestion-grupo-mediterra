@@ -646,6 +646,132 @@ function buildParametrosAllegriaService(paramsAS, months) {
   } };
 }
 
+// Réplica de calcAllpaPeruIngresos (con redistribución proporcional de anticipos)
+// usando el horizonte `months`. Se usa para calcular el ajuste de anticipos.
+function calcAllpaPeruIngresosExport(paramsAP, months) {
+  const arr = Array(months.length ? Math.max(...months.map(m=>m.idx))+1 : 63).fill(0);
+  const byLabel = {}; months.forEach(mo => { byLabel[mo.label] = mo; });
+  for (let y = 2026; y <= 2031; y++) {
+    const yp = paramsAP?.[y]; if (!yp) continue;
+    const precio = Number(yp.precioKg) || 0;
+    const kgMes = yp.kgMes || [];
+    const prodMonths = months.filter(mo => mo.y === y);
+    prodMonths.forEach(mo => { arr[mo.idx] += (Number(kgMes[mo.m])||0) * precio; });
+    const ants = Array.isArray(yp.anticipos) ? yp.anticipos : [];
+    ants.forEach(a => {
+      const monto = Number(a.monto) || 0; const info = byLabel[a.mes];
+      if (!monto || !info) return;
+      arr[info.idx] += monto;
+      const base = prodMonths.filter(mo => (Number(kgMes[mo.m])||0) > 0 && mo.label !== a.mes);
+      const baseTot = base.reduce((s,mo)=>s+(Number(kgMes[mo.m])||0)*precio, 0);
+      if (baseTot > 0) base.forEach(mo => { arr[mo.idx] -= monto * ((Number(kgMes[mo.m])||0)*precio) / baseTot; });
+    });
+  }
+  months.forEach(mo => { if (mo.y === 2026 && mo.m >= 3 && mo.m <= 5) arr[mo.idx] = 0; });
+  return arr;
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// HOJA "Parametros" — Allpa Farms Perú. Grilla kg por año×mes × precio y
+// tarifas US$/kg. 6 líneas: Exportación Arándanos (kg×precio) + 5 costos
+// (kg×tarifa). Anticipos → fila de ajuste estático (diferencia vs cálculo).
+// Abr-May-Jun 2026 en cero (mismo criterio del cálculo).
+// ═══════════════════════════════════════════════════════════════════
+function buildParametrosAllpaPeru(paramsAP, months) {
+  const labelByIdx = {}; months.forEach(mo => { labelByIdx[mo.idx] = mo.label; });
+  // Section2: A0 Año, B1 Mes(criteria), C2 kg, D3 ING, E4 COS, F5 TRA, G6 MAQ, H7 MAT, I8 LOG
+  const MES = 1, KG = 2, ING = 3, COS = 4, TRA = 5, MAQ = 6, MAT = 7, LOG = 8, LAST_COL = 8;
+  const RATE_COL = { cosecha:COS, traslado:TRA, maquila:MAQ, materiales:MAT, logistico:LOG };
+  const { cells, merges, wrows, put, rInicio } = iniciarParamSheet('⚙ Parámetros — Allpa Farms Perú', LAST_COL);
+  let r = rInicio;
+  put(r,ING,{ t:'s', v:'Ingreso', s:PS.colHdr });
+  put(r,COS,{ t:'s', v:'Cosecha', s:PS.colHdr }); put(r,TRA,{ t:'s', v:'Traslado', s:PS.colHdr });
+  put(r,MAQ,{ t:'s', v:'Maquila', s:PS.colHdr }); put(r,MAT,{ t:'s', v:'Materiales', s:PS.colHdr });
+  put(r,LOG,{ t:'s', v:'Logístico', s:PS.colHdr });
+  r++;
+
+  // ① Parámetros por año (precio + 5 tarifas US$/kg)
+  put(r,0,{ t:'s', v:'① PARÁMETROS POR AÑO (US$/kg)', s:PS.secHdr });
+  for (let c=1;c<=LAST_COL;c++) put(r,c,{ t:'s', v:'', s:PS.secHdr });
+  merges.push({ s:{r:r-1,c:0}, e:{r:r-1,c:LAST_COL} }); r++;
+  ['Año','Precio arándano','Cosecha','Traslado','Maquila','Materiales','Logístico'].forEach((h,c)=>put(r,c,{ t:'s', v:h, s:PS.colHdr }));
+  r++;
+  const years = Object.keys(paramsAP || {}).map(Number).filter(y=>!isNaN(y)).sort();
+  const yRef = {};
+  years.forEach(y => {
+    const yp = paramsAP[y] || {}; const rr = r; const rates = yp.ratesKg || {};
+    put(rr,0,{ t:'s', v:String(y), s:PS.txt });
+    put(rr,1,{ t:'n', v:Number(yp.precioKg)||0, s:PS.inUsd });
+    put(rr,2,{ t:'n', v:Number(rates.cosecha)||0,    s:PS.inUsd });
+    put(rr,3,{ t:'n', v:Number(rates.traslado)||0,   s:PS.inUsd });
+    put(rr,4,{ t:'n', v:Number(rates.maquila)||0,    s:PS.inUsd });
+    put(rr,5,{ t:'n', v:Number(rates.materiales)||0, s:PS.inUsd });
+    put(rr,6,{ t:'n', v:Number(rates.logistico)||0,  s:PS.inUsd });
+    yRef[y] = { precio:ref(rr,1), cosecha:ref(rr,2), traslado:ref(rr,3), maquila:ref(rr,4), materiales:ref(rr,5), logistico:ref(rr,6) };
+    r++;
+  });
+  r++;
+
+  // ② Kilos por mes → montos (kg × precio/tarifa)
+  put(r,0,{ t:'s', v:'② KILOS POR MES → MONTOS', s:PS.secHdr });
+  for (let c=1;c<=LAST_COL;c++) put(r,c,{ t:'s', v:'', s:PS.secHdr });
+  merges.push({ s:{r:r-1,c:0}, e:{r:r-1,c:LAST_COL} }); r++;
+  ['Año','Mes','kg','Ingreso','Cosecha','Traslado','Maquila','Materiales','Logístico'].forEach((h,c)=>put(r,c,{ t:'s', v:h, s:PS.colHdr }));
+  r++;
+
+  const baseIng = {};   // idx → Σ kg×precio de las filas base emitidas
+  months.forEach(mo => {
+    if (mo.y === 2026 && mo.m >= 3 && mo.m <= 5) return;   // Abr-May-Jun 2026 = 0
+    const yp = paramsAP?.[mo.y]; const yr = yRef[mo.y];
+    if (!yp || !yr) return;
+    const kg = Number(yp.kgMes?.[mo.m]) || 0;
+    if (kg === 0) return;
+    const precio = Number(yp.precioKg) || 0;
+    const rates = yp.ratesKg || {};
+    const rr = r; const kgCell = ref(rr, KG);
+    put(rr,0,{ t:'s', v:String(mo.y), s:PS.txt });
+    put(rr,MES,{ t:'s', v:mo.label, s:PS.movMes });
+    put(rr,KG,{ t:'n', v:kg, s:PS.inKg });
+    put(rr,ING,{ t:'n', f:`${kgCell}*${yr.precio}`, v:kg*precio, s:PS.der });
+    baseIng[mo.idx] = (baseIng[mo.idx]||0) + kg*precio;
+    ['cosecha','traslado','maquila','materiales','logistico'].forEach(k => {
+      put(rr, RATE_COL[k], { t:'n', f:`${kgCell}*${yr[k]}`, v:kg*(Number(rates[k])||0), s:PS.der });
+    });
+    r++;
+  });
+
+  // Ajuste por anticipos = calc(ingresos) − base emitida. Estático (raro; default vacío).
+  const ingFull = calcAllpaPeruIngresosExport(paramsAP, months);
+  const ajustes = [];
+  months.forEach(mo => {
+    const delta = (ingFull[mo.idx]||0) - (baseIng[mo.idx]||0);
+    if (Math.abs(delta) > 0.005) ajustes.push({ mo, delta });
+  });
+  if (ajustes.length) {
+    put(r,0,{ t:'s', v:'Ajuste anticipos (snapshot — editar en la app)', s:PS.txtSub });
+    merges.push({ s:{r:r-1,c:0}, e:{r:r-1,c:2} }); r++;
+    ajustes.forEach(({mo, delta}) => {
+      put(r,0,{ t:'s', v:String(mo.y), s:PS.txt });
+      put(r,MES,{ t:'s', v:mo.label, s:PS.movMes });
+      put(r,ING,{ t:'n', v:delta, s:PS.movNum });
+      r++;
+    });
+  }
+
+  const ws = finalizeParamSheet({ cells, merges, wrows, lastRow:r, lastCol:LAST_COL, colWidths:[
+    { wch:8 }, { wch:10 }, { wch:11 }, { wch:13 }, { wch:12 }, { wch:12 }, { wch:12 }, { wch:12 }, { wch:12 },
+  ], freezeRow:6 });
+  const sf = sumifFlujo(labelByIdx);
+  return { ws, formulaLines: {
+    'Exportación Arándanos':                       { cellFormula: sf(MES, ING) },
+    'Var Campo · COSECHA (US$/kg)':                { cellFormula: sf(MES, COS) },
+    'Packing · Traslado a maquila (US$/kg)':       { cellFormula: sf(MES, TRA) },
+    'Packing · Servicio de maquila (US$/kg)':      { cellFormula: sf(MES, MAQ) },
+    'Packing · Materiales (US$/kg)':               { cellFormula: sf(MES, MAT) },
+    'Packing · Servicio logístico (US$/kg)':       { cellFormula: sf(MES, LOG) },
+  } };
+}
+
 // ═══════════════════════════════════════════════════════════════════
 // EXPORT FLUJO DE UNA SOLA EMPRESA → Excel (.xlsx).
 // Hoja "<Empresa>" (flujo) + —para empresas con parámetros vivos— hoja
@@ -657,6 +783,7 @@ const PARAM_BUILDERS = {
   'Allpa Farms':      (p, m) => p.paramsAF && buildParametrosAllpa(p.paramsAF, m),
   'Integrity Farms':  (p, m) => p.paramsIF && buildParametrosIntegrity(p.paramsIF, m),
   'Allegria Service': (p, m) => p.paramsAS && buildParametrosAllegriaService(p.paramsAS, m),
+  'Allpa Farms Perú': (p, m) => p.paramsAP && buildParametrosAllpaPeru(p.paramsAP, m),
 };
 
 export function exportarFlujoEmpresa({ emp, empName, saldoIni = 0, lastSeasonStartYear = null, fileName, params = null }) {
