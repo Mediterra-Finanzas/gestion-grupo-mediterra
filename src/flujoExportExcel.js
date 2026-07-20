@@ -773,6 +773,176 @@ function buildParametrosAllpaPeru(paramsAP, months) {
 }
 
 // ═══════════════════════════════════════════════════════════════════
+// HOJA "Parametros" — Allegria Foods. 7 líneas parametrizadas:
+//   Cerezas:  Anticipo Cerezas (ing), Costo Fruta Exportación, Materiales,
+//             Servicios de Packing.
+//   Ciruelas: Liquidación Ciruelas (ing).
+//   Rebate:   Otros ingresos - Rebate (kg cerezas × US$/kg × %kilos).
+//   Arándanos Perú (comisión): kg × FOB × fee% (o kg × US$/kg).
+// Ingresos = anticipos cliente (US$/kg×kg) + liquidación (max(0, kg×FOB−Σant)).
+// Costo    = anticipos productor + saldo (max(0, kg×precioNeto−Σant)),
+//            precioNeto = max(0, FOB×(1−desc%) − matUSD − srvUSD).
+// ═══════════════════════════════════════════════════════════════════
+function buildParametrosAllegria(paramsAll, comisionArandanos, months) {
+  const labelByIdx = {}; months.forEach(mo => { labelByIdx[mo.idx] = mo.label; });
+  // Movement cols (mes/monto) por línea:
+  const AC_M=8,AC_N=9, CO_M=10,CO_N=11, MT_M=12,MT_N=13, SP_M=14,SP_N=15,
+        LC_M=16,LC_N=17, RB_M=18,RB_N=19, AR_M=20,AR_N=21, LAST_COL=21;
+  const { cells, merges, wrows, put, rInicio } = iniciarParamSheet('⚙ Parámetros — Allegria Foods', 7);
+  let r = rInicio;
+  // sub-encabezado columnas fuente
+  [['Ant.Cerezas',AC_M],['Costo Fruta',CO_M],['Materiales',MT_M],['Servicios',SP_M],
+   ['Liq.Ciruelas',LC_M],['Rebate',RB_M],['Arándanos',AR_M]].forEach(([t,c])=>{
+    put(r,c,{ t:'s', v:t, s:PS.colHdr }); put(r,c+1,{ t:'s', v:'US$', s:PS.colHdr });
+  });
+  r++;
+  const seasonKeys = Object.keys(paramsAll || {}).sort();
+  const cerezasKgCell = {};
+
+  const secHdr = (txt) => { put(r,0,{ t:'s', v:txt, s:PS.secHdr }); for(let c=1;c<=7;c++) put(r,c,{ t:'s', v:'', s:PS.secHdr }); merges.push({ s:{r:r-1,c:0}, e:{r:r-1,c:7} }); r++; };
+  const colHdrs = (arr) => { arr.forEach((h,c)=>put(r,c,{ t:'s', v:h, s:PS.colHdr })); r++; };
+
+  // ══ CEREZAS (4 líneas) ══
+  secHdr('① CEREZAS — anticipos cliente/productor, materiales y packing');
+  colHdrs(['Temporada','Concepto','kg','FOB/US$·pct','desc%','matUSD','srvUSD']);
+  seasonKeys.forEach(sk => {
+    const p = paramsAll[sk]?.cerezas; if (!p) return;
+    const kg = Number(p.kg)||0, fob = Number(p.fob_usd_kg)||0;
+    if (kg===0 || fob===0) return;
+    const desc = Number(p.desc_exp_pct)||0, matU = Number(p.mat_usd_kg)||0, srvU = Number(p.srv_usd_kg)||0;
+    const rH = r; const kgC=ref(rH,2), fobC=ref(rH,3), descC=ref(rH,4), matC=ref(rH,5), srvC=ref(rH,6);
+    cerezasKgCell[sk] = kgC;
+    put(rH,0,{ t:'s', v:sk, s:PS.txt }); put(rH,1,{ t:'s', v:'Cerezas', s:PS.txt });
+    put(rH,2,{ t:'n', v:kg, s:PS.inKg }); put(rH,3,{ t:'n', v:fob, s:PS.inUsd });
+    put(rH,4,{ t:'n', v:desc, s:PS.inPct }); put(rH,5,{ t:'n', v:matU, s:PS.inUsd }); put(rH,6,{ t:'n', v:srvU, s:PS.inUsd });
+    r++;
+    // anticipos cliente → Anticipo Cerezas (AC)
+    const antCliCells = []; let sumAntCli = 0;
+    (p.anticipos_cliente||[]).forEach(a => {
+      const u = Number(a.usd_kg)||0; const rA=r; const uC=ref(rA,3);
+      put(rA,1,{ t:'s', v:'   ↳ Ant. cliente', s:PS.txtSub }); put(rA,3,{ t:'n', v:u, s:PS.inUsd });
+      put(rA,AC_M,{ t:'s', v:a.mes||'', s:PS.inTxt }); put(rA,AC_N,{ t:'n', f:`${uC}*${kgC}`, v:u*kg, s:PS.movNum });
+      antCliCells.push(ref(rA,AC_N)); sumAntCli += u*kg; r++;
+    });
+    // liquidación cliente
+    { const rL=r; const sumF = antCliCells.length?antCliCells.join('+'):'0';
+      put(rL,1,{ t:'s', v:'   ↳ Liquidación', s:PS.txtSub });
+      put(rL,AC_M,{ t:'s', v:p.mes_liquidacion||'', s:PS.inTxt });
+      put(rL,AC_N,{ t:'n', f:`MAX(0,${kgC}*${fobC}-(${sumF}))`, v:Math.max(0,kg*fob-sumAntCli), s:PS.movNum }); r++; }
+    // anticipos productor → Costo Fruta (CO)
+    const antProdCells = []; let sumAntProd = 0;
+    (p.anticipos_productor||[]).forEach(a => {
+      const u = Number(a.usd_kg)||0; const rA=r; const uC=ref(rA,3);
+      put(rA,1,{ t:'s', v:'   ↳ Ant. productor', s:PS.txtSub }); put(rA,3,{ t:'n', v:u, s:PS.inUsd });
+      put(rA,CO_M,{ t:'s', v:a.mes||'', s:PS.inTxt }); put(rA,CO_N,{ t:'n', f:`${uC}*${kgC}`, v:u*kg, s:PS.movNum });
+      antProdCells.push(ref(rA,CO_N)); sumAntProd += u*kg; r++;
+    });
+    // saldo productor
+    { const rS=r; const sumF = antProdCells.length?antProdCells.join('+'):'0';
+      const precioNeto = Math.max(0, fob*(1-desc/100)-matU-srvU);
+      const saldo = Math.max(0, kg*precioNeto - sumAntProd);
+      put(rS,1,{ t:'s', v:'   ↳ Saldo productor', s:PS.txtSub });
+      put(rS,CO_M,{ t:'s', v:p.mes_saldo_productor||'', s:PS.inTxt });
+      put(rS,CO_N,{ t:'n', f:`MAX(0,${kgC}*MAX(0,${fobC}*(1-${descC}/100)-${matC}-${srvC})-(${sumF}))`, v:saldo, s:PS.movNum }); r++; }
+    // materiales (dist_mat) → MT: kg×matUSD×pct/100
+    (p.dist_mat||[]).forEach(d => {
+      const pct = Number(d.pct)||0; const rD=r; const pC=ref(rD,3);
+      put(rD,1,{ t:'s', v:'   ↳ Materiales', s:PS.txtSub }); put(rD,3,{ t:'n', v:pct, s:PS.inPct });
+      put(rD,MT_M,{ t:'s', v:d.mes||'', s:PS.inTxt }); put(rD,MT_N,{ t:'n', f:`${kgC}*${matC}*${pC}/100`, v:kg*matU*pct/100, s:PS.movNum }); r++;
+    });
+    // servicios packing (dist_srv) → SP: kg×srvUSD×pct/100
+    (p.dist_srv||[]).forEach(d => {
+      const pct = Number(d.pct)||0; const rD=r; const pC=ref(rD,3);
+      put(rD,1,{ t:'s', v:'   ↳ Serv. packing', s:PS.txtSub }); put(rD,3,{ t:'n', v:pct, s:PS.inPct });
+      put(rD,SP_M,{ t:'s', v:d.mes||'', s:PS.inTxt }); put(rD,SP_N,{ t:'n', f:`${kgC}*${srvC}*${pC}/100`, v:kg*srvU*pct/100, s:PS.movNum }); r++;
+    });
+  });
+  r++;
+
+  // ══ CIRUELAS (1 línea: Liquidación Ciruelas) ══
+  secHdr('② CIRUELAS — anticipos cliente + liquidación');
+  colHdrs(['Temporada','Concepto','kg','FOB / US$·kg','—','—','—']);
+  seasonKeys.forEach(sk => {
+    const p = paramsAll[sk]?.ciruelas; if (!p) return;
+    const kg = Number(p.kg)||0, fob = Number(p.fob_usd_kg)||0;
+    if (kg===0 || fob===0) return;
+    const rH=r; const kgC=ref(rH,2), fobC=ref(rH,3);
+    put(rH,0,{ t:'s', v:sk, s:PS.txt }); put(rH,1,{ t:'s', v:'Ciruelas', s:PS.txt });
+    put(rH,2,{ t:'n', v:kg, s:PS.inKg }); put(rH,3,{ t:'n', v:fob, s:PS.inUsd }); r++;
+    const antCells=[]; let sumAnt=0;
+    (p.anticipos_cliente||[]).forEach(a => {
+      const u=Number(a.usd_kg)||0; const rA=r; const uC=ref(rA,3);
+      put(rA,1,{ t:'s', v:'   ↳ Ant. cliente', s:PS.txtSub }); put(rA,3,{ t:'n', v:u, s:PS.inUsd });
+      put(rA,LC_M,{ t:'s', v:a.mes||'', s:PS.inTxt }); put(rA,LC_N,{ t:'n', f:`${uC}*${kgC}`, v:u*kg, s:PS.movNum });
+      antCells.push(ref(rA,LC_N)); sumAnt+=u*kg; r++;
+    });
+    { const rL=r; const sumF=antCells.length?antCells.join('+'):'0';
+      put(rL,1,{ t:'s', v:'   ↳ Liquidación', s:PS.txtSub });
+      put(rL,LC_M,{ t:'s', v:p.mes_liquidacion||'', s:PS.inTxt });
+      put(rL,LC_N,{ t:'n', f:`MAX(0,${kgC}*${fobC}-(${sumF}))`, v:Math.max(0,kg*fob-sumAnt), s:PS.movNum }); r++; }
+  });
+  r++;
+
+  // ══ REBATE (kg cerezas × US$/kg × %kilos) ══
+  secHdr('③ REBATE EXPORTACIÓN (cobro diferido)');
+  colHdrs(['Temporada','Concepto','US$/kg','%kilos','Total','%pago','']);
+  seasonKeys.forEach(sk => {
+    const rb = paramsAll[sk]?.rebate; if (!rb) return;
+    const usdKg = Number(rb.usdKg)||0, pctK = Number(rb.pctKilos)||0;
+    const kgBase = Number(paramsAll[sk]?.cerezas?.kg)||0;
+    const total = kgBase*usdKg*(pctK/100);
+    if (total<=0 && !(rb.pagos||[]).length) return;
+    const rH=r; const usdC=ref(rH,2), pctKC=ref(rH,3), totC=ref(rH,4);
+    const kgRef = cerezasKgCell[sk] || String(kgBase);
+    put(rH,0,{ t:'s', v:sk, s:PS.txt }); put(rH,1,{ t:'s', v:'Rebate', s:PS.txt });
+    put(rH,2,{ t:'n', v:usdKg, s:PS.inUsd }); put(rH,3,{ t:'n', v:pctK, s:PS.inPct });
+    put(rH,4,{ t:'n', f:`${kgRef}*${usdC}*${pctKC}/100`, v:total, s:PS.der }); r++;
+    (rb.pagos||[]).forEach(pg => {
+      const pct=Number(pg.pct)||0; const rP=r; const pC=ref(rP,5);
+      put(rP,1,{ t:'s', v:'   ↳ Cobro', s:PS.txtSub }); put(rP,5,{ t:'n', v:pct, s:PS.inPct });
+      put(rP,RB_M,{ t:'s', v:pg.mes||'', s:PS.inTxt }); put(rP,RB_N,{ t:'n', f:`${totC}*${pC}/100`, v:total*pct/100, s:PS.movNum }); r++;
+    });
+  });
+  r++;
+
+  // ══ ARÁNDANOS PERÚ (comisión) ══
+  secHdr('④ ARÁNDANOS PERÚ (comisión comercialización)');
+  colHdrs(['Cobro','kg','FOB o US$/kg','fee%','Total','%pago','']);
+  (comisionArandanos?.cobros || []).forEach(c => {
+    const kg = Number(c.kgTotal)||0;
+    const esUsdKg = c.modo === 'usdkg';
+    const d = esUsdKg ? (Number(c.usdKg)||0) : (Number(c.fobUsdKg)||0);
+    const fee = esUsdKg ? 0 : (Number(c.feePct)||0);
+    const total = esUsdKg ? kg*d : kg*d*(fee/100);
+    if (total<=0 && !(c.pagos||[]).length) return;
+    const rH=r; const kgC=ref(rH,1), dC=ref(rH,2), feeC=ref(rH,3), totC=ref(rH,4);
+    put(rH,0,{ t:'s', v:c.descripcion||c.temporada||'Cobro', s:PS.txt });
+    put(rH,1,{ t:'n', v:kg, s:PS.inKg }); put(rH,2,{ t:'n', v:d, s:PS.inUsd });
+    put(rH,3,{ t:'n', v:fee, s:PS.inPct });
+    put(rH,4,{ t:'n', f: esUsdKg?`${kgC}*${dC}`:`${kgC}*${dC}*${feeC}/100`, v:total, s:PS.der }); r++;
+    (c.pagos||[]).forEach(pg => {
+      const pct=Number(pg.pct)||0; const rP=r; const pC=ref(rP,5);
+      put(rP,0,{ t:'s', v:'   ↳ Cobro', s:PS.txtSub }); put(rP,5,{ t:'n', v:pct, s:PS.inPct });
+      put(rP,AR_M,{ t:'s', v:pg.mes||'', s:PS.inTxt }); put(rP,AR_N,{ t:'n', f:`${totC}*${pC}/100`, v:total*pct/100, s:PS.movNum }); r++;
+    });
+  });
+
+  const widths = [{wch:12},{wch:20},{wch:10},{wch:11},{wch:8},{wch:9},{wch:9},{wch:2}];
+  for (let c=8;c<=LAST_COL;c++) widths[c] = { wch: (c%2===0?11:12) };
+  const ws = finalizeParamSheet({ cells, merges, wrows, lastRow:r, lastCol:LAST_COL, colWidths:widths, freezeRow:5 });
+  const sf = sumifFlujo(labelByIdx);
+  return { ws, formulaLines: {
+    'Anticipo Cerezas':                                              { cellFormula: sf(AC_M, AC_N) },
+    'Costo Fruta Exportación':                                       { cellFormula: sf(CO_M, CO_N) },
+    'Materiales':                                                    { cellFormula: sf(MT_M, MT_N) },
+    'Servicios de Packing':                                          { cellFormula: sf(SP_M, SP_N) },
+    'Liquidación Ciruelas':                                          { cellFormula: sf(LC_M, LC_N) },
+    'Otros ingresos - Rebate exportación (cobro diferido)':          { cellFormula: sf(RB_M, RB_N) },
+    'Arándanos Perú':                                                { cellFormula: sf(AR_M, AR_N) },
+  } };
+}
+
+// ═══════════════════════════════════════════════════════════════════
 // EXPORT FLUJO DE UNA SOLA EMPRESA → Excel (.xlsx).
 // Hoja "<Empresa>" (flujo) + —para empresas con parámetros vivos— hoja
 // "Parametros" con inputs editables que recalculan el flujo vía fórmulas.
@@ -784,6 +954,7 @@ const PARAM_BUILDERS = {
   'Integrity Farms':  (p, m) => p.paramsIF && buildParametrosIntegrity(p.paramsIF, m),
   'Allegria Service': (p, m) => p.paramsAS && buildParametrosAllegriaService(p.paramsAS, m),
   'Allpa Farms Perú': (p, m) => p.paramsAP && buildParametrosAllpaPeru(p.paramsAP, m),
+  'Allegria Foods':   (p, m) => p.paramsAllegria && buildParametrosAllegria(p.paramsAllegria, p.allegraComisionArandanos, m),
 };
 
 export function exportarFlujoEmpresa({ emp, empName, saldoIni = 0, lastSeasonStartYear = null, fileName, params = null }) {
