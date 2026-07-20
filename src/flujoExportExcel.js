@@ -501,20 +501,11 @@ function buildParametrosAllpa(paramsAF, months) {
     });
   });
 
-  const lastRow = r;
-  const ws = {};
-  Object.keys(cells).forEach(a => ws[a] = cells[a]);
-  ws['!ref'] = `A1:${L(LAST_COL)}${lastRow}`;
-  ws['!cols'] = [
+  const ws = finalizeParamSheet({ cells, merges, wrows, lastRow:r, lastCol:LAST_COL, colWidths:[
     { wch:12 }, { wch:24 }, { wch:12 }, { wch:10 }, { wch:13 }, { wch:12 }, { wch:13 }, { wch:2 },
     { wch:11 }, { wch:13 }, { wch:11 }, { wch:13 }, { wch:11 }, { wch:13 },
-  ];
-  if (wrows.length) ws['!rows'] = wrows.map(x => x || {});
-  if (merges.length) ws['!merges'] = merges;
-  ws['!freeze'] = { xSplit:0, ySplit:5, topLeftCell:'A6', activePane:'bottomLeft', state:'frozen' };
-
-  const sf = (mesCol, monCol) => (mc) =>
-    `SUMIF('Parametros'!$${L(mesCol)}:$${L(mesCol)},"${labelByIdx[mc.monthIdx]}",'Parametros'!$${L(monCol)}:$${L(monCol)})`;
+  ] });
+  const sf = sumifFlujo(labelByIdx);
   const formulaLines = {
     'Ingreso Exportación Cerezas': { cellFormula: sf(ING_MES, ING_MON) },
     'Remuneración Cosecha':        { cellFormula: sf(COS_MES, COS_MON) },
@@ -523,20 +514,161 @@ function buildParametrosAllpa(paramsAF, months) {
   return { ws, formulaLines };
 }
 
+// ── helpers compartidos hoja Parámetros ──────────────────────────────
+// Genera el generador de fórmulas SUMIF hacia las columnas fuente.
+function sumifFlujo(labelByIdx) {
+  return (mesCol, monCol) => (mc) =>
+    `SUMIF('Parametros'!$${L(mesCol)}:$${L(mesCol)},"${labelByIdx[mc.monthIdx]}",'Parametros'!$${L(monCol)}:$${L(monCol)})`;
+}
+// Cierra una hoja de parámetros (ref, anchos, filas, merges, freeze).
+function finalizeParamSheet({ cells, merges = [], wrows = [], lastRow, lastCol, colWidths, freezeRow = 5 }) {
+  const ws = {};
+  Object.keys(cells).forEach(a => ws[a] = cells[a]);
+  ws['!ref'] = `A1:${L(lastCol)}${lastRow}`;
+  if (colWidths) ws['!cols'] = colWidths;
+  if (wrows.length) ws['!rows'] = wrows.map(x => x || {});
+  if (merges.length) ws['!merges'] = merges;
+  ws['!freeze'] = { xSplit:0, ySplit:freezeRow, topLeftCell:`A${freezeRow+1}`, activePane:'bottomLeft', state:'frozen' };
+  return ws;
+}
+// Cabecera común (título + subtítulo) para una hoja de parámetros.
+// Devuelve { put, cells, merges, wrows, rInicio } con las 4 primeras filas puestas.
+function iniciarParamSheet(titulo, lastColHeader) {
+  const cells = {}; const merges = []; const wrows = [];
+  const put = (r1, c0, cell) => { cells[ref(r1, c0)] = cell; };
+  put(1,0,{ t:'s', v:titulo, s:PS.title });
+  for (let c=1;c<=lastColHeader;c++) put(1,c,{ t:'s', v:'', s:PS.title });
+  merges.push({ s:{r:0,c:0}, e:{r:0,c:lastColHeader} });
+  wrows[0] = { hpx:20 };
+  put(2,0,{ t:'s', v:'Celdas amarillas = editables. El flujo recalcula solo (SUMIF por mes).', s:PS.txtSub });
+  merges.push({ s:{r:1,c:0}, e:{r:1,c:lastColHeader} });
+  return { cells, merges, wrows, put, rInicio:4 };
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// HOJA "Parametros" — Integrity Farms. Una línea: fee admin US$/ha × ha,
+// cobrado en un mes. ingArr = Σ (ha × US$/ha) por mes_cobro.
+// ═══════════════════════════════════════════════════════════════════
+function buildParametrosIntegrity(paramsIF, months) {
+  const labelByIdx = {}; months.forEach(mo => { labelByIdx[mo.idx] = mo.label; });
+  const ING_MES = 6, ING_MON = 7, LAST_COL = 7;
+  const { cells, merges, wrows, put, rInicio } = iniciarParamSheet('⚙ Parámetros — Integrity Farms', LAST_COL);
+  let r = rInicio;
+  put(r,ING_MES,{ t:'s', v:'Ingresos', s:PS.colHdr }); put(r,ING_MON,{ t:'s', v:'(fuente)', s:PS.colHdr });
+  r++;
+
+  put(r,0,{ t:'s', v:'FEE ADMINISTRACIÓN CAMPOS (US$/ha × ha)', s:PS.secHdr });
+  for (let c=1;c<=5;c++) put(r,c,{ t:'s', v:'', s:PS.secHdr });
+  merges.push({ s:{r:r-1,c:0}, e:{r:r-1,c:5} }); r++;
+  ['Temporada','Cliente / Campo','Hectáreas','US$/ha','Ingreso','—'].forEach((h,c)=>put(r,c,{ t:'s', v:h, s:PS.colHdr }));
+  put(r,ING_MES,{ t:'s', v:'Mes cobro', s:PS.colHdr }); put(r,ING_MON,{ t:'s', v:'Monto US$', s:PS.colHdr });
+  r++;
+
+  Object.keys(paramsIF || {}).sort().forEach(sk => {
+    (paramsIF[sk]?.clientes || []).forEach(cli => {
+      const ha = Number(cli.ha) || 0, usd = Number(cli.usd_ha) || 0;
+      const rC = r; const haCell = ref(rC,2), usdCell = ref(rC,3), ingCell = ref(rC,4);
+      put(rC,0,{ t:'s', v:sk, s:PS.txt });
+      put(rC,1,{ t:'s', v:cli.nombre || '(cliente)', s:PS.txt });
+      put(rC,2,{ t:'n', v:ha, s:PS.inKg });
+      put(rC,3,{ t:'n', v:usd, s:PS.inUsd });
+      put(rC,4,{ t:'n', f:`${haCell}*${usdCell}`, v:ha*usd, s:PS.der });
+      put(rC,ING_MES,{ t:'s', v:cli.mes_cobro || '', s:PS.inTxt });
+      put(rC,ING_MON,{ t:'n', f:ingCell, v:ha*usd, s:PS.movNum });
+      r++;
+    });
+  });
+
+  const ws = finalizeParamSheet({ cells, merges, wrows, lastRow:r, lastCol:LAST_COL, colWidths:[
+    { wch:12 }, { wch:26 }, { wch:11 }, { wch:11 }, { wch:14 }, { wch:4 }, { wch:11 }, { wch:14 },
+  ] });
+  const sf = sumifFlujo(labelByIdx);
+  return { ws, formulaLines: { 'Ingreso Administración (us$2.000/ha)': { cellFormula: sf(ING_MES, ING_MON) } } };
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// HOJA "Parametros" — Allegria Service. Dos líneas (cerezas, ciruelas):
+// procesamiento US$/kg × kg, cobrado en mes_cobro (o mes de proceso).
+// ═══════════════════════════════════════════════════════════════════
+function buildParametrosAllegriaService(paramsAS, months) {
+  const labelByIdx = {}; months.forEach(mo => { labelByIdx[mo.idx] = mo.label; });
+  const CE_MES = 6, CE_MON = 7, CI_MES = 8, CI_MON = 9, LAST_COL = 9;
+  const { cells, merges, wrows, put, rInicio } = iniciarParamSheet('⚙ Parámetros — Allegria Service', LAST_COL);
+  let r = rInicio;
+  put(r,CE_MES,{ t:'s', v:'Cerezas', s:PS.colHdr }); put(r,CE_MON,{ t:'s', v:'(fuente)', s:PS.colHdr });
+  put(r,CI_MES,{ t:'s', v:'Ciruelas', s:PS.colHdr }); put(r,CI_MON,{ t:'s', v:'(fuente)', s:PS.colHdr });
+  r++;
+
+  const especies = [
+    { key:'cerezas',  titulo:'PROCESO DE CEREZAS (US$/kg × kg)',  mesCol:CE_MES, monCol:CE_MON },
+    { key:'ciruelas', titulo:'PROCESO DE CIRUELAS (US$/kg × kg)', mesCol:CI_MES, monCol:CI_MON },
+  ];
+  especies.forEach(esp => {
+    put(r,0,{ t:'s', v:esp.titulo, s:PS.secHdr });
+    for (let c=1;c<=5;c++) put(r,c,{ t:'s', v:'', s:PS.secHdr });
+    merges.push({ s:{r:r-1,c:0}, e:{r:r-1,c:5} }); r++;
+    ['Temporada','Mes proceso','kg','US$/kg','Ingreso','—'].forEach((h,c)=>put(r,c,{ t:'s', v:h, s:PS.colHdr }));
+    put(r,esp.mesCol,{ t:'s', v:'Mes cobro', s:PS.colHdr }); put(r,esp.monCol,{ t:'s', v:'Monto US$', s:PS.colHdr });
+    r++;
+    Object.keys(paramsAS || {}).sort().forEach(sk => {
+      const p = paramsAS[sk]?.[esp.key];
+      if (!p) return;
+      const usd = Number(p.usd_kg) || 0;
+      const rHdr = r; const usdCell = ref(rHdr,3);
+      // fila cabecera de la temporada/especie con el US$/kg (input único por temporada)
+      put(rHdr,0,{ t:'s', v:sk, s:PS.txt });
+      put(rHdr,1,{ t:'s', v:`${esp.key} · US$/kg →`, s:PS.txtSub });
+      put(rHdr,3,{ t:'n', v:usd, s:PS.inUsd });
+      r++;
+      Object.entries(p.kg_mes || {}).forEach(([mesProc, entry]) => {
+        const kg = Number(typeof entry === 'object' ? entry.kg : entry) || 0;
+        const mesCobro = (typeof entry === 'object' ? entry.mes_cobro : '') || mesProc;
+        const rE = r; const kgCell = ref(rE,2);
+        put(rE,0,{ t:'s', v:'', s:PS.txt });
+        put(rE,1,{ t:'s', v:`   ↳ ${mesProc}`, s:PS.txtSub });
+        put(rE,2,{ t:'n', v:kg, s:PS.inKg });
+        put(rE,4,{ t:'n', f:`${kgCell}*${usdCell}`, v:kg*usd, s:PS.der });
+        put(rE,esp.mesCol,{ t:'s', v:mesCobro, s:PS.inTxt });
+        put(rE,esp.monCol,{ t:'n', f:`${kgCell}*${usdCell}`, v:kg*usd, s:PS.movNum });
+        r++;
+      });
+    });
+  });
+
+  const ws = finalizeParamSheet({ cells, merges, wrows, lastRow:r, lastCol:LAST_COL, colWidths:[
+    { wch:12 }, { wch:22 }, { wch:11 }, { wch:10 }, { wch:13 }, { wch:3 },
+    { wch:11 }, { wch:13 }, { wch:11 }, { wch:13 },
+  ] });
+  const sf = sumifFlujo(labelByIdx);
+  return { ws, formulaLines: {
+    'Proceso de Cerezas':  { cellFormula: sf(CE_MES, CE_MON) },
+    'Procesos de Ciruelas':{ cellFormula: sf(CI_MES, CI_MON) },
+  } };
+}
+
 // ═══════════════════════════════════════════════════════════════════
 // EXPORT FLUJO DE UNA SOLA EMPRESA → Excel (.xlsx).
 // Hoja "<Empresa>" (flujo) + —para empresas con parámetros vivos— hoja
 // "Parametros" con inputs editables que recalculan el flujo vía fórmulas.
 // Reutiliza buildStatement, así los números cuadran con la pantalla.
-export function exportarFlujoEmpresa({ emp, empName, saldoIni = 0, lastSeasonStartYear = null, fileName, paramsAF = null }) {
+// Empresas con hoja de parámetros viva → builder que recibe (sliceParams, months).
+// `params` es un bag { paramsAF, paramsIF, paramsAS, ... } desde el módulo.
+const PARAM_BUILDERS = {
+  'Allpa Farms':      (p, m) => p.paramsAF && buildParametrosAllpa(p.paramsAF, m),
+  'Integrity Farms':  (p, m) => p.paramsIF && buildParametrosIntegrity(p.paramsIF, m),
+  'Allegria Service': (p, m) => p.paramsAS && buildParametrosAllegriaService(p.paramsAS, m),
+};
+
+export function exportarFlujoEmpresa({ emp, empName, saldoIni = 0, lastSeasonStartYear = null, fileName, params = null }) {
   if (!emp) throw new Error('Empresa sin datos');
   const { months, cols, monthOrder } = buildHorizonte(lastSeasonStartYear);
 
-  // Empresas con hoja de parámetros viva (por ahora: Allpa Farms Chile)
+  // Empresas con hoja de parámetros viva
   let paramSheet = null, formulaLines = null;
-  if (empName === 'Allpa Farms' && paramsAF) {
-    const built = buildParametrosAllpa(paramsAF, months);
-    paramSheet = built.ws; formulaLines = built.formulaLines;
+  const builder = PARAM_BUILDERS[empName];
+  if (builder && params) {
+    const built = builder(params, months);
+    if (built) { paramSheet = built.ws; formulaLines = built.formulaLines; }
   }
 
   const cats = catsDeEmpresa(emp, months, formulaLines);
