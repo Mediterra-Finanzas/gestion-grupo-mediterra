@@ -790,8 +790,9 @@ export default function RendicionesModule({ usuarioActual, esAdmin, esSoloConsul
   // Puede aprobar (supervisor, editor, o fallback legacy para rendiciones sin cadena).
   const esAprobador = verTodas || nivelRendiciones === "editar";
   const miEmail = (usuarioActual?.email || "").toLowerCase();
-  // Puede cargar rendiciones en nombre de otros (secretaria autorizada o admin).
-  const puedeRendirPorOtros = admin || EMAILS_RINDEN_POR_OTROS.map(e => e.toLowerCase()).includes(miEmail);
+  // Puede cargar rendiciones en nombre de otros: admin, flag rendPorOtros (Gestión
+  // de Usuarios), o email en la lista legacy EMAILS_RINDEN_POR_OTROS (retrocompat).
+  const puedeRendirPorOtros = admin || !!usuarioActual?.rendPorOtros || EMAILS_RINDEN_POR_OTROS.map(e => e.toLowerCase()).includes(miEmail);
 
   const [rendiciones, setRendiciones] = useState([]);
   const [tcData, setTcData] = useState({});
