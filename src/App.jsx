@@ -464,7 +464,7 @@ const ORDEN_SEM=["gris","verde","amarillo","rojo","na"];
 
 const WORKERS_BASE=[
   {nombre:"Milagros Becerra",cargo:"Sec. Administrativa",     email:"Mbecerra@grupomediterra.cl",pin:"4827",rol:"editor", modulos:["tareas"],                    esCFO:false, rendVerTodas:true},
-  {nombre:"Carol Machuca",   cargo:"Analista Finanzas",       email:"cmachuca@grupomediterra.cl",pin:"3159",rol:"editor", modulos:["tareas","osiris","finanzas","contabilidad"], esCFO:false, rendVerTodas:true},
+  {nombre:"Carol Machuca",   cargo:"Analista Finanzas",       email:"cmachuca@grupomediterra.cl",pin:"3159",rol:"editor", modulos:["tareas","osiris","finanzas","contabilidad"], esCFO:false, rendVerTodas:true, rendPorOtros:true},
   {nombre:"Michelle Garcia", cargo:"Contadora General",       email:"mgarcia@grupomediterra.cl", pin:"7413",rol:"editor", modulos:["tareas","contabilidad"],     esCFO:false, rendVerTodas:true},
   {nombre:"Pablo Duran",     cargo:"Asistente Contable",      email:"pduran@grupomediterra.cl",  pin:"2986",rol:"editor", modulos:["tareas","contabilidad"],     esCFO:false, rendVerTodas:true},
   {nombre:"Angelo Huerta",   cargo:"Gerencia Adm. y Finanzas",email:"ahuerta@grupomediterra.cl", pin:"6054",rol:"admin",  modulos:["tareas","osiris","finanzas","contabilidad"], esCFO:true},
@@ -869,6 +869,19 @@ function PanelPermisos({ usuarios, setUsuarios, onClose, pinsPersonalizados = {}
     }));
   }
 
+  // Flag "puede rendir en nombre de otros" (delegación): carga rendiciones a nombre
+  // de otro trabajador o de una persona externa, usando la cadena de aprobación de éste.
+  function setRendPorOtros(nombreU, val) {
+    setUsuarios(prev => prev.map(u => {
+      if(u.nombre !== nombreU) return u;
+      window.auditLog("cambio_permiso", {modulo:"sistema", seccion:"permisos",
+        descripcion:`${val?"Activó":"Desactivó"} "puede rendir en nombre de otros" para ${nombreU}`,
+        registroId:nombreU, campo:"rendPorOtros",
+        valorAnterior:String(!!u.rendPorOtros), valorNuevo:String(!!val)});
+      return { ...u, rendPorOtros: !!val };
+    }));
+  }
+
   const activos = usuarios.filter(u => !u.desactivado);
   const inactivos = usuarios.filter(u => u.desactivado);
 
@@ -1085,6 +1098,24 @@ function PanelPermisos({ usuarios, setUsuarios, onClose, pinsPersonalizados = {}
                             <div style={{fontSize:10,color:C.muted,marginTop:2}}>
                               Visualiza TODAS las rendiciones del grupo (solo lectura; solo el dueño puede modificarlas) y accede a Reportes y Pagos.
                               {(u.rol==="admin"||u.esCFO) && <span style={{color:C.muted2}}> Admin/CFO siempre lo tienen.</span>}
+                            </div>
+                          </span>
+                        </label>
+                      )}
+
+                      {/* ── Puede rendir en nombre de otros (delegación) ── */}
+                      {mods.includes("finanzas")&&(
+                        <label style={{marginTop:10,display:"flex",alignItems:"flex-start",gap:8,
+                          background:C.cardAlt,borderRadius:10,padding:"10px 12px",border:`1px solid ${C.border}`,cursor:"pointer"}}>
+                          <input type="checkbox" checked={!!u.rendPorOtros || u.rol==="admin"}
+                            disabled={u.rol==="admin"}
+                            onChange={e=>setRendPorOtros(u.nombre,e.target.checked)}
+                            style={{marginTop:2,cursor:u.rol==="admin"?"default":"pointer"}}/>
+                          <span style={{fontSize:11.5,color:C.text}}>
+                            <b>Puede rendir en nombre de otros</b> (delegación)
+                            <div style={{fontSize:10,color:C.muted,marginTop:2}}>
+                              Carga rendiciones a nombre de otro trabajador o de una persona externa (ej. secretaria por un gerente). La rendición queda a nombre del seleccionado y sigue su cadena de aprobación.
+                              {u.rol==="admin" && <span style={{color:C.muted2}}> Admin siempre lo tiene.</span>}
                             </div>
                           </span>
                         </label>
@@ -2008,6 +2039,10 @@ export default function App(){
                 rendVerTodas: typeof saved.rendVerTodas === "boolean"
                   ? saved.rendVerTodas
                   : !!wb.rendVerTodas,
+                // admin marca quién puede cargar rendiciones en nombre de otros (delegación)
+                rendPorOtros: typeof saved.rendPorOtros === "boolean"
+                  ? saved.rendPorOtros
+                  : !!wb.rendPorOtros,
               };
               merged_u = garantizarAccesoRendiciones(merged_u);
               // Asegurar que tab_permisos tenga todos los tabs definidos en TABS_PERMISOS_CONFIG
