@@ -464,7 +464,7 @@ const ORDEN_SEM=["gris","verde","amarillo","rojo","na"];
 
 const WORKERS_BASE=[
   {nombre:"Milagros Becerra",cargo:"Sec. Administrativa",     email:"Mbecerra@grupomediterra.cl",pin:"4827",rol:"editor", modulos:["tareas"],                    esCFO:false, rendVerTodas:true},
-  {nombre:"Carol Machuca",   cargo:"Analista Finanzas",       email:"cmachuca@grupomediterra.cl",pin:"3159",rol:"editor", modulos:["tareas","osiris","finanzas","contabilidad"], esCFO:false, rendVerTodas:true},
+  {nombre:"Carol Machuca",   cargo:"Analista Finanzas",       email:"cmachuca@grupomediterra.cl",pin:"3159",rol:"editor", modulos:["tareas","osiris","finanzas","contabilidad"], esCFO:false, rendVerTodas:true, rendPorOtros:true},
   {nombre:"Michelle Garcia", cargo:"Contadora General",       email:"mgarcia@grupomediterra.cl", pin:"7413",rol:"editor", modulos:["tareas","contabilidad"],     esCFO:false, rendVerTodas:true},
   {nombre:"Pablo Duran",     cargo:"Asistente Contable",      email:"pduran@grupomediterra.cl",  pin:"2986",rol:"editor", modulos:["tareas","contabilidad"],     esCFO:false, rendVerTodas:true},
   {nombre:"Angelo Huerta",   cargo:"Gerencia Adm. y Finanzas",email:"ahuerta@grupomediterra.cl", pin:"6054",rol:"admin",  modulos:["tareas","osiris","finanzas","contabilidad"], esCFO:true},
