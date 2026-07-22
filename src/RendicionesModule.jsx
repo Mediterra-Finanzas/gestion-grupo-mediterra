@@ -1766,6 +1766,15 @@ function EditorRendicion({ rend, upsert, onClose, onEnviar, esDueno, esAprobador
   const addGasto = () => {
     const g = { id: uid("g"), fecha: hoyISO(), categoria: "movilizacion", glosa: "", monto: "", moneda: "CLP", docTipo: "Boleta", docNumero: "", adjuntoUrl: "", adjuntoNombre: "" };
     upsert({ ...rend, gastos: [...(rend.gastos || []), g] });
+    // Móvil: llevar el foco al gasto recién agregado para no tener que subir/bajar.
+    setTimeout(() => {
+      const el = document.getElementById("gasto-" + g.id);
+      if (el) {
+        el.scrollIntoView({ behavior: "smooth", block: "center" });
+        const primerInput = el.querySelector("input, select, textarea");
+        if (primerInput) try { primerInput.focus({ preventScroll: true }); } catch (_) {}
+      }
+    }, 120);
   };
   const setGasto = (gid, k, v) => upsert({ ...rend, gastos: rend.gastos.map(g => g.id === gid ? { ...g, [k]: v } : g) });
   const setGastoMulti = (gid, patch) => upsert({ ...rend, gastos: rend.gastos.map(g => g.id === gid ? { ...g, ...patch } : g) });
@@ -2002,7 +2011,7 @@ function EditorRendicion({ rend, upsert, onClose, onEnviar, esDueno, esAprobador
 
       <div style={{ display: "grid", gap: 8 }}>
         {(rend.gastos || []).map(g => (
-          <div key={g.id} style={{ border: `1px solid ${C.border}`, borderRadius: 10, padding: 10, background: C.rowAlt }}>
+          <div key={g.id} id={"gasto-" + g.id} style={{ border: `1px solid ${C.border}`, borderRadius: 10, padding: 10, background: C.rowAlt }}>
             <div style={{ display: "grid", gridTemplateColumns: esMovil ? "1fr 1fr" : "120px 150px 1fr 110px 90px 36px", gap: 8, alignItems: "end" }}>
               <Field label="Fecha">
                 <input type="date" value={g.fecha} disabled={!editable} onChange={e => setGasto(g.id, "fecha", e.target.value)} style={inputStyle} />
@@ -2132,6 +2141,14 @@ function EditorRendicion({ rend, upsert, onClose, onEnviar, esDueno, esAprobador
           </div>
         )}
       </div>
+
+      {/* Agregar gasto — también al final, para no tener que volver arriba (clave en móvil) */}
+      {editable && (rend.gastos || []).length > 0 && (
+        <button onClick={addGasto}
+          style={{ width: "100%", marginTop: 10, padding: "12px", borderRadius: 10, border: `1.5px dashed ${C.primary}`, background: C.card, color: C.primary, fontWeight: 800, fontSize: 14, cursor: "pointer" }}>
+          + Agregar otro gasto
+        </button>
+      )}
 
       {/* Total */}
       {(() => {
