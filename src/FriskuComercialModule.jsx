@@ -4065,7 +4065,7 @@ const fmtUSD0 = (v) => "$" + new Intl.NumberFormat("es-CL",{maximumFractionDigit
 const fmtUSD2 = (v) => "$" + new Intl.NumberFormat("es-CL",{minimumFractionDigits:2,maximumFractionDigits:2}).format(Number(v)||0);
 const fmtN0   = (v) => new Intl.NumberFormat("es-CL",{maximumFractionDigits:0}).format(Number(v)||0);
 
-function ReportesTab({ liquidaciones, embarques, clientes, exportadoras, especies, mercados, paises, temporadas, programa, contratos }) {
+function ReportesTab({ liquidaciones, embarques, clientes, exportadoras, especies, mercados, paises, temporadas, programa, contratos, pos }) {
   const [rep, setRep]       = useState("ingreso");   // "ingreso" | "rentabilidad" | "fcl"
   const [groupBy, setGroupBy] = useState("especie"); // especie | mercado | cliente (reporte #2)
   const [fclGroup, setFclGroup] = useState("ambos"); // especie | cliente | ambos (reporte #3)
@@ -4318,6 +4318,50 @@ function ReportesTab({ liquidaciones, embarques, clientes, exportadoras, especie
     }).filter(x=>x.comisionUSD>0||x.ventaUSD>0).sort((a,b)=>b.comisionUSD-a.comisionUSD);
   },[liqs, exportadoras, embarques]);
   const maxExpCom = Math.max(1, ...expRows.map(x=>x.comisionUSD));
+
+  // ── Reporte #6: Cobranza / aging de comisión (PO) ──
+  // Fact = PO (notas de cobro al cliente). Cobrado = pagada; por cobrar =
+  // emitida; aging por días desde la fecha de emisión. Comisión en USD.
+  const COBR_BUCKETS = [
+    {id:"b1", lab:"0–30 días",  color:C.green},
+    {id:"b2", lab:"31–60 días", color:C.yellow},
+    {id:"b3", lab:"61–90 días", color:C.warning},
+    {id:"b4", lab:">90 días",   color:C.accent},
+  ];
+  const cobr = useMemo(()=>{
+    const diasDesde = (f)=>{ if(!f) return null; const t=new Date(f+"T00:00:00").getTime(); if(isNaN(t)) return null; return Math.floor((Date.now()-t)/86400000); };
+    const est = {borrador:{n:0,usd:0}, emitida:{n:0,usd:0}, pagada:{n:0,usd:0}};
+    const aging = {b1:0,b2:0,b3:0,b4:0};
+    const porCli = {};
+    let riesgo = 0;
+    (pos||[]).forEach(po=>{
+      const e = po.estado||"borrador";
+      const usd = Number(po.totalComisionUSD)||0;
+      if(!est[e]) est[e]={n:0,usd:0};
+      est[e].n++; est[e].usd += usd;
+      if(e==="emitida"){
+        const d = diasDesde(po.fecha);
+        if(d==null || d<=30) aging.b1+=usd;
+        else if(d<=60) aging.b2+=usd;
+        else if(d<=90) aging.b3+=usd;
+        else aging.b4+=usd;
+        if(d!=null && d>60) riesgo += usd;
+        const cli = clientes.find(c=>c.id===po.clienteId);
+        const k = po.clienteId||"—";
+        porCli[k] = porCli[k] || {nombre:cli?.nombre||"— sin cliente —", usd:0, n:0, maxDias:0};
+        porCli[k].usd += usd; porCli[k].n++;
+        if(d!=null && d>porCli[k].maxDias) porCli[k].maxDias = d;
+      }
+    });
+    return {
+      est, aging, riesgo,
+      porCliente: Object.values(porCli).sort((a,b)=>b.usd-a.usd),
+      totalUSD: est.borrador.usd+est.emitida.usd+est.pagada.usd,
+      cobrado: est.pagada.usd, porCobrar: est.emitida.usd, enBorrador: est.borrador.usd,
+    };
+  },[pos, clientes]);
+  const cobrAgingTot = cobr.aging.b1+cobr.aging.b2+cobr.aging.b3+cobr.aging.b4;
+  const maxCobrCli = Math.max(1, ...cobr.porCliente.map(x=>x.usd));
 
   // ── Export Excel (ExcelJS · con logo Frisku) ──
   const exportarExcel = async () => {
@@ -4671,9 +4715,88 @@ function ReportesTab({ liquidaciones, embarques, clientes, exportadoras, especie
     setExpPdf(false);
   };
 
+  // ── Export reporte #6 (Cobranza / aging) → Excel ──
+  const exportarCobrExcel = async () => {
+    setExpXls(true);
+    try {
+      const ExcelJS = await fr_loadExcelJS();
+      const wb = new ExcelJS.Workbook();
+      wb.creator = "Grupo Mediterra — Frisku Foods";
+      const sub = `Cobranza de comisión (PO) · ${new Date().toLocaleDateString("es-CL")}`;
+      // Resumen
+      const wsR = wb.addWorksheet("Resumen");
+      fr_sheetTabla(wsR, {
+        titulo:"FRISKU FOODS", subtitulo:sub,
+        headers:["Indicador","USD"], colWidths:[26,18], moneyCols:[1],
+        rows:[
+          ["Comisión total (PO)", Math.round(cobr.totalUSD)],
+          ["Cobrado (pagada)", Math.round(cobr.cobrado)],
+          ["Por cobrar (emitida)", Math.round(cobr.porCobrar)],
+          ["En borrador", Math.round(cobr.enBorrador)],
+          ["En riesgo (>60 días)", Math.round(cobr.riesgo)],
+          ["Aging 0–30", Math.round(cobr.aging.b1)],
+          ["Aging 31–60", Math.round(cobr.aging.b2)],
+          ["Aging 61–90", Math.round(cobr.aging.b3)],
+          ["Aging >90", Math.round(cobr.aging.b4)],
+        ],
+      });
+      await fr_logoExcel(wb, wsR);
+      // Por cliente (por cobrar)
+      fr_sheetTabla(wb.addWorksheet("Por cobrar x cliente"), {
+        titulo:"Por cobrar por cliente", subtitulo:sub,
+        headers:["Cliente","Por cobrar USD","N° PO","Días máx."], colWidths:[28,16,9,10], moneyCols:[1], intCols:[2,3],
+        rows: cobr.porCliente.map(x=>[x.nombre, Math.round(x.usd), x.n, x.maxDias]),
+        totalRow:["TOTAL", Math.round(cobr.porCobrar), cobr.est.emitida.n, ""],
+      });
+      await fr_descargarWB(wb, `Frisku_Cobranza_${new Date().toISOString().slice(0,10)}.xlsx`);
+    } catch(e){ console.error("[Reportes] Excel cobr:",e); alert("No se pudo generar el Excel: "+e.message); }
+    setExpXls(false);
+  };
+  // ── Export reporte #6 (Cobranza) → PDF ──
+  const exportarCobrPDF = async () => {
+    setExpPdf(true);
+    try {
+      const JsPDF = await pl_loadJsPDF();
+      const doc = new JsPDF({orientation:"portrait", unit:"mm", format:"a4"});
+      const W=210, m=14;
+      doc.setFillColor(30,39,97); doc.rect(0,0,W,26,"F");
+      await fr_logoPDF(doc, W-m, 5, 46, 16);
+      doc.setTextColor(255,255,255); doc.setFontSize(15); doc.setFont("helvetica","bold");
+      doc.text("Frisku · Cobranza de comisión",m,12);
+      doc.setFontSize(9); doc.setFont("helvetica","normal");
+      doc.text(`Notas de cobro (PO) · ${new Date().toLocaleDateString("es-CL")}`,m,19);
+      doc.autoTable({
+        startY:32, theme:"grid",
+        headStyles:{fillColor:[45,58,82],textColor:255,fontStyle:"bold",fontSize:8},
+        styles:{fontSize:9,cellPadding:2.5},
+        head:[["Indicador","USD","Aging","USD"]],
+        body:[
+          ["Comisión total (PO)", fmtUSD0(cobr.totalUSD), "0–30 días", fmtUSD0(cobr.aging.b1)],
+          ["Cobrado (pagada)", fmtUSD0(cobr.cobrado), "31–60 días", fmtUSD0(cobr.aging.b2)],
+          ["Por cobrar (emitida)", fmtUSD0(cobr.porCobrar), "61–90 días", fmtUSD0(cobr.aging.b3)],
+          ["En riesgo (>60 días)", fmtUSD0(cobr.riesgo), ">90 días", fmtUSD0(cobr.aging.b4)],
+        ],
+        margin:{left:m,right:m}, columnStyles:{1:{halign:"right"},3:{halign:"right"}},
+      });
+      let y = doc.lastAutoTable.finalY + 6;
+      doc.setTextColor(30,39,97); doc.setFontSize(10); doc.setFont("helvetica","bold");
+      doc.text("Por cobrar por cliente",m,y); y+=2;
+      doc.autoTable({
+        startY:y, theme:"striped",
+        headStyles:{fillColor:[30,39,97],textColor:255,fontSize:8},
+        styles:{fontSize:8,cellPadding:2},
+        head:[["Cliente","Por cobrar USD","N° PO","Días máx."]],
+        body: cobr.porCliente.length ? cobr.porCliente.map(x=>[x.nombre, fmtUSD0(x.usd), String(x.n), String(x.maxDias)]) : [["Sin PO por cobrar","","",""]],
+        columnStyles:{1:{halign:"right"},2:{halign:"right"},3:{halign:"right"}}, margin:{left:m,right:m},
+      });
+      doc.save(`Frisku_Cobranza_${new Date().toISOString().slice(0,10)}.pdf`);
+    } catch(e){ console.error("[Reportes] PDF cobr:",e); alert("No se pudo generar el PDF: "+e.message); }
+    setExpPdf(false);
+  };
+
   // Dispatchers según el reporte activo
-  const doExcel = () => rep==="ingreso" ? exportarExcel() : rep==="rentabilidad" ? exportarRentExcel() : rep==="fcl" ? exportarFclExcel() : rep==="pipeline" ? exportarPipeExcel() : exportarExpExcel();
-  const doPDF   = () => rep==="ingreso" ? exportarPDF()   : rep==="rentabilidad" ? exportarRentPDF()   : rep==="fcl" ? exportarFclPDF()   : rep==="pipeline" ? exportarPipePDF()   : exportarExpPDF();
+  const doExcel = () => rep==="ingreso" ? exportarExcel() : rep==="rentabilidad" ? exportarRentExcel() : rep==="fcl" ? exportarFclExcel() : rep==="pipeline" ? exportarPipeExcel() : rep==="exportadoras" ? exportarExpExcel() : exportarCobrExcel();
+  const doPDF   = () => rep==="ingreso" ? exportarPDF()   : rep==="rentabilidad" ? exportarRentPDF()   : rep==="fcl" ? exportarFclPDF()   : rep==="pipeline" ? exportarPipePDF()   : rep==="exportadoras" ? exportarExpPDF()   : exportarCobrPDF();
 
   const kpiCard = (lab, val, color, sub) => (
     <div style={{background:C.card, border:`1px solid ${C.border}`, borderRadius:12, padding:"12px 14px", boxShadow:C.shadowSm}}>
@@ -4687,18 +4810,22 @@ function ReportesTab({ liquidaciones, embarques, clientes, exportadoras, especie
     ? ((programa||[]).length===0 && (embarques||[]).length===0)
     : rep==="pipeline"
     ? (embarques||[]).length===0
+    : rep==="cobranza"
+    ? (pos||[]).length===0
     : liquidaciones.length === 0;
   const msgVacio = rep==="fcl"
     ? "Aún no hay programa ni embarques cargados. El reporte se puebla al registrar semanas de programa (con FCL) y órdenes de embarque marítimas."
     : rep==="pipeline"
     ? "Aún no hay órdenes de embarque cargadas. El pipeline se puebla desde la pestaña 🚢 Embarques."
+    : rep==="cobranza"
+    ? "Aún no hay notas de cobro (PO) generadas. Se crean desde 💰 Liquidaciones → PO y alimentan el aging de cobranza."
     : "Aún no hay liquidaciones cargadas. El reporte se puebla automáticamente a medida que se registran liquidaciones en la pestaña 💰 Liquidaciones.";
 
   return (
     <div>
       {/* Selector de reporte */}
       <div style={{display:"flex", gap:6, marginBottom:14, flexWrap:"wrap"}}>
-        {[{id:"ingreso",lab:"💰 Ingreso por temporada"},{id:"rentabilidad",lab:"📊 Rentabilidad"},{id:"fcl",lab:"🚢 Programa vs Real (FCL)"},{id:"pipeline",lab:"📦 Pipeline embarques"},{id:"exportadoras",lab:"🏭 Ranking exportadoras"}].map(r=>(
+        {[{id:"ingreso",lab:"💰 Ingreso por temporada"},{id:"rentabilidad",lab:"📊 Rentabilidad"},{id:"fcl",lab:"🚢 Programa vs Real (FCL)"},{id:"pipeline",lab:"📦 Pipeline embarques"},{id:"exportadoras",lab:"🏭 Ranking exportadoras"},{id:"cobranza",lab:"🧾 Cobranza (aging)"}].map(r=>(
           <button key={r.id} onClick={()=>setRep(r.id)} style={{
             padding:"7px 14px", borderRadius:8, cursor:"pointer", fontSize:12, fontWeight:rep===r.id?700:500,
             border:`1px solid ${rep===r.id?C.blue:C.border}`,
@@ -4709,13 +4836,15 @@ function ReportesTab({ liquidaciones, embarques, clientes, exportadoras, especie
 
       {/* Toolbar */}
       <div style={{display:"flex", gap:10, marginBottom:16, flexWrap:"wrap", alignItems:"flex-end"}}>
-        <div>
-          <div style={lblSt}>Temporada</div>
-          <select value={temp} onChange={e=>setTemp(e.target.value)} style={{...inputSt, minWidth:170}}>
-            <option value="">— Todas —</option>
-            {(tempsDisponibles.length?tempsDisponibles:temporadas.map(t=>t.codigo||t)).map(t=><option key={t} value={t}>{t}</option>)}
-          </select>
-        </div>
+        {rep!=="cobranza" && (
+          <div>
+            <div style={lblSt}>Temporada</div>
+            <select value={temp} onChange={e=>setTemp(e.target.value)} style={{...inputSt, minWidth:170}}>
+              <option value="">— Todas —</option>
+              {(tempsDisponibles.length?tempsDisponibles:temporadas.map(t=>t.codigo||t)).map(t=><option key={t} value={t}>{t}</option>)}
+            </select>
+          </div>
+        )}
         {(rep==="ingreso"||rep==="rentabilidad"||rep==="exportadoras") && (
           <div>
             <div style={lblSt}>Estado</div>
@@ -5060,7 +5189,7 @@ function ReportesTab({ liquidaciones, embarques, clientes, exportadoras, especie
           Reporte #4 de la Fase 8 · pipeline operativo de {pipe.total} embarque{pipe.total!==1?"s":""} de la temporada. Cancelados excluidos del detalle.
         </div>
       </>
-      ) : (
+      ) : rep==="exportadoras" ? (
       <>
         {/* KPIs (ranking exportadoras) */}
         <div style={{display:"grid", gridTemplateColumns:"repeat(auto-fit, minmax(150px,1fr))", gap:12, marginBottom:16}}>
@@ -5123,6 +5252,86 @@ function ReportesTab({ liquidaciones, embarques, clientes, exportadoras, especie
 
         <div style={{fontSize:11, color:C.muted2, marginTop:14, textAlign:"center"}}>
           Reporte #5 de la Fase 8 · {expRows.length} exportadora{expRows.length!==1?"s":""} con liquidación. % merma = cajas merma / cajas embarcadas.
+        </div>
+      </>
+      ) : (
+      <>
+        {/* KPIs (cobranza) */}
+        <div style={{display:"grid", gridTemplateColumns:"repeat(auto-fit, minmax(150px,1fr))", gap:12, marginBottom:16}}>
+          {kpiCard("Comisión total (PO)", fmtUSD0(cobr.totalUSD), C.text)}
+          {kpiCard("Cobrado", fmtUSD0(cobr.cobrado), C.green, "PO pagadas")}
+          {kpiCard("Por cobrar", fmtUSD0(cobr.porCobrar), C.blue, "PO emitidas")}
+          {kpiCard("En riesgo", fmtUSD0(cobr.riesgo), cobr.riesgo>0?C.accent:C.muted, ">60 días")}
+        </div>
+
+        <div style={{display:"grid", gridTemplateColumns:"repeat(auto-fit, minmax(300px,1fr))", gap:14, marginBottom:14}}>
+          {/* Aging */}
+          <div style={{background:C.card, border:`1px solid ${C.border}`, borderRadius:14, padding:16, boxShadow:C.shadowSm}}>
+            <div style={{fontSize:14, fontWeight:700, marginBottom:2}}>Aging de por cobrar</div>
+            <div style={{fontSize:11, color:C.muted, marginBottom:12}}>PO emitidas · días desde emisión</div>
+            {cobrAgingTot===0 ? <div style={{color:C.muted, fontSize:12, padding:"16px 0"}}>Sin PO emitidas pendientes.</div> : (<>
+              <div style={{display:"flex", height:22, borderRadius:6, overflow:"hidden", marginBottom:10}}>
+                {COBR_BUCKETS.map(b=>{
+                  const v = cobr.aging[b.id]||0; if(v===0) return null;
+                  return <div key={b.id} title={`${b.lab}: ${fmtUSD0(v)}`} style={{width:`${v/cobrAgingTot*100}%`, background:b.color}}/>;
+                })}
+              </div>
+              {COBR_BUCKETS.map(b=>(
+                <div key={b.id} style={{display:"grid", gridTemplateColumns:"90px 1fr auto", alignItems:"center", gap:10, padding:"3px 0"}}>
+                  <span style={{fontSize:12, color:C.text, display:"flex", gap:6, alignItems:"center"}}><span style={{width:9,height:9,borderRadius:2,background:b.color}}/>{b.lab}</span>
+                  <div style={{height:12, borderRadius:4, background:C.cardAlt, overflow:"hidden"}}>
+                    <div style={{width:`${(cobr.aging[b.id]||0)/cobrAgingTot*100}%`, height:"100%", background:b.color, borderRadius:4}}/>
+                  </div>
+                  <span style={{fontSize:12, fontWeight:700, textAlign:"right", minWidth:70}}>{fmtUSD0(cobr.aging[b.id]||0)}</span>
+                </div>
+              ))}
+            </>)}
+          </div>
+          {/* Estado */}
+          <div style={{background:C.card, border:`1px solid ${C.border}`, borderRadius:14, padding:16, boxShadow:C.shadowSm}}>
+            <div style={{fontSize:14, fontWeight:700, marginBottom:12}}>Comisión por estado de PO</div>
+            {[{id:"pagada",lab:"Pagada",color:C.green},{id:"emitida",lab:"Emitida",color:C.blue},{id:"borrador",lab:"Borrador",color:C.muted2}].map(e=>{
+              const usd = cobr.est[e.id]?.usd||0;
+              const pct = cobr.totalUSD>0 ? usd/cobr.totalUSD*100 : 0;
+              return (
+                <div key={e.id} style={{display:"grid", gridTemplateColumns:"90px 1fr auto", alignItems:"center", gap:10, padding:"5px 0"}}>
+                  <span style={{fontSize:12.5, color:C.text}}>{e.lab}</span>
+                  <div style={{height:16, borderRadius:5, background:C.cardAlt, overflow:"hidden"}}>
+                    <div style={{width:`${pct}%`, height:"100%", background:e.color, borderRadius:5}}/>
+                  </div>
+                  <span style={{fontSize:12.5, fontWeight:700, textAlign:"right", minWidth:80}}>{fmtUSD0(usd)} <span style={{color:C.muted, fontWeight:500}}>{pct.toFixed(0)}%</span></span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Por cobrar por cliente */}
+        <div style={{background:C.card, border:`1px solid ${C.border}`, borderRadius:14, padding:16, boxShadow:C.shadowSm, overflowX:"auto"}}>
+          <div style={{fontSize:14, fontWeight:700, marginBottom:10}}>Por cobrar por cliente</div>
+          <table style={{width:"100%", borderCollapse:"collapse", fontSize:12.5, fontVariantNumeric:"tabular-nums"}}>
+            <thead><tr style={{background:C.primary}}>
+              {["Cliente","Por cobrar USD","N° PO","Días máx."].map((h,i)=>(
+                <th key={h} style={{padding:"7px 10px", textAlign:i===0?"left":"right", color:C.primaryText, fontWeight:700, fontSize:10.5}}>{h}</th>
+              ))}
+            </tr></thead>
+            <tbody>
+              {cobr.porCliente.length===0 ? <tr><td colSpan={4} style={{padding:16, color:C.muted, textAlign:"center"}}>Sin PO por cobrar.</td></tr> :
+                cobr.porCliente.map((x,i)=>(
+                  <tr key={i} style={{background:i%2?C.rowAlt:C.card, borderBottom:`1px solid ${C.border}`}}>
+                    <td style={{padding:"7px 10px", color:C.text}}>{x.nombre}</td>
+                    <td style={{padding:"7px 10px", textAlign:"right", fontWeight:700}}>{fmtUSD0(x.usd)}</td>
+                    <td style={{padding:"7px 10px", textAlign:"right", color:C.muted}}>{x.n}</td>
+                    <td style={{padding:"7px 10px", textAlign:"right", color:x.maxDias>60?C.accent:C.muted}}>{x.maxDias} d</td>
+                  </tr>
+                ))
+              }
+            </tbody>
+          </table>
+        </div>
+
+        <div style={{fontSize:11, color:C.muted2, marginTop:14, textAlign:"center"}}>
+          Reporte #6 de la Fase 8 · cobranza sobre notas de cobro (PO), comisión en USD. Aging por fecha de emisión. Abarca todas las temporadas.
         </div>
       </>
       )}
@@ -6491,6 +6700,7 @@ export default function FriskuComercialModule({
             temporadas={temporadas}
             programa={programa}
             contratos={contratos}
+            pos={pos}
           />
         )}
 
