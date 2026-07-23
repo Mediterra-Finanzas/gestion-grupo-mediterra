@@ -1918,8 +1918,8 @@ function ProgramaSemanaForm({semana, closure, tiposEmbalaje, onGuardar, onCancel
   const handleGuardar = () => {
     const fecha = getMondayStr(buf.fechaSemana);
     if(!fecha){ alert("Ingresa la fecha de la semana"); return; }
-    if(totalCajas===0){ alert("Ingresa cajas en al menos un formato"); return; }
-    onGuardar({...buf, fechaSemana:fecha});
+    if(totalCajas===0 && !(Number(buf.contenedoresFCL)>0)){ alert("Ingresa cajas por formato o la cantidad de contenedores (FCL)"); return; }
+    onGuardar({...buf, fechaSemana:fecha, contenedoresFCL: Number(buf.contenedoresFCL)||0});
   };
 
   return (
@@ -1932,8 +1932,8 @@ function ProgramaSemanaForm({semana, closure, tiposEmbalaje, onGuardar, onCancel
         </span>
       </h4>
 
-      {/* Fecha + Estado */}
-      <div style={{display:"grid", gridTemplateColumns:"1fr 160px", gap:10, marginBottom:12}}>
+      {/* Fecha + Estado + FCL */}
+      <div style={{display:"grid", gridTemplateColumns:"1fr 150px 150px", gap:10, marginBottom:12}}>
         <div>
           <div style={lblSt}>Semana (fecha de inicio) *</div>
           <input type="date" value={buf.fechaSemana||""} style={inputSt}
@@ -1952,6 +1952,14 @@ function ProgramaSemanaForm({semana, closure, tiposEmbalaje, onGuardar, onCancel
             <option value="borrador">◌ Borrador</option>
             <option value="confirmado">✓ Confirmado</option>
           </select>
+        </div>
+        <div>
+          <div style={lblSt}>Contenedores (FCL)</div>
+          <input type="number" min="0" step="1" placeholder="0"
+            value={buf.contenedoresFCL ?? ""}
+            style={{...inputSt, textAlign:"right", fontFamily:"monospace"}}
+            onChange={e=>setBuf(prev=>({...prev, contenedoresFCL: e.target.value===""? "" : Number(e.target.value)}))}/>
+          <div style={{fontSize:9, color:C.muted2, marginTop:3}}>cantidad programada</div>
         </div>
       </div>
 
@@ -2088,6 +2096,7 @@ function ClosureProgramaPanel({closure, semanas, tiposEmbalaje, exportadoras, cl
                     );
                   })}
                   <th style={{padding:"6px 8px", textAlign:"right", color:C.primaryText, fontWeight:600}}>Total cjs</th>
+                  <th style={{padding:"6px 8px", textAlign:"right", color:C.primaryText, fontWeight:600}}>FCL</th>
                   <th style={{padding:"6px 8px", textAlign:"center", color:C.primaryText, fontWeight:600}}>Estado</th>
                   {canEdit && <th/>}
                 </tr>
@@ -2110,6 +2119,9 @@ function ClosureProgramaPanel({closure, semanas, tiposEmbalaje, exportadoras, cl
                       ))}
                       <td style={{padding:"6px 8px", textAlign:"right", border:`1px solid ${C.border}`, fontFamily:"monospace", fontWeight:700}}>
                         {totalSem.toLocaleString("es-CL")}
+                      </td>
+                      <td style={{padding:"6px 8px", textAlign:"right", border:`1px solid ${C.border}`, fontFamily:"monospace", fontWeight:700, color:C.teal}}>
+                        {sem.contenedoresFCL ? Number(sem.contenedoresFCL).toLocaleString("es-CL") : "—"}
                       </td>
                       <td style={{padding:"6px 8px", textAlign:"center", border:`1px solid ${C.border}`}}>
                         <span style={{
@@ -2140,6 +2152,7 @@ function ClosureProgramaPanel({closure, semanas, tiposEmbalaje, exportadoras, cl
                   <td style={{padding:"6px 8px", textAlign:"right", border:`1px solid ${C.border}`, fontFamily:"monospace", color:C.teal}}>
                     {totalReal.toLocaleString("es-CL")}
                   </td>
+                  <td style={{padding:"6px 8px", textAlign:"right", border:`1px solid ${C.border}`, fontFamily:"monospace", color:C.muted2}}>—</td>
                   <td colSpan={canEdit?2:1} style={{border:`1px solid ${C.border}`}}/>
                 </tr>
                 {/* Fila de variación */}
@@ -2167,6 +2180,9 @@ function ClosureProgramaPanel({closure, semanas, tiposEmbalaje, exportadoras, cl
                         {totalVariacion>0?"+":""}{totalVariacion.toLocaleString("es-CL")}
                       </div>
                     )}
+                  </td>
+                  <td style={{padding:"6px 8px", textAlign:"right", border:`1px solid ${C.border}`, fontFamily:"monospace", fontWeight:700, color:C.teal}}>
+                    {semanasOrdenadas.reduce((s,x)=>s+(Number(x.contenedoresFCL)||0),0).toLocaleString("es-CL")}
                   </td>
                   <td colSpan={canEdit?2:1} style={{border:`1px solid ${C.border}`}}/>
                 </tr>
@@ -4049,8 +4065,8 @@ const fmtUSD0 = (v) => "$" + new Intl.NumberFormat("es-CL",{maximumFractionDigit
 const fmtUSD2 = (v) => "$" + new Intl.NumberFormat("es-CL",{minimumFractionDigits:2,maximumFractionDigits:2}).format(Number(v)||0);
 const fmtN0   = (v) => new Intl.NumberFormat("es-CL",{maximumFractionDigits:0}).format(Number(v)||0);
 
-function ReportesTab({ liquidaciones, embarques, clientes, exportadoras, especies, mercados, paises, temporadas }) {
-  const [rep, setRep]       = useState("ingreso");   // "ingreso" | "rentabilidad"
+function ReportesTab({ liquidaciones, embarques, clientes, exportadoras, especies, mercados, paises, temporadas, programa, contratos }) {
+  const [rep, setRep]       = useState("ingreso");   // "ingreso" | "rentabilidad" | "fcl"
   const [groupBy, setGroupBy] = useState("especie"); // especie | mercado | cliente (reporte #2)
   const [temp, setTemp]     = useState("");   // "" = todas las temporadas
   const [estado, setEstado] = useState("");   // "" = todos los estados
@@ -4187,6 +4203,40 @@ function ReportesTab({ liquidaciones, embarques, clientes, exportadoras, especie
     })).sort((x,y)=>y.comisionUSD-x.comisionUSD);
   },[liqs, groupBy, especies, clientes, mercados, embarques]);
   const maxPrecio = Math.max(1, ...rentRows.map(x=>x.precioCaja));
+
+  // ── Reporte #3: Programa vs Real en FCL (contenedores) ──
+  // Plan = FCL programados (frisku_programa.contenedoresFCL) agrupados por la
+  //   especie del Business Closure de cada semana.
+  // Real = OEs marítimas embarcadas (cada OE marítima no cancelada = 1 FCL).
+  const fclRows = useMemo(()=>{
+    const plan = {}, real = {};
+    (programa||[]).forEach(sem=>{
+      const clo = (contratos||[]).find(c=>c.id===sem.closureId);
+      if(temp && clo?.temporada && clo.temporada!==temp) return;
+      const esp = clo?.especieCodigo || "—";
+      plan[esp] = (plan[esp]||0) + (Number(sem.contenedoresFCL)||0);
+    });
+    (embarques||[]).forEach(oe=>{
+      if((oe.estado||"borrador")==="cancelado") return;
+      if(oe.tipoEmbarque && oe.tipoEmbarque!=="maritimo") return; // FCL = marítimo
+      if(temp && oe.temporada && oe.temporada!==temp) return;
+      const esp = oe.especieCodigo || "—";
+      real[esp] = (real[esp]||0) + 1;
+    });
+    const codes = new Set([...Object.keys(plan), ...Object.keys(real)]);
+    return Array.from(codes).map(cod=>{
+      const e = especies.find(x=>x.codigo===cod);
+      const p = plan[cod]||0, r = real[cod]||0;
+      return { cod, nombre: e?`${e.icono||""} ${e.nombreEs}`:cod, color:ESP_COLORS[cod]||C.blue,
+               plan:p, real:r, brecha:r-p, cumpl: p>0 ? r/p*100 : (r>0?100:0) };
+    }).filter(x=>x.plan>0||x.real>0).sort((a,b)=>b.plan-a.plan);
+  },[programa, contratos, embarques, especies, temp]);
+  const fclTot = useMemo(()=>{
+    const plan = fclRows.reduce((s,x)=>s+x.plan,0);
+    const real = fclRows.reduce((s,x)=>s+x.real,0);
+    return { plan, real, brecha:real-plan, cumpl: plan>0 ? real/plan*100 : (real>0?100:0) };
+  },[fclRows]);
+  const maxFcl = Math.max(1, ...fclRows.map(x=>Math.max(x.plan,x.real)));
 
   // ── Export Excel (ExcelJS · con logo Frisku) ──
   const exportarExcel = async () => {
@@ -4361,9 +4411,62 @@ function ReportesTab({ liquidaciones, embarques, clientes, exportadoras, especie
     setExpPdf(false);
   };
 
+  // ── Export reporte #3 (Programa vs Real FCL) → Excel ──
+  const exportarFclExcel = async () => {
+    setExpXls(true);
+    try {
+      const ExcelJS = await fr_loadExcelJS();
+      const wb = new ExcelJS.Workbook();
+      wb.creator = "Grupo Mediterra — Frisku Foods";
+      const sub = `Programa vs Real en FCL · ${tituloTemp} · ${new Date().toLocaleDateString("es-CL")}`;
+      const ws = wb.addWorksheet("Programa vs Real FCL");
+      fr_sheetTabla(ws, {
+        titulo:"FRISKU FOODS", subtitulo:sub,
+        headers:["Especie","FCL programados","FCL reales","Brecha","% cumplimiento"],
+        colWidths:[24,18,14,12,16], intCols:[1,2,3],
+        rows: fclRows.map(x=>[x.nombre, x.plan, x.real, x.brecha, Number(x.cumpl.toFixed(1))]),
+        totalRow:["TOTAL", fclTot.plan, fclTot.real, fclTot.brecha, Number(fclTot.cumpl.toFixed(1))],
+      });
+      await fr_logoExcel(wb, ws);
+      await fr_descargarWB(wb, `Frisku_ProgramaVsReal_FCL_${(temp||"todas").replace(/\W+/g,"-")}_${new Date().toISOString().slice(0,10)}.xlsx`);
+    } catch(e){ console.error("[Reportes] Excel fcl:",e); alert("No se pudo generar el Excel: "+e.message); }
+    setExpXls(false);
+  };
+  // ── Export reporte #3 (Programa vs Real FCL) → PDF ──
+  const exportarFclPDF = async () => {
+    setExpPdf(true);
+    try {
+      const JsPDF = await pl_loadJsPDF();
+      const doc = new JsPDF({orientation:"portrait", unit:"mm", format:"a4"});
+      const W=210, m=14;
+      doc.setFillColor(30,39,97); doc.rect(0,0,W,26,"F");
+      await fr_logoPDF(doc, W-m, 5, 46, 16);
+      doc.setTextColor(255,255,255); doc.setFontSize(15); doc.setFont("helvetica","bold");
+      doc.text("Frisku · Programa vs Real (FCL)",m,12);
+      doc.setFontSize(9); doc.setFont("helvetica","normal");
+      doc.text(`Temporada: ${tituloTemp} · ${new Date().toLocaleDateString("es-CL")}`,m,19);
+      doc.autoTable({
+        startY:32, theme:"striped",
+        headStyles:{fillColor:[30,39,97],textColor:255,fontSize:8},
+        styles:{fontSize:8,cellPadding:2},
+        footStyles:{fillColor:[234,238,244],textColor:30,fontStyle:"bold"},
+        head:[["Especie","FCL prog.","FCL real","Brecha","% cumpl."]],
+        body: fclRows.length ? fclRows.map(x=>[x.nombre, fmtN0(x.plan), fmtN0(x.real), (x.brecha>0?"+":"")+fmtN0(x.brecha), x.cumpl.toFixed(1)+"%"]) : [["Sin datos","","","",""]],
+        foot: [["TOTAL", fmtN0(fclTot.plan), fmtN0(fclTot.real), (fclTot.brecha>0?"+":"")+fmtN0(fclTot.brecha), fclTot.cumpl.toFixed(1)+"%"]],
+        columnStyles:{1:{halign:"right"},2:{halign:"right"},3:{halign:"right"},4:{halign:"right"}},
+        margin:{left:m,right:m},
+      });
+      const fy = doc.lastAutoTable.finalY + 6;
+      doc.setFontSize(8); doc.setTextColor(120,120,120);
+      doc.text("FCL real = órdenes de embarque marítimas no canceladas (1 OE = 1 contenedor). Plan = contenedores del programa comercial.", m, fy, {maxWidth:W-2*m});
+      doc.save(`Frisku_ProgramaVsReal_FCL_${(temp||"todas").replace(/\W+/g,"-")}_${new Date().toISOString().slice(0,10)}.pdf`);
+    } catch(e){ console.error("[Reportes] PDF fcl:",e); alert("No se pudo generar el PDF: "+e.message); }
+    setExpPdf(false);
+  };
+
   // Dispatchers según el reporte activo
-  const doExcel = () => rep==="ingreso" ? exportarExcel() : exportarRentExcel();
-  const doPDF   = () => rep==="ingreso" ? exportarPDF()   : exportarRentPDF();
+  const doExcel = () => rep==="ingreso" ? exportarExcel() : rep==="rentabilidad" ? exportarRentExcel() : exportarFclExcel();
+  const doPDF   = () => rep==="ingreso" ? exportarPDF()   : rep==="rentabilidad" ? exportarRentPDF()   : exportarFclPDF();
 
   const kpiCard = (lab, val, color, sub) => (
     <div style={{background:C.card, border:`1px solid ${C.border}`, borderRadius:12, padding:"12px 14px", boxShadow:C.shadowSm}}>
@@ -4373,13 +4476,18 @@ function ReportesTab({ liquidaciones, embarques, clientes, exportadoras, especie
     </div>
   );
 
-  const sinDatos = liquidaciones.length === 0;
+  const sinDatos = rep==="fcl"
+    ? ((programa||[]).length===0 && (embarques||[]).length===0)
+    : liquidaciones.length === 0;
+  const msgVacio = rep==="fcl"
+    ? "Aún no hay programa ni embarques cargados. El reporte se puebla al registrar semanas de programa (con FCL) y órdenes de embarque marítimas."
+    : "Aún no hay liquidaciones cargadas. El reporte se puebla automáticamente a medida que se registran liquidaciones en la pestaña 💰 Liquidaciones.";
 
   return (
     <div>
       {/* Selector de reporte */}
       <div style={{display:"flex", gap:6, marginBottom:14, flexWrap:"wrap"}}>
-        {[{id:"ingreso",lab:"💰 Ingreso por temporada"},{id:"rentabilidad",lab:"📊 Rentabilidad"}].map(r=>(
+        {[{id:"ingreso",lab:"💰 Ingreso por temporada"},{id:"rentabilidad",lab:"📊 Rentabilidad"},{id:"fcl",lab:"🚢 Programa vs Real (FCL)"}].map(r=>(
           <button key={r.id} onClick={()=>setRep(r.id)} style={{
             padding:"7px 14px", borderRadius:8, cursor:"pointer", fontSize:12, fontWeight:rep===r.id?700:500,
             border:`1px solid ${rep===r.id?C.blue:C.border}`,
@@ -4428,7 +4536,7 @@ function ReportesTab({ liquidaciones, embarques, clientes, exportadoras, especie
 
       {sinDatos ? (
         <div style={{padding:50, textAlign:"center", color:C.muted, fontSize:13, background:C.card, borderRadius:14}}>
-          Aún no hay liquidaciones cargadas. El reporte se puebla automáticamente a medida que se registran liquidaciones en la pestaña 💰 Liquidaciones.
+          {msgVacio}
         </div>
       ) : rep==="ingreso" ? (
       <>
@@ -4502,7 +4610,7 @@ function ReportesTab({ liquidaciones, embarques, clientes, exportadoras, especie
           Fuente: {kpi.nLiq} liquidación{kpi.nLiq!==1?"es":""} · comisión Frisku normalizada a USD vía TC. Reporte #1 de la Fase 8 (Dashboards CFO).
         </div>
       </>
-      ) : (
+      ) : rep==="rentabilidad" ? (
       <>
         {/* KPIs (rentabilidad) */}
         <div style={{display:"grid", gridTemplateColumns:"repeat(auto-fit, minmax(150px,1fr))", gap:12, marginBottom:16}}>
@@ -4569,6 +4677,81 @@ function ReportesTab({ liquidaciones, embarques, clientes, exportadoras, especie
 
         <div style={{fontSize:11, color:C.muted2, marginTop:14, textAlign:"center"}}>
           Reporte #2 de la Fase 8 · agrupa {kpi.nLiq} liquidación{kpi.nLiq!==1?"es":""} por {GROUP_LABEL[groupBy]}. % s/FOB = comisión Frisku efectiva sobre FOB.
+        </div>
+      </>
+      ) : (
+      <>
+        {/* KPIs (FCL) */}
+        <div style={{display:"grid", gridTemplateColumns:"repeat(auto-fit, minmax(150px,1fr))", gap:12, marginBottom:16}}>
+          {kpiCard("FCL programados", fmtN0(fclTot.plan), C.blue, "contenedores plan")}
+          {kpiCard("FCL reales", fmtN0(fclTot.real), C.teal, "OEs marítimas")}
+          {kpiCard("Brecha", (fclTot.brecha>0?"+":"")+fmtN0(fclTot.brecha), fclTot.brecha<0?C.accent:C.green, "real − plan")}
+          {kpiCard("Cumplimiento", fclTot.cumpl.toFixed(0)+"%", fclTot.cumpl>=100?C.green:fclTot.cumpl>=80?C.yellow:C.accent)}
+        </div>
+
+        {/* Gráfico Plan vs Real por especie */}
+        <div style={{background:C.card, border:`1px solid ${C.border}`, borderRadius:14, padding:16, boxShadow:C.shadowSm, marginBottom:14}}>
+          <div style={{fontSize:14, fontWeight:700, marginBottom:2}}>Programa vs Real por especie</div>
+          <div style={{fontSize:11, color:C.muted, marginBottom:12}}>contenedores (FCL) · {tituloTemp}</div>
+          {fclRows.length===0 ? <div style={{color:C.muted, fontSize:12, padding:"18px 0"}}>Sin datos de programa ni embarques marítimos.</div> :
+            fclRows.map(x=>(
+              <div key={x.cod} style={{marginBottom:12}}>
+                <div style={{display:"flex", justifyContent:"space-between", fontSize:12.5, marginBottom:4}}>
+                  <span style={{color:C.text, display:"flex", gap:6, alignItems:"center"}}>
+                    <span style={{width:9, height:9, borderRadius:2, background:x.color}}/>{x.nombre}
+                  </span>
+                  <span style={{color:C.muted}}>
+                    <b style={{color:C.text}}>{fmtN0(x.real)}</b> / {fmtN0(x.plan)} FCL · <span style={{color:x.cumpl>=100?C.green:x.cumpl>=80?C.yellow:C.accent, fontWeight:700}}>{x.cumpl.toFixed(0)}%</span>
+                  </span>
+                </div>
+                {/* barra plan (fondo tenue) + real (color) */}
+                <div style={{position:"relative", height:20, borderRadius:5, background:C.cardAlt, overflow:"hidden"}}>
+                  <div style={{position:"absolute", left:0, top:0, height:"100%", width:`${x.plan/maxFcl*100}%`, background:`${x.color}33`}}/>
+                  <div style={{position:"absolute", left:0, top:0, height:"100%", width:`${x.real/maxFcl*100}%`, background:x.color, borderRadius:5}}/>
+                </div>
+              </div>
+            ))
+          }
+          {fclRows.length>0 && (
+            <div style={{display:"flex", gap:16, marginTop:6, fontSize:11, color:C.muted}}>
+              <span style={{display:"flex", gap:6, alignItems:"center"}}><span style={{width:12, height:10, borderRadius:2, background:`${C.blue}33`}}/>Programado (plan)</span>
+              <span style={{display:"flex", gap:6, alignItems:"center"}}><span style={{width:12, height:10, borderRadius:2, background:C.blue}}/>Real embarcado</span>
+            </div>
+          )}
+        </div>
+
+        {/* Tabla FCL */}
+        <div style={{background:C.card, border:`1px solid ${C.border}`, borderRadius:14, padding:16, boxShadow:C.shadowSm, overflowX:"auto"}}>
+          <div style={{fontSize:14, fontWeight:700, marginBottom:10}}>Detalle por especie</div>
+          <table style={{width:"100%", borderCollapse:"collapse", fontSize:12.5, fontVariantNumeric:"tabular-nums"}}>
+            <thead><tr style={{background:C.primary}}>
+              {["Especie","FCL prog.","FCL real","Brecha","% cumpl."].map((h,i)=>(
+                <th key={h} style={{padding:"7px 10px", textAlign:i===0?"left":"right", color:C.primaryText, fontWeight:700, fontSize:10.5}}>{h}</th>
+              ))}
+            </tr></thead>
+            <tbody>
+              {fclRows.map((x,i)=>(
+                <tr key={x.cod} style={{background:i%2?C.rowAlt:C.card, borderBottom:`1px solid ${C.border}`}}>
+                  <td style={{padding:"7px 10px", color:C.text}}>{x.nombre}</td>
+                  <td style={{padding:"7px 10px", textAlign:"right"}}>{fmtN0(x.plan)}</td>
+                  <td style={{padding:"7px 10px", textAlign:"right", fontWeight:700}}>{fmtN0(x.real)}</td>
+                  <td style={{padding:"7px 10px", textAlign:"right", color:x.brecha<0?C.accent:C.green}}>{x.brecha>0?"+":""}{fmtN0(x.brecha)}</td>
+                  <td style={{padding:"7px 10px", textAlign:"right", color:x.cumpl>=100?C.green:x.cumpl>=80?C.yellow:C.accent, fontWeight:700}}>{x.cumpl.toFixed(0)}%</td>
+                </tr>
+              ))}
+              <tr style={{background:C.cardAlt, fontWeight:800}}>
+                <td style={{padding:"8px 10px"}}>TOTAL</td>
+                <td style={{padding:"8px 10px", textAlign:"right"}}>{fmtN0(fclTot.plan)}</td>
+                <td style={{padding:"8px 10px", textAlign:"right"}}>{fmtN0(fclTot.real)}</td>
+                <td style={{padding:"8px 10px", textAlign:"right", color:fclTot.brecha<0?C.accent:C.green}}>{fclTot.brecha>0?"+":""}{fmtN0(fclTot.brecha)}</td>
+                <td style={{padding:"8px 10px", textAlign:"right"}}>{fclTot.cumpl.toFixed(0)}%</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div style={{fontSize:11, color:C.muted2, marginTop:14, textAlign:"center"}}>
+          Reporte #3 de la Fase 8 · FCL real = OEs marítimas no canceladas (1 OE = 1 contenedor). Plan = contenedores del programa comercial por especie.
         </div>
       </>
       )}
@@ -5032,7 +5215,7 @@ export default function FriskuComercialModule({
     setEditandoSemana({
       id:"", closureId,
       fechaSemana: getMondayStr(hoyLocal),
-      cajasPorFormato:{}, estado:"borrador", observ:"",
+      cajasPorFormato:{}, contenedoresFCL:0, estado:"borrador", observ:"",
       fechaCreacion: new Date().toISOString(),
     });
   };
@@ -5935,6 +6118,8 @@ export default function FriskuComercialModule({
             mercados={mercados}
             paises={paises}
             temporadas={temporadas}
+            programa={programa}
+            contratos={contratos}
           />
         )}
 
