@@ -4290,6 +4290,35 @@ function ReportesTab({ liquidaciones, embarques, clientes, exportadoras, especie
   [embFiltrados, clientes, exportadoras, especies]);
   const maxEst = Math.max(1, ...PIPE_ESTADOS.map(e=>pipe.est[e.id]||0));
 
+  // ── Reporte #5: Ranking de exportadoras ──
+  // Base = liquidaciones filtradas (respeta temporada + estado), enlazadas a
+  // su OE para obtener la exportadora. Merma desde cajasMerma/cajasEmbarcadas.
+  const expRows = useMemo(()=>{
+    const acc = {};
+    liqs.forEach(l=>{
+      const oe = oeDe(l);
+      const eid = oe?.exportadoraId || "—";
+      const a = acc[eid] || (acc[eid]={comisionUSD:0, ventaUSD:0, cajasVend:0, cajasEmb:0, cajasMerma:0, oeIds:new Set()});
+      a.comisionUSD += comUSD(l);
+      a.ventaUSD    += ventaUSD(l);
+      a.cajasVend   += Number(l.cajasVendidas)||0;
+      a.cajasEmb    += Number(l.cajasEmbarcadas)||0;
+      a.cajasMerma  += Number(l.cajasMerma)||0;
+      if(l.oeId) a.oeIds.add(l.oeId);
+    });
+    return Object.entries(acc).map(([eid,a])=>{
+      const exp = exportadoras.find(x=>x.id===eid);
+      return {
+        eid, nombre: exp?.nombre || "— sin exportadora —",
+        comisionUSD:a.comisionUSD, ventaUSD:a.ventaUSD, cajasVend:a.cajasVend,
+        pctMerma: a.cajasEmb>0 ? a.cajasMerma/a.cajasEmb*100 : 0,
+        precioCaja: a.cajasVend>0 ? a.ventaUSD/a.cajasVend : 0,
+        nEmb: a.oeIds.size,
+      };
+    }).filter(x=>x.comisionUSD>0||x.ventaUSD>0).sort((a,b)=>b.comisionUSD-a.comisionUSD);
+  },[liqs, exportadoras, embarques]);
+  const maxExpCom = Math.max(1, ...expRows.map(x=>x.comisionUSD));
+
   // ── Export Excel (ExcelJS · con logo Frisku) ──
   const exportarExcel = async () => {
     setExpXls(true);
@@ -4591,9 +4620,60 @@ function ReportesTab({ liquidaciones, embarques, clientes, exportadoras, especie
     setExpPdf(false);
   };
 
+  // ── Export reporte #5 (Ranking exportadoras) → Excel ──
+  const exportarExpExcel = async () => {
+    setExpXls(true);
+    try {
+      const ExcelJS = await fr_loadExcelJS();
+      const wb = new ExcelJS.Workbook();
+      wb.creator = "Grupo Mediterra — Frisku Foods";
+      const sub = `Ranking de exportadoras · ${tituloTemp}${estado?" · "+estado:""} · ${new Date().toLocaleDateString("es-CL")}`;
+      const ws = wb.addWorksheet("Ranking exportadoras");
+      fr_sheetTabla(ws, {
+        titulo:"FRISKU FOODS", subtitulo:sub,
+        headers:["Exportadora","Comisión USD","Venta USD","Cajas vend.","Precio USD/caja","% merma","N° emb."],
+        colWidths:[28,16,14,12,16,10,9], moneyCols:[1,2], intCols:[3,6],
+        rows: expRows.map(x=>[x.nombre, Math.round(x.comisionUSD), Math.round(x.ventaUSD), x.cajasVend, Number(x.precioCaja.toFixed(2)), Number(x.pctMerma.toFixed(1)), x.nEmb]),
+        totalRow:["TOTAL", Math.round(kpi.comision), Math.round(kpi.venta), kpi.cajas, Number(kpi.precioProm.toFixed(2)), "", ""],
+      });
+      for(let r=5;r<=5+expRows.length;r++){ ws.getCell(r,5).numFmt='$#,##0.00'; }
+      await fr_logoExcel(wb, ws);
+      await fr_descargarWB(wb, `Frisku_RankingExportadoras_${(temp||"todas").replace(/\W+/g,"-")}_${new Date().toISOString().slice(0,10)}.xlsx`);
+    } catch(e){ console.error("[Reportes] Excel exp:",e); alert("No se pudo generar el Excel: "+e.message); }
+    setExpXls(false);
+  };
+  // ── Export reporte #5 (Ranking exportadoras) → PDF ──
+  const exportarExpPDF = async () => {
+    setExpPdf(true);
+    try {
+      const JsPDF = await pl_loadJsPDF();
+      const doc = new JsPDF({orientation:"portrait", unit:"mm", format:"a4"});
+      const W=210, m=14;
+      doc.setFillColor(30,39,97); doc.rect(0,0,W,26,"F");
+      await fr_logoPDF(doc, W-m, 5, 46, 16);
+      doc.setTextColor(255,255,255); doc.setFontSize(15); doc.setFont("helvetica","bold");
+      doc.text("Frisku · Ranking de exportadoras",m,12);
+      doc.setFontSize(9); doc.setFont("helvetica","normal");
+      doc.text(`Temporada: ${tituloTemp}${estado?" · Estado: "+estado:""} · ${new Date().toLocaleDateString("es-CL")}`,m,19);
+      doc.autoTable({
+        startY:32, theme:"striped",
+        headStyles:{fillColor:[15,118,110],textColor:255,fontSize:8},
+        styles:{fontSize:8,cellPadding:2},
+        footStyles:{fillColor:[234,238,244],textColor:30,fontStyle:"bold"},
+        head:[["Exportadora","Comisión USD","Venta USD","Cajas","USD/caja","% merma","Emb."]],
+        body: expRows.length ? expRows.map(x=>[x.nombre, fmtUSD0(x.comisionUSD), fmtUSD0(x.ventaUSD), fmtN0(x.cajasVend), fmtUSD2(x.precioCaja), x.pctMerma.toFixed(1)+"%", String(x.nEmb)]) : [["Sin datos","","","","","",""]],
+        foot: [["TOTAL", fmtUSD0(kpi.comision), fmtUSD0(kpi.venta), fmtN0(kpi.cajas), fmtUSD2(kpi.precioProm), "", ""]],
+        columnStyles:{1:{halign:"right"},2:{halign:"right"},3:{halign:"right"},4:{halign:"right"},5:{halign:"right"},6:{halign:"right"}},
+        margin:{left:m,right:m},
+      });
+      doc.save(`Frisku_RankingExportadoras_${(temp||"todas").replace(/\W+/g,"-")}_${new Date().toISOString().slice(0,10)}.pdf`);
+    } catch(e){ console.error("[Reportes] PDF exp:",e); alert("No se pudo generar el PDF: "+e.message); }
+    setExpPdf(false);
+  };
+
   // Dispatchers según el reporte activo
-  const doExcel = () => rep==="ingreso" ? exportarExcel() : rep==="rentabilidad" ? exportarRentExcel() : rep==="fcl" ? exportarFclExcel() : exportarPipeExcel();
-  const doPDF   = () => rep==="ingreso" ? exportarPDF()   : rep==="rentabilidad" ? exportarRentPDF()   : rep==="fcl" ? exportarFclPDF()   : exportarPipePDF();
+  const doExcel = () => rep==="ingreso" ? exportarExcel() : rep==="rentabilidad" ? exportarRentExcel() : rep==="fcl" ? exportarFclExcel() : rep==="pipeline" ? exportarPipeExcel() : exportarExpExcel();
+  const doPDF   = () => rep==="ingreso" ? exportarPDF()   : rep==="rentabilidad" ? exportarRentPDF()   : rep==="fcl" ? exportarFclPDF()   : rep==="pipeline" ? exportarPipePDF()   : exportarExpPDF();
 
   const kpiCard = (lab, val, color, sub) => (
     <div style={{background:C.card, border:`1px solid ${C.border}`, borderRadius:12, padding:"12px 14px", boxShadow:C.shadowSm}}>
@@ -4618,7 +4698,7 @@ function ReportesTab({ liquidaciones, embarques, clientes, exportadoras, especie
     <div>
       {/* Selector de reporte */}
       <div style={{display:"flex", gap:6, marginBottom:14, flexWrap:"wrap"}}>
-        {[{id:"ingreso",lab:"💰 Ingreso por temporada"},{id:"rentabilidad",lab:"📊 Rentabilidad"},{id:"fcl",lab:"🚢 Programa vs Real (FCL)"},{id:"pipeline",lab:"📦 Pipeline embarques"}].map(r=>(
+        {[{id:"ingreso",lab:"💰 Ingreso por temporada"},{id:"rentabilidad",lab:"📊 Rentabilidad"},{id:"fcl",lab:"🚢 Programa vs Real (FCL)"},{id:"pipeline",lab:"📦 Pipeline embarques"},{id:"exportadoras",lab:"🏭 Ranking exportadoras"}].map(r=>(
           <button key={r.id} onClick={()=>setRep(r.id)} style={{
             padding:"7px 14px", borderRadius:8, cursor:"pointer", fontSize:12, fontWeight:rep===r.id?700:500,
             border:`1px solid ${rep===r.id?C.blue:C.border}`,
@@ -4636,7 +4716,7 @@ function ReportesTab({ liquidaciones, embarques, clientes, exportadoras, especie
             {(tempsDisponibles.length?tempsDisponibles:temporadas.map(t=>t.codigo||t)).map(t=><option key={t} value={t}>{t}</option>)}
           </select>
         </div>
-        {(rep==="ingreso"||rep==="rentabilidad") && (
+        {(rep==="ingreso"||rep==="rentabilidad"||rep==="exportadoras") && (
           <div>
             <div style={lblSt}>Estado</div>
             <select value={estado} onChange={e=>setEstado(e.target.value)} style={{...inputSt, minWidth:140}}>
@@ -4897,7 +4977,7 @@ function ReportesTab({ liquidaciones, embarques, clientes, exportadoras, especie
           Reporte #3 de la Fase 8 · agrupado por {fclGlab} · FCL real = OEs marítimas no canceladas (1 OE = 1 contenedor). Plan = contenedores del programa comercial.
         </div>
       </>
-      ) : (
+      ) : rep==="pipeline" ? (
       <>
         {/* KPIs (pipeline) */}
         <div style={{display:"grid", gridTemplateColumns:"repeat(auto-fit, minmax(140px,1fr))", gap:12, marginBottom:16}}>
@@ -4978,6 +5058,71 @@ function ReportesTab({ liquidaciones, embarques, clientes, exportadoras, especie
 
         <div style={{fontSize:11, color:C.muted2, marginTop:14, textAlign:"center"}}>
           Reporte #4 de la Fase 8 · pipeline operativo de {pipe.total} embarque{pipe.total!==1?"s":""} de la temporada. Cancelados excluidos del detalle.
+        </div>
+      </>
+      ) : (
+      <>
+        {/* KPIs (ranking exportadoras) */}
+        <div style={{display:"grid", gridTemplateColumns:"repeat(auto-fit, minmax(150px,1fr))", gap:12, marginBottom:16}}>
+          {kpiCard("Exportadoras", String(expRows.length), C.text, "con liquidación")}
+          {kpiCard("Comisión Frisku", fmtUSD0(kpi.comision), C.accent2)}
+          {kpiCard("Venta destino", fmtUSD0(kpi.venta), C.blue)}
+          {kpiCard("Cajas vendidas", fmtN0(kpi.cajas), C.text)}
+        </div>
+
+        {/* Ranking por comisión */}
+        <div style={{background:C.card, border:`1px solid ${C.border}`, borderRadius:14, padding:16, boxShadow:C.shadowSm, marginBottom:14}}>
+          <div style={{fontSize:14, fontWeight:700, marginBottom:2}}>Ranking por comisión Frisku</div>
+          <div style={{fontSize:11, color:C.muted, marginBottom:12}}>USD · {tituloTemp}</div>
+          {expRows.length===0 ? <div style={{color:C.muted, fontSize:12, padding:"18px 0"}}>Sin liquidaciones con exportadora asociada.</div> :
+            expRows.map((x,i)=>(
+              <div key={x.eid} style={{display:"grid", gridTemplateColumns:"170px 1fr auto", alignItems:"center", gap:10, padding:"5px 0"}}>
+                <span style={{fontSize:12.5, color:C.text, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis"}}>{i+1}. {x.nombre}</span>
+                <div style={{height:15, borderRadius:5, background:C.cardAlt, overflow:"hidden"}}>
+                  <div style={{width:`${x.comisionUSD/maxExpCom*100}%`, height:"100%", background:C.accent2, borderRadius:5}}/>
+                </div>
+                <span style={{fontSize:12.5, fontWeight:700, textAlign:"right", minWidth:80}}>{fmtUSD0(x.comisionUSD)}</span>
+              </div>
+            ))
+          }
+        </div>
+
+        {/* Tabla detalle exportadoras */}
+        <div style={{background:C.card, border:`1px solid ${C.border}`, borderRadius:14, padding:16, boxShadow:C.shadowSm, overflowX:"auto"}}>
+          <div style={{fontSize:14, fontWeight:700, marginBottom:10}}>Detalle por exportadora</div>
+          <table style={{width:"100%", borderCollapse:"collapse", fontSize:12.5, fontVariantNumeric:"tabular-nums", whiteSpace:"nowrap"}}>
+            <thead><tr style={{background:C.primary}}>
+              {["Exportadora","Comisión USD","Venta USD","Cajas","USD/caja","% merma","Emb."].map((h,i)=>(
+                <th key={h} style={{padding:"7px 10px", textAlign:i===0?"left":"right", color:C.primaryText, fontWeight:700, fontSize:10.5}}>{h}</th>
+              ))}
+            </tr></thead>
+            <tbody>
+              {expRows.map((x,i)=>(
+                <tr key={x.eid} style={{background:i%2?C.rowAlt:C.card, borderBottom:`1px solid ${C.border}`}}>
+                  <td style={{padding:"7px 10px", color:C.text}}>{x.nombre}</td>
+                  <td style={{padding:"7px 10px", textAlign:"right", fontWeight:700}}>{fmtUSD0(x.comisionUSD)}</td>
+                  <td style={{padding:"7px 10px", textAlign:"right"}}>{fmtUSD0(x.ventaUSD)}</td>
+                  <td style={{padding:"7px 10px", textAlign:"right"}}>{fmtN0(x.cajasVend)}</td>
+                  <td style={{padding:"7px 10px", textAlign:"right"}}>{fmtUSD2(x.precioCaja)}</td>
+                  <td style={{padding:"7px 10px", textAlign:"right", color:x.pctMerma>5?C.accent:C.muted}}>{x.pctMerma.toFixed(1)}%</td>
+                  <td style={{padding:"7px 10px", textAlign:"right", color:C.muted}}>{x.nEmb}</td>
+                </tr>
+              ))}
+              <tr style={{background:C.cardAlt, fontWeight:800}}>
+                <td style={{padding:"8px 10px"}}>TOTAL</td>
+                <td style={{padding:"8px 10px", textAlign:"right"}}>{fmtUSD0(kpi.comision)}</td>
+                <td style={{padding:"8px 10px", textAlign:"right"}}>{fmtUSD0(kpi.venta)}</td>
+                <td style={{padding:"8px 10px", textAlign:"right"}}>{fmtN0(kpi.cajas)}</td>
+                <td style={{padding:"8px 10px", textAlign:"right"}}>{fmtUSD2(kpi.precioProm)}</td>
+                <td style={{padding:"8px 10px", textAlign:"right"}}>—</td>
+                <td style={{padding:"8px 10px", textAlign:"right"}}>—</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div style={{fontSize:11, color:C.muted2, marginTop:14, textAlign:"center"}}>
+          Reporte #5 de la Fase 8 · {expRows.length} exportadora{expRows.length!==1?"s":""} con liquidación. % merma = cajas merma / cajas embarcadas.
         </div>
       </>
       )}
