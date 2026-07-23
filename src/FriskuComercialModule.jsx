@@ -72,6 +72,75 @@ async function pl_loadJSZip() {
   await new Promise((res,rej)=>{ const s=document.createElement("script"); s.src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"; s.onload=res; s.onerror=rej; document.head.appendChild(s); });
 }
 
+// ── Logo Frisku para reportes (mismo patrón que RendicionesModule) ────
+const FRISKU_LOGO = `${process.env.PUBLIC_URL||""}/frisku.png`;
+async function fr_urlToDataURL(url){
+  const r = await fetch(url); if(!r.ok) throw new Error("fetch "+r.status);
+  const b = await r.blob();
+  return await new Promise((res,rej)=>{ const fr=new FileReader(); fr.onload=()=>res(fr.result); fr.onerror=rej; fr.readAsDataURL(b); });
+}
+function fr_imgSize(src){
+  return new Promise((res)=>{ const im=new Image(); im.onload=()=>res({w:im.naturalWidth,h:im.naturalHeight}); im.onerror=()=>res(null); im.src=src; });
+}
+// Agrega el logo Frisku a un doc jsPDF (dentro de la banda navy). Devuelve el ancho usado en mm.
+async function fr_logoPDF(doc, xRight, y, maxW, maxH){
+  try{
+    const dataUrl = await fr_urlToDataURL(FRISKU_LOGO);
+    const sz = await fr_imgSize(dataUrl);
+    let w=maxW, h=maxH;
+    if(sz && sz.w>0 && sz.h>0){ const s=Math.min(maxW/sz.w, maxH/sz.h); w=sz.w*s; h=sz.h*s; }
+    const fmt = /png/i.test(dataUrl.slice(0,20)) ? "PNG" : "PNG";
+    doc.addImage(dataUrl, fmt, xRight-w, y, w, h, undefined, "FAST");
+    return w;
+  }catch(e){ return 0; }
+}
+// ExcelJS vía CDN (embebe imágenes; xlsx-js-style no puede)
+let _fr_exceljsP = null;
+function fr_loadExcelJS(){
+  if(window.ExcelJS) return Promise.resolve(window.ExcelJS);
+  if(_fr_exceljsP) return _fr_exceljsP;
+  _fr_exceljsP = new Promise((resolve,reject)=>{
+    const s=document.createElement("script");
+    s.src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.4.0/exceljs.min.js";
+    s.onload=()=>resolve(window.ExcelJS); s.onerror=reject; document.body.appendChild(s);
+  });
+  return _fr_exceljsP;
+}
+// Inserta el logo Frisku flotando sobre el encabezado de una hoja ExcelJS.
+async function fr_logoExcel(wb, ws){
+  try{
+    const dataUrl = await fr_urlToDataURL(FRISKU_LOGO);
+    const base64 = dataUrl.split(",")[1];
+    let ext = dataUrl.substring(dataUrl.indexOf("/")+1, dataUrl.indexOf(";")).toLowerCase();
+    if(ext==="jpg") ext="jpeg";
+    if(ext!=="png" && ext!=="jpeg") return;
+    const imgId = wb.addImage({ base64, extension: ext });
+    const sz = await fr_imgSize(dataUrl);
+    let w=150,h=50; if(sz&&sz.w&&sz.h){ const s=Math.min(160/sz.w, 50/sz.h); w=Math.round(sz.w*s); h=Math.round(sz.h*s); }
+    ws.addImage(imgId, { tl:{col:0.15,row:0.15}, ext:{width:w,height:h} });
+  }catch(e){}
+}
+// Construye una hoja branded (banda navy + tabla). moneyCols/intCols: índices 0-based.
+function fr_sheetTabla(ws, {titulo, subtitulo, headers, rows, totalRow=null, colWidths=null, moneyCols=[], intCols=[], headerHex="1E2761"}){
+  const argb=(h)=>"FF"+h, ncol=headers.length;
+  ws.views=[{showGridLines:false}];
+  if(colWidths) ws.columns = colWidths.map(w=>({width:w}));
+  ws.mergeCells(1,1,1,ncol); ws.getRow(1).height=44;
+  const t=ws.getCell(1,1); t.value=titulo; t.font={name:"Calibri",bold:true,size:15,color:{argb:argb(headerHex)}}; t.alignment={vertical:"middle",horizontal:"right",indent:1};
+  ws.mergeCells(2,1,2,ncol); const st=ws.getCell(2,1); st.value=subtitulo; st.font={name:"Calibri",size:10,color:{argb:"FF5A5A5A"}}; st.alignment={horizontal:"right",indent:1};
+  const hr=4;
+  headers.forEach((h,i)=>{ const c=ws.getCell(hr,i+1); c.value=h; c.font={bold:true,color:{argb:"FFFFFFFF"}}; c.fill={type:"pattern",pattern:"solid",fgColor:{argb:argb(headerHex)}}; c.alignment={horizontal:i===0?"left":"right",vertical:"middle"}; });
+  ws.getRow(hr).height=18;
+  const fmtDe = (ci)=> moneyCols.includes(ci) ? '$#,##0' : (intCols.includes(ci) ? '#,##0' : null);
+  rows.forEach((r,ri)=>{ r.forEach((v,ci)=>{ const c=ws.getCell(hr+1+ri,ci+1); c.value=v; c.alignment={horizontal:ci===0?"left":"right"}; const nf=fmtDe(ci); if(nf) c.numFmt=nf; if(ri%2) c.fill={type:"pattern",pattern:"solid",fgColor:{argb:"FFF6F8FB"}}; }); });
+  if(totalRow){ const tr=hr+1+rows.length; totalRow.forEach((v,ci)=>{ const c=ws.getCell(tr,ci+1); c.value=v; c.font={bold:true}; c.fill={type:"pattern",pattern:"solid",fgColor:{argb:"FFDCE3F0"}}; c.alignment={horizontal:ci===0?"left":"right"}; const nf=fmtDe(ci); if(nf) c.numFmt=nf; }); }
+}
+async function fr_descargarWB(wb, filename){
+  const buf = await wb.xlsx.writeBuffer();
+  const blob = new Blob([buf], {type:"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"});
+  const url=URL.createObjectURL(blob); const a=document.createElement("a"); a.href=url; a.download=filename; a.click(); URL.revokeObjectURL(url);
+}
+
 // ── Exportar Packing List → PDF ──────────────────────────────────
 async function exportarPL_PDF(oe, pl, exportadora, cliente, especie, tiposEmbalaje) {
   const JsPDF = await pl_loadJsPDF();
@@ -3980,7 +4049,9 @@ const fmtUSD0 = (v) => "$" + new Intl.NumberFormat("es-CL",{maximumFractionDigit
 const fmtUSD2 = (v) => "$" + new Intl.NumberFormat("es-CL",{minimumFractionDigits:2,maximumFractionDigits:2}).format(Number(v)||0);
 const fmtN0   = (v) => new Intl.NumberFormat("es-CL",{maximumFractionDigits:0}).format(Number(v)||0);
 
-function ReportesTab({ liquidaciones, embarques, clientes, exportadoras, especies, temporadas }) {
+function ReportesTab({ liquidaciones, embarques, clientes, exportadoras, especies, mercados, paises, temporadas }) {
+  const [rep, setRep]       = useState("ingreso");   // "ingreso" | "rentabilidad"
+  const [groupBy, setGroupBy] = useState("especie"); // especie | mercado | cliente (reporte #2)
   const [temp, setTemp]     = useState("");   // "" = todas las temporadas
   const [estado, setEstado] = useState("");   // "" = todos los estados
   const [expPdf, setExpPdf] = useState(false);
@@ -4083,68 +4154,97 @@ function ReportesTab({ liquidaciones, embarques, clientes, exportadoras, especie
     };
   }).sort((a,b)=>(b.fecha).localeCompare(a.fecha)),[liqs, especies, clientes, exportadoras, embarques]);
 
-  // ── Export Excel (xlsx-js-style) ──
+  // ── Reporte #2: Rentabilidad por especie / mercado / cliente ──
+  const GROUP_LABEL = {especie:"especie", mercado:"mercado", cliente:"cliente"};
+  const rentRows = useMemo(()=>{
+    const acc = {};
+    liqs.forEach(l=>{
+      const oe = oeDe(l);
+      let key, label;
+      if(groupBy==="mercado"){
+        const cli = clientes.find(c=>c.id===oe?.clienteId);
+        const mc = cli?.mercadoCodigo || "";
+        key = mc || "—";
+        label = mercados.find(m=>m.codigo===mc)?.nombre || (cli?.pais ? `(${cli.pais})` : "— sin mercado —");
+      } else if(groupBy==="cliente"){
+        const cli = clientes.find(c=>c.id===oe?.clienteId);
+        key = cli?.id || "—"; label = cli?.nombre || "— sin cliente —";
+      } else {
+        const cod = oe?.especieCodigo || "—";
+        const e = especies.find(x=>x.codigo===cod);
+        key = cod; label = e ? `${e.icono||""} ${e.nombreEs}` : cod;
+      }
+      const a = acc[key] || (acc[key] = {label, cajas:0, ventaUSD:0, comisionUSD:0, fobUSD:0, color: groupBy==="especie" ? (ESP_COLORS[key]||C.blue) : C.blue});
+      a.cajas       += Number(l.cajasVendidas)||0;
+      a.ventaUSD    += ventaUSD(l);
+      a.comisionUSD += comUSD(l);
+      a.fobUSD      += fobUSDv(l);
+    });
+    return Object.values(acc).map(a=>({
+      ...a,
+      precioCaja: a.cajas>0 ? a.ventaUSD/a.cajas : 0,
+      pctFob:     a.fobUSD>0 ? a.comisionUSD/a.fobUSD*100 : 0,
+    })).sort((x,y)=>y.comisionUSD-x.comisionUSD);
+  },[liqs, groupBy, especies, clientes, mercados, embarques]);
+  const maxPrecio = Math.max(1, ...rentRows.map(x=>x.precioCaja));
+
+  // ── Export Excel (ExcelJS · con logo Frisku) ──
   const exportarExcel = async () => {
     setExpXls(true);
     try {
-      const XLSX = await import("xlsx-js-style");
-      const wb = XLSX.utils.book_new();
-      const HDR = { font:{bold:true,color:{rgb:"FFFFFF"}}, fill:{fgColor:{rgb:"1E2761"}}, alignment:{horizontal:"center"} };
-      const TIT = { font:{bold:true,sz:13,color:{rgb:"1E2761"}} };
-      const money = "$#,##0";
-      const styleHeader = (ws, ncols) => { for(let c=0;c<ncols;c++){ const ref=XLSX.utils.encode_cell({r:0,c}); if(ws[ref]) ws[ref].s=HDR; } };
+      const ExcelJS = await fr_loadExcelJS();
+      const wb = new ExcelJS.Workbook();
+      wb.creator = "Grupo Mediterra — Frisku Foods";
+      const sub = `Ingreso Frisku por temporada · ${tituloTemp}${estado?" · "+estado:""} · ${new Date().toLocaleDateString("es-CL")}`;
 
-      // Resumen
-      const resumen = [
-        ["Reporte","Ingreso Frisku por temporada"],
-        ["Temporada", tituloTemp],
-        ["Estado", estado||"todos"],
-        ["Generado", new Date().toLocaleString("es-CL")],
-        [],
-        ["Indicador","Valor"],
-        ["Comisión Frisku (USD)", Math.round(kpi.comision)],
-        ["Venta destino (USD)", Math.round(kpi.venta)],
-        ["FOB (USD)", Math.round(kpi.fob)],
-        ["Cajas vendidas", kpi.cajas],
-        ["Precio prom. USD/caja", Number(kpi.precioProm.toFixed(2))],
-        ["% efectivo s/FOB", Number(kpi.pctFob.toFixed(2))],
-        ["N° liquidaciones", kpi.nLiq],
-        ["N° embarques", kpi.nEmb],
-      ];
-      const wsR = XLSX.utils.aoa_to_sheet(resumen);
-      wsR["A1"].s = TIT; if(wsR["A6"]) wsR["A6"].s = {font:{bold:true}}; if(wsR["B6"]) wsR["B6"].s={font:{bold:true}};
-      wsR["!cols"] = [{wch:26},{wch:34}];
-      XLSX.utils.book_append_sheet(wb, wsR, "Resumen");
+      // Resumen (con logo)
+      const wsR = wb.addWorksheet("Resumen");
+      fr_sheetTabla(wsR, {
+        titulo:"FRISKU FOODS", subtitulo:sub,
+        headers:["Indicador","Valor"], colWidths:[30,22], moneyCols:[],
+        rows:[
+          ["Comisión Frisku (USD)", Math.round(kpi.comision)],
+          ["Venta destino (USD)", Math.round(kpi.venta)],
+          ["FOB (USD)", Math.round(kpi.fob)],
+          ["Cajas vendidas", kpi.cajas],
+          ["Precio prom. USD/caja", Number(kpi.precioProm.toFixed(2))],
+          ["% efectivo s/FOB", Number(kpi.pctFob.toFixed(2))],
+          ["N° liquidaciones", kpi.nLiq],
+          ["N° embarques", kpi.nEmb],
+        ],
+      });
+      wsR.getCell("B5").numFmt='$#,##0'; wsR.getCell("B6").numFmt='$#,##0'; wsR.getCell("B7").numFmt='$#,##0';
+      wsR.getCell("B8").numFmt='#,##0'; wsR.getCell("B9").numFmt='$#,##0.00';
+      await fr_logoExcel(wb, wsR);
 
       // Por mes
-      const aoaMes = [["Mes","Comisión Frisku (USD)"], ...porMes.map(x=>[x.lab, Math.round(x.monto)])];
-      const wsM = XLSX.utils.aoa_to_sheet(aoaMes); styleHeader(wsM,2);
-      wsM["!cols"]=[{wch:10},{wch:24}];
-      for(let r=1;r<=porMes.length;r++){ const ref=XLSX.utils.encode_cell({r,c:1}); if(wsM[ref]) wsM[ref].z=money; }
-      XLSX.utils.book_append_sheet(wb, wsM, "Por mes");
-
+      fr_sheetTabla(wb.addWorksheet("Por mes"), {
+        titulo:"Comisión Frisku por mes", subtitulo:sub,
+        headers:["Mes","Comisión Frisku (USD)"], colWidths:[12,24], moneyCols:[1],
+        rows: porMes.map(x=>[x.lab, Math.round(x.monto)]),
+        totalRow:["TOTAL", Math.round(kpi.comision)],
+      });
       // Por especie
-      const aoaEsp = [["Especie","Comisión (USD)","% del total"], ...porEspecie.map(x=>[x.nombre, Math.round(x.monto), Number((x.monto/totalCom*100).toFixed(1))])];
-      const wsE = XLSX.utils.aoa_to_sheet(aoaEsp); styleHeader(wsE,3); wsE["!cols"]=[{wch:22},{wch:18},{wch:12}];
-      XLSX.utils.book_append_sheet(wb, wsE, "Por especie");
-
+      fr_sheetTabla(wb.addWorksheet("Por especie"), {
+        titulo:"Comisión por especie", subtitulo:sub,
+        headers:["Especie","Comisión (USD)","% del total"], colWidths:[24,18,12], moneyCols:[1],
+        rows: porEspecie.map(x=>[x.nombre, Math.round(x.monto), Number((x.monto/totalCom*100).toFixed(1))]),
+      });
       // Por cliente
-      const aoaCli = [["Cliente","Comisión (USD)","% del total"], ...porCliente.map(x=>[x.nombre, Math.round(x.monto), Number((x.monto/totalCom*100).toFixed(1))])];
-      const wsC = XLSX.utils.aoa_to_sheet(aoaCli); styleHeader(wsC,3); wsC["!cols"]=[{wch:28},{wch:18},{wch:12}];
-      XLSX.utils.book_append_sheet(wb, wsC, "Por cliente");
-
+      fr_sheetTabla(wb.addWorksheet("Por cliente"), {
+        titulo:"Comisión por cliente", subtitulo:sub,
+        headers:["Cliente","Comisión (USD)","% del total"], colWidths:[30,18,12], moneyCols:[1],
+        rows: porCliente.map(x=>[x.nombre, Math.round(x.monto), Number((x.monto/totalCom*100).toFixed(1))]),
+      });
       // Detalle
-      const aoaDet = [["Fecha","Temp.","OE","Estado","Cliente","Exportadora","Especie","Cajas vend.","Venta USD","FOB USD","Cli %","Frisku %","Comisión USD"],
-        ...detalle.map(d=>[d.fecha,d.temporada,d.oe,d.estado,d.cliente,d.exportadora,d.especie,d.cajasVend,Math.round(d.ventaUSD),Math.round(d.fobUSD),d.cliPct,d.friPct,Math.round(d.comisionUSD)])];
-      const wsD = XLSX.utils.aoa_to_sheet(aoaDet); styleHeader(wsD,13);
-      wsD["!cols"]=[{wch:11},{wch:10},{wch:12},{wch:10},{wch:22},{wch:22},{wch:14},{wch:11},{wch:12},{wch:12},{wch:7},{wch:9},{wch:13}];
-      XLSX.utils.book_append_sheet(wb, wsD, "Detalle");
+      fr_sheetTabla(wb.addWorksheet("Detalle"), {
+        titulo:"Detalle de liquidaciones", subtitulo:sub,
+        headers:["Fecha","Temp.","OE","Estado","Cliente","Exportadora","Especie","Cajas vend.","Venta USD","FOB USD","Cli %","Frisku %","Comisión USD"],
+        colWidths:[11,10,12,10,22,22,14,11,12,12,7,9,13], moneyCols:[8,9,12], intCols:[7],
+        rows: detalle.map(d=>[d.fecha,d.temporada,d.oe,d.estado,d.cliente,d.exportadora,d.especie,d.cajasVend,Math.round(d.ventaUSD),Math.round(d.fobUSD),d.cliPct,d.friPct,Math.round(d.comisionUSD)]),
+      });
 
-      const out = XLSX.write(wb, {bookType:"xlsx", type:"array"});
-      const blob = new Blob([out], {type:"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"});
-      const url = URL.createObjectURL(blob); const a=document.createElement("a");
-      a.href=url; a.download=`Frisku_IngresoTemporada_${(temp||"todas").replace(/\W+/g,"-")}_${new Date().toISOString().slice(0,10)}.xlsx`; a.click();
-      URL.revokeObjectURL(url);
+      await fr_descargarWB(wb, `Frisku_IngresoTemporada_${(temp||"todas").replace(/\W+/g,"-")}_${new Date().toISOString().slice(0,10)}.xlsx`);
     } catch(e){ console.error("[Reportes] Excel:",e); alert("No se pudo generar el Excel: "+e.message); }
     setExpXls(false);
   };
@@ -4157,11 +4257,11 @@ function ReportesTab({ liquidaciones, embarques, clientes, exportadoras, especie
       const doc = new JsPDF({orientation:"portrait", unit:"mm", format:"a4"});
       const W=210, m=14;
       doc.setFillColor(30,39,97); doc.rect(0,0,W,26,"F");
+      await fr_logoPDF(doc, W-m, 5, 46, 16);
       doc.setTextColor(255,255,255); doc.setFontSize(15); doc.setFont("helvetica","bold");
-      doc.text("Frisku · Ingreso por temporada",m,11);
+      doc.text("Frisku · Ingreso por temporada",m,12);
       doc.setFontSize(9); doc.setFont("helvetica","normal");
-      doc.text(`Temporada: ${tituloTemp}${estado?" · Estado: "+estado:""}`,m,18);
-      doc.text(new Date().toLocaleDateString("es-CL"),W-m,11,{align:"right"});
+      doc.text(`Temporada: ${tituloTemp}${estado?" · Estado: "+estado:""} · ${new Date().toLocaleDateString("es-CL")}`,m,19);
 
       // KPIs
       doc.autoTable({
@@ -4207,6 +4307,64 @@ function ReportesTab({ liquidaciones, embarques, clientes, exportadoras, especie
     setExpPdf(false);
   };
 
+  // ── Export reporte #2 (Rentabilidad) → Excel (ExcelJS · con logo) ──
+  const exportarRentExcel = async () => {
+    setExpXls(true);
+    try {
+      const ExcelJS = await fr_loadExcelJS();
+      const wb = new ExcelJS.Workbook();
+      wb.creator = "Grupo Mediterra — Frisku Foods";
+      const g = GROUP_LABEL[groupBy], G = g.charAt(0).toUpperCase()+g.slice(1);
+      const sub = `Rentabilidad por ${g} · ${tituloTemp}${estado?" · "+estado:""} · ${new Date().toLocaleDateString("es-CL")}`;
+      const ws = wb.addWorksheet(`Por ${g}`);
+      fr_sheetTabla(ws, {
+        titulo:"FRISKU FOODS", subtitulo:sub,
+        headers:[G,"Cajas vendidas","Venta USD","Comisión Frisku USD","Precio USD/caja","% s/FOB"],
+        colWidths:[28,15,14,20,15,10], moneyCols:[2,3], intCols:[1],
+        rows: rentRows.map(x=>[x.label, x.cajas, Math.round(x.ventaUSD), Math.round(x.comisionUSD), Number(x.precioCaja.toFixed(2)), Number(x.pctFob.toFixed(2))]),
+        totalRow:["TOTAL", kpi.cajas, Math.round(kpi.venta), Math.round(kpi.comision), Number(kpi.precioProm.toFixed(2)), Number(kpi.pctFob.toFixed(2))],
+      });
+      // formato USD/caja (col 5 = índice 4)
+      for(let r=5;r<=5+rentRows.length;r++){ ws.getCell(r,5).numFmt='$#,##0.00'; }
+      await fr_logoExcel(wb, ws);
+      await fr_descargarWB(wb, `Frisku_Rentabilidad_${g}_${(temp||"todas").replace(/\W+/g,"-")}_${new Date().toISOString().slice(0,10)}.xlsx`);
+    } catch(e){ console.error("[Reportes] Excel rent:",e); alert("No se pudo generar el Excel: "+e.message); }
+    setExpXls(false);
+  };
+
+  // ── Export reporte #2 (Rentabilidad) → PDF ──
+  const exportarRentPDF = async () => {
+    setExpPdf(true);
+    try {
+      const JsPDF = await pl_loadJsPDF();
+      const doc = new JsPDF({orientation:"portrait", unit:"mm", format:"a4"});
+      const W=210, m=14, g=GROUP_LABEL[groupBy];
+      doc.setFillColor(30,39,97); doc.rect(0,0,W,26,"F");
+      await fr_logoPDF(doc, W-m, 5, 46, 16);
+      doc.setTextColor(255,255,255); doc.setFontSize(15); doc.setFont("helvetica","bold");
+      doc.text(`Frisku · Rentabilidad por ${g}`,m,12);
+      doc.setFontSize(9); doc.setFont("helvetica","normal");
+      doc.text(`Temporada: ${tituloTemp}${estado?" · Estado: "+estado:""} · ${new Date().toLocaleDateString("es-CL")}`,m,19);
+      doc.autoTable({
+        startY:32, theme:"striped",
+        headStyles:{fillColor:[15,118,110],textColor:255,fontSize:8},
+        styles:{fontSize:8,cellPadding:2},
+        footStyles:{fillColor:[234,238,244],textColor:30,fontStyle:"bold"},
+        head:[[g.charAt(0).toUpperCase()+g.slice(1),"Cajas","Venta USD","Comisión USD","USD/caja","% s/FOB"]],
+        body: rentRows.length ? rentRows.map(x=>[x.label, fmtN0(x.cajas), fmtUSD0(x.ventaUSD), fmtUSD0(x.comisionUSD), fmtUSD2(x.precioCaja), x.pctFob.toFixed(1)+"%"]) : [["Sin datos","","","","",""]],
+        foot: [["TOTAL", fmtN0(kpi.cajas), fmtUSD0(kpi.venta), fmtUSD0(kpi.comision), fmtUSD2(kpi.precioProm), kpi.pctFob.toFixed(1)+"%"]],
+        columnStyles:{1:{halign:"right"},2:{halign:"right"},3:{halign:"right"},4:{halign:"right"},5:{halign:"right"}},
+        margin:{left:m,right:m},
+      });
+      doc.save(`Frisku_Rentabilidad_${g}_${(temp||"todas").replace(/\W+/g,"-")}_${new Date().toISOString().slice(0,10)}.pdf`);
+    } catch(e){ console.error("[Reportes] PDF rent:",e); alert("No se pudo generar el PDF: "+e.message); }
+    setExpPdf(false);
+  };
+
+  // Dispatchers según el reporte activo
+  const doExcel = () => rep==="ingreso" ? exportarExcel() : exportarRentExcel();
+  const doPDF   = () => rep==="ingreso" ? exportarPDF()   : exportarRentPDF();
+
   const kpiCard = (lab, val, color, sub) => (
     <div style={{background:C.card, border:`1px solid ${C.border}`, borderRadius:12, padding:"12px 14px", boxShadow:C.shadowSm}}>
       <div style={{fontSize:10.5, color:C.muted, fontWeight:600, textTransform:"uppercase", letterSpacing:0.3}}>{lab}</div>
@@ -4219,8 +4377,19 @@ function ReportesTab({ liquidaciones, embarques, clientes, exportadoras, especie
 
   return (
     <div>
+      {/* Selector de reporte */}
+      <div style={{display:"flex", gap:6, marginBottom:14, flexWrap:"wrap"}}>
+        {[{id:"ingreso",lab:"💰 Ingreso por temporada"},{id:"rentabilidad",lab:"📊 Rentabilidad"}].map(r=>(
+          <button key={r.id} onClick={()=>setRep(r.id)} style={{
+            padding:"7px 14px", borderRadius:8, cursor:"pointer", fontSize:12, fontWeight:rep===r.id?700:500,
+            border:`1px solid ${rep===r.id?C.blue:C.border}`,
+            background: rep===r.id ? C.blue : C.card, color: rep===r.id ? "#fff" : C.muted,
+          }}>{r.lab}</button>
+        ))}
+      </div>
+
       {/* Toolbar */}
-      <div style={{display:"flex", gap:10, marginBottom:16, flexWrap:"wrap", alignItems:"center"}}>
+      <div style={{display:"flex", gap:10, marginBottom:16, flexWrap:"wrap", alignItems:"flex-end"}}>
         <div>
           <div style={lblSt}>Temporada</div>
           <select value={temp} onChange={e=>setTemp(e.target.value)} style={{...inputSt, minWidth:170}}>
@@ -4237,11 +4406,21 @@ function ReportesTab({ liquidaciones, embarques, clientes, exportadoras, especie
             <option value="pagada">Pagada</option>
           </select>
         </div>
+        {rep==="rentabilidad" && (
+          <div>
+            <div style={lblSt}>Agrupar por</div>
+            <select value={groupBy} onChange={e=>setGroupBy(e.target.value)} style={{...inputSt, minWidth:140}}>
+              <option value="especie">Especie</option>
+              <option value="mercado">Mercado</option>
+              <option value="cliente">Cliente</option>
+            </select>
+          </div>
+        )}
         <div style={{marginLeft:"auto", display:"flex", gap:8, alignItems:"flex-end"}}>
-          <button onClick={exportarExcel} disabled={expXls||sinDatos} style={{...btnSt(C.green), opacity:(expXls||sinDatos)?0.5:1}}>
+          <button onClick={doExcel} disabled={expXls||sinDatos} style={{...btnSt(C.green), opacity:(expXls||sinDatos)?0.5:1}}>
             {expXls?"Generando…":"▦ Excel"}
           </button>
-          <button onClick={exportarPDF} disabled={expPdf||sinDatos} style={{...btnSt(C.accent), opacity:(expPdf||sinDatos)?0.5:1}}>
+          <button onClick={doPDF} disabled={expPdf||sinDatos} style={{...btnSt(C.accent), opacity:(expPdf||sinDatos)?0.5:1}}>
             {expPdf?"Generando…":"▤ PDF"}
           </button>
         </div>
@@ -4251,7 +4430,7 @@ function ReportesTab({ liquidaciones, embarques, clientes, exportadoras, especie
         <div style={{padding:50, textAlign:"center", color:C.muted, fontSize:13, background:C.card, borderRadius:14}}>
           Aún no hay liquidaciones cargadas. El reporte se puebla automáticamente a medida que se registran liquidaciones en la pestaña 💰 Liquidaciones.
         </div>
-      ) : (
+      ) : rep==="ingreso" ? (
       <>
         {/* KPIs */}
         <div style={{display:"grid", gridTemplateColumns:"repeat(auto-fit, minmax(150px,1fr))", gap:12, marginBottom:16}}>
@@ -4321,6 +4500,75 @@ function ReportesTab({ liquidaciones, embarques, clientes, exportadoras, especie
 
         <div style={{fontSize:11, color:C.muted2, marginTop:14, textAlign:"center"}}>
           Fuente: {kpi.nLiq} liquidación{kpi.nLiq!==1?"es":""} · comisión Frisku normalizada a USD vía TC. Reporte #1 de la Fase 8 (Dashboards CFO).
+        </div>
+      </>
+      ) : (
+      <>
+        {/* KPIs (rentabilidad) */}
+        <div style={{display:"grid", gridTemplateColumns:"repeat(auto-fit, minmax(150px,1fr))", gap:12, marginBottom:16}}>
+          {kpiCard("Comisión Frisku", fmtUSD0(kpi.comision), C.accent2)}
+          {kpiCard("Venta destino", fmtUSD0(kpi.venta), C.blue)}
+          {kpiCard("Cajas vendidas", fmtN0(kpi.cajas), C.text)}
+          {kpiCard("Precio prom.", fmtUSD2(kpi.precioProm), C.text, "por caja")}
+          {kpiCard("% s/FOB", kpi.pctFob.toFixed(1)+"%", C.accent2, "comisión efectiva")}
+        </div>
+
+        {/* Tabla pivote */}
+        <div style={{background:C.card, border:`1px solid ${C.border}`, borderRadius:14, padding:16, boxShadow:C.shadowSm, marginBottom:14, overflowX:"auto"}}>
+          <div style={{fontSize:14, fontWeight:700, marginBottom:2}}>Rentabilidad por {GROUP_LABEL[groupBy]}</div>
+          <div style={{fontSize:11, color:C.muted, marginBottom:12}}>{tituloTemp} · USD</div>
+          {rentRows.length===0 ? <div style={{color:C.muted, fontSize:12, padding:"18px 0"}}>Sin datos.</div> : (
+          <table style={{width:"100%", borderCollapse:"collapse", fontSize:12.5, fontVariantNumeric:"tabular-nums"}}>
+            <thead><tr style={{background:C.primary}}>
+              {[GROUP_LABEL[groupBy].charAt(0).toUpperCase()+GROUP_LABEL[groupBy].slice(1),"Cajas","Venta USD","Comisión USD","USD/caja","% s/FOB"].map((h,i)=>(
+                <th key={h} style={{padding:"7px 10px", textAlign:i===0?"left":"right", color:C.primaryText, fontWeight:700, fontSize:10.5}}>{h}</th>
+              ))}
+            </tr></thead>
+            <tbody>
+              {rentRows.map((x,i)=>(
+                <tr key={i} style={{background:i%2?C.rowAlt:C.card, borderBottom:`1px solid ${C.border}`}}>
+                  <td style={{padding:"7px 10px", color:C.text, display:"flex", alignItems:"center", gap:7}}>
+                    <span style={{width:9, height:9, borderRadius:2, background:x.color, flex:"none"}}/>{x.label}
+                  </td>
+                  <td style={{padding:"7px 10px", textAlign:"right"}}>{fmtN0(x.cajas)}</td>
+                  <td style={{padding:"7px 10px", textAlign:"right"}}>{fmtUSD0(x.ventaUSD)}</td>
+                  <td style={{padding:"7px 10px", textAlign:"right", fontWeight:700}}>{fmtUSD0(x.comisionUSD)}</td>
+                  <td style={{padding:"7px 10px", textAlign:"right"}}>{fmtUSD2(x.precioCaja)}</td>
+                  <td style={{padding:"7px 10px", textAlign:"right", color:C.muted}}>{x.pctFob.toFixed(1)}%</td>
+                </tr>
+              ))}
+              <tr style={{background:C.cardAlt, fontWeight:800}}>
+                <td style={{padding:"8px 10px"}}>TOTAL</td>
+                <td style={{padding:"8px 10px", textAlign:"right"}}>{fmtN0(kpi.cajas)}</td>
+                <td style={{padding:"8px 10px", textAlign:"right"}}>{fmtUSD0(kpi.venta)}</td>
+                <td style={{padding:"8px 10px", textAlign:"right"}}>{fmtUSD0(kpi.comision)}</td>
+                <td style={{padding:"8px 10px", textAlign:"right"}}>{fmtUSD2(kpi.precioProm)}</td>
+                <td style={{padding:"8px 10px", textAlign:"right"}}>{kpi.pctFob.toFixed(1)}%</td>
+              </tr>
+            </tbody>
+          </table>
+          )}
+        </div>
+
+        {/* Precio promedio USD/caja por grupo */}
+        <div style={{background:C.card, border:`1px solid ${C.border}`, borderRadius:14, padding:16, boxShadow:C.shadowSm}}>
+          <div style={{fontSize:14, fontWeight:700, marginBottom:2}}>Precio promedio USD/caja por {GROUP_LABEL[groupBy]}</div>
+          <div style={{fontSize:11, color:C.muted, marginBottom:12}}>venta destino ÷ cajas vendidas</div>
+          {rentRows.length===0 ? <div style={{color:C.muted, fontSize:12, padding:"18px 0"}}>Sin datos.</div> :
+            rentRows.map((x,i)=>(
+              <div key={i} style={{display:"grid", gridTemplateColumns:"150px 1fr auto", alignItems:"center", gap:10, padding:"5px 0"}}>
+                <span style={{fontSize:12.5, color:C.text, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis"}}>{x.label}</span>
+                <div style={{height:15, borderRadius:5, background:C.cardAlt, overflow:"hidden"}}>
+                  <div style={{width:`${x.precioCaja/maxPrecio*100}%`, height:"100%", background:x.color, borderRadius:5}}/>
+                </div>
+                <span style={{fontSize:12.5, fontWeight:700, textAlign:"right", minWidth:80}}>{fmtUSD2(x.precioCaja)}</span>
+              </div>
+            ))
+          }
+        </div>
+
+        <div style={{fontSize:11, color:C.muted2, marginTop:14, textAlign:"center"}}>
+          Reporte #2 de la Fase 8 · agrupa {kpi.nLiq} liquidación{kpi.nLiq!==1?"es":""} por {GROUP_LABEL[groupBy]}. % s/FOB = comisión Frisku efectiva sobre FOB.
         </div>
       </>
       )}
@@ -5684,6 +5932,8 @@ export default function FriskuComercialModule({
             clientes={clientes}
             exportadoras={exportadoras}
             especies={especies}
+            mercados={mercados}
+            paises={paises}
             temporadas={temporadas}
           />
         )}
