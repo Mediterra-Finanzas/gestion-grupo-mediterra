@@ -4068,6 +4068,7 @@ const fmtN0   = (v) => new Intl.NumberFormat("es-CL",{maximumFractionDigits:0}).
 function ReportesTab({ liquidaciones, embarques, clientes, exportadoras, especies, mercados, paises, temporadas, programa, contratos }) {
   const [rep, setRep]       = useState("ingreso");   // "ingreso" | "rentabilidad" | "fcl"
   const [groupBy, setGroupBy] = useState("especie"); // especie | mercado | cliente (reporte #2)
+  const [fclGroup, setFclGroup] = useState("ambos"); // especie | cliente | ambos (reporte #3)
   const [temp, setTemp]     = useState("");   // "" = todas las temporadas
   const [estado, setEstado] = useState("");   // "" = todos los estados
   const [expPdf, setExpPdf] = useState(false);
@@ -4205,38 +4206,89 @@ function ReportesTab({ liquidaciones, embarques, clientes, exportadoras, especie
   const maxPrecio = Math.max(1, ...rentRows.map(x=>x.precioCaja));
 
   // ── Reporte #3: Programa vs Real en FCL (contenedores) ──
-  // Plan = FCL programados (frisku_programa.contenedoresFCL) agrupados por la
-  //   especie del Business Closure de cada semana.
+  // Plan = FCL programados (frisku_programa.contenedoresFCL) por especie/cliente
+  //   del Business Closure de cada semana.
   // Real = OEs marítimas embarcadas (cada OE marítima no cancelada = 1 FCL).
+  const FCL_GLBL = {especie:"especie", cliente:"cliente", ambos:"especie y cliente"};
+  const fclGlab = FCL_GLBL[fclGroup];
   const fclRows = useMemo(()=>{
-    const plan = {}, real = {};
+    const plan = {}, real = {}, meta = {};
+    const clave = (espCod, cliId) => {
+      const esp = especies.find(x=>x.codigo===espCod);
+      const cli = clientes.find(c=>c.id===cliId);
+      const eLab = esp ? `${esp.icono||""} ${esp.nombreEs}` : (espCod||"—");
+      const cLab = cli?.nombre || "— sin cliente —";
+      if(fclGroup==="cliente") return { k: cliId||"—", label: cLab, ec:null };
+      if(fclGroup==="ambos")   return { k:`${espCod||"—"}|${cliId||"—"}`, label:`${eLab} · ${cLab}`, ec:espCod };
+      return { k: espCod||"—", label: eLab, ec:espCod };
+    };
     (programa||[]).forEach(sem=>{
       const clo = (contratos||[]).find(c=>c.id===sem.closureId);
       if(temp && clo?.temporada && clo.temporada!==temp) return;
-      const esp = clo?.especieCodigo || "—";
-      plan[esp] = (plan[esp]||0) + (Number(sem.contenedoresFCL)||0);
+      const {k,label,ec} = clave(clo?.especieCodigo, clo?.clienteId);
+      plan[k] = (plan[k]||0) + (Number(sem.contenedoresFCL)||0);
+      if(!meta[k]) meta[k] = { label, color: ec ? (ESP_COLORS[ec]||C.blue) : C.blue };
     });
     (embarques||[]).forEach(oe=>{
       if((oe.estado||"borrador")==="cancelado") return;
       if(oe.tipoEmbarque && oe.tipoEmbarque!=="maritimo") return; // FCL = marítimo
       if(temp && oe.temporada && oe.temporada!==temp) return;
-      const esp = oe.especieCodigo || "—";
-      real[esp] = (real[esp]||0) + 1;
+      const {k,label,ec} = clave(oe.especieCodigo, oe.clienteId);
+      real[k] = (real[k]||0) + 1;
+      if(!meta[k]) meta[k] = { label, color: ec ? (ESP_COLORS[ec]||C.blue) : C.blue };
     });
-    const codes = new Set([...Object.keys(plan), ...Object.keys(real)]);
-    return Array.from(codes).map(cod=>{
-      const e = especies.find(x=>x.codigo===cod);
-      const p = plan[cod]||0, r = real[cod]||0;
-      return { cod, nombre: e?`${e.icono||""} ${e.nombreEs}`:cod, color:ESP_COLORS[cod]||C.blue,
+    const keys = new Set([...Object.keys(plan), ...Object.keys(real)]);
+    return Array.from(keys).map(k=>{
+      const p = plan[k]||0, r = real[k]||0;
+      return { cod:k, nombre:meta[k]?.label||k, color:meta[k]?.color||C.blue,
                plan:p, real:r, brecha:r-p, cumpl: p>0 ? r/p*100 : (r>0?100:0) };
-    }).filter(x=>x.plan>0||x.real>0).sort((a,b)=>b.plan-a.plan);
-  },[programa, contratos, embarques, especies, temp]);
+    }).filter(x=>x.plan>0||x.real>0).sort((a,b)=>(b.plan-a.plan)||(b.real-a.real));
+  },[programa, contratos, embarques, especies, clientes, temp, fclGroup]);
   const fclTot = useMemo(()=>{
     const plan = fclRows.reduce((s,x)=>s+x.plan,0);
     const real = fclRows.reduce((s,x)=>s+x.real,0);
     return { plan, real, brecha:real-plan, cumpl: plan>0 ? real/plan*100 : (real>0?100:0) };
   },[fclRows]);
   const maxFcl = Math.max(1, ...fclRows.map(x=>Math.max(x.plan,x.real)));
+
+  // ── Reporte #4: Pipeline de embarques (operativo) ──
+  const embFiltrados = useMemo(()=>(embarques||[]).filter(oe=> !temp || oe.temporada===temp),[embarques, temp]);
+  const PIPE_ESTADOS = [
+    {id:"borrador",   lab:"Borrador",   color:C.muted2},
+    {id:"confirmado", lab:"Confirmado", color:C.blue},
+    {id:"despachado", lab:"Despachado", color:C.green},
+    {id:"cancelado",  lab:"Cancelado",  color:C.accent},
+  ];
+  const pipe = useMemo(()=>{
+    const est = {borrador:0, confirmado:0, despachado:0, cancelado:0};
+    let maritimo=0, aereo=0, fcl=0, cajas=0;
+    embFiltrados.forEach(oe=>{
+      const e = oe.estado||"borrador"; est[e] = (est[e]||0)+1;
+      const via = oe.tipoEmbarque||"maritimo";
+      if(via==="aereo") aereo++; else maritimo++;
+      if(via!=="aereo" && e!=="cancelado") fcl++;
+      cajas += Object.values(oe.cajasPorFormato||{}).reduce((s,v)=>s+Number(v||0),0);
+    });
+    return { est, maritimo, aereo, fcl, cajas, total:embFiltrados.length };
+  },[embFiltrados]);
+  const proximos = useMemo(()=>embFiltrados
+    .filter(oe=>(oe.estado||"borrador")!=="cancelado")
+    .map(oe=>{
+      const cli = clientes.find(c=>c.id===oe.clienteId);
+      const exp = exportadoras.find(x=>x.id===oe.exportadoraId);
+      const esp = especies.find(x=>x.codigo===oe.especieCodigo);
+      return {
+        numero: oe.numero||"—", temporada:oe.temporada||"",
+        cliente: cli?.nombre||"—", exportadora: exp?.nombre||"—",
+        especie: esp?`${esp.icono||""} ${esp.nombreEs}`:(oe.especieCodigo||"—"),
+        via: (oe.tipoEmbarque||"maritimo")==="aereo"?"Aéreo":"Marítimo",
+        cont: oe.numeroContenedor||"—", origen:oe.origen||"—", destino:oe.destino||"—",
+        etd: oe.fechaDespacho||"", eta: oe.fechaETA||"", estado: oe.estado||"borrador",
+      };
+    })
+    .sort((a,b)=>(a.etd||"9999").localeCompare(b.etd||"9999")),
+  [embFiltrados, clientes, exportadoras, especies]);
+  const maxEst = Math.max(1, ...PIPE_ESTADOS.map(e=>pipe.est[e.id]||0));
 
   // ── Export Excel (ExcelJS · con logo Frisku) ──
   const exportarExcel = async () => {
@@ -4418,12 +4470,12 @@ function ReportesTab({ liquidaciones, embarques, clientes, exportadoras, especie
       const ExcelJS = await fr_loadExcelJS();
       const wb = new ExcelJS.Workbook();
       wb.creator = "Grupo Mediterra — Frisku Foods";
-      const sub = `Programa vs Real en FCL · ${tituloTemp} · ${new Date().toLocaleDateString("es-CL")}`;
+      const sub = `Programa vs Real en FCL · por ${fclGlab} · ${tituloTemp} · ${new Date().toLocaleDateString("es-CL")}`;
       const ws = wb.addWorksheet("Programa vs Real FCL");
       fr_sheetTabla(ws, {
         titulo:"FRISKU FOODS", subtitulo:sub,
-        headers:["Especie","FCL programados","FCL reales","Brecha","% cumplimiento"],
-        colWidths:[24,18,14,12,16], intCols:[1,2,3],
+        headers:[fclGlab.charAt(0).toUpperCase()+fclGlab.slice(1),"FCL programados","FCL reales","Brecha","% cumplimiento"],
+        colWidths:[30,18,14,12,16], intCols:[1,2,3],
         rows: fclRows.map(x=>[x.nombre, x.plan, x.real, x.brecha, Number(x.cumpl.toFixed(1))]),
         totalRow:["TOTAL", fclTot.plan, fclTot.real, fclTot.brecha, Number(fclTot.cumpl.toFixed(1))],
       });
@@ -4444,13 +4496,13 @@ function ReportesTab({ liquidaciones, embarques, clientes, exportadoras, especie
       doc.setTextColor(255,255,255); doc.setFontSize(15); doc.setFont("helvetica","bold");
       doc.text("Frisku · Programa vs Real (FCL)",m,12);
       doc.setFontSize(9); doc.setFont("helvetica","normal");
-      doc.text(`Temporada: ${tituloTemp} · ${new Date().toLocaleDateString("es-CL")}`,m,19);
+      doc.text(`Por ${fclGlab} · Temporada: ${tituloTemp} · ${new Date().toLocaleDateString("es-CL")}`,m,19);
       doc.autoTable({
         startY:32, theme:"striped",
         headStyles:{fillColor:[30,39,97],textColor:255,fontSize:8},
         styles:{fontSize:8,cellPadding:2},
         footStyles:{fillColor:[234,238,244],textColor:30,fontStyle:"bold"},
-        head:[["Especie","FCL prog.","FCL real","Brecha","% cumpl."]],
+        head:[[fclGlab.charAt(0).toUpperCase()+fclGlab.slice(1),"FCL prog.","FCL real","Brecha","% cumpl."]],
         body: fclRows.length ? fclRows.map(x=>[x.nombre, fmtN0(x.plan), fmtN0(x.real), (x.brecha>0?"+":"")+fmtN0(x.brecha), x.cumpl.toFixed(1)+"%"]) : [["Sin datos","","","",""]],
         foot: [["TOTAL", fmtN0(fclTot.plan), fmtN0(fclTot.real), (fclTot.brecha>0?"+":"")+fmtN0(fclTot.brecha), fclTot.cumpl.toFixed(1)+"%"]],
         columnStyles:{1:{halign:"right"},2:{halign:"right"},3:{halign:"right"},4:{halign:"right"}},
@@ -4464,9 +4516,84 @@ function ReportesTab({ liquidaciones, embarques, clientes, exportadoras, especie
     setExpPdf(false);
   };
 
+  // ── Export reporte #4 (Pipeline de embarques) → Excel ──
+  const exportarPipeExcel = async () => {
+    setExpXls(true);
+    try {
+      const ExcelJS = await fr_loadExcelJS();
+      const wb = new ExcelJS.Workbook();
+      wb.creator = "Grupo Mediterra — Frisku Foods";
+      const sub = `Pipeline de embarques · ${tituloTemp} · ${new Date().toLocaleDateString("es-CL")}`;
+      // Resumen
+      const wsR = wb.addWorksheet("Resumen");
+      fr_sheetTabla(wsR, {
+        titulo:"FRISKU FOODS", subtitulo:sub,
+        headers:["Indicador","Valor"], colWidths:[26,16], intCols:[1],
+        rows:[
+          ["Embarques totales", pipe.total],
+          ["Marítimos", pipe.maritimo],
+          ["Aéreos", pipe.aereo],
+          ["Contenedores (FCL)", pipe.fcl],
+          ["Cajas totales", pipe.cajas],
+          ["Borrador", pipe.est.borrador||0],
+          ["Confirmado", pipe.est.confirmado||0],
+          ["Despachado", pipe.est.despachado||0],
+          ["Cancelado", pipe.est.cancelado||0],
+        ],
+      });
+      await fr_logoExcel(wb, wsR);
+      // Detalle
+      fr_sheetTabla(wb.addWorksheet("Embarques"), {
+        titulo:"Embarques", subtitulo:sub,
+        headers:["N°","Temp.","Cliente","Exportadora","Especie","Vía","Contenedor","Origen","Destino","ETD","ETA","Estado"],
+        colWidths:[12,10,22,22,16,10,14,14,14,11,11,11],
+        rows: proximos.map(x=>[x.numero,x.temporada,x.cliente,x.exportadora,x.especie,x.via,x.cont,x.origen,x.destino,x.etd,x.eta,x.estado]),
+      });
+      await fr_descargarWB(wb, `Frisku_Pipeline_Embarques_${(temp||"todas").replace(/\W+/g,"-")}_${new Date().toISOString().slice(0,10)}.xlsx`);
+    } catch(e){ console.error("[Reportes] Excel pipe:",e); alert("No se pudo generar el Excel: "+e.message); }
+    setExpXls(false);
+  };
+  // ── Export reporte #4 (Pipeline) → PDF ──
+  const exportarPipePDF = async () => {
+    setExpPdf(true);
+    try {
+      const JsPDF = await pl_loadJsPDF();
+      const doc = new JsPDF({orientation:"landscape", unit:"mm", format:"a4"});
+      const W=297, m=12;
+      doc.setFillColor(30,39,97); doc.rect(0,0,W,24,"F");
+      await fr_logoPDF(doc, W-m, 4, 42, 15);
+      doc.setTextColor(255,255,255); doc.setFontSize(15); doc.setFont("helvetica","bold");
+      doc.text("Frisku · Pipeline de embarques",m,11);
+      doc.setFontSize(9); doc.setFont("helvetica","normal");
+      doc.text(`Temporada: ${tituloTemp} · ${new Date().toLocaleDateString("es-CL")}`,m,18);
+      doc.autoTable({
+        startY:28, theme:"grid",
+        headStyles:{fillColor:[45,58,82],textColor:255,fontStyle:"bold",fontSize:8},
+        styles:{fontSize:8,cellPadding:2},
+        head:[["Total","Marítimo","Aéreo","FCL","Cajas","Borrador","Confirmado","Despachado","Cancelado"]],
+        body:[[fmtN0(pipe.total),fmtN0(pipe.maritimo),fmtN0(pipe.aereo),fmtN0(pipe.fcl),fmtN0(pipe.cajas),
+               fmtN0(pipe.est.borrador||0),fmtN0(pipe.est.confirmado||0),fmtN0(pipe.est.despachado||0),fmtN0(pipe.est.cancelado||0)]],
+        margin:{left:m,right:m}, columnStyles:Object.fromEntries([0,1,2,3,4,5,6,7,8].map(i=>[i,{halign:"right"}])),
+      });
+      let y = doc.lastAutoTable.finalY + 6;
+      doc.setTextColor(30,39,97); doc.setFontSize(10); doc.setFont("helvetica","bold");
+      doc.text("Detalle de embarques (por ETD)",m,y); y+=2;
+      doc.autoTable({
+        startY:y, theme:"striped",
+        headStyles:{fillColor:[30,39,97],textColor:255,fontSize:7.5},
+        styles:{fontSize:7.5,cellPadding:1.6},
+        head:[["N°","Cliente","Exportadora","Especie","Vía","Contenedor","Origen","Destino","ETD","ETA","Estado"]],
+        body: proximos.length ? proximos.map(x=>[x.numero,x.cliente,x.exportadora,x.especie,x.via,x.cont,x.origen,x.destino,x.etd,x.eta,x.estado]) : [["Sin embarques","","","","","","","","","",""]],
+        margin:{left:m,right:m},
+      });
+      doc.save(`Frisku_Pipeline_Embarques_${(temp||"todas").replace(/\W+/g,"-")}_${new Date().toISOString().slice(0,10)}.pdf`);
+    } catch(e){ console.error("[Reportes] PDF pipe:",e); alert("No se pudo generar el PDF: "+e.message); }
+    setExpPdf(false);
+  };
+
   // Dispatchers según el reporte activo
-  const doExcel = () => rep==="ingreso" ? exportarExcel() : rep==="rentabilidad" ? exportarRentExcel() : exportarFclExcel();
-  const doPDF   = () => rep==="ingreso" ? exportarPDF()   : rep==="rentabilidad" ? exportarRentPDF()   : exportarFclPDF();
+  const doExcel = () => rep==="ingreso" ? exportarExcel() : rep==="rentabilidad" ? exportarRentExcel() : rep==="fcl" ? exportarFclExcel() : exportarPipeExcel();
+  const doPDF   = () => rep==="ingreso" ? exportarPDF()   : rep==="rentabilidad" ? exportarRentPDF()   : rep==="fcl" ? exportarFclPDF()   : exportarPipePDF();
 
   const kpiCard = (lab, val, color, sub) => (
     <div style={{background:C.card, border:`1px solid ${C.border}`, borderRadius:12, padding:"12px 14px", boxShadow:C.shadowSm}}>
@@ -4478,16 +4605,20 @@ function ReportesTab({ liquidaciones, embarques, clientes, exportadoras, especie
 
   const sinDatos = rep==="fcl"
     ? ((programa||[]).length===0 && (embarques||[]).length===0)
+    : rep==="pipeline"
+    ? (embarques||[]).length===0
     : liquidaciones.length === 0;
   const msgVacio = rep==="fcl"
     ? "Aún no hay programa ni embarques cargados. El reporte se puebla al registrar semanas de programa (con FCL) y órdenes de embarque marítimas."
+    : rep==="pipeline"
+    ? "Aún no hay órdenes de embarque cargadas. El pipeline se puebla desde la pestaña 🚢 Embarques."
     : "Aún no hay liquidaciones cargadas. El reporte se puebla automáticamente a medida que se registran liquidaciones en la pestaña 💰 Liquidaciones.";
 
   return (
     <div>
       {/* Selector de reporte */}
       <div style={{display:"flex", gap:6, marginBottom:14, flexWrap:"wrap"}}>
-        {[{id:"ingreso",lab:"💰 Ingreso por temporada"},{id:"rentabilidad",lab:"📊 Rentabilidad"},{id:"fcl",lab:"🚢 Programa vs Real (FCL)"}].map(r=>(
+        {[{id:"ingreso",lab:"💰 Ingreso por temporada"},{id:"rentabilidad",lab:"📊 Rentabilidad"},{id:"fcl",lab:"🚢 Programa vs Real (FCL)"},{id:"pipeline",lab:"📦 Pipeline embarques"}].map(r=>(
           <button key={r.id} onClick={()=>setRep(r.id)} style={{
             padding:"7px 14px", borderRadius:8, cursor:"pointer", fontSize:12, fontWeight:rep===r.id?700:500,
             border:`1px solid ${rep===r.id?C.blue:C.border}`,
@@ -4505,21 +4636,33 @@ function ReportesTab({ liquidaciones, embarques, clientes, exportadoras, especie
             {(tempsDisponibles.length?tempsDisponibles:temporadas.map(t=>t.codigo||t)).map(t=><option key={t} value={t}>{t}</option>)}
           </select>
         </div>
-        <div>
-          <div style={lblSt}>Estado</div>
-          <select value={estado} onChange={e=>setEstado(e.target.value)} style={{...inputSt, minWidth:140}}>
-            <option value="">— Todos —</option>
-            <option value="borrador">Borrador</option>
-            <option value="enviada">Enviada</option>
-            <option value="pagada">Pagada</option>
-          </select>
-        </div>
+        {(rep==="ingreso"||rep==="rentabilidad") && (
+          <div>
+            <div style={lblSt}>Estado</div>
+            <select value={estado} onChange={e=>setEstado(e.target.value)} style={{...inputSt, minWidth:140}}>
+              <option value="">— Todos —</option>
+              <option value="borrador">Borrador</option>
+              <option value="enviada">Enviada</option>
+              <option value="pagada">Pagada</option>
+            </select>
+          </div>
+        )}
         {rep==="rentabilidad" && (
           <div>
             <div style={lblSt}>Agrupar por</div>
             <select value={groupBy} onChange={e=>setGroupBy(e.target.value)} style={{...inputSt, minWidth:140}}>
               <option value="especie">Especie</option>
               <option value="mercado">Mercado</option>
+              <option value="cliente">Cliente</option>
+            </select>
+          </div>
+        )}
+        {rep==="fcl" && (
+          <div>
+            <div style={lblSt}>Agrupar por</div>
+            <select value={fclGroup} onChange={e=>setFclGroup(e.target.value)} style={{...inputSt, minWidth:160}}>
+              <option value="ambos">Especie + Cliente</option>
+              <option value="especie">Especie</option>
               <option value="cliente">Cliente</option>
             </select>
           </div>
@@ -4679,7 +4822,7 @@ function ReportesTab({ liquidaciones, embarques, clientes, exportadoras, especie
           Reporte #2 de la Fase 8 · agrupa {kpi.nLiq} liquidación{kpi.nLiq!==1?"es":""} por {GROUP_LABEL[groupBy]}. % s/FOB = comisión Frisku efectiva sobre FOB.
         </div>
       </>
-      ) : (
+      ) : rep==="fcl" ? (
       <>
         {/* KPIs (FCL) */}
         <div style={{display:"grid", gridTemplateColumns:"repeat(auto-fit, minmax(150px,1fr))", gap:12, marginBottom:16}}>
@@ -4689,9 +4832,9 @@ function ReportesTab({ liquidaciones, embarques, clientes, exportadoras, especie
           {kpiCard("Cumplimiento", fclTot.cumpl.toFixed(0)+"%", fclTot.cumpl>=100?C.green:fclTot.cumpl>=80?C.yellow:C.accent)}
         </div>
 
-        {/* Gráfico Plan vs Real por especie */}
+        {/* Gráfico Plan vs Real por {fclGlab} */}
         <div style={{background:C.card, border:`1px solid ${C.border}`, borderRadius:14, padding:16, boxShadow:C.shadowSm, marginBottom:14}}>
-          <div style={{fontSize:14, fontWeight:700, marginBottom:2}}>Programa vs Real por especie</div>
+          <div style={{fontSize:14, fontWeight:700, marginBottom:2}}>Programa vs Real por {fclGlab}</div>
           <div style={{fontSize:11, color:C.muted, marginBottom:12}}>contenedores (FCL) · {tituloTemp}</div>
           {fclRows.length===0 ? <div style={{color:C.muted, fontSize:12, padding:"18px 0"}}>Sin datos de programa ni embarques marítimos.</div> :
             fclRows.map(x=>(
@@ -4722,10 +4865,10 @@ function ReportesTab({ liquidaciones, embarques, clientes, exportadoras, especie
 
         {/* Tabla FCL */}
         <div style={{background:C.card, border:`1px solid ${C.border}`, borderRadius:14, padding:16, boxShadow:C.shadowSm, overflowX:"auto"}}>
-          <div style={{fontSize:14, fontWeight:700, marginBottom:10}}>Detalle por especie</div>
+          <div style={{fontSize:14, fontWeight:700, marginBottom:10}}>Detalle por {fclGlab}</div>
           <table style={{width:"100%", borderCollapse:"collapse", fontSize:12.5, fontVariantNumeric:"tabular-nums"}}>
             <thead><tr style={{background:C.primary}}>
-              {["Especie","FCL prog.","FCL real","Brecha","% cumpl."].map((h,i)=>(
+              {[fclGlab.charAt(0).toUpperCase()+fclGlab.slice(1),"FCL prog.","FCL real","Brecha","% cumpl."].map((h,i)=>(
                 <th key={h} style={{padding:"7px 10px", textAlign:i===0?"left":"right", color:C.primaryText, fontWeight:700, fontSize:10.5}}>{h}</th>
               ))}
             </tr></thead>
@@ -4751,7 +4894,90 @@ function ReportesTab({ liquidaciones, embarques, clientes, exportadoras, especie
         </div>
 
         <div style={{fontSize:11, color:C.muted2, marginTop:14, textAlign:"center"}}>
-          Reporte #3 de la Fase 8 · FCL real = OEs marítimas no canceladas (1 OE = 1 contenedor). Plan = contenedores del programa comercial por especie.
+          Reporte #3 de la Fase 8 · agrupado por {fclGlab} · FCL real = OEs marítimas no canceladas (1 OE = 1 contenedor). Plan = contenedores del programa comercial.
+        </div>
+      </>
+      ) : (
+      <>
+        {/* KPIs (pipeline) */}
+        <div style={{display:"grid", gridTemplateColumns:"repeat(auto-fit, minmax(140px,1fr))", gap:12, marginBottom:16}}>
+          {kpiCard("Embarques", fmtN0(pipe.total), C.text)}
+          {kpiCard("Marítimos", fmtN0(pipe.maritimo), C.blue, `${fmtN0(pipe.aereo)} aéreos`)}
+          {kpiCard("Contenedores", fmtN0(pipe.fcl), C.teal, "FCL activos")}
+          {kpiCard("Cajas", fmtN0(pipe.cajas), C.text)}
+          {kpiCard("Despachados", fmtN0(pipe.est.despachado||0), C.green, `${fmtN0(pipe.est.confirmado||0)} confirmados`)}
+        </div>
+
+        {/* Embudo por estado + vía */}
+        <div style={{display:"grid", gridTemplateColumns:"repeat(auto-fit, minmax(300px,1fr))", gap:14, marginBottom:14}}>
+          <div style={{background:C.card, border:`1px solid ${C.border}`, borderRadius:14, padding:16, boxShadow:C.shadowSm}}>
+            <div style={{fontSize:14, fontWeight:700, marginBottom:12}}>Embarques por estado</div>
+            {PIPE_ESTADOS.map(e=>{
+              const n = pipe.est[e.id]||0;
+              return (
+                <div key={e.id} style={{display:"grid", gridTemplateColumns:"110px 1fr auto", alignItems:"center", gap:10, padding:"5px 0"}}>
+                  <span style={{fontSize:12.5, color:C.text}}>{e.lab}</span>
+                  <div style={{height:16, borderRadius:5, background:C.cardAlt, overflow:"hidden"}}>
+                    <div style={{width:`${n/maxEst*100}%`, height:"100%", background:e.color, borderRadius:5}}/>
+                  </div>
+                  <span style={{fontSize:12.5, fontWeight:700, textAlign:"right", minWidth:36}}>{fmtN0(n)}</span>
+                </div>
+              );
+            })}
+          </div>
+          <div style={{background:C.card, border:`1px solid ${C.border}`, borderRadius:14, padding:16, boxShadow:C.shadowSm}}>
+            <div style={{fontSize:14, fontWeight:700, marginBottom:12}}>Vía de embarque</div>
+            {[{lab:"🚢 Marítimo",n:pipe.maritimo,color:C.blue},{lab:"✈️ Aéreo",n:pipe.aereo,color:C.teal}].map((v,i)=>{
+              const tot = pipe.maritimo+pipe.aereo || 1;
+              return (
+                <div key={i} style={{display:"grid", gridTemplateColumns:"110px 1fr auto", alignItems:"center", gap:10, padding:"5px 0"}}>
+                  <span style={{fontSize:12.5, color:C.text}}>{v.lab}</span>
+                  <div style={{height:16, borderRadius:5, background:C.cardAlt, overflow:"hidden"}}>
+                    <div style={{width:`${v.n/tot*100}%`, height:"100%", background:v.color, borderRadius:5}}/>
+                  </div>
+                  <span style={{fontSize:12.5, fontWeight:700, textAlign:"right", minWidth:60}}>{fmtN0(v.n)} <span style={{color:C.muted, fontWeight:500}}>{(v.n/tot*100).toFixed(0)}%</span></span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Tabla de embarques */}
+        <div style={{background:C.card, border:`1px solid ${C.border}`, borderRadius:14, padding:16, boxShadow:C.shadowSm, overflowX:"auto"}}>
+          <div style={{fontSize:14, fontWeight:700, marginBottom:10}}>Embarques (orden por ETD)</div>
+          <table style={{width:"100%", borderCollapse:"collapse", fontSize:12, fontVariantNumeric:"tabular-nums", whiteSpace:"nowrap"}}>
+            <thead><tr style={{background:C.primary}}>
+              {["N°","Cliente","Especie","Vía","Contenedor","Origen → Destino","ETD","ETA","Estado"].map((h,i)=>(
+                <th key={h} style={{padding:"7px 9px", textAlign:"left", color:C.primaryText, fontWeight:700, fontSize:10.5}}>{h}</th>
+              ))}
+            </tr></thead>
+            <tbody>
+              {proximos.length===0 ? <tr><td colSpan={9} style={{padding:16, color:C.muted, textAlign:"center"}}>Sin embarques activos.</td></tr> :
+                proximos.map((x,i)=>{
+                  const est = PIPE_ESTADOS.find(e=>e.id===x.estado);
+                  return (
+                    <tr key={i} style={{background:i%2?C.rowAlt:C.card, borderBottom:`1px solid ${C.border}`}}>
+                      <td style={{padding:"6px 9px", fontFamily:"monospace", fontWeight:700, color:C.text}}>{x.numero}</td>
+                      <td style={{padding:"6px 9px", color:C.text}}>{x.cliente}</td>
+                      <td style={{padding:"6px 9px"}}>{x.especie}</td>
+                      <td style={{padding:"6px 9px"}}>{x.via}</td>
+                      <td style={{padding:"6px 9px", fontFamily:"monospace", color:C.muted}}>{x.cont}</td>
+                      <td style={{padding:"6px 9px", color:C.muted}}>{x.origen} → {x.destino}</td>
+                      <td style={{padding:"6px 9px", fontFamily:"monospace"}}>{x.etd||"—"}</td>
+                      <td style={{padding:"6px 9px", fontFamily:"monospace"}}>{x.eta||"—"}</td>
+                      <td style={{padding:"6px 9px"}}>
+                        <span style={{fontSize:10, fontWeight:700, padding:"2px 8px", borderRadius:10, background:`${est?.color||C.muted}22`, color:est?.color||C.muted}}>{est?.lab||x.estado}</span>
+                      </td>
+                    </tr>
+                  );
+                })
+              }
+            </tbody>
+          </table>
+        </div>
+
+        <div style={{fontSize:11, color:C.muted2, marginTop:14, textAlign:"center"}}>
+          Reporte #4 de la Fase 8 · pipeline operativo de {pipe.total} embarque{pipe.total!==1?"s":""} de la temporada. Cancelados excluidos del detalle.
         </div>
       </>
       )}
