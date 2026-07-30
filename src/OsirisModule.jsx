@@ -9693,6 +9693,155 @@ async function exportarViveros(vivData) {
 }
 
 // ══════════════════════════════════════════════════════════
+// MÓDULO REPORTES / BI OSIRIS
+// ══════════════════════════════════════════════════════════
+function ReportesOsiris({rpData=[],rcData=[],feData=[],fvData=[],ctData=[],obtentoresData=[],viverosData=[]}) {
+  const [tab,setTab]=useState("ingresos");
+  const [fPais,setFPais]=useState("Todos");
+  const [fCliente,setFCliente]=useState("");
+  const money=v=>"$"+N((Number(v)||0).toFixed(0));
+  const mF=x=>Number(x.montoFact??x.monto??x.montoUSD??0);
+  const mC=x=>Number(x.montoCobro??x.montoFact??x.monto??x.montoUSD??0);
+  const est=x=>resolveEstadoCF(x);
+  const anioDe=x=> x.añoCobro || (String(x.fechaEvento||x.fechaPago||x.fecha||"").slice(0,4)) || "s/f";
+  const nombreDe=x=> x.cliente || x.empresa || x.razonSocial || "—";
+  const filtra=arr=>arr.filter(x=>(fPais==="Todos"||x.pais===fPais) && (!fCliente||nombreDe(x).toLowerCase().includes(fCliente.toLowerCase())));
+
+  const paises=["Todos",...Array.from(new Set([...rpData,...rcData,...feData].map(x=>x.pais).filter(Boolean))).sort()];
+
+  const conceptos=[
+    {k:"Contract Fee", data:filtra(feData), col:"#ca8a04"},
+    {k:"Royalty Planta", data:filtra(rpData), col:"#16a34a"},
+    {k:"Royalty Comercial", data:filtra(rcData), col:"#7c3aed"},
+    {k:"Fee Vivero", data:filtra(fvData), col:"#0ea5e9"},
+  ];
+
+  // KPIs globales
+  const totF=conceptos.reduce((s,c)=>s+c.data.reduce((a,x)=>a+mF(x),0),0);
+  const totC=conceptos.reduce((s,c)=>s+c.data.reduce((a,x)=>a+mC(x),0),0);
+  const totPag=conceptos.reduce((s,c)=>s+c.data.filter(x=>est(x)==="pagado").reduce((a,x)=>a+mC(x),0),0);
+  const totPorCobrar=totC-totPag;
+
+  const barra=(items,fmt=money)=>{ const max=Math.max(1,...items.map(i=>i.value)); return (
+    <div style={{display:"flex",flexDirection:"column",gap:6}}>
+      {items.map(i=>(
+        <div key={i.label} style={{display:"flex",alignItems:"center",gap:8}}>
+          <div style={{width:150,fontSize:11,color:C.text,textAlign:"right",flexShrink:0}}>{i.label}</div>
+          <div style={{flex:1,background:C.cardAlt,borderRadius:6,height:20,position:"relative",overflow:"hidden"}}>
+            <div style={{width:`${(i.value/max)*100}%`,background:i.color||C.primary,height:"100%",borderRadius:6,transition:"width .3s"}}/>
+          </div>
+          <div style={{width:110,fontSize:11,fontWeight:700,color:C.text,textAlign:"right",flexShrink:0}}>{fmt(i.value)}</div>
+        </div>
+      ))}
+    </div>
+  );};
+
+  const KPI=({l,v,c})=>(<div style={{background:C.card,border:`1px solid ${C.border}`,borderLeft:`4px solid ${c}`,borderRadius:10,padding:"10px 14px",minWidth:150}}>
+    <div style={{fontSize:10,color:C.muted,fontWeight:600}}>{l}</div><div style={{fontSize:18,fontWeight:800,color:c}}>{v}</div></div>);
+  const Tabla=({headers,rows})=>(<div style={{overflowX:"auto",minWidth:0,maxWidth:"calc(100vw - 40px)"}}><table style={{width:"100%",borderCollapse:"collapse",fontSize:11}}>
+    <thead><tr style={{background:C.primary}}>{headers.map(h=><th key={h} style={{padding:"6px 8px",textAlign:"left",fontSize:10,fontWeight:700,color:C.primaryText,whiteSpace:"nowrap"}}>{h}</th>)}</tr></thead>
+    <tbody>{rows.map((r,i)=><tr key={i} style={{borderBottom:"1px solid #f1f5f9",background:i%2?C.cardAlt:"#fff"}}>{r.map((c,j)=><td key={j} style={{padding:"5px 8px",whiteSpace:"nowrap"}}>{c}</td>)}</tr>)}</tbody></table></div>);
+
+  const Card=({title,children,onExport})=>(<div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,padding:16,marginBottom:16}}>
+    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10,flexWrap:"wrap",gap:8}}>
+      <div style={{fontSize:14,fontWeight:800,color:C.text}}>{title}</div>
+      {onExport&&<button onClick={onExport} style={{background:C.success,color:"#fff",border:"none",borderRadius:8,padding:"6px 12px",cursor:"pointer",fontSize:12,fontWeight:700}}>📥 Excel</button>}
+    </div>{children}</div>);
+
+  const TABS=[{id:"ingresos",l:"💰 Ingresos"},{id:"cobranza",l:"🧾 Cobranza / Aging"},{id:"produccion",l:"🌱 Producción"},{id:"obtentores",l:"🧬 Pago Obtentores"}];
+
+  return (
+    <div style={{maxWidth:1200,margin:"0 auto"}}>
+      <div style={{fontSize:22,fontWeight:900,color:C.text,marginBottom:4}}>📊 Reportes / BI</div>
+      <div style={{fontSize:11,color:C.muted,marginBottom:14}}>Vistas analíticas sobre los ingresos y la operación de Osiris.</div>
+      {/* Tabs + filtros */}
+      <div style={{display:"flex",gap:6,marginBottom:12,flexWrap:"wrap",alignItems:"center"}}>
+        {TABS.map(t=><button key={t.id} onClick={()=>setTab(t.id)} style={{padding:"7px 14px",borderRadius:8,border:"none",cursor:"pointer",fontWeight:700,fontSize:12,background:tab===t.id?"#0f2d4a":"#fff",color:tab===t.id?"#fff":C.sl,boxShadow:"0 1px 4px #0001"}}>{t.l}</button>)}
+        <div style={{marginLeft:"auto",display:"flex",gap:6,alignItems:"center",flexWrap:"wrap"}}>
+          <select value={fPais} onChange={e=>setFPais(e.target.value)} style={{padding:"6px 10px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:12}}>{paises.map(p=><option key={p}>{p}</option>)}</select>
+          <input value={fCliente} onChange={e=>setFCliente(e.target.value)} placeholder="🔎 Cliente..." style={{padding:"6px 10px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:12,minWidth:150}}/>
+        </div>
+      </div>
+
+      {tab==="ingresos"&&(()=>{
+        const porConcepto=conceptos.map(c=>({label:c.k,value:c.data.reduce((a,x)=>a+mF(x),0),color:c.col}));
+        // por año
+        const anios={}; conceptos.forEach(c=>c.data.forEach(x=>{ const y=anioDe(x); anios[y]=(anios[y]||0)+mF(x); }));
+        const porAnio=Object.keys(anios).sort().map(y=>({label:y,value:anios[y],color:C.primary}));
+        const rows=conceptos.map(c=>{ const f=c.data.reduce((a,x)=>a+mF(x),0), co=c.data.reduce((a,x)=>a+mC(x),0), pg=c.data.filter(x=>est(x)==="pagado").reduce((a,x)=>a+mC(x),0);
+          return [c.k, money(f), money(co), money(pg), money(co-pg)]; });
+        const exp=()=>exportCSV(rows,["Concepto","Facturado","Neto (cobro)","Pagado","Por cobrar"],"Reporte_Ingresos_Osiris",{tituloDoc:"Ingresos por concepto"});
+        return (<>
+          <div style={{display:"flex",gap:10,flexWrap:"wrap",marginBottom:14}}>
+            <KPI l="Facturado" v={money(totF)} c={C.text}/><KPI l="Neto (cobro)" v={money(totC)} c={C.primary}/>
+            <KPI l="Pagado" v={money(totPag)} c={C.success}/><KPI l="Por cobrar" v={money(totPorCobrar)} c={C.warning}/></div>
+          <Card title="Facturado por concepto">{barra(porConcepto)}</Card>
+          <Card title="Facturado por año">{barra(porAnio)}</Card>
+          <Card title="Detalle por concepto" onExport={exp}><Tabla headers={["Concepto","Facturado","Neto (cobro)","Pagado","Por cobrar"]} rows={rows}/></Card>
+        </>);
+      })()}
+
+      {tab==="cobranza"&&(()=>{
+        const todos=[...filtra(feData).map(x=>({...x,_c:"Contract Fee"})),...filtra(rpData).map(x=>({...x,_c:"Royalty Planta"})),...filtra(rcData).map(x=>({...x,_c:"Royalty Comercial"})),...filtra(fvData).map(x=>({...x,_c:"Fee Vivero"}))];
+        const porEstado={}; todos.forEach(x=>{ const e=ESTADOS_CF[est(x)]?.lbl||"Por cobrar"; porEstado[e]=(porEstado[e]||0)+mC(x); });
+        const estItems=Object.keys(porEstado).map(e=>({label:e,value:porEstado[e],color:C.primary}));
+        // Aging de lo no pagado
+        const hoy=new Date(); const buckets={"0-30":0,"31-60":0,"61-90":0,">90":0};
+        todos.filter(x=>est(x)!=="pagado"&&est(x)!=="anulado").forEach(x=>{ const f=x.fechaEvento||x.fecha||x.fechaPago; if(!f){buckets[">90"]+=mC(x);return;} const d=Math.floor((hoy-new Date(f))/86400000); const b=d<=30?"0-30":d<=60?"31-60":d<=90?"61-90":">90"; buckets[b]+=mC(x); });
+        const agingItems=Object.keys(buckets).map(b=>({label:b+" días",value:buckets[b],color:b===">90"?C.danger:b==="61-90"?C.warning:C.primary}));
+        // por cliente pendiente
+        const porCli={}; todos.filter(x=>est(x)!=="pagado"&&est(x)!=="anulado").forEach(x=>{ const n=nombreDe(x); porCli[n]=(porCli[n]||0)+mC(x); });
+        const cliRows=Object.entries(porCli).sort((a,b)=>b[1]-a[1]).map(([n,v])=>[n,money(v)]);
+        const exp=()=>exportCSV(cliRows,["Cliente","Pendiente (neto)"],"Reporte_Cobranza_Osiris",{tituloDoc:"Cobranza / aging"});
+        return (<>
+          <div style={{display:"flex",gap:10,flexWrap:"wrap",marginBottom:14}}>
+            <KPI l="Total pendiente" v={money(totPorCobrar)} c={C.warning}/><KPI l=">90 días" v={money(buckets[">90"])} c={C.danger}/></div>
+          <Card title="Por estado de cobro">{barra(estItems)}</Card>
+          <Card title="Antigüedad de la deuda (aging)">{barra(agingItems)}</Card>
+          <Card title="Pendiente por cliente" onExport={exp}><Tabla headers={["Cliente","Pendiente (neto)"]} rows={cliRows}/></Card>
+        </>);
+      })()}
+
+      {tab==="produccion"&&(()=>{
+        const desp=[]; viverosData.forEach(v=>(v.ordenesCompra||[]).forEach(oc=>(oc.despachos||[]).forEach(d=>{
+          if(fCliente && !((oc.cliente_nombre||"").toLowerCase().includes(fCliente.toLowerCase()))) return;
+          desp.push({cliente:oc.cliente_nombre||"", especie:d.especie||"", variedad:d.variedad||"", plantas:Number(d.cantidad_despachada)||0, ha:Number(d.ha_plantadas)||0, tipo:d.tipo||"Comercial", temp:temporadaDeFecha(d.fecha_plantacion)||"s/f"}); })));
+        const totPl=desp.reduce((s,d)=>s+d.plantas,0), totHa=desp.reduce((s,d)=>s+d.ha,0);
+        const comPl=desp.filter(d=>d.tipo!=="Prueba").reduce((s,d)=>s+d.plantas,0), pruPl=totPl-comPl;
+        const porEsp={}; desp.forEach(d=>{ porEsp[d.especie||"—"]=(porEsp[d.especie||"—"]||0)+d.plantas; });
+        const espItems=Object.entries(porEsp).sort((a,b)=>b[1]-a[1]).map(([e,v])=>({label:e,value:v,color:C.success}));
+        const porTemp={}; desp.forEach(d=>{ porTemp[d.temp]=(porTemp[d.temp]||0)+d.ha; });
+        const tempRows=Object.keys(porTemp).sort().map(t=>[t,N(porTemp[t].toFixed(2))]);
+        const detRows=desp.map(d=>[d.cliente,d.especie,d.variedad,d.tipo,N(d.plantas),N(d.ha.toFixed(2)),d.temp]);
+        const exp=()=>exportCSV(detRows,["Cliente","Especie","Variedad","Tipo","Plantas","Há","Temporada"],"Reporte_Produccion_Osiris",{tituloDoc:"Producción (despachos)"});
+        return (<>
+          <div style={{display:"flex",gap:10,flexWrap:"wrap",marginBottom:14}}>
+            <KPI l="Plantas despachadas" v={N(totPl)} c={C.success}/><KPI l="Hectáreas" v={N(totHa.toFixed(2))} c={C.purple}/>
+            <KPI l="Comercial (pl)" v={N(comPl)} c={C.primary}/><KPI l="Prueba (pl)" v={N(pruPl)} c={C.am}/></div>
+          <Card title="Plantas por especie">{barra(espItems,N)}</Card>
+          <Card title="Há por temporada de plantación"><Tabla headers={["Temporada","Há"]} rows={tempRows}/></Card>
+          <Card title="Detalle de despachos" onExport={exp}><Tabla headers={["Cliente","Especie","Variedad","Tipo","Plantas","Há","Temporada"]} rows={detRows}/></Card>
+        </>);
+      })()}
+
+      {tab==="obtentores"&&(()=>{
+        const rows=obtentoresData.map(o=>{ const d=calcularDeudaObtentor(o,ctData,feData,rpData,rcData); return {o, ...d}; });
+        const totNeto=rows.reduce((s,r)=>s+(Number(r.netoAPagar)||0),0), totBruto=rows.reduce((s,r)=>s+(Number(r.deudaBruta)||0),0), totWht=rows.reduce((s,r)=>s+(Number(r.whtTotal)||0),0);
+        const items=rows.map(r=>({label:r.o.obtentor||"—",value:Number(r.netoAPagar)||0,color:C.purple}));
+        const tRows=rows.map(r=>[r.o.obtentor||"—", money(r.deudaBruta), money(r.whtTotal), money(r.netoAPagar)]);
+        const exp=()=>exportCSV(tRows,["Obtentor","Bruto","WHT","Neto a pagar"],"Reporte_Obtentores_Osiris",{tituloDoc:"Pago a obtentores"});
+        return (<>
+          <div style={{display:"flex",gap:10,flexWrap:"wrap",marginBottom:14}}>
+            <KPI l="Bruto obtentores" v={money(totBruto)} c={C.text}/><KPI l="Retención (WHT)" v={money(totWht)} c={C.danger}/><KPI l="Neto a pagar" v={money(totNeto)} c={C.purple}/></div>
+          <Card title="Neto a pagar por obtentor">{barra(items)}</Card>
+          <Card title="Detalle por obtentor" onExport={exp}><Tabla headers={["Obtentor","Bruto","WHT","Neto a pagar"]} rows={tRows}/></Card>
+        </>);
+      })()}
+    </div>
+  );
+}
+
+// ══════════════════════════════════════════════════════════
 // COMPONENTE PRINCIPAL — Hub Osiris mejorado
 // ══════════════════════════════════════════════════════════
 export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPermisos={},onBack,onLogout}) {
@@ -10187,10 +10336,12 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
               return <span style={{fontSize:10,background:C.successBg,color:C.success,padding:"3px 10px",borderRadius:20,fontWeight:700}}>{arr.length} viveros</span>;}},
           opTecnica: {emoji:"🔬",label:"Operación Técnica",desc:"Visitas, informes, equipo técnico, entregables",grad:"#0ea5e922",border:"#0ea5e944",
             onClick:()=>setSubApp("opTecnica"),badges:()=>null},
+          reportes: {emoji:"📊",label:"Reportes / BI",desc:"Ingresos, cobranza, producción y pago a obtentores",grad:"#db277722",border:"#db277744",
+            onClick:()=>setSubApp("reportes"),badges:()=>null},
           tareas: {emoji:"✅",label:"Seguimiento Tareas",desc:"Tareas operativas del equipo Osiris",grad:"#d9770622",border:"#d9770644",
             onClick:()=>setSubApp("tareas"),badges:()=>null},
         };
-        const HUB_DEFAULT=["ingresos","contratos","obtentores","viveros","opTecnica","tareas"];
+        const HUB_DEFAULT=["ingresos","contratos","obtentores","viveros","opTecnica","reportes","tareas"];
         const order=(Array.isArray(osirisData?.hubCardsOrder)&&osirisData.hubCardsOrder.length===HUB_DEFAULT.length)?osirisData.hubCardsOrder:HUB_DEFAULT;
         const handleDragStart=(e,id)=>{window._dragCard=id;window._didDrag=true;e.dataTransfer.effectAllowed="move";};
         const handleDrop=(e,targetId)=>{
@@ -13945,6 +14096,22 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
           );
         })()}
 
+      </div>
+    );
+  }
+
+  // ── REPORTES / BI OSIRIS ──────────────────────────────────
+  if(subApp==="reportes") {
+    return (
+      <div className="osiris-root" style={{fontFamily:"sans-serif",background:C.bg,minHeight:"100vh",padding:"20px 20px 40px",maxWidth:"100%",overflowX:"hidden"}}>
+        {guardadoChip}
+        <NavBar breadcrumbItems={[
+          {label:"Mediterra", onClick:onBack},
+          {label:"Osiris Hub", onClick:()=>setSubApp(null)},
+          {label:"Reportes / BI"},
+        ]}/>
+        <button onClick={()=>setSubApp(null)} style={{background:C.cardAlt,border:"none",borderRadius:8,padding:"7px 14px",cursor:"pointer",fontSize:13,color:C.sl,fontWeight:600,marginBottom:12}}>← Volver al Hub</button>
+        <ReportesOsiris rpData={rpData} rcData={rcData} feData={feData} fvData={fvData} ctData={ctData} obtentoresData={obtentoresData} viverosData={Array.isArray(osirisData?.viveros)?osirisData.viveros:[]}/>
       </div>
     );
   }
