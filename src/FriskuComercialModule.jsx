@@ -174,7 +174,7 @@ async function exportarPL_PDF(oe, pl, exportadora, cliente, especie, tiposEmbala
   doc.setTextColor(255,255,255);
   doc.setFontSize(16); doc.setFont("helvetica","bold"); doc.text("PACKING LIST",m,11);
   doc.setFontSize(9); doc.setFont("helvetica","normal");
-  doc.text(`Frisku Foods — ${especie?.icono||""} ${especie?.nombreEs||""}`,m,18);
+  doc.text(`Frisku Foods - ${especie?.nombreEs||""}`,m,18);
   if(oe.numero) doc.text(`OE: ${oe.numero}`,W-m,11,{align:"right"});
   doc.text(new Date().toLocaleDateString("es-CL"),W-m,18,{align:"right"});
 
@@ -2959,7 +2959,20 @@ function OECard({oe, exportadoras, clientes, especies, tiposEmbalaje, onEditar, 
         <button onClick={()=>{ setShowCOMEX(v=>!v); setShowPL(false); }}
           style={{...btnSt(C.purple,!showCOMEX),fontSize:11,display:"flex",alignItems:"center",gap:5}}>
           📁 COMEX
-          {(()=>{ const cx=oe.carpetaComex; if(!cx) return null; const ok=(cx.docs||[]).filter(d=>d.url&&d.estado!=="pendiente").length; return ok>0?<span style={{background:`${C.purple}33`,borderRadius:10,padding:"1px 7px",fontSize:10,fontWeight:700}}>{ok}/{(cx.docs||[]).length}</span>:null; })()}
+          {(()=>{
+            const cx = oe.carpetaComex;
+            const docs = cx?.docs || [];
+            const total = docs.length || DOCS_COMEX_DEFAULT.length;
+            const ok = docs.filter(d=>d.url && d.estado!=="pendiente").length;
+            const faltan = total - ok;
+            const completo = faltan===0 && ok>0;
+            const col = completo ? C.green : C.warning;
+            return (
+              <span style={{background:`${col}22`,color:col,border:`1px solid ${col}55`,borderRadius:10,padding:"1px 7px",fontSize:10,fontWeight:700}}>
+                {completo ? `✓ ${ok}/${total}` : `⚠ faltan ${faltan}`}
+              </span>
+            );
+          })()}
           <span style={{fontSize:10,opacity:0.7}}>{showCOMEX?"▲":"▼"}</span>
         </button>
       </div>
