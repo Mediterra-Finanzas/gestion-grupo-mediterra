@@ -2648,6 +2648,14 @@ function defaultCarpetaComex() {
   };
 }
 
+// Estado de documentos COMEX de un embarque: cuántos cargados, cuántos faltan.
+function comexEstado(oe) {
+  const docs = oe?.carpetaComex?.docs || [];
+  const total = docs.length || DOCS_COMEX_DEFAULT.length;
+  const ok = docs.filter(d=>d.url && d.estado!=="pendiente").length;
+  return { ok, total, faltan: total - ok, completo: (total - ok)===0 && ok>0 };
+}
+
 function CarpetaComexPanel({ oe, onGuardar, canEdit }) {
   const [cx, setCx] = useState(()=>{
     const saved = oe.carpetaComex;
@@ -2960,12 +2968,7 @@ function OECard({oe, exportadoras, clientes, especies, tiposEmbalaje, onEditar, 
           style={{...btnSt(C.purple,!showCOMEX),fontSize:11,display:"flex",alignItems:"center",gap:5}}>
           📁 COMEX
           {(()=>{
-            const cx = oe.carpetaComex;
-            const docs = cx?.docs || [];
-            const total = docs.length || DOCS_COMEX_DEFAULT.length;
-            const ok = docs.filter(d=>d.url && d.estado!=="pendiente").length;
-            const faltan = total - ok;
-            const completo = faltan===0 && ok>0;
+            const { ok, total, faltan, completo } = comexEstado(oe);
             const col = completo ? C.green : C.warning;
             return (
               <span style={{background:`${col}22`,color:col,border:`1px solid ${col}55`,borderRadius:10,padding:"1px 7px",fontSize:10,fontWeight:700}}>
@@ -5491,6 +5494,7 @@ export default function FriskuComercialModule({
   const [filtroEspOE,     setFiltroEspOE]     = useState("");
   const [filtroEstadoOE,  setFiltroEstadoOE]  = useState("");
   const [filtroTempOE,    setFiltroTempOE]    = useState("");
+  const [soloDocsIncompletos, setSoloDocsIncompletos] = useState(false); // filtro: solo OE con docs COMEX faltantes
 
   const [cargando, setCargando] = useState(true);
   // GUARD anti-borrado: solo se guarda tras una carga EXITOSA.
@@ -6010,6 +6014,7 @@ export default function FriskuComercialModule({
       if(filtroEspOE   && oe.especieCodigo !== filtroEspOE)   return false;
       if(filtroEstadoOE && (oe.estado||"borrador") !== filtroEstadoOE) return false;
       if(filtroTempOE  && oe.temporada     !== filtroTempOE)  return false;
+      if(soloDocsIncompletos && !((oe.estado||"borrador")!=="cancelado" && comexEstado(oe).faltan>0)) return false;
       if(q) {
         const exp = exportadoras.find(e=>e.id===oe.exportadoraId)?.nombre||"";
         const cli = clientes.find(c=>c.id===oe.clienteId)?.nombre||"";
@@ -6023,7 +6028,12 @@ export default function FriskuComercialModule({
       }
       return true;
     });
-  },[embarques, filtroExpOE, filtroCliOE, filtroEspOE, filtroEstadoOE, filtroTempOE, busquedaOE, exportadoras, clientes]);
+  },[embarques, filtroExpOE, filtroCliOE, filtroEspOE, filtroEstadoOE, filtroTempOE, soloDocsIncompletos, busquedaOE, exportadoras, clientes]);
+
+  // Embarques (no cancelados) con documentos COMEX faltantes — para el contador/alerta
+  const embarquesDocsIncompletos = useMemo(()=>
+    embarques.filter(oe=>(oe.estado||"borrador")!=="cancelado" && comexEstado(oe).faltan>0).length,
+  [embarques]);
 
   const hoy = new Date().toISOString().slice(0,10);
   const clientesConDocsFaltantes = clientes.filter(c =>
@@ -6547,10 +6557,27 @@ export default function FriskuComercialModule({
                   )}
                 </div>
 
-                {/* Conteo */}
-                <div style={{fontSize:11,color:C.muted,marginBottom:10}}>
-                  {embarquesFiltrados.length} orden{embarquesFiltrados.length!==1?"es":""} de embarque
-                  {embarquesFiltrados.length !== embarques.length && ` (${embarques.length} total)`}
+                {/* Conteo + alerta de documentos */}
+                <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap",marginBottom:10}}>
+                  <span style={{fontSize:11,color:C.muted}}>
+                    {embarquesFiltrados.length} orden{embarquesFiltrados.length!==1?"es":""} de embarque
+                    {embarquesFiltrados.length !== embarques.length && ` (${embarques.length} total)`}
+                  </span>
+                  {embarquesDocsIncompletos > 0 && (
+                    <button
+                      onClick={()=>setSoloDocsIncompletos(v=>!v)}
+                      title="Mostrar solo los embarques con documentos COMEX por cargar"
+                      style={{
+                        display:"inline-flex",alignItems:"center",gap:6,cursor:"pointer",
+                        fontSize:11,fontWeight:700,padding:"3px 10px",borderRadius:20,
+                        background: soloDocsIncompletos ? C.warning : `${C.warning}22`,
+                        color: soloDocsIncompletos ? "#fff" : C.warning,
+                        border:`1px solid ${C.warning}${soloDocsIncompletos?"":"55"}`,
+                      }}>
+                      ⚠ {embarquesDocsIncompletos} con docs incompletos
+                      {soloDocsIncompletos && <span style={{opacity:0.85}}>· quitar filtro</span>}
+                    </button>
+                  )}
                 </div>
 
                 {/* Grid de cards */}
