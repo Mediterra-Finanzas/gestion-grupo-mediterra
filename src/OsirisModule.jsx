@@ -4690,6 +4690,39 @@ const ESTADOS_TEST_BLOCK = ["Planificado","En curso","Finalizado","Cancelado"];
 const TIPOS_INFORME = ["Visita Técnica","Visita Comercial","Recepción","Medida Correctiva","Final de Temporada","Otro"];
 const ENTREGABLES_SUBLICENCIADO = ["Brochure","Presentaciones","Manual técnico","Informes","Días de campo","Otros"];
 
+// ── Secciones del informe según el TIPO de visita/reporte ──────────
+// El tipo nace en la visita y se mantiene en toda la cadena (visita → informe → PDF).
+// Cada tipo muestra solo las secciones pertinentes.
+const SECCIONES_INFORME_ALL = [
+  {id:"encabezado",label:"A. Encabezado"},
+  {id:"resumen",label:"B. Resumen"},
+  {id:"fenologia",label:"C. Fenología"},
+  {id:"riego",label:"D. Riego"},
+  {id:"nutricion",label:"E. Nutrición"},
+  {id:"fitosanitario",label:"F. Fitosanitario"},
+  {id:"labores",label:"G. Labores"},
+  {id:"sanidad",label:"H. Sanidad"},
+  {id:"suelo",label:"I. Suelo"},
+  {id:"desarrollo",label:"J. Desarrollo"},
+  {id:"recomendaciones",label:"K. Recomendaciones"},
+  {id:"fotos",label:"L. Fotos"},
+  {id:"conclusion",label:"M. Conclusión"},
+];
+const SECCIONES_POR_TIPO = {
+  // Visita técnica agronómica: informe completo
+  "Técnica":     ["encabezado","resumen","fenologia","riego","nutricion","fitosanitario","labores","sanidad","suelo","desarrollo","recomendaciones","fotos","conclusion"],
+  // Visita a vivero: material vegetal, sanidad y manejo en vivero
+  "Vivero":      ["encabezado","resumen","fenologia","sanidad","labores","recomendaciones","fotos","conclusion"],
+  // Visita comercial: desarrollo productivo, estimaciones y recomendaciones
+  "Comercial":   ["encabezado","resumen","desarrollo","recomendaciones","fotos","conclusion"],
+  // Recepción de fruta/material: calidad, condición y sanidad
+  "Recepción":   ["encabezado","resumen","desarrollo","sanidad","fotos","conclusion"],
+  // Día de campo: registro del evento y recomendaciones
+  "Día de campo":["encabezado","resumen","recomendaciones","fotos","conclusion"],
+  "Otra":        ["encabezado","resumen","recomendaciones","fotos","conclusion"],
+};
+const seccionesDeTipo = (tipo) => SECCIONES_POR_TIPO[tipo] || SECCIONES_POR_TIPO["Técnica"];
+
 // Bloque 2: Estado de pedido enriquecido (Productores)
 const ESTADOS_PEDIDO = ["Cotizado","OC enviada","Negociando","Confirmado","En producción","Despachado","Recibido","Anulado"];
 const ESTADOS_DESPACHO = ["Programado","En tránsito","Entregado","Con observaciones"];
@@ -5110,7 +5143,14 @@ function OperacionTecnica({data, setData, ctData=[], clientes=[], especiesMaestr
   ];
 
   function guardarForm(key, vacio) {
-    if(form._editId) { updItem(key, form._editId, form); }
+    if(form._editId) {
+      updItem(key, form._editId, form);
+      // Si cambió el tipo de una visita, propagarlo al informe ligado (la cadena mantiene un solo tipo)
+      if(key==="visitas") {
+        const infLig = (data?.informes||[]).find(i=>i.visitaId===form._editId);
+        if(infLig && infLig.tipo!==form.tipo) updItem("informes", infLig.id, {tipo:form.tipo});
+      }
+    }
     else { addItem(key, form); }
     setForm({}); setModal(null);
   }
@@ -5166,6 +5206,7 @@ function OperacionTecnica({data, setData, ctData=[], clientes=[], especiesMaestr
   function generarHTMLInforme(inf) {
     const ct = (ctData||[]).find(c=>c.id===inf.ctId);
     const visita = visitas.find(v=>v.id===inf.visitaId);
+    const allow = seccionesDeTipo(inf.tipo); // secciones pertinentes según el tipo de reporte
     const fotosArr = Array.isArray(inf.fotosInforme) ? inf.fotosInforme : [];
     const getArr = (campo) => Array.isArray(inf[campo]) ? inf[campo] : [];
     const LABORES_CULT_PDF=["Poda","Amarra / conducción","Raleo","Manejo de brotes","Control de malezas","Manejo de mulch","Manejo de camellones / sustrato","Limpieza de entrehilera","Despunte","Cosecha"];
@@ -5234,16 +5275,16 @@ td{padding:3px 8px;border-bottom:1px solid #f1f5f9}
 <div><div class="label">Técnico</div><div class="value">${inf.responsable||'—'}</div></div>
 <div><div class="label">Fecha visita</div><div class="value">${visita?.fecha||inf.fecha||'—'}</div></div>
 </div>
-${secHTML("B. Resumen General",inf.resumenGeneral)}
-${inf.fenologiaEstado?`<div class="section"><h2>C. Estado Fenológico</h2><div class="content">Estado: <strong>${inf.fenologiaEstado||"—"}</strong> · Uniformidad: <strong>${inf.fenologiaUniformidad||"—"}</strong>${inf.fenologiaObs?"\n"+inf.fenologiaObs:""}</div></div>`:""}
-${inf.riegoSistema?`<div class="section"><h2>D. Riego y Uso de Agua</h2><div class="content">Sistema: <strong>${inf.riegoSistema||"—"}</strong> · Frecuencia: ${inf.riegoFrecuencia||"—"} · Duración: ${inf.riegoDuracion||"—"} min · Volumen: ${inf.riegoVolumen||"—"}\nHumedad: <strong>${inf.riegoHumedad||"—"}</strong> · Uniformidad: <strong>${inf.riegoUniformidad||"—"}</strong>${inf.riegoObs?"\nObs: "+inf.riegoObs:""}${inf.riegoRec?"\nRec: "+inf.riegoRec:""}</div></div>`:""}
-${inf.nutricionPrograma||getArr("nutricionAplicaciones").length>0?`<div class="section"><h2>E. Nutrición y Fertilización</h2><div class="content">${inf.nutricionPrograma||""}${inf.nutricionSintomas?"\nSíntomas: "+inf.nutricionSintomas:""}${inf.nutricionRec?"\nRec: "+inf.nutricionRec:""}</div>${getArr("nutricionAplicaciones").length>0?tableHTML(["Fecha","Producto","Dosis","Vía","Objetivo","Obs"],getArr("nutricionAplicaciones").map(a=>[a.fecha,a.producto,a.dosis,a.via,a.objetivo,a.obs])):""}</div>`:""}
-${getArr("fitoAplicaciones").length>0?`<div class="section"><h2>F. Aplicaciones Fitosanitarias</h2>${tableHTML(["Fecha","Producto","Dosis","Objetivo","Resultado","Rec."],getArr("fitoAplicaciones").map(a=>[a.fecha,a.producto,a.dosis,a.objetivo,a.resultado,a.rec]))}</div>`:""}
-${laboresHTML?`<div class="section"><h2>G. Labores Culturales</h2><table><thead><tr><th>Labor</th><th>Estado</th><th>Calidad</th><th>Observación</th><th>Recomendación</th></tr></thead><tbody>${laboresHTML}</tbody></table></div>`:""}
-${getArr("sanidadProblemas").length>0?`<div class="section"><h2>H. Sanidad Vegetal</h2>${tableHTML(["Problema","Tipo","Incidencia","Severidad","Sector","Acción"],getArr("sanidadProblemas").map(p=>[p.problema,p.tipo,p.incidencia,p.severidad,p.sector,p.accion]))}</div>`:""}
-${inf.sueloHumedad||inf.sueloPH?`<div class="section"><h2>I. Suelo / Sustrato</h2><div class="content">Tipo de suelo: <strong>${inf.sueloTipo||"—"}</strong> · Humedad: <strong>${inf.sueloHumedad||"—"}</strong> · Drenaje: <strong>${inf.sueloDrenaje||"—"}</strong> · Compactación: <strong>${inf.sueloCompactacion||"—"}</strong>\npH: ${inf.sueloPH||"—"} · CE: ${inf.sueloCE||"—"} dS/m · Raíces: ${inf.sueloRaices||"—"}${inf.sueloObs?"\nObs: "+inf.sueloObs:""}</div></div>`:""}
-${inf.desarrolloVigor||inf.desarrolloEstimacion?`<div class="section"><h2>J. Desarrollo Vegetativo y Productivo</h2><div class="content">Vigor: <strong>${inf.desarrolloVigor||"—"}</strong> · Uniformidad: <strong>${inf.desarrolloUniformidad||"—"}</strong> · Carga frutal: ${inf.desarrolloCarga||"—"}\nEstimación: ${inf.desarrolloEstimacion||"—"} kg/há · Calidad: ${inf.desarrolloCalidad||"—"} · Calibre: ${inf.desarrolloCalibre||"—"}\nCondición fruta: ${inf.desarrolloCondicion||"—"} · F. cosecha est.: ${inf.desarrolloFechaCosecha||"—"}</div></div>`:""}
-${getArr("recInmediatas").length+getArr("recCortoPlazo").length+getArr("recTemporada").length>0?`<div class="section"><h2>K. Recomendaciones Técnicas</h2>${recHTML(getArr("recInmediatas"),"⚡ Inmediatas (próximos días)")}${recHTML(getArr("recCortoPlazo"),"📅 Corto plazo (próximas semanas)")}${recHTML(getArr("recTemporada"),"🌿 De temporada (resto del ciclo)")}</div>`:""}
+${allow.includes("resumen")?secHTML("B. Resumen General",inf.resumenGeneral):""}
+${allow.includes("fenologia")&&inf.fenologiaEstado?`<div class="section"><h2>C. Estado Fenológico</h2><div class="content">Estado: <strong>${inf.fenologiaEstado||"—"}</strong> · Uniformidad: <strong>${inf.fenologiaUniformidad||"—"}</strong>${inf.fenologiaObs?"\n"+inf.fenologiaObs:""}</div></div>`:""}
+${allow.includes("riego")&&inf.riegoSistema?`<div class="section"><h2>D. Riego y Uso de Agua</h2><div class="content">Sistema: <strong>${inf.riegoSistema||"—"}</strong> · Frecuencia: ${inf.riegoFrecuencia||"—"} · Duración: ${inf.riegoDuracion||"—"} min · Volumen: ${inf.riegoVolumen||"—"}\nHumedad: <strong>${inf.riegoHumedad||"—"}</strong> · Uniformidad: <strong>${inf.riegoUniformidad||"—"}</strong>${inf.riegoObs?"\nObs: "+inf.riegoObs:""}${inf.riegoRec?"\nRec: "+inf.riegoRec:""}</div></div>`:""}
+${allow.includes("nutricion")&&(inf.nutricionPrograma||getArr("nutricionAplicaciones").length>0)?`<div class="section"><h2>E. Nutrición y Fertilización</h2><div class="content">${inf.nutricionPrograma||""}${inf.nutricionSintomas?"\nSíntomas: "+inf.nutricionSintomas:""}${inf.nutricionRec?"\nRec: "+inf.nutricionRec:""}</div>${getArr("nutricionAplicaciones").length>0?tableHTML(["Fecha","Producto","Dosis","Vía","Objetivo","Obs"],getArr("nutricionAplicaciones").map(a=>[a.fecha,a.producto,a.dosis,a.via,a.objetivo,a.obs])):""}</div>`:""}
+${allow.includes("fitosanitario")&&getArr("fitoAplicaciones").length>0?`<div class="section"><h2>F. Aplicaciones Fitosanitarias</h2>${tableHTML(["Fecha","Producto","Dosis","Objetivo","Resultado","Rec."],getArr("fitoAplicaciones").map(a=>[a.fecha,a.producto,a.dosis,a.objetivo,a.resultado,a.rec]))}</div>`:""}
+${allow.includes("labores")&&laboresHTML?`<div class="section"><h2>G. Labores Culturales</h2><table><thead><tr><th>Labor</th><th>Estado</th><th>Calidad</th><th>Observación</th><th>Recomendación</th></tr></thead><tbody>${laboresHTML}</tbody></table></div>`:""}
+${allow.includes("sanidad")&&getArr("sanidadProblemas").length>0?`<div class="section"><h2>H. Sanidad Vegetal</h2>${tableHTML(["Problema","Tipo","Incidencia","Severidad","Sector","Acción"],getArr("sanidadProblemas").map(p=>[p.problema,p.tipo,p.incidencia,p.severidad,p.sector,p.accion]))}</div>`:""}
+${allow.includes("suelo")&&(inf.sueloHumedad||inf.sueloPH)?`<div class="section"><h2>I. Suelo / Sustrato</h2><div class="content">Tipo de suelo: <strong>${inf.sueloTipo||"—"}</strong> · Humedad: <strong>${inf.sueloHumedad||"—"}</strong> · Drenaje: <strong>${inf.sueloDrenaje||"—"}</strong> · Compactación: <strong>${inf.sueloCompactacion||"—"}</strong>\npH: ${inf.sueloPH||"—"} · CE: ${inf.sueloCE||"—"} dS/m · Raíces: ${inf.sueloRaices||"—"}${inf.sueloObs?"\nObs: "+inf.sueloObs:""}</div></div>`:""}
+${allow.includes("desarrollo")&&(inf.desarrolloVigor||inf.desarrolloEstimacion)?`<div class="section"><h2>J. Desarrollo Vegetativo y Productivo</h2><div class="content">Vigor: <strong>${inf.desarrolloVigor||"—"}</strong> · Uniformidad: <strong>${inf.desarrolloUniformidad||"—"}</strong> · Carga frutal: ${inf.desarrolloCarga||"—"}\nEstimación: ${inf.desarrolloEstimacion||"—"} kg/há · Calidad: ${inf.desarrolloCalidad||"—"} · Calibre: ${inf.desarrolloCalibre||"—"}\nCondición fruta: ${inf.desarrolloCondicion||"—"} · F. cosecha est.: ${inf.desarrolloFechaCosecha||"—"}</div></div>`:""}
+${allow.includes("recomendaciones")&&getArr("recInmediatas").length+getArr("recCortoPlazo").length+getArr("recTemporada").length>0?`<div class="section"><h2>K. Recomendaciones Técnicas</h2>${recHTML(getArr("recInmediatas"),"⚡ Inmediatas (próximos días)")}${recHTML(getArr("recCortoPlazo"),"📅 Corto plazo (próximas semanas)")}${recHTML(getArr("recTemporada"),"🌿 De temporada (resto del ciclo)")}</div>`:""}
 ${fotosArr.length>0?`<div class="section"><h2>L. Registro Fotográfico</h2><div class="fotos">${fotosArr.map(f=>`<div class="foto">${f.url?`<img src="${f.url}"/>`:"📷"}<div class="desc">${f.descripcion||""}${f.categoria?" · "+f.categoria:""}</div></div>`).join("")}</div></div>`:""}
 ${secHTML("M. Conclusión Técnica",inf.conclusionTecnica)}
 ${inf.proximaVisitaFecha?`<div class="section"><h2>Próxima Visita</h2><div class="content">${inf.proximaVisitaFecha} — ${inf.proximaVisitaObjetivo||"Sin objetivo definido"}</div></div>`:""}
@@ -5558,22 +5599,11 @@ ${linkInforme}
             {inf.estado==="Rechazado"&&inf.observacionesRechazo&&<div style={{padding:"10px 14px",background:C.dangerBg,border:`1px solid ${C.danger}`,borderRadius:8,marginBottom:14,fontSize:12,color:C.danger}}>❌ <strong>Rechazado por {inf.revisor}:</strong> {inf.observacionesRechazo}</div>}
             {/* Formulario Informe Técnico — 13 secciones */}
             {(()=>{
-              const SECCIONES=[
-                {id:"encabezado",label:"A. Encabezado"},
-                {id:"resumen",label:"B. Resumen"},
-                {id:"fenologia",label:"C. Fenología"},
-                {id:"riego",label:"D. Riego"},
-                {id:"nutricion",label:"E. Nutrición"},
-                {id:"fitosanitario",label:"F. Fitosanitario"},
-                {id:"labores",label:"G. Labores"},
-                {id:"sanidad",label:"H. Sanidad"},
-                {id:"suelo",label:"I. Suelo"},
-                {id:"desarrollo",label:"J. Desarrollo"},
-                {id:"recomendaciones",label:"K. Recomendaciones"},
-                {id:"fotos",label:"L. Fotos"},
-                {id:"conclusion",label:"M. Conclusión"},
-              ];
-              const secTab = inf._secTab || "encabezado";
+              // Secciones según el tipo de reporte (el tipo viene de la visita y se mantiene)
+              const idsTipo = seccionesDeTipo(inf.tipo);
+              const SECCIONES = SECCIONES_INFORME_ALL.filter(s=>idsTipo.includes(s.id));
+              let secTab = inf._secTab || "encabezado";
+              if(!SECCIONES.some(s=>s.id===secTab)) secTab = "encabezado";
               const setSecTab = v => updInf("_secTab", v);
               const UNIFORMIDAD=["Alta","Media","Baja"];
               const NIVELES=["Baja","Media","Alta"];
@@ -5608,7 +5638,14 @@ ${linkInforme}
                   {/* A. ENCABEZADO */}
                   {secTab==="encabezado"&&(
                     <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
-                      <Select label="Tipo visita *" value={inf.tipo} onChange={v=>updInf("tipo",v)} opts={TIPOS_VISITA} disabled={!puedeEditar}/>
+                      {visita ? (
+                        <div><div style={{fontSize:11,color:C.muted,fontWeight:600,marginBottom:3}}>Tipo de reporte (heredado de la visita)</div>
+                          <div style={{padding:"7px 10px",borderRadius:6,border:`1px solid ${C.border}`,background:C.cardAlt,fontSize:12,fontWeight:700,color:C.purple}}>🔒 {inf.tipo||"—"}</div>
+                          <div style={{fontSize:10,color:C.muted2,marginTop:3}}>El tipo se mantiene en toda la cadena. Para cambiarlo, edita la visita.</div>
+                        </div>
+                      ) : (
+                        <Select label="Tipo de reporte *" value={inf.tipo} onChange={v=>updInf("tipo",v)} opts={TIPOS_VISITA} disabled={!puedeEditar}/>
+                      )}
                       <Input label="Título / N° informe *" value={inf.titulo} onChange={v=>updInf("titulo",v)} disabled={!puedeEditar}/>
                       <Input label="Fecha visita *" value={inf.fecha} onChange={v=>updInf("fecha",v)} type="date" disabled={!puedeEditar}/>
                       <div><div style={{fontSize:11,color:C.muted,fontWeight:600,marginBottom:3}}>Cliente</div><ClienteSelect value={inf.ctId} onChange={v=>updInf("ctId",v)} disabled={!puedeEditar}/></div>
