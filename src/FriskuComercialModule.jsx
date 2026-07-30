@@ -50,6 +50,28 @@ const btnSt = (color=C.blue, ghost=false) => ({
 
 function uid() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 8); }
 
+// Selector escribible de exportadora (typeahead con datalist). value/onChange
+// operan sobre el id; el input muestra el nombre y permite buscar tecleando.
+function ExportadoraPicker({ value, exportadoras, onChange, style }) {
+  const activas = useMemo(()=>(exportadoras||[]).filter(e=>e.activo!==false)
+    .slice().sort((a,b)=>(a.nombre||"").localeCompare(b.nombre||"")),[exportadoras]);
+  const nombreDe = (id)=> (exportadoras||[]).find(e=>e.id===id)?.nombre || "";
+  const [txt, setTxt] = useState(()=>nombreDe(value));
+  useEffect(()=>{ setTxt(nombreDe(value)); },[value, exportadoras]);
+  const matchId = (v)=>{ const m=activas.find(e=>(e.nombre||"").trim().toLowerCase()===String(v).trim().toLowerCase()); return m?m.id:""; };
+  return (
+    <>
+      <input list="fr-exportadora-list" value={txt} placeholder="Escribe la exportadora…"
+        onChange={e=>{ setTxt(e.target.value); const id=matchId(e.target.value); if(id) onChange(id); }}
+        onBlur={e=>onChange(matchId(e.target.value))}
+        style={style}/>
+      <datalist id="fr-exportadora-list">
+        {activas.map(e=><option key={e.id} value={e.nombre}/>)}
+      </datalist>
+    </>
+  );
+}
+
 // ── Loaders CDN ──────────────────────────────────────────────────
 let _plJsPDFLoaded = false;
 async function pl_loadJsPDF() {
@@ -191,13 +213,14 @@ async function exportarPL_PDF(oe, pl, exportadora, cliente, especie, tiposEmbala
   const body = (pl.pallets||[]).map((p,i)=>[
     i+1,
     tiposEmbalaje.find(t=>t.codigo===p.formato)?.nombre||p.formato||"—",
+    p.variedad||"—",
     p.calibre||"—",
     p.palletNum||"—",
     Number(p.cajas||0).toLocaleString("es-CL"),
     Number(p.pesoNetoKg||0).toLocaleString("es-CL"),
     Number(p.pesoBrutoKg||0).toLocaleString("es-CL"),
   ]);
-  body.push(["","TOTAL","","",totalCajas.toLocaleString("es-CL"),totalNetoKg.toLocaleString("es-CL"),totalBrutoKg.toLocaleString("es-CL")]);
+  body.push(["","TOTAL","","","",totalCajas.toLocaleString("es-CL"),totalNetoKg.toLocaleString("es-CL"),totalBrutoKg.toLocaleString("es-CL")]);
 
   doc.autoTable({
     startY:y,
@@ -205,9 +228,9 @@ async function exportarPL_PDF(oe, pl, exportadora, cliente, especie, tiposEmbala
     headStyles:{fillColor:[20,184,166],textColor:255,fontStyle:"bold",fontSize:8},
     styles:{fontSize:8,cellPadding:3},
     footStyles:{fillColor:[240,240,240],fontStyle:"bold"},
-    head:[["#","Formato","Calibre","N° Pallet","Cajas","Peso Neto (kg)","Peso Bruto (kg)"]],
+    head:[["#","Formato","Variedad","Calibre","N° Pallet","Cajas","Peso Neto (kg)","Peso Bruto (kg)"]],
     body,
-    columnStyles:{0:{halign:"center",cellWidth:8},2:{halign:"center",cellWidth:18},3:{halign:"center",cellWidth:18},4:{halign:"right",cellWidth:20},5:{halign:"right",cellWidth:26},6:{halign:"right",cellWidth:26}},
+    columnStyles:{0:{halign:"center",cellWidth:8},3:{halign:"center",cellWidth:16},4:{halign:"center",cellWidth:16},5:{halign:"right",cellWidth:18},6:{halign:"right",cellWidth:24},7:{halign:"right",cellWidth:24}},
     margin:{left:m,right:m},
     didDrawRow:(data)=>{
       if(data.row.index===body.length-1){
@@ -257,6 +280,7 @@ async function exportarPL_Excel(oe, pl, exportadora, cliente, especie, tiposEmba
   const palletRows = pallets.map((p,i)=>`<Row>
     <Cell><ss:Data ss:Type="Number">${i+1}</ss:Data></Cell>
     ${cell(tiposEmbalaje.find(t=>t.codigo===p.formato)?.nombre||p.formato||"")}
+    ${cell(p.variedad||"")}
     ${cell(p.calibre||"")}
     <Cell><ss:Data ss:Type="Number">${Number(p.palletNum)||0}</ss:Data></Cell>
     <Cell><ss:Data ss:Type="Number">${Number(p.cajas)||0}</ss:Data></Cell>
@@ -265,7 +289,7 @@ async function exportarPL_Excel(oe, pl, exportadora, cliente, especie, tiposEmba
   </Row>`).join("");
 
   const totalRow = `<Row>
-    ${cell("")}${cell("TOTAL",true)}${cell("")}${cell("")}
+    ${cell("")}${cell("TOTAL",true)}${cell("")}${cell("")}${cell("")}
     <Cell><ss:Data ss:Type="Number">${totalCajas}</ss:Data></Cell>
     <Cell><ss:Data ss:Type="Number">${totalNetoKg}</ss:Data></Cell>
     <Cell><ss:Data ss:Type="Number">${totalBrutoKg}</ss:Data></Cell>
@@ -273,11 +297,11 @@ async function exportarPL_Excel(oe, pl, exportadora, cliente, especie, tiposEmba
 
   const xml = `<?xml version="1.0"?><Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet" xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet">
 <Worksheet ss:Name="Packing List"><Table>
-  <Row><Cell ss:MergeAcross="6"><ss:Data ss:Type="String">PACKING LIST — ${esc(oe.numero||oe.id)}</ss:Data></Cell></Row>
+  <Row><Cell ss:MergeAcross="7"><ss:Data ss:Type="String">PACKING LIST — ${esc(oe.numero||oe.id)}</ss:Data></Cell></Row>
   <Row/>
   ${infoRows}
   <Row/>
-  <Row>${["#","Formato","Calibre","N° Pallet","Cajas","Peso Neto (kg)","Peso Bruto (kg)"].map(h=>cell(h,true)).join("")}</Row>
+  <Row>${["#","Formato","Variedad","Calibre","N° Pallet","Cajas","Peso Neto (kg)","Peso Bruto (kg)"].map(h=>cell(h,true)).join("")}</Row>
   ${palletRows}
   ${totalRow}
   ${pl.observ?`<Row/><Row>${cell("Observaciones:",true)}${cell(pl.observ)}</Row>`:""}
@@ -288,6 +312,22 @@ async function exportarPL_Excel(oe, pl, exportadora, cliente, especie, tiposEmba
   const a    = document.createElement("a");
   a.href=url; a.download=`PL_${oe.numero||oe.id}_${new Date().toISOString().slice(0,10)}.xlsx`; a.click();
   URL.revokeObjectURL(url);
+}
+
+// Peso neto por caja (kg) para un formato del PL. Busca en el maestro por
+// código o descripción; si no lo encuentra o no tiene peso, intenta extraer
+// los kg del texto del formato (ej. "AVO-10 KG", "Caja Palta 10kg" → 10).
+function pesoNetoPorCaja(formatoVal, tiposEmbalaje) {
+  const t = (tiposEmbalaje||[]).find(x=>x.codigo===formatoVal || x.descripcion===formatoVal);
+  if(t && Number(t.pesoNeto)>0) return Number(t.pesoNeto);
+  const fuente = `${t?.descripcion||""} ${formatoVal||""}`;
+  const m = String(fuente).match(/(\d+(?:[.,]\d+)?)\s*kg/i);
+  return m ? parseFloat(m[1].replace(",",".")) : 0;
+}
+// Peso bruto por caja si el formato lo define en el maestro (0 = sin dato).
+function pesoBrutoPorCaja(formatoVal, tiposEmbalaje) {
+  const t = (tiposEmbalaje||[]).find(x=>x.codigo===formatoVal || x.descripcion===formatoVal);
+  return t && Number(t.pesoBruto)>0 ? Number(t.pesoBruto) : 0;
 }
 
 // ── PackingListPanel ─────────────────────────────────────────────
@@ -312,10 +352,28 @@ function PackingListPanel({ oe, tiposEmbalaje, especies, exportadoras, clientes,
   function addPallet(){
     const fmt0 = formatosOE[0]||"";
     const cal0 = (oe.calibrePorFormato||{})[fmt0]||"";
-    setPl(p=>({...p,pallets:[...(p.pallets||[]),{id:uid(),formato:fmt0,calibre:cal0,palletNum:(p.pallets||[]).length+1,cajas:0,pesoNetoKg:0,pesoBrutoKg:0}]}));
+    setPl(p=>({...p,pallets:[...(p.pallets||[]),{id:uid(),formato:fmt0,variedad:"",calibre:cal0,palletNum:(p.pallets||[]).length+1,cajas:0,pesoNetoKg:0,pesoBrutoKg:0}]}));
     setDirty(true);
   }
-  function updPallet(idx,k,v){ setPl(p=>{ const ps=[...p.pallets]; ps[idx]={...ps[idx],[k]:v}; return {...p,pallets:ps}; }); setDirty(true); }
+  // Actualiza un pallet. Al cambiar cajas o formato recalcula el peso neto
+  // (y bruto si el formato lo define) = cajas × peso por caja. El peso queda
+  // editable: el usuario puede sobrescribirlo después manualmente.
+  function updPallet(idx,k,v){
+    setPl(p=>{
+      const ps=[...p.pallets];
+      const row={...ps[idx],[k]:v};
+      if(k==="cajas" || k==="formato"){
+        const cajas = Number(k==="cajas"?v:row.cajas)||0;
+        const pn = pesoNetoPorCaja(row.formato, tiposEmbalaje);
+        const pb = pesoBrutoPorCaja(row.formato, tiposEmbalaje);
+        if(pn>0) row.pesoNetoKg  = Math.round(cajas*pn*100)/100;
+        if(pb>0) row.pesoBrutoKg = Math.round(cajas*pb*100)/100;
+      }
+      ps[idx]=row;
+      return {...p,pallets:ps};
+    });
+    setDirty(true);
+  }
   function delPallet(idx){ setPl(p=>({...p,pallets:p.pallets.filter((_,i)=>i!==idx)})); setDirty(true); }
 
   const totalCajas   = (pl.pallets||[]).reduce((s,p)=>s+Number(p.cajas||0),0);
@@ -355,11 +413,14 @@ function PackingListPanel({ oe, tiposEmbalaje, especies, exportadoras, clientes,
       </div>
 
       {/* Tabla pallets */}
+      <datalist id={`fmt-list-${oe.id}`}>
+        {formatosPL.map(cod=>{ const t=tiposEmbalaje.find(x=>x.codigo===cod); return <option key={cod} value={cod}>{t?.descripcion||t?.nombre||cod}</option>; })}
+      </datalist>
       <div style={{overflowX:"auto",marginBottom:10}}>
         <table style={{width:"100%",borderCollapse:"collapse",fontSize:11}}>
           <thead>
             <tr style={{background:C.primary}}>
-              {["#","Formato","Calibre","N° Pallet","Cajas","Peso Neto kg","Peso Bruto kg",canEdit?"✕":""].map((h,i)=>(
+              {["#","Formato","Variedad","Calibre","N° Pallet","Cajas","Peso Neto kg","Peso Bruto kg",canEdit?"✕":""].map((h,i)=>(
                 <th key={i} style={{padding:"6px 8px",textAlign:(h==="#"||h==="N° Pallet"||h==="Cajas")?"center":"left",color:C.primaryText,fontWeight:700,fontSize:10,whiteSpace:"nowrap"}}>{h}</th>
               ))}
             </tr>
@@ -370,11 +431,14 @@ function PackingListPanel({ oe, tiposEmbalaje, especies, exportadoras, clientes,
                 <td style={{padding:"4px 8px",textAlign:"center",color:C.muted2,fontFamily:"monospace",fontSize:10}}>{idx+1}</td>
                 <td style={{padding:"4px 4px"}}>
                   {canEdit
-                    ? <select value={p.formato} onChange={e=>updPallet(idx,"formato",e.target.value)} style={{...inputSt,padding:"4px 6px",width:130}}>
-                        {formatosPL.map(cod=><option key={cod} value={cod}>{tiposEmbalaje.find(t=>t.codigo===cod)?.nombre||cod}</option>)}
-                        {!formatosPL.includes(p.formato)&&p.formato&&<option value={p.formato}>{p.formato}</option>}
-                      </select>
+                    ? <input list={`fmt-list-${oe.id}`} value={p.formato||""} onChange={e=>updPallet(idx,"formato",e.target.value)}
+                        placeholder="Formato…" style={{...inputSt,padding:"4px 6px",width:140}}/>
                     : <span style={{color:C.text}}>{tiposEmbalaje.find(t=>t.codigo===p.formato)?.nombre||p.formato||"—"}</span>}
+                </td>
+                <td style={{padding:"4px 4px"}}>
+                  {canEdit
+                    ? <input value={p.variedad||""} onChange={e=>updPallet(idx,"variedad",e.target.value)} placeholder="—" style={{...inputSt,padding:"4px 6px",width:110}}/>
+                    : <span style={{color:C.text}}>{p.variedad||"—"}</span>}
                 </td>
                 <td style={{padding:"4px 4px"}}>
                   {canEdit
@@ -406,7 +470,7 @@ function PackingListPanel({ oe, tiposEmbalaje, especies, exportadoras, clientes,
             ))}
             {hasPallets && (
               <tr style={{borderTop:`1px solid ${C.border}`,background:`${C.bg}66`}}>
-                <td colSpan={3} style={{padding:"6px 8px",fontSize:10,color:C.muted,fontWeight:700,textAlign:"right"}}>TOTAL</td>
+                <td colSpan={4} style={{padding:"6px 8px",fontSize:10,color:C.muted,fontWeight:700,textAlign:"right"}}>TOTAL</td>
                 <td style={{padding:"6px 8px",textAlign:"center",fontWeight:700,color:C.text,fontFamily:"monospace"}}>{(pl.pallets||[]).length}</td>
                 <td style={{padding:"6px 8px",textAlign:"center",fontWeight:700,color:C.text,fontFamily:"monospace"}}>{totalCajas.toLocaleString("es-CL")}</td>
                 <td style={{padding:"6px 8px",fontWeight:700,color:C.text,fontFamily:"monospace"}}>{totalNetoKg.toLocaleString("es-CL")}</td>
@@ -1642,10 +1706,7 @@ function ClosureForm({closure, exportadoras, clientes, especies, tiposEmbalaje, 
       <div style={{display:"grid", gridTemplateColumns:"1fr 1fr", gap:10, marginBottom:10}}>
         <div>
           <div style={lblSt}>Exportadora *</div>
-          <select value={buf.exportadoraId||""} onChange={e=>setCampo("exportadoraId",e.target.value)} style={inputSt}>
-            <option value="">— seleccionar —</option>
-            {exportadoras.map(e=><option key={e.id} value={e.id}>{e.nombre}</option>)}
-          </select>
+          <ExportadoraPicker value={buf.exportadoraId} exportadoras={exportadoras} onChange={id=>setCampo("exportadoraId",id)} style={inputSt}/>
         </div>
         <div>
           <div style={lblSt}>Cliente *</div>
@@ -2366,10 +2427,7 @@ function OEForm({oe, exportadoras, clientes, notifys=[], especies, tiposEmbalaje
         </div>
         <div>
           <div style={lblSt}>Exportadora *</div>
-          <select value={buf.exportadoraId||""} onChange={e=>set("exportadoraId",e.target.value)} style={inputSt}>
-            <option value="">— seleccionar —</option>
-            {exportadoras.filter(e=>e.activo!==false).map(e=><option key={e.id} value={e.id}>{e.nombre}</option>)}
-          </select>
+          <ExportadoraPicker value={buf.exportadoraId} exportadoras={exportadoras} onChange={id=>set("exportadoraId",id)} style={inputSt}/>
         </div>
         <div>
           <div style={lblSt}>Cliente *</div>
@@ -2572,7 +2630,7 @@ function OEForm({oe, exportadoras, clientes, notifys=[], especies, tiposEmbalaje
 // ── Carpeta COMEX ────────────────────────────────────────────────
 const DOCS_COMEX_DEFAULT = [
   "BL / AWB","Invoice Comercial","Packing List",
-  "Certificado Fitosanitario","Certificado de Origen","Seguro de Carga",
+  "Certificado Fitosanitario","Certificado de Origen","QC",
 ];
 
 function defaultCarpetaComex() {
@@ -2586,10 +2644,12 @@ function CarpetaComexPanel({ oe, onGuardar, canEdit }) {
   const [cx, setCx] = useState(()=>{
     const saved = oe.carpetaComex;
     if(!saved) return defaultCarpetaComex();
-    const savedTipos = (saved.docs||[]).map(d=>d.tipo);
+    // Migración: "Seguro de Carga" pasó a llamarse "QC" (preserva el archivo cargado)
+    const docsMig = (saved.docs||[]).map(d=> d.tipo==="Seguro de Carga" ? {...d, tipo:"QC"} : d);
+    const savedTipos = docsMig.map(d=>d.tipo);
     const missing = DOCS_COMEX_DEFAULT.filter(t=>!savedTipos.includes(t))
       .map(tipo=>({id:uid(),tipo,nombre:"",url:"",fuente:"manual",fechaCarga:"",estado:"pendiente"}));
-    return { ...saved, docs:[...(saved.docs||[]),...missing], qcDestino:{...defaultCarpetaComex().qcDestino,...(saved.qcDestino||{})} };
+    return { ...saved, docs:[...docsMig,...missing], qcDestino:{...defaultCarpetaComex().qcDestino,...(saved.qcDestino||{})} };
   });
   const [dirty,    setDirty]    = useState(false);
   const [uploading,setUploading]= useState(new Set());
@@ -3166,6 +3226,7 @@ function LiquidacionForm({ liq, embarques, clientes, exportadoras, especies, mon
   const [gastosDestino,  setGastosDestino]  = useState(()=> Array.isArray(liq?.gastosDestino) ? liq.gastosDestino.map(g=>({...g})) : [] );
   const [anticipo,       setAnticipo]       = useState(()=> liq?.anticipo!=null ? String(liq.anticipo) : "");
   const f = k => e => setForm(p=>({...p,[k]:e.target.value}));
+  const [buscarOE, setBuscarOE] = useState("");
 
   // Al elegir/cambiar la OE, la moneda de liquidación toma la del cliente
   // (ej. Global Fruit Point → EUR). No pisa la moneda guardada al abrir a editar.
@@ -3283,15 +3344,24 @@ function LiquidacionForm({ liq, embarques, clientes, exportadoras, especies, mon
         {/* OE */}
         <div style={{gridColumn:"1/-1"}}>
           <div style={lblSt}>Orden de embarque *</div>
+          <input value={buscarOE} onChange={e=>setBuscarOE(e.target.value)}
+            placeholder="🔍 Filtrar por N° contenedor o N° embarque…"
+            style={{...inputSt, marginBottom:6}}/>
           <select value={form.oeId} onChange={f("oeId")} style={inputSt}>
             <option value="">— Selecciona una OE —</option>
-            {[...embarques].sort((a,b)=>(b.fechaCreacion||"").localeCompare(a.fechaCreacion||"")).map(oe=>{
+            {[...embarques]
+              .filter(oe=>{
+                const q=buscarOE.trim().toLowerCase(); if(!q) return true;
+                return (oe.numeroContenedor||"").toLowerCase().includes(q)
+                  || (oe.numero||"").toLowerCase().includes(q);
+              })
+              .sort((a,b)=>(b.fechaCreacion||"").localeCompare(a.fechaCreacion||"")).map(oe=>{
               const exp = exportadoras.find(e=>e.id===oe.exportadoraId);
               const cli = clientes.find(c=>c.id===oe.clienteId);
               const esp = especies.find(e=>e.codigo===oe.especieCodigo);
               return (
                 <option key={oe.id} value={oe.id}>
-                  {oe.numero||oe.id.slice(-6)} — {exp?.nombre||"?"} → {cli?.nombre||"?"} {esp?.icono||""} T{oe.temporada||"?"} [{oe.estado||"borrador"}]
+                  {oe.numero||oe.id.slice(-6)} · {oe.numeroContenedor||"s/cont"} — {exp?.nombre||"?"} → {cli?.nombre||"?"} {esp?.icono||""} T{oe.temporada||"?"} [{oe.estado||"borrador"}]
                 </option>
               );
             })}
