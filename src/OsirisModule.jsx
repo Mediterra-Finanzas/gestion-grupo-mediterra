@@ -586,6 +586,75 @@ async function ensureJSZip() {
   });
 }
 
+// ── Helper: cargar jsPDF + autoTable una vez (CDN) ──────────────
+let _osJsPDFLoaded = false;
+async function os_loadJsPDF() {
+  if(_osJsPDFLoaded && window.jspdf) return window.jspdf.jsPDF;
+  await new Promise((res,rej)=>{
+    const s1=document.createElement("script");
+    s1.src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js";
+    s1.onload=()=>{
+      const s2=document.createElement("script");
+      s2.src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js";
+      s2.onload=()=>{ _osJsPDFLoaded=true; res(); };
+      s2.onerror=rej; document.head.appendChild(s2);
+    };
+    s1.onerror=rej; document.head.appendChild(s1);
+  });
+  return window.jspdf.jsPDF;
+}
+// Logo como data URL (para jsPDF addImage)
+let _logoDataUrl;
+async function getLogoDataUrl() {
+  if(_logoDataUrl!==undefined) return _logoDataUrl;
+  try {
+    const res = await fetch("/osiris-logo.jpg");
+    if(!res.ok){ _logoDataUrl=null; return null; }
+    const blob = await res.blob();
+    _logoDataUrl = await new Promise(r=>{ const fr=new FileReader(); fr.onload=()=>r(fr.result); fr.readAsDataURL(blob); });
+    return _logoDataUrl;
+  } catch { _logoDataUrl=null; return null; }
+}
+// Export PDF genérico: tituloDoc, kpis=[{l,v}], tablas=[{titulo,headers,rows}]
+async function exportarReportePDF(tituloDoc, kpis, tablas, nombreArchivo) {
+  const JsPDF = await os_loadJsPDF();
+  const doc = new JsPDF({orientation:"landscape", unit:"mm", format:"a4"});
+  const W = doc.internal.pageSize.getWidth();
+  const logo = await getLogoDataUrl().catch(()=>null);
+  // Banda superior
+  doc.setFillColor(15,45,74); doc.rect(0,0,W,24,"F");
+  if(logo){ try{ doc.addImage(logo,"JPEG",10,4,16,16); }catch(e){} }
+  doc.setTextColor(255,255,255); doc.setFontSize(15); doc.setFont(undefined,"bold");
+  doc.text(tituloDoc, logo?30:10, 12);
+  doc.setFontSize(9); doc.setFont(undefined,"normal");
+  doc.text("Osiris Plant Management · Grupo Mediterra · "+new Date().toLocaleDateString("es-CL"), logo?30:10, 19);
+  let y = 32;
+  // KPIs
+  if(kpis&&kpis.length){
+    doc.setTextColor(30,41,59); doc.setFontSize(10);
+    const bw=(W-20)/kpis.length;
+    kpis.forEach((k,i)=>{ const x=10+i*bw;
+      doc.setDrawColor(203,213,225); doc.setFillColor(248,250,252); doc.roundedRect(x,y,bw-4,16,2,2,"FD");
+      doc.setFont(undefined,"normal"); doc.setFontSize(8); doc.setTextColor(100,116,139); doc.text(String(k.l),x+3,y+5);
+      doc.setFont(undefined,"bold"); doc.setFontSize(12); doc.setTextColor(15,45,74); doc.text(String(k.v),x+3,y+12);
+    });
+    y+=22;
+  }
+  // Tablas
+  (tablas||[]).forEach(t=>{
+    if(y>170){ doc.addPage(); y=20; }
+    doc.setFont(undefined,"bold"); doc.setFontSize(11); doc.setTextColor(15,45,74); doc.text(t.titulo, 10, y); y+=2;
+    doc.autoTable({
+      startY:y+2, head:[t.headers], body:t.rows,
+      styles:{fontSize:8, cellPadding:1.5}, headStyles:{fillColor:[15,45,74], textColor:255, fontSize:8},
+      alternateRowStyles:{fillColor:[241,245,249]}, margin:{left:10,right:10},
+      didDrawPage:(d)=>{ y=d.cursor.y; }
+    });
+    y = doc.lastAutoTable.finalY + 8;
+  });
+  doc.save((nombreArchivo||"Reporte_Osiris")+"_"+new Date().toISOString().slice(0,10)+".pdf");
+}
+
 // ── Helper: exportar a Excel con logo, título, tabla y formato ──
 // sections puede ser:
 //   - {rows, headers, titulo}  (una sección simple, compatibilidad con llamadas viejas)
@@ -6866,24 +6935,46 @@ async function exportarContratos(filtrado) {
   };
   const headers = [
     "Razón Social","Nombre Comercial","Tax ID","País","Ciudad",
-    "Tipo Contrato","Fecha Contrato","Fecha Término",
+    "Representante Legal","Contacto","Email","Teléfono",
+    "Modelo Ingresos","Tipo Contrato","Fecha Contrato","Fecha Término","Vigencia","Días para vencer",
     "Firmado Licenciado","Firmado OSIRIS",
     "Año de Prueba","Cantidad Años Prueba",
     "Lleva Multa","Mín. Há Contrato",
     "Anexos",
     "Contract Fee","Tipo Fee","Monto Fee US$",
     "Royalty/Planta US$","Royalty Comercial US$/Há","Sujeto Inflación","Mes Facturación RC",
-    "Link Contrato","Notas"
+    "Doc. Contrato","Qué falta","Notas"
   ];
-  const rows = filtrado.map(r=>[
+  const rows = filtrado.map(r=>{
+    const d = diasParaVencer(r.fechaTermino);
+    const vig = estadoVigencia(r.fechaTermino).label;
+    const falta = [];
+    if(!r.pais) falta.push("país");
+    if(!(r.representanteLegal)) falta.push("rep. legal");
+    if(!(r.contacto||r.emailContacto||r.telefonoContacto)) falta.push("contacto");
+    if(!r.fechaContrato) falta.push("fecha contrato");
+    if(!r.fechaTermino) falta.push("fecha término");
+    if(!(r.firmadoLicenciado&&r.firmadoOsiris)) falta.push("firmas");
+    if(!r.valorRoyaltyPlanta) falta.push("US$/planta");
+    if(!r.valorRoyaltyComercial) falta.push("US$/há");
+    if(r.tipoContractFee!=="Sin Contract Fee" && !r.montoContractFee) falta.push("monto Contract Fee");
+    if(!r.linkContrato) falta.push("adjuntar contrato");
+    return [
     r.razonSocial||"",
     r.nombreComercial||"",
     r.taxID||"",
     r.pais||"",
     r.ciudad||"",
+    r.representanteLegal||"",
+    r.contacto||"",
+    r.emailContacto||"",
+    r.telefonoContacto||"",
+    r.modeloIngresos==="oc"?"Modelo OC":"Legacy",
     r.tipoContrato||"",
     r.fechaContrato||"",
     r.fechaTermino||"",
+    vig,
+    d!==null?d:"—",
     r.firmadoLicenciado?"Sí":"No",
     r.firmadoOsiris?"Sí":"No",
     r.tieneAnioPrueba?"Sí":"No",
@@ -6898,9 +6989,10 @@ async function exportarContratos(filtrado) {
     r.valorRoyaltyComercial||"",
     r.royaltyInflacion?"Sí":"No",
     r.mesFacuracionRC||"",
-    r.linkContrato||"",
+    r.linkContrato?"Sí":"⚠ Falta",
+    falta.length?falta.join(", "):"OK",
     r.notas||""
-  ]);
+  ]; });
   const sectionContratos = { titulo:"Contratos", headers, rows };
   // Plantaciones
   const pltRows=[];
@@ -9506,24 +9598,53 @@ function estadoVigencia(fechaStr) {
 async function exportarObtentores(obtData) {
   const sectionContratos = {
     titulo: "Contratos Obtentores",
-    headers: ["Obtentor","Estado Contrato","Fecha Inicio","Fecha Vencimiento","Renovable","Firma Obtentor","Firma Osiris","# Especies","# Variedades","# PBR","# Anexos","Días para vencer","Link Contrato","Link Doc. Legal","Observaciones"],
+    headers: ["Obtentor","País","Representante Legal","Contacto","Email","Teléfono","Estado Contrato","Fecha Inicio","Fecha Vencimiento","Vigencia","Días para vencer","Renovable","Exclusividad","Territorios","% Participación Ingresos","% Royalty Obtentor","Mín. Garantizado","Moneda Mín.","Derecho Auditoría","Frecuencia Reportes","Próximo Reporte","Firma Obtentor","Firma Osiris","# Especies","# Variedades","# PBR","# Anexos","Doc. Contrato","Doc. Legal","Qué falta","Observaciones"],
     rows: obtData.map(o=>{
       const d = diasParaVencer(o.f_vencimiento);
+      const vig = estadoVigencia(o.f_vencimiento).label;
+      const falta = [];
+      if(!o.pais) falta.push("país");
+      if(!o.representanteLegal) falta.push("rep. legal");
+      if(!(o.contacto||o.emailContacto||o.telefonoContacto)) falta.push("contacto");
+      if(!o.f_inicio) falta.push("fecha inicio");
+      if(!o.f_vencimiento) falta.push("fecha vencimiento");
+      if(!(o.especies||[]).length) falta.push("especies/variedades");
+      if(!(o.pbr||[]).length) falta.push("PBR");
+      if(!(o.royaltiesObtentor||o.participacionIngresos)) falta.push("% royalty");
+      if(!(o.firma_obtentor&&o.firma_osiris)) falta.push("firmas");
+      if(!o.doc_contrato) falta.push("adjuntar contrato");
+      if(!o.doc_legal) falta.push("adjuntar doc. legal");
       return [
         o.obtentor||"",
+        o.pais||"",
+        o.representanteLegal||"",
+        o.contacto||"",
+        o.emailContacto||"",
+        o.telefonoContacto||"",
         o.estado_contrato||"Borrador",
         o.f_inicio||"",
         o.f_vencimiento||"",
+        vig,
+        d!==null?d:"—",
         o.renovable?"Sí":"No",
+        o.tipoExclusividad||(o.exclusividad?"Exclusivo":"")||"",
+        Array.isArray(o.territorios)?o.territorios.join(", "):(o.territorios||""),
+        o.participacionIngresos!=null&&o.participacionIngresos!==""?o.participacionIngresos+"%":"",
+        o.royaltiesObtentor!=null&&o.royaltiesObtentor!==""?o.royaltiesObtentor+"%":"",
+        o.minimoGarantizado||"",
+        o.monedaMinimo||"",
+        o.derechoAuditoria?"Sí":"No",
+        o.frecuenciaReportes||"",
+        o.proximoReporte||"",
         o.firma_obtentor?"Firmado":"Pendiente",
         o.firma_osiris?"Firmado":"Pendiente",
         new Set((o.especies||[]).map(e=>(e.especie||"").trim()).filter(Boolean)).size,
         (o.especies||[]).length,
         (o.pbr||[]).length,
         (o.anexos||[]).length,
-        d!==null?d:"—",
-        o.doc_contrato||"",
-        o.doc_legal||"",
+        o.doc_contrato?"Sí ("+o.doc_contrato+")":"⚠ Falta",
+        o.doc_legal?"Sí ("+o.doc_legal+")":"⚠ Falta",
+        falta.length?falta.join(", "):"OK",
         o.observaciones||"",
       ];
     }),
@@ -9576,23 +9697,39 @@ async function exportarObtentores(obtData) {
 async function exportarViveros(vivData) {
   const sectionViveros = {
     titulo: "Contratos Viveros",
-    headers: ["Viverista","País","Estado Contrato","Fecha Contrato","Fecha Vencimiento","Forma de Pago","Mes Estim. Pago","Firma Viverista","Firma Osiris","# Variedades","# OC","Días para vencer","Link Contrato","Observaciones"],
+    headers: ["Viverista","País","Representante Legal","Contacto","Email","Teléfono","Estado Contrato","Fecha Contrato","Fecha Vencimiento","Vigencia","Días para vencer","Forma de Pago","Mes Estim. Pago","Firma Viverista","Firma Osiris","# Variedades","# OC","Doc. Contrato","Qué falta","Observaciones"],
     rows: vivData.map(v=>{
       const d = diasParaVencer(v.f_vencimiento);
+      const vig = estadoVigencia(v.f_vencimiento).label;
+      const falta = [];
+      if(!v.pais) falta.push("país");
+      if(!(v.representanteLegal||v.rep_legal)) falta.push("rep. legal");
+      if(!(v.contacto||v.emailContacto||v.email||v.telefono||v.telefonoContacto)) falta.push("contacto");
+      if(!v.f_contrato) falta.push("fecha contrato");
+      if(!v.f_vencimiento) falta.push("fecha vencimiento");
+      if(!(v.variedades||[]).length) falta.push("variedades");
+      if(!(v.firma_viverista&&v.firma_osiris)) falta.push("firmas");
+      if(!v.doc_contrato) falta.push("adjuntar contrato");
       return [
         v.viverista||"",
         v.pais||"",
+        v.representanteLegal||v.rep_legal||"",
+        v.contacto||"",
+        v.emailContacto||v.email||"",
+        v.telefono||v.telefonoContacto||"",
         v.estado_contrato||"Borrador",
         v.f_contrato||"",
         v.f_vencimiento||"",
+        vig,
+        d!==null?d:"—",
         v.forma_pago||"",
         v.mes_pago_estimado||"",
         v.firma_viverista?"Firmado":"Pendiente",
         v.firma_osiris?"Firmado":"Pendiente",
         (v.variedades||[]).length,
         (v.ordenesCompra||[]).length,
-        d!==null?d:"—",
-        v.doc_contrato||"",
+        v.doc_contrato?"Sí ("+v.doc_contrato+")":"⚠ Falta",
+        falta.length?falta.join(", "):"OK",
         v.observaciones||"",
       ];
     }),
@@ -9742,13 +9879,16 @@ function ReportesOsiris({rpData=[],rcData=[],feData=[],fvData=[],ctData=[],obten
     <thead><tr style={{background:C.primary}}>{headers.map(h=><th key={h} style={{padding:"6px 8px",textAlign:"left",fontSize:10,fontWeight:700,color:C.primaryText,whiteSpace:"nowrap"}}>{h}</th>)}</tr></thead>
     <tbody>{rows.map((r,i)=><tr key={i} style={{borderBottom:"1px solid #f1f5f9",background:i%2?C.cardAlt:"#fff"}}>{r.map((c,j)=><td key={j} style={{padding:"5px 8px",whiteSpace:"nowrap"}}>{c}</td>)}</tr>)}</tbody></table></div>);
 
-  const Card=({title,children,onExport})=>(<div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,padding:16,marginBottom:16}}>
+  const Card=({title,children,onExport,onExportPDF})=>(<div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,padding:16,marginBottom:16}}>
     <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10,flexWrap:"wrap",gap:8}}>
       <div style={{fontSize:14,fontWeight:800,color:C.text}}>{title}</div>
-      {onExport&&<button onClick={onExport} style={{background:C.success,color:"#fff",border:"none",borderRadius:8,padding:"6px 12px",cursor:"pointer",fontSize:12,fontWeight:700}}>📥 Excel</button>}
+      <div style={{display:"flex",gap:6}}>
+        {onExport&&<button onClick={onExport} style={{background:C.success,color:"#fff",border:"none",borderRadius:8,padding:"6px 12px",cursor:"pointer",fontSize:12,fontWeight:700}}>📥 Excel</button>}
+        {onExportPDF&&<button onClick={onExportPDF} style={{background:C.danger,color:"#fff",border:"none",borderRadius:8,padding:"6px 12px",cursor:"pointer",fontSize:12,fontWeight:700}}>📄 PDF</button>}
+      </div>
     </div>{children}</div>);
 
-  const TABS=[{id:"ingresos",l:"💰 Ingresos"},{id:"cobranza",l:"🧾 Cobranza / Aging"},{id:"produccion",l:"🌱 Producción"},{id:"obtentores",l:"🧬 Pago Obtentores"}];
+  const TABS=[{id:"ingresos",l:"💰 Ingresos"},{id:"cobranza",l:"🧾 Cobranza / Aging"},{id:"vencimientos",l:"⏰ Vencimientos / Alertas"},{id:"produccion",l:"🌱 Producción"},{id:"obtentores",l:"🧬 Pago Obtentores"}];
 
   return (
     <div style={{maxWidth:1200,margin:"0 auto"}}>
@@ -9770,14 +9910,17 @@ function ReportesOsiris({rpData=[],rcData=[],feData=[],fvData=[],ctData=[],obten
         const porAnio=Object.keys(anios).sort().map(y=>({label:y,value:anios[y],color:C.primary}));
         const rows=conceptos.map(c=>{ const f=c.data.reduce((a,x)=>a+mF(x),0), co=c.data.reduce((a,x)=>a+mC(x),0), pg=c.data.filter(x=>est(x)==="pagado").reduce((a,x)=>a+mC(x),0);
           return [c.k, money(f), money(co), money(pg), money(co-pg)]; });
-        const exp=()=>exportCSV(rows,["Concepto","Facturado","Neto (cobro)","Pagado","Por cobrar"],"Reporte_Ingresos_Osiris",{tituloDoc:"Ingresos por concepto"});
+        const H=["Concepto","Facturado","Neto (cobro)","Pagado","Por cobrar"];
+        const kpis=[{l:"Facturado",v:money(totF)},{l:"Neto (cobro)",v:money(totC)},{l:"Pagado",v:money(totPag)},{l:"Por cobrar",v:money(totPorCobrar)}];
+        const exp=()=>exportCSV(rows,H,"Reporte_Ingresos_Osiris",{tituloDoc:"Ingresos por concepto"});
+        const expPDF=()=>exportarReportePDF("Ingresos por concepto",kpis,[{titulo:"Detalle por concepto",headers:H,rows},{titulo:"Por año",headers:["Año","Facturado"],rows:porAnio.map(a=>[a.label,money(a.value)])}],"Reporte_Ingresos_Osiris");
         return (<>
           <div style={{display:"flex",gap:10,flexWrap:"wrap",marginBottom:14}}>
             <KPI l="Facturado" v={money(totF)} c={C.text}/><KPI l="Neto (cobro)" v={money(totC)} c={C.primary}/>
             <KPI l="Pagado" v={money(totPag)} c={C.success}/><KPI l="Por cobrar" v={money(totPorCobrar)} c={C.warning}/></div>
           <Card title="Facturado por concepto">{barra(porConcepto)}</Card>
           <Card title="Facturado por año">{barra(porAnio)}</Card>
-          <Card title="Detalle por concepto" onExport={exp}><Tabla headers={["Concepto","Facturado","Neto (cobro)","Pagado","Por cobrar"]} rows={rows}/></Card>
+          <Card title="Detalle por concepto" onExport={exp} onExportPDF={expPDF}><Tabla headers={H} rows={rows}/></Card>
         </>);
       })()}
 
@@ -9793,12 +9936,14 @@ function ReportesOsiris({rpData=[],rcData=[],feData=[],fvData=[],ctData=[],obten
         const porCli={}; todos.filter(x=>est(x)!=="pagado"&&est(x)!=="anulado").forEach(x=>{ const n=nombreDe(x); porCli[n]=(porCli[n]||0)+mC(x); });
         const cliRows=Object.entries(porCli).sort((a,b)=>b[1]-a[1]).map(([n,v])=>[n,money(v)]);
         const exp=()=>exportCSV(cliRows,["Cliente","Pendiente (neto)"],"Reporte_Cobranza_Osiris",{tituloDoc:"Cobranza / aging"});
+        const kpis=[{l:"Total pendiente",v:money(totPorCobrar)},{l:">90 días",v:money(buckets[">90"])}];
+        const expPDF=()=>exportarReportePDF("Cobranza / Aging",kpis,[{titulo:"Antigüedad de la deuda",headers:["Tramo","Monto"],rows:agingItems.map(a=>[a.label,money(a.value)])},{titulo:"Pendiente por cliente",headers:["Cliente","Pendiente (neto)"],rows:cliRows}],"Reporte_Cobranza_Osiris");
         return (<>
           <div style={{display:"flex",gap:10,flexWrap:"wrap",marginBottom:14}}>
             <KPI l="Total pendiente" v={money(totPorCobrar)} c={C.warning}/><KPI l=">90 días" v={money(buckets[">90"])} c={C.danger}/></div>
           <Card title="Por estado de cobro">{barra(estItems)}</Card>
           <Card title="Antigüedad de la deuda (aging)">{barra(agingItems)}</Card>
-          <Card title="Pendiente por cliente" onExport={exp}><Tabla headers={["Cliente","Pendiente (neto)"]} rows={cliRows}/></Card>
+          <Card title="Pendiente por cliente" onExport={exp} onExportPDF={expPDF}><Tabla headers={["Cliente","Pendiente (neto)"]} rows={cliRows}/></Card>
         </>);
       })()}
 
@@ -9813,14 +9958,17 @@ function ReportesOsiris({rpData=[],rcData=[],feData=[],fvData=[],ctData=[],obten
         const porTemp={}; desp.forEach(d=>{ porTemp[d.temp]=(porTemp[d.temp]||0)+d.ha; });
         const tempRows=Object.keys(porTemp).sort().map(t=>[t,N(porTemp[t].toFixed(2))]);
         const detRows=desp.map(d=>[d.cliente,d.especie,d.variedad,d.tipo,N(d.plantas),N(d.ha.toFixed(2)),d.temp]);
-        const exp=()=>exportCSV(detRows,["Cliente","Especie","Variedad","Tipo","Plantas","Há","Temporada"],"Reporte_Produccion_Osiris",{tituloDoc:"Producción (despachos)"});
+        const H=["Cliente","Especie","Variedad","Tipo","Plantas","Há","Temporada"];
+        const exp=()=>exportCSV(detRows,H,"Reporte_Produccion_Osiris",{tituloDoc:"Producción (despachos)"});
+        const kpis=[{l:"Plantas despachadas",v:N(totPl)},{l:"Hectáreas",v:N(totHa.toFixed(2))},{l:"Comercial (pl)",v:N(comPl)},{l:"Prueba (pl)",v:N(pruPl)}];
+        const expPDF=()=>exportarReportePDF("Producción (despachos)",kpis,[{titulo:"Há por temporada",headers:["Temporada","Há"],rows:tempRows},{titulo:"Detalle de despachos",headers:H,rows:detRows}],"Reporte_Produccion_Osiris");
         return (<>
           <div style={{display:"flex",gap:10,flexWrap:"wrap",marginBottom:14}}>
             <KPI l="Plantas despachadas" v={N(totPl)} c={C.success}/><KPI l="Hectáreas" v={N(totHa.toFixed(2))} c={C.purple}/>
             <KPI l="Comercial (pl)" v={N(comPl)} c={C.primary}/><KPI l="Prueba (pl)" v={N(pruPl)} c={C.am}/></div>
           <Card title="Plantas por especie">{barra(espItems,N)}</Card>
           <Card title="Há por temporada de plantación"><Tabla headers={["Temporada","Há"]} rows={tempRows}/></Card>
-          <Card title="Detalle de despachos" onExport={exp}><Tabla headers={["Cliente","Especie","Variedad","Tipo","Plantas","Há","Temporada"]} rows={detRows}/></Card>
+          <Card title="Detalle de despachos" onExport={exp} onExportPDF={expPDF}><Tabla headers={H} rows={detRows}/></Card>
         </>);
       })()}
 
@@ -9829,12 +9977,50 @@ function ReportesOsiris({rpData=[],rcData=[],feData=[],fvData=[],ctData=[],obten
         const totNeto=rows.reduce((s,r)=>s+(Number(r.netoAPagar)||0),0), totBruto=rows.reduce((s,r)=>s+(Number(r.deudaBruta)||0),0), totWht=rows.reduce((s,r)=>s+(Number(r.whtTotal)||0),0);
         const items=rows.map(r=>({label:r.o.obtentor||"—",value:Number(r.netoAPagar)||0,color:C.purple}));
         const tRows=rows.map(r=>[r.o.obtentor||"—", money(r.deudaBruta), money(r.whtTotal), money(r.netoAPagar)]);
-        const exp=()=>exportCSV(tRows,["Obtentor","Bruto","WHT","Neto a pagar"],"Reporte_Obtentores_Osiris",{tituloDoc:"Pago a obtentores"});
+        const H=["Obtentor","Bruto","WHT","Neto a pagar"];
+        const exp=()=>exportCSV(tRows,H,"Reporte_Obtentores_Osiris",{tituloDoc:"Pago a obtentores"});
+        const kpis=[{l:"Bruto obtentores",v:money(totBruto)},{l:"Retención (WHT)",v:money(totWht)},{l:"Neto a pagar",v:money(totNeto)}];
+        const expPDF=()=>exportarReportePDF("Pago a Obtentores",kpis,[{titulo:"Detalle por obtentor",headers:H,rows:tRows}],"Reporte_Obtentores_Osiris");
         return (<>
           <div style={{display:"flex",gap:10,flexWrap:"wrap",marginBottom:14}}>
             <KPI l="Bruto obtentores" v={money(totBruto)} c={C.text}/><KPI l="Retención (WHT)" v={money(totWht)} c={C.danger}/><KPI l="Neto a pagar" v={money(totNeto)} c={C.purple}/></div>
           <Card title="Neto a pagar por obtentor">{barra(items)}</Card>
-          <Card title="Detalle por obtentor" onExport={exp}><Tabla headers={["Obtentor","Bruto","WHT","Neto a pagar"]} rows={tRows}/></Card>
+          <Card title="Detalle por obtentor" onExport={exp} onExportPDF={expPDF}><Tabla headers={H} rows={tRows}/></Card>
+        </>);
+      })()}
+
+      {tab==="vencimientos"&&(()=>{
+        const hoy=new Date(); hoy.setHours(0,0,0,0);
+        const dias=f=>{ if(!f) return null; const d=new Date(f); if(isNaN(d)) return null; return Math.ceil((d-hoy)/86400000); };
+        const alerta=d=> d===null?"Sin fecha": d<0?"🔴 Vencido": d<=30?"🔴 ≤30 días": d<=90?"🟡 ≤90 días":"🟢 Vigente";
+        // Contratos (fechaTermino)
+        const cont=ctData.filter(c=>fPais==="Todos"||c.pais===fPais).map(c=>{ const d=dias(c.fechaTermino); return ["Contrato Exp-Prod", c.razonSocial||"—", c.pais||"", c.fechaTermino||"Sin fecha", d!=null?d:"—", alerta(d)]; });
+        // Obtentores (f_vencimiento)
+        const obt=obtentoresData.map(o=>{ const d=dias(o.f_vencimiento); return ["Contrato Obtentor", o.obtentor||"—", o.pais||"", o.f_vencimiento||"Sin fecha", d!=null?d:"—", alerta(d)]; });
+        // Viveros (f_vencimiento)
+        const viv=viverosData.map(v=>{ const d=dias(v.f_vencimiento); return ["Contrato Vivero", v.viverista||"—", v.pais||"", v.f_vencimiento||"Sin fecha", d!=null?d:"—", alerta(d)]; });
+        const contratosRows=[...cont,...obt,...viv].sort((a,b)=>(a[4]==="—"?9e9:a[4])-(b[4]==="—"?9e9:b[4]));
+        // Facturas por vencer (cuotas + fee vivero de viveros)
+        const facs=[];
+        viverosData.forEach(v=>(v.ordenesCompra||[]).forEach(o=>{
+          (o.cuotas||[]).forEach(cu=>{ if(cu.pagado) return; const d=dias(cu.fecha); facs.push(["Cuota OC", o.cliente_nombre||v.viverista||"—", cu.n_factura||"—", "$"+N(Number(cu.monto_usd)||0), cu.fecha||"Sin fecha", d!=null?d:"—", alerta(d)]); });
+          const fvs=(o.fvFacturas&&o.fvFacturas.length)?o.fvFacturas:[];
+          fvs.forEach(f=>{ if((f.estado||"").toLowerCase().includes("pag")) return; const d=dias(f.fecha_venc); facs.push(["Fee Vivero", o.cliente_nombre||v.viverista||"—", f.n_factura||"—", "$"+N(Number(f.monto)||0), f.fecha_venc||"Sin fecha", d!=null?d:"—", alerta(d)]); });
+        }));
+        facs.sort((a,b)=>(a[5]==="—"?9e9:a[5])-(b[5]==="—"?9e9:b[5]));
+        const nVenc=[...cont,...obt,...viv,...facs].filter(r=>{ const d=r[r.length-2]; return typeof d==="number"&&d<0; }).length;
+        const nProx=[...cont,...obt,...viv,...facs].filter(r=>{ const d=r[r.length-2]; return typeof d==="number"&&d>=0&&d<=30; }).length;
+        const cH=["Tipo","Nombre","País","Fecha Vencimiento","Días","Alerta"];
+        const fH=["Tipo","Cliente/Vivero","N° Factura","Monto","Vencimiento","Días","Alerta"];
+        const exp=()=>exportCSV([{titulo:"Contratos por vencer",headers:cH,rows:contratosRows},{titulo:"Facturas por vencer",headers:fH,rows:facs}],null,"Reporte_Vencimientos_Osiris",{tituloDoc:"Vencimientos y alertas"});
+        const kpis=[{l:"Vencidos",v:String(nVenc)},{l:"Vencen ≤30 días",v:String(nProx)},{l:"Contratos",v:String(contratosRows.length)},{l:"Facturas pend.",v:String(facs.length)}];
+        const expPDF=()=>exportarReportePDF("Vencimientos y Alertas",kpis,[{titulo:"Contratos por vencer",headers:cH,rows:contratosRows},{titulo:"Facturas por vencer",headers:fH,rows:facs}],"Reporte_Vencimientos_Osiris");
+        return (<>
+          <div style={{display:"flex",gap:10,flexWrap:"wrap",marginBottom:14}}>
+            <KPI l="Vencidos" v={String(nVenc)} c={C.danger}/><KPI l="Vencen ≤30 días" v={String(nProx)} c={C.warning}/>
+            <KPI l="Contratos" v={String(contratosRows.length)} c={C.text}/><KPI l="Facturas pend." v={String(facs.length)} c={C.primary}/></div>
+          <Card title="Contratos por vencer (contratos, obtentores y viveros)" onExport={exp} onExportPDF={expPDF}><Tabla headers={cH} rows={contratosRows}/></Card>
+          <Card title="Facturas por cobrar / vencer"><Tabla headers={fH} rows={facs}/></Card>
         </>);
       })()}
     </div>
