@@ -212,7 +212,7 @@ async function exportarPL_PDF(oe, pl, exportadora, cliente, especie, tiposEmbala
   const totalBrutoKg = (pl.pallets||[]).reduce((s,p)=>s+Number(p.pesoBrutoKg||0),0);
   const body = (pl.pallets||[]).map((p,i)=>[
     i+1,
-    tiposEmbalaje.find(t=>t.codigo===p.formato)?.nombre||p.formato||"—",
+    nombreFormato(p.formato, tiposEmbalaje),
     p.variedad||"—",
     p.calibre||"—",
     p.palletNum||"—",
@@ -279,7 +279,7 @@ async function exportarPL_Excel(oe, pl, exportadora, cliente, especie, tiposEmba
 
   const palletRows = pallets.map((p,i)=>`<Row>
     <Cell><ss:Data ss:Type="Number">${i+1}</ss:Data></Cell>
-    ${cell(tiposEmbalaje.find(t=>t.codigo===p.formato)?.nombre||p.formato||"")}
+    ${cell(nombreFormato(p.formato, tiposEmbalaje))}
     ${cell(p.variedad||"")}
     ${cell(p.calibre||"")}
     <Cell><ss:Data ss:Type="Number">${Number(p.palletNum)||0}</ss:Data></Cell>
@@ -329,6 +329,13 @@ function pesoBrutoPorCaja(formatoVal, tiposEmbalaje) {
   const t = (tiposEmbalaje||[]).find(x=>x.codigo===formatoVal || x.descripcion===formatoVal);
   return t && Number(t.pesoBruto)>0 ? Number(t.pesoBruto) : 0;
 }
+// Nombre legible de un formato. El maestro guarda `descripcion` (los items
+// importados del Excel NO traen `nombre`), así que se prioriza la descripción
+// para no mostrar códigos crípticos como "PA2" en vez de "PALTA GRANEL 10 Kg".
+function nombreFormato(formatoVal, tiposEmbalaje) {
+  const t = (tiposEmbalaje||[]).find(x=>x.codigo===formatoVal || x.descripcion===formatoVal);
+  return t?.descripcion || t?.nombre || formatoVal || "—";
+}
 
 // ── PackingListPanel ─────────────────────────────────────────────
 function PackingListPanel({ oe, tiposEmbalaje, especies, exportadoras, clientes, onGuardar, canEdit }) {
@@ -352,7 +359,8 @@ function PackingListPanel({ oe, tiposEmbalaje, especies, exportadoras, clientes,
   function addPallet(){
     const fmt0 = formatosOE[0]||"";
     const cal0 = (oe.calibrePorFormato||{})[fmt0]||"";
-    setPl(p=>({...p,pallets:[...(p.pallets||[]),{id:uid(),formato:fmt0,variedad:"",calibre:cal0,palletNum:(p.pallets||[]).length+1,cajas:0,pesoNetoKg:0,pesoBrutoKg:0}]}));
+    const fmtName = tiposEmbalaje.find(x=>x.codigo===fmt0)?.descripcion || fmt0;  // guarda el nombre legible
+    setPl(p=>({...p,pallets:[...(p.pallets||[]),{id:uid(),formato:fmtName,variedad:"",calibre:cal0,palletNum:(p.pallets||[]).length+1,cajas:0,pesoNetoKg:0,pesoBrutoKg:0}]}));
     setDirty(true);
   }
   // Actualiza un pallet. Al cambiar cajas o formato recalcula el peso neto
@@ -414,7 +422,7 @@ function PackingListPanel({ oe, tiposEmbalaje, especies, exportadoras, clientes,
 
       {/* Tabla pallets */}
       <datalist id={`fmt-list-${oe.id}`}>
-        {formatosPL.map(cod=>{ const t=tiposEmbalaje.find(x=>x.codigo===cod); return <option key={cod} value={cod}>{t?.descripcion||t?.nombre||cod}</option>; })}
+        {formatosPL.map(cod=>{ const t=tiposEmbalaje.find(x=>x.codigo===cod); return <option key={cod} value={t?.descripcion||cod}/>; })}
       </datalist>
       <div style={{overflowX:"auto",marginBottom:10}}>
         <table style={{width:"100%",borderCollapse:"collapse",fontSize:11}}>
@@ -432,8 +440,8 @@ function PackingListPanel({ oe, tiposEmbalaje, especies, exportadoras, clientes,
                 <td style={{padding:"4px 4px"}}>
                   {canEdit
                     ? <input list={`fmt-list-${oe.id}`} value={p.formato||""} onChange={e=>updPallet(idx,"formato",e.target.value)}
-                        placeholder="Formato…" style={{...inputSt,padding:"4px 6px",width:140}}/>
-                    : <span style={{color:C.text}}>{tiposEmbalaje.find(t=>t.codigo===p.formato)?.nombre||p.formato||"—"}</span>}
+                        placeholder="Formato…" style={{...inputSt,padding:"4px 6px",width:170}}/>
+                    : <span style={{color:C.text}}>{nombreFormato(p.formato, tiposEmbalaje)}</span>}
                 </td>
                 <td style={{padding:"4px 4px"}}>
                   {canEdit
