@@ -6901,10 +6901,32 @@ async function exportarContratos(filtrado) {
     r.linkContrato||"",
     r.notas||""
   ]);
-  await exportCSV(rows, headers, "Contratos_Osiris", {
+  const sectionContratos = { titulo:"Contratos", headers, rows };
+  // Plantaciones
+  const pltRows=[];
+  filtrado.forEach(r=>(r.plantaciones||[]).forEach(p=>pltRows.push([
+    r.razonSocial||"", p.especie||"", p.variedad||"", parseFloat(p.nPlantas)||0, parseFloat(p.hectareas)||0,
+    p.fechaPlantacion||"", p.tipoPlantacion||"Comercial", p.nCotizacionVivero||"", p.vivero_nombre||"", p.estado||"",
+  ])));
+  const sectionPlant={ titulo:"Plantaciones", headers:["Contrato","Especie","Variedad","Plantas","Há","Fecha Plantación","Tipo","N° Cot. Vivero","Vivero","Estado"], rows:pltRows };
+  // Royalty Planta por tandas
+  const rpRows=[];
+  filtrado.forEach(r=>{ const vpp=parseFloat(r.valorRoyaltyPlanta)||1; const tot=(r.plantaciones||[]).reduce((s,p)=>s+(parseFloat(p.nPlantas)||0),0);
+    (r.rpPlantaCuotas||[]).forEach(c=>{ const pl=(c.nPlantas!==undefined&&c.nPlantas!=="")?(parseFloat(c.nPlantas)||0):(tot*(parseFloat(c.pct)||0)/100); const m=pl*vpp;
+      rpRows.push([r.razonSocial||"", c.descripcion||"", pl, vpp, m, m*pct(r.pais), (c.estadoCF||(c.pagado?"pagado":"porCobrar")), c.fechaPago||"", c.nFact||""]); }); });
+  const sectionRP={ titulo:"Royalty Planta (tandas)", headers:["Contrato","Descripción","Plantas","US$/planta","Monto Fact.","Monto Cobro","Estado","Fecha Pago","N° Factura"], rows:rpRows };
+  // Royalty Comercial por bloques
+  const rcRows=[];
+  filtrado.forEach(r=>(r.rcCohortes||[]).forEach(c=>rcRows.push([r.razonSocial||"", parseFloat(c.ha)||0, c.desde||"", parseFloat(r.valorRoyaltyComercial)||0, r.royaltyInflacion?(parseFloat(r.rcInflacionPct)||0):0])));
+  const sectionRC={ titulo:"Royalty Comercial (bloques)", headers:["Contrato","Há","Desde Temporada","US$/há","Inflación %"], rows:rcRows };
+  // Contract Fee estado
+  const cfRows=filtrado.filter(r=>r.tipoContractFee!=="Sin Contract Fee").map(r=>[
+    r.razonSocial||"", parseFloat(r.montoContractFee)||0, r.contractFeeNFact||"", (r.contractFeeEstado||(r.contractFeePagado?"pagado":"porCobrar")), r.contractFeeFechaPago||""]);
+  const sectionCF={ titulo:"Contract Fee", headers:["Contrato","Monto US$","N° Factura","Estado","Fecha Pago"], rows:cfRows };
+  await exportCSV([sectionContratos, sectionPlant, sectionRP, sectionRC, sectionCF], null, "Contratos_Osiris", {
     tituloDoc: "Contratos Productores-Exportadores",
     subtituloDoc: "Osiris Plant Management · Grupo Mediterra",
-    filtros: `${filtrado.length} contratos exportados`,
+    filtros: `${filtrado.length} contratos · ${pltRows.length} plantaciones · ${rpRows.length} tandas RP · ${rcRows.length} bloques RC`,
   });
 }
 
@@ -9630,9 +9652,41 @@ async function exportarViveros(vivData) {
     headers: ["Viverista","N° OC","Cliente","Fecha Estimada","Monto USD","Estado","Fecha Pago","N° Factura","Observaciones"],
     rows: cuotasRows,
   };
-  await exportCSV([sectionViveros, sectionVariedades, sectionOC, sectionCuotas], null, "Contratos_Viveros", {
+  // Sección Despachos (tandas)
+  const despRows = [];
+  vivData.forEach(v=>(v.ordenesCompra||[]).forEach(o=>(o.despachos||[]).forEach(d=>{
+    despRows.push([
+      v.viverista||"", o.n_oc||"", o.cliente_nombre||"",
+      d.fecha_despacho||"", d.variedad||d.especie||"",
+      parseFloat(d.cantidad_despachada)||0,
+      d.fecha_plantacion||"",
+      parseFloat(d.ha_plantadas)||0,
+      d.tipo||"Comercial", d.estado||"", d.observaciones||"",
+    ]);
+  })));
+  const sectionDespachos = {
+    titulo: "Despachos (tandas)",
+    headers: ["Viverista","N° OC","Cliente","Fecha Despacho","Variedad","Plantas","Fecha Plantación","Há Plantadas","Tipo","Estado","Observaciones"],
+    rows: despRows,
+  };
+  // Sección Facturación al Vivero (Fee Vivero)
+  const fvRows = [];
+  vivData.forEach(v=>(v.ordenesCompra||[]).forEach(o=>{
+    const facts = (o.fvFacturas&&o.fvFacturas.length) ? o.fvFacturas
+      : ((o.fvFactura||o.fvFechaPago||o.fvFechaVenc) ? [{n_factura:o.fvFactura||"",monto:"",fecha_venc:o.fvFechaVenc||"",fecha_pago:o.fvFechaPago||"",estado:o.fvEstadoCobro||"Por cobrar"}] : []);
+    facts.forEach(f=>fvRows.push([
+      v.viverista||"", o.n_oc||"", o.cliente_nombre||"",
+      f.n_factura||"", parseFloat(f.monto)||0, f.fecha_venc||"", f.fecha_pago||"", f.estado||"Por cobrar",
+    ]));
+  }));
+  const sectionFeeVivero = {
+    titulo: "Facturación al Vivero (Fee)",
+    headers: ["Viverista","N° OC","Cliente","N° Factura","Monto USD","Vencimiento","Fecha Pago","Estado"],
+    rows: fvRows,
+  };
+  await exportCSV([sectionViveros, sectionVariedades, sectionOC, sectionDespachos, sectionCuotas, sectionFeeVivero], null, "Contratos_Viveros", {
     tituloDoc: "Contratos Viveros",
-    filtros: `${vivData.length} viveros · ${varRows.length} variedades · ${ocRows.length} OC · ${cuotasRows.length} cuotas`,
+    filtros: `${vivData.length} viveros · ${varRows.length} variedades · ${ocRows.length} OC · ${despRows.length} despachos · ${cuotasRows.length} cuotas · ${fvRows.length} facturas vivero`,
   });
   window.auditLog && window.auditLog("exportar", {modulo:"osiris", seccion:"Contratos Viveros",
     descripcion:`Exportó ${vivData.length} contratos viveros, ${ocRows.length} OC y ${cuotasRows.length} cuotas a Excel`});
