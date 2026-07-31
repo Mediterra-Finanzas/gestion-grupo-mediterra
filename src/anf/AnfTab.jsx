@@ -7,7 +7,7 @@ import React, { useState, useEffect, useRef, useMemo } from 'react';
 import * as XLSX from 'xlsx-js-style';
 import { theme } from '../theme';
 import { parsearInformeANF, buildSaldosEsf, buildMovimientosEr, calcTemporada } from './anfParser';
-import { calcularKpisDerivaos, KPI_LABELS, KPI_TOOLTIPS } from './anfKpis';
+import { calcularKpisDerivaos, KPI_LABELS, KPI_TOOLTIPS, KPI_GRUPOS } from './anfKpis';
 import {
   cargarFiliales, cargarInformes, cargarInformeCompleto,
   crearInforme, actualizarEstadoInforme, actualizarTcInforme,
@@ -367,39 +367,88 @@ function SeccionNarrativas({ informeId, justificaciones, canEdit, usuarioActual 
 
 // ── Sección KPIs ─────────────────────────────────────────────────────────────
 
+const KPI_COLORES_GRUPO = {
+  rentabilidad:  C.green,
+  liquidez:      C.blue,
+  endeudamiento: C.red,
+  balance:       C.teal,
+  resultados:    C.yellow,
+};
+
+function TarjetaKpi({ k }) {
+  const esPct    = k.unidad === '%';
+  const esRatio  = k.unidad === 'x';
+  const val      = k.valor;
+  const dec      = esPct ? 1 : esRatio ? 3 : 0;
+  return (
+    <div title={KPI_TOOLTIPS[k.clave]}
+      style={{ border: `1px solid ${C.border}`, borderRadius: 7,
+        padding: '8px 12px', background: C.card }}>
+      <div style={{ fontSize: 9, color: C.muted, marginBottom: 3, fontWeight: 600,
+        textTransform: 'uppercase', letterSpacing: '0.03em' }}>
+        {KPI_LABELS[k.clave]}
+      </div>
+      <div style={{ fontSize: 16, fontWeight: 900, color: C.text, lineHeight: 1 }}>
+        {val != null ? fmtNum(val, dec) : '—'}
+        <span style={{ fontSize: 10, color: C.muted, marginLeft: 3, fontWeight: 400 }}>
+          {val != null ? k.unidad : ''}
+        </span>
+      </div>
+    </div>
+  );
+}
+
 function SeccionKpis({ kpisDer, kpisOp, metricas }) {
   if (!kpisDer.length && !kpisOp.length) return null;
+  const mapaKpis = Object.fromEntries(kpisDer.map(k => [k.clave, k]));
+
   return (
-    <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
-      {kpisDer.length > 0 && (
-        <div style={{ flex: '1 1 300px' }}>
-          <div style={{ fontSize: 11, fontWeight: 800, color: C.text, marginBottom: 8 }}>KPIs Financieros</div>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
-            {kpisDer.map(k => (
-              <div key={k.clave} style={{ border: `1px solid ${C.border}`, borderRadius: 6,
-                padding: '6px 10px', background: C.card }} title={KPI_TOOLTIPS[k.clave]}>
-                <div style={{ fontSize: 9, color: C.muted, marginBottom: 2 }}>{KPI_LABELS[k.clave]}</div>
-                <div style={{ fontSize: 14, fontWeight: 800, color: C.text }}>
-                  {k.valor != null ? fmtNum(k.valor, k.unidad === '%' ? 1 : 2) : '—'}
-                  <span style={{ fontSize: 9, color: C.muted, marginLeft: 2 }}>{k.unidad}</span>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+      {KPI_GRUPOS.map(grupo => {
+        const items = grupo.claves.map(c => mapaKpis[c]).filter(Boolean);
+        if (!items.length) return null;
+        const color = KPI_COLORES_GRUPO[grupo.key] || C.blue;
+        return (
+          <div key={grupo.key}>
+            <div style={{ fontSize: 10, fontWeight: 800, color: color,
+              borderLeft: `3px solid ${color}`, paddingLeft: 8, marginBottom: 8,
+              textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+              {grupo.label}
+            </div>
+            <div style={{ display: 'grid',
+              gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: 8 }}>
+              {items.map(k => <TarjetaKpi key={k.clave} k={k} />)}
+            </div>
+          </div>
+        );
+      })}
+
+      {kpisOp.length > 0 && (
+        <div>
+          <div style={{ fontSize: 10, fontWeight: 800, color: C.muted,
+            borderLeft: `3px solid ${C.muted}`, paddingLeft: 8, marginBottom: 8,
+            textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+            Operacionales
+          </div>
+          <div style={{ display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: 8 }}>
+            {kpisOp.map(k => (
+              <div key={k.metrica_id}
+                style={{ border: `1px solid ${C.border}`, borderRadius: 7,
+                  padding: '8px 12px', background: C.card }}>
+                <div style={{ fontSize: 9, color: C.muted, marginBottom: 3, fontWeight: 600,
+                  textTransform: 'uppercase' }}>
+                  {k.anf_metricas_config?.nombre}
+                </div>
+                <div style={{ fontSize: 16, fontWeight: 900, color: C.text }}>
+                  {fmtNum(k.valor_real)}
+                  <span style={{ fontSize: 10, color: C.muted, marginLeft: 3 }}>
+                    {k.anf_metricas_config?.unidad}
+                  </span>
                 </div>
               </div>
             ))}
           </div>
-        </div>
-      )}
-      {kpisOp.length > 0 && (
-        <div style={{ flex: '1 1 260px' }}>
-          <div style={{ fontSize: 11, fontWeight: 800, color: C.text, marginBottom: 8 }}>KPIs Operacionales</div>
-          {kpisOp.map(k => (
-            <div key={k.metrica_id} style={{ display: 'flex', justifyContent: 'space-between',
-              padding: '4px 0', borderBottom: `1px solid ${C.border}44`, fontSize: 11 }}>
-              <span style={{ color: C.muted }}>{k.anf_metricas_config?.nombre}</span>
-              <span style={{ fontWeight: 700 }}>
-                {fmtNum(k.valor_real)} <span style={{ fontSize: 9, color: C.muted }}>{k.anf_metricas_config?.unidad}</span>
-              </span>
-            </div>
-          ))}
         </div>
       )}
     </div>
