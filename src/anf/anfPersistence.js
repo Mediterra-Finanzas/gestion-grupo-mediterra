@@ -213,6 +213,25 @@ export async function cargarMetricasConfig(filialId) {
   return supaGet(`anf_metricas_config?filial_id=eq.${filialId}&activa=eq.true&order=orden.asc`);
 }
 
+export async function cargarTodasMetricas(filialId) {
+  return supaGet(`anf_metricas_config?filial_id=eq.${filialId}&order=orden.asc`);
+}
+
+export async function crearMetrica(filialId, { nombre, unidad, orden }) {
+  const res = await fetch(`${SUPA_URL}/rest/v1/anf_metricas_config`, {
+    method: 'POST',
+    headers: { ...GET_HDR(), 'Content-Type': 'application/json', Prefer: 'return=representation' },
+    body: JSON.stringify({ filial_id: filialId, nombre, unidad, orden: orden ?? 0, activa: true }),
+  });
+  if (!res.ok) throw new Error(`POST anf_metricas_config → ${res.status}: ${await res.text()}`);
+  const rows = await res.json();
+  return Array.isArray(rows) ? rows[0] : rows;
+}
+
+export async function actualizarMetrica(metricaId, campos) {
+  return supaPatch('anf_metricas_config', `id=eq.${metricaId}`, campos);
+}
+
 export async function cargarKpisOp(informeId) {
   return supaGet(
     `anf_kpis_operacionales?informe_id=eq.${informeId}&select=*,anf_metricas_config(nombre,unidad)&order=metrica_id.asc`
