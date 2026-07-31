@@ -13,8 +13,8 @@ import {
   crearInforme, actualizarEstadoInforme, actualizarTcInforme,
   guardarSaldosEsf, guardarMovimientosEr,
   importarNarrativas, guardarJustificacion,
-  cargarMetricasConfig, guardarKpiOp,
-  guardarKpisDerivaos,
+  cargarMetricasConfig, cargarTodasMetricas, crearMetrica, actualizarMetrica,
+  guardarKpiOp, guardarKpisDerivaos,
 } from './anfPersistence';
 
 const C = {
@@ -455,6 +455,244 @@ function SeccionKpis({ kpisDer, kpisOp, metricas }) {
   );
 }
 
+// ── Panel configuración de métricas operacionales ────────────────────────────
+
+function PanelMetricasConfig({ filialId, metricasAll, onRefresh, canEdit }) {
+  const [abierto,   setAbierto]   = useState(false);
+  const [nombre,    setNombre]    = useState('');
+  const [unidad,    setUnidad]    = useState('');
+  const [guardando, setGuardando] = useState(false);
+
+  async function agregar() {
+    if (!nombre.trim()) return;
+    setGuardando(true);
+    try {
+      await crearMetrica(filialId, { nombre: nombre.trim(), unidad: unidad.trim(), orden: metricasAll.length });
+      setNombre(''); setUnidad('');
+      onRefresh();
+    } catch (e) {
+      alert('Error al crear métrica: ' + e.message);
+    } finally {
+      setGuardando(false);
+    }
+  }
+
+  async function toggleActiva(m) {
+    try {
+      await actualizarMetrica(m.id, { activa: !m.activa });
+      onRefresh();
+    } catch (e) { alert('Error: ' + e.message); }
+  }
+
+  async function moverOrden(m, dir, idx) {
+    const swap = metricasAll[idx + dir];
+    if (!swap) return;
+    try {
+      await Promise.all([
+        actualizarMetrica(m.id,    { orden: swap.orden }),
+        actualizarMetrica(swap.id, { orden: m.orden }),
+      ]);
+      onRefresh();
+    } catch (e) { alert('Error: ' + e.message); }
+  }
+
+  return (
+    <div style={{ marginBottom: 12 }}>
+      <button onClick={() => setAbierto(a => !a)}
+        style={{ fontSize: 10, color: C.muted, background: 'none', border: 'none',
+          cursor: 'pointer', padding: 0 }}>
+        {abierto ? '▼' : '►'} Configurar métricas operacionales
+        {metricasAll.length > 0 && (
+          <span style={{ marginLeft: 6, fontSize: 9, color: C.muted }}>
+            ({metricasAll.filter(m => m.activa).length} activas)
+          </span>
+        )}
+      </button>
+
+      {abierto && (
+        <div style={{ marginTop: 8, padding: '10px 12px', background: C.card,
+          border: `1px solid ${C.border}`, borderRadius: 7 }}>
+
+          {metricasAll.length === 0 ? (
+            <div style={{ color: C.muted, fontSize: 10, marginBottom: 8 }}>
+              Sin métricas configuradas para esta empresa.
+            </div>
+          ) : (
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 10, marginBottom: 10 }}>
+              <thead>
+                <tr>
+                  {['Nombre','Unidad','Activa','Orden'].map(h => (
+                    <th key={h} style={{ textAlign: h === 'Orden' || h === 'Activa' ? 'center' : 'left',
+                      color: C.muted, padding: '2px 6px', fontWeight: 600 }}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {metricasAll.map((m, idx) => (
+                  <tr key={m.id} style={{ background: idx % 2 ? C.bg : 'transparent',
+                    opacity: m.activa ? 1 : 0.5 }}>
+                    <td style={{ padding: '3px 6px' }}>{m.nombre}</td>
+                    <td style={{ padding: '3px 6px', color: C.muted }}>{m.unidad || '—'}</td>
+                    <td style={{ padding: '3px 6px', textAlign: 'center' }}>
+                      {canEdit
+                        ? <input type="checkbox" checked={!!m.activa} onChange={() => toggleActiva(m)} />
+                        : <span>{m.activa ? 'Sí' : 'No'}</span>}
+                    </td>
+                    <td style={{ padding: '3px 6px', textAlign: 'center' }}>
+                      {canEdit && (
+                        <div style={{ display: 'flex', gap: 2, justifyContent: 'center' }}>
+                          <button onClick={() => moverOrden(m, -1, idx)} disabled={idx === 0}
+                            style={{ fontSize: 10, padding: '1px 5px', cursor: 'pointer',
+                              background: C.bg, border: `1px solid ${C.border}`, borderRadius: 3 }}>↑</button>
+                          <button onClick={() => moverOrden(m, 1, idx)} disabled={idx === metricasAll.length - 1}
+                            style={{ fontSize: 10, padding: '1px 5px', cursor: 'pointer',
+                              background: C.bg, border: `1px solid ${C.border}`, borderRadius: 3 }}>↓</button>
+                        </div>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+
+          {canEdit && (
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+              <input value={nombre} onChange={e => setNombre(e.target.value)}
+                onKeyDown={e => e.key === 'Enter' && agregar()}
+                placeholder="Nombre métrica (ej: Cajas exportadas)"
+                style={{ flex: 2, minWidth: 160, padding: '5px 8px', borderRadius: 5,
+                  background: C.bg, color: C.text, border: `1px solid ${C.border}`, fontSize: 11 }} />
+              <input value={unidad} onChange={e => setUnidad(e.target.value)}
+                onKeyDown={e => e.key === 'Enter' && agregar()}
+                placeholder="Unidad (ej: cajas)"
+                style={{ flex: 1, minWidth: 80, padding: '5px 8px', borderRadius: 5,
+                  background: C.bg, color: C.text, border: `1px solid ${C.border}`, fontSize: 11 }} />
+              <Btn onClick={agregar} disabled={!nombre.trim() || guardando} color={C.teal} small>
+                {guardando ? '...' : 'Añadir'}
+              </Btn>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Ingreso manual de KPIs operacionales ──────────────────────────────────────
+
+function SeccionKpisOpEdit({ informeId, metricas, kpisOp, canEdit, usuarioActual }) {
+  const [vals,      setVals]      = useState({});
+  const [guardando, setGuardando] = useState({});
+
+  useEffect(() => {
+    const init = {};
+    metricas.forEach(m => {
+      const ex = kpisOp.find(k => k.metrica_id === m.id);
+      init[m.id] = {
+        real: ex?.valor_real  != null ? String(ex.valor_real)  : '',
+        ppto: ex?.valor_ppto  != null ? String(ex.valor_ppto)  : '',
+        t1:   ex?.valor_t1   != null ? String(ex.valor_t1)    : '',
+        nota: ex?.nota || '',
+      };
+    });
+    setVals(init);
+  }, [metricas, kpisOp]);
+
+  function parseNum(s) {
+    const n = parseFloat(String(s).replace(',', '.'));
+    return isNaN(n) ? null : n;
+  }
+
+  function upd(metricaId, campo, value) {
+    setVals(v => ({ ...v, [metricaId]: { ...v[metricaId], [campo]: value } }));
+  }
+
+  async function guardar(metricaId) {
+    const v = vals[metricaId];
+    if (!v) return;
+    setGuardando(g => ({ ...g, [metricaId]: true }));
+    try {
+      await guardarKpiOp(informeId, metricaId, {
+        valorReal:    parseNum(v.real),
+        valorPpto:    parseNum(v.ppto),
+        valorT1:      parseNum(v.t1),
+        nota:         v.nota || null,
+        ingresadoPor: usuarioActual?.nombre,
+      });
+    } catch (e) {
+      alert('Error guardando: ' + e.message);
+    } finally {
+      setGuardando(g => ({ ...g, [metricaId]: false }));
+    }
+  }
+
+  if (!metricas.length) {
+    return (
+      <div style={{ color: C.muted, fontSize: 10, fontStyle: 'italic' }}>
+        Sin métricas configuradas. Usa "Configurar métricas operacionales" para añadirlas.
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ overflowX: 'auto' }}>
+      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
+        <thead>
+          <tr style={{ background: C.card }}>
+            {['Métrica','Unidad','Real','Ppto','Año ant.','Nota','Var%'].map(h => (
+              <th key={h} style={{ padding: '4px 8px',
+                textAlign: ['Real','Ppto','Año ant.','Var%'].includes(h) ? 'right' : 'left',
+                color: C.muted, fontWeight: 600 }}>{h}</th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {metricas.map((m, i) => {
+            const v = vals[m.id] || {};
+            const real = parseFloat(String(v.real || '').replace(',', '.'));
+            const ppto = parseFloat(String(v.ppto || '').replace(',', '.'));
+            const varPct = !isNaN(real) && !isNaN(ppto) && ppto !== 0
+              ? ((real - ppto) / Math.abs(ppto)) * 100 : null;
+            const enGuardando = !!guardando[m.id];
+
+            function input(campo, width = 80) {
+              if (!canEdit) return <span>{v[campo] || '—'}</span>;
+              return (
+                <input type="text" value={v[campo] ?? ''}
+                  onChange={e => upd(m.id, campo, e.target.value)}
+                  onBlur={() => guardar(m.id)}
+                  disabled={enGuardando}
+                  style={{ width, textAlign: campo === 'nota' ? 'left' : 'right',
+                    padding: '3px 5px', borderRadius: 4, background: C.bg, color: C.text,
+                    border: `1px solid ${C.border}`, fontSize: 11 }} />
+              );
+            }
+
+            return (
+              <tr key={m.id} style={{ background: i % 2 ? C.bg : `${C.card}80` }}>
+                <td style={{ padding: '4px 8px', fontWeight: 600 }}>{m.nombre}</td>
+                <td style={{ padding: '4px 8px', color: C.muted }}>{m.unidad || '—'}</td>
+                <td style={{ padding: '3px 4px', textAlign: 'right' }}>{input('real')}</td>
+                <td style={{ padding: '3px 4px', textAlign: 'right' }}>{input('ppto')}</td>
+                <td style={{ padding: '3px 4px', textAlign: 'right' }}>{input('t1')}</td>
+                <td style={{ padding: '3px 4px' }}>{input('nota', 120)}</td>
+                <td style={{ padding: '4px 8px', textAlign: 'right' }}>
+                  {varPct != null ? (
+                    <span style={{ color: varPct >= 0 ? C.green : C.red, fontWeight: 700 }}>
+                      {varPct >= 0 ? '+' : ''}{varPct.toFixed(1)}%
+                    </span>
+                  ) : '—'}
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 // ── Componente principal ──────────────────────────────────────────────────────
 
 export default function AnfTab({ canEdit, usuarioActual }) {
@@ -476,6 +714,7 @@ export default function AnfTab({ canEdit, usuarioActual }) {
   const [kpisDer,     setKpisDer]     = useState([]);
   const [kpisOp,      setKpisOp]      = useState([]);
   const [metricas,    setMetricas]    = useState([]);
+  const [metricasAll, setMetricasAll] = useState([]);
 
   // Campos TC
   const [tipoCierre,  setTipoCierre]  = useState('');
@@ -503,6 +742,13 @@ export default function AnfTab({ canEdit, usuarioActual }) {
     })();
   }, []);
 
+  // Recargar métricas al cambiar empresa
+  useEffect(() => {
+    if (!filialId) return;
+    cargarTodasMetricas(filialId).then(setMetricasAll).catch(() => {});
+    cargarMetricasConfig(filialId).then(setMetricas).catch(() => {});
+  }, [filialId]);
+
   // ── Cargar informe seleccionado ──────────────────────────────────────────────
   async function cargarInforme() {
     if (!filialId) return;
@@ -525,8 +771,12 @@ export default function AnfTab({ canEdit, usuarioActual }) {
       }
       const filial = filiales.find(f => f.id === filialId);
       if (filial) {
-        const met = await cargarMetricasConfig(filialId);
+        const [met, metAll] = await Promise.all([
+          cargarMetricasConfig(filialId),
+          cargarTodasMetricas(filialId),
+        ]);
         setMetricas(met);
+        setMetricasAll(metAll);
       }
       setVistaANF('revisar');
     } catch (e) {
@@ -720,6 +970,23 @@ export default function AnfTab({ canEdit, usuarioActual }) {
         </div>
       </div>
 
+      {/* ── Config métricas (siempre visible cuando hay empresa) ── */}
+      {filialId && canEdit && (
+        <PanelMetricasConfig
+          filialId={filialId}
+          metricasAll={metricasAll}
+          canEdit={canEdit}
+          onRefresh={async () => {
+            const [met, metAll] = await Promise.all([
+              cargarMetricasConfig(filialId),
+              cargarTodasMetricas(filialId),
+            ]);
+            setMetricas(met);
+            setMetricasAll(metAll);
+          }}
+        />
+      )}
+
       {/* ── Errores y advertencias ── */}
       {error && (
         <div style={{ marginBottom: 10, padding: '8px 12px', background: `${C.red}18`,
@@ -864,13 +1131,27 @@ export default function AnfTab({ canEdit, usuarioActual }) {
                 <Btn onClick={exportarExcel} color={C.teal} small>Exportar XLSX</Btn>
               </div>
 
-              {/* KPIs */}
-              {(kpisDer.length > 0 || kpisOp.length > 0) && (
+              {/* KPIs derivados */}
+              {kpisDer.length > 0 && (
                 <div style={{ marginBottom: 16 }}>
-                  <div style={{ fontSize: 11, fontWeight: 800, color: C.text, marginBottom: 8 }}>KPIs</div>
-                  <SeccionKpis kpisDer={kpisDer} kpisOp={kpisOp} metricas={metricas} />
+                  <div style={{ fontSize: 11, fontWeight: 800, color: C.text, marginBottom: 8 }}>KPIs Financieros</div>
+                  <SeccionKpis kpisDer={kpisDer} kpisOp={[]} metricas={metricas} />
                 </div>
               )}
+
+              {/* KPIs operacionales — ingreso manual */}
+              <div style={{ marginBottom: 16 }}>
+                <div style={{ fontSize: 11, fontWeight: 800, color: C.text, marginBottom: 8 }}>
+                  KPIs Operacionales
+                </div>
+                <SeccionKpisOpEdit
+                  informeId={informe.id}
+                  metricas={metricas}
+                  kpisOp={kpisOp}
+                  canEdit={canEdit}
+                  usuarioActual={usuarioActual}
+                />
+              </div>
 
               {/* ESF */}
               {esf.length > 0 && (
