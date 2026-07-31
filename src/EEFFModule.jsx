@@ -15,6 +15,7 @@ import {
   cargarResumenEstados, consolidarCuentas,
 } from './eeffHelpers.js';
 import { theme } from './theme';
+import AnfTab from './anf/AnfTab';
 
 const EMPRESAS = [
   'Mediterra','Allegria Foods','Allegria Service',
@@ -1349,7 +1350,7 @@ export default function EEFFModule({ canEdit, usuarioActual, empresasPermitidas 
       <div style={{ display:'flex', gap:0, marginBottom:14,
         borderRadius:7, overflow:'hidden', border:`1px solid ${C.border}`,
         alignSelf:'flex-start', width:'fit-content' }}>
-        {[['empresa','Empresa'],['resumen','Resumen Grupo'],['consolidado','Consolidado']].map(([v,l]) => (
+        {[['empresa','Empresa'],['resumen','Resumen Grupo'],['consolidado','Consolidado'],['analisis','Análisis']].map(([v,l]) => (
           <button key={v} onClick={() => setVistaModulo(v)}
             style={{ padding:'6px 18px', fontSize:11, fontWeight:600, cursor:'pointer',
               background: vistaModulo===v ? `${C.accent}cc` : C.card2,
@@ -2750,6 +2751,11 @@ export default function EEFFModule({ canEdit, usuarioActual, empresasPermitidas 
             </div>
           </div>
         </>
+      )}
+
+      {/* ── Análisis Financiero ── */}
+      {vistaModulo === 'analisis' && (
+        <AnfTab canEdit={canEdit} usuarioActual={usuarioActual} />
       )}
 
     </div>
