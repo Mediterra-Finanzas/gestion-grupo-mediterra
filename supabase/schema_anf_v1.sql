@@ -337,16 +337,27 @@ ALTER TABLE anf_kpis_operacionales  ENABLE ROW LEVEL SECURITY;
 ALTER TABLE anf_kpis_derivados      ENABLE ROW LEVEL SECURITY;
 ALTER TABLE anf_tipos_cambio        ENABLE ROW LEVEL SECURITY;
 
-CREATE POLICY IF NOT EXISTS "anon_anf_filiales_all"        ON anf_filiales            FOR ALL TO anon USING (true) WITH CHECK (true);
-CREATE POLICY IF NOT EXISTS "anon_anf_informes_all"        ON anf_informes            FOR ALL TO anon USING (true) WITH CHECK (true);
-CREATE POLICY IF NOT EXISTS "anon_anf_saldos_esf_all"      ON anf_saldos_esf          FOR ALL TO anon USING (true) WITH CHECK (true);
-CREATE POLICY IF NOT EXISTS "anon_anf_mov_er_all"          ON anf_movimientos_er      FOR ALL TO anon USING (true) WITH CHECK (true);
-CREATE POLICY IF NOT EXISTS "anon_anf_libro_mayor_all"     ON anf_libro_mayor         FOR ALL TO anon USING (true) WITH CHECK (true);
-CREATE POLICY IF NOT EXISTS "anon_anf_justif_all"          ON anf_justificaciones     FOR ALL TO anon USING (true) WITH CHECK (true);
-CREATE POLICY IF NOT EXISTS "anon_anf_metricas_all"        ON anf_metricas_config     FOR ALL TO anon USING (true) WITH CHECK (true);
-CREATE POLICY IF NOT EXISTS "anon_anf_kpis_op_all"         ON anf_kpis_operacionales  FOR ALL TO anon USING (true) WITH CHECK (true);
-CREATE POLICY IF NOT EXISTS "anon_anf_kpis_der_all"        ON anf_kpis_derivados      FOR ALL TO anon USING (true) WITH CHECK (true);
-CREATE POLICY IF NOT EXISTS "anon_anf_tc_all"              ON anf_tipos_cambio        FOR ALL TO anon USING (true) WITH CHECK (true);
+DROP POLICY IF EXISTS "anon_anf_filiales_all"        ON anf_filiales;
+DROP POLICY IF EXISTS "anon_anf_informes_all"        ON anf_informes;
+DROP POLICY IF EXISTS "anon_anf_saldos_esf_all"      ON anf_saldos_esf;
+DROP POLICY IF EXISTS "anon_anf_mov_er_all"          ON anf_movimientos_er;
+DROP POLICY IF EXISTS "anon_anf_libro_mayor_all"     ON anf_libro_mayor;
+DROP POLICY IF EXISTS "anon_anf_justif_all"          ON anf_justificaciones;
+DROP POLICY IF EXISTS "anon_anf_metricas_all"        ON anf_metricas_config;
+DROP POLICY IF EXISTS "anon_anf_kpis_op_all"         ON anf_kpis_operacionales;
+DROP POLICY IF EXISTS "anon_anf_kpis_der_all"        ON anf_kpis_derivados;
+DROP POLICY IF EXISTS "anon_anf_tc_all"              ON anf_tipos_cambio;
+
+CREATE POLICY "anon_anf_filiales_all"        ON anf_filiales            FOR ALL TO anon USING (true) WITH CHECK (true);
+CREATE POLICY "anon_anf_informes_all"        ON anf_informes            FOR ALL TO anon USING (true) WITH CHECK (true);
+CREATE POLICY "anon_anf_saldos_esf_all"      ON anf_saldos_esf          FOR ALL TO anon USING (true) WITH CHECK (true);
+CREATE POLICY "anon_anf_mov_er_all"          ON anf_movimientos_er      FOR ALL TO anon USING (true) WITH CHECK (true);
+CREATE POLICY "anon_anf_libro_mayor_all"     ON anf_libro_mayor         FOR ALL TO anon USING (true) WITH CHECK (true);
+CREATE POLICY "anon_anf_justif_all"          ON anf_justificaciones     FOR ALL TO anon USING (true) WITH CHECK (true);
+CREATE POLICY "anon_anf_metricas_all"        ON anf_metricas_config     FOR ALL TO anon USING (true) WITH CHECK (true);
+CREATE POLICY "anon_anf_kpis_op_all"         ON anf_kpis_operacionales  FOR ALL TO anon USING (true) WITH CHECK (true);
+CREATE POLICY "anon_anf_kpis_der_all"        ON anf_kpis_derivados      FOR ALL TO anon USING (true) WITH CHECK (true);
+CREATE POLICY "anon_anf_tc_all"              ON anf_tipos_cambio        FOR ALL TO anon USING (true) WITH CHECK (true);
 
 
 /* =================================================================
