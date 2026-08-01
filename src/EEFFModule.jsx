@@ -1589,7 +1589,7 @@ export default function EEFFModule({ canEdit, usuarioActual, empresasPermitidas 
       )}
 
       {/* ── Panel de upload ── */}
-      {showUpload && (
+      {showUpload && vistaModulo !== 'analisis' && (
         <div style={{ background:C.card2, border:`1px solid ${C.border}`, borderRadius:10,
           padding:'16px 20px', marginBottom:16, boxShadow:C.shadow }}>
           <div style={{ fontSize:12, fontWeight:700, color:C.text, marginBottom:12 }}>
