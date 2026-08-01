@@ -1362,7 +1362,7 @@ export default function EEFFModule({ canEdit, usuarioActual, empresasPermitidas 
       </div>
 
       {/* ── Panel Admin (Parte 1: Maestro Terceros + Parte 2: Categorías Auxiliar) ── */}
-      {isAdmin && (
+      {isAdmin && vistaModulo !== 'analisis' && (
         <div style={{ marginBottom:14 }}>
           <button onClick={() => setAdminPanelOpen(p => !p)}
             style={{ background:'none', border:`1px solid ${C.border}`, borderRadius:6,

@@ -14,7 +14,7 @@ import {
   guardarSaldosEsf, guardarMovimientosEr,
   importarNarrativas, guardarJustificacion,
   cargarMetricasConfig, cargarTodasMetricas, crearMetrica, actualizarMetrica,
-  guardarKpiOp, guardarKpisDerivaos,
+  guardarKpiOp, guardarKpisDerivaos, cargarKpisDerivaos,
 } from './anfPersistence';
 
 const C = {
@@ -693,6 +693,192 @@ function SeccionKpisOpEdit({ informeId, metricas, kpisOp, canEdit, usuarioActual
   );
 }
 
+// ── Vista comparativa multi-empresa ──────────────────────────────────────────
+
+function VistaMultiEmpresa({ filiales, informes, anioDefault, mesDefault }) {
+  const [anioSel, setAnioSel] = useState(anioDefault);
+  const [mesSel,  setMesSel]  = useState(mesDefault);
+  const [kpisMap, setKpisMap] = useState({});
+  const [cargando, setCargando] = useState(false);
+
+  const infPeriodo = useMemo(() =>
+    informes.filter(i => i.anio === anioSel && i.mes === mesSel),
+    [informes, anioSel, mesSel]
+  );
+
+  const companias = useMemo(() =>
+    filiales.filter(f => infPeriodo.some(i => i.filial_id === f.id)),
+    [filiales, infPeriodo]
+  );
+
+  async function cargar() {
+    if (!infPeriodo.length) return;
+    setCargando(true);
+    try {
+      const entries = await Promise.all(
+        infPeriodo.map(async inf => {
+          const kpis = await cargarKpisDerivaos(inf.id);
+          return [inf.id, kpis];
+        })
+      );
+      setKpisMap(Object.fromEntries(entries));
+    } catch (e) {
+      alert('Error cargando KPIs: ' + e.message);
+    } finally {
+      setCargando(false);
+    }
+  }
+
+  function getInforme(filialId) {
+    return infPeriodo.find(i => i.filial_id === filialId);
+  }
+
+  function getKpi(informeId, clave) {
+    return (kpisMap[informeId] || []).find(k => k.clave === clave);
+  }
+
+  const hayDatos = Object.keys(kpisMap).length > 0;
+
+  return (
+    <div>
+      {/* Selector período */}
+      <div style={{ display: 'flex', gap: 10, alignItems: 'flex-end', marginBottom: 14, flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+          <label style={{ fontSize: 9, color: C.muted, textTransform: 'uppercase' }}>Mes</label>
+          <select value={mesSel} onChange={e => setMesSel(Number(e.target.value))}
+            style={{ padding: '6px 10px', borderRadius: 6, background: C.card, color: C.text,
+              border: `1px solid ${C.border}`, fontSize: 11 }}>
+            {Array.from({ length: 12 }, (_, i) => i + 1).map(m =>
+              <option key={m} value={m}>{NOMBRES_MES[m]}</option>
+            )}
+          </select>
+        </div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+          <label style={{ fontSize: 9, color: C.muted, textTransform: 'uppercase' }}>Año</label>
+          <input type="number" value={anioSel} onChange={e => setAnioSel(Number(e.target.value))}
+            style={{ padding: '6px 8px', width: 72, borderRadius: 6, background: C.card, color: C.text,
+              border: `1px solid ${C.border}`, fontSize: 11 }} />
+        </div>
+        <Btn onClick={cargar} disabled={cargando || !infPeriodo.length}>
+          {cargando ? 'Cargando...' : 'Cargar comparativa'}
+        </Btn>
+        <span style={{ fontSize: 10, color: C.muted }}>
+          {infPeriodo.length} informe(s) en {NOMBRES_MES[mesSel]} {anioSel}
+          {infPeriodo.length > 0 && ` · ${infPeriodo.filter(i => i.estado === 'aprobado').length} aprobado(s)`}
+        </span>
+      </div>
+
+      {/* Estado por empresa */}
+      {infPeriodo.length > 0 && !hayDatos && (
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
+          {infPeriodo.map(inf => {
+            const f = filiales.find(x => x.id === inf.filial_id);
+            return (
+              <div key={inf.id}
+                style={{ padding: '4px 10px', borderRadius: 6, fontSize: 10,
+                  background: C.card, border: `1px solid ${C.border}`,
+                  display: 'flex', alignItems: 'center', gap: 6 }}>
+                <span style={{ fontWeight: 700 }}>{f?.codigo || f?.nombre}</span>
+                <Badge estado={inf.estado} />
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {infPeriodo.length === 0 && (
+        <div style={{ color: C.muted, fontSize: 11 }}>
+          No hay informes cargados para {NOMBRES_MES[mesSel]} {anioSel}.
+          Carga los cierres individuales en la pestaña "Revisar" primero.
+        </div>
+      )}
+
+      {/* Tabla comparativa */}
+      {hayDatos && companias.length > 0 && (
+        <div style={{ overflowX: 'auto' }}>
+          <table style={{ borderCollapse: 'collapse', fontSize: 10, minWidth: '100%' }}>
+            <thead>
+              <tr style={{ background: C.card }}>
+                <th style={{ padding: '6px 10px', textAlign: 'left', color: C.muted,
+                  minWidth: 160, position: 'sticky', left: 0, background: C.card, zIndex: 1 }}>
+                  KPI
+                </th>
+                <th style={{ padding: '6px 10px', textAlign: 'left', color: C.muted, minWidth: 60 }}>
+                  Unidad
+                </th>
+                {companias.map(f => {
+                  const inf = getInforme(f.id);
+                  return (
+                    <th key={f.id} style={{ padding: '6px 10px', textAlign: 'right',
+                      color: C.text, minWidth: 110 }}>
+                      <div style={{ fontWeight: 800, fontSize: 10 }}>{f.codigo || f.nombre}</div>
+                      {inf && <div style={{ marginTop: 2 }}><Badge estado={inf.estado} /></div>}
+                    </th>
+                  );
+                })}
+              </tr>
+            </thead>
+            <tbody>
+              {KPI_GRUPOS.map(grupo => {
+                const color = KPI_COLORES_GRUPO[grupo.key] || C.blue;
+                return (
+                  <React.Fragment key={grupo.key}>
+                    <tr>
+                      <td colSpan={companias.length + 2}
+                        style={{ padding: '5px 10px', fontWeight: 800, fontSize: 9,
+                          color: color, background: `${color}18`,
+                          textTransform: 'uppercase', letterSpacing: '0.06em',
+                          borderTop: `2px solid ${color}40` }}>
+                        {grupo.label}
+                      </td>
+                    </tr>
+                    {grupo.claves.map((clave, ri) => (
+                      <tr key={clave}
+                        style={{ background: ri % 2 ? `${C.card}60` : 'transparent',
+                          borderBottom: `1px solid ${C.border}22` }}>
+                        <td style={{ padding: '4px 10px', color: C.muted,
+                          position: 'sticky', left: 0,
+                          background: ri % 2 ? C.card : C.bg }}>
+                          {KPI_LABELS[clave]}
+                        </td>
+                        <td style={{ padding: '4px 6px', color: C.muted, fontSize: 9 }}>
+                          {/* unidad se muestra en la primera celda con valor */}
+                        </td>
+                        {companias.map(f => {
+                          const inf = getInforme(f.id);
+                          const kpi = inf ? getKpi(inf.id, clave) : null;
+                          const val = kpi?.valor;
+                          const esPct   = kpi?.unidad === '%';
+                          const esRatio = kpi?.unidad === 'x';
+                          const dec = esPct ? 1 : esRatio ? 2 : 0;
+                          return (
+                            <td key={f.id} style={{ padding: '4px 10px', textAlign: 'right',
+                              fontWeight: val != null ? 600 : 400,
+                              color: val != null ? C.text : C.muted }}>
+                              {val != null ? (
+                                <>
+                                  {fmtNum(val, dec)}
+                                  <span style={{ fontSize: 9, color: C.muted, marginLeft: 2 }}>
+                                    {kpi.unidad}
+                                  </span>
+                                </>
+                              ) : '—'}
+                            </td>
+                          );
+                        })}
+                      </tr>
+                    ))}
+                  </React.Fragment>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Componente principal ──────────────────────────────────────────────────────
 
 export default function AnfTab({ canEdit, usuarioActual }) {
@@ -959,7 +1145,7 @@ export default function AnfTab({ canEdit, usuarioActual }) {
 
         {/* Tabs */}
         <div style={{ display: 'flex', borderRadius: 6, overflow: 'hidden', border: `1px solid ${C.border}`, marginLeft: 8 }}>
-          {[['resumen', 'Resumen'], ['revisar', 'Revisar']].map(([v, l]) => (
+          {[['resumen', 'Resumen'], ['revisar', 'Revisar'], ['comparar', 'Comparar']].map(([v, l]) => (
             <button key={v} onClick={() => setVistaANF(v)}
               style={{ padding: '6px 14px', fontSize: 11, cursor: 'pointer',
                 background: vistaANF === v ? C.blue : C.card,
@@ -1002,6 +1188,16 @@ export default function AnfTab({ canEdit, usuarioActual }) {
             {advertencias.map((a, i) => <li key={i}>{a}</li>)}
           </ul>
         </div>
+      )}
+
+      {/* ══ VISTA COMPARAR ══ */}
+      {vistaANF === 'comparar' && (
+        <VistaMultiEmpresa
+          filiales={filiales}
+          informes={informes}
+          anioDefault={anio}
+          mesDefault={mes}
+        />
       )}
 
       {/* ══ VISTA RESUMEN ══ */}
