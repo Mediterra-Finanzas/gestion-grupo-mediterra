@@ -50,6 +50,21 @@ const btnSt = (color=C.blue, ghost=false) => ({
 
 function uid() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 8); }
 
+// Especies seleccionables para closures/OE: se derivan de los FORMATOS que
+// existen (no del maestro de especies), para que sea imposible elegir una
+// especie sin formatos (bloqueo "sin formatos") y para que un formato huérfano
+// —cuya especie no esté en el maestro— siga siendo utilizable (fallback al
+// código). Si `incluir` (código actual en edición) no está, se agrega igual.
+function especiesConFormatos(especies, tiposEmbalaje, incluir) {
+  const cods = new Set();
+  (tiposEmbalaje||[]).forEach(t=>{ if(t.especieCodigo) cods.add(t.especieCodigo); });
+  if(incluir) cods.add(incluir);
+  return Array.from(cods).map(cod=>{
+    const e = (especies||[]).find(x=>x.codigo===cod);
+    return e || { codigo:cod, nombreEs:cod, icono:"⚠" };
+  }).sort((a,b)=>(a.nombreEs||"").localeCompare(b.nombreEs||""));
+}
+
 // Selector escribible de exportadora (typeahead con datalist). value/onChange
 // operan sobre el id; el input muestra el nombre y permite buscar tecleando.
 function ExportadoraPicker({ value, exportadoras, onChange, style }) {
@@ -1733,7 +1748,7 @@ function ClosureForm({closure, exportadoras, clientes, especies, tiposEmbalaje, 
             onChange={e=>setBuf(prev=>({...prev, especieCodigo:e.target.value, cajasPorFormato:{}}))}
             style={inputSt}>
             <option value="">— seleccionar —</option>
-            {especies.map(e=><option key={e.codigo} value={e.codigo}>{e.icono} {e.nombreEs}</option>)}
+            {especiesConFormatos(especies, tiposEmbalaje, buf.especieCodigo).map(e=><option key={e.codigo} value={e.codigo}>{e.icono} {e.nombreEs}</option>)}
           </select>
         </div>
         <div>
@@ -2448,7 +2463,7 @@ function OEForm({oe, exportadoras, clientes, notifys=[], especies, tiposEmbalaje
           <div style={lblSt}>Especie *</div>
           <select value={buf.especieCodigo||""} onChange={e=>set("especieCodigo",e.target.value)} style={inputSt}>
             <option value="">— seleccionar —</option>
-            {especies.map(e=><option key={e.codigo} value={e.codigo}>{e.icono} {e.nombreEs}</option>)}
+            {especiesConFormatos(especies, tiposEmbalaje, buf.especieCodigo).map(e=><option key={e.codigo} value={e.codigo}>{e.icono} {e.nombreEs}</option>)}
           </select>
         </div>
       </div>
