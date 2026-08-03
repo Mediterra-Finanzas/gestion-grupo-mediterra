@@ -87,6 +87,20 @@ function fmtPct(v) {
   return (v >= 0 ? '+' : '') + v.toFixed(1) + '%';
 }
 
+// Clasifica cuenta ER por prefijo numérico (igual que anfParser.js — fallback client-side).
+function clasificarGrupoEr(codigo) {
+  const pref = (codigo || '').split('.')[0];
+  switch (pref) {
+    case '4': return 'Ingreso Operacional';
+    case '5': return 'Costo Operacional';
+    case '6': return 'Gasto Operacional';
+    case '7': return 'Ingreso No Operacional';
+    case '8': return 'Gasto No Operacional';
+    case '9': return 'Impuesto';
+    default:  return 'Gasto Operacional';
+  }
+}
+
 // ── Sección ESF ──────────────────────────────────────────────────────────────
 
 function TablaEsf({ saldos, piso }) {
@@ -274,7 +288,7 @@ function TablaEr({ movimientos, mes, piso, justif = [], informeId, canEdit, usua
       {expandido && (
         <div style={{ overflowX: 'auto' }}>
           {GRUPOS_ER.map(grupo => {
-            const cuentas = filas.filter(m => m.grupo_er === grupo.key);
+            const cuentas = filas.filter(m => (m.grupo_er || clasificarGrupoEr(m.codigo)) === grupo.key);
             if (!cuentas.length) return null;
             const rf = realField();
             const pf = pptoField();

@@ -415,6 +415,21 @@ export function buildSaldosEsf(esf, esf_t1, pisoMaterialidad = 10) {
   });
 }
 
+// Clasifica una cuenta en un grupo ER según su prefijo numérico.
+// Contec y Megasystem comparten la convención: 4=ingresos, 5=costos, 6=gastos oper., 7=ing. no oper., 8=egr. no oper., 9=impuesto.
+function clasificarGrupoEr(codigo) {
+  const pref = codigo.split('.')[0];
+  switch (pref) {
+    case '4': return 'Ingreso Operacional';
+    case '5': return 'Costo Operacional';
+    case '6': return 'Gasto Operacional';
+    case '7': return 'Ingreso No Operacional';
+    case '8': return 'Gasto No Operacional';
+    case '9': return 'Impuesto';
+    default:  return 'Gasto Operacional';
+  }
+}
+
 /**
  * Combina er_temp + er_mensual → array de objetos para insertar en anf_movimientos_er.
  * Si una cuenta aparece solo en TEMP, usa sus reales como fallback del calendario.
@@ -466,11 +481,12 @@ export function buildMovimientosEr(er_temp, er_mensual, mes, anio, sistema) {
       nombre,
       nombre_origen:      nombre,
       sistema,
+      grupo_er:           clasificarGrupoEr(codigo),
       real_mes,
       real_ytd,
       ppto_mes:           ppto_mes !== 0 ? ppto_mes : null,
       ppto_ytd:           ppto_ytd !== 0 ? ppto_ytd : null,
-      real_t1_mes:        null, // requiere histórico
+      real_t1_mes:        null,
       real_t1_ytd:        null,
       real_temporada:     real_temp,
       ppto_temporada:     ppto_temp !== 0 ? ppto_temp : null,
