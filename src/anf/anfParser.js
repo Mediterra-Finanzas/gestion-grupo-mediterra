@@ -70,7 +70,8 @@ function mesesTemporada(mes) {
 // Megasystem: códigos de 7 dígitos son detalle; menos de 7 son grupos.
 function esCuentaDetalle(codigo, sistema) {
   if (!codigo || !/^\d/.test(codigo)) return false;
-  if (sistema === 'contec') return !/\.000$/.test(codigo);
+  // Contec: debe tener puntos (1.01.01.001) y no terminar en .000 (grupos)
+  if (sistema === 'contec') return codigo.includes('.') && !/\.000$/.test(codigo);
   if (sistema === 'megasystem') return codigo.length >= 7;
   return true;
 }
@@ -149,11 +150,13 @@ function parseEerrTemp(ws, sistema) {
   const dataStart = dateRowIdx + 2; // saltar fila de fechas + fila "Real/Presupuesto"
 
   // Mapa col → { mes, tipo }
+  // La fila de fechas tiene seriales solo en columnas "Real"; la col+1 es "Presupuesto" (null).
   const colInfo = {};
   for (let col = 4; col < dateRow.length; col++) {
     const mes = serialToMes(dateRow[col]);
     if (!mes) continue;
-    colInfo[col] = { mes, tipo: (col - 4) % 2 === 0 ? 'real' : 'ppto' };
+    colInfo[col]     = { mes, tipo: 'real' };
+    colInfo[col + 1] = { mes, tipo: 'ppto' }; // columna inmediata = Presupuesto
   }
 
   const mapa = new Map();
@@ -251,8 +254,9 @@ function parseInforme(ws) {
   const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: null });
   const out = [];
   for (const row of rows) {
-    const codigo = row[0] != null ? String(row[0]).trim() : '';
-    const texto  = row[2] != null ? String(row[2]).trim() : '';
+    // Layout Contec: col A vacía | col B = ITEM | col C = VAR% | col D vacía | col E = texto
+    const codigo = row[1] != null ? String(row[1]).trim() : '';
+    const texto  = row[4] != null ? String(row[4]).trim() : '';
     if (!codigo || !texto) continue;
     out.push({ codigo, texto });
   }
