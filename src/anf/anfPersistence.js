@@ -30,7 +30,9 @@ async function supaPost(table, body) {
     const txt = await res.text();
     throw new Error(`POST ${table} → ${res.status}: ${txt}`);
   }
-  return res.status === 204 ? null : res.json();
+  if (res.status === 204) return null;
+  const text = await res.text();
+  return text ? JSON.parse(text) : null;
 }
 
 async function supaPatch(table, filter, body) {
