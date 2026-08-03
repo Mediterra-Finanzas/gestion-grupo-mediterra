@@ -103,6 +103,15 @@ function clasificarGrupoEr(codigo) {
 
 // ── Sección ESF ──────────────────────────────────────────────────────────────
 
+function clasificarSeccionEsf(codigo) {
+  const parts = (codigo || '').split('.');
+  const p1 = parts[0], p2 = parts[1];
+  if (p1 === '1') return p2 === '01' ? 'Activo Corriente' : 'Activo No Corriente';
+  if (p1 === '2') return p2 === '01' ? 'Pasivo Corriente' : 'Pasivo No Corriente';
+  if (p1 === '3') return 'Patrimonio';
+  return 'Activo Corriente';
+}
+
 function TablaEsf({ saldos, piso }) {
   const [expandido, setExpandido] = useState(true);
   const [filtroMat, setFiltroMat] = useState(false);
@@ -135,9 +144,9 @@ function TablaEsf({ saldos, piso }) {
       {expandido && (
         <div style={{ overflowX: 'auto' }}>
           {SECCIONES.map(seccion => {
-            const cuentas = filas.filter(s => s.categoria_ifrs?.startsWith(seccion.split(' ')[0]) ||
-              s.categoria_ifrs === seccion ||
-              (s.tipo_ifrs && seccion.toLowerCase().includes(s.tipo_ifrs.toLowerCase())));
+            const cuentas = filas.filter(s =>
+              (s.categoria_ifrs || clasificarSeccionEsf(s.codigo)) === seccion ||
+              s.categoria_ifrs?.startsWith(seccion.split(' ')[0]));
             if (!cuentas.length) return null;
             const totalNeto = cuentas.reduce((a, c) => a + (c.saldo_neto || 0), 0);
             return (
