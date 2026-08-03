@@ -1429,311 +1429,375 @@ export default function AnfTab({ canEdit, usuarioActual, empresaDefault, mesDefa
     if (!informe) return;
     const filial  = filiales.find(f => f.id === filialId);
     const nombre  = filial?.nombre || 'Empresa';
-    const periodo = `${NOMBRES_MES[mes]} ${anio}`;
     const moneda  = filial?.moneda || 'USD';
     const pisoM   = filial?.piso_materialidad || 10;
+    const negocio = filial?.descripcion || filial?.negocio || '';
 
-    const fmtN = (v, dec = 0) => {
-      if (v == null || isNaN(v)) return '—';
-      if (Math.abs(v) < 1e-6) return '0';
-      return v.toLocaleString('es-CL', { minimumFractionDigits: dec, maximumFractionDigits: dec });
-    };
-    const fmtPct = (v) => {
-      if (v == null || isNaN(v)) return '—';
-      const sign = v >= 0 ? '+' : '';
-      return `${sign}${v.toFixed(0)}%`;
-    };
-    const colPos  = '#1a7a4a', colNeg = '#b22222', colMut = '#888', colBlue = '#1a5fa8';
-    const th = (t, align='left', w='') =>
-      `<th style="padding:3px 8px;text-align:${align};background:#f0f4f8;border-bottom:1.5px solid #ddd;font-size:8px;color:#555;${w?`width:${w};`:''}">${t}</th>`;
-    const td = (t, align='left', col='', bold=false) =>
-      `<td style="padding:2px 8px;text-align:${align};font-size:9px;${col?`color:${col};`:''}${bold?'font-weight:700;':''}">${t??'—'}</td>`;
+    // Etiquetas de período (ej. "25/26" y "24/25")
+    const tA  = `${(anio-1).toString().slice(2)}/${anio.toString().slice(2)}`;
+    const tA1 = `${(anio-2).toString().slice(2)}/${(anio-1).toString().slice(2)}`;
 
-    // ── 1. ESTADO DE RESULTADOS (temporada) ───────────────────────────────────
-    const erByGrupo = {};
+    // ── Formateadores ────────────────────────────────────────────────────────
+    // Número entero con separador de miles (es-CL: 1.118.170 / -352.830)
+    const fmtM = (v) => {
+      if (v == null || isNaN(v)) return '—';
+      return v.toLocaleString('es-CL', { maximumFractionDigits: 0 });
+    };
+    // Porcentaje con 1 decimal y coma (es-CL: -17,7% / +53,6%)
+    const fmtPctD = (v) => {
+      if (v == null || isNaN(v)) return '—';
+      const abs = Math.abs(v).toLocaleString('es-CL', { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+      return (v < 0 ? '-' : '') + abs + '%';
+    };
+    // Porcentaje entero con signo (ER tabla: -24% / +43%)
+    const fmtPctI = (v) => {
+      if (v == null || isNaN(v)) return '—';
+      const abs = Math.abs(v).toLocaleString('es-CL', { maximumFractionDigits: 0 });
+      return (v < 0 ? '-' : '+') + abs + '%';
+    };
+    // Ratio con 1 decimal y coma + "x" (es-CL: 0,2x / 3,6x)
+    const fmtRatio = (v) => {
+      if (v == null || isNaN(v)) return '—';
+      return v.toLocaleString('es-CL', { minimumFractionDigits: 1, maximumFractionDigits: 1 }) + 'x';
+    };
+
+    // Var% con denominador FIRMADO: (real-ppto)/ppto*100
+    // Retorna null si ppto=0 (→ "s/p"), null si ppto=null (→ "—")
+    const calcVp = (real, ppto) => {
+      if (ppto == null) return undefined; // sin dato de ppto → "—"
+      if (ppto === 0) return null;         // sin presupuesto → "s/p"
+      return ((real - ppto) / ppto) * 100;
+    };
+    const fmtVp = (real, ppto) => {
+      const v = calcVp(real, ppto);
+      if (v === undefined) return '—';
+      if (v === null) return 's/p';
+      return fmtPctI(v);
+    };
+    // va > 0 siempre es favorable (valores firmados): ingresos+, costos- → la resta real-ppto es positiva cuando es bueno
+    const colVa = (va) => va == null ? '#888' : va > 0 ? '#1a7a4a' : va < 0 ? '#b22222' : '#333';
+    // Para %Var usamos el signo del resultado (con denominador firmado): >0 siempre favorable
+    const colVp = (real, ppto) => {
+      const v = calcVp(real, ppto);
+      if (v === undefined || v === null || Math.abs(v) < pisoM) return '#333';
+      return v > 0 ? '#1a7a4a' : '#b22222';
+    };
+
+    const BLU = '#1a3a6a', ACC = '#1a5fa8', GRN = '#1a7a4a', RED = '#b22222', MUT = '#666';
+
+    // ── Celdas helper ────────────────────────────────────────────────────────
+    const td  = (t, a='left', col='', bold=false, extra='') =>
+      `<td style="padding:2px 7px;text-align:${a};font-size:8.5pt;${col?`color:${col};`:''}${bold?'font-weight:700;':''}${extra}">${t ?? '—'}</td>`;
+    const th  = (t, a='left', w='') =>
+      `<th style="padding:3px 7px;text-align:${a};font-size:8pt;font-weight:600;color:#555;background:#f0f3f9;border-bottom:1.5pt solid #ccd5e0;${w?`width:${w};`:''}">${t}</th>`;
+
+    // ── 1. ER — datos ────────────────────────────────────────────────────────
+    const erByG = {};
     const ER_KEYS = ['Ingreso Operacional','Costo Operacional','Gasto Operacional',
                      'Ingreso No Operacional','Gasto No Operacional','Impuesto'];
-    ER_KEYS.forEach(k => { erByGrupo[k] = []; });
-    er.forEach(m => {
-      const g = m.grupo_er || clasificarGrupoEr(m.codigo);
-      if (erByGrupo[g]) erByGrupo[g].push(m);
-    });
+    ER_KEYS.forEach(k => { erByG[k] = []; });
+    er.forEach(m => { const g = m.grupo_er || clasificarGrupoEr(m.codigo); if (erByG[g]) erByG[g].push(m); });
 
-    const sR  = key => erByGrupo[key].reduce((a, c) => a + (c.real_temporada  || 0), 0);
-    const sP  = key => erByGrupo[key].reduce((a, c) => a + (c.ppto_temporada  || 0), 0);
-    const sT1 = key => erByGrupo[key].reduce((a, c) => a + (c.real_t1_temporada || 0), 0);
+    const sR  = k => erByG[k].reduce((a,c) => a + (c.real_temporada  || 0), 0);
+    const sP  = k => erByG[k].reduce((a,c) => a + (c.ppto_temporada  || 0), 0);
+    const sT1 = k => erByG[k].reduce((a,c) => a + (c.real_t1_temporada || 0), 0);
 
-    const rIngOp = sR('Ingreso Operacional'),   pIngOp = sP('Ingreso Operacional'),   t1IngOp = sT1('Ingreso Operacional');
-    const rCost  = sR('Costo Operacional'),      pCost  = sP('Costo Operacional'),      t1Cost  = sT1('Costo Operacional');
-    const rGas   = sR('Gasto Operacional'),      pGas   = sP('Gasto Operacional'),      t1Gas   = sT1('Gasto Operacional');
+    const rIngOp = sR('Ingreso Operacional'), pIngOp = sP('Ingreso Operacional'), t1IngOp = sT1('Ingreso Operacional');
+    const rCost  = sR('Costo Operacional'),   pCost  = sP('Costo Operacional'),   t1Cost  = sT1('Costo Operacional');
+    const rGas   = sR('Gasto Operacional'),   pGas   = sP('Gasto Operacional'),   t1Gas   = sT1('Gasto Operacional');
     const rIngNo = sR('Ingreso No Operacional'), pIngNo = sP('Ingreso No Operacional'), t1IngNo = sT1('Ingreso No Operacional');
     const rGasNo = sR('Gasto No Operacional'),   pGasNo = sP('Gasto No Operacional'),   t1GasNo = sT1('Gasto No Operacional');
-    const rImp   = sR('Impuesto'),               pImp   = sP('Impuesto'),               t1Imp   = sT1('Impuesto');
+    const rImp   = sR('Impuesto'),            pImp   = sP('Impuesto'),            t1Imp   = sT1('Impuesto');
 
-    const rMargen = rIngOp + rCost,    pMargen = pIngOp + pCost,    t1Margen = t1IngOp + t1Cost;
-    const rEbitda = rMargen + rGas,    pEbitda = pMargen + pGas,    t1Ebitda = t1Margen + t1Gas;
-    const rRai    = rEbitda + rIngNo + rGasNo, pRai = pEbitda + pIngNo + pGasNo, t1Rai = t1Ebitda + t1IngNo + t1GasNo;
-    const rRes    = rRai + rImp,       pRes   = pRai + pImp,        t1Res   = t1Rai + t1Imp;
+    const rMargen = rIngOp + rCost,             pMargen = pIngOp + pCost,             t1Margen = t1IngOp + t1Cost;
+    const rEbitda = rMargen + rGas,             pEbitda = pMargen + pGas,             t1Ebitda = t1Margen + t1Gas;
+    const rRai    = rEbitda + rIngNo + rGasNo,  pRai    = pEbitda + pIngNo + pGasNo,  t1Rai    = t1Ebitda + t1IngNo + t1GasNo;
+    const rRes    = rRai + rImp,                pRes    = pRai + pImp,                t1Res    = t1Rai + t1Imp;
 
-    const hasT1Er = t1IngOp !== 0 || t1Cost !== 0 || t1Gas !== 0;
+    const hasT1Er = t1IngOp !== 0 || t1Cost !== 0 || t1Gas !== 0 || t1IngNo !== 0 || t1GasNo !== 0;
+    const T1H = hasT1Er; // alias corto
 
-    function erVp(real, ppto) { return ppto && ppto !== 0 ? ((real-ppto)/Math.abs(ppto))*100 : null; }
-    function erVpFmt(real, ppto) {
-      const v = erVp(real, ppto);
-      if (v == null) return { str: 's/p', col: colMut };
-      const col = Math.abs(v) < pisoM ? '#333' : v > 0 ? colPos : colNeg;
-      return { str: fmtPct(v), col };
-    }
-    function erVaFmt(real, ppto) {
-      if (ppto == null) return { str: '—', col: colMut };
-      const v = real - ppto;
-      return { str: fmtN(v), col: v > 0 ? colPos : v < 0 ? colNeg : '#333' };
-    }
-
-    function erGrupoRows(key) {
-      return erByGrupo[key].map((c, i) => {
-        const real = c.real_temporada, ppto = c.ppto_temporada, t1 = c.real_t1_temporada;
-        const va = erVaFmt(real, ppto), vp = erVpFmt(real, ppto);
-        return `<tr style="background:${i%2?'#f9f9f9':'#fff'}">
-          ${td('&nbsp;&nbsp;&nbsp;' + (c.nombre || c.nombre_origen), 'left', '#444')}
-          ${td(fmtN(real), 'right', '', true)}
-          ${td(ppto!=null?fmtN(ppto):'—', 'right', colMut)}
-          ${td(va.str, 'right', va.col)}
-          ${td(vp.str, 'right', vp.col)}
-          ${hasT1Er ? td(t1!=null?fmtN(t1):'n/d', 'right', colMut) : ''}
-        </tr>`;
-      }).join('');
-    }
-
-    function erTotalRow(label, real, ppto, t1, bold, topBorder) {
-      const va = ppto !== 0 ? erVaFmt(real, ppto) : { str: '—', col: colMut };
-      const vp = ppto !== 0 ? erVpFmt(real, ppto) : { str: '—', col: colMut };
-      const col = real >= 0 ? colPos : colNeg;
-      const bg = bold ? '#e8f0fc' : '#f5f8ff';
-      const border = topBorder ? 'border-top:1.5px solid #1a5fa840;' : '';
-      return `<tr style="background:${bg};${border}">
-        ${td(label, 'left', bold ? colBlue : '#444', bold)}
-        ${td(fmtN(real), 'right', bold ? col : '#333', bold)}
-        ${td(ppto!==0?fmtN(ppto):'—', 'right', colMut, bold)}
-        ${td(va.str, 'right', va.col, bold)}
-        ${td(vp.str, 'right', vp.col, bold)}
-        ${hasT1Er ? td(t1!==0?fmtN(t1):'n/d', 'right', colMut) : ''}
+    // Fila de sub-cuenta (indentada)
+    function erSubRow(c, i) {
+      const real = c.real_temporada || 0, ppto = c.ppto_temporada, t1 = c.real_t1_temporada;
+      const va = ppto != null ? real - ppto : null;
+      const t1str = T1H ? (t1 != null ? fmtM(t1) : 'n/d') : '';
+      return `<tr style="background:${i%2?'#f9fafe':'#fff'}">
+        ${td('    ' + (c.nombre || c.nombre_origen), 'left', '#444')}
+        ${td(fmtM(real), 'right', '', true)}
+        ${td(ppto!=null?fmtM(ppto):'—', 'right', MUT)}
+        ${td(va!=null?fmtM(va):'—', 'right', colVa(va))}
+        ${td(fmtVp(real,ppto), 'right', colVp(real,ppto))}
+        ${T1H ? td(t1str, 'right', MUT) : ''}
       </tr>`;
     }
 
-    function erGrupoHeader(label, real, ppto, t1) {
-      const va = erVaFmt(real, ppto), vp = ppto !== 0 ? erVpFmt(real, ppto) : { str: '—', col: colMut };
-      return `<tr style="background:#f0f4f8">
+    // Fila de grupo (negrita, fondo tenue)
+    function erGrupoRow(label, real, ppto, t1) {
+      const va = real - ppto;
+      const t1str = T1H ? (t1 !== 0 ? fmtM(t1) : 'n/d') : '';
+      return `<tr style="background:#f0f3f9;border-top:0.75pt solid #c8d5e8">
         ${td(`<strong>${label}</strong>`, 'left', '#222')}
-        ${td(fmtN(real), 'right', '#222', true)}
-        ${td(ppto!==0?fmtN(ppto):'—', 'right', colMut)}
-        ${td(va.str, 'right', va.col)}
-        ${td(vp.str, 'right', vp.col)}
-        ${hasT1Er ? td(t1!==0?fmtN(t1):'n/d', 'right', colMut) : ''}
+        ${td(fmtM(real), 'right', '', true)}
+        ${td(ppto!==0?fmtM(ppto):'—', 'right', MUT)}
+        ${td(ppto!==0?fmtM(va):'—', 'right', colVa(ppto!==0?va:null))}
+        ${td(fmtVp(real,ppto!==0?ppto:null), 'right', colVp(real,ppto!==0?ppto:null))}
+        ${T1H ? td(t1str, 'right', MUT) : ''}
       </tr>`;
     }
 
-    const yearLabel = `${(anio - 1).toString().slice(2)}/${anio.toString().slice(2)}`;
-    const prevLabel = `${(anio - 2).toString().slice(2)}/${(anio - 1).toString().slice(2)}`;
+    // Fila de subtotal (negrita, fondo medio)
+    function erSubtotalRow(label, real, ppto, t1) {
+      const va = real - ppto;
+      const rCol = real >= 0 ? GRN : RED;
+      const t1str = T1H ? (t1 !== 0 ? fmtM(t1) : 'n/d') : '';
+      return `<tr style="background:#e5ecf7;border-top:1pt solid #b0bfd4;border-bottom:1pt solid #b0bfd4">
+        ${td(label, 'left', BLU, true)}
+        ${td(fmtM(real), 'right', rCol, true)}
+        ${td(ppto!==0?fmtM(ppto):'—', 'right', MUT, true)}
+        ${td(ppto!==0?fmtM(va):'—', 'right', colVa(ppto!==0?va:null), true)}
+        ${td(fmtVp(real,ppto!==0?ppto:null), 'right', colVp(real,ppto!==0?ppto:null), true)}
+        ${T1H ? td(t1str, 'right', MUT, true) : ''}
+      </tr>`;
+    }
+
+    // Fila de resultado final (máxima relevancia, doble borde)
+    function erResultadoRow(label, real, ppto, t1) {
+      const va = real - ppto;
+      const rCol = real >= 0 ? GRN : RED;
+      const t1str = T1H ? (t1 !== 0 ? fmtM(t1) : 'n/d') : '';
+      return `<tr style="background:#d8e4f5;border-top:1.5pt solid ${ACC};border-bottom:1.5pt solid ${ACC}">
+        ${td(`<strong>${label}</strong>`, 'left', BLU, true)}
+        ${td(fmtM(real), 'right', rCol, true)}
+        ${td(ppto!==0?fmtM(ppto):'—', 'right', MUT, true)}
+        ${td(ppto!==0?fmtM(va):'—', 'right', colVa(ppto!==0?va:null), true)}
+        ${td(fmtVp(real,ppto!==0?ppto:null), 'right', colVp(real,ppto!==0?ppto:null), true)}
+        ${T1H ? td(t1str, 'right', MUT, true) : ''}
+      </tr>`;
+    }
 
     let erRows = '';
-    erRows += erGrupoHeader('Ingresos por ventas', rIngOp, pIngOp, t1IngOp);
-    erRows += erGrupoRows('Ingreso Operacional');
-    if (erByGrupo['Costo Operacional'].length) {
-      erRows += erGrupoHeader('Costos por venta', rCost, pCost, t1Cost);
-      erRows += erGrupoRows('Costo Operacional');
+    erRows += erGrupoRow('Ingresos por ventas', rIngOp, pIngOp, t1IngOp);
+    erRows += erByG['Ingreso Operacional'].map((c,i) => erSubRow(c,i)).join('');
+    if (erByG['Costo Operacional'].length) {
+      erRows += erGrupoRow('Costos por venta', rCost, pCost, t1Cost);
+      erRows += erByG['Costo Operacional'].map((c,i) => erSubRow(c,i)).join('');
     }
-    erRows += erTotalRow('Margen operacional', rMargen, pMargen, t1Margen, false, true);
-    erRows += erGrupoHeader('Gastos de administración y ventas', rGas, pGas, t1Gas);
-    erRows += erGrupoRows('Gasto Operacional');
-    erRows += erTotalRow('Resultado Operacional (EBITDA)', rEbitda, pEbitda, t1Ebitda, true, true);
-    if (erByGrupo['Ingreso No Operacional'].length) {
-      erRows += erGrupoHeader('Ingresos no operacionales', rIngNo, pIngNo, t1IngNo);
-      erRows += erGrupoRows('Ingreso No Operacional');
+    erRows += erSubtotalRow('Margen operacional', rMargen, pMargen, t1Margen);
+    erRows += erGrupoRow('Gastos de administración y ventas', rGas, pGas, t1Gas);
+    erRows += erByG['Gasto Operacional'].map((c,i) => erSubRow(c,i)).join('');
+    erRows += erResultadoRow('Resultado Operacional (EBITDA)', rEbitda, pEbitda, t1Ebitda);
+    const hasNoOp = erByG['Ingreso No Operacional'].length || erByG['Gasto No Operacional'].length;
+    if (erByG['Ingreso No Operacional'].length) {
+      erRows += erGrupoRow('Ingresos no operacionales', rIngNo, pIngNo, t1IngNo);
+      erRows += erByG['Ingreso No Operacional'].map((c,i) => erSubRow(c,i)).join('');
     }
-    if (erByGrupo['Gasto No Operacional'].length) {
-      erRows += erGrupoHeader('Egresos no operacionales', rGasNo, pGasNo, t1GasNo);
-      erRows += erGrupoRows('Gasto No Operacional');
+    if (erByG['Gasto No Operacional'].length) {
+      erRows += erGrupoRow('Egresos no operacionales', rGasNo, pGasNo, t1GasNo);
+      erRows += erByG['Gasto No Operacional'].map((c,i) => erSubRow(c,i)).join('');
     }
-    if (erByGrupo['Ingreso No Operacional'].length || erByGrupo['Gasto No Operacional'].length) {
-      erRows += erTotalRow('Resultado antes de impuesto', rRai, pRai, t1Rai, false, true);
+    if (hasNoOp) erRows += erSubtotalRow('Resultado antes de impuesto', rRai, pRai, t1Rai);
+    if (erByG['Impuesto'].length) {
+      erRows += erGrupoRow('Impuesto a la renta', rImp, pImp, t1Imp);
+      erRows += erByG['Impuesto'].map((c,i) => erSubRow(c,i)).join('');
     }
-    if (erByGrupo['Impuesto'].length) {
-      erRows += erGrupoHeader('Impuesto a la renta', rImp, pImp, t1Imp);
-      erRows += erGrupoRows('Impuesto');
-    }
-    erRows += erTotalRow('Resultado del ejercicio', rRes, pRes, t1Res, true, true);
+    erRows += erResultadoRow('Resultado del ejercicio', rRes, pRes, t1Res);
+
+    const secTit = (n, t) =>
+      `<div style="font-size:9.5pt;font-weight:800;color:${BLU};border-bottom:1pt solid ${ACC}40;padding-bottom:3px;margin:18px 0 6px">${n}. ${t}</div>`;
 
     const erHTML = `
-      <h2 style="margin-top:18px">1. Estado de Resultados (Temporada Jul-${anio-1} a Jun-${anio}) — ${moneda}</h2>
-      <table style="width:100%;border-collapse:collapse;font-size:9px">
-        <thead><tr style="background:#eef2f8">
-          ${th('Concepto','left','40%')}
-          ${th(`Real ${yearLabel}`,'right','12%')}
-          ${th(`Ppto ${yearLabel}`,'right','12%')}
+      ${secTit(1, `Estado de Resultados (Período Jul-${anio-1} a Jun-${anio}) — ${moneda}`)}
+      <table style="width:100%;border-collapse:collapse">
+        <thead><tr>
+          ${th('Concepto','left','38%')}
+          ${th(`Real ${tA}`,'right','13%')}
+          ${th(`Ppto ${tA}`,'right','13%')}
           ${th('Variación','right','11%')}
           ${th('% Var.','right','8%')}
-          ${hasT1Er ? th(`Real ${prevLabel}`,'right','12%') : ''}
+          ${T1H ? th(`Real ${tA1}`,'right','13%') : ''}
         </tr></thead>
         <tbody>${erRows}</tbody>
       </table>`;
 
-    // ── Narrativas ER ─────────────────────────────────────────────────────────
+    // ── Justificaciones ER ────────────────────────────────────────────────────
     const justER = justif.filter(j => j.tipo_estado === 'er' && (j.texto || j.texto_original));
-    const narrHTML = justER.length
-      ? `<div style="margin-top:10px"><div style="font-size:8px;font-weight:700;color:#555;margin-bottom:4px">Justificación de variaciones del Estado de Resultados</div>
-          ${justER.map(j => `<div style="font-size:8px;margin-bottom:4px;padding-left:10px">
-            <span style="color:#1a5fa8">◆</span>&nbsp;
-            <strong>${j.codigo}</strong>: ${j.texto || j.texto_original || ''}
-          </div>`).join('')}</div>`
-      : '';
+    const narrHTML = justER.length ? `
+      <div style="margin-top:12px">
+        <div style="font-size:9pt;font-weight:700;color:${BLU};margin-bottom:6px">Justificación de variaciones del Estado de Resultados</div>
+        ${justER.map(j => {
+          const txt = j.texto || j.texto_original || '';
+          // Intentar formatear como "● Nombre (var%): texto" si el nombre está disponible
+          const label = j.codigo ? `<strong>${j.codigo}</strong>` : '';
+          return `<div style="font-size:8.5pt;margin-bottom:5px;padding-left:14px;text-indent:-14px;line-height:1.5;color:#222">
+            ●&nbsp;${label}${label && txt ? ': ' : ''}${txt}
+          </div>`;
+        }).join('')}
+      </div>` : '';
 
-    // ── 2. ESTADO DE SITUACIÓN FINANCIERA ─────────────────────────────────────
+    // ── 2. ESF — datos ───────────────────────────────────────────────────────
     const esfSec = (sec) => esf.filter(c => (c.categoria_ifrs || clasificarSeccionEsf(c.codigo)) === sec);
-    const esfSum = (cuentas) => cuentas.reduce((a, c) => a + (c.saldo_neto || 0), 0);
-    const esfT1Sum = (cuentas) => cuentas.reduce((a, c) => a + (c.saldo_neto_t1 || 0), 0);
-    const hasT1Esf = esf.some(c => c.saldo_neto_t1 != null);
+    const esfSum = (arr) => arr.reduce((a,c) => a + (c.saldo_neto || 0), 0);
 
-    const AC   = esfSec('Activo Corriente'),    ANC = esfSec('Activo No Corriente');
-    const PC   = esfSec('Pasivo Corriente'),    PNC = esfSec('Pasivo No Corriente');
-    const PAT  = esfSec('Patrimonio');
-    const tAC  = esfSum(AC),  tANC = esfSum(ANC);
-    const tPC  = esfSum(PC),  tPNC = esfSum(PNC);
+    const AC  = esfSec('Activo Corriente'),   ANC = esfSec('Activo No Corriente');
+    const PC  = esfSec('Pasivo Corriente'),   PNC = esfSec('Pasivo No Corriente');
+    const PAT = esfSec('Patrimonio');
+    const tAC = esfSum(AC), tANC = esfSum(ANC);
+    const totalActivos = tAC + tANC;
+    const allPasivos = [...PC, ...PNC];  // sin split por corriente/no corriente (sigue formato PDF)
+    const tPasivos = esfSum(PC) + esfSum(PNC);
     const tPAT = esfSum(PAT);
-    const totalActivos  = tAC + tANC;
-    const totalPasivos  = tPC + tPNC;
-    const totalPasYPat  = totalPasivos + tPAT;
-    const cuadra        = Math.abs(totalActivos - totalPasYPat) < 1;
+    const totalPasYPat = tPasivos + tPAT;
+    const cuadra = Math.abs(totalActivos - totalPasYPat) < 1;
 
-    function esfCuentaRow(c, i) {
-      const t1 = c.saldo_neto_t1;
-      return `<tr style="background:${i%2?'#f9f9f9':'#fff'}">
-        ${td('&nbsp;&nbsp;&nbsp;' + (c.nombre || c.nombre_origen), 'left', '#444')}
-        ${td(fmtN(c.saldo_neto), 'right', '', true)}
-        ${hasT1Esf ? td(t1!=null?fmtN(t1):'—', 'right', colMut) : ''}
+    function bsCuentaRow(c, i) {
+      return `<tr style="background:${i%2?'#f9fafe':'#fff'}">
+        <td style="padding:2px 7px 2px 22px;font-size:8.5pt;color:#333">${c.nombre || c.nombre_origen}</td>
+        <td style="padding:2px 7px;text-align:right;font-size:8.5pt">${fmtM(c.saldo_neto)}</td>
       </tr>`;
     }
-    function esfTotalRow(label, total, t1Total, bold, borderColor) {
-      const bg = bold ? `${borderColor}15` : '#f5f5f5';
-      return `<tr style="background:${bg};border-top:${bold?'1.5px':'1px'} solid ${borderColor}50">
-        ${td(bold ? `<strong>${label}</strong>` : label, 'left', bold ? borderColor : '#333', bold)}
-        ${td(fmtN(total), 'right', bold ? borderColor : '#333', bold)}
-        ${hasT1Esf ? td(fmtN(t1Total), 'right', colMut) : ''}
+    function bsSubtotalRow(label, total, bold=false, color=BLU) {
+      const bg    = bold ? '#d8e4f5' : '#e5ecf7';
+      const bt    = bold ? `1.5pt solid ${ACC}` : `1pt solid #b0bfd4`;
+      const fw    = bold ? 800 : 700;
+      return `<tr style="background:${bg};border-top:${bt}">
+        <td style="padding:3px 7px;font-weight:${fw};font-size:8.5pt;color:${color}">${label}</td>
+        <td style="padding:3px 7px;text-align:right;font-weight:${fw};font-size:8.5pt;color:${color}">${fmtM(total)}</td>
+      </tr>`;
+    }
+    function bsSectionHeader(label) {
+      return `<tr style="background:#d8e4f5">
+        <td colspan="2" style="padding:4px 7px;font-weight:900;font-size:9pt;color:${BLU};text-transform:uppercase;letter-spacing:0.06em">${label}</td>
       </tr>`;
     }
 
-    let esfRows = '';
-    esfRows += `<tr style="background:#dce8f7"><td colspan="${hasT1Esf?3:2}" style="padding:4px 8px;font-weight:900;font-size:9px;color:${colBlue};letter-spacing:0.08em">ACTIVO</td></tr>`;
-    esfRows += `<tr style="background:#eef3fb"><td colspan="${hasT1Esf?3:2}" style="padding:2px 8px 1px 16px;font-size:8px;font-weight:700;color:${colBlue}">Activo Corriente</td></tr>`;
-    esfRows += AC.map((c,i) => esfCuentaRow(c,i)).join('');
-    esfRows += esfTotalRow('Total activos corrientes', tAC, esfT1Sum(AC), false, colBlue);
-    esfRows += `<tr style="background:#eef3fb"><td colspan="${hasT1Esf?3:2}" style="padding:2px 8px 1px 16px;font-size:8px;font-weight:700;color:${colBlue}">Activo No Corriente</td></tr>`;
-    esfRows += ANC.map((c,i) => esfCuentaRow(c,i)).join('');
-    esfRows += esfTotalRow('Total activos no corrientes', tANC, esfT1Sum(ANC), false, colBlue);
-    esfRows += esfTotalRow('Total activos', totalActivos, esfT1Sum(AC)+esfT1Sum(ANC), true, colBlue);
-
-    esfRows += `<tr style="background:#fde9e9"><td colspan="${hasT1Esf?3:2}" style="padding:4px 8px;font-weight:900;font-size:9px;color:${colNeg};letter-spacing:0.08em">PASIVOS Y PATRIMONIO</td></tr>`;
-    esfRows += `<tr style="background:#fdf0f0"><td colspan="${hasT1Esf?3:2}" style="padding:2px 8px 1px 16px;font-size:8px;font-weight:700;color:${colNeg}">Pasivo Corriente</td></tr>`;
-    esfRows += PC.map((c,i) => esfCuentaRow(c,i)).join('');
-    esfRows += esfTotalRow('Total pasivos corrientes', tPC, esfT1Sum(PC), false, colNeg);
-    esfRows += `<tr style="background:#fdf0f0"><td colspan="${hasT1Esf?3:2}" style="padding:2px 8px 1px 16px;font-size:8px;font-weight:700;color:${colNeg}">Pasivo No Corriente</td></tr>`;
-    esfRows += PNC.map((c,i) => esfCuentaRow(c,i)).join('');
-    esfRows += esfTotalRow('Total pasivos no corrientes', tPNC, esfT1Sum(PNC), false, colNeg);
-    esfRows += esfTotalRow('Total pasivos', totalPasivos, esfT1Sum(PC)+esfT1Sum(PNC), true, colNeg);
-
-    const colTeal = '#2a7a8a';
-    esfRows += `<tr style="background:#e4f5f7"><td colspan="${hasT1Esf?3:2}" style="padding:2px 8px 1px 16px;font-size:8px;font-weight:700;color:${colTeal}">Patrimonio</td></tr>`;
-    esfRows += PAT.map((c,i) => esfCuentaRow(c,i)).join('');
-    esfRows += esfTotalRow('Total patrimonio', tPAT, esfT1Sum(PAT), true, colTeal);
-
-    const cuadreCol = cuadra ? colPos : colNeg;
-    esfRows += `<tr style="background:${cuadra?'#e8f8ee':'#fde9e9'};border-top:2px solid ${cuadreCol}50">
-      ${td(cuadra ? '✓ Total pasivos y patrimonio' : '⚠ Total pasivos y patrimonio', 'left', cuadreCol, true)}
-      ${td(fmtN(totalPasYPat), 'right', cuadreCol, true)}
-      ${hasT1Esf ? td('', 'right') : ''}
+    let bsRows = '';
+    bsRows += bsSectionHeader('ACTIVOS');
+    bsRows += AC.map((c,i)  => bsCuentaRow(c,i)).join('');
+    bsRows += bsSubtotalRow('Total activos corrientes', tAC, false);
+    bsRows += ANC.map((c,i) => bsCuentaRow(c,i)).join('');
+    bsRows += bsSubtotalRow('Total activos no corrientes', tANC, false);
+    bsRows += bsSubtotalRow('Total activos', totalActivos, true);
+    bsRows += bsSectionHeader('PASIVOS Y PATRIMONIO');
+    bsRows += allPasivos.map((c,i) => bsCuentaRow(c,i)).join('');
+    bsRows += bsSubtotalRow('Total pasivos', tPasivos, false);
+    bsRows += PAT.map((c,i) => bsCuentaRow(c,i)).join('');
+    bsRows += bsSubtotalRow('Total patrimonio', tPAT, false);
+    // Fila cuadre (verde/rojo según si cuadra)
+    const cuadreCol = cuadra ? GRN : RED;
+    bsRows += `<tr style="background:${cuadra?'#e6f4ec':'#fde8e8'};border-top:1.5pt solid ${cuadreCol}">
+      <td style="padding:3.5px 7px;font-weight:800;font-size:8.5pt;color:${cuadreCol}">${cuadra ? 'Total pasivos y patrimonio' : '⚠ Total pasivos y patrimonio (descuadre)'}</td>
+      <td style="padding:3.5px 7px;text-align:right;font-weight:800;font-size:8.5pt;color:${cuadreCol}">${fmtM(totalPasYPat)}</td>
     </tr>`;
 
     const esfHTML = `
-      <h2 style="margin-top:18px;page-break-before:auto">2. Estado de Situación al ${NOMBRES_MES[mes]} de ${anio} — ${moneda}</h2>
-      <table style="width:100%;border-collapse:collapse;font-size:9px">
-        <thead><tr style="background:#eef2f8">
-          ${th('Concepto','left','55%')}
-          ${th('Saldo actual','right','20%')}
-          ${hasT1Esf ? th('Año anterior','right','20%') : ''}
-        </tr></thead>
-        <tbody>${esfRows}</tbody>
+      ${secTit(2, `Estado de Situación al ${NOMBRES_MES[mes]} de ${anio} — ${moneda}`)}
+      <table style="width:62%;border-collapse:collapse">
+        <tbody>${bsRows}</tbody>
       </table>
-      ${!cuadra ? `<p style="font-size:8px;color:${colNeg};margin-top:4px">⚠ Descuadre: ${fmtN(totalActivos - totalPasYPat)} ${moneda}</p>` : ''}
-      ${hasT1Esf || hasT1Er ? `<p style="font-size:7px;color:${colMut};margin-top:6px;font-style:italic">El resultado del ejercicio contable que registra el patrimonio puede diferir del resultado de la temporada (sección 1), por corresponder a períodos distintos.</p>` : ''}`;
+      <p style="font-size:7.5pt;color:${MUT};margin-top:7px;font-style:italic;line-height:1.45">
+        El resultado del ejercicio contable (ene–${NOMBRES_MES[mes].toLowerCase()} ${anio}) que registra el patrimonio difiere del resultado de la temporada (jul-${anio-1} a jun-${anio}) de la sección 1, por corresponder a períodos distintos: la porción jul–dic ${anio-1} de la temporada ya fue cerrada contablemente en resultados acumulados.
+      </p>`;
 
-    // ── 3. KPIs ───────────────────────────────────────────────────────────────
-    const mapaKpis = Object.fromEntries(kpisDer.map(k => [k.clave, k]));
-    const kv = (clave, dec = 1) => {
-      const k = mapaKpis[clave];
-      if (!k || k.valor == null) return '—';
-      const u = k.unidad === '%' ? '%' : k.unidad === 'x' ? 'x' : '';
-      return fmtN(k.valor, u ? dec : 0) + u;
-    };
-    const kpiRows = [
-      ['Margen EBITDA',                  kv('margen_ebitda'), ''],
-      ['Cumplimiento EBITDA vs ppto',     kv('cumplimiento_ppto'), ''],
-      ['EBITDA de la temporada',          fmtN(rEbitda), fmtN(t1Ebitda) || '—'],
-      ['Resultado del ejercicio',         fmtN(rRes),    fmtN(t1Res)    || '—'],
-      ['Liquidez corriente',              kv('liquidez_corriente'), ''],
-      ['Capital de trabajo',              kv('capital_trabajo'), ''],
-      ['Deuda financiera / Patrimonio',   kv('deuda_patrimonio'), ''],
-      ['Deuda financiera / EBITDA',       kv('deuda_ebitda'), ''],
-    ].map((r, i) => `<tr style="background:${i%2?'#f9f9f9':'#fff'}">
-      ${td(r[0])}${td(r[1],'right','',true)}${hasT1Er?td(r[2]||'—','right',colMut):''}
+    // ── 3. KPIs ─────────────────────────────────────────────────────────────
+    const mapaK = Object.fromEntries(kpisDer.map(k => [k.clave, k.valor]));
+    const kVal  = (c) => mapaK[c] ?? null;
+
+    // EBITDA de temporada y margen (directo desde ER)
+    const margenEbitdaPct    = rIngOp !== 0 ? (rEbitda / rIngOp) * 100 : null;
+    const margenEbitdaT1Pct  = t1IngOp !== 0 ? (t1Ebitda / t1IngOp) * 100 : null;
+    // Cumplimiento EBITDA vs ppto (muestra "neg." si EBITDA real < 0)
+    const cumplEbitdaPct = pEbitda !== 0 ? (rEbitda / pEbitda) * 100 : null;
+    const cumplEbitdaFmt = rEbitda < 0 ? 'neg.' :
+                           (cumplEbitdaPct != null ? Math.round(cumplEbitdaPct) + '%' : '—');
+    // Liquidez y capital de trabajo desde KPIs derivados
+    const liquidez    = kVal('liquidez_corriente');
+    const capTrabajo  = kVal('capital_trabajo');
+    // Deuda / Patrimonio: n/a si patrimonio negativo
+    const deudaPat    = tPAT < 0 ? 'n/a' : (kVal('deuda_patrimonio') != null ? fmtRatio(kVal('deuda_patrimonio')) : '—');
+    // Deuda / EBITDA: n/a si EBITDA negativo
+    const deudaEbitda = rEbitda < 0 ? 'n/a' : (kVal('deuda_ebitda') != null ? fmtRatio(kVal('deuda_ebitda')) : '—');
+    const deudaEbitdaT1 = (T1H && t1Ebitda >= 0) ? '—' : (T1H ? 'n/a' : '');
+
+    // KPIs operacionales (ej. kilos para Allegria Service)
+    const kpisOpRows = kpisOp.length ? kpisOp.map((k, i) => {
+      const cfg = k.anf_metricas_config || {};
+      const vReal = k.valor_real != null ? k.valor_real.toLocaleString('es-CL', { maximumFractionDigits: 0 }) + (cfg.unidad && cfg.unidad !== 'n' ? ' ' + cfg.unidad : '') : '—';
+      const vT1   = k.valor_t1  != null ? k.valor_t1.toLocaleString('es-CL',  { maximumFractionDigits: 0 }) + (cfg.unidad && cfg.unidad !== 'n' ? ' ' + cfg.unidad : '') : '—';
+      return `<tr style="background:${i%2?'#f9fafe':'#fff'}">
+        ${td(cfg.nombre || 'Métrica')}
+        ${td(vReal, 'right', '', true)}
+        ${T1H ? td(vT1, 'right', MUT) : ''}
+      </tr>`;
+    }).join('') : '';
+
+    const kpiTabla = [
+      ['Margen EBITDA',               margenEbitdaPct!=null?fmtPctD(margenEbitdaPct):'—',    T1H&&margenEbitdaT1Pct!=null?fmtPctD(margenEbitdaT1Pct):'—'],
+      ['Cumplimiento EBITDA vs ppto', cumplEbitdaFmt,                                         '—'],
+      ['EBITDA de la temporada',      fmtM(rEbitda),                                          T1H?fmtM(t1Ebitda):'—'],
+      ['Resultado del ejercicio',     fmtM(rRes),                                             T1H?fmtM(t1Res):'—'],
+      ['Liquidez corriente',          liquidez!=null?fmtRatio(liquidez):'—',                  '—'],
+      ['Capital de trabajo',          capTrabajo!=null?fmtM(capTrabajo):'—',                  '—'],
+      ['Deuda financiera / Patrimonio', deudaPat,                                             '—'],
+      ['Deuda financiera / EBITDA',   deudaEbitda,                                            deudaEbitdaT1],
+    ].map((r, i) => `<tr style="background:${i%2?'#f9fafe':'#fff'}">
+      ${td(r[0])}
+      ${td(r[1], 'right', '', true)}
+      ${T1H ? td(r[2]||'—', 'right', MUT) : ''}
     </tr>`).join('');
 
+    // Notas n/a al pie de KPIs
+    const kpiNotas = [];
+    if (rEbitda < 0)  kpiNotas.push('n/a — Deuda financiera / EBITDA: no aplica porque el EBITDA de la temporada es negativo.');
+    if (tPAT   < 0)  kpiNotas.push('n/a — Deuda financiera / Patrimonio: no aplica porque el patrimonio es negativo.');
+
     const kpisHTML = `
-      <h2 style="margin-top:18px">3. Indicadores (KPIs) — a nivel EBITDA — comparativo temporada ${yearLabel}${hasT1Er?' vs '+prevLabel:''}</h2>
-      <table style="width:60%;border-collapse:collapse;font-size:9px">
-        <thead><tr style="background:#eef2f8">
-          ${th('Indicador','left','50%')}${th(`Real ${yearLabel}`,'right','20%')}${hasT1Er?th(`Real ${prevLabel}`,'right','20%'):''}
+      ${secTit(3, `Indicadores (KPIs) — a nivel EBITDA — comparativo temporada ${tA}${T1H?' vs '+tA1:''}`)}
+      <table style="width:60%;border-collapse:collapse">
+        <thead><tr>
+          ${th('Indicador','left','52%')}
+          ${th(`Real ${tA}`,'right','18%')}
+          ${T1H ? th(`Real ${tA1}`,'right','18%') : ''}
         </tr></thead>
-        <tbody>${kpiRows}</tbody>
-      </table>`;
+        <tbody>
+          ${kpisOpRows}
+          ${kpiTabla}
+        </tbody>
+      </table>
+      ${kpiNotas.length ? `<div style="margin-top:7px">${kpiNotas.map(n=>`<p style="font-size:7.5pt;color:${MUT};margin:2px 0">${n}</p>`).join('')}</div>` : ''}`;
 
     // ── 4. COMENTARIO EJECUTIVO ───────────────────────────────────────────────
     const justEjec = justif.find(j => j.tipo_estado === 'ejecutivo');
-    const comentarioHTML = (justEjec?.texto || justEjec?.texto_original)
-      ? `<h2 style="margin-top:18px">4. Comentario ejecutivo</h2>
-         <div style="font-size:9px;line-height:1.6;color:#333">${justEjec.texto || justEjec.texto_original}</div>`
+    const comentHTML = (justEjec?.texto || justEjec?.texto_original)
+      ? `${secTit(4,'Comentario ejecutivo')}
+         <p style="font-size:9pt;line-height:1.65;color:#222;margin:0">${justEjec.texto || justEjec.texto_original}</p>`
       : '';
 
     // ── HTML final ───────────────────────────────────────────────────────────
     const html = `<!DOCTYPE html><html><head><meta charset="utf-8">
-      <title>${nombre} — Cierre ${NOMBRES_MES[mes]} ${anio}</title>
+      <title>${nombre} — Cierre Temporada ${anio-1}-${anio}</title>
       <style>
-        @page { size: letter portrait; margin: 18mm 15mm; }
-        @media print { body { margin: 0; } }
-        body { font-family: Arial, sans-serif; color: #222; font-size: 9px; }
-        h2 { font-size: 9px; font-weight: 800; color: ${colBlue}; margin: 12px 0 5px;
-             border-bottom: 1.5px solid ${colBlue}25; padding-bottom: 2px; }
-        table { border-collapse: collapse; width: 100%; }
-        td, th { border-bottom: 1px solid #eee; }
+        @page { size: letter portrait; margin: 18mm 16mm 20mm 16mm; }
+        @media print { * { -webkit-print-color-adjust:exact !important; print-color-adjust:exact !important; } body { margin:0; } }
+        body { font-family: Arial, Helvetica, sans-serif; color: #111; font-size: 9pt; }
+        * { box-sizing: border-box; }
+        td, th { border-bottom: 0.5pt solid #e8edf5; }
         tr:last-child td { border-bottom: none; }
       </style>
     </head><body>
-      <!-- Header -->
-      <div style="border-bottom:2px solid ${colBlue};padding-bottom:7px;margin-bottom:10px">
-        <div style="font-size:14px;font-weight:900;color:#1a3a6a;margin-bottom:1px">${nombre}</div>
-        <div style="font-size:9px;color:#555">Cierre Temporada ${anio-1}-${anio} &nbsp;◆&nbsp; Estados Financieros al ${NOMBRES_MES[mes]} de ${anio} &nbsp;◆&nbsp; Grupo Mediterra</div>
-        <div style="font-size:8px;color:#888;margin-top:2px">${filial?.descripcion || filial?.negocio || ''}</div>
+      <div style="border-bottom:2pt solid ${ACC};padding-bottom:8px;margin-bottom:4px">
+        <div style="font-size:16pt;font-weight:900;color:${BLU};margin-bottom:3px">${nombre}</div>
+        <div style="font-size:8.5pt;color:#555">Cierre Temporada ${anio-1}-${anio} &nbsp;◆&nbsp; Estados Financieros al ${NOMBRES_MES[mes]} de ${anio} &nbsp;◆&nbsp; Grupo Mediterra</div>
+        ${negocio ? `<div style="font-size:8pt;color:#777;font-style:italic;margin-top:1px">${negocio}</div>` : ''}
       </div>
-
       ${erHTML}
       ${narrHTML}
       ${esfHTML}
       ${kpisHTML}
-      ${comentarioHTML}
-
-      <div style="margin-top:18px;font-size:7px;color:#bbb;text-align:right;border-top:1px solid #eee;padding-top:4px">
+      ${comentHTML}
+      <div style="margin-top:18px;padding-top:4px;border-top:0.5pt solid #ddd;font-size:7pt;color:#bbb;text-align:right">
         Generado: ${new Date().toLocaleString('es-CL')} &nbsp;·&nbsp; Grupo Mediterra — ANF
       </div>
-
       <script>window.onload = function() { window.print(); }<\/script>
     </body></html>`;
 
