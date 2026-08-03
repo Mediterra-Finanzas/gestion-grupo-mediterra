@@ -1193,6 +1193,175 @@ export default function AnfTab({ canEdit, usuarioActual }) {
     XLSX.writeFile(wb, `anf_${(filial?.codigo || 'empresa')}_${anio}_${String(mes).padStart(2,'0')}.xlsx`);
   }
 
+  // ── Exportar PDF ───────────────────────────────────────────────────────────
+  function exportarPDF() {
+    if (!informe) return;
+    const filial  = filiales.find(f => f.id === filialId);
+    const nombre  = filial?.nombre || 'Empresa';
+    const periodo = `${NOMBRES_MES[mes]} ${anio}`;
+    const moneda  = filial?.moneda || 'USD';
+
+    const fmtN = (v, dec = 0) => v == null || isNaN(v) ? '—'
+      : v.toLocaleString('es-CL', { minimumFractionDigits: dec, maximumFractionDigits: dec });
+    const fmtP = (v) => v == null || isNaN(v) ? '—' : (v >= 0 ? '+' : '') + v.toFixed(1) + '%';
+
+    // ── Helpers HTML ─────────────────────────────────────────────────────────
+    const th = (t, align = 'left', extra = '') =>
+      `<th style="padding:3px 6px;text-align:${align};background:#f0f4f8;border-bottom:1px solid #ddd;font-size:9px;color:#555;${extra}">${t}</th>`;
+    const td = (t, align = 'left', color = '', extra = '') =>
+      `<td style="padding:2px 6px;text-align:${align};${color ? `color:${color};` : ''}font-size:9px;${extra}">${t ?? '—'}</td>`;
+
+    // ── Sección ESF ──────────────────────────────────────────────────────────
+    const SECCIONES_ESF = ['Activo Corriente','Activo No Corriente','Pasivo Corriente','Pasivo No Corriente','Patrimonio'];
+    const esfHTML = SECCIONES_ESF.map(sec => {
+      const cuentas = esf.filter(c => (c.categoria_ifrs || clasificarSeccionEsf(c.codigo)) === sec);
+      if (!cuentas.length) return '';
+      const total = cuentas.reduce((a, c) => a + (c.saldo_neto || 0), 0);
+      const rows = cuentas.map((c, i) => {
+        const vColor = c.var_pct != null && Math.abs(c.var_pct) >= (filial?.piso_materialidad || 10)
+          ? (c.var_pct > 0 ? '#1a7a4a' : '#b22222') : '#333';
+        return `<tr style="background:${i%2?'#f9f9f9':'#fff'}">
+          ${td(c.codigo,'left','#888','font-family:monospace')}
+          ${td(c.nombre || c.nombre_origen)}
+          ${td(fmtN(c.saldo_neto),'right')}
+          ${td(fmtN(c.saldo_neto_t1),'right','#888')}
+          ${td(fmtN(c.var_abs),'right', c.var_abs > 0 ? '#1a7a4a' : c.var_abs < 0 ? '#b22222' : '')}
+          ${td(fmtP(c.var_pct),'right', vColor)}
+        </tr>`;
+      }).join('');
+      return `
+        <div style="margin-bottom:12px">
+          <div style="font-size:9px;font-weight:800;color:#1a5fa8;background:#e8f0fc;padding:3px 8px;border-radius:3px;margin-bottom:2px">
+            ${sec} — Total: ${fmtN(total)} ${moneda}
+          </div>
+          <table style="width:100%;border-collapse:collapse">
+            <thead><tr>${th('Código')}${th('Nombre')}${th('Saldo actual','right')}${th('Año anterior','right')}${th('Var $','right')}${th('Var %','right')}</tr></thead>
+            <tbody>${rows}</tbody>
+          </table>
+        </div>`;
+    }).join('');
+
+    // ── Sección ER ───────────────────────────────────────────────────────────
+    const GRUPOS_ER = [
+      { key:'Ingreso Operacional',    color:'#1a5fa8' },
+      { key:'Costo Operacional',      color:'#b22222' },
+      { key:'Gasto Operacional',      color:'#b22222' },
+      { key:'Ingreso No Operacional', color:'#1a7a4a' },
+      { key:'Gasto No Operacional',   color:'#b22222' },
+      { key:'Impuesto',               color:'#888' },
+    ];
+    const vistaErCampo = { real: 'real_mes', ppto: 'ppto_mes', temporada: 'real_temporada' };
+    const erHTML = GRUPOS_ER.map(g => {
+      const cuentas = er.filter(c => (c.grupo_er || clasificarGrupoEr(c.codigo)) === g.key);
+      if (!cuentas.length) return '';
+      const totalReal = cuentas.reduce((a, c) => a + (c.real_temporada || 0), 0);
+      const totalPpto = cuentas.reduce((a, c) => a + (c.ppto_temporada || 0), 0);
+      const rows = cuentas.map((c, i) => {
+        const real = c.real_temporada, ppto = c.ppto_temporada;
+        const vp = ppto && ppto !== 0 ? ((real - ppto) / Math.abs(ppto)) * 100 : null;
+        const vColor = vp != null && Math.abs(vp) >= (filial?.piso_materialidad || 10)
+          ? (vp > 0 ? '#1a7a4a' : '#b22222') : '#333';
+        return `<tr style="background:${i%2?'#f9f9f9':'#fff'}">
+          ${td(c.codigo,'left','#888','font-family:monospace')}
+          ${td(c.nombre || c.nombre_origen)}
+          ${td(fmtN(real),'right')}
+          ${td(fmtN(ppto),'right','#888')}
+          ${td(fmtN(real - (ppto||0)),'right', (real-(ppto||0)) > 0 ? '#1a7a4a' : '#b22222')}
+          ${td(fmtP(vp),'right', vColor)}
+        </tr>`;
+      }).join('');
+      return `
+        <div style="margin-bottom:12px">
+          <div style="font-size:9px;font-weight:800;color:${g.color};background:${g.color}18;padding:3px 8px;border-radius:3px;margin-bottom:2px">
+            ${g.key} — Real: ${fmtN(totalReal)} · Ppto: ${fmtN(totalPpto)} ${moneda}
+          </div>
+          <table style="width:100%;border-collapse:collapse">
+            <thead><tr>${th('Código')}${th('Nombre')}${th('Real Temp.','right')}${th('Ppto Temp.','right')}${th('Var $','right')}${th('Var %','right')}</tr></thead>
+            <tbody>${rows}</tbody>
+          </table>
+        </div>`;
+    }).join('');
+
+    // ── KPIs ─────────────────────────────────────────────────────────────────
+    const kpiTile = (k) => {
+      if (!k) return '';
+      const esPct = k.unidad === '%', esRatio = k.unidad === 'x';
+      const dec = esPct ? 1 : esRatio ? 3 : 0;
+      const val = k.valor != null ? fmtN(k.valor, dec) + (esPct ? '%' : esRatio ? 'x' : '') : '—';
+      return `<div style="border:1px solid #ddd;border-radius:5px;padding:6px 10px;min-width:110px;background:#fff">
+        <div style="font-size:7px;color:#888;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:2px">${KPI_LABELS[k.clave] || k.clave}</div>
+        <div style="font-size:14px;font-weight:900;color:#222">${val}</div>
+      </div>`;
+    };
+    const mapaKpis = Object.fromEntries(kpisDer.map(k => [k.clave, k]));
+    const kpisHTML = KPI_GRUPOS.map(grupo => {
+      const tiles = grupo.claves.map(c => kpiTile(mapaKpis[c])).filter(Boolean).join('');
+      if (!tiles) return '';
+      const colores = { rentabilidad:'#1a7a4a', liquidez:'#1a5fa8', endeudamiento:'#b22222', balance:'#2a7a8a', resultados:'#c07800' };
+      const color = colores[grupo.key] || '#333';
+      return `<div style="margin-bottom:10px">
+        <div style="font-size:8px;font-weight:800;color:${color};border-left:3px solid ${color};padding-left:6px;text-transform:uppercase;letter-spacing:0.06em;margin-bottom:6px">${grupo.label}</div>
+        <div style="display:flex;flex-wrap:wrap;gap:6px">${tiles}</div>
+      </div>`;
+    }).join('');
+
+    // ── Narrativas ───────────────────────────────────────────────────────────
+    const narrHTML = justif.length ? justif.map(j =>
+      `<div style="margin-bottom:6px;padding:5px 8px;background:#f5f5f5;border-radius:3px;border-left:3px solid #ccc">
+        <span style="font-size:8px;font-weight:700;color:#555">${j.codigo}</span>
+        <p style="margin:2px 0 0;font-size:8px;color:#333">${j.texto || j.texto_original || ''}</p>
+      </div>`
+    ).join('') : '<p style="font-size:9px;color:#888">Sin narrativas cargadas.</p>';
+
+    // ── HTML final ───────────────────────────────────────────────────────────
+    const html = `<!DOCTYPE html><html><head><meta charset="utf-8">
+      <title>ANF ${nombre} ${periodo}</title>
+      <style>
+        @page { size: letter portrait; margin: 15mm 12mm; }
+        @media print { body { margin: 0; } .no-print { display: none; } }
+        body { font-family: Arial, sans-serif; color: #222; font-size: 10px; }
+        h1 { font-size: 14px; margin: 0 0 2px; color: #1a3a6a; }
+        h2 { font-size: 10px; font-weight: 800; color: #1a5fa8; margin: 14px 0 6px;
+             border-bottom: 1.5px solid #1a5fa820; padding-bottom: 2px; }
+        table { border-collapse: collapse; width: 100%; }
+        td, th { border-bottom: 1px solid #eee; }
+      </style>
+    </head><body>
+      <!-- Header -->
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:10px;border-bottom:2px solid #1a5fa8;padding-bottom:8px">
+        <div>
+          <h1>${nombre}</h1>
+          <div style="font-size:11px;color:#555">${periodo} · ${moneda}</div>
+        </div>
+        <div style="text-align:right;font-size:9px;color:#555">
+          <div>TC Cierre: <strong>${tipoCierre || '—'}</strong></div>
+          <div>TC Promedio: <strong>${tipoProm || '—'}</strong></div>
+          <div style="margin-top:4px;font-size:8px;color:#1a7a4a;font-weight:700">${informe.estado.toUpperCase()}</div>
+        </div>
+      </div>
+
+      ${kpisDer.length ? `<h2>KPIs Financieros</h2><div style="margin-bottom:14px">${kpisHTML}</div>` : ''}
+
+      <h2>Estado de Situación Financiera</h2>
+      ${esfHTML}
+
+      <h2>Estado de Resultados — Temporada</h2>
+      ${erHTML}
+
+      ${justif.length ? `<h2>Narrativas / Justificaciones</h2>${narrHTML}` : ''}
+
+      <div style="margin-top:16px;font-size:7px;color:#bbb;text-align:right">
+        Generado: ${new Date().toLocaleString('es-CL')} · Grupo Mediterra — ANF
+      </div>
+
+      <script>window.onload = function() { window.print(); }<\/script>
+    </body></html>`;
+
+    const win = window.open('', '_blank');
+    win.document.write(html);
+    win.document.close();
+  }
+
   // ── Render ─────────────────────────────────────────────────────────────────
   const filialActual = filiales.find(f => f.id === filialId);
   const informesFilial = informe ? informes.filter(i => i.filial_id === filialId) : [];
@@ -1420,6 +1589,7 @@ export default function AnfTab({ canEdit, usuarioActual }) {
                 )}
 
                 <Btn onClick={exportarExcel} color={C.teal} small>Exportar XLSX</Btn>
+                <Btn onClick={exportarPDF} color={C.blue} small>Exportar PDF</Btn>
               </div>
 
               {/* KPIs derivados */}
