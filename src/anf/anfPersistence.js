@@ -77,17 +77,23 @@ export async function cargarInforme(filialId, anio, mes) {
 }
 
 export async function crearInforme({ filialId, anio, mes, temporada, tipoCierre, tipoPromedio, cargadoPor }) {
-  const rows = await supaPost('anf_informes', {
-    filial_id:     filialId,
-    anio,
-    mes,
-    temporada,
-    tipo_cierre:   tipoCierre  ?? null,
-    tipo_promedio: tipoPromedio ?? null,
-    cargado_por:   cargadoPor  ?? null,
-    estado:        'borrador',
-    updated_at:    new Date().toISOString(),
+  const res = await fetch(`${SUPA_URL}/rest/v1/anf_informes`, {
+    method: 'POST',
+    headers: { ...GET_HDR(), 'Content-Type': 'application/json', Prefer: 'return=representation' },
+    body: JSON.stringify({
+      filial_id:     filialId,
+      anio,
+      mes,
+      temporada,
+      tipo_cierre:   tipoCierre  ?? null,
+      tipo_promedio: tipoPromedio ?? null,
+      cargado_por:   cargadoPor  ?? null,
+      estado:        'borrador',
+      updated_at:    new Date().toISOString(),
+    }),
   });
+  if (!res.ok) throw new Error(`POST anf_informes → ${res.status}: ${await res.text()}`);
+  const rows = await res.json();
   return Array.isArray(rows) ? rows[0] : rows;
 }
 

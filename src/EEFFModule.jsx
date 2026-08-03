@@ -2755,7 +2755,8 @@ export default function EEFFModule({ canEdit, usuarioActual, empresasPermitidas 
 
       {/* ── Análisis Financiero ── */}
       {vistaModulo === 'analisis' && (
-        <AnfTab canEdit={canEdit} usuarioActual={usuarioActual} />
+        <AnfTab canEdit={canEdit} usuarioActual={usuarioActual}
+          empresaDefault={empresa} mesDefault={mes} anioDefault={anio} />
       )}
 
     </div>
