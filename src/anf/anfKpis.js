@@ -5,9 +5,18 @@
 function round2(v) { return v != null && !isNaN(v) ? Math.round(v * 100) / 100 : null; }
 function round3(v) { return v != null && !isNaN(v) ? Math.round(v * 1000) / 1000 : null; }
 
+function clasificarSeccionEsf(codigo) {
+  const parts = (codigo || '').split('.');
+  const p1 = parts[0], p2 = parts[1];
+  if (p1 === '1') return p2 === '01' ? 'Activo Corriente' : 'Activo No Corriente';
+  if (p1 === '2') return p2 === '01' ? 'Pasivo Corriente' : 'Pasivo No Corriente';
+  if (p1 === '3') return 'Patrimonio';
+  return null;
+}
+
 function sumaEsf(esf, categorias) {
   const set = new Set(categorias);
-  return esf.filter(c => set.has(c.categoria_ifrs)).reduce((a, c) => a + (c.saldo_neto || 0), 0);
+  return esf.filter(c => set.has(c.categoria_ifrs || clasificarSeccionEsf(c.codigo))).reduce((a, c) => a + (c.saldo_neto || 0), 0);
 }
 
 function sumaEr(er, gruposEr, campo = 'real_ytd') {
