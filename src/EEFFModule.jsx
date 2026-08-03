@@ -1564,7 +1564,7 @@ export default function EEFFModule({ canEdit, usuarioActual, empresasPermitidas 
       )}
 
       {/* ── Sin datos + upload ── */}
-      {!loadingData && sinDatos && !showUpload && (
+      {!loadingData && sinDatos && !showUpload && vistaModulo !== 'analisis' && (
         <div style={{ textAlign:'center', padding:'60px 0' }}>
           <div style={{ fontSize:13, color:C.muted, marginBottom:16 }}>
             No hay EEFF guardado para <strong style={{ color:C.text }}>{empresa}</strong> —{' '}
