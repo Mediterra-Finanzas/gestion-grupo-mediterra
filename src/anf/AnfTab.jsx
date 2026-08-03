@@ -182,7 +182,9 @@ function TablaEsf({ saldos, piso }) {
                           {fmtNum(c.var_abs)}
                         </td>
                         <td style={{ padding: '2px 6px', textAlign: 'right',
-                          color: c.var_pct != null && Math.abs(c.var_pct) >= piso ? C.red : C.text }}>
+                          color: c.var_pct != null && Math.abs(c.var_pct) >= piso
+                            ? (c.var_pct > 0 ? C.green : C.red)
+                            : C.text }}>
                           {fmtPct(c.var_pct)}
                         </td>
                       </tr>
@@ -1171,7 +1173,7 @@ export default function AnfTab({ canEdit, usuarioActual }) {
       [`ESF — ${nombre} — ${NOMBRES_MES[mes]} ${anio}`],
       [],
       ['Código', 'Nombre', 'Categoría', 'Saldo actual', 'Año anterior', 'Var $', 'Var %'],
-      ...esf.map(c => [c.codigo, c.nombre, c.categoria_ifrs, c.saldo_neto, c.saldo_neto_t1, c.var_abs, c.var_pct]),
+      ...esf.map(c => [c.codigo, c.nombre, c.categoria_ifrs || clasificarSeccionEsf(c.codigo), c.saldo_neto, c.saldo_neto_t1, c.var_abs, c.var_pct]),
     ];
     XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(esfRows), 'ESF');
 
