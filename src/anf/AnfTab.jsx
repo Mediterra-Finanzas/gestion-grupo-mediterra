@@ -177,10 +177,13 @@ function TablaEsf({ saldos, piso }) {
 
 // ── Sección ER ───────────────────────────────────────────────────────────────
 
-function TablaEr({ movimientos, mes, piso }) {
-  const [expandido, setExpandido] = useState(true);
-  const [vistaEr, setVistaEr] = useState('mes'); // 'mes' | 'ytd' | 'temporada'
-  const [filtroMat, setFiltroMat] = useState(false);
+function TablaEr({ movimientos, mes, piso, justif = [], informeId, canEdit, usuarioActual }) {
+  const [expandido,  setExpandido]  = useState(true);
+  const [vistaEr,    setVistaEr]    = useState('mes');
+  const [filtroMat,  setFiltroMat]  = useState(false);
+  const [justAbierto, setJustAbierto] = useState({});
+  const [justTexts,   setJustTexts]   = useState({});
+  const [justGuard,   setJustGuard]   = useState({});
 
   const GRUPOS_ER = [
     { key: 'Ingreso Operacional',    label: 'Ingresos Operacionales',  signo: 1 },
@@ -191,7 +194,34 @@ function TablaEr({ movimientos, mes, piso }) {
     { key: 'Impuesto',               label: 'Impuesto a la Renta',     signo: -1 },
   ];
 
-  function realField(g) {
+  // Mapa código → justificación existente
+  const justMap = useMemo(() => {
+    const m = {};
+    justif.forEach(j => { m[j.codigo] = j; });
+    return m;
+  }, [justif]);
+
+  useEffect(() => {
+    const init = {};
+    justif.forEach(j => { init[j.codigo] = j.texto || j.texto_original || ''; });
+    setJustTexts(t => ({ ...init, ...t }));
+  }, [justif]);
+
+  async function guardarJust(codigo) {
+    if (!informeId) return;
+    const texto = justTexts[codigo] || '';
+    setJustGuard(g => ({ ...g, [codigo]: true }));
+    try {
+      await guardarJustificacion(informeId, codigo, 'er', texto, usuarioActual?.nombre);
+    } catch (e) { console.error('guardarJust:', e); }
+    finally { setJustGuard(g => ({ ...g, [codigo]: false })); }
+  }
+
+  function toggleJust(codigo) {
+    setJustAbierto(a => ({ ...a, [codigo]: !a[codigo] }));
+  }
+
+  function realField() {
     return vistaEr === 'mes' ? 'real_mes' : vistaEr === 'ytd' ? 'real_ytd' : 'real_temporada';
   }
   function pptoField() {
@@ -266,6 +296,7 @@ function TablaEr({ movimientos, mes, piso }) {
                       <th style={{ padding: '3px 6px', textAlign: 'right', color: C.muted }}>Ppto</th>
                       <th style={{ padding: '3px 6px', textAlign: 'right', color: C.muted }}>Var $</th>
                       <th style={{ padding: '3px 6px', textAlign: 'right', color: C.muted }}>Var %</th>
+                      <th style={{ width: 24 }}></th>
                     </tr>
                   </thead>
                   <tbody>
@@ -274,24 +305,59 @@ function TablaEr({ movimientos, mes, piso }) {
                       const ppto = c[pf];
                       const varAbs = ppto != null ? real - ppto : null;
                       const vp = varPctEr(real, ppto);
+                      const tieneJust = !!(justMap[c.codigo]?.texto || justMap[c.codigo]?.texto_original || justTexts[c.codigo]);
+                      const abierto = !!justAbierto[c.codigo];
                       return (
-                        <tr key={c.codigo} style={{ background: i % 2 ? C.bg : `${C.card}80` }}>
-                          <td style={{ textAlign: 'center', paddingLeft: 4 }}>
-                            <Semaforo varPct={vp} piso={piso} />
-                          </td>
-                          <td style={{ padding: '2px 6px', color: C.muted, fontFamily: 'monospace' }}>{c.codigo}</td>
-                          <td style={{ padding: '2px 6px' }}>{c.nombre || c.nombre_origen}</td>
-                          <td style={{ padding: '2px 6px', textAlign: 'right' }}>{fmtNum(real)}</td>
-                          <td style={{ padding: '2px 6px', textAlign: 'right', color: C.muted }}>{fmtNum(ppto)}</td>
-                          <td style={{ padding: '2px 6px', textAlign: 'right',
-                            color: varAbs == null ? C.muted : varAbs >= 0 ? C.green : C.red }}>
-                            {fmtNum(varAbs)}
-                          </td>
-                          <td style={{ padding: '2px 6px', textAlign: 'right',
-                            color: vp != null && Math.abs(vp) >= piso ? C.red : C.text }}>
-                            {fmtPct(vp)}
-                          </td>
-                        </tr>
+                        <React.Fragment key={c.codigo}>
+                          <tr style={{ background: i % 2 ? C.bg : `${C.card}80` }}>
+                            <td style={{ textAlign: 'center', paddingLeft: 4 }}>
+                              <Semaforo varPct={vp} piso={piso} />
+                            </td>
+                            <td style={{ padding: '2px 6px', color: C.muted, fontFamily: 'monospace' }}>{c.codigo}</td>
+                            <td style={{ padding: '2px 6px' }}>{c.nombre || c.nombre_origen}</td>
+                            <td style={{ padding: '2px 6px', textAlign: 'right' }}>{fmtNum(real)}</td>
+                            <td style={{ padding: '2px 6px', textAlign: 'right', color: C.muted }}>{fmtNum(ppto)}</td>
+                            <td style={{ padding: '2px 6px', textAlign: 'right',
+                              color: varAbs == null ? C.muted : varAbs >= 0 ? C.green : C.red }}>
+                              {fmtNum(varAbs)}
+                            </td>
+                            <td style={{ padding: '2px 6px', textAlign: 'right',
+                              color: vp != null && Math.abs(vp) >= piso ? C.red : C.text }}>
+                              {fmtPct(vp)}
+                            </td>
+                            <td style={{ textAlign: 'center' }}>
+                              <button onClick={() => toggleJust(c.codigo)}
+                                title={tieneJust ? 'Ver/editar justificación' : 'Agregar justificación'}
+                                style={{ background: 'none', border: 'none', cursor: 'pointer',
+                                  fontSize: 11, padding: '1px 3px',
+                                  color: tieneJust ? C.blue : abierto ? C.muted : `${C.muted}66` }}>
+                                {tieneJust ? '✎' : '+'}
+                              </button>
+                            </td>
+                          </tr>
+                          {abierto && (
+                            <tr style={{ background: i % 2 ? C.bg : `${C.card}80` }}>
+                              <td colSpan={8} style={{ padding: '2px 10px 6px 32px' }}>
+                                <textarea
+                                  value={justTexts[c.codigo] || ''}
+                                  onChange={e => setJustTexts(t => ({ ...t, [c.codigo]: e.target.value }))}
+                                  onBlur={() => guardarJust(c.codigo)}
+                                  disabled={!canEdit || justGuard[c.codigo]}
+                                  rows={2}
+                                  placeholder="Justificación para esta cuenta..."
+                                  style={{ width: '100%', boxSizing: 'border-box',
+                                    background: C.bg, color: C.text,
+                                    border: `1px solid ${C.border}`, borderRadius: 4,
+                                    padding: '4px 6px', fontSize: 10, resize: 'vertical',
+                                    fontFamily: 'inherit' }}
+                                />
+                                {justGuard[c.codigo] && (
+                                  <span style={{ fontSize: 9, color: C.muted }}>Guardando...</span>
+                                )}
+                              </td>
+                            </tr>
+                          )}
+                        </React.Fragment>
                       );
                     })}
                   </tbody>
@@ -1356,7 +1422,15 @@ export default function AnfTab({ canEdit, usuarioActual }) {
 
               {/* ER */}
               {er.length > 0 && (
-                <TablaEr movimientos={er} mes={mes} piso={filialActual?.piso_materialidad || 10} />
+                <TablaEr
+                  movimientos={er}
+                  mes={mes}
+                  piso={filialActual?.piso_materialidad || 10}
+                  justif={justif}
+                  informeId={informe.id}
+                  canEdit={canEdit}
+                  usuarioActual={usuarioActual}
+                />
               )}
 
               {/* Narrativas */}
