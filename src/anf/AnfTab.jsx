@@ -1108,6 +1108,10 @@ export default function AnfTab({ canEdit, usuarioActual }) {
         await importarNarrativas(informeId, parsed.narrativas);
       }
 
+      // KPIs derivados — calculados al subir para mostrar en borrador
+      const kpisCalc = calcularKpisDerivaos(saldosEsf, movsEr);
+      await guardarKpisDerivaos(informeId, kpisCalc);
+
       // Recargar
       await cargarInforme();
     } catch (e) {
