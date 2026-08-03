@@ -112,22 +112,107 @@ function clasificarSeccionEsf(codigo) {
   return 'Activo Corriente';
 }
 
+function FilaEsf({ c, piso, i }) {
+  return (
+    <tr style={{ background: i % 2 ? C.bg : `${C.card}60` }}>
+      <td style={{ textAlign: 'center', paddingLeft: 4, width: 14 }}>
+        <Semaforo varPct={c.var_pct} piso={piso} />
+      </td>
+      <td style={{ padding: '2px 6px', color: C.muted, fontFamily: 'monospace', fontSize: 9 }}>{c.codigo}</td>
+      <td style={{ padding: '2px 6px', fontSize: 10 }}>{c.nombre || c.nombre_origen}</td>
+      <td style={{ padding: '2px 6px', textAlign: 'right', fontWeight: 500 }}>{fmtNum(c.saldo_neto)}</td>
+      <td style={{ padding: '2px 6px', textAlign: 'right', color: C.muted }}>{fmtNum(c.saldo_neto_t1)}</td>
+      <td style={{ padding: '2px 6px', textAlign: 'right',
+        color: c.var_abs > 0 ? C.green : c.var_abs < 0 ? C.red : C.text }}>
+        {fmtNum(c.var_abs)}
+      </td>
+      <td style={{ padding: '2px 6px', textAlign: 'right',
+        color: c.var_pct != null && Math.abs(c.var_pct) >= piso
+          ? (c.var_pct > 0 ? C.green : C.red) : C.text }}>
+        {fmtPct(c.var_pct)}
+      </td>
+    </tr>
+  );
+}
+
+function SubtotalEsf({ label, total, t1, bold = false, separador = false }) {
+  const varAbs = t1 != null ? total - t1 : null;
+  const varPct = varAbs != null && t1 !== 0 ? (varAbs / Math.abs(t1)) * 100 : null;
+  return (
+    <tr style={{
+      background: bold ? `${C.blue}10` : `${C.card}90`,
+      borderTop: separador ? `2px solid ${C.blue}40` : `1px solid ${C.border}40`,
+    }}>
+      <td colSpan={2} />
+      <td style={{ padding: '3px 6px', fontWeight: bold ? 800 : 600, fontSize: 10, color: bold ? C.blue : C.text,
+        fontStyle: bold ? 'normal' : 'italic' }}>
+        {label}
+      </td>
+      <td style={{ padding: '3px 6px', textAlign: 'right', fontWeight: bold ? 800 : 600,
+        color: bold ? C.blue : C.text }}>{fmtNum(total)}</td>
+      <td style={{ padding: '3px 6px', textAlign: 'right', color: C.muted }}>{t1 != null ? fmtNum(t1) : '—'}</td>
+      <td style={{ padding: '3px 6px', textAlign: 'right',
+        color: varAbs != null ? (varAbs > 0 ? C.green : varAbs < 0 ? C.red : C.text) : C.muted }}>
+        {varAbs != null ? fmtNum(varAbs) : '—'}
+      </td>
+      <td style={{ padding: '3px 6px', textAlign: 'right',
+        color: varPct != null ? (varPct > 0 ? C.green : varPct < 0 ? C.red : C.text) : C.muted }}>
+        {varPct != null ? fmtPct(varPct) : '—'}
+      </td>
+    </tr>
+  );
+}
+
 function TablaEsf({ saldos, piso }) {
   const [expandido, setExpandido] = useState(true);
   const [filtroMat, setFiltroMat] = useState(false);
-  const SECCIONES = ['Activo Corriente', 'Activo No Corriente', 'Pasivo Corriente', 'Pasivo No Corriente', 'Patrimonio'];
 
-  const filas = useMemo(() => {
-    const f = filtroMat ? saldos.filter(s => s.es_material) : saldos;
-    return f;
-  }, [saldos, filtroMat]);
+  const GRUPOS = [
+    { sec: 'Activo Corriente',    grupo: 'ACTIVO',   color: C.blue  },
+    { sec: 'Activo No Corriente', grupo: 'ACTIVO',   color: C.blue  },
+    { sec: 'Pasivo Corriente',    grupo: 'PASIVO',   color: C.red   },
+    { sec: 'Pasivo No Corriente', grupo: 'PASIVO',   color: C.red   },
+    { sec: 'Patrimonio',          grupo: 'PATRIMONIO', color: C.teal },
+  ];
+
+  const filas = useMemo(() =>
+    filtroMat ? saldos.filter(s => s.es_material) : saldos,
+    [saldos, filtroMat]);
+
+  const totalPorSec = (sec) => {
+    const cs = saldos.filter(s => (s.categoria_ifrs || clasificarSeccionEsf(s.codigo)) === sec);
+    return {
+      neto: cs.reduce((a, c) => a + (c.saldo_neto || 0), 0),
+      t1:   cs.some(c => c.saldo_neto_t1 != null) ? cs.reduce((a, c) => a + (c.saldo_neto_t1 || 0), 0) : null,
+    };
+  };
+
+  const tAC  = totalPorSec('Activo Corriente');
+  const tANC = totalPorSec('Activo No Corriente');
+  const tPC  = totalPorSec('Pasivo Corriente');
+  const tPNC = totalPorSec('Pasivo No Corriente');
+  const tPat = totalPorSec('Patrimonio');
+
+  const totalActivos  = tAC.neto  + tANC.neto;
+  const totalPasivos  = tPC.neto  + tPNC.neto;
+  const totalPasYPat  = totalPasivos + tPat.neto;
+  const cuadre = Math.abs(totalActivos - totalPasYPat) < 1;
+
+  const totalActivosT1 = (tAC.t1 != null && tANC.t1 != null) ? tAC.t1 + tANC.t1 : null;
+  const totalPasivosT1 = (tPC.t1 != null && tPNC.t1 != null) ? tPC.t1 + tPNC.t1 : null;
+
+  const THD = ({ children, right }) => (
+    <th style={{ padding: '3px 6px', textAlign: right ? 'right' : 'left',
+      color: C.muted, fontSize: 9, fontWeight: 600, background: C.card,
+      borderBottom: `1px solid ${C.border}` }}>{children}</th>
+  );
 
   return (
-    <div style={{ marginBottom: 20 }}>
+    <div style={{ marginBottom: 24 }}>
+      {/* Header */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 8 }}>
         <button onClick={() => setExpandido(e => !e)}
-          style={{ fontWeight: 800, fontSize: 12, color: C.blue, background: 'none',
-            border: 'none', cursor: 'pointer' }}>
+          style={{ fontWeight: 800, fontSize: 12, color: C.blue, background: 'none', border: 'none', cursor: 'pointer' }}>
           {expandido ? '▼' : '►'} Estado de Situación Financiera
         </button>
         {expandido && (
@@ -139,61 +224,89 @@ function TablaEsf({ saldos, piso }) {
         <span style={{ fontSize: 10, color: C.muted }}>
           {saldos.filter(s => s.es_material).length} materiales / {saldos.length} cuentas
         </span>
+        {expandido && (
+          <span style={{ marginLeft: 'auto', fontSize: 10,
+            color: cuadre ? C.green : C.red, fontWeight: 700 }}>
+            {cuadre ? '✓ Activos = Pasivos + Patrimonio' : `⚠ Descuadre: ${fmtNum(totalActivos - totalPasYPat)}`}
+          </span>
+        )}
       </div>
 
       {expandido && (
         <div style={{ overflowX: 'auto' }}>
-          {SECCIONES.map(seccion => {
-            const cuentas = filas.filter(s =>
-              (s.categoria_ifrs || clasificarSeccionEsf(s.codigo)) === seccion ||
-              s.categoria_ifrs?.startsWith(seccion.split(' ')[0]));
-            if (!cuentas.length) return null;
-            const totalNeto = cuentas.reduce((a, c) => a + (c.saldo_neto || 0), 0);
-            return (
-              <div key={seccion} style={{ marginBottom: 12 }}>
-                <div style={{ fontSize: 10, fontWeight: 800, color: C.blue,
-                  background: `${C.blue}15`, padding: '3px 8px', borderRadius: 4, marginBottom: 2 }}>
-                  {seccion} — Total: {fmtNum(totalNeto)}
-                </div>
-                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 10 }}>
-                  <thead>
-                    <tr style={{ background: C.card }}>
-                      <th style={{ width: 8 }}></th>
-                      <th style={{ padding: '3px 6px', textAlign: 'left', color: C.muted }}>Código</th>
-                      <th style={{ padding: '3px 6px', textAlign: 'left', color: C.muted }}>Nombre</th>
-                      <th style={{ padding: '3px 6px', textAlign: 'right', color: C.muted }}>Saldo actual</th>
-                      <th style={{ padding: '3px 6px', textAlign: 'right', color: C.muted }}>Año anterior</th>
-                      <th style={{ padding: '3px 6px', textAlign: 'right', color: C.muted }}>Var $</th>
-                      <th style={{ padding: '3px 6px', textAlign: 'right', color: C.muted }}>Var %</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {cuentas.map((c, i) => (
-                      <tr key={c.codigo} style={{ background: i % 2 ? C.bg : `${C.card}80` }}>
-                        <td style={{ textAlign: 'center', paddingLeft: 4 }}>
-                          <Semaforo varPct={c.var_pct} piso={piso} />
-                        </td>
-                        <td style={{ padding: '2px 6px', color: C.muted, fontFamily: 'monospace' }}>{c.codigo}</td>
-                        <td style={{ padding: '2px 6px' }}>{c.nombre || c.nombre_origen}</td>
-                        <td style={{ padding: '2px 6px', textAlign: 'right' }}>{fmtNum(c.saldo_neto)}</td>
-                        <td style={{ padding: '2px 6px', textAlign: 'right', color: C.muted }}>{fmtNum(c.saldo_neto_t1)}</td>
-                        <td style={{ padding: '2px 6px', textAlign: 'right',
-                          color: c.var_abs > 0 ? C.green : c.var_abs < 0 ? C.red : C.text }}>
-                          {fmtNum(c.var_abs)}
-                        </td>
-                        <td style={{ padding: '2px 6px', textAlign: 'right',
-                          color: c.var_pct != null && Math.abs(c.var_pct) >= piso
-                            ? (c.var_pct > 0 ? C.green : C.red)
-                            : C.text }}>
-                          {fmtPct(c.var_pct)}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            );
-          })}
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 10 }}>
+            <thead>
+              <tr>
+                <THD> </THD><THD>Código</THD><THD>Cuenta</THD>
+                <THD right>Saldo actual</THD><THD right>Año anterior</THD>
+                <THD right>Var $</THD><THD right>Var %</THD>
+              </tr>
+            </thead>
+            <tbody>
+              {/* ── ACTIVO ── */}
+              <tr><td colSpan={7} style={{ padding: '5px 8px', fontWeight: 900, fontSize: 10,
+                color: C.blue, background: `${C.blue}20`, letterSpacing: '0.08em',
+                borderTop: `2px solid ${C.blue}` }}>ACTIVO</td></tr>
+
+              {/* Activo Corriente */}
+              <tr><td colSpan={7} style={{ padding: '3px 8px 1px 16px', fontSize: 9,
+                fontWeight: 700, color: C.blue, background: `${C.blue}08` }}>Activo Corriente</td></tr>
+              {filas.filter(s => (s.categoria_ifrs || clasificarSeccionEsf(s.codigo)) === 'Activo Corriente')
+                .map((c, i) => <FilaEsf key={c.codigo} c={c} piso={piso} i={i} />)}
+              <SubtotalEsf label="Total Activo Corriente" total={tAC.neto} t1={tAC.t1} />
+
+              {/* Activo No Corriente */}
+              <tr><td colSpan={7} style={{ padding: '3px 8px 1px 16px', fontSize: 9,
+                fontWeight: 700, color: C.blue, background: `${C.blue}08` }}>Activo No Corriente</td></tr>
+              {filas.filter(s => (s.categoria_ifrs || clasificarSeccionEsf(s.codigo)) === 'Activo No Corriente')
+                .map((c, i) => <FilaEsf key={c.codigo} c={c} piso={piso} i={i} />)}
+              <SubtotalEsf label="Total Activo No Corriente" total={tANC.neto} t1={tANC.t1} />
+              <SubtotalEsf label="TOTAL ACTIVOS" total={totalActivos} t1={totalActivosT1} bold separador />
+
+              {/* ── PASIVO ── */}
+              <tr><td colSpan={7} style={{ padding: '5px 8px', fontWeight: 900, fontSize: 10,
+                color: C.red, background: `${C.red}15`, letterSpacing: '0.08em',
+                borderTop: `2px solid ${C.red}60` }}>PASIVO</td></tr>
+
+              {/* Pasivo Corriente */}
+              <tr><td colSpan={7} style={{ padding: '3px 8px 1px 16px', fontSize: 9,
+                fontWeight: 700, color: C.red, background: `${C.red}06` }}>Pasivo Corriente</td></tr>
+              {filas.filter(s => (s.categoria_ifrs || clasificarSeccionEsf(s.codigo)) === 'Pasivo Corriente')
+                .map((c, i) => <FilaEsf key={c.codigo} c={c} piso={piso} i={i} />)}
+              <SubtotalEsf label="Total Pasivo Corriente" total={tPC.neto} t1={tPC.t1} />
+
+              {/* Pasivo No Corriente */}
+              <tr><td colSpan={7} style={{ padding: '3px 8px 1px 16px', fontSize: 9,
+                fontWeight: 700, color: C.red, background: `${C.red}06` }}>Pasivo No Corriente</td></tr>
+              {filas.filter(s => (s.categoria_ifrs || clasificarSeccionEsf(s.codigo)) === 'Pasivo No Corriente')
+                .map((c, i) => <FilaEsf key={c.codigo} c={c} piso={piso} i={i} />)}
+              <SubtotalEsf label="Total Pasivo No Corriente" total={tPNC.neto} t1={tPNC.t1} />
+              <SubtotalEsf label="TOTAL PASIVOS" total={totalPasivos} t1={totalPasivosT1} bold separador />
+
+              {/* ── PATRIMONIO ── */}
+              <tr><td colSpan={7} style={{ padding: '5px 8px', fontWeight: 900, fontSize: 10,
+                color: C.teal, background: `${C.teal}15`, letterSpacing: '0.08em',
+                borderTop: `2px solid ${C.teal}60` }}>PATRIMONIO</td></tr>
+              {filas.filter(s => (s.categoria_ifrs || clasificarSeccionEsf(s.codigo)) === 'Patrimonio')
+                .map((c, i) => <FilaEsf key={c.codigo} c={c} piso={piso} i={i} />)}
+              <SubtotalEsf label="TOTAL PATRIMONIO" total={tPat.neto} t1={tPat.t1} bold separador />
+
+              {/* ── CUADRE ── */}
+              <tr style={{ background: cuadre ? `${C.green}10` : `${C.red}10`,
+                borderTop: `2px solid ${cuadre ? C.green : C.red}60` }}>
+                <td colSpan={3} style={{ padding: '4px 8px', fontWeight: 800, fontSize: 10,
+                  color: cuadre ? C.green : C.red }}>
+                  TOTAL PASIVOS + PATRIMONIO
+                </td>
+                <td style={{ padding: '4px 6px', textAlign: 'right', fontWeight: 800,
+                  color: cuadre ? C.green : C.red }}>{fmtNum(totalPasYPat)}</td>
+                <td colSpan={3} style={{ padding: '4px 6px', textAlign: 'right', fontSize: 9,
+                  color: cuadre ? C.green : C.red }}>
+                  {cuadre ? '✓ Cuadra con Total Activos' : `⚠ Diferencia: ${fmtNum(totalActivos - totalPasYPat)}`}
+                </td>
+              </tr>
+            </tbody>
+          </table>
         </div>
       )}
     </div>
@@ -203,23 +316,13 @@ function TablaEsf({ saldos, piso }) {
 // ── Sección ER ───────────────────────────────────────────────────────────────
 
 function TablaEr({ movimientos, mes, piso, justif = [], informeId, canEdit, usuarioActual }) {
-  const [expandido,  setExpandido]  = useState(true);
-  const [vistaEr,    setVistaEr]    = useState('mes');
-  const [filtroMat,  setFiltroMat]  = useState(false);
+  const [expandido,   setExpandido]   = useState(true);
+  const [vistaEr,     setVistaEr]     = useState('temporada');
+  const [filtroMat,   setFiltroMat]   = useState(false);
   const [justAbierto, setJustAbierto] = useState({});
   const [justTexts,   setJustTexts]   = useState({});
   const [justGuard,   setJustGuard]   = useState({});
 
-  const GRUPOS_ER = [
-    { key: 'Ingreso Operacional',    label: 'Ingresos Operacionales',  signo: 1 },
-    { key: 'Costo Operacional',      label: 'Costos',                  signo: -1 },
-    { key: 'Gasto Operacional',      label: 'Gastos Operacionales',    signo: -1 },
-    { key: 'Ingreso No Operacional', label: 'Ingresos No Oper.',       signo: 1 },
-    { key: 'Gasto No Operacional',   label: 'Gastos No Oper.',         signo: -1 },
-    { key: 'Impuesto',               label: 'Impuesto a la Renta',     signo: -1 },
-  ];
-
-  // Mapa código → justificación existente
   const justMap = useMemo(() => {
     const m = {};
     justif.forEach(j => { m[j.codigo] = j; });
@@ -234,51 +337,222 @@ function TablaEr({ movimientos, mes, piso, justif = [], informeId, canEdit, usua
 
   async function guardarJust(codigo) {
     if (!informeId) return;
-    const texto = justTexts[codigo] || '';
     setJustGuard(g => ({ ...g, [codigo]: true }));
     try {
-      await guardarJustificacion(informeId, codigo, 'er', texto, usuarioActual?.nombre);
+      await guardarJustificacion(informeId, codigo, 'er', justTexts[codigo] || '', usuarioActual?.nombre);
     } catch (e) { console.error('guardarJust:', e); }
     finally { setJustGuard(g => ({ ...g, [codigo]: false })); }
   }
 
-  function toggleJust(codigo) {
-    setJustAbierto(a => ({ ...a, [codigo]: !a[codigo] }));
-  }
+  const rf  = vistaEr === 'mes' ? 'real_mes'       : vistaEr === 'ytd' ? 'real_ytd'       : 'real_temporada';
+  const pf  = vistaEr === 'mes' ? 'ppto_mes'       : vistaEr === 'ytd' ? 'ppto_ytd'       : 'ppto_temporada';
+  const t1f = vistaEr === 'mes' ? 'real_t1_mes'    : vistaEr === 'ytd' ? 'real_t1_ytd'    : 'real_t1_temporada';
 
-  function realField() {
-    return vistaEr === 'mes' ? 'real_mes' : vistaEr === 'ytd' ? 'real_ytd' : 'real_temporada';
-  }
-  function pptoField() {
-    return vistaEr === 'mes' ? 'ppto_mes' : vistaEr === 'ytd' ? 'ppto_ytd' : 'ppto_temporada';
-  }
+  const byGrupo = useMemo(() => {
+    const keys = ['Ingreso Operacional','Costo Operacional','Gasto Operacional',
+                  'Ingreso No Operacional','Gasto No Operacional','Impuesto'];
+    const r = {}; keys.forEach(k => { r[k] = []; });
+    movimientos.forEach(m => {
+      const g = m.grupo_er || clasificarGrupoEr(m.codigo);
+      if (r[g]) r[g].push(m);
+    });
+    return r;
+  }, [movimientos]);
 
-  function varPctEr(real, ppto) {
+  const sumR  = list => list.reduce((a, c) => a + (c[rf]  || 0), 0);
+  const sumP  = list => list.reduce((a, c) => a + (c[pf]  || 0), 0);
+  const sumT1 = list => list.reduce((a, c) => a + (c[t1f] || 0), 0);
+
+  const sIngOp   = sumR(byGrupo['Ingreso Operacional']);
+  const sCostOp  = sumR(byGrupo['Costo Operacional']);
+  const sGasOp   = sumR(byGrupo['Gasto Operacional']);
+  const sIngNoOp = sumR(byGrupo['Ingreso No Operacional']);
+  const sGasNoOp = sumR(byGrupo['Gasto No Operacional']);
+  const sImp     = sumR(byGrupo['Impuesto']);
+
+  const pIngOp   = sumP(byGrupo['Ingreso Operacional']);
+  const pCostOp  = sumP(byGrupo['Costo Operacional']);
+  const pGasOp   = sumP(byGrupo['Gasto Operacional']);
+  const pIngNoOp = sumP(byGrupo['Ingreso No Operacional']);
+  const pGasNoOp = sumP(byGrupo['Gasto No Operacional']);
+  const pImp     = sumP(byGrupo['Impuesto']);
+
+  const t1IngOp   = sumT1(byGrupo['Ingreso Operacional']);
+  const t1CostOp  = sumT1(byGrupo['Costo Operacional']);
+  const t1GasOp   = sumT1(byGrupo['Gasto Operacional']);
+  const t1IngNoOp = sumT1(byGrupo['Ingreso No Operacional']);
+  const t1GasNoOp = sumT1(byGrupo['Gasto No Operacional']);
+  const t1Imp     = sumT1(byGrupo['Impuesto']);
+
+  const margenBruto = sIngOp + sCostOp;
+  const ebitda      = margenBruto + sGasOp;
+  const rai         = ebitda + sIngNoOp + sGasNoOp;
+  const resultado   = rai + sImp;
+
+  const pMargen    = pIngOp + pCostOp;
+  const pEbitda    = pMargen + pGasOp;
+  const pRai       = pEbitda + pIngNoOp + pGasNoOp;
+  const pResultado = pRai + pImp;
+
+  const t1Margen    = t1IngOp + t1CostOp;
+  const t1Ebitda    = t1Margen + t1GasOp;
+  const t1Rai       = t1Ebitda + t1IngNoOp + t1GasNoOp;
+  const t1Resultado = t1Rai + t1Imp;
+
+  function calcVp(real, ppto) {
     if (ppto == null || ppto === 0) return null;
     return ((real - ppto) / Math.abs(ppto)) * 100;
   }
+  function colVp(vp)  {
+    if (vp == null || Math.abs(vp) < piso) return C.text;
+    return vp > 0 ? C.green : C.red;
+  }
+  function colVa(va) {
+    if (va == null) return C.muted;
+    return va > 0 ? C.green : va < 0 ? C.red : C.text;
+  }
 
-  const filas = useMemo(() => {
-    const rf = realField();
-    if (!filtroMat) return movimientos;
-    return movimientos.filter(m => {
-      const vp = varPctEr(m[rf] || 0, m[pptoField()]);
-      return vp != null && Math.abs(vp) >= piso;
+  const filteredByGrupo = useMemo(() => {
+    if (!filtroMat) return byGrupo;
+    const r = {};
+    Object.keys(byGrupo).forEach(k => {
+      r[k] = byGrupo[k].filter(m => {
+        const vp = calcVp(m[rf] || 0, m[pf]);
+        return vp != null && Math.abs(vp) >= piso;
+      });
     });
-  }, [movimientos, filtroMat, vistaEr, piso]);
+    return r;
+  }, [byGrupo, filtroMat, rf, pf, piso]);
+
+  // Renders a group (parent total row + indented sub-accounts)
+  function renderGrupo(grupoKey, titulo) {
+    const all    = byGrupo[grupoKey];
+    const filas  = filteredByGrupo[grupoKey];
+    if (!all.length) return null;
+    const rTot = sumR(all), pTot = sumP(all), t1Tot = sumT1(all);
+    const va = pTot !== 0 ? rTot - pTot : null;
+    const vp = calcVp(rTot, pTot !== 0 ? pTot : null);
+    const hasT1 = t1Tot !== 0;
+    return (
+      <React.Fragment key={grupoKey}>
+        <tr style={{ background: `${C.blue}06`, borderTop: `1px solid ${C.border}40` }}>
+          <td />
+          <td />
+          <td style={{ padding: '3px 6px', fontWeight: 700, fontSize: 10 }}>{titulo}</td>
+          <td style={{ padding: '3px 6px', textAlign: 'right', fontWeight: 700 }}>{fmtNum(rTot)}</td>
+          <td style={{ padding: '3px 6px', textAlign: 'right', color: C.muted }}>{pTot !== 0 ? fmtNum(pTot) : '—'}</td>
+          <td style={{ padding: '3px 6px', textAlign: 'right', color: colVa(va) }}>{va != null ? fmtNum(va) : '—'}</td>
+          <td style={{ padding: '3px 6px', textAlign: 'right', color: colVp(vp) }}>{fmtPct(vp)}</td>
+          <td style={{ padding: '3px 6px', textAlign: 'right', color: C.muted }}>{hasT1 ? fmtNum(t1Tot) : '—'}</td>
+          <td />
+        </tr>
+        {filas.map((c, i) => {
+          const real = c[rf] || 0;
+          const ppto = c[pf];
+          const t1v  = c[t1f];
+          const va2  = ppto != null ? real - ppto : null;
+          const vp2  = calcVp(real, ppto);
+          const tieneJust = !!(justMap[c.codigo]?.texto || justMap[c.codigo]?.texto_original || justTexts[c.codigo]);
+          const abierto = !!justAbierto[c.codigo];
+          return (
+            <React.Fragment key={c.codigo}>
+              <tr style={{ background: i % 2 ? C.bg : `${C.card}30` }}>
+                <td style={{ textAlign: 'center', paddingLeft: 4, width: 14 }}>
+                  <Semaforo varPct={vp2} piso={piso} />
+                </td>
+                <td style={{ padding: '2px 6px', color: C.muted, fontFamily: 'monospace', fontSize: 9 }}>{c.codigo}</td>
+                <td style={{ padding: '2px 6px 2px 18px', fontSize: 10, color: `${C.text}cc` }}>{c.nombre || c.nombre_origen}</td>
+                <td style={{ padding: '2px 6px', textAlign: 'right', fontSize: 10 }}>{fmtNum(real)}</td>
+                <td style={{ padding: '2px 6px', textAlign: 'right', color: C.muted, fontSize: 10 }}>{ppto != null ? fmtNum(ppto) : '—'}</td>
+                <td style={{ padding: '2px 6px', textAlign: 'right', fontSize: 10, color: colVa(va2) }}>{va2 != null ? fmtNum(va2) : '—'}</td>
+                <td style={{ padding: '2px 6px', textAlign: 'right', fontSize: 10, color: colVp(vp2) }}>{fmtPct(vp2)}</td>
+                <td style={{ padding: '2px 6px', textAlign: 'right', color: C.muted, fontSize: 10 }}>{t1v != null ? fmtNum(t1v) : '—'}</td>
+                <td style={{ textAlign: 'center', width: 22 }}>
+                  <button onClick={() => setJustAbierto(a => ({ ...a, [c.codigo]: !a[c.codigo] }))}
+                    title={tieneJust ? 'Ver/editar justificación' : 'Agregar justificación'}
+                    style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 11, padding: '1px 3px',
+                      color: tieneJust ? C.blue : abierto ? C.muted : `${C.muted}55` }}>
+                    {tieneJust ? '✎' : '+'}
+                  </button>
+                </td>
+              </tr>
+              {abierto && (
+                <tr style={{ background: i % 2 ? C.bg : `${C.card}30` }}>
+                  <td colSpan={9} style={{ padding: '2px 10px 6px 32px' }}>
+                    <textarea value={justTexts[c.codigo] || ''}
+                      onChange={e => setJustTexts(t => ({ ...t, [c.codigo]: e.target.value }))}
+                      onBlur={() => guardarJust(c.codigo)}
+                      disabled={!canEdit || justGuard[c.codigo]} rows={2}
+                      placeholder="Justificación para esta cuenta..."
+                      style={{ width: '100%', boxSizing: 'border-box', background: C.bg, color: C.text,
+                        border: `1px solid ${C.border}`, borderRadius: 4,
+                        padding: '4px 6px', fontSize: 10, resize: 'vertical', fontFamily: 'inherit' }} />
+                    {justGuard[c.codigo] && <span style={{ fontSize: 9, color: C.muted }}>Guardando...</span>}
+                  </td>
+                </tr>
+              )}
+            </React.Fragment>
+          );
+        })}
+      </React.Fragment>
+    );
+  }
+
+  function renderSubtotal(label, real, ppto, t1, bold, separador) {
+    const va = ppto !== 0 ? real - ppto : null;
+    const vp = calcVp(real, ppto !== 0 ? ppto : null);
+    const hasT1 = t1 !== 0;
+    return (
+      <tr style={{
+        background: bold ? `${C.blue}12` : `${C.card}60`,
+        borderTop: separador ? `2px solid ${C.blue}50` : `1px solid ${C.border}30`,
+      }}>
+        <td colSpan={2} />
+        <td style={{ padding: '4px 6px', fontWeight: bold ? 800 : 600, fontSize: 10,
+          color: bold ? C.blue : C.text, fontStyle: bold ? 'normal' : 'italic' }}>
+          {label}
+        </td>
+        <td style={{ padding: '4px 6px', textAlign: 'right', fontWeight: bold ? 800 : 600,
+          color: bold ? (real >= 0 ? C.blue : C.red) : (real >= 0 ? C.green : C.red) }}>
+          {fmtNum(real)}
+        </td>
+        <td style={{ padding: '4px 6px', textAlign: 'right', color: C.muted }}>
+          {ppto !== 0 ? fmtNum(ppto) : '—'}
+        </td>
+        <td style={{ padding: '4px 6px', textAlign: 'right', color: colVa(va) }}>
+          {va != null ? fmtNum(va) : '—'}
+        </td>
+        <td style={{ padding: '4px 6px', textAlign: 'right', color: colVp(vp) }}>
+          {fmtPct(vp)}
+        </td>
+        <td style={{ padding: '4px 6px', textAlign: 'right', color: C.muted }}>
+          {hasT1 ? fmtNum(t1) : '—'}
+        </td>
+        <td />
+      </tr>
+    );
+  }
+
+  const THD = ({ children, right }) => (
+    <th style={{ padding: '3px 6px', textAlign: right ? 'right' : 'left',
+      color: C.muted, fontSize: 9, fontWeight: 600, background: C.card,
+      borderBottom: `1px solid ${C.border}` }}>{children}</th>
+  );
+
+  const hasNoOp = byGrupo['Ingreso No Operacional'].length > 0 || byGrupo['Gasto No Operacional'].length > 0;
+  const hasImp  = byGrupo['Impuesto'].length > 0;
 
   return (
-    <div style={{ marginBottom: 20 }}>
+    <div style={{ marginBottom: 24 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 8, flexWrap: 'wrap' }}>
         <button onClick={() => setExpandido(e => !e)}
-          style={{ fontWeight: 800, fontSize: 12, color: C.blue, background: 'none',
-            border: 'none', cursor: 'pointer' }}>
+          style={{ fontWeight: 800, fontSize: 12, color: C.blue, background: 'none', border: 'none', cursor: 'pointer' }}>
           {expandido ? '▼' : '►'} Estado de Resultados
         </button>
         {expandido && (
           <>
             <div style={{ display: 'flex', borderRadius: 6, overflow: 'hidden', border: `1px solid ${C.border}` }}>
-              {[['mes', 'Mes'], ['ytd', 'YTD'], ['temporada', 'Temporada']].map(([v, l]) => (
+              {[['temporada','Temporada'],['ytd','YTD'],['mes','Mes']].map(([v, l]) => (
                 <button key={v} onClick={() => setVistaEr(v)}
                   style={{ padding: '3px 10px', fontSize: 10, cursor: 'pointer',
                     background: vistaEr === v ? C.blue : C.card,
@@ -298,98 +572,31 @@ function TablaEr({ movimientos, mes, piso, justif = [], informeId, canEdit, usua
 
       {expandido && (
         <div style={{ overflowX: 'auto' }}>
-          {GRUPOS_ER.map(grupo => {
-            const cuentas = filas.filter(m => (m.grupo_er || clasificarGrupoEr(m.codigo)) === grupo.key);
-            if (!cuentas.length) return null;
-            const rf = realField();
-            const pf = pptoField();
-            const totalReal = cuentas.reduce((a, c) => a + (c[rf] || 0), 0);
-            const totalPpto = cuentas.reduce((a, c) => a + (c[pf] || 0), 0);
-            return (
-              <div key={grupo.key} style={{ marginBottom: 12 }}>
-                <div style={{ fontSize: 10, fontWeight: 800, color: C.blue,
-                  background: `${C.blue}15`, padding: '3px 8px', borderRadius: 4, marginBottom: 2 }}>
-                  {grupo.label} — Real: {fmtNum(totalReal)} · Ppto: {fmtNum(totalPpto)}
-                </div>
-                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 10 }}>
-                  <thead>
-                    <tr style={{ background: C.card }}>
-                      <th style={{ width: 8 }}></th>
-                      <th style={{ padding: '3px 6px', textAlign: 'left', color: C.muted }}>Código</th>
-                      <th style={{ padding: '3px 6px', textAlign: 'left', color: C.muted }}>Nombre</th>
-                      <th style={{ padding: '3px 6px', textAlign: 'right', color: C.muted }}>Real</th>
-                      <th style={{ padding: '3px 6px', textAlign: 'right', color: C.muted }}>Ppto</th>
-                      <th style={{ padding: '3px 6px', textAlign: 'right', color: C.muted }}>Var $</th>
-                      <th style={{ padding: '3px 6px', textAlign: 'right', color: C.muted }}>Var %</th>
-                      <th style={{ width: 24 }}></th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {cuentas.map((c, i) => {
-                      const real = c[rf] || 0;
-                      const ppto = c[pf];
-                      const varAbs = ppto != null ? real - ppto : null;
-                      const vp = varPctEr(real, ppto);
-                      const tieneJust = !!(justMap[c.codigo]?.texto || justMap[c.codigo]?.texto_original || justTexts[c.codigo]);
-                      const abierto = !!justAbierto[c.codigo];
-                      return (
-                        <React.Fragment key={c.codigo}>
-                          <tr style={{ background: i % 2 ? C.bg : `${C.card}80` }}>
-                            <td style={{ textAlign: 'center', paddingLeft: 4 }}>
-                              <Semaforo varPct={vp} piso={piso} />
-                            </td>
-                            <td style={{ padding: '2px 6px', color: C.muted, fontFamily: 'monospace' }}>{c.codigo}</td>
-                            <td style={{ padding: '2px 6px' }}>{c.nombre || c.nombre_origen}</td>
-                            <td style={{ padding: '2px 6px', textAlign: 'right' }}>{fmtNum(real)}</td>
-                            <td style={{ padding: '2px 6px', textAlign: 'right', color: C.muted }}>{fmtNum(ppto)}</td>
-                            <td style={{ padding: '2px 6px', textAlign: 'right',
-                              color: varAbs == null ? C.muted : varAbs >= 0 ? C.green : C.red }}>
-                              {fmtNum(varAbs)}
-                            </td>
-                            <td style={{ padding: '2px 6px', textAlign: 'right',
-                              color: vp != null && Math.abs(vp) >= piso ? C.red : C.text }}>
-                              {fmtPct(vp)}
-                            </td>
-                            <td style={{ textAlign: 'center' }}>
-                              <button onClick={() => toggleJust(c.codigo)}
-                                title={tieneJust ? 'Ver/editar justificación' : 'Agregar justificación'}
-                                style={{ background: 'none', border: 'none', cursor: 'pointer',
-                                  fontSize: 11, padding: '1px 3px',
-                                  color: tieneJust ? C.blue : abierto ? C.muted : `${C.muted}66` }}>
-                                {tieneJust ? '✎' : '+'}
-                              </button>
-                            </td>
-                          </tr>
-                          {abierto && (
-                            <tr style={{ background: i % 2 ? C.bg : `${C.card}80` }}>
-                              <td colSpan={8} style={{ padding: '2px 10px 6px 32px' }}>
-                                <textarea
-                                  value={justTexts[c.codigo] || ''}
-                                  onChange={e => setJustTexts(t => ({ ...t, [c.codigo]: e.target.value }))}
-                                  onBlur={() => guardarJust(c.codigo)}
-                                  disabled={!canEdit || justGuard[c.codigo]}
-                                  rows={2}
-                                  placeholder="Justificación para esta cuenta..."
-                                  style={{ width: '100%', boxSizing: 'border-box',
-                                    background: C.bg, color: C.text,
-                                    border: `1px solid ${C.border}`, borderRadius: 4,
-                                    padding: '4px 6px', fontSize: 10, resize: 'vertical',
-                                    fontFamily: 'inherit' }}
-                                />
-                                {justGuard[c.codigo] && (
-                                  <span style={{ fontSize: 9, color: C.muted }}>Guardando...</span>
-                                )}
-                              </td>
-                            </tr>
-                          )}
-                        </React.Fragment>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            );
-          })}
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 10 }}>
+            <thead>
+              <tr>
+                <THD> </THD><THD>Código</THD><THD>Concepto</THD>
+                <THD right>Real</THD><THD right>Ppto</THD>
+                <THD right>Var $</THD><THD right>Var %</THD>
+                <THD right>Año ant.</THD>
+                <THD> </THD>
+              </tr>
+            </thead>
+            <tbody>
+              {renderGrupo('Ingreso Operacional', 'Ingresos por ventas')}
+              {byGrupo['Costo Operacional'].length > 0 && renderGrupo('Costo Operacional', 'Costos por venta')}
+              {renderSubtotal('Margen operacional', margenBruto, pMargen, t1Margen, false, false)}
+              {renderGrupo('Gasto Operacional', 'Gastos de administración y ventas')}
+              {renderSubtotal('Resultado Operacional (EBITDA)', ebitda, pEbitda, t1Ebitda, true, true)}
+              {hasNoOp && <>
+                {byGrupo['Ingreso No Operacional'].length > 0 && renderGrupo('Ingreso No Operacional', 'Ingresos no operacionales')}
+                {byGrupo['Gasto No Operacional'].length > 0 && renderGrupo('Gasto No Operacional', 'Egresos no operacionales')}
+                {renderSubtotal('Resultado antes de impuesto', rai, pRai, t1Rai, false, false)}
+              </>}
+              {hasImp && renderGrupo('Impuesto', 'Impuesto a la renta')}
+              {renderSubtotal('Resultado del ejercicio', resultado, pResultado, t1Resultado, true, true)}
+            </tbody>
+          </table>
         </div>
       )}
     </div>
@@ -976,15 +1183,15 @@ function VistaComparativoMeses({ filiales, informes, filialIdDefault, anioDefaul
 
 // ── Componente principal ──────────────────────────────────────────────────────
 
-export default function AnfTab({ canEdit, usuarioActual }) {
+export default function AnfTab({ canEdit, usuarioActual, empresaDefault, mesDefault, anioDefault }) {
   const esCFO = usuarioActual?.rol === 'admin' || usuarioActual?.esCFO;
 
   // ── Estado principal ────────────────────────────────────────────────────────
   const [filiales,    setFiliales]    = useState([]);
   const [informes,    setInformes]    = useState([]);
   const [filialId,    setFilialId]    = useState('');
-  const [anio,        setAnio]        = useState(new Date().getFullYear());
-  const [mes,         setMes]         = useState(new Date().getMonth() + 1);
+  const [anio,        setAnio]        = useState(anioDefault || new Date().getFullYear());
+  const [mes,         setMes]         = useState(mesDefault  || new Date().getMonth() + 1);
   const [vistaANF,    setVistaANF]    = useState('resumen'); // 'resumen' | 'revisar'
 
   // Estado del informe cargado
@@ -1014,7 +1221,9 @@ export default function AnfTab({ canEdit, usuarioActual }) {
       try {
         const f = await cargarFiliales();
         setFiliales(f);
-        if (f.length) setFilialId(f[0].id);
+        // Pre-seleccionar empresa del módulo padre, o la primera disponible
+        const match = empresaDefault && f.find(x => x.nombre === empresaDefault || x.codigo === empresaDefault);
+        setFilialId(match ? match.id : (f[0]?.id || ''));
         const inf = await cargarInformes();
         setInformes(inf);
       } catch (e) {
@@ -1022,6 +1231,17 @@ export default function AnfTab({ canEdit, usuarioActual }) {
       }
     })();
   }, []);
+
+  // Sincronizar empresa cuando el módulo padre cambia
+  useEffect(() => {
+    if (!empresaDefault || !filiales.length) return;
+    const match = filiales.find(x => x.nombre === empresaDefault || x.codigo === empresaDefault);
+    if (match && match.id !== filialId) setFilialId(match.id);
+  }, [empresaDefault, filiales]);
+
+  // Sincronizar mes/año cuando el módulo padre cambia
+  useEffect(() => { if (mesDefault)  setMes(mesDefault);  }, [mesDefault]);
+  useEffect(() => { if (anioDefault) setAnio(anioDefault); }, [anioDefault]);
 
   // Recargar métricas al cambiar empresa
   useEffect(() => {
@@ -1045,10 +1265,17 @@ export default function AnfTab({ canEdit, usuarioActual }) {
         setEsf(data.esf);
         setEr(data.er);
         setJustif(data.justif);
-        setKpisDer(data.kpisDer);
         setKpisOp(data.kpisOp);
         setTipoCierre(data.informe.tipo_cierre || '');
         setTipoProm(data.informe.tipo_promedio || '');
+        // Auto-reparar KPIs si hay ESF/ER pero no hay KPIs guardados
+        if (!data.kpisDer.length && data.esf.length && data.er.length) {
+          const kpis = calcularKpisDerivaos(data.esf, data.er);
+          await guardarKpisDerivaos(data.informe.id, kpis);
+          setKpisDer(kpis);
+        } else {
+          setKpisDer(data.kpisDer);
+        }
       }
       const filial = filiales.find(f => f.id === filialId);
       if (filial) {
@@ -1204,158 +1431,307 @@ export default function AnfTab({ canEdit, usuarioActual }) {
     const nombre  = filial?.nombre || 'Empresa';
     const periodo = `${NOMBRES_MES[mes]} ${anio}`;
     const moneda  = filial?.moneda || 'USD';
+    const pisoM   = filial?.piso_materialidad || 10;
 
-    const fmtN = (v, dec = 0) => v == null || isNaN(v) ? '—'
-      : v.toLocaleString('es-CL', { minimumFractionDigits: dec, maximumFractionDigits: dec });
-    const fmtP = (v) => v == null || isNaN(v) ? '—' : (v >= 0 ? '+' : '') + v.toFixed(1) + '%';
-
-    // ── Helpers HTML ─────────────────────────────────────────────────────────
-    const th = (t, align = 'left', extra = '') =>
-      `<th style="padding:3px 6px;text-align:${align};background:#f0f4f8;border-bottom:1px solid #ddd;font-size:9px;color:#555;${extra}">${t}</th>`;
-    const td = (t, align = 'left', color = '', extra = '') =>
-      `<td style="padding:2px 6px;text-align:${align};${color ? `color:${color};` : ''}font-size:9px;${extra}">${t ?? '—'}</td>`;
-
-    // ── Sección ESF ──────────────────────────────────────────────────────────
-    const SECCIONES_ESF = ['Activo Corriente','Activo No Corriente','Pasivo Corriente','Pasivo No Corriente','Patrimonio'];
-    const esfHTML = SECCIONES_ESF.map(sec => {
-      const cuentas = esf.filter(c => (c.categoria_ifrs || clasificarSeccionEsf(c.codigo)) === sec);
-      if (!cuentas.length) return '';
-      const total = cuentas.reduce((a, c) => a + (c.saldo_neto || 0), 0);
-      const rows = cuentas.map((c, i) => {
-        const vColor = c.var_pct != null && Math.abs(c.var_pct) >= (filial?.piso_materialidad || 10)
-          ? (c.var_pct > 0 ? '#1a7a4a' : '#b22222') : '#333';
-        return `<tr style="background:${i%2?'#f9f9f9':'#fff'}">
-          ${td(c.codigo,'left','#888','font-family:monospace')}
-          ${td(c.nombre || c.nombre_origen)}
-          ${td(fmtN(c.saldo_neto),'right')}
-          ${td(fmtN(c.saldo_neto_t1),'right','#888')}
-          ${td(fmtN(c.var_abs),'right', c.var_abs > 0 ? '#1a7a4a' : c.var_abs < 0 ? '#b22222' : '')}
-          ${td(fmtP(c.var_pct),'right', vColor)}
-        </tr>`;
-      }).join('');
-      return `
-        <div style="margin-bottom:12px">
-          <div style="font-size:9px;font-weight:800;color:#1a5fa8;background:#e8f0fc;padding:3px 8px;border-radius:3px;margin-bottom:2px">
-            ${sec} — Total: ${fmtN(total)} ${moneda}
-          </div>
-          <table style="width:100%;border-collapse:collapse">
-            <thead><tr>${th('Código')}${th('Nombre')}${th('Saldo actual','right')}${th('Año anterior','right')}${th('Var $','right')}${th('Var %','right')}</tr></thead>
-            <tbody>${rows}</tbody>
-          </table>
-        </div>`;
-    }).join('');
-
-    // ── Sección ER ───────────────────────────────────────────────────────────
-    const GRUPOS_ER = [
-      { key:'Ingreso Operacional',    color:'#1a5fa8' },
-      { key:'Costo Operacional',      color:'#b22222' },
-      { key:'Gasto Operacional',      color:'#b22222' },
-      { key:'Ingreso No Operacional', color:'#1a7a4a' },
-      { key:'Gasto No Operacional',   color:'#b22222' },
-      { key:'Impuesto',               color:'#888' },
-    ];
-    const vistaErCampo = { real: 'real_mes', ppto: 'ppto_mes', temporada: 'real_temporada' };
-    const erHTML = GRUPOS_ER.map(g => {
-      const cuentas = er.filter(c => (c.grupo_er || clasificarGrupoEr(c.codigo)) === g.key);
-      if (!cuentas.length) return '';
-      const totalReal = cuentas.reduce((a, c) => a + (c.real_temporada || 0), 0);
-      const totalPpto = cuentas.reduce((a, c) => a + (c.ppto_temporada || 0), 0);
-      const rows = cuentas.map((c, i) => {
-        const real = c.real_temporada, ppto = c.ppto_temporada;
-        const vp = ppto && ppto !== 0 ? ((real - ppto) / Math.abs(ppto)) * 100 : null;
-        const vColor = vp != null && Math.abs(vp) >= (filial?.piso_materialidad || 10)
-          ? (vp > 0 ? '#1a7a4a' : '#b22222') : '#333';
-        return `<tr style="background:${i%2?'#f9f9f9':'#fff'}">
-          ${td(c.codigo,'left','#888','font-family:monospace')}
-          ${td(c.nombre || c.nombre_origen)}
-          ${td(fmtN(real),'right')}
-          ${td(fmtN(ppto),'right','#888')}
-          ${td(fmtN(real - (ppto||0)),'right', (real-(ppto||0)) > 0 ? '#1a7a4a' : '#b22222')}
-          ${td(fmtP(vp),'right', vColor)}
-        </tr>`;
-      }).join('');
-      return `
-        <div style="margin-bottom:12px">
-          <div style="font-size:9px;font-weight:800;color:${g.color};background:${g.color}18;padding:3px 8px;border-radius:3px;margin-bottom:2px">
-            ${g.key} — Real: ${fmtN(totalReal)} · Ppto: ${fmtN(totalPpto)} ${moneda}
-          </div>
-          <table style="width:100%;border-collapse:collapse">
-            <thead><tr>${th('Código')}${th('Nombre')}${th('Real Temp.','right')}${th('Ppto Temp.','right')}${th('Var $','right')}${th('Var %','right')}</tr></thead>
-            <tbody>${rows}</tbody>
-          </table>
-        </div>`;
-    }).join('');
-
-    // ── KPIs ─────────────────────────────────────────────────────────────────
-    const kpiTile = (k) => {
-      if (!k) return '';
-      const esPct = k.unidad === '%', esRatio = k.unidad === 'x';
-      const dec = esPct ? 1 : esRatio ? 3 : 0;
-      const val = k.valor != null ? fmtN(k.valor, dec) + (esPct ? '%' : esRatio ? 'x' : '') : '—';
-      return `<div style="border:1px solid #ddd;border-radius:5px;padding:6px 10px;min-width:110px;background:#fff">
-        <div style="font-size:7px;color:#888;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:2px">${KPI_LABELS[k.clave] || k.clave}</div>
-        <div style="font-size:14px;font-weight:900;color:#222">${val}</div>
-      </div>`;
+    const fmtN = (v, dec = 0) => {
+      if (v == null || isNaN(v)) return '—';
+      if (Math.abs(v) < 1e-6) return '0';
+      return v.toLocaleString('es-CL', { minimumFractionDigits: dec, maximumFractionDigits: dec });
     };
-    const mapaKpis = Object.fromEntries(kpisDer.map(k => [k.clave, k]));
-    const kpisHTML = KPI_GRUPOS.map(grupo => {
-      const tiles = grupo.claves.map(c => kpiTile(mapaKpis[c])).filter(Boolean).join('');
-      if (!tiles) return '';
-      const colores = { rentabilidad:'#1a7a4a', liquidez:'#1a5fa8', endeudamiento:'#b22222', balance:'#2a7a8a', resultados:'#c07800' };
-      const color = colores[grupo.key] || '#333';
-      return `<div style="margin-bottom:10px">
-        <div style="font-size:8px;font-weight:800;color:${color};border-left:3px solid ${color};padding-left:6px;text-transform:uppercase;letter-spacing:0.06em;margin-bottom:6px">${grupo.label}</div>
-        <div style="display:flex;flex-wrap:wrap;gap:6px">${tiles}</div>
-      </div>`;
-    }).join('');
+    const fmtPct = (v) => {
+      if (v == null || isNaN(v)) return '—';
+      const sign = v >= 0 ? '+' : '';
+      return `${sign}${v.toFixed(0)}%`;
+    };
+    const colPos  = '#1a7a4a', colNeg = '#b22222', colMut = '#888', colBlue = '#1a5fa8';
+    const th = (t, align='left', w='') =>
+      `<th style="padding:3px 8px;text-align:${align};background:#f0f4f8;border-bottom:1.5px solid #ddd;font-size:8px;color:#555;${w?`width:${w};`:''}">${t}</th>`;
+    const td = (t, align='left', col='', bold=false) =>
+      `<td style="padding:2px 8px;text-align:${align};font-size:9px;${col?`color:${col};`:''}${bold?'font-weight:700;':''}">${t??'—'}</td>`;
 
-    // ── Narrativas ───────────────────────────────────────────────────────────
-    const narrHTML = justif.length ? justif.map(j =>
-      `<div style="margin-bottom:6px;padding:5px 8px;background:#f5f5f5;border-radius:3px;border-left:3px solid #ccc">
-        <span style="font-size:8px;font-weight:700;color:#555">${j.codigo}</span>
-        <p style="margin:2px 0 0;font-size:8px;color:#333">${j.texto || j.texto_original || ''}</p>
-      </div>`
-    ).join('') : '<p style="font-size:9px;color:#888">Sin narrativas cargadas.</p>';
+    // ── 1. ESTADO DE RESULTADOS (temporada) ───────────────────────────────────
+    const erByGrupo = {};
+    const ER_KEYS = ['Ingreso Operacional','Costo Operacional','Gasto Operacional',
+                     'Ingreso No Operacional','Gasto No Operacional','Impuesto'];
+    ER_KEYS.forEach(k => { erByGrupo[k] = []; });
+    er.forEach(m => {
+      const g = m.grupo_er || clasificarGrupoEr(m.codigo);
+      if (erByGrupo[g]) erByGrupo[g].push(m);
+    });
+
+    const sR  = key => erByGrupo[key].reduce((a, c) => a + (c.real_temporada  || 0), 0);
+    const sP  = key => erByGrupo[key].reduce((a, c) => a + (c.ppto_temporada  || 0), 0);
+    const sT1 = key => erByGrupo[key].reduce((a, c) => a + (c.real_t1_temporada || 0), 0);
+
+    const rIngOp = sR('Ingreso Operacional'),   pIngOp = sP('Ingreso Operacional'),   t1IngOp = sT1('Ingreso Operacional');
+    const rCost  = sR('Costo Operacional'),      pCost  = sP('Costo Operacional'),      t1Cost  = sT1('Costo Operacional');
+    const rGas   = sR('Gasto Operacional'),      pGas   = sP('Gasto Operacional'),      t1Gas   = sT1('Gasto Operacional');
+    const rIngNo = sR('Ingreso No Operacional'), pIngNo = sP('Ingreso No Operacional'), t1IngNo = sT1('Ingreso No Operacional');
+    const rGasNo = sR('Gasto No Operacional'),   pGasNo = sP('Gasto No Operacional'),   t1GasNo = sT1('Gasto No Operacional');
+    const rImp   = sR('Impuesto'),               pImp   = sP('Impuesto'),               t1Imp   = sT1('Impuesto');
+
+    const rMargen = rIngOp + rCost,    pMargen = pIngOp + pCost,    t1Margen = t1IngOp + t1Cost;
+    const rEbitda = rMargen + rGas,    pEbitda = pMargen + pGas,    t1Ebitda = t1Margen + t1Gas;
+    const rRai    = rEbitda + rIngNo + rGasNo, pRai = pEbitda + pIngNo + pGasNo, t1Rai = t1Ebitda + t1IngNo + t1GasNo;
+    const rRes    = rRai + rImp,       pRes   = pRai + pImp,        t1Res   = t1Rai + t1Imp;
+
+    const hasT1Er = t1IngOp !== 0 || t1Cost !== 0 || t1Gas !== 0;
+
+    function erVp(real, ppto) { return ppto && ppto !== 0 ? ((real-ppto)/Math.abs(ppto))*100 : null; }
+    function erVpFmt(real, ppto) {
+      const v = erVp(real, ppto);
+      if (v == null) return { str: 's/p', col: colMut };
+      const col = Math.abs(v) < pisoM ? '#333' : v > 0 ? colPos : colNeg;
+      return { str: fmtPct(v), col };
+    }
+    function erVaFmt(real, ppto) {
+      if (ppto == null) return { str: '—', col: colMut };
+      const v = real - ppto;
+      return { str: fmtN(v), col: v > 0 ? colPos : v < 0 ? colNeg : '#333' };
+    }
+
+    function erGrupoRows(key) {
+      return erByGrupo[key].map((c, i) => {
+        const real = c.real_temporada, ppto = c.ppto_temporada, t1 = c.real_t1_temporada;
+        const va = erVaFmt(real, ppto), vp = erVpFmt(real, ppto);
+        return `<tr style="background:${i%2?'#f9f9f9':'#fff'}">
+          ${td('&nbsp;&nbsp;&nbsp;' + (c.nombre || c.nombre_origen), 'left', '#444')}
+          ${td(fmtN(real), 'right', '', true)}
+          ${td(ppto!=null?fmtN(ppto):'—', 'right', colMut)}
+          ${td(va.str, 'right', va.col)}
+          ${td(vp.str, 'right', vp.col)}
+          ${hasT1Er ? td(t1!=null?fmtN(t1):'n/d', 'right', colMut) : ''}
+        </tr>`;
+      }).join('');
+    }
+
+    function erTotalRow(label, real, ppto, t1, bold, topBorder) {
+      const va = ppto !== 0 ? erVaFmt(real, ppto) : { str: '—', col: colMut };
+      const vp = ppto !== 0 ? erVpFmt(real, ppto) : { str: '—', col: colMut };
+      const col = real >= 0 ? colPos : colNeg;
+      const bg = bold ? '#e8f0fc' : '#f5f8ff';
+      const border = topBorder ? 'border-top:1.5px solid #1a5fa840;' : '';
+      return `<tr style="background:${bg};${border}">
+        ${td(label, 'left', bold ? colBlue : '#444', bold)}
+        ${td(fmtN(real), 'right', bold ? col : '#333', bold)}
+        ${td(ppto!==0?fmtN(ppto):'—', 'right', colMut, bold)}
+        ${td(va.str, 'right', va.col, bold)}
+        ${td(vp.str, 'right', vp.col, bold)}
+        ${hasT1Er ? td(t1!==0?fmtN(t1):'n/d', 'right', colMut) : ''}
+      </tr>`;
+    }
+
+    function erGrupoHeader(label, real, ppto, t1) {
+      const va = erVaFmt(real, ppto), vp = ppto !== 0 ? erVpFmt(real, ppto) : { str: '—', col: colMut };
+      return `<tr style="background:#f0f4f8">
+        ${td(`<strong>${label}</strong>`, 'left', '#222')}
+        ${td(fmtN(real), 'right', '#222', true)}
+        ${td(ppto!==0?fmtN(ppto):'—', 'right', colMut)}
+        ${td(va.str, 'right', va.col)}
+        ${td(vp.str, 'right', vp.col)}
+        ${hasT1Er ? td(t1!==0?fmtN(t1):'n/d', 'right', colMut) : ''}
+      </tr>`;
+    }
+
+    const yearLabel = `${(anio - 1).toString().slice(2)}/${anio.toString().slice(2)}`;
+    const prevLabel = `${(anio - 2).toString().slice(2)}/${(anio - 1).toString().slice(2)}`;
+
+    let erRows = '';
+    erRows += erGrupoHeader('Ingresos por ventas', rIngOp, pIngOp, t1IngOp);
+    erRows += erGrupoRows('Ingreso Operacional');
+    if (erByGrupo['Costo Operacional'].length) {
+      erRows += erGrupoHeader('Costos por venta', rCost, pCost, t1Cost);
+      erRows += erGrupoRows('Costo Operacional');
+    }
+    erRows += erTotalRow('Margen operacional', rMargen, pMargen, t1Margen, false, true);
+    erRows += erGrupoHeader('Gastos de administración y ventas', rGas, pGas, t1Gas);
+    erRows += erGrupoRows('Gasto Operacional');
+    erRows += erTotalRow('Resultado Operacional (EBITDA)', rEbitda, pEbitda, t1Ebitda, true, true);
+    if (erByGrupo['Ingreso No Operacional'].length) {
+      erRows += erGrupoHeader('Ingresos no operacionales', rIngNo, pIngNo, t1IngNo);
+      erRows += erGrupoRows('Ingreso No Operacional');
+    }
+    if (erByGrupo['Gasto No Operacional'].length) {
+      erRows += erGrupoHeader('Egresos no operacionales', rGasNo, pGasNo, t1GasNo);
+      erRows += erGrupoRows('Gasto No Operacional');
+    }
+    if (erByGrupo['Ingreso No Operacional'].length || erByGrupo['Gasto No Operacional'].length) {
+      erRows += erTotalRow('Resultado antes de impuesto', rRai, pRai, t1Rai, false, true);
+    }
+    if (erByGrupo['Impuesto'].length) {
+      erRows += erGrupoHeader('Impuesto a la renta', rImp, pImp, t1Imp);
+      erRows += erGrupoRows('Impuesto');
+    }
+    erRows += erTotalRow('Resultado del ejercicio', rRes, pRes, t1Res, true, true);
+
+    const erHTML = `
+      <h2 style="margin-top:18px">1. Estado de Resultados (Temporada Jul-${anio-1} a Jun-${anio}) — ${moneda}</h2>
+      <table style="width:100%;border-collapse:collapse;font-size:9px">
+        <thead><tr style="background:#eef2f8">
+          ${th('Concepto','left','40%')}
+          ${th(`Real ${yearLabel}`,'right','12%')}
+          ${th(`Ppto ${yearLabel}`,'right','12%')}
+          ${th('Variación','right','11%')}
+          ${th('% Var.','right','8%')}
+          ${hasT1Er ? th(`Real ${prevLabel}`,'right','12%') : ''}
+        </tr></thead>
+        <tbody>${erRows}</tbody>
+      </table>`;
+
+    // ── Narrativas ER ─────────────────────────────────────────────────────────
+    const justER = justif.filter(j => j.tipo_estado === 'er' && (j.texto || j.texto_original));
+    const narrHTML = justER.length
+      ? `<div style="margin-top:10px"><div style="font-size:8px;font-weight:700;color:#555;margin-bottom:4px">Justificación de variaciones del Estado de Resultados</div>
+          ${justER.map(j => `<div style="font-size:8px;margin-bottom:4px;padding-left:10px">
+            <span style="color:#1a5fa8">◆</span>&nbsp;
+            <strong>${j.codigo}</strong>: ${j.texto || j.texto_original || ''}
+          </div>`).join('')}</div>`
+      : '';
+
+    // ── 2. ESTADO DE SITUACIÓN FINANCIERA ─────────────────────────────────────
+    const esfSec = (sec) => esf.filter(c => (c.categoria_ifrs || clasificarSeccionEsf(c.codigo)) === sec);
+    const esfSum = (cuentas) => cuentas.reduce((a, c) => a + (c.saldo_neto || 0), 0);
+    const esfT1Sum = (cuentas) => cuentas.reduce((a, c) => a + (c.saldo_neto_t1 || 0), 0);
+    const hasT1Esf = esf.some(c => c.saldo_neto_t1 != null);
+
+    const AC   = esfSec('Activo Corriente'),    ANC = esfSec('Activo No Corriente');
+    const PC   = esfSec('Pasivo Corriente'),    PNC = esfSec('Pasivo No Corriente');
+    const PAT  = esfSec('Patrimonio');
+    const tAC  = esfSum(AC),  tANC = esfSum(ANC);
+    const tPC  = esfSum(PC),  tPNC = esfSum(PNC);
+    const tPAT = esfSum(PAT);
+    const totalActivos  = tAC + tANC;
+    const totalPasivos  = tPC + tPNC;
+    const totalPasYPat  = totalPasivos + tPAT;
+    const cuadra        = Math.abs(totalActivos - totalPasYPat) < 1;
+
+    function esfCuentaRow(c, i) {
+      const t1 = c.saldo_neto_t1;
+      return `<tr style="background:${i%2?'#f9f9f9':'#fff'}">
+        ${td('&nbsp;&nbsp;&nbsp;' + (c.nombre || c.nombre_origen), 'left', '#444')}
+        ${td(fmtN(c.saldo_neto), 'right', '', true)}
+        ${hasT1Esf ? td(t1!=null?fmtN(t1):'—', 'right', colMut) : ''}
+      </tr>`;
+    }
+    function esfTotalRow(label, total, t1Total, bold, borderColor) {
+      const bg = bold ? `${borderColor}15` : '#f5f5f5';
+      return `<tr style="background:${bg};border-top:${bold?'1.5px':'1px'} solid ${borderColor}50">
+        ${td(bold ? `<strong>${label}</strong>` : label, 'left', bold ? borderColor : '#333', bold)}
+        ${td(fmtN(total), 'right', bold ? borderColor : '#333', bold)}
+        ${hasT1Esf ? td(fmtN(t1Total), 'right', colMut) : ''}
+      </tr>`;
+    }
+
+    let esfRows = '';
+    esfRows += `<tr style="background:#dce8f7"><td colspan="${hasT1Esf?3:2}" style="padding:4px 8px;font-weight:900;font-size:9px;color:${colBlue};letter-spacing:0.08em">ACTIVO</td></tr>`;
+    esfRows += `<tr style="background:#eef3fb"><td colspan="${hasT1Esf?3:2}" style="padding:2px 8px 1px 16px;font-size:8px;font-weight:700;color:${colBlue}">Activo Corriente</td></tr>`;
+    esfRows += AC.map((c,i) => esfCuentaRow(c,i)).join('');
+    esfRows += esfTotalRow('Total activos corrientes', tAC, esfT1Sum(AC), false, colBlue);
+    esfRows += `<tr style="background:#eef3fb"><td colspan="${hasT1Esf?3:2}" style="padding:2px 8px 1px 16px;font-size:8px;font-weight:700;color:${colBlue}">Activo No Corriente</td></tr>`;
+    esfRows += ANC.map((c,i) => esfCuentaRow(c,i)).join('');
+    esfRows += esfTotalRow('Total activos no corrientes', tANC, esfT1Sum(ANC), false, colBlue);
+    esfRows += esfTotalRow('Total activos', totalActivos, esfT1Sum(AC)+esfT1Sum(ANC), true, colBlue);
+
+    esfRows += `<tr style="background:#fde9e9"><td colspan="${hasT1Esf?3:2}" style="padding:4px 8px;font-weight:900;font-size:9px;color:${colNeg};letter-spacing:0.08em">PASIVOS Y PATRIMONIO</td></tr>`;
+    esfRows += `<tr style="background:#fdf0f0"><td colspan="${hasT1Esf?3:2}" style="padding:2px 8px 1px 16px;font-size:8px;font-weight:700;color:${colNeg}">Pasivo Corriente</td></tr>`;
+    esfRows += PC.map((c,i) => esfCuentaRow(c,i)).join('');
+    esfRows += esfTotalRow('Total pasivos corrientes', tPC, esfT1Sum(PC), false, colNeg);
+    esfRows += `<tr style="background:#fdf0f0"><td colspan="${hasT1Esf?3:2}" style="padding:2px 8px 1px 16px;font-size:8px;font-weight:700;color:${colNeg}">Pasivo No Corriente</td></tr>`;
+    esfRows += PNC.map((c,i) => esfCuentaRow(c,i)).join('');
+    esfRows += esfTotalRow('Total pasivos no corrientes', tPNC, esfT1Sum(PNC), false, colNeg);
+    esfRows += esfTotalRow('Total pasivos', totalPasivos, esfT1Sum(PC)+esfT1Sum(PNC), true, colNeg);
+
+    const colTeal = '#2a7a8a';
+    esfRows += `<tr style="background:#e4f5f7"><td colspan="${hasT1Esf?3:2}" style="padding:2px 8px 1px 16px;font-size:8px;font-weight:700;color:${colTeal}">Patrimonio</td></tr>`;
+    esfRows += PAT.map((c,i) => esfCuentaRow(c,i)).join('');
+    esfRows += esfTotalRow('Total patrimonio', tPAT, esfT1Sum(PAT), true, colTeal);
+
+    const cuadreCol = cuadra ? colPos : colNeg;
+    esfRows += `<tr style="background:${cuadra?'#e8f8ee':'#fde9e9'};border-top:2px solid ${cuadreCol}50">
+      ${td(cuadra ? '✓ Total pasivos y patrimonio' : '⚠ Total pasivos y patrimonio', 'left', cuadreCol, true)}
+      ${td(fmtN(totalPasYPat), 'right', cuadreCol, true)}
+      ${hasT1Esf ? td('', 'right') : ''}
+    </tr>`;
+
+    const esfHTML = `
+      <h2 style="margin-top:18px;page-break-before:auto">2. Estado de Situación al ${NOMBRES_MES[mes]} de ${anio} — ${moneda}</h2>
+      <table style="width:100%;border-collapse:collapse;font-size:9px">
+        <thead><tr style="background:#eef2f8">
+          ${th('Concepto','left','55%')}
+          ${th('Saldo actual','right','20%')}
+          ${hasT1Esf ? th('Año anterior','right','20%') : ''}
+        </tr></thead>
+        <tbody>${esfRows}</tbody>
+      </table>
+      ${!cuadra ? `<p style="font-size:8px;color:${colNeg};margin-top:4px">⚠ Descuadre: ${fmtN(totalActivos - totalPasYPat)} ${moneda}</p>` : ''}
+      ${hasT1Esf || hasT1Er ? `<p style="font-size:7px;color:${colMut};margin-top:6px;font-style:italic">El resultado del ejercicio contable que registra el patrimonio puede diferir del resultado de la temporada (sección 1), por corresponder a períodos distintos.</p>` : ''}`;
+
+    // ── 3. KPIs ───────────────────────────────────────────────────────────────
+    const mapaKpis = Object.fromEntries(kpisDer.map(k => [k.clave, k]));
+    const kv = (clave, dec = 1) => {
+      const k = mapaKpis[clave];
+      if (!k || k.valor == null) return '—';
+      const u = k.unidad === '%' ? '%' : k.unidad === 'x' ? 'x' : '';
+      return fmtN(k.valor, u ? dec : 0) + u;
+    };
+    const kpiRows = [
+      ['Margen EBITDA',                  kv('margen_ebitda'), ''],
+      ['Cumplimiento EBITDA vs ppto',     kv('cumplimiento_ppto'), ''],
+      ['EBITDA de la temporada',          fmtN(rEbitda), fmtN(t1Ebitda) || '—'],
+      ['Resultado del ejercicio',         fmtN(rRes),    fmtN(t1Res)    || '—'],
+      ['Liquidez corriente',              kv('liquidez_corriente'), ''],
+      ['Capital de trabajo',              kv('capital_trabajo'), ''],
+      ['Deuda financiera / Patrimonio',   kv('deuda_patrimonio'), ''],
+      ['Deuda financiera / EBITDA',       kv('deuda_ebitda'), ''],
+    ].map((r, i) => `<tr style="background:${i%2?'#f9f9f9':'#fff'}">
+      ${td(r[0])}${td(r[1],'right','',true)}${hasT1Er?td(r[2]||'—','right',colMut):''}
+    </tr>`).join('');
+
+    const kpisHTML = `
+      <h2 style="margin-top:18px">3. Indicadores (KPIs) — a nivel EBITDA — comparativo temporada ${yearLabel}${hasT1Er?' vs '+prevLabel:''}</h2>
+      <table style="width:60%;border-collapse:collapse;font-size:9px">
+        <thead><tr style="background:#eef2f8">
+          ${th('Indicador','left','50%')}${th(`Real ${yearLabel}`,'right','20%')}${hasT1Er?th(`Real ${prevLabel}`,'right','20%'):''}
+        </tr></thead>
+        <tbody>${kpiRows}</tbody>
+      </table>`;
+
+    // ── 4. COMENTARIO EJECUTIVO ───────────────────────────────────────────────
+    const justEjec = justif.find(j => j.tipo_estado === 'ejecutivo');
+    const comentarioHTML = (justEjec?.texto || justEjec?.texto_original)
+      ? `<h2 style="margin-top:18px">4. Comentario ejecutivo</h2>
+         <div style="font-size:9px;line-height:1.6;color:#333">${justEjec.texto || justEjec.texto_original}</div>`
+      : '';
 
     // ── HTML final ───────────────────────────────────────────────────────────
     const html = `<!DOCTYPE html><html><head><meta charset="utf-8">
-      <title>ANF ${nombre} ${periodo}</title>
+      <title>${nombre} — Cierre ${NOMBRES_MES[mes]} ${anio}</title>
       <style>
-        @page { size: letter portrait; margin: 15mm 12mm; }
-        @media print { body { margin: 0; } .no-print { display: none; } }
-        body { font-family: Arial, sans-serif; color: #222; font-size: 10px; }
-        h1 { font-size: 14px; margin: 0 0 2px; color: #1a3a6a; }
-        h2 { font-size: 10px; font-weight: 800; color: #1a5fa8; margin: 14px 0 6px;
-             border-bottom: 1.5px solid #1a5fa820; padding-bottom: 2px; }
+        @page { size: letter portrait; margin: 18mm 15mm; }
+        @media print { body { margin: 0; } }
+        body { font-family: Arial, sans-serif; color: #222; font-size: 9px; }
+        h2 { font-size: 9px; font-weight: 800; color: ${colBlue}; margin: 12px 0 5px;
+             border-bottom: 1.5px solid ${colBlue}25; padding-bottom: 2px; }
         table { border-collapse: collapse; width: 100%; }
         td, th { border-bottom: 1px solid #eee; }
+        tr:last-child td { border-bottom: none; }
       </style>
     </head><body>
       <!-- Header -->
-      <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:10px;border-bottom:2px solid #1a5fa8;padding-bottom:8px">
-        <div>
-          <h1>${nombre}</h1>
-          <div style="font-size:11px;color:#555">${periodo} · ${moneda}</div>
-        </div>
-        <div style="text-align:right;font-size:9px;color:#555">
-          <div>TC Cierre: <strong>${tipoCierre || '—'}</strong></div>
-          <div>TC Promedio: <strong>${tipoProm || '—'}</strong></div>
-          <div style="margin-top:4px;font-size:8px;color:#1a7a4a;font-weight:700">${informe.estado.toUpperCase()}</div>
-        </div>
+      <div style="border-bottom:2px solid ${colBlue};padding-bottom:7px;margin-bottom:10px">
+        <div style="font-size:14px;font-weight:900;color:#1a3a6a;margin-bottom:1px">${nombre}</div>
+        <div style="font-size:9px;color:#555">Cierre Temporada ${anio-1}-${anio} &nbsp;◆&nbsp; Estados Financieros al ${NOMBRES_MES[mes]} de ${anio} &nbsp;◆&nbsp; Grupo Mediterra</div>
+        <div style="font-size:8px;color:#888;margin-top:2px">${filial?.descripcion || filial?.negocio || ''}</div>
       </div>
 
-      ${kpisDer.length ? `<h2>KPIs Financieros</h2><div style="margin-bottom:14px">${kpisHTML}</div>` : ''}
-
-      <h2>Estado de Situación Financiera</h2>
-      ${esfHTML}
-
-      <h2>Estado de Resultados — Temporada</h2>
       ${erHTML}
+      ${narrHTML}
+      ${esfHTML}
+      ${kpisHTML}
+      ${comentarioHTML}
 
-      ${justif.length ? `<h2>Narrativas / Justificaciones</h2>${narrHTML}` : ''}
-
-      <div style="margin-top:16px;font-size:7px;color:#bbb;text-align:right">
-        Generado: ${new Date().toLocaleString('es-CL')} · Grupo Mediterra — ANF
+      <div style="margin-top:18px;font-size:7px;color:#bbb;text-align:right;border-top:1px solid #eee;padding-top:4px">
+        Generado: ${new Date().toLocaleString('es-CL')} &nbsp;·&nbsp; Grupo Mediterra — ANF
       </div>
 
       <script>window.onload = function() { window.print(); }<\/script>
