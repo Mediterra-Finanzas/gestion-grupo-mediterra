@@ -158,19 +158,22 @@ export async function cargarJustificaciones(informeId) {
 export async function importarNarrativas(informeId, narrativas) {
   for (const n of narrativas) {
     if (!n.codigo || !n.texto) continue;
-    // Verificar si ya existe
     const exist = await supaGet(
       `anf_justificaciones?informe_id=eq.${informeId}&codigo=eq.${encodeURIComponent(n.codigo)}&tipo_estado=eq.er&select=id,texto`
     );
-    if (exist.length && exist[0].texto) continue; // ya tiene texto editado → no tocar
-    const body = {
+    if (exist.length) {
+      if (exist[0].texto) continue; // ya tiene texto editado → no tocar
+      // existe pero sin texto (import fallido previo) → actualizar
+      await supaPatch('anf_justificaciones', `id=eq.${exist[0].id}`, { texto_original: n.texto });
+      continue;
+    }
+    await supaPost('anf_justificaciones', {
       informe_id:     informeId,
       codigo:         n.codigo,
       tipo_estado:    'er',
       texto_original: n.texto,
-      texto:          exist.length ? exist[0].texto : null,
-    };
-    await supaPost('anf_justificaciones', body);
+      texto:          null,
+    });
   }
 }
 
