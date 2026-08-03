@@ -1336,7 +1336,7 @@ export default function EEFFModule({ canEdit, usuarioActual, empresasPermitidas 
         </div>
 
         {/* Cargar balance (si hay datos, reemplazar) */}
-        {canEdit && !showUpload && !loadingData && (
+        {canEdit && !showUpload && !loadingData && vistaModulo !== 'analisis' && (
           <div style={{ display:'flex', flexDirection:'column', gap:3 }}>
             <label style={{ fontSize:9, color:C.muted, textTransform:'uppercase' }}>&nbsp;</label>
             <Btn onClick={() => setShowUpload(true)} color={C.accent} disabled={!planMaps}>
