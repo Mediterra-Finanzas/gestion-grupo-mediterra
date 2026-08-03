@@ -784,129 +784,139 @@ function SeccionKpisOpEdit({ informeId, metricas, kpisOp, canEdit, usuarioActual
   );
 }
 
-// ── Vista comparativa multi-empresa ──────────────────────────────────────────
+// ── Vista comparativa mes vs mes (misma empresa) ─────────────────────────────
 
-function VistaMultiEmpresa({ filiales, informes, anioDefault, mesDefault }) {
-  const [anioSel, setAnioSel] = useState(anioDefault);
-  const [mesSel,  setMesSel]  = useState(mesDefault);
-  const [kpisMap, setKpisMap] = useState({});
+function VistaComparativoMeses({ filiales, informes, filialIdDefault, anioDefault, mesDefault }) {
+  const mesAnterior = mesDefault === 1 ? 12 : mesDefault - 1;
+  const anioAnterior = mesDefault === 1 ? anioDefault - 1 : anioDefault;
+
+  const [filialSel, setFilialSel] = useState(filialIdDefault || '');
+  const [mesA,  setMesA]  = useState(mesDefault);
+  const [anioA, setAnioA] = useState(anioDefault);
+  const [mesB,  setMesB]  = useState(mesAnterior);
+  const [anioB, setAnioB] = useState(anioAnterior);
+  const [kpisA, setKpisA] = useState([]);
+  const [kpisB, setKpisB] = useState([]);
+  const [infA,  setInfA]  = useState(null);
+  const [infB,  setInfB]  = useState(null);
   const [cargando, setCargando] = useState(false);
 
-  const infPeriodo = useMemo(() =>
-    informes.filter(i => i.anio === anioSel && i.mes === mesSel),
-    [informes, anioSel, mesSel]
-  );
-
-  const companias = useMemo(() =>
-    filiales.filter(f => infPeriodo.some(i => i.filial_id === f.id)),
-    [filiales, infPeriodo]
+  const informesFilial = useMemo(() =>
+    informes.filter(i => i.filial_id === filialSel),
+    [informes, filialSel]
   );
 
   async function cargar() {
-    if (!infPeriodo.length) return;
+    if (!filialSel) return;
     setCargando(true);
     try {
-      const entries = await Promise.all(
-        infPeriodo.map(async inf => {
-          const kpis = await cargarKpisDerivaos(inf.id);
-          return [inf.id, kpis];
-        })
-      );
-      setKpisMap(Object.fromEntries(entries));
+      const [iA, iB] = [
+        informesFilial.find(i => i.mes === mesA && i.anio === anioA),
+        informesFilial.find(i => i.mes === mesB && i.anio === anioB),
+      ];
+      setInfA(iA || null);
+      setInfB(iB || null);
+      const [ka, kb] = await Promise.all([
+        iA ? cargarKpisDerivaos(iA.id) : Promise.resolve([]),
+        iB ? cargarKpisDerivaos(iB.id) : Promise.resolve([]),
+      ]);
+      setKpisA(ka);
+      setKpisB(kb);
     } catch (e) {
-      alert('Error cargando KPIs: ' + e.message);
+      alert('Error: ' + e.message);
     } finally {
       setCargando(false);
     }
   }
 
-  function getInforme(filialId) {
-    return infPeriodo.find(i => i.filial_id === filialId);
-  }
+  const mapaA = Object.fromEntries(kpisA.map(k => [k.clave, k]));
+  const mapaB = Object.fromEntries(kpisB.map(k => [k.clave, k]));
+  const hayDatos = kpisA.length > 0 || kpisB.length > 0;
 
-  function getKpi(informeId, clave) {
-    return (kpisMap[informeId] || []).find(k => k.clave === clave);
-  }
-
-  const hayDatos = Object.keys(kpisMap).length > 0;
+  const selectStyle = { padding: '6px 10px', borderRadius: 6, background: C.card,
+    color: C.text, border: `1px solid ${C.border}`, fontSize: 11 };
+  const inputStyle  = { padding: '6px 8px', width: 68, borderRadius: 6, background: C.card,
+    color: C.text, border: `1px solid ${C.border}`, fontSize: 11 };
+  const col = (label) => ({ fontSize: 9, color: C.muted, textTransform: 'uppercase',
+    display: 'flex', flexDirection: 'column', gap: 3, children: label });
 
   return (
     <div>
-      {/* Selector período */}
-      <div style={{ display: 'flex', gap: 10, alignItems: 'flex-end', marginBottom: 14, flexWrap: 'wrap' }}>
+      {/* Selectores */}
+      <div style={{ display: 'flex', gap: 14, alignItems: 'flex-end', marginBottom: 16, flexWrap: 'wrap' }}>
+        {/* Empresa */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
-          <label style={{ fontSize: 9, color: C.muted, textTransform: 'uppercase' }}>Mes</label>
-          <select value={mesSel} onChange={e => setMesSel(Number(e.target.value))}
-            style={{ padding: '6px 10px', borderRadius: 6, background: C.card, color: C.text,
-              border: `1px solid ${C.border}`, fontSize: 11 }}>
-            {Array.from({ length: 12 }, (_, i) => i + 1).map(m =>
-              <option key={m} value={m}>{NOMBRES_MES[m]}</option>
-            )}
+          <label style={{ fontSize: 9, color: C.muted, textTransform: 'uppercase' }}>Empresa</label>
+          <select value={filialSel} onChange={e => { setFilialSel(e.target.value); setKpisA([]); setKpisB([]); }}
+            style={selectStyle}>
+            <option value="">— Seleccionar —</option>
+            {filiales.map(f => <option key={f.id} value={f.id}>{f.nombre}</option>)}
           </select>
         </div>
+
+        {/* Período A */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
-          <label style={{ fontSize: 9, color: C.muted, textTransform: 'uppercase' }}>Año</label>
-          <input type="number" value={anioSel} onChange={e => setAnioSel(Number(e.target.value))}
-            style={{ padding: '6px 8px', width: 72, borderRadius: 6, background: C.card, color: C.text,
-              border: `1px solid ${C.border}`, fontSize: 11 }} />
+          <label style={{ fontSize: 9, color: C.blue, textTransform: 'uppercase', fontWeight: 700 }}>Período A</label>
+          <div style={{ display: 'flex', gap: 6 }}>
+            <select value={mesA} onChange={e => setMesA(Number(e.target.value))} style={selectStyle}>
+              {Array.from({ length: 12 }, (_, i) => i + 1).map(m =>
+                <option key={m} value={m}>{NOMBRES_MES[m]}</option>)}
+            </select>
+            <input type="number" value={anioA} onChange={e => setAnioA(Number(e.target.value))} style={inputStyle} />
+          </div>
         </div>
-        <Btn onClick={cargar} disabled={cargando || !infPeriodo.length}>
-          {cargando ? 'Cargando...' : 'Cargar comparativa'}
+
+        <div style={{ fontSize: 16, color: C.muted, paddingBottom: 4 }}>vs</div>
+
+        {/* Período B */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+          <label style={{ fontSize: 9, color: C.muted, textTransform: 'uppercase', fontWeight: 700 }}>Período B</label>
+          <div style={{ display: 'flex', gap: 6 }}>
+            <select value={mesB} onChange={e => setMesB(Number(e.target.value))} style={selectStyle}>
+              {Array.from({ length: 12 }, (_, i) => i + 1).map(m =>
+                <option key={m} value={m}>{NOMBRES_MES[m]}</option>)}
+            </select>
+            <input type="number" value={anioB} onChange={e => setAnioB(Number(e.target.value))} style={inputStyle} />
+          </div>
+        </div>
+
+        <Btn onClick={cargar} disabled={cargando || !filialSel}>
+          {cargando ? 'Cargando...' : 'Comparar'}
         </Btn>
-        <span style={{ fontSize: 10, color: C.muted }}>
-          {infPeriodo.length} informe(s) en {NOMBRES_MES[mesSel]} {anioSel}
-          {infPeriodo.length > 0 && ` · ${infPeriodo.filter(i => i.estado === 'aprobado').length} aprobado(s)`}
-        </span>
       </div>
 
-      {/* Estado por empresa */}
-      {infPeriodo.length > 0 && !hayDatos && (
-        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
-          {infPeriodo.map(inf => {
-            const f = filiales.find(x => x.id === inf.filial_id);
-            return (
-              <div key={inf.id}
-                style={{ padding: '4px 10px', borderRadius: 6, fontSize: 10,
-                  background: C.card, border: `1px solid ${C.border}`,
-                  display: 'flex', alignItems: 'center', gap: 6 }}>
-                <span style={{ fontWeight: 700 }}>{f?.codigo || f?.nombre}</span>
-                <Badge estado={inf.estado} />
-              </div>
-            );
-          })}
+      {/* Badges de estado */}
+      {hayDatos && (
+        <div style={{ display: 'flex', gap: 12, marginBottom: 12, fontSize: 10 }}>
+          <span style={{ color: C.blue, fontWeight: 700 }}>
+            {NOMBRES_MES[mesA]} {anioA}: {infA ? <Badge estado={infA.estado} /> : <span style={{ color: C.muted }}>sin informe</span>}
+          </span>
+          <span style={{ color: C.muted, fontWeight: 700 }}>
+            {NOMBRES_MES[mesB]} {anioB}: {infB ? <Badge estado={infB.estado} /> : <span style={{ color: C.muted }}>sin informe</span>}
+          </span>
         </div>
       )}
 
-      {infPeriodo.length === 0 && (
+      {!hayDatos && filialSel && (
         <div style={{ color: C.muted, fontSize: 11 }}>
-          No hay informes cargados para {NOMBRES_MES[mesSel]} {anioSel}.
-          Carga los cierres individuales en la pestaña "Revisar" primero.
+          Selecciona dos períodos y haz clic en "Comparar".
         </div>
       )}
 
-      {/* Tabla comparativa */}
-      {hayDatos && companias.length > 0 && (
+      {/* Tabla KPI */}
+      {hayDatos && (
         <div style={{ overflowX: 'auto' }}>
-          <table style={{ borderCollapse: 'collapse', fontSize: 10, minWidth: '100%' }}>
+          <table style={{ borderCollapse: 'collapse', fontSize: 10, width: '100%' }}>
             <thead>
               <tr style={{ background: C.card }}>
                 <th style={{ padding: '6px 10px', textAlign: 'left', color: C.muted,
-                  minWidth: 160, position: 'sticky', left: 0, background: C.card, zIndex: 1 }}>
-                  KPI
-                </th>
-                <th style={{ padding: '6px 10px', textAlign: 'left', color: C.muted, minWidth: 60 }}>
-                  Unidad
-                </th>
-                {companias.map(f => {
-                  const inf = getInforme(f.id);
-                  return (
-                    <th key={f.id} style={{ padding: '6px 10px', textAlign: 'right',
-                      color: C.text, minWidth: 110 }}>
-                      <div style={{ fontWeight: 800, fontSize: 10 }}>{f.codigo || f.nombre}</div>
-                      {inf && <div style={{ marginTop: 2 }}><Badge estado={inf.estado} /></div>}
-                    </th>
-                  );
-                })}
+                  minWidth: 160, position: 'sticky', left: 0, background: C.card, zIndex: 1 }}>KPI</th>
+                <th style={{ padding: '6px 10px', textAlign: 'right', color: C.blue,
+                  minWidth: 110, fontWeight: 800 }}>{NOMBRES_MES[mesA]} {anioA}</th>
+                <th style={{ padding: '6px 10px', textAlign: 'right', color: C.muted,
+                  minWidth: 110 }}>{NOMBRES_MES[mesB]} {anioB}</th>
+                <th style={{ padding: '6px 10px', textAlign: 'right', color: C.muted, minWidth: 80 }}>Var</th>
+                <th style={{ padding: '6px 10px', textAlign: 'right', color: C.muted, minWidth: 70 }}>Var %</th>
               </tr>
             </thead>
             <tbody>
@@ -915,50 +925,44 @@ function VistaMultiEmpresa({ filiales, informes, anioDefault, mesDefault }) {
                 return (
                   <React.Fragment key={grupo.key}>
                     <tr>
-                      <td colSpan={companias.length + 2}
-                        style={{ padding: '5px 10px', fontWeight: 800, fontSize: 9,
-                          color: color, background: `${color}18`,
-                          textTransform: 'uppercase', letterSpacing: '0.06em',
-                          borderTop: `2px solid ${color}40` }}>
+                      <td colSpan={5} style={{ padding: '5px 10px', fontWeight: 800, fontSize: 9,
+                        color: color, background: `${color}18`, textTransform: 'uppercase',
+                        letterSpacing: '0.06em', borderTop: `2px solid ${color}40` }}>
                         {grupo.label}
                       </td>
                     </tr>
-                    {grupo.claves.map((clave, ri) => (
-                      <tr key={clave}
-                        style={{ background: ri % 2 ? `${C.card}60` : 'transparent',
+                    {grupo.claves.map((clave, ri) => {
+                      const kA = mapaA[clave], kB = mapaB[clave];
+                      const vA = kA?.valor, vB = kB?.valor;
+                      const unidad = kA?.unidad || kB?.unidad || '';
+                      const esPct = unidad === '%', esRatio = unidad === 'x';
+                      const dec = esPct ? 1 : esRatio ? 3 : 0;
+                      const varAbs = vA != null && vB != null ? vA - vB : null;
+                      const varPct = varAbs != null && vB !== 0 ? (varAbs / Math.abs(vB)) * 100 : null;
+                      const varColor = varAbs != null ? (varAbs > 0 ? C.green : varAbs < 0 ? C.red : C.text) : C.muted;
+                      return (
+                        <tr key={clave} style={{ background: ri % 2 ? `${C.card}60` : 'transparent',
                           borderBottom: `1px solid ${C.border}22` }}>
-                        <td style={{ padding: '4px 10px', color: C.muted,
-                          position: 'sticky', left: 0,
-                          background: ri % 2 ? C.card : C.bg }}>
-                          {KPI_LABELS[clave]}
-                        </td>
-                        <td style={{ padding: '4px 6px', color: C.muted, fontSize: 9 }}>
-                          {/* unidad se muestra en la primera celda con valor */}
-                        </td>
-                        {companias.map(f => {
-                          const inf = getInforme(f.id);
-                          const kpi = inf ? getKpi(inf.id, clave) : null;
-                          const val = kpi?.valor;
-                          const esPct   = kpi?.unidad === '%';
-                          const esRatio = kpi?.unidad === 'x';
-                          const dec = esPct ? 1 : esRatio ? 2 : 0;
-                          return (
-                            <td key={f.id} style={{ padding: '4px 10px', textAlign: 'right',
-                              fontWeight: val != null ? 600 : 400,
-                              color: val != null ? C.text : C.muted }}>
-                              {val != null ? (
-                                <>
-                                  {fmtNum(val, dec)}
-                                  <span style={{ fontSize: 9, color: C.muted, marginLeft: 2 }}>
-                                    {kpi.unidad}
-                                  </span>
-                                </>
-                              ) : '—'}
-                            </td>
-                          );
-                        })}
-                      </tr>
-                    ))}
+                          <td style={{ padding: '4px 10px', color: C.muted,
+                            position: 'sticky', left: 0, background: ri % 2 ? C.card : C.bg }}>
+                            {KPI_LABELS[clave]}
+                          </td>
+                          <td style={{ padding: '4px 10px', textAlign: 'right',
+                            fontWeight: vA != null ? 700 : 400, color: vA != null ? C.text : C.muted }}>
+                            {vA != null ? `${fmtNum(vA, dec)}${esPct ? '%' : esRatio ? 'x' : ''}` : '—'}
+                          </td>
+                          <td style={{ padding: '4px 10px', textAlign: 'right', color: C.muted }}>
+                            {vB != null ? `${fmtNum(vB, dec)}${esPct ? '%' : esRatio ? 'x' : ''}` : '—'}
+                          </td>
+                          <td style={{ padding: '4px 10px', textAlign: 'right', color: varColor, fontWeight: 600 }}>
+                            {varAbs != null ? `${varAbs > 0 ? '+' : ''}${fmtNum(varAbs, dec)}${esPct ? '%' : esRatio ? 'x' : ''}` : '—'}
+                          </td>
+                          <td style={{ padding: '4px 10px', textAlign: 'right', color: varColor }}>
+                            {varPct != null ? `${varPct > 0 ? '+' : ''}${varPct.toFixed(1)}%` : '—'}
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </React.Fragment>
                 );
               })}
@@ -1456,9 +1460,10 @@ export default function AnfTab({ canEdit, usuarioActual }) {
 
       {/* ══ VISTA COMPARAR ══ */}
       {vistaANF === 'comparar' && (
-        <VistaMultiEmpresa
+        <VistaComparativoMeses
           filiales={filiales}
           informes={informes}
+          filialIdDefault={filialId}
           anioDefault={anio}
           mesDefault={mes}
         />
