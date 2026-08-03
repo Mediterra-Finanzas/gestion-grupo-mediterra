@@ -101,6 +101,34 @@ function clasificarGrupoEr(codigo) {
   }
 }
 
+// Retorna lista de grupos ER con variación material (|var%| >= piso) que no tienen justificación.
+function gruposSinJustificacion(er, justif, piso = 10) {
+  // Agrupar cuentas ER por grupo
+  const grupos = {};
+  er.forEach(c => {
+    const grp = clasificarGrupoEr(c.codigo);
+    if (!grupos[grp]) grupos[grp] = { real: 0, ppto: 0, codigos: [] };
+    grupos[grp].real  += (c.real_mes  || 0);
+    grupos[grp].ppto  += (c.ppto_mes  || 0);
+    grupos[grp].codigos.push(c.codigo);
+  });
+  // Justificaciones existentes (tipo er, con texto)
+  const justSet = new Set(
+    justif.filter(j => j.tipo_estado === 'er' && (j.texto || j.texto_original)).map(j => j.codigo)
+  );
+  const faltantes = [];
+  Object.entries(grupos).forEach(([grp, { real, ppto, codigos }]) => {
+    if (ppto === 0) return; // s/p → no se exige justificación
+    const varPct = ((real - ppto) / Math.abs(ppto)) * 100;
+    if (Math.abs(varPct) >= piso) {
+      // Tiene alguna cuenta del grupo justificada?
+      const tieneJust = codigos.some(c => justSet.has(c));
+      if (!tieneJust) faltantes.push({ grupo: grp, varPct });
+    }
+  });
+  return faltantes;
+}
+
 // ── Sección ESF ──────────────────────────────────────────────────────────────
 
 function clasificarSeccionEsf(codigo) {
@@ -109,7 +137,7 @@ function clasificarSeccionEsf(codigo) {
   if (p1 === '1') return p2 === '01' ? 'Activo Corriente' : 'Activo No Corriente';
   if (p1 === '2') return p2 === '01' ? 'Pasivo Corriente' : 'Pasivo No Corriente';
   if (p1 === '3') return 'Patrimonio';
-  return 'Activo Corriente';
+  return null; // cuentas de resultado (4-9) no pertenecen al ESF
 }
 
 function FilaEsf({ c, piso, i }) {
@@ -1208,6 +1236,12 @@ export default function AnfTab({ canEdit, usuarioActual, empresaDefault, mesDefa
   const [tipoCierre,  setTipoCierre]  = useState('');
   const [tipoProm,    setTipoProm]    = useState('');
 
+  // Gate de aprobación: grupos ER con var material sin justificación
+  const faltantesJust = useMemo(() => {
+    if (!er.length) return [];
+    return gruposSinJustificacion(er, justif, piso);
+  }, [er, justif, piso]);
+
   // Estado UI
   const [cargando,    setCargando]    = useState(false);
   const [error,       setError]       = useState(null);
@@ -1369,7 +1403,11 @@ export default function AnfTab({ canEdit, usuarioActual, empresaDefault, mesDefa
   // ── Aprobar informe ────────────────────────────────────────────────────────
   async function aprobar() {
     if (!informe || !esCFO) return;
-    // Calcular KPIs derivados antes de aprobar
+    if (faltantesJust.length > 0) {
+      const lista = faltantesJust.map(f => `• ${f.grupo} (${f.varPct > 0 ? '+' : ''}${f.varPct.toFixed(1)}%)`).join('\n');
+      setError(`No se puede aprobar: faltan justificaciones en grupos con variación ≥ ${piso}%:\n${lista}`);
+      return;
+    }
     try {
       const kpis = calcularKpisDerivaos(esf, er);
       await guardarKpisDerivaos(informe.id, kpis);
@@ -2018,17 +2056,46 @@ export default function AnfTab({ canEdit, usuarioActual, empresaDefault, mesDefa
                       color: C.text, border: `1px solid ${C.border}`, fontSize: 11 }} />
                 </div>
 
+                {/* Alerta: justificaciones pendientes */}
+                {esCFO && informe.estado !== 'aprobado' && faltantesJust.length > 0 && (
+                  <div style={{
+                    background: '#fff3cd', border: '1px solid #ffc107', borderRadius: 6,
+                    padding: '8px 12px', fontSize: 11, color: '#7a5800', marginBottom: 4,
+                  }}>
+                    <strong>Faltan justificaciones para aprobar</strong> — grupos con variación &ge; {piso}%:
+                    <ul style={{ margin: '4px 0 0 16px', padding: 0 }}>
+                      {faltantesJust.map(f => (
+                        <li key={f.grupo}>{f.grupo} ({f.varPct > 0 ? '+' : ''}{f.varPct.toFixed(1)}%)</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+
                 {/* Workflow buttons */}
                 {esCFO && (
                   <div style={{ display: 'flex', gap: 8 }}>
                     {informe.estado === 'borrador' && (
-                      <Btn onClick={aprobar} color={C.green} small>Aprobar</Btn>
+                      <Btn
+                        onClick={aprobar}
+                        color={faltantesJust.length ? C.muted : C.green}
+                        small
+                        disabled={faltantesJust.length > 0}
+                      >
+                        Aprobar
+                      </Btn>
                     )}
                     {informe.estado === 'aprobado' && (
                       <Btn onClick={rechazar} color={C.red} small>Revertir</Btn>
                     )}
                     {informe.estado === 'rechazado' && (
-                      <Btn onClick={aprobar} color={C.green} small>Re-aprobar</Btn>
+                      <Btn
+                        onClick={aprobar}
+                        color={faltantesJust.length ? C.muted : C.green}
+                        small
+                        disabled={faltantesJust.length > 0}
+                      >
+                        Re-aprobar
+                      </Btn>
                     )}
                   </div>
                 )}

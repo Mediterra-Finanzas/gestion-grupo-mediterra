@@ -387,8 +387,11 @@ export async function parsearInformeANF(file, filial, anio, mes) {
  * es_material se marca con el piso de la filial.
  */
 export function buildSaldosEsf(esf, esf_t1, pisoMaterialidad = 10) {
+  // Solo cuentas de balance: prefijos 1 (activo), 2 (pasivo), 3 (patrimonio).
+  // Las cuentas de resultado (4-9) vienen en el BALANCE de Contec/Megasystem pero no pertenecen al ESF.
+  const esfSolo = esf.filter(c => ['1','2','3'].includes((c.codigo || '').split('.')[0]));
   const t1 = new Map(esf_t1.map(c => [c.codigo, c]));
-  return esf.map(c => {
+  return esfSolo.map(c => {
     const saldo_neto   = c.inventario_activo - c.inventario_pasivo;
     const prev = t1.get(c.codigo);
     const saldo_neto_t1 = prev ? prev.inventario_activo - prev.inventario_pasivo : null;
