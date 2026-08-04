@@ -50,6 +50,69 @@ const btnSt = (color=C.blue, ghost=false) => ({
 
 function uid() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 8); }
 
+// Especies seleccionables para closures/OE: se derivan de los FORMATOS que
+// existen (no del maestro de especies), para que sea imposible elegir una
+// especie sin formatos (bloqueo "sin formatos") y para que un formato huérfano
+// —cuya especie no esté en el maestro— siga siendo utilizable (fallback al
+// código). Si `incluir` (código actual en edición) no está, se agrega igual.
+function especiesConFormatos(especies, tiposEmbalaje, incluir) {
+  const cods = new Set();
+  (tiposEmbalaje||[]).forEach(t=>{ if(t.especieCodigo) cods.add(t.especieCodigo); });
+  if(incluir) cods.add(incluir);
+  return Array.from(cods).map(cod=>{
+    const e = (especies||[]).find(x=>x.codigo===cod);
+    return e || { codigo:cod, nombreEs:cod, icono:"⚠" };
+  }).sort((a,b)=>(a.nombreEs||"").localeCompare(b.nombreEs||""));
+}
+
+// Select buscable genérico (typeahead con datalist). options: [{value,label}].
+// value "" = sin selección (input vacío). Permite escribir para filtrar.
+function SelectBuscable({ value, onChange, options, placeholder, listId, style }) {
+  const labelDe = (v)=> (options.find(o=>String(o.value)===String(v))?.label) || "";
+  const [txt, setTxt] = useState(()=>labelDe(value));
+  useEffect(()=>{ setTxt(labelDe(value)); },[value, options]);
+  const resolver = (t)=>{
+    const s = String(t).trim().toLowerCase();
+    if(!s) return "";
+    let m = options.find(o=>String(o.label||"").trim().toLowerCase()===s);
+    if(!m) m = options.find(o=>String(o.label||"").toLowerCase().includes(s));
+    return m ? m.value : null; // null = sin match (no cambiar)
+  };
+  return (
+    <>
+      <input list={listId} value={txt} placeholder={placeholder}
+        onChange={e=>{ setTxt(e.target.value); const r=resolver(e.target.value); if(r!==null) onChange(r); }}
+        onBlur={e=>{ const r=resolver(e.target.value); const v = r===null ? value : r; onChange(v); setTxt(labelDe(v)); }}
+        style={style}/>
+      <datalist id={listId}>
+        {options.map(o=><option key={o.value} value={o.label}/>)}
+      </datalist>
+    </>
+  );
+}
+
+// Selector escribible de exportadora (typeahead con datalist). value/onChange
+// operan sobre el id; el input muestra el nombre y permite buscar tecleando.
+function ExportadoraPicker({ value, exportadoras, onChange, style }) {
+  const activas = useMemo(()=>(exportadoras||[]).filter(e=>e.activo!==false)
+    .slice().sort((a,b)=>(a.nombre||"").localeCompare(b.nombre||"")),[exportadoras]);
+  const nombreDe = (id)=> (exportadoras||[]).find(e=>e.id===id)?.nombre || "";
+  const [txt, setTxt] = useState(()=>nombreDe(value));
+  useEffect(()=>{ setTxt(nombreDe(value)); },[value, exportadoras]);
+  const matchId = (v)=>{ const m=activas.find(e=>(e.nombre||"").trim().toLowerCase()===String(v).trim().toLowerCase()); return m?m.id:""; };
+  return (
+    <>
+      <input list="fr-exportadora-list" value={txt} placeholder="Escribe la exportadora…"
+        onChange={e=>{ setTxt(e.target.value); const id=matchId(e.target.value); if(id) onChange(id); }}
+        onBlur={e=>onChange(matchId(e.target.value))}
+        style={style}/>
+      <datalist id="fr-exportadora-list">
+        {activas.map(e=><option key={e.id} value={e.nombre}/>)}
+      </datalist>
+    </>
+  );
+}
+
 // ── Loaders CDN ──────────────────────────────────────────────────
 let _plJsPDFLoaded = false;
 async function pl_loadJsPDF() {
@@ -72,6 +135,75 @@ async function pl_loadJSZip() {
   await new Promise((res,rej)=>{ const s=document.createElement("script"); s.src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"; s.onload=res; s.onerror=rej; document.head.appendChild(s); });
 }
 
+// ── Logo Frisku para reportes (mismo patrón que RendicionesModule) ────
+const FRISKU_LOGO = `${process.env.PUBLIC_URL||""}/frisku.png`;
+async function fr_urlToDataURL(url){
+  const r = await fetch(url); if(!r.ok) throw new Error("fetch "+r.status);
+  const b = await r.blob();
+  return await new Promise((res,rej)=>{ const fr=new FileReader(); fr.onload=()=>res(fr.result); fr.onerror=rej; fr.readAsDataURL(b); });
+}
+function fr_imgSize(src){
+  return new Promise((res)=>{ const im=new Image(); im.onload=()=>res({w:im.naturalWidth,h:im.naturalHeight}); im.onerror=()=>res(null); im.src=src; });
+}
+// Agrega el logo Frisku a un doc jsPDF (dentro de la banda navy). Devuelve el ancho usado en mm.
+async function fr_logoPDF(doc, xRight, y, maxW, maxH){
+  try{
+    const dataUrl = await fr_urlToDataURL(FRISKU_LOGO);
+    const sz = await fr_imgSize(dataUrl);
+    let w=maxW, h=maxH;
+    if(sz && sz.w>0 && sz.h>0){ const s=Math.min(maxW/sz.w, maxH/sz.h); w=sz.w*s; h=sz.h*s; }
+    const fmt = /png/i.test(dataUrl.slice(0,20)) ? "PNG" : "PNG";
+    doc.addImage(dataUrl, fmt, xRight-w, y, w, h, undefined, "FAST");
+    return w;
+  }catch(e){ return 0; }
+}
+// ExcelJS vía CDN (embebe imágenes; xlsx-js-style no puede)
+let _fr_exceljsP = null;
+function fr_loadExcelJS(){
+  if(window.ExcelJS) return Promise.resolve(window.ExcelJS);
+  if(_fr_exceljsP) return _fr_exceljsP;
+  _fr_exceljsP = new Promise((resolve,reject)=>{
+    const s=document.createElement("script");
+    s.src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.4.0/exceljs.min.js";
+    s.onload=()=>resolve(window.ExcelJS); s.onerror=reject; document.body.appendChild(s);
+  });
+  return _fr_exceljsP;
+}
+// Inserta el logo Frisku flotando sobre el encabezado de una hoja ExcelJS.
+async function fr_logoExcel(wb, ws){
+  try{
+    const dataUrl = await fr_urlToDataURL(FRISKU_LOGO);
+    const base64 = dataUrl.split(",")[1];
+    let ext = dataUrl.substring(dataUrl.indexOf("/")+1, dataUrl.indexOf(";")).toLowerCase();
+    if(ext==="jpg") ext="jpeg";
+    if(ext!=="png" && ext!=="jpeg") return;
+    const imgId = wb.addImage({ base64, extension: ext });
+    const sz = await fr_imgSize(dataUrl);
+    let w=150,h=50; if(sz&&sz.w&&sz.h){ const s=Math.min(160/sz.w, 50/sz.h); w=Math.round(sz.w*s); h=Math.round(sz.h*s); }
+    ws.addImage(imgId, { tl:{col:0.15,row:0.15}, ext:{width:w,height:h} });
+  }catch(e){}
+}
+// Construye una hoja branded (banda navy + tabla). moneyCols/intCols: índices 0-based.
+function fr_sheetTabla(ws, {titulo, subtitulo, headers, rows, totalRow=null, colWidths=null, moneyCols=[], intCols=[], headerHex="1E2761"}){
+  const argb=(h)=>"FF"+h, ncol=headers.length;
+  ws.views=[{showGridLines:false}];
+  if(colWidths) ws.columns = colWidths.map(w=>({width:w}));
+  ws.mergeCells(1,1,1,ncol); ws.getRow(1).height=44;
+  const t=ws.getCell(1,1); t.value=titulo; t.font={name:"Calibri",bold:true,size:15,color:{argb:argb(headerHex)}}; t.alignment={vertical:"middle",horizontal:"right",indent:1};
+  ws.mergeCells(2,1,2,ncol); const st=ws.getCell(2,1); st.value=subtitulo; st.font={name:"Calibri",size:10,color:{argb:"FF5A5A5A"}}; st.alignment={horizontal:"right",indent:1};
+  const hr=4;
+  headers.forEach((h,i)=>{ const c=ws.getCell(hr,i+1); c.value=h; c.font={bold:true,color:{argb:"FFFFFFFF"}}; c.fill={type:"pattern",pattern:"solid",fgColor:{argb:argb(headerHex)}}; c.alignment={horizontal:i===0?"left":"right",vertical:"middle"}; });
+  ws.getRow(hr).height=18;
+  const fmtDe = (ci)=> moneyCols.includes(ci) ? '$#,##0' : (intCols.includes(ci) ? '#,##0' : null);
+  rows.forEach((r,ri)=>{ r.forEach((v,ci)=>{ const c=ws.getCell(hr+1+ri,ci+1); c.value=v; c.alignment={horizontal:ci===0?"left":"right"}; const nf=fmtDe(ci); if(nf) c.numFmt=nf; if(ri%2) c.fill={type:"pattern",pattern:"solid",fgColor:{argb:"FFF6F8FB"}}; }); });
+  if(totalRow){ const tr=hr+1+rows.length; totalRow.forEach((v,ci)=>{ const c=ws.getCell(tr,ci+1); c.value=v; c.font={bold:true}; c.fill={type:"pattern",pattern:"solid",fgColor:{argb:"FFDCE3F0"}}; c.alignment={horizontal:ci===0?"left":"right"}; const nf=fmtDe(ci); if(nf) c.numFmt=nf; }); }
+}
+async function fr_descargarWB(wb, filename){
+  const buf = await wb.xlsx.writeBuffer();
+  const blob = new Blob([buf], {type:"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"});
+  const url=URL.createObjectURL(blob); const a=document.createElement("a"); a.href=url; a.download=filename; a.click(); URL.revokeObjectURL(url);
+}
+
 // ── Exportar Packing List → PDF ──────────────────────────────────
 async function exportarPL_PDF(oe, pl, exportadora, cliente, especie, tiposEmbalaje) {
   const JsPDF = await pl_loadJsPDF();
@@ -83,7 +215,7 @@ async function exportarPL_PDF(oe, pl, exportadora, cliente, especie, tiposEmbala
   doc.setTextColor(255,255,255);
   doc.setFontSize(16); doc.setFont("helvetica","bold"); doc.text("PACKING LIST",m,11);
   doc.setFontSize(9); doc.setFont("helvetica","normal");
-  doc.text(`Frisku Foods — ${especie?.icono||""} ${especie?.nombreEs||""}`,m,18);
+  doc.text(`Frisku Foods - ${especie?.nombreEs||""}`,m,18);
   if(oe.numero) doc.text(`OE: ${oe.numero}`,W-m,11,{align:"right"});
   doc.text(new Date().toLocaleDateString("es-CL"),W-m,18,{align:"right"});
 
@@ -121,14 +253,15 @@ async function exportarPL_PDF(oe, pl, exportadora, cliente, especie, tiposEmbala
   const totalBrutoKg = (pl.pallets||[]).reduce((s,p)=>s+Number(p.pesoBrutoKg||0),0);
   const body = (pl.pallets||[]).map((p,i)=>[
     i+1,
-    tiposEmbalaje.find(t=>t.codigo===p.formato)?.nombre||p.formato||"—",
+    nombreFormato(p.formato, tiposEmbalaje),
+    p.variedad||"—",
     p.calibre||"—",
     p.palletNum||"—",
     Number(p.cajas||0).toLocaleString("es-CL"),
     Number(p.pesoNetoKg||0).toLocaleString("es-CL"),
     Number(p.pesoBrutoKg||0).toLocaleString("es-CL"),
   ]);
-  body.push(["","TOTAL","","",totalCajas.toLocaleString("es-CL"),totalNetoKg.toLocaleString("es-CL"),totalBrutoKg.toLocaleString("es-CL")]);
+  body.push(["","TOTAL","","","",totalCajas.toLocaleString("es-CL"),totalNetoKg.toLocaleString("es-CL"),totalBrutoKg.toLocaleString("es-CL")]);
 
   doc.autoTable({
     startY:y,
@@ -136,9 +269,9 @@ async function exportarPL_PDF(oe, pl, exportadora, cliente, especie, tiposEmbala
     headStyles:{fillColor:[20,184,166],textColor:255,fontStyle:"bold",fontSize:8},
     styles:{fontSize:8,cellPadding:3},
     footStyles:{fillColor:[240,240,240],fontStyle:"bold"},
-    head:[["#","Formato","Calibre","N° Pallet","Cajas","Peso Neto (kg)","Peso Bruto (kg)"]],
+    head:[["#","Formato","Variedad","Calibre","N° Pallet","Cajas","Peso Neto (kg)","Peso Bruto (kg)"]],
     body,
-    columnStyles:{0:{halign:"center",cellWidth:8},2:{halign:"center",cellWidth:18},3:{halign:"center",cellWidth:18},4:{halign:"right",cellWidth:20},5:{halign:"right",cellWidth:26},6:{halign:"right",cellWidth:26}},
+    columnStyles:{0:{halign:"center",cellWidth:8},3:{halign:"center",cellWidth:16},4:{halign:"center",cellWidth:16},5:{halign:"right",cellWidth:18},6:{halign:"right",cellWidth:24},7:{halign:"right",cellWidth:24}},
     margin:{left:m,right:m},
     didDrawRow:(data)=>{
       if(data.row.index===body.length-1){
@@ -187,7 +320,8 @@ async function exportarPL_Excel(oe, pl, exportadora, cliente, especie, tiposEmba
 
   const palletRows = pallets.map((p,i)=>`<Row>
     <Cell><ss:Data ss:Type="Number">${i+1}</ss:Data></Cell>
-    ${cell(tiposEmbalaje.find(t=>t.codigo===p.formato)?.nombre||p.formato||"")}
+    ${cell(nombreFormato(p.formato, tiposEmbalaje))}
+    ${cell(p.variedad||"")}
     ${cell(p.calibre||"")}
     <Cell><ss:Data ss:Type="Number">${Number(p.palletNum)||0}</ss:Data></Cell>
     <Cell><ss:Data ss:Type="Number">${Number(p.cajas)||0}</ss:Data></Cell>
@@ -196,7 +330,7 @@ async function exportarPL_Excel(oe, pl, exportadora, cliente, especie, tiposEmba
   </Row>`).join("");
 
   const totalRow = `<Row>
-    ${cell("")}${cell("TOTAL",true)}${cell("")}${cell("")}
+    ${cell("")}${cell("TOTAL",true)}${cell("")}${cell("")}${cell("")}
     <Cell><ss:Data ss:Type="Number">${totalCajas}</ss:Data></Cell>
     <Cell><ss:Data ss:Type="Number">${totalNetoKg}</ss:Data></Cell>
     <Cell><ss:Data ss:Type="Number">${totalBrutoKg}</ss:Data></Cell>
@@ -204,11 +338,11 @@ async function exportarPL_Excel(oe, pl, exportadora, cliente, especie, tiposEmba
 
   const xml = `<?xml version="1.0"?><Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet" xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet">
 <Worksheet ss:Name="Packing List"><Table>
-  <Row><Cell ss:MergeAcross="6"><ss:Data ss:Type="String">PACKING LIST — ${esc(oe.numero||oe.id)}</ss:Data></Cell></Row>
+  <Row><Cell ss:MergeAcross="7"><ss:Data ss:Type="String">PACKING LIST — ${esc(oe.numero||oe.id)}</ss:Data></Cell></Row>
   <Row/>
   ${infoRows}
   <Row/>
-  <Row>${["#","Formato","Calibre","N° Pallet","Cajas","Peso Neto (kg)","Peso Bruto (kg)"].map(h=>cell(h,true)).join("")}</Row>
+  <Row>${["#","Formato","Variedad","Calibre","N° Pallet","Cajas","Peso Neto (kg)","Peso Bruto (kg)"].map(h=>cell(h,true)).join("")}</Row>
   ${palletRows}
   ${totalRow}
   ${pl.observ?`<Row/><Row>${cell("Observaciones:",true)}${cell(pl.observ)}</Row>`:""}
@@ -219,6 +353,29 @@ async function exportarPL_Excel(oe, pl, exportadora, cliente, especie, tiposEmba
   const a    = document.createElement("a");
   a.href=url; a.download=`PL_${oe.numero||oe.id}_${new Date().toISOString().slice(0,10)}.xlsx`; a.click();
   URL.revokeObjectURL(url);
+}
+
+// Peso neto por caja (kg) para un formato del PL. Busca en el maestro por
+// código o descripción; si no lo encuentra o no tiene peso, intenta extraer
+// los kg del texto del formato (ej. "AVO-10 KG", "Caja Palta 10kg" → 10).
+function pesoNetoPorCaja(formatoVal, tiposEmbalaje) {
+  const t = (tiposEmbalaje||[]).find(x=>x.codigo===formatoVal || x.descripcion===formatoVal);
+  if(t && Number(t.pesoNeto)>0) return Number(t.pesoNeto);
+  const fuente = `${t?.descripcion||""} ${formatoVal||""}`;
+  const m = String(fuente).match(/(\d+(?:[.,]\d+)?)\s*kg/i);
+  return m ? parseFloat(m[1].replace(",",".")) : 0;
+}
+// Peso bruto por caja si el formato lo define en el maestro (0 = sin dato).
+function pesoBrutoPorCaja(formatoVal, tiposEmbalaje) {
+  const t = (tiposEmbalaje||[]).find(x=>x.codigo===formatoVal || x.descripcion===formatoVal);
+  return t && Number(t.pesoBruto)>0 ? Number(t.pesoBruto) : 0;
+}
+// Nombre legible de un formato. El maestro guarda `descripcion` (los items
+// importados del Excel NO traen `nombre`), así que se prioriza la descripción
+// para no mostrar códigos crípticos como "PA2" en vez de "PALTA GRANEL 10 Kg".
+function nombreFormato(formatoVal, tiposEmbalaje) {
+  const t = (tiposEmbalaje||[]).find(x=>x.codigo===formatoVal || x.descripcion===formatoVal);
+  return t?.descripcion || t?.nombre || formatoVal || "—";
 }
 
 // ── PackingListPanel ─────────────────────────────────────────────
@@ -243,10 +400,29 @@ function PackingListPanel({ oe, tiposEmbalaje, especies, exportadoras, clientes,
   function addPallet(){
     const fmt0 = formatosOE[0]||"";
     const cal0 = (oe.calibrePorFormato||{})[fmt0]||"";
-    setPl(p=>({...p,pallets:[...(p.pallets||[]),{id:uid(),formato:fmt0,calibre:cal0,palletNum:(p.pallets||[]).length+1,cajas:0,pesoNetoKg:0,pesoBrutoKg:0}]}));
+    const fmtName = tiposEmbalaje.find(x=>x.codigo===fmt0)?.descripcion || fmt0;  // guarda el nombre legible
+    setPl(p=>({...p,pallets:[...(p.pallets||[]),{id:uid(),formato:fmtName,variedad:"",calibre:cal0,palletNum:(p.pallets||[]).length+1,cajas:0,pesoNetoKg:0,pesoBrutoKg:0}]}));
     setDirty(true);
   }
-  function updPallet(idx,k,v){ setPl(p=>{ const ps=[...p.pallets]; ps[idx]={...ps[idx],[k]:v}; return {...p,pallets:ps}; }); setDirty(true); }
+  // Actualiza un pallet. Al cambiar cajas o formato recalcula el peso neto
+  // (y bruto si el formato lo define) = cajas × peso por caja. El peso queda
+  // editable: el usuario puede sobrescribirlo después manualmente.
+  function updPallet(idx,k,v){
+    setPl(p=>{
+      const ps=[...p.pallets];
+      const row={...ps[idx],[k]:v};
+      if(k==="cajas" || k==="formato"){
+        const cajas = Number(k==="cajas"?v:row.cajas)||0;
+        const pn = pesoNetoPorCaja(row.formato, tiposEmbalaje);
+        const pb = pesoBrutoPorCaja(row.formato, tiposEmbalaje);
+        if(pn>0) row.pesoNetoKg  = Math.round(cajas*pn*100)/100;
+        if(pb>0) row.pesoBrutoKg = Math.round(cajas*pb*100)/100;
+      }
+      ps[idx]=row;
+      return {...p,pallets:ps};
+    });
+    setDirty(true);
+  }
   function delPallet(idx){ setPl(p=>({...p,pallets:p.pallets.filter((_,i)=>i!==idx)})); setDirty(true); }
 
   const totalCajas   = (pl.pallets||[]).reduce((s,p)=>s+Number(p.cajas||0),0);
@@ -286,11 +462,14 @@ function PackingListPanel({ oe, tiposEmbalaje, especies, exportadoras, clientes,
       </div>
 
       {/* Tabla pallets */}
+      <datalist id={`fmt-list-${oe.id}`}>
+        {formatosPL.map(cod=>{ const t=tiposEmbalaje.find(x=>x.codigo===cod); return <option key={cod} value={t?.descripcion||cod}/>; })}
+      </datalist>
       <div style={{overflowX:"auto",marginBottom:10}}>
         <table style={{width:"100%",borderCollapse:"collapse",fontSize:11}}>
           <thead>
             <tr style={{background:C.primary}}>
-              {["#","Formato","Calibre","N° Pallet","Cajas","Peso Neto kg","Peso Bruto kg",canEdit?"✕":""].map((h,i)=>(
+              {["#","Formato","Variedad","Calibre","N° Pallet","Cajas","Peso Neto kg","Peso Bruto kg",canEdit?"✕":""].map((h,i)=>(
                 <th key={i} style={{padding:"6px 8px",textAlign:(h==="#"||h==="N° Pallet"||h==="Cajas")?"center":"left",color:C.primaryText,fontWeight:700,fontSize:10,whiteSpace:"nowrap"}}>{h}</th>
               ))}
             </tr>
@@ -301,11 +480,14 @@ function PackingListPanel({ oe, tiposEmbalaje, especies, exportadoras, clientes,
                 <td style={{padding:"4px 8px",textAlign:"center",color:C.muted2,fontFamily:"monospace",fontSize:10}}>{idx+1}</td>
                 <td style={{padding:"4px 4px"}}>
                   {canEdit
-                    ? <select value={p.formato} onChange={e=>updPallet(idx,"formato",e.target.value)} style={{...inputSt,padding:"4px 6px",width:130}}>
-                        {formatosPL.map(cod=><option key={cod} value={cod}>{tiposEmbalaje.find(t=>t.codigo===cod)?.nombre||cod}</option>)}
-                        {!formatosPL.includes(p.formato)&&p.formato&&<option value={p.formato}>{p.formato}</option>}
-                      </select>
-                    : <span style={{color:C.text}}>{tiposEmbalaje.find(t=>t.codigo===p.formato)?.nombre||p.formato||"—"}</span>}
+                    ? <input list={`fmt-list-${oe.id}`} value={p.formato||""} onChange={e=>updPallet(idx,"formato",e.target.value)}
+                        placeholder="Formato…" style={{...inputSt,padding:"4px 6px",width:170}}/>
+                    : <span style={{color:C.text}}>{nombreFormato(p.formato, tiposEmbalaje)}</span>}
+                </td>
+                <td style={{padding:"4px 4px"}}>
+                  {canEdit
+                    ? <input value={p.variedad||""} onChange={e=>updPallet(idx,"variedad",e.target.value)} placeholder="—" style={{...inputSt,padding:"4px 6px",width:110}}/>
+                    : <span style={{color:C.text}}>{p.variedad||"—"}</span>}
                 </td>
                 <td style={{padding:"4px 4px"}}>
                   {canEdit
@@ -337,7 +519,7 @@ function PackingListPanel({ oe, tiposEmbalaje, especies, exportadoras, clientes,
             ))}
             {hasPallets && (
               <tr style={{borderTop:`1px solid ${C.border}`,background:`${C.bg}66`}}>
-                <td colSpan={3} style={{padding:"6px 8px",fontSize:10,color:C.muted,fontWeight:700,textAlign:"right"}}>TOTAL</td>
+                <td colSpan={4} style={{padding:"6px 8px",fontSize:10,color:C.muted,fontWeight:700,textAlign:"right"}}>TOTAL</td>
                 <td style={{padding:"6px 8px",textAlign:"center",fontWeight:700,color:C.text,fontFamily:"monospace"}}>{(pl.pallets||[]).length}</td>
                 <td style={{padding:"6px 8px",textAlign:"center",fontWeight:700,color:C.text,fontFamily:"monospace"}}>{totalCajas.toLocaleString("es-CL")}</td>
                 <td style={{padding:"6px 8px",fontWeight:700,color:C.text,fontFamily:"monospace"}}>{totalNetoKg.toLocaleString("es-CL")}</td>
@@ -1573,10 +1755,7 @@ function ClosureForm({closure, exportadoras, clientes, especies, tiposEmbalaje, 
       <div style={{display:"grid", gridTemplateColumns:"1fr 1fr", gap:10, marginBottom:10}}>
         <div>
           <div style={lblSt}>Exportadora *</div>
-          <select value={buf.exportadoraId||""} onChange={e=>setCampo("exportadoraId",e.target.value)} style={inputSt}>
-            <option value="">— seleccionar —</option>
-            {exportadoras.map(e=><option key={e.id} value={e.id}>{e.nombre}</option>)}
-          </select>
+          <ExportadoraPicker value={buf.exportadoraId} exportadoras={exportadoras} onChange={id=>setCampo("exportadoraId",id)} style={inputSt}/>
         </div>
         <div>
           <div style={lblSt}>Cliente *</div>
@@ -1595,7 +1774,7 @@ function ClosureForm({closure, exportadoras, clientes, especies, tiposEmbalaje, 
             onChange={e=>setBuf(prev=>({...prev, especieCodigo:e.target.value, cajasPorFormato:{}}))}
             style={inputSt}>
             <option value="">— seleccionar —</option>
-            {especies.map(e=><option key={e.codigo} value={e.codigo}>{e.icono} {e.nombreEs}</option>)}
+            {especiesConFormatos(especies, tiposEmbalaje, buf.especieCodigo).map(e=><option key={e.codigo} value={e.codigo}>{e.icono} {e.nombreEs}</option>)}
           </select>
         </div>
         <div>
@@ -1810,6 +1989,28 @@ function formatSemanaISO(dateStr) {
   return w ? `S${String(w.semana).padStart(2,"0")} · ${w.anio}` : "";
 }
 
+// Inverso de getSemanaISO: (semana ISO, año ISO) → lunes de esa semana (YYYY-MM-DD).
+// Jan 4 siempre cae en la semana 1; se toma el lunes de esa semana y se suman
+// las semanas que faltan.
+function lunesDeSemanaISO(semana, anio) {
+  const s = Number(semana), y = Number(anio);
+  if(!s || !y) return "";
+  const jan4 = new Date(Date.UTC(y, 0, 4));
+  const day = jan4.getUTCDay() || 7;
+  const lunesS1 = new Date(jan4); lunesS1.setUTCDate(jan4.getUTCDate() - day + 1);
+  const lunes = new Date(lunesS1); lunes.setUTCDate(lunesS1.getUTCDate() + (s - 1) * 7);
+  return lunes.toISOString().slice(0, 10);
+}
+
+// Rango legible de una semana a partir de su lunes: "03 – 09 ago 2026"
+function rangoSemana(lunesStr) {
+  if(!lunesStr) return "";
+  const lun = new Date(lunesStr + "T12:00:00");
+  const dom = new Date(lun); dom.setDate(lun.getDate() + 6);
+  const fmtDia = (d, conMes) => d.toLocaleDateString("es-CL", conMes ? {day:"numeric", month:"short", year:"numeric"} : {day:"numeric"});
+  return `${fmtDia(lun, false)} – ${fmtDia(dom, true)}`;
+}
+
 // Token identificador de una entidad a partir de su código, quitando el
 // prefijo de tipo (CNEE-, CLI-, NOT-M-, NOT-AIR-, NOT-, EXP-/_). Permite
 // emparejar un cliente con sus notify guardados (ej. CNEE-IDEAL ↔ NOT-M-IDEAL).
@@ -1834,7 +2035,40 @@ function notifyDesdeMaestro(n) {
 
 // Formulario para agregar/editar una semana del programa
 function ProgramaSemanaForm({semana, closure, tiposEmbalaje, onGuardar, onCancelar}) {
-  const [buf, setBuf] = useState(()=>JSON.parse(JSON.stringify(semana)));
+  const [buf, setBuf] = useState(()=>{
+    const b = JSON.parse(JSON.stringify(semana));
+    // Compat: semana de ETD desde etd/fechaSemana/semanaNum viejos
+    if(!b.etdSemanaNum || !b.etdSemanaAnio){
+      const w = getSemanaISO(b.etd || b.fechaSemana);
+      b.etdSemanaNum  = b.etdSemanaNum  || b.semanaNum  || (w?w.semana:undefined);
+      b.etdSemanaAnio = b.etdSemanaAnio || b.semanaAnio || (w?w.anio:undefined);
+    }
+    // Compat: semana de ETA desde eta; si no hay, igual a la de ETD
+    if(!b.etaSemanaNum || !b.etaSemanaAnio){
+      const w = b.eta ? getSemanaISO(b.eta) : null;
+      b.etaSemanaNum  = b.etaSemanaNum  || (w?w.semana:b.etdSemanaNum);
+      b.etaSemanaAnio = b.etaSemanaAnio || (w?w.anio:b.etdSemanaAnio);
+    }
+    return b;
+  });
+  const setSemanaETD = (num, anio) => setBuf(prev=>({...prev,
+    etdSemanaNum: num!=null ? Number(num) : prev.etdSemanaNum,
+    etdSemanaAnio: anio!=null ? Number(anio) : prev.etdSemanaAnio }));
+  const setSemanaETA = (num, anio) => setBuf(prev=>({...prev,
+    etaSemanaNum: num!=null ? Number(num) : prev.etaSemanaNum,
+    etaSemanaAnio: anio!=null ? Number(anio) : prev.etaSemanaAnio }));
+  // Años ofrecidos: los de la temporada del closure (+ los ya elegidos).
+  const aniosSemana = (()=>{
+    const set = new Set();
+    String(closure?.temporada||"").split("-").map(Number).forEach(y=>{ if(y) set.add(y); });
+    if(buf.etdSemanaAnio) set.add(Number(buf.etdSemanaAnio));
+    if(buf.etaSemanaAnio) set.add(Number(buf.etaSemanaAnio));
+    if(!set.size){ const y=new Date().getFullYear(); set.add(y); set.add(y+1); }
+    return Array.from(set).sort();
+  })();
+  const lunesETD = lunesDeSemanaISO(buf.etdSemanaNum, buf.etdSemanaAnio);
+  const lunesETA = lunesDeSemanaISO(buf.etaSemanaNum, buf.etaSemanaAnio);
+  const diasTransito = (lunesETD && lunesETA) ? Math.round((new Date(lunesETA)-new Date(lunesETD))/86400000) : null;
 
   const setCajas = (fmtCodigo, val) => setBuf(prev=>{
     const cpf = {...(prev.cajasPorFormato||{})};
@@ -1847,10 +2081,22 @@ function ProgramaSemanaForm({semana, closure, tiposEmbalaje, onGuardar, onCancel
   const totalCajas = Object.values(buf.cajasPorFormato||{}).reduce((s,v)=>s+Number(v||0),0);
 
   const handleGuardar = () => {
-    const fecha = getMondayStr(buf.fechaSemana);
-    if(!fecha){ alert("Ingresa la fecha de la semana"); return; }
-    if(totalCajas===0){ alert("Ingresa cajas en al menos un formato"); return; }
-    onGuardar({...buf, fechaSemana:fecha});
+    if(!lunesETD){ alert("Selecciona la semana de ETD (N° y año)"); return; }
+    if(!lunesETA){ alert("Selecciona la semana de ETA (N° y año)"); return; }
+    if(lunesETA < lunesETD){ alert("La semana de ETA no puede ser anterior a la de ETD"); return; }
+    const esAereo = buf.tipoEmbarque==="aereo";
+    const fclVal = esAereo ? 0 : (Number(buf.contenedoresFCL)||0);
+    const palVal = esAereo ? (Number(buf.pallets)||0) : 0;
+    if(totalCajas===0 && fclVal<=0 && palVal<=0){
+      alert(esAereo ? "Ingresa cajas por formato o la cantidad de pallets" : "Ingresa cajas por formato o la cantidad de contenedores (FCL)");
+      return;
+    }
+    onGuardar({...buf, fechaSemana:lunesETD,
+      etdSemanaNum: Number(buf.etdSemanaNum)||null, etdSemanaAnio: Number(buf.etdSemanaAnio)||null,
+      etaSemanaNum: Number(buf.etaSemanaNum)||null, etaSemanaAnio: Number(buf.etaSemanaAnio)||null,
+      etd: lunesETD, eta: lunesETA,
+      semanaNum:null, semanaAnio:null,  // campos viejos deprecados
+      tipoEmbarque: buf.tipoEmbarque||"maritimo", contenedoresFCL: fclVal, pallets: palVal});
   };
 
   return (
@@ -1859,32 +2105,80 @@ function ProgramaSemanaForm({semana, closure, tiposEmbalaje, onGuardar, onCancel
         <span>{semana.id?"✎":"+"}</span>
         <span>{semana.id?"Editar semana":"Nueva semana de programa"}</span>
         <span style={{fontSize:10, color:C.muted, fontWeight:400}}>
-          — La fecha se ajusta al lunes de la semana elegida
+          — Semana de despacho (ETD) y de llegada (ETA)
         </span>
       </h4>
 
-      {/* Fecha + Estado */}
-      <div style={{display:"grid", gridTemplateColumns:"1fr 160px", gap:10, marginBottom:12}}>
-        <div>
-          <div style={lblSt}>Semana (fecha de inicio) *</div>
-          <input type="date" value={buf.fechaSemana||""} style={inputSt}
-            onChange={e=>setBuf(prev=>({...prev, fechaSemana:e.target.value}))}
-            onBlur={e=>setBuf(prev=>({...prev, fechaSemana:getMondayStr(e.target.value)}))}/>
-          {buf.fechaSemana && (
-            <div style={{fontSize:10, color:C.teal, marginTop:3}}>
-              {formatSemanaISO(getMondayStr(buf.fechaSemana))} — Lunes: {formatFechaSemana(getMondayStr(buf.fechaSemana))}
+      {(() => {
+        const esAereo = buf.tipoEmbarque==="aereo";
+        const weekSel = (id, lbl, num, anio, setter, lunes, color) => (
+          <div style={{flex:"1 1 300px", background:C.card, border:`1px solid ${C.border}`, borderRadius:8, padding:"8px 10px"}}>
+            <div style={{...lblSt, color}}>{lbl} *</div>
+            <div style={{display:"flex", gap:8}}>
+              <div style={{flex:"1 1 auto"}}>
+                <SelectBuscable listId={`wk-${id}`} value={num||""} onChange={v=>setter(v||null, null)}
+                  placeholder="🔍 Semana" style={{...inputSt, width:"100%"}}
+                  options={Array.from({length:53},(_,i)=>i+1).map(n=>({value:n, label:`S${String(n).padStart(2,"0")}`}))}/>
+              </div>
+              <select value={anio||""} style={{...inputSt, flex:"0 1 92px"}} onChange={e=>setter(null, e.target.value||null)}>
+                <option value="">Año —</option>
+                {aniosSemana.map(y=><option key={y} value={y}>{y}</option>)}
+              </select>
+            </div>
+            <div style={{fontSize:11, color: lunes?color:C.muted, fontWeight:600, marginTop:5}}>
+              {lunes ? `📅 ${formatSemanaISO(lunes)} · ${rangoSemana(lunes)}` : "Selecciona N° de semana y año"}
+            </div>
+          </div>
+        );
+        return (<>
+        {/* Vía + Estado + FCL/Pallets */}
+        <div style={{display:"flex", flexWrap:"wrap", gap:10, marginBottom:10}}>
+          <div style={{flex:"0 1 150px"}}>
+            <div style={lblSt}>Vía *</div>
+            <select value={buf.tipoEmbarque||"maritimo"} style={inputSt}
+              onChange={e=>setBuf(prev=>({...prev, tipoEmbarque:e.target.value}))}>
+              <option value="maritimo">🚢 Marítimo</option>
+              <option value="aereo">✈ Aéreo</option>
+            </select>
+          </div>
+          <div style={{flex:"0 1 150px"}}>
+            <div style={lblSt}>Estado</div>
+            <select value={buf.estado||"borrador"} style={inputSt}
+              onChange={e=>setBuf(prev=>({...prev, estado:e.target.value}))}>
+              <option value="borrador">◌ Borrador</option>
+              <option value="confirmado">✓ Confirmado</option>
+            </select>
+          </div>
+          {esAereo ? (
+            <div style={{flex:"0 1 130px"}}>
+              <div style={lblSt}>Pallets</div>
+              <input type="number" min="0" step="1" placeholder="0" value={buf.pallets ?? ""}
+                style={{...inputSt, textAlign:"right", fontFamily:"monospace"}}
+                onChange={e=>setBuf(prev=>({...prev, pallets: e.target.value===""? "" : Number(e.target.value)}))}/>
+              <div style={{fontSize:9, color:C.muted2, marginTop:3}}>aéreo · cajas abajo</div>
+            </div>
+          ) : (
+            <div style={{flex:"0 1 140px"}}>
+              <div style={lblSt}>Contenedores (FCL)</div>
+              <input type="number" min="0" step="1" placeholder="0" value={buf.contenedoresFCL ?? ""}
+                style={{...inputSt, textAlign:"right", fontFamily:"monospace"}}
+                onChange={e=>setBuf(prev=>({...prev, contenedoresFCL: e.target.value===""? "" : Number(e.target.value)}))}/>
+              <div style={{fontSize:9, color:C.muted2, marginTop:3}}>solo marítimo</div>
             </div>
           )}
         </div>
-        <div>
-          <div style={lblSt}>Estado</div>
-          <select value={buf.estado||"borrador"} style={inputSt}
-            onChange={e=>setBuf(prev=>({...prev, estado:e.target.value}))}>
-            <option value="borrador">◌ Borrador</option>
-            <option value="confirmado">✓ Confirmado</option>
-          </select>
+
+        {/* Semana ETD + Semana ETA */}
+        <div style={{display:"flex", flexWrap:"wrap", gap:10, marginBottom:6}}>
+          {weekSel("etd", "ETD · fecha despacho", buf.etdSemanaNum, buf.etdSemanaAnio, setSemanaETD, lunesETD, C.teal)}
+          {weekSel("eta", "ETA · fecha llegada", buf.etaSemanaNum, buf.etaSemanaAnio, setSemanaETA, lunesETA, C.blue)}
         </div>
-      </div>
+        {diasTransito!=null && (
+          <div style={{fontSize:11, color:C.muted, marginBottom:12}}>
+            🕒 {Math.max(0, diasTransito)} días de tránsito ({Math.max(0, Math.round(diasTransito/7))} semana{Math.round(diasTransito/7)!==1?"s":""})
+          </div>
+        )}
+        </>); })()}
 
       {/* Cajas por formato */}
       <div style={{marginBottom:12}}>
@@ -2009,7 +2303,7 @@ function ClosureProgramaPanel({closure, semanas, tiposEmbalaje, exportadoras, cl
             <table style={{borderCollapse:"collapse", width:"100%", fontSize:11}}>
               <thead>
                 <tr style={{background:C.primary}}>
-                  <th style={{padding:"6px 10px", textAlign:"left", color:C.primaryText, fontWeight:600, whiteSpace:"nowrap"}}>N° / Semana (lunes)</th>
+                  <th style={{padding:"6px 10px", textAlign:"left", color:C.primaryText, fontWeight:600, whiteSpace:"nowrap"}}>Semana · ETD → ETA</th>
                   {formatosClosure.map(cod=>{
                     const fmt = tiposEmbalaje.find(t=>t.codigo===cod);
                     return (
@@ -2019,6 +2313,7 @@ function ClosureProgramaPanel({closure, semanas, tiposEmbalaje, exportadoras, cl
                     );
                   })}
                   <th style={{padding:"6px 8px", textAlign:"right", color:C.primaryText, fontWeight:600}}>Total cjs</th>
+                  <th style={{padding:"6px 8px", textAlign:"right", color:C.primaryText, fontWeight:600}}>FCL/Pal</th>
                   <th style={{padding:"6px 8px", textAlign:"center", color:C.primaryText, fontWeight:600}}>Estado</th>
                   {canEdit && <th/>}
                 </tr>
@@ -2026,13 +2321,23 @@ function ClosureProgramaPanel({closure, semanas, tiposEmbalaje, exportadoras, cl
               <tbody>
                 {semanasOrdenadas.map((sem,i)=>{
                   const totalSem = Object.values(sem.cajasPorFormato||{}).reduce((s,v)=>s+Number(v||0),0);
+                  const wISO = getSemanaISO(sem.fechaSemana);
+                  const wEtd = sem.etdSemanaNum ? {semana:sem.etdSemanaNum, anio:sem.etdSemanaAnio} : getSemanaISO(sem.etd);
+                  const wEta = sem.etaSemanaNum ? {semana:sem.etaSemanaNum, anio:sem.etaSemanaAnio} : getSemanaISO(sem.eta);
+                  const fmtW = (w)=> w ? `S${String(w.semana).padStart(2,"0")}·${String(w.anio).slice(2)}` : "—";
                   return (
                     <tr key={sem.id||i} style={{background: i%2===0?C.card:C.rowAlt}}>
                       <td style={{padding:"6px 10px", border:`1px solid ${C.border}`, whiteSpace:"nowrap"}}>
-                        <span style={{display:"inline-block", background:`${C.blue}22`, color:C.blue, fontWeight:700, fontFamily:"monospace", borderRadius:4, padding:"1px 6px", marginRight:6}}>
-                          {getSemanaISO(sem.fechaSemana)?.semana ? "S"+String(getSemanaISO(sem.fechaSemana).semana).padStart(2,"0") : "—"}
-                        </span>
-                        {formatFechaSemana(sem.fechaSemana)}
+                        <div>
+                          <span title="Semana ISO · año (la misma fecha cae en distinta semana según el año)"
+                            style={{display:"inline-block", background:`${C.blue}22`, color:C.blue, fontWeight:700, fontFamily:"monospace", borderRadius:4, padding:"1px 6px", marginRight:6}}>
+                            {wISO ? `S${String(wISO.semana).padStart(2,"0")}·${String(wISO.anio).slice(2)}` : "—"}
+                          </span>
+                          {formatFechaSemana(sem.fechaSemana)}
+                        </div>
+                        <div style={{fontSize:10, color:C.muted, marginTop:2}}>
+                          {(sem.tipoEmbarque||"maritimo")==="aereo" ? "✈ Aéreo" : "🚢 Marítimo"} · ETD {fmtW(wEtd)} → ETA {fmtW(wEta)}
+                        </div>
                       </td>
                       {formatosClosure.map(cod=>(
                         <td key={cod} style={{padding:"6px 8px", textAlign:"right", border:`1px solid ${C.border}`, fontFamily:"monospace"}}>
@@ -2041,6 +2346,11 @@ function ClosureProgramaPanel({closure, semanas, tiposEmbalaje, exportadoras, cl
                       ))}
                       <td style={{padding:"6px 8px", textAlign:"right", border:`1px solid ${C.border}`, fontFamily:"monospace", fontWeight:700}}>
                         {totalSem.toLocaleString("es-CL")}
+                      </td>
+                      <td style={{padding:"6px 8px", textAlign:"right", border:`1px solid ${C.border}`, fontFamily:"monospace", fontWeight:700, color:C.teal}}>
+                        {(sem.tipoEmbarque==="aereo")
+                          ? (sem.pallets ? `${Number(sem.pallets).toLocaleString("es-CL")} pal` : "—")
+                          : (sem.contenedoresFCL ? Number(sem.contenedoresFCL).toLocaleString("es-CL") : "—")}
                       </td>
                       <td style={{padding:"6px 8px", textAlign:"center", border:`1px solid ${C.border}`}}>
                         <span style={{
@@ -2071,6 +2381,7 @@ function ClosureProgramaPanel({closure, semanas, tiposEmbalaje, exportadoras, cl
                   <td style={{padding:"6px 8px", textAlign:"right", border:`1px solid ${C.border}`, fontFamily:"monospace", color:C.teal}}>
                     {totalReal.toLocaleString("es-CL")}
                   </td>
+                  <td style={{padding:"6px 8px", textAlign:"right", border:`1px solid ${C.border}`, fontFamily:"monospace", color:C.muted2}}>—</td>
                   <td colSpan={canEdit?2:1} style={{border:`1px solid ${C.border}`}}/>
                 </tr>
                 {/* Fila de variación */}
@@ -2099,6 +2410,9 @@ function ClosureProgramaPanel({closure, semanas, tiposEmbalaje, exportadoras, cl
                       </div>
                     )}
                   </td>
+                  <td style={{padding:"6px 8px", textAlign:"right", border:`1px solid ${C.border}`, fontFamily:"monospace", fontWeight:700, color:C.teal}}>
+                    {semanasOrdenadas.reduce((s,x)=>s+(Number(x.contenedoresFCL)||0),0).toLocaleString("es-CL")}
+                  </td>
                   <td colSpan={canEdit?2:1} style={{border:`1px solid ${C.border}`}}/>
                 </tr>
               </tbody>
@@ -2122,8 +2436,10 @@ function ClosureProgramaPanel({closure, semanas, tiposEmbalaje, exportadoras, cl
         )}
 
         {canEdit && !esEditandoEste && (
-          <button onClick={()=>onAgregarSemana(closure.id)} style={{...btnSt(C.teal,true), fontSize:11, padding:"5px 12px"}}>
-            + Agregar semana
+          <button onClick={()=>onAgregarSemana(closure.id)}
+            style={{...btnSt(C.teal), fontSize:13, fontWeight:700, padding:"9px 18px", marginTop:4,
+              display:"inline-flex", alignItems:"center", gap:7, boxShadow:C.shadowSm}}>
+            <span style={{fontSize:16, lineHeight:1}}>＋</span> Agregar semana de programa
           </button>
         )}
       </div>
@@ -2281,10 +2597,7 @@ function OEForm({oe, exportadoras, clientes, notifys=[], especies, tiposEmbalaje
         </div>
         <div>
           <div style={lblSt}>Exportadora *</div>
-          <select value={buf.exportadoraId||""} onChange={e=>set("exportadoraId",e.target.value)} style={inputSt}>
-            <option value="">— seleccionar —</option>
-            {exportadoras.filter(e=>e.activo!==false).map(e=><option key={e.id} value={e.id}>{e.nombre}</option>)}
-          </select>
+          <ExportadoraPicker value={buf.exportadoraId} exportadoras={exportadoras} onChange={id=>set("exportadoraId",id)} style={inputSt}/>
         </div>
         <div>
           <div style={lblSt}>Cliente *</div>
@@ -2297,7 +2610,7 @@ function OEForm({oe, exportadoras, clientes, notifys=[], especies, tiposEmbalaje
           <div style={lblSt}>Especie *</div>
           <select value={buf.especieCodigo||""} onChange={e=>set("especieCodigo",e.target.value)} style={inputSt}>
             <option value="">— seleccionar —</option>
-            {especies.map(e=><option key={e.codigo} value={e.codigo}>{e.icono} {e.nombreEs}</option>)}
+            {especiesConFormatos(especies, tiposEmbalaje, buf.especieCodigo).map(e=><option key={e.codigo} value={e.codigo}>{e.icono} {e.nombreEs}</option>)}
           </select>
         </div>
       </div>
@@ -2487,7 +2800,7 @@ function OEForm({oe, exportadoras, clientes, notifys=[], especies, tiposEmbalaje
 // ── Carpeta COMEX ────────────────────────────────────────────────
 const DOCS_COMEX_DEFAULT = [
   "BL / AWB","Invoice Comercial","Packing List",
-  "Certificado Fitosanitario","Certificado de Origen","Seguro de Carga",
+  "Certificado Fitosanitario","Certificado de Origen","QC",
 ];
 
 function defaultCarpetaComex() {
@@ -2497,14 +2810,24 @@ function defaultCarpetaComex() {
   };
 }
 
+// Estado de documentos COMEX de un embarque: cuántos cargados, cuántos faltan.
+function comexEstado(oe) {
+  const docs = oe?.carpetaComex?.docs || [];
+  const total = docs.length || DOCS_COMEX_DEFAULT.length;
+  const ok = docs.filter(d=>d.url && d.estado!=="pendiente").length;
+  return { ok, total, faltan: total - ok, completo: (total - ok)===0 && ok>0 };
+}
+
 function CarpetaComexPanel({ oe, onGuardar, canEdit }) {
   const [cx, setCx] = useState(()=>{
     const saved = oe.carpetaComex;
     if(!saved) return defaultCarpetaComex();
-    const savedTipos = (saved.docs||[]).map(d=>d.tipo);
+    // Migración: "Seguro de Carga" pasó a llamarse "QC" (preserva el archivo cargado)
+    const docsMig = (saved.docs||[]).map(d=> d.tipo==="Seguro de Carga" ? {...d, tipo:"QC"} : d);
+    const savedTipos = docsMig.map(d=>d.tipo);
     const missing = DOCS_COMEX_DEFAULT.filter(t=>!savedTipos.includes(t))
       .map(tipo=>({id:uid(),tipo,nombre:"",url:"",fuente:"manual",fechaCarga:"",estado:"pendiente"}));
-    return { ...saved, docs:[...(saved.docs||[]),...missing], qcDestino:{...defaultCarpetaComex().qcDestino,...(saved.qcDestino||{})} };
+    return { ...saved, docs:[...docsMig,...missing], qcDestino:{...defaultCarpetaComex().qcDestino,...(saved.qcDestino||{})} };
   });
   const [dirty,    setDirty]    = useState(false);
   const [uploading,setUploading]= useState(new Set());
@@ -2806,7 +3129,15 @@ function OECard({oe, exportadoras, clientes, especies, tiposEmbalaje, onEditar, 
         <button onClick={()=>{ setShowCOMEX(v=>!v); setShowPL(false); }}
           style={{...btnSt(C.purple,!showCOMEX),fontSize:11,display:"flex",alignItems:"center",gap:5}}>
           📁 COMEX
-          {(()=>{ const cx=oe.carpetaComex; if(!cx) return null; const ok=(cx.docs||[]).filter(d=>d.url&&d.estado!=="pendiente").length; return ok>0?<span style={{background:`${C.purple}33`,borderRadius:10,padding:"1px 7px",fontSize:10,fontWeight:700}}>{ok}/{(cx.docs||[]).length}</span>:null; })()}
+          {(()=>{
+            const { ok, total, faltan, completo } = comexEstado(oe);
+            const col = completo ? C.green : C.warning;
+            return (
+              <span style={{background:`${col}22`,color:col,border:`1px solid ${col}55`,borderRadius:10,padding:"1px 7px",fontSize:10,fontWeight:700}}>
+                {completo ? `✓ ${ok}/${total}` : `⚠ faltan ${faltan}`}
+              </span>
+            );
+          })()}
           <span style={{fontSize:10,opacity:0.7}}>{showCOMEX?"▲":"▼"}</span>
         </button>
       </div>
@@ -3081,6 +3412,7 @@ function LiquidacionForm({ liq, embarques, clientes, exportadoras, especies, mon
   const [gastosDestino,  setGastosDestino]  = useState(()=> Array.isArray(liq?.gastosDestino) ? liq.gastosDestino.map(g=>({...g})) : [] );
   const [anticipo,       setAnticipo]       = useState(()=> liq?.anticipo!=null ? String(liq.anticipo) : "");
   const f = k => e => setForm(p=>({...p,[k]:e.target.value}));
+  const [buscarOE, setBuscarOE] = useState("");
 
   // Al elegir/cambiar la OE, la moneda de liquidación toma la del cliente
   // (ej. Global Fruit Point → EUR). No pisa la moneda guardada al abrir a editar.
@@ -3198,15 +3530,24 @@ function LiquidacionForm({ liq, embarques, clientes, exportadoras, especies, mon
         {/* OE */}
         <div style={{gridColumn:"1/-1"}}>
           <div style={lblSt}>Orden de embarque *</div>
+          <input value={buscarOE} onChange={e=>setBuscarOE(e.target.value)}
+            placeholder="🔍 Filtrar por N° contenedor o N° embarque…"
+            style={{...inputSt, marginBottom:6}}/>
           <select value={form.oeId} onChange={f("oeId")} style={inputSt}>
             <option value="">— Selecciona una OE —</option>
-            {[...embarques].sort((a,b)=>(b.fechaCreacion||"").localeCompare(a.fechaCreacion||"")).map(oe=>{
+            {[...embarques]
+              .filter(oe=>{
+                const q=buscarOE.trim().toLowerCase(); if(!q) return true;
+                return (oe.numeroContenedor||"").toLowerCase().includes(q)
+                  || (oe.numero||"").toLowerCase().includes(q);
+              })
+              .sort((a,b)=>(b.fechaCreacion||"").localeCompare(a.fechaCreacion||"")).map(oe=>{
               const exp = exportadoras.find(e=>e.id===oe.exportadoraId);
               const cli = clientes.find(c=>c.id===oe.clienteId);
               const esp = especies.find(e=>e.codigo===oe.especieCodigo);
               return (
                 <option key={oe.id} value={oe.id}>
-                  {oe.numero||oe.id.slice(-6)} — {exp?.nombre||"?"} → {cli?.nombre||"?"} {esp?.icono||""} T{oe.temporada||"?"} [{oe.estado||"borrador"}]
+                  {oe.numero||oe.id.slice(-6)} · {oe.numeroContenedor||"s/cont"} — {exp?.nombre||"?"} → {cli?.nombre||"?"} {esp?.icono||""} T{oe.temporada||"?"} [{oe.estado||"borrador"}]
                 </option>
               );
             })}
@@ -3958,6 +4299,1304 @@ function POCard({ po, clientes, paises=[], onEditar, onEliminar, onAvanzarEstado
 }
 
 // ═══════════════════════════════════════════════════════════════════
+// REPORTES BI — Ingreso Frisku por temporada (Fase 8, reporte #1)
+// Tabla de hechos = liquidaciones (comisión Frisku ya normalizada a USD),
+// enlazada a embarques → especie/cliente/exportadora.
+// Todo agregado en USD. Exportable a Excel (xlsx-js-style) y PDF (jsPDF).
+// ═══════════════════════════════════════════════════════════════════
+
+// Colores por especie (validados CVD, tema claro). Fallback al azul brand.
+const ESP_COLORS = {
+  CHE:"#d55e00", BLB:"#0072b2", GRP:"#7c3aed", UVA:"#7c3aed", PLM:"#e69f00",
+  KWI:"#009e73", AVO:"#2e7d32", MNG:"#e0913c", POM:"#c0392b", GLB:"#c98a18",
+};
+// Orden temporada agrícola Jul → Jun
+const MESES_TEMP = [
+  {m:7,lab:"Jul"},{m:8,lab:"Ago"},{m:9,lab:"Sep"},{m:10,lab:"Oct"},
+  {m:11,lab:"Nov"},{m:12,lab:"Dic"},{m:1,lab:"Ene"},{m:2,lab:"Feb"},
+  {m:3,lab:"Mar"},{m:4,lab:"Abr"},{m:5,lab:"May"},{m:6,lab:"Jun"},
+];
+
+const fmtUSD0 = (v) => "$" + new Intl.NumberFormat("es-CL",{maximumFractionDigits:0}).format(Number(v)||0);
+const fmtUSD2 = (v) => "$" + new Intl.NumberFormat("es-CL",{minimumFractionDigits:2,maximumFractionDigits:2}).format(Number(v)||0);
+const fmtN0   = (v) => new Intl.NumberFormat("es-CL",{maximumFractionDigits:0}).format(Number(v)||0);
+
+function ReportesTab({ liquidaciones, embarques, clientes, exportadoras, especies, mercados, paises, temporadas, programa, contratos, pos }) {
+  const [rep, setRep]       = useState("ingreso");   // "ingreso" | "rentabilidad" | "fcl"
+  const [groupBy, setGroupBy] = useState("especie"); // especie | mercado | cliente (reporte #2)
+  const [fclGroup, setFclGroup] = useState("ambos"); // especie | cliente | ambos (reporte #3)
+  const [temp, setTemp]     = useState("");   // "" = todas las temporadas
+  const [estado, setEstado] = useState("");   // "" = todos los estados
+  const [expPdf, setExpPdf] = useState(false);
+  const [expXls, setExpXls] = useState(false);
+
+  // Comisión Frisku en USD por liquidación (misma lógica que el KPI existente)
+  const comUSD = (liq) => Number(liq.monedaBase==="USD" ? liq.montoComisionFrisku : liq.montoComisionFriskuUSD) || 0;
+  const ventaUSD = (liq) => Number(liq.ventaTotalUSD ?? (liq.monedaBase==="USD" ? liq.ventaTotal : 0)) || 0;
+  const fobUSDv  = (liq) => Number(liq.fobUSD ?? (liq.monedaBase==="USD" ? liq.fob : 0)) || 0;
+  const oeDe     = (liq) => embarques.find(e=>e.id===liq.oeId);
+
+  // Temporadas presentes en las liquidaciones (para el selector)
+  const tempsDisponibles = useMemo(()=>{
+    const s = new Set();
+    liquidaciones.forEach(l => { if(l.temporada) s.add(l.temporada); });
+    return Array.from(s).sort().reverse();
+  },[liquidaciones]);
+
+  const liqs = useMemo(()=>liquidaciones.filter(l=>{
+    if(temp   && l.temporada !== temp) return false;
+    if(estado && (l.estado||"borrador") !== estado) return false;
+    return true;
+  }),[liquidaciones, temp, estado]);
+
+  // ── KPIs ──
+  const kpi = useMemo(()=>{
+    let comision=0, venta=0, fob=0, cajas=0;
+    const oes = new Set();
+    liqs.forEach(l=>{
+      comision += comUSD(l);
+      venta    += ventaUSD(l);
+      fob      += fobUSDv(l);
+      cajas    += Number(l.cajasVendidas)||0;
+      if(l.oeId) oes.add(l.oeId);
+    });
+    return {
+      comision, venta, fob, cajas,
+      nLiq: liqs.length,
+      nEmb: oes.size,
+      precioProm: cajas>0 ? venta/cajas : 0,
+      pctFob: fob>0 ? comision/fob*100 : 0,
+    };
+  },[liqs]);
+
+  // ── Por mes (temporada agrícola) ──
+  const porMes = useMemo(()=>{
+    const acc = Object.fromEntries(MESES_TEMP.map(x=>[x.m,0]));
+    liqs.forEach(l=>{
+      const mm = Number((l.fechaLiquidacion||"").slice(5,7));
+      if(acc[mm] != null) acc[mm] += comUSD(l);
+    });
+    return MESES_TEMP.map(x=>({lab:x.lab, monto:acc[x.m]}));
+  },[liqs]);
+  const maxMes = Math.max(1, ...porMes.map(x=>x.monto));
+
+  // ── Por especie ──
+  const porEspecie = useMemo(()=>{
+    const acc = {};
+    liqs.forEach(l=>{
+      const cod = oeDe(l)?.especieCodigo || "—";
+      acc[cod] = (acc[cod]||0) + comUSD(l);
+    });
+    return Object.entries(acc)
+      .map(([cod,monto])=>{ const e=especies.find(x=>x.codigo===cod); return {cod, monto, nombre:e?`${e.icono||""} ${e.nombreEs}`:cod, color:ESP_COLORS[cod]||C.blue}; })
+      .filter(x=>x.monto>0).sort((a,b)=>b.monto-a.monto);
+  },[liqs, especies, embarques]);
+
+  // ── Por cliente ──
+  const porCliente = useMemo(()=>{
+    const acc = {};
+    liqs.forEach(l=>{
+      const cid = oeDe(l)?.clienteId || "—";
+      acc[cid] = (acc[cid]||0) + comUSD(l);
+    });
+    return Object.entries(acc)
+      .map(([cid,monto])=>{ const c=clientes.find(x=>x.id===cid); return {cid, monto, nombre:c?.nombre||"— sin cliente —"}; })
+      .filter(x=>x.monto>0).sort((a,b)=>b.monto-a.monto);
+  },[liqs, clientes, embarques]);
+
+  const totalCom = kpi.comision || 1;
+  const maxEsp = Math.max(1, ...porEspecie.map(x=>x.monto));
+  const maxCli = Math.max(1, ...porCliente.map(x=>x.monto));
+  const tituloTemp = temp || "todas las temporadas";
+
+  // ── Detalle plano (para Excel) ──
+  const detalle = useMemo(()=>liqs.map(l=>{
+    const oe = oeDe(l);
+    const esp = especies.find(x=>x.codigo===oe?.especieCodigo);
+    const cli = clientes.find(x=>x.id===oe?.clienteId);
+    const exp = exportadoras.find(x=>x.id===oe?.exportadoraId);
+    return {
+      fecha: l.fechaLiquidacion||"", temporada: l.temporada||"",
+      oe: oe?.numero||"", estado: l.estado||"borrador",
+      cliente: cli?.nombre||"", exportadora: exp?.nombre||"",
+      especie: esp?.nombreEs||oe?.especieCodigo||"",
+      cajasVend: Number(l.cajasVendidas)||0,
+      ventaUSD: ventaUSD(l), fobUSD: fobUSDv(l),
+      cliPct: Number(l.cliPct)||0, friPct: Number(l.friPct)||0,
+      comisionUSD: comUSD(l),
+    };
+  }).sort((a,b)=>(b.fecha).localeCompare(a.fecha)),[liqs, especies, clientes, exportadoras, embarques]);
+
+  // ── Reporte #2: Rentabilidad por especie / mercado / cliente ──
+  const GROUP_LABEL = {especie:"especie", mercado:"mercado", cliente:"cliente"};
+  const rentRows = useMemo(()=>{
+    const acc = {};
+    liqs.forEach(l=>{
+      const oe = oeDe(l);
+      let key, label;
+      if(groupBy==="mercado"){
+        const cli = clientes.find(c=>c.id===oe?.clienteId);
+        const mc = cli?.mercadoCodigo || "";
+        key = mc || "—";
+        label = mercados.find(m=>m.codigo===mc)?.nombre || (cli?.pais ? `(${cli.pais})` : "— sin mercado —");
+      } else if(groupBy==="cliente"){
+        const cli = clientes.find(c=>c.id===oe?.clienteId);
+        key = cli?.id || "—"; label = cli?.nombre || "— sin cliente —";
+      } else {
+        const cod = oe?.especieCodigo || "—";
+        const e = especies.find(x=>x.codigo===cod);
+        key = cod; label = e ? `${e.icono||""} ${e.nombreEs}` : cod;
+      }
+      const a = acc[key] || (acc[key] = {label, cajas:0, ventaUSD:0, comisionUSD:0, fobUSD:0, color: groupBy==="especie" ? (ESP_COLORS[key]||C.blue) : C.blue});
+      a.cajas       += Number(l.cajasVendidas)||0;
+      a.ventaUSD    += ventaUSD(l);
+      a.comisionUSD += comUSD(l);
+      a.fobUSD      += fobUSDv(l);
+    });
+    return Object.values(acc).map(a=>({
+      ...a,
+      precioCaja: a.cajas>0 ? a.ventaUSD/a.cajas : 0,
+      pctFob:     a.fobUSD>0 ? a.comisionUSD/a.fobUSD*100 : 0,
+    })).sort((x,y)=>y.comisionUSD-x.comisionUSD);
+  },[liqs, groupBy, especies, clientes, mercados, embarques]);
+  const maxPrecio = Math.max(1, ...rentRows.map(x=>x.precioCaja));
+
+  // ── Reporte #3: Programa vs Real en FCL (contenedores) ──
+  // Plan = FCL programados (frisku_programa.contenedoresFCL) por especie/cliente
+  //   del Business Closure de cada semana.
+  // Real = OEs marítimas embarcadas (cada OE marítima no cancelada = 1 FCL).
+  const FCL_GLBL = {especie:"especie", cliente:"cliente", ambos:"especie y cliente"};
+  const fclGlab = FCL_GLBL[fclGroup];
+  const fclRows = useMemo(()=>{
+    const plan = {}, real = {}, meta = {};
+    const clave = (espCod, cliId) => {
+      const esp = especies.find(x=>x.codigo===espCod);
+      const cli = clientes.find(c=>c.id===cliId);
+      const eLab = esp ? `${esp.icono||""} ${esp.nombreEs}` : (espCod||"—");
+      const cLab = cli?.nombre || "— sin cliente —";
+      if(fclGroup==="cliente") return { k: cliId||"—", label: cLab, ec:null };
+      if(fclGroup==="ambos")   return { k:`${espCod||"—"}|${cliId||"—"}`, label:`${eLab} · ${cLab}`, ec:espCod };
+      return { k: espCod||"—", label: eLab, ec:espCod };
+    };
+    (programa||[]).forEach(sem=>{
+      if(sem.tipoEmbarque==="aereo") return; // FCL = solo marítimo
+      const clo = (contratos||[]).find(c=>c.id===sem.closureId);
+      if(temp && clo?.temporada && clo.temporada!==temp) return;
+      const {k,label,ec} = clave(clo?.especieCodigo, clo?.clienteId);
+      plan[k] = (plan[k]||0) + (Number(sem.contenedoresFCL)||0);
+      if(!meta[k]) meta[k] = { label, color: ec ? (ESP_COLORS[ec]||C.blue) : C.blue };
+    });
+    (embarques||[]).forEach(oe=>{
+      if((oe.estado||"borrador")==="cancelado") return;
+      if(oe.tipoEmbarque && oe.tipoEmbarque!=="maritimo") return; // FCL = marítimo
+      if(temp && oe.temporada && oe.temporada!==temp) return;
+      const {k,label,ec} = clave(oe.especieCodigo, oe.clienteId);
+      real[k] = (real[k]||0) + 1;
+      if(!meta[k]) meta[k] = { label, color: ec ? (ESP_COLORS[ec]||C.blue) : C.blue };
+    });
+    const keys = new Set([...Object.keys(plan), ...Object.keys(real)]);
+    return Array.from(keys).map(k=>{
+      const p = plan[k]||0, r = real[k]||0;
+      return { cod:k, nombre:meta[k]?.label||k, color:meta[k]?.color||C.blue,
+               plan:p, real:r, brecha:r-p, cumpl: p>0 ? r/p*100 : (r>0?100:0) };
+    }).filter(x=>x.plan>0||x.real>0).sort((a,b)=>(b.plan-a.plan)||(b.real-a.real));
+  },[programa, contratos, embarques, especies, clientes, temp, fclGroup]);
+  const fclTot = useMemo(()=>{
+    const plan = fclRows.reduce((s,x)=>s+x.plan,0);
+    const real = fclRows.reduce((s,x)=>s+x.real,0);
+    return { plan, real, brecha:real-plan, cumpl: plan>0 ? real/plan*100 : (real>0?100:0) };
+  },[fclRows]);
+  const maxFcl = Math.max(1, ...fclRows.map(x=>Math.max(x.plan,x.real)));
+
+  // ── Reporte #4: Pipeline de embarques (operativo) ──
+  const embFiltrados = useMemo(()=>(embarques||[]).filter(oe=> !temp || oe.temporada===temp),[embarques, temp]);
+  const PIPE_ESTADOS = [
+    {id:"borrador",   lab:"Borrador",   color:C.muted2},
+    {id:"confirmado", lab:"Confirmado", color:C.blue},
+    {id:"despachado", lab:"Despachado", color:C.green},
+    {id:"cancelado",  lab:"Cancelado",  color:C.accent},
+  ];
+  const pipe = useMemo(()=>{
+    const est = {borrador:0, confirmado:0, despachado:0, cancelado:0};
+    let maritimo=0, aereo=0, fcl=0, cajas=0;
+    embFiltrados.forEach(oe=>{
+      const e = oe.estado||"borrador"; est[e] = (est[e]||0)+1;
+      const via = oe.tipoEmbarque||"maritimo";
+      if(via==="aereo") aereo++; else maritimo++;
+      if(via!=="aereo" && e!=="cancelado") fcl++;
+      cajas += Object.values(oe.cajasPorFormato||{}).reduce((s,v)=>s+Number(v||0),0);
+    });
+    return { est, maritimo, aereo, fcl, cajas, total:embFiltrados.length };
+  },[embFiltrados]);
+  const proximos = useMemo(()=>embFiltrados
+    .filter(oe=>(oe.estado||"borrador")!=="cancelado")
+    .map(oe=>{
+      const cli = clientes.find(c=>c.id===oe.clienteId);
+      const exp = exportadoras.find(x=>x.id===oe.exportadoraId);
+      const esp = especies.find(x=>x.codigo===oe.especieCodigo);
+      return {
+        numero: oe.numero||"—", temporada:oe.temporada||"",
+        cliente: cli?.nombre||"—", exportadora: exp?.nombre||"—",
+        especie: esp?`${esp.icono||""} ${esp.nombreEs}`:(oe.especieCodigo||"—"),
+        via: (oe.tipoEmbarque||"maritimo")==="aereo"?"Aéreo":"Marítimo",
+        cont: oe.numeroContenedor||"—", origen:oe.origen||"—", destino:oe.destino||"—",
+        etd: oe.fechaDespacho||"", eta: oe.fechaETA||"", estado: oe.estado||"borrador",
+      };
+    })
+    .sort((a,b)=>(a.etd||"9999").localeCompare(b.etd||"9999")),
+  [embFiltrados, clientes, exportadoras, especies]);
+  const maxEst = Math.max(1, ...PIPE_ESTADOS.map(e=>pipe.est[e.id]||0));
+
+  // ── Reporte #5: Ranking de exportadoras ──
+  // Base = liquidaciones filtradas (respeta temporada + estado), enlazadas a
+  // su OE para obtener la exportadora. Merma desde cajasMerma/cajasEmbarcadas.
+  const expRows = useMemo(()=>{
+    const acc = {};
+    liqs.forEach(l=>{
+      const oe = oeDe(l);
+      const eid = oe?.exportadoraId || "—";
+      const a = acc[eid] || (acc[eid]={comisionUSD:0, ventaUSD:0, cajasVend:0, cajasEmb:0, cajasMerma:0, oeIds:new Set()});
+      a.comisionUSD += comUSD(l);
+      a.ventaUSD    += ventaUSD(l);
+      a.cajasVend   += Number(l.cajasVendidas)||0;
+      a.cajasEmb    += Number(l.cajasEmbarcadas)||0;
+      a.cajasMerma  += Number(l.cajasMerma)||0;
+      if(l.oeId) a.oeIds.add(l.oeId);
+    });
+    return Object.entries(acc).map(([eid,a])=>{
+      const exp = exportadoras.find(x=>x.id===eid);
+      return {
+        eid, nombre: exp?.nombre || "— sin exportadora —",
+        comisionUSD:a.comisionUSD, ventaUSD:a.ventaUSD, cajasVend:a.cajasVend,
+        pctMerma: a.cajasEmb>0 ? a.cajasMerma/a.cajasEmb*100 : 0,
+        precioCaja: a.cajasVend>0 ? a.ventaUSD/a.cajasVend : 0,
+        nEmb: a.oeIds.size,
+      };
+    }).filter(x=>x.comisionUSD>0||x.ventaUSD>0).sort((a,b)=>b.comisionUSD-a.comisionUSD);
+  },[liqs, exportadoras, embarques]);
+  const maxExpCom = Math.max(1, ...expRows.map(x=>x.comisionUSD));
+
+  // ── Reporte #6: Cobranza / aging de comisión (PO) ──
+  // Fact = PO (notas de cobro al cliente). Cobrado = pagada; por cobrar =
+  // emitida; aging por días desde la fecha de emisión. Comisión en USD.
+  const COBR_BUCKETS = [
+    {id:"b1", lab:"0–30 días",  color:C.green},
+    {id:"b2", lab:"31–60 días", color:C.yellow},
+    {id:"b3", lab:"61–90 días", color:C.warning},
+    {id:"b4", lab:">90 días",   color:C.accent},
+  ];
+  const cobr = useMemo(()=>{
+    const diasDesde = (f)=>{ if(!f) return null; const t=new Date(f+"T00:00:00").getTime(); if(isNaN(t)) return null; return Math.floor((Date.now()-t)/86400000); };
+    const est = {borrador:{n:0,usd:0}, emitida:{n:0,usd:0}, pagada:{n:0,usd:0}};
+    const aging = {b1:0,b2:0,b3:0,b4:0};
+    const porCli = {};
+    let riesgo = 0;
+    (pos||[]).forEach(po=>{
+      const e = po.estado||"borrador";
+      const usd = Number(po.totalComisionUSD)||0;
+      if(!est[e]) est[e]={n:0,usd:0};
+      est[e].n++; est[e].usd += usd;
+      if(e==="emitida"){
+        const d = diasDesde(po.fecha);
+        if(d==null || d<=30) aging.b1+=usd;
+        else if(d<=60) aging.b2+=usd;
+        else if(d<=90) aging.b3+=usd;
+        else aging.b4+=usd;
+        if(d!=null && d>60) riesgo += usd;
+        const cli = clientes.find(c=>c.id===po.clienteId);
+        const k = po.clienteId||"—";
+        porCli[k] = porCli[k] || {nombre:cli?.nombre||"— sin cliente —", usd:0, n:0, maxDias:0};
+        porCli[k].usd += usd; porCli[k].n++;
+        if(d!=null && d>porCli[k].maxDias) porCli[k].maxDias = d;
+      }
+    });
+    return {
+      est, aging, riesgo,
+      porCliente: Object.values(porCli).sort((a,b)=>b.usd-a.usd),
+      totalUSD: est.borrador.usd+est.emitida.usd+est.pagada.usd,
+      cobrado: est.pagada.usd, porCobrar: est.emitida.usd, enBorrador: est.borrador.usd,
+    };
+  },[pos, clientes]);
+  const cobrAgingTot = cobr.aging.b1+cobr.aging.b2+cobr.aging.b3+cobr.aging.b4;
+  const maxCobrCli = Math.max(1, ...cobr.porCliente.map(x=>x.usd));
+
+  // ── Export Excel (ExcelJS · con logo Frisku) ──
+  const exportarExcel = async () => {
+    setExpXls(true);
+    try {
+      const ExcelJS = await fr_loadExcelJS();
+      const wb = new ExcelJS.Workbook();
+      wb.creator = "Grupo Mediterra — Frisku Foods";
+      const sub = `Ingreso Frisku por temporada · ${tituloTemp}${estado?" · "+estado:""} · ${new Date().toLocaleDateString("es-CL")}`;
+
+      // Resumen (con logo)
+      const wsR = wb.addWorksheet("Resumen");
+      fr_sheetTabla(wsR, {
+        titulo:"FRISKU FOODS", subtitulo:sub,
+        headers:["Indicador","Valor"], colWidths:[30,22], moneyCols:[],
+        rows:[
+          ["Comisión Frisku (USD)", Math.round(kpi.comision)],
+          ["Venta destino (USD)", Math.round(kpi.venta)],
+          ["FOB (USD)", Math.round(kpi.fob)],
+          ["Cajas vendidas", kpi.cajas],
+          ["Precio prom. USD/caja", Number(kpi.precioProm.toFixed(2))],
+          ["% efectivo s/FOB", Number(kpi.pctFob.toFixed(2))],
+          ["N° liquidaciones", kpi.nLiq],
+          ["N° embarques", kpi.nEmb],
+        ],
+      });
+      wsR.getCell("B5").numFmt='$#,##0'; wsR.getCell("B6").numFmt='$#,##0'; wsR.getCell("B7").numFmt='$#,##0';
+      wsR.getCell("B8").numFmt='#,##0'; wsR.getCell("B9").numFmt='$#,##0.00';
+      await fr_logoExcel(wb, wsR);
+
+      // Por mes
+      fr_sheetTabla(wb.addWorksheet("Por mes"), {
+        titulo:"Comisión Frisku por mes", subtitulo:sub,
+        headers:["Mes","Comisión Frisku (USD)"], colWidths:[12,24], moneyCols:[1],
+        rows: porMes.map(x=>[x.lab, Math.round(x.monto)]),
+        totalRow:["TOTAL", Math.round(kpi.comision)],
+      });
+      // Por especie
+      fr_sheetTabla(wb.addWorksheet("Por especie"), {
+        titulo:"Comisión por especie", subtitulo:sub,
+        headers:["Especie","Comisión (USD)","% del total"], colWidths:[24,18,12], moneyCols:[1],
+        rows: porEspecie.map(x=>[x.nombre, Math.round(x.monto), Number((x.monto/totalCom*100).toFixed(1))]),
+      });
+      // Por cliente
+      fr_sheetTabla(wb.addWorksheet("Por cliente"), {
+        titulo:"Comisión por cliente", subtitulo:sub,
+        headers:["Cliente","Comisión (USD)","% del total"], colWidths:[30,18,12], moneyCols:[1],
+        rows: porCliente.map(x=>[x.nombre, Math.round(x.monto), Number((x.monto/totalCom*100).toFixed(1))]),
+      });
+      // Detalle
+      fr_sheetTabla(wb.addWorksheet("Detalle"), {
+        titulo:"Detalle de liquidaciones", subtitulo:sub,
+        headers:["Fecha","Temp.","OE","Estado","Cliente","Exportadora","Especie","Cajas vend.","Venta USD","FOB USD","Cli %","Frisku %","Comisión USD"],
+        colWidths:[11,10,12,10,22,22,14,11,12,12,7,9,13], moneyCols:[8,9,12], intCols:[7],
+        rows: detalle.map(d=>[d.fecha,d.temporada,d.oe,d.estado,d.cliente,d.exportadora,d.especie,d.cajasVend,Math.round(d.ventaUSD),Math.round(d.fobUSD),d.cliPct,d.friPct,Math.round(d.comisionUSD)]),
+      });
+
+      await fr_descargarWB(wb, `Frisku_IngresoTemporada_${(temp||"todas").replace(/\W+/g,"-")}_${new Date().toISOString().slice(0,10)}.xlsx`);
+    } catch(e){ console.error("[Reportes] Excel:",e); alert("No se pudo generar el Excel: "+e.message); }
+    setExpXls(false);
+  };
+
+  // ── Export PDF (jsPDF + autoTable) ──
+  const exportarPDF = async () => {
+    setExpPdf(true);
+    try {
+      const JsPDF = await pl_loadJsPDF();
+      const doc = new JsPDF({orientation:"portrait", unit:"mm", format:"a4"});
+      const W=210, m=14;
+      doc.setFillColor(30,39,97); doc.rect(0,0,W,26,"F");
+      await fr_logoPDF(doc, W-m, 5, 46, 16);
+      doc.setTextColor(255,255,255); doc.setFontSize(15); doc.setFont("helvetica","bold");
+      doc.text("Frisku · Ingreso por temporada",m,12);
+      doc.setFontSize(9); doc.setFont("helvetica","normal");
+      doc.text(`Temporada: ${tituloTemp}${estado?" · Estado: "+estado:""} · ${new Date().toLocaleDateString("es-CL")}`,m,19);
+
+      // KPIs
+      doc.autoTable({
+        startY:32, theme:"grid",
+        headStyles:{fillColor:[45,58,82],textColor:255,fontStyle:"bold",fontSize:8},
+        styles:{fontSize:9,cellPadding:2.5},
+        head:[["Indicador","Valor","Indicador","Valor"]],
+        body:[
+          ["Comisión Frisku", fmtUSD0(kpi.comision), "Venta destino", fmtUSD0(kpi.venta)],
+          ["FOB", fmtUSD0(kpi.fob), "% efectivo s/FOB", kpi.pctFob.toFixed(2)+"%"],
+          ["Cajas vendidas", fmtN0(kpi.cajas), "Precio prom./caja", fmtUSD2(kpi.precioProm)],
+          ["N° liquidaciones", String(kpi.nLiq), "N° embarques", String(kpi.nEmb)],
+        ],
+        margin:{left:m,right:m},
+      });
+      let y = doc.lastAutoTable.finalY + 6;
+
+      doc.setTextColor(30,39,97); doc.setFontSize(10); doc.setFont("helvetica","bold");
+      doc.text("Comisión por especie",m,y); y+=2;
+      doc.autoTable({
+        startY:y, theme:"striped",
+        headStyles:{fillColor:[15,118,110],textColor:255,fontSize:8},
+        styles:{fontSize:8,cellPadding:2},
+        head:[["Especie","Comisión USD","% total"]],
+        body: porEspecie.length ? porEspecie.map(x=>[x.nombre, fmtUSD0(x.monto), (x.monto/totalCom*100).toFixed(1)+"%"]) : [["Sin datos","",""]],
+        columnStyles:{1:{halign:"right"},2:{halign:"right"}}, margin:{left:m,right:m},
+      });
+      y = doc.lastAutoTable.finalY + 6;
+
+      doc.setTextColor(30,39,97); doc.setFontSize(10); doc.setFont("helvetica","bold");
+      doc.text("Top clientes por comisión",m,y); y+=2;
+      doc.autoTable({
+        startY:y, theme:"striped",
+        headStyles:{fillColor:[30,39,97],textColor:255,fontSize:8},
+        styles:{fontSize:8,cellPadding:2},
+        head:[["Cliente","Comisión USD","% total"]],
+        body: porCliente.length ? porCliente.slice(0,12).map(x=>[x.nombre, fmtUSD0(x.monto), (x.monto/totalCom*100).toFixed(1)+"%"]) : [["Sin datos","",""]],
+        columnStyles:{1:{halign:"right"},2:{halign:"right"}}, margin:{left:m,right:m},
+      });
+
+      doc.save(`Frisku_IngresoTemporada_${(temp||"todas").replace(/\W+/g,"-")}_${new Date().toISOString().slice(0,10)}.pdf`);
+    } catch(e){ console.error("[Reportes] PDF:",e); alert("No se pudo generar el PDF: "+e.message); }
+    setExpPdf(false);
+  };
+
+  // ── Export reporte #2 (Rentabilidad) → Excel (ExcelJS · con logo) ──
+  const exportarRentExcel = async () => {
+    setExpXls(true);
+    try {
+      const ExcelJS = await fr_loadExcelJS();
+      const wb = new ExcelJS.Workbook();
+      wb.creator = "Grupo Mediterra — Frisku Foods";
+      const g = GROUP_LABEL[groupBy], G = g.charAt(0).toUpperCase()+g.slice(1);
+      const sub = `Rentabilidad por ${g} · ${tituloTemp}${estado?" · "+estado:""} · ${new Date().toLocaleDateString("es-CL")}`;
+      const ws = wb.addWorksheet(`Por ${g}`);
+      fr_sheetTabla(ws, {
+        titulo:"FRISKU FOODS", subtitulo:sub,
+        headers:[G,"Cajas vendidas","Venta USD","Comisión Frisku USD","Precio USD/caja","% s/FOB"],
+        colWidths:[28,15,14,20,15,10], moneyCols:[2,3], intCols:[1],
+        rows: rentRows.map(x=>[x.label, x.cajas, Math.round(x.ventaUSD), Math.round(x.comisionUSD), Number(x.precioCaja.toFixed(2)), Number(x.pctFob.toFixed(2))]),
+        totalRow:["TOTAL", kpi.cajas, Math.round(kpi.venta), Math.round(kpi.comision), Number(kpi.precioProm.toFixed(2)), Number(kpi.pctFob.toFixed(2))],
+      });
+      // formato USD/caja (col 5 = índice 4)
+      for(let r=5;r<=5+rentRows.length;r++){ ws.getCell(r,5).numFmt='$#,##0.00'; }
+      await fr_logoExcel(wb, ws);
+      await fr_descargarWB(wb, `Frisku_Rentabilidad_${g}_${(temp||"todas").replace(/\W+/g,"-")}_${new Date().toISOString().slice(0,10)}.xlsx`);
+    } catch(e){ console.error("[Reportes] Excel rent:",e); alert("No se pudo generar el Excel: "+e.message); }
+    setExpXls(false);
+  };
+
+  // ── Export reporte #2 (Rentabilidad) → PDF ──
+  const exportarRentPDF = async () => {
+    setExpPdf(true);
+    try {
+      const JsPDF = await pl_loadJsPDF();
+      const doc = new JsPDF({orientation:"portrait", unit:"mm", format:"a4"});
+      const W=210, m=14, g=GROUP_LABEL[groupBy];
+      doc.setFillColor(30,39,97); doc.rect(0,0,W,26,"F");
+      await fr_logoPDF(doc, W-m, 5, 46, 16);
+      doc.setTextColor(255,255,255); doc.setFontSize(15); doc.setFont("helvetica","bold");
+      doc.text(`Frisku · Rentabilidad por ${g}`,m,12);
+      doc.setFontSize(9); doc.setFont("helvetica","normal");
+      doc.text(`Temporada: ${tituloTemp}${estado?" · Estado: "+estado:""} · ${new Date().toLocaleDateString("es-CL")}`,m,19);
+      doc.autoTable({
+        startY:32, theme:"striped",
+        headStyles:{fillColor:[15,118,110],textColor:255,fontSize:8},
+        styles:{fontSize:8,cellPadding:2},
+        footStyles:{fillColor:[234,238,244],textColor:30,fontStyle:"bold"},
+        head:[[g.charAt(0).toUpperCase()+g.slice(1),"Cajas","Venta USD","Comisión USD","USD/caja","% s/FOB"]],
+        body: rentRows.length ? rentRows.map(x=>[x.label, fmtN0(x.cajas), fmtUSD0(x.ventaUSD), fmtUSD0(x.comisionUSD), fmtUSD2(x.precioCaja), x.pctFob.toFixed(1)+"%"]) : [["Sin datos","","","","",""]],
+        foot: [["TOTAL", fmtN0(kpi.cajas), fmtUSD0(kpi.venta), fmtUSD0(kpi.comision), fmtUSD2(kpi.precioProm), kpi.pctFob.toFixed(1)+"%"]],
+        columnStyles:{1:{halign:"right"},2:{halign:"right"},3:{halign:"right"},4:{halign:"right"},5:{halign:"right"}},
+        margin:{left:m,right:m},
+      });
+      doc.save(`Frisku_Rentabilidad_${g}_${(temp||"todas").replace(/\W+/g,"-")}_${new Date().toISOString().slice(0,10)}.pdf`);
+    } catch(e){ console.error("[Reportes] PDF rent:",e); alert("No se pudo generar el PDF: "+e.message); }
+    setExpPdf(false);
+  };
+
+  // ── Export reporte #3 (Programa vs Real FCL) → Excel ──
+  const exportarFclExcel = async () => {
+    setExpXls(true);
+    try {
+      const ExcelJS = await fr_loadExcelJS();
+      const wb = new ExcelJS.Workbook();
+      wb.creator = "Grupo Mediterra — Frisku Foods";
+      const sub = `Programa vs Real en FCL · por ${fclGlab} · ${tituloTemp} · ${new Date().toLocaleDateString("es-CL")}`;
+      const ws = wb.addWorksheet("Programa vs Real FCL");
+      fr_sheetTabla(ws, {
+        titulo:"FRISKU FOODS", subtitulo:sub,
+        headers:[fclGlab.charAt(0).toUpperCase()+fclGlab.slice(1),"FCL programados","FCL reales","Brecha","% cumplimiento"],
+        colWidths:[30,18,14,12,16], intCols:[1,2,3],
+        rows: fclRows.map(x=>[x.nombre, x.plan, x.real, x.brecha, Number(x.cumpl.toFixed(1))]),
+        totalRow:["TOTAL", fclTot.plan, fclTot.real, fclTot.brecha, Number(fclTot.cumpl.toFixed(1))],
+      });
+      await fr_logoExcel(wb, ws);
+      await fr_descargarWB(wb, `Frisku_ProgramaVsReal_FCL_${(temp||"todas").replace(/\W+/g,"-")}_${new Date().toISOString().slice(0,10)}.xlsx`);
+    } catch(e){ console.error("[Reportes] Excel fcl:",e); alert("No se pudo generar el Excel: "+e.message); }
+    setExpXls(false);
+  };
+  // ── Export reporte #3 (Programa vs Real FCL) → PDF ──
+  const exportarFclPDF = async () => {
+    setExpPdf(true);
+    try {
+      const JsPDF = await pl_loadJsPDF();
+      const doc = new JsPDF({orientation:"portrait", unit:"mm", format:"a4"});
+      const W=210, m=14;
+      doc.setFillColor(30,39,97); doc.rect(0,0,W,26,"F");
+      await fr_logoPDF(doc, W-m, 5, 46, 16);
+      doc.setTextColor(255,255,255); doc.setFontSize(15); doc.setFont("helvetica","bold");
+      doc.text("Frisku · Programa vs Real (FCL)",m,12);
+      doc.setFontSize(9); doc.setFont("helvetica","normal");
+      doc.text(`Por ${fclGlab} · Temporada: ${tituloTemp} · ${new Date().toLocaleDateString("es-CL")}`,m,19);
+      doc.autoTable({
+        startY:32, theme:"striped",
+        headStyles:{fillColor:[30,39,97],textColor:255,fontSize:8},
+        styles:{fontSize:8,cellPadding:2},
+        footStyles:{fillColor:[234,238,244],textColor:30,fontStyle:"bold"},
+        head:[[fclGlab.charAt(0).toUpperCase()+fclGlab.slice(1),"FCL prog.","FCL real","Brecha","% cumpl."]],
+        body: fclRows.length ? fclRows.map(x=>[x.nombre, fmtN0(x.plan), fmtN0(x.real), (x.brecha>0?"+":"")+fmtN0(x.brecha), x.cumpl.toFixed(1)+"%"]) : [["Sin datos","","","",""]],
+        foot: [["TOTAL", fmtN0(fclTot.plan), fmtN0(fclTot.real), (fclTot.brecha>0?"+":"")+fmtN0(fclTot.brecha), fclTot.cumpl.toFixed(1)+"%"]],
+        columnStyles:{1:{halign:"right"},2:{halign:"right"},3:{halign:"right"},4:{halign:"right"}},
+        margin:{left:m,right:m},
+      });
+      const fy = doc.lastAutoTable.finalY + 6;
+      doc.setFontSize(8); doc.setTextColor(120,120,120);
+      doc.text("FCL real = órdenes de embarque marítimas no canceladas (1 OE = 1 contenedor). Plan = contenedores del programa comercial.", m, fy, {maxWidth:W-2*m});
+      doc.save(`Frisku_ProgramaVsReal_FCL_${(temp||"todas").replace(/\W+/g,"-")}_${new Date().toISOString().slice(0,10)}.pdf`);
+    } catch(e){ console.error("[Reportes] PDF fcl:",e); alert("No se pudo generar el PDF: "+e.message); }
+    setExpPdf(false);
+  };
+
+  // ── Export reporte #4 (Pipeline de embarques) → Excel ──
+  const exportarPipeExcel = async () => {
+    setExpXls(true);
+    try {
+      const ExcelJS = await fr_loadExcelJS();
+      const wb = new ExcelJS.Workbook();
+      wb.creator = "Grupo Mediterra — Frisku Foods";
+      const sub = `Pipeline de embarques · ${tituloTemp} · ${new Date().toLocaleDateString("es-CL")}`;
+      // Resumen
+      const wsR = wb.addWorksheet("Resumen");
+      fr_sheetTabla(wsR, {
+        titulo:"FRISKU FOODS", subtitulo:sub,
+        headers:["Indicador","Valor"], colWidths:[26,16], intCols:[1],
+        rows:[
+          ["Embarques totales", pipe.total],
+          ["Marítimos", pipe.maritimo],
+          ["Aéreos", pipe.aereo],
+          ["Contenedores (FCL)", pipe.fcl],
+          ["Cajas totales", pipe.cajas],
+          ["Borrador", pipe.est.borrador||0],
+          ["Confirmado", pipe.est.confirmado||0],
+          ["Despachado", pipe.est.despachado||0],
+          ["Cancelado", pipe.est.cancelado||0],
+        ],
+      });
+      await fr_logoExcel(wb, wsR);
+      // Detalle
+      fr_sheetTabla(wb.addWorksheet("Embarques"), {
+        titulo:"Embarques", subtitulo:sub,
+        headers:["N°","Temp.","Cliente","Exportadora","Especie","Vía","Contenedor","Origen","Destino","ETD","ETA","Estado"],
+        colWidths:[12,10,22,22,16,10,14,14,14,11,11,11],
+        rows: proximos.map(x=>[x.numero,x.temporada,x.cliente,x.exportadora,x.especie,x.via,x.cont,x.origen,x.destino,x.etd,x.eta,x.estado]),
+      });
+      await fr_descargarWB(wb, `Frisku_Pipeline_Embarques_${(temp||"todas").replace(/\W+/g,"-")}_${new Date().toISOString().slice(0,10)}.xlsx`);
+    } catch(e){ console.error("[Reportes] Excel pipe:",e); alert("No se pudo generar el Excel: "+e.message); }
+    setExpXls(false);
+  };
+  // ── Export reporte #4 (Pipeline) → PDF ──
+  const exportarPipePDF = async () => {
+    setExpPdf(true);
+    try {
+      const JsPDF = await pl_loadJsPDF();
+      const doc = new JsPDF({orientation:"landscape", unit:"mm", format:"a4"});
+      const W=297, m=12;
+      doc.setFillColor(30,39,97); doc.rect(0,0,W,24,"F");
+      await fr_logoPDF(doc, W-m, 4, 42, 15);
+      doc.setTextColor(255,255,255); doc.setFontSize(15); doc.setFont("helvetica","bold");
+      doc.text("Frisku · Pipeline de embarques",m,11);
+      doc.setFontSize(9); doc.setFont("helvetica","normal");
+      doc.text(`Temporada: ${tituloTemp} · ${new Date().toLocaleDateString("es-CL")}`,m,18);
+      doc.autoTable({
+        startY:28, theme:"grid",
+        headStyles:{fillColor:[45,58,82],textColor:255,fontStyle:"bold",fontSize:8},
+        styles:{fontSize:8,cellPadding:2},
+        head:[["Total","Marítimo","Aéreo","FCL","Cajas","Borrador","Confirmado","Despachado","Cancelado"]],
+        body:[[fmtN0(pipe.total),fmtN0(pipe.maritimo),fmtN0(pipe.aereo),fmtN0(pipe.fcl),fmtN0(pipe.cajas),
+               fmtN0(pipe.est.borrador||0),fmtN0(pipe.est.confirmado||0),fmtN0(pipe.est.despachado||0),fmtN0(pipe.est.cancelado||0)]],
+        margin:{left:m,right:m}, columnStyles:Object.fromEntries([0,1,2,3,4,5,6,7,8].map(i=>[i,{halign:"right"}])),
+      });
+      let y = doc.lastAutoTable.finalY + 6;
+      doc.setTextColor(30,39,97); doc.setFontSize(10); doc.setFont("helvetica","bold");
+      doc.text("Detalle de embarques (por ETD)",m,y); y+=2;
+      doc.autoTable({
+        startY:y, theme:"striped",
+        headStyles:{fillColor:[30,39,97],textColor:255,fontSize:7.5},
+        styles:{fontSize:7.5,cellPadding:1.6},
+        head:[["N°","Cliente","Exportadora","Especie","Vía","Contenedor","Origen","Destino","ETD","ETA","Estado"]],
+        body: proximos.length ? proximos.map(x=>[x.numero,x.cliente,x.exportadora,x.especie,x.via,x.cont,x.origen,x.destino,x.etd,x.eta,x.estado]) : [["Sin embarques","","","","","","","","","",""]],
+        margin:{left:m,right:m},
+      });
+      doc.save(`Frisku_Pipeline_Embarques_${(temp||"todas").replace(/\W+/g,"-")}_${new Date().toISOString().slice(0,10)}.pdf`);
+    } catch(e){ console.error("[Reportes] PDF pipe:",e); alert("No se pudo generar el PDF: "+e.message); }
+    setExpPdf(false);
+  };
+
+  // ── Export reporte #5 (Ranking exportadoras) → Excel ──
+  const exportarExpExcel = async () => {
+    setExpXls(true);
+    try {
+      const ExcelJS = await fr_loadExcelJS();
+      const wb = new ExcelJS.Workbook();
+      wb.creator = "Grupo Mediterra — Frisku Foods";
+      const sub = `Ranking de exportadoras · ${tituloTemp}${estado?" · "+estado:""} · ${new Date().toLocaleDateString("es-CL")}`;
+      const ws = wb.addWorksheet("Ranking exportadoras");
+      fr_sheetTabla(ws, {
+        titulo:"FRISKU FOODS", subtitulo:sub,
+        headers:["Exportadora","Comisión USD","Venta USD","Cajas vend.","Precio USD/caja","% merma","N° emb."],
+        colWidths:[28,16,14,12,16,10,9], moneyCols:[1,2], intCols:[3,6],
+        rows: expRows.map(x=>[x.nombre, Math.round(x.comisionUSD), Math.round(x.ventaUSD), x.cajasVend, Number(x.precioCaja.toFixed(2)), Number(x.pctMerma.toFixed(1)), x.nEmb]),
+        totalRow:["TOTAL", Math.round(kpi.comision), Math.round(kpi.venta), kpi.cajas, Number(kpi.precioProm.toFixed(2)), "", ""],
+      });
+      for(let r=5;r<=5+expRows.length;r++){ ws.getCell(r,5).numFmt='$#,##0.00'; }
+      await fr_logoExcel(wb, ws);
+      await fr_descargarWB(wb, `Frisku_RankingExportadoras_${(temp||"todas").replace(/\W+/g,"-")}_${new Date().toISOString().slice(0,10)}.xlsx`);
+    } catch(e){ console.error("[Reportes] Excel exp:",e); alert("No se pudo generar el Excel: "+e.message); }
+    setExpXls(false);
+  };
+  // ── Export reporte #5 (Ranking exportadoras) → PDF ──
+  const exportarExpPDF = async () => {
+    setExpPdf(true);
+    try {
+      const JsPDF = await pl_loadJsPDF();
+      const doc = new JsPDF({orientation:"portrait", unit:"mm", format:"a4"});
+      const W=210, m=14;
+      doc.setFillColor(30,39,97); doc.rect(0,0,W,26,"F");
+      await fr_logoPDF(doc, W-m, 5, 46, 16);
+      doc.setTextColor(255,255,255); doc.setFontSize(15); doc.setFont("helvetica","bold");
+      doc.text("Frisku · Ranking de exportadoras",m,12);
+      doc.setFontSize(9); doc.setFont("helvetica","normal");
+      doc.text(`Temporada: ${tituloTemp}${estado?" · Estado: "+estado:""} · ${new Date().toLocaleDateString("es-CL")}`,m,19);
+      doc.autoTable({
+        startY:32, theme:"striped",
+        headStyles:{fillColor:[15,118,110],textColor:255,fontSize:8},
+        styles:{fontSize:8,cellPadding:2},
+        footStyles:{fillColor:[234,238,244],textColor:30,fontStyle:"bold"},
+        head:[["Exportadora","Comisión USD","Venta USD","Cajas","USD/caja","% merma","Emb."]],
+        body: expRows.length ? expRows.map(x=>[x.nombre, fmtUSD0(x.comisionUSD), fmtUSD0(x.ventaUSD), fmtN0(x.cajasVend), fmtUSD2(x.precioCaja), x.pctMerma.toFixed(1)+"%", String(x.nEmb)]) : [["Sin datos","","","","","",""]],
+        foot: [["TOTAL", fmtUSD0(kpi.comision), fmtUSD0(kpi.venta), fmtN0(kpi.cajas), fmtUSD2(kpi.precioProm), "", ""]],
+        columnStyles:{1:{halign:"right"},2:{halign:"right"},3:{halign:"right"},4:{halign:"right"},5:{halign:"right"},6:{halign:"right"}},
+        margin:{left:m,right:m},
+      });
+      doc.save(`Frisku_RankingExportadoras_${(temp||"todas").replace(/\W+/g,"-")}_${new Date().toISOString().slice(0,10)}.pdf`);
+    } catch(e){ console.error("[Reportes] PDF exp:",e); alert("No se pudo generar el PDF: "+e.message); }
+    setExpPdf(false);
+  };
+
+  // ── Export reporte #6 (Cobranza / aging) → Excel ──
+  const exportarCobrExcel = async () => {
+    setExpXls(true);
+    try {
+      const ExcelJS = await fr_loadExcelJS();
+      const wb = new ExcelJS.Workbook();
+      wb.creator = "Grupo Mediterra — Frisku Foods";
+      const sub = `Cobranza de comisión (PO) · ${new Date().toLocaleDateString("es-CL")}`;
+      // Resumen
+      const wsR = wb.addWorksheet("Resumen");
+      fr_sheetTabla(wsR, {
+        titulo:"FRISKU FOODS", subtitulo:sub,
+        headers:["Indicador","USD"], colWidths:[26,18], moneyCols:[1],
+        rows:[
+          ["Comisión total (PO)", Math.round(cobr.totalUSD)],
+          ["Cobrado (pagada)", Math.round(cobr.cobrado)],
+          ["Por cobrar (emitida)", Math.round(cobr.porCobrar)],
+          ["En borrador", Math.round(cobr.enBorrador)],
+          ["En riesgo (>60 días)", Math.round(cobr.riesgo)],
+          ["Aging 0–30", Math.round(cobr.aging.b1)],
+          ["Aging 31–60", Math.round(cobr.aging.b2)],
+          ["Aging 61–90", Math.round(cobr.aging.b3)],
+          ["Aging >90", Math.round(cobr.aging.b4)],
+        ],
+      });
+      await fr_logoExcel(wb, wsR);
+      // Por cliente (por cobrar)
+      fr_sheetTabla(wb.addWorksheet("Por cobrar x cliente"), {
+        titulo:"Por cobrar por cliente", subtitulo:sub,
+        headers:["Cliente","Por cobrar USD","N° PO","Días máx."], colWidths:[28,16,9,10], moneyCols:[1], intCols:[2,3],
+        rows: cobr.porCliente.map(x=>[x.nombre, Math.round(x.usd), x.n, x.maxDias]),
+        totalRow:["TOTAL", Math.round(cobr.porCobrar), cobr.est.emitida.n, ""],
+      });
+      await fr_descargarWB(wb, `Frisku_Cobranza_${new Date().toISOString().slice(0,10)}.xlsx`);
+    } catch(e){ console.error("[Reportes] Excel cobr:",e); alert("No se pudo generar el Excel: "+e.message); }
+    setExpXls(false);
+  };
+  // ── Export reporte #6 (Cobranza) → PDF ──
+  const exportarCobrPDF = async () => {
+    setExpPdf(true);
+    try {
+      const JsPDF = await pl_loadJsPDF();
+      const doc = new JsPDF({orientation:"portrait", unit:"mm", format:"a4"});
+      const W=210, m=14;
+      doc.setFillColor(30,39,97); doc.rect(0,0,W,26,"F");
+      await fr_logoPDF(doc, W-m, 5, 46, 16);
+      doc.setTextColor(255,255,255); doc.setFontSize(15); doc.setFont("helvetica","bold");
+      doc.text("Frisku · Cobranza de comisión",m,12);
+      doc.setFontSize(9); doc.setFont("helvetica","normal");
+      doc.text(`Notas de cobro (PO) · ${new Date().toLocaleDateString("es-CL")}`,m,19);
+      doc.autoTable({
+        startY:32, theme:"grid",
+        headStyles:{fillColor:[45,58,82],textColor:255,fontStyle:"bold",fontSize:8},
+        styles:{fontSize:9,cellPadding:2.5},
+        head:[["Indicador","USD","Aging","USD"]],
+        body:[
+          ["Comisión total (PO)", fmtUSD0(cobr.totalUSD), "0–30 días", fmtUSD0(cobr.aging.b1)],
+          ["Cobrado (pagada)", fmtUSD0(cobr.cobrado), "31–60 días", fmtUSD0(cobr.aging.b2)],
+          ["Por cobrar (emitida)", fmtUSD0(cobr.porCobrar), "61–90 días", fmtUSD0(cobr.aging.b3)],
+          ["En riesgo (>60 días)", fmtUSD0(cobr.riesgo), ">90 días", fmtUSD0(cobr.aging.b4)],
+        ],
+        margin:{left:m,right:m}, columnStyles:{1:{halign:"right"},3:{halign:"right"}},
+      });
+      let y = doc.lastAutoTable.finalY + 6;
+      doc.setTextColor(30,39,97); doc.setFontSize(10); doc.setFont("helvetica","bold");
+      doc.text("Por cobrar por cliente",m,y); y+=2;
+      doc.autoTable({
+        startY:y, theme:"striped",
+        headStyles:{fillColor:[30,39,97],textColor:255,fontSize:8},
+        styles:{fontSize:8,cellPadding:2},
+        head:[["Cliente","Por cobrar USD","N° PO","Días máx."]],
+        body: cobr.porCliente.length ? cobr.porCliente.map(x=>[x.nombre, fmtUSD0(x.usd), String(x.n), String(x.maxDias)]) : [["Sin PO por cobrar","","",""]],
+        columnStyles:{1:{halign:"right"},2:{halign:"right"},3:{halign:"right"}}, margin:{left:m,right:m},
+      });
+      doc.save(`Frisku_Cobranza_${new Date().toISOString().slice(0,10)}.pdf`);
+    } catch(e){ console.error("[Reportes] PDF cobr:",e); alert("No se pudo generar el PDF: "+e.message); }
+    setExpPdf(false);
+  };
+
+  // Dispatchers según el reporte activo
+  const doExcel = () => rep==="ingreso" ? exportarExcel() : rep==="rentabilidad" ? exportarRentExcel() : rep==="fcl" ? exportarFclExcel() : rep==="pipeline" ? exportarPipeExcel() : rep==="exportadoras" ? exportarExpExcel() : exportarCobrExcel();
+  const doPDF   = () => rep==="ingreso" ? exportarPDF()   : rep==="rentabilidad" ? exportarRentPDF()   : rep==="fcl" ? exportarFclPDF()   : rep==="pipeline" ? exportarPipePDF()   : rep==="exportadoras" ? exportarExpPDF()   : exportarCobrPDF();
+
+  const kpiCard = (lab, val, color, sub) => (
+    <div style={{background:C.card, border:`1px solid ${C.border}`, borderRadius:12, padding:"12px 14px", boxShadow:C.shadowSm}}>
+      <div style={{fontSize:10.5, color:C.muted, fontWeight:600, textTransform:"uppercase", letterSpacing:0.3}}>{lab}</div>
+      <div style={{fontSize:23, fontWeight:800, color:color||C.text, marginTop:5, lineHeight:1}}>{val}</div>
+      {sub && <div style={{fontSize:11, color:C.muted, marginTop:4}}>{sub}</div>}
+    </div>
+  );
+
+  const sinDatos = rep==="fcl"
+    ? ((programa||[]).length===0 && (embarques||[]).length===0)
+    : rep==="pipeline"
+    ? (embarques||[]).length===0
+    : rep==="cobranza"
+    ? (pos||[]).length===0
+    : liquidaciones.length === 0;
+  const msgVacio = rep==="fcl"
+    ? "Aún no hay programa ni embarques cargados. El reporte se puebla al registrar semanas de programa (con FCL) y órdenes de embarque marítimas."
+    : rep==="pipeline"
+    ? "Aún no hay órdenes de embarque cargadas. El pipeline se puebla desde la pestaña 🚢 Embarques."
+    : rep==="cobranza"
+    ? "Aún no hay notas de cobro (PO) generadas. Se crean desde 💰 Liquidaciones → PO y alimentan el aging de cobranza."
+    : "Aún no hay liquidaciones cargadas. El reporte se puebla automáticamente a medida que se registran liquidaciones en la pestaña 💰 Liquidaciones.";
+
+  return (
+    <div>
+      {/* Selector de reporte */}
+      <div style={{display:"flex", gap:6, marginBottom:14, flexWrap:"wrap"}}>
+        {[{id:"ingreso",lab:"💰 Ingreso por temporada"},{id:"rentabilidad",lab:"📊 Rentabilidad"},{id:"fcl",lab:"🚢 Programa vs Real (FCL)"},{id:"pipeline",lab:"📦 Pipeline embarques"},{id:"exportadoras",lab:"🏭 Ranking exportadoras"},{id:"cobranza",lab:"🧾 Cobranza (aging)"}].map(r=>(
+          <button key={r.id} onClick={()=>setRep(r.id)} style={{
+            padding:"7px 14px", borderRadius:8, cursor:"pointer", fontSize:12, fontWeight:rep===r.id?700:500,
+            border:`1px solid ${rep===r.id?C.blue:C.border}`,
+            background: rep===r.id ? C.blue : C.card, color: rep===r.id ? "#fff" : C.muted,
+          }}>{r.lab}</button>
+        ))}
+      </div>
+
+      {/* Toolbar */}
+      <div style={{display:"flex", gap:10, marginBottom:16, flexWrap:"wrap", alignItems:"flex-end"}}>
+        {rep!=="cobranza" && (
+          <div>
+            <div style={lblSt}>Temporada</div>
+            <select value={temp} onChange={e=>setTemp(e.target.value)} style={{...inputSt, minWidth:170}}>
+              <option value="">— Todas —</option>
+              {(tempsDisponibles.length?tempsDisponibles:temporadas.map(t=>t.codigo||t)).map(t=><option key={t} value={t}>{t}</option>)}
+            </select>
+          </div>
+        )}
+        {(rep==="ingreso"||rep==="rentabilidad"||rep==="exportadoras") && (
+          <div>
+            <div style={lblSt}>Estado</div>
+            <select value={estado} onChange={e=>setEstado(e.target.value)} style={{...inputSt, minWidth:140}}>
+              <option value="">— Todos —</option>
+              <option value="borrador">Borrador</option>
+              <option value="enviada">Enviada</option>
+              <option value="pagada">Pagada</option>
+            </select>
+          </div>
+        )}
+        {rep==="rentabilidad" && (
+          <div>
+            <div style={lblSt}>Agrupar por</div>
+            <select value={groupBy} onChange={e=>setGroupBy(e.target.value)} style={{...inputSt, minWidth:140}}>
+              <option value="especie">Especie</option>
+              <option value="mercado">Mercado</option>
+              <option value="cliente">Cliente</option>
+            </select>
+          </div>
+        )}
+        {rep==="fcl" && (
+          <div>
+            <div style={lblSt}>Agrupar por</div>
+            <select value={fclGroup} onChange={e=>setFclGroup(e.target.value)} style={{...inputSt, minWidth:160}}>
+              <option value="ambos">Especie + Cliente</option>
+              <option value="especie">Especie</option>
+              <option value="cliente">Cliente</option>
+            </select>
+          </div>
+        )}
+        <div style={{marginLeft:"auto", display:"flex", gap:8, alignItems:"flex-end"}}>
+          <button onClick={doExcel} disabled={expXls||sinDatos} style={{...btnSt(C.green), opacity:(expXls||sinDatos)?0.5:1}}>
+            {expXls?"Generando…":"▦ Excel"}
+          </button>
+          <button onClick={doPDF} disabled={expPdf||sinDatos} style={{...btnSt(C.accent), opacity:(expPdf||sinDatos)?0.5:1}}>
+            {expPdf?"Generando…":"▤ PDF"}
+          </button>
+        </div>
+      </div>
+
+      {sinDatos ? (
+        <div style={{padding:50, textAlign:"center", color:C.muted, fontSize:13, background:C.card, borderRadius:14}}>
+          {msgVacio}
+        </div>
+      ) : rep==="ingreso" ? (
+      <>
+        {/* KPIs */}
+        <div style={{display:"grid", gridTemplateColumns:"repeat(auto-fit, minmax(150px,1fr))", gap:12, marginBottom:16}}>
+          {kpiCard("Comisión Frisku", fmtUSD0(kpi.comision), C.accent2, `${kpi.pctFob.toFixed(1)}% del FOB`)}
+          {kpiCard("Venta destino", fmtUSD0(kpi.venta), C.blue)}
+          {kpiCard("Cajas vendidas", fmtN0(kpi.cajas), C.text)}
+          {kpiCard("Precio prom.", fmtUSD2(kpi.precioProm), C.text, "por caja")}
+          {kpiCard("Liquidaciones", String(kpi.nLiq), C.text, `${kpi.nEmb} embarques`)}
+        </div>
+
+        <div style={{display:"grid", gridTemplateColumns:"repeat(auto-fit, minmax(320px,1fr))", gap:14}}>
+          {/* Comisión por mes */}
+          <div style={{background:C.card, border:`1px solid ${C.border}`, borderRadius:14, padding:16, boxShadow:C.shadowSm}}>
+            <div style={{fontSize:14, fontWeight:700, marginBottom:2}}>Comisión Frisku por mes</div>
+            <div style={{fontSize:11, color:C.muted, marginBottom:12}}>Temporada agrícola Jul → Jun · USD</div>
+            <svg viewBox="0 0 640 210" width="100%" role="img" aria-label="Comisión por mes">
+              {[0,0.25,0.5,0.75,1].map((f,i)=>(
+                <line key={i} x1="34" y1={20+f*150} x2="628" y2={20+f*150} stroke={C.border} strokeWidth="1"/>
+              ))}
+              {porMes.map((x,i)=>{
+                const bw=40, gap=(628-34-bw*12)/12, xx=34+gap/2+i*(bw+gap);
+                const h=x.monto/maxMes*150, yy=170-h;
+                return (
+                  <g key={i}>
+                    <rect x={xx} y={yy} width={bw} height={Math.max(0,h)} rx="3" fill={C.accent2}>
+                      <title>{x.lab}: {fmtUSD0(x.monto)}</title>
+                    </rect>
+                    <text x={xx+bw/2} y="186" textAnchor="middle" fontSize="10" fill={C.muted2}>{x.lab}</text>
+                  </g>
+                );
+              })}
+            </svg>
+          </div>
+
+          {/* Comisión por especie */}
+          <div style={{background:C.card, border:`1px solid ${C.border}`, borderRadius:14, padding:16, boxShadow:C.shadowSm}}>
+            <div style={{fontSize:14, fontWeight:700, marginBottom:2}}>Comisión por especie</div>
+            <div style={{fontSize:11, color:C.muted, marginBottom:12}}>participación sobre {fmtUSD0(kpi.comision)}</div>
+            {porEspecie.length===0 ? <div style={{color:C.muted, fontSize:12, padding:"20px 0"}}>Sin datos por especie (¿liquidaciones sin embarque asociado?).</div> :
+              porEspecie.map(x=>(
+                <div key={x.cod} style={{display:"grid", gridTemplateColumns:"120px 1fr auto", alignItems:"center", gap:10, padding:"5px 0"}}>
+                  <span style={{fontSize:12.5, color:C.text, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis"}}>{x.nombre}</span>
+                  <div style={{height:15, borderRadius:5, background:C.cardAlt, overflow:"hidden"}}>
+                    <div style={{width:`${x.monto/maxEsp*100}%`, height:"100%", background:x.color, borderRadius:5}}/>
+                  </div>
+                  <span style={{fontSize:12.5, fontWeight:700, textAlign:"right", minWidth:96}}>{fmtUSD0(x.monto)} <span style={{color:C.muted, fontWeight:500}}>{(x.monto/totalCom*100).toFixed(0)}%</span></span>
+                </div>
+              ))
+            }
+          </div>
+
+          {/* Top clientes */}
+          <div style={{background:C.card, border:`1px solid ${C.border}`, borderRadius:14, padding:16, boxShadow:C.shadowSm}}>
+            <div style={{fontSize:14, fontWeight:700, marginBottom:2}}>Top clientes por comisión</div>
+            <div style={{fontSize:11, color:C.muted, marginBottom:12}}>USD · {tituloTemp}</div>
+            {porCliente.slice(0,10).map((x,i)=>(
+              <div key={x.cid} style={{display:"grid", gridTemplateColumns:"130px 1fr auto", alignItems:"center", gap:10, padding:"5px 0"}}>
+                <span style={{fontSize:12.5, color:C.text, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis"}}>{x.nombre}</span>
+                <div style={{height:15, borderRadius:5, background:C.cardAlt, overflow:"hidden"}}>
+                  <div style={{width:`${x.monto/maxCli*100}%`, height:"100%", background:C.blue, borderRadius:5}}/>
+                </div>
+                <span style={{fontSize:12.5, fontWeight:700, textAlign:"right", minWidth:80}}>{fmtUSD0(x.monto)}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div style={{fontSize:11, color:C.muted2, marginTop:14, textAlign:"center"}}>
+          Fuente: {kpi.nLiq} liquidación{kpi.nLiq!==1?"es":""} · comisión Frisku normalizada a USD vía TC. Reporte #1 de la Fase 8 (Dashboards CFO).
+        </div>
+      </>
+      ) : rep==="rentabilidad" ? (
+      <>
+        {/* KPIs (rentabilidad) */}
+        <div style={{display:"grid", gridTemplateColumns:"repeat(auto-fit, minmax(150px,1fr))", gap:12, marginBottom:16}}>
+          {kpiCard("Comisión Frisku", fmtUSD0(kpi.comision), C.accent2)}
+          {kpiCard("Venta destino", fmtUSD0(kpi.venta), C.blue)}
+          {kpiCard("Cajas vendidas", fmtN0(kpi.cajas), C.text)}
+          {kpiCard("Precio prom.", fmtUSD2(kpi.precioProm), C.text, "por caja")}
+          {kpiCard("% s/FOB", kpi.pctFob.toFixed(1)+"%", C.accent2, "comisión efectiva")}
+        </div>
+
+        {/* Tabla pivote */}
+        <div style={{background:C.card, border:`1px solid ${C.border}`, borderRadius:14, padding:16, boxShadow:C.shadowSm, marginBottom:14, overflowX:"auto"}}>
+          <div style={{fontSize:14, fontWeight:700, marginBottom:2}}>Rentabilidad por {GROUP_LABEL[groupBy]}</div>
+          <div style={{fontSize:11, color:C.muted, marginBottom:12}}>{tituloTemp} · USD</div>
+          {rentRows.length===0 ? <div style={{color:C.muted, fontSize:12, padding:"18px 0"}}>Sin datos.</div> : (
+          <table style={{width:"100%", borderCollapse:"collapse", fontSize:12.5, fontVariantNumeric:"tabular-nums"}}>
+            <thead><tr style={{background:C.primary}}>
+              {[GROUP_LABEL[groupBy].charAt(0).toUpperCase()+GROUP_LABEL[groupBy].slice(1),"Cajas","Venta USD","Comisión USD","USD/caja","% s/FOB"].map((h,i)=>(
+                <th key={h} style={{padding:"7px 10px", textAlign:i===0?"left":"right", color:C.primaryText, fontWeight:700, fontSize:10.5}}>{h}</th>
+              ))}
+            </tr></thead>
+            <tbody>
+              {rentRows.map((x,i)=>(
+                <tr key={i} style={{background:i%2?C.rowAlt:C.card, borderBottom:`1px solid ${C.border}`}}>
+                  <td style={{padding:"7px 10px", color:C.text, display:"flex", alignItems:"center", gap:7}}>
+                    <span style={{width:9, height:9, borderRadius:2, background:x.color, flex:"none"}}/>{x.label}
+                  </td>
+                  <td style={{padding:"7px 10px", textAlign:"right"}}>{fmtN0(x.cajas)}</td>
+                  <td style={{padding:"7px 10px", textAlign:"right"}}>{fmtUSD0(x.ventaUSD)}</td>
+                  <td style={{padding:"7px 10px", textAlign:"right", fontWeight:700}}>{fmtUSD0(x.comisionUSD)}</td>
+                  <td style={{padding:"7px 10px", textAlign:"right"}}>{fmtUSD2(x.precioCaja)}</td>
+                  <td style={{padding:"7px 10px", textAlign:"right", color:C.muted}}>{x.pctFob.toFixed(1)}%</td>
+                </tr>
+              ))}
+              <tr style={{background:C.cardAlt, fontWeight:800}}>
+                <td style={{padding:"8px 10px"}}>TOTAL</td>
+                <td style={{padding:"8px 10px", textAlign:"right"}}>{fmtN0(kpi.cajas)}</td>
+                <td style={{padding:"8px 10px", textAlign:"right"}}>{fmtUSD0(kpi.venta)}</td>
+                <td style={{padding:"8px 10px", textAlign:"right"}}>{fmtUSD0(kpi.comision)}</td>
+                <td style={{padding:"8px 10px", textAlign:"right"}}>{fmtUSD2(kpi.precioProm)}</td>
+                <td style={{padding:"8px 10px", textAlign:"right"}}>{kpi.pctFob.toFixed(1)}%</td>
+              </tr>
+            </tbody>
+          </table>
+          )}
+        </div>
+
+        {/* Precio promedio USD/caja por grupo */}
+        <div style={{background:C.card, border:`1px solid ${C.border}`, borderRadius:14, padding:16, boxShadow:C.shadowSm}}>
+          <div style={{fontSize:14, fontWeight:700, marginBottom:2}}>Precio promedio USD/caja por {GROUP_LABEL[groupBy]}</div>
+          <div style={{fontSize:11, color:C.muted, marginBottom:12}}>venta destino ÷ cajas vendidas</div>
+          {rentRows.length===0 ? <div style={{color:C.muted, fontSize:12, padding:"18px 0"}}>Sin datos.</div> :
+            rentRows.map((x,i)=>(
+              <div key={i} style={{display:"grid", gridTemplateColumns:"150px 1fr auto", alignItems:"center", gap:10, padding:"5px 0"}}>
+                <span style={{fontSize:12.5, color:C.text, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis"}}>{x.label}</span>
+                <div style={{height:15, borderRadius:5, background:C.cardAlt, overflow:"hidden"}}>
+                  <div style={{width:`${x.precioCaja/maxPrecio*100}%`, height:"100%", background:x.color, borderRadius:5}}/>
+                </div>
+                <span style={{fontSize:12.5, fontWeight:700, textAlign:"right", minWidth:80}}>{fmtUSD2(x.precioCaja)}</span>
+              </div>
+            ))
+          }
+        </div>
+
+        <div style={{fontSize:11, color:C.muted2, marginTop:14, textAlign:"center"}}>
+          Reporte #2 de la Fase 8 · agrupa {kpi.nLiq} liquidación{kpi.nLiq!==1?"es":""} por {GROUP_LABEL[groupBy]}. % s/FOB = comisión Frisku efectiva sobre FOB.
+        </div>
+      </>
+      ) : rep==="fcl" ? (
+      <>
+        {/* KPIs (FCL) */}
+        <div style={{display:"grid", gridTemplateColumns:"repeat(auto-fit, minmax(150px,1fr))", gap:12, marginBottom:16}}>
+          {kpiCard("FCL programados", fmtN0(fclTot.plan), C.blue, "contenedores plan")}
+          {kpiCard("FCL reales", fmtN0(fclTot.real), C.teal, "OEs marítimas")}
+          {kpiCard("Brecha", (fclTot.brecha>0?"+":"")+fmtN0(fclTot.brecha), fclTot.brecha<0?C.accent:C.green, "real − plan")}
+          {kpiCard("Cumplimiento", fclTot.cumpl.toFixed(0)+"%", fclTot.cumpl>=100?C.green:fclTot.cumpl>=80?C.yellow:C.accent)}
+        </div>
+
+        {/* Gráfico Plan vs Real por {fclGlab} */}
+        <div style={{background:C.card, border:`1px solid ${C.border}`, borderRadius:14, padding:16, boxShadow:C.shadowSm, marginBottom:14}}>
+          <div style={{fontSize:14, fontWeight:700, marginBottom:2}}>Programa vs Real por {fclGlab}</div>
+          <div style={{fontSize:11, color:C.muted, marginBottom:12}}>contenedores (FCL) · {tituloTemp}</div>
+          {fclRows.length===0 ? <div style={{color:C.muted, fontSize:12, padding:"18px 0"}}>Sin datos de programa ni embarques marítimos.</div> :
+            fclRows.map(x=>(
+              <div key={x.cod} style={{marginBottom:12}}>
+                <div style={{display:"flex", justifyContent:"space-between", fontSize:12.5, marginBottom:4}}>
+                  <span style={{color:C.text, display:"flex", gap:6, alignItems:"center"}}>
+                    <span style={{width:9, height:9, borderRadius:2, background:x.color}}/>{x.nombre}
+                  </span>
+                  <span style={{color:C.muted}}>
+                    <b style={{color:C.text}}>{fmtN0(x.real)}</b> / {fmtN0(x.plan)} FCL · <span style={{color:x.cumpl>=100?C.green:x.cumpl>=80?C.yellow:C.accent, fontWeight:700}}>{x.cumpl.toFixed(0)}%</span>
+                  </span>
+                </div>
+                {/* barra plan (fondo tenue) + real (color) */}
+                <div style={{position:"relative", height:20, borderRadius:5, background:C.cardAlt, overflow:"hidden"}}>
+                  <div style={{position:"absolute", left:0, top:0, height:"100%", width:`${x.plan/maxFcl*100}%`, background:`${x.color}33`}}/>
+                  <div style={{position:"absolute", left:0, top:0, height:"100%", width:`${x.real/maxFcl*100}%`, background:x.color, borderRadius:5}}/>
+                </div>
+              </div>
+            ))
+          }
+          {fclRows.length>0 && (
+            <div style={{display:"flex", gap:16, marginTop:6, fontSize:11, color:C.muted}}>
+              <span style={{display:"flex", gap:6, alignItems:"center"}}><span style={{width:12, height:10, borderRadius:2, background:`${C.blue}33`}}/>Programado (plan)</span>
+              <span style={{display:"flex", gap:6, alignItems:"center"}}><span style={{width:12, height:10, borderRadius:2, background:C.blue}}/>Real embarcado</span>
+            </div>
+          )}
+        </div>
+
+        {/* Tabla FCL */}
+        <div style={{background:C.card, border:`1px solid ${C.border}`, borderRadius:14, padding:16, boxShadow:C.shadowSm, overflowX:"auto"}}>
+          <div style={{fontSize:14, fontWeight:700, marginBottom:10}}>Detalle por {fclGlab}</div>
+          <table style={{width:"100%", borderCollapse:"collapse", fontSize:12.5, fontVariantNumeric:"tabular-nums"}}>
+            <thead><tr style={{background:C.primary}}>
+              {[fclGlab.charAt(0).toUpperCase()+fclGlab.slice(1),"FCL prog.","FCL real","Brecha","% cumpl."].map((h,i)=>(
+                <th key={h} style={{padding:"7px 10px", textAlign:i===0?"left":"right", color:C.primaryText, fontWeight:700, fontSize:10.5}}>{h}</th>
+              ))}
+            </tr></thead>
+            <tbody>
+              {fclRows.map((x,i)=>(
+                <tr key={x.cod} style={{background:i%2?C.rowAlt:C.card, borderBottom:`1px solid ${C.border}`}}>
+                  <td style={{padding:"7px 10px", color:C.text}}>{x.nombre}</td>
+                  <td style={{padding:"7px 10px", textAlign:"right"}}>{fmtN0(x.plan)}</td>
+                  <td style={{padding:"7px 10px", textAlign:"right", fontWeight:700}}>{fmtN0(x.real)}</td>
+                  <td style={{padding:"7px 10px", textAlign:"right", color:x.brecha<0?C.accent:C.green}}>{x.brecha>0?"+":""}{fmtN0(x.brecha)}</td>
+                  <td style={{padding:"7px 10px", textAlign:"right", color:x.cumpl>=100?C.green:x.cumpl>=80?C.yellow:C.accent, fontWeight:700}}>{x.cumpl.toFixed(0)}%</td>
+                </tr>
+              ))}
+              <tr style={{background:C.cardAlt, fontWeight:800}}>
+                <td style={{padding:"8px 10px"}}>TOTAL</td>
+                <td style={{padding:"8px 10px", textAlign:"right"}}>{fmtN0(fclTot.plan)}</td>
+                <td style={{padding:"8px 10px", textAlign:"right"}}>{fmtN0(fclTot.real)}</td>
+                <td style={{padding:"8px 10px", textAlign:"right", color:fclTot.brecha<0?C.accent:C.green}}>{fclTot.brecha>0?"+":""}{fmtN0(fclTot.brecha)}</td>
+                <td style={{padding:"8px 10px", textAlign:"right"}}>{fclTot.cumpl.toFixed(0)}%</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div style={{fontSize:11, color:C.muted2, marginTop:14, textAlign:"center"}}>
+          Reporte #3 de la Fase 8 · agrupado por {fclGlab} · FCL real = OEs marítimas no canceladas (1 OE = 1 contenedor). Plan = contenedores del programa comercial.
+        </div>
+      </>
+      ) : rep==="pipeline" ? (
+      <>
+        {/* KPIs (pipeline) */}
+        <div style={{display:"grid", gridTemplateColumns:"repeat(auto-fit, minmax(140px,1fr))", gap:12, marginBottom:16}}>
+          {kpiCard("Embarques", fmtN0(pipe.total), C.text)}
+          {kpiCard("Marítimos", fmtN0(pipe.maritimo), C.blue, `${fmtN0(pipe.aereo)} aéreos`)}
+          {kpiCard("Contenedores", fmtN0(pipe.fcl), C.teal, "FCL activos")}
+          {kpiCard("Cajas", fmtN0(pipe.cajas), C.text)}
+          {kpiCard("Despachados", fmtN0(pipe.est.despachado||0), C.green, `${fmtN0(pipe.est.confirmado||0)} confirmados`)}
+        </div>
+
+        {/* Embudo por estado + vía */}
+        <div style={{display:"grid", gridTemplateColumns:"repeat(auto-fit, minmax(300px,1fr))", gap:14, marginBottom:14}}>
+          <div style={{background:C.card, border:`1px solid ${C.border}`, borderRadius:14, padding:16, boxShadow:C.shadowSm}}>
+            <div style={{fontSize:14, fontWeight:700, marginBottom:12}}>Embarques por estado</div>
+            {PIPE_ESTADOS.map(e=>{
+              const n = pipe.est[e.id]||0;
+              return (
+                <div key={e.id} style={{display:"grid", gridTemplateColumns:"110px 1fr auto", alignItems:"center", gap:10, padding:"5px 0"}}>
+                  <span style={{fontSize:12.5, color:C.text}}>{e.lab}</span>
+                  <div style={{height:16, borderRadius:5, background:C.cardAlt, overflow:"hidden"}}>
+                    <div style={{width:`${n/maxEst*100}%`, height:"100%", background:e.color, borderRadius:5}}/>
+                  </div>
+                  <span style={{fontSize:12.5, fontWeight:700, textAlign:"right", minWidth:36}}>{fmtN0(n)}</span>
+                </div>
+              );
+            })}
+          </div>
+          <div style={{background:C.card, border:`1px solid ${C.border}`, borderRadius:14, padding:16, boxShadow:C.shadowSm}}>
+            <div style={{fontSize:14, fontWeight:700, marginBottom:12}}>Vía de embarque</div>
+            {[{lab:"🚢 Marítimo",n:pipe.maritimo,color:C.blue},{lab:"✈️ Aéreo",n:pipe.aereo,color:C.teal}].map((v,i)=>{
+              const tot = pipe.maritimo+pipe.aereo || 1;
+              return (
+                <div key={i} style={{display:"grid", gridTemplateColumns:"110px 1fr auto", alignItems:"center", gap:10, padding:"5px 0"}}>
+                  <span style={{fontSize:12.5, color:C.text}}>{v.lab}</span>
+                  <div style={{height:16, borderRadius:5, background:C.cardAlt, overflow:"hidden"}}>
+                    <div style={{width:`${v.n/tot*100}%`, height:"100%", background:v.color, borderRadius:5}}/>
+                  </div>
+                  <span style={{fontSize:12.5, fontWeight:700, textAlign:"right", minWidth:60}}>{fmtN0(v.n)} <span style={{color:C.muted, fontWeight:500}}>{(v.n/tot*100).toFixed(0)}%</span></span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Tabla de embarques */}
+        <div style={{background:C.card, border:`1px solid ${C.border}`, borderRadius:14, padding:16, boxShadow:C.shadowSm, overflowX:"auto"}}>
+          <div style={{fontSize:14, fontWeight:700, marginBottom:10}}>Embarques (orden por ETD)</div>
+          <table style={{width:"100%", borderCollapse:"collapse", fontSize:12, fontVariantNumeric:"tabular-nums", whiteSpace:"nowrap"}}>
+            <thead><tr style={{background:C.primary}}>
+              {["N°","Cliente","Especie","Vía","Contenedor","Origen → Destino","ETD","ETA","Estado"].map((h,i)=>(
+                <th key={h} style={{padding:"7px 9px", textAlign:"left", color:C.primaryText, fontWeight:700, fontSize:10.5}}>{h}</th>
+              ))}
+            </tr></thead>
+            <tbody>
+              {proximos.length===0 ? <tr><td colSpan={9} style={{padding:16, color:C.muted, textAlign:"center"}}>Sin embarques activos.</td></tr> :
+                proximos.map((x,i)=>{
+                  const est = PIPE_ESTADOS.find(e=>e.id===x.estado);
+                  return (
+                    <tr key={i} style={{background:i%2?C.rowAlt:C.card, borderBottom:`1px solid ${C.border}`}}>
+                      <td style={{padding:"6px 9px", fontFamily:"monospace", fontWeight:700, color:C.text}}>{x.numero}</td>
+                      <td style={{padding:"6px 9px", color:C.text}}>{x.cliente}</td>
+                      <td style={{padding:"6px 9px"}}>{x.especie}</td>
+                      <td style={{padding:"6px 9px"}}>{x.via}</td>
+                      <td style={{padding:"6px 9px", fontFamily:"monospace", color:C.muted}}>{x.cont}</td>
+                      <td style={{padding:"6px 9px", color:C.muted}}>{x.origen} → {x.destino}</td>
+                      <td style={{padding:"6px 9px", fontFamily:"monospace"}}>{x.etd||"—"}</td>
+                      <td style={{padding:"6px 9px", fontFamily:"monospace"}}>{x.eta||"—"}</td>
+                      <td style={{padding:"6px 9px"}}>
+                        <span style={{fontSize:10, fontWeight:700, padding:"2px 8px", borderRadius:10, background:`${est?.color||C.muted}22`, color:est?.color||C.muted}}>{est?.lab||x.estado}</span>
+                      </td>
+                    </tr>
+                  );
+                })
+              }
+            </tbody>
+          </table>
+        </div>
+
+        <div style={{fontSize:11, color:C.muted2, marginTop:14, textAlign:"center"}}>
+          Reporte #4 de la Fase 8 · pipeline operativo de {pipe.total} embarque{pipe.total!==1?"s":""} de la temporada. Cancelados excluidos del detalle.
+        </div>
+      </>
+      ) : rep==="exportadoras" ? (
+      <>
+        {/* KPIs (ranking exportadoras) */}
+        <div style={{display:"grid", gridTemplateColumns:"repeat(auto-fit, minmax(150px,1fr))", gap:12, marginBottom:16}}>
+          {kpiCard("Exportadoras", String(expRows.length), C.text, "con liquidación")}
+          {kpiCard("Comisión Frisku", fmtUSD0(kpi.comision), C.accent2)}
+          {kpiCard("Venta destino", fmtUSD0(kpi.venta), C.blue)}
+          {kpiCard("Cajas vendidas", fmtN0(kpi.cajas), C.text)}
+        </div>
+
+        {/* Ranking por comisión */}
+        <div style={{background:C.card, border:`1px solid ${C.border}`, borderRadius:14, padding:16, boxShadow:C.shadowSm, marginBottom:14}}>
+          <div style={{fontSize:14, fontWeight:700, marginBottom:2}}>Ranking por comisión Frisku</div>
+          <div style={{fontSize:11, color:C.muted, marginBottom:12}}>USD · {tituloTemp}</div>
+          {expRows.length===0 ? <div style={{color:C.muted, fontSize:12, padding:"18px 0"}}>Sin liquidaciones con exportadora asociada.</div> :
+            expRows.map((x,i)=>(
+              <div key={x.eid} style={{display:"grid", gridTemplateColumns:"170px 1fr auto", alignItems:"center", gap:10, padding:"5px 0"}}>
+                <span style={{fontSize:12.5, color:C.text, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis"}}>{i+1}. {x.nombre}</span>
+                <div style={{height:15, borderRadius:5, background:C.cardAlt, overflow:"hidden"}}>
+                  <div style={{width:`${x.comisionUSD/maxExpCom*100}%`, height:"100%", background:C.accent2, borderRadius:5}}/>
+                </div>
+                <span style={{fontSize:12.5, fontWeight:700, textAlign:"right", minWidth:80}}>{fmtUSD0(x.comisionUSD)}</span>
+              </div>
+            ))
+          }
+        </div>
+
+        {/* Tabla detalle exportadoras */}
+        <div style={{background:C.card, border:`1px solid ${C.border}`, borderRadius:14, padding:16, boxShadow:C.shadowSm, overflowX:"auto"}}>
+          <div style={{fontSize:14, fontWeight:700, marginBottom:10}}>Detalle por exportadora</div>
+          <table style={{width:"100%", borderCollapse:"collapse", fontSize:12.5, fontVariantNumeric:"tabular-nums", whiteSpace:"nowrap"}}>
+            <thead><tr style={{background:C.primary}}>
+              {["Exportadora","Comisión USD","Venta USD","Cajas","USD/caja","% merma","Emb."].map((h,i)=>(
+                <th key={h} style={{padding:"7px 10px", textAlign:i===0?"left":"right", color:C.primaryText, fontWeight:700, fontSize:10.5}}>{h}</th>
+              ))}
+            </tr></thead>
+            <tbody>
+              {expRows.map((x,i)=>(
+                <tr key={x.eid} style={{background:i%2?C.rowAlt:C.card, borderBottom:`1px solid ${C.border}`}}>
+                  <td style={{padding:"7px 10px", color:C.text}}>{x.nombre}</td>
+                  <td style={{padding:"7px 10px", textAlign:"right", fontWeight:700}}>{fmtUSD0(x.comisionUSD)}</td>
+                  <td style={{padding:"7px 10px", textAlign:"right"}}>{fmtUSD0(x.ventaUSD)}</td>
+                  <td style={{padding:"7px 10px", textAlign:"right"}}>{fmtN0(x.cajasVend)}</td>
+                  <td style={{padding:"7px 10px", textAlign:"right"}}>{fmtUSD2(x.precioCaja)}</td>
+                  <td style={{padding:"7px 10px", textAlign:"right", color:x.pctMerma>5?C.accent:C.muted}}>{x.pctMerma.toFixed(1)}%</td>
+                  <td style={{padding:"7px 10px", textAlign:"right", color:C.muted}}>{x.nEmb}</td>
+                </tr>
+              ))}
+              <tr style={{background:C.cardAlt, fontWeight:800}}>
+                <td style={{padding:"8px 10px"}}>TOTAL</td>
+                <td style={{padding:"8px 10px", textAlign:"right"}}>{fmtUSD0(kpi.comision)}</td>
+                <td style={{padding:"8px 10px", textAlign:"right"}}>{fmtUSD0(kpi.venta)}</td>
+                <td style={{padding:"8px 10px", textAlign:"right"}}>{fmtN0(kpi.cajas)}</td>
+                <td style={{padding:"8px 10px", textAlign:"right"}}>{fmtUSD2(kpi.precioProm)}</td>
+                <td style={{padding:"8px 10px", textAlign:"right"}}>—</td>
+                <td style={{padding:"8px 10px", textAlign:"right"}}>—</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div style={{fontSize:11, color:C.muted2, marginTop:14, textAlign:"center"}}>
+          Reporte #5 de la Fase 8 · {expRows.length} exportadora{expRows.length!==1?"s":""} con liquidación. % merma = cajas merma / cajas embarcadas.
+        </div>
+      </>
+      ) : (
+      <>
+        {/* KPIs (cobranza) */}
+        <div style={{display:"grid", gridTemplateColumns:"repeat(auto-fit, minmax(150px,1fr))", gap:12, marginBottom:16}}>
+          {kpiCard("Comisión total (PO)", fmtUSD0(cobr.totalUSD), C.text)}
+          {kpiCard("Cobrado", fmtUSD0(cobr.cobrado), C.green, "PO pagadas")}
+          {kpiCard("Por cobrar", fmtUSD0(cobr.porCobrar), C.blue, "PO emitidas")}
+          {kpiCard("En riesgo", fmtUSD0(cobr.riesgo), cobr.riesgo>0?C.accent:C.muted, ">60 días")}
+        </div>
+
+        <div style={{display:"grid", gridTemplateColumns:"repeat(auto-fit, minmax(300px,1fr))", gap:14, marginBottom:14}}>
+          {/* Aging */}
+          <div style={{background:C.card, border:`1px solid ${C.border}`, borderRadius:14, padding:16, boxShadow:C.shadowSm}}>
+            <div style={{fontSize:14, fontWeight:700, marginBottom:2}}>Aging de por cobrar</div>
+            <div style={{fontSize:11, color:C.muted, marginBottom:12}}>PO emitidas · días desde emisión</div>
+            {cobrAgingTot===0 ? <div style={{color:C.muted, fontSize:12, padding:"16px 0"}}>Sin PO emitidas pendientes.</div> : (<>
+              <div style={{display:"flex", height:22, borderRadius:6, overflow:"hidden", marginBottom:10}}>
+                {COBR_BUCKETS.map(b=>{
+                  const v = cobr.aging[b.id]||0; if(v===0) return null;
+                  return <div key={b.id} title={`${b.lab}: ${fmtUSD0(v)}`} style={{width:`${v/cobrAgingTot*100}%`, background:b.color}}/>;
+                })}
+              </div>
+              {COBR_BUCKETS.map(b=>(
+                <div key={b.id} style={{display:"grid", gridTemplateColumns:"90px 1fr auto", alignItems:"center", gap:10, padding:"3px 0"}}>
+                  <span style={{fontSize:12, color:C.text, display:"flex", gap:6, alignItems:"center"}}><span style={{width:9,height:9,borderRadius:2,background:b.color}}/>{b.lab}</span>
+                  <div style={{height:12, borderRadius:4, background:C.cardAlt, overflow:"hidden"}}>
+                    <div style={{width:`${(cobr.aging[b.id]||0)/cobrAgingTot*100}%`, height:"100%", background:b.color, borderRadius:4}}/>
+                  </div>
+                  <span style={{fontSize:12, fontWeight:700, textAlign:"right", minWidth:70}}>{fmtUSD0(cobr.aging[b.id]||0)}</span>
+                </div>
+              ))}
+            </>)}
+          </div>
+          {/* Estado */}
+          <div style={{background:C.card, border:`1px solid ${C.border}`, borderRadius:14, padding:16, boxShadow:C.shadowSm}}>
+            <div style={{fontSize:14, fontWeight:700, marginBottom:12}}>Comisión por estado de PO</div>
+            {[{id:"pagada",lab:"Pagada",color:C.green},{id:"emitida",lab:"Emitida",color:C.blue},{id:"borrador",lab:"Borrador",color:C.muted2}].map(e=>{
+              const usd = cobr.est[e.id]?.usd||0;
+              const pct = cobr.totalUSD>0 ? usd/cobr.totalUSD*100 : 0;
+              return (
+                <div key={e.id} style={{display:"grid", gridTemplateColumns:"90px 1fr auto", alignItems:"center", gap:10, padding:"5px 0"}}>
+                  <span style={{fontSize:12.5, color:C.text}}>{e.lab}</span>
+                  <div style={{height:16, borderRadius:5, background:C.cardAlt, overflow:"hidden"}}>
+                    <div style={{width:`${pct}%`, height:"100%", background:e.color, borderRadius:5}}/>
+                  </div>
+                  <span style={{fontSize:12.5, fontWeight:700, textAlign:"right", minWidth:80}}>{fmtUSD0(usd)} <span style={{color:C.muted, fontWeight:500}}>{pct.toFixed(0)}%</span></span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Por cobrar por cliente */}
+        <div style={{background:C.card, border:`1px solid ${C.border}`, borderRadius:14, padding:16, boxShadow:C.shadowSm, overflowX:"auto"}}>
+          <div style={{fontSize:14, fontWeight:700, marginBottom:10}}>Por cobrar por cliente</div>
+          <table style={{width:"100%", borderCollapse:"collapse", fontSize:12.5, fontVariantNumeric:"tabular-nums"}}>
+            <thead><tr style={{background:C.primary}}>
+              {["Cliente","Por cobrar USD","N° PO","Días máx."].map((h,i)=>(
+                <th key={h} style={{padding:"7px 10px", textAlign:i===0?"left":"right", color:C.primaryText, fontWeight:700, fontSize:10.5}}>{h}</th>
+              ))}
+            </tr></thead>
+            <tbody>
+              {cobr.porCliente.length===0 ? <tr><td colSpan={4} style={{padding:16, color:C.muted, textAlign:"center"}}>Sin PO por cobrar.</td></tr> :
+                cobr.porCliente.map((x,i)=>(
+                  <tr key={i} style={{background:i%2?C.rowAlt:C.card, borderBottom:`1px solid ${C.border}`}}>
+                    <td style={{padding:"7px 10px", color:C.text}}>{x.nombre}</td>
+                    <td style={{padding:"7px 10px", textAlign:"right", fontWeight:700}}>{fmtUSD0(x.usd)}</td>
+                    <td style={{padding:"7px 10px", textAlign:"right", color:C.muted}}>{x.n}</td>
+                    <td style={{padding:"7px 10px", textAlign:"right", color:x.maxDias>60?C.accent:C.muted}}>{x.maxDias} d</td>
+                  </tr>
+                ))
+              }
+            </tbody>
+          </table>
+        </div>
+
+        <div style={{fontSize:11, color:C.muted2, marginTop:14, textAlign:"center"}}>
+          Reporte #6 de la Fase 8 · cobranza sobre notas de cobro (PO), comisión en USD. Aging por fecha de emisión. Abarca todas las temporadas.
+        </div>
+      </>
+      )}
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════
 // COMPONENTE PRINCIPAL
 // ═══════════════════════════════════════════════════════════════════
 export default function FriskuComercialModule({
@@ -4018,6 +5657,7 @@ export default function FriskuComercialModule({
   const [filtroEspOE,     setFiltroEspOE]     = useState("");
   const [filtroEstadoOE,  setFiltroEstadoOE]  = useState("");
   const [filtroTempOE,    setFiltroTempOE]    = useState("");
+  const [soloDocsIncompletos, setSoloDocsIncompletos] = useState(false); // filtro: solo OE con docs COMEX faltantes
 
   const [cargando, setCargando] = useState(true);
   // GUARD anti-borrado: solo se guarda tras una carga EXITOSA.
@@ -4173,7 +5813,7 @@ export default function FriskuComercialModule({
   useEffect(()=>{
     if (cargando) return;
     // "maestros" cubre lo que antes eran sub-tabs separados (clientes/exportadoras)
-    if (tab === "maestros" || tab === "contratos" || tab === "embarques" || tab === "liquidaciones") {
+    if (tab === "maestros" || tab === "contratos" || tab === "embarques" || tab === "liquidaciones" || tab === "reportes") {
       recargarMaestros();
     }
   },[tab, cargando, recargarMaestros]);
@@ -4269,6 +5909,7 @@ export default function FriskuComercialModule({
   const permPrograma      = permTab("programa");
   const permEmbarques     = permTab("embarques");
   const permLiquidaciones = permTab("liquidaciones");
+  const permReportes      = permTab("reportes");
   const permMaestros      = permTab("maestros");
 
   // ── Filtrado de exportadoras ──
@@ -4379,10 +6020,12 @@ export default function FriskuComercialModule({
   const [filtroProgramaExp,  setFiltroProgramaExp]  = useState("");
   const [filtroProgramaCli,  setFiltroProgramaCli]  = useState("");
   const [filtroProgramaEsp,  setFiltroProgramaEsp]  = useState("");
+  const [filtroProgramaClosure, setFiltroProgramaClosure] = useState(""); // selector directo de un closure
   const [editandoSemana,     setEditandoSemana]     = useState(null);
   const [closureIdParaSemana,setClosureIdParaSemana]= useState(null);
 
-  const closuresParaPrograma = useMemo(()=>{
+  // Closures que pasan los filtros temp/exp/cli/esp (alimentan la lista desplegable)
+  const closuresOpciones = useMemo(()=>{
     return contratos.filter(bc=>{
       if(filtroProgramaTemp && bc.temporada    !== filtroProgramaTemp) return false;
       if(filtroProgramaExp  && bc.exportadoraId!== filtroProgramaExp)  return false;
@@ -4396,6 +6039,10 @@ export default function FriskuComercialModule({
       return eA.localeCompare(eB);
     });
   },[contratos, filtroProgramaTemp, filtroProgramaExp, filtroProgramaCli, filtroProgramaEsp, exportadoras]);
+  // Si además se eligió un closure puntual en la lista desplegable, mostrar solo ese
+  const closuresParaPrograma = useMemo(()=>
+    filtroProgramaClosure ? closuresOpciones.filter(bc=>bc.id===filtroProgramaClosure) : closuresOpciones,
+  [closuresOpciones, filtroProgramaClosure]);
 
   const semanasPorClosure = useMemo(()=>{
     const mapa = {};
@@ -4411,8 +6058,8 @@ export default function FriskuComercialModule({
     setClosureIdParaSemana(closureId);
     setEditandoSemana({
       id:"", closureId,
-      fechaSemana: getMondayStr(hoyLocal),
-      cajasPorFormato:{}, estado:"borrador", observ:"",
+      tipoEmbarque:"maritimo", etd:"", eta:"", fechaSemana: getMondayStr(hoyLocal),
+      cajasPorFormato:{}, contenedoresFCL:0, pallets:0, estado:"borrador", observ:"",
       fechaCreacion: new Date().toISOString(),
     });
   };
@@ -4536,6 +6183,7 @@ export default function FriskuComercialModule({
       if(filtroEspOE   && oe.especieCodigo !== filtroEspOE)   return false;
       if(filtroEstadoOE && (oe.estado||"borrador") !== filtroEstadoOE) return false;
       if(filtroTempOE  && oe.temporada     !== filtroTempOE)  return false;
+      if(soloDocsIncompletos && !((oe.estado||"borrador")!=="cancelado" && comexEstado(oe).faltan>0)) return false;
       if(q) {
         const exp = exportadoras.find(e=>e.id===oe.exportadoraId)?.nombre||"";
         const cli = clientes.find(c=>c.id===oe.clienteId)?.nombre||"";
@@ -4549,7 +6197,12 @@ export default function FriskuComercialModule({
       }
       return true;
     });
-  },[embarques, filtroExpOE, filtroCliOE, filtroEspOE, filtroEstadoOE, filtroTempOE, busquedaOE, exportadoras, clientes]);
+  },[embarques, filtroExpOE, filtroCliOE, filtroEspOE, filtroEstadoOE, filtroTempOE, soloDocsIncompletos, busquedaOE, exportadoras, clientes]);
+
+  // Embarques (no cancelados) con documentos COMEX faltantes — para el contador/alerta
+  const embarquesDocsIncompletos = useMemo(()=>
+    embarques.filter(oe=>(oe.estado||"borrador")!=="cancelado" && comexEstado(oe).faltan>0).length,
+  [embarques]);
 
   const hoy = new Date().toISOString().slice(0,10);
   const clientesConDocsFaltantes = clientes.filter(c =>
@@ -4720,6 +6373,7 @@ export default function FriskuComercialModule({
     {id:"programa",      label:"📅 Programa",      count:programa.length||null,             perm:permPrograma},
     {id:"embarques",     label:"🚢 Embarques",     count:embarques.length||null,            perm:permEmbarques},
     {id:"liquidaciones", label:"💰 Liquidaciones", count:liquidaciones.length||null,        perm:permLiquidaciones},
+    {id:"reportes",      label:"📈 Reportes",      count:null,                              perm:permReportes},
     {id:"maestros",      label:"🗂️ Maestros + TC", count:null,                              perm:permMaestros},
   ];
   const tabs = tabsAll.filter(t => t.perm.visible);
@@ -4947,24 +6601,28 @@ export default function FriskuComercialModule({
           <div>
             {/* Filtros */}
             <div style={{display:"flex", flexWrap:"wrap", gap:8, marginBottom:16, alignItems:"center"}}>
-              <select value={filtroProgramaTemp} onChange={e=>setFiltroProgramaTemp(e.target.value)} style={{...inputSt, maxWidth:160, fontSize:11}}>
-                <option value="">Todas las temporadas</option>
-                {temporadas.map(t=><option key={t} value={t}>Temporada {t}</option>)}
-              </select>
-              <select value={filtroProgramaExp} onChange={e=>setFiltroProgramaExp(e.target.value)} style={{...inputSt, maxWidth:180, fontSize:11}}>
-                <option value="">Todas las exportadoras</option>
-                {exportadoras.filter(e=>e.activo!==false).sort((a,b)=>(a.nombre||"").localeCompare(b.nombre||"")).map(e=><option key={e.id} value={e.id}>{e.nombre}</option>)}
-              </select>
-              <select value={filtroProgramaCli} onChange={e=>setFiltroProgramaCli(e.target.value)} style={{...inputSt, maxWidth:180, fontSize:11}}>
-                <option value="">Todos los clientes</option>
-                {clientes.filter(c=>c.activo!==false).sort((a,b)=>(a.nombre||"").localeCompare(b.nombre||"")).map(c=><option key={c.id} value={c.id}>{c.nombre}</option>)}
-              </select>
-              <select value={filtroProgramaEsp} onChange={e=>setFiltroProgramaEsp(e.target.value)} style={{...inputSt, maxWidth:140, fontSize:11}}>
-                <option value="">Todas las especies</option>
-                {especies.map(e=><option key={e.codigo} value={e.codigo}>{e.icono} {e.nombreEs}</option>)}
-              </select>
-              {(filtroProgramaTemp||filtroProgramaExp||filtroProgramaCli||filtroProgramaEsp) && (
-                <button onClick={()=>{setFiltroProgramaTemp(""); setFiltroProgramaExp(""); setFiltroProgramaCli(""); setFiltroProgramaEsp("");}}
+              <SelectBuscable listId="flt-prog-temp" value={filtroProgramaTemp} onChange={setFiltroProgramaTemp}
+                placeholder="🔍 Todas las temporadas" style={{...inputSt, maxWidth:160, fontSize:11}}
+                options={temporadas.map(t=>({value:t, label:`Temporada ${t}`}))}/>
+              <SelectBuscable listId="flt-prog-exp" value={filtroProgramaExp} onChange={setFiltroProgramaExp}
+                placeholder="🔍 Todas las exportadoras" style={{...inputSt, maxWidth:190, fontSize:11}}
+                options={exportadoras.filter(e=>e.activo!==false).sort((a,b)=>(a.nombre||"").localeCompare(b.nombre||"")).map(e=>({value:e.id, label:e.nombre}))}/>
+              <SelectBuscable listId="flt-prog-cli" value={filtroProgramaCli} onChange={setFiltroProgramaCli}
+                placeholder="🔍 Todos los clientes" style={{...inputSt, maxWidth:190, fontSize:11}}
+                options={clientes.filter(c=>c.activo!==false).sort((a,b)=>(a.nombre||"").localeCompare(b.nombre||"")).map(c=>({value:c.id, label:c.nombre}))}/>
+              <SelectBuscable listId="flt-prog-esp" value={filtroProgramaEsp} onChange={setFiltroProgramaEsp}
+                placeholder="🔍 Todas las especies" style={{...inputSt, maxWidth:150, fontSize:11}}
+                options={especies.map(e=>({value:e.codigo, label:e.nombreEs}))}/>
+              <SelectBuscable listId="flt-prog-closure" value={filtroProgramaClosure} onChange={setFiltroProgramaClosure}
+                placeholder="🔍 Ir a un Business Closure" style={{...inputSt, maxWidth:300, fontSize:11}}
+                options={closuresOpciones.map(bc=>{
+                  const exp = exportadoras.find(e=>e.id===bc.exportadoraId)?.nombre||"?";
+                  const cli = clientes.find(c=>c.id===bc.clienteId)?.nombre||"?";
+                  const esp = especies.find(e=>e.codigo===bc.especieCodigo);
+                  return {value:bc.id, label:`${exp} → ${cli} · ${esp?esp.nombreEs:bc.especieCodigo} · ${bc.temporada}`};
+                })}/>
+              {(filtroProgramaTemp||filtroProgramaExp||filtroProgramaCli||filtroProgramaEsp||filtroProgramaClosure) && (
+                <button onClick={()=>{setFiltroProgramaTemp(""); setFiltroProgramaExp(""); setFiltroProgramaCli(""); setFiltroProgramaEsp(""); setFiltroProgramaClosure("");}}
                   style={{...btnSt(C.muted,true), fontSize:11}}>✕ Limpiar</button>
               )}
               <span style={{marginLeft:"auto", fontSize:11, color:C.muted}}>
@@ -5072,10 +6730,27 @@ export default function FriskuComercialModule({
                   )}
                 </div>
 
-                {/* Conteo */}
-                <div style={{fontSize:11,color:C.muted,marginBottom:10}}>
-                  {embarquesFiltrados.length} orden{embarquesFiltrados.length!==1?"es":""} de embarque
-                  {embarquesFiltrados.length !== embarques.length && ` (${embarques.length} total)`}
+                {/* Conteo + alerta de documentos */}
+                <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap",marginBottom:10}}>
+                  <span style={{fontSize:11,color:C.muted}}>
+                    {embarquesFiltrados.length} orden{embarquesFiltrados.length!==1?"es":""} de embarque
+                    {embarquesFiltrados.length !== embarques.length && ` (${embarques.length} total)`}
+                  </span>
+                  {embarquesDocsIncompletos > 0 && (
+                    <button
+                      onClick={()=>setSoloDocsIncompletos(v=>!v)}
+                      title="Mostrar solo los embarques con documentos COMEX por cargar"
+                      style={{
+                        display:"inline-flex",alignItems:"center",gap:6,cursor:"pointer",
+                        fontSize:11,fontWeight:700,padding:"3px 10px",borderRadius:20,
+                        background: soloDocsIncompletos ? C.warning : `${C.warning}22`,
+                        color: soloDocsIncompletos ? "#fff" : C.warning,
+                        border:`1px solid ${C.warning}${soloDocsIncompletos?"":"55"}`,
+                      }}>
+                      ⚠ {embarquesDocsIncompletos} con docs incompletos
+                      {soloDocsIncompletos && <span style={{opacity:0.85}}>· quitar filtro</span>}
+                    </button>
+                  )}
                 </div>
 
                 {/* Grid de cards */}
@@ -5302,6 +6977,22 @@ export default function FriskuComercialModule({
               )}
             </>)}
           </div>
+        )}
+
+        {tab === "reportes" && (
+          <ReportesTab
+            liquidaciones={liquidaciones}
+            embarques={embarques}
+            clientes={clientes}
+            exportadoras={exportadoras}
+            especies={especies}
+            mercados={mercados}
+            paises={paises}
+            temporadas={temporadas}
+            programa={programa}
+            contratos={contratos}
+            pos={pos}
+          />
         )}
 
         {tab === "maestros" && (

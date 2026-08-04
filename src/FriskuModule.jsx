@@ -617,6 +617,7 @@ export const TIPOS_EMBALAJE_DEFAULT = [
   {codigo:"KWI-3KG",    descripcion:"Caja Kiwi 3kg",          descripcionEn:"Kiwi Box 3kg",         especieCodigo:"KWI", pesoNeto:3.0,  pesoBruto:0, pesoEmbalado:0, mercadoCodigo:""},
   // PALTAS
   {codigo:"AVO-4KG",    descripcion:"Caja Palta 4kg",         descripcionEn:"Avocado Box 4kg",      especieCodigo:"AVO", pesoNeto:4.0,  pesoBruto:0, pesoEmbalado:0, mercadoCodigo:""},
+  {codigo:"AVO-10KG",   descripcion:"Caja Palta 10kg",        descripcionEn:"Avocado Box 10kg",     especieCodigo:"AVO", pesoNeto:10.0, pesoBruto:0, pesoEmbalado:0, mercadoCodigo:""},
 ];
 
 // ═══════════════════════════════════════════════════════════════════

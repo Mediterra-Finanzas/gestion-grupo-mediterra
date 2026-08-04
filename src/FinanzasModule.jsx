@@ -1341,10 +1341,19 @@ function calcComisionArandanosArr(config) {
   const proy = Z65();
   (config?.cobros || []).forEach(c => {
     const kg  = Number(c.kgTotal)  || 0;
-    const fob = Number(c.fobUsdKg) || 0;
-    const fee = (Number(c.feePct)  || 0) / 100;
-    if (!kg || !fob || !fee) return;
-    const total = kg * fob * fee;
+    let total;
+    if (c.modo === "usdkg") {
+      // Tarifa fija: total = kg × US$/kg (ignora FOB y Fee%)
+      const rate = Number(c.usdKg) || 0;
+      if (!kg || !rate) return;
+      total = kg * rate;
+    } else {
+      // % sobre FOB (default, retrocompatible): total = kg × FOB × Fee%
+      const fob = Number(c.fobUsdKg) || 0;
+      const fee = (Number(c.feePct)  || 0) / 100;
+      if (!kg || !fob || !fee) return;
+      total = kg * fob * fee;
+    }
     (c.pagos || []).forEach(p => {
       const i = mIdx(p.mes);
       if (i >= 0) proy[i] += total * ((Number(p.pct) || 0) / 100);
@@ -3075,10 +3084,14 @@ function AllegriaComisionArandanosPanel({ config, setConfig, readOnly }) {
 
   const iSt  = {width:90,padding:"5px 7px",background:C.card2,border:`1px solid ${C.border}`,borderRadius:6,color:C.text,fontSize:11,outline:"none",textAlign:"right"};
   const selSt= {padding:"5px 8px",background:C.card2,border:`1px solid ${C.border}`,borderRadius:6,fontSize:11,outline:"none",color:C.text,minWidth:110};
+  // Meses disponibles para la distribución de pagos del cobro. Se listan todos
+  // los meses de la proyección para poder cobrar en cualquier mes (ej. ene-2027),
+  // sin quedar limitado a la temporada del cobro.
+  const mesesSel = MESES_65;
 
   function startAdd() {
     const id = `cobro_${Date.now()}`;
-    setForm({ id, temporada:SEASON_KEYS[0], descripcion:"", kgTotal:0, fobUsdKg:0, feePct:8, pagos:[] });
+    setForm({ id, temporada:SEASON_KEYS[0], descripcion:"", modo:"pct", kgTotal:0, fobUsdKg:0, feePct:8, usdKg:0, pagos:[] });
     setEditId(id);
   }
   function startEdit(c) { setForm(JSON.parse(JSON.stringify(c))); setEditId(c.id); }
@@ -3102,10 +3115,12 @@ function AllegriaComisionArandanosPanel({ config, setConfig, readOnly }) {
     setForm(prev => ({ ...prev, pagos:(prev.pagos||[]).filter((_,i)=>i!==idx) }));
   }
 
-  const formKg  = Number(form?.kgTotal)  || 0;
-  const formFob = Number(form?.fobUsdKg) || 0;
-  const formFee = (Number(form?.feePct)  || 0) / 100;
-  const formTotal = formKg * formFob * formFee;
+  const formKg    = Number(form?.kgTotal)  || 0;
+  const formFob   = Number(form?.fobUsdKg) || 0;
+  const formFee   = (Number(form?.feePct)  || 0) / 100;
+  const formUsdKg = Number(form?.usdKg)    || 0;
+  const formModo  = form?.modo === "usdkg" ? "usdkg" : "pct";
+  const formTotal = formModo === "usdkg" ? formKg * formUsdKg : formKg * formFob * formFee;
   const formPctSum = (form?.pagos||[]).reduce((s,p)=>s+(Number(p.pct)||0),0);
 
   return (
@@ -3153,7 +3168,21 @@ function AllegriaComisionArandanosPanel({ config, setConfig, readOnly }) {
               <input value={form.descripcion} onChange={e=>updForm("descripcion",e.target.value)}
                 style={{...iSt,width:"100%",textAlign:"left"}} placeholder="ej. Liquidación campaña alta"/>
             </div>
-            {[["KG exportados Perú","kgTotal","",""],["FOB estimado US$/kg","fobUsdKg","$",""],["% Fee Allegria","feePct","","%"]].map(([lbl,field,pre,suf])=>(
+            <div style={{gridColumn:"1/-1"}}>
+              <div style={{fontSize:10,color:C.muted,marginBottom:3}}>Modo de cobro</div>
+              <div style={{display:"flex",gap:6}}>
+                {[["pct","% sobre FOB"],["usdkg","US$/kg fijo"]].map(([v,lbl])=>(
+                  <button key={v} type="button" onClick={()=>updForm("modo",v)}
+                    style={{padding:"5px 14px",borderRadius:8,cursor:"pointer",fontSize:11,fontWeight:700,
+                      border:`1px solid ${formModo===v?C.accent:C.border}`,
+                      background:formModo===v?`${C.accent}22`:"transparent",color:formModo===v?C.accent:C.muted}}>{lbl}</button>
+                ))}
+              </div>
+            </div>
+            {(formModo==="usdkg"
+              ? [["KG exportados Perú","kgTotal","",""],["Tarifa US$/kg","usdKg","$",""]]
+              : [["KG exportados Perú","kgTotal","",""],["FOB estimado US$/kg","fobUsdKg","$",""],["% Fee Allegria","feePct","","%"]]
+            ).map(([lbl,field,pre,suf])=>(
               <div key={field}>
                 <div style={{fontSize:10,color:C.muted,marginBottom:3}}>{lbl}</div>
                 <div style={{display:"flex",alignItems:"center",gap:3}}>
@@ -3167,7 +3196,9 @@ function AllegriaComisionArandanosPanel({ config, setConfig, readOnly }) {
           </div>
           {formTotal > 0 && (
             <div style={{background:`${C.green}11`,border:`1px solid ${C.green}33`,borderRadius:8,padding:"7px 12px",fontSize:11,color:C.green}}>
-              Total a cobrar: <strong>{$$(formTotal)}</strong> ({formKg.toLocaleString()} kg × ${formFob}/kg × {(formFee*100).toFixed(1)}%)
+              Total a cobrar: <strong>{$$(formTotal)}</strong> {formModo==="usdkg"
+                ? `(${formKg.toLocaleString()} kg × $${formUsdKg}/kg)`
+                : `(${formKg.toLocaleString()} kg × $${formFob}/kg × ${(formFee*100).toFixed(1)}%)`}
             </div>
           )}
           {/* Distribución de pagos */}
@@ -3225,9 +3256,11 @@ function AllegriaComisionArandanosPanel({ config, setConfig, readOnly }) {
       {cobros.map(c => {
         const isEditing = editId === c.id;
         const cKg    = Number(c.kgTotal)  || 0;
+        const cModo  = c.modo === "usdkg" ? "usdkg" : "pct";
         const cFob   = Number(c.fobUsdKg) || 0;
         const cFee   = (Number(c.feePct)  || 0) / 100;
-        const cTotal = cKg * cFob * cFee;
+        const cRate  = Number(c.usdKg)    || 0;
+        const cTotal = cModo === "usdkg" ? cKg * cRate : cKg * cFob * cFee;
         const cProy  = calcComisionArandanosArr({ cobros:[c] });
         return (
           <div key={c.id} style={{background:C.card,borderRadius:10,border:`1px solid ${isEditing?C.accent:C.border}`,padding:14}}>
@@ -3240,8 +3273,9 @@ function AllegriaComisionArandanosPanel({ config, setConfig, readOnly }) {
                 </div>
                 <div style={{fontSize:10,color:C.muted,display:"flex",gap:12,flexWrap:"wrap"}}>
                   {cKg>0&&<span>{cKg.toLocaleString()} kg</span>}
-                  {cFob>0&&<span>${cFob}/kg FOB</span>}
-                  {c.feePct>0&&<span>{c.feePct}% fee</span>}
+                  {cModo==="usdkg"
+                    ? (cRate>0&&<span>${cRate}/kg (fijo)</span>)
+                    : (<>{cFob>0&&<span>${cFob}/kg FOB</span>}{c.feePct>0&&<span>{c.feePct}% fee</span>}</>)}
                   {(c.pagos||[]).length > 0 && (
                     <span>Cobros: {(c.pagos||[]).filter(p=>p.mes).map(p=>`${p.mes} (${p.pct}%)`).join(", ")}</span>
                   )}
@@ -12235,7 +12269,7 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
                   try{
                     const emp=empresasConOverridesMain[empTab];
                     const saldoIni=getSaldoBancoInicial(saldosBancos,empTab,empresas[empTab]?.saldo_ini);
-                    const f=exportarFlujoEmpresa({emp, empName:empTab, saldoIni});
+                    const f=exportarFlujoEmpresa({emp, empName:empTab, saldoIni, params:{paramsAF, paramsIF, paramsAS, paramsAP, paramsAllegria:params, allegraComisionArandanos}});
                     setEmpExportMsg("✓ "+f);
                   }catch(e){ console.error(e); setEmpExportMsg("✗ Error al exportar"); }
                   setTimeout(()=>setEmpExportMsg(null),5000);

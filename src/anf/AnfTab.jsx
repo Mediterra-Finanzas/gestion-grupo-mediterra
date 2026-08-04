@@ -2070,6 +2070,16 @@ export default function AnfTab({ canEdit, usuarioActual, empresaDefault, mesDefa
   const filialActual = filiales.find(f => f.id === filialId);
   const informesFilial = informe ? informes.filter(i => i.filial_id === filialId) : [];
 
+  // KPIs calculados en tiempo real desde ESF/ER cargados (sin esperar aprobación).
+  // Si el informe está aprobado y hay KPIs guardados en DB, se usan los guardados.
+  // Si está en borrador/enviado o los guardados están vacíos, se calculan al vuelo.
+  const kpisDerVivos = useMemo(() => {
+    if (informe?.estado === 'aprobado' && kpisDer.length > 0) return kpisDer;
+    if (esf.length > 0 || er.length > 0) return calcularKpisDerivaos(esf, er);
+    return kpisDer;
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [esf, er, kpisDer, informe?.estado]);
+
   // Gate de aprobación: grupos ER con variación material sin justificación
   // Calculado aquí para tener acceso a filialActual (piso_materialidad)
   const faltantesJust = useMemo(() => {
@@ -2362,7 +2372,7 @@ export default function AnfTab({ canEdit, usuarioActual, empresaDefault, mesDefa
               {kpisDer.length > 0 && (
                 <div style={{ marginBottom: 16 }}>
                   <div style={{ fontSize: 11, fontWeight: 800, color: C.text, marginBottom: 8 }}>KPIs Financieros</div>
-                  <SeccionKpis kpisDer={kpisDer} kpisOp={[]} metricas={metricas} />
+                  <SeccionKpis kpisDer={kpisDerVivos} kpisOp={[]} metricas={metricas} />
                 </div>
               )}
 

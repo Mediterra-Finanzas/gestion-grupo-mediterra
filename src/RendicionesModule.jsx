@@ -765,7 +765,8 @@ function pasoActual(r) {
   return r.cadena[r.nivelActual || 0] || null;
 }
 // ¿Le toca a este usuario aprobar la rendición ahora?
-function meTocaAprobar(r, miEmail, esAprobador) {
+function meTocaAprobar(r, miEmail, esAprobador, admin) {
+  if (admin) return true;         // admin/CFO puede aprobar cualquier paso (override de autoridad)
   const paso = pasoActual(r);
   if (!paso) return esAprobador;  // sin cadena → cualquier aprobador (legacy)
   return (paso.email || "").toLowerCase() === (miEmail || "").toLowerCase();
@@ -790,8 +791,9 @@ export default function RendicionesModule({ usuarioActual, esAdmin, esSoloConsul
   // Puede aprobar (supervisor, editor, o fallback legacy para rendiciones sin cadena).
   const esAprobador = verTodas || nivelRendiciones === "editar";
   const miEmail = (usuarioActual?.email || "").toLowerCase();
-  // Puede cargar rendiciones en nombre de otros (secretaria autorizada o admin).
-  const puedeRendirPorOtros = admin || EMAILS_RINDEN_POR_OTROS.map(e => e.toLowerCase()).includes(miEmail);
+  // Puede cargar rendiciones en nombre de otros: admin, flag rendPorOtros (Gestión
+  // de Usuarios), o email en la lista legacy EMAILS_RINDEN_POR_OTROS (retrocompat).
+  const puedeRendirPorOtros = admin || !!usuarioActual?.rendPorOtros || EMAILS_RINDEN_POR_OTROS.map(e => e.toLowerCase()).includes(miEmail);
 
   const [rendiciones, setRendiciones] = useState([]);
   const [tcData, setTcData] = useState({});
@@ -810,6 +812,16 @@ export default function RendicionesModule({ usuarioActual, esAdmin, esSoloConsul
   // GUARD anti-borrado: solo se guarda tras una carga EXITOSA. Si la carga
   // falla, no se escribe nada (evita sobrescribir las rendiciones con []).
   const cargaOkRef = useRef(false);
+
+  // GUARD anti-choque entre sesiones concurrentes: en vez de sobrescribir la
+  // lista completa (una sesión pisaba los cambios de otra con su copia vieja),
+  // el guardado LEE-FUSIONA-ESCRIBE: toma lo último del servidor y solo pisa
+  // las rendiciones que ESTA sesión modificó (dirtyIds) / borró (deletedIds).
+  // Una pestaña pasiva (sin cambios) tiene el set vacío → nunca guarda → nunca
+  // puede pisar a nadie. Ver guardarMerge().
+  const dirtyIdsRef = useRef(new Set());
+  const deletedIdsRef = useRef(new Set());
+  const rendicionesRef = useRef([]);
 
   // ── Carga inicial ──
   useEffect(() => {
@@ -835,23 +847,62 @@ export default function RendicionesModule({ usuarioActual, esAdmin, esSoloConsul
     return () => { alive = false; };
   }, []);
 
-  // ── Auto-save (debounce 1s) ──
+  // Mantener una ref con el estado más reciente para el guardado diferido.
+  useEffect(() => { rendicionesRef.current = rendiciones; }, [rendiciones]);
+
+  // Guardado LEE-FUSIONA-ESCRIBE (anti-choque concurrente).
+  // 1. Lee lo último del servidor.  2. Fusiona: el servidor manda como base, y
+  // solo se pisan las rendiciones que ESTA sesión tocó (dirty) o borró (deleted).
+  //    → los cambios de otras sesiones sobre rendiciones que yo NO toqué se
+  //      conservan (ya no se pierden aprobaciones por overwrite).
+  // 3. Escribe la lista fusionada.
+  const guardarMerge = useCallback(async () => {
+    const dirty = [...dirtyIdsRef.current];
+    const deleted = [...deletedIdsRef.current];
+    if (!dirty.length && !deleted.length) { setGuardando(false); return; }
+    // Sacar del set lo que se intentará guardar; cambios nuevos durante el
+    // async quedan en el set y disparan otro ciclo.
+    dirty.forEach(id => dirtyIdsRef.current.delete(id));
+    deleted.forEach(id => deletedIdsRef.current.delete(id));
+    try {
+      const server = await dbLoadGeneric("rendiciones"); // propaga error de red
+      const base = Array.isArray(server) ? server : [];
+      const map = new Map(base.map(r => [r.id, r])); // servidor = base
+      const local = rendicionesRef.current || [];
+      // Conservar registros locales que el servidor aún no tiene (creados aquí,
+      // o server vacío) sin pisar la versión del servidor de los compartidos.
+      for (const r of local) if (!map.has(r.id)) map.set(r.id, r);
+      // Mis cambios explícitos pisan solo lo que toqué.
+      for (const id of dirty) { const mine = local.find(x => x.id === id); if (mine) map.set(id, mine); }
+      for (const id of deleted) map.delete(id);
+      await dbSaveGeneric("rendiciones", [...map.values()]);
+    } catch (e) {
+      // Reencolar lo no guardado para reintentar en el próximo ciclo.
+      dirty.forEach(id => dirtyIdsRef.current.add(id));
+      deleted.forEach(id => deletedIdsRef.current.add(id));
+      console.warn("[Rendiciones] guardado (merge) falló, se reintenta:", e?.message || e);
+    } finally {
+      setGuardando(false);
+    }
+  }, []);
+
+  // ── Auto-save (debounce 1s) — solo si hay cambios propios pendientes ──
   const timer = useRef(null);
   const primero = useRef(true);
   useEffect(() => {
     if (cargando) return;
     if (!cargaOkRef.current) return; // no guardar si la carga inicial falló
     if (primero.current) { primero.current = false; return; }
+    if (!dirtyIdsRef.current.size && !deletedIdsRef.current.size) return; // nada propio que guardar
     if (timer.current) clearTimeout(timer.current);
     setGuardando(true);
-    timer.current = setTimeout(async () => {
-      await dbSaveGeneric("rendiciones", rendiciones);
-      setGuardando(false);
-    }, 1000);
+    timer.current = setTimeout(() => { guardarMerge(); }, 1000);
   }, [rendiciones]); // eslint-disable-line
 
   // ── Mutadores ──
   const upsert = useCallback((rend) => {
+    dirtyIdsRef.current.add(rend.id);      // marcar como cambio propio a persistir
+    deletedIdsRef.current.delete(rend.id); // por si se recrea/reactiva
     setRendiciones(prev => {
       const i = prev.findIndex(r => r.id === rend.id);
       if (i === -1) return [rend, ...prev];
@@ -906,6 +957,8 @@ export default function RendicionesModule({ usuarioActual, esAdmin, esSoloConsul
       const p = pathDesdeUrlStorage(g.adjuntoUrl);
       if (p) await eliminarArchivoFrisku(p);
     }
+    deletedIdsRef.current.add(r.id);      // marcar borrado para propagarlo en el merge
+    dirtyIdsRef.current.delete(r.id);
     setRendiciones(prev => prev.filter(x => x.id !== r.id));
     if (editId === r.id) setEditId(null);
   };
@@ -967,15 +1020,20 @@ export default function RendicionesModule({ usuarioActual, esAdmin, esSoloConsul
     // Aprobación: avanza un nivel; al pasar el último → aprobada.
     const cadena = Array.isArray(r.cadena) ? r.cadena : [];
     const idx = r.nivelActual || 0;
+    // ¿Es el aprobador nombrado de este nivel? Si NO lo es pero es admin/CFO,
+    // se trata de un OVERRIDE de autoridad: aprueba y finaliza en un solo paso
+    // (sin tener que reasignarse ni recorrer nivel por nivel).
+    const esMiTurnoNombrado = !cadena.length || (pasoActual(r)?.email || "").toLowerCase() === miEmail;
+    const overrideAdmin = admin && !esMiTurnoNombrado;
     const aprobaciones = [...(r.aprobaciones || []),
-      { email: miEmail, nombre: nombreUsuario, fecha: nowISO(), comentario: coment || "", nivel: idx }];
-    const esUltimo = !cadena.length || idx >= cadena.length - 1;
+      { email: miEmail, nombre: nombreUsuario, fecha: nowISO(), comentario: coment || "", nivel: idx, ...(overrideAdmin ? { override: true } : {}) }];
+    const esUltimo = !cadena.length || idx >= cadena.length - 1 || overrideAdmin;
     if (esUltimo) {
       upsert(pushHist({
         ...r, estado: "aprobada", aprobaciones,
         revisadoEn: nowISO(), revisadoPor: nombreUsuario, comentarioRevisor: coment || "",
-        nivelActual: cadena.length ? idx + 1 : 0,
-      }, "aprobada", coment));
+        nivelActual: cadena.length ? (overrideAdmin ? cadena.length : idx + 1) : 0,
+      }, overrideAdmin ? "aprobada (override admin)" : "aprobada", coment));
       // Aprobación final → avisar a finanzas/administración/gerencia para cargar a pago.
       notif(EMAILS_PAGO,
         `Rendición #${r.folio} aprobada — lista para pago`,
@@ -1035,7 +1093,7 @@ export default function RendicionesModule({ usuarioActual, esAdmin, esSoloConsul
     () => rendiciones.filter(r => {
       if (r.estado !== "enviada") return false;
       if (verTodas) return true;  // supervisor/admin ve todas las pendientes (aprobar lo suyo o reasignar)
-      return meTocaAprobar(r, miEmail, esAprobador);
+      return meTocaAprobar(r, miEmail, esAprobador, admin);
     }).sort((a, b) => new Date(a.enviadoEn || 0) - new Date(b.enviadoEn || 0)),
     [rendiciones, verTodas, miEmail, esAprobador]
   );
@@ -1148,12 +1206,19 @@ export default function RendicionesModule({ usuarioActual, esAdmin, esSoloConsul
         const cad = Array.isArray(r.cadena) ? r.cadena : [];
         const idx = r.nivelActual || 0;
         const sig = cad[idx + 1];
+        const esMiTurnoNombrado = !cad.length || (cad[idx]?.email || "").toLowerCase() === miEmail;
+        const overrideAdmin = admin && !esMiTurnoNombrado;
         return (
           <Modal width={480} title={esAprob ? `Aprobar rendición #${r.folio}` : `Rechazar rendición #${r.folio}`} onClose={() => setRevisar(null)}>
             <div style={{ fontSize: 13, color: C.muted, marginBottom: 12 }}>
               {r.trabajador} · {fmtTotales(totalesPorMoneda(r.gastos))} · {(r.gastos || []).length} gasto(s)
             </div>
-            {cad.length > 1 && (
+            {esAprob && overrideAdmin && (
+              <div style={{ fontSize: 12, background: C.infoBg, color: C.primary, borderRadius: 8, padding: "8px 10px", marginBottom: 12 }}>
+                Aprobación como <b>admin/CFO</b>: el aprobador de este nivel es <b>{cad[idx]?.nombre || "otro usuario"}</b>, pero al aprobar tú queda <b>aprobada</b> directamente (queda registrado como override).
+              </div>
+            )}
+            {cad.length > 1 && !overrideAdmin && (
               <div style={{ fontSize: 12, background: C.infoBg, color: C.primary, borderRadius: 8, padding: "8px 10px", marginBottom: 12 }}>
                 Cadena: nivel <b>{idx + 1}</b> de {cad.length}.{" "}
                 {esAprob
@@ -1351,7 +1416,7 @@ function BandejaAprobar({ rends, onAbrir, onAprobar, onRechazar, onReasignar, tc
           const cad = Array.isArray(r.cadena) ? r.cadena : [];
           const idx = r.nivelActual || 0;
           const actual = cad[idx];
-          const miTurno = meTocaAprobar(r, miEmail, esAprobador);
+          const miTurno = meTocaAprobar(r, miEmail, esAprobador, admin);
           return (
             <RendCard key={r.id} r={r} onClick={() => onAbrir(r.id)} mostrarTrabajador tcData={tcData}>
               <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
@@ -1701,6 +1766,15 @@ function EditorRendicion({ rend, upsert, onClose, onEnviar, esDueno, esAprobador
   const addGasto = () => {
     const g = { id: uid("g"), fecha: hoyISO(), categoria: "movilizacion", glosa: "", monto: "", moneda: "CLP", docTipo: "Boleta", docNumero: "", adjuntoUrl: "", adjuntoNombre: "" };
     upsert({ ...rend, gastos: [...(rend.gastos || []), g] });
+    // Móvil: llevar el foco al gasto recién agregado para no tener que subir/bajar.
+    setTimeout(() => {
+      const el = document.getElementById("gasto-" + g.id);
+      if (el) {
+        el.scrollIntoView({ behavior: "smooth", block: "center" });
+        const primerInput = el.querySelector("input, select, textarea");
+        if (primerInput) try { primerInput.focus({ preventScroll: true }); } catch (_) {}
+      }
+    }, 120);
   };
   const setGasto = (gid, k, v) => upsert({ ...rend, gastos: rend.gastos.map(g => g.id === gid ? { ...g, [k]: v } : g) });
   const setGastoMulti = (gid, patch) => upsert({ ...rend, gastos: rend.gastos.map(g => g.id === gid ? { ...g, ...patch } : g) });
@@ -1937,7 +2011,7 @@ function EditorRendicion({ rend, upsert, onClose, onEnviar, esDueno, esAprobador
 
       <div style={{ display: "grid", gap: 8 }}>
         {(rend.gastos || []).map(g => (
-          <div key={g.id} style={{ border: `1px solid ${C.border}`, borderRadius: 10, padding: 10, background: C.rowAlt }}>
+          <div key={g.id} id={"gasto-" + g.id} style={{ border: `1px solid ${C.border}`, borderRadius: 10, padding: 10, background: C.rowAlt }}>
             <div style={{ display: "grid", gridTemplateColumns: esMovil ? "1fr 1fr" : "120px 150px 1fr 110px 90px 36px", gap: 8, alignItems: "end" }}>
               <Field label="Fecha">
                 <input type="date" value={g.fecha} disabled={!editable} onChange={e => setGasto(g.id, "fecha", e.target.value)} style={inputStyle} />
@@ -2067,6 +2141,14 @@ function EditorRendicion({ rend, upsert, onClose, onEnviar, esDueno, esAprobador
           </div>
         )}
       </div>
+
+      {/* Agregar gasto — también al final, para no tener que volver arriba (clave en móvil) */}
+      {editable && (rend.gastos || []).length > 0 && (
+        <button onClick={addGasto}
+          style={{ width: "100%", marginTop: 10, padding: "12px", borderRadius: 10, border: `1.5px dashed ${C.primary}`, background: C.card, color: C.primary, fontWeight: 800, fontSize: 14, cursor: "pointer" }}>
+          + Agregar otro gasto
+        </button>
+      )}
 
       {/* Total */}
       {(() => {
