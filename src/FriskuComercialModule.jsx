@@ -1987,7 +1987,15 @@ function notifyDesdeMaestro(n) {
 
 // Formulario para agregar/editar una semana del programa
 function ProgramaSemanaForm({semana, closure, tiposEmbalaje, onGuardar, onCancelar}) {
-  const [buf, setBuf] = useState(()=>JSON.parse(JSON.stringify(semana)));
+  const [buf, setBuf] = useState(()=>{
+    const b = JSON.parse(JSON.stringify(semana));
+    // Compat: semanas viejas solo tienen fechaSemana (lunes). Pre-cargar ese
+    // valor como ETD para que editar no pierda la semana.
+    if(!b.etd && b.fechaSemana) b.etd = b.fechaSemana;
+    return b;
+  });
+  // El ETD define la semana del programa (se normaliza al lunes de esa semana).
+  const setETD = (v) => setBuf(prev=>({...prev, etd:v, fechaSemana:getMondayStr(v)}));
 
   const setCajas = (fmtCodigo, val) => setBuf(prev=>{
     const cpf = {...(prev.cajasPorFormato||{})};
@@ -2000,10 +2008,11 @@ function ProgramaSemanaForm({semana, closure, tiposEmbalaje, onGuardar, onCancel
   const totalCajas = Object.values(buf.cajasPorFormato||{}).reduce((s,v)=>s+Number(v||0),0);
 
   const handleGuardar = () => {
-    const fecha = getMondayStr(buf.fechaSemana);
-    if(!fecha){ alert("Ingresa la fecha de la semana"); return; }
+    const fecha = getMondayStr(buf.etd || buf.fechaSemana);
+    if(!fecha){ alert("Ingresa la fecha de ETD (despacho)"); return; }
     if(totalCajas===0 && !(Number(buf.contenedoresFCL)>0)){ alert("Ingresa cajas por formato o la cantidad de contenedores (FCL)"); return; }
-    onGuardar({...buf, fechaSemana:fecha, contenedoresFCL: Number(buf.contenedoresFCL)||0});
+    if(buf.etd && buf.eta && buf.eta < buf.etd){ alert("La ETA no puede ser anterior a la ETD"); return; }
+    onGuardar({...buf, fechaSemana:fecha, etd:buf.etd||"", eta:buf.eta||"", contenedoresFCL: Number(buf.contenedoresFCL)||0});
   };
 
   return (
@@ -2012,20 +2021,29 @@ function ProgramaSemanaForm({semana, closure, tiposEmbalaje, onGuardar, onCancel
         <span>{semana.id?"✎":"+"}</span>
         <span>{semana.id?"Editar semana":"Nueva semana de programa"}</span>
         <span style={{fontSize:10, color:C.muted, fontWeight:400}}>
-          — La fecha se ajusta al lunes de la semana elegida
+          — La semana del programa se toma del ETD
         </span>
       </h4>
 
-      {/* Fecha + Estado + FCL */}
-      <div style={{display:"grid", gridTemplateColumns:"1fr 150px 150px", gap:10, marginBottom:12}}>
+      {/* ETD + ETA + Estado + FCL */}
+      <div style={{display:"grid", gridTemplateColumns:"1fr 1fr 130px 130px", gap:10, marginBottom:12}}>
         <div>
-          <div style={lblSt}>Semana (fecha de inicio) *</div>
-          <input type="date" value={buf.fechaSemana||""} style={inputSt}
-            onChange={e=>setBuf(prev=>({...prev, fechaSemana:e.target.value}))}
-            onBlur={e=>setBuf(prev=>({...prev, fechaSemana:getMondayStr(e.target.value)}))}/>
-          {buf.fechaSemana && (
+          <div style={lblSt}>ETD · fecha despacho *</div>
+          <input type="date" value={buf.etd||""} style={inputSt}
+            onChange={e=>setETD(e.target.value)}/>
+          {buf.etd && (
             <div style={{fontSize:10, color:C.teal, marginTop:3}}>
-              {formatSemanaISO(getMondayStr(buf.fechaSemana))} — Lunes: {formatFechaSemana(getMondayStr(buf.fechaSemana))}
+              Semana {formatSemanaISO(getMondayStr(buf.etd))}
+            </div>
+          )}
+        </div>
+        <div>
+          <div style={lblSt}>ETA · fecha llegada</div>
+          <input type="date" value={buf.eta||""} style={inputSt}
+            onChange={e=>setBuf(prev=>({...prev, eta:e.target.value}))}/>
+          {buf.etd && buf.eta && (
+            <div style={{fontSize:10, color:C.muted2, marginTop:3}}>
+              {Math.max(0, Math.round((new Date(buf.eta)-new Date(buf.etd))/86400000))} días de tránsito
             </div>
           )}
         </div>
@@ -2170,7 +2188,7 @@ function ClosureProgramaPanel({closure, semanas, tiposEmbalaje, exportadoras, cl
             <table style={{borderCollapse:"collapse", width:"100%", fontSize:11}}>
               <thead>
                 <tr style={{background:C.primary}}>
-                  <th style={{padding:"6px 10px", textAlign:"left", color:C.primaryText, fontWeight:600, whiteSpace:"nowrap"}}>N° / Semana (lunes)</th>
+                  <th style={{padding:"6px 10px", textAlign:"left", color:C.primaryText, fontWeight:600, whiteSpace:"nowrap"}}>Semana · ETD → ETA</th>
                   {formatosClosure.map(cod=>{
                     const fmt = tiposEmbalaje.find(t=>t.codigo===cod);
                     return (
@@ -2191,10 +2209,15 @@ function ClosureProgramaPanel({closure, semanas, tiposEmbalaje, exportadoras, cl
                   return (
                     <tr key={sem.id||i} style={{background: i%2===0?C.card:C.rowAlt}}>
                       <td style={{padding:"6px 10px", border:`1px solid ${C.border}`, whiteSpace:"nowrap"}}>
-                        <span style={{display:"inline-block", background:`${C.blue}22`, color:C.blue, fontWeight:700, fontFamily:"monospace", borderRadius:4, padding:"1px 6px", marginRight:6}}>
-                          {getSemanaISO(sem.fechaSemana)?.semana ? "S"+String(getSemanaISO(sem.fechaSemana).semana).padStart(2,"0") : "—"}
-                        </span>
-                        {formatFechaSemana(sem.fechaSemana)}
+                        <div>
+                          <span style={{display:"inline-block", background:`${C.blue}22`, color:C.blue, fontWeight:700, fontFamily:"monospace", borderRadius:4, padding:"1px 6px", marginRight:6}}>
+                            {getSemanaISO(sem.fechaSemana)?.semana ? "S"+String(getSemanaISO(sem.fechaSemana).semana).padStart(2,"0") : "—"}
+                          </span>
+                          {formatFechaSemana(sem.fechaSemana)}
+                        </div>
+                        <div style={{fontSize:10, color:C.muted, marginTop:2}}>
+                          ETD {sem.etd || "—"} → ETA {sem.eta || "—"}
+                        </div>
                       </td>
                       {formatosClosure.map(cod=>(
                         <td key={cod} style={{padding:"6px 8px", textAlign:"right", border:`1px solid ${C.border}`, fontFamily:"monospace"}}>
@@ -5904,7 +5927,7 @@ export default function FriskuComercialModule({
     setClosureIdParaSemana(closureId);
     setEditandoSemana({
       id:"", closureId,
-      fechaSemana: getMondayStr(hoyLocal),
+      etd:"", eta:"", fechaSemana: getMondayStr(hoyLocal),
       cajasPorFormato:{}, contenedoresFCL:0, estado:"borrador", observ:"",
       fechaCreacion: new Date().toISOString(),
     });
