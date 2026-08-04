@@ -296,6 +296,10 @@ export async function parsearInformeANF(file, filial, anio, mes) {
   const wb = XLSX.read(data, { type: 'array' });
   const advertencias = [];
 
+  // DIAGNÓSTICO: log de hojas disponibles (revisar en DevTools → Console)
+  console.log('[ANF Parser] Hojas en el Excel:', wb.SheetNames);
+  console.log('[ANF Parser] Sistema:', sistema, '| Empresa:', filial.nombre, '| Mes:', mes, '| Año:', anio);
+
   // 1. BALANCE actual (requerido)
   const wsBalance = findSheet(wb, /^BALANCE$/i);
   if (!wsBalance) {
