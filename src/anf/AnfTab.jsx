@@ -798,10 +798,14 @@ function TablaEr({ movimientos, mes, piso, justif = [], informeId, canEdit, usua
 function SeccionNarrativas({ informeId, justificaciones, canEdit, usuarioActual }) {
   const [textos, setTextos] = useState({});
   const [guardando, setGuardando] = useState({});
+  const EJEC_KEY = '__ejecutivo_ejecutivo';
 
   useEffect(() => {
     const init = {};
     justificaciones.forEach(j => { init[`${j.codigo}_${j.tipo_estado}`] = j.texto || j.texto_original || ''; });
+    // Precargar comentario ejecutivo si existe
+    const ejec = justificaciones.find(j => j.tipo_estado === 'ejecutivo');
+    if (ejec) init[EJEC_KEY] = ejec.texto || ejec.texto_original || '';
     setTextos(init);
   }, [justificaciones]);
 
@@ -816,13 +820,35 @@ function SeccionNarrativas({ informeId, justificaciones, canEdit, usuarioActual 
     }
   }
 
-  if (!justificaciones.length) {
-    return <div style={{ color: C.muted, fontSize: 11 }}>Sin narrativas. Se generan al cargar el Excel (sheet INFORME) o se ingresan manualmente.</div>;
-  }
+  // Narrativas de cuentas (excluye ejecutivo — se muestra arriba por separado)
+  const narrativasCuentas = justificaciones.filter(j => j.tipo_estado !== 'ejecutivo');
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-      {justificaciones.map(j => {
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+      {/* Comentario ejecutivo — siempre visible arriba */}
+      <div style={{ border: `2px solid ${C.blue}`, borderRadius: 8, padding: '10px 12px', background: `${C.blue}08` }}>
+        <div style={{ fontSize: 10, fontWeight: 800, color: C.blue, marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+          Comentario ejecutivo (aparece en PDF)
+        </div>
+        <textarea
+          value={textos[EJEC_KEY] || ''}
+          onChange={e => setTextos(t => ({ ...t, [EJEC_KEY]: e.target.value }))}
+          onBlur={() => onBlur('__ejecutivo', 'ejecutivo')}
+          disabled={!canEdit}
+          rows={3}
+          placeholder="Resumen ejecutivo del período para el directorio..."
+          style={{ width: '100%', boxSizing: 'border-box', background: C.bg, color: C.text,
+            border: `1px solid ${C.border}`, borderRadius: 4, padding: '6px 8px', fontSize: 11,
+            resize: 'vertical', fontFamily: 'inherit' }}
+        />
+        {guardando[EJEC_KEY] && <div style={{ fontSize: 9, color: C.muted }}>Guardando...</div>}
+      </div>
+
+      {/* Narrativas por cuenta */}
+      {narrativasCuentas.length === 0 && (
+        <div style={{ color: C.muted, fontSize: 11 }}>Sin narrativas de cuentas. Se generan al cargar el Excel (sheet INFORME) o se ingresan manualmente desde la tabla ER.</div>
+      )}
+      {narrativasCuentas.map(j => {
         const key = `${j.codigo}_${j.tipo_estado}`;
         return (
           <div key={key} style={{ border: `1px solid ${C.border}`, borderRadius: 6, padding: '8px 10px' }}>
@@ -1374,7 +1400,7 @@ function VistaComparativoMeses({ filiales, informes, filialIdDefault, anioDefaul
 // ── Componente principal ──────────────────────────────────────────────────────
 
 export default function AnfTab({ canEdit, usuarioActual, empresaDefault, mesDefault, anioDefault }) {
-  const esCFO = usuarioActual?.rol === 'admin' || usuarioActual?.esCFO;
+  const esCFO = usuarioActual?.rol === 'admin' || usuarioActual?.rol === 'cfo' || usuarioActual?.esCFO;
 
   // ── Estado principal ────────────────────────────────────────────────────────
   const [filiales,    setFiliales]    = useState([]);
@@ -1512,6 +1538,13 @@ export default function AnfTab({ canEdit, usuarioActual, empresaDefault, mesDefa
         });
       } else {
         informeRow = inf.informe;
+        // Re-subida de Excel: resetear a borrador para exigir nueva revisión
+        if (informeRow.estado !== 'borrador') {
+          await actualizarEstadoInforme(informeRow.id, 'borrador', {
+            observacion: `Datos reemplazados por ${usuarioActual?.nombre || 'sistema'} — requiere nueva aprobación`,
+          });
+          informeRow = { ...informeRow, estado: 'borrador' };
+        }
       }
 
       const informeId = informeRow.id;
@@ -1557,6 +1590,19 @@ export default function AnfTab({ canEdit, usuarioActual, empresaDefault, mesDefa
     }
   }
 
+  // ── Enviar informe para revisión (borrador → enviado) ──────────────────────
+  async function enviar() {
+    if (!informe) return;
+    try {
+      await actualizarEstadoInforme(informe.id, 'enviado', {
+        observacion: `Enviado por ${usuarioActual?.nombre || 'analista'}`,
+      });
+      await cargarInforme();
+    } catch (e) {
+      setError('Error al enviar: ' + e.message);
+    }
+  }
+
   // ── Aprobar informe ────────────────────────────────────────────────────────
   async function aprobar() {
     if (!informe || !esCFO) return;
@@ -1582,7 +1628,7 @@ export default function AnfTab({ canEdit, usuarioActual, empresaDefault, mesDefa
     if (obs === null) return; // canceló
     try {
       await actualizarEstadoInforme(informe.id, 'rechazado', {
-        aprobadoPor: usuarioActual?.nombre,
+        rechazadoPor: usuarioActual?.nombre,
         observacion: obs,
       });
       await cargarInforme();
@@ -1657,12 +1703,12 @@ export default function AnfTab({ canEdit, usuarioActual, empresaDefault, mesDefa
       return v.toLocaleString('es-CL', { minimumFractionDigits: 1, maximumFractionDigits: 1 }) + 'x';
     };
 
-    // Var% con denominador FIRMADO: (real-ppto)/ppto*100
-    // Retorna null si ppto=0 (→ "s/p"), null si ppto=null (→ "—")
+    // Var% con denominador absoluto: (real-ppto)/|ppto|*100 — consistente con la UI/TablaEr
+    // Retorna undefined si ppto=null (→ "—"), null si ppto=0 (→ "s/p")
     const calcVp = (real, ppto) => {
-      if (ppto == null) return undefined; // sin dato de ppto → "—"
-      if (ppto === 0) return null;         // sin presupuesto → "s/p"
-      return ((real - ppto) / ppto) * 100;
+      if (ppto == null) return undefined;
+      if (ppto === 0) return null;
+      return ((real - ppto) / Math.abs(ppto)) * 100;
     };
     const fmtVp = (real, ppto) => {
       const v = calcVp(real, ppto);
@@ -2012,6 +2058,10 @@ export default function AnfTab({ canEdit, usuarioActual, empresaDefault, mesDefa
     </body></html>`;
 
     const win = window.open('', '_blank');
+    if (!win) {
+      setError('El navegador bloqueó la ventana emergente. Permite popups para este sitio y vuelve a intentarlo.');
+      return;
+    }
     win.document.write(html);
     win.document.close();
   }
@@ -2264,33 +2314,45 @@ export default function AnfTab({ canEdit, usuarioActual, empresaDefault, mesDefa
                 )}
 
                 {/* Workflow buttons */}
-                {esCFO && (
-                  <div style={{ display: 'flex', gap: 8 }}>
-                    {informe.estado === 'borrador' && (
-                      <Btn
-                        onClick={aprobar}
-                        color={faltantesJust.length ? C.muted : C.green}
-                        small
-                        disabled={faltantesJust.length > 0}
-                      >
-                        Aprobar
-                      </Btn>
-                    )}
-                    {informe.estado === 'aprobado' && (
-                      <Btn onClick={rechazar} color={C.red} small>Revertir</Btn>
-                    )}
-                    {informe.estado === 'rechazado' && (
-                      <Btn
-                        onClick={aprobar}
-                        color={faltantesJust.length ? C.muted : C.green}
-                        small
-                        disabled={faltantesJust.length > 0}
-                      >
-                        Re-aprobar
-                      </Btn>
-                    )}
-                  </div>
-                )}
+                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                  {/* Cualquier usuario puede enviar para revisión desde borrador */}
+                  {informe.estado === 'borrador' && canEdit && (
+                    <Btn onClick={enviar} color={C.blue} small>Enviar para revisión</Btn>
+                  )}
+                  {/* CFO puede aprobar directamente desde borrador o enviado */}
+                  {esCFO && (informe.estado === 'borrador' || informe.estado === 'enviado') && (
+                    <Btn
+                      onClick={aprobar}
+                      color={faltantesJust.length ? C.muted : C.green}
+                      small
+                      disabled={faltantesJust.length > 0}
+                    >
+                      Aprobar
+                    </Btn>
+                  )}
+                  {/* CFO puede rechazar desde enviado */}
+                  {esCFO && informe.estado === 'enviado' && (
+                    <Btn onClick={rechazar} color={C.red} small>Rechazar</Btn>
+                  )}
+                  {/* Revertir desde aprobado */}
+                  {esCFO && informe.estado === 'aprobado' && (
+                    <Btn onClick={rechazar} color={C.red} small>Revertir</Btn>
+                  )}
+                  {/* Reenviar o re-aprobar desde rechazado */}
+                  {informe.estado === 'rechazado' && canEdit && (
+                    <Btn onClick={enviar} color={C.blue} small>Reenviar</Btn>
+                  )}
+                  {esCFO && informe.estado === 'rechazado' && (
+                    <Btn
+                      onClick={aprobar}
+                      color={faltantesJust.length ? C.muted : C.green}
+                      small
+                      disabled={faltantesJust.length > 0}
+                    >
+                      Re-aprobar
+                    </Btn>
+                  )}
+                </div>
 
                 <Btn onClick={exportarExcel} color={C.teal} small>Exportar XLSX</Btn>
                 <Btn onClick={exportarPDF} color={C.blue} small>Exportar PDF</Btn>
