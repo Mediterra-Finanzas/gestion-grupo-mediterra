@@ -65,6 +65,32 @@ function especiesConFormatos(especies, tiposEmbalaje, incluir) {
   }).sort((a,b)=>(a.nombreEs||"").localeCompare(b.nombreEs||""));
 }
 
+// Select buscable genérico (typeahead con datalist). options: [{value,label}].
+// value "" = sin selección (input vacío). Permite escribir para filtrar.
+function SelectBuscable({ value, onChange, options, placeholder, listId, style }) {
+  const labelDe = (v)=> (options.find(o=>String(o.value)===String(v))?.label) || "";
+  const [txt, setTxt] = useState(()=>labelDe(value));
+  useEffect(()=>{ setTxt(labelDe(value)); },[value, options]);
+  const resolver = (t)=>{
+    const s = String(t).trim().toLowerCase();
+    if(!s) return "";
+    let m = options.find(o=>String(o.label||"").trim().toLowerCase()===s);
+    if(!m) m = options.find(o=>String(o.label||"").toLowerCase().includes(s));
+    return m ? m.value : null; // null = sin match (no cambiar)
+  };
+  return (
+    <>
+      <input list={listId} value={txt} placeholder={placeholder}
+        onChange={e=>{ setTxt(e.target.value); const r=resolver(e.target.value); if(r!==null) onChange(r); }}
+        onBlur={e=>{ const r=resolver(e.target.value); const v = r===null ? value : r; onChange(v); setTxt(labelDe(v)); }}
+        style={style}/>
+      <datalist id={listId}>
+        {options.map(o=><option key={o.value} value={o.label}/>)}
+      </datalist>
+    </>
+  );
+}
+
 // Selector escribible de exportadora (typeahead con datalist). value/onChange
 // operan sobre el id; el input muestra el nombre y permite buscar tecleando.
 function ExportadoraPicker({ value, exportadoras, onChange, style }) {
@@ -2137,6 +2163,9 @@ function ProgramaSemanaForm({semana, closure, tiposEmbalaje, onGuardar, onCancel
       )}
 
       {/* ETD / ETA (fechas reales, opcionales — el tránsito varía por origen/destino) */}
+      <div style={{fontSize:11, fontWeight:700, color:C.muted, marginBottom:6, textTransform:"uppercase", letterSpacing:0.3}}>
+        Fechas reales del embarque (opcional)
+      </div>
       <div style={{display:"flex", flexWrap:"wrap", gap:10, marginBottom:12}}>
         <div style={{flex:"1 1 170px"}}>
           <div style={lblSt}>ETD · fecha despacho</div>
@@ -6574,31 +6603,26 @@ export default function FriskuComercialModule({
           <div>
             {/* Filtros */}
             <div style={{display:"flex", flexWrap:"wrap", gap:8, marginBottom:16, alignItems:"center"}}>
-              <select value={filtroProgramaTemp} onChange={e=>setFiltroProgramaTemp(e.target.value)} style={{...inputSt, maxWidth:160, fontSize:11}}>
-                <option value="">Todas las temporadas</option>
-                {temporadas.map(t=><option key={t} value={t}>Temporada {t}</option>)}
-              </select>
-              <select value={filtroProgramaExp} onChange={e=>setFiltroProgramaExp(e.target.value)} style={{...inputSt, maxWidth:180, fontSize:11}}>
-                <option value="">Todas las exportadoras</option>
-                {exportadoras.filter(e=>e.activo!==false).sort((a,b)=>(a.nombre||"").localeCompare(b.nombre||"")).map(e=><option key={e.id} value={e.id}>{e.nombre}</option>)}
-              </select>
-              <select value={filtroProgramaCli} onChange={e=>setFiltroProgramaCli(e.target.value)} style={{...inputSt, maxWidth:180, fontSize:11}}>
-                <option value="">Todos los clientes</option>
-                {clientes.filter(c=>c.activo!==false).sort((a,b)=>(a.nombre||"").localeCompare(b.nombre||"")).map(c=><option key={c.id} value={c.id}>{c.nombre}</option>)}
-              </select>
-              <select value={filtroProgramaEsp} onChange={e=>setFiltroProgramaEsp(e.target.value)} style={{...inputSt, maxWidth:140, fontSize:11}}>
-                <option value="">Todas las especies</option>
-                {especies.map(e=><option key={e.codigo} value={e.codigo}>{e.icono} {e.nombreEs}</option>)}
-              </select>
-              <select value={filtroProgramaClosure} onChange={e=>setFiltroProgramaClosure(e.target.value)} style={{...inputSt, maxWidth:280, fontSize:11}}>
-                <option value="">— Ir a un Business Closure —</option>
-                {closuresOpciones.map(bc=>{
+              <SelectBuscable listId="flt-prog-temp" value={filtroProgramaTemp} onChange={setFiltroProgramaTemp}
+                placeholder="🔍 Todas las temporadas" style={{...inputSt, maxWidth:160, fontSize:11}}
+                options={temporadas.map(t=>({value:t, label:`Temporada ${t}`}))}/>
+              <SelectBuscable listId="flt-prog-exp" value={filtroProgramaExp} onChange={setFiltroProgramaExp}
+                placeholder="🔍 Todas las exportadoras" style={{...inputSt, maxWidth:190, fontSize:11}}
+                options={exportadoras.filter(e=>e.activo!==false).sort((a,b)=>(a.nombre||"").localeCompare(b.nombre||"")).map(e=>({value:e.id, label:e.nombre}))}/>
+              <SelectBuscable listId="flt-prog-cli" value={filtroProgramaCli} onChange={setFiltroProgramaCli}
+                placeholder="🔍 Todos los clientes" style={{...inputSt, maxWidth:190, fontSize:11}}
+                options={clientes.filter(c=>c.activo!==false).sort((a,b)=>(a.nombre||"").localeCompare(b.nombre||"")).map(c=>({value:c.id, label:c.nombre}))}/>
+              <SelectBuscable listId="flt-prog-esp" value={filtroProgramaEsp} onChange={setFiltroProgramaEsp}
+                placeholder="🔍 Todas las especies" style={{...inputSt, maxWidth:150, fontSize:11}}
+                options={especies.map(e=>({value:e.codigo, label:e.nombreEs}))}/>
+              <SelectBuscable listId="flt-prog-closure" value={filtroProgramaClosure} onChange={setFiltroProgramaClosure}
+                placeholder="🔍 Ir a un Business Closure" style={{...inputSt, maxWidth:300, fontSize:11}}
+                options={closuresOpciones.map(bc=>{
                   const exp = exportadoras.find(e=>e.id===bc.exportadoraId)?.nombre||"?";
                   const cli = clientes.find(c=>c.id===bc.clienteId)?.nombre||"?";
                   const esp = especies.find(e=>e.codigo===bc.especieCodigo);
-                  return <option key={bc.id} value={bc.id}>{exp} → {cli} · {esp?esp.nombreEs:bc.especieCodigo} · {bc.temporada}</option>;
-                })}
-              </select>
+                  return {value:bc.id, label:`${exp} → ${cli} · ${esp?esp.nombreEs:bc.especieCodigo} · ${bc.temporada}`};
+                })}/>
               {(filtroProgramaTemp||filtroProgramaExp||filtroProgramaCli||filtroProgramaEsp||filtroProgramaClosure) && (
                 <button onClick={()=>{setFiltroProgramaTemp(""); setFiltroProgramaExp(""); setFiltroProgramaCli(""); setFiltroProgramaEsp(""); setFiltroProgramaClosure("");}}
                   style={{...btnSt(C.muted,true), fontSize:11}}>✕ Limpiar</button>
