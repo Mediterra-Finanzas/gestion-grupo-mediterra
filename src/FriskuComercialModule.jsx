@@ -2080,7 +2080,9 @@ function ProgramaSemanaForm({semana, closure, tiposEmbalaje, onGuardar, onCancel
       alert(esAereo ? "Ingresa cajas por formato o la cantidad de pallets" : "Ingresa cajas por formato o la cantidad de contenedores (FCL)");
       return;
     }
-    if(buf.etd && buf.eta && buf.eta < buf.etd){ alert("La ETA no puede ser anterior a la ETD"); return; }
+    if(!buf.etd){ alert("Ingresa la ETD (fecha de despacho)"); return; }
+    if(!buf.eta){ alert("Ingresa la ETA (fecha de llegada)"); return; }
+    if(buf.eta < buf.etd){ alert("La ETA no puede ser anterior a la ETD"); return; }
     onGuardar({...buf, fechaSemana:fecha,
       semanaNum: Number(buf.semanaNum)||null, semanaAnio: Number(buf.semanaAnio)||null,
       etd:buf.etd||"", eta:buf.eta||"",
@@ -2164,16 +2166,16 @@ function ProgramaSemanaForm({semana, closure, tiposEmbalaje, onGuardar, onCancel
 
       {/* ETD / ETA (fechas reales, opcionales — el tránsito varía por origen/destino) */}
       <div style={{fontSize:11, fontWeight:700, color:C.muted, marginBottom:6, textTransform:"uppercase", letterSpacing:0.3}}>
-        Fechas reales del embarque (opcional)
+        Fechas del embarque (ETD / ETA) *
       </div>
       <div style={{display:"flex", flexWrap:"wrap", gap:10, marginBottom:12}}>
         <div style={{flex:"1 1 170px"}}>
-          <div style={lblSt}>ETD · fecha despacho</div>
+          <div style={lblSt}>ETD · fecha despacho *</div>
           <input type="date" value={buf.etd||""} style={inputSt}
             onChange={e=>setBuf(prev=>({...prev, etd:e.target.value}))}/>
         </div>
         <div style={{flex:"1 1 170px"}}>
-          <div style={lblSt}>ETA · fecha llegada</div>
+          <div style={lblSt}>ETA · fecha llegada *</div>
           <input type="date" value={buf.eta||""} style={inputSt}
             onChange={e=>setBuf(prev=>({...prev, eta:e.target.value}))}/>
           {buf.etd && buf.eta && (
