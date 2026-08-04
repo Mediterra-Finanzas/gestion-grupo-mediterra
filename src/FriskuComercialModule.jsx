@@ -2010,9 +2010,15 @@ function ProgramaSemanaForm({semana, closure, tiposEmbalaje, onGuardar, onCancel
   const handleGuardar = () => {
     const fecha = getMondayStr(buf.etd || buf.fechaSemana);
     if(!fecha){ alert("Ingresa la fecha de ETD (despacho)"); return; }
-    if(totalCajas===0 && !(Number(buf.contenedoresFCL)>0)){ alert("Ingresa cajas por formato o la cantidad de contenedores (FCL)"); return; }
+    const esAereo = buf.tipoEmbarque==="aereo";
+    const fclVal = esAereo ? 0 : (Number(buf.contenedoresFCL)||0);
+    if(totalCajas===0 && fclVal<=0){
+      alert(esAereo ? "Ingresa cajas por formato" : "Ingresa cajas por formato o la cantidad de contenedores (FCL)");
+      return;
+    }
     if(buf.etd && buf.eta && buf.eta < buf.etd){ alert("La ETA no puede ser anterior a la ETD"); return; }
-    onGuardar({...buf, fechaSemana:fecha, etd:buf.etd||"", eta:buf.eta||"", contenedoresFCL: Number(buf.contenedoresFCL)||0});
+    onGuardar({...buf, fechaSemana:fecha, etd:buf.etd||"", eta:buf.eta||"",
+      tipoEmbarque: buf.tipoEmbarque||"maritimo", contenedoresFCL: fclVal});
   };
 
   return (
@@ -2025,9 +2031,18 @@ function ProgramaSemanaForm({semana, closure, tiposEmbalaje, onGuardar, onCancel
         </span>
       </h4>
 
-      {/* ETD + ETA + Estado + FCL */}
-      <div style={{display:"grid", gridTemplateColumns:"1fr 1fr 130px 130px", gap:10, marginBottom:12}}>
-        <div>
+      {/* Vía + ETD + ETA + Estado + FCL */}
+      {(() => { const esAereo = buf.tipoEmbarque==="aereo"; return (
+      <div style={{display:"flex", flexWrap:"wrap", gap:10, marginBottom:12}}>
+        <div style={{flex:"0 1 150px"}}>
+          <div style={lblSt}>Vía *</div>
+          <select value={buf.tipoEmbarque||"maritimo"} style={inputSt}
+            onChange={e=>setBuf(prev=>({...prev, tipoEmbarque:e.target.value}))}>
+            <option value="maritimo">🚢 Marítimo</option>
+            <option value="aereo">✈ Aéreo</option>
+          </select>
+        </div>
+        <div style={{flex:"1 1 150px"}}>
           <div style={lblSt}>ETD · fecha despacho *</div>
           <input type="date" value={buf.etd||""} style={inputSt}
             onChange={e=>setETD(e.target.value)}/>
@@ -2037,7 +2052,7 @@ function ProgramaSemanaForm({semana, closure, tiposEmbalaje, onGuardar, onCancel
             </div>
           )}
         </div>
-        <div>
+        <div style={{flex:"1 1 150px"}}>
           <div style={lblSt}>ETA · fecha llegada</div>
           <input type="date" value={buf.eta||""} style={inputSt}
             onChange={e=>setBuf(prev=>({...prev, eta:e.target.value}))}/>
@@ -2047,7 +2062,7 @@ function ProgramaSemanaForm({semana, closure, tiposEmbalaje, onGuardar, onCancel
             </div>
           )}
         </div>
-        <div>
+        <div style={{flex:"0 1 130px"}}>
           <div style={lblSt}>Estado</div>
           <select value={buf.estado||"borrador"} style={inputSt}
             onChange={e=>setBuf(prev=>({...prev, estado:e.target.value}))}>
@@ -2055,15 +2070,18 @@ function ProgramaSemanaForm({semana, closure, tiposEmbalaje, onGuardar, onCancel
             <option value="confirmado">✓ Confirmado</option>
           </select>
         </div>
-        <div>
-          <div style={lblSt}>Contenedores (FCL)</div>
-          <input type="number" min="0" step="1" placeholder="0"
-            value={buf.contenedoresFCL ?? ""}
-            style={{...inputSt, textAlign:"right", fontFamily:"monospace"}}
-            onChange={e=>setBuf(prev=>({...prev, contenedoresFCL: e.target.value===""? "" : Number(e.target.value)}))}/>
-          <div style={{fontSize:9, color:C.muted2, marginTop:3}}>cantidad programada</div>
-        </div>
+        {!esAereo && (
+          <div style={{flex:"0 1 130px"}}>
+            <div style={lblSt}>Contenedores (FCL)</div>
+            <input type="number" min="0" step="1" placeholder="0"
+              value={buf.contenedoresFCL ?? ""}
+              style={{...inputSt, textAlign:"right", fontFamily:"monospace"}}
+              onChange={e=>setBuf(prev=>({...prev, contenedoresFCL: e.target.value===""? "" : Number(e.target.value)}))}/>
+            <div style={{fontSize:9, color:C.muted2, marginTop:3}}>solo marítimo</div>
+          </div>
+        )}
       </div>
+      ); })()}
 
       {/* Cajas por formato */}
       <div style={{marginBottom:12}}>
@@ -2206,17 +2224,19 @@ function ClosureProgramaPanel({closure, semanas, tiposEmbalaje, exportadoras, cl
               <tbody>
                 {semanasOrdenadas.map((sem,i)=>{
                   const totalSem = Object.values(sem.cajasPorFormato||{}).reduce((s,v)=>s+Number(v||0),0);
+                  const wISO = getSemanaISO(sem.fechaSemana);
                   return (
                     <tr key={sem.id||i} style={{background: i%2===0?C.card:C.rowAlt}}>
                       <td style={{padding:"6px 10px", border:`1px solid ${C.border}`, whiteSpace:"nowrap"}}>
                         <div>
-                          <span style={{display:"inline-block", background:`${C.blue}22`, color:C.blue, fontWeight:700, fontFamily:"monospace", borderRadius:4, padding:"1px 6px", marginRight:6}}>
-                            {getSemanaISO(sem.fechaSemana)?.semana ? "S"+String(getSemanaISO(sem.fechaSemana).semana).padStart(2,"0") : "—"}
+                          <span title="Semana ISO · año (la misma fecha cae en distinta semana según el año)"
+                            style={{display:"inline-block", background:`${C.blue}22`, color:C.blue, fontWeight:700, fontFamily:"monospace", borderRadius:4, padding:"1px 6px", marginRight:6}}>
+                            {wISO ? `S${String(wISO.semana).padStart(2,"0")}·${String(wISO.anio).slice(2)}` : "—"}
                           </span>
                           {formatFechaSemana(sem.fechaSemana)}
                         </div>
                         <div style={{fontSize:10, color:C.muted, marginTop:2}}>
-                          ETD {sem.etd || "—"} → ETA {sem.eta || "—"}
+                          {(sem.tipoEmbarque||"maritimo")==="aereo" ? "✈ Aéreo" : "🚢 Marítimo"} · ETD {sem.etd || "—"} → ETA {sem.eta || "—"}
                         </div>
                       </td>
                       {formatosClosure.map(cod=>(
@@ -4355,6 +4375,7 @@ function ReportesTab({ liquidaciones, embarques, clientes, exportadoras, especie
       return { k: espCod||"—", label: eLab, ec:espCod };
     };
     (programa||[]).forEach(sem=>{
+      if(sem.tipoEmbarque==="aereo") return; // FCL = solo marítimo
       const clo = (contratos||[]).find(c=>c.id===sem.closureId);
       if(temp && clo?.temporada && clo.temporada!==temp) return;
       const {k,label,ec} = clave(clo?.especieCodigo, clo?.clienteId);
@@ -5927,7 +5948,7 @@ export default function FriskuComercialModule({
     setClosureIdParaSemana(closureId);
     setEditandoSemana({
       id:"", closureId,
-      etd:"", eta:"", fechaSemana: getMondayStr(hoyLocal),
+      tipoEmbarque:"maritimo", etd:"", eta:"", fechaSemana: getMondayStr(hoyLocal),
       cajasPorFormato:{}, contenedoresFCL:0, estado:"borrador", observ:"",
       fechaCreacion: new Date().toISOString(),
     });
