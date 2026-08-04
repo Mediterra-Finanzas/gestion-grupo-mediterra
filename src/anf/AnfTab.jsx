@@ -1399,8 +1399,9 @@ export default function AnfTab({ canEdit, usuarioActual, empresaDefault, mesDefa
   async function aprobar() {
     if (!informe || !esCFO) return;
     if (faltantesJust.length > 0) {
+      const pisoFilial = filiales.find(f => f.id === filialId)?.piso_materialidad || 10;
       const lista = faltantesJust.map(f => `• ${f.grupo} (${f.varPct > 0 ? '+' : ''}${f.varPct.toFixed(1)}%)`).join('\n');
-      setError(`No se puede aprobar: faltan justificaciones en grupos con variación ≥ ${piso}%:\n${lista}`);
+      setError(`No se puede aprobar: faltan justificaciones en grupos con variación ≥ ${pisoFilial}%:\n${lista}`);
       return;
     }
     try {
@@ -2066,7 +2067,7 @@ export default function AnfTab({ canEdit, usuarioActual, empresaDefault, mesDefa
                     background: '#fff3cd', border: '1px solid #ffc107', borderRadius: 6,
                     padding: '8px 12px', fontSize: 11, color: '#7a5800', marginBottom: 4,
                   }}>
-                    <strong>Faltan justificaciones para aprobar</strong> — grupos con variación &ge; {piso}%:
+                    <strong>Faltan justificaciones para aprobar</strong> — grupos con variación &ge; {filialActual?.piso_materialidad || 10}%:
                     <ul style={{ margin: '4px 0 0 16px', padding: 0 }}>
                       {faltantesJust.map(f => (
                         <li key={f.grupo}>{f.grupo} ({f.varPct > 0 ? '+' : ''}{f.varPct.toFixed(1)}%)</li>
