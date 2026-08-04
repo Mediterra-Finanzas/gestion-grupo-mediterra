@@ -2037,28 +2037,38 @@ function notifyDesdeMaestro(n) {
 function ProgramaSemanaForm({semana, closure, tiposEmbalaje, onGuardar, onCancelar}) {
   const [buf, setBuf] = useState(()=>{
     const b = JSON.parse(JSON.stringify(semana));
-    // Compat: derivar N° de semana + año desde la fechaSemana existente.
-    if((!b.semanaNum || !b.semanaAnio) && b.fechaSemana){
-      const w = getSemanaISO(b.fechaSemana);
-      if(w){ b.semanaNum = b.semanaNum || w.semana; b.semanaAnio = b.semanaAnio || w.anio; }
+    // Compat: semana de ETD desde etd/fechaSemana/semanaNum viejos
+    if(!b.etdSemanaNum || !b.etdSemanaAnio){
+      const w = getSemanaISO(b.etd || b.fechaSemana);
+      b.etdSemanaNum  = b.etdSemanaNum  || b.semanaNum  || (w?w.semana:undefined);
+      b.etdSemanaAnio = b.etdSemanaAnio || b.semanaAnio || (w?w.anio:undefined);
+    }
+    // Compat: semana de ETA desde eta; si no hay, igual a la de ETD
+    if(!b.etaSemanaNum || !b.etaSemanaAnio){
+      const w = b.eta ? getSemanaISO(b.eta) : null;
+      b.etaSemanaNum  = b.etaSemanaNum  || (w?w.semana:b.etdSemanaNum);
+      b.etaSemanaAnio = b.etaSemanaAnio || (w?w.anio:b.etdSemanaAnio);
     }
     return b;
   });
-  // La semana se elige por N° + año; la fechaSemana (lunes) se calcula de ahí.
-  const setSemana = (num, anio) => setBuf(prev=>{
-    const n = num!=null ? Number(num) : prev.semanaNum;
-    const a = anio!=null ? Number(anio) : prev.semanaAnio;
-    return {...prev, semanaNum:n, semanaAnio:a, fechaSemana: lunesDeSemanaISO(n,a) || prev.fechaSemana};
-  });
-  // Años ofrecidos: los de la temporada del closure (+ el ya elegido).
+  const setSemanaETD = (num, anio) => setBuf(prev=>({...prev,
+    etdSemanaNum: num!=null ? Number(num) : prev.etdSemanaNum,
+    etdSemanaAnio: anio!=null ? Number(anio) : prev.etdSemanaAnio }));
+  const setSemanaETA = (num, anio) => setBuf(prev=>({...prev,
+    etaSemanaNum: num!=null ? Number(num) : prev.etaSemanaNum,
+    etaSemanaAnio: anio!=null ? Number(anio) : prev.etaSemanaAnio }));
+  // Años ofrecidos: los de la temporada del closure (+ los ya elegidos).
   const aniosSemana = (()=>{
     const set = new Set();
     String(closure?.temporada||"").split("-").map(Number).forEach(y=>{ if(y) set.add(y); });
-    if(buf.semanaAnio) set.add(Number(buf.semanaAnio));
+    if(buf.etdSemanaAnio) set.add(Number(buf.etdSemanaAnio));
+    if(buf.etaSemanaAnio) set.add(Number(buf.etaSemanaAnio));
     if(!set.size){ const y=new Date().getFullYear(); set.add(y); set.add(y+1); }
     return Array.from(set).sort();
   })();
-  const lunesSel = lunesDeSemanaISO(buf.semanaNum, buf.semanaAnio);
+  const lunesETD = lunesDeSemanaISO(buf.etdSemanaNum, buf.etdSemanaAnio);
+  const lunesETA = lunesDeSemanaISO(buf.etaSemanaNum, buf.etaSemanaAnio);
+  const diasTransito = (lunesETD && lunesETA) ? Math.round((new Date(lunesETA)-new Date(lunesETD))/86400000) : null;
 
   const setCajas = (fmtCodigo, val) => setBuf(prev=>{
     const cpf = {...(prev.cajasPorFormato||{})};
@@ -2071,8 +2081,9 @@ function ProgramaSemanaForm({semana, closure, tiposEmbalaje, onGuardar, onCancel
   const totalCajas = Object.values(buf.cajasPorFormato||{}).reduce((s,v)=>s+Number(v||0),0);
 
   const handleGuardar = () => {
-    const fecha = lunesDeSemanaISO(buf.semanaNum, buf.semanaAnio) || getMondayStr(buf.fechaSemana);
-    if(!fecha){ alert("Selecciona la semana (N° y año)"); return; }
+    if(!lunesETD){ alert("Selecciona la semana de ETD (N° y año)"); return; }
+    if(!lunesETA){ alert("Selecciona la semana de ETA (N° y año)"); return; }
+    if(lunesETA < lunesETD){ alert("La semana de ETA no puede ser anterior a la de ETD"); return; }
     const esAereo = buf.tipoEmbarque==="aereo";
     const fclVal = esAereo ? 0 : (Number(buf.contenedoresFCL)||0);
     const palVal = esAereo ? (Number(buf.pallets)||0) : 0;
@@ -2080,12 +2091,11 @@ function ProgramaSemanaForm({semana, closure, tiposEmbalaje, onGuardar, onCancel
       alert(esAereo ? "Ingresa cajas por formato o la cantidad de pallets" : "Ingresa cajas por formato o la cantidad de contenedores (FCL)");
       return;
     }
-    if(!buf.etd){ alert("Ingresa la ETD (fecha de despacho)"); return; }
-    if(!buf.eta){ alert("Ingresa la ETA (fecha de llegada)"); return; }
-    if(buf.eta < buf.etd){ alert("La ETA no puede ser anterior a la ETD"); return; }
-    onGuardar({...buf, fechaSemana:fecha,
-      semanaNum: Number(buf.semanaNum)||null, semanaAnio: Number(buf.semanaAnio)||null,
-      etd:buf.etd||"", eta:buf.eta||"",
+    onGuardar({...buf, fechaSemana:lunesETD,
+      etdSemanaNum: Number(buf.etdSemanaNum)||null, etdSemanaAnio: Number(buf.etdSemanaAnio)||null,
+      etaSemanaNum: Number(buf.etaSemanaNum)||null, etaSemanaAnio: Number(buf.etaSemanaAnio)||null,
+      etd: lunesETD, eta: lunesETA,
+      semanaNum:null, semanaAnio:null,  // campos viejos deprecados
       tipoEmbarque: buf.tipoEmbarque||"maritimo", contenedoresFCL: fclVal, pallets: palVal});
   };
 
@@ -2095,97 +2105,79 @@ function ProgramaSemanaForm({semana, closure, tiposEmbalaje, onGuardar, onCancel
         <span>{semana.id?"✎":"+"}</span>
         <span>{semana.id?"Editar semana":"Nueva semana de programa"}</span>
         <span style={{fontSize:10, color:C.muted, fontWeight:400}}>
-          — Elige la semana comercial (N° y año)
+          — Semana de despacho (ETD) y de llegada (ETA)
         </span>
       </h4>
 
-      {(() => { const esAereo = buf.tipoEmbarque==="aereo"; return (<>
-      {/* Vía + Semana N° + Año + Estado + FCL/Pallets */}
-      <div style={{display:"flex", flexWrap:"wrap", gap:10, marginBottom:6}}>
-        <div style={{flex:"0 1 140px"}}>
-          <div style={lblSt}>Vía *</div>
-          <select value={buf.tipoEmbarque||"maritimo"} style={inputSt}
-            onChange={e=>setBuf(prev=>({...prev, tipoEmbarque:e.target.value}))}>
-            <option value="maritimo">🚢 Marítimo</option>
-            <option value="aereo">✈ Aéreo</option>
-          </select>
-        </div>
-        <div style={{flex:"0 1 110px"}}>
-          <div style={lblSt}>Semana N° *</div>
-          <select value={buf.semanaNum||""} style={inputSt}
-            onChange={e=>setSemana(e.target.value||null, null)}>
-            <option value="">—</option>
-            {Array.from({length:53},(_,i)=>i+1).map(n=><option key={n} value={n}>S{String(n).padStart(2,"0")}</option>)}
-          </select>
-        </div>
-        <div style={{flex:"0 1 100px"}}>
-          <div style={lblSt}>Año *</div>
-          <select value={buf.semanaAnio||""} style={inputSt}
-            onChange={e=>setSemana(null, e.target.value||null)}>
-            <option value="">—</option>
-            {aniosSemana.map(y=><option key={y} value={y}>{y}</option>)}
-          </select>
-        </div>
-        <div style={{flex:"0 1 130px"}}>
-          <div style={lblSt}>Estado</div>
-          <select value={buf.estado||"borrador"} style={inputSt}
-            onChange={e=>setBuf(prev=>({...prev, estado:e.target.value}))}>
-            <option value="borrador">◌ Borrador</option>
-            <option value="confirmado">✓ Confirmado</option>
-          </select>
-        </div>
-        {esAereo ? (
-          <div style={{flex:"0 1 120px"}}>
-            <div style={lblSt}>Pallets</div>
-            <input type="number" min="0" step="1" placeholder="0"
-              value={buf.pallets ?? ""}
-              style={{...inputSt, textAlign:"right", fontFamily:"monospace"}}
-              onChange={e=>setBuf(prev=>({...prev, pallets: e.target.value===""? "" : Number(e.target.value)}))}/>
-            <div style={{fontSize:9, color:C.muted2, marginTop:3}}>aéreo · cajas abajo</div>
+      {(() => {
+        const esAereo = buf.tipoEmbarque==="aereo";
+        const weekSel = (lbl, num, anio, setter, lunes, color) => (
+          <div style={{flex:"1 1 300px", background:C.card, border:`1px solid ${C.border}`, borderRadius:8, padding:"8px 10px"}}>
+            <div style={{...lblSt, color}}>{lbl} *</div>
+            <div style={{display:"flex", gap:8}}>
+              <select value={num||""} style={{...inputSt, flex:"1 1 auto"}} onChange={e=>setter(e.target.value||null, null)}>
+                <option value="">Semana —</option>
+                {Array.from({length:53},(_,i)=>i+1).map(n=><option key={n} value={n}>S{String(n).padStart(2,"0")}</option>)}
+              </select>
+              <select value={anio||""} style={{...inputSt, flex:"0 1 92px"}} onChange={e=>setter(null, e.target.value||null)}>
+                <option value="">Año —</option>
+                {aniosSemana.map(y=><option key={y} value={y}>{y}</option>)}
+              </select>
+            </div>
+            <div style={{fontSize:11, color: lunes?color:C.muted, fontWeight:600, marginTop:5}}>
+              {lunes ? `📅 ${formatSemanaISO(lunes)} · ${rangoSemana(lunes)}` : "Selecciona N° de semana y año"}
+            </div>
           </div>
-        ) : (
-          <div style={{flex:"0 1 130px"}}>
-            <div style={lblSt}>Contenedores (FCL)</div>
-            <input type="number" min="0" step="1" placeholder="0"
-              value={buf.contenedoresFCL ?? ""}
-              style={{...inputSt, textAlign:"right", fontFamily:"monospace"}}
-              onChange={e=>setBuf(prev=>({...prev, contenedoresFCL: e.target.value===""? "" : Number(e.target.value)}))}/>
-            <div style={{fontSize:9, color:C.muted2, marginTop:3}}>solo marítimo</div>
+        );
+        return (<>
+        {/* Vía + Estado + FCL/Pallets */}
+        <div style={{display:"flex", flexWrap:"wrap", gap:10, marginBottom:10}}>
+          <div style={{flex:"0 1 150px"}}>
+            <div style={lblSt}>Vía *</div>
+            <select value={buf.tipoEmbarque||"maritimo"} style={inputSt}
+              onChange={e=>setBuf(prev=>({...prev, tipoEmbarque:e.target.value}))}>
+              <option value="maritimo">🚢 Marítimo</option>
+              <option value="aereo">✈ Aéreo</option>
+            </select>
           </div>
-        )}
-      </div>
-
-      {/* Rango de fechas de la semana elegida */}
-      {lunesSel ? (
-        <div style={{fontSize:11.5, color:C.teal, fontWeight:600, marginBottom:12}}>
-          📅 Semana {formatSemanaISO(lunesSel)} · {rangoSemana(lunesSel)}
-        </div>
-      ) : (
-        <div style={{fontSize:11, color:C.muted, marginBottom:12}}>Selecciona N° de semana y año para ver el rango de fechas.</div>
-      )}
-
-      {/* ETD / ETA (fechas reales, opcionales — el tránsito varía por origen/destino) */}
-      <div style={{fontSize:11, fontWeight:700, color:C.muted, marginBottom:6, textTransform:"uppercase", letterSpacing:0.3}}>
-        Fechas del embarque (ETD / ETA) *
-      </div>
-      <div style={{display:"flex", flexWrap:"wrap", gap:10, marginBottom:12}}>
-        <div style={{flex:"1 1 170px"}}>
-          <div style={lblSt}>ETD · fecha despacho *</div>
-          <input type="date" value={buf.etd||""} style={inputSt}
-            onChange={e=>setBuf(prev=>({...prev, etd:e.target.value}))}/>
-        </div>
-        <div style={{flex:"1 1 170px"}}>
-          <div style={lblSt}>ETA · fecha llegada *</div>
-          <input type="date" value={buf.eta||""} style={inputSt}
-            onChange={e=>setBuf(prev=>({...prev, eta:e.target.value}))}/>
-          {buf.etd && buf.eta && (
-            <div style={{fontSize:10, color:C.muted2, marginTop:3}}>
-              {Math.max(0, Math.round((new Date(buf.eta)-new Date(buf.etd))/86400000))} días de tránsito
+          <div style={{flex:"0 1 150px"}}>
+            <div style={lblSt}>Estado</div>
+            <select value={buf.estado||"borrador"} style={inputSt}
+              onChange={e=>setBuf(prev=>({...prev, estado:e.target.value}))}>
+              <option value="borrador">◌ Borrador</option>
+              <option value="confirmado">✓ Confirmado</option>
+            </select>
+          </div>
+          {esAereo ? (
+            <div style={{flex:"0 1 130px"}}>
+              <div style={lblSt}>Pallets</div>
+              <input type="number" min="0" step="1" placeholder="0" value={buf.pallets ?? ""}
+                style={{...inputSt, textAlign:"right", fontFamily:"monospace"}}
+                onChange={e=>setBuf(prev=>({...prev, pallets: e.target.value===""? "" : Number(e.target.value)}))}/>
+              <div style={{fontSize:9, color:C.muted2, marginTop:3}}>aéreo · cajas abajo</div>
+            </div>
+          ) : (
+            <div style={{flex:"0 1 140px"}}>
+              <div style={lblSt}>Contenedores (FCL)</div>
+              <input type="number" min="0" step="1" placeholder="0" value={buf.contenedoresFCL ?? ""}
+                style={{...inputSt, textAlign:"right", fontFamily:"monospace"}}
+                onChange={e=>setBuf(prev=>({...prev, contenedoresFCL: e.target.value===""? "" : Number(e.target.value)}))}/>
+              <div style={{fontSize:9, color:C.muted2, marginTop:3}}>solo marítimo</div>
             </div>
           )}
         </div>
-      </div>
-      </>); })()}
+
+        {/* Semana ETD + Semana ETA */}
+        <div style={{display:"flex", flexWrap:"wrap", gap:10, marginBottom:6}}>
+          {weekSel("ETD · fecha despacho", buf.etdSemanaNum, buf.etdSemanaAnio, setSemanaETD, lunesETD, C.teal)}
+          {weekSel("ETA · fecha llegada", buf.etaSemanaNum, buf.etaSemanaAnio, setSemanaETA, lunesETA, C.blue)}
+        </div>
+        {diasTransito!=null && (
+          <div style={{fontSize:11, color:C.muted, marginBottom:12}}>
+            🕒 {Math.max(0, diasTransito)} días de tránsito ({Math.max(0, Math.round(diasTransito/7))} semana{Math.round(diasTransito/7)!==1?"s":""})
+          </div>
+        )}
+        </>); })()}
 
       {/* Cajas por formato */}
       <div style={{marginBottom:12}}>
@@ -2329,6 +2321,9 @@ function ClosureProgramaPanel({closure, semanas, tiposEmbalaje, exportadoras, cl
                 {semanasOrdenadas.map((sem,i)=>{
                   const totalSem = Object.values(sem.cajasPorFormato||{}).reduce((s,v)=>s+Number(v||0),0);
                   const wISO = getSemanaISO(sem.fechaSemana);
+                  const wEtd = sem.etdSemanaNum ? {semana:sem.etdSemanaNum, anio:sem.etdSemanaAnio} : getSemanaISO(sem.etd);
+                  const wEta = sem.etaSemanaNum ? {semana:sem.etaSemanaNum, anio:sem.etaSemanaAnio} : getSemanaISO(sem.eta);
+                  const fmtW = (w)=> w ? `S${String(w.semana).padStart(2,"0")}·${String(w.anio).slice(2)}` : "—";
                   return (
                     <tr key={sem.id||i} style={{background: i%2===0?C.card:C.rowAlt}}>
                       <td style={{padding:"6px 10px", border:`1px solid ${C.border}`, whiteSpace:"nowrap"}}>
@@ -2340,7 +2335,7 @@ function ClosureProgramaPanel({closure, semanas, tiposEmbalaje, exportadoras, cl
                           {formatFechaSemana(sem.fechaSemana)}
                         </div>
                         <div style={{fontSize:10, color:C.muted, marginTop:2}}>
-                          {(sem.tipoEmbarque||"maritimo")==="aereo" ? "✈ Aéreo" : "🚢 Marítimo"} · ETD {sem.etd || "—"} → ETA {sem.eta || "—"}
+                          {(sem.tipoEmbarque||"maritimo")==="aereo" ? "✈ Aéreo" : "🚢 Marítimo"} · ETD {fmtW(wEtd)} → ETA {fmtW(wEta)}
                         </div>
                       </td>
                       {formatosClosure.map(cod=>(
