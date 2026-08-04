@@ -1236,11 +1236,6 @@ export default function AnfTab({ canEdit, usuarioActual, empresaDefault, mesDefa
   const [tipoCierre,  setTipoCierre]  = useState('');
   const [tipoProm,    setTipoProm]    = useState('');
 
-  // Gate de aprobación: grupos ER con var material sin justificación
-  const faltantesJust = useMemo(() => {
-    if (!er.length) return [];
-    return gruposSinJustificacion(er, justif, piso);
-  }, [er, justif, piso]);
 
   // Estado UI
   const [cargando,    setCargando]    = useState(false);
@@ -1847,6 +1842,15 @@ export default function AnfTab({ canEdit, usuarioActual, empresaDefault, mesDefa
   // ── Render ─────────────────────────────────────────────────────────────────
   const filialActual = filiales.find(f => f.id === filialId);
   const informesFilial = informe ? informes.filter(i => i.filial_id === filialId) : [];
+
+  // Gate de aprobación: grupos ER con variación material sin justificación
+  // Calculado aquí para tener acceso a filialActual (piso_materialidad)
+  const faltantesJust = useMemo(() => {
+    if (!er.length) return [];
+    const pisoFilial = filialActual?.piso_materialidad || 10;
+    return gruposSinJustificacion(er, justif, pisoFilial);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [er, justif, filialActual?.piso_materialidad]);
 
   return (
     <div style={{ color: C.text, fontSize: 12 }}>
