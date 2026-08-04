@@ -479,6 +479,7 @@ export function buildMovimientosEr(er_temp, er_mensual, mes, anio, sistema) {
       ppto_temp += desglose_temp[k]?.ppto || 0;
     }
 
+    // ppto_mes puede ser 0 genuino (presupuesto $0 para esa cuenta/período) → no convertir a null
     result.push({
       codigo,
       nombre,
@@ -487,12 +488,12 @@ export function buildMovimientosEr(er_temp, er_mensual, mes, anio, sistema) {
       grupo_er:           clasificarGrupoEr(codigo),
       real_mes,
       real_ytd,
-      ppto_mes:           ppto_mes !== 0 ? ppto_mes : null,
-      ppto_ytd:           ppto_ytd !== 0 ? ppto_ytd : null,
+      ppto_mes,
+      ppto_ytd,
       real_t1_mes:        null,
       real_t1_ytd:        null,
       real_temporada:     real_temp,
-      ppto_temporada:     ppto_temp !== 0 ? ppto_temp : null,
+      ppto_temporada:     ppto_temp,
       real_t1_temporada:  null,
       desglose_cal:       Object.keys(mergedCal).length ? mergedCal : null,
       desglose_temp:      Object.keys(desglose_temp).length ? desglose_temp : null,

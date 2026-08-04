@@ -1,6 +1,11 @@
 /* eslint-disable */
 // src/anf/anfKpis.js
 // 17 KPIs financieros derivados — calculados al aprobar el informe.
+//
+// Convención de signos ER:
+//   Los grupos Costo Operacional, Gasto Operacional, Gasto No Operacional e Impuesto
+//   se almacenan como valores negativos en anf_movimientos_er (igual que en la UI/TablaEr).
+//   Por eso todos los grupos se SUMAN para obtener resultados intermedios.
 
 function round2(v) { return v != null && !isNaN(v) ? Math.round(v * 100) / 100 : null; }
 function round3(v) { return v != null && !isNaN(v) ? Math.round(v * 1000) / 1000 : null; }
@@ -32,23 +37,30 @@ export function calcularKpisDerivaos(esf, er) {
   const activoNoCte  = sumaEsf(esf, ['Activo No Corriente']);
   const totalActivos = activoCte + activoNoCte;
 
+  // Pasivos: saldo_neto negativo (cuenta acreeedora) → Math.abs para ratios
   const pasivoCte    = Math.abs(sumaEsf(esf, ['Pasivo Corriente']));
   const pasivoNoCte  = Math.abs(sumaEsf(esf, ['Pasivo No Corriente']));
   const totalPasivos = pasivoCte + pasivoNoCte;
 
-  const patrimonioAbs = Math.abs(sumaEsf(esf, ['Patrimonio']));
+  // Patrimonio: guardar con signo real (negativo = insolvencia detectable)
+  const patrimonioRaw = sumaEsf(esf, ['Patrimonio']);
+  const patrimonioAbs = Math.abs(patrimonioRaw); // para denominadores de ratios
 
   // ── Bloques ER — YTD ────────────────────────────────────────────────────
+  // Costos/gastos tienen signo negativo en DB → se SUMAN (igual que la UI/TablaEr)
   const ingOp   = sumaEr(er, ['Ingreso Operacional']);
-  const cosOp   = sumaEr(er, ['Costo Operacional']);
-  const gasOp   = sumaEr(er, ['Gasto Operacional']);
+  const cosOp   = sumaEr(er, ['Costo Operacional']);      // negativo
+  const gasOp   = sumaEr(er, ['Gasto Operacional']);      // negativo
   const ingNOp  = sumaEr(er, ['Ingreso No Operacional']);
-  const gasNOp  = sumaEr(er, ['Gasto No Operacional']);
-  const imp     = sumaEr(er, ['Impuesto']);
+  const gasNOp  = sumaEr(er, ['Gasto No Operacional']);   // negativo
+  const imp     = sumaEr(er, ['Impuesto']);               // negativo
 
   const ingOpPpto   = sumaEr(er, ['Ingreso Operacional'], 'ppto_ytd');
-  const ebitda      = ingOp - cosOp - gasOp;
-  const resultadoNeto = ingOp - cosOp - gasOp + ingNOp - gasNOp - imp;
+
+  // Resultado operacional (antes de depreciación — EBIT, no EBITDA: D&A no disponible en EERR)
+  const margenBruto = ingOp + cosOp;
+  const ebit        = margenBruto + gasOp;
+  const resultadoNeto = ebit + ingNOp + gasNOp + imp;
 
   // ── Bloques ER — Temporada ───────────────────────────────────────────────
   const ingOpT  = sumaEr(er, ['Ingreso Operacional'],    'real_temporada');
@@ -57,14 +69,14 @@ export function calcularKpisDerivaos(esf, er) {
   const ingNOpT = sumaEr(er, ['Ingreso No Operacional'], 'real_temporada');
   const gasNOpT = sumaEr(er, ['Gasto No Operacional'],   'real_temporada');
   const impT    = sumaEr(er, ['Impuesto'],               'real_temporada');
-  const resultadoTemp = ingOpT - cosOpT - gasOpT + ingNOpT - gasNOpT - impT;
+  const resultadoTemp = ingOpT + cosOpT + gasOpT + ingNOpT + gasNOpT + impT;
 
   // ── RENTABILIDAD ───────────────────────────────────────────────────────
   kpis.push({ clave: 'margen_bruto',
-    valor: round2(ingOp !== 0 ? ((ingOp - cosOp) / ingOp) * 100 : null), unidad: '%' });
+    valor: round2(ingOp !== 0 ? (margenBruto / ingOp) * 100 : null), unidad: '%' });
 
   kpis.push({ clave: 'margen_ebitda',
-    valor: round2(ingOp !== 0 ? (ebitda / ingOp) * 100 : null), unidad: '%' });
+    valor: round2(ingOp !== 0 ? (ebit / ingOp) * 100 : null), unidad: '%' });
 
   kpis.push({ clave: 'margen_neto',
     valor: round2(ingOp !== 0 ? (resultadoNeto / ingOp) * 100 : null), unidad: '%' });
@@ -89,15 +101,16 @@ export function calcularKpisDerivaos(esf, er) {
   kpis.push({ clave: 'deuda_patrimonio',
     valor: round3(patrimonioAbs !== 0 ? totalPasivos / patrimonioAbs : null), unidad: 'x' });
 
+  // Deuda/EBIT: significativo solo si EBIT > 0; EBIT negativo → n/a (no aporta info útil)
   kpis.push({ clave: 'deuda_ebitda',
-    valor: round3(ebitda !== 0 ? totalPasivos / Math.abs(ebitda) : null), unidad: 'x' });
+    valor: round3(ebit > 0 ? totalPasivos / ebit : null), unidad: 'x' });
 
   // ── BALANCE ────────────────────────────────────────────────────────────
-  kpis.push({ clave: 'total_activos',      valor: round2(totalActivos),  unidad: 'moneda' });
-  kpis.push({ clave: 'total_pasivos',      valor: round2(totalPasivos),  unidad: 'moneda' });
-  kpis.push({ clave: 'total_patrimonio',   valor: round2(patrimonioAbs), unidad: 'moneda' });
-  kpis.push({ clave: 'activos_corrientes', valor: round2(activoCte),     unidad: 'moneda' });
-  kpis.push({ clave: 'pasivos_corrientes', valor: round2(pasivoCte),     unidad: 'moneda' });
+  kpis.push({ clave: 'total_activos',      valor: round2(totalActivos),    unidad: 'moneda' });
+  kpis.push({ clave: 'total_pasivos',      valor: round2(totalPasivos),    unidad: 'moneda' });
+  kpis.push({ clave: 'total_patrimonio',   valor: round2(patrimonioRaw),   unidad: 'moneda' }); // signo real
+  kpis.push({ clave: 'activos_corrientes', valor: round2(activoCte),       unidad: 'moneda' });
+  kpis.push({ clave: 'pasivos_corrientes', valor: round2(pasivoCte),       unidad: 'moneda' });
 
   // ── RESULTADOS ─────────────────────────────────────────────────────────
   kpis.push({ clave: 'resultado_neto_ytd',  valor: round2(resultadoNeto), unidad: 'moneda' });
@@ -133,7 +146,7 @@ export const KPI_GRUPOS = [
 
 export const KPI_LABELS = {
   margen_bruto:        'Margen Bruto',
-  margen_ebitda:       'Margen EBITDA',
+  margen_ebitda:       'Margen EBIT',
   margen_neto:         'Margen Neto',
   roe:                 'ROE',
   roa:                 'ROA',
@@ -141,7 +154,7 @@ export const KPI_LABELS = {
   liquidez_corriente:  'Liquidez Corriente',
   capital_trabajo:     'Capital de Trabajo',
   deuda_patrimonio:    'Deuda / Patrimonio',
-  deuda_ebitda:        'Deuda / EBITDA',
+  deuda_ebitda:        'Deuda / EBIT',
   total_activos:       'Total Activos',
   total_pasivos:       'Total Pasivos',
   total_patrimonio:    'Total Patrimonio',
@@ -152,19 +165,19 @@ export const KPI_LABELS = {
 };
 
 export const KPI_TOOLTIPS = {
-  margen_bruto:        '(Ingresos Op − Costos Op) / Ingresos Op × 100',
-  margen_ebitda:       '(Ingresos − Costos − Gastos Op) / Ingresos Op × 100',
+  margen_bruto:        '(Ingresos Op + Costos Op) / Ingresos Op × 100',
+  margen_ebitda:       'EBIT / Ingresos Op × 100 (sin D&A disponible)',
   margen_neto:         'Resultado Neto / Ingresos Op × 100',
-  roe:                 'Resultado Neto / Patrimonio × 100',
+  roe:                 'Resultado Neto / |Patrimonio| × 100',
   roa:                 'Resultado Neto / Total Activos × 100',
   cumplimiento_ppto:   'Ingresos reales YTD / Ingresos ppto YTD × 100',
   liquidez_corriente:  'Activo Corriente / Pasivo Corriente',
   capital_trabajo:     'Activo Corriente − Pasivo Corriente',
-  deuda_patrimonio:    'Total Pasivos / Patrimonio',
-  deuda_ebitda:        'Total Pasivos / EBITDA (no anualizado)',
+  deuda_patrimonio:    'Total Pasivos / |Patrimonio|',
+  deuda_ebitda:        'Total Pasivos / EBIT (n/a si EBIT ≤ 0)',
   total_activos:       'Activo Corriente + Activo No Corriente',
   total_pasivos:       'Pasivo Corriente + Pasivo No Corriente',
-  total_patrimonio:    'Patrimonio neto (valor absoluto)',
+  total_patrimonio:    'Patrimonio neto (negativo = patrimonio negativo)',
   activos_corrientes:  'Activos realizables en menos de 12 meses',
   pasivos_corrientes:  'Obligaciones vencibles en menos de 12 meses',
   resultado_neto_ytd:  'Resultado Neto acumulado año calendario (ene→mes)',

@@ -111,14 +111,27 @@ export async function crearInforme({ filialId, anio, mes, temporada, tipoCierre,
   return Array.isArray(rows) ? rows[0] : rows;
 }
 
-export async function actualizarEstadoInforme(informeId, estado, { aprobadoPor, observacion } = {}) {
-  return supaPatch('anf_informes', `id=eq.${informeId}`, {
+export async function actualizarEstadoInforme(informeId, estado, { aprobadoPor, rechazadoPor, observacion } = {}) {
+  const patch = {
     estado,
-    aprobado_por: aprobadoPor ?? null,
-    aprobado_en:  estado === 'aprobado' ? new Date().toISOString() : null,
-    observacion:  observacion ?? null,
-    updated_at:   new Date().toISOString(),
-  });
+    updated_at: new Date().toISOString(),
+  };
+  if (estado === 'aprobado') {
+    patch.aprobado_por = aprobadoPor ?? null;
+    patch.aprobado_en  = new Date().toISOString();
+    patch.observacion  = observacion ?? null;
+  } else if (estado === 'rechazado') {
+    patch.aprobado_por = null; // limpiar quien aprobó
+    patch.aprobado_en  = null;
+    // guardar nombre del que rechazó en observacion
+    const prefix = rechazadoPor ? `Rechazado por ${rechazadoPor}` : 'Rechazado';
+    patch.observacion = observacion ? `${prefix}: ${observacion}` : prefix;
+  } else {
+    patch.aprobado_por = null;
+    patch.aprobado_en  = null;
+    patch.observacion  = observacion ?? null;
+  }
+  return supaPatch('anf_informes', `id=eq.${informeId}`, patch);
 }
 
 export async function actualizarTcInforme(informeId, { tipoCierre, tipoPromedio }) {
@@ -136,18 +149,30 @@ export async function cargarSaldosEsf(informeId) {
 }
 
 // Inserta o reemplaza todos los saldos ESF de un informe.
-// Elimina los existentes antes de insertar (para evitar duplicados en re-subida).
+// Patrón backup-restore: guarda copia antes de borrar; restaura si el insert falla.
 export async function guardarSaldosEsf(informeId, saldos) {
+  const backup = await supaGet(`anf_saldos_esf?informe_id=eq.${informeId}&order=orden.asc,codigo.asc`);
   await supaDelete('anf_saldos_esf', `informe_id=eq.${informeId}`);
   if (!saldos.length) return;
   const rows = saldos.map(s => ({ ...s, informe_id: informeId }));
-  // Supabase acepta bulk insert con array
   const res = await fetch(`${SUPA_URL}/rest/v1/anf_saldos_esf`, {
     method: 'POST',
     headers: { ...GET_HDR(), 'Content-Type': 'application/json', Prefer: 'return=minimal' },
     body: JSON.stringify(rows),
   });
-  if (!res.ok) throw new Error(`Bulk insert anf_saldos_esf → ${res.status}: ${await res.text()}`);
+  if (!res.ok) {
+    const msg = await res.text();
+    if (backup.length) {
+      try {
+        await fetch(`${SUPA_URL}/rest/v1/anf_saldos_esf`, {
+          method: 'POST',
+          headers: { ...GET_HDR(), 'Content-Type': 'application/json', Prefer: 'return=minimal' },
+          body: JSON.stringify(backup),
+        });
+      } catch {}
+    }
+    throw new Error(`Bulk insert anf_saldos_esf → ${res.status}: ${msg}`);
+  }
 }
 
 // ── anf_movimientos_er ───────────────────────────────────────────────────────
@@ -157,6 +182,7 @@ export async function cargarMovimientosEr(informeId) {
 }
 
 export async function guardarMovimientosEr(informeId, movimientos) {
+  const backup = await supaGet(`anf_movimientos_er?informe_id=eq.${informeId}&order=orden.asc,codigo.asc`);
   await supaDelete('anf_movimientos_er', `informe_id=eq.${informeId}`);
   if (!movimientos.length) return;
   const rows = movimientos.map(m => ({ ...m, informe_id: informeId }));
@@ -165,7 +191,19 @@ export async function guardarMovimientosEr(informeId, movimientos) {
     headers: { ...GET_HDR(), 'Content-Type': 'application/json', Prefer: 'return=minimal' },
     body: JSON.stringify(rows),
   });
-  if (!res.ok) throw new Error(`Bulk insert anf_movimientos_er → ${res.status}: ${await res.text()}`);
+  if (!res.ok) {
+    const msg = await res.text();
+    if (backup.length) {
+      try {
+        await fetch(`${SUPA_URL}/rest/v1/anf_movimientos_er`, {
+          method: 'POST',
+          headers: { ...GET_HDR(), 'Content-Type': 'application/json', Prefer: 'return=minimal' },
+          body: JSON.stringify(backup),
+        });
+      } catch {}
+    }
+    throw new Error(`Bulk insert anf_movimientos_er → ${res.status}: ${msg}`);
+  }
 }
 
 // ── anf_justificaciones ──────────────────────────────────────────────────────
