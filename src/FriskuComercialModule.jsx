@@ -2111,14 +2111,15 @@ function ProgramaSemanaForm({semana, closure, tiposEmbalaje, onGuardar, onCancel
 
       {(() => {
         const esAereo = buf.tipoEmbarque==="aereo";
-        const weekSel = (lbl, num, anio, setter, lunes, color) => (
+        const weekSel = (id, lbl, num, anio, setter, lunes, color) => (
           <div style={{flex:"1 1 300px", background:C.card, border:`1px solid ${C.border}`, borderRadius:8, padding:"8px 10px"}}>
             <div style={{...lblSt, color}}>{lbl} *</div>
             <div style={{display:"flex", gap:8}}>
-              <select value={num||""} style={{...inputSt, flex:"1 1 auto"}} onChange={e=>setter(e.target.value||null, null)}>
-                <option value="">Semana —</option>
-                {Array.from({length:53},(_,i)=>i+1).map(n=><option key={n} value={n}>S{String(n).padStart(2,"0")}</option>)}
-              </select>
+              <div style={{flex:"1 1 auto"}}>
+                <SelectBuscable listId={`wk-${id}`} value={num||""} onChange={v=>setter(v||null, null)}
+                  placeholder="🔍 Semana" style={{...inputSt, width:"100%"}}
+                  options={Array.from({length:53},(_,i)=>i+1).map(n=>({value:n, label:`S${String(n).padStart(2,"0")}`}))}/>
+              </div>
               <select value={anio||""} style={{...inputSt, flex:"0 1 92px"}} onChange={e=>setter(null, e.target.value||null)}>
                 <option value="">Año —</option>
                 {aniosSemana.map(y=><option key={y} value={y}>{y}</option>)}
@@ -2169,8 +2170,8 @@ function ProgramaSemanaForm({semana, closure, tiposEmbalaje, onGuardar, onCancel
 
         {/* Semana ETD + Semana ETA */}
         <div style={{display:"flex", flexWrap:"wrap", gap:10, marginBottom:6}}>
-          {weekSel("ETD · fecha despacho", buf.etdSemanaNum, buf.etdSemanaAnio, setSemanaETD, lunesETD, C.teal)}
-          {weekSel("ETA · fecha llegada", buf.etaSemanaNum, buf.etaSemanaAnio, setSemanaETA, lunesETA, C.blue)}
+          {weekSel("etd", "ETD · fecha despacho", buf.etdSemanaNum, buf.etdSemanaAnio, setSemanaETD, lunesETD, C.teal)}
+          {weekSel("eta", "ETA · fecha llegada", buf.etaSemanaNum, buf.etaSemanaAnio, setSemanaETA, lunesETA, C.blue)}
         </div>
         {diasTransito!=null && (
           <div style={{fontSize:11, color:C.muted, marginBottom:12}}>
