@@ -1963,6 +1963,28 @@ function formatSemanaISO(dateStr) {
   return w ? `S${String(w.semana).padStart(2,"0")} · ${w.anio}` : "";
 }
 
+// Inverso de getSemanaISO: (semana ISO, año ISO) → lunes de esa semana (YYYY-MM-DD).
+// Jan 4 siempre cae en la semana 1; se toma el lunes de esa semana y se suman
+// las semanas que faltan.
+function lunesDeSemanaISO(semana, anio) {
+  const s = Number(semana), y = Number(anio);
+  if(!s || !y) return "";
+  const jan4 = new Date(Date.UTC(y, 0, 4));
+  const day = jan4.getUTCDay() || 7;
+  const lunesS1 = new Date(jan4); lunesS1.setUTCDate(jan4.getUTCDate() - day + 1);
+  const lunes = new Date(lunesS1); lunes.setUTCDate(lunesS1.getUTCDate() + (s - 1) * 7);
+  return lunes.toISOString().slice(0, 10);
+}
+
+// Rango legible de una semana a partir de su lunes: "03 – 09 ago 2026"
+function rangoSemana(lunesStr) {
+  if(!lunesStr) return "";
+  const lun = new Date(lunesStr + "T12:00:00");
+  const dom = new Date(lun); dom.setDate(lun.getDate() + 6);
+  const fmtDia = (d, conMes) => d.toLocaleDateString("es-CL", conMes ? {day:"numeric", month:"short", year:"numeric"} : {day:"numeric"});
+  return `${fmtDia(lun, false)} – ${fmtDia(dom, true)}`;
+}
+
 // Token identificador de una entidad a partir de su código, quitando el
 // prefijo de tipo (CNEE-, CLI-, NOT-M-, NOT-AIR-, NOT-, EXP-/_). Permite
 // emparejar un cliente con sus notify guardados (ej. CNEE-IDEAL ↔ NOT-M-IDEAL).
@@ -1989,13 +2011,28 @@ function notifyDesdeMaestro(n) {
 function ProgramaSemanaForm({semana, closure, tiposEmbalaje, onGuardar, onCancelar}) {
   const [buf, setBuf] = useState(()=>{
     const b = JSON.parse(JSON.stringify(semana));
-    // Compat: semanas viejas solo tienen fechaSemana (lunes). Pre-cargar ese
-    // valor como ETD para que editar no pierda la semana.
-    if(!b.etd && b.fechaSemana) b.etd = b.fechaSemana;
+    // Compat: derivar N° de semana + año desde la fechaSemana existente.
+    if((!b.semanaNum || !b.semanaAnio) && b.fechaSemana){
+      const w = getSemanaISO(b.fechaSemana);
+      if(w){ b.semanaNum = b.semanaNum || w.semana; b.semanaAnio = b.semanaAnio || w.anio; }
+    }
     return b;
   });
-  // El ETD define la semana del programa (se normaliza al lunes de esa semana).
-  const setETD = (v) => setBuf(prev=>({...prev, etd:v, fechaSemana:getMondayStr(v)}));
+  // La semana se elige por N° + año; la fechaSemana (lunes) se calcula de ahí.
+  const setSemana = (num, anio) => setBuf(prev=>{
+    const n = num!=null ? Number(num) : prev.semanaNum;
+    const a = anio!=null ? Number(anio) : prev.semanaAnio;
+    return {...prev, semanaNum:n, semanaAnio:a, fechaSemana: lunesDeSemanaISO(n,a) || prev.fechaSemana};
+  });
+  // Años ofrecidos: los de la temporada del closure (+ el ya elegido).
+  const aniosSemana = (()=>{
+    const set = new Set();
+    String(closure?.temporada||"").split("-").map(Number).forEach(y=>{ if(y) set.add(y); });
+    if(buf.semanaAnio) set.add(Number(buf.semanaAnio));
+    if(!set.size){ const y=new Date().getFullYear(); set.add(y); set.add(y+1); }
+    return Array.from(set).sort();
+  })();
+  const lunesSel = lunesDeSemanaISO(buf.semanaNum, buf.semanaAnio);
 
   const setCajas = (fmtCodigo, val) => setBuf(prev=>{
     const cpf = {...(prev.cajasPorFormato||{})};
@@ -2008,17 +2045,20 @@ function ProgramaSemanaForm({semana, closure, tiposEmbalaje, onGuardar, onCancel
   const totalCajas = Object.values(buf.cajasPorFormato||{}).reduce((s,v)=>s+Number(v||0),0);
 
   const handleGuardar = () => {
-    const fecha = getMondayStr(buf.etd || buf.fechaSemana);
-    if(!fecha){ alert("Ingresa la fecha de ETD (despacho)"); return; }
+    const fecha = lunesDeSemanaISO(buf.semanaNum, buf.semanaAnio) || getMondayStr(buf.fechaSemana);
+    if(!fecha){ alert("Selecciona la semana (N° y año)"); return; }
     const esAereo = buf.tipoEmbarque==="aereo";
     const fclVal = esAereo ? 0 : (Number(buf.contenedoresFCL)||0);
-    if(totalCajas===0 && fclVal<=0){
-      alert(esAereo ? "Ingresa cajas por formato" : "Ingresa cajas por formato o la cantidad de contenedores (FCL)");
+    const palVal = esAereo ? (Number(buf.pallets)||0) : 0;
+    if(totalCajas===0 && fclVal<=0 && palVal<=0){
+      alert(esAereo ? "Ingresa cajas por formato o la cantidad de pallets" : "Ingresa cajas por formato o la cantidad de contenedores (FCL)");
       return;
     }
     if(buf.etd && buf.eta && buf.eta < buf.etd){ alert("La ETA no puede ser anterior a la ETD"); return; }
-    onGuardar({...buf, fechaSemana:fecha, etd:buf.etd||"", eta:buf.eta||"",
-      tipoEmbarque: buf.tipoEmbarque||"maritimo", contenedoresFCL: fclVal});
+    onGuardar({...buf, fechaSemana:fecha,
+      semanaNum: Number(buf.semanaNum)||null, semanaAnio: Number(buf.semanaAnio)||null,
+      etd:buf.etd||"", eta:buf.eta||"",
+      tipoEmbarque: buf.tipoEmbarque||"maritimo", contenedoresFCL: fclVal, pallets: palVal});
   };
 
   return (
@@ -2027,14 +2067,14 @@ function ProgramaSemanaForm({semana, closure, tiposEmbalaje, onGuardar, onCancel
         <span>{semana.id?"✎":"+"}</span>
         <span>{semana.id?"Editar semana":"Nueva semana de programa"}</span>
         <span style={{fontSize:10, color:C.muted, fontWeight:400}}>
-          — La semana del programa se toma del ETD
+          — Elige la semana comercial (N° y año)
         </span>
       </h4>
 
-      {/* Vía + ETD + ETA + Estado + FCL */}
-      {(() => { const esAereo = buf.tipoEmbarque==="aereo"; return (
-      <div style={{display:"flex", flexWrap:"wrap", gap:10, marginBottom:12}}>
-        <div style={{flex:"0 1 150px"}}>
+      {(() => { const esAereo = buf.tipoEmbarque==="aereo"; return (<>
+      {/* Vía + Semana N° + Año + Estado + FCL/Pallets */}
+      <div style={{display:"flex", flexWrap:"wrap", gap:10, marginBottom:6}}>
+        <div style={{flex:"0 1 140px"}}>
           <div style={lblSt}>Vía *</div>
           <select value={buf.tipoEmbarque||"maritimo"} style={inputSt}
             onChange={e=>setBuf(prev=>({...prev, tipoEmbarque:e.target.value}))}>
@@ -2042,25 +2082,21 @@ function ProgramaSemanaForm({semana, closure, tiposEmbalaje, onGuardar, onCancel
             <option value="aereo">✈ Aéreo</option>
           </select>
         </div>
-        <div style={{flex:"1 1 150px"}}>
-          <div style={lblSt}>ETD · fecha despacho *</div>
-          <input type="date" value={buf.etd||""} style={inputSt}
-            onChange={e=>setETD(e.target.value)}/>
-          {buf.etd && (
-            <div style={{fontSize:10, color:C.teal, marginTop:3}}>
-              Semana {formatSemanaISO(getMondayStr(buf.etd))}
-            </div>
-          )}
+        <div style={{flex:"0 1 110px"}}>
+          <div style={lblSt}>Semana N° *</div>
+          <select value={buf.semanaNum||""} style={inputSt}
+            onChange={e=>setSemana(e.target.value||null, null)}>
+            <option value="">—</option>
+            {Array.from({length:53},(_,i)=>i+1).map(n=><option key={n} value={n}>S{String(n).padStart(2,"0")}</option>)}
+          </select>
         </div>
-        <div style={{flex:"1 1 150px"}}>
-          <div style={lblSt}>ETA · fecha llegada</div>
-          <input type="date" value={buf.eta||""} style={inputSt}
-            onChange={e=>setBuf(prev=>({...prev, eta:e.target.value}))}/>
-          {buf.etd && buf.eta && (
-            <div style={{fontSize:10, color:C.muted2, marginTop:3}}>
-              {Math.max(0, Math.round((new Date(buf.eta)-new Date(buf.etd))/86400000))} días de tránsito
-            </div>
-          )}
+        <div style={{flex:"0 1 100px"}}>
+          <div style={lblSt}>Año *</div>
+          <select value={buf.semanaAnio||""} style={inputSt}
+            onChange={e=>setSemana(null, e.target.value||null)}>
+            <option value="">—</option>
+            {aniosSemana.map(y=><option key={y} value={y}>{y}</option>)}
+          </select>
         </div>
         <div style={{flex:"0 1 130px"}}>
           <div style={lblSt}>Estado</div>
@@ -2070,7 +2106,16 @@ function ProgramaSemanaForm({semana, closure, tiposEmbalaje, onGuardar, onCancel
             <option value="confirmado">✓ Confirmado</option>
           </select>
         </div>
-        {!esAereo && (
+        {esAereo ? (
+          <div style={{flex:"0 1 120px"}}>
+            <div style={lblSt}>Pallets</div>
+            <input type="number" min="0" step="1" placeholder="0"
+              value={buf.pallets ?? ""}
+              style={{...inputSt, textAlign:"right", fontFamily:"monospace"}}
+              onChange={e=>setBuf(prev=>({...prev, pallets: e.target.value===""? "" : Number(e.target.value)}))}/>
+            <div style={{fontSize:9, color:C.muted2, marginTop:3}}>aéreo · cajas abajo</div>
+          </div>
+        ) : (
           <div style={{flex:"0 1 130px"}}>
             <div style={lblSt}>Contenedores (FCL)</div>
             <input type="number" min="0" step="1" placeholder="0"
@@ -2081,7 +2126,35 @@ function ProgramaSemanaForm({semana, closure, tiposEmbalaje, onGuardar, onCancel
           </div>
         )}
       </div>
-      ); })()}
+
+      {/* Rango de fechas de la semana elegida */}
+      {lunesSel ? (
+        <div style={{fontSize:11.5, color:C.teal, fontWeight:600, marginBottom:12}}>
+          📅 Semana {formatSemanaISO(lunesSel)} · {rangoSemana(lunesSel)}
+        </div>
+      ) : (
+        <div style={{fontSize:11, color:C.muted, marginBottom:12}}>Selecciona N° de semana y año para ver el rango de fechas.</div>
+      )}
+
+      {/* ETD / ETA (fechas reales, opcionales — el tránsito varía por origen/destino) */}
+      <div style={{display:"flex", flexWrap:"wrap", gap:10, marginBottom:12}}>
+        <div style={{flex:"1 1 170px"}}>
+          <div style={lblSt}>ETD · fecha despacho</div>
+          <input type="date" value={buf.etd||""} style={inputSt}
+            onChange={e=>setBuf(prev=>({...prev, etd:e.target.value}))}/>
+        </div>
+        <div style={{flex:"1 1 170px"}}>
+          <div style={lblSt}>ETA · fecha llegada</div>
+          <input type="date" value={buf.eta||""} style={inputSt}
+            onChange={e=>setBuf(prev=>({...prev, eta:e.target.value}))}/>
+          {buf.etd && buf.eta && (
+            <div style={{fontSize:10, color:C.muted2, marginTop:3}}>
+              {Math.max(0, Math.round((new Date(buf.eta)-new Date(buf.etd))/86400000))} días de tránsito
+            </div>
+          )}
+        </div>
+      </div>
+      </>); })()}
 
       {/* Cajas por formato */}
       <div style={{marginBottom:12}}>
@@ -2216,7 +2289,7 @@ function ClosureProgramaPanel({closure, semanas, tiposEmbalaje, exportadoras, cl
                     );
                   })}
                   <th style={{padding:"6px 8px", textAlign:"right", color:C.primaryText, fontWeight:600}}>Total cjs</th>
-                  <th style={{padding:"6px 8px", textAlign:"right", color:C.primaryText, fontWeight:600}}>FCL</th>
+                  <th style={{padding:"6px 8px", textAlign:"right", color:C.primaryText, fontWeight:600}}>FCL/Pal</th>
                   <th style={{padding:"6px 8px", textAlign:"center", color:C.primaryText, fontWeight:600}}>Estado</th>
                   {canEdit && <th/>}
                 </tr>
@@ -2248,7 +2321,9 @@ function ClosureProgramaPanel({closure, semanas, tiposEmbalaje, exportadoras, cl
                         {totalSem.toLocaleString("es-CL")}
                       </td>
                       <td style={{padding:"6px 8px", textAlign:"right", border:`1px solid ${C.border}`, fontFamily:"monospace", fontWeight:700, color:C.teal}}>
-                        {sem.contenedoresFCL ? Number(sem.contenedoresFCL).toLocaleString("es-CL") : "—"}
+                        {(sem.tipoEmbarque==="aereo")
+                          ? (sem.pallets ? `${Number(sem.pallets).toLocaleString("es-CL")} pal` : "—")
+                          : (sem.contenedoresFCL ? Number(sem.contenedoresFCL).toLocaleString("es-CL") : "—")}
                       </td>
                       <td style={{padding:"6px 8px", textAlign:"center", border:`1px solid ${C.border}`}}>
                         <span style={{
@@ -2334,8 +2409,10 @@ function ClosureProgramaPanel({closure, semanas, tiposEmbalaje, exportadoras, cl
         )}
 
         {canEdit && !esEditandoEste && (
-          <button onClick={()=>onAgregarSemana(closure.id)} style={{...btnSt(C.teal,true), fontSize:11, padding:"5px 12px"}}>
-            + Agregar semana
+          <button onClick={()=>onAgregarSemana(closure.id)}
+            style={{...btnSt(C.teal), fontSize:13, fontWeight:700, padding:"9px 18px", marginTop:4,
+              display:"inline-flex", alignItems:"center", gap:7, boxShadow:C.shadowSm}}>
+            <span style={{fontSize:16, lineHeight:1}}>＋</span> Agregar semana de programa
           </button>
         )}
       </div>
@@ -5916,10 +5993,12 @@ export default function FriskuComercialModule({
   const [filtroProgramaExp,  setFiltroProgramaExp]  = useState("");
   const [filtroProgramaCli,  setFiltroProgramaCli]  = useState("");
   const [filtroProgramaEsp,  setFiltroProgramaEsp]  = useState("");
+  const [filtroProgramaClosure, setFiltroProgramaClosure] = useState(""); // selector directo de un closure
   const [editandoSemana,     setEditandoSemana]     = useState(null);
   const [closureIdParaSemana,setClosureIdParaSemana]= useState(null);
 
-  const closuresParaPrograma = useMemo(()=>{
+  // Closures que pasan los filtros temp/exp/cli/esp (alimentan la lista desplegable)
+  const closuresOpciones = useMemo(()=>{
     return contratos.filter(bc=>{
       if(filtroProgramaTemp && bc.temporada    !== filtroProgramaTemp) return false;
       if(filtroProgramaExp  && bc.exportadoraId!== filtroProgramaExp)  return false;
@@ -5933,6 +6012,10 @@ export default function FriskuComercialModule({
       return eA.localeCompare(eB);
     });
   },[contratos, filtroProgramaTemp, filtroProgramaExp, filtroProgramaCli, filtroProgramaEsp, exportadoras]);
+  // Si además se eligió un closure puntual en la lista desplegable, mostrar solo ese
+  const closuresParaPrograma = useMemo(()=>
+    filtroProgramaClosure ? closuresOpciones.filter(bc=>bc.id===filtroProgramaClosure) : closuresOpciones,
+  [closuresOpciones, filtroProgramaClosure]);
 
   const semanasPorClosure = useMemo(()=>{
     const mapa = {};
@@ -5949,7 +6032,7 @@ export default function FriskuComercialModule({
     setEditandoSemana({
       id:"", closureId,
       tipoEmbarque:"maritimo", etd:"", eta:"", fechaSemana: getMondayStr(hoyLocal),
-      cajasPorFormato:{}, contenedoresFCL:0, estado:"borrador", observ:"",
+      cajasPorFormato:{}, contenedoresFCL:0, pallets:0, estado:"borrador", observ:"",
       fechaCreacion: new Date().toISOString(),
     });
   };
@@ -6507,8 +6590,17 @@ export default function FriskuComercialModule({
                 <option value="">Todas las especies</option>
                 {especies.map(e=><option key={e.codigo} value={e.codigo}>{e.icono} {e.nombreEs}</option>)}
               </select>
-              {(filtroProgramaTemp||filtroProgramaExp||filtroProgramaCli||filtroProgramaEsp) && (
-                <button onClick={()=>{setFiltroProgramaTemp(""); setFiltroProgramaExp(""); setFiltroProgramaCli(""); setFiltroProgramaEsp("");}}
+              <select value={filtroProgramaClosure} onChange={e=>setFiltroProgramaClosure(e.target.value)} style={{...inputSt, maxWidth:280, fontSize:11}}>
+                <option value="">— Ir a un Business Closure —</option>
+                {closuresOpciones.map(bc=>{
+                  const exp = exportadoras.find(e=>e.id===bc.exportadoraId)?.nombre||"?";
+                  const cli = clientes.find(c=>c.id===bc.clienteId)?.nombre||"?";
+                  const esp = especies.find(e=>e.codigo===bc.especieCodigo);
+                  return <option key={bc.id} value={bc.id}>{exp} → {cli} · {esp?esp.nombreEs:bc.especieCodigo} · {bc.temporada}</option>;
+                })}
+              </select>
+              {(filtroProgramaTemp||filtroProgramaExp||filtroProgramaCli||filtroProgramaEsp||filtroProgramaClosure) && (
+                <button onClick={()=>{setFiltroProgramaTemp(""); setFiltroProgramaExp(""); setFiltroProgramaCli(""); setFiltroProgramaEsp(""); setFiltroProgramaClosure("");}}
                   style={{...btnSt(C.muted,true), fontSize:11}}>✕ Limpiar</button>
               )}
               <span style={{marginLeft:"auto", fontSize:11, color:C.muted}}>
