@@ -60,6 +60,20 @@ export async function cargarFiliales() {
   return rows;
 }
 
+export async function upsertFilial({ id, nombre, codigo, sistema, moneda, piso_materialidad, descripcion, activa = true }) {
+  const body = { nombre, codigo: codigo?.toUpperCase(), sistema, moneda, piso_materialidad: Number(piso_materialidad) || 10, descripcion, activa };
+  if (id) {
+    return supaPatch('anf_filiales', `id=eq.${id}`, body);
+  }
+  const res = await fetch(`${SUPA_URL}/rest/v1/anf_filiales`, {
+    method: 'POST',
+    headers: { ...HDR(), Prefer: 'return=representation' },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) { const t = await res.text(); throw new Error(`POST anf_filiales → ${res.status}: ${t}`); }
+  return res.json();
+}
+
 // ── anf_informes ─────────────────────────────────────────────────────────────
 
 export async function cargarInformes({ filialId, anio } = {}) {
