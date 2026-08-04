@@ -9,7 +9,7 @@ import { theme } from '../theme';
 import { parsearInformeANF, buildSaldosEsf, buildMovimientosEr, calcTemporada } from './anfParser';
 import { calcularKpisDerivaos, KPI_LABELS, KPI_TOOLTIPS, KPI_GRUPOS } from './anfKpis';
 import {
-  cargarFiliales, cargarInformes, cargarInformeCompleto,
+  cargarFiliales, upsertFilial, cargarInformes, cargarInformeCompleto,
   crearInforme, actualizarEstadoInforme, actualizarTcInforme,
   guardarSaldosEsf, guardarMovimientosEr,
   importarNarrativas, guardarJustificacion,
@@ -127,6 +127,159 @@ function gruposSinJustificacion(er, justif, piso = 10) {
     }
   });
   return faltantes;
+}
+
+// ── Panel gestión de filiales (CFO only) ─────────────────────────────────────
+
+const FILIALES_MEDITERRA = [
+  { nombre: 'Allegria Foods',        codigo: 'ALF', sistema: 'contec',     moneda: 'USD', piso_materialidad: 10, descripcion: 'Exportación de cerezas y asesoría comercial de arándanos' },
+  { nombre: 'Allegria Service',      codigo: 'ALS', sistema: 'contec',     moneda: 'USD', piso_materialidad: 10, descripcion: 'Procesamiento cerezas y ciruelas Chile' },
+  { nombre: 'Frisku Foods',          codigo: 'FRK', sistema: 'contec',     moneda: 'USD', piso_materialidad: 10, descripcion: 'Representación de importadores de fruta (comisión en destino)' },
+  { nombre: 'Osiris Plant Management', codigo: 'OSI', sistema: 'contec',  moneda: 'USD', piso_materialidad: 10, descripcion: 'Royalties genéticos varietales' },
+  { nombre: 'Integrity Farms',       codigo: 'INT', sistema: 'contec',     moneda: 'USD', piso_materialidad: 10, descripcion: 'Fee administración campos por hectárea' },
+  { nombre: 'Mediterra Holding',     codigo: 'MHD', sistema: 'contec',     moneda: 'USD', piso_materialidad: 10, descripcion: 'Holding pura, fee admin intercompany' },
+];
+
+const EMPTY_FILIAL = { nombre: '', codigo: '', sistema: 'contec', moneda: 'USD', piso_materialidad: 10, descripcion: '' };
+
+function PanelFilialesAdmin({ filiales, onRefresh }) {
+  const [abierto,    setAbierto]    = useState(false);
+  const [editando,   setEditando]   = useState(null); // null | objeto filial
+  const [guardando,  setGuardando]  = useState(false);
+  const [err,        setErr]        = useState('');
+
+  async function guardar() {
+    if (!editando?.nombre || !editando?.codigo) { setErr('Nombre y código son obligatorios'); return; }
+    setGuardando(true); setErr('');
+    try {
+      await upsertFilial(editando);
+      setEditando(null);
+      await onRefresh();
+    } catch (e) { setErr(e.message); }
+    finally { setGuardando(false); }
+  }
+
+  async function importarDefaults() {
+    const existentes = new Set(filiales.map(f => f.codigo?.toUpperCase()));
+    const nuevas = FILIALES_MEDITERRA.filter(f => !existentes.has(f.codigo));
+    if (!nuevas.length) { alert('Todas las empresas Mediterra ya están configuradas.'); return; }
+    setGuardando(true);
+    try {
+      for (const f of nuevas) await upsertFilial(f);
+      await onRefresh();
+    } catch (e) { setErr(e.message); }
+    finally { setGuardando(false); }
+  }
+
+  return (
+    <div style={{ marginBottom: 10 }}>
+      <button onClick={() => setAbierto(a => !a)}
+        style={{ fontSize: 10, color: C.muted, background: 'none', border: 'none', cursor: 'pointer', padding: '2px 0' }}>
+        {abierto ? '▼' : '►'} Gestionar empresas ANF
+      </button>
+      {abierto && (
+        <div style={{ marginTop: 8, padding: '10px 14px', background: C.card,
+          border: `1px solid ${C.border}`, borderRadius: 8 }}>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 8 }}>
+            <span style={{ fontSize: 11, fontWeight: 700, color: C.text }}>Empresas configuradas</span>
+            <button onClick={importarDefaults} disabled={guardando}
+              style={{ fontSize: 10, padding: '3px 8px', borderRadius: 5, background: C.teal, color: '#fff',
+                border: 'none', cursor: 'pointer', opacity: guardando ? 0.5 : 1 }}>
+              + Importar Grupo Mediterra
+            </button>
+            <button onClick={() => setEditando({ ...EMPTY_FILIAL })}
+              style={{ fontSize: 10, padding: '3px 8px', borderRadius: 5, background: C.blue, color: '#fff',
+                border: 'none', cursor: 'pointer' }}>
+              + Nueva empresa
+            </button>
+          </div>
+
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 10 }}>
+            <thead>
+              <tr style={{ background: C.bg }}>
+                {['Nombre','Código','Sistema','Moneda','Piso %','Descripción',''].map(h => (
+                  <th key={h} style={{ padding: '3px 6px', textAlign: 'left', color: C.muted,
+                    borderBottom: `1px solid ${C.border}`, fontWeight: 600 }}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {filiales.map(f => (
+                <tr key={f.id} style={{ borderBottom: `1px solid ${C.border}22` }}>
+                  <td style={{ padding: '3px 6px' }}>{f.nombre}</td>
+                  <td style={{ padding: '3px 6px', fontFamily: 'monospace', color: C.muted }}>{f.codigo}</td>
+                  <td style={{ padding: '3px 6px', color: C.muted }}>{f.sistema}</td>
+                  <td style={{ padding: '3px 6px', color: C.muted }}>{f.moneda}</td>
+                  <td style={{ padding: '3px 6px', color: C.muted }}>±{f.piso_materialidad}%</td>
+                  <td style={{ padding: '3px 6px', color: C.muted, maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.descripcion}</td>
+                  <td style={{ padding: '3px 6px' }}>
+                    <button onClick={() => setEditando({ ...f })}
+                      style={{ fontSize: 9, padding: '2px 6px', borderRadius: 4, background: 'none',
+                        border: `1px solid ${C.border}`, cursor: 'pointer', color: C.muted }}>
+                      Editar
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+
+          {/* Modal edición */}
+          {editando && (
+            <div style={{ marginTop: 12, padding: '10px 14px', background: C.bg,
+              border: `1px solid ${C.blue}40`, borderRadius: 6 }}>
+              <div style={{ fontWeight: 700, fontSize: 11, marginBottom: 8, color: C.blue }}>
+                {editando.id ? 'Editar empresa' : 'Nueva empresa'}
+              </div>
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                {[
+                  ['Nombre *', 'nombre', 'text', 180],
+                  ['Código *', 'codigo', 'text', 70],
+                  ['Moneda', 'moneda', 'text', 60],
+                  ['Piso %', 'piso_materialidad', 'number', 60],
+                ].map(([label, key, type, w]) => (
+                  <div key={key} style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                    <label style={{ fontSize: 9, color: C.muted }}>{label}</label>
+                    <input type={type} value={editando[key] || ''} onChange={e => setEditando(d => ({ ...d, [key]: e.target.value }))}
+                      style={{ width: w, padding: '4px 6px', borderRadius: 4, background: C.card,
+                        border: `1px solid ${C.border}`, color: C.text, fontSize: 10 }} />
+                  </div>
+                ))}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                  <label style={{ fontSize: 9, color: C.muted }}>Sistema</label>
+                  <select value={editando.sistema || 'contec'} onChange={e => setEditando(d => ({ ...d, sistema: e.target.value }))}
+                    style={{ padding: '4px 6px', borderRadius: 4, background: C.card, border: `1px solid ${C.border}`, color: C.text, fontSize: 10 }}>
+                    <option value="contec">Contec</option>
+                    <option value="megasystem">Megasystem</option>
+                    <option value="otro">Otro</option>
+                  </select>
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                  <label style={{ fontSize: 9, color: C.muted }}>Descripción</label>
+                  <input type="text" value={editando.descripcion || ''} onChange={e => setEditando(d => ({ ...d, descripcion: e.target.value }))}
+                    style={{ width: 240, padding: '4px 6px', borderRadius: 4, background: C.card,
+                      border: `1px solid ${C.border}`, color: C.text, fontSize: 10 }} />
+                </div>
+              </div>
+              {err && <div style={{ color: C.red, fontSize: 10, marginTop: 6 }}>{err}</div>}
+              <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+                <button onClick={guardar} disabled={guardando}
+                  style={{ padding: '4px 12px', borderRadius: 5, background: C.green, color: '#fff',
+                    border: 'none', cursor: 'pointer', fontSize: 10, opacity: guardando ? 0.5 : 1 }}>
+                  {guardando ? 'Guardando...' : 'Guardar'}
+                </button>
+                <button onClick={() => { setEditando(null); setErr(''); }}
+                  style={{ padding: '4px 12px', borderRadius: 5, background: C.bg, color: C.muted,
+                    border: `1px solid ${C.border}`, cursor: 'pointer', fontSize: 10 }}>
+                  Cancelar
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
 }
 
 // ── Sección ESF ──────────────────────────────────────────────────────────────
@@ -344,12 +497,17 @@ function TablaEsf({ saldos, piso }) {
 // ── Sección ER ───────────────────────────────────────────────────────────────
 
 function TablaEr({ movimientos, mes, piso, justif = [], informeId, canEdit, usuarioActual }) {
-  const [expandido,   setExpandido]   = useState(true);
-  const [vistaEr,     setVistaEr]     = useState('temporada');
-  const [filtroMat,   setFiltroMat]   = useState(false);
-  const [justAbierto, setJustAbierto] = useState({});
-  const [justTexts,   setJustTexts]   = useState({});
-  const [justGuard,   setJustGuard]   = useState({});
+  const [expandido,        setExpandido]        = useState(true);
+  const [vistaEr,          setVistaEr]          = useState('temporada');
+  const [filtroMat,        setFiltroMat]        = useState(false);
+  const [gruposExpandidos, setGruposExpandidos] = useState({}); // por defecto colapsado
+  const [justAbierto,      setJustAbierto]      = useState({});
+  const [justTexts,        setJustTexts]        = useState({});
+  const [justGuard,        setJustGuard]        = useState({});
+
+  function toggleGrupo(key) {
+    setGruposExpandidos(g => ({ ...g, [key]: !g[key] }));
+  }
 
   const justMap = useMemo(() => {
     const m = {};
@@ -452,7 +610,7 @@ function TablaEr({ movimientos, mes, piso, justif = [], informeId, canEdit, usua
     return r;
   }, [byGrupo, filtroMat, rf, pf, piso]);
 
-  // Renders a group (parent total row + indented sub-accounts)
+  // Renders a group (parent total row + indented sub-accounts, collapsible)
   function renderGrupo(grupoKey, titulo) {
     const all    = byGrupo[grupoKey];
     const filas  = filteredByGrupo[grupoKey];
@@ -461,20 +619,24 @@ function TablaEr({ movimientos, mes, piso, justif = [], informeId, canEdit, usua
     const va = pTot !== 0 ? rTot - pTot : null;
     const vp = calcVp(rTot, pTot !== 0 ? pTot : null);
     const hasT1 = t1Tot !== 0;
+    const abierto = !!gruposExpandidos[grupoKey];
     return (
       <React.Fragment key={grupoKey}>
-        <tr style={{ background: `${C.blue}06`, borderTop: `1px solid ${C.border}40` }}>
+        <tr style={{ background: `${C.teal}10`, borderTop: `2px solid ${C.teal}40`, cursor: 'pointer' }}
+            onClick={() => toggleGrupo(grupoKey)}>
+          <td style={{ width: 14, textAlign: 'center', fontSize: 9, color: C.teal, padding: '3px 2px', userSelect: 'none' }}>
+            {abierto ? '▼' : '►'}
+          </td>
           <td />
-          <td />
-          <td style={{ padding: '3px 6px', fontWeight: 700, fontSize: 10 }}>{titulo}</td>
-          <td style={{ padding: '3px 6px', textAlign: 'right', fontWeight: 700 }}>{fmtNum(rTot)}</td>
+          <td style={{ padding: '3px 6px', fontWeight: 800, fontSize: 10, color: C.teal }}>{titulo}</td>
+          <td style={{ padding: '3px 6px', textAlign: 'right', fontWeight: 800, color: C.text }}>{fmtNum(rTot)}</td>
           <td style={{ padding: '3px 6px', textAlign: 'right', color: C.muted }}>{pTot !== 0 ? fmtNum(pTot) : '—'}</td>
           <td style={{ padding: '3px 6px', textAlign: 'right', color: colVa(va) }}>{va != null ? fmtNum(va) : '—'}</td>
           <td style={{ padding: '3px 6px', textAlign: 'right', color: colVp(vp) }}>{fmtPct(vp)}</td>
           <td style={{ padding: '3px 6px', textAlign: 'right', color: C.muted }}>{hasT1 ? fmtNum(t1Tot) : '—'}</td>
           <td />
         </tr>
-        {filas.map((c, i) => {
+        {abierto && filas.map((c, i) => {
           const real = c[rf] || 0;
           const ppto = c[pf];
           const t1v  = c[t1f];
@@ -1705,29 +1867,43 @@ export default function AnfTab({ canEdit, usuarioActual, empresaDefault, mesDefa
       </tr>`;
     }
 
-    let bsRows = '';
-    bsRows += bsSectionHeader('ACTIVOS');
-    bsRows += AC.map((c,i)  => bsCuentaRow(c,i)).join('');
-    bsRows += bsSubtotalRow('Total activos corrientes', tAC, false);
-    bsRows += ANC.map((c,i) => bsCuentaRow(c,i)).join('');
-    bsRows += bsSubtotalRow('Total activos no corrientes', tANC, false);
-    bsRows += bsSubtotalRow('Total activos', totalActivos, true);
-    bsRows += bsSectionHeader('PASIVOS Y PATRIMONIO');
-    bsRows += allPasivos.map((c,i) => bsCuentaRow(c,i)).join('');
-    bsRows += bsSubtotalRow('Total pasivos', tPasivos, false);
-    bsRows += PAT.map((c,i) => bsCuentaRow(c,i)).join('');
-    bsRows += bsSubtotalRow('Total patrimonio', tPAT, false);
-    // Fila cuadre (verde/rojo según si cuadra)
+    // ── Columna ACTIVOS ──────────────────────────────────────────────────────
+    function bsCol(rows) {
+      return `<table style="width:100%;border-collapse:collapse">${rows}</table>`;
+    }
     const cuadreCol = cuadra ? GRN : RED;
-    bsRows += `<tr style="background:${cuadra?'#e6f4ec':'#fde8e8'};border-top:1.5pt solid ${cuadreCol}">
-      <td style="padding:3.5px 7px;font-weight:800;font-size:8.5pt;color:${cuadreCol}">${cuadra ? 'Total pasivos y patrimonio' : '⚠ Total pasivos y patrimonio (descuadre)'}</td>
+
+    let colActivos = '';
+    colActivos += `<tr style="background:#d8e4f5"><td colspan="2" style="padding:4px 7px;font-weight:900;font-size:9pt;color:${BLU};text-transform:uppercase;letter-spacing:0.06em">ACTIVOS</td></tr>`;
+    colActivos += AC.map((c,i) => bsCuentaRow(c,i)).join('');
+    colActivos += bsSubtotalRow('Total activos corrientes', tAC);
+    colActivos += ANC.map((c,i) => bsCuentaRow(c,i)).join('');
+    colActivos += bsSubtotalRow('Total activos no corrientes', tANC);
+    colActivos += bsSubtotalRow('Total activos', totalActivos, true);
+
+    // ── Columna PASIVOS Y PATRIMONIO ─────────────────────────────────────────
+    let colPasivos = '';
+    colPasivos += `<tr style="background:#d8e4f5"><td colspan="2" style="padding:4px 7px;font-weight:900;font-size:9pt;color:${BLU};text-transform:uppercase;letter-spacing:0.06em">PASIVOS Y PATRIMONIO</td></tr>`;
+    colPasivos += allPasivos.map((c,i) => bsCuentaRow(c,i)).join('');
+    colPasivos += bsSubtotalRow('Total pasivos', tPasivos);
+    colPasivos += PAT.map((c,i) => bsCuentaRow(c,i)).join('');
+    colPasivos += bsSubtotalRow('Total patrimonio', tPAT, false, tPAT < 0 ? RED : BLU);
+    colPasivos += `<tr style="background:${cuadra?'#e6f4ec':'#fde8e8'};border-top:1.5pt solid ${cuadreCol}">
+      <td style="padding:3.5px 7px;font-weight:800;font-size:8.5pt;color:${cuadreCol}">${cuadra ? 'Total pasivos y patrimonio' : '⚠ Total pas. y pat. (descuadre)'}</td>
       <td style="padding:3.5px 7px;text-align:right;font-weight:800;font-size:8.5pt;color:${cuadreCol}">${fmtM(totalPasYPat)}</td>
     </tr>`;
 
     const esfHTML = `
       ${secTit(2, `Estado de Situación al ${NOMBRES_MES[mes]} de ${anio} — ${moneda}`)}
-      <table style="width:62%;border-collapse:collapse">
-        <tbody>${bsRows}</tbody>
+      <table style="width:100%;border-collapse:collapse">
+        <tr>
+          <td style="width:50%;vertical-align:top;padding-right:14px">
+            ${bsCol(colActivos)}
+          </td>
+          <td style="width:50%;vertical-align:top;padding-left:14px;border-left:0.75pt solid #ccd5e0">
+            ${bsCol(colPasivos)}
+          </td>
+        </tr>
       </table>
       <p style="font-size:7.5pt;color:${MUT};margin-top:7px;font-style:italic;line-height:1.45">
         El resultado del ejercicio contable (ene–${NOMBRES_MES[mes].toLowerCase()} ${anio}) que registra el patrimonio difiere del resultado de la temporada (jul-${anio-1} a jun-${anio}) de la sección 1, por corresponder a períodos distintos: la porción jul–dic ${anio-1} de la temporada ya fue cerrada contablemente en resultados acumulados.
@@ -1906,6 +2082,17 @@ export default function AnfTab({ canEdit, usuarioActual, empresaDefault, mesDefa
           ))}
         </div>
       </div>
+
+      {/* ── Gestión de empresas (CFO only) ── */}
+      {esCFO && (
+        <PanelFilialesAdmin
+          filiales={filiales}
+          onRefresh={async () => {
+            const f = await cargarFiliales();
+            setFiliales(f);
+          }}
+        />
+      )}
 
       {/* ── Config métricas (siempre visible cuando hay empresa) ── */}
       {filialId && canEdit && (
