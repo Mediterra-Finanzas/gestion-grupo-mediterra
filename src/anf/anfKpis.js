@@ -13,9 +13,17 @@ function round3(v) { return v != null && !isNaN(v) ? Math.round(v * 1000) / 1000
 function clasificarSeccionEsf(codigo) {
   const parts = (codigo || '').split('.');
   const p1 = parts[0], p2 = parts[1];
+  // Contec (con puntos): p1='1', p2='01'=Corriente / '02'=No Corriente
+  // Megasystem (sin puntos, p1=código completo): usar primer dígito del código
+  const d1 = (codigo || '')[0];
+  const d2 = (codigo || '')[1];  // segundo dígito para corriente/no corriente en Megasystem
   if (p1 === '1') return p2 === '01' ? 'Activo Corriente' : 'Activo No Corriente';
   if (p1 === '2') return p2 === '01' ? 'Pasivo Corriente' : 'Pasivo No Corriente';
   if (p1 === '3') return 'Patrimonio';
+  // Megasystem: p1 = código completo (sin puntos), usar dígito inicial
+  if (d1 === '1') return d2 === '1' ? 'Activo Corriente' : 'Activo No Corriente';
+  if (d1 === '2') return d2 === '1' ? 'Pasivo Corriente' : 'Pasivo No Corriente';
+  if (d1 === '3') return 'Patrimonio';
   return null;
 }
 

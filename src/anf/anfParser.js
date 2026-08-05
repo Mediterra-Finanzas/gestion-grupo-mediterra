@@ -102,8 +102,9 @@ function parseBalanceContec(ws) {
 }
 
 // ── Parser BALANCE Megasystem ────────────────────────────────────────────────
-// Cols: [0]=codigo [1]=nombre [2]=DEBITO [3]=CREDITOS [4]=TOTAL SALDO (extra!)
-//       [5]=DEUDOR [6]=ACREEDOR [7]=ACTIVOS(ia) [8]=PASIVOS(ip) [9]=PERDIDAS [10]=GANANCIAS
+// Layout real observado: [0]=codigo [1]=nombre [2]=saldo neto del período
+// Cols 3-9 = 0 en este export (ACTIVOS/PASIVOS no vienen en esta versión).
+// Derivamos ia/ip del primer dígito del código: 1=Activo, 2/3=Pasivo+Patrimonio.
 
 function parseBalanceMegasystem(ws) {
   if (!ws) return [];
@@ -112,13 +113,17 @@ function parseBalanceMegasystem(ws) {
   for (const row of rows) {
     const codigo = row[0] != null ? String(row[0]).trim() : '';
     if (!esCuentaDetalle(codigo, 'megasystem')) continue;
+    const saldo = Number(row[2]) || 0;
+    const pref0 = codigo[0];
+    const inventario_activo = pref0 === '1' ? saldo : 0;
+    const inventario_pasivo = pref0 !== '1' ? Math.abs(saldo) : 0;
     out.push({
       codigo,
       nombre: row[1] != null ? String(row[1]).trim() : '',
-      inventario_activo:  Number(row[7]) || 0,
-      inventario_pasivo:  Number(row[8]) || 0,
-      resultado_perdida:  Number(row[9]) || 0,
-      resultado_ganancia: Number(row[10]) || 0,
+      inventario_activo,
+      inventario_pasivo,
+      resultado_perdida:  0,
+      resultado_ganancia: 0,
       sistema: 'megasystem',
     });
   }
@@ -230,7 +235,8 @@ function parseEerrMensualContec(ws) {
 // ── Parser sheets "EERR <MES> <AÑO>" Megasystem ──────────────────────────────
 // Estas hojas tienen primera fila como header con nombres de columna:
 // cuenta | name_1 | NombreGrupo | total | correlativogrupo | mes | anho | tipo | clasif | ...
-// Devuelve array de movimientos crudos.
+// NombreGrupo se captura para clasificar el grupo ER sin depender del prefijo numérico,
+// ya que Megasystem usa 3xxx=Ingresos, 4xxx=Gastos (distinto de Contec 4=Ing, 5=Costo...).
 
 function parseEerrMesMegasystem(ws) {
   if (!ws) return [];
@@ -238,10 +244,11 @@ function parseEerrMesMegasystem(ws) {
   return rows
     .filter(r => r.cuenta != null)
     .map(r => ({
-      codigo: String(r.cuenta).trim(),
-      nombre: String(r.name_1 || r.name_2 || '').trim(),
-      total:  Number(r.total) || 0,
-      mes:    Number(r.mes),
+      codigo:      String(r.cuenta).trim(),
+      nombre:      String(r.name_1 || r.name_2 || '').trim(),
+      nombreGrupo: String(r.NombreGrupo || '').trim(),
+      total:       Number(r.total) || 0,
+      mes:         Number(r.mes),
     }));
 }
 
@@ -296,35 +303,6 @@ export async function parsearInformeANF(file, filial, anio, mes) {
   const wb = XLSX.read(data, { type: 'array' });
   const advertencias = [];
 
-  // DIAGNÓSTICO: log de hojas disponibles (revisar en DevTools → Console)
-  console.log('[ANF Parser] Hojas en el Excel:', wb.SheetNames);
-  console.log('[ANF Parser] Sistema:', sistema, '| Empresa:', filial.nombre, '| Mes:', mes, '| Año:', anio);
-
-  // DIAGNÓSTICO COLUMNAS (solo Megasystem)
-  if (sistema === 'megasystem') {
-    const _wsBal = findSheet(wb, /^BALANCE$/i);
-    if (_wsBal) {
-      const _rowsBal = XLSX.utils.sheet_to_json(_wsBal, { header: 1, defval: null });
-      console.log('[ANF Parser] BALANCE filas 0-8:', JSON.stringify(_rowsBal.slice(0, 9)));
-      const _primeraDato = _rowsBal.find(r => r[0] != null && String(r[0]).trim().length >= 5 && !isNaN(Number(String(r[0]).trim())));
-      console.log('[ANF Parser] BALANCE primera fila con código numérico:', JSON.stringify(_primeraDato));
-    }
-    // Buscar hoja EERR del año actual
-    const _eerrMesNomAnio = wb.SheetNames.find(n => {
-      const _m = n.match(/^EERR\s+\w+\s+(\d{4})$/i);
-      return _m && Number(_m[1]) === anio;
-    });
-    if (_eerrMesNomAnio) {
-      const _wsEerr = wb.Sheets[_eerrMesNomAnio];
-      const _rowsEerr = XLSX.utils.sheet_to_json(_wsEerr, { defval: null });
-      console.log('[ANF Parser] EERR hoja año actual:', _eerrMesNomAnio, '| columnas:', Object.keys(_rowsEerr[0] || {}));
-      const _conCodigo = _rowsEerr.filter(r => r.cuenta != null && String(r.cuenta).trim().length >= 5);
-      console.log('[ANF Parser] EERR filas con código (primeras 4):', JSON.stringify(_conCodigo.slice(0, 4)));
-      console.log('[ANF Parser] EERR total filas con código:', _conCodigo.length);
-    } else {
-      console.log('[ANF Parser] EERR: no se encontraron hojas del año', anio);
-    }
-  }
 
   // 1. BALANCE actual (requerido)
   const wsBalance = findSheet(wb, /^BALANCE$/i);
@@ -387,7 +365,7 @@ export async function parsearInformeANF(file, filial, anio, mes) {
       const movs = parseEerrMesMegasystem(wb.Sheets[shName]);
       for (const mov of movs) {
         if (!mov.codigo || !mov.mes) continue;
-        if (!er_mensual.has(mov.codigo)) er_mensual.set(mov.codigo, { nombre: mov.nombre, desglose: {} });
+        if (!er_mensual.has(mov.codigo)) er_mensual.set(mov.codigo, { nombre: mov.nombre, nombreGrupo: mov.nombreGrupo || '', desglose: {} });
         const entry = er_mensual.get(mov.codigo);
         const key = String(mov.mes);
         if (!entry.desglose[key]) entry.desglose[key] = { real: 0 };
@@ -418,8 +396,8 @@ export async function parsearInformeANF(file, filial, anio, mes) {
  */
 export function buildSaldosEsf(esf, esf_t1, pisoMaterialidad = 10) {
   // Solo cuentas de balance: prefijos 1 (activo), 2 (pasivo), 3 (patrimonio).
-  // Las cuentas de resultado (4-9) vienen en el BALANCE de Contec/Megasystem pero no pertenecen al ESF.
-  const esfSolo = esf.filter(c => ['1','2','3'].includes((c.codigo || '').split('.')[0]));
+  // Usamos primer carácter del código (funciona para Contec con puntos y Megasystem sin puntos).
+  const esfSolo = esf.filter(c => ['1','2','3'].includes((c.codigo || '')[0]));
   const t1 = new Map(esf_t1.map(c => [c.codigo, c]));
   return esfSolo.map(c => {
     const saldo_neto   = c.inventario_activo - c.inventario_pasivo;
@@ -448,10 +426,11 @@ export function buildSaldosEsf(esf, esf_t1, pisoMaterialidad = 10) {
   });
 }
 
-// Clasifica una cuenta en un grupo ER según su prefijo numérico.
-// Contec y Megasystem comparten la convención: 4=ingresos, 5=costos, 6=gastos oper., 7=ing. no oper., 8=egr. no oper., 9=impuesto.
+// Clasifica una cuenta en un grupo ER según su primer dígito (funciona para Contec con puntos
+// y Megasystem sin puntos, ya que el primer dígito es igual en ambos casos).
+// Contec: 4=IngOp, 5=CosOp, 6=GasOp, 7=IngNOp, 8=EgrNOp, 9=Imp
 function clasificarGrupoEr(codigo) {
-  const pref = codigo.split('.')[0];
+  const pref = (codigo || '')[0];  // primer dígito (funciona con y sin puntos)
   switch (pref) {
     case '4': return 'Ingreso Operacional';
     case '5': return 'Costo Operacional';
@@ -459,6 +438,29 @@ function clasificarGrupoEr(codigo) {
     case '7': return 'Ingreso No Operacional';
     case '8': return 'Gasto No Operacional';
     case '9': return 'Impuesto';
+    default:  return 'Gasto Operacional';
+  }
+}
+
+// Clasificación ER para Megasystem: usa NombreGrupo (más confiable que prefijo).
+// Megasystem usa 3xxx=Ingresos, 4xxx=Gastos (distinto de Contec).
+function clasificarGrupoErMegasystem(nombreGrupo, codigo) {
+  const g = (nombreGrupo || '').toUpperCase();
+  if (g.includes('INGRESO') || g.includes('VENTA') || g.includes('COMISIÓN') || g.includes('COMISION')) return 'Ingreso Operacional';
+  if (g.includes('COSTO') || g.includes('COST')) return 'Costo Operacional';
+  if (g.includes('GTO') || g.includes('GASTO') || g.includes('REMUNER') || g.includes('SUELDO') || g.includes('ADM')) return 'Gasto Operacional';
+  if (g.includes('NO OPER') || g.includes('FINANC') || g.includes('INTERÉS') || g.includes('INTERES')) return 'Gasto No Operacional';
+  if (g.includes('ING') && (g.includes('NO') || g.includes('FINANC'))) return 'Ingreso No Operacional';
+  if (g.includes('IMP') || g.includes('RENTA') || g.includes('IMPUESTO')) return 'Impuesto';
+  // Fallback: primer dígito del código en convención Megasystem
+  const pref = (codigo || '')[0];
+  switch (pref) {
+    case '3': return 'Ingreso Operacional';
+    case '4': return 'Gasto Operacional';
+    case '5': return 'Costo Operacional';
+    case '6': return 'Gasto No Operacional';
+    case '7': return 'Ingreso No Operacional';
+    case '8': return 'Impuesto';
     default:  return 'Gasto Operacional';
   }
 }
@@ -476,6 +478,7 @@ export function buildMovimientosEr(er_temp, er_mensual, mes, anio, sistema) {
     const tempEntry = er_temp.get(codigo);
     const calEntry  = er_mensual.get(codigo);
     const nombre = tempEntry?.nombre || calEntry?.nombre || '';
+    const nombreGrupo = tempEntry?.nombreGrupo || calEntry?.nombreGrupo || '';
 
     const desglose_temp = tempEntry?.desglose || {};
     const desglose_cal  = calEntry?.desglose  || {};
@@ -515,7 +518,9 @@ export function buildMovimientosEr(er_temp, er_mensual, mes, anio, sistema) {
       nombre,
       nombre_origen:      nombre,
       sistema,
-      grupo_er:           clasificarGrupoEr(codigo),
+      grupo_er: sistema === 'megasystem'
+        ? clasificarGrupoErMegasystem(nombreGrupo, codigo)
+        : clasificarGrupoEr(codigo),
       real_mes,
       real_ytd,
       ppto_mes,
