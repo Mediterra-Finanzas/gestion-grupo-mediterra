@@ -8,6 +8,7 @@ import * as XLSX from 'xlsx-js-style';
 import { theme } from '../theme';
 import { parsearInformeANF, buildSaldosEsf, buildMovimientosEr, calcTemporada } from './anfParser';
 import { calcularKpisDerivaos, KPI_LABELS, KPI_TOOLTIPS, KPI_GRUPOS } from './anfKpis';
+import { clasificarSeccionEsf, clasificarGrupoEr } from './anfClasificacion';
 import {
   cargarFiliales, upsertFilial, cargarInformes, cargarInformeCompleto,
   crearInforme, actualizarEstadoInforme, actualizarTcInforme,
@@ -87,26 +88,13 @@ function fmtPct(v) {
   return (v >= 0 ? '+' : '') + v.toFixed(1) + '%';
 }
 
-// Clasifica cuenta ER por prefijo numérico (igual que anfParser.js — fallback client-side).
-function clasificarGrupoEr(codigo) {
-  const pref = (codigo || '').split('.')[0];
-  switch (pref) {
-    case '4': return 'Ingreso Operacional';
-    case '5': return 'Costo Operacional';
-    case '6': return 'Gasto Operacional';
-    case '7': return 'Ingreso No Operacional';
-    case '8': return 'Gasto No Operacional';
-    case '9': return 'Impuesto';
-    default:  return 'Gasto Operacional';
-  }
-}
-
 // Retorna lista de grupos ER con variación material (|var%| >= piso) que no tienen justificación.
 function gruposSinJustificacion(er, justif, piso = 10) {
-  // Agrupar cuentas ER por grupo
+  // Agrupar cuentas ER por grupo — usar grupo_er de DB (asignado por el parser); fallback a clasificarGrupoEr.
   const grupos = {};
   er.forEach(c => {
-    const grp = clasificarGrupoEr(c.codigo);
+    const grp = c.grupo_er || clasificarGrupoEr(c.codigo);
+    if (!grp) return; // no clasificar silenciosamente cuentas desconocidas
     if (!grupos[grp]) grupos[grp] = { real: 0, ppto: 0, codigos: [] };
     grupos[grp].real  += (c.real_mes  || 0);
     grupos[grp].ppto  += (c.ppto_mes  || 0);
@@ -284,14 +272,7 @@ function PanelFilialesAdmin({ filiales, onRefresh }) {
 
 // ── Sección ESF ──────────────────────────────────────────────────────────────
 
-function clasificarSeccionEsf(codigo) {
-  const parts = (codigo || '').split('.');
-  const p1 = parts[0], p2 = parts[1];
-  if (p1 === '1') return p2 === '01' ? 'Activo Corriente' : 'Activo No Corriente';
-  if (p1 === '2') return p2 === '01' ? 'Pasivo Corriente' : 'Pasivo No Corriente';
-  if (p1 === '3') return 'Patrimonio';
-  return null; // cuentas de resultado (4-9) no pertenecen al ESF
-}
+// clasificarSeccionEsf importada desde ./anfClasificacion (única fuente de verdad).
 
 function FilaEsf({ c, piso, i }) {
   return (
@@ -1552,13 +1533,10 @@ export default function AnfTab({ canEdit, usuarioActual, empresaDefault, mesDefa
 
       // ESF
       const saldosEsf = buildSaldosEsf(parsed.esf, parsed.esf_t1, piso);
-      console.log('[ANF Debug] parsed.esf total:', parsed.esf.length, '| primera:', JSON.stringify(parsed.esf[0]));
-      console.log('[ANF Debug] saldosEsf total:', saldosEsf.length, '| non-zero:', saldosEsf.filter(s => s.saldo_neto !== 0).length, '| primera:', JSON.stringify(saldosEsf[0]));
       await guardarSaldosEsf(informeId, saldosEsf);
 
       // ER
       const movsEr = buildMovimientosEr(parsed.er_temp, parsed.er_mensual, mes, anio, filial.sistema);
-      console.log('[ANF Debug] er_mensual size:', parsed.er_mensual.size, '| er_temp size:', parsed.er_temp.size, '| movsEr total:', movsEr.length, '| non-zero real_ytd:', movsEr.filter(m => m.real_ytd !== 0).length, '| primera:', JSON.stringify(movsEr[0]));
       await guardarMovimientosEr(informeId, movsEr);
 
       // Narrativas del INFORME
