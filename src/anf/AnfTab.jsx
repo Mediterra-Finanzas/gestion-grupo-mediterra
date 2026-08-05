@@ -1552,10 +1552,13 @@ export default function AnfTab({ canEdit, usuarioActual, empresaDefault, mesDefa
 
       // ESF
       const saldosEsf = buildSaldosEsf(parsed.esf, parsed.esf_t1, piso);
+      console.log('[ANF Debug] parsed.esf total:', parsed.esf.length, '| primera:', JSON.stringify(parsed.esf[0]));
+      console.log('[ANF Debug] saldosEsf total:', saldosEsf.length, '| non-zero:', saldosEsf.filter(s => s.saldo_neto !== 0).length, '| primera:', JSON.stringify(saldosEsf[0]));
       await guardarSaldosEsf(informeId, saldosEsf);
 
       // ER
       const movsEr = buildMovimientosEr(parsed.er_temp, parsed.er_mensual, mes, anio, filial.sistema);
+      console.log('[ANF Debug] er_mensual size:', parsed.er_mensual.size, '| er_temp size:', parsed.er_temp.size, '| movsEr total:', movsEr.length, '| non-zero real_ytd:', movsEr.filter(m => m.real_ytd !== 0).length, '| primera:', JSON.stringify(movsEr[0]));
       await guardarMovimientosEr(informeId, movsEr);
 
       // Narrativas del INFORME
