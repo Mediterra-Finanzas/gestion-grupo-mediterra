@@ -305,14 +305,24 @@ export async function parsearInformeANF(file, filial, anio, mes) {
     const _wsBal = findSheet(wb, /^BALANCE$/i);
     if (_wsBal) {
       const _rowsBal = XLSX.utils.sheet_to_json(_wsBal, { header: 1, defval: null });
-      console.log('[ANF Parser] BALANCE primeras 4 filas:', JSON.stringify(_rowsBal.slice(0, 4)));
+      console.log('[ANF Parser] BALANCE filas 0-8:', JSON.stringify(_rowsBal.slice(0, 9)));
+      const _primeraDato = _rowsBal.find(r => r[0] != null && String(r[0]).trim().length >= 5 && !isNaN(Number(String(r[0]).trim())));
+      console.log('[ANF Parser] BALANCE primera fila con código numérico:', JSON.stringify(_primeraDato));
     }
-    const _eerrMesNom = wb.SheetNames.find(n => /^EERR\s+\w+\s+\d{4}$/i.test(n));
-    if (_eerrMesNom) {
-      const _wsEerr = wb.Sheets[_eerrMesNom];
+    // Buscar hoja EERR del año actual
+    const _eerrMesNomAnio = wb.SheetNames.find(n => {
+      const _m = n.match(/^EERR\s+\w+\s+(\d{4})$/i);
+      return _m && Number(_m[1]) === anio;
+    });
+    if (_eerrMesNomAnio) {
+      const _wsEerr = wb.Sheets[_eerrMesNomAnio];
       const _rowsEerr = XLSX.utils.sheet_to_json(_wsEerr, { defval: null });
-      console.log('[ANF Parser] EERR hoja:', _eerrMesNom, '| columnas:', Object.keys(_rowsEerr[0] || {}));
-      console.log('[ANF Parser] EERR primeras 3 filas:', JSON.stringify(_rowsEerr.slice(0, 3)));
+      console.log('[ANF Parser] EERR hoja año actual:', _eerrMesNomAnio, '| columnas:', Object.keys(_rowsEerr[0] || {}));
+      const _conCodigo = _rowsEerr.filter(r => r.cuenta != null && String(r.cuenta).trim().length >= 5);
+      console.log('[ANF Parser] EERR filas con código (primeras 4):', JSON.stringify(_conCodigo.slice(0, 4)));
+      console.log('[ANF Parser] EERR total filas con código:', _conCodigo.length);
+    } else {
+      console.log('[ANF Parser] EERR: no se encontraron hojas del año', anio);
     }
   }
 
