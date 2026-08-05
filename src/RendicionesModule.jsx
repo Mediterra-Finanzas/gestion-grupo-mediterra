@@ -45,6 +45,7 @@ const EMPRESAS = [
 const CATEGORIAS = [
   { v: "movilizacion", l: "Movilización / Taxi", ic: "🚕" },
   { v: "kilometraje",  l: "Kilometraje (auto propio)", ic: "🚗" },
+  { v: "arriendo_vehiculo", l: "Arriendo de vehículo", ic: "🚙" },
   { v: "pasajes_aereos", l: "Pasajes aéreos",   ic: "✈️" },
   { v: "combustible",  l: "Combustible",         ic: "⛽" },
   { v: "peajes",       l: "Peajes / TAG",        ic: "🛣️" },
