@@ -42,7 +42,7 @@ const EMPRESAS = [
   "Osiris Plant Management", "Integrity Farms", "Allpa Farms Chile", "Allpa Farms Perú",
 ];
 
-const CATEGORIAS = [
+const CATEGORIAS_BASE = [
   { v: "movilizacion", l: "Movilización / Taxi", ic: "🚕" },
   { v: "kilometraje",  l: "Kilometraje (auto propio)", ic: "🚗" },
   { v: "arriendo_vehiculo", l: "Arriendo de vehículo", ic: "🚙" },
@@ -69,7 +69,18 @@ const CATEGORIAS = [
   { v: "salud",        l: "Salud / Farmacia",    ic: "💊" },
   { v: "otros",        l: "Otros",               ic: "•" },
 ];
-const CAT_MAP = Object.fromEntries(CATEGORIAS.map(c => [c.v, c]));
+// Categorías extra que el admin agrega desde la app (persistidas en rendiciones_config).
+// Se registran en CATEGORIAS_EXTRA y CAT_MAP al cargar la config, para que labels
+// funcionen en exports/reportes sin tener que hilar el mapa por todos lados.
+let CATEGORIAS_EXTRA = [];
+const CAT_MAP = Object.fromEntries(CATEGORIAS_BASE.map(c => [c.v, c]));
+function setCategoriasExtra(list) {
+  CATEGORIAS_EXTRA = (Array.isArray(list) ? list : []).filter(c => c && c.v && c.l);
+  // Reconstruir CAT_MAP: base + extra (limpiar extras viejos primero).
+  Object.keys(CAT_MAP).forEach(k => { if (!CATEGORIAS_BASE.some(b => b.v === k)) delete CAT_MAP[k]; });
+  CATEGORIAS_EXTRA.forEach(c => { CAT_MAP[c.v] = c; });
+}
+function categoriasTodas() { return [...CATEGORIAS_BASE, ...CATEGORIAS_EXTRA]; }
 
 const MONEDAS = ["CLP", "USD", "EUR", "PEN", "CNY", "GBP", "BRL", "MXN", "AUD", "CAD", "JPY"];
 const SIM_MONEDA = { CLP: "$", USD: "US$", EUR: "€", PEN: "S/", CNY: "¥", GBP: "£", BRL: "R$", MXN: "MX$", AUD: "A$", CAD: "C$", JPY: "¥" };
@@ -837,7 +848,9 @@ export default function RendicionesModule({ usuarioActual, esAdmin, esSoloConsul
         if (alive) {
           setRendiciones(Array.isArray(data) ? data : []);
           setTcData(tc && typeof tc === "object" ? tc : {});
-          setConfig(cfg && typeof cfg === "object" ? { valorKm: 0, personasExternas: [], ...cfg } : { valorKm: 0, personasExternas: [] });
+          const cfgNext = cfg && typeof cfg === "object" ? { valorKm: 0, personasExternas: [], categoriasExtra: [], ...cfg } : { valorKm: 0, personasExternas: [], categoriasExtra: [] };
+          setConfig(cfgNext);
+          setCategoriasExtra(cfgNext.categoriasExtra);   // registrar categorías personalizadas (labels en exports/reportes)
           cargaOkRef.current = true; // carga exitosa → habilita auto-save
         }
       } catch (e) {
@@ -928,6 +941,18 @@ export default function RendicionesModule({ usuarioActual, esAdmin, esSoloConsul
     setConfig(next);
     await dbSaveGeneric("rendiciones_config", next);
   }, [puedeRendirPorOtros, config]);
+
+  // Categorías personalizadas (el admin las agrega desde la app). Se registran en
+  // CAT_MAP/CATEGORIAS_EXTRA para que labels salgan bien en el selector, reportes y exports.
+  const guardarCategorias = useCallback(async (list) => {
+    if (!admin) return;
+    if (!cargaOkRef.current) { console.warn("[Rendiciones] categorías no guardadas — carga inicial falló."); return; }
+    const limpia = (Array.isArray(list) ? list : []).filter(c => c && c.v && c.l);
+    setCategoriasExtra(limpia);
+    const next = { ...config, categoriasExtra: limpia };
+    setConfig(next);
+    await dbSaveGeneric("rendiciones_config", next);
+  }, [admin, config]);
 
   const pushHist = (r, accion, comentario = "") => ({
     ...r,
@@ -1194,6 +1219,7 @@ export default function RendicionesModule({ usuarioActual, esAdmin, esSoloConsul
           usuarios={usuarios} puedeRendirPorOtros={puedeRendirPorOtros}
           valorKm={config.valorKm}
           personasExternas={config.personasExternas || []} onGuardarPersonas={guardarPersonasExternas}
+          categoriasExtra={config.categoriasExtra || []} onGuardarCategorias={guardarCategorias}
           puedeDevolver={editRend.estado === "aprobada" && (admin || editRend.revisadoPor === nombreUsuario)}
           onDevolver={devolverParaCorreccion}
         />
@@ -1731,9 +1757,13 @@ function ReportesDashboard({ resumen, nRend }) {
 // ───────────────────────────────────────────────────────────────────
 // Editor de una rendición (con gastos + adjuntos)
 // ───────────────────────────────────────────────────────────────────
-function EditorRendicion({ rend, upsert, onClose, onEnviar, esDueno, esAprobador, onEliminar, tcData, admin, usuarios = [], puedeRendirPorOtros, valorKm = 0, personasExternas = [], onGuardarPersonas, puedeDevolver = false, onDevolver }) {
+function EditorRendicion({ rend, upsert, onClose, onEnviar, esDueno, esAprobador, onEliminar, tcData, admin, usuarios = [], puedeRendirPorOtros, valorKm = 0, personasExternas = [], onGuardarPersonas, categoriasExtra = [], onGuardarCategorias, puedeDevolver = false, onDevolver }) {
   const [modalExt, setModalExt] = useState(false);
   const [extForm, setExtForm] = useState({ nombre: "", cargo: "", email: "" });
+  const [modalCat, setModalCat] = useState(false);
+  const [catForm, setCatForm] = useState({ ic: "", l: "" });
+  const [catGastoId, setCatGastoId] = useState(null); // gasto al que aplicar la categoría nueva
+  const CATS = [...CATEGORIAS_BASE, ...(categoriasExtra || [])]; // reactivo al agregar
   const esMovil = useEsMovil();
   const editable = esDueno && (rend.estado === "borrador" || rend.estado === "rechazada");
   // La fecha/moneda de pago la define quien paga (aprobador) incluso después de enviada.
@@ -1953,6 +1983,35 @@ function EditorRendicion({ rend, upsert, onClose, onEnviar, esDueno, esAprobador
         </div>
       )}
 
+      {/* Modal: agregar categoría personalizada (solo admin) */}
+      {modalCat && (
+        <div onClick={() => setModalCat(false)} style={{ position: "fixed", inset: 0, background: "rgba(16,24,40,0.55)", zIndex: 500, display: "flex", alignItems: "flex-start", justifyContent: "center", padding: "40px 16px", overflowY: "auto" }}>
+          <div onClick={e => e.stopPropagation()} style={{ background: C.card, borderRadius: 14, width: 420, maxWidth: "100%", minWidth: 0, padding: 20, boxShadow: "0 12px 48px #0004" }}>
+            <div style={{ fontWeight: 800, fontSize: 15, marginBottom: 4 }}>Agregar categoría</div>
+            <div style={{ fontSize: 12, color: C.muted2, marginBottom: 14 }}>Queda disponible para todas las rendiciones (categoría del grupo).</div>
+            <div style={{ display: "grid", gridTemplateColumns: "80px 1fr", gap: 10 }}>
+              <Field label="Ícono">
+                <input value={catForm.ic} maxLength={4} onChange={e => setCatForm(f => ({ ...f, ic: e.target.value }))} style={{ ...inputStyle, textAlign: "center" }} placeholder="🏷️" />
+              </Field>
+              <Field label="Nombre *">
+                <input value={catForm.l} onChange={e => setCatForm(f => ({ ...f, l: e.target.value }))} style={inputStyle} placeholder="Ej: Arriendo de maquinaria" />
+              </Field>
+            </div>
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 16 }}>
+              <Btn kind="ghost" onClick={() => setModalCat(false)}>Cancelar</Btn>
+              <Btn kind="success" onClick={() => {
+                const l = (catForm.l || "").trim();
+                if (!l) { alert("El nombre de la categoría es obligatorio."); return; }
+                const nueva = { v: uid("cat"), l, ic: (catForm.ic || "").trim() || "🏷️" };
+                onGuardarCategorias?.([...(categoriasExtra || []), nueva]);
+                if (catGastoId) setGasto(catGastoId, "categoria", nueva.v);
+                setModalCat(false);
+              }}>Guardar y usar</Btn>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Progreso de la cadena de aprobación (si tiene cadena multinivel) */}
       {Array.isArray(rend.cadena) && rend.cadena.length > 1 && (
         <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginBottom: 16, background: C.bg2, borderRadius: 10, padding: "10px 12px" }}>
@@ -2018,8 +2077,13 @@ function EditorRendicion({ rend, upsert, onClose, onEnviar, esDueno, esAprobador
                 <input type="date" value={g.fecha} disabled={!editable} onChange={e => setGasto(g.id, "fecha", e.target.value)} style={inputStyle} />
               </Field>
               <Field label="Categoría">
-                <select value={g.categoria} disabled={!editable} onChange={e => setCategoria(g, e.target.value)} style={inputStyle}>
-                  {CATEGORIAS.map(c => <option key={c.v} value={c.v}>{c.ic} {c.l}</option>)}
+                <select value={g.categoria} disabled={!editable}
+                  onChange={e => {
+                    if (e.target.value === "__add__") { setCatGastoId(g.id); setCatForm({ ic: "", l: "" }); setModalCat(true); return; }
+                    setCategoria(g, e.target.value);
+                  }} style={inputStyle}>
+                  {CATS.map(c => <option key={c.v} value={c.v}>{c.ic} {c.l}</option>)}
+                  {admin && <option value="__add__">➕ Agregar categoría…</option>}
                 </select>
               </Field>
               <Field label="Glosa / Detalle" style={esMovil ? { gridColumn: "1 / -1" } : undefined}>
