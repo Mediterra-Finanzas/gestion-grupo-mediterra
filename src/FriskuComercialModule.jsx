@@ -91,6 +91,25 @@ function SelectBuscable({ value, onChange, options, placeholder, listId, style }
   );
 }
 
+// Combo de N° de semana: muestra "S32" por defecto, tiene dropdown (datalist)
+// para elegir, y permite digitar/sobrescribir el número (acepta "32" o "S32").
+// Al enfocar selecciona todo (reemplazo rápido) y NO reformatea mientras se
+// escribe (evita que el campo salte a "S03" en cada tecla). value = número|undefined.
+function WeekNumPicker({ value, onChange, listId, style }) {
+  const fmt = (n)=> n ? `S${String(n).padStart(2,"0")}` : "";
+  const parse = (s)=>{ const d=String(s).replace(/[^\d]/g,""); if(!d) return undefined; let n=Math.round(Number(d)); if(n<1)n=1; if(n>53)n=53; return n; };
+  const [txt, setTxt] = useState(()=>fmt(value));
+  const foco = useRef(false);
+  useEffect(()=>{ if(!foco.current) setTxt(fmt(value)); },[value]);
+  return (
+    <input list={listId} value={txt} placeholder="S—" inputMode="numeric"
+      onFocus={e=>{ foco.current=true; e.target.select(); }}
+      onChange={e=>{ setTxt(e.target.value); onChange(parse(e.target.value)); }}
+      onBlur={e=>{ foco.current=false; const n=parse(e.target.value); onChange(n); setTxt(fmt(n)); }}
+      style={style}/>
+  );
+}
+
 // Selector escribible de exportadora (typeahead con datalist). value/onChange
 // operan sobre el id; el input muestra el nombre y permite buscar tecleando.
 function ExportadoraPicker({ value, exportadoras, onChange, style }) {
@@ -2116,9 +2135,8 @@ function ProgramaSemanaForm({semana, closure, tiposEmbalaje, onGuardar, onCancel
             <div style={{...lblSt, color}}>{lbl} *</div>
             <div style={{display:"flex", gap:8}}>
               <div style={{flex:"1 1 auto"}}>
-                <SelectBuscable listId={`wk-${id}`} value={num||""} onChange={v=>setter(v||null, null)}
-                  placeholder="🔍 Semana" style={{...inputSt, width:"100%"}}
-                  options={Array.from({length:53},(_,i)=>i+1).map(n=>({value:n, label:`S${String(n).padStart(2,"0")}`}))}/>
+                <WeekNumPicker listId="wk-nums" value={num||undefined} onChange={n=>setter(n??null, null)}
+                  style={{...inputSt, width:"100%", textAlign:"right", fontFamily:"monospace"}}/>
               </div>
               <select value={anio||""} style={{...inputSt, flex:"0 1 92px"}} onChange={e=>setter(null, e.target.value||null)}>
                 <option value="">Año —</option>
@@ -2126,7 +2144,7 @@ function ProgramaSemanaForm({semana, closure, tiposEmbalaje, onGuardar, onCancel
               </select>
             </div>
             <div style={{fontSize:11, color: lunes?color:C.muted, fontWeight:600, marginTop:5}}>
-              {lunes ? `📅 ${formatSemanaISO(lunes)} · ${rangoSemana(lunes)}` : "Selecciona N° de semana y año"}
+              {lunes ? `📅 ${formatSemanaISO(lunes)} · ${rangoSemana(lunes)}` : "Escribe o elige el N° de semana y el año"}
             </div>
           </div>
         );
@@ -2172,6 +2190,7 @@ function ProgramaSemanaForm({semana, closure, tiposEmbalaje, onGuardar, onCancel
         <div style={{display:"flex", flexWrap:"wrap", gap:10, marginBottom:6}}>
           {weekSel("etd", "ETD · fecha despacho", buf.etdSemanaNum, buf.etdSemanaAnio, setSemanaETD, lunesETD, C.teal)}
           {weekSel("eta", "ETA · fecha llegada", buf.etaSemanaNum, buf.etaSemanaAnio, setSemanaETA, lunesETA, C.blue)}
+          <datalist id="wk-nums">{Array.from({length:53},(_,i)=>i+1).map(n=><option key={n} value={`S${String(n).padStart(2,"0")}`}/>)}</datalist>
         </div>
         {diasTransito!=null && (
           <div style={{fontSize:11, color:C.muted, marginBottom:12}}>
