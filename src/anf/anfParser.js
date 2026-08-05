@@ -300,6 +300,22 @@ export async function parsearInformeANF(file, filial, anio, mes) {
   console.log('[ANF Parser] Hojas en el Excel:', wb.SheetNames);
   console.log('[ANF Parser] Sistema:', sistema, '| Empresa:', filial.nombre, '| Mes:', mes, '| Año:', anio);
 
+  // DIAGNÓSTICO COLUMNAS (solo Megasystem)
+  if (sistema === 'megasystem') {
+    const _wsBal = findSheet(wb, /^BALANCE$/i);
+    if (_wsBal) {
+      const _rowsBal = XLSX.utils.sheet_to_json(_wsBal, { header: 1, defval: null });
+      console.log('[ANF Parser] BALANCE primeras 4 filas:', JSON.stringify(_rowsBal.slice(0, 4)));
+    }
+    const _eerrMesNom = wb.SheetNames.find(n => /^EERR\s+\w+\s+\d{4}$/i.test(n));
+    if (_eerrMesNom) {
+      const _wsEerr = wb.Sheets[_eerrMesNom];
+      const _rowsEerr = XLSX.utils.sheet_to_json(_wsEerr, { defval: null });
+      console.log('[ANF Parser] EERR hoja:', _eerrMesNom, '| columnas:', Object.keys(_rowsEerr[0] || {}));
+      console.log('[ANF Parser] EERR primeras 3 filas:', JSON.stringify(_rowsEerr.slice(0, 3)));
+    }
+  }
+
   // 1. BALANCE actual (requerido)
   const wsBalance = findSheet(wb, /^BALANCE$/i);
   if (!wsBalance) {
