@@ -70,19 +70,32 @@ function especiesConFormatos(especies, tiposEmbalaje, incluir) {
 function SelectBuscable({ value, onChange, options, placeholder, listId, style }) {
   const labelDe = (v)=> (options.find(o=>String(o.value)===String(v))?.label) || "";
   const [txt, setTxt] = useState(()=>labelDe(value));
-  useEffect(()=>{ setTxt(labelDe(value)); },[value, options]);
-  const resolver = (t)=>{
-    const s = String(t).trim().toLowerCase();
-    if(!s) return "";
-    let m = options.find(o=>String(o.label||"").trim().toLowerCase()===s);
-    if(!m) m = options.find(o=>String(o.label||"").toLowerCase().includes(s));
-    return m ? m.value : null; // null = sin match (no cambiar)
-  };
+  const foco = useRef(false);
+  // Solo re-sincroniza el texto desde el valor cuando el campo NO está enfocado.
+  // Así no reemplaza lo que el usuario está escribiendo (antes, al teclear "a"
+  // saltaba a "Aguaymanto").
+  useEffect(()=>{ if(!foco.current) setTxt(labelDe(value)); },[value, options]);
+  const exacto  = (t)=>{ const s=String(t).trim().toLowerCase(); return options.find(o=>String(o.label||"").trim().toLowerCase()===s); };
+  const parcial = (t)=>{ const s=String(t).trim().toLowerCase(); return s ? options.find(o=>String(o.label||"").toLowerCase().includes(s)) : null; };
   return (
     <>
       <input list={listId} value={txt} placeholder={placeholder}
-        onChange={e=>{ setTxt(e.target.value); const r=resolver(e.target.value); if(r!==null) onChange(r); }}
-        onBlur={e=>{ const r=resolver(e.target.value); const v = r===null ? value : r; onChange(v); setTxt(labelDe(v)); }}
+        onFocus={e=>{ foco.current=true; e.target.select(); }}
+        onChange={e=>{
+          const raw = e.target.value; setTxt(raw);
+          if(raw==="") { onChange(""); return; }
+          // Solo confirma si hay match EXACTO (ej. al elegir del dropdown). Mientras
+          // se escribe parcial no se toca el filtro, para no pisar el texto.
+          const m = exacto(raw); if(m) onChange(m.value);
+        }}
+        onBlur={e=>{
+          foco.current = false;
+          const raw = e.target.value;
+          if(raw.trim()===""){ onChange(""); setTxt(""); return; }
+          const m = exacto(raw) || parcial(raw);
+          onChange(m ? m.value : value);
+          setTxt(m ? m.label : labelDe(value));
+        }}
         style={style}/>
       <datalist id={listId}>
         {options.map(o=><option key={o.value} value={o.label}/>)}
@@ -117,13 +130,16 @@ function ExportadoraPicker({ value, exportadoras, onChange, style }) {
     .slice().sort((a,b)=>(a.nombre||"").localeCompare(b.nombre||"")),[exportadoras]);
   const nombreDe = (id)=> (exportadoras||[]).find(e=>e.id===id)?.nombre || "";
   const [txt, setTxt] = useState(()=>nombreDe(value));
-  useEffect(()=>{ setTxt(nombreDe(value)); },[value, exportadoras]);
-  const matchId = (v)=>{ const m=activas.find(e=>(e.nombre||"").trim().toLowerCase()===String(v).trim().toLowerCase()); return m?m.id:""; };
+  const foco = useRef(false);
+  useEffect(()=>{ if(!foco.current) setTxt(nombreDe(value)); },[value, exportadoras]);
+  const exacto  = (v)=> activas.find(e=>(e.nombre||"").trim().toLowerCase()===String(v).trim().toLowerCase());
+  const parcial = (v)=>{ const s=String(v).trim().toLowerCase(); return s ? activas.find(e=>(e.nombre||"").toLowerCase().includes(s)) : null; };
   return (
     <>
       <input list="fr-exportadora-list" value={txt} placeholder="Escribe la exportadora…"
-        onChange={e=>{ setTxt(e.target.value); const id=matchId(e.target.value); if(id) onChange(id); }}
-        onBlur={e=>onChange(matchId(e.target.value))}
+        onFocus={e=>{ foco.current=true; e.target.select(); }}
+        onChange={e=>{ const raw=e.target.value; setTxt(raw); if(raw===""){ onChange(""); return; } const m=exacto(raw); if(m) onChange(m.id); }}
+        onBlur={e=>{ foco.current=false; const raw=e.target.value; if(raw.trim()===""){ onChange(""); setTxt(""); return; } const m=exacto(raw)||parcial(raw); onChange(m?m.id:value); setTxt(m?m.nombre:nombreDe(value)); }}
         style={style}/>
       <datalist id="fr-exportadora-list">
         {activas.map(e=><option key={e.id} value={e.nombre}/>)}
@@ -2843,8 +2859,13 @@ function CarpetaComexPanel({ oe, onGuardar, canEdit }) {
   const [cx, setCx] = useState(()=>{
     const saved = oe.carpetaComex;
     if(!saved) return defaultCarpetaComex();
-    // Migración: "Seguro de Carga" pasó a llamarse "QC" (preserva el archivo cargado)
-    const docsMig = (saved.docs||[]).map(d=> d.tipo==="Seguro de Carga" ? {...d, tipo:"QC"} : d);
+    // Docs que se consolidan en el "Full Set" y ya no van como slot propio.
+    const DOCS_DEPRECADOS = ["BL / AWB","Invoice Comercial","Certificado Fitosanitario","Certificado de Origen"];
+    // Migración: "Seguro de Carga" → "QC" (preserva el archivo cargado)
+    let docsMig = (saved.docs||[]).map(d=> d.tipo==="Seguro de Carga" ? {...d, tipo:"QC"} : d);
+    // Eliminar los deprecados que estén VACÍOS (los que tengan archivo cargado se
+    // conservan para no perder nada).
+    docsMig = docsMig.filter(d=> !(DOCS_DEPRECADOS.includes(d.tipo) && !d.url));
     const savedTipos = docsMig.map(d=>d.tipo);
     const missing = DOCS_COMEX_DEFAULT.filter(t=>!savedTipos.includes(t))
       .map(tipo=>({id:uid(),tipo,nombre:"",url:"",fuente:"manual",fechaCarga:"",estado:"pendiente"}));
@@ -6429,7 +6450,8 @@ export default function FriskuComercialModule({
     <div style={{background:C.bg, minHeight:"100vh", color:C.text}}>
       {/* Header */}
       <div style={{padding:"14px 20px", borderBottom:"1px solid rgba(255,255,255,0.10)", display:"flex", alignItems:"center", justifyContent:"space-between", flexWrap:"wrap", gap:10, background:"#1E2761", boxShadow:"0 4px 16px rgba(16,24,40,0.20)"}}>
-        <div style={{display:"flex", alignItems:"center", gap:14}}>
+        <div onClick={()=>setTab("dashboard")} title="Ir al menú principal de Frisku"
+          style={{display:"flex", alignItems:"center", gap:14, cursor:"pointer"}}>
           <img
             src={`${process.env.PUBLIC_URL}/frisku.png`}
             alt="Frisku Foods"
@@ -6444,6 +6466,9 @@ export default function FriskuComercialModule({
           {Object.values(guardando).some(Boolean)
             ? <span style={{color:"#fde68a"}}>💾 Guardando...</span>
             : <span style={{color:"#6ee7b7"}}>● Sincronizado</span>}
+          {tab!=="dashboard" && (
+            <button onClick={()=>setTab("dashboard")} style={{background:"rgba(255,255,255,0.10)",border:"1px solid rgba(255,255,255,0.22)",color:"#fff",borderRadius:8,padding:"7px 14px",cursor:"pointer",fontSize:12,fontWeight:600}}>🏠 Menú Frisku</button>
+          )}
           {onBack && <button onClick={onBack} style={{background:"rgba(255,255,255,0.10)",border:"1px solid rgba(255,255,255,0.22)",color:"#fff",borderRadius:8,padding:"7px 14px",cursor:"pointer",fontSize:12,fontWeight:600}}>← Mediterra</button>}
         </div>
       </div>
