@@ -2843,7 +2843,7 @@ const DOCS_COMEX_DEFAULT = [
 function defaultCarpetaComex() {
   return {
     docs: DOCS_COMEX_DEFAULT.map(tipo=>({id:uid(),tipo,nombre:"",url:"",fuente:"manual",fechaCarga:"",estado:"pendiente"})),
-    qcDestino:{fechaRecepcion:"",temperaturaLlegada:"",pesoVerificadoKg:"",observ:"",fotos:[]},
+    qcDestino:{fechaRecepcion:"",temperaturaLlegada:"",pesoVerificadoKg:"",observ:"",fotos:[],docsQC:[]},
   };
 }
 
@@ -2882,6 +2882,9 @@ function CarpetaComexPanel({ oe, onGuardar, canEdit }) {
   function addFoto(){ setCx(p=>({...p,qcDestino:{...p.qcDestino,fotos:[...(p.qcDestino.fotos||[]),{id:uid(),url:"",fuente:"manual",fecha:""}]}})); setDirty(true); }
   function updFoto(idx,k,v){ setCx(p=>{ const f=[...(p.qcDestino.fotos||[])]; f[idx]={...f[idx],[k]:v}; return {...p,qcDestino:{...p.qcDestino,fotos:f}}; }); setDirty(true); }
   function delFoto(idx){ setCx(p=>({...p,qcDestino:{...p.qcDestino,fotos:(p.qcDestino.fotos||[]).filter((_,i)=>i!==idx)}})); setDirty(true); }
+  function addDocQC(){ setCx(p=>({...p,qcDestino:{...p.qcDestino,docsQC:[...(p.qcDestino.docsQC||[]),{id:uid(),nombre:"",url:"",fecha:""}]}})); setDirty(true); }
+  function updDocQC(idx,k,v){ setCx(p=>{ const d=[...(p.qcDestino.docsQC||[])]; d[idx]={...d[idx],[k]:v}; return {...p,qcDestino:{...p.qcDestino,docsQC:d}}; }); setDirty(true); }
+  function delDocQC(idx){ setCx(p=>({...p,qcDestino:{...p.qcDestino,docsQC:(p.qcDestino.docsQC||[]).filter((_,i)=>i!==idx)}})); setDirty(true); }
 
   async function handleUploadDoc(idx, file) {
     const doc = cx.docs[idx];
@@ -2901,6 +2904,16 @@ function CarpetaComexPanel({ oe, onGuardar, canEdit }) {
     const url = await uploadArchivoFrisku(file, path);
     setUploading(p=>{ const s=new Set(p); s.delete(key); return s; });
     if(url){ updFoto(idx,"url",url); updFoto(idx,"fuente","storage"); updFoto(idx,"fecha",new Date().toISOString().slice(0,10)); }
+  }
+  async function handleUploadDocQC(idx, file) {
+    const doc = (cx.qcDestino.docsQC||[])[idx];
+    const ext = file.name.split(".").pop();
+    const path = `embarques/${oe.id}/comex/qc-docs/${doc?.id||uid()}/${Date.now()}.${ext}`;
+    const key = `qcdoc_${idx}`;
+    setUploading(p=>new Set(p).add(key));
+    const url = await uploadArchivoFrisku(file, path);
+    setUploading(p=>{ const s=new Set(p); s.delete(key); return s; });
+    if(url){ updDocQC(idx,"url",url); updDocQC(idx,"nombre",file.name); updDocQC(idx,"fecha",new Date().toISOString().slice(0,10)); }
   }
 
   const docsCargados = cx.docs.filter(d=>d.url&&d.estado!=="pendiente").length;
@@ -3037,6 +3050,36 @@ function CarpetaComexPanel({ oe, onGuardar, canEdit }) {
             })}
             {canEdit && (
               <button onClick={addFoto} style={{width:96,height:96,borderRadius:8,border:`1px dashed ${C.purple}`,background:"transparent",color:C.purple,fontSize:28,cursor:"pointer",flexShrink:0}}>+</button>
+            )}
+          </div>
+
+          {/* Documentos QC (cualquier archivo, no solo imágenes) */}
+          <div style={{fontSize:11,fontWeight:700,color:C.text,margin:"14px 0 8px"}}>📄 Documentos QC</div>
+          <div style={{display:"flex",flexDirection:"column",gap:6,marginBottom:10}}>
+            {(cx.qcDestino.docsQC||[]).map((d,idx)=>{
+              const up = uploading.has(`qcdoc_${idx}`);
+              return (
+                <div key={d.id||idx} style={{display:"flex",alignItems:"center",gap:8,fontSize:12}}>
+                  {d.url ? (
+                    <>
+                      <a href={d.url} target="_blank" rel="noreferrer" style={{color:C.blue,textDecoration:"none",flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+                        📎 {d.nombre||"documento"}{d.fecha?<span style={{color:C.muted,fontSize:10}}> · {d.fecha}</span>:null}
+                      </a>
+                      {canEdit && <button onClick={()=>delDocQC(idx)} style={{...btnSt(C.accent,true),padding:"2px 8px",fontSize:11}}>×</button>}
+                    </>
+                  ) : up ? <span style={{color:C.muted}}>⏳ Subiendo…</span> : (
+                    <>
+                      <input type="file" id={`qcd_${oe.id}_${idx}`} style={{display:"none"}}
+                        onChange={e=>{ if(e.target.files[0]) handleUploadDocQC(idx,e.target.files[0]); e.target.value=""; }}/>
+                      <button onClick={()=>document.getElementById(`qcd_${oe.id}_${idx}`)?.click()} style={{...btnSt(C.purple,true),fontSize:11,padding:"4px 12px"}}>📎 Subir archivo</button>
+                      {canEdit && <button onClick={()=>delDocQC(idx)} style={{...btnSt(C.muted,true),padding:"2px 8px",fontSize:11}}>×</button>}
+                    </>
+                  )}
+                </div>
+              );
+            })}
+            {canEdit && (
+              <button onClick={addDocQC} style={{...btnSt(C.purple,true),fontSize:11,padding:"5px 12px",alignSelf:"flex-start"}}>+ Documento</button>
             )}
           </div>
         </div>
