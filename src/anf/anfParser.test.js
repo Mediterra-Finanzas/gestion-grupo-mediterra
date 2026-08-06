@@ -105,64 +105,83 @@ describe('buildSaldosEsf — Contec', () => {
     expect(remu.var_abs).toBeNull();
   });
 
-  // KNOWN_BUG: es_material no se activa para cuentas nuevas (saldo_neto_t1 === null)
-  //
-  // Código actual en anfParser.js (línea ~412):
-  //   const es_material = var_pct != null
-  //     ? Math.abs(var_pct) >= pisoMaterialidad
-  //     : (saldo_neto_t1 === 0 && saldo_neto !== 0);  // ← solo captura "apareció en T0 con saldo 0"
-  //
-  // El bug: cuando una cuenta es COMPLETAMENTE NUEVA (saldo_neto_t1 === null),
-  // la condición `saldo_neto_t1 === 0` evalúa false → es_material = false.
-  // La cuenta nueva con saldo significativo queda invisible al análisis de materialidad.
-  //
-  // Comportamiento esperado: `(saldo_neto_t1 === 0 || saldo_neto_t1 === null) && saldo_neto !== 0`
-  //
-  // Impacto financiero: una cuenta nueva con saldo alto (ej. provisión de $500k) no activa
-  //   la alerta de materialidad → el CFO no la ve destacada en el reporte ESF.
-  //   En Frisku: cuentas 3xxxxx nuevas (ingresos mal clasificados en ESF) podrían no aparecer
-  //   como materiales aun teniendo saldos de cientos de miles de USD.
-  //
-  // Impacto visual: la UI no resalta la cuenta con color/badge "material" → riesgo de que
-  //   el analista omita investigarla en el cierre mensual.
-  //
-  // Fase propuesta para corrección: Fase 1 (cambio de una línea en anfParser.js,
-  //   independiente de AccountingProfile). Requiere nuevo test CORRECT_BEHAVIOR y
-  //   verificación de que no rompe la lógica de cuentas con saldo_neto_t1 === 0.
+  // ── Regla de materialidad para cuentas nuevas (aprobada CFO, 2026-08-06) ─────
+  // Regla provisional FRP: toda cuenta presente en T0 y ausente en T1
+  // (saldo_neto_t1 === null) con saldo_neto ≠ 0 se marca material, sin importar el monto
+  // ni el signo. Fundamento: evitar que cuentas nuevas queden fuera del proceso de revisión.
+  // Motor futuro: umbral absoluto + porcentual + moneda + empresa + excepciones CFO.
 
-  test('[KNOWN_BUG] cuenta nueva (saldo_neto_t1=null, saldo_neto≠0) → es_material=false (BUG: debería ser true)', () => {
+  test('[CORRECT_BEHAVIOR] cuenta nueva con saldo negativo (saldo_neto_t1=null, saldo<0) → es_material=true', () => {
     const result = buildSaldosEsf(esfValido, esfT1);
-    // 2.01.03.001 está en ESF actual pero no en ESF_T1 → saldo_neto_t1=null
+    // 2.01.03.001: presente en T0 (ip=95.000), ausente en T1 → saldo_neto=−95.000
     const remu = result.find(c => c.codigo === '2.01.03.001');
     expect(remu).toBeDefined();
-    expect(remu.saldo_neto_t1).toBeNull();             // confirma: cuenta ausente en T1
-    expect(remu.saldo_neto).not.toBe(0);               // confirma: tiene saldo real (−95.000)
-    expect(remu.es_material).toBe(false);              // BUG: devuelve false
-    // Cuando se corrija: expect(remu.es_material).toBe(true);
+    expect(remu.saldo_neto_t1).toBeNull();
+    expect(remu.saldo_neto).toBeLessThan(0);
+    expect(remu.es_material).toBe(true);
   });
 
-  test('[KNOWN_BUG] segunda cuenta nueva (3.02.001, saldo_neto_t1=null) → es_material=false', () => {
+  test('[CORRECT_BEHAVIOR] segunda cuenta nueva con saldo negativo (saldo_neto_t1=null, saldo<0) → es_material=true', () => {
     const result = buildSaldosEsf(esfValido, esfT1);
-    // 3.02.001 (Utilidades Retenidas) ausente en T1 → mismo bug
+    // 3.02.001 (Utilidades Retenidas ip=715.000): ausente en T1 → saldo_neto=−715.000
     const util = result.find(c => c.codigo === '3.02.001');
     expect(util).toBeDefined();
     expect(util.saldo_neto_t1).toBeNull();
-    expect(util.saldo_neto).not.toBe(0);
-    expect(util.es_material).toBe(false); // BUG: debería ser true
+    expect(util.saldo_neto).toBeLessThan(0);
+    expect(util.es_material).toBe(true);
   });
 
-  test('[KNOWN_BUG] contraste: cuenta con saldo_neto_t1=0 SÍ activa es_material (caso que sí funciona)', () => {
-    // Si una cuenta existía en T1 con saldo=0 y en T0 tiene saldo, es_material=true (OK)
+  test('[CORRECT_BEHAVIOR] cuenta nueva con saldo positivo (saldo_neto_t1=null, saldo>0) → es_material=true', () => {
+    // Datos inline: cuenta activo con ia=200k, ausente en T1
+    const esfPos = [{ codigo: '1.01.99.003', nombre: 'Activo Nuevo', inventario_activo: 200_000, inventario_pasivo: 0, sistema: 'contec' }];
+    const result = buildSaldosEsf(esfPos, []);
+    const c = result[0];
+    expect(c.saldo_neto_t1).toBeNull();
+    expect(c.saldo_neto).toBeGreaterThan(0);
+    expect(c.es_material).toBe(true);
+  });
+
+  test('[CORRECT_BEHAVIOR] cuenta nueva con saldo=0 (saldo_neto_t1=null, saldo=0) → es_material=false', () => {
+    // Cuenta con ia=ip → saldo_neto=0; ausente en T1 → no es material (no hay variación)
+    const esfCero = [{ codigo: '1.01.99.002', nombre: 'Cuenta Nueva Sin Saldo', inventario_activo: 50_000, inventario_pasivo: 50_000, sistema: 'contec' }];
+    const result  = buildSaldosEsf(esfCero, []);
+    const c = result[0];
+    expect(c.saldo_neto_t1).toBeNull();
+    expect(c.saldo_neto).toBeCloseTo(0, 2);
+    expect(c.es_material).toBe(false);
+  });
+
+  test('[CORRECT_BEHAVIOR] cuenta existente con T1=0 y saldo actual ≠ 0 → es_material=true (no regresión)', () => {
+    // Caso T1=0: funcionaba antes del fix; confirma que el fix no rompió esta rama
     const esfConCuentaCero = [{ codigo: '1.01.99.001', nombre: 'Cuenta Test', inventario_activo: 50_000, inventario_pasivo: 0, sistema: 'contec' }];
     const esfT1ConCero     = [{ codigo: '1.01.99.001', nombre: 'Cuenta Test', inventario_activo: 0,      inventario_pasivo: 0, sistema: 'contec' }];
     const result = buildSaldosEsf(esfConCuentaCero, esfT1ConCero);
     const cuenta = result[0];
-    expect(cuenta.saldo_neto_t1).toBeCloseTo(0, 2);   // saldo_neto_t1 = 0 (existía en T1)
+    expect(cuenta.saldo_neto_t1).toBeCloseTo(0, 2);
     expect(cuenta.saldo_neto).toBeCloseTo(50_000, 2);
-    // Con saldo_neto_t1=0, var_pct = undefined → fallback (saldo_neto_t1===0 && saldo_neto!==0) = true
-    // NOTA: var_pct es null cuando saldo_neto_t1===0 (división por cero protegida)
-    expect(cuenta.es_material).toBe(true);  // CORRECT_BEHAVIOR para T1=0
-    // El bug: este caso funciona pero el caso T1=null no funciona
+    expect(cuenta.es_material).toBe(true);
+  });
+
+  test('[CORRECT_BEHAVIOR] variación bajo umbral (var_pct < 10%) → es_material=false', () => {
+    // saldo_T0=100, saldo_T1=98 → var_pct=2.04% < 10% (pisoMaterialidad por defecto)
+    const esfLow   = [{ codigo: '1.01.01.099', nombre: 'Variación Baja', inventario_activo: 100, inventario_pasivo: 0, sistema: 'contec' }];
+    const esfT1Low = [{ codigo: '1.01.01.099', nombre: 'Variación Baja', inventario_activo: 98,  inventario_pasivo: 0, sistema: 'contec' }];
+    const result = buildSaldosEsf(esfLow, esfT1Low);
+    const c = result[0];
+    expect(c.var_pct).not.toBeNull();
+    expect(Math.abs(c.var_pct)).toBeLessThan(10);
+    expect(c.es_material).toBe(false);
+  });
+
+  test('[CORRECT_BEHAVIOR] variación sobre umbral (var_pct ≥ 10%) → es_material=true', () => {
+    // saldo_T0=100, saldo_T1=80 → var_pct=25% ≥ 10%
+    const esfHigh   = [{ codigo: '1.01.01.099', nombre: 'Variación Alta', inventario_activo: 100, inventario_pasivo: 0, sistema: 'contec' }];
+    const esfT1High = [{ codigo: '1.01.01.099', nombre: 'Variación Alta', inventario_activo: 80,  inventario_pasivo: 0, sistema: 'contec' }];
+    const result = buildSaldosEsf(esfHigh, esfT1High);
+    const c = result[0];
+    expect(c.var_pct).not.toBeNull();
+    expect(Math.abs(c.var_pct)).toBeGreaterThanOrEqual(10);
+    expect(c.es_material).toBe(true);
   });
 
   // CORRECT_BEHAVIOR: estructura de cada registro
