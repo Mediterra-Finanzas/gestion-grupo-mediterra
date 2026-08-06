@@ -2471,7 +2471,7 @@ function ClosureProgramaPanel({closure, semanas, tiposEmbalaje, exportadoras, cl
 const CALIBRES_DEFAULT = {
   AVO:"12,14,16,18,20,22,24,26,28,30,32",
   CHE:"L,XL,J,XJ,2J,3J,4J",
-  BLB:"Jumbo,Extra-Large,Large,Medium",
+  BLB:"+12,+14,+18,+20",
   GRP:"M,L,XL,J",
   PLM:"30,35,40,45,50,55,60",
   KWI:"18,22,25,27,30,33,36,39,42",
@@ -2817,9 +2817,11 @@ function OEForm({oe, exportadoras, clientes, notifys=[], especies, tiposEmbalaje
 }
 
 // ── Carpeta COMEX ────────────────────────────────────────────────
+// Documentos COMEX concentrados: un Packing List, un Full Set (set completo
+// de docs de embarque en un solo archivo) y el QC. Se pueden agregar más con
+// el botón "+ Documento" si hiciera falta.
 const DOCS_COMEX_DEFAULT = [
-  "BL / AWB","Invoice Comercial","Packing List",
-  "Certificado Fitosanitario","Certificado de Origen","QC",
+  "Packing List","Full Set","QC",
 ];
 
 function defaultCarpetaComex() {
@@ -6542,18 +6544,15 @@ export default function FriskuComercialModule({
             <div style={{display:"flex", gap:8, marginBottom:16, flexWrap:"wrap", alignItems:"center"}}>
               <input value={busquedaClosure} onChange={e=>setBusquedaClosure(e.target.value)}
                 placeholder="Buscar temporada, código, empresa…" style={{...inputSt, flex:"1 1 220px", maxWidth:280}}/>
-              <select value={filtroExpClosure} onChange={e=>setFiltroExpClosure(e.target.value)} style={{...inputSt, maxWidth:190}}>
-                <option value="">— Exportadora —</option>
-                {exportadoras.map(e=><option key={e.id} value={e.id}>{e.nombre}</option>)}
-              </select>
-              <select value={filtroCliClosure} onChange={e=>setFiltroCliClosure(e.target.value)} style={{...inputSt, maxWidth:190}}>
-                <option value="">— Cliente —</option>
-                {clientes.map(c=><option key={c.id} value={c.id}>{c.nombre}</option>)}
-              </select>
-              <select value={filtroEspClosure} onChange={e=>setFiltroEspClosure(e.target.value)} style={{...inputSt, maxWidth:170}}>
-                <option value="">— Especie —</option>
-                {especies.map(e=><option key={e.codigo} value={e.codigo}>{e.icono} {e.nombreEs}</option>)}
-              </select>
+              <SelectBuscable listId="flt-clo-exp" value={filtroExpClosure} onChange={setFiltroExpClosure}
+                placeholder="🔍 Exportadora" style={{...inputSt, maxWidth:190}}
+                options={exportadoras.filter(e=>e.activo!==false).slice().sort((a,b)=>(a.nombre||"").localeCompare(b.nombre||"")).map(e=>({value:e.id, label:e.nombre}))}/>
+              <SelectBuscable listId="flt-clo-cli" value={filtroCliClosure} onChange={setFiltroCliClosure}
+                placeholder="🔍 Cliente" style={{...inputSt, maxWidth:190}}
+                options={clientes.filter(c=>c.activo!==false).slice().sort((a,b)=>(a.nombre||"").localeCompare(b.nombre||"")).map(c=>({value:c.id, label:c.nombre}))}/>
+              <SelectBuscable listId="flt-clo-esp" value={filtroEspClosure} onChange={setFiltroEspClosure}
+                placeholder="🔍 Especie" style={{...inputSt, maxWidth:170}}
+                options={especies.slice().sort((a,b)=>(a.nombreEs||"").localeCompare(b.nombreEs||"")).map(e=>({value:e.codigo, label:e.nombreEs}))}/>
               <select value={filtroEstadoClosure} onChange={e=>setFiltroEstadoClosure(e.target.value)} style={{...inputSt, maxWidth:130}}>
                 <option value="activo">● Activos</option>
                 <option value="cerrado">✓ Cerrados</option>
@@ -6719,21 +6718,17 @@ export default function FriskuComercialModule({
                     <option value="">Todas las temp.</option>
                     {temporadas.map(t=><option key={t} value={t}>{t}</option>)}
                   </select>
-                  <select value={filtroExpOE} onChange={e=>setFiltroExpOE(e.target.value)}
-                    style={{padding:"6px 8px",background:C.input,border:`1px solid ${C.border}`,borderRadius:6,color:C.text,fontSize:12}}>
-                    <option value="">Todas las exp.</option>
-                    {exportadoras.filter(e=>e.activo!==false).map(e=><option key={e.id} value={e.id}>{e.nombre}</option>)}
-                  </select>
-                  <select value={filtroCliOE} onChange={e=>setFiltroCliOE(e.target.value)}
-                    style={{padding:"6px 8px",background:C.input,border:`1px solid ${C.border}`,borderRadius:6,color:C.text,fontSize:12}}>
-                    <option value="">Todos los clientes</option>
-                    {clientes.filter(c=>c.activo!==false).map(c=><option key={c.id} value={c.id}>{c.nombre}</option>)}
-                  </select>
-                  <select value={filtroEspOE} onChange={e=>setFiltroEspOE(e.target.value)}
-                    style={{padding:"6px 8px",background:C.input,border:`1px solid ${C.border}`,borderRadius:6,color:C.text,fontSize:12}}>
-                    <option value="">Todas las especies</option>
-                    {especies.map(e=><option key={e.codigo} value={e.codigo}>{e.icono} {e.nombreEs}</option>)}
-                  </select>
+                  {(() => { const fltSt={padding:"6px 8px",background:C.input,border:`1px solid ${C.border}`,borderRadius:6,color:C.text,fontSize:12}; return (<>
+                  <SelectBuscable listId="flt-oe-exp" value={filtroExpOE} onChange={setFiltroExpOE}
+                    placeholder="🔍 Todas las exp." style={fltSt}
+                    options={exportadoras.filter(e=>e.activo!==false).slice().sort((a,b)=>(a.nombre||"").localeCompare(b.nombre||"")).map(e=>({value:e.id, label:e.nombre}))}/>
+                  <SelectBuscable listId="flt-oe-cli" value={filtroCliOE} onChange={setFiltroCliOE}
+                    placeholder="🔍 Todos los clientes" style={fltSt}
+                    options={clientes.filter(c=>c.activo!==false).slice().sort((a,b)=>(a.nombre||"").localeCompare(b.nombre||"")).map(c=>({value:c.id, label:c.nombre}))}/>
+                  <SelectBuscable listId="flt-oe-esp" value={filtroEspOE} onChange={setFiltroEspOE}
+                    placeholder="🔍 Todas las especies" style={fltSt}
+                    options={especies.slice().sort((a,b)=>(a.nombreEs||"").localeCompare(b.nombreEs||"")).map(e=>({value:e.codigo, label:e.nombreEs}))}/>
+                  </>); })()}
                   <select value={filtroEstadoOE} onChange={e=>setFiltroEstadoOE(e.target.value)}
                     style={{padding:"6px 8px",background:C.input,border:`1px solid ${C.border}`,borderRadius:6,color:C.text,fontSize:12}}>
                     <option value="">Todos los estados</option>
@@ -6853,18 +6848,12 @@ export default function FriskuComercialModule({
                     <option value="">Todas las temp.</option>
                     {temporadas.map(t=><option key={t} value={t}>T{t}</option>)}
                   </select>
-                  <select value={filtroExpLiq} onChange={e=>setFiltroExpLiq(e.target.value)} style={{...inputSt, maxWidth:180}}>
-                    <option value="">Todas las exp.</option>
-                    {exportadoras.filter(e=>e.activo!==false).sort((a,b)=>(a.nombre||"").localeCompare(b.nombre||"")).map(e=>(
-                      <option key={e.id} value={e.id}>{e.nombre}</option>
-                    ))}
-                  </select>
-                  <select value={filtroCliLiq} onChange={e=>setFiltroCliLiq(e.target.value)} style={{...inputSt, maxWidth:180}}>
-                    <option value="">Todos los clientes</option>
-                    {clientes.filter(c=>c.activo!==false).sort((a,b)=>(a.nombre||"").localeCompare(b.nombre||"")).map(c=>(
-                      <option key={c.id} value={c.id}>{c.nombre}</option>
-                    ))}
-                  </select>
+                  <SelectBuscable listId="flt-liq-exp" value={filtroExpLiq} onChange={setFiltroExpLiq}
+                    placeholder="🔍 Todas las exp." style={{...inputSt, maxWidth:180}}
+                    options={exportadoras.filter(e=>e.activo!==false).slice().sort((a,b)=>(a.nombre||"").localeCompare(b.nombre||"")).map(e=>({value:e.id, label:e.nombre}))}/>
+                  <SelectBuscable listId="flt-liq-cli" value={filtroCliLiq} onChange={setFiltroCliLiq}
+                    placeholder="🔍 Todos los clientes" style={{...inputSt, maxWidth:180}}
+                    options={clientes.filter(c=>c.activo!==false).slice().sort((a,b)=>(a.nombre||"").localeCompare(b.nombre||"")).map(c=>({value:c.id, label:c.nombre}))}/>
                   {(filtroEstadoLiq||filtroTempLiq||filtroExpLiq||filtroCliLiq) && (
                     <button
                       onClick={()=>{setFiltroEstadoLiq(""); setFiltroTempLiq(""); setFiltroExpLiq(""); setFiltroCliLiq("");}}

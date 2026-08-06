@@ -730,7 +730,7 @@ export const MONEDAS_DEFAULT = [
 // ═══════════════════════════════════════════════════════════════════
 export const ESPECIES_DEFAULT = [
   {codigo:"CHE", nombreEs:"Cerezas",     nombreEn:"Cherries",     icono:"🍒", familia:"Carozos",    kgPorCajaDefault:5.0,  unidadComercial:"kg", calibres:"L,XL,J,XJ,2J,3J,4J", temporadaInicio:"Nov", temporadaFin:"Feb", observ:"Especie principal Allegria"},
-  {codigo:"BLB", nombreEs:"Arándanos",   nombreEn:"Blueberries",  icono:"🫐", familia:"Berries",    kgPorCajaDefault:1.5,  unidadComercial:"kg", calibres:"Jumbo,Extra-Large,Large,Medium", temporadaInicio:"Oct", temporadaFin:"Mar", observ:"Allpa Perú + Chile"},
+  {codigo:"BLB", nombreEs:"Arándanos",   nombreEn:"Blueberries",  icono:"🫐", familia:"Berries",    kgPorCajaDefault:1.5,  unidadComercial:"kg", calibres:"+12,+14,+18,+20", temporadaInicio:"Oct", temporadaFin:"Mar", observ:"Allpa Perú + Chile"},
   {codigo:"GRP", nombreEs:"Uvas",        nombreEn:"Grapes",       icono:"🍇", familia:"Berries",    kgPorCajaDefault:8.2,  unidadComercial:"kg", calibres:"M,L,XL,J", temporadaInicio:"Dic", temporadaFin:"Abr", observ:""},
   {codigo:"PLM", nombreEs:"Ciruelas",    nombreEn:"Plums",        icono:"🟣", familia:"Carozos",    kgPorCajaDefault:5.0,  unidadComercial:"kg", calibres:"30,35,40,45,50,55,60", temporadaInicio:"Dic", temporadaFin:"Mar", observ:"Sin emoji oficial — se usa círculo morado"},
   {codigo:"PCH", nombreEs:"Duraznos",    nombreEn:"Peaches",      icono:"🍑", familia:"Carozos",    kgPorCajaDefault:5.0,  unidadComercial:"kg", temporadaInicio:"Nov", temporadaFin:"Feb", observ:""},
