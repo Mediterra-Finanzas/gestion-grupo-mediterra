@@ -17,8 +17,8 @@
  */
 
 // ── REAL_AGGREGATES ─────────────────────────────────────────────────────────────
-// Valores exactos obtenidos de Supabase (anf_saldos_esf, cierre junio 2026, Frisku Foods).
-// Validados manualmente por el CFO. No redondear en pruebas.
+// Totales exactos extraídos de Supabase para junio de 2026 (Frisku Foods).
+// Pendientes de conciliación contra el Excel fuente original. No redondear en pruebas.
 export const REAL_AGGREGATES = {
   inv_activo:  5_024_481.71,   // Σ inventario_activo de todas las filas ESF de Frisku jun 2026
   inv_pasivo:  2_902_083.35,   // Σ inventario_pasivo de todas las filas ESF de Frisku jun 2026
