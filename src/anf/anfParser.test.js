@@ -105,16 +105,64 @@ describe('buildSaldosEsf — Contec', () => {
     expect(remu.var_abs).toBeNull();
   });
 
-  // KNOWN_BUG: cuenta ausente en T1 debería marcarse es_material=true
-  // (el código tiene el comentario "apareció de la nada → material").
-  // Sin embargo la condición es `saldo_neto_t1 === 0` (no `=== null`),
-  // por lo que cuentas nuevas (saldo_neto_t1=null) se marcan false.
-  // Corregido: condición debería ser `(saldo_neto_t1 === 0 || saldo_neto_t1 === null) && saldo_neto !== 0`.
-  test('[KNOWN_BUG] cuenta ausente en T1 → es_material=false (correcto sería true)', () => {
+  // KNOWN_BUG: es_material no se activa para cuentas nuevas (saldo_neto_t1 === null)
+  //
+  // Código actual en anfParser.js (línea ~412):
+  //   const es_material = var_pct != null
+  //     ? Math.abs(var_pct) >= pisoMaterialidad
+  //     : (saldo_neto_t1 === 0 && saldo_neto !== 0);  // ← solo captura "apareció en T0 con saldo 0"
+  //
+  // El bug: cuando una cuenta es COMPLETAMENTE NUEVA (saldo_neto_t1 === null),
+  // la condición `saldo_neto_t1 === 0` evalúa false → es_material = false.
+  // La cuenta nueva con saldo significativo queda invisible al análisis de materialidad.
+  //
+  // Comportamiento esperado: `(saldo_neto_t1 === 0 || saldo_neto_t1 === null) && saldo_neto !== 0`
+  //
+  // Impacto financiero: una cuenta nueva con saldo alto (ej. provisión de $500k) no activa
+  //   la alerta de materialidad → el CFO no la ve destacada en el reporte ESF.
+  //   En Frisku: cuentas 3xxxxx nuevas (ingresos mal clasificados en ESF) podrían no aparecer
+  //   como materiales aun teniendo saldos de cientos de miles de USD.
+  //
+  // Impacto visual: la UI no resalta la cuenta con color/badge "material" → riesgo de que
+  //   el analista omita investigarla en el cierre mensual.
+  //
+  // Fase propuesta para corrección: Fase 1 (cambio de una línea en anfParser.js,
+  //   independiente de AccountingProfile). Requiere nuevo test CORRECT_BEHAVIOR y
+  //   verificación de que no rompe la lógica de cuentas con saldo_neto_t1 === 0.
+
+  test('[KNOWN_BUG] cuenta nueva (saldo_neto_t1=null, saldo_neto≠0) → es_material=false (BUG: debería ser true)', () => {
     const result = buildSaldosEsf(esfValido, esfT1);
+    // 2.01.03.001 está en ESF actual pero no en ESF_T1 → saldo_neto_t1=null
     const remu = result.find(c => c.codigo === '2.01.03.001');
-    expect(remu.es_material).toBe(false); // BUG: debería ser true
+    expect(remu).toBeDefined();
+    expect(remu.saldo_neto_t1).toBeNull();             // confirma: cuenta ausente en T1
+    expect(remu.saldo_neto).not.toBe(0);               // confirma: tiene saldo real (−95.000)
+    expect(remu.es_material).toBe(false);              // BUG: devuelve false
     // Cuando se corrija: expect(remu.es_material).toBe(true);
+  });
+
+  test('[KNOWN_BUG] segunda cuenta nueva (3.02.001, saldo_neto_t1=null) → es_material=false', () => {
+    const result = buildSaldosEsf(esfValido, esfT1);
+    // 3.02.001 (Utilidades Retenidas) ausente en T1 → mismo bug
+    const util = result.find(c => c.codigo === '3.02.001');
+    expect(util).toBeDefined();
+    expect(util.saldo_neto_t1).toBeNull();
+    expect(util.saldo_neto).not.toBe(0);
+    expect(util.es_material).toBe(false); // BUG: debería ser true
+  });
+
+  test('[KNOWN_BUG] contraste: cuenta con saldo_neto_t1=0 SÍ activa es_material (caso que sí funciona)', () => {
+    // Si una cuenta existía en T1 con saldo=0 y en T0 tiene saldo, es_material=true (OK)
+    const esfConCuentaCero = [{ codigo: '1.01.99.001', nombre: 'Cuenta Test', inventario_activo: 50_000, inventario_pasivo: 0, sistema: 'contec' }];
+    const esfT1ConCero     = [{ codigo: '1.01.99.001', nombre: 'Cuenta Test', inventario_activo: 0,      inventario_pasivo: 0, sistema: 'contec' }];
+    const result = buildSaldosEsf(esfConCuentaCero, esfT1ConCero);
+    const cuenta = result[0];
+    expect(cuenta.saldo_neto_t1).toBeCloseTo(0, 2);   // saldo_neto_t1 = 0 (existía en T1)
+    expect(cuenta.saldo_neto).toBeCloseTo(50_000, 2);
+    // Con saldo_neto_t1=0, var_pct = undefined → fallback (saldo_neto_t1===0 && saldo_neto!==0) = true
+    // NOTA: var_pct es null cuando saldo_neto_t1===0 (división por cero protegida)
+    expect(cuenta.es_material).toBe(true);  // CORRECT_BEHAVIOR para T1=0
+    // El bug: este caso funciona pero el caso T1=null no funciona
   });
 
   // CORRECT_BEHAVIOR: estructura de cada registro
@@ -184,9 +232,10 @@ describe('buildSaldosEsf — Megasystem', () => {
     // Cuando se corrija en Fase 3: expect(codigos).not.toContain('3101001');
   });
 
-  // Referencia: totales exactos del estado actual en Supabase (jun 2026)
-  test('totales exactos del fixture de referencia Frisku jun 2026', () => {
-    const { inv_activo, inv_pasivo, descuadre } = FriskuMegasystem.TOTALES_EXACTOS;
+  // CORRECT_BEHAVIOR: totales exactos del fixture REAL_AGGREGATES (Supabase jun 2026)
+  // Estos valores son reales (no sintéticos) y NO deben modificarse sin validación contra Supabase.
+  test('REAL_AGGREGATES: valores exactos persistidos en Supabase (Frisku jun 2026)', () => {
+    const { inv_activo, inv_pasivo, descuadre } = FriskuMegasystem.REAL_AGGREGATES;
     expect(inv_activo).toBe(5_024_481.71);
     expect(inv_pasivo).toBe(2_902_083.35);
     expect(descuadre).toBeCloseTo(2_122_398.36, 2);
@@ -344,39 +393,62 @@ describe('Baseline de seguridad — nunca retornar undefined', () => {
 });
 
 // ── Cobertura multiempresa (matriz) ──────────────────────────────────────────
+//
+// Estado de certificación por empresa (Fase 0):
+//
+//   Empresa              ERP         Evidencia propia  Fixture propio  Cobertura
+//   ─────────────────────────────────────────────────────────────────────────────
+//   Allegria Service   Contec       NO (datos sinté)   SÍ (Contec)    PARCIAL*
+//   Allegria Foods     Contec       NO                 NO             PENDIENTE†
+//   Frisku Foods       Megasystem   NO (datos sinté)   SÍ (Mega)      PARCIAL*
+//   Mediterra Holding  Megasystem   —                  NO             PENDIENTE
+//   Osiris Plant Mgmt  Megasystem   —                  NO             PENDIENTE
+//   Integrity Farms    Megasystem   —                  NO             PENDIENTE
+//   Allpa Farms Chile  Megasystem   —                  NO             PENDIENTE
+//   Allpa Farms Perú   Nisira       —                  NO             BLOQUEADO‡
+//   MESAIN/Montejato   TBD          —                  NO             PENDIENTE
+//
+//   * PARCIAL: fixture propio con datos SINTÉTICOS; sin validación contra Excel fuente.
+//   † Compartir ERP con Allegria Service NO certifica Allegria Foods: diferente entidad,
+//     diferente plan de cuentas histórico, diferente cierre contable.
+//   ‡ Nisira bloqueado: sin archivo Excel real disponible; no se puede testear.
+//
+// Regla: Compartir ERP no certifica una empresa. Cada entidad necesita fixture propio.
 
 describe('Cobertura multiempresa — smoke tests', () => {
-  // Las empresas del grupo y sistemas esperados:
-  // Allegria Foods / Allegria Service → contec   ✓ cubierta (fixture Allegria)
-  // Frisku Foods                      → megasystem ✓ cubierta (fixture Frisku)
-  // Mediterra Holding, Osiris, Integrity, Allpa Chile → megasystem (sin fixture aún)
-  // Allpa Farms Perú                  → nisira (bloqueado, sin archivo real)
-  // MESAIN, Montejato, Arrayan        → TBD
-
   test('calcTemporada: misma lógica para todas las empresas (sin sesgo por empresa)', () => {
     expect(calcTemporada(6, 2026)).toBe('2025-2026');
     expect(calcTemporada(7, 2026)).toBe('2026-2027');
   });
 
-  test('buildSaldosEsf Contec: Allegria representada', () => {
+  // Allegria Service — cubierta con fixture Contec propio (datos sintéticos)
+  test('buildSaldosEsf Contec: Allegria Service representada con fixture propio', () => {
     const result = buildSaldosEsf(AllegriaCon.ESF, []);
     expect(result.length).toBeGreaterThan(0);
     expect(result[0].sistema).toBe('contec');
+    // fixture: allegria-contec-jun2026.js → Allegria SERVICE, no Foods
   });
 
-  test('buildSaldosEsf Megasystem: Frisku representada (filtro corregido en main)', () => {
+  // Allegria Foods — PENDIENTE: sin fixture propio
+  // No existe un test de buildSaldosEsf para Allegria Foods porque no hay fixture propio.
+  // Compartir ERP con Allegria Service no certifica este empresa.
+  // Se añadirá en Fase 1 cuando se cuente con datos reales de Allegria Foods.
+
+  // Frisku Foods — cubierta con fixture Megasystem propio (datos sintéticos)
+  test('buildSaldosEsf Megasystem: Frisku Foods representada con fixture propio', () => {
     const result = buildSaldosEsf(FriskuMegasystem.ESF, []);
     // Con el fix de main (primer dígito vs split), las cuentas 1xxx y 2xxx se incluyen
     expect(result.length).toBeGreaterThan(0);
     expect(result[0].sistema).toBe('megasystem');
+    // fixture: frisku-megasystem-jun2026.js → Frisku Foods
   });
 
-  test('buildMovimientosEr Contec: Allegria representada', () => {
+  test('buildMovimientosEr Contec: Allegria Service representada', () => {
     const result = buildMovimientosEr(AllegriaCon.ER_TEMP_MAP, AllegriaCon.ER_MENSUAL_MAP, 6, 2026, 'contec');
     expect(result.length).toBeGreaterThan(0);
   });
 
-  test('buildMovimientosEr Megasystem: Frisku representada', () => {
+  test('buildMovimientosEr Megasystem: Frisku Foods representada', () => {
     const result = buildMovimientosEr(FriskuMegasystem.ER_TEMP_MAP, FriskuMegasystem.ER_MENSUAL_MAP, 6, 2026, 'megasystem');
     expect(result.length).toBeGreaterThan(0);
   });

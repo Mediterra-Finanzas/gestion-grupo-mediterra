@@ -2,29 +2,49 @@
 /**
  * FIXTURE: Frisku Foods — Balance y ER junio 2026 (Megasystem)
  *
- * Fuente: datos persistidos en Supabase (anf_saldos_esf + anf_movimientos_er).
- * Sin validación directa contra el Excel fuente original.
- * Los totales globales (TOTALES_EXACTOS) son exactos.
- * Las filas individuales son representativas de la estructura de códigos y
- * NO corresponden a valores de cuentas reales del libro mayor.
+ * Fuente de los datos: Supabase tabla anf_saldos_esf + anf_movimientos_er.
+ * Sin validación directa contra el Excel fuente original de Megasystem.
  *
- * Contexto: estas pruebas congelan el comportamiento del sistema ANTES de
- * implementar SourceAdapter/AccountingProfile (Fases 2–3).
+ * SEPARACIÓN OBLIGATORIA (observación #5):
+ *   REAL_AGGREGATES       — valores exactos persistidos en Supabase (validados manualmente)
+ *   SYNTHETIC_ACCOUNT_SAMPLES — filas individuales fabricadas ÚNICAMENTE para probar ramas
+ *                              del parser y clasificación; NO reproducen el cierre real.
+ *
+ * La suma de los valores en SYNTHETIC_ACCOUNT_SAMPLES NO debe confundirse con REAL_AGGREGATES.
+ *
+ * Contexto: este fixture congela el comportamiento del sistema ANTES de implementar
+ * SourceAdapter/AccountingProfile (Fases 2–3).
  */
 
-// ── Totales exactos de Supabase (no redondear en pruebas) ─────────────────────
-// Obtenidos mediante consulta directa a anf_saldos_esf (jun 2026, informe Frisku).
-export const TOTALES_EXACTOS = {
-  inv_activo:  5_024_481.71,
-  inv_pasivo:  2_902_083.35,
-  /** Descuadre algebraico actual: inv_activo − inv_pasivo = 2.122.398,36 */
+// ── REAL_AGGREGATES ─────────────────────────────────────────────────────────────
+// Valores exactos obtenidos de Supabase (anf_saldos_esf, cierre junio 2026, Frisku Foods).
+// Validados manualmente por el CFO. No redondear en pruebas.
+export const REAL_AGGREGATES = {
+  inv_activo:  5_024_481.71,   // Σ inventario_activo de todas las filas ESF de Frisku jun 2026
+  inv_pasivo:  2_902_083.35,   // Σ inventario_pasivo de todas las filas ESF de Frisku jun 2026
+  /** Descuadre algebraico actual: inv_activo − inv_pasivo = 2.122.398,36
+   *  Origen: cuentas 3xxx Megasystem (ingresos) persisten en ESF por bug de buildSaldosEsf
+   *  y cuentas 4xxx/gastos que deberían excluirse. */
   descuadre:   2_122_398.36,
 };
 
-// ── Cuentas ESF representativas (salida simulada de parseBalanceMegasystem) ────
-// Cubre los rangos de códigos que demostraron bugs en la clasificación.
-// Valores individuales: SINTÉTICOS (representativos, no del libro mayor real).
-export const ESF = [
+// ── SYNTHETIC_ACCOUNT_SAMPLES ────────────────────────────────────────────────────
+// Filas FABRICADAS para ejercitar ramas del parser y la clasificación ESF/ER.
+// Los valores son REPRESENTATIVOS, no del libro mayor real de Frisku Foods.
+// Cubre todos los rangos de código Megasystem relevantes (11xxxx–34xxxx + 4xxxxx).
+//
+// Rangos cubiertos:
+//   11xxxx → Activo Circulante         (CORRECT_BEHAVIOR)
+//   12xxxx → Activo Fijo               (CORRECT_BEHAVIOR)
+//   13xxxx → Otros Activos NC          (CORRECT_BEHAVIOR)
+//   21xxxx → Pasivo Circulante         (CORRECT_BEHAVIOR)
+//   22xxxx → Pasivo Largo Plazo        (CORRECT_BEHAVIOR)
+//   27xxxx → Capital y Reservas        (KNOWN_BUG: clasificado como 'Pasivo No Corriente')
+//   31xxxx → Ingresos Operacionales    (KNOWN_BUG: clasificado como 'Patrimonio', debería ser null)
+//   33xxxx → Ingresos Financieros      (KNOWN_BUG: ídem 31xxxx)
+//   34xxxx → Otros Ingresos            (KNOWN_BUG: ídem 31xxxx)
+//   4xxxxx → Egresos (excluidos ESF)   (CORRECT_BEHAVIOR: buildSaldosEsf los excluye)
+export const SYNTHETIC_ACCOUNT_SAMPLES = [
   // 11xxxx — Activo Circulante (clasificación correcta)
   { codigo: '1101003', nombre: 'Banco - Cuenta Corriente CLP', inventario_activo: 312_500.00, inventario_pasivo: 0, sistema: 'megasystem' },
   { codigo: '1102001', nombre: 'Clientes Nacionales',          inventario_activo: 980_000.00, inventario_pasivo: 0, sistema: 'megasystem' },
@@ -39,63 +59,45 @@ export const ESF = [
   // 22xxxx — Pasivo Largo Plazo (clasificación correcta)
   { codigo: '2201001', nombre: 'Deuda Bancaria Largo Plazo',   inventario_activo: 0, inventario_pasivo: 800_000.00, sistema: 'megasystem' },
   // 27xxxx — Capital y Reservas
-  // KNOWN_BUG: clasificarSeccionEsf retorna 'Pasivo No Corriente' para 27xxxx.
-  // Correcto según PB-MEGASYSTEM-v1: 'Patrimonio'.
-  // Será corregido en Fase 3 al implementar AccountingProfile.
+  // KNOWN_BUG: clasificarSeccionEsf retorna 'Pasivo No Corriente' (primerNivel='2', segundoNivel='7' ≠ '1').
+  // Correcto según plan de cuentas Megasystem: 'Patrimonio'.
+  // Impacto: patrimonio aparece en Pasivo No Corriente → balance descuadrado en UI.
+  // Corrección en Fase 3 al implementar AccountingProfile para Megasystem.
   { codigo: '2701001', nombre: 'Capital Pagado',               inventario_activo: 0, inventario_pasivo: 600_000.00, sistema: 'megasystem' },
   { codigo: '2702001', nombre: 'Reservas Acumuladas',          inventario_activo: 0, inventario_pasivo: 250_000.00, sistema: 'megasystem' },
-  // 3xxxxx — Ingresos en Megasystem
-  // KNOWN_BUG: clasificarSeccionEsf retorna 'Patrimonio' para 3xxxxx Megasystem.
-  // Correcto: null (son cuentas de resultado, no de balance).
+  // 31xxxx — Ingresos Operacionales Megasystem
+  // KNOWN_BUG: clasificarSeccionEsf retorna 'Patrimonio' (primerNivel='3').
+  // Correcto: null (3xxx en Megasystem = ingresos, no balance).
   // Doble conteo: aparecen en ESF y en ER simultáneamente.
-  // Será corregido en Fase 3.
   { codigo: '3101001', nombre: 'Ingresos por Prestación de Servicios', inventario_activo: 0, inventario_pasivo: 452_083.35, sistema: 'megasystem' },
+  // 33xxxx — Ingresos Financieros Megasystem
+  // KNOWN_BUG: ídem 31xxxx — clasificarSeccionEsf retorna 'Patrimonio' (debería ser null).
+  { codigo: '3301001', nombre: 'Ingresos Financieros',         inventario_activo: 0, inventario_pasivo: 85_000.00,  sistema: 'megasystem' },
+  // 34xxxx — Otros Ingresos Megasystem
+  // KNOWN_BUG: ídem 31xxxx — clasificarSeccionEsf retorna 'Patrimonio' (debería ser null).
+  { codigo: '3401001', nombre: 'Otros Ingresos No Operacionales', inventario_activo: 0, inventario_pasivo: 45_000.00, sistema: 'megasystem' },
   // 4xxxxx — Egresos en Megasystem
-  // Estos códigos se EXCLUYEN de anf_saldos_esf por el filtro de buildSaldosEsf.
-  // Su exclusión contribuye al descuadre de 2.122.398,36.
-  // KNOWN_BUG en buildSaldosEsf: el filtro ['1','2','3'].includes(codigo.split('.')[0])
-  // también excluye TODOS los códigos Megasystem (no solo 4xxx) porque split('.')[0]
-  // para '4101001' retorna '4101001' (7 chars), no '4'.
-  // Para Contec, '4.01.001'.split('.')[0] = '4' → excluido correctamente.
+  // CORRECT_BEHAVIOR: buildSaldosEsf los EXCLUYE (primer dígito '4' → fuera del filtro ['1','2','3']).
+  // Su exclusión histórica contribuye al descuadre de REAL_AGGREGATES.
   { codigo: '4101001', nombre: 'Costo de Ventas',              inventario_activo: 1_122_398.36, inventario_pasivo: 0, sistema: 'megasystem' },
   { codigo: '4201001', nombre: 'Gastos de Administración',     inventario_activo: 1_000_000.00, inventario_pasivo: 0, sistema: 'megasystem' },
 ];
 
-// ── Subset solo de 3xxx (para probar bug de doble conteo) ─────────────────────
-export const ESF_CUENTAS_3XXX = ESF.filter(c => c.codigo.startsWith('3'));
+// ── ESF: alias de SYNTHETIC_ACCOUNT_SAMPLES ──────────────────────────────────────
+// Mantenido para compatibilidad con imports existentes en los tests.
+export const ESF = SYNTHETIC_ACCOUNT_SAMPLES;
 
-// ── Subset solo de 27xxx (para probar bug de clasificación patrimonio) ─────────
-export const ESF_CUENTAS_27XXX = ESF.filter(c => c.codigo.startsWith('27'));
+// ── Subsets filtrados por rango ──────────────────────────────────────────────────
+export const ESF_CUENTAS_3XXX    = SYNTHETIC_ACCOUNT_SAMPLES.filter(c => c.codigo.startsWith('3'));
+export const ESF_CUENTAS_31XXX   = SYNTHETIC_ACCOUNT_SAMPLES.filter(c => c.codigo.startsWith('31'));
+export const ESF_CUENTAS_33XXX   = SYNTHETIC_ACCOUNT_SAMPLES.filter(c => c.codigo.startsWith('33'));
+export const ESF_CUENTAS_34XXX   = SYNTHETIC_ACCOUNT_SAMPLES.filter(c => c.codigo.startsWith('34'));
+export const ESF_CUENTAS_27XXX   = SYNTHETIC_ACCOUNT_SAMPLES.filter(c => c.codigo.startsWith('27'));
+export const ESF_CUENTAS_4XXX    = SYNTHETIC_ACCOUNT_SAMPLES.filter(c => c.codigo.startsWith('4'));
 
-// ── Subset de 4xxx (excluidos — causa del descuadre) ──────────────────────────
-export const ESF_CUENTAS_4XXX = ESF.filter(c => c.codigo.startsWith('4'));
-
-// ── ER representativo: salida simulada de buildMovimientosEr ──────────────────
-// grupo_er refleja lo que el parser ACTUAL asignaría (incluye bug de default silencioso).
-// Los valores son SINTÉTICOS.
-export const ER_MOVIMIENTOS_REPRESENTATIVO = [
-  {
-    codigo: '3101001', nombre: 'Ingresos por Prestación de Servicios',
-    sistema: 'megasystem',
-    // KNOWN_BUG: clasificarGrupoEr interno del parser asigna 'Gasto Operacional'
-    // por defecto para cualquier código que no sea '4','5','6','7','8','9'.
-    // '3101001'.split('.')[0] = '3101001' → no coincide → 'Gasto Operacional' (incorrecto).
-    grupo_er: 'Gasto Operacional',
-    real_mes: 75_000.00, real_ytd: 452_083.35, ppto_mes: 70_000.00, ppto_ytd: 420_000.00,
-    real_temporada: 452_083.35, ppto_temporada: 420_000.00,
-  },
-  {
-    codigo: '4101001', nombre: 'Costo de Ventas',
-    sistema: 'megasystem',
-    // KNOWN_BUG: mismo problema — '4101001'.split('.')[0] = '4101001' → default.
-    grupo_er: 'Gasto Operacional',
-    real_mes: 187_000.00, real_ytd: 1_122_398.36, ppto_mes: 180_000.00, ppto_ytd: 1_100_000.00,
-    real_temporada: 1_122_398.36, ppto_temporada: 1_100_000.00,
-  },
-];
-
-// ── Input para buildMovimientosEr ─────────────────────────────────────────────
-// Simula lo que parseEerrTemp y parseEerrMesMegasystem producirían.
+// ── ER representativo: input para buildMovimientosEr ─────────────────────────────
+// Simula salida de parseEerrTemp y parseEerrMesMegasystem.
+// Valores SINTÉTICOS.
 export const ER_TEMP_MAP = new Map([
   ['3101001', {
     nombre: 'Ingresos por Prestación de Servicios',

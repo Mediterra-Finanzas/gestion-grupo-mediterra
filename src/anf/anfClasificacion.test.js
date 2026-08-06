@@ -185,9 +185,23 @@ describe('clasificarSeccionEsf — Megasystem', () => {
   // El JSDoc dice explícitamente que 3xxxxxx Megasystem → null.
   // Será corregido en Fase 3 al implementar AccountingProfile.
   // ESTE TEST DOCUMENTA EL COMPORTAMIENTO INCORRECTO ACTUAL.
-  test('[KNOWN_BUG] 3xxxxxx Megasystem → hoy retorna "Patrimonio" (correcto sería null)', () => {
+  test('[KNOWN_BUG] 31xxxxx Megasystem → hoy retorna "Patrimonio" (correcto sería null)', () => {
+    // 31xxxx = Ingresos Operacionales en Megasystem
     expect(clasificarSeccionEsf('3101001')).toBe('Patrimonio'); // BUG — debería ser null
+    expect(clasificarSeccionEsf('3102001')).toBe('Patrimonio'); // BUG — debería ser null
     // Cuando se corrija: expect(clasificarSeccionEsf('3101001')).toBeNull();
+  });
+
+  test('[KNOWN_BUG] 33xxxxx Megasystem → hoy retorna "Patrimonio" (correcto sería null)', () => {
+    // 33xxxx = Ingresos Financieros en Megasystem (mismo bug que 31xxxx)
+    expect(clasificarSeccionEsf('3301001')).toBe('Patrimonio'); // BUG — debería ser null
+    // Cuando se corrija: expect(clasificarSeccionEsf('3301001')).toBeNull();
+  });
+
+  test('[KNOWN_BUG] 34xxxxx Megasystem → hoy retorna "Patrimonio" (correcto sería null)', () => {
+    // 34xxxx = Otros Ingresos en Megasystem (mismo bug que 31xxxx)
+    expect(clasificarSeccionEsf('3401001')).toBe('Patrimonio'); // BUG — debería ser null
+    // Cuando se corrija: expect(clasificarSeccionEsf('3401001')).toBeNull();
   });
 });
 

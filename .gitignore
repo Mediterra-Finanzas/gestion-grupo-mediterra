@@ -5,6 +5,7 @@
 
 # testing
 /coverage
+jest.config.tmp.json
 
 # production
 /build
