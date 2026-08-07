@@ -409,7 +409,7 @@ export function buildSaldosEsf(esf, esf_t1, pisoMaterialidad = 10) {
       : null;
     const es_material = var_pct != null
       ? Math.abs(var_pct) >= pisoMaterialidad
-      : (saldo_neto_t1 === 0 && saldo_neto !== 0); // apareció de la nada → material
+      : ((saldo_neto_t1 === 0 || saldo_neto_t1 === null) && saldo_neto !== 0); // apareció de la nada → material
     return {
       codigo:            c.codigo,
       nombre:            c.nombre,

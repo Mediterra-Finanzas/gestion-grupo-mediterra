@@ -8,7 +8,7 @@ import * as XLSX from 'xlsx-js-style';
 import { theme } from '../theme';
 import { parsearInformeANF, buildSaldosEsf, buildMovimientosEr, calcTemporada } from './anfParser';
 import { calcularKpisDerivaos, KPI_LABELS, KPI_TOOLTIPS, KPI_GRUPOS } from './anfKpis';
-import { clasificarSeccionEsf, clasificarGrupoEr } from './anfClasificacion';
+import { clasificarSeccionEsf, clasificarGrupoEr, verificarCuadre } from '../accounting';
 import {
   cargarFiliales, upsertFilial, cargarInformes, cargarInformeCompleto,
   crearInforme, actualizarEstadoInforme, actualizarTcInforme,
@@ -358,7 +358,7 @@ function TablaEsf({ saldos, piso }) {
   const totalActivos  = tAC.neto  + tANC.neto;
   const totalPasivos  = tPC.neto  + tPNC.neto;
   const totalPasYPat  = totalPasivos + tPat.neto;
-  const cuadre = Math.abs(totalActivos - totalPasYPat) < 1;
+  const { cuadra: cuadre, diferencia: cuadreDif } = verificarCuadre(totalActivos, totalPasYPat);
 
   const totalActivosT1 = (tAC.t1 != null && tANC.t1 != null) ? tAC.t1 + tANC.t1 : null;
   const totalPasivosT1 = (tPC.t1 != null && tPNC.t1 != null) ? tPC.t1 + tPNC.t1 : null;
@@ -389,7 +389,7 @@ function TablaEsf({ saldos, piso }) {
         {expandido && (
           <span style={{ marginLeft: 'auto', fontSize: 10,
             color: cuadre ? C.green : C.red, fontWeight: 700 }}>
-            {cuadre ? '✓ Activos = Pasivos + Patrimonio' : `⚠ Descuadre: ${fmtNum(totalActivos - totalPasYPat)}`}
+            {cuadre ? '✓ Activos = Pasivos + Patrimonio' : `⚠ Descuadre: ${fmtNum(cuadreDif)}`}
           </span>
         )}
       </div>
@@ -1871,7 +1871,7 @@ export default function AnfTab({ canEdit, usuarioActual, empresaDefault, mesDefa
     const tPasivos = esfSum(PC) + esfSum(PNC);
     const tPAT = esfSum(PAT);
     const totalPasYPat = tPasivos + tPAT;
-    const cuadra = Math.abs(totalActivos - totalPasYPat) < 1;
+    const cuadra = verificarCuadre(totalActivos, totalPasYPat).cuadra;
 
     function bsCuentaRow(c, i) {
       return `<tr style="background:${i%2?'#f9fafe':'#fff'}">
