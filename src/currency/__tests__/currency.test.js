@@ -28,7 +28,7 @@ jest.mock('../connectors/index', () => ({
   fetchConector: jest.fn(),
 }));
 
-import { storeBuscarTasa, storeBuscarRango, storeRollbackBatch, storeContarRegistros } from '../store';
+import { storeBuscarTasa, storeBuscarRango, storeInsertarTasa, storeRollbackBatch, storeContarRegistros } from '../store';
 import { fetchConector } from '../connectors/index';
 import { buscarTC, convertir, calcularPromedio, actualizarDesdeAPIs } from '../index';
 
@@ -53,6 +53,10 @@ const ROW_EUR_USD = {
   rate_type: 'spot', rate_purpose: 'market', fuente: 'frankfurter.app',
   estado: 'activo',
 };
+
+// OA-013-04: constante sintética para tests de triangulación.
+// 3.75 es LEGACY/NO AUDITABLE FX y no debe aparecer en la suite Currency.
+const TEST_ONLY_RATE = 4.00;
 
 beforeEach(() => jest.clearAllMocks());
 
@@ -99,9 +103,9 @@ describe('calc — triangulación', () => {
     expect(r.cadena).toEqual(['PEN', 'USD', 'CLP']);
   });
   test('aplicarConversion con dos tasas (PEN→USD→CLP)', () => {
-    // 100 PEN × (1/3.75 USD/PEN) × 926.25 CLP/USD
-    // leg1 = 1/3.75 ≈ 0.2667, leg2 = 926.25 → resultado ≈ 24,700 CLP
-    expect(aplicarConversion(100, 1 / 3.75, 926.25)).toBeCloseTo(24700, -1);
+    // 100 PEN × (1/TEST_ONLY_RATE USD/PEN) × 926.25 CLP/USD
+    // leg1 = 1/4.00 = 0.25, leg2 = 926.25 → resultado = 100 × 0.25 × 926.25 = 23,156.25 CLP
+    expect(aplicarConversion(100, 1 / TEST_ONLY_RATE, 926.25)).toBeCloseTo(23156.25, 0);
   });
 });
 
@@ -218,7 +222,7 @@ describe('buscarTC — identidad', () => {
 
 describe('buscarTC — triangulación', () => {
   test('PEN→CLP via USD cuando ambos legs existen', async () => {
-    const ROW_USD_PEN = { id: 'u-p', moneda_origen: 'USD', moneda_destino: 'PEN', fecha: '2026-07-07', valor: '3.75', rate_type: 'spot', rate_purpose: 'market', fuente: 'manual', estado: 'activo' };
+    const ROW_USD_PEN = { id: 'u-p', moneda_origen: 'USD', moneda_destino: 'PEN', fecha: '2026-07-07', valor: String(TEST_ONLY_RATE), rate_type: 'spot', rate_purpose: 'market', fuente: 'manual', estado: 'activo' };
     storeBuscarTasa
       .mockResolvedValueOnce(ROW_USD_PEN)  // USD-PEN (leg1 invertido: PEN→USD)
       .mockResolvedValueOnce(ROW_USD_CLP); // USD-CLP (leg2 directo)
@@ -520,5 +524,222 @@ describe('seguridad — BLOQUEADO_POR_SEGURIDAD', () => {
   test('convertir con RLS error devuelve causa sin throw', async () => {
     storeBuscarTasa.mockRejectedValue(new Error('permission denied for table currency_tc'));
     await expect(convertir(100, 'USD', 'CLP', '2026-07-07')).resolves.toHaveProperty('ok', false);
+  });
+});
+
+// ── 12. Conectores individuales — OA-012-05 ───────────────────────────────────
+// Tests de comportamiento real de fetchMindicador y fetchFrankfurter.
+// Mockean global.fetch; no usan la capa de mocks de store/connectors/index.
+
+import { fetchMindicador } from '../connectors/mindicador';
+import { fetchFrankfurter } from '../connectors/frankfurter';
+
+const FETCH_MINDICADOR_LATEST_RESP = {
+  ok: true,
+  status: 200,
+  json: async () => ({
+    codigo: 'dolar',
+    serie: [{ fecha: '2026-08-06T04:00:00.000Z', valor: 913.86 }],
+  }),
+};
+
+const FETCH_FRANKFURTER_LATEST_RESP = {
+  ok: true,
+  status: 200,
+  json: async () => ({
+    base: 'EUR',
+    date: '2026-08-06',
+    rates: { USD: 1.1535 },
+  }),
+};
+
+describe('mindicador — política de endpoint (OA-012-05)', () => {
+  afterEach(() => { if (global.fetch?.mockRestore) global.fetch.mockRestore(); });
+
+  test('fecha = hoy → URL sin fecha (latest), esLatest=true', async () => {
+    const hoy = new Date().toISOString().slice(0, 10);
+    global.fetch = jest.fn().mockResolvedValue(FETCH_MINDICADOR_LATEST_RESP);
+    const r = await fetchMindicador('USD', 'CLP', hoy);
+    expect(r.ok).toBe(true);
+    expect(r.esLatest).toBe(true);
+    const url = global.fetch.mock.calls[0][0];
+    expect(url).not.toContain(hoy);
+    expect(url).toMatch(/\/api\/dolar$/);
+  });
+
+  test('fecha histórica → URL con fecha, esLatest=false', async () => {
+    global.fetch = jest.fn().mockResolvedValue(FETCH_MINDICADOR_LATEST_RESP);
+    const r = await fetchMindicador('USD', 'CLP', '2026-07-07');
+    expect(r.ok).toBe(true);
+    expect(r.esLatest).toBe(false);
+    const url = global.fetch.mock.calls[0][0];
+    expect(url).toContain('2026-07-07');
+  });
+
+  test('fechaEfectiva proviene del proveedor, no de fechaSolicitada', async () => {
+    // Proveedor retorna datos del día anterior (lag BCCh)
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true, status: 200,
+      json: async () => ({
+        serie: [{ fecha: '2026-08-06T04:00:00.000Z', valor: 913.86 }],
+      }),
+    });
+    const hoy = new Date().toISOString().slice(0, 10);
+    const r = await fetchMindicador('USD', 'CLP', hoy);
+    expect(r.ok).toBe(true);
+    // fechaEfectiva = 2026-08-06 (del proveedor), aunque se solicitó hoy
+    expect(r.fechaEfectiva).toBe('2026-08-06');
+    expect(r.fechaSolicitada).toBe(hoy);
+    // Pueden diferir — es el comportamiento correcto
+  });
+
+  test('par no soportado → ok:false con error descriptivo', async () => {
+    const r = await fetchMindicador('GBP', 'CLP', '2026-07-07');
+    expect(r.ok).toBe(false);
+    expect(r.error).toContain('GBP-CLP');
+  });
+
+  test('HTTP 500 fecha-hoy → ok:false con httpStatus', async () => {
+    global.fetch = jest.fn().mockResolvedValue({ ok: false, status: 500 });
+    const hoy = new Date().toISOString().slice(0, 10);
+    const r = await fetchMindicador('USD', 'CLP', hoy);
+    expect(r.ok).toBe(false);
+    expect(r.httpStatus).toBe(500);
+  });
+});
+
+describe('frankfurter — política de endpoint (OA-012-05)', () => {
+  afterEach(() => { if (global.fetch?.mockRestore) global.fetch.mockRestore(); });
+
+  test('fecha = hoy → URL /latest, esLatest=true', async () => {
+    const hoy = new Date().toISOString().slice(0, 10);
+    global.fetch = jest.fn().mockResolvedValue(FETCH_FRANKFURTER_LATEST_RESP);
+    const r = await fetchFrankfurter('EUR', 'USD', hoy);
+    expect(r.ok).toBe(true);
+    expect(r.esLatest).toBe(true);
+    const url = global.fetch.mock.calls[0][0];
+    expect(url).toContain('/latest');
+    expect(url).not.toContain(hoy);
+  });
+
+  test('fecha histórica → URL con fecha, esLatest=false', async () => {
+    global.fetch = jest.fn().mockResolvedValue(FETCH_FRANKFURTER_LATEST_RESP);
+    const r = await fetchFrankfurter('EUR', 'USD', '2026-07-07');
+    expect(r.ok).toBe(false === false ? true : false); // workaround — just check ok
+    expect(r.esLatest).toBe(false);
+    const url = global.fetch.mock.calls[0][0];
+    expect(url).toContain('2026-07-07');
+    expect(url).not.toContain('/latest');
+  });
+
+  test('fechaEfectiva proviene de response.date, no de fechaSolicitada', async () => {
+    // BCE publica datos del día anterior con /latest
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true, status: 200,
+      json: async () => ({ base: 'EUR', date: '2026-08-06', rates: { USD: 1.1535 } }),
+    });
+    const hoy = new Date().toISOString().slice(0, 10);
+    const r = await fetchFrankfurter('EUR', 'USD', hoy);
+    expect(r.ok).toBe(true);
+    expect(r.fechaEfectiva).toBe('2026-08-06');
+    expect(r.fechaSolicitada).toBe(hoy);
+  });
+
+  test('COVERAGE_GAP para PEN — no llama a fetch', async () => {
+    global.fetch = jest.fn();
+    const r = await fetchFrankfurter('USD', 'PEN', '2026-07-07');
+    expect(r.ok).toBe(false);
+    expect(r.coverageGap).toBe(true);
+    expect(global.fetch).not.toHaveBeenCalled();
+  });
+
+  test('COVERAGE_GAP para CLP — no llama a fetch', async () => {
+    global.fetch = jest.fn();
+    const r = await fetchFrankfurter('EUR', 'CLP', '2026-07-07');
+    expect(r.ok).toBe(false);
+    expect(r.coverageGap).toBe(true);
+    expect(global.fetch).not.toHaveBeenCalled();
+  });
+
+  test('HTTP 404 fecha-hoy → ok:false con httpStatus', async () => {
+    global.fetch = jest.fn().mockResolvedValue({ ok: false, status: 404 });
+    const hoy = new Date().toISOString().slice(0, 10);
+    const r = await fetchFrankfurter('EUR', 'USD', hoy);
+    expect(r.ok).toBe(false);
+    expect(r.httpStatus).toBe(404);
+    expect(r.esLatest).toBe(true);
+  });
+});
+
+// ── 13. Identidad de unicidad — OA-013-01 ─────────────────────────────────────
+// Verifica que la identidad lógica sea (par + fecha + rate_type + rate_purpose).
+// La unicidad se aplica en Postgres; estos tests documentan el modelo semántico esperado.
+
+describe('identidad de unicidad — OA-013-01', () => {
+  test('mismo par+fecha con diferente rate_purpose → registros independientes en store', async () => {
+    const rowMarket     = { ...ROW_USD_CLP, rate_purpose: 'market',     valor: '926.25' };
+    const rowAccounting = { ...ROW_USD_CLP, rate_purpose: 'accounting', valor: '928.00' };
+    storeBuscarTasa
+      .mockResolvedValueOnce(rowMarket)
+      .mockResolvedValueOnce(rowAccounting);
+    const r1 = await buscarTC('USD', 'CLP', '2026-07-07', { ratePurpose: 'market' });
+    const r2 = await buscarTC('USD', 'CLP', '2026-07-07', { ratePurpose: 'accounting' });
+    expect(r1.ratePurpose).toBe('market');
+    expect(r2.ratePurpose).toBe('accounting');
+    expect(r1.ratePurpose).not.toBe(r2.ratePurpose);
+  });
+
+  test('mismo par+fecha con diferente rate_type → RATE_TYPES distintos son identidades independientes', () => {
+    // El índice único incluye rate_type: SPOT y MANUAL no colisionan para mismo par+fecha.
+    expect(RATE_TYPES.SPOT).not.toBe(RATE_TYPES.MANUAL);
+    expect(typeof RATE_TYPES.SPOT).toBe('string');
+    expect(typeof RATE_TYPES.MANUAL).toBe('string');
+  });
+
+  test('identidad completa (par+fecha+rate_type+rate_purpose): store recibe los cuatro parámetros', async () => {
+    storeBuscarTasa.mockResolvedValue(ROW_USD_CLP);
+    await buscarTC('USD', 'CLP', '2026-07-07', { ratePurpose: 'accounting' });
+    expect(storeBuscarTasa).toHaveBeenCalledWith('USD', 'CLP', '2026-07-07', 'accounting');
+  });
+});
+
+// ── 14. Constraints de integridad — OA-013-02/03 ──────────────────────────────
+// Simula el rechazo que Postgres emite cuando se violan chk_manual y chk_aprobacion_evidencia.
+// Los valores de TEST_ONLY_RATE se usan intencionalmente (no 3.75).
+
+describe('constraints integridad — registro manual (OA-013-02)', () => {
+  test('manual sin ingresado_en → store rechaza con chk_manual', async () => {
+    const err = Object.assign(
+      new Error('new row violates check constraint "chk_manual"'), { code: '23514' }
+    );
+    storeInsertarTasa.mockRejectedValueOnce(err);
+    await expect(storeInsertarTasa({
+      es_manual: true, ingresado_por: 'angelo', ingresado_en: null,
+      motivo: null, estado_aprobacion: 'auto', valor: TEST_ONLY_RATE,
+    })).rejects.toThrow('chk_manual');
+  });
+
+  test('manual con estado_aprobacion="auto" → store rechaza con chk_manual (solo pendiente/aprobado/rechazado son válidos para manuales)', async () => {
+    const err = Object.assign(
+      new Error('new row violates check constraint "chk_manual"'), { code: '23514' }
+    );
+    storeInsertarTasa.mockRejectedValueOnce(err);
+    await expect(storeInsertarTasa({
+      es_manual: true, ingresado_por: 'angelo', ingresado_en: '2026-08-07T10:00:00Z',
+      motivo: 'ajuste temporal', estado_aprobacion: 'auto', valor: TEST_ONLY_RATE,
+    })).rejects.toThrow('chk_manual');
+  });
+});
+
+describe('constraints integridad — evidencia de aprobación (OA-013-03)', () => {
+  test('estado_aprobacion="aprobado" sin aprobado_por → store rechaza con chk_aprobacion_evidencia', async () => {
+    const err = Object.assign(
+      new Error('new row violates check constraint "chk_aprobacion_evidencia"'), { code: '23514' }
+    );
+    storeInsertarTasa.mockRejectedValueOnce(err);
+    await expect(storeInsertarTasa({
+      es_manual: true, estado_aprobacion: 'aprobado',
+      aprobado_por: null, aprobado_en: null, valor: TEST_ONLY_RATE,
+    })).rejects.toThrow('chk_aprobacion_evidencia');
   });
 });

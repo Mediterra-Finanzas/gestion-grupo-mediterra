@@ -4,13 +4,31 @@
  * Cubre cross-rates globales. NO cubre PEN (verificado 2026-08-07).
  * OA-010-06: USD-PEN → COVERAGE_GAP, no se intenta via este conector.
  * OA-010-08: informa proveedor, versión, par, fechas, latencia, HTTP status, hash.
+ * OA-012-05: fecha = hoy → endpoint /latest; histórico → endpoint /{fecha}.
+ *            fechaEfectiva siempre viene de response.date — nunca se asume = fechaSolicitada.
+ *            El BCE puede publicar datos del día anterior cuando aún no cerró; se captura la fecha real.
  */
 
-const CONNECTOR_VERSION = 'frankfurter@1.0.0';
+const CONNECTOR_VERSION = 'frankfurter@1.1.0';
 const BASE_URL = 'https://api.frankfurter.app';
 
 // Monedas verificadas como NO disponibles en Frankfurter (2026-08-07).
 const NO_DISPONIBLES = new Set(['PEN', 'CLP', 'ARS', 'COP', 'BOB']);
+
+function _fechaHoy() {
+  return new Date().toISOString().slice(0, 10);
+}
+
+/**
+ * Construye la URL a usar según si la fecha solicitada es hoy o histórica.
+ * OA-012-05: si fecha = hoy → /latest?from=...&to=...; si < hoy → /{fecha}?from=...&to=...
+ */
+function _buildUrl(base, quote, fecha) {
+  if (fecha === _fechaHoy()) {
+    return { url: `${BASE_URL}/latest?from=${base}&to=${quote}`, esLatest: true };
+  }
+  return { url: `${BASE_URL}/${fecha}?from=${base}&to=${quote}`, esLatest: false };
+}
 
 export async function fetchFrankfurter(base, quote, fecha) {
   const par = `${base}-${quote}`;
@@ -32,9 +50,10 @@ export async function fetchFrankfurter(base, quote, fecha) {
   let reintentos = 0;
   const MAX_REINTENTOS = 2;
 
+  const { url, esLatest } = _buildUrl(base, quote, fecha);
+
   while (reintentos <= MAX_REINTENTOS) {
     try {
-      const url = `${BASE_URL}/${fecha}?from=${base}&to=${quote}`;
       const res = await fetch(url);
       httpStatus = res.status;
       const latencia = Date.now() - t0;
@@ -47,6 +66,7 @@ export async function fetchFrankfurter(base, quote, fecha) {
           connector_version: CONNECTOR_VERSION,
           par,
           fechaSolicitada: fecha,
+          esLatest,
           httpStatus,
           latencia,
           reintentos,
@@ -56,7 +76,9 @@ export async function fetchFrankfurter(base, quote, fecha) {
 
       const json = await res.json();
       const valor = json?.rates?.[quote];
-      const fechaEfectiva = json?.date;
+      // OA-012-05: fecha efectiva real desde response.date — puede diferir de fechaSolicitada.
+      // El BCE publica con lag; /latest puede devolver datos de ayer. Siempre guardar la fecha real.
+      const fechaEfectiva = json?.date ?? null;
 
       if (valor === undefined || valor === null) {
         return {
@@ -65,6 +87,7 @@ export async function fetchFrankfurter(base, quote, fecha) {
           connector_version: CONNECTOR_VERSION,
           par,
           fechaSolicitada: fecha,
+          esLatest,
           httpStatus,
           latencia,
           reintentos,
@@ -81,7 +104,8 @@ export async function fetchFrankfurter(base, quote, fecha) {
         connector_version: CONNECTOR_VERSION,
         par,
         fechaSolicitada: fecha,
-        fechaEfectiva,
+        fechaEfectiva,              // real del proveedor — usar para stale_days
+        esLatest,
         valor,
         httpStatus,
         latencia,
@@ -96,6 +120,7 @@ export async function fetchFrankfurter(base, quote, fecha) {
         connector_version: CONNECTOR_VERSION,
         par,
         fechaSolicitada: fecha,
+        esLatest,
         httpStatus,
         latencia: Date.now() - t0,
         reintentos,
