@@ -106,9 +106,10 @@ describe('buildSaldosEsf — Contec', () => {
   });
 
   // ── Regla de materialidad para cuentas nuevas (aprobada CFO, 2026-08-06) ─────
-  // Regla provisional FRP: toda cuenta presente en T0 y ausente en T1
-  // (saldo_neto_t1 === null) con saldo_neto ≠ 0 se marca material, sin importar el monto
-  // ni el signo. Fundamento: evitar que cuentas nuevas queden fuera del proceso de revisión.
+  // Regla provisional FRP: toda cuenta presente en T0 y ausente en T1 (saldo_neto_t1 === null)
+  // con saldo_neto ≠ 0 se marca material, sin importar el monto ni el signo.
+  // Fundamento: evitar que cuentas nuevas queden fuera del proceso de revisión.
+  // Implementado en anfParser.js: (saldo_neto_t1 === 0 || saldo_neto_t1 === null) && saldo_neto !== 0
   // Motor futuro: umbral absoluto + porcentual + moneda + empresa + excepciones CFO.
 
   test('[CORRECT_BEHAVIOR] cuenta nueva con saldo negativo (saldo_neto_t1=null, saldo<0) → es_material=true', () => {

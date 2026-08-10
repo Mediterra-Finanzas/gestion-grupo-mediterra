@@ -1,6 +1,11 @@
 /* eslint-disable */
 import React, { useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import {
+  CAT_GRUPO, ESF_SECCIONES, ER_BLOQUES,
+  valorSit, valorERCuenta,
+  EMPRESAS_LINEAALINEA, FACTORES_CONSOLIDADO,
+} from './accounting';
+import {
   parsearBalance, detectarFormatoBalance, fmtMonto, NOMBRES_MES,
   parsearPlanMaestro, clasificarCuentas,
   dbLoadPlanMaestro, dbSavePlanMaestro,
@@ -36,101 +41,7 @@ const C = {
   blue:    theme.primary,
 };
 
-// ── Mapeo categoriaIFRS → grupo de sección ──────────────────────────
-const CAT_GRUPO = {
-  'Efectivo y Equivalentes':'Activo Corriente',
-  'Otros Activos Financieros Corrientes':'Activo Corriente',
-  'CxC Comerciales y Otras':'Activo Corriente',
-  'CxC a Productores':'Activo Corriente',
-  'Anticipos a Productores':'Activo Corriente',
-  'CxC Entidades Relacionadas':'Activo Corriente',
-  'Inventarios':'Activo Corriente',
-  'Inventarios Agrícolas':'Activo Corriente',
-  'Activos por Impuestos':'Activo Corriente',
-  'Pagos Anticipados':'Activo Corriente',
-  'Impuestos Diferidos':'Activo Corriente',
-  'Otras CxC':'Activo Corriente',
-  'Otros Activos Corrientes':'Activo Corriente',
-  'Propiedades, Planta y Equipo':'Activo No Corriente',
-  'Activos Biológicos':'Activo No Corriente',
-  'Depreciación Acumulada (-)':'Activo No Corriente',
-  'Activos Intangibles':'Activo No Corriente',
-  'Amortización Acumulada (-)':'Activo No Corriente',
-  'Inversiones en Asociadas/JV':'Activo No Corriente',
-  'Inversiones en Otras Sociedades':'Activo No Corriente',
-  'Plusvalía':'Activo No Corriente',
-  'Plusvalía Negativa (-)':'Activo No Corriente',
-  'CxC Comerciales No Corrientes':'Activo No Corriente',
-  'CxC Entidades Relacionadas No Corrientes':'Activo No Corriente',
-  'Otros Activos No Corrientes':'Activo No Corriente',
-  'Otros Activos Financieros No Corrientes':'Activo No Corriente',
-  'Otros Pasivos Financieros Corrientes':'Pasivo Corriente',
-  'CxP Comerciales y Otras':'Pasivo Corriente',
-  'CxP a Productores':'Pasivo Corriente',
-  'CxP Entidades Relacionadas':'Pasivo Corriente',
-  'Provisiones':'Pasivo Corriente',
-  'Retenciones':'Pasivo Corriente',
-  'Impuestos por Pagar':'Pasivo Corriente',
-  'Impuestos a la Renta':'Pasivo Corriente',
-  'Ingresos Diferidos':'Pasivo Corriente',
-  'Obligaciones con el Personal':'Pasivo Corriente',
-  'Pasivos por Leasing':'Pasivo Corriente',
-  'Dividendos por Pagar':'Pasivo Corriente',
-  'Otros Pasivos Corrientes':'Pasivo Corriente',
-  'Otros Pasivos Financieros No Corrientes':'Pasivo No Corriente',
-  'CxP Comerciales No Corrientes':'Pasivo No Corriente',
-  'CxP Entidades Relacionadas No Corrientes':'Pasivo No Corriente',
-  'Provisiones No Corrientes':'Pasivo No Corriente',
-  'Obligaciones con el Personal No Corrientes':'Pasivo No Corriente',
-  'Pasivos por Leasing No Corrientes':'Pasivo No Corriente',
-  'Otros Pasivos No Corrientes':'Pasivo No Corriente',
-  'Capital Autorizado':'Patrimonio',
-  'Capital Pagado':'Patrimonio',
-  'Sobreprecio en Venta de Acciones':'Patrimonio',
-  'Otras Reservas':'Patrimonio',
-  'Resultados Acumulados':'Patrimonio',
-  'Resultado del Ejercicio':'Patrimonio',
-  'Dividendos Provisorios (-)':'Patrimonio',
-  'Otras Cuentas Patrimoniales':'Patrimonio',
-  'Ingresos por Ventas':'Ingreso Operacional',
-  'Ingresos por Royalties / Fees':'Ingreso Operacional',
-  'Costo de Ventas':'Costo Operacional',
-  'Costos Operacionales Agrícolas':'Costo Operacional',
-  'Remuneraciones':'Gasto Operacional',
-  'Honorarios':'Gasto Operacional',
-  'Gastos de Representación':'Gasto Operacional',
-  'Gastos de Administración y Ventas':'Gasto Operacional',
-  'Ingresos Financieros':'Ingreso No Operacional',
-  'Participación en Resultados Asociadas':'Ingreso No Operacional',
-  'Otros Ingresos No Operacionales':'Ingreso No Operacional',
-  'Gastos Financieros':'Gasto No Operacional',
-  'Participación en Pérdidas Asociadas':'Gasto No Operacional',
-  'Amortización Plusvalía':'Gasto No Operacional',
-  'Otros Gastos No Operacionales':'Gasto No Operacional',
-  'Diferencias de Cambio / Corr. Monetaria':'No Operacional',
-  'Impuesto a la Renta':'Impuesto',
-  'Cuentas de Orden':'Cuentas de Orden',
-};
-
-// Orden de presentación dentro de cada sección ESF
-const ESF_SECCIONES = [
-  { id:'ac',  label:'Activo Corriente',    totalLabel:'Total Activo Corriente',    grupo:'Activo Corriente'    },
-  { id:'anc', label:'Activo No Corriente', totalLabel:'Total Activo No Corriente', grupo:'Activo No Corriente' },
-  { id:'pc',  label:'Pasivo Corriente',    totalLabel:'Total Pasivo Corriente',    grupo:'Pasivo Corriente'    },
-  { id:'pnc', label:'Pasivo No Corriente', totalLabel:'Total Pasivo No Corriente', grupo:'Pasivo No Corriente' },
-  { id:'pat', label:'Patrimonio',          totalLabel:'Total Patrimonio',          grupo:'Patrimonio'          },
-];
-
-// ER: id, grupo display, contribución al resultado (1=suma, -1=resta, 0=neto)
-const ER_BLOQUES = [
-  { id:'ing_op',   label:'Ingresos Operacionales',    grupo:'Ingreso Operacional',    signo: 1 },
-  { id:'costo_op', label:'Costos',                    grupo:'Costo Operacional',      signo:-1 },
-  { id:'gasto_op', label:'Gastos Operacionales',      grupo:'Gasto Operacional',      signo:-1 },
-  { id:'ing_nop',  label:'Ingresos No Operacionales', grupo:'Ingreso No Operacional', signo: 1 },
-  { id:'gasto_nop',label:'Gastos No Operacionales',   grupo:'Gasto No Operacional',   signo:-1 },
-  { id:'no_op',    label:'No Operacional',             grupo:'No Operacional',         signo: 0 },
-  { id:'imp',      label:'Impuesto a la Renta',        grupo:'Impuesto',               signo:-1 },
-];
+// CAT_GRUPO, ESF_SECCIONES, ER_BLOQUES importados desde Accounting Core.
 
 // ── Auxiliares contables: categorías que tienen desglose por tercero ──
 const CATEGORIAS_AUXILIAR_DEFAULT = [
@@ -150,28 +61,9 @@ const CATS_POTENCIAL_AUXILIAR = Object.keys({
 
 const TERCEROS_POR_PAG = 20;
 
-// ── Consolidado: empresas línea a línea + factores NCI ───────────────
-const EMPRESAS_LINEAALINEA = ['Mediterra','Allegria Foods','Allegria Service','Frisku Foods','Integrity Farms','Osiris'];
-const FACTORES_CONSOLIDADO = {
-  'Mediterra':1,'Allegria Foods':1,'Allegria Service':0.8,'Frisku Foods':0.9,'Integrity Farms':1,'Osiris':1,
-};
+// EMPRESAS_LINEAALINEA, FACTORES_CONSOLIDADO, valorSit, valorERCuenta importados desde Accounting Core.
 
 // ── Helpers ──────────────────────────────────────────────────────────
-function valorSit(c) {
-  const ia = c.inventarioActivo  || 0;
-  const ip = c.inventarioPasivo  || 0;
-  if (c.tipoIFRS === 'Activo')     return ia - ip; // neto: activo − contra-activo
-  if (c.tipoIFRS === 'Pasivo')     return ip - ia; // neto: pasivo − saldo deudor anormal
-  if (c.tipoIFRS === 'Patrimonio') return ip - ia; // neto: patrimonio − saldo deudor (pérdidas, dividendos)
-  return 0;
-}
-function valorERCuenta(c, signo) {
-  const rg = c.resultadoGanancia || 0;
-  const rp = c.resultadoPerdida  || 0;
-  if (signo ===  1) return rg - rp; // ingreso: neto (RG − RP)
-  if (signo === -1) return rp - rg; // egreso:  neto (RP − RG, positivo = egreso)
-  return rg - rp;
-}
 function fmt(v) { return fmtMonto(Math.abs(v), 0); }
 function fmtSig(v) {
   if (Math.abs(v) < 0.01) return '—';
