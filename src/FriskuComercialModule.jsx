@@ -4496,6 +4496,50 @@ const fmtN0   = (v) => new Intl.NumberFormat("es-CL",{maximumFractionDigits:0}).
 // Paleta categórica para segmentos (desglose 2ª dimensión / torta).
 const PAL_BI = ["#2563eb","#16a34a","#f59e0b","#db2777","#7c3aed","#0891b2","#dc2626","#65a30d","#ea580c","#0d9488","#9333ea","#ca8a04"];
 
+// Dropdown de filtro con buscador propio (NO usa <datalist> nativo, que al
+// tener un valor elegido filtra la lista a ese texto y no deja ver las demás
+// alternativas). Al enfocar abre y muestra TODAS las opciones; escribir filtra.
+function FiltroBuscable({ value, onChange, options, placeholder }) {
+  const [open, setOpen] = useState(false);
+  const [txt, setTxt]   = useState("");
+  const boxRef = useRef(null);
+  const labelDe = (v)=> options.find(o=>String(o.value)===String(v))?.label || "";
+  useEffect(()=>{
+    if(!open) return;
+    const h=(e)=>{ if(boxRef.current && !boxRef.current.contains(e.target)) setOpen(false); };
+    document.addEventListener("mousedown",h);
+    return ()=>document.removeEventListener("mousedown",h);
+  },[open]);
+  const q = txt.trim().toLowerCase();
+  const filtered = q ? options.filter(o=>String(o.label).toLowerCase().includes(q)) : options;
+  const display = open ? txt : labelDe(value);
+  const pick = (v)=>{ onChange(v); setOpen(false); setTxt(""); };
+  return (
+    <div ref={boxRef} style={{position:"relative"}}>
+      <input value={display} placeholder={placeholder}
+        onFocus={()=>{ setOpen(true); setTxt(""); }}
+        onChange={e=>{ setTxt(e.target.value); if(!open) setOpen(true); }}
+        style={{...inputSt, width:"100%", paddingRight:22}}/>
+      {value && !open && (
+        <span onMouseDown={e=>{ e.preventDefault(); onChange(""); }} title="Quitar filtro"
+          style={{position:"absolute", right:7, top:"50%", transform:"translateY(-50%)", cursor:"pointer", color:C.muted, fontSize:13, fontWeight:700}}>×</span>
+      )}
+      {open && (
+        <div style={{position:"absolute", zIndex:40, top:"calc(100% + 2px)", left:0, right:0, background:C.card, border:`1px solid ${C.border}`, borderRadius:8, maxHeight:240, overflowY:"auto", boxShadow:C.shadowSm||"0 8px 24px rgba(0,0,0,.18)"}}>
+          <div onMouseDown={e=>{ e.preventDefault(); pick(""); }}
+            style={{padding:"7px 10px", fontSize:12, cursor:"pointer", color:C.muted, borderBottom:`1px solid ${C.border}`}}>— Todos —</div>
+          {filtered.map(o=>(
+            <div key={o.value} onMouseDown={e=>{ e.preventDefault(); pick(o.value); }}
+              style={{padding:"7px 10px", fontSize:12, cursor:"pointer", whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis",
+                      background:String(o.value)===String(value)?`${C.blue}18`:"transparent", fontWeight:String(o.value)===String(value)?700:400}}>{o.label}</div>
+          ))}
+          {filtered.length===0 && <div style={{padding:"7px 10px", fontSize:11, color:C.muted2}}>Sin coincidencias</div>}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ═══════════════════════════════════════════════════════════════════
 // HOJA 1 — RESUMEN EJECUTIVO (réplica Qlik, hoja fija)
 // Tabla de hechos = frisku_embarques (granularidad contenedor/OE), unida a
@@ -4696,7 +4740,7 @@ function ResumenEjecutivo({ liquidaciones, embarques, clientes, exportadoras, es
   const flt = (lab, key, options, ph)=>(
     <div style={{minWidth:150, flex:1}}>
       <div style={lblSt}>{lab}</div>
-      <SelectBuscable value={f[key]} onChange={(v)=>setFiltro(key,v)} options={options} placeholder={ph} listId={`res-${key}`} style={{...inputSt, width:"100%"}}/>
+      <FiltroBuscable value={f[key]} onChange={(v)=>setFiltro(key,v)} options={options} placeholder={ph}/>
     </div>
   );
 
