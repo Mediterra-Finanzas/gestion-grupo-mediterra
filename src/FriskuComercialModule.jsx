@@ -4412,6 +4412,9 @@ function ReportesTab({ liquidaciones, embarques, clientes, exportadoras, especie
   const [fclGroup, setFclGroup] = useState("ambos"); // especie | cliente | ambos (reporte #3)
   const [temp, setTemp]     = useState("");   // "" = todas las temporadas
   const [estado, setEstado] = useState("");   // "" = todos los estados
+  const [fExp, setFExp]     = useState("");   // filtro exportadora (id)
+  const [fCli, setFCli]     = useState("");   // filtro cliente (id)
+  const [fEsp, setFEsp]     = useState("");   // filtro especie (código)
   const [expPdf, setExpPdf] = useState(false);
   const [expXls, setExpXls] = useState(false);
 
@@ -4431,8 +4434,14 @@ function ReportesTab({ liquidaciones, embarques, clientes, exportadoras, especie
   const liqs = useMemo(()=>liquidaciones.filter(l=>{
     if(temp   && l.temporada !== temp) return false;
     if(estado && (l.estado||"borrador") !== estado) return false;
+    if(fExp || fCli || fEsp){
+      const oe = embarques.find(e=>e.id===l.oeId);
+      if(fExp && oe?.exportadoraId !== fExp) return false;
+      if(fCli && oe?.clienteId     !== fCli) return false;
+      if(fEsp && oe?.especieCodigo !== fEsp) return false;
+    }
     return true;
-  }),[liquidaciones, temp, estado]);
+  }),[liquidaciones, temp, estado, fExp, fCli, fEsp, embarques]);
 
   // ── KPIs ──
   const kpi = useMemo(()=>{
@@ -4567,6 +4576,9 @@ function ReportesTab({ liquidaciones, embarques, clientes, exportadoras, especie
       if(sem.tipoEmbarque==="aereo") return; // FCL = solo marítimo
       const clo = (contratos||[]).find(c=>c.id===sem.closureId);
       if(temp && clo?.temporada && clo.temporada!==temp) return;
+      if(fExp && clo?.exportadoraId!==fExp) return;
+      if(fCli && clo?.clienteId!==fCli) return;
+      if(fEsp && clo?.especieCodigo!==fEsp) return;
       const {k,label,ec} = clave(clo?.especieCodigo, clo?.clienteId);
       plan[k] = (plan[k]||0) + (Number(sem.contenedoresFCL)||0);
       if(!meta[k]) meta[k] = { label, color: ec ? (ESP_COLORS[ec]||C.blue) : C.blue };
@@ -4575,6 +4587,9 @@ function ReportesTab({ liquidaciones, embarques, clientes, exportadoras, especie
       if((oe.estado||"borrador")==="cancelado") return;
       if(oe.tipoEmbarque && oe.tipoEmbarque!=="maritimo") return; // FCL = marítimo
       if(temp && oe.temporada && oe.temporada!==temp) return;
+      if(fExp && oe.exportadoraId!==fExp) return;
+      if(fCli && oe.clienteId!==fCli) return;
+      if(fEsp && oe.especieCodigo!==fEsp) return;
       const {k,label,ec} = clave(oe.especieCodigo, oe.clienteId);
       real[k] = (real[k]||0) + 1;
       if(!meta[k]) meta[k] = { label, color: ec ? (ESP_COLORS[ec]||C.blue) : C.blue };
@@ -4585,7 +4600,7 @@ function ReportesTab({ liquidaciones, embarques, clientes, exportadoras, especie
       return { cod:k, nombre:meta[k]?.label||k, color:meta[k]?.color||C.blue,
                plan:p, real:r, brecha:r-p, cumpl: p>0 ? r/p*100 : (r>0?100:0) };
     }).filter(x=>x.plan>0||x.real>0).sort((a,b)=>(b.plan-a.plan)||(b.real-a.real));
-  },[programa, contratos, embarques, especies, clientes, temp, fclGroup]);
+  },[programa, contratos, embarques, especies, clientes, temp, fclGroup, fExp, fCli, fEsp]);
   const fclTot = useMemo(()=>{
     const plan = fclRows.reduce((s,x)=>s+x.plan,0);
     const real = fclRows.reduce((s,x)=>s+x.real,0);
@@ -4594,7 +4609,13 @@ function ReportesTab({ liquidaciones, embarques, clientes, exportadoras, especie
   const maxFcl = Math.max(1, ...fclRows.map(x=>Math.max(x.plan,x.real)));
 
   // ── Reporte #4: Pipeline de embarques (operativo) ──
-  const embFiltrados = useMemo(()=>(embarques||[]).filter(oe=> !temp || oe.temporada===temp),[embarques, temp]);
+  const embFiltrados = useMemo(()=>(embarques||[]).filter(oe=>{
+    if(temp && oe.temporada!==temp) return false;
+    if(fExp && oe.exportadoraId!==fExp) return false;
+    if(fCli && oe.clienteId!==fCli) return false;
+    if(fEsp && oe.especieCodigo!==fEsp) return false;
+    return true;
+  }),[embarques, temp, fExp, fCli, fEsp]);
   const PIPE_ESTADOS = [
     {id:"borrador",   lab:"Borrador",   color:C.muted2},
     {id:"confirmado", lab:"Confirmado", color:C.blue},
@@ -4677,6 +4698,7 @@ function ReportesTab({ liquidaciones, embarques, clientes, exportadoras, especie
     const porCli = {};
     let riesgo = 0;
     (pos||[]).forEach(po=>{
+      if(fCli && po.clienteId!==fCli) return;
       const e = po.estado||"borrador";
       const usd = Number(po.totalComisionUSD)||0;
       if(!est[e]) est[e]={n:0,usd:0};
@@ -4701,7 +4723,7 @@ function ReportesTab({ liquidaciones, embarques, clientes, exportadoras, especie
       totalUSD: est.borrador.usd+est.emitida.usd+est.pagada.usd,
       cobrado: est.pagada.usd, porCobrar: est.emitida.usd, enBorrador: est.borrador.usd,
     };
-  },[pos, clientes]);
+  },[pos, clientes, fCli]);
   const cobrAgingTot = cobr.aging.b1+cobr.aging.b2+cobr.aging.b3+cobr.aging.b4;
   const maxCobrCli = Math.max(1, ...cobr.porCliente.map(x=>x.usd));
 
@@ -5197,6 +5219,31 @@ function ReportesTab({ liquidaciones, embarques, clientes, exportadoras, especie
               <option value="pagada">Pagada</option>
             </select>
           </div>
+        )}
+        {rep!=="cobranza" && (
+          <div>
+            <div style={lblSt}>Exportadora</div>
+            <SelectBuscable listId="rep-flt-exp" value={fExp} onChange={setFExp}
+              placeholder="🔍 Todas" style={{...inputSt, minWidth:170}}
+              options={exportadoras.filter(e=>e.activo!==false).slice().sort((a,b)=>(a.nombre||"").localeCompare(b.nombre||"")).map(e=>({value:e.id, label:e.nombre}))}/>
+          </div>
+        )}
+        <div>
+          <div style={lblSt}>Cliente</div>
+          <SelectBuscable listId="rep-flt-cli" value={fCli} onChange={setFCli}
+            placeholder="🔍 Todos" style={{...inputSt, minWidth:170}}
+            options={clientes.filter(c=>c.activo!==false).slice().sort((a,b)=>(a.nombre||"").localeCompare(b.nombre||"")).map(c=>({value:c.id, label:c.nombre}))}/>
+        </div>
+        {rep!=="cobranza" && (
+          <div>
+            <div style={lblSt}>Especie</div>
+            <SelectBuscable listId="rep-flt-esp" value={fEsp} onChange={setFEsp}
+              placeholder="🔍 Todas" style={{...inputSt, minWidth:150}}
+              options={especies.slice().sort((a,b)=>(a.nombreEs||"").localeCompare(b.nombreEs||"")).map(e=>({value:e.codigo, label:e.nombreEs}))}/>
+          </div>
+        )}
+        {(fExp||fCli||fEsp) && (
+          <button onClick={()=>{setFExp("");setFCli("");setFEsp("");}} style={{...btnSt(C.muted,true), fontSize:11}}>✕ Limpiar filtros</button>
         )}
         {rep==="rentabilidad" && (
           <div>
