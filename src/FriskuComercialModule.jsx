@@ -2869,9 +2869,10 @@ function CarpetaComexPanel({ oe, onGuardar, canEdit }) {
     const DOCS_DEPRECADOS = ["BL / AWB","Invoice Comercial","Certificado Fitosanitario","Certificado de Origen"];
     // Migración: "Seguro de Carga" → "QC" (preserva el archivo cargado)
     let docsMig = (saved.docs||[]).map(d=> d.tipo==="Seguro de Carga" ? {...d, tipo:"QC"} : d);
-    // Eliminar los deprecados que estén VACÍOS (los que tengan archivo cargado se
-    // conservan para no perder nada).
-    docsMig = docsMig.filter(d=> !(DOCS_DEPRECADOS.includes(d.tipo) && !d.url));
+    // Eliminar los deprecados que NO tengan un archivo REAL subido (http). Una ruta
+    // local del PC ("file:///C:\...") es basura, así que también se descarta. Solo se
+    // conserva un deprecado si tiene un archivo de verdad, para no perder nada.
+    docsMig = docsMig.filter(d=> !(DOCS_DEPRECADOS.includes(d.tipo) && !esArchivoSubido(d.url)));
     const savedTipos = docsMig.map(d=>d.tipo);
     const missing = DOCS_COMEX_DEFAULT.filter(t=>!savedTipos.includes(t))
       .map(tipo=>({id:uid(),tipo,nombre:"",url:"",fuente:"manual",fechaCarga:"",estado:"pendiente"}));
@@ -4415,196 +4416,502 @@ const fmtUSD2 = (v) => "$" + new Intl.NumberFormat("es-CL",{minimumFractionDigit
 const fmtN0   = (v) => new Intl.NumberFormat("es-CL",{maximumFractionDigits:0}).format(Number(v)||0);
 
 // ═══════════════════════════════════════════════════════════════════
-// TABLERO ASOCIATIVO (estilo Qlik) — cross-filtering por clic sobre la
-// tabla de hechos = liquidaciones. Selecciones acumulables por dimensión,
-// estado verde (seleccionado) / normal (posible) / gris (excluido).
-// Todo con SVG/CSS propio, sin dependencias.
+// EXPLORADOR BI (estilo Qlik) — self-service sobre TODA la data de Frisku.
+// El usuario elige: (1) qué FUENTE de datos explorar (liquidaciones,
+// embarques, programa, cobranza), (2) qué MEDIR, (3) cómo AGRUPAR (una o
+// dos dimensiones), y (4) cómo VERLO (barras, tabla, torta, tendencia).
+// Los filtros son ASOCIATIVOS: clic en cualquier elemento acota todo el
+// tablero (verde=seleccionado / normal=posible / tachado=excluido), como
+// las selecciones de Qlik. Todo con SVG/CSS propio, sin dependencias.
 // ═══════════════════════════════════════════════════════════════════
-function TableroAsociativo({ liquidaciones, embarques, clientes, exportadoras, especies, mercados }) {
-  const [sel, setSel] = useState({});           // {dimKey: Set(valores)}
-  const [measure, setMeasure] = useState("comUSD");
 
-  // Tabla de hechos: una fila por liquidación, con dimensiones ya resueltas.
-  const hechos = useMemo(()=> liquidaciones.map(l=>{
-    const oe   = embarques.find(e=>e.id===l.oeId);
-    const cli  = clientes.find(c=>c.id===oe?.clienteId);
-    const exp  = exportadoras.find(x=>x.id===oe?.exportadoraId);
-    const esp  = especies.find(x=>x.codigo===oe?.especieCodigo);
-    const merc = mercados.find(m=>m.codigo===cli?.mercadoCodigo);
-    const mes  = Number((l.fechaLiquidacion||"").slice(5,7)) || 0;
+// Paleta categórica para segmentos (desglose 2ª dimensión / torta).
+const PAL_BI = ["#2563eb","#16a34a","#f59e0b","#db2777","#7c3aed","#0891b2","#dc2626","#65a30d","#ea580c","#0d9488","#9333ea","#ca8a04"];
+
+function TableroAsociativo({ liquidaciones, embarques, clientes, exportadoras, especies, mercados, programa, contratos, pos }) {
+  const [fuenteId, setFuenteId] = useState("liq");
+  const [measureId, setMeasureId] = useState("");
+  const [dim1, setDim1] = useState("");
+  const [dim2, setDim2] = useState("");
+  const [chart, setChart] = useState("barras");   // barras | tabla | torta | tendencia
+  const [sel, setSel] = useState({});             // {dimKey: Set(valores)}
+  const [addDim, setAddDim] = useState("");        // dimensión elegida para agregar filtro
+  const [topN, setTopN] = useState(12);
+
+  // Lookups compartidos
+  const cliOf  = (id)=>clientes.find(c=>c.id===id);
+  const expOf  = (id)=>exportadoras.find(e=>e.id===id);
+  const espOf  = (c)=>especies.find(e=>e.codigo===c);
+  const mercOf = (c)=>mercados.find(m=>m.codigo===c);
+  const espLab = (c)=>{ const e=espOf(c); return e?`${e.icono||""} ${e.nombreEs}`.trim():(c||"— s/especie —"); };
+  const viaKey = (v)=> (v||"maritimo")==="aereo"?"aereo":"maritimo";
+  const viaLab = (v)=> viaKey(v)==="aereo"?"✈ Aéreo":"🚢 Marítimo";
+  const mesLabOf = (m)=> MESES_TEMP.find(x=>x.m===m)?.lab || "—";
+  const sum = (rs,f)=>rs.reduce((s,r)=>s+(Number(r[f])||0),0);
+
+  // ── Definición de las 4 fuentes (tabla de hechos + dims + medidas) ──
+  const FUENTES = useMemo(()=>{
+    // 1) LIQUIDACIONES
+    const liqRows = (liquidaciones||[]).map(l=>{
+      const oe=(embarques||[]).find(e=>e.id===l.oeId); const cli=cliOf(oe?.clienteId);
+      const mes=Number((l.fechaLiquidacion||"").slice(5,7))||0;
+      return {
+        _k:l.id, oeId:l.oeId,
+        especie:oe?.especieCodigo||"—", especieLab:espLab(oe?.especieCodigo),
+        cliente:oe?.clienteId||"—", clienteLab:cli?.nombre||"— s/cliente —",
+        exportadora:oe?.exportadoraId||"—", exportadoraLab:expOf(oe?.exportadoraId)?.nombre||"— s/exp —",
+        mercado:cli?.mercadoCodigo||"—", mercadoLab:mercOf(cli?.mercadoCodigo)?.nombre||(cli?.mercadoCodigo||"— s/mercado —"),
+        pais:cli?.paisCodigo||cli?.pais||"—", paisLab:cli?.pais||cli?.paisCodigo||"— s/país —",
+        via:viaKey(oe?.tipoEmbarque), viaLab:viaLab(oe?.tipoEmbarque),
+        estado:l.estado||"borrador", estadoLab:l.estado||"borrador",
+        temporada:l.temporada||"—", temporadaLab:l.temporada||"— s/temp —",
+        mes, mesLab:mesLabOf(mes),
+        _com:Number(l.monedaBase==="USD"?l.montoComisionFrisku:l.montoComisionFriskuUSD)||0,
+        _venta:Number(l.ventaTotalUSD??(l.monedaBase==="USD"?l.ventaTotal:0))||0,
+        _fob:Number(l.fobUSD??(l.monedaBase==="USD"?l.fob:0))||0,
+        _cajas:Number(l.cajasVendidas)||0,
+      };
+    });
+    // 2) EMBARQUES (OE)
+    const embRows = (embarques||[]).map(oe=>{
+      const cli=cliOf(oe.clienteId);
+      const via=viaKey(oe.tipoEmbarque); const est=oe.estado||"borrador";
+      const cajas=Object.values(oe.cajasPorFormato||{}).reduce((s,v)=>s+Number(v||0),0);
+      return {
+        _k:oe.id, oeId:oe.id,
+        especie:oe.especieCodigo||"—", especieLab:espLab(oe.especieCodigo),
+        cliente:oe.clienteId||"—", clienteLab:cli?.nombre||"— s/cliente —",
+        exportadora:oe.exportadoraId||"—", exportadoraLab:expOf(oe.exportadoraId)?.nombre||"— s/exp —",
+        mercado:cli?.mercadoCodigo||"—", mercadoLab:mercOf(cli?.mercadoCodigo)?.nombre||(cli?.mercadoCodigo||"— s/mercado —"),
+        via, viaLab:viaLab(oe.tipoEmbarque),
+        estado:est, estadoLab:est,
+        temporada:oe.temporada||"—", temporadaLab:oe.temporada||"— s/temp —",
+        origen:oe.origen||"—", origenLab:oe.origen||"— s/origen —",
+        destino:oe.destino||"—", destinoLab:oe.destino||"— s/destino —",
+        _cajas:cajas,
+        _fcl:(via!=="aereo" && est!=="cancelado")?1:0,
+      };
+    });
+    // 3) PROGRAMA (semana ↔ closure)
+    const progRows = (programa||[]).map((sem,i)=>{
+      const clo=(contratos||[]).find(c=>c.id===sem.closureId);
+      const via=viaKey(sem.tipoEmbarque);
+      const cajas=Object.values(sem.cajasPorFormato||{}).reduce((s,v)=>s+Number(v||0),0);
+      return {
+        _k:sem.id||`sem${i}`,
+        especie:clo?.especieCodigo||"—", especieLab:espLab(clo?.especieCodigo),
+        cliente:clo?.clienteId||"—", clienteLab:cliOf(clo?.clienteId)?.nombre||"— s/cliente —",
+        exportadora:clo?.exportadoraId||"—", exportadoraLab:expOf(clo?.exportadoraId)?.nombre||"— s/exp —",
+        via, viaLab:viaLab(sem.tipoEmbarque),
+        temporada:clo?.temporada||"—", temporadaLab:clo?.temporada||"— s/temp —",
+        _fcl:Number(sem.contenedoresFCL)||0,
+        _cajas:cajas,
+        _pallets:Number(sem.pallets)||0,
+      };
+    });
+    // 4) COBRANZA (PO)
+    const hoy = Date.now();
+    const poRows = (pos||[]).map(po=>{
+      const cli=cliOf(po.clienteId); const est=po.estado||"borrador";
+      let dias=null; if(po.fecha){ const t=new Date(po.fecha+"T00:00:00").getTime(); if(!isNaN(t)) dias=Math.floor((hoy-t)/86400000); }
+      let aging="—";
+      if(est==="emitida"){ aging = (dias==null||dias<=30)?"0–30": dias<=60?"31–60": dias<=90?"61–90":">90"; }
+      return {
+        _k:po.id,
+        cliente:po.clienteId||"—", clienteLab:cli?.nombre||"— s/cliente —",
+        estado:est, estadoLab:est,
+        aging, agingLab:aging,
+        _com:Number(po.totalComisionUSD)||0,
+      };
+    });
+
     return {
-      id: l.id, oeId: l.oeId,
-      especie: oe?.especieCodigo||"—",      especieLab: esp?`${esp.icono||""} ${esp.nombreEs}`:(oe?.especieCodigo||"— s/especie —"),
-      cliente: oe?.clienteId||"—",          clienteLab: cli?.nombre||"— s/cliente —",
-      exportadora: oe?.exportadoraId||"—",  exportadoraLab: exp?.nombre||"— s/exp —",
-      mercado: cli?.mercadoCodigo||"—",     mercadoLab: merc?.nombre||(cli?.mercadoCodigo||"— s/mercado —"),
-      via: (oe?.tipoEmbarque||"maritimo")==="aereo"?"Aéreo":"Marítimo",  viaLab: (oe?.tipoEmbarque||"maritimo")==="aereo"?"✈ Aéreo":"🚢 Marítimo",
-      temporada: l.temporada||"—",          temporadaLab: l.temporada||"— s/temp —",
-      mes, mesLab: MESES_TEMP.find(m=>m.m===mes)?.lab || "—",
-      comUSD:  Number(l.monedaBase==="USD" ? l.montoComisionFrisku : l.montoComisionFriskuUSD)||0,
-      ventaUSD: Number(l.ventaTotalUSD ?? (l.monedaBase==="USD"?l.ventaTotal:0))||0,
-      cajas: Number(l.cajasVendidas)||0,
+      liq:{ id:"liq", lab:"💰 Liquidaciones", nota:"1 fila = 1 liquidación", rows:liqRows,
+        dims:[
+          {key:"especie",lab:"Especie"},{key:"cliente",lab:"Cliente"},{key:"exportadora",lab:"Exportadora"},
+          {key:"mercado",lab:"Mercado"},{key:"pais",lab:"País"},{key:"via",lab:"Vía"},
+          {key:"estado",lab:"Estado"},{key:"temporada",lab:"Temporada"},{key:"mes",lab:"Mes (liq.)"},
+        ],
+        measures:[
+          {key:"com",lab:"Comisión Frisku (USD)",fmt:fmtUSD0,calc:rs=>sum(rs,"_com")},
+          {key:"venta",lab:"Venta destino (USD)",fmt:fmtUSD0,calc:rs=>sum(rs,"_venta")},
+          {key:"fob",lab:"FOB (USD)",fmt:fmtUSD0,calc:rs=>sum(rs,"_fob")},
+          {key:"cajas",lab:"Cajas vendidas",fmt:fmtN0,calc:rs=>sum(rs,"_cajas")},
+          {key:"nliq",lab:"N° liquidaciones",fmt:fmtN0,calc:rs=>rs.length},
+          {key:"nemb",lab:"N° embarques",fmt:fmtN0,calc:rs=>new Set(rs.map(r=>r.oeId).filter(Boolean)).size},
+          {key:"precio",lab:"Precio USD/caja",fmt:fmtUSD2,calc:rs=>{const c=sum(rs,"_cajas");return c>0?sum(rs,"_venta")/c:0;}},
+          {key:"pctfob",lab:"% comisión s/FOB",fmt:v=>`${(Number(v)||0).toFixed(1)}%`,calc:rs=>{const f=sum(rs,"_fob");return f>0?sum(rs,"_com")/f*100:0;}},
+        ] },
+      emb:{ id:"emb", lab:"📦 Embarques (OE)", nota:"1 fila = 1 orden de embarque", rows:embRows,
+        dims:[
+          {key:"especie",lab:"Especie"},{key:"cliente",lab:"Cliente"},{key:"exportadora",lab:"Exportadora"},
+          {key:"mercado",lab:"Mercado"},{key:"via",lab:"Vía"},{key:"estado",lab:"Estado"},
+          {key:"temporada",lab:"Temporada"},{key:"origen",lab:"Origen"},{key:"destino",lab:"Destino"},
+        ],
+        measures:[
+          {key:"noe",lab:"N° embarques (OE)",fmt:fmtN0,calc:rs=>rs.length},
+          {key:"cajas",lab:"Cajas embarcadas",fmt:fmtN0,calc:rs=>sum(rs,"_cajas")},
+          {key:"fcl",lab:"Contenedores (FCL)",fmt:fmtN0,calc:rs=>sum(rs,"_fcl")},
+        ] },
+      prog:{ id:"prog", lab:"🗓️ Programa", nota:"1 fila = 1 semana de programa", rows:progRows,
+        dims:[
+          {key:"especie",lab:"Especie"},{key:"cliente",lab:"Cliente"},{key:"exportadora",lab:"Exportadora"},
+          {key:"via",lab:"Vía"},{key:"temporada",lab:"Temporada"},
+        ],
+        measures:[
+          {key:"fcl",lab:"FCL programados",fmt:fmtN0,calc:rs=>sum(rs,"_fcl")},
+          {key:"cajas",lab:"Cajas programadas",fmt:fmtN0,calc:rs=>sum(rs,"_cajas")},
+          {key:"pallets",lab:"Pallets programados",fmt:fmtN0,calc:rs=>sum(rs,"_pallets")},
+          {key:"nsem",lab:"N° semanas-programa",fmt:fmtN0,calc:rs=>rs.length},
+        ] },
+      po:{ id:"po", lab:"🧾 Cobranza (PO)", nota:"1 fila = 1 nota de cobro", rows:poRows,
+        dims:[
+          {key:"cliente",lab:"Cliente"},{key:"estado",lab:"Estado"},{key:"aging",lab:"Aging"},
+        ],
+        measures:[
+          {key:"com",lab:"Comisión PO (USD)",fmt:fmtUSD0,calc:rs=>sum(rs,"_com")},
+          {key:"npo",lab:"N° PO",fmt:fmtN0,calc:rs=>rs.length},
+        ] },
     };
-  }),[liquidaciones, embarques, clientes, exportadoras, especies, mercados]);
+  },[liquidaciones, embarques, clientes, exportadoras, especies, mercados, programa, contratos, pos]);
 
-  const DIMS = [
-    {key:"especie",     lab:"Especie",     lf:"especieLab"},
-    {key:"cliente",     lab:"Cliente",     lf:"clienteLab"},
-    {key:"exportadora", lab:"Exportadora", lf:"exportadoraLab"},
-    {key:"mercado",     lab:"Mercado",     lf:"mercadoLab"},
-    {key:"mes",         lab:"Mes (ETD liq.)", lf:"mesLab"},
-    {key:"via",         lab:"Vía",         lf:"viaLab"},
-    {key:"temporada",   lab:"Temporada",   lf:"temporadaLab"},
-  ];
-  const MEASURES = [
-    {key:"comUSD",   lab:"Comisión Frisku (USD)", fmt:fmtUSD0},
-    {key:"ventaUSD", lab:"Venta destino (USD)",   fmt:fmtUSD0},
-    {key:"cajas",    lab:"Cajas vendidas",        fmt:fmtN0},
-  ];
-  const measFmt = (MEASURES.find(m=>m.key===measure)||MEASURES[0]).fmt;
+  const fuente = FUENTES[fuenteId] || FUENTES.liq;
+  const dims = fuente.dims;
+  const measures = fuente.measures;
 
-  const toggle = (dim, val)=> setSel(prev=>{
-    const s = new Set(prev[dim]||[]);
-    if(s.has(val)) s.delete(val); else s.add(val);
-    const next = {...prev};
-    if(s.size) next[dim]=s; else delete next[dim];
-    return next;
-  });
+  // Clamp de selección al cambiar de fuente (dims/medidas válidas).
+  useEffect(()=>{
+    const mOk = measures.some(m=>m.key===measureId);
+    if(!mOk) setMeasureId(measures[0].key);
+    if(!dims.some(d=>d.key===dim1)) setDim1(dims[0].key);
+    if(dim2 && !dims.some(d=>d.key===dim2)) setDim2("");
+    setSel({}); setAddDim("");
+  // eslint-disable-next-line
+  },[fuenteId]);
+
+  const measure = measures.find(m=>m.key===measureId) || measures[0];
+  const measFmt = measure.fmt;
+  const d1 = dims.find(d=>d.key===dim1) || dims[0];
+  const d2 = dim2 ? dims.find(d=>d.key===dim2) : null;
+  const labField = (dk)=> dk+"Lab";
+
+  // ── Filtros asociativos ──
+  const toggle = (dk, val)=> setSel(prev=>{ const s=new Set(prev[dk]||[]); if(s.has(val)) s.delete(val); else s.add(val); const n={...prev}; if(s.size) n[dk]=s; else delete n[dk]; return n; });
+  const quitar = (dk, val)=> setSel(prev=>{ const s=new Set(prev[dk]||[]); s.delete(val); const n={...prev}; if(s.size) n[dk]=s; else delete n[dk]; return n; });
   const limpiar = ()=> setSel({});
-  const quitar  = (dim,val)=> setSel(prev=>{ const s=new Set(prev[dim]||[]); s.delete(val); const n={...prev}; if(s.size) n[dim]=s; else delete n[dim]; return n; });
+  const matchRow = (row, except)=> dims.every(d=>{ if(d.key===except) return true; const s=sel[d.key]; if(!s||!s.size) return true; return s.has(row[d.key]); });
+  const labelOf = (dk, v)=>{ const h=fuente.rows.find(r=>r[dk]===v); return h? h[labField(dk)] : v; };
 
-  // Una fila cumple si respeta las selecciones de todas las dims (excepto la
-  // indicada, para calcular los "posibles" de esa dimensión).
-  const matchRow = (row, except)=> DIMS.every(d=>{
-    if(d.key===except) return true;
-    const s = sel[d.key]; if(!s || !s.size) return true;
-    return s.has(row[d.key]);
-  });
-  const filteredRows = useMemo(()=> hechos.filter(r=>matchRow(r,null)), [hechos, sel]);
+  const filteredRows = useMemo(()=> fuente.rows.filter(r=>matchRow(r,null)), [fuente, sel, dims]);
+  const totalMeasure = measure.calc(filteredRows);
 
-  const labelOf = (dim, v)=>{ const d=DIMS.find(x=>x.key===dim); const h=hechos.find(r=>r[dim]===v); return h? h[d.lf] : v; };
-
-  // KPIs sobre la selección actual
-  const kpi = useMemo(()=>{
-    let com=0, venta=0, cajas=0; const oes=new Set();
-    filteredRows.forEach(r=>{ com+=r.comUSD; venta+=r.ventaUSD; cajas+=r.cajas; if(r.oeId) oes.add(r.oeId); });
-    return { com, venta, cajas, nLiq:filteredRows.length, nEmb:oes.size, precio: cajas>0?venta/cajas:0 };
-  },[filteredRows]);
-
-  // Agregación por dimensión (asociativa): mide sobre las filas que cumplen
-  // las OTRAS dimensiones; marca posibles/seleccionados/excluidos.
-  const aggDim = (d)=>{
-    const rowsX = hechos.filter(r=>matchRow(r, d.key));
-    const map = {};
-    rowsX.forEach(r=>{ const v=r[d.key]; (map[v]=map[v]||{val:v, lab:r[d.lf], m:0}).m += Number(r[measure])||0; });
-    (sel[d.key]?[...sel[d.key]]:[]).forEach(v=>{ if(!map[v]) map[v]={val:v, lab:labelOf(d.key,v), m:0}; });
-    const possible = Object.values(map).sort((a,b)=>b.m-a.m);
-    const posSet = new Set(possible.map(x=>x.val));
-    const excluded = [...new Set(hechos.map(r=>r[d.key]))].filter(v=>!posSet.has(v)).map(v=>({val:v, lab:labelOf(d.key,v)}));
-    return { possible, excluded, max: Math.max(1, ...possible.map(x=>x.m)) };
+  // Orden natural para tendencia (mes por calendario agrícola, resto por medida).
+  const ordenNatural = (arr, dk)=>{
+    if(dk==="mes"){ const ord=MESES_TEMP.map(x=>x.m); return [...arr].sort((a,b)=>ord.indexOf(Number(a.val))-ord.indexOf(Number(b.val))); }
+    if(dk==="aging"){ const ord=["0–30","31–60","61–90",">90","—"]; return [...arr].sort((a,b)=>ord.indexOf(a.val)-ord.indexOf(b.val)); }
+    return [...arr].sort((a,b)=>b.m-a.m);
   };
 
-  const chips = DIMS.flatMap(d=> (sel[d.key]?[...sel[d.key]]:[]).map(v=>({dim:d.key, dimLab:d.lab, v, lab:labelOf(d.key,v)})));
+  // Agregación asociativa por la dimensión primaria (posibles/excluidos + valor).
+  const aggPrimary = useMemo(()=>{
+    const rowsX = fuente.rows.filter(r=>matchRow(r, d1.key));
+    const map = {};
+    rowsX.forEach(r=>{ const v=r[d1.key]; (map[v]=map[v]||{val:v, lab:r[labField(d1.key)], rows:[]}).rows.push(r); });
+    (sel[d1.key]?[...sel[d1.key]]:[]).forEach(v=>{ if(!map[v]) map[v]={val:v, lab:labelOf(d1.key,v), rows:[]}; });
+    let arr = Object.values(map).map(g=>({...g, m:measure.calc(g.rows)}));
+    arr = ordenNatural(arr, d1.key);
+    const posSet = new Set(arr.map(x=>x.val));
+    const excluded = [...new Set(fuente.rows.map(r=>r[d1.key]))].filter(v=>!posSet.has(v)).map(v=>({val:v, lab:labelOf(d1.key,v)}));
+    return { arr, excluded, max:Math.max(1, ...arr.map(x=>Math.abs(x.m))) };
+  },[fuente, sel, dim1, measureId, dims]);
 
-  if(hechos.length===0){
-    return <div style={{padding:50, textAlign:"center", color:C.muted, fontSize:13, background:C.card, borderRadius:14}}>
-      Aún no hay liquidaciones cargadas. El tablero se activa cuando haya datos de liquidaciones.
-    </div>;
-  }
+  // Segmentos de la 2ª dimensión (para stacked / leyenda / pivote).
+  const seg2 = useMemo(()=>{
+    if(!d2) return { keys:[], colorDe:()=>C.blue };
+    const tot={};
+    filteredRows.forEach(r=>{ const v=r[d2.key]; tot[v]=(tot[v]||0)+ (measure.calc([r])||0); });
+    const keys = Object.keys(tot).sort((a,b)=>tot[b]-tot[a]);
+    const idx = Object.fromEntries(keys.map((k,i)=>[k,i]));
+    return { keys, labDe:(v)=>labelOf(d2.key,v), colorDe:(v)=> PAL_BI[(idx[v]??0)%PAL_BI.length] };
+  },[filteredRows, dim2, measureId]);
+
+  const chips = dims.flatMap(d=> (sel[d.key]?[...sel[d.key]]:[]).map(v=>({dim:d.key, dimLab:d.lab, v, lab:labelOf(d.key,v)})));
 
   const kpiCard = (lab,val,color)=>(
     <div style={{background:C.card, border:`1px solid ${C.border}`, borderRadius:12, padding:"10px 13px", boxShadow:C.shadowSm}}>
-      <div style={{fontSize:10, color:C.muted, fontWeight:600, textTransform:"uppercase"}}>{lab}</div>
-      <div style={{fontSize:20, fontWeight:800, color:color||C.text, marginTop:3, lineHeight:1}}>{val}</div>
+      <div style={{fontSize:10, color:C.muted, fontWeight:600, textTransform:"uppercase", whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis"}}>{lab}</div>
+      <div style={{fontSize:19, fontWeight:800, color:color||C.text, marginTop:3, lineHeight:1}}>{val}</div>
     </div>
   );
 
-  const DimChart = ({d})=>{
-    const {possible, excluded, max} = aggDim(d);
-    const selSet = sel[d.key] || new Set();
+  const hayDatos = (fuente.rows||[]).length>0;
+
+  // ── Sub-vistas de visualización ──
+  const groupRowsBy2 = (rows)=>{ const m={}; rows.forEach(r=>{ const v=d2?r[d2.key]:"_"; (m[v]=m[v]||[]).push(r); }); return m; };
+
+  const VistaBarras = ()=>{
+    const items = aggPrimary.arr.slice(0, topN);
+    const selSet = sel[d1.key] || new Set();
     const hayFiltro = selSet.size>0;
     return (
-      <div style={{background:C.card, border:`1px solid ${C.border}`, borderRadius:14, padding:14, boxShadow:C.shadowSm}}>
-        <div style={{fontSize:13, fontWeight:700, marginBottom:8, display:"flex", justifyContent:"space-between", alignItems:"center"}}>
-          <span>{d.lab}</span>
-          {hayFiltro && <span onClick={()=>{ setSel(prev=>{ const n={...prev}; delete n[d.key]; return n; }); }} style={{fontSize:10, color:C.accent, cursor:"pointer", fontWeight:600}}>✕ quitar</span>}
-        </div>
-        {possible.slice(0,8).map(x=>{
+      <div style={{background:C.card, border:`1px solid ${C.border}`, borderRadius:14, padding:16, boxShadow:C.shadowSm}}>
+        {items.length===0 && <div style={{color:C.muted2, fontSize:12, textAlign:"center", padding:20}}>Sin datos para la selección.</div>}
+        {items.map(x=>{
           const isSel = selSet.has(x.val);
-          const col = isSel ? C.accent2 : C.blue;
-          const dim = hayFiltro && !isSel;   // hay selección y este no lo está → atenuar un poco
+          const atten = hayFiltro && !isSel;
+          const segs = d2 ? groupRowsBy2(x.rows) : null;
+          const wpct = Math.abs(x.m)/aggPrimary.max*100;
           return (
-            <div key={x.val} onClick={()=>toggle(d.key,x.val)} title="Clic para filtrar"
-              style={{display:"grid", gridTemplateColumns:"1fr auto", gap:8, alignItems:"center", cursor:"pointer", padding:"3px 4px", borderRadius:6, background:isSel?`${C.accent2}14`:"transparent"}}>
-              <div>
-                <div style={{fontSize:11.5, color:isSel?C.accent2:C.text, fontWeight:isSel?700:500, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis", marginBottom:2, opacity:dim?0.6:1}}>
-                  {isSel?"✓ ":""}{x.lab}
-                </div>
-                <div style={{height:9, borderRadius:4, background:C.cardAlt, overflow:"hidden"}}>
-                  <div style={{width:`${x.m/max*100}%`, height:"100%", background:col, borderRadius:4, opacity:dim?0.5:1}}/>
-                </div>
+            <div key={x.val} onClick={()=>toggle(d1.key,x.val)} title="Clic para filtrar"
+              style={{display:"grid", gridTemplateColumns:"minmax(120px, 220px) 1fr auto", gap:10, alignItems:"center", cursor:"pointer", padding:"5px 4px", borderRadius:7, background:isSel?`${C.accent2}12`:"transparent"}}>
+              <div style={{fontSize:12, color:isSel?C.accent2:C.text, fontWeight:isSel?700:500, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis", opacity:atten?0.6:1}}>
+                {isSel?"✓ ":""}{x.lab}
               </div>
-              <span style={{fontSize:11, fontWeight:700, color:isSel?C.accent2:C.muted, minWidth:64, textAlign:"right"}}>{measFmt(x.m)}</span>
+              <div style={{height:15, borderRadius:5, background:C.cardAlt, overflow:"hidden", display:"flex", opacity:atten?0.55:1}}>
+                {d2
+                  ? seg2.keys.map(k=>{ const rs=segs[k]; if(!rs) return null; const mv=measure.calc(rs); const w=mv/aggPrimary.max*100; if(w<=0) return null; return <div key={k} title={`${seg2.labDe(k)}: ${measFmt(mv)}`} style={{width:`${w}%`, height:"100%", background:seg2.colorDe(k)}}/>; })
+                  : <div style={{width:`${wpct}%`, height:"100%", background:isSel?C.accent2:C.blue, borderRadius:5}}/>}
+              </div>
+              <span style={{fontSize:12, fontWeight:700, color:isSel?C.accent2:C.text, minWidth:76, textAlign:"right"}}>{measFmt(x.m)}</span>
             </div>
           );
         })}
-        {possible.length>8 && <div style={{fontSize:10, color:C.muted2, marginTop:4}}>+{possible.length-8} más</div>}
-        {excluded.length>0 && (
-          <div style={{marginTop:8, paddingTop:6, borderTop:`1px dashed ${C.border}`, display:"flex", flexWrap:"wrap", gap:4}}>
-            {excluded.slice(0,8).map(x=>(
-              <span key={x.val} onClick={()=>toggle(d.key,x.val)} title="Excluido por la selección actual (clic para incluir)"
-                style={{fontSize:10, color:C.muted2, background:C.cardAlt, borderRadius:10, padding:"1px 8px", cursor:"pointer", textDecoration:"line-through", opacity:0.8}}>{x.lab}</span>
+        {aggPrimary.arr.length>topN && <div style={{fontSize:11, color:C.muted2, marginTop:6, textAlign:"center"}}>+{aggPrimary.arr.length-topN} más · sube el Top N para verlos</div>}
+        {d2 && seg2.keys.length>0 && (
+          <div style={{display:"flex", flexWrap:"wrap", gap:8, marginTop:12, paddingTop:10, borderTop:`1px solid ${C.border}`}}>
+            {seg2.keys.slice(0,12).map(k=>(
+              <span key={k} style={{fontSize:10.5, color:C.text, display:"inline-flex", gap:5, alignItems:"center"}}>
+                <span style={{width:10, height:10, borderRadius:3, background:seg2.colorDe(k)}}/>{seg2.labDe(k)}
+              </span>
             ))}
-            {excluded.length>8 && <span style={{fontSize:10, color:C.muted2}}>+{excluded.length-8}</span>}
+          </div>
+        )}
+        {aggPrimary.excluded.length>0 && (
+          <div style={{marginTop:12, paddingTop:8, borderTop:`1px dashed ${C.border}`, display:"flex", flexWrap:"wrap", gap:5, alignItems:"center"}}>
+            <span style={{fontSize:10, color:C.muted2, fontWeight:600}}>Excluidos:</span>
+            {aggPrimary.excluded.slice(0,14).map(x=>(
+              <span key={x.val} onClick={()=>toggle(d1.key,x.val)} title="Clic para incluir"
+                style={{fontSize:10, color:C.muted2, background:C.cardAlt, borderRadius:10, padding:"1px 8px", cursor:"pointer", textDecoration:"line-through"}}>{x.lab}</span>
+            ))}
+            {aggPrimary.excluded.length>14 && <span style={{fontSize:10, color:C.muted2}}>+{aggPrimary.excluded.length-14}</span>}
           </div>
         )}
       </div>
     );
   };
 
+  const VistaTorta = ()=>{
+    const items = aggPrimary.arr.filter(x=>x.m>0);
+    const top = items.slice(0, topN);
+    const restoM = items.slice(topN).reduce((s,x)=>s+x.m,0);
+    const data = restoM>0 ? [...top, {val:"__resto__", lab:`Otros (${items.length-topN})`, m:restoM, resto:true}] : top;
+    const tot = data.reduce((s,x)=>s+x.m,0) || 1;
+    const R=70, r=42, cx=90, cy=90; let acc=0;
+    const arc = (frac0, frac1)=>{ const a0=frac0*2*Math.PI-Math.PI/2, a1=frac1*2*Math.PI-Math.PI/2;
+      const x0=cx+R*Math.cos(a0), y0=cy+R*Math.sin(a0), x1=cx+R*Math.cos(a1), y1=cy+R*Math.sin(a1);
+      const xi1=cx+r*Math.cos(a1), yi1=cy+r*Math.sin(a1), xi0=cx+r*Math.cos(a0), yi0=cy+r*Math.sin(a0);
+      const big=(frac1-frac0)>0.5?1:0;
+      return `M ${x0} ${y0} A ${R} ${R} 0 ${big} 1 ${x1} ${y1} L ${xi1} ${yi1} A ${r} ${r} 0 ${big} 0 ${xi0} ${yi0} Z`; };
+    return (
+      <div style={{background:C.card, border:`1px solid ${C.border}`, borderRadius:14, padding:16, boxShadow:C.shadowSm, display:"flex", gap:20, flexWrap:"wrap", alignItems:"center"}}>
+        {data.length===0 ? <div style={{color:C.muted2, fontSize:12, padding:20}}>Sin datos para la selección.</div> : <>
+        <svg width="180" height="180" viewBox="0 0 180 180" style={{flexShrink:0}}>
+          {data.map((x,i)=>{ const f0=acc/tot, f1=(acc+x.m)/tot; acc+=x.m; const col=x.resto?C.muted2:PAL_BI[i%PAL_BI.length];
+            return <path key={x.val} d={arc(f0,f1)} fill={col} stroke={C.card} strokeWidth="1.5" style={{cursor:x.resto?"default":"pointer"}} onClick={()=>!x.resto&&toggle(d1.key,x.val)}><title>{x.lab}: {measFmt(x.m)} ({(x.m/tot*100).toFixed(1)}%)</title></path>; })}
+          <text x={cx} y={cy-4} textAnchor="middle" style={{fontSize:9, fill:C.muted, fontWeight:600}}>{measure.lab.split(" ")[0]}</text>
+          <text x={cx} y={cy+11} textAnchor="middle" style={{fontSize:12, fill:C.text, fontWeight:800}}>{measFmt(tot)}</text>
+        </svg>
+        <div style={{flex:1, minWidth:200, display:"grid", gridTemplateColumns:"1fr 1fr", gap:"4px 14px"}}>
+          {data.map((x,i)=>(
+            <div key={x.val} onClick={()=>!x.resto&&toggle(d1.key,x.val)} style={{display:"flex", gap:7, alignItems:"center", fontSize:11.5, cursor:x.resto?"default":"pointer"}}>
+              <span style={{width:11, height:11, borderRadius:3, background:x.resto?C.muted2:PAL_BI[i%PAL_BI.length], flexShrink:0}}/>
+              <span style={{flex:1, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis", color:C.text}}>{x.lab}</span>
+              <span style={{fontWeight:700, color:C.muted}}>{(x.m/tot*100).toFixed(0)}%</span>
+            </div>
+          ))}
+        </div></>}
+      </div>
+    );
+  };
+
+  const VistaTendencia = ()=>{
+    const pts = aggPrimary.arr;   // ya viene en orden natural (mes/aging por calendario)
+    if(pts.length===0) return <div style={{background:C.card, border:`1px solid ${C.border}`, borderRadius:14, padding:20, textAlign:"center", color:C.muted2, fontSize:12}}>Sin datos para la selección.</div>;
+    const W=Math.max(320, pts.length*70), H=200, padL=8, padB=34, padT=14, padR=8;
+    const maxV=Math.max(1,...pts.map(p=>p.m)), minV=Math.min(0,...pts.map(p=>p.m));
+    const x=(i)=> padL + (pts.length===1?W/2:(i*(W-padL-padR)/(pts.length-1)));
+    const y=(v)=> padT + (H-padT-padB) * (1-(v-minV)/((maxV-minV)||1));
+    const line = pts.map((p,i)=>`${i===0?"M":"L"} ${x(i).toFixed(1)} ${y(p.m).toFixed(1)}`).join(" ");
+    const area = `${line} L ${x(pts.length-1).toFixed(1)} ${y(minV).toFixed(1)} L ${x(0).toFixed(1)} ${y(minV).toFixed(1)} Z`;
+    return (
+      <div style={{background:C.card, border:`1px solid ${C.border}`, borderRadius:14, padding:16, boxShadow:C.shadowSm, overflowX:"auto"}}>
+        <svg width={W} height={H} viewBox={`0 0 ${W} ${H}`} style={{maxWidth:"100%", minWidth:Math.min(W,320)}}>
+          <path d={area} fill={`${C.blue}18`}/>
+          <path d={line} fill="none" stroke={C.blue} strokeWidth="2.5" strokeLinejoin="round"/>
+          {pts.map((p,i)=>{ const isSel=(sel[d1.key]||new Set()).has(p.val);
+            return <g key={p.val} style={{cursor:"pointer"}} onClick={()=>toggle(d1.key,p.val)}>
+              <circle cx={x(i)} cy={y(p.m)} r={isSel?6:4.5} fill={isSel?C.accent2:C.blue} stroke={C.card} strokeWidth="2"><title>{p.lab}: {measFmt(p.m)}</title></circle>
+              <text x={x(i)} y={y(p.m)-9} textAnchor="middle" style={{fontSize:9.5, fill:C.text, fontWeight:700}}>{measFmt(p.m)}</text>
+              <text x={x(i)} y={H-padB+16} textAnchor="middle" style={{fontSize:10, fill:C.muted}}>{String(p.lab).length>10?String(p.lab).slice(0,9)+"…":p.lab}</text>
+            </g>; })}
+        </svg>
+      </div>
+    );
+  };
+
+  const VistaTabla = ()=>{
+    const rows = aggPrimary.arr;
+    if(!d2){
+      return (
+        <div style={{background:C.card, border:`1px solid ${C.border}`, borderRadius:14, boxShadow:C.shadowSm, overflowX:"auto"}}>
+          <table style={{width:"100%", borderCollapse:"collapse", fontSize:12}}>
+            <thead><tr style={{background:C.cardAlt}}>
+              <th style={{textAlign:"left", padding:"8px 12px", fontWeight:700}}>{d1.lab}</th>
+              <th style={{textAlign:"right", padding:"8px 12px", fontWeight:700}}>{measure.lab}</th>
+              <th style={{textAlign:"right", padding:"8px 12px", fontWeight:700, width:70}}>%</th>
+            </tr></thead>
+            <tbody>
+              {rows.map(x=>{ const isSel=(sel[d1.key]||new Set()).has(x.val);
+                return <tr key={x.val} onClick={()=>toggle(d1.key,x.val)} style={{cursor:"pointer", borderTop:`1px solid ${C.border}`, background:isSel?`${C.accent2}10`:"transparent"}}>
+                  <td style={{padding:"7px 12px", color:isSel?C.accent2:C.text, fontWeight:isSel?700:500}}>{isSel?"✓ ":""}{x.lab}</td>
+                  <td style={{padding:"7px 12px", textAlign:"right", fontWeight:700}}>{measFmt(x.m)}</td>
+                  <td style={{padding:"7px 12px", textAlign:"right", color:C.muted}}>{totalMeasure?((x.m/totalMeasure)*100).toFixed(1):"0"}%</td>
+                </tr>; })}
+              {rows.length===0 && <tr><td colSpan={3} style={{padding:20, textAlign:"center", color:C.muted2}}>Sin datos para la selección.</td></tr>}
+            </tbody>
+            {rows.length>0 && <tfoot><tr style={{background:C.cardAlt, fontWeight:800}}>
+              <td style={{padding:"8px 12px"}}>TOTAL</td>
+              <td style={{padding:"8px 12px", textAlign:"right"}}>{measFmt(totalMeasure)}</td>
+              <td style={{padding:"8px 12px", textAlign:"right"}}>100%</td>
+            </tr></tfoot>}
+          </table>
+        </div>
+      );
+    }
+    // Pivote dim1 (filas) × dim2 (columnas)
+    const cols = seg2.keys;
+    return (
+      <div style={{background:C.card, border:`1px solid ${C.border}`, borderRadius:14, boxShadow:C.shadowSm, overflowX:"auto"}}>
+        <table style={{width:"100%", borderCollapse:"collapse", fontSize:11.5, minWidth:480}}>
+          <thead><tr style={{background:C.cardAlt}}>
+            <th style={{textAlign:"left", padding:"8px 10px", fontWeight:700, position:"sticky", left:0, background:C.cardAlt}}>{d1.lab} \ {d2.lab}</th>
+            {cols.map(c=><th key={c} style={{textAlign:"right", padding:"8px 10px", fontWeight:700, whiteSpace:"nowrap"}}>{seg2.labDe(c)}</th>)}
+            <th style={{textAlign:"right", padding:"8px 10px", fontWeight:800}}>Total</th>
+          </tr></thead>
+          <tbody>
+            {rows.map(x=>{ const byc=groupRowsBy2(x.rows);
+              return <tr key={x.val} style={{borderTop:`1px solid ${C.border}`}}>
+                <td onClick={()=>toggle(d1.key,x.val)} style={{padding:"6px 10px", fontWeight:600, cursor:"pointer", position:"sticky", left:0, background:C.card, whiteSpace:"nowrap"}}>{x.lab}</td>
+                {cols.map(c=>{ const rs=byc[c]; const v=rs?measure.calc(rs):0; return <td key={c} style={{padding:"6px 10px", textAlign:"right", color:v?C.text:C.muted2}}>{v?measFmt(v):"·"}</td>; })}
+                <td style={{padding:"6px 10px", textAlign:"right", fontWeight:700}}>{measFmt(x.m)}</td>
+              </tr>; })}
+            {rows.length===0 && <tr><td colSpan={cols.length+2} style={{padding:20, textAlign:"center", color:C.muted2}}>Sin datos para la selección.</td></tr>}
+          </tbody>
+        </table>
+      </div>
+    );
+  };
+
+  const selPickerOpts = addDim ? (()=>{ const seen={}; fuente.rows.forEach(r=>{ if(!(r[addDim] in seen)) seen[r[addDim]]=r[labField(addDim)]; }); return Object.entries(seen).map(([value,label])=>({value, label})).sort((a,b)=>String(a.label).localeCompare(String(b.label))); })() : [];
+
   return (
     <div>
-      {/* Barra de medida + selecciones */}
-      <div style={{display:"flex", gap:10, marginBottom:12, flexWrap:"wrap", alignItems:"center"}}>
-        <div>
-          <div style={lblSt}>Medida</div>
-          <select value={measure} onChange={e=>setMeasure(e.target.value)} style={{...inputSt, minWidth:210}}>
-            {MEASURES.map(m=><option key={m.key} value={m.key}>{m.lab}</option>)}
-          </select>
-        </div>
-        <div style={{flex:1, minWidth:240}}>
-          <div style={lblSt}>Selecciones activas {chips.length>0 && <span style={{color:C.accent2}}>({chips.length})</span>}</div>
-          <div style={{display:"flex", flexWrap:"wrap", gap:6, alignItems:"center", minHeight:30}}>
-            {chips.length===0 ? <span style={{fontSize:11.5, color:C.muted2}}>Haz clic en cualquier barra para filtrar. Se combinan entre sí.</span> :
-              chips.map((c,i)=>(
-                <span key={i} onClick={()=>quitar(c.dim,c.v)} title="Quitar"
-                  style={{fontSize:11, fontWeight:600, background:C.accent2, color:"#fff", borderRadius:14, padding:"3px 10px", cursor:"pointer", display:"inline-flex", gap:6, alignItems:"center"}}>
-                  <span style={{opacity:0.8, fontWeight:400}}>{c.dimLab}:</span>{c.lab}<span style={{opacity:0.85}}>×</span>
-                </span>
-              ))}
-            {chips.length>0 && <button onClick={limpiar} style={{...btnSt(C.muted,true), fontSize:10, padding:"3px 8px"}}>Limpiar todo</button>}
+      {/* ── Barra de configuración: fuente / medida / dims / gráfico ── */}
+      <div style={{background:C.card, border:`1px solid ${C.border}`, borderRadius:14, padding:14, boxShadow:C.shadowSm, marginBottom:12}}>
+        <div style={{display:"flex", gap:12, flexWrap:"wrap", alignItems:"flex-end"}}>
+          <div>
+            <div style={lblSt}>Fuente de datos</div>
+            <select value={fuenteId} onChange={e=>setFuenteId(e.target.value)} style={{...inputSt, minWidth:180, fontWeight:700}}>
+              {Object.values(FUENTES).map(f=><option key={f.id} value={f.id}>{f.lab}</option>)}
+            </select>
           </div>
+          <div>
+            <div style={lblSt}>Medir</div>
+            <select value={measureId} onChange={e=>setMeasureId(e.target.value)} style={{...inputSt, minWidth:190}}>
+              {measures.map(m=><option key={m.key} value={m.key}>{m.lab}</option>)}
+            </select>
+          </div>
+          <div>
+            <div style={lblSt}>Ver por</div>
+            <select value={dim1} onChange={e=>setDim1(e.target.value)} style={{...inputSt, minWidth:150}}>
+              {dims.map(d=><option key={d.key} value={d.key}>{d.lab}</option>)}
+            </select>
+          </div>
+          <div>
+            <div style={lblSt}>Desglosar por</div>
+            <select value={dim2} onChange={e=>setDim2(e.target.value)} style={{...inputSt, minWidth:150}}>
+              <option value="">— (ninguno)</option>
+              {dims.filter(d=>d.key!==dim1).map(d=><option key={d.key} value={d.key}>{d.lab}</option>)}
+            </select>
+          </div>
+          <div>
+            <div style={lblSt}>Gráfico</div>
+            <div style={{display:"flex", gap:4}}>
+              {[{k:"barras",i:"▦ Barras"},{k:"tabla",i:"▤ Tabla"},{k:"torta",i:"◔ Torta"},{k:"tendencia",i:"📈 Tendencia"}].map(g=>(
+                <button key={g.k} onClick={()=>setChart(g.k)} style={{...btnSt(chart===g.k?C.blue:C.muted, chart!==g.k), fontSize:11, padding:"6px 9px"}}>{g.i}</button>
+              ))}
+            </div>
+          </div>
+          {(chart==="barras"||chart==="torta") && (
+            <div>
+              <div style={lblSt}>Top N</div>
+              <select value={topN} onChange={e=>setTopN(Number(e.target.value))} style={{...inputSt, width:76}}>
+                {[6,8,10,12,15,20,30].map(n=><option key={n} value={n}>{n}</option>)}
+              </select>
+            </div>
+          )}
+        </div>
+        <div style={{fontSize:11, color:C.muted2, marginTop:8}}>{fuente.nota} · {fuente.rows.length} registros en total{d2?` · desglose por ${d2.lab.toLowerCase()}`:""}</div>
+      </div>
+
+      {!hayDatos ? (
+        <div style={{padding:50, textAlign:"center", color:C.muted, fontSize:13, background:C.card, borderRadius:14}}>
+          Aún no hay datos en <b>{fuente.lab}</b>. Elige otra fuente o carga registros en el módulo.
+        </div>
+      ) : <>
+
+      {/* ── Filtros asociativos activos + agregar filtro ── */}
+      <div style={{display:"flex", gap:10, marginBottom:12, flexWrap:"wrap", alignItems:"center"}}>
+        <div style={{display:"flex", gap:6, alignItems:"center"}}>
+          <select value={addDim} onChange={e=>setAddDim(e.target.value)} style={{...inputSt, width:150}}>
+            <option value="">+ Filtrar por…</option>
+            {dims.map(d=><option key={d.key} value={d.key}>{d.lab}</option>)}
+          </select>
+          {addDim && (
+            <div style={{width:190}}>
+              <SelectBuscable value="" onChange={(v)=>{ if(v){ toggle(addDim, v); } }} options={selPickerOpts}
+                placeholder={`Buscar ${dims.find(d=>d.key===addDim)?.lab.toLowerCase()||""}…`} listId={`bi-add-${addDim}`} style={{...inputSt, width:"100%"}}/>
+            </div>
+          )}
+        </div>
+        <div style={{flex:1, minWidth:220, display:"flex", flexWrap:"wrap", gap:6, alignItems:"center", minHeight:30}}>
+          {chips.length===0 ? <span style={{fontSize:11.5, color:C.muted2}}>Sin filtros. Haz clic en cualquier barra/segmento para acotar (se combinan entre sí, estilo Qlik).</span> :
+            chips.map((c,i)=>(
+              <span key={i} onClick={()=>quitar(c.dim,c.v)} title="Quitar"
+                style={{fontSize:11, fontWeight:600, background:C.accent2, color:"#fff", borderRadius:14, padding:"3px 10px", cursor:"pointer", display:"inline-flex", gap:6, alignItems:"center"}}>
+                <span style={{opacity:0.8, fontWeight:400}}>{c.dimLab}:</span>{c.lab}<span style={{opacity:0.85}}>×</span>
+              </span>
+            ))}
+          {chips.length>0 && <button onClick={limpiar} style={{...btnSt(C.muted,true), fontSize:10, padding:"3px 8px"}}>Limpiar todo</button>}
         </div>
       </div>
 
-      {/* KPIs de la selección */}
-      <div style={{display:"grid", gridTemplateColumns:"repeat(auto-fit, minmax(130px,1fr))", gap:10, marginBottom:14}}>
-        {kpiCard("Comisión Frisku", fmtUSD0(kpi.com), C.accent2)}
-        {kpiCard("Venta destino", fmtUSD0(kpi.venta), C.blue)}
-        {kpiCard("Cajas", fmtN0(kpi.cajas), C.text)}
-        {kpiCard("Precio/caja", fmtUSD2(kpi.precio), C.text)}
-        {kpiCard("Liquidaciones", fmtN0(kpi.nLiq), C.text)}
-        {kpiCard("Embarques", fmtN0(kpi.nEmb), C.text)}
+      {/* ── KPIs de todas las medidas de la fuente (sobre la selección) ── */}
+      <div style={{display:"grid", gridTemplateColumns:"repeat(auto-fit, minmax(140px,1fr))", gap:10, marginBottom:14}}>
+        {measures.map((m,i)=> kpiCard(m.lab, m.fmt(m.calc(filteredRows)), m.key===measureId?C.accent2:(i===0?C.blue:C.text)))}
       </div>
 
-      {/* Grilla de dimensiones (cada una filtra al hacer clic) */}
-      <div style={{display:"grid", gridTemplateColumns:"repeat(auto-fill, minmax(300px,1fr))", gap:12}}>
-        {DIMS.map(d=><DimChart key={d.key} d={d}/>)}
-      </div>
+      {/* ── Visualización principal ── */}
+      {chart==="barras"     && <VistaBarras/>}
+      {chart==="tabla"      && <VistaTabla/>}
+      {chart==="torta"      && <VistaTorta/>}
+      {chart==="tendencia"  && <VistaTendencia/>}
 
       <div style={{fontSize:11, color:C.muted2, marginTop:14, textAlign:"center"}}>
-        Tablero asociativo · {filteredRows.length} de {hechos.length} liquidaciones en la selección. Clic para filtrar; los tachados quedan excluidos por la combinación actual.
+        Explorador BI · {filteredRows.length} de {fuente.rows.length} registros en la selección · midiendo <b>{measure.lab}</b> por <b>{d1.lab}</b>{d2?` × ${d2.lab}`:""}.
+        Clic en cualquier elemento para filtrar; vuelve a hacer clic para quitarlo.
       </div>
+      </>}
     </div>
   );
 }
@@ -7340,6 +7647,9 @@ export default function FriskuComercialModule({
             exportadoras={exportadoras}
             especies={especies}
             mercados={mercados}
+            programa={programa}
+            contratos={contratos}
+            pos={pos}
           />
         )}
 
