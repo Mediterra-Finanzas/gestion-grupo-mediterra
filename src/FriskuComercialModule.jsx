@@ -3248,6 +3248,74 @@ function OECard({oe, exportadoras, clientes, especies, tiposEmbalaje, onEditar, 
 }
 
 // ═══════════════════════════════════════════════════════════════════
+// FILA DE LISTA de una OE (vista compacta tipo tabla, expandible a
+// Packing List / Carpeta COMEX). Reutiliza los mismos paneles que la card.
+// ═══════════════════════════════════════════════════════════════════
+function OERow({oe, exportadoras, clientes, especies, tiposEmbalaje, onEditar, onEliminar, onGuardarPL, onGuardarCOMEX, canEdit}) {
+  const [expand, setExpand] = useState(null); // null | "pl" | "comex"
+  const exportadora = exportadoras.find(e=>e.id===oe.exportadoraId);
+  const cliente     = clientes.find(c=>c.id===oe.clienteId);
+  const especie     = especies.find(e=>e.codigo===oe.especieCodigo);
+  const totalCajas  = Object.values(oe.cajasPorFormato||{}).reduce((s,v)=>s+Number(v||0),0);
+  const ESTADO_COLOR = {borrador:C.yellow,confirmado:C.green,despachado:C.blue,cancelado:C.muted};
+  const ESTADO_LABEL = {borrador:"◌ Borrador",confirmado:"✓ Confirmado",despachado:"🚢 Despachado",cancelado:"✗ Cancelado"};
+  const estadoColor = ESTADO_COLOR[oe.estado||"borrador"]||C.muted;
+  const cx = comexEstado(oe);
+  const via = (oe.tipoEmbarque||"maritimo")==="aereo" ? "✈" : "🚢";
+  const nPallets = oe.packingList?.pallets?.length||0;
+  const td = {padding:"7px 10px",borderTop:`1px solid ${C.border}`,verticalAlign:"middle"};
+  const toggle = (k)=> setExpand(v=> v===k ? null : k);
+
+  return (
+    <>
+      <tr style={{background: expand?`${C.blue}0a`:"transparent", opacity:oe.estado==="cancelado"?0.55:1, cursor:"pointer"}} onClick={()=>toggle("comex")}>
+        <td style={{...td,textAlign:"center",color:C.muted}}>{expand?"▾":"▸"}</td>
+        <td style={{...td,fontFamily:"monospace",color:C.blue,whiteSpace:"nowrap"}}>{oe.numero||"—"}</td>
+        <td style={{...td,whiteSpace:"nowrap"}}>{especie?`${especie.icono||""} ${especie.nombreEs}`:(oe.especieCodigo||"—")}</td>
+        <td style={{...td}}>
+          <div style={{whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",maxWidth:260}}>
+            <span style={{fontWeight:600}}>{exportadora?.nombre||"—"}</span>
+            <span style={{color:C.muted}}> → </span>
+            <span>{cliente?.nombre||"—"}</span>
+          </div>
+          {(oe.origen||oe.destino) && <div style={{fontSize:9.5,color:C.muted2,whiteSpace:"nowrap"}}>{oe.origen||"—"} → {oe.destino||"—"}{oe.numeroContenedor?` · ${oe.numeroContenedor}`:""}</div>}
+        </td>
+        <td style={{...td,textAlign:"center",fontSize:13}} title={(oe.tipoEmbarque||"maritimo")==="aereo"?"Aéreo":"Marítimo"}>{via}</td>
+        <td style={{...td,textAlign:"right",fontFamily:"monospace",fontWeight:700}}>{totalCajas>0?totalCajas.toLocaleString("es-CL"):"—"}</td>
+        <td style={{...td,whiteSpace:"nowrap"}}>{oe.fechaDespacho||"—"}</td>
+        <td style={{...td,whiteSpace:"nowrap"}}>{oe.fechaETA||"—"}</td>
+        <td style={{...td,textAlign:"center"}}>
+          <span style={{fontSize:9,padding:"2px 7px",borderRadius:4,background:`${estadoColor}22`,color:estadoColor,border:`1px solid ${estadoColor}44`,fontWeight:700,whiteSpace:"nowrap"}}>{ESTADO_LABEL[oe.estado||"borrador"]}</span>
+        </td>
+        <td style={{...td,textAlign:"center"}}>
+          <span title="Documentos COMEX obligatorios (Packing List, Full Set, QC)" style={{fontSize:9,padding:"2px 7px",borderRadius:10,fontWeight:700,whiteSpace:"nowrap",background:`${cx.completo?C.green:C.warning}22`,color:cx.completo?C.green:C.warning,border:`1px solid ${cx.completo?C.green:C.warning}55`}}>
+            {cx.completo?`✓ ${cx.ok}/${cx.total}`:`⚠ ${cx.ok}/${cx.total}`}
+          </span>
+        </td>
+        <td style={{...td,textAlign:"right",whiteSpace:"nowrap"}} onClick={e=>e.stopPropagation()}>
+          <button onClick={()=>toggle("pl")} title="Packing List"
+            style={{...btnSt(C.teal,expand!=="pl"),padding:"3px 7px",fontSize:10,marginRight:3}}>📋{nPallets>0?` ${nPallets}`:""}</button>
+          <button onClick={()=>toggle("comex")} title="Carpeta COMEX"
+            style={{...btnSt(C.purple,expand!=="comex"),padding:"3px 7px",fontSize:10,marginRight:3}}>📁</button>
+          {canEdit && <>
+            <button onClick={onEditar} title="Editar" style={{...btnSt(C.blue,true),padding:"3px 7px",fontSize:10,marginRight:3}}>✎</button>
+            <button onClick={onEliminar} title="Eliminar" style={{...btnSt(C.accent,true),padding:"3px 7px",fontSize:10}}>×</button>
+          </>}
+        </td>
+      </tr>
+      {expand && (
+        <tr>
+          <td colSpan={11} style={{padding:"0 12px 12px",background:`${C.blue}0a`,borderTop:"none"}}>
+            {expand==="pl" && <PackingListPanel oe={oe} tiposEmbalaje={tiposEmbalaje} especies={especies} exportadoras={exportadoras} clientes={clientes} onGuardar={onGuardarPL} canEdit={canEdit}/>}
+            {expand==="comex" && <CarpetaComexPanel oe={oe} onGuardar={onGuardarCOMEX} canEdit={canEdit}/>}
+          </td>
+        </tr>
+      )}
+    </>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════
 // PLACEHOLDER GENÉRICO — tabs que se construyen en fases siguientes
 // ═══════════════════════════════════════════════════════════════════
 function Placeholder({titulo, icono, fase, descripcion}) {
@@ -6300,6 +6368,7 @@ export default function FriskuComercialModule({
   const [filtroEstadoOE,  setFiltroEstadoOE]  = useState("");
   const [filtroTempOE,    setFiltroTempOE]    = useState("");
   const [filtroViaOE,     setFiltroViaOE]     = useState("");
+  const [vistaOE,         setVistaOE]         = useState("lista"); // "lista" | "cards"
   const [soloDocsIncompletos, setSoloDocsIncompletos] = useState(false); // filtro: solo OE con docs COMEX faltantes
 
   const [cargando, setCargando] = useState(true);
@@ -7386,6 +7455,12 @@ export default function FriskuComercialModule({
                     {embarquesFiltrados.length} orden{embarquesFiltrados.length!==1?"es":""} de embarque
                     {embarquesFiltrados.length !== embarques.length && ` (${embarques.length} total)`}
                   </span>
+                  <div style={{display:"flex",gap:0,border:`1px solid ${C.border}`,borderRadius:6,overflow:"hidden"}}>
+                    <button onClick={()=>setVistaOE("lista")} title="Vista de lista"
+                      style={{padding:"4px 10px",fontSize:11,fontWeight:700,cursor:"pointer",border:"none",background:vistaOE==="lista"?C.blue:"transparent",color:vistaOE==="lista"?"#fff":C.muted}}>☰ Lista</button>
+                    <button onClick={()=>setVistaOE("cards")} title="Vista de tarjetas"
+                      style={{padding:"4px 10px",fontSize:11,fontWeight:700,cursor:"pointer",border:"none",background:vistaOE==="cards"?C.blue:"transparent",color:vistaOE==="cards"?"#fff":C.muted}}>▦ Tarjetas</button>
+                  </div>
                   {embarquesDocsIncompletos > 0 && (
                     <button
                       onClick={()=>setSoloDocsIncompletos(v=>!v)}
@@ -7403,32 +7478,52 @@ export default function FriskuComercialModule({
                   )}
                 </div>
 
-                {/* Grid de cards */}
-                {embarquesFiltrados.length === 0 ? (
-                  <div style={{textAlign:"center",padding:40,color:C.muted,fontSize:13}}>
-                    {embarques.length === 0
-                      ? "No hay órdenes de embarque. Crea la primera con + Nueva OE."
-                      : "No hay OE que coincidan con los filtros."}
-                  </div>
-                ) : (
-                  <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(320px,1fr))",gap:14}}>
-                    {embarquesFiltrados.map(oe=>(
-                      <OECard
-                        key={oe.id}
-                        oe={oe}
-                        exportadoras={exportadoras}
-                        clientes={clientes}
-                        especies={especies}
-                        tiposEmbalaje={tiposEmbalaje}
-                        onEditar={()=>handleEditarOE(oe)}
-                        onEliminar={()=>handleEliminarOE(oe)}
-                        onGuardarPL={(pl)=>setEmbarques(prev=>prev.map(e=>e.id===oe.id?{...e,packingList:pl,estado:pl.pallets?.length>0&&e.estado==="confirmado"?"despachado":e.estado}:e))}
-                        onGuardarCOMEX={(cx)=>setEmbarques(prev=>prev.map(e=>e.id===oe.id?{...e,carpetaComex:cx}:e))}
-                        canEdit={permEmbarques.canEdit}
-                      />
-                    ))}
-                  </div>
-                )}
+                {/* Lista o tarjetas */}
+                {(()=>{
+                  const onPL = (oe)=>(pl)=>setEmbarques(prev=>prev.map(e=>e.id===oe.id?{...e,packingList:pl,estado:pl.pallets?.length>0&&e.estado==="confirmado"?"despachado":e.estado}:e));
+                  const onCX = (oe)=>(cx)=>setEmbarques(prev=>prev.map(e=>e.id===oe.id?{...e,carpetaComex:cx}:e));
+                  if(embarquesFiltrados.length === 0){
+                    return <div style={{textAlign:"center",padding:40,color:C.muted,fontSize:13}}>
+                      {embarques.length === 0 ? "No hay órdenes de embarque. Crea la primera con + Nueva OE." : "No hay OE que coincidan con los filtros."}
+                    </div>;
+                  }
+                  if(vistaOE==="cards"){
+                    return <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(320px,1fr))",gap:14}}>
+                      {embarquesFiltrados.map(oe=>(
+                        <OECard key={oe.id} oe={oe} exportadoras={exportadoras} clientes={clientes} especies={especies} tiposEmbalaje={tiposEmbalaje}
+                          onEditar={()=>handleEditarOE(oe)} onEliminar={()=>handleEliminarOE(oe)}
+                          onGuardarPL={onPL(oe)} onGuardarCOMEX={onCX(oe)} canEdit={permEmbarques.canEdit}/>
+                      ))}
+                    </div>;
+                  }
+                  // Vista lista (tabla compacta, filas expandibles)
+                  return <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,overflowX:"auto"}}>
+                    <table style={{width:"100%",borderCollapse:"collapse",fontSize:11.5,minWidth:920}}>
+                      <thead>
+                        <tr style={{background:C.card2,color:C.muted,textAlign:"left"}}>
+                          <th style={{padding:"8px 10px",fontWeight:700,width:26}}></th>
+                          <th style={{padding:"8px 10px",fontWeight:700}}>N° OE</th>
+                          <th style={{padding:"8px 10px",fontWeight:700}}>Especie</th>
+                          <th style={{padding:"8px 10px",fontWeight:700}}>Exportadora → Cliente</th>
+                          <th style={{padding:"8px 10px",fontWeight:700,textAlign:"center"}}>Vía</th>
+                          <th style={{padding:"8px 10px",fontWeight:700,textAlign:"right"}}>Cajas</th>
+                          <th style={{padding:"8px 10px",fontWeight:700}}>ETD</th>
+                          <th style={{padding:"8px 10px",fontWeight:700}}>ETA</th>
+                          <th style={{padding:"8px 10px",fontWeight:700,textAlign:"center"}}>Estado</th>
+                          <th style={{padding:"8px 10px",fontWeight:700,textAlign:"center"}}>Docs</th>
+                          <th style={{padding:"8px 10px",fontWeight:700,textAlign:"right"}}>Acciones</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {embarquesFiltrados.map(oe=>(
+                          <OERow key={oe.id} oe={oe} exportadoras={exportadoras} clientes={clientes} especies={especies} tiposEmbalaje={tiposEmbalaje}
+                            onEditar={()=>handleEditarOE(oe)} onEliminar={()=>handleEliminarOE(oe)}
+                            onGuardarPL={onPL(oe)} onGuardarCOMEX={onCX(oe)} canEdit={permEmbarques.canEdit}/>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>;
+                })()}
               </>
             )}
           </div>
