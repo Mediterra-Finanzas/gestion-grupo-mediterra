@@ -4503,7 +4503,6 @@ function TableroAsociativo({ liquidaciones, embarques, clientes, exportadoras, e
   const [dim2, setDim2] = useState("");
   const [chart, setChart] = useState("barras");   // barras | tabla | torta | tendencia
   const [sel, setSel] = useState({});             // {dimKey: Set(valores)}
-  const [addDim, setAddDim] = useState("");        // dimensión elegida para agregar filtro
   const [topN, setTopN] = useState(12);
 
   // Lookups compartidos
@@ -4653,7 +4652,7 @@ function TableroAsociativo({ liquidaciones, embarques, clientes, exportadoras, e
     if(!mOk) setMeasureId(measures[0].key);
     if(!dims.some(d=>d.key===dim1)) setDim1(dims[0].key);
     if(dim2 && !dims.some(d=>d.key===dim2)) setDim2("");
-    setSel({}); setAddDim("");
+    setSel({});
   // eslint-disable-next-line
   },[fuenteId]);
 
@@ -4880,11 +4879,115 @@ function TableroAsociativo({ liquidaciones, embarques, clientes, exportadoras, e
     );
   };
 
-  const selPickerOpts = addDim ? (()=>{ const seen={}; fuente.rows.forEach(r=>{ if(!(r[addDim] in seen)) seen[r[addDim]]=r[labField(addDim)]; }); return Object.entries(seen).map(([value,label])=>({value, label})).sort((a,b)=>String(a.label).localeCompare(String(b.label))); })() : [];
+  // ── Datos agregados (para tabla visible y export) ──
+  const tablaAgg = ()=>{
+    const rows = aggPrimary.arr;
+    if(!d2){
+      return { modo:"simple", headers:[d1.lab, measure.lab, "%"],
+        rows: rows.map(x=>[x.lab, x.m, totalMeasure?x.m/totalMeasure*100:0]),
+        total:["TOTAL", totalMeasure, 100] };
+    }
+    const cols = seg2.keys;
+    return { modo:"pivote", headers:[`${d1.lab} \\ ${d2.lab}`, ...cols.map(c=>seg2.labDe(c)), "Total"],
+      rows: rows.map(x=>{ const byc=groupRowsBy2(x.rows); return [x.lab, ...cols.map(c=>{const rs=byc[c]; return rs?measure.calc(rs):0;}), x.m]; }),
+      total:["TOTAL", ...cols.map(c=>measure.calc(filteredRows.filter(r=>r[d2.key]===c))), totalMeasure] };
+  };
+  const esMoney = /USD|\$/.test(measure.lab);
+  const filtrosTxt = chips.length ? chips.map(c=>`${c.dimLab}=${c.lab}`).join(", ") : "sin filtros";
+
+  const exportBIExcel = async ()=>{
+    try{
+      const ExcelJS = await fr_loadExcelJS();
+      const wb = new ExcelJS.Workbook(); wb.creator="Grupo Mediterra — Frisku Foods";
+      const sub = `${fuente.lab.replace(/^\S+\s/,"")} · ${measure.lab} por ${d1.lab}${d2?` × ${d2.lab}`:""} · Filtros: ${filtrosTxt} · ${new Date().toLocaleDateString("es-CL")}`;
+      const wsR = wb.addWorksheet("Resumen");
+      fr_sheetTabla(wsR, { titulo:"FRISKU FOODS — BI", subtitulo:sub, headers:["Indicador","Valor"], colWidths:[36,20],
+        rows: measures.map(m=>[m.lab, Math.round((m.calc(filteredRows))*100)/100]) });
+      await fr_logoExcel(wb, wsR);
+      const t = tablaAgg();
+      const numCols = t.headers.map((_,i)=>i).filter(i=>i>0 && !(t.modo==="simple" && i===2));
+      const ws = wb.addWorksheet("Detalle");
+      fr_sheetTabla(ws, { titulo:"FRISKU FOODS — BI", subtitulo:sub, headers:t.headers,
+        colWidths:t.headers.map((h,i)=>i===0?32:16), rows:t.rows, totalRow:t.total,
+        moneyCols: esMoney?numCols:[], intCols: esMoney?[]:numCols });
+      await fr_logoExcel(wb, ws);
+      await fr_descargarWB(wb, `BI_Frisku_${d1.key}_${measure.key}.xlsx`);
+    }catch(e){ console.error("[BI] Excel:",e); alert("No se pudo generar el Excel: "+e.message); }
+  };
+
+  const exportBIPDF = async ()=>{
+    try{
+      const JsPDF = await pl_loadJsPDF();
+      const doc = new JsPDF({orientation:"landscape", unit:"mm", format:"a4"});
+      const W=297, m=12;
+      doc.setFillColor(30,39,97); doc.rect(0,0,W,26,"F");
+      doc.setTextColor(255,255,255); doc.setFont("helvetica","bold"); doc.setFontSize(14);
+      doc.text("Frisku Foods — Explorador BI", m, 12);
+      doc.setFont("helvetica","normal"); doc.setFontSize(9);
+      doc.text(`${measure.lab} por ${d1.lab}${d2?` x ${d2.lab}`:""} · ${new Date().toLocaleDateString("es-CL")}`, m, 19);
+      doc.setFontSize(7.5); doc.text(`Filtros: ${filtrosTxt}`.slice(0,140), m, 23.5);
+      await fr_logoPDF(doc, W-m, 5, 42, 16);
+      doc.autoTable({ startY:31, head:[["Indicador","Valor"]],
+        body: measures.map(m2=>[m2.lab, m2.fmt(m2.calc(filteredRows))]),
+        theme:"grid", styles:{fontSize:8}, headStyles:{fillColor:[30,39,97]}, tableWidth:110, margin:{left:m} });
+      const t = tablaAgg();
+      const fmtCell = (v,i)=> i===0?String(v):(typeof v==="number" ? (t.modo==="simple"&&i===2 ? (Number(v).toFixed(1)+"%") : (esMoney?fmtUSD0(v):fmtN0(v))) : String(v));
+      doc.autoTable({ startY:31, head:[t.headers], body: t.rows.map(r=>r.map(fmtCell)),
+        foot:[t.total.map(fmtCell)], theme:"striped", styles:{fontSize:7.5}, headStyles:{fillColor:[30,39,97]},
+        footStyles:{fillColor:[220,227,240], textColor:20, fontStyle:"bold"}, margin:{left:m+114, right:m} });
+      doc.save(`BI_Frisku_${d1.key}_${measure.key}.pdf`);
+    }catch(e){ console.error("[BI] PDF:",e); alert("No se pudo generar el PDF: "+e.message); }
+  };
+
+  // ── Listbox asociativo (panel de filtros estilo Qlik) ──
+  const ListBox = ({d})=>{
+    const [q,setQ] = useState("");
+    const selSet = sel[d.key] || new Set();
+    const rowsX = fuente.rows.filter(r=>matchRow(r, d.key));
+    const grp = {};
+    rowsX.forEach(r=>{ const v=r[d.key]; (grp[v]=grp[v]||{val:v, lab:r[labField(d.key)], rows:[]}).rows.push(r); });
+    const possible = Object.values(grp).map(g=>({val:g.val, lab:g.lab, m:measure.calc(g.rows)}));
+    (selSet.size?[...selSet]:[]).forEach(v=>{ if(!grp[v]) possible.push({val:v, lab:labelOf(d.key,v), m:0}); });
+    possible.sort((a,b)=>{ const as=selSet.has(a.val)?1:0, bs=selSet.has(b.val)?1:0; return bs-as || b.m-a.m; });
+    const posSet = new Set(possible.map(x=>x.val));
+    const allMap = {}; fuente.rows.forEach(r=>{ if(!(r[d.key] in allMap)) allMap[r[d.key]]=r[labField(d.key)]; });
+    const excluded = Object.keys(allMap).filter(v=>!posSet.has(v)).map(v=>({val:v, lab:allMap[v]}));
+    const qq=q.trim().toLowerCase(); const fil=(a)=> qq? a.filter(x=>String(x.lab).toLowerCase().includes(qq)) : a;
+    const pos=fil(possible), exc=fil(excluded);
+    return (
+      <div style={{border:`1px solid ${C.border}`, borderRadius:10, background:C.card, marginBottom:8, boxShadow:C.shadowSm}}>
+        <div style={{display:"flex", justifyContent:"space-between", alignItems:"center", padding:"6px 9px", borderBottom:`1px solid ${C.border}`}}>
+          <span style={{fontSize:11.5, fontWeight:700}}>{d.lab}{selSet.size>0 && <span style={{color:C.accent2}}> · {selSet.size}</span>}</span>
+          {selSet.size>0 && <span onClick={()=>setSel(p=>{const n={...p}; delete n[d.key]; return n;})} title="Quitar selección" style={{fontSize:10, color:C.accent, cursor:"pointer", fontWeight:700}}>✕</span>}
+        </div>
+        <div style={{padding:"6px 7px 4px"}}>
+          <input value={q} onChange={e=>setQ(e.target.value)} placeholder="Buscar…" style={{...inputSt, width:"100%", padding:"3px 7px", fontSize:11}}/>
+        </div>
+        <div style={{maxHeight:168, overflowY:"auto", padding:"0 6px 6px"}}>
+          {pos.map(x=>{ const isSel=selSet.has(x.val);
+            return <div key={x.val} onClick={()=>toggle(d.key,x.val)} title="Clic para (de)seleccionar"
+              style={{display:"flex", justifyContent:"space-between", gap:6, alignItems:"center", cursor:"pointer", padding:"3px 6px", borderRadius:5, background:isSel?C.accent2:"transparent", color:isSel?"#fff":C.text, marginBottom:1}}>
+              <span style={{fontSize:11, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis"}}>{isSel?"✓ ":""}{x.lab}</span>
+              <span style={{fontSize:9.5, opacity:0.75, whiteSpace:"nowrap", fontWeight:600}}>{measFmt(x.m)}</span>
+            </div>; })}
+          {exc.slice(0,60).map(x=>(
+            <div key={x.val} onClick={()=>toggle(d.key,x.val)} title="Excluido por la selección actual (clic para forzar)"
+              style={{padding:"3px 6px", borderRadius:5, cursor:"pointer", color:C.muted2, background:C.cardAlt, marginBottom:1, opacity:0.7}}>
+              <span style={{fontSize:11, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis", textDecoration:"line-through", display:"block"}}>{x.lab}</span>
+            </div>
+          ))}
+          {(pos.length+exc.length)===0 && <div style={{fontSize:10.5, color:C.muted2, textAlign:"center", padding:8}}>Sin valores</div>}
+        </div>
+      </div>
+    );
+  };
+
+  const gBtn = (activo)=>({ fontSize:11, padding:"6px 9px", borderRadius:7, cursor:"pointer", fontWeight:700,
+    border:`1px solid ${activo?C.blue:C.border}`, background:activo?C.blue:C.card, color:activo?"#fff":C.muted });
 
   return (
     <div>
-      {/* ── Barra de configuración: fuente / medida / dims / gráfico ── */}
+      {/* ── Barra de configuración: fuente / medida / dims / gráfico / export ── */}
       <div style={{background:C.card, border:`1px solid ${C.border}`, borderRadius:14, padding:14, boxShadow:C.shadowSm, marginBottom:12}}>
         <div style={{display:"flex", gap:12, flexWrap:"wrap", alignItems:"flex-end"}}>
           <div>
@@ -4916,7 +5019,7 @@ function TableroAsociativo({ liquidaciones, embarques, clientes, exportadoras, e
             <div style={lblSt}>Gráfico</div>
             <div style={{display:"flex", gap:4}}>
               {[{k:"barras",i:"▦ Barras"},{k:"tabla",i:"▤ Tabla"},{k:"torta",i:"◔ Torta"},{k:"tendencia",i:"📈 Tendencia"}].map(g=>(
-                <button key={g.k} onClick={()=>setChart(g.k)} style={{...btnSt(chart===g.k?C.blue:C.muted, chart!==g.k), fontSize:11, padding:"6px 9px"}}>{g.i}</button>
+                <button key={g.k} onClick={()=>setChart(g.k)} style={gBtn(chart===g.k)}>{g.i}</button>
               ))}
             </div>
           </div>
@@ -4928,6 +5031,13 @@ function TableroAsociativo({ liquidaciones, embarques, clientes, exportadoras, e
               </select>
             </div>
           )}
+          <div style={{marginLeft:"auto"}}>
+            <div style={lblSt}>Descargar</div>
+            <div style={{display:"flex", gap:5}}>
+              <button onClick={exportBIExcel} disabled={!hayDatos} title="Excel de la vista actual (con logo)" style={{...btnSt(C.green), fontSize:11, padding:"6px 10px", opacity:hayDatos?1:0.5}}>⬇ Excel</button>
+              <button onClick={exportBIPDF} disabled={!hayDatos} title="PDF de la vista actual (con logo)" style={{...btnSt(C.accent), fontSize:11, padding:"6px 10px", opacity:hayDatos?1:0.5}}>⬇ PDF</button>
+            </div>
+          </div>
         </div>
         <div style={{fontSize:11, color:C.muted2, marginTop:8}}>{fuente.nota} · {fuente.rows.length} registros en total{d2?` · desglose por ${d2.lab.toLowerCase()}`:""}</div>
       </div>
@@ -4938,30 +5048,17 @@ function TableroAsociativo({ liquidaciones, embarques, clientes, exportadoras, e
         </div>
       ) : <>
 
-      {/* ── Filtros asociativos activos + agregar filtro ── */}
-      <div style={{display:"flex", gap:10, marginBottom:12, flexWrap:"wrap", alignItems:"center"}}>
-        <div style={{display:"flex", gap:6, alignItems:"center"}}>
-          <select value={addDim} onChange={e=>setAddDim(e.target.value)} style={{...inputSt, width:150}}>
-            <option value="">+ Filtrar por…</option>
-            {dims.map(d=><option key={d.key} value={d.key}>{d.lab}</option>)}
-          </select>
-          {addDim && (
-            <div style={{width:190}}>
-              <SelectBuscable value="" onChange={(v)=>{ if(v){ toggle(addDim, v); } }} options={selPickerOpts}
-                placeholder={`Buscar ${dims.find(d=>d.key===addDim)?.lab.toLowerCase()||""}…`} listId={`bi-add-${addDim}`} style={{...inputSt, width:"100%"}}/>
-            </div>
-          )}
-        </div>
-        <div style={{flex:1, minWidth:220, display:"flex", flexWrap:"wrap", gap:6, alignItems:"center", minHeight:30}}>
-          {chips.length===0 ? <span style={{fontSize:11.5, color:C.muted2}}>Sin filtros. Haz clic en cualquier barra/segmento para acotar (se combinan entre sí, estilo Qlik).</span> :
-            chips.map((c,i)=>(
-              <span key={i} onClick={()=>quitar(c.dim,c.v)} title="Quitar"
-                style={{fontSize:11, fontWeight:600, background:C.accent2, color:"#fff", borderRadius:14, padding:"3px 10px", cursor:"pointer", display:"inline-flex", gap:6, alignItems:"center"}}>
-                <span style={{opacity:0.8, fontWeight:400}}>{c.dimLab}:</span>{c.lab}<span style={{opacity:0.85}}>×</span>
-              </span>
-            ))}
-          {chips.length>0 && <button onClick={limpiar} style={{...btnSt(C.muted,true), fontSize:10, padding:"3px 8px"}}>Limpiar todo</button>}
-        </div>
+      {/* ── Selecciones activas (breadcrumb) ── */}
+      <div style={{display:"flex", gap:8, marginBottom:12, flexWrap:"wrap", alignItems:"center", minHeight:30}}>
+        <span style={{fontSize:10, fontWeight:700, color:C.muted, textTransform:"uppercase"}}>Selecciones:</span>
+        {chips.length===0 ? <span style={{fontSize:11.5, color:C.muted2}}>Ninguna. Usa el panel de filtros de la izquierda o haz clic en el gráfico (se combinan, estilo Qlik).</span> :
+          chips.map((c,i)=>(
+            <span key={i} onClick={()=>quitar(c.dim,c.v)} title="Quitar"
+              style={{fontSize:11, fontWeight:600, background:C.accent2, color:"#fff", borderRadius:14, padding:"3px 10px", cursor:"pointer", display:"inline-flex", gap:6, alignItems:"center"}}>
+              <span style={{opacity:0.8, fontWeight:400}}>{c.dimLab}:</span>{c.lab}<span style={{opacity:0.85}}>×</span>
+            </span>
+          ))}
+        {chips.length>0 && <button onClick={limpiar} style={{...btnSt(C.muted,true), fontSize:10, padding:"3px 8px"}}>Limpiar todo</button>}
       </div>
 
       {/* ── KPIs de todas las medidas de la fuente (sobre la selección) ── */}
@@ -4969,15 +5066,22 @@ function TableroAsociativo({ liquidaciones, embarques, clientes, exportadoras, e
         {measures.map((m,i)=> kpiCard(m.lab, m.fmt(m.calc(filteredRows)), m.key===measureId?C.accent2:(i===0?C.blue:C.text)))}
       </div>
 
-      {/* ── Visualización principal ── */}
-      {chart==="barras"     && <VistaBarras/>}
-      {chart==="tabla"      && <VistaTabla/>}
-      {chart==="torta"      && <VistaTorta/>}
-      {chart==="tendencia"  && <VistaTendencia/>}
-
-      <div style={{fontSize:11, color:C.muted2, marginTop:14, textAlign:"center"}}>
-        Explorador BI · {filteredRows.length} de {fuente.rows.length} registros en la selección · midiendo <b>{measure.lab}</b> por <b>{d1.lab}</b>{d2?` × ${d2.lab}`:""}.
-        Clic en cualquier elemento para filtrar; vuelve a hacer clic para quitarlo.
+      {/* ── Layout Qlik: panel de filtros (listboxes) + visualización ── */}
+      <div style={{display:"grid", gridTemplateColumns:"minmax(0, 250px) minmax(0, 1fr)", gap:14, alignItems:"start"}}>
+        <div>
+          <div style={{fontSize:10, fontWeight:700, color:C.muted, textTransform:"uppercase", marginBottom:6}}>Panel de filtros</div>
+          {dims.map(d=><ListBox key={d.key} d={d}/>)}
+        </div>
+        <div>
+          {chart==="barras"     && <VistaBarras/>}
+          {chart==="tabla"      && <VistaTabla/>}
+          {chart==="torta"      && <VistaTorta/>}
+          {chart==="tendencia"  && <VistaTendencia/>}
+          <div style={{fontSize:11, color:C.muted2, marginTop:14, textAlign:"center"}}>
+            Explorador BI · {filteredRows.length} de {fuente.rows.length} registros en la selección · midiendo <b>{measure.lab}</b> por <b>{d1.lab}</b>{d2?` × ${d2.lab}`:""}.
+            Verde = seleccionado · tachado = excluido por la combinación actual.
+          </div>
+        </div>
       </div>
       </>}
     </div>
