@@ -2848,11 +2848,17 @@ function defaultCarpetaComex() {
 }
 
 // Estado de documentos COMEX de un embarque: cuántos cargados, cuántos faltan.
+// Documentos obligatorios de la carpeta COMEX.
+const DOCS_COMEX_OBLIG = ["Packing List","Full Set","QC"];
+// Un documento se considera adjunto solo si tiene un archivo REAL subido
+// (URL http/https). Una ruta local del PC ("C:\...") no cuenta.
+const esArchivoSubido = (u)=> /^https?:\/\//i.test(String(u||""));
+
 function comexEstado(oe) {
   const docs = oe?.carpetaComex?.docs || [];
-  const total = docs.length || DOCS_COMEX_DEFAULT.length;
-  const ok = docs.filter(d=>d.url && d.estado!=="pendiente").length;
-  return { ok, total, faltan: total - ok, completo: (total - ok)===0 && ok>0 };
+  const ok = DOCS_COMEX_OBLIG.filter(t => docs.some(d=>d.tipo===t && esArchivoSubido(d.url))).length;
+  const total = DOCS_COMEX_OBLIG.length;
+  return { ok, total, faltan: total - ok, completo: (total - ok)===0 };
 }
 
 function CarpetaComexPanel({ oe, onGuardar, canEdit }) {
@@ -2916,8 +2922,9 @@ function CarpetaComexPanel({ oe, onGuardar, canEdit }) {
     if(url){ updDocQC(idx,"url",url); updDocQC(idx,"nombre",file.name); updDocQC(idx,"fecha",new Date().toISOString().slice(0,10)); }
   }
 
-  const docsCargados = cx.docs.filter(d=>d.url&&d.estado!=="pendiente").length;
-  const pct = cx.docs.length>0 ? Math.round(docsCargados/cx.docs.length*100) : 0;
+  const docsCargados = cx.docs.filter(d=>esArchivoSubido(d.url)).length;
+  const obligOk = DOCS_COMEX_OBLIG.filter(t=>cx.docs.some(d=>d.tipo===t && esArchivoSubido(d.url))).length;
+  const pct = Math.round(obligOk/DOCS_COMEX_OBLIG.length*100);
   const ECOL = { pendiente:C.yellow, cargado:C.blue, aprobado:C.green };
 
   return (
@@ -2926,8 +2933,8 @@ function CarpetaComexPanel({ oe, onGuardar, canEdit }) {
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
         <div style={{fontSize:12,fontWeight:700,color:C.purple}}>
           📁 Carpeta COMEX
-          <span style={{marginLeft:10,fontSize:10,background:`${C.purple}22`,color:C.purple,borderRadius:20,padding:"2px 8px",fontWeight:700}}>
-            {docsCargados}/{cx.docs.length} · {pct}%
+          <span title="Obligatorios: Packing List, Full Set, QC" style={{marginLeft:10,fontSize:10,background:`${pct===100?C.green:C.purple}22`,color:pct===100?C.green:C.purple,borderRadius:20,padding:"2px 8px",fontWeight:700}}>
+            {obligOk}/{DOCS_COMEX_OBLIG.length} oblig. · {pct}%
           </span>
         </div>
         <div style={{display:"flex",gap:5}}>
@@ -2946,41 +2953,42 @@ function CarpetaComexPanel({ oe, onGuardar, canEdit }) {
         <div>
           <div style={{display:"flex",flexDirection:"column",gap:5,marginBottom:10}}>
             {cx.docs.map((doc,idx)=>{
-              const isStorage = doc.fuente==="storage" && doc.url;
+              const adjunto = esArchivoSubido(doc.url);       // archivo real subido (http)
+              const rutaLocal = doc.url && !adjunto;          // pegaron una ruta local del PC
+              const oblig = DOCS_COMEX_OBLIG.includes(doc.tipo);
+              const estadoEf = adjunto ? (doc.estado==="aprobado"?"aprobado":"cargado") : "pendiente";
               const isUploading = uploading.has(idx);
-              const ec = ECOL[doc.estado||"pendiente"]||C.yellow;
+              const ec = ECOL[estadoEf]||C.yellow;
               const isDefault = DOCS_COMEX_DEFAULT.includes(doc.tipo);
               return (
-                <div key={doc.id||idx} style={{display:"flex",gap:6,alignItems:"center",padding:"7px 10px",background:C.card,borderRadius:8,border:`1px solid ${doc.url?C.border:C.border+"44"}`}}>
+                <div key={doc.id||idx} style={{display:"flex",gap:6,alignItems:"center",flexWrap:"wrap",padding:"7px 10px",background:C.card,borderRadius:8,border:`1px solid ${adjunto?C.border:C.border+"44"}`}}>
                   <div style={{flex:1,minWidth:0}}>
                     {canEdit && !isDefault
                       ? <input value={doc.tipo==="Otro"?"":doc.tipo} onChange={e=>updDoc(idx,"tipo",e.target.value||"Otro")}
                           placeholder="Nombre del documento" autoFocus={doc.tipo==="Otro"}
                           style={{...inputSt,padding:"3px 6px",fontSize:11,fontWeight:600,width:"100%"}}/>
-                      : <div style={{fontSize:11,fontWeight:600,color:C.text,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{doc.tipo}</div>}
-                    {doc.nombre&&doc.nombre!==doc.tipo&&<div style={{fontSize:9,color:C.muted,marginTop:1,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{doc.nombre}</div>}
-                    {doc.fechaCarga&&<div style={{fontSize:9,color:C.muted2}}>{doc.fechaCarga}</div>}
+                      : <div style={{fontSize:11,fontWeight:600,color:C.text,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{doc.tipo}{oblig&&<span title="Obligatorio" style={{color:C.accent,marginLeft:4}}>*</span>}</div>}
+                    {doc.nombre&&doc.nombre!==doc.tipo&&adjunto&&<div style={{fontSize:9,color:C.muted,marginTop:1,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{doc.nombre}</div>}
+                    {doc.fechaCarga&&adjunto&&<div style={{fontSize:9,color:C.muted2}}>{doc.fechaCarga}</div>}
+                    {rutaLocal&&<div style={{fontSize:9,color:C.accent,marginTop:1,fontWeight:600}}>⚠ Ruta local del PC — vuelve a subir el archivo</div>}
                   </div>
-                  {canEdit
-                    ? <select value={doc.estado||"pendiente"} onChange={e=>updDoc(idx,"estado",e.target.value)}
-                        style={{...inputSt,padding:"3px 5px",width:85,fontSize:10,color:ec,border:`1px solid ${ec}44`,flexShrink:0}}>
-                        <option value="pendiente">Pendiente</option>
+                  {canEdit && adjunto
+                    ? <select value={estadoEf} onChange={e=>updDoc(idx,"estado",e.target.value)}
+                        style={{...inputSt,padding:"3px 5px",width:88,fontSize:10,color:ec,border:`1px solid ${ec}44`,flexShrink:0}}>
                         <option value="cargado">Cargado</option>
                         <option value="aprobado">Aprobado</option>
                       </select>
                     : <span style={{fontSize:9,padding:"2px 7px",borderRadius:4,background:`${ec}22`,color:ec,border:`1px solid ${ec}44`,fontWeight:700,whiteSpace:"nowrap",flexShrink:0}}>
-                        {doc.estado==="pendiente"?"Pendiente":doc.estado==="cargado"?"Cargado":"Aprobado"}
+                        {adjunto?(estadoEf==="aprobado"?"Aprobado":"Cargado"):"Pendiente"}
                       </span>
                   }
-                  {doc.url && (
+                  {adjunto && (
                     <a href={doc.url} target="_blank" rel="noreferrer"
-                      style={{...btnSt(isStorage?C.teal:C.blue,true),padding:"3px 8px",fontSize:10,textDecoration:"none",flexShrink:0}}>
-                      {isStorage?"📎":"↗"}
-                    </a>
+                      style={{...btnSt(C.teal,true),padding:"3px 8px",fontSize:10,textDecoration:"none",flexShrink:0}}>📎 Ver</a>
                   )}
-                  {canEdit && !doc.url && (
-                    <input value={doc.url||""} onChange={e=>{ updDoc(idx,"url",e.target.value); if(e.target.value){updDoc(idx,"fuente","manual");updDoc(idx,"estado","cargado");} }}
-                      placeholder="URL…" style={{...inputSt,width:130,padding:"3px 6px",fontSize:10,flexShrink:0}}/>
+                  {canEdit && !adjunto && (
+                    <input value={doc.url||""} onChange={e=>{ const v=e.target.value; updDoc(idx,"url",v); updDoc(idx,"fuente","manual"); updDoc(idx,"estado", esArchivoSubido(v)?"cargado":"pendiente"); }}
+                      placeholder="o pega un link http…" style={{...inputSt,width:150,padding:"3px 6px",fontSize:10,flexShrink:0}}/>
                   )}
                   {canEdit && (
                     <>
@@ -2989,7 +2997,7 @@ function CarpetaComexPanel({ oe, onGuardar, canEdit }) {
                       <button onClick={()=>document.getElementById(`comex_${oe.id}_${idx}`)?.click()}
                         disabled={isUploading} title="Subir archivo (PDF, imagen)"
                         style={{...btnSt(C.purple),padding:"3px 9px",fontSize:10,flexShrink:0,whiteSpace:"nowrap"}}>
-                        {isUploading?"⏳ Subiendo…":doc.url?"📎 Reemplazar":"📎 Subir"}
+                        {isUploading?"⏳ Subiendo…":adjunto?"📎 Reemplazar":"📎 Subir"}
                       </button>
                       {doc.url && (
                         <button onClick={()=>{ updDoc(idx,"url",""); updDoc(idx,"nombre",""); updDoc(idx,"fuente","manual"); updDoc(idx,"estado","pendiente"); }}
@@ -5984,6 +5992,7 @@ export default function FriskuComercialModule({
   const [filtroEspOE,     setFiltroEspOE]     = useState("");
   const [filtroEstadoOE,  setFiltroEstadoOE]  = useState("");
   const [filtroTempOE,    setFiltroTempOE]    = useState("");
+  const [filtroViaOE,     setFiltroViaOE]     = useState("");
   const [soloDocsIncompletos, setSoloDocsIncompletos] = useState(false); // filtro: solo OE con docs COMEX faltantes
 
   const [cargando, setCargando] = useState(true);
@@ -6511,11 +6520,13 @@ export default function FriskuComercialModule({
       if(filtroEspOE   && oe.especieCodigo !== filtroEspOE)   return false;
       if(filtroEstadoOE && (oe.estado||"borrador") !== filtroEstadoOE) return false;
       if(filtroTempOE  && oe.temporada     !== filtroTempOE)  return false;
+      if(filtroViaOE   && (oe.tipoEmbarque||"maritimo") !== filtroViaOE) return false;
       if(soloDocsIncompletos && !((oe.estado||"borrador")!=="cancelado" && comexEstado(oe).faltan>0)) return false;
       if(q) {
         const exp = exportadoras.find(e=>e.id===oe.exportadoraId)?.nombre||"";
         const cli = clientes.find(c=>c.id===oe.clienteId)?.nombre||"";
         const hayMatch = (oe.numero||"").toLowerCase().includes(q)
+          || (oe.numeroContenedor||"").toLowerCase().includes(q)
           || exp.toLowerCase().includes(q)
           || cli.toLowerCase().includes(q)
           || (oe.origen||"").toLowerCase().includes(q)
@@ -6525,7 +6536,7 @@ export default function FriskuComercialModule({
       }
       return true;
     });
-  },[embarques, filtroExpOE, filtroCliOE, filtroEspOE, filtroEstadoOE, filtroTempOE, soloDocsIncompletos, busquedaOE, exportadoras, clientes]);
+  },[embarques, filtroExpOE, filtroCliOE, filtroEspOE, filtroEstadoOE, filtroTempOE, filtroViaOE, soloDocsIncompletos, busquedaOE, exportadoras, clientes]);
 
   // Embarques (no cancelados) con documentos COMEX faltantes — para el contador/alerta
   const embarquesDocsIncompletos = useMemo(()=>
@@ -7048,6 +7059,12 @@ export default function FriskuComercialModule({
                     <option value="confirmado">Confirmado</option>
                     <option value="despachado">Despachado</option>
                     <option value="cancelado">Cancelado</option>
+                  </select>
+                  <select value={filtroViaOE} onChange={e=>setFiltroViaOE(e.target.value)}
+                    style={{padding:"6px 8px",background:C.input,border:`1px solid ${C.border}`,borderRadius:6,color:C.text,fontSize:12}}>
+                    <option value="">Toda vía</option>
+                    <option value="maritimo">🚢 Marítimo</option>
+                    <option value="aereo">✈ Aéreo</option>
                   </select>
                   {permEmbarques.canEdit && (
                     <button onClick={handleNuevaOE} style={{...btnSt(C.blue), marginLeft:"auto", whiteSpace:"nowrap"}}>
