@@ -4710,6 +4710,56 @@ const fmtUSD0 = (v) => "$" + new Intl.NumberFormat("es-CL",{maximumFractionDigit
 const fmtUSD2 = (v) => "$" + new Intl.NumberFormat("es-CL",{minimumFractionDigits:2,maximumFractionDigits:2}).format(Number(v)||0);
 const fmtN0   = (v) => new Intl.NumberFormat("es-CL",{maximumFractionDigits:0}).format(Number(v)||0);
 
+// FILTRO MULTI-SELECCIÓN ASOCIATIVO (estilo Qlik) para toda Reportería BI.
+// OR dentro de la dimensión (toggle) + AND entre dimensiones (motor). Muestra
+// SELECCIONADO (☑) / POSIBLE (☐) / EXCLUIDO (tachado, por la selección actual).
+// Al abrir con un valor ya elegido se ven todas las alternativas (reemplazar/
+// agregar/quitar sin limpiar). Cuenta de registros por valor (frecuencia Qlik).
+function FiltroMultiBI({ dimKey, label }) {
+  const bi = useFriskuBI();
+  const { sel, toggle, clearDim, associative } = bi;
+  const [open, setOpen] = useState(false);
+  const [q, setQ] = useState("");
+  const boxRef = useRef(null);
+  useEffect(()=>{ if(!open) return; const h=(e)=>{ if(boxRef.current && !boxRef.current.contains(e.target)) setOpen(false); }; document.addEventListener("mousedown",h); return ()=>document.removeEventListener("mousedown",h); },[open]);
+  const selSet = sel[dimKey] || new Set();
+  const { possible, excluded } = associative(dimKey);
+  const qq = q.trim().toLowerCase();
+  const fil=(arr)=> qq? arr.filter(x=>String(x.label).toLowerCase().includes(qq)) : arr;
+  const pos = fil(possible).slice().sort((a,b)=>{ const as=selSet.has(a.value)?0:1, bs=selSet.has(b.value)?0:1; return as-bs || (b.m||0)-(a.m||0); });
+  const exc = fil(excluded);
+  const n = selSet.size;
+  const resumen = n===0 ? "Todos" : (n===1 ? (possible.find(x=>selSet.has(x.value))?.label || [...selSet][0]) : `${n} seleccionados`);
+  return (
+    <div ref={boxRef} style={{position:"relative", minWidth:150, flex:"1 1 150px"}}>
+      <div style={lblSt}>{label}</div>
+      <div onClick={()=>setOpen(o=>!o)} style={{...inputSt, width:"100%", cursor:"pointer", display:"flex", justifyContent:"space-between", alignItems:"center", gap:6}}>
+        <span style={{whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis", color:n?C.text:C.muted2, fontWeight:n?600:400}}>{resumen}</span>
+        <span style={{color:C.muted, fontSize:10, whiteSpace:"nowrap"}}>{n>0 && <span onClick={(e)=>{e.stopPropagation(); clearDim(dimKey);}} title="Limpiar dimensión" style={{marginRight:6,color:C.accent,fontWeight:700}}>×</span>}▾</span>
+      </div>
+      {open && (
+        <div style={{position:"absolute", zIndex:50, top:"calc(100% + 2px)", left:0, right:0, background:C.card, border:`1px solid ${C.border}`, borderRadius:8, maxHeight:300, overflowY:"auto", boxShadow:C.shadowSm||"0 8px 24px rgba(0,0,0,.18)"}}>
+          <div style={{padding:6, position:"sticky", top:0, background:C.card, borderBottom:`1px solid ${C.border}`}}>
+            <input value={q} onChange={e=>setQ(e.target.value)} placeholder="Buscar…" style={{...inputSt, width:"100%", padding:"4px 7px", fontSize:11}}/>
+          </div>
+          {pos.map(x=>{ const on=selSet.has(x.value);
+            return <div key={x.value} onClick={()=>toggle(dimKey,x.value)} style={{display:"flex",justifyContent:"space-between",gap:8,alignItems:"center",padding:"4px 9px",cursor:"pointer",fontSize:11.5,background:on?`${C.accent2}18`:"transparent"}}>
+              <span style={{whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",color:on?C.accent2:C.text,fontWeight:on?700:400}}>{on?"☑":"☐"} {x.label}</span>
+              {x.m!=null && <span style={{fontSize:9.5,color:C.muted2}}>{fmtN0(x.m)}</span>}
+            </div>; })}
+          {exc.length>0 && <div style={{padding:"5px 9px 3px",fontSize:9,color:C.muted2,textTransform:"uppercase",borderTop:`1px dashed ${C.border}`}}>Excluidos por la selección ({exc.length})</div>}
+          {exc.slice(0,60).map(x=>(
+            <div key={x.value} onClick={()=>toggle(dimKey,x.value)} title="Excluido por el contexto actual — clic para forzar" style={{padding:"3px 9px",cursor:"pointer",fontSize:11,color:C.muted2}}>
+              <span style={{textDecoration:"line-through",opacity:0.7,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",display:"block"}}>☐ {x.label}</span>
+            </div>
+          ))}
+          {pos.length+exc.length===0 && <div style={{padding:10,fontSize:11,color:C.muted2,textAlign:"center"}}>Sin valores</div>}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // HOJA ANALÍTICA por dimensión (Clientes / Exportadores / Especies / Mercados /
 // Comisiones / Embarques). Todas usan el MISMO provider, métricas y selección.
 // Drill-down: clic en una fila filtra todo el BI (agregado→detalle). El detalle
@@ -4719,7 +4769,9 @@ function HojaBIDim({ dimDefault, orderDefault="friskuCommissionUSD", onVerEmbarq
   const { filtered, metric, sel, setOne, remove, associative, chips, clearAll } = bi;
   const [groupDim, setGroupDim] = useState(dimDefault);
   const [orderKey, setOrderKey] = useState(orderDefault);
-  const FLT = ["temporada","especie","exportadora","cliente","mercado","paisDestino","estado"];
+  const [topN, setTopN] = useState(dimDefault==="semanaETD"?"all":"20");
+  const FLT = ["temporada","especie","exportadora","cliente","mercado","paisDestino","estado","via","semanaETD"];
+  const FIN_KEYS = ["destinationSalesUSD","clientCommissionUSD","friskuCommissionUSD","avgCommissionPct"];
   const COLS = [
     {k:"containers",lab:"Contenedores",fmt:"int"},
     {k:"fcl",lab:"FCL",fmt:"int"},
@@ -4730,15 +4782,14 @@ function HojaBIDim({ dimDefault, orderDefault="friskuCommissionUSD", onVerEmbarq
     {k:"friskuCommissionUSD",lab:"Com. Frisku USD",fmt:"usd"},
     {k:"avgCommissionPct",lab:"% Frisku",fmt:"pct"},
   ];
-  const flt=(dk)=>{ const cur=sel[dk]?[...sel[dk]][0]:""; const opts=associative(dk).possible.map(x=>({value:x.value,label:x.label}));
-    return (<div key={dk} style={{minWidth:140,flex:"1 1 140px"}}><div style={lblSt}>{FRISKU_DIMS.find(d=>d.key===dk)?.lab||dk}</div>
-      <SelectBuscable value={cur} onChange={v=>setOne(dk,v)} options={opts} placeholder="Todos" style={{...inputSt,width:"100%"}}/></div>); };
   const grupos = useMemo(()=>{ const m={}; filtered.forEach(r=>{ const v=r[groupDim]; (m[v]=m[v]||{key:v,lab:r[groupDim+"Lab"],rows:[]}).rows.push(r); });
-    return Object.values(m).map(g=>{ const o={key:g.key,lab:g.lab}; COLS.forEach(c=>o[c.k]=metric[c.k].calc(g.rows)); o.ord=metric[orderKey].calc(g.rows); return o; })
+    return Object.values(m).map(g=>{ const o={key:g.key,lab:g.lab,_fin:g.rows.filter(r=>r._nLiq>0).length}; COLS.forEach(c=>o[c.k]=metric[c.k].calc(g.rows)); o.ord=metric[orderKey].calc(g.rows); return o; })
       .sort((a,b)=>b.ord-a.ord); },[filtered,groupDim,orderKey]);
   const totComF = grupos.reduce((s,g)=>s+g.friskuCommissionUSD,0)||1;
+  const gruposShown = topN==="all" ? grupos : grupos.slice(0, Number(topN));
   const dimLab = FRISKU_DIMS.find(d=>d.key===groupDim)?.lab||groupDim;
   const detalle = filtered.slice(0,200);
+  const cobFin = { n: filtered.filter(r=>r._nLiq>0).length, tot: filtered.length };   // cobertura financiera de la selección
   const dq = bi.dataQuality || {formatosSinPeso:[], liqClienteSinConv:0};
   const kgParcial = filtered.some(r=>r._kgFalta);   // hay contenedores con formato sin peso neto → kilos incompletos
   const [expX,setExpX] = useState(false); const [expP,setExpP] = useState(false);
@@ -4769,9 +4820,10 @@ function HojaBIDim({ dimDefault, orderDefault="friskuCommissionUSD", onVerEmbarq
   return (
     <div>
       <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,padding:12,marginBottom:12,display:"flex",gap:10,flexWrap:"wrap",alignItems:"flex-end"}}>
-        {FLT.map(flt)}
+        {FLT.map(dk=><FiltroMultiBI key={dk} dimKey={dk} label={FRISKU_DIMS.find(d=>d.key===dk)?.lab||dk}/>)}
         <div><div style={lblSt}>Agrupar por</div><select value={groupDim} onChange={e=>setGroupDim(e.target.value)} style={{...inputSt}}>{FRISKU_DIMS.map(d=><option key={d.key} value={d.key}>{d.lab}</option>)}</select></div>
         <div><div style={lblSt}>Ordenar por</div><select value={orderKey} onChange={e=>setOrderKey(e.target.value)} style={{...inputSt}}>{COLS.map(c=><option key={c.k} value={c.k}>{c.lab}</option>)}</select></div>
+        <div><div style={lblSt}>Top</div><select value={topN} onChange={e=>setTopN(e.target.value)} style={{...inputSt,width:88}}><option value="5">Top 5</option><option value="10">Top 10</option><option value="20">Top 20</option><option value="all">Todos</option></select></div>
         {chips.length>0 && <button onClick={clearAll} style={{...btnSt(C.muted,true),fontSize:11,padding:"7px 10px"}}>Limpiar</button>}
         <div style={{display:"flex",gap:6,marginLeft:"auto"}}>
           <button onClick={exportExcel} disabled={expX} style={{...btnSt(C.green),fontSize:11,padding:"7px 10px"}}>{expX?"⏳":"⬇ Excel"}</button>
@@ -4781,6 +4833,16 @@ function HojaBIDim({ dimDefault, orderDefault="friskuCommissionUSD", onVerEmbarq
       {(kgParcial || dq.liqClienteSinConv>0) && (
         <div style={{marginBottom:10,fontSize:11,color:C.warning,background:`${C.warning}14`,border:`1px solid ${C.warning}44`,borderRadius:8,padding:"7px 10px"}}>
           ⚠ Calidad de datos:{kgParcial && <span> Kilos <b>PARCIALES</b> — hay formatos sin peso neto en Maestros ({dq.formatosSinPeso.slice(0,6).join(", ")}); sus kilos cuentan 0.</span>}{dq.liqClienteSinConv>0 && <span> {dq.liqClienteSinConv} liquidación(es) con comisión cliente no convertible a USD de forma trazable.</span>}
+        </div>
+      )}
+      {cobFin.tot>0 && cobFin.n===0 && (
+        <div style={{marginBottom:10,fontSize:11.5,color:C.warning,background:`${C.warning}14`,border:`1px solid ${C.warning}44`,borderRadius:8,padding:"8px 11px",fontWeight:600}}>
+          Sin datos financieros suficientes para esta selección — {cobFin.tot} contenedor{cobFin.tot>1?"es":""} sin liquidación. Venta y comisión aparecerán automáticamente al cargar las liquidaciones. (Los contadores logísticos sí son reales.)
+        </div>
+      )}
+      {cobFin.tot>0 && cobFin.n>0 && cobFin.n<cobFin.tot && (
+        <div style={{marginBottom:10,fontSize:11,color:C.muted,background:C.card2,border:`1px solid ${C.border}`,borderRadius:8,padding:"6px 10px"}}>
+          ℹ Cobertura financiera: <b>{cobFin.n} de {cobFin.tot}</b> contenedores con liquidación ({Math.round(cobFin.n/cobFin.tot*100)}%). Venta y comisión reflejan solo esa parte; "—" = sin dato financiero todavía (no es 0 real).
         </div>
       )}
       {chips.length>0 && <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:10,alignItems:"center"}}>
@@ -4796,13 +4858,15 @@ function HojaBIDim({ dimDefault, orderDefault="friskuCommissionUSD", onVerEmbarq
             <th style={{padding:"8px 10px",textAlign:"right"}}>Part.%</th>
           </tr></thead>
           <tbody>
-            {grupos.map(g=>{ const isSel=sel[groupDim]&&sel[groupDim].has(g.key);
-              return <tr key={g.key} onClick={()=>setOne(groupDim, isSel?"":g.key)} title="Clic para profundizar (filtra todo el BI)"
+            {gruposShown.map(g=>{ const isSel=sel[groupDim]&&sel[groupDim].has(g.key);
+              return <tr key={g.key} onClick={()=>bi.toggle(groupDim, g.key)} title="Clic para (de)seleccionar y filtrar todo el BI (multi-selección)"
                 style={{cursor:"pointer",borderTop:`1px solid ${C.border}`,background:isSel?`${C.accent2}10`:"transparent"}}>
-                <td style={{padding:"7px 10px",fontWeight:isSel?700:500,color:isSel?C.accent2:C.text,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",maxWidth:220}}>{isSel?"✓ ":""}{g.lab}</td>
-                {COLS.map(c=><td key={c.k} style={{padding:"7px 10px",textAlign:"right",fontFamily:"monospace"}}>{fmtMetric(c.fmt,g[c.k])}</td>)}
+                <td style={{padding:"7px 10px",fontWeight:isSel?700:500,color:isSel?C.accent2:C.text,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",maxWidth:220}}>{isSel?"☑ ":""}{g.lab}</td>
+                {COLS.map(c=>{ const sinDato = FIN_KEYS.includes(c.k) && g._fin===0;
+                  return <td key={c.k} style={{padding:"7px 10px",textAlign:"right",fontFamily:"monospace",color:sinDato?C.muted2:undefined}}>{sinDato?"—":fmtMetric(c.fmt,g[c.k])}</td>; })}
                 <td style={{padding:"7px 10px",textAlign:"right",color:C.muted}}>{(g.friskuCommissionUSD/totComF*100).toFixed(1)}%</td>
               </tr>; })}
+            {grupos.length>gruposShown.length && <tr><td colSpan={COLS.length+2} style={{padding:"6px 10px",fontSize:10.5,color:C.muted2}}>+{grupos.length-gruposShown.length} más — sube el Top para verlos</td></tr>}
             {grupos.length===0 && <tr><td colSpan={COLS.length+2} style={{padding:20,textAlign:"center",color:C.muted2}}>Sin datos para la selección.</td></tr>}
           </tbody>
         </table>
@@ -4956,7 +5020,7 @@ function ResumenEjecutivo() {
   // métricas de definición única y opciones asociativas. La hoja no reimplementa
   // ninguna fórmula ni estado de filtro propio.
   const bi = useFriskuBI();
-  const { filtered:rows, sel, setOne, clearAll, remove, chips, associative, metric, dataQuality } = bi;
+  const { filtered:rows, sel, setOne, toggle, clearAll, remove, chips, associative, metric, dataQuality } = bi;
   const [expXls, setExpXls] = useState(false);
   const [expPdf, setExpPdf] = useState(false);
   const mF = metric.friskuCommissionUSD;   // medida principal de dinero (comisión Frisku)
@@ -5069,16 +5133,9 @@ function ResumenEjecutivo() {
     const big=(f1-f0)>0.5?1:0; return `M ${x0} ${y0} A ${R} ${R} 0 ${big} 1 ${x1} ${y1} L ${xi1} ${yi1} A ${r} ${r} 0 ${big} 0 ${xi0} ${yi0} Z`; };
 
   // Filtro global: single-select por dimensión, opciones asociativas del motor.
-  const flt = (dimKey, lab, ph)=>{
-    const cur = sel[dimKey] ? [...sel[dimKey]][0] : "";
-    const options = associative(dimKey).possible.map(x=>({value:x.value, label:x.label}));
-    return (
-      <div style={{minWidth:140, flex:"1 1 140px"}}>
-        <div style={lblSt}>{lab}</div>
-        <SelectBuscable value={cur} onChange={(v)=>setOne(dimKey,v)} options={options} placeholder={ph||"Todos"} style={{...inputSt, width:"100%"}}/>
-      </div>
-    );
-  };
+  const flt = (dimKey, lab)=> <FiltroMultiBI key={dimKey} dimKey={dimKey} label={lab}/>;   // multi-selección asociativa
+  const finN = rows.filter(r=>r._nLiq>0).length;   // contenedores con liquidación (cobertura financiera)
+  const FIN_KEYS_R = ["destinationSalesUSD","clientCommissionUSD","friskuCommissionUSD","avgCommissionPct"];
 
   return (
     <div>
@@ -5130,8 +5187,11 @@ function ResumenEjecutivo() {
 
       {/* KPIs (métricas de definición única) */}
       <div style={{display:"grid", gridTemplateColumns:"repeat(auto-fit, minmax(150px,1fr))", gap:12, marginBottom:16}}>
-        {KPIS.map(k=>{ const mt=metric[k]; const parcial=k==="kilograms"&&rows.some(r=>r._kgFalta);
-          return kpiCard(mt.label+(parcial?" ⚠ parcial":""), fmtMetric(mt.fmt, mt.calc(rows)), parcial?C.warning:(kpiColor[k]||C.text)); })}
+        {KPIS.map(k=>{ const mt=metric[k]; const fin=FIN_KEYS_R.includes(k); const parcial=k==="kilograms"&&rows.some(r=>r._kgFalta);
+          const val = (fin && finN===0) ? "Sin datos" : fmtMetric(mt.fmt, mt.calc(rows))+(parcial?" ⚠":"");
+          const sub = fin && rows.length ? `cobertura ${finN}/${rows.length}${finN<rows.length?" ⚠":""}` : (parcial?"parcial":undefined);
+          const color = (fin&&finN===0)?C.muted2 : parcial?C.warning : (k==="friskuCommissionUSD"?C.accent2:(kpiColor[k]||C.text));
+          return kpiCard(mt.label, val, color, sub); })}
       </div>
 
       {/* Gráficos */}
@@ -5139,7 +5199,7 @@ function ResumenEjecutivo() {
         <Panel titulo="Comisión Frisku por temporada">
           {porTemp.length===0 ? <div style={{color:C.muted2,fontSize:12,textAlign:"center",padding:16}}>Sin datos</div> :
             porTemp.map(x=>(
-              <div key={x.key} onClick={()=>setOne("temporada", sel.temporada&&sel.temporada.has(x.key)?"":x.key)} title="Clic para filtrar por esta temporada"
+              <div key={x.key} onClick={()=>toggle("temporada", x.key)} title="Clic para filtrar por esta temporada"
                 style={{display:"grid",gridTemplateColumns:"80px 1fr auto",gap:8,alignItems:"center",marginBottom:6,cursor:"pointer"}}>
                 <span style={{fontSize:11,color:C.text,fontWeight:600}}>{x.lab}</span>
                 <div style={{height:12,background:C.cardAlt,borderRadius:4,overflow:"hidden"}}><div style={{width:`${x.v/maxTemp*100}%`,height:"100%",background:C.blue,borderRadius:4}}/></div>
@@ -5151,7 +5211,7 @@ function ResumenEjecutivo() {
         <Panel titulo="Top clientes (Pareto) por comisión Frisku">
           {porCli.length===0 ? <div style={{color:C.muted2,fontSize:12,textAlign:"center",padding:16}}>Sin datos</div> :
             porCli.slice(0,10).map(x=>(
-              <div key={x.key} onClick={()=>setOne("cliente", sel.cliente&&sel.cliente.has(x.key)?"":x.key)} title="Clic para filtrar por este cliente"
+              <div key={x.key} onClick={()=>toggle("cliente", x.key)} title="Clic para filtrar por este cliente"
                 style={{display:"grid",gridTemplateColumns:"1fr auto",gap:8,alignItems:"center",marginBottom:5,cursor:"pointer"}}>
                 <div style={{minWidth:0}}>
                   <div style={{fontSize:11,color:C.text,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",marginBottom:2}}>{x.lab}</div>
@@ -5166,13 +5226,13 @@ function ResumenEjecutivo() {
           {porEsp.length===0 ? <div style={{color:C.muted2,fontSize:12,textAlign:"center",padding:16}}>Sin datos</div> :
             <div style={{display:"flex",gap:16,alignItems:"center",flexWrap:"wrap"}}>
               <svg width="150" height="150" viewBox="0 0 180 180" style={{flexShrink:0}}>
-                {porEsp.map((x)=>{ const f0=accEsp/totEsp, f1=(accEsp+x.v)/totEsp; accEsp+=x.v; return <path key={x.key} d={arc(f0,f1,70,42,90,90)} fill={x.color} stroke={C.card} strokeWidth="1.5" style={{cursor:"pointer"}} onClick={()=>setOne("especie", sel.especie&&sel.especie.has(x.key)?"":x.key)}><title>{x.lab}: {fmtUSD0(x.v)}</title></path>; })}
+                {porEsp.map((x)=>{ const f0=accEsp/totEsp, f1=(accEsp+x.v)/totEsp; accEsp+=x.v; return <path key={x.key} d={arc(f0,f1,70,42,90,90)} fill={x.color} stroke={C.card} strokeWidth="1.5" style={{cursor:"pointer"}} onClick={()=>toggle("especie", x.key)}><title>{x.lab}: {fmtUSD0(x.v)}</title></path>; })}
                 <text x="90" y="86" textAnchor="middle" style={{fontSize:9,fill:C.muted,fontWeight:600}}>Comisión</text>
                 <text x="90" y="100" textAnchor="middle" style={{fontSize:12,fill:C.text,fontWeight:800}}>{fmtUSD0(totEsp)}</text>
               </svg>
               <div style={{flex:1,minWidth:150,display:"flex",flexDirection:"column",gap:4}}>
                 {porEsp.slice(0,8).map(x=>(
-                  <div key={x.key} onClick={()=>setOne("especie", sel.especie&&sel.especie.has(x.key)?"":x.key)} style={{display:"flex",gap:7,alignItems:"center",fontSize:11,cursor:"pointer"}}>
+                  <div key={x.key} onClick={()=>toggle("especie", x.key)} style={{display:"flex",gap:7,alignItems:"center",fontSize:11,cursor:"pointer"}}>
                     <span style={{width:11,height:11,borderRadius:3,background:x.color,flexShrink:0}}/>
                     <span style={{flex:1,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{x.lab}</span>
                     <span style={{fontWeight:700,color:C.muted}}>{(x.v/totEsp*100).toFixed(0)}%</span>
@@ -5184,7 +5244,7 @@ function ResumenEjecutivo() {
 
         <Panel titulo="Pipeline de embarques por estado">
           {PIPE.map(p=>(
-            <div key={p.id} onClick={()=>setOne("estado", sel.estado&&sel.estado.has(p.id)?"":p.id)} title="Clic para filtrar por estado"
+            <div key={p.id} onClick={()=>toggle("estado", p.id)} title="Clic para filtrar por estado"
               style={{display:"grid",gridTemplateColumns:"90px 1fr auto",gap:8,alignItems:"center",marginBottom:8,cursor:"pointer"}}>
               <span style={{fontSize:11,color:C.text,fontWeight:600}}>{p.lab}</span>
               <div style={{height:14,background:C.cardAlt,borderRadius:4,overflow:"hidden"}}><div style={{width:`${(pipe[p.id]||0)/maxPipe*100}%`,height:"100%",background:p.color,borderRadius:4}}/></div>
