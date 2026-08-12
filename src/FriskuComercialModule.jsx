@@ -1357,133 +1357,141 @@ function ClienteCard({cliente, especies, paises, monedas, mercados, onEditar, on
 // ═══════════════════════════════════════════════════════════════════
 // DOCUMENTOS TAB — vista agregada de todos los docs de todos los clientes
 // ═══════════════════════════════════════════════════════════════════
-function DocumentosTab({clientes}) {
-  const [filtroCli,    setFiltroCli]    = useState("");
-  const [filtroTipo,   setFiltroTipo]   = useState("");
-  const [filtroEstado, setFiltroEstado] = useState("todos");
+// BIBLIOTECA DOCUMENTAL TRANSVERSAL — indexa los documentos de todo Frisku
+// (documentos de clientes + Carpeta COMEX + QC de embarques) SIN duplicar el
+// archivo físico: cada fila apunta a la misma URL de storage. Permite Ver /
+// descargar, filtrar/buscar e ir al registro origen. Rutas locales del PC
+// (C:\..., file://) se marcan "Requiere recarga".
+function DocumentosTab({ clientes, embarques=[], exportadoras=[], especies=[], onVerEmbarque }) {
+  const [fEntidad, setFEntidad] = useState("");  // "" | Cliente | Embarque
+  const [fTipo,    setFTipo]    = useState("");
+  const [fEstado,  setFEstado]  = useState("todos"); // todos | cargado | recarga | pendiente | vencido
+  const [q,        setQ]        = useState("");
   const hoy = new Date().toISOString().slice(0,10);
-  const en30 = new Date(Date.now()+30*24*3600*1000).toISOString().slice(0,10);
+  const espName=(c)=>{ const e=especies.find(x=>x.codigo===c); return e?e.nombreEs:(c||""); };
 
-  const clientesFaltantes = useMemo(()=>
-    clientes.filter(c => c.activo !== false &&
-      TIPOS_DOC_MINIMOS.some(t => !(c.documentos||[]).some(d=>d.tipo===t&&d.url)))
-  ,[clientes]);
-
-  const todos = useMemo(()=>{
-    const rows = [];
-    clientes.forEach(c => {
-      (c.documentos||[]).forEach(d => {
-        rows.push({...d, clienteId:c.id, clienteNombre:c.nombre});
+  const filas = useMemo(()=>{
+    const rows=[];
+    // Documentos de clientes
+    (clientes||[]).forEach(c=>{
+      (c.documentos||[]).forEach(d=>{
+        rows.push({ id:`cli-${c.id}-${d.id||d.tipo}`, tipo:d.tipo||"Documento", url:d.url||"", nombre:d.nombre, fecha:d.fecha, vencimiento:d.vencimiento,
+          entidadTipo:"Cliente", entidadLabel:c.nombre, cliente:c.nombre, temporada:"", especie:"" });
       });
     });
-    return rows.sort((a,b)=>{
-      const aV = a.vencimiento && a.vencimiento < hoy;
-      const bV = b.vencimiento && b.vencimiento < hoy;
-      if(aV && !bV) return -1;
-      if(!aV && bV) return 1;
-      return (b.fecha||"").localeCompare(a.fecha||"");
+    // Documentos COMEX + QC de embarques
+    (embarques||[]).forEach(oe=>{
+      const cli=clientes.find(c=>c.id===oe.clienteId)?.nombre||"—";
+      const esp=espName(oe.especieCodigo);
+      (oe.carpetaComex?.docs||[]).forEach(d=>{
+        if(!(d.url||d.tipo)) return;
+        rows.push({ id:`oe-${oe.id}-${d.id||d.tipo}`, tipo:d.tipo||"Documento", url:d.url||"", nombre:d.nombre, fecha:d.fechaCarga,
+          entidadTipo:"Embarque", entidadLabel:oe.numero||oe.numeroContenedor||"OE", oe, cliente:cli, temporada:oe.temporada||"", especie:esp });
+      });
+      (oe.carpetaComex?.qcDestino?.docsQC||[]).forEach(d=>{
+        if(!d.url) return;
+        rows.push({ id:`qc-${oe.id}-${d.id}`, tipo:d.nombre?`QC · ${d.nombre}`:"QC Destino", url:d.url, nombre:d.nombre, fecha:d.fecha,
+          entidadTipo:"Embarque", entidadLabel:oe.numero||"OE", oe, cliente:cli, temporada:oe.temporada||"", especie:esp });
+      });
     });
-  },[clientes, hoy]);
+    return rows.map(r=>{
+      const adjunto = esArchivoSubido(r.url);
+      const estado = adjunto ? "cargado" : (r.url ? "recarga" : "pendiente");
+      const vencido = r.vencimiento && r.vencimiento < hoy;
+      return { ...r, adjunto, estado, vencido };
+    });
+  },[clientes, embarques, especies, hoy]);
 
-  const filtrados = useMemo(()=>todos.filter(d=>{
-    if(filtroCli && d.clienteId !== filtroCli) return false;
-    if(filtroTipo && d.tipo !== filtroTipo) return false;
-    if(filtroEstado==="vencidos" && !(d.vencimiento && d.vencimiento < hoy)) return false;
-    if(filtroEstado==="vigentes" && d.vencimiento && d.vencimiento < hoy) return false;
+  const tiposExistentes = [...new Set(filas.map(d=>d.tipo).filter(Boolean))].sort();
+  const qq = q.trim().toLowerCase();
+  const filtrados = useMemo(()=>filas.filter(d=>{
+    if(fEntidad && d.entidadTipo!==fEntidad) return false;
+    if(fTipo && d.tipo!==fTipo) return false;
+    if(fEstado==="cargado"   && d.estado!=="cargado") return false;
+    if(fEstado==="recarga"   && d.estado!=="recarga") return false;
+    if(fEstado==="pendiente" && d.estado!=="pendiente") return false;
+    if(fEstado==="vencido"   && !d.vencido) return false;
+    if(qq){ const hay=`${d.tipo} ${d.entidadLabel} ${d.cliente} ${d.especie} ${d.temporada}`.toLowerCase(); if(!hay.includes(qq)) return false; }
     return true;
-  }),[todos, filtroCli, filtroTipo, filtroEstado, hoy]);
+  }).sort((a,b)=>{
+    // primero los que requieren atención (recarga / vencidos)
+    const wa=(a.estado==="recarga"||a.vencido)?0:1, wb=(b.estado==="recarga"||b.vencido)?0:1;
+    return wa-wb || String(b.fecha||"").localeCompare(String(a.fecha||""));
+  }),[filas, fEntidad, fTipo, fEstado, qq]);
 
-  const tiposExistentes = [...new Set(todos.map(d=>d.tipo).filter(Boolean))].sort();
+  const nRecarga = filas.filter(d=>d.estado==="recarga").length;
+  const badge=(estado,vencido)=>{
+    if(vencido) return {t:"⚠ Vencido", c:C.accent};
+    if(estado==="cargado") return {t:"✓ Cargado", c:C.green};
+    if(estado==="recarga") return {t:"⚠ Requiere recarga", c:C.warning};
+    return {t:"Pendiente", c:C.muted2};
+  };
+  const td={padding:"8px 12px", borderTop:`1px solid ${C.border}`, verticalAlign:"middle"};
 
   return (
     <div>
-      {/* Alerta clientes con docs obligatorios faltantes */}
-      {clientesFaltantes.length > 0 && (
-        <div style={{background:`${C.accent}11`, border:`1px solid ${C.accent}44`, borderRadius:10, padding:14, marginBottom:16}}>
-          <div style={{fontWeight:700, color:C.accent, marginBottom:8, fontSize:12}}>
-            Documentos obligatorios faltantes — {clientesFaltantes.length} cliente{clientesFaltantes.length>1?"s":""}
-          </div>
-          <div style={{display:"flex", flexWrap:"wrap", gap:8}}>
-            {clientesFaltantes.map(c => {
-              const falt = TIPOS_DOC_MINIMOS.filter(t => !(c.documentos||[]).some(d=>d.tipo===t&&d.url));
-              return (
-                <div key={c.id} style={{background:C.card, padding:"6px 12px", borderRadius:6, fontSize:11}}>
-                  <strong style={{color:C.text}}>{c.nombre}</strong>
-                  <span style={{color:C.muted, marginLeft:6}}>falta: {falt.join(", ")}</span>
-                </div>
-              );
-            })}
-          </div>
+      {nRecarga>0 && (
+        <div style={{background:`${C.warning}11`, border:`1px solid ${C.warning}44`, borderRadius:10, padding:"10px 14px", marginBottom:14, fontSize:12, color:C.warning}}>
+          ⚠ {nRecarga} documento{nRecarga>1?"s":""} con ruta local del PC (no accesible por otros usuarios) — requiere{nRecarga>1?"n":""} volver a subirse al storage. Filtra por "Requiere recarga".
         </div>
       )}
 
-      {/* Filtros */}
-      <div style={{display:"flex", gap:10, marginBottom:14, flexWrap:"wrap", alignItems:"center"}}>
-        <select value={filtroCli} onChange={e=>setFiltroCli(e.target.value)} style={{...inputSt, maxWidth:220}}>
-          <option value="">— Todos los clientes —</option>
-          {clientes.map(c=><option key={c.id} value={c.id}>{c.nombre}</option>)}
+      {/* Filtros / búsqueda */}
+      <div style={{display:"flex", gap:8, marginBottom:14, flexWrap:"wrap", alignItems:"center"}}>
+        <input value={q} onChange={e=>setQ(e.target.value)} placeholder="Buscar documento, entidad, cliente, especie…" style={{...inputSt, flex:"1 1 240px", maxWidth:320}}/>
+        <select value={fEntidad} onChange={e=>setFEntidad(e.target.value)} style={{...inputSt, maxWidth:150}}>
+          <option value="">Toda entidad</option>
+          <option value="Embarque">🚢 Embarque</option>
+          <option value="Cliente">👥 Cliente</option>
         </select>
-        <select value={filtroTipo} onChange={e=>setFiltroTipo(e.target.value)} style={{...inputSt, maxWidth:200}}>
+        <select value={fTipo} onChange={e=>setFTipo(e.target.value)} style={{...inputSt, maxWidth:180}}>
           <option value="">— Todos los tipos —</option>
           {tiposExistentes.map(t=><option key={t} value={t}>{t}</option>)}
         </select>
-        <select value={filtroEstado} onChange={e=>setFiltroEstado(e.target.value)} style={{...inputSt, maxWidth:180}}>
-          <option value="todos">Todos</option>
-          <option value="vencidos">Vencidos</option>
-          <option value="vigentes">Vigentes / sin venc.</option>
+        <select value={fEstado} onChange={e=>setFEstado(e.target.value)} style={{...inputSt, maxWidth:180}}>
+          <option value="todos">Todos los estados</option>
+          <option value="cargado">✓ Cargados</option>
+          <option value="recarga">⚠ Requiere recarga</option>
+          <option value="pendiente">Pendientes</option>
+          <option value="vencido">Vencidos</option>
         </select>
-        <span style={{fontSize:11, color:C.muted}}>{filtrados.length} documento{filtrados.length!==1?"s":""}</span>
+        <span style={{fontSize:11, color:C.muted}}>{filtrados.length} de {filas.length}</span>
       </div>
 
-      {/* Tabla */}
       {filtrados.length === 0 ? (
         <div style={{padding:50, textAlign:"center", color:C.muted, fontSize:13, background:C.card, borderRadius:14}}>
-          {todos.length === 0
-            ? "Sin documentos cargados. Abre un cliente, sección Documentos, y agrega links."
-            : "Sin resultados con esos filtros."}
+          {filas.length === 0 ? "Aún no hay documentos en Frisku." : "Sin resultados con esos filtros."}
         </div>
       ) : (
-        <div style={{background:C.card, borderRadius:14, border:`1px solid ${C.border}`, overflow:"hidden"}}>
-          <table style={{width:"100%", borderCollapse:"collapse", fontSize:12}}>
-            <thead>
-              <tr style={{background:C.primary}}>
-                {["Cliente","Tipo","Nombre","Fecha","Vencimiento","Link"].map(h=>(
-                  <th key={h} style={{padding:"10px 14px", textAlign:"left", color:C.primaryText, fontWeight:600, fontSize:10, textTransform:"uppercase"}}>{h}</th>
-                ))}
-              </tr>
-            </thead>
+        <div style={{background:C.card, borderRadius:12, border:`1px solid ${C.border}`, overflowX:"auto"}}>
+          <table style={{width:"100%", borderCollapse:"collapse", fontSize:11.5, minWidth:820}}>
+            <thead><tr style={{background:C.card2, color:C.muted, textAlign:"left"}}>
+              <th style={{padding:"8px 12px"}}>Documento</th>
+              <th style={{padding:"8px 12px"}}>Entidad</th>
+              <th style={{padding:"8px 12px"}}>Cliente</th>
+              <th style={{padding:"8px 12px"}}>Especie</th>
+              <th style={{padding:"8px 12px"}}>Temporada</th>
+              <th style={{padding:"8px 12px", textAlign:"center"}}>Estado</th>
+              <th style={{padding:"8px 12px", textAlign:"right"}}>Acciones</th>
+            </tr></thead>
             <tbody>
-              {filtrados.map((d,i)=>{
-                const vencido  = d.vencimiento && d.vencimiento < hoy;
-                const porVenc  = d.vencimiento && !vencido && d.vencimiento <= en30;
+              {filtrados.map(d=>{
+                const b=badge(d.estado, d.vencido);
                 return (
-                  <tr key={d.id||i} style={{borderBottom:`1px solid ${C.border}`, background: vencido ? `${C.accent}09` : (i%2===0 ? C.card : C.rowAlt)}}>
-                    <td style={{padding:"10px 14px", color:C.text, fontWeight:600}}>{d.clienteNombre}</td>
-                    <td style={{padding:"10px 14px"}}>
-                      <span style={{
-                        padding:"2px 8px", borderRadius:4, fontSize:10,
-                        background: TIPOS_DOC_MINIMOS.includes(d.tipo) ? `${C.blue}22` : C.border,
-                        color: TIPOS_DOC_MINIMOS.includes(d.tipo) ? C.blue : C.muted,
-                        border: TIPOS_DOC_MINIMOS.includes(d.tipo) ? `1px solid ${C.blue}44` : "none",
-                      }}>{d.tipo||"—"}</span>
-                    </td>
-                    <td style={{padding:"10px 14px", color:C.text}}>{d.nombre||"—"}</td>
-                    <td style={{padding:"10px 14px", color:C.muted, fontFamily:"monospace", fontSize:11}}>{d.fecha||"—"}</td>
-                    <td style={{padding:"10px 14px", fontFamily:"monospace", fontSize:11}}>
-                      {d.vencimiento ? (
-                        <span style={{color: vencido ? C.accent : porVenc ? C.yellow : C.green, fontWeight: vencido||porVenc ? 700 : 400}}>
-                          {d.vencimiento}
-                          {vencido  && <span style={{marginLeft:4, fontSize:9}}>VENCIDO</span>}
-                          {porVenc  && <span style={{marginLeft:4, fontSize:9}}>⚠ pronto</span>}
-                        </span>
-                      ) : <span style={{color:C.muted2}}>—</span>}
-                    </td>
-                    <td style={{padding:"10px 14px"}}>
-                      {d.url ? (
-                        pathDesdeUrlStorage(d.url)
-                          ? <button onClick={()=>window.open(d.url,"_blank")} style={{...btnSt(C.teal,true), padding:"4px 10px", fontSize:10}}>📎 Descargar</button>
-                          : <button onClick={()=>window.open(d.url,"_blank")} style={{...btnSt(C.blue,true), padding:"4px 10px", fontSize:10}}>↗ Abrir</button>
-                      ) : <span style={{color:C.muted2, fontSize:10}}>Sin link</span>}
+                  <tr key={d.id}>
+                    <td style={{...td, fontWeight:600, whiteSpace:"nowrap"}}>{d.tipo}{d.vencimiento?<span style={{color:d.vencido?C.accent:C.muted2, fontWeight:400, marginLeft:6}}>· vence {d.vencimiento}</span>:null}</td>
+                    <td style={{...td, whiteSpace:"nowrap"}}>{d.entidadTipo==="Embarque"?"🚢":"👥"} {d.entidadLabel}</td>
+                    <td style={{...td, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis", maxWidth:180}}>{d.cliente}</td>
+                    <td style={{...td, whiteSpace:"nowrap"}}>{d.especie||"—"}</td>
+                    <td style={{...td, whiteSpace:"nowrap"}}>{d.temporada||"—"}</td>
+                    <td style={{...td, textAlign:"center"}}><span style={{fontSize:9, padding:"2px 8px", borderRadius:10, background:`${b.c}22`, color:b.c, border:`1px solid ${b.c}44`, fontWeight:700, whiteSpace:"nowrap"}}>{b.t}</span></td>
+                    <td style={{...td, textAlign:"right", whiteSpace:"nowrap"}}>
+                      {d.adjunto
+                        ? <button onClick={()=>window.open(d.url,"_blank")} style={{...btnSt(C.teal,true), padding:"3px 8px", fontSize:10, marginRight:3}}>📎 Ver / descargar</button>
+                        : <span style={{fontSize:10, color:d.estado==="recarga"?C.warning:C.muted2, marginRight:6}}>{d.estado==="recarga"?"⚠ recargar":"sin archivo"}</span>}
+                      {d.entidadTipo==="Embarque" && onVerEmbarque && (
+                        <button onClick={()=>onVerEmbarque(d.oe)} title="Ir al embarque" style={{...btnSt(C.blue,true), padding:"3px 8px", fontSize:10}}>→ Ver embarque</button>
+                      )}
                     </td>
                   </tr>
                 );
@@ -7843,7 +7851,10 @@ export default function FriskuComercialModule({
         {tab === "documentos" && (
           <DocumentosTab
             clientes={clientes}
-            canEdit={permDocumentos.canEdit}
+            embarques={embarques}
+            exportadoras={exportadoras}
+            especies={especies}
+            onVerEmbarque={(oe)=>{ setVerOE(oe); setTab("embarques"); }}
           />
         )}
 
