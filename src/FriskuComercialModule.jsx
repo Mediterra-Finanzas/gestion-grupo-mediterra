@@ -4898,6 +4898,93 @@ function HojaBIDim({ dimDefault, orderDefault="friskuCommissionUSD", onVerEmbarq
   );
 }
 
+// HOJA COMERCIAL — mirada RELACIONAL Exportador → Cliente → Especie → embarques.
+// Responde "quién trabaja con quién, cuánto embarca, qué especies, cuántos FCL".
+// No duplica Clientes/Exportadores (esas son rankings); esta es el árbol de la
+// relación comercial, sobre el mismo motor/selección. Drill progresivo.
+function HojaComercial({ onVerEmbarque }) {
+  const bi = useFriskuBI();
+  const { filtered, metric } = bi;
+  const [expE, setExpE] = useState(()=>new Set());
+  const [expC, setExpC] = useState(()=>new Set());
+  const [expS, setExpS] = useState(()=>new Set());
+  const FLT = ["temporada","especie","exportadora","cliente","mercado","via"];
+  const M = (rows,k)=>metric[k].calc(rows);
+  const tree = useMemo(()=>{
+    const e={};
+    filtered.forEach(r=>{
+      const ek=r.exportadora; const ex=e[ek]=e[ek]||{key:ek,lab:r.exportadoraLab,rows:[],cli:{}}; ex.rows.push(r);
+      const ck=r.cliente; const c=ex.cli[ck]=ex.cli[ck]||{key:ck,lab:r.clienteLab,rows:[],esp:{}}; c.rows.push(r);
+      const sk=r.especie; const s=c.esp[sk]=c.esp[sk]||{key:sk,lab:r.especieLab,rows:[]}; s.rows.push(r);
+    });
+    const byCont=(a,b)=>M(b.rows,"containers")-M(a.rows,"containers");
+    return Object.values(e).map(ex=>({ ...ex,
+      clientes:Object.values(ex.cli).map(c=>({ ...c, especies:Object.values(c.esp).sort(byCont) })).sort(byCont)
+    })).sort(byCont);
+  },[filtered]);
+  const totCont = filtered.filter(r=>!r._cancel).length||1;
+  const resumen = (rows)=>{ const clis=new Set(rows.map(r=>r.cliente)), esps=new Set(rows.map(r=>r.especie)), merc=new Set(rows.map(r=>r.mercado));
+    return `${M(rows,"containers")} cont · ${M(rows,"fcl")} FCL · ${fmtN0(M(rows,"boxes"))} cjs · ${clis.size} cli · ${esps.size} esp · ${merc.size} merc`; };
+  const pct = (rows)=>`${(M(rows,"containers")/totCont*100).toFixed(0)}%`;
+  const tE=(k)=>setExpE(p=>{const n=new Set(p);n.has(k)?n.delete(k):n.add(k);return n;});
+  const tC=(k)=>setExpC(p=>{const n=new Set(p);n.has(k)?n.delete(k):n.add(k);return n;});
+  const tS=(k)=>setExpS(p=>{const n=new Set(p);n.has(k)?n.delete(k):n.add(k);return n;});
+  const row = (open, indent, label, right, onClick, color)=>(
+    <div onClick={onClick} style={{display:"flex",alignItems:"center",gap:8,padding:"6px 10px",paddingLeft:10+indent*18,cursor:"pointer",borderTop:`1px solid ${C.border}`,background:open?`${C.blue}08`:"transparent"}}>
+      <span style={{color:C.muted,fontSize:11,width:10}}>{onClick?(open?"▾":"▸"):""}</span>
+      <span style={{flex:1,fontSize:indent===0?12.5:11.5,fontWeight:indent===0?700:500,color:color||C.text,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{label}</span>
+      <span style={{fontSize:10.5,color:C.muted,fontFamily:"monospace",whiteSpace:"nowrap"}}>{right}</span>
+    </div>
+  );
+  return (
+    <div>
+      <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,padding:12,marginBottom:12,display:"flex",gap:10,flexWrap:"wrap",alignItems:"flex-end"}}>
+        {FLT.map(dk=><FiltroMultiBI key={dk} dimKey={dk} label={FRISKU_DIMS.find(d=>d.key===dk)?.lab||dk}/>)}
+        <div style={{display:"flex",gap:6,marginLeft:"auto"}}>
+          <button onClick={()=>{setExpE(new Set(tree.map(x=>x.key)));}} style={{...btnSt(C.muted,true),fontSize:11,padding:"7px 10px"}}>Expandir exp.</button>
+          <button onClick={()=>{setExpE(new Set());setExpC(new Set());setExpS(new Set());}} style={{...btnSt(C.muted,true),fontSize:11,padding:"7px 10px"}}>Contraer</button>
+        </div>
+      </div>
+      <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,overflow:"hidden"}}>
+        {tree.length===0 && <div style={{padding:24,textAlign:"center",color:C.muted2,fontSize:12}}>Sin datos para la selección.</div>}
+        {tree.map(ex=>{ const oe=expE.has(ex.key); return (
+          <div key={ex.key}>
+            {row(oe,0,ex.lab,`${resumen(ex.rows)} · ${pct(ex.rows)}`,()=>tE(ex.key))}
+            {oe && ex.clientes.map(c=>{ const ck=`${ex.key}|${c.key}`; const oc=expC.has(ck); return (
+              <div key={ck}>
+                {row(oc,1,`→ ${c.lab}`,resumen(c.rows),()=>tC(ck))}
+                {oc && c.especies.map(s=>{ const sk=`${ck}|${s.key}`; const os=expS.has(sk); return (
+                  <div key={sk}>
+                    {row(os,2,`• ${s.lab}`,`${M(s.rows,"containers")} cont · ${M(s.rows,"fcl")} FCL · ${fmtN0(M(s.rows,"boxes"))} cjs`,()=>tS(sk))}
+                    {os && (
+                      <div style={{paddingLeft:64,paddingRight:10,paddingBottom:8}}>
+                        <table style={{width:"100%",borderCollapse:"collapse",fontSize:10.5}}>
+                          <tbody>
+                            {s.rows.slice(0,20).map(r=>(
+                              <tr key={r._id} style={{borderTop:`1px solid ${C.border}`}}>
+                                <td style={{padding:"4px 6px",fontFamily:"monospace",color:C.blue,whiteSpace:"nowrap"}}>{r._oe?.numero||"—"}</td>
+                                <td style={{padding:"4px 6px",whiteSpace:"nowrap"}}>{r._oe?.fechaDespacho||"—"}</td>
+                                <td style={{padding:"4px 6px",textAlign:"right",fontFamily:"monospace"}}>{fmtN0(r._cajas)} cjs</td>
+                                <td style={{padding:"4px 6px",textAlign:"right"}}>{onVerEmbarque&&r._oe&&<button onClick={()=>onVerEmbarque(r._oe)} style={{...btnSt(C.blue,true),padding:"2px 7px",fontSize:9.5}}>→ Ver</button>}</td>
+                              </tr>
+                            ))}
+                            {s.rows.length>20 && <tr><td colSpan={4} style={{padding:"4px 6px",color:C.muted2,fontSize:9.5}}>+{s.rows.length-20} más</td></tr>}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                  </div>
+                ); })}
+              </div>
+            ); })}
+          </div>
+        ); })}
+      </div>
+      <div style={{fontSize:10.5,color:C.muted2,marginTop:10}}>Árbol relacional Exportador → Cliente → Especie → embarques. Reacciona a los filtros globales. % sobre contenedores de la selección.</div>
+    </div>
+  );
+}
+
 // HOJA SEMANAL — serie temporal por semana ETD (dimensión real: filtra/agrupa/
 // drill/export). Reacciona a los filtros globales. Distingue "sin dato" financiero.
 function HojaSemanal({ onVerEmbarque }) {
@@ -5037,6 +5124,7 @@ function HojaComparativo() {
 function ReporteriaBI({ data, permResumen, permReportes, permTablero, onVerEmbarque }) {
   const hojas = [
     (permResumen?.visible!==false) && { id:"exec",     lab:"📈 Resumen" },
+    { id:"comercial",  lab:"🤝 Comercial" },
     { id:"clientes",   lab:"👥 Clientes" },
     { id:"exportad",   lab:"🏭 Exportadores" },
     { id:"especies",   lab:"🍒 Especies" },
@@ -5058,6 +5146,7 @@ function ReporteriaBI({ data, permResumen, permReportes, permTablero, onVerEmbar
         ))}
       </div>
       {hoja==="exec"     && <ResumenEjecutivo/>}
+      {hoja==="comercial"&& <HojaComercial onVerEmbarque={onVerEmbarque}/>}
       {hoja==="clientes" && <HojaBIDim dimDefault="cliente" onVerEmbarque={onVerEmbarque}/>}
       {hoja==="exportad" && <HojaBIDim dimDefault="exportadora" onVerEmbarque={onVerEmbarque}/>}
       {hoja==="especies" && <HojaBIDim dimDefault="especie" onVerEmbarque={onVerEmbarque}/>}
