@@ -66,42 +66,54 @@ function especiesConFormatos(especies, tiposEmbalaje, incluir) {
   }).sort((a,b)=>(a.nombreEs||"").localeCompare(b.nombreEs||""));
 }
 
-// Select buscable genérico (typeahead con datalist). options: [{value,label}].
-// value "" = sin selección (input vacío). Permite escribir para filtrar.
+// Select buscable genérico (dropdown propio, NO <datalist> nativo). options:
+// [{value,label}]. value "" = sin selección. Al enfocar abre y muestra TODAS
+// las opciones; escribir filtra; se puede reemplazar la selección sin limpiar
+// primero (el <datalist> nativo filtraba la lista al texto ya elegido y no
+// dejaba ver el resto). "— Todos —" o la × limpian.
 function SelectBuscable({ value, onChange, options, placeholder, listId, style }) {
+  const [open, setOpen] = useState(false);
+  const [txt, setTxt]   = useState("");
+  const boxRef = useRef(null);
   const labelDe = (v)=> (options.find(o=>String(o.value)===String(v))?.label) || "";
-  const [txt, setTxt] = useState(()=>labelDe(value));
-  const foco = useRef(false);
-  // Solo re-sincroniza el texto desde el valor cuando el campo NO está enfocado.
-  // Así no reemplaza lo que el usuario está escribiendo (antes, al teclear "a"
-  // saltaba a "Aguaymanto").
-  useEffect(()=>{ if(!foco.current) setTxt(labelDe(value)); },[value, options]);
-  const exacto  = (t)=>{ const s=String(t).trim().toLowerCase(); return options.find(o=>String(o.label||"").trim().toLowerCase()===s); };
-  const parcial = (t)=>{ const s=String(t).trim().toLowerCase(); return s ? options.find(o=>String(o.label||"").toLowerCase().includes(s)) : null; };
+  useEffect(()=>{
+    if(!open) return;
+    const h=(e)=>{ if(boxRef.current && !boxRef.current.contains(e.target)) setOpen(false); };
+    document.addEventListener("mousedown",h);
+    return ()=>document.removeEventListener("mousedown",h);
+  },[open]);
+  const q = txt.trim().toLowerCase();
+  const filtered = q ? options.filter(o=>String(o.label).toLowerCase().includes(q)) : options;
+  const display = open ? txt : labelDe(value);
+  const pick = (v)=>{ onChange(v); setOpen(false); setTxt(""); };
+  // El contenedor hereda el tamaño (flex/anchos) del style; el input toma el resto.
+  const wrap = { position:"relative" };
+  if(style){ ["flex","minWidth","maxWidth","width"].forEach(k=>{ if(style[k]!=null) wrap[k]=style[k]; }); }
+  if(wrap.flex==null && wrap.width==null && wrap.maxWidth==null) wrap.minWidth = wrap.minWidth||150;
+  const inputSt2 = { ...(style||{}), width:"100%", flex:undefined, minWidth:undefined, maxWidth:undefined, margin:undefined, paddingRight:22 };
   return (
-    <>
-      <input list={listId} value={txt} placeholder={placeholder}
-        onFocus={e=>{ foco.current=true; e.target.select(); }}
-        onChange={e=>{
-          const raw = e.target.value; setTxt(raw);
-          if(raw==="") { onChange(""); return; }
-          // Solo confirma si hay match EXACTO (ej. al elegir del dropdown). Mientras
-          // se escribe parcial no se toca el filtro, para no pisar el texto.
-          const m = exacto(raw); if(m) onChange(m.value);
-        }}
-        onBlur={e=>{
-          foco.current = false;
-          const raw = e.target.value;
-          if(raw.trim()===""){ onChange(""); setTxt(""); return; }
-          const m = exacto(raw) || parcial(raw);
-          onChange(m ? m.value : value);
-          setTxt(m ? m.label : labelDe(value));
-        }}
-        style={style}/>
-      <datalist id={listId}>
-        {options.map(o=><option key={o.value} value={o.label}/>)}
-      </datalist>
-    </>
+    <div ref={boxRef} style={wrap}>
+      <input value={display} placeholder={placeholder}
+        onFocus={()=>{ setOpen(true); setTxt(""); }}
+        onChange={e=>{ setTxt(e.target.value); if(!open) setOpen(true); }}
+        style={inputSt2}/>
+      {value && !open && (
+        <span onMouseDown={e=>{ e.preventDefault(); onChange(""); }} title="Quitar"
+          style={{position:"absolute", right:7, top:"50%", transform:"translateY(-50%)", cursor:"pointer", color:"#94a3b8", fontSize:13, fontWeight:700}}>×</span>
+      )}
+      {open && (
+        <div style={{position:"absolute", zIndex:40, top:"calc(100% + 2px)", left:0, right:0, background:C.card, border:`1px solid ${C.border}`, borderRadius:8, maxHeight:240, overflowY:"auto", boxShadow:C.shadowSm||"0 8px 24px rgba(0,0,0,.18)"}}>
+          <div onMouseDown={e=>{ e.preventDefault(); pick(""); }}
+            style={{padding:"7px 10px", fontSize:12, cursor:"pointer", color:C.muted, borderBottom:`1px solid ${C.border}`}}>— Todos —</div>
+          {filtered.map(o=>(
+            <div key={o.value} onMouseDown={e=>{ e.preventDefault(); pick(o.value); }}
+              style={{padding:"7px 10px", fontSize:12, cursor:"pointer", whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis",
+                      background:String(o.value)===String(value)?`${C.blue}18`:"transparent", fontWeight:String(o.value)===String(value)?700:400}}>{o.label}</div>
+          ))}
+          {filtered.length===0 && <div style={{padding:"7px 10px", fontSize:11, color:C.muted2}}>Sin coincidencias</div>}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -4525,50 +4537,6 @@ function ReporteriaBI({ data, permResumen, permReportes, permTablero }) {
 // Paleta categórica para segmentos (desglose 2ª dimensión / torta).
 const PAL_BI = ["#2563eb","#16a34a","#f59e0b","#db2777","#7c3aed","#0891b2","#dc2626","#65a30d","#ea580c","#0d9488","#9333ea","#ca8a04"];
 
-// Dropdown de filtro con buscador propio (NO usa <datalist> nativo, que al
-// tener un valor elegido filtra la lista a ese texto y no deja ver las demás
-// alternativas). Al enfocar abre y muestra TODAS las opciones; escribir filtra.
-function FiltroBuscable({ value, onChange, options, placeholder }) {
-  const [open, setOpen] = useState(false);
-  const [txt, setTxt]   = useState("");
-  const boxRef = useRef(null);
-  const labelDe = (v)=> options.find(o=>String(o.value)===String(v))?.label || "";
-  useEffect(()=>{
-    if(!open) return;
-    const h=(e)=>{ if(boxRef.current && !boxRef.current.contains(e.target)) setOpen(false); };
-    document.addEventListener("mousedown",h);
-    return ()=>document.removeEventListener("mousedown",h);
-  },[open]);
-  const q = txt.trim().toLowerCase();
-  const filtered = q ? options.filter(o=>String(o.label).toLowerCase().includes(q)) : options;
-  const display = open ? txt : labelDe(value);
-  const pick = (v)=>{ onChange(v); setOpen(false); setTxt(""); };
-  return (
-    <div ref={boxRef} style={{position:"relative"}}>
-      <input value={display} placeholder={placeholder}
-        onFocus={()=>{ setOpen(true); setTxt(""); }}
-        onChange={e=>{ setTxt(e.target.value); if(!open) setOpen(true); }}
-        style={{...inputSt, width:"100%", paddingRight:22}}/>
-      {value && !open && (
-        <span onMouseDown={e=>{ e.preventDefault(); onChange(""); }} title="Quitar filtro"
-          style={{position:"absolute", right:7, top:"50%", transform:"translateY(-50%)", cursor:"pointer", color:C.muted, fontSize:13, fontWeight:700}}>×</span>
-      )}
-      {open && (
-        <div style={{position:"absolute", zIndex:40, top:"calc(100% + 2px)", left:0, right:0, background:C.card, border:`1px solid ${C.border}`, borderRadius:8, maxHeight:240, overflowY:"auto", boxShadow:C.shadowSm||"0 8px 24px rgba(0,0,0,.18)"}}>
-          <div onMouseDown={e=>{ e.preventDefault(); pick(""); }}
-            style={{padding:"7px 10px", fontSize:12, cursor:"pointer", color:C.muted, borderBottom:`1px solid ${C.border}`}}>— Todos —</div>
-          {filtered.map(o=>(
-            <div key={o.value} onMouseDown={e=>{ e.preventDefault(); pick(o.value); }}
-              style={{padding:"7px 10px", fontSize:12, cursor:"pointer", whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis",
-                      background:String(o.value)===String(value)?`${C.blue}18`:"transparent", fontWeight:String(o.value)===String(value)?700:400}}>{o.label}</div>
-          ))}
-          {filtered.length===0 && <div style={{padding:"7px 10px", fontSize:11, color:C.muted2}}>Sin coincidencias</div>}
-        </div>
-      )}
-    </div>
-  );
-}
-
 // ═══════════════════════════════════════════════════════════════════
 // HOJA 1 — RESUMEN EJECUTIVO (réplica Qlik, hoja fija)
 // Tabla de hechos = frisku_embarques (granularidad contenedor/OE), unida a
@@ -4704,7 +4672,7 @@ function ResumenEjecutivo() {
     return (
       <div style={{minWidth:140, flex:"1 1 140px"}}>
         <div style={lblSt}>{lab}</div>
-        <FiltroBuscable value={cur} onChange={(v)=>setOne(dimKey,v)} options={options} placeholder={ph||"Todos"}/>
+        <SelectBuscable value={cur} onChange={(v)=>setOne(dimKey,v)} options={options} placeholder={ph||"Todos"} style={{...inputSt, width:"100%"}}/>
       </div>
     );
   };
