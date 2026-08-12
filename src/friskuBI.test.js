@@ -1,6 +1,6 @@
 /* eslint-disable */
 // Tests de semántica asociativa del motor BI Frisku (Qlik parity).
-import { matchFacts, associativeValues } from "./friskuBI.js";
+import { matchFacts, associativeValues, groupByDims } from "./friskuBI.js";
 
 // Mini tabla de hechos (4 contenedores) — solo los campos que usa el motor.
 const FACTS = [
@@ -64,5 +64,51 @@ describe("clear — limpiar selección", () => {
   test("selección vacía => todas las filas", () => {
     const f = FACTS.filter(r=>matchFacts(r, {}, null));
     expect(f.length).toBe(4);
+  });
+});
+
+// P1.1 — Definición Qlik exacta de ALTERNATIVE:
+// "un valor del mismo campo que sería POSSIBLE si se quitara ÚNICAMENTE la
+//  selección de ese campo"; EXCLUDED = imposible por selección de OTRO campo.
+describe("ALTERNATIVE vs EXCLUDED (definición Qlik exacta)", () => {
+  const D = [
+    { cliente:"A", clienteLab:"A", especie:"Aran", especieLab:"Arándanos" },
+    { cliente:"A", clienteLab:"A", especie:"Cer",  especieLab:"Cerezas"  },
+    { cliente:"B", clienteLab:"B", especie:"Pal",  especieLab:"Paltas"   },
+  ];
+  test("Cliente=A ⇒ Arándanos/Cerezas POSSIBLE, Paltas EXCLUDED", () => {
+    const r = associativeValues(D, { cliente:S("A") }, "especie");
+    expect(vals(r.possible)).toEqual(["Aran","Cer"]);
+    expect(vals(r.excluded)).toEqual(["Pal"]);
+    expect(r.alternative.length).toBe(0);
+  });
+  test("Cliente=A + Especie=Arándanos ⇒ Aran SELECTED, Cer ALTERNATIVE, Pal EXCLUDED", () => {
+    const r = associativeValues(D, { cliente:S("A"), especie:S("Aran") }, "especie");
+    expect(vals(r.selected)).toEqual(["Aran"]);      // seleccionado
+    expect(vals(r.alternative)).toEqual(["Cer"]);    // sería posible si se quita SOLO la selección de especie
+    expect(vals(r.excluded)).toEqual(["Pal"]);       // imposible por Cliente=A (otro campo)
+    expect(r.possible.length).toBe(0);
+  });
+});
+
+// P1.2 — agrupación multi-dimensión para Straight Table / Pivot.
+describe("groupByDims — agrupación multi-dim", () => {
+  test("agrupa por (cliente, especie) y conserva labels", () => {
+    const D = [
+      { cliente:"A", clienteLab:"Cli A", especie:"X", especieLab:"Esp X" },
+      { cliente:"A", clienteLab:"Cli A", especie:"X", especieLab:"Esp X" },
+      { cliente:"A", clienteLab:"Cli A", especie:"Y", especieLab:"Esp Y" },
+      { cliente:"B", clienteLab:"Cli B", especie:"X", especieLab:"Esp X" },
+    ];
+    const g = groupByDims(D, ["cliente","especie"]);
+    expect(g.length).toBe(3); // (A,X)=2 · (A,Y)=1 · (B,X)=1
+    const ax = g.find(x=>x.dimValues.cliente==="A" && x.dimValues.especie==="X");
+    expect(ax.rows.length).toBe(2);
+    expect(ax.labels.cliente).toBe("Cli A");
+  });
+  test("sin dimensiones => un solo grupo total", () => {
+    const g = groupByDims(FACTS, []);
+    expect(g.length).toBe(1);
+    expect(g[0].rows.length).toBe(4);
   });
 });

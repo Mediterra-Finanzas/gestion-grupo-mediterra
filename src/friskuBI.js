@@ -30,7 +30,21 @@ export const FRISKU_DIMS = [
   { key:"via",          lab:"Tipo de embarque" },
   { key:"shippingLine", lab:"Shipping line" },
   { key:"estado",       lab:"Estado" },
+  { key:"contenedor",   lab:"Contenedor" },
 ];
+
+// Agrupa filas por una o varias dimensiones (para Straight Table / Pivot).
+// Devuelve grupos {key, dimValues:{dim:valor}, labels:{dim:label}, rows}.
+export function groupByDims(rows, dimKeys){
+  const dims = (dimKeys||[]).filter(Boolean);
+  const m = {};
+  rows.forEach(r=>{
+    const key = dims.map(d=>r[d]).join(" ‖ ") || "∑";
+    if(!m[key]){ const dimValues={}, labels={}; dims.forEach(d=>{ dimValues[d]=r[d]; labels[d]=r[d+"Lab"] ?? r[d]; }); m[key]={key, dimValues, labels, rows:[]}; }
+    m[key].rows.push(r);
+  });
+  return Object.values(m);
+}
 // NOTA: "variedad" NO es dimensión a nivel contenedor (vive en las líneas del
 // Packing List, un contenedor puede tener varias). Queda como brecha (FALTA)
 // hasta explotar el PL. No inventar.
@@ -125,6 +139,7 @@ export function buildFriskuFacts({ embarques, liquidaciones, clientes, exportado
       via:viaKey(o.tipoEmbarque),            viaLab:viaLab(o.tipoEmbarque),
       shippingLine:o.navieraAerolinea||"—",  shippingLineLab:o.navieraAerolinea||"— s/naviera —",
       estado:est,                            estadoLab:est,
+      contenedor:o.numeroContenedor||o.numero||o.id, contenedorLab:o.numeroContenedor||o.numero||"(s/n)",
       // medidas base (a nivel contenedor)
       _cajas:cajas, _kilos:kilos, _kgFalta:kgFalta, _venta:d.venta, _fob:d.fob, _comF:d.comF, _comC:d.comC,
     };
