@@ -1366,6 +1366,8 @@ function DocumentosTab({ clientes, embarques=[], exportadoras=[], especies=[], o
   const [fEntidad, setFEntidad] = useState("");  // "" | Cliente | Embarque
   const [fTipo,    setFTipo]    = useState("");
   const [fEstado,  setFEstado]  = useState("todos"); // todos | cargado | recarga | pendiente | vencido
+  // Filtros de la vista Cobertura (por temporada/cliente/exportador/especie/estado docal)
+  const [cTemp, setCTemp] = useState(""); const [cCli, setCCli] = useState(""); const [cExp, setCExp] = useState(""); const [cEsp, setCEsp] = useState(""); const [cEstado, setCEstado] = useState("incompletos");
   const [q,        setQ]        = useState("");
   const hoy = new Date().toISOString().slice(0,10);
   const espName=(c)=>{ const e=especies.find(x=>x.codigo===c); return e?e.nombreEs:(c||""); };
@@ -1428,13 +1430,24 @@ function DocumentosTab({ clientes, embarques=[], exportadoras=[], especies=[], o
   };
   const td={padding:"8px 12px", borderTop:`1px solid ${C.border}`, verticalAlign:"middle"};
 
-  // Cobertura documental COMEX (obligatorios PL/Full Set/QC) por embarque.
+  // Cobertura documental COMEX (obligatorios PL/Full Set/QC) por embarque,
+  // analizable por temporada/cliente/exportador/especie/estado documental.
   const [docView, setDocView] = useState("biblioteca");   // biblioteca | cobertura
   const embActivos = (embarques||[]).filter(o=>(o.estado||"borrador")!=="cancelado");
   const faltantesDe = (o)=>{ const docs=o.carpetaComex?.docs||[]; return DOCS_COMEX_OBLIG.filter(t=>!docs.some(d=>d.tipo===t && esArchivoSubido(d.url))); };
-  const embIncompletos = embActivos.map(o=>({o, falt:faltantesDe(o)})).filter(x=>x.falt.length>0);
-  const embCompletos = embActivos.length - embIncompletos.length;
-  const covPct = embActivos.length ? Math.round(embCompletos/embActivos.length*100) : 0;
+  const embCov = embActivos.filter(o=>{
+    if(cTemp && (o.temporada||"")!==cTemp) return false;
+    if(cCli  && (o.clienteId||"")!==cCli)  return false;
+    if(cExp  && (o.exportadoraId||"")!==cExp) return false;
+    if(cEsp  && (o.especieCodigo||"")!==cEsp) return false;
+    return true;
+  });
+  const embCovRows = embCov.map(o=>{ const falt=faltantesDe(o); return {o, falt, completo:falt.length===0}; });
+  const embCompletos = embCovRows.filter(x=>x.completo).length;
+  const embIncompletos = embCovRows.filter(x=>!x.completo);
+  const covPct = embCov.length ? Math.round(embCompletos/embCov.length*100) : 0;
+  const covRowsShown = cEstado==="completos" ? embCovRows.filter(x=>x.completo) : cEstado==="incompletos" ? embIncompletos : embCovRows;
+  const tempsCov = [...new Set(embActivos.map(o=>o.temporada).filter(Boolean))].sort().reverse();
 
   return (
     <div>
@@ -1447,26 +1460,36 @@ function DocumentosTab({ clientes, embarques=[], exportadoras=[], especies=[], o
 
       {docView==="cobertura" ? (
         <div>
-          <div style={{display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(160px,1fr))", gap:12, marginBottom:16}}>
-            <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,padding:"12px 15px"}}><div style={{fontSize:10,color:C.muted,fontWeight:600,textTransform:"uppercase"}}>Documentación completa</div><div style={{fontSize:22,fontWeight:800,color:covPct===100?C.green:C.text,marginTop:3}}>{embCompletos}/{embActivos.length}</div><div style={{fontSize:11,color:C.muted}}>embarques ({covPct}%)</div></div>
-            <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,padding:"12px 15px"}}><div style={{fontSize:10,color:C.muted,fontWeight:600,textTransform:"uppercase"}}>Con documentos faltantes</div><div style={{fontSize:22,fontWeight:800,color:embIncompletos.length>0?C.warning:C.green,marginTop:3}}>{embIncompletos.length}</div><div style={{fontSize:11,color:C.muted}}>embarques activos</div></div>
-            <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,padding:"12px 15px"}}><div style={{fontSize:10,color:C.muted,fontWeight:600,textTransform:"uppercase"}}>Rutas locales a resubir</div><div style={{fontSize:22,fontWeight:800,color:nRecarga>0?C.warning:C.green,marginTop:3}}>{nRecarga}</div><div style={{fontSize:11,color:C.muted}}>documentos</div></div>
+          {/* Filtros de cobertura */}
+          <div style={{display:"flex",gap:8,marginBottom:12,flexWrap:"wrap",alignItems:"center"}}>
+            <select value={cTemp} onChange={e=>setCTemp(e.target.value)} style={{...inputSt,maxWidth:150}}><option value="">Toda temporada</option>{tempsCov.map(t=><option key={t} value={t}>{t}</option>)}</select>
+            <SelectBuscable value={cCli} onChange={setCCli} placeholder="🔍 Todos los clientes" style={{...inputSt,maxWidth:180}} options={clientes.filter(c=>c.activo!==false).slice().sort((a,b)=>(a.nombre||"").localeCompare(b.nombre||"")).map(c=>({value:c.id,label:c.nombre}))}/>
+            <SelectBuscable value={cExp} onChange={setCExp} placeholder="🔍 Todas las exportadoras" style={{...inputSt,maxWidth:180}} options={exportadoras.filter(e=>e.activo!==false).slice().sort((a,b)=>(a.nombre||"").localeCompare(b.nombre||"")).map(e=>({value:e.id,label:e.nombre}))}/>
+            <SelectBuscable value={cEsp} onChange={setCEsp} placeholder="🔍 Todas las especies" style={{...inputSt,maxWidth:160}} options={especies.slice().sort((a,b)=>(a.nombreEs||"").localeCompare(b.nombreEs||"")).map(e=>({value:e.codigo,label:e.nombreEs}))}/>
+            <select value={cEstado} onChange={e=>setCEstado(e.target.value)} style={{...inputSt,maxWidth:150}}><option value="incompletos">⚠ Incompletos</option><option value="completos">✓ Completos</option><option value="todos">Todos</option></select>
+            {(cTemp||cCli||cExp||cEsp) && <button onClick={()=>{setCTemp("");setCCli("");setCExp("");setCEsp("");}} style={{...btnSt(C.muted,true),fontSize:11}}>✕ Limpiar</button>}
           </div>
-          <div style={{fontSize:11,color:C.muted2,marginBottom:8}}>Obligatorios COMEX: {DOCS_COMEX_OBLIG.join(", ")}. (La regla de bloqueo por transición aún no está configurada — solo semáforo/cobertura.)</div>
+          <div style={{display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(160px,1fr))", gap:12, marginBottom:16}}>
+            <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,padding:"12px 15px"}}><div style={{fontSize:10,color:C.muted,fontWeight:600,textTransform:"uppercase"}}>Documentación completa</div><div style={{fontSize:22,fontWeight:800,color:covPct===100?C.green:C.text,marginTop:3}}>{embCompletos}/{embCov.length}</div><div style={{fontSize:11,color:C.muted}}>embarques ({covPct}%)</div></div>
+            <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,padding:"12px 15px"}}><div style={{fontSize:10,color:C.muted,fontWeight:600,textTransform:"uppercase"}}>Con documentos faltantes</div><div style={{fontSize:22,fontWeight:800,color:embIncompletos.length>0?C.warning:C.green,marginTop:3}}>{embIncompletos.length}</div><div style={{fontSize:11,color:C.muted}}>embarques (con estos filtros)</div></div>
+            <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,padding:"12px 15px"}}><div style={{fontSize:10,color:C.muted,fontWeight:600,textTransform:"uppercase"}}>Rutas locales a resubir</div><div style={{fontSize:22,fontWeight:800,color:nRecarga>0?C.warning:C.green,marginTop:3}}>{nRecarga}</div><div style={{fontSize:11,color:C.muted}}>documentos (total)</div></div>
+          </div>
+          <div style={{fontSize:11,color:C.muted2,marginBottom:8}}>Obligatorios COMEX (config): {DOCS_COMEX_OBLIG.join(", ")}. La regla de bloqueo por transición aún no está configurada — solo semáforo/cobertura.</div>
           <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,overflowX:"auto"}}>
-            <table style={{width:"100%",borderCollapse:"collapse",fontSize:11.5,minWidth:720}}>
+            <table style={{width:"100%",borderCollapse:"collapse",fontSize:11.5,minWidth:760}}>
               <thead><tr style={{background:C.card2,color:C.muted,textAlign:"left"}}>
-                <th style={{padding:"8px 12px"}}>N° OE</th><th style={{padding:"8px 12px"}}>Cliente</th><th style={{padding:"8px 12px"}}>Especie</th><th style={{padding:"8px 12px"}}>Temporada</th><th style={{padding:"8px 12px"}}>Faltan</th><th style={{padding:"8px 12px",textAlign:"right"}}></th>
+                <th style={{padding:"8px 12px"}}>N° OE</th><th style={{padding:"8px 12px"}}>Cliente</th><th style={{padding:"8px 12px"}}>Exportador</th><th style={{padding:"8px 12px"}}>Especie</th><th style={{padding:"8px 12px"}}>Temporada</th><th style={{padding:"8px 12px"}}>Documentación</th><th style={{padding:"8px 12px",textAlign:"right"}}></th>
               </tr></thead>
               <tbody>
-                {embIncompletos.length===0 && <tr><td colSpan={6} style={{padding:24,textAlign:"center",color:C.green,fontSize:12,fontWeight:600}}>✓ Todos los embarques activos tienen sus documentos obligatorios.</td></tr>}
-                {embIncompletos.map(({o,falt})=>{ const esp=especies.find(e=>e.codigo===o.especieCodigo); const cli=clientes.find(c=>c.id===o.clienteId);
+                {covRowsShown.length===0 && <tr><td colSpan={7} style={{padding:24,textAlign:"center",color:C.muted2,fontSize:12}}>{cEstado==="incompletos"?"✓ Ningún embarque incompleto con estos filtros.":"Sin embarques con estos filtros."}</td></tr>}
+                {covRowsShown.map(({o,falt,completo})=>{ const esp=especies.find(e=>e.codigo===o.especieCodigo); const cli=clientes.find(c=>c.id===o.clienteId); const ex=exportadoras.find(e=>e.id===o.exportadoraId);
                   return <tr key={o.id}>
                     <td style={{...td,fontFamily:"monospace",color:C.blue,whiteSpace:"nowrap"}}>{o.numero||"—"}</td>
-                    <td style={{...td,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",maxWidth:180}}>{cli?.nombre||"—"}</td>
+                    <td style={{...td,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",maxWidth:160}}>{cli?.nombre||"—"}</td>
+                    <td style={{...td,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",maxWidth:160}}>{ex?.nombre||"—"}</td>
                     <td style={{...td,whiteSpace:"nowrap"}}>{esp?`${esp.icono||""} ${esp.nombreEs}`:(o.especieCodigo||"—")}</td>
                     <td style={{...td,whiteSpace:"nowrap"}}>{o.temporada||"—"}</td>
-                    <td style={{...td}}>{falt.map(f=><span key={f} style={{fontSize:9,marginRight:4,padding:"2px 7px",borderRadius:8,background:`${C.warning}22`,color:C.warning,border:`1px solid ${C.warning}55`,fontWeight:700,whiteSpace:"nowrap"}}>{f}</span>)}</td>
+                    <td style={{...td}}>{completo ? <span style={{fontSize:9,padding:"2px 8px",borderRadius:8,background:`${C.green}22`,color:C.green,border:`1px solid ${C.green}55`,fontWeight:700}}>✓ Completo</span> : falt.map(f=><span key={f} style={{fontSize:9,marginRight:4,padding:"2px 7px",borderRadius:8,background:`${C.warning}22`,color:C.warning,border:`1px solid ${C.warning}55`,fontWeight:700,whiteSpace:"nowrap"}}>⚠ {f}</span>)}</td>
                     <td style={{...td,textAlign:"right"}}>{onVerEmbarque && <button onClick={()=>onVerEmbarque(o)} style={{...btnSt(C.blue,true),padding:"3px 8px",fontSize:10}}>→ Ver embarque</button>}</td>
                   </tr>;
                 })}
