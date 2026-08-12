@@ -6805,6 +6805,7 @@ export default function FriskuComercialModule({
   const [filtroEstadoClosure, setFiltroEstadoClosure] = useState("activo");
   const [editandoClosure, setEditandoClosure]         = useState(null);
   const [creandoClosure, setCreandoClosure]           = useState(false);
+  const [verClosure, setVerClosure]                   = useState(null);   // detalle (Ver) de un Business Closure
 
   // UI Liquidaciones
   const [editandoLiq,    setEditandoLiq]    = useState(null);
@@ -7703,8 +7704,22 @@ export default function FriskuComercialModule({
               />
             )}
 
-            {/* Grid de cards */}
-            {!editandoClosure && (
+            {/* Detalle (Ver) — solo lectura; conserva los filtros del listado */}
+            {!editandoClosure && verClosure && (
+              <div>
+                <div style={{display:"flex", gap:8, alignItems:"center", marginBottom:12, flexWrap:"wrap"}}>
+                  <button onClick={()=>setVerClosure(null)} style={{...btnSt(C.muted,true), fontSize:12}}>← Volver a Contratos</button>
+                  {permContratos.canEdit && <button onClick={()=>{ const bc=verClosure; setVerClosure(null); handleEditarClosure(bc); }} style={{...btnSt(C.blue), fontSize:12}}>✎ Editar</button>}
+                  {permContratos.canEdit && <button onClick={()=>{ handleEliminarClosure(verClosure); setVerClosure(null); }} style={{...btnSt(C.accent,true), fontSize:12}}>× Eliminar</button>}
+                </div>
+                <div style={{maxWidth:520}}>
+                  <ClosureCard closure={verClosure} exportadoras={exportadoras} clientes={clientes} especies={especies} tiposEmbalaje={tiposEmbalaje} monedas={monedas} onEditar={()=>{}} onEliminar={()=>{}} canEdit={false}/>
+                </div>
+              </div>
+            )}
+
+            {/* Listado compacto (click fila = Ver) */}
+            {!editandoClosure && !verClosure && (
               closuresFiltrados.length===0 ? (
                 <div style={{padding:50, textAlign:"center", color:C.muted, fontSize:13, background:C.card, borderRadius:14}}>
                   {contratos.length===0
@@ -7712,20 +7727,47 @@ export default function FriskuComercialModule({
                     : "Sin resultados con esos filtros."}
                 </div>
               ) : (
-                <div style={{display:"grid", gridTemplateColumns:"repeat(auto-fill, minmax(400px, 1fr))", gap:14}}>
-                  {closuresFiltrados.map(bc=>(
-                    <ClosureCard key={bc.id}
-                      closure={bc}
-                      exportadoras={exportadoras}
-                      clientes={clientes}
-                      especies={especies}
-                      tiposEmbalaje={tiposEmbalaje}
-                      monedas={monedas}
-                      onEditar={()=>handleEditarClosure(bc)}
-                      onEliminar={()=>handleEliminarClosure(bc)}
-                      canEdit={permContratos.canEdit}
-                    />
-                  ))}
+                <div style={{background:C.card, border:`1px solid ${C.border}`, borderRadius:12, overflowX:"auto"}}>
+                  <table style={{width:"100%", borderCollapse:"collapse", fontSize:11.5, minWidth:820}}>
+                    <thead><tr style={{background:C.card2, color:C.muted, textAlign:"left"}}>
+                      <th style={{padding:"8px 10px"}}>Exportador → Cliente</th>
+                      <th style={{padding:"8px 10px"}}>Especie</th>
+                      <th style={{padding:"8px 10px"}}>Temporada</th>
+                      <th style={{padding:"8px 10px", textAlign:"right"}}>Cajas</th>
+                      <th style={{padding:"8px 10px"}}>Condición</th>
+                      <th style={{padding:"8px 10px", textAlign:"center"}}>Estado</th>
+                      <th style={{padding:"8px 10px", textAlign:"right"}}>Acciones</th>
+                    </tr></thead>
+                    <tbody>
+                      {closuresFiltrados.map(bc=>{
+                        const exp=exportadoras.find(e=>e.id===bc.exportadoraId), cli=clientes.find(c=>c.id===bc.clienteId), esp=especies.find(e=>e.codigo===bc.especieCodigo);
+                        const cajas=Object.values(bc.cajasPorFormato||{}).reduce((s,v)=>s+Number(v||0),0);
+                        const fmts=Object.entries(bc.cajasPorFormato||{}).filter(([,v])=>Number(v)>0).map(([cod])=>(tiposEmbalaje.find(t=>t.codigo===cod)?.nombre||cod)).join(", ");
+                        const ec={activo:C.green,cerrado:C.blue,cancelado:C.muted}[bc.estado||"activo"]||C.muted;
+                        const el={activo:"● Activo",cerrado:"✓ Cerrado",cancelado:"✗ Cancelado"}[bc.estado||"activo"];
+                        const td={padding:"7px 10px", borderTop:`1px solid ${C.border}`, verticalAlign:"middle"};
+                        return (
+                          <tr key={bc.id} onClick={()=>setVerClosure(bc)} title="Ver detalle"
+                            style={{cursor:"pointer", opacity:bc.estado==="cancelado"?0.6:1}}>
+                            <td style={{...td}}>
+                              <div style={{fontWeight:600, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis", maxWidth:280}}>{exp?.nombre||"—"} <span style={{color:C.muted}}>→</span> {cli?.nombre||"—"}</div>
+                              {(bc.codigo||fmts) && <div style={{fontSize:9.5, color:C.muted2, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis", maxWidth:280}}>{bc.codigo?`${bc.codigo} · `:""}{fmts}</div>}
+                            </td>
+                            <td style={{...td, whiteSpace:"nowrap"}}>{esp?`${esp.icono||""} ${esp.nombreEs}`:(bc.especieCodigo||"—")}</td>
+                            <td style={{...td, whiteSpace:"nowrap"}}>{bc.temporada||"—"}</td>
+                            <td style={{...td, textAlign:"right", fontFamily:"monospace", fontWeight:700}}>{cajas>0?cajas.toLocaleString("es-CL"):"—"}</td>
+                            <td style={{...td, color:C.blue, fontWeight:600, whiteSpace:"nowrap"}}>{bc.condiciones||"—"}</td>
+                            <td style={{...td, textAlign:"center"}}><span style={{fontSize:9, padding:"2px 7px", borderRadius:4, background:`${ec}22`, color:ec, border:`1px solid ${ec}44`, fontWeight:700, whiteSpace:"nowrap"}}>{el}</span></td>
+                            <td style={{...td, textAlign:"right", whiteSpace:"nowrap"}} onClick={e=>e.stopPropagation()}>
+                              <button onClick={()=>setVerClosure(bc)} title="Ver" style={{...btnSt(C.teal,true), padding:"3px 8px", fontSize:10, marginRight:3}}>👁 Ver</button>
+                              {permContratos.canEdit && <button onClick={()=>handleEditarClosure(bc)} title="Editar" style={{...btnSt(C.blue,true), padding:"3px 7px", fontSize:10, marginRight:3}}>✎</button>}
+                              {permContratos.canEdit && <button onClick={()=>handleEliminarClosure(bc)} title="Eliminar" style={{...btnSt(C.accent,true), padding:"3px 7px", fontSize:10}}>×</button>}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
                 </div>
               )
             )}
