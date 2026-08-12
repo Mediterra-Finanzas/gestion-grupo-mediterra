@@ -22,7 +22,7 @@ import {
   uploadArchivoFrisku, pathDesdeUrlStorage,
 } from "./friskuHelpers.js";
 import { FriskuBIProvider, useFriskuBI, FRISKU_DIMS, FRISKU_METRICS, fmtMetric,
-         mComFriskuUSD, mVentaUSD, mFobUSD } from "./friskuBI.js";
+         mComFriskuUSD, mVentaUSD, mFobUSD, mComClienteUSD } from "./friskuBI.js";
 import { theme } from "./theme";
 
 // ── Paleta Frisku ──
@@ -3643,12 +3643,13 @@ function OEDetalle({ oe, exportadoras, clientes, especies, tiposEmbalaje, contra
 // EMBARQUES — perspectiva agrupada (Semana ETD / Cliente / Exportador / Especie /
 // Estado) sobre la misma lista filtrada. Resumen por grupo → expandir a los
 // embarques → Ver detalle. Operacional (no duplica datos).
-function OEPerspectiva({ dim, embarques, exportadoras, clientes, especies, onVer }) {
+function OEPerspectiva({ dim, embarques, exportadoras, clientes, especies, tiposEmbalaje=[], onVer }) {
   const [exp,setExp]=useState(()=>new Set());
   const espLab=(c)=>{ const e=especies.find(x=>x.codigo===c); return e?`${e.icono||""} ${e.nombreEs}`.trim():(c||"—"); };
   const cliName=(id)=>clientes.find(c=>c.id===id)?.nombre||"—";
   const expName=(id)=>exportadoras.find(e=>e.id===id)?.nombre||"—";
   const cajasDe=(oe)=>Object.values(oe.cajasPorFormato||{}).reduce((s,v)=>s+Number(v||0),0);
+  const kilosDe=(oe)=>Object.entries(oe.cajasPorFormato||{}).reduce((s,[fmt,v])=>s+Number(v||0)*pesoNetoPorCaja(fmt,tiposEmbalaje),0);
   const keyLab=(oe)=>{
     if(dim==="semana"){ const k=oe.fechaDespacho?getMondayStr(oe.fechaDespacho):"—"; return {k, lab:k==="—"?"Sin ETD":`Semana ${k}`}; }
     if(dim==="cliente")    return {k:oe.clienteId||"—", lab:cliName(oe.clienteId)};
@@ -3659,10 +3660,13 @@ function OEPerspectiva({ dim, embarques, exportadoras, clientes, especies, onVer
   const grupos = useMemo(()=>{
     const m={};
     embarques.forEach(oe=>{ const {k,lab}=keyLab(oe); (m[k]=m[k]||{key:k,lab,oes:[]}).oes.push(oe); });
-    return Object.values(m).map(g=>{ let cajas=0,fcl=0; g.oes.forEach(oe=>{ cajas+=cajasDe(oe); if((oe.tipoEmbarque||"maritimo")!=="aereo"&&(oe.estado||"borrador")!=="cancelado")fcl++; });
-      return {...g, n:g.oes.length, cajas, fcl}; })
+    return Object.values(m).map(g=>{ let cajas=0,fcl=0,kilos=0; const clis=new Set(),exps=new Set(),esps=new Set();
+      g.oes.forEach(oe=>{ cajas+=cajasDe(oe); kilos+=kilosDe(oe); if((oe.tipoEmbarque||"maritimo")!=="aereo"&&(oe.estado||"borrador")!=="cancelado")fcl++;
+        if(oe.clienteId)clis.add(oe.clienteId); if(oe.exportadoraId)exps.add(oe.exportadoraId); if(oe.especieCodigo)esps.add(oe.especieCodigo); });
+      return {...g, n:g.oes.length, cajas, fcl, kilos, clis:clis.size, exps:exps.size, esps:esps.size}; })
       .sort((a,b)=> dim==="semana" ? String(a.key).localeCompare(String(b.key)) : (b.n-a.n));
-  },[embarques,dim,exportadoras,clientes,especies]);
+  },[embarques,dim,exportadoras,clientes,especies,tiposEmbalaje]);
+  const relLabel=(g)=> dim==="cliente" ? `${g.exps} exp · ${g.esps} esp` : dim==="exportador" ? `${g.clis} cli · ${g.esps} esp` : dim==="especie" ? `${g.exps} exp · ${g.clis} cli` : `${g.exps} exp · ${g.clis} cli · ${g.esps} esp`;
   const t=(k)=>setExp(p=>{const n=new Set(p);n.has(k)?n.delete(k):n.add(k);return n;});
   return (
     <div>
@@ -3676,7 +3680,8 @@ function OEPerspectiva({ dim, embarques, exportadoras, clientes, especies, onVer
           <div onClick={()=>t(g.key)} style={{padding:"10px 14px",cursor:"pointer",display:"flex",alignItems:"center",gap:12,flexWrap:"wrap",background:o?`${C.blue}0a`:"transparent"}}>
             <span style={{color:C.muted}}>{o?"▾":"▸"}</span>
             <span style={{fontSize:13,fontWeight:700,flex:1,minWidth:140,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{g.lab}</span>
-            <span style={{fontSize:11,fontFamily:"monospace"}}><b>{g.n}</b> OE · <b style={{color:C.teal}}>{g.fcl}</b> FCL · {g.cajas.toLocaleString("es-CL")} cjs</span>
+            <span style={{fontSize:11,color:C.muted}}>{relLabel(g)}</span>
+            <span style={{fontSize:11,fontFamily:"monospace"}}><b>{g.n}</b> OE · <b style={{color:C.teal}}>{g.fcl}</b> FCL · {g.cajas.toLocaleString("es-CL")} cjs · {fmtN0(g.kilos)} kg</span>
           </div>
           {o && (
             <div style={{overflowX:"auto"}}>
@@ -3720,8 +3725,8 @@ function LiqPerspectiva({ dim, liqs, embarques, exportadoras, clientes, especies
   const grupos = useMemo(()=>{
     const m={};
     liqs.forEach(l=>{ const {k,lab}=keyLab(l); (m[k]=m[k]||{key:k,lab,liqs:[]}).liqs.push(l); });
-    return Object.values(m).map(g=>{ let venta=0,comF=0; g.liqs.forEach(l=>{ venta+=mVentaUSD(l); comF+=mComFriskuUSD(l); });
-      return {...g, n:g.liqs.length, venta, comF}; })
+    return Object.values(m).map(g=>{ let venta=0,comF=0,comC=0; g.liqs.forEach(l=>{ venta+=mVentaUSD(l); comF+=mComFriskuUSD(l); comC+=mComClienteUSD(l); });
+      return {...g, n:g.liqs.length, venta, comF, comC}; })
       .sort((a,b)=> dim==="temporada" ? String(b.key).localeCompare(String(a.key)) : (b.comF-a.comF)||(b.n-a.n));
   },[liqs,dim,embarques,exportadoras,clientes]);
   const t=(k)=>setExp(p=>{const n=new Set(p);n.has(k)?n.delete(k):n.add(k);return n;});
@@ -3737,7 +3742,7 @@ function LiqPerspectiva({ dim, liqs, embarques, exportadoras, clientes, especies
           <div onClick={()=>t(g.key)} style={{padding:"10px 14px",cursor:"pointer",display:"flex",alignItems:"center",gap:12,flexWrap:"wrap",background:o?`${C.blue}0a`:"transparent"}}>
             <span style={{color:C.muted}}>{o?"▾":"▸"}</span>
             <span style={{fontSize:13,fontWeight:700,flex:1,minWidth:140,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{g.lab}</span>
-            <span style={{fontSize:11,fontFamily:"monospace"}}><b>{g.n}</b> liq · venta {fmtUSD0(g.venta)} · <b style={{color:C.green}}>{fmtUSD0(g.comF)}</b> com. Frisku</span>
+            <span style={{fontSize:11,fontFamily:"monospace"}}><b>{g.n}</b> liq · venta {g.venta>0?fmtUSD0(g.venta):"—"} · com. cliente {g.comC>0?fmtUSD0(g.comC):"—"} · <b style={{color:C.green}}>{g.comF>0?fmtUSD0(g.comF):"—"}</b> com. Frisku</span>
           </div>
           {o && (
             <div style={{overflowX:"auto"}}>
@@ -8893,7 +8898,7 @@ export default function FriskuComercialModule({
                     </div>;
                   }
                   if(["semana","cliente","exportador","especie","estado"].includes(vistaOE)){
-                    return <OEPerspectiva dim={vistaOE} embarques={embarquesFiltrados} exportadoras={exportadoras} clientes={clientes} especies={especies} onVer={(oe)=>setVerOE(oe)}/>;
+                    return <OEPerspectiva dim={vistaOE} embarques={embarquesFiltrados} exportadoras={exportadoras} clientes={clientes} especies={especies} tiposEmbalaje={tiposEmbalaje} onVer={(oe)=>setVerOE(oe)}/>;
                   }
                   // Vista lista (tabla compacta, filas expandibles)
                   return <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,overflowX:"auto"}}>
