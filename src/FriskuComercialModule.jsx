@@ -2277,6 +2277,113 @@ function ProgramaSemanaForm({semana, closure, tiposEmbalaje, onGuardar, onCancel
 }
 
 // Panel de programa por Business Closure
+// PROGRAMA — vista por perspectiva (Especie / Cliente / Exportador). Un solo
+// modelo (semanas ↔ closure), distintas agrupaciones. Drill progresivo:
+// grupo resumido → expandir → Business Closures (relaciones) → semanas → detalle.
+// Semántica preservada del panel por closure: Presupuesto = cajas del closure,
+// Real = Σ cajas de las semanas programadas, Avance = Real/Presupuesto.
+function ProgramaPerspectiva({ perspectiva, closures, semanasPorClosure, exportadoras, clientes, especies }) {
+  const [expG, setExpG] = useState(()=>new Set());
+  const [expC, setExpC] = useState(()=>new Set());
+  const espOf=(c)=>especies.find(e=>e.codigo===c);
+  const espLab=(c)=>{ const e=espOf(c); return e?`${e.icono||""} ${e.nombreEs}`.trim():(c||"—"); };
+  const cliName=(id)=>clientes.find(c=>c.id===id)?.nombre||"—";
+  const expName=(id)=>exportadoras.find(e=>e.id===id)?.nombre||"—";
+  const sumObj=(o)=>Object.values(o||{}).reduce((s,v)=>s+Number(v||0),0);
+  const wk=(bc)=>semanasPorClosure[bc.id]||[];
+  const pptoDe=(bc)=>sumObj(bc.cajasPorFormato);
+  const realDe=(bc)=>wk(bc).reduce((s,x)=>s+sumObj(x.cajasPorFormato),0);
+  const fclDe=(bc)=>wk(bc).reduce((s,x)=>s+(Number(x.contenedoresFCL)||0),0);
+  const semDe=(bc)=>wk(bc).length;
+  const keyOf=(bc)=> perspectiva==="especie"?(bc.especieCodigo||"—") : perspectiva==="cliente"?(bc.clienteId||"—") : (bc.exportadoraId||"—");
+  const labOf=(bc)=> perspectiva==="especie"?espLab(bc.especieCodigo) : perspectiva==="cliente"?cliName(bc.clienteId) : expName(bc.exportadoraId);
+
+  const grupos = useMemo(()=>{
+    const m={};
+    closures.forEach(bc=>{ const k=keyOf(bc); (m[k]=m[k]||{key:k,label:labOf(bc),closures:[]}).closures.push(bc); });
+    return Object.values(m).map(g=>{
+      const ppto=g.closures.reduce((s,bc)=>s+pptoDe(bc),0);
+      const real=g.closures.reduce((s,bc)=>s+realDe(bc),0);
+      const fcl =g.closures.reduce((s,bc)=>s+fclDe(bc),0);
+      const sem =g.closures.reduce((s,bc)=>s+semDe(bc),0);
+      const clis=new Set(), exps=new Set(), esps=new Set();
+      g.closures.forEach(bc=>{ if(bc.clienteId)clis.add(bc.clienteId); if(bc.exportadoraId)exps.add(bc.exportadoraId); if(bc.especieCodigo)esps.add(bc.especieCodigo); });
+      return {...g, ppto, real, fcl, sem, nClo:g.closures.length, clis:clis.size, exps:exps.size, esps:esps.size, avance: ppto>0?Math.round(real/ppto*100):0};
+    }).sort((a,b)=>b.real-a.real || String(a.label).localeCompare(String(b.label)));
+  },[closures, semanasPorClosure, perspectiva]);
+
+  const toggleG=(k)=>setExpG(p=>{const n=new Set(p);n.has(k)?n.delete(k):n.add(k);return n;});
+  const toggleC=(id)=>setExpC(p=>{const n=new Set(p);n.has(id)?n.delete(id):n.add(id);return n;});
+  const relLabel=(g)=> perspectiva==="especie"?`${g.exps} exp · ${g.clis} cli` : perspectiva==="cliente"?`${g.exps} exp · ${g.esps} esp` : `${g.clis} cli · ${g.esps} esp`;
+
+  return (
+    <div>
+      <div style={{display:"flex",gap:8,marginBottom:10}}>
+        <button onClick={()=>setExpG(new Set(grupos.map(g=>g.key)))} style={{...btnSt(C.muted,true),fontSize:11}}>Expandir todo</button>
+        <button onClick={()=>{setExpG(new Set());setExpC(new Set());}} style={{...btnSt(C.muted,true),fontSize:11}}>Contraer todo</button>
+      </div>
+      {grupos.length===0 && <div style={{padding:40,textAlign:"center",color:C.muted,fontSize:13}}>Sin datos para esta perspectiva/filtros.</div>}
+      {grupos.map(g=>{
+        const open=expG.has(g.key);
+        return (
+          <div key={g.key} style={{background:C.card2,border:`1px solid ${C.border}`,borderRadius:10,marginBottom:10,overflow:"hidden"}}>
+            <div onClick={()=>toggleG(g.key)} style={{padding:"10px 14px",cursor:"pointer",display:"flex",alignItems:"center",gap:12,flexWrap:"wrap",background:open?`${C.blue}0a`:"transparent"}}>
+              <span style={{color:C.muted}}>{open?"▾":"▸"}</span>
+              <span style={{fontSize:13,fontWeight:700,flex:1,minWidth:120}}>{g.label}</span>
+              <span style={{fontSize:11,color:C.muted}}>{relLabel(g)} · {g.nClo} BC · {g.sem} sem</span>
+              <span style={{fontSize:11,fontFamily:"monospace"}}>
+                <b style={{color:C.teal}}>{g.real.toLocaleString("es-CL")}</b> cjs · {g.fcl} FCL · ppto {g.ppto.toLocaleString("es-CL")} · <b style={{color:C.text}}>{g.avance}%</b>
+              </span>
+            </div>
+            {open && (
+              <div style={{padding:"0 14px 12px"}}>
+                {g.closures.map(bc=>{
+                  const co=expC.has(bc.id);
+                  const otras = perspectiva==="especie"?`${expName(bc.exportadoraId)} → ${cliName(bc.clienteId)}`
+                    : perspectiva==="cliente"?`${expName(bc.exportadoraId)} · ${espLab(bc.especieCodigo)}`
+                    : `${cliName(bc.clienteId)} · ${espLab(bc.especieCodigo)}`;
+                  const ppto=pptoDe(bc), real=realDe(bc);
+                  return (
+                    <div key={bc.id} style={{borderTop:`1px solid ${C.border}`}}>
+                      <div onClick={()=>toggleC(bc.id)} style={{padding:"7px 4px",cursor:"pointer",display:"flex",gap:10,alignItems:"center",flexWrap:"wrap"}}>
+                        <span style={{color:C.muted,fontSize:11}}>{co?"▾":"▸"}</span>
+                        <span style={{fontSize:12,flex:1,minWidth:150}}>{otras} <span style={{color:C.muted2}}>· {bc.temporada}</span></span>
+                        <span style={{fontSize:11,fontFamily:"monospace",color:C.muted}}>{real.toLocaleString("es-CL")}/{ppto.toLocaleString("es-CL")} cjs · {fclDe(bc)} FCL · {semDe(bc)} sem · {ppto>0?Math.round(real/ppto*100):0}%</span>
+                      </div>
+                      {co && (
+                        <div style={{overflowX:"auto",paddingBottom:8}}>
+                          <table style={{borderCollapse:"collapse",width:"100%",fontSize:11,minWidth:420}}>
+                            <thead><tr style={{color:C.muted,textAlign:"left"}}>
+                              <th style={{padding:"4px 8px"}}>Semana (lunes ETD)</th><th style={{padding:"4px 8px"}}>Vía</th><th style={{padding:"4px 8px",textAlign:"right"}}>Cajas</th><th style={{padding:"4px 8px",textAlign:"right"}}>FCL/Pallets</th><th style={{padding:"4px 8px"}}>Estado</th>
+                            </tr></thead>
+                            <tbody>
+                              {wk(bc).slice().sort((a,b)=>(a.fechaSemana||"").localeCompare(b.fechaSemana||"")).map(s=>{
+                                const tot=sumObj(s.cajasPorFormato); const aereo=(s.tipoEmbarque||"maritimo")==="aereo";
+                                return <tr key={s.id||s.fechaSemana} style={{borderTop:`1px solid ${C.border}`}}>
+                                  <td style={{padding:"4px 8px",whiteSpace:"nowrap"}}>{s.fechaSemana||"—"}</td>
+                                  <td style={{padding:"4px 8px"}}>{aereo?"✈":"🚢"}</td>
+                                  <td style={{padding:"4px 8px",textAlign:"right",fontFamily:"monospace"}}>{tot.toLocaleString("es-CL")}</td>
+                                  <td style={{padding:"4px 8px",textAlign:"right",fontFamily:"monospace"}}>{aereo?`${Number(s.pallets)||0} pal`:`${Number(s.contenedoresFCL)||0} FCL`}</td>
+                                  <td style={{padding:"4px 8px"}}>{s.estado||"borrador"}</td>
+                                </tr>;
+                              })}
+                              {wk(bc).length===0 && <tr><td colSpan={5} style={{padding:8,color:C.muted2}}>Sin semanas programadas.</td></tr>}
+                            </tbody>
+                          </table>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 function ClosureProgramaPanel({closure, semanas, tiposEmbalaje, exportadoras, clientes, especies,
   canEdit, editandoSemana, closureIdParaSemana,
   onAgregarSemana, onEditarSemana, onEliminarSemana, onGuardarSemana, onCancelarSemana
@@ -7140,6 +7247,7 @@ export default function FriskuComercialModule({
   const [filtroProgramaCli,  setFiltroProgramaCli]  = useState("");
   const [filtroProgramaEsp,  setFiltroProgramaEsp]  = useState("");
   const [filtroProgramaClosure, setFiltroProgramaClosure] = useState(""); // selector directo de un closure
+  const [perspProg,          setPerspProg]          = useState("closure"); // closure | especie | cliente | exportador
   const [editandoSemana,     setEditandoSemana]     = useState(null);
   const [closureIdParaSemana,setClosureIdParaSemana]= useState(null);
 
@@ -7775,6 +7883,14 @@ export default function FriskuComercialModule({
         )}
         {tab === "programa" && (
           <div>
+            {/* Perspectiva (misma data, distinta agrupación) */}
+            <div style={{display:"flex", gap:6, marginBottom:12, flexWrap:"wrap", alignItems:"center"}}>
+              <span style={{fontSize:10, fontWeight:700, color:C.muted, textTransform:"uppercase", marginRight:2}}>Ver por</span>
+              {[{k:"closure",l:"📄 Business Closure"},{k:"especie",l:"🍒 Especie"},{k:"cliente",l:"👥 Cliente"},{k:"exportador",l:"🏭 Exportador"}].map(p=>(
+                <button key={p.k} onClick={()=>setPerspProg(p.k)}
+                  style={{fontSize:11,fontWeight:700,padding:"6px 11px",borderRadius:7,cursor:"pointer",border:`1px solid ${perspProg===p.k?C.blue:C.border}`,background:perspProg===p.k?C.blue:C.card,color:perspProg===p.k?"#fff":C.muted}}>{p.l}</button>
+              ))}
+            </div>
             {/* Filtros */}
             <div style={{display:"flex", flexWrap:"wrap", gap:8, marginBottom:16, alignItems:"center"}}>
               <SelectBuscable listId="flt-prog-temp" value={filtroProgramaTemp} onChange={setFiltroProgramaTemp}
@@ -7806,8 +7922,14 @@ export default function FriskuComercialModule({
               </span>
             </div>
 
-            {/* Paneles por closure */}
-            {closuresParaPrograma.length === 0 ? (
+            {/* Perspectivas agrupadas (Especie / Cliente / Exportador) — misma data */}
+            {perspProg!=="closure" && (
+              <ProgramaPerspectiva perspectiva={perspProg} closures={closuresParaPrograma}
+                semanasPorClosure={semanasPorClosure} exportadoras={exportadoras} clientes={clientes} especies={especies}/>
+            )}
+
+            {/* Paneles por closure (perspectiva por defecto, editable) */}
+            {perspProg==="closure" && (closuresParaPrograma.length === 0 ? (
               contratos.length === 0 ? (
                 <div style={{padding:40, textAlign:"center", color:C.muted, fontSize:13}}>
                   No hay Business Closures registrados. Crea uno en el tab "📄 Contratos".
@@ -7837,7 +7959,7 @@ export default function FriskuComercialModule({
                   onCancelarSemana={handleCancelarSemana}
                 />
               ))
-            )}
+            ))}
           </div>
         )}
         {tab === "embarques" && (
