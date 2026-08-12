@@ -3592,6 +3592,69 @@ function OEDetalle({ oe, exportadoras, clientes, especies, tiposEmbalaje, contra
   );
 }
 
+// EMBARQUES — perspectiva agrupada (Semana ETD / Cliente / Exportador / Especie /
+// Estado) sobre la misma lista filtrada. Resumen por grupo → expandir a los
+// embarques → Ver detalle. Operacional (no duplica datos).
+function OEPerspectiva({ dim, embarques, exportadoras, clientes, especies, onVer }) {
+  const [exp,setExp]=useState(()=>new Set());
+  const espLab=(c)=>{ const e=especies.find(x=>x.codigo===c); return e?`${e.icono||""} ${e.nombreEs}`.trim():(c||"—"); };
+  const cliName=(id)=>clientes.find(c=>c.id===id)?.nombre||"—";
+  const expName=(id)=>exportadoras.find(e=>e.id===id)?.nombre||"—";
+  const cajasDe=(oe)=>Object.values(oe.cajasPorFormato||{}).reduce((s,v)=>s+Number(v||0),0);
+  const keyLab=(oe)=>{
+    if(dim==="semana"){ const k=oe.fechaDespacho?getMondayStr(oe.fechaDespacho):"—"; return {k, lab:k==="—"?"Sin ETD":`Semana ${k}`}; }
+    if(dim==="cliente")    return {k:oe.clienteId||"—", lab:cliName(oe.clienteId)};
+    if(dim==="exportador") return {k:oe.exportadoraId||"—", lab:expName(oe.exportadoraId)};
+    if(dim==="especie")    return {k:oe.especieCodigo||"—", lab:espLab(oe.especieCodigo)};
+    return {k:oe.estado||"borrador", lab:(oe.estado||"borrador")};
+  };
+  const grupos = useMemo(()=>{
+    const m={};
+    embarques.forEach(oe=>{ const {k,lab}=keyLab(oe); (m[k]=m[k]||{key:k,lab,oes:[]}).oes.push(oe); });
+    return Object.values(m).map(g=>{ let cajas=0,fcl=0; g.oes.forEach(oe=>{ cajas+=cajasDe(oe); if((oe.tipoEmbarque||"maritimo")!=="aereo"&&(oe.estado||"borrador")!=="cancelado")fcl++; });
+      return {...g, n:g.oes.length, cajas, fcl}; })
+      .sort((a,b)=> dim==="semana" ? String(a.key).localeCompare(String(b.key)) : (b.n-a.n));
+  },[embarques,dim,exportadoras,clientes,especies]);
+  const t=(k)=>setExp(p=>{const n=new Set(p);n.has(k)?n.delete(k):n.add(k);return n;});
+  return (
+    <div>
+      <div style={{display:"flex",gap:8,marginBottom:10}}>
+        <button onClick={()=>setExp(new Set(grupos.map(g=>g.key)))} style={{...btnSt(C.muted,true),fontSize:11}}>Expandir todo</button>
+        <button onClick={()=>setExp(new Set())} style={{...btnSt(C.muted,true),fontSize:11}}>Contraer todo</button>
+      </div>
+      {grupos.length===0 && <div style={{padding:40,textAlign:"center",color:C.muted,fontSize:13}}>Sin embarques para esta vista/filtros.</div>}
+      {grupos.map(g=>{ const o=exp.has(g.key); return (
+        <div key={g.key} style={{background:C.card2,border:`1px solid ${C.border}`,borderRadius:10,marginBottom:8,overflow:"hidden"}}>
+          <div onClick={()=>t(g.key)} style={{padding:"10px 14px",cursor:"pointer",display:"flex",alignItems:"center",gap:12,flexWrap:"wrap",background:o?`${C.blue}0a`:"transparent"}}>
+            <span style={{color:C.muted}}>{o?"▾":"▸"}</span>
+            <span style={{fontSize:13,fontWeight:700,flex:1,minWidth:140,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{g.lab}</span>
+            <span style={{fontSize:11,fontFamily:"monospace"}}><b>{g.n}</b> OE · <b style={{color:C.teal}}>{g.fcl}</b> FCL · {g.cajas.toLocaleString("es-CL")} cjs</span>
+          </div>
+          {o && (
+            <div style={{overflowX:"auto"}}>
+              <table style={{width:"100%",borderCollapse:"collapse",fontSize:11,minWidth:640}}>
+                <tbody>
+                  {g.oes.slice().sort((a,b)=>String(a.fechaDespacho||"").localeCompare(String(b.fechaDespacho||""))).map(oe=>{ const esp=especies.find(e=>e.codigo===oe.especieCodigo); const cx=comexEstado(oe);
+                    return <tr key={oe.id} onClick={()=>onVer(oe)} title="Ver detalle" style={{cursor:"pointer",borderTop:`1px solid ${C.border}`}}>
+                      <td style={{padding:"6px 12px",fontFamily:"monospace",color:C.blue,whiteSpace:"nowrap"}}>{oe.numero||"—"}</td>
+                      <td style={{padding:"6px 8px",whiteSpace:"nowrap"}}>{esp?`${esp.icono||""} ${esp.nombreEs}`:(oe.especieCodigo||"—")}</td>
+                      <td style={{padding:"6px 8px",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",maxWidth:220}}>{expName(oe.exportadoraId)} → {cliName(oe.clienteId)}</td>
+                      <td style={{padding:"6px 8px",whiteSpace:"nowrap"}}>{oe.fechaDespacho||"—"}</td>
+                      <td style={{padding:"6px 8px",textAlign:"right",fontFamily:"monospace"}}>{cajasDe(oe).toLocaleString("es-CL")}</td>
+                      <td style={{padding:"6px 8px",textAlign:"center"}}><span style={{fontSize:9,padding:"1px 6px",borderRadius:8,fontWeight:700,background:`${cx.completo?C.green:C.warning}22`,color:cx.completo?C.green:C.warning,border:`1px solid ${cx.completo?C.green:C.warning}55`}}>{cx.ok}/{cx.total}</span></td>
+                      <td style={{padding:"6px 12px",textAlign:"right"}}><button onClick={(e)=>{e.stopPropagation();onVer(oe);}} style={{...btnSt(C.teal,true),padding:"3px 8px",fontSize:10}}>👁 Ver</button></td>
+                    </tr>;
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      ); })}
+    </div>
+  );
+}
+
 // ═══════════════════════════════════════════════════════════════════
 // PLACEHOLDER GENÉRICO — tabs que se construyen en fases siguientes
 // ═══════════════════════════════════════════════════════════════════
@@ -8678,11 +8741,12 @@ export default function FriskuComercialModule({
                     {embarquesFiltrados.length} orden{embarquesFiltrados.length!==1?"es":""} de embarque
                     {embarquesFiltrados.length !== embarques.length && ` (${embarques.length} total)`}
                   </span>
-                  <div style={{display:"flex",gap:0,border:`1px solid ${C.border}`,borderRadius:6,overflow:"hidden"}}>
-                    <button onClick={()=>setVistaOE("lista")} title="Vista de lista"
-                      style={{padding:"4px 10px",fontSize:11,fontWeight:700,cursor:"pointer",border:"none",background:vistaOE==="lista"?C.blue:"transparent",color:vistaOE==="lista"?"#fff":C.muted}}>☰ Lista</button>
-                    <button onClick={()=>setVistaOE("cards")} title="Vista de tarjetas"
-                      style={{padding:"4px 10px",fontSize:11,fontWeight:700,cursor:"pointer",border:"none",background:vistaOE==="cards"?C.blue:"transparent",color:vistaOE==="cards"?"#fff":C.muted}}>▦ Tarjetas</button>
+                  <div style={{display:"flex",gap:4,flexWrap:"wrap",alignItems:"center"}}>
+                    <span style={{fontSize:10,fontWeight:700,color:C.muted,textTransform:"uppercase"}}>Ver por</span>
+                    {[["lista","☰ Lista"],["cards","▦ Tarjetas"],["semana","📅 Semana ETD"],["cliente","👥 Cliente"],["exportador","🏭 Exportador"],["especie","🍒 Especie"],["estado","◔ Estado"]].map(([k,l])=>(
+                      <button key={k} onClick={()=>setVistaOE(k)} title={l}
+                        style={{padding:"4px 9px",fontSize:11,fontWeight:700,cursor:"pointer",borderRadius:6,border:`1px solid ${vistaOE===k?C.blue:C.border}`,background:vistaOE===k?C.blue:"transparent",color:vistaOE===k?"#fff":C.muted}}>{l}</button>
+                    ))}
                   </div>
                   {embarquesDocsIncompletos > 0 && (
                     <button
@@ -8718,6 +8782,9 @@ export default function FriskuComercialModule({
                           onGuardarPL={onPL(oe)} onGuardarCOMEX={onCX(oe)} canEdit={permEmbarques.canEdit}/>
                       ))}
                     </div>;
+                  }
+                  if(["semana","cliente","exportador","especie","estado"].includes(vistaOE)){
+                    return <OEPerspectiva dim={vistaOE} embarques={embarquesFiltrados} exportadoras={exportadoras} clientes={clientes} especies={especies} onVer={(oe)=>setVerOE(oe)}/>;
                   }
                   // Vista lista (tabla compacta, filas expandibles)
                   return <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,overflowX:"auto"}}>
