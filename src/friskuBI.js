@@ -39,15 +39,38 @@ export const FRISKU_DIMS = [
 export const mComFriskuUSD = (l)=> Number(l.monedaBase==="USD" ? l.montoComisionFrisku : l.montoComisionFriskuUSD) || 0;   // VERIFICADO-FRISKU
 export const mVentaUSD     = (l)=> Number(l.ventaTotalUSD ?? (l.monedaBase==="USD" ? l.ventaTotal : 0)) || 0;              // VERIFICADO-FRISKU
 export const mFobUSD       = (l)=> Number(l.fobUSD ?? (l.monedaBase==="USD" ? l.fob : 0)) || 0;                             // VERIFICADO-FRISKU
-// Comisión CLIENTE en USD: la liquidación no guarda su USD precomputado, así que
-// para monedas != USD se aplica el MISMO factor FX que ya tiene la comisión Frisku
-// (fUSD/f). Derivación documentada.  HIPOTESIS-DERIVADA (revisar si aparece TC propio).
+// Comisión CLIENTE en USD. La liquidación no guarda su USD precomputado, PERO sí
+// guarda la venta convertida (ventaTotalUSD). Ese par venta/ventaTotalUSD es el
+// FACTOR FX REAL que la liquidación usó al convertir a USD. La comisión cliente
+// está en la misma moneda base, así que se convierte con ese mismo factor → es
+// trazable, no un supuesto. Fallback: factor de la comisión Frisku. Si no hay
+// ningún factor (raro), devuelve 0 y la liquidación se marca en calidad de datos.
 export const mComClienteUSD = (l)=>{
   const cli = Number(l.montoComisionCliente)||0;
+  if(!cli) return 0;
   if(l.monedaBase==="USD") return cli;
-  const f = Number(l.montoComisionFrisku)||0, fUSD = Number(l.montoComisionFriskuUSD)||0;
-  return f>0 ? cli*(fUSD/f) : 0;
+  const v=Number(l.ventaTotal)||0, vUSD=Number(l.ventaTotalUSD)||0;
+  if(v>0 && vUSD>0) return cli*(vUSD/v);
+  const f=Number(l.montoComisionFrisku)||0, fUSD=Number(l.montoComisionFriskuUSD)||0;
+  if(f>0 && fUSD>0) return cli*(fUSD/f);
+  return 0;
 };
+// ¿Se pudo convertir la comisión cliente a USD con un factor REAL de la liquidación?
+export const comClienteConvertible = (l)=>{
+  if((Number(l.montoComisionCliente)||0)===0) return true;
+  if(l.monedaBase==="USD") return true;
+  const v=Number(l.ventaTotal)||0, vUSD=Number(l.ventaTotalUSD)||0; if(v>0&&vUSD>0) return true;
+  const f=Number(l.montoComisionFrisku)||0, fUSD=Number(l.montoComisionFriskuUSD)||0; if(f>0&&fUSD>0) return true;
+  return false;
+};
+
+// Peso neto por caja de un formato (maestro tiposEmbalaje). 0 = sin dato.
+function _kgCaja(fmt, tiposEmbalaje){
+  const t=(tiposEmbalaje||[]).find(x=>x.codigo===fmt||x.descripcion===fmt);
+  if(t&&Number(t.pesoNeto)>0) return Number(t.pesoNeto);
+  const m=String(`${t?.descripcion||""} ${fmt||""}`).match(/(\d+(?:[.,]\d+)?)\s*kg/i);
+  return m?parseFloat(m[1].replace(",",".")):0;
+}
 
 // Semana ISO (para dimensión de calendario ETD). Devuelve {anio, semana}.
 function isoWeek(fechaISO){
@@ -73,7 +96,7 @@ export function buildFriskuFacts({ embarques, liquidaciones, clientes, exportado
   const espLab= (c)=>{ const e=espOf(c); return e?`${e.icono||""} ${e.nombreEs}`.trim():(c||"— s/especie —"); };
   const viaKey= (v)=> (v||"maritimo")==="aereo"?"aereo":"maritimo";
   const viaLab= (v)=> viaKey(v)==="aereo"?"✈ Aéreo":"🚢 Marítimo";
-  const kgCaja= (fmt)=>{ const t=(tiposEmbalaje||[]).find(x=>x.codigo===fmt||x.descripcion===fmt); if(t&&Number(t.pesoNeto)>0) return Number(t.pesoNeto); const m=String(`${t?.descripcion||""} ${fmt||""}`).match(/(\d+(?:[.,]\d+)?)\s*kg/i); return m?parseFloat(m[1].replace(",",".")):0; };
+  const kgCaja= (fmt)=>_kgCaja(fmt, tiposEmbalaje);
 
   // Dinero por OE = suma de sus liquidaciones (una OE puede tener varias).
   const dinero = {};
@@ -83,6 +106,7 @@ export function buildFriskuFacts({ embarques, liquidaciones, clientes, exportado
     const cli=cliOf(o.clienteId); const est=o.estado||"borrador";
     const cajas=Object.entries(o.cajasPorFormato||{}).reduce((s,[,v])=>s+Number(v||0),0);
     const kilos=Object.entries(o.cajasPorFormato||{}).reduce((s,[fmt,v])=>s+Number(v||0)*kgCaja(fmt),0);
+    const kgFalta=Object.entries(o.cajasPorFormato||{}).some(([fmt,v])=>Number(v||0)>0 && kgCaja(fmt)===0); // algún formato sin peso neto
     const d=dinero[o.id]||{venta:0,fob:0,comF:0,comC:0,nLiq:0};
     const {anio,semana}=isoWeek(o.fechaDespacho);
     return {
@@ -102,9 +126,17 @@ export function buildFriskuFacts({ embarques, liquidaciones, clientes, exportado
       shippingLine:o.navieraAerolinea||"—",  shippingLineLab:o.navieraAerolinea||"— s/naviera —",
       estado:est,                            estadoLab:est,
       // medidas base (a nivel contenedor)
-      _cajas:cajas, _kilos:kilos, _venta:d.venta, _fob:d.fob, _comF:d.comF, _comC:d.comC,
+      _cajas:cajas, _kilos:kilos, _kgFalta:kgFalta, _venta:d.venta, _fob:d.fob, _comF:d.comF, _comC:d.comC,
     };
   });
+}
+
+// Calidad de datos que afecta a las métricas (para alertas visibles, no silenciar).
+export function dataQualityFrisku({ embarques, liquidaciones, tiposEmbalaje }){
+  const sinPeso = {};
+  (embarques||[]).forEach(o=>{ Object.entries(o.cajasPorFormato||{}).forEach(([fmt,v])=>{ if(Number(v||0)>0 && _kgCaja(fmt,tiposEmbalaje)===0) sinPeso[fmt]=(sinPeso[fmt]||0)+1; }); });
+  const liqClienteSinConv = (liquidaciones||[]).filter(l=>!comClienteConvertible(l)).length;
+  return { formatosSinPeso:Object.keys(sinPeso), liqClienteSinConv };
 }
 
 // ── MÉTRICAS: registro único. calc(rows) → número. ──
@@ -161,6 +193,7 @@ export function FriskuBIProvider({ data, children }){
   const facts = useMemo(()=>buildFriskuFacts(data||{}), [
     data?.embarques, data?.liquidaciones, data?.clientes, data?.exportadoras, data?.especies, data?.mercados, data?.tiposEmbalaje
   ]);
+  const dataQuality = useMemo(()=>dataQualityFrisku(data||{}), [data?.embarques, data?.liquidaciones, data?.tiposEmbalaje]);
 
   const toggle = useCallback((dim,val)=>setSel(p=>{ const s=new Set(p[dim]||[]); s.has(val)?s.delete(val):s.add(val); const n={...p}; s.size?n[dim]=s:delete n[dim]; return n; }),[]);
   const setOne = useCallback((dim,val)=>setSel(p=>{ const n={...p}; if(val==null||val==="") delete n[dim]; else n[dim]=new Set([val]); return n; }),[]);
@@ -175,7 +208,7 @@ export function FriskuBIProvider({ data, children }){
   })), [sel, facts]);
 
   const value = { facts, filtered, dims:FRISKU_DIMS, metrics:FRISKU_METRICS, metric:FRISKU_METRIC, fmtMetric,
-                  sel, toggle, setOne, remove, clearDim, clearAll, associative, chips };
+                  sel, toggle, setOne, remove, clearDim, clearAll, associative, chips, dataQuality };
   return <FriskuBIContext.Provider value={value}>{children}</FriskuBIContext.Provider>;
 }
 export function useFriskuBI(){

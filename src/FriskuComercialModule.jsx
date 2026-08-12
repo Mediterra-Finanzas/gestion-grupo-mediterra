@@ -4553,7 +4553,7 @@ function ResumenEjecutivo() {
   // métricas de definición única y opciones asociativas. La hoja no reimplementa
   // ninguna fórmula ni estado de filtro propio.
   const bi = useFriskuBI();
-  const { filtered:rows, sel, setOne, clearAll, remove, chips, associative, metric } = bi;
+  const { filtered:rows, sel, setOne, clearAll, remove, chips, associative, metric, dataQuality } = bi;
   const [expXls, setExpXls] = useState(false);
   const [expPdf, setExpPdf] = useState(false);
   const mF = metric.friskuCommissionUSD;   // medida principal de dinero (comisión Frisku)
@@ -4715,6 +4715,14 @@ function ResumenEjecutivo() {
         <div style={{fontSize:11, color:C.muted2, marginTop:8}}>
           Hoja fija sobre el motor BI · {rows.length} de {bi.facts.length} contenedores en la selección.
         </div>
+        {/* Calidad de datos: no silenciar problemas que afectan las métricas */}
+        {(dataQuality.formatosSinPeso.length>0 || dataQuality.liqClienteSinConv>0) && (
+          <div style={{marginTop:8, fontSize:11, color:C.warning, background:`${C.warning}14`, border:`1px solid ${C.warning}44`, borderRadius:8, padding:"7px 10px"}}>
+            ⚠ Calidad de datos:
+            {dataQuality.formatosSinPeso.length>0 && <span> {dataQuality.formatosSinPeso.length} formato(s) sin peso neto en Maestros ({dataQuality.formatosSinPeso.slice(0,6).join(", ")}) → sus kilos cuentan como 0.</span>}
+            {dataQuality.liqClienteSinConv>0 && <span> {dataQuality.liqClienteSinConv} liquidación(es) sin factor de conversión para comisión cliente en USD.</span>}
+          </div>
+        )}
       </div>
 
       {/* KPIs (métricas de definición única) */}
