@@ -4693,17 +4693,156 @@ const fmtUSD0 = (v) => "$" + new Intl.NumberFormat("es-CL",{maximumFractionDigit
 const fmtUSD2 = (v) => "$" + new Intl.NumberFormat("es-CL",{minimumFractionDigits:2,maximumFractionDigits:2}).format(Number(v)||0);
 const fmtN0   = (v) => new Intl.NumberFormat("es-CL",{maximumFractionDigits:0}).format(Number(v)||0);
 
+// HOJA ANALÍTICA por dimensión (Clientes / Exportadores / Especies / Mercados /
+// Comisiones / Embarques). Todas usan el MISMO provider, métricas y selección.
+// Drill-down: clic en una fila filtra todo el BI (agregado→detalle). El detalle
+// muestra los contenedores fuente con "→ Ver embarque" (BI↔operación).
+function HojaBIDim({ dimDefault, orderDefault="friskuCommissionUSD", onVerEmbarque }) {
+  const bi = useFriskuBI();
+  const { filtered, metric, sel, setOne, remove, associative, chips, clearAll } = bi;
+  const [groupDim, setGroupDim] = useState(dimDefault);
+  const [orderKey, setOrderKey] = useState(orderDefault);
+  const FLT = ["temporada","especie","exportadora","cliente","mercado","paisDestino","estado"];
+  const COLS = [
+    {k:"containers",lab:"Contenedores",fmt:"int"},
+    {k:"boxes",lab:"Cajas",fmt:"int"},
+    {k:"kilograms",lab:"Kilos",fmt:"int"},
+    {k:"destinationSalesUSD",lab:"Venta USD",fmt:"usd"},
+    {k:"clientCommissionUSD",lab:"Com. cliente USD",fmt:"usd"},
+    {k:"friskuCommissionUSD",lab:"Com. Frisku USD",fmt:"usd"},
+    {k:"avgCommissionPct",lab:"% Frisku",fmt:"pct"},
+  ];
+  const flt=(dk)=>{ const cur=sel[dk]?[...sel[dk]][0]:""; const opts=associative(dk).possible.map(x=>({value:x.value,label:x.label}));
+    return (<div key={dk} style={{minWidth:140,flex:"1 1 140px"}}><div style={lblSt}>{FRISKU_DIMS.find(d=>d.key===dk)?.lab||dk}</div>
+      <SelectBuscable value={cur} onChange={v=>setOne(dk,v)} options={opts} placeholder="Todos" style={{...inputSt,width:"100%"}}/></div>); };
+  const grupos = useMemo(()=>{ const m={}; filtered.forEach(r=>{ const v=r[groupDim]; (m[v]=m[v]||{key:v,lab:r[groupDim+"Lab"],rows:[]}).rows.push(r); });
+    return Object.values(m).map(g=>{ const o={key:g.key,lab:g.lab}; COLS.forEach(c=>o[c.k]=metric[c.k].calc(g.rows)); o.ord=metric[orderKey].calc(g.rows); return o; })
+      .sort((a,b)=>b.ord-a.ord); },[filtered,groupDim,orderKey]);
+  const totComF = grupos.reduce((s,g)=>s+g.friskuCommissionUSD,0)||1;
+  const dimLab = FRISKU_DIMS.find(d=>d.key===groupDim)?.lab||groupDim;
+  const detalle = filtered.slice(0,200);
+  return (
+    <div>
+      <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,padding:12,marginBottom:12,display:"flex",gap:10,flexWrap:"wrap",alignItems:"flex-end"}}>
+        {FLT.map(flt)}
+        <div><div style={lblSt}>Agrupar por</div><select value={groupDim} onChange={e=>setGroupDim(e.target.value)} style={{...inputSt}}>{FRISKU_DIMS.map(d=><option key={d.key} value={d.key}>{d.lab}</option>)}</select></div>
+        <div><div style={lblSt}>Ordenar por</div><select value={orderKey} onChange={e=>setOrderKey(e.target.value)} style={{...inputSt}}>{COLS.map(c=><option key={c.k} value={c.k}>{c.lab}</option>)}</select></div>
+        {chips.length>0 && <button onClick={clearAll} style={{...btnSt(C.muted,true),fontSize:11,padding:"7px 10px"}}>Limpiar</button>}
+      </div>
+      {chips.length>0 && <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:10,alignItems:"center"}}>
+        <span style={{fontSize:10,fontWeight:700,color:C.muted,textTransform:"uppercase"}}>Selección:</span>
+        {chips.map((c,i)=><span key={i} onClick={()=>remove(c.dim,c.value)} title="Quitar" style={{fontSize:11,fontWeight:600,background:C.accent2,color:"#fff",borderRadius:14,padding:"3px 10px",cursor:"pointer"}}><span style={{opacity:.8,fontWeight:400}}>{c.dimLab}:</span> {c.label} ×</span>)}
+      </div>}
+
+      <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,overflowX:"auto"}}>
+        <table style={{width:"100%",borderCollapse:"collapse",fontSize:11.5,minWidth:900}}>
+          <thead><tr style={{background:C.card2,color:C.muted,textAlign:"left"}}>
+            <th style={{padding:"8px 10px"}}>{dimLab}</th>
+            {COLS.map(c=><th key={c.k} style={{padding:"8px 10px",textAlign:"right"}}>{c.lab}</th>)}
+            <th style={{padding:"8px 10px",textAlign:"right"}}>Part.%</th>
+          </tr></thead>
+          <tbody>
+            {grupos.map(g=>{ const isSel=sel[groupDim]&&sel[groupDim].has(g.key);
+              return <tr key={g.key} onClick={()=>setOne(groupDim, isSel?"":g.key)} title="Clic para profundizar (filtra todo el BI)"
+                style={{cursor:"pointer",borderTop:`1px solid ${C.border}`,background:isSel?`${C.accent2}10`:"transparent"}}>
+                <td style={{padding:"7px 10px",fontWeight:isSel?700:500,color:isSel?C.accent2:C.text,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",maxWidth:220}}>{isSel?"✓ ":""}{g.lab}</td>
+                {COLS.map(c=><td key={c.k} style={{padding:"7px 10px",textAlign:"right",fontFamily:"monospace"}}>{fmtMetric(c.fmt,g[c.k])}</td>)}
+                <td style={{padding:"7px 10px",textAlign:"right",color:C.muted}}>{(g.friskuCommissionUSD/totComF*100).toFixed(1)}%</td>
+              </tr>; })}
+            {grupos.length===0 && <tr><td colSpan={COLS.length+2} style={{padding:20,textAlign:"center",color:C.muted2}}>Sin datos para la selección.</td></tr>}
+          </tbody>
+        </table>
+      </div>
+
+      <div style={{fontSize:12,fontWeight:700,margin:"16px 0 8px"}}>Detalle — contenedores {filtered.length>200?`(primeros 200 de ${filtered.length})`:`(${filtered.length})`}</div>
+      <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,overflowX:"auto"}}>
+        <table style={{width:"100%",borderCollapse:"collapse",fontSize:11,minWidth:720}}>
+          <thead><tr style={{background:C.card2,color:C.muted,textAlign:"left"}}>
+            <th style={{padding:"7px 10px"}}>N° OE</th><th style={{padding:"7px 10px"}}>Especie</th><th style={{padding:"7px 10px"}}>Exportador → Cliente</th><th style={{padding:"7px 10px"}}>ETD</th><th style={{padding:"7px 10px",textAlign:"right"}}>Cajas</th><th style={{padding:"7px 10px",textAlign:"right"}}>Com. Frisku</th><th style={{padding:"7px 10px"}}></th>
+          </tr></thead>
+          <tbody>
+            {detalle.map(r=>(
+              <tr key={r._id} style={{borderTop:`1px solid ${C.border}`}}>
+                <td style={{padding:"6px 10px",fontFamily:"monospace",color:C.blue,whiteSpace:"nowrap"}}>{r._oe?.numero||"—"}</td>
+                <td style={{padding:"6px 10px",whiteSpace:"nowrap"}}>{r.especieLab}</td>
+                <td style={{padding:"6px 10px",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",maxWidth:220}}>{r.exportadoraLab} → {r.clienteLab}</td>
+                <td style={{padding:"6px 10px",whiteSpace:"nowrap"}}>{r._oe?.fechaDespacho||"—"}</td>
+                <td style={{padding:"6px 10px",textAlign:"right",fontFamily:"monospace"}}>{fmtN0(r._cajas)}</td>
+                <td style={{padding:"6px 10px",textAlign:"right",fontFamily:"monospace",color:C.green,fontWeight:700}}>{fmtUSD0(r._comF)}</td>
+                <td style={{padding:"6px 10px",textAlign:"right"}}>{onVerEmbarque && r._oe && <button onClick={()=>onVerEmbarque(r._oe)} title="Ir al embarque operacional" style={{...btnSt(C.blue,true),padding:"3px 8px",fontSize:10}}>→ Ver embarque</button>}</td>
+              </tr>
+            ))}
+            {detalle.length===0 && <tr><td colSpan={7} style={{padding:16,textAlign:"center",color:C.muted2}}>Sin contenedores en la selección.</td></tr>}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+// HOJA COMPARATIVO — temporada actual vs anterior (valor, comparativo, Δ, Δ%).
+function HojaComparativo() {
+  const bi = useFriskuBI();
+  const { facts, metric } = bi;
+  const temps = useMemo(()=>[...new Set(facts.map(r=>r.temporada).filter(t=>t&&t!=="—"))].sort().reverse(),[facts]);
+  const [actual, setActual] = useState("");
+  const [anterior, setAnterior] = useState("");
+  useEffect(()=>{ setActual(a=>a||temps[0]||""); setAnterior(a=>a||temps[1]||""); },[temps.join("|")]);
+  const rowsA = facts.filter(r=>r.temporada===actual);
+  const rowsB = facts.filter(r=>r.temporada===anterior);
+  const KPIS = ["containers","boxes","kilograms","destinationSalesUSD","clientCommissionUSD","friskuCommissionUSD","activeClients","activeExporters"];
+  const selSt={...inputSt, maxWidth:160};
+  return (
+    <div>
+      <div style={{display:"flex",gap:12,flexWrap:"wrap",alignItems:"flex-end",marginBottom:14}}>
+        <div><div style={lblSt}>Temporada actual</div><select value={actual} onChange={e=>setActual(e.target.value)} style={selSt}>{temps.map(t=><option key={t} value={t}>{t}</option>)}</select></div>
+        <div><div style={lblSt}>Temporada anterior</div><select value={anterior} onChange={e=>setAnterior(e.target.value)} style={selSt}><option value="">—</option>{temps.map(t=><option key={t} value={t}>{t}</option>)}</select></div>
+      </div>
+      <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,overflowX:"auto"}}>
+        <table style={{width:"100%",borderCollapse:"collapse",fontSize:12,minWidth:620}}>
+          <thead><tr style={{background:C.card2,color:C.muted,textAlign:"left"}}>
+            <th style={{padding:"9px 12px"}}>Indicador</th>
+            <th style={{padding:"9px 12px",textAlign:"right"}}>{actual||"Actual"}</th>
+            <th style={{padding:"9px 12px",textAlign:"right"}}>{anterior||"Anterior"}</th>
+            <th style={{padding:"9px 12px",textAlign:"right"}}>Δ</th>
+            <th style={{padding:"9px 12px",textAlign:"right"}}>Δ%</th>
+          </tr></thead>
+          <tbody>
+            {KPIS.map(k=>{ const m=metric[k]; const a=m.calc(rowsA), b=m.calc(rowsB); const va=a-b; const vp=b!==0?va/b*100:(a>0?100:0);
+              const col=va>0?C.green:va<0?C.accent:C.muted;
+              return <tr key={k} style={{borderTop:`1px solid ${C.border}`}}>
+                <td style={{padding:"8px 12px",fontWeight:600}}>{m.label}</td>
+                <td style={{padding:"8px 12px",textAlign:"right",fontFamily:"monospace",fontWeight:700}}>{fmtMetric(m.fmt,a)}</td>
+                <td style={{padding:"8px 12px",textAlign:"right",fontFamily:"monospace",color:C.muted}}>{anterior?fmtMetric(m.fmt,b):"—"}</td>
+                <td style={{padding:"8px 12px",textAlign:"right",fontFamily:"monospace",color:col}}>{anterior?(m.fmt==="pct"?`${va>0?"+":""}${va.toFixed(1)} pts`:`${va>0?"+":""}${fmtMetric(m.fmt,va)}`):"—"}</td>
+                <td style={{padding:"8px 12px",textAlign:"right",fontFamily:"monospace",color:col,fontWeight:700}}>{anterior&&m.fmt!=="pct"?`${vp>0?"+":""}${vp.toFixed(0)}%`:"—"}</td>
+              </tr>; })}
+          </tbody>
+        </table>
+      </div>
+      <div style={{fontSize:10.5,color:C.muted2,marginTop:10}}>Comparativo sobre toda la data (no depende de los filtros de selección). Δ = actual − anterior.</div>
+    </div>
+  );
+}
+
 // ═══════════════════════════════════════════════════════════════════
-// REPORTERÍA BI — punto de entrada analítico único. Consolida lo que antes
-// estaba disperso en Dashboard + Reportes + Tablero BI, como hojas internas:
-//   Resumen Ejecutivo (motor BI) | Reportes | Tablero BI (explorador).
-// Un solo submódulo analítico en vez de varias pestañas principales.
+// REPORTERÍA BI — punto de entrada analítico único. Consolida Dashboard +
+// Reportes + Tablero BI, más las hojas analíticas (Clientes/Exportadores/
+// Especies/Mercados/Comisiones/Embarques) y el Comparativo de temporadas.
+// TODO usa el mismo motor: una selección, unas métricas.
 // ═══════════════════════════════════════════════════════════════════
-function ReporteriaBI({ data, permResumen, permReportes, permTablero }) {
+function ReporteriaBI({ data, permResumen, permReportes, permTablero, onVerEmbarque }) {
   const hojas = [
-    (permResumen?.visible!==false) && { id:"exec",     lab:"📈 Resumen Ejecutivo" },
-    (permReportes?.visible!==false) && { id:"reportes", lab:"📊 Reportes" },
-    (permTablero?.visible!==false)  && { id:"tablero",  lab:"🧭 Explorador (Tablero BI)" },
+    (permResumen?.visible!==false) && { id:"exec",     lab:"📈 Resumen" },
+    { id:"clientes",   lab:"👥 Clientes" },
+    { id:"exportad",   lab:"🏭 Exportadores" },
+    { id:"especies",   lab:"🍒 Especies" },
+    { id:"mercados",   lab:"🌍 Mercados" },
+    { id:"comision",   lab:"💵 Comisiones" },
+    { id:"embbi",      lab:"🚢 Embarques" },
+    { id:"comp",       lab:"📊 Comparativo" },
+    (permReportes?.visible!==false) && { id:"reportes", lab:"📋 Reportes" },
+    (permTablero?.visible!==false)  && { id:"tablero",  lab:"🧭 Explorador" },
   ].filter(Boolean);
   const [hoja, setHoja] = useState(hojas[0]?.id || "exec");
   return (
@@ -4711,10 +4850,17 @@ function ReporteriaBI({ data, permResumen, permReportes, permTablero }) {
       <div style={{display:"flex", gap:6, marginBottom:14, flexWrap:"wrap", borderBottom:`1px solid ${C.border}`, paddingBottom:10}}>
         {hojas.map(h=>(
           <button key={h.id} onClick={()=>setHoja(h.id)}
-            style={{...btnSt(hoja===h.id?C.blue:C.muted, hoja!==h.id), fontSize:12, padding:"7px 14px"}}>{h.lab}</button>
+            style={{...btnSt(hoja===h.id?C.blue:C.muted, hoja!==h.id), fontSize:12, padding:"7px 12px"}}>{h.lab}</button>
         ))}
       </div>
       {hoja==="exec"     && <ResumenEjecutivo/>}
+      {hoja==="clientes" && <HojaBIDim dimDefault="cliente" onVerEmbarque={onVerEmbarque}/>}
+      {hoja==="exportad" && <HojaBIDim dimDefault="exportadora" onVerEmbarque={onVerEmbarque}/>}
+      {hoja==="especies" && <HojaBIDim dimDefault="especie" onVerEmbarque={onVerEmbarque}/>}
+      {hoja==="mercados" && <HojaBIDim dimDefault="mercado" onVerEmbarque={onVerEmbarque}/>}
+      {hoja==="comision" && <HojaBIDim dimDefault="cliente" orderDefault="friskuCommissionUSD" onVerEmbarque={onVerEmbarque}/>}
+      {hoja==="embbi"    && <HojaBIDim dimDefault="semanaETD" orderDefault="containers" onVerEmbarque={onVerEmbarque}/>}
+      {hoja==="comp"     && <HojaComparativo/>}
       {hoja==="reportes" && <ReportesTab {...data}/>}
       {hoja==="tablero"  && <TableroAsociativo {...data}/>}
     </div>
@@ -8480,6 +8626,7 @@ export default function FriskuComercialModule({
           <ReporteriaBI
             data={{ liquidaciones, embarques, clientes, exportadoras, especies, mercados, paises, temporadas, programa, contratos, pos }}
             permResumen={permResumen} permReportes={permReportes} permTablero={permTablero}
+            onVerEmbarque={(oe)=>{ setVerOE(oe); setTab("embarques"); }}
           />
         )}
 
