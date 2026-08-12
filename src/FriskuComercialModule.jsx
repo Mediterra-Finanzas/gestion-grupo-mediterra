@@ -21,7 +21,8 @@ import {
   formatearMonto, buscarTC, convertirMonto,
   uploadArchivoFrisku, pathDesdeUrlStorage,
 } from "./friskuHelpers.js";
-import { FriskuBIProvider, useFriskuBI, FRISKU_DIMS, FRISKU_METRICS, fmtMetric } from "./friskuBI.js";
+import { FriskuBIProvider, useFriskuBI, FRISKU_DIMS, FRISKU_METRICS, fmtMetric,
+         mComFriskuUSD, mVentaUSD, mFobUSD } from "./friskuBI.js";
 import { theme } from "./theme";
 
 // ── Paleta Frisku ──
@@ -4834,9 +4835,7 @@ function TableroAsociativo({ liquidaciones, embarques, clientes, exportadoras, e
         estado:l.estado||"borrador", estadoLab:l.estado||"borrador",
         temporada:l.temporada||"—", temporadaLab:l.temporada||"— s/temp —",
         mes, mesLab:mesLabOf(mes),
-        _com:Number(l.monedaBase==="USD"?l.montoComisionFrisku:l.montoComisionFriskuUSD)||0,
-        _venta:Number(l.ventaTotalUSD??(l.monedaBase==="USD"?l.ventaTotal:0))||0,
-        _fob:Number(l.fobUSD??(l.monedaBase==="USD"?l.fob:0))||0,
+        _com:mComFriskuUSD(l), _venta:mVentaUSD(l), _fob:mFobUSD(l),  // definición única (motor friskuBI)
         _cajas:Number(l.cajasVendidas)||0,
       };
     });
@@ -5402,9 +5401,8 @@ function ReportesTab({ liquidaciones, embarques, clientes, exportadoras, especie
   const [expXls, setExpXls] = useState(false);
 
   // Comisión Frisku en USD por liquidación (misma lógica que el KPI existente)
-  const comUSD = (liq) => Number(liq.monedaBase==="USD" ? liq.montoComisionFrisku : liq.montoComisionFriskuUSD) || 0;
-  const ventaUSD = (liq) => Number(liq.ventaTotalUSD ?? (liq.monedaBase==="USD" ? liq.ventaTotal : 0)) || 0;
-  const fobUSDv  = (liq) => Number(liq.fobUSD ?? (liq.monedaBase==="USD" ? liq.fob : 0)) || 0;
+  // Definición ÚNICA de métricas (motor friskuBI). Reportes ya no redefine fórmulas.
+  const comUSD = mComFriskuUSD, ventaUSD = mVentaUSD, fobUSDv = mFobUSD;
   const oeDe     = (liq) => embarques.find(e=>e.id===liq.oeId);
 
   // Temporadas presentes en las liquidaciones (para el selector)
