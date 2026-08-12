@@ -42,10 +42,17 @@ Fase 0 (Data Protection, Regression Baseline & Economic Engine Freeze) completad
 | ¿Módulo renombrado? | **NO** |
 | ¿Código legacy borrado? | **NO** (inventariado, no eliminado) |
 | ¿Escrituras a Supabase? | **NO** (solo un GET read-only para el snapshot) |
-| ¿Deploy a Vercel? | **NO** (trabajo en rama, `main` intacto) |
+| ¿Deploy a Vercel? | **SÍ, no intencional** — por el incidente de concurrencia el export quedó en `main` (build-safe, no funcional). Ver abajo. |
 
 ## Commit
-`COMMIT_HASH_PLACEHOLDER` (rama `osiris-fase0-baseline`).
+Los archivos de Fase 0 quedaron incorporados en el commit `dd41ff8` de `main` (ver "Incidente de concurrencia" abajo), más este commit de corrección del Acta. La rama `osiris-fase0-baseline` fue reutilizada por la sesión concurrente y **no** es un marcador limpio de Fase 0.
+
+## Incidente de concurrencia (transparencia)
+Durante esta sesión, **otra sesión trabajaba en el mismo directorio de trabajo** (Frisku BI/Programa). Esa sesión ejecutó `git add`/`commit` amplios y cambió el branch activo mientras yo tenía archivos preparados. Resultado:
+- Mis archivos de Fase 0 y el bloque `export` de `OsirisModule.jsx` fueron **arrastrados al commit `dd41ff8`** ("feat(frisku): Programa — 5ª perspectiva por Semana (BLOQUE H)") en `main`, en vez de quedar aislados en `osiris-fase0-baseline` como se planeó.
+- Nada se perdió: los 19 archivos están versionados y en disco, con el contenido correcto.
+- **Consecuencia:** el bloque `export` (no funcional, build verificado) quedó en `main` → se desplegará a Vercel. No cambia comportamiento, UI ni lógica.
+- **Causa raíz:** dos sesiones sobre un mismo working tree (hazard ya conocido: "correr una sesión a la vez"). Recomendación: no correr sesiones en paralelo sobre este repo.
 
 ## Hallazgos relevantes (congelados, no corregidos)
 1. **Doble fuente de verdad 70/30**: IQ hardcodeado (`PCT_IQ=0.70`,`PCT_WHT=0.10`) vs `participacionIngresos`. (CRÍTICA)
