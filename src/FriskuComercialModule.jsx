@@ -21,6 +21,7 @@ import {
   formatearMonto, buscarTC, convertirMonto,
   uploadArchivoFrisku, pathDesdeUrlStorage,
 } from "./friskuHelpers.js";
+import { FriskuBIProvider, useFriskuBI, FRISKU_DIMS, FRISKU_METRICS, fmtMetric } from "./friskuBI.js";
 import { theme } from "./theme";
 
 // ── Paleta Frisku ──
@@ -4551,109 +4552,45 @@ function FiltroBuscable({ value, onChange, options, placeholder }) {
 // Export on-demand Excel + PDF con logo Frisku (sin scheduling; Frisku no usa
 // NPrinting).  VERIFICADO (confirmado por Angelo).
 // ═══════════════════════════════════════════════════════════════════
-function ResumenEjecutivo({ liquidaciones, embarques, clientes, exportadoras, especies, mercados }) {
-  // Filtros globales de la hoja (estado único compartido por todos los objetos).
-  const [f, setF] = useState({ temp:"", esp:"", exp:"", cli:"", ori:"", des:"" });
+function ResumenEjecutivo() {
+  // Consume el MOTOR BI (friskuBI): filas de hechos, selección compartida,
+  // métricas de definición única y opciones asociativas. La hoja no reimplementa
+  // ninguna fórmula ni estado de filtro propio.
+  const bi = useFriskuBI();
+  const { filtered:rows, sel, setOne, clearAll, remove, chips, associative, metric } = bi;
   const [expXls, setExpXls] = useState(false);
   const [expPdf, setExpPdf] = useState(false);
-  const setFiltro = (k,v)=> setF(p=>({...p,[k]:v}));
-  const limpiar = ()=> setF({ temp:"", esp:"", exp:"", cli:"", ori:"", des:"" });
+  const mF = metric.friskuCommissionUSD;   // medida principal de dinero (comisión Frisku)
 
-  const cliOf = (id)=>clientes.find(c=>c.id===id);
-  const expOf = (id)=>exportadoras.find(e=>e.id===id);
-  const espOf = (c)=>especies.find(e=>e.codigo===c);
-  const espLab = (c)=>{ const e=espOf(c); return e?`${e.icono||""} ${e.nombreEs}`.trim():(c||"— s/especie —"); };
-
-  // Comisión y venta en USD por liquidación (misma lógica verificada del módulo).
-  const comUSD   = (l)=> Number(l.monedaBase==="USD"?l.montoComisionFrisku:l.montoComisionFriskuUSD)||0;   // VERIFICADO-FRISKU
-  const ventaUSD = (l)=> Number(l.ventaTotalUSD??(l.monedaBase==="USD"?l.ventaTotal:0))||0;                // VERIFICADO-FRISKU
-
-  // Dinero devengado por OE = suma de sus liquidaciones (una OE puede tener varias).
-  const dineroPorOE = useMemo(()=>{
-    const m={};
-    (liquidaciones||[]).forEach(l=>{ if(!l.oeId) return; const a=m[l.oeId]||(m[l.oeId]={com:0,venta:0}); a.com+=comUSD(l); a.venta+=ventaUSD(l); });
-    return m;
-  },[liquidaciones]);
-
-  // Una OE pasa el filtro si cumple todas las condiciones activas EXCEPTO la indicada
-  // (para recalcular las opciones "posibles" de ese filtro, estilo asociativo Qlik).
-  const matchOE = (o, except)=>{
-    if(except!=="temp" && f.temp && (o.temporada||"")!==f.temp) return false;
-    if(except!=="esp"  && f.esp  && (o.especieCodigo||"")!==f.esp) return false;
-    if(except!=="exp"  && f.exp  && (o.exportadoraId||"")!==f.exp) return false;
-    if(except!=="cli"  && f.cli  && (o.clienteId||"")!==f.cli) return false;
-    if(except!=="ori"  && f.ori  && (o.origen||"")!==f.ori) return false;
-    if(except!=="des"  && f.des  && (o.destino||"")!==f.des) return false;
-    return true;
+  // Agrupa las filas por una dimensión y evalúa una métrica del motor.
+  const groupBy = (dimKey, met)=>{
+    const m={}; rows.forEach(r=>{ const v=r[dimKey]; (m[v]=m[v]||{key:v, lab:r[dimKey+"Lab"], rows:[]}).rows.push(r); });
+    return Object.values(m).map(g=>({ key:g.key, lab:g.lab, v:met.calc(g.rows) }));
   };
-  const oes = useMemo(()=>(embarques||[]).filter(o=>matchOE(o,null)),[embarques,f]);
 
-  // Opciones asociativas de cada filtro (dependen de los otros filtros activos).
-  const opts = (except, valOf, labOf)=>{
-    const seen={}; (embarques||[]).filter(o=>matchOE(o,except)).forEach(o=>{ const v=valOf(o); if(v!=null && v!=="" && !(v in seen)) seen[v]=labOf(o,v); });
-    return Object.entries(seen).map(([value,label])=>({value,label})).sort((a,b)=>String(a.label).localeCompare(String(b.label)));
-  };
-  const optTemp = useMemo(()=>opts("temp",o=>o.temporada,(_o,v)=>v),[embarques,f]);
-  const optEsp  = useMemo(()=>opts("esp", o=>o.especieCodigo,(_o,v)=>espLab(v)),[embarques,f,especies]);
-  const optExp  = useMemo(()=>opts("exp", o=>o.exportadoraId,(_o,v)=>expOf(v)?.nombre||v),[embarques,f,exportadoras]);
-  const optCli  = useMemo(()=>opts("cli", o=>o.clienteId,(_o,v)=>cliOf(v)?.nombre||v),[embarques,f,clientes]);
-  const optOri  = useMemo(()=>opts("ori", o=>o.origen,(_o,v)=>v),[embarques,f]);
-  const optDes  = useMemo(()=>opts("des", o=>o.destino,(_o,v)=>v),[embarques,f]);
+  // KPIs = métricas del registro único (sobre las filas filtradas).
+  const KPIS = ["containers","boxes","kilograms","destinationSalesUSD","clientCommissionUSD","friskuCommissionUSD","avgCommissionPct","activeClients","activeExporters"];
+  const kpiColor = { containers:C.teal, destinationSalesUSD:C.blue, friskuCommissionUSD:C.accent2, avgCommissionPct:C.green };
 
-  // ── KPIs (todos sobre las OE filtradas) ──
-  const kpi = useMemo(()=>{
-    let cajas=0, com=0, venta=0; const clis=new Set(); let contenedores=0;
-    oes.forEach(o=>{
-      const cancel=(o.estado||"borrador")==="cancelado";
-      if(!cancel) contenedores++;                                   // N° contenedores = OE no canceladas (1 OE = 1 embarque)  VERIFICADO-FRISKU
-      cajas += Object.values(o.cajasPorFormato||{}).reduce((s,v)=>s+Number(v||0),0);
-      const d=dineroPorOE[o.id]; if(d){ com+=d.com; venta+=d.venta; }
-      if(o.clienteId) clis.add(o.clienteId);
-    });
-    return { contenedores, cajas, com, venta, nCli:clis.size, pct: venta>0?com/venta*100:0 };  // %comisión = comisión devengada / venta destino
-  },[oes,dineroPorOE]);
-
-  // ── Comisión por temporada (tendencia) ──  medida = Σ comisión USD por temporada
-  const porTemp = useMemo(()=>{
-    const m={}; oes.forEach(o=>{ const d=dineroPorOE[o.id]; if(!d) return; const t=o.temporada||"—"; m[t]=(m[t]||0)+d.com; });
-    return Object.entries(m).map(([t,v])=>({t,v})).sort((a,b)=>String(a.t).localeCompare(String(b.t)));
-  },[oes,dineroPorOE]);
+  // Gráficos (todos derivados de las mismas filas + métrica única).
+  const porTemp = useMemo(()=> groupBy("temporada", mF).sort((a,b)=>String(a.lab).localeCompare(String(b.lab))), [rows]);
   const maxTemp = Math.max(1,...porTemp.map(x=>x.v));
-
-  // ── Top clientes / Pareto ──  medida = Σ comisión USD por cliente (desc) + acumulado %
-  const porCli = useMemo(()=>{
-    const m={}; oes.forEach(o=>{ const d=dineroPorOE[o.id]; if(!d||!o.clienteId) return; m[o.clienteId]=(m[o.clienteId]||0)+d.com; });
-    const arr=Object.entries(m).map(([id,v])=>({id,nombre:cliOf(id)?.nombre||"— s/cliente —",v})).filter(x=>x.v>0).sort((a,b)=>b.v-a.v);
-    const tot=arr.reduce((s,x)=>s+x.v,0)||1; let acc=0;
-    return arr.map(x=>{ acc+=x.v; return {...x, pctAcum:acc/tot*100}; });
-  },[oes,dineroPorOE,clientes]);
+  const porCli = useMemo(()=>{ const a=groupBy("cliente",mF).filter(x=>x.v>0).sort((x,y)=>y.v-x.v); const tot=a.reduce((s,x)=>s+x.v,0)||1; let acc=0; return a.map(x=>{ acc+=x.v; return {...x,pctAcum:acc/tot*100}; }); }, [rows]);
   const maxCli = Math.max(1,...porCli.map(x=>x.v));
-
-  // ── Split por especie (dona) ──  medida = Σ comisión USD por especie
-  const porEsp = useMemo(()=>{
-    const m={}; oes.forEach(o=>{ const d=dineroPorOE[o.id]; if(!d) return; const c=o.especieCodigo||"—"; m[c]=(m[c]||0)+d.com; });
-    return Object.entries(m).map(([c,v])=>({c,lab:espLab(c),v,color:ESP_COLORS[c]||C.blue})).filter(x=>x.v>0).sort((a,b)=>b.v-a.v);
-  },[oes,dineroPorOE,especies]);
-
-  // ── Pipeline por estado ──  medida = conteo de OE por estado
+  const porEsp = useMemo(()=> groupBy("especie",mF).filter(x=>x.v>0).map(x=>({...x,color:ESP_COLORS[x.key]||C.blue})).sort((a,b)=>b.v-a.v), [rows]);
+  const totEsp = porEsp.reduce((s,x)=>s+x.v,0)||1;
   const PIPE=[{id:"borrador",lab:"Borrador",color:C.yellow},{id:"confirmado",lab:"Confirmado",color:C.green},{id:"despachado",lab:"Despachado",color:C.blue},{id:"cancelado",lab:"Cancelado",color:C.muted}];
-  const pipe = useMemo(()=>{ const m={}; oes.forEach(o=>{ const e=o.estado||"borrador"; m[e]=(m[e]||0)+1; }); return m; },[oes]);
+  const pipe = useMemo(()=>{ const m={}; rows.forEach(r=>{ m[r.estado]=(m[r.estado]||0)+1; }); return m; },[rows]);
   const maxPipe = Math.max(1,...PIPE.map(p=>pipe[p.id]||0));
 
-  const hayFiltro = Object.values(f).some(Boolean);
-  const filtrosTxt = [ f.temp&&`Temp ${f.temp}`, f.esp&&espLab(f.esp), f.exp&&expOf(f.exp)?.nombre, f.cli&&cliOf(f.cli)?.nombre, f.ori&&`Origen ${f.ori}`, f.des&&`Destino ${f.des}` ].filter(Boolean).join(" · ") || "sin filtros";
+  const filtrosTxt = chips.length ? chips.map(c=>`${c.dimLab}=${c.label}`).join(" · ") : "sin filtros";
 
-  // Detalle a nivel contenedor (para el Excel).  Columnas exactas del spec aprobado.
-  const detalle = useMemo(()=>oes.map(o=>{
-    const d=dineroPorOE[o.id]||{com:0,venta:0};
-    const cal=Object.entries(o.calibrePorFormato||{}).filter(([,v])=>v).map(([k,v])=>`${k}:${v}`).join("; ");
-    return {
-      contenedor:o.numeroContenedor||o.numero||"", naviera:o.navieraAerolinea||"", especie:o.especieCodigo||"",
-      calibre:cal, exportador:expOf(o.exportadoraId)?.nombre||"", cliente:cliOf(o.clienteId)?.nombre||"",
-      origen:o.origen||"", destino:o.destino||"", etd:o.fechaDespacho||"", eta:o.fechaETA||"",
-      venta:d.venta, com:d.com, pct: d.venta>0?d.com/d.venta*100:0,
-    };
-  }).sort((a,b)=>String(b.etd).localeCompare(String(a.etd))),[oes,dineroPorOE,exportadoras,clientes]);
+  // Detalle a nivel contenedor (para el Excel). Columnas del spec.
+  const detalle = useMemo(()=> rows.map(r=>{ const o=r._oe; const cal=Object.entries(o.calibrePorFormato||{}).filter(([,v])=>v).map(([k,v])=>`${k}:${v}`).join("; ");
+    return { contenedor:o.numeroContenedor||o.numero||"", naviera:o.navieraAerolinea||"", especie:o.especieCodigo||"", calibre:cal,
+      exportador:r.exportadoraLab, cliente:r.clienteLab, origen:o.origen||"", destino:o.destino||"", etd:o.fechaDespacho||"", eta:o.fechaETA||"",
+      kilos:r._kilos, venta:r._venta, comCli:r._comC, com:r._comF, pct:r._venta>0?r._comF/r._venta*100:0 };
+  }).sort((a,b)=>String(b.etd).localeCompare(String(a.etd))), [rows]);
 
   // ── Export Excel (ExcelJS · logo Frisku) ──
   const exportarExcel = async ()=>{
@@ -4664,17 +4601,14 @@ function ResumenEjecutivo({ liquidaciones, embarques, clientes, exportadoras, es
       const sub = `Resumen ejecutivo · Filtros: ${filtrosTxt} · ${new Date().toLocaleString("es-CL")}`;
       const wsR = wb.addWorksheet("Resumen");
       fr_sheetTabla(wsR, { titulo:"FRISKU FOODS — Resumen ejecutivo", subtitulo:sub, headers:["Indicador","Valor"], colWidths:[34,20],
-        rows:[ ["N° contenedores",kpi.contenedores],["Cajas",kpi.cajas],["Venta destino (USD)",Math.round(kpi.venta)],
-               ["Comisión devengada (USD)",Math.round(kpi.com)],["% comisión s/venta",Number(kpi.pct.toFixed(2))],["N° clientes activos",kpi.nCli] ],
-        intCols:[], moneyCols:[] });
-      wsR.getCell("B7").numFmt='$#,##0'; wsR.getCell("B8").numFmt='$#,##0';
+        rows: KPIS.map(k=>{ const m=metric[k]; const v=m.calc(rows); return [m.label, m.fmt==="pct"?Number(v.toFixed(2)):Math.round(v)]; }) });
       await fr_logoExcel(wb, wsR);
       const ws = wb.addWorksheet("Detalle por contenedor");
       fr_sheetTabla(ws, { titulo:"FRISKU FOODS — Detalle por contenedor", subtitulo:sub,
-        headers:["Contenedor","Naviera/Aerolínea","Especie","Calibre/Formato","Exportador","Cliente","Origen","Destino","ETD","ETA","Venta destino USD","Comisión devengada USD","% comisión"],
-        colWidths:[16,20,10,18,22,22,14,14,12,12,16,18,10],
-        rows: detalle.map(d=>[d.contenedor,d.naviera,d.especie,d.calibre,d.exportador,d.cliente,d.origen,d.destino,d.etd,d.eta,Math.round(d.venta),Math.round(d.com),Number(d.pct.toFixed(1))]),
-        moneyCols:[10,11] });
+        headers:["Contenedor","Naviera/Aerolínea","Especie","Calibre/Formato","Exportador","Cliente","Origen","Destino","ETD","ETA","Kilos","Venta destino USD","Comisión cliente USD","Comisión Frisku USD","% comisión"],
+        colWidths:[16,20,10,18,22,22,14,14,12,12,12,16,16,16,10],
+        rows: detalle.map(d=>[d.contenedor,d.naviera,d.especie,d.calibre,d.exportador,d.cliente,d.origen,d.destino,d.etd,d.eta,Math.round(d.kilos),Math.round(d.venta),Math.round(d.comCli),Math.round(d.com),Number(d.pct.toFixed(1))]),
+        moneyCols:[11,12,13], intCols:[10] });
       await fr_logoExcel(wb, ws);
       await fr_descargarWB(wb, `Frisku_Resumen_${new Date().toISOString().slice(0,10)}.xlsx`);
     }catch(e){ console.error("[Resumen] Excel:",e); alert("No se pudo generar el Excel: "+e.message); }
@@ -4695,19 +4629,18 @@ function ResumenEjecutivo({ liquidaciones, embarques, clientes, exportadoras, es
       doc.text(`${new Date().toLocaleString("es-CL")}`, m, 19);
       doc.setFontSize(7.5); doc.text(`Filtros: ${filtrosTxt}`.slice(0,120), m, 23.5);
       await fr_logoPDF(doc, W-m, 5, 42, 16);
-      doc.autoTable({ startY:31, head:[["Indicador","Valor"]], theme:"grid", styles:{fontSize:9}, headStyles:{fillColor:[30,39,97]},
-        body:[ ["N° contenedores",fmtN0(kpi.contenedores)],["Cajas",fmtN0(kpi.cajas)],["Venta destino (USD)",fmtUSD0(kpi.venta)],
-               ["Comisión devengada (USD)",fmtUSD0(kpi.com)],["% comisión s/venta",kpi.pct.toFixed(1)+"%"],["N° clientes activos",fmtN0(kpi.nCli)] ], margin:{left:m,right:W/2} });
-      doc.autoTable({ startY:31, head:[["Estado (pipeline)","OE"]], theme:"grid", styles:{fontSize:9}, headStyles:{fillColor:[30,39,97]},
+      doc.autoTable({ startY:31, head:[["Indicador","Valor"]], theme:"grid", styles:{fontSize:8.5}, headStyles:{fillColor:[30,39,97]},
+        body: KPIS.map(k=>{ const mt=metric[k]; return [mt.label, fmtMetric(mt.fmt, mt.calc(rows))]; }), margin:{left:m,right:W/2} });
+      doc.autoTable({ startY:31, head:[["Estado (pipeline)","OE"]], theme:"grid", styles:{fontSize:8.5}, headStyles:{fillColor:[30,39,97]},
         body: PIPE.map(p=>[p.lab, fmtN0(pipe[p.id]||0)]), margin:{left:W/2+2,right:m} });
       let y=doc.lastAutoTable.finalY+6;
-      doc.setTextColor(20,20,20); doc.setFont("helvetica","bold"); doc.setFontSize(10); doc.text("Top clientes por comisión devengada",m,y); y+=2;
+      doc.setTextColor(20,20,20); doc.setFont("helvetica","bold"); doc.setFontSize(10); doc.text("Top clientes por comisión Frisku",m,y); y+=2;
       doc.autoTable({ startY:y, head:[["Cliente","Comisión USD","% acum."]], theme:"striped", styles:{fontSize:8}, headStyles:{fillColor:[30,39,97]},
-        body: porCli.slice(0,12).map(x=>[x.nombre,fmtUSD0(x.v),x.pctAcum.toFixed(0)+"%"]), margin:{left:m,right:m} });
+        body: porCli.slice(0,12).map(x=>[x.lab,fmtUSD0(x.v),x.pctAcum.toFixed(0)+"%"]), margin:{left:m,right:m} });
       y=doc.lastAutoTable.finalY+6;
       doc.setFont("helvetica","bold"); doc.setFontSize(10); doc.text("Comisión por especie",m,y); y+=2;
       doc.autoTable({ startY:y, head:[["Especie","Comisión USD","%"]], theme:"striped", styles:{fontSize:8}, headStyles:{fillColor:[30,39,97]},
-        body: porEsp.map(x=>[x.lab,fmtUSD0(x.v),(kpi.com>0?x.v/kpi.com*100:0).toFixed(0)+"%"]), margin:{left:m,right:m} });
+        body: porEsp.map(x=>[x.lab,fmtUSD0(x.v),(totEsp>0?x.v/totEsp*100:0).toFixed(0)+"%"]), margin:{left:m,right:m} });
       const ph=doc.internal.pageSize.getHeight();
       doc.setFontSize(7.5); doc.setTextColor(120,120,120);
       doc.text(`Grupo Mediterra · Frisku Foods · generado ${new Date().toLocaleString("es-CL")}`, m, ph-8);
@@ -4718,8 +4651,8 @@ function ResumenEjecutivo({ liquidaciones, embarques, clientes, exportadoras, es
 
   const kpiCard = (lab,val,color,sub)=>(
     <div style={{background:C.card, border:`1px solid ${C.border}`, borderRadius:12, padding:"12px 15px", boxShadow:C.shadowSm}}>
-      <div style={{fontSize:10, color:C.muted, fontWeight:600, textTransform:"uppercase", letterSpacing:0.3}}>{lab}</div>
-      <div style={{fontSize:23, fontWeight:800, color:color||C.text, marginTop:4, lineHeight:1}}>{val}</div>
+      <div style={{fontSize:10, color:C.muted, fontWeight:600, textTransform:"uppercase", letterSpacing:0.3, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis"}}>{lab}</div>
+      <div style={{fontSize:22, fontWeight:800, color:color||C.text, marginTop:4, lineHeight:1}}>{val}</div>
       {sub && <div style={{fontSize:10, color:C.muted2, marginTop:3}}>{sub}</div>}
     </div>
   );
@@ -4729,72 +4662,91 @@ function ResumenEjecutivo({ liquidaciones, embarques, clientes, exportadoras, es
       {children}
     </div>
   );
-
-  // Dona por especie (SVG propio, sin dependencias).
-  const totEsp = porEsp.reduce((s,x)=>s+x.v,0)||1; let accEsp=0;
+  // Dona (SVG propio).
+  let accEsp=0;
   const arc = (f0,f1,R,r,cx,cy)=>{ const a0=f0*2*Math.PI-Math.PI/2, a1=f1*2*Math.PI-Math.PI/2;
     const x0=cx+R*Math.cos(a0), y0=cy+R*Math.sin(a0), x1=cx+R*Math.cos(a1), y1=cy+R*Math.sin(a1);
     const xi1=cx+r*Math.cos(a1), yi1=cy+r*Math.sin(a1), xi0=cx+r*Math.cos(a0), yi0=cy+r*Math.sin(a0);
     const big=(f1-f0)>0.5?1:0; return `M ${x0} ${y0} A ${R} ${R} 0 ${big} 1 ${x1} ${y1} L ${xi1} ${yi1} A ${r} ${r} 0 ${big} 0 ${xi0} ${yi0} Z`; };
 
-  const flt = (lab, key, options, ph)=>(
-    <div style={{minWidth:150, flex:1}}>
-      <div style={lblSt}>{lab}</div>
-      <FiltroBuscable value={f[key]} onChange={(v)=>setFiltro(key,v)} options={options} placeholder={ph}/>
-    </div>
-  );
+  // Filtro global: single-select por dimensión, opciones asociativas del motor.
+  const flt = (dimKey, lab, ph)=>{
+    const cur = sel[dimKey] ? [...sel[dimKey]][0] : "";
+    const options = associative(dimKey).possible.map(x=>({value:x.value, label:x.label}));
+    return (
+      <div style={{minWidth:140, flex:"1 1 140px"}}>
+        <div style={lblSt}>{lab}</div>
+        <FiltroBuscable value={cur} onChange={(v)=>setOne(dimKey,v)} options={options} placeholder={ph||"Todos"}/>
+      </div>
+    );
+  };
 
   return (
     <div>
-      {/* Barra de filtros globales (compartidos por toda la hoja) + export */}
-      <div style={{background:C.card, border:`1px solid ${C.border}`, borderRadius:14, padding:14, boxShadow:C.shadowSm, marginBottom:14}}>
+      {/* Barra de filtros globales (motor compartido) + export */}
+      <div style={{background:C.card, border:`1px solid ${C.border}`, borderRadius:14, padding:14, boxShadow:C.shadowSm, marginBottom:12}}>
         <div style={{display:"flex", gap:10, flexWrap:"wrap", alignItems:"flex-end"}}>
-          {flt("Temporada","temp",optTemp,"Todas")}
-          {flt("Especie","esp",optEsp,"Todas")}
-          {flt("Exportador","exp",optExp,"Todos")}
-          {flt("Cliente","cli",optCli,"Todos")}
-          {flt("Origen","ori",optOri,"Todos")}
-          {flt("Destino","des",optDes,"Todos")}
-          <div style={{display:"flex", gap:6}}>
-            {hayFiltro && <button onClick={limpiar} style={{...btnSt(C.muted,true), fontSize:11, padding:"7px 10px"}}>✕ Limpiar</button>}
+          {flt("temporada","Temporada")}
+          {flt("anioETD","Año")}
+          {flt("semanaETD","Semana")}
+          {flt("especie","Especie")}
+          {flt("exportadora","Exportador")}
+          {flt("cliente","Cliente")}
+          {flt("mercado","Mercado")}
+          {flt("paisDestino","País destino")}
+          {flt("puertoOrigen","Puerto origen")}
+          {flt("puertoDestino","Puerto destino")}
+          {flt("via","Tipo embarque")}
+          {flt("shippingLine","Shipping line")}
+          {flt("estado","Estado")}
+          <div style={{display:"flex", gap:6, alignItems:"flex-end"}}>
             <button onClick={exportarExcel} disabled={expXls} style={{...btnSt(C.green), fontSize:11, padding:"7px 11px"}}>{expXls?"⏳":"⬇ Excel"}</button>
             <button onClick={exportarPDF} disabled={expPdf} style={{...btnSt(C.accent), fontSize:11, padding:"7px 11px"}}>{expPdf?"⏳":"⬇ PDF"}</button>
           </div>
         </div>
+        {/* Selecciones activas (chips) */}
+        <div style={{display:"flex", gap:6, flexWrap:"wrap", alignItems:"center", marginTop:10, minHeight:24}}>
+          <span style={{fontSize:10, fontWeight:700, color:C.muted, textTransform:"uppercase"}}>Selecciones:</span>
+          {chips.length===0 ? <span style={{fontSize:11, color:C.muted2}}>ninguna · los filtros afectan a toda la hoja (motor asociativo)</span> :
+            chips.map((c,i)=>(
+              <span key={i} onClick={()=>remove(c.dim,c.value)} title="Quitar"
+                style={{fontSize:11, fontWeight:600, background:C.accent2, color:"#fff", borderRadius:14, padding:"3px 10px", cursor:"pointer", display:"inline-flex", gap:6, alignItems:"center"}}>
+                <span style={{opacity:0.8, fontWeight:400}}>{c.dimLab}:</span>{c.label}<span style={{opacity:0.85}}>×</span>
+              </span>
+            ))}
+          {chips.length>0 && <button onClick={clearAll} style={{...btnSt(C.muted,true), fontSize:10, padding:"3px 8px"}}>Limpiar todo</button>}
+        </div>
         <div style={{fontSize:11, color:C.muted2, marginTop:8}}>
-          Hoja fija · tabla de hechos a nivel contenedor ({oes.length} de {(embarques||[]).length} embarques en la selección). Los filtros afectan a todos los objetos.
+          Hoja fija sobre el motor BI · {rows.length} de {bi.facts.length} contenedores en la selección.
         </div>
       </div>
 
-      {/* KPIs */}
+      {/* KPIs (métricas de definición única) */}
       <div style={{display:"grid", gridTemplateColumns:"repeat(auto-fit, minmax(150px,1fr))", gap:12, marginBottom:16}}>
-        {kpiCard("N° contenedores", fmtN0(kpi.contenedores), C.teal, "OE no canceladas")}
-        {kpiCard("Cajas", fmtN0(kpi.cajas), C.text)}
-        {kpiCard("Venta destino", fmtUSD0(kpi.venta), C.blue)}
-        {kpiCard("Comisión devengada", fmtUSD0(kpi.com), C.accent2)}
-        {kpiCard("% comisión s/venta", kpi.pct.toFixed(1)+"%", C.green)}
-        {kpiCard("Clientes activos", fmtN0(kpi.nCli), C.text)}
+        {KPIS.map(k=>{ const mt=metric[k]; return kpiCard(mt.label, fmtMetric(mt.fmt, mt.calc(rows)), kpiColor[k]||C.text); })}
       </div>
 
       {/* Gráficos */}
       <div style={{display:"grid", gridTemplateColumns:"repeat(auto-fit, minmax(320px,1fr))", gap:14}}>
-        <Panel titulo="Comisión por temporada">
+        <Panel titulo="Comisión Frisku por temporada">
           {porTemp.length===0 ? <div style={{color:C.muted2,fontSize:12,textAlign:"center",padding:16}}>Sin datos</div> :
             porTemp.map(x=>(
-              <div key={x.t} style={{display:"grid",gridTemplateColumns:"70px 1fr auto",gap:8,alignItems:"center",marginBottom:6}}>
-                <span style={{fontSize:11,color:C.text,fontWeight:600}}>{x.t}</span>
+              <div key={x.key} onClick={()=>setOne("temporada", sel.temporada&&sel.temporada.has(x.key)?"":x.key)} title="Clic para filtrar por esta temporada"
+                style={{display:"grid",gridTemplateColumns:"80px 1fr auto",gap:8,alignItems:"center",marginBottom:6,cursor:"pointer"}}>
+                <span style={{fontSize:11,color:C.text,fontWeight:600}}>{x.lab}</span>
                 <div style={{height:12,background:C.cardAlt,borderRadius:4,overflow:"hidden"}}><div style={{width:`${x.v/maxTemp*100}%`,height:"100%",background:C.blue,borderRadius:4}}/></div>
                 <span style={{fontSize:11,fontWeight:700,minWidth:72,textAlign:"right"}}>{fmtUSD0(x.v)}</span>
               </div>
             ))}
         </Panel>
 
-        <Panel titulo="Top clientes (Pareto) por comisión">
+        <Panel titulo="Top clientes (Pareto) por comisión Frisku">
           {porCli.length===0 ? <div style={{color:C.muted2,fontSize:12,textAlign:"center",padding:16}}>Sin datos</div> :
             porCli.slice(0,10).map(x=>(
-              <div key={x.id} style={{display:"grid",gridTemplateColumns:"1fr auto",gap:8,alignItems:"center",marginBottom:5}}>
+              <div key={x.key} onClick={()=>setOne("cliente", sel.cliente&&sel.cliente.has(x.key)?"":x.key)} title="Clic para filtrar por este cliente"
+                style={{display:"grid",gridTemplateColumns:"1fr auto",gap:8,alignItems:"center",marginBottom:5,cursor:"pointer"}}>
                 <div style={{minWidth:0}}>
-                  <div style={{fontSize:11,color:C.text,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",marginBottom:2}}>{x.nombre}</div>
+                  <div style={{fontSize:11,color:C.text,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",marginBottom:2}}>{x.lab}</div>
                   <div style={{height:10,background:C.cardAlt,borderRadius:4,overflow:"hidden"}}><div style={{width:`${x.v/maxCli*100}%`,height:"100%",background:C.accent2,borderRadius:4}}/></div>
                 </div>
                 <span style={{fontSize:11,fontWeight:700,minWidth:96,textAlign:"right"}}>{fmtUSD0(x.v)} <span style={{color:C.muted2,fontWeight:500}}>· {x.pctAcum.toFixed(0)}%</span></span>
@@ -4802,17 +4754,17 @@ function ResumenEjecutivo({ liquidaciones, embarques, clientes, exportadoras, es
             ))}
         </Panel>
 
-        <Panel titulo="Comisión por especie">
+        <Panel titulo="Comisión Frisku por especie">
           {porEsp.length===0 ? <div style={{color:C.muted2,fontSize:12,textAlign:"center",padding:16}}>Sin datos</div> :
             <div style={{display:"flex",gap:16,alignItems:"center",flexWrap:"wrap"}}>
               <svg width="150" height="150" viewBox="0 0 180 180" style={{flexShrink:0}}>
-                {porEsp.map((x,i)=>{ const f0=accEsp/totEsp, f1=(accEsp+x.v)/totEsp; accEsp+=x.v; return <path key={x.c} d={arc(f0,f1,70,42,90,90)} fill={x.color} stroke={C.card} strokeWidth="1.5"><title>{x.lab}: {fmtUSD0(x.v)}</title></path>; })}
+                {porEsp.map((x)=>{ const f0=accEsp/totEsp, f1=(accEsp+x.v)/totEsp; accEsp+=x.v; return <path key={x.key} d={arc(f0,f1,70,42,90,90)} fill={x.color} stroke={C.card} strokeWidth="1.5" style={{cursor:"pointer"}} onClick={()=>setOne("especie", sel.especie&&sel.especie.has(x.key)?"":x.key)}><title>{x.lab}: {fmtUSD0(x.v)}</title></path>; })}
                 <text x="90" y="86" textAnchor="middle" style={{fontSize:9,fill:C.muted,fontWeight:600}}>Comisión</text>
                 <text x="90" y="100" textAnchor="middle" style={{fontSize:12,fill:C.text,fontWeight:800}}>{fmtUSD0(totEsp)}</text>
               </svg>
               <div style={{flex:1,minWidth:150,display:"flex",flexDirection:"column",gap:4}}>
                 {porEsp.slice(0,8).map(x=>(
-                  <div key={x.c} style={{display:"flex",gap:7,alignItems:"center",fontSize:11}}>
+                  <div key={x.key} onClick={()=>setOne("especie", sel.especie&&sel.especie.has(x.key)?"":x.key)} style={{display:"flex",gap:7,alignItems:"center",fontSize:11,cursor:"pointer"}}>
                     <span style={{width:11,height:11,borderRadius:3,background:x.color,flexShrink:0}}/>
                     <span style={{flex:1,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{x.lab}</span>
                     <span style={{fontWeight:700,color:C.muted}}>{(x.v/totEsp*100).toFixed(0)}%</span>
@@ -4824,7 +4776,8 @@ function ResumenEjecutivo({ liquidaciones, embarques, clientes, exportadoras, es
 
         <Panel titulo="Pipeline de embarques por estado">
           {PIPE.map(p=>(
-            <div key={p.id} style={{display:"grid",gridTemplateColumns:"90px 1fr auto",gap:8,alignItems:"center",marginBottom:8}}>
+            <div key={p.id} onClick={()=>setOne("estado", sel.estado&&sel.estado.has(p.id)?"":p.id)} title="Clic para filtrar por estado"
+              style={{display:"grid",gridTemplateColumns:"90px 1fr auto",gap:8,alignItems:"center",marginBottom:8,cursor:"pointer"}}>
               <span style={{fontSize:11,color:C.text,fontWeight:600}}>{p.lab}</span>
               <div style={{height:14,background:C.cardAlt,borderRadius:4,overflow:"hidden"}}><div style={{width:`${(pipe[p.id]||0)/maxPipe*100}%`,height:"100%",background:p.color,borderRadius:4}}/></div>
               <span style={{fontSize:12,fontWeight:700,minWidth:34,textAlign:"right"}}>{fmtN0(pipe[p.id]||0)}</span>
@@ -4834,7 +4787,7 @@ function ResumenEjecutivo({ liquidaciones, embarques, clientes, exportadoras, es
       </div>
 
       <div style={{fontSize:10.5, color:C.muted2, marginTop:14, textAlign:"center"}}>
-        Resumen ejecutivo (hoja fija) · medidas VERIFICADO-FRISKU (comisión devengada = Σ liquidaciones en USD; % s/venta destino) · export on-demand con logo.
+        Resumen ejecutivo sobre el motor BI Frisku · métricas de definición única (friskuBI.js) · filtros globales asociativos · export on-demand con logo.
       </div>
     </div>
   );
@@ -7571,6 +7524,7 @@ export default function FriskuComercialModule({
   }
 
   return (
+   <FriskuBIProvider data={{ embarques, liquidaciones, clientes, exportadoras, especies, mercados, tiposEmbalaje }}>
     <div style={{background:C.bg, minHeight:"100vh", color:C.text}}>
       {/* Header */}
       <div style={{padding:"14px 20px", borderBottom:"1px solid rgba(255,255,255,0.10)", display:"flex", alignItems:"center", justifyContent:"space-between", flexWrap:"wrap", gap:10, background:"#1E2761", boxShadow:"0 4px 16px rgba(16,24,40,0.20)"}}>
@@ -7627,14 +7581,7 @@ export default function FriskuComercialModule({
       <div style={{padding: tab==="maestros" ? 0 : 20}}>
 
         {tab === "resumen" && (
-          <ResumenEjecutivo
-            liquidaciones={liquidaciones}
-            embarques={embarques}
-            clientes={clientes}
-            exportadoras={exportadoras}
-            especies={especies}
-            mercados={mercados}
-          />
+          <ResumenEjecutivo />
         )}
 
         {tab === "dashboard" && (
@@ -8235,5 +8182,6 @@ export default function FriskuComercialModule({
         />
       )}
     </div>
+   </FriskuBIProvider>
   );
 }
