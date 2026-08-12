@@ -3765,7 +3765,7 @@ function LiqPerspectiva({ dim, liqs, embarques, exportadoras, clientes, especies
           <div onClick={()=>t(g.key)} style={{padding:"10px 14px",cursor:"pointer",display:"flex",alignItems:"center",gap:12,flexWrap:"wrap",background:o?`${C.blue}0a`:"transparent"}}>
             <span style={{color:C.muted}}>{o?"▾":"▸"}</span>
             <span style={{fontSize:13,fontWeight:700,flex:1,minWidth:140,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{g.lab}</span>
-            <span style={{fontSize:11,fontFamily:"monospace"}}><b>{g.n}</b> liq · venta {g.venta>0?fmtUSD0(g.venta):"—"} · com. cliente {g.comC>0?fmtUSD0(g.comC):"—"} · <b style={{color:C.green}}>{g.comF>0?fmtUSD0(g.comF):"—"}</b> com. Frisku</span>
+            <span style={{fontSize:11,fontFamily:"monospace"}}><b>{g.n}</b> liq · venta {fmtUSD0(g.venta)} · com. cliente {fmtUSD0(g.comC)} · <b style={{color:C.green}}>{fmtUSD0(g.comF)}</b> com. Frisku</span>
           </div>
           {o && (
             <div style={{overflowX:"auto"}}>
@@ -5232,6 +5232,7 @@ function HojaComercial({ onVerEmbarque }) {
           <button onClick={()=>{setExpE(new Set());setExpC(new Set());setExpS(new Set());}} style={{...btnSt(C.muted,true),fontSize:11,padding:"7px 10px"}}>Contraer</button>
         </div>
       </div>
+      <BreadcrumbBI/>
       <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,overflow:"hidden"}}>
         {tree.length===0 && <div style={{padding:24,textAlign:"center",color:C.muted2,fontSize:12}}>Sin datos para la selección.</div>}
         {tree.map(ex=>{ const oe=expE.has(ex.key); return (
@@ -5307,6 +5308,7 @@ function HojaSemanal({ onVerEmbarque }) {
         {FLT.map(dk=><FiltroMultiBI key={dk} dimKey={dk} label={FRISKU_DIMS.find(d=>d.key===dk)?.lab||dk}/>)}
         <div><div style={lblSt}>Medida</div><select value={mk} onChange={e=>setMk(e.target.value)} style={{...inputSt}}>{METS.map(k=><option key={k} value={k}>{metric[k].label}</option>)}</select></div>
       </div>
+      <BreadcrumbBI/>
       {sinDatoFin ? (
         <div style={{padding:30,textAlign:"center",color:C.warning,background:`${C.warning}10`,border:`1px solid ${C.warning}44`,borderRadius:12,fontSize:12,fontWeight:600}}>
           Sin datos financieros suficientes para la serie de {met.label}. Aparecerá al cargar liquidaciones. Prueba una medida logística (contenedores, FCL, cajas, kilos).
