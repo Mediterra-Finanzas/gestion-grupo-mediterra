@@ -4760,6 +4760,28 @@ function FiltroMultiBI({ dimKey, label }) {
   );
 }
 
+// BREADCRUMB analítico: la ruta de selección en orden jerárquico. Cada crumb se
+// puede quitar (vuelve a ese nivel). Convive con los filtros globales.
+function BreadcrumbBI() {
+  const bi = useFriskuBI();
+  const { chips, remove, clearAll } = bi;
+  if(!chips.length) return null;
+  const ORD = ["temporada","anioETD","semanaETD","mercado","paisDestino","especie","exportadora","cliente","via","estado","puertoOrigen","puertoDestino","shippingLine"];
+  const ordered = [...chips].sort((a,b)=>{ const ia=ORD.indexOf(a.dim), ib=ORD.indexOf(b.dim); return (ia<0?99:ia)-(ib<0?99:ib); });
+  return (
+    <div style={{display:"flex",alignItems:"center",gap:5,flexWrap:"wrap",marginBottom:10,fontSize:11.5}}>
+      <span style={{color:C.muted,fontWeight:700,fontSize:10,textTransform:"uppercase"}}>Ruta</span>
+      <span onClick={clearAll} style={{color:C.muted,cursor:"pointer"}} title="Volver a Todo">Todo</span>
+      {ordered.map((c,i)=>(
+        <span key={i} style={{display:"inline-flex",alignItems:"center",gap:5}}>
+          <span style={{color:C.muted2}}>›</span>
+          <span onClick={()=>remove(c.dim,c.value)} title={`Quitar ${c.dimLab}`} style={{cursor:"pointer",fontWeight:600,color:C.accent2,background:`${C.accent2}14`,borderRadius:8,padding:"1px 8px"}}>{c.label}<span style={{opacity:.6,marginLeft:4}}>×</span></span>
+        </span>
+      ))}
+    </div>
+  );
+}
+
 // HOJA ANALÍTICA por dimensión (Clientes / Exportadores / Especies / Mercados /
 // Comisiones / Embarques). Todas usan el MISMO provider, métricas y selección.
 // Drill-down: clic en una fila filtra todo el BI (agregado→detalle). El detalle
@@ -4788,7 +4810,16 @@ function HojaBIDim({ dimDefault, orderDefault="friskuCommissionUSD", onVerEmbarq
   const totComF = grupos.reduce((s,g)=>s+g.friskuCommissionUSD,0)||1;
   const gruposShown = topN==="all" ? grupos : grupos.slice(0, Number(topN));
   const dimLab = FRISKU_DIMS.find(d=>d.key===groupDim)?.lab||groupDim;
-  const detalle = filtered.slice(0,200);
+  const [detQ,setDetQ] = useState(""); const [detSort,setDetSort] = useState({k:"comF",dir:"desc"});
+  const detAll = useMemo(()=>{
+    const qq=detQ.trim().toLowerCase();
+    const hay=(r)=>{ const s=`${r._oe?r._oe.numero||"":""} ${r.especieLab} ${r.exportadoraLab} ${r.clienteLab} ${r._oe?r._oe.origen||"":""} ${r._oe?r._oe.destino||"":""} ${r.temporada} ${r.semanaETD}`; return s.toLowerCase().includes(qq); };
+    const base = qq ? filtered.filter(hay) : filtered.slice();
+    const valOf=(r)=>{ const map={ numero:(r._oe&&r._oe.numero)||"", especie:r.especieLab, expcli:`${r.exportadoraLab} ${r.clienteLab}`, etd:(r._oe&&r._oe.fechaDespacho)||"", cajas:r._cajas, kilos:r._kilos, comF:r._comF, temporada:r.temporada, semana:r.semanaETD, estado:r.estado }; return map[detSort.k]; };
+    base.sort((x,y)=>{ const vx=valOf(x), vy=valOf(y); const c=(typeof vx==="number"&&typeof vy==="number")?vx-vy:String(vx).localeCompare(String(vy)); return detSort.dir==="desc"?-c:c; });
+    return base;
+  },[filtered,detQ,detSort]);
+  const detalle = detAll.slice(0,200);
   const cobFin = { n: filtered.filter(r=>r._nLiq>0).length, tot: filtered.length };   // cobertura financiera de la selección
   const dq = bi.dataQuality || {formatosSinPeso:[], liqClienteSinConv:0};
   const kgParcial = filtered.some(r=>r._kgFalta);   // hay contenedores con formato sin peso neto → kilos incompletos
@@ -4845,10 +4876,7 @@ function HojaBIDim({ dimDefault, orderDefault="friskuCommissionUSD", onVerEmbarq
           ℹ Cobertura financiera: <b>{cobFin.n} de {cobFin.tot}</b> contenedores con liquidación ({Math.round(cobFin.n/cobFin.tot*100)}%). Venta y comisión reflejan solo esa parte; "—" = sin dato financiero todavía (no es 0 real).
         </div>
       )}
-      {chips.length>0 && <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:10,alignItems:"center"}}>
-        <span style={{fontSize:10,fontWeight:700,color:C.muted,textTransform:"uppercase"}}>Selección:</span>
-        {chips.map((c,i)=><span key={i} onClick={()=>remove(c.dim,c.value)} title="Quitar" style={{fontSize:11,fontWeight:600,background:C.accent2,color:"#fff",borderRadius:14,padding:"3px 10px",cursor:"pointer"}}><span style={{opacity:.8,fontWeight:400}}>{c.dimLab}:</span> {c.label} ×</span>)}
-      </div>}
+      <BreadcrumbBI/>
 
       <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,overflowX:"auto"}}>
         <table style={{width:"100%",borderCollapse:"collapse",fontSize:11.5,minWidth:900}}>
@@ -4872,28 +4900,38 @@ function HojaBIDim({ dimDefault, orderDefault="friskuCommissionUSD", onVerEmbarq
         </table>
       </div>
 
-      <div style={{fontSize:12,fontWeight:700,margin:"16px 0 8px"}}>Detalle — contenedores {filtered.length>200?`(primeros 200 de ${filtered.length})`:`(${filtered.length})`}</div>
+      <div style={{display:"flex",alignItems:"center",gap:10,margin:"16px 0 8px",flexWrap:"wrap"}}>
+        <span style={{fontSize:12,fontWeight:700}}>Detalle — contenedores {detAll.length>200?`(200 de ${detAll.length})`:`(${detAll.length})`}</span>
+        <input value={detQ} onChange={e=>setDetQ(e.target.value)} placeholder="Buscar OE, especie, empresa, puerto…" style={{...inputSt,maxWidth:280,fontSize:11}}/>
+      </div>
+      {(()=>{ const sortTh=(k,label,align)=><th onClick={()=>setDetSort(s=>({k, dir:s.k===k&&s.dir==="desc"?"asc":"desc"}))} style={{padding:"7px 10px",textAlign:align||"left",cursor:"pointer",whiteSpace:"nowrap"}} title="Ordenar">{label}{detSort.k===k?(detSort.dir==="desc"?" ▼":" ▲"):""}</th>;
+      return (
       <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,overflowX:"auto"}}>
-        <table style={{width:"100%",borderCollapse:"collapse",fontSize:11,minWidth:720}}>
+        <table style={{width:"100%",borderCollapse:"collapse",fontSize:11,minWidth:1040}}>
           <thead><tr style={{background:C.card2,color:C.muted,textAlign:"left"}}>
-            <th style={{padding:"7px 10px"}}>N° OE</th><th style={{padding:"7px 10px"}}>Especie</th><th style={{padding:"7px 10px"}}>Exportador → Cliente</th><th style={{padding:"7px 10px"}}>ETD</th><th style={{padding:"7px 10px",textAlign:"right"}}>Cajas</th><th style={{padding:"7px 10px",textAlign:"right"}}>Com. Frisku</th><th style={{padding:"7px 10px"}}></th>
+            {sortTh("temporada","Temp.")}{sortTh("semana","Sem.")}{sortTh("numero","N° OE")}{sortTh("especie","Especie")}{sortTh("expcli","Exportador → Cliente")}{sortTh("etd","ETD")}
+            <th style={{padding:"7px 10px"}}>Ruta</th>{sortTh("cajas","Cajas","right")}{sortTh("kilos","Kilos","right")}{sortTh("estado","Estado")}{sortTh("comF","Com. Frisku","right")}<th style={{padding:"7px 10px"}}></th>
           </tr></thead>
           <tbody>
-            {detalle.map(r=>(
-              <tr key={r._id} style={{borderTop:`1px solid ${C.border}`}}>
+            {detalle.map(r=>{ const sinFin=r._nLiq===0;
+              return <tr key={r._id} style={{borderTop:`1px solid ${C.border}`}}>
+                <td style={{padding:"6px 10px",whiteSpace:"nowrap"}}>{r.temporada}</td>
+                <td style={{padding:"6px 10px",whiteSpace:"nowrap"}}>{r.semanaETD}</td>
                 <td style={{padding:"6px 10px",fontFamily:"monospace",color:C.blue,whiteSpace:"nowrap"}}>{r._oe?.numero||"—"}</td>
                 <td style={{padding:"6px 10px",whiteSpace:"nowrap"}}>{r.especieLab}</td>
-                <td style={{padding:"6px 10px",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",maxWidth:220}}>{r.exportadoraLab} → {r.clienteLab}</td>
+                <td style={{padding:"6px 10px",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",maxWidth:210}}>{r.exportadoraLab} → {r.clienteLab}</td>
                 <td style={{padding:"6px 10px",whiteSpace:"nowrap"}}>{r._oe?.fechaDespacho||"—"}</td>
+                <td style={{padding:"6px 10px",whiteSpace:"nowrap",color:C.muted2}}>{r._oe?.origen||"—"} → {r._oe?.destino||"—"}</td>
                 <td style={{padding:"6px 10px",textAlign:"right",fontFamily:"monospace"}}>{fmtN0(r._cajas)}</td>
-                <td style={{padding:"6px 10px",textAlign:"right",fontFamily:"monospace",color:C.green,fontWeight:700}}>{fmtUSD0(r._comF)}</td>
-                <td style={{padding:"6px 10px",textAlign:"right"}}>{onVerEmbarque && r._oe && <button onClick={()=>onVerEmbarque(r._oe)} title="Ir al embarque operacional" style={{...btnSt(C.blue,true),padding:"3px 8px",fontSize:10}}>→ Ver embarque</button>}</td>
-              </tr>
-            ))}
-            {detalle.length===0 && <tr><td colSpan={7} style={{padding:16,textAlign:"center",color:C.muted2}}>Sin contenedores en la selección.</td></tr>}
+                <td style={{padding:"6px 10px",textAlign:"right",fontFamily:"monospace",color:r._kgFalta?C.warning:undefined}}>{fmtN0(r._kilos)}{r._kgFalta?" ⚠":""}</td>
+                <td style={{padding:"6px 10px",whiteSpace:"nowrap"}}>{r.estado}</td>
+                <td style={{padding:"6px 10px",textAlign:"right",fontFamily:"monospace",color:sinFin?C.muted2:C.green,fontWeight:sinFin?400:700}}>{sinFin?"—":fmtUSD0(r._comF)}</td>
+                <td style={{padding:"6px 10px",textAlign:"right"}}>{onVerEmbarque && r._oe && <button onClick={()=>onVerEmbarque(r._oe)} title="Ir al embarque operacional" style={{...btnSt(C.blue,true),padding:"3px 8px",fontSize:10}}>→ Ver</button>}</td>
+              </tr>; })}
+            {detalle.length===0 && <tr><td colSpan={12} style={{padding:16,textAlign:"center",color:C.muted2}}>Sin contenedores en la selección.</td></tr>}
           </tbody>
         </table>
-      </div>
+      </div>); })()}
     </div>
   );
 }
