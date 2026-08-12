@@ -4898,6 +4898,85 @@ function HojaBIDim({ dimDefault, orderDefault="friskuCommissionUSD", onVerEmbarq
   );
 }
 
+// HOJA SEMANAL — serie temporal por semana ETD (dimensión real: filtra/agrupa/
+// drill/export). Reacciona a los filtros globales. Distingue "sin dato" financiero.
+function HojaSemanal({ onVerEmbarque }) {
+  const bi = useFriskuBI();
+  const { filtered, metric, sel, toggle } = bi;
+  const [mk, setMk] = useState("containers");
+  const FLT = ["temporada","especie","exportadora","cliente","mercado","via"];
+  const METS = ["containers","fcl","boxes","kilograms","destinationSalesUSD","friskuCommissionUSD"];
+  const MET_FIN = ["destinationSalesUSD","friskuCommissionUSD"];
+  const weekNum = (s)=>{ const m=String(s).match(/(\d+)/); return m?parseInt(m[1]):0; };
+  const semanas = useMemo(()=>{
+    const m={};
+    filtered.forEach(r=>{ if(!r.semanaETD || r.semanaETD==="—") return; const k=`${r.anioETD}·${r.semanaETD}`;
+      (m[k]=m[k]||{key:k, anio:r.anioETD, sem:r.semanaETD, rows:[]}).rows.push(r); });
+    return Object.values(m).map(g=>{ const o={key:g.key, anio:g.anio, sem:g.sem, lab:`${g.sem}·${String(g.anio).slice(2)}`, fin:g.rows.filter(r=>r._nLiq>0).length};
+      METS.forEach(k=>o[k]=metric[k].calc(g.rows)); return o; })
+      .sort((a,b)=> (Number(a.anio)-Number(b.anio)) || (weekNum(a.sem)-weekNum(b.sem)) );
+  },[filtered]);
+  const met = metric[mk];
+  const esFin = MET_FIN.includes(mk);
+  const finTot = filtered.filter(r=>r._nLiq>0).length;
+  const sinDatoFin = esFin && finTot===0;
+  const vals = semanas.map(s=>Number(s[mk])||0);
+  const W = Math.max(360, semanas.length*48), H=210, padL=10, padR=10, padT=16, padB=42;
+  const maxV = Math.max(1, ...vals), minV = Math.min(0, ...vals);
+  const x = (i)=> padL + (semanas.length<=1 ? (W-padL-padR)/2 : i*(W-padL-padR)/(semanas.length-1));
+  const y = (v)=> padT + (H-padT-padB)*(1-(v-minV)/((maxV-minV)||1));
+  const line = semanas.map((s,i)=>`${i===0?"M":"L"} ${x(i).toFixed(1)} ${y(vals[i]).toFixed(1)}`).join(" ");
+  const area = semanas.length ? `${line} L ${x(semanas.length-1).toFixed(1)} ${y(minV).toFixed(1)} L ${x(0).toFixed(1)} ${y(minV).toFixed(1)} Z` : "";
+  return (
+    <div>
+      <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,padding:12,marginBottom:12,display:"flex",gap:10,flexWrap:"wrap",alignItems:"flex-end"}}>
+        {FLT.map(dk=><FiltroMultiBI key={dk} dimKey={dk} label={FRISKU_DIMS.find(d=>d.key===dk)?.lab||dk}/>)}
+        <div><div style={lblSt}>Medida</div><select value={mk} onChange={e=>setMk(e.target.value)} style={{...inputSt}}>{METS.map(k=><option key={k} value={k}>{metric[k].label}</option>)}</select></div>
+      </div>
+      {sinDatoFin ? (
+        <div style={{padding:30,textAlign:"center",color:C.warning,background:`${C.warning}10`,border:`1px solid ${C.warning}44`,borderRadius:12,fontSize:12,fontWeight:600}}>
+          Sin datos financieros suficientes para la serie de {met.label}. Aparecerá al cargar liquidaciones. Prueba una medida logística (contenedores, FCL, cajas, kilos).
+        </div>
+      ) : semanas.length===0 ? (
+        <div style={{padding:30,textAlign:"center",color:C.muted2,fontSize:12,background:C.card,borderRadius:12,border:`1px solid ${C.border}`}}>Sin semanas ETD en la selección.</div>
+      ) : (
+        <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,padding:14,marginBottom:12,overflowX:"auto"}}>
+          <div style={{fontSize:12,fontWeight:700,marginBottom:8}}>{met.label} por semana ETD</div>
+          <svg width={W} height={H} viewBox={`0 0 ${W} ${H}`} style={{minWidth:Math.min(W,360)}}>
+            <path d={area} fill={`${C.blue}14`}/>
+            <path d={line} fill="none" stroke={C.blue} strokeWidth="2.5" strokeLinejoin="round"/>
+            {semanas.map((s,i)=>{ const isSel=sel.semanaETD&&sel.semanaETD.has(s.sem);
+              return <g key={s.key} style={{cursor:"pointer"}} onClick={()=>toggle("semanaETD", s.sem)}>
+                <circle cx={x(i)} cy={y(vals[i])} r={isSel?6:4} fill={isSel?C.accent2:C.blue} stroke={C.card} strokeWidth="2"><title>{s.sem} {s.anio}: {fmtMetric(met.fmt,vals[i])}</title></circle>
+                <text x={x(i)} y={y(vals[i])-9} textAnchor="middle" style={{fontSize:9,fill:C.text,fontWeight:700}}>{fmtMetric(met.fmt,vals[i])}</text>
+                <text x={x(i)} y={H-padB+15} textAnchor="end" transform={`rotate(-40 ${x(i)} ${H-padB+15})`} style={{fontSize:9,fill:C.muted}}>{s.lab}</text>
+              </g>; })}
+          </svg>
+          <div style={{fontSize:10,color:C.muted2,marginTop:4}}>Clic en un punto = filtrar por esa semana (multi). Semana = semana ETD (despacho).</div>
+        </div>
+      )}
+      {/* Tabla por semana */}
+      <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,overflowX:"auto"}}>
+        <table style={{width:"100%",borderCollapse:"collapse",fontSize:11.5,minWidth:720}}>
+          <thead><tr style={{background:C.card2,color:C.muted,textAlign:"left"}}>
+            <th style={{padding:"8px 10px"}}>Semana ETD</th>
+            {METS.map(k=><th key={k} style={{padding:"8px 10px",textAlign:"right"}}>{metric[k].label}</th>)}
+          </tr></thead>
+          <tbody>
+            {semanas.map(s=>{ const isSel=sel.semanaETD&&sel.semanaETD.has(s.sem);
+              return <tr key={s.key} onClick={()=>toggle("semanaETD", s.sem)} style={{cursor:"pointer",borderTop:`1px solid ${C.border}`,background:isSel?`${C.accent2}10`:"transparent"}}>
+                <td style={{padding:"7px 10px",fontWeight:600,whiteSpace:"nowrap"}}>{isSel?"☑ ":""}{s.sem} <span style={{color:C.muted2}}>{s.anio}</span></td>
+                {METS.map(k=>{ const sinDato=MET_FIN.includes(k)&&s.fin===0;
+                  return <td key={k} style={{padding:"7px 10px",textAlign:"right",fontFamily:"monospace",color:sinDato?C.muted2:undefined}}>{sinDato?"—":fmtMetric(metric[k].fmt,s[k])}</td>; })}
+              </tr>; })}
+            {semanas.length===0 && <tr><td colSpan={METS.length+1} style={{padding:16,textAlign:"center",color:C.muted2}}>Sin semanas.</td></tr>}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
 // HOJA COMPARATIVO — temporada actual vs anterior (valor, comparativo, Δ, Δ%).
 function HojaComparativo() {
   const bi = useFriskuBI();
@@ -4964,6 +5043,7 @@ function ReporteriaBI({ data, permResumen, permReportes, permTablero, onVerEmbar
     { id:"mercados",   lab:"🌍 Mercados" },
     { id:"comision",   lab:"💵 Comisiones" },
     { id:"embbi",      lab:"🚢 Embarques" },
+    { id:"semanal",    lab:"📅 Semanal" },
     { id:"comp",       lab:"📊 Comparativo" },
     (permReportes?.visible!==false) && { id:"reportes", lab:"📋 Reportes" },
     (permTablero?.visible!==false)  && { id:"tablero",  lab:"🧭 Explorador" },
@@ -4984,6 +5064,7 @@ function ReporteriaBI({ data, permResumen, permReportes, permTablero, onVerEmbar
       {hoja==="mercados" && <HojaBIDim dimDefault="mercado" onVerEmbarque={onVerEmbarque}/>}
       {hoja==="comision" && <HojaBIDim dimDefault="cliente" orderDefault="friskuCommissionUSD" onVerEmbarque={onVerEmbarque}/>}
       {hoja==="embbi"    && <HojaBIDim dimDefault="semanaETD" orderDefault="containers" onVerEmbarque={onVerEmbarque}/>}
+      {hoja==="semanal"  && <HojaSemanal onVerEmbarque={onVerEmbarque}/>}
       {hoja==="comp"     && <HojaComparativo/>}
       {hoja==="reportes" && <ReportesTab {...data}/>}
       {hoja==="tablero"  && <TableroAsociativo {...data}/>}
