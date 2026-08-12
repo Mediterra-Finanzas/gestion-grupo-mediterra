@@ -2976,12 +2976,29 @@ function defaultCarpetaComex() {
   };
 }
 
+// Mecanismo CONFIGURABLE de documentos obligatorios por entidad/transición.
+// Hoy solo define los obligatorios de la carpeta COMEX (semáforo documental).
+// El BLOQUEO por transición de estado queda PREPARADO pero SIN regla de negocio
+// hardcodeada: cuando se defina "al pasar a estado X se exige [docs]", se agrega
+// en `bloqueos` y docsFaltantesParaTransicion() lo aplica sin tocar el resto.
+const DOCS_OBLIGATORIOS_CONFIG = {
+  embarque: {
+    semaforo: ["Packing List","Full Set","QC"],   // cuentan para el estado documental
+    bloqueos: {},                                 // { <nuevoEstado>: [tipos...] } — VACÍO = sin bloqueo (no se inventa la regla)
+  },
+};
 // Estado de documentos COMEX de un embarque: cuántos cargados, cuántos faltan.
-// Documentos obligatorios de la carpeta COMEX.
-const DOCS_COMEX_OBLIG = ["Packing List","Full Set","QC"];
+const DOCS_COMEX_OBLIG = DOCS_OBLIGATORIOS_CONFIG.embarque.semaforo;
 // Un documento se considera adjunto solo si tiene un archivo REAL subido
 // (URL http/https). Una ruta local del PC ("C:\...") no cuenta.
 const esArchivoSubido = (u)=> /^https?:\/\//i.test(String(u||""));
+// Documentos obligatorios faltantes para pasar `entidad` a `nuevoEstado` según la
+// config. Devuelve [] si no hay regla configurada para esa transición (no bloquea
+// nada todavía). Punto único para activar bloqueos cuando el negocio los defina.
+function docsFaltantesParaTransicion(entidad, nuevoEstado, docsPresentes){
+  const req = DOCS_OBLIGATORIOS_CONFIG[entidad]?.bloqueos?.[nuevoEstado] || [];
+  return req.filter(t => !(docsPresentes||[]).some(d=>d.tipo===t && esArchivoSubido(d.url)));
+}
 
 function comexEstado(oe) {
   const docs = oe?.carpetaComex?.docs || [];
@@ -4705,6 +4722,7 @@ function HojaBIDim({ dimDefault, orderDefault="friskuCommissionUSD", onVerEmbarq
   const FLT = ["temporada","especie","exportadora","cliente","mercado","paisDestino","estado"];
   const COLS = [
     {k:"containers",lab:"Contenedores",fmt:"int"},
+    {k:"fcl",lab:"FCL",fmt:"int"},
     {k:"boxes",lab:"Cajas",fmt:"int"},
     {k:"kilograms",lab:"Kilos",fmt:"int"},
     {k:"destinationSalesUSD",lab:"Venta USD",fmt:"usd"},
@@ -4721,6 +4739,33 @@ function HojaBIDim({ dimDefault, orderDefault="friskuCommissionUSD", onVerEmbarq
   const totComF = grupos.reduce((s,g)=>s+g.friskuCommissionUSD,0)||1;
   const dimLab = FRISKU_DIMS.find(d=>d.key===groupDim)?.lab||groupDim;
   const detalle = filtered.slice(0,200);
+  const dq = bi.dataQuality || {formatosSinPeso:[], liqClienteSinConv:0};
+  const kgParcial = filtered.some(r=>r._kgFalta);   // hay contenedores con formato sin peso neto → kilos incompletos
+  const [expX,setExpX] = useState(false); const [expP,setExpP] = useState(false);
+  const filtrosTxt = chips.length ? chips.map(c=>`${c.dimLab}=${c.label}`).join(", ") : "sin filtros";
+  const subTxt = ()=>`Por ${dimLab} · orden ${COLS.find(c=>c.k===orderKey)?.lab||orderKey} · Filtros: ${filtrosTxt}${kgParcial?" · KILOS PARCIALES":""} · ${new Date().toLocaleString("es-CL")}`;
+  const numRow = (g)=>[g.lab, ...COLS.map(c=> (c.fmt==="usd"||c.fmt==="int")?Math.round(g[c.k]) : Number((g[c.k]||0).toFixed(1))), Number((g.friskuCommissionUSD/totComF*100).toFixed(1))];
+  const exportExcel = async ()=>{ setExpX(true); try{
+    const ExcelJS = await fr_loadExcelJS(); const wb = new ExcelJS.Workbook(); wb.creator="Grupo Mediterra — Frisku Foods";
+    const ws = wb.addWorksheet("BI");
+    fr_sheetTabla(ws, { titulo:`FRISKU FOODS — BI por ${dimLab}`, subtitulo:subTxt(),
+      headers:[dimLab, ...COLS.map(c=>c.k==="kilograms"&&kgParcial?"Kilos (parcial)":c.lab), "Part.%"],
+      colWidths:[26, ...COLS.map(()=>15), 9], rows: grupos.map(numRow),
+      moneyCols: COLS.map((c,i)=>c.fmt==="usd"?i+1:-1).filter(i=>i>0),
+      intCols:   COLS.map((c,i)=>c.fmt==="int"?i+1:-1).filter(i=>i>0) });
+    await fr_logoExcel(wb, ws);
+    await fr_descargarWB(wb, `Frisku_BI_${groupDim}_${new Date().toISOString().slice(0,10)}.xlsx`);
+  }catch(e){ console.error("[HojaBI] Excel:",e); alert("No se pudo generar el Excel: "+e.message); } setExpX(false); };
+  const exportPDF = async ()=>{ setExpP(true); try{
+    const JsPDF = await pl_loadJsPDF(); const doc = new JsPDF({orientation:"landscape",unit:"mm",format:"a4"}); const W=297,m=12;
+    doc.setFillColor(30,39,97); doc.rect(0,0,W,24,"F"); doc.setTextColor(255,255,255); doc.setFont("helvetica","bold"); doc.setFontSize(13);
+    doc.text(`Frisku Foods — BI por ${dimLab}`, m, 11); doc.setFont("helvetica","normal"); doc.setFontSize(7.5); doc.text(subTxt().slice(0,170), m, 18);
+    await fr_logoPDF(doc, W-m, 4, 40, 15);
+    doc.autoTable({ startY:28, head:[[dimLab, ...COLS.map(c=>c.k==="kilograms"&&kgParcial?"Kilos (parcial)":c.lab), "Part.%"]],
+      body: grupos.map(g=>[g.lab, ...COLS.map(c=>fmtMetric(c.fmt,g[c.k])), (g.friskuCommissionUSD/totComF*100).toFixed(1)+"%"]),
+      theme:"striped", styles:{fontSize:7.5}, headStyles:{fillColor:[30,39,97]}, margin:{left:m,right:m} });
+    doc.save(`Frisku_BI_${groupDim}_${new Date().toISOString().slice(0,10)}.pdf`);
+  }catch(e){ console.error("[HojaBI] PDF:",e); alert("No se pudo generar el PDF: "+e.message); } setExpP(false); };
   return (
     <div>
       <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,padding:12,marginBottom:12,display:"flex",gap:10,flexWrap:"wrap",alignItems:"flex-end"}}>
@@ -4728,7 +4773,16 @@ function HojaBIDim({ dimDefault, orderDefault="friskuCommissionUSD", onVerEmbarq
         <div><div style={lblSt}>Agrupar por</div><select value={groupDim} onChange={e=>setGroupDim(e.target.value)} style={{...inputSt}}>{FRISKU_DIMS.map(d=><option key={d.key} value={d.key}>{d.lab}</option>)}</select></div>
         <div><div style={lblSt}>Ordenar por</div><select value={orderKey} onChange={e=>setOrderKey(e.target.value)} style={{...inputSt}}>{COLS.map(c=><option key={c.k} value={c.k}>{c.lab}</option>)}</select></div>
         {chips.length>0 && <button onClick={clearAll} style={{...btnSt(C.muted,true),fontSize:11,padding:"7px 10px"}}>Limpiar</button>}
+        <div style={{display:"flex",gap:6,marginLeft:"auto"}}>
+          <button onClick={exportExcel} disabled={expX} style={{...btnSt(C.green),fontSize:11,padding:"7px 10px"}}>{expX?"⏳":"⬇ Excel"}</button>
+          <button onClick={exportPDF} disabled={expP} style={{...btnSt(C.accent),fontSize:11,padding:"7px 10px"}}>{expP?"⏳":"⬇ PDF"}</button>
+        </div>
       </div>
+      {(kgParcial || dq.liqClienteSinConv>0) && (
+        <div style={{marginBottom:10,fontSize:11,color:C.warning,background:`${C.warning}14`,border:`1px solid ${C.warning}44`,borderRadius:8,padding:"7px 10px"}}>
+          ⚠ Calidad de datos:{kgParcial && <span> Kilos <b>PARCIALES</b> — hay formatos sin peso neto en Maestros ({dq.formatosSinPeso.slice(0,6).join(", ")}); sus kilos cuentan 0.</span>}{dq.liqClienteSinConv>0 && <span> {dq.liqClienteSinConv} liquidación(es) con comisión cliente no convertible a USD de forma trazable.</span>}
+        </div>
+      )}
       {chips.length>0 && <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:10,alignItems:"center"}}>
         <span style={{fontSize:10,fontWeight:700,color:C.muted,textTransform:"uppercase"}}>Selección:</span>
         {chips.map((c,i)=><span key={i} onClick={()=>remove(c.dim,c.value)} title="Quitar" style={{fontSize:11,fontWeight:600,background:C.accent2,color:"#fff",borderRadius:14,padding:"3px 10px",cursor:"pointer"}}><span style={{opacity:.8,fontWeight:400}}>{c.dimLab}:</span> {c.label} ×</span>)}
@@ -4738,7 +4792,7 @@ function HojaBIDim({ dimDefault, orderDefault="friskuCommissionUSD", onVerEmbarq
         <table style={{width:"100%",borderCollapse:"collapse",fontSize:11.5,minWidth:900}}>
           <thead><tr style={{background:C.card2,color:C.muted,textAlign:"left"}}>
             <th style={{padding:"8px 10px"}}>{dimLab}</th>
-            {COLS.map(c=><th key={c.k} style={{padding:"8px 10px",textAlign:"right"}}>{c.lab}</th>)}
+            {COLS.map(c=><th key={c.k} style={{padding:"8px 10px",textAlign:"right",color:c.k==="kilograms"&&kgParcial?C.warning:undefined}}>{c.lab}{c.k==="kilograms"&&kgParcial?" ⚠":""}</th>)}
             <th style={{padding:"8px 10px",textAlign:"right"}}>Part.%</th>
           </tr></thead>
           <tbody>
@@ -4784,13 +4838,19 @@ function HojaBIDim({ dimDefault, orderDefault="friskuCommissionUSD", onVerEmbarq
 function HojaComparativo() {
   const bi = useFriskuBI();
   const { facts, metric } = bi;
-  const temps = useMemo(()=>[...new Set(facts.map(r=>r.temporada).filter(t=>t&&t!=="—"))].sort().reverse(),[facts]);
+  // Año de inicio de la temporada ("2026-2027" → 2026). Ordena por año, no lexicográfico.
+  const startY = (t)=>{ const m=String(t).match(/(\d{4})/); return m?parseInt(m[1]):0; };
+  const temps = useMemo(()=>[...new Set(facts.map(r=>r.temporada).filter(t=>t&&t!=="—"))].sort((a,b)=>startY(b)-startY(a)),[facts]);
+  // Regla temporada precedente: la que empieza un año antes (año_inicio − 1); si esa
+  // temporada no existe (hueco), la siguiente más baja presente.
+  const anteriorDe = (t)=>{ const y=startY(t); return temps.find(x=>startY(x)===y-1) || temps.find(x=>startY(x)<y) || ""; };
   const [actual, setActual] = useState("");
   const [anterior, setAnterior] = useState("");
-  useEffect(()=>{ setActual(a=>a||temps[0]||""); setAnterior(a=>a||temps[1]||""); },[temps.join("|")]);
+  useEffect(()=>{ setActual(a=>a||temps[0]||""); },[temps.join("|")]);
+  useEffect(()=>{ if(actual) setAnterior(anteriorDe(actual)); /* eslint-disable-next-line */ },[actual, temps.join("|")]);
   const rowsA = facts.filter(r=>r.temporada===actual);
   const rowsB = facts.filter(r=>r.temporada===anterior);
-  const KPIS = ["containers","boxes","kilograms","destinationSalesUSD","clientCommissionUSD","friskuCommissionUSD","activeClients","activeExporters"];
+  const KPIS = ["containers","fcl","boxes","kilograms","destinationSalesUSD","clientCommissionUSD","friskuCommissionUSD","activeClients","activeExporters"];
   const selSt={...inputSt, maxWidth:160};
   return (
     <div>
@@ -4820,7 +4880,7 @@ function HojaComparativo() {
           </tbody>
         </table>
       </div>
-      <div style={{fontSize:10.5,color:C.muted2,marginTop:10}}>Comparativo sobre toda la data (no depende de los filtros de selección). Δ = actual − anterior.</div>
+      <div style={{fontSize:10.5,color:C.muted2,marginTop:10}}>Comparativo sobre toda la data (no depende de la selección). Δ = actual − anterior. La temporada anterior se determina por año de inicio (año − 1); si falta, se usa la siguiente presente más baja (tolerante a huecos).</div>
     </div>
   );
 }
@@ -5070,7 +5130,8 @@ function ResumenEjecutivo() {
 
       {/* KPIs (métricas de definición única) */}
       <div style={{display:"grid", gridTemplateColumns:"repeat(auto-fit, minmax(150px,1fr))", gap:12, marginBottom:16}}>
-        {KPIS.map(k=>{ const mt=metric[k]; return kpiCard(mt.label, fmtMetric(mt.fmt, mt.calc(rows)), kpiColor[k]||C.text); })}
+        {KPIS.map(k=>{ const mt=metric[k]; const parcial=k==="kilograms"&&rows.some(r=>r._kgFalta);
+          return kpiCard(mt.label+(parcial?" ⚠ parcial":""), fmtMetric(mt.fmt, mt.calc(rows)), parcial?C.warning:(kpiColor[k]||C.text)); })}
       </div>
 
       {/* Gráficos */}

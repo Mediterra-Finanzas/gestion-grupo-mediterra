@@ -145,6 +145,7 @@ const distinct=(rs,f)=>new Set(rs.map(r=>r[f]).filter(v=>v&&v!=="—")).size;
 const pct=(v)=>`${(Number(v)||0).toFixed(1)}%`;
 export const FRISKU_METRICS = [
   { key:"containers",          label:"N° contenedores",       fmt:"int",   calc:rs=>rs.filter(r=>!r._cancel).length },   // OE no canceladas (1 OE = 1 contenedor)  VERIFICADO-FRISKU
+  { key:"fcl",                 label:"FCL (marítimo)",        fmt:"int",   calc:rs=>rs.filter(r=>!r._cancel && r.via==="maritimo").length }, // 1 OE marítima no cancelada = 1 FCL
   { key:"boxes",               label:"Cajas",                 fmt:"int",   calc:rs=>sum(rs,"_cajas") },
   { key:"kilograms",           label:"Kilos",                 fmt:"int",   calc:rs=>sum(rs,"_kilos") },                  // Σ cajas × peso neto/caja del formato (maestro)  VERIFICADO-FRISKU
   { key:"destinationSalesUSD", label:"Venta destino (USD)",   fmt:"usd",   calc:rs=>sum(rs,"_venta") },
