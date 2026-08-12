@@ -5589,11 +5589,15 @@ function ReportesTab({ liquidaciones, embarques, clientes, exportadoras, especie
   const [rep, setRep]       = useState("ingreso");   // "ingreso" | "rentabilidad" | "fcl"
   const [groupBy, setGroupBy] = useState("especie"); // especie | mercado | cliente (reporte #2)
   const [fclGroup, setFclGroup] = useState("ambos"); // especie | cliente | ambos (reporte #3)
-  const [temp, setTemp]     = useState("");   // "" = todas las temporadas
-  const [estado, setEstado] = useState("");   // "" = todos los estados
-  const [fExp, setFExp]     = useState("");   // filtro exportadora (id)
-  const [fCli, setFCli]     = useState("");   // filtro cliente (id)
-  const [fEsp, setFEsp]     = useState("");   // filtro especie (código)
+  const [estado, setEstado] = useState("");   // estado de LIQUIDACIÓN (distinto del estado de OE) — local
+  // Filtros compartidos con el motor BI (misma selección que Resumen/Explorador):
+  const biR = useFriskuBI();
+  const oneR = (dim)=> biR.sel[dim] ? [...biR.sel[dim]][0] : "";
+  const temp = oneR("temporada"), fExp = oneR("exportadora"), fCli = oneR("cliente"), fEsp = oneR("especie");
+  const setTemp = (v)=>biR.setOne("temporada", v);
+  const setFExp = (v)=>biR.setOne("exportadora", v);
+  const setFCli = (v)=>biR.setOne("cliente", v);
+  const setFEsp = (v)=>biR.setOne("especie", v);
   const [expPdf, setExpPdf] = useState(false);
   const [expXls, setExpXls] = useState(false);
 
