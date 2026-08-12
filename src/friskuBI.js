@@ -173,37 +173,68 @@ export function matchFacts(row, sel, exceptKey){
   for(const k in sel){ if(k===exceptKey) continue; const s=sel[k]; if(!s||!s.size) continue; if(!(k in row)) continue; if(!s.has(row[k])) return false; }
   return true;
 }
-// Valores posibles de una dimensión dada la selección actual (asociativo), con su
-// medida agregada opcional, y los excluidos.
+// Estados asociativos de una dimensión (semántica Qlik), con su medida/frecuencia:
+//  - SELECTED    : valor seleccionado en este campo.
+//  - POSSIBLE    : compatible con las OTRAS dims y el campo NO tiene selección.
+//  - ALTERNATIVE : compatible con las otras dims pero el campo SÍ tiene selección
+//                  (sería seleccionable; en Qlik es gris claro).
+//  - EXCLUDED    : incompatible por la selección de OTRO campo (gris oscuro).
 export function associativeValues(facts, sel, dimKey, metric){
-  const rowsX = facts.filter(r=>matchFacts(r, sel, dimKey));
+  const rowsX = facts.filter(r=>matchFacts(r, sel, dimKey)); // compatibles ignorando la selección propia
   const grp={};
   rowsX.forEach(r=>{ const v=r[dimKey]; if(v==null||v==="") return; (grp[v]=grp[v]||{value:v,label:r[dimKey+"Lab"]??v,rows:[]}).rows.push(r); });
-  const selSet=sel[dimKey];
-  if(selSet) selSet.forEach(v=>{ if(!grp[v]) grp[v]={value:v,label:v,rows:[]}; });
-  const possible=Object.values(grp).map(g=>({value:g.value,label:g.label,m:metric?metric.calc(g.rows):g.rows.length}));
-  possible.sort((a,b)=>b.m-a.m || String(a.label).localeCompare(String(b.label)));
-  const posSet=new Set(possible.map(x=>x.value));
+  const selSet = sel[dimKey] || new Set();
+  selSet.forEach(v=>{ if(!grp[v]) grp[v]={value:v,label:v,rows:[]}; });
+  const compatible = new Set(Object.keys(grp));
   const allMap={}; facts.forEach(r=>{ const v=r[dimKey]; if(v!=null&&v!==""&&!(v in allMap)) allMap[v]=r[dimKey+"Lab"]??v; });
-  const excluded=Object.keys(allMap).filter(v=>!posSet.has(v)).map(v=>({value:v,label:allMap[v]}));
-  return { possible, excluded };
+  const mOf=(v)=> metric ? metric.calc((grp[v]&&grp[v].rows)||[]) : ((grp[v]&&grp[v].rows)||[]).length;
+  const hasSel = selSet.size>0;
+  const selected=[], possible=[], alternative=[], excluded=[];
+  Object.keys(allMap).forEach(v=>{
+    const label = grp[v] ? grp[v].label : allMap[v];
+    if(selSet.has(v)) selected.push({value:v,label,m:mOf(v)});
+    else if(compatible.has(v)) (hasSel?alternative:possible).push({value:v,label,m:mOf(v)});
+    else excluded.push({value:v,label});
+  });
+  const byM=(a,b)=>b.m-a.m || String(a.label).localeCompare(String(b.label));
+  selected.sort(byM); possible.sort(byM); alternative.sort(byM);
+  excluded.sort((a,b)=>String(a.label).localeCompare(String(b.label)));
+  // `possibleAll` = seleccionados + posibles + alternativos (compat. hacia atrás).
+  return { selected, possible, alternative, excluded, possibleAll:[...selected,...possible,...alternative] };
 }
 
 // ── CONTEXTO REACT: estado de selección compartido por todas las hojas ──
 const FriskuBIContext = createContext(null);
+const HIST_MAX = 60;   // historial de selecciones (back/forward), acotado
 export function FriskuBIProvider({ data, children }){
-  const [sel, setSel] = useState({});   // { dimKey: Set(valores) }
+  // Historial de selecciones: pila de estados + puntero (back/forward tipo Qlik).
+  const [nav, setNav] = useState({ stack:[{}], idx:0 });
+  const sel = nav.stack[nav.idx];
+  const canUndo = nav.idx>0;
+  const canRedo = nav.idx < nav.stack.length-1;
 
   const facts = useMemo(()=>buildFriskuFacts(data||{}), [
     data?.embarques, data?.liquidaciones, data?.clientes, data?.exportadoras, data?.especies, data?.mercados, data?.tiposEmbalaje
   ]);
   const dataQuality = useMemo(()=>dataQualityFrisku(data||{}), [data?.embarques, data?.liquidaciones, data?.tiposEmbalaje]);
 
-  const toggle = useCallback((dim,val)=>setSel(p=>{ const s=new Set(p[dim]||[]); s.has(val)?s.delete(val):s.add(val); const n={...p}; s.size?n[dim]=s:delete n[dim]; return n; }),[]);
-  const setOne = useCallback((dim,val)=>setSel(p=>{ const n={...p}; if(val==null||val==="") delete n[dim]; else n[dim]=new Set([val]); return n; }),[]);
-  const remove = useCallback((dim,val)=>setSel(p=>{ const s=new Set(p[dim]||[]); s.delete(val); const n={...p}; s.size?n[dim]=s:delete n[dim]; return n; }),[]);
-  const clearDim = useCallback((dim)=>setSel(p=>{ const n={...p}; delete n[dim]; return n; }),[]);
-  const clearAll = useCallback(()=>setSel({}),[]);
+  // commit(fn): fn(selActual) → selNuevo; empuja al historial (trunca el "forward").
+  const commit = useCallback((fn)=>setNav(({stack,idx})=>{
+    const cur=stack[idx]; const next=fn(cur);
+    let base=stack.slice(0, idx+1); base.push(next);
+    if(base.length>HIST_MAX) base = base.slice(base.length-HIST_MAX);
+    return { stack:base, idx:base.length-1 };
+  }),[]);
+  const toggle  = useCallback((dim,val)=>commit(cur=>{ const s=new Set(cur[dim]||[]); s.has(val)?s.delete(val):s.add(val); const n={...cur}; s.size?n[dim]=s:delete n[dim]; return n; }),[commit]);
+  const setOne  = useCallback((dim,val)=>commit(cur=>{ const n={...cur}; if(val==null||val==="") delete n[dim]; else n[dim]=new Set([val]); return n; }),[commit]);
+  const setMany = useCallback((dim,vals)=>commit(cur=>{ const n={...cur}; const s=new Set(vals||[]); s.size?n[dim]=s:delete n[dim]; return n; }),[commit]);
+  const remove  = useCallback((dim,val)=>commit(cur=>{ const s=new Set(cur[dim]||[]); s.delete(val); const n={...cur}; s.size?n[dim]=s:delete n[dim]; return n; }),[commit]);
+  const clearDim= useCallback((dim)=>commit(cur=>{ const n={...cur}; delete n[dim]; return n; }),[commit]);
+  const clearAll= useCallback(()=>commit(()=>({})),[commit]);
+  const undo    = useCallback(()=>setNav(s=>({...s, idx:Math.max(0,s.idx-1)})),[]);
+  const redo    = useCallback(()=>setNav(s=>({...s, idx:Math.min(s.stack.length-1,s.idx+1)})),[]);
+  // Aplica una selección completa de golpe (para bookmarks/vistas guardadas).
+  const applySel= useCallback((selObj)=>commit(()=>{ const n={}; Object.keys(selObj||{}).forEach(k=>{ const s=new Set(selObj[k]||[]); if(s.size) n[k]=s; }); return n; }),[commit]);
 
   const filtered = useMemo(()=>facts.filter(r=>matchFacts(r, sel, null)), [facts, sel]);
   const associative = useCallback((dimKey, metric)=>associativeValues(facts, sel, dimKey, metric), [facts, sel]);
@@ -212,7 +243,8 @@ export function FriskuBIProvider({ data, children }){
   })), [sel, facts]);
 
   const value = { facts, filtered, dims:FRISKU_DIMS, metrics:FRISKU_METRICS, metric:FRISKU_METRIC, fmtMetric,
-                  sel, toggle, setOne, remove, clearDim, clearAll, associative, chips, dataQuality };
+                  sel, toggle, setOne, setMany, remove, clearDim, clearAll, associative, chips, dataQuality,
+                  undo, redo, canUndo, canRedo, applySel };
   return <FriskuBIContext.Provider value={value}>{children}</FriskuBIContext.Provider>;
 }
 export function useFriskuBI(){
