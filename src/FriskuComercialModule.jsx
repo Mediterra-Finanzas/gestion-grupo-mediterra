@@ -7000,6 +7000,7 @@ export default function FriskuComercialModule({
   const [editandoLiq,    setEditandoLiq]    = useState(null);
   const [creandoLiq,     setCreandoLiq]     = useState(false);
   const [verLiq,         setVerLiq]         = useState(null);   // detalle (Ver) de una liquidación
+  const [verPO,          setVerPO]          = useState(null);   // detalle (Ver) de un PO
   const [filtroEstadoLiq, setFiltroEstadoLiq] = useState("");
   const [filtroExpLiq,   setFiltroExpLiq]   = useState("");
   const [filtroCliLiq,   setFiltroCliLiq]   = useState("");
@@ -8397,28 +8398,62 @@ export default function FriskuComercialModule({
                     )}
                   </div>
 
-                  {posFiltrados.length===0 ? (
+                  {/* Detalle (Ver) PO — solo lectura */}
+                  {verPO && (
+                    <div>
+                      <div style={{display:"flex", gap:8, alignItems:"center", marginBottom:12, flexWrap:"wrap"}}>
+                        <button onClick={()=>setVerPO(null)} style={{...btnSt(C.muted,true), fontSize:12}}>← Volver a PO</button>
+                        {permLiquidaciones.canEdit && <button onClick={()=>{ const p=verPO; setVerPO(null); handleEditarPO(p); }} style={{...btnSt(C.blue), fontSize:12}}>✎ Editar</button>}
+                      </div>
+                      <div style={{maxWidth:440}}>
+                        <POCard po={verPO} clientes={clientes} paises={paises} onEditar={()=>{}} onEliminar={()=>{}} onAvanzarEstado={()=>{}} canEdit={false}/>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Listado compacto (click fila = Ver) */}
+                  {!verPO && (posFiltrados.length===0 ? (
                     <div style={{padding:50, textAlign:"center", color:C.muted, fontSize:13, background:C.card, borderRadius:14}}>
                       {pos.length===0
                         ? 'Sin notas de cobro (PO). Click "+ Nuevo PO" para emitir la primera.'
                         : "Sin resultados con esos filtros."}
                     </div>
                   ) : (
-                    <div style={{display:"grid", gridTemplateColumns:"repeat(auto-fill, minmax(340px,1fr))", gap:14}}>
-                      {posFiltrados.map(po=>(
-                        <POCard
-                          key={po.id}
-                          po={po}
-                          clientes={clientes}
-                          paises={paises}
-                          onEditar={()=>handleEditarPO(po)}
-                          onEliminar={()=>handleEliminarPO(po)}
-                          onAvanzarEstado={handleAvanzarEstadoPO}
-                          canEdit={permLiquidaciones.canEdit}
-                        />
-                      ))}
+                    <div style={{background:C.card, border:`1px solid ${C.border}`, borderRadius:12, overflowX:"auto"}}>
+                      <table style={{width:"100%", borderCollapse:"collapse", fontSize:11.5, minWidth:620}}>
+                        <thead><tr style={{background:C.card2, color:C.muted, textAlign:"left"}}>
+                          <th style={{padding:"8px 10px"}}>N° PO</th>
+                          <th style={{padding:"8px 10px"}}>Cliente</th>
+                          <th style={{padding:"8px 10px"}}>Fecha emisión</th>
+                          <th style={{padding:"8px 10px", textAlign:"right"}}>Comisión USD</th>
+                          <th style={{padding:"8px 10px", textAlign:"center"}}>Estado</th>
+                          <th style={{padding:"8px 10px", textAlign:"right"}}>Acciones</th>
+                        </tr></thead>
+                        <tbody>
+                          {posFiltrados.map(po=>{
+                            const cli=clientes.find(c=>c.id===po.clienteId);
+                            const est=po.estado||"borrador";
+                            const ec={borrador:C.muted2,emitida:C.blue,pagada:C.green}[est]||C.muted2;
+                            const td={padding:"7px 10px", borderTop:`1px solid ${C.border}`, verticalAlign:"middle"};
+                            return (
+                              <tr key={po.id} onClick={()=>setVerPO(po)} title="Ver detalle" style={{cursor:"pointer"}}>
+                                <td style={{...td, fontFamily:"monospace", color:C.blue, whiteSpace:"nowrap"}}>{po.numero||po.id?.slice(-6)||"—"}</td>
+                                <td style={{...td}}><div style={{whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis", maxWidth:240}}>{cli?.nombre||"—"}</div></td>
+                                <td style={{...td, whiteSpace:"nowrap"}}>{po.fecha||"—"}</td>
+                                <td style={{...td, textAlign:"right", fontFamily:"monospace", color:C.green, fontWeight:700}}>{fmtUSD0(Number(po.totalComisionUSD)||0)}</td>
+                                <td style={{...td, textAlign:"center"}}><span style={{fontSize:9, padding:"2px 8px", borderRadius:10, background:`${ec}22`, color:ec, border:`1px solid ${ec}44`, fontWeight:700, whiteSpace:"nowrap"}}>{est}</span></td>
+                                <td style={{...td, textAlign:"right", whiteSpace:"nowrap"}} onClick={e=>e.stopPropagation()}>
+                                  <button onClick={()=>setVerPO(po)} title="Ver" style={{...btnSt(C.teal,true), padding:"3px 8px", fontSize:10, marginRight:3}}>👁 Ver</button>
+                                  {permLiquidaciones.canEdit && <button onClick={()=>handleEditarPO(po)} title="Editar" style={{...btnSt(C.blue,true), padding:"3px 7px", fontSize:10, marginRight:3}}>✎</button>}
+                                  {permLiquidaciones.canEdit && <button onClick={()=>handleEliminarPO(po)} title="Eliminar" style={{...btnSt(C.accent,true), padding:"3px 7px", fontSize:10}}>×</button>}
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
                     </div>
-                  )}
+                  ))}
                 </>
               )}
             </>)}
