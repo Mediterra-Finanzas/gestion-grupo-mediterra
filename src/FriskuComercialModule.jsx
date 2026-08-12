@@ -4964,21 +4964,36 @@ const fmtN0   = (v) => new Intl.NumberFormat("es-CL",{maximumFractionDigits:0}).
 // SELECCIONADO (☑) / POSIBLE (☐) / EXCLUIDO (tachado, por la selección actual).
 // Al abrir con un valor ya elegido se ven todas las alternativas (reemplazar/
 // agregar/quitar sin limpiar). Cuenta de registros por valor (frecuencia Qlik).
+// FILTRO MULTI (listbox de dimensión estilo Qlik) con los 4 estados asociativos:
+// SELECTED (verde ☑) / POSSIBLE (neutro ☐) / ALTERNATIVE (gris claro ☐) /
+// EXCLUDED (gris oscuro tachado). OR intra-dim (toggle) + AND entre dims (motor).
+// Búsqueda, frecuencia y acciones (seleccionar todo compatible / limpiar).
 function FiltroMultiBI({ dimKey, label }) {
   const bi = useFriskuBI();
-  const { sel, toggle, clearDim, associative } = bi;
+  const { sel, toggle, clearDim, setMany, associative } = bi;
   const [open, setOpen] = useState(false);
   const [q, setQ] = useState("");
   const boxRef = useRef(null);
   useEffect(()=>{ if(!open) return; const h=(e)=>{ if(boxRef.current && !boxRef.current.contains(e.target)) setOpen(false); }; document.addEventListener("mousedown",h); return ()=>document.removeEventListener("mousedown",h); },[open]);
   const selSet = sel[dimKey] || new Set();
-  const { possible, excluded } = associative(dimKey);
+  const { selected, possible, alternative, excluded } = associative(dimKey);
   const qq = q.trim().toLowerCase();
   const fil=(arr)=> qq? arr.filter(x=>String(x.label).toLowerCase().includes(qq)) : arr;
-  const pos = fil(possible).slice().sort((a,b)=>{ const as=selSet.has(a.value)?0:1, bs=selSet.has(b.value)?0:1; return as-bs || (b.m||0)-(a.m||0); });
-  const exc = fil(excluded);
+  const fSel=fil(selected), fPos=fil(possible), fAlt=fil(alternative), fExc=fil(excluded);
   const n = selSet.size;
-  const resumen = n===0 ? "Todos" : (n===1 ? (possible.find(x=>selSet.has(x.value))?.label || [...selSet][0]) : `${n} seleccionados`);
+  const resumen = n===0 ? "Todos" : (n===1 ? (selected[0]?.label || [...selSet][0]) : `${n} seleccionados`);
+  const compatibles = [...selected, ...possible, ...alternative].map(x=>x.value);
+  const Fila = ({x, estado})=>{
+    const on = estado==="sel";
+    const col = estado==="sel"?C.accent2 : estado==="pos"?C.text : estado==="alt"?C.muted : C.muted2;
+    const bg  = estado==="sel"?`${C.accent2}18` : estado==="alt"?`${C.muted}10` : "transparent";
+    return <div onClick={()=>toggle(dimKey,x.value)} title={estado==="exc"?"Excluido por el contexto — clic para forzar":estado==="alt"?"Alternativo (compatible; el campo tiene selección)":""}
+      style={{display:"flex",justifyContent:"space-between",gap:8,alignItems:"center",padding:"4px 9px",cursor:"pointer",fontSize:11.5,background:bg}}>
+      <span style={{whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",color:col,fontWeight:on?700:400,textDecoration:estado==="exc"?"line-through":"none",opacity:estado==="exc"?0.75:1}}>{on?"☑":"☐"} {x.label}</span>
+      {x.m!=null && <span style={{fontSize:9.5,color:C.muted2}}>{fmtN0(x.m)}</span>}
+    </div>;
+  };
+  const Hdr = ({t})=><div style={{padding:"5px 9px 3px",fontSize:9,color:C.muted2,textTransform:"uppercase",borderTop:`1px dashed ${C.border}`}}>{t}</div>;
   return (
     <div ref={boxRef} style={{position:"relative", minWidth:150, flex:"1 1 150px"}}>
       <div style={lblSt}>{label}</div>
@@ -4987,22 +5002,21 @@ function FiltroMultiBI({ dimKey, label }) {
         <span style={{color:C.muted, fontSize:10, whiteSpace:"nowrap"}}>{n>0 && <span onClick={(e)=>{e.stopPropagation(); clearDim(dimKey);}} title="Limpiar dimensión" style={{marginRight:6,color:C.accent,fontWeight:700}}>×</span>}▾</span>
       </div>
       {open && (
-        <div style={{position:"absolute", zIndex:50, top:"calc(100% + 2px)", left:0, right:0, background:C.card, border:`1px solid ${C.border}`, borderRadius:8, maxHeight:300, overflowY:"auto", boxShadow:C.shadowSm||"0 8px 24px rgba(0,0,0,.18)"}}>
-          <div style={{padding:6, position:"sticky", top:0, background:C.card, borderBottom:`1px solid ${C.border}`}}>
+        <div style={{position:"absolute", zIndex:60, top:"calc(100% + 2px)", left:0, right:0, background:C.card, border:`1px solid ${C.border}`, borderRadius:8, maxHeight:320, overflowY:"auto", boxShadow:C.shadowSm||"0 8px 24px rgba(0,0,0,.18)"}}>
+          <div style={{padding:6, position:"sticky", top:0, background:C.card, borderBottom:`1px solid ${C.border}`, zIndex:1}}>
             <input value={q} onChange={e=>setQ(e.target.value)} placeholder="Buscar…" style={{...inputSt, width:"100%", padding:"4px 7px", fontSize:11}}/>
-          </div>
-          {pos.map(x=>{ const on=selSet.has(x.value);
-            return <div key={x.value} onClick={()=>toggle(dimKey,x.value)} style={{display:"flex",justifyContent:"space-between",gap:8,alignItems:"center",padding:"4px 9px",cursor:"pointer",fontSize:11.5,background:on?`${C.accent2}18`:"transparent"}}>
-              <span style={{whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",color:on?C.accent2:C.text,fontWeight:on?700:400}}>{on?"☑":"☐"} {x.label}</span>
-              {x.m!=null && <span style={{fontSize:9.5,color:C.muted2}}>{fmtN0(x.m)}</span>}
-            </div>; })}
-          {exc.length>0 && <div style={{padding:"5px 9px 3px",fontSize:9,color:C.muted2,textTransform:"uppercase",borderTop:`1px dashed ${C.border}`}}>Excluidos por la selección ({exc.length})</div>}
-          {exc.slice(0,60).map(x=>(
-            <div key={x.value} onClick={()=>toggle(dimKey,x.value)} title="Excluido por el contexto actual — clic para forzar" style={{padding:"3px 9px",cursor:"pointer",fontSize:11,color:C.muted2}}>
-              <span style={{textDecoration:"line-through",opacity:0.7,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",display:"block"}}>☐ {x.label}</span>
+            <div style={{display:"flex",gap:6,marginTop:5}}>
+              <button onClick={()=>setMany(dimKey, compatibles)} style={{...btnSt(C.muted,true),fontSize:9.5,padding:"2px 7px"}}>Sel. compatibles</button>
+              {n>0 && <button onClick={()=>clearDim(dimKey)} style={{...btnSt(C.muted,true),fontSize:9.5,padding:"2px 7px"}}>Limpiar</button>}
             </div>
-          ))}
-          {pos.length+exc.length===0 && <div style={{padding:10,fontSize:11,color:C.muted2,textAlign:"center"}}>Sin valores</div>}
+          </div>
+          {fSel.map(x=><Fila key={x.value} x={x} estado="sel"/>)}
+          {fPos.map(x=><Fila key={x.value} x={x} estado="pos"/>)}
+          {fAlt.length>0 && <Hdr t={`Alternativos (${fAlt.length})`}/>}
+          {fAlt.map(x=><Fila key={x.value} x={x} estado="alt"/>)}
+          {fExc.length>0 && <Hdr t={`Excluidos (${fExc.length})`}/>}
+          {fExc.slice(0,60).map(x=><Fila key={x.value} x={x} estado="exc"/>)}
+          {fSel.length+fPos.length+fAlt.length+fExc.length===0 && <div style={{padding:10,fontSize:11,color:C.muted2,textAlign:"center"}}>Sin valores</div>}
         </div>
       )}
     </div>
@@ -5124,8 +5138,7 @@ function HojaBIDim({ dimDefault, orderDefault="friskuCommissionUSD", onVerEmbarq
         <div style={{marginBottom:10,fontSize:11,color:C.muted,background:C.card2,border:`1px solid ${C.border}`,borderRadius:8,padding:"6px 10px"}}>
           ℹ Cobertura financiera: <b>{cobFin.n} de {cobFin.tot}</b> contenedores con liquidación ({Math.round(cobFin.n/cobFin.tot*100)}%). Venta y comisión reflejan solo esa parte; "—" = sin dato financiero todavía (no es 0 real).
         </div>
-      )}
-      <BreadcrumbBI/>
+      )}
 
       <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,overflowX:"auto"}}>
         <table style={{width:"100%",borderCollapse:"collapse",fontSize:11.5,minWidth:900}}>
@@ -5231,8 +5244,7 @@ function HojaComercial({ onVerEmbarque }) {
           <button onClick={()=>{setExpE(new Set(tree.map(x=>x.key)));}} style={{...btnSt(C.muted,true),fontSize:11,padding:"7px 10px"}}>Expandir exp.</button>
           <button onClick={()=>{setExpE(new Set());setExpC(new Set());setExpS(new Set());}} style={{...btnSt(C.muted,true),fontSize:11,padding:"7px 10px"}}>Contraer</button>
         </div>
-      </div>
-      <BreadcrumbBI/>
+      </div>
       <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,overflow:"hidden"}}>
         {tree.length===0 && <div style={{padding:24,textAlign:"center",color:C.muted2,fontSize:12}}>Sin datos para la selección.</div>}
         {tree.map(ex=>{ const oe=expE.has(ex.key); return (
@@ -5307,8 +5319,7 @@ function HojaSemanal({ onVerEmbarque }) {
       <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,padding:12,marginBottom:12,display:"flex",gap:10,flexWrap:"wrap",alignItems:"flex-end"}}>
         {FLT.map(dk=><FiltroMultiBI key={dk} dimKey={dk} label={FRISKU_DIMS.find(d=>d.key===dk)?.lab||dk}/>)}
         <div><div style={lblSt}>Medida</div><select value={mk} onChange={e=>setMk(e.target.value)} style={{...inputSt}}>{METS.map(k=><option key={k} value={k}>{metric[k].label}</option>)}</select></div>
-      </div>
-      <BreadcrumbBI/>
+      </div>
       {sinDatoFin ? (
         <div style={{padding:30,textAlign:"center",color:C.warning,background:`${C.warning}10`,border:`1px solid ${C.warning}44`,borderRadius:12,fontSize:12,fontWeight:600}}>
           Sin datos financieros suficientes para la serie de {met.label}. Aparecerá al cargar liquidaciones. Prueba una medida logística (contenedores, FCL, cajas, kilos).
@@ -5404,6 +5415,35 @@ function HojaComparativo() {
   );
 }
 
+// SELECTIONS BAR global (estilo Qlik): back/forward de selecciones + selecciones
+// activas agrupadas por dimensión (quitar valor/dimensión) + limpiar todo.
+function SelectionBarBI() {
+  const bi = useFriskuBI();
+  const { chips, remove, clearDim, clearAll, undo, redo, canUndo, canRedo, dims } = bi;
+  const byDim = {};
+  chips.forEach(c=>{ (byDim[c.dim]=byDim[c.dim]||{dimLab:c.dimLab, vals:[]}).vals.push(c); });
+  const groups = dims.map(d=>byDim[d.key] && {key:d.key, ...byDim[d.key]}).filter(Boolean);
+  return (
+    <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap",padding:"7px 10px",background:C.card,border:`1px solid ${C.border}`,borderRadius:10,marginBottom:12}}>
+      <div style={{display:"flex",gap:4}}>
+        <button onClick={undo} disabled={!canUndo} title="Selección anterior" style={{...btnSt(C.muted,true),fontSize:13,padding:"3px 9px",opacity:canUndo?1:0.35,cursor:canUndo?"pointer":"default"}}>←</button>
+        <button onClick={redo} disabled={!canRedo} title="Selección siguiente" style={{...btnSt(C.muted,true),fontSize:13,padding:"3px 9px",opacity:canRedo?1:0.35,cursor:canRedo?"pointer":"default"}}>→</button>
+      </div>
+      <div style={{width:1,height:20,background:C.border}}/>
+      <span style={{fontSize:10,fontWeight:700,color:C.muted,textTransform:"uppercase"}}>Selecciones</span>
+      {groups.length===0 ? <span style={{fontSize:11.5,color:C.muted2}}>ninguna — todo el universo</span> :
+        groups.map(g=>(
+          <span key={g.key} style={{display:"inline-flex",alignItems:"center",gap:4,background:`${C.accent2}12`,border:`1px solid ${C.accent2}44`,borderRadius:8,padding:"2px 5px 2px 8px"}}>
+            <span style={{fontSize:10,color:C.muted,fontWeight:600}}>{g.dimLab}:</span>
+            {g.vals.map((c,i)=><span key={i} onClick={()=>remove(c.dim,c.value)} title="Quitar valor" style={{fontSize:11,fontWeight:600,color:C.accent2,cursor:"pointer"}}>{c.label}{i<g.vals.length-1?", ":""}</span>)}
+            <span onClick={()=>clearDim(g.key)} title="Quitar dimensión" style={{cursor:"pointer",color:C.muted,fontSize:11,marginLeft:3}}>✕</span>
+          </span>
+        ))}
+      {groups.length>0 && <button onClick={clearAll} style={{...btnSt(C.muted,true),fontSize:10,padding:"3px 8px",marginLeft:"auto"}}>Limpiar todo</button>}
+    </div>
+  );
+}
+
 // ═══════════════════════════════════════════════════════════════════
 // REPORTERÍA BI — punto de entrada analítico único. Consolida Dashboard +
 // Reportes + Tablero BI, más las hojas analíticas (Clientes/Exportadores/
@@ -5428,6 +5468,7 @@ function ReporteriaBI({ data, permResumen, permReportes, permTablero, onVerEmbar
   const [hoja, setHoja] = useState(hojas[0]?.id || "exec");
   return (
     <div>
+      <SelectionBarBI/>
       <div style={{display:"flex", gap:6, marginBottom:14, flexWrap:"wrap", borderBottom:`1px solid ${C.border}`, paddingBottom:10}}>
         {hojas.map(h=>(
           <button key={h.id} onClick={()=>setHoja(h.id)}
