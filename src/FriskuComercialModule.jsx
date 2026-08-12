@@ -6999,6 +6999,7 @@ export default function FriskuComercialModule({
   // UI Liquidaciones
   const [editandoLiq,    setEditandoLiq]    = useState(null);
   const [creandoLiq,     setCreandoLiq]     = useState(false);
+  const [verLiq,         setVerLiq]         = useState(null);   // detalle (Ver) de una liquidación
   const [filtroEstadoLiq, setFiltroEstadoLiq] = useState("");
   const [filtroExpLiq,   setFiltroExpLiq]   = useState("");
   const [filtroCliLiq,   setFiltroCliLiq]   = useState("");
@@ -8282,32 +8283,65 @@ export default function FriskuComercialModule({
                   )}
                 </div>
 
-                {/* Grid de cards */}
-                {liqFiltradas.length===0 ? (
+                {/* Detalle (Ver) — solo lectura; conserva filtros del listado */}
+                {verLiq && (
+                  <div>
+                    <div style={{display:"flex", gap:8, alignItems:"center", marginBottom:12, flexWrap:"wrap"}}>
+                      <button onClick={()=>setVerLiq(null)} style={{...btnSt(C.muted,true), fontSize:12}}>← Volver a Liquidaciones</button>
+                      {permLiquidaciones.canEdit && <button onClick={()=>{ const l=verLiq; setVerLiq(null); handleEditarLiq(l); }} style={{...btnSt(C.blue), fontSize:12}}>✎ Editar</button>}
+                    </div>
+                    <div style={{maxWidth:420}}>
+                      <LiquidacionCard liq={verLiq} embarques={embarques} clientes={clientes} exportadoras={exportadoras} especies={especies} monedas={monedas} onEditar={()=>{}} onEliminar={()=>{}} onAvanzarEstado={()=>{}} canEdit={false}/>
+                    </div>
+                  </div>
+                )}
+
+                {/* Listado compacto (click fila = Ver) */}
+                {!verLiq && (liqFiltradas.length===0 ? (
                   <div style={{padding:50, textAlign:"center", color:C.muted, fontSize:13, background:C.card, borderRadius:14}}>
                     {liquidaciones.length===0
                       ? 'Sin liquidaciones. Click "+ Nueva liquidación" para crear la primera.'
                       : "Sin resultados con esos filtros."}
                   </div>
                 ) : (
-                  <div style={{display:"grid", gridTemplateColumns:"repeat(auto-fill, minmax(320px,1fr))", gap:14}}>
-                    {liqFiltradas.map(liq=>(
-                      <LiquidacionCard
-                        key={liq.id}
-                        liq={liq}
-                        embarques={embarques}
-                        clientes={clientes}
-                        exportadoras={exportadoras}
-                        especies={especies}
-                        monedas={monedas}
-                        onEditar={()=>handleEditarLiq(liq)}
-                        onEliminar={()=>handleEliminarLiq(liq)}
-                        onAvanzarEstado={handleAvanzarEstadoLiq}
-                        canEdit={permLiquidaciones.canEdit}
-                      />
-                    ))}
+                  <div style={{background:C.card, border:`1px solid ${C.border}`, borderRadius:12, overflowX:"auto"}}>
+                    <table style={{width:"100%", borderCollapse:"collapse", fontSize:11.5, minWidth:760}}>
+                      <thead><tr style={{background:C.card2, color:C.muted, textAlign:"left"}}>
+                        <th style={{padding:"8px 10px"}}>Fecha</th>
+                        <th style={{padding:"8px 10px"}}>OE</th>
+                        <th style={{padding:"8px 10px"}}>Exportador → Cliente</th>
+                        <th style={{padding:"8px 10px"}}>Especie</th>
+                        <th style={{padding:"8px 10px", textAlign:"right"}}>Venta USD</th>
+                        <th style={{padding:"8px 10px", textAlign:"right"}}>Comisión Frisku</th>
+                        <th style={{padding:"8px 10px", textAlign:"center"}}>Estado</th>
+                        <th style={{padding:"8px 10px", textAlign:"right"}}>Acciones</th>
+                      </tr></thead>
+                      <tbody>
+                        {liqFiltradas.map(liq=>{
+                          const oe=embarques.find(e=>e.id===liq.oeId), cli=clientes.find(c=>c.id===oe?.clienteId), exp=exportadoras.find(e=>e.id===oe?.exportadoraId), esp=especies.find(e=>e.codigo===oe?.especieCodigo);
+                          const ei=LIQ_ESTADOS[liq.estado]||{label:liq.estado,color:C.muted2};
+                          const td={padding:"7px 10px", borderTop:`1px solid ${C.border}`, verticalAlign:"middle"};
+                          return (
+                            <tr key={liq.id} onClick={()=>setVerLiq(liq)} title="Ver detalle" style={{cursor:"pointer"}}>
+                              <td style={{...td, whiteSpace:"nowrap"}}>{liq.fechaLiquidacion||"—"}</td>
+                              <td style={{...td, fontFamily:"monospace", color:C.blue, whiteSpace:"nowrap"}}>{oe?.numero||"—"}</td>
+                              <td style={{...td}}><div style={{whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis", maxWidth:240}}>{exp?.nombre||"—"} <span style={{color:C.muted}}>→</span> {cli?.nombre||"—"}</div></td>
+                              <td style={{...td, whiteSpace:"nowrap"}}>{esp?`${esp.icono||""} ${esp.nombreEs}`:(oe?.especieCodigo||"—")}</td>
+                              <td style={{...td, textAlign:"right", fontFamily:"monospace"}}>{fmtUSD0(mVentaUSD(liq))}</td>
+                              <td style={{...td, textAlign:"right", fontFamily:"monospace", color:C.green, fontWeight:700}}>{fmtUSD0(mComFriskuUSD(liq))}</td>
+                              <td style={{...td, textAlign:"center"}}><span style={{fontSize:9, padding:"2px 8px", borderRadius:10, background:`${ei.color}22`, color:ei.color, border:`1px solid ${ei.color}44`, fontWeight:700, whiteSpace:"nowrap"}}>{ei.label}</span></td>
+                              <td style={{...td, textAlign:"right", whiteSpace:"nowrap"}} onClick={e=>e.stopPropagation()}>
+                                <button onClick={()=>setVerLiq(liq)} title="Ver" style={{...btnSt(C.teal,true), padding:"3px 8px", fontSize:10, marginRight:3}}>👁 Ver</button>
+                                {permLiquidaciones.canEdit && <button onClick={()=>handleEditarLiq(liq)} title="Editar" style={{...btnSt(C.blue,true), padding:"3px 7px", fontSize:10, marginRight:3}}>✎</button>}
+                                {permLiquidaciones.canEdit && <button onClick={()=>handleEliminarLiq(liq)} title="Eliminar" style={{...btnSt(C.accent,true), padding:"3px 7px", fontSize:10}}>×</button>}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
                   </div>
-                )}
+                ))}
               </>
             )}
             </>)}
