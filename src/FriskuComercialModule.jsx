@@ -4485,6 +4485,34 @@ const fmtUSD2 = (v) => "$" + new Intl.NumberFormat("es-CL",{minimumFractionDigit
 const fmtN0   = (v) => new Intl.NumberFormat("es-CL",{maximumFractionDigits:0}).format(Number(v)||0);
 
 // ═══════════════════════════════════════════════════════════════════
+// REPORTERÍA BI — punto de entrada analítico único. Consolida lo que antes
+// estaba disperso en Dashboard + Reportes + Tablero BI, como hojas internas:
+//   Resumen Ejecutivo (motor BI) | Reportes | Tablero BI (explorador).
+// Un solo submódulo analítico en vez de varias pestañas principales.
+// ═══════════════════════════════════════════════════════════════════
+function ReporteriaBI({ data, permResumen, permReportes, permTablero }) {
+  const hojas = [
+    (permResumen?.visible!==false) && { id:"exec",     lab:"📈 Resumen Ejecutivo" },
+    (permReportes?.visible!==false) && { id:"reportes", lab:"📊 Reportes" },
+    (permTablero?.visible!==false)  && { id:"tablero",  lab:"🧭 Explorador (Tablero BI)" },
+  ].filter(Boolean);
+  const [hoja, setHoja] = useState(hojas[0]?.id || "exec");
+  return (
+    <div>
+      <div style={{display:"flex", gap:6, marginBottom:14, flexWrap:"wrap", borderBottom:`1px solid ${C.border}`, paddingBottom:10}}>
+        {hojas.map(h=>(
+          <button key={h.id} onClick={()=>setHoja(h.id)}
+            style={{...btnSt(hoja===h.id?C.blue:C.muted, hoja!==h.id), fontSize:12, padding:"7px 14px"}}>{h.lab}</button>
+        ))}
+      </div>
+      {hoja==="exec"     && <ResumenEjecutivo/>}
+      {hoja==="reportes" && <ReportesTab {...data}/>}
+      {hoja==="tablero"  && <TableroAsociativo {...data}/>}
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════
 // EXPLORADOR BI (estilo Qlik) — self-service sobre TODA la data de Frisku.
 // El usuario elige: (1) qué FUENTE de datos explorar (liquidaciones,
 // embarques, programa, cobranza), (2) qué MEDIR, (3) cómo AGRUPAR (una o
@@ -6926,7 +6954,7 @@ export default function FriskuComercialModule({
   useEffect(()=>{
     if (cargando) return;
     // "maestros" cubre lo que antes eran sub-tabs separados (clientes/exportadoras)
-    if (tab === "maestros" || tab === "contratos" || tab === "embarques" || tab === "liquidaciones" || tab === "reportes" || tab === "tablero") {
+    if (tab === "maestros" || tab === "contratos" || tab === "embarques" || tab === "liquidaciones" || tab === "bi") {
       recargarMaestros();
     }
   },[tab, cargando, recargarMaestros]);
@@ -7025,6 +7053,7 @@ export default function FriskuComercialModule({
   const permResumen       = permTab("resumen");
   const permReportes      = permTab("reportes");
   const permTablero       = permTab("tablero");
+  const permReporteria    = permTab("bi");     // Reportería BI (consolida Dashboard+Reportes+Tablero)
   const permMaestros      = permTab("maestros");
 
   // ── Filtrado de exportadoras ──
@@ -7483,16 +7512,17 @@ export default function FriskuComercialModule({
     </div>
   );
 
+  // Reportería BI consolida Dashboard + Reportes + Tablero BI (hojas internas).
+  // Visible si el usuario tiene acceso a cualquiera de esas capacidades.
+  const permReporteriaVis = { visible: permReporteria.visible || permReportes.visible || permTablero.visible || permResumen.visible };
   const tabsAll = [
-    {id:"resumen",       label:"🎯 Resumen",       count:null,                              perm:permResumen},
-    {id:"dashboard",     label:"📊 Dashboard",     count:null,                              perm:permDashboard},
+    {id:"resumen",       label:"🏠 Resumen",        count:null,                              perm:permResumen},
     {id:"documentos",    label:"📁 Documentos",    count:clientesConDocsFaltantes||null,    perm:permDocumentos},
     {id:"contratos",     label:"📄 Contratos",     count:totalClosuresActivos||null,        perm:permContratos},
     {id:"programa",      label:"📅 Programa",      count:programa.length||null,             perm:permPrograma},
     {id:"embarques",     label:"🚢 Embarques",     count:embarques.length||null,            perm:permEmbarques},
     {id:"liquidaciones", label:"💰 Liquidaciones", count:liquidaciones.length||null,        perm:permLiquidaciones},
-    {id:"reportes",      label:"📈 Reportes",      count:null,                              perm:permReportes},
-    {id:"tablero",       label:"🧭 Tablero BI",    count:null,                              perm:permTablero},
+    {id:"bi",            label:"📊 Reportería BI", count:null,                              perm:permReporteriaVis},
     {id:"maestros",      label:"🗂️ Maestros + TC", count:null,                              perm:permMaestros},
   ];
   const tabs = tabsAll.filter(t => t.perm.visible);
@@ -7528,7 +7558,7 @@ export default function FriskuComercialModule({
     <div style={{background:C.bg, minHeight:"100vh", color:C.text}}>
       {/* Header */}
       <div style={{padding:"14px 20px", borderBottom:"1px solid rgba(255,255,255,0.10)", display:"flex", alignItems:"center", justifyContent:"space-between", flexWrap:"wrap", gap:10, background:"#1E2761", boxShadow:"0 4px 16px rgba(16,24,40,0.20)"}}>
-        <div onClick={()=>setTab("dashboard")} title="Ir al menú principal de Frisku"
+        <div onClick={()=>setTab("resumen")} title="Ir al inicio de Frisku"
           style={{display:"flex", alignItems:"center", gap:14, cursor:"pointer"}}>
           <img
             src={`${process.env.PUBLIC_URL}/frisku.png`}
@@ -7544,8 +7574,8 @@ export default function FriskuComercialModule({
           {Object.values(guardando).some(Boolean)
             ? <span style={{color:"#fde68a"}}>💾 Guardando...</span>
             : <span style={{color:"#6ee7b7"}}>● Sincronizado</span>}
-          {tab!=="dashboard" && (
-            <button onClick={()=>setTab("dashboard")} style={{background:"rgba(255,255,255,0.10)",border:"1px solid rgba(255,255,255,0.22)",color:"#fff",borderRadius:8,padding:"7px 14px",cursor:"pointer",fontSize:12,fontWeight:600}}>🏠 Menú Frisku</button>
+          {tab!=="resumen" && (
+            <button onClick={()=>setTab("resumen")} style={{background:"rgba(255,255,255,0.10)",border:"1px solid rgba(255,255,255,0.22)",color:"#fff",borderRadius:8,padding:"7px 14px",cursor:"pointer",fontSize:12,fontWeight:600}}>🏠 Inicio Frisku</button>
           )}
           {onBack && <button onClick={onBack} style={{background:"rgba(255,255,255,0.10)",border:"1px solid rgba(255,255,255,0.22)",color:"#fff",borderRadius:8,padding:"7px 14px",cursor:"pointer",fontSize:12,fontWeight:600}}>← Mediterra</button>}
         </div>
@@ -7580,63 +7610,68 @@ export default function FriskuComercialModule({
       {/* Contenido */}
       <div style={{padding: tab==="maestros" ? 0 : 20}}>
 
-        {tab === "resumen" && (
-          <ResumenEjecutivo />
-        )}
+        {tab === "resumen" && (()=>{
+          // HOME OPERACIONAL — "qué necesita mi atención". El análisis del negocio
+          // vive en 📊 Reportería BI (no se duplica aquí).
+          const hoyStr = new Date().toISOString().slice(0,10);
+          const proximos = embarques
+            .filter(e=>(e.estado||"borrador")!=="cancelado" && (e.fechaDespacho||"")>=hoyStr)
+            .sort((a,b)=>(a.fechaDespacho||"").localeCompare(b.fechaDespacho||"")).slice(0,6);
+          const liqPend = liquidaciones.filter(l=>(l.estado||"borrador")!=="pagada").length;
+          const alerta = (icon,titulo,detalle,valor,color,onClick)=>(
+            <div onClick={onClick} style={{display:"flex",alignItems:"center",gap:12,padding:"12px 14px",background:C.card,border:`1px solid ${C.border}`,borderRadius:12,cursor:onClick?"pointer":"default",boxShadow:C.shadowSm}}>
+              <div style={{fontSize:22}}>{icon}</div>
+              <div style={{flex:1,minWidth:0}}><div style={{fontSize:12,fontWeight:700,color:C.text}}>{titulo}</div><div style={{fontSize:11,color:C.muted}}>{detalle}</div></div>
+              <div style={{fontSize:24,fontWeight:800,color}}>{valor}</div>
+            </div>
+          );
+          return (
+            <div>
+              <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(150px,1fr))",gap:12,marginBottom:18}}>
+                <Card title="Clientes activos" icon="👥"><div style={{fontSize:30,fontWeight:800,color:C.green}}>{totalClientesActivos}</div><div style={{color:C.muted,fontSize:11}}>de {clientes.length} totales</div></Card>
+                <Card title="Exportadoras" icon="🏭"><div style={{fontSize:30,fontWeight:800,color:C.blue}}>{totalExportadorasActivas}</div><div style={{color:C.muted,fontSize:11}}>de {exportadoras.length} totales</div></Card>
+                <Card title="Embarques activos" icon="🚢"><div style={{fontSize:30,fontWeight:800,color:C.teal}}>{embarques.filter(e=>(e.estado||"borrador")!=="cancelado").length}</div><div style={{color:C.muted,fontSize:11}}>{embarques.filter(e=>e.estado==="confirmado"||e.estado==="despachado").length} conf./desp.</div></Card>
+                <Card title="Especies" icon="🍒"><div style={{fontSize:30,fontWeight:800,color:C.yellow}}>{especies.length}</div><div style={{color:C.muted,fontSize:11}}>en maestro</div></Card>
+              </div>
 
-        {tab === "dashboard" && (
-          <div style={{display:"grid", gridTemplateColumns:"repeat(auto-fit, minmax(220px, 1fr))", gap:14}}>
-            <Card title="Importar datos" icon="📥">
-              <div style={{color:C.muted, fontSize:11, lineHeight:1.6, marginBottom:12}}>
-                Carga masiva de Clientes, Exportadoras, Notify y Consignatarios desde
-                un archivo Excel. Merge no destructivo.
+              <div style={{fontSize:13,fontWeight:700,margin:"4px 0 10px"}}>Qué necesita tu atención</div>
+              <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(270px,1fr))",gap:10,marginBottom:20}}>
+                {alerta("📁","Clientes sin documentos obligatorios","Ir a Documentos →",clientesConDocsFaltantes,clientesConDocsFaltantes>0?C.accent:C.green,()=>setTab("documentos"))}
+                {alerta("⚠","Embarques con docs COMEX incompletos","Ver pendientes →",embarquesDocsIncompletos,embarquesDocsIncompletos>0?C.warning:C.green,()=>{ setSoloDocsIncompletos(true); setTab("embarques"); })}
+                {alerta("💰","Liquidaciones no pagadas","Ir a Liquidaciones →",liqPend,liqPend>0?C.blue:C.green,()=>setTab("liquidaciones"))}
               </div>
-              {canEditGlobal ? (
-                <button onClick={()=>setImportando(true)} style={{...btnSt(C.blue), padding:"8px 14px", fontSize:12}}>
-                  📥 Importar Excel
-                </button>
-              ) : (
-                <div style={{fontSize:11, color:C.muted2}}>Sin permisos de edición</div>
-              )}
-            </Card>
-            <Card title="Clientes" icon="👥">
-              <div style={{fontSize:32, fontWeight:800, color:C.green}}>{totalClientesActivos}</div>
-              <div style={{color:C.muted, fontSize:11}}>activos de {clientes.length} totales</div>
-            </Card>
-            <Card title="Exportadoras" icon="🏭">
-              <div style={{fontSize:32, fontWeight:800, color:C.blue}}>{totalExportadorasActivas}</div>
-              <div style={{color:C.muted, fontSize:11}}>activas de {exportadoras.length} totales</div>
-            </Card>
-            <Card title="Embarques" icon="🚢">
-              <div style={{fontSize:32, fontWeight:800, color:C.teal}}>{embarques.filter(e=>(e.estado||"borrador")!=="cancelado").length}</div>
-              <div style={{color:C.muted, fontSize:11}}>{embarques.filter(e=>e.estado==="confirmado"||e.estado==="despachado").length} confirmados/despachados</div>
-            </Card>
-            <Card title="Especies cargadas" icon="🍒">
-              <div style={{fontSize:32, fontWeight:800, color:C.yellow}}>{especies.length}</div>
-              <div style={{color:C.muted, fontSize:11}}>en maestro</div>
-            </Card>
-            <Card title="Documentos faltantes" icon="📁">
-              <div style={{fontSize:32, fontWeight:800, color: clientesConDocsFaltantes > 0 ? C.accent : C.green}}>
-                {clientesConDocsFaltantes}
+
+              <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",margin:"4px 0 10px"}}>
+                <span style={{fontSize:13,fontWeight:700}}>Próximos embarques (ETD)</span>
+                <button onClick={()=>setTab("embarques")} style={{...btnSt(C.muted,true),fontSize:11,padding:"4px 10px"}}>Ver todos →</button>
               </div>
-              <div style={{color:C.muted, fontSize:11}}>
-                cliente{clientesConDocsFaltantes!==1?"s":""} sin docs obligatorios
+              <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,overflowX:"auto",marginBottom:18}}>
+                <table style={{width:"100%",borderCollapse:"collapse",fontSize:11.5,minWidth:560}}>
+                  <thead><tr style={{background:C.card2,color:C.muted,textAlign:"left"}}>
+                    <th style={{padding:"8px 10px"}}>ETD</th><th style={{padding:"8px 10px"}}>N° OE</th><th style={{padding:"8px 10px"}}>Especie</th><th style={{padding:"8px 10px"}}>Exportador → Cliente</th><th style={{padding:"8px 10px"}}>Estado</th><th style={{padding:"8px 10px",textAlign:"center"}}>Docs</th>
+                  </tr></thead>
+                  <tbody>
+                    {proximos.length===0 ? <tr><td colSpan={6} style={{padding:20,textAlign:"center",color:C.muted2}}>Sin embarques con ETD futura.</td></tr> :
+                      proximos.map(oe=>{ const esp=especies.find(e=>e.codigo===oe.especieCodigo); const cx=comexEstado(oe);
+                        return <tr key={oe.id} onClick={()=>setTab("embarques")} style={{cursor:"pointer",borderTop:`1px solid ${C.border}`}}>
+                          <td style={{padding:"7px 10px",whiteSpace:"nowrap"}}>{oe.fechaDespacho||"—"}</td>
+                          <td style={{padding:"7px 10px",fontFamily:"monospace",color:C.blue}}>{oe.numero||"—"}</td>
+                          <td style={{padding:"7px 10px",whiteSpace:"nowrap"}}>{esp?`${esp.icono||""} ${esp.nombreEs}`:(oe.especieCodigo||"—")}</td>
+                          <td style={{padding:"7px 10px"}}>{(exportadoras.find(x=>x.id===oe.exportadoraId)?.nombre||"—")} → {(clientes.find(c=>c.id===oe.clienteId)?.nombre||"—")}</td>
+                          <td style={{padding:"7px 10px"}}>{oe.estado||"borrador"}</td>
+                          <td style={{padding:"7px 10px",textAlign:"center"}}><span style={{fontSize:9,padding:"2px 7px",borderRadius:10,fontWeight:700,background:`${cx.completo?C.green:C.warning}22`,color:cx.completo?C.green:C.warning,border:`1px solid ${cx.completo?C.green:C.warning}55`}}>{cx.ok}/{cx.total}</span></td>
+                        </tr>; })}
+                  </tbody>
+                </table>
               </div>
-            </Card>
-            <Card title="Plan Frisku" icon="🗺️">
-              <div style={{fontSize:11, color:C.text, lineHeight:1.6}}>
-                <div>✅ Fase 1 — Maestros</div>
-                <div>✅ Fase 2 — Clientes + TC</div>
-                <div>✅ Fase 3 — Documentos</div>
-                <div>✅ Fase 4 — Embarques + PL</div>
-                <div>✅ Fase 5 — COMEX</div>
-                <div>✅ Fase 6 — Liquidaciones</div>
-                <div style={{color:C.muted}}>⏳ Fase 7 — Carga histórica</div>
-                <div style={{color:C.muted}}>⏳ Fase 8 — Dashboards CFO</div>
+
+              <div style={{display:"flex",gap:10,alignItems:"center",flexWrap:"wrap"}}>
+                {canEditGlobal && <button onClick={()=>setImportando(true)} style={{...btnSt(C.blue),padding:"8px 14px",fontSize:12}}>📥 Importar Excel (Clientes/Exportadoras)</button>}
+                <span style={{fontSize:11,color:C.muted2}}>Resumen = qué necesita tu atención. El análisis del negocio (KPIs, gráficos, exploración) está en <b>📊 Reportería BI</b>.</span>
               </div>
-            </Card>
-          </div>
-        )}
+            </div>
+          );
+        })()}
 
         {tab === "documentos" && (
           <DocumentosTab
@@ -8126,33 +8161,10 @@ export default function FriskuComercialModule({
           </div>
         )}
 
-        {tab === "reportes" && (
-          <ReportesTab
-            liquidaciones={liquidaciones}
-            embarques={embarques}
-            clientes={clientes}
-            exportadoras={exportadoras}
-            especies={especies}
-            mercados={mercados}
-            paises={paises}
-            temporadas={temporadas}
-            programa={programa}
-            contratos={contratos}
-            pos={pos}
-          />
-        )}
-
-        {tab === "tablero" && (
-          <TableroAsociativo
-            liquidaciones={liquidaciones}
-            embarques={embarques}
-            clientes={clientes}
-            exportadoras={exportadoras}
-            especies={especies}
-            mercados={mercados}
-            programa={programa}
-            contratos={contratos}
-            pos={pos}
+        {tab === "bi" && (
+          <ReporteriaBI
+            data={{ liquidaciones, embarques, clientes, exportadoras, especies, mercados, paises, temporadas, programa, contratos, pos }}
+            permResumen={permResumen} permReportes={permReportes} permTablero={permTablero}
           />
         )}
 
