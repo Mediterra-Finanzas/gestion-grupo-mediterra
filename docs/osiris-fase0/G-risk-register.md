@@ -1,0 +1,24 @@
+# G. Risk Register — Osiris (Fase 0)
+
+Riesgos detectados antes de iniciar Fase 1. Prioridad: **CRÍTICA / ALTA / MEDIA / BAJA**. Ninguno se corrige en Fase 0 (solo se documenta y, cuando aplica, se congela con test).
+
+| ID | Riesgo | Sev | Evidencia | Mitigación futura |
+|---|---|---|---|---|
+| R1 | **Persistencia monolítica + anon key sin RLS.** Todo Osiris en una fila JSON accedida con anon key pública (en el bundle). Lectura/escritura sin control de acceso a nivel fila. | CRÍTICA | `dbLoad/dbSaveOsiris` L12-56; key L10/L4655; `AUDITORIA_SEGURIDAD_2026-06.md` | Fase 6: RLS + auth (scaffold `REACT_APP_AUTH_DUAL` inactivo). Plan 2 fases para no repetir lockout previo. Ver `security-assessment.md`. |
+| R2 | **Punto único de falla en el auto-save.** Debounce 2s sobre 221 KB; el gate anti-pérdida solo bloquea si ≥3 arrays colapsan a la vez; corrupción de 1-2 arrays pasa. | CRÍTICA | `dbSaveOsiris` L30-44; regla 9 CLAUDE.md | Snapshots por fase + migración a filas/tablas separadas (Fase 1). Backup diario genérico cubre la fila. |
+| R3 | **Doble fuente de verdad 70/30.** IQ hardcodeado (`PCT_IQ=0.70`,`PCT_WHT=0.10`) vs `participacionIngresos` data-driven. Riesgo de calcular distinto la obligación al genetista según pantalla. | CRÍTICA | L3438-3439 vs `calcularDeudaObtentor` L2972 | Fase 3: unificar en regla parametrizable; deprecar hardcode tras congelar (ya congelado en tests). |
+| R4 | **No hay devengo.** Solo `nFact`/`pagado`. Imposible reportar devengo vs facturación vs cobranza, ni obligación devengada con genetista. | CRÍTICA | Grep `devengad` = 0 ocurrencias | Fase 3: estado-máquina de ingresos y de obligación genetista. |
+| R5 | **Regla de participación del obtentor scopeada por especie NUNCA matchea.** Compara contra `ct.especie` (inexistente en contratos). Solo reglas comodín funcionan. Explica por qué solo hay 3 reglas en producción. | ALTA | `calcularDeudaObtentor` L2977-2978, 3011; test "HALLAZGO CONGELADO" | Fase 3: match contra especie del ingreso/plantación. Congelado por test. |
+| R6 | **Migración relacional por strings.** variedad↔especie↔obtentor enlazan por nombre normalizado, no por id. Un cambio de nombre rompe enlaces silenciosamente. | ALTA | `relationships-map.md` | Fase 1: mapear nombres → FK una sola vez, con validación. |
+| R7 | **Overrides derivados frágiles.** Filas manuales conviven con derivadas por id (`_fromContract`). Cambiar la derivación puede "desaparecer" overrides (bug histórico en Total Pedidos). | ALTA | merge maps L10287-10374; memoria osiris | Fase 3: tests de merge (parcialmente cubiertos por invariantes de unicidad de id). |
+| R8 | **Fee Entrada imputable a RP no modelado.** Riesgo de doble cobro / doble participación genetista cuando se implemente sin cuidado. | ALTA | §12-13 brief; sin campos de imputación | Fase 3: modelo RP bruto/Fee/imputado/saldo + tests anti-doble-70%. |
+| R9 | **Operación Técnica sin uso (0 registros)** pese a estar construida; Test Blocks y Medidas Correctivas anunciados pero no son entidades (constantes muertas). | ALTA | `visits-module-assessment.md`; opTecnica vacío | Fase 4: rediseño Informes de Visitas + adopción. |
+| R10 | **Sin biblioteca documental.** Legales/contratos son URLs de texto; `ensureBucket()` es no-op; solo fotos + HTML de informe en `osiris-fotos`. | ALTA | `uploadFoto` L4665; `doc_legal`/`doc_contrato` inputs | Fase 4: bucket privado + URLs firmadas (patrón Expediente Nóminas). |
+| R11 | **`temporadaDeFecha` sensible a timezone** en bordes de mes (medianoche UTC → día anterior en TZ Chile). Puede clasificar mal la temporada de un despacho. | MEDIA | test "mes central"; probe 2026-07-01→2025/2026 | Fase 3: parseo local sin hora. Congelado (asserts a mitad de mes). |
+| R12 | **Inconsistencia WHT en Contract Fee.** La derivación aplica `pct(pais)` a `montoNeto`, pero `DashboardAnalitico` lo trata como "100% sin WHT". | MEDIA | derivCF L6644 vs Dashboard `cfNeto=ΣmontoUSD` | Fase 3/5: regla única de neto CF. |
+| R13 | **Relaciones/estados por string libre** y código muerto (`ESTADOS_MEDIDA`, `ESTADOS_TEST_BLOCK`, `royaltiesObtentor`, `TIPOS_ROYALTY_OBTENTOR`, tipo visita "Test Block" inalcanzable). | MEDIA/BAJA | grep sin referencias | Fase 4: limpieza controlada (NO en Fase 0). |
+| R14 | **Archivo monolítico de 14.4k líneas, sin tests previos del motor.** Difícil de evolucionar. | MEDIA | 1 archivo | Fase 1+: extracción incremental de `economic-engine/` (propuesta, no ejecutada). |
+| R15 | **`temporadaActual()` depende de la fecha de ejecución** → RC legacy sin `rcInicioTemporada` varía según cuándo se abre la app. | BAJA | L4609; usado como fallback | Fase 3: fijar inicio por contrato. |
+
+## Bugs críticos con riesgo inmediato de pérdida de data
+Ninguno detectado que requiera corrección inmediata en Fase 0. R1/R2 son de seguridad/robustez estructural, mitigables por snapshot + fases controladas, no por un fix urgente. Ningún test ni acción de Fase 0 escribe en producción.

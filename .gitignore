@@ -43,3 +43,6 @@ gen_*.py
 manual_preview-*.png
 audit/gen_*.py
 
+
+# Osiris Fase 0 — full data snapshots (confidential business data; keep local, not committed)
+docs/osiris-fase0/snapshots/osiris-snapshot-*.json

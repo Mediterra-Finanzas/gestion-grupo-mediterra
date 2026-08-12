@@ -1,0 +1,49 @@
+{
+  "label": "after",
+  "generatedAt": "2026-08-12T14:15:50.226Z",
+  "supabaseUpdatedAt": "2026-06-23T14:07:29.145+00:00",
+  "repoCommit": "bf84d1f5a83e60b07054a0a021a6706d2902f257",
+  "bytes": 225807,
+  "sizeKB": 221,
+  "sha256": "2e8218b5aba12f9a56f1d4f0ca19d7abc3f3c739d1be89e3e2c8c3d086dcd4c2",
+  "topLevelCounts": {
+    "clientes": 25,
+    "contratos": 23,
+    "especies": 6,
+    "feeEntrada": 1,
+    "feeViveros": 0,
+    "hubCardsOrder": 6,
+    "obtentores": 5,
+    "opTecnica": "object(2)",
+    "royaltyComercial": 1,
+    "royaltyPlanta": 3,
+    "tiposAnexo": 8,
+    "totalPedidos": 2,
+    "variedades": 26,
+    "viveristas": 0,
+    "viveros": 2
+  },
+  "nestedCounts": {
+    "plantaciones": 142,
+    "oc_cliente": 2,
+    "facturasRP_contrato": 0,
+    "facturasRP_contrato_top": 0,
+    "rpPlantaCuotas": 47,
+    "rcCohortes": 2,
+    "sublicenciatarios": 1,
+    "obt_especies": 26,
+    "obt_pbr": 37,
+    "obt_anexos": 2,
+    "obt_participacionIngresos": 3,
+    "obt_dhe": 25,
+    "viv_variedades": 32,
+    "viv_oc": 71,
+    "viv_despachos": 66,
+    "viv_cuotas": 0,
+    "viv_anexos": 3
+  },
+  "opTecnicaCounts": {
+    "visitas": 0,
+    "informes": 0
+  }
+}

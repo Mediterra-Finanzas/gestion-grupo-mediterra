@@ -2392,6 +2392,56 @@ function ProgramaPerspectiva({ perspectiva, closures, semanasPorClosure, exporta
   );
 }
 
+// PROGRAMA — perspectiva por SEMANA (agrupa las semanas de todos los closures
+// filtrados por su semana ETD). Resumen operacional por semana → expandir a las
+// relaciones (exportador→cliente·especie·closure) de esa semana.
+function ProgramaPorSemana({ closures, semanasPorClosure, exportadoras, clientes, especies }) {
+  const [exp, setExp] = useState(()=>new Set());
+  const espLab=(c)=>{ const e=especies.find(x=>x.codigo===c); return e?`${e.icono||""} ${e.nombreEs}`.trim():(c||"—"); };
+  const cliName=(id)=>clientes.find(c=>c.id===id)?.nombre||"—";
+  const expName=(id)=>exportadoras.find(e=>e.id===id)?.nombre||"—";
+  const sumObj=(o)=>Object.values(o||{}).reduce((s,v)=>s+Number(v||0),0);
+  const semanas = useMemo(()=>{
+    const wk={};
+    closures.forEach(bc=>{ (semanasPorClosure[bc.id]||[]).forEach(s=>{ const k=s.fechaSemana||"—"; (wk[k]=wk[k]||{key:k,items:[]}).items.push({s,bc}); }); });
+    return Object.values(wk).map(w=>{ let cajas=0,fcl=0,pal=0; const clis=new Set(),exps=new Set(),esps=new Set();
+      w.items.forEach(({s,bc})=>{ cajas+=sumObj(s.cajasPorFormato); fcl+=Number(s.contenedoresFCL)||0; pal+=Number(s.pallets)||0; if(bc.clienteId)clis.add(bc.clienteId); if(bc.exportadoraId)exps.add(bc.exportadoraId); if(bc.especieCodigo)esps.add(bc.especieCodigo); });
+      return {...w, cajas, fcl, pal, clis:clis.size, exps:exps.size, esps:esps.size}; })
+      .sort((a,b)=>String(a.key).localeCompare(String(b.key)));
+  },[closures, semanasPorClosure]);
+  const t=(k)=>setExp(p=>{const n=new Set(p);n.has(k)?n.delete(k):n.add(k);return n;});
+  return (
+    <div>
+      <div style={{display:"flex",gap:8,marginBottom:10}}>
+        <button onClick={()=>setExp(new Set(semanas.map(w=>w.key)))} style={{...btnSt(C.muted,true),fontSize:11}}>Expandir todo</button>
+        <button onClick={()=>setExp(new Set())} style={{...btnSt(C.muted,true),fontSize:11}}>Contraer todo</button>
+      </div>
+      {semanas.length===0 && <div style={{padding:40,textAlign:"center",color:C.muted,fontSize:13}}>Sin semanas de programa para estos filtros.</div>}
+      {semanas.map(w=>{ const o=exp.has(w.key); return (
+        <div key={w.key} style={{background:C.card2,border:`1px solid ${C.border}`,borderRadius:10,marginBottom:8,overflow:"hidden"}}>
+          <div onClick={()=>t(w.key)} style={{padding:"10px 14px",cursor:"pointer",display:"flex",alignItems:"center",gap:12,flexWrap:"wrap",background:o?`${C.blue}0a`:"transparent"}}>
+            <span style={{color:C.muted}}>{o?"▾":"▸"}</span>
+            <span style={{fontSize:13,fontWeight:700,flex:1,minWidth:120}}>Semana {w.key}</span>
+            <span style={{fontSize:11,color:C.muted}}>{w.exps} exp · {w.clis} cli · {w.esps} esp</span>
+            <span style={{fontSize:11,fontFamily:"monospace"}}><b style={{color:C.teal}}>{w.fcl}</b> FCL{w.pal?` · ${w.pal} pal`:""} · <b>{w.cajas.toLocaleString("es-CL")}</b> cjs</span>
+          </div>
+          {o && (
+            <div style={{padding:"0 14px 12px"}}>
+              {w.items.slice().sort((a,b)=>expName(a.bc.exportadoraId).localeCompare(expName(b.bc.exportadoraId))).map(({s,bc},i)=>{
+                const tot=sumObj(s.cajasPorFormato); const aereo=(s.tipoEmbarque||"maritimo")==="aereo";
+                return <div key={s.id||i} style={{display:"flex",gap:10,alignItems:"center",flexWrap:"wrap",padding:"6px 4px",borderTop:`1px solid ${C.border}`,fontSize:11.5}}>
+                  <span style={{flex:1,minWidth:180}}>{expName(bc.exportadoraId)} → {cliName(bc.clienteId)} <span style={{color:C.muted2}}>· {espLab(bc.especieCodigo)}</span></span>
+                  <span style={{fontFamily:"monospace",color:C.muted}}>{tot.toLocaleString("es-CL")} cjs · {aereo?`${Number(s.pallets)||0} pal`:`${Number(s.contenedoresFCL)||0} FCL`} · {aereo?"✈":"🚢"} · {s.estado||"borrador"}</span>
+                </div>;
+              })}
+            </div>
+          )}
+        </div>
+      ); })}
+    </div>
+  );
+}
+
 function ClosureProgramaPanel({closure, semanas, tiposEmbalaje, exportadoras, clientes, especies,
   canEdit, editandoSemana, closureIdParaSemana,
   onAgregarSemana, onEditarSemana, onEliminarSemana, onGuardarSemana, onCancelarSemana
@@ -8461,7 +8511,7 @@ export default function FriskuComercialModule({
             {/* Perspectiva (misma data, distinta agrupación) */}
             <div style={{display:"flex", gap:6, marginBottom:12, flexWrap:"wrap", alignItems:"center"}}>
               <span style={{fontSize:10, fontWeight:700, color:C.muted, textTransform:"uppercase", marginRight:2}}>Ver por</span>
-              {[{k:"closure",l:"📄 Business Closure"},{k:"especie",l:"🍒 Especie"},{k:"cliente",l:"👥 Cliente"},{k:"exportador",l:"🏭 Exportador"}].map(p=>(
+              {[{k:"closure",l:"📄 Business Closure"},{k:"especie",l:"🍒 Especie"},{k:"cliente",l:"👥 Cliente"},{k:"exportador",l:"🏭 Exportador"},{k:"semana",l:"📅 Semana"}].map(p=>(
                 <button key={p.k} onClick={()=>setPerspProg(p.k)}
                   style={{fontSize:11,fontWeight:700,padding:"6px 11px",borderRadius:7,cursor:"pointer",border:`1px solid ${perspProg===p.k?C.blue:C.border}`,background:perspProg===p.k?C.blue:C.card,color:perspProg===p.k?"#fff":C.muted}}>{p.l}</button>
               ))}
@@ -8497,8 +8547,14 @@ export default function FriskuComercialModule({
               </span>
             </div>
 
+            {/* Perspectiva por Semana */}
+            {perspProg==="semana" && (
+              <ProgramaPorSemana closures={closuresParaPrograma} semanasPorClosure={semanasPorClosure}
+                exportadoras={exportadoras} clientes={clientes} especies={especies}/>
+            )}
+
             {/* Perspectivas agrupadas (Especie / Cliente / Exportador) — misma data */}
-            {perspProg!=="closure" && (
+            {(perspProg==="especie"||perspProg==="cliente"||perspProg==="exportador") && (
               <ProgramaPerspectiva perspectiva={perspProg} closures={closuresParaPrograma}
                 semanasPorClosure={semanasPorClosure} exportadoras={exportadoras} clientes={clientes} especies={especies}/>
             )}

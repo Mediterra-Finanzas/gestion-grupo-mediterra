@@ -14422,3 +14422,16 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
     </div>
   );
 }
+
+// ── Fase 0 (baseline) — named exports para tests de regresión ──────────────
+// Adición NO funcional: expone funciones puras YA existentes para congelar su
+// comportamiento con tests de caracterización. No altera el export default, la
+// persistencia ni la lógica económica. Ver docs/osiris-fase0/. Reversible.
+export {
+  pct, whtLabel, fechaInicioTrim, fechaAvisoTrim, resolveEstadoCF, calcCobros,
+  ingresoMatchRegla, calcMontoObtentor, calcularDeudaObtentor,
+  temporadaActual, temporadaDeFecha, temporadasEntre, ocLigadaAContrato,
+  derivarContractFeeDesdeContratos, derivarRoyaltyPlantaDesdeContratos,
+  derivarRoyaltyComercialDesdeContratos, derivarTotalPedidosDesdeContratos,
+  RC_MES_DEFAULT_POR_PAIS, RP_CUOTAS_DEFAULT, ESTADOS_CF,
+};
