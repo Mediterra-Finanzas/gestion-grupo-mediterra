@@ -166,7 +166,10 @@ export const fmtMetric = (fmt, v)=>{
 // Una fila cumple si respeta la selección de todas las dims (excepto la indicada,
 // para calcular los valores "posibles" de esa dim → estado asociativo Qlik).
 export function matchFacts(row, sel, exceptKey){
-  for(const k in sel){ if(k===exceptKey) continue; const s=sel[k]; if(!s||!s.size) continue; if(!s.has(row[k])) return false; }
+  // Tolerante: una dimensión seleccionada en OTRA superficie BI (que no existe en
+  // estas filas) NO filtra aquí — solo se aplican las dims presentes en la fila.
+  // Así un solo estado de selección sirve a hojas con hechos de distinta forma.
+  for(const k in sel){ if(k===exceptKey) continue; const s=sel[k]; if(!s||!s.size) continue; if(!(k in row)) continue; if(!s.has(row[k])) return false; }
   return true;
 }
 // Valores posibles de una dimensión dada la selección actual (asociativo), con su

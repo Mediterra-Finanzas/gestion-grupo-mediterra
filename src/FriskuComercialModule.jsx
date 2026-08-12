@@ -5000,7 +5000,8 @@ function TableroAsociativo({ liquidaciones, embarques, clientes, exportadoras, e
   const [dim1, setDim1] = useState("");
   const [dim2, setDim2] = useState("");
   const [chart, setChart] = useState("barras");   // barras | tabla | torta | tendencia
-  const [sel, setSel] = useState({});             // {dimKey: Set(valores)}
+  const biCtx = useFriskuBI();                    // selección BI COMPARTIDA (un solo motor: Resumen/Reportes/Explorador)
+  const sel = biCtx.sel;                          // {dimKey: Set(valores)}
   const [topN, setTopN] = useState(12);
 
   // Lookups compartidos
@@ -5148,7 +5149,7 @@ function TableroAsociativo({ liquidaciones, embarques, clientes, exportadoras, e
     if(!mOk) setMeasureId(measures[0].key);
     if(!dims.some(d=>d.key===dim1)) setDim1(dims[0].key);
     if(dim2 && !dims.some(d=>d.key===dim2)) setDim2("");
-    setSel({});
+    // No se limpia la selección al cambiar de fuente: es compartida y global (Qlik).
   // eslint-disable-next-line
   },[fuenteId]);
 
@@ -5158,10 +5159,10 @@ function TableroAsociativo({ liquidaciones, embarques, clientes, exportadoras, e
   const d2 = dim2 ? dims.find(d=>d.key===dim2) : null;
   const labField = (dk)=> dk+"Lab";
 
-  // ── Filtros asociativos ──
-  const toggle = (dk, val)=> setSel(prev=>{ const s=new Set(prev[dk]||[]); if(s.has(val)) s.delete(val); else s.add(val); const n={...prev}; if(s.size) n[dk]=s; else delete n[dk]; return n; });
-  const quitar = (dk, val)=> setSel(prev=>{ const s=new Set(prev[dk]||[]); s.delete(val); const n={...prev}; if(s.size) n[dk]=s; else delete n[dk]; return n; });
-  const limpiar = ()=> setSel({});
+  // ── Filtros asociativos (motor compartido del provider) ──
+  const toggle = biCtx.toggle;
+  const quitar = biCtx.remove;
+  const limpiar = biCtx.clearAll;
   const matchRow = (row, except)=> dims.every(d=>{ if(d.key===except) return true; const s=sel[d.key]; if(!s||!s.size) return true; return s.has(row[d.key]); });
   const labelOf = (dk, v)=>{ const h=fuente.rows.find(r=>r[dk]===v); return h? h[labField(dk)] : v; };
 
@@ -5454,7 +5455,7 @@ function TableroAsociativo({ liquidaciones, embarques, clientes, exportadoras, e
       <div style={{border:`1px solid ${C.border}`, borderRadius:10, background:C.card, marginBottom:8, boxShadow:C.shadowSm}}>
         <div style={{display:"flex", justifyContent:"space-between", alignItems:"center", padding:"6px 9px", borderBottom:`1px solid ${C.border}`}}>
           <span style={{fontSize:11.5, fontWeight:700}}>{d.lab}{selSet.size>0 && <span style={{color:C.accent2}}> · {selSet.size}</span>}</span>
-          {selSet.size>0 && <span onClick={()=>setSel(p=>{const n={...p}; delete n[d.key]; return n;})} title="Quitar selección" style={{fontSize:10, color:C.accent, cursor:"pointer", fontWeight:700}}>✕</span>}
+          {selSet.size>0 && <span onClick={()=>biCtx.clearDim(d.key)} title="Quitar selección" style={{fontSize:10, color:C.accent, cursor:"pointer", fontWeight:700}}>✕</span>}
         </div>
         <div style={{padding:"6px 7px 4px"}}>
           <input value={q} onChange={e=>setQ(e.target.value)} placeholder="Buscar…" style={{...inputSt, width:"100%", padding:"3px 7px", fontSize:11}}/>
