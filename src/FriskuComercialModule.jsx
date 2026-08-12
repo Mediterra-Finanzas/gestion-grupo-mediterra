@@ -3655,6 +3655,66 @@ function OEPerspectiva({ dim, embarques, exportadoras, clientes, especies, onVer
   );
 }
 
+// LIQUIDACIONES — perspectiva agrupada (Cliente / Exportador / Estado / Temporada)
+// sobre la misma lista filtrada. Preparada aunque hoy haya poca data. Montos con
+// las primitivas únicas del motor.
+function LiqPerspectiva({ dim, liqs, embarques, exportadoras, clientes, especies, onVer }) {
+  const [exp,setExp]=useState(()=>new Set());
+  const cliName=(id)=>clientes.find(c=>c.id===id)?.nombre||"—";
+  const expName=(id)=>exportadoras.find(e=>e.id===id)?.nombre||"—";
+  const oeOf=(l)=>embarques.find(e=>e.id===l.oeId);
+  const keyLab=(l)=>{ const oe=oeOf(l);
+    if(dim==="cliente")    return {k:oe?.clienteId||"—", lab:cliName(oe?.clienteId)};
+    if(dim==="exportador") return {k:oe?.exportadoraId||"—", lab:expName(oe?.exportadoraId)};
+    if(dim==="temporada")  return {k:l.temporada||"—", lab:l.temporada||"— s/temp —"};
+    return {k:l.estado||"borrador", lab:(l.estado||"borrador")};
+  };
+  const grupos = useMemo(()=>{
+    const m={};
+    liqs.forEach(l=>{ const {k,lab}=keyLab(l); (m[k]=m[k]||{key:k,lab,liqs:[]}).liqs.push(l); });
+    return Object.values(m).map(g=>{ let venta=0,comF=0; g.liqs.forEach(l=>{ venta+=mVentaUSD(l); comF+=mComFriskuUSD(l); });
+      return {...g, n:g.liqs.length, venta, comF}; })
+      .sort((a,b)=> dim==="temporada" ? String(b.key).localeCompare(String(a.key)) : (b.comF-a.comF)||(b.n-a.n));
+  },[liqs,dim,embarques,exportadoras,clientes]);
+  const t=(k)=>setExp(p=>{const n=new Set(p);n.has(k)?n.delete(k):n.add(k);return n;});
+  return (
+    <div>
+      <div style={{display:"flex",gap:8,marginBottom:10}}>
+        <button onClick={()=>setExp(new Set(grupos.map(g=>g.key)))} style={{...btnSt(C.muted,true),fontSize:11}}>Expandir todo</button>
+        <button onClick={()=>setExp(new Set())} style={{...btnSt(C.muted,true),fontSize:11}}>Contraer todo</button>
+      </div>
+      {grupos.length===0 && <div style={{padding:40,textAlign:"center",color:C.muted,fontSize:13}}>Sin liquidaciones para esta vista/filtros.</div>}
+      {grupos.map(g=>{ const o=exp.has(g.key); return (
+        <div key={g.key} style={{background:C.card2,border:`1px solid ${C.border}`,borderRadius:10,marginBottom:8,overflow:"hidden"}}>
+          <div onClick={()=>t(g.key)} style={{padding:"10px 14px",cursor:"pointer",display:"flex",alignItems:"center",gap:12,flexWrap:"wrap",background:o?`${C.blue}0a`:"transparent"}}>
+            <span style={{color:C.muted}}>{o?"▾":"▸"}</span>
+            <span style={{fontSize:13,fontWeight:700,flex:1,minWidth:140,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{g.lab}</span>
+            <span style={{fontSize:11,fontFamily:"monospace"}}><b>{g.n}</b> liq · venta {fmtUSD0(g.venta)} · <b style={{color:C.green}}>{fmtUSD0(g.comF)}</b> com. Frisku</span>
+          </div>
+          {o && (
+            <div style={{overflowX:"auto"}}>
+              <table style={{width:"100%",borderCollapse:"collapse",fontSize:11,minWidth:560}}>
+                <tbody>
+                  {g.liqs.slice().sort((a,b)=>String(b.fechaLiquidacion||"").localeCompare(String(a.fechaLiquidacion||""))).map(l=>{ const oe=oeOf(l);
+                    return <tr key={l.id} onClick={()=>onVer(l)} title="Ver detalle" style={{cursor:"pointer",borderTop:`1px solid ${C.border}`}}>
+                      <td style={{padding:"6px 12px",whiteSpace:"nowrap"}}>{l.fechaLiquidacion||"—"}</td>
+                      <td style={{padding:"6px 8px",fontFamily:"monospace",color:C.blue,whiteSpace:"nowrap"}}>{oe?.numero||"—"}</td>
+                      <td style={{padding:"6px 8px",whiteSpace:"nowrap"}}>{l.estado||"borrador"}</td>
+                      <td style={{padding:"6px 8px",textAlign:"right",fontFamily:"monospace"}}>{fmtUSD0(mVentaUSD(l))}</td>
+                      <td style={{padding:"6px 8px",textAlign:"right",fontFamily:"monospace",color:C.green,fontWeight:700}}>{fmtUSD0(mComFriskuUSD(l))}</td>
+                      <td style={{padding:"6px 12px",textAlign:"right"}}><button onClick={(e)=>{e.stopPropagation();onVer(l);}} style={{...btnSt(C.teal,true),padding:"3px 8px",fontSize:10}}>👁 Ver</button></td>
+                    </tr>;
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      ); })}
+    </div>
+  );
+}
+
 // ═══════════════════════════════════════════════════════════════════
 // PLACEHOLDER GENÉRICO — tabs que se construyen en fases siguientes
 // ═══════════════════════════════════════════════════════════════════
@@ -7601,6 +7661,7 @@ export default function FriskuComercialModule({
   const [editandoLiq,    setEditandoLiq]    = useState(null);
   const [creandoLiq,     setCreandoLiq]     = useState(false);
   const [verLiq,         setVerLiq]         = useState(null);   // detalle (Ver) de una liquidación
+  const [vistaLiq,       setVistaLiq]       = useState("lista"); // lista | cliente | exportador | estado | temporada
   const [verPO,          setVerPO]          = useState(null);   // detalle (Ver) de un PO
   const [filtroEstadoLiq, setFiltroEstadoLiq] = useState("");
   const [filtroExpLiq,   setFiltroExpLiq]   = useState("");
@@ -8881,6 +8942,13 @@ export default function FriskuComercialModule({
                     >✕ Limpiar</button>
                   )}
                   <span style={{fontSize:11, color:C.muted}}>{liqFiltradas.length} de {liquidaciones.length}</span>
+                  <div style={{display:"flex",gap:4,flexWrap:"wrap",alignItems:"center"}}>
+                    <span style={{fontSize:10,fontWeight:700,color:C.muted,textTransform:"uppercase"}}>Ver por</span>
+                    {[["lista","☰ Lista"],["cliente","👥 Cliente"],["exportador","🏭 Exportador"],["estado","◔ Estado"],["temporada","🗓 Temporada"]].map(([k,l])=>(
+                      <button key={k} onClick={()=>setVistaLiq(k)} title={l}
+                        style={{padding:"4px 9px",fontSize:11,fontWeight:700,cursor:"pointer",borderRadius:6,border:`1px solid ${vistaLiq===k?C.blue:C.border}`,background:vistaLiq===k?C.blue:"transparent",color:vistaLiq===k?"#fff":C.muted}}>{l}</button>
+                    ))}
+                  </div>
                   {totalComisionFriskuUSD>0 && (
                     <span style={{fontSize:12, fontWeight:700, color:C.green, marginLeft:4}}>
                       Total Frisku: USD {totalComisionFriskuUSD.toLocaleString("es-CL",{minimumFractionDigits:2,maximumFractionDigits:2})}
@@ -8911,8 +8979,13 @@ export default function FriskuComercialModule({
                   </div>
                 )}
 
+                {/* Perspectiva agrupada de liquidaciones */}
+                {!verLiq && vistaLiq!=="lista" && (
+                  <LiqPerspectiva dim={vistaLiq} liqs={liqFiltradas} embarques={embarques} exportadoras={exportadoras} clientes={clientes} especies={especies} onVer={(l)=>setVerLiq(l)}/>
+                )}
+
                 {/* Listado compacto (click fila = Ver) */}
-                {!verLiq && (liqFiltradas.length===0 ? (
+                {!verLiq && vistaLiq==="lista" && (liqFiltradas.length===0 ? (
                   <div style={{padding:50, textAlign:"center", color:C.muted, fontSize:13, background:C.card, borderRadius:14}}>
                     {liquidaciones.length===0
                       ? 'Sin liquidaciones. Click "+ Nueva liquidación" para crear la primera.'
