@@ -22,7 +22,7 @@ import {
   uploadArchivoFrisku, pathDesdeUrlStorage,
 } from "./friskuHelpers.js";
 import { FriskuBIProvider, useFriskuBI, FRISKU_DIMS, FRISKU_METRICS, fmtMetric,
-         mComFriskuUSD, mVentaUSD, mFobUSD, mComClienteUSD, groupByDims } from "./friskuBI.js";
+         mComFriskuUSD, mVentaUSD, mFobUSD, mComClienteUSD, groupByDims, invertSelection } from "./friskuBI.js";
 import { theme } from "./theme";
 
 // ── Paleta Frisku ──
@@ -5415,6 +5415,68 @@ function HojaComparativo() {
   );
 }
 
+// FILTER PANE — un campo (listbox persistente) con los 4 estados asociativos +
+// menú ⋯ de acciones Qlik (seleccionar posibles/alternativos/excluidos, invertir,
+// limpiar). Compacto, colapsable, con búsqueda y scroll.
+function FilterFieldBI({ dimKey, label }) {
+  const bi = useFriskuBI();
+  const { sel, toggle, setMany, clearDim, associative } = bi;
+  const [q,setQ]=useState(""); const [menu,setMenu]=useState(false); const [col,setCol]=useState(false);
+  const menuRef=useRef(null);
+  useEffect(()=>{ const h=(e)=>{ if(menuRef.current&&!menuRef.current.contains(e.target))setMenu(false); }; document.addEventListener("mousedown",h); return ()=>document.removeEventListener("mousedown",h); },[]);
+  const { selected, possible, alternative, excluded } = associative(dimKey);
+  const selSet = sel[dimKey]||new Set();
+  const selectable = [...selected,...possible,...alternative].map(x=>x.value);
+  const qq=q.trim().toLowerCase(); const fil=(a)=>qq?a.filter(x=>String(x.label).toLowerCase().includes(qq)):a;
+  const Fila=({x,estado})=>{ const on=estado==="sel"; const c=estado==="sel"?C.accent2:estado==="pos"?C.text:estado==="alt"?C.muted:C.muted2; const bg=estado==="sel"?`${C.accent2}18`:estado==="alt"?`${C.muted}10`:"transparent";
+    return <div onClick={()=>toggle(dimKey,x.value)} style={{display:"flex",justifyContent:"space-between",gap:6,alignItems:"center",padding:"2px 7px",cursor:"pointer",fontSize:11,background:bg}}>
+      <span style={{whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",color:c,fontWeight:on?700:400,textDecoration:estado==="exc"?"line-through":"none",opacity:estado==="exc"?0.75:1}}>{on?"☑":"☐"} {x.label}</span>
+      {x.m!=null && <span style={{fontSize:9,color:C.muted2}}>{fmtN0(x.m)}</span>}
+    </div>; };
+  const item=(label,fn)=><div onClick={()=>{fn();setMenu(false);}} style={{padding:"5px 9px",cursor:"pointer",fontSize:11}}>{label}</div>;
+  const n=selSet.size;
+  return (
+    <div style={{border:`1px solid ${C.border}`,borderRadius:8,background:C.card,display:"flex",flexDirection:"column",minWidth:0}}>
+      <div style={{display:"flex",alignItems:"center",gap:4,padding:"5px 7px",borderBottom:col?"none":`1px solid ${C.border}`}}>
+        <span onClick={()=>setCol(c=>!c)} style={{cursor:"pointer",color:C.muted,fontSize:10}}>{col?"▸":"▾"}</span>
+        <span style={{flex:1,fontSize:11,fontWeight:700,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{label}{n>0&&<span style={{color:C.accent2}}> · {n}</span>}</span>
+        <div ref={menuRef} style={{position:"relative"}}>
+          <span onClick={()=>setMenu(m=>!m)} title="Acciones" style={{cursor:"pointer",color:C.muted,fontSize:12,padding:"0 3px"}}>⋯</span>
+          {menu && <div style={{position:"absolute",zIndex:70,top:"100%",right:0,background:C.card,border:`1px solid ${C.border}`,borderRadius:7,boxShadow:C.shadowSm||"0 8px 24px rgba(0,0,0,.18)",minWidth:170}}>
+            {item("Seleccionar posibles",()=>setMany(dimKey,[...selected,...possible].map(x=>x.value)))}
+            {item("Seleccionar alternativos",()=>setMany(dimKey,alternative.map(x=>x.value)))}
+            {item("Seleccionar excluidos",()=>setMany(dimKey,excluded.map(x=>x.value)))}
+            {item("Invertir selección",()=>setMany(dimKey,invertSelection(selSet,selectable)))}
+            {item("Limpiar campo",()=>clearDim(dimKey))}
+          </div>}
+        </div>
+      </div>
+      {!col && <>
+        <div style={{padding:"4px 6px"}}><input value={q} onChange={e=>setQ(e.target.value)} placeholder="Buscar…" style={{...inputSt,width:"100%",padding:"3px 6px",fontSize:10.5}}/></div>
+        <div style={{maxHeight:150,overflowY:"auto",paddingBottom:4}}>
+          {fil(selected).map(x=><Fila key={x.value} x={x} estado="sel"/>)}
+          {fil(possible).map(x=><Fila key={x.value} x={x} estado="pos"/>)}
+          {fil(alternative).map(x=><Fila key={x.value} x={x} estado="alt"/>)}
+          {fil(excluded).slice(0,40).map(x=><Fila key={x.value} x={x} estado="exc"/>)}
+          {selected.length+possible.length+alternative.length+excluded.length===0 && <div style={{padding:8,fontSize:10.5,color:C.muted2,textAlign:"center"}}>Sin valores</div>}
+        </div>
+      </>}
+    </div>
+  );
+}
+// Panel de filtros colapsable con varias dimensiones (estilo Qlik).
+function FilterPaneBI({ open }) {
+  const DIMS = ["temporada","especie","exportadora","cliente","mercado","paisDestino","estado","via","semanaETD"];
+  if(!open) return null;
+  return (
+    <div style={{background:C.card2,border:`1px solid ${C.border}`,borderRadius:12,padding:10,marginBottom:12}}>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(190px,1fr))",gap:8}}>
+        {DIMS.map(d=><FilterFieldBI key={d} dimKey={d} label={FRISKU_DIMS.find(x=>x.key===d)?.lab||d}/>)}
+      </div>
+    </div>
+  );
+}
+
 // Overlay de pantalla completa para objetos densos (Straight Table / Pivot / Explorador).
 function FullscreenBI({ open, title, onClose, children }) {
   if(!open) return null;
@@ -5732,10 +5794,15 @@ function ReporteriaBI({ data, permResumen, permReportes, permTablero, onVerEmbar
     (permTablero?.visible!==false)  && { id:"tablero",  lab:"🧭 Explorador" },
   ].filter(Boolean);
   const [hoja, setHoja] = useState(hojas[0]?.id || "exec");
+  const [paneOpen, setPaneOpen] = useState(false);
   return (
     <div>
       <SelectionBarBI/>
-      <div style={{display:"flex", gap:6, marginBottom:14, flexWrap:"wrap", borderBottom:`1px solid ${C.border}`, paddingBottom:10}}>
+      <FilterPaneBI open={paneOpen}/>
+      <div style={{display:"flex", gap:6, marginBottom:14, flexWrap:"wrap", borderBottom:`1px solid ${C.border}`, paddingBottom:10, alignItems:"center"}}>
+        <button onClick={()=>setPaneOpen(o=>!o)} title="Panel de filtros (varias dimensiones, 4 estados)"
+          style={{...btnSt(paneOpen?C.accent2:C.muted, !paneOpen), fontSize:12, padding:"7px 12px"}}>🔎 Filtros</button>
+        <span style={{width:1, alignSelf:"stretch", background:C.border, margin:"0 2px"}}/>
         {hojas.map(h=>(
           <button key={h.id} onClick={()=>setHoja(h.id)}
             style={{...btnSt(hoja===h.id?C.blue:C.muted, hoja!==h.id), fontSize:12, padding:"7px 12px"}}>{h.lab}</button>

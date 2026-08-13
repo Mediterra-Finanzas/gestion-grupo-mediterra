@@ -175,3 +175,26 @@ describe("Pivot — count-distinct no se duplica (metric.calc por celda/total)",
     expect(total).toBe(suma);
   });
 });
+
+// P1.8 — Filter Pane: las acciones de campo (⋯) componen los estados asociativos.
+describe("Filter Pane — acciones de campo (posibles/alternativos/excluidos/invertir)", () => {
+  const D = [
+    { cliente:"A", clienteLab:"A", especie:"Aran", especieLab:"Arándanos" },
+    { cliente:"A", clienteLab:"A", especie:"Cer",  especieLab:"Cerezas"  },
+    { cliente:"B", clienteLab:"B", especie:"Pal",  especieLab:"Paltas"   },
+  ];
+  test("con Cliente=A + Especie=Arándanos, las acciones producen los sets correctos", () => {
+    const sel = { cliente:S("A"), especie:S("Aran") };
+    const r = associativeValues(D, sel, "especie"); // Aran SELECTED, Cer ALTERNATIVE, Pal EXCLUDED
+    const val = (a)=>a.map(x=>x.value).sort();
+    // "Seleccionar posibles" = selected + possible
+    expect(val([...r.selected, ...r.possible])).toEqual(["Aran"]);
+    // "Seleccionar alternativos"
+    expect(val(r.alternative)).toEqual(["Cer"]);
+    // "Seleccionar excluidos"
+    expect(val(r.excluded)).toEqual(["Pal"]);
+    // "Invertir": seleccionables = selected+possible+alternative; invierte sobre la selección actual
+    const selectable = [...r.selected, ...r.possible, ...r.alternative].map(x=>x.value);
+    expect(invertSelection(S("Aran"), selectable).sort()).toEqual(["Cer"]);
+  });
+});
