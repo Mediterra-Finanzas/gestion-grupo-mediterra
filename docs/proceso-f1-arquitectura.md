@@ -5,6 +5,8 @@
 **Estado:** Fundaciones para **REVISIÓN**. SQL **no aplicado** a la DB (lo aplica el admin tras aprobar el contrato de columnas). No toca `exp_*`, Frisku, ni la data productiva.
 **Fuente:** [`allegria-service-f0-acta-entrega.md`](allegria-service-f0-acta-entrega.md) · [`allegria-service-f0-assessment.md`](allegria-service-f0-assessment.md)
 
+> **⚠️ SUPERSEDED PARCIAL (2026-08-13):** los §6 (identidad) y §7 (inventario) de este documento describen el modelo ORIGINAL. Fueron **reconciliados** con las 17 precisiones ratificadas por el CFO. El modelo vigente está en la **Adenda de Reconciliación** al final + [`proceso-f1-reconciliacion.md`](proceso-f1-reconciliacion.md). Cambios: identidad `proc_partes` → `proc_vinculo` (XOR de FK reales); inventario `kg_disponible` mutable → ledger `proc_movimiento` (SoT) + `proc_hold` + vista; se retira el booleano `custodia`; calibres/colores propios.
+
 > **Regla de Fase 1 (del CFO):** fundaciones correctas, no cantidad de pantallas. Entregable = modelo sólido + constraints + seguridad + estados + tenancy + tests + documentación, antes que diez pantallas sobre un modelo incorrecto.
 
 ---
@@ -97,3 +99,48 @@ Se modela **una parte** (`proc_partes`) + sus **roles** (`proc_parte_roles`), en
 **Validación:** validación **estática** del SQL (conteo de `CREATE TABLE`, balance de delimitadores `$$`, RLS/audit presentes). Ejecución contra DB y tests de la capa JS = **F1-b** (requiere visto bueno al contrato de columnas — los nombres son el contrato).
 
 **Gate para F1-b:** aprobación del contrato de columnas + definición de D4 (moneda) y D1/D3. STOP-AND-REPORT si algo exige cambiar cardinalidades/tenancy/ownership/modelo económico. **No avanzar sin revisión.**
+
+---
+
+## ADENDA DE RECONCILIACIÓN — 2026-08-13 (17 precisiones del CFO)
+
+Este worktree canónico (`55dc61a`) precedía a las 17 precisiones ratificadas. Reconciliación semántica controlada (matriz completa en [`proceso-f1-reconciliacion.md`](proceso-f1-reconciliacion.md)). Sin contradicción arquitectónica nueva: todo alinea al TARGET aprobado.
+
+**Modelo de identidad (supersede §6):** se retiran `proc_partes` / `proc_parte_roles` (eran party master). La identidad corporativa vive en Core (`contab_empresas` grupo, `contab_auxiliares` terceros). `proc_vinculo` guarda **solo la relación operacional** (rol, código externo, contactos, condiciones, vigencia) y referencia la identidad por **XOR de FK reales** (`grupo_empresa_id` | `auxiliar_id` | modo `pendiente_alta_corporativa` con `nombre_provisional`), CHECK exactamente-uno. Productor/predio: identidad Core vía vínculo; `proc_predios` = trazabilidad operacional (CSG), no identidad duplicada.
+
+**Modelo de inventario (supersede §7):** la fuente de verdad del saldo físico es el **ledger `proc_movimiento`** (append-only: sin `updated_at`/`deleted_at`; UPDATE/DELETE bloqueados por trigger; corrección = reversa/contramovimiento con motivo/actor/referencia al original). Se **retira** `proc_lote.kg_disponible` mutable (era 2ª fuente de verdad). Holds (`proc_hold`: reserva/bloqueo) restringen disponibilidad **sin** mover masa física. Saldo por **vista `proc_v_lote_saldos`** (derivación, sin cache): `disponible = on_hand − bloqueado − reservado`, sin doble descuento. Descarte/merma nacen del **proceso** (F4), no descuentan el lote de MP. RPC transaccionales con `FOR UPDATE` + guardia no-negativo (`proc_fn_registrar_movimiento`/`_ingresar_lote`/`_registrar_consumo`/`_reversar_movimiento`).
+
+**Custodia/propiedad:** se retira el booleano `custodia`. El hecho es `dueno_fruta_vinculo_id`; la custodia es la presencia en el inventario del operador.
+
+**Calibres/colores:** `proc_calibre` / `proc_color` propios de `proc_*`, por especie, con `mapping_estandar` a estándares externos (no catálogo corporativo; Foods y Service no comparten).
+
+**Seguridad:** RLS `FORCE` + `REVOKE anon` (conservado del canónico) + **GO-LIVE BLOCKER** explícito en el SQL. DEV-ONLY separado, extendido a las tablas nuevas.
+
+**Ledger ≠ Auditoría:** `proc_movimiento` (kilos) y `proc_audit_log` (quién/qué) son distintos y ambos presentes.
+
+---
+
+## ACTA DE ENTREGA — proc_* FASE 1 (RECONCILIADA)
+
+**Proyecto:** Allegria Service · **Bounded context:** `proc_*` · **Worktree:** `worktree-proc-fase1`.
+
+**Alcance ejecutado:** reconciliación semántica (matriz de 30 puntos) del canónico `55dc61a` con las 17 precisiones + materialización del modelo reconciliado (schema + DEV-ONLY + capa de dominio/DB + tests).
+
+**Archivos creados/modificados (solo rutas Service):**
+- `supabase/schema_proc_v1.sql` — **modificado** (reconciliado): 14 tablas `proc_*` + vista `proc_v_lote_saldos` + 4 RPC transaccionales + funciones/triggers de auditoría, touch y bloqueo de ledger + RLS `FORCE`/`REVOKE anon` + GO-LIVE blocker.
+- `supabase/schema_proc_v1_DEV_ONLY_rls.sql` — **modificado** (cubre tablas reconciliadas; ledger sólo SELECT/INSERT).
+- `supabase/validation/proc_v1_tests.sql` — **nuevo** (9 tests negativos SQL; requiere schema aplicado).
+- `src/proceso/core/procesoDomain.js` — **nuevo** (lógica pura: saldo derivado, XOR, consumo, reversa, holds, conciliación).
+- `src/proceso/core/procesoDomain.test.mjs` — **nuevo** (27 asserts; **PASAN**).
+- `src/proceso/core/procesoDB.js` — **nuevo** (capa DB relacional con gate Regla 9; RPC wrappers).
+- `docs/proceso-f1-reconciliacion.md` — **nuevo** (matriz). `docs/proceso-f1-arquitectura.md` — **modificado** (esta adenda).
+
+**Tests:** dominio (node) **27/27 PASAN**. SQL negativos: escritos, **no ejecutados** (requieren schema aplicado en staging).
+**Build:** **no ejecutado** en el worktree (aislado, sin `node_modules`; los módulos nuevos son aditivos y no están importados por la app aún). Sintaxis validada: `procesoDomain.js` OK, `procesoDB.js` OK (ESM).
+**Schema:** DRAFT — **NO aplicado** a la DB. **Migraciones ejecutadas:** NO.
+**Data modificada:** NO. **Escrituras a Supabase productiva:** NO (solo lectura del padrón en F0 para verificar `empresa_id`).
+**Cross-project changes:** NINGUNO. No se tocó `exp_*`, Frisku, Osiris, Foods, ni `main`.
+**Seguridad/RLS:** política productiva por empresa (`FORCE`, deny-by-default); DEV-ONLY separado; GO-LIVE blocker documentado.
+**Deuda técnica:** EXP-TENANCY-001 (FK físico `empresa_id`, owner Core), EXP-SECURITY-001 (claim `empresa_id`, owner Core), PROC-INFRA-001 (`SUPA_KEY` referenciada de `friskuHelpers`; mover a config neutral compartido).
+**Estado Git:** worktree `worktree-proc-fase1`; commit atómico exclusivo Service (formato `service:`).
+**Recomendación F2:** QC + inventario pre-proceso + orden de proceso + consumo (genealogía `proc_proceso_insumos`) + resultado/conciliación, todo **extendiendo** el ledger (no reemplazándolo).
