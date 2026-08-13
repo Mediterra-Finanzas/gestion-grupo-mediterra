@@ -5466,11 +5466,18 @@ function FilterFieldBI({ dimKey, label }) {
 }
 // Panel de filtros colapsable con varias dimensiones (estilo Qlik).
 function FilterPaneBI({ open }) {
+  const bi = useFriskuBI();
   const DIMS = ["temporada","especie","exportadora","cliente","mercado","paisDestino","estado","via","semanaETD"];
+  const activas = DIMS.filter(d=>bi.sel[d]&&bi.sel[d].size>0).length;
   if(!open) return null;
   return (
-    <div style={{background:C.card2,border:`1px solid ${C.border}`,borderRadius:12,padding:10,marginBottom:12}}>
-      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(190px,1fr))",gap:8}}>
+    <div style={{background:C.card2,border:`1px solid ${C.border}`,borderRadius:10,padding:"8px 10px 10px",marginBottom:12}}>
+      <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:8}}>
+        <span style={{fontSize:10.5,fontWeight:700,color:C.muted,textTransform:"uppercase",letterSpacing:0.4}}>Panel de filtros</span>
+        <span style={{fontSize:10.5,color:C.muted2}}>{activas>0?`${activas} con selección`:"asociativo · clic para acotar"}</span>
+        {activas>0 && <button onClick={()=>bi.clearAll()} style={{...btnSt(C.muted,true),fontSize:10,padding:"2px 8px",marginLeft:"auto"}}>Limpiar todo</button>}
+      </div>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(186px,1fr))",gap:7}}>
         {DIMS.map(d=><FilterFieldBI key={d} dimKey={d} label={FRISKU_DIMS.find(x=>x.key===d)?.lab||d}/>)}
       </div>
     </div>
@@ -5556,32 +5563,32 @@ function StraightTableBI({ onVerEmbarque }) {
     doc.save(`Frisku_Tabla_${new Date().toISOString().slice(0,10)}.pdf`);
   }catch(e){ console.error("[Tabla] PDF:",e); alert("No se pudo generar el PDF: "+e.message); } setExpP(false); setMenuOpen(false); };
 
-  const th=(col,label,align)=><th onClick={()=>setSort(col)} style={{padding:"8px 10px",textAlign:align||"left",cursor:"pointer",whiteSpace:"nowrap",background:C.card2}} title="Ordenar">{label}{sortCol===col?(sortDir==="desc"?" ▼":" ▲"):""}</th>;
+  const th=(col,label,align)=>{ const act=sortCol===col; return <th onClick={()=>setSort(col)} style={{padding:"6px 10px",textAlign:align||"left",cursor:"pointer",whiteSpace:"nowrap",background:C.card2,color:act?C.blue:C.muted,fontWeight:act?800:700,position:"sticky",top:0,zIndex:1}} title="Ordenar">{label}{act?(sortDir==="desc"?" ▼":" ▲"):<span style={{opacity:0.35}}> ⇅</span>}</th>; };
   const tabla = (
-    <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,overflowX:"auto"}}>
+    <div style={{border:`1px solid ${C.border}`,borderRadius:10,overflowX:"auto",maxHeight:560,overflowY:"auto"}}>
       <table style={{width:"100%",borderCollapse:"collapse",fontSize:11.5,minWidth:640}}>
         <thead><tr style={{color:C.muted,textAlign:"left"}}>
           {dimSel.map(d=>th("dim:"+d, dims.find(x=>x.key===d)?.lab||d))}
           {medSel.map(m=>th("med:"+m, metric[m].label, "right"))}
           {th("part","% part.","right")}
-          {dimSel.length>0 && <th style={{padding:"8px 10px",background:C.card2}}></th>}
+          {dimSel.length>0 && <th style={{padding:"6px 10px",background:C.card2,position:"sticky",top:0,zIndex:1}}></th>}
         </tr></thead>
         <tbody>
           {sorted.map(r=>{ const oe1 = dimSel.includes("contenedor") && r._rows.length===1 ? r._rows[0]._oe : null;
             return <tr key={r.key} style={{borderTop:`1px solid ${C.border}`}}>
               {dimSel.map(d=>{ const isSel = sel[d] && sel[d].has(r.dimValues[d]);
-                return <td key={d} onClick={()=>toggle(d, r.dimValues[d])} title="Clic para (de)seleccionar" style={{padding:"7px 10px",cursor:"pointer",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",maxWidth:220,color:isSel?C.accent2:C.text,fontWeight:isSel?700:500,background:isSel?`${C.accent2}10`:"transparent"}}>{isSel?"☑ ":""}{r.labels[d]}</td>; })}
-              {medSel.map(m=>{ const sinDato=FIN.has(m)&&r._fin===0; return <td key={m} style={{padding:"7px 10px",textAlign:"right",fontFamily:"monospace",color:sinDato?C.muted2:undefined}}>{sinDato?"—":fmtMetric(metric[m].fmt,r[m])}</td>; })}
-              <td style={{padding:"7px 10px",textAlign:"right",color:C.muted}}>{(r[primary]/totPrimary*100).toFixed(1)}%</td>
-              {dimSel.length>0 && <td style={{padding:"7px 10px",textAlign:"right"}}>{onVerEmbarque && oe1 && <button onClick={()=>onVerEmbarque(oe1)} style={{...btnSt(C.blue,true),padding:"2px 7px",fontSize:9.5}}>→ Ver</button>}</td>}
+                return <td key={d} onClick={()=>toggle(d, r.dimValues[d])} title="Clic para (de)seleccionar" style={{padding:"4px 10px",cursor:"pointer",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",maxWidth:220,color:isSel?C.accent2:C.text,fontWeight:isSel?700:500,background:isSel?`${C.accent2}10`:"transparent"}}>{isSel?"☑ ":""}{r.labels[d]}</td>; })}
+              {medSel.map(m=>{ const sinDato=FIN.has(m)&&r._fin===0; return <td key={m} style={{padding:"4px 10px",textAlign:"right",fontFamily:"monospace",color:sinDato?C.muted2:undefined}}>{sinDato?"—":fmtMetric(metric[m].fmt,r[m])}</td>; })}
+              <td style={{padding:"4px 10px",textAlign:"right",color:C.muted}}>{(r[primary]/totPrimary*100).toFixed(1)}%</td>
+              {dimSel.length>0 && <td style={{padding:"2px 10px",textAlign:"right"}}>{onVerEmbarque && oe1 && <button onClick={()=>onVerEmbarque(oe1)} style={{...btnSt(C.blue,true),padding:"2px 7px",fontSize:9.5}}>→ Ver</button>}</td>}
             </tr>; })}
           {sorted.length===0 && <tr><td colSpan={dimSel.length+medSel.length+2} style={{padding:20,textAlign:"center",color:C.muted2}}>Sin datos para la selección.</td></tr>}
         </tbody>
-        {sorted.length>0 && <tfoot><tr style={{borderTop:`2px solid ${C.border}`,background:C.card2,fontWeight:800}}>
-          <td style={{padding:"8px 10px"}} colSpan={Math.max(1,dimSel.length)}>TOTAL ({sorted.length})</td>
-          {medSel.map(m=><td key={m} style={{padding:"8px 10px",textAlign:"right",fontFamily:"monospace"}}>{fmtMetric(metric[m].fmt,totalsRow[m])}</td>)}
-          <td style={{padding:"8px 10px",textAlign:"right"}}>100%</td>
-          {dimSel.length>0 && <td/>}
+        {sorted.length>0 && <tfoot><tr style={{fontWeight:800}}>
+          <td style={{padding:"7px 10px",position:"sticky",bottom:0,background:C.card2,borderTop:`2px solid ${C.border}`}} colSpan={Math.max(1,dimSel.length)}>TOTAL ({sorted.length})</td>
+          {medSel.map(m=><td key={m} style={{padding:"7px 10px",textAlign:"right",fontFamily:"monospace",position:"sticky",bottom:0,background:C.card2,borderTop:`2px solid ${C.border}`}}>{fmtMetric(metric[m].fmt,totalsRow[m])}</td>)}
+          <td style={{padding:"7px 10px",textAlign:"right",position:"sticky",bottom:0,background:C.card2,borderTop:`2px solid ${C.border}`}}>100%</td>
+          {dimSel.length>0 && <td style={{position:"sticky",bottom:0,background:C.card2,borderTop:`2px solid ${C.border}`}}/>}
         </tr></tfoot>}
       </table>
     </div>
@@ -5675,39 +5682,41 @@ function PivotTableBI() {
     await fr_descargarWB(wb,`Frisku_Pivot_${new Date().toISOString().slice(0,10)}.xlsx`);
   }catch(e){ console.error("[Pivot] Excel:",e); alert("No se pudo generar el Excel: "+e.message); } setExpX(false); setMenuOpen(false); };
 
-  const td={padding:"6px 9px",borderTop:`1px solid ${C.border}`,textAlign:"right",fontFamily:"monospace",whiteSpace:"nowrap"};
+  const td={padding:"4px 9px",borderTop:`1px solid ${C.border}`,textAlign:"right",fontFamily:"monospace",whiteSpace:"nowrap"};
+  const thPiv={padding:"6px 9px",position:"sticky",top:0,zIndex:1,background:C.card2,fontWeight:700};
   const tabla = (
-    <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,overflowX:"auto"}}>
+    <div style={{border:`1px solid ${C.border}`,borderRadius:10,overflowX:"auto",maxHeight:560,overflowY:"auto"}}>
       <table style={{width:"100%",borderCollapse:"collapse",fontSize:11.5,minWidth:560}}>
-        <thead><tr style={{background:C.card2,color:C.muted,textAlign:"left"}}>
-          <th style={{padding:"8px 9px"}}>{dims.find(d=>d.key===row1)?.lab||row1}{hasR2?` › ${dims.find(d=>d.key===row2)?.lab||row2}`:""}</th>
-          {colVals.map(c=><th key={c.value} onClick={()=>toggle(colDim,c.value)} title="Clic para seleccionar esta columna" style={{padding:"8px 9px",textAlign:"right",cursor:"pointer",whiteSpace:"nowrap",color:(sel[colDim]&&sel[colDim].has(c.value))?C.accent2:undefined}}>{c.label}</th>)}
-          <th style={{padding:"8px 9px",textAlign:"right",fontWeight:800}}>Total</th>
+        <thead><tr style={{color:C.muted,textAlign:"left"}}>
+          <th style={{...thPiv,textAlign:"left"}}>{dims.find(d=>d.key===row1)?.lab||row1}{hasR2?` › ${dims.find(d=>d.key===row2)?.lab||row2}`:""}</th>
+          {colVals.map(c=><th key={c.value} onClick={()=>toggle(colDim,c.value)} title="Clic para seleccionar esta columna" style={{...thPiv,textAlign:"right",cursor:"pointer",whiteSpace:"nowrap",color:(sel[colDim]&&sel[colDim].has(c.value))?C.accent2:C.muted}}>{c.label}</th>)}
+          <th style={{...thPiv,textAlign:"right",fontWeight:800}}>Total</th>
         </tr></thead>
         <tbody>
           {groups.map(g=>{ const op=expanded.has(g.key); const isSel=sel[row1]&&sel[row1].has(g.dimValue);
+            const bandBg = isSel?`${C.accent2}12`:(hasR2?`${C.blue}07`:"transparent");
             return <React.Fragment key={g.key}>
-              <tr style={{borderTop:`1px solid ${C.border}`,background:isSel?`${C.accent2}10`:"transparent"}}>
-                <td style={{padding:"6px 9px",whiteSpace:"nowrap",cursor:"pointer"}}>
-                  {hasR2 && <span onClick={()=>tE(g.key)} style={{color:C.muted,marginRight:6,cursor:"pointer"}}>{op?"▾":"▸"}</span>}
-                  <span onClick={()=>toggle(row1,g.dimValue)} title="Seleccionar" style={{color:isSel?C.accent2:C.text,fontWeight:isSel?700:600}}>{isSel?"☑ ":""}{g.label}</span>
+              <tr style={{borderTop:`1px solid ${C.border}`,background:bandBg}}>
+                <td style={{padding:"5px 9px",whiteSpace:"nowrap",cursor:"pointer",fontWeight:isSel?700:600}}>
+                  {hasR2 && <span onClick={()=>tE(g.key)} title={op?"Contraer":"Expandir"} style={{display:"inline-block",width:16,color:C.blue,marginRight:4,cursor:"pointer",fontWeight:700}}>{op?"▾":"▸"}</span>}
+                  <span onClick={()=>toggle(row1,g.dimValue)} title="Seleccionar" style={{color:isSel?C.accent2:C.text}}>{isSel?"☑ ":""}{g.label}</span>
                 </td>
-                {colVals.map(c=><td key={c.value} style={td}>{cellTxt(g.rows,c.value)}</td>)}
-                <td style={{...td,fontWeight:800,color:C.text}}>{cellTxt(g.rows,null)}</td>
+                {colVals.map(c=><td key={c.value} style={{...td,background:bandBg}}>{cellTxt(g.rows,c.value)}</td>)}
+                <td style={{...td,fontWeight:800,color:C.text,background:bandBg}}>{cellTxt(g.rows,null)}</td>
               </tr>
               {op && hasR2 && g.subs.map(s=>{ const isS2=sel[row2]&&sel[row2].has(s.dimValue);
                 return <tr key={s.key} style={{borderTop:`1px solid ${C.border}`}}>
-                  <td style={{padding:"5px 9px 5px 30px",whiteSpace:"nowrap",cursor:"pointer"}} onClick={()=>toggle(row2,s.dimValue)}><span style={{color:isS2?C.accent2:C.muted,fontWeight:isS2?700:400}}>{isS2?"☑ ":"• "}{s.label}</span></td>
+                  <td style={{padding:"3px 9px 3px 12px",whiteSpace:"nowrap",cursor:"pointer",borderLeft:`2px solid ${C.blue}33`}} onClick={()=>toggle(row2,s.dimValue)}><span style={{color:C.muted2,marginRight:5}}>↳</span><span style={{color:isS2?C.accent2:C.muted,fontWeight:isS2?700:400}}>{isS2?"☑ ":""}{s.label}</span></td>
                   {colVals.map(c=><td key={c.value} style={{...td,color:C.muted}}>{cellTxt(s.rows,c.value)}</td>)}
                   <td style={{...td,color:C.muted,fontWeight:700}}>{cellTxt(s.rows,null)}</td>
                 </tr>; })}
             </React.Fragment>; })}
           {groups.length===0 && <tr><td colSpan={colVals.length+2} style={{padding:20,textAlign:"center",color:C.muted2}}>Sin datos para la selección.</td></tr>}
         </tbody>
-        {groups.length>0 && <tfoot><tr style={{borderTop:`2px solid ${C.border}`,background:C.card2,fontWeight:800}}>
-          <td style={{padding:"8px 9px"}}>TOTAL</td>
-          {colVals.map(c=><td key={c.value} style={td}>{cellTxt(filtered,c.value)}</td>)}
-          <td style={{...td,color:C.text}}>{cellTxt(filtered,null)}</td>
+        {groups.length>0 && <tfoot><tr style={{fontWeight:800}}>
+          <td style={{padding:"7px 9px",position:"sticky",bottom:0,background:C.card2,borderTop:`2px solid ${C.border}`}}>TOTAL</td>
+          {colVals.map(c=><td key={c.value} style={{...td,position:"sticky",bottom:0,background:C.card2,borderTop:`2px solid ${C.border}`}}>{cellTxt(filtered,c.value)}</td>)}
+          <td style={{...td,color:C.text,position:"sticky",bottom:0,background:C.card2,borderTop:`2px solid ${C.border}`}}>{cellTxt(filtered,null)}</td>
         </tr></tfoot>}
       </table>
     </div>
@@ -5750,8 +5759,8 @@ function SelectionBarBI() {
   chips.forEach(c=>{ (byDim[c.dim]=byDim[c.dim]||{dimLab:c.dimLab, vals:[]}).vals.push(c); });
   const groups = dims.map(d=>byDim[d.key] && {key:d.key, ...byDim[d.key]}).filter(Boolean);
   return (
-    <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap",padding:"7px 10px",background:C.card,border:`1px solid ${C.border}`,borderRadius:10,marginBottom:12}}>
-      <div style={{display:"flex",gap:4}}>
+    <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap",padding:"6px 10px",background:C.card,border:`1px solid ${C.border}`,borderRadius:10,marginBottom:12,maxHeight:76,overflowY:"auto"}}>
+      <div style={{display:"flex",gap:4,position:"sticky",left:0}}>
         <button onClick={undo} disabled={!canUndo} title="Selección anterior" style={{...btnSt(C.muted,true),fontSize:13,padding:"3px 9px",opacity:canUndo?1:0.35,cursor:canUndo?"pointer":"default"}}>←</button>
         <button onClick={redo} disabled={!canRedo} title="Selección siguiente" style={{...btnSt(C.muted,true),fontSize:13,padding:"3px 9px",opacity:canRedo?1:0.35,cursor:canRedo?"pointer":"default"}}>→</button>
       </div>
@@ -5901,13 +5910,13 @@ function DrillGroupsBI({ onVerEmbarque }) {
       {enHoja ? (
         <div style={{fontSize:12.5, color:C.muted, padding:"14px 4px"}}>Ruta completa. {rows.length} contenedor(es) en el detalle — usa el breadcrumb para subir de nivel.</div>
       ) : (
-        <div style={{border:`1px solid ${C.border}`, borderRadius:10, overflow:"hidden"}}>
-          <table style={{width:"100%", borderCollapse:"collapse", fontSize:12.5}}>
-            <thead><tr style={{background:C.card2, textAlign:"left"}}>
-              <th style={{padding:"8px 10px"}}>{dimLab(curDim)}</th>
-              <th style={{padding:"8px 10px", textAlign:"right"}}>{M.label}</th>
-              <th style={{padding:"8px 10px", textAlign:"right", width:80}}>%</th>
-              <th style={{padding:"8px 10px", width:36}}></th>
+        <div style={{border:`1px solid ${C.border}`, borderRadius:10, overflowX:"auto", maxHeight:560, overflowY:"auto"}}>
+          <table style={{width:"100%", borderCollapse:"collapse", fontSize:11.5}}>
+            <thead><tr style={{color:C.muted, textAlign:"left"}}>
+              <th style={{padding:"6px 10px", position:"sticky", top:0, zIndex:1, background:C.card2, fontWeight:700}}>{dimLab(curDim)}</th>
+              <th style={{padding:"6px 10px", textAlign:"right", position:"sticky", top:0, zIndex:1, background:C.card2, fontWeight:700}}>{M.label}</th>
+              <th style={{padding:"6px 10px", textAlign:"right", width:80, position:"sticky", top:0, zIndex:1, background:C.card2, fontWeight:700}}>%</th>
+              <th style={{padding:"6px 10px", width:36, position:"sticky", top:0, zIndex:1, background:C.card2}}></th>
             </tr></thead>
             <tbody>
               {(()=>{ const tot=M.calc(rows); return grupos.map((g,i)=>{
@@ -5916,18 +5925,18 @@ function DrillGroupsBI({ onVerEmbarque }) {
                 const esHoja = curDim==="contenedor";
                 return (<tr key={g.value+"_"+i} onClick={()=>bajar(g)} style={{borderTop:`1px solid ${C.border}`, cursor:"pointer"}}
                   title={esHoja?"Ver embarque":"Bajar un nivel"}>
-                  <td style={{padding:"7px 10px", whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis", maxWidth:320}}>
+                  <td style={{padding:"4px 10px", whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis", maxWidth:320}}>
                     <span style={{color:C.blue}}>{esHoja?"→ ":"▸ "}</span>{g.label}</td>
-                  <td style={{padding:"7px 10px", textAlign:"right", fontFamily:"monospace", color:sinDato?C.muted2:undefined}}>{sinDato?"—":fmtMetric(M.fmt, val)}</td>
-                  <td style={{padding:"7px 10px", textAlign:"right", fontFamily:"monospace", color:C.muted2}}>{pct==null?"—":pct.toFixed(1)+"%"}</td>
-                  <td style={{padding:"7px 10px", textAlign:"center", color:C.muted2}}>{esHoja?"🚢":"⤵"}</td>
+                  <td style={{padding:"4px 10px", textAlign:"right", fontFamily:"monospace", color:sinDato?C.muted2:undefined}}>{sinDato?"—":fmtMetric(M.fmt, val)}</td>
+                  <td style={{padding:"4px 10px", textAlign:"right", fontFamily:"monospace", color:C.muted2}}>{pct==null?"—":pct.toFixed(1)+"%"}</td>
+                  <td style={{padding:"4px 10px", textAlign:"center", color:C.muted2}}>{esHoja?"🚢":"⤵"}</td>
                 </tr>); }); })()}
-              <tr style={{borderTop:`2px solid ${C.border}`, background:C.card2, fontWeight:700}}>
-                <td style={{padding:"8px 10px"}}>TOTAL ({grupos.length})</td>
-                <td style={{padding:"8px 10px", textAlign:"right", fontFamily:"monospace"}}>{fmtMetric(M.fmt, M.calc(rows))}</td>
-                <td colSpan={2} style={{padding:"8px 10px", textAlign:"right", color:C.muted2, fontWeight:400, fontSize:11}}>recalculado (no suma subtotales)</td>
-              </tr>
             </tbody>
+            <tfoot><tr style={{fontWeight:800}}>
+                <td style={{padding:"7px 10px", position:"sticky", bottom:0, background:C.card2, borderTop:`2px solid ${C.border}`}}>TOTAL ({grupos.length})</td>
+                <td style={{padding:"7px 10px", textAlign:"right", fontFamily:"monospace", position:"sticky", bottom:0, background:C.card2, borderTop:`2px solid ${C.border}`}}>{fmtMetric(M.fmt, M.calc(rows))}</td>
+                <td colSpan={2} style={{padding:"7px 10px", textAlign:"right", color:C.muted2, fontWeight:400, fontSize:11, position:"sticky", bottom:0, background:C.card2, borderTop:`2px solid ${C.border}`}}>recalculado (no suma subtotales)</td>
+            </tr></tfoot>
           </table>
         </div>
       )}
@@ -6700,7 +6709,7 @@ function TableroAsociativo({ liquidaciones, embarques, clientes, exportadoras, e
   return (
     <div>
       {/* ── Barra de configuración: fuente / medida / dims / gráfico / export ── */}
-      <div style={{background:C.card, border:`1px solid ${C.border}`, borderRadius:14, padding:14, boxShadow:C.shadowSm, marginBottom:12}}>
+      <div style={{background:C.card2, border:`1px solid ${C.border}`, borderRadius:10, padding:"10px 12px", marginBottom:12}}>
         <div style={{display:"flex", gap:12, flexWrap:"wrap", alignItems:"flex-end"}}>
           <div>
             <div style={lblSt}>Fuente de datos</div>
