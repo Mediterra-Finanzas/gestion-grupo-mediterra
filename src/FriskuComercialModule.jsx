@@ -5789,12 +5789,7 @@ function ReporteriaBI({ data, permResumen, permReportes, permTablero, onVerEmbar
   const hojas = [
     (permResumen?.visible!==false) && { id:"exec",     lab:"📈 Resumen" },
     { id:"comercial",  lab:"🤝 Comercial" },
-    { id:"clientes",   lab:"👥 Clientes" },
-    { id:"exportad",   lab:"🏭 Exportadores" },
-    { id:"especies",   lab:"🍒 Especies" },
-    { id:"mercados",   lab:"🌍 Mercados" },
-    { id:"comision",   lab:"💵 Comisiones" },
-    { id:"embbi",      lab:"🚢 Embarques" },
+    { id:"dims",       lab:"🧩 Dimensiones" },
     { id:"tabla",      lab:"▦ Tabla" },
     { id:"pivot",      lab:"⊞ Pivot" },
     { id:"drill",      lab:"⛏ Drill" },
@@ -5820,12 +5815,7 @@ function ReporteriaBI({ data, permResumen, permReportes, permTablero, onVerEmbar
       </div>
       {hoja==="exec"     && <ResumenEjecutivo/>}
       {hoja==="comercial"&& <HojaComercial onVerEmbarque={onVerEmbarque}/>}
-      {hoja==="clientes" && <HojaBIDim dimDefault="cliente" onVerEmbarque={onVerEmbarque}/>}
-      {hoja==="exportad" && <HojaBIDim dimDefault="exportadora" onVerEmbarque={onVerEmbarque}/>}
-      {hoja==="especies" && <HojaBIDim dimDefault="especie" onVerEmbarque={onVerEmbarque}/>}
-      {hoja==="mercados" && <HojaBIDim dimDefault="mercado" onVerEmbarque={onVerEmbarque}/>}
-      {hoja==="comision" && <HojaBIDim dimDefault="cliente" orderDefault="friskuCommissionUSD" onVerEmbarque={onVerEmbarque}/>}
-      {hoja==="embbi"    && <HojaBIDim dimDefault="semanaETD" orderDefault="containers" onVerEmbarque={onVerEmbarque}/>}
+      {hoja==="dims"     && <HojaBIDim dimDefault="cliente" onVerEmbarque={onVerEmbarque}/>}
       {hoja==="tabla"    && <StraightTableBI onVerEmbarque={onVerEmbarque}/>}
       {hoja==="pivot"    && <PivotTableBI/>}
       {hoja==="semanal"  && <HojaSemanal onVerEmbarque={onVerEmbarque}/>}
