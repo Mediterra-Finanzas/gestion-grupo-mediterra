@@ -5797,23 +5797,32 @@ function SelectionBarBI() {
 // selector de objeto. Ningún objeto reimplementa métricas ni selección.
 // ═══════════════════════════════════════════════════════════════════
 function AnalisisBI({ data, permTablero, onVerEmbarque }) {
+  // Objetos agrupados: EXPLORACIÓN (misma tabla de hechos vista de otra forma)
+  // y VISTAS CURADAS (relacional/tendencia/comparación). Todos comparten motor
+  // y selección global.
   const OBJS = [
-    {k:"dims",       lab:"🧩 Dimensiones", hint:"Ranking por dimensión + detalle de contenedores"},
-    {k:"tabla",      lab:"▦ Tabla",        hint:"Tabla configurable (elige columnas/medidas, ordena)"},
-    {k:"pivot",      lab:"⊞ Pivot",        hint:"Tabla dinámica: filas jerárquicas × columna × medida"},
-    {k:"drill",      lab:"⛏ Drill",        hint:"Jerarquías que avanzan de nivel (ruta local)"},
-    (permTablero?.visible!==false) && {k:"explorador", lab:"🧭 Explorador", hint:"Ad-hoc: dimensión × medida × visualización"},
+    {k:"dims",       lab:"🧩 Dimensiones", grupo:"Explorar", hint:"Ranking por dimensión + detalle de contenedores"},
+    {k:"tabla",      lab:"▦ Tabla",        grupo:"Explorar", hint:"Tabla configurable (elige columnas/medidas, ordena)"},
+    {k:"pivot",      lab:"⊞ Pivot",        grupo:"Explorar", hint:"Tabla dinámica: filas jerárquicas × columna × medida"},
+    {k:"drill",      lab:"⛏ Drill",        grupo:"Explorar", hint:"Jerarquías que avanzan de nivel (ruta local)"},
+    (permTablero?.visible!==false) && {k:"explorador", lab:"🧭 Explorador", grupo:"Explorar", hint:"Ad-hoc: dimensión × medida × visualización"},
+    {k:"comercial",  lab:"🤝 Comercial",   grupo:"Vistas",   hint:"Árbol relacional Exportador → Cliente → Especie"},
+    {k:"semanal",    lab:"📅 Semanal",     grupo:"Vistas",   hint:"Tendencia semanal de la selección"},
+    {k:"comp",       lab:"📊 Comparativo", grupo:"Vistas",   hint:"Comparación entre temporadas"},
   ].filter(Boolean);
   const [obj, setObj] = useState("dims");
   const cur = OBJS.find(o=>o.k===obj) || OBJS[0];
+  const btn = (o)=><button key={o.k} onClick={()=>setObj(o.k)} title={o.hint}
+    style={{fontSize:12, padding:"6px 12px", borderRadius:7, cursor:"pointer", border:"none", fontWeight:700,
+      background:obj===o.k?C.blue:"transparent", color:obj===o.k?"#fff":C.muted}}>{o.lab}</button>;
   return (
     <div>
       <div style={{display:"flex", alignItems:"center", gap:8, flexWrap:"wrap", marginBottom:12}}>
         <span style={{fontSize:10.5, fontWeight:700, color:C.muted, textTransform:"uppercase", letterSpacing:0.4}}>Objeto</span>
-        <div style={{display:"inline-flex", gap:2, padding:3, background:C.card2, border:`1px solid ${C.border}`, borderRadius:10}}>
-          {OBJS.map(o=><button key={o.k} onClick={()=>setObj(o.k)} title={o.hint}
-            style={{fontSize:12, padding:"6px 12px", borderRadius:7, cursor:"pointer", border:"none", fontWeight:700,
-              background:obj===o.k?C.blue:"transparent", color:obj===o.k?"#fff":C.muted}}>{o.lab}</button>)}
+        <div style={{display:"inline-flex", gap:2, padding:3, background:C.card2, border:`1px solid ${C.border}`, borderRadius:10, flexWrap:"wrap"}}>
+          {OBJS.filter(o=>o.grupo==="Explorar").map(btn)}
+          <span style={{width:1, alignSelf:"stretch", background:C.border, margin:"2px 4px"}}/>
+          {OBJS.filter(o=>o.grupo==="Vistas").map(btn)}
         </div>
         <span style={{fontSize:10.5, color:C.muted2}}>{cur.hint} · misma selección en todos los objetos</span>
       </div>
@@ -5822,6 +5831,9 @@ function AnalisisBI({ data, permTablero, onVerEmbarque }) {
       {obj==="pivot"      && <PivotTableBI/>}
       {obj==="drill"      && <DrillGroupsBI onVerEmbarque={onVerEmbarque}/>}
       {obj==="explorador" && <TableroAsociativo {...data}/>}
+      {obj==="comercial"  && <HojaComercial onVerEmbarque={onVerEmbarque}/>}
+      {obj==="semanal"    && <HojaSemanal onVerEmbarque={onVerEmbarque}/>}
+      {obj==="comp"       && <HojaComparativo/>}
     </div>
   );
 }
@@ -5834,10 +5846,7 @@ function AnalisisBI({ data, permTablero, onVerEmbarque }) {
 function ReporteriaBI({ data, permResumen, permReportes, permTablero, onVerEmbarque }) {
   const hojas = [
     (permResumen?.visible!==false) && { id:"exec",     lab:"📈 Resumen" },
-    { id:"comercial",  lab:"🤝 Comercial" },
     { id:"analisis",   lab:"🔬 Análisis" },
-    { id:"semanal",    lab:"📅 Semanal" },
-    { id:"comp",       lab:"📊 Comparativo" },
     (permReportes?.visible!==false) && { id:"reportes", lab:"📋 Reportes" },
   ].filter(Boolean);
   const [hoja, setHoja] = useState(hojas[0]?.id || "exec");
@@ -5856,10 +5865,7 @@ function ReporteriaBI({ data, permResumen, permReportes, permTablero, onVerEmbar
         ))}
       </div>
       {hoja==="exec"     && <ResumenEjecutivo/>}
-      {hoja==="comercial"&& <HojaComercial onVerEmbarque={onVerEmbarque}/>}
       {hoja==="analisis" && <AnalisisBI data={data} permTablero={permTablero} onVerEmbarque={onVerEmbarque}/>}
-      {hoja==="semanal"  && <HojaSemanal onVerEmbarque={onVerEmbarque}/>}
-      {hoja==="comp"     && <HojaComparativo/>}
       {hoja==="reportes" && <ReportesTab {...data}/>}
     </div>
   );
