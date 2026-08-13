@@ -5111,8 +5111,17 @@ function HojaBIDim({ dimDefault, orderDefault="friskuCommissionUSD", onVerEmbarq
       theme:"striped", styles:{fontSize:7.5}, headStyles:{fillColor:[30,39,97]}, margin:{left:m,right:m} });
     doc.save(`Frisku_BI_${groupDim}_${new Date().toISOString().slice(0,10)}.pdf`);
   }catch(e){ console.error("[HojaBI] PDF:",e); alert("No se pudo generar el PDF: "+e.message); } setExpP(false); };
+  const QUICK = [
+    {k:"cliente",lab:"Clientes"},{k:"exportadora",lab:"Exportadores"},{k:"especie",lab:"Especies"},
+    {k:"mercado",lab:"Mercados"},{k:"paisDestino",lab:"País"},{k:"semanaETD",lab:"Semana ETD"},
+  ];
   return (
     <div>
+      <div style={{display:"flex",alignItems:"center",gap:6,flexWrap:"wrap",marginBottom:10}}>
+        <span style={{fontSize:10.5,fontWeight:700,color:C.muted,textTransform:"uppercase",letterSpacing:0.4,marginRight:2}}>Ver por</span>
+        {QUICK.map(d=><button key={d.k} onClick={()=>setGroupDim(d.k)} style={{...btnSt(groupDim===d.k?C.blue:C.muted, groupDim!==d.k),fontSize:11.5,padding:"5px 11px"}}>{d.lab}</button>)}
+        <span style={{fontSize:10.5,color:C.muted2,marginLeft:4}}>· o cualquier dimensión en «Agrupar por» ↓</span>
+      </div>
       <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,padding:12,marginBottom:12,display:"flex",gap:10,flexWrap:"wrap",alignItems:"flex-end"}}>
         {FLT.map(dk=><FiltroMultiBI key={dk} dimKey={dk} label={FRISKU_DIMS.find(d=>d.key===dk)?.lab||dk}/>)}
         <div><div style={lblSt}>Agrupar por</div><select value={groupDim} onChange={e=>setGroupDim(e.target.value)} style={{...inputSt}}>{FRISKU_DIMS.map(d=><option key={d.key} value={d.key}>{d.lab}</option>)}</select></div>
