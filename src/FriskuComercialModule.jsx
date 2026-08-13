@@ -5561,6 +5561,124 @@ function StraightTableBI({ onVerEmbarque }) {
   );
 }
 
+// PIVOT TABLE controlada (estilo Qlik). Filas (1-2 dims jerárquicas) × 1 columna ×
+// 1 medida, del catálogo. Expandir/contraer, totales de fila/columna/general,
+// selección desde dims, export y fullscreen. Mismo motor. CRÍTICO: cada celda y
+// total se RECALCULA con metric.calc(rows) — nunca suma subtotales (correcto para
+// count-distinct: contenedores/FCL/clientes/exportadores).
+function PivotTableBI() {
+  const bi = useFriskuBI();
+  const { filtered, dims, metrics, metric, sel, toggle, chips } = bi;
+  const [row1, setRow1] = useState("cliente");
+  const [row2, setRow2] = useState("especie");
+  const [colDim, setColDim] = useState("temporada");
+  const [medKey, setMedKey] = useState("fcl");
+  const [expanded, setExpanded] = useState(()=>new Set());
+  const [full, setFull] = useState(false);
+  const [expX, setExpX] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menuRef=useRef(null);
+  useEffect(()=>{ const h=(e)=>{ if(menuRef.current&&!menuRef.current.contains(e.target))setMenuOpen(false); }; document.addEventListener("mousedown",h); return ()=>document.removeEventListener("mousedown",h); },[]);
+  const M = metric[medKey];
+  const FIN = new Set(["destinationSalesUSD","clientCommissionUSD","friskuCommissionUSD","avgCommissionPct"]);
+  const isFin = FIN.has(medKey);
+  const cellTxt = (rows, colValue)=>{ const sub = colValue==null ? rows : rows.filter(r=>r[colDim]===colValue);
+    if(isFin && sub.filter(r=>r._nLiq>0).length===0) return "—"; return fmtMetric(M.fmt, M.calc(sub)); };
+  const colVals = useMemo(()=>{ const s={}; filtered.forEach(r=>{ const v=r[colDim]; if(v!=null&&v!=="") s[v]=r[colDim+"Lab"]??v; }); return Object.entries(s).map(([value,label])=>({value,label})).sort((a,b)=>String(a.label).localeCompare(String(b.label))); },[filtered,colDim]);
+  const groups = useMemo(()=>{
+    const g1 = groupByDims(filtered, [row1]);
+    const out = g1.map(g=>({ key:g.key, dimValue:g.dimValues[row1], label:g.labels[row1], rows:g.rows,
+      subs: (row2 && row2!==row1) ? groupByDims(g.rows, [row2]).map(s=>({key:g.key+"|"+s.key, dimValue:s.dimValues[row2], label:s.labels[row2], rows:s.rows})).sort((a,b)=>M.calc(b.rows)-M.calc(a.rows)) : [] }));
+    return out.sort((a,b)=>M.calc(b.rows)-M.calc(a.rows));
+  },[filtered,row1,row2,medKey]);
+  const tE=(k)=>setExpanded(p=>{const n=new Set(p);n.has(k)?n.delete(k):n.add(k);return n;});
+  const dimSel = (val,set,extra)=><select value={val} onChange={e=>set(e.target.value)} style={{...inputSt}}>{extra}{dims.map(d=><option key={d.key} value={d.key}>{d.lab}</option>)}</select>;
+  const filtrosTxt = chips.length ? chips.map(c=>`${c.dimLab}=${c.label}`).join(", ") : "sin filtros";
+  const hasR2 = row2 && row2!==row1;
+
+  const exportExcel = async ()=>{ setExpX(true); try{
+    const ExcelJS=await fr_loadExcelJS(); const wb=new ExcelJS.Workbook(); wb.creator="Grupo Mediterra — Frisku Foods";
+    const headers=[dims.find(d=>d.key===row1)?.lab||row1, ...(hasR2?[dims.find(d=>d.key===row2)?.lab||row2]:[]), ...colVals.map(c=>c.label), "Total"];
+    const rowsX=[];
+    groups.forEach(g=>{
+      rowsX.push([g.label, ...(hasR2?[""]:[]), ...colVals.map(c=>M.calc(g.rows.filter(r=>r[colDim]===c.value))), M.calc(g.rows)]);
+      if(hasR2) g.subs.forEach(s=>rowsX.push(["", s.label, ...colVals.map(c=>M.calc(s.rows.filter(r=>r[colDim]===c.value))), M.calc(s.rows)]));
+    });
+    rowsX.push(["TOTAL", ...(hasR2?[""]:[]), ...colVals.map(c=>M.calc(filtered.filter(r=>r[colDim]===c.value))), M.calc(filtered)]);
+    const nDim = hasR2?2:1; const numCols = headers.map((h,i)=>i>=nDim?i:-1).filter(i=>i>=nDim);
+    const ws=wb.addWorksheet("Pivot");
+    fr_sheetTabla(ws,{titulo:`FRISKU FOODS — Pivot (${M.label})`, subtitulo:`Filas ${row1}${hasR2?" → "+row2:""} · Columna ${colDim} · Filtros: ${filtrosTxt} · ${new Date().toLocaleString("es-CL")}`,
+      headers, colWidths:headers.map((h,i)=>i<nDim?20:13), rows:rowsX, moneyCols:M.fmt==="usd"?numCols:[], intCols:M.fmt==="int"?numCols:[]});
+    await fr_logoExcel(wb,ws);
+    await fr_descargarWB(wb,`Frisku_Pivot_${new Date().toISOString().slice(0,10)}.xlsx`);
+  }catch(e){ console.error("[Pivot] Excel:",e); alert("No se pudo generar el Excel: "+e.message); } setExpX(false); setMenuOpen(false); };
+
+  const td={padding:"6px 9px",borderTop:`1px solid ${C.border}`,textAlign:"right",fontFamily:"monospace",whiteSpace:"nowrap"};
+  const tabla = (
+    <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,overflowX:"auto"}}>
+      <table style={{width:"100%",borderCollapse:"collapse",fontSize:11.5,minWidth:560}}>
+        <thead><tr style={{background:C.card2,color:C.muted,textAlign:"left"}}>
+          <th style={{padding:"8px 9px"}}>{dims.find(d=>d.key===row1)?.lab||row1}{hasR2?` › ${dims.find(d=>d.key===row2)?.lab||row2}`:""}</th>
+          {colVals.map(c=><th key={c.value} onClick={()=>toggle(colDim,c.value)} title="Clic para seleccionar esta columna" style={{padding:"8px 9px",textAlign:"right",cursor:"pointer",whiteSpace:"nowrap",color:(sel[colDim]&&sel[colDim].has(c.value))?C.accent2:undefined}}>{c.label}</th>)}
+          <th style={{padding:"8px 9px",textAlign:"right",fontWeight:800}}>Total</th>
+        </tr></thead>
+        <tbody>
+          {groups.map(g=>{ const op=expanded.has(g.key); const isSel=sel[row1]&&sel[row1].has(g.dimValue);
+            return <React.Fragment key={g.key}>
+              <tr style={{borderTop:`1px solid ${C.border}`,background:isSel?`${C.accent2}10`:"transparent"}}>
+                <td style={{padding:"6px 9px",whiteSpace:"nowrap",cursor:"pointer"}}>
+                  {hasR2 && <span onClick={()=>tE(g.key)} style={{color:C.muted,marginRight:6,cursor:"pointer"}}>{op?"▾":"▸"}</span>}
+                  <span onClick={()=>toggle(row1,g.dimValue)} title="Seleccionar" style={{color:isSel?C.accent2:C.text,fontWeight:isSel?700:600}}>{isSel?"☑ ":""}{g.label}</span>
+                </td>
+                {colVals.map(c=><td key={c.value} style={td}>{cellTxt(g.rows,c.value)}</td>)}
+                <td style={{...td,fontWeight:800,color:C.text}}>{cellTxt(g.rows,null)}</td>
+              </tr>
+              {op && hasR2 && g.subs.map(s=>{ const isS2=sel[row2]&&sel[row2].has(s.dimValue);
+                return <tr key={s.key} style={{borderTop:`1px solid ${C.border}`}}>
+                  <td style={{padding:"5px 9px 5px 30px",whiteSpace:"nowrap",cursor:"pointer"}} onClick={()=>toggle(row2,s.dimValue)}><span style={{color:isS2?C.accent2:C.muted,fontWeight:isS2?700:400}}>{isS2?"☑ ":"• "}{s.label}</span></td>
+                  {colVals.map(c=><td key={c.value} style={{...td,color:C.muted}}>{cellTxt(s.rows,c.value)}</td>)}
+                  <td style={{...td,color:C.muted,fontWeight:700}}>{cellTxt(s.rows,null)}</td>
+                </tr>; })}
+            </React.Fragment>; })}
+          {groups.length===0 && <tr><td colSpan={colVals.length+2} style={{padding:20,textAlign:"center",color:C.muted2}}>Sin datos para la selección.</td></tr>}
+        </tbody>
+        {groups.length>0 && <tfoot><tr style={{borderTop:`2px solid ${C.border}`,background:C.card2,fontWeight:800}}>
+          <td style={{padding:"8px 9px"}}>TOTAL</td>
+          {colVals.map(c=><td key={c.value} style={td}>{cellTxt(filtered,c.value)}</td>)}
+          <td style={{...td,color:C.text}}>{cellTxt(filtered,null)}</td>
+        </tr></tfoot>}
+      </table>
+    </div>
+  );
+
+  return (
+    <div>
+      <div style={{display:"flex",gap:10,marginBottom:12,flexWrap:"wrap",alignItems:"flex-end"}}>
+        <div><div style={lblSt}>Fila 1</div>{dimSel(row1,setRow1)}</div>
+        <div><div style={lblSt}>Fila 2 (opcional)</div><select value={row2} onChange={e=>setRow2(e.target.value)} style={{...inputSt}}><option value="">— ninguna —</option>{dims.map(d=><option key={d.key} value={d.key}>{d.lab}</option>)}</select></div>
+        <div><div style={lblSt}>Columna</div>{dimSel(colDim,setColDim)}</div>
+        <div><div style={lblSt}>Medida</div><select value={medKey} onChange={e=>setMedKey(e.target.value)} style={{...inputSt}}>{metrics.map(m=><option key={m.key} value={m.key}>{m.label}</option>)}</select></div>
+        {hasR2 && <div style={{display:"flex",gap:6}}>
+          <button onClick={()=>setExpanded(new Set(groups.map(g=>g.key)))} style={{...btnSt(C.muted,true),fontSize:11,padding:"7px 9px"}}>Expandir todo</button>
+          <button onClick={()=>setExpanded(new Set())} style={{...btnSt(C.muted,true),fontSize:11,padding:"7px 9px"}}>Contraer</button>
+        </div>}
+        <div ref={menuRef} style={{position:"relative",marginLeft:"auto"}}>
+          <button onClick={()=>setMenuOpen(o=>!o)} style={{...btnSt(C.muted,true),fontSize:13,padding:"6px 12px"}}>⋯</button>
+          {menuOpen && (
+            <div style={{position:"absolute",zIndex:60,top:"calc(100% + 4px)",right:0,background:C.card,border:`1px solid ${C.border}`,borderRadius:8,padding:5,minWidth:170,boxShadow:C.shadowSm||"0 8px 24px rgba(0,0,0,.18)"}}>
+              <div onClick={exportExcel} style={{padding:"7px 10px",cursor:"pointer",fontSize:12}}>{expX?"⏳":"⬇ Exportar Excel"}</div>
+              <div onClick={()=>{setFull(true);setMenuOpen(false);}} style={{padding:"7px 10px",cursor:"pointer",fontSize:12,borderTop:`1px solid ${C.border}`}}>⛶ Pantalla completa</div>
+            </div>
+          )}
+        </div>
+      </div>
+      {tabla}
+      <div style={{fontSize:10.5,color:C.muted2,marginTop:8}}>Cada celda/total se recalcula con la métrica (no suma subtotales) → correcto para contenedores/FCL/count-distinct. Clic en una dimensión o columna = seleccionar. Financiero "—" = sin liquidación.</div>
+      <FullscreenBI open={full} title={`Pivot — ${M.label}`} onClose={()=>setFull(false)}>{tabla}</FullscreenBI>
+    </div>
+  );
+}
+
 // SELECTIONS BAR global (estilo Qlik): back/forward de selecciones + selecciones
 // activas agrupadas por dimensión (quitar valor/dimensión) + limpiar todo.
 function SelectionBarBI() {
@@ -5607,6 +5725,7 @@ function ReporteriaBI({ data, permResumen, permReportes, permTablero, onVerEmbar
     { id:"comision",   lab:"💵 Comisiones" },
     { id:"embbi",      lab:"🚢 Embarques" },
     { id:"tabla",      lab:"▦ Tabla" },
+    { id:"pivot",      lab:"⊞ Pivot" },
     { id:"semanal",    lab:"📅 Semanal" },
     { id:"comp",       lab:"📊 Comparativo" },
     (permReportes?.visible!==false) && { id:"reportes", lab:"📋 Reportes" },
@@ -5631,6 +5750,7 @@ function ReporteriaBI({ data, permResumen, permReportes, permTablero, onVerEmbar
       {hoja==="comision" && <HojaBIDim dimDefault="cliente" orderDefault="friskuCommissionUSD" onVerEmbarque={onVerEmbarque}/>}
       {hoja==="embbi"    && <HojaBIDim dimDefault="semanaETD" orderDefault="containers" onVerEmbarque={onVerEmbarque}/>}
       {hoja==="tabla"    && <StraightTableBI onVerEmbarque={onVerEmbarque}/>}
+      {hoja==="pivot"    && <PivotTableBI/>}
       {hoja==="semanal"  && <HojaSemanal onVerEmbarque={onVerEmbarque}/>}
       {hoja==="comp"     && <HojaComparativo/>}
       {hoja==="reportes" && <ReportesTab {...data}/>}

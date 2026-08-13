@@ -151,3 +151,27 @@ describe("set helpers (participación / ignore field / invert)", () => {
     expect(invertSelection(S(), selectable).sort()).toEqual(["A","B","C"]);
   });
 });
+
+// P1.5 — Pivot: las métricas count-distinct se RECALCULAN, no se suman subtotales.
+describe("Pivot — count-distinct no se duplica (metric.calc por celda/total)", () => {
+  const D = [
+    { cliente:"A", especie:"X", _cancel:false },
+    { cliente:"A", especie:"Y", _cancel:false },  // A aparece en X e Y
+    { cliente:"B", especie:"X", _cancel:false },
+  ];
+  const AC = FRISKU_METRIC.activeClients; // count distinct cliente
+  test("total recalculado (2) ≠ suma de subtotales por especie (3)", () => {
+    const total = AC.calc(D);                         // distintos: {A,B} = 2
+    const porEsp = groupByDims(D, ["especie"]).map(g=>AC.calc(g.rows)); // X→2, Y→1
+    const suma = porEsp.reduce((s,v)=>s+v,0);         // 3 (incorrecto si se sumara)
+    expect(total).toBe(2);
+    expect(suma).toBe(3);
+    expect(total).not.toBe(suma);                     // por eso el pivot usa metric.calc, no suma
+  });
+  test("contenedores SÍ es aditivo (1 fila = 1 contenedor)", () => {
+    const C = FRISKU_METRIC.containers;
+    const total = C.calc(D);                          // 3
+    const suma = groupByDims(D, ["especie"]).map(g=>C.calc(g.rows)).reduce((s,v)=>s+v,0); // X=2,Y=1 → 3
+    expect(total).toBe(suma);
+  });
+});
