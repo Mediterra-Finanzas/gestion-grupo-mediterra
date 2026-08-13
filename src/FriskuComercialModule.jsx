@@ -5796,44 +5796,80 @@ function SelectionBarBI() {
 // Explorador (ad-hoc dim×medida×gráfico). Reemplaza 5 pestañas por 1 hoja con
 // selector de objeto. Ningún objeto reimplementa métricas ni selección.
 // ═══════════════════════════════════════════════════════════════════
-function AnalisisBI({ data, permTablero, onVerEmbarque }) {
-  // Objetos agrupados: EXPLORACIÓN (misma tabla de hechos vista de otra forma)
-  // y VISTAS CURADAS (relacional/tendencia/comparación). Todos comparten motor
-  // y selección global.
-  const OBJS = [
-    {k:"dims",       lab:"🧩 Dimensiones", grupo:"Explorar", hint:"Ranking por dimensión + detalle de contenedores"},
-    {k:"tabla",      lab:"▦ Tabla",        grupo:"Explorar", hint:"Tabla configurable (elige columnas/medidas, ordena)"},
-    {k:"pivot",      lab:"⊞ Pivot",        grupo:"Explorar", hint:"Tabla dinámica: filas jerárquicas × columna × medida"},
-    {k:"drill",      lab:"⛏ Drill",        grupo:"Explorar", hint:"Jerarquías que avanzan de nivel (ruta local)"},
-    (permTablero?.visible!==false) && {k:"explorador", lab:"🧭 Explorador", grupo:"Explorar", hint:"Ad-hoc: dimensión × medida × visualización"},
-    {k:"comercial",  lab:"🤝 Comercial",   grupo:"Vistas",   hint:"Árbol relacional Exportador → Cliente → Especie"},
-    {k:"semanal",    lab:"📅 Semanal",     grupo:"Vistas",   hint:"Tendencia semanal de la selección"},
-    {k:"comp",       lab:"📊 Comparativo", grupo:"Vistas",   hint:"Comparación entre temporadas"},
+// UNIFIED ANALYSIS WORKSPACE (P1.9e) — un solo instrumento BI. El usuario cambia
+// QUÉ analiza (Preset) y CÓMO lo ve (Visualización); no "entra a un módulo".
+//   · Selection Bar permanente (arriba, en ReporteriaBI) — estado global inmutable.
+//   · Panel lateral colapsable: FILTROS (asociativos) + PROPIEDADES del objeto.
+//   · Canvas dimensionado al viewport; al colapsar el panel, se expande.
+//   · Preset "Libre" = viz configurable (Tabla|Pivot|Barras|Dona|Tendencia|Drill).
+//     Presets curados (Comercial|Semanal|Comparativo) usan su renderer propio →
+//     el selector Visualización queda deshabilitado (Ajuste B).
+// e1 = shell + selectores + panel (FILTROS activo, PROPIEDADES llega en e2). Los
+// objetos se montan tal cual; Barras/Dona/Tendencia reutilizan los renderers de
+// TableroAsociativo (mismo motor, sin duplicar métricas) vía initialChart.
+function AnalysisWorkspace({ data, permTablero, onVerEmbarque }) {
+  const [preset, setPreset]       = useState("libre");   // libre | comercial | semanal | comp
+  const [viz, setViz]             = useState("tabla");    // tabla | pivot | barras | dona | tendencia | drill
+  const [panelOpen, setPanelOpen] = useState(true);
+  const charts = permTablero?.visible!==false;            // Barras/Dona/Tendencia usan el motor del Explorador
+  const libre  = preset==="libre";
+  const VIZ = [
+    {k:"tabla", lab:"▦ Tabla"}, {k:"pivot", lab:"⊞ Pivot"},
+    charts && {k:"barras", lab:"▮ Barras"}, charts && {k:"dona", lab:"◔ Dona"}, charts && {k:"tendencia", lab:"📈 Tendencia"},
+    {k:"drill", lab:"⛏ Drill"},
   ].filter(Boolean);
-  const [obj, setObj] = useState("dims");
-  const cur = OBJS.find(o=>o.k===obj) || OBJS[0];
-  const btn = (o)=><button key={o.k} onClick={()=>setObj(o.k)} title={o.hint}
-    style={{fontSize:12, padding:"6px 12px", borderRadius:7, cursor:"pointer", border:"none", fontWeight:700,
-      background:obj===o.k?C.blue:"transparent", color:obj===o.k?"#fff":C.muted}}>{o.lab}</button>;
+  const PRESETS = [
+    {k:"libre", lab:"Libre"}, {k:"comercial", lab:"🤝 Comercial"}, {k:"semanal", lab:"📅 Semanal"}, {k:"comp", lab:"📊 Comparativo"},
+  ];
+  const FILT = ["temporada","especie","exportadora","cliente","mercado","paisDestino","estado","via","semanaETD"];
+  const lblIn = {fontSize:10.5,fontWeight:700,color:C.muted,textTransform:"uppercase",letterSpacing:0.4};
+  const seg = {display:"inline-flex",gap:2,padding:3,background:C.card2,border:`1px solid ${C.border}`,borderRadius:9,flexWrap:"wrap"};
+  const segBtn = (on,dis)=>({fontSize:12,padding:"6px 11px",borderRadius:6,cursor:dis?"default":"pointer",border:"none",fontWeight:700,
+    background:on?C.blue:"transparent",color:on?"#fff":(dis?C.muted2:C.muted),opacity:dis?0.5:1});
+
+  const canvas = ()=>{
+    if(preset==="comercial") return <HojaComercial onVerEmbarque={onVerEmbarque}/>;
+    if(preset==="semanal")   return <HojaSemanal onVerEmbarque={onVerEmbarque}/>;
+    if(preset==="comp")      return <HojaComparativo/>;
+    if(viz==="tabla")        return <StraightTableBI onVerEmbarque={onVerEmbarque}/>;
+    if(viz==="pivot")        return <PivotTableBI/>;
+    if(viz==="drill")        return <DrillGroupsBI onVerEmbarque={onVerEmbarque}/>;
+    const initialChart = viz==="dona"?"torta":viz==="tendencia"?"tendencia":"barras";
+    return <TableroAsociativo key={viz} initialChart={initialChart} {...data}/>;
+  };
+
   return (
     <div>
-      <div style={{display:"flex", alignItems:"center", gap:8, flexWrap:"wrap", marginBottom:12}}>
-        <span style={{fontSize:10.5, fontWeight:700, color:C.muted, textTransform:"uppercase", letterSpacing:0.4}}>Objeto</span>
-        <div style={{display:"inline-flex", gap:2, padding:3, background:C.card2, border:`1px solid ${C.border}`, borderRadius:10, flexWrap:"wrap"}}>
-          {OBJS.filter(o=>o.grupo==="Explorar").map(btn)}
-          <span style={{width:1, alignSelf:"stretch", background:C.border, margin:"2px 4px"}}/>
-          {OBJS.filter(o=>o.grupo==="Vistas").map(btn)}
+      {/* ② Toolbar superior del workspace */}
+      <div style={{display:"flex",alignItems:"center",gap:12,flexWrap:"wrap",marginBottom:10,paddingBottom:10,borderBottom:`1px solid ${C.border}`}}>
+        <button onClick={()=>setPanelOpen(o=>!o)} title={panelOpen?"Ocultar panel (más canvas)":"Mostrar panel"} style={{...btnSt(panelOpen?C.blue:C.muted,!panelOpen),fontSize:12,padding:"6px 10px"}}>{panelOpen?"◧ Panel":"▤ Panel"}</button>
+        <div style={{display:"flex",alignItems:"center",gap:6}}>
+          <span style={lblIn}>Preset</span>
+          <div style={seg}>{PRESETS.map(p=><button key={p.k} onClick={()=>setPreset(p.k)} style={segBtn(preset===p.k,false)}>{p.lab}</button>)}</div>
         </div>
-        <span style={{fontSize:10.5, color:C.muted2}}>{cur.hint} · misma selección en todos los objetos</span>
+        <div style={{display:"flex",alignItems:"center",gap:6}}>
+          <span style={{...lblIn,opacity:libre?1:0.5}}>Visualización</span>
+          <div style={{...seg,opacity:libre?1:0.6}}>{VIZ.map(v=><button key={v.k} disabled={!libre} onClick={()=>libre&&setViz(v.k)} title={libre?"":"La vista curada usa su propio renderer"} style={segBtn(libre&&viz===v.k,!libre)}>{v.lab}</button>)}</div>
+        </div>
+        {!libre && <span style={{fontSize:10.5,color:C.muted2}}>Vista curada · renderer propio</span>}
       </div>
-      {obj==="dims"       && <HojaBIDim dimDefault="cliente" onVerEmbarque={onVerEmbarque}/>}
-      {obj==="tabla"      && <StraightTableBI onVerEmbarque={onVerEmbarque}/>}
-      {obj==="pivot"      && <PivotTableBI/>}
-      {obj==="drill"      && <DrillGroupsBI onVerEmbarque={onVerEmbarque}/>}
-      {obj==="explorador" && <TableroAsociativo {...data}/>}
-      {obj==="comercial"  && <HojaComercial onVerEmbarque={onVerEmbarque}/>}
-      {obj==="semanal"    && <HojaSemanal onVerEmbarque={onVerEmbarque}/>}
-      {obj==="comp"       && <HojaComparativo/>}
+
+      {/* ③ Panel lateral + ④ Canvas (alto = viewport − chrome) */}
+      <div style={{display:"flex",gap:12,alignItems:"stretch",height:"calc(100vh - 250px)",minHeight:460}}>
+        {panelOpen && (
+          <div style={{width:264,flexShrink:0,overflowY:"auto",border:`1px solid ${C.border}`,borderRadius:10,background:C.card2,padding:8}}>
+            <div style={{fontSize:10,fontWeight:800,color:C.muted,textTransform:"uppercase",letterSpacing:0.5,margin:"2px 2px 7px"}}>Filtros</div>
+            <div style={{display:"flex",flexDirection:"column",gap:6}}>
+              {FILT.map(dk=><FilterFieldBI key={dk} dimKey={dk} label={FRISKU_DIMS.find(d=>d.key===dk)?.lab||dk}/>)}
+            </div>
+            <div style={{fontSize:10,fontWeight:800,color:C.muted,textTransform:"uppercase",letterSpacing:0.5,margin:"14px 2px 6px",borderTop:`1px solid ${C.border}`,paddingTop:10}}>Propiedades</div>
+            <div style={{fontSize:10.5,color:C.muted2,padding:"0 2px"}}>Columnas, medidas, orden, filas/columnas de pivote se integran aquí en e2. Por ahora viven en la barra del propio objeto.</div>
+          </div>
+        )}
+        <div style={{flex:1,minWidth:0,overflow:"auto"}}>
+          {canvas()}
+        </div>
+      </div>
     </div>
   );
 }
@@ -5851,21 +5887,24 @@ function ReporteriaBI({ data, permResumen, permReportes, permTablero, onVerEmbar
   ].filter(Boolean);
   const [hoja, setHoja] = useState(hojas[0]?.id || "exec");
   const [paneOpen, setPaneOpen] = useState(false);
+  const enAnalisis = hoja==="analisis";   // en Análisis los filtros viven en el panel del workspace
   return (
     <div>
       <SelectionBarBI/>
-      <FilterPaneBI open={paneOpen}/>
+      {!enAnalisis && <FilterPaneBI open={paneOpen}/>}
       <div style={{display:"flex", gap:6, marginBottom:14, flexWrap:"wrap", borderBottom:`1px solid ${C.border}`, paddingBottom:10, alignItems:"center"}}>
-        <button onClick={()=>setPaneOpen(o=>!o)} title="Panel de filtros (varias dimensiones, 4 estados)"
-          style={{...btnSt(paneOpen?C.accent2:C.muted, !paneOpen), fontSize:12, padding:"7px 12px"}}>🔎 Filtros</button>
-        <span style={{width:1, alignSelf:"stretch", background:C.border, margin:"0 2px"}}/>
+        {!enAnalisis && <>
+          <button onClick={()=>setPaneOpen(o=>!o)} title="Panel de filtros (varias dimensiones, 4 estados)"
+            style={{...btnSt(paneOpen?C.accent2:C.muted, !paneOpen), fontSize:12, padding:"7px 12px"}}>🔎 Filtros</button>
+          <span style={{width:1, alignSelf:"stretch", background:C.border, margin:"0 2px"}}/>
+        </>}
         {hojas.map(h=>(
           <button key={h.id} onClick={()=>setHoja(h.id)}
             style={{...btnSt(hoja===h.id?C.blue:C.muted, hoja!==h.id), fontSize:12, padding:"7px 12px"}}>{h.lab}</button>
         ))}
       </div>
       {hoja==="exec"     && <ResumenEjecutivo/>}
-      {hoja==="analisis" && <AnalisisBI data={data} permTablero={permTablero} onVerEmbarque={onVerEmbarque}/>}
+      {hoja==="analisis" && <AnalysisWorkspace data={data} permTablero={permTablero} onVerEmbarque={onVerEmbarque}/>}
       {hoja==="reportes" && <ReportesTab {...data}/>}
     </div>
   );
@@ -6251,12 +6290,12 @@ function ResumenEjecutivo() {
   );
 }
 
-function TableroAsociativo({ liquidaciones, embarques, clientes, exportadoras, especies, mercados, programa, contratos, pos }) {
+function TableroAsociativo({ liquidaciones, embarques, clientes, exportadoras, especies, mercados, programa, contratos, pos, initialChart }) {
   const [fuenteId, setFuenteId] = useState("liq");
   const [measureId, setMeasureId] = useState("");
   const [dim1, setDim1] = useState("");
   const [dim2, setDim2] = useState("");
-  const [chart, setChart] = useState("barras");   // barras | tabla | torta | tendencia
+  const [chart, setChart] = useState(initialChart||"barras");   // barras | tabla | torta | tendencia (initialChart lo fija el workspace)
   const biCtx = useFriskuBI();                    // selección BI COMPARTIDA (un solo motor: Resumen/Reportes/Explorador)
   const sel = biCtx.sel;                          // {dimKey: Set(valores)}
   const [topN, setTopN] = useState(12);
