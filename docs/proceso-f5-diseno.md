@@ -1,7 +1,7 @@
 # proc_* — F5: Diseño (Resultado de Proceso al cliente) — para revisión
 
 **Capability:** `proc_*` · tenant piloto Allegria Service · **Worktree:** `worktree-proc-fase1`
-**Base:** F1+F2+F3+F4 VALIDATED · **Fecha:** 2026-08-13 · **Estado:** Diseño F5 **para revisión** — no se materializa SQL hasta ratificar.
+**Base:** F1+F2+F3+F4 VALIDATED · **Fecha:** 2026-08-13 · **Estado:** ✅ **F5 VALIDATED** (DF5-1..6 ratificadas; ver Acta al final).
 
 > Aplica la regla permanente [`proceso-bounded-context-frisku.md`](proceso-bounded-context-frisku.md): **destinatarios y contrapartes del informe salen de `proc_vinculo`**, nunca de Frisku. Incremental sobre F1-F4; el ledger y los hechos F1-F4 siguen siendo la SoT (el informe **lee y consolida**, no recalcula).
 
@@ -45,3 +45,33 @@ Tablas F5: `empresa_id` + RLS `FORCE` deny-by-default + `REVOKE anon` + DEV-ONLY
 ## 6. Gate F5 (diseño → SQL)
 
 No se materializa SQL F5 hasta ratificar §1 (alcance) y §4 (DF5-1..6). Con eso: migración incremental + capa dominio/DB + tests + E2E (informe consolidado + versión + envío) + runtime aislado + regresión F1-F4 + RLS + Acta F5 + commit `service:`. STOP-AND-REPORT solo ante cambio estructural de bounded context / SoT / identidad / seguridad / tenancy.
+
+---
+
+## ACTA DE ENTREGA — proc_* FASE 5 (VALIDATED)
+
+**Proyecto:** Allegria Service · **Bounded context:** `proc_*` · **Worktree:** `worktree-proc-fase1` · **Base:** F1-F4 VALIDATED.
+**Estado: ✅ VALIDATED (runtime aislado, 2026-08-13).** Incremental. Alcance = Resultado de Proceso; tarifario/facturable = F6.
+
+**Archivos (solo rutas Service):**
+- `supabase/schema_proc_v5_f5.sql` — **nuevo** (incremental): 5 tablas (`proc_informe` + `_version` + `_fuente` + `_destinatario` + `_envio`) + trigger de inmutabilidad de versión emitida + 6 RPC (crear_informe, generar_version [consolida + valida órdenes cerradas/conciliadas + fuentes sin duplicar], agregar_destinatario [snapshot de contacto], emitir_version [reemplaza la emitida anterior], registrar_envio [pendiente]) + RLS FORCE/REVOKE anon.
+- `supabase/schema_proc_v5_f5_DEV_ONLY_rls.sql` — **nuevo**.
+- `supabase/validation/proc_v5_f5_tests.sql` — **nuevo** (E2E Regla 17 + negativos Regla 16).
+- `src/proceso/core/procesoF5Domain.js` + `.test.mjs` — **nuevo** (consolidación ponderada, estados, envío). `procesoF5DB.js` — **nuevo** (gate Regla 9).
+- `docs/proceso-f5-diseno.md` — **modificado** (esta Acta).
+
+**Precisiones DF5-1..6 materializadas:** alcance solo Resultado de Proceso (F6=tarifario); informe **deriva** de F1-F4, no recalcula; **snapshot estructurado inmutable** al emitir (identificacion/resumen/detalle/adicional, no solo PDF); **fuentes explícitas** por versión (`proc_informe_fuente`) sin duplicar órdenes; **consolidación matemática** (Σ kg comerciales / Σ kg procesados, no promedio de %); destinatarios desde `proc_vinculo` (regla Frisku≠Service) con **snapshot de contacto congelado**; versión emitida inmutable → corrección = nueva versión (la anterior → `reemplazada`, permanece consultable); estados de envío (`pendiente`/`enviado`/`error`/`reintentado`/`cancelado`), **no 'enviado' por generar PDF**; PDF = representación (no SoT); emisión **no exige despacho** (Resultado ≠ despacho: basta orden cerrada/conciliada); folio operacional (RP-…, no UUID visible); Resultado ≠ inventario (F1-F4 = autoridad).
+
+**Email:** `emailHelper` evaluado = **infra neutral** (`src/emailHelper.js`, "usado por todos los módulos", sin imports, param `modulo`). Utilizable vía interfaz neutral; el **despacho real de email queda gated a la capa UI** (envíos en `pendiente` en F5). Sin nueva deuda. PDF (jsPDF/autoTable) = UI-side, `pdf_path` en bucket privado + URL firmada.
+
+**Validación runtime (Postgres 16 efímero, sin tocar producción; teardown):**
+- F1-F5 aplican limpios; **F1-F4 regresión OK**.
+- F5 E2E (Regla 17): 2 órdenes (Lote procesado en 2 corridas) → informe → **versión 1 con consolidación ponderada packout 0.72 (7200/10000, NO 0.80 promedio)** → fuentes=2 → destinatario (email snapshot `x@export.cl`) → emitir (pdf_path) → envío `pendiente` → editar dato maestro CURRENT → **snapshot v1 intacto** → versión 2 → v1 `reemplazada` con snapshot inalterado + ambas trazables. **PASÓ.**
+- F5 negativos (**todos rechazados**): orden no cerrada, fuente duplicada, editar versión emitida.
+- RLS productiva F5: sin claim → 0; tenant A → 1; cross-tenant B → 0.
+- Dominio (node): F1 27 + F2 28 + F3 + F4 + F5 18 (todas pasan).
+
+**Build:** no ejecutado (worktree aislado, aditivo); sintaxis JS OK (ESM).
+**Schema:** DRAFT — **NO aplicado a producción**. Migraciones: NO. Data: NO. Cross-project: NINGUNO (no toca Frisku/`exp_*`/Foods/Osiris/`main`; efímeros propios desmontados).
+**Deuda:** EXP-TENANCY-001, EXP-SECURITY-001 (Core); PROC-INFRA-001 (SUPA config).
+**Frontera F6 (Regla 18):** Tarifario + Servicios Facturables + Base de Cobro (eje económico), reservado.
