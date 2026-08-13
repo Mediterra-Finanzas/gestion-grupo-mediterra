@@ -5957,7 +5957,7 @@ function AnalysisWorkspace({ data, permTablero, onVerEmbarque }) {
   const segBtn = (on,dis)=>({fontSize:12,padding:"6px 11px",borderRadius:6,cursor:dis?"default":"pointer",border:"none",fontWeight:700,
     background:on?C.blue:"transparent",color:on?"#fff":(dis?C.muted2:C.muted),opacity:dis?0.5:1});
 
-  const propsInPanel = preset==="libre" && (viz==="tabla" || viz==="pivot");
+  const propsInPanel = preset==="libre" && ["tabla","pivot","barras","dona","tendencia"].includes(viz);
   const canvas = ()=>{
     if(preset==="comercial") return <HojaComercial onVerEmbarque={onVerEmbarque}/>;
     if(preset==="semanal")   return <HojaSemanal onVerEmbarque={onVerEmbarque}/>;
@@ -5965,8 +5965,8 @@ function AnalysisWorkspace({ data, permTablero, onVerEmbarque }) {
     if(viz==="tabla")        return <StraightTableBI chromeless panelEl={propsEl} onVerEmbarque={onVerEmbarque}/>;
     if(viz==="pivot")        return <PivotTableBI chromeless panelEl={propsEl}/>;
     if(viz==="drill")        return <DrillGroupsBI onVerEmbarque={onVerEmbarque}/>;
-    const initialChart = viz==="dona"?"torta":viz==="tendencia"?"tendencia":"barras";
-    return <TableroAsociativo key={viz} initialChart={initialChart} {...data}/>;
+    const vizChart = viz==="dona"?"torta":viz==="tendencia"?"tendencia":"barras";
+    return <TableroAsociativo chromeless panelEl={propsEl} vizChart={vizChart} {...data}/>;
   };
 
   return (
@@ -6423,12 +6423,14 @@ function ResumenEjecutivo() {
   );
 }
 
-function TableroAsociativo({ liquidaciones, embarques, clientes, exportadoras, especies, mercados, programa, contratos, pos, initialChart }) {
+function TableroAsociativo({ liquidaciones, embarques, clientes, exportadoras, especies, mercados, programa, contratos, pos, initialChart, chromeless, panelEl, vizChart }) {
   const [fuenteId, setFuenteId] = useState("liq");
   const [measureId, setMeasureId] = useState("");
   const [dim1, setDim1] = useState("");
   const [dim2, setDim2] = useState("");
-  const [chart, setChart] = useState(initialChart||"barras");   // barras | tabla | torta | tendencia (initialChart lo fija el workspace)
+  const [chartState, setChartState] = useState(initialChart||"barras");   // barras | tabla | torta | tendencia
+  const chart = chromeless ? (vizChart||initialChart||"barras") : chartState; // en workspace el tipo lo controla la Visualización
+  const setChart = setChartState;
   const biCtx = useFriskuBI();                    // selección BI COMPARTIDA (un solo motor: Resumen/Reportes/Explorador)
   const sel = biCtx.sel;                          // {dimKey: Set(valores)}
   const [topN, setTopN] = useState(12);
@@ -6911,6 +6913,33 @@ function TableroAsociativo({ liquidaciones, embarques, clientes, exportadoras, e
 
   const gBtn = (activo)=>({ fontSize:11, padding:"6px 9px", borderRadius:7, cursor:"pointer", fontWeight:700,
     border:`1px solid ${activo?C.blue:C.border}`, background:activo?C.blue:C.card, color:activo?"#fff":C.muted });
+
+  // ── Modo workspace (chromeless): config al panel; canvas = SOLO el gráfico ──
+  const pLbl = {fontSize:10,fontWeight:800,color:C.muted,textTransform:"uppercase",letterSpacing:0.4,margin:"2px 0 5px"};
+  const controls = (
+    <div style={{display:"flex",flexDirection:"column",gap:12}}>
+      <div><div style={pLbl}>Fuente de datos</div><select value={fuenteId} onChange={e=>setFuenteId(e.target.value)} style={{...inputSt,width:"100%",fontWeight:700}}>{Object.values(FUENTES).map(f=><option key={f.id} value={f.id}>{f.lab}</option>)}</select></div>
+      <div><div style={pLbl}>Medir</div><select value={measureId} onChange={e=>setMeasureId(e.target.value)} style={{...inputSt,width:"100%"}}>{measures.map(m=><option key={m.key} value={m.key}>{m.lab}</option>)}</select></div>
+      <div><div style={pLbl}>Ver por</div><select value={dim1} onChange={e=>setDim1(e.target.value)} style={{...inputSt,width:"100%"}}>{dims.map(d=><option key={d.key} value={d.key}>{d.lab}</option>)}</select></div>
+      <div><div style={pLbl}>Desglosar por</div><select value={dim2} onChange={e=>setDim2(e.target.value)} style={{...inputSt,width:"100%"}}><option value="">— (ninguno)</option>{dims.filter(d=>d.key!==dim1).map(d=><option key={d.key} value={d.key}>{d.lab}</option>)}</select></div>
+      {(chart==="barras"||chart==="torta") && <div><div style={pLbl}>Top N</div><select value={topN} onChange={e=>setTopN(Number(e.target.value))} style={{...inputSt,width:96}}>{[6,8,10,12,15,20,30].map(n=><option key={n} value={n}>{n}</option>)}</select></div>}
+      <div style={{fontSize:10.5,color:C.muted2}}>{fuente.nota} · {fuente.rows.length} registros{d2?` · desglose por ${d2.lab.toLowerCase()}`:""}</div>
+    </div>
+  );
+  if(chromeless){
+    return (<>
+      {panelEl && createPortal(controls, panelEl)}
+      {!hayDatos
+        ? <div style={{padding:40,textAlign:"center",color:C.muted,fontSize:13,border:`1px solid ${C.border}`,borderRadius:10}}>Aún no hay datos en <b>{fuente.lab}</b>. Elige otra fuente en el panel de propiedades.</div>
+        : <div>
+            {chart==="barras"     && <VistaBarras/>}
+            {chart==="torta"      && <VistaTorta/>}
+            {chart==="tendencia"  && <VistaTendencia/>}
+            {chart==="tabla"      && <VistaTabla/>}
+            <div style={{fontSize:11,color:C.muted2,marginTop:12,textAlign:"center"}}>Explorador · {filteredRows.length} de {fuente.rows.length} registros en la selección · midiendo <b>{measure.lab}</b> por <b>{d1.lab}</b>{d2?` × ${d2.lab}`:""}. Verde = seleccionado · tachado = excluido.</div>
+          </div>}
+    </>);
+  }
 
   return (
     <div>
