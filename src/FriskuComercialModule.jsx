@@ -5789,23 +5789,56 @@ function SelectionBarBI() {
 }
 
 // ═══════════════════════════════════════════════════════════════════
-// REPORTERÍA BI — punto de entrada analítico único. Consolida Dashboard +
-// Reportes + Tablero BI, más las hojas analíticas (Clientes/Exportadores/
-// Especies/Mercados/Comisiones/Embarques) y el Comparativo de temporadas.
-// TODO usa el mismo motor: una selección, unas métricas.
+// ANÁLISIS — superficie de exploración ÚNICA (estilo Qlik "analysis mode").
+// Un solo lugar donde el usuario elige el OBJETO con el que mira la MISMA
+// tabla de hechos y la MISMA selección global: Dimensiones (ranking+detalle),
+// Tabla (straight configurable), Pivot (dinámica), Drill (jerarquías) y
+// Explorador (ad-hoc dim×medida×gráfico). Reemplaza 5 pestañas por 1 hoja con
+// selector de objeto. Ningún objeto reimplementa métricas ni selección.
+// ═══════════════════════════════════════════════════════════════════
+function AnalisisBI({ data, permTablero, onVerEmbarque }) {
+  const OBJS = [
+    {k:"dims",       lab:"🧩 Dimensiones", hint:"Ranking por dimensión + detalle de contenedores"},
+    {k:"tabla",      lab:"▦ Tabla",        hint:"Tabla configurable (elige columnas/medidas, ordena)"},
+    {k:"pivot",      lab:"⊞ Pivot",        hint:"Tabla dinámica: filas jerárquicas × columna × medida"},
+    {k:"drill",      lab:"⛏ Drill",        hint:"Jerarquías que avanzan de nivel (ruta local)"},
+    (permTablero?.visible!==false) && {k:"explorador", lab:"🧭 Explorador", hint:"Ad-hoc: dimensión × medida × visualización"},
+  ].filter(Boolean);
+  const [obj, setObj] = useState("dims");
+  const cur = OBJS.find(o=>o.k===obj) || OBJS[0];
+  return (
+    <div>
+      <div style={{display:"flex", alignItems:"center", gap:8, flexWrap:"wrap", marginBottom:12}}>
+        <span style={{fontSize:10.5, fontWeight:700, color:C.muted, textTransform:"uppercase", letterSpacing:0.4}}>Objeto</span>
+        <div style={{display:"inline-flex", gap:2, padding:3, background:C.card2, border:`1px solid ${C.border}`, borderRadius:10}}>
+          {OBJS.map(o=><button key={o.k} onClick={()=>setObj(o.k)} title={o.hint}
+            style={{fontSize:12, padding:"6px 12px", borderRadius:7, cursor:"pointer", border:"none", fontWeight:700,
+              background:obj===o.k?C.blue:"transparent", color:obj===o.k?"#fff":C.muted}}>{o.lab}</button>)}
+        </div>
+        <span style={{fontSize:10.5, color:C.muted2}}>{cur.hint} · misma selección en todos los objetos</span>
+      </div>
+      {obj==="dims"       && <HojaBIDim dimDefault="cliente" onVerEmbarque={onVerEmbarque}/>}
+      {obj==="tabla"      && <StraightTableBI onVerEmbarque={onVerEmbarque}/>}
+      {obj==="pivot"      && <PivotTableBI/>}
+      {obj==="drill"      && <DrillGroupsBI onVerEmbarque={onVerEmbarque}/>}
+      {obj==="explorador" && <TableroAsociativo {...data}/>}
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// REPORTERÍA BI — punto de entrada analítico único. Hojas: Resumen, Comercial,
+// Análisis (superficie de exploración con selector de objeto), Semanal,
+// Comparativo y Reportes. TODO usa el mismo motor: una selección, unas métricas.
 // ═══════════════════════════════════════════════════════════════════
 function ReporteriaBI({ data, permResumen, permReportes, permTablero, onVerEmbarque }) {
   const hojas = [
     (permResumen?.visible!==false) && { id:"exec",     lab:"📈 Resumen" },
     { id:"comercial",  lab:"🤝 Comercial" },
-    { id:"dims",       lab:"🧩 Dimensiones" },
-    { id:"tabla",      lab:"▦ Tabla" },
-    { id:"pivot",      lab:"⊞ Pivot" },
-    { id:"drill",      lab:"⛏ Drill" },
+    { id:"analisis",   lab:"🔬 Análisis" },
     { id:"semanal",    lab:"📅 Semanal" },
     { id:"comp",       lab:"📊 Comparativo" },
     (permReportes?.visible!==false) && { id:"reportes", lab:"📋 Reportes" },
-    (permTablero?.visible!==false)  && { id:"tablero",  lab:"🧭 Explorador" },
   ].filter(Boolean);
   const [hoja, setHoja] = useState(hojas[0]?.id || "exec");
   const [paneOpen, setPaneOpen] = useState(false);
@@ -5824,14 +5857,10 @@ function ReporteriaBI({ data, permResumen, permReportes, permTablero, onVerEmbar
       </div>
       {hoja==="exec"     && <ResumenEjecutivo/>}
       {hoja==="comercial"&& <HojaComercial onVerEmbarque={onVerEmbarque}/>}
-      {hoja==="dims"     && <HojaBIDim dimDefault="cliente" onVerEmbarque={onVerEmbarque}/>}
-      {hoja==="tabla"    && <StraightTableBI onVerEmbarque={onVerEmbarque}/>}
-      {hoja==="pivot"    && <PivotTableBI/>}
+      {hoja==="analisis" && <AnalisisBI data={data} permTablero={permTablero} onVerEmbarque={onVerEmbarque}/>}
       {hoja==="semanal"  && <HojaSemanal onVerEmbarque={onVerEmbarque}/>}
       {hoja==="comp"     && <HojaComparativo/>}
-      {hoja==="drill"    && <DrillGroupsBI onVerEmbarque={onVerEmbarque}/>}
       {hoja==="reportes" && <ReportesTab {...data}/>}
-      {hoja==="tablero"  && <TableroAsociativo {...data}/>}
     </div>
   );
 }
