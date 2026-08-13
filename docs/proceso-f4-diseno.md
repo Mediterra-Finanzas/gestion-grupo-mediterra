@@ -74,3 +74,7 @@ F4 termina al saber **qué salió, cuánto, desde dónde, cuándo y hacia quién
 **Schema:** DRAFT — **NO aplicado a producción**. Migraciones: NO. Data: NO. Cross-project: NINGUNO (no toca `exp_*`/Frisku/Osiris/Foods/`main`; efímeros propios desmontados; contenedores `exp_pg2`/`osiris_t2b1_pg` de otras sesiones intactos).
 **Deuda:** EXP-TENANCY-001, EXP-SECURITY-001 (Core); PROC-INFRA-001.
 **Frontera F5 (Regla 20):** Resultado de Proceso al cliente + servicios facturables/tarifario — fase(s) siguiente(s).
+
+---
+## Adenda UAT (2026-08-13) — Fix UAT-D-01
+Durante la UAT integral F1–F6 se detectó que la reducción de composición de pallet (`proc_pallet_linea`) decrementaba **una sola** línea (`ORDER BY kg DESC LIMIT 1`) validando contra la **suma** de líneas activas. Un pallet mezclado (varias líneas del mismo PT tras un merge) con un movimiento mayor que su línea más grande llevaba esa línea a kg negativo → `CHECK(kg>=0)` → operación legítima rechazada. **Fix:** helper `proc_fn_reducir_composicion_pallet` (F3) que distribuye la reducción entre todas las líneas activas del PT; usado por `proc_fn_repaletizar` (F3) y `proc_fn_confirmar_despacho` (F4). Verificado en escenario D (repaletizaje 3 generaciones + despacho) y regresión F3/F4 sin cambios. Ver `docs/proceso-uat-f1-f6.md`.

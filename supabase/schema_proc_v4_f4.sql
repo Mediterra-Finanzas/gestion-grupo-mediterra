@@ -172,18 +172,13 @@ BEGIN
     -- disponible tras liberar la reserva propia (excluye holds de OTROS)
     SELECT disponible INTO v_disp FROM proc_v_pallet_saldos WHERE pallet_id=ln.pallet_id;
     IF ln.kg > COALESCE(v_disp,0) THEN RAISE EXCEPTION 'despacho % excede disponible % del pallet %', ln.kg, COALESCE(v_disp,0), ln.pallet_id; END IF;
-    -- línea de composición del pallet debe tener kg del PT
-    SELECT COALESCE(SUM(kg),0) INTO v_line_kg FROM proc_pallet_linea WHERE pallet_id=ln.pallet_id AND (pt_id=ln.pt_id OR ln.pt_id IS NULL) AND estado='activa';
-    IF ln.kg > v_line_kg THEN RAISE EXCEPTION 'despacho % excede composición % del pallet', ln.kg, v_line_kg; END IF;
     -- salida física (desde la ubicación del pallet — Regla 9)
     INSERT INTO proc_movimiento(empresa_id, tipo_movimiento, naturaleza, objeto_tipo, objeto_id, cantidad,
       ubicacion_origen_id, ref_tipo, ref_id, transaccion_id, created_by)
     VALUES (p_empresa_id, 'despacho', 'salida', 'pallet', ln.pallet_id, ln.kg, v_ubic, 'despacho', p_despacho_id, v_tx, p_actor)
     RETURNING id INTO v_mov;
-    -- reducir composición (preserva historia en línea de despacho + ledger)
-    UPDATE proc_pallet_linea SET kg = kg - ln.kg, cajas = GREATEST(cajas - COALESCE(ln.cajas,0),0),
-      estado = CASE WHEN (kg - ln.kg) <= 0 THEN 'consumida' ELSE 'activa' END, updated_by=p_actor
-      WHERE id = (SELECT id FROM proc_pallet_linea WHERE pallet_id=ln.pallet_id AND (pt_id=ln.pt_id OR ln.pt_id IS NULL) AND estado='activa' ORDER BY kg DESC LIMIT 1);
+    -- reducir composición distribuyendo entre líneas activas (valida suficiencia; preserva historia en línea de despacho + ledger)
+    PERFORM proc_fn_reducir_composicion_pallet(p_empresa_id, ln.pallet_id, ln.pt_id, ln.kg, ln.cajas, p_actor);
     -- línea de despacho (con movimiento obligatorio)
     INSERT INTO proc_despacho_linea(empresa_id, despacho_id, pallet_id, pt_id, cajas, kg, ubicacion_origen_id, movimiento_id, created_by)
     VALUES (p_empresa_id, p_despacho_id, ln.pallet_id, ln.pt_id, COALESCE(ln.cajas,0), ln.kg, v_ubic, v_mov, p_actor);

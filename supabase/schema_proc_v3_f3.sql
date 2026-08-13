@@ -279,6 +279,35 @@ BEGIN
   RETURN v_line;
 END $$;
 
+-- ── Helper: reducir la composición (proc_pallet_linea) de un pallet distribuyendo
+--    la cantidad entre TODAS las líneas activas del PT (un pallet mezclado tiene
+--    varias líneas del mismo PT tras un merge). Decrementar una sola línea la
+--    llevaba a negativo aunque la SUMA alcanzara (viola CHECK kg>=0). p_pt NULL = cualquier PT.
+CREATE OR REPLACE FUNCTION proc_fn_reducir_composicion_pallet(
+  p_empresa_id uuid, p_pallet_id uuid, p_pt uuid, p_kg numeric, p_cajas integer, p_actor uuid
+) RETURNS void LANGUAGE plpgsql AS $$
+DECLARE ln record; v_rem numeric := p_kg; v_crem integer := COALESCE(p_cajas,0); v_take numeric; v_takec integer; v_avail numeric;
+BEGIN
+  SELECT COALESCE(SUM(kg),0) INTO v_avail FROM proc_pallet_linea
+    WHERE pallet_id=p_pallet_id AND (p_pt IS NULL OR pt_id=p_pt) AND estado='activa';
+  IF p_kg > v_avail THEN
+    RAISE EXCEPTION 'reducción % excede composición activa % (pallet % pt %)', p_kg, v_avail, p_pallet_id, p_pt;
+  END IF;
+  FOR ln IN SELECT id, kg, cajas FROM proc_pallet_linea
+      WHERE pallet_id=p_pallet_id AND (p_pt IS NULL OR pt_id=p_pt) AND estado='activa'
+      ORDER BY kg DESC, id LOOP
+    EXIT WHEN v_rem <= 0;
+    v_take  := LEAST(ln.kg, v_rem);
+    v_takec := LEAST(ln.cajas, v_crem);
+    UPDATE proc_pallet_linea
+      SET kg = kg - v_take, cajas = GREATEST(cajas - v_takec, 0),
+          estado = CASE WHEN (kg - v_take) <= 0 THEN 'consumida' ELSE 'activa' END, updated_by=p_actor
+      WHERE id = ln.id;
+    v_rem  := v_rem - v_take;
+    v_crem := v_crem - v_takec;
+  END LOOP;
+END $$;
+
 -- ── RPC: repaletizar N:M (Reglas 7,8,9,10,13,14). moves = jsonb array ────────
 -- Cada move: {origen_pallet_id, pt_id, cajas, kg, destino_pallet_id}. Cantidades absolutas.
 CREATE OR REPLACE FUNCTION proc_fn_repaletizar(
@@ -299,16 +328,8 @@ BEGIN
     AS x(origen_pallet_id uuid, pt_id uuid, cajas integer, kg numeric, destino_pallet_id uuid)
   LOOP
     IF mv.kg IS NULL OR mv.kg <= 0 THEN RAISE EXCEPTION 'kg de repaletizaje debe ser > 0'; END IF;
-    -- línea origen (pallet+pt) debe tener kg suficiente
-    SELECT COALESCE(SUM(kg),0) INTO v_line_kg FROM proc_pallet_linea
-      WHERE pallet_id=mv.origen_pallet_id AND pt_id=mv.pt_id AND estado='activa';
-    IF mv.kg > v_line_kg THEN
-      RAISE EXCEPTION 'repaletizaje % excede kg % de la línea origen (pallet % pt %)', mv.kg, v_line_kg, mv.origen_pallet_id, mv.pt_id;
-    END IF;
-    -- reducir composición origen (preserva historia en repaletizaje/ledger)
-    UPDATE proc_pallet_linea SET kg = kg - mv.kg, cajas = GREATEST(cajas - COALESCE(mv.cajas,0),0),
-      estado = CASE WHEN (kg - mv.kg) <= 0 THEN 'consumida' ELSE 'activa' END, updated_by=p_actor
-      WHERE id = (SELECT id FROM proc_pallet_linea WHERE pallet_id=mv.origen_pallet_id AND pt_id=mv.pt_id AND estado='activa' ORDER BY kg DESC LIMIT 1);
+    -- reducir composición origen distribuyendo entre líneas activas (valida suficiencia)
+    PERFORM proc_fn_reducir_composicion_pallet(p_empresa_id, mv.origen_pallet_id, mv.pt_id, mv.kg, mv.cajas, p_actor);
     -- aumentar composición destino (misma genealogía PT)
     INSERT INTO proc_pallet_linea(empresa_id, pallet_id, pt_id, formato_id, cajas, kg, created_by)
     SELECT p_empresa_id, mv.destino_pallet_id, mv.pt_id, formato_id, COALESCE(mv.cajas,0), mv.kg, p_actor
