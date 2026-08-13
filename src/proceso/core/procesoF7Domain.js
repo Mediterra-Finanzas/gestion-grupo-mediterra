@@ -128,6 +128,39 @@ export function validarPesos({ bruto, tara } = {}) {
   return { ok: err.length === 0, errores: err, neto: calcularNeto(bruto, tara) };
 }
 
+// ── Producción: conciliación / packout / acciones de orden (F7.3) ───────────
+// Preview UX; la DB (proc_v_orden_conciliacion + trigger de transición) es autoridad.
+export function packout(comercial, entrada) {
+  const b = Number(entrada) || 0;
+  return b > 0 ? Math.round((Number(comercial) / b) * 10000) / 10000 : null;
+}
+export function estadoConciliacion(diff, tolerancia) {
+  return Math.abs(Number(diff) || 0) <= (Number(tolerancia) || 0) ? "cuadra" : "descuadra";
+}
+export function resumenConciliacion({ entrada, comercial, descarte, merma, tolerancia } = {}) {
+  const ent = Number(entrada) || 0, com = Number(comercial) || 0, des = Number(descarte) || 0, mer = Number(merma) || 0;
+  const diff = Math.round((ent - (com + des + mer)) * 1000) / 1000;
+  return { entrada: ent, comercial: com, descarte: des, merma: mer, diff, packout: packout(com, ent), cuadra: estadoConciliacion(diff, tolerancia) === "cuadra" };
+}
+// Transiciones disponibles según estado (rpc:true = va por conciliar_orden).
+const ACCIONES_ORDEN = {
+  borrador: [{ a: "en_proceso", l: "Iniciar proceso" }],
+  en_proceso: [{ a: "pendiente_conciliacion", l: "Pasar a conciliación" }],
+  pendiente_conciliacion: [{ a: "conciliado", l: "Conciliar", rpc: true }, { a: "en_proceso", l: "Volver a proceso" }],
+  conciliado: [{ a: "cerrado", l: "Cerrar orden" }, { a: "en_proceso", l: "Reabrir" }],
+};
+export function accionesOrden(estado) { return ACCIONES_ORDEN[estado] || []; }
+export function ordenTerminal(estado) { return estado === "cerrado" || estado === "anulado"; }
+// Qué falta para poder conciliar/cerrar (mensaje accionable).
+export function faltaParaCerrar({ estado, entrada, comercial, descarte, merma, tolerancia } = {}) {
+  if (ordenTerminal(estado)) return null;
+  if (!(Number(entrada) > 0)) return "Faltan consumos: la orden no tiene kg de entrada.";
+  if (!(Number(comercial) + Number(descarte) + Number(merma) > 0)) return "Falta registrar resultado / descarte / merma.";
+  const r = resumenConciliacion({ entrada, comercial, descarte, merma, tolerancia });
+  if (!r.cuadra) return `No cuadra: faltan ${Math.abs(r.diff).toLocaleString("es-CL")} kg por conciliar (diferencia ${r.diff} > tolerancia ${Number(tolerancia) || 0}).`;
+  return null;
+}
+
 // ── Filtros operacionales del shell ─────────────────────────────────────────
 export function validarFiltros({ empresa, planta, temporada, fecha } = {}) {
   const errores = [];

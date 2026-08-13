@@ -16,6 +16,9 @@ import NuevaRecepcion from "../pages/NuevaRecepcion";
 import RecepcionDetalle from "../pages/RecepcionDetalle";
 import Lotes from "../pages/Lotes";
 import LoteDetalle from "../pages/LoteDetalle";
+import Programa from "../pages/Programa";
+import Ordenes from "../pages/Ordenes";
+import Orden from "../pages/Orden";
 
 const NAV = [
   { grupo: null, items: [{ id: "centro", label: "Centro de Operaciones", icon: "🏭" }] },
@@ -23,12 +26,12 @@ const NAV = [
     { id: "recepciones", label: "Recepciones" },
     { id: "lotes", label: "Lotes / Materia Prima" },
     { id: "qc", label: "QC", page: "recepciones", params: { filtroQc: "rechazado" } },
-    { id: "programa", label: "Programa", fase: "F7.3" },
-    { id: "ordenes", label: "Órdenes", fase: "F7.3" }] },
+    { id: "programa", label: "Programa" },
+    { id: "ordenes", label: "Órdenes" }] },
   { grupo: "Producción", items: [
-    { id: "ejecucion", label: "Ejecución", fase: "F7.3" },
-    { id: "resultados", label: "Resultados", fase: "F7.3" },
-    { id: "conciliaciones", label: "Conciliaciones", fase: "F7.3" }] },
+    { id: "ejecucion", label: "Ejecución", page: "ordenes", params: { filtroEstado: "en_proceso" } },
+    { id: "resultados", label: "Resultados", page: "ordenes" },
+    { id: "conciliaciones", label: "Conciliaciones", page: "ordenes", params: { filtroEstado: "pendiente_conciliacion" } }] },
   { grupo: "Producto Terminado", items: [
     { id: "pt", label: "Producto Terminado", fase: "F7.4" },
     { id: "pallets", label: "Pallets", fase: "F7.4" },
@@ -51,7 +54,7 @@ const NAV = [
 ];
 const TODOS = NAV.flatMap((g) => g.items);
 // mapea la vista actual al item de nav para el resaltado
-const NAV_DE_PAGE = { recepcion_nueva: "recepciones", recepcion_detalle: "recepciones", lote_detalle: "lotes" };
+const NAV_DE_PAGE = { recepcion_nueva: "recepciones", recepcion_detalle: "recepciones", lote_detalle: "lotes", orden: "ordenes" };
 
 function useEsMovil(bp = 900) {
   const [m, setM] = useState(typeof window !== "undefined" && window.innerWidth < bp);
@@ -98,6 +101,9 @@ export default function ProcShell({ onBack, onLogout, usuario }) {
       case "recepcion_detalle": return <RecepcionDetalle />;
       case "lotes": return <Lotes />;
       case "lote_detalle": return <LoteDetalle />;
+      case "programa": return <Programa />;
+      case "ordenes": return <Ordenes />;
+      case "orden": return <Orden />;
       default: {
         const item = TODOS.find((i) => i.id === vista.page);
         return <ProximaFase titulo={item?.label || "Sección"} fase={item?.fase || "próxima fase"} />;

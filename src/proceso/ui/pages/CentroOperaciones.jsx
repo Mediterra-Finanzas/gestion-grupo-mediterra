@@ -70,6 +70,7 @@ export default function CentroOperaciones() {
 
   const irExcepcion = (x) => {
     if (x.tipo === "qc_rechazado") ir("recepcion_detalle", { id: x.referencia_id });
+    else if (x.tipo === "conciliacion_pendiente" || x.tipo === "diferencia_masa") ir("orden", { id: x.referencia_id });
     else if (x.tipo === "pallet_bloqueado") ir("lotes");
     else ir("recepciones");
   };
@@ -89,10 +90,10 @@ export default function CentroOperaciones() {
       </Grupo>
 
       <Grupo titulo="Producción">
-        <ProcKpiCard label="Programa de hoy" valor={p.programa_dia ?? 0} tono="info" />
-        <ProcKpiCard label="Órdenes en proceso" valor={p.ordenes_en_proceso ?? 0} tono="primary" />
-        <ProcKpiCard label="Pend. de conciliación" valor={p.ordenes_pendientes_conciliacion ?? 0} tono="warning" />
-        <ProcKpiCard label="Kg procesados hoy" valor={kg(p.kg_procesado_dia)} tono="primary" />
+        <ProcKpiCard label="Programa de hoy" valor={p.programa_dia ?? 0} tono="info" onClick={() => ir("programa")} />
+        <ProcKpiCard label="Órdenes en proceso" valor={p.ordenes_en_proceso ?? 0} tono="primary" onClick={() => ir("ordenes", { filtroEstado: "en_proceso" })} />
+        <ProcKpiCard label="Pend. de conciliación" valor={p.ordenes_pendientes_conciliacion ?? 0} tono="warning" onClick={() => ir("ordenes", { filtroEstado: "pendiente_conciliacion" })} />
+        <ProcKpiCard label="Kg procesados hoy" valor={kg(p.kg_procesado_dia)} tono="primary" onClick={() => ir("ordenes")} />
       </Grupo>
 
       <Grupo titulo="Producto Terminado">

@@ -73,3 +73,48 @@ export const cargarLotePorId = (e, id) =>
   procSelect("proc_v_lote_listado", `?empresa_id=eq.${e}&id=eq.${id}`);
 export const cargarMovimientosRef = (e, refId) =>
   procSelect("proc_movimiento", `?empresa_id=eq.${e}&ref_id=eq.${refId}&order=created_at.desc`);
+
+// ── F7.3 · Programa + Orden + Ejecución + Resultado + Conciliación ───────────
+export const cargarProgramas = (e, extra = "") =>
+  procSelect("proc_programa_proceso", `?empresa_id=eq.${e}&order=fecha.desc,prioridad.desc${extra}`);
+export const crearPrograma = (fila) => crearMaestro("proc_programa_proceso", fila);
+export const actualizarPrograma = (id, e, patch) => actualizarMaestro("proc_programa_proceso", id, e, patch);
+
+export const cargarOrdenListado = (e, extra = "") =>
+  procSelect("proc_v_orden_listado", `?empresa_id=eq.${e}&order=fecha.desc${extra}`);
+export const cargarOrdenPorId = (e, id) =>
+  procSelect("proc_v_orden_listado", `?empresa_id=eq.${e}&id=eq.${id}`);
+export const crearOrden = (fila) => crearMaestro("proc_orden_proceso", fila);
+export const cambiarEstadoOrden = (e, id, estado) =>
+  procUpdate("proc_orden_proceso", `?id=eq.${id}&empresa_id=eq.${e}`, { estado });
+
+// Lotes con elegibilidad QC computada (para selección de consumo).
+export const cargarLotesOperacionales = (e, extra = "") =>
+  procSelect("proc_v_lote_operacional", `?empresa_id=eq.${e}&order=codigo${extra}`);
+
+// Insumos de una orden (genealogía; append-only en backend).
+export const cargarInsumosOrden = (e, ordenId) =>
+  procSelect("proc_orden_insumo", `?empresa_id=eq.${e}&orden_id=eq.${ordenId}&order=created_at`);
+
+// Resultado / descarte / merma (REST; guard de orden terminal en backend).
+export const crearResultado = (fila) => crearMaestro("proc_resultado", fila);
+export const crearDescarte = (fila) => crearMaestro("proc_resultado_descarte", fila);
+export const crearMerma = (fila) => crearMaestro("proc_resultado_merma", fila);
+export const cargarResultadosOrden = (e, ordenId) =>
+  procSelect("proc_resultado", `?empresa_id=eq.${e}&orden_id=eq.${ordenId}&deleted_at=is.null&order=created_at`);
+export const cargarDescartesOrden = (e, ordenId) =>
+  procSelect("proc_resultado_descarte", `?empresa_id=eq.${e}&orden_id=eq.${ordenId}&deleted_at=is.null&order=created_at`);
+export const cargarMermasOrden = (e, ordenId) =>
+  procSelect("proc_resultado_merma", `?empresa_id=eq.${e}&orden_id=eq.${ordenId}&deleted_at=is.null&order=created_at`);
+
+// Catálogos para captura de resultado
+export const cargarCategorias = (e) => procSelect("proc_categorias_calidad", `?empresa_id=eq.${e}&deleted_at=is.null&order=orden`);
+export const cargarCalibresEspecie = (e, esp) => procSelect("proc_calibre", `?empresa_id=eq.${e}&especie_codigo=eq.${esp}&deleted_at=is.null&order=orden`);
+export const cargarColoresEspecie = (e, esp) => procSelect("proc_color", `?empresa_id=eq.${e}&especie_codigo=eq.${esp}&deleted_at=is.null`);
+export const cargarMotivosDescarte = (e) => procSelect("proc_motivos_descarte", `?empresa_id=eq.${e}&deleted_at=is.null&order=codigo`);
+export const cargarMotivosMerma = (e) => procSelect("proc_motivos_merma", `?empresa_id=eq.${e}&deleted_at=is.null&order=codigo`);
+export const cargarLineas = (e, plantaId) =>
+  procSelect("proc_lineas_proceso", `?empresa_id=eq.${e}&activa=eq.true&deleted_at=is.null${plantaId ? `&planta_id=eq.${plantaId}` : ""}&order=codigo`);
+
+// Consumo y conciliación reutilizan las RPC de F2 (re-export para la UI F7.3).
+export { consumirLoteEnOrden, conciliarOrden } from "./procesoF2DB.js";

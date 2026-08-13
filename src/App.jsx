@@ -695,6 +695,8 @@ const TABS_PERMISOS_CONFIG = {
     {id:"centro", label:"🏭 Centro de Operaciones"},
     {id:"recepciones", label:"🚛 Recepciones"},
     {id:"lotes", label:"📦 Lotes"},
+    {id:"programa", label:"📅 Programa"},
+    {id:"ordenes", label:"🏭 Órdenes"},
     {id:"config", label:"⚙️ Configuración"},
   ],
 };

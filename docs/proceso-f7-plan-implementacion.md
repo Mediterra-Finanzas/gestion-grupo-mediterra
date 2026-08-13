@@ -16,10 +16,10 @@
 - **Gate QC → proceso enforceable** (`schema_proc_v7_2_f7_2.sql`): trigger en `proc_orden_insumo` + `proc_fn_lote_elegible`. QC rechazado / obligatorio no ejecutado bloquea consumo, preserva existencia.
 - Read-models `proc_v_recepcion_listado` / `proc_v_lote_listado` (security_invoker, filtrables). UI Recepciones/Lotes + detalle/trazabilidad + QcPanel dinámico. Ver `docs/proceso-f7-2-acta.md`.
 
-### F7.3 — Programa + Orden + Ejecución + Resultado + Conciliación
-- Programa (REST, borrador→publicado). Abrir orden desde programa.
-- Consumo N:M (RPC) con disponible en vivo; resultado/descarte/merma (REST).
-- Conciliación leída de `proc_v_orden_conciliacion`; cierre por RPC (bloqueo backend si no cuadra).
+### F7.3 — Programa + Orden + Ejecución + Resultado + Conciliación ✅ ENTREGADA
+- Programa (planificación, generar orden) · Órdenes (listado+conciliación) · Orden (mesa de control: acciones por máquina de estados, consumo N:M con selector de lotes elegibles/gate QC visible, resultado/descarte/merma, conciliación+packout, cierre decidido por backend).
+- Backend menor `schema_proc_v7_3_f7_3.sql`: guard de orden terminal + read-models `proc_v_orden_listado` / `proc_v_lote_operacional` (security_invoker).
+- Validado PG16: E2E (3 corridas, N:M, conciliación cuadra/no-cuadra, guard) + concurrencia + regresión F1-F7.2 + dominio 35/35 + build CI=true. Ver `docs/proceso-f7-3-acta.md`.
 
 ### F7.4 — PT + Pallets + Bodega + Repaletizaje
 - Materializar PT (RPC), crear/palletizar (RPC), inventario con saldos/holds.

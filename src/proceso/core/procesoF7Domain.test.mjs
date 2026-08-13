@@ -1,6 +1,6 @@
 /* eslint-disable */
 // Tests de dominio proc_* F7.1 (node). Ejecutar: node src/proceso/core/procesoF7Domain.test.mjs
-import { formatearCorrelativo, compactarTemporada, evaluarQC, badgeDe, traducirError, validarFiltros, calcularNeto, validarPesos } from "./procesoF7Domain.js";
+import { formatearCorrelativo, compactarTemporada, evaluarQC, badgeDe, traducirError, validarFiltros, calcularNeto, validarPesos, packout, resumenConciliacion, accionesOrden, faltaParaCerrar, ordenTerminal } from "./procesoF7Domain.js";
 
 let pass = 0, fail = 0;
 const ok = (c, m) => { if (c) pass++; else { fail++; console.error("  ✗ " + m); } };
@@ -46,6 +46,17 @@ ok(!validarPesos({ bruto: -5, tara: 0 }).ok, "bruto negativo -> inválido");
 
 // Traductor QC gate
 ok(/no puede consumirse|QC/i.test(traducirError("Lote no elegible para proceso: QC rechazado")), "traduce gate QC");
+
+// Conciliación / packout (F7.3)
+eq(packout(7800, 9800), 0.7959, "packout 7800/9800");
+eq(resumenConciliacion({ entrada: 9800, comercial: 7800, descarte: 1700, merma: 300, tolerancia: 49 }).diff, 0, "conciliación cuadra diff 0");
+ok(resumenConciliacion({ entrada: 9800, comercial: 7800, descarte: 1700, merma: 300, tolerancia: 49 }).cuadra, "cuadra dentro de tolerancia");
+ok(!resumenConciliacion({ entrada: 9800, comercial: 7800, descarte: 1500, merma: 300, tolerancia: 49 }).cuadra, "descuadra 200 > tol 49");
+eq(accionesOrden("en_proceso")[0].a, "pendiente_conciliacion", "acción de en_proceso");
+ok(accionesOrden("cerrado").length === 0, "orden cerrada sin acciones");
+ok(ordenTerminal("cerrado"), "cerrado es terminal");
+ok(/por conciliar/i.test(faltaParaCerrar({ estado: "pendiente_conciliacion", entrada: 9800, comercial: 7800, descarte: 1500, merma: 300, tolerancia: 49 })), "falta: no cuadra");
+ok(faltaParaCerrar({ estado: "pendiente_conciliacion", entrada: 9800, comercial: 7800, descarte: 1700, merma: 300, tolerancia: 49 }) === null, "nada falta cuando cuadra");
 
 // Filtros
 ok(!validarFiltros({}).ok, "sin empresa -> inválido");
