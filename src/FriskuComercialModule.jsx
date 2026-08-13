@@ -8,6 +8,7 @@
 //   frisku_embarques, frisku_liquidaciones
 // ═══════════════════════════════════════════════════════════════════
 import React, { useState, useEffect, useMemo, useRef, useCallback } from "react";
+import { createPortal } from "react-dom";
 import FriskuModule, {
   PAISES_DEFAULT, MERCADOS_DEFAULT, MONEDAS_DEFAULT,
   ESPECIES_DEFAULT, TIPOS_EMBALAJE_DEFAULT, CIUDADES_DEFAULT,
@@ -5512,7 +5513,7 @@ function FullscreenBI({ open, title, onClose, children }) {
 // selecciona (clic en celda de dimensión → filtra todo el BI), % participación,
 // totales, export Excel/PDF y pantalla completa. Mismo motor/selección; sin
 // fórmulas nuevas (usa metric.calc). % participación = valor fila / total mostrado.
-function StraightTableBI({ onVerEmbarque }) {
+function StraightTableBI({ onVerEmbarque, chromeless, panelEl }) {
   const bi = useFriskuBI();
   const { filtered, dims, metrics, metric, sel, toggle } = bi;
   const [dimSel, setDimSel] = useState(["cliente"]);
@@ -5524,6 +5525,7 @@ function StraightTableBI({ onVerEmbarque }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [full, setFull] = useState(false);
   const [expX,setExpX]=useState(false), [expP,setExpP]=useState(false);
+  const [detQ,setDetQ]=useState(""); const [detSort,setDetSort]=useState({k:"comF",dir:"desc"});
   const cfgRef=useRef(null), menuRef=useRef(null);
   useEffect(()=>{ const h=(e)=>{ if(cfgRef.current&&!cfgRef.current.contains(e.target))setCfgOpen(false); if(menuRef.current&&!menuRef.current.contains(e.target))setMenuOpen(false); }; document.addEventListener("mousedown",h); return ()=>document.removeEventListener("mousedown",h); },[]);
   const FIN = new Set(["destinationSalesUSD","clientCommissionUSD","friskuCommissionUSD","avgCommissionPct"]);
@@ -5573,8 +5575,8 @@ function StraightTableBI({ onVerEmbarque }) {
   }catch(e){ console.error("[Tabla] PDF:",e); alert("No se pudo generar el PDF: "+e.message); } setExpP(false); setMenuOpen(false); };
 
   const th=(col,label,align)=>{ const act=sortCol===col; return <th onClick={()=>setSort(col)} style={{padding:"6px 10px",textAlign:align||"left",cursor:"pointer",whiteSpace:"nowrap",background:C.card2,color:act?C.blue:C.muted,fontWeight:act?800:700,position:"sticky",top:0,zIndex:1}} title="Ordenar">{label}{act?(sortDir==="desc"?" ▼":" ▲"):<span style={{opacity:0.35}}> ⇅</span>}</th>; };
-  const tabla = (
-    <div style={{border:`1px solid ${C.border}`,borderRadius:10,overflowX:"auto",maxHeight:560,overflowY:"auto"}}>
+  const tablaEl = (maxH)=>(
+    <div style={{border:`1px solid ${C.border}`,borderRadius:10,overflowX:"auto",maxHeight:maxH,overflowY:"auto"}}>
       <table style={{width:"100%",borderCollapse:"collapse",fontSize:11.5,minWidth:640}}>
         <thead><tr style={{color:C.muted,textAlign:"left"}}>
           {dimSel.map(d=>th("dim:"+d, dims.find(x=>x.key===d)?.lab||d))}
@@ -5602,7 +5604,101 @@ function StraightTableBI({ onVerEmbarque }) {
       </table>
     </div>
   );
+  const tabla = tablaEl(560);
 
+  // ── Fusión HojaBIDim: calidad/cobertura financiera + detalle de contenedores ──
+  const cobFin = { n: filtered.filter(r=>r._nLiq>0).length, tot: filtered.length };
+  const dq = bi.dataQuality || {formatosSinPeso:[], liqClienteSinConv:0};
+  const kgParcial = filtered.some(r=>r._kgFalta);
+  const detAll = useMemo(()=>{
+    const qq=detQ.trim().toLowerCase();
+    const hay=(r)=>{ const s=`${r._oe?r._oe.numero||"":""} ${r.especieLab} ${r.exportadoraLab} ${r.clienteLab} ${r._oe?r._oe.origen||"":""} ${r._oe?r._oe.destino||"":""} ${r.temporada} ${r.semanaETD}`; return s.toLowerCase().includes(qq); };
+    const base = qq ? filtered.filter(hay) : filtered.slice();
+    const vOf=(r)=>{ const map={ numero:(r._oe&&r._oe.numero)||"", especie:r.especieLab, expcli:`${r.exportadoraLab} ${r.clienteLab}`, etd:(r._oe&&r._oe.fechaDespacho)||"", cajas:r._cajas, kilos:r._kilos, comF:r._comF, temporada:r.temporada, semana:r.semanaETD, estado:r.estado }; return map[detSort.k]; };
+    base.sort((x,y)=>{ const vx=vOf(x), vy=vOf(y); const c=(typeof vx==="number"&&typeof vy==="number")?vx-vy:String(vx).localeCompare(String(vy)); return detSort.dir==="desc"?-c:c; });
+    return base;
+  },[filtered,detQ,detSort]);
+  const detalle = detAll.slice(0,200);
+  const warnings = (<>
+    {(kgParcial || dq.liqClienteSinConv>0) && (
+      <div style={{fontSize:11,color:C.warning,background:`${C.warning}14`,border:`1px solid ${C.warning}44`,borderRadius:8,padding:"7px 10px"}}>
+        ⚠ Calidad de datos:{kgParcial && <span> Kilos <b>PARCIALES</b> — formatos sin peso neto en Maestros ({dq.formatosSinPeso.slice(0,6).join(", ")}); cuentan 0.</span>}{dq.liqClienteSinConv>0 && <span> {dq.liqClienteSinConv} liquidación(es) con comisión cliente no convertible a USD trazable.</span>}
+      </div>)}
+    {cobFin.tot>0 && cobFin.n===0 && (
+      <div style={{fontSize:11.5,color:C.warning,background:`${C.warning}14`,border:`1px solid ${C.warning}44`,borderRadius:8,padding:"8px 11px",fontWeight:600}}>
+        Sin datos financieros para esta selección — {cobFin.tot} contenedor{cobFin.tot>1?"es":""} sin liquidación. Los contadores logísticos sí son reales.
+      </div>)}
+    {cobFin.tot>0 && cobFin.n>0 && cobFin.n<cobFin.tot && (
+      <div style={{fontSize:11,color:C.muted,background:C.card2,border:`1px solid ${C.border}`,borderRadius:8,padding:"6px 10px"}}>
+        ℹ Cobertura financiera: <b>{cobFin.n} de {cobFin.tot}</b> contenedores con liquidación ({Math.round(cobFin.n/cobFin.tot*100)}%). "—" = sin dato financiero todavía (no es 0 real).
+      </div>)}
+  </>);
+  const dSortTh=(k,label,align)=><th onClick={()=>setDetSort(s=>({k, dir:s.k===k&&s.dir==="desc"?"asc":"desc"}))} style={{padding:"6px 10px",textAlign:align||"left",cursor:"pointer",whiteSpace:"nowrap",position:"sticky",top:0,zIndex:1,background:C.card2,color:detSort.k===k?C.blue:C.muted,fontWeight:700}} title="Ordenar">{label}{detSort.k===k?(detSort.dir==="desc"?" ▼":" ▲"):<span style={{opacity:0.35}}> ⇅</span>}</th>;
+  const detail = (
+    <div>
+      <div style={{display:"flex",alignItems:"center",gap:10,margin:"2px 0 8px",flexWrap:"wrap"}}>
+        <span style={{fontSize:12,fontWeight:700}}>Detalle — contenedores {detAll.length>200?`(200 de ${detAll.length})`:`(${detAll.length})`}</span>
+        <input value={detQ} onChange={e=>setDetQ(e.target.value)} placeholder="Buscar OE, especie, empresa, puerto…" style={{...inputSt,maxWidth:280,fontSize:11}}/>
+      </div>
+      <div style={{border:`1px solid ${C.border}`,borderRadius:10,overflowX:"auto",maxHeight:chromeless?"34vh":420,overflowY:"auto"}}>
+        <table style={{width:"100%",borderCollapse:"collapse",fontSize:11,minWidth:1040}}>
+          <thead><tr style={{color:C.muted,textAlign:"left"}}>
+            {dSortTh("temporada","Temp.")}{dSortTh("semana","Sem.")}{dSortTh("numero","N° OE")}{dSortTh("especie","Especie")}{dSortTh("expcli","Exportador → Cliente")}{dSortTh("etd","ETD")}
+            <th style={{padding:"6px 10px",position:"sticky",top:0,zIndex:1,background:C.card2,color:C.muted,fontWeight:700}}>Ruta</th>{dSortTh("cajas","Cajas","right")}{dSortTh("kilos","Kilos","right")}{dSortTh("estado","Estado")}{dSortTh("comF","Com. Frisku","right")}<th style={{padding:"6px 10px",position:"sticky",top:0,zIndex:1,background:C.card2}}></th>
+          </tr></thead>
+          <tbody>
+            {detalle.map(r=>{ const sinFin=r._nLiq===0;
+              return <tr key={r._id} style={{borderTop:`1px solid ${C.border}`}}>
+                <td style={{padding:"4px 10px",whiteSpace:"nowrap"}}>{r.temporada}</td>
+                <td style={{padding:"4px 10px",whiteSpace:"nowrap"}}>{r.semanaETD}</td>
+                <td style={{padding:"4px 10px",fontFamily:"monospace",color:C.blue,whiteSpace:"nowrap"}}>{r._oe?.numero||"—"}</td>
+                <td style={{padding:"4px 10px",whiteSpace:"nowrap"}}>{r.especieLab}</td>
+                <td style={{padding:"4px 10px",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",maxWidth:210}}>{r.exportadoraLab} → {r.clienteLab}</td>
+                <td style={{padding:"4px 10px",whiteSpace:"nowrap"}}>{r._oe?.fechaDespacho||"—"}</td>
+                <td style={{padding:"4px 10px",whiteSpace:"nowrap",color:C.muted2}}>{r._oe?.origen||"—"} → {r._oe?.destino||"—"}</td>
+                <td style={{padding:"4px 10px",textAlign:"right",fontFamily:"monospace"}}>{fmtN0(r._cajas)}</td>
+                <td style={{padding:"4px 10px",textAlign:"right",fontFamily:"monospace",color:r._kgFalta?C.warning:undefined}}>{fmtN0(r._kilos)}{r._kgFalta?" ⚠":""}</td>
+                <td style={{padding:"4px 10px",whiteSpace:"nowrap"}}>{r.estado}</td>
+                <td style={{padding:"4px 10px",textAlign:"right",fontFamily:"monospace",color:sinFin?C.muted2:C.green,fontWeight:sinFin?400:700}}>{sinFin?"—":fmtUSD0(r._comF)}</td>
+                <td style={{padding:"3px 10px",textAlign:"right"}}>{onVerEmbarque && r._oe && <button onClick={()=>onVerEmbarque(r._oe)} title="Ir al embarque operacional" style={{...btnSt(C.blue,true),padding:"2px 8px",fontSize:10}}>→ Ver</button>}</td>
+              </tr>; })}
+            {detalle.length===0 && <tr><td colSpan={12} style={{padding:16,textAlign:"center",color:C.muted2}}>Sin contenedores en la selección.</td></tr>}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+
+  const chkList = (items, sel, on)=>items.map(it=><label key={it.key} style={{display:"flex",gap:6,alignItems:"center",fontSize:11.5,padding:"2px 0",cursor:"pointer"}}><input type="checkbox" checked={sel.includes(it.key)} onChange={()=>on(it.key)}/>{it.label||it.lab}</label>);
+  const pLbl = {fontSize:10,fontWeight:800,color:C.muted,textTransform:"uppercase",letterSpacing:0.4,margin:"2px 0 5px"};
+  const controls = (
+    <div style={{display:"flex",flexDirection:"column",gap:12}}>
+      <div><div style={pLbl}>Dimensiones</div>{chkList(dims, dimSel, toggleDim)}</div>
+      <div><div style={pLbl}>Medidas</div>{chkList(metrics, medSel, toggleMed)}</div>
+      <div><div style={pLbl}>Buscar (agregado)</div><input value={q} onChange={e=>setQ(e.target.value)} placeholder="Filtrar filas…" style={{...inputSt,width:"100%",fontSize:11}}/></div>
+      <div><div style={pLbl}>Objeto</div><div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+        <button onClick={exportExcel} disabled={expX} style={{...btnSt(C.green),fontSize:11,padding:"5px 9px"}}>{expX?"⏳":"⬇ Excel"}</button>
+        <button onClick={exportPDF} disabled={expP} style={{...btnSt(C.accent),fontSize:11,padding:"5px 9px"}}>{expP?"⏳":"⬇ PDF"}</button>
+        <button onClick={()=>setFull(true)} style={{...btnSt(C.blue,true),fontSize:11,padding:"5px 9px"}}>⛶ Full</button>
+      </div></div>
+    </div>
+  );
+
+  // ── Modo workspace (chromeless): controles al panel; canvas = tabla + detalle ──
+  if(chromeless){
+    return (<>
+      {panelEl && createPortal(controls, panelEl)}
+      <div style={{display:"flex",flexDirection:"column",gap:12}}>
+        {warnings}
+        {dimSel.length===0 && <div style={{fontSize:11,color:C.muted2}}>Sin dimensiones: total del universo. Agrégalas en el panel de propiedades.</div>}
+        {tablaEl("42vh")}
+        {detail}
+      </div>
+      <FullscreenBI open={full} title="Tabla analítica" onClose={()=>setFull(false)}>{tablaEl("82vh")}</FullscreenBI>
+    </>);
+  }
+
+  // ── Modo legacy (standalone) ──
   return (
     <div>
       <div style={{display:"flex",gap:8,marginBottom:12,flexWrap:"wrap",alignItems:"center"}}>
@@ -5644,7 +5740,8 @@ function StraightTableBI({ onVerEmbarque }) {
 // selección desde dims, export y fullscreen. Mismo motor. CRÍTICO: cada celda y
 // total se RECALCULA con metric.calc(rows) — nunca suma subtotales (correcto para
 // count-distinct: contenedores/FCL/clientes/exportadores).
-function PivotTableBI() {
+function PivotTableBI(_pivotProps={}) {
+  const { chromeless, panelEl } = _pivotProps;
   const bi = useFriskuBI();
   const { filtered, dims, metrics, metric, sel, toggle, chips } = bi;
   const [row1, setRow1] = useState("cliente");
@@ -5693,8 +5790,8 @@ function PivotTableBI() {
 
   const td={padding:"4px 9px",borderTop:`1px solid ${C.border}`,textAlign:"right",fontFamily:"monospace",whiteSpace:"nowrap"};
   const thPiv={padding:"6px 9px",position:"sticky",top:0,zIndex:1,background:C.card2,fontWeight:700};
-  const tabla = (
-    <div style={{border:`1px solid ${C.border}`,borderRadius:10,overflowX:"auto",maxHeight:560,overflowY:"auto"}}>
+  const tablaEl = (maxH)=>(
+    <div style={{border:`1px solid ${C.border}`,borderRadius:10,overflowX:"auto",maxHeight:maxH,overflowY:"auto"}}>
       <table style={{width:"100%",borderCollapse:"collapse",fontSize:11.5,minWidth:560}}>
         <thead><tr style={{color:C.muted,textAlign:"left"}}>
           <th style={{...thPiv,textAlign:"left"}}>{dims.find(d=>d.key===row1)?.lab||row1}{hasR2?` › ${dims.find(d=>d.key===row2)?.lab||row2}`:""}</th>
@@ -5730,7 +5827,39 @@ function PivotTableBI() {
       </table>
     </div>
   );
+  const tabla = tablaEl(560);
 
+  const pLbl = {fontSize:10,fontWeight:800,color:C.muted,textTransform:"uppercase",letterSpacing:0.4,margin:"2px 0 5px"};
+  const controls = (
+    <div style={{display:"flex",flexDirection:"column",gap:12}}>
+      <div><div style={pLbl}>Fila 1</div><select value={row1} onChange={e=>setRow1(e.target.value)} style={{...inputSt,width:"100%"}}>{dims.map(d=><option key={d.key} value={d.key}>{d.lab}</option>)}</select></div>
+      <div><div style={pLbl}>Fila 2 (opcional)</div><select value={row2} onChange={e=>setRow2(e.target.value)} style={{...inputSt,width:"100%"}}><option value="">— ninguna —</option>{dims.map(d=><option key={d.key} value={d.key}>{d.lab}</option>)}</select></div>
+      <div><div style={pLbl}>Columna</div><select value={colDim} onChange={e=>setColDim(e.target.value)} style={{...inputSt,width:"100%"}}>{dims.map(d=><option key={d.key} value={d.key}>{d.lab}</option>)}</select></div>
+      <div><div style={pLbl}>Medida</div><select value={medKey} onChange={e=>setMedKey(e.target.value)} style={{...inputSt,width:"100%"}}>{metrics.map(m=><option key={m.key} value={m.key}>{m.label}</option>)}</select></div>
+      {hasR2 && <div><div style={pLbl}>Jerarquía</div><div style={{display:"flex",gap:6}}>
+        <button onClick={()=>setExpanded(new Set(groups.map(g=>g.key)))} style={{...btnSt(C.muted,true),fontSize:11,padding:"5px 9px"}}>Expandir todo</button>
+        <button onClick={()=>setExpanded(new Set())} style={{...btnSt(C.muted,true),fontSize:11,padding:"5px 9px"}}>Contraer</button>
+      </div></div>}
+      <div><div style={pLbl}>Objeto</div><div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+        <button onClick={exportExcel} disabled={expX} style={{...btnSt(C.green),fontSize:11,padding:"5px 9px"}}>{expX?"⏳":"⬇ Excel"}</button>
+        <button onClick={()=>setFull(true)} style={{...btnSt(C.blue,true),fontSize:11,padding:"5px 9px"}}>⛶ Full</button>
+      </div></div>
+    </div>
+  );
+
+  // ── Modo workspace (chromeless): controles al panel; canvas = pivote full-height ──
+  if(chromeless){
+    return (<>
+      {panelEl && createPortal(controls, panelEl)}
+      <div style={{display:"flex",flexDirection:"column",gap:8}}>
+        {tablaEl("72vh")}
+        <div style={{fontSize:10.5,color:C.muted2}}>Cada celda/total se recalcula con la métrica (no suma subtotales) → correcto para count-distinct. Clic en dimensión o columna = seleccionar. "—" = sin liquidación.</div>
+      </div>
+      <FullscreenBI open={full} title={`Pivot — ${M.label}`} onClose={()=>setFull(false)}>{tablaEl("82vh")}</FullscreenBI>
+    </>);
+  }
+
+  // ── Modo legacy (standalone) ──
   return (
     <div>
       <div style={{display:"flex",gap:10,marginBottom:12,flexWrap:"wrap",alignItems:"flex-end"}}>
@@ -5811,6 +5940,7 @@ function AnalysisWorkspace({ data, permTablero, onVerEmbarque }) {
   const [preset, setPreset]       = useState("libre");   // libre | comercial | semanal | comp
   const [viz, setViz]             = useState("tabla");    // tabla | pivot | barras | dona | tendencia | drill
   const [panelOpen, setPanelOpen] = useState(true);
+  const [propsEl, setPropsEl]     = useState(null);       // destino portal de PROPIEDADES
   const charts = permTablero?.visible!==false;            // Barras/Dona/Tendencia usan el motor del Explorador
   const libre  = preset==="libre";
   const VIZ = [
@@ -5827,12 +5957,13 @@ function AnalysisWorkspace({ data, permTablero, onVerEmbarque }) {
   const segBtn = (on,dis)=>({fontSize:12,padding:"6px 11px",borderRadius:6,cursor:dis?"default":"pointer",border:"none",fontWeight:700,
     background:on?C.blue:"transparent",color:on?"#fff":(dis?C.muted2:C.muted),opacity:dis?0.5:1});
 
+  const propsInPanel = preset==="libre" && (viz==="tabla" || viz==="pivot");
   const canvas = ()=>{
     if(preset==="comercial") return <HojaComercial onVerEmbarque={onVerEmbarque}/>;
     if(preset==="semanal")   return <HojaSemanal onVerEmbarque={onVerEmbarque}/>;
     if(preset==="comp")      return <HojaComparativo/>;
-    if(viz==="tabla")        return <StraightTableBI onVerEmbarque={onVerEmbarque}/>;
-    if(viz==="pivot")        return <PivotTableBI/>;
+    if(viz==="tabla")        return <StraightTableBI chromeless panelEl={propsEl} onVerEmbarque={onVerEmbarque}/>;
+    if(viz==="pivot")        return <PivotTableBI chromeless panelEl={propsEl}/>;
     if(viz==="drill")        return <DrillGroupsBI onVerEmbarque={onVerEmbarque}/>;
     const initialChart = viz==="dona"?"torta":viz==="tendencia"?"tendencia":"barras";
     return <TableroAsociativo key={viz} initialChart={initialChart} {...data}/>;
@@ -5863,7 +5994,9 @@ function AnalysisWorkspace({ data, permTablero, onVerEmbarque }) {
               {FILT.map(dk=><FilterFieldBI key={dk} dimKey={dk} label={FRISKU_DIMS.find(d=>d.key===dk)?.lab||dk}/>)}
             </div>
             <div style={{fontSize:10,fontWeight:800,color:C.muted,textTransform:"uppercase",letterSpacing:0.5,margin:"14px 2px 6px",borderTop:`1px solid ${C.border}`,paddingTop:10}}>Propiedades</div>
-            <div style={{fontSize:10.5,color:C.muted2,padding:"0 2px"}}>Columnas, medidas, orden, filas/columnas de pivote se integran aquí en e2. Por ahora viven en la barra del propio objeto.</div>
+            {propsInPanel
+              ? <div ref={setPropsEl} style={{padding:"0 2px"}}/>
+              : <div style={{fontSize:10.5,color:C.muted2,padding:"0 2px"}}>{preset!=="libre"?"Vista curada: su configuración vive en el propio objeto.":"Este objeto expone sus controles en su barra (se integran al panel en e3)."}</div>}
           </div>
         )}
         <div style={{flex:1,minWidth:0,overflow:"auto"}}>
