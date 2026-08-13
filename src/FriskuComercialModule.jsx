@@ -5513,7 +5513,7 @@ function FullscreenBI({ open, title, onClose, children }) {
 // selecciona (clic en celda de dimensión → filtra todo el BI), % participación,
 // totales, export Excel/PDF y pantalla completa. Mismo motor/selección; sin
 // fórmulas nuevas (usa metric.calc). % participación = valor fila / total mostrado.
-function StraightTableBI({ onVerEmbarque, chromeless, panelEl }) {
+function StraightTableBI({ onVerEmbarque, chromeless, panelEl, fullscreen, onExitFull, exportReq }) {
   const bi = useFriskuBI();
   const { filtered, dims, metrics, metric, sel, toggle } = bi;
   const [dimSel, setDimSel] = useState(["cliente"]);
@@ -5573,6 +5573,9 @@ function StraightTableBI({ onVerEmbarque, chromeless, panelEl }) {
       theme:"striped", styles:{fontSize:7}, headStyles:{fillColor:[30,39,97]}, margin:{left:m,right:m} });
     doc.save(`Frisku_Tabla_${new Date().toISOString().slice(0,10)}.pdf`);
   }catch(e){ console.error("[Tabla] PDF:",e); alert("No se pudo generar el PDF: "+e.message); } setExpP(false); setMenuOpen(false); };
+  // Export unificado del workspace (toolbar ⛶|Excel|PDF) → dispara el exportador del objeto.
+  const _lastExp = useRef(exportReq?.n);
+  useEffect(()=>{ if(!exportReq||exportReq.n===_lastExp.current) return; _lastExp.current=exportReq.n; (exportReq.type==="pdf"?exportPDF:exportExcel)(); },[exportReq]);
 
   const th=(col,label,align)=>{ const act=sortCol===col; return <th onClick={()=>setSort(col)} style={{padding:"6px 10px",textAlign:align||"left",cursor:"pointer",whiteSpace:"nowrap",background:C.card2,color:act?C.blue:C.muted,fontWeight:act?800:700,position:"sticky",top:0,zIndex:1}} title="Ordenar">{label}{act?(sortDir==="desc"?" ▼":" ▲"):<span style={{opacity:0.35}}> ⇅</span>}</th>; };
   const tablaEl = (maxH)=>(
@@ -5676,15 +5679,11 @@ function StraightTableBI({ onVerEmbarque, chromeless, panelEl }) {
       <div><div style={pLbl}>Dimensiones</div>{chkList(dims, dimSel, toggleDim)}</div>
       <div><div style={pLbl}>Medidas</div>{chkList(metrics, medSel, toggleMed)}</div>
       <div><div style={pLbl}>Buscar (agregado)</div><input value={q} onChange={e=>setQ(e.target.value)} placeholder="Filtrar filas…" style={{...inputSt,width:"100%",fontSize:11}}/></div>
-      <div><div style={pLbl}>Objeto</div><div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
-        <button onClick={exportExcel} disabled={expX} style={{...btnSt(C.green),fontSize:11,padding:"5px 9px"}}>{expX?"⏳":"⬇ Excel"}</button>
-        <button onClick={exportPDF} disabled={expP} style={{...btnSt(C.accent),fontSize:11,padding:"5px 9px"}}>{expP?"⏳":"⬇ PDF"}</button>
-        <button onClick={()=>setFull(true)} style={{...btnSt(C.blue,true),fontSize:11,padding:"5px 9px"}}>⛶ Full</button>
-      </div></div>
     </div>
   );
 
   // ── Modo workspace (chromeless): controles al panel; canvas = tabla + detalle ──
+  // Export/fullscreen los controla la toolbar del workspace (exportReq / fullscreen).
   if(chromeless){
     return (<>
       {panelEl && createPortal(controls, panelEl)}
@@ -5694,7 +5693,7 @@ function StraightTableBI({ onVerEmbarque, chromeless, panelEl }) {
         {tablaEl("42vh")}
         {detail}
       </div>
-      <FullscreenBI open={full} title="Tabla analítica" onClose={()=>setFull(false)}>{tablaEl("82vh")}</FullscreenBI>
+      <FullscreenBI open={!!fullscreen} title="Tabla analítica" onClose={onExitFull}>{tablaEl("82vh")}</FullscreenBI>
     </>);
   }
 
@@ -5741,7 +5740,7 @@ function StraightTableBI({ onVerEmbarque, chromeless, panelEl }) {
 // total se RECALCULA con metric.calc(rows) — nunca suma subtotales (correcto para
 // count-distinct: contenedores/FCL/clientes/exportadores).
 function PivotTableBI(_pivotProps={}) {
-  const { chromeless, panelEl } = _pivotProps;
+  const { chromeless, panelEl, fullscreen, onExitFull, exportReq } = _pivotProps;
   const bi = useFriskuBI();
   const { filtered, dims, metrics, metric, sel, toggle, chips } = bi;
   const [row1, setRow1] = useState("cliente");
@@ -5787,6 +5786,24 @@ function PivotTableBI(_pivotProps={}) {
     await fr_logoExcel(wb,ws);
     await fr_descargarWB(wb,`Frisku_Pivot_${new Date().toISOString().slice(0,10)}.xlsx`);
   }catch(e){ console.error("[Pivot] Excel:",e); alert("No se pudo generar el Excel: "+e.message); } setExpX(false); setMenuOpen(false); };
+  const exportPDF = async ()=>{ try{
+    const JsPDF=await pl_loadJsPDF(); const doc=new JsPDF({orientation:"landscape",unit:"mm",format:"a4"}); const W=297,m=12;
+    doc.setFillColor(30,39,97); doc.rect(0,0,W,24,"F"); doc.setTextColor(255,255,255); doc.setFont("helvetica","bold"); doc.setFontSize(13);
+    doc.text(`Frisku Foods — Pivot (${M.label})`, m, 11); doc.setFont("helvetica","normal"); doc.setFontSize(7.5);
+    doc.text(`Filas ${row1}${hasR2?" › "+row2:""} · Columna ${colDim} · ${new Date().toLocaleString("es-CL")}`.slice(0,175), m, 18);
+    doc.setFontSize(7); doc.text(`Filtros: ${filtrosTxt}`.slice(0,175), m, 22.5); await fr_logoPDF(doc,W-m,4,40,15);
+    const head=[[dims.find(d=>d.key===row1)?.lab||row1, ...(hasR2?[dims.find(d=>d.key===row2)?.lab||row2]:[]), ...colVals.map(c=>c.label), "Total"]];
+    const body=[]; groups.forEach(g=>{
+      body.push([g.label, ...(hasR2?[""]:[]), ...colVals.map(c=>cellTxt(g.rows,c.value)), cellTxt(g.rows,null)]);
+      if(hasR2) g.subs.forEach(s=>body.push(["", "  "+s.label, ...colVals.map(c=>cellTxt(s.rows,c.value)), cellTxt(s.rows,null)]));
+    });
+    body.push(["TOTAL", ...(hasR2?[""]:[]), ...colVals.map(c=>cellTxt(filtered,c.value)), cellTxt(filtered,null)]);
+    doc.autoTable({ startY:28, head, body, theme:"striped", styles:{fontSize:7}, headStyles:{fillColor:[30,39,97]}, margin:{left:m,right:m} });
+    doc.save(`Frisku_Pivot_${new Date().toISOString().slice(0,10)}.pdf`);
+  }catch(e){ console.error("[Pivot] PDF:",e); alert("No se pudo generar el PDF: "+e.message); } setMenuOpen(false); };
+  // Export unificado del workspace (toolbar) → Excel o PDF del pivote actual.
+  const _lastExpP = useRef(exportReq?.n);
+  useEffect(()=>{ if(!exportReq||exportReq.n===_lastExpP.current) return; _lastExpP.current=exportReq.n; (exportReq.type==="pdf"?exportPDF:exportExcel)(); },[exportReq]);
 
   const td={padding:"4px 9px",borderTop:`1px solid ${C.border}`,textAlign:"right",fontFamily:"monospace",whiteSpace:"nowrap"};
   const thPiv={padding:"6px 9px",position:"sticky",top:0,zIndex:1,background:C.card2,fontWeight:700};
@@ -5840,14 +5857,11 @@ function PivotTableBI(_pivotProps={}) {
         <button onClick={()=>setExpanded(new Set(groups.map(g=>g.key)))} style={{...btnSt(C.muted,true),fontSize:11,padding:"5px 9px"}}>Expandir todo</button>
         <button onClick={()=>setExpanded(new Set())} style={{...btnSt(C.muted,true),fontSize:11,padding:"5px 9px"}}>Contraer</button>
       </div></div>}
-      <div><div style={pLbl}>Objeto</div><div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
-        <button onClick={exportExcel} disabled={expX} style={{...btnSt(C.green),fontSize:11,padding:"5px 9px"}}>{expX?"⏳":"⬇ Excel"}</button>
-        <button onClick={()=>setFull(true)} style={{...btnSt(C.blue,true),fontSize:11,padding:"5px 9px"}}>⛶ Full</button>
-      </div></div>
     </div>
   );
 
   // ── Modo workspace (chromeless): controles al panel; canvas = pivote full-height ──
+  // Export/fullscreen los controla la toolbar del workspace.
   if(chromeless){
     return (<>
       {panelEl && createPortal(controls, panelEl)}
@@ -5855,7 +5869,7 @@ function PivotTableBI(_pivotProps={}) {
         {tablaEl("72vh")}
         <div style={{fontSize:10.5,color:C.muted2}}>Cada celda/total se recalcula con la métrica (no suma subtotales) → correcto para count-distinct. Clic en dimensión o columna = seleccionar. "—" = sin liquidación.</div>
       </div>
-      <FullscreenBI open={full} title={`Pivot — ${M.label}`} onClose={()=>setFull(false)}>{tablaEl("82vh")}</FullscreenBI>
+      <FullscreenBI open={!!fullscreen} title={`Pivot — ${M.label}`} onClose={onExitFull}>{tablaEl("82vh")}</FullscreenBI>
     </>);
   }
 
@@ -5941,8 +5955,12 @@ function AnalysisWorkspace({ data, permTablero, onVerEmbarque }) {
   const [viz, setViz]             = useState("tabla");    // tabla | pivot | barras | dona | tendencia | drill
   const [panelOpen, setPanelOpen] = useState(true);
   const [propsEl, setPropsEl]     = useState(null);       // destino portal de PROPIEDADES
+  const [full, setFull]           = useState(false);      // fullscreen del objeto activo (control único)
+  const [exportReq, setExportReq] = useState(null);       // {type, n} → dispara export del objeto activo
+  const fireExport = (type)=> setExportReq(r=>({type, n:(r?.n||0)+1}));
   const charts = permTablero?.visible!==false;            // Barras/Dona/Tendencia usan el motor del Explorador
   const libre  = preset==="libre";
+  const exportable = libre;                               // Tabla/Pivot/Barras/Dona/Tendencia/Drill soportan export/⛶
   const VIZ = [
     {k:"tabla", lab:"▦ Tabla"}, {k:"pivot", lab:"⊞ Pivot"},
     charts && {k:"barras", lab:"▮ Barras"}, charts && {k:"dona", lab:"◔ Dona"}, charts && {k:"tendencia", lab:"📈 Tendencia"},
@@ -5957,16 +5975,17 @@ function AnalysisWorkspace({ data, permTablero, onVerEmbarque }) {
   const segBtn = (on,dis)=>({fontSize:12,padding:"6px 11px",borderRadius:6,cursor:dis?"default":"pointer",border:"none",fontWeight:700,
     background:on?C.blue:"transparent",color:on?"#fff":(dis?C.muted2:C.muted),opacity:dis?0.5:1});
 
-  const propsInPanel = preset==="libre" && ["tabla","pivot","barras","dona","tendencia"].includes(viz);
+  const propsInPanel = preset==="libre" && ["tabla","pivot","barras","dona","tendencia","drill"].includes(viz);
+  const objProps = { chromeless:true, panelEl:propsEl, fullscreen:full, onExitFull:()=>setFull(false), exportReq };
   const canvas = ()=>{
     if(preset==="comercial") return <HojaComercial onVerEmbarque={onVerEmbarque}/>;
     if(preset==="semanal")   return <HojaSemanal onVerEmbarque={onVerEmbarque}/>;
     if(preset==="comp")      return <HojaComparativo/>;
-    if(viz==="tabla")        return <StraightTableBI chromeless panelEl={propsEl} onVerEmbarque={onVerEmbarque}/>;
-    if(viz==="pivot")        return <PivotTableBI chromeless panelEl={propsEl}/>;
-    if(viz==="drill")        return <DrillGroupsBI onVerEmbarque={onVerEmbarque}/>;
+    if(viz==="tabla")        return <StraightTableBI {...objProps} onVerEmbarque={onVerEmbarque}/>;
+    if(viz==="pivot")        return <PivotTableBI {...objProps}/>;
+    if(viz==="drill")        return <DrillGroupsBI {...objProps} onVerEmbarque={onVerEmbarque}/>;
     const vizChart = viz==="dona"?"torta":viz==="tendencia"?"tendencia":"barras";
-    return <TableroAsociativo chromeless panelEl={propsEl} vizChart={vizChart} {...data}/>;
+    return <TableroAsociativo {...objProps} vizChart={vizChart} {...data}/>;
   };
 
   return (
@@ -5983,6 +6002,12 @@ function AnalysisWorkspace({ data, permTablero, onVerEmbarque }) {
           <div style={{...seg,opacity:libre?1:0.6}}>{VIZ.map(v=><button key={v.k} disabled={!libre} onClick={()=>libre&&setViz(v.k)} title={libre?"":"La vista curada usa su propio renderer"} style={segBtn(libre&&viz===v.k,!libre)}>{v.lab}</button>)}</div>
         </div>
         {!libre && <span style={{fontSize:10.5,color:C.muted2}}>Vista curada · renderer propio</span>}
+        {/* Controles ÚNICOS del workspace (⛶ | Excel | PDF), alineados a la derecha */}
+        <div style={{marginLeft:"auto",display:"flex",gap:6}}>
+          <button onClick={()=>setFull(true)} disabled={!exportable} title={exportable?"Pantalla completa del objeto":"Disponible en presets libres (e5 para vistas curadas)"} style={{...btnSt(C.blue,true),fontSize:12,padding:"6px 10px",opacity:exportable?1:0.45}}>⛶ Pantalla completa</button>
+          <button onClick={()=>fireExport("excel")} disabled={!exportable} title="Excel del dataset/resultado de la visualización activa (respeta selección y filtros)" style={{...btnSt(C.green),fontSize:12,padding:"6px 10px",opacity:exportable?1:0.45}}>↓ Excel</button>
+          <button onClick={()=>fireExport("pdf")} disabled={!exportable} title="PDF de la visualización activa (con contexto: título, fecha, selecciones, preset)" style={{...btnSt(C.accent),fontSize:12,padding:"6px 10px",opacity:exportable?1:0.45}}>↓ PDF</button>
+        </div>
       </div>
 
       {/* ③ Panel lateral + ④ Canvas (alto = viewport − chrome) */}
@@ -5996,7 +6021,7 @@ function AnalysisWorkspace({ data, permTablero, onVerEmbarque }) {
             <div style={{fontSize:10,fontWeight:800,color:C.muted,textTransform:"uppercase",letterSpacing:0.5,margin:"14px 2px 6px",borderTop:`1px solid ${C.border}`,paddingTop:10}}>Propiedades</div>
             {propsInPanel
               ? <div ref={setPropsEl} style={{padding:"0 2px"}}/>
-              : <div style={{fontSize:10.5,color:C.muted2,padding:"0 2px"}}>{preset!=="libre"?"Vista curada: su configuración vive en el propio objeto.":"Este objeto expone sus controles en su barra (se integran al panel en e3)."}</div>}
+              : <div style={{fontSize:10.5,color:C.muted2,padding:"0 2px"}}>Vista curada: su configuración vive en el propio objeto (los presets se integran en e5).</div>}
           </div>
         )}
         <div style={{flex:1,minWidth:0,overflow:"auto"}}>
@@ -6056,9 +6081,9 @@ const DRILL_GROUPS = {
   logistico: { lab:"Logístico", dims:["temporada","semanaETD","cliente","contenedor"] },
   mercado:   { lab:"Mercado",   dims:["mercado","paisDestino","puertoDestino","cliente","contenedor"] },
 };
-function DrillGroupsBI({ onVerEmbarque }) {
+function DrillGroupsBI({ onVerEmbarque, chromeless, panelEl, fullscreen, onExitFull, exportReq }) {
   const bi = useFriskuBI();
-  const { filtered, metrics, metric, setMany } = bi;
+  const { filtered, metrics, metric, setMany, chips } = bi;
   const [grpKey, setGrpKey] = useState("comercial");
   const [medKey, setMedKey] = useState("fcl");
   const [path, setPath] = useState([]); // [{dimKey, value, label}]
@@ -6083,8 +6108,125 @@ function DrillGroupsBI({ onVerEmbarque }) {
   const irNivel = (i)=>setPath(p=>p.slice(0,i)); // breadcrumb: truncar
   const promover = ()=>{ path.forEach(p=>setMany(p.dimKey, [p.value])); };
   const dimLab = (k)=>(FRISKU_DIMS.find(d=>d.key===k)?.lab)||k;
+  const filtrosTxt = chips.length ? chips.map(c=>`${c.dimLab}=${c.label}`).join(", ") : "sin filtros";
+  const rutaTxt = [grp.lab, ...path.map(p=>p.label)].join(" › ");
+
+  // ── Export del NIVEL/RUTA actual (reutiliza helpers fr_*/jsPDF) ──
+  const exportExcel = async ()=>{ try{
+    const ExcelJS=await fr_loadExcelJS(); const wb=new ExcelJS.Workbook(); wb.creator="Grupo Mediterra — Frisku Foods";
+    const ws=wb.addWorksheet("Drill"); const tot=M.calc(rows);
+    if(grupos.length){
+      const rowsX=grupos.map(g=>{ const val=M.calc(g.rows); const sinDato=isFin&&g.rows.filter(r=>r._nLiq>0).length===0; return [g.label, sinDato?"":val, (!isFin&&tot>0)?Number((val/tot*100).toFixed(1)):""]; });
+      fr_sheetTabla(ws,{titulo:`FRISKU FOODS — Drill ${grp.lab}`, subtitulo:`Ruta: ${rutaTxt} · Nivel: ${dimLab(curDim)} · Filtros: ${filtrosTxt} · ${new Date().toLocaleString("es-CL")}`,
+        headers:[dimLab(curDim), M.label, "%"], colWidths:[30,16,9], rows:rowsX, totalRow:[`TOTAL (${grupos.length})`, tot, ""],
+        moneyCols:M.fmt==="usd"?[1]:[], intCols:M.fmt==="int"?[1]:[]});
+    } else {
+      const rowsX=rows.map(r=>[r._oe?.numero||"—", r.especieLab, r.clienteLab, r.exportadoraLab, r._cajas, r._kilos]);
+      fr_sheetTabla(ws,{titulo:`FRISKU FOODS — Drill ${grp.lab}`, subtitulo:`Ruta: ${rutaTxt} · Contenedores · Filtros: ${filtrosTxt} · ${new Date().toLocaleString("es-CL")}`,
+        headers:["N° OE","Especie","Cliente","Exportador","Cajas","Kilos"], colWidths:[14,16,20,20,10,10], rows:rowsX, intCols:[4,5]});
+    }
+    await fr_logoExcel(wb,ws);
+    await fr_descargarWB(wb,`Frisku_Drill_${grpKey}_${new Date().toISOString().slice(0,10)}.xlsx`);
+  }catch(e){ console.error("[Drill] Excel:",e); alert("No se pudo generar el Excel: "+e.message); } };
+  const exportPDF = async ()=>{ try{
+    const JsPDF=await pl_loadJsPDF(); const doc=new JsPDF({orientation:"landscape",unit:"mm",format:"a4"}); const W=297,m=12;
+    doc.setFillColor(30,39,97); doc.rect(0,0,W,24,"F"); doc.setTextColor(255,255,255); doc.setFont("helvetica","bold"); doc.setFontSize(13);
+    doc.text(`Frisku Foods — Drill ${grp.lab}`, m, 11); doc.setFont("helvetica","normal"); doc.setFontSize(7.5);
+    doc.text(`Ruta: ${rutaTxt} · Nivel: ${curDim?dimLab(curDim):"contenedores"} · ${new Date().toLocaleString("es-CL")}`.slice(0,175), m, 18);
+    doc.setFontSize(7); doc.text(`Filtros: ${filtrosTxt}`.slice(0,175), m, 22.5); await fr_logoPDF(doc,W-m,4,40,15);
+    const tot=M.calc(rows);
+    const head = grupos.length ? [[dimLab(curDim), M.label, "%"]] : [["N° OE","Especie","Cliente","Exportador","Cajas","Kilos"]];
+    const body = grupos.length
+      ? grupos.map(g=>{ const val=M.calc(g.rows); const sinDato=isFin&&g.rows.filter(r=>r._nLiq>0).length===0; return [g.label, sinDato?"—":fmtMetric(M.fmt,val), (!isFin&&tot>0)?(val/tot*100).toFixed(1)+"%":"—"]; })
+      : rows.map(r=>[r._oe?.numero||"—", r.especieLab, r.clienteLab, r.exportadoraLab, fmtN0(r._cajas), fmtN0(r._kilos)]);
+    doc.autoTable({ startY:28, head, body, theme:"striped", styles:{fontSize:7.5}, headStyles:{fillColor:[30,39,97]}, margin:{left:m,right:m} });
+    doc.save(`Frisku_Drill_${grpKey}_${new Date().toISOString().slice(0,10)}.pdf`);
+  }catch(e){ console.error("[Drill] PDF:",e); alert("No se pudo generar el PDF: "+e.message); } };
+  const _lastExpD = useRef(exportReq?.n);
+  useEffect(()=>{ if(!exportReq||exportReq.n===_lastExpD.current) return; _lastExpD.current=exportReq.n; (exportReq.type==="pdf"?exportPDF:exportExcel)(); },[exportReq]);
 
   const Tab=({on,onClick,children})=>(<button onClick={onClick} style={{...btnSt(on?C.blue:C.muted,!on), fontSize:12, padding:"6px 12px"}}>{children}</button>);
+  const pLbl = {fontSize:10,fontWeight:800,color:C.muted,textTransform:"uppercase",letterSpacing:0.4,margin:"2px 0 5px"};
+
+  // Breadcrumb de DRILL (ruta local, dentro del canvas — separado de la Barra global)
+  const breadcrumbEl = (
+    <div style={{display:"flex", gap:6, flexWrap:"wrap", alignItems:"center", marginBottom:12, padding:"8px 10px", background:`${C.blue}0c`, border:`1px solid ${C.border}`, borderRadius:9}}>
+      <span style={{fontSize:11, color:C.muted, fontWeight:700}}>⛏ Ruta:</span>
+      <span onClick={()=>irNivel(0)} style={{cursor:"pointer", fontSize:12, fontWeight:700, color:lvl===0?C.text:C.blue}}>{grp.lab}</span>
+      {path.map((p,i)=>(<React.Fragment key={i}>
+        <span style={{color:C.muted2, fontSize:11}}>›</span>
+        <span onClick={()=>irNivel(i+1)} style={{cursor:"pointer", fontSize:12, color:i===lvl-1?C.text:C.blue, fontWeight:i===lvl-1?700:500}}
+              title={`${dimLab(p.dimKey)}: ${p.label}`}>{p.label}</span>
+      </React.Fragment>))}
+      {curDim && <span style={{fontSize:11, color:C.muted2, marginLeft:4}}>· nivel actual: <b>{dimLab(curDim)}</b></span>}
+      <span style={{flex:1}}/>
+      {path.length>0 && <>
+        <button onClick={promover} title="Convertir la ruta de drill en selección global (Barra de Selección)"
+          style={{...btnSt(C.accent2,true), fontSize:11, padding:"4px 9px"}}>↥ Aplicar como selección</button>
+        <button onClick={()=>setPath([])} style={{...btnSt(C.muted,true), fontSize:11, padding:"4px 9px"}}>Reiniciar drill</button>
+      </>}
+    </div>
+  );
+
+  const tablaEl = (maxH)=> enHoja ? (
+    <div style={{fontSize:12.5, color:C.muted, padding:"14px 4px", border:`1px solid ${C.border}`, borderRadius:10}}>Ruta completa. {rows.length} contenedor(es) en el detalle — usa el breadcrumb para subir de nivel.</div>
+  ) : (
+    <div style={{border:`1px solid ${C.border}`, borderRadius:10, overflowX:"auto", maxHeight:maxH, overflowY:"auto"}}>
+      <table style={{width:"100%", borderCollapse:"collapse", fontSize:11.5}}>
+        <thead><tr style={{color:C.muted, textAlign:"left"}}>
+          <th style={{padding:"6px 10px", position:"sticky", top:0, zIndex:1, background:C.card2, fontWeight:700}}>{dimLab(curDim)}</th>
+          <th style={{padding:"6px 10px", textAlign:"right", position:"sticky", top:0, zIndex:1, background:C.card2, fontWeight:700}}>{M.label}</th>
+          <th style={{padding:"6px 10px", textAlign:"right", width:80, position:"sticky", top:0, zIndex:1, background:C.card2, fontWeight:700}}>%</th>
+          <th style={{padding:"6px 10px", width:36, position:"sticky", top:0, zIndex:1, background:C.card2}}></th>
+        </tr></thead>
+        <tbody>
+          {(()=>{ const tot=M.calc(rows); return grupos.map((g,i)=>{
+            const val=M.calc(g.rows); const sinDato=isFin && g.rows.filter(r=>r._nLiq>0).length===0;
+            const pct = tot>0 && !isFin ? (val/tot*100) : null;
+            const esHoja = curDim==="contenedor";
+            return (<tr key={g.value+"_"+i} onClick={()=>bajar(g)} style={{borderTop:`1px solid ${C.border}`, cursor:"pointer"}}
+              title={esHoja?"Ver embarque":"Bajar un nivel"}>
+              <td style={{padding:"4px 10px", whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis", maxWidth:320}}>
+                <span style={{color:C.blue}}>{esHoja?"→ ":"▸ "}</span>{g.label}</td>
+              <td style={{padding:"4px 10px", textAlign:"right", fontFamily:"monospace", color:sinDato?C.muted2:undefined}}>{sinDato?"—":fmtMetric(M.fmt, val)}</td>
+              <td style={{padding:"4px 10px", textAlign:"right", fontFamily:"monospace", color:C.muted2}}>{pct==null?"—":pct.toFixed(1)+"%"}</td>
+              <td style={{padding:"4px 10px", textAlign:"center", color:C.muted2}}>{esHoja?"🚢":"⤵"}</td>
+            </tr>); }); })()}
+        </tbody>
+        <tfoot><tr style={{fontWeight:800}}>
+            <td style={{padding:"7px 10px", position:"sticky", bottom:0, background:C.card2, borderTop:`2px solid ${C.border}`}}>TOTAL ({grupos.length})</td>
+            <td style={{padding:"7px 10px", textAlign:"right", fontFamily:"monospace", position:"sticky", bottom:0, background:C.card2, borderTop:`2px solid ${C.border}`}}>{fmtMetric(M.fmt, M.calc(rows))}</td>
+            <td colSpan={2} style={{padding:"7px 10px", textAlign:"right", color:C.muted2, fontWeight:400, fontSize:11, position:"sticky", bottom:0, background:C.card2, borderTop:`2px solid ${C.border}`}}>recalculado (no suma subtotales)</td>
+        </tr></tfoot>
+      </table>
+    </div>
+  );
+  const notaEl = (
+    <div style={{fontSize:11, color:C.muted2, marginTop:8}}>
+      El drill es local: acota esta tabla sin tocar la Barra de Selección. Usa <b>↥ Aplicar como selección</b> para promover la ruta a selección global.
+    </div>
+  );
+
+  // ── Modo workspace (chromeless): Grupo+Medida al panel; canvas = ruta + tabla ──
+  if(chromeless){
+    const controls = (
+      <div style={{display:"flex",flexDirection:"column",gap:12}}>
+        <div><div style={pLbl}>Grupo de drill</div>
+          <div style={{display:"flex",flexDirection:"column",gap:4}}>
+            {Object.entries(DRILL_GROUPS).map(([k,g])=><button key={k} onClick={()=>cambiarGrupo(k)} title={g.dims.map(d=>dimLab(d)).join(" → ")} style={{...btnSt(grpKey===k?C.blue:C.muted,grpKey!==k),fontSize:11.5,padding:"5px 9px",textAlign:"left"}}>{g.lab}</button>)}
+          </div>
+        </div>
+        <div><div style={pLbl}>Medida</div><select value={medKey} onChange={e=>setMedKey(e.target.value)} style={{...inputSt,width:"100%"}}>{metrics.map(m=><option key={m.key} value={m.key}>{m.label}</option>)}</select></div>
+      </div>
+    );
+    return (<>
+      {panelEl && createPortal(controls, panelEl)}
+      <div>{breadcrumbEl}{tablaEl("58vh")}{notaEl}</div>
+      <FullscreenBI open={!!fullscreen} onClose={onExitFull} title={`Drill · ${grp.lab}`}><div>{breadcrumbEl}{tablaEl("78vh")}</div></FullscreenBI>
+    </>);
+  }
+
+  // ── Modo legacy (standalone) ──
   return (
     <div>
       <div style={{display:"flex", gap:8, flexWrap:"wrap", alignItems:"center", marginBottom:10}}>
@@ -6096,59 +6238,9 @@ function DrillGroupsBI({ onVerEmbarque }) {
           {metrics.map(m=><option key={m.key} value={m.key}>{m.label}</option>)}
         </select>
       </div>
-      {/* Breadcrumb de DRILL (separado de la Barra de Selección global) */}
-      <div style={{display:"flex", gap:6, flexWrap:"wrap", alignItems:"center", marginBottom:12, padding:"8px 10px", background:`${C.blue}0c`, border:`1px solid ${C.border}`, borderRadius:9}}>
-        <span style={{fontSize:11, color:C.muted, fontWeight:700}}>⛏ Ruta:</span>
-        <span onClick={()=>irNivel(0)} style={{cursor:"pointer", fontSize:12, fontWeight:700, color:lvl===0?C.text:C.blue}}>{grp.lab}</span>
-        {path.map((p,i)=>(<React.Fragment key={i}>
-          <span style={{color:C.muted2, fontSize:11}}>›</span>
-          <span onClick={()=>irNivel(i+1)} style={{cursor:"pointer", fontSize:12, color:i===lvl-1?C.text:C.blue, fontWeight:i===lvl-1?700:500}}
-                title={`${dimLab(p.dimKey)}: ${p.label}`}>{p.label}</span>
-        </React.Fragment>))}
-        {curDim && <span style={{fontSize:11, color:C.muted2, marginLeft:4}}>· nivel actual: <b>{dimLab(curDim)}</b></span>}
-        <span style={{flex:1}}/>
-        {path.length>0 && <>
-          <button onClick={promover} title="Convertir la ruta de drill en selección global (Barra de Selección)"
-            style={{...btnSt(C.accent2,true), fontSize:11, padding:"4px 9px"}}>↥ Aplicar como selección</button>
-          <button onClick={()=>setPath([])} style={{...btnSt(C.muted,true), fontSize:11, padding:"4px 9px"}}>Reiniciar drill</button>
-        </>}
-      </div>
-      {enHoja ? (
-        <div style={{fontSize:12.5, color:C.muted, padding:"14px 4px"}}>Ruta completa. {rows.length} contenedor(es) en el detalle — usa el breadcrumb para subir de nivel.</div>
-      ) : (
-        <div style={{border:`1px solid ${C.border}`, borderRadius:10, overflowX:"auto", maxHeight:560, overflowY:"auto"}}>
-          <table style={{width:"100%", borderCollapse:"collapse", fontSize:11.5}}>
-            <thead><tr style={{color:C.muted, textAlign:"left"}}>
-              <th style={{padding:"6px 10px", position:"sticky", top:0, zIndex:1, background:C.card2, fontWeight:700}}>{dimLab(curDim)}</th>
-              <th style={{padding:"6px 10px", textAlign:"right", position:"sticky", top:0, zIndex:1, background:C.card2, fontWeight:700}}>{M.label}</th>
-              <th style={{padding:"6px 10px", textAlign:"right", width:80, position:"sticky", top:0, zIndex:1, background:C.card2, fontWeight:700}}>%</th>
-              <th style={{padding:"6px 10px", width:36, position:"sticky", top:0, zIndex:1, background:C.card2}}></th>
-            </tr></thead>
-            <tbody>
-              {(()=>{ const tot=M.calc(rows); return grupos.map((g,i)=>{
-                const val=M.calc(g.rows); const sinDato=isFin && g.rows.filter(r=>r._nLiq>0).length===0;
-                const pct = tot>0 && !isFin ? (val/tot*100) : null;
-                const esHoja = curDim==="contenedor";
-                return (<tr key={g.value+"_"+i} onClick={()=>bajar(g)} style={{borderTop:`1px solid ${C.border}`, cursor:"pointer"}}
-                  title={esHoja?"Ver embarque":"Bajar un nivel"}>
-                  <td style={{padding:"4px 10px", whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis", maxWidth:320}}>
-                    <span style={{color:C.blue}}>{esHoja?"→ ":"▸ "}</span>{g.label}</td>
-                  <td style={{padding:"4px 10px", textAlign:"right", fontFamily:"monospace", color:sinDato?C.muted2:undefined}}>{sinDato?"—":fmtMetric(M.fmt, val)}</td>
-                  <td style={{padding:"4px 10px", textAlign:"right", fontFamily:"monospace", color:C.muted2}}>{pct==null?"—":pct.toFixed(1)+"%"}</td>
-                  <td style={{padding:"4px 10px", textAlign:"center", color:C.muted2}}>{esHoja?"🚢":"⤵"}</td>
-                </tr>); }); })()}
-            </tbody>
-            <tfoot><tr style={{fontWeight:800}}>
-                <td style={{padding:"7px 10px", position:"sticky", bottom:0, background:C.card2, borderTop:`2px solid ${C.border}`}}>TOTAL ({grupos.length})</td>
-                <td style={{padding:"7px 10px", textAlign:"right", fontFamily:"monospace", position:"sticky", bottom:0, background:C.card2, borderTop:`2px solid ${C.border}`}}>{fmtMetric(M.fmt, M.calc(rows))}</td>
-                <td colSpan={2} style={{padding:"7px 10px", textAlign:"right", color:C.muted2, fontWeight:400, fontSize:11, position:"sticky", bottom:0, background:C.card2, borderTop:`2px solid ${C.border}`}}>recalculado (no suma subtotales)</td>
-            </tr></tfoot>
-          </table>
-        </div>
-      )}
-      <div style={{fontSize:11, color:C.muted2, marginTop:8}}>
-        El drill es local: acota esta tabla sin tocar la Barra de Selección. Usa <b>↥ Aplicar como selección</b> para promover la ruta a selección global.
-      </div>
+      {breadcrumbEl}
+      {tablaEl(560)}
+      {notaEl}
     </div>
   );
 }
@@ -6423,7 +6515,7 @@ function ResumenEjecutivo() {
   );
 }
 
-function TableroAsociativo({ liquidaciones, embarques, clientes, exportadoras, especies, mercados, programa, contratos, pos, initialChart, chromeless, panelEl, vizChart }) {
+function TableroAsociativo({ liquidaciones, embarques, clientes, exportadoras, especies, mercados, programa, contratos, pos, initialChart, chromeless, panelEl, vizChart, fullscreen, onExitFull, exportReq }) {
   const [fuenteId, setFuenteId] = useState("liq");
   const [measureId, setMeasureId] = useState("");
   const [dim1, setDim1] = useState("");
@@ -6926,6 +7018,9 @@ function TableroAsociativo({ liquidaciones, embarques, clientes, exportadoras, e
       <div style={{fontSize:10.5,color:C.muted2}}>{fuente.nota} · {fuente.rows.length} registros{d2?` · desglose por ${d2.lab.toLowerCase()}`:""}</div>
     </div>
   );
+  // Export unificado del workspace → Excel (dataset del gráfico) o PDF (el gráfico).
+  const _lastExpG = useRef(exportReq?.n);
+  useEffect(()=>{ if(!exportReq||exportReq.n===_lastExpG.current) return; _lastExpG.current=exportReq.n; (exportReq.type==="pdf"?exportBIPDF:exportBIExcel)(); },[exportReq]);
   if(chromeless){
     return (<>
       {panelEl && createPortal(controls, panelEl)}
@@ -6938,6 +7033,12 @@ function TableroAsociativo({ liquidaciones, embarques, clientes, exportadoras, e
             {chart==="tabla"      && <VistaTabla/>}
             <div style={{fontSize:11,color:C.muted2,marginTop:12,textAlign:"center"}}>Explorador · {filteredRows.length} de {fuente.rows.length} registros en la selección · midiendo <b>{measure.lab}</b> por <b>{d1.lab}</b>{d2?` × ${d2.lab}`:""}. Verde = seleccionado · tachado = excluido.</div>
           </div>}
+      <FullscreenBI open={!!fullscreen} onClose={onExitFull} title={`Explorador · ${measure.lab} por ${d1.lab}${d2?` × ${d2.lab}`:""}`}>
+        {chart==="barras"     && <VistaBarras/>}
+        {chart==="torta"      && <VistaTorta/>}
+        {chart==="tendencia"  && <VistaTendencia/>}
+        {chart==="tabla"      && <VistaTabla/>}
+      </FullscreenBI>
     </>);
   }
 
