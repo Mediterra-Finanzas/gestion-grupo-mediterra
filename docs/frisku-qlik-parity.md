@@ -23,9 +23,9 @@ Estados: IGUAL · SIMILAR · PARCIAL · FALTA. (Tras P0 = commits `e47f2db`, `d2
 | **Back / Forward** | historial de selecciones | undo/redo en el provider (60 estados) | IGUAL (nuevo P0) | — |
 | Clear all / clear field | limpiar todo / un campo | Limpiar todo / ✕ por dim | IGUAL | — |
 | Select possible/all | seleccionar posibles | "Sel. compatibles" en el filtro | SIMILAR | — |
-| Select excluded / invert | seleccionar excluidos / invertir | — | FALTA | P1 (acciones en menú del filtro) |
-| **Lock selección** | bloquear un campo | — | FALTA | P0-restante (evaluar) |
-| **Filter pane** persistente multi-dim | panel lateral con varios listboxes | filtros por dropdown (listbox por dim) | PARCIAL | P1 (drawer/pane expandible) |
+| Select excluded / invert | seleccionar excluidos / invertir | acciones ⋯ en Filter Pane (posibles/alternativos/excluidos/invertir) | IGUAL (nuevo P1.8) | — |
+| **Lock selección** | bloquear un campo | — | FALTA | P2 (evaluar) |
+| **Filter pane** persistente multi-dim | panel lateral con varios listboxes | Filter Pane colapsable "🔎 Filtros" (9 dims, 4 estados, ⋯) | IGUAL (nuevo P1.8) | — |
 | **Alternate states** (A/B) | comparar 2 selecciones | Comparativo por temporada (fijo) | PARCIAL | P2 (Comparador A/B) |
 | **Bookmarks** / vistas guardadas | guardar selección+vista | `applySel` listo en motor; sin UI | PARCIAL | P2 |
 
@@ -35,13 +35,13 @@ Estados: IGUAL · SIMILAR · PARCIAL · FALTA. (Tras P0 = commits `e47f2db`, `d2
 | Click en gráfico → selección | barras/dona/pipeline/ranking togglean | IGUAL | — |
 | Selección uniforme en objetos | mayoría togglea; tendencia/tabla sí | SIMILAR | revisar uniformidad P1 |
 | Drill-down agregado→detalle | fila→filtra todo→detalle→registro | SIMILAR | — |
-| **Drill-down groups** (jerarquía que avanza de nivel) | perspectivas + "Agrupar por" (manual) | PARCIAL | P1 (grupos DRILL_LOGISTICA/COMERCIAL) |
-| Breadcrumb de drill (≠ selecciones) | no separado | FALTA | P1 |
-| **Straight table** configurable (dims/medidas, ordenar, buscar, columnas) | tabla ordenable+buscable; columnas fijas | PARCIAL | P1 (elegir columnas/medidas) |
-| **Pivot table** (filas/cols/medida, expandir) | — | FALTA | P1 (pivote controlada) |
-| Set analysis (mantener/ignorar dim, % del universo) | `avgCommissionPct` etc.; sin helper general | PARCIAL | P1 (helpers set) |
-| Export por objeto | export por hoja (Excel/PDF) | PARCIAL | P1 (export por tabla/pivot) |
-| Fullscreen de objeto | — | FALTA | P2 |
+| **Drill-down groups** (jerarquía que avanza de nivel) | hoja "⛏ Drill": Comercial/Logístico/Mercado, ruta local | IGUAL (nuevo P1.6) | — |
+| Breadcrumb de drill (≠ selecciones) | breadcrump propio, separado de la Barra; "↥ Aplicar como selección" | IGUAL (nuevo P1.6) | — |
+| **Straight table** configurable (dims/medidas, ordenar, buscar, columnas) | hoja "▦ Tabla": ⚙ columnas, orden, búsqueda, % participación | IGUAL (P1.3) | — |
+| **Pivot table** (filas/cols/medida, expandir) | hoja "⊞ Pivot": 2 filas jerárquicas × 1 col × medida, expandir/totales | IGUAL (nuevo P1.5) | — |
+| Set analysis (mantener/ignorar dim, % del universo) | helpers `factsIgnoring/metricOverIgnoring/participacion/invertSelection` (con tests) | IGUAL (nuevo P1.15) | — |
+| Export por objeto | Tabla/Pivot/Explorador exportan Excel/PDF propios | IGUAL (P1.4/P1.7) | — |
+| Fullscreen de objeto | Tabla/Pivot/Explorador con ⛶ (FullscreenBI) | IGUAL (nuevo P1.4/P1.7) | — |
 | Tooltips analíticos | `<title>` básicos en SVG | SIMILAR | mejorar P1 |
 | Sheet navigation | tabs de hojas | SIMILAR | — |
 
@@ -54,11 +54,23 @@ Estados: IGUAL · SIMILAR · PARCIAL · FALTA. (Tras P0 = commits `e47f2db`, `d2
 | Branding propio (no copiar Qlik) | identidad Frisku, semántica de color adaptada | IGUAL |
 
 ## Resumen de brechas (qué falta para "sentirse Qlik")
-- **P0 restante:** Lock de selecciones; select excluded/invert.
-- **P1 (análisis):** Straight table con columnas/medidas configurables; **Pivot table**; drill-down groups reales + breadcrumb de drill; helpers de set-analysis; export por objeto; uniformar selección en todos los gráficos; Filter Pane persistente (drawer).
-- **P2 (comparación):** Comparador A/B (alternate states); Bookmarks (UI, motor ya tiene `applySel`); fullscreen de objetos.
+- **P1 (análisis): COMPLETO.** Straight table configurable; Pivot table; drill-down
+  groups + breadcrumb de drill; helpers de set-analysis; export/fullscreen por objeto;
+  Filter Pane persistente con acciones de campo (posibles/alternativos/excluidos/invertir).
+- **P2 (comparación, pendiente):** Comparador A/B (alternate states); Bookmarks (UI, el
+  motor ya tiene `applySel`); Lock de selecciones.
 
-## Hecho en P0 (esta intervención)
+## Hecho en P0
 4 estados asociativos (selected/possible/alternative/excluded) con color · historial
 back/forward · Selections bar global · multi-select uniforme · acción "seleccionar
-compatibles" · frecuencia · tests de semántica asociativa (8/8).
+compatibles" · frecuencia · tests de semántica asociativa.
+
+## Hecho en P1 (esta intervención)
+Catálogo central único (`FRISKU_DIMS`/`FRISKU_METRICS`) · **Straight Table** (⚙ columnas,
+orden, búsqueda, % participación, export, ⛶) · **Pivot** controlada (2 filas jerárquicas ×
+1 columna × medida, expandir/contraer/totales, count-distinct con `metric.calc`) · **Drill
+groups** (Comercial/Logístico/Mercado) con ruta local y breadcrumb propio (drill ≠ selección)
+· **Explorador** analysis mode con ⛶ pantalla completa · **Filter Pane** persistente (9 dims,
+4 estados, menú ⋯ posibles/alternativos/excluidos/invertir/limpiar) · **set helpers**
+(`factsIgnoring/metricOverIgnoring/participacion/invertSelection`). Tests 22/22.
+Un solo motor (`FriskuBIProvider`), una sola selección, mismas métricas en todas las hojas.
