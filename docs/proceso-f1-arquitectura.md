@@ -2,7 +2,7 @@
 
 **Capability:** Servicio de Proceso de Fruta Fresca (`proc_*`) · tenant piloto **Allegria Service**
 **Fecha:** 2026-08-13 · **Rama de trabajo (aislada):** `worktree-proc-fase1`
-**Estado:** Fundaciones para **REVISIÓN**. SQL **no aplicado** a la DB (lo aplica el admin tras aprobar el contrato de columnas). No toca `exp_*`, Frisku, ni la data productiva.
+**Estado:** ✅ **F1 VALIDATED** (2026-08-13, runtime aislado — ver Acta). SQL **no aplicado a producción** (validado en Postgres efímero; lo aplica el admin a staging/prod tras aprobación). No toca `exp_*`, Frisku, ni la data productiva.
 **Fuente:** [`allegria-service-f0-acta-entrega.md`](allegria-service-f0-acta-entrega.md) · [`allegria-service-f0-assessment.md`](allegria-service-f0-assessment.md)
 
 > **⚠️ SUPERSEDED PARCIAL (2026-08-13):** los §6 (identidad) y §7 (inventario) de este documento describen el modelo ORIGINAL. Fueron **reconciliados** con las 17 precisiones ratificadas por el CFO. El modelo vigente está en la **Adenda de Reconciliación** al final + [`proceso-f1-reconciliacion.md`](proceso-f1-reconciliacion.md). Cambios: identidad `proc_partes` → `proc_vinculo` (XOR de FK reales); inventario `kg_disponible` mutable → ledger `proc_movimiento` (SoT) + `proc_hold` + vista; se retira el booleano `custodia`; calibres/colores propios.
@@ -135,8 +135,16 @@ Este worktree canónico (`55dc61a`) precedía a las 17 precisiones ratificadas. 
 - `src/proceso/core/procesoDB.js` — **nuevo** (capa DB relacional con gate Regla 9; RPC wrappers).
 - `docs/proceso-f1-reconciliacion.md` — **nuevo** (matriz). `docs/proceso-f1-arquitectura.md` — **modificado** (esta adenda).
 
-**Tests:** dominio (node) **27/27 PASAN**. SQL negativos: escritos, **no ejecutados** (requieren schema aplicado en staging).
-**Build:** **no ejecutado** en el worktree (aislado, sin `node_modules`; los módulos nuevos son aditivos y no están importados por la app aún). Sintaxis validada: `procesoDomain.js` OK, `procesoDB.js` OK (ESM).
+**Estado: ✅ VALIDATED (runtime aislado, 2026-08-13).**
+
+**Validación runtime (Postgres 16 efímero en Docker, sin tocar producción; contenedores desmontados):**
+- Schema `schema_proc_v1.sql` aplica **limpio** con `ON_ERROR_STOP=1` (stubs mínimos `contab_empresas`/`contab_auxiliares` + roles `anon`/`authenticated`).
+- `schema_proc_v1_DEV_ONLY_rls.sql` aplica limpio.
+- `proc_v1_tests.sql` (9 tests negativos): **TODOS PASARON** — XOR de identidad, kg≤0, neto>bruto, cantidad≤0, ledger UPDATE/DELETE bloqueados (append-only), consumo>disponible rechazado, saldo derivado del ledger correcto (disponible=7000 tras consumo de 3000/10000).
+- **RLS productiva** (sin DEV-ONLY): `authenticated` sin claim → **0 filas** (deny-by-default); con claim empresa A → 1 fila; con claim empresa B → **0 filas** (aislamiento cross-tenant efectivo).
+- **Tests de dominio (node)**: **27/27 PASAN**.
+
+**Build:** no ejecutado en el worktree (aislado, sin `node_modules`; módulos aditivos aún no importados por la app). Sintaxis validada: `procesoDomain.js` OK, `procesoDB.js` OK (ESM).
 **Schema:** DRAFT — **NO aplicado** a la DB. **Migraciones ejecutadas:** NO.
 **Data modificada:** NO. **Escrituras a Supabase productiva:** NO (solo lectura del padrón en F0 para verificar `empresa_id`).
 **Cross-project changes:** NINGUNO. No se tocó `exp_*`, Frisku, Osiris, Foods, ni `main`.
