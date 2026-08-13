@@ -6217,6 +6217,7 @@ function TableroAsociativo({ liquidaciones, embarques, clientes, exportadoras, e
   const biCtx = useFriskuBI();                    // selección BI COMPARTIDA (un solo motor: Resumen/Reportes/Explorador)
   const sel = biCtx.sel;                          // {dimKey: Set(valores)}
   const [topN, setTopN] = useState(12);
+  const [full, setFull] = useState(false);        // pantalla completa del objeto (P1.7)
 
   // Lookups compartidos
   const cliOf  = (id)=>clientes.find(c=>c.id===id);
@@ -6743,8 +6744,9 @@ function TableroAsociativo({ liquidaciones, embarques, clientes, exportadoras, e
             </div>
           )}
           <div style={{marginLeft:"auto"}}>
-            <div style={lblSt}>Descargar</div>
+            <div style={lblSt}>Objeto</div>
             <div style={{display:"flex", gap:5}}>
+              <button onClick={()=>setFull(true)} disabled={!hayDatos} title="Pantalla completa de la visualización" style={{...btnSt(C.blue,true), fontSize:11, padding:"6px 10px", opacity:hayDatos?1:0.5}}>⛶ Ampliar</button>
               <button onClick={exportBIExcel} disabled={!hayDatos} title="Excel de la vista actual (con logo)" style={{...btnSt(C.green), fontSize:11, padding:"6px 10px", opacity:hayDatos?1:0.5}}>⬇ Excel</button>
               <button onClick={exportBIPDF} disabled={!hayDatos} title="PDF de la vista actual (con logo)" style={{...btnSt(C.accent), fontSize:11, padding:"6px 10px", opacity:hayDatos?1:0.5}}>⬇ PDF</button>
             </div>
@@ -6795,6 +6797,13 @@ function TableroAsociativo({ liquidaciones, embarques, clientes, exportadoras, e
         </div>
       </div>
       </>}
+      <FullscreenBI open={full} onClose={()=>setFull(false)}
+        title={`Explorador · ${measure.lab} por ${d1.lab}${d2?` × ${d2.lab}`:""}`}>
+        {chart==="barras"     && <VistaBarras/>}
+        {chart==="tabla"      && <VistaTabla/>}
+        {chart==="torta"      && <VistaTorta/>}
+        {chart==="tendencia"  && <VistaTendencia/>}
+      </FullscreenBI>
     </div>
   );
 }
