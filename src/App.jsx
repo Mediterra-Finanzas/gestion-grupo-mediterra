@@ -5,6 +5,7 @@ import FinanzasModule, { EMPRESAS_KEYS_ALL } from "./FinanzasModule.jsx";
 import AllegriaModule from "./AllegriaModule.jsx";
 import FriskuComercialModule from "./FriskuComercialModule.jsx";
 import ContabilidadModule from "./ContabilidadModule.jsx";
+import AllegriaServiceModule from "./proceso/ui/AllegriaServiceModule.jsx";
 import { theme as C } from "./theme";
 import { ensureSupabaseSession, clearOsirisSession, getOsirisAccessToken, refreshOsirisSession } from "./data/supabase-auth";
 import { installGuard, USE_GUARD, pollRow } from "./guardClient";
@@ -417,6 +418,7 @@ const MODULOS_DISPONIBLES = [
   {id:"allegria", label:"Allegria Foods",           sublabel:"Exportación Fruta Fresca",  icon:"🍒", color:"#b91c1c", bg:C.dangerBg, grad:"linear-gradient(135deg,#1a0a0a,#b91c1c)"},
   {id:"frisku",   label:"Frisku Foods",             sublabel:"Connecting Quality",          icon:"🔗", color:"#0ea5e9", bg:"#e0f2fe", grad:"linear-gradient(135deg,#0c1929,#0ea5e9)"},
   {id:"contabilidad", label:"Contabilidad",         sublabel:"Sistema Contable Grupo Mediterra", icon:"📒", color:"#a78bfa", bg:"#1e1a2e", grad:"linear-gradient(135deg,#1a1230,#5b21b6)"},
+  {id:"allegria_service", label:"Allegria Service",  sublabel:"Proceso de Fruta Fresca (Planta)", icon:"🏭", color:"#0f766e", bg:C.accent2Bg, grad:"linear-gradient(135deg,#0a2b28,#0f766e)"},
 ];
 
 // Feriados de Chile (fijos + variables conocidos 2026-2031)
@@ -688,6 +690,10 @@ const TABS_PERMISOS_CONFIG = {
     {id:"embarques",     label:"🚢 Embarques"},
     {id:"liquidaciones", label:"💰 Liquidaciones"},
     {id:"maestros",      label:"🗂️ Maestros + TC"},
+  ],
+  allegria_service: [
+    {id:"centro", label:"🏭 Centro de Operaciones"},
+    {id:"config", label:"⚙️ Configuración"},
   ],
 };
 
@@ -3671,6 +3677,17 @@ Equipo Mediterra`);
         onBack={()=>setModuloActivo(null)}
       />
     </div>
+  );
+
+  if(moduloActivo==="allegria_service") return (
+    <AllegriaServiceModule
+      usuarioActual={usuarioFresco}
+      esAdmin={esAdmin}
+      esSoloConsulta={esSoloConsulta}
+      tabPermisos={getTabPermisosModulo(usuarioFresco,"allegria_service")}
+      onBack={()=>setModuloActivo(null)}
+      onLogout={doLogout}
+    />
   );
 
   if(moduloActivo==="tareas") {

@@ -4,12 +4,12 @@
 
 ## Secuencia
 
-### F7.1 — Shell del módulo + Centro de Operaciones + Configuración mínima
-- Montaje en `App.jsx` (tile + `TABS_PERMISOS_CONFIG` + `if(moduloActivo)`), sub-shell propio (navegación por estado), consumo de `theme.js`, gate `crearGateCarga()`.
-- **Centro de Operaciones** (read-only) sobre read-models **F7-RM-CENTRO** + **F7-RM-EXCEPCIONES** (materializar en esta fase).
-- **Configuración** de los maestros bloqueantes (plantas, temporadas, ubicaciones, líneas, calibres, colores, categorías, motivos, formatos, tipos de servicio, vínculos) — CRUD REST.
-- Base transversal: componentes internos (Tabs, Toolbar de filtros, Toast, EmptyState, Modal/Btn/Field copiados de Rendiciones), catálogo de errores UX (arquitectura §10).
-- **Gate previo:** decidir formato de correlativos (F7-COR-01) si se quiere folio auto ya aquí; si no, folio manual y se difiere.
+### F7.1 — Shell del módulo + Centro de Operaciones + Configuración mínima ✅ ENTREGADA
+- Montaje en `App.jsx` (tile `allegria_service` + `TABS_PERMISOS_CONFIG` + `if(moduloActivo)`), sub-shell propio (navegación por estado), consumo de `theme.js`.
+- **Centro de Operaciones** sobre read-models materializados: `proc_fn_centro_operaciones` (F7-RM-CENTRO) + `proc_fn_excepciones` (F7-RM-EXCEPCIONES).
+- **Configuración** data-driven de 13 maestros (incl. QC con severidad y vínculos) — CRUD REST + soft-delete.
+- Backend menor: **correlativos concurrency-safe** (`proc_correlativo` + `proc_fn_siguiente_correlativo`) y **QC configurable por severidad** (`proc_fn_registrar_qc`) en `schema_proc_v7_f7_1.sql`.
+- Componentes neutrales propios (`src/proceso/ui/components/base.jsx`), traductor de errores, estados loading/empty/error. Ver `docs/proceso-f7-1-acta.md`.
 
 ### F7.2 — Recepción + QC + Lotes
 - Recepción (cabecera REST) → Ingreso de lote (RPC `ingresar_lote_ubicado`). 4 roles distintos.
