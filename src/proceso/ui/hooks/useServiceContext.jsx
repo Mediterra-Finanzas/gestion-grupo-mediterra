@@ -18,6 +18,8 @@ export function ServiceProvider({ children, empresaId = null, tabPermisos = {}, 
   const [temporada, setTemporada] = useState(null);
   const [fecha, setFecha] = useState(hoyISO());
   const [toast, setToast] = useState(null);
+  const [vista, setVista] = useState({ page: "centro", params: {} });
+  const ir = useCallback((page, params = {}) => setVista({ page, params }), []);
 
   const notificar = useCallback((texto, tipo = "ok") => {
     setToast({ texto, tipo, tono: tipo === "error" ? "danger" : "success" });
@@ -33,8 +35,8 @@ export function ServiceProvider({ children, empresaId = null, tabPermisos = {}, 
 
   const value = useMemo(() => ({
     empresa, setEmpresa, planta, setPlanta, temporada, setTemporada, fecha, setFecha,
-    toast, notificar, permisoDe, puedeEditar, esAdmin,
-  }), [empresa, planta, temporada, fecha, toast, notificar, permisoDe, puedeEditar, esAdmin]);
+    toast, notificar, permisoDe, puedeEditar, esAdmin, vista, ir,
+  }), [empresa, planta, temporada, fecha, toast, notificar, permisoDe, puedeEditar, esAdmin, vista, ir]);
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }

@@ -1,6 +1,6 @@
 /* eslint-disable */
 // Tests de dominio proc_* F7.1 (node). Ejecutar: node src/proceso/core/procesoF7Domain.test.mjs
-import { formatearCorrelativo, compactarTemporada, evaluarQC, badgeDe, traducirError, validarFiltros } from "./procesoF7Domain.js";
+import { formatearCorrelativo, compactarTemporada, evaluarQC, badgeDe, traducirError, validarFiltros, calcularNeto, validarPesos } from "./procesoF7Domain.js";
 
 let pass = 0, fail = 0;
 const ok = (c, m) => { if (c) pass++; else { fail++; console.error("  ✗ " + m); } };
@@ -36,6 +36,16 @@ ok(/1450.*kg/i.test(traducirError("consumo 2000 excede disponible 1450.000 del l
 ok(/no cuadra|tolerancia/i.test(traducirError("orden O1 no concilia: |diff|=150 > tolerancia=10")), "traduce conciliación");
 ok(/permiso/i.test(traducirError("permission denied for table proc_lote")), "traduce permiso");
 eq(traducirError(""), "Ocurrió un error inesperado.", "error vacío -> fallback");
+
+// Pesos (kg_neto = bruto - tara)
+eq(calcularNeto(10200, 200), 10000, "neto = 10200-200 = 10000");
+ok(validarPesos({ bruto: 10200, tara: 200 }).ok, "pesos válidos");
+eq(validarPesos({ bruto: 10200, tara: 200 }).neto, 10000, "validarPesos.neto");
+ok(!validarPesos({ bruto: 100, tara: 200 }).ok, "neto negativo -> inválido");
+ok(!validarPesos({ bruto: -5, tara: 0 }).ok, "bruto negativo -> inválido");
+
+// Traductor QC gate
+ok(/no puede consumirse|QC/i.test(traducirError("Lote no elegible para proceso: QC rechazado")), "traduce gate QC");
 
 // Filtros
 ok(!validarFiltros({}).ok, "sin empresa -> inválido");

@@ -1,8 +1,8 @@
 /* eslint-disable */
 // src/proceso/ui/layout/ProcShell.jsx — sub-shell del módulo Allegria Service.
-// Navegación por estado (no router), barra de contexto operacional (tenant/planta/
-// temporada/fecha) y área de contenido. Solo Centro + Configuración son funcionales
-// en F7.1; el resto muestra estado "próxima fase" honesto.
+// Navegación por estado (contexto: vista/ir), barra de contexto operacional
+// (tenant/planta/temporada/fecha) y área de contenido. F7.2 habilita el flujo
+// Recepción + QC + Lotes; el resto muestra estado "próxima fase" honesto.
 import React, { useEffect, useState } from "react";
 import { useService } from "../hooks/useServiceContext";
 import { cargarPlantas, cargarTemporadas } from "../../core/procesoDB";
@@ -11,13 +11,18 @@ import { C, sp } from "../estilos";
 import CentroOperaciones from "../pages/CentroOperaciones";
 import Configuracion from "../pages/Configuracion";
 import ProximaFase from "../pages/ProximaFase";
+import Recepciones from "../pages/Recepciones";
+import NuevaRecepcion from "../pages/NuevaRecepcion";
+import RecepcionDetalle from "../pages/RecepcionDetalle";
+import Lotes from "../pages/Lotes";
+import LoteDetalle from "../pages/LoteDetalle";
 
 const NAV = [
   { grupo: null, items: [{ id: "centro", label: "Centro de Operaciones", icon: "🏭" }] },
   { grupo: "Operación", items: [
-    { id: "recepciones", label: "Recepciones", fase: "F7.2" },
-    { id: "lotes", label: "Lotes / Materia Prima", fase: "F7.2" },
-    { id: "qc", label: "QC", fase: "F7.2" },
+    { id: "recepciones", label: "Recepciones" },
+    { id: "lotes", label: "Lotes / Materia Prima" },
+    { id: "qc", label: "QC", page: "recepciones", params: { filtroQc: "rechazado" } },
     { id: "programa", label: "Programa", fase: "F7.3" },
     { id: "ordenes", label: "Órdenes", fase: "F7.3" }] },
   { grupo: "Producción", items: [
@@ -34,7 +39,7 @@ const NAV = [
     { id: "despachos", label: "Despachos", fase: "F7.5" },
     { id: "historial", label: "Historial", fase: "F7.5" }] },
   { grupo: "Clientes", items: [
-    { id: "vinculos", label: "Vínculos", fase: "F7.1", page: "config" },
+    { id: "vinculos", label: "Vínculos", page: "config" },
     { id: "resultados_proc", label: "Resultados de Proceso", fase: "F7.6" },
     { id: "informes", label: "Informes enviados", fase: "F7.6" }] },
   { grupo: "Comercial", items: [
@@ -44,6 +49,9 @@ const NAV = [
     { id: "bases", label: "Bases de Cobro", fase: "F7.7" }] },
   { grupo: null, items: [{ id: "config", label: "Configuración", icon: "⚙️" }] },
 ];
+const TODOS = NAV.flatMap((g) => g.items);
+// mapea la vista actual al item de nav para el resaltado
+const NAV_DE_PAGE = { recepcion_nueva: "recepciones", recepcion_detalle: "recepciones", lote_detalle: "lotes" };
 
 function useEsMovil(bp = 900) {
   const [m, setM] = useState(typeof window !== "undefined" && window.innerWidth < bp);
@@ -63,7 +71,7 @@ function BarraContexto() {
   const inp = { padding: "6px 8px", fontSize: 12.5, border: `1px solid ${C.border}`, borderRadius: 7, background: C.card, color: C.text, fontFamily: C.font };
   return (
     <div style={{ display: "flex", gap: sp.sm, flexWrap: "wrap", alignItems: "center" }}>
-      <input style={{ ...inp, width: 210 }} placeholder="Tenant (empresa_id)" value={empresa || ""} onChange={(e) => setEmpresa(e.target.value.trim() || null)} title="La empresa/tenant provendrá del login autenticado (claim empresa_id). En F7.1 se ingresa manual." />
+      <input style={{ ...inp, width: 210 }} placeholder="Tenant (empresa_id)" value={empresa || ""} onChange={(e) => setEmpresa(e.target.value.trim() || null)} title="La empresa/tenant provendrá del login autenticado (claim empresa_id). En F7.1/F7.2 se ingresa manual." />
       <select style={inp} value={planta || ""} onChange={(e) => setPlanta(e.target.value || null)}>
         <option value="">Todas las plantas</option>
         {plantas.map((p) => <option key={p.id} value={p.id}>{p.nombre || p.codigo}</option>)}
@@ -78,17 +86,25 @@ function BarraContexto() {
 }
 
 export default function ProcShell({ onBack, onLogout, usuario }) {
-  const { toast } = useService();
-  const [activo, setActivo] = useState({ id: "centro", page: "centro" });
+  const { toast, vista, ir } = useService();
   const esMovil = useEsMovil();
 
   const render = () => {
-    const page = activo.page || activo.id;
-    if (page === "centro") return <CentroOperaciones />;
-    if (page === "config") return <Configuracion />;
-    const item = NAV.flatMap((g) => g.items).find((i) => i.id === activo.id);
-    return <ProximaFase titulo={item?.label || "Sección"} fase={item?.fase || "próxima fase"} />;
+    switch (vista.page) {
+      case "centro": return <CentroOperaciones />;
+      case "config": return <Configuracion />;
+      case "recepciones": return <Recepciones />;
+      case "recepcion_nueva": return <NuevaRecepcion />;
+      case "recepcion_detalle": return <RecepcionDetalle />;
+      case "lotes": return <Lotes />;
+      case "lote_detalle": return <LoteDetalle />;
+      default: {
+        const item = TODOS.find((i) => i.id === vista.page);
+        return <ProximaFase titulo={item?.label || "Sección"} fase={item?.fase || "próxima fase"} />;
+      }
+    }
   };
+  const activoId = NAV_DE_PAGE[vista.page] || vista.page;
 
   const Sidebar = (
     <div style={{ width: esMovil ? "100%" : 232, flexShrink: 0, borderRight: esMovil ? "none" : `1px solid ${C.border}`, background: C.card, padding: sp.md, boxSizing: "border-box", ...(esMovil ? {} : { minHeight: "100vh" }) }}>
@@ -101,22 +117,22 @@ export default function ProcShell({ onBack, onLogout, usuario }) {
       )}
       {esMovil ? (
         <select style={{ width: "100%", padding: 8, borderRadius: 8, border: `1px solid ${C.border}`, fontSize: 13 }}
-          value={activo.id} onChange={(e) => { const it = NAV.flatMap((g) => g.items).find((i) => i.id === e.target.value); setActivo({ id: it.id, page: it.page }); }}>
-          {NAV.flatMap((g) => g.items).map((i) => <option key={i.id} value={i.id}>{i.label}</option>)}
+          value={activoId} onChange={(e) => { const it = TODOS.find((i) => i.id === e.target.value); ir(it.page || it.id, it.params || {}); }}>
+          {TODOS.map((i) => <option key={i.id} value={i.id}>{i.label}</option>)}
         </select>
       ) : NAV.map((g, gi) => (
         <div key={gi} style={{ marginBottom: sp.md }}>
           {g.grupo && <div style={{ fontSize: 10.5, fontWeight: 800, color: C.muted2, textTransform: "uppercase", letterSpacing: .5, margin: "6px 6px 4px" }}>{g.grupo}</div>}
           {g.items.map((i) => {
-            const on = activo.id === i.id;
+            const on = activoId === i.id;
             return (
-              <div key={i.id} onClick={() => setActivo({ id: i.id, page: i.page })} style={{
+              <div key={i.id} onClick={() => ir(i.page || i.id, i.params || {})} style={{
                 display: "flex", justifyContent: "space-between", alignItems: "center",
                 padding: "7px 10px", borderRadius: 8, cursor: "pointer", fontSize: 13,
                 fontWeight: on ? 700 : 500, color: on ? C.primary : C.text, background: on ? C.infoBg : "transparent",
               }}>
                 <span>{i.icon ? `${i.icon} ` : ""}{i.label}</span>
-                {i.fase && i.fase !== "F7.1" && !on && <span style={{ fontSize: 9.5, color: C.muted2, fontWeight: 700 }}>{i.fase}</span>}
+                {i.fase && !on && <span style={{ fontSize: 9.5, color: C.muted2, fontWeight: 700 }}>{i.fase}</span>}
               </div>
             );
           })}

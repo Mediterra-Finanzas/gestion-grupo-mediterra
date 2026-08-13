@@ -92,6 +92,9 @@ const REGLAS_ERROR = [
   { re: /excede disponible ([0-9.]+) del lote/i, msg: (m) => `No hay stock suficiente en el lote. Disponible: ${m[1]} kg.` },
   { re: /excede disponible ([0-9.]+) del pallet/i, msg: (m) => `El pallet no tiene saldo suficiente. Disponible: ${m[1]} kg.` },
   { re: /excede composición/i, msg: () => "La cantidad supera la composición disponible del pallet." },
+  { re: /no elegible para proceso|QC rechazado|QC obligatorio no ejecutado/i, msg: () => "El lote no está habilitado para proceso por QC. La fruta existe físicamente, pero no puede consumirse hasta resolver el control de calidad." },
+  { re: /ubicaci[oó]n .* no existe|ubicacion_destino/i, msg: () => "La ubicación seleccionada no es válida para esta planta." },
+  { re: /kg .* > 0|kg del lote debe ser|debe ser > 0/i, msg: () => "La cantidad debe ser mayor que cero." },
   { re: /no concilia|tolerancia/i, msg: () => "La orden no cuadra en masa: entrada ≠ resultado + descarte + merma (fuera de tolerancia)." },
   { re: /cerrad[ao].*no editable|orden .* cerrada|no editable/i, msg: () => "El registro está cerrado; no admite cambios." },
   { re: /transición .* inválida|transicion .* invalida/i, msg: () => "Ese cambio de estado no está permitido desde el estado actual." },
@@ -109,6 +112,20 @@ export function traducirError(err) {
     if (m) return r.msg(m);
   }
   return t || "Ocurrió un error inesperado.";
+}
+
+// ── Pesos de recepción (kg_neto = kg_bruto − tara; DB es autoridad) ─────────
+export function calcularNeto(bruto, tara) {
+  const b = Number(bruto) || 0, t = Number(tara) || 0;
+  return Math.round((b - t) * 1000) / 1000;
+}
+export function validarPesos({ bruto, tara } = {}) {
+  const b = Number(bruto), t = Number(tara), err = [];
+  if (bruto !== "" && bruto != null && (Number.isNaN(b) || b < 0)) err.push("Peso bruto inválido.");
+  if (tara !== "" && tara != null && (Number.isNaN(t) || t < 0)) err.push("Tara inválida.");
+  if (!Number.isNaN(b) && !Number.isNaN(t) && bruto !== "" && bruto != null && (b - t) < 0)
+    err.push("El peso neto no puede ser negativo (la tara supera el bruto).");
+  return { ok: err.length === 0, errores: err, neto: calcularNeto(bruto, tara) };
 }
 
 // ── Filtros operacionales del shell ─────────────────────────────────────────

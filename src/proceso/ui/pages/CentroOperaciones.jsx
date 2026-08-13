@@ -6,7 +6,7 @@ import { useService } from "../hooks/useServiceContext";
 import { centroOperaciones, excepcionesOperacionales } from "../../core/procesoF7DB";
 import { traducirError } from "../../core/procesoF7Domain";
 import {
-  ProcPageHeader, ProcKpiCard, ProcCard, ProcExceptionList,
+  ProcPageHeader, ProcKpiCard, ProcCard, ProcExceptionList, ProcButton,
   ProcLoadingState, ProcErrorState, ProcEmptyState,
 } from "../components/base";
 import { C, sp } from "../estilos";
@@ -23,7 +23,7 @@ function Grupo({ titulo, children }) {
 }
 
 export default function CentroOperaciones() {
-  const { empresa, planta, temporada, fecha } = useService();
+  const { empresa, planta, temporada, fecha, ir } = useService();
   const [data, setData] = useState(null);
   const [exc, setExc] = useState([]);
   const [estado, setEstado] = useState("idle"); // idle|loading|ok|error
@@ -68,14 +68,24 @@ export default function CentroOperaciones() {
   const pt = (data && data.producto_terminado) || {};
   const d = (data && data.despacho) || {};
 
+  const irExcepcion = (x) => {
+    if (x.tipo === "qc_rechazado") ir("recepcion_detalle", { id: x.referencia_id });
+    else if (x.tipo === "pallet_bloqueado") ir("lotes");
+    else ir("recepciones");
+  };
+
   return (
     <div>
-      <ProcPageHeader titulo="Centro de Operaciones" subtitulo={`Operación del día · ${fecha}`} />
+      <ProcPageHeader titulo="Centro de Operaciones" subtitulo={`Operación del día · ${fecha}`}
+        acciones={<>
+          <ProcButton onClick={() => ir("recepcion_nueva")}>+ Nueva recepción</ProcButton>
+          <ProcButton kind="ghost" onClick={() => ir("lotes")}>Lotes disponibles</ProcButton>
+        </>} />
 
       <Grupo titulo="Recepción">
-        <ProcKpiCard label="Recepciones hoy" valor={r.recepciones_dia ?? 0} tono="info" />
-        <ProcKpiCard label="Kg recibidos hoy" valor={kg(r.kg_recibido_dia)} tono="info" />
-        <ProcKpiCard label="Recepciones pendientes" valor={r.recepciones_pendientes ?? 0} tono="neutral" />
+        <ProcKpiCard label="Recepciones hoy" valor={r.recepciones_dia ?? 0} tono="info" onClick={() => ir("recepciones")} />
+        <ProcKpiCard label="Kg recibidos hoy" valor={kg(r.kg_recibido_dia)} tono="info" onClick={() => ir("recepciones")} />
+        <ProcKpiCard label="Recepciones pendientes" valor={r.recepciones_pendientes ?? 0} tono="neutral" onClick={() => ir("recepciones", { filtroQc: "" })} />
       </Grupo>
 
       <Grupo titulo="Producción">
@@ -86,7 +96,7 @@ export default function CentroOperaciones() {
       </Grupo>
 
       <Grupo titulo="Producto Terminado">
-        <ProcKpiCard label="Kg PT disponibles" valor={kg(pt.kg_pt_disponible)} tono="success" />
+        <ProcKpiCard label="Kg PT disponibles" valor={kg(pt.kg_pt_disponible)} tono="success" onClick={() => ir("lotes")} />
         <ProcKpiCard label="Pallets disponibles" valor={pt.pallets_disponibles ?? 0} tono="success" />
         <ProcKpiCard label="Pallets reservados" valor={pt.pallets_reservados ?? 0} tono="warning" />
         <ProcKpiCard label="Pallets bloqueados" valor={pt.pallets_bloqueados ?? 0} tono="danger" />
@@ -102,7 +112,7 @@ export default function CentroOperaciones() {
         Excepciones · acción requerida
       </div>
       <ProcCard style={{ padding: sp.md }}>
-        <ProcExceptionList items={exc} />
+        <ProcExceptionList items={exc} onItem={irExcepcion} />
       </ProcCard>
     </div>
   );

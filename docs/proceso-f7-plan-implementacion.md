@@ -11,10 +11,10 @@
 - Backend menor: **correlativos concurrency-safe** (`proc_correlativo` + `proc_fn_siguiente_correlativo`) y **QC configurable por severidad** (`proc_fn_registrar_qc`) en `schema_proc_v7_f7_1.sql`.
 - Componentes neutrales propios (`src/proceso/ui/components/base.jsx`), traductor de errores, estados loading/empty/error. Ver `docs/proceso-f7-1-acta.md`.
 
-### F7.2 — Recepción + QC + Lotes
-- Recepción (cabecera REST) → Ingreso de lote (RPC `ingresar_lote_ubicado`). 4 roles distintos.
-- QC de recepción (`proc_qc_recepcion`) con parámetros configurables. **Materializar F7-QC-01** (RPC/trigger de validación de rango) antes de usar QC como gate.
-- Lotes / materia prima con saldo (`proc_v_lote_saldos`) y traslado (RPC).
+### F7.2 — Recepción + QC + Lotes ✅ ENTREGADA
+- Recepción (cabecera REST, folio desde correlativo) → QC dinámico (`registrar_qc`) → Ingreso de lote (RPC atómica `ingresar_lote_ubicado`) con ubicación. Roles diferenciados desde `proc_vinculo`.
+- **Gate QC → proceso enforceable** (`schema_proc_v7_2_f7_2.sql`): trigger en `proc_orden_insumo` + `proc_fn_lote_elegible`. QC rechazado / obligatorio no ejecutado bloquea consumo, preserva existencia.
+- Read-models `proc_v_recepcion_listado` / `proc_v_lote_listado` (security_invoker, filtrables). UI Recepciones/Lotes + detalle/trazabilidad + QcPanel dinámico. Ver `docs/proceso-f7-2-acta.md`.
 
 ### F7.3 — Programa + Orden + Ejecución + Resultado + Conciliación
 - Programa (REST, borrador→publicado). Abrir orden desde programa.

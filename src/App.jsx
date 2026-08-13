@@ -693,6 +693,8 @@ const TABS_PERMISOS_CONFIG = {
   ],
   allegria_service: [
     {id:"centro", label:"🏭 Centro de Operaciones"},
+    {id:"recepciones", label:"🚛 Recepciones"},
+    {id:"lotes", label:"📦 Lotes"},
     {id:"config", label:"⚙️ Configuración"},
   ],
 };
