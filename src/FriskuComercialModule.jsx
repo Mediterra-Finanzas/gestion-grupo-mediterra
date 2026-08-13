@@ -5212,9 +5212,9 @@ function HojaBIDim({ dimDefault, orderDefault="friskuCommissionUSD", onVerEmbarq
 // Responde "quién trabaja con quién, cuánto embarca, qué especies, cuántos FCL".
 // No duplica Clientes/Exportadores (esas son rankings); esta es el árbol de la
 // relación comercial, sobre el mismo motor/selección. Drill progresivo.
-function HojaComercial({ onVerEmbarque }) {
+function HojaComercial({ onVerEmbarque, chromeless, panelEl, fullscreen, onExitFull, exportReq }) {
   const bi = useFriskuBI();
-  const { filtered, metric } = bi;
+  const { filtered, metric, chips } = bi;
   const [expE, setExpE] = useState(()=>new Set());
   const [expC, setExpC] = useState(()=>new Set());
   const [expS, setExpS] = useState(()=>new Set());
@@ -5239,6 +5239,29 @@ function HojaComercial({ onVerEmbarque }) {
   const tE=(k)=>setExpE(p=>{const n=new Set(p);n.has(k)?n.delete(k):n.add(k);return n;});
   const tC=(k)=>setExpC(p=>{const n=new Set(p);n.has(k)?n.delete(k):n.add(k);return n;});
   const tS=(k)=>setExpS(p=>{const n=new Set(p);n.has(k)?n.delete(k):n.add(k);return n;});
+  const filtrosTxt = chips.length ? chips.map(c=>`${c.dimLab}=${c.label}`).join(", ") : "sin filtros";
+  // Export coherente: aplana el árbol Exportador→Cliente→Especie (mismos cálculos).
+  const flat = ()=>{ const out=[]; tree.forEach(ex=>ex.clientes.forEach(c=>c.especies.forEach(s=>out.push([ex.lab,c.lab,s.lab,M(s.rows,"containers"),M(s.rows,"fcl"),M(s.rows,"boxes")])))); return out; };
+  const exportExcel = async ()=>{ try{
+    const ExcelJS=await fr_loadExcelJS(); const wb=new ExcelJS.Workbook(); wb.creator="Grupo Mediterra — Frisku Foods";
+    const ws=wb.addWorksheet("Comercial");
+    fr_sheetTabla(ws,{titulo:"FRISKU FOODS — Comercial (Exportador → Cliente → Especie)", subtitulo:`Filtros: ${filtrosTxt} · ${new Date().toLocaleString("es-CL")}`,
+      headers:["Exportador","Cliente","Especie","Contenedores","FCL","Cajas"], colWidths:[22,22,18,13,8,10], rows:flat(), intCols:[3,4,5]});
+    await fr_logoExcel(wb,ws); await fr_descargarWB(wb,`Frisku_Comercial_${new Date().toISOString().slice(0,10)}.xlsx`);
+  }catch(e){ console.error("[Comercial] Excel:",e); alert("No se pudo generar el Excel: "+e.message); } };
+  const exportPDF = async ()=>{ try{
+    const JsPDF=await pl_loadJsPDF(); const doc=new JsPDF({orientation:"landscape",unit:"mm",format:"a4"}); const W=297,m=12;
+    doc.setFillColor(30,39,97); doc.rect(0,0,W,24,"F"); doc.setTextColor(255,255,255); doc.setFont("helvetica","bold"); doc.setFontSize(13);
+    doc.text("Frisku Foods — Comercial", m, 11); doc.setFont("helvetica","normal"); doc.setFontSize(7.5);
+    doc.text(`Exportador → Cliente → Especie · Filtros: ${filtrosTxt} · ${new Date().toLocaleString("es-CL")}`.slice(0,175), m, 18); await fr_logoPDF(doc,W-m,4,40,15);
+    doc.autoTable({ startY:28, head:[["Exportador","Cliente","Especie","Cont.","FCL","Cajas"]],
+      body: flat().map(r=>[r[0],r[1],r[2],fmtN0(r[3]),fmtN0(r[4]),fmtN0(r[5])]),
+      theme:"striped", styles:{fontSize:7.5}, headStyles:{fillColor:[30,39,97]}, margin:{left:m,right:m} });
+    doc.save(`Frisku_Comercial_${new Date().toISOString().slice(0,10)}.pdf`);
+  }catch(e){ console.error("[Comercial] PDF:",e); alert("No se pudo generar el PDF: "+e.message); } };
+  const _lastExp=useRef(exportReq?.n);
+  useEffect(()=>{ if(!exportReq||exportReq.n===_lastExp.current) return; _lastExp.current=exportReq.n; (exportReq.type==="pdf"?exportPDF:exportExcel)(); },[exportReq]);
+  const pLbl = {fontSize:10,fontWeight:800,color:C.muted,textTransform:"uppercase",letterSpacing:0.4,margin:"2px 0 5px"};
   const row = (open, indent, label, right, onClick, color)=>(
     <div onClick={onClick} style={{display:"flex",alignItems:"center",gap:8,padding:"6px 10px",paddingLeft:10+indent*18,cursor:"pointer",borderTop:`1px solid ${C.border}`,background:open?`${C.blue}08`:"transparent"}}>
       <span style={{color:C.muted,fontSize:11,width:10}}>{onClick?(open?"▾":"▸"):""}</span>
@@ -5246,60 +5269,84 @@ function HojaComercial({ onVerEmbarque }) {
       <span style={{fontSize:10.5,color:C.muted,fontFamily:"monospace",whiteSpace:"nowrap"}}>{right}</span>
     </div>
   );
+  const treeEl = (
+    <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,overflow:"hidden"}}>
+      {tree.length===0 && <div style={{padding:24,textAlign:"center",color:C.muted2,fontSize:12}}>Sin datos para la selección.</div>}
+      {tree.map(ex=>{ const oe=expE.has(ex.key); return (
+        <div key={ex.key}>
+          {row(oe,0,ex.lab,`${resumen(ex.rows)} · ${pct(ex.rows)}`,()=>tE(ex.key))}
+          {oe && ex.clientes.map(c=>{ const ck=`${ex.key}|${c.key}`; const oc=expC.has(ck); return (
+            <div key={ck}>
+              {row(oc,1,`→ ${c.lab}`,resumen(c.rows),()=>tC(ck))}
+              {oc && c.especies.map(s=>{ const sk=`${ck}|${s.key}`; const os=expS.has(sk); return (
+                <div key={sk}>
+                  {row(os,2,`• ${s.lab}`,`${M(s.rows,"containers")} cont · ${M(s.rows,"fcl")} FCL · ${fmtN0(M(s.rows,"boxes"))} cjs`,()=>tS(sk))}
+                  {os && (
+                    <div style={{paddingLeft:64,paddingRight:10,paddingBottom:8}}>
+                      <table style={{width:"100%",borderCollapse:"collapse",fontSize:10.5}}>
+                        <tbody>
+                          {s.rows.slice(0,20).map(r=>(
+                            <tr key={r._id} style={{borderTop:`1px solid ${C.border}`}}>
+                              <td style={{padding:"4px 6px",fontFamily:"monospace",color:C.blue,whiteSpace:"nowrap"}}>{r._oe?.numero||"—"}</td>
+                              <td style={{padding:"4px 6px",whiteSpace:"nowrap"}}>{r._oe?.fechaDespacho||"—"}</td>
+                              <td style={{padding:"4px 6px",textAlign:"right",fontFamily:"monospace"}}>{fmtN0(r._cajas)} cjs</td>
+                              <td style={{padding:"4px 6px",textAlign:"right"}}>{onVerEmbarque&&r._oe&&<button onClick={()=>onVerEmbarque(r._oe)} style={{...btnSt(C.blue,true),padding:"2px 7px",fontSize:9.5}}>→ Ver</button>}</td>
+                            </tr>
+                          ))}
+                          {s.rows.length>20 && <tr><td colSpan={4} style={{padding:"4px 6px",color:C.muted2,fontSize:9.5}}>+{s.rows.length-20} más</td></tr>}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+              ); })}
+            </div>
+          ); })}
+        </div>
+      ); })}
+    </div>
+  );
+  const notaEl = <div style={{fontSize:10.5,color:C.muted2,marginTop:10}}>Árbol relacional Exportador → Cliente → Especie → embarques. Reacciona a los filtros globales. % sobre contenedores de la selección.</div>;
+  const expandBtns = (
+    <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+      <button onClick={()=>setExpE(new Set(tree.map(x=>x.key)))} style={{...btnSt(C.muted,true),fontSize:11,padding:"5px 9px"}}>Expandir exp.</button>
+      <button onClick={()=>{setExpE(new Set());setExpC(new Set());setExpS(new Set());}} style={{...btnSt(C.muted,true),fontSize:11,padding:"5px 9px"}}>Contraer</button>
+    </div>
+  );
+
+  // ── Modo workspace (chromeless): jerarquía al panel; filtros comunes; ⛶/export por toolbar ──
+  if(chromeless){
+    const controls = (
+      <div style={{display:"flex",flexDirection:"column",gap:12}}>
+        <div><div style={pLbl}>Jerarquía</div>{expandBtns}</div>
+        <div style={{fontSize:10.5,color:C.muted2}}>Preset relacional: Exportador → Cliente → Especie → embarque, sobre la selección global.</div>
+      </div>
+    );
+    return (<>
+      {panelEl && createPortal(controls, panelEl)}
+      <div style={{maxHeight:"72vh",overflow:"auto"}}>{treeEl}{notaEl}</div>
+      <FullscreenBI open={!!fullscreen} onClose={onExitFull} title="Comercial — Exportador → Cliente → Especie">{treeEl}</FullscreenBI>
+    </>);
+  }
+
+  // ── Modo legacy (standalone) ──
   return (
     <div>
       <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,padding:12,marginBottom:12,display:"flex",gap:10,flexWrap:"wrap",alignItems:"flex-end"}}>
         {FLT.map(dk=><FiltroMultiBI key={dk} dimKey={dk} label={FRISKU_DIMS.find(d=>d.key===dk)?.lab||dk}/>)}
-        <div style={{display:"flex",gap:6,marginLeft:"auto"}}>
-          <button onClick={()=>{setExpE(new Set(tree.map(x=>x.key)));}} style={{...btnSt(C.muted,true),fontSize:11,padding:"7px 10px"}}>Expandir exp.</button>
-          <button onClick={()=>{setExpE(new Set());setExpC(new Set());setExpS(new Set());}} style={{...btnSt(C.muted,true),fontSize:11,padding:"7px 10px"}}>Contraer</button>
-        </div>
+        <div style={{marginLeft:"auto"}}>{expandBtns}</div>
       </div>
-      <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,overflow:"hidden"}}>
-        {tree.length===0 && <div style={{padding:24,textAlign:"center",color:C.muted2,fontSize:12}}>Sin datos para la selección.</div>}
-        {tree.map(ex=>{ const oe=expE.has(ex.key); return (
-          <div key={ex.key}>
-            {row(oe,0,ex.lab,`${resumen(ex.rows)} · ${pct(ex.rows)}`,()=>tE(ex.key))}
-            {oe && ex.clientes.map(c=>{ const ck=`${ex.key}|${c.key}`; const oc=expC.has(ck); return (
-              <div key={ck}>
-                {row(oc,1,`→ ${c.lab}`,resumen(c.rows),()=>tC(ck))}
-                {oc && c.especies.map(s=>{ const sk=`${ck}|${s.key}`; const os=expS.has(sk); return (
-                  <div key={sk}>
-                    {row(os,2,`• ${s.lab}`,`${M(s.rows,"containers")} cont · ${M(s.rows,"fcl")} FCL · ${fmtN0(M(s.rows,"boxes"))} cjs`,()=>tS(sk))}
-                    {os && (
-                      <div style={{paddingLeft:64,paddingRight:10,paddingBottom:8}}>
-                        <table style={{width:"100%",borderCollapse:"collapse",fontSize:10.5}}>
-                          <tbody>
-                            {s.rows.slice(0,20).map(r=>(
-                              <tr key={r._id} style={{borderTop:`1px solid ${C.border}`}}>
-                                <td style={{padding:"4px 6px",fontFamily:"monospace",color:C.blue,whiteSpace:"nowrap"}}>{r._oe?.numero||"—"}</td>
-                                <td style={{padding:"4px 6px",whiteSpace:"nowrap"}}>{r._oe?.fechaDespacho||"—"}</td>
-                                <td style={{padding:"4px 6px",textAlign:"right",fontFamily:"monospace"}}>{fmtN0(r._cajas)} cjs</td>
-                                <td style={{padding:"4px 6px",textAlign:"right"}}>{onVerEmbarque&&r._oe&&<button onClick={()=>onVerEmbarque(r._oe)} style={{...btnSt(C.blue,true),padding:"2px 7px",fontSize:9.5}}>→ Ver</button>}</td>
-                              </tr>
-                            ))}
-                            {s.rows.length>20 && <tr><td colSpan={4} style={{padding:"4px 6px",color:C.muted2,fontSize:9.5}}>+{s.rows.length-20} más</td></tr>}
-                          </tbody>
-                        </table>
-                      </div>
-                    )}
-                  </div>
-                ); })}
-              </div>
-            ); })}
-          </div>
-        ); })}
-      </div>
-      <div style={{fontSize:10.5,color:C.muted2,marginTop:10}}>Árbol relacional Exportador → Cliente → Especie → embarques. Reacciona a los filtros globales. % sobre contenedores de la selección.</div>
+      {treeEl}
+      {notaEl}
     </div>
   );
 }
 
 // HOJA SEMANAL — serie temporal por semana ETD (dimensión real: filtra/agrupa/
 // drill/export). Reacciona a los filtros globales. Distingue "sin dato" financiero.
-function HojaSemanal({ onVerEmbarque }) {
+function HojaSemanal({ onVerEmbarque, chromeless, panelEl, fullscreen, onExitFull, exportReq }) {
   const bi = useFriskuBI();
-  const { filtered, metric, sel, toggle } = bi;
+  const { filtered, metric, sel, toggle, chips } = bi;
   const [mk, setMk] = useState("containers");
   const FLT = ["temporada","especie","exportadora","cliente","mercado","via"];
   const METS = ["containers","fcl","boxes","kilograms","destinationSalesUSD","friskuCommissionUSD"];
@@ -5324,60 +5371,109 @@ function HojaSemanal({ onVerEmbarque }) {
   const y = (v)=> padT + (H-padT-padB)*(1-(v-minV)/((maxV-minV)||1));
   const line = semanas.map((s,i)=>`${i===0?"M":"L"} ${x(i).toFixed(1)} ${y(vals[i]).toFixed(1)}`).join(" ");
   const area = semanas.length ? `${line} L ${x(semanas.length-1).toFixed(1)} ${y(minV).toFixed(1)} L ${x(0).toFixed(1)} ${y(minV).toFixed(1)} Z` : "";
+  const filtrosTxt = chips.length ? chips.map(c=>`${c.dimLab}=${c.label}`).join(", ") : "sin filtros";
+  // Export coherente: la SERIE por semana ETD (todas las medidas) sobre la selección.
+  const exportExcel = async ()=>{ try{
+    const ExcelJS=await fr_loadExcelJS(); const wb=new ExcelJS.Workbook(); wb.creator="Grupo Mediterra — Frisku Foods";
+    const ws=wb.addWorksheet("Semanal");
+    fr_sheetTabla(ws,{titulo:"FRISKU FOODS — Serie semanal (ETD)", subtitulo:`Medida destacada: ${met.label} · Filtros: ${filtrosTxt} · ${new Date().toLocaleString("es-CL")}`,
+      headers:["Semana ETD","Año", ...METS.map(k=>metric[k].label)], colWidths:[14,8,...METS.map(()=>13)],
+      rows: semanas.map(s=>[s.sem, s.anio, ...METS.map(k=>(MET_FIN.includes(k)&&s.fin===0)?"":Math.round((Number(s[k])||0)*100)/100)]),
+      moneyCols: METS.map((k,i)=>metric[k].fmt==="usd"?i+2:-1).filter(i=>i>=2),
+      intCols: METS.map((k,i)=>metric[k].fmt==="int"?i+2:-1).filter(i=>i>=2) });
+    await fr_logoExcel(wb,ws); await fr_descargarWB(wb,`Frisku_Semanal_${new Date().toISOString().slice(0,10)}.xlsx`);
+  }catch(e){ console.error("[Semanal] Excel:",e); alert("No se pudo generar el Excel: "+e.message); } };
+  const exportPDF = async ()=>{ try{
+    const JsPDF=await pl_loadJsPDF(); const doc=new JsPDF({orientation:"landscape",unit:"mm",format:"a4"}); const W2=297,m=12;
+    doc.setFillColor(30,39,97); doc.rect(0,0,W2,24,"F"); doc.setTextColor(255,255,255); doc.setFont("helvetica","bold"); doc.setFontSize(13);
+    doc.text("Frisku Foods — Serie semanal (ETD)", m, 11); doc.setFont("helvetica","normal"); doc.setFontSize(7.5);
+    doc.text(`Medida: ${met.label} · Filtros: ${filtrosTxt} · ${new Date().toLocaleString("es-CL")}`.slice(0,175), m, 18); await fr_logoPDF(doc,W2-m,4,40,15);
+    doc.autoTable({ startY:28, head:[["Semana","Año", ...METS.map(k=>metric[k].label)]],
+      body: semanas.map(s=>[s.sem, s.anio, ...METS.map(k=>(MET_FIN.includes(k)&&s.fin===0)?"—":fmtMetric(metric[k].fmt,s[k]))]),
+      theme:"striped", styles:{fontSize:7}, headStyles:{fillColor:[30,39,97]}, margin:{left:m,right:m} });
+    doc.save(`Frisku_Semanal_${new Date().toISOString().slice(0,10)}.pdf`);
+  }catch(e){ console.error("[Semanal] PDF:",e); alert("No se pudo generar el PDF: "+e.message); } };
+  const _lastExp=useRef(exportReq?.n);
+  useEffect(()=>{ if(!exportReq||exportReq.n===_lastExp.current) return; _lastExp.current=exportReq.n; (exportReq.type==="pdf"?exportPDF:exportExcel)(); },[exportReq]);
+  const pLbl = {fontSize:10,fontWeight:800,color:C.muted,textTransform:"uppercase",letterSpacing:0.4,margin:"2px 0 5px"};
+
+  const chartEl = sinDatoFin ? (
+    <div style={{padding:30,textAlign:"center",color:C.warning,background:`${C.warning}10`,border:`1px solid ${C.warning}44`,borderRadius:12,fontSize:12,fontWeight:600}}>
+      Sin datos financieros suficientes para la serie de {met.label}. Aparecerá al cargar liquidaciones. Prueba una medida logística (contenedores, FCL, cajas, kilos).
+    </div>
+  ) : semanas.length===0 ? (
+    <div style={{padding:30,textAlign:"center",color:C.muted2,fontSize:12,background:C.card,borderRadius:12,border:`1px solid ${C.border}`}}>Sin semanas ETD en la selección.</div>
+  ) : (
+    <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,padding:14,overflowX:"auto"}}>
+      <div style={{fontSize:12,fontWeight:700,marginBottom:8}}>{met.label} por semana ETD</div>
+      <svg width={W} height={H} viewBox={`0 0 ${W} ${H}`} style={{minWidth:Math.min(W,360)}}>
+        <path d={area} fill={`${C.blue}14`}/>
+        <path d={line} fill="none" stroke={C.blue} strokeWidth="2.5" strokeLinejoin="round"/>
+        {semanas.map((s,i)=>{ const isSel=sel.semanaETD&&sel.semanaETD.has(s.sem);
+          return <g key={s.key} style={{cursor:"pointer"}} onClick={()=>toggle("semanaETD", s.sem)}>
+            <circle cx={x(i)} cy={y(vals[i])} r={isSel?6:4} fill={isSel?C.accent2:C.blue} stroke={C.card} strokeWidth="2"><title>{s.sem} {s.anio}: {fmtMetric(met.fmt,vals[i])}</title></circle>
+            <text x={x(i)} y={y(vals[i])-9} textAnchor="middle" style={{fontSize:9,fill:C.text,fontWeight:700}}>{fmtMetric(met.fmt,vals[i])}</text>
+            <text x={x(i)} y={H-padB+15} textAnchor="end" transform={`rotate(-40 ${x(i)} ${H-padB+15})`} style={{fontSize:9,fill:C.muted}}>{s.lab}</text>
+          </g>; })}
+      </svg>
+      <div style={{fontSize:10,color:C.muted2,marginTop:4}}>Clic en un punto = filtrar por esa semana (multi). Semana = semana ETD (despacho).</div>
+    </div>
+  );
+  const tableEl = (
+    <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,overflowX:"auto"}}>
+      <table style={{width:"100%",borderCollapse:"collapse",fontSize:11.5,minWidth:720}}>
+        <thead><tr style={{background:C.card2,color:C.muted,textAlign:"left"}}>
+          <th style={{padding:"8px 10px",position:"sticky",top:0,background:C.card2}}>Semana ETD</th>
+          {METS.map(k=><th key={k} style={{padding:"8px 10px",textAlign:"right",position:"sticky",top:0,background:C.card2}}>{metric[k].label}</th>)}
+        </tr></thead>
+        <tbody>
+          {semanas.map(s=>{ const isSel=sel.semanaETD&&sel.semanaETD.has(s.sem);
+            return <tr key={s.key} onClick={()=>toggle("semanaETD", s.sem)} style={{cursor:"pointer",borderTop:`1px solid ${C.border}`,background:isSel?`${C.accent2}10`:"transparent"}}>
+              <td style={{padding:"7px 10px",fontWeight:600,whiteSpace:"nowrap"}}>{isSel?"☑ ":""}{s.sem} <span style={{color:C.muted2}}>{s.anio}</span></td>
+              {METS.map(k=>{ const sinDato=MET_FIN.includes(k)&&s.fin===0;
+                return <td key={k} style={{padding:"7px 10px",textAlign:"right",fontFamily:"monospace",color:sinDato?C.muted2:undefined}}>{sinDato?"—":fmtMetric(metric[k].fmt,s[k])}</td>; })}
+            </tr>; })}
+          {semanas.length===0 && <tr><td colSpan={METS.length+1} style={{padding:16,textAlign:"center",color:C.muted2}}>Sin semanas.</td></tr>}
+        </tbody>
+      </table>
+    </div>
+  );
+  const medSelEl = <select value={mk} onChange={e=>setMk(e.target.value)} style={{...inputSt,width:"100%"}}>{METS.map(k=><option key={k} value={k}>{metric[k].label}</option>)}</select>;
+
+  // ── Modo workspace (chromeless): Medida al panel; filtros comunes; ⛶/export por toolbar ──
+  if(chromeless){
+    const controls = (
+      <div style={{display:"flex",flexDirection:"column",gap:12}}>
+        <div><div style={pLbl}>Medida</div>{medSelEl}</div>
+        <div style={{fontSize:10.5,color:C.muted2}}>Tendencia por semana ETD sobre la selección global. Clic en un punto/fila filtra esa semana.</div>
+      </div>
+    );
+    return (<>
+      {panelEl && createPortal(controls, panelEl)}
+      <div style={{maxHeight:"72vh",overflow:"auto",display:"flex",flexDirection:"column",gap:12}}>{chartEl}{tableEl}</div>
+      <FullscreenBI open={!!fullscreen} onClose={onExitFull} title={`Semanal · ${met.label}`}><div style={{display:"flex",flexDirection:"column",gap:12}}>{chartEl}{tableEl}</div></FullscreenBI>
+    </>);
+  }
+
+  // ── Modo legacy (standalone) ──
   return (
     <div>
       <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,padding:12,marginBottom:12,display:"flex",gap:10,flexWrap:"wrap",alignItems:"flex-end"}}>
         {FLT.map(dk=><FiltroMultiBI key={dk} dimKey={dk} label={FRISKU_DIMS.find(d=>d.key===dk)?.lab||dk}/>)}
         <div><div style={lblSt}>Medida</div><select value={mk} onChange={e=>setMk(e.target.value)} style={{...inputSt}}>{METS.map(k=><option key={k} value={k}>{metric[k].label}</option>)}</select></div>
       </div>
-      {sinDatoFin ? (
-        <div style={{padding:30,textAlign:"center",color:C.warning,background:`${C.warning}10`,border:`1px solid ${C.warning}44`,borderRadius:12,fontSize:12,fontWeight:600}}>
-          Sin datos financieros suficientes para la serie de {met.label}. Aparecerá al cargar liquidaciones. Prueba una medida logística (contenedores, FCL, cajas, kilos).
-        </div>
-      ) : semanas.length===0 ? (
-        <div style={{padding:30,textAlign:"center",color:C.muted2,fontSize:12,background:C.card,borderRadius:12,border:`1px solid ${C.border}`}}>Sin semanas ETD en la selección.</div>
-      ) : (
-        <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,padding:14,marginBottom:12,overflowX:"auto"}}>
-          <div style={{fontSize:12,fontWeight:700,marginBottom:8}}>{met.label} por semana ETD</div>
-          <svg width={W} height={H} viewBox={`0 0 ${W} ${H}`} style={{minWidth:Math.min(W,360)}}>
-            <path d={area} fill={`${C.blue}14`}/>
-            <path d={line} fill="none" stroke={C.blue} strokeWidth="2.5" strokeLinejoin="round"/>
-            {semanas.map((s,i)=>{ const isSel=sel.semanaETD&&sel.semanaETD.has(s.sem);
-              return <g key={s.key} style={{cursor:"pointer"}} onClick={()=>toggle("semanaETD", s.sem)}>
-                <circle cx={x(i)} cy={y(vals[i])} r={isSel?6:4} fill={isSel?C.accent2:C.blue} stroke={C.card} strokeWidth="2"><title>{s.sem} {s.anio}: {fmtMetric(met.fmt,vals[i])}</title></circle>
-                <text x={x(i)} y={y(vals[i])-9} textAnchor="middle" style={{fontSize:9,fill:C.text,fontWeight:700}}>{fmtMetric(met.fmt,vals[i])}</text>
-                <text x={x(i)} y={H-padB+15} textAnchor="end" transform={`rotate(-40 ${x(i)} ${H-padB+15})`} style={{fontSize:9,fill:C.muted}}>{s.lab}</text>
-              </g>; })}
-          </svg>
-          <div style={{fontSize:10,color:C.muted2,marginTop:4}}>Clic en un punto = filtrar por esa semana (multi). Semana = semana ETD (despacho).</div>
-        </div>
-      )}
-      {/* Tabla por semana */}
-      <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,overflowX:"auto"}}>
-        <table style={{width:"100%",borderCollapse:"collapse",fontSize:11.5,minWidth:720}}>
-          <thead><tr style={{background:C.card2,color:C.muted,textAlign:"left"}}>
-            <th style={{padding:"8px 10px"}}>Semana ETD</th>
-            {METS.map(k=><th key={k} style={{padding:"8px 10px",textAlign:"right"}}>{metric[k].label}</th>)}
-          </tr></thead>
-          <tbody>
-            {semanas.map(s=>{ const isSel=sel.semanaETD&&sel.semanaETD.has(s.sem);
-              return <tr key={s.key} onClick={()=>toggle("semanaETD", s.sem)} style={{cursor:"pointer",borderTop:`1px solid ${C.border}`,background:isSel?`${C.accent2}10`:"transparent"}}>
-                <td style={{padding:"7px 10px",fontWeight:600,whiteSpace:"nowrap"}}>{isSel?"☑ ":""}{s.sem} <span style={{color:C.muted2}}>{s.anio}</span></td>
-                {METS.map(k=>{ const sinDato=MET_FIN.includes(k)&&s.fin===0;
-                  return <td key={k} style={{padding:"7px 10px",textAlign:"right",fontFamily:"monospace",color:sinDato?C.muted2:undefined}}>{sinDato?"—":fmtMetric(metric[k].fmt,s[k])}</td>; })}
-              </tr>; })}
-            {semanas.length===0 && <tr><td colSpan={METS.length+1} style={{padding:16,textAlign:"center",color:C.muted2}}>Sin semanas.</td></tr>}
-          </tbody>
-        </table>
-      </div>
+      <div style={{marginBottom:12}}>{chartEl}</div>
+      {tableEl}
     </div>
   );
 }
 
 // HOJA COMPARATIVO — temporada actual vs anterior (valor, comparativo, Δ, Δ%).
-function HojaComparativo() {
+// e5: respeta la selección global (excepto la dimensión temporada, que este preset
+// controla) usando bi.ignoring("temporada"). Comparador fijo (no alternate states).
+function HojaComparativo({ chromeless, panelEl, fullscreen, onExitFull, exportReq }) {
   const bi = useFriskuBI();
-  const { facts, metric } = bi;
+  const { facts, metric, ignoring, chips } = bi;
   // Año de inicio de la temporada ("2026-2027" → 2026). Ordena por año, no lexicográfico.
   const startY = (t)=>{ const m=String(t).match(/(\d{4})/); return m?parseInt(m[1]):0; };
   const temps = useMemo(()=>[...new Set(facts.map(r=>r.temporada).filter(t=>t&&t!=="—"))].sort((a,b)=>startY(b)-startY(a)),[facts]);
@@ -5388,39 +5484,92 @@ function HojaComparativo() {
   const [anterior, setAnterior] = useState("");
   useEffect(()=>{ setActual(a=>a||temps[0]||""); },[temps.join("|")]);
   useEffect(()=>{ if(actual) setAnterior(anteriorDe(actual)); /* eslint-disable-next-line */ },[actual, temps.join("|")]);
-  const rowsA = facts.filter(r=>r.temporada===actual);
-  const rowsB = facts.filter(r=>r.temporada===anterior);
+  // Universo que respeta TODA la selección global salvo temporada (la maneja este preset).
+  const baseSel = ignoring("temporada");
+  const rowsA = baseSel.filter(r=>r.temporada===actual);
+  const rowsB = baseSel.filter(r=>r.temporada===anterior);
   const KPIS = ["containers","fcl","boxes","kilograms","destinationSalesUSD","clientCommissionUSD","friskuCommissionUSD","activeClients","activeExporters"];
   const selSt={...inputSt, maxWidth:160};
+  const filtrosTxt = chips.length ? chips.map(c=>`${c.dimLab}=${c.label}`).join(", ") : "sin filtros";
+  const rowsExp = ()=>KPIS.map(k=>{ const m=metric[k]; const a=m.calc(rowsA), b=m.calc(rowsB); const va=a-b; const vp=b!==0?va/b*100:(a>0?100:0);
+    return { lab:m.label, fmt:m.fmt, a, b, va, vp }; });
+  const exportExcel = async ()=>{ try{
+    const ExcelJS=await fr_loadExcelJS(); const wb=new ExcelJS.Workbook(); wb.creator="Grupo Mediterra — Frisku Foods";
+    const ws=wb.addWorksheet("Comparativo");
+    const rowsX = rowsExp().map(r=>[r.lab, Math.round(r.a*100)/100, anterior?Math.round(r.b*100)/100:"", anterior?Math.round(r.va*100)/100:"", (anterior&&r.fmt!=="pct")?Math.round(r.vp):""]);
+    fr_sheetTabla(ws,{titulo:"FRISKU FOODS — Comparativo de temporadas", subtitulo:`${actual||"A"} vs ${anterior||"B"} · Filtros: ${filtrosTxt} · ${new Date().toLocaleString("es-CL")}`,
+      headers:["Indicador", actual||"A", anterior||"B", "Δ", "Δ%"], colWidths:[26,15,15,13,9], rows:rowsX});
+    await fr_logoExcel(wb,ws); await fr_descargarWB(wb,`Frisku_Comparativo_${new Date().toISOString().slice(0,10)}.xlsx`);
+  }catch(e){ console.error("[Comparativo] Excel:",e); alert("No se pudo generar el Excel: "+e.message); } };
+  const exportPDF = async ()=>{ try{
+    const JsPDF=await pl_loadJsPDF(); const doc=new JsPDF({orientation:"landscape",unit:"mm",format:"a4"}); const W=297,m=12;
+    doc.setFillColor(30,39,97); doc.rect(0,0,W,24,"F"); doc.setTextColor(255,255,255); doc.setFont("helvetica","bold"); doc.setFontSize(13);
+    doc.text("Frisku Foods — Comparativo de temporadas", m, 11); doc.setFont("helvetica","normal"); doc.setFontSize(7.5);
+    doc.text(`${actual||"A"} vs ${anterior||"B"} · Filtros: ${filtrosTxt} · ${new Date().toLocaleString("es-CL")}`.slice(0,175), m, 18); await fr_logoPDF(doc,W-m,4,40,15);
+    doc.autoTable({ startY:28, head:[["Indicador", actual||"A", anterior||"B", "Δ", "Δ%"]],
+      body: rowsExp().map(r=>[r.lab, fmtMetric(r.fmt,r.a), anterior?fmtMetric(r.fmt,r.b):"—",
+        anterior?(r.fmt==="pct"?`${r.va>0?"+":""}${r.va.toFixed(1)} pts`:`${r.va>0?"+":""}${fmtMetric(r.fmt,r.va)}`):"—",
+        (anterior&&r.fmt!=="pct")?`${r.vp>0?"+":""}${r.vp.toFixed(0)}%`:"—"]),
+      theme:"striped", styles:{fontSize:8}, headStyles:{fillColor:[30,39,97]}, margin:{left:m,right:m} });
+    doc.save(`Frisku_Comparativo_${new Date().toISOString().slice(0,10)}.pdf`);
+  }catch(e){ console.error("[Comparativo] PDF:",e); alert("No se pudo generar el PDF: "+e.message); } };
+  const _lastExp=useRef(exportReq?.n);
+  useEffect(()=>{ if(!exportReq||exportReq.n===_lastExp.current) return; _lastExp.current=exportReq.n; (exportReq.type==="pdf"?exportPDF:exportExcel)(); },[exportReq]);
+  const pLbl = {fontSize:10,fontWeight:800,color:C.muted,textTransform:"uppercase",letterSpacing:0.4,margin:"2px 0 5px"};
+
+  const tablaEl = (
+    <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,overflowX:"auto"}}>
+      <table style={{width:"100%",borderCollapse:"collapse",fontSize:12,minWidth:620}}>
+        <thead><tr style={{background:C.card2,color:C.muted,textAlign:"left"}}>
+          <th style={{padding:"9px 12px"}}>Indicador</th>
+          <th style={{padding:"9px 12px",textAlign:"right"}}>Período A · {actual||"Actual"}</th>
+          <th style={{padding:"9px 12px",textAlign:"right"}}>Período B · {anterior||"Anterior"}</th>
+          <th style={{padding:"9px 12px",textAlign:"right"}}>Δ</th>
+          <th style={{padding:"9px 12px",textAlign:"right"}}>Δ%</th>
+        </tr></thead>
+        <tbody>
+          {rowsExp().map((r,i)=>{ const col=r.va>0?C.green:r.va<0?C.accent:C.muted;
+            return <tr key={i} style={{borderTop:`1px solid ${C.border}`}}>
+              <td style={{padding:"8px 12px",fontWeight:600}}>{r.lab}</td>
+              <td style={{padding:"8px 12px",textAlign:"right",fontFamily:"monospace",fontWeight:700}}>{fmtMetric(r.fmt,r.a)}</td>
+              <td style={{padding:"8px 12px",textAlign:"right",fontFamily:"monospace",color:C.muted}}>{anterior?fmtMetric(r.fmt,r.b):"—"}</td>
+              <td style={{padding:"8px 12px",textAlign:"right",fontFamily:"monospace",color:col}}>{anterior?(r.fmt==="pct"?`${r.va>0?"+":""}${r.va.toFixed(1)} pts`:`${r.va>0?"+":""}${fmtMetric(r.fmt,r.va)}`):"—"}</td>
+              <td style={{padding:"8px 12px",textAlign:"right",fontFamily:"monospace",color:col,fontWeight:700}}>{anterior&&r.fmt!=="pct"?`${r.vp>0?"+":""}${r.vp.toFixed(0)}%`:"—"}</td>
+            </tr>; })}
+        </tbody>
+      </table>
+    </div>
+  );
+  const notaEl = <div style={{fontSize:10.5,color:C.muted2,marginTop:10}}>Δ = A − B. La temporada anterior se determina por año de inicio (año − 1); si falta, la siguiente presente más baja. Respeta la selección global (salvo la dimensión temporada, que controlan los selectores).</div>;
+  const selectoresEl = (
+    <>
+      <div><div style={lblSt}>Período A (actual)</div><select value={actual} onChange={e=>setActual(e.target.value)} style={selSt}>{temps.map(t=><option key={t} value={t}>{t}</option>)}</select></div>
+      <div><div style={lblSt}>Período B (anterior)</div><select value={anterior} onChange={e=>setAnterior(e.target.value)} style={selSt}><option value="">—</option>{temps.map(t=><option key={t} value={t}>{t}</option>)}</select></div>
+    </>
+  );
+
+  // ── Modo workspace (chromeless): períodos al panel; filtros comunes; ⛶/export por toolbar ──
+  if(chromeless){
+    const controls = (
+      <div style={{display:"flex",flexDirection:"column",gap:12}}>
+        <div><div style={pLbl}>Período A (actual)</div><select value={actual} onChange={e=>setActual(e.target.value)} style={{...inputSt,width:"100%"}}>{temps.map(t=><option key={t} value={t}>{t}</option>)}</select></div>
+        <div><div style={pLbl}>Período B (anterior)</div><select value={anterior} onChange={e=>setAnterior(e.target.value)} style={{...inputSt,width:"100%"}}><option value="">—</option>{temps.map(t=><option key={t} value={t}>{t}</option>)}</select></div>
+        <div style={{fontSize:10.5,color:C.muted2}}>Comparador fijo A/B por temporada. Respeta la selección global (salvo temporada).</div>
+      </div>
+    );
+    return (<>
+      {panelEl && createPortal(controls, panelEl)}
+      <div style={{maxHeight:"74vh",overflow:"auto"}}>{tablaEl}{notaEl}</div>
+      <FullscreenBI open={!!fullscreen} onClose={onExitFull} title={`Comparativo · ${actual||"A"} vs ${anterior||"B"}`}>{tablaEl}</FullscreenBI>
+    </>);
+  }
+
+  // ── Modo legacy (standalone) ──
   return (
     <div>
-      <div style={{display:"flex",gap:12,flexWrap:"wrap",alignItems:"flex-end",marginBottom:14}}>
-        <div><div style={lblSt}>Temporada actual</div><select value={actual} onChange={e=>setActual(e.target.value)} style={selSt}>{temps.map(t=><option key={t} value={t}>{t}</option>)}</select></div>
-        <div><div style={lblSt}>Temporada anterior</div><select value={anterior} onChange={e=>setAnterior(e.target.value)} style={selSt}><option value="">—</option>{temps.map(t=><option key={t} value={t}>{t}</option>)}</select></div>
-      </div>
-      <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,overflowX:"auto"}}>
-        <table style={{width:"100%",borderCollapse:"collapse",fontSize:12,minWidth:620}}>
-          <thead><tr style={{background:C.card2,color:C.muted,textAlign:"left"}}>
-            <th style={{padding:"9px 12px"}}>Indicador</th>
-            <th style={{padding:"9px 12px",textAlign:"right"}}>{actual||"Actual"}</th>
-            <th style={{padding:"9px 12px",textAlign:"right"}}>{anterior||"Anterior"}</th>
-            <th style={{padding:"9px 12px",textAlign:"right"}}>Δ</th>
-            <th style={{padding:"9px 12px",textAlign:"right"}}>Δ%</th>
-          </tr></thead>
-          <tbody>
-            {KPIS.map(k=>{ const m=metric[k]; const a=m.calc(rowsA), b=m.calc(rowsB); const va=a-b; const vp=b!==0?va/b*100:(a>0?100:0);
-              const col=va>0?C.green:va<0?C.accent:C.muted;
-              return <tr key={k} style={{borderTop:`1px solid ${C.border}`}}>
-                <td style={{padding:"8px 12px",fontWeight:600}}>{m.label}</td>
-                <td style={{padding:"8px 12px",textAlign:"right",fontFamily:"monospace",fontWeight:700}}>{fmtMetric(m.fmt,a)}</td>
-                <td style={{padding:"8px 12px",textAlign:"right",fontFamily:"monospace",color:C.muted}}>{anterior?fmtMetric(m.fmt,b):"—"}</td>
-                <td style={{padding:"8px 12px",textAlign:"right",fontFamily:"monospace",color:col}}>{anterior?(m.fmt==="pct"?`${va>0?"+":""}${va.toFixed(1)} pts`:`${va>0?"+":""}${fmtMetric(m.fmt,va)}`):"—"}</td>
-                <td style={{padding:"8px 12px",textAlign:"right",fontFamily:"monospace",color:col,fontWeight:700}}>{anterior&&m.fmt!=="pct"?`${vp>0?"+":""}${vp.toFixed(0)}%`:"—"}</td>
-              </tr>; })}
-          </tbody>
-        </table>
-      </div>
-      <div style={{fontSize:10.5,color:C.muted2,marginTop:10}}>Comparativo sobre toda la data (no depende de la selección). Δ = actual − anterior. La temporada anterior se determina por año de inicio (año − 1); si falta, se usa la siguiente presente más baja (tolerante a huecos).</div>
+      <div style={{display:"flex",gap:12,flexWrap:"wrap",alignItems:"flex-end",marginBottom:14}}>{selectoresEl}</div>
+      {tablaEl}
+      {notaEl}
     </div>
   );
 }
@@ -5960,7 +6109,7 @@ function AnalysisWorkspace({ data, permTablero, onVerEmbarque }) {
   const fireExport = (type)=> setExportReq(r=>({type, n:(r?.n||0)+1}));
   const charts = permTablero?.visible!==false;            // Barras/Dona/Tendencia usan el motor del Explorador
   const libre  = preset==="libre";
-  const exportable = libre;                               // Tabla/Pivot/Barras/Dona/Tendencia/Drill soportan export/⛶
+  const exportable = true;                                // e5: todos los objetos (libre + presets curados) exportan/⛶ coherentemente
   const VIZ = [
     {k:"tabla", lab:"▦ Tabla"}, {k:"pivot", lab:"⊞ Pivot"},
     charts && {k:"barras", lab:"▮ Barras"}, charts && {k:"dona", lab:"◔ Dona"}, charts && {k:"tendencia", lab:"📈 Tendencia"},
@@ -5975,12 +6124,12 @@ function AnalysisWorkspace({ data, permTablero, onVerEmbarque }) {
   const segBtn = (on,dis)=>({fontSize:12,padding:"6px 11px",borderRadius:6,cursor:dis?"default":"pointer",border:"none",fontWeight:700,
     background:on?C.blue:"transparent",color:on?"#fff":(dis?C.muted2:C.muted),opacity:dis?0.5:1});
 
-  const propsInPanel = preset==="libre" && ["tabla","pivot","barras","dona","tendencia","drill"].includes(viz);
+  const propsInPanel = preset==="libre" ? ["tabla","pivot","barras","dona","tendencia","drill"].includes(viz) : true;
   const objProps = { chromeless:true, panelEl:propsEl, fullscreen:full, onExitFull:()=>setFull(false), exportReq };
   const canvas = ()=>{
-    if(preset==="comercial") return <HojaComercial onVerEmbarque={onVerEmbarque}/>;
-    if(preset==="semanal")   return <HojaSemanal onVerEmbarque={onVerEmbarque}/>;
-    if(preset==="comp")      return <HojaComparativo/>;
+    if(preset==="comercial") return <HojaComercial {...objProps} onVerEmbarque={onVerEmbarque}/>;
+    if(preset==="semanal")   return <HojaSemanal {...objProps} onVerEmbarque={onVerEmbarque}/>;
+    if(preset==="comp")      return <HojaComparativo {...objProps}/>;
     if(viz==="tabla")        return <StraightTableBI {...objProps} onVerEmbarque={onVerEmbarque}/>;
     if(viz==="pivot")        return <PivotTableBI {...objProps}/>;
     if(viz==="drill")        return <DrillGroupsBI {...objProps} onVerEmbarque={onVerEmbarque}/>;
