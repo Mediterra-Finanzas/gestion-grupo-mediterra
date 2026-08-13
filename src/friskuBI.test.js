@@ -1,6 +1,7 @@
 /* eslint-disable */
 // Tests de semántica asociativa del motor BI Frisku (Qlik parity).
-import { matchFacts, associativeValues, groupByDims } from "./friskuBI.js";
+import { matchFacts, associativeValues, groupByDims,
+         factsIgnoring, metricOverIgnoring, participacion, invertSelection, FRISKU_METRIC } from "./friskuBI.js";
 
 // Mini tabla de hechos (4 contenedores) — solo los campos que usa el motor.
 const FACTS = [
@@ -110,5 +111,43 @@ describe("groupByDims — agrupación multi-dim", () => {
     const g = groupByDims(FACTS, []);
     expect(g.length).toBe(1);
     expect(g[0].rows.length).toBe(4);
+  });
+});
+
+// P1.15 — set helpers: ignore field, participación, invertir.
+describe("set helpers (participación / ignore field / invert)", () => {
+  // Facts con _cancel para contar contenedores (métrica no aditiva).
+  const D = [
+    { temporada:"T", cliente:"A", clienteLab:"A", _cancel:false },
+    { temporada:"T", cliente:"A", clienteLab:"A", _cancel:false },
+    { temporada:"T", cliente:"A", clienteLab:"A", _cancel:false },   // A = 3 contenedores
+    { temporada:"T", cliente:"B", clienteLab:"B", _cancel:false },
+    { temporada:"T", cliente:"C", clienteLab:"C", _cancel:false },
+    { temporada:"T", cliente:"D", clienteLab:"D", _cancel:false },
+    { temporada:"T", cliente:"E", clienteLab:"E", _cancel:false },
+    { temporada:"T", cliente:"F", clienteLab:"F", _cancel:false },
+    { temporada:"T", cliente:"G", clienteLab:"G", _cancel:false },
+    { temporada:"T", cliente:"H", clienteLab:"H", _cancel:false }, // universo = 10 contenedores
+  ];
+  const M = FRISKU_METRIC.containers;
+  test("ignore field: denominador ignora la selección de Cliente", () => {
+    const sel = { temporada:S("T"), cliente:S("A") };
+    const universo = factsIgnoring(D, sel, "cliente");    // mantiene T, ignora Cliente=A
+    expect(M.calc(universo)).toBe(10);                    // 10 contenedores (no 3)
+  });
+  test("participación 30% aunque Cliente A esté seleccionado (denominador = universo previo)", () => {
+    const sel = { temporada:S("T"), cliente:S("A") };
+    const universo = factsIgnoring(D, sel, "cliente");    // 10
+    const filaA = D.filter(r=>r.cliente==="A");           // 3
+    expect(Math.round(participacion(filaA, universo, M)*100)).toBe(30);
+  });
+  test("metricOverIgnoring = métrica sobre el universo ignorando el campo", () => {
+    const sel = { temporada:S("T"), cliente:S("A") };
+    expect(metricOverIgnoring(D, sel, "cliente", M)).toBe(10);
+  });
+  test("invertir: selecciona los seleccionables NO seleccionados", () => {
+    const selectable = ["A","B","C"];
+    expect(invertSelection(S("A"), selectable).sort()).toEqual(["B","C"]);
+    expect(invertSelection(S(), selectable).sort()).toEqual(["A","B","C"]);
   });
 });

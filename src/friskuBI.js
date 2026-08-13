@@ -218,6 +218,17 @@ export function associativeValues(facts, sel, dimKey, metric){
   return { selected, possible, alternative, excluded, possibleAll:[...selected,...possible,...alternative] };
 }
 
+// ── SET-ANALYSIS HELPERS (equivalentes, sin sintaxis Qlik) ──
+// Universo de hechos IGNORANDO la selección de UN campo (Qlik: {<campo=>}).
+export function factsIgnoring(facts, sel, dimKey){ return facts.filter(r=>matchFacts(r, sel, dimKey)); }
+// Métrica sobre el universo seleccionado ignorando la selección de un campo.
+export function metricOverIgnoring(facts, sel, dimKey, metric){ return metric.calc(factsIgnoring(facts, sel, dimKey)); }
+// Participación de un subconjunto sobre un denominador, con la MISMA métrica.
+export function participacion(subRows, denomRows, metric){ const d=metric.calc(denomRows); return d ? metric.calc(subRows)/d : 0; }
+// Invertir selección de un campo: sus valores seleccionables (posibles/alternativos/
+// seleccionados) que NO estén seleccionados pasan a estar seleccionados.
+export function invertSelection(selectedSet, selectableValues){ const s=selectedSet||new Set(); return selectableValues.filter(v=>!s.has(v)); }
+
 // ── CONTEXTO REACT: estado de selección compartido por todas las hojas ──
 const FriskuBIContext = createContext(null);
 const HIST_MAX = 60;   // historial de selecciones (back/forward), acotado
@@ -253,12 +264,13 @@ export function FriskuBIProvider({ data, children }){
 
   const filtered = useMemo(()=>facts.filter(r=>matchFacts(r, sel, null)), [facts, sel]);
   const associative = useCallback((dimKey, metric)=>associativeValues(facts, sel, dimKey, metric), [facts, sel]);
+  const ignoring = useCallback((dimKey)=>facts.filter(r=>matchFacts(r, sel, dimKey)), [facts, sel]); // universo ignorando ese campo
   const chips = useMemo(()=> FRISKU_DIMS.flatMap(d=> (sel[d.key]?[...sel[d.key]]:[]).map(v=>{
     const h=facts.find(r=>r[d.key]===v); return { dim:d.key, dimLab:d.lab, value:v, label:h?h[d.key+"Lab"]:v };
   })), [sel, facts]);
 
   const value = { facts, filtered, dims:FRISKU_DIMS, metrics:FRISKU_METRICS, metric:FRISKU_METRIC, fmtMetric,
-                  sel, toggle, setOne, setMany, remove, clearDim, clearAll, associative, chips, dataQuality,
+                  sel, toggle, setOne, setMany, remove, clearDim, clearAll, associative, ignoring, chips, dataQuality,
                   undo, redo, canUndo, canRedo, applySel };
   return <FriskuBIContext.Provider value={value}>{children}</FriskuBIContext.Provider>;
 }
