@@ -5788,6 +5788,7 @@ function ReporteriaBI({ data, permResumen, permReportes, permTablero, onVerEmbar
     { id:"embbi",      lab:"🚢 Embarques" },
     { id:"tabla",      lab:"▦ Tabla" },
     { id:"pivot",      lab:"⊞ Pivot" },
+    { id:"drill",      lab:"⛏ Drill" },
     { id:"semanal",    lab:"📅 Semanal" },
     { id:"comp",       lab:"📊 Comparativo" },
     (permReportes?.visible!==false) && { id:"reportes", lab:"📋 Reportes" },
@@ -5820,8 +5821,119 @@ function ReporteriaBI({ data, permResumen, permReportes, permTablero, onVerEmbar
       {hoja==="pivot"    && <PivotTableBI/>}
       {hoja==="semanal"  && <HojaSemanal onVerEmbarque={onVerEmbarque}/>}
       {hoja==="comp"     && <HojaComparativo/>}
+      {hoja==="drill"    && <DrillGroupsBI onVerEmbarque={onVerEmbarque}/>}
       {hoja==="reportes" && <ReportesTab {...data}/>}
       {hoja==="tablero"  && <TableroAsociativo {...data}/>}
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// DRILL-DOWN GROUPS (estilo Qlik) — jerarquías que AVANZAN de nivel.
+// A diferencia de una selección global, el drill es NAVEGACIÓN LOCAL: al bajar
+// por un valor se acota SOLO esta tabla (respeta la selección global vigente
+// pero NO la modifica) y se muestra con su PROPIO breadcrumb, separado de la
+// Barra de Selección. Botón para "promover" la ruta de drill a selección real.
+// Métricas count-distinct recalculadas con metric.calc (nunca suma subtotales).
+// ═══════════════════════════════════════════════════════════════════
+const DRILL_GROUPS = {
+  comercial: { lab:"Comercial", dims:["exportadora","cliente","especie","contenedor"] },
+  logistico: { lab:"Logístico", dims:["temporada","semanaETD","cliente","contenedor"] },
+  mercado:   { lab:"Mercado",   dims:["mercado","paisDestino","puertoDestino","cliente","contenedor"] },
+};
+function DrillGroupsBI({ onVerEmbarque }) {
+  const bi = useFriskuBI();
+  const { filtered, metrics, metric, setMany } = bi;
+  const [grpKey, setGrpKey] = useState("comercial");
+  const [medKey, setMedKey] = useState("fcl");
+  const [path, setPath] = useState([]); // [{dimKey, value, label}]
+  const grp = DRILL_GROUPS[grpKey];
+  const M = metric[medKey];
+  const FIN = new Set(["destinationSalesUSD","clientCommissionUSD","friskuCommissionUSD","avgCommissionPct"]);
+  const isFin = FIN.has(medKey);
+  // Al cambiar de grupo, reinicia la ruta de drill.
+  const cambiarGrupo = (k)=>{ setGrpKey(k); setPath([]); };
+  // Filas del nivel: selección global (filtered) ∩ ruta de drill.
+  const rows = useMemo(()=>filtered.filter(r=>path.every(p=>String(r[p.dimKey])===String(p.value))), [filtered, path]);
+  const lvl = path.length;
+  const curDim = grp.dims[lvl]; // dimensión del nivel actual (undefined si se agotó)
+  const enHoja = !curDim; // ruta completa → detalle de contenedores
+  const grupos = useMemo(()=>{
+    if(!curDim) return [];
+    return groupByDims(rows, [curDim]).map(g=>({ value:g.dimValues[curDim], label:g.labels[curDim], rows:g.rows }))
+      .sort((a,b)=>M.calc(b.rows)-M.calc(a.rows));
+  }, [rows, curDim, medKey]);
+  const bajar = (g)=>{ if(curDim==="contenedor"){ const oe=g.rows[0]?._oe; if(oe&&onVerEmbarque) onVerEmbarque(oe); return; }
+    setPath(p=>[...p, {dimKey:curDim, value:g.value, label:g.label}]); };
+  const irNivel = (i)=>setPath(p=>p.slice(0,i)); // breadcrumb: truncar
+  const promover = ()=>{ path.forEach(p=>setMany(p.dimKey, [p.value])); };
+  const dimLab = (k)=>(FRISKU_DIMS.find(d=>d.key===k)?.lab)||k;
+
+  const Tab=({on,onClick,children})=>(<button onClick={onClick} style={{...btnSt(on?C.blue:C.muted,!on), fontSize:12, padding:"6px 12px"}}>{children}</button>);
+  return (
+    <div>
+      <div style={{display:"flex", gap:8, flexWrap:"wrap", alignItems:"center", marginBottom:10}}>
+        <span style={{fontSize:12, color:C.muted, fontWeight:700}}>Grupo:</span>
+        {Object.entries(DRILL_GROUPS).map(([k,g])=><Tab key={k} on={grpKey===k} onClick={()=>cambiarGrupo(k)}>{g.lab}</Tab>)}
+        <span style={{width:1, alignSelf:"stretch", background:C.border, margin:"0 2px"}}/>
+        <span style={{fontSize:12, color:C.muted, fontWeight:700}}>Medida:</span>
+        <select value={medKey} onChange={e=>setMedKey(e.target.value)} style={{...inputSt, maxWidth:230}}>
+          {metrics.map(m=><option key={m.key} value={m.key}>{m.label}</option>)}
+        </select>
+      </div>
+      {/* Breadcrumb de DRILL (separado de la Barra de Selección global) */}
+      <div style={{display:"flex", gap:6, flexWrap:"wrap", alignItems:"center", marginBottom:12, padding:"8px 10px", background:`${C.blue}0c`, border:`1px solid ${C.border}`, borderRadius:9}}>
+        <span style={{fontSize:11, color:C.muted, fontWeight:700}}>⛏ Ruta:</span>
+        <span onClick={()=>irNivel(0)} style={{cursor:"pointer", fontSize:12, fontWeight:700, color:lvl===0?C.text:C.blue}}>{grp.lab}</span>
+        {path.map((p,i)=>(<React.Fragment key={i}>
+          <span style={{color:C.muted2, fontSize:11}}>›</span>
+          <span onClick={()=>irNivel(i+1)} style={{cursor:"pointer", fontSize:12, color:i===lvl-1?C.text:C.blue, fontWeight:i===lvl-1?700:500}}
+                title={`${dimLab(p.dimKey)}: ${p.label}`}>{p.label}</span>
+        </React.Fragment>))}
+        {curDim && <span style={{fontSize:11, color:C.muted2, marginLeft:4}}>· nivel actual: <b>{dimLab(curDim)}</b></span>}
+        <span style={{flex:1}}/>
+        {path.length>0 && <>
+          <button onClick={promover} title="Convertir la ruta de drill en selección global (Barra de Selección)"
+            style={{...btnSt(C.accent2,true), fontSize:11, padding:"4px 9px"}}>↥ Aplicar como selección</button>
+          <button onClick={()=>setPath([])} style={{...btnSt(C.muted,true), fontSize:11, padding:"4px 9px"}}>Reiniciar drill</button>
+        </>}
+      </div>
+      {enHoja ? (
+        <div style={{fontSize:12.5, color:C.muted, padding:"14px 4px"}}>Ruta completa. {rows.length} contenedor(es) en el detalle — usa el breadcrumb para subir de nivel.</div>
+      ) : (
+        <div style={{border:`1px solid ${C.border}`, borderRadius:10, overflow:"hidden"}}>
+          <table style={{width:"100%", borderCollapse:"collapse", fontSize:12.5}}>
+            <thead><tr style={{background:C.card2, textAlign:"left"}}>
+              <th style={{padding:"8px 10px"}}>{dimLab(curDim)}</th>
+              <th style={{padding:"8px 10px", textAlign:"right"}}>{M.label}</th>
+              <th style={{padding:"8px 10px", textAlign:"right", width:80}}>%</th>
+              <th style={{padding:"8px 10px", width:36}}></th>
+            </tr></thead>
+            <tbody>
+              {(()=>{ const tot=M.calc(rows); return grupos.map((g,i)=>{
+                const val=M.calc(g.rows); const sinDato=isFin && g.rows.filter(r=>r._nLiq>0).length===0;
+                const pct = tot>0 && !isFin ? (val/tot*100) : null;
+                const esHoja = curDim==="contenedor";
+                return (<tr key={g.value+"_"+i} onClick={()=>bajar(g)} style={{borderTop:`1px solid ${C.border}`, cursor:"pointer"}}
+                  title={esHoja?"Ver embarque":"Bajar un nivel"}>
+                  <td style={{padding:"7px 10px", whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis", maxWidth:320}}>
+                    <span style={{color:C.blue}}>{esHoja?"→ ":"▸ "}</span>{g.label}</td>
+                  <td style={{padding:"7px 10px", textAlign:"right", fontFamily:"monospace", color:sinDato?C.muted2:undefined}}>{sinDato?"—":fmtMetric(M.fmt, val)}</td>
+                  <td style={{padding:"7px 10px", textAlign:"right", fontFamily:"monospace", color:C.muted2}}>{pct==null?"—":pct.toFixed(1)+"%"}</td>
+                  <td style={{padding:"7px 10px", textAlign:"center", color:C.muted2}}>{esHoja?"🚢":"⤵"}</td>
+                </tr>); }); })()}
+              <tr style={{borderTop:`2px solid ${C.border}`, background:C.card2, fontWeight:700}}>
+                <td style={{padding:"8px 10px"}}>TOTAL ({grupos.length})</td>
+                <td style={{padding:"8px 10px", textAlign:"right", fontFamily:"monospace"}}>{fmtMetric(M.fmt, M.calc(rows))}</td>
+                <td colSpan={2} style={{padding:"8px 10px", textAlign:"right", color:C.muted2, fontWeight:400, fontSize:11}}>recalculado (no suma subtotales)</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      )}
+      <div style={{fontSize:11, color:C.muted2, marginTop:8}}>
+        El drill es local: acota esta tabla sin tocar la Barra de Selección. Usa <b>↥ Aplicar como selección</b> para promover la ruta a selección global.
+      </div>
     </div>
   );
 }

@@ -198,3 +198,36 @@ describe("Filter Pane — acciones de campo (posibles/alternativos/excluidos/inv
     expect(invertSelection(S("Aran"), selectable).sort()).toEqual(["Cer"]);
   });
 });
+
+// P1.6 — Drill groups: navegación local por ruta (path), independiente de la
+// selección global. Cada nivel agrupa por la dim siguiente; totales con metric.calc.
+describe("Drill groups — ruta local + count-distinct por nivel", () => {
+  // dims del grupo Comercial: exportadora → cliente → especie → contenedor
+  const D = [
+    { exportadora:"EX1", cliente:"A", especie:"Cer", _cancel:false },
+    { exportadora:"EX1", cliente:"A", especie:"Cer", _cancel:false },  // EX1/A: 2 contenedores, 1 cliente
+    { exportadora:"EX1", cliente:"B", especie:"Aran", _cancel:false },
+    { exportadora:"EX2", cliente:"A", especie:"Pal", _cancel:false },
+  ];
+  // Réplica de la lógica del componente: rows = base ∩ ruta.
+  const drillRows = (base, path)=>base.filter(r=>path.every(p=>String(r[p.dimKey])===String(p.value)));
+  const CONT = FRISKU_METRIC.containers, AC = FRISKU_METRIC.activeClients;
+  test("bajar por exportadora=EX1 acota a sus 3 filas y agrupa por cliente", () => {
+    const rows = drillRows(D, [{dimKey:"exportadora", value:"EX1"}]);
+    expect(rows.length).toBe(3);
+    const porCli = groupByDims(rows, ["cliente"]);
+    expect(porCli.length).toBe(2); // A, B
+    expect(CONT.calc(porCli.find(g=>g.dimValues.cliente==="A").rows)).toBe(2);
+  });
+  test("total de clientes en el nivel usa metric.calc (distinct), no suma de subniveles", () => {
+    const rows = drillRows(D, [{dimKey:"exportadora", value:"EX1"}]); // clientes A,B → 2
+    expect(AC.calc(rows)).toBe(2);
+    const porEsp = groupByDims(rows, ["especie"]).map(g=>AC.calc(g.rows)); // Cer→1(A), Aran→1(B)
+    expect(porEsp.reduce((s,v)=>s+v,0)).toBe(2); // aquí coincide, pero el total SIEMPRE es metric.calc(rows)
+  });
+  test("drill NO muta la selección global (base intacta)", () => {
+    const base = D.slice();
+    drillRows(base, [{dimKey:"exportadora", value:"EX1"}, {dimKey:"cliente", value:"A"}]);
+    expect(base.length).toBe(4); // la fuente no cambia; el drill solo filtra una copia
+  });
+});
