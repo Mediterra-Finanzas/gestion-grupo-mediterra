@@ -5259,8 +5259,7 @@ function HojaComercial({ onVerEmbarque, chromeless, panelEl, fullscreen, onExitF
       theme:"striped", styles:{fontSize:7.5}, headStyles:{fillColor:[30,39,97]}, margin:{left:m,right:m} });
     doc.save(`Frisku_Comercial_${new Date().toISOString().slice(0,10)}.pdf`);
   }catch(e){ console.error("[Comercial] PDF:",e); alert("No se pudo generar el PDF: "+e.message); } };
-  const _lastExp=useRef(exportReq?.n);
-  useEffect(()=>{ if(!exportReq||exportReq.n===_lastExp.current) return; _lastExp.current=exportReq.n; (exportReq.type==="pdf"?exportPDF:exportExcel)(); },[exportReq]);
+  useExportTrigger(exportReq, {excel:exportExcel, pdf:exportPDF});
   const pLbl = {fontSize:10,fontWeight:800,color:C.muted,textTransform:"uppercase",letterSpacing:0.4,margin:"2px 0 5px"};
   const row = (open, indent, label, right, onClick, color)=>(
     <div onClick={onClick} style={{display:"flex",alignItems:"center",gap:8,padding:"6px 10px",paddingLeft:10+indent*18,cursor:"pointer",borderTop:`1px solid ${C.border}`,background:open?`${C.blue}08`:"transparent"}}>
@@ -5393,8 +5392,7 @@ function HojaSemanal({ onVerEmbarque, chromeless, panelEl, fullscreen, onExitFul
       theme:"striped", styles:{fontSize:7}, headStyles:{fillColor:[30,39,97]}, margin:{left:m,right:m} });
     doc.save(`Frisku_Semanal_${new Date().toISOString().slice(0,10)}.pdf`);
   }catch(e){ console.error("[Semanal] PDF:",e); alert("No se pudo generar el PDF: "+e.message); } };
-  const _lastExp=useRef(exportReq?.n);
-  useEffect(()=>{ if(!exportReq||exportReq.n===_lastExp.current) return; _lastExp.current=exportReq.n; (exportReq.type==="pdf"?exportPDF:exportExcel)(); },[exportReq]);
+  useExportTrigger(exportReq, {excel:exportExcel, pdf:exportPDF});
   const pLbl = {fontSize:10,fontWeight:800,color:C.muted,textTransform:"uppercase",letterSpacing:0.4,margin:"2px 0 5px"};
 
   const chartEl = sinDatoFin ? (
@@ -5513,8 +5511,7 @@ function HojaComparativo({ chromeless, panelEl, fullscreen, onExitFull, exportRe
       theme:"striped", styles:{fontSize:8}, headStyles:{fillColor:[30,39,97]}, margin:{left:m,right:m} });
     doc.save(`Frisku_Comparativo_${new Date().toISOString().slice(0,10)}.pdf`);
   }catch(e){ console.error("[Comparativo] PDF:",e); alert("No se pudo generar el PDF: "+e.message); } };
-  const _lastExp=useRef(exportReq?.n);
-  useEffect(()=>{ if(!exportReq||exportReq.n===_lastExp.current) return; _lastExp.current=exportReq.n; (exportReq.type==="pdf"?exportPDF:exportExcel)(); },[exportReq]);
+  useExportTrigger(exportReq, {excel:exportExcel, pdf:exportPDF});
   const pLbl = {fontSize:10,fontWeight:800,color:C.muted,textTransform:"uppercase",letterSpacing:0.4,margin:"2px 0 5px"};
 
   const tablaEl = (
@@ -5662,6 +5659,24 @@ function FullscreenBI({ open, title, onClose, children }) {
 // selecciona (clic en celda de dimensión → filtra todo el BI), % participación,
 // totales, export Excel/PDF y pantalla completa. Mismo motor/selección; sin
 // fórmulas nuevas (usa metric.calc). % participación = valor fila / total mostrado.
+// P1.9e-h1: dispara el export del objeto ACTIVO cuando cambia exportReq, usando
+// SIEMPRE las funciones del render más reciente (latest-ref) → el export consume
+// exactamente el estado/dataset que alimenta el objeto visible (selección global
+// vigente), sin depender de un closure de useEffect que pueda quedar rezagado
+// (AnalysisWorkspace no consume el contexto BI, así que su render no acompaña los
+// cambios de selección). No cambia cálculos ni motor.
+function useExportTrigger(exportReq, exporters){
+  const latest = useRef(exporters);
+  latest.current = exporters;                 // cada render → funciones actuales
+  const lastN = useRef(exportReq?.n);
+  useEffect(()=>{
+    if(!exportReq || exportReq.n===lastN.current) return;
+    lastN.current = exportReq.n;
+    const f = latest.current;
+    (exportReq.type==="pdf" ? f.pdf : f.excel)?.();
+  }, [exportReq]); // eslint-disable-line react-hooks/exhaustive-deps
+}
+
 function StraightTableBI({ onVerEmbarque, chromeless, panelEl, fullscreen, onExitFull, exportReq }) {
   const bi = useFriskuBI();
   const { filtered, dims, metrics, metric, sel, toggle } = bi;
@@ -5722,9 +5737,7 @@ function StraightTableBI({ onVerEmbarque, chromeless, panelEl, fullscreen, onExi
       theme:"striped", styles:{fontSize:7}, headStyles:{fillColor:[30,39,97]}, margin:{left:m,right:m} });
     doc.save(`Frisku_Tabla_${new Date().toISOString().slice(0,10)}.pdf`);
   }catch(e){ console.error("[Tabla] PDF:",e); alert("No se pudo generar el PDF: "+e.message); } setExpP(false); setMenuOpen(false); };
-  // Export unificado del workspace (toolbar ⛶|Excel|PDF) → dispara el exportador del objeto.
-  const _lastExp = useRef(exportReq?.n);
-  useEffect(()=>{ if(!exportReq||exportReq.n===_lastExp.current) return; _lastExp.current=exportReq.n; (exportReq.type==="pdf"?exportPDF:exportExcel)(); },[exportReq]);
+  useExportTrigger(exportReq, {excel:exportExcel, pdf:exportPDF});
 
   const th=(col,label,align)=>{ const act=sortCol===col; return <th onClick={()=>setSort(col)} style={{padding:"6px 10px",textAlign:align||"left",cursor:"pointer",whiteSpace:"nowrap",background:C.card2,color:act?C.blue:C.muted,fontWeight:act?800:700,position:"sticky",top:0,zIndex:1}} title="Ordenar">{label}{act?(sortDir==="desc"?" ▼":" ▲"):<span style={{opacity:0.35}}> ⇅</span>}</th>; };
   const tablaEl = (maxH)=>(
@@ -5950,9 +5963,7 @@ function PivotTableBI(_pivotProps={}) {
     doc.autoTable({ startY:28, head, body, theme:"striped", styles:{fontSize:7}, headStyles:{fillColor:[30,39,97]}, margin:{left:m,right:m} });
     doc.save(`Frisku_Pivot_${new Date().toISOString().slice(0,10)}.pdf`);
   }catch(e){ console.error("[Pivot] PDF:",e); alert("No se pudo generar el PDF: "+e.message); } setMenuOpen(false); };
-  // Export unificado del workspace (toolbar) → Excel o PDF del pivote actual.
-  const _lastExpP = useRef(exportReq?.n);
-  useEffect(()=>{ if(!exportReq||exportReq.n===_lastExpP.current) return; _lastExpP.current=exportReq.n; (exportReq.type==="pdf"?exportPDF:exportExcel)(); },[exportReq]);
+  useExportTrigger(exportReq, {excel:exportExcel, pdf:exportPDF});
 
   const td={padding:"4px 9px",borderTop:`1px solid ${C.border}`,textAlign:"right",fontFamily:"monospace",whiteSpace:"nowrap"};
   const thPiv={padding:"6px 9px",position:"sticky",top:0,zIndex:1,background:C.card2,fontWeight:700};
@@ -6291,8 +6302,7 @@ function DrillGroupsBI({ onVerEmbarque, chromeless, panelEl, fullscreen, onExitF
     doc.autoTable({ startY:28, head, body, theme:"striped", styles:{fontSize:7.5}, headStyles:{fillColor:[30,39,97]}, margin:{left:m,right:m} });
     doc.save(`Frisku_Drill_${grpKey}_${new Date().toISOString().slice(0,10)}.pdf`);
   }catch(e){ console.error("[Drill] PDF:",e); alert("No se pudo generar el PDF: "+e.message); } };
-  const _lastExpD = useRef(exportReq?.n);
-  useEffect(()=>{ if(!exportReq||exportReq.n===_lastExpD.current) return; _lastExpD.current=exportReq.n; (exportReq.type==="pdf"?exportPDF:exportExcel)(); },[exportReq]);
+  useExportTrigger(exportReq, {excel:exportExcel, pdf:exportPDF});
 
   const Tab=({on,onClick,children})=>(<button onClick={onClick} style={{...btnSt(on?C.blue:C.muted,!on), fontSize:12, padding:"6px 12px"}}>{children}</button>);
   const pLbl = {fontSize:10,fontWeight:800,color:C.muted,textTransform:"uppercase",letterSpacing:0.4,margin:"2px 0 5px"};
@@ -7167,9 +7177,7 @@ function TableroAsociativo({ liquidaciones, embarques, clientes, exportadoras, e
       <div style={{fontSize:10.5,color:C.muted2}}>{fuente.nota} · {fuente.rows.length} registros{d2?` · desglose por ${d2.lab.toLowerCase()}`:""}</div>
     </div>
   );
-  // Export unificado del workspace → Excel (dataset del gráfico) o PDF (el gráfico).
-  const _lastExpG = useRef(exportReq?.n);
-  useEffect(()=>{ if(!exportReq||exportReq.n===_lastExpG.current) return; _lastExpG.current=exportReq.n; (exportReq.type==="pdf"?exportBIPDF:exportBIExcel)(); },[exportReq]);
+  useExportTrigger(exportReq, {excel:exportBIExcel, pdf:exportBIPDF});
   if(chromeless){
     return (<>
       {panelEl && createPortal(controls, panelEl)}
