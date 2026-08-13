@@ -1,7 +1,7 @@
 # proc_* — F3: Diseño (Producto Terminado · Pallets · Repaletizaje) — para revisión
 
 **Capability:** `proc_*` · tenant piloto Allegria Service · **Worktree:** `worktree-proc-fase1`
-**Base:** F1 VALIDATED + F2 VALIDATED · **Fecha:** 2026-08-13 · **Estado:** Diseño F3 **para revisión**.
+**Base:** F1 VALIDATED + F2 VALIDATED · **Fecha:** 2026-08-13 · **Estado:** ✅ **F3 VALIDATED** (Opción A ratificada por el CFO; §7 era el gate, ya resuelto — ver Acta al final).
 
 > **Incremental** sobre F1+F2. El ledger `proc_movimiento` sigue siendo la **única SoT física** (no sistema paralelo). El resultado conciliado F2 (`proc_resultado`) es la **SoT del resultado**: el PT nace de líneas de resultado ya válidas, sin recalcular. Genealogía por FKs relacionales (no JSON opaco). No toca `exp_*`/Frisku/Osiris/Foods/`main`.
 
@@ -72,3 +72,34 @@ Sub-decisiones derivadas (resueltas si eliges A; confirmar de paso):
 ## 8. Gate F3 (diseño → SQL)
 
 **No materializo la migración F3 hasta que ratifiques §7** (Opción A vs B para la granularidad caja/pallet, + sub-decisiones). Con eso —y si no cambia bounded context/SoT/seguridad— ejecuto: migración incremental + capa dominio/DB + tests SQL + tests dominio + E2E (Regla 16) + runtime aislado + regresión F1/F2 + RLS + Acta F3 + commit `service:`. STOP-AND-REPORT solo ante otro cambio estructural.
+
+---
+
+## ACTA DE ENTREGA — proc_* FASE 3 (VALIDATED)
+
+**Proyecto:** Allegria Service · **Bounded context:** `proc_*` · **Worktree:** `worktree-proc-fase1` · **Base:** F1+F2 VALIDATED.
+**Estado: ✅ VALIDATED (runtime aislado, 2026-08-13).** Incremental sobre F1+F2. Opción A ratificada.
+
+**Separación de SoTs (ratificada):** `proc_movimiento` = existencia física/movimientos/ubicación/saldo; `proc_pallet_linea` = composición/genealogía. Invariante `Σ líneas activas = saldo físico del pallet` enforced por CONSTRAINT TRIGGER diferido.
+
+**Archivos (solo rutas Service):**
+- `supabase/schema_proc_v3_f3.sql` — **nuevo** (incremental): 7 tablas (formato, producto_terminado, pallet, pallet_linea, repaletizaje + origen/destino) + 5 tipos de movimiento (produccion/palletizacion/repaletizaje/desarme/ajuste_pt) + 4 vistas (resultado_disponible, pt_saldos, pallet_saldos, pallet_composicion) + invariante de reconciliación (constraint trigger diferido) + 6 RPC (materializar_pt, crear_pallet, palletizar [compat], repaletizar [N:M], trasladar_pallet, estado_por_saldo) + RLS FORCE/REVOKE anon.
+- `supabase/schema_proc_v3_f3_DEV_ONLY_rls.sql` — **nuevo**.
+- `supabase/validation/proc_v3_f3_tests.sql` — **nuevo** (E2E Regla 16 + N1..N7).
+- `src/proceso/core/procesoF3Domain.js` + `.test.mjs` — **nuevo** (lógica pura + asserts).
+- `src/proceso/core/procesoF3DB.js` — **nuevo** (capa DB, gate Regla 9).
+- `docs/proceso-f3-diseno.md` — **modificado** (esta Acta).
+
+**Reglas 1-17 materializadas:** PT desde líneas de resultado F2 (no recálculo); no-sobreasignación (vista + RPC FOR UPDATE); formatos configurables (no hardcode cereza); pallet header+líneas (mixto) con compatibilidad configurable; barcode `codigo` ≠ UUID único por empresa+temporada; ledger extendido (SoT física); genealogía relacional bidireccional; repaletizaje N:M formal (split/merge/parcial mismo motor) con balance `Σorigen=Σdestino±tol`, sin crear kilos; pallet parcialmente consumido conserva saldo (estado derivado, `repaletizado` no terminal); traslado = transferencia (no altera total); cantidades absolutas (no % autoritativo); tolerancias/precisión NUMERIC (no floats JS).
+
+**Validación runtime (Postgres 16 efímero, sin tocar producción; teardown):**
+- F1+F2+F3 aplican limpios (`ON_ERROR_STOP=1`); **F1+F2 regresión OK**.
+- F3 E2E (Regla 16): recepción 10000 → orden 9800 → resultado 7800+1700+300 → conciliar/cerrar → materializar PT (4000+3800=7800) → palletizar (P1/P2/P3) → repaletizar 2→2 (P1+P2→P4 3000+P5 1000, balance 4000=4000, P1/P2 agotados) → total pallets 7800 → genealogía a resultado/orden → traslado P3 (kg intacto). **PASÓ.**
+- F3 negativos (**todos rechazados**): materializar sobre resultado agotado, palletizar sobre PT agotado, **línea manual que rompe el invariante** (constraint trigger), repaletizaje excediendo origen, código de pallet duplicado, kg negativo.
+- RLS productiva F3: sin claim → 0; tenant A → 1; cross-tenant B → 0.
+- Dominio (node): F1 27 + F2 28 + F3 (todas pasan).
+
+**Build:** no ejecutado (worktree aislado sin `node_modules`; módulos aditivos); sintaxis JS validada (ESM OK).
+**Schema:** DRAFT — **NO aplicado a producción**. Migraciones: NO. Data: NO. Cross-project: NINGUNO (no toca `exp_*`/Frisku/Osiris/Foods/`main`; efímeros propios desmontados; contenedor `exp_pg2` de otra sesión intacto).
+**Deuda:** EXP-TENANCY-001, EXP-SECURITY-001 (Core); PROC-INFRA-001.
+**Frontera F4 (Regla 17):** pallets quedan `disponibles`/`reservados`; despacho (guía/camión/transportista/destino/documentos) = F4.
