@@ -56,3 +56,46 @@ Toda tabla F2: `empresa_id` + RLS `FORCE` deny-by-default + `REVOKE anon` + DEV-
 ## 6. Gate F2 (diseño → SQL)
 
 No se escribe SQL F2 hasta ratificar §4 (DF2-1..5) y el alcance §1-§2. Al aprobar: materializar maestros del backlog + entidades F2 + RPC de consumo-con-genealogía y de conciliación + tests + validación runtime + Acta F2. **STOP-AND-REPORT** solo si surge cambio de bounded context / ownership / SoT / identidad / inventario / seguridad / tenancy.
+
+## 7. Ratificación del gate F2 (CFO, 2026-08-13) — precisiones incorporadas
+
+**Gate F2 APROBADO.** F2 es **incremental sobre F1 VALIDATED** (no reescribe F1, no crea schema independiente). Precisiones ratificadas:
+
+- **DF2-1 (QC configurable):** `proc_qc_parametro` con `especie, codigo, nombre, tipo_dato, unidad, rango_min/max, obligatorio, orden, vigencia/activo` (+ scope opcional cliente/temporada preparado, sin rediseño). Valores en `jsonb` pero con validación de tipo/dominio (no depósito sin estructura).
+- **DF2-2 (frontera F2/F3):** F2 termina en orden + consumo + resultado físico + descarte/merma + conciliación. **F2 NO crea PT/cajas/pallets** (dueño F3). Interfaz clara resultado→PT.
+- **DF2-3 (conciliación obligatoria):** `|kg_entrada − (kg_resultado + kg_descarte + kg_merma)| ≤ tolerancia` (configurable, `proc_empresa_config`). Sin bypass silencioso; enforcement en trigger de transición (no solo RPC). Cierre excepcional (permiso+motivo+actor+ts+diff+evidencia+auditoría) **no** se habilita en F2.
+- **DF2-4 (programa mínimo):** planifica (fecha/turno/planta/línea/cliente/especie/variedad/lotes previstos/kg est./prioridad/instrucciones/estado). La orden ejecuta. No mezclar; sin APS.
+- **DF2-5 (inventario por ledger + ubicaciones):** el traslado interno es **`naturaleza='transferencia'`** — no cambia el stock físico total, solo la distribución por ubicación. El ledger distingue: entrada/salida física · transferencia · reserva/bloqueo/liberación (holds) · consumo. Consultas: stock total / por ubicación / reservado / bloqueado / libre, **sin doble conteo**.
+
+**Reglas adicionales ratificadas:** genealogía N:M orden↔lote nunca se pierde (`proc_orden_insumo`); consumo genera movimiento **y** lineage atómicamente (nunca uno sin el otro); descarte (salida física identificable) y merma (diferencia no convertida) **separados**; workflow de orden `borrador→en_proceso→pendiente_conciliacion→conciliado→cerrado` (+ anulación), sin edición libre de orden cerrada; concurrencia resuelta en transacción (lock/serialización), no solo frontend.
+
+---
+
+## ACTA DE ENTREGA — proc_* FASE 2 (VALIDATED)
+
+**Proyecto:** Allegria Service · **Bounded context:** `proc_*` · **Worktree:** `worktree-proc-fase1` · **Base:** F1 VALIDATED.
+**Estado: ✅ VALIDATED (runtime aislado, 2026-08-13).** Incremental sobre F1 (no reescribe F1, no crea schema independiente).
+
+**Alcance ejecutado:** QC recepción configurable · maestros de proceso · inventario pre-proceso por ubicación (traslado = transferencia, no altera total) · programa · orden de proceso · consumo con genealogía (movimiento+lineage atómico) · resultado + descarte/merma separados · conciliación de masa obligatoria para cerrar · máquina de estados.
+
+**Archivos creados/modificados (solo rutas Service):**
+- `supabase/schema_proc_v2_f2.sql` — **nuevo** (incremental): 14 tablas F2 + ALTER del ledger (`transferencia` + columnas de ubicación) + 3 vistas (`proc_v_lote_saldos` reemplazada para excluir transferencia, `proc_v_lote_ubicacion`, `proc_v_orden_conciliacion`) + 4 RPC (`ingresar_lote_ubicado`, `trasladar`, `consumir_lote_en_orden`, `conciliar_orden`) + trigger de transición de orden + triggers touch/audit + RLS `FORCE`/`REVOKE anon`.
+- `supabase/schema_proc_v2_f2_DEV_ONLY_rls.sql` — **nuevo** (DEV-ONLY, tablas F2).
+- `supabase/validation/proc_v2_f2_tests.sql` — **nuevo** (end-to-end + 6 negativos).
+- `src/proceso/core/procesoF2Domain.js` + `.test.mjs` — **nuevo** (lógica pura + 28 asserts).
+- `src/proceso/core/procesoF2DB.js` — **nuevo** (capa DB F2, RPC + loaders, gate Regla 9).
+- `docs/proceso-f2-diseno.md` — **modificado** (ratificación §7 + esta Acta).
+
+**Validación runtime (Postgres 16 efímero, Docker, sin tocar producción; teardown completo):**
+- F1 + F2 aplican limpios (`ON_ERROR_STOP=1`); F1 tests **regresión OK**.
+- F2 end-to-end: ingreso ubicado → traslado (total 10000 intacto; A=8000/B=2000, sin doble conteo) → orden → consumo 9800 (genealogía con `movimiento_id`; disponible=200) → resultado 7800+descarte 1700+merma 300 → conciliación (diff 0) → cierre. **PASÓ.**
+- F2 negativos (**todos rechazados**): traslado>ubicación, consumo con orden en borrador, consumo>disponible, edición de orden cerrada, transición borrador→cerrado, conciliar orden descuadrada.
+- RLS productiva F2: sin claim → 0; tenant A → 1; cross-tenant B → 0.
+- Tests de dominio (node): F1 27/27 + F2 28/28.
+
+**Invariantes verificadas:** ledger única SoT (transferencia no altera total); consumo genera movimiento **y** lineage atómicamente; descarte/merma separados; orden no cierra sin conciliar; orden cerrada no editable; concurrencia por `FOR UPDATE` en RPC.
+
+**Build:** no ejecutado en worktree aislado (sin `node_modules`; módulos aditivos no importados aún); sintaxis JS validada (ESM OK).
+**Schema:** DRAFT — **NO aplicado a producción**. Migraciones ejecutadas: NO. Data productiva: NO. Cross-project: NINGUNO (no toca `exp_*`/Frisku/Osiris/Foods/`main`; contenedores efímeros propios desmontados).
+**Deuda:** EXP-TENANCY-001, EXP-SECURITY-001 (Core); PROC-INFRA-001 (`SUPA_KEY` vía friskuHelpers).
+**Recomendación F3:** producto terminado + formatos/cajas + palletización + genealogía proceso→PT→pallet + repaletizaje, **consumiendo** el resultado F2 (interfaz resultado→PT) y extendiendo el ledger (movimientos `produccion`).
