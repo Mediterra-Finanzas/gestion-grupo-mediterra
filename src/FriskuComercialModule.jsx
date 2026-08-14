@@ -24,6 +24,7 @@ import {
 } from "./friskuHelpers.js";
 import { FriskuBIProvider, useFriskuBI, FRISKU_DIMS, FRISKU_METRICS, fmtMetric,
          mComFriskuUSD, mVentaUSD, mFobUSD, mComClienteUSD, groupByDims, invertSelection } from "./friskuBI.js";
+import { normalizarNombre, buscarDuplicado } from "./nombreCanonico.js";
 import { theme } from "./theme";
 
 // ── Paleta Frisku ──
@@ -8934,11 +8935,24 @@ export default function FriskuComercialModule({
     setClientes(prev => prev.filter(c => c.id !== cliente.id));
   };
   const handleGuardarCliente = (cli) => {
+    // Prevención de calidad: normalización canónica en origen + detección de duplicados.
+    const canon = normalizarNombre(cli.nombre || "");
+    const dup = buscarDuplicado(canon, clientes, cli.id);   // mismo tipo (clientes), excluye el propio id
+    if(dup){
+      const usar = window.confirm(
+        `Ya existe un cliente equivalente por nombre normalizado:\n\n  "${dup.nombre}"  (ID …${String(dup.id).slice(-6)})\n\n`+
+        `Aceptar = abrir/editar ese registro existente (recomendado).\nCancelar = volver a este formulario para ajustarlo.`);
+      if(usar){ setCreandoCli(false); setEditandoCli(dup); }
+      return; // no se crea/guarda un duplicado automáticamente
+    }
+    if(canon !== String(cli.nombre||"").trim()){
+      if(!window.confirm(`El nombre se guardará normalizado:\n\n  "${cli.nombre}"  →  "${canon}"\n\n¿Confirmar?`)) return;
+    }
+    const cliCanon = { ...cli, nombre: canon };   // se guarda YA normalizado (fuente de verdad)
     if(creandoCli) {
-      const nuevo = {...cli, id: uid()};
-      setClientes(prev => [...prev, nuevo]);
+      setClientes(prev => [...prev, {...cliCanon, id: uid()}]);
     } else {
-      setClientes(prev => prev.map(c => c.id === cli.id ? cli : c));
+      setClientes(prev => prev.map(c => c.id === cli.id ? cliCanon : c));
     }
     setEditandoCli(null);
     setCreandoCli(false);
@@ -9006,11 +9020,24 @@ export default function FriskuComercialModule({
     setExportadoras(prev => prev.filter(e => e.id !== exp.id));
   };
   const handleGuardarExportadora = (exp) => {
+    // Prevención de calidad: normalización canónica en origen + detección de duplicados.
+    const canon = normalizarNombre(exp.nombre || "");
+    const dup = buscarDuplicado(canon, exportadoras, exp.id);   // mismo tipo (exportadoras), excluye el propio id
+    if(dup){
+      const usar = window.confirm(
+        `Ya existe una exportadora equivalente por nombre normalizado:\n\n  "${dup.nombre}"  (ID …${String(dup.id).slice(-6)})\n\n`+
+        `Aceptar = abrir/editar ese registro existente (recomendado).\nCancelar = volver a este formulario para ajustarlo.`);
+      if(usar){ setCreandoExp(false); setEditandoExp(dup); }
+      return; // no se crea/guarda un duplicado automáticamente
+    }
+    if(canon !== String(exp.nombre||"").trim()){
+      if(!window.confirm(`El nombre se guardará normalizado:\n\n  "${exp.nombre}"  →  "${canon}"\n\n¿Confirmar?`)) return;
+    }
+    const expCanon = { ...exp, nombre: canon };   // se guarda YA normalizado (fuente de verdad)
     if(creandoExp) {
-      const nueva = {...exp, id: uid()};
-      setExportadoras(prev => [...prev, nueva]);
+      setExportadoras(prev => [...prev, {...expCanon, id: uid()}]);
     } else {
-      setExportadoras(prev => prev.map(e => e.id === exp.id ? exp : e));
+      setExportadoras(prev => prev.map(e => e.id === exp.id ? expCanon : e));
     }
     setEditandoExp(null);
     setCreandoExp(false);
