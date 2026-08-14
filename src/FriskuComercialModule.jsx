@@ -25,6 +25,7 @@ import {
 import { FriskuBIProvider, useFriskuBI, FRISKU_DIMS, FRISKU_METRICS, fmtMetric,
          mComFriskuUSD, mVentaUSD, mFobUSD, mComClienteUSD, groupByDims, invertSelection } from "./friskuBI.js";
 import { normalizarNombre, buscarDuplicado } from "./nombreCanonico.js";
+import { configureFriskuPdf } from "./pdfText.js";
 import { theme } from "./theme";
 
 // ── Paleta Frisku ──
@@ -167,7 +168,11 @@ function ExportadoraPicker({ value, exportadoras, onChange, style }) {
 // ── Loaders CDN ──────────────────────────────────────────────────
 let _plJsPDFLoaded = false;
 async function pl_loadJsPDF() {
-  if(_plJsPDFLoaded && window.jspdf) return window.jspdf.jsPDF;
+  // Contrato PDF Frisku (H1): cada `new JsPDF(...)` sale ya configurado con
+  // configureFriskuPdf → todo el texto/autoTable pasa por pdfText (emojis/Δ/→).
+  // Punto único; los exportadores no cambian.
+  const _friskuWrap = (Real)=> function(...args){ return configureFriskuPdf(new Real(...args)); };
+  if(_plJsPDFLoaded && window.jspdf) return _friskuWrap(window.jspdf.jsPDF);
   await new Promise((res,rej)=>{
     const s1=document.createElement("script");
     s1.src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js";
@@ -179,7 +184,7 @@ async function pl_loadJsPDF() {
     };
     s1.onerror=rej; document.head.appendChild(s1);
   });
-  return window.jspdf.jsPDF;
+  return _friskuWrap(window.jspdf.jsPDF);
 }
 async function pl_loadJSZip() {
   if(window.JSZip) return;
