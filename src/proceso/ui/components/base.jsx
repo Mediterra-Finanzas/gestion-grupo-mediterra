@@ -3,7 +3,7 @@
 // Presentacionales, sin dominio. Consumen theme.js vía estilos.js.
 import React, { useState } from "react";
 import { C, TONO, sp } from "../estilos";
-import { badgeDe } from "../../core/procesoF7Domain";
+import { badgeDe, filtrosActivos } from "../../core/procesoF7Domain";
 import { formatFechaHora } from "../format";
 
 // ── Botón ───────────────────────────────────────────────────────────────────
@@ -212,8 +212,7 @@ export function ProcAuditInfo({ registro }) {
 //   filtros: [{ key, label, valor, opciones:[{v,l}], onChange }]
 //   onReset: limpia todo (obligatorio si hay algo que limpiar)
 export function ProcFilters({ busqueda, onBusqueda, placeholder = "Buscar…", filtros = [], onReset, acciones }) {
-  const activos = filtros.filter((f) => f.valor != null && f.valor !== "" && f.valor !== "todos");
-  const hayActivos = activos.length > 0 || (busqueda != null && busqueda !== "");
+  const { activos, hay: hayActivos } = filtrosActivos(filtros, busqueda);
   const selBase = { ...inputStyle, width: "auto", minWidth: 150, padding: "7px 10px", fontSize: 13 };
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: sp.sm, marginBottom: sp.md }}>

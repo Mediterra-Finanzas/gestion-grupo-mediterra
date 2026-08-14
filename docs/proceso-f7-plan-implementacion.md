@@ -47,8 +47,10 @@
 - Backend menor `schema_proc_v7_7_f7_7.sql` (aditivo, NO cambia F6): read-models `proc_v_tarifa_listado`/`proc_v_servicio_facturable`/`proc_v_base_cobro_listado`/`proc_v_base_cobro_linea`/`proc_v_orden_facturable` + `proc_fn_resolver_tarifa_detalle` (preview) + `proc_fn_revalorizar_servicio_pendiente` (rellena snapshot NULL).
 - Validado PG16: cadena v1→v7.7 limpia; F7.7 E2E (T1-T10: especificidad, preview, referencia humana, pendiente≠$0, revalorizar, snapshot inmutable, base total/línea, multimoneda, orden facturable, base aprobada read-only) TODOS PASARON; regresión F1-F7.6 OK; RLS anon-deny en 5 vistas + RPC; 0 dependencia exp_*/frisku_*; JS 105/105; build CI=true. Auditorías §17 filtros / §19 normalización (detalles CURRENT normalizados; snapshot F5 intacto) / §20 vocabulario / §21 formatters (0 toLocale ad-hoc). Revisión visual en vivo pendiente. Ver `docs/proceso-f7-7-acta.md`.
 
-### F7.8 — UAT UI integral + Visual QA / Design System Compliance
-- Journeys 1–10 end-to-end en UI sobre datos reales de Rancagua cargados + revisión visual del sistema completo vs "software operacional premium" y la referencia del CFO. Issue log UI; criterio análogo a la UAT backend. Gate explícito; no implícito en F7.7.
+### F7.8 — Certificación Integral (UAT + Visual QA + Design System + Filter Certification) ✅ FUNCTIONAL CERTIFIED · ⛔ VISUAL QA BLOCKED
+- Gate de certificación de F1–F7.7 como UN producto (no features). UAT integral (33 pasos + 13 excepciones) mapeada a runtime; regresión F1–F7.7 (13/13); **Filter Certification** (acumulación AND a nivel de datos `proc_v7_8_filter_tests.sql` + helper puro `filtrosActivos` 8 tests + nav-contract); concurrencia consumo (carrera 2-sesiones, 1/1, sin negativo); RLS anon-deny 25/25 vistas + 0 deps exp_*/frisku_*; Design System compliance (0 duplicados/hardcode/capitalize); Visual QA estático (18 pantallas PASS). 4 defectos P2/P3 corregidos (0 P0/P1). JS 113/113; build CI=true.
+- **VISUAL QA CERTIFIED = NO/BLOCKED**: revisión en vivo no ejecutable (login + RLS/anon + dev server concurrente); declarado honestamente. Docs: `proceso-f7-8-{acta,uat-matrix,visual-qa,filter-certification,design-system-compliance,defects}.md`.
+- Para cerrar visual + UAT productiva: gate de identidad/claim `empresa_id` + maestros reales de Rancagua + recorrido del CFO. No auto-avanzar a F7.9/F8.
 
 Se puede reordenar si el CURRENT lo justifica, pero F7.1 (shell + centro + config) debe ir primero porque habilita todo lo demás y la carga de maestros reales.
 

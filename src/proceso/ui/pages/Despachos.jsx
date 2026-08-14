@@ -84,9 +84,9 @@ export default function Despachos() {
       {nuevo && (
         <ProcModal titulo="Nuevo despacho" onClose={() => setNuevo(null)}
           acciones={<><ProcButton kind="ghost" onClick={() => setNuevo(null)}>Cancelar</ProcButton><ProcButton onClick={crear}>Crear</ProcButton></>}>
-          <ProcField label="Cliente del servicio" requerido><select style={inputStyle} value={nuevo.cliente} onChange={(e) => setNuevo((x) => ({ ...x, cliente: e.target.value }))}><option value="">—</option>{vinc.cliente_servicio.map((v) => <option key={v.id} value={v.id}>{v.nombre_provisional}</option>)}</select></ProcField>
+          <ProcField label="Cliente del servicio" requerido><select style={inputStyle} value={nuevo.cliente} onChange={(e) => setNuevo((x) => ({ ...x, cliente: e.target.value }))}><option value="">—</option>{vinc.cliente_servicio.map((v) => <option key={v.id} value={v.id}>{normalizarNombre(v.nombre_provisional)}</option>)}</select></ProcField>
           <ProcField label="Destinatario físico (≠ cliente)" hint="Puede no ser exportadora; se resuelve de proc_vinculo (no Frisku, no exp_*).">
-            <select style={inputStyle} value={nuevo.destinatario} onChange={(e) => setNuevo((x) => ({ ...x, destinatario: e.target.value }))}><option value="">—</option>{vinc.otros.map((v) => <option key={v.id} value={v.id}>{v.nombre_provisional} ({v.rol_operacional})</option>)}</select>
+            <select style={inputStyle} value={nuevo.destinatario} onChange={(e) => setNuevo((x) => ({ ...x, destinatario: e.target.value }))}><option value="">—</option>{vinc.otros.map((v) => <option key={v.id} value={v.id}>{normalizarNombre(v.nombre_provisional)} ({v.rol_operacional})</option>)}</select>
           </ProcField>
         </ProcModal>
       )}

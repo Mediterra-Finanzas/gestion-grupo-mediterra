@@ -18,6 +18,7 @@ import {
 } from "../components/base";
 import QcPanel from "../components/QcPanel";
 import { C, sp } from "../estilos";
+import { normalizarNombre } from "../format";
 
 function Grupo({ titulo, children }) {
   return (
@@ -31,7 +32,7 @@ const VSelect = ({ label, value, onChange, opciones }) => (
   <ProcField label={label}>
     <select style={inputStyle} value={value || ""} onChange={(e) => onChange(e.target.value || null)}>
       <option value="">—</option>
-      {opciones.map((v) => <option key={v.id} value={v.id}>{v.nombre_provisional}</option>)}
+      {opciones.map((v) => <option key={v.id} value={v.id}>{normalizarNombre(v.nombre_provisional)}</option>)}
     </select>
   </ProcField>
 );

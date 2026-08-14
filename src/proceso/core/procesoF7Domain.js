@@ -229,6 +229,16 @@ export function totalesPorMoneda(items = [], campoMonto = "subtotal", campoMoned
   return [...map.values()].map((x) => ({ ...x, total: Math.round(x.total * 100) / 100 }));
 }
 
+// ── Filtros: lógica pura de chips activos / reset (usada por ProcFilters) ────
+// Un filtro está "activo" si su valor no es vacío/"todos". Certifica que:
+// combinaciones son acumulativas (todos los activos cuentan), reset limpia todo,
+// y no quedan chips fantasma. Testeable sin navegador.
+export function filtrosActivos(filtros = [], busqueda = "") {
+  const activos = (filtros || []).filter((f) => f && f.valor != null && f.valor !== "" && f.valor !== "todos");
+  const hay = activos.length > 0 || (busqueda != null && busqueda !== "");
+  return { activos, hay, conteo: activos.length + (busqueda ? 1 : 0) };
+}
+
 // ── Filtros operacionales del shell ─────────────────────────────────────────
 export function validarFiltros({ empresa, planta, temporada, fecha } = {}) {
   const errores = [];

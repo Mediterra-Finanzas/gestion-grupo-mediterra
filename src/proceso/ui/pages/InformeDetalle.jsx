@@ -16,10 +16,10 @@ import {
   ProcLoadingState, ProcErrorState, ProcEmptyState, ProcAuditInfo,
 } from "../components/base";
 import { C, sp } from "../estilos";
-import { formatKg, formatNum, formatFecha, formatFechaHora } from "../format";
+import { formatKg, formatNum, formatFecha, formatFechaHora, formatPct, normalizarNombre } from "../format";
 
 const kg = (n) => formatKg(n);
-const pctv = (n) => (n == null ? "—" : `${(Number(n) * 100).toFixed(1)}%`);
+const pctv = (n) => formatPct(n);
 function Seccion({ titulo, extra, children }) {
   return <ProcCard style={{ padding: sp.lg, marginBottom: sp.md }}>
     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: sp.md, flexWrap: "wrap", gap: sp.sm }}>
@@ -192,7 +192,7 @@ export default function InformeDetalle() {
       {addDest && (
         <ProcModal titulo="Agregar destinatario" onClose={() => setAddDest(null)}>
           <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-            {addDest.opciones.map((v) => <ProcButton key={v.id} kind="ghost" onClick={() => doAddDest(v.id)}>{v.nombre_provisional}</ProcButton>)}
+            {addDest.opciones.map((v) => <ProcButton key={v.id} kind="ghost" onClick={() => doAddDest(v.id)}>{normalizarNombre(v.nombre_provisional)}</ProcButton>)}
           </div>
         </ProcModal>
       )}

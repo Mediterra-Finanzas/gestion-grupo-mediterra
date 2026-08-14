@@ -13,7 +13,7 @@ import {
   ProcLoadingState, ProcErrorState, ProcEmptyState,
 } from "../components/base";
 import { C, sp } from "../estilos";
-import { formatKg, formatNum, formatFecha, formatFechaHora } from "../format";
+import { formatKg, formatNum, formatFecha, formatFechaHora, normalizarNombre } from "../format";
 
 export default function Programa() {
   const { empresa, planta, temporada, fecha, ir, puedeEditar, notificar } = useService();
@@ -91,7 +91,7 @@ export default function Programa() {
         <ProcModal titulo="Nuevo programa" onClose={() => setForm(null)}
           acciones={<><ProcButton kind="ghost" onClick={() => setForm(null)}>Cancelar</ProcButton><ProcButton onClick={guardar}>Guardar</ProcButton></>}>
           <ProcField label="Fecha"><input style={inputStyle} type="date" value={form.fecha} onChange={(e) => setForm((x) => ({ ...x, fecha: e.target.value }))} /></ProcField>
-          <ProcField label="Cliente"><select style={inputStyle} value={form.cliente} onChange={(e) => setForm((x) => ({ ...x, cliente: e.target.value }))}><option value="">—</option>{clientes.map((c) => <option key={c.id} value={c.id}>{c.nombre_provisional}</option>)}</select></ProcField>
+          <ProcField label="Cliente"><select style={inputStyle} value={form.cliente} onChange={(e) => setForm((x) => ({ ...x, cliente: e.target.value }))}><option value="">—</option>{clientes.map((c) => <option key={c.id} value={c.id}>{normalizarNombre(c.nombre_provisional)}</option>)}</select></ProcField>
           <ProcField label="Especie" requerido><input style={inputStyle} value={form.especie_codigo} onChange={(e) => setForm((x) => ({ ...x, especie_codigo: e.target.value.toUpperCase() }))} placeholder="CHE, PLU…" /></ProcField>
           <ProcField label="Variedad"><input style={inputStyle} value={form.variedad_codigo} onChange={(e) => setForm((x) => ({ ...x, variedad_codigo: e.target.value }))} /></ProcField>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: sp.sm }}>

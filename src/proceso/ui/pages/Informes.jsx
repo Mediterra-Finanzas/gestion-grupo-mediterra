@@ -13,10 +13,10 @@ import {
   ProcLoadingState, ProcErrorState, ProcEmptyState,
 } from "../components/base";
 import { C, sp } from "../estilos";
-import { formatKg, formatNum, formatFecha, formatFechaHora } from "../format";
+import { formatKg, formatNum, formatFecha, formatFechaHora, formatPct, normalizarNombre } from "../format";
 
 const kg = (n) => (n == null ? "—" : formatNum(n));
-const pct = (n) => (n == null ? "—" : `${(Number(n) * 100).toFixed(1)}%`);
+const pct = (n) => formatPct(n);
 
 export default function Informes() {
   const { empresa, planta, temporada, ir, puedeEditar, notificar } = useService();
@@ -71,7 +71,7 @@ export default function Informes() {
           <ProcDataTable
             columnas={[
               { titulo: "Folio", render: (i) => <b>{i.folio}</b> },
-              { titulo: "Destinatario", campo: "destinatario" },
+              { titulo: "Destinatario", render: (i) => normalizarNombre(i.destinatario) },
               { titulo: "Versión", align: "right", campo: "version_actual" },
               { titulo: "Kg proc.", align: "right", render: (i) => kg(i.kg_procesados) },
               { titulo: "Packout", align: "right", render: (i) => pct(i.packout) },
@@ -87,7 +87,7 @@ export default function Informes() {
               { titulo: "", render: (o) => editable ? <input type="checkbox" checked={sel.includes(o.orden_id)} onChange={() => toggle(o.orden_id)} /> : null },
               { titulo: "Orden", render: (o) => <b>{o.folio}</b> },
               { titulo: "Fecha", render: (o) => (o.fecha ? formatFecha(o.fecha) : "—") },
-              { titulo: "Cliente", campo: "cliente" }, { titulo: "Especie", campo: "especie_codigo" },
+              { titulo: "Cliente", render: (o) => normalizarNombre(o.cliente) }, { titulo: "Especie", campo: "especie_codigo" },
               { titulo: "Kg proc.", align: "right", render: (o) => kg(o.kg_procesados) },
               { titulo: "Packout", align: "right", render: (o) => pct(o.packout) },
               { titulo: "Estado", render: (o) => <ProcStatusBadge estado={o.estado} /> },
@@ -101,7 +101,7 @@ export default function Informes() {
           acciones={<><ProcButton kind="ghost" onClick={() => setGen(null)}>Cancelar</ProcButton><ProcButton onClick={generar}>Generar</ProcButton></>}>
           <div style={{ fontSize: 12.5, color: C.muted, marginBottom: sp.md }}>La consolidación (packout, kg) la calcula el backend de forma ponderada. Fuentes explícitas: {sel.length} orden(es).</div>
           <ProcField label="Destinatario principal" hint="Desde proc_vinculo (no Frisku). Foods puede ser cliente vía vínculo Service.">
-            <select style={inputStyle} value={gen.destinatario} onChange={(e) => setGen((x) => ({ ...x, destinatario: e.target.value }))}><option value="">—</option>{clientes.map((c) => <option key={c.id} value={c.id}>{c.nombre_provisional}</option>)}</select>
+            <select style={inputStyle} value={gen.destinatario} onChange={(e) => setGen((x) => ({ ...x, destinatario: e.target.value }))}><option value="">—</option>{clientes.map((c) => <option key={c.id} value={c.id}>{normalizarNombre(c.nombre_provisional)}</option>)}</select>
           </ProcField>
           <ProcField label="Observaciones (borrador)"><textarea style={{ ...inputStyle, minHeight: 60 }} value={gen.observaciones} onChange={(e) => setGen((x) => ({ ...x, observaciones: e.target.value }))} /></ProcField>
         </ProcModal>

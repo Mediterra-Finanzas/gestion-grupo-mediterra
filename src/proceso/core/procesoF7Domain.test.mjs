@@ -1,6 +1,6 @@
 /* eslint-disable */
 // Tests de dominio proc_* F7.1 (node). Ejecutar: node src/proceso/core/procesoF7Domain.test.mjs
-import { formatearCorrelativo, compactarTemporada, evaluarQC, badgeDe, traducirError, validarFiltros, calcularNeto, validarPesos, packout, resumenConciliacion, accionesOrden, faltaParaCerrar, ordenTerminal, despachoTerminal, puedeConfirmarDespacho, accionesDespacho, totalKg, montoServicio, especificidadTarifa, vigenciaTarifa, baseEditable, accionesBase, servicioAgregableABase, totalesPorMoneda } from "./procesoF7Domain.js";
+import { formatearCorrelativo, compactarTemporada, evaluarQC, badgeDe, traducirError, validarFiltros, calcularNeto, validarPesos, packout, resumenConciliacion, accionesOrden, faltaParaCerrar, ordenTerminal, despachoTerminal, puedeConfirmarDespacho, accionesDespacho, totalKg, montoServicio, especificidadTarifa, vigenciaTarifa, baseEditable, accionesBase, servicioAgregableABase, totalesPorMoneda, filtrosActivos } from "./procesoF7Domain.js";
 
 let pass = 0, fail = 0;
 const ok = (c, m) => { if (c) pass++; else { fail++; console.error("  ✗ " + m); } };
@@ -89,6 +89,19 @@ const tm = totalesPorMoneda([{ subtotal: 2940, moneda: "USD" }, { subtotal: 1000
 eq(tm.length, 2, "dos monedas no se mezclan");
 eq(tm.find((x) => x.moneda === "USD").total, 3000, "USD suma 3.000");
 eq(tm.find((x) => x.moneda === "CLP").total, 100000, "CLP separado");
+
+// F7.8 Certificación de filtros — chips activos / acumulación / reset (helper puro)
+{
+  const F = (v1, v2, b) => filtrosActivos([{ key: "a", valor: v1 }, { key: "b", valor: v2 }], b);
+  eq(F("", "", "").conteo, 0, "sin filtros -> 0 chips");
+  eq(F("x", "", "").activos.length, 1, "un filtro activo -> 1 chip");
+  eq(F("x", "y", "").activos.length, 2, "dos filtros -> 2 chips (acumulativo, no reemplazo)");
+  eq(F("x", "y", "texto").conteo, 3, "dos filtros + búsqueda -> 3 activos");
+  ok(!F("", "", "").hay, "nada activo -> reset oculto");
+  ok(F("", "", "t").hay, "solo búsqueda -> hay activo");
+  eq(F("todos", "", "").activos.length, 0, "'todos' no cuenta como filtro");
+  ok(filtrosActivos(null, "").conteo === 0, "robusto ante filtros null");
+}
 
 // Filtros
 ok(!validarFiltros({}).ok, "sin empresa -> inválido");

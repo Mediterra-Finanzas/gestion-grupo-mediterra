@@ -17,7 +17,7 @@ import {
   ProcKpiCard, ProcLoadingState, ProcErrorState, ProcEmptyState,
 } from "../components/base";
 import { C, sp } from "../estilos";
-import { formatKg, formatNum, formatFecha, formatFechaHora, normalizarNombre } from "../format";
+import { formatKg, formatNum, formatFecha, formatFechaHora, formatPct, normalizarNombre } from "../format";
 
 const kg = (n) => formatKg(n);
 function Dato({ l, v }) { return <div><div style={{ fontSize: 11, color: C.muted, fontWeight: 600 }}>{l}</div><div style={{ fontSize: 14, color: C.text }}>{v ?? "—"}</div></div>; }
@@ -188,7 +188,7 @@ export default function Orden() {
           <ProcKpiCard label="Descarte" valor={kg(conc.descarte)} tono="warning" />
           <ProcKpiCard label="Merma" valor={kg(conc.merma)} tono="neutral" />
           <ProcKpiCard label="Diferencia" valor={kg(conc.diff)} tono={conc.cuadra ? "success" : "danger"} sub={`tolerancia ${kg(o.tolerancia)}`} />
-          <ProcKpiCard label="Packout" valor={conc.packout != null ? `${(conc.packout * 100).toFixed(1)}%` : "—"} tono="primary" />
+          <ProcKpiCard label="Packout" valor={formatPct(conc.packout)} tono="primary" />
         </div>
       </Seccion>
 

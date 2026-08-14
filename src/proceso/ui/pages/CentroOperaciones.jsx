@@ -123,7 +123,7 @@ export default function CentroOperaciones() {
       {com && (
         <Grupo titulo="Comercial">
           <ProcKpiCard label="Pendientes de tarifa" valor={com.pendientes} tono={com.pendientes > 0 ? "warning" : "success"} onClick={() => ir("pendientes")} />
-          <ProcKpiCard label="Bases por aprobar" valor={com.basesAbiertas} tono={com.basesAbiertas > 0 ? "info" : "neutral"} onClick={() => ir("bases", { filtroEstado: "borrador" })} />
+          <ProcKpiCard label="Bases por aprobar" valor={com.basesAbiertas} tono={com.basesAbiertas > 0 ? "info" : "neutral"} onClick={() => ir("bases")} />
         </Grupo>
       )}
 
