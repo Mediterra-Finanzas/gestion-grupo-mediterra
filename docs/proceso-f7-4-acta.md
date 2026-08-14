@@ -1,6 +1,6 @@
 # Acta de Entrega — F7.4 (Producto Terminado + Pallets + Bodega + Repaletizaje)
 
-**Fecha:** 2026-08-13 · **Capability:** `proc_*` · **Tenant piloto:** Allegria Service · **Worktree:** `worktree-proc-fase1` · **HEAD inicial:** `623511f` · **Estado:** CÓDIGO COMPLETO + build limpio; **validación runtime E2E/regresión PENDIENTE** (el daemon de Docker no quedó disponible en esta sesión — ver §3/§4). NO marcado VALIDATED. Sin merge, sin producción.
+**Fecha:** 2026-08-13 · **Capability:** `proc_*` · **Tenant piloto:** Allegria Service · **Worktree:** `worktree-proc-fase1` · **HEAD inicial:** `623511f` · **Estado:** **F7.4 VALIDATED** (runtime + build; revisión visual en vivo pendiente — §4). Sin merge, sin producción.
 
 ## 1. Qué se entregó
 
@@ -21,12 +21,15 @@ La operación de **producto terminado y bodega**: el usuario puede responder des
 ## 2. Source of Truth (sin cambios)
 `proc_movimiento` = existencia/movimientos/ubicación/saldo. `proc_pallet_linea` = composición/genealogía. Invariante `Σ líneas activas = saldo físico` garantizada por backend; la UI la **muestra**, no la calcula. React no crea inventario paralelo.
 
-## 3. Validación runtime (PostgreSQL 16 aislado) — PENDIENTE (bloqueo de entorno)
-**No se pudo ejecutar en esta sesión:** el daemon de Docker Desktop de la máquina no quedó disponible/estable (levantó una vez y volvió a caer; ~10 min de inestabilidad del engine WSL2, incluido un reinicio limpio sin éxito). Las fases F7.1–F7.3 sí corrieron en este mismo harness efímero antes en la sesión; Docker cayó al iniciar F7.4.
-
-El archivo E2E **está escrito y listo** (`supabase/validation/proc_v7_4_f7_4_tests.sql`) y cubre: materializar sin sobreasignación (7800=4000+3800; +100 rechazado) · palletización + invariante · pallet mixto · traslado (stock idéntico) · hold (reserva/liberar; exceso rechazado) · repaletizaje N:M + parcial + **multi-línea (UAT-D-01)** · genealogía · read-models. Falta correr: E2E F7.4 + regresión F1–F7.3 + RLS anon-deny en vistas nuevas + concurrencia de repaletizaje.
-
-**Para completar (1 comando cuando Docker esté disponible):** aplicar stub + `schema_proc_v1..v7_4` en un `postgres:16` efímero y correr `proc_v7_4_f7_4_tests.sql` + la suite de regresión. El backend menor F7.4 sigue los mismos patrones ya validados (vistas `security_invoker`, RPC de hold que espeja el mecanismo `proc_hold` existente, CTE de genealogía como en la UAT).
+## 3. Validación runtime (PostgreSQL 16 aislado) — VALIDATED (2026-08-13)
+**Postgres:** 16.14 (contenedor efímero `postgres:16`, stub Core, RLS bypass como superuser para E2E; rol `anon` para RLS). **Docker:** gate de estabilidad superado (2 verificaciones consecutivas + contenedor efímero real levanta/responde/teardown).
+- **Cadena v1→v7.4 con `ON_ERROR_STOP=1`:** las 10 migraciones aplican **limpio** (F1,F2,F3,F4,F5,F6,F7.1,F7.2,F7.3,F7.4).
+- **E2E F7.4** (`proc_v7_4_f7_4_tests.sql`) — **TODOS PASARON ✓**: materializar sin sobreasignación (7800=4000+3800; +100 rechazado) · palletización + **invariante Σ líneas=físico** (2000/2000) · pallet mixto (2 líneas) · traslado (stock idéntico 2000) · hold (reserva 200 → físico 2000/reserv 200/libre 1800; liberar → 2000; exceso rechazado) · repaletizaje N:M (A+B→C2 2500+D 1500) + parcial + **multi-línea UAT-D-01** (mover 2200 > línea mayor 2000 → distribuye, F=2200/C2=300) · genealogía (lotes origen + forwards) · read-models.
+- **Concurrencia real** (2 sesiones psql simultáneas, mismo saldo de pallet, repaletizaje 1000): **1 éxito / 1 rechazo** ("reducción 1000 excede composición activa 0"); estado final src=0/destino=1000, **1 repaletizaje**, **0 saldos negativos**.
+- **Regresión F1–F7.3** (`proc_v1..v6 + v7_f7_1 + v7_2 + v7_3` tests): **TODAS PASARON ✓** (F3 pallet/repaletizaje, F4 despacho, F7.2 QC/lote, F7.3 producción/conciliación intactos).
+- **RLS/tenant (schema productivo, sin DEV_ONLY):** rol `anon` → **permission denied** en `proc_v_resultado_materializable`, `proc_v_pt_operacional`, `proc_v_pallet_bodega`, y en `proc_fn_hold_pallet` (proc_pallet) / `proc_fn_pallet_genealogia` (proc_pallet_linea). No hay fuga de datos.
+- **Ledger = SoT:** verificado — palletización/traslado/hold/repaletizaje conservan la coherencia; sin saldo paralelo editable; invariante composición=físico enforced por backend.
+- **Fixes realizados:** **ninguno.** No apareció ningún defecto del backend; los dos intentos fallidos iniciales de la carrera fueron errores del comando de prueba (cast `::uuid` faltante y 5º argumento `p_actor` omitido), no del sistema.
 
 ## 4. Build y revisión visual
 - **Build:** `CI=true npm run build` → **Compiled successfully** (warnings→error). El módulo F7.4 (4 páginas nuevas + wiring) integra sin errores de compilación. node_modules por junction reversible (removido); `build/`+log eliminados. — verificación de integración real.
