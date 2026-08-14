@@ -1,76 +1,205 @@
 # Qlik Parity — matriz Qlik → Frisku Reportería BI
 
-Base: `qlik-research-findings.md` (docs oficiales help.qlik.com ya citados) +
-estado del código tras P0. Objetivo: que un usuario de Qlik reconozca en Frisku
-cómo seleccionar → asociar → explorar → comparar → profundizar → volver → exportar.
+Base de código: `main @ 1eca9d3` (post **P1.9e** Unified Analysis Workspace + **H1** PDF
+Unicode/typography). Fuente conceptual: `qlik-research-findings.md`.
+Objetivo: que un usuario de Qlik pueda hacer en Frisku, como mínimo, los mismos flujos
+analíticos relevantes del negocio — seleccionar → asociar → explorar → comparar →
+profundizar → volver → exportar — de forma más clara e integrada con la operación.
 
-Estados: IGUAL · SIMILAR · PARCIAL · FALTA. (Tras P0 = commits `e47f2db`, `d225785`.)
+**Estados de clasificación:** `IGUAL` · `EQUIVALENTE` · `PARCIAL` · `FALTA` · `NO APLICA`.
+Se clasifica por **comportamiento real**, no por parecido visual. Un ítem PARCIAL/FALTA
+**no puede desaparecer silenciosamente** en un refactor visual (regla de no-regresión).
 
-## Selección asociativa (núcleo)
-| Capacidad Qlik | Comportamiento Qlik | Frisku (post-P0) | Estado | Acción |
-|---|---|---|---|---|
-| Selección global entre hojas | una selección para toda la app | provider único `friskuBI`, compartido | IGUAL | — |
-| Multi-select (OR intra-dim) | varios valores por campo | toggle en filtros/gráficos/rankings | IGUAL | — |
-| AND entre dimensiones | intersección entre campos | `matchFacts` | IGUAL (test) | — |
-| **SELECTED** (verde) | valor elegido | ☑ verde | IGUAL | — |
-| **POSSIBLE** (blanco) | compatible, sin selección propia | ☐ neutro | IGUAL | — |
-| **ALTERNATIVE** (gris claro) | compatible pero el campo tiene selección | ☐ gris claro, sección propia | IGUAL (nuevo P0) | — |
-| **EXCLUDED** (gris oscuro) | incompatible por otro campo | ☐ gris oscuro tachado | IGUAL | — |
-| Frecuencia por valor | recuento por valor | nº de registros al lado | SIMILAR | — |
-| Cambiar selección sin limpiar | reabrir y elegir otro | dropdown propio | IGUAL | — |
-| Buscar dentro del filtro | search en el listbox | search en FiltroMultiBI | IGUAL | — |
-| **Selections bar** | barra global con selecciones | `SelectionBarBI` (agrupada por dim) | IGUAL (nuevo P0) | — |
-| **Back / Forward** | historial de selecciones | undo/redo en el provider (60 estados) | IGUAL (nuevo P0) | — |
-| Clear all / clear field | limpiar todo / un campo | Limpiar todo / ✕ por dim | IGUAL | — |
-| Select possible/all | seleccionar posibles | "Sel. compatibles" en el filtro | SIMILAR | — |
-| Select excluded / invert | seleccionar excluidos / invertir | acciones ⋯ en Filter Pane (posibles/alternativos/excluidos/invertir) | IGUAL (nuevo P1.8) | — |
-| **Lock selección** | bloquear un campo | — | FALTA | P2 (evaluar) |
-| **Filter pane** persistente multi-dim | panel lateral con varios listboxes | Filter Pane colapsable "🔎 Filtros" (9 dims, 4 estados, ⋯) | IGUAL (nuevo P1.8) | — |
-| **Alternate states** (A/B) | comparar 2 selecciones | Comparativo por temporada (fijo) | PARCIAL | P2 (Comparador A/B) |
-| **Bookmarks** / vistas guardadas | guardar selección+vista | `applySel` listo en motor; sin UI | PARCIAL | P2 |
+Última revalidación: 2026-08-14, contra código (no memoria).
 
-## Exploración y análisis
-| Capacidad Qlik | Frisku | Estado | Acción |
-|---|---|---|---|
-| Click en gráfico → selección | barras/dona/pipeline/ranking togglean | IGUAL | — |
-| Selección uniforme en objetos | mayoría togglea; tendencia/tabla sí | SIMILAR | revisar uniformidad P1 |
-| Drill-down agregado→detalle | fila→filtra todo→detalle→registro | SIMILAR | — |
-| **Drill-down groups** (jerarquía que avanza de nivel) | hoja "⛏ Drill": Comercial/Logístico/Mercado, ruta local | IGUAL (nuevo P1.6) | — |
-| Breadcrumb de drill (≠ selecciones) | breadcrump propio, separado de la Barra; "↥ Aplicar como selección" | IGUAL (nuevo P1.6) | — |
-| **Straight table** configurable (dims/medidas, ordenar, buscar, columnas) | hoja "▦ Tabla": ⚙ columnas, orden, búsqueda, % participación | IGUAL (P1.3) | — |
-| **Pivot table** (filas/cols/medida, expandir) | hoja "⊞ Pivot": 2 filas jerárquicas × 1 col × medida, expandir/totales | IGUAL (nuevo P1.5) | — |
-| Set analysis (mantener/ignorar dim, % del universo) | helpers `factsIgnoring/metricOverIgnoring/participacion/invertSelection` (con tests) | IGUAL (nuevo P1.15) | — |
-| Export por objeto | Tabla/Pivot/Explorador exportan Excel/PDF propios | IGUAL (P1.4/P1.7) | — |
-| Fullscreen de objeto | Tabla/Pivot/Explorador con ⛶ (FullscreenBI) | IGUAL (nuevo P1.4/P1.7) | — |
-| Tooltips analíticos | `<title>` básicos en SVG | SIMILAR | mejorar P1 |
-| Sheet navigation | tabs de hojas | SIMILAR | — |
+---
 
-## Visual
-| Aspecto | Frisku | Estado |
+## 1. Arquitectura actual de Reportería BI
+
+Reportería BI = **3 hojas** (consolidación P1.9e; antes eran 15):
+
+| Hoja | Contenido |
+|---|---|
+| **📈 Resumen** | Dashboard ejecutivo (KPIs, réplica fija). Gated por `permResumen`. |
+| **🔬 Análisis** | **Unified Analysis Workspace** — un solo instrumento BI (ver §2). |
+| **📋 Reportes** | `ReportesTab`: 6 reportes BI con export Excel/PDF. Gated por `permReportes`. |
+
+`SelectionBarBI` es **permanente** en toda Reportería BI (encima de las 3 hojas): una sola
+selección global para todas las hojas y objetos.
+
+## 2. Dentro de 🔬 Análisis (`AnalysisWorkspace`)
+
+Un solo workspace, **no** pestañas por dimensión/gráfico. Componentes:
+
+- **Selection Bar** (permanente, arriba, a nivel de Reportería BI): estado global inmutable
+  al cambiar Preset/Visualización.
+- **Toolbar** del workspace: `Preset` + `Visualización` + (derecha) controles **únicos**
+  `⛶ Pantalla completa · ↓ Excel · ↓ PDF`.
+- **Panel lateral** colapsable (◧ Panel):
+  - **FILTROS** — Filter Pane asociativo (9 dimensiones, 4 estados, menú ⋯) común a todo el workspace.
+  - **PROPIEDADES** — configuración del objeto activo (dims/medidas/orden, filas/columna/medida, fuente/medida/desglose/TopN, grupo de drill), portada al panel vía React portal.
+- **Canvas** dominante (dimensionado al viewport; se expande al colapsar el panel).
+- **Preset** (§4) y **Visualización** (§3), con **selección global persistente** al cambiar cualquiera.
+- **export** y **fullscreen** unificados (§K/§O).
+
+### 3. Visualizaciones (dentro de Análisis, preset Libre)
+`▦ Tabla` · `⊞ Pivot` · `▮ Barras` · `◔ Dona` · `📈 Tendencia` · `⛏ Drill`.
+(Barras/Dona/Tendencia reutilizan los renderers de `TableroAsociativo` — mismo motor,
+sin duplicar métricas; el tipo de gráfico lo fija la Visualización.)
+
+### 4. Presets
+`Libre` (viz configurable) · `🤝 Comercial` · `📅 Semanal` · `📊 Comparativo`.
+En presets curados, el selector Visualización se deshabilita (usan renderer propio);
+Selection Bar, Filter Pane, export y fullscreen se comparten.
+
+---
+
+## 5. Matriz Qlik → Frisku (revalidada contra código P1.9e + H1)
+
+### A. Motor asociativo
+| Capacidad Qlik | Frisku (comportamiento real) | Estado |
 |---|---|---|
-| Superficie de exploración vs dashboard | mezcla KPI cards + tablas | PARCIAL (densificar P1) |
-| Filtros bien definidos | sí (listbox 4 estados) | IGUAL |
-| Tablas protagonistas | sí en hojas de dimensión | SIMILAR |
-| Branding propio (no copiar Qlik) | identidad Frisku, semántica de color adaptada | IGUAL |
+| Selección global entre hojas/objetos | provider único `FriskuBIProvider`; una `sel` | IGUAL |
+| SELECTED / POSSIBLE / ALTERNATIVE / EXCLUDED | 4 estados con color en `FilterFieldBI`; `associativeValues` (tests) | IGUAL |
+| OR intra-dim / AND inter-dim | `matchFacts` (tests) | IGUAL |
+| Multi-select | toggle en panel/tablas/gráficos | IGUAL |
+| Clear field / clear all | menú ⋯ por campo + Limpiar todo | IGUAL |
+| Back / Forward | undo/redo (60 estados) en el provider | IGUAL |
+| Selección desde objetos | Tabla/Pivot/Barras/Dona/Drill togglean; **Tendencia** filtra por punto | EQUIVALENTE |
+| Persistencia de selección al cambiar visualización | misma `sel` al cambiar viz/preset (verificado en hotfix) | IGUAL |
+| Frecuencia / conteo por valor | nº al lado en el listbox | IGUAL |
+| Seleccionar posibles / alternativos / excluidos / invertir | menú ⋯ del Filter Pane | IGUAL |
 
-## Resumen de brechas (qué falta para "sentirse Qlik")
-- **P1 (análisis): COMPLETO.** Straight table configurable; Pivot table; drill-down
-  groups + breadcrumb de drill; helpers de set-analysis; export/fullscreen por objeto;
-  Filter Pane persistente con acciones de campo (posibles/alternativos/excluidos/invertir).
-- **P2 (comparación, pendiente):** Comparador A/B (alternate states); Bookmarks (UI, el
-  motor ya tiene `applySel`); Lock de selecciones.
+### B. Selection Bar
+| Capacidad | Frisku | Estado |
+|---|---|---|
+| Selección global / chips por dim / quitar valor / quitar dim / clear all / Back-Forward | `SelectionBarBI` | IGUAL |
+| Consistencia con Filter Pane | mismo motor; UI distinta (barra vs panel) | EQUIVALENTE |
+| Persistencia entre Preset/Visualización | sí | IGUAL |
 
-## Hecho en P0
-4 estados asociativos (selected/possible/alternative/excluded) con color · historial
-back/forward · Selections bar global · multi-select uniforme · acción "seleccionar
-compatibles" · frecuencia · tests de semántica asociativa.
+### C. Filter Pane
+| Capacidad | Frisku | Estado |
+|---|---|---|
+| Múltiples dims / búsqueda / 4 estados / multi-select / acciones ⋯ / consistencia motor | `FilterFieldBI` en panel FILTROS | IGUAL |
+| Densidad / usabilidad premium | funcional; refinamiento visual pendiente | EQUIVALENTE (afinamiento → V1) |
 
-## Hecho en P1 (esta intervención)
-Catálogo central único (`FRISKU_DIMS`/`FRISKU_METRICS`) · **Straight Table** (⚙ columnas,
-orden, búsqueda, % participación, export, ⛶) · **Pivot** controlada (2 filas jerárquicas ×
-1 columna × medida, expandir/contraer/totales, count-distinct con `metric.calc`) · **Drill
-groups** (Comercial/Logístico/Mercado) con ruta local y breadcrumb propio (drill ≠ selección)
-· **Explorador** analysis mode con ⛶ pantalla completa · **Filter Pane** persistente (9 dims,
-4 estados, menú ⋯ posibles/alternativos/excluidos/invertir/limpiar) · **set helpers**
-(`factsIgnoring/metricOverIgnoring/participacion/invertSelection`). Tests 22/22.
-Un solo motor (`FriskuBIProvider`), una sola selección, mismas métricas en todas las hojas.
+### D. Straight Table (▦ Tabla)
+| Capacidad | Estado |
+|---|---|
+| Dims + medidas configurables, orden, búsqueda, selección desde celda, totales, **count-distinct correcto** (`metric.calc`), participación, scroll, sticky header/total, **detalle de contenedores + avisos calidad/cobertura** (fusión HojaBIDim), navegación `→ Ver embarque`, Excel, PDF, fullscreen | IGUAL |
+
+### E. Pivot (⊞ Pivot)
+| Capacidad | Estado |
+|---|---|
+| Filas jerárquicas × columna × medida, expandir/contraer, totales/subtotales, **count-distinct recalculado (no suma subtotales)**, selección desde dim/col, Excel, PDF, fullscreen | IGUAL |
+
+### F. Gráficos (▮ Barras / ◔ Dona / 📈 Tendencia)
+| Capacidad | Estado |
+|---|---|
+| Dimensión, medida, desglose, Top N, interacción, selección desde gráfico, participación, Excel(dataset)/PDF/fullscreen | IGUAL / EQUIVALENTE |
+| Tooltips analíticos | `<title>` SVG básicos | PARCIAL |
+
+### G. Drill-down (⛏ Drill)
+| Capacidad | Estado |
+|---|---|
+| Grupos Comercial/Logístico/Mercado, jerarquías, breadcrumb propio, **drill local ≠ selección global**, "↥ Aplicar como selección", subir/bajar niveles, métricas correctas, export, fullscreen | IGUAL |
+
+### H. Exploración self-service
+| Capacidad | Estado |
+|---|---|
+| Dimensión × medida × visualización sin depender de reportes prearmados | IGUAL |
+| Misma fuente de datos para TODOS los objetos | gráficos eligen fuente (liq/embarques/programa/PO); Tabla/Pivot/Drill usan la tabla de hechos de embarques | PARCIAL |
+
+### I. Presets curados
+| Capacidad | Estado |
+|---|---|
+| Comercial/Semanal/Comparativo dentro del mismo workspace; respetan Selection Bar, filtros globales, export, fullscreen, navegación, métricas | IGUAL |
+
+### J. Set analysis / helpers
+| Capacidad | Estado |
+|---|---|
+| Ignore field, denominadores, participación, count-distinct, universos de selección | `factsIgnoring/metricOverIgnoring/participacion` (tests) | IGUAL |
+| Expresiones de conjunto arbitrarias in-línea (`sum({<Year={2024}>}…)`) | FALTA |
+
+### K. Export
+| Capacidad | Estado |
+|---|---|
+| Excel/PDF por objeto (Tabla/Pivot/Barras/Dona/Tendencia/Drill/Comercial/Semanal/Comparativo/Reportes/Packing List) desde controles **únicos** del workspace | IGUAL |
+| **Lo exportado = exactamente el universo visible** (selección/preset/viz) | **IGUAL** — corregido (ver §7 stale export) |
+
+### L. Bookmarks
+| Capacidad | Estado |
+|---|---|
+| Guardar / recuperar / nombrar / eliminar / persistir / por usuario | motor `applySel` listo; **sin UI ni persistencia** | **FALTA** |
+
+### M. Lock selections
+| Capacidad | Estado |
+|---|---|
+| Bloquear selección por campo | no implementado | **FALTA** |
+
+### N. Alternate States / comparador A-B
+| Capacidad | Estado |
+|---|---|
+| Dos selecciones independientes por objeto (A/B reales) | no existe | **FALTA** |
+| Comparación por temporada (fija) | **Comparativo**: A/B de temporadas, respeta selección global salvo la dimensión temporada | **PARCIAL** |
+> El Comparativo fijo por temporada **NO** es Alternate States reales.
+
+### O. Fullscreen
+| Capacidad | Estado |
+|---|---|
+| Preserva selección / propiedades / preset / visualización / ruta de drill (FullscreenBI del objeto, sin remount) | IGUAL |
+
+### Visual / Presentación
+| Aspecto | Estado |
+|---|---|
+| Superficie de exploración unificada (workspace) vs dashboard genérico | IGUAL (P1.9e) |
+| Identidad visual propia (no clon de Qlik) | IGUAL |
+| **PDF Unicode/typography** (tildes/ñ/ü OK; Δ→Variación, →→>, emojis eliminados) | **IGUAL** — corregido (H1, §7) |
+| Densidad/tipografía/tokens premium (Design System) | PARCIAL (→ V1) |
+
+### NO APLICA
+NPrinting / scheduling / distribución server-side / alertas server: **NO APLICA** (Frisku no los usa).
+
+---
+
+## 6. Correcciones registradas explícitamente
+- **Stale export = CORREGIDO** (hotfix P1.9e-h1, `useExportTrigger` con latest-ref): el export consume el estado del render vigente → **el universo exportado = el visible**.
+- **PDF Unicode/typography (H1) = CORREGIDO** (`src/pdfText.js` + `configureFriskuPdf`): tildes/ñ/ü/ö/ß intactas; `Δ`→`Variación`, `Δ%`→`Variación %`, `→`→`>`, emojis decorativos eliminados; sin mojibake. Sin fuente adicional (0 bytes al bundle).
+- **Excel Unicode = SIN PROBLEMA** (ExcelJS es UTF-8 nativo; emojis/`Δ`/tildes correctos).
+- **Bookmarks = FALTA** (motor listo, sin UI).
+- **Lock selections = FALTA.**
+- **Alternate States reales = FALTA**; **Comparativo fijo por temporada = PARCIAL** (≠ Alternate States).
+
+## 7. Brechas funcionales candidatas a P2 (ordenadas por prioridad)
+1. **Bookmarks** (UI + persistencia por usuario) — motor `applySel` ya disponible; alto valor, bajo riesgo (aditivo).
+2. **Alternate States / comparador A-B reales** — dos selecciones independientes; base para análisis comparativo avanzado.
+3. **Lock de selecciones** (por campo) — control fino de exploración.
+4. **Uniformidad de fuente de datos entre todos los objetos** — hoy solo los gráficos eligen fuente; Tabla/Pivot/Drill usan embarques.
+5. **Tooltips analíticos** más ricos (hoy `<title>` básicos).
+6. (Menor) **Set-analysis con expresiones de conjunto arbitrarias.**
+
+**Orden recomendado P2:** 1 Bookmarks → 2 Alternate States/A-B → 3 Lock → 4 Uniformidad de fuente → 5 Tooltips → 6 Set-analysis avanzado. Cada sub-fase debe actualizar esta matriz y pasar la comprobación de no-regresión.
+
+## 8. No regresiones P1.9e
+La consolidación visual (15 → 3 hojas; objetos bajo un solo workspace) **redujo navegación, no potencia analítica**. Se conservaron todas las capacidades previas:
+- Cada objeto conserva su configuración, selección, export y fullscreen.
+- Los filtros se **unificaron** en el panel (Filter Pane común), sin perder los 4 estados ni las acciones ⋯.
+- La **selección persiste** entre visualizaciones y presets (mismo `FriskuBIProvider`).
+- **HojaBIDim** (detalle de contenedores + avisos calidad/cobertura) se **fusionó** en la Tabla — no se perdió.
+- Cambió el **camino de acceso** (de pestañas a Preset+Visualización), no las capacidades.
+Resultado: **0 regresiones** detectadas respecto al estado pre-P1.9e.
+
+## 9. Principio permanente — Qlik como benchmark funcional / Frisku como identidad visual
+Regla obligatoria: **Qlik = benchmark funcional; Frisku = identidad visual.** No se busca clon
+visual de Qlik ni una versión simplificada. La consolidación visual y cualquier evolución de
+Design System/UX **nunca** puede eliminar potencia analítica. Si una simplificación visual
+implica perder una capacidad existente → **DETENERSE Y REPORTAR** antes de modificarla. Todo
+ítem `PARCIAL`/`FALTA` de esta matriz debe permanecer registrado y no desaparecer en refactors.
+
+---
+
+## Historial
+- **P0:** 4 estados asociativos, Selection Bar global, Back/Forward, multi-select, frecuencia.
+- **P1:** Straight Table configurable, Pivot, Drill groups + breadcrumb, Explorador, Filter Pane (4 estados + acciones ⋯), set helpers, export/fullscreen por objeto, participación/ignoring. Tests de motor.
+- **P1.9e:** Unified Analysis Workspace (Resumen/Análisis/Reportes; Preset + Visualización; panel FILTROS/PROPIEDADES; canvas; export/⛶ unificados) + hotfix **stale export**.
+- **H1:** PDF Unicode/typography.
