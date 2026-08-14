@@ -10,8 +10,9 @@ import {
   ProcLoadingState, ProcErrorState, ProcEmptyState,
 } from "../components/base";
 import { C, sp } from "../estilos";
+import { formatKg, formatNum, formatFecha, formatFechaHora } from "../format";
 
-const kg = (n) => `${Number(n || 0).toLocaleString("es-CL")} kg`;
+const kg = (n) => formatKg(n);
 
 function Grupo({ titulo, children }) {
   return (

@@ -6,11 +6,12 @@ import { cargarOrdenListado, crearOrden, siguienteCorrelativo } from "../../core
 import { traducirError, badgeDe, estadoConciliacion } from "../../core/procesoF7Domain";
 import {
   ProcPageHeader, ProcButton, ProcCard, ProcDataTable, ProcStatusBadge, ProcModal, ProcField, inputStyle,
-  ProcLoadingState, ProcErrorState, ProcEmptyState,
+  ProcLoadingState, ProcErrorState, ProcEmptyState, ProcFilters,
 } from "../components/base";
 import { C, sp } from "../estilos";
+import { formatNum, formatFecha, normalizarNombre } from "../format";
 
-const kg = (n) => (n == null ? "—" : `${Number(n).toLocaleString("es-CL")}`);
+const kg = (n) => (n == null ? "—" : formatNum(n));
 
 export default function Ordenes() {
   const { empresa, planta, temporada, ir, puedeEditar, notificar, vista } = useService();
@@ -46,8 +47,8 @@ export default function Ordenes() {
 
   const columnas = [
     { titulo: "Folio", render: (o) => <b>{o.folio}</b> },
-    { titulo: "Fecha", render: (o) => (o.fecha ? new Date(o.fecha).toLocaleDateString("es-CL") : "—") },
-    { titulo: "Cliente", campo: "cliente" },
+    { titulo: "Fecha", render: (o) => formatFecha(o.fecha) },
+    { titulo: "Cliente", render: (o) => normalizarNombre(o.cliente) },
     { titulo: "Especie", campo: "especie_codigo" },
     { titulo: "Entrada", align: "right", render: (o) => kg(o.kg_entrada) },
     { titulo: "Conciliación", render: (o) => (o.estado === "borrador" ? "—" :
@@ -64,10 +65,9 @@ export default function Ordenes() {
       <ProcPageHeader titulo="Órdenes de Proceso" subtitulo="Ejecución de proceso por corrida"
         acciones={puedeEditar("ordenes") || puedeEditar("centro") ? <ProcButton onClick={() => setNueva({ especie_codigo: "", variedad_codigo: "", turno: "" })}>+ Nueva orden</ProcButton> : null} />
       <ProcCard style={{ padding: sp.md, marginBottom: sp.md }}>
-        <select style={{ ...inputStyle, width: 200 }} value={fEstado} onChange={(e) => setFEstado(e.target.value)}>
-          <option value="">Todos los estados</option>
-          {["borrador", "en_proceso", "pendiente_conciliacion", "conciliado", "cerrado", "anulado"].map((s) => <option key={s} value={s}>{badgeDe(s).label}</option>)}
-        </select>
+        <ProcFilters
+          filtros={[{ key: "estado", label: "Estado", valor: fEstado, onChange: setFEstado, opciones: [{ v: "", l: "Todos los estados" }, ...["borrador", "en_proceso", "pendiente_conciliacion", "conciliado", "cerrado", "anulado"].map((s) => ({ v: s, l: badgeDe(s).label }))] }]}
+          onReset={() => setFEstado("")} />
       </ProcCard>
       {estado === "loading" ? <ProcLoadingState /> :
        estado === "error" ? <ProcErrorState error={error} onRetry={cargar} /> :

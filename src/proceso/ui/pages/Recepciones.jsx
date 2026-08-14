@@ -8,11 +8,10 @@ import { cargarRecepcionListado } from "../../core/procesoF7DB";
 import { traducirError, badgeDe } from "../../core/procesoF7Domain";
 import {
   ProcPageHeader, ProcButton, ProcCard, ProcDataTable, ProcStatusBadge,
-  ProcLoadingState, ProcErrorState, ProcEmptyState, inputStyle,
+  ProcLoadingState, ProcErrorState, ProcEmptyState, ProcFilters,
 } from "../components/base";
 import { C, sp } from "../estilos";
-
-const kg = (n) => (n == null ? "—" : `${Number(n).toLocaleString("es-CL")} kg`);
+import { formatKg, formatFecha, normalizarNombre } from "../format";
 
 export default function Recepciones() {
   const { empresa, planta, ir, puedeEditar, vista } = useService();
@@ -42,11 +41,11 @@ export default function Recepciones() {
 
   const columnas = [
     { titulo: "Folio", campo: "folio", render: (r) => <b>{r.folio}</b> },
-    { titulo: "Fecha", render: (r) => (r.fecha ? new Date(r.fecha).toLocaleDateString("es-CL") : "—") },
-    { titulo: "Cliente", campo: "cliente" },
-    { titulo: "Productor", campo: "productor" },
+    { titulo: "Fecha", render: (r) => formatFecha(r.fecha) },
+    { titulo: "Cliente", render: (r) => normalizarNombre(r.cliente) },
+    { titulo: "Productor", render: (r) => normalizarNombre(r.productor) },
     { titulo: "Especie", campo: "especie_codigo" },
-    { titulo: "Kg neto", align: "right", render: (r) => kg(r.kg_neto) },
+    { titulo: "Kg neto", align: "right", render: (r) => formatKg(r.kg_neto) },
     { titulo: "QC", render: (r) => (r.qc_resultado ? <ProcStatusBadge estado={r.qc_resultado} /> : <span style={{ color: C.muted2, fontSize: 12 }}>sin QC</span>) },
     { titulo: "Estado", render: (r) => <ProcStatusBadge estado={r.estado} /> },
     { titulo: "Lotes", align: "right", campo: "lotes" },
@@ -60,17 +59,13 @@ export default function Recepciones() {
       <ProcPageHeader titulo="Recepciones" subtitulo="Llegada de fruta a planta"
         acciones={puedeEditar("recepciones") || puedeEditar("centro") ? <ProcButton onClick={() => ir("recepcion_nueva")}>+ Nueva recepción</ProcButton> : null} />
       <ProcCard style={{ padding: sp.md, marginBottom: sp.md }}>
-        <div style={{ display: "flex", gap: sp.sm, flexWrap: "wrap", alignItems: "center" }}>
-          <input style={{ ...inputStyle, width: 220 }} placeholder="Buscar folio/cliente/productor…" value={fTexto} onChange={(e) => setFTexto(e.target.value)} />
-          <select style={{ ...inputStyle, width: 170 }} value={fEstado} onChange={(e) => setFEstado(e.target.value)}>
-            <option value="">Todos los estados</option>
-            {["borrador", "recibida", "en_proceso", "procesada", "despachada", "anulada"].map((s) => <option key={s} value={s}>{badgeDe(s).label}</option>)}
-          </select>
-          <select style={{ ...inputStyle, width: 170 }} value={fQc} onChange={(e) => setFQc(e.target.value)}>
-            <option value="">Todo QC</option>
-            {["aprobado", "condicional", "rechazado"].map((s) => <option key={s} value={s}>{badgeDe(s).label}</option>)}
-          </select>
-        </div>
+        <ProcFilters
+          busqueda={fTexto} onBusqueda={setFTexto} placeholder="Buscar folio/cliente/productor…"
+          filtros={[
+            { key: "estado", label: "Estado", valor: fEstado, onChange: setFEstado, opciones: [{ v: "", l: "Todos los estados" }, ...["borrador", "recibida", "en_proceso", "procesada", "despachada", "anulada"].map((s) => ({ v: s, l: badgeDe(s).label }))] },
+            { key: "qc", label: "QC", valor: fQc, onChange: setFQc, opciones: [{ v: "", l: "Todo QC" }, ...["aprobado", "condicional", "rechazado"].map((s) => ({ v: s, l: badgeDe(s).label }))] },
+          ]}
+          onReset={() => { setFTexto(""); setFEstado(""); setFQc(""); }} />
       </ProcCard>
       {estado === "loading" ? <ProcLoadingState /> :
        estado === "error" ? <ProcErrorState error={error} onRetry={cargar} /> :

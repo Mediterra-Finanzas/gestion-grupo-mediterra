@@ -36,6 +36,12 @@
 - Backend menor `schema_proc_v7_6_f7_6.sql`: read-models `proc_v_orden_informable` + `proc_v_informe_listado` (no-duplicación/inmutabilidad ya en F5).
 - Validado PG16.14: cadena v1→v7.6 limpia; E2E (una orden, consolidado ponderado 72%, fuente duplicada rechazada, snapshot inmutable, nueva versión v1→reemplazada, destinatario congelado, Foods intercompany, sin despacho, RM); regresión F1-F7.5 OK; RLS anon-deny; dominio 43/43 + PDF data 12/12; build CI=true. Render jsPDF pixel-exacto no ejecutable en el entorno (CDN/CSP); layout previsualizado. Ver `docs/proceso-f7-6-acta.md`.
 
+### F7.6.1 — Arquitectura visual + estándar de filtros + normalización de nombres ✅ ENTREGADA
+- Fuente canónica `src/proceso/ui/format.js` (normalización idempotente + dedup + sugerencia + formateadores es-CL; 28 tests). Prohibido `text-transform:capitalize`.
+- Escritura: normalización + dedup + "¿quisiste decir…?" (sin auto-merge) en Configuración de maestros.
+- `ProcFilters` estándar (chips + reset, server-side) en Recepciones/Lotes/Bodega/Órdenes/Despachos; `ProcDataTable` sticky; `ProcAuditInfo`/25 sitios `toLocale*` → formateadores canónicos (0 remanentes).
+- 4 docs de estándar (visual-architecture, filter-standard, name-normalization-standard, ui-audit). Build CI=true OK; tests 83/83. Revisión visual en vivo pendiente. Ver `docs/proceso-f7-6-1-acta.md`. Sin backend nuevo; sin tocar ledger/RLS/bounded context.
+
 ### F7.7 — Tarifario + Servicios Facturables + Base de Cobro
 - Tarifario CRUD + preview `resolver_tarifa`. Generar servicios (RPC). **Bandeja Pendientes de Tarifa.** Base de cobro crear/agregar/aprobar (inmutable).
 

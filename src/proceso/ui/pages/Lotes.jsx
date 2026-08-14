@@ -7,11 +7,12 @@ import { cargarLoteListado } from "../../core/procesoF7DB";
 import { traducirError, badgeDe } from "../../core/procesoF7Domain";
 import {
   ProcPageHeader, ProcCard, ProcButton, ProcDataTable, ProcStatusBadge,
-  ProcLoadingState, ProcErrorState, ProcEmptyState, inputStyle,
+  ProcLoadingState, ProcErrorState, ProcEmptyState, ProcFilters,
 } from "../components/base";
 import { C, sp } from "../estilos";
+import { formatNum, normalizarNombre } from "../format";
 
-const kg = (n) => `${Number(n || 0).toLocaleString("es-CL")}`;
+const kg = (n) => formatNum(n || 0, 1);
 
 export default function Lotes() {
   const { empresa, planta, ir } = useService();
@@ -39,8 +40,8 @@ export default function Lotes() {
   const columnas = [
     { titulo: "Código", render: (l) => <b>{l.codigo}</b> },
     { titulo: "Recepción", campo: "recepcion_folio" },
-    { titulo: "Cliente", campo: "cliente" },
-    { titulo: "Productor", campo: "productor" },
+    { titulo: "Cliente", render: (l) => normalizarNombre(l.cliente) },
+    { titulo: "Productor", render: (l) => normalizarNombre(l.productor) },
     { titulo: "Especie", campo: "especie_codigo" },
     { titulo: "Ubicación", campo: "ubicacion" },
     { titulo: "Físico", align: "right", render: (l) => kg(l.on_hand) },
@@ -57,13 +58,10 @@ export default function Lotes() {
     <div>
       <ProcPageHeader titulo="Lotes / Materia Prima" subtitulo="Fruta disponible antes del proceso" />
       <ProcCard style={{ padding: sp.md, marginBottom: sp.md }}>
-        <div style={{ display: "flex", gap: sp.sm, flexWrap: "wrap" }}>
-          <input style={{ ...inputStyle, width: 240 }} placeholder="Buscar código/cliente/productor…" value={fTexto} onChange={(e) => setFTexto(e.target.value)} />
-          <select style={{ ...inputStyle, width: 170 }} value={fQc} onChange={(e) => setFQc(e.target.value)}>
-            <option value="">Todo QC</option>
-            {["aprobado", "condicional", "rechazado"].map((s) => <option key={s} value={s}>{badgeDe(s).label}</option>)}
-          </select>
-        </div>
+        <ProcFilters
+          busqueda={fTexto} onBusqueda={setFTexto} placeholder="Buscar código/cliente/productor…"
+          filtros={[{ key: "qc", label: "QC", valor: fQc, onChange: setFQc, opciones: [{ v: "", l: "Todo QC" }, ...["aprobado", "condicional", "rechazado"].map((s) => ({ v: s, l: badgeDe(s).label }))] }]}
+          onReset={() => { setFTexto(""); setFQc(""); }} />
       </ProcCard>
       {estado === "loading" ? <ProcLoadingState /> :
        estado === "error" ? <ProcErrorState error={error} onRetry={cargar} /> :

@@ -4,6 +4,7 @@
 import React, { useState } from "react";
 import { C, TONO, sp } from "../estilos";
 import { badgeDe } from "../../core/procesoF7Domain";
+import { formatFechaHora } from "../format";
 
 // ── Botón ───────────────────────────────────────────────────────────────────
 export function ProcButton({ children, onClick, kind = "primary", small, disabled, style, title, type = "button" }) {
@@ -99,9 +100,9 @@ export function ProcDataTable({ columnas, filas, vacio, rowKey }) {
     <div style={{ overflowX: "auto", border: `1px solid ${C.border}`, borderRadius: 10 }}>
       <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13, minWidth: 480 }}>
         <thead>
-          <tr style={{ background: C.cardAlt }}>
+          <tr>
             {columnas.map((c, i) => (
-              <th key={i} style={{ textAlign: c.align || "left", padding: "9px 12px", color: C.muted, fontWeight: 700, fontSize: 11.5, textTransform: "uppercase", letterSpacing: .3, borderBottom: `1px solid ${C.border}` }}>{c.titulo}</th>
+              <th key={i} style={{ position: "sticky", top: 0, zIndex: 1, textAlign: c.align || "left", padding: "9px 12px", background: C.cardAlt, color: C.muted, fontWeight: 700, fontSize: 11.5, textTransform: "uppercase", letterSpacing: .3, borderBottom: `1px solid ${C.border}` }}>{c.titulo}</th>
             ))}
           </tr>
         </thead>
@@ -196,11 +197,59 @@ export function ProcConfirmAction({ titulo, mensaje, onConfirm, onCancel, textoC
 // ── Auditoría visible (no editable) ─────────────────────────────────────────
 export function ProcAuditInfo({ registro }) {
   if (!registro) return null;
-  const f = (d) => (d ? new Date(d).toLocaleString("es-CL") : "—");
   return (
     <div style={{ fontSize: 11.5, color: C.muted2, display: "flex", gap: sp.md, flexWrap: "wrap" }}>
-      <span>Creado: {f(registro.created_at)}</span>
-      {registro.updated_at && <span>Modificado: {f(registro.updated_at)}</span>}
+      <span>Creado: {formatFechaHora(registro.created_at)}</span>
+      {registro.updated_at && <span>Modificado: {formatFechaHora(registro.updated_at)}</span>}
+    </div>
+  );
+}
+
+// ── Barra de filtros estándar ────────────────────────────────────────────────
+// Comportamiento único para TODAS las pantallas de listado (F7.6.1 §filtros):
+// buscador + selects, chips de filtros activos, y reset explícito. Controlado.
+//   busqueda / onBusqueda: string + setter (opcional)
+//   filtros: [{ key, label, valor, opciones:[{v,l}], onChange }]
+//   onReset: limpia todo (obligatorio si hay algo que limpiar)
+export function ProcFilters({ busqueda, onBusqueda, placeholder = "Buscar…", filtros = [], onReset, acciones }) {
+  const activos = filtros.filter((f) => f.valor != null && f.valor !== "" && f.valor !== "todos");
+  const hayActivos = activos.length > 0 || (busqueda != null && busqueda !== "");
+  const selBase = { ...inputStyle, width: "auto", minWidth: 150, padding: "7px 10px", fontSize: 13 };
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: sp.sm, marginBottom: sp.md }}>
+      <div style={{ display: "flex", gap: sp.sm, flexWrap: "wrap", alignItems: "center" }}>
+        {onBusqueda && (
+          <div style={{ position: "relative", flex: "1 1 220px", minWidth: 180 }}>
+            <span style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", color: C.muted2, fontSize: 13 }}>⌕</span>
+            <input value={busqueda || ""} onChange={(e) => onBusqueda(e.target.value)} placeholder={placeholder}
+              style={{ ...inputStyle, padding: "8px 10px 8px 28px", fontSize: 13 }} />
+          </div>
+        )}
+        {filtros.map((f) => (
+          <select key={f.key} value={f.valor == null ? "" : f.valor} onChange={(e) => f.onChange(e.target.value)} style={selBase} title={f.label}>
+            {f.opciones.map((o) => <option key={o.v} value={o.v}>{o.l}</option>)}
+          </select>
+        ))}
+        <div style={{ flex: 1 }} />
+        {acciones}
+        {hayActivos && onReset && (
+          <ProcButton kind="ghost" small onClick={onReset}>Limpiar filtros</ProcButton>
+        )}
+      </div>
+      {activos.length > 0 && (
+        <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+          {activos.map((f) => {
+            const op = f.opciones.find((o) => String(o.v) === String(f.valor));
+            return (
+              <span key={f.key} onClick={() => f.onChange(f.reset != null ? f.reset : "")} title="Quitar filtro"
+                style={{ display: "inline-flex", alignItems: "center", gap: 5, cursor: "pointer", fontSize: 11.5, fontWeight: 600,
+                  background: C.cardAlt, color: C.text, border: `1px solid ${C.border}`, borderRadius: 999, padding: "3px 10px" }}>
+                {f.label}: {op ? op.l : f.valor} <span style={{ color: C.muted2, fontWeight: 800 }}>×</span>
+              </span>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }

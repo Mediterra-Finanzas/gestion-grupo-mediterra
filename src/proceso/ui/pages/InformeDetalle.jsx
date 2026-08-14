@@ -16,8 +16,9 @@ import {
   ProcLoadingState, ProcErrorState, ProcEmptyState, ProcAuditInfo,
 } from "../components/base";
 import { C, sp } from "../estilos";
+import { formatKg, formatNum, formatFecha, formatFechaHora } from "../format";
 
-const kg = (n) => `${Number(n || 0).toLocaleString("es-CL")} kg`;
+const kg = (n) => formatKg(n);
 const pctv = (n) => (n == null ? "—" : `${(Number(n) * 100).toFixed(1)}%`);
 function Seccion({ titulo, extra, children }) {
   return <ProcCard style={{ padding: sp.lg, marginBottom: sp.md }}>
@@ -118,8 +119,8 @@ export default function InformeDetalle() {
             { titulo: "Versión", render: (v) => <b>v{v.version}</b> },
             { titulo: "Estado", render: (v) => <ProcStatusBadge estado={v.estado} /> },
             { titulo: "Packout", align: "right", render: (v) => pctv(v.packout) },
-            { titulo: "Generada", render: (v) => new Date(v.generado_at || v.created_at).toLocaleString("es-CL") },
-            { titulo: "Emitida", render: (v) => (v.emitido_at ? new Date(v.emitido_at).toLocaleString("es-CL") : "—") },
+            { titulo: "Generada", render: (v) => formatFechaHora(v.generado_at || v.created_at) },
+            { titulo: "Emitida", render: (v) => (v.emitido_at ? formatFechaHora(v.emitido_at) : "—") },
             { titulo: "Motivo", campo: "motivo" },
             { titulo: "", align: "right", render: (v) => <ProcButton kind="ghost" small onClick={() => setSelVer(v)}>{selVer?.id === v.id ? "● Viendo" : "Ver"}</ProcButton> },
           ]}
@@ -134,7 +135,7 @@ export default function InformeDetalle() {
               <ProcButton onClick={descargarPdf}>Descargar PDF</ProcButton>
             </div>}>
             <div style={{ fontSize: 12, color: emitida ? C.success : C.warning, marginBottom: sp.md, fontWeight: 600 }}>
-              {emitida ? `Emitida ${selVer.emitido_at ? new Date(selVer.emitido_at).toLocaleString("es-CL") : ""} — la historia no cambia; el PDF nace de este snapshot.` : "CURRENT: esta versión aún puede regenerarse; al emitir queda congelada."}
+              {emitida ? `Emitida ${selVer.emitido_at ? formatFechaHora(selVer.emitido_at) : ""} — la historia no cambia; el PDF nace de este snapshot.` : "CURRENT: esta versión aún puede regenerarse; al emitir queda congelada."}
             </div>
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(150px,1fr))", gap: sp.md }}>
               <ProcKpiCard label="Kg procesados" valor={kg(resumen.kg_procesados)} tono="info" />
@@ -162,7 +163,7 @@ export default function InformeDetalle() {
           </Seccion>
 
           <Seccion titulo={`Envíos (${envios.length})`} extra={editable ? <ProcButton kind="ghost" small onClick={() => setEnvForm({ canal: "descarga", destinatarioId: "", email: "" })}>+ Registrar envío</ProcButton> : null}>
-            <ProcDataTable columnas={[{ titulo: "Canal", campo: "canal" }, { titulo: "Destino", campo: "destino_email" }, { titulo: "Estado", render: (e) => <ProcStatusBadge estado={e.estado} texto={e.estado} /> }, { titulo: "Fecha", render: (e) => new Date(e.created_at).toLocaleString("es-CL") }]}
+            <ProcDataTable columnas={[{ titulo: "Canal", campo: "canal" }, { titulo: "Destino", campo: "destino_email" }, { titulo: "Estado", render: (e) => <ProcStatusBadge estado={e.estado} texto={e.estado} /> }, { titulo: "Fecha", render: (e) => formatFechaHora(e.created_at) }]}
               filas={envios} rowKey="id" vacio={<ProcEmptyState titulo="Sin envíos" detalle="Generar/descargar el PDF no marca 'enviado'; el envío es una acción explícita." />} />
           </Seccion>
         </>

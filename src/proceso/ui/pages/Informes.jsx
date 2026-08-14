@@ -13,8 +13,9 @@ import {
   ProcLoadingState, ProcErrorState, ProcEmptyState,
 } from "../components/base";
 import { C, sp } from "../estilos";
+import { formatKg, formatNum, formatFecha, formatFechaHora } from "../format";
 
-const kg = (n) => (n == null ? "—" : `${Number(n).toLocaleString("es-CL")}`);
+const kg = (n) => (n == null ? "—" : formatNum(n));
 const pct = (n) => (n == null ? "—" : `${(Number(n) * 100).toFixed(1)}%`);
 
 export default function Informes() {
@@ -75,7 +76,7 @@ export default function Informes() {
               { titulo: "Kg proc.", align: "right", render: (i) => kg(i.kg_procesados) },
               { titulo: "Packout", align: "right", render: (i) => pct(i.packout) },
               { titulo: "Estado versión", render: (i) => (i.estado_version ? <ProcStatusBadge estado={i.estado_version} /> : "—") },
-              { titulo: "Emitido", render: (i) => (i.emitido_at ? new Date(i.emitido_at).toLocaleDateString("es-CL") : "—") },
+              { titulo: "Emitido", render: (i) => (i.emitido_at ? formatFecha(i.emitido_at) : "—") },
               { titulo: "", align: "right", render: (i) => <ProcButton kind="ghost" small onClick={() => ir("informe_detalle", { id: i.id })}>Abrir</ProcButton> },
             ]}
             filas={informes} rowKey="id"
@@ -85,7 +86,7 @@ export default function Informes() {
             columnas={[
               { titulo: "", render: (o) => editable ? <input type="checkbox" checked={sel.includes(o.orden_id)} onChange={() => toggle(o.orden_id)} /> : null },
               { titulo: "Orden", render: (o) => <b>{o.folio}</b> },
-              { titulo: "Fecha", render: (o) => (o.fecha ? new Date(o.fecha).toLocaleDateString("es-CL") : "—") },
+              { titulo: "Fecha", render: (o) => (o.fecha ? formatFecha(o.fecha) : "—") },
               { titulo: "Cliente", campo: "cliente" }, { titulo: "Especie", campo: "especie_codigo" },
               { titulo: "Kg proc.", align: "right", render: (o) => kg(o.kg_procesados) },
               { titulo: "Packout", align: "right", render: (o) => pct(o.packout) },

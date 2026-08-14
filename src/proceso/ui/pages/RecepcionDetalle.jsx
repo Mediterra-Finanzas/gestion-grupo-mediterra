@@ -12,8 +12,9 @@ import {
 } from "../components/base";
 import QcPanel from "../components/QcPanel";
 import { C, sp } from "../estilos";
+import { formatKg, formatNum, formatFecha, formatFechaHora } from "../format";
 
-const kg = (n) => (n == null ? "—" : `${Number(n).toLocaleString("es-CL")} kg`);
+const kg = (n) => formatKg(n);
 function Dato({ l, v }) { return <div><div style={{ fontSize: 11, color: C.muted, fontWeight: 600 }}>{l}</div><div style={{ fontSize: 14, color: C.text }}>{v ?? "—"}</div></div>; }
 function Seccion({ titulo, children, extra }) {
   return <ProcCard style={{ padding: sp.lg, marginBottom: sp.md }}>
@@ -59,7 +60,7 @@ export default function RecepcionDetalle() {
 
       <Seccion titulo="Cabecera" extra={<ProcStatusBadge estado={r.estado} />}>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(150px,1fr))", gap: sp.md }}>
-          <Dato l="Folio" v={r.folio} /><Dato l="Fecha" v={r.fecha ? new Date(r.fecha).toLocaleString("es-CL") : "—"} />
+          <Dato l="Folio" v={r.folio} /><Dato l="Fecha" v={r.fecha ? formatFechaHora(r.fecha) : "—"} />
           <Dato l="Especie" v={r.especie_codigo} /><Dato l="Variedad" v={r.variedad_codigo} />
           <Dato l="QC" v={r.qc_resultado ? <ProcStatusBadge estado={r.qc_resultado} /> : "sin QC"} />
         </div>
@@ -98,7 +99,7 @@ export default function RecepcionDetalle() {
       <Seccion titulo={`Movimientos iniciales (${movs.length})`}>
         <ProcDataTable
           columnas={[
-            { titulo: "Fecha", render: (m) => new Date(m.fecha || m.created_at).toLocaleString("es-CL") },
+            { titulo: "Fecha", render: (m) => formatFechaHora(m.fecha || m.created_at) },
             { titulo: "Tipo", campo: "tipo_movimiento" },
             { titulo: "Naturaleza", render: (m) => <ProcStatusBadge texto={m.naturaleza} tono={m.naturaleza === "entrada" ? "success" : "neutral"} /> },
             { titulo: "Objeto", campo: "objeto_tipo" },

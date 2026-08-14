@@ -7,11 +7,12 @@ import { cargarBodega } from "../../core/procesoF7DB";
 import { traducirError, badgeDe } from "../../core/procesoF7Domain";
 import {
   ProcPageHeader, ProcCard, ProcButton, ProcDataTable, ProcStatusBadge,
-  ProcLoadingState, ProcErrorState, ProcEmptyState, inputStyle,
+  ProcLoadingState, ProcErrorState, ProcEmptyState, ProcFilters,
 } from "../components/base";
 import { C, sp } from "../estilos";
+import { formatNum, normalizarNombre } from "../format";
 
-const kg = (n) => `${Number(n || 0).toLocaleString("es-CL")}`;
+const kg = (n) => formatNum(n || 0, 1);
 
 export default function Bodega() {
   const { empresa, planta, ir } = useService();
@@ -37,7 +38,7 @@ export default function Bodega() {
   const columnas = [
     { titulo: "Pallet", render: (p) => <b>{p.codigo}</b> },
     { titulo: "Especie", campo: "especie_codigo" },
-    { titulo: "Cliente", campo: "cliente" },
+    { titulo: "Cliente", render: (p) => normalizarNombre(p.cliente) },
     { titulo: "Formato", campo: "formato" },
     { titulo: "Ubicación", campo: "ubicacion" },
     { titulo: "Cajas", align: "right", campo: "cajas" },
@@ -56,13 +57,10 @@ export default function Bodega() {
       <ProcPageHeader titulo="Bodega / Inventario" subtitulo="Pallets físicos y su ubicación"
         acciones={<ProcButton kind="ghost" onClick={() => ir("repaletizaje")}>Repaletizaje →</ProcButton>} />
       <ProcCard style={{ padding: sp.md, marginBottom: sp.md }}>
-        <div style={{ display: "flex", gap: sp.sm, flexWrap: "wrap" }}>
-          <input style={{ ...inputStyle, width: 240 }} placeholder="Buscar código/cliente/ubicación…" value={fTexto} onChange={(e) => setFTexto(e.target.value)} />
-          <select style={{ ...inputStyle, width: 190 }} value={fEstado} onChange={(e) => setFEstado(e.target.value)}>
-            <option value="">Todos los estados</option>
-            {["armando", "disponible", "reservado", "parcialmente_consumido", "agotado", "anulado"].map((s) => <option key={s} value={s}>{badgeDe(s).label}</option>)}
-          </select>
-        </div>
+        <ProcFilters
+          busqueda={fTexto} onBusqueda={setFTexto} placeholder="Buscar código/cliente/ubicación…"
+          filtros={[{ key: "estado", label: "Estado", valor: fEstado, onChange: setFEstado, opciones: [{ v: "", l: "Todos los estados" }, ...["armando", "disponible", "reservado", "parcialmente_consumido", "agotado", "anulado"].map((s) => ({ v: s, l: badgeDe(s).label }))] }]}
+          onReset={() => { setFTexto(""); setFEstado(""); }} />
       </ProcCard>
       {estado === "loading" ? <ProcLoadingState /> :
        estado === "error" ? <ProcErrorState error={error} onRetry={cargar} /> :

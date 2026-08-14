@@ -7,11 +7,12 @@ import { cargarDespachoListado, crearDespacho, siguienteCorrelativo, cargarVincu
 import { traducirError, badgeDe } from "../../core/procesoF7Domain";
 import {
   ProcPageHeader, ProcButton, ProcCard, ProcDataTable, ProcStatusBadge, ProcModal, ProcField, inputStyle,
-  ProcLoadingState, ProcErrorState, ProcEmptyState,
+  ProcLoadingState, ProcErrorState, ProcEmptyState, ProcFilters,
 } from "../components/base";
 import { C, sp } from "../estilos";
+import { formatNum, formatFecha, normalizarNombre } from "../format";
 
-const kg = (n) => (n == null ? "—" : `${Number(n).toLocaleString("es-CL")}`);
+const kg = (n) => (n == null ? "—" : formatNum(n));
 
 export default function Despachos() {
   const { empresa, planta, temporada, ir, puedeEditar, notificar, vista } = useService();
@@ -53,9 +54,9 @@ export default function Despachos() {
 
   const columnas = [
     { titulo: "Folio", render: (d) => <b>{d.folio}</b> },
-    { titulo: "Fecha", render: (d) => (d.fecha_prevista ? new Date(d.fecha_prevista).toLocaleDateString("es-CL") : "—") },
-    { titulo: "Cliente", campo: "cliente" },
-    { titulo: "Destinatario", campo: "destinatario" },
+    { titulo: "Fecha", render: (d) => formatFecha(d.fecha_prevista) },
+    { titulo: "Cliente", render: (d) => normalizarNombre(d.cliente) },
+    { titulo: "Destinatario", render: (d) => normalizarNombre(d.destinatario) },
     { titulo: "Pallets", align: "right", campo: "pallets" },
     { titulo: "Cajas", align: "right", campo: "cajas" },
     { titulo: "Kg", align: "right", render: (d) => kg(d.kg) },
@@ -71,10 +72,9 @@ export default function Despachos() {
       <ProcPageHeader titulo="Despachos" subtitulo="Salida física de producto (no es venta/exportación)"
         acciones={puedeEditar("despachos") || puedeEditar("centro") ? <ProcButton onClick={abrirNuevo}>+ Nuevo despacho</ProcButton> : null} />
       <ProcCard style={{ padding: sp.md, marginBottom: sp.md }}>
-        <select style={{ ...inputStyle, width: 200 }} value={fEstado} onChange={(e) => setFEstado(e.target.value)}>
-          <option value="">Todos los estados</option>
-          {["borrador", "preparando", "listo", "cargando", "despachado", "cancelado"].map((s) => <option key={s} value={s}>{badgeDe(s).label}</option>)}
-        </select>
+        <ProcFilters
+          filtros={[{ key: "estado", label: "Estado", valor: fEstado, onChange: setFEstado, opciones: [{ v: "", l: "Todos los estados" }, ...["borrador", "preparando", "listo", "cargando", "despachado", "cancelado"].map((s) => ({ v: s, l: badgeDe(s).label }))] }]}
+          onReset={() => setFEstado("")} />
       </ProcCard>
       {estado === "loading" ? <ProcLoadingState /> :
        estado === "error" ? <ProcErrorState error={error} onRetry={cargar} /> :

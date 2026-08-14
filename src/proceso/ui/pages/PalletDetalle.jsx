@@ -14,8 +14,9 @@ import {
   ProcAuditInfo, ProcLoadingState, ProcErrorState, ProcEmptyState,
 } from "../components/base";
 import { C, sp } from "../estilos";
+import { formatKg, formatNum, formatFecha, formatFechaHora } from "../format";
 
-const kg = (n) => `${Number(n || 0).toLocaleString("es-CL")} kg`;
+const kg = (n) => formatKg(n);
 function Dato({ l, v }) { return <div><div style={{ fontSize: 11, color: C.muted, fontWeight: 600 }}>{l}</div><div style={{ fontSize: 14, color: C.text }}>{v ?? "—"}</div></div>; }
 function Seccion({ titulo, extra, children }) {
   return <ProcCard style={{ padding: sp.lg, marginBottom: sp.md }}>
@@ -131,7 +132,7 @@ export default function PalletDetalle() {
 
       <Seccion titulo={`Movimientos (${movs.length})`}>
         <ProcDataTable columnas={[
-          { titulo: "Fecha", render: (m) => new Date(m.fecha || m.created_at).toLocaleString("es-CL") },
+          { titulo: "Fecha", render: (m) => formatFechaHora(m.fecha || m.created_at) },
           { titulo: "Tipo", campo: "tipo_movimiento" },
           { titulo: "Naturaleza", render: (m) => <ProcStatusBadge texto={m.naturaleza} tono={m.naturaleza === "entrada" ? "success" : m.naturaleza === "salida" ? "danger" : "neutral"} /> },
           { titulo: "Cantidad", align: "right", render: (m) => kg(m.cantidad) },

@@ -17,8 +17,9 @@ import {
   ProcKpiCard, ProcLoadingState, ProcErrorState, ProcEmptyState,
 } from "../components/base";
 import { C, sp } from "../estilos";
+import { formatKg, formatNum, formatFecha, formatFechaHora } from "../format";
 
-const kg = (n) => `${Number(n || 0).toLocaleString("es-CL")} kg`;
+const kg = (n) => formatKg(n);
 function Dato({ l, v }) { return <div><div style={{ fontSize: 11, color: C.muted, fontWeight: 600 }}>{l}</div><div style={{ fontSize: 14, color: C.text }}>{v ?? "—"}</div></div>; }
 function Seccion({ titulo, extra, children }) {
   return <ProcCard style={{ padding: sp.lg, marginBottom: sp.md }}>
@@ -219,7 +220,7 @@ function SelectorLote({ especie, lotesMap, onClose, onConsumir }) {
                 }}>
                   <div>
                     <b style={{ fontSize: 13 }}>{l.codigo}</b>
-                    <span style={{ color: C.muted, fontSize: 12 }}> · {l.productor || "—"} · disp {Number(l.disponible).toLocaleString("es-CL")} kg</span>
+                    <span style={{ color: C.muted, fontSize: 12 }}> · {l.productor || "—"} · disp {formatNum(l.disponible)} kg</span>
                   </div>
                   {eleg ? <ProcStatusBadge estado={l.qc_resultado || "disponible"} />
                         : <ProcStatusBadge texto={l.motivo_no_elegible || "no elegible"} tono="danger" />}

@@ -13,9 +13,10 @@ import {
   ProcLoadingState, ProcErrorState, ProcEmptyState,
 } from "../components/base";
 import { C, sp } from "../estilos";
+import { formatKg, formatNum, formatFecha, formatFechaHora } from "../format";
 
 const n = (x) => Number(x) || 0;
-const kg = (x) => `${n(x).toLocaleString("es-CL")} kg`;
+const kg = (x) => formatKg(n(x));
 
 export default function Repaletizaje() {
   const { empresa, planta, temporada, ir, vista, notificar } = useService();

@@ -15,8 +15,9 @@ import {
   ProcKpiCard, ProcAuditInfo, ProcLoadingState, ProcErrorState, ProcEmptyState, ProcConfirmAction,
 } from "../components/base";
 import { C, sp } from "../estilos";
+import { formatKg, formatNum, formatFecha, formatFechaHora } from "../format";
 
-const kg = (n) => `${Number(n || 0).toLocaleString("es-CL")} kg`;
+const kg = (n) => formatKg(n);
 function Dato({ l, v }) { return <div><div style={{ fontSize: 11, color: C.muted, fontWeight: 600 }}>{l}</div><div style={{ fontSize: 14, color: C.text }}>{v ?? "—"}</div></div>; }
 function Seccion({ titulo, extra, children }) {
   return <ProcCard style={{ padding: sp.lg, marginBottom: sp.md }}>
@@ -115,7 +116,7 @@ export default function Despacho() {
         ) : (
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(150px,1fr))", gap: sp.md }}>
             <Dato l="Transportista" v={d.transportista} /><Dato l="Patente" v={d.vehiculo_patente} /><Dato l="Conductor" v={d.conductor} />
-            <Dato l="Fecha efectiva" v={d.fecha_efectiva ? new Date(d.fecha_efectiva).toLocaleString("es-CL") : "—"} />
+            <Dato l="Fecha efectiva" v={d.fecha_efectiva ? formatFechaHora(d.fecha_efectiva) : "—"} />
           </div>
         )}
       </Seccion>
@@ -148,7 +149,7 @@ export default function Despacho() {
       </Seccion>
 
       <Seccion titulo={`Documentos (${docs.length})`} extra={editableCab ? <ProcButton kind="ghost" small onClick={() => setDocForm({ tipo: "guia", folio: "" })}>+ Documento</ProcButton> : null}>
-        <ProcDataTable columnas={[{ titulo: "Tipo", campo: "tipo" }, { titulo: "Folio", campo: "folio" }, { titulo: "Fecha", render: (x) => new Date(x.fecha || x.created_at).toLocaleDateString("es-CL") }]}
+        <ProcDataTable columnas={[{ titulo: "Tipo", campo: "tipo" }, { titulo: "Folio", campo: "folio" }, { titulo: "Fecha", render: (x) => formatFecha(x.fecha || x.created_at) }]}
           filas={docs} rowKey="id" vacio={<ProcEmptyState titulo="Sin documentos" detalle="Guía de despacho / documento interno / referencia externa." />} />
       </Seccion>
 

@@ -13,6 +13,7 @@ import {
   ProcLoadingState, ProcErrorState, ProcEmptyState,
 } from "../components/base";
 import { C, sp } from "../estilos";
+import { formatKg, formatNum, formatFecha, formatFechaHora } from "../format";
 
 export default function Programa() {
   const { empresa, planta, temporada, fecha, ir, puedeEditar, notificar } = useService();
@@ -62,10 +63,10 @@ export default function Programa() {
 
   const columnas = [
     { titulo: "Folio", render: (p) => <b>{p.folio}</b> },
-    { titulo: "Fecha", render: (p) => (p.fecha ? new Date(p.fecha).toLocaleDateString("es-CL") : "—") },
+    { titulo: "Fecha", render: (p) => (p.fecha ? formatFecha(p.fecha) : "—") },
     { titulo: "Turno", campo: "turno" },
     { titulo: "Especie", campo: "especie_codigo" },
-    { titulo: "Kg est.", align: "right", render: (p) => (p.kg_estimado != null ? Number(p.kg_estimado).toLocaleString("es-CL") : "—") },
+    { titulo: "Kg est.", align: "right", render: (p) => (p.kg_estimado != null ? formatNum(p.kg_estimado) : "—") },
     { titulo: "Prioridad", align: "right", campo: "prioridad" },
     { titulo: "Estado", render: (p) => <ProcStatusBadge estado={p.estado} /> },
     { titulo: "", align: "right", render: (p) => editable && p.estado !== "cerrado" ? (

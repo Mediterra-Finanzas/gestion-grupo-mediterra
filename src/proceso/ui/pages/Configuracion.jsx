@@ -11,6 +11,10 @@ import {
   ProcLoadingState, ProcErrorState, ProcEmptyState, ProcConfirmAction, ProcStatusBadge,
 } from "../components/base";
 import { C, sp } from "../estilos";
+import { normalizarNombre, claveNormalizada, sugerenciaCercana } from "../format";
+
+// Campos de nombre libre que se normalizan al guardar (no códigos ni enums).
+const CAMPOS_NOMBRE = new Set(["nombre", "nombre_provisional", "razon_social"]);
 
 // ── Descriptores de maestros (tabla + campos) ───────────────────────────────
 const T = { k: "text" }, N = { k: "number" }, B = { k: "bool" };
@@ -91,7 +95,25 @@ function MaestroEditor({ d }) {
     for (const campo of d.campos) if (campo.req && !form.valores[campo.c]) { notificar(`Falta: ${campo.l}`, "error"); return; }
     try {
       const payload = {};
-      d.campos.forEach((campo) => { let v = form.valores[campo.c]; if (v === "" || v === undefined) v = null; if (campo.k === "number" && v != null) v = Number(v); payload[campo.c] = v; });
+      d.campos.forEach((campo) => {
+        let v = form.valores[campo.c]; if (v === "" || v === undefined) v = null;
+        if (campo.k === "number" && v != null) v = Number(v);
+        // Normalización canónica de nombres en el punto de escritura (idempotente).
+        if (CAMPOS_NOMBRE.has(campo.c) && typeof v === "string") v = normalizarNombre(v);
+        payload[campo.c] = v;
+      });
+      // Dedup + sugerencia por clave normalizada contra registros activos del maestro.
+      const campoClave = d.campos.find((c) => CAMPOS_NOMBRE.has(c.c) && payload[c.c]);
+      if (campoClave) {
+        const clave = claveNormalizada(payload[campoClave.c]);
+        const otros = rows.filter((r) => r.id !== form.id && r.activo !== false);
+        if (otros.some((r) => claveNormalizada(r[campoClave.c]) === clave)) {
+          notificar(`Ya existe un registro con el nombre «${payload[campoClave.c]}» en ${d.label}.`, "error");
+          return;
+        }
+        const sug = sugerenciaCercana(payload[campoClave.c], otros.map((r) => ({ id: r.id, nombre: r[campoClave.c] })));
+        if (sug && !window.confirm(`¿Quisiste decir «${sug.candidato.nombre}»? Se guardará «${payload[campoClave.c]}» como registro distinto.`)) return;
+      }
       if (form.modo === "nuevo") {
         await crearMaestro(d.tabla, { empresa_id: empresa, ...(d.extra || {}), ...payload });
         notificar("Registro creado");
