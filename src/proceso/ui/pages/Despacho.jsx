@@ -15,7 +15,7 @@ import {
   ProcKpiCard, ProcAuditInfo, ProcLoadingState, ProcErrorState, ProcEmptyState, ProcConfirmAction,
 } from "../components/base";
 import { C, sp } from "../estilos";
-import { formatKg, formatNum, formatFecha, formatFechaHora } from "../format";
+import { formatKg, formatNum, formatFecha, formatFechaHora, normalizarNombre } from "../format";
 
 const kg = (n) => formatKg(n);
 function Dato({ l, v }) { return <div><div style={{ fontSize: 11, color: C.muted, fontWeight: 600 }}>{l}</div><div style={{ fontSize: 14, color: C.text }}>{v ?? "—"}</div></div>; }
@@ -99,7 +99,7 @@ export default function Despacho() {
 
       <Seccion titulo="Cabecera" extra={<ProcStatusBadge estado={est} />}>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(150px,1fr))", gap: sp.md }}>
-          <Dato l="Folio" v={d.folio} /><Dato l="Cliente" v={d.cliente} /><Dato l="Destinatario" v={d.destinatario} />
+          <Dato l="Folio" v={d.folio} /><Dato l="Cliente" v={normalizarNombre(d.cliente)} /><Dato l="Destinatario" v={normalizarNombre(d.destinatario)} />
           <Dato l="Pallets" v={d.pallets} /><Dato l="Kg despachado" v={kg(d.kg)} />
         </div>
         {terminal && <div style={{ marginTop: sp.sm, color: C.muted, fontSize: 12.5 }}>Despacho en estado terminal: solo lectura.</div>}

@@ -4,6 +4,8 @@
 // versión (proc_informe_version.snapshot), NUNCA de CURRENT. jsPDF se carga
 // dinámicamente por CDN (mismo patrón operativo existente; sin dependencia npm).
 
+import { formatNum, formatFechaHora } from "./format.js";
+
 // ── Datos del PDF (FUNCIÓN PURA, testeable): solo snapshot + meta resuelto ────
 // snapshot = proc_informe_version.snapshot (resumen con números congelados).
 // meta = { folio, version, temporada, emitido_at, responsable, identificacion:{...},
@@ -44,7 +46,7 @@ async function loadJsPDF() {
   _jspdf = window.jspdf.jsPDF; return _jspdf;
 }
 
-const fmt = (n) => `${Number(n || 0).toLocaleString("es-CL")}`;
+const fmt = (n) => formatNum(n || 0);
 
 // ── Render del PDF desde los datos (browser). Devuelve blob. ────────────────
 export async function generarResultadoPdf(pdfData) {
@@ -78,7 +80,7 @@ export async function generarResultadoPdf(pdfData) {
   // Pie
   const pie = pdfData.pie; const py = doc.internal.pageSize.getHeight() - 24;
   doc.setFontSize(8); doc.setTextColor(138, 151, 168);
-  doc.text(`${pie.version}  ·  emitido ${pie.emitido_at ? new Date(pie.emitido_at).toLocaleString("es-CL") : "—"}  ·  ${pie.responsable}`, M, py);
+  doc.text(`${pie.version}  ·  emitido ${formatFechaHora(pie.emitido_at)}  ·  ${pie.responsable}`, M, py);
   return doc.output("blob");
 }
 

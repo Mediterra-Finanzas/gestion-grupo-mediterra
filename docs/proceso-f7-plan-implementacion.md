@@ -42,11 +42,13 @@
 - `ProcFilters` estándar (chips + reset, server-side) en Recepciones/Lotes/Bodega/Órdenes/Despachos; `ProcDataTable` sticky; `ProcAuditInfo`/25 sitios `toLocale*` → formateadores canónicos (0 remanentes).
 - 4 docs de estándar (visual-architecture, filter-standard, name-normalization-standard, ui-audit). Build CI=true OK; tests 83/83. Revisión visual en vivo pendiente. Ver `docs/proceso-f7-6-1-acta.md`. Sin backend nuevo; sin tocar ledger/RLS/bounded context.
 
-### F7.7 — Tarifario + Servicios Facturables + Base de Cobro
-- Tarifario CRUD + preview `resolver_tarifa`. Generar servicios (RPC). **Bandeja Pendientes de Tarifa.** Base de cobro crear/agregar/aprobar (inmutable).
+### F7.7 — Tarifario + Servicios Facturables + Base de Cobro ✅ VALIDATED
+- UI del motor F6: **Tarifario** (general/específica, vigente/futura/vencida, especificidad, crear/cerrar/anular, preview "Resolver tarifa") · **Servicios Facturables** (referencia humana, cantidad×tarifa=monto, snapshot, traza al hecho, generar desde orden / manual) · **Pendientes de Tarifa** (bandeja; nunca $0; revalorizar) · **Bases de Cobro** (crear folio correlativo) · **Detalle de Base** (líneas auditables, aprobar/enviar/cerrar, read-only si aprobada).
+- Backend menor `schema_proc_v7_7_f7_7.sql` (aditivo, NO cambia F6): read-models `proc_v_tarifa_listado`/`proc_v_servicio_facturable`/`proc_v_base_cobro_listado`/`proc_v_base_cobro_linea`/`proc_v_orden_facturable` + `proc_fn_resolver_tarifa_detalle` (preview) + `proc_fn_revalorizar_servicio_pendiente` (rellena snapshot NULL).
+- Validado PG16: cadena v1→v7.7 limpia; F7.7 E2E (T1-T10: especificidad, preview, referencia humana, pendiente≠$0, revalorizar, snapshot inmutable, base total/línea, multimoneda, orden facturable, base aprobada read-only) TODOS PASARON; regresión F1-F7.6 OK; RLS anon-deny en 5 vistas + RPC; 0 dependencia exp_*/frisku_*; JS 105/105; build CI=true. Auditorías §17 filtros / §19 normalización (detalles CURRENT normalizados; snapshot F5 intacto) / §20 vocabulario / §21 formatters (0 toLocale ad-hoc). Revisión visual en vivo pendiente. Ver `docs/proceso-f7-7-acta.md`.
 
-### F7.8 — UAT UI integral
-- Repetir los journeys 1–10 end-to-end en UI, sobre datos reales de Rancagua cargados. Issue log UI. Criterio de aprobación análogo a la UAT backend.
+### F7.8 — UAT UI integral + Visual QA / Design System Compliance
+- Journeys 1–10 end-to-end en UI sobre datos reales de Rancagua cargados + revisión visual del sistema completo vs "software operacional premium" y la referencia del CFO. Issue log UI; criterio análogo a la UAT backend. Gate explícito; no implícito en F7.7.
 
 Se puede reordenar si el CURRENT lo justifica, pero F7.1 (shell + centro + config) debe ir primero porque habilita todo lo demás y la carga de maestros reales.
 

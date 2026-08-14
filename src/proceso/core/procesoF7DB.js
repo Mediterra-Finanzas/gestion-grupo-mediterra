@@ -193,3 +193,49 @@ export {
   cargarInformes, cargarVersiones, cargarFuentes, cargarDestinatarios, cargarEnvios,
   crearInforme, generarVersion, agregarDestinatario, emitirVersion, registrarEnvio,
 } from "./procesoF5DB.js";
+
+// ── F7.7 · Tarifario + Servicios Facturables + Base de Cobro (motor F6) ─────
+// Read-models security_invoker (RLS por empresa); refs humanas, sin UUID visible.
+export const cargarTipoServicio = (e) =>
+  procSelect("proc_tipo_servicio", `?empresa_id=eq.${e}&deleted_at=is.null&order=codigo`);
+
+export const cargarTarifas = (e, extra = "") =>
+  procSelect("proc_v_tarifa_listado", `?empresa_id=eq.${e}&order=especificidad.desc,vigencia_desde.desc${extra}`);
+export const crearTarifa = (fila) => crearMaestro("proc_tarifa", fila);
+export const cambiarEstadoTarifa = (id, e, estado, actor) =>
+  procUpdate("proc_tarifa", `?id=eq.${id}&empresa_id=eq.${e}`, { estado, updated_by: actor || null });
+// Preview de resolución (envuelve proc_fn_resolver_tarifa; NO reimplementa la regla).
+export const resolverTarifaDetalle = (a) => procRpc("proc_fn_resolver_tarifa_detalle", {
+  p_empresa_id: a.empresaId, p_cliente: a.clienteId || null, p_temporada: a.temporada || null,
+  p_especie: a.especie || null, p_tipo_servicio: a.tipoServicioId, p_fecha: a.fecha });
+
+export const cargarServiciosFacturables = (e, extra = "") =>
+  procSelect("proc_v_servicio_facturable", `?empresa_id=eq.${e}&order=fecha_hecho.desc&limit=400${extra}`);
+export const cargarServicioFacturablePorId = (e, id) =>
+  procSelect("proc_v_servicio_facturable", `?empresa_id=eq.${e}&id=eq.${id}`);
+export const cargarOrdenesFacturables = (e, extra = "") =>
+  procSelect("proc_v_orden_facturable", `?empresa_id=eq.${e}&order=fecha.desc&limit=300${extra}`);
+export const generarServicioProceso = (a) => procRpc("proc_fn_generar_servicio_proceso", {
+  p_empresa_id: a.empresaId, p_orden_id: a.ordenId, p_cliente: a.clienteId, p_tipo_servicio: a.tipoServicioId, p_actor: a.actor || null });
+export const generarServicioManual = (a) => procRpc("proc_fn_generar_servicio_manual", {
+  p_empresa_id: a.empresaId, p_cliente: a.clienteId, p_tipo_servicio: a.tipoServicioId, p_cantidad: a.cantidad,
+  p_unidad: a.unidad, p_tarifa: a.tarifa, p_moneda: a.moneda || "USD", p_fecha: a.fecha,
+  p_motivo: a.motivo, p_autorizado_por: a.autorizadoPor, p_actor: a.actor || null });
+export const revalorizarServicioPendiente = (a) => procRpc("proc_fn_revalorizar_servicio_pendiente", {
+  p_empresa_id: a.empresaId, p_servicio_id: a.servicioId, p_actor: a.actor || null });
+
+export const cargarBasesCobro = (e, extra = "") =>
+  procSelect("proc_v_base_cobro_listado", `?empresa_id=eq.${e}&order=created_at.desc&limit=300${extra}`);
+export const cargarBaseCobroPorId = (e, id) =>
+  procSelect("proc_v_base_cobro_listado", `?empresa_id=eq.${e}&id=eq.${id}`);
+export const cargarBaseCobroLineas = (e, baseId) =>
+  procSelect("proc_v_base_cobro_linea", `?empresa_id=eq.${e}&base_cobro_id=eq.${baseId}&order=fecha_hecho`);
+export const crearBaseCobro = (a) => procRpc("proc_fn_crear_base_cobro", {
+  p_empresa_id: a.empresaId, p_folio: a.folio, p_cliente: a.clienteId || null, p_temporada: a.temporada || null,
+  p_desde: a.desde || null, p_hasta: a.hasta || null, p_moneda: a.moneda || "USD", p_actor: a.actor || null });
+export const agregarABase = (a) => procRpc("proc_fn_agregar_a_base", {
+  p_empresa_id: a.empresaId, p_base_id: a.baseId, p_servicio_id: a.servicioId, p_actor: a.actor || null });
+export const aprobarBase = (a) => procRpc("proc_fn_aprobar_base", {
+  p_empresa_id: a.empresaId, p_base_id: a.baseId, p_actor: a.actor || null });
+export const cambiarEstadoBase = (id, e, estado, actor) =>
+  procUpdate("proc_base_cobro", `?id=eq.${id}&empresa_id=eq.${e}`, { estado, updated_by: actor || null });

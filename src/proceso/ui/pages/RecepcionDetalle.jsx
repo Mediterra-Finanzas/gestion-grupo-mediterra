@@ -12,7 +12,7 @@ import {
 } from "../components/base";
 import QcPanel from "../components/QcPanel";
 import { C, sp } from "../estilos";
-import { formatKg, formatNum, formatFecha, formatFechaHora } from "../format";
+import { formatKg, formatNum, formatFecha, formatFechaHora, normalizarNombre } from "../format";
 
 const kg = (n) => formatKg(n);
 function Dato({ l, v }) { return <div><div style={{ fontSize: 11, color: C.muted, fontWeight: 600 }}>{l}</div><div style={{ fontSize: 14, color: C.text }}>{v ?? "—"}</div></div>; }
@@ -68,8 +68,8 @@ export default function RecepcionDetalle() {
 
       <Seccion titulo="Participantes (Core vía proc_vinculo)">
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(180px,1fr))", gap: sp.md }}>
-          <Dato l="Cliente / mandante" v={r.cliente} /><Dato l="Productor" v={r.productor} />
-          <Dato l="Dueño de la fruta" v={r.dueno_fruta} /><Dato l="Exportadora" v={r.exportadora} />
+          <Dato l="Cliente / mandante" v={normalizarNombre(r.cliente)} /><Dato l="Productor" v={normalizarNombre(r.productor)} />
+          <Dato l="Dueño de la fruta" v={normalizarNombre(r.dueno_fruta)} /><Dato l="Exportadora" v={normalizarNombre(r.exportadora)} />
         </div>
       </Seccion>
 

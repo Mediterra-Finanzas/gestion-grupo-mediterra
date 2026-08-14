@@ -14,7 +14,7 @@ import {
   ProcAuditInfo, ProcLoadingState, ProcErrorState, ProcEmptyState,
 } from "../components/base";
 import { C, sp } from "../estilos";
-import { formatKg, formatNum, formatFecha, formatFechaHora } from "../format";
+import { formatKg, formatNum, formatFecha, formatFechaHora, normalizarNombre } from "../format";
 
 const kg = (n) => formatKg(n);
 function Dato({ l, v }) { return <div><div style={{ fontSize: 11, color: C.muted, fontWeight: 600 }}>{l}</div><div style={{ fontSize: 14, color: C.text }}>{v ?? "—"}</div></div>; }
@@ -79,7 +79,7 @@ export default function PalletDetalle() {
       <Seccion titulo="Identificación" extra={<ProcStatusBadge estado={p.estado} />}>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(140px,1fr))", gap: sp.md }}>
           <Dato l="Código" v={p.codigo} /><Dato l="Especie" v={p.especie_codigo} /><Dato l="Formato" v={p.formato} />
-          <Dato l="Cliente" v={p.cliente} /><Dato l="Ubicación" v={p.ubicacion} /><Dato l="Temporada" v={p.temporada_codigo} />
+          <Dato l="Cliente" v={normalizarNombre(p.cliente)} /><Dato l="Ubicación" v={p.ubicacion} /><Dato l="Temporada" v={p.temporada_codigo} />
         </div>
       </Seccion>
 
@@ -108,7 +108,7 @@ export default function PalletDetalle() {
             {back.length === 0 && lotesOrigen.length === 0 ? <div style={{ color: C.muted2, fontSize: 13 }}>—</div> : (
               <div style={{ fontSize: 13 }}>
                 {back.map((b, i) => <div key={i} style={{ marginBottom: 4 }}>Orden <b>{b.orden}</b> · {b.especie} {b.calibre || ""} {b.categoria ? `· ${b.categoria}` : ""}</div>)}
-                {lotesOrigen.map((l, i) => <div key={"l" + i} style={{ color: C.muted, marginLeft: 12 }}>Lote {l.lote} · Rec {l.recepcion} · {l.productor || "—"}</div>)}
+                {lotesOrigen.map((l, i) => <div key={"l" + i} style={{ color: C.muted, marginLeft: 12 }}>Lote {l.lote} · Rec {l.recepcion} · {normalizarNombre(l.productor) || "—"}</div>)}
               </div>
             )}
           </div>

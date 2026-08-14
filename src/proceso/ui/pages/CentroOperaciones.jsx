@@ -3,7 +3,7 @@
 // Action-oriented (no dashboard CFO). Consume read-models backend, no calcula en React.
 import React, { useEffect, useState, useCallback } from "react";
 import { useService } from "../hooks/useServiceContext";
-import { centroOperaciones, excepcionesOperacionales } from "../../core/procesoF7DB";
+import { centroOperaciones, excepcionesOperacionales, cargarServiciosFacturables, cargarBasesCobro } from "../../core/procesoF7DB";
 import { traducirError } from "../../core/procesoF7Domain";
 import {
   ProcPageHeader, ProcKpiCard, ProcCard, ProcExceptionList, ProcButton,
@@ -27,6 +27,7 @@ export default function CentroOperaciones() {
   const { empresa, planta, temporada, fecha, ir } = useService();
   const [data, setData] = useState(null);
   const [exc, setExc] = useState([]);
+  const [com, setCom] = useState(null); // comercial (F7.7): {pendientes, basesAbiertas} | null si no disponible
   const [estado, setEstado] = useState("idle"); // idle|loading|ok|error
   const [error, setError] = useState(null);
 
@@ -43,6 +44,14 @@ export default function CentroOperaciones() {
       setData(centro && (Array.isArray(centro) ? centro[0] : centro));
       setExc(Array.isArray(exceps) ? exceps : []);
       setEstado("ok");
+      // Excepciones comerciales F7.7 (degradación elegante: no rompen el Centro).
+      try {
+        const [pend, bases] = await Promise.all([
+          cargarServiciosFacturables(empresa, "&estado=eq.pendiente_tarifa&limit=500"),
+          cargarBasesCobro(empresa, "&estado=in.(borrador,en_revision)&limit=500"),
+        ]);
+        setCom({ pendientes: (pend || []).length, basesAbiertas: (bases || []).length });
+      } catch { setCom(null); }
     } catch (e) {
       setError(traducirError(e)); setEstado("error");
     }
@@ -110,6 +119,13 @@ export default function CentroOperaciones() {
         <ProcKpiCard label="Cargando" valor={d.cargando ?? 0} tono="warning" onClick={() => ir("despachos", { filtroEstado: "cargando" })} />
         <ProcKpiCard label="Despachados hoy" valor={d.despachados_dia ?? 0} tono="success" onClick={() => ir("despachos", { filtroEstado: "despachado" })} />
       </Grupo>
+
+      {com && (
+        <Grupo titulo="Comercial">
+          <ProcKpiCard label="Pendientes de tarifa" valor={com.pendientes} tono={com.pendientes > 0 ? "warning" : "success"} onClick={() => ir("pendientes")} />
+          <ProcKpiCard label="Bases por aprobar" valor={com.basesAbiertas} tono={com.basesAbiertas > 0 ? "info" : "neutral"} onClick={() => ir("bases", { filtroEstado: "borrador" })} />
+        </Grupo>
+      )}
 
       <div style={{ fontSize: 12.5, fontWeight: 800, color: C.muted, textTransform: "uppercase", letterSpacing: .4, marginBottom: sp.sm }}>
         Excepciones · acción requerida

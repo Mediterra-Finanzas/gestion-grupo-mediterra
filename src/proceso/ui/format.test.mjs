@@ -1,6 +1,6 @@
 /* eslint-disable */
 // Tests de normalización + formateo (node). node src/proceso/ui/format.test.mjs
-import { normalizarNombre, claveNormalizada, sonMismaEntidad, sugerenciaCercana, formatKg, formatPct, formatFecha, formatFechaHora, formatNum } from "./format.js";
+import { normalizarNombre, claveNormalizada, sonMismaEntidad, sugerenciaCercana, formatKg, formatPct, formatFecha, formatFechaHora, formatNum, formatTarifa, formatMoneda } from "./format.js";
 
 let pass = 0, fail = 0;
 const ok = (c, m) => { if (c) pass++; else { fail++; console.error("  ✗ " + m); } };
@@ -41,6 +41,9 @@ eq(formatNum(1560), "1.560", "formatNum miles");
 eq(formatFecha("2026-08-14T10:30:00Z"), "14-08-2026", "formatFecha dd-mm-yyyy");
 ok(/14-08-2026 \d{2}:\d{2}/.test(formatFechaHora("2026-08-14T10:30:00")), "formatFechaHora");
 eq(formatKg(null), "—", "null -> guion");
+eq(formatTarifa(0.3, "USD"), "USD 0,30", "tarifa 2 decimales mínimo");
+eq(formatTarifa(0.3005, "USD"), "USD 0,3005", "tarifa preserva 4 decimales");
+eq(formatMoneda(2940, "USD"), "USD 2.940,00", "monto moneda");
 
 console.log(`\nproc_* F7.6.1 format/normalización tests: ${pass} pasaron, ${fail} fallaron`);
 if (fail > 0) process.exit(1);

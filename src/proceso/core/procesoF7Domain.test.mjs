@@ -1,6 +1,6 @@
 /* eslint-disable */
 // Tests de dominio proc_* F7.1 (node). Ejecutar: node src/proceso/core/procesoF7Domain.test.mjs
-import { formatearCorrelativo, compactarTemporada, evaluarQC, badgeDe, traducirError, validarFiltros, calcularNeto, validarPesos, packout, resumenConciliacion, accionesOrden, faltaParaCerrar, ordenTerminal, despachoTerminal, puedeConfirmarDespacho, accionesDespacho, totalKg } from "./procesoF7Domain.js";
+import { formatearCorrelativo, compactarTemporada, evaluarQC, badgeDe, traducirError, validarFiltros, calcularNeto, validarPesos, packout, resumenConciliacion, accionesOrden, faltaParaCerrar, ordenTerminal, despachoTerminal, puedeConfirmarDespacho, accionesDespacho, totalKg, montoServicio, especificidadTarifa, vigenciaTarifa, baseEditable, accionesBase, servicioAgregableABase, totalesPorMoneda } from "./procesoF7Domain.js";
 
 let pass = 0, fail = 0;
 const ok = (c, m) => { if (c) pass++; else { fail++; console.error("  ✗ " + m); } };
@@ -67,6 +67,28 @@ ok(!puedeConfirmarDespacho("borrador"), "borrador no puede confirmar");
 eq(accionesDespacho("borrador")[0], "preparando", "borrador -> preparando");
 ok(accionesDespacho("despachado").length === 0, "despachado sin transiciones simples");
 eq(totalKg([{ estado: "confirmada", kg: 300 }, { estado: "reversada", kg: 200 }, { estado: "confirmada", kg: 200 }]), 500, "totalKg confirmadas");
+
+// F7.7 Tarifario / Servicios / Base de cobro
+eq(montoServicio(9800, 0.30), 2940, "9.800 kg × 0,30 = 2.940 (cantidad×tarifa)");
+eq(montoServicio(9800, 0.3005), 2944.9, "redondeo a 2 decimales");
+ok(montoServicio(null, 0.3) == null, "sin cantidad -> null (no $0)");
+ok(montoServicio(100, null) == null, "sin tarifa -> null (no $0)");
+eq(especificidadTarifa({}), "general", "tarifa general");
+eq(especificidadTarifa({ cliente_vinculo_id: "c1", especie_codigo: "CHE" }), "cliente + especie", "específica cliente+especie");
+eq(vigenciaTarifa({ vigencia_desde: "2026-01-01", vigencia_hasta: "2026-12-31" }, "2026-08-14"), "vigente", "vigente hoy");
+eq(vigenciaTarifa({ vigencia_desde: "2027-01-01" }, "2026-08-14"), "futura", "vigencia futura");
+eq(vigenciaTarifa({ vigencia_desde: "2025-01-01", vigencia_hasta: "2025-12-31" }, "2026-08-14"), "vencida", "vencida");
+eq(vigenciaTarifa({ estado: "anulada", vigencia_desde: "2026-01-01" }, "2026-08-14"), "anulada", "estado no-vigente manda");
+ok(baseEditable("borrador") && baseEditable("en_revision"), "base borrador/en_revision editable");
+ok(!baseEditable("aprobada"), "base aprobada NO editable");
+eq(accionesBase("borrador")[0].a, "aprobar", "base borrador -> aprobar");
+ok(accionesBase("aprobada")[0].a === "enviada_a_facturacion", "aprobada -> enviar a facturación");
+ok(accionesBase("cerrada").length === 0, "cerrada sin acciones");
+ok(servicioAgregableABase("valorizado") && !servicioAgregableABase("pendiente_tarifa"), "solo valorizado se agrega a base");
+const tm = totalesPorMoneda([{ subtotal: 2940, moneda: "USD" }, { subtotal: 100000, moneda: "CLP" }, { subtotal: 60, moneda: "USD" }]);
+eq(tm.length, 2, "dos monedas no se mezclan");
+eq(tm.find((x) => x.moneda === "USD").total, 3000, "USD suma 3.000");
+eq(tm.find((x) => x.moneda === "CLP").total, 100000, "CLP separado");
 
 // Filtros
 ok(!validarFiltros({}).ok, "sin empresa -> inválido");

@@ -84,7 +84,13 @@ const nf = (min = 0, max = 0) => new Intl.NumberFormat("es-CL", { minimumFractio
 export function formatNum(n, dec = 0) { return n == null || n === "" ? "—" : nf(dec, dec).format(Number(n)); }
 export function formatKg(n) { return n == null || n === "" ? "—" : `${nf(0, 1).format(Number(n))} kg`; }
 export function formatPct(fraccion, dec = 1) { return fraccion == null || fraccion === "" ? "—" : `${(Number(fraccion) * 100).toFixed(dec).replace(".", ",")}%`; }
-export function formatMoneda(n, moneda = "USD") { return n == null || n === "" ? "—" : `${moneda} ${nf(0, 2).format(Number(n))}`; }
+export function formatMoneda(n, moneda = "USD") { return n == null || n === "" ? "—" : `${moneda} ${nf(2, 2).format(Number(n))}`; }
+// Tarifa / precio unitario: 2 a 4 decimales (preserva precisión de tarifas finas).
+export function formatTarifa(n, moneda) {
+  if (n == null || n === "") return "—";
+  const s = nf(2, 4).format(Number(n));
+  return moneda ? `${moneda} ${s}` : s;
+}
 
 const MESES = ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic"];
 function toDate(d) { if (!d) return null; const x = d instanceof Date ? d : new Date(d); return isNaN(x.getTime()) ? null : x; }

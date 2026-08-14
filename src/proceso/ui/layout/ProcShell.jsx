@@ -27,6 +27,10 @@ import Despachos from "../pages/Despachos";
 import Despacho from "../pages/Despacho";
 import Informes from "../pages/Informes";
 import InformeDetalle from "../pages/InformeDetalle";
+import Tarifario from "../pages/Tarifario";
+import ServiciosFacturables from "../pages/ServiciosFacturables";
+import BasesCobro from "../pages/BasesCobro";
+import BaseCobroDetalle from "../pages/BaseCobroDetalle";
 
 const NAV = [
   { grupo: null, items: [{ id: "centro", label: "Centro de Operaciones", icon: "🏭" }] },
@@ -53,15 +57,15 @@ const NAV = [
     { id: "resultados_proc", label: "Resultados de Proceso", page: "informes" },
     { id: "informes", label: "Informes / Envíos", page: "informes" }] },
   { grupo: "Comercial", items: [
-    { id: "tarifario", label: "Tarifario", fase: "F7.7" },
-    { id: "servicios", label: "Servicios Facturables", fase: "F7.7" },
-    { id: "pendientes", label: "Pendientes de Tarifa", fase: "F7.7" },
-    { id: "bases", label: "Bases de Cobro", fase: "F7.7" }] },
+    { id: "tarifario", label: "Tarifario" },
+    { id: "servicios", label: "Servicios Facturables" },
+    { id: "pendientes", label: "Pendientes de Tarifa" },
+    { id: "bases", label: "Bases de Cobro" }] },
   { grupo: null, items: [{ id: "config", label: "Configuración", icon: "⚙️" }] },
 ];
 const TODOS = NAV.flatMap((g) => g.items);
 // mapea la vista actual al item de nav para el resaltado
-const NAV_DE_PAGE = { recepcion_nueva: "recepciones", recepcion_detalle: "recepciones", lote_detalle: "lotes", orden: "ordenes", bodega: "pallets", pallet_detalle: "pallets", despacho: "despachos", informe_detalle: "resultados_proc", informes: "resultados_proc" };
+const NAV_DE_PAGE = { recepcion_nueva: "recepciones", recepcion_detalle: "recepciones", lote_detalle: "lotes", orden: "ordenes", bodega: "pallets", pallet_detalle: "pallets", despacho: "despachos", informe_detalle: "resultados_proc", informes: "resultados_proc", base_cobro_detalle: "bases" };
 
 function useEsMovil(bp = 900) {
   const [m, setM] = useState(typeof window !== "undefined" && window.innerWidth < bp);
@@ -119,6 +123,11 @@ export default function ProcShell({ onBack, onLogout, usuario }) {
       case "despacho": return <Despacho />;
       case "informes": return <Informes />;
       case "informe_detalle": return <InformeDetalle />;
+      case "tarifario": return <Tarifario />;
+      case "servicios": return <ServiciosFacturables />;
+      case "pendientes": return <ServiciosFacturables soloPendientes />;
+      case "bases": return <BasesCobro />;
+      case "base_cobro_detalle": return <BaseCobroDetalle />;
       default: {
         const item = TODOS.find((i) => i.id === vista.page);
         return <ProximaFase titulo={item?.label || "Sección"} fase={item?.fase || "próxima fase"} />;

@@ -13,7 +13,7 @@ export default function AllegriaServiceModule({
 }) {
   const admin = typeof esAdmin === "function" ? esAdmin(usuarioActual?.nombre) : !!esAdmin;
   return (
-    <ServiceProvider empresaId={empresaId} tabPermisos={tabPermisos || {}} esAdmin={admin}>
+    <ServiceProvider empresaId={empresaId} tabPermisos={tabPermisos || {}} esAdmin={admin} usuario={usuarioActual}>
       <ProcShell onBack={onBack} onLogout={onLogout} usuario={usuarioActual} />
     </ServiceProvider>
   );

@@ -11,7 +11,7 @@ import {
   ProcLoadingState, ProcErrorState, ProcEmptyState,
 } from "../components/base";
 import { C, sp } from "../estilos";
-import { formatKg, formatNum, formatFecha, formatFechaHora } from "../format";
+import { formatKg, formatNum, formatFecha, formatFechaHora, normalizarNombre } from "../format";
 
 const kg = (n) => formatKg(n);
 function Dato({ l, v }) { return <div><div style={{ fontSize: 11, color: C.muted, fontWeight: 600 }}>{l}</div><div style={{ fontSize: 14, color: C.text }}>{v ?? "—"}</div></div>; }
@@ -57,7 +57,7 @@ export default function LoteDetalle() {
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(160px,1fr))", gap: sp.md }}>
           <Dato l="Código lote" v={l.codigo} />
           <Dato l="Recepción origen" v={<ProcButton kind="ghost" small onClick={() => ir("recepcion_detalle", { id: l.recepcion_id })}>{l.recepcion_folio} →</ProcButton>} />
-          <Dato l="Cliente" v={l.cliente} /><Dato l="Productor" v={l.productor} /><Dato l="Dueño fruta" v={l.dueno_fruta} />
+          <Dato l="Cliente" v={normalizarNombre(l.cliente)} /><Dato l="Productor" v={normalizarNombre(l.productor)} /><Dato l="Dueño fruta" v={normalizarNombre(l.dueno_fruta)} />
           <Dato l="Especie / variedad" v={`${l.especie_codigo || "—"} ${l.variedad_codigo || ""}`} />
           <Dato l="Ubicación" v={l.ubicacion} /><Dato l="Estado" v={<ProcStatusBadge estado={l.estado} />} />
           <Dato l="QC" v={l.qc_resultado ? <ProcStatusBadge estado={l.qc_resultado} /> : "sin QC"} />

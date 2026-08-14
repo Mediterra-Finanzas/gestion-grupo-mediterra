@@ -12,7 +12,7 @@ function hoyISO() {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
-export function ServiceProvider({ children, empresaId = null, tabPermisos = {}, esAdmin = false }) {
+export function ServiceProvider({ children, empresaId = null, tabPermisos = {}, esAdmin = false, usuario = null }) {
   const [empresa, setEmpresa] = useState(empresaId);
   const [planta, setPlanta] = useState(null);
   const [temporada, setTemporada] = useState(null);
@@ -35,8 +35,8 @@ export function ServiceProvider({ children, empresaId = null, tabPermisos = {}, 
 
   const value = useMemo(() => ({
     empresa, setEmpresa, planta, setPlanta, temporada, setTemporada, fecha, setFecha,
-    toast, notificar, permisoDe, puedeEditar, esAdmin, vista, ir,
-  }), [empresa, planta, temporada, fecha, toast, notificar, permisoDe, puedeEditar, esAdmin, vista, ir]);
+    toast, notificar, permisoDe, puedeEditar, esAdmin, vista, ir, usuario,
+  }), [empresa, planta, temporada, fecha, toast, notificar, permisoDe, puedeEditar, esAdmin, vista, ir, usuario]);
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }

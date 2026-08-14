@@ -175,6 +175,60 @@ export function totalKg(lineas = [], filtroEstado = "confirmada") {
   return lineas.filter((l) => !filtroEstado || l.estado === filtroEstado).reduce((a, l) => a + (Number(l.kg) || 0), 0);
 }
 
+// ── F7.7 Tarifario / Servicios Facturables / Base de Cobro ──────────────────
+// Preview UX; la DB (proc_fn_resolver_tarifa + guards + NUMERIC) es la AUTORIDAD.
+// El monto para decisiones económicas viene del backend (subtotal/total); esto es
+// solo para MOSTRAR cantidad × tarifa = monto y previsualizar el manual.
+export function montoServicio(cantidad, tarifa) {
+  if (cantidad == null || cantidad === "" || tarifa == null || tarifa === "") return null;
+  const c = Number(cantidad), t = Number(tarifa);
+  if (Number.isNaN(c) || Number.isNaN(t)) return null;
+  return Math.round(c * t * 100) / 100;
+}
+// Especificidad de una tarifa (por qué una gana sobre otra).
+export function especificidadTarifa(t = {}) {
+  const partes = [];
+  if (t.cliente_vinculo_id) partes.push("cliente");
+  if (t.temporada_codigo) partes.push("temporada");
+  if (t.especie_codigo) partes.push("especie");
+  return partes.length ? partes.join(" + ") : "general";
+}
+// Estado de vigencia respecto de una fecha (espejo del CASE del read-model).
+export function vigenciaTarifa(t = {}, hoy = null) {
+  if (t.estado && t.estado !== "vigente") return t.estado; // cerrada / anulada
+  const h = hoy ? new Date(hoy) : new Date();
+  const desde = t.vigencia_desde ? new Date(t.vigencia_desde) : null;
+  const hasta = t.vigencia_hasta ? new Date(t.vigencia_hasta) : null;
+  if (desde && desde > h) return "futura";
+  if (hasta && hasta < h) return "vencida";
+  return "vigente";
+}
+// Base de cobro: editable solo en borrador / en_revision (espejo de proc_fn_base_guard).
+export function baseEditable(estado) { return estado === "borrador" || estado === "en_revision"; }
+export function accionesBase(estado) {
+  const m = {
+    borrador: [{ a: "aprobar", l: "Aprobar base", rpc: true }],
+    en_revision: [{ a: "aprobar", l: "Aprobar base", rpc: true }],
+    aprobada: [{ a: "enviada_a_facturacion", l: "Enviar a facturación" }],
+    enviada_a_facturacion: [{ a: "cerrada", l: "Cerrar" }],
+  };
+  return m[estado] || [];
+}
+// Un servicio puede sumarse a una base si está valorizado (no pendiente_tarifa/anulado).
+export function servicioAgregableABase(estado) {
+  return ["valorizado", "revisado", "facturable"].includes(estado);
+}
+// Totales por moneda (NUNCA mezclar monedas). Suma cruda y redondea al final.
+export function totalesPorMoneda(items = [], campoMonto = "subtotal", campoMoneda = "moneda") {
+  const map = new Map();
+  for (const it of items) {
+    const mon = it[campoMoneda] || "—";
+    const cur = map.get(mon) || { moneda: mon, total: 0, n: 0 };
+    cur.total += Number(it[campoMonto]) || 0; cur.n += 1; map.set(mon, cur);
+  }
+  return [...map.values()].map((x) => ({ ...x, total: Math.round(x.total * 100) / 100 }));
+}
+
 // ── Filtros operacionales del shell ─────────────────────────────────────────
 export function validarFiltros({ empresa, planta, temporada, fecha } = {}) {
   const errores = [];

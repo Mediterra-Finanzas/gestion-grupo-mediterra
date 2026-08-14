@@ -17,7 +17,7 @@ import {
   ProcKpiCard, ProcLoadingState, ProcErrorState, ProcEmptyState,
 } from "../components/base";
 import { C, sp } from "../estilos";
-import { formatKg, formatNum, formatFecha, formatFechaHora } from "../format";
+import { formatKg, formatNum, formatFecha, formatFechaHora, normalizarNombre } from "../format";
 
 const kg = (n) => formatKg(n);
 function Dato({ l, v }) { return <div><div style={{ fontSize: 11, color: C.muted, fontWeight: 600 }}>{l}</div><div style={{ fontSize: 14, color: C.text }}>{v ?? "—"}</div></div>; }
@@ -109,7 +109,7 @@ export default function Orden() {
 
       <Seccion titulo="Cabecera" extra={<ProcStatusBadge estado={o.estado} />}>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(140px,1fr))", gap: sp.md }}>
-          <Dato l="Folio" v={o.folio} /><Dato l="Cliente" v={o.cliente} /><Dato l="Especie / variedad" v={`${o.especie_codigo || "—"} ${o.variedad_codigo || ""}`} />
+          <Dato l="Folio" v={o.folio} /><Dato l="Cliente" v={normalizarNombre(o.cliente)} /><Dato l="Especie / variedad" v={`${o.especie_codigo || "—"} ${o.variedad_codigo || ""}`} />
           <Dato l="Línea" v={o.linea} /><Dato l="Turno" v={o.turno} />
         </div>
         {editPerm && !terminal && (
@@ -129,7 +129,7 @@ export default function Orden() {
         <ProcDataTable
           columnas={[
             { titulo: "Lote", render: (i) => <b>{(lotesMap[i.lote_id] || {}).codigo || i.lote_id.slice(0, 8)}</b> },
-            { titulo: "Productor", render: (i) => (lotesMap[i.lote_id] || {}).productor || "—" },
+            { titulo: "Productor", render: (i) => normalizarNombre((lotesMap[i.lote_id] || {}).productor) || "—" },
             { titulo: "Recepción", render: (i) => (lotesMap[i.lote_id] || {}).recepcion_folio || "—" },
             { titulo: "QC", render: (i) => { const l = lotesMap[i.lote_id]; return l && l.qc_resultado ? <ProcStatusBadge estado={l.qc_resultado} /> : "—"; } },
             { titulo: "Kg consumido", align: "right", render: (i) => kg(i.kg) },
@@ -220,7 +220,7 @@ function SelectorLote({ especie, lotesMap, onClose, onConsumir }) {
                 }}>
                   <div>
                     <b style={{ fontSize: 13 }}>{l.codigo}</b>
-                    <span style={{ color: C.muted, fontSize: 12 }}> · {l.productor || "—"} · disp {formatNum(l.disponible)} kg</span>
+                    <span style={{ color: C.muted, fontSize: 12 }}> · {normalizarNombre(l.productor) || "—"} · disp {formatNum(l.disponible)} kg</span>
                   </div>
                   {eleg ? <ProcStatusBadge estado={l.qc_resultado || "disponible"} />
                         : <ProcStatusBadge texto={l.motivo_no_elegible || "no elegible"} tono="danger" />}
