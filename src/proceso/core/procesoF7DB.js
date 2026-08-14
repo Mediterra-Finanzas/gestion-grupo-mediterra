@@ -174,3 +174,22 @@ export const cargarPalletHoldsFolio = (e, palletId) =>
 export const crearDocDespacho = (fila) => crearMaestro("proc_despacho_doc", fila);
 // Re-export de las RPC transaccionales de despacho (F4) para la UI F7.5.
 export { crearDespacho, reservarPallet, liberarReserva, confirmarDespacho, reversarDespacho, cargarDocsDespacho } from "./procesoF4DB.js";
+
+// ── F7.6 · Resultado de Proceso (informe/versión/PDF/envíos) ────────────────
+export const cargarInformeListado = (e, extra = "") =>
+  procSelect("proc_v_informe_listado", `?empresa_id=eq.${e}&order=created_at.desc&limit=300${extra}`);
+export const cargarInformePorId = (e, id) =>
+  procSelect("proc_v_informe_listado", `?empresa_id=eq.${e}&id=eq.${id}`);
+export const cargarInformeRaw = (e, id) =>
+  procSelect("proc_informe", `?empresa_id=eq.${e}&id=eq.${id}`);
+export const cargarOrdenesInformables = (e, extra = "") =>
+  procSelect("proc_v_orden_informable", `?empresa_id=eq.${e}&order=fecha.desc&limit=400${extra}`);
+export const cargarVersion = (e, versionId) =>
+  procSelect("proc_informe_version", `?empresa_id=eq.${e}&id=eq.${versionId}`);
+export const cargarVinculo = (e, vinculoId) =>
+  procSelect("proc_vinculo", `?empresa_id=eq.${e}&id=eq.${vinculoId}`);
+// Re-export de las RPC/loaders de informes (F5) para la UI F7.6.
+export {
+  cargarInformes, cargarVersiones, cargarFuentes, cargarDestinatarios, cargarEnvios,
+  crearInforme, generarVersion, agregarDestinatario, emitirVersion, registrarEnvio,
+} from "./procesoF5DB.js";

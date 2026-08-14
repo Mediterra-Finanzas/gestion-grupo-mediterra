@@ -700,6 +700,7 @@ const TABS_PERMISOS_CONFIG = {
     {id:"pt", label:"📦 Producto Terminado"},
     {id:"pallets", label:"🏬 Bodega"},
     {id:"despachos", label:"🚚 Despachos"},
+    {id:"informes", label:"📄 Resultados de Proceso"},
     {id:"config", label:"⚙️ Configuración"},
   ],
 };

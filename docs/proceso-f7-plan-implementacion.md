@@ -31,8 +31,10 @@
 - Backend menor `schema_proc_v7_5_f7_5.sql`: `proc_fn_cancelar_despacho` (libera reservas) + read-models `proc_v_despacho_listado`/`proc_v_despacho_linea`/`proc_v_pallet_hold`.
 - Validado PG16.14: cadena v1→v7.5 limpia; E2E (reserva/cancelar, completo, parcial, segundo, exceso, doble confirmación, reversa, cliente≠destinatario, trazabilidad, RM); concurrencia despacho-vs-repaletizaje + dos-reservas (1 éxito/1 rechazo, sin negativo); regresión F1-F7.4 OK; RLS anon-deny; dominio 43/43; build CI=true. Revisión visual en vivo pendiente. Ver `docs/proceso-f7-5-acta.md`.
 
-### F7.6 — Resultado de Proceso + PDF + versiones/envíos
-- Generar versión (RPC), revisar snapshot, emitir (RPC), **PDF desde snapshot** (F7-PDF-01), destinatarios, registrar envío. CURRENT vs SNAPSHOT explícito.
+### F7.6 — Resultado de Proceso + PDF + versiones/envíos ✅ VALIDATED
+- Informes (bandeja: informes + pendientes de generar) · InformeDetalle (versiones, snapshot CURRENT vs histórico, emitir, PDF desde snapshot, destinatarios congelados, envíos, nueva versión con motivo). PDF neutral `procesoPdf.js` (jsPDF CDN; data pura testeable).
+- Backend menor `schema_proc_v7_6_f7_6.sql`: read-models `proc_v_orden_informable` + `proc_v_informe_listado` (no-duplicación/inmutabilidad ya en F5).
+- Validado PG16.14: cadena v1→v7.6 limpia; E2E (una orden, consolidado ponderado 72%, fuente duplicada rechazada, snapshot inmutable, nueva versión v1→reemplazada, destinatario congelado, Foods intercompany, sin despacho, RM); regresión F1-F7.5 OK; RLS anon-deny; dominio 43/43 + PDF data 12/12; build CI=true. Render jsPDF pixel-exacto no ejecutable en el entorno (CDN/CSP); layout previsualizado. Ver `docs/proceso-f7-6-acta.md`.
 
 ### F7.7 — Tarifario + Servicios Facturables + Base de Cobro
 - Tarifario CRUD + preview `resolver_tarifa`. Generar servicios (RPC). **Bandeja Pendientes de Tarifa.** Base de cobro crear/agregar/aprobar (inmutable).

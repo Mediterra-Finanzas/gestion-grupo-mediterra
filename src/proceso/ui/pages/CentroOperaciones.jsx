@@ -72,6 +72,7 @@ export default function CentroOperaciones() {
     if (x.tipo === "qc_rechazado") ir("recepcion_detalle", { id: x.referencia_id });
     else if (x.tipo === "conciliacion_pendiente" || x.tipo === "diferencia_masa") ir("orden", { id: x.referencia_id });
     else if (x.tipo === "pallet_bloqueado") ir("bodega");
+    else if (x.tipo === "informe_sin_emitir") ir("informes");
     else ir("recepciones");
   };
 
