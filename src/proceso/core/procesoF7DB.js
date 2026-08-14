@@ -118,3 +118,39 @@ export const cargarLineas = (e, plantaId) =>
 
 // Consumo y conciliación reutilizan las RPC de F2 (re-export para la UI F7.3).
 export { consumirLoteEnOrden, conciliarOrden } from "./procesoF2DB.js";
+
+// ── F7.4 · PT + Pallets + Bodega + Repaletizaje ─────────────────────────────
+// Read-models (vistas RLS security_invoker)
+export const cargarResultadoMaterializable = (e, extra = "") =>
+  procSelect("proc_v_resultado_materializable", `?empresa_id=eq.${e}&kg_disponible=gt.0${extra}`);
+export const cargarPTOperacional = (e, extra = "") =>
+  procSelect("proc_v_pt_operacional", `?empresa_id=eq.${e}&order=created_at.desc&limit=300${extra}`);
+export const cargarBodega = (e, extra = "") =>
+  procSelect("proc_v_pallet_bodega", `?empresa_id=eq.${e}&order=codigo&limit=400${extra}`);
+export const cargarPalletBodegaPorId = (e, id) =>
+  procSelect("proc_v_pallet_bodega", `?empresa_id=eq.${e}&pallet_id=eq.${id}`);
+export const cargarLineasPallet = (e, palletId) =>
+  procSelect("proc_pallet_linea", `?empresa_id=eq.${e}&pallet_id=eq.${palletId}&order=created_at`);
+export const cargarHoldsPallet = (e, palletId) =>
+  procSelect("proc_hold", `?empresa_id=eq.${e}&objeto_tipo=eq.pallet&objeto_id=eq.${palletId}&order=created_at.desc`);
+
+// Transacciones F3/F4 (RPC atómicas) + F7.4 holds/genealogía
+export const materializarPT = (a) => procRpc("proc_fn_materializar_pt", {
+  p_empresa_id: a.empresaId, p_resultado_id: a.resultadoId, p_formato_id: a.formatoId, p_cajas: a.cajas, p_kg: a.kg, p_actor: a.actor || null });
+export const crearPallet = (a) => procRpc("proc_fn_crear_pallet", {
+  p_empresa_id: a.empresaId, p_codigo: a.codigo, p_temporada: a.temporada || null, p_planta_id: a.plantaId || null,
+  p_formato_id: a.formatoId || null, p_ubicacion_id: a.ubicacionId || null, p_actor: a.actor || null });
+export const palletizar = (a) => procRpc("proc_fn_palletizar", {
+  p_empresa_id: a.empresaId, p_pt_id: a.ptId, p_pallet_id: a.palletId, p_cajas: a.cajas, p_kg: a.kg, p_actor: a.actor || null });
+export const trasladarPallet = (a) => procRpc("proc_fn_trasladar_pallet", {
+  p_empresa_id: a.empresaId, p_pallet_id: a.palletId, p_ubic_destino: a.ubicDestino, p_actor: a.actor || null });
+export const repaletizar = (a) => procRpc("proc_fn_repaletizar", {
+  p_empresa_id: a.empresaId, p_motivo: a.motivo || null, p_tipo: a.tipo || "repaletizaje", p_moves: a.moves, p_actor: a.actor || null });
+export const holdPallet = (a) => procRpc("proc_fn_hold_pallet", {
+  p_empresa: a.empresaId, p_pallet: a.palletId, p_tipo: a.tipo, p_cantidad: a.cantidad, p_motivo: a.motivo || null, p_actor: a.actor || null });
+export const liberarHold = (a) => procRpc("proc_fn_liberar_hold", { p_empresa: a.empresaId, p_hold: a.holdId, p_actor: a.actor || null });
+export const palletGenealogia = (e, palletId) => procRpc("proc_fn_pallet_genealogia", { p_empresa: e, p_pallet: palletId });
+
+// Formatos (catálogo)
+export const cargarFormatos = (e, especie) =>
+  procSelect("proc_formato", `?empresa_id=eq.${e}&activo=eq.true&deleted_at=is.null${especie ? `&especie_codigo=eq.${especie}` : ""}&order=codigo`);

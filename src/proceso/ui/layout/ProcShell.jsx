@@ -19,6 +19,10 @@ import LoteDetalle from "../pages/LoteDetalle";
 import Programa from "../pages/Programa";
 import Ordenes from "../pages/Ordenes";
 import Orden from "../pages/Orden";
+import ProductoTerminado from "../pages/ProductoTerminado";
+import Bodega from "../pages/Bodega";
+import PalletDetalle from "../pages/PalletDetalle";
+import Repaletizaje from "../pages/Repaletizaje";
 
 const NAV = [
   { grupo: null, items: [{ id: "centro", label: "Centro de Operaciones", icon: "🏭" }] },
@@ -33,10 +37,9 @@ const NAV = [
     { id: "resultados", label: "Resultados", page: "ordenes" },
     { id: "conciliaciones", label: "Conciliaciones", page: "ordenes", params: { filtroEstado: "pendiente_conciliacion" } }] },
   { grupo: "Producto Terminado", items: [
-    { id: "pt", label: "Producto Terminado", fase: "F7.4" },
-    { id: "pallets", label: "Pallets", fase: "F7.4" },
-    { id: "inventario", label: "Inventario / Ubicaciones", fase: "F7.4" },
-    { id: "repaletizaje", label: "Repaletizaje", fase: "F7.4" }] },
+    { id: "pt", label: "Producto Terminado" },
+    { id: "pallets", label: "Bodega / Pallets", page: "bodega" },
+    { id: "repaletizaje", label: "Repaletizaje" }] },
   { grupo: "Despacho", items: [
     { id: "preparacion", label: "Preparación", fase: "F7.5" },
     { id: "despachos", label: "Despachos", fase: "F7.5" },
@@ -54,7 +57,7 @@ const NAV = [
 ];
 const TODOS = NAV.flatMap((g) => g.items);
 // mapea la vista actual al item de nav para el resaltado
-const NAV_DE_PAGE = { recepcion_nueva: "recepciones", recepcion_detalle: "recepciones", lote_detalle: "lotes", orden: "ordenes" };
+const NAV_DE_PAGE = { recepcion_nueva: "recepciones", recepcion_detalle: "recepciones", lote_detalle: "lotes", orden: "ordenes", bodega: "pallets", pallet_detalle: "pallets" };
 
 function useEsMovil(bp = 900) {
   const [m, setM] = useState(typeof window !== "undefined" && window.innerWidth < bp);
@@ -104,6 +107,10 @@ export default function ProcShell({ onBack, onLogout, usuario }) {
       case "programa": return <Programa />;
       case "ordenes": return <Ordenes />;
       case "orden": return <Orden />;
+      case "pt": return <ProductoTerminado />;
+      case "bodega": return <Bodega />;
+      case "pallet_detalle": return <PalletDetalle />;
+      case "repaletizaje": return <Repaletizaje />;
       default: {
         const item = TODOS.find((i) => i.id === vista.page);
         return <ProximaFase titulo={item?.label || "Sección"} fase={item?.fase || "próxima fase"} />;

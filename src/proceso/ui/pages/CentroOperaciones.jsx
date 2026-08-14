@@ -71,7 +71,7 @@ export default function CentroOperaciones() {
   const irExcepcion = (x) => {
     if (x.tipo === "qc_rechazado") ir("recepcion_detalle", { id: x.referencia_id });
     else if (x.tipo === "conciliacion_pendiente" || x.tipo === "diferencia_masa") ir("orden", { id: x.referencia_id });
-    else if (x.tipo === "pallet_bloqueado") ir("lotes");
+    else if (x.tipo === "pallet_bloqueado") ir("bodega");
     else ir("recepciones");
   };
 
@@ -97,10 +97,10 @@ export default function CentroOperaciones() {
       </Grupo>
 
       <Grupo titulo="Producto Terminado">
-        <ProcKpiCard label="Kg PT disponibles" valor={kg(pt.kg_pt_disponible)} tono="success" onClick={() => ir("lotes")} />
-        <ProcKpiCard label="Pallets disponibles" valor={pt.pallets_disponibles ?? 0} tono="success" />
-        <ProcKpiCard label="Pallets reservados" valor={pt.pallets_reservados ?? 0} tono="warning" />
-        <ProcKpiCard label="Pallets bloqueados" valor={pt.pallets_bloqueados ?? 0} tono="danger" />
+        <ProcKpiCard label="Kg PT disponibles" valor={kg(pt.kg_pt_disponible)} tono="success" onClick={() => ir("pt")} />
+        <ProcKpiCard label="Pallets disponibles" valor={pt.pallets_disponibles ?? 0} tono="success" onClick={() => ir("bodega")} />
+        <ProcKpiCard label="Pallets reservados" valor={pt.pallets_reservados ?? 0} tono="warning" onClick={() => ir("bodega")} />
+        <ProcKpiCard label="Pallets bloqueados" valor={pt.pallets_bloqueados ?? 0} tono="danger" onClick={() => ir("bodega")} />
       </Grupo>
 
       <Grupo titulo="Despacho">

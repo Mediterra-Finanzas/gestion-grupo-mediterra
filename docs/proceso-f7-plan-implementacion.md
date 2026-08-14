@@ -21,11 +21,10 @@
 - Backend menor `schema_proc_v7_3_f7_3.sql`: guard de orden terminal + read-models `proc_v_orden_listado` / `proc_v_lote_operacional` (security_invoker).
 - Validado PG16: E2E (3 corridas, N:M, conciliación cuadra/no-cuadra, guard) + concurrencia + regresión F1-F7.2 + dominio 35/35 + build CI=true. Ver `docs/proceso-f7-3-acta.md`.
 
-### F7.4 — PT + Pallets + Bodega + Repaletizaje
-- Materializar PT (RPC), crear/palletizar (RPC), inventario con saldos/holds.
-- Repaletizaje N:M (RPC) con balance validado.
-- **Genealogía navegable** — materializar **F7-RM-GENEALOGIA** (RPC CTE).
-- Etiqueta de pallet / barcode: definir estrategia (arquitectura §11) — decisión de lib.
+### F7.4 — PT + Pallets + Bodega + Repaletizaje 🟡 CÓDIGO COMPLETO (runtime pendiente)
+- Producto Terminado (materializar desde resultado, sin sobreasignación; PT pendiente; palletizar nuevo/mixto) · Bodega (inventario+filtros) · Detalle de Pallet (saldos+invariante, composición, **genealogía backwards/forwards**, holds, traslado, movimientos) · Repaletizaje N:M (origen→destino→balance).
+- Backend menor `schema_proc_v7_4_f7_4.sql`: holds genéricos (`proc_fn_hold_pallet`/`liberar_hold` sobre `proc_hold`), read-models `proc_v_resultado_materializable`/`proc_v_pt_operacional`/`proc_v_pallet_bodega`, `proc_fn_pallet_genealogia`.
+- **Build CI=true Compiled successfully + dominio 35/35.** Validación runtime (E2E `proc_v7_4_f7_4_tests.sql` + regresión) **pendiente**: el daemon de Docker no quedó disponible en la sesión. Ver `docs/proceso-f7-4-acta.md §3`.
 
 ### F7.5 — Despacho
 - Crear → reservar → preparar/listo → confirmar (parcial/múltiple) → reversa. Todo por RPC; transiciones por trigger. Documentos a Storage.
