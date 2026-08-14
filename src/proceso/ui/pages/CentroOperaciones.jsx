@@ -104,9 +104,9 @@ export default function CentroOperaciones() {
       </Grupo>
 
       <Grupo titulo="Despacho">
-        <ProcKpiCard label="Preparados" valor={d.preparados ?? 0} tono="info" />
-        <ProcKpiCard label="Cargando" valor={d.cargando ?? 0} tono="warning" />
-        <ProcKpiCard label="Despachados hoy" valor={d.despachados_dia ?? 0} tono="success" />
+        <ProcKpiCard label="Preparados" valor={d.preparados ?? 0} tono="info" onClick={() => ir("despachos", { filtroEstado: "listo" })} />
+        <ProcKpiCard label="Cargando" valor={d.cargando ?? 0} tono="warning" onClick={() => ir("despachos", { filtroEstado: "cargando" })} />
+        <ProcKpiCard label="Despachados hoy" valor={d.despachados_dia ?? 0} tono="success" onClick={() => ir("despachos", { filtroEstado: "despachado" })} />
       </Grupo>
 
       <div style={{ fontSize: 12.5, fontWeight: 800, color: C.muted, textTransform: "uppercase", letterSpacing: .4, marginBottom: sp.sm }}>

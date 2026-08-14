@@ -161,6 +161,20 @@ export function faltaParaCerrar({ estado, entrada, comercial, descarte, merma, t
   return null;
 }
 
+// ── Despacho (F7.5): máquina de estados + totales (preview UX; DB autoridad) ──
+export function despachoTerminal(estado) { return estado === "despachado" || estado === "cancelado"; }
+export function despachoEditableCab(estado) { return ["borrador", "preparando", "listo"].includes(estado); }
+export function puedeConfirmarDespacho(estado) { return ["listo", "cargando"].includes(estado); }
+export function puedeCargarDespacho(estado) { return ["preparando", "listo"].includes(estado); }
+// Transiciones disponibles (además de confirmar/reversar/cancelar que van por RPC).
+export function accionesDespacho(estado) {
+  const m = { borrador: ["preparando"], preparando: ["listo"], listo: ["cargando"], cargando: [] };
+  return m[estado] || [];
+}
+export function totalKg(lineas = [], filtroEstado = "confirmada") {
+  return lineas.filter((l) => !filtroEstado || l.estado === filtroEstado).reduce((a, l) => a + (Number(l.kg) || 0), 0);
+}
+
 // ── Filtros operacionales del shell ─────────────────────────────────────────
 export function validarFiltros({ empresa, planta, temporada, fecha } = {}) {
   const errores = [];

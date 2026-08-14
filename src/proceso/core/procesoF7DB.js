@@ -154,3 +154,23 @@ export const palletGenealogia = (e, palletId) => procRpc("proc_fn_pallet_genealo
 // Formatos (catálogo)
 export const cargarFormatos = (e, especie) =>
   procSelect("proc_formato", `?empresa_id=eq.${e}&activo=eq.true&deleted_at=is.null${especie ? `&especie_codigo=eq.${especie}` : ""}&order=codigo`);
+
+// ── F7.5 · Despacho (salida física; NO venta/exportación) ───────────────────
+export const cargarDespachoListado = (e, extra = "") =>
+  procSelect("proc_v_despacho_listado", `?empresa_id=eq.${e}&order=created_at.desc&limit=300${extra}`);
+export const cargarDespachoPorId = (e, id) =>
+  procSelect("proc_v_despacho_listado", `?empresa_id=eq.${e}&id=eq.${id}`);
+export const cargarDespachoRaw = (e, id) =>
+  procSelect("proc_despacho", `?empresa_id=eq.${e}&id=eq.${id}`);
+export const cargarDespachoLineas = (e, despachoId) =>
+  procSelect("proc_v_despacho_linea", `?empresa_id=eq.${e}&despacho_id=eq.${despachoId}&order=created_at`);
+export const actualizarDespacho = (id, e, patch) =>
+  procUpdate("proc_despacho", `?id=eq.${id}&empresa_id=eq.${e}`, patch);
+export const cambiarEstadoDespacho = (e, id, estado) =>
+  procUpdate("proc_despacho", `?id=eq.${id}&empresa_id=eq.${e}`, { estado });
+export const cancelarDespacho = (a) => procRpc("proc_fn_cancelar_despacho", { p_empresa: a.empresaId, p_despacho: a.despachoId, p_actor: a.actor || null });
+export const cargarPalletHoldsFolio = (e, palletId) =>
+  procSelect("proc_v_pallet_hold", `?empresa_id=eq.${e}&pallet_id=eq.${palletId}&order=created_at.desc`);
+export const crearDocDespacho = (fila) => crearMaestro("proc_despacho_doc", fila);
+// Re-export de las RPC transaccionales de despacho (F4) para la UI F7.5.
+export { crearDespacho, reservarPallet, liberarReserva, confirmarDespacho, reversarDespacho, cargarDocsDespacho } from "./procesoF4DB.js";

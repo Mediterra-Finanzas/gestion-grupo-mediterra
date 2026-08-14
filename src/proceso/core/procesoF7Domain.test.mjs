@@ -1,6 +1,6 @@
 /* eslint-disable */
 // Tests de dominio proc_* F7.1 (node). Ejecutar: node src/proceso/core/procesoF7Domain.test.mjs
-import { formatearCorrelativo, compactarTemporada, evaluarQC, badgeDe, traducirError, validarFiltros, calcularNeto, validarPesos, packout, resumenConciliacion, accionesOrden, faltaParaCerrar, ordenTerminal } from "./procesoF7Domain.js";
+import { formatearCorrelativo, compactarTemporada, evaluarQC, badgeDe, traducirError, validarFiltros, calcularNeto, validarPesos, packout, resumenConciliacion, accionesOrden, faltaParaCerrar, ordenTerminal, despachoTerminal, puedeConfirmarDespacho, accionesDespacho, totalKg } from "./procesoF7Domain.js";
 
 let pass = 0, fail = 0;
 const ok = (c, m) => { if (c) pass++; else { fail++; console.error("  ✗ " + m); } };
@@ -57,6 +57,16 @@ ok(accionesOrden("cerrado").length === 0, "orden cerrada sin acciones");
 ok(ordenTerminal("cerrado"), "cerrado es terminal");
 ok(/por conciliar/i.test(faltaParaCerrar({ estado: "pendiente_conciliacion", entrada: 9800, comercial: 7800, descarte: 1500, merma: 300, tolerancia: 49 })), "falta: no cuadra");
 ok(faltaParaCerrar({ estado: "pendiente_conciliacion", entrada: 9800, comercial: 7800, descarte: 1700, merma: 300, tolerancia: 49 }) === null, "nada falta cuando cuadra");
+
+// Despacho (F7.5)
+ok(despachoTerminal("despachado"), "despachado terminal");
+ok(despachoTerminal("cancelado"), "cancelado terminal");
+ok(!despachoTerminal("listo"), "listo no terminal");
+ok(puedeConfirmarDespacho("listo"), "listo puede confirmar");
+ok(!puedeConfirmarDespacho("borrador"), "borrador no puede confirmar");
+eq(accionesDespacho("borrador")[0], "preparando", "borrador -> preparando");
+ok(accionesDespacho("despachado").length === 0, "despachado sin transiciones simples");
+eq(totalKg([{ estado: "confirmada", kg: 300 }, { estado: "reversada", kg: 200 }, { estado: "confirmada", kg: 200 }]), 500, "totalKg confirmadas");
 
 // Filtros
 ok(!validarFiltros({}).ok, "sin empresa -> inválido");

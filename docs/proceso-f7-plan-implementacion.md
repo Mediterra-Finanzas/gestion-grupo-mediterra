@@ -26,8 +26,10 @@
 - Backend menor `schema_proc_v7_4_f7_4.sql`: holds genéricos (`proc_fn_hold_pallet`/`liberar_hold` sobre `proc_hold`), read-models `proc_v_resultado_materializable`/`proc_v_pt_operacional`/`proc_v_pallet_bodega`, `proc_fn_pallet_genealogia`.
 - Validado PG16.14: cadena v1→v7.4 limpia; E2E F7.4 (materializar/palletizar+invariante/mixto/traslado/hold/repaletizaje N:M+parcial+multilínea UAT-D-01/genealogía/RM); concurrencia 1 éxito/1 rechazo sin negativo; regresión F1-F7.3 OK; RLS anon-deny; dominio 35/35; build CI=true. Revisión visual en vivo pendiente. Ver `docs/proceso-f7-4-acta.md`.
 
-### F7.5 — Despacho
-- Crear → reservar → preparar/listo → confirmar (parcial/múltiple) → reversa. Todo por RPC; transiciones por trigger. Documentos a Storage.
+### F7.5 — Despacho ✅ VALIDATED
+- Despachos (listado) · Despacho (mesa: preparar→listo→confirmar salida/cancelar/reversar; carga con reserva=hold; líneas ligadas a movimiento; documentos; trazabilidad despacho→recepción). Salida física, NO venta/exportación.
+- Backend menor `schema_proc_v7_5_f7_5.sql`: `proc_fn_cancelar_despacho` (libera reservas) + read-models `proc_v_despacho_listado`/`proc_v_despacho_linea`/`proc_v_pallet_hold`.
+- Validado PG16.14: cadena v1→v7.5 limpia; E2E (reserva/cancelar, completo, parcial, segundo, exceso, doble confirmación, reversa, cliente≠destinatario, trazabilidad, RM); concurrencia despacho-vs-repaletizaje + dos-reservas (1 éxito/1 rechazo, sin negativo); regresión F1-F7.4 OK; RLS anon-deny; dominio 43/43; build CI=true. Revisión visual en vivo pendiente. Ver `docs/proceso-f7-5-acta.md`.
 
 ### F7.6 — Resultado de Proceso + PDF + versiones/envíos
 - Generar versión (RPC), revisar snapshot, emitir (RPC), **PDF desde snapshot** (F7-PDF-01), destinatarios, registrar envío. CURRENT vs SNAPSHOT explícito.

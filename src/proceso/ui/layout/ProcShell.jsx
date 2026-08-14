@@ -23,6 +23,8 @@ import ProductoTerminado from "../pages/ProductoTerminado";
 import Bodega from "../pages/Bodega";
 import PalletDetalle from "../pages/PalletDetalle";
 import Repaletizaje from "../pages/Repaletizaje";
+import Despachos from "../pages/Despachos";
+import Despacho from "../pages/Despacho";
 
 const NAV = [
   { grupo: null, items: [{ id: "centro", label: "Centro de Operaciones", icon: "🏭" }] },
@@ -41,9 +43,9 @@ const NAV = [
     { id: "pallets", label: "Bodega / Pallets", page: "bodega" },
     { id: "repaletizaje", label: "Repaletizaje" }] },
   { grupo: "Despacho", items: [
-    { id: "preparacion", label: "Preparación", fase: "F7.5" },
-    { id: "despachos", label: "Despachos", fase: "F7.5" },
-    { id: "historial", label: "Historial", fase: "F7.5" }] },
+    { id: "preparacion", label: "Preparación", page: "despachos", params: { filtroEstado: "listo" } },
+    { id: "despachos", label: "Despachos" },
+    { id: "historial", label: "Historial", page: "despachos", params: { filtroEstado: "despachado" } }] },
   { grupo: "Clientes", items: [
     { id: "vinculos", label: "Vínculos", page: "config" },
     { id: "resultados_proc", label: "Resultados de Proceso", fase: "F7.6" },
@@ -57,7 +59,7 @@ const NAV = [
 ];
 const TODOS = NAV.flatMap((g) => g.items);
 // mapea la vista actual al item de nav para el resaltado
-const NAV_DE_PAGE = { recepcion_nueva: "recepciones", recepcion_detalle: "recepciones", lote_detalle: "lotes", orden: "ordenes", bodega: "pallets", pallet_detalle: "pallets" };
+const NAV_DE_PAGE = { recepcion_nueva: "recepciones", recepcion_detalle: "recepciones", lote_detalle: "lotes", orden: "ordenes", bodega: "pallets", pallet_detalle: "pallets", despacho: "despachos" };
 
 function useEsMovil(bp = 900) {
   const [m, setM] = useState(typeof window !== "undefined" && window.innerWidth < bp);
@@ -111,6 +113,8 @@ export default function ProcShell({ onBack, onLogout, usuario }) {
       case "bodega": return <Bodega />;
       case "pallet_detalle": return <PalletDetalle />;
       case "repaletizaje": return <Repaletizaje />;
+      case "despachos": return <Despachos />;
+      case "despacho": return <Despacho />;
       default: {
         const item = TODOS.find((i) => i.id === vista.page);
         return <ProximaFase titulo={item?.label || "Sección"} fase={item?.fase || "próxima fase"} />;
