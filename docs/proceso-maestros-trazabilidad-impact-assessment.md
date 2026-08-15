@@ -42,8 +42,28 @@
 ## Qué NO cambia (garantías)
 - Ledger `proc_movimiento`, invariante Σ líneas = saldo, máquina de estados de orden/despacho, snapshot F5 emitido, tarifario/base de cobro F6, RLS estricta productiva, bounded context (0 Frisku/`exp_*`), identidad/auth (gap aparte).
 
+## Impacto del Addendum Ficha Cliente + Contrato (ver `proceso-cliente-contrato-target.md`)
+Dimensión **comercial**, independiente del origen agrícola. Todo aditivo.
+
+| Componente | CURRENT | Cambio | Compatibilidad | Dónde se muestra estado/alerta/gate |
+|---|---|---|---|---|
+| `proc_vinculo` (cliente) | rol + identidad | **NINGUNO** (ficha en tabla 1:1) | 100% | — |
+| `proc_cliente_ficha` | — | **crear** (1:1) | aditivo | Ficha Cliente |
+| `proc_cliente_contrato` + `proc_tipo_documento_contractual` | — | **crear** (versionado + catálogo) | aditivo | Ficha (bloque Contrato) |
+| **F7.2 Recepción** (`proc_recepcion`) | cliente en cabecera | `+ contrato_vigente_id` (FK nullable); al elegir cliente, mostrar estado contractual + acción | aditivo | Nueva Recepción (badge+acción); gate = **no bloquea la recepción física** (§gate) |
+| **F7.3 Programa/Orden** (`proc_orden_proceso`) | — | `+ contrato_vigente_id`; **gate** de avance según política | aditivo | Programa/Orden (alerta + bloqueo si `bloqueante`) |
+| **F7.6 Informe (F5)** | snapshot números | opcional referenciar contrato; **F5 no cambia** | aditivo/opcional | Detalle Informe (opcional) |
+| **F7.7 Comercial / Base de Cobro** | tarifa/servicio/base | Base de Cobro puede mostrar `contrato codigo + temporada` | aditivo | Base de Cobro (traza "bajo qué contrato") |
+| **F7.1 Centro de Operaciones** | KPIs/excepciones | **excepción accionable** "Clientes sin contrato vigente"/"Recepciones con alerta contractual" | aditivo | Centro (badge+texto+navegación) |
+| **Configuración** | maestros | editor de Ficha Cliente + Contratos + tipos de documento | aditivo UI | Configuración |
+| `proc_fn_cliente_habilitado_para_operar` | — | **crear** (gate lectura + autoridad de bloqueo) | aditivo | consumido por RPC de avance |
+| Storage | `nominas-docs`/`frisku-docs` privados | reusar bucket privado + signed URL (prefijo `contratos/`) | aditivo | — |
+
+**Separación de controles (§12):** contrato (comercial/legal) y tarifario F6 (económico) son **independientes**; `pendiente_tarifa` y "alerta contractual" coexisten sin acoplarse. **Contrato ≠ origen agrícola:** el contrato es del cliente, nunca del productor. Frisku-only NO obtiene ficha/contrato Service.
+
 ## Riesgos
 1. **Integridad especie→FK**: activar la FK sobre tablas con `especie_codigo` texto histórico puede rechazar códigos huérfanos. Mitigación: seed del catálogo desde `DISTINCT especie_codigo` antes de la FK (§migración).
+5. **Gate contractual vs trazabilidad física**: un bloqueo mal ubicado impediría registrar fruta que ya llegó. Mitigación: el gate **nunca** bloquea la recepción física; sólo el avance posterior según política (§gate).
 2. **Backfill de origen histórico**: lotes viejos no tienen cuartel/CSG. Mitigación: `origen_snapshot` con campos "no informado" (no fabricar).
 3. **UI cascada vs recepción rápida**: riesgo de formulario pesado. Mitigación: copy-down/defaults por lote (§ui-ux).
 4. **Volumen de la regresión**: obligatorio re-correr las 13 suites + nuevas antes de re-certificar.

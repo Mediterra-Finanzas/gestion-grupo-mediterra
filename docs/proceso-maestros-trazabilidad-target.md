@@ -5,7 +5,7 @@
 ## 1. Principio: dos dimensiones ortogonales
 El origen agrícola y la relación comercial son **dimensiones distintas** que convergen en el Lote:
 
-- **Comercial:** `Cliente del servicio` (quien contrata/paga la maquila). Vive en `proc_recepcion` (evento físico/logístico).
+- **Comercial:** `Cliente del servicio` (quien contrata/paga la maquila) → **ficha Service + contrato**. Diseño en `proceso-cliente-contrato-target.md` (addendum CFO). Convergen en `proc_recepcion` (evento físico/logístico) pero el contrato es del cliente, **nunca del productor**.
 - **Origen agrícola:** `Productor → Predio → Cuartel → (Especie → Variedad)`. **Autoridad = el Lote** (unidad de identidad/trazabilidad), no la cabecera de recepción.
 
 Reglas que el modelo debe garantizar: Cliente ≠ Productor; Productor N:M Cliente (reutilizable); Predio pertenece a Productor; Cuartel pertenece a Predio; Variedad pertenece a Especie (integridad en backend); un Lote tiene origen inequívoco; una Recepción puede generar Lotes de distinto origen (cargas mixtas).

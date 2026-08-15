@@ -64,5 +64,16 @@ Vista de árbol/breadcrumb bidireccional: hacia atrás desde un pallet/despacho 
 - ❌ `text-transform: capitalize` para ocultar datos sucios (usar `normalizarNombre`).
 - ❌ Formulario de recepción de una sola columna kilométrico.
 
+## 7-bis. Dimensión comercial: estado contractual en Nueva Recepción (addendum)
+Al elegir **Cliente del servicio** en la cabecera, mostrar de inmediato (sin ir a Configuración) el estado contractual como **badge + texto + acción**:
+```
+Cliente [ Exportadora Los Andes SpA ▾]   ✅ Contrato vigente hasta 31-03-2027   [Ver ficha / contrato]
+Cliente [ Agrícola El Molino SpA    ▾]   ⚠ Sin contrato firmado vigente        [Ver ficha / contrato]
+Cliente [ Cliente X                 ▾]   ⛔ Contrato vencido (política: bloqueante)   [Ver ficha]
+```
+- Nivel según `politica_contrato` del cliente (info/advertencia/bloqueante). La **recepción física nunca se bloquea**; si la política es bloqueante, el bloqueo aplica al **avance** (programar/procesar/facturar), reflejado en Programa/Orden.
+- **Ficha Cliente** (secciones Resumen/Contrato/Productores/Tarifario/Operación/Documentos/Auditoría) y **editor de Contratos** (versiones + documento privado) viven en Configuración/Comercial. Detalle en `proceso-cliente-contrato-target.md` §14–§15.
+- **Centro de Operaciones**: excepción accionable "Clientes sin contrato vigente" / "Recepciones con alerta contractual". No color-only.
+
 ## 8. Responsive (planta)
 Cascada y repeater de lotes deben funcionar en tablet de planta (768–1024): los bloques de lote colapsan a una columna; los dropdowns siguen filtrando; el botón "Agregar lote" y "Guardar" siempre visibles (sticky footer). Contrato responsive F7.8 §11.

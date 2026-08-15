@@ -22,6 +22,21 @@
 | 14 | Frisku isolation = 0 dependencias | catálogos propios `proc_*` | `pg_depend` + `view_table_usage`: 0 `proc_*`→`frisku_*`/`exp_*` |
 | 15 | Foods como cliente intercompany sin `exp_*` | `proc_vinculo` cliente | recepción con cliente=Foods, 0 FK a `exp_*` |
 
+## A-bis. Tests de arquitectura — Ficha Cliente + Contrato (§19 addendum)
+
+| # | Escenario | Cómo lo resuelve el TARGET | Verificación |
+|---|---|---|---|
+| 16 | Cliente con contrato vigente → operar sin alerta | gate `cliente_habilitado_para_operar` = habilitado | recepción/programa sin alerta |
+| 17 | Cliente sin contrato, no obligatorio (`politica=informativo`) → info/warning | política en ficha | nivel = info/advertencia, no bloquea |
+| 18 | Contrato obligatorio (`bloqueante`) sin firma → bloqueo donde corresponde | gate nivel bloqueante en avance | **recepción física permitida**; programación/proceso bloqueado por backend |
+| 19 | Contrato vencido → alerta | vigencia por fecha/temporada | estado "vencido" + alerta |
+| 20 | Contrato v1 reemplazado por v2 → historia preservada | `reemplaza_contrato_id` + `contrato_vigente_id` FK a versión | operación histórica sigue apuntando a v1 |
+| 21 | Recepción física con contrato faltante | recepción registrable; gate limita avance | lote/recepción trazables; programa/proceso según política |
+| 22 | Contrato vigente + tarifa faltante → `pendiente_tarifa` | controles independientes | contrato OK; servicio `pendiente_tarifa` (F6) |
+| 23 | Tarifa OK + contrato faltante → alerta contractual | controles independientes | tarifa resuelve; alerta contractual separada |
+| 24 | Foods como Cliente Service con contrato propio, sin `exp_*` | ficha/contrato sobre `proc_vinculo` | 0 FK a `exp_*` |
+| 25 | Cliente Frisku-only NO aparece como Cliente Service | ficha sólo para vínculos `cliente_servicio` de `proc_*` | sin ficha/contrato Service automáticos; 0 dep `frisku_*` |
+
 ## B. Regresión obligatoria (no romper lo construido)
 - Cadena v1→v7.7 + fases nuevas aplica limpia.
 - **13 suites F1–F7.7** pasan (recepción, QC, consumo, conciliación, PT, pallet, repaletizaje, despacho, informes F5, tarifario, base de cobro, filtros F7.8).
@@ -50,6 +65,7 @@
 
 ## F. TABLA FINAL DE DECISIONES (requieren CFO)
 
+### Bloque 1 — Trazabilidad agrícola
 | # | Decisión | Recomendación | Alternativas | Impacto | ¿Requiere CFO? |
 |---|---|---|---|---|---|
 | D1 | **Origen: autoridad en Lote** (recepción header = default) | Sí, mover al Lote | Mantener en cabecera (no soporta cargas mixtas) | Estructural en `proc_lote` + genealogía; aditivo | **SÍ** (ya expresaste preferencia; confirmar) |
@@ -60,8 +76,18 @@
 | D6 | **Backfill histórico**: cuartel/CSG desconocido = "no informado", `origen_reconstruido=true` | Sí (no fabricar) | Dejar null sin marca (menos auditable) | Auditoría honesta | **SÍ** (confirmar) |
 | D7 | **FK especie/variedad en calibre/qc/color/PT/orden** (integridad) | Activar tras seed del catálogo | Mantener texto libre (sin integridad) | Rechaza códigos huérfanos | **SÍ** |
 | D8 | **Relación cliente↔productor histórica**: no inferir como verdad | No inferir (opcional sugerir borrador) | Backfill automático desde recepciones (crea relaciones falsas) | Evita datos falsos | **SÍ** |
-| D9 | **Alcance de materialización**: fases 1→5 completas | Completo (evita rehacer) | Mínimo primero (ya descartado por el CFO) | Mayor esfuerzo, una sola vez | Ya decidido: **COMPLETO** |
-| D10 | **UI cascada + recepción multi-lote con copy-down** | Sí | Formulario plano (mala UX) | Aditivo UI | Revisión visual del CFO |
+
+### Bloque 2 — Ficha Cliente Service + Contrato (`proceso-cliente-contrato-target.md`)
+| # | Decisión | Recomendación | Alternativas | Impacto | ¿Requiere CFO? |
+|---|---|---|---|---|---|
+| D9 | **Ficha Cliente**: extender `proc_vinculo` vs tabla 1:1 | Tabla 1:1 `proc_cliente_ficha` (atributos cliente-específicos) | Columnas en `proc_vinculo` (lo ensucia) | Aditivo | **SÍ** |
+| D10 | **Contrato**: entidad versionada `proc_cliente_contrato` | Sí (no un booleano `tiene_contrato`) | Flag simple (sin trazabilidad de documento) | Aditivo + storage privado | **SÍ** |
+| D11 | **Política de obligatoriedad** por cliente (info/warning/blocking) | Configurable en la ficha; **backend autoridad del bloqueo** | Universal "sin contrato = no opera" (rígido) | Define gate | **SÍ** |
+| D12 | **Gate**: recepción física siempre registrable; bloqueo al avance según política | Sí (no perder trazabilidad física) | Bloquear la recepción (pierde trazabilidad) | Ubicación del gate | **SÍ** |
+| D13 | **Documento equivalente** configurable (contrato/business clause/acuerdo) | Catálogo `proc_tipo_documento_contractual` + flag `satisface_requisito` | Hardcodear "CONTRATO" | Aditivo | **SÍ** |
+| D14 | **Referencia histórica**: qué operación guarda el contrato aplicable | FK a la **versión** de contrato vigente al momento (`contrato_vigente_id`) | Snapshot de campos (redundante) / sólo por fecha (frágil) | Historia preservada | **SÍ** |
+
+*(Resueltas fuera de tabla: alcance de materialización = **COMPLETO** por decisión del CFO; UI cascada + ficha premium = ítems de revisión visual, no gates de schema.)*
 
 ## G. Criterio para autorizar materialización
-Con D1–D8 resueltas por el CFO, la materialización procede por fases (`-migration-plan.md`), cada una con su gate de regresión. Nada se aplica a producción; nada se mergea. Al final, re-abrir la Visual QA de Recepción/Lotes/Producción/Trazabilidad (hoy `VISUAL QA CERTIFIED = NO`).
+Con **D1–D14** resueltas por el CFO, la materialización procede por fases (`-migration-plan.md` para trazabilidad; una fase análoga para ficha/contrato), cada una con su gate de regresión (incl. tests 16–25). Nada se aplica a producción; nada se mergea. Al final, re-abrir la Visual QA de Recepción/Lotes/Producción/Trazabilidad (hoy `VISUAL QA CERTIFIED = NO`).
