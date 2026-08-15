@@ -32,6 +32,8 @@ export const ingresarLoteUbicado = (a) => procRpc("proc_fn_ingresar_lote_ubicado
   p_especie: a.especie, p_variedad: a.variedad || null, p_kg: a.kg,
   p_planta_id: a.plantaId || null, p_temporada: a.temporada || null,
   p_ubicacion_id: a.ubicacionId, p_actor: a.actor || null,
+  // T4 (TRAZABILIDAD-001): origen agrícola del lote — backend congela el snapshot.
+  p_productor: a.productorId || null, p_predio: a.predioId || null, p_cuartel: a.cuartelId || null,
 });
 export const trasladar = (a) => procRpc("proc_fn_trasladar", {
   p_empresa_id: a.empresaId, p_lote_id: a.loteId, p_ubic_origen: a.ubicOrigen,

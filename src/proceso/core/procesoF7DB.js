@@ -239,3 +239,51 @@ export const aprobarBase = (a) => procRpc("proc_fn_aprobar_base", {
   p_empresa_id: a.empresaId, p_base_id: a.baseId, p_actor: a.actor || null });
 export const cambiarEstadoBase = (id, e, estado, actor) =>
   procUpdate("proc_base_cobro", `?id=eq.${id}&empresa_id=eq.${e}`, { estado, updated_by: actor || null });
+
+// ── T10 · Trazabilidad agrícola + Ficha/Contrato (consume backend T1–T9) ────
+// Catálogos y maestros (loaders filtrados para las cascadas de origen)
+export const cargarEspecies = (e) =>
+  procSelect("proc_especie", `?empresa_id=eq.${e}&deleted_at=is.null&order=nombre`);
+export const cargarVariedades = (e, especie) =>
+  procSelect("proc_variedad", `?empresa_id=eq.${e}&deleted_at=is.null${especie ? `&especie_codigo=eq.${especie}` : ""}&order=nombre`);
+export const cargarPredios = (e, productorId) =>
+  procSelect("proc_predios", `?empresa_id=eq.${e}&deleted_at=is.null${productorId ? `&productor_vinculo_id=eq.${productorId}` : ""}&order=nombre`);
+export const cargarCuarteles = (e, predioId) =>
+  procSelect("proc_cuartel", `?empresa_id=eq.${e}&deleted_at=is.null${predioId ? `&predio_id=eq.${predioId}` : ""}&order=codigo`);
+// Productores relacionados a un cliente (proc_cliente_productor) — devuelve la relación;
+// la UI resuelve el nombre desde la lista de productores ya cargada.
+export const cargarClienteProductores = (e, clienteId) =>
+  procSelect("proc_cliente_productor", `?empresa_id=eq.${e}&deleted_at=is.null${clienteId ? `&cliente_vinculo_id=eq.${clienteId}` : ""}`);
+
+// Read-models de origen / contractual
+export const cargarLoteOrigen = (e, extra = "") =>
+  procSelect("proc_v_lote_origen", `?empresa_id=eq.${e}&order=codigo.desc&limit=400${extra}`);
+export const cargarLoteOrigenPorId = (e, id) =>
+  procSelect("proc_v_lote_origen", `?empresa_id=eq.${e}&id=eq.${id}`);
+export const cargarClienteContractual = (e, extra = "") =>
+  procSelect("proc_v_cliente_contractual", `?empresa_id=eq.${e}${extra}`);
+
+// Gates contractuales (backend autoridad)
+export const estadoContractualCliente = (a) => procRpc("proc_fn_estado_contractual_cliente", {
+  p_empresa: a.empresaId, p_cliente: a.clienteId, p_fecha: a.fecha || null });
+export const clienteHabilitadoParaOperar = (a) => procRpc("proc_fn_cliente_habilitado_para_operar", {
+  p_empresa: a.empresaId, p_cliente: a.clienteId, p_fecha: a.fecha || null, p_etapa: a.etapa || "proceso" });
+
+// Genealogía extendida (T9): pallet → origen agrícola (desde snapshot) + cliente paralelo
+export const palletGenealogiaOrigen = (e, palletId) => procRpc("proc_fn_pallet_genealogia", { p_empresa: e, p_pallet: palletId });
+
+// Ficha Cliente Service (1:1)
+export const cargarFichaCliente = (e, clienteId) =>
+  procSelect("proc_cliente_ficha", `?empresa_id=eq.${e}&cliente_vinculo_id=eq.${clienteId}&deleted_at=is.null`);
+export const crearFichaCliente = (fila) => crearMaestro("proc_cliente_ficha", fila);
+export const actualizarFichaCliente = (id, e, patch) => actualizarMaestro("proc_cliente_ficha", id, e, patch);
+
+// Contrato del cliente (versionado)
+export const cargarContratosCliente = (e, clienteId) =>
+  procSelect("proc_cliente_contrato", `?empresa_id=eq.${e}&cliente_vinculo_id=eq.${clienteId}&deleted_at=is.null&order=version.desc`);
+export const crearContrato = (fila) => crearMaestro("proc_cliente_contrato", fila);
+export const actualizarContrato = (id, e, patch) => actualizarMaestro("proc_cliente_contrato", id, e, patch);
+export const cambiarEstadoContrato = (id, e, estado, actor) =>
+  procUpdate("proc_cliente_contrato", `?id=eq.${id}&empresa_id=eq.${e}`, { estado, updated_by: actor || null });
+export const cargarTiposDocContractual = (e) =>
+  procSelect("proc_tipo_documento_contractual", `?empresa_id=eq.${e}&deleted_at=is.null&activo=eq.true&order=nombre`);
