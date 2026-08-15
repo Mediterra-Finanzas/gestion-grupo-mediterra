@@ -1,6 +1,6 @@
 /* eslint-disable */
 // Tests de dominio proc_* F7.1 (node). Ejecutar: node src/proceso/core/procesoF7Domain.test.mjs
-import { formatearCorrelativo, compactarTemporada, evaluarQC, badgeDe, traducirError, validarFiltros, calcularNeto, validarPesos, packout, resumenConciliacion, accionesOrden, faltaParaCerrar, ordenTerminal, despachoTerminal, puedeConfirmarDespacho, accionesDespacho, totalKg, montoServicio, especificidadTarifa, vigenciaTarifa, baseEditable, accionesBase, servicioAgregableABase, totalesPorMoneda, filtrosActivos } from "./procesoF7Domain.js";
+import { formatearCorrelativo, compactarTemporada, evaluarQC, badgeDe, traducirError, validarFiltros, calcularNeto, validarPesos, packout, resumenConciliacion, accionesOrden, faltaParaCerrar, ordenTerminal, despachoTerminal, puedeConfirmarDespacho, accionesDespacho, totalKg, montoServicio, especificidadTarifa, vigenciaTarifa, baseEditable, accionesBase, servicioAgregableABase, totalesPorMoneda, filtrosActivos, opcionesRef, limpiarDependencias, labelRef } from "./procesoF7Domain.js";
 
 let pass = 0, fail = 0;
 const ok = (c, m) => { if (c) pass++; else { fail++; console.error("  ✗ " + m); } };
@@ -101,6 +101,35 @@ eq(tm.find((x) => x.moneda === "CLP").total, 100000, "CLP separado");
   ok(F("", "", "t").hay, "solo búsqueda -> hay activo");
   eq(F("todos", "", "").activos.length, 0, "'todos' no cuenta como filtro");
   ok(filtrosActivos(null, "").conteo === 0, "robusto ante filtros null");
+}
+
+// T10 · Cascada de maestros (helpers puros)
+{
+  const especies = [{ codigo: "CHE", nombre: "Cereza", activo: true }, { codigo: "PLU", nombre: "Ciruela", activo: true }, { codigo: "OLD", nombre: "Vieja", activo: false }];
+  const variedades = [{ codigo: "SANTINA", nombre: "Santina", especie_codigo: "CHE", activo: true }, { codigo: "REGINA", nombre: "Regina", especie_codigo: "CHE", activo: true }, { codigo: "DAGEN", nombre: "D'Agen", especie_codigo: "PLU", activo: true }];
+  const refEsp = { tabla: "proc_especie", value: "codigo", label: "nombre" };
+  const refVar = { tabla: "proc_variedad", value: "codigo", label: "nombre", dep: "especie_codigo", depMatch: "especie_codigo" };
+  // opciones especie: excluye inactiva
+  eq(opcionesRef(especies, refEsp, {}).length, 2, "opcionesRef excluye inactivos");
+  // H: Cereza -> Santina/Regina
+  eq(opcionesRef(variedades, refVar, { especie_codigo: "CHE" }).length, 2, "H: variedades de Cereza = 2");
+  eq(opcionesRef(variedades, refVar, { especie_codigo: "PLU" }).length, 1, "variedades de Ciruela = 1");
+  // sin especie seleccionada -> vacío (disabled)
+  eq(opcionesRef(variedades, refVar, {}).length, 0, "sin dep -> opciones vacías");
+  // filtro por rol
+  const vinc = [{ id: "1", nombre_provisional: "Prod", rol_operacional: "productor", activo: true }, { id: "2", nombre_provisional: "Cli", rol_operacional: "cliente_servicio", activo: true }];
+  eq(opcionesRef(vinc, { tabla: "proc_vinculo", value: "id", label: "nombre_provisional", filter: (r) => r.rol_operacional === "productor" }, {}).length, 1, "filtro por rol productor");
+  // I: cambiar Especie limpia Variedad
+  const campos = [{ c: "especie_codigo", ref: refEsp }, { c: "variedad_codigo", ref: refVar }];
+  const limpio = limpiarDependencias([{ c: "especie_codigo", ref: refEsp }, { c: "variedad_codigo", ref: { dep: "especie_codigo" } }], { especie_codigo: "CHE", variedad_codigo: "SANTINA" }, "especie_codigo");
+  eq(limpio.variedad_codigo, "", "I: cambiar especie limpia variedad");
+  eq(limpio.especie_codigo, "CHE", "limpiar no toca el padre");
+  // no toca campos no relacionados
+  const l2 = limpiarDependencias([{ c: "a", ref: { dep: "x" } }], { x: "1", a: "v", otro: "z" }, "x");
+  eq(l2.otro, "z", "no toca campos no relacionados");
+  // labelRef resuelve uuid -> nombre (no UUID crudo)
+  eq(labelRef(vinc, { value: "id", label: "nombre_provisional" }, "1"), "Prod", "labelRef resuelve");
+  eq(labelRef([], { value: "id", label: "x" }, null), "—", "labelRef null -> guion");
 }
 
 // Filtros

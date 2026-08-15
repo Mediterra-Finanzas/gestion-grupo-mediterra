@@ -229,6 +229,41 @@ export function totalesPorMoneda(items = [], campoMonto = "subtotal", campoMoned
   return [...map.values()].map((x) => ({ ...x, total: Math.round(x.total * 100) / 100 }));
 }
 
+// ── T10 · Selects dinámicos / cascada de maestros (lógica pura, testeable) ──
+// Un campo "ref" declara { tabla, value, label, filter?, dep?, depMatch? }. Las
+// opciones se derivan de las filas cargadas del maestro fuente, aplicando: solo
+// activos/no borrados, filtro propio (ej. rol), y —si hay dep— coincidencia con
+// el valor del campo padre. Sin dep-satisfecho → opciones vacías (disabled en UI).
+export function opcionesRef(rows, ref, form = {}) {
+  if (!ref || !Array.isArray(rows)) return [];
+  let out = rows.filter((r) => r && r.deleted_at == null && r.activo !== false);
+  if (typeof ref.filter === "function") out = out.filter(ref.filter);
+  if (ref.dep) {
+    const parentVal = form[ref.dep];
+    if (parentVal == null || parentVal === "") return [];   // sin contexto → nada
+    const matchCol = ref.depMatch || ref.dep;
+    out = out.filter((r) => String(r[matchCol]) === String(parentVal));
+  }
+  return out.map((r) => ({ value: r[ref.value], label: typeof ref.label === "function" ? ref.label(r) : r[ref.label] }));
+}
+
+// Al cambiar un campo padre, limpia SOLO los hijos que dependían de él (recursivo).
+// No toca campos no relacionados. Devuelve el nuevo objeto de valores.
+export function limpiarDependencias(campos, valores, cambiadoC) {
+  let next = { ...valores };
+  for (const h of (campos || []).filter((f) => f.ref && f.ref.dep === cambiadoC)) {
+    if (next[h.c] != null && next[h.c] !== "") { next[h.c] = ""; next = limpiarDependencias(campos, next, h.c); }
+  }
+  return next;
+}
+// Resuelve el label de un valor ref para mostrar en tablas (nunca UUID crudo).
+export function labelRef(rows, ref, valor) {
+  if (valor == null || valor === "" || !Array.isArray(rows) || !ref) return "—";
+  const r = rows.find((x) => String(x[ref.value]) === String(valor));
+  if (!r) return String(valor);
+  return typeof ref.label === "function" ? ref.label(r) : r[ref.label];
+}
+
 // ── Filtros: lógica pura de chips activos / reset (usada por ProcFilters) ────
 // Un filtro está "activo" si su valor no es vacío/"todos". Certifica que:
 // combinaciones son acumulativas (todos los activos cuentan), reset limpia todo,
