@@ -100,5 +100,49 @@ Reactivar `api/_auth.js` + ruta proxy con service_role, extendiendo el token de 
 
 ---
 
-## 9. Cierre (§26)
-**Caso B — `IDENTITY-STRUCTURAL-GAP`.** STOP. No se materializó ninguna solución. Espero tu decisión entre las opciones §5 (o una variante que definas). No se tocó identidad transversal, RLS, ni bounded contexts.
+## 9. Cierre discovery (§26)
+**Caso B — `IDENTITY-STRUCTURAL-GAP`.** El CFO aceptó el diagnóstico y autorizó un puente DEV/UAT aislado (F7.8.1-D) SIN degradar producción ni resolver la identidad transversal. Ver §10.
+
+---
+
+## 10. DEV/UAT Visual Access Bridge (F7.8.1-D)
+
+### 10.1 Por qué existe
+Desbloquear **solo** la revisión visual local de Allegria Service, dado que la app opera como `anon` y `proc_*` (con RLS estricta) le deniega acceso. NO resuelve el gap estructural (§4); es un puente de testing local, reversible y explícito.
+
+### 10.2 Riesgos y entorno permitido
+- **Explícitamente inseguro para producción.** Abre `anon` a `proc_*` mediante políticas permisivas + grants.
+- **Solo entorno LOCAL AISLADO** (PostgreSQL efímero en Docker). **PROHIBIDO** aplicarlo sobre la base productiva o incluirlo en cualquier deploy. La producción nunca se tocó durante esta subfase (ver §10.8).
+- El artefacto está marcado `DEV / LOCAL UAT ONLY — NEVER APPLY TO PRODUCTION` en su cabecera.
+
+### 10.3 Artefactos (committeados)
+- `supabase/schema_proc_f7_8_1_DEV_ONLY_visual_uat.sql` — bridge: por cada tabla `proc_*` una política **permisiva `TO anon`** (NO toca la política estricta productiva) + `GRANT` DML a anon; `GRANT SELECT` a anon sobre las 25 vistas `proc_v_*`; `GRANT EXECUTE` a anon sobre las 54 funciones `proc_fn_*`. Incluye bloque **ROLLBACK**.
+- `supabase/seed_proc_DEV_UAT.sql` — dataset DEV representativo (datos ficticios; NO "maestros reales"). Empresa DEV fija `5aa10886-2a76-4a9e-9bc3-303fb776cd49` **solo en este seed** (§5); no está hardcodeada en schema/dominio/React/RPC.
+- Repoint por env (fallback = prod exacto; prod build idéntico si la env no está): `src/friskuHelpers.js`, `src/App.jsx` (`REACT_APP_SUPA_URL/KEY`), `src/proceso/ui/AllegriaServiceModule.jsx` (`REACT_APP_PROC_DEV_EMPRESA`).
+
+### 10.4 Artefactos NO committeados
+- `.env.development.local` (gitignored): apunta la app al stack local + JWT anon local + tenant DEV + `PORT=3020`.
+- Proxy local (scratchpad): reescribe `/rest/v1/*` → PostgREST y agrega CORS. Node puro, sin secretos.
+
+### 10.5 Grants otorgados (acotados, no `GRANT ALL` ciego)
+`SELECT,INSERT,UPDATE,DELETE` en las 49 tablas `proc_*`; `SELECT` en las 25 vistas; `EXECUTE` en las 54 funciones `proc_fn_*`; `SELECT,INSERT,UPDATE,DELETE` en `calendario_data` (login/boot). Es lo necesario para ejecutar la UAT completa (F7.1–F7.7) — CRUD REST + RPC + read-models.
+
+### 10.6 Cómo ACTIVAR (local, resumen)
+1. Postgres 16 efímero (Docker) DB `proc`; crear roles `anon`/`authenticated` + stub `contab_empresas`/`contab_auxiliares`.
+2. Aplicar cadena `schema_proc_v1..v7_7` → `schema_proc_f7_8_1_DEV_ONLY_visual_uat.sql` → `seed_proc_DEV_UAT.sql`. Crear `calendario_data` + `GRANT ... TO anon`.
+3. PostgREST (`postgrest/postgrest:v12.2.3`) contra ese Postgres: `PGRST_DB_ANON_ROLE=anon`, `PGRST_JWT_SECRET=<secret local>`. Generar un JWT `{role:anon}` firmado con ese secret = la "anon key" DEV.
+4. Proxy node en `:3010` que reescribe `/rest/v1/*` → PostgREST y añade CORS (Allow-Headers incl. `cache-control,pragma`; Max-Age 0).
+5. `.env.development.local` con `REACT_APP_SUPA_URL=http://localhost:3010`, `REACT_APP_SUPA_KEY=<JWT anon>`, `REACT_APP_PROC_DEV_EMPRESA=5aa10886…`, `PORT=3020`.
+6. `npm start` → app en `http://localhost:3020` apuntando al stack aislado.
+
+### 10.7 Cómo DESACTIVAR (reversible)
+Borrar `.env.development.local`; detener CRA/proxy/PostgREST/Postgres (contenedores efímeros — `docker rm -f`). El código con env-fallback vuelve solo a producción (env ausente). Sobre una base persistente, correr el bloque **ROLLBACK** del bridge (elimina políticas `*_DEV_UAT` + revoca anon) → queda idéntica al schema productivo.
+
+### 10.8 Prueba de que producción sigue deny-by-default (§18)
+Control inverso ejecutado en contenedor limpio con **solo** la cadena productiva (sin DEV_ONLY, sin bridge): `anon` **denegado en 25/25 vistas** `proc_v_*`, y **0 políticas `*_DEV_UAT`** presentes. El bridge no contamina el contrato productivo; la base productiva remota nunca se conectó en esta subfase.
+
+### 10.9 Estado de Visual UAT
+`DEV/UAT BRIDGE = VALIDATED` · `PRODUCTION RLS = INTACT` · `LOCAL APP = RUNNING (localhost:3020)` · `UAT DATA = READY` (Recepciones 3, Lotes 3, Órdenes 2, Bodega 3, Despachos 1, Informes 1, Tarifario 2, Servicios 2 —1 pendiente de tarifa—, Bases 1). **Login pendiente del CFO** (WORKERS_BASE provee el usuario admin; no se sembró credencial). `VISUAL QA CERTIFIED` sigue **NO** hasta la revisión del CFO.
+
+### 10.10 Deuda TARGET (no se resuelve acá)
+`CORE-IDENTITY-TENANCY-001` — antes del GO-LIVE productivo de `proc_*`: usuario autenticado → identidad verificable → membership usuario↔empresa → tenant enforcement en DB → RLS real. Proyecto transversal a Mediterra One, fuera de Service.

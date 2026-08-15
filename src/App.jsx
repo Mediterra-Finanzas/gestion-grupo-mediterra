@@ -103,10 +103,11 @@ const EMAILJS_TEMPLATE_NOTIF = process.env.REACT_APP_EMAILJS_TEMPLATE_NOTIF;
 const EMAILJS_KEY      = process.env.REACT_APP_EMAILJS_KEY;
 const FECHA_INICIO     = new Date(2026, 3, 13);
 
-const SUPA_URL = "https://bywovqayuzodbzwsriet.supabase.co";
+// DEV/UAT override (F7.8.1-D): env solo en .env.development.local; fallback = prod exacto.
+const SUPA_URL = process.env.REACT_APP_SUPA_URL || "https://bywovqayuzodbzwsriet.supabase.co";
 // Etapa 3 seguridad: si el interruptor está prendido, enruta la base por el guardia.
 installGuard(SUPA_URL);
-const SUPA_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJ5d292cWF5dXpvZGJ6d3NyaWV0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU2ODU1MDgsImV4cCI6MjA5MTI2MTUwOH0.s2x2O_CxE6rl8dBqFuyfQdMyRqSyjJQWXJXesmVGXtk";
+const SUPA_KEY = process.env.REACT_APP_SUPA_KEY || "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJ5d292cWF5dXpvZGJ6d3NyaWV0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU2ODU1MDgsImV4cCI6MjA5MTI2MTUwOH0.s2x2O_CxE6rl8dBqFuyfQdMyRqSyjJQWXJXesmVGXtk";
 
 async function dbLoad() {
   // NO atrapar el error acá: si la lectura falla (red/timeout/HTTP), la
