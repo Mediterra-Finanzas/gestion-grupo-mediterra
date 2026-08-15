@@ -264,6 +264,32 @@ export function labelRef(rows, ref, valor) {
   return typeof ref.label === "function" ? ref.label(r) : r[ref.label];
 }
 
+// ── T10c · Recepción multi-lote: preview de masas / resumen / tono contractual ─
+// Preview UX; el ledger sigue siendo SoT. No introduce constraint nueva.
+export function resumenKgLotes(pesoNeto, lotes = []) {
+  const asignado = Math.round((lotes || []).reduce((a, l) => a + (Number(l.kg) || 0), 0) * 1000) / 1000;
+  const neto = Number(pesoNeto) || 0;
+  const dif = Math.round((neto - asignado) * 1000) / 1000;
+  return { asignado, neto, pendiente: dif > 0 ? dif : 0, exceso: dif < 0 ? -dif : 0 };
+}
+export function resumenOrigenes(lotes = []) {
+  const distintos = (k) => new Set((lotes || []).map((l) => l[k]).filter(Boolean)).size;
+  return { lotes: (lotes || []).length, productores: distintos("productorId"), predios: distintos("predioId"),
+    cuarteles: distintos("cuartelId"), kg: resumenKgLotes(0, lotes).asignado };
+}
+// Mapa nivel contractual → tono de badge (backend es autoridad del nivel).
+export function tonoContractual(nivel) {
+  return nivel === "bloqueante" ? "danger" : nivel === "advertencia" ? "warning"
+    : nivel === "informativo" ? "info" : "success";
+}
+// Copy-down: hereda origen del lote previo, salvo lo que se re-elige (kg nunca se copia).
+export function copiarOrigen(prev = {}) {
+  if (!prev) return {};
+  const { productorId, predioId, cuartelId, especie_codigo, variedad_codigo } = prev;
+  return { productorId: productorId || "", predioId: predioId || "", cuartelId: cuartelId || "",
+    especie_codigo: especie_codigo || "", variedad_codigo: variedad_codigo || "", kg: "", ubicacion: "" };
+}
+
 // ── Filtros: lógica pura de chips activos / reset (usada por ProcFilters) ────
 // Un filtro está "activo" si su valor no es vacío/"todos". Certifica que:
 // combinaciones son acumulativas (todos los activos cuentan), reset limpia todo,

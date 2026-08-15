@@ -21,6 +21,7 @@ export default function Lotes() {
   const [error, setError] = useState(null);
   const [fTexto, setFTexto] = useState("");
   const [fQc, setFQc] = useState("");
+  const [fEspecie, setFEspecie] = useState("");
 
   const cargar = useCallback(async () => {
     if (!empresa) { setEstado("idle"); return; }
@@ -34,8 +35,8 @@ export default function Lotes() {
   }, [empresa, planta, fQc]);
   useEffect(() => { cargar(); }, [cargar]);
 
-  const filtradas = rows.filter((l) => !fTexto ||
-    [l.codigo, l.cliente, l.productor, l.especie_codigo].join(" ").toLowerCase().includes(fTexto.toLowerCase()));
+  const filtradas = rows.filter((l) => (!fEspecie || l.especie_codigo === fEspecie) && (!fTexto ||
+    [l.codigo, l.cliente, l.productor, l.especie_codigo].join(" ").toLowerCase().includes(fTexto.toLowerCase())));
 
   const columnas = [
     { titulo: "Código", render: (l) => <b>{l.codigo}</b> },
@@ -60,8 +61,11 @@ export default function Lotes() {
       <ProcCard style={{ padding: sp.md, marginBottom: sp.md }}>
         <ProcFilters
           busqueda={fTexto} onBusqueda={setFTexto} placeholder="Buscar código/cliente/productor…"
-          filtros={[{ key: "qc", label: "QC", valor: fQc, onChange: setFQc, opciones: [{ v: "", l: "Todo QC" }, ...["aprobado", "condicional", "rechazado"].map((s) => ({ v: s, l: badgeDe(s).label }))] }]}
-          onReset={() => { setFTexto(""); setFQc(""); }} />
+          filtros={[
+            { key: "especie", label: "Especie", valor: fEspecie, onChange: setFEspecie, opciones: [{ v: "", l: "Toda especie" }, ...[...new Set(rows.map((r) => r.especie_codigo).filter(Boolean))].map((s) => ({ v: s, l: s }))] },
+            { key: "qc", label: "QC", valor: fQc, onChange: setFQc, opciones: [{ v: "", l: "Todo QC" }, ...["aprobado", "condicional", "rechazado"].map((s) => ({ v: s, l: badgeDe(s).label }))] },
+          ]}
+          onReset={() => { setFTexto(""); setFQc(""); setFEspecie(""); }} />
       </ProcCard>
       {estado === "loading" ? <ProcLoadingState /> :
        estado === "error" ? <ProcErrorState error={error} onRetry={cargar} /> :

@@ -4,7 +4,7 @@
 // (futuras órdenes de proceso). Saldos/elegibilidad desde backend, no React.
 import React, { useEffect, useState, useCallback } from "react";
 import { useService } from "../hooks/useServiceContext";
-import { cargarLotePorId, cargarMovimientosObjeto, loteElegible } from "../../core/procesoF7DB";
+import { cargarLotePorId, cargarMovimientosObjeto, loteElegible, cargarLoteOrigenPorId } from "../../core/procesoF7DB";
 import { traducirError } from "../../core/procesoF7Domain";
 import {
   ProcPageHeader, ProcCard, ProcButton, ProcStatusBadge, ProcKpiCard, ProcDataTable,
@@ -24,6 +24,7 @@ export default function LoteDetalle() {
   const { empresa, ir, vista } = useService();
   const id = vista?.params?.id;
   const [l, setL] = useState(null);
+  const [org, setOrg] = useState(null);   // proc_v_lote_origen (snapshot + predio/cuartel)
   const [movs, setMovs] = useState([]);
   const [eleg, setEleg] = useState(null);
   const [estado, setEstado] = useState("loading");
@@ -33,10 +34,10 @@ export default function LoteDetalle() {
     if (!empresa || !id) return;
     setEstado("loading"); setError(null);
     try {
-      const [lote, ms, el] = await Promise.all([
-        cargarLotePorId(empresa, id), cargarMovimientosObjeto(empresa, id), loteElegible(empresa, id),
+      const [lote, org2, ms, el] = await Promise.all([
+        cargarLotePorId(empresa, id), cargarLoteOrigenPorId(empresa, id), cargarMovimientosObjeto(empresa, id), loteElegible(empresa, id),
       ]);
-      setL((lote && lote[0]) || null); setMovs(ms || []); setEleg(el); setEstado("ok");
+      setL((lote && lote[0]) || null); setOrg((org2 && org2[0]) || null); setMovs(ms || []); setEleg(el); setEstado("ok");
     } catch (e) { setError(traducirError(e)); setEstado("error"); }
   }, [empresa, id]);
   useEffect(() => { cargar(); }, [cargar]);
@@ -53,15 +54,37 @@ export default function LoteDetalle() {
       <ProcPageHeader titulo={`Lote ${l.codigo}`} subtitulo="Trazabilidad de lote"
         acciones={<ProcButton kind="ghost" onClick={() => ir("lotes")}>← Lotes</ProcButton>} />
 
-      <Seccion titulo="Origen y datos">
+      <Seccion titulo="Lote">
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(160px,1fr))", gap: sp.md }}>
           <Dato l="Código lote" v={l.codigo} />
           <Dato l="Recepción origen" v={<ProcButton kind="ghost" small onClick={() => ir("recepcion_detalle", { id: l.recepcion_id })}>{l.recepcion_folio} →</ProcButton>} />
-          <Dato l="Cliente" v={normalizarNombre(l.cliente)} /><Dato l="Productor" v={normalizarNombre(l.productor)} /><Dato l="Dueño fruta" v={normalizarNombre(l.dueno_fruta)} />
-          <Dato l="Especie / variedad" v={`${l.especie_codigo || "—"} ${l.variedad_codigo || ""}`} />
           <Dato l="Ubicación" v={l.ubicacion} /><Dato l="Estado" v={<ProcStatusBadge estado={l.estado} />} />
           <Dato l="QC" v={l.qc_resultado ? <ProcStatusBadge estado={l.qc_resultado} /> : "sin QC"} />
         </div>
+      </Seccion>
+
+      {/* Origen agrícola congelado al ingreso (snapshot inmutable). Cliente = dimensión comercial paralela. */}
+      <Seccion titulo="Origen agrícola (registrado al ingreso)">
+        {(() => {
+          const snap = org && org.origen_snapshot;
+          const prodCsg = snap?.productor?.csg_sag, predCsg = snap?.predio?.csg_sag;
+          return (
+            <>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(160px,1fr))", gap: sp.md }}>
+                <Dato l="Cliente del servicio" v={normalizarNombre((org && org.cliente) || l.cliente)} />
+                <Dato l="Productor" v={<span>{normalizarNombre((org && org.productor) || l.productor)}{prodCsg ? <span style={{ color: C.muted2, fontSize: 12 }}> · CSG {prodCsg}</span> : null}</span>} />
+                <Dato l="Predio / Huerto" v={<span>{normalizarNombre(org && org.predio) || "—"}{predCsg ? <span style={{ color: C.muted2, fontSize: 12 }}> · CSG {predCsg}</span> : null}</span>} />
+                <Dato l="Cuartel" v={(org && org.cuartel) || "—"} />
+                <Dato l="Especie" v={(snap?.especie?.nombre) || l.especie_codigo || "—"} />
+                <Dato l="Variedad" v={(snap?.variedad?.nombre) || l.variedad_codigo || "—"} />
+              </div>
+              {org && org.origen_reconstruido && (
+                <div style={{ marginTop: sp.sm, fontSize: 12, color: C.warning }}>⚠ Origen reconstruido en migración (no capturado al ingreso). Cuartel/CSG pueden figurar como "no informado".</div>
+              )}
+              {!org && <div style={{ fontSize: 12.5, color: C.muted }}>Este lote no tiene origen agrícola registrado (lote legacy o sin cascada de origen).</div>}
+            </>
+          );
+        })()}
       </Seccion>
 
       <Seccion titulo="Saldos físicos (ledger = SoT)">

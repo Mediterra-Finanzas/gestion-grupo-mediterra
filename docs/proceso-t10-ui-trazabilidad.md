@@ -34,11 +34,26 @@ Normalización F7.6.1: nombres → `normalizarNombre`; **códigos/CSG/RUT no** s
 - Integridad backend (§15 C: variedad de especie incorrecta → rechazo) = T1/T5b (ya validado en PG16).
 - **Build `CI=true` → Compiled successfully.**
 
+## T10c — Nueva Recepción multi-lote + cascada + alerta contractual ✅ VALIDATED (build/unit; live pendiente)
+### Nueva Recepción (reescrita)
+- **Dos bloques**: A) Recepción (cliente del servicio, transportista/patente/guía, pesos bruto/tara/neto, especie principal para QC) · B) **Lotes / origen agrícola por lote**.
+- **Multi-lote**: 1 recepción → N lotes; cada lote con cascada **Productor→Predio→Cuartel** y **Especie→Variedad** + kg + ubicación inicial. Secuencia atómica preservada: crear recepción (correlativo backend) → cada lote por RPC `ingresar_lote_ubicado` (lote + `origen_snapshot` + movimiento + ubicación). Fallo parcial: los lotes ingresados persisten; reintento no duplica (correlativo nuevo). El snapshot lo genera el **backend** (T4), no React.
+- **Cascada Cliente→Productor**: al elegir cliente, los productores relacionados (`proc_cliente_productor`) van primero (marcados "· relacionado"); se mantiene flexibilidad (todos disponibles).
+- **Cuartel autocompleta** especie/variedad default (ayuda; la historia se congela en el snapshot).
+- **Alerta contractual** inmediata al elegir cliente (`estado_contractual_cliente` T8): badge (tono por nivel) + texto + explicación. **Regla CFO**: "Registrar recepción" **NUNCA se deshabilita** aunque el nivel sea bloqueante (la fruta física siempre se registra; el gate afecta el avance).
+- **Preview de masas**: peso neto vs Σ kg de lotes → pendiente por asignar / exceso (preview UX; sin constraint nueva). **Resumen**: N lotes / productores / predios / cuarteles / kg.
+### Detalle Recepción
+- Cabecera comercial/logística + **alerta contractual** del cliente + tabla **Lotes/orígenes** (Productor/Predio/Cuartel/Especie/Variedad/Ubicación/Estado — multi-origen evidente). Merge origen (`proc_v_lote_origen`) + estado (raw).
+### Detalle Lote
+- Sección **"Origen agrícola (registrado al ingreso)"**: Cliente (comercial, separado) · Productor+CSG · Predio+CSG · Cuartel · Especie · Variedad — desde `proc_v_lote_origen` + `origen_snapshot`. Marca **"origen reconstruido"** si aplica (§24). Snapshot = default (histórico inmutable).
+### Filtros
+- Lotes: filtro **Especie** (client-side sobre el listado) + QC + búsqueda. Predio/Cuartel filtros server-side quedan para cuando el listado use `proc_v_lote_origen` (gap documentado).
+### Helpers + tests
+- `resumenKgLotes`/`resumenOrigenes`/`tonoContractual`/`copiarOrigen` puros. **Dominio 96/96** (incluye §27 H/I/J/K/L/M/C). **Build CI=true OK.** Solo frontend.
+- **Gap**: revisión live no ejecutada (requiere re-provisionar el stack DEV con schema T1-T9 + reseed); se hará en Visual QA final (§54).
+
 ## Pendiente de T10
-- **T10c** Nueva Recepción multi-lote + cascada de origen + alerta contractual.
-- **T10d** Detalle Recepción / Lote (origen snapshot vs CURRENT) + genealogía visual.
-- **T10e** Ficha Cliente + Contrato (pantallas) + estados de documento.
-- **T10f** Alertas/gates en Recepción/Programa/Orden/Centro.
-- **T10g** Filtros nuevos en listados operacionales.
+- **T10d** Ficha Cliente + Contrato (pantallas) + estados de documento + alertas/gates transversales.
+- **T10e** filtros/read-models restantes (predio/cuartel server-side).
 
 Luego: PROC-REPORTING-DAILY-001; T11 UAT integral; retomar Visual QA (hoy NO).

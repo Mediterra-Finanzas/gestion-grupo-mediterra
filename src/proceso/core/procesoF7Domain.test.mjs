@@ -1,6 +1,6 @@
 /* eslint-disable */
 // Tests de dominio proc_* F7.1 (node). Ejecutar: node src/proceso/core/procesoF7Domain.test.mjs
-import { formatearCorrelativo, compactarTemporada, evaluarQC, badgeDe, traducirError, validarFiltros, calcularNeto, validarPesos, packout, resumenConciliacion, accionesOrden, faltaParaCerrar, ordenTerminal, despachoTerminal, puedeConfirmarDespacho, accionesDespacho, totalKg, montoServicio, especificidadTarifa, vigenciaTarifa, baseEditable, accionesBase, servicioAgregableABase, totalesPorMoneda, filtrosActivos, opcionesRef, limpiarDependencias, labelRef } from "./procesoF7Domain.js";
+import { formatearCorrelativo, compactarTemporada, evaluarQC, badgeDe, traducirError, validarFiltros, calcularNeto, validarPesos, packout, resumenConciliacion, accionesOrden, faltaParaCerrar, ordenTerminal, despachoTerminal, puedeConfirmarDespacho, accionesDespacho, totalKg, montoServicio, especificidadTarifa, vigenciaTarifa, baseEditable, accionesBase, servicioAgregableABase, totalesPorMoneda, filtrosActivos, opcionesRef, limpiarDependencias, labelRef, resumenKgLotes, resumenOrigenes, tonoContractual, copiarOrigen } from "./procesoF7Domain.js";
 
 let pass = 0, fail = 0;
 const ok = (c, m) => { if (c) pass++; else { fail++; console.error("  ✗ " + m); } };
@@ -130,6 +130,26 @@ eq(tm.find((x) => x.moneda === "CLP").total, 100000, "CLP separado");
   // labelRef resuelve uuid -> nombre (no UUID crudo)
   eq(labelRef(vinc, { value: "id", label: "nombre_provisional" }, "1"), "Prod", "labelRef resuelve");
   eq(labelRef([], { value: "id", label: "x" }, null), "—", "labelRef null -> guion");
+}
+
+// T10c · Recepción multi-lote
+{
+  const lts = [{ kg: 4000, productorId: "A", predioId: "P1", cuartelId: "C1" }, { kg: 3000, productorId: "A", predioId: "P1", cuartelId: "C2" }, { kg: 2000, productorId: "B", predioId: "P2", cuartelId: "C3" }];
+  // H: suma kg
+  eq(resumenKgLotes(9000, lts).asignado, 9000, "H: suma kg lotes = 9000");
+  // I: pendiente por asignar
+  const r1 = resumenKgLotes(9500, lts); eq(r1.pendiente, 500, "I: pendiente 500"); eq(r1.exceso, 0, "sin exceso");
+  // J: exceso asignado
+  const r2 = resumenKgLotes(8800, lts); eq(r2.exceso, 200, "J: exceso 200"); eq(r2.pendiente, 0, "sin pendiente");
+  // resumen de orígenes: 3 lotes, 2 productores, 2 predios, 3 cuarteles
+  const ro = resumenOrigenes(lts); eq(ro.lotes, 3, "3 lotes"); eq(ro.productores, 2, "2 productores"); eq(ro.predios, 2, "2 predios"); eq(ro.cuarteles, 3, "3 cuarteles");
+  // K/L/M: tono contractual por nivel
+  eq(tonoContractual("bloqueante"), "danger", "M: blocking -> danger");
+  eq(tonoContractual("advertencia"), "warning", "L: warning");
+  eq(tonoContractual("no_requerido"), "success", "K: sin requisito -> success");
+  // C: copy-down hereda origen pero NO kg/ubicación
+  const cp = copiarOrigen({ productorId: "A", predioId: "P1", cuartelId: "C1", especie_codigo: "CHE", variedad_codigo: "SANTINA", kg: 4000, ubicacion: "U1" });
+  eq(cp.productorId, "A", "C: copia productor"); eq(cp.especie_codigo, "CHE", "copia especie"); eq(cp.kg, "", "C: NO copia kg"); eq(cp.ubicacion, "", "C: NO copia ubicación");
 }
 
 // Filtros
