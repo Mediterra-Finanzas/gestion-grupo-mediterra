@@ -12,6 +12,9 @@ DECLARE
   P1 uuid; P2 uuid; P3 uuid; P4 uuid; P5 uuid;
   d uuid; s numeric; r numeric; libre numeric; nlin int; v_estado text; gen jsonb;
 BEGIN
+  -- fixture: catálogo especie/variedad requerido por el FK de cutover T5b (no relaja el FK)
+  INSERT INTO proc_especie(empresa_id,codigo,nombre) VALUES (e,'CHE','Cereza');
+  INSERT INTO proc_variedad(empresa_id,especie_codigo,codigo,nombre) VALUES (e,'CHE','Santina','Santina');
   INSERT INTO proc_empresa_config(empresa_id,tolerancia_masa_pct,pallet_compat_keys) VALUES (e,0.50,'["especie_codigo"]'::jsonb);
   INSERT INTO proc_planta(empresa_id,codigo,nombre) VALUES (e,'RCG','Rancagua') RETURNING id INTO pl;
   INSERT INTO proc_temporada(empresa_id,codigo,nombre,estado) VALUES (e,tmp,'t','activa');

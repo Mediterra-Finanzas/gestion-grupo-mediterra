@@ -30,6 +30,9 @@ DECLARE
   o1 uuid; oA uuid; oB uuid; inf uuid; v1 uuid; v2 uuid; infC uuid; vC uuid;
   snap1 jsonb; snap1b jsonb; pk numeric; est text; n int; did uuid; nomsnap text;
 BEGIN
+  -- fixture: catálogo especie/variedad requerido por el FK de cutover T5b (no relaja el FK)
+  INSERT INTO proc_especie(empresa_id,codigo,nombre) VALUES (e,'CHE','Cereza');
+  INSERT INTO proc_variedad(empresa_id,especie_codigo,codigo,nombre) VALUES (e,'CHE','Santina','Santina');
   INSERT INTO proc_empresa_config(empresa_id,tolerancia_masa_pct) VALUES (e,0.50);
   INSERT INTO proc_planta(empresa_id,codigo,nombre) VALUES (e,'RCG','Rancagua') RETURNING id INTO pl;
   INSERT INTO proc_temporada(empresa_id,codigo,nombre,estado) VALUES (e,tmp,'t','activa');
