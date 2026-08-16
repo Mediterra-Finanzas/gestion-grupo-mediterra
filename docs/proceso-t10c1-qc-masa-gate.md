@@ -6,6 +6,8 @@
 
 ## A. Hallazgo 1 — QC en recepciones multi-lote/multi-especie
 
+> **ESTADO: MATERIALIZADO / VALIDATED (T10c-QC)** — `schema_proc_v8_t10c_qc_lote.sql` + `proc_v8_t10c_qc_tests.sql`. Gate PG16 verde: QC-1..5, gate de consumo por lote (ERRCODE `check_violation`), fallback header (`lote_id IS NULL`), especie del **lote** (no del header), negativos (lote de otra recepción, duplicado activo), upsert idempotente, resumen read-model. Regresión F1/F7.7/F7.8 + T1–T9 verde. RLS/tenant verde (anon DENY tabla+vista, aislamiento A/B, cross-tenant WITH CHECK). Especie de evaluación = `proc_lote.especie_codigo`: bug estructural corregido. **Nota de regresión:** los tests legacy F7.2–F7.6 fallan por `fk_proc_lote_variedad` (FK del cutover **T5b** que exige catálogo especie/variedad); falla **idéntica con y sin T10c-QC** → gap de fixture pre-existente, **ortogonal a QC** (la semántica QC-original queda re-cubierta verde por el sub-test fallback-header + la ruta compat 4-arg).
+
 ### A.1 CURRENT (evidencia)
 | Pregunta (§A) | Hallazgo |
 |---|---|
