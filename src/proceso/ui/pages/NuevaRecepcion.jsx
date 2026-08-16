@@ -11,7 +11,7 @@ import { useService } from "../hooks/useServiceContext";
 import {
   siguienteCorrelativo, crearRecepcion, cargarVinculosPorRol, cargarUbicacionesActivas,
   cargarEspecies, cargarVariedades, cargarPredios, cargarCuarteles, cargarClienteProductores,
-  estadoContractualCliente,
+  estadoContractualCliente, conciliacionRecepcion, cerrarRecepcion,
 } from "../../core/procesoF7DB";
 import { ingresarLoteUbicado } from "../../core/procesoF2DB";
 import {
@@ -43,6 +43,15 @@ function Grupo({ titulo, children }) {
   );
 }
 
+function Metrica({ titulo, valor, tono }) {
+  return (
+    <div style={{ padding: "8px 12px", background: C.cardAlt, borderRadius: 8 }}>
+      <div style={{ fontSize: 11, color: C.muted, textTransform: "uppercase", letterSpacing: .3 }}>{titulo}</div>
+      <div style={{ fontSize: 15, fontWeight: 800, color: tono || C.text }}>{valor}</div>
+    </div>
+  );
+}
+
 export default function NuevaRecepcion() {
   const { empresa, planta, temporada, ir, notificar } = useService();
   const [vinc, setVinc] = useState({ cliente_servicio: [], productor: [], transportista: [] });
@@ -51,8 +60,10 @@ export default function NuevaRecepcion() {
   const [clientePros, setClientePros] = useState([]);   // proc_cliente_productor del cliente
   const [contract, setContract] = useState(null);        // estado contractual del cliente
   const [f, setF] = useState({ cliente_servicio: "", especie_qc: "", kg_bruto: "", tara: "", guia_despacho: "", patente: "", transportista: "" });
-  const [rec, setRec] = useState(null);                  // {id, folio} tras crear
+  const [rec, setRec] = useState(null);                  // {id, folio} tras crear (en borrador)
   const [agregados, setAgregados] = useState([]);        // lotes ingresados (local)
+  const [concil, setConcil] = useState(null);            // read-model de conciliación (ledger)
+  const [cerrando, setCerrando] = useState(false);
   const [nl, setNl] = useState({ productorId: "", predioId: "", cuartelId: "", especie_codigo: "", variedad_codigo: "", kg: "", ubicacion: "" });
 
   useEffect(() => {
@@ -108,11 +119,29 @@ export default function NuevaRecepcion() {
         empresa_id: empresa, folio, planta_id: planta || null, cliente_servicio_vinculo_id: f.cliente_servicio,
         transportista_vinculo_id: f.transportista || null, especie_codigo: f.especie_qc || null,
         kg_bruto: Number(f.kg_bruto) || null, tara: Number(f.tara) || null, kg_neto: pes.neto || null,
-        guia_despacho: f.guia_despacho || null, patente: f.patente || null, estado: "recibida",
+        guia_despacho: f.guia_despacho || null, patente: f.patente || null, estado: "borrador",
       });
       setRec({ id: r.id, folio: r.folio });
-      notificar(`Recepción ${r.folio} creada — registrá los lotes`);
+      refrescarConcil(r.id);
+      notificar(`Recepción ${r.folio} creada en borrador — registrá los lotes y finalizá`);
     } catch (e) { notificar(traducirError(e), "error"); }
+  };
+
+  // conciliación autoritativa (kg desde ledger + tolerancia de la empresa)
+  const refrescarConcil = async (recId) => {
+    try { const rows = await conciliacionRecepcion(empresa, recId || rec?.id); setConcil((rows && rows[0]) || null); }
+    catch { setConcil(null); }
+  };
+
+  const finalizar = async () => {
+    if (!rec) return;
+    setCerrando(true);
+    try {
+      const res = await cerrarRecepcion({ empresaId: empresa, recepcionId: rec.id });
+      notificar(`Recepción ${rec.folio} finalizada (${formatNum(res.kg_lotes, 1)} kg conciliados)`);
+      ir("recepcion_detalle", { id: rec.id });
+    } catch (e) { notificar(traducirError(e), "error"); refrescarConcil(); }
+    finally { setCerrando(false); }
   };
 
   const agregarLote = async () => {
@@ -128,6 +157,7 @@ export default function NuevaRecepcion() {
       });
       setAgregados((a) => [...a, { codigo, kg: Number(nl.kg), ...nl }]);
       setNl({ productorId: "", predioId: "", cuartelId: "", especie_codigo: "", variedad_codigo: "", kg: "", ubicacion: "" });
+      refrescarConcil();
       notificar(`Lote ${codigo} ingresado`);
     } catch (e) { notificar(traducirError(e), "error"); }
   };
@@ -266,10 +296,46 @@ export default function NuevaRecepcion() {
                 <span><b>{ro.lotes}</b> lotes</span><span><b>{ro.productores}</b> productores</span><span><b>{ro.predios}</b> predios</span><span><b>{ro.cuarteles}</b> cuarteles</span><span><b>{formatNum(ro.kg, 1)}</b> kg</span>
               </div>); })()}
 
-            <div style={{ marginTop: sp.md, textAlign: "right" }}>
-              <ProcButton kind="ghost" onClick={() => ir("recepcion_detalle", { id: rec.id })}>Ir al detalle de la recepción →</ProcButton>
-            </div>
           </ProcCard>
+
+          {/* ── CONCILIACIÓN DE MASA + CIERRE FORMAL (T10c-MASA) ── */}
+          {(() => {
+            const cc = concil;
+            const neto = cc ? Number(cc.kg_neto) : km.neto;
+            const lotes = cc ? Number(cc.kg_lotes) : km.asignado;
+            const dif = cc ? Number(cc.diferencia) : (neto - lotes);
+            const tolPct = cc ? Number(cc.tolerancia_pct) : null;
+            const tolAbs = cc ? Number(cc.tolerancia_abs) : null;
+            const dentro = cc ? cc.dentro_tolerancia : (Math.abs(dif) <= 0.0001);
+            const sinLotes = lotes <= 0;
+            return (
+              <ProcCard style={{ padding: sp.lg, marginTop: sp.md }}>
+                <div style={{ fontSize: 15, fontWeight: 800, color: C.text, marginBottom: sp.sm }}>Conciliación de masa</div>
+                <div style={{ fontSize: 12.5, color: C.muted, marginBottom: sp.md }}>
+                  La recepción está en <b>borrador</b>. Finalizala cuando los kilos de los lotes cuadren con el peso neto (dentro de la tolerancia de la empresa). El backend es la autoridad del cierre.
+                </div>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(150px, 1fr))", gap: sp.sm, marginBottom: sp.md }}>
+                  <Metrica titulo="Peso neto" valor={`${formatNum(neto, 1)} kg`} />
+                  <Metrica titulo="Kg en lotes (ledger)" valor={`${formatNum(lotes, 1)} kg`} />
+                  <Metrica titulo="Diferencia" valor={`${dif > 0 ? "+" : ""}${formatNum(dif, 1)} kg`} tono={dentro ? C.success : C.danger} />
+                  <Metrica titulo="Tolerancia" valor={tolAbs != null ? `${formatNum(tolAbs, 1)} kg (${formatNum(tolPct, 2)}%)` : "—"} />
+                  <Metrica titulo="Estado" valor={dentro ? "Cuadra" : "Descuadre"} tono={dentro ? C.success : C.danger} />
+                </div>
+                {!dentro && !sinLotes && (
+                  <div style={{ color: C.danger, fontSize: 12.5, marginBottom: sp.sm }}>
+                    Los kilos de los lotes no cuadran con el peso neto. Corregí o ajustá los lotes antes de finalizar.
+                  </div>
+                )}
+                {sinLotes && <div style={{ color: C.warning, fontSize: 12.5, marginBottom: sp.sm }}>Aún no hay lotes: agregá al menos uno para poder finalizar.</div>}
+                <div style={{ display: "flex", gap: sp.sm, justifyContent: "flex-end", alignItems: "center", flexWrap: "wrap" }}>
+                  <ProcButton kind="ghost" onClick={() => ir("recepcion_detalle", { id: rec.id })}>Ir al detalle →</ProcButton>
+                  <ProcButton onClick={finalizar} disabled={cerrando || sinLotes}>
+                    {cerrando ? "Finalizando…" : "Finalizar recepción"}
+                  </ProcButton>
+                </div>
+              </ProcCard>
+            );
+          })()}
         </>
       )}
     </div>

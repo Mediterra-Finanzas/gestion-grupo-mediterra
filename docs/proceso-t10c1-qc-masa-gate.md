@@ -51,6 +51,8 @@
 
 ## B. Hallazgo 2 — Conciliación de masa (recepción vs Σ lotes)
 
+> **ESTADO: MATERIALIZADO / VALIDATED (T10c-MASA)** — `schema_proc_v8_t10c_masa.sql` + `proc_v8_t10c_masa_tests.sql`. `tolerancia_recepcion_pct` dedicada (default 0.50, independiente de `tolerancia_masa_pct`); recepción se crea en **`borrador`**; RPC `proc_fn_cerrar_recepcion` suma Σ kg desde el **ledger** (movimientos de entrada `ref_tipo='recepcion'`), compara con `kg_neto` ± tolerancia, y transiciona `borrador → recibida` (o RECHAZA con mensaje humano). Read-model `proc_v_recepcion_conciliacion` (security_invoker). **Sin enforcement por INSERT de lote; sin "forzar cierre".** Gate PG16 verde: MASS-1..9 (exacto, faltante/exceso fuera de tolerancia, dentro de tolerancia, sin lotes, legacy `recibida` intacta, doble cierre) + **concurrencia real** (2 sesiones paralelas → 1 gana, la otra rechaza vía `FOR UPDATE`) + RLS/tenant (anon DENY vista+RPC, aislamiento A/B, cross-tenant cerrar bloqueado). UI: Nueva Recepción crea borrador + bloque de conciliación + "Finalizar recepción"; RecepcionDetalle finaliza borradores. Build `CI=true` OK; dominio JS 96/96.
+
 ### B.1 CURRENT (evidencia)
 - `proc_recepcion.kg_neto NUMERIC NOT NULL CHECK (>0)`; cada lote aporta kg por su movimiento de entrada (ledger).
 - **NO existe enforcement** de `Σ kg lotes` vs `kg_neto` en ningún punto (ingreso ni cierre). La conciliación de T10c es **solo preview UI**.

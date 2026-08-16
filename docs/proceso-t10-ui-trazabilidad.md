@@ -52,8 +52,14 @@ Normalización F7.6.1: nombres → `normalizarNombre`; **códigos/CSG/RUT no** s
 - `resumenKgLotes`/`resumenOrigenes`/`tonoContractual`/`copiarOrigen` puros. **Dominio 96/96** (incluye §27 H/I/J/K/L/M/C). **Build CI=true OK.** Solo frontend.
 - **Gap**: revisión live no ejecutada (requiere re-provisionar el stack DEV con schema T1-T9 + reseed); se hará en Visual QA final (§54).
 
+## T10c.1 — Gate QC granularidad + Conciliación de masa ✅ VALIDATED (backend PG16)
+Ver `docs/proceso-t10c1-qc-masa-gate.md`. Dos bloques aditivos:
+- **T10c-QC** (`c17eb62`): QC por lote (`proc_qc_recepcion.lote_id`), elegibilidad por lote con fallback header y **especie del lote** (corrige bug multi-especie); `registrar_qc(p_lote?)` compat 4-arg; read-model resumen. Gate PG16 + RLS verde.
+- **T10c-MASA**: recepción en `borrador` → `proc_fn_cerrar_recepcion` concilia Σ kg (ledger) vs `kg_neto` ± `tolerancia_recepcion_pct` → `recibida`; sin forzar cierre. Read-model `proc_v_recepcion_conciliacion`. UI: Nueva Recepción + RecepcionDetalle con bloque de conciliación y "Finalizar recepción". MASS-1..9 + concurrencia + RLS verde; build OK.
+
 ## Pendiente de T10
 - **T10d** Ficha Cliente + Contrato (pantallas) + estados de documento + alertas/gates transversales.
 - **T10e** filtros/read-models restantes (predio/cuartel server-side).
+- **QC por lote en UI** (QcPanel por lote + resumen en cabecera): el backend ya lo soporta (`registrar_qc(p_lote)`); la UI actual aún registra QC a nivel header (compat). Pendiente para T10d/e.
 
 Luego: PROC-REPORTING-DAILY-001; T11 UAT integral; retomar Visual QA (hoy NO).

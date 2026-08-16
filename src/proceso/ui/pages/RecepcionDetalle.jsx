@@ -4,7 +4,7 @@
 // movimientos iniciales, auditoría. Lee de vistas/loaders; no recalcula.
 import React, { useEffect, useState, useCallback } from "react";
 import { useService } from "../hooks/useServiceContext";
-import { cargarRecepcionListado, cargarRecepcionPorId, cargarLotesDeRecepcion, cargarMovimientosRef, cargarLoteOrigen, estadoContractualCliente } from "../../core/procesoF7DB";
+import { cargarRecepcionListado, cargarRecepcionPorId, cargarLotesDeRecepcion, cargarMovimientosRef, cargarLoteOrigen, estadoContractualCliente, conciliacionRecepcion, cerrarRecepcion } from "../../core/procesoF7DB";
 import { traducirError, tonoContractual } from "../../core/procesoF7Domain";
 import {
   ProcPageHeader, ProcCard, ProcButton, ProcStatusBadge, ProcDataTable, ProcAuditInfo,
@@ -24,13 +24,15 @@ function Seccion({ titulo, children, extra }) {
 }
 
 export default function RecepcionDetalle() {
-  const { empresa, ir, vista, puedeEditar } = useService();
+  const { empresa, ir, vista, puedeEditar, notificar } = useService();
   const id = vista?.params?.id;
   const [r, setR] = useState(null);
   const [raw, setRaw] = useState(null);
   const [lotes, setLotes] = useState([]);
   const [movs, setMovs] = useState([]);
   const [contract, setContract] = useState(null);
+  const [concil, setConcil] = useState(null);
+  const [cerrando, setCerrando] = useState(false);
   const [estado, setEstado] = useState("loading");
   const [error, setError] = useState(null);
 
@@ -52,9 +54,20 @@ export default function RecepcionDetalle() {
       setLotes(merged); setMovs(ms || []); setEstado("ok");
       const cli = (rw && rw[0] && rw[0].cliente_servicio_vinculo_id) || null;
       if (cli) estadoContractualCliente({ empresaId: empresa, clienteId: cli }).then((c) => setContract(Array.isArray(c) ? c[0] : c)).catch(() => {});
+      conciliacionRecepcion(empresa, id).then((rows) => setConcil((rows && rows[0]) || null)).catch(() => setConcil(null));
     } catch (e) { setError(traducirError(e)); setEstado("error"); }
   }, [empresa, id]);
   useEffect(() => { cargar(); }, [cargar]);
+
+  const finalizar = async () => {
+    setCerrando(true);
+    try {
+      const res = await cerrarRecepcion({ empresaId: empresa, recepcionId: id });
+      notificar && notificar(`Recepción finalizada (${formatNum(res.kg_lotes, 1)} kg conciliados)`);
+      cargar();
+    } catch (e) { notificar && notificar(traducirError(e), "error"); cargar(); }
+    finally { setCerrando(false); }
+  };
 
   if (estado === "loading") return <ProcLoadingState />;
   if (estado === "error") return <ProcErrorState error={error} onRetry={cargar} />;
@@ -78,6 +91,40 @@ export default function RecepcionDetalle() {
           </div>
         )}
       </Seccion>
+
+      {raw?.estado === "borrador" && (() => {
+        const cc = concil;
+        const neto = cc ? Number(cc.kg_neto) : Number(r.kg_neto);
+        const lotesKg = cc ? Number(cc.kg_lotes) : 0;
+        const dif = cc ? Number(cc.diferencia) : (neto - lotesKg);
+        const tolAbs = cc ? Number(cc.tolerancia_abs) : null;
+        const tolPct = cc ? Number(cc.tolerancia_pct) : null;
+        const dentro = cc ? cc.dentro_tolerancia : false;
+        const sinLotes = lotesKg <= 0;
+        const puede = puedeEditar("recepciones") || puedeEditar("centro");
+        const M = ({ l, v, tono }) => <div style={{ padding: "8px 12px", background: C.cardAlt, borderRadius: 8 }}>
+          <div style={{ fontSize: 11, color: C.muted, textTransform: "uppercase", letterSpacing: .3 }}>{l}</div>
+          <div style={{ fontSize: 15, fontWeight: 800, color: tono || C.text }}>{v}</div></div>;
+        return (
+          <Seccion titulo="Conciliación de masa · recepción en borrador" extra={<ProcStatusBadge estado="borrador" />}>
+            <div style={{ fontSize: 12.5, color: C.muted, marginBottom: sp.md }}>
+              Finalizá la recepción cuando los kilos de los lotes cuadren con el peso neto (dentro de la tolerancia). El backend valida y es la autoridad del cierre.
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(150px,1fr))", gap: sp.sm, marginBottom: sp.md }}>
+              <M l="Peso neto" v={`${formatNum(neto, 1)} kg`} />
+              <M l="Kg en lotes (ledger)" v={`${formatNum(lotesKg, 1)} kg`} />
+              <M l="Diferencia" v={`${dif > 0 ? "+" : ""}${formatNum(dif, 1)} kg`} tono={dentro ? C.success : C.danger} />
+              <M l="Tolerancia" v={tolAbs != null ? `${formatNum(tolAbs, 1)} kg (${formatNum(tolPct, 2)}%)` : "—"} />
+              <M l="Estado" v={dentro ? "Cuadra" : "Descuadre"} tono={dentro ? C.success : C.danger} />
+            </div>
+            {!dentro && !sinLotes && <div style={{ color: C.danger, fontSize: 12.5, marginBottom: sp.sm }}>Los kilos de los lotes no cuadran con el peso neto. Corregí o ajustá los lotes antes de finalizar.</div>}
+            {sinLotes && <div style={{ color: C.warning, fontSize: 12.5, marginBottom: sp.sm }}>Esta recepción todavía no tiene lotes: agregá al menos uno para poder finalizar.</div>}
+            {puede && <div style={{ textAlign: "right" }}>
+              <ProcButton onClick={finalizar} disabled={cerrando || sinLotes}>{cerrando ? "Finalizando…" : "Finalizar recepción"}</ProcButton>
+            </div>}
+          </Seccion>
+        );
+      })()}
 
       <Seccion titulo="Participantes (Core vía proc_vinculo)">
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(180px,1fr))", gap: sp.md }}>

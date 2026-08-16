@@ -54,6 +54,13 @@ export const loteElegible = (e, loteId) => procRpc("proc_fn_lote_elegible", { p_
 export const crearRecepcion = (fila) => crearMaestro("proc_recepcion", fila);
 export const actualizarRecepcion = (id, e, patch) => actualizarMaestro("proc_recepcion", id, e, patch);
 
+// T10c-MASA · Conciliación de masa (read-model) + cierre formal (RPC autoridad).
+export const conciliacionRecepcion = (e, recId) =>
+  procSelect("proc_v_recepcion_conciliacion", `?empresa_id=eq.${e}&recepcion_id=eq.${recId}`);
+export const cerrarRecepcion = (a) => procRpc("proc_fn_cerrar_recepcion", {
+  p_empresa: a.empresaId, p_recepcion: a.recepcionId, p_actor: a.actor || null,
+});
+
 // Loaders acotados
 export const cargarVinculosPorRol = (e, rol) =>
   procSelect("proc_vinculo", `?empresa_id=eq.${e}&rol_operacional=eq.${rol}&deleted_at=is.null&order=nombre_provisional`);
