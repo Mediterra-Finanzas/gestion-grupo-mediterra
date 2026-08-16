@@ -10,8 +10,9 @@ import {
   cambiarEstadoOrden, crearResultado, crearDescarte, crearMerma,
   cargarResultadosOrden, cargarDescartesOrden, cargarMermasOrden,
   cargarCategorias, cargarCalibresEspecie, cargarColoresEspecie, cargarMotivosDescarte, cargarMotivosMerma,
+  clienteVinculoDeOrden, clienteHabilitadoParaOperar, estadoContractualCliente,
 } from "../../core/procesoF7DB";
-import { traducirError, resumenConciliacion, accionesOrden, ordenTerminal, faltaParaCerrar } from "../../core/procesoF7Domain";
+import { traducirError, resumenConciliacion, accionesOrden, ordenTerminal, faltaParaCerrar, tonoNivelContractual } from "../../core/procesoF7Domain";
 import {
   ProcPageHeader, ProcCard, ProcButton, ProcStatusBadge, ProcDataTable, ProcModal, ProcField, inputStyle,
   ProcKpiCard, ProcLoadingState, ProcErrorState, ProcEmptyState,
@@ -38,6 +39,8 @@ export default function Orden() {
   const [cats, setCats] = useState([]); const [cals, setCals] = useState([]); const [cols, setCols] = useState([]);
   const [mdes, setMdes] = useState([]); const [mmer, setMmer] = useState([]);
   const [estado, setEstado] = useState("loading"); const [error, setError] = useState(null);
+  const [clienteId, setClienteId] = useState(null);
+  const [contractual, setContractual] = useState(null);
   const [selLote, setSelLote] = useState(false);
   const [nr, setNr] = useState({ categoria_id: "", calibre_id: "", color_id: "", kg: "" });
   const [nd, setNd] = useState({ motivo_descarte_id: "", kg: "" });
@@ -64,6 +67,12 @@ export default function Orden() {
         cargarColoresEspecie(empresa, ord.especie_codigo || ""), cargarMotivosDescarte(empresa), cargarMotivosMerma(empresa),
       ]);
       setCats(c1 || []); setCals(c2 || []); setCols(c3 || []); setMdes(c4 || []); setMmer(c5 || []);
+      // estado contractual del cliente (para gate de avance + badge)
+      const cvRows = await clienteVinculoDeOrden(empresa, id).catch(() => []);
+      const cvId = (cvRows && cvRows[0] && cvRows[0].cliente_servicio_vinculo_id) || null;
+      setClienteId(cvId);
+      if (cvId) estadoContractualCliente({ empresaId: empresa, clienteId: cvId }).then((r) => setContractual(Array.isArray(r) ? r[0] : r)).catch(() => {});
+      else setContractual(null);
       setEstado("ok");
     } catch (e) { setError(traducirError(e)); setEstado("error"); }
   }, [empresa, id]);
@@ -81,6 +90,15 @@ export default function Orden() {
 
   const accion = async (a) => {
     try {
+      // Gate contractual: avanzar a proceso exige habilitación del backend (no solo client-side)
+      if (a.a === "en_proceso" && clienteId) {
+        const g = await clienteHabilitadoParaOperar({ empresaId: empresa, clienteId, etapa: "proceso" });
+        const gr = Array.isArray(g) ? g[0] : g;
+        if (gr && gr.habilitado === false) {
+          notificar(gr.motivo || "El cliente no está habilitado para avanzar a proceso por su situación contractual.", "error");
+          return;
+        }
+      }
       if (a.rpc) await conciliarOrden({ empresaId: empresa, ordenId: id });
       else await cambiarEstadoOrden(empresa, id, a.a);
       notificar(a.l + " ✓"); cargar();
@@ -107,7 +125,10 @@ export default function Orden() {
       <ProcPageHeader titulo={`Orden ${o.folio}`} subtitulo="Mesa de control de proceso"
         acciones={<ProcButton kind="ghost" onClick={() => ir("ordenes")}>← Órdenes</ProcButton>} />
 
-      <Seccion titulo="Cabecera" extra={<ProcStatusBadge estado={o.estado} />}>
+      <Seccion titulo="Cabecera" extra={<div style={{ display: "flex", gap: sp.sm, alignItems: "center", flexWrap: "wrap" }}>
+        {contractual && contractual.nivel !== "ok" && contractual.nivel !== "info" && <ProcStatusBadge texto={contractual.estado_display || "Contrato"} tono={tonoNivelContractual(contractual.nivel)} />}
+        <ProcStatusBadge estado={o.estado} />
+      </div>}>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(140px,1fr))", gap: sp.md }}>
           <Dato l="Folio" v={o.folio} /><Dato l="Cliente" v={normalizarNombre(o.cliente)} /><Dato l="Especie / variedad" v={`${o.especie_codigo || "—"} ${o.variedad_codigo || ""}`} />
           <Dato l="Línea" v={o.linea} /><Dato l="Turno" v={o.turno} />

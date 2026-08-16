@@ -5,32 +5,39 @@
 // pre-valida con evaluarQC; el resultado autoritativo lo fija la RPC registrar_qc.
 import React, { useEffect, useState } from "react";
 import { useService } from "../hooks/useServiceContext";
-import { cargarQcParamsEspecie, registrarQc, cargarQcDeRecepcion } from "../../core/procesoF7DB";
+import { cargarQcParamsEspecie, registrarQc, cargarQcLotesDeRecepcion } from "../../core/procesoF7DB";
 import { evaluarQC, traducirError } from "../../core/procesoF7Domain";
 import { ProcButton, ProcStatusBadge, ProcEmptyState, ProcLoadingState, inputStyle } from "./base";
 import { C, sp, TONO } from "../estilos";
 
 const tonoSeveridad = (sv) => (sv === "bloqueante" ? "danger" : sv === "advertencia" ? "warning" : "info");
 
-export default function QcPanel({ especie, recepcionId, editable, onGuardado }) {
+// loteId opcional (T10c-QC): QC por lote; si es null, QC de recepción (header, compat).
+export default function QcPanel({ especie, recepcionId, loteId = null, editable, onGuardado }) {
   const { empresa, notificar } = useService();
   const [params, setParams] = useState([]);
   const [valores, setValores] = useState({});
   const [estado, setEstado] = useState("loading");
   const [guardado, setGuardado] = useState(null); // resultado guardado
+  const [esFallbackHeader, setEsFallbackHeader] = useState(false);
 
   useEffect(() => {
     if (!empresa || !especie) { setEstado("idle"); return; }
     setEstado("loading");
     Promise.all([
       cargarQcParamsEspecie(empresa, especie),
-      recepcionId ? cargarQcDeRecepcion(empresa, recepcionId) : Promise.resolve([]),
+      recepcionId ? cargarQcLotesDeRecepcion(empresa, recepcionId) : Promise.resolve([]),
     ]).then(([ps, qc]) => {
       setParams(ps || []);
-      if (qc && qc[0]) { setValores(qc[0].valores || {}); setGuardado(qc[0].resultado); }
+      const rows = qc || [];
+      const propio = rows.find((r) => r.lote_id === loteId) || null;         // QC del scope (lote o header)
+      const header = loteId ? (rows.find((r) => !r.lote_id) || null) : null;  // fallback header para un lote
+      const use = propio || header;
+      if (use) { setValores(use.valores || {}); setGuardado(use.resultado); setEsFallbackHeader(!propio && !!header); }
+      else { setValores({}); setGuardado(null); setEsFallbackHeader(false); }
       setEstado("ok");
     }).catch((e) => { notificar(traducirError(e), "error"); setEstado("idle"); });
-  }, [empresa, especie, recepcionId]);
+  }, [empresa, especie, recepcionId, loteId]);
 
   if (estado === "loading") return <ProcLoadingState texto="Cargando parámetros QC…" />;
   if (!params.length) return <ProcEmptyState icono="🧪" titulo="Sin parámetros QC configurados" detalle={`No hay QC configurado para la especie ${especie || "—"}. Configuralo en Configuración → Parámetros QC.`} />;
@@ -40,8 +47,8 @@ export default function QcPanel({ especie, recepcionId, editable, onGuardado }) 
 
   const registrar = async () => {
     try {
-      const res = await registrarQc({ empresaId: empresa, recepcionId, valores });
-      setGuardado(res);
+      const res = await registrarQc({ empresaId: empresa, recepcionId, valores, loteId });
+      setGuardado(res); setEsFallbackHeader(false);
       notificar(`QC registrado: ${res}`, res === "rechazado" ? "error" : "ok");
       onGuardado && onGuardado(res);
     } catch (e) { notificar(traducirError(e), "error"); }
@@ -52,6 +59,7 @@ export default function QcPanel({ especie, recepcionId, editable, onGuardado }) 
       {guardado && (
         <div style={{ marginBottom: sp.md, fontSize: 13, color: C.muted }}>
           Resultado guardado: <ProcStatusBadge estado={guardado} />
+          {esFallbackHeader && <span style={{ marginLeft: 8, fontSize: 11.5, color: C.muted2 }}>(heredado del QC de la recepción; registrá uno propio para este lote)</span>}
         </div>
       )}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))", gap: sp.md }}>

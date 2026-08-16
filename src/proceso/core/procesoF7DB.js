@@ -12,6 +12,7 @@ export const siguienteCorrelativo = (a) => procRpc("proc_fn_siguiente_correlativ
 // ── QC (gate enforceable en backend; la UI pre-valida con evaluarQC) ────────
 export const registrarQc = (a) => procRpc("proc_fn_registrar_qc", {
   p_empresa: a.empresaId, p_recepcion: a.recepcionId, p_valores: a.valores || {}, p_actor: a.actor || null,
+  p_lote: a.loteId || null,   // T10c-QC: QC por lote (null = header, compat)
 });
 
 // ── Read-models del Centro de Operaciones (solo lectura, RLS aplica) ────────
@@ -91,6 +92,9 @@ export const cargarOrdenListado = (e, extra = "") =>
   procSelect("proc_v_orden_listado", `?empresa_id=eq.${e}&order=fecha.desc${extra}`);
 export const cargarOrdenPorId = (e, id) =>
   procSelect("proc_v_orden_listado", `?empresa_id=eq.${e}&id=eq.${id}`);
+// cliente (vínculo) de una orden — para el gate contractual del avance (T10d)
+export const clienteVinculoDeOrden = (e, id) =>
+  procSelect("proc_orden_proceso", `?empresa_id=eq.${e}&id=eq.${id}&select=cliente_servicio_vinculo_id`);
 export const crearOrden = (fila) => crearMaestro("proc_orden_proceso", fila);
 export const cambiarEstadoOrden = (e, id, estado) =>
   procUpdate("proc_orden_proceso", `?id=eq.${id}&empresa_id=eq.${e}`, { estado });
@@ -294,3 +298,23 @@ export const cambiarEstadoContrato = (id, e, estado, actor) =>
   procUpdate("proc_cliente_contrato", `?id=eq.${id}&empresa_id=eq.${e}`, { estado, updated_by: actor || null });
 export const cargarTiposDocContractual = (e) =>
   procSelect("proc_tipo_documento_contractual", `?empresa_id=eq.${e}&deleted_at=is.null&activo=eq.true&order=nombre`);
+
+// T10d · Clientes Service — listado (read-model) + ficha + trazabilidad comercial
+export const cargarClientesServicio = (e, extra = "") =>
+  procSelect("proc_v_cliente_servicio", `?empresa_id=eq.${e}&order=cliente${extra}`);
+export const cargarClienteServicioUno = (e, cli) =>
+  procSelect("proc_v_cliente_servicio", `?empresa_id=eq.${e}&cliente_vinculo_id=eq.${cli}`);
+export const cargarVinculoUno = (e, id) =>
+  procSelect("proc_vinculo", `?empresa_id=eq.${e}&id=eq.${id}`);
+// trazabilidad comercial directamente atribuible al cliente
+export const cargarRecepcionesCliente = (e, cli) =>
+  procSelect("proc_recepcion", `?empresa_id=eq.${e}&cliente_servicio_vinculo_id=eq.${cli}&deleted_at=is.null&order=fecha.desc`);
+export const cargarOrdenesCliente = (e, cli) =>
+  procSelect("proc_orden_proceso", `?empresa_id=eq.${e}&cliente_servicio_vinculo_id=eq.${cli}&order=fecha.desc`);
+export const cargarServiciosCliente = (e, cli) =>
+  procSelect("proc_servicio_facturable", `?empresa_id=eq.${e}&cliente_vinculo_id=eq.${cli}&order=created_at.desc`);
+export const cargarBasesCliente = (e, cli) =>
+  procSelect("proc_base_cobro", `?empresa_id=eq.${e}&cliente_vinculo_id=eq.${cli}&order=created_at.desc`);
+// QC por lote de una recepción (para mostrar estado por lote)
+export const cargarQcLotesDeRecepcion = (e, recId) =>
+  procSelect("proc_qc_recepcion", `?empresa_id=eq.${e}&recepcion_id=eq.${recId}&deleted_at=is.null`);

@@ -57,9 +57,16 @@ Ver `docs/proceso-t10c1-qc-masa-gate.md`. Dos bloques aditivos:
 - **T10c-QC** (`c17eb62`): QC por lote (`proc_qc_recepcion.lote_id`), elegibilidad por lote con fallback header y **especie del lote** (corrige bug multi-especie); `registrar_qc(p_lote?)` compat 4-arg; read-model resumen. Gate PG16 + RLS verde.
 - **T10c-MASA**: recepción en `borrador` → `proc_fn_cerrar_recepcion` concilia Σ kg (ledger) vs `kg_neto` ± `tolerancia_recepcion_pct` → `recibida`; sin forzar cierre. Read-model `proc_v_recepcion_conciliacion`. UI: Nueva Recepción + RecepcionDetalle con bloque de conciliación y "Finalizar recepción". MASS-1..9 + concurrencia + RLS verde; build OK.
 
+## T10d — Ficha Cliente Service + Contrato + gate + QC por lote UI ✅ VALIDATED (backend PG16 + build)
+Read-model `schema_proc_v8_t10d.sql`: `proc_v_cliente_servicio` (vínculo cliente + ficha + estado contractual backend + contrato vigente + agregados n_contratos/n_vigentes/n_pendiente_firma/n_vencidos), security_invoker.
+- **Ficha Cliente** (`Clientes.jsx` listado + `ClienteFicha.jsx`): identidad (Core), relación Service (ficha CRUD), contratos versionados (historial completo, badges por estado, transiciones espejo del guard T7, firmar→vigente), alerta contractual principal (icono+badge+texto+acción, no solo color), trazabilidad comercial (productores/recepciones/órdenes/servicios/bases). Cliente≠productor. Normalización F7.6.1. Filtros ProcFilters acumulativos (cliente/estado contractual/política/ficha).
+- **Documento**: `procStorage.js` bucket privado `proc-docs` + signed URL temporal (nunca URL pública); solo se persiste `documento_path`; versiones históricas se conservan. Cargar documento ≠ firmar (estado inicial borrador/pendiente_firma; vigencia sólo con firma).
+- **Gate contractual** (backend autoridad `proc_fn_cliente_habilitado_para_operar`): Orden (bloquea avance a `en_proceso` con mensaje humano) + Programa (bloquea generar orden) + Centro ("Clientes con situación contractual", prioriza bloqueante>vencido>pendiente firma>advertencia). Recepción física SIEMPRE registrable.
+- **QC por lote UI** (deuda T10c.1 cerrada): `QcPanel` acepta `loteId` y registra `registrar_qc(p_lote)`; `RecepcionDetalle` muestra QC por lote (tabla) + editor por lote + fallback header. Helper puro `qcPorLote`.
+- **Fixtures legacy F7.2-F7.6**: siembran catálogo especie/variedad (FK cutover T5b) — **no relajan el FK**; regresión completa vuelve VERDE sin exclusiones.
+- Verificación: dominio JS **120/120**; build `CI=true` OK; PG16 regresión completa (27/27) + T10d C1-C16/C19/C20 + RLS/tenant (anon DENY vista+ficha+contrato, aislamiento A/B, cross-tenant). Contrato de integración `proceso-reporting-daily-001-contrato.md` (reservado).
+
 ## Pendiente de T10
-- **T10d** Ficha Cliente + Contrato (pantallas) + estados de documento + alertas/gates transversales.
-- **T10e** filtros/read-models restantes (predio/cuartel server-side).
-- **QC por lote en UI** (QcPanel por lote + resumen en cabecera): el backend ya lo soporta (`registrar_qc(p_lote)`); la UI actual aún registra QC a nivel header (compat). Pendiente para T10d/e.
+- **T10e** filtros/read-models restantes (predio/cuartel server-side); resumen QC en cabecera de recepción.
 
 Luego: PROC-REPORTING-DAILY-001; T11 UAT integral; retomar Visual QA (hoy NO).

@@ -4,8 +4,8 @@
 // movimientos iniciales, auditoría. Lee de vistas/loaders; no recalcula.
 import React, { useEffect, useState, useCallback } from "react";
 import { useService } from "../hooks/useServiceContext";
-import { cargarRecepcionListado, cargarRecepcionPorId, cargarLotesDeRecepcion, cargarMovimientosRef, cargarLoteOrigen, estadoContractualCliente, conciliacionRecepcion, cerrarRecepcion } from "../../core/procesoF7DB";
-import { traducirError, tonoContractual } from "../../core/procesoF7Domain";
+import { cargarRecepcionListado, cargarRecepcionPorId, cargarLotesDeRecepcion, cargarMovimientosRef, cargarLoteOrigen, estadoContractualCliente, conciliacionRecepcion, cerrarRecepcion, cargarQcLotesDeRecepcion } from "../../core/procesoF7DB";
+import { traducirError, tonoContractual, qcPorLote } from "../../core/procesoF7Domain";
 import {
   ProcPageHeader, ProcCard, ProcButton, ProcStatusBadge, ProcDataTable, ProcAuditInfo,
   ProcLoadingState, ProcErrorState, ProcEmptyState,
@@ -33,6 +33,8 @@ export default function RecepcionDetalle() {
   const [contract, setContract] = useState(null);
   const [concil, setConcil] = useState(null);
   const [cerrando, setCerrando] = useState(false);
+  const [qcRows, setQcRows] = useState([]);
+  const [selLoteQc, setSelLoteQc] = useState("");
   const [estado, setEstado] = useState("loading");
   const [error, setError] = useState(null);
 
@@ -40,13 +42,15 @@ export default function RecepcionDetalle() {
     if (!empresa || !id) return;
     setEstado("loading"); setError(null);
     try {
-      const [lista, rw, ls, org, ms] = await Promise.all([
+      const [lista, rw, ls, org, ms, qc] = await Promise.all([
         cargarRecepcionListado(empresa, `&id=eq.${id}`),
         cargarRecepcionPorId(empresa, id),
         cargarLotesDeRecepcion(empresa, id),
         cargarLoteOrigen(empresa, `&recepcion_id=eq.${id}`),
         cargarMovimientosRef(empresa, id),
+        cargarQcLotesDeRecepcion(empresa, id),
       ]);
+      setQcRows(qc || []);
       // merge: origen (productor/predio/cuartel) + raw (estado/ubicación) por id de lote
       const orgById = Object.fromEntries((org || []).map((o) => [o.id, o]));
       const merged = (ls || []).map((x) => ({ ...x, ...(orgById[x.id] || {}) }));
@@ -141,7 +145,39 @@ export default function RecepcionDetalle() {
       </Seccion>
 
       <Seccion titulo="Control de Calidad">
-        <QcPanel especie={r.especie_codigo} recepcionId={id} editable={puedeEditar("recepciones") || puedeEditar("centro")} onGuardado={cargar} />
+        {lotes.length > 0 ? (() => {
+          const qcEst = qcPorLote(lotes, qcRows);
+          const editableQc = puedeEditar("recepciones") || puedeEditar("centro");
+          const sel = lotes.find((l) => l.id === selLoteQc) || null;
+          return (
+            <>
+              <div style={{ fontSize: 12, color: C.muted, marginBottom: sp.sm }}>Cada lote tiene su propio QC (por especie del lote). Si un lote no tiene QC propio, aplica el QC general de la recepción (fallback).</div>
+              <ProcDataTable
+                columnas={[
+                  { titulo: "Lote", render: (x) => <b>{x.lote.codigo}</b> },
+                  { titulo: "Especie", render: (x) => x.lote.especie_codigo || "—" },
+                  { titulo: "QC", render: (x) => x.resultado ? <ProcStatusBadge estado={x.resultado} /> : <ProcStatusBadge texto="sin QC" tono="neutral" /> },
+                  { titulo: "Origen QC", render: (x) => x.esHeader ? "recepción (fallback)" : x.tieneQc ? "lote" : "—" },
+                  ...(editableQc ? [{ titulo: "", align: "right", render: (x) => <ProcButton kind="ghost" small onClick={() => setSelLoteQc(x.lote.id === selLoteQc ? "" : x.lote.id)}>{x.lote.id === selLoteQc ? "Cerrar" : "Registrar QC"}</ProcButton> }] : []),
+                ]}
+                filas={qcEst} rowKey="id" />
+              {sel && (
+                <div style={{ marginTop: sp.md, padding: sp.md, border: `1px solid ${C.border}`, borderRadius: 8 }}>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: C.text, marginBottom: sp.sm }}>QC del lote {sel.codigo} · {sel.especie_codigo || "—"}</div>
+                  <QcPanel especie={sel.especie_codigo} recepcionId={id} loteId={sel.id} editable={editableQc} onGuardado={() => cargar()} />
+                </div>
+              )}
+              <details style={{ marginTop: sp.md }}>
+                <summary style={{ cursor: "pointer", fontSize: 12.5, color: C.muted }}>QC general de la recepción (fallback header)</summary>
+                <div style={{ marginTop: sp.sm }}>
+                  <QcPanel especie={r.especie_codigo} recepcionId={id} editable={editableQc} onGuardado={() => cargar()} />
+                </div>
+              </details>
+            </>
+          );
+        })() : (
+          <QcPanel especie={r.especie_codigo} recepcionId={id} editable={puedeEditar("recepciones") || puedeEditar("centro")} onGuardado={cargar} />
+        )}
       </Seccion>
 
       <Seccion titulo={`Lotes / orígenes (${lotes.length})`}>

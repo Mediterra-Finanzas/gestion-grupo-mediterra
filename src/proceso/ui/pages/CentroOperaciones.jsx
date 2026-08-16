@@ -3,14 +3,23 @@
 // Action-oriented (no dashboard CFO). Consume read-models backend, no calcula en React.
 import React, { useEffect, useState, useCallback } from "react";
 import { useService } from "../hooks/useServiceContext";
-import { centroOperaciones, excepcionesOperacionales, cargarServiciosFacturables, cargarBasesCobro } from "../../core/procesoF7DB";
-import { traducirError } from "../../core/procesoF7Domain";
+import { centroOperaciones, excepcionesOperacionales, cargarServiciosFacturables, cargarBasesCobro, cargarClientesServicio } from "../../core/procesoF7DB";
+import { traducirError, tonoNivelContractual } from "../../core/procesoF7Domain";
 import {
-  ProcPageHeader, ProcKpiCard, ProcCard, ProcExceptionList, ProcButton,
+  ProcPageHeader, ProcKpiCard, ProcCard, ProcExceptionList, ProcButton, ProcStatusBadge,
   ProcLoadingState, ProcErrorState, ProcEmptyState,
 } from "../components/base";
 import { C, sp } from "../estilos";
-import { formatKg, formatNum, formatFecha, formatFechaHora } from "../format";
+import { normalizarNombre, formatKg, formatNum, formatFecha, formatFechaHora } from "../format";
+
+// prioridad de la situación contractual (bloqueante > vencido > pendiente firma > advertencia)
+function situacionContractual(c) {
+  if (c.nivel_contractual === "bloqueante") return { p: 0, txt: "Contrato bloqueante sin vigencia", tono: "danger" };
+  if ((c.n_vencidos || 0) > 0) return { p: 1, txt: `${c.n_vencidos} contrato(s) vencido(s)`, tono: "danger" };
+  if ((c.n_pendiente_firma || 0) > 0) return { p: 2, txt: `${c.n_pendiente_firma} contrato(s) pendiente(s) de firma`, tono: "warning" };
+  if (c.nivel_contractual === "advertencia") return { p: 3, txt: "Sin contrato firmado vigente", tono: "warning" };
+  return null;
+}
 
 const kg = (n) => formatKg(n);
 
@@ -28,6 +37,7 @@ export default function CentroOperaciones() {
   const [data, setData] = useState(null);
   const [exc, setExc] = useState([]);
   const [com, setCom] = useState(null); // comercial (F7.7): {pendientes, basesAbiertas} | null si no disponible
+  const [cont, setCont] = useState(null); // situación contractual de clientes (T10d) | null si no disponible
   const [estado, setEstado] = useState("idle"); // idle|loading|ok|error
   const [error, setError] = useState(null);
 
@@ -52,6 +62,12 @@ export default function CentroOperaciones() {
         ]);
         setCom({ pendientes: (pend || []).length, basesAbiertas: (bases || []).length });
       } catch { setCom(null); }
+      // Situación contractual de clientes (degrada elegante).
+      try {
+        const clis = await cargarClientesServicio(empresa);
+        const afectados = (clis || []).map((c) => ({ c, s: situacionContractual(c) })).filter((x) => x.s).sort((a, b) => a.s.p - b.s.p);
+        setCont(afectados);
+      } catch { setCont(null); }
     } catch (e) {
       setError(traducirError(e)); setEstado("error");
     }
@@ -125,6 +141,27 @@ export default function CentroOperaciones() {
           <ProcKpiCard label="Pendientes de tarifa" valor={com.pendientes} tono={com.pendientes > 0 ? "warning" : "success"} onClick={() => ir("pendientes")} />
           <ProcKpiCard label="Bases por aprobar" valor={com.basesAbiertas} tono={com.basesAbiertas > 0 ? "info" : "neutral"} onClick={() => ir("bases")} />
         </Grupo>
+      )}
+
+      {cont && cont.length > 0 && (
+        <>
+          <div style={{ fontSize: 12.5, fontWeight: 800, color: C.muted, textTransform: "uppercase", letterSpacing: .4, marginBottom: sp.sm }}>
+            Clientes con situación contractual · {cont.length}
+          </div>
+          <ProcCard style={{ padding: sp.md, marginBottom: sp.lg }}>
+            {cont.slice(0, 8).map(({ c, s }) => (
+              <div key={c.cliente_vinculo_id} onClick={() => ir("cliente_ficha", { id: c.cliente_vinculo_id })}
+                style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: sp.sm, padding: "8px 6px", borderBottom: `1px solid ${C.border}`, cursor: "pointer", flexWrap: "wrap" }}>
+                <div style={{ display: "flex", gap: sp.sm, alignItems: "center", flexWrap: "wrap" }}>
+                  <ProcStatusBadge texto={s.txt} tono={s.tono} />
+                  <span style={{ fontSize: 13, fontWeight: 700, color: C.text }}>{normalizarNombre(c.cliente)}</span>
+                </div>
+                <span style={{ fontSize: 12, color: C.primary }}>Ver ficha →</span>
+              </div>
+            ))}
+            {cont.length > 8 && <div style={{ marginTop: sp.sm, textAlign: "right" }}><ProcButton kind="ghost" small onClick={() => ir("clientes")}>Ver todos ({cont.length}) →</ProcButton></div>}
+          </ProcCard>
+        </>
       )}
 
       <div style={{ fontSize: 12.5, fontWeight: 800, color: C.muted, textTransform: "uppercase", letterSpacing: .4, marginBottom: sp.sm }}>

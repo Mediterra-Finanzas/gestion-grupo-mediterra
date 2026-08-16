@@ -27,6 +27,8 @@ import Despachos from "../pages/Despachos";
 import Despacho from "../pages/Despacho";
 import Informes from "../pages/Informes";
 import InformeDetalle from "../pages/InformeDetalle";
+import Clientes from "../pages/Clientes";
+import ClienteFicha from "../pages/ClienteFicha";
 import Tarifario from "../pages/Tarifario";
 import ServiciosFacturables from "../pages/ServiciosFacturables";
 import BasesCobro from "../pages/BasesCobro";
@@ -53,6 +55,7 @@ const NAV = [
     { id: "despachos", label: "Despachos" },
     { id: "historial", label: "Historial", page: "despachos", params: { filtroEstado: "despachado" } }] },
   { grupo: "Clientes", items: [
+    { id: "clientes", label: "Clientes Service" },
     { id: "vinculos", label: "Vínculos", page: "config" },
     { id: "resultados_proc", label: "Resultados de Proceso", page: "informes" },
     { id: "informes", label: "Informes / Envíos", page: "informes" }] },
@@ -65,7 +68,7 @@ const NAV = [
 ];
 const TODOS = NAV.flatMap((g) => g.items);
 // mapea la vista actual al item de nav para el resaltado
-const NAV_DE_PAGE = { recepcion_nueva: "recepciones", recepcion_detalle: "recepciones", lote_detalle: "lotes", orden: "ordenes", bodega: "pallets", pallet_detalle: "pallets", despacho: "despachos", informe_detalle: "resultados_proc", informes: "resultados_proc", base_cobro_detalle: "bases" };
+const NAV_DE_PAGE = { recepcion_nueva: "recepciones", recepcion_detalle: "recepciones", lote_detalle: "lotes", orden: "ordenes", bodega: "pallets", pallet_detalle: "pallets", despacho: "despachos", informe_detalle: "resultados_proc", informes: "resultados_proc", base_cobro_detalle: "bases", cliente_ficha: "clientes" };
 
 function useEsMovil(bp = 900) {
   const [m, setM] = useState(typeof window !== "undefined" && window.innerWidth < bp);
@@ -123,6 +126,8 @@ export default function ProcShell({ onBack, onLogout, usuario }) {
       case "despacho": return <Despacho />;
       case "informes": return <Informes />;
       case "informe_detalle": return <InformeDetalle />;
+      case "clientes": return <Clientes />;
+      case "cliente_ficha": return <ClienteFicha />;
       case "tarifario": return <Tarifario />;
       case "servicios": return <ServiciosFacturables />;
       case "pendientes": return <ServiciosFacturables soloPendientes />;

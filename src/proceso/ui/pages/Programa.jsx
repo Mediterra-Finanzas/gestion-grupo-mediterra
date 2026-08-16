@@ -6,6 +6,7 @@ import React, { useEffect, useState, useCallback } from "react";
 import { useService } from "../hooks/useServiceContext";
 import {
   cargarProgramas, crearPrograma, actualizarPrograma, crearOrden, siguienteCorrelativo, cargarVinculosPorRol,
+  clienteHabilitadoParaOperar,
 } from "../../core/procesoF7DB";
 import { traducirError, badgeDe } from "../../core/procesoF7Domain";
 import {
@@ -51,6 +52,15 @@ export default function Programa() {
   const publicar = async (p) => { try { await actualizarPrograma(p.id, empresa, { estado: "publicado" }); notificar("Programa publicado"); cargar(); } catch (e) { notificar(traducirError(e), "error"); } };
   const generarOrden = async (p) => {
     try {
+      // Gate contractual: generar orden = avanzar a proceso (backend autoridad)
+      if (p.cliente_servicio_vinculo_id) {
+        const g = await clienteHabilitadoParaOperar({ empresaId: empresa, clienteId: p.cliente_servicio_vinculo_id, etapa: "proceso" });
+        const gr = Array.isArray(g) ? g[0] : g;
+        if (gr && gr.habilitado === false) {
+          notificar(gr.motivo || "El cliente no está habilitado para avanzar a proceso por su situación contractual.", "error");
+          return;
+        }
+      }
       const folio = await siguienteCorrelativo({ empresaId: empresa, temporada: temporada || "s-t", tipo: "ORD" });
       const o = await crearOrden({
         empresa_id: empresa, folio, programa_id: p.id, planta_id: p.planta_id || planta || null, linea_id: p.linea_id || null,

@@ -1,6 +1,6 @@
 /* eslint-disable */
 // Tests de dominio proc_* F7.1 (node). Ejecutar: node src/proceso/core/procesoF7Domain.test.mjs
-import { formatearCorrelativo, compactarTemporada, evaluarQC, badgeDe, traducirError, validarFiltros, calcularNeto, validarPesos, packout, resumenConciliacion, accionesOrden, faltaParaCerrar, ordenTerminal, despachoTerminal, puedeConfirmarDespacho, accionesDespacho, totalKg, montoServicio, especificidadTarifa, vigenciaTarifa, baseEditable, accionesBase, servicioAgregableABase, totalesPorMoneda, filtrosActivos, opcionesRef, limpiarDependencias, labelRef, resumenKgLotes, resumenOrigenes, tonoContractual, copiarOrigen } from "./procesoF7Domain.js";
+import { formatearCorrelativo, compactarTemporada, evaluarQC, badgeDe, traducirError, validarFiltros, calcularNeto, validarPesos, packout, resumenConciliacion, accionesOrden, faltaParaCerrar, ordenTerminal, despachoTerminal, puedeConfirmarDespacho, accionesDespacho, totalKg, montoServicio, especificidadTarifa, vigenciaTarifa, baseEditable, accionesBase, servicioAgregableABase, totalesPorMoneda, filtrosActivos, opcionesRef, limpiarDependencias, labelRef, resumenKgLotes, resumenOrigenes, tonoContractual, copiarOrigen, alertaContractual, transicionesContrato, tonoNivelContractual, qcPorLote } from "./procesoF7Domain.js";
 
 let pass = 0, fail = 0;
 const ok = (c, m) => { if (c) pass++; else { fail++; console.error("  ✗ " + m); } };
@@ -150,6 +150,48 @@ eq(tm.find((x) => x.moneda === "CLP").total, 100000, "CLP separado");
   // C: copy-down hereda origen pero NO kg/ubicación
   const cp = copiarOrigen({ productorId: "A", predioId: "P1", cuartelId: "C1", especie_codigo: "CHE", variedad_codigo: "SANTINA", kg: 4000, ubicacion: "U1" });
   eq(cp.productorId, "A", "C: copia productor"); eq(cp.especie_codigo, "CHE", "copia especie"); eq(cp.kg, "", "C: NO copia kg"); eq(cp.ubicacion, "", "C: NO copia ubicación");
+}
+
+// ── T10d · Contrato / estado contractual / QC por lote (helpers puros) ──
+{
+  // Badges de la máquina de estados del contrato (C-visual)
+  eq(badgeDe("vigente").tono, "success", "badge vigente -> success");
+  eq(badgeDe("vencido").tono, "danger", "badge vencido -> danger");
+  eq(badgeDe("pendiente_firma").tono, "warning", "badge pendiente_firma -> warning");
+  eq(badgeDe("reemplazado").tono, "neutral", "badge reemplazado -> neutral");
+  // Transiciones (espejo del guard T7)
+  ok(transicionesContrato("borrador").includes("pendiente_firma"), "borrador -> pendiente_firma");
+  ok(transicionesContrato("pendiente_firma").includes("vigente"), "pendiente_firma -> vigente");
+  ok(transicionesContrato("vigente").includes("reemplazado"), "vigente -> reemplazado");
+  eq(transicionesContrato("reemplazado").length, 0, "reemplazado es terminal");
+  ok(!transicionesContrato("borrador").includes("vigente"), "borrador NO salta a vigente directo");
+  // Tono por nivel del backend
+  eq(tonoNivelContractual("bloqueante"), "danger", "nivel bloqueante -> danger");
+  eq(tonoNivelContractual("advertencia"), "warning", "nivel advertencia -> warning");
+  eq(tonoNivelContractual("ok"), "success", "nivel ok -> success");
+  // Alerta contractual (mapea nivel → presentación; no recrea la regla)
+  eq(alertaContractual({ nivel: "ok", estado_display: "Contrato vigente" }).mostrar, false, "ok no alerta");
+  eq(alertaContractual({ nivel: "bloqueante" }).mostrar, true, "bloqueante alerta");
+  eq(alertaContractual({ nivel: "bloqueante" }).tono, "danger", "bloqueante -> danger");
+  eq(alertaContractual({ nivel: "advertencia" }).tono, "warning", "advertencia -> warning");
+  eq(alertaContractual(null).mostrar, false, "sin estado no alerta");
+  // C19/C20: QC por lote (propio) vs fallback header
+  const lotes = [{ id: "L1", especie_codigo: "CHE" }, { id: "L2", especie_codigo: "PLU" }, { id: "L3", especie_codigo: "CHE" }];
+  const qcRows = [
+    { lote_id: "L1", resultado: "aprobado", valores: {} },
+    { lote_id: "L2", resultado: "rechazado", valores: {} },
+    { lote_id: null, resultado: "aprobado", valores: {} }, // header
+  ];
+  const q = qcPorLote(lotes, qcRows);
+  eq(q.find((x) => x.id === "L1").resultado, "aprobado", "C19: L1 QC propio aprobado");
+  eq(q.find((x) => x.id === "L2").resultado, "rechazado", "C19: L2 QC propio rechazado independiente");
+  eq(q.find((x) => x.id === "L1").esHeader, false, "L1 no es fallback");
+  eq(q.find((x) => x.id === "L3").resultado, "aprobado", "C20: L3 sin QC propio usa header");
+  eq(q.find((x) => x.id === "L3").esHeader, true, "C20: L3 marcado como fallback header");
+  // sin header: lote sin QC propio queda sin resultado
+  const q2 = qcPorLote([{ id: "L9", especie_codigo: "CHE" }], [{ lote_id: "L1", resultado: "aprobado" }]);
+  eq(q2[0].resultado, null, "sin QC propio ni header -> sin resultado");
+  eq(q2[0].tieneQc, false, "sin QC -> tieneQc false");
 }
 
 // Filtros

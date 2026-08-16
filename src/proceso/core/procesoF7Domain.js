@@ -78,6 +78,12 @@ export const ESTADOS_BADGE = {
   enviada_a_facturacion: { label: "Enviada a facturación", tono: "info" },
   anulado: { label: "Anulado", tono: "danger" },
   anulada: { label: "Anulada", tono: "danger" },
+  // Contrato (T7): máquina de estados versionada
+  pendiente_firma: { label: "Pendiente de firma", tono: "warning" },
+  vigente: { label: "Vigente", tono: "success" },
+  vencido: { label: "Vencido", tono: "danger" },
+  reemplazado: { label: "Reemplazado", tono: "neutral" },
+  terminado: { label: "Terminado", tono: "neutral" },
   rechazado: { label: "Rechazado", tono: "danger" },
   condicional: { label: "Condicional", tono: "warning" },
   aprobado: { label: "Aprobado", tono: "success" },
@@ -288,6 +294,54 @@ export function copiarOrigen(prev = {}) {
   const { productorId, predioId, cuartelId, especie_codigo, variedad_codigo } = prev;
   return { productorId: productorId || "", predioId: predioId || "", cuartelId: cuartelId || "",
     especie_codigo: especie_codigo || "", variedad_codigo: variedad_codigo || "", kg: "", ubicacion: "" };
+}
+
+// ── T10d · Contrato / estado contractual (helpers puros; backend = autoridad) ──
+// Máquina de estados del contrato (espejo del guard T7 para habilitar acciones UI).
+export const CONTRATO_TRANSICIONES = {
+  borrador: ["pendiente_firma", "anulado"],
+  pendiente_firma: ["vigente", "borrador", "anulado"],
+  vigente: ["vencido", "reemplazado", "terminado", "anulado"],
+  vencido: ["reemplazado", "terminado"],
+  reemplazado: [], terminado: [], anulado: [],
+};
+export function transicionesContrato(estado) { return CONTRATO_TRANSICIONES[estado] || []; }
+
+// Tono del badge según el nivel del backend (ok/info/informativo/advertencia/bloqueante).
+export function tonoNivelContractual(nivel) {
+  return nivel === "bloqueante" ? "danger" : nivel === "advertencia" ? "warning"
+    : nivel === "info" || nivel === "informativo" ? "info" : "success";
+}
+
+// Alerta contractual a partir del estado que devuelve el backend. La UI NO recrea
+// la regla: solo mapea nivel→presentación. mostrar=false cuando no hay que alertar.
+export function alertaContractual(ec) {
+  if (!ec) return { mostrar: false, tono: "neutral", titulo: "—", texto: "" };
+  const nivel = ec.nivel;
+  if (nivel === "ok") return { mostrar: false, tono: "success", titulo: ec.estado_display || "Contrato vigente", texto: "Contrato firmado vigente." };
+  if (nivel === "info") return { mostrar: false, tono: "info", titulo: ec.estado_display || "—", texto: ec.tiene_contrato_vigente ? "Contrato vigente." : "Sin requisito de contrato para este cliente." };
+  if (nivel === "informativo") return { mostrar: true, tono: "info", titulo: "Sin contrato firmado vigente", texto: "Este cliente no posee un contrato firmado vigente. Registro informativo; no restringe la operación." };
+  if (nivel === "advertencia") return { mostrar: true, tono: "warning", titulo: "Contrato no vigente", texto: "Este cliente no posee un contrato firmado vigente. Se puede recibir fruta; regularizá el contrato para operar sin restricciones." };
+  if (nivel === "bloqueante") return { mostrar: true, tono: "danger", titulo: "Contrato no vigente (bloqueante)", texto: "Este cliente no posee un contrato firmado vigente. La recepción física se registra igual, pero el avance a proceso o facturación queda bloqueado por la política contractual." };
+  return { mostrar: false, tono: "neutral", titulo: ec.estado_display || "—", texto: "" };
+}
+
+// QC por lote: resuelve el estado de QC de cada lote (propio → fallback header legacy).
+// Espejo de proc_fn_lote_elegible para la presentación; el gate real es el backend.
+export function qcPorLote(lotes = [], qcRows = []) {
+  const header = (qcRows || []).find((q) => !q.lote_id) || null;
+  return (lotes || []).map((l) => {
+    const propio = (qcRows || []).find((q) => q.lote_id === l.id) || null;
+    const q = propio || header;
+    return {
+      id: l.id,
+      lote: l,
+      resultado: q ? q.resultado : null,
+      esHeader: !propio && !!header,   // aplicado por fallback del QC de recepción
+      tieneQc: !!q,
+      valores: q ? (q.valores || {}) : {},
+    };
+  });
 }
 
 // ── Filtros: lógica pura de chips activos / reset (usada por ProcFilters) ────
