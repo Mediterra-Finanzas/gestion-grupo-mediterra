@@ -20,6 +20,9 @@ export default function Ordenes() {
   const [error, setError] = useState(null);
   const [fEstado, setFEstado] = useState(vista?.params?.filtroEstado || "");
   const [nueva, setNueva] = useState(null);
+  // P2 nav contextual: "Órdenes" y "Conciliaciones" comparten page="ordenes"; al navegar entre ellas
+  // el componente no re-monta, por eso sincronizamos el filtro de estado con el param de la vista.
+  useEffect(() => { setFEstado(vista?.params?.filtroEstado || ""); }, [vista?.params?.filtroEstado]);
 
   const cargar = useCallback(async () => {
     if (!empresa) { setEstado("idle"); return; }

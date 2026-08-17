@@ -21,6 +21,9 @@ export default function Despachos() {
   const [fEstado, setFEstado] = useState(vista?.params?.filtroEstado || "");
   const [nuevo, setNuevo] = useState(null);
   const [vinc, setVinc] = useState({ cliente_servicio: [], otros: [] });
+  // P2 nav contextual: "Despachos" y "Preparación" comparten page="despachos"; al navegar entre ellas
+  // el componente no re-monta, por eso sincronizamos el filtro de estado con el param de la vista.
+  useEffect(() => { setFEstado(vista?.params?.filtroEstado || ""); }, [vista?.params?.filtroEstado]);
 
   const cargar = useCallback(async () => {
     if (!empresa) { setEstado("idle"); return; }
