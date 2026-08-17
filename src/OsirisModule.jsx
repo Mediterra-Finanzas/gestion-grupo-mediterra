@@ -5,6 +5,7 @@
 // ============================================================
 import React, { useState, useCallback, useMemo, useEffect, useRef } from "react";
 import { theme } from "./theme";
+import { snapshotOsiris, isDirty as osirisIsDirty } from "./data/osirisDirty";
 
 const SUPA_URL = "https://bywovqayuzodbzwsriet.supabase.co";
 const SUPA_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJ5d292cWF5dXpvZGJ6d3NyaWV0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU2ODU1MDgsImV4cCI6MjA5MTI2MTUwOH0.s2x2O_CxE6rl8dBqFuyfQdMyRqSyjJQWXJXesmVGXtk";
@@ -10074,6 +10075,11 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
   const dataRef = useRef(osirisData);
   useEffect(()=>{ dataRef.current = osirisData; },[osirisData]);
 
+  // Baseline canónico post-carga: el estado "limpio" contra el que se compara para detectar
+  // cambios reales del usuario. Se fija al cargar y se refresca tras cada guardado exitoso.
+  // (Reemplaza el guard frágil de un-solo-render `primeraCargaRef`.)
+  const baselineRef = useRef(null);
+
   // Cargar al montar
   useEffect(()=>{
     (async()=>{
@@ -10087,6 +10093,8 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
         });
         console.log("[Osiris] Cargado. Protección:", JSON.stringify(window._lastSavedOsiris));
       }
+      // Baseline = contenido cargado (o {} si no había fila). dirty=false inmediatamente tras load.
+      baselineRef.current = snapshotOsiris(saved || {});
       setCargandoOsiris(false);
     })();
   },[]);
@@ -10094,19 +10102,23 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
   // Indicador de guardado: "saved" | "dirty" | "saving"
   const [saveState, setSaveState] = useState("saved");
   const [saveTs, setSaveTs] = useState(null);
-  const primeraCargaRef = useRef(true);
-
-  // Auto-guardado (debounce 2s) + estado del indicador
+  // Auto-guardado (debounce 2s) + indicador. Dirty por comparacion SEMANTICA con baseline
+  // (no por referencia ni por flag de un solo render): re-sets/hidrataciones sin cambio real
+  // de contenido persistible NO marcan "Cambios sin guardar".
   useEffect(()=>{
     if(cargandoOsiris) return;
-    // El primer render tras cargar no es un cambio del usuario.
-    if(primeraCargaRef.current){ primeraCargaRef.current=false; return; }
+    if(baselineRef.current == null){ baselineRef.current = snapshotOsiris(dataRef.current); return; }
+    if(!osirisIsDirty(dataRef.current, baselineRef.current)){
+      setSaveState(s=> s==="saving" ? s : "saved");
+      return;
+    }
     setSaveState(s=> s==="saving" ? s : "dirty");
     const t = setTimeout(async ()=>{
       setSaveState("saving");
+      const snapAtSave = snapshotOsiris(dataRef.current);
       const ok = await dbSaveOsiris(dataRef.current);
-      setSaveState(ok?"saved":"dirty");
-      if(ok) setSaveTs(new Date());
+      if(ok){ baselineRef.current = snapAtSave; setSaveState("saved"); setSaveTs(new Date()); }
+      else { setSaveState("dirty"); }
     }, 2000);
     return ()=>clearTimeout(t);
   },[osirisData, cargandoOsiris]);
@@ -10114,9 +10126,10 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
   // Guardar inmediato (botón)
   const guardarAhora = async ()=>{
     setSaveState("saving");
+    const snapAtSave = snapshotOsiris(dataRef.current);
     const ok = await dbSaveOsiris(dataRef.current);
-    setSaveState(ok?"saved":"dirty");
-    if(ok) setSaveTs(new Date());
+    if(ok){ baselineRef.current = snapAtSave; setSaveState("saved"); setSaveTs(new Date()); }
+    else { setSaveState("dirty"); }
   };
 
   // Flush al cerrar/refrescar: guarda lo pendiente para no perder cambios recién hechos.
