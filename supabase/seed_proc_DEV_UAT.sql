@@ -41,6 +41,12 @@ BEGIN
   INSERT INTO proc_vinculo(empresa_id,pendiente_alta_corporativa,nombre_provisional,rol_operacional) VALUES (e,true,'Allegria Foods','cliente_servicio') RETURNING id INTO vFoods;
 
   -- Catálogo especie/variedad (requerido por el FK del cutover T5b; DEV/UAT, no relaja el FK)
+  -- Tipos de envase retornable (PROC-ENVASES-001 E1) — DEV_ONLY, configurables.
+  INSERT INTO proc_tipo_envase(empresa_id,codigo,nombre,categoria,unidad,retornable,activo) VALUES
+    (e,'BIN','Bin','cosecha','unidad',true,true),
+    (e,'TOTE','Tote','cosecha','unidad',true,true),
+    (e,'REJILLA','Rejilla','proceso','unidad',true,true)
+    ON CONFLICT (empresa_id,codigo) DO NOTHING;
   INSERT INTO proc_especie(empresa_id,codigo,nombre) VALUES (e,'CHE','Cereza'),(e,'PLU','Ciruela');
   INSERT INTO proc_variedad(empresa_id,especie_codigo,codigo,nombre) VALUES
     (e,'CHE','Santina','Santina'),(e,'CHE','Lapins','Lapins'),(e,'PLU','D''Agen','D''Agen');
