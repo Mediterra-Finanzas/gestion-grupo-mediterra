@@ -78,7 +78,7 @@ export default function Repaletizaje() {
   if (estado === "loading") return <ProcLoadingState />;
   if (estado === "error") return <ProcErrorState error={error} onRetry={cargar} />;
 
-  const lineasOrigen = origenIds.flatMap((pid) => (lineas[pid] || []).map((l) => ({ ...l, pallet: pid, palletCod: (pallets.find((p) => p.pallet_id === pid) || {}).codigo })));
+  const lineasOrigen = origenIds.flatMap((pid) => (lineas[pid] || []).map((l, idx) => ({ ...l, pallet: pid, itemN: idx + 1, palletCod: (pallets.find((p) => p.pallet_id === pid) || {}).codigo })));
 
   return (
     <div>
@@ -123,7 +123,7 @@ export default function Repaletizaje() {
             <div key={i} style={{ display: "grid", gridTemplateColumns: "2fr 90px 90px 90px", gap: sp.sm, alignItems: "end", marginBottom: sp.sm }}>
               <ProcField label="Origen (pallet · PT)"><select style={inputStyle} value={`${m.origen}|${m.pt_id}`} onChange={(e) => { const [o, pt] = e.target.value.split("|"); setMove(i, "origen", o); setMove(i, "pt_id", pt); }}>
                 <option value="|">—</option>
-                {lineasOrigen.map((l) => <option key={l.id} value={`${l.pallet}|${l.pt_id}`}>{l.palletCod} · PT {l.pt_id.slice(0, 6)} · {kg(l.kg)}</option>)}
+                {lineasOrigen.map((l) => <option key={l.id} value={`${l.pallet}|${l.pt_id}`}>{l.palletCod} · ítem {l.itemN} · {kg(l.kg)}</option>)}
               </select></ProcField>
               <ProcField label="Kg"><input style={inputStyle} type="number" value={m.kg} onChange={(e) => setMove(i, "kg", e.target.value)} /></ProcField>
               <ProcField label="Cajas"><input style={inputStyle} type="number" value={m.cajas} onChange={(e) => setMove(i, "cajas", e.target.value)} /></ProcField>
