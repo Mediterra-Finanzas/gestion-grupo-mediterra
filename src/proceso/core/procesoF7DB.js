@@ -321,3 +321,38 @@ export const cargarBasesCliente = (e, cli) =>
 // QC por lote de una recepción (para mostrar estado por lote)
 export const cargarQcLotesDeRecepcion = (e, recId) =>
   procSelect("proc_qc_recepcion", `?empresa_id=eq.${e}&recepcion_id=eq.${recId}&deleted_at=is.null`);
+
+// ── PROC-REPORTING-DAILY-001 · Informe Diario de Operación ──────────────────
+// Config (tenant-scoped)
+export const cargarReporteConfigs = (e) =>
+  procSelect("proc_reporte_config", `?empresa_id=eq.${e}&deleted_at=is.null&order=created_at.desc`);
+export const crearReporteConfig = (fila) => crearMaestro("proc_reporte_config", fila);
+export const actualizarReporteConfig = (id, e, patch) => actualizarMaestro("proc_reporte_config", id, e, patch);
+export const desactivarReporteConfig = (id, e, actor) => desactivarMaestro("proc_reporte_config", id, e, actor);
+// Destinatarios (separados del cliente reportado)
+export const cargarReporteDestinatarios = (e, configId) =>
+  procSelect("proc_reporte_destinatario", `?empresa_id=eq.${e}&config_id=eq.${configId}&deleted_at=is.null&order=created_at`);
+export const crearReporteDestinatario = (fila) => crearMaestro("proc_reporte_destinatario", fila);
+export const actualizarReporteDestinatario = (id, e, patch) => actualizarMaestro("proc_reporte_destinatario", id, e, patch);
+export const desactivarReporteDestinatario = (id, e, actor) => desactivarMaestro("proc_reporte_destinatario", id, e, actor);
+// Preview = MISMO motor read-only (RPC). No recalcula en React.
+export const previewInformeDiario = (a) => procRpc("proc_fn_informe_diario_operacion", {
+  p_empresa: a.empresaId, p_fecha: a.fecha, p_planta: a.plantaId || null,
+  p_cliente: a.clienteId || null, p_tz: a.timezone || "America/Santiago",
+});
+// Motor de ejecución (idempotente, congela snapshot). Envío manual y scheduler usan ESTE motor.
+export const generarEjecucionReporte = (a) => procRpc("proc_fn_reporte_generar_ejecucion", {
+  p_empresa: a.empresaId, p_config: a.configId, p_fecha: a.fecha, p_actor: a.actor || null,
+});
+export const marcarEnviadoReporte = (a) => procRpc("proc_fn_reporte_marcar_enviado", {
+  p_empresa: a.empresaId, p_ejecucion: a.ejecucionId, p_proveedor: a.proveedor, p_message_id: a.messageId, p_actor: a.actor || null,
+});
+export const marcarErrorReporte = (a) => procRpc("proc_fn_reporte_marcar_error", {
+  p_empresa: a.empresaId, p_ejecucion: a.ejecucionId, p_error: a.error, p_actor: a.actor || null,
+});
+export const reintentarReporte = (a) => procRpc("proc_fn_reporte_reintentar", {
+  p_empresa: a.empresaId, p_ejecucion: a.ejecucionId, p_actor: a.actor || null,
+});
+// Historial (read-model, filtrable server-side)
+export const cargarEjecucionesReporte = (e, extra = "") =>
+  procSelect("proc_v_reporte_ejecucion", `?empresa_id=eq.${e}&order=fecha_operacional.desc,generado_en.desc${extra}`);

@@ -29,6 +29,7 @@ import Informes from "../pages/Informes";
 import InformeDetalle from "../pages/InformeDetalle";
 import Clientes from "../pages/Clientes";
 import ClienteFicha from "../pages/ClienteFicha";
+import ReporteDiario from "../pages/ReporteDiario";
 import Tarifario from "../pages/Tarifario";
 import ServiciosFacturables from "../pages/ServiciosFacturables";
 import BasesCobro from "../pages/BasesCobro";
@@ -64,7 +65,9 @@ const NAV = [
     { id: "servicios", label: "Servicios Facturables" },
     { id: "pendientes", label: "Pendientes de Tarifa" },
     { id: "bases", label: "Bases de Cobro" }] },
-  { grupo: null, items: [{ id: "config", label: "Configuración", icon: "⚙️" }] },
+  { grupo: null, items: [
+    { id: "reportes_diario", label: "Reportes Automáticos", icon: "📧" },
+    { id: "config", label: "Configuración", icon: "⚙️" }] },
 ];
 const TODOS = NAV.flatMap((g) => g.items);
 // mapea la vista actual al item de nav para el resaltado
@@ -128,6 +131,7 @@ export default function ProcShell({ onBack, onLogout, usuario }) {
       case "informe_detalle": return <InformeDetalle />;
       case "clientes": return <Clientes />;
       case "cliente_ficha": return <ClienteFicha />;
+      case "reportes_diario": return <ReporteDiario />;
       case "tarifario": return <Tarifario />;
       case "servicios": return <ServiciosFacturables />;
       case "pendientes": return <ServiciosFacturables soloPendientes />;
