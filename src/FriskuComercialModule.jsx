@@ -5818,13 +5818,17 @@ function useExportTrigger(exportReq, exporters){
   }, [exportReq]); // eslint-disable-line react-hooks/exhaustive-deps
 }
 
-function StraightTableBI({ onVerEmbarque, chromeless, panelEl, fullscreen, onExitFull, exportReq }) {
+function StraightTableBI({ onVerEmbarque, chromeless, panelEl, fullscreen, onExitFull, exportReq, initialConfig, onConfig }) {
   const bi = useFriskuBI();
   const { filtered, dims, metrics, metric, sel, toggle } = bi;
-  const [dimSel, setDimSel] = useState(["cliente"]);
-  const [medSel, setMedSel] = useState(["containers","fcl","boxes","friskuCommissionUSD"]);
-  const [sortCol, setSortCol] = useState("med:friskuCommissionUSD");
-  const [sortDir, setSortDir] = useState("desc");
+  // P2.1b: semilla desde bookmark (initialConfig). Sin initialConfig → defaults idénticos a hoy.
+  const ic = initialConfig||{};
+  const [dimSel, setDimSel] = useState(()=> Array.isArray(ic.dimSel)&&ic.dimSel.length ? ic.dimSel : ["cliente"]);
+  const [medSel, setMedSel] = useState(()=> Array.isArray(ic.medSel)&&ic.medSel.length ? ic.medSel : ["containers","fcl","boxes","friskuCommissionUSD"]);
+  const [sortCol, setSortCol] = useState(()=> typeof ic.sortCol==="string" ? ic.sortCol : "med:friskuCommissionUSD");
+  const [sortDir, setSortDir] = useState(()=> (ic.sortDir==="asc"||ic.sortDir==="desc") ? ic.sortDir : "desc");
+  // Reporta config vigente (canal lateral hacia el workspace; no re-renderiza → no hay loop).
+  useEffect(()=>{ onConfig && onConfig({ dimSel, medSel, sortCol, sortDir }); }, [dimSel, medSel, sortCol, sortDir]);
   const [q, setQ] = useState("");
   const [cfgOpen, setCfgOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -6273,16 +6277,28 @@ function AnalysisWorkspace({ data, permTablero, onVerEmbarque, bmOwner }) {
   const [bmOpen, setBmOpen] = useState(false);
   const [bmName, setBmName] = useState("");
   const [bmMsg,  setBmMsg]  = useState("");               // aviso discreto (campos descartados al restaurar)
+  // ── P2.1b Config intraobjeto: captura/restauración por tipo de objeto ──
+  // objCfgRef = última config SERIALIZABLE reportada por cada objeto (persiste aunque el objeto no esté montado).
+  // seeded = true tras la primera restauración → habilita sembrar initialConfig (antes: comportamiento idéntico al actual).
+  // restoreNonce = fuerza remount SOLO al recuperar una vista (no en navegación/preset/viz normal).
+  const objCfgRef = useRef({});
+  const [seeded, setSeeded] = useState(false);
+  const [restoreNonce, setRestoreNonce] = useState(0);
+  const reportCfg = useCallback((type,cfg)=>{ objCfgRef.current = { ...objCfgRef.current, [type]: cfg }; }, []);
+  const objSeed = (type)=> seeded ? objCfgRef.current[type] : undefined;
   useEffect(()=>{ setBmList(listBookmarks(bmOwner)); }, [bmOwner]);
   const refreshBm = ()=> setBmList(listBookmarks(bmOwner));
   const guardarVista = ()=>{
     const nombre=(bmName||"").trim(); if(!nombre) return;
-    const bm=buildBookmark({ nombre, owner:bmOwner, hoja:"analisis", preset, viz, panelOpen, sel:bi.sel, locked:[...(bi.locked||[])], obj:{} });
+    const bm=buildBookmark({ nombre, owner:bmOwner, hoja:"analisis", preset, viz, panelOpen, sel:bi.sel, locked:[...(bi.locked||[])], obj:objCfgRef.current });
     saveBookmark(bmOwner, bm); setBmName(""); setBmMsg(`Guardada “${nombre}”`); refreshBm();
   };
   const restaurarVista = (bm)=>{
     const { bm:v, avisos } = validateBookmark(bm, dimKeys, metKeys);
-    // Restauración atómica: React 18 agrupa estos setState en un solo render.
+    // Restauración atómica (React 18 agrupa estos setState en un solo render):
+    // selección + preset + viz + panel + config de objeto, y un remount único (restoreNonce).
+    objCfgRef.current = { ...objCfgRef.current, ...(v.obj||{}) };   // recuerda config incluso de objetos no montados
+    setSeeded(true); setRestoreNonce(n=>n+1);
     setPreset(v.preset); if(v.preset==="libre") setViz(v.viz); setPanelOpen(v.panelOpen!==false);
     bi.applySel(deserializeSel(v.sel), v.locked||[]);
     setBmMsg(avisos.length ? `Restaurada (${avisos.length} campo(s) ya no existen y se omitieron)` : `Restaurada “${v.nombre}”`);
@@ -6317,7 +6333,7 @@ function AnalysisWorkspace({ data, permTablero, onVerEmbarque, bmOwner }) {
     if(preset==="semanal")   return <HojaSemanal {...objProps} onVerEmbarque={onVerEmbarque}/>;
     if(preset==="comp")      return <HojaComparativo {...objProps}/>;
     if(preset==="ab")        return <ComparadorAB {...objProps}/>;
-    if(viz==="tabla")        return <StraightTableBI {...objProps} onVerEmbarque={onVerEmbarque}/>;
+    if(viz==="tabla")        return <StraightTableBI key={`tabla#${restoreNonce}`} {...objProps} onVerEmbarque={onVerEmbarque} initialConfig={objSeed("tabla")} onConfig={cfg=>reportCfg("tabla",cfg)}/>;
     if(viz==="pivot")        return <PivotTableBI {...objProps}/>;
     if(viz==="drill")        return <DrillGroupsBI {...objProps} onVerEmbarque={onVerEmbarque}/>;
     const vizChart = viz==="dona"?"torta":viz==="tendencia"?"tendencia":"barras";

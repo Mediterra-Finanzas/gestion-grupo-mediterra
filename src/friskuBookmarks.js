@@ -38,15 +38,28 @@ export function buildBookmark({ nombre, owner, hoja, preset, viz, panelOpen, sel
   };
 }
 
-// Filtra referencias de dims/medidas dentro de la config de objeto (best-effort, no rompe).
+// Defaults seguros por objeto (deben coincidir con los useState de cada componente).
+const DEF_TABLA = { dimSel:["cliente"], medSel:["containers","fcl","boxes","friskuCommissionUSD"], sortCol:"med:friskuCommissionUSD", sortDir:"desc" };
+
+// Filtra/repara la config de objeto contra los catálogos vigentes (best-effort, nunca rompe;
+// aplica defaults seguros a lo inválido y conserva el resto de la vista).
 function validObj(obj, dset, mset, avisos){
   if(!obj || typeof obj!=="object") return {};
   const o = JSON.parse(JSON.stringify(obj));
-  const keepDims = (arr)=> Array.isArray(arr) ? arr.filter(d=>{ const ok=dset.has(d); if(!ok) avisos.push(`Dimensión '${d}' ya no existe`); return ok; }) : arr;
-  const keepMeds = (arr)=> Array.isArray(arr) ? arr.filter(m=>{ const ok=mset.has(m); if(!ok) avisos.push(`Medida '${m}' ya no existe`); return ok; }) : arr;
+  const keepDims = (arr)=> Array.isArray(arr) ? arr.filter(d=>{ const ok=dset.has(d); if(!ok) avisos.push(`Dimensión '${d}' ya no existe`); return ok; }) : [];
+  const keepMeds = (arr)=> Array.isArray(arr) ? arr.filter(m=>{ const ok=mset.has(m); if(!ok) avisos.push(`Medida '${m}' ya no existe`); return ok; }) : [];
   const valDim = (v)=> (v==null||dset.has(v)) ? v : (avisos.push(`Dimensión '${v}' ya no existe`), null);
   const valMed = (v)=> (v==null||mset.has(v)) ? v : (avisos.push(`Medida '${v}' ya no existe`), null);
-  if(o.tabla){ o.tabla.dimSel=keepDims(o.tabla.dimSel); o.tabla.medSel=keepMeds(o.tabla.medSel); }
+
+  if(o.tabla){
+    let ds = keepDims(o.tabla.dimSel); if(ds.length===0){ ds=[...DEF_TABLA.dimSel]; avisos.push("Tabla: sin dimensiones válidas → default"); }
+    let ms = keepMeds(o.tabla.medSel); if(ms.length===0){ ms=[...DEF_TABLA.medSel]; avisos.push("Tabla: sin medidas válidas → default"); }
+    o.tabla.dimSel = ds; o.tabla.medSel = ms;
+    o.tabla.sortDir = (o.tabla.sortDir==="asc"||o.tabla.sortDir==="desc") ? o.tabla.sortDir : "desc";
+    const sc = o.tabla.sortCol;
+    const okSort = typeof sc==="string" && (sc==="part" || (sc.startsWith("dim:")&&ds.includes(sc.slice(4))) || (sc.startsWith("med:")&&ms.includes(sc.slice(4))));
+    if(!okSort){ if(sc) avisos.push("Tabla: columna de orden incompatible → default"); o.tabla.sortCol = "med:"+ms[0]; }
+  }
   if(o.pivot){ o.pivot.row1=valDim(o.pivot.row1); o.pivot.row2=(o.pivot.row2?valDim(o.pivot.row2):o.pivot.row2); o.pivot.colDim=valDim(o.pivot.colDim); o.pivot.medKey=valMed(o.pivot.medKey); }
   if(o.drill){ o.drill.medKey=valMed(o.drill.medKey); }
   if(o.grafico){ o.grafico.dim1=valDim(o.grafico.dim1); o.grafico.dim2=(o.grafico.dim2?valDim(o.grafico.dim2):o.grafico.dim2); }
