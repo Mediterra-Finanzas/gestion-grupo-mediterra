@@ -60,7 +60,15 @@ function validObj(obj, dset, mset, avisos){
     const okSort = typeof sc==="string" && (sc==="part" || (sc.startsWith("dim:")&&ds.includes(sc.slice(4))) || (sc.startsWith("med:")&&ms.includes(sc.slice(4))));
     if(!okSort){ if(sc) avisos.push("Tabla: columna de orden incompatible → default"); o.tabla.sortCol = "med:"+ms[0]; }
   }
-  if(o.pivot){ o.pivot.row1=valDim(o.pivot.row1); o.pivot.row2=(o.pivot.row2?valDim(o.pivot.row2):o.pivot.row2); o.pivot.colDim=valDim(o.pivot.colDim); o.pivot.medKey=valMed(o.pivot.medKey); }
+  if(o.pivot){
+    const p=o.pivot;
+    if(!dset.has(p.row1)){ if(p.row1!=null) avisos.push("Pivot: fila 1 inválida → default"); p.row1="cliente"; }
+    if(!dset.has(p.colDim)){ if(p.colDim!=null) avisos.push("Pivot: columna inválida → default"); p.colDim="temporada"; }
+    if(!mset.has(p.medKey)){ if(p.medKey!=null) avisos.push("Pivot: medida inválida → default"); p.medKey="fcl"; }
+    if(p.row2!=null && !dset.has(p.row2)){ avisos.push("Pivot: fila 2 inválida → sin fila 2"); p.row2=null; }
+    if(p.row2!=null && p.row2===p.row1){ avisos.push("Pivot: fila 2 = fila 1 → sin fila 2"); p.row2=null; }
+    p.expanded = Array.isArray(p.expanded) ? p.expanded.filter(x=>typeof x==="string") : [];   // Set→array (serializable)
+  }
   if(o.drill){ o.drill.medKey=valMed(o.drill.medKey); }
   if(o.grafico){ o.grafico.dim1=valDim(o.grafico.dim1); o.grafico.dim2=(o.grafico.dim2?valDim(o.grafico.dim2):o.grafico.dim2); }
   return o;

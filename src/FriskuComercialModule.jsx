@@ -6047,14 +6047,18 @@ function StraightTableBI({ onVerEmbarque, chromeless, panelEl, fullscreen, onExi
 // total se RECALCULA con metric.calc(rows) — nunca suma subtotales (correcto para
 // count-distinct: contenedores/FCL/clientes/exportadores).
 function PivotTableBI(_pivotProps={}) {
-  const { chromeless, panelEl, fullscreen, onExitFull, exportReq } = _pivotProps;
+  const { chromeless, panelEl, fullscreen, onExitFull, exportReq, initialConfig, onConfig } = _pivotProps;
   const bi = useFriskuBI();
   const { filtered, dims, metrics, metric, sel, toggle, chips } = bi;
-  const [row1, setRow1] = useState("cliente");
-  const [row2, setRow2] = useState("especie");
-  const [colDim, setColDim] = useState("temporada");
-  const [medKey, setMedKey] = useState("fcl");
-  const [expanded, setExpanded] = useState(()=>new Set());
+  // P2.1b: semilla desde bookmark. Sin initialConfig → defaults idénticos a hoy.
+  const ic = initialConfig||{};
+  const [row1, setRow1] = useState(()=> typeof ic.row1==="string" ? ic.row1 : "cliente");
+  const [row2, setRow2] = useState(()=> (ic.row2===null||typeof ic.row2==="string") ? ic.row2 : "especie");
+  const [colDim, setColDim] = useState(()=> typeof ic.colDim==="string" ? ic.colDim : "temporada");
+  const [medKey, setMedKey] = useState(()=> typeof ic.medKey==="string" ? ic.medKey : "fcl");
+  const [expanded, setExpanded] = useState(()=> new Set(Array.isArray(ic.expanded)?ic.expanded:[]));
+  // Reporta config vigente (expanded serializado Set→array).
+  useEffect(()=>{ onConfig && onConfig({ row1, row2, colDim, medKey, expanded:[...expanded] }); }, [row1, row2, colDim, medKey, expanded]);
   const [full, setFull] = useState(false);
   const [expX, setExpX] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -6334,7 +6338,7 @@ function AnalysisWorkspace({ data, permTablero, onVerEmbarque, bmOwner }) {
     if(preset==="comp")      return <HojaComparativo {...objProps}/>;
     if(preset==="ab")        return <ComparadorAB {...objProps}/>;
     if(viz==="tabla")        return <StraightTableBI key={`tabla#${restoreNonce}`} {...objProps} onVerEmbarque={onVerEmbarque} initialConfig={objSeed("tabla")} onConfig={cfg=>reportCfg("tabla",cfg)}/>;
-    if(viz==="pivot")        return <PivotTableBI {...objProps}/>;
+    if(viz==="pivot")        return <PivotTableBI key={`pivot#${restoreNonce}`} {...objProps} initialConfig={objSeed("pivot")} onConfig={cfg=>reportCfg("pivot",cfg)}/>;
     if(viz==="drill")        return <DrillGroupsBI {...objProps} onVerEmbarque={onVerEmbarque}/>;
     const vizChart = viz==="dona"?"torta":viz==="tendencia"?"tendencia":"barras";
     return <TableroAsociativo {...objProps} vizChart={vizChart} {...data}/>;
