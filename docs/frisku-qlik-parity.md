@@ -127,22 +127,28 @@ Selection Bar, Filter Pane, export y fullscreen se comparten.
 | Excel/PDF por objeto (Tabla/Pivot/Barras/Dona/Tendencia/Drill/Comercial/Semanal/Comparativo/Reportes/Packing List) desde controles **únicos** del workspace | IGUAL |
 | **Lo exportado = exactamente el universo visible** (selección/preset/viz) | **IGUAL** — corregido (ver §7 stale export) |
 
-### L. Bookmarks
+### L. Bookmarks (P2.1 — implementado, pendiente validación runtime)
 | Capacidad | Estado |
 |---|---|
-| Guardar / recuperar / nombrar / eliminar / persistir / por usuario | motor `applySel` listo; **sin UI ni persistencia** | **FALTA** |
+| Guardar / recuperar / nombrar / eliminar, por usuario, persistente | `friskuBookmarks.js` + control "★ Vistas" en el workspace; localStorage por `usuarioActual.nombre`; esquema versionado v2 tolerante | **EQUIVALENTE** |
+| Restaura selección + preset + visualización + panel (atómico) | sí (`applySel` + estado del workspace en un render) | **EQUIVALENTE** |
+| Restaura config intra-objeto (columnas Tabla / layout Pivot / nivel Drill / gráfico) | esquema reserva el campo `obj`; **pendiente P2.1b** (toca objetos P1.9e → validación runtime) | **PARCIAL** |
+> localStorage por usuario (aislado, sin Supabase, sin compartir en esta fase). Tests: 29/29.
 
-### M. Lock selections
+### M. Lock selections (P2.2 — implementado, pendiente validación runtime)
 | Capacidad | Estado |
 |---|---|
-| Bloquear selección por campo | no implementado | **FALTA** |
+| Bloquear campo (no se limpia con «Limpiar todo») | historial `{sel, locked}`; chip 🔒/🔓 en la Selection Bar; reductores puros; bookmarks guardan/restauran locks | **EQUIVALENTE** |
+| clearDim respeta lock · undo/redo restauran sel+lock · preset/viz no alteran locks | sí | **EQUIVALENTE** |
+> Tests de reductores: 20/20.
 
-### N. Alternate States / comparador A-B
+### N. Alternate States / comparador A-B (P2.3 — implementado, pendiente validación runtime)
 | Capacidad | Estado |
 |---|---|
-| Dos selecciones independientes por objeto (A/B reales) | no existe | **FALTA** |
-| Comparación por temporada (fija) | **Comparativo**: A/B de temporadas, respeta selección global salvo la dimensión temporada | **PARCIAL** |
-> El Comparativo fijo por temporada **NO** es Alternate States reales.
+| Dos selecciones independientes A/B (reales) | preset "⇆ A/B": snapshots independientes de la barra global (fijar/swap/copiar/editar/limpiar); `friskuCompare.js` sobre `metric.calc` | **EQUIVALENTE** |
+| A · B · Δ · Δ%; cero real vs "Sin datos suficientes"; count-distinct por estado; export Excel/PDF | sí; Δ% relativo a \|B\| (— si B=0) | **EQUIVALENTE** |
+| Comparación por temporada (fija) | **Comparativo**: A/B de temporadas, respeta selección global salvo la dimensión temporada | **IGUAL** (se conserva, es complementario) |
+> El comparador A/B (Alternate States) **no** reemplaza el Comparativo fijo por temporada. Tests: 17/17.
 
 ### O. Fullscreen
 | Capacidad | Estado |
@@ -166,19 +172,19 @@ NPrinting / scheduling / distribución server-side / alertas server: **NO APLICA
 - **Stale export = CORREGIDO** (hotfix P1.9e-h1, `useExportTrigger` con latest-ref): el export consume el estado del render vigente → **el universo exportado = el visible**.
 - **PDF Unicode/typography (H1) = CORREGIDO** (`src/pdfText.js` + `configureFriskuPdf`): tildes/ñ/ü/ö/ß intactas; `Δ`→`Variación`, `Δ%`→`Variación %`, `→`→`>`, emojis decorativos eliminados; sin mojibake. Sin fuente adicional (0 bytes al bundle).
 - **Excel Unicode = SIN PROBLEMA** (ExcelJS es UTF-8 nativo; emojis/`Δ`/tildes correctos).
-- **Bookmarks = FALTA** (motor listo, sin UI).
-- **Lock selections = FALTA.**
-- **Alternate States reales = FALTA**; **Comparativo fijo por temporada = PARCIAL** (≠ Alternate States).
+- **Bookmarks = IMPLEMENTADO (P2.1)** — UI "★ Vistas" + localStorage por usuario; pendiente validación runtime. Config intra-objeto → P2.1b.
+- **Lock selections = IMPLEMENTADO (P2.2)** — chip 🔒 en Selection Bar; pendiente validación runtime.
+- **Alternate States reales = IMPLEMENTADO (P2.3)** — preset "⇆ A/B"; pendiente validación runtime. **Comparativo fijo por temporada = se conserva** (complementario, ≠ Alternate States).
 
 ## 7. Brechas funcionales candidatas a P2 (ordenadas por prioridad)
-1. **Bookmarks** (UI + persistencia por usuario) — motor `applySel` ya disponible; alto valor, bajo riesgo (aditivo).
-2. **Alternate States / comparador A-B reales** — dos selecciones independientes; base para análisis comparativo avanzado.
-3. **Lock de selecciones** (por campo) — control fino de exploración.
-4. **Uniformidad de fuente de datos entre todos los objetos** — hoy solo los gráficos eligen fuente; Tabla/Pivot/Drill usan embarques.
-5. **Tooltips analíticos** más ricos (hoy `<title>` básicos).
-6. (Menor) **Set-analysis con expresiones de conjunto arbitrarias.**
+1. ~~**Bookmarks**~~ — **HECHO (P2.1)**, salvo config intra-objeto (**P2.1b** pendiente: toca objetos P1.9e, requiere validación runtime).
+2. ~~**Alternate States / comparador A-B reales**~~ — **HECHO (P2.3)**.
+3. ~~**Lock de selecciones**~~ — **HECHO (P2.2)**.
+4. **Uniformidad de fuente de datos entre todos los objetos** — hoy solo los gráficos eligen fuente; Tabla/Pivot/Drill usan embarques. **(P2.4, pendiente)**
+5. **Tooltips analíticos** más ricos (hoy `<title>` básicos). **(P2.4, pendiente)**
+6. (Menor) **Set-analysis con expresiones de conjunto arbitrarias.** Helpers necesarios ya centralizados en `friskuCompare.js` (`metricEnEstado`/`dif`/`difPct`) + `friskuBI.js` (`factsIgnoring`/`participacion`); un parser de expresiones sigue siendo **FALTA** (no prioritario).
 
-**Orden recomendado P2:** 1 Bookmarks → 2 Alternate States/A-B → 3 Lock → 4 Uniformidad de fuente → 5 Tooltips → 6 Set-analysis avanzado. Cada sub-fase debe actualizar esta matriz y pasar la comprobación de no-regresión.
+**Estado P2:** P2.1/P2.2/P2.3 implementados en `frisku-p2-dev` (commits atómicos, build CI=true OK, 66 tests puros verdes), **detenido para validación runtime** del CFO antes de P2.4 (uniformidad de fuente + tooltips) y P2.1b (config intra-objeto en bookmarks). Cada sub-fase actualiza esta matriz y pasa no-regresión.
 
 ## 8. No regresiones P1.9e
 La consolidación visual (15 → 3 hojas; objetos bajo un solo workspace) **redujo navegación, no potencia analítica**. Se conservaron todas las capacidades previas:
