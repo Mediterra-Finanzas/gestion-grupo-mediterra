@@ -268,17 +268,19 @@ eq(tm.find((x) => x.moneda === "CLP").total, 100000, "CLP separado");
   ok(textoQcCabecera("").includes("especie principal"), "sin especie -> fallback textual");
 }
 
-// kgEntradaPorLote (NR-05): kg de entrada inicial por lote (autoridad = ledger, NO on_hand).
+// kgEntradaPorLote (NR-05): kg ORIGINALMENTE ASIGNADOS por lote (entrada del ledger). NO es
+// on_hand ni entrada−salida (saldo). La rehidratación del borrador muestra lo asignado, no el saldo.
 {
   const movs = [
     { objeto_id: "L1", ref_tipo: "recepcion", objeto_tipo: "lote", naturaleza: "entrada", cantidad: 4000 },
     { objeto_id: "L2", ref_tipo: "recepcion", objeto_tipo: "lote", naturaleza: "entrada", cantidad: "3000" },
-    { objeto_id: "L1", ref_tipo: "traslado", objeto_tipo: "lote", naturaleza: "salida", cantidad: 1000 }, // no cuenta
+    { objeto_id: "L1", ref_tipo: "traslado", objeto_tipo: "lote", naturaleza: "salida", cantidad: 1000 }, // saldo baja, asignado NO
+    { objeto_id: "L1", ref_tipo: "recepcion", objeto_tipo: "lote", naturaleza: "salida", cantidad: 1500 }, // aun con ref recepcion, es salida → NO resta
     { objeto_id: "L3", ref_tipo: "recepcion", objeto_tipo: "recepcion", naturaleza: "entrada", cantidad: 999 }, // no es lote
   ];
   const m = kgEntradaPorLote(movs);
-  eq(m.L1, 4000, "L1 kg entrada = 4000 (ignora salida de traslado)");
-  eq(m.L2, 3000, "L2 kg entrada = 3000 (numérico desde string)");
+  eq(m.L1, 4000, "L1 asignado = 4000 (NO resta salidas: no es on_hand ni entrada−salida)");
+  eq(m.L2, 3000, "L2 asignado = 3000 (numérico desde string)");
   ok(!("L3" in m), "objeto_tipo!=lote no entra al mapa");
   eq(JSON.stringify(kgEntradaPorLote([])), "{}", "sin movimientos -> mapa vacío");
 }
