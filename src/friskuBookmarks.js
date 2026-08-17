@@ -76,7 +76,12 @@ function validObj(obj, dset, mset, avisos){
     // La ruta se conserva estructural; el orden por nivel y la existencia del valor se depuran en runtime (sanitizeDrillPath + hechos).
     d.path = Array.isArray(d.path) ? d.path.filter(x=>x&&typeof x==="object"&&typeof x.dimKey==="string").map(x=>({dimKey:x.dimKey, value:x.value, label:x.label})) : [];
   }
-  if(o.grafico){ o.grafico.dim1=valDim(o.grafico.dim1); o.grafico.dim2=(o.grafico.dim2?valDim(o.grafico.dim2):o.grafico.dim2); }
+  if(o.grafico){
+    // El gráfico usa un catálogo POR FUENTE (no FRISKU_DIMS/METRICS): fuenteId/measureId/
+    // dim1/dim2 se validan en runtime (clamp de TableroAsociativo). Aquí solo Top N.
+    const g=o.grafico;
+    if(g.topN!=null && !(Number.isFinite(g.topN)&&g.topN>0)){ avisos.push("Gráfico: Top N inválido → default"); g.topN=12; }
+  }
   return o;
 }
 

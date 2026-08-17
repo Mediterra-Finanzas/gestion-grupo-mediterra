@@ -6341,7 +6341,7 @@ function AnalysisWorkspace({ data, permTablero, onVerEmbarque, bmOwner }) {
     if(viz==="pivot")        return <PivotTableBI key={`pivot#${restoreNonce}`} {...objProps} initialConfig={objSeed("pivot")} onConfig={cfg=>reportCfg("pivot",cfg)}/>;
     if(viz==="drill")        return <DrillGroupsBI key={`drill#${restoreNonce}`} {...objProps} onVerEmbarque={onVerEmbarque} initialConfig={objSeed("drill")} onConfig={cfg=>reportCfg("drill",cfg)}/>;
     const vizChart = viz==="dona"?"torta":viz==="tendencia"?"tendencia":"barras";
-    return <TableroAsociativo {...objProps} vizChart={vizChart} {...data}/>;
+    return <TableroAsociativo key={`grafico#${restoreNonce}`} {...objProps} vizChart={vizChart} {...data} initialConfig={objSeed("grafico")} onConfig={cfg=>reportCfg("grafico",cfg)}/>;
   };
 
   return (
@@ -6916,17 +6916,23 @@ function ResumenEjecutivo() {
   );
 }
 
-function TableroAsociativo({ liquidaciones, embarques, clientes, exportadoras, especies, mercados, programa, contratos, pos, initialChart, chromeless, panelEl, vizChart, fullscreen, onExitFull, exportReq }) {
-  const [fuenteId, setFuenteId] = useState("liq");
-  const [measureId, setMeasureId] = useState("");
-  const [dim1, setDim1] = useState("");
-  const [dim2, setDim2] = useState("");
+function TableroAsociativo({ liquidaciones, embarques, clientes, exportadoras, especies, mercados, programa, contratos, pos, initialChart, chromeless, panelEl, vizChart, fullscreen, onExitFull, exportReq, initialConfig, onConfig }) {
+  // P2.1b: semilla desde bookmark. fuenteId validado contra las fuentes conocidas; measureId/
+  // dim1/dim2 los reajusta el clamp por-fuente existente al montar; sin initialConfig → defaults de hoy.
+  const ic = initialConfig||{};
+  const FUENTE_IDS = ["liq","emb","prog","po"];
+  const [fuenteId, setFuenteId] = useState(()=> (typeof ic.fuenteId==="string"&&FUENTE_IDS.includes(ic.fuenteId)) ? ic.fuenteId : "liq");
+  const [measureId, setMeasureId] = useState(()=> typeof ic.measureId==="string" ? ic.measureId : "");
+  const [dim1, setDim1] = useState(()=> typeof ic.dim1==="string" ? ic.dim1 : "");
+  const [dim2, setDim2] = useState(()=> typeof ic.dim2==="string" ? ic.dim2 : "");
   const [chartState, setChartState] = useState(initialChart||"barras");   // barras | tabla | torta | tendencia
   const chart = chromeless ? (vizChart||initialChart||"barras") : chartState; // en workspace el tipo lo controla la Visualización
   const setChart = setChartState;
   const biCtx = useFriskuBI();                    // selección BI COMPARTIDA (un solo motor: Resumen/Reportes/Explorador)
   const sel = biCtx.sel;                          // {dimKey: Set(valores)}
-  const [topN, setTopN] = useState(12);
+  const [topN, setTopN] = useState(()=> (Number.isFinite(ic.topN)&&ic.topN>0) ? ic.topN : 12);
+  // Reporta config vigente (tras el clamp por-fuente measureId/dim1/dim2 ya son válidos).
+  useEffect(()=>{ onConfig && onConfig({ fuenteId, measureId, dim1, dim2, topN }); }, [fuenteId, measureId, dim1, dim2, topN]);
   const [full, setFull] = useState(false);        // pantalla completa del objeto (P1.7)
 
   // Lookups compartidos
