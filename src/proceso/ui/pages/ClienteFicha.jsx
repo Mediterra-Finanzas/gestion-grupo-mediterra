@@ -12,7 +12,7 @@ import {
   estadoContractualCliente, cargarClienteProductores, cargarVinculosPorRol,
   cargarRecepcionesCliente, cargarOrdenesCliente, cargarServiciosCliente, cargarBasesCliente,
 } from "../../core/procesoF7DB";
-import { traducirError, alertaContractual, tonoNivelContractual, transicionesContrato, badgeDe } from "../../core/procesoF7Domain";
+import { traducirError, alertaContractual, tonoNivelContractual, transicionesContrato, badgeDe, fechaCalendarioTz } from "../../core/procesoF7Domain";
 import { subirDocumentoProc, urlFirmadaProc, slugPath } from "../../core/procStorage";
 import {
   ProcPageHeader, ProcCard, ProcButton, ProcField, inputStyle, ProcStatusBadge,
@@ -21,7 +21,8 @@ import {
 import { C, sp } from "../estilos";
 import { normalizarNombre, formatFecha, formatFechaHora } from "../format";
 
-const hoyISO = () => new Date().toISOString().slice(0, 10);
+// OBS-TZ-CLIENTE-01: fecha calendario en tz operacional (no UTC del navegador) para fecha_firma.
+const hoyISO = () => fechaCalendarioTz();
 function Dato({ l, v }) { return <div><div style={{ fontSize: 11, color: C.muted, fontWeight: 600 }}>{l}</div><div style={{ fontSize: 14, color: C.text }}>{v ?? "—"}</div></div>; }
 function Seccion({ titulo, children, extra }) {
   return <ProcCard style={{ padding: sp.lg, marginBottom: sp.md }}>

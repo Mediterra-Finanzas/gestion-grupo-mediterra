@@ -72,6 +72,9 @@ export const cargarQcParamsEspecie = (e, especie) =>
   procSelect("proc_qc_parametro", `?empresa_id=eq.${e}&especie_codigo=eq.${especie}&activo=eq.true&deleted_at=is.null&order=orden`);
 export const cargarLotesDeRecepcion = (e, recId) =>
   procSelect("proc_lote", `?empresa_id=eq.${e}&recepcion_id=eq.${recId}&deleted_at=is.null&order=codigo`);
+// T10C: catálogo de temporadas activas (para derivar la temporada desde la fecha operacional).
+export const cargarTemporadas = (e) =>
+  procSelect("proc_temporada", `?empresa_id=eq.${e}&deleted_at=is.null&order=fecha_inicio`);
 // NR-05 · Lotes persistidos de una recepción para reanudar un borrador: identidad + origen
 // (productor/predio/cuartel) + especie/variedad + ubicación (read-model, read-only). El kg NO sale
 // de acá: se toma del movimiento de entrada del ledger (kgEntradaPorLote), misma autoridad que el

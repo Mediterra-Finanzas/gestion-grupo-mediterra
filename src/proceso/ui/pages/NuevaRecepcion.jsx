@@ -12,13 +12,14 @@ import {
   siguienteCorrelativo, crearRecepcion, cargarVinculosPorRol, cargarUbicacionesActivas,
   cargarEspecies, cargarVariedades, cargarPredios, cargarCuarteles, cargarClienteProductores,
   estadoContractualCliente, conciliacionRecepcion, cerrarRecepcion,
-  cargarRecepcionPorId, cargarLotesListadoDeRecepcion, cargarMovimientosRef,
+  cargarRecepcionPorId, cargarLotesListadoDeRecepcion, cargarMovimientosRef, cargarTemporadas,
 } from "../../core/procesoF7DB";
 import { ingresarLoteUbicado } from "../../core/procesoF2DB";
 import {
   validarPesos, calcularNeto, traducirError, opcionesRef, limpiarDependencias, labelRef,
   resumenKgLotes, resumenOrigenes, tonoContractual, copiarOrigen,
   evaluarOrigenLote, textoQcCabecera, kgEntradaPorLote,
+  ahoraOperacional, temporadaDeFecha, fechaCalendarioTz, TZ_OPERACIONAL,
 } from "../../core/procesoF7Domain";
 import {
   ProcPageHeader, ProcCard, ProcButton, ProcField, inputStyle, ProcStatusBadge,
@@ -55,14 +56,15 @@ function Metrica({ titulo, valor, tono }) {
 }
 
 export default function NuevaRecepcion() {
-  const { empresa, planta, temporada, ir, notificar, vista } = useService();
+  const { empresa, planta, ir, notificar, vista } = useService();
   const resumeId = vista?.params?.recepcion_id || null;   // NR-05: reanudar borrador
   const [vinc, setVinc] = useState({ cliente_servicio: [], productor: [], transportista: [] });
   const [mae, setMae] = useState({ especies: [], variedades: [], predios: [], cuarteles: [] });
   const [ubicaciones, setUbicaciones] = useState([]);
   const [clientePros, setClientePros] = useState([]);   // proc_cliente_productor del cliente
   const [contract, setContract] = useState(null);        // estado contractual del cliente
-  const [f, setF] = useState({ cliente_servicio: "", especie_qc: "", kg_bruto: "", tara: "", guia_despacho: "", patente: "", transportista: "" });
+  const [temporadas, setTemporadas] = useState([]);      // T10C: catálogo para derivar temporada por fecha
+  const [f, setF] = useState(() => { const a = ahoraOperacional(); return { cliente_servicio: "", especie_qc: "", kg_bruto: "", tara: "", guia_despacho: "", patente: "", transportista: "", fecha_op: a.fecha, hora_op: a.hora }; });
   const [rec, setRec] = useState(null);                  // {id, folio} tras crear (en borrador)
   const [agregados, setAgregados] = useState([]);        // lotes ingresados (local)
   const [concil, setConcil] = useState(null);            // read-model de conciliación (ledger)
@@ -77,7 +79,12 @@ export default function NuevaRecepcion() {
     Promise.all([cargarEspecies(empresa), cargarVariedades(empresa), cargarPredios(empresa), cargarCuarteles(empresa)])
       .then(([e, v, p, c]) => setMae({ especies: e || [], variedades: v || [], predios: p || [], cuarteles: c || [] })).catch(() => {});
     cargarUbicacionesActivas(empresa, planta).then(setUbicaciones).catch(() => setUbicaciones([]));
+    cargarTemporadas(empresa).then((t) => setTemporadas(t || [])).catch(() => setTemporadas([]));
   }, [empresa, planta]);
+
+  // T10C: temporada derivada de la fecha operacional (catálogo = autoridad). Nunca "s-t".
+  const tempDeriv = temporadaDeFecha(temporadas, f.fecha_op);
+  const fechaOpWallClock = f.fecha_op && f.hora_op ? `${f.fecha_op}T${f.hora_op}` : null;
 
   // NR-05 · Reanudar un borrador: cabecera + lotes YA persistidos (read-model, read-only). Los
   // lotes persistidos NUNCA se reenvían a la RPC de ingreso; solo se agregan lotes nuevos.
@@ -93,7 +100,11 @@ export default function NuevaRecepcion() {
         const r = cab && cab[0];
         if (!r) return notificar("No se encontró el borrador", "error");
         if (r.estado !== "borrador") { notificar("La recepción ya no está en borrador; abriendo el detalle", "info"); return ir("recepcion_detalle", { id: r.id }); }
-        setRec({ id: r.id, folio: r.folio });
+        // Nuevos lotes en un borrador reanudado heredan la fecha operacional y la temporada de la
+        // recepción (no "hoy"): reconstruimos el wall-clock desde r.fecha y tomamos la temporada del ledger.
+        const wc = r.fecha ? ahoraOperacional(TZ_OPERACIONAL, new Date(r.fecha)) : null;
+        const tempMov = (movs || []).find((m) => m && m.naturaleza === "entrada")?.temporada_codigo || null;
+        setRec({ id: r.id, folio: r.folio, temporada: tempMov, fechaOp: wc ? `${wc.fecha}T${wc.hora}` : null });
         if (r.especie_codigo) set("especie_qc", r.especie_codigo);
         const kgMap = kgEntradaPorLote(movs);   // NR-05: kg desde el movimiento de entrada, NO on_hand
         setAgregados((lts || []).map((l) => ({
@@ -146,20 +157,26 @@ export default function NuevaRecepcion() {
   const crear = async () => {
     if (!empresa) return notificar("Falta tenant", "error");
     if (!f.cliente_servicio) return notificar("Falta el cliente del servicio", "error");
-    // NR-03: temporada obligatoria — nunca generar correlativos con placeholder "s-t".
-    if (!temporada) return notificar("Seleccioná una temporada antes de registrar la recepción", "error");
+    if (!f.fecha_op) return notificar("Indicá la fecha operacional de la recepción", "error");
+    // T10C/NR-03: temporada DERIVADA de la fecha operacional (catálogo = autoridad). Cero o varias
+    // temporadas aplicables → bloquear el correlativo con mensaje humano (nunca "s-t", nunca "REC--").
+    if (tempDeriv.error) {
+      return notificar(tempDeriv.error === "cero"
+        ? `No hay temporada configurada para la fecha ${f.fecha_op}. Cargala en Configuración o corregí la fecha operacional.`
+        : `Hay más de una temporada aplicable a ${f.fecha_op}; corregí el catálogo de temporadas.`, "error");
+    }
     if (!pes.ok) return notificar(pes.errores[0], "error");
     try {
-      const folio = await siguienteCorrelativo({ empresaId: empresa, temporada, tipo: "REC" });
+      const folio = await siguienteCorrelativo({ empresaId: empresa, temporada: tempDeriv.codigo, tipo: "REC" });
       const r = await crearRecepcion({
         empresa_id: empresa, folio, planta_id: planta || null, cliente_servicio_vinculo_id: f.cliente_servicio,
         transportista_vinculo_id: f.transportista || null, especie_codigo: f.especie_qc || null,
         kg_bruto: Number(f.kg_bruto) || null, tara: Number(f.tara) || null, kg_neto: pes.neto || null,
         guia_despacho: f.guia_despacho || null, patente: f.patente || null, estado: "borrador",
       });
-      setRec({ id: r.id, folio: r.folio });
+      setRec({ id: r.id, folio: r.folio, temporada: tempDeriv.codigo, fechaOp: fechaOpWallClock });
       refrescarConcil(r.id);
-      notificar(`Recepción ${r.folio} creada en borrador — registrá los lotes y finalizá`);
+      notificar(`Recepción ${r.folio} creada en borrador (temporada ${tempDeriv.codigo}) — registrá los lotes y finalizá`);
     } catch (e) { notificar(traducirError(e), "error"); }
   };
 
@@ -185,13 +202,16 @@ export default function NuevaRecepcion() {
   // persistidos (reanudación de borrador) NUNCA pasan por acá — no se re-ingresan.
   const ingresarLoteReal = async () => {
     const datos = nl;
+    const tmp = rec?.temporada || null;          // temporada derivada de la fecha operacional
+    const fechaOp = rec?.fechaOp || null;        // wall-clock operacional (backend convierte tz)
     setConfOrigen(null);
     try {
-      const codigo = await siguienteCorrelativo({ empresaId: empresa, temporada, tipo: "LOT" });
+      const codigo = await siguienteCorrelativo({ empresaId: empresa, temporada: tmp, tipo: "LOT" });
       await ingresarLoteUbicado({
         empresaId: empresa, recepcionId: rec.id, codigo, especie: datos.especie_codigo, variedad: datos.variedad_codigo || null,
-        kg: Number(datos.kg), plantaId: planta, temporada, ubicacionId: datos.ubicacion,
+        kg: Number(datos.kg), plantaId: planta, temporada: tmp, ubicacionId: datos.ubicacion,
         productorId: datos.productorId || null, predioId: datos.predioId || null, cuartelId: datos.cuartelId || null,
+        fechaOperacional: fechaOp,   // T10C: la recepción y su ledger comparten la fecha operacional
       });
       setAgregados((a) => [...a, { codigo, kg: Number(datos.kg), persistido: false, ...datos }]);
       setNl({ productorId: "", predioId: "", cuartelId: "", especie_codigo: "", variedad_codigo: "", kg: "", ubicacion: "" });
@@ -204,8 +224,8 @@ export default function NuevaRecepcion() {
     if (!nl.especie_codigo) return notificar("Elegí especie del lote", "error");
     if (!nl.kg || Number(nl.kg) <= 0) return notificar("Kg del lote debe ser > 0", "error");
     if (!nl.ubicacion) return notificar("Seleccioná ubicación inicial", "error");
-    // NR-03: sin temporada no se generan correlativos (evita "s-t"/"LOT--").
-    if (!temporada) return notificar("Seleccioná una temporada antes de registrar lotes", "error");
+    // T10C: sin temporada derivada no se generan correlativos (evita "s-t"/"LOT--").
+    if (!rec?.temporada) return notificar("La recepción no tiene temporada resuelta; revisá la fecha operacional", "error");
     const org = evaluarOrigenLote(nl);   // NR-02: origen incompleto → confirmación consciente
     if (!org.completo) { setConfOrigen(org); return; }
     await ingresarLoteReal();
@@ -242,6 +262,14 @@ export default function NuevaRecepcion() {
                 <option value="">—</option>
                 {vinc.cliente_servicio.map((v) => <option key={v.id} value={v.id}>{normalizarNombre(v.nombre_provisional)}</option>)}
               </select>
+            </ProcField>
+            {/* T10C: fecha/hora operacional. Default "ahora" en la tz operacional; el backend convierte
+                (AT TIME ZONE). Editable para ingresos tardíos / turno anterior. */}
+            <ProcField label="Fecha operacional" requerido hint={`Zona horaria: ${TZ_OPERACIONAL}`}>
+              <input style={inputStyle} type="date" value={f.fecha_op} onChange={(e) => set("fecha_op", e.target.value)} />
+            </ProcField>
+            <ProcField label="Hora operacional" hint={tempDeriv.codigo ? `Temporada ${tempDeriv.codigo}` : (f.fecha_op ? "Sin temporada para esta fecha" : undefined)}>
+              <input style={inputStyle} type="time" value={f.hora_op} onChange={(e) => set("hora_op", e.target.value)} />
             </ProcField>
             <ProcField label="Transportista">
               <select style={inputStyle} value={f.transportista} onChange={(e) => set("transportista", e.target.value)}>

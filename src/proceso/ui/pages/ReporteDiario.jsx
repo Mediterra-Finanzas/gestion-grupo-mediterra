@@ -12,7 +12,7 @@ import {
   cargarEjecucionesReporte, cargarClientesServicio,
 } from "../../core/procesoF7DB";
 import { cargarPlantas } from "../../core/procesoDB";
-import { traducirError } from "../../core/procesoF7Domain";
+import { traducirError, fechaCalendarioTz, TZ_OPERACIONAL } from "../../core/procesoF7Domain";
 import { construirEmailInformeDiario, filasInformeDiario, totalesInformeDiario } from "../../core/reportingEmail";
 import { enviarEmail } from "../../../emailHelper";
 import {
@@ -23,7 +23,9 @@ import { C, sp } from "../estilos";
 import { normalizarNombre, formatNum, formatFecha, formatFechaHora } from "../format";
 
 const TZS = ["America/Santiago", "America/Lima", "UTC"];
-const hoyISO = () => new Date().toISOString().slice(0, 10);
+// FOP-12: fecha preview/default en la tz operacional configurada (no UTC del navegador).
+// El backend sigue siendo autoridad del dataset (agrupa por AT TIME ZONE America/Santiago).
+const hoyISO = () => fechaCalendarioTz();
 const uno = (r) => (Array.isArray(r) ? r[0] : r);
 
 function Metrica({ t, v, tono }) {

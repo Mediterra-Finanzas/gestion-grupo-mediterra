@@ -302,6 +302,37 @@ export function evaluarOrigenLote(nl = {}) {
   return { completo: false, faltantes, ninguno, mensaje };
 }
 
+// T10C-FECHA-OPERACIONAL · timezone operacional canónica (ratificada por CURRENT: default de
+// proc_fn_informe_diario_operacion). No hay config por empresa/planta (agregarla sería estructural).
+export const TZ_OPERACIONAL = "America/Santiago";
+
+// Fecha calendario (YYYY-MM-DD) de un instante EN la tz operacional. Reemplaza a
+// `new Date().toISOString().slice(0,10)` (que da fecha UTC del navegador). DST-correcto vía Intl.
+export function fechaCalendarioTz(instante = new Date(), tz = TZ_OPERACIONAL) {
+  return new Intl.DateTimeFormat("en-CA", { timeZone: tz, year: "numeric", month: "2-digit", day: "2-digit" }).format(instante);
+}
+
+// Wall-clock NAIVE (fecha + hora) de un instante en la tz operacional. El backend convierte
+// (AT TIME ZONE) — el navegador nunca es autoridad de tz. Sin argumento = "ahora" (default del
+// formulario); con un instante = reconstruye el wall-clock de esa recepción (reanudación de borrador).
+export function ahoraOperacional(tz = TZ_OPERACIONAL, instante = new Date()) {
+  const p = new Intl.DateTimeFormat("en-CA", { timeZone: tz, year: "numeric", month: "2-digit", day: "2-digit",
+    hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).formatToParts(instante)
+    .reduce((a, x) => (a[x.type] = x.value, a), {});
+  return { fecha: `${p.year}-${p.month}-${p.day}`, hora: `${p.hour}:${p.minute}` };
+}
+
+// Deriva la temporada que cubre una fecha calendario (YYYY-MM-DD) desde el catálogo CURRENT
+// (autoridad = catálogo). Exactamente una → {codigo}; cero o varias → {error} para bloquear el
+// correlativo con mensaje humano (nunca "s-t", nunca folios "REC--"). No hardcodea.
+export function temporadaDeFecha(temporadas = [], fecha) {
+  if (!fecha) return { error: "sin_fecha" };
+  const cubren = (temporadas || []).filter((t) => t && !t.deleted_at &&
+    String(t.fecha_inicio) <= fecha && fecha <= String(t.fecha_fin));
+  if (cubren.length === 1) return { codigo: cubren[0].codigo };
+  return { error: cubren.length === 0 ? "cero" : "multiple" };
+}
+
 // NR-05 · kg de ENTRADA INICIAL por lote desde el ledger — misma autoridad de masa que
 // proc_fn_cerrar_recepcion (movimientos de la recepción con objeto_tipo=lote, naturaleza=entrada).
 // NO usa on_hand (que neto de salidas posteriores). Devuelve mapa objeto_id(lote) → kg. Puro/testeable.
