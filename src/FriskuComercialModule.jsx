@@ -26,6 +26,7 @@ import { FriskuBIProvider, useFriskuBI, FRISKU_DIMS, FRISKU_METRICS, fmtMetric,
          mComFriskuUSD, mVentaUSD, mFobUSD, mComClienteUSD, groupByDims, invertSelection } from "./friskuBI.js";
 import { normalizarNombre, buscarDuplicado } from "./nombreCanonico.js";
 import { configureFriskuPdf } from "./pdfText.js";
+import { buildBookmark, validateBookmark, deserializeSel, listBookmarks, saveBookmark, renameBookmark, removeBookmark } from "./friskuBookmarks.js";
 import { theme } from "./theme";
 
 // ── Paleta Frisku ──
@@ -6116,7 +6117,8 @@ function SelectionBarBI() {
 // e1 = shell + selectores + panel (FILTROS activo, PROPIEDADES llega en e2). Los
 // objetos se montan tal cual; Barras/Dona/Tendencia reutilizan los renderers de
 // TableroAsociativo (mismo motor, sin duplicar métricas) vía initialChart.
-function AnalysisWorkspace({ data, permTablero, onVerEmbarque }) {
+function AnalysisWorkspace({ data, permTablero, onVerEmbarque, bmOwner }) {
+  const bi = useFriskuBI();                               // motor asociativo (selección + applySel) para bookmarks
   const [preset, setPreset]       = useState("libre");   // libre | comercial | semanal | comp
   const [viz, setViz]             = useState("tabla");    // tabla | pivot | barras | dona | tendencia | drill
   const [panelOpen, setPanelOpen] = useState(true);
@@ -6124,6 +6126,34 @@ function AnalysisWorkspace({ data, permTablero, onVerEmbarque }) {
   const [full, setFull]           = useState(false);      // fullscreen del objeto activo (control único)
   const [exportReq, setExportReq] = useState(null);       // {type, n} → dispara export del objeto activo
   const fireExport = (type)=> setExportReq(r=>({type, n:(r?.n||0)+1}));
+
+  // ── P2.1 Bookmarks / Vistas guardadas (localStorage por usuario; sin Supabase) ──
+  const dimKeys = FRISKU_DIMS.map(d=>d.key);
+  const metKeys = FRISKU_METRICS.map(m=>m.key);
+  const [bmList, setBmList] = useState([]);
+  const [bmOpen, setBmOpen] = useState(false);
+  const [bmName, setBmName] = useState("");
+  const [bmMsg,  setBmMsg]  = useState("");               // aviso discreto (campos descartados al restaurar)
+  useEffect(()=>{ setBmList(listBookmarks(bmOwner)); }, [bmOwner]);
+  const refreshBm = ()=> setBmList(listBookmarks(bmOwner));
+  const guardarVista = ()=>{
+    const nombre=(bmName||"").trim(); if(!nombre) return;
+    const bm=buildBookmark({ nombre, owner:bmOwner, hoja:"analisis", preset, viz, panelOpen, sel:bi.sel, locked:[], obj:{} });
+    saveBookmark(bmOwner, bm); setBmName(""); setBmMsg(`Guardada “${nombre}”`); refreshBm();
+  };
+  const restaurarVista = (bm)=>{
+    const { bm:v, avisos } = validateBookmark(bm, dimKeys, metKeys);
+    // Restauración atómica: React 18 agrupa estos setState en un solo render.
+    setPreset(v.preset); if(v.preset==="libre") setViz(v.viz); setPanelOpen(v.panelOpen!==false);
+    bi.applySel(deserializeSel(v.sel));
+    setBmMsg(avisos.length ? `Restaurada (${avisos.length} campo(s) ya no existen y se omitieron)` : `Restaurada “${v.nombre}”`);
+    setBmOpen(false);
+  };
+  const renombrarVista = (bm)=>{
+    const nn=window.prompt("Nuevo nombre de la vista:", bm.nombre); if(nn==null) return;
+    if(!nn.trim()) return; renameBookmark(bmOwner, bm.id, nn); refreshBm();
+  };
+  const eliminarVista = (bm)=>{ if(!window.confirm(`¿Eliminar la vista “${bm.nombre}”?`)) return; removeBookmark(bmOwner, bm.id); refreshBm(); };
   const charts = permTablero?.visible!==false;            // Barras/Dona/Tendencia usan el motor del Explorador
   const libre  = preset==="libre";
   const exportable = true;                                // e5: todos los objetos (libre + presets curados) exportan/⛶ coherentemente
@@ -6168,6 +6198,38 @@ function AnalysisWorkspace({ data, permTablero, onVerEmbarque }) {
           <div style={{...seg,opacity:libre?1:0.6}}>{VIZ.map(v=><button key={v.k} disabled={!libre} onClick={()=>libre&&setViz(v.k)} title={libre?"":"La vista curada usa su propio renderer"} style={segBtn(libre&&viz===v.k,!libre)}>{v.lab}</button>)}</div>
         </div>
         {!libre && <span style={{fontSize:10.5,color:C.muted2}}>Vista curada · renderer propio</span>}
+
+        {/* Vistas guardadas (bookmarks) — P2.1 */}
+        <div style={{position:"relative"}}>
+          <button onClick={()=>{ setBmOpen(o=>!o); setBmMsg(""); }} title="Guardar y recuperar vistas (selección + preset + visualización), por usuario"
+            style={{...btnSt(bmOpen?C.blue:C.muted,!bmOpen),fontSize:12,padding:"6px 10px"}}>★ Vistas {bmList.length?`(${bmList.length})`:""}</button>
+          {bmOpen && (
+            <div style={{position:"absolute",top:"calc(100% + 6px)",left:0,zIndex:50,width:320,background:C.card,border:`1px solid ${C.border}`,borderRadius:10,boxShadow:"0 10px 30px rgba(0,0,0,.28)",padding:10}}>
+              <div style={{fontSize:10,fontWeight:800,color:C.muted,textTransform:"uppercase",letterSpacing:0.5,marginBottom:6}}>Guardar vista actual</div>
+              <div style={{display:"flex",gap:6,marginBottom:8}}>
+                <input value={bmName} onChange={e=>setBmName(e.target.value)} onKeyDown={e=>{ if(e.key==="Enter") guardarVista(); }}
+                  placeholder="Nombre de la vista…" style={{flex:1,minWidth:0,fontSize:12,padding:"7px 9px",borderRadius:7,border:`1px solid ${C.border}`,background:C.card2,color:C.text}}/>
+                <button onClick={guardarVista} disabled={!bmName.trim()} style={{...btnSt(C.green,!bmName.trim()),fontSize:12,padding:"7px 11px",opacity:bmName.trim()?1:0.5}}>Guardar</button>
+              </div>
+              <div style={{fontSize:10,fontWeight:800,color:C.muted,textTransform:"uppercase",letterSpacing:0.5,margin:"4px 0 6px",borderTop:`1px solid ${C.border}`,paddingTop:8}}>Mis vistas</div>
+              {bmList.length===0
+                ? <div style={{fontSize:11.5,color:C.muted2,padding:"4px 2px"}}>Sin vistas guardadas todavía.</div>
+                : <div style={{maxHeight:220,overflowY:"auto",display:"flex",flexDirection:"column",gap:4}}>
+                    {bmList.map(bm=>(
+                      <div key={bm.id} style={{display:"flex",alignItems:"center",gap:6,padding:"5px 6px",borderRadius:7,background:C.card2,border:`1px solid ${C.border}`}}>
+                        <button onClick={()=>restaurarVista(bm)} title="Restaurar esta vista" style={{flex:1,minWidth:0,textAlign:"left",background:"transparent",border:"none",cursor:"pointer",color:C.text,fontSize:12,fontWeight:700,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+                          {bm.nombre} <span style={{fontWeight:500,color:C.muted2,fontSize:10.5}}>· {bm.preset==="libre"?bm.viz:bm.preset}</span>
+                        </button>
+                        <button onClick={()=>renombrarVista(bm)} title="Renombrar" style={{background:"transparent",border:"none",cursor:"pointer",color:C.muted,fontSize:12}}>✎</button>
+                        <button onClick={()=>eliminarVista(bm)} title="Eliminar" style={{background:"transparent",border:"none",cursor:"pointer",color:C.muted,fontSize:13}}>🗑</button>
+                      </div>
+                    ))}
+                  </div>}
+              {bmMsg && <div style={{fontSize:10.5,color:C.muted,marginTop:8}}>{bmMsg}</div>}
+            </div>
+          )}
+        </div>
+
         {/* Controles ÚNICOS del workspace (⛶ | Excel | PDF), alineados a la derecha */}
         <div style={{marginLeft:"auto",display:"flex",gap:6}}>
           <button onClick={()=>setFull(true)} disabled={!exportable} title={exportable?"Pantalla completa del objeto":"Disponible en presets libres (e5 para vistas curadas)"} style={{...btnSt(C.blue,true),fontSize:12,padding:"6px 10px",opacity:exportable?1:0.45}}>⛶ Pantalla completa</button>
@@ -6203,7 +6265,7 @@ function AnalysisWorkspace({ data, permTablero, onVerEmbarque }) {
 // Análisis (superficie de exploración con selector de objeto), Semanal,
 // Comparativo y Reportes. TODO usa el mismo motor: una selección, unas métricas.
 // ═══════════════════════════════════════════════════════════════════
-function ReporteriaBI({ data, permResumen, permReportes, permTablero, onVerEmbarque }) {
+function ReporteriaBI({ data, permResumen, permReportes, permTablero, onVerEmbarque, bmOwner }) {
   const hojas = [
     (permResumen?.visible!==false) && { id:"exec",     lab:"📈 Resumen" },
     { id:"analisis",   lab:"🔬 Análisis" },
@@ -6228,7 +6290,7 @@ function ReporteriaBI({ data, permResumen, permReportes, permTablero, onVerEmbar
         ))}
       </div>
       {hoja==="exec"     && <ResumenEjecutivo/>}
-      {hoja==="analisis" && <AnalysisWorkspace data={data} permTablero={permTablero} onVerEmbarque={onVerEmbarque}/>}
+      {hoja==="analisis" && <AnalysisWorkspace data={data} permTablero={permTablero} onVerEmbarque={onVerEmbarque} bmOwner={bmOwner}/>}
       {hoja==="reportes" && <ReportesTab {...data}/>}
     </div>
   );
@@ -10261,6 +10323,7 @@ export default function FriskuComercialModule({
             data={{ liquidaciones, embarques, clientes, exportadoras, especies, mercados, paises, temporadas, programa, contratos, pos }}
             permResumen={permResumen} permReportes={permReportes} permTablero={permTablero}
             onVerEmbarque={(oe)=>{ setVerOE(oe); setTab("embarques"); }}
+            bmOwner={nombreUsuario}
           />
         )}
 
