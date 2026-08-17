@@ -145,7 +145,8 @@ export { consumirLoteEnOrden, conciliarOrden } from "./procesoF2DB.js";
 export const cargarResultadoMaterializable = (e, extra = "") =>
   procSelect("proc_v_resultado_materializable", `?empresa_id=eq.${e}&kg_disponible=gt.0${extra}`);
 export const cargarPTOperacional = (e, extra = "") =>
-  procSelect("proc_v_pt_operacional", `?empresa_id=eq.${e}&order=created_at.desc&limit=300${extra}`);
+  // proc_v_pt_operacional NO expone created_at → ordenar por esa columna daba HTTP 400 (T11-VIS-PT-01).
+  procSelect("proc_v_pt_operacional", `?empresa_id=eq.${e}&order=orden_folio.desc&limit=300${extra}`);
 export const cargarBodega = (e, extra = "") =>
   procSelect("proc_v_pallet_bodega", `?empresa_id=eq.${e}&order=codigo&limit=400${extra}`);
 export const cargarPalletBodegaPorId = (e, id) =>
