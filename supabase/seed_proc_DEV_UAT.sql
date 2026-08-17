@@ -22,6 +22,8 @@ BEGIN
   INSERT INTO proc_empresa_config(empresa_id, tolerancia_masa_pct) VALUES (e, 0.50);
   INSERT INTO proc_planta(empresa_id,codigo,nombre) VALUES (e,'PL-DEV','Planta Rancagua (DEV)') RETURNING id INTO pl;
   INSERT INTO proc_temporada(empresa_id,codigo,nombre,fecha_inicio,fecha_fin,estado) VALUES (e,tmp,'Temporada 2025/2026','2025-07-01','2026-06-30','activa');
+  -- 2026/2027: temporada vigente para la fecha operacional "hoy" (derivación por fecha, FOP-9). DEV_ONLY.
+  INSERT INTO proc_temporada(empresa_id,codigo,nombre,fecha_inicio,fecha_fin,estado) VALUES (e,'2026/2027','Temporada 2026/2027','2026-07-01','2027-06-30','activa') ON CONFLICT DO NOTHING;
   INSERT INTO proc_ubicaciones(empresa_id,planta_id,codigo,nombre,tipo) VALUES
     (e,pl,'REC','Recepción','zona') RETURNING id INTO uRec;
   INSERT INTO proc_ubicaciones(empresa_id,planta_id,codigo,nombre,tipo) VALUES (e,pl,'CAM1','Cámara 1','camara') RETURNING id INTO uC1;
