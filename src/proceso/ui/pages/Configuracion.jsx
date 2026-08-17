@@ -125,6 +125,22 @@ const MAESTROS = [
     ],
     filtros: ["busqueda", { campo: "activo", label: "Estado", opciones: [{ v: "true", l: "Activo" }, { v: "false", l: "Inactivo" }] }],
     nota: "Catálogo de tipos de documento contractual (configurable). El flag «Satisface requisito» distingue un Contrato (habilita al cliente para operar) de un Anexo/Tarifario/Carta (solo respaldo — NO levanta el bloqueo contractual); la semántica la decide el flag, no el nombre. Nota: el documento «Tarifario» es un antecedente comercial adjunto y NO reemplaza el motor de tarifas (proc_tarifa), que es la fuente de verdad del cálculo de servicios facturables." },
+  { key: "tipos_envase", label: "Tipos de Envase", tabla: "proc_tipo_envase",
+    campos: [
+      { c: "codigo", l: "Código (ej. BIN, TOTE, REJILLA)", ...T, req: 1 },
+      { c: "nombre", l: "Nombre", ...T, req: 1 },
+      { c: "categoria", l: "Categoría", ...T },
+      { c: "unidad", l: "Unidad de control", ...T, def: "unidad" },
+      { c: "capacidad_referencial", l: "Capacidad referencial (opcional)", ...N },
+      { c: "retornable", l: "¿Retornable?", ...B, def: true },
+      { c: "activo", l: "Activo", ...B, def: true },
+    ],
+    cols: ["codigo", "nombre", "categoria", "unidad",
+      { titulo: "Retornable", render: (r) => <ProcStatusBadge texto={r.retornable ? "Sí" : "No"} tono={r.retornable ? "success" : "neutral"} /> },
+      { titulo: "Estado", render: (r) => <ProcStatusBadge texto={r.activo ? "Activo" : "Inactivo"} tono={r.activo ? "success" : "neutral"} /> },
+    ],
+    filtros: ["busqueda", { campo: "activo", label: "Estado", opciones: [{ v: "true", l: "Activo" }, { v: "false", l: "Inactivo" }] }],
+    nota: "Catálogo de envases retornables (bins, totes, rejillas, etc.), configurable. El control es por cantidad de unidades; el saldo y la custodia se llevan en el ledger de Envases (Operación → Envases), no en este maestro." },
 ];
 
 function MaestroEditor({ d }) {
