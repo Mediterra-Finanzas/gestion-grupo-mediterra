@@ -6073,10 +6073,11 @@ function PivotTableBI(_pivotProps={}) {
 // activas agrupadas por dimensión (quitar valor/dimensión) + limpiar todo.
 function SelectionBarBI() {
   const bi = useFriskuBI();
-  const { chips, remove, clearDim, clearAll, undo, redo, canUndo, canRedo, dims } = bi;
+  const { chips, remove, clearDim, clearAll, undo, redo, canUndo, canRedo, dims, locked, toggleLock } = bi;
   const byDim = {};
   chips.forEach(c=>{ (byDim[c.dim]=byDim[c.dim]||{dimLab:c.dimLab, vals:[]}).vals.push(c); });
   const groups = dims.map(d=>byDim[d.key] && {key:d.key, ...byDim[d.key]}).filter(Boolean);
+  const hayLock = groups.some(g=>locked.has(g.key));
   return (
     <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap",padding:"6px 10px",background:C.card,border:`1px solid ${C.border}`,borderRadius:10,marginBottom:12,maxHeight:76,overflowY:"auto"}}>
       <div style={{display:"flex",gap:4,position:"sticky",left:0}}>
@@ -6086,14 +6087,18 @@ function SelectionBarBI() {
       <div style={{width:1,height:20,background:C.border}}/>
       <span style={{fontSize:10,fontWeight:700,color:C.muted,textTransform:"uppercase"}}>Selecciones</span>
       {groups.length===0 ? <span style={{fontSize:11.5,color:C.muted2}}>ninguna — todo el universo</span> :
-        groups.map(g=>(
-          <span key={g.key} style={{display:"inline-flex",alignItems:"center",gap:4,background:`${C.accent2}12`,border:`1px solid ${C.accent2}44`,borderRadius:8,padding:"2px 5px 2px 8px"}}>
+        groups.map(g=>{
+          const isLk = locked.has(g.key);
+          return (
+          <span key={g.key} title={isLk?"Campo bloqueado — no se limpia con «Limpiar todo»":undefined}
+            style={{display:"inline-flex",alignItems:"center",gap:4,background:isLk?`${C.blue}14`:`${C.accent2}12`,border:`1px solid ${isLk?C.blue+"66":C.accent2+"44"}`,borderRadius:8,padding:"2px 5px 2px 8px"}}>
+            <span onClick={()=>toggleLock(g.key)} title={isLk?"Desbloquear campo":"Bloquear campo (conserva la selección)"} style={{cursor:"pointer",fontSize:10.5,marginRight:1}}>{isLk?"🔒":"🔓"}</span>
             <span style={{fontSize:10,color:C.muted,fontWeight:600}}>{g.dimLab}:</span>
-            {g.vals.map((c,i)=><span key={i} onClick={()=>remove(c.dim,c.value)} title="Quitar valor" style={{fontSize:11,fontWeight:600,color:C.accent2,cursor:"pointer"}}>{c.label}{i<g.vals.length-1?", ":""}</span>)}
-            <span onClick={()=>clearDim(g.key)} title="Quitar dimensión" style={{cursor:"pointer",color:C.muted,fontSize:11,marginLeft:3}}>✕</span>
+            {g.vals.map((c,i)=><span key={i} onClick={()=>remove(c.dim,c.value)} title="Quitar valor" style={{fontSize:11,fontWeight:600,color:isLk?C.blue:C.accent2,cursor:"pointer"}}>{c.label}{i<g.vals.length-1?", ":""}</span>)}
+            {!isLk && <span onClick={()=>clearDim(g.key)} title="Quitar dimensión" style={{cursor:"pointer",color:C.muted,fontSize:11,marginLeft:3}}>✕</span>}
           </span>
-        ))}
-      {groups.length>0 && <button onClick={clearAll} style={{...btnSt(C.muted,true),fontSize:10,padding:"3px 8px",marginLeft:"auto"}}>Limpiar todo</button>}
+        );})}
+      {groups.length>0 && <button onClick={clearAll} title={hayLock?"Limpia los campos no bloqueados":"Limpia toda la selección"} style={{...btnSt(C.muted,true),fontSize:10,padding:"3px 8px",marginLeft:"auto"}}>Limpiar todo</button>}
     </div>
   );
 }
@@ -6138,14 +6143,14 @@ function AnalysisWorkspace({ data, permTablero, onVerEmbarque, bmOwner }) {
   const refreshBm = ()=> setBmList(listBookmarks(bmOwner));
   const guardarVista = ()=>{
     const nombre=(bmName||"").trim(); if(!nombre) return;
-    const bm=buildBookmark({ nombre, owner:bmOwner, hoja:"analisis", preset, viz, panelOpen, sel:bi.sel, locked:[], obj:{} });
+    const bm=buildBookmark({ nombre, owner:bmOwner, hoja:"analisis", preset, viz, panelOpen, sel:bi.sel, locked:[...(bi.locked||[])], obj:{} });
     saveBookmark(bmOwner, bm); setBmName(""); setBmMsg(`Guardada “${nombre}”`); refreshBm();
   };
   const restaurarVista = (bm)=>{
     const { bm:v, avisos } = validateBookmark(bm, dimKeys, metKeys);
     // Restauración atómica: React 18 agrupa estos setState en un solo render.
     setPreset(v.preset); if(v.preset==="libre") setViz(v.viz); setPanelOpen(v.panelOpen!==false);
-    bi.applySel(deserializeSel(v.sel));
+    bi.applySel(deserializeSel(v.sel), v.locked||[]);
     setBmMsg(avisos.length ? `Restaurada (${avisos.length} campo(s) ya no existen y se omitieron)` : `Restaurada “${v.nombre}”`);
     setBmOpen(false);
   };

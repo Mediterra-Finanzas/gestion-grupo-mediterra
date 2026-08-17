@@ -231,11 +231,32 @@ export function invertSelection(selectedSet, selectableValues){ const s=selected
 
 // ── CONTEXTO REACT: estado de selección compartido por todas las hojas ──
 const FriskuBIContext = createContext(null);
-const HIST_MAX = 60;   // historial de selecciones (back/forward), acotado
+
+// ── Reductores PUROS de navegación + lock (P2.2) ──────────────────────────
+// Cada entrada del historial es { sel:{dimKey:Set}, locked:Set(dimKey) }.
+// El lock marca un CAMPO cuyo valor no se limpia con "Limpiar todo".
+export const NAV_HIST_MAX = 60;   // historial de selecciones (back/forward), acotado
+export function navPush(nav, entry){
+  let base = nav.stack.slice(0, nav.idx+1); base.push(entry);
+  if(base.length > NAV_HIST_MAX) base = base.slice(base.length - NAV_HIST_MAX);
+  return { stack: base, idx: base.length-1 };
+}
+export function navSetSel(entry, nextSel){ return { sel: nextSel, locked: entry.locked }; }         // preserva locks
+export function navClearAll(entry){ const nsel={}; entry.locked.forEach(d=>{ if(entry.sel[d]) nsel[d]=entry.sel[d]; }); return { sel:nsel, locked:entry.locked }; }
+export function navClearDim(entry, dim){ if(entry.locked.has(dim)) return entry; const n={...entry.sel}; delete n[dim]; return { sel:n, locked:entry.locked }; }
+export function navToggleLock(entry, dim){ const s=new Set(entry.locked); s.has(dim)?s.delete(dim):s.add(dim); return { sel:entry.sel, locked:s }; }
+export function navApplySel(entry, selObj, lockedArr){
+  const nsel={}; Object.keys(selObj||{}).forEach(k=>{ const s=new Set(selObj[k]||[]); if(s.size) nsel[k]=s; });
+  const nlock = (lockedArr===undefined||lockedArr===null) ? new Set(entry.locked) : new Set(lockedArr);
+  return { sel:nsel, locked:nlock };
+}
+
 export function FriskuBIProvider({ data, children }){
   // Historial de selecciones: pila de estados + puntero (back/forward tipo Qlik).
-  const [nav, setNav] = useState({ stack:[{}], idx:0 });
-  const sel = nav.stack[nav.idx];
+  const [nav, setNav] = useState({ stack:[{ sel:{}, locked:new Set() }], idx:0 });
+  const entry   = nav.stack[nav.idx];
+  const sel     = entry.sel;
+  const locked  = entry.locked;                 // Set(dimKey) — campos que "Limpiar todo" no borra
   const canUndo = nav.idx>0;
   const canRedo = nav.idx < nav.stack.length-1;
 
@@ -244,23 +265,20 @@ export function FriskuBIProvider({ data, children }){
   ]);
   const dataQuality = useMemo(()=>dataQualityFrisku(data||{}), [data?.embarques, data?.liquidaciones, data?.tiposEmbalaje]);
 
-  // commit(fn): fn(selActual) → selNuevo; empuja al historial (trunca el "forward").
-  const commit = useCallback((fn)=>setNav(({stack,idx})=>{
-    const cur=stack[idx]; const next=fn(cur);
-    let base=stack.slice(0, idx+1); base.push(next);
-    if(base.length>HIST_MAX) base = base.slice(base.length-HIST_MAX);
-    return { stack:base, idx:base.length-1 };
-  }),[]);
+  // commit(fn): fn(selActual)→selNuevo; empuja {sel,locked} al historial (preserva locks).
+  const commit = useCallback((fn)=>setNav(nav=>navPush(nav, navSetSel(nav.stack[nav.idx], fn(nav.stack[nav.idx].sel)))),[]);
   const toggle  = useCallback((dim,val)=>commit(cur=>{ const s=new Set(cur[dim]||[]); s.has(val)?s.delete(val):s.add(val); const n={...cur}; s.size?n[dim]=s:delete n[dim]; return n; }),[commit]);
   const setOne  = useCallback((dim,val)=>commit(cur=>{ const n={...cur}; if(val==null||val==="") delete n[dim]; else n[dim]=new Set([val]); return n; }),[commit]);
   const setMany = useCallback((dim,vals)=>commit(cur=>{ const n={...cur}; const s=new Set(vals||[]); s.size?n[dim]=s:delete n[dim]; return n; }),[commit]);
   const remove  = useCallback((dim,val)=>commit(cur=>{ const s=new Set(cur[dim]||[]); s.delete(val); const n={...cur}; s.size?n[dim]=s:delete n[dim]; return n; }),[commit]);
-  const clearDim= useCallback((dim)=>commit(cur=>{ const n={...cur}; delete n[dim]; return n; }),[commit]);
-  const clearAll= useCallback(()=>commit(()=>({})),[commit]);
+  // clearDim respeta lock (no-op si el campo está bloqueado); clearAll conserva los campos bloqueados.
+  const clearDim= useCallback((dim)=>setNav(nav=>{ const e=navClearDim(nav.stack[nav.idx], dim); return e===nav.stack[nav.idx]?nav:navPush(nav,e); }),[]);
+  const clearAll= useCallback(()=>setNav(nav=>navPush(nav, navClearAll(nav.stack[nav.idx]))),[]);
+  const toggleLock = useCallback((dim)=>setNav(nav=>navPush(nav, navToggleLock(nav.stack[nav.idx], dim))),[]);
   const undo    = useCallback(()=>setNav(s=>({...s, idx:Math.max(0,s.idx-1)})),[]);
   const redo    = useCallback(()=>setNav(s=>({...s, idx:Math.min(s.stack.length-1,s.idx+1)})),[]);
-  // Aplica una selección completa de golpe (para bookmarks/vistas guardadas).
-  const applySel= useCallback((selObj)=>commit(()=>{ const n={}; Object.keys(selObj||{}).forEach(k=>{ const s=new Set(selObj[k]||[]); if(s.size) n[k]=s; }); return n; }),[commit]);
+  // Aplica selección (y opcionalmente locks) de golpe — bookmarks/vistas guardadas.
+  const applySel= useCallback((selObj, lockedArr)=>setNav(nav=>navPush(nav, navApplySel(nav.stack[nav.idx], selObj, lockedArr))),[]);
 
   const filtered = useMemo(()=>facts.filter(r=>matchFacts(r, sel, null)), [facts, sel]);
   const associative = useCallback((dimKey, metric)=>associativeValues(facts, sel, dimKey, metric), [facts, sel]);
@@ -271,7 +289,7 @@ export function FriskuBIProvider({ data, children }){
 
   const value = { facts, filtered, dims:FRISKU_DIMS, metrics:FRISKU_METRICS, metric:FRISKU_METRIC, fmtMetric,
                   sel, toggle, setOne, setMany, remove, clearDim, clearAll, associative, ignoring, chips, dataQuality,
-                  undo, redo, canUndo, canRedo, applySel };
+                  undo, redo, canUndo, canRedo, applySel, locked, toggleLock };
   return <FriskuBIContext.Provider value={value}>{children}</FriskuBIContext.Provider>;
 }
 export function useFriskuBI(){
