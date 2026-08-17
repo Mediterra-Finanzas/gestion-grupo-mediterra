@@ -32,13 +32,28 @@ Demostración en DB (transaccional, ROLLBACK): lote recibe 4000 → `on_hand=400
 
 Diferencia documentada, no oculta: rehidratación = entradas asignadas; cierre = entrada−salida sobre la ref de la recepción. Coinciden durante el armado normal de un borrador (no hay salidas ligadas a la recepción antes del cierre); solo divergirían si existiera una salida con `ref_tipo='recepcion'`, que el flujo de ingreso no genera.
 
-## Gap abierto — T10C-FECHA-OPERACIONAL-GAP = OPEN
+## T10C-FECHA-OPERACIONAL-GAP = RESOLVED (gate T10C-FECHA-OPERACIONAL-GATE)
 
-La fecha operacional NO se materializa en este lote. Diagnóstico CURRENT:
+Materializado de forma **aditiva y segura** (evidencia confirmó que `proc_movimiento.fecha` es fecha
+operacional con `created_at` de auditoría independiente → no structural-gap).
 
-- `proc_recepcion.fecha` existe (`timestamptz DEFAULT now()`); `crearRecepcion` la omite → server now().
-- El **Reporting Daily** (`proc_fn_informe_diario_operacion`) agrupa por `(proc_movimiento.fecha AT TIME ZONE 'America/Santiago')::date`, es decir por la **fecha del movimiento del ledger**, no por `recepcion.fecha`.
-- `proc_fn_ingresar_lote_ubicado` sella `movimiento.fecha = now()` **sin parámetro** → hoy no hay forma de declarar una fecha operacional que fluya al informe.
-- `proc_planta` no tiene columna timezone; la tz autoridad ('America/Santiago') ya vive en el backend (no en el navegador).
+**Backend** (`schema_proc_v9_t10c_fecha_operacional.sql`): `proc_fn_ingresar_lote_ubicado` gana
+`p_fecha_operacional` (wall-clock naive America/Santiago, opcional). Backend = autoridad de tz:
+`v_fecha := COALESCE(p_fecha_operacional AT TIME ZONE 'America/Santiago', now())` (DST-correcto);
+rechaza fecha futura fuera de tolerancia (10 min) con mensaje humano; sella `movimiento.fecha` y
+propaga la misma fecha a `proc_recepcion.fecha` (cabecera=ledger). `created_at` (auditoría) intacto.
+Ledger append-only intacto. Retrocompatible (omitido → now()).
 
-**Conclusión**: permitir fecha operacional real (ingreso tardío / turno anterior) que sea consistente con el Reporting Daily requiere parametrizar `movimiento.fecha` en la RPC de ingreso — **cambio de backend/ledger fuera del alcance de este lote**. Requiere un gate de diseño y autorización propio (distinguir fecha física / operacional / auditoría, permisos, auditoría del backdating). Mientras tanto, CURRENT registra en tiempo real con timestamp del servidor.
+**Frontend**: `NuevaRecepcion` captura Fecha/Hora operacional (default "ahora" en America/Santiago vía
+`ahoraOperacional`, indicador de tz visible), deriva la temporada del catálogo por fecha
+(`temporadaDeFecha`; cero/varias → bloquea el correlativo con mensaje humano, nunca "s-t"/"REC--"),
+y envía el wall-clock a cada ingreso. Reanudación de borrador: los lotes nuevos heredan la fecha
+operacional y la temporada de la recepción (no "hoy"). `ClienteFicha` (OBS-TZ-CLIENTE-01) y
+`ReporteDiario` (OBS-TZ-01) usan `fechaCalendarioTz` (tz operacional) en vez de `toISOString()` (UTC).
+
+**tz canónica**: `America/Santiago`, ratificada por CURRENT (default de `proc_fn_informe_diario_operacion`).
+No hay config de tz por empresa/planta (agregarla sería estructural → no se tocó). Postgres tz = UTC.
+
+**Validación**: FOP-1..14 (backend SQL sims con ROLLBACK + JS de dominio). Reporting Daily ya agrupa por
+`(fecha AT TIME ZONE 'America/Santiago')::date` → respeta la fecha operacional automáticamente.
+Regresión cierre/ledger/QC intacta. Ruta RPC con `p_fecha_operacional` verificada vía proxy.

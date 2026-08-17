@@ -1,6 +1,7 @@
 /* eslint-disable */
 // Tests de dominio proc_* F7.1 (node). Ejecutar: node src/proceso/core/procesoF7Domain.test.mjs
-import { formatearCorrelativo, compactarTemporada, evaluarQC, badgeDe, traducirError, validarFiltros, calcularNeto, validarPesos, packout, resumenConciliacion, accionesOrden, faltaParaCerrar, ordenTerminal, despachoTerminal, puedeConfirmarDespacho, accionesDespacho, totalKg, montoServicio, especificidadTarifa, vigenciaTarifa, baseEditable, accionesBase, servicioAgregableABase, totalesPorMoneda, filtrosActivos, opcionesRef, limpiarDependencias, labelRef, resumenKgLotes, resumenOrigenes, tonoContractual, copiarOrigen, alertaContractual, transicionesContrato, tonoNivelContractual, qcPorLote, resumenQcRecepcion, rpcFecha, loteSinOrigen, qcListadoResumen, evaluarOrigenLote, textoQcCabecera, kgEntradaPorLote } from "./procesoF7Domain.js";
+import { formatearCorrelativo, compactarTemporada, evaluarQC, badgeDe, traducirError, validarFiltros, calcularNeto, validarPesos, packout, resumenConciliacion, accionesOrden, faltaParaCerrar, ordenTerminal, despachoTerminal, puedeConfirmarDespacho, accionesDespacho, totalKg, montoServicio, especificidadTarifa, vigenciaTarifa, baseEditable, accionesBase, servicioAgregableABase, totalesPorMoneda, filtrosActivos, opcionesRef, limpiarDependencias, labelRef, resumenKgLotes, resumenOrigenes, tonoContractual, copiarOrigen, alertaContractual, transicionesContrato, tonoNivelContractual, qcPorLote, resumenQcRecepcion, rpcFecha, loteSinOrigen, qcListadoResumen, evaluarOrigenLote, textoQcCabecera, kgEntradaPorLote,
+fechaCalendarioTz, ahoraOperacional, temporadaDeFecha, TZ_OPERACIONAL } from "./procesoF7Domain.js";
 
 let pass = 0, fail = 0;
 const ok = (c, m) => { if (c) pass++; else { fail++; console.error("  ✗ " + m); } };
@@ -283,6 +284,33 @@ eq(tm.find((x) => x.moneda === "CLP").total, 100000, "CLP separado");
   eq(m.L2, 3000, "L2 asignado = 3000 (numérico desde string)");
   ok(!("L3" in m), "objeto_tipo!=lote no entra al mapa");
   eq(JSON.stringify(kgEntradaPorLote([])), "{}", "sin movimientos -> mapa vacío");
+}
+
+// T10C-FECHA-OPERACIONAL · fecha calendario en tz operacional (FOP-11: no cambia por UTC en medianoche)
+{
+  // 02:30 UTC = 23:30 America/Santiago del día ANTERIOR → fecha operacional = día anterior.
+  const instante = new Date("2026-08-17T02:30:00Z");
+  eq(fechaCalendarioTz(instante), "2026-08-16", "fechaCalendarioTz: 02:30 UTC -> 2026-08-16 (Santiago)");
+  eq(instante.toISOString().slice(0, 10), "2026-08-17", "prueba del bug: toISOString da 2026-08-17 (UTC) — por eso NO se usa");
+  // 12:00 UTC = 08:00/09:00 Santiago mismo día
+  eq(fechaCalendarioTz(new Date("2026-08-17T12:00:00Z")), "2026-08-17", "mediodía UTC -> mismo día Santiago");
+  eq(TZ_OPERACIONAL, "America/Santiago", "tz operacional canónica");
+  const now = ahoraOperacional();
+  ok(/^\d{4}-\d{2}-\d{2}$/.test(now.fecha) && /^\d{2}:\d{2}$/.test(now.hora), "ahoraOperacional -> {fecha:YYYY-MM-DD, hora:HH:MM}");
+}
+
+// temporadaDeFecha (FOP-9/10): deriva del catálogo; cero/varias -> error (bloquea correlativo).
+{
+  const cat = [
+    { codigo: "2025/2026", fecha_inicio: "2025-07-01", fecha_fin: "2026-06-30" },
+    { codigo: "2026/2027", fecha_inicio: "2026-07-01", fecha_fin: "2027-06-30" },
+  ];
+  eq(temporadaDeFecha(cat, "2026-08-17").codigo, "2026/2027", "FOP-9: 2026-08-17 -> 2026/2027");
+  eq(temporadaDeFecha(cat, "2026-03-10").codigo, "2025/2026", "2026-03-10 -> 2025/2026");
+  eq(temporadaDeFecha(cat, "2020-01-01").error, "cero", "FOP-10: fecha sin temporada -> error cero");
+  eq(temporadaDeFecha([{ codigo: "A", fecha_inicio: "2026-01-01", fecha_fin: "2026-12-31" }, { codigo: "B", fecha_inicio: "2026-06-01", fecha_fin: "2026-09-30" }], "2026-08-01").error, "multiple", "solapadas -> error multiple");
+  eq(temporadaDeFecha(cat, "").error, "sin_fecha", "sin fecha -> error sin_fecha");
+  ok(!temporadaDeFecha(cat, "2026-06-30").error, "borde inicio/fin inclusivo (2026-06-30 en 2025/2026)");
 }
 
 // Filtros
