@@ -3,6 +3,7 @@
 // proc_* F7.1 — capa DB de la UI operacional (correlativos, QC, read-models,
 // CRUD genérico de maestros). Reutiliza primitivas de procesoDB.js con gate Regla 9.
 import { procSelect, procInsert, procUpdate, procRpc } from "./procesoDB.js";
+import { rpcFecha } from "./procesoF7Domain.js";
 
 // ── Correlativos (concurrency-safe en backend) ──────────────────────────────
 export const siguienteCorrelativo = (a) => procRpc("proc_fn_siguiente_correlativo", {
@@ -71,6 +72,12 @@ export const cargarQcParamsEspecie = (e, especie) =>
   procSelect("proc_qc_parametro", `?empresa_id=eq.${e}&especie_codigo=eq.${especie}&activo=eq.true&deleted_at=is.null&order=orden`);
 export const cargarLotesDeRecepcion = (e, recId) =>
   procSelect("proc_lote", `?empresa_id=eq.${e}&recepcion_id=eq.${recId}&deleted_at=is.null&order=codigo`);
+// NR-05 · Lotes persistidos de una recepción para reanudar un borrador: identidad + origen
+// (productor/predio/cuartel) + especie/variedad + ubicación (read-model, read-only). El kg NO sale
+// de acá: se toma del movimiento de entrada del ledger (kgEntradaPorLote), misma autoridad que el
+// cierre. Los lotes persistidos nunca se reenvían a la RPC de ingreso.
+export const cargarLotesListadoDeRecepcion = (e, recId) =>
+  procSelect("proc_v_lote_listado", `?empresa_id=eq.${e}&recepcion_id=eq.${recId}&order=codigo`);
 export const cargarQcDeRecepcion = (e, recId) =>
   procSelect("proc_qc_recepcion", `?empresa_id=eq.${e}&recepcion_id=eq.${recId}&deleted_at=is.null`);
 export const cargarMovimientosObjeto = (e, objetoId) =>
@@ -171,7 +178,8 @@ export const cargarFormatos = (e, especie) =>
 
 // ── F7.5 · Despacho (salida física; NO venta/exportación) ───────────────────
 export const cargarDespachoListado = (e, extra = "") =>
-  procSelect("proc_v_despacho_listado", `?empresa_id=eq.${e}&order=created_at.desc&limit=300${extra}`);
+  // proc_v_despacho_listado NO expone created_at; fecha_prevista está siempre seteada (creación) → orden canónico estable
+  procSelect("proc_v_despacho_listado", `?empresa_id=eq.${e}&order=fecha_prevista.desc&limit=300${extra}`);
 export const cargarDespachoPorId = (e, id) =>
   procSelect("proc_v_despacho_listado", `?empresa_id=eq.${e}&id=eq.${id}`);
 export const cargarDespachoRaw = (e, id) =>
@@ -191,7 +199,8 @@ export { crearDespacho, reservarPallet, liberarReserva, confirmarDespacho, rever
 
 // ── F7.6 · Resultado de Proceso (informe/versión/PDF/envíos) ────────────────
 export const cargarInformeListado = (e, extra = "") =>
-  procSelect("proc_v_informe_listado", `?empresa_id=eq.${e}&order=created_at.desc&limit=300${extra}`);
+  // proc_v_informe_listado NO expone created_at; emitido_at es la fecha canónica (nullable si no emitido) → nullslast al final
+  procSelect("proc_v_informe_listado", `?empresa_id=eq.${e}&order=emitido_at.desc.nullslast&limit=300${extra}`);
 export const cargarInformePorId = (e, id) =>
   procSelect("proc_v_informe_listado", `?empresa_id=eq.${e}&id=eq.${id}`);
 export const cargarInformeRaw = (e, id) =>
@@ -277,11 +286,12 @@ export const cargarLoteOrigenPorId = (e, id) =>
 export const cargarClienteContractual = (e, extra = "") =>
   procSelect("proc_v_cliente_contractual", `?empresa_id=eq.${e}${extra}`);
 
-// Gates contractuales (backend autoridad)
+// Gates contractuales (backend autoridad). p_fecha se OMITE si no se entrega, para que el
+// RPC use su DEFAULT current_date (enviar null anulaba el default → CONTRACT-DETAIL-01).
 export const estadoContractualCliente = (a) => procRpc("proc_fn_estado_contractual_cliente", {
-  p_empresa: a.empresaId, p_cliente: a.clienteId, p_fecha: a.fecha || null });
+  p_empresa: a.empresaId, p_cliente: a.clienteId, ...rpcFecha(a.fecha) });
 export const clienteHabilitadoParaOperar = (a) => procRpc("proc_fn_cliente_habilitado_para_operar", {
-  p_empresa: a.empresaId, p_cliente: a.clienteId, p_fecha: a.fecha || null, p_etapa: a.etapa || "proceso" });
+  p_empresa: a.empresaId, p_cliente: a.clienteId, ...rpcFecha(a.fecha), p_etapa: a.etapa || "proceso" });
 
 // Genealogía extendida (T9): pallet → origen agrícola (desde snapshot) + cliente paralelo
 export const palletGenealogiaOrigen = (e, palletId) => procRpc("proc_fn_pallet_genealogia", { p_empresa: e, p_pallet: palletId });

@@ -12,11 +12,13 @@ import {
   siguienteCorrelativo, crearRecepcion, cargarVinculosPorRol, cargarUbicacionesActivas,
   cargarEspecies, cargarVariedades, cargarPredios, cargarCuarteles, cargarClienteProductores,
   estadoContractualCliente, conciliacionRecepcion, cerrarRecepcion,
+  cargarRecepcionPorId, cargarLotesListadoDeRecepcion, cargarMovimientosRef,
 } from "../../core/procesoF7DB";
 import { ingresarLoteUbicado } from "../../core/procesoF2DB";
 import {
   validarPesos, calcularNeto, traducirError, opcionesRef, limpiarDependencias, labelRef,
   resumenKgLotes, resumenOrigenes, tonoContractual, copiarOrigen,
+  evaluarOrigenLote, textoQcCabecera, kgEntradaPorLote,
 } from "../../core/procesoF7Domain";
 import {
   ProcPageHeader, ProcCard, ProcButton, ProcField, inputStyle, ProcStatusBadge,
@@ -53,7 +55,8 @@ function Metrica({ titulo, valor, tono }) {
 }
 
 export default function NuevaRecepcion() {
-  const { empresa, planta, temporada, ir, notificar } = useService();
+  const { empresa, planta, temporada, ir, notificar, vista } = useService();
+  const resumeId = vista?.params?.recepcion_id || null;   // NR-05: reanudar borrador
   const [vinc, setVinc] = useState({ cliente_servicio: [], productor: [], transportista: [] });
   const [mae, setMae] = useState({ especies: [], variedades: [], predios: [], cuarteles: [] });
   const [ubicaciones, setUbicaciones] = useState([]);
@@ -65,6 +68,7 @@ export default function NuevaRecepcion() {
   const [concil, setConcil] = useState(null);            // read-model de conciliación (ledger)
   const [cerrando, setCerrando] = useState(false);
   const [nl, setNl] = useState({ productorId: "", predioId: "", cuartelId: "", especie_codigo: "", variedad_codigo: "", kg: "", ubicacion: "" });
+  const [confOrigen, setConfOrigen] = useState(null);    // NR-02: confirmación de origen incompleto
 
   useEffect(() => {
     if (!empresa) return;
@@ -74,6 +78,36 @@ export default function NuevaRecepcion() {
       .then(([e, v, p, c]) => setMae({ especies: e || [], variedades: v || [], predios: p || [], cuarteles: c || [] })).catch(() => {});
     cargarUbicacionesActivas(empresa, planta).then(setUbicaciones).catch(() => setUbicaciones([]));
   }, [empresa, planta]);
+
+  // NR-05 · Reanudar un borrador: cabecera + lotes YA persistidos (read-model, read-only). Los
+  // lotes persistidos NUNCA se reenvían a la RPC de ingreso; solo se agregan lotes nuevos.
+  useEffect(() => {
+    if (!empresa || !resumeId || rec) return;
+    (async () => {
+      try {
+        const [cab, lts, movs] = await Promise.all([
+          cargarRecepcionPorId(empresa, resumeId),
+          cargarLotesListadoDeRecepcion(empresa, resumeId),
+          cargarMovimientosRef(empresa, resumeId),   // kg de entrada inicial (autoridad = ledger)
+        ]);
+        const r = cab && cab[0];
+        if (!r) return notificar("No se encontró el borrador", "error");
+        if (r.estado !== "borrador") { notificar("La recepción ya no está en borrador; abriendo el detalle", "info"); return ir("recepcion_detalle", { id: r.id }); }
+        setRec({ id: r.id, folio: r.folio });
+        if (r.especie_codigo) set("especie_qc", r.especie_codigo);
+        const kgMap = kgEntradaPorLote(movs);   // NR-05: kg desde el movimiento de entrada, NO on_hand
+        setAgregados((lts || []).map((l) => ({
+          id: l.id, codigo: l.codigo, kg: kgMap[l.id] || 0,
+          especie_codigo: l.especie_codigo, variedad_codigo: l.variedad_codigo || "",
+          productorId: l.productor_vinculo_id || "", predioId: l.predio_id || "", cuartelId: l.cuartel_id || "",
+          productorNombre: l.productor || "", predioNombre: l.predio || "", cuartelNombre: l.cuartel || "",
+          ubicacion: l.ubicacion || "", persistido: true,
+        })));
+        refrescarConcil(r.id);
+        notificar(`Borrador ${r.folio} recuperado — agregá los lotes pendientes y finalizá`);
+      } catch (e) { notificar(traducirError(e), "error"); }
+    })();
+  }, [empresa, resumeId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // al elegir cliente: estado contractual + productores relacionados
   useEffect(() => {
@@ -112,9 +146,11 @@ export default function NuevaRecepcion() {
   const crear = async () => {
     if (!empresa) return notificar("Falta tenant", "error");
     if (!f.cliente_servicio) return notificar("Falta el cliente del servicio", "error");
+    // NR-03: temporada obligatoria — nunca generar correlativos con placeholder "s-t".
+    if (!temporada) return notificar("Seleccioná una temporada antes de registrar la recepción", "error");
     if (!pes.ok) return notificar(pes.errores[0], "error");
     try {
-      const folio = await siguienteCorrelativo({ empresaId: empresa, temporada: temporada || "s-t", tipo: "REC" });
+      const folio = await siguienteCorrelativo({ empresaId: empresa, temporada, tipo: "REC" });
       const r = await crearRecepcion({
         empresa_id: empresa, folio, planta_id: planta || null, cliente_servicio_vinculo_id: f.cliente_servicio,
         transportista_vinculo_id: f.transportista || null, especie_codigo: f.especie_qc || null,
@@ -144,22 +180,35 @@ export default function NuevaRecepcion() {
     finally { setCerrando(false); }
   };
 
-  const agregarLote = async () => {
-    if (!nl.especie_codigo) return notificar("Elegí especie del lote", "error");
-    if (!nl.kg || Number(nl.kg) <= 0) return notificar("Kg del lote debe ser > 0", "error");
-    if (!nl.ubicacion) return notificar("Seleccioná ubicación inicial", "error");
+  // Ingreso real del lote (RPC atómica): lote + origen_snapshot + movimiento + ubicación. Se invoca
+  // tras validar y, si el origen es incompleto, tras confirmación consciente (NR-02). Los lotes ya
+  // persistidos (reanudación de borrador) NUNCA pasan por acá — no se re-ingresan.
+  const ingresarLoteReal = async () => {
+    const datos = nl;
+    setConfOrigen(null);
     try {
-      const codigo = await siguienteCorrelativo({ empresaId: empresa, temporada: temporada || "s-t", tipo: "LOT" });
+      const codigo = await siguienteCorrelativo({ empresaId: empresa, temporada, tipo: "LOT" });
       await ingresarLoteUbicado({
-        empresaId: empresa, recepcionId: rec.id, codigo, especie: nl.especie_codigo, variedad: nl.variedad_codigo || null,
-        kg: Number(nl.kg), plantaId: planta, temporada: temporada || "s-t", ubicacionId: nl.ubicacion,
-        productorId: nl.productorId || null, predioId: nl.predioId || null, cuartelId: nl.cuartelId || null,
+        empresaId: empresa, recepcionId: rec.id, codigo, especie: datos.especie_codigo, variedad: datos.variedad_codigo || null,
+        kg: Number(datos.kg), plantaId: planta, temporada, ubicacionId: datos.ubicacion,
+        productorId: datos.productorId || null, predioId: datos.predioId || null, cuartelId: datos.cuartelId || null,
       });
-      setAgregados((a) => [...a, { codigo, kg: Number(nl.kg), ...nl }]);
+      setAgregados((a) => [...a, { codigo, kg: Number(datos.kg), persistido: false, ...datos }]);
       setNl({ productorId: "", predioId: "", cuartelId: "", especie_codigo: "", variedad_codigo: "", kg: "", ubicacion: "" });
       refrescarConcil();
       notificar(`Lote ${codigo} ingresado`);
     } catch (e) { notificar(traducirError(e), "error"); }
+  };
+
+  const agregarLote = async () => {
+    if (!nl.especie_codigo) return notificar("Elegí especie del lote", "error");
+    if (!nl.kg || Number(nl.kg) <= 0) return notificar("Kg del lote debe ser > 0", "error");
+    if (!nl.ubicacion) return notificar("Seleccioná ubicación inicial", "error");
+    // NR-03: sin temporada no se generan correlativos (evita "s-t"/"LOT--").
+    if (!temporada) return notificar("Seleccioná una temporada antes de registrar lotes", "error");
+    const org = evaluarOrigenLote(nl);   // NR-02: origen incompleto → confirmación consciente
+    if (!org.completo) { setConfOrigen(org); return; }
+    await ingresarLoteReal();
   };
 
   if (!empresa) return <div><ProcPageHeader titulo="Nueva recepción" /><ProcCard style={{ padding: sp.lg }}><ProcEmptyState icono="🚛" titulo="Seleccioná un tenant" /></ProcCard></div>;
@@ -221,7 +270,9 @@ export default function NuevaRecepcion() {
         <>
           {alertaContractual && <ProcCard style={{ padding: sp.md, marginBottom: sp.md }}>{alertaContractual}</ProcCard>}
           <ProcCard style={{ padding: sp.lg, marginBottom: sp.md }}>
-            <div style={{ fontSize: 15, fontWeight: 800, color: C.text, marginBottom: sp.md }}>Control de Calidad {especieQC && <span style={{ fontSize: 12, color: C.muted }}>· {especieQC}</span>}</div>
+            <div style={{ fontSize: 15, fontWeight: 800, color: C.text, marginBottom: 4 }}>Control de Calidad {especieQC && <span style={{ fontSize: 12, color: C.muted }}>· {especieQC}</span>}</div>
+            {/* NR-04: alcance del QC de cabecera (fallback mono-especie); el QC por lote es autoridad */}
+            {especieQC && <div style={{ fontSize: 12, color: C.muted, marginBottom: sp.md, lineHeight: 1.4 }}>{textoQcCabecera(especieQC)}</div>}
             {especieQC ? <QcPanel especie={especieQC} recepcionId={rec.id} editable onGuardado={() => {}} />
               : <div style={{ fontSize: 13, color: C.muted }}>El QC se habilita al fijar la especie principal o agregar el primer lote.</div>}
           </ProcCard>
@@ -269,6 +320,20 @@ export default function NuevaRecepcion() {
               <div style={{ display: "flex", alignItems: "end" }}><ProcButton onClick={agregarLote}>+ Agregar lote</ProcButton></div>
             </div>
 
+            {/* NR-02: confirmación consciente de origen agrícola incompleto. La fruta física se registra
+                igual, pero exige confirmación explícita; no se infiere de la cabecera ni se fabrica snapshot. */}
+            {confOrigen && (
+              <div style={{ display: "flex", alignItems: "center", gap: sp.md, flexWrap: "wrap", padding: "10px 14px", borderRadius: 10, marginBottom: sp.md,
+                background: C.warningBg, border: `1px solid ${C.warning}55` }}>
+                <ProcStatusBadge texto={confOrigen.ninguno ? "Origen no informado" : "Origen incompleto"} tono="warning" />
+                <span style={{ fontSize: 12.5, color: C.text, flex: 1, minWidth: 240 }}>{confOrigen.mensaje}</span>
+                <div style={{ display: "flex", gap: sp.sm }}>
+                  <ProcButton kind="ghost" small onClick={() => setConfOrigen(null)}>Cancelar</ProcButton>
+                  <ProcButton small onClick={ingresarLoteReal}>Registrar sin origen</ProcButton>
+                </div>
+              </div>
+            )}
+
             {/* preview de masas: neto vs Σ lotes */}
             <div style={{ display: "flex", gap: sp.lg, flexWrap: "wrap", padding: "8px 12px", background: C.cardAlt, borderRadius: 8, fontSize: 12.5, marginBottom: sp.md }}>
               <span>Peso neto recepción: <b>{formatNum(km.neto, 1)} kg</b></span>
@@ -277,16 +342,18 @@ export default function NuevaRecepcion() {
               {km.exceso > 0 && <span style={{ color: C.danger }}>Exceso asignado: <b>{formatNum(km.exceso, 1)} kg</b></span>}
             </div>
 
+            {/* NR-05: los lotes ya persistidos (reanudación de borrador) se muestran read-only y no
+                se reenvían a la RPC de ingreso; el ledger es autoridad. Los lotes nuevos son editables. */}
             <ProcDataTable
               columnas={[
-                { titulo: "Código", render: (l) => <b>{l.codigo}</b> },
-                { titulo: "Productor", render: (l) => labelRef(vinc.productor, refProductor, l.productorId) },
-                { titulo: "Predio", render: (l) => labelRef(mae.predios, { value: "id", label: (r) => normalizarNombre(r.nombre) }, l.predioId) },
-                { titulo: "Cuartel", render: (l) => labelRef(mae.cuarteles, { value: "id", label: "codigo" }, l.cuartelId) },
+                { titulo: "Código", render: (l) => <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}><b>{l.codigo}</b>{l.persistido && <ProcStatusBadge texto="persistido" tono="neutral" />}</span> },
+                { titulo: "Productor", render: (l) => l.persistido ? (normalizarNombre(l.productorNombre) || <span style={{ color: C.muted2, fontStyle: "italic" }}>no informado</span>) : labelRef(vinc.productor, refProductor, l.productorId) },
+                { titulo: "Predio", render: (l) => l.persistido ? (normalizarNombre(l.predioNombre) || "—") : labelRef(mae.predios, { value: "id", label: (r) => normalizarNombre(r.nombre) }, l.predioId) },
+                { titulo: "Cuartel", render: (l) => l.persistido ? (l.cuartelNombre || "—") : labelRef(mae.cuarteles, { value: "id", label: "codigo" }, l.cuartelId) },
                 { titulo: "Especie", render: (l) => l.especie_codigo || "—" },
                 { titulo: "Variedad", render: (l) => l.variedad_codigo || "—" },
                 { titulo: "Kg", align: "right", render: (l) => formatNum(l.kg, 1) },
-                { titulo: "Ubicación", render: (l) => labelRef(ubicaciones, { value: "id", label: (r) => r.nombre || r.codigo }, l.ubicacion) },
+                { titulo: "Ubicación", render: (l) => l.persistido ? (l.ubicacion || "—") : labelRef(ubicaciones, { value: "id", label: (r) => r.nombre || r.codigo }, l.ubicacion) },
               ]}
               filas={agregados} rowKey="codigo"
               vacio={<ProcEmptyState icono="📦" titulo="Aún sin lotes" detalle="Cargá el origen y kg del primer lote. Una recepción puede tener varios orígenes." />} />

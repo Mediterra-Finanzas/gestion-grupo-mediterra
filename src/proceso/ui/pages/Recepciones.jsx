@@ -5,7 +5,7 @@
 import React, { useEffect, useState, useCallback, useMemo } from "react";
 import { useService } from "../hooks/useServiceContext";
 import { cargarRecepcionListado, cargarVinculosPorRol } from "../../core/procesoF7DB";
-import { traducirError, badgeDe, tonoNivelContractual } from "../../core/procesoF7Domain";
+import { traducirError, badgeDe, tonoNivelContractual, qcListadoResumen } from "../../core/procesoF7Domain";
 import {
   ProcPageHeader, ProcButton, ProcCard, ProcDataTable, ProcStatusBadge,
   ProcLoadingState, ProcErrorState, ProcEmptyState, ProcFilters,
@@ -63,9 +63,20 @@ export default function Recepciones() {
     { titulo: "Lotes", align: "right", campo: "lotes" },
     { titulo: "QC lotes", render: (r) => <QcResumen r={r} /> },
     { titulo: "Masa", render: (r) => r.masa_dentro_tolerancia == null ? "—" : r.masa_dentro_tolerancia ? <ProcStatusBadge texto="Cuadra" tono="success" /> : <ProcStatusBadge texto="Descuadre" tono="danger" /> },
-    { titulo: "Contrato", render: (r) => (r.nivel_contractual && r.nivel_contractual !== "ok" && r.nivel_contractual !== "info") ? <ProcStatusBadge texto={r.nivel_contractual} tono={tonoNivelContractual(r.nivel_contractual)} /> : <span style={{ color: C.muted2, fontSize: 12 }}>—</span> },
+    { titulo: "Contrato", render: (r) => {
+      const n = r.nivel_contractual;
+      if (n === "ok") return <ProcStatusBadge texto="Vigente" tono="success" />;
+      if (n && n !== "info") return <ProcStatusBadge texto={NIVEL_CONTRACTUAL_LABEL[n] || n} tono={tonoNivelContractual(n)} />;
+      return <span style={{ color: C.muted2, fontSize: 12 }}>—</span>;
+    } },
     { titulo: "Estado", render: (r) => <ProcStatusBadge estado={r.estado} /> },
-    { titulo: "", align: "right", render: (r) => <ProcButton kind="ghost" small onClick={() => ir("recepcion_detalle", { id: r.id })}>Ver</ProcButton> },
+    { titulo: "", align: "right", render: (r) => (
+      <span style={{ display: "inline-flex", gap: 6, justifyContent: "flex-end" }}>
+        {r.estado === "borrador" && (puedeEditar("recepciones") || puedeEditar("centro")) &&
+          <ProcButton kind="ghost" small onClick={() => ir("recepcion_nueva", { recepcion_id: r.id })}>Continuar</ProcButton>}
+        <ProcButton kind="ghost" small onClick={() => ir("recepcion_detalle", { id: r.id })}>Ver</ProcButton>
+      </span>
+    ) },
   ];
 
   if (!empresa) return <div><ProcPageHeader titulo="Recepciones" /><ProcCard style={{ padding: sp.lg }}><ProcEmptyState icono="🚛" titulo="Seleccioná un tenant" detalle="Elegí empresa (tenant) en la barra superior." /></ProcCard></div>;
@@ -94,16 +105,24 @@ export default function Recepciones() {
   );
 }
 
-// Resumen QC por lote de la recepción (conteos = hechos; sin veredicto global inventado).
+// Etiquetas de nivel contractual y de QC (para el listado).
+const NIVEL_CONTRACTUAL_LABEL = { advertencia: "Advertencia", bloqueante: "Bloqueante", informativo: "Informativo", vencido: "Vencido" };
+const QC_LBL = { aprobado: "Aprobado", condicional: "Condicional", rechazado: "Rechazado" };
+const QC_TONO = { aprobado: "success", condicional: "warning", rechazado: "danger" };
+
+// Resumen QC de la recepción. Lógica pura en qcListadoResumen (dominio, testeable): prioriza
+// QC por-lote; si no hay por-lote pero sí QC de cabecera (fallback efectivo), muestra el resultado
+// real; "sin QC" sólo cuando no hay QC aplicable. Sin nueva SoT (reusa el read-model).
 function QcResumen({ r }) {
-  const a = r.qc_aprobados || 0, x = r.qc_rechazados || 0, c = r.qc_condicional || 0, con = r.qc_con_qc || 0;
-  if (con === 0) return <span style={{ color: C.muted2, fontSize: 12 }}>sin QC</span>;
+  const q = qcListadoResumen(r);
+  if (q.kind === "ninguno") return <span style={{ color: C.muted2, fontSize: 12 }}>sin QC</span>;
+  if (q.kind === "header") return <ProcStatusBadge texto={`${QC_LBL[q.resultado] || q.resultado} · QC cabecera`} tono={QC_TONO[q.resultado] || "neutral"} />;
   return (
     <span style={{ display: "inline-flex", gap: 8, alignItems: "center", fontSize: 12.5, fontWeight: 700 }}>
-      {a > 0 && <span style={{ color: C.success }}>✓{a}</span>}
-      {c > 0 && <span style={{ color: C.warning }}>~{c}</span>}
-      {x > 0 && <span style={{ color: C.danger }}>✕{x}</span>}
-      {r.qc_mixto && <ProcStatusBadge texto="mixto" tono="warning" />}
+      {q.aprobados > 0 && <span style={{ color: C.success }}>✓{q.aprobados}</span>}
+      {q.condicional > 0 && <span style={{ color: C.warning }}>~{q.condicional}</span>}
+      {q.rechazados > 0 && <span style={{ color: C.danger }}>✕{q.rechazados}</span>}
+      {q.mixto && <ProcStatusBadge texto="mixto" tono="warning" />}
     </span>
   );
 }

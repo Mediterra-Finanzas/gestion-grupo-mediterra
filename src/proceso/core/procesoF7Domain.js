@@ -283,6 +283,44 @@ export function resumenOrigenes(lotes = []) {
   return { lotes: (lotes || []).length, productores: distintos("productorId"), predios: distintos("predioId"),
     cuarteles: distintos("cuartelId"), kg: resumenKgLotes(0, lotes).asignado };
 }
+
+// NR-02 · Completitud del origen agrícola de un lote en captura (cascada Productor→Predio→
+// Cuartel). NO cubre Especie (obligatoria por separado) ni Variedad (opcional). Puro/testeable.
+// Si el origen es incompleto la fruta física igual se registra, pero exige confirmación consciente;
+// nunca se infiere desde la cabecera ni se fabrica snapshot.
+export function evaluarOrigenLote(nl = {}) {
+  const prod = !!(nl && nl.productorId), pred = !!(nl && nl.predioId), cuar = !!(nl && nl.cuartelId);
+  if (prod && pred && cuar) return { completo: true, faltantes: [], ninguno: false, mensaje: "" };
+  const faltantes = [];
+  if (!prod) faltantes.push("Productor");
+  if (!pred) faltantes.push("Predio");
+  if (!cuar) faltantes.push("Cuartel");
+  const ninguno = !prod && !pred && !cuar;
+  const mensaje = ninguno
+    ? "Origen agrícola no informado: el lote quedará sin Productor, Predio ni Cuartel. La fruta física queda trazable, pero sin origen agrícola registrado."
+    : `Origen agrícola incompleto: falta ${faltantes.join(" y ")}. El lote se registrará sin esa(s) dimensión(es); no se infiere desde la cabecera.`;
+  return { completo: false, faltantes, ninguno, mensaje };
+}
+
+// NR-05 · kg de ENTRADA INICIAL por lote desde el ledger — misma autoridad de masa que
+// proc_fn_cerrar_recepcion (movimientos de la recepción con objeto_tipo=lote, naturaleza=entrada).
+// NO usa on_hand (que neto de salidas posteriores). Devuelve mapa objeto_id(lote) → kg. Puro/testeable.
+export function kgEntradaPorLote(movimientos = []) {
+  const m = {};
+  for (const mv of movimientos || []) {
+    if (mv && mv.ref_tipo === "recepcion" && mv.objeto_tipo === "lote" && mv.naturaleza === "entrada" && mv.objeto_id) {
+      m[mv.objeto_id] = Math.round(((m[mv.objeto_id] || 0) + (Number(mv.cantidad) || 0)) * 1000) / 1000;
+    }
+  }
+  return m;
+}
+
+// NR-04 · Copy del QC de cabecera (fallback). Aclara alcance mono-especie: no cubre toda la
+// recepción multi-especie. El QC por lote sigue siendo autoridad. Puro/testeable.
+export function textoQcCabecera(especie) {
+  const esp = especie || "la especie principal";
+  return `QC de cabecera para ${esp}. Aplica como fallback a lotes de esa especie sin QC propio. Las demás especies requieren QC por lote en el Detalle de Recepción.`;
+}
 // Mapa nivel contractual → tono de badge (backend es autoridad del nivel).
 export function tonoContractual(nivel) {
   return nivel === "bloqueante" ? "danger" : nivel === "advertencia" ? "warning"
@@ -306,6 +344,30 @@ export const CONTRATO_TRANSICIONES = {
   reemplazado: [], terminado: [], anulado: [],
 };
 export function transicionesContrato(estado) { return CONTRATO_TRANSICIONES[estado] || []; }
+
+// Payload de fecha para RPC: si NO hay fecha, se OMITE p_fecha del payload para que el
+// backend aplique su DEFAULT current_date (enviar p_fecha:null lo anula → bug CONTRACT-DETAIL-01).
+// Con fecha explícita, se envía tal cual. No se calcula vigencia en React.
+export function rpcFecha(fecha) { return fecha ? { p_fecha: fecha } : {}; }
+
+// Resumen QC para el LISTADO de recepciones (T11-VIS-QC-01): prioriza QC por-lote (conteos
+// = hechos); si no hay QC por-lote pero existe QC de cabecera (fallback efectivo del gate),
+// devuelve ese resultado real; sólo "ninguno" cuando realmente no hay QC aplicable. Sin nueva SoT.
+export function qcListadoResumen(r) {
+  const a = Number(r?.qc_aprobados) || 0, x = Number(r?.qc_rechazados) || 0,
+        c = Number(r?.qc_condicional) || 0, con = Number(r?.qc_con_qc) || 0;
+  if (con > 0) return { kind: "lotes", aprobados: a, condicional: c, rechazados: x, mixto: !!r?.qc_mixto };
+  if (r?.qc_resultado) return { kind: "header", resultado: r.qc_resultado };  // fallback header efectivo
+  return { kind: "ninguno" };
+}
+
+// Lote sin origen agrícola registrado (legacy): no hay productor/predio/cuartel ni sus FKs.
+// La UI lo muestra como "Origen no informado" (no infiere de la cabecera, no fabrica historia).
+export function loteSinOrigen(l) {
+  if (!l) return false;
+  return !l.productor && !l.predio && !l.cuartel &&
+         !l.productor_vinculo_id && !l.predio_id && !l.cuartel_id;
+}
 
 // Tono del badge según el nivel del backend (ok/info/informativo/advertencia/bloqueante).
 export function tonoNivelContractual(nivel) {

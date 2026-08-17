@@ -5,7 +5,7 @@
 import React, { useEffect, useState, useCallback } from "react";
 import { useService } from "../hooks/useServiceContext";
 import { cargarRecepcionListado, cargarRecepcionPorId, cargarLotesDeRecepcion, cargarMovimientosRef, cargarLoteOrigen, estadoContractualCliente, conciliacionRecepcion, cerrarRecepcion, cargarQcLotesDeRecepcion } from "../../core/procesoF7DB";
-import { traducirError, tonoContractual, qcPorLote, resumenQcRecepcion } from "../../core/procesoF7Domain";
+import { traducirError, tonoContractual, qcPorLote, resumenQcRecepcion, loteSinOrigen } from "../../core/procesoF7Domain";
 import {
   ProcPageHeader, ProcCard, ProcButton, ProcStatusBadge, ProcDataTable, ProcAuditInfo,
   ProcLoadingState, ProcErrorState, ProcEmptyState,
@@ -123,7 +123,9 @@ export default function RecepcionDetalle() {
             </div>
             {!dentro && !sinLotes && <div style={{ color: C.danger, fontSize: 12.5, marginBottom: sp.sm }}>Los kilos de los lotes no cuadran con el peso neto. Corregí o ajustá los lotes antes de finalizar.</div>}
             {sinLotes && <div style={{ color: C.warning, fontSize: 12.5, marginBottom: sp.sm }}>Esta recepción todavía no tiene lotes: agregá al menos uno para poder finalizar.</div>}
-            {puede && <div style={{ textAlign: "right" }}>
+            {puede && <div style={{ display: "flex", gap: sp.sm, justifyContent: "flex-end", flexWrap: "wrap" }}>
+              {/* NR-05: reanudar el borrador para agregar lotes pendientes (lotes ya persistidos se cargan read-only) */}
+              <ProcButton kind="ghost" onClick={() => ir("recepcion_nueva", { recepcion_id: id })}>Continuar (agregar lotes)</ProcButton>
               <ProcButton onClick={finalizar} disabled={cerrando || sinLotes}>{cerrando ? "Finalizando…" : "Finalizar recepción"}</ProcButton>
             </div>}
           </Seccion>
@@ -200,9 +202,9 @@ export default function RecepcionDetalle() {
         <ProcDataTable
           columnas={[
             { titulo: "Código", render: (l) => <b>{l.codigo}</b> },
-            { titulo: "Productor", render: (l) => normalizarNombre(l.productor) || "—" },
-            { titulo: "Predio", render: (l) => normalizarNombre(l.predio) || "—" },
-            { titulo: "Cuartel", render: (l) => l.cuartel || "—" },
+            { titulo: "Productor", render: (l) => loteSinOrigen(l) ? <span style={{ color: C.muted2, fontStyle: "italic" }}>Origen no informado</span> : (normalizarNombre(l.productor) || "—") },
+            { titulo: "Predio", render: (l) => loteSinOrigen(l) ? "" : (normalizarNombre(l.predio) || "—") },
+            { titulo: "Cuartel", render: (l) => loteSinOrigen(l) ? "" : (l.cuartel || "—") },
             { titulo: "Especie", render: (l) => l.especie_codigo || "—" },
             { titulo: "Variedad", render: (l) => l.variedad_codigo || "—" },
             { titulo: "Ubicación", render: (l) => l.ubicacion || "—" },

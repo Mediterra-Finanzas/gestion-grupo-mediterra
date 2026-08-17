@@ -5,7 +5,7 @@
 import React, { useEffect, useState, useCallback } from "react";
 import { useService } from "../hooks/useServiceContext";
 import { cargarLotePorId, cargarMovimientosObjeto, loteElegible, cargarLoteOrigenPorId } from "../../core/procesoF7DB";
-import { traducirError } from "../../core/procesoF7Domain";
+import { traducirError, loteSinOrigen } from "../../core/procesoF7Domain";
 import {
   ProcPageHeader, ProcCard, ProcButton, ProcStatusBadge, ProcKpiCard, ProcDataTable,
   ProcLoadingState, ProcErrorState, ProcEmptyState,
@@ -72,12 +72,15 @@ export default function LoteDetalle() {
             <>
               <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(160px,1fr))", gap: sp.md }}>
                 <Dato l="Cliente del servicio" v={normalizarNombre((org && org.cliente) || l.cliente)} />
-                <Dato l="Productor" v={<span>{normalizarNombre((org && org.productor) || l.productor)}{prodCsg ? <span style={{ color: C.muted2, fontSize: 12 }}> · CSG {prodCsg}</span> : null}</span>} />
-                <Dato l="Predio / Huerto" v={<span>{normalizarNombre(org && org.predio) || "—"}{predCsg ? <span style={{ color: C.muted2, fontSize: 12 }}> · CSG {predCsg}</span> : null}</span>} />
-                <Dato l="Cuartel" v={(org && org.cuartel) || "—"} />
+                <Dato l="Productor" v={<span>{normalizarNombre((org && org.productor) || l.productor) || "No informado"}{prodCsg ? <span style={{ color: C.muted2, fontSize: 12 }}> · CSG {prodCsg}</span> : null}</span>} />
+                <Dato l="Predio / Huerto" v={<span>{normalizarNombre(org && org.predio) || "No informado"}{predCsg ? <span style={{ color: C.muted2, fontSize: 12 }}> · CSG {predCsg}</span> : null}</span>} />
+                <Dato l="Cuartel" v={(org && org.cuartel) || "No informado"} />
                 <Dato l="Especie" v={(snap?.especie?.nombre) || l.especie_codigo || "—"} />
                 <Dato l="Variedad" v={(snap?.variedad?.nombre) || l.variedad_codigo || "—"} />
               </div>
+              {org && loteSinOrigen(org) && (
+                <div style={{ marginTop: sp.sm, fontSize: 12.5, color: C.muted, fontStyle: "italic" }}>Origen no informado — lote legacy sin origen agrícola registrado al ingreso (no se infiere de la cabecera).</div>
+              )}
               {org && org.origen_reconstruido && (
                 <div style={{ marginTop: sp.sm, fontSize: 12, color: C.warning }}>⚠ Origen reconstruido en migración (no capturado al ingreso). Cuartel/CSG pueden figurar como "no informado".</div>
               )}

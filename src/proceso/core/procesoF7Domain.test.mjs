@@ -1,6 +1,6 @@
 /* eslint-disable */
 // Tests de dominio proc_* F7.1 (node). Ejecutar: node src/proceso/core/procesoF7Domain.test.mjs
-import { formatearCorrelativo, compactarTemporada, evaluarQC, badgeDe, traducirError, validarFiltros, calcularNeto, validarPesos, packout, resumenConciliacion, accionesOrden, faltaParaCerrar, ordenTerminal, despachoTerminal, puedeConfirmarDespacho, accionesDespacho, totalKg, montoServicio, especificidadTarifa, vigenciaTarifa, baseEditable, accionesBase, servicioAgregableABase, totalesPorMoneda, filtrosActivos, opcionesRef, limpiarDependencias, labelRef, resumenKgLotes, resumenOrigenes, tonoContractual, copiarOrigen, alertaContractual, transicionesContrato, tonoNivelContractual, qcPorLote, resumenQcRecepcion } from "./procesoF7Domain.js";
+import { formatearCorrelativo, compactarTemporada, evaluarQC, badgeDe, traducirError, validarFiltros, calcularNeto, validarPesos, packout, resumenConciliacion, accionesOrden, faltaParaCerrar, ordenTerminal, despachoTerminal, puedeConfirmarDespacho, accionesDespacho, totalKg, montoServicio, especificidadTarifa, vigenciaTarifa, baseEditable, accionesBase, servicioAgregableABase, totalesPorMoneda, filtrosActivos, opcionesRef, limpiarDependencias, labelRef, resumenKgLotes, resumenOrigenes, tonoContractual, copiarOrigen, alertaContractual, transicionesContrato, tonoNivelContractual, qcPorLote, resumenQcRecepcion, rpcFecha, loteSinOrigen, qcListadoResumen, evaluarOrigenLote, textoQcCabecera, kgEntradaPorLote } from "./procesoF7Domain.js";
 
 let pass = 0, fail = 0;
 const ok = (c, m) => { if (c) pass++; else { fail++; console.error("  ✗ " + m); } };
@@ -201,6 +201,86 @@ eq(tm.find((x) => x.moneda === "CLP").total, 100000, "CLP separado");
   const rq2 = resumenQcRecepcion([{ id: "A" }, { id: "B" }], [{ lote_id: "A", resultado: "aprobado" }]);
   eq(rq2.pendientes, 1, "E1: B sin QC ni header -> pendiente");
   eq(rq2.mixto, false, "E1: un solo resultado -> no mixto");
+}
+
+// rpcFecha (T11-VIS-CONTRACT-DETAIL-01): omitir p_fecha si no viene → deja aplicar DEFAULT current_date;
+// NUNCA enviar p_fecha:null (anula el DEFAULT del SQL).
+{
+  eq(JSON.stringify(rpcFecha(undefined)), "{}", "rpcFecha(undefined) -> {} (omite, aplica DEFAULT)");
+  eq(JSON.stringify(rpcFecha(null)), "{}", "rpcFecha(null) -> {} (omite, aplica DEFAULT)");
+  eq(JSON.stringify(rpcFecha("")), "{}", "rpcFecha('') -> {} (vacío = omite)");
+  eq(JSON.stringify(rpcFecha("2026-08-17")), '{"p_fecha":"2026-08-17"}', "rpcFecha(fecha) -> {p_fecha}");
+  ok(!("p_fecha" in rpcFecha(null)), "rpcFecha(null) NO contiene la clave p_fecha");
+}
+
+// loteSinOrigen (T11-VIS-ORIGIN-01): lote legacy sin origen agrícola ni FKs.
+{
+  ok(loteSinOrigen({}) === true, "lote sin ningún campo de origen -> true");
+  ok(loteSinOrigen({ productor: "Agrícola X" }) === false, "lote con productor -> false");
+  ok(loteSinOrigen({ predio_id: "p1" }) === false, "lote con predio_id -> false");
+  ok(loteSinOrigen({ cuartel: "C-01" }) === false, "lote con cuartel -> false");
+  ok(loteSinOrigen({ productor_vinculo_id: "v1" }) === false, "lote con productor_vinculo_id -> false");
+  ok(loteSinOrigen(null) === false, "lote null -> false (no rotula)");
+}
+
+// qcListadoResumen (T11-VIS-QC-01): prioriza QC por-lote; fallback a QC de cabecera; sin QC real.
+{
+  const porLote = qcListadoResumen({ qc_con_qc: 3, qc_aprobados: 2, qc_rechazados: 1, qc_condicional: 0, qc_mixto: true });
+  eq(porLote.kind, "lotes", "hay QC por-lote -> kind lotes");
+  eq(porLote.aprobados, 2, "por-lote aprobados=2");
+  eq(porLote.rechazados, 1, "por-lote rechazados=1");
+  ok(porLote.mixto === true, "por-lote mixto=true");
+  const headAprob = qcListadoResumen({ qc_con_qc: 0, qc_resultado: "aprobado" });
+  eq(headAprob.kind, "header", "sin por-lote + header aprobado -> kind header");
+  eq(headAprob.resultado, "aprobado", "header resultado=aprobado");
+  const headRech = qcListadoResumen({ qc_con_qc: 0, qc_resultado: "rechazado" });
+  eq(headRech.kind, "header", "sin por-lote + header rechazado -> kind header");
+  eq(headRech.resultado, "rechazado", "header resultado=rechazado (NUNCA 'sin QC')");
+  const ninguno = qcListadoResumen({ qc_con_qc: 0, qc_resultado: null });
+  eq(ninguno.kind, "ninguno", "sin por-lote ni header -> kind ninguno");
+}
+
+// evaluarOrigenLote (NR-02): completitud del origen agrícola del lote en captura.
+{
+  const comp = evaluarOrigenLote({ productorId: "p", predioId: "pr", cuartelId: "c" });
+  ok(comp.completo === true, "origen completo -> completo true (sin advertencia)");
+  eq(comp.mensaje, "", "origen completo -> sin mensaje");
+  const nada = evaluarOrigenLote({});
+  ok(nada.completo === false, "origen vacío -> completo false (exige confirmación)");
+  ok(nada.ninguno === true, "origen vacío -> ninguno true");
+  eq(JSON.stringify(nada.faltantes), JSON.stringify(["Productor", "Predio", "Cuartel"]), "faltan las 3 dimensiones");
+  ok(/no informado/i.test(nada.mensaje), "origen vacío -> mensaje 'no informado'");
+  const soloProd = evaluarOrigenLote({ productorId: "p" });
+  ok(soloProd.completo === false, "solo productor -> incompleto");
+  eq(JSON.stringify(soloProd.faltantes), JSON.stringify(["Predio", "Cuartel"]), "solo productor -> falta Predio y Cuartel");
+  ok(soloProd.ninguno === false, "solo productor -> ninguno false");
+  ok(/Predio y Cuartel/.test(soloProd.mensaje), "solo productor -> mensaje nombra Predio y Cuartel");
+  const prodPred = evaluarOrigenLote({ productorId: "p", predioId: "pr" });
+  eq(JSON.stringify(prodPred.faltantes), JSON.stringify(["Cuartel"]), "productor+predio -> falta solo Cuartel");
+}
+
+// textoQcCabecera (NR-04): copy de alcance del QC de cabecera (fallback mono-especie).
+{
+  const t = textoQcCabecera("Cereza");
+  ok(t.includes("Cereza"), "copy nombra la especie");
+  ok(/por lote/i.test(t) && /Detalle de Recepción/i.test(t), "copy remite al QC por lote en el Detalle");
+  ok(/fallback/i.test(t), "copy aclara que es fallback");
+  ok(textoQcCabecera("").includes("especie principal"), "sin especie -> fallback textual");
+}
+
+// kgEntradaPorLote (NR-05): kg de entrada inicial por lote (autoridad = ledger, NO on_hand).
+{
+  const movs = [
+    { objeto_id: "L1", ref_tipo: "recepcion", objeto_tipo: "lote", naturaleza: "entrada", cantidad: 4000 },
+    { objeto_id: "L2", ref_tipo: "recepcion", objeto_tipo: "lote", naturaleza: "entrada", cantidad: "3000" },
+    { objeto_id: "L1", ref_tipo: "traslado", objeto_tipo: "lote", naturaleza: "salida", cantidad: 1000 }, // no cuenta
+    { objeto_id: "L3", ref_tipo: "recepcion", objeto_tipo: "recepcion", naturaleza: "entrada", cantidad: 999 }, // no es lote
+  ];
+  const m = kgEntradaPorLote(movs);
+  eq(m.L1, 4000, "L1 kg entrada = 4000 (ignora salida de traslado)");
+  eq(m.L2, 3000, "L2 kg entrada = 3000 (numérico desde string)");
+  ok(!("L3" in m), "objeto_tipo!=lote no entra al mapa");
+  eq(JSON.stringify(kgEntradaPorLote([])), "{}", "sin movimientos -> mapa vacío");
 }
 
 // Filtros
