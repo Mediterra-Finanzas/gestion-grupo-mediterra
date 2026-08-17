@@ -26,7 +26,7 @@ import { FriskuBIProvider, useFriskuBI, FRISKU_DIMS, FRISKU_METRICS, fmtMetric,
          mComFriskuUSD, mVentaUSD, mFobUSD, mComClienteUSD, groupByDims, invertSelection } from "./friskuBI.js";
 import { normalizarNombre, buscarDuplicado } from "./nombreCanonico.js";
 import { configureFriskuPdf } from "./pdfText.js";
-import { buildBookmark, validateBookmark, deserializeSel, listBookmarks, saveBookmark, renameBookmark, removeBookmark } from "./friskuBookmarks.js";
+import { buildBookmark, validateBookmark, deserializeSel, listBookmarks, saveBookmark, renameBookmark, removeBookmark, sanitizeDrillPath } from "./friskuBookmarks.js";
 import { compararEstados } from "./friskuCompare.js";
 import { theme } from "./theme";
 
@@ -6339,7 +6339,7 @@ function AnalysisWorkspace({ data, permTablero, onVerEmbarque, bmOwner }) {
     if(preset==="ab")        return <ComparadorAB {...objProps}/>;
     if(viz==="tabla")        return <StraightTableBI key={`tabla#${restoreNonce}`} {...objProps} onVerEmbarque={onVerEmbarque} initialConfig={objSeed("tabla")} onConfig={cfg=>reportCfg("tabla",cfg)}/>;
     if(viz==="pivot")        return <PivotTableBI key={`pivot#${restoreNonce}`} {...objProps} initialConfig={objSeed("pivot")} onConfig={cfg=>reportCfg("pivot",cfg)}/>;
-    if(viz==="drill")        return <DrillGroupsBI {...objProps} onVerEmbarque={onVerEmbarque}/>;
+    if(viz==="drill")        return <DrillGroupsBI key={`drill#${restoreNonce}`} {...objProps} onVerEmbarque={onVerEmbarque} initialConfig={objSeed("drill")} onConfig={cfg=>reportCfg("drill",cfg)}/>;
     const vizChart = viz==="dona"?"torta":viz==="tendencia"?"tendencia":"barras";
     return <TableroAsociativo {...objProps} vizChart={vizChart} {...data}/>;
   };
@@ -6469,12 +6469,26 @@ const DRILL_GROUPS = {
   logistico: { lab:"Logístico", dims:["temporada","semanaETD","cliente","contenedor"] },
   mercado:   { lab:"Mercado",   dims:["mercado","paisDestino","puertoDestino","cliente","contenedor"] },
 };
-function DrillGroupsBI({ onVerEmbarque, chromeless, panelEl, fullscreen, onExitFull, exportReq }) {
+function DrillGroupsBI({ onVerEmbarque, chromeless, panelEl, fullscreen, onExitFull, exportReq, initialConfig, onConfig }) {
   const bi = useFriskuBI();
   const { filtered, metrics, metric, setMany, chips } = bi;
-  const [grpKey, setGrpKey] = useState("comercial");
-  const [medKey, setMedKey] = useState("fcl");
-  const [path, setPath] = useState([]); // [{dimKey, value, label}]
+  // P2.1b: semilla desde bookmark. grpKey validado contra DRILL_GROUPS; path depurado por
+  // orden de grupo (sanitizeDrillPath) y luego por EXISTENCIA del valor en los hechos del prefijo.
+  // Drill State ≠ Selection State: restaurar la ruta NO toca la selección global.
+  const ic = initialConfig||{};
+  const g0 = (typeof ic.grpKey==="string" && DRILL_GROUPS[ic.grpKey]) ? ic.grpKey : "comercial";
+  const [grpKey, setGrpKey] = useState(g0);
+  const [medKey, setMedKey] = useState(()=> typeof ic.medKey==="string" ? ic.medKey : "fcl");
+  const [path, setPath] = useState(()=>{
+    const estructural = sanitizeDrillPath(ic.path, DRILL_GROUPS[g0]?.dims||[]).path;
+    const out=[];
+    for(const e of estructural){ // corta en el primer tramo cuyo valor no exista en los hechos del prefijo
+      const existe = filtered.some(r=> out.every(p=>String(r[p.dimKey])===String(p.value)) && String(r[e.dimKey])===String(e.value));
+      if(!existe) break; out.push(e);
+    }
+    return out;
+  });
+  useEffect(()=>{ onConfig && onConfig({ grpKey, medKey, path }); }, [grpKey, medKey, path]);
   const grp = DRILL_GROUPS[grpKey];
   const M = metric[medKey];
   const FIN = new Set(["destinationSalesUSD","clientCommissionUSD","friskuCommissionUSD","avgCommissionPct"]);

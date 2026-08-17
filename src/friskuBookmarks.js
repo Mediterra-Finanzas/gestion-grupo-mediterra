@@ -69,9 +69,31 @@ function validObj(obj, dset, mset, avisos){
     if(p.row2!=null && p.row2===p.row1){ avisos.push("Pivot: fila 2 = fila 1 → sin fila 2"); p.row2=null; }
     p.expanded = Array.isArray(p.expanded) ? p.expanded.filter(x=>typeof x==="string") : [];   // Set→array (serializable)
   }
-  if(o.drill){ o.drill.medKey=valMed(o.drill.medKey); }
+  if(o.drill){
+    const d=o.drill;
+    if(!mset.has(d.medKey)){ if(d.medKey!=null) avisos.push("Drill: medida inválida → default"); d.medKey="fcl"; }
+    if(typeof d.grpKey!=="string") d.grpKey="comercial";   // validez del grupo se afina en runtime (DRILL_GROUPS)
+    // La ruta se conserva estructural; el orden por nivel y la existencia del valor se depuran en runtime (sanitizeDrillPath + hechos).
+    d.path = Array.isArray(d.path) ? d.path.filter(x=>x&&typeof x==="object"&&typeof x.dimKey==="string").map(x=>({dimKey:x.dimKey, value:x.value, label:x.label})) : [];
+  }
   if(o.grafico){ o.grafico.dim1=valDim(o.grafico.dim1); o.grafico.dim2=(o.grafico.dim2?valDim(o.grafico.dim2):o.grafico.dim2); }
   return o;
+}
+
+// Depura la ruta de Drill contra el ORDEN de dimensiones del grupo (Drill State, no Selection State).
+// Conserva el prefijo válido; corta en el primer tramo cuya dimensión no coincida con el nivel esperado
+// o que exceda la profundidad del grupo. Devuelve {path, truncated}. La existencia del VALOR se depura
+// aparte en runtime (contra los hechos), no aquí.
+export function sanitizeDrillPath(path, groupDims){
+  const gd = Array.isArray(groupDims) ? groupDims : [];
+  const arr = Array.isArray(path) ? path : [];
+  const out = [];
+  for(let i=0;i<arr.length;i++){
+    const e = arr[i];
+    if(i>=gd.length || !e || e.dimKey!==gd[i]) break;
+    out.push({ dimKey:e.dimKey, value:e.value, label:e.label });
+  }
+  return { path: out, truncated: out.length < arr.length };
 }
 
 // Valida/migra una vista recuperada contra dims/medidas vigentes. Devuelve {bm, avisos}.
