@@ -1,4 +1,52 @@
-# PROC-REPORTING-DAILY-001 — Informe Diario de Operación · Contrato de integración
+# PROC-REPORTING-DAILY-001 — Informe Diario de Operación · Contrato + Materialización
+
+**Estado (2026-08-16): MATERIALIZADO — REPORTING ENGINE VALIDATED.**
+`AUTOMATIC SCHEDULER = BLOCKED (PROC-REPORTING-SCHEDULER-GAP)` · `EMAIL PROVIDER = BLOCKED (server-side, no ejercitable aquí)` · `MANUAL SEND = PREPARED` (cablea el motor + proveedor neutral; el resultado real se registra, no se fabrica).
+El contrato original de integración se conserva íntegro más abajo (§1–§8). Sin merge/deploy/producción.
+
+---
+
+## MATERIALIZACIÓN (schema_proc_reporting_daily_v1.sql + UI + tests)
+
+**Arquitectura.** Aditivo sobre F2 (ledger) + F7.3 (orden) + T6–T8 (cliente); no toca esas tablas.
+Tres tablas tenant-scoped con RLS estricta + read-model + motor de ejecución.
+
+**Fuentes de kg (SoT, nunca frontend).** `proc_fn_informe_diario_operacion(empresa, fecha, planta?, cliente?, tz)`:
+- **Kg recibidos** = `SUM(proc_movimiento.cantidad)` con `ref_tipo='recepcion' AND objeto_tipo='lote' AND naturaleza='entrada'`, unido a `proc_recepcion` para el `cliente_servicio_vinculo_id`.
+- **Kg procesados** = `SUM(proc_orden_insumo.kg)` (consumo real), unido a su movimiento de consumo (fecha) y a la orden para el cliente. NUNCA kg programados/estimados/frontend.
+- Agrupa por **CLIENTE del servicio** (un cliente consolida N productores/predios/cuarteles/especies). Recepciones/órdenes sin cliente caen en la fila `(sin cliente asignado)` para no ocultar kg.
+
+**Fecha operacional / timezone.** El corte diario es `(proc_movimiento.fecha AT TIME ZONE tz)::date = p_fecha`. `tz` sale de `proc_reporte_config.timezone` (default `America/Santiago`), NO del navegador. Test N prueba que 02:00Z cae el día previo en Santiago y el mismo día en UTC (determinístico).
+
+**Configuración** (`proc_reporte_config`, tenant-scoped, nada hardcodeado): activo, planta (null=todas), timezone, hora_envio, enviar_sin_movimiento (default false), incluir_alertas, alcance (`general`|`cliente`) + `alcance_cliente_vinculo_id`, asunto_prefijo.
+
+**Destinatarios** (`proc_reporte_destinatario`, separados del cliente reportado): nombre, email, tipo (`interno`|`externo`), activo, ligados a una config. **Cliente reportado ≠ destinatario**: el `alcance` de la config define QUÉ datos salen; el destinatario define A QUIÉN. Un externo atado a una config `alcance='cliente'` sólo recibe ese cliente (aislamiento resuelto en backend — test I).
+
+**Motor + snapshot + idempotencia.** `proc_fn_reporte_generar_ejecucion(empresa, config, fecha, actor)`: usa el MISMO read-model que el preview, congela `snapshot` jsonb + `destinatarios_snapshot` + totales, e inserta una `proc_reporte_ejecucion`. **Idempotente** por índice único `(empresa, config, fecha_operacional)` + `ON CONFLICT DO NOTHING` (carrera → devuelve la existente). Segunda llamada devuelve la MISMA ejecución (test L). Snapshot **inmutable** por trigger `proc_fn_reporte_ejec_guard` (bloquea mutar snapshot/totales/fecha/destinatarios) — los informes históricos no se recalculan (test H).
+
+**Estados.** `pendiente | procesando | enviado | error | omitido`. Sin movimiento + política `no enviar` → `omitido` (auditable, test F). `enviado` SÓLO vía `proc_fn_reporte_marcar_enviado(proveedor, message_id)` con confirmación real (no se fabrica). `proc_fn_reporte_marcar_error(error)` + `proc_fn_reporte_reintentar` (error→pendiente, reusa snapshot, no recalcula). Intentos acumulan (tests G, P).
+
+**Preview.** `previewInformeDiario` llama al mismo `proc_fn_informe_diario_operacion` read-only; el dataset del preview == el del envío (test Q).
+
+**Envío manual (PREPARED).** UI "Enviar ahora" → `generar_ejecucion` (idempotente) → arma el email con `construirEmailInformeDiario` (snapshot, formatters canónicos) → `enviarEmail` (infra neutral `emailHelper`, Vercel `/api/send-email` + fallback EmailJS) → registra el resultado real (`marcar_enviado` con message_id, o `marcar_error`). Indica si crea nueva / reintenta / ya enviado (idempotencia). **No marca enviado sin proveedor real.**
+
+**Scheduler (BLOCKED — PROC-REPORTING-SCHEDULER-GAP).** El corte diario automático necesita ejecución server-side (Vercel Cron / pg_cron / Edge) + configuración de deploy + secretos productivos, que este entorno no provee (no hay `vercel.json` con `crons`, no se despliega). El motor (`generar_ejecucion`) queda listo para que ese job lo invoque por cada config activa; **no se inventa ni simula** el scheduler.
+
+**Email provider (BLOCKED para validación E2E).** `emailHelper`/`/api/send-email` existe como infra neutral pero sólo corre en el entorno desplegado; el envío real no es ejercitable en PG16/dev, así que la transición a `enviado` no se valida end-to-end aquí (queda `error`/`pendiente` reintentable).
+
+**RLS/tenant.** Las 3 tablas: `ENABLE+FORCE`, policy `empresa_id=proc_current_empresa()`, `REVOKE anon`, `GRANT authenticated`. Vista `proc_v_reporte_ejecucion` `security_invoker`. Gate: anon DENY (tablas+vista+RPC), tenant A/B aislados, cross-tenant DENY (tests S, T).
+
+**Bounded-context.** Cero dependencia a `frisku_*`/`friskuBI`/`exp_*`/`osi_*`. Foods puede ser cliente Service sólo vía `proc_vinculo` (test J). `emailHelper` es infra corporativa neutral (no acopla a otro contexto).
+
+**Tests.** `proc_reporting_daily_tests.sql` A–R (funcional, PG16) + gate RLS S,T. JS `reportingEmail.test.mjs` 16/16 (armado del email desde snapshot, sin UUID visible, escape HTML, alertas, empty state).
+
+**Regresión / build.** Cadena limpia F1–F7.7 + T1–T9 + T10c-QC + T10c-MASA + T10d + T10e + reporting → **29/29 suites VERDE**, sin exclusiones. JS dominio/format/PDF/reporting PASS. `CI=true npm run build` → Compiled successfully.
+
+**Gaps reales.** (1) Scheduler automático (server-side) — GAP declarado. (2) Envío real de email — depende del entorno desplegado. (3) `incluir_alertas` deja el flag y el builder de email acepta `alertas`, pero la recolección de alertas operacionales para adjuntarlas se cablea cuando el scheduler/servicio server-side las provea (read-models CURRENT ya existen). (4) Revisión visual/live pendiente (Visual QA final).
+
+---
+
+## CONTRATO ORIGINAL DE INTEGRACIÓN (histórico, T10d — conservado)
 
 **Estado: RESERVADO — NO implementado.** Este documento fija el contrato para que la
 capability pueda materializarse **después de T10e sin rediseñar la Ficha Cliente ni el
