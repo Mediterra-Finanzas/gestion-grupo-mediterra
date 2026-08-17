@@ -142,6 +142,9 @@ export const cargarPalletBodegaPorId = (e, id) =>
   procSelect("proc_v_pallet_bodega", `?empresa_id=eq.${e}&pallet_id=eq.${id}`);
 export const cargarLineasPallet = (e, palletId) =>
   procSelect("proc_pallet_linea", `?empresa_id=eq.${e}&pallet_id=eq.${palletId}&order=created_at`);
+// Códigos (barcode) de PT por id — para mostrar referencia humana (no UUID) en composición
+export const cargarPtCodigos = (e, ids) =>
+  (ids && ids.length) ? procSelect("proc_producto_terminado", `?empresa_id=eq.${e}&id=in.(${ids.join(",")})&select=id,codigo`) : Promise.resolve([]);
 export const cargarHoldsPallet = (e, palletId) =>
   procSelect("proc_hold", `?empresa_id=eq.${e}&objeto_tipo=eq.pallet&objeto_id=eq.${palletId}&order=created_at.desc`);
 

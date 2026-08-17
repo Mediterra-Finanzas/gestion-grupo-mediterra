@@ -66,7 +66,16 @@ Read-model `schema_proc_v8_t10d.sql`: `proc_v_cliente_servicio` (vínculo client
 - **Fixtures legacy F7.2-F7.6**: siembran catálogo especie/variedad (FK cutover T5b) — **no relajan el FK**; regresión completa vuelve VERDE sin exclusiones.
 - Verificación: dominio JS **120/120**; build `CI=true` OK; PG16 regresión completa (27/27) + T10d C1-C16/C19/C20 + RLS/tenant (anon DENY vista+ficha+contrato, aislamiento A/B, cross-tenant). Contrato de integración `proceso-reporting-daily-001-contrato.md` (reservado).
 
-## Pendiente de T10
-- **T10e** filtros/read-models restantes (predio/cuartel server-side); resumen QC en cabecera de recepción.
+## T10e — Cierre operacional UI + filtros + alertas + prep UAT ✅ VALIDATED (backend PG16 + build)
+Read-model `schema_proc_v8_t10e.sql` (aditivo/correctivo, security_invoker):
+- **Corrige defecto de T10c-QC**: `proc_v_lote_listado` y `proc_v_recepcion_listado` unían `proc_qc_recepcion` por recepción sin `lote_id` → **multiplicaban filas** con QC por lote + header y el `qc_resultado` quedaba ambiguo. Se resuelve el QC por LOTE (propio → fallback header) vía LATERAL (`IS NOT DISTINCT FROM`, nunca NULL). Una sola fila por lote / por recepción.
+- **proc_v_lote_listado** ahora expone origen a nivel LOTE (productor/predio/cuartel snapshot-aware) + ids filtrables (`cliente_vinculo_id`, `productor_vinculo_id`, `predio_id`, `cuartel_id`) + `origen_reconstruido`.
+- **proc_v_recepcion_listado** agrega `cliente_servicio_vinculo_id`, resumen QC por lote (`qc_aprobados/rechazados/condicional/con_qc/qc_mixto` — conteos, sin veredicto global inventado), `masa_dentro_tolerancia` (T10c-MASA) y `nivel_contractual` (T8).
+- **Lotes** (`Lotes.jsx`): 8 filtros **server-side** acumulativos (cliente/productor/predio/cuartel/especie/variedad/estado/QC) + búsqueda; opciones desde maestros. **Recepciones** (`Recepciones.jsx`): filtros cliente/estado/situación contractual/conciliación masa/QC + columnas resumen QC por lote y masa. **RecepcionDetalle**: resumen QC ejecutivo (total/aprobados/rechazados/condicional/pendientes + "QC mixto"). Helper puro `resumenQcRecepcion`.
+- **UUIDs visibles eliminados** (E15): InformeDetalle (fuente → "Ver orden →"), Orden (fallback lote → "—"), PalletDetalle (PT → barcode vía `cargarPtCodigos`). **0 `capitalize`, 0 `toLocale/toFixed` ad-hoc** (removido el último en `resumenConciliacion`).
+- **Storage runbook** `proceso-storage-proc-docs-runbook.md` (provisión bucket privado `proc-docs`).
+- Verificación: dominio JS **126/126**, format 31/31, PDF 12/12; build `CI=true`; PG16 regresión **28/28** (F1-F7.7 + T1-T9 + QC + MASA + T10d + T10e) + test T10e (no-multiplicación, QC por lote, origen a nivel lote, filtros, nivel contractual) + RLS anon-deny en vistas modificadas.
+
+**VISUAL QA READY** (revisión live pendiente de sesión con datos). PROC-REPORTING-DAILY-001 sigue reservado e intacto.
 
 Luego: PROC-REPORTING-DAILY-001; T11 UAT integral; retomar Visual QA (hoy NO).

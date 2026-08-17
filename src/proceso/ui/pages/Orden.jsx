@@ -149,7 +149,7 @@ export default function Orden() {
         extra={puedeConsumir ? <ProcButton onClick={() => setSelLote(true)}>+ Agregar lote</ProcButton> : null}>
         <ProcDataTable
           columnas={[
-            { titulo: "Lote", render: (i) => <b>{(lotesMap[i.lote_id] || {}).codigo || i.lote_id.slice(0, 8)}</b> },
+            { titulo: "Lote", render: (i) => <b>{(lotesMap[i.lote_id] || {}).codigo || "—"}</b> },
             { titulo: "Productor", render: (i) => normalizarNombre((lotesMap[i.lote_id] || {}).productor) || "—" },
             { titulo: "Recepción", render: (i) => (lotesMap[i.lote_id] || {}).recepcion_folio || "—" },
             { titulo: "QC", render: (i) => { const l = lotesMap[i.lote_id]; return l && l.qc_resultado ? <ProcStatusBadge estado={l.qc_resultado} /> : "—"; } },

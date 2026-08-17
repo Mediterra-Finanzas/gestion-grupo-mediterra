@@ -5,7 +5,7 @@
 import React, { useEffect, useState, useCallback } from "react";
 import { useService } from "../hooks/useServiceContext";
 import { cargarRecepcionListado, cargarRecepcionPorId, cargarLotesDeRecepcion, cargarMovimientosRef, cargarLoteOrigen, estadoContractualCliente, conciliacionRecepcion, cerrarRecepcion, cargarQcLotesDeRecepcion } from "../../core/procesoF7DB";
-import { traducirError, tonoContractual, qcPorLote } from "../../core/procesoF7Domain";
+import { traducirError, tonoContractual, qcPorLote, resumenQcRecepcion } from "../../core/procesoF7Domain";
 import {
   ProcPageHeader, ProcCard, ProcButton, ProcStatusBadge, ProcDataTable, ProcAuditInfo,
   ProcLoadingState, ProcErrorState, ProcEmptyState,
@@ -145,6 +145,21 @@ export default function RecepcionDetalle() {
       </Seccion>
 
       <Seccion titulo="Control de Calidad">
+        {lotes.length > 0 && (() => {
+          const rq = resumenQcRecepcion(lotes, qcRows);
+          const Item = ({ n, l, tono }) => <span style={{ fontSize: 13, fontWeight: 700, color: tono || C.text }}>{l}: {n}</span>;
+          return (
+            <div style={{ display: "flex", gap: sp.lg, flexWrap: "wrap", alignItems: "center", padding: "8px 12px", background: C.cardAlt, borderRadius: 8, marginBottom: sp.md }}>
+              <span style={{ fontSize: 12, fontWeight: 800, color: C.muted, textTransform: "uppercase", letterSpacing: .3 }}>QC recepción</span>
+              <Item l="Lotes" n={rq.total} />
+              <Item l="✓ aprobados" n={rq.aprobados} tono={C.success} />
+              {rq.condicional > 0 && <Item l="~ condicional" n={rq.condicional} tono={C.warning} />}
+              <Item l="✕ rechazados" n={rq.rechazados} tono={rq.rechazados > 0 ? C.danger : C.text} />
+              <Item l="pendientes" n={rq.pendientes} tono={rq.pendientes > 0 ? C.warning : C.text} />
+              {rq.mixto && <ProcStatusBadge texto="QC mixto" tono="warning" />}
+            </div>
+          );
+        })()}
         {lotes.length > 0 ? (() => {
           const qcEst = qcPorLote(lotes, qcRows);
           const editableQc = puedeEditar("recepciones") || puedeEditar("centro");

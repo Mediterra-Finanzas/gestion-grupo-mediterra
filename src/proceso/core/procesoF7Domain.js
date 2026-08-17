@@ -163,7 +163,7 @@ export function faltaParaCerrar({ estado, entrada, comercial, descarte, merma, t
   if (!(Number(entrada) > 0)) return "Faltan consumos: la orden no tiene kg de entrada.";
   if (!(Number(comercial) + Number(descarte) + Number(merma) > 0)) return "Falta registrar resultado / descarte / merma.";
   const r = resumenConciliacion({ entrada, comercial, descarte, merma, tolerancia });
-  if (!r.cuadra) return `No cuadra: faltan ${Math.abs(r.diff).toLocaleString("es-CL")} kg por conciliar (diferencia ${r.diff} > tolerancia ${Number(tolerancia) || 0}).`;
+  if (!r.cuadra) return `No cuadra: faltan ${Math.abs(r.diff)} kg por conciliar (diferencia ${r.diff} > tolerancia ${Number(tolerancia) || 0}).`;
   return null;
 }
 
@@ -342,6 +342,21 @@ export function qcPorLote(lotes = [], qcRows = []) {
       valores: q ? (q.valores || {}) : {},
     };
   });
+}
+
+// Resumen QC de una recepción para PRESENTACIÓN (los estados de lote son autoridad).
+// No inventa un veredicto global: entrega conteos + flag de mezcla.
+export function resumenQcRecepcion(lotes = [], qcRows = []) {
+  const porLote = qcPorLote(lotes, qcRows);
+  const aprobados = porLote.filter((x) => x.resultado === "aprobado").length;
+  const rechazados = porLote.filter((x) => x.resultado === "rechazado").length;
+  const condicional = porLote.filter((x) => x.resultado === "condicional").length;
+  const pendientes = porLote.filter((x) => !x.tieneQc).length;
+  const conResultado = new Set(porLote.filter((x) => x.resultado).map((x) => x.resultado));
+  return {
+    total: porLote.length, aprobados, rechazados, condicional, pendientes,
+    mixto: conResultado.size > 1,   // hay QC distinto entre lotes → granularidad visible
+  };
 }
 
 // ── Filtros: lógica pura de chips activos / reset (usada por ProcFilters) ────

@@ -6,7 +6,7 @@ import React, { useEffect, useState, useCallback } from "react";
 import { useService } from "../hooks/useServiceContext";
 import {
   cargarPalletBodegaPorId, cargarLineasPallet, cargarHoldsPallet, cargarMovimientosObjeto,
-  palletGenealogia, trasladarPallet, holdPallet, liberarHold, cargarUbicacionesActivas,
+  palletGenealogia, trasladarPallet, holdPallet, liberarHold, cargarUbicacionesActivas, cargarPtCodigos,
 } from "../../core/procesoF7DB";
 import { traducirError } from "../../core/procesoF7Domain";
 import {
@@ -29,6 +29,7 @@ export default function PalletDetalle() {
   const { empresa, planta, ir, vista, puedeEditar, notificar } = useService();
   const id = vista?.params?.id;
   const [p, setP] = useState(null); const [lineas, setLineas] = useState([]); const [holds, setHolds] = useState([]);
+  const [ptMap, setPtMap] = useState({});
   const [movs, setMovs] = useState([]); const [gen, setGen] = useState(null); const [ubis, setUbis] = useState([]);
   const [estado, setEstado] = useState("loading"); const [error, setError] = useState(null);
   const [traslado, setTraslado] = useState(false); const [udst, setUdst] = useState("");
@@ -45,6 +46,9 @@ export default function PalletDetalle() {
       ]);
       setP((b && b[0]) || null); setLineas(ln || []); setHolds(h || []); setMovs(m || []);
       setGen(Array.isArray(g) ? g[0] : g); setUbis(u || []); setEstado("ok");
+      // referencia humana del PT (barcode) en vez del UUID
+      const ptIds = [...new Set((ln || []).map((x) => x.pt_id).filter(Boolean))];
+      cargarPtCodigos(empresa, ptIds).then((pts) => setPtMap(Object.fromEntries((pts || []).map((x) => [x.id, x.codigo])))).catch(() => {});
     } catch (e) { setError(traducirError(e)); setEstado("error"); }
   }, [empresa, id, planta]);
   useEffect(() => { cargar(); }, [cargar]);
@@ -95,7 +99,7 @@ export default function PalletDetalle() {
 
       <Seccion titulo={`Composición (${lineas.length} líneas)`}>
         <ProcDataTable columnas={[
-          { titulo: "PT", render: (l) => l.pt_id.slice(0, 8) },
+          { titulo: "PT", render: (l) => ptMap[l.pt_id] || "—" },
           { titulo: "Cajas", align: "right", campo: "cajas" }, { titulo: "Kg", align: "right", render: (l) => kg(l.kg) },
           { titulo: "Estado", render: (l) => <ProcStatusBadge estado={l.estado} /> },
         ]} filas={lineas} rowKey="id" vacio={<ProcEmptyState titulo="Sin composición" />} />

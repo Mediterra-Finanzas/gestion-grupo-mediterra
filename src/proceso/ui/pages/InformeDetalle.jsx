@@ -153,7 +153,7 @@ export default function InformeDetalle() {
           </Seccion>
 
           <Seccion titulo={`Fuentes (${fuentes.length})`}>
-            <ProcDataTable columnas={[{ titulo: "Tipo", campo: "tipo_fuente" }, { titulo: "Referencia", render: (f) => f.tipo_fuente === "orden" ? <ProcButton kind="ghost" small onClick={() => ir("orden", { id: f.ref_id })}>{f.ref_id.slice(0, 8)} →</ProcButton> : f.ref_id.slice(0, 8) }]}
+            <ProcDataTable columnas={[{ titulo: "Tipo", campo: "tipo_fuente" }, { titulo: "Referencia", render: (f) => f.tipo_fuente === "orden" ? <ProcButton kind="ghost" small onClick={() => ir("orden", { id: f.ref_id })}>Ver orden →</ProcButton> : "—" }]}
               filas={fuentes} rowKey="id" vacio={<ProcEmptyState titulo="Sin fuentes" />} />
           </Seccion>
 

@@ -1,6 +1,6 @@
 /* eslint-disable */
 // Tests de dominio proc_* F7.1 (node). Ejecutar: node src/proceso/core/procesoF7Domain.test.mjs
-import { formatearCorrelativo, compactarTemporada, evaluarQC, badgeDe, traducirError, validarFiltros, calcularNeto, validarPesos, packout, resumenConciliacion, accionesOrden, faltaParaCerrar, ordenTerminal, despachoTerminal, puedeConfirmarDespacho, accionesDespacho, totalKg, montoServicio, especificidadTarifa, vigenciaTarifa, baseEditable, accionesBase, servicioAgregableABase, totalesPorMoneda, filtrosActivos, opcionesRef, limpiarDependencias, labelRef, resumenKgLotes, resumenOrigenes, tonoContractual, copiarOrigen, alertaContractual, transicionesContrato, tonoNivelContractual, qcPorLote } from "./procesoF7Domain.js";
+import { formatearCorrelativo, compactarTemporada, evaluarQC, badgeDe, traducirError, validarFiltros, calcularNeto, validarPesos, packout, resumenConciliacion, accionesOrden, faltaParaCerrar, ordenTerminal, despachoTerminal, puedeConfirmarDespacho, accionesDespacho, totalKg, montoServicio, especificidadTarifa, vigenciaTarifa, baseEditable, accionesBase, servicioAgregableABase, totalesPorMoneda, filtrosActivos, opcionesRef, limpiarDependencias, labelRef, resumenKgLotes, resumenOrigenes, tonoContractual, copiarOrigen, alertaContractual, transicionesContrato, tonoNivelContractual, qcPorLote, resumenQcRecepcion } from "./procesoF7Domain.js";
 
 let pass = 0, fail = 0;
 const ok = (c, m) => { if (c) pass++; else { fail++; console.error("  ✗ " + m); } };
@@ -192,6 +192,15 @@ eq(tm.find((x) => x.moneda === "CLP").total, 100000, "CLP separado");
   const q2 = qcPorLote([{ id: "L9", especie_codigo: "CHE" }], [{ lote_id: "L1", resultado: "aprobado" }]);
   eq(q2[0].resultado, null, "sin QC propio ni header -> sin resultado");
   eq(q2[0].tieneQc, false, "sin QC -> tieneQc false");
+  // E1: resumen QC de recepción (conteos + mixto; sin veredicto global)
+  const rq = resumenQcRecepcion(lotes, qcRows);
+  eq(rq.total, 3, "E1: 3 lotes");
+  eq(rq.aprobados, 2, "E1: 2 aprobados (L1 propio + L3 header)");
+  eq(rq.rechazados, 1, "E1: 1 rechazado (L2)");
+  eq(rq.mixto, true, "E1: QC mixto (aprobado+rechazado)");
+  const rq2 = resumenQcRecepcion([{ id: "A" }, { id: "B" }], [{ lote_id: "A", resultado: "aprobado" }]);
+  eq(rq2.pendientes, 1, "E1: B sin QC ni header -> pendiente");
+  eq(rq2.mixto, false, "E1: un solo resultado -> no mixto");
 }
 
 // Filtros
