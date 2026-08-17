@@ -30,13 +30,18 @@ BEGIN
   INSERT INTO proc_ubicaciones(empresa_id,planta_id,codigo,nombre,tipo) VALUES (e,pl,'DES','Despacho','patio') RETURNING id INTO uDes;
 
   -- Vínculos (contrapartes; NO Frisku). Nombre "messy" a propósito para ver normalización en UI.
-  INSERT INTO proc_vinculo(empresa_id,pendiente_alta_corporativa,nombre_provisional,rol_operacional) VALUES (e,true,'Cliente A','cliente_servicio') RETURNING id INTO vCliA;
+  INSERT INTO proc_vinculo(empresa_id,pendiente_alta_corporativa,nombre_provisional,rol_operacional) VALUES (e,true,'Cliente Andes','cliente_servicio') RETURNING id INTO vCliA;
   INSERT INTO proc_vinculo(empresa_id,pendiente_alta_corporativa,nombre_provisional,rol_operacional) VALUES (e,true,'agrícola las nieves spa','productor') RETURNING id INTO vProdA;
   INSERT INTO proc_vinculo(empresa_id,pendiente_alta_corporativa,nombre_provisional,rol_operacional) VALUES (e,true,'Productor B','productor') RETURNING id INTO vProdB;
   INSERT INTO proc_vinculo(empresa_id,pendiente_alta_corporativa,nombre_provisional,rol_operacional) VALUES (e,true,'Exportadora A','exportadora') RETURNING id INTO vExpA;
   INSERT INTO proc_vinculo(empresa_id,pendiente_alta_corporativa,nombre_provisional,rol_operacional) VALUES (e,true,'ANTON DÜRBECK GMBH','exportadora') RETURNING id INTO vExpC;
   INSERT INTO proc_vinculo(empresa_id,pendiente_alta_corporativa,nombre_provisional,rol_operacional) VALUES (e,true,'Transportista A','transportista') RETURNING id INTO vTrans;
   INSERT INTO proc_vinculo(empresa_id,pendiente_alta_corporativa,nombre_provisional,rol_operacional) VALUES (e,true,'Allegria Foods','cliente_servicio') RETURNING id INTO vFoods;
+
+  -- Catálogo especie/variedad (requerido por el FK del cutover T5b; DEV/UAT, no relaja el FK)
+  INSERT INTO proc_especie(empresa_id,codigo,nombre) VALUES (e,'CHE','Cereza'),(e,'PLU','Ciruela');
+  INSERT INTO proc_variedad(empresa_id,especie_codigo,codigo,nombre) VALUES
+    (e,'CHE','Santina','Santina'),(e,'CHE','Lapins','Lapins'),(e,'PLU','D''Agen','D''Agen');
 
   -- Catálogos
   INSERT INTO proc_calibre(empresa_id,especie_codigo,codigo,nombre,orden) VALUES (e,'CHE','J','Jumbo',1),(e,'CHE','XL','Extra Large',2),(e,'PLU','A','Calibre A',1);
@@ -138,4 +143,106 @@ BEGIN
   PERFORM proc_fn_agregar_a_base(e,base,sf,NULL);
 
   RAISE NOTICE 'seed_proc_DEV_UAT: dataset DEV cargado para empresa %', e;
+END $$;
+
+-- ============================================================================
+-- Bloque contractual (UAT-SEED-CONTRACT-01) — DEV/UAT, IDEMPOTENTE.
+-- Cubre cobertura visual de: Ficha Cliente, contrato vigente / pendiente de firma
+-- / vencido / reemplazado (historial), política bloqueante, alerta contractual del
+-- Centro y navegación a la Ficha. Sin tocar schema/reglas/identidad. Documento = solo
+-- metadata DEV (documento_path), Storage NO aprovisionado. Guards ON CONFLICT/NOT EXISTS
+-- → re-aplicar no duplica. Usa el backend T6-T9 CURRENT (fichas/contratos/cliente-productor).
+-- ============================================================================
+DO $$
+DECLARE e uuid := '5aa10886-2a76-4a9e-9bc3-303fb776cd49';
+  vCliA uuid; vProdA uuid; vProdB uuid; vB uuid; tdoc uuid;
+  pl uuid; uC1 uuid; uC2 uuid; predN uuid; predS uuid; cC01 uuid; cC02 uuid; cN04 uuid; recM uuid;
+  tmp text := '2025/2026';
+BEGIN
+  -- Fixture de nombre (T11-VIS-NORM-01): "Cliente A" → "Cliente Andes" (idempotente).
+  UPDATE proc_vinculo SET nombre_provisional='Cliente Andes'
+    WHERE empresa_id=e AND rol_operacional='cliente_servicio' AND nombre_provisional='Cliente A';
+  SELECT id INTO vCliA FROM proc_vinculo WHERE empresa_id=e AND rol_operacional='cliente_servicio' AND nombre_provisional='Cliente Andes' LIMIT 1;
+  SELECT id INTO vProdA FROM proc_vinculo WHERE empresa_id=e AND rol_operacional='productor' AND nombre_provisional='agrícola las nieves spa' LIMIT 1;
+  SELECT id INTO vProdB FROM proc_vinculo WHERE empresa_id=e AND rol_operacional='productor' AND nombre_provisional='Productor B' LIMIT 1;
+
+  -- Tipo de documento contractual (satisface el requisito)
+  INSERT INTO proc_tipo_documento_contractual(empresa_id,codigo,nombre,satisface_requisito_contractual,activo)
+    VALUES (e,'CONTRATO','Contrato de servicio',true,true)
+    ON CONFLICT (empresa_id,codigo) DO NOTHING;
+  SELECT id INTO tdoc FROM proc_tipo_documento_contractual WHERE empresa_id=e AND codigo='CONTRATO';
+
+  -- Relación Cliente A ↔ Productor A (existente, N:M)
+  IF vCliA IS NOT NULL AND vProdA IS NOT NULL THEN
+    INSERT INTO proc_cliente_productor(empresa_id,cliente_vinculo_id,productor_vinculo_id)
+      VALUES (e,vCliA,vProdA) ON CONFLICT (empresa_id,cliente_vinculo_id,productor_vinculo_id) DO NOTHING;
+  END IF;
+
+  -- Cliente A: ficha (política advertencia) + contrato VIGENTE firmado + historial (v1 reemplazado → v2 vigente)
+  IF vCliA IS NOT NULL THEN
+    INSERT INTO proc_cliente_ficha(empresa_id,cliente_vinculo_id,contacto_principal,email,telefono,responsable_comercial,politica_contrato)
+      VALUES (e,vCliA,'Juan Pérez','contacto@clientea.dev','+56 9 1111 1111','Carla Soto','advertencia')
+      ON CONFLICT (empresa_id,cliente_vinculo_id) DO NOTHING;
+    INSERT INTO proc_cliente_contrato(empresa_id,cliente_vinculo_id,codigo,tipo_documento_id,tipo_vigencia,fecha_inicio,fecha_termino,estado,requiere_firma,fecha_firma,version,documento_path,observaciones)
+      VALUES (e,vCliA,'CT-A',tdoc,'por_temporada',current_date-400,current_date-30,'reemplazado',true,current_date-395,1,'contratos/dev/CT-A-v1.pdf','Versión inicial (DEV, sólo metadata)')
+      ON CONFLICT (empresa_id,cliente_vinculo_id,codigo,version) DO NOTHING;
+    INSERT INTO proc_cliente_contrato(empresa_id,cliente_vinculo_id,codigo,tipo_documento_id,tipo_vigencia,fecha_inicio,fecha_termino,estado,requiere_firma,fecha_firma,version,reemplaza_contrato_id,documento_path,observaciones)
+      VALUES (e,vCliA,'CT-A',tdoc,'por_temporada',current_date-20,current_date+300,'vigente',true,current_date-20,2,
+              (SELECT id FROM proc_cliente_contrato WHERE empresa_id=e AND cliente_vinculo_id=vCliA AND codigo='CT-A' AND version=1),
+              'contratos/dev/CT-A-v2.pdf','Renovación vigente y firmada (DEV, sólo metadata)')
+      ON CONFLICT (empresa_id,cliente_vinculo_id,codigo,version) DO NOTHING;
+  END IF;
+
+  -- Cliente B: vínculo nuevo + ficha política BLOQUEANTE + contrato VENCIDO (v1) + PENDIENTE DE FIRMA (v2) → nivel bloqueante
+  SELECT id INTO vB FROM proc_vinculo WHERE empresa_id=e AND rol_operacional='cliente_servicio' AND nombre_provisional='Cliente B' LIMIT 1;
+  IF vB IS NULL THEN
+    INSERT INTO proc_vinculo(empresa_id,pendiente_alta_corporativa,nombre_provisional,rol_operacional,rut)
+      VALUES (e,true,'Cliente B','cliente_servicio','76.543.210-9') RETURNING id INTO vB;
+  END IF;
+  INSERT INTO proc_cliente_ficha(empresa_id,cliente_vinculo_id,contacto_principal,email,telefono,responsable_comercial,politica_contrato)
+    VALUES (e,vB,'María López','contacto@clienteb.dev','+56 9 2222 2222','Carla Soto','bloqueante')
+    ON CONFLICT (empresa_id,cliente_vinculo_id) DO NOTHING;
+  -- Contratos de Cliente B (fixture bloqueado): v1 vencido + v2 pendiente_firma → NINGÚN contrato
+  -- vigente firmado → gate bloqueado. DELETE+INSERT = determinista e idempotente; auto-sana estados
+  -- previos (una iteración anterior activó v2 a 'vigente'/firmado y el guard prohíbe revertir por
+  -- UPDATE). Sólo el cliente DEV vB; no toca ledger, movimientos ni datos legacy.
+  -- ⚠ DEV_ONLY — ADVERTENCIA: este DELETE+INSERT reconstruye contratos a un estado fijo y es
+  --   EXCLUSIVO de fixtures de prueba. NUNCA usar como patrón para contratos productivos ni para
+  --   corregir historia real: en producción los contratos son inmutables por versión, sólo
+  --   transicionan de estado vía el guard, y su historial de firmas/versiones es evidencia legal
+  --   que jamás se borra. Este bloque vive sólo en seed_proc_DEV_UAT.sql y no debe migrar a prod.
+  DELETE FROM proc_cliente_contrato WHERE empresa_id=e AND cliente_vinculo_id=vB AND codigo='CT-B';
+  INSERT INTO proc_cliente_contrato(empresa_id,cliente_vinculo_id,codigo,tipo_documento_id,tipo_vigencia,fecha_inicio,fecha_termino,estado,requiere_firma,fecha_firma,version,documento_path,observaciones)
+    VALUES (e,vB,'CT-B',tdoc,'por_temporada',current_date-400,current_date-30,'vencido',true,current_date-395,1,'contratos/dev/CT-B-v1.pdf','Contrato vencido (DEV, sólo metadata)');
+  INSERT INTO proc_cliente_contrato(empresa_id,cliente_vinculo_id,codigo,tipo_documento_id,tipo_vigencia,fecha_inicio,fecha_termino,estado,requiere_firma,version,documento_path,observaciones)
+    VALUES (e,vB,'CT-B',tdoc,'por_temporada',current_date,current_date+300,'pendiente_firma',true,2,'contratos/dev/CT-B-v2.pdf','Renovación pendiente de firma (DEV, sólo metadata)');
+
+  -- ── Recepción DEV multi-origen (T11-VIS-ORIGIN-01): 3 lotes con Productor/Predio/Cuartel/
+  --    Especie/Variedad → snapshot de origen generado por backend. Idempotente por folio.
+  --    NO modifica los lotes legacy existentes. Solo DEV/UAT.
+  SELECT id INTO pl  FROM proc_planta      WHERE empresa_id=e AND codigo='PL-DEV' LIMIT 1;
+  SELECT id INTO uC1 FROM proc_ubicaciones WHERE empresa_id=e AND codigo='CAM1' LIMIT 1;
+  SELECT id INTO uC2 FROM proc_ubicaciones WHERE empresa_id=e AND codigo='CAM2' LIMIT 1;
+  IF pl IS NOT NULL AND vCliA IS NOT NULL AND NOT EXISTS (SELECT 1 FROM proc_recepcion WHERE empresa_id=e AND folio='REC-2526-000010') THEN
+    -- Predios (idempotentes por nombre)
+    SELECT id INTO predN FROM proc_predios WHERE empresa_id=e AND nombre='Predio Norte (DEV)' LIMIT 1;
+    IF predN IS NULL THEN INSERT INTO proc_predios(empresa_id,productor_vinculo_id,nombre,csg_sag,comuna) VALUES (e,vProdA,'Predio Norte (DEV)','CSG-PN-DEV','Rancagua') RETURNING id INTO predN; END IF;
+    SELECT id INTO predS FROM proc_predios WHERE empresa_id=e AND nombre='Predio Sur (DEV)' LIMIT 1;
+    IF predS IS NULL THEN INSERT INTO proc_predios(empresa_id,productor_vinculo_id,nombre,csg_sag,comuna) VALUES (e,vProdB,'Predio Sur (DEV)','CSG-PS-DEV','Rengo') RETURNING id INTO predS; END IF;
+    -- Cuarteles (idempotentes por predio+codigo)
+    SELECT id INTO cC01 FROM proc_cuartel WHERE empresa_id=e AND predio_id=predN AND codigo='C-01' LIMIT 1;
+    IF cC01 IS NULL THEN INSERT INTO proc_cuartel(empresa_id,predio_id,codigo,especie_codigo,variedad_codigo) VALUES (e,predN,'C-01','CHE','Santina') RETURNING id INTO cC01; END IF;
+    SELECT id INTO cC02 FROM proc_cuartel WHERE empresa_id=e AND predio_id=predN AND codigo='C-02' LIMIT 1;
+    IF cC02 IS NULL THEN INSERT INTO proc_cuartel(empresa_id,predio_id,codigo,especie_codigo,variedad_codigo) VALUES (e,predN,'C-02','CHE','Lapins') RETURNING id INTO cC02; END IF;
+    SELECT id INTO cN04 FROM proc_cuartel WHERE empresa_id=e AND predio_id=predS AND codigo='N-04' LIMIT 1;
+    IF cN04 IS NULL THEN INSERT INTO proc_cuartel(empresa_id,predio_id,codigo,especie_codigo,variedad_codigo) VALUES (e,predS,'N-04','PLU','D''Agen') RETURNING id INTO cN04; END IF;
+    -- Recepción multi-origen: Σ lotes 4000+3000+2000 = 9000 = kg_neto (concilia)
+    INSERT INTO proc_recepcion(empresa_id,folio,planta_id,cliente_servicio_vinculo_id,especie_codigo,kg_bruto,tara,kg_neto,estado)
+      VALUES (e,'REC-2526-000010',pl,vCliA,'CHE',9200,200,9000,'recibida') RETURNING id INTO recM;
+    PERFORM proc_fn_ingresar_lote_ubicado(e,recM,'LOT-2526-000010','CHE','Santina',4000,pl,tmp,uC1,NULL,vProdA,predN,cC01);
+    PERFORM proc_fn_ingresar_lote_ubicado(e,recM,'LOT-2526-000011','CHE','Lapins', 3000,pl,tmp,uC1,NULL,vProdA,predN,cC02);
+    PERFORM proc_fn_ingresar_lote_ubicado(e,recM,'LOT-2526-000012','PLU','D''Agen',2000,pl,tmp,uC2,NULL,vProdB,predS,cN04);
+  END IF;
+
+  RAISE NOTICE 'seed_proc_DEV_UAT (contractual+multiorigen): Cliente Andes vigente / Cliente B bloqueante / recepción multi-origen REC-...010 (3 orígenes)';
 END $$;
