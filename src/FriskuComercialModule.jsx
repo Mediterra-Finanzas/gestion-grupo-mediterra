@@ -27,6 +27,7 @@ import { FriskuBIProvider, useFriskuBI, FRISKU_DIMS, FRISKU_METRICS, fmtMetric,
 import { normalizarNombre, buscarDuplicado } from "./nombreCanonico.js";
 import { configureFriskuPdf } from "./pdfText.js";
 import { buildBookmark, validateBookmark, deserializeSel, listBookmarks, saveBookmark, renameBookmark, removeBookmark } from "./friskuBookmarks.js";
+import { compararEstados } from "./friskuCompare.js";
 import { theme } from "./theme";
 
 // ── Paleta Frisku ──
@@ -5578,6 +5579,139 @@ function HojaComparativo({ chromeless, panelEl, fullscreen, onExitFull, exportRe
   );
 }
 
+// COMPARADOR A/B (Alternate States real, P2.3). Dos selecciones INDEPENDIENTES
+// capturadas de la barra global (snapshots), evaluadas sobre la MISMA tabla de
+// hechos con las MISMAS métricas (metric.calc). No reemplaza el preset Comparativo
+// (que es fijo por temporada). Δ = A − B; Δ% relativo a |B| (— si B=0); distingue
+// cero real de "Sin datos suficientes"; count-distinct recalculado por estado.
+function ComparadorAB({ chromeless, panelEl, fullscreen, onExitFull, exportReq }) {
+  const bi = useFriskuBI();
+  const { facts, metric } = bi;
+  const [selA, setSelA] = useState({});    // {dimKey:Set}
+  const [selB, setSelB] = useState({});
+  const cloneSel  = (s)=>{ const o={}; Object.keys(s||{}).forEach(k=>{ if(s[k]&&s[k].size) o[k]=new Set(s[k]); }); return o; };
+  const selToArr  = (s)=>{ const o={}; Object.keys(s||{}).forEach(k=>{ if(s[k]&&s[k].size) o[k]=[...s[k]]; }); return o; };
+  const isEmpty   = (s)=> !s || Object.keys(s).every(k=>!s[k]||!s[k].size);
+  const labOf     = (dim,v)=>{ const h=facts.find(r=>r[dim]===v); return h?(h[dim+"Lab"]??v):v; };
+  const dimLab    = (dim)=> (FRISKU_DIMS.find(d=>d.key===dim)?.lab)||dim;
+  const selChips  = (s)=> Object.keys(s||{}).filter(k=>s[k]&&s[k].size).map(k=>({dim:k, lab:dimLab(k), vals:[...s[k]].map(v=>labOf(k,v))}));
+  const defTxt    = (s)=> isEmpty(s) ? "Todo el universo" : selChips(s).map(c=>`${c.lab}=${c.vals.join("/")}`).join(" · ");
+
+  const KPIS = ["containers","fcl","boxes","kilograms","destinationSalesUSD","clientCommissionUSD","friskuCommissionUSD","avgCommissionPct","activeClients","activeExporters"];
+  const mets = KPIS.map(k=>metric[k]).filter(Boolean);
+  const rows = compararEstados(facts, selA, selB, mets);
+
+  const fijarA = ()=> setSelA(cloneSel(bi.sel));
+  const fijarB = ()=> setSelB(cloneSel(bi.sel));
+  const swap   = ()=> { setSelA(cloneSel(selB)); setSelB(cloneSel(selA)); };
+  const copyAB = ()=> setSelB(cloneSel(selA));
+  const copyBA = ()=> setSelA(cloneSel(selB));
+  const editarA= ()=> bi.applySel(selToArr(selA));
+  const editarB= ()=> bi.applySel(selToArr(selB));
+
+  const dCell = (r)=> (r.sinDatosA||r.sinDatosB) ? "—" : (r.fmt==="pct" ? `${r.dif>0?"+":""}${r.dif.toFixed(1)} pts` : `${r.dif>0?"+":""}${fmtMetric(r.fmt,r.dif)}`);
+  const pCell = (r)=> (r.sinDatosA||r.sinDatosB||r.fmt==="pct"||r.difPct===null) ? "—" : `${r.difPct>0?"+":""}${r.difPct.toFixed(0)}%`;
+  const colOf = (r)=> (r.sinDatosA||r.sinDatosB) ? C.muted : (r.dif>0?C.green:r.dif<0?C.accent:C.muted);
+
+  const exportExcel = async ()=>{ try{
+    const ExcelJS=await fr_loadExcelJS(); const wb=new ExcelJS.Workbook(); wb.creator="Grupo Mediterra — Frisku Foods";
+    const ws=wb.addWorksheet("Comparador A-B");
+    const rowsX = rows.map(r=>[ r.label,
+      r.sinDatosA?"Sin datos":Math.round(r.A*100)/100,
+      r.sinDatosB?"Sin datos":Math.round(r.B*100)/100,
+      (r.sinDatosA||r.sinDatosB)?"":Math.round(r.dif*100)/100,
+      (r.sinDatosA||r.sinDatosB||r.fmt==="pct"||r.difPct===null)?"":Math.round(r.difPct) ]);
+    fr_sheetTabla(ws,{titulo:"FRISKU FOODS — Comparador A/B", subtitulo:`A: ${defTxt(selA)}  |  B: ${defTxt(selB)} · ${new Date().toLocaleString("es-CL")}`,
+      headers:["Indicador","Estado A","Estado B","Δ","Δ%"], colWidths:[28,18,18,14,9], rows:rowsX});
+    await fr_logoExcel(wb,ws); await fr_descargarWB(wb,`Frisku_ComparadorAB_${new Date().toISOString().slice(0,10)}.xlsx`);
+  }catch(e){ console.error("[ComparadorAB] Excel:",e); alert("No se pudo generar el Excel: "+e.message); } };
+  const exportPDF = async ()=>{ try{
+    const JsPDF=await pl_loadJsPDF(); const doc=new JsPDF({orientation:"landscape",unit:"mm",format:"a4"}); const W=297,m=12;
+    doc.setFillColor(30,39,97); doc.rect(0,0,W,24,"F"); doc.setTextColor(255,255,255); doc.setFont("helvetica","bold"); doc.setFontSize(13);
+    doc.text("Frisku Foods — Comparador A/B", m, 11); doc.setFont("helvetica","normal"); doc.setFontSize(7.5);
+    doc.text(`A: ${defTxt(selA)}  |  B: ${defTxt(selB)} · ${new Date().toLocaleString("es-CL")}`.slice(0,175), m, 18); await fr_logoPDF(doc,W-m,4,40,15);
+    doc.autoTable({ startY:28, head:[["Indicador","Estado A","Estado B","Δ","Δ%"]],
+      body: rows.map(r=>[ r.label,
+        r.sinDatosA?"Sin datos":fmtMetric(r.fmt,r.A),
+        r.sinDatosB?"Sin datos":fmtMetric(r.fmt,r.B),
+        dCell(r), pCell(r) ]),
+      theme:"striped", styles:{fontSize:8}, headStyles:{fillColor:[30,39,97]}, margin:{left:m,right:m} });
+    doc.save(`Frisku_ComparadorAB_${new Date().toISOString().slice(0,10)}.pdf`);
+  }catch(e){ console.error("[ComparadorAB] PDF:",e); alert("No se pudo generar el PDF: "+e.message); } };
+  useExportTrigger(exportReq, {excel:exportExcel, pdf:exportPDF});
+
+  const pLbl = {fontSize:10,fontWeight:800,color:C.muted,textTransform:"uppercase",letterSpacing:0.4,margin:"2px 0 5px"};
+  const abBtn = (bg)=>({...btnSt(bg),fontSize:11,padding:"6px 9px",width:"100%",textAlign:"left"});
+  const defBox = (titulo, s, color)=>(
+    <div style={{border:`1px solid ${color}55`,background:`${color}0e`,borderRadius:9,padding:"7px 9px"}}>
+      <div style={{fontSize:10,fontWeight:800,color,letterSpacing:0.4}}>{titulo}</div>
+      {isEmpty(s) ? <div style={{fontSize:11,color:C.muted2,marginTop:3}}>Todo el universo</div>
+        : <div style={{display:"flex",flexWrap:"wrap",gap:4,marginTop:4}}>{selChips(s).map(c=>(
+            <span key={c.dim} style={{fontSize:10,background:C.card2,border:`1px solid ${C.border}`,borderRadius:6,padding:"1px 6px"}}><b style={{color:C.muted}}>{c.lab}:</b> {c.vals.join(", ")}</span>
+          ))}</div>}
+    </div>
+  );
+  const controls = (
+    <div style={{display:"flex",flexDirection:"column",gap:8}}>
+      <div style={pLbl}>Definir estados</div>
+      <button onClick={fijarA} style={abBtn(C.blue)}>Fijar selección actual → A</button>
+      <button onClick={fijarB} style={abBtn(C.teal||C.blue)}>Fijar selección actual → B</button>
+      <div style={{display:"flex",gap:6}}>
+        <button onClick={swap} title="Intercambiar A y B" style={{...btnSt(C.muted,true),fontSize:11,padding:"6px 8px",flex:1}}>A ⇄ B</button>
+        <button onClick={copyAB} title="Copiar A en B" style={{...btnSt(C.muted,true),fontSize:11,padding:"6px 8px",flex:1}}>A→B</button>
+        <button onClick={copyBA} title="Copiar B en A" style={{...btnSt(C.muted,true),fontSize:11,padding:"6px 8px",flex:1}}>B→A</button>
+      </div>
+      <div style={{display:"flex",gap:6}}>
+        <button onClick={editarA} title="Cargar A en la barra global para editarlo" style={{...btnSt(C.muted,true),fontSize:11,padding:"6px 8px",flex:1}}>Editar A</button>
+        <button onClick={editarB} title="Cargar B en la barra global para editarlo" style={{...btnSt(C.muted,true),fontSize:11,padding:"6px 8px",flex:1}}>Editar B</button>
+      </div>
+      <div style={{display:"flex",gap:6}}>
+        <button onClick={()=>setSelA({})} style={{...btnSt(C.muted,true),fontSize:11,padding:"6px 8px",flex:1}}>Limpiar A</button>
+        <button onClick={()=>setSelB({})} style={{...btnSt(C.muted,true),fontSize:11,padding:"6px 8px",flex:1}}>Limpiar B</button>
+      </div>
+      <div style={{fontSize:10.5,color:C.muted2}}>A y B son selecciones independientes (no la barra global). Compón una selección arriba y fíjala como A o B. Δ = A − B.</div>
+    </div>
+  );
+
+  const tablaEl = (
+    <div style={{display:"flex",flexDirection:"column",gap:10}}>
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>{defBox("ESTADO A", selA, C.blue)}{defBox("ESTADO B", selB, C.teal||C.blue)}</div>
+      <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,overflowX:"auto"}}>
+        <table style={{width:"100%",borderCollapse:"collapse",fontSize:12,minWidth:620}}>
+          <thead><tr style={{background:C.card2,color:C.muted,textAlign:"left"}}>
+            <th style={{padding:"9px 12px"}}>Indicador</th>
+            <th style={{padding:"9px 12px",textAlign:"right"}}>Estado A</th>
+            <th style={{padding:"9px 12px",textAlign:"right"}}>Estado B</th>
+            <th style={{padding:"9px 12px",textAlign:"right"}}>Δ</th>
+            <th style={{padding:"9px 12px",textAlign:"right"}}>Δ%</th>
+          </tr></thead>
+          <tbody>
+            {rows.map((r,i)=>(
+              <tr key={i} style={{borderTop:`1px solid ${C.border}`}}>
+                <td style={{padding:"8px 12px",fontWeight:600}}>{r.label}</td>
+                <td style={{padding:"8px 12px",textAlign:"right",fontFamily:"monospace",fontWeight:700}}>{r.sinDatosA?<span style={{color:C.muted2,fontFamily:"inherit",fontWeight:400,fontSize:11}}>Sin datos suficientes</span>:fmtMetric(r.fmt,r.A)}</td>
+                <td style={{padding:"8px 12px",textAlign:"right",fontFamily:"monospace",color:C.muted}}>{r.sinDatosB?<span style={{color:C.muted2,fontFamily:"inherit",fontWeight:400,fontSize:11}}>Sin datos suficientes</span>:fmtMetric(r.fmt,r.B)}</td>
+                <td style={{padding:"8px 12px",textAlign:"right",fontFamily:"monospace",color:colOf(r)}}>{dCell(r)}</td>
+                <td style={{padding:"8px 12px",textAlign:"right",fontFamily:"monospace",color:colOf(r),fontWeight:700}}>{pCell(r)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <div style={{fontSize:10.5,color:C.muted2}}>Δ = A − B. Δ% relativo a |B| (— si B = 0). "Sin datos suficientes" = el estado no tiene hechos; distinto de un cero real. Clientes/Exportadores activos y demás recuentos se recalculan por estado (no se suman subtotales).</div>
+    </div>
+  );
+
+  if(chromeless){
+    return (<>
+      {panelEl && createPortal(controls, panelEl)}
+      <div style={{maxHeight:"74vh",overflow:"auto"}}>{tablaEl}</div>
+      <FullscreenBI open={!!fullscreen} onClose={onExitFull} title="Comparador A/B">{tablaEl}</FullscreenBI>
+    </>);
+  }
+  return (<div><div style={{display:"flex",gap:16,flexWrap:"wrap",alignItems:"flex-start"}}><div style={{width:240}}>{controls}</div><div style={{flex:1,minWidth:0}}>{tablaEl}</div></div></div>);
+}
+
 // FILTER PANE — un campo (listbox persistente) con los 4 estados asociativos +
 // menú ⋯ de acciones Qlik (seleccionar posibles/alternativos/excluidos, invertir,
 // limpiar). Compacto, colapsable, con búsqueda y scroll.
@@ -6168,7 +6302,7 @@ function AnalysisWorkspace({ data, permTablero, onVerEmbarque, bmOwner }) {
     {k:"drill", lab:"⛏ Drill"},
   ].filter(Boolean);
   const PRESETS = [
-    {k:"libre", lab:"Libre"}, {k:"comercial", lab:"🤝 Comercial"}, {k:"semanal", lab:"📅 Semanal"}, {k:"comp", lab:"📊 Comparativo"},
+    {k:"libre", lab:"Libre"}, {k:"comercial", lab:"🤝 Comercial"}, {k:"semanal", lab:"📅 Semanal"}, {k:"comp", lab:"📊 Comparativo"}, {k:"ab", lab:"⇆ A/B"},
   ];
   const FILT = ["temporada","especie","exportadora","cliente","mercado","paisDestino","estado","via","semanaETD"];
   const lblIn = {fontSize:10.5,fontWeight:700,color:C.muted,textTransform:"uppercase",letterSpacing:0.4};
@@ -6182,6 +6316,7 @@ function AnalysisWorkspace({ data, permTablero, onVerEmbarque, bmOwner }) {
     if(preset==="comercial") return <HojaComercial {...objProps} onVerEmbarque={onVerEmbarque}/>;
     if(preset==="semanal")   return <HojaSemanal {...objProps} onVerEmbarque={onVerEmbarque}/>;
     if(preset==="comp")      return <HojaComparativo {...objProps}/>;
+    if(preset==="ab")        return <ComparadorAB {...objProps}/>;
     if(viz==="tabla")        return <StraightTableBI {...objProps} onVerEmbarque={onVerEmbarque}/>;
     if(viz==="pivot")        return <PivotTableBI {...objProps}/>;
     if(viz==="drill")        return <DrillGroupsBI {...objProps} onVerEmbarque={onVerEmbarque}/>;
