@@ -110,6 +110,21 @@ const MAESTROS = [
     cols: [{ titulo: "Cliente", refCampo: "cliente_vinculo_id" }, { titulo: "Productor", refCampo: "productor_vinculo_id" }, "temporada_codigo"],
     filtros: ["busqueda", { campo: "cliente_vinculo_id", ref: refCliente, label: "Cliente" }, { campo: "productor_vinculo_id", ref: refProductor, label: "Productor" }],
     nota: "Relación N:M (no ownership). Un productor puede trabajar con varios clientes; se referencia, no se duplica." },
+  { key: "tipos_doc_contractual", label: "Tipos de Documento Contractual", tabla: "proc_tipo_documento_contractual",
+    campos: [
+      { c: "codigo", l: "Código", ...T, req: 1 },
+      { c: "nombre", l: "Nombre (ej. Contrato, Anexo, Tarifario)", ...T, req: 1 },
+      { c: "satisface_requisito_contractual", l: "¿Satisface el requisito contractual? (habilita al cliente para operar)", ...B, def: false },
+      { c: "activo", l: "Activo", ...B, def: true },
+    ],
+    cols: ["codigo", "nombre",
+      { titulo: "Satisface requisito", render: (r) => r.satisface_requisito_contractual
+          ? <ProcStatusBadge texto="Sí · habilita" tono="success" />
+          : <ProcStatusBadge texto="No · solo respaldo" tono="neutral" /> },
+      { titulo: "Estado", render: (r) => <ProcStatusBadge texto={r.activo ? "Activo" : "Inactivo"} tono={r.activo ? "success" : "neutral"} /> },
+    ],
+    filtros: ["busqueda", { campo: "activo", label: "Estado", opciones: [{ v: "true", l: "Activo" }, { v: "false", l: "Inactivo" }] }],
+    nota: "Catálogo de tipos de documento contractual (configurable). El flag «Satisface requisito» distingue un Contrato (habilita al cliente para operar) de un Anexo/Tarifario/Carta (solo respaldo — NO levanta el bloqueo contractual); la semántica la decide el flag, no el nombre. Nota: el documento «Tarifario» es un antecedente comercial adjunto y NO reemplaza el motor de tarifas (proc_tarifa), que es la fuente de verdad del cálculo de servicios facturables." },
 ];
 
 function MaestroEditor({ d }) {
@@ -202,19 +217,26 @@ function MaestroEditor({ d }) {
 
   // filtros (client-side; los maestros son acotados)
   const refFiltros = (d.filtros || []).filter((f) => f && f.ref);
+  const optFiltros = (d.filtros || []).filter((f) => f && f.opciones && !f.ref);   // opciones estáticas (ej. Activo/Inactivo)
   const hayBusqueda = (d.filtros || []).includes("busqueda");
   const filtradas = rows.filter((r) => {
-    for (const f of refFiltros) if (fVals[f.campo] && String(r[f.campo]) !== String(fVals[f.campo])) return false;
+    for (const f of [...refFiltros, ...optFiltros]) if (fVals[f.campo] && String(r[f.campo]) !== String(fVals[f.campo])) return false;
     if (hayBusqueda && fTexto) {
       const txt = d.cols.map((c) => celda(c, r)).filter((x) => typeof x === "string").join(" ").toLowerCase();
       if (!txt.includes(fTexto.toLowerCase())) return false;
     }
     return true;
   });
-  const procFiltros = refFiltros.map((f) => ({
-    key: f.campo, label: f.label, valor: fVals[f.campo] || "", onChange: (v) => setFVals((x) => ({ ...x, [f.campo]: v })),
-    opciones: [{ v: "", l: `Toda ${f.label.toLowerCase()}` }, ...opcionesRef(refData[f.ref.tabla] || [], f.ref, {}).map((o) => ({ v: o.value, l: o.label }))],
-  }));
+  const procFiltros = [
+    ...refFiltros.map((f) => ({
+      key: f.campo, label: f.label, valor: fVals[f.campo] || "", onChange: (v) => setFVals((x) => ({ ...x, [f.campo]: v })),
+      opciones: [{ v: "", l: `Toda ${f.label.toLowerCase()}` }, ...opcionesRef(refData[f.ref.tabla] || [], f.ref, {}).map((o) => ({ v: o.value, l: o.label }))],
+    })),
+    ...optFiltros.map((f) => ({
+      key: f.campo, label: f.label, valor: fVals[f.campo] || "", onChange: (v) => setFVals((x) => ({ ...x, [f.campo]: v })),
+      opciones: [{ v: "", l: `Todo ${f.label.toLowerCase()}` }, ...f.opciones],
+    })),
+  ];
 
   return (
     <div>
