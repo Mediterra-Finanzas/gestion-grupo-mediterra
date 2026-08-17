@@ -11116,7 +11116,7 @@ function ReporteHistorial({historial, onUpdate, canEdit}) {
 // ═══════════════════════════════════════════════════════════════════
 export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermisos={},usuarios=[]}) {
   const [tab,setTab]=useState("dashboard");
-  const [empTab,setEmpTab]=useState("Mediterra");
+  const [empTab,setEmpTab]=useState("_consolidado"); // vista por defecto al entrar a Flujo Empresas: Consolidado (el guard de permisos baja a la 1ª empresa si no hay acceso completo)
   const [flujoSubTab,setFlujoSubTab]=useState("flujo"); // "flujo" | "params"
   const [empExportMsg,setEmpExportMsg]=useState(null); // feedback export Excel por empresa
   const [realData,setRealData]=useState({});
