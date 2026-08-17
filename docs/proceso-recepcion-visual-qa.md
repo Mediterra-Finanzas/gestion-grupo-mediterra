@@ -20,6 +20,18 @@ Estado: **Nueva Recepción = FIX aplicado** (pendiente veredicto live del CFO).
   - **Autoridad de masa (crítica)**: el kg de cada lote persistido se toma del **movimiento de entrada inicial del ledger** (`kgEntradaPorLote`, misma autoridad que `proc_fn_cerrar_recepcion`), **no de `on_hand`** (que neto de salidas posteriores).
   - Idempotencia garantizada por `UNIQUE(empresa_id, codigo)` en `proc_lote` + correlativo fresco por ingreso. Simulación transaccional A–J (con ROLLBACK): tras fallo de lote 2, lote 1 aparece una sola vez (3000 kg); al agregar lote 2 el movimiento de lote 1 no se duplica; cierre concilia (dif 0). Sin cambios de ledger/RPC/schema.
 
+### NR-05 · Semántica exacta de kg (rehidratación vs saldo vs cierre)
+
+Tres cantidades que NO deben confundirse:
+
+- **kg asignados originales (rehidratación del borrador)** = `kgEntradaPorLote` = Σ(`cantidad`) de los movimientos `naturaleza='entrada'`, `ref_tipo='recepcion'`, `objeto_tipo='lote'` de esa recepción. Es lo que el operador ingresó/asignó al lote. **El helper filtra solo entradas; NO resta salidas.**
+- **Saldo CURRENT (`on_hand`)** = físico actual del lote = entradas − salidas − reservas… posteriores. Cambia con cualquier movimiento posterior (traslado, ajuste, consumo). **NO se usa para el formulario de recuperación.**
+- **kg de cierre** (`proc_fn_cerrar_recepcion`) = Σ(entrada) − Σ(salida) **sobre `ref_tipo='recepcion'`** de la recepción. Es la autoridad del cuadre de masa.
+
+Demostración en DB (transaccional, ROLLBACK): lote recibe 4000 → `on_hand=4000`; una salida posterior de 1500 (ajuste) → `on_hand=2500` (el saldo CURRENT cambió), pero la **rehidratación sigue mostrando 4000** (entrada original) y el cierre sobre `ref recepción` sigue en 4000 (el ajuste no está ligado a la recepción). Test unitario `kgEntradaPorLote` incluye una salida con `ref_tipo='recepcion'` y verifica que **igual devuelve 4000** (no es `on_hand` ni entrada−salida).
+
+Diferencia documentada, no oculta: rehidratación = entradas asignadas; cierre = entrada−salida sobre la ref de la recepción. Coinciden durante el armado normal de un borrador (no hay salidas ligadas a la recepción antes del cierre); solo divergirían si existiera una salida con `ref_tipo='recepcion'`, que el flujo de ingreso no genera.
+
 ## Gap abierto — T10C-FECHA-OPERACIONAL-GAP = OPEN
 
 La fecha operacional NO se materializa en este lote. Diagnóstico CURRENT:
