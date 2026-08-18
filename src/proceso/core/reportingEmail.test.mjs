@@ -37,7 +37,13 @@ ok(out.texto.includes("Copefrut"), "texto plano incluye cliente");
 const outA = construirEmailInformeDiario(ej, { alertas: ["1 recepción sin conciliar", "2 clientes con contrato bloqueante"] });
 ok(outA.html.includes("sin conciliar"), "alertas incluidas cuando se pasan");
 const outNo = construirEmailInformeDiario(ej, {});
-ok(!outNo.html.includes("Alertas operacionales"), "sin alertas no muestra bloque");
+ok(!outNo.html.includes("Situaciones que requieren"), "sin alertas no muestra bloque");
+// alertas CONGELADAS en el snapshot (objetos {descripcion,cantidad}) — cableado real del gap §13
+const ejAl = { ...ej, snapshot: { ...snap, alertas: [{ tipo: "qc_rechazado", descripcion: "Recepciones con QC rechazado", cantidad: 1 }, { tipo: "hold_activo", descripcion: "Pallets con hold activo", cantidad: 2 }] } };
+const outSnap = construirEmailInformeDiario(ejAl, { plantaNombre: "Rancagua" });
+ok(outSnap.html.includes("Situaciones que requieren atención"), "sección de alertas desde snapshot");
+ok(outSnap.html.includes("Recepciones con QC rechazado — 1"), "alerta objeto: descripción + conteo");
+ok(outSnap.texto.includes("Pallets con hold activo — 2"), "alerta también en texto plano");
 
 // sin movimiento: empty state legible, totales 0
 const vacio = construirEmailInformeDiario({ fecha_operacional: "2026-08-16", snapshot: { fecha: "2026-08-16", clientes: [], total_kg_recibido: 0, total_kg_procesado: 0 } }, {});
