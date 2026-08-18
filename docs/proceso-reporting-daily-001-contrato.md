@@ -1,7 +1,7 @@
 # PROC-REPORTING-DAILY-001 — Informe Diario de Operación · Contrato + Materialización
 
 **Estado (2026-08-18): MATERIALIZADO — REPORTING ENGINE VALIDATED + ALERTAS CABLEADAS.**
-`AUTOMATIC SCHEDULER = BLOCKED (PROC-REPORTING-SCHEDULER-GAP — decisión de plataforma server-side)` · `EMAIL PROVIDER E2E = BLOCKED (server-side, no ejercitable en dev)` · `MANUAL SEND = PREPARED` · `ALERTAS (§13) = MATERIALIZADO` (colector `proc_fn_informe_diario_alertas` congelado en el snapshot cuando `incluir_alertas`, renderizado en email HTML/texto y preview).
+`AUTOMATIC SCHEDULER = CODE VALIDATED (Vercel Cron: api/proc-reporting-daily-cron.js + vercel.json; E2E queda gate de deploy)` · `EMAIL PROVIDER E2E = PENDIENTE (gate de deploy, no ejercitable en dev)` · `MANUAL SEND = PREPARED` · `ALERTAS (§13) = MATERIALIZADO`. Scheduler: helpers puros testeados (SCH-01..15 parte pura), runbook en `docs/proceso-reporting-daily-001-deploy-runbook.md`. (colector `proc_fn_informe_diario_alertas` congelado en el snapshot cuando `incluir_alertas`, renderizado en email HTML/texto y preview).
 Regresión 2026-08-18 tras T10C (fecha operacional) + PROC-ENVASES-001: SQL A–R TODOS PASARON, JS reportingEmail/dominio/listado verdes, REP-30 (envases NO altera kg del informe — usa `proc_movimiento`, no `proc_envase_movimiento`) confirmado. Build `Compiled successfully`.
 El contrato original de integración se conserva íntegro más abajo (§1–§8). Sin merge/deploy/producción.
 
