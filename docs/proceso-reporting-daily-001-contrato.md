@@ -1,7 +1,8 @@
 # PROC-REPORTING-DAILY-001 — Informe Diario de Operación · Contrato + Materialización
 
-**Estado (2026-08-16): MATERIALIZADO — REPORTING ENGINE VALIDATED.**
-`AUTOMATIC SCHEDULER = BLOCKED (PROC-REPORTING-SCHEDULER-GAP)` · `EMAIL PROVIDER = BLOCKED (server-side, no ejercitable aquí)` · `MANUAL SEND = PREPARED` (cablea el motor + proveedor neutral; el resultado real se registra, no se fabrica).
+**Estado (2026-08-18): MATERIALIZADO — REPORTING ENGINE VALIDATED + ALERTAS CABLEADAS.**
+`AUTOMATIC SCHEDULER = BLOCKED (PROC-REPORTING-SCHEDULER-GAP — decisión de plataforma server-side)` · `EMAIL PROVIDER E2E = BLOCKED (server-side, no ejercitable en dev)` · `MANUAL SEND = PREPARED` · `ALERTAS (§13) = MATERIALIZADO` (colector `proc_fn_informe_diario_alertas` congelado en el snapshot cuando `incluir_alertas`, renderizado en email HTML/texto y preview).
+Regresión 2026-08-18 tras T10C (fecha operacional) + PROC-ENVASES-001: SQL A–R TODOS PASARON, JS reportingEmail/dominio/listado verdes, REP-30 (envases NO altera kg del informe — usa `proc_movimiento`, no `proc_envase_movimiento`) confirmado. Build `Compiled successfully`.
 El contrato original de integración se conserva íntegro más abajo (§1–§8). Sin merge/deploy/producción.
 
 ---
