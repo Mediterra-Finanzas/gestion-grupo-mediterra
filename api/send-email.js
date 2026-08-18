@@ -115,3 +115,21 @@ module.exports = async function handler(req, res) {
     });
   }
 };
+
+// Envío reutilizable server-side (usado por el cron de reporting). Misma cuenta/transporter que el
+// handler HTTP; devuelve resultado estructurado, no lanza en errores de config esperados.
+async function enviarCorreo({ to, subject, message, modulo, html }) {
+  if (!to || !subject) return { success: false, error: "to y subject son obligatorios" };
+  const account = getAccountForModule(modulo || "mediterra");
+  if (!account.user || !account.pass) return { success: false, error: "Cuenta SMTP no configurada para: " + (modulo || "mediterra") };
+  const transporter = nodemailer.createTransport({
+    host: "smtp.office365.com", port: 587, secure: false,
+    auth: { user: account.user, pass: account.pass },
+    tls: { ciphers: "SSLv3", rejectUnauthorized: false },
+  });
+  const info = await transporter.sendMail({
+    from: `"${account.name}" <${account.user}>`, to, subject, text: message || "", html: html || undefined,
+  });
+  return { success: true, method: "smtp", messageId: info.messageId, from: account.user };
+}
+module.exports.enviarCorreo = enviarCorreo;
