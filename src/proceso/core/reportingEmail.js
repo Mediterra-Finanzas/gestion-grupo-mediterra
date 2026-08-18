@@ -36,8 +36,12 @@ export function construirEmailInformeDiario(ejecucion, opts = {}) {
   const asunto = ejecucion?.asunto || `Allegria Service · Informe Diario de Operación · ${fecha}`;
   const planta = opts.plantaNombre ? ` · ${esc(opts.plantaNombre)}` : "";
   const temporada = opts.temporada ? ` · Temporada ${esc(opts.temporada)}` : "";
-  const alertasHtml = (opts.alertas && opts.alertas.length)
-    ? `<div style="margin-top:16px"><b>Alertas operacionales</b><ul>${opts.alertas.map((a) => `<li>${esc(a)}</li>`).join("")}</ul></div>` : "";
+  // Alertas: prioriza las CONGELADAS en el snapshot (proc_fn_informe_diario_alertas); opts.alertas es
+  // override/compat. Cada alerta puede ser objeto {descripcion,cantidad} o string. Ref humana + conteo.
+  const alertasArr = (opts.alertas && opts.alertas.length) ? opts.alertas : (Array.isArray(snap.alertas) ? snap.alertas : []);
+  const alertaTexto = (a) => typeof a === "string" ? a : `${a.descripcion || a.tipo || ""}${a.cantidad != null ? ` — ${a.cantidad}` : ""}`;
+  const alertasHtml = alertasArr.length
+    ? `<div style="margin-top:16px"><b>Situaciones que requieren atención</b><ul>${alertasArr.map((a) => `<li>${esc(alertaTexto(a))}</li>`).join("")}</ul></div>` : "";
 
   const filasHtml = filas.length
     ? filas.map((f) => `<tr><td style="padding:6px 10px;border-bottom:1px solid #eee">${esc(f.cliente)}</td>` +
@@ -74,6 +78,7 @@ export function construirEmailInformeDiario(ejecucion, opts = {}) {
     `Total kg procesados: ${formatNum(tot.kg_procesado, 1)}`,
     ``,
     ...filas.map((f) => `${f.cliente}: recibidos ${formatNum(f.kg_recibido, 1)} / procesados ${formatNum(f.kg_procesado, 1)} (${f.recepciones} rec, ${f.ordenes} ord)`),
+    ...(alertasArr.length ? ["", "Situaciones que requieren atencion:", ...alertasArr.map((a) => `- ${alertaTexto(a)}`)] : []),
   ].join("\n");
 
   return { asunto, html, texto, totales: tot, filas };

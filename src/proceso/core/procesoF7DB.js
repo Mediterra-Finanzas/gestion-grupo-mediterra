@@ -354,6 +354,10 @@ export const previewInformeDiario = (a) => procRpc("proc_fn_informe_diario_opera
   p_empresa: a.empresaId, p_fecha: a.fecha, p_planta: a.plantaId || null,
   p_cliente: a.clienteId || null, p_tz: a.timezone || "America/Santiago",
 });
+// Alertas del día (mismo colector que congela el snapshot) — para que el preview == el envío.
+export const previewAlertasInformeDiario = (a) => procRpc("proc_fn_informe_diario_alertas", {
+  p_empresa: a.empresaId, p_fecha: a.fecha, p_planta: a.plantaId || null, p_tz: a.timezone || "America/Santiago",
+});
 // Motor de ejecución (idempotente, congela snapshot). Envío manual y scheduler usan ESTE motor.
 export const generarEjecucionReporte = (a) => procRpc("proc_fn_reporte_generar_ejecucion", {
   p_empresa: a.empresaId, p_config: a.configId, p_fecha: a.fecha, p_actor: a.actor || null,

@@ -8,7 +8,7 @@ import { useService } from "../hooks/useServiceContext";
 import {
   cargarReporteConfigs, crearReporteConfig, actualizarReporteConfig, desactivarReporteConfig,
   cargarReporteDestinatarios, crearReporteDestinatario, desactivarReporteDestinatario,
-  previewInformeDiario, generarEjecucionReporte, marcarEnviadoReporte, marcarErrorReporte, reintentarReporte,
+  previewInformeDiario, previewAlertasInformeDiario, generarEjecucionReporte, marcarEnviadoReporte, marcarErrorReporte, reintentarReporte,
   cargarEjecucionesReporte, cargarClientesServicio,
 } from "../../core/procesoF7DB";
 import { cargarPlantas } from "../../core/procesoDB";
@@ -101,6 +101,8 @@ export default function ReporteDiario() {
       const snap = { fecha, planta_id: sel.planta_id, timezone: sel.timezone, alcance: sel.alcance, clientes,
         total_kg_recibido: clientes.reduce((a, c) => a + Number(c.kg_recibido || 0), 0),
         total_kg_procesado: clientes.reduce((a, c) => a + Number(c.kg_procesado || 0), 0) };
+      // §23: el preview muestra exactamente lo que se enviaría → incluye alertas si la config las pide.
+      if (sel.incluir_alertas) { try { snap.alertas = (await previewAlertasInformeDiario({ empresaId: empresa, fecha, plantaId: sel.planta_id, timezone: sel.timezone })) || []; } catch { snap.alertas = []; } }
       setPreview(snap);
     } catch (e) { notificar(traducirError(e), "error"); }
     finally { setPreviewLoading(false); }
@@ -246,6 +248,14 @@ export default function ReporteDiario() {
                   ]}
                   filas={filasInformeDiario(preview)} rowKey="cliente"
                   vacio={<ProcEmptyState icono="🗓️" titulo="Sin movimiento" detalle="No hubo recepciones ni proceso en la fecha (según la política, el envío se omite)." />} />
+                {Array.isArray(preview.alertas) && preview.alertas.length > 0 && (
+                  <div style={{ marginTop: sp.md }}>
+                    <div style={{ fontSize: 13, fontWeight: 800, color: C.text, marginBottom: 4 }}>Situaciones que requieren atención</div>
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: sp.sm }}>
+                      {preview.alertas.map((a) => <ProcStatusBadge key={a.tipo} texto={`${a.descripcion} — ${a.cantidad}`} tono="warning" />)}
+                    </div>
+                  </div>
+                )}
                 <div style={{ marginTop: sp.sm, fontSize: 11.5, color: C.muted }}>El preview usa el mismo motor read-only del envío; las cifras vienen del ledger.</div>
               </>
             )}
