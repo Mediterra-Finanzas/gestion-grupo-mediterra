@@ -26,6 +26,7 @@ import {
   ProcEmptyState, ProcDataTable,
 } from "../components/base";
 import QcPanel from "../components/QcPanel";
+import EnvasesRefSeccion from "../components/EnvasesRefSeccion";
 import { C, sp } from "../estilos";
 import { normalizarNombre, formatNum } from "../format";
 
@@ -56,7 +57,7 @@ function Metrica({ titulo, valor, tono }) {
 }
 
 export default function NuevaRecepcion() {
-  const { empresa, planta, ir, notificar, vista } = useService();
+  const { empresa, planta, ir, notificar, vista, usuario, puedeEditar } = useService();
   const resumeId = vista?.params?.recepcion_id || null;   // NR-05: reanudar borrador
   const [vinc, setVinc] = useState({ cliente_servicio: [], productor: [], transportista: [] });
   const [mae, setMae] = useState({ especies: [], variedades: [], predios: [], cuarteles: [] });
@@ -304,6 +305,10 @@ export default function NuevaRecepcion() {
             {especieQC ? <QcPanel especie={especieQC} recepcionId={rec.id} editable onGuardado={() => {}} />
               : <div style={{ fontSize: 13, color: C.muted }}>El QC se habilita al fijar la especie principal o agregar el primer lote.</div>}
           </ProcCard>
+
+          {/* ── ENVASES RECIBIDOS (opcional, PROC-ENVASES-001 E4) ── */}
+          <EnvasesRefSeccion empresa={empresa} planta={planta} refTipo="recepcion" refId={rec.id}
+            editable={puedeEditar("recepciones") || puedeEditar("centro")} notificar={notificar} usuario={usuario} />
 
           {/* ── BLOQUE B: LOTES / ORIGEN ── */}
           <ProcCard style={{ padding: sp.lg }}>

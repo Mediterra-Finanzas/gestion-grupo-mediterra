@@ -14,6 +14,7 @@ import {
   ProcPageHeader, ProcCard, ProcButton, ProcStatusBadge, ProcDataTable, ProcModal, ProcField, inputStyle,
   ProcKpiCard, ProcAuditInfo, ProcLoadingState, ProcErrorState, ProcEmptyState, ProcConfirmAction,
 } from "../components/base";
+import EnvasesRefSeccion from "../components/EnvasesRefSeccion";
 import { C, sp } from "../estilos";
 import { formatKg, formatNum, formatFecha, formatFechaHora, normalizarNombre } from "../format";
 
@@ -26,7 +27,7 @@ function Seccion({ titulo, extra, children }) {
 }
 
 export default function Despacho() {
-  const { empresa, planta, ir, vista, puedeEditar, notificar } = useService();
+  const { empresa, planta, ir, vista, puedeEditar, notificar, usuario } = useService();
   const id = vista?.params?.id;
   const [d, setD] = useState(null); const [raw, setRaw] = useState(null);
   const [lineas, setLineas] = useState([]); const [docs, setDocs] = useState([]);
@@ -152,6 +153,10 @@ export default function Despacho() {
         <ProcDataTable columnas={[{ titulo: "Tipo", campo: "tipo" }, { titulo: "Folio", campo: "folio" }, { titulo: "Fecha", render: (x) => formatFecha(x.fecha || x.created_at) }]}
           filas={docs} rowKey="id" vacio={<ProcEmptyState titulo="Sin documentos" detalle="Guía de despacho / documento interno / referencia externa." />} />
       </Seccion>
+
+      {/* ── ENVASES ENTREGADOS / DEVUELTOS (opcional, PROC-ENVASES-001 E6) ── */}
+      <EnvasesRefSeccion empresa={empresa} planta={planta} refTipo="despacho" refId={id}
+        editable={editableCab} notificar={notificar} usuario={usuario} />
 
       <Seccion titulo="Auditoría"><ProcAuditInfo registro={raw} /></Seccion>
 
