@@ -27,6 +27,18 @@ ok(!configDue({ activo: true, hora_envio: "11:00", timezone: "America/Santiago" 
 ok(configDue({ activo: true, hora_envio: "09:00", timezone: "America/Santiago" }, new Date("2026-08-18T14:00:00Z")), "SCH-06: pasada la hora_envio ejecuta");
 ok(!configDue({ activo: true, hora_envio: "abc", timezone: "America/Santiago" }, new Date()), "hora_envio inválida no ejecuta");
 
+// Convención Vercel Hobby (1 disparo diario): cron "0 23 * * *" = 23:00 UTC = 19:00 Santiago (invierno)
+// / 20:00 (verano). hora_envio<=19:00 (recomendado 18:00) → siempre due en ambas estaciones; fecha op = ese día.
+{
+  const invierno = new Date("2026-08-18T23:00:00Z"); // UTC-4 → 19:00 Santiago
+  const verano   = new Date("2026-01-15T23:00:00Z"); // UTC-3 → 20:00 Santiago
+  eq(horaEnTz(invierno, "America/Santiago"), "19:00", "Hobby: cron 23:00 UTC → 19:00 Santiago (invierno)");
+  eq(horaEnTz(verano, "America/Santiago"), "20:00", "Hobby: cron 23:00 UTC → 20:00 Santiago (verano)");
+  ok(configDue({ activo: true, hora_envio: "18:00", timezone: "America/Santiago" }, invierno), "Hobby: hora_envio 18:00 due en invierno");
+  ok(configDue({ activo: true, hora_envio: "18:00", timezone: "America/Santiago" }, verano), "Hobby: hora_envio 18:00 due en verano");
+  eq(fechaOpTz(invierno, "America/Santiago"), "2026-08-18", "Hobby: fecha operacional = mismo día (tarde Santiago)");
+}
+
 // SCH-09: config A falla / B sigue → resumen agrega correctamente.
 const r = resumenJob([{ estado: "enviado" }, { estado: "error" }, { estado: "enviado" }, { estado: "omitido" }]);
 eq(r.procesadas, 4, "SCH-09: procesadas=4"); eq(r.enviadas, 2, "SCH-09: enviadas=2");

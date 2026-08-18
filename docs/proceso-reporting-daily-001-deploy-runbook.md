@@ -5,7 +5,7 @@ No desplegado. Este runbook documenta cómo activarlo y verificarlo en Preview/P
 
 ## Arquitectura
 
-- **Cron**: `vercel.json` → `{ path: "/api/proc-reporting-daily-cron", schedule: "0 * * * *" }` (cada hora).
+- **Cron**: `vercel.json` → `{ path: "/api/proc-reporting-daily-cron", schedule: "0 23 * * *" }` (una vez al día, 23:00 UTC). Plan **Vercel Hobby** (confirmado): 1 ejecución diaria.
 - **Endpoint** `api/proc-reporting-daily-cron.js` (server-side, service_role): autentica el cron, busca
   configs activas, evalúa "due" por `hora_envio`/`timezone`, genera la ejecución **idempotente**
   (`proc_fn_reporte_generar_ejecucion`), envía el email (`enviarCorreo` de `api/send-email.js`) y marca
@@ -23,13 +23,20 @@ No desplegado. Este runbook documenta cómo activarlo y verificarlo en Preview/P
 **Nunca** commitear secretos ni imprimirlos en logs. Vercel inyecta `CRON_SECRET` automáticamente en el
 header `Authorization` de sus invocaciones Cron.
 
-## Plan Vercel — frecuencia real
+## Plan Vercel — convención Hobby (CURRENT: gestion-grupo-mediterra / mediterra-finanzas)
 
-- **Pro/Enterprise**: soporta cron sub-diario → `"0 * * * *"` (cada hora) funciona; cualquier `hora_envio` se respeta.
-- **Hobby**: los Cron Jobs corren **una vez al día**. Si el proyecto está en Hobby, cambiar el schedule a una
-  expresión diaria (ej. `"0 13 * * *"` = ~09:00–10:00 Chile) y asegurar que `hora_envio` de las configs sea
-  **anterior** a esa hora. NO fingir precisión por minuto. Para múltiples horarios de envío por día se requiere Pro.
-- Verificar el plan: Vercel → Project → Settings → (plan) o el dashboard de Crons.
+El proyecto está en **Hobby** → **un solo disparo diario**. Diseño adaptado:
+
+- **Cron**: `"0 23 * * *"` (23:00 UTC). Vercel Cron se expresa en **UTC**; la lógica operacional sigue en
+  **America/Santiago**. 23:00 UTC = **19:00 Santiago (invierno UTC-4)** / **20:00 (verano UTC-3)** → la tarde,
+  con el día operacional de hoy ya completo. El informe cubre `fecha operacional = hoy` (Santiago).
+- **`hora_envio` (gobierna el negocio, gate "no antes de")**: en Hobby el envío real ocurre en el único disparo
+  diario (~19:00–20:00 Santiago). Para que la config siempre quede "due" en ese disparo (ambas estaciones DST),
+  configurar **`hora_envio ≤ 19:00` (recomendado `18:00`)**. Si se pone una hora posterior a ~19:00, el disparo
+  de ese día no la enviaría (quedaría para el siguiente disparo diario). No se finge precisión por minuto.
+- **Múltiples horarios/día o precisión horaria**: requieren plan **Pro** → volver a `"0 * * * *"` (cada hora),
+  con lo que cualquier `hora_envio` se respeta. Es el único cambio necesario para migrar a Pro.
+- Verificar plan: Vercel → Project (gestion-grupo-mediterra) → Settings / Crons.
 
 ## Cómo verificar
 
