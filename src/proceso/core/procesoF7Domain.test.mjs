@@ -1,7 +1,8 @@
 /* eslint-disable */
 // Tests de dominio proc_* F7.1 (node). Ejecutar: node src/proceso/core/procesoF7Domain.test.mjs
 import { formatearCorrelativo, compactarTemporada, evaluarQC, badgeDe, traducirError, validarFiltros, calcularNeto, validarPesos, packout, resumenConciliacion, accionesOrden, faltaParaCerrar, ordenTerminal, despachoTerminal, puedeConfirmarDespacho, accionesDespacho, totalKg, montoServicio, especificidadTarifa, vigenciaTarifa, baseEditable, accionesBase, servicioAgregableABase, totalesPorMoneda, filtrosActivos, opcionesRef, limpiarDependencias, labelRef, resumenKgLotes, resumenOrigenes, tonoContractual, copiarOrigen, alertaContractual, transicionesContrato, tonoNivelContractual, qcPorLote, resumenQcRecepcion, rpcFecha, loteSinOrigen, qcListadoResumen, evaluarOrigenLote, textoQcCabecera, kgEntradaPorLote,
-fechaCalendarioTz, ahoraOperacional, temporadaDeFecha, TZ_OPERACIONAL } from "./procesoF7Domain.js";
+fechaCalendarioTz, ahoraOperacional, temporadaDeFecha, TZ_OPERACIONAL,
+resumenEnvases, NATURALEZA_ENVASE_LABEL } from "./procesoF7Domain.js";
 
 let pass = 0, fail = 0;
 const ok = (c, m) => { if (c) pass++; else { fail++; console.error("  ✗ " + m); } };
@@ -311,6 +312,23 @@ eq(tm.find((x) => x.moneda === "CLP").total, 100000, "CLP separado");
   eq(temporadaDeFecha([{ codigo: "A", fecha_inicio: "2026-01-01", fecha_fin: "2026-12-31" }, { codigo: "B", fecha_inicio: "2026-06-01", fecha_fin: "2026-09-30" }], "2026-08-01").error, "multiple", "solapadas -> error multiple");
   eq(temporadaDeFecha(cat, "").error, "sin_fecha", "sin fecha -> error sin_fecha");
   ok(!temporadaDeFecha(cat, "2026-06-30").error, "borde inicio/fin inclusivo (2026-06-30 en 2025/2026)");
+}
+
+// PROC-ENVASES-001 · resumenEnvases (KPIs desde saldos)
+{
+  const saldos = [
+    { saldo: 60, condicion: "normal", holder_es_service: true, owner_rol: "cliente_servicio" },   // en Service, de cliente
+    { saldo: 45, condicion: "normal", holder_es_service: true, owner_rol: "productor" },           // en Service, de productor
+    { saldo: 5, condicion: "danado", holder_es_service: true, owner_rol: "productor" },            // dañado
+    { saldo: 20, condicion: "normal", holder_es_service: false, owner_rol: "propietario_planta" }, // nuestros en tercero
+  ];
+  const r = resumenEnvases(saldos);
+  eq(r.enService, 105, "enService = 60+45 (normal en custodia Service)");
+  eq(r.danados, 5, "danados = 5");
+  eq(r.nuestrosEnTerceros, 20, "nuestrosEnTerceros = 20 (owner Service, holder tercero)");
+  eq(r.pendientesDevolucion, 105, "pendientesDevolucion = bins de terceros en custodia Service");
+  eq(NATURALEZA_ENVASE_LABEL.perdida, "Pérdida", "label naturaleza");
+  eq(JSON.stringify(resumenEnvases([])), JSON.stringify({ enService: 0, nuestrosEnTerceros: 0, danados: 0, pendientesDevolucion: 0 }), "sin saldos -> ceros");
 }
 
 // Filtros
