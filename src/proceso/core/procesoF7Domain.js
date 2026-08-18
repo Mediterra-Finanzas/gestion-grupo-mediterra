@@ -333,6 +333,29 @@ export function temporadaDeFecha(temporadas = [], fecha) {
   return { error: cubren.length === 0 ? "cero" : "multiple" };
 }
 
+// ── PROC-ENVASES-001 · helpers de UI (puros/testeables) ──────────────────────
+export const NATURALEZA_ENVASE_LABEL = { apertura: "Apertura", ingreso: "Ingreso", salida: "Salida / Entrega",
+  transferencia: "Transferencia", ajuste: "Ajuste", dano: "Daño", perdida: "Pérdida", baja: "Baja" };
+export const NATURALEZA_ENVASE_TONO = { apertura: "neutral", ingreso: "success", salida: "warning",
+  transferencia: "primary", ajuste: "neutral", dano: "warning", perdida: "danger", baja: "danger" };
+export const NATURALEZA_ENVASE_OPCIONES = ["ingreso", "salida", "transferencia", "apertura", "ajuste", "dano", "perdida", "baja"];
+
+// KPIs derivados de proc_v_envase_saldo. Service = holder rol propietario_planta.
+// enService = en custodia de Service (condición normal); nuestrosEnTerceros = owner Service en poder
+// de terceros; danados = condición dañado; pendientesDevolucion = bins de terceros en custodia Service.
+export function resumenEnvases(saldos = []) {
+  let enService = 0, nuestrosEnTerceros = 0, danados = 0, pendientesDevolucion = 0;
+  for (const r of saldos || []) {
+    const s = Number(r?.saldo) || 0;
+    if (r?.condicion === "danado") danados += s;
+    if (r?.holder_es_service && r?.condicion === "normal") enService += s;
+    if (r?.owner_rol === "propietario_planta" && !r?.holder_es_service) nuestrosEnTerceros += s;
+    // pendiente de devolución = bins normales de terceros en custodia Service (los dañados van al KPI dañados).
+    if (r?.holder_es_service && r?.condicion === "normal" && r?.owner_rol && r?.owner_rol !== "propietario_planta") pendientesDevolucion += s;
+  }
+  return { enService, nuestrosEnTerceros, danados, pendientesDevolucion };
+}
+
 // NR-05 · kg de ENTRADA INICIAL por lote desde el ledger — misma autoridad de masa que
 // proc_fn_cerrar_recepcion (movimientos de la recepción con objeto_tipo=lote, naturaleza=entrada).
 // NO usa on_hand (que neto de salidas posteriores). Devuelve mapa objeto_id(lote) → kg. Puro/testeable.

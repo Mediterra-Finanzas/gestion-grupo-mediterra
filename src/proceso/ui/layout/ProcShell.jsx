@@ -15,6 +15,7 @@ import Recepciones from "../pages/Recepciones";
 import NuevaRecepcion from "../pages/NuevaRecepcion";
 import RecepcionDetalle from "../pages/RecepcionDetalle";
 import Lotes from "../pages/Lotes";
+import Envases from "../pages/Envases";
 import LoteDetalle from "../pages/LoteDetalle";
 import Programa from "../pages/Programa";
 import Ordenes from "../pages/Ordenes";
@@ -40,6 +41,7 @@ const NAV = [
   { grupo: "Operación", items: [
     { id: "recepciones", label: "Recepciones" },
     { id: "lotes", label: "Lotes / Materia Prima" },
+    { id: "envases", label: "Envases" },
     { id: "qc", label: "QC", page: "recepciones", params: { filtroQc: "rechazado" } },
     { id: "programa", label: "Programa" },
     { id: "ordenes", label: "Órdenes" }] },
@@ -118,6 +120,7 @@ export default function ProcShell({ onBack, onLogout, usuario }) {
       case "recepcion_detalle": return <RecepcionDetalle />;
       case "lotes": return <Lotes />;
       case "lote_detalle": return <LoteDetalle />;
+      case "envases": return <Envases />;
       case "programa": return <Programa />;
       case "ordenes": return <Ordenes />;
       case "orden": return <Orden />;
