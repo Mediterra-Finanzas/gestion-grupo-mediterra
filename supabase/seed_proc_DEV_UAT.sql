@@ -39,6 +39,8 @@ BEGIN
   INSERT INTO proc_vinculo(empresa_id,pendiente_alta_corporativa,nombre_provisional,rol_operacional) VALUES (e,true,'ANTON DÜRBECK GMBH','exportadora') RETURNING id INTO vExpC;
   INSERT INTO proc_vinculo(empresa_id,pendiente_alta_corporativa,nombre_provisional,rol_operacional) VALUES (e,true,'Transportista A','transportista') RETURNING id INTO vTrans;
   INSERT INTO proc_vinculo(empresa_id,pendiente_alta_corporativa,nombre_provisional,rol_operacional) VALUES (e,true,'Allegria Foods','cliente_servicio') RETURNING id INTO vFoods;
+  -- Identidad self de Allegria Service (owner/holder explícito de envases; PROC-ENVASES-001).
+  INSERT INTO proc_vinculo(empresa_id,pendiente_alta_corporativa,nombre_provisional,rol_operacional) VALUES (e,true,'Allegria Service','propietario_planta');
 
   -- Catálogo especie/variedad (requerido por el FK del cutover T5b; DEV/UAT, no relaja el FK)
   -- Tipos de envase retornable (PROC-ENVASES-001 E1) — DEV_ONLY, configurables.
