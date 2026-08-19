@@ -10,7 +10,7 @@
 --   acc_entity_config ALF con effective_from = 2026-01-01 (ejecutado en 018)
 --
 -- SCOPE:
---   Inserta 12 filas en acc_period para ALF, fiscal_year 2026.
+--   Inserta 12 filas en acc_period para ALF, fiscal_year 2026, period_type 'monthly'.
 --   Idempotente: ON CONFLICT DO NOTHING en UNIQUE(entity_id, period_type, fiscal_year, fiscal_month).
 --   Status inicial: 'open' para todos los períodos.
 --
@@ -30,6 +30,10 @@
 --   BLOQUE 1 corre dentro de BEGIN/COMMIT explícito.
 --   Cualquier RAISE EXCEPTION hace ROLLBACK automático antes de COMMIT.
 --   Los SELECT informativos de BLOQUE 0 y BLOQUE 2 están fuera de la transacción.
+--
+-- IDEMPOTENCIA:
+--   Todas las validaciones filtran AND period_type = 'monthly' para que la
+--   existencia de períodos quarterly/annual/otro tipo en ALF 2026 no interfiera.
 -- =============================================================================
 
 
@@ -43,11 +47,12 @@ FROM core_entities
 WHERE id = '3df93d9d-cbc6-446f-b9a5-0a3840692fd8';
 -- Esperado: 1 fila (Allegria Foods, ALF)
 
--- PRE-CHECK: períodos existentes para ALF 2026 (0 = limpio; 12 = ya ejecutado)
-SELECT COUNT(*) AS periodos_existentes
+-- PRE-CHECK: períodos MONTHLY existentes para ALF 2026 (0 = limpio; 12 = ya ejecutado)
+SELECT COUNT(*) AS periodos_monthly_existentes
 FROM acc_period
-WHERE entity_id = '3df93d9d-cbc6-446f-b9a5-0a3840692fd8'
-  AND fiscal_year = 2026;
+WHERE entity_id   = '3df93d9d-cbc6-446f-b9a5-0a3840692fd8'
+  AND fiscal_year = 2026
+  AND period_type = 'monthly';
 
 
 -- ============================================================
@@ -83,56 +88,84 @@ BEGIN;
   FROM (VALUES (1),(2),(3),(4),(5),(6),(7),(8),(9),(10),(11),(12)) AS m(n)
   ON CONFLICT (entity_id, period_type, fiscal_year, fiscal_month) DO NOTHING;
 
-  -- POSTCONDICIÓN CRÍTICA 1: deben existir exactamente 12 períodos
+  -- POSTCONDICIÓN CRÍTICA 1: deben existir exactamente 12 períodos MONTHLY ALF 2026
   DO $$
   DECLARE
     v_count INT;
   BEGIN
     SELECT COUNT(*) INTO v_count
     FROM acc_period
-    WHERE entity_id = '3df93d9d-cbc6-446f-b9a5-0a3840692fd8'
-      AND fiscal_year = 2026;
+    WHERE entity_id   = '3df93d9d-cbc6-446f-b9a5-0a3840692fd8'
+      AND fiscal_year = 2026
+      AND period_type = 'monthly';
 
     IF v_count <> 12 THEN
-      RAISE EXCEPTION '019 ABORT: se esperaban 12 períodos ALF 2026, encontrados: %. ROLLBACK.', v_count;
+      RAISE EXCEPTION '019 ABORT: se esperaban 12 períodos MONTHLY ALF 2026, encontrados: %. ROLLBACK.', v_count;
     END IF;
   END;
   $$;
 
-  -- POSTCONDICIÓN CRÍTICA 2: febrero debe tener exactamente 28 días
+  -- POSTCONDICIÓN CRÍTICA 2: cobertura 1..12 — sin huecos ni duplicados
+  DO $$
+  DECLARE
+    v_distinct_months INT;
+    v_min_month       INT;
+    v_max_month       INT;
+  BEGIN
+    SELECT
+      COUNT(DISTINCT fiscal_month),
+      MIN(fiscal_month),
+      MAX(fiscal_month)
+    INTO v_distinct_months, v_min_month, v_max_month
+    FROM acc_period
+    WHERE entity_id   = '3df93d9d-cbc6-446f-b9a5-0a3840692fd8'
+      AND fiscal_year = 2026
+      AND period_type = 'monthly';
+
+    IF v_distinct_months <> 12 OR v_min_month <> 1 OR v_max_month <> 12 THEN
+      RAISE EXCEPTION
+        '019 ABORT: cobertura de meses inválida. distinct_months=%, min=%, max=% (esperado 12, 1, 12). ROLLBACK.',
+        v_distinct_months, v_min_month, v_max_month;
+    END IF;
+  END;
+  $$;
+
+  -- POSTCONDICIÓN CRÍTICA 3: febrero MONTHLY debe tener exactamente 28 días
   DO $$
   DECLARE
     v_dias_feb INT;
   BEGIN
     SELECT (date_to - date_from + 1)::int INTO v_dias_feb
     FROM acc_period
-    WHERE entity_id = '3df93d9d-cbc6-446f-b9a5-0a3840692fd8'
+    WHERE entity_id   = '3df93d9d-cbc6-446f-b9a5-0a3840692fd8'
       AND fiscal_year = 2026
+      AND period_type = 'monthly'
       AND fiscal_month = 2;
 
     IF v_dias_feb IS NULL THEN
-      RAISE EXCEPTION '019 ABORT: período febrero 2026 no encontrado. ROLLBACK.';
+      RAISE EXCEPTION '019 ABORT: período febrero 2026 MONTHLY no encontrado. ROLLBACK.';
     END IF;
 
     IF v_dias_feb <> 28 THEN
-      RAISE EXCEPTION '019 ABORT: febrero 2026 tiene % días, esperado 28. ROLLBACK.', v_dias_feb;
+      RAISE EXCEPTION '019 ABORT: febrero 2026 MONTHLY tiene % días, esperado 28. ROLLBACK.', v_dias_feb;
     END IF;
   END;
   $$;
 
-  -- POSTCONDICIÓN CRÍTICA 3: todos los períodos deben tener status 'open'
+  -- POSTCONDICIÓN CRÍTICA 4: todos los períodos MONTHLY ALF 2026 deben tener status 'open'
   DO $$
   DECLARE
     v_no_open INT;
   BEGIN
     SELECT COUNT(*) INTO v_no_open
     FROM acc_period
-    WHERE entity_id = '3df93d9d-cbc6-446f-b9a5-0a3840692fd8'
+    WHERE entity_id   = '3df93d9d-cbc6-446f-b9a5-0a3840692fd8'
       AND fiscal_year = 2026
+      AND period_type = 'monthly'
       AND status <> 'open';
 
     IF v_no_open > 0 THEN
-      RAISE EXCEPTION '019 ABORT: % período(s) ALF 2026 no tienen status=open. ROLLBACK.', v_no_open;
+      RAISE EXCEPTION '019 ABORT: % período(s) MONTHLY ALF 2026 no tienen status=open. ROLLBACK.', v_no_open;
     END IF;
   END;
   $$;
@@ -152,8 +185,9 @@ SELECT
   status,
   (date_to - date_from + 1)::int AS dias_mes
 FROM acc_period
-WHERE entity_id = '3df93d9d-cbc6-446f-b9a5-0a3840692fd8'
+WHERE entity_id   = '3df93d9d-cbc6-446f-b9a5-0a3840692fd8'
   AND fiscal_year = 2026
+  AND period_type = 'monthly'
 ORDER BY fiscal_month;
 
 -- Esperado: 12 filas
