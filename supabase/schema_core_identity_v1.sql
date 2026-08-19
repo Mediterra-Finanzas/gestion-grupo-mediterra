@@ -7,13 +7,13 @@
 -- (read-only) + schema_core_contable_fase0.sql. Idempotente (IF NOT EXISTS) → aditivo, no clobbea.
 --
 -- ALCANCE: solo contab_empresas + contab_auxiliares (mínimo). NO se copia el resto del ERP.
--- FIDELIDAD: se reproduce EXACTAMENTE lo evidenciado (PK/UNIQUE/FK/índices/policies + columnas de ALS
--- y las de fase0). Lo NO evidenciado con exactitud NO se inventa:
---   ⚠ GAP CORE-DEP-03: el contenido exacto de los CHECK de contab_empresas.tipo_contab y
---     contab_auxiliares.tipo NO estaba en la evidencia → NO se fabrican aquí (columnas planas).
---     La lista completa de columnas de contab_auxiliares tampoco → se incluye el subconjunto
---     evidenciado (id/empresa_id/tipo/rut/activo/nombre). La migración canónica de Contabilidad puede
---     ALTER-ADD columnas/CHECK después (idempotente) sin conflicto. proc_* solo depende del id (PK).
+-- FIDELIDAD: se reproduce EXACTAMENTE lo evidenciado (PK/UNIQUE/FK/índices/policies/CHECK + columnas
+-- de ALS y las de fase0). Nada inventado ni ampliado:
+--   CORE-DEP-03 CERRADO: los CHECK canónicos de contab_empresas.tipo_contab y contab_auxiliares.tipo
+--     fueron obtenidos por discovery read-only de producción (pg_get_constraintdef) e incorporados
+--     LITERALMENTE (mismos valores, sin ampliar). Columnas: subconjunto canónico evidenciado
+--     (contab_auxiliares: id/empresa_id/tipo/rut/activo/nombre). La migración canónica de Contabilidad
+--     puede ALTER-ADD columnas propias después (idempotente) sin conflicto. proc_* solo depende del id (PK).
 -- ============================================================================
 
 -- ── contab_empresas ─────────────────────────────────────────────────────────
@@ -22,7 +22,7 @@ CREATE TABLE IF NOT EXISTS contab_empresas (
   codigo                    text NOT NULL,
   nombre                    text NOT NULL,
   moneda_base               char(3),
-  tipo_contab               text,                          -- ⚠ CHECK real en prod; contenido no evidenciado → no fabricado
+  tipo_contab               text,                          -- CHECK canónico añadido abajo (contab_empresas_tipo_contab_check)
   usa_temporada_agricola    boolean DEFAULT false,
   activa                    boolean NOT NULL DEFAULT true,
   -- columnas de schema_core_contable_fase0.sql (evidenciadas):
@@ -40,6 +40,13 @@ CREATE TABLE IF NOT EXISTS contab_empresas (
 CREATE UNIQUE INDEX IF NOT EXISTS contab_empresas_codigo_key ON contab_empresas (codigo);
 -- Índice observado: idx_empresas_activas
 CREATE INDEX IF NOT EXISTS idx_empresas_activas ON contab_empresas (activa) WHERE activa;
+-- CHECK canónico (pg_get_constraintdef de producción, literal, sin ampliar):
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'contab_empresas_tipo_contab_check') THEN
+    ALTER TABLE contab_empresas ADD CONSTRAINT contab_empresas_tipo_contab_check
+      CHECK (tipo_contab::text = ANY (ARRAY['tributaria'::character varying, 'ifrs'::character varying, 'dual'::character varying]::text[]));
+  END IF;
+END $$;
 
 ALTER TABLE contab_empresas ENABLE ROW LEVEL SECURITY;   -- RLS ENABLED, FORCE=false (como prod)
 -- Policies observadas en producción:
@@ -56,7 +63,7 @@ GRANT SELECT, INSERT, UPDATE ON contab_empresas TO authenticated;
 CREATE TABLE IF NOT EXISTS contab_auxiliares (
   id           uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   empresa_id   uuid NOT NULL REFERENCES contab_empresas(id),   -- FK observada
-  tipo         text,                                            -- ⚠ CHECK real en prod; contenido no evidenciado → no fabricado
+  tipo         text,                                            -- CHECK canónico añadido abajo (contab_auxiliares_tipo_check)
   nombre       text,
   rut          text,
   activo       boolean NOT NULL DEFAULT true,
@@ -67,6 +74,13 @@ CREATE TABLE IF NOT EXISTS contab_auxiliares (
 CREATE INDEX IF NOT EXISTS idx_auxiliares_activos     ON contab_auxiliares (activo) WHERE activo;
 CREATE INDEX IF NOT EXISTS idx_auxiliares_empresa_tipo ON contab_auxiliares (empresa_id, tipo);
 CREATE INDEX IF NOT EXISTS idx_auxiliares_rut         ON contab_auxiliares (rut);
+-- CHECK canónico (pg_get_constraintdef de producción, literal, sin ampliar):
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'contab_auxiliares_tipo_check') THEN
+    ALTER TABLE contab_auxiliares ADD CONSTRAINT contab_auxiliares_tipo_check
+      CHECK (tipo::text = ANY (ARRAY['proveedor'::character varying, 'cliente'::character varying, 'trabajador'::character varying, 'acreedor'::character varying, 'banco'::character varying, 'otro'::character varying]::text[]));
+  END IF;
+END $$;
 
 ALTER TABLE contab_auxiliares ENABLE ROW LEVEL SECURITY;   -- RLS ENABLED; en prod SIN policies (no anon-open)
 GRANT SELECT, INSERT, UPDATE ON contab_auxiliares TO authenticated;
