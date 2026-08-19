@@ -4,7 +4,7 @@
 import React, { useEffect, useState, useCallback } from "react";
 import { useService } from "../hooks/useServiceContext";
 import { cargarDespachoListado, crearDespacho, siguienteCorrelativo, cargarVinculosPorRol } from "../../core/procesoF7DB";
-import { traducirError, badgeDe } from "../../core/procesoF7Domain";
+import { traducirError, badgeDe, vistaDespachos } from "../../core/procesoF7Domain";
 import {
   ProcPageHeader, ProcButton, ProcCard, ProcDataTable, ProcStatusBadge, ProcModal, ProcField, inputStyle,
   ProcLoadingState, ProcErrorState, ProcEmptyState, ProcFilters,
@@ -24,6 +24,8 @@ export default function Despachos() {
   // P2 nav contextual: "Despachos" y "Preparación" comparten page="despachos"; al navegar entre ellas
   // el componente no re-monta, por eso sincronizamos el filtro de estado con el param de la vista.
   useEffect(() => { setFEstado(vista?.params?.filtroEstado || ""); }, [vista?.params?.filtroEstado]);
+  // Título/subtítulo según la sub-vista con la que se entró (Preparación / Despachos / Historial).
+  const vd = vistaDespachos(vista?.params?.filtroEstado || "");
 
   const cargar = useCallback(async () => {
     if (!empresa) { setEstado("idle"); return; }
@@ -68,11 +70,11 @@ export default function Despachos() {
     { titulo: "", align: "right", render: (d) => <ProcButton kind="ghost" small onClick={() => ir("despacho", { id: d.id })}>Abrir</ProcButton> },
   ];
 
-  if (!empresa) return <div><ProcPageHeader titulo="Despachos" /><ProcCard style={{ padding: sp.lg }}><ProcEmptyState icono="🚚" titulo="Seleccioná un tenant" /></ProcCard></div>;
+  if (!empresa) return <div><ProcPageHeader titulo={vd.titulo} /><ProcCard style={{ padding: sp.lg }}><ProcEmptyState icono="🚚" titulo="Seleccioná un tenant" /></ProcCard></div>;
 
   return (
     <div>
-      <ProcPageHeader titulo="Despachos" subtitulo="Salida física de producto (no es venta/exportación)"
+      <ProcPageHeader titulo={vd.titulo} subtitulo={vd.subtitulo}
         acciones={puedeEditar("despachos") || puedeEditar("centro") ? <ProcButton onClick={abrirNuevo}>+ Nuevo despacho</ProcButton> : null} />
       <ProcCard style={{ padding: sp.md, marginBottom: sp.md }}>
         <ProcFilters

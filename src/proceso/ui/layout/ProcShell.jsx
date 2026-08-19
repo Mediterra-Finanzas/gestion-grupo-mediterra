@@ -6,6 +6,7 @@
 import React, { useEffect, useState } from "react";
 import { useService } from "../hooks/useServiceContext";
 import { cargarPlantas, cargarTemporadas } from "../../core/procesoDB";
+import { resolverItemActivo } from "../../core/procesoF7Domain";
 import { ProcButton, ProcToast } from "../components/base";
 import { C, sp } from "../estilos";
 import CentroOperaciones from "../pages/CentroOperaciones";
@@ -146,7 +147,9 @@ export default function ProcShell({ onBack, onLogout, usuario }) {
       }
     }
   };
-  const activoId = NAV_DE_PAGE[vista.page] || vista.page;
+  // Resalta el ítem correcto incluso cuando varios comparten page (Preparación/Despachos/Historial,
+  // QC, Ejecución/Conciliaciones): desempata por params. Genérico, sin hardcode por ítem.
+  const activoId = resolverItemActivo(vista, TODOS, NAV_DE_PAGE);
 
   const Sidebar = (
     <div style={{ width: esMovil ? "100%" : 232, flexShrink: 0, borderRight: esMovil ? "none" : `1px solid ${C.border}`, background: C.card, padding: sp.md, boxSizing: "border-box", ...(esMovil ? {} : { minHeight: "100vh" }) }}>

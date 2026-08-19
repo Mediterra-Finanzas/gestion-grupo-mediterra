@@ -2,7 +2,7 @@
 // Tests de dominio proc_* F7.1 (node). Ejecutar: node src/proceso/core/procesoF7Domain.test.mjs
 import { formatearCorrelativo, compactarTemporada, evaluarQC, badgeDe, traducirError, validarFiltros, calcularNeto, validarPesos, packout, resumenConciliacion, accionesOrden, faltaParaCerrar, ordenTerminal, despachoTerminal, puedeConfirmarDespacho, accionesDespacho, totalKg, montoServicio, especificidadTarifa, vigenciaTarifa, baseEditable, accionesBase, servicioAgregableABase, totalesPorMoneda, filtrosActivos, opcionesRef, limpiarDependencias, labelRef, resumenKgLotes, resumenOrigenes, tonoContractual, copiarOrigen, alertaContractual, transicionesContrato, tonoNivelContractual, qcPorLote, resumenQcRecepcion, rpcFecha, loteSinOrigen, qcListadoResumen, evaluarOrigenLote, textoQcCabecera, kgEntradaPorLote,
 fechaCalendarioTz, ahoraOperacional, temporadaDeFecha, TZ_OPERACIONAL,
-resumenEnvases, NATURALEZA_ENVASE_LABEL, orquestarConfirmarDespacho } from "./procesoF7Domain.js";
+resumenEnvases, NATURALEZA_ENVASE_LABEL, orquestarConfirmarDespacho, vistaDespachos, resolverItemActivo } from "./procesoF7Domain.js";
 
 let pass = 0, fail = 0;
 const ok = (c, m) => { if (c) pass++; else { fail++; console.error("  ✗ " + m); } };
@@ -395,6 +395,43 @@ await (async () => {
     ok(t.notif.some((n) => n[1] === "error"), "confirmar error: notifica error");
   }
 })();
+
+// ── Sub-vistas despacho: título/subtítulo por filtroEstado ───────────────────
+eq(vistaDespachos("listo").titulo, "Preparación de despachos", "vistaDespachos listo → Preparación");
+eq(vistaDespachos("").titulo, "Despachos", "vistaDespachos sin filtro → Despachos");
+eq(vistaDespachos("despachado").titulo, "Historial de despachos", "vistaDespachos despachado → Historial");
+ok(/prepar/i.test(vistaDespachos("listo").subtitulo), "vistaDespachos listo: subtítulo de preparación");
+ok(/complet|confirmad/i.test(vistaDespachos("despachado").subtitulo), "vistaDespachos despachado: subtítulo de completados");
+
+// ── Resolver genérico de ítem activo (mismo patrón real del menú) ─────────────
+{
+  // Espejo del menú real (ids/pages/params relevantes) + mapa de páginas de detalle.
+  const ITEMS = [
+    { id: "recepciones" }, { id: "qc", page: "recepciones", params: { filtroQc: "rechazado" } },
+    { id: "ordenes" }, { id: "ejecucion", page: "ordenes", params: { filtroEstado: "en_proceso" } },
+    { id: "resultados", page: "ordenes" }, { id: "conciliaciones", page: "ordenes", params: { filtroEstado: "pendiente_conciliacion" } },
+    { id: "pallets", page: "bodega" },
+    { id: "preparacion", page: "despachos", params: { filtroEstado: "listo" } },
+    { id: "despachos" }, { id: "historial", page: "despachos", params: { filtroEstado: "despachado" } },
+  ];
+  const MAPA = { despacho: "despachos", recepcion_nueva: "recepciones", recepcion_detalle: "recepciones", orden: "ordenes", bodega: "pallets" };
+  const act = (page, params) => resolverItemActivo({ page, params }, ITEMS, MAPA);
+
+  // Despachos: los 3 hermanos se distinguen por filtroEstado
+  eq(act("despachos", { filtroEstado: "listo" }), "preparacion", "activo: filtroEstado=listo → Preparación");
+  eq(act("despachos", {}), "despachos", "activo: sin filtroEstado → Despachos");
+  eq(act("despachos", { filtroEstado: "despachado" }), "historial", "activo: filtroEstado=despachado → Historial");
+  // Detalle de despacho (page mapeada) → resalta Despachos (sin params de filtro)
+  eq(act("despacho", { id: "x" }), "despachos", "activo: detalle despacho → Despachos");
+
+  // No-regresión otros grupos filtrados
+  eq(act("recepciones", { filtroQc: "rechazado" }), "qc", "activo: QC filtrado → QC");
+  eq(act("recepciones", {}), "recepciones", "activo: recepciones base → Recepciones");
+  eq(act("ordenes", { filtroEstado: "en_proceso" }), "ejecucion", "activo: Ejecución → Ejecución");
+  eq(act("ordenes", { filtroEstado: "pendiente_conciliacion" }), "conciliaciones", "activo: Conciliaciones → Conciliaciones");
+  eq(act("ordenes", {}), "ordenes", "activo: órdenes base → Órdenes (resultados comparte page, base estable)");
+  eq(act("bodega", {}), "pallets", "activo: bodega → Pallets (mapa de page preservado)");
+}
 
 console.log(`\nproc_* F7.1 domain tests: ${pass} pasaron, ${fail} fallaron`);
 if (fail > 0) process.exit(1);

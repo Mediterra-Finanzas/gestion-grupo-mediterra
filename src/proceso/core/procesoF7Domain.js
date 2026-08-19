@@ -493,6 +493,38 @@ export function validarFiltros({ empresa, planta, temporada, fecha } = {}) {
   return { ok: errores.length === 0, errores };
 }
 
+// ── Sub-vistas por params: título/subtítulo y resaltado de menú (genéricos) ───
+// Preparación / Despachos / Historial comparten la página `despachos` y se distinguen
+// por `filtroEstado`. El título/subtítulo se derivan de ese param (no se duplica página).
+export function vistaDespachos(filtroEstado) {
+  if (filtroEstado === "listo")
+    return { titulo: "Preparación de despachos", subtitulo: "Cargas listas para preparar y confirmar la salida" };
+  if (filtroEstado === "despachado")
+    return { titulo: "Historial de despachos", subtitulo: "Salidas confirmadas (despachos completados)" };
+  return { titulo: "Despachos", subtitulo: "Salida física de producto (no es venta/exportación)" };
+}
+
+// Resolver genérico del ítem de menú activo. Varias entradas del nav comparten `page`
+// (QC→recepciones, Ejecución/Resultados/Conciliaciones→ordenes, Preparación/Despachos/Historial
+// →despachos) y sólo se distinguen por `params`. Este resolver:
+//   1) mapea la vista actual a su "page base" (para páginas de detalle) vía `mapaPage`;
+//   2) si varias entradas comparten esa page, desempata por coincidencia de `params`;
+//   3) si ninguna matchea, cae en la entrada "plana" (sin params) de esa page.
+// Preserva el comportamiento previo cuando no hay hermanos que compartan page.
+export function resolverItemActivo(vista = {}, items = [], mapaPage = {}) {
+  const base = mapaPage[vista.page] || vista.page;
+  const params = vista.params || {};
+  const hermanos = (items || []).filter((i) => (i.page || i.id) === base);
+  if (hermanos.length > 1) {
+    const match = hermanos.find((i) => i.params && Object.keys(i.params).length &&
+      Object.entries(i.params).every(([k, v]) => params[k] === v));
+    if (match) return match.id;
+    const plano = hermanos.find((i) => !i.params || !Object.keys(i.params).length);
+    if (plano) return plano.id;
+  }
+  return base;
+}
+
 // ── Orquestación de "Confirmar salida" del despacho (testeable sin navegador) ──
 // El backend es autoritativo: la salida es atómica y una segunda llamada sobre un
 // despacho ya despachado es rechazada por el guard (no duplica). Este envoltorio evita
