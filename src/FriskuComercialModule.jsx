@@ -4117,6 +4117,10 @@ function LiquidacionForm({ liq, embarques, clientes, exportadoras, especies, mon
   const handleGuardar = () => {
     if(!form.oeId)       { alert("Selecciona una OE"); return; }
     if(!(ventaTotal>0))  { alert("Ingresa la venta (por pallet o base manual)"); return; }
+    // Aviso: moneda ≠ USD sin TC → los montos en USD quedarán vacíos (no suman al total ni al BI).
+    if(form.monedaBase!=="USD" && tcCalculado==null){
+      if(!window.confirm(`No hay tipo de cambio ${form.monedaBase}→USD para la fecha ${form.fechaTC||"(hoy)"}.\n\nLa venta y la comisión en USD quedarán en blanco (no sumarán al Total Frisku ni a la Reportería) hasta que cargues la tasa en Maestros → Tipo de Cambio y vuelvas a guardar esta liquidación.\n\n¿Guardar de todas formas?`)) return;
+    }
     onGuardar({
       ...liq,
       id: liq?.id || uid(),
@@ -9471,6 +9475,11 @@ export default function FriskuComercialModule({
       return acc + (Number(v)||0);
     },0);
   },[liqFiltradas]);
+  // Liquidaciones en moneda ≠ USD sin conversión guardada (faltaba TC al guardar):
+  // su comisión NO entra al Total en USD. Se avisa para no leer el $0 como cero real.
+  const nLiqSinTC = useMemo(()=>
+    liqFiltradas.filter(l=>l.monedaBase!=="USD" && l.montoComisionFriskuUSD==null).length
+  ,[liqFiltradas]);
 
   // ── Handlers PO (notas de cobro al cliente) ──
   const handleNuevoPO = () => { setCreandoPO(true); setEditandoPO(null); };
@@ -10300,9 +10309,10 @@ export default function FriskuComercialModule({
                         style={{padding:"4px 9px",fontSize:11,fontWeight:700,cursor:"pointer",borderRadius:6,border:`1px solid ${vistaLiq===k?C.blue:C.border}`,background:vistaLiq===k?C.blue:"transparent",color:vistaLiq===k?"#fff":C.muted}}>{l}</button>
                     ))}
                   </div>
-                  {totalComisionFriskuUSD>0 && (
+                  {(totalComisionFriskuUSD>0 || nLiqSinTC>0) && (
                     <span style={{fontSize:12, fontWeight:700, color:C.green, marginLeft:4}}>
                       Total Frisku: USD {totalComisionFriskuUSD.toLocaleString("es-CL",{minimumFractionDigits:2,maximumFractionDigits:2})}
+                      {nLiqSinTC>0 && <span style={{color:C.accent, fontWeight:600}} title="Liquidaciones en otra moneda sin TC cargado: no suman al total en USD"> · {nLiqSinTC} sin TC</span>}
                     </span>
                   )}
                   {permLiquidaciones.canEdit && (
@@ -10366,8 +10376,8 @@ export default function FriskuComercialModule({
                               <td style={{...td, fontFamily:"monospace", color:C.blue, whiteSpace:"nowrap"}}>{oe?.numero||"—"}</td>
                               <td style={{...td}}><div style={{whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis", maxWidth:240}}>{exp?.nombre||"—"} <span style={{color:C.muted}}>→</span> {cli?.nombre||"—"}</div></td>
                               <td style={{...td, whiteSpace:"nowrap"}}>{esp?`${esp.icono||""} ${esp.nombreEs}`:(oe?.especieCodigo||"—")}</td>
-                              <td style={{...td, textAlign:"right", fontFamily:"monospace"}}>{fmtUSD0(mVentaUSD(liq))}</td>
-                              <td style={{...td, textAlign:"right", fontFamily:"monospace", color:C.green, fontWeight:700}}>{fmtUSD0(mComFriskuUSD(liq))}</td>
+                              <td style={{...td, textAlign:"right", fontFamily:"monospace"}}>{(liq.monedaBase!=="USD" && liq.ventaTotalUSD==null) ? <span style={{color:C.muted2}} title={`Sin TC ${liq.monedaBase}→USD para esta fecha`}>—</span> : fmtUSD0(mVentaUSD(liq))}</td>
+                              <td style={{...td, textAlign:"right", fontFamily:"monospace", color:C.green, fontWeight:700}}>{(liq.monedaBase!=="USD" && liq.montoComisionFriskuUSD==null) ? <span style={{color:C.muted2, fontWeight:400}} title={`Sin TC ${liq.monedaBase}→USD para esta fecha`}>—</span> : fmtUSD0(mComFriskuUSD(liq))}</td>
                               <td style={{...td, textAlign:"center"}}><span style={{fontSize:9, padding:"2px 8px", borderRadius:10, background:`${ei.color}22`, color:ei.color, border:`1px solid ${ei.color}44`, fontWeight:700, whiteSpace:"nowrap"}}>{ei.label}</span></td>
                               <td style={{...td, textAlign:"right", whiteSpace:"nowrap"}} onClick={e=>e.stopPropagation()}>
                                 <button onClick={()=>setVerLiq(liq)} title="Ver" style={{...btnSt(C.teal,true), padding:"3px 8px", fontSize:10, marginRight:3}}>👁 Ver</button>
