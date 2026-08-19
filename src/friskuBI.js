@@ -12,6 +12,7 @@
 // con las medidas de dinero traídas desde sus liquidaciones. VERIFICADO-FRISKU.
 // ═══════════════════════════════════════════════════════════════════
 import React, { createContext, useContext, useMemo, useState, useCallback } from "react";
+import { buscarTC, convertirMonto } from "./friskuHelpers.js";
 
 // ── Dimensiones canónicas (verificadas contra el modelo; no se inventan) ──
 // key = campo en la fila de hechos · lab = etiqueta UI. Cada key tiene además
@@ -50,16 +51,39 @@ export function groupByDims(rows, dimKeys){
 // hasta explotar el PL. No inventar.
 
 // ── Primitivas de medida por liquidación (definición única en USD) ──
-export const mComFriskuUSD = (l)=> Number(l.monedaBase==="USD" ? l.montoComisionFrisku : l.montoComisionFriskuUSD) || 0;   // VERIFICADO-FRISKU
-export const mVentaUSD     = (l)=> Number(l.ventaTotalUSD ?? (l.monedaBase==="USD" ? l.ventaTotal : 0)) || 0;              // VERIFICADO-FRISKU
-export const mFobUSD       = (l)=> Number(l.fobUSD ?? (l.monedaBase==="USD" ? l.fob : 0)) || 0;                             // VERIFICADO-FRISKU
+// Prioridad: (1) USD nativo, (2) USD ya guardado en la liquidación, (3) fallback EN VIVO
+// convirtiendo el monto en moneda base con el TC disponible (triangulado si falta el par
+// directo). El fallback SOLO actúa cuando el USD guardado es null y se pasa tcData; sin
+// tcData el comportamiento es idéntico al histórico (0 si no había USD guardado). VERIFICADO-FRISKU
+export const mComFriskuUSD = (l, tcData)=>{
+  if(!l) return 0;
+  if(l.monedaBase==="USD") return Number(l.montoComisionFrisku)||0;
+  if(l.montoComisionFriskuUSD!=null) return Number(l.montoComisionFriskuUSD)||0;
+  const c = tcData ? convertirMonto(Number(l.montoComisionFrisku)||0, l.monedaBase, "USD", l.fechaTC, tcData) : null;
+  return Number(c)||0;
+};
+export const mVentaUSD = (l, tcData)=>{
+  if(!l) return 0;
+  if(l.ventaTotalUSD!=null) return Number(l.ventaTotalUSD)||0;
+  if(l.monedaBase==="USD") return Number(l.ventaTotal!=null?l.ventaTotal:l.baseNeta)||0;
+  const base = l.ventaTotal!=null ? l.ventaTotal : l.baseNeta;
+  const c = tcData ? convertirMonto(Number(base)||0, l.monedaBase, "USD", l.fechaTC, tcData) : null;
+  return Number(c)||0;
+};
+export const mFobUSD = (l, tcData)=>{
+  if(!l) return 0;
+  if(l.fobUSD!=null) return Number(l.fobUSD)||0;
+  if(l.monedaBase==="USD") return Number(l.fob)||0;
+  const c = tcData ? convertirMonto(Number(l.fob)||0, l.monedaBase, "USD", l.fechaTC, tcData) : null;
+  return Number(c)||0;
+};
 // Comisión CLIENTE en USD. La liquidación no guarda su USD precomputado, PERO sí
 // guarda la venta convertida (ventaTotalUSD). Ese par venta/ventaTotalUSD es el
 // FACTOR FX REAL que la liquidación usó al convertir a USD. La comisión cliente
 // está en la misma moneda base, así que se convierte con ese mismo factor → es
 // trazable, no un supuesto. Fallback: factor de la comisión Frisku. Si no hay
 // ningún factor (raro), devuelve 0 y la liquidación se marca en calidad de datos.
-export const mComClienteUSD = (l)=>{
+export const mComClienteUSD = (l, tcData)=>{
   const cli = Number(l.montoComisionCliente)||0;
   if(!cli) return 0;
   if(l.monedaBase==="USD") return cli;
@@ -67,14 +91,16 @@ export const mComClienteUSD = (l)=>{
   if(v>0 && vUSD>0) return cli*(vUSD/v);
   const f=Number(l.montoComisionFrisku)||0, fUSD=Number(l.montoComisionFriskuUSD)||0;
   if(f>0 && fUSD>0) return cli*(fUSD/f);
-  return 0;
+  const c = tcData ? convertirMonto(cli, l.monedaBase, "USD", l.fechaTC, tcData) : null;   // fallback en vivo
+  return Number(c)||0;
 };
-// ¿Se pudo convertir la comisión cliente a USD con un factor REAL de la liquidación?
-export const comClienteConvertible = (l)=>{
+// ¿Se pudo convertir la comisión cliente a USD (factor real de la liquidación o TC en vivo)?
+export const comClienteConvertible = (l, tcData)=>{
   if((Number(l.montoComisionCliente)||0)===0) return true;
   if(l.monedaBase==="USD") return true;
   const v=Number(l.ventaTotal)||0, vUSD=Number(l.ventaTotalUSD)||0; if(v>0&&vUSD>0) return true;
   const f=Number(l.montoComisionFrisku)||0, fUSD=Number(l.montoComisionFriskuUSD)||0; if(f>0&&fUSD>0) return true;
+  if(tcData && buscarTC(l.monedaBase,"USD",l.fechaTC,tcData)!=null) return true;
   return false;
 };
 
@@ -102,7 +128,7 @@ function isoWeek(fechaISO){
 // ── MODELO ANALÍTICO: construye la tabla de hechos a nivel contenedor ──
 // Una fila = una OE, con dimensiones resueltas y las medidas ya sumadas desde
 // sus liquidaciones. Se calcula UNA vez (memoizado en el provider).
-export function buildFriskuFacts({ embarques, liquidaciones, clientes, exportadoras, especies, mercados, tiposEmbalaje }){
+export function buildFriskuFacts({ embarques, liquidaciones, clientes, exportadoras, especies, mercados, tiposEmbalaje, tcData }){
   const cliOf = (id)=>(clientes||[]).find(c=>c.id===id);
   const expOf = (id)=>(exportadoras||[]).find(e=>e.id===id);
   const espOf = (c)=>(especies||[]).find(e=>e.codigo===c);
@@ -114,7 +140,7 @@ export function buildFriskuFacts({ embarques, liquidaciones, clientes, exportado
 
   // Dinero por OE = suma de sus liquidaciones (una OE puede tener varias).
   const dinero = {};
-  (liquidaciones||[]).forEach(l=>{ if(!l.oeId) return; const a=dinero[l.oeId]||(dinero[l.oeId]={venta:0,fob:0,comF:0,comC:0,nLiq:0}); a.venta+=mVentaUSD(l); a.fob+=mFobUSD(l); a.comF+=mComFriskuUSD(l); a.comC+=mComClienteUSD(l); a.nLiq++; });
+  (liquidaciones||[]).forEach(l=>{ if(!l.oeId) return; const a=dinero[l.oeId]||(dinero[l.oeId]={venta:0,fob:0,comF:0,comC:0,nLiq:0}); a.venta+=mVentaUSD(l, tcData); a.fob+=mFobUSD(l, tcData); a.comF+=mComFriskuUSD(l, tcData); a.comC+=mComClienteUSD(l, tcData); a.nLiq++; });
 
   return (embarques||[]).map(o=>{
     const cli=cliOf(o.clienteId); const est=o.estado||"borrador";
@@ -261,7 +287,7 @@ export function FriskuBIProvider({ data, children }){
   const canRedo = nav.idx < nav.stack.length-1;
 
   const facts = useMemo(()=>buildFriskuFacts(data||{}), [
-    data?.embarques, data?.liquidaciones, data?.clientes, data?.exportadoras, data?.especies, data?.mercados, data?.tiposEmbalaje
+    data?.embarques, data?.liquidaciones, data?.clientes, data?.exportadoras, data?.especies, data?.mercados, data?.tiposEmbalaje, data?.tcData
   ]);
   const dataQuality = useMemo(()=>dataQualityFrisku(data||{}), [data?.embarques, data?.liquidaciones, data?.tiposEmbalaje]);
 

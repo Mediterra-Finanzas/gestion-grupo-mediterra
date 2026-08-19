@@ -9469,17 +9469,16 @@ export default function FriskuComercialModule({
     }).sort((a,b)=>(b.fechaLiquidacion||"").localeCompare(a.fechaLiquidacion||""));
   },[liquidaciones, filtroEstadoLiq, filtroExpLiq, filtroCliLiq, filtroTempLiq, embarques]);
 
-  const totalComisionFriskuUSD = useMemo(()=>{
-    return liqFiltradas.reduce((acc,liq)=>{
-      const v = liq.monedaBase==="USD" ? liq.montoComisionFrisku : liq.montoComisionFriskuUSD;
-      return acc + (Number(v)||0);
-    },0);
-  },[liqFiltradas]);
-  // Liquidaciones en moneda ≠ USD sin conversión guardada (faltaba TC al guardar):
-  // su comisión NO entra al Total en USD. Se avisa para no leer el $0 como cero real.
+  // Total en USD: usa el USD guardado y, si falta, la conversión EN VIVO con el TC disponible.
+  const totalComisionFriskuUSD = useMemo(()=>
+    liqFiltradas.reduce((acc,liq)=>acc + mComFriskuUSD(liq, tcData), 0)
+  ,[liqFiltradas, tcData]);
+  // Convertible a USD = USD nativo, o USD guardado, o TC (directo/triangulado) disponible.
+  // Solo cuando NO se puede de ninguna forma se muestra "—" y se cuenta en "sin TC".
+  const usdSinConv = (l)=> l.monedaBase!=="USD" && l.ventaTotalUSD==null && l.montoComisionFriskuUSD==null && buscarTC(l.monedaBase,"USD",l.fechaTC,tcData)==null;
   const nLiqSinTC = useMemo(()=>
-    liqFiltradas.filter(l=>l.monedaBase!=="USD" && l.montoComisionFriskuUSD==null).length
-  ,[liqFiltradas]);
+    liqFiltradas.filter(usdSinConv).length
+  ,[liqFiltradas, tcData]);
 
   // ── Handlers PO (notas de cobro al cliente) ──
   const handleNuevoPO = () => { setCreandoPO(true); setEditandoPO(null); };
@@ -9743,7 +9742,7 @@ export default function FriskuComercialModule({
   }
 
   return (
-   <FriskuBIProvider data={{ embarques, liquidaciones, clientes, exportadoras, especies, mercados, tiposEmbalaje }}>
+   <FriskuBIProvider data={{ embarques, liquidaciones, clientes, exportadoras, especies, mercados, tiposEmbalaje, tcData }}>
     <div style={{background:C.bg, minHeight:"100vh", color:C.text}}>
       {/* Header */}
       <div style={{padding:"14px 20px", borderBottom:"1px solid rgba(255,255,255,0.10)", display:"flex", alignItems:"center", justifyContent:"space-between", flexWrap:"wrap", gap:10, background:"#1E2761", boxShadow:"0 4px 16px rgba(16,24,40,0.20)"}}>
@@ -10376,8 +10375,8 @@ export default function FriskuComercialModule({
                               <td style={{...td, fontFamily:"monospace", color:C.blue, whiteSpace:"nowrap"}}>{oe?.numero||"—"}</td>
                               <td style={{...td}}><div style={{whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis", maxWidth:240}}>{exp?.nombre||"—"} <span style={{color:C.muted}}>→</span> {cli?.nombre||"—"}</div></td>
                               <td style={{...td, whiteSpace:"nowrap"}}>{esp?`${esp.icono||""} ${esp.nombreEs}`:(oe?.especieCodigo||"—")}</td>
-                              <td style={{...td, textAlign:"right", fontFamily:"monospace"}}>{(liq.monedaBase!=="USD" && liq.ventaTotalUSD==null) ? <span style={{color:C.muted2}} title={`Sin TC ${liq.monedaBase}→USD para esta fecha`}>—</span> : fmtUSD0(mVentaUSD(liq))}</td>
-                              <td style={{...td, textAlign:"right", fontFamily:"monospace", color:C.green, fontWeight:700}}>{(liq.monedaBase!=="USD" && liq.montoComisionFriskuUSD==null) ? <span style={{color:C.muted2, fontWeight:400}} title={`Sin TC ${liq.monedaBase}→USD para esta fecha`}>—</span> : fmtUSD0(mComFriskuUSD(liq))}</td>
+                              <td style={{...td, textAlign:"right", fontFamily:"monospace"}}>{usdSinConv(liq) ? <span style={{color:C.muted2}} title={`Sin TC ${liq.monedaBase}→USD para esta fecha`}>—</span> : fmtUSD0(mVentaUSD(liq, tcData))}</td>
+                              <td style={{...td, textAlign:"right", fontFamily:"monospace", color:C.green, fontWeight:700}}>{usdSinConv(liq) ? <span style={{color:C.muted2, fontWeight:400}} title={`Sin TC ${liq.monedaBase}→USD para esta fecha`}>—</span> : fmtUSD0(mComFriskuUSD(liq, tcData))}</td>
                               <td style={{...td, textAlign:"center"}}><span style={{fontSize:9, padding:"2px 8px", borderRadius:10, background:`${ei.color}22`, color:ei.color, border:`1px solid ${ei.color}44`, fontWeight:700, whiteSpace:"nowrap"}}>{ei.label}</span></td>
                               <td style={{...td, textAlign:"right", whiteSpace:"nowrap"}} onClick={e=>e.stopPropagation()}>
                                 <button onClick={()=>setVerLiq(liq)} title="Ver" style={{...btnSt(C.teal,true), padding:"3px 8px", fontSize:10, marginRight:3}}>👁 Ver</button>
