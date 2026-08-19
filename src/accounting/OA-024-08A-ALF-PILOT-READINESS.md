@@ -1,9 +1,31 @@
 # OA-024-08A — ALF Pilot Readiness / Mapping + Currency + Security Preflight
 
-**Estado:** ASSESSMENT COMPLETO — 1 acción formal CFO pendiente (declarar functional_currency)
-**Fecha:** 2026-08-19 (actualizado — findings completos, agentes currency + mapping completados)
+**Estado:** **PRODUCTION PASS — AccountingProfile ALF COMPLETO** — F.3 chart_mapping HOLD (CFO approval requerido)
+**Fecha:** 2026-08-19 (última actualización: BLOQUE 4 PASS confirmado producción)
 **Rama:** claude/crazy-heisenberg-f33f7a
 **Prerrequisito:** OA-024-08 = STABLE (93/93 PASS)
+
+---
+
+## PRODUCTION STATE — 2026-08-19
+
+| Gate | Descripción | Estado |
+|------|-------------|--------|
+| D8-ALF | functional_currency = 'USD' | **CLOSED** |
+| F.1 | acc_base_profile ALF INSERT | **EJECUTADO PROD — PASS** |
+| F.2 | acc_entity_config ALF INSERT | **EJECUTADO PROD — PASS** |
+| F.3 | acc_chart_mapping 4 cuentas | **HOLD — CFO APPROVAL** |
+| BLOQUE 4 | AccountingProfile JOIN verification | **PASS** |
+| AccountingProfile estructural | Integridad total ALF en DB | **COMPLETE** |
+
+**Output BLOQUE 4 producción:**
+```
+legal_name = Allegria Foods | functional_currency = USD | reporting_currency = USD
+consol_method = line_by_line | is_ifrs = true | effective_from = 2026-01-01
+effective_to = NULL | ownership_pct = 100.0000 | chart_mappings_active = 0
+```
+
+Ver detalle completo y STEP FOR ANGELO en [OA-024-08A-D8-CLOSED.md](OA-024-08A-D8-CLOSED.md).
 
 ---
 
