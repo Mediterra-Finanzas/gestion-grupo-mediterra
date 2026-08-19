@@ -256,3 +256,44 @@ BEGIN
 
   RAISE NOTICE 'seed_proc_DEV_UAT (contractual+multiorigen): Cliente Andes vigente / Cliente B bloqueante / recepción multi-origen REC-...010 (3 orígenes)';
 END $$;
+
+-- ============================================================================
+-- EXTENSIÓN §11/§12 (DEV/UAT): movimientos de envase + Reporting Daily config/destinatario.
+-- Resuelve entidades por clave natural (rol_operacional/codigo) para no depender de UUIDs literales.
+-- Idempotente por guardas NOT EXISTS. Datos sintéticos; email de destinatario NO real.
+-- ============================================================================
+DO $$
+DECLARE
+  e uuid; svc uuid; ter uuid; binv uuid; totev uuid; rec uuid; cam1 uuid; pl uuid; cfg uuid;
+BEGIN
+  SELECT id INTO e FROM contab_empresas WHERE codigo='ALS';
+  SELECT id INTO svc  FROM proc_vinculo WHERE empresa_id=e AND rol_operacional='propietario_planta' ORDER BY created_at LIMIT 1;
+  SELECT id INTO ter  FROM proc_vinculo WHERE empresa_id=e AND rol_operacional='cliente_servicio'  ORDER BY created_at LIMIT 1;
+  SELECT id INTO binv FROM proc_tipo_envase WHERE empresa_id=e AND codigo='BIN'  LIMIT 1;
+  SELECT id INTO totev FROM proc_tipo_envase WHERE empresa_id=e AND codigo='TOTE' LIMIT 1;
+  SELECT id INTO rec  FROM proc_ubicaciones WHERE empresa_id=e AND codigo='REC'  LIMIT 1;
+  SELECT id INTO cam1 FROM proc_ubicaciones WHERE empresa_id=e AND codigo='CAM1' LIMIT 1;
+  SELECT id INTO pl   FROM proc_planta      WHERE empresa_id=e ORDER BY created_at LIMIT 1;
+
+  -- Movimientos de envase (solo si aún no hay ninguno)
+  IF svc IS NOT NULL AND binv IS NOT NULL AND rec IS NOT NULL
+     AND NOT EXISTS (SELECT 1 FROM proc_envase_movimiento WHERE empresa_id=e) THEN
+    PERFORM proc_fn_envase_registrar_movimiento(e, binv, 100, 'apertura', svc, NULL, svc, NULL, rec);                        -- 100 BIN en Service/REC
+    PERFORM proc_fn_envase_registrar_movimiento(e, binv, 30,  'salida',   svc, svc, ter, rec, NULL);                        -- 30 BIN a terceros (Cliente)
+    PERFORM proc_fn_envase_registrar_movimiento(e, binv, 5,   'dano',     svc, svc, svc, rec, rec, 'normal','danado', NULL, NULL, 'rotura en manejo'); -- 5 BIN dañados
+    IF totev IS NOT NULL AND cam1 IS NOT NULL THEN
+      PERFORM proc_fn_envase_registrar_movimiento(e, totev, 40, 'apertura', svc, NULL, svc, NULL, cam1);                    -- 40 TOTE en Service/CAM1
+    END IF;
+    RAISE NOTICE 'seed envases: BIN 65 Service / 5 dañado / 30 terceros; TOTE 40 Service';
+  END IF;
+
+  -- Reporting Daily: config (con alertas) + destinatario DEV (email NO real)
+  IF NOT EXISTS (SELECT 1 FROM proc_reporte_config WHERE empresa_id=e) THEN
+    INSERT INTO proc_reporte_config (empresa_id, tipo_reporte, nombre, activo, planta_id, timezone, hora_envio, enviar_sin_movimiento, incluir_alertas, alcance, asunto_prefijo)
+    VALUES (e, 'diario_operacion', 'Informe Diario Operación (DEV)', true, pl, 'America/Santiago', '18:00', false, true, 'general', '[DEV] ')
+    RETURNING id INTO cfg;
+    INSERT INTO proc_reporte_destinatario (empresa_id, config_id, nombre, email, tipo, activo)
+    VALUES (e, cfg, 'Destinatario DEV', 'dev.uat@example.invalid', 'interno', true);
+    RAISE NOTICE 'seed reporting: config diario_operacion (incluir_alertas) + 1 destinatario DEV sintético';
+  END IF;
+END $$;
