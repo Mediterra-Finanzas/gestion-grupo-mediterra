@@ -2,9 +2,9 @@
 -- 021_posting_pipeline_tests.sql
 -- OA-024-09 — Test suite del PostingPipeline
 -- Fecha   : 2026-08-19
--- Estado  : EJECUTAR DESPUÉS de 016 + 019 + 020
+-- Estado  : EJECUTAR DESPUÉS de 016 + 019 + 020 + 022
 -- =============================================================================
--- Tests: CAT-14 a CAT-16 (continúa desde 017 que tenía CAT-10 a CAT-13)
+-- Tests: CAT-14 a CAT-17 (continúa desde 017 que tenía CAT-10 a CAT-13)
 --
 -- CAT-14: Períodos ALF 2026 (019)
 --   1401: 12 períodos creados para ALF
@@ -17,7 +17,7 @@
 -- CAT-15: Write RLS (020)
 --   1501: acc_source_batch — authenticated puede INSERT
 --   1502: acc_source_batch — authenticated puede UPDATE status
---   1503: acc_account_balance — authenticated puede INSERT
+--   1503: acc_account_balance — authenticated NO puede INSERT directamente (solo vía RPC)
 --   1504: acc_account_balance — T10 rechaza inserción en período locked
 --   1505: anon sigue DENEGADO en acc_source_batch (fail-closed intacto)
 --   1506: anon sigue DENEGADO en acc_account_balance (fail-closed intacto)
@@ -33,6 +33,15 @@
 --   1608: approved_by gate bloquea → APPROVED cuando approved_by es NULL
 --   1609: Cleanup: DELETE de batch de test en cascada
 --   1610: Regression — no romper CAT-13 (ALF profile + 4 chart_mappings)
+--
+-- CAT-17: fn_acc_post_batch RPC (022) — existencia, grants y comportamiento
+--   1701: authenticated no puede INSERT directo en acc_account_balance (RLS)
+--   1702: fn_acc_post_batch existe, SECURITY DEFINER, retorna JSONB
+--   1703: authenticated tiene EXECUTE grant en fn_acc_post_batch
+--   1704: anon NO tiene EXECUTE grant en fn_acc_post_batch
+--   1705: fn_acc_post_batch con UUID inexistente lanza error P0001
+--   1706: fn_acc_post_batch con batch no-APPROVED lanza error P0002
+--   1707: fn_acc_post_batch tiene firma correcta (2 parámetros IN)
 -- =============================================================================
 -- FIXTURES: TODOS SINTÉTICOS. Sin datos financieros reales.
 -- =============================================================================
@@ -183,7 +192,7 @@ BEGIN
     SELECT 1 FROM pg_policies
     WHERE schemaname = 'public' AND tablename = 'acc_source_batch'
       AND cmd = 'INSERT'
-      AND roles @> ARRAY['authenticated']
+      AND 'authenticated' = ANY(roles)
   ) THEN
     CALL pass('1501', 'acc_source_batch: política INSERT para authenticated existe');
   ELSE
@@ -195,7 +204,7 @@ BEGIN
     SELECT 1 FROM pg_policies
     WHERE schemaname = 'public' AND tablename = 'acc_source_batch'
       AND cmd IN ('UPDATE', 'ALL')
-      AND roles @> ARRAY['authenticated']
+      AND 'authenticated' = ANY(roles)
       AND policyname NOT LIKE '%deny%'
   ) THEN
     CALL pass('1502', 'acc_source_batch: política UPDATE para authenticated existe');
@@ -203,17 +212,18 @@ BEGIN
     CALL fail('1502', 'acc_source_batch: falta política UPDATE para authenticated. Ejecutar 020.');
   END IF;
 
-  -- 1503: acc_account_balance tiene política INSERT para authenticated
-  IF EXISTS (
+  -- 1503: acc_account_balance NO tiene política INSERT/UPDATE para authenticated
+  --       (escrituras al ledger son exclusivamente vía fn_acc_post_batch, modelo C)
+  IF NOT EXISTS (
     SELECT 1 FROM pg_policies
     WHERE schemaname = 'public' AND tablename = 'acc_account_balance'
-      AND cmd IN ('INSERT', 'ALL')
-      AND roles @> ARRAY['authenticated']
+      AND cmd IN ('INSERT', 'UPDATE', 'ALL')
+      AND 'authenticated' = ANY(roles)
       AND policyname NOT LIKE '%deny%'
   ) THEN
-    CALL pass('1503', 'acc_account_balance: política INSERT para authenticated existe');
+    CALL pass('1503', 'acc_account_balance: authenticated no tiene política INSERT/UPDATE directa (modelo C OK)');
   ELSE
-    CALL fail('1503', 'acc_account_balance: falta política INSERT para authenticated. Ejecutar 020.');
+    CALL fail('1503', 'SEGURIDAD: acc_account_balance tiene política INSERT/UPDATE para authenticated — viola modelo C. Revisar 020 v2.');
   END IF;
 
   -- 1504: T10 sigue activo en acc_account_balance (fail-closed en período cerrado)
@@ -224,7 +234,7 @@ BEGIN
   IF EXISTS (
     SELECT 1 FROM pg_policies
     WHERE schemaname = 'public' AND tablename = 'acc_source_batch'
-      AND roles @> ARRAY['anon']
+      AND 'anon' = ANY(roles)
       AND qual = 'false'
   ) THEN
     CALL pass('1505', 'acc_source_batch: anon sigue denegado (fail-closed intacto)');
@@ -236,7 +246,7 @@ BEGIN
   IF EXISTS (
     SELECT 1 FROM pg_policies
     WHERE schemaname = 'public' AND tablename = 'acc_account_balance'
-      AND roles @> ARRAY['anon']
+      AND 'anon' = ANY(roles)
       AND qual = 'false'
   ) THEN
     CALL pass('1506', 'acc_account_balance: anon sigue denegado (fail-closed intacto)');
@@ -414,6 +424,117 @@ BEGIN
   ELSE
     CALL fail('1610', format('REGRESSION: acc_chart_mapping ALF tiene solo %s mappings (esperado ≥4)', v_issue_count));
   END IF;
+
+
+  -- ==========================================================================
+  -- CAT-17: fn_acc_post_batch RPC (022) — existencia, grants y comportamiento
+  -- ==========================================================================
+
+  -- 1701: authenticated no puede INSERT directamente en acc_account_balance
+  --       (duplica 1503 desde la perspectiva de seguridad del ledger; refuerza modelo C)
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_policies
+    WHERE schemaname = 'public' AND tablename = 'acc_account_balance'
+      AND cmd IN ('INSERT', 'UPDATE', 'ALL')
+      AND 'authenticated' = ANY(roles)
+      AND policyname NOT LIKE '%deny%'
+  ) THEN
+    CALL pass('1701', 'RLS acc_account_balance: authenticated sin write directo — ledger protegido');
+  ELSE
+    CALL fail('1701', 'SEGURIDAD: acc_account_balance tiene write policy para authenticated. Ledger desprotegido.');
+  END IF;
+
+  -- 1702: fn_acc_post_batch existe como SECURITY DEFINER con tipo de retorno JSONB
+  IF EXISTS (
+    SELECT 1 FROM information_schema.routines
+    WHERE routine_schema = 'public'
+      AND routine_name   = 'fn_acc_post_batch'
+      AND security_type  = 'DEFINER'
+      AND data_type      = 'jsonb'
+  ) THEN
+    CALL pass('1702', 'fn_acc_post_batch: existe, SECURITY DEFINER, retorna JSONB');
+  ELSE
+    CALL fail('1702', 'fn_acc_post_batch no existe o faltan atributos (DEFINER/JSONB). Ejecutar 022.');
+  END IF;
+
+  -- 1703: authenticated tiene EXECUTE grant en fn_acc_post_batch
+  IF EXISTS (
+    SELECT 1 FROM information_schema.routine_privileges
+    WHERE routine_schema   = 'public'
+      AND routine_name     = 'fn_acc_post_batch'
+      AND grantee          = 'authenticated'
+      AND privilege_type   = 'EXECUTE'
+  ) THEN
+    CALL pass('1703', 'fn_acc_post_batch: EXECUTE grant para authenticated existe');
+  ELSE
+    CALL fail('1703', 'fn_acc_post_batch: falta EXECUTE grant para authenticated. Revisar 022 GRANT.');
+  END IF;
+
+  -- 1704: anon NO tiene EXECUTE grant en fn_acc_post_batch
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.routine_privileges
+    WHERE routine_schema   = 'public'
+      AND routine_name     = 'fn_acc_post_batch'
+      AND grantee          = 'anon'
+      AND privilege_type   = 'EXECUTE'
+  ) THEN
+    CALL pass('1704', 'fn_acc_post_batch: anon no tiene EXECUTE — fail-closed en posting OK');
+  ELSE
+    CALL fail('1704', 'SEGURIDAD: anon tiene EXECUTE en fn_acc_post_batch. Revisar 022 REVOKE.');
+  END IF;
+
+  -- 1705: fn_acc_post_batch con UUID inexistente lanza P0001
+  BEGIN
+    PERFORM fn_acc_post_batch('00000000-0000-0000-0000-000000000000'::uuid, 'test_actor');
+    CALL fail('1705', 'fn_acc_post_batch con batch inexistente debería lanzar P0001');
+  EXCEPTION
+    WHEN OTHERS THEN
+      IF SQLERRM LIKE '%P0001%' OR SQLERRM LIKE '%no encontrado%' THEN
+        CALL pass('1705', format('fn_acc_post_batch lanza error para batch inexistente: %s', SQLERRM));
+      ELSE
+        CALL warn('1705', format('fn_acc_post_batch lanzó error pero mensaje inesperado: %s', SQLERRM));
+      END IF;
+  END;
+
+  -- 1706: fn_acc_post_batch con batch en status distinto de APPROVED lanza P0002
+  DECLARE
+    v_rpc_batch_id UUID;
+  BEGIN
+    INSERT INTO acc_source_batch (entity_id, source_system, file_name, file_hash, report_type, status)
+    VALUES (v_alf_id, 'contec', 'test_1706.xlsx', 'hash_1706_test_unique', 'eerr_acumulado', 'CREATED')
+    RETURNING id INTO v_rpc_batch_id;
+
+    BEGIN
+      PERFORM fn_acc_post_batch(v_rpc_batch_id, 'test_actor');
+      CALL fail('1706', 'fn_acc_post_batch sobre batch CREATED debería rechazar con P0002');
+    EXCEPTION
+      WHEN OTHERS THEN
+        IF SQLERRM LIKE '%P0002%' OR SQLERRM LIKE '%APPROVED%' THEN
+          CALL pass('1706', format('fn_acc_post_batch rechaza batch no-APPROVED (P0002): %s', SQLERRM));
+        ELSE
+          CALL warn('1706', format('fn_acc_post_batch rechazó pero mensaje inesperado: %s', SQLERRM));
+        END IF;
+    END;
+
+    DELETE FROM acc_source_batch WHERE id = v_rpc_batch_id;
+  END;
+
+  -- 1707: Firma de fn_acc_post_batch tiene exactamente 2 parámetros (p_batch_id uuid, p_actor text)
+  DECLARE
+    v_param_count INT;
+  BEGIN
+    SELECT COUNT(*) INTO v_param_count
+    FROM information_schema.parameters
+    WHERE specific_schema = 'public'
+      AND specific_name   LIKE 'fn_acc_post_batch%'
+      AND parameter_mode  = 'IN';
+
+    IF v_param_count = 2 THEN
+      CALL pass('1707', format('fn_acc_post_batch: firma correcta (%s parámetros IN)', v_param_count));
+    ELSE
+      CALL fail('1707', format('fn_acc_post_batch: firma incorrecta (%s parámetros IN, esperado 2)', v_param_count));
+    END IF;
+  END;
 
 
   -- ==========================================================================

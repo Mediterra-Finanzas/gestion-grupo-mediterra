@@ -435,15 +435,22 @@ export async function createBatch(supabase, spec) {
  * @param {string} batchId
  * @param {string} toStatus — status destino
  * @param {Object} [extra] — campos adicionales a incluir en el UPDATE
+ * @param {string} [entityId] — UUID de core_entities; agrega filtro de aislamiento B3
  * @returns {Promise<void>}
  */
-export async function transitionBatch(supabase, batchId, toStatus, extra = {}) {
+export async function transitionBatch(supabase, batchId, toStatus, extra = {}, entityId = null) {
   const payload = { status: toStatus, ...extra };
 
-  const { error } = await supabase
+  let query = supabase
     .from('acc_source_batch')
     .update(payload)
     .eq('id', batchId);
+
+  if (entityId) {
+    query = query.eq('entity_id', entityId);
+  }
+
+  const { error } = await query;
 
   if (error) {
     throw new Error(
@@ -507,10 +514,11 @@ export async function insertSourceDetail(supabase, batchId, sourceRows) {
 }
 
 /**
- * Inserta o actualiza los saldos canónicos en acc_account_balance.
- * Usa ON CONFLICT → upsert para soporte de re-posting (SUPERSEDED pattern).
- * Respeta UNIQUE(entity_id, period_id, account_code, balance_type).
- * El trigger T10 (trg_balance_period_lock) verifica que el período esté abierto.
+ * @deprecated INTERNAL — no llamar desde la UI.
+ * Las escrituras al ledger son exclusivamente vía fn_acc_post_batch (RPC, SECURITY DEFINER).
+ * Esta función queda aquí como referencia de la estructura de datos; no se exporta en el
+ * contrato público de PostingPipeline. Cualquier llamada directa desde el frontend viola
+ * el modelo de seguridad C (Hybrid Controlled).
  *
  * @param {Object} supabase
  * @param {Object} opts
@@ -739,20 +747,20 @@ export async function runIngest(supabase, opts) {
     result.batchId = batchId;
 
     // ── PARSING → PARSED: insertar source detail (preserva CC) ───────────────
-    await transitionBatch(supabase, batchId, 'PARSING');
+    await transitionBatch(supabase, batchId, 'PARSING', {}, entityId);
     await insertSourceDetail(supabase, batchId, source_rows);
-    await transitionBatch(supabase, batchId, 'PARSED', { row_count: source_rows.length });
+    await transitionBatch(supabase, batchId, 'PARSED', { row_count: source_rows.length }, entityId);
 
     // ── VALIDATING → VALIDATED: issues de mapping ─────────────────────────────
-    await transitionBatch(supabase, batchId, 'VALIDATING');
+    await transitionBatch(supabase, batchId, 'VALIDATING', {}, entityId);
     if (issues.length > 0) {
       const { count } = await createBatchIssues(supabase, batchId, issues);
       result.issues_created = count;
     }
-    await transitionBatch(supabase, batchId, 'VALIDATED');
+    await transitionBatch(supabase, batchId, 'VALIDATED', {}, entityId);
 
     // ── → PENDING_APPROVAL: espera human approval del CFO ────────────────────
-    await transitionBatch(supabase, batchId, 'PENDING_APPROVAL');
+    await transitionBatch(supabase, batchId, 'PENDING_APPROVAL', {}, entityId);
 
     result.status            = 'PENDING_APPROVAL';
     result.mapped_accounts   = result.preflight.mapped_accounts;
@@ -765,7 +773,7 @@ export async function runIngest(supabase, opts) {
       try {
         await transitionBatch(supabase, result.batchId, 'REJECTED', {
           error_detail: e.message,
-        });
+        }, entityId);
       } catch (_) {
         // Si la transición falla (ej. ya en estado terminal), ignorar
       }
@@ -777,80 +785,60 @@ export async function runIngest(supabase, opts) {
 
 /**
  * Completa el posting tras la aprobación del CFO.
- * Transiciona: PENDING_APPROVAL → APPROVED → POSTING → POSTED.
- * Inserta los saldos canónicos en acc_account_balance.
+ * Transiciona: PENDING_APPROVAL → APPROVED (frontend), luego llama a
+ * fn_acc_post_batch (RPC, SECURITY DEFINER) que ejecuta POSTING → POSTED
+ * de forma atómica en el servidor. Las escrituras a acc_account_balance
+ * ocurren exclusivamente dentro del RPC.
  *
  * @param {Object} supabase
  * @param {Object} opts
  * @param {string} opts.batchId
  * @param {string} opts.entityId
- * @param {string} opts.periodId
  * @param {string} opts.approvedBy — nombre/email del CFO que aprueba
- * @param {string} opts.postedBy — nombre/email quien ejecuta el posting
- * @param {CanonicalBalanceRow[]} opts.canonicalRows — desde el preflight previo
- * @param {string} [opts.currency] — moneda (default 'USD')
+ * @param {string} opts.postedBy — nombre/email quien ejecuta el posting (p_actor en RPC)
  * @returns {Promise<PostingResult>}
  */
 export async function approveAndPost(supabase, opts) {
   const {
     batchId,
     entityId,
-    periodId,
     approvedBy,
     postedBy,
-    canonicalRows,
-    currency = 'USD',
   } = opts;
 
   const result = {
     batchId,
-    status:           'FAILED',
-    posted_count:     0,
-    skipped_unmapped: 0,
-    error:            null,
+    status:        'FAILED',
+    posted_count:  0,
+    rpc_result:    null,
+    error:         null,
   };
 
   try {
-    // Cargar mappings vigentes para resolución de reporting_account_id
-    const mappings = await loadChartMappings(supabase, entityId);
+    // PENDING_APPROVAL → APPROVED: acción del CFO registrada con entity isolation
+    await transitionBatch(supabase, batchId, 'APPROVED', { approved_by: approvedBy }, entityId);
 
-    // Gate de mapping completeness: si hay cuentas materiales sin mapping → rechazar
-    const completeness = evalMappingCompleteness(canonicalRows, mappings);
-    if (!completeness.can_post) {
-      throw new Error(
-        `MAPPING_GATE: ${completeness.unmapped_with_balance} cuenta(s) con saldo material sin mapping. ` +
-        `Resolver antes de postear. Cuentas: ${completeness.unmapped_detail.filter(u => u.material).map(u => u.account_code).join(', ')}`
-      );
+    // APPROVED → POSTING → POSTED: atomico en el servidor (SECURITY DEFINER)
+    // fn_acc_post_batch deriva canonical rows desde acc_source_balance_detail,
+    // hace upsert en acc_account_balance y retorna JSONB con resumen.
+    const { data: rpcData, error: rpcError } = await supabase
+      .rpc('fn_acc_post_batch', {
+        p_batch_id: batchId,
+        p_actor:    postedBy,
+      });
+
+    if (rpcError) {
+      throw new Error(`fn_acc_post_batch RPC error: ${rpcError.message}`);
     }
 
-    // APPROVED (requiere approved_by — el trigger valida)
-    await transitionBatch(supabase, batchId, 'APPROVED', { approved_by: approvedBy });
-
-    // POSTING
-    await transitionBatch(supabase, batchId, 'POSTING');
-
-    // INSERT / UPSERT acc_account_balance
-    const { count, skipped_unmapped } = await upsertAccountBalance(supabase, {
-      entityId,
-      periodId,
-      batchId,
-      canonicalRows,
-      mappings,
-      currency,
-    });
-
-    result.posted_count     = count;
-    result.skipped_unmapped = skipped_unmapped;
-
-    // POSTED (requiere posted_by — el trigger valida)
-    await transitionBatch(supabase, batchId, 'POSTED', { posted_by: postedBy });
-
-    result.status = 'POSTED';
+    result.rpc_result   = rpcData;
+    result.posted_count = rpcData?.posted_count ?? 0;
+    result.status       = rpcData?.status ?? 'POSTED';
 
   } catch (e) {
     result.error = e.message;
     try {
-      await transitionBatch(supabase, batchId, 'REJECTED', { error_detail: e.message });
+      await transitionBatch(supabase, batchId, 'REJECTED', { error_detail: e.message }, entityId);
     } catch (_) {}
   }
 

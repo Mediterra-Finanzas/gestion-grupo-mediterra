@@ -47,15 +47,16 @@ ORDER BY fiscal_month;
 -- ============================================================
 
 INSERT INTO acc_period
-  (entity_id, period_type, fiscal_year, fiscal_month, date_from, date_to, status)
+  (entity_id, period_type, fiscal_year, fiscal_month, fiscal_quarter, date_from, date_to, status)
 SELECT
-  '3df93d9d-cbc6-446f-b9a5-0a3840692fd8'::uuid   AS entity_id,
-  'monthly'                                        AS period_type,
-  2026                                             AS fiscal_year,
-  m.n                                              AS fiscal_month,
-  make_date(2026, m.n, 1)                          AS date_from,
+  '3df93d9d-cbc6-446f-b9a5-0a3840692fd8'::uuid              AS entity_id,
+  'monthly'                                                   AS period_type,
+  2026                                                        AS fiscal_year,
+  m.n                                                         AS fiscal_month,
+  CEIL(m.n / 3.0)::integer                                   AS fiscal_quarter,
+  make_date(2026, m.n, 1)                                    AS date_from,
   (make_date(2026, m.n, 1) + interval '1 month' - interval '1 day')::date AS date_to,
-  'open'                                           AS status
+  'open'                                                      AS status
 FROM (VALUES (1),(2),(3),(4),(5),(6),(7),(8),(9),(10),(11),(12)) AS m(n)
 ON CONFLICT (entity_id, period_type, fiscal_year, fiscal_month) DO NOTHING;
 
