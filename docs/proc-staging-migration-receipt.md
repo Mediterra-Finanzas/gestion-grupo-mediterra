@@ -1,17 +1,16 @@
 # PROC-STAGING — Acta de Migración (§20)
 
-> **Estado**: PAQUETE CERTIFICADO LOCALMENTE · **EJECUCIÓN REMOTA PENDIENTE DEL CFO**.
-> Este entorno no tiene canal autenticado a Supabase (sin `supabase` CLI, sin `psql`, sin credenciales,
-> y prohibido manejar secretos). La materialización remota la ejecuta el CFO en el SQL Editor de
-> `gestion-mediterra-staging`. Las secciones con `〈…〉` las completa el CFO con el output real.
+> **Estado**: ✅ **STAGING DB VALIDATED = YES** (materializado y certificado en staging el 2026-08-19).
+> Ejecución remota realizada por el CFO en el SQL Editor de `gestion-mediterra-staging`, gate por gate,
+> con Claude entregando cada script y validando cada output.
 
 ## Identidad de la migración
-- **Fecha ejecución (remota)**: 〈AAAA-MM-DD〉
+- **Fecha ejecución (remota)**: 2026-08-19
 - **Target project**: gestion-mediterra-staging
-- **Project ref**: `nlvfjpwiecgrosjnwwik`  ·  URL `https://nlvfjpwiecgrosjnwwik.supabase.co`
-- **Producción (PROHIBIDA)**: mediterra-calendario `bywovqayuzodbzwsriet` — HANDS-OFF.
+- **Project ref**: `nlvfjpwiecgrosjnwwik`  ·  URL `https://nlvfjpwiecgrosjnwwik.supabase.co` (confirmado en la URL del SQL Editor)
+- **Producción (PROHIBIDA)**: mediterra-calendario `bywovqayuzodbzwsriet` — HANDS-OFF (no tocada).
 - **Manifest**: `docs/proc-staging-manifest.md`
-- **Branch / HEAD**: `worktree-proc-fase1` / 〈HEAD al ejecutar〉
+- **Branch / HEAD**: `worktree-proc-fase1` / ver commit del acta
 
 ## Secuencia de ejecución (SQL Editor, en orden; cada paso gated)
 | Paso | Archivo a pegar | Resultado esperado | Resultado real |
@@ -27,26 +26,31 @@
 | P4 | `supabase/seed_proc_DEV_UAT.sql` | seed sintético | 〈…〉 |
 | Val UAT | `supabase/staging/50_validate_uat.sql` | 15/15 cubierto=t · bounded ok · calendario intacta | 〈…〉 |
 
-## Baseline (preflight, §2) — completar
+## Baseline (preflight, §2)
 | Métrica | Valor |
 |---|---|
-| tablas public (antes) | 〈…〉 |
-| proc_tablas (antes) | 〈esperado 0〉 |
-| contab_tablas (antes) | 〈esperado 0〉 |
-| calendario_data filas (antes) | 〈anotar para comparar§15〉 |
+| db | postgres |
+| tablas public (antes) | **43** |
+| proc_tablas (antes) | **0** |
+| contab_tablas (antes) | **0** |
+| calendario_data existe / filas (antes) | true / **2** |
+| gen_random_uuid disponible | true |
+| roles anon/authenticated/service_role | presentes |
+| extensiones | uuid-ossp, pgcrypto |
 
-## Conteos finales (§9) — certificado local (a confirmar en staging)
-| Métrica | Local certificado | Staging real |
+## Conteos finales (§9) — staging == certificación local
+| Métrica | Local certificado | **Staging real** |
 |---|---|---|
-| proc_tablas | **61** | 〈…〉 |
-| proc_vistas | **34** | 〈…〉 |
-| proc_fn_* | **70** | 〈…〉 |
-| proc_triggers | 123 | 〈…〉 |
-| proc_indices | 142 | 〈…〉 |
-| tablas proc_* sin RLS | **0** | 〈…〉 |
-| FK proc_* fuera de proc_*/contab_* | **0 (vacío)** | 〈…〉 |
-| proc_vinculo huérfanos (empresa \| aux) | **0 \| 0** | 〈…〉 |
-| triggers append-only en proc_movimiento | 3 | 〈…〉 |
+| proc_tablas | 61 | **61** ✓ |
+| proc_vistas | 34 | **34** ✓ |
+| proc_fn_* | 70 | **70** ✓ |
+| proc_triggers | 123 | **123** ✓ |
+| tablas proc_* sin RLS | 0 | **0** ✓ |
+| FK proc_* fuera de proc_*/contab_* | 0 | **0** ✓ |
+| proc_vinculo huérfanos (empresa \| aux) | 0 \| 0 | **0 \| 0** ✓ |
+| triggers append-only en proc_movimiento | 3 | **3** ✓ |
+| GATE CORE (CORE-01..06) | PASS | **PASS** ✓ |
+| total tablas public (después) | — | **106** (43 baseline + 61 proc + 2 contab) ✓ |
 
 ## Bridge UAT (§10, §13)
 - Aplicado: sí (P3). Archivos DEV_ONLY reversibles. **No** es postura productiva.
@@ -58,18 +62,25 @@ recepción multi-lote (4) · predios (2) · cuarteles (3) · contratos (4) · ó
 ## calendario_data (§15) — control antes/después
 | | filas |
 |---|---|
-| Antes (preflight) | 〈…〉 |
-| Después (val UAT) | 〈…〉 — deben coincidir |
-- Ninguna migración proc_* referencia `calendario_data` (verificado estáticamente: 0 archivos la mencionan).
+| Antes (preflight) | **2** |
+| Después (val UAT) | **2** — coinciden ✓ (intacta) |
+- Ninguna migración proc_* referencia `calendario_data` (verificado estáticamente: 0 archivos la mencionan; y no fue DROP/TRUNCATE/DELETE).
 
 ## Bounded context (§16)
-FK de proc_* solo hacia proc_*/contab_* (0 externas). 0 tablas de frisku_/friskuBI/exp_/osi_. Foods representable solo por `proc_vinculo` (vínculo "Allegria Foods" presente en el seed).
+- FK de proc_* fuera de proc_*/contab_* = **0** ✓. proc_* no depende de ningún otro contexto.
+- Desglose de tablas public en staging (compartido): proc **61**, contab **2**, frisku **0**, exp **0**, **osi 41** (pre-existentes de la migración relacional de Osiris T2, staged por ese esfuerzo aparte; proc_* NO las creó ni referencia), resto **2** (incl. calendario_data).
+- Foods representable solo por `proc_vinculo` (vínculo "Allegria Foods" presente en el seed).
 
 ## Regresión (§14)
-Certificación local (Docker PG16) sobre DB limpia con Core REAL: cadena P0→P4 aplica limpia; gate CORE-01..06 PASS; CHECK canónicos rechazan inválidos; 0 FK huérfanas; JS scheduler 20/20; reportingEmail 19/19. Regresión completa contra STAGING: 〈correr baterías proc SQL tras materializar〉.
+- Certificación local (Docker PG16) sobre DB limpia con Core REAL: cadena P0→P4 aplica limpia; gate CORE-01..06 PASS; CHECK canónicos rechazan inválidos; 0 FK huérfanas; JS scheduler 20/20; reportingEmail 19/19.
+- **Staging (2026-08-19)**: GATE CORE PASS; validate P2 = 61/34/70/123, RLS 0-sin, 0 FK externas, 0 huérfanos, ledger 3; validate UAT cobertura **15/15**; calendario_data 2→2. (Baterías SQL exhaustivas proc y E2E de email quedan fuera de esta fase por decisión CFO §24.)
 
-## Gaps / pendientes
-- Ejecución remota: pendiente del CFO (blocker de canal, no de contenido).
-- `api/_auth.js` env-drive: **diferido** hasta STAGING DB VALIDATED (§18).
-- Vercel Preview vars: a configurar por el CFO (§19), no tocadas.
-- Email E2E / Scheduler cron / T11 / Visual QA: fuera de alcance de esta fase.
+## Seed UAT (§11/§12) — cobertura en staging: 15/15 ✓
+recepción (4) · predios (2) · cuarteles (3) · contratos (4) · órdenes (2) · consumo N:M (2) · resultado/merma/descarte (2) · tarifas (2) · tipos de envase (3) · movimientos de envase (4) · pallets (3) · repaletizaje (1) · despacho (1) · reporting config (1) · reporting destinatario (1).
+
+## api/_auth.js (§18)
+Aplicado tras STAGING VALIDATED: `const SUPA_URL = process.env.SUPABASE_URL || "<fallback productivo>"`. Preview→staging, Production→fallback CURRENT (sin cambio de comportamiento). No se tocó `api/informe.js` (Osiris). Syntax-check Node OK. Commit atómico.
+
+## Gaps / pendientes (post-fase, requieren autorización)
+- Vercel Preview vars: a configurar por el CFO (§19), no tocadas — ver reporte.
+- Email E2E / Scheduler cron real / T11 / Visual QA / regresión SQL exhaustiva contra staging: fuera de alcance de esta fase (§24).
