@@ -1,7 +1,7 @@
 # OA-024-08A — ALF Pilot Readiness / Mapping + Currency + Security Preflight
 
-**Estado:** **PRODUCTION PASS — AccountingProfile ALF COMPLETO** — F.3 chart_mapping HOLD (CFO approval requerido)
-**Fecha:** 2026-08-19 (última actualización: BLOQUE 4 PASS confirmado producción)
+**Estado:** **PRODUCTION PASS TOTAL — AccountingProfile ALF COMPLETO — F.1/F.2/F.3/BLOQUE 4 todos PASS**
+**Fecha:** 2026-08-19 (última actualización: F.3 PASS confirmado producción — 4 chart_mappings activos)
 **Rama:** claude/crazy-heisenberg-f33f7a
 **Prerrequisito:** OA-024-08 = STABLE (93/93 PASS)
 
@@ -14,15 +14,23 @@
 | D8-ALF | functional_currency = 'USD' | **CLOSED** |
 | F.1 | acc_base_profile ALF INSERT | **EJECUTADO PROD — PASS** |
 | F.2 | acc_entity_config ALF INSERT | **EJECUTADO PROD — PASS** |
-| F.3 | acc_chart_mapping 4 cuentas | **HOLD — CFO APPROVAL** |
+| F.3 | acc_chart_mapping 4 cuentas | **EJECUTADO PROD — PASS** |
 | BLOQUE 4 | AccountingProfile JOIN verification | **PASS** |
-| AccountingProfile estructural | Integridad total ALF en DB | **COMPLETE** |
+| AccountingProfile ALF | Todos los gates pass | **COMPLETO** |
 
-**Output BLOQUE 4 producción:**
+**Output BLOQUE 4 producción (pre-F.3):**
 ```
 legal_name = Allegria Foods | functional_currency = USD | reporting_currency = USD
 consol_method = line_by_line | is_ifrs = true | effective_from = 2026-01-01
-effective_to = NULL | ownership_pct = 100.0000 | chart_mappings_active = 0
+effective_to = NULL | ownership_pct = 100.0000 | chart_mappings_active = 0→4
+```
+
+**Post-check F.3 producción:**
+```
+4.01.01.002 → ING   | Ingresos de Actividades | is_active=true
+6.11.01.010 → GOPEX | Gastos Operacionales    | is_active=true
+6.11.07.290 → GOPEX | Gastos Operacionales    | is_active=true
+6.11.07.310 → GOPEX | Gastos Operacionales    | is_active=true
 ```
 
 Ver detalle completo y STEP FOR ANGELO en [OA-024-08A-D8-CLOSED.md](OA-024-08A-D8-CLOSED.md).

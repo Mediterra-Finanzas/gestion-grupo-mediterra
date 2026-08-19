@@ -1,7 +1,7 @@
 # OA-024-08A — D8-ALF CLOSED / AccountingProfile PRODUCTION PASS
 
 **Fecha:** 2026-08-19
-**Estado:** D8 CLOSED — F.1 PASS — F.2 PASS — BLOQUE 4 PASS — **AccountingProfile ALF = COMPLETE EN PRODUCCIÓN** — F.3 HOLD
+**Estado:** D8 CLOSED — F.1 PASS — F.2 PASS — F.3 PASS — BLOQUE 4 PASS — **AccountingProfile ALF = COMPLETO EN PRODUCCIÓN — TODOS LOS GATES PASS**
 
 ---
 
@@ -12,7 +12,7 @@
 | BLOQUE 0 | Pre-check prereqs | SELECT-only | PASS | 2026-08-19 |
 | BLOQUE 1 | F.1: acc_base_profile INSERT | `acc_base_profile` | **EJECUTADO EN PRODUCCIÓN** | 2026-08-19 |
 | BLOQUE 2 | F.2: acc_entity_config INSERT | `acc_entity_config` | **EJECUTADO EN PRODUCCIÓN** | 2026-08-19 |
-| BLOQUE 3 | F.3: acc_chart_mapping 4 cuentas | `acc_chart_mapping` | **HOLD — CFO APPROVAL REQUERIDO** | Pendiente |
+| BLOQUE 3 | F.3: acc_chart_mapping 4 cuentas | `acc_chart_mapping` | **EJECUTADO EN PRODUCCIÓN — PASS** | 2026-08-19 |
 | BLOQUE 4 | Verificación final AccountingProfile | SELECT JOIN | **PASS** | 2026-08-19 |
 
 ### Output BLOQUE 4 — Producción confirmado por CFO
@@ -28,10 +28,23 @@ effective_to                = NULL
 config_functional_currency  = USD
 config_consol_method        = line_by_line
 ownership_pct               = 100.0000
-chart_mappings_active       = 0     ← correcto: F.3 aún HOLD
+chart_mappings_active       = 0     ← registrado pre-F.3; hoy = 4
 ```
 
-**Interpretación:** AccountingProfile ALF structuralmente completo. La única columna en 0 (`chart_mappings_active`) es el comportamiento esperado — F.3 no ha sido ejecutado.
+### Post-check F.3 — Producción confirmado por CFO (2026-08-19)
+
+```
+local_account_code | reporting_account | name                      | is_active
+-------------------+-------------------+---------------------------+----------
+4.01.01.002        | ING               | Ingresos de Actividades   | true
+6.11.01.010        | GOPEX             | Gastos Operacionales      | true
+6.11.07.290        | GOPEX             | Gastos Operacionales      | true
+6.11.07.310        | GOPEX             | Gastos Operacionales      | true
+```
+
+**4 rows — exactamente lo esperado. F.3 = PASS.**
+
+**AccountingProfile ALF = COMPLETO EN PRODUCCIÓN** — `chart_mappings_active = 4`.
 
 ---
 
@@ -144,11 +157,10 @@ CRITICAL PATH (secuencia serializada)
 [DONE]  F.1: acc_base_profile INSERT ejecutado PROD     (2026-08-19, BLOQUE 1 PASS)
 [DONE]  F.2: acc_entity_config INSERT ejecutado PROD    (2026-08-19, BLOQUE 2 PASS)
 [DONE]  BLOQUE 4 AccountingProfile verificado PROD      (2026-08-19, PASS)
-[HOLD]  F.3: 4 chart_mapping INSERTs                    ← STEP FOR ANGELO
-        → aprobar tabla de mapping (ver §F.3 arriba)
-        → ejecutar BLOQUE 3 en SQL Editor post-aprobación
+[DONE]  F.3: 4 chart_mapping INSERTs ejecutados PROD    (2026-08-19, BLOQUE 3 PASS)
+        → 4 rows: 4.01.01.002/ING, 6.11.01.010/GOPEX, 6.11.07.290/GOPEX, 6.11.07.310/GOPEX
 [GATE]  PILOT ALF = READY (criteria en OA-024-08A §I)
-        Requiere: F.3 done + primer batch loaded + mappings completos
+        Requiere: ✅ F.1/F.2/F.3 done → falta: primer batch + mappings completos restantes
 [NEXT]  OA-024-09 — PostingPipeline UI
         (NO AUTORIZADO — requiere CFO go-ahead explícito separado)
 
@@ -179,23 +191,13 @@ DEFERRED
 
 ---
 
-## STEP FOR ANGELO — ACCIÓN REQUERIDA
+## STEP FOR ANGELO — ESTADO
 
-**Estado:** F.1 + F.2 ejecutados y confirmados. AccountingProfile ALF = COMPLETE.
+**F.1 + F.2 + F.3 ejecutados y confirmados en producción.**
 
-**Acción pendiente: aprobar F.3 mapping.**
+**AccountingProfile ALF = COMPLETO.** No hay acciones pendientes en OA-024-08A.
 
-Revisar la tabla de decisión §F.3 arriba, específicamente:
-
-> **`6.11.07.290 GASTOS BANCARIOS`** — Contec lo clasifica como GASTOS DE ADM. Y VENTAS (no EGRESOS NO OP), lo que apunta a comisiones bancarias operativas (→ GOPEX). Si confirmas que no mezcla intereses: GOPEX ok.
-
-Si apruebas los 4 mappings como propuestos:
-1. Abrir SQL Editor: `https://supabase.com/dashboard/project/bywovqayuzodbzwsriet`
-2. Abrir `src/accounting/migrations/018_alf_accounting_profile.sql`
-3. Descomentar y copiar el BLOQUE 3 (entre `/*` y `*/`)
-4. Pegar en SQL Editor → ejecutar
-5. Verificar post-check: 4 rows en `acc_chart_mapping` para ALF
-6. Reportar output
+Próxima decisión: autorización OA-024-09 (PostingPipeline). Cuando el CFO esté listo para cargar el primer batch real (Balance Foods.xlsx), confirmar con "AUTORIZO OA-024-09".
 
 ---
 
@@ -209,3 +211,4 @@ Si apruebas los 4 mappings como propuestos:
 | 4 | 2026-08-19 | **BLOQUE 4 PASS** (AccountingProfile JOIN verificado producción) |
 | 5 | 2026-08-19 | F.3 4-account review detallado con análisis evidence-based para `6.11.07.290` |
 | 6 | 2026-08-19 | ALF-CONTEC-MAPPING-PROPOSAL-v2.csv generado |
+| 7 | 2026-08-19 | **BLOQUE 3 PASS** (F.3 acc_chart_mapping 4 rows ejecutado producción; CFO aprobó GOPEX para 6.11.07.290) |
