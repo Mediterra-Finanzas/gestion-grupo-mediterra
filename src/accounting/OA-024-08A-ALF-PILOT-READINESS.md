@@ -1,6 +1,6 @@
 # OA-024-08A — ALF Pilot Readiness / Mapping + Currency + Security Preflight
 
-**Estado:** IN PROGRESS — Pendiente Q1–Q5 (Supabase) + ContecAdapter agent
+**Estado:** FINDINGS COMPLETOS — Pendiente D8 business decision (CFO)
 **Fecha:** 2026-08-19
 **Rama:** claude/crazy-heisenberg-f33f7a
 **Prerrequisito:** OA-024-08 = STABLE (93/93 PASS)
@@ -37,18 +37,18 @@ acc_base_profile
   framework_version    TEXT NOT NULL DEFAULT 'IFRS-2024'
 ```
 
-### Estado DB
+### Estado DB (Q1 + Q3a confirmados 2026-08-19)
 
 | Tabla | ALF seeded | functional_currency |
 |-------|-----------|---------------------|
-| `acc_base_profile` | NO (confirmado en migration 011) | — |
-| `acc_entity_config` | NO (confirmado en migration 011) | — |
+| `acc_base_profile` | **NO — 0 rows** | — |
+| `acc_entity_config` | **NO — 0 rows** | — |
+
+**Q1 result**: ALF existe en `core_entities` (legal_name = "Allegria Foods") pero el LEFT JOIN devuelve ALL NULL para todos los campos de `acc_entity_config` — confirma que no hay ninguna fila de configuración.
+
+**Q3a result**: `acc_base_profile` también vacío para ALF.
 
 **Nota de diseño**: La omisión es INTENCIONAL. Migration 011 declara explícitamente "NO autorizado: D7 ownership, D8 currencies". El campo es nullable exactamente para este estado.
-
-### Confirmación DB pendiente (Q1)
-
-> PENDING_Q1 — Angelo debe ejecutar Query 1 y confirmar que `functional_currency` retorna NULL para ALF.
 
 ### Status D8-ALF
 
@@ -207,25 +207,23 @@ El gate se cierra cuando:
 
 **Nota**: EFE y ECP tienen `acc_financial_statement` header pero **sin filas en `acc_reporting_account`**. No están disponibles para mapping todavía.
 
-### Cobertura ALF
+### Cobertura ALF (Q2 confirmado 2026-08-19)
 
 | Métrica | Valor |
 |---------|-------|
-| Cuentas Contec ALF en DB | 0 (no se ha cargado archivo real) |
+| Cuentas en `acc_chart_mapping` para ALF | **0 — Success. No rows returned** |
 | Cuentas con mapping | 0 |
-| Cuentas sin mapping | 0 (vacío) |
-| Cobertura % cantidad | N/A |
-| Cobertura % valor | N/A |
+| Cobertura % | 0% |
 
-> PENDING_Q2 — Query 2 confirmará estado real de acc_chart_mapping para ALF.
+**Q2 result**: tabla `acc_chart_mapping` completamente vacía para ALF. La query corrió con éxito (`local_account_code` es la columna correcta) — simplemente no hay datos.
 
 ### Estado mapping
 
-**Mapping coverage: BLOCKED**
+**Mapping coverage: BLOCKED — 0/0 cuentas mapeadas**
 
-**Razón**: No existe ningún `acc_chart_mapping` para ALF. El plan de cuentas Contec de ALF no ha sido cargado.
+**Razón**: El plan de cuentas Contec de ALF no ha sido cargado. Sin cuentas en `acc_chart_mapping`, `fn_acc_mapping_completeness` retornaría FATAL para cualquier batch con valor ≠ 0.
 
-**Para desbloquear**: CFO debe proveer el archivo Excel Contec (Balance o EERR) de ALF. El parser generará la lista de cuentas; con esa lista se genera el mapping proposal completo.
+**Para desbloquear**: CFO debe proveer el archivo Excel Contec (Balance o EERR) de ALF. Con el archivo se extrae la lista de cuentas y se genera el mapping proposal completo (Level 2).
 
 ---
 
@@ -442,75 +440,126 @@ Verificación RLS:
 
 ---
 
-## H. Storage Policy Assessment
+## H. Storage Policy Assessment (Q5 confirmado 2026-08-19)
 
-> PENDING_Q5 — Angelo debe ejecutar Query 5 y devolver las políticas del bucket `accounting-source`.
+### Resultado Q5
 
-**Conocido pre-query:**
-- Bucket `accounting-source` fue creado PRIVATE manualmente antes de ejecutar migration 016
-- Private = authenticated-only access (Supabase default)
-- RLS sobre `storage.objects` es capa adicional de control
+**accounting-source bucket: NO EXISTE.**
 
-**Gate esperado:**
-- `public = false` ✓
-- Anon read = DENIED ✓
-- Anon write = DENIED ✓
-- Authenticated read = condicionado por entity_id path (debe ser `{entity_uuid}/...`)
-- Service role = ALL ✓
-- Cross-company isolation = garantizada por path prefix `{entity_uuid}/`
+La query devolvió 11 policies para 3 buckets: `osiris-fotos` (4), `frisku-docs` (4), `nominas-docs` (3). **Cero results para `accounting-source`.**
 
-Si Q5 devuelve políticas contradictorias → BLOCKED con causa específica.
+Confirmado en dos partes de la query:
+1. `SELECT FROM storage.buckets WHERE name = 'accounting-source'` → 0 rows (bucket no existe)
+2. `SELECT FROM pg_policies WHERE schemaname = 'storage'` → solo policies para otros buckets
+
+### Diagnóstico
+
+El bucket fue referenciado en migration 016 (se agregaron columnas `storage_bucket CHECK IN('accounting-source')`, `storage_path`, `mime_type`, `file_size_bytes` a `acc_source_batch`), pero la creación física del bucket en Supabase Storage nunca se ejecutó.
+
+### Gate
+
+**Storage: BLOCKED — bucket no creado.**
+
+| Check | Estado |
+|-------|--------|
+| accounting-source bucket existe | ❌ NO EXISTE |
+| public = false | N/A |
+| Anon read/write DENIED | N/A |
+| RLS policies configuradas | N/A |
+
+### Acción para crear el bucket
+
+En Supabase Dashboard → Storage → New Bucket:
+
+```
+Name:   accounting-source
+Public: false   ← CRÍTICO: debe ser privado
+```
+
+Luego en SQL Editor, ejecutar las RLS policies:
+
+```sql
+-- Policy: solo autenticados pueden operar
+CREATE POLICY "accounting_source_authenticated"
+  ON storage.objects
+  FOR ALL
+  TO authenticated
+  USING (bucket_id = 'accounting-source')
+  WITH CHECK (bucket_id = 'accounting-source');
+
+-- Policy: anon denegado
+CREATE POLICY "accounting_source_deny_anon"
+  ON storage.objects
+  FOR ALL
+  TO anon
+  USING (false);
+```
+
+Esta acción NO está autorizada todavía para ejecución (requiere OA-024-09 go-ahead). Se documenta aquí para cuando el gate sea desbloqueado.
 
 ---
 
 ## I. Pilot ALF GO/NO-GO
 
-| Gate | Estado | Desbloqueante |
-|------|--------|--------------|
-| OA-024-08 93/93 PASS | ✅ PASS | — |
-| acc_entity_config ALF existe | ❌ BLOCKED | CFO: declarar functional_currency ALF |
-| acc_base_profile ALF existe | ❌ BLOCKED | CFO: declarar functional_currency ALF |
-| D8-ALF functional_currency | ❌ BLOCKED | CFO: USD / CLP / otra |
-| source currency semantics | ⚠ GATE ABIERTO | D8 resolve + ContecAdapter param |
-| Chart mapping ALF ≥ 1 cuenta | ❌ BLOCKED | CFO: proveer archivo Contec ALF |
-| Cuentas con valor ≠ 0 mapeadas | N/A | (no data cargada) |
-| SUPA key = anon (no service_role) | ✅ PASS | — |
-| RLS fail-closed | ✅ PASS | 93/93 tests |
-| Storage accounting-source | ⏳ PENDING_Q5 | Angelo ejecutar Q5 |
+| Gate | Estado | Evidencia | Desbloqueante |
+|------|--------|-----------|--------------|
+| OA-024-08 93/93 PASS | ✅ PASS | Test run 2026-08-19 | — |
+| acc_source_adapter_profile ALF/contec | ✅ PASS | Q3b: 1 row, is_active=true | — |
+| 17 reporting accounts disponibles | ✅ PASS | Q4: 17 rows (9 ERI + 8 ESF) | — |
+| SUPA key = anon (no service_role) | ✅ PASS | JWT decode | — |
+| RLS fail-closed | ✅ PASS | 93/93 tests | — |
+| Schema correcto (local_account_code) | ✅ PASS | Q2 corrida exitosa | — |
+| D8-ALF: acc_entity_config existe | ❌ BLOCKED | Q1: 0 rows in acc_entity_config | **CFO: declarar functional_currency ALF** |
+| D8-ALF: acc_base_profile existe | ❌ BLOCKED | Q3a: 0 rows | **CFO: declarar functional_currency ALF** |
+| D8-ALF: functional_currency declarada | ❌ BLOCKED | NULL en DB | **CFO: USD / CLP / otra** |
+| Source currency semantics | ⚠ GATE ABIERTO | Fix aplicado en ContecAdapter | D8 resolve |
+| Chart mapping ALF ≥ 1 cuenta | ❌ BLOCKED | Q2: 0 rows | CFO: proveer archivo Contec ALF |
+| Cuentas con valor ≠ 0 mapeadas | N/A | Sin datos cargados | — |
+| Storage: accounting-source existe | ❌ BLOCKED | Q5: bucket no existe | Crear bucket en Supabase Dashboard |
 
-**PILOT ALF = BLOCKED**
+**PILOT ALF = BLOCKED (3 blockers)**
 
-**Blockers activos (en orden de criticidad):**
-1. **D8-ALF** — functional_currency no declarada (requiere CFO)
-2. **Mapping** — 0 cuentas mapeadas (requiere archivo Excel Contec ALF)
-3. **Storage** — pending Q5 verification
+| # | Blocker | Decisión |
+|---|---------|---------|
+| B1 | D8-ALF: `functional_currency` no declarada | CFO (30 segundos) |
+| B2 | Chart mapping: 0 cuentas en acc_chart_mapping | CFO proveer archivo Contec ALF |
+| B3 | Storage: bucket `accounting-source` no existe | Angelo crear en Dashboard (2 minutos) |
 
-**No bloqueantes confirmados:**
-- Key security ✅
-- RLS ✅
-- Schema ✅
-- Regresión ✅
+**No bloqueantes confirmados (pueden avanzar ya):**
+- ✅ Key security — anon, RLS suficiente
+- ✅ RLS 93/93 PASS
+- ✅ Schema correcto
+- ✅ Adapter profile ALF/contec seeded con CapabilitySet
+- ✅ 17 reporting accounts disponibles para mapping
 
 ---
 
 ## J. Exact Next Step
 
-### Para Angelo (secuencia única de acciones):
+### Para Angelo — 3 acciones que desbloquean el pilot
 
-**STEP 1 — Business Decision (CFO, 2 minutos):**
-> ¿Cuál es la moneda funcional de Allegria Foods Ltd.? Responde con: `USD` / `CLP` / `otra`
+**STEP 1 — Business Decision (CFO, 30 segundos):**
+> ¿Cuál es la moneda funcional de Allegria Foods Ltd.?
+> `USD` (recomendado: exportadora con flujos USD) / `CLP` / `otra`
+>
+> Con esta respuesta, el técnico ejecuta F.1 + F.2 sin más preguntas.
 
-**STEP 2 — Queries Supabase (SQL Editor, mediterra-calendario):**
-> Ejecutar las 5 queries del mensaje anterior (Q1–Q5) y devolver resultados.
+**STEP 2 — Crear bucket en Supabase (2 minutos):**
+> Supabase Dashboard → Storage → New Bucket
+> - Name: `accounting-source`
+> - Public: **OFF** (deshabilitado)
+> → Confirmar que aparece en la lista con 🔒 Private
 
 **STEP 3 — Archivo Contec ALF:**
-> Proveer el export Balance o EERR de ALF desde Contec (el archivo Excel nativo, no necesariamente con montos reales — puede ser un período vacío o de prueba).
+> Proveer el export Balance o EERR de ALF desde Contec.
+> No necesita montos reales — puede ser cualquier export del sistema.
+> Sirve para extraer la lista de cuentas y generar el mapping Level 2.
 
-Con estas 3 entradas, el equipo técnico puede:
-- Ejecutar F.1 + F.2 (acc_base_profile + acc_entity_config)
-- Generar el mapping proposal completo con cuentas reales
-- Completar sección E y H
-- Declarar PILOT ALF = READY
+Con estas 3 acciones, el técnico puede:
+- Ejecutar F.1 + F.2 (acc_base_profile + acc_entity_config) — ~5 minutos
+- Generar migration con chart mapping Level 2 completo — ~30 minutos
+- Ejecutar RLS policies del bucket — ~5 minutos
+- Declarar **PILOT ALF = READY**
 
 ---
 
@@ -526,4 +575,6 @@ Con estas 3 entradas, el equipo técnico puede:
 
 ---
 
-*Documento en proceso — secciones B (partial), H (pending Q5) y E nivel 2 se completan con resultados Q1-Q5 y ContecAdapter agent.*
+---
+
+*Documento COMPLETO — todos los findings de Q1–Q5 incorporados 2026-08-19. Solo pendiente: D8 decision (CFO) + archivo Contec ALF + bucket creation.*
