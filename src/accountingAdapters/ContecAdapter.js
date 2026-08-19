@@ -98,7 +98,7 @@ function isBalanceGroupRow(row) {
 
 
 // =============================================================================
-// parseBalanceContec(rows) → BalanceSourceRow[]
+// parseBalanceContec(rows, sourceCurrency) → BalanceSourceRow[]
 // =============================================================================
 // Parsea una exportación nativa del Balance (ESF) de Contec.
 // Filtra filas de grupo/subtotal (código vacío o terminado en .000).
@@ -107,9 +107,20 @@ function isBalanceGroupRow(row) {
 // (correcto: el resultado de ER no se registra en ESF directamente).
 //
 // @param {(string|number|null)[][]} rows — Filas del worksheet (array-of-arrays)
+// @param {string} sourceCurrency — ISO 4217 (ej. 'USD','CLP'). Tomado de
+//   acc_entity_config.functional_currency. Obligatorio — el formato Contec no
+//   incluye columna de moneda; la moneda es implícita de la configuración contable
+//   de la entidad en Contec.
 // @returns {BalanceSourceRow[]}
 // =============================================================================
-export function parseBalanceContec(rows) {
+export function parseBalanceContec(rows, sourceCurrency) {
+  if (!sourceCurrency || typeof sourceCurrency !== 'string' || sourceCurrency.length !== 3) {
+    throw new Error(
+      `ContecAdapter: sourceCurrency obligatorio para parseBalanceContec. ` +
+      `Valor recibido: "${sourceCurrency}". ` +
+      `Obtener de acc_entity_config.functional_currency para la entidad.`
+    );
+  }
   const result = [];
 
   rows.forEach((row, rowIdx) => {
@@ -146,7 +157,7 @@ export function parseBalanceContec(rows) {
       ytd_credit:          ytdCredit || null,
       debit_balance:       debitBalance  || null,
       credit_balance:      creditBalance || null,
-      source_currency:     'USD',
+      source_currency:     sourceCurrency,
     });
   });
 
@@ -155,7 +166,7 @@ export function parseBalanceContec(rows) {
 
 
 // =============================================================================
-// parseEerrContec(rows, sourceReportType) → EerrSourceRow[]
+// parseEerrContec(rows, sourceReportType, sourceCurrency) → EerrSourceRow[]
 // =============================================================================
 // Parsea EERR-Período o EERR-Acumulado de Contec.
 // Retorna UNA FILA POR (account_code × cost_center) — sin agregación.
@@ -164,11 +175,21 @@ export function parseBalanceContec(rows) {
 //
 // @param {(string|number|null)[][]} rows
 // @param {'eerr_periodo'|'eerr_acumulado'} sourceReportType
+// @param {string} sourceCurrency — ISO 4217 (ej. 'USD','CLP'). Tomado de
+//   acc_entity_config.functional_currency. Obligatorio — el formato Contec no
+//   incluye columna de moneda.
 // @returns {EerrSourceRow[]}
 // =============================================================================
-export function parseEerrContec(rows, sourceReportType = REPORT_TYPES.EERR_PERIODO) {
+export function parseEerrContec(rows, sourceReportType = REPORT_TYPES.EERR_PERIODO, sourceCurrency) {
   if (sourceReportType !== REPORT_TYPES.EERR_PERIODO && sourceReportType !== REPORT_TYPES.EERR_ACUMULADO) {
     throw new Error(`ContecAdapter: sourceReportType inválido: "${sourceReportType}"`);
+  }
+  if (!sourceCurrency || typeof sourceCurrency !== 'string' || sourceCurrency.length !== 3) {
+    throw new Error(
+      `ContecAdapter: sourceCurrency obligatorio para parseEerrContec. ` +
+      `Valor recibido: "${sourceCurrency}". ` +
+      `Obtener de acc_entity_config.functional_currency para la entidad.`
+    );
   }
 
   const result = [];
@@ -205,7 +226,7 @@ export function parseEerrContec(rows, sourceReportType = REPORT_TYPES.EERR_PERIO
       ytd_credit:          null,
       debit_balance:       null,
       credit_balance:      null,
-      source_currency:     'USD',
+      source_currency:     sourceCurrency,
     });
   });
 
