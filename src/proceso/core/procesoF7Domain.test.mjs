@@ -2,7 +2,7 @@
 // Tests de dominio proc_* F7.1 (node). Ejecutar: node src/proceso/core/procesoF7Domain.test.mjs
 import { formatearCorrelativo, compactarTemporada, evaluarQC, badgeDe, traducirError, validarFiltros, calcularNeto, validarPesos, packout, resumenConciliacion, accionesOrden, faltaParaCerrar, ordenTerminal, despachoTerminal, puedeConfirmarDespacho, accionesDespacho, totalKg, montoServicio, especificidadTarifa, vigenciaTarifa, baseEditable, accionesBase, servicioAgregableABase, totalesPorMoneda, filtrosActivos, opcionesRef, limpiarDependencias, labelRef, resumenKgLotes, resumenOrigenes, tonoContractual, copiarOrigen, alertaContractual, transicionesContrato, tonoNivelContractual, qcPorLote, resumenQcRecepcion, rpcFecha, loteSinOrigen, qcListadoResumen, evaluarOrigenLote, textoQcCabecera, kgEntradaPorLote,
 fechaCalendarioTz, ahoraOperacional, temporadaDeFecha, TZ_OPERACIONAL,
-resumenEnvases, NATURALEZA_ENVASE_LABEL } from "./procesoF7Domain.js";
+resumenEnvases, NATURALEZA_ENVASE_LABEL, orquestarConfirmarDespacho } from "./procesoF7Domain.js";
 
 let pass = 0, fail = 0;
 const ok = (c, m) => { if (c) pass++; else { fail++; console.error("  ✗ " + m); } };
@@ -334,6 +334,67 @@ eq(tm.find((x) => x.moneda === "CLP").total, 100000, "CLP separado");
 // Filtros
 ok(!validarFiltros({}).ok, "sin empresa -> inválido");
 ok(validarFiltros({ empresa: "e1", fecha: "2026-12-05" }).ok, "con empresa+fecha -> válido");
+
+// ── orquestarConfirmarDespacho (anti stale / anti doble-submit) ──────────────
+await (async () => {
+  const mk = () => ({ rpc: 0, recarga: 0, exito: 0, notif: [], conf: [] });
+
+  // 1) doble submit: yaConfirmando=true → NO dispara otra RPC ni toca confirmando
+  {
+    const t = mk();
+    const r = await orquestarConfirmarDespacho({
+      yaConfirmando: true, lineas: [{ pallet_id: "p", kg: 500 }],
+      rpc: async () => { t.rpc++; }, recargar: async () => { t.recarga++; },
+      alExito: () => { t.exito++; }, notificar: (m, k) => t.notif.push([m, k]), setConfirmando: (v) => t.conf.push(v),
+    });
+    ok(r.ejecutado === false && r.motivo === "en_curso", "confirmar double-submit: no ejecuta");
+    eq(t.rpc, 0, "confirmar double-submit: RPC no se llama");
+    eq(t.conf.length, 0, "confirmar double-submit: no toca confirmando");
+  }
+
+  // 2) sin carga → no ejecuta RPC y avisa
+  {
+    const t = mk();
+    const r = await orquestarConfirmarDespacho({
+      yaConfirmando: false, lineas: [],
+      rpc: async () => { t.rpc++; }, recargar: async () => { t.recarga++; },
+      notificar: (m, k) => t.notif.push([m, k]), setConfirmando: (v) => t.conf.push(v),
+    });
+    ok(r.ejecutado === false && r.motivo === "sin_carga", "confirmar sin carga: no ejecuta");
+    eq(t.rpc, 0, "confirmar sin carga: RPC no se llama");
+  }
+
+  // 3) success → alExito + recarga + confirmando true→false
+  {
+    const t = mk();
+    const r = await orquestarConfirmarDespacho({
+      yaConfirmando: false, lineas: [{ pallet_id: "p", kg: 500 }],
+      rpc: async () => { t.rpc++; }, recargar: async () => { t.recarga++; },
+      alExito: () => { t.exito++; }, notificar: (m, k) => t.notif.push([m, k]), setConfirmando: (v) => t.conf.push(v),
+    });
+    ok(r.ejecutado && r.ok, "confirmar success: ejecutado ok");
+    eq(t.rpc, 1, "confirmar success: RPC 1 vez");
+    eq(t.recarga, 1, "confirmar success: recarga estado autoritativo");
+    eq(t.exito, 1, "confirmar success: limpia carga (alExito)");
+    ok(t.conf[0] === true && t.conf[t.conf.length - 1] === false, "confirmar success: confirmando true→false");
+  }
+
+  // 4) error (backend ya despachado) → recarga IGUAL + confirmando true→false + NO limpia carga
+  {
+    const t = mk();
+    const r = await orquestarConfirmarDespacho({
+      yaConfirmando: false, lineas: [{ pallet_id: "p", kg: 500 }],
+      rpc: async () => { t.rpc++; throw new Error("despacho debe estar listo/cargando para confirmar (está despachado)"); },
+      recargar: async () => { t.recarga++; },
+      alExito: () => { t.exito++; }, notificar: (m, k) => t.notif.push([m, k]), setConfirmando: (v) => t.conf.push(v),
+    });
+    ok(r.ejecutado && !r.ok, "confirmar error: ejecutado pero no ok");
+    eq(t.recarga, 1, "confirmar error: recarga IGUAL (recupera estado autoritativo, no queda stale)");
+    eq(t.exito, 0, "confirmar error: NO limpia carga (reintento válido)");
+    ok(t.conf[0] === true && t.conf[t.conf.length - 1] === false, "confirmar error: confirmando true→false");
+    ok(t.notif.some((n) => n[1] === "error"), "confirmar error: notifica error");
+  }
+})();
 
 console.log(`\nproc_* F7.1 domain tests: ${pass} pasaron, ${fail} fallaron`);
 if (fail > 0) process.exit(1);

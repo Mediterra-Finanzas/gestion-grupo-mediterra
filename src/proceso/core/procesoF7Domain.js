@@ -492,3 +492,36 @@ export function validarFiltros({ empresa, planta, temporada, fecha } = {}) {
   if (fecha && Number.isNaN(new Date(fecha).getTime())) errores.push("Fecha operacional inválida.");
   return { ok: errores.length === 0, errores };
 }
+
+// ── Orquestación de "Confirmar salida" del despacho (testeable sin navegador) ──
+// El backend es autoritativo: la salida es atómica y una segunda llamada sobre un
+// despacho ya despachado es rechazada por el guard (no duplica). Este envoltorio evita
+// que la UI quede stale o dispare doble-submit:
+//   (1) si ya está confirmando, no ejecuta otra RPC (anti doble-submit);
+//   (2) marca confirmando true antes de la RPC y false en finally;
+//   (3) recarga SIEMPRE el estado autoritativo — tanto en éxito como en error —
+//       para que la pantalla nunca siga mostrando "Listo" cuando el backend ya despachó.
+// `alExito` limpia la carga local sólo en éxito (en error se conserva para reintento válido).
+export async function orquestarConfirmarDespacho({
+  yaConfirmando, lineas, rpc, recargar, notificar, setConfirmando, alExito,
+} = {}) {
+  if (yaConfirmando) return { ejecutado: false, motivo: "en_curso" };
+  if (!lineas || lineas.length === 0) {
+    if (notificar) notificar("Agregá pallets a la carga", "error");
+    return { ejecutado: false, motivo: "sin_carga" };
+  }
+  if (setConfirmando) setConfirmando(true);
+  try {
+    await rpc(lineas);
+    if (alExito) alExito();
+    if (notificar) notificar("Salida confirmada ✓");
+    if (recargar) await recargar();
+    return { ejecutado: true, ok: true };
+  } catch (e) {
+    if (notificar) notificar(traducirError(e), "error");
+    if (recargar) await recargar(); // recupera estado autoritativo aunque falle
+    return { ejecutado: true, ok: false, error: e };
+  } finally {
+    if (setConfirmando) setConfirmando(false);
+  }
+}

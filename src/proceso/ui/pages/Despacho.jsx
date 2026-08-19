@@ -9,7 +9,7 @@ import {
   cargarVinculosPorRol, actualizarDespacho, cambiarEstadoDespacho, cancelarDespacho,
   reservarPallet, liberarReserva, confirmarDespacho, reversarDespacho, crearDocDespacho, cargarPalletHoldsFolio,
 } from "../../core/procesoF7DB";
-import { traducirError } from "../../core/procesoF7Domain";
+import { traducirError, orquestarConfirmarDespacho } from "../../core/procesoF7Domain";
 import {
   ProcPageHeader, ProcCard, ProcButton, ProcStatusBadge, ProcDataTable, ProcModal, ProcField, inputStyle,
   ProcKpiCard, ProcAuditInfo, ProcLoadingState, ProcErrorState, ProcEmptyState, ProcConfirmAction,
@@ -35,6 +35,7 @@ export default function Despacho() {
   const [estado, setEstado] = useState("loading"); const [error, setError] = useState(null);
   const [addPallet, setAddPallet] = useState(null); const [reversa, setReversa] = useState(false); const [cancelar, setCancelar] = useState(false);
   const [docForm, setDocForm] = useState(null);
+  const [confirmando, setConfirmando] = useState(false); // anti doble-submit del confirmar salida
   const editPerm = puedeEditar("despachos") || puedeEditar("centro");
 
   const cargar = useCallback(async () => {
@@ -71,14 +72,14 @@ export default function Despacho() {
   };
   const quitarCarga = async (c) => { try { await liberarReserva({ empresaId: empresa, despachoId: id, palletId: c.palletId }); setCarga(carga.filter((x) => x !== c)); notificar("Reserva liberada"); } catch (e) { notificar(traducirError(e), "error"); } };
 
-  const confirmar = async () => {
-    if (carga.length === 0) return notificar("Agregá pallets a la carga", "error");
-    try {
-      const lns = carga.map((c) => ({ pallet_id: c.palletId, pt_id: null, cajas: Number(c.cajas) || 0, kg: Number(c.kg) }));
-      await confirmarDespacho({ empresaId: empresa, despachoId: id, lineas: lns });
-      notificar("Salida confirmada ✓"); setCarga([]); cargar();
-    } catch (e) { notificar(traducirError(e), "error"); }
-  };
+  const confirmar = () => orquestarConfirmarDespacho({
+    yaConfirmando: confirmando,
+    lineas: carga.map((c) => ({ pallet_id: c.palletId, pt_id: null, cajas: Number(c.cajas) || 0, kg: Number(c.kg) })),
+    rpc: (lns) => confirmarDespacho({ empresaId: empresa, despachoId: id, lineas: lns }),
+    recargar: cargar,              // recarga el estado autoritativo (éxito o error)
+    alExito: () => setCarga([]),   // limpia la carga local sólo si confirmó
+    notificar, setConfirmando,
+  });
   const doReversa = async (motivo) => { try { await reversarDespacho({ empresaId: empresa, despachoId: id, motivo }); notificar("Despacho reversado ✓"); setReversa(false); cargar(); } catch (e) { notificar(traducirError(e), "error"); } };
   const doCancelar = async () => { try { await cancelarDespacho({ empresaId: empresa, despachoId: id }); notificar("Despacho cancelado (reservas liberadas)"); setCancelar(false); cargar(); } catch (e) { notificar(traducirError(e), "error"); } };
   const agregarDoc = async () => { try { await crearDocDespacho({ empresa_id: empresa, despacho_id: id, tipo: docForm.tipo, folio: docForm.folio || null }); notificar("Documento agregado"); setDocForm(null); cargar(); } catch (e) { notificar(traducirError(e), "error"); } };
@@ -93,7 +94,7 @@ export default function Despacho() {
           <ProcButton kind="ghost" onClick={() => ir("despachos")}>← Despachos</ProcButton>
           {editPerm && est === "borrador" && <ProcButton onClick={() => trans("preparando")}>Preparar</ProcButton>}
           {editPerm && est === "preparando" && <ProcButton onClick={() => trans("listo")}>Marcar listo</ProcButton>}
-          {puedeConfirmar && <ProcButton kind="success" onClick={confirmar}>Confirmar salida</ProcButton>}
+          {puedeConfirmar && <ProcButton kind="success" disabled={confirmando} onClick={confirmar}>{confirmando ? "Confirmando…" : "Confirmar salida"}</ProcButton>}
           {editPerm && !terminal && <ProcButton kind="danger" onClick={() => setCancelar(true)}>Cancelar</ProcButton>}
           {editPerm && est === "despachado" && <ProcButton kind="danger" onClick={() => setReversa(true)}>Reversar</ProcButton>}
         </>} />
