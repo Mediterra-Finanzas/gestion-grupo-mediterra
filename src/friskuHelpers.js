@@ -200,6 +200,22 @@ export function buscarTC(monedaOrigen, monedaDestino, fecha, tcData) {
   const inverso = buscarEnSerie(tcData[parInverso]);
   if (inverso != null && inverso !== 0) return 1 / inverso;
 
+  // Triangulación por pivote (USD/CLP) cuando no hay par directo ni inverso.
+  // Ej.: EUR→USD sin par EUR-USD se deriva de EUR-CLP y USD-CLP (EUR→CLP ÷ USD→CLP).
+  // Aditivo: solo actúa donde antes se devolvía null. El par directo (si existe) siempre prima.
+  const resolveDir = (X, Y) => {
+    if (X === Y) return 1;
+    const d = buscarEnSerie(tcData[`${X}-${Y}`]); if (d != null && d !== 0) return d;
+    const i = buscarEnSerie(tcData[`${Y}-${X}`]); if (i != null && i !== 0) return 1 / i;
+    return null;
+  };
+  for (const pivote of ["USD", "CLP"]) {
+    if (pivote === monedaOrigen || pivote === monedaDestino) continue;
+    const aP = resolveDir(monedaOrigen, pivote);   // origen → pivote
+    const bP = resolveDir(monedaDestino, pivote);  // destino → pivote
+    if (aP != null && bP != null && bP !== 0) return aP / bP;
+  }
+
   return null;
 }
 
