@@ -274,9 +274,9 @@ BEGIN
       'actual',
       v_row.reporting_account_id,
       p_batch_id,
-      v_row.debit_balance,
-      v_row.credit_balance,
-      v_row.net_balance,
+      COALESCE(v_row.debit_balance,  0),   -- NOT NULL DEFAULT 0; NULL para EERR → 0
+      COALESCE(v_row.credit_balance, 0),   -- NOT NULL DEFAULT 0; NULL para EERR → 0
+      COALESCE(v_row.net_balance,    0),   -- NOT NULL DEFAULT 0; guardia defensiva
       v_row.currency
     )
     ON CONFLICT (entity_id, period_id, account_code, balance_type)

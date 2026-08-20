@@ -2,12 +2,17 @@
 -- 019_alf_acc_period_seed.sql
 -- OA-024-09 — 12 períodos mensuales para ALF, ejercicio fiscal 2026
 -- Fecha   : 2026-08-19
--- Estado  : EJECUTAR DESPUÉS de 018 (AccountingProfile ALF en producción)
+-- Estado  : PRODUCTION PASS — ejecutada 2026-08-19, NO RE-EXECUTION REQUIRED
 -- =============================================================================
 -- PRERREQUISITOS:
 --   008_accounting_tables_apply.sql → acc_period existe
 --   core_entities ALF UUID = 3df93d9d-cbc6-446f-b9a5-0a3840692fd8
 --   acc_entity_config ALF con effective_from = 2026-01-01 (ejecutado en 018)
+--
+-- PRODUCTION EXECUTION = PASS (2026-08-19)
+-- Resultado verificado: 12 períodos MONTHLY ALF 2026, fiscal_month 1..12,
+-- fiscal_quarter 1..4, date_from/to correctos, febrero=28 días, status='open'.
+-- NO modificar las 12 filas ya insertadas.
 --
 -- SCOPE:
 --   Inserta 12 filas en acc_period para ALF, fiscal_year 2026, period_type 'monthly'.
