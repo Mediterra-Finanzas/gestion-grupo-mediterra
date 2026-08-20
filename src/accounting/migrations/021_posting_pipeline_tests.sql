@@ -97,6 +97,7 @@ DECLARE
   v_pass    INT  := 0;
   v_fail    INT  := 0;
   v_warn    INT  := 0;
+  v_fail_codes TEXT := '';  -- diagnóstico: acumula códigos FAIL para el resumen
 
   -- Fixtures
   v_alf_id       UUID;
@@ -131,7 +132,7 @@ BEGIN
   IF v_period_count = 12 THEN
     v_pass := v_pass + 1; RAISE NOTICE 'PASS [1401] 12 períodos mensuales ALF 2026 presentes';
   ELSE
-    v_fail := v_fail + 1; RAISE NOTICE 'FAIL [1401] Se esperaban 12 períodos, encontrados: %', v_period_count;
+    v_fail := v_fail + 1; v_fail_codes := v_fail_codes || ' 1401'; RAISE NOTICE 'FAIL [1401] Se esperaban 12 períodos, encontrados: %', v_period_count;
   END IF;
 
   -- 1402: Febrero tiene 28 días
@@ -141,7 +142,7 @@ BEGIN
   IF v_feb_days = 28 THEN
     v_pass := v_pass + 1; RAISE NOTICE 'PASS [1402] Febrero 2026 = 28 días (año no bisiesto)';
   ELSE
-    v_fail := v_fail + 1; RAISE NOTICE 'FAIL [1402] Febrero 2026 tiene % días, esperado 28', v_feb_days;
+    v_fail := v_fail + 1; v_fail_codes := v_fail_codes || ' 1402'; RAISE NOTICE 'FAIL [1402] Febrero 2026 tiene % días, esperado 28', v_feb_days;
   END IF;
 
   -- 1403: Todos los períodos están 'open'
@@ -151,7 +152,7 @@ BEGIN
   IF v_open_count = 12 THEN
     v_pass := v_pass + 1; RAISE NOTICE 'PASS [1403] Todos los 12 períodos tienen status=open';
   ELSE
-    v_fail := v_fail + 1; RAISE NOTICE 'FAIL [1403] Solo %/12 períodos tienen status=open', v_open_count;
+    v_fail := v_fail + 1; v_fail_codes := v_fail_codes || ' 1403'; RAISE NOTICE 'FAIL [1403] Solo %/12 períodos tienen status=open', v_open_count;
   END IF;
 
   -- 1404: Re-insert es idempotente (ON CONFLICT DO NOTHING)
@@ -165,7 +166,7 @@ BEGIN
   IF v_period_count = 12 THEN
     v_pass := v_pass + 1; RAISE NOTICE 'PASS [1404] Re-insert idempotente — sigue en 12 períodos';
   ELSE
-    v_fail := v_fail + 1; RAISE NOTICE 'FAIL [1404] Re-insert creó fila extra: % períodos', v_period_count;
+    v_fail := v_fail + 1; v_fail_codes := v_fail_codes || ' 1404'; RAISE NOTICE 'FAIL [1404] Re-insert creó fila extra: % períodos', v_period_count;
   END IF;
 
   -- Obtener UUIDs de julio y agosto para uso en tests
@@ -186,7 +187,7 @@ BEGIN
     WHERE entity_id = v_alf_id AND period_id = v_period_jul AND account_code = '1405.TEST';
   EXCEPTION
     WHEN OTHERS THEN
-      v_fail := v_fail + 1; RAISE NOTICE 'FAIL [1405] T10 rechazó INSERT en período open: %', SQLERRM;
+      v_fail := v_fail + 1; v_fail_codes := v_fail_codes || ' 1405'; RAISE NOTICE 'FAIL [1405] T10 rechazó INSERT en período open: %', SQLERRM;
   END;
 
   -- 1406: T10 bloquea INSERT en período 'closed'
@@ -200,7 +201,7 @@ BEGIN
          currency, balance_type)
       VALUES
         (v_alf_id, v_period_jul, '1406.TEST', 100, 0, 100, 'USD', 'actual');
-      v_fail := v_fail + 1; RAISE NOTICE 'FAIL [1406] T10 debería haber bloqueado INSERT en período closed';
+      v_fail := v_fail + 1; v_fail_codes := v_fail_codes || ' 1406'; RAISE NOTICE 'FAIL [1406] T10 debería haber bloqueado INSERT en período closed';
       DELETE FROM acc_account_balance
       WHERE entity_id = v_alf_id AND period_id = v_period_jul AND account_code = '1406.TEST';
     EXCEPTION
@@ -226,7 +227,7 @@ BEGIN
   ) THEN
     v_pass := v_pass + 1; RAISE NOTICE 'PASS [1501] acc_source_batch: política INSERT para authenticated existe';
   ELSE
-    v_fail := v_fail + 1; RAISE NOTICE 'FAIL [1501] acc_source_batch: falta política INSERT para authenticated. Ejecutar 020.';
+    v_fail := v_fail + 1; v_fail_codes := v_fail_codes || ' 1501'; RAISE NOTICE 'FAIL [1501] acc_source_batch: falta política INSERT para authenticated. Ejecutar 020.';
   END IF;
 
   -- 1502: acc_source_batch tiene política UPDATE para authenticated
@@ -239,7 +240,7 @@ BEGIN
   ) THEN
     v_pass := v_pass + 1; RAISE NOTICE 'PASS [1502] acc_source_batch: política UPDATE para authenticated existe';
   ELSE
-    v_fail := v_fail + 1; RAISE NOTICE 'FAIL [1502] acc_source_batch: falta política UPDATE para authenticated. Ejecutar 020.';
+    v_fail := v_fail + 1; v_fail_codes := v_fail_codes || ' 1502'; RAISE NOTICE 'FAIL [1502] acc_source_batch: falta política UPDATE para authenticated. Ejecutar 020.';
   END IF;
 
   -- 1503: acc_account_balance NO tiene política INSERT/UPDATE para authenticated (modelo C)
@@ -252,7 +253,7 @@ BEGIN
   ) THEN
     v_pass := v_pass + 1; RAISE NOTICE 'PASS [1503] acc_account_balance: authenticated no tiene política INSERT/UPDATE directa (modelo C OK)';
   ELSE
-    v_fail := v_fail + 1; RAISE NOTICE 'FAIL [1503] SEGURIDAD: acc_account_balance tiene política INSERT/UPDATE para authenticated — viola modelo C. Revisar 020 v2.';
+    v_fail := v_fail + 1; v_fail_codes := v_fail_codes || ' 1503'; RAISE NOTICE 'FAIL [1503] SEGURIDAD: acc_account_balance tiene política INSERT/UPDATE para authenticated — viola modelo C. Revisar 020 v2.';
   END IF;
 
   -- 1504: T10 sigue activo (validado en 1406)
@@ -271,7 +272,7 @@ BEGIN
   ) THEN
     v_pass := v_pass + 1; RAISE NOTICE 'PASS [1505] acc_source_batch: anon fail-closed (RLS habilitado + sin política anon)';
   ELSE
-    v_fail := v_fail + 1; RAISE NOTICE 'FAIL [1505] SECURITY: acc_source_batch fail-closed para anon roto. Verificar 009 RLS.';
+    v_fail := v_fail + 1; v_fail_codes := v_fail_codes || ' 1505'; RAISE NOTICE 'FAIL [1505] SECURITY: acc_source_batch fail-closed para anon roto. Verificar 009 RLS.';
   END IF;
 
   -- 1506: anon fail-closed en acc_account_balance
@@ -287,7 +288,7 @@ BEGIN
   ) THEN
     v_pass := v_pass + 1; RAISE NOTICE 'PASS [1506] acc_account_balance: anon fail-closed (RLS habilitado + sin política anon)';
   ELSE
-    v_fail := v_fail + 1; RAISE NOTICE 'FAIL [1506] SECURITY: acc_account_balance fail-closed para anon roto. Verificar 009 RLS.';
+    v_fail := v_fail + 1; v_fail_codes := v_fail_codes || ' 1506'; RAISE NOTICE 'FAIL [1506] SECURITY: acc_account_balance fail-closed para anon roto. Verificar 009 RLS.';
   END IF;
 
 
@@ -309,7 +310,7 @@ BEGIN
     v_pass := v_pass + 1; RAISE NOTICE 'PASS [1601] Batch CREATED creado: %', v_batch_id;
   EXCEPTION
     WHEN OTHERS THEN
-      v_fail := v_fail + 1; RAISE NOTICE 'FAIL [1601] No se pudo crear batch: %', SQLERRM;
+      v_fail := v_fail + 1; v_fail_codes := v_fail_codes || ' 1601'; RAISE NOTICE 'FAIL [1601] No se pudo crear batch: %', SQLERRM;
       RAISE;
   END;
 
@@ -320,7 +321,7 @@ BEGIN
     v_pass := v_pass + 1; RAISE NOTICE 'PASS [1602] Lifecycle CREATED → PARSING → PARSED OK';
   EXCEPTION
     WHEN OTHERS THEN
-      v_fail := v_fail + 1; RAISE NOTICE 'FAIL [1602] Lifecycle falló: %', SQLERRM;
+      v_fail := v_fail + 1; v_fail_codes := v_fail_codes || ' 1602'; RAISE NOTICE 'FAIL [1602] Lifecycle falló: %', SQLERRM;
   END;
 
   -- 1603: INSERT acc_source_balance_detail con 2 CC para misma cuenta
@@ -341,7 +342,7 @@ BEGIN
     v_pass := v_pass + 1; RAISE NOTICE 'PASS [1603] 3 filas source detail insertadas (2 CC para 6.11.01.010 + 1 sin mapping)';
   EXCEPTION
     WHEN OTHERS THEN
-      v_fail := v_fail + 1; RAISE NOTICE 'FAIL [1603] INSERT acc_source_balance_detail falló: %', SQLERRM;
+      v_fail := v_fail + 1; v_fail_codes := v_fail_codes || ' 1603'; RAISE NOTICE 'FAIL [1603] INSERT acc_source_balance_detail falló: %', SQLERRM;
   END;
 
   -- 1604: Lineage invariant — SUM(CC) = 3000 para 6.11.01.010
@@ -351,7 +352,7 @@ BEGIN
   IF ABS(v_sum_cc - 3000.00) < 0.01 THEN
     v_pass := v_pass + 1; RAISE NOTICE 'PASS [1604] Lineage invariant OK: SUM(CC)=3000 para 6.11.01.010';
   ELSE
-    v_fail := v_fail + 1; RAISE NOTICE 'FAIL [1604] Lineage invariant VIOLADO: SUM=% ≠ 3000', v_sum_cc;
+    v_fail := v_fail + 1; v_fail_codes := v_fail_codes || ' 1604'; RAISE NOTICE 'FAIL [1604] Lineage invariant VIOLADO: SUM=% ≠ 3000', v_sum_cc;
   END IF;
 
   -- 1605: Crear issue SRC_ACCOUNT_UNMAPPED
@@ -369,7 +370,7 @@ BEGIN
     v_pass := v_pass + 1; RAISE NOTICE 'PASS [1605] Issue SRC_ACCOUNT_UNMAPPED creado: %', v_issue_id;
   EXCEPTION
     WHEN OTHERS THEN
-      v_fail := v_fail + 1; RAISE NOTICE 'FAIL [1605] INSERT issue falló: %', SQLERRM;
+      v_fail := v_fail + 1; v_fail_codes := v_fail_codes || ' 1605'; RAISE NOTICE 'FAIL [1605] INSERT issue falló: %', SQLERRM;
   END;
 
   -- 1606: Lifecycle → VALIDATED → PENDING_APPROVAL
@@ -379,7 +380,7 @@ BEGIN
     v_pass := v_pass + 1; RAISE NOTICE 'PASS [1606] Lifecycle → VALIDATED → PENDING_APPROVAL OK';
   EXCEPTION
     WHEN OTHERS THEN
-      v_fail := v_fail + 1; RAISE NOTICE 'FAIL [1606] Lifecycle falló: %', SQLERRM;
+      v_fail := v_fail + 1; v_fail_codes := v_fail_codes || ' 1606'; RAISE NOTICE 'FAIL [1606] Lifecycle falló: %', SQLERRM;
   END;
 
   -- 1607: approved_by=NULL debe ser rechazado por trigger/constraint
@@ -387,7 +388,7 @@ BEGIN
     UPDATE acc_source_batch
     SET status = 'APPROVED', approved_by = NULL
     WHERE id = v_batch_id;
-    v_fail := v_fail + 1; RAISE NOTICE 'FAIL [1607] APPROVED con approved_by=NULL debería haber sido rechazado';
+    v_fail := v_fail + 1; v_fail_codes := v_fail_codes || ' 1607'; RAISE NOTICE 'FAIL [1607] APPROVED con approved_by=NULL debería haber sido rechazado';
     UPDATE acc_source_batch SET status = 'PENDING_APPROVAL' WHERE id = v_batch_id;
   EXCEPTION
     WHEN OTHERS THEN
@@ -406,7 +407,7 @@ BEGIN
       UPDATE acc_source_batch
       SET status = 'APPROVED', approved_by = 'angelo.huerta'
       WHERE id = v_batch_id;
-      v_fail := v_fail + 1; RAISE NOTICE 'FAIL [1607b] FATAL gate no bloqueó → APPROVED con issue FATAL sin resolver';
+      v_fail := v_fail + 1; v_fail_codes := v_fail_codes || ' 1607b'; RAISE NOTICE 'FAIL [1607b] FATAL gate no bloqueó → APPROVED con issue FATAL sin resolver';
       UPDATE acc_source_batch SET status = 'PENDING_APPROVAL', approved_by = NULL
       WHERE id = v_batch_id;
     EXCEPTION
@@ -420,7 +421,7 @@ BEGIN
     WHERE batch_id = v_batch_id AND severity = 'FATAL';
   EXCEPTION
     WHEN OTHERS THEN
-      v_fail := v_fail + 1; RAISE NOTICE 'FAIL [1607b] Setup 1607b falló: %', SQLERRM;
+      v_fail := v_fail + 1; v_fail_codes := v_fail_codes || ' 1607b'; RAISE NOTICE 'FAIL [1607b] Setup 1607b falló: %', SQLERRM;
   END;
 
   -- 1608: Con approved_by y sin FATAL abiertos → APPROVED pasa
@@ -431,7 +432,7 @@ BEGIN
     v_pass := v_pass + 1; RAISE NOTICE 'PASS [1608] PENDING_APPROVAL → APPROVED con approved_by y sin FATAL abiertos: OK';
   EXCEPTION
     WHEN OTHERS THEN
-      v_fail := v_fail + 1; RAISE NOTICE 'FAIL [1608] APPROVED falló inesperadamente: %', SQLERRM;
+      v_fail := v_fail + 1; v_fail_codes := v_fail_codes || ' 1608'; RAISE NOTICE 'FAIL [1608] APPROVED falló inesperadamente: %', SQLERRM;
   END;
 
   -- 1609: Cleanup completo
@@ -442,7 +443,7 @@ BEGIN
     v_pass := v_pass + 1; RAISE NOTICE 'PASS [1609] Cleanup: batch de test eliminado correctamente';
   EXCEPTION
     WHEN OTHERS THEN
-      v_fail := v_fail + 1; RAISE NOTICE 'FAIL [1609] Cleanup falló: % (batch % queda huérfano)', SQLERRM, v_batch_id;
+      v_fail := v_fail + 1; v_fail_codes := v_fail_codes || ' 1609'; RAISE NOTICE 'FAIL [1609] Cleanup falló: % (batch % queda huérfano)', SQLERRM, v_batch_id;
   END;
 
   -- 1610: Regression — acc_chart_mapping ALF sigue con ≥4 mappings activos
@@ -452,7 +453,7 @@ BEGIN
   IF v_issue_count >= 4 THEN
     v_pass := v_pass + 1; RAISE NOTICE 'PASS [1610] Regression: acc_chart_mapping ALF tiene % mappings activos', v_issue_count;
   ELSE
-    v_fail := v_fail + 1; RAISE NOTICE 'FAIL [1610] REGRESSION: acc_chart_mapping ALF tiene solo % mappings (esperado ≥4)', v_issue_count;
+    v_fail := v_fail + 1; v_fail_codes := v_fail_codes || ' 1610'; RAISE NOTICE 'FAIL [1610] REGRESSION: acc_chart_mapping ALF tiene solo % mappings (esperado ≥4)', v_issue_count;
   END IF;
 
 
@@ -470,7 +471,7 @@ BEGIN
   ) THEN
     v_pass := v_pass + 1; RAISE NOTICE 'PASS [1701] RLS acc_account_balance: authenticated sin write directo — ledger protegido';
   ELSE
-    v_fail := v_fail + 1; RAISE NOTICE 'FAIL [1701] SEGURIDAD: acc_account_balance tiene write policy para authenticated. Ledger desprotegido.';
+    v_fail := v_fail + 1; v_fail_codes := v_fail_codes || ' 1701'; RAISE NOTICE 'FAIL [1701] SEGURIDAD: acc_account_balance tiene write policy para authenticated. Ledger desprotegido.';
   END IF;
 
   -- 1702: fn_acc_post_batch existe, SECURITY DEFINER, retorna JSONB
@@ -483,7 +484,7 @@ BEGIN
   ) THEN
     v_pass := v_pass + 1; RAISE NOTICE 'PASS [1702] fn_acc_post_batch: existe, SECURITY DEFINER, retorna JSONB';
   ELSE
-    v_fail := v_fail + 1; RAISE NOTICE 'FAIL [1702] fn_acc_post_batch no existe o faltan atributos (DEFINER/JSONB). Ejecutar 022.';
+    v_fail := v_fail + 1; v_fail_codes := v_fail_codes || ' 1702'; RAISE NOTICE 'FAIL [1702] fn_acc_post_batch no existe o faltan atributos (DEFINER/JSONB). Ejecutar 022.';
   END IF;
 
   -- 1703: authenticated tiene EXECUTE grant en fn_acc_post_batch
@@ -496,7 +497,7 @@ BEGIN
   ) THEN
     v_pass := v_pass + 1; RAISE NOTICE 'PASS [1703] fn_acc_post_batch: EXECUTE grant para authenticated existe';
   ELSE
-    v_fail := v_fail + 1; RAISE NOTICE 'FAIL [1703] fn_acc_post_batch: falta EXECUTE grant para authenticated. Revisar 022 GRANT.';
+    v_fail := v_fail + 1; v_fail_codes := v_fail_codes || ' 1703'; RAISE NOTICE 'FAIL [1703] fn_acc_post_batch: falta EXECUTE grant para authenticated. Revisar 022 GRANT.';
   END IF;
 
   -- 1704: anon NO tiene EXECUTE grant en fn_acc_post_batch
@@ -509,13 +510,13 @@ BEGIN
   ) THEN
     v_pass := v_pass + 1; RAISE NOTICE 'PASS [1704] fn_acc_post_batch: anon no tiene EXECUTE — fail-closed en posting OK';
   ELSE
-    v_fail := v_fail + 1; RAISE NOTICE 'FAIL [1704] SEGURIDAD: anon tiene EXECUTE en fn_acc_post_batch. Revisar 022 REVOKE.';
+    v_fail := v_fail + 1; v_fail_codes := v_fail_codes || ' 1704'; RAISE NOTICE 'FAIL [1704] SEGURIDAD: anon tiene EXECUTE en fn_acc_post_batch. Revisar 022 REVOKE.';
   END IF;
 
   -- 1705: fn_acc_post_batch con UUID inexistente lanza P0001
   BEGIN
     PERFORM fn_acc_post_batch('00000000-0000-0000-0000-000000000000'::uuid);
-    v_fail := v_fail + 1; RAISE NOTICE 'FAIL [1705] fn_acc_post_batch con batch inexistente debería lanzar P0001';
+    v_fail := v_fail + 1; v_fail_codes := v_fail_codes || ' 1705'; RAISE NOTICE 'FAIL [1705] fn_acc_post_batch con batch inexistente debería lanzar P0001';
   EXCEPTION
     WHEN OTHERS THEN
       IF SQLERRM LIKE '%P0001%' OR SQLERRM LIKE '%no encontrado%' THEN
@@ -535,7 +536,7 @@ BEGIN
 
     BEGIN
       PERFORM fn_acc_post_batch(v_rpc_batch_id);
-      v_fail := v_fail + 1; RAISE NOTICE 'FAIL [1706] fn_acc_post_batch sobre batch CREATED debería rechazar con P0002';
+      v_fail := v_fail + 1; v_fail_codes := v_fail_codes || ' 1706'; RAISE NOTICE 'FAIL [1706] fn_acc_post_batch sobre batch CREATED debería rechazar con P0002';
     EXCEPTION
       WHEN OTHERS THEN
         IF SQLERRM LIKE '%P0002%' OR SQLERRM LIKE '%APPROVED%' THEN
@@ -561,7 +562,7 @@ BEGIN
     IF v_param_count = 1 THEN
       v_pass := v_pass + 1; RAISE NOTICE 'PASS [1707] fn_acc_post_batch: firma correcta (% parámetro IN — p_actor eliminado)', v_param_count;
     ELSE
-      v_fail := v_fail + 1; RAISE NOTICE 'FAIL [1707] fn_acc_post_batch: firma incorrecta (% parámetros IN, esperado 1). Si es 2, re-ejecutar 022 v2.', v_param_count;
+      v_fail := v_fail + 1; v_fail_codes := v_fail_codes || ' 1707'; RAISE NOTICE 'FAIL [1707] fn_acc_post_batch: firma incorrecta (% parámetros IN, esperado 1). Si es 2, re-ejecutar 022 v2.', v_param_count;
     END IF;
   END;
 
@@ -582,7 +583,7 @@ BEGIN
   ) THEN
     v_pass := v_pass + 1; RAISE NOTICE 'PASS [1801] INSERT policy: ALF UUID en WITH CHECK — entity scope correcto';
   ELSE
-    v_fail := v_fail + 1; RAISE NOTICE 'FAIL [1801] SECURITY: INSERT policy no restringe a ALF UUID. SEC-ENTITY-SCOPE-001 violado. Ejecutar 020 v3.';
+    v_fail := v_fail + 1; v_fail_codes := v_fail_codes || ' 1801'; RAISE NOTICE 'FAIL [1801] SECURITY: INSERT policy no restringe a ALF UUID. SEC-ENTITY-SCOPE-001 violado. Ejecutar 020 v3.';
   END IF;
 
   -- 1802: INSERT policy WITH CHECK NO es permisiva
@@ -596,7 +597,7 @@ BEGIN
   ) THEN
     v_pass := v_pass + 1; RAISE NOTICE 'PASS [1802] INSERT policy WITH CHECK no es permisiva (true) — cross-entity write bloqueado';
   ELSE
-    v_fail := v_fail + 1; RAISE NOTICE 'FAIL [1802] SECURITY: INSERT policy tiene WITH CHECK (true) — cross-entity write NO bloqueado. Ejecutar 020 v3.';
+    v_fail := v_fail + 1; v_fail_codes := v_fail_codes || ' 1802'; RAISE NOTICE 'FAIL [1802] SECURITY: INSERT policy tiene WITH CHECK (true) — cross-entity write NO bloqueado. Ejecutar 020 v3.';
   END IF;
 
   -- 1803: UPDATE policy USING restringe a ALF UUID
@@ -611,7 +612,7 @@ BEGIN
   ) THEN
     v_pass := v_pass + 1; RAISE NOTICE 'PASS [1803] UPDATE policy USING: solo filas ALF visibles — batches de otras entidades ocultos';
   ELSE
-    v_fail := v_fail + 1; RAISE NOTICE 'FAIL [1803] SECURITY: UPDATE USING no restringe a ALF UUID. Batches de otras entidades accesibles.';
+    v_fail := v_fail + 1; v_fail_codes := v_fail_codes || ' 1803'; RAISE NOTICE 'FAIL [1803] SECURITY: UPDATE USING no restringe a ALF UUID. Batches de otras entidades accesibles.';
   END IF;
 
   -- 1804: UPDATE policy WITH CHECK restringe a ALF UUID
@@ -626,7 +627,7 @@ BEGIN
   ) THEN
     v_pass := v_pass + 1; RAISE NOTICE 'PASS [1804] UPDATE policy WITH CHECK: entity_id no puede cambiarse a otra empresa';
   ELSE
-    v_fail := v_fail + 1; RAISE NOTICE 'FAIL [1804] SECURITY: UPDATE WITH CHECK no restringe entity_id — cambio cross-entity posible.';
+    v_fail := v_fail + 1; v_fail_codes := v_fail_codes || ' 1804'; RAISE NOTICE 'FAIL [1804] SECURITY: UPDATE WITH CHECK no restringe entity_id — cambio cross-entity posible.';
   END IF;
 
   -- 1805: acc_account_balance sin write directo para authenticated (modelo C)
@@ -640,7 +641,7 @@ BEGIN
   ) THEN
     v_pass := v_pass + 1; RAISE NOTICE 'PASS [1805] acc_account_balance: authenticated sin write directo — ledger protegido (modelo C)';
   ELSE
-    v_fail := v_fail + 1; RAISE NOTICE 'FAIL [1805] SECURITY: acc_account_balance tiene write policy para authenticated — ledger desprotegido.';
+    v_fail := v_fail + 1; v_fail_codes := v_fail_codes || ' 1805'; RAISE NOTICE 'FAIL [1805] SECURITY: acc_account_balance tiene write policy para authenticated — ledger desprotegido.';
   END IF;
 
   -- 1806: anon fail-closed en acc_source_batch
@@ -656,7 +657,7 @@ BEGIN
   ) THEN
     v_pass := v_pass + 1; RAISE NOTICE 'PASS [1806] acc_source_batch: anon fail-closed (RLS habilitado + sin política anon)';
   ELSE
-    v_fail := v_fail + 1; RAISE NOTICE 'FAIL [1806] SECURITY: anon no está fail-closed en acc_source_batch.';
+    v_fail := v_fail + 1; v_fail_codes := v_fail_codes || ' 1806'; RAISE NOTICE 'FAIL [1806] SECURITY: anon no está fail-closed en acc_source_batch.';
   END IF;
 
   -- 1807: service_role tiene ALL en acc_source_batch (009 intacta)
@@ -669,7 +670,7 @@ BEGIN
   ) THEN
     v_pass := v_pass + 1; RAISE NOTICE 'PASS [1807] service_role ALL en acc_source_batch (009 intacta) — internal posting path OK';
   ELSE
-    v_fail := v_fail + 1; RAISE NOTICE 'FAIL [1807] service_role no tiene ALL en acc_source_batch — posting path roto.';
+    v_fail := v_fail + 1; v_fail_codes := v_fail_codes || ' 1807'; RAISE NOTICE 'FAIL [1807] service_role no tiene ALL en acc_source_batch — posting path roto.';
   END IF;
 
   -- 1808: UPDATE USING y WITH CHECK consistentes en ALF
@@ -685,7 +686,7 @@ BEGIN
   ) THEN
     v_pass := v_pass + 1; RAISE NOTICE 'PASS [1808] UPDATE USING y WITH CHECK consistentes en ALF — cambio de entity_id bloqueado';
   ELSE
-    v_fail := v_fail + 1; RAISE NOTICE 'FAIL [1808] UPDATE USING/WITH CHECK inconsistentes — cambio de entity_id puede no estar bloqueado.';
+    v_fail := v_fail + 1; v_fail_codes := v_fail_codes || ' 1808'; RAISE NOTICE 'FAIL [1808] UPDATE USING/WITH CHECK inconsistentes — cambio de entity_id puede no estar bloqueado.';
   END IF;
 
   -- 1809: SELECT policy de authenticated intacta (009 no afectado por 020)
@@ -698,7 +699,7 @@ BEGIN
   ) THEN
     v_pass := v_pass + 1; RAISE NOTICE 'PASS [1809] SELECT policy de authenticated intacta — 020 no debilitó lectura (009 preservado)';
   ELSE
-    v_fail := v_fail + 1; RAISE NOTICE 'FAIL [1809] REGRESSION: SELECT policy de authenticated desaparecida — 020 rompió lectura de 009.';
+    v_fail := v_fail + 1; v_fail_codes := v_fail_codes || ' 1809'; RAISE NOTICE 'FAIL [1809] REGRESSION: SELECT policy de authenticated desaparecida — 020 rompió lectura de 009.';
   END IF;
 
   -- 1810: Lifecycle trigger activo en acc_source_batch
@@ -710,7 +711,7 @@ BEGIN
   ) THEN
     v_pass := v_pass + 1; RAISE NOTICE 'PASS [1810] Lifecycle trigger trg_acc_source_batch_lifecycle activo — 020 no afectó triggers de 014';
   ELSE
-    v_fail := v_fail + 1; RAISE NOTICE 'FAIL [1810] REGRESSION: trg_acc_source_batch_lifecycle no encontrado — 014 puede no estar desplegado.';
+    v_fail := v_fail + 1; v_fail_codes := v_fail_codes || ' 1810'; RAISE NOTICE 'FAIL [1810] REGRESSION: trg_acc_source_batch_lifecycle no encontrado — 014 puede no estar desplegado.';
   END IF;
 
 
@@ -753,11 +754,11 @@ BEGIN
     WHERE proname = 'fn_acc_post_batch';
 
     IF NOT FOUND THEN
-      v_fail := v_fail + 1; RAISE NOTICE 'FAIL [1901] fn_acc_post_batch no encontrada en pg_proc. Ejecutar 022 v2 primero.';
-      v_fail := v_fail + 1; RAISE NOTICE 'FAIL [1902] fn_acc_post_batch no encontrada — skip B8 check';
-      v_fail := v_fail + 1; RAISE NOTICE 'FAIL [1903] fn_acc_post_batch no encontrada — skip auth.uid check';
-      v_fail := v_fail + 1; RAISE NOTICE 'FAIL [1904] fn_acc_post_batch no encontrada — skip P0009 check';
-      v_fail := v_fail + 1; RAISE NOTICE 'FAIL [1905] fn_acc_post_batch no encontrada — skip B12 check';
+      v_fail := v_fail + 1; v_fail_codes := v_fail_codes || ' 1901'; RAISE NOTICE 'FAIL [1901] fn_acc_post_batch no encontrada en pg_proc. Ejecutar 022 v2 primero.';
+      v_fail := v_fail + 1; v_fail_codes := v_fail_codes || ' 1902'; RAISE NOTICE 'FAIL [1902] fn_acc_post_batch no encontrada — skip B8 check';
+      v_fail := v_fail + 1; v_fail_codes := v_fail_codes || ' 1903'; RAISE NOTICE 'FAIL [1903] fn_acc_post_batch no encontrada — skip auth.uid check';
+      v_fail := v_fail + 1; v_fail_codes := v_fail_codes || ' 1904'; RAISE NOTICE 'FAIL [1904] fn_acc_post_batch no encontrada — skip P0009 check';
+      v_fail := v_fail + 1; v_fail_codes := v_fail_codes || ' 1905'; RAISE NOTICE 'FAIL [1905] fn_acc_post_batch no encontrada — skip B12 check';
     ELSE
 
       -- 1901: 1 parámetro IN (B8)
@@ -770,35 +771,35 @@ BEGIN
       IF v_param_count_19 = 1 THEN
         v_pass := v_pass + 1; RAISE NOTICE 'PASS [1901] B8: fn_acc_post_batch tiene 1 parámetro IN — p_actor eliminado';
       ELSE
-        v_fail := v_fail + 1; RAISE NOTICE 'FAIL [1901] B8: fn_acc_post_batch tiene % parámetros IN — p_actor sigue presente. Re-ejecutar 022 v2.', v_param_count_19;
+        v_fail := v_fail + 1; v_fail_codes := v_fail_codes || ' 1901'; RAISE NOTICE 'FAIL [1901] B8: fn_acc_post_batch tiene % parámetros IN — p_actor sigue presente. Re-ejecutar 022 v2.', v_param_count_19;
       END IF;
 
       -- 1902: P0000 entity scope guard (B7)
       IF v_has_entity_guard AND v_has_p0000 THEN
         v_pass := v_pass + 1; RAISE NOTICE 'PASS [1902] B7: P0000 entity scope guard con ALF UUID en cuerpo de fn_acc_post_batch';
       ELSE
-        v_fail := v_fail + 1; RAISE NOTICE 'FAIL [1902] B7: falta P0000 o ALF UUID en fn_acc_post_batch (has_guard=%, has_p0000=%)', v_has_entity_guard, v_has_p0000;
+        v_fail := v_fail + 1; v_fail_codes := v_fail_codes || ' 1902'; RAISE NOTICE 'FAIL [1902] B7: falta P0000 o ALF UUID en fn_acc_post_batch (has_guard=%, has_p0000=%)', v_has_entity_guard, v_has_p0000;
       END IF;
 
       -- 1903: auth.uid() como actor (B8)
       IF v_uses_auth_uid THEN
         v_pass := v_pass + 1; RAISE NOTICE 'PASS [1903] B8: fn_acc_post_batch usa auth.uid() para derivar actor — no aceptado del caller';
       ELSE
-        v_fail := v_fail + 1; RAISE NOTICE 'FAIL [1903] B8: fn_acc_post_batch no usa auth.uid(). Actor podría ser falsificable.';
+        v_fail := v_fail + 1; v_fail_codes := v_fail_codes || ' 1903'; RAISE NOTICE 'FAIL [1903] B8: fn_acc_post_batch no usa auth.uid(). Actor podría ser falsificable.';
       END IF;
 
       -- 1904: P0009 ledger overwrite guard (B11)
       IF v_has_p0009 THEN
         v_pass := v_pass + 1; RAISE NOTICE 'PASS [1904] B11: P0009 ledger overwrite guard presente — sobreescritura silenciosa bloqueada';
       ELSE
-        v_fail := v_fail + 1; RAISE NOTICE 'FAIL [1904] B11: P0009 no encontrado en fn_acc_post_batch. Sobreescritura de ledger activo posible.';
+        v_fail := v_fail + 1; v_fail_codes := v_fail_codes || ' 1904'; RAISE NOTICE 'FAIL [1904] B11: P0009 no encontrado en fn_acc_post_batch. Sobreescritura de ledger activo posible.';
       END IF;
 
       -- 1905: Mapping usa v_period dates, no CURRENT_DATE (B12)
       IF v_uses_period_dates AND NOT v_uses_current_date THEN
         v_pass := v_pass + 1; RAISE NOTICE 'PASS [1905] B12: mapping validity usa v_period.date_from/date_to — reproducible en cargas históricas';
       ELSIF v_uses_current_date THEN
-        v_fail := v_fail + 1; RAISE NOTICE 'FAIL [1905] B12: fn_acc_post_batch aún usa CURRENT_DATE en mapping check — rompe cargas históricas';
+        v_fail := v_fail + 1; v_fail_codes := v_fail_codes || ' 1905'; RAISE NOTICE 'FAIL [1905] B12: fn_acc_post_batch aún usa CURRENT_DATE en mapping check — rompe cargas históricas';
       ELSE
         v_warn := v_warn + 1; RAISE NOTICE 'WARN [1905] B12: v_period.date_from no encontrado — verificar manualmente el mapping check';
       END IF;
@@ -842,7 +843,7 @@ BEGIN
   ) THEN
     v_pass := v_pass + 1; RAISE NOTICE 'PASS [1910] B15: PUBLIC no tiene EXECUTE en fn_acc_post_batch — REVOKE FROM PUBLIC OK';
   ELSE
-    v_fail := v_fail + 1; RAISE NOTICE 'FAIL [1910] SECURITY B15: PUBLIC tiene EXECUTE en fn_acc_post_batch — anon puede ejecutar indirectamente. Re-ejecutar 022 v3.';
+    v_fail := v_fail + 1; v_fail_codes := v_fail_codes || ' 1910'; RAISE NOTICE 'FAIL [1910] SECURITY B15: PUBLIC tiene EXECUTE en fn_acc_post_batch — anon puede ejecutar indirectamente. Re-ejecutar 022 v3.';
   END IF;
 
   -- 1911: anon no tiene EXECUTE en fn_acc_post_batch (B15)
@@ -855,7 +856,7 @@ BEGIN
   ) THEN
     v_pass := v_pass + 1; RAISE NOTICE 'PASS [1911] B15: anon no tiene EXECUTE directo en fn_acc_post_batch';
   ELSE
-    v_fail := v_fail + 1; RAISE NOTICE 'FAIL [1911] SECURITY B15: anon tiene EXECUTE directo en fn_acc_post_batch.';
+    v_fail := v_fail + 1; v_fail_codes := v_fail_codes || ' 1911'; RAISE NOTICE 'FAIL [1911] SECURITY B15: anon tiene EXECUTE directo en fn_acc_post_batch.';
   END IF;
 
   -- 1912: P000A guard en prosrc (B16)
@@ -872,7 +873,7 @@ BEGIN
     IF v_has_p000a THEN
       v_pass := v_pass + 1; RAISE NOTICE 'PASS [1912] B16: P000A guard presente en fn_acc_post_batch — auth.uid() NULL → RAISE antes de writes';
     ELSE
-      v_fail := v_fail + 1; RAISE NOTICE 'FAIL [1912] B16: P000A no encontrado — auth.uid() NULL podría no ser bloqueado. Re-ejecutar 022 v3.';
+      v_fail := v_fail + 1; v_fail_codes := v_fail_codes || ' 1912'; RAISE NOTICE 'FAIL [1912] B16: P000A no encontrado — auth.uid() NULL podría no ser bloqueado. Re-ejecutar 022 v3.';
     END IF;
   END;
 
@@ -909,7 +910,7 @@ BEGIN
   ) THEN
     v_pass := v_pass + 1; RAISE NOTICE 'PASS [1909] B10 (Model C): authenticated puede EXECUTE RPC pero NO escribir directamente al ledger — OK';
   ELSE
-    v_fail := v_fail + 1; RAISE NOTICE 'FAIL [1909] B10 (Model C): inconsistencia — EXECUTE grant o write-ledger policy fuera de spec. Revisar 022 + 020.';
+    v_fail := v_fail + 1; v_fail_codes := v_fail_codes || ' 1909'; RAISE NOTICE 'FAIL [1909] B10 (Model C): inconsistencia — EXECUTE grant o write-ledger policy fuera de spec. Revisar 022 + 020.';
   END IF;
 
 
@@ -922,7 +923,7 @@ BEGIN
   IF EXISTS (SELECT 1 FROM pg_proc WHERE proname = 'fn_acc_approve_batch') THEN
     v_pass := v_pass + 1; RAISE NOTICE 'PASS [2001] B17: fn_acc_approve_batch existe en el schema';
   ELSE
-    v_fail := v_fail + 1; RAISE NOTICE 'FAIL [2001] B17: fn_acc_approve_batch NO existe — ejecutar 023';
+    v_fail := v_fail + 1; v_fail_codes := v_fail_codes || ' 2001'; RAISE NOTICE 'FAIL [2001] B17: fn_acc_approve_batch NO existe — ejecutar 023';
   END IF;
 
   -- 2002: 1 parámetro (p_batch_id) — no accepted approved_by del frontend
@@ -937,7 +938,7 @@ BEGIN
     IF v_pronargs = 1 AND v_argnames LIKE '%p_batch_id%' THEN
       v_pass := v_pass + 1; RAISE NOTICE 'PASS [2002] B17: fn_acc_approve_batch acepta 1 parámetro (p_batch_id) — no approved_by del frontend';
     ELSE
-      v_fail := v_fail + 1; RAISE NOTICE 'FAIL [2002] B17: fn_acc_approve_batch tiene % params — esperado 1 (p_batch_id)', COALESCE(v_pronargs::TEXT, '?');
+      v_fail := v_fail + 1; v_fail_codes := v_fail_codes || ' 2002'; RAISE NOTICE 'FAIL [2002] B17: fn_acc_approve_batch tiene % params — esperado 1 (p_batch_id)', COALESCE(v_pronargs::TEXT, '?');
     END IF;
   END;
 
@@ -949,7 +950,7 @@ BEGIN
     IF COALESCE(v_secdef, false) THEN
       v_pass := v_pass + 1; RAISE NOTICE 'PASS [2003] B17: fn_acc_approve_batch es SECURITY DEFINER';
     ELSE
-      v_fail := v_fail + 1; RAISE NOTICE 'FAIL [2003] B17: fn_acc_approve_batch NO es SECURITY DEFINER — re-ejecutar 023';
+      v_fail := v_fail + 1; v_fail_codes := v_fail_codes || ' 2003'; RAISE NOTICE 'FAIL [2003] B17: fn_acc_approve_batch NO es SECURITY DEFINER — re-ejecutar 023';
     END IF;
   END;
 
@@ -962,7 +963,7 @@ BEGIN
     IF v_cfg LIKE '%public%' AND v_cfg LIKE '%pg_temp%' THEN
       v_pass := v_pass + 1; RAISE NOTICE 'PASS [2004] B17: fn_acc_approve_batch tiene search_path = public, pg_temp';
     ELSE
-      v_fail := v_fail + 1; RAISE NOTICE 'FAIL [2004] B17: fn_acc_approve_batch search_path inseguro: %', COALESCE(v_cfg, 'NULL');
+      v_fail := v_fail + 1; v_fail_codes := v_fail_codes || ' 2004'; RAISE NOTICE 'FAIL [2004] B17: fn_acc_approve_batch search_path inseguro: %', COALESCE(v_cfg, 'NULL');
     END IF;
   END;
 
@@ -974,7 +975,7 @@ BEGIN
   ) THEN
     v_pass := v_pass + 1; RAISE NOTICE 'PASS [2005] B15 equiv: PUBLIC no tiene EXECUTE en fn_acc_approve_batch';
   ELSE
-    v_fail := v_fail + 1; RAISE NOTICE 'FAIL [2005] B15 equiv: PUBLIC tiene EXECUTE en fn_acc_approve_batch — REVOKE faltó';
+    v_fail := v_fail + 1; v_fail_codes := v_fail_codes || ' 2005'; RAISE NOTICE 'FAIL [2005] B15 equiv: PUBLIC tiene EXECUTE en fn_acc_approve_batch — REVOKE faltó';
   END IF;
 
   -- 2006: anon no tiene EXECUTE en fn_acc_approve_batch
@@ -985,7 +986,7 @@ BEGIN
   ) THEN
     v_pass := v_pass + 1; RAISE NOTICE 'PASS [2006] B17: anon no tiene EXECUTE en fn_acc_approve_batch';
   ELSE
-    v_fail := v_fail + 1; RAISE NOTICE 'FAIL [2006] B17: anon tiene EXECUTE en fn_acc_approve_batch — revisar GRANTs';
+    v_fail := v_fail + 1; v_fail_codes := v_fail_codes || ' 2006'; RAISE NOTICE 'FAIL [2006] B17: anon tiene EXECUTE en fn_acc_approve_batch — revisar GRANTs';
   END IF;
 
   -- 2007: authenticated tiene EXECUTE en fn_acc_approve_batch
@@ -996,7 +997,7 @@ BEGIN
   ) THEN
     v_pass := v_pass + 1; RAISE NOTICE 'PASS [2007] B17: authenticated tiene EXECUTE en fn_acc_approve_batch — OK';
   ELSE
-    v_fail := v_fail + 1; RAISE NOTICE 'FAIL [2007] B17: authenticated NO tiene EXECUTE en fn_acc_approve_batch — GRANT faltó';
+    v_fail := v_fail + 1; v_fail_codes := v_fail_codes || ' 2007'; RAISE NOTICE 'FAIL [2007] B17: authenticated NO tiene EXECUTE en fn_acc_approve_batch — GRANT faltó';
   END IF;
 
   -- 2008: P000A en prosrc (auth.uid() IS NULL → RAISE)
@@ -1008,7 +1009,7 @@ BEGIN
     IF COALESCE(v_p000a, false) THEN
       v_pass := v_pass + 1; RAISE NOTICE 'PASS [2008] B16 equiv: P000A presente en fn_acc_approve_batch — auth.uid() NULL → RAISE';
     ELSE
-      v_fail := v_fail + 1; RAISE NOTICE 'FAIL [2008] B16 equiv: P000A no encontrado en fn_acc_approve_batch — anónimo podría pasar';
+      v_fail := v_fail + 1; v_fail_codes := v_fail_codes || ' 2008'; RAISE NOTICE 'FAIL [2008] B16 equiv: P000A no encontrado en fn_acc_approve_batch — anónimo podría pasar';
     END IF;
   END;
 
@@ -1021,7 +1022,7 @@ BEGIN
     IF COALESCE(v_p0000, false) THEN
       v_pass := v_pass + 1; RAISE NOTICE 'PASS [2009] B7 equiv: P0000 entity scope guard presente en fn_acc_approve_batch';
     ELSE
-      v_fail := v_fail + 1; RAISE NOTICE 'FAIL [2009] B7 equiv: P0000 o ALF UUID no encontrado en fn_acc_approve_batch';
+      v_fail := v_fail + 1; v_fail_codes := v_fail_codes || ' 2009'; RAISE NOTICE 'FAIL [2009] B7 equiv: P0000 o ALF UUID no encontrado en fn_acc_approve_batch';
     END IF;
   END;
 
@@ -1034,7 +1035,7 @@ BEGIN
     IF COALESCE(v_sod, false) THEN
       v_pass := v_pass + 1; RAISE NOTICE 'PASS [2010] B17: SoD P0005 presente en fn_acc_approve_batch — importer ≠ approver';
     ELSE
-      v_fail := v_fail + 1; RAISE NOTICE 'FAIL [2010] B17: SoD P0005 no encontrado en fn_acc_approve_batch — self-approve posible';
+      v_fail := v_fail + 1; v_fail_codes := v_fail_codes || ' 2010'; RAISE NOTICE 'FAIL [2010] B17: SoD P0005 no encontrado en fn_acc_approve_batch — self-approve posible';
     END IF;
   END;
 
@@ -1047,7 +1048,7 @@ BEGIN
     IF COALESCE(v_uid_approved, false) THEN
       v_pass := v_pass + 1; RAISE NOTICE 'PASS [2011] B17: approved_by = auth.uid()::TEXT server-side en fn_acc_approve_batch — frontend no inyecta';
     ELSE
-      v_fail := v_fail + 1; RAISE NOTICE 'FAIL [2011] B17: approved_by no se deriva de auth.uid() en fn_acc_approve_batch';
+      v_fail := v_fail + 1; v_fail_codes := v_fail_codes || ' 2011'; RAISE NOTICE 'FAIL [2011] B17: approved_by no se deriva de auth.uid() en fn_acc_approve_batch';
     END IF;
   END;
 
@@ -1060,7 +1061,7 @@ BEGIN
     IF COALESCE(v_pending, false) THEN
       v_pass := v_pass + 1; RAISE NOTICE 'PASS [2012] B17: PENDING_APPROVAL status check presente en fn_acc_approve_batch';
     ELSE
-      v_fail := v_fail + 1; RAISE NOTICE 'FAIL [2012] B17: PENDING_APPROVAL check no encontrado en fn_acc_approve_batch';
+      v_fail := v_fail + 1; v_fail_codes := v_fail_codes || ' 2012'; RAISE NOTICE 'FAIL [2012] B17: PENDING_APPROVAL check no encontrado en fn_acc_approve_batch';
     END IF;
   END;
 
@@ -1075,7 +1076,7 @@ BEGIN
     IF COALESCE(v_rls_approved, false) THEN
       v_pass := v_pass + 1; RAISE NOTICE 'PASS [2013] B17: RLS asb_authenticated_update bloquea status=APPROVED para authenticated directo';
     ELSE
-      v_fail := v_fail + 1; RAISE NOTICE 'FAIL [2013] B17: RLS no bloquea status=APPROVED — authenticated puede self-approve. Ejecutar PARTE 2 de 023.';
+      v_fail := v_fail + 1; v_fail_codes := v_fail_codes || ' 2013'; RAISE NOTICE 'FAIL [2013] B17: RLS no bloquea status=APPROVED — authenticated puede self-approve. Ejecutar PARTE 2 de 023.';
     END IF;
   END;
 
@@ -1088,7 +1089,7 @@ BEGIN
     IF COALESCE(v_no_system, true) THEN
       v_pass := v_pass + 1; RAISE NOTICE 'PASS [2014] B16 equiv: fn_acc_approve_batch sin fallback a ''system'' — audit trail íntegro';
     ELSE
-      v_fail := v_fail + 1; RAISE NOTICE 'FAIL [2014] B16 equiv: fn_acc_approve_batch contiene ''system'' como fallback — revisar prosrc';
+      v_fail := v_fail + 1; v_fail_codes := v_fail_codes || ' 2014'; RAISE NOTICE 'FAIL [2014] B16 equiv: fn_acc_approve_batch contiene ''system'' como fallback — revisar prosrc';
     END IF;
   END;
 
@@ -1105,7 +1106,8 @@ BEGIN
     RAISE NOTICE 'RESULTADO: PASS COMPLETO (%/% PASS + % WARN)', v_pass, v_pass + v_fail + v_warn, v_warn;
   ELSE
     RAISE NOTICE 'RESULTADO: % FAIL — revisar log arriba', v_fail;
-    RAISE EXCEPTION '021_posting_pipeline_tests: % test(s) FALLARON', v_fail;
+    RAISE NOTICE 'CODES FALLIDOS:%', v_fail_codes;
+    RAISE EXCEPTION '021_posting_pipeline_tests: % test(s) FALLARON —%', v_fail, v_fail_codes;
   END IF;
 
 END;
