@@ -22,6 +22,7 @@ import {
   formatearMonto, buscarTC, convertirMonto,
   uploadArchivoFrisku, pathDesdeUrlStorage,
 } from "./friskuHelpers.js";
+import AvisoPersistencia, { construirAviso } from "./AvisoPersistencia";
 import { FriskuBIProvider, useFriskuBI, FRISKU_DIMS, FRISKU_METRICS, fmtMetric,
          mComFriskuUSD, mVentaUSD, mFobUSD, mComClienteUSD, groupByDims, invertSelection } from "./friskuBI.js";
 import { normalizarNombre, buscarDuplicado } from "./nombreCanonico.js";
@@ -9192,24 +9193,10 @@ export default function FriskuComercialModule({
       timer.current = setTimeout(async ()=>{
         const r = await dbSaveGeneric(id, valor);
         setGuardando(g => ({...g, [id]:false}));
-        if(r && r.ok){
-          if(r.fusionado && setter && r.valor){
-            setter(r.valor);   // incorporar lo que hizo la otra persona
-            setProblemaGuardado({ id, tipo:"fusion",
-              texto:`Otra persona estaba trabajando en ${ETIQUETA_FILA[id]||id} al mismo tiempo. Se combinaron los dos trabajos y no se perdió nada.` });
-          } else {
-            setProblemaGuardado(p => (p && p.id===id) ? null : p);
-          }
-          return;
-        }
-        const motivo = r && r.motivo;
-        if(motivo === "conflicto_item"){
-          setProblemaGuardado({ id, tipo:"conflicto", conflictos:(r.conflictos||[]),
-            texto:`No se guardó ${ETIQUETA_FILA[id]||id}: otra persona editó al mismo tiempo ${r.conflictos.length===1?"el mismo registro":"los mismos registros"} que tú. Para no borrar su trabajo se conservó el del servidor. Anota tu cambio, recarga la página y vuelve a aplicarlo.` });
-        } else {
-          setProblemaGuardado({ id, tipo:"error",
-            texto:`No se pudo guardar ${ETIQUETA_FILA[id]||id}${motivo==="http"&&r.status?` (error ${r.status})`:""}. Tus cambios siguen en pantalla: no cierres esta pestaña y reintenta.` });
-        }
+        if(r && r.ok && r.fusionado && setter && r.valor) setter(r.valor);
+        const av = construirAviso(id, r, ETIQUETA_FILA[id] || id);
+        if(av) setProblemaGuardado(av);
+        else setProblemaGuardado(p => (p && p.id === id) ? null : p);
       }, 1000);
     },[valor]);
   };
@@ -9826,30 +9813,7 @@ export default function FriskuComercialModule({
   return (
    <FriskuBIProvider data={{ embarques, liquidaciones, clientes, exportadoras, especies, mercados, tiposEmbalaje, tcData }}>
     <div style={{background:C.bg, minHeight:"100vh", color:C.text}}>
-      {/* Aviso de persistencia: fusión con el trabajo de otra persona, conflicto o error.
-          Fijo y por encima de todo, porque es información que no se puede perder de vista. */}
-      {problemaGuardado && (()=>{
-        const esFusion = problemaGuardado.tipo === "fusion";
-        const col = esFusion ? {bg:"#ecfdf5", bd:"#059669", tx:"#065f46"} : {bg:"#fef2f2", bd:"#dc2626", tx:"#991b1b"};
-        return (
-          <div role="status" style={{position:"fixed", right:16, bottom:16, zIndex:99999, maxWidth:440,
-            background:col.bg, border:`2px solid ${col.bd}`, borderRadius:10, padding:"12px 14px",
-            boxShadow:"0 6px 24px rgba(0,0,0,0.25)", fontSize:12.5, color:col.tx, lineHeight:1.45}}>
-            <div style={{fontWeight:800, marginBottom:5}}>
-              {esFusion ? "Se combinaron los cambios" : problemaGuardado.tipo === "conflicto" ? "No se guardó · conflicto" : "No se guardó"}
-            </div>
-            <div>{problemaGuardado.texto}</div>
-            <div style={{display:"flex", gap:8, marginTop:10}}>
-              {!esFusion && <button onClick={()=>window.location.reload()}
-                style={{background:col.bd, color:"#fff", border:"none", borderRadius:6, padding:"5px 12px", cursor:"pointer", fontWeight:800, fontSize:11}}>
-                Recargar página</button>}
-              <button onClick={()=>setProblemaGuardado(null)}
-                style={{background:"transparent", color:col.tx, border:`1px solid ${col.bd}`, borderRadius:6, padding:"5px 12px", cursor:"pointer", fontWeight:700, fontSize:11}}>
-                Entendido</button>
-            </div>
-          </div>
-        );
-      })()}
+      <AvisoPersistencia aviso={problemaGuardado} onCerrar={()=>setProblemaGuardado(null)}/>
       {/* Header */}
       <div style={{padding:"14px 20px", borderBottom:"1px solid rgba(255,255,255,0.10)", display:"flex", alignItems:"center", justifyContent:"space-between", flexWrap:"wrap", gap:10, background:"#1E2761", boxShadow:"0 4px 16px rgba(16,24,40,0.20)"}}>
         <div onClick={()=>setTab("resumen")} title="Ir al inicio de Frisku"

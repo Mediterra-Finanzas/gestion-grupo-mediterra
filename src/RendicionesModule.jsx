@@ -16,6 +16,7 @@ import {
   uploadArchivoFrisku, eliminarArchivoFrisku, pathDesdeUrlStorage,
   buscarTC,
 } from "./friskuHelpers";
+import AvisoPersistencia, { construirAviso } from "./AvisoPersistencia";
 import { enviarEmail } from "./emailHelper";
 
 const APP_URL = "https://gestion-grupo-mediterra.vercel.app";
@@ -812,6 +813,7 @@ export default function RendicionesModule({ usuarioActual, esAdmin, esSoloConsul
   const [config, setConfig] = useState({ valorKm: 0 }); // config global (valor por km, etc.) — solo admin la edita
   const [cargando, setCargando] = useState(true);
   const [guardando, setGuardando] = useState(false);
+  const [aviso, setAviso] = useState(null);   // resultado del guardado, visible en pantalla
   const [tab, setTab] = useState("mis");
   const [editId, setEditId] = useState(null);   // rendición abierta en el editor
   const [revisar, setRevisar] = useState(null);  // {id, accion:"aprobar"|"rechazar"}
@@ -889,7 +891,17 @@ export default function RendicionesModule({ usuarioActual, esAdmin, esSoloConsul
       // Mis cambios explícitos pisan solo lo que toqué.
       for (const id of dirty) { const mine = local.find(x => x.id === id); if (mine) map.set(id, mine); }
       for (const id of deleted) map.delete(id);
-      await dbSaveGeneric("rendiciones", [...map.values()]);
+      const r = await dbSaveGeneric("rendiciones", [...map.values()]);
+      // dbSaveGeneric ya no lanza ante un rechazo: devuelve el motivo. Si no se revisa,
+      // los ids pendientes se descartarían aquí y el cambio se perdería en silencio.
+      if (r && r.ok) {
+        if (r.fusionado && Array.isArray(r.valor)) setRendiciones(r.valor);
+        setAviso(construirAviso("rendiciones", r, "Rendiciones"));
+      } else {
+        dirty.forEach(id => dirtyIdsRef.current.add(id));
+        deleted.forEach(id => deletedIdsRef.current.add(id));
+        setAviso(construirAviso("rendiciones", r, "Rendiciones"));
+      }
     } catch (e) {
       // Reencolar lo no guardado para reintentar en el próximo ciclo.
       dirty.forEach(id => dirtyIdsRef.current.add(id));
@@ -930,7 +942,7 @@ export default function RendicionesModule({ usuarioActual, esAdmin, esSoloConsul
     if (!cargaOkRef.current) { console.warn("[Rendiciones] config no guardada — carga inicial falló."); return; }
     const next = { ...config, valorKm: Math.max(0, Number(v) || 0) };
     setConfig(next);
-    await dbSaveGeneric("rendiciones_config", next);
+    setAviso(construirAviso("rendiciones_config", await dbSaveGeneric("rendiciones_config", next), "la configuracion"));
   }, [admin, config]);
 
   // Maestro de personas externas (no usuarios). Lo gestiona quien puede rendir por otros.
@@ -939,7 +951,7 @@ export default function RendicionesModule({ usuarioActual, esAdmin, esSoloConsul
     if (!cargaOkRef.current) { console.warn("[Rendiciones] personas externas no guardadas — carga inicial falló."); return; }
     const next = { ...config, personasExternas: Array.isArray(list) ? list : [] };
     setConfig(next);
-    await dbSaveGeneric("rendiciones_config", next);
+    setAviso(construirAviso("rendiciones_config", await dbSaveGeneric("rendiciones_config", next), "la configuracion"));
   }, [puedeRendirPorOtros, config]);
 
   // Categorías personalizadas (el admin las agrega desde la app). Se registran en
@@ -951,7 +963,7 @@ export default function RendicionesModule({ usuarioActual, esAdmin, esSoloConsul
     setCategoriasExtra(limpia);
     const next = { ...config, categoriasExtra: limpia };
     setConfig(next);
-    await dbSaveGeneric("rendiciones_config", next);
+    setAviso(construirAviso("rendiciones_config", await dbSaveGeneric("rendiciones_config", next), "la configuracion"));
   }, [admin, config]);
 
   const pushHist = (r, accion, comentario = "") => ({
@@ -1157,6 +1169,7 @@ export default function RendicionesModule({ usuarioActual, esAdmin, esSoloConsul
 
   return (
     <div style={{ fontFamily: "sans-serif", color: C.text, maxWidth: 1180, margin: "0 auto", padding: "0 18px 60px" }}>
+      <AvisoPersistencia aviso={aviso} onCerrar={() => setAviso(null)} />
       {/* Header */}
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "18px 0", gap: 12, flexWrap: "wrap" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
