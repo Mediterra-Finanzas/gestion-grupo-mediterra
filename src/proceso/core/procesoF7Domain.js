@@ -95,6 +95,7 @@ export function badgeDe(estado) {
 
 // ── Traducción de errores backend → mensaje accionable (backend sigue autoridad) ──
 const REGLAS_ERROR = [
+  { re: /HTTP 401|JWT expired|invalid JWT|invalid token|token .*expir|jwt.*invalid/i, msg: () => "Tu sesión de Allegria Service expiró. Volvé a iniciar sesión para continuar." },
   { re: /excede disponible ([0-9.]+) del lote/i, msg: (m) => `No hay stock suficiente en el lote. Disponible: ${m[1]} kg.` },
   { re: /excede disponible ([0-9.]+) del pallet/i, msg: (m) => `El pallet no tiene saldo suficiente. Disponible: ${m[1]} kg.` },
   { re: /excede composición/i, msg: () => "La cantidad supera la composición disponible del pallet." },

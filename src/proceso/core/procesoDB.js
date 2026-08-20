@@ -15,11 +15,15 @@
 // Deben moverse a un config neutral compartido; no es una dependencia de negocio.
 
 import { SUPA_URL, SUPA_KEY } from "../../friskuHelpers";
+import { getProcToken } from "./procAuth";
 
 function headers(extra) {
+  // Identity Bridge (Opción C): si hay token PROC authenticated vigente se usa; si no (flag off
+  // o sin sesión), cae a la anon key = comportamiento actual. apikey sigue siendo la publishable.
+  const proc = getProcToken();
   return {
     apikey: SUPA_KEY,
-    Authorization: `Bearer ${SUPA_KEY}`,
+    Authorization: `Bearer ${proc || SUPA_KEY}`,
     "Content-Type": "application/json",
     ...(extra || {}),
   };
