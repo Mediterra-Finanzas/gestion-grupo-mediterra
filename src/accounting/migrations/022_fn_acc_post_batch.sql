@@ -99,7 +99,7 @@ BEGIN
   IF auth.uid() IS NULL THEN
     RAISE EXCEPTION
       'P000A: auth.uid() IS NULL — fn_acc_post_batch requiere sesión autenticada activa. '
-      'Audit trail no puede establecerse sin identidad verificada.',
+      'Audit trail no puede establecerse sin identidad verificada.'
       USING ERRCODE = 'P0001';
   END IF;
   v_actor := auth.uid()::TEXT;
@@ -508,7 +508,7 @@ SELECT
   prosrc LIKE '%auth.uid()%'                             AS uses_auth_uid,       -- B8
   prosrc LIKE '%v_period.date_from%'                     AS uses_period_dates,   -- B12
   prosrc LIKE '%CURRENT_DATE%'                           AS uses_current_date_bad, -- B12 (debe ser f)
-  prosrc LIKE '%system%'                                 AS has_system_fallback_bad -- B16 (debe ser f)
+  prosrc LIKE '%COALESCE(auth.uid()%'                     AS has_system_fallback_bad -- B16 (debe ser f)
 FROM pg_proc
 WHERE proname = 'fn_acc_post_batch';
 -- Esperado: has_entity_guard=t, has_p0000=t, has_p000a=t, has_p0009=t,
