@@ -26,18 +26,19 @@ WHERE cd.id='main'
   AND lower(btrim(u->>'email')) ~ '@(allegriaservice\.com|grupomediterra\.cl)$'
 ON CONFLICT (lower(btrim(email))) WHERE email IS NOT NULL AND btrim(email) <> '' DO NOTHING;
 
--- (2) membership ALS SOLO para los 6 aprobados (whitelist de nombre normalizado — lista del CFO).
---     Empresa autoritativa: ALS = 5aa10886-2a76-4a9e-9bc3-303fb776cd49.
+-- (2) membership ALS SOLO para los 6 aprobados (whitelist por EMAIL NORMALIZADO — natural key del
+--     bootstrap; el nombre NO es authorization key: puede cambiar/acentos/espacios). Exactamente
+--     estos 6 emails; NO domain-based, NO empresas_permitidas, NO inferencia. ALS = 5aa10886-…-cd49.
 INSERT INTO iam_usuario_empresa (usuario_id, empresa_id)
 SELECT iu.id, '5aa10886-2a76-4a9e-9bc3-303fb776cd49'::uuid
 FROM iam_usuario iu
-WHERE lower(regexp_replace(btrim(iu.nombre), '\s+', ' ', 'g')) IN (
-  'angelo huerta',
-  'jose ignacio parra celis',
-  'lucas ramiro vergara ortiz',
-  'marcos alfonso gaete perez',
-  'patricio antonio moreno pizarro',
-  'scarlett kimberly bustos benitez'
+WHERE lower(btrim(iu.email)) IN (
+  'ahuerta@grupomediterra.cl',
+  'iparra@allegriaservice.com',
+  'lvergara@allegriaservice.com',
+  'mgaete@allegriaservice.com',
+  'pmoreno@allegriaservice.com',
+  'sbustos@allegriaservice.com'
 )
 ON CONFLICT (usuario_id, empresa_id) DO NOTHING;
 
