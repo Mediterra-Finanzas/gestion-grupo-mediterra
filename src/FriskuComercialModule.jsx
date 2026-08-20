@@ -9009,6 +9009,9 @@ export default function FriskuComercialModule({
   const cargaOkRef = useRef(false);
   const [tab, setTab] = useState("clientes");
   const [guardando, setGuardando] = useState({});
+  // Problema de guardado visible EN PANTALLA. Antes esto no existía: un guardado caído
+  // solo dejaba rastro en la consola del navegador, que nadie mira.
+  const [problemaGuardado, setProblemaGuardado] = useState(null);
   const [importando, setImportando] = useState(false);
 
   // UI Clientes
@@ -9167,8 +9170,18 @@ export default function FriskuComercialModule({
     }
   },[tab, cargando, recargarMaestros]);
 
+  // Nombres en castellano para los avisos, para no mostrarle al usuario el id de la fila.
+  const ETIQUETA_FILA = {
+    frisku_clientes: "Clientes", frisku_exportadoras: "Exportadoras",
+    frisku_contratos: "Contratos", frisku_programa: "Programa",
+    frisku_embarques: "Embarques", frisku_liquidaciones: "Liquidaciones", frisku_po: "PO",
+  };
+
   // ── Auto-save genérico ──
-  const useAutoSave = (id, valor, listo=true) => {
+  // `setter` es obligatorio cuando la fila puede fusionarse: si el guardado trajo cambios
+  // de otra persona, el estado en memoria DEBE quedar con el resultado fusionado. Si no,
+  // la copia local queda sin esos ítems y el siguiente guardado los tomaría como borrados.
+  const useAutoSave = (id, valor, setter, listo=true) => {
     const timer = useRef(null);
     const primero = useRef(true);
     useEffect(()=>{
@@ -9177,18 +9190,36 @@ export default function FriskuComercialModule({
       if(timer.current) clearTimeout(timer.current);
       setGuardando(g => ({...g, [id]:true}));
       timer.current = setTimeout(async ()=>{
-        await dbSaveGeneric(id, valor);
+        const r = await dbSaveGeneric(id, valor);
         setGuardando(g => ({...g, [id]:false}));
+        if(r && r.ok){
+          if(r.fusionado && setter && r.valor){
+            setter(r.valor);   // incorporar lo que hizo la otra persona
+            setProblemaGuardado({ id, tipo:"fusion",
+              texto:`Otra persona estaba trabajando en ${ETIQUETA_FILA[id]||id} al mismo tiempo. Se combinaron los dos trabajos y no se perdió nada.` });
+          } else {
+            setProblemaGuardado(p => (p && p.id===id) ? null : p);
+          }
+          return;
+        }
+        const motivo = r && r.motivo;
+        if(motivo === "conflicto_item"){
+          setProblemaGuardado({ id, tipo:"conflicto", conflictos:(r.conflictos||[]),
+            texto:`No se guardó ${ETIQUETA_FILA[id]||id}: otra persona editó al mismo tiempo ${r.conflictos.length===1?"el mismo registro":"los mismos registros"} que tú. Para no borrar su trabajo se conservó el del servidor. Anota tu cambio, recarga la página y vuelve a aplicarlo.` });
+        } else {
+          setProblemaGuardado({ id, tipo:"error",
+            texto:`No se pudo guardar ${ETIQUETA_FILA[id]||id}${motivo==="http"&&r.status?` (error ${r.status})`:""}. Tus cambios siguen en pantalla: no cierres esta pestaña y reintenta.` });
+        }
       }, 1000);
     },[valor]);
   };
-  useAutoSave("frisku_clientes", clientes);
-  useAutoSave("frisku_exportadoras", exportadoras);
-  useAutoSave("frisku_contratos", contratos);
-  useAutoSave("frisku_programa", programa);
-  useAutoSave("frisku_embarques", embarques);
-  useAutoSave("frisku_liquidaciones", liquidaciones);
-  useAutoSave("frisku_po", pos);
+  useAutoSave("frisku_clientes", clientes, setClientes);
+  useAutoSave("frisku_exportadoras", exportadoras, setExportadoras);
+  useAutoSave("frisku_contratos", contratos, setContratos);
+  useAutoSave("frisku_programa", programa, setPrograma);
+  useAutoSave("frisku_embarques", embarques, setEmbarques);
+  useAutoSave("frisku_liquidaciones", liquidaciones, setLiquidaciones);
+  useAutoSave("frisku_po", pos, setPos);
 
   // ── Filtrado de clientes ──
   const clientesFiltrados = useMemo(()=>{
@@ -9795,6 +9826,30 @@ export default function FriskuComercialModule({
   return (
    <FriskuBIProvider data={{ embarques, liquidaciones, clientes, exportadoras, especies, mercados, tiposEmbalaje, tcData }}>
     <div style={{background:C.bg, minHeight:"100vh", color:C.text}}>
+      {/* Aviso de persistencia: fusión con el trabajo de otra persona, conflicto o error.
+          Fijo y por encima de todo, porque es información que no se puede perder de vista. */}
+      {problemaGuardado && (()=>{
+        const esFusion = problemaGuardado.tipo === "fusion";
+        const col = esFusion ? {bg:"#ecfdf5", bd:"#059669", tx:"#065f46"} : {bg:"#fef2f2", bd:"#dc2626", tx:"#991b1b"};
+        return (
+          <div role="status" style={{position:"fixed", right:16, bottom:16, zIndex:99999, maxWidth:440,
+            background:col.bg, border:`2px solid ${col.bd}`, borderRadius:10, padding:"12px 14px",
+            boxShadow:"0 6px 24px rgba(0,0,0,0.25)", fontSize:12.5, color:col.tx, lineHeight:1.45}}>
+            <div style={{fontWeight:800, marginBottom:5}}>
+              {esFusion ? "Se combinaron los cambios" : problemaGuardado.tipo === "conflicto" ? "No se guardó · conflicto" : "No se guardó"}
+            </div>
+            <div>{problemaGuardado.texto}</div>
+            <div style={{display:"flex", gap:8, marginTop:10}}>
+              {!esFusion && <button onClick={()=>window.location.reload()}
+                style={{background:col.bd, color:"#fff", border:"none", borderRadius:6, padding:"5px 12px", cursor:"pointer", fontWeight:800, fontSize:11}}>
+                Recargar página</button>}
+              <button onClick={()=>setProblemaGuardado(null)}
+                style={{background:"transparent", color:col.tx, border:`1px solid ${col.bd}`, borderRadius:6, padding:"5px 12px", cursor:"pointer", fontWeight:700, fontSize:11}}>
+                Entendido</button>
+            </div>
+          </div>
+        );
+      })()}
       {/* Header */}
       <div style={{padding:"14px 20px", borderBottom:"1px solid rgba(255,255,255,0.10)", display:"flex", alignItems:"center", justifyContent:"space-between", flexWrap:"wrap", gap:10, background:"#1E2761", boxShadow:"0 4px 16px rgba(16,24,40,0.20)"}}>
         <div onClick={()=>setTab("resumen")} title="Ir al inicio de Frisku"

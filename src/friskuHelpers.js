@@ -42,33 +42,158 @@ async function guardUpload(bucket, path, file) {
   if (!up.ok) { const t = await up.text().catch(() => ""); throw new Error(`subida ${up.status} ${t.slice(0,80)}`); }
 }
 
+import { fusionarPorId, clonarValor, valoresIguales } from "./friskuPersistencia";
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// CONCURRENCIA — versión y base por fila
+//
+// `_version` guarda el `updated_at` con el que se leyó cada fila. Toda escritura va
+// condicionada a él: si en el servidor cambió, otra persona escribió después y NO se
+// puede reemplazar la fila a ciegas.
+//
+// `_base` guarda el contenido tal como vino del servidor. Es lo que permite saber qué
+// cambié YO de verdad y fusionar por ítem en vez de pisar el arreglo completo.
+// ═══════════════════════════════════════════════════════════════════════════════
+const _version = new Map();
+const _base = new Map();
+
+function _registrarLectura(id, valor, updatedAt) {
+  _version.set(id, updatedAt === undefined ? null : updatedAt);
+  _base.set(id, clonarValor(valor));
+}
+
+/** Solo para pruebas y diagnóstico: qué versión y base tiene registradas una fila. */
+export function _estadoPersistencia(id) {
+  return { version: _version.get(id), base: _base.get(id) };
+}
+export function _resetPersistencia(id) {
+  if (id === undefined) { _version.clear(); _base.clear(); }
+  else { _version.delete(id); _base.delete(id); }
+}
+
+async function _leerFila(id) {
+  const res = await fetch(`${SUPA_URL}/rest/v1/calendario_data?id=eq.${id}&select=value,updated_at`, {
+    headers: { apikey: SUPA_KEY, Authorization: `Bearer ${SUPA_KEY}` }
+  });
+  if (!res.ok) throw new Error(`lectura ${id} HTTP ${res.status}`);
+  const rows = await res.json();
+  if (!Array.isArray(rows)) throw new Error(`lectura ${id}: respuesta inesperada`);
+  if (rows.length === 0) return { existe: false, valor: null, updatedAt: null };
+  const v = rows[0].value;
+  return { existe: true, valor: typeof v === "string" ? JSON.parse(v) : v, updatedAt: rows[0].updated_at || null };
+}
+
+// Escritura condicionada + confirmada. No se declara guardado porque el fetch no lanzó:
+// se declara porque el servidor devolvió la fila escrita.
+async function _escribirCondicionado(id, value, version) {
+  const cab = { apikey: SUPA_KEY, Authorization: `Bearer ${SUPA_KEY}`, "Content-Type": "application/json" };
+  let res, filas;
+  if (version) {
+    const url = `${SUPA_URL}/rest/v1/calendario_data?id=eq.${id}&updated_at=eq.${encodeURIComponent(version)}`;
+    res = await fetch(url, { method: "PATCH", headers: { ...cab, Prefer: "return=representation" },
+      body: JSON.stringify({ value, updated_at: new Date().toISOString() }) });
+  } else {
+    res = await fetch(`${SUPA_URL}/rest/v1/calendario_data`, { method: "POST",
+      headers: { ...cab, Prefer: "resolution=merge-duplicates,return=representation" },
+      body: JSON.stringify({ id, value, updated_at: new Date().toISOString() }) });
+  }
+  if (!res.ok) {
+    const detalle = await res.text().catch(() => "");
+    return { ok: false, motivo: "http", status: res.status, detalle: detalle.slice(0, 200) };
+  }
+  filas = await res.json().catch(() => []);
+  if (!Array.isArray(filas) || filas.length === 0) return { ok: false, motivo: "conflicto" };
+  if (!filas[0].updated_at) return { ok: false, motivo: "sin_confirmacion" };
+  return { ok: true, updatedAt: filas[0].updated_at };
+}
+
 export async function dbLoadGeneric(id) {
   // NO atrapar el error: si la lectura falla (red/HTTP), la excepción DEBE
   // propagar para que el caller NO habilite el guardado (que sobrescribiría
   // los datos en Supabase con los defaults vacíos en memoria). Solo se
   // devuelve null cuando la fila existe pero está vacía / no existe.
-  const res = await fetch(`${SUPA_URL}/rest/v1/calendario_data?id=eq.${id}&select=value`, {
-    headers: { apikey: SUPA_KEY, Authorization: `Bearer ${SUPA_KEY}` }
-  });
-  if (!res.ok) throw new Error(`dbLoadGeneric ${id} HTTP ${res.status}`);
-  const rows = await res.json();
-  if (rows?.[0]?.value) {
-    return typeof rows[0].value === "string" ? JSON.parse(rows[0].value) : rows[0].value;
-  }
-  return null;
+  const { existe, valor, updatedAt } = await _leerFila(id);
+  _registrarLectura(id, existe ? valor : null, updatedAt);
+  return existe && valor ? valor : null;
 }
 
-export async function dbSaveGeneric(id, value) {
+/**
+ * Guarda una fila sin sobrescribir el trabajo de otra persona.
+ *
+ * 1. Escritura CONDICIONADA a la versión con la que se leyó, y CONFIRMADA por el
+ *    servidor. Antes se hacía `await fetch(...)` sin mirar la respuesta y sin devolver
+ *    nada: un 4xx o un 5xx se perdía y la pantalla igual apagaba el "guardando".
+ * 2. Si hubo conflicto, se intenta FUSIONAR por ítem contra lo que hay en el servidor.
+ *    Si mis cambios y los del otro no se tocan, la fusión es limpia y ambos quedan.
+ *    Solo si los dos editamos el MISMO ítem se devuelve conflicto sin resolver.
+ *
+ * Devuelve SIEMPRE un objeto:
+ *   { ok:true, valor, fusionado, cambios }
+ *   { ok:false, motivo:"conflicto_item", conflictos:[ids], valorServidor }
+ *   { ok:false, motivo:"conflicto"|"http"|"red"|"sin_confirmacion", ... }
+ *
+ * IMPORTANTE para el llamador: si `fusionado` es true, `valor` trae el arreglo
+ * resultante y el estado en memoria DEBE actualizarse con él. Si no se hace, la copia
+ * local queda sin los ítems del otro y el siguiente guardado los interpretaría como
+ * borrados por mí.
+ */
+export async function dbSaveGeneric(id, value, opts = {}) {
+  const maxIntentos = opts.intentos == null ? 2 : opts.intentos;
+  let aGuardar = value;
+  let fusionado = false;
+  let cambios = null;
+
   try {
-    await fetch(`${SUPA_URL}/rest/v1/calendario_data`, {
-      method: "POST",
-      headers: {
-        apikey: SUPA_KEY, Authorization: `Bearer ${SUPA_KEY}`,
-        "Content-Type": "application/json", Prefer: "resolution=merge-duplicates"
-      },
-      body: JSON.stringify({ id, value, updated_at: new Date().toISOString() })
-    });
-  } catch (e) { console.error(`[Frisku:${id}] Error guardando:`, e); }
+    for (let intento = 0; intento <= maxIntentos; intento++) {
+      // Si nunca leímos esta fila en esta sesión, averiguamos su versión antes de escribir.
+      if (!_version.has(id)) {
+        const actual = await _leerFila(id);
+        _registrarLectura(id, actual.valor, actual.updatedAt);
+      }
+
+      const r = await _escribirCondicionado(id, aGuardar, _version.get(id));
+      if (r.ok) {
+        _version.set(id, r.updatedAt);
+        _base.set(id, clonarValor(aGuardar));
+        return { ok: true, valor: aGuardar, fusionado, cambios };
+      }
+      if (r.motivo !== "conflicto") {
+        console.error(`[Frisku:${id}] ❌ NO SE GUARDÓ — ${r.motivo}${r.status ? " HTTP " + r.status : ""} ${r.detalle || ""}`);
+        return r;
+      }
+
+      // Conflicto: alguien escribió después de nuestra última lectura.
+      const actual = await _leerFila(id);
+      const base = _base.has(id) ? _base.get(id) : null;
+
+      if (valoresIguales(actual.valor, aGuardar)) {
+        // Lo que queríamos escribir ya está en el servidor. No hay nada que hacer.
+        _registrarLectura(id, actual.valor, actual.updatedAt);
+        return { ok: true, valor: actual.valor, fusionado, cambios, sinCambios: true };
+      }
+
+      const f = fusionarPorId(base, aGuardar, actual.valor);
+      if (!f.ok || f.conflictos.length > 0) {
+        _registrarLectura(id, actual.valor, actual.updatedAt);   // partir de la versión real
+        const motivo = f.ok ? "conflicto_item" : "conflicto";
+        console.warn(`[Frisku:${id}] ⚠️ CONFLICTO (${motivo})${f.ok ? " en ítems: " + f.conflictos.join(", ") : ""}. No se sobrescribió nada.`);
+        return { ok: false, motivo, conflictos: f.ok ? f.conflictos : [], valorServidor: actual.valor };
+      }
+
+      // Fusión limpia: reintentar escribiendo el resultado.
+      _version.set(id, actual.updatedAt);
+      _base.set(id, clonarValor(actual.valor));
+      aGuardar = f.valor;
+      fusionado = true;
+      cambios = f.cambios;
+      console.log(`[Frisku:${id}] ↻ fusionado con cambios de otra persona (${f.cambios.ajenosPreservados} ítems ajenos preservados). Reintentando.`);
+    }
+    console.error(`[Frisku:${id}] ❌ NO SE GUARDÓ — reintentos agotados`);
+    return { ok: false, motivo: "reintentos_agotados" };
+  } catch (e) {
+    console.error(`[Frisku:${id}] ❌ Error de red al guardar:`, e);
+    return { ok: false, motivo: "red", detalle: String((e && e.message) || e) };
+  }
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -82,17 +207,11 @@ export async function loadConSeed(id, defaults) {
   // el auto-save del módulo, sembraba los defaults ENCIMA de los datos reales
   // en Supabase ante un parpadeo de conexión. Ahora la excepción propaga y el
   // caller deja el guardado deshabilitado esa sesión.
-  const res = await fetch(
-    `${SUPA_URL}/rest/v1/calendario_data?id=eq.${id}&select=value`,
-    { headers: { apikey: SUPA_KEY, Authorization: `Bearer ${SUPA_KEY}` } }
-  );
-  if (!res.ok) throw new Error(`loadConSeed ${id} HTTP ${res.status}`);
-  const rows = await res.json();
-  if (Array.isArray(rows) && rows.length > 0) {
-    // Fila existe: retornar lo que tenga (incluido array vacío)
-    const v = rows[0].value;
-    return typeof v === "string" ? JSON.parse(v) : v;
-  }
+  const { existe, valor, updatedAt } = await _leerFila(id);
+  // Registrar versión y base también por esta vía: si no, el primer guardado de una fila
+  // sembrada no tendría con qué fusionar y volvería a pisar.
+  _registrarLectura(id, existe ? valor : null, updatedAt);
+  if (existe) return valor;   // fila existe: lo que tenga, incluido arreglo vacío
   // Fila NO existe (lectura OK, sin filas): sembrar defaults y retornarlos
   await dbSaveGeneric(id, defaults);
   console.log(`[Seed:${id}] Sembrado con ${Array.isArray(defaults) ? defaults.length : "?"} items`);
