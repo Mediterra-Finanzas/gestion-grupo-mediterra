@@ -4,7 +4,7 @@
 -- Fecha   : 2026-08-19
 -- Estado  : EJECUTAR DESPUÉS de 016 + 019 + 020 + 022
 -- =============================================================================
--- Tests: CAT-14 a CAT-17 (continúa desde 017 que tenía CAT-10 a CAT-13)
+-- Tests: CAT-14 a CAT-18 (continúa desde 017 que tenía CAT-10 a CAT-13)
 --
 -- CAT-14: Períodos ALF 2026 (019)
 --   1401: 12 períodos creados para ALF
@@ -42,6 +42,18 @@
 --   1705: fn_acc_post_batch con UUID inexistente lanza error P0001
 --   1706: fn_acc_post_batch con batch no-APPROVED lanza error P0002
 --   1707: fn_acc_post_batch tiene firma correcta (2 parámetros IN)
+--
+-- CAT-18: Entity Isolation — Pilot ALF Scope (SEC-ENTITY-SCOPE-001, 020 v3)
+--   1801: INSERT policy EXISTS con ALF UUID en WITH CHECK
+--   1802: INSERT policy WITH CHECK NO es permisiva (no WITH CHECK(true))
+--   1803: UPDATE policy USING restringe a ALF UUID (filas otras entidades invisibles)
+--   1804: UPDATE policy WITH CHECK restringe a ALF UUID (entity_id inmutable)
+--   1805: acc_account_balance sin write directo para authenticated (modelo C)
+--   1806: anon fail-closed en acc_source_batch (RLS habilitado + sin política anon)
+--   1807: service_role ALL en acc_source_batch (009 policy intacta)
+--   1808: UPDATE USING y WITH CHECK tienen misma restricción ALF (entity_id change bloqueado)
+--   1809: SELECT de authenticated intacto (020 no debilitó lectura de 009)
+--   1810: Lifecycle trigger activo en acc_source_batch (014 trigger preservado)
 -- =============================================================================
 -- FIXTURES: TODOS SINTÉTICOS. Sin datos financieros reales.
 -- =============================================================================
@@ -230,28 +242,38 @@ BEGIN
   -- Ya validado en 1406 — pass por referencia
   CALL pass('1504', 'T10 activo en acc_account_balance (validado en 1406)');
 
-  -- 1505: anon sigue denegado en acc_source_batch
-  IF EXISTS (
-    SELECT 1 FROM pg_policies
-    WHERE schemaname = 'public' AND tablename = 'acc_source_batch'
-      AND 'anon' = ANY(roles)
-      AND qual = 'false'
+  -- 1505: anon fail-closed en acc_source_batch
+  -- 009 usa deny IMPLÍCITO: RLS habilitado + sin política para anon = acceso denegado.
+  -- No hay política USING(false) explícita — buscar por esa expresión siempre daría WARN.
+  IF (
+    EXISTS (
+      SELECT 1 FROM pg_tables
+      WHERE schemaname = 'public' AND tablename = 'acc_source_batch' AND rowsecurity = true
+    )
+    AND NOT EXISTS (
+      SELECT 1 FROM pg_policies
+      WHERE schemaname = 'public' AND tablename = 'acc_source_batch' AND 'anon' = ANY(roles)
+    )
   ) THEN
-    CALL pass('1505', 'acc_source_batch: anon sigue denegado (fail-closed intacto)');
+    CALL pass('1505', 'acc_source_batch: anon fail-closed (RLS habilitado + sin política anon = denegado implícito)');
   ELSE
-    CALL warn('1505', 'acc_source_batch: política deny_anon no encontrada — verificar 009 RLS');
+    CALL fail('1505', 'SECURITY: acc_source_batch fail-closed para anon roto. Verificar 009 RLS.');
   END IF;
 
-  -- 1506: anon sigue denegado en acc_account_balance
-  IF EXISTS (
-    SELECT 1 FROM pg_policies
-    WHERE schemaname = 'public' AND tablename = 'acc_account_balance'
-      AND 'anon' = ANY(roles)
-      AND qual = 'false'
+  -- 1506: anon fail-closed en acc_account_balance (mismo mecanismo implícito de 009)
+  IF (
+    EXISTS (
+      SELECT 1 FROM pg_tables
+      WHERE schemaname = 'public' AND tablename = 'acc_account_balance' AND rowsecurity = true
+    )
+    AND NOT EXISTS (
+      SELECT 1 FROM pg_policies
+      WHERE schemaname = 'public' AND tablename = 'acc_account_balance' AND 'anon' = ANY(roles)
+    )
   ) THEN
-    CALL pass('1506', 'acc_account_balance: anon sigue denegado (fail-closed intacto)');
+    CALL pass('1506', 'acc_account_balance: anon fail-closed (RLS habilitado + sin política anon = denegado implícito)');
   ELSE
-    CALL warn('1506', 'acc_account_balance: política deny_anon no encontrada — verificar 009 RLS');
+    CALL fail('1506', 'SECURITY: acc_account_balance fail-closed para anon roto. Verificar 009 RLS.');
   END IF;
 
 
@@ -535,6 +557,157 @@ BEGIN
       CALL fail('1707', format('fn_acc_post_batch: firma incorrecta (%s parámetros IN, esperado 2)', v_param_count));
     END IF;
   END;
+
+
+  -- ==========================================================================
+  -- CAT-18: Entity Isolation — Pilot ALF Scope (SEC-ENTITY-SCOPE-001)
+  -- Verifica que las políticas de 020 v3 restringen acc_source_batch al UUID
+  -- de Allegria Foods. Todos los tests son introspección de pg_policies.
+  -- ALF UUID: 3df93d9d-cbc6-446f-b9a5-0a3840692fd8
+  -- ==========================================================================
+
+  -- 1801: INSERT policy para authenticated EXISTS con ALF UUID en WITH CHECK
+  IF EXISTS (
+    SELECT 1 FROM pg_policies
+    WHERE schemaname = 'public'
+      AND tablename  = 'acc_source_batch'
+      AND cmd        = 'INSERT'
+      AND 'authenticated' = ANY(roles)
+      AND with_check LIKE '%3df93d9d-cbc6-446f-b9a5-0a3840692fd8%'
+  ) THEN
+    CALL pass('1801', 'INSERT policy: ALF UUID en WITH CHECK — entity scope correcto');
+  ELSE
+    CALL fail('1801', 'SECURITY: INSERT policy no restringe a ALF UUID. SEC-ENTITY-SCOPE-001 violado. Ejecutar 020 v3.');
+  END IF;
+
+  -- 1802: INSERT policy WITH CHECK NO es permisiva (WITH CHECK(true) sería un regresión de seguridad)
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_policies
+    WHERE schemaname = 'public'
+      AND tablename  = 'acc_source_batch'
+      AND cmd        = 'INSERT'
+      AND 'authenticated' = ANY(roles)
+      AND with_check = 'true'
+  ) THEN
+    CALL pass('1802', 'INSERT policy WITH CHECK no es permisiva (true) — cross-entity write bloqueado');
+  ELSE
+    CALL fail('1802', 'SECURITY: INSERT policy tiene WITH CHECK (true) — cross-entity write NO bloqueado. Ejecutar 020 v3.');
+  END IF;
+
+  -- 1803: UPDATE policy USING restringe a ALF UUID (filas de otras entidades invisibles)
+  IF EXISTS (
+    SELECT 1 FROM pg_policies
+    WHERE schemaname = 'public'
+      AND tablename  = 'acc_source_batch'
+      AND cmd        IN ('UPDATE', 'ALL')
+      AND 'authenticated' = ANY(roles)
+      AND qual LIKE '%3df93d9d-cbc6-446f-b9a5-0a3840692fd8%'
+      AND policyname NOT LIKE '%deny%'
+  ) THEN
+    CALL pass('1803', 'UPDATE policy USING: solo filas ALF visibles — batches de otras entidades ocultos');
+  ELSE
+    CALL fail('1803', 'SECURITY: UPDATE USING no restringe a ALF UUID. Batches de otras entidades accesibles.');
+  END IF;
+
+  -- 1804: UPDATE policy WITH CHECK restringe a ALF UUID (entity_id no puede cambiarse)
+  IF EXISTS (
+    SELECT 1 FROM pg_policies
+    WHERE schemaname = 'public'
+      AND tablename  = 'acc_source_batch'
+      AND cmd        IN ('UPDATE', 'ALL')
+      AND 'authenticated' = ANY(roles)
+      AND with_check LIKE '%3df93d9d-cbc6-446f-b9a5-0a3840692fd8%'
+      AND policyname NOT LIKE '%deny%'
+  ) THEN
+    CALL pass('1804', 'UPDATE policy WITH CHECK: entity_id no puede cambiarse a otra empresa');
+  ELSE
+    CALL fail('1804', 'SECURITY: UPDATE WITH CHECK no restringe entity_id — cambio cross-entity posible.');
+  END IF;
+
+  -- 1805: acc_account_balance sin write directo para authenticated (modelo C — ledger protegido)
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_policies
+    WHERE schemaname = 'public'
+      AND tablename  = 'acc_account_balance'
+      AND cmd        IN ('INSERT', 'UPDATE', 'ALL')
+      AND 'authenticated' = ANY(roles)
+      AND policyname NOT LIKE '%deny%'
+  ) THEN
+    CALL pass('1805', 'acc_account_balance: authenticated sin write directo — ledger protegido (modelo C)');
+  ELSE
+    CALL fail('1805', 'SECURITY: acc_account_balance tiene write policy para authenticated — ledger desprotegido.');
+  END IF;
+
+  -- 1806: anon fail-closed en acc_source_batch (RLS habilitado + sin política anon = denegado)
+  IF (
+    EXISTS (
+      SELECT 1 FROM pg_tables
+      WHERE schemaname = 'public' AND tablename = 'acc_source_batch' AND rowsecurity = true
+    )
+    AND NOT EXISTS (
+      SELECT 1 FROM pg_policies
+      WHERE schemaname = 'public' AND tablename = 'acc_source_batch' AND 'anon' = ANY(roles)
+    )
+  ) THEN
+    CALL pass('1806', 'acc_source_batch: anon fail-closed (RLS habilitado + sin política anon)');
+  ELSE
+    CALL fail('1806', 'SECURITY: anon no está fail-closed en acc_source_batch.');
+  END IF;
+
+  -- 1807: service_role tiene ALL en acc_source_batch (policy de 009 intacta)
+  IF EXISTS (
+    SELECT 1 FROM pg_policies
+    WHERE schemaname = 'public'
+      AND tablename  = 'acc_source_batch'
+      AND cmd        = 'ALL'
+      AND 'service_role' = ANY(roles)
+  ) THEN
+    CALL pass('1807', 'service_role ALL en acc_source_batch (009 intacta) — internal posting path OK');
+  ELSE
+    CALL fail('1807', 'service_role no tiene ALL en acc_source_batch — posting path roto.');
+  END IF;
+
+  -- 1808: UPDATE USING y WITH CHECK tienen MISMA restricción ALF (entity_id change bloqueado)
+  -- Verifica consistencia: si USING = ALF y WITH CHECK != ALF, un UPDATE podría cambiar entity_id.
+  IF EXISTS (
+    SELECT 1 FROM pg_policies
+    WHERE schemaname = 'public'
+      AND tablename  = 'acc_source_batch'
+      AND cmd        IN ('UPDATE', 'ALL')
+      AND 'authenticated' = ANY(roles)
+      AND qual       LIKE '%3df93d9d%'
+      AND with_check LIKE '%3df93d9d%'
+      AND policyname NOT LIKE '%deny%'
+  ) THEN
+    CALL pass('1808', 'UPDATE USING y WITH CHECK consistentes en ALF — cambio de entity_id bloqueado');
+  ELSE
+    CALL fail('1808', 'UPDATE USING/WITH CHECK inconsistentes — cambio de entity_id puede no estar bloqueado.');
+  END IF;
+
+  -- 1809: SELECT policy de authenticated sigue activa (009 no fue afectado por 020)
+  IF EXISTS (
+    SELECT 1 FROM pg_policies
+    WHERE schemaname = 'public'
+      AND tablename  = 'acc_source_batch'
+      AND cmd        = 'SELECT'
+      AND 'authenticated' = ANY(roles)
+  ) THEN
+    CALL pass('1809', 'SELECT policy de authenticated intacta — 020 no debilitó lectura (009 preservado)');
+  ELSE
+    CALL fail('1809', 'REGRESSION: SELECT policy de authenticated desaparecida — 020 rompió lectura de 009.');
+  END IF;
+
+  -- 1810: Lifecycle trigger activo en acc_source_batch (014 no afectado por 020)
+  IF EXISTS (
+    SELECT 1 FROM information_schema.triggers
+    WHERE event_object_schema = 'public'
+      AND event_object_table  = 'acc_source_batch'
+      AND trigger_name        = 'trg_acc_source_batch_lifecycle'
+  ) THEN
+    CALL pass('1810', 'Lifecycle trigger trg_acc_source_batch_lifecycle activo — 020 no afectó triggers de 014');
+  ELSE
+    CALL fail('1810', 'REGRESSION: trg_acc_source_batch_lifecycle no encontrado — 014 puede no estar desplegado.');
+  END IF;
 
 
   -- ==========================================================================
