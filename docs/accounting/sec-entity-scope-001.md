@@ -137,10 +137,12 @@ WITH CHECK (
 | Archivo | Cambio requerido |
 |---|---|
 | `020_posting_write_rls.sql` | Reemplazar hardcode UUID por mecanismo definitivo |
-| `021_posting_pipeline_tests.sql` | Actualizar CAT-18 tests 1801-1804 para nuevo mecanismo |
+| `023_fn_acc_approve_batch.sql` | Reemplazar hardcode UUID en P0000 y RLS por mecanismo definitivo |
+| `021_posting_pipeline_tests.sql` | Actualizar CAT-18 tests 1801-1804 y CAT-20 tests 2009/2013 para nuevo mecanismo |
 | `PostingPipeline.js` | Sin cambios (entity isolation es DB-level, no JS) |
 | `ContecAdapter.js` | Sin cambios |
 | `fn_acc_post_batch` | Reemplazar P0000 hardcode UUID por mecanismo definitivo |
+| `fn_acc_approve_batch` | Reemplazar P0000 hardcode UUID por mecanismo definitivo |
 
 **Regla:** el hardcode ALF NO debe estar en JS, adapters, ni componentes compartidos.
 Exclusivamente en: (a) la policy temporal de producción (020), y (b) P0000 de
@@ -154,11 +156,15 @@ fn_acc_post_batch (server-side, dentro de la función SECURITY DEFINER).
 src/accounting/migrations/020_posting_write_rls.sql — LINES 83, 106-107
   WITH CHECK (entity_id = '3df93d9d-cbc6-446f-b9a5-0a3840692fd8'::uuid)   -- INSERT
   USING      (entity_id = '3df93d9d-cbc6-446f-b9a5-0a3840692fd8'::uuid)   -- UPDATE
-  WITH CHECK (entity_id = '3df93d9d-cbc6-446f-b9a5-0a3840692fd8'::uuid)   -- UPDATE
+  WITH CHECK (entity_id = '3df93d9d-cbc6-446f-b9a5-0a3840692fd8'::uuid)   -- UPDATE (recreada en 023)
 
 src/accounting/migrations/022_fn_acc_post_batch.sql — P0000 (guard server-side)
   IF v_batch.entity_id <> '3df93d9d-cbc6-446f-b9a5-0a3840692fd8'::uuid THEN RAISE ...
   -- Capa defensiva adicional dentro del RPC SECURITY DEFINER (B7 fix)
+
+src/accounting/migrations/023_fn_acc_approve_batch.sql — P0000 + RLS
+  IF v_batch.entity_id <> '3df93d9d-cbc6-446f-b9a5-0a3840692fd8'::uuid THEN RAISE ...  -- fn guard
+  WITH CHECK (entity_id = '3df93d9d-cbc6-446f-b9a5-0a3840692fd8'::uuid AND status <> 'APPROVED')  -- RLS
 ```
 
 Buscar antes de onboarding segunda empresa:

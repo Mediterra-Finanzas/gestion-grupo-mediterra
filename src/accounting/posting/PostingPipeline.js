@@ -674,11 +674,11 @@ export async function fetchPeriod(supabase, entityId, periodId) {
  * @param {string} opts.periodId — UUID acc_period (debe estar 'open')
  * @param {string} opts.reportType — 'balance' | 'eerr_periodo' | 'eerr_acumulado' | 'auto'
  * @param {string} opts.sourceCurrency — ISO 4217
- * @param {string} opts.importedBy — usuario que hace el upload
  * @param {string} [opts.storageBucket] — bucket name (default 'accounting-source')
  * @param {string} [opts.storagePath] — path en el bucket
  * @param {number} [opts.fileSizeBytes]
  * @returns {Promise<PostingIngestResult>}
+ * Nota: importedBy se deriva de auth.uid() server-side (no aceptado del caller — SoD requirement B17).
  */
 export async function runIngest(supabase, opts) {
   const {
@@ -688,11 +688,15 @@ export async function runIngest(supabase, opts) {
     periodId,
     reportType = 'auto',
     sourceCurrency,
-    importedBy,
     storageBucket = 'accounting-source',
     storagePath,
     fileSizeBytes,
   } = opts;
+
+  // importedBy derivado de la sesión autenticada — no se acepta del caller (SoD requirement B17).
+  // fn_acc_approve_batch compara auth.uid()::TEXT vs imported_by; ambos deben ser UUIDs.
+  const { data: _authData } = await supabase.auth.getUser();
+  const importedBy = _authData?.user?.id || null;
 
   const result = {
     batchId:           null,
@@ -794,15 +798,15 @@ export async function runIngest(supabase, opts) {
  * @param {Object} opts
  * @param {string} opts.batchId
  * @param {string} opts.entityId
- * @param {string} opts.approvedBy — nombre/email del CFO que aprueba
  * @returns {Promise<PostingResult>}
- * El actor de posting se deriva de auth.uid() server-side (B8 — no aceptado del caller).
+ * Actor y approved_by se derivan de auth.uid() server-side en los RPCs.
+ * No se aceptan approved_by ni actor del caller (B17 + B8).
  */
 export async function approveAndPost(supabase, opts) {
   const {
     batchId,
     entityId,
-    approvedBy,
+    // approvedBy eliminado: fn_acc_approve_batch lo deriva de auth.uid() server-side (B17)
     // postedBy eliminado: fn_acc_post_batch lo deriva de auth.uid() server-side (B8)
   } = opts;
 
@@ -815,8 +819,15 @@ export async function approveAndPost(supabase, opts) {
   };
 
   try {
-    // PENDING_APPROVAL → APPROVED: acción del CFO registrada con entity isolation
-    await transitionBatch(supabase, batchId, 'APPROVED', { approved_by: approvedBy }, entityId);
+    // PENDING_APPROVAL → APPROVED: vía fn_acc_approve_batch (SECURITY DEFINER)
+    // SoD light: importer ≠ approver validado server-side (P0005).
+    // approved_by = auth.uid()::TEXT server-side — no se acepta del frontend (B17).
+    const { error: approveError } = await supabase
+      .rpc('fn_acc_approve_batch', { p_batch_id: batchId });
+
+    if (approveError) {
+      throw new Error(`fn_acc_approve_batch RPC error: ${approveError.message}`);
+    }
 
     // APPROVED → POSTING → POSTED: atomico en el servidor (SECURITY DEFINER)
     // fn_acc_post_batch deriva canonical rows desde acc_source_balance_detail,

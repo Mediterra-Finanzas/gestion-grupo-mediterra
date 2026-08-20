@@ -929,6 +929,176 @@ BEGIN
 
 
   -- ==========================================================================
+  -- CAT-20: fn_acc_approve_batch + B17/B18 security model
+  -- 14 tests: 2001-2014
+  -- Prerequisito: 023_fn_acc_approve_batch.sql ejecutado
+  -- ==========================================================================
+
+  -- 2001: fn_acc_approve_batch existe
+  IF EXISTS (SELECT 1 FROM pg_proc WHERE proname = 'fn_acc_approve_batch') THEN
+    CALL pass('2001', 'B17: fn_acc_approve_batch existe en el schema');
+  ELSE
+    CALL fail('2001', 'B17: fn_acc_approve_batch NO existe — ejecutar 023');
+  END IF;
+
+  -- 2002: exactamente 1 parámetro (p_batch_id) — no acepta approved_by del frontend
+  DECLARE v_pronargs INT; v_argnames TEXT;
+  BEGIN
+    SELECT pronargs, proargnames::TEXT
+    INTO v_pronargs, v_argnames
+    FROM pg_proc WHERE proname = 'fn_acc_approve_batch';
+
+    IF v_pronargs = 1 AND v_argnames LIKE '%p_batch_id%' THEN
+      CALL pass('2002', 'B17: fn_acc_approve_batch acepta 1 parámetro (p_batch_id) — no approved_by del frontend');
+    ELSE
+      CALL fail('2002', 'B17: fn_acc_approve_batch tiene ' || COALESCE(v_pronargs::TEXT, '?') || ' params — esperado 1 (p_batch_id)');
+    END IF;
+  END;
+
+  -- 2003: SECURITY DEFINER
+  DECLARE v_secdef BOOLEAN;
+  BEGIN
+    SELECT prosecdef INTO v_secdef FROM pg_proc WHERE proname = 'fn_acc_approve_batch';
+    IF COALESCE(v_secdef, false) THEN
+      CALL pass('2003', 'B17: fn_acc_approve_batch es SECURITY DEFINER');
+    ELSE
+      CALL fail('2003', 'B17: fn_acc_approve_batch NO es SECURITY DEFINER — re-ejecutar 023');
+    END IF;
+  END;
+
+  -- 2004: search_path seguro (public + pg_temp)
+  DECLARE v_cfg TEXT;
+  BEGIN
+    SELECT array_to_string(proconfig, ',') INTO v_cfg
+    FROM pg_proc WHERE proname = 'fn_acc_approve_batch';
+    IF v_cfg LIKE '%public%' AND v_cfg LIKE '%pg_temp%' THEN
+      CALL pass('2004', 'B17: fn_acc_approve_batch tiene search_path = public, pg_temp');
+    ELSE
+      CALL fail('2004', 'B17: fn_acc_approve_batch search_path inseguro: ' || COALESCE(v_cfg, 'NULL'));
+    END IF;
+  END;
+
+  -- 2005: PUBLIC no tiene EXECUTE en fn_acc_approve_batch
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.role_routine_grants
+    WHERE specific_name LIKE 'fn_acc_approve_batch%'
+      AND grantee = 'PUBLIC' AND privilege_type = 'EXECUTE'
+  ) THEN
+    CALL pass('2005', 'B15 equiv: PUBLIC no tiene EXECUTE en fn_acc_approve_batch');
+  ELSE
+    CALL fail('2005', 'B15 equiv: PUBLIC tiene EXECUTE en fn_acc_approve_batch — REVOKE faltó');
+  END IF;
+
+  -- 2006: anon no tiene EXECUTE en fn_acc_approve_batch
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.role_routine_grants
+    WHERE specific_name LIKE 'fn_acc_approve_batch%'
+      AND grantee = 'anon' AND privilege_type = 'EXECUTE'
+  ) THEN
+    CALL pass('2006', 'B17: anon no tiene EXECUTE en fn_acc_approve_batch');
+  ELSE
+    CALL fail('2006', 'B17: anon tiene EXECUTE en fn_acc_approve_batch — revisar GRANTs');
+  END IF;
+
+  -- 2007: authenticated tiene EXECUTE en fn_acc_approve_batch
+  IF EXISTS (
+    SELECT 1 FROM information_schema.role_routine_grants
+    WHERE specific_name LIKE 'fn_acc_approve_batch%'
+      AND grantee = 'authenticated' AND privilege_type = 'EXECUTE'
+  ) THEN
+    CALL pass('2007', 'B17: authenticated tiene EXECUTE en fn_acc_approve_batch — OK');
+  ELSE
+    CALL fail('2007', 'B17: authenticated NO tiene EXECUTE en fn_acc_approve_batch — GRANT faltó');
+  END IF;
+
+  -- 2008: P000A en prosrc (auth.uid() IS NULL → RAISE)
+  DECLARE v_p000a BOOLEAN;
+  BEGIN
+    SELECT (prosrc LIKE '%auth.uid() IS NULL%') INTO v_p000a
+    FROM pg_proc WHERE proname = 'fn_acc_approve_batch';
+    IF COALESCE(v_p000a, false) THEN
+      CALL pass('2008', 'B16 equiv: P000A presente en fn_acc_approve_batch — auth.uid() NULL → RAISE');
+    ELSE
+      CALL fail('2008', 'B16 equiv: P000A no encontrado en fn_acc_approve_batch — anónimo podría pasar');
+    END IF;
+  END;
+
+  -- 2009: P0000 + ALF UUID en prosrc (entity scope guard)
+  DECLARE v_p0000 BOOLEAN;
+  BEGIN
+    SELECT (prosrc LIKE '%P0000%' AND prosrc LIKE '%3df93d9d%') INTO v_p0000
+    FROM pg_proc WHERE proname = 'fn_acc_approve_batch';
+    IF COALESCE(v_p0000, false) THEN
+      CALL pass('2009', 'B7 equiv: P0000 entity scope guard presente en fn_acc_approve_batch');
+    ELSE
+      CALL fail('2009', 'B7 equiv: P0000 o ALF UUID no encontrado en fn_acc_approve_batch');
+    END IF;
+  END;
+
+  -- 2010: SoD P0005 (imported_by ≠ aprobador) en prosrc
+  DECLARE v_sod BOOLEAN;
+  BEGIN
+    SELECT (prosrc LIKE '%P0005%' AND prosrc LIKE '%imported_by%') INTO v_sod
+    FROM pg_proc WHERE proname = 'fn_acc_approve_batch';
+    IF COALESCE(v_sod, false) THEN
+      CALL pass('2010', 'B17: SoD P0005 presente en fn_acc_approve_batch — importer ≠ approver');
+    ELSE
+      CALL fail('2010', 'B17: SoD P0005 no encontrado en fn_acc_approve_batch — self-approve posible');
+    END IF;
+  END;
+
+  -- 2011: approved_by derivado de auth.uid()::TEXT server-side (no parámetro frontend)
+  DECLARE v_uid_approved BOOLEAN;
+  BEGIN
+    SELECT (prosrc LIKE '%auth.uid()::TEXT%' AND prosrc LIKE '%approved_by%') INTO v_uid_approved
+    FROM pg_proc WHERE proname = 'fn_acc_approve_batch';
+    IF COALESCE(v_uid_approved, false) THEN
+      CALL pass('2011', 'B17: approved_by = auth.uid()::TEXT server-side en fn_acc_approve_batch — frontend no inyecta');
+    ELSE
+      CALL fail('2011', 'B17: approved_by no se deriva de auth.uid() en fn_acc_approve_batch');
+    END IF;
+  END;
+
+  -- 2012: PENDING_APPROVAL check en prosrc
+  DECLARE v_pending BOOLEAN;
+  BEGIN
+    SELECT (prosrc LIKE '%PENDING_APPROVAL%') INTO v_pending
+    FROM pg_proc WHERE proname = 'fn_acc_approve_batch';
+    IF COALESCE(v_pending, false) THEN
+      CALL pass('2012', 'B17: PENDING_APPROVAL status check presente en fn_acc_approve_batch');
+    ELSE
+      CALL fail('2012', 'B17: PENDING_APPROVAL check no encontrado en fn_acc_approve_batch');
+    END IF;
+  END;
+
+  -- 2013: RLS asb_authenticated_update bloquea status=APPROVED (B17 blocker fix)
+  DECLARE v_rls_approved BOOLEAN;
+  BEGIN
+    SELECT (with_check LIKE '%APPROVED%') INTO v_rls_approved
+    FROM pg_policies
+    WHERE tablename = 'acc_source_batch' AND policyname = 'asb_authenticated_update';
+
+    IF COALESCE(v_rls_approved, false) THEN
+      CALL pass('2013', 'B17: RLS asb_authenticated_update bloquea status=APPROVED para authenticated directo');
+    ELSE
+      CALL fail('2013', 'B17: RLS no bloquea status=APPROVED — authenticated puede self-approve. Ejecutar PARTE 2 de 023.');
+    END IF;
+  END;
+
+  -- 2014: fn_acc_approve_batch no tiene fallback a 'system'
+  DECLARE v_no_system BOOLEAN;
+  BEGIN
+    SELECT (prosrc NOT LIKE '%''system''%') INTO v_no_system
+    FROM pg_proc WHERE proname = 'fn_acc_approve_batch';
+    IF COALESCE(v_no_system, true) THEN
+      CALL pass('2014', 'B16 equiv: fn_acc_approve_batch sin fallback a ''system'' — audit trail íntegro');
+    ELSE
+      CALL fail('2014', 'B16 equiv: fn_acc_approve_batch contiene ''system'' como fallback — revisar prosrc');
+    END IF;
+  END;
+
+
+  -- ==========================================================================
   -- RESUMEN FINAL
   -- ==========================================================================
 
