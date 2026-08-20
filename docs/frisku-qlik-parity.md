@@ -97,7 +97,7 @@ Selection Bar, Filter Pane, export y fullscreen se comparten.
 | Capacidad | Estado |
 |---|---|
 | Dimensión, medida, desglose, Top N, interacción, selección desde gráfico, participación, Excel(dataset)/PDF/fullscreen | IGUAL / EQUIVALENTE |
-| Tooltips analíticos | **Implementado y validado en runtime** (P2.4a): Barras/Dona/Tendencia con tooltip analítico — dimensión · medida · valor · participación · ranking (cuando corresponde) · fuente · cobertura financiera (cuando corresponde); Tabla y Pivot con tooltip de celda (mismo subconjunto que `metric.calc`, sin sumar subtotales); "Sin datos" ≠ 0; **fullscreen validado**; selección desde gráficos, bookmarks, Back/Forward y A/B **sin regresión**. **Brechas restantes**: tooltip por nodo en Drill; contexto de medida dentro del Filter Pane; tooltips completos en subtotales y TOTAL de Pivot | **PARCIAL — mejorado sustancialmente** (no pasa a EQUIVALENTE hasta cerrar esas brechas) |
+| Tooltips analíticos | **Cobertura completa** (P2.4a + cierre de brechas P2.4d): Barras/Dona/Tendencia con tooltip analítico — dimensión · medida · valor · participación · ranking (cuando corresponde) · fuente · cobertura financiera (cuando corresponde); Tabla y Pivot con tooltip de celda incl. **sub-filas y TOTAL** (mismo subconjunto que `metric.calc`, sin sumar subtotales); **Drill con tooltip por nodo** (nivel · valor · medida · participación · fuente; Drill State ≠ Selection State); **Filter Pane con estado asociativo + frecuencia** por item; "Sin datos" ≠ 0; fullscreen validado; sin regresión de selección/bookmarks/Back-Forward/A-B | **EQUIVALENTE** (tras validación runtime de las 3 superficies cerradas) |
 
 ### G. Drill-down (⛏ Drill)
 | Capacidad | Estado |
