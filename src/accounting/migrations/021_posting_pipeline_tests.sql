@@ -4,7 +4,7 @@
 -- Fecha   : 2026-08-19
 -- Estado  : EJECUTAR DESPUÉS de 016 + 019 + 020 + 022
 -- =============================================================================
--- Tests: CAT-14 a CAT-18 (continúa desde 017 que tenía CAT-10 a CAT-13)
+-- Tests: CAT-14 a CAT-19 (continúa desde 017 que tenía CAT-10 a CAT-13)
 --
 -- CAT-14: Períodos ALF 2026 (019)
 --   1401: 12 períodos creados para ALF
@@ -41,7 +41,7 @@
 --   1704: anon NO tiene EXECUTE grant en fn_acc_post_batch
 --   1705: fn_acc_post_batch con UUID inexistente lanza error P0001
 --   1706: fn_acc_post_batch con batch no-APPROVED lanza error P0002
---   1707: fn_acc_post_batch tiene firma correcta (2 parámetros IN)
+--   1707: fn_acc_post_batch tiene firma correcta (1 parámetro IN — p_actor eliminado, B8)
 --
 -- CAT-18: Entity Isolation — Pilot ALF Scope (SEC-ENTITY-SCOPE-001, 020 v3)
 --   1801: INSERT policy EXISTS con ALF UUID en WITH CHECK
@@ -54,6 +54,17 @@
 --   1808: UPDATE USING y WITH CHECK tienen misma restricción ALF (entity_id change bloqueado)
 --   1809: SELECT de authenticated intacto (020 no debilitó lectura de 009)
 --   1810: Lifecycle trigger activo en acc_source_batch (014 trigger preservado)
+--
+-- CAT-19: fn_acc_post_batch hardening B7–B14 (022 v2)
+--   1901: fn_acc_post_batch tiene 1 parámetro IN (B8 — p_actor eliminado)
+--   1902: P0000 entity scope guard con ALF UUID en cuerpo de la función (B7)
+--   1903: fn usa auth.uid() como actor — no del caller (B8)
+--   1904: P0009 ledger overwrite guard presente (B11)
+--   1905: mapping validity usa v_period.date_from/date_to, no CURRENT_DATE (B12)
+--   1906: COALESCE(source_currency, 'USD') eliminado — NOT NULL en 016 (B13)
+--   1907: SEC-ENTITY-SCOPE-001 referenciado como tech debt en función (B7 pilot)
+--   1908: B9 (SoD): T9 solo aplica a adj_journal — PASS for pilot
+--   1909: B10 (Model C): authenticated EXECUTE OK + sin write directo al ledger
 -- =============================================================================
 -- FIXTURES: TODOS SINTÉTICOS. Sin datos financieros reales.
 -- =============================================================================
@@ -507,7 +518,7 @@ BEGIN
 
   -- 1705: fn_acc_post_batch con UUID inexistente lanza P0001
   BEGIN
-    PERFORM fn_acc_post_batch('00000000-0000-0000-0000-000000000000'::uuid, 'test_actor');
+    PERFORM fn_acc_post_batch('00000000-0000-0000-0000-000000000000'::uuid);
     CALL fail('1705', 'fn_acc_post_batch con batch inexistente debería lanzar P0001');
   EXCEPTION
     WHEN OTHERS THEN
@@ -527,7 +538,7 @@ BEGIN
     RETURNING id INTO v_rpc_batch_id;
 
     BEGIN
-      PERFORM fn_acc_post_batch(v_rpc_batch_id, 'test_actor');
+      PERFORM fn_acc_post_batch(v_rpc_batch_id);
       CALL fail('1706', 'fn_acc_post_batch sobre batch CREATED debería rechazar con P0002');
     EXCEPTION
       WHEN OTHERS THEN
@@ -541,7 +552,7 @@ BEGIN
     DELETE FROM acc_source_batch WHERE id = v_rpc_batch_id;
   END;
 
-  -- 1707: Firma de fn_acc_post_batch tiene exactamente 2 parámetros (p_batch_id uuid, p_actor text)
+  -- 1707: Firma de fn_acc_post_batch tiene exactamente 1 parámetro (p_actor eliminado — B8)
   DECLARE
     v_param_count INT;
   BEGIN
@@ -551,10 +562,10 @@ BEGIN
       AND specific_name   LIKE 'fn_acc_post_batch%'
       AND parameter_mode  = 'IN';
 
-    IF v_param_count = 2 THEN
-      CALL pass('1707', format('fn_acc_post_batch: firma correcta (%s parámetros IN)', v_param_count));
+    IF v_param_count = 1 THEN
+      CALL pass('1707', format('fn_acc_post_batch: firma correcta (%s parámetro IN — p_actor eliminado)', v_param_count));
     ELSE
-      CALL fail('1707', format('fn_acc_post_batch: firma incorrecta (%s parámetros IN, esperado 2)', v_param_count));
+      CALL fail('1707', format('fn_acc_post_batch: firma incorrecta (%s parámetros IN, esperado 1). Si es 2, re-ejecutar 022 v2.', v_param_count));
     END IF;
   END;
 
@@ -707,6 +718,152 @@ BEGIN
     CALL pass('1810', 'Lifecycle trigger trg_acc_source_batch_lifecycle activo — 020 no afectó triggers de 014');
   ELSE
     CALL fail('1810', 'REGRESSION: trg_acc_source_batch_lifecycle no encontrado — 014 puede no estar desplegado.');
+  END IF;
+
+
+  -- ==========================================================================
+  -- CAT-19: fn_acc_post_batch hardening B7–B14 (022 v2)
+  -- Todos los tests son introspección de pg_proc / pg_policies.
+  -- Sin runtime de producción — DDL-only.
+  -- ALF UUID: 3df93d9d-cbc6-446f-b9a5-0a3840692fd8
+  -- ==========================================================================
+
+  DECLARE
+    v_has_entity_guard   BOOLEAN;
+    v_has_p0000          BOOLEAN;
+    v_has_p0009          BOOLEAN;
+    v_uses_auth_uid      BOOLEAN;
+    v_uses_period_dates  BOOLEAN;
+    v_uses_current_date  BOOLEAN;
+    v_coalesce_usd       BOOLEAN;
+    v_has_sec_debt       BOOLEAN;
+    v_param_count_19     INT;
+  BEGIN
+
+    -- Cargar atributos del cuerpo de la función (un solo SELECT)
+    SELECT
+      prosrc LIKE '%3df93d9d-cbc6-446f-b9a5-0a3840692fd8%',
+      prosrc LIKE '%P0000%',
+      prosrc LIKE '%P0009%',
+      prosrc LIKE '%auth.uid()%',
+      prosrc LIKE '%v_period.date_from%',
+      prosrc LIKE '%CURRENT_DATE%',
+      prosrc LIKE '%COALESCE(sbd.source_currency%',
+      prosrc LIKE '%SEC-ENTITY-SCOPE-001%'
+    INTO
+      v_has_entity_guard,
+      v_has_p0000,
+      v_has_p0009,
+      v_uses_auth_uid,
+      v_uses_period_dates,
+      v_uses_current_date,
+      v_coalesce_usd,
+      v_has_sec_debt
+    FROM pg_proc
+    WHERE proname = 'fn_acc_post_batch';
+
+    IF NOT FOUND THEN
+      CALL fail('1901', 'fn_acc_post_batch no encontrada en pg_proc. Ejecutar 022 v2 primero.');
+      CALL fail('1902', 'fn_acc_post_batch no encontrada — skip B8 check');
+      CALL fail('1903', 'fn_acc_post_batch no encontrada — skip auth.uid check');
+      CALL fail('1904', 'fn_acc_post_batch no encontrada — skip P0009 check');
+      CALL fail('1905', 'fn_acc_post_batch no encontrada — skip B12 check');
+    ELSE
+
+      -- 1901: 1 parámetro IN (B8 — p_actor eliminado)
+      SELECT COUNT(*) INTO v_param_count_19
+      FROM information_schema.parameters
+      WHERE specific_schema = 'public'
+        AND specific_name LIKE 'fn_acc_post_batch%'
+        AND parameter_mode = 'IN';
+
+      IF v_param_count_19 = 1 THEN
+        CALL pass('1901', 'B8: fn_acc_post_batch tiene 1 parámetro IN — p_actor eliminado');
+      ELSE
+        CALL fail('1901', format('B8: fn_acc_post_batch tiene %s parámetros IN — p_actor sigue presente. Re-ejecutar 022 v2.', v_param_count_19));
+      END IF;
+
+      -- 1902: Entity scope guard P0000 presente con ALF UUID (B7)
+      IF v_has_entity_guard AND v_has_p0000 THEN
+        CALL pass('1902', 'B7: P0000 entity scope guard con ALF UUID en cuerpo de fn_acc_post_batch');
+      ELSE
+        CALL fail('1902', format('B7: falta P0000 o ALF UUID en fn_acc_post_batch (has_guard=%s, has_p0000=%s)', v_has_entity_guard, v_has_p0000));
+      END IF;
+
+      -- 1903: fn usa auth.uid() como actor — no del caller (B8)
+      IF v_uses_auth_uid THEN
+        CALL pass('1903', 'B8: fn_acc_post_batch usa auth.uid() para derivar actor — no aceptado del caller');
+      ELSE
+        CALL fail('1903', 'B8: fn_acc_post_batch no usa auth.uid(). Actor podría ser falsificable.');
+      END IF;
+
+      -- 1904: P0009 ledger overwrite guard presente (B11)
+      IF v_has_p0009 THEN
+        CALL pass('1904', 'B11: P0009 ledger overwrite guard presente — sobreescritura silenciosa bloqueada');
+      ELSE
+        CALL fail('1904', 'B11: P0009 no encontrado en fn_acc_post_batch. Sobreescritura de ledger activo posible.');
+      END IF;
+
+      -- 1905: Mapping validity usa v_period dates (B12 — no CURRENT_DATE)
+      IF v_uses_period_dates AND NOT v_uses_current_date THEN
+        CALL pass('1905', 'B12: mapping validity usa v_period.date_from/date_to — reproducible en cargas históricas');
+      ELSIF v_uses_current_date THEN
+        CALL fail('1905', 'B12: fn_acc_post_batch aún usa CURRENT_DATE en mapping check — rompe cargas históricas');
+      ELSE
+        CALL warn('1905', 'B12: v_period.date_from no encontrado — verificar manualmente el mapping check');
+      END IF;
+
+      -- 1906: COALESCE('USD') eliminado (B13 — source_currency IS NOT NULL en 016)
+      IF NOT v_coalesce_usd THEN
+        CALL pass('1906', 'B13: COALESCE(sbd.source_currency, USD) eliminado — source_currency IS NOT NULL');
+      ELSE
+        CALL warn('1906', 'B13: COALESCE(sbd.source_currency, USD) sigue presente — redundante pero no bloqueante');
+      END IF;
+
+      -- 1907: SEC-ENTITY-SCOPE-001 referenciado como tech debt documentado (B7 pilot scope)
+      IF v_has_sec_debt THEN
+        CALL pass('1907', 'B7: SEC-ENTITY-SCOPE-001 referenciado en fn_acc_post_batch como tech debt de piloto');
+      ELSE
+        CALL warn('1907', 'SEC-ENTITY-SCOPE-001 no referenciado en fn — entity guard presente pero sin documentar');
+      END IF;
+
+    END IF;
+  END;
+
+  -- 1908: B9 — SoD: T9 solo aplica a acc_adjustment_journal (is_material=true)
+  --        No existe regla SoD explícita posted_by ≠ approved_by en posting pipeline.
+  --        PASS for pilot: documentado en sec-entity-scope-001 como diseño, no como deuda.
+  IF EXISTS (
+    SELECT 1 FROM information_schema.triggers
+    WHERE event_object_schema = 'public'
+      AND event_object_table  = 'acc_adjustment_journal'
+      AND trigger_name        = 'trg_sod_adjustment'
+  ) THEN
+    CALL pass('1908', 'B9 (SoD): T9 trg_sod_adjustment activo en acc_adjustment_journal. No aplica a posting pipeline — PASS for pilot.');
+  ELSE
+    CALL warn('1908', 'B9 (SoD): trg_sod_adjustment no encontrado. Verificar que T9 de 010 está desplegado.');
+  END IF;
+
+  -- 1909: B10 — Model C: authenticated tiene EXECUTE pero no write directo al ledger
+  --        Seguro: entity scope (B7) + auth.uid() (B8) hacen el GRANT seguro.
+  IF EXISTS (
+    SELECT 1 FROM information_schema.routine_privileges
+    WHERE routine_schema = 'public'
+      AND routine_name   = 'fn_acc_post_batch'
+      AND grantee        = 'authenticated'
+      AND privilege_type = 'EXECUTE'
+  )
+  AND NOT EXISTS (
+    SELECT 1 FROM pg_policies
+    WHERE schemaname = 'public'
+      AND tablename  = 'acc_account_balance'
+      AND cmd        IN ('INSERT', 'UPDATE', 'ALL')
+      AND 'authenticated' = ANY(roles)
+      AND policyname NOT LIKE '%deny%'
+  ) THEN
+    CALL pass('1909', 'B10 (Model C): authenticated puede EXECUTE RPC pero NO escribir directamente al ledger — OK');
+  ELSE
+    CALL fail('1909', 'B10 (Model C): inconsistencia — EXECUTE grant o write-ledger policy fuera de spec. Revisar 022 + 020.');
   END IF;
 
 

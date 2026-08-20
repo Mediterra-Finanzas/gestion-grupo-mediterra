@@ -795,15 +795,15 @@ export async function runIngest(supabase, opts) {
  * @param {string} opts.batchId
  * @param {string} opts.entityId
  * @param {string} opts.approvedBy — nombre/email del CFO que aprueba
- * @param {string} opts.postedBy — nombre/email quien ejecuta el posting (p_actor en RPC)
  * @returns {Promise<PostingResult>}
+ * El actor de posting se deriva de auth.uid() server-side (B8 — no aceptado del caller).
  */
 export async function approveAndPost(supabase, opts) {
   const {
     batchId,
     entityId,
     approvedBy,
-    postedBy,
+    // postedBy eliminado: fn_acc_post_batch lo deriva de auth.uid() server-side (B8)
   } = opts;
 
   const result = {
@@ -821,10 +821,10 @@ export async function approveAndPost(supabase, opts) {
     // APPROVED → POSTING → POSTED: atomico en el servidor (SECURITY DEFINER)
     // fn_acc_post_batch deriva canonical rows desde acc_source_balance_detail,
     // hace upsert en acc_account_balance y retorna JSONB con resumen.
+    // Actor derivado de auth.uid() server-side — no se acepta del cliente (B8).
     const { data: rpcData, error: rpcError } = await supabase
       .rpc('fn_acc_post_batch', {
         p_batch_id: batchId,
-        p_actor:    postedBy,
       });
 
     if (rpcError) {

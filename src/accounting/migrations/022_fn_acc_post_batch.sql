@@ -2,12 +2,12 @@
 -- 022_fn_acc_post_batch.sql
 -- OA-024-09 — Función atómica de posteo: acc_source_batch → acc_account_balance
 -- Autor   : OA-024 PostingPipeline
--- Fecha   : 2026-08-19
+-- Fecha   : 2026-08-20  (v2: security hardening B7–B14)
 -- Ejecutar: DESPUÉS de 020 (RLS) y 021 (tests del pipeline)
 -- =============================================================================
 --
 -- DESCRIPCIÓN:
---   Define fn_acc_post_batch(p_batch_id UUID, p_actor TEXT) RETURNS JSONB.
+--   Define fn_acc_post_batch(p_batch_id UUID) RETURNS JSONB.
 --   Consume los saldos de acc_source_balance_detail de un batch APPROVED y
 --   los convierte en filas canónicas en acc_account_balance (ledger oficial).
 --
@@ -26,10 +26,24 @@
 --   Esto garantiza que la única ruta de escritura al ledger sea este código
 --   auditado, sin importar qué políticas RLS tenga el caller.
 --
+-- ACTOR (B8 — eliminado p_actor):
+--   El actor se deriva internamente de auth.uid() — NO del caller.
+--   auth.uid() lee de request.jwt.claims (GUC de sesión, set por PostgREST).
+--   Persiste a través del contexto SECURITY DEFINER porque es session-level.
+--   Si auth.uid() es NULL (rol postgres en migración), usa 'system' como fallback.
+--
+-- ENTITY SCOPE (B7 — PILOT):
+--   P0000 verifica que el batch pertenezca a ALF (Allegria Foods).
+--   TEMPORAL — retirar cuando SEC-ENTITY-SCOPE-001 esté cerrado y la
+--   autorización corporativa usuario↔entidad esté implementada en DB.
+--
 -- HARDENING:
 --   * SET search_path = public, pg_temp — previene search_path injection.
 --   * FOR UPDATE NOWAIT — detecta contención concurrente rápido (< 1 ms).
---   * Validaciones P0001–P0010 con SQLSTATE P0001 y mensajes descriptivos.
+--   * Validaciones P0000–P0010 con SQLSTATE P0001 y mensajes descriptivos.
+--   * P0009: protege contra sobreescritura silenciosa de ledger activo.
+--   * Mapping validity usa v_period.date_from/date_to (no CURRENT_DATE) para
+--     reproducibilidad de cargas históricas.
 --   * Reconciliación aritmética al final (ABS(Δ) ≤ 0.01) como red de seguridad.
 --   * El trigger T10 (trg_balance_period_lock) es una segunda guardia
 --     independiente: si el período se cierra entre P0005 y el INSERT, T10 lo
@@ -51,8 +65,7 @@
 -- =============================================================================
 
 CREATE OR REPLACE FUNCTION fn_acc_post_batch(
-  p_batch_id  UUID,
-  p_actor     TEXT
+  p_batch_id  UUID
 )
 RETURNS JSONB
 LANGUAGE plpgsql
@@ -60,6 +73,8 @@ SECURITY DEFINER
 SET search_path = public, pg_temp
 AS $$
 DECLARE
+  -- Actor derivado del JWT — no aceptado del caller (B8)
+  v_actor             TEXT;
   -- Batch
   v_batch             RECORD;
   -- Período
@@ -75,6 +90,10 @@ DECLARE
   v_posted_at         TIMESTAMPTZ := now();
 BEGIN
 
+  -- Derivar actor del JWT de sesión (B8)
+  -- auth.uid() lee de request.jwt.claims — persiste en SECURITY DEFINER context.
+  v_actor := COALESCE(auth.uid()::TEXT, 'system');
+
   -- ===========================================================
   -- P0001: Batch existe
   -- ===========================================================
@@ -86,6 +105,21 @@ BEGIN
 
   IF NOT FOUND THEN
     RAISE EXCEPTION 'P0001: Batch % no encontrado.', p_batch_id
+      USING ERRCODE = 'P0001';
+  END IF;
+
+  -- ===========================================================
+  -- P0000: PILOT entity scope — solo ALF (SEC-ENTITY-SCOPE-001)
+  -- TEMPORAL: retirar cuando se implemente autorización corporativa
+  -- usuario↔entidad y se cierre SEC-ENTITY-SCOPE-001.
+  -- Hardcode exclusivo del server-side (no en PostingPipeline.js).
+  -- ===========================================================
+  IF v_batch.entity_id <> '3df93d9d-cbc6-446f-b9a5-0a3840692fd8'::uuid THEN
+    RAISE EXCEPTION
+      'P0000: PILOT_SCOPE: fn_acc_post_batch restringido a ALF en este piloto. '
+      'entity_id=% no autorizado. SEC-ENTITY-SCOPE-001 debe cerrarse antes de '
+      'habilitar otras entidades.',
+      v_batch.entity_id
       USING ERRCODE = 'P0001';
   END IF;
 
@@ -162,13 +196,14 @@ BEGIN
   -- ===========================================================
   -- P0008: Sin cuentas no mapeadas con saldo material (|net| > 0.01)
   -- Una cuenta no mapeada = sin acc_chart_mapping activo y vigente.
+  -- B12 fix: usa v_period.date_from/date_to (no CURRENT_DATE) para
+  -- garantizar reproducibilidad en cargas históricas.
   -- ===========================================================
   IF EXISTS (
     SELECT 1
       FROM (
         SELECT
           sbd.source_account_code,
-          -- Para EERR usamos actual_amount; para balance usamos debit - credit
           CASE
             WHEN v_batch.report_type IN ('eerr_periodo', 'eerr_acumulado')
               THEN SUM(sbd.actual_amount)
@@ -186,11 +221,38 @@ BEGIN
               WHERE cm.entity_id          = v_batch.entity_id
                 AND cm.local_account_code = bal.source_account_code
                 AND cm.is_active          = TRUE
-                AND (cm.effective_to IS NULL OR cm.effective_to >= CURRENT_DATE)
+                AND cm.effective_from     <= v_period.date_to
+                AND (cm.effective_to IS NULL OR cm.effective_to >= v_period.date_from)
            )
   ) THEN
     RAISE EXCEPTION 'P0008: Batch % tiene cuentas con saldo material sin mapeo activo en acc_chart_mapping. Revisar y mapear antes de postear.',
       p_batch_id
+      USING ERRCODE = 'P0001';
+  END IF;
+
+  -- ===========================================================
+  -- P0009: Sin sobreescritura silenciosa de ledger activo (B11)
+  -- Bloquea si (entity_id, period_id, balance_type='actual') ya tiene
+  -- saldos de un batch distinto al p_batch_id Y ese batch no está
+  -- formalmente SUPERSEDED ni ROLLED_BACK.
+  -- ===========================================================
+  IF EXISTS (
+    SELECT 1
+      FROM acc_account_balance aab
+      JOIN acc_source_batch prev ON prev.id = aab.source_batch_id
+     WHERE aab.entity_id          = v_batch.entity_id
+       AND aab.period_id          = v_batch.period_id
+       AND aab.balance_type       = 'actual'
+       AND aab.source_batch_id    IS NOT NULL
+       AND aab.source_batch_id    <> p_batch_id
+       AND prev.status            NOT IN ('SUPERSEDED', 'ROLLED_BACK')
+  ) THEN
+    RAISE EXCEPTION
+      'P0009: entity=% period=% ya tiene saldos de un batch activo distinto. '
+      'Formalizar supersesión (status→SUPERSEDED) antes de re-postear. '
+      'Consultar: SELECT id, status FROM acc_source_batch '
+      'WHERE entity_id = ''%'' AND status NOT IN (''SUPERSEDED'',''ROLLED_BACK'');',
+      v_batch.entity_id, v_batch.period_id, v_batch.entity_id
       USING ERRCODE = 'P0001';
   END IF;
 
@@ -218,11 +280,15 @@ BEGIN
   --
   -- Solo se procesan filas con mapeo activo (P0008 ya filtró las materiales
   -- sin mapeo; aquí simplemente las ignoramos con INNER JOIN).
+  --
+  -- B12 fix: mapping validity usa v_period.date_from/date_to (no CURRENT_DATE).
+  -- B13 fix: source_currency IS NOT NULL (016 schema) — COALESCE omitido.
+  --   Tech-debt D8: moneda mixta por batch pendiente (piloto ALF = todo USD).
   -- ===========================================================
 
   FOR v_row IN
     SELECT
-      sbd.source_account_code       AS account_code,   -- PK del ledger: código fuente de Contec
+      sbd.source_account_code       AS account_code,
       cm.reporting_account_id,
       CASE
         WHEN v_batch.report_type IN ('eerr_periodo', 'eerr_acumulado')
@@ -240,20 +306,20 @@ BEGIN
           THEN SUM(COALESCE(sbd.credit_balance, 0))
         ELSE NULL
       END AS credit_balance,
-      MAX(COALESCE(sbd.source_currency, 'USD')) AS currency
+      MAX(sbd.source_currency) AS currency   -- NOT NULL en 016; sin COALESCE (B13)
     FROM acc_source_balance_detail sbd
     INNER JOIN acc_chart_mapping cm
            ON cm.entity_id          = v_batch.entity_id
           AND cm.local_account_code = sbd.source_account_code
           AND cm.is_active          = TRUE
-          AND (cm.effective_to IS NULL OR cm.effective_to >= CURRENT_DATE)
+          AND cm.effective_from     <= v_period.date_to
+          AND (cm.effective_to IS NULL OR cm.effective_to >= v_period.date_from)
    WHERE sbd.batch_id = p_batch_id
    GROUP BY
      sbd.source_account_code,
      cm.reporting_account_id
   LOOP
 
-    -- Acumular suma de lo que se va a postear (para reconciliación)
     v_sum_source := v_sum_source + COALESCE(v_row.net_balance, 0);
 
     INSERT INTO acc_account_balance (
@@ -274,9 +340,9 @@ BEGIN
       'actual',
       v_row.reporting_account_id,
       p_batch_id,
-      COALESCE(v_row.debit_balance,  0),   -- NOT NULL DEFAULT 0; NULL para EERR → 0
-      COALESCE(v_row.credit_balance, 0),   -- NOT NULL DEFAULT 0; NULL para EERR → 0
-      COALESCE(v_row.net_balance,    0),   -- NOT NULL DEFAULT 0; guardia defensiva
+      COALESCE(v_row.debit_balance,  0),
+      COALESCE(v_row.credit_balance, 0),
+      COALESCE(v_row.net_balance,    0),
       v_row.currency
     )
     ON CONFLICT (entity_id, period_id, account_code, balance_type)
@@ -297,7 +363,8 @@ BEGIN
   -- P0010: Reconciliación aritmética
   -- Suma de lo que se leyó de acc_source_balance_detail (neto)
   -- vs suma de lo que quedó en acc_account_balance para este batch.
-  -- Tolerancia: ±0.01 (centavo) para evitar falsos positivos por float.
+  -- B14: tolerancia 0.01 calibrada para USD (PILOT assumption).
+  -- Tech-debt B14: revisar para monedas de menor denominación (CLP, PEN).
   -- ===========================================================
   SELECT COALESCE(SUM(net_balance), 0)
     INTO v_sum_posted
@@ -317,10 +384,11 @@ BEGIN
   -- TRANSICIÓN 2: POSTING → POSTED
   -- Solo se ejecuta si toda la lógica anterior fue exitosa.
   -- El lifecycle trigger valida que POSTING → POSTED es legal.
+  -- v_actor derivado de auth.uid() — no del caller (B8).
   -- ===========================================================
   UPDATE acc_source_batch
      SET status    = 'POSTED',
-         posted_by = p_actor,
+         posted_by = v_actor,
          posted_at = v_posted_at
    WHERE id = p_batch_id;
 
@@ -338,17 +406,15 @@ BEGIN
     'sum_posted',    v_sum_posted,
     'recon_diff',    v_recon_diff,
     'approved_by',   v_batch.approved_by,
-    'posted_by',     p_actor,
+    'posted_by',     v_actor,
     'posted_at',     v_posted_at
   );
 
 EXCEPTION
-  -- Lock no disponible: otro proceso está procesando este batch
   WHEN lock_not_available THEN
     RAISE EXCEPTION 'Batch % está siendo procesado por otro proceso. Reintentar en unos segundos.',
       p_batch_id;
 
-  -- Cualquier otro error: re-raise (PostgreSQL hace rollback automático)
   WHEN OTHERS THEN
     RAISE;
 
@@ -360,11 +426,12 @@ $$;
 -- GRANTS
 -- =============================================================================
 
--- Permitir que el frontend (authenticated via Supabase client) llame al RPC
-GRANT EXECUTE ON FUNCTION fn_acc_post_batch(UUID, TEXT) TO authenticated;
+-- Permitir que authenticated (Supabase client) llame al RPC.
+-- Seguro porque la función tiene: entity scope guard P0000 + actor = auth.uid().
+GRANT EXECUTE ON FUNCTION fn_acc_post_batch(UUID) TO authenticated;
 
--- Asegurar que anon nunca pueda invocarla (defensa en profundidad)
-REVOKE EXECUTE ON FUNCTION fn_acc_post_batch(UUID, TEXT) FROM anon;
+-- anon nunca puede postear
+REVOKE EXECUTE ON FUNCTION fn_acc_post_batch(UUID) FROM anon;
 
 
 -- =============================================================================
@@ -384,8 +451,7 @@ FROM information_schema.routines
 WHERE routine_schema = 'public'
   AND routine_name   = 'fn_acc_post_batch';
 
--- V2: Confirmar EXECUTE grant para authenticated
---     Esperado: fila con grantee = 'authenticated', privilege_type = 'EXECUTE'
+-- V2: Confirmar EXECUTE grant para authenticated; anon NO aparece
 SELECT
   grantee,
   routine_name,
@@ -394,10 +460,8 @@ FROM information_schema.routine_privileges
 WHERE routine_schema = 'public'
   AND routine_name   = 'fn_acc_post_batch'
 ORDER BY grantee;
--- Confirmar: authenticated aparece; anon NO aparece.
 
 -- V3: Confirmar que acc_account_balance sigue sin INSERT/UPDATE para authenticated
---     Esperado: cero filas con roles conteniendo 'authenticated' y cmd IN ('INSERT','UPDATE')
 SELECT
   policyname,
   cmd,
@@ -407,10 +471,10 @@ WHERE schemaname = 'public'
   AND tablename  = 'acc_account_balance'
   AND cmd IN ('INSERT', 'UPDATE')
 ORDER BY policyname;
--- Si aparece alguna fila con 'authenticated', hay un error de configuración — corregir.
+-- Si aparece alguna fila con 'authenticated': error de configuración.
 
--- V4: Confirmar firma de la función (parámetros)
---     Esperado: 2 filas — p_batch_id uuid, p_actor text
+-- V4: Confirmar firma de la función (1 parámetro — p_actor eliminado)
+--     Esperado: 1 fila — p_batch_id uuid (IN)
 SELECT
   parameter_name,
   data_type,
@@ -419,3 +483,18 @@ FROM information_schema.parameters
 WHERE specific_schema = 'public'
   AND specific_name LIKE 'fn_acc_post_batch%'
 ORDER BY ordinal_position;
+
+-- V5: Confirmar entity scope guard P0000 en cuerpo de la función
+--     Esperado: prosrc contiene ALF UUID '3df93d9d-...' y 'P0000'
+SELECT
+  proname,
+  prosrc LIKE '%3df93d9d-cbc6-446f-b9a5-0a3840692fd8%' AS has_entity_guard,
+  prosrc LIKE '%P0000%'                                  AS has_p0000,
+  prosrc LIKE '%P0009%'                                  AS has_p0009,
+  prosrc LIKE '%auth.uid()%'                             AS uses_auth_uid,
+  prosrc LIKE '%v_period.date_from%'                     AS uses_period_dates,
+  prosrc LIKE '%CURRENT_DATE%'                           AS uses_current_date_bad
+FROM pg_proc
+WHERE proname = 'fn_acc_post_batch';
+-- Esperado: has_entity_guard=t, has_p0000=t, has_p0009=t,
+--           uses_auth_uid=t, uses_period_dates=t, uses_current_date_bad=f
