@@ -155,3 +155,61 @@ describe("invariantes", () => {
     expect(r.valor[0].v).toBe("editado");
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Clave de identidad: los maestros usan `codigo`, no `id`.
+// ─────────────────────────────────────────────────────────────────────────────
+import { detectarClave, CLAVES_CANDIDATAS } from "../friskuPersistencia";
+
+const pais = (codigo, nombreEs) => ({ codigo, nombreEs, region: "Sudamérica" });
+
+describe("detección de la clave de identidad", () => {
+  test("detecta id cuando existe", () => {
+    expect(detectarClave([{ id: 1 }, { id: 2 }])).toBe("id");
+  });
+  test("detecta codigo en los maestros", () => {
+    expect(detectarClave([pais("CL", "Chile"), pais("PE", "Perú")])).toBe("codigo");
+  });
+  test("prefiere id si están los dos", () => {
+    expect(detectarClave([{ id: 1, codigo: "A" }, { id: 2, codigo: "B" }])).toBe("id");
+  });
+  test("sin clave utilizable devuelve null", () => {
+    expect(detectarClave([{ nombre: "x" }, { nombre: "y" }])).toBeNull();
+    expect(detectarClave([pais("CL", "a"), pais("CL", "b")])).toBeNull();   // codigo repetido
+    expect(detectarClave("no es lista")).toBeNull();
+  });
+  test("una lista vacía es fusionable", () => {
+    expect(CLAVES_CANDIDATAS).toContain(detectarClave([]));
+  });
+});
+
+describe("fusión de maestros por codigo", () => {
+  test("dos personas agregando países distintos: quedan los dos", () => {
+    const base = [pais("CL", "Chile")];
+    const mio = [pais("CL", "Chile"), pais("AR", "Argentina")];
+    const servidor = [pais("CL", "Chile"), pais("PE", "Perú")];
+    const r = fusionarPorId(base, mio, servidor);
+    expect(r.ok).toBe(true);
+    expect(r.clave).toBe("codigo");
+    expect(r.conflictos).toEqual([]);
+    expect(r.valor.map((x) => x.codigo).sort()).toEqual(["AR", "CL", "PE"]);
+  });
+
+  test("los dos editan el mismo país: conflicto, gana el servidor", () => {
+    const r = fusionarPorId([pais("CL", "Chile")], [pais("CL", "Chile mío")], [pais("CL", "Chile suyo")]);
+    expect(r.conflictos).toEqual(["CL"]);
+    expect(r.valor[0].nombreEs).toBe("Chile suyo");
+  });
+
+  test("si las tres partes no comparten clave, no se fusiona", () => {
+    const r = fusionarPorId([{ id: 1 }], [{ id: 1 }], [pais("CL", "Chile")]);
+    expect(r.ok).toBe(false);
+    expect(r.motivo).toBe("no_fusionable");
+  });
+
+  test("un objeto que no es lista (maestro_tc, rendiciones_config) nunca se fusiona", () => {
+    const r = fusionarPorId({ "USD-CLP": [] }, { "USD-CLP": [1] }, { "USD-CLP": [2] });
+    expect(r.ok).toBe(false);
+    expect(r.motivo).toBe("no_fusionable");
+  });
+});

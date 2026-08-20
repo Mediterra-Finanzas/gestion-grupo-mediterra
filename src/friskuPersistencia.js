@@ -29,13 +29,38 @@
 
 const clonar = (v) => (v == null ? v : JSON.parse(JSON.stringify(v)));
 const igual = (a, b) => JSON.stringify(a) === JSON.stringify(b);
-const clave = (x) => String(x.id);
 
-/** ¿Es un arreglo de objetos con `id` único? Es el requisito para poder fusionar. */
-export function esListaFusionable(a) {
+// Campos que pueden hacer de identificador estable. `id` en los datos comerciales y en
+// rendiciones; `codigo` en los maestros (países, puertos, especies, monedas). Se detecta,
+// no se asume: una fila con la clave equivocada no se fusiona, se reporta como conflicto.
+export const CLAVES_CANDIDATAS = ["id", "codigo", "code"];
+
+const esObjetoSimple = (x) => x && typeof x === "object" && !Array.isArray(x);
+const sirveClave = (a, k) =>
+  a.every((x) => esObjetoSimple(x) && x[k] !== undefined && x[k] !== null && x[k] !== "") &&
+  new Set(a.map((x) => String(x[k]))).size === a.length;
+
+/** Devuelve el campo que identifica los ítems de la lista, o null si no hay ninguno servible. */
+export function detectarClave(a) {
+  if (!Array.isArray(a)) return null;
+  if (a.length === 0) return CLAVES_CANDIDATAS[0];   // lista vacía: cualquiera sirve
+  return CLAVES_CANDIDATAS.find((k) => sirveClave(a, k)) || null;
+}
+
+/** ¿Es un arreglo de objetos con identificador único? Requisito para poder fusionar. */
+export function esListaFusionable(a, k) {
   if (!Array.isArray(a)) return false;
-  if (!a.every((x) => x && typeof x === "object" && !Array.isArray(x) && x.id !== undefined && x.id !== null)) return false;
-  return new Set(a.map(clave)).size === a.length;
+  if (a.length === 0) return true;
+  const usar = k || detectarClave(a);
+  return !!usar && sirveClave(a, usar);
+}
+
+// Elige la clave comun a las tres partes. Si no coinciden, no se fusiona.
+function claveComun(base, mio, servidor) {
+  for (const k of CLAVES_CANDIDATAS) {
+    if ([base, mio, servidor].every((a) => Array.isArray(a) && (a.length === 0 || sirveClave(a, k)))) return k;
+  }
+  return null;
 }
 
 /**
@@ -46,9 +71,9 @@ export function esListaFusionable(a) {
  * NO debe guardar a ciegas: hay que mostrárselos a la persona.
  */
 export function fusionarPorId(base, mio, servidor) {
-  if (!esListaFusionable(base) || !esListaFusionable(mio) || !esListaFusionable(servidor)) {
-    return { ok: false, motivo: "no_fusionable" };
-  }
+  const k = claveComun(base, mio, servidor);
+  if (!k) return { ok: false, motivo: "no_fusionable" };
+  const clave = (x) => String(x[k]);
   const B = new Map(base.map((x) => [clave(x), x]));
   const M = new Map(mio.map((x) => [clave(x), x]));
   const S = new Map(servidor.map((x) => [clave(x), x]));
@@ -90,7 +115,7 @@ export function fusionarPorId(base, mio, servidor) {
   for (const x of mio) { const k = clave(x); if (salida.has(k) && !vistos.has(k)) { valor.push(salida.get(k)); vistos.add(k); } }
   for (const x of servidor) { const k = clave(x); if (salida.has(k) && !vistos.has(k)) { valor.push(salida.get(k)); vistos.add(k); } }
 
-  return { ok: true, valor, conflictos, cambios };
+  return { ok: true, valor, conflictos, cambios, clave: k };
 }
 
 /** Copia defensiva, para guardar la base sin quedar atado a la referencia del llamador. */
