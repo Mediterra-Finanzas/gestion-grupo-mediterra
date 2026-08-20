@@ -70,6 +70,10 @@ $$;
 -- El lifecycle trigger (trg_acc_source_batch_lifecycle, 014) sigue siendo
 -- la única guardia de transiciones de status válidas.
 
+-- TRANSACCIÓN ATÓMICA: si CREATE POLICY UPDATE falla, DROP INSERT se revierte.
+-- Sin esto: podría quedar asb_authenticated_insert eliminada y su reemplazo sin crear.
+BEGIN;
+
 DROP POLICY IF EXISTS "asb_authenticated_insert" ON acc_source_batch;
 
 CREATE POLICY "asb_authenticated_insert"
@@ -84,8 +88,11 @@ CREATE POLICY "asb_authenticated_insert"
 -- ============================================================
 -- Permite transicionar batches de ALF a través del lifecycle.
 -- USING (entity_id = ALF_UUID):
---   Solo son visibles (y actualizables) las filas de Allegria Foods.
---   Batches de otras entidades son invisibles para authenticated.
+--   Restringe qué filas son actualizables — solo batches de Allegria Foods.
+--   Nota: SELECT sigue usando rls_acc_source_batch_auth_select de 009 (USING(true)),
+--   por lo que authenticated puede LEER batches de cualquier entidad.
+--   La invisibilidad de UPDATE no implica invisibilidad en SELECT.
+--   Brecha de scope registrada en SEC-ENTITY-SCOPE-001.
 -- WITH CHECK (entity_id = ALF_UUID):
 --   El entity_id no puede cambiarse a otro valor durante el UPDATE.
 --   Bloquea intentos de: UPDATE SET entity_id = 'otra-empresa-uuid' WHERE ...
@@ -98,6 +105,8 @@ CREATE POLICY "asb_authenticated_update"
   TO  authenticated
   USING      (entity_id = '3df93d9d-cbc6-446f-b9a5-0a3840692fd8'::uuid)
   WITH CHECK (entity_id = '3df93d9d-cbc6-446f-b9a5-0a3840692fd8'::uuid);
+
+COMMIT;
 
 
 -- ============================================================

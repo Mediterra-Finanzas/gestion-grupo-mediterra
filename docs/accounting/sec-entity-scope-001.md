@@ -38,6 +38,37 @@ por un mecanismo autoritativo antes de que se onboarde una segunda entidad.
 - Least privilege: authenticated tiene acceso a todas las filas de ALF; no hay
   restricción por usuario dentro de ALF.
 
+### Gaps de scope identificados (piloto ALF — riesgo teórico)
+
+#### GAP-1: SELECT scope cross-entity en acc_source_batch
+
+- **Origen**: `rls_acc_source_batch_auth_select` (009) usa `USING(true)`.
+- **Efecto**: authenticated puede LEER batches de cualquier entidad, no solo ALF.
+- **Riesgo piloto**: teórico — solo existen batches ALF. No hay datos de otra empresa.
+- **Restricción real de 020**: aplica solo a INSERT y UPDATE (escritura). SELECT no se toca.
+- **Corrección post-piloto**: SELECT debe restringirse por entity_id (Opción 1 o 2 del mecanismo definitivo).
+
+#### GAP-2: acc_source_batch_issue — write sin restricción entity
+
+- **Origen**: `asbi_authenticated_access` (014) — `ALL, USING(true), WITH CHECK(true)`.
+- **Estructura**: tabla sin columna entity_id; solo tiene `batch_id UUID FK → acc_source_batch`.
+- **Efecto**: authenticated podría insertar/modificar issues de batches de otra entidad
+  si conoce un batch_id no-ALF.
+- **Riesgo piloto**: teórico — no existen batches no-ALF (solo ALF onboarded via 018+019).
+- **Corrección post-piloto**: JOIN con acc_source_batch para filtrar por entity_id en USING.
+
+#### GAP-3: acc_source_balance_detail — write sin restricción entity
+
+- **Origen**: `asbd_authenticated_access` (016) — `ALL, USING(true), WITH CHECK(true)`.
+- **Estructura**: tabla sin columna entity_id; solo tiene `batch_id UUID FK → acc_source_batch`.
+- **Efecto**: authenticated podría insertar/modificar detail de batches de otra entidad
+  si conoce un batch_id no-ALF.
+- **Riesgo piloto**: teórico — misma razón que GAP-2.
+- **Corrección post-piloto**: JOIN con acc_source_batch para filtrar por entity_id en USING.
+
+**Nota: los tres gaps se resuelven con el mismo mecanismo definitivo de SEC-ENTITY-SCOPE-001.
+Cuando se implemente Opción 1 o 2, los tres deben actualizarse en la misma migración.**
+
 ---
 
 ## Criterio de retiro (obligatorio)
@@ -119,9 +150,10 @@ componentes compartidos. Solo en la policy temporal de producción.
 ## Archivos con hardcode temporal
 
 ```
-src/accounting/migrations/020_posting_write_rls.sql — LINE 73, 83
-  USING (entity_id = '3df93d9d-cbc6-446f-b9a5-0a3840692fd8'::uuid)
-  WITH CHECK (entity_id = '3df93d9d-cbc6-446f-b9a5-0a3840692fd8'::uuid)
+src/accounting/migrations/020_posting_write_rls.sql — LINES 83, 106-107
+  WITH CHECK (entity_id = '3df93d9d-cbc6-446f-b9a5-0a3840692fd8'::uuid)   -- INSERT
+  USING      (entity_id = '3df93d9d-cbc6-446f-b9a5-0a3840692fd8'::uuid)   -- UPDATE
+  WITH CHECK (entity_id = '3df93d9d-cbc6-446f-b9a5-0a3840692fd8'::uuid)   -- UPDATE
 ```
 
 Buscar antes de onboarding segunda empresa:
