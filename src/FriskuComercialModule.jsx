@@ -28,6 +28,7 @@ import { normalizarNombre, buscarDuplicado } from "./nombreCanonico.js";
 import { configureFriskuPdf } from "./pdfText.js";
 import { buildBookmark, validateBookmark, deserializeSel, listBookmarks, saveBookmark, renameBookmark, removeBookmark, sanitizeDrillPath } from "./friskuBookmarks.js";
 import { compararEstados } from "./friskuCompare.js";
+import { buildTooltipData, participacionPct, rankingDe, fuenteLabel, tooltipToText, fmtPct } from "./friskuTooltip.js";
 import { theme } from "./theme";
 
 // ── Paleta Frisku ──
@@ -5903,7 +5904,9 @@ function StraightTableBI({ onVerEmbarque, chromeless, panelEl, fullscreen, onExi
             return <tr key={r.key} style={{borderTop:`1px solid ${C.border}`}}>
               {dimSel.map(d=>{ const isSel = sel[d] && sel[d].has(r.dimValues[d]);
                 return <td key={d} onClick={()=>toggle(d, r.dimValues[d])} title="Clic para (de)seleccionar" style={{padding:"4px 10px",cursor:"pointer",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",maxWidth:220,color:isSel?C.accent2:C.text,fontWeight:isSel?700:500,background:isSel?`${C.accent2}10`:"transparent"}}>{isSel?"☑ ":""}{r.labels[d]}</td>; })}
-              {medSel.map(m=>{ const sinDato=FIN.has(m)&&r._fin===0; return <td key={m} style={{padding:"4px 10px",textAlign:"right",fontFamily:"monospace",color:sinDato?C.muted2:undefined}}>{sinDato?"—":fmtMetric(metric[m].fmt,r[m])}</td>; })}
+              {medSel.map(m=>{ const sinDato=FIN.has(m)&&r._fin===0;
+                const cellTitle=tooltipToText(buildTooltipData({ medidaLab:metric[m].label, valorFmt:fmtMetric(metric[m].fmt,r[m]), parte:(totalsRow[m]?r[m]/totalsRow[m]*100:null), sinDatos:sinDato }));
+                return <td key={m} title={cellTitle} style={{padding:"4px 10px",textAlign:"right",fontFamily:"monospace",color:sinDato?C.muted2:undefined}}>{sinDato?"—":fmtMetric(metric[m].fmt,r[m])}</td>; })}
               <td style={{padding:"4px 10px",textAlign:"right",color:C.muted}}>{(r[primary]/totPrimary*100).toFixed(1)}%</td>
               {dimSel.length>0 && <td style={{padding:"2px 10px",textAlign:"right"}}>{onVerEmbarque && oe1 && <button onClick={()=>onVerEmbarque(oe1)} style={{...btnSt(C.blue,true),padding:"2px 7px",fontSize:9.5}}>→ Ver</button>}</td>}
             </tr>; })}
@@ -6039,7 +6042,7 @@ function StraightTableBI({ onVerEmbarque, chromeless, panelEl, fullscreen, onExi
       </div>
       {dimSel.length===0 && <div style={{fontSize:11,color:C.muted2,marginBottom:8}}>Sin dimensiones: se muestra el total del universo seleccionado. Agrega dimensiones en ⚙ Columnas.</div>}
       {tabla}
-      <div style={{fontSize:10.5,color:C.muted2,marginTop:8}}>Clic en una celda de dimensión = seleccionar (filtra todo el BI). % part. = valor de la fila / total mostrado. Financiero "—" = sin liquidación.</div>
+      <div style={{fontSize:10.5,color:C.muted2,marginTop:8}}><b style={{color:C.muted}}>Fuente:</b> {fuenteLabel("unificado")} · Clic en una celda de dimensión = seleccionar (filtra todo el BI). % part. = valor de la fila / total mostrado. Financiero "—" = sin liquidación.</div>
       <FullscreenBI open={full} title="Tabla analítica" onClose={()=>setFull(false)}>{tabla}</FullscreenBI>
     </div>
   );
@@ -6073,6 +6076,17 @@ function PivotTableBI(_pivotProps={}) {
   const isFin = FIN.has(medKey);
   const cellTxt = (rows, colValue)=>{ const sub = colValue==null ? rows : rows.filter(r=>r[colDim]===colValue);
     if(isFin && sub.filter(r=>r._nLiq>0).length===0) return "—"; return fmtMetric(M.fmt, M.calc(sub)); };
+  // P2.4a: tooltip de celda de Pivot (mismo subconjunto que metric.calc; no suma subtotales).
+  const cellTitle = (rows, colValue, rowLab, colLab)=>{
+    const sub = colValue==null ? rows : rows.filter(r=>r[colDim]===colValue);
+    const finSin = isFin && sub.filter(r=>r._nLiq>0).length===0;
+    const lines = [ `${dims.find(d=>d.key===row1)?.lab||row1}: ${rowLab}` ];
+    if(colValue!=null) lines.push(`${dims.find(d=>d.key===colDim)?.lab||colDim}: ${colLab}`);
+    lines.push(`${M.label}: ${finSin?"Sin datos":fmtMetric(M.fmt, M.calc(sub))}`);
+    if(!finSin){ const tot=M.calc(filtered); const p=participacionPct(M.calc(sub), tot); if(p!=null) lines.push(`Participación: ${fmtPct(p)}`); }
+    lines.push(`Fuente: ${fuenteLabel("unificado")}`);
+    return lines.join("\n");
+  };
   const colVals = useMemo(()=>{ const s={}; filtered.forEach(r=>{ const v=r[colDim]; if(v!=null&&v!=="") s[v]=r[colDim+"Lab"]??v; }); return Object.entries(s).map(([value,label])=>({value,label})).sort((a,b)=>String(a.label).localeCompare(String(b.label))); },[filtered,colDim]);
   const groups = useMemo(()=>{
     const g1 = groupByDims(filtered, [row1]);
@@ -6137,8 +6151,8 @@ function PivotTableBI(_pivotProps={}) {
                   {hasR2 && <span onClick={()=>tE(g.key)} title={op?"Contraer":"Expandir"} style={{display:"inline-block",width:16,color:C.blue,marginRight:4,cursor:"pointer",fontWeight:700}}>{op?"▾":"▸"}</span>}
                   <span onClick={()=>toggle(row1,g.dimValue)} title="Seleccionar" style={{color:isSel?C.accent2:C.text}}>{isSel?"☑ ":""}{g.label}</span>
                 </td>
-                {colVals.map(c=><td key={c.value} style={{...td,background:bandBg}}>{cellTxt(g.rows,c.value)}</td>)}
-                <td style={{...td,fontWeight:800,color:C.text,background:bandBg}}>{cellTxt(g.rows,null)}</td>
+                {colVals.map(c=><td key={c.value} title={cellTitle(g.rows,c.value,g.label,c.label)} style={{...td,background:bandBg}}>{cellTxt(g.rows,c.value)}</td>)}
+                <td title={cellTitle(g.rows,null,g.label,"")} style={{...td,fontWeight:800,color:C.text,background:bandBg}}>{cellTxt(g.rows,null)}</td>
               </tr>
               {op && hasR2 && g.subs.map(s=>{ const isS2=sel[row2]&&sel[row2].has(s.dimValue);
                 return <tr key={s.key} style={{borderTop:`1px solid ${C.border}`}}>
@@ -6209,7 +6223,7 @@ function PivotTableBI(_pivotProps={}) {
         </div>
       </div>
       {tabla}
-      <div style={{fontSize:10.5,color:C.muted2,marginTop:8}}>Cada celda/total se recalcula con la métrica (no suma subtotales) → correcto para contenedores/FCL/count-distinct. Clic en una dimensión o columna = seleccionar. Financiero "—" = sin liquidación.</div>
+      <div style={{fontSize:10.5,color:C.muted2,marginTop:8}}><b style={{color:C.muted}}>Fuente:</b> {fuenteLabel("unificado")} · Cada celda/total se recalcula con la métrica (no suma subtotales) → correcto para contenedores/FCL/count-distinct. Clic en una dimensión o columna = seleccionar. Financiero "—" = sin liquidación.</div>
       <FullscreenBI open={full} title={`Pivot — ${M.label}`} onClose={()=>setFull(false)}>{tabla}</FullscreenBI>
     </div>
   );
@@ -6608,7 +6622,7 @@ function DrillGroupsBI({ onVerEmbarque, chromeless, panelEl, fullscreen, onExitF
   );
   const notaEl = (
     <div style={{fontSize:11, color:C.muted2, marginTop:8}}>
-      El drill es local: acota esta tabla sin tocar la Barra de Selección. Usa <b>↥ Aplicar como selección</b> para promover la ruta a selección global.
+<b style={{color:C.muted}}>Fuente:</b> {fuenteLabel("unificado")} · El drill es local: acota esta tabla sin tocar la Barra de Selección. Usa <b>↥ Aplicar como selección</b> para promover la ruta a selección global.
     </div>
   );
 
@@ -6937,6 +6951,12 @@ function TableroAsociativo({ liquidaciones, embarques, clientes, exportadoras, e
   const [topN, setTopN] = useState(()=> (Number.isFinite(ic.topN)&&ic.topN>0) ? ic.topN : 12);
   // Reporta config vigente (tras el clamp por-fuente measureId/dim1/dim2 ya son válidos).
   useEffect(()=>{ onConfig && onConfig({ fuenteId, measureId, dim1, dim2, topN }); }, [fuenteId, measureId, dim1, dim2, topN]);
+  // P2.4a: tooltip analítico por hover (no depende de title). Fixed → no lo corta el overflow
+  // ni el fullscreen; pointerEvents:none → no bloquea el clic de selección; no altera el universo.
+  const [tip, setTip] = useState(null);   // {lines, x, y}
+  const showTip = (e, lines)=>{ if(lines && lines.length) setTip({ lines, x:e.clientX, y:e.clientY }); };
+  const moveTip = (e)=> setTip(t=> t ? { ...t, x:e.clientX, y:e.clientY } : t);
+  const hideTip = ()=> setTip(null);
   const [full, setFull] = useState(false);        // pantalla completa del objeto (P1.7)
 
   // Lookups compartidos
@@ -7104,6 +7124,25 @@ function TableroAsociativo({ liquidaciones, embarques, clientes, exportadoras, e
   const filteredRows = useMemo(()=> fuente.rows.filter(r=>matchRow(r,null)), [fuente, sel, dims]);
   const totalMeasure = measure.calc(filteredRows);
 
+  // ── P2.4a: tooltip analítico (caja fija, clamp a viewport) + builder por gráfico ──
+  const vw = typeof window!=="undefined" ? window.innerWidth : 1280;
+  const vh = typeof window!=="undefined" ? window.innerHeight : 800;
+  const tipEl = tip ? (
+    <div style={{position:"fixed", left:Math.min(tip.x+14, vw-250), top:Math.min(tip.y+14, vh-150), zIndex:9999, pointerEvents:"none",
+      background:C.card, border:`1px solid ${C.border}`, borderRadius:9, boxShadow:"0 10px 30px rgba(0,0,0,.30)", padding:"8px 11px", maxWidth:240, fontSize:11.5}}>
+      {tip.lines.map((l,i)=>(
+        <div key={i} style={{display:"flex", justifyContent:"space-between", gap:12, lineHeight:1.5}}>
+          <span style={{color:C.muted}}>{l.label}</span><span style={{fontWeight:700, color:C.text, textAlign:"right"}}>{l.value}</span>
+        </div>
+      ))}
+    </div>
+  ) : null;
+  const lineasBarra = (x, visibles)=> buildTooltipData({
+    dimLab:d1.lab, valueLab:x.lab, medidaLab:measure.lab, valorFmt:measFmt(x.m),
+    parte:participacionPct(x.m, totalMeasure), rank:rankingDe(visibles, x.m), fuenteLab:fuenteLabel(fuenteId),
+    sinDatos:(x.rows && x.rows.length===0),
+  }).lines;
+
   // Orden natural para tendencia (mes por calendario agrícola, resto por medida).
   const ordenNatural = (arr, dk)=>{
     if(dk==="mes"){ const ord=MESES_TEMP.map(x=>x.m); return [...arr].sort((a,b)=>ord.indexOf(Number(a.val))-ord.indexOf(Number(b.val))); }
@@ -7161,7 +7200,9 @@ function TableroAsociativo({ liquidaciones, embarques, clientes, exportadoras, e
           const segs = d2 ? groupRowsBy2(x.rows) : null;
           const wpct = Math.abs(x.m)/aggPrimary.max*100;
           return (
-            <div key={x.val} onClick={()=>toggle(d1.key,x.val)} title="Clic para filtrar"
+            <div key={x.val} onClick={()=>toggle(d1.key,x.val)}
+              onMouseMove={e=>showTip(e, lineasBarra(x, items.map(z=>z.m)))} onMouseLeave={hideTip}
+              title="Clic para filtrar"
               style={{display:"grid", gridTemplateColumns:"minmax(120px, 220px) 1fr auto", gap:10, alignItems:"center", cursor:"pointer", padding:"5px 4px", borderRadius:7, background:isSel?`${C.accent2}12`:"transparent"}}>
               <div style={{fontSize:12, color:isSel?C.accent2:C.text, fontWeight:isSel?700:500, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis", opacity:atten?0.6:1}}>
                 {isSel?"✓ ":""}{x.lab}
@@ -7195,6 +7236,7 @@ function TableroAsociativo({ liquidaciones, embarques, clientes, exportadoras, e
             {aggPrimary.excluded.length>14 && <span style={{fontSize:10, color:C.muted2}}>+{aggPrimary.excluded.length-14}</span>}
           </div>
         )}
+        {tipEl}
       </div>
     );
   };
@@ -7216,7 +7258,10 @@ function TableroAsociativo({ liquidaciones, embarques, clientes, exportadoras, e
         {data.length===0 ? <div style={{color:C.muted2, fontSize:12, padding:20}}>Sin datos para la selección.</div> : <>
         <svg width="180" height="180" viewBox="0 0 180 180" style={{flexShrink:0}}>
           {data.map((x,i)=>{ const f0=acc/tot, f1=(acc+x.m)/tot; acc+=x.m; const col=x.resto?C.muted2:PAL_BI[i%PAL_BI.length];
-            return <path key={x.val} d={arc(f0,f1)} fill={col} stroke={C.card} strokeWidth="1.5" style={{cursor:x.resto?"default":"pointer"}} onClick={()=>!x.resto&&toggle(d1.key,x.val)}><title>{x.lab}: {measFmt(x.m)} ({(x.m/tot*100).toFixed(1)}%)</title></path>; })}
+            return <path key={x.val} d={arc(f0,f1)} fill={col} stroke={C.card} strokeWidth="1.5" style={{cursor:x.resto?"default":"pointer"}}
+              onClick={()=>!x.resto&&toggle(d1.key,x.val)}
+              onMouseMove={e=>{ if(!x.resto) showTip(e, buildTooltipData({dimLab:d1.lab, valueLab:x.lab, medidaLab:measure.lab, valorFmt:measFmt(x.m), parte:x.m/tot*100, rank:rankingDe(data.filter(z=>!z.resto).map(z=>z.m), x.m), fuenteLab:fuenteLabel(fuenteId)}).lines); }}
+              onMouseLeave={hideTip}><title>{x.lab}: {measFmt(x.m)} ({(x.m/tot*100).toFixed(1)}%)</title></path>; })}
           <text x={cx} y={cy-4} textAnchor="middle" style={{fontSize:9, fill:C.muted, fontWeight:600}}>{measure.lab.split(" ")[0]}</text>
           <text x={cx} y={cy+11} textAnchor="middle" style={{fontSize:12, fill:C.text, fontWeight:800}}>{measFmt(tot)}</text>
         </svg>
@@ -7229,6 +7274,7 @@ function TableroAsociativo({ liquidaciones, embarques, clientes, exportadoras, e
             </div>
           ))}
         </div></>}
+        {tipEl}
       </div>
     );
   };
@@ -7248,12 +7294,14 @@ function TableroAsociativo({ liquidaciones, embarques, clientes, exportadoras, e
           <path d={area} fill={`${C.blue}18`}/>
           <path d={line} fill="none" stroke={C.blue} strokeWidth="2.5" strokeLinejoin="round"/>
           {pts.map((p,i)=>{ const isSel=(sel[d1.key]||new Set()).has(p.val);
-            return <g key={p.val} style={{cursor:"pointer"}} onClick={()=>toggle(d1.key,p.val)}>
+            return <g key={p.val} style={{cursor:"pointer"}} onClick={()=>toggle(d1.key,p.val)}
+              onMouseMove={e=>showTip(e, buildTooltipData({dimLab:d1.lab, valueLab:p.lab, medidaLab:measure.lab, valorFmt:measFmt(p.m), fuenteLab:fuenteLabel(fuenteId)}).lines)} onMouseLeave={hideTip}>
               <circle cx={x(i)} cy={y(p.m)} r={isSel?6:4.5} fill={isSel?C.accent2:C.blue} stroke={C.card} strokeWidth="2"><title>{p.lab}: {measFmt(p.m)}</title></circle>
               <text x={x(i)} y={y(p.m)-9} textAnchor="middle" style={{fontSize:9.5, fill:C.text, fontWeight:700}}>{measFmt(p.m)}</text>
               <text x={x(i)} y={H-padB+16} textAnchor="middle" style={{fontSize:10, fill:C.muted}}>{String(p.lab).length>10?String(p.lab).slice(0,9)+"…":p.lab}</text>
             </g>; })}
         </svg>
+        {tipEl}
       </div>
     );
   };
