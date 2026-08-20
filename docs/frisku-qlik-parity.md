@@ -97,7 +97,7 @@ Selection Bar, Filter Pane, export y fullscreen se comparten.
 | Capacidad | Estado |
 |---|---|
 | Dimensión, medida, desglose, Top N, interacción, selección desde gráfico, participación, Excel(dataset)/PDF/fullscreen | IGUAL / EQUIVALENTE |
-| Tooltips analíticos | `<title>` SVG básicos | PARCIAL |
+| Tooltips analíticos | **P2.4a**: contrato central (`friskuTooltip.js`) + tooltip por hover en Barras/Dona/Tendencia (dim·medida·valor·participación·ranking·fuente; caja fija, no bloquea selección, sirve en fullscreen); Tabla/Pivot con tooltip de celda (mismo subconjunto que `metric.calc`, sin sumar subtotales); "Sin datos" ≠ 0 | **PARCIAL → EQUIVALENTE** (tras validación runtime: fullscreen + sin regresión de selección) |
 
 ### G. Drill-down (⛏ Drill)
 | Capacidad | Estado |
@@ -108,7 +108,7 @@ Selection Bar, Filter Pane, export y fullscreen se comparten.
 | Capacidad | Estado |
 |---|---|
 | Dimensión × medida × visualización sin depender de reportes prearmados | IGUAL |
-| Misma fuente de datos para TODOS los objetos | gráficos eligen fuente (liq/embarques/programa/PO); Tabla/Pivot/Drill usan la tabla de hechos de embarques | PARCIAL |
+| Misma fuente de datos para TODOS los objetos | **P2.4b logrado**: transparencia de fuente + vocabulario uniforme (cada objeto declara su fuente; `FUENTE_LAB`). **Brecha que persiste**: dos modelos válidos coexisten — facts unificados (Embarques+liq) para Tabla/Pivot/Drill; fuentes seleccionables (Liq/Emb/Programa/Cobranza-PO) para el Explorador. **Modelo semántico común multi-fuente** = pendiente, NO abordado en P2.4 (evitaría regresión: fusionar perdería graficar Programa/Cobranza-PO) | **PARCIAL** |
 
 ### I. Presets curados
 | Capacidad | Estado |
