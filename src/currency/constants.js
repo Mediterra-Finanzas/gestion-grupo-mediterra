@@ -6,6 +6,7 @@ export const RATE_TYPES = {
   PERIOD_END: 'period_end',
   ARITHMETIC_AVG: 'arithmetic_avg',
   WEIGHTED_AVG: 'weighted_avg',
+  // @deprecated F2-A: entradas manual no son sobrescritas por APIs; usar Maestros → Tipo de Cambio.
   MANUAL: 'manual',
 };
 

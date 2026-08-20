@@ -1,0 +1,135 @@
+source_account_prefix,source_account_code_example,source_account_name_example,source_type,naturaleza_contec,clase_contec,sub_clase_contec,observed_nonzero,observed_amount_abs,base_classification,proposed_reporting_account,normal_balance,confidence,reason,manual_review_required,mapping_status,evidence_source
+# ============================================================
+# ALF-CONTEC-MAPPING-PROPOSAL-v1.csv
+# Allegria Foods Ltd. — Plan de Cuentas Contec → acc_reporting_account
+# Generado: 2026-08-19
+# Fuente: AC-04 evidence (OA-024-06-AC04-EVIDENCE.md) + Level 1 classifier
+# Estado: PROPOSAL ONLY — no ejecutar en DB sin CFO approval
+# ============================================================
+#
+# NOTA METODOLÓGICA:
+#   Columnas reales de Contec ESF (10-col): A=código, B=nombre, C=Debe YTD, D=Haber YTD,
+#     E=Saldo D, F=Saldo A, G=inventario_activo, H=inventario_pasivo, I=Rdo Pérdida, J=Rdo Ganancia
+#   Columnas reales de Contec EERR (9-col): A=Naturaleza, B=Clase, C=Sub-clase, D=código,
+#     E=nombre, F=CC, G=Real, H=Presupuesto, I=Varianza
+#   Fuente AC-04: Balance Foods.xlsx (366 rows), EERR Julio (90 rows), EERR Acumulado (175 rows)
+#   Códigos OBSERVADOS vs INFERIDOS: ver columna evidence_source
+#
+# COLUMNAS:
+#   source_account_prefix     = Prefijo de 1–2 niveles del código Contec (ej. "1.01")
+#   source_account_code_example = Código exacto observado en AC-04 (si existe) o ejemplo inferido
+#   source_account_name_example = Nombre observado en AC-04 o inferido del plan PCGA Chile
+#   source_type               = ESF (balance) | ERI (resultado)
+#   naturaleza_contec         = Naturaleza según EERR (solo para ERI)
+#   clase_contec              = Clase según EERR (solo para ERI)
+#   sub_clase_contec          = Sub-clase según EERR (solo para ERI)
+#   observed_nonzero          = YES si el AC-04 indica saldo/monto non-zero | NO | UNKNOWN
+#   observed_amount_abs       = monto absoluto si fue observado | UNKNOWN
+#   base_classification       = ESF | ERI
+#   proposed_reporting_account = código acc_reporting_account (ACT_C/ACT_NC/PAS_C/PAS_NC/PAT/TOTAL/ING/COSTO/MB/GOPEX/EBIT/FIN/EBT/IMP/UAI)
+#   normal_balance            = debit | credit (según acc_reporting_account)
+#   confidence                = HIGH (prefix unambiguous) | MEDIUM (prefix ambiguous) | LOW (needs file review)
+#   reason                    = justificación del mapping
+#   manual_review_required    = YES | NO
+#   mapping_status            = READY (to insert) | NEEDS_EXACT_CODE | AMBIGUOUS
+#   evidence_source           = AC04_OBSERVED (código exacto del archivo) | LEVEL1_CLASSIFIER (inferido de prefijo)
+#
+# ============================================================
+# TIER 1: ACTIVO CORRIENTE (1.01 – 1.09)
+# ============================================================
+1.01,,Efectivo y equivalentes (Caja y Bancos),ESF,,,,UNKNOWN,UNKNOWN,ESF,ACT_C,debit,HIGH,"1.01.xx = activo monetario corriente; Caja/Bancos son siempre ACT_C",NO,NEEDS_EXACT_CODE,LEVEL1_CLASSIFIER
+1.02,,Deudores comerciales (Clientes exportación),ESF,,,,UNKNOWN,UNKNOWN,ESF,ACT_C,debit,HIGH,"1.02.xx = cuentas por cobrar clientes; corriente por naturaleza comercial ALF",NO,NEEDS_EXACT_CODE,LEVEL1_CLASSIFIER
+1.03,,Existencias / Inventarios (fruta procesada),ESF,,,,UNKNOWN,UNKNOWN,ESF,ACT_C,debit,HIGH,"1.03.xx = inventario corriente; ALF exportadora puede tener fruta en tránsito",NO,NEEDS_EXACT_CODE,LEVEL1_CLASSIFIER
+1.04,,IVA crédito fiscal por recuperar,ESF,,,,UNKNOWN,UNKNOWN,ESF,ACT_C,debit,HIGH,"1.04.xx = impuesto diferido corriente; IVA exportaciones Chile = recuperable",NO,NEEDS_EXACT_CODE,LEVEL1_CLASSIFIER
+1.05,,Gastos pagados por anticipado,ESF,,,,UNKNOWN,UNKNOWN,ESF,ACT_C,debit,MEDIUM,"1.05.xx = prepagos; puede ser corriente o NC dependiendo del plazo",YES,NEEDS_EXACT_CODE,LEVEL1_CLASSIFIER
+1.06,,Activos biológicos corrientes (fruta en árbol temporada),ESF,,,,UNKNOWN,UNKNOWN,ESF,ACT_C,debit,HIGH,"1.06.xx = activo biológico corriente IAS 41; cerezas en período de cosecha",NO,NEEDS_EXACT_CODE,LEVEL1_CLASSIFIER
+1.07,,Préstamos a relacionadas corriente,ESF,,,,UNKNOWN,UNKNOWN,ESF,ACT_C,debit,MEDIUM,"1.07.xx = intercompany corriente; ALF puede tener créditos a Allpa JV",YES,NEEDS_EXACT_CODE,LEVEL1_CLASSIFIER
+1.08,,Documentos por cobrar corriente,ESF,,,,UNKNOWN,UNKNOWN,ESF,ACT_C,debit,MEDIUM,"1.08.xx = documentos CP; puede incluir notas por cobrar de clientes exportación",YES,NEEDS_EXACT_CODE,LEVEL1_CLASSIFIER
+1.09,,Otros activos corrientes,ESF,,,,UNKNOWN,UNKNOWN,ESF,ACT_C,debit,MEDIUM,"1.09.xx = catch-all activo corriente; requiere revisión cuenta por cuenta",YES,NEEDS_EXACT_CODE,LEVEL1_CLASSIFIER
+# ============================================================
+# TIER 2: ACTIVO NO CORRIENTE (1.10 – 1.99)
+# ============================================================
+1.10,,Propiedades planta y equipo (neto),ESF,,,,UNKNOWN,UNKNOWN,ESF,ACT_NC,debit,HIGH,"1.10.xx = PP&E; activo no corriente por definición",NO,NEEDS_EXACT_CODE,LEVEL1_CLASSIFIER
+1.11,,Depreciación acumulada PP&E (cuenta complementaria),ESF,,,,UNKNOWN,UNKNOWN,ESF,ACT_NC,credit,HIGH,"1.11.xx = depreciación; cuenta de naturaleza acreedora complementaria; net en ACT_NC",YES,NEEDS_EXACT_CODE,LEVEL1_CLASSIFIER
+1.12,,Inversiones en entidades relacionadas (Allpa método patrimonio),ESF,,,,UNKNOWN,UNKNOWN,ESF,ACT_NC,debit,HIGH,"1.12.xx = inversión IAS 28; ALF registra participación en Allpa Peru (26%) si aplica",YES,NEEDS_EXACT_CODE,LEVEL1_CLASSIFIER
+1.13,,Activos biológicos no corrientes (huertos/viveros),ESF,,,,UNKNOWN,UNKNOWN,ESF,ACT_NC,debit,HIGH,"1.13.xx = activo biológico NC IAS 41; huertos cereza si ALF tiene activos productivos",NO,NEEDS_EXACT_CODE,LEVEL1_CLASSIFIER
+1.14,,Activos intangibles,ESF,,,,UNKNOWN,UNKNOWN,ESF,ACT_NC,debit,MEDIUM,"1.14.xx = intangibles; probable en ALF (marcas, contratos exclusividad)",YES,NEEDS_EXACT_CODE,LEVEL1_CLASSIFIER
+1.15,,Activos por derecho de uso (IFRS 16),ESF,,,,UNKNOWN,UNKNOWN,ESF,ACT_NC,debit,MEDIUM,"1.15.xx = ROU asset IFRS 16; AC-04 EERR menciona 'amortización derecho de uso' como egreso NO → existe IFRS 16",YES,NEEDS_EXACT_CODE,LEVEL1_CLASSIFIER
+1.16,,Otros activos no corrientes,ESF,,,,UNKNOWN,UNKNOWN,ESF,ACT_NC,debit,MEDIUM,"1.16.xx = catch-all NC; revisar",YES,NEEDS_EXACT_CODE,LEVEL1_CLASSIFIER
+# ============================================================
+# TIER 3: PASIVO CORRIENTE (2.01 – 2.09)
+# ============================================================
+2.01,,Proveedores y cuentas por pagar corriente,ESF,,,,UNKNOWN,UNKNOWN,ESF,PAS_C,credit,HIGH,"2.01.xx = AP corriente; obligaciones comerciales",NO,NEEDS_EXACT_CODE,LEVEL1_CLASSIFIER
+2.02,,Remuneraciones y provisiones de personal por pagar,ESF,,,,UNKNOWN,UNKNOWN,ESF,PAS_C,credit,HIGH,"2.02.xx = pasivo laboral corriente; EERR muestra GASTOS DE PERSONAL → existe provisión",NO,NEEDS_EXACT_CODE,LEVEL1_CLASSIFIER
+2.03,,IVA débito fiscal por pagar,ESF,,,,UNKNOWN,UNKNOWN,ESF,PAS_C,credit,HIGH,"2.03.xx = impuesto corriente por pagar",NO,NEEDS_EXACT_CODE,LEVEL1_CLASSIFIER
+2.04,,Impuesto a la renta por pagar corriente,ESF,,,,UNKNOWN,UNKNOWN,ESF,PAS_C,credit,HIGH,"2.04.xx = pasivo tributario corriente; AC-04 EERR muestra 'Impuesto renta' en EGRESOS NO OP",NO,NEEDS_EXACT_CODE,LEVEL1_CLASSIFIER
+2.05,,Créditos bancarios y sobregiros corriente,ESF,,,,UNKNOWN,UNKNOWN,ESF,PAS_C,credit,HIGH,"2.05.xx = deuda financiera CP; probable dado que ALF es empresa operativa",NO,NEEDS_EXACT_CODE,LEVEL1_CLASSIFIER
+2.06,,Documentos por pagar corriente,ESF,,,,UNKNOWN,UNKNOWN,ESF,PAS_C,credit,HIGH,"2.06.xx = documentos comerciales CP",NO,NEEDS_EXACT_CODE,LEVEL1_CLASSIFIER
+2.07,,Préstamos relacionadas corriente,ESF,,,,UNKNOWN,UNKNOWN,ESF,PAS_C,credit,MEDIUM,"2.07.xx = intercompany CP; puede ser deuda con Mediterra Holding",YES,NEEDS_EXACT_CODE,LEVEL1_CLASSIFIER
+2.08,,Anticipos de clientes / Ingresos diferidos corriente,ESF,,,,UNKNOWN,UNKNOWN,ESF,PAS_C,credit,MEDIUM,"2.08.xx = anticipos; probable en exportación de cerezas (prepago de importadores)",YES,NEEDS_EXACT_CODE,LEVEL1_CLASSIFIER
+2.09,,Otros pasivos corrientes,ESF,,,,UNKNOWN,UNKNOWN,ESF,PAS_C,credit,MEDIUM,"2.09.xx = catch-all PC; revisar",YES,NEEDS_EXACT_CODE,LEVEL1_CLASSIFIER
+# ============================================================
+# TIER 4: PASIVO NO CORRIENTE (2.10 – 2.99)
+# ============================================================
+2.10,,Créditos bancarios largo plazo,ESF,,,,UNKNOWN,UNKNOWN,ESF,PAS_NC,credit,HIGH,"2.10.xx = deuda financiera LP",NO,NEEDS_EXACT_CODE,LEVEL1_CLASSIFIER
+2.11,,Préstamos relacionadas largo plazo,ESF,,,,UNKNOWN,UNKNOWN,ESF,PAS_NC,credit,MEDIUM,"2.11.xx = intercompany LP",YES,NEEDS_EXACT_CODE,LEVEL1_CLASSIFIER
+2.12,,Obligaciones por arrendamiento LP (IFRS 16),ESF,,,,UNKNOWN,UNKNOWN,ESF,PAS_NC,credit,MEDIUM,"2.12.xx = lease liability LP IFRS 16; AC-04 EERR confirma 'amortización derecho de uso'",YES,NEEDS_EXACT_CODE,LEVEL1_CLASSIFIER
+2.13,,Provisiones largo plazo,ESF,,,,UNKNOWN,UNKNOWN,ESF,PAS_NC,credit,MEDIUM,"2.13.xx = provisiones LP",YES,NEEDS_EXACT_CODE,LEVEL1_CLASSIFIER
+2.14,,Otros pasivos no corrientes,ESF,,,,UNKNOWN,UNKNOWN,ESF,PAS_NC,credit,MEDIUM,"2.14.xx = catch-all PNC; revisar",YES,NEEDS_EXACT_CODE,LEVEL1_CLASSIFIER
+# ============================================================
+# TIER 5: PATRIMONIO (3.xx)
+# ============================================================
+3.01,,Capital pagado,ESF,,,,UNKNOWN,UNKNOWN,ESF,PAT,credit,HIGH,"3.01.xx = capital social; PAT por definición",NO,NEEDS_EXACT_CODE,LEVEL1_CLASSIFIER
+3.02,,Reservas de capital,ESF,,,,UNKNOWN,UNKNOWN,ESF,PAT,credit,HIGH,"3.02.xx = reservas; PAT",NO,NEEDS_EXACT_CODE,LEVEL1_CLASSIFIER
+3.03,,Resultados acumulados (ejercicios anteriores),ESF,,,,UNKNOWN,UNKNOWN,ESF,PAT,credit,HIGH,"3.03.xx = utilidades retenidas; PAT",NO,NEEDS_EXACT_CODE,LEVEL1_CLASSIFIER
+3.04,,Resultado del ejercicio,ESF,,,,UNKNOWN,UNKNOWN,ESF,PAT,credit,HIGH,"3.04.xx = resultado corriente; PAT — puede ser deudor (pérdida) o acreedor (ganancia)",NO,NEEDS_EXACT_CODE,LEVEL1_CLASSIFIER
+3.05,,Diferencia de conversión (OCI IFRS),ESF,,,,UNKNOWN,UNKNOWN,ESF,PAT,credit,MEDIUM,"3.05.xx = OCI por traducción moneda; ALF USD funcional, posible OCI si tiene subs CLP",YES,NEEDS_EXACT_CODE,LEVEL1_CLASSIFIER
+# ============================================================
+# TIER 6: INGRESOS (4.xx) — ERI
+# ============================================================
+4.01,,Ventas exportación cerezas,ERI,INGRESOS,INGRESOS POR VENTA,VENTAS EXPORTACION,YES,UNKNOWN,ERI,ING,credit,HIGH,"AC-04 EERR §3.3 confirma 'Ventas exportación' en naturaleza INGRESOS; ALF principal actividad",NO,NEEDS_EXACT_CODE,AC04_OBSERVED
+4.01.01.002,4.01.01.002,VENTA CEREZAS FRESCAS EXPORTACION,ERI,INGRESOS,INGRESOS POR VENTA,VENTAS EXPORTACION,YES,UNKNOWN,ERI,ING,credit,HIGH,"Código OBSERVADO en AC-04 §3.1 como ejemplo de formato D=código en EERR",NO,READY,AC04_OBSERVED
+4.02,,Ventas nacionales / locales,ERI,INGRESOS,INGRESOS POR VENTA,VENTAS NACIONALES,UNKNOWN,UNKNOWN,ERI,ING,credit,HIGH,"AC-04 EERR §3.3 confirma 'ventas nacionales' en INGRESOS",YES,NEEDS_EXACT_CODE,AC04_OBSERVED
+4.03,,Comisión arándanos Perú (Allpa fee),ERI,INGRESOS,INGRESOS POR VENTA,VENTAS EXPORTACION,UNKNOWN,UNKNOWN,ERI,ING,credit,MEDIUM,"ALF = 'comisión arándanos Perú' per CLAUDE.md; cuenta probable en 4.xx",YES,NEEDS_EXACT_CODE,LEVEL1_CLASSIFIER
+4.09,,Otros ingresos operacionales,ERI,INGRESOS,INGRESOS POR VENTA,,UNKNOWN,UNKNOWN,ERI,ING,credit,MEDIUM,"4.09.xx = catch-all ingresos; revisar",YES,NEEDS_EXACT_CODE,LEVEL1_CLASSIFIER
+# ============================================================
+# TIER 7: COSTOS DE VENTA (5.xx) — ERI
+# ============================================================
+5.01,,Costo fruta adquirida / liquidaciones a productores,ERI,GASTOS OPERACIONALES,COSTOS DE VENTA,COSTOS DIRECTOS,UNKNOWN,UNKNOWN,ERI,COSTO,debit,HIGH,"5.01.xx = costo directo; AC-04 EERR §3.3 confirma 'Costos de venta / exportación' en GASTOS OPERACIONALES",NO,NEEDS_EXACT_CODE,AC04_OBSERVED
+5.02,,Embalaje y materiales de empaque,ERI,GASTOS OPERACIONALES,COSTOS DE VENTA,COSTOS DIRECTOS,UNKNOWN,UNKNOWN,ERI,COSTO,debit,HIGH,"5.02.xx = embalaje; costo directo de exportación cerezas",NO,NEEDS_EXACT_CODE,LEVEL1_CLASSIFIER
+5.03,,Flete marítimo y aéreo exportación,ERI,GASTOS OPERACIONALES,COSTOS DE VENTA,COSTOS DIRECTOS,UNKNOWN,UNKNOWN,ERI,COSTO,debit,HIGH,"5.03.xx = flete internacional; costo directo ALF",NO,NEEDS_EXACT_CODE,LEVEL1_CLASSIFIER
+5.04,,Mano de obra directa (cosecha / packing),ERI,GASTOS OPERACIONALES,COSTOS DE VENTA,COSTOS DIRECTOS,UNKNOWN,UNKNOWN,ERI,COSTO,debit,HIGH,"5.04.xx = MOD; costo directo",NO,NEEDS_EXACT_CODE,LEVEL1_CLASSIFIER
+5.05,,Gastos COMEX (documentación exportación),ERI,GASTOS OPERACIONALES,COSTOS DE VENTA,COSTOS DIRECTOS,UNKNOWN,UNKNOWN,ERI,COSTO,debit,HIGH,"5.05.xx = COMEX costs; AC-04 §3.4 confirma CC=COMEX en EERR ALF",NO,NEEDS_EXACT_CODE,AC04_OBSERVED
+5.09,,Otros costos de venta,ERI,GASTOS OPERACIONALES,COSTOS DE VENTA,,UNKNOWN,UNKNOWN,ERI,COSTO,debit,MEDIUM,"5.09.xx = catch-all costos; revisar",YES,NEEDS_EXACT_CODE,LEVEL1_CLASSIFIER
+# ============================================================
+# TIER 8: GASTOS OPERACIONALES / ADM Y VENTAS (6.xx) — ERI → GOPEX
+# Los 6.xx en ALF aparecen bajo 'GASTOS DE ADM. Y VENTAS' en EERR
+# ============================================================
+6.11.01.010,6.11.01.010,SUELDOS Y SALARIOS,ERI,GASTOS DE ADM. Y VENTAS,GASTOS DE PERSONAL,GASTOS DE PERSONAL,YES,UNKNOWN,ERI,GOPEX,debit,HIGH,"Código OBSERVADO en AC-04 §3.4; aparece con múltiples CC (ADMIN Y FINANZAS, OPERACIONES)",NO,READY,AC04_OBSERVED
+6.11.07.290,6.11.07.290,GASTOS BANCARIOS,ERI,GASTOS DE ADM. Y VENTAS,GASTOS DE GESTION,GASTOS DE GESTION,YES,UNKNOWN,ERI,GOPEX,debit,MEDIUM,"Código OBSERVADO en AC-04 §3.4; gastos bancarios operativos → GOPEX. Nota: si son intereses bancarios → reclasificar a FIN",YES,READY,AC04_OBSERVED
+6.11.07.310,6.11.07.310,SEGUROS,ERI,GASTOS DE ADM. Y VENTAS,GASTOS DE GESTION,GASTOS DE GESTION,YES,UNKNOWN,ERI,GOPEX,debit,HIGH,"Código OBSERVADO en AC-04 §3.4; seguros operativos → GOPEX",NO,READY,AC04_OBSERVED
+6.11,,Gastos de personal (sueldos otras cuentas),ERI,GASTOS DE ADM. Y VENTAS,GASTOS DE PERSONAL,,YES,UNKNOWN,ERI,GOPEX,debit,HIGH,"AC-04 §3.3 confirma 'GASTOS DE PERSONAL' como clase; 6.11.xx familia completa → GOPEX",NO,NEEDS_EXACT_CODE,AC04_OBSERVED
+6.12,,Viajes y representación,ERI,GASTOS DE ADM. Y VENTAS,GASTOS DE GESTION,,UNKNOWN,UNKNOWN,ERI,GOPEX,debit,HIGH,"6.12.xx = gastos de viaje; GOPEX",NO,NEEDS_EXACT_CODE,LEVEL1_CLASSIFIER
+6.13,,Arriendo y utilities,ERI,GASTOS DE ADM. Y VENTAS,GASTOS DE GESTION,,UNKNOWN,UNKNOWN,ERI,GOPEX,debit,HIGH,"6.13.xx = arriendos; AC-04 §3.3 confirma 'arriendos' en GASTOS ADM",NO,NEEDS_EXACT_CODE,AC04_OBSERVED
+6.14,,Sistemas y tecnología,ERI,GASTOS DE ADM. Y VENTAS,GASTOS DE GESTION,,UNKNOWN,UNKNOWN,ERI,GOPEX,debit,HIGH,"6.14.xx = sistemas; AC-04 §3.3 confirma 'sistemas' en GASTOS ADM",NO,NEEDS_EXACT_CODE,AC04_OBSERVED
+6.15,,Honorarios y servicios profesionales,ERI,GASTOS DE ADM. Y VENTAS,GASTOS DE GESTION,,UNKNOWN,UNKNOWN,ERI,GOPEX,debit,HIGH,"6.15.xx = honorarios; GOPEX",NO,NEEDS_EXACT_CODE,LEVEL1_CLASSIFIER
+6.16,,Depreciación y amortización (operacional),ERI,GASTOS DE ADM. Y VENTAS,GASTOS DE GESTION,,UNKNOWN,UNKNOWN,ERI,GOPEX,debit,HIGH,"6.16.xx = D&A operacional; GOPEX",NO,NEEDS_EXACT_CODE,LEVEL1_CLASSIFIER
+6.99,,Otros gastos admin y ventas,ERI,GASTOS DE ADM. Y VENTAS,GASTOS DE GESTION,,UNKNOWN,UNKNOWN,ERI,GOPEX,debit,MEDIUM,"6.99.xx = catch-all gastos; revisar",YES,NEEDS_EXACT_CODE,LEVEL1_CLASSIFIER
+# ============================================================
+# TIER 9: EGRESOS NO OPERACIONALES (7.xx / 8.xx) — ERI → FIN
+# AC-04 §3.3 confirma: EGRESOS NO OPERACIONALES incluye:
+#   intereses, diferencia de cambio, amortización derecho de uso, resultado inversiones método patrimonio
+# ============================================================
+7.01,,Ingresos financieros (intereses ganados),ERI,EGRESOS NO OPERACIONALES,EGRESOS FINANCIEROS,,UNKNOWN,UNKNOWN,ERI,FIN,credit,HIGH,"7.01.xx = intereses ganados; FIN (ingreso)",NO,NEEDS_EXACT_CODE,LEVEL1_CLASSIFIER
+7.02,,Diferencia de cambio favorable,ERI,EGRESOS NO OPERACIONALES,DIFERENCIA DE CAMBIO,,YES,UNKNOWN,ERI,FIN,credit,HIGH,"AC-04 §3.3 confirma 'diferencia de cambio' en EGRESOS NO OP; favorable → FIN credit",NO,NEEDS_EXACT_CODE,AC04_OBSERVED
+7.03,,Resultado inversiones método patrimonio (Allpa — ingreso),ERI,EGRESOS NO OPERACIONALES,RESULTADO INVERSIONES,,UNKNOWN,UNKNOWN,ERI,FIN,credit,HIGH,"AC-04 §3.3 confirma 'resultado inversiones (método patrimonio)'; ALF tiene posición en Allpa Peru",YES,NEEDS_EXACT_CODE,AC04_OBSERVED
+8.01,,Gastos financieros (intereses pagados),ERI,EGRESOS NO OPERACIONALES,EGRESOS FINANCIEROS,,UNKNOWN,UNKNOWN,ERI,FIN,debit,HIGH,"AC-04 §3.3 confirma 'intereses' en EGRESOS NO OP; FIN (gasto)",NO,NEEDS_EXACT_CODE,AC04_OBSERVED
+8.02,,Diferencia de cambio desfavorable,ERI,EGRESOS NO OPERACIONALES,DIFERENCIA DE CAMBIO,,YES,UNKNOWN,ERI,FIN,debit,HIGH,"AC-04 §3.3 confirma 'diferencia de cambio'; desfavorable → FIN debit",NO,NEEDS_EXACT_CODE,AC04_OBSERVED
+8.03,,Amortización derecho de uso (IFRS 16),ERI,EGRESOS NO OPERACIONALES,EGRESOS FINANCIEROS,,YES,UNKNOWN,ERI,FIN,debit,MEDIUM,"AC-04 §3.3 OBSERVADO: 'amortización derecho de uso' en EGRESOS NO OP. Nota: puede ser GOPEX si es amortización operacional; requiere revisión",YES,NEEDS_EXACT_CODE,AC04_OBSERVED
+8.04,,Resultado inversiones método patrimonio (Allpa — pérdida),ERI,EGRESOS NO OPERACIONALES,RESULTADO INVERSIONES,,UNKNOWN,UNKNOWN,ERI,FIN,debit,MEDIUM,"8.04.xx = pérdida participación Allpa; FIN debit",YES,NEEDS_EXACT_CODE,LEVEL1_CLASSIFIER
+8.09,,Otros egresos no operacionales,ERI,EGRESOS NO OPERACIONALES,,,UNKNOWN,UNKNOWN,ERI,FIN,debit,MEDIUM,"8.09.xx = catch-all; revisar uno a uno",YES,NEEDS_EXACT_CODE,LEVEL1_CLASSIFIER
+# ============================================================
+# TIER 10: IMPUESTO A LA RENTA (9.xx) — ERI → IMP
+# ============================================================
+9.01,,Impuesto a la renta corriente,ERI,EGRESOS NO OPERACIONALES,IMPUESTO A LA RENTA,,YES,UNKNOWN,ERI,IMP,debit,HIGH,"AC-04 §3.3 OBSERVADO: 'Impuesto renta' en EGRESOS NO OP; → IMP",NO,NEEDS_EXACT_CODE,AC04_OBSERVED
+9.02,,Impuesto diferido (activo/pasivo),ERI,EGRESOS NO OPERACIONALES,IMPUESTO A LA RENTA,,UNKNOWN,UNKNOWN,ERI,IMP,debit,MEDIUM,"9.02.xx = impuesto diferido; IMP; puede ser deudor o acreedor",YES,NEEDS_EXACT_CODE,LEVEL1_CLASSIFIER

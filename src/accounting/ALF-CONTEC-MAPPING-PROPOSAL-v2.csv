@@ -1,0 +1,151 @@
+source_account_code,source_account_name,source_report,source_nature,observed_balance,observed_ytd_debit,observed_ytd_credit,observed_actual,observed_budget,cost_center_present,base_classification,proposed_reporting_account_code,proposed_reporting_account_name,financial_statement,confidence,manual_review_required,mapping_reason,mapping_status
+# ============================================================
+# ALF-CONTEC-MAPPING-PROPOSAL-v2.csv
+# Allegria Foods Ltd. — Plan de Cuentas Contec → acc_reporting_account
+# Versión: v2 (2026-08-19)
+# Fuente: AC-04 evidence (OA-024-06-AC04-EVIDENCE.md) + Level 1 classifier
+# Estado: PROPOSAL ONLY — no ejecutar en DB sin CFO approval
+# ============================================================
+#
+# CAMPOS v2 (vs v1):
+#   source_account_code      = código exacto si observado en AC-04 | prefijo si inferido
+#   source_account_name      = nombre exacto observado | nombre inferido PCGA Chile
+#   source_report            = Balance | EERR_Periodo | EERR_Acumulado | Balance+EERR
+#   source_nature            = naturaleza Contec (solo EERR): INGRESOS | GASTOS DE ADM. Y VENTAS | GASTOS OPERACIONALES | EGRESOS NO OPERACIONALES
+#   observed_balance         = saldo ESF observado (cols G/H) | UNKNOWN
+#   observed_ytd_debit       = movimientos debe YTD (col C Balance) | UNKNOWN
+#   observed_ytd_credit      = movimientos haber YTD (col D Balance) | UNKNOWN
+#   observed_actual          = monto real EERR (col G) | UNKNOWN
+#   observed_budget          = presupuesto EERR (col H) | UNKNOWN
+#   cost_center_present      = YES (múltiples filas por CC) | NO | UNKNOWN
+#   base_classification      = ESF | ERI
+#   proposed_reporting_account_code = código acc_reporting_account
+#   proposed_reporting_account_name = nombre completo
+#   financial_statement      = ESF | ERI
+#   confidence               = HIGH | MEDIUM | LOW
+#   manual_review_required   = YES | NO
+#   mapping_reason           = justificación del mapping
+#   mapping_status           = AUTO_HIGH (listo para insertar) | REVIEW_MEDIUM | REVIEW_LOW | UNMAPPED
+#
+# mapping_status rules:
+#   AUTO_HIGH  = código exacto observado AC-04 + confidence HIGH + no manual_review
+#   REVIEW_MEDIUM = código observado + confidence MEDIUM, OR prefix-based + confidence HIGH
+#   REVIEW_LOW = prefix-based + confidence MEDIUM, o requiere revisión cuenta a cuenta
+#   UNMAPPED   = no clasificable con datos actuales
+#
+# EVIDENCIA:
+#   AC04_OBSERVED = código exacto en archivos reales ALF (AC-04)
+#   LEVEL1_CLASSIFIER = inferido por prefijo (cobertura total, exactitud parcial)
+#   AC04_INFERRED = nombre/estructura observada en AC-04 pero código exacto no registrado
+#
+# ============================================================
+# CUENTAS AC-04 OBSERVADAS (código exacto — 4 total)
+# ============================================================
+4.01.01.002,VENTA CEREZAS FRESCAS EXPORTACION,EERR_Periodo+EERR_Acumulado,INGRESOS,UNKNOWN,UNKNOWN,UNKNOWN,NON-ZERO,UNKNOWN,NO,ERI,ING,Ingresos de Actividades Ordinarias,ERI,HIGH,NO,"Código OBSERVADO AC-04 §3.1. Naturaleza Contec = INGRESOS / INGRESOS POR VENTA / VENTAS EXPORTACION. ALF exportadora FOB USD. Sin ambigüedad.",AUTO_HIGH
+6.11.01.010,SUELDOS Y SALARIOS,EERR_Periodo+EERR_Acumulado,GASTOS DE ADM. Y VENTAS,UNKNOWN,UNKNOWN,UNKNOWN,NON-ZERO,UNKNOWN,YES,ERI,GOPEX,Gastos Operacionales,ERI,HIGH,NO,"Código OBSERVADO AC-04 §3.4. Clase = GASTOS DE PERSONAL. CC múltiple: ADMIN Y FINANZAS + OPERACIONES. Gasto operacional sin ambigüedad.",AUTO_HIGH
+6.11.07.290,GASTOS BANCARIOS,EERR_Periodo+EERR_Acumulado,GASTOS DE ADM. Y VENTAS,UNKNOWN,UNKNOWN,UNKNOWN,NON-ZERO,UNKNOWN,YES,ERI,GOPEX,Gastos Operacionales,ERI,MEDIUM,YES,"Código OBSERVADO AC-04 §3.4. Naturaleza Contec = GASTOS DE ADM. Y VENTAS (no EGRESOS NO OP). Contec clasifica intereses bajo EGRESOS NO OP (8.xx) → la naturaleza aquí indica comisiones/mantención bancaria operativa. Recomendado GOPEX. Post-batch: verificar si el monto incluye intereses bancarios encadenados.",REVIEW_MEDIUM
+6.11.07.310,SEGUROS,EERR_Periodo+EERR_Acumulado,GASTOS DE ADM. Y VENTAS,UNKNOWN,UNKNOWN,UNKNOWN,NON-ZERO,UNKNOWN,NO,ERI,GOPEX,Gastos Operacionales,ERI,HIGH,NO,"Código OBSERVADO AC-04 §3.4. Clase = GASTOS DE GESTION. CC = COMEX. Seguros exportación (carga marítima) = gasto operativo. Sin ambigüedad.",AUTO_HIGH
+# ============================================================
+# ESF TIER 1: ACTIVO CORRIENTE (1.01 – 1.09)
+# Fuente: Balance Foods.xlsx cols G/H (inventario_activo/inventario_pasivo)
+# ============================================================
+1.01,Efectivo y equivalentes (Caja/Bancos),Balance,,UNKNOWN,UNKNOWN,UNKNOWN,N/A,N/A,NO,ESF,ACT_C,Activo Corriente,ESF,HIGH,NO,"1.01.xx = activo monetario corriente. Caja y bancos siempre ACT_C. Saldo en col G (inventario_activo) del Balance.",REVIEW_MEDIUM
+1.02,Deudores comerciales (Clientes exportación FOB),Balance,,UNKNOWN,UNKNOWN,UNKNOWN,N/A,N/A,NO,ESF,ACT_C,Activo Corriente,ESF,HIGH,NO,"1.02.xx = cuentas por cobrar clientes. Corriente por ciclo operativo ALF (exportación = <12 meses).",REVIEW_MEDIUM
+1.03,Existencias / Inventarios (fruta en tránsito),Balance,,UNKNOWN,UNKNOWN,UNKNOWN,N/A,N/A,NO,ESF,ACT_C,Activo Corriente,ESF,HIGH,NO,"1.03.xx = inventario corriente. ALF puede tener fruta en proceso/tránsito internacional.",REVIEW_MEDIUM
+1.04,IVA crédito fiscal por recuperar,Balance,,UNKNOWN,UNKNOWN,UNKNOWN,N/A,N/A,NO,ESF,ACT_C,Activo Corriente,ESF,HIGH,NO,"1.04.xx = impuesto diferido corriente. IVA exportaciones Chile = recuperable (DGI Exportaciones).",REVIEW_MEDIUM
+1.05,Gastos pagados por anticipado,Balance,,UNKNOWN,UNKNOWN,UNKNOWN,N/A,N/A,NO,ESF,ACT_C,Activo Corriente,ESF,MEDIUM,YES,"1.05.xx = prepagos. Plazo determina ACT_C vs ACT_NC. Por defecto ACT_C; revisar si plazo >12 meses.",REVIEW_MEDIUM
+1.06,Activos biológicos corrientes (fruta en árbol),Balance,,UNKNOWN,UNKNOWN,UNKNOWN,N/A,N/A,NO,ESF,ACT_C,Activo Corriente,ESF,HIGH,NO,"1.06.xx = activo biológico corriente IAS 41. Cerezas en período de cosecha = corriente por definición.",REVIEW_MEDIUM
+1.07,Préstamos a relacionadas corriente,Balance,,UNKNOWN,UNKNOWN,UNKNOWN,N/A,N/A,NO,ESF,ACT_C,Activo Corriente,ESF,MEDIUM,YES,"1.07.xx = intercompany corriente. ALF puede tener créditos a Allpa JV u otras del grupo.",REVIEW_MEDIUM
+1.08,Documentos por cobrar corriente,Balance,,UNKNOWN,UNKNOWN,UNKNOWN,N/A,N/A,NO,ESF,ACT_C,Activo Corriente,ESF,MEDIUM,YES,"1.08.xx = documentos CP; notas por cobrar de clientes exportación.",REVIEW_MEDIUM
+1.09,Otros activos corrientes,Balance,,UNKNOWN,UNKNOWN,UNKNOWN,N/A,N/A,NO,ESF,ACT_C,Activo Corriente,ESF,MEDIUM,YES,"1.09.xx = catch-all ACT_C. Revisar cuenta por cuenta post-batch.",REVIEW_MEDIUM
+# ============================================================
+# ESF TIER 2: ACTIVO NO CORRIENTE (1.10 – 1.99)
+# ============================================================
+1.10,Propiedades planta y equipo bruto,Balance,,UNKNOWN,UNKNOWN,UNKNOWN,N/A,N/A,NO,ESF,ACT_NC,Activo No Corriente,ESF,HIGH,NO,"1.10.xx = PP&E bruto. Activo no corriente por definición IAS 16.",REVIEW_MEDIUM
+1.11,Depreciación acumulada PP&E (conta complementaria),Balance,,UNKNOWN,UNKNOWN,UNKNOWN,N/A,N/A,NO,ESF,ACT_NC,Activo No Corriente,ESF,HIGH,YES,"1.11.xx = depreciación acumulada. Cuenta acreedora complementaria → neteada en ACT_NC. Verificar que el parser no duplique el neto.",REVIEW_MEDIUM
+1.12,Inversiones en entidades relacionadas (Allpa IAS 28),Balance,,UNKNOWN,UNKNOWN,UNKNOWN,N/A,N/A,NO,ESF,ACT_NC,Activo No Corriente,ESF,HIGH,YES,"1.12.xx = inversión método patrimonio IAS 28. ALF tiene posición en Allpa Peru (26% — ver CLAUDE.md). Confirmar que saldo es neto de participación.",REVIEW_MEDIUM
+1.13,Activos biológicos no corrientes (huertos/viveros),Balance,,UNKNOWN,UNKNOWN,UNKNOWN,N/A,N/A,NO,ESF,ACT_NC,Activo No Corriente,ESF,HIGH,NO,"1.13.xx = activo biológico NC IAS 41. Huertos cereza productivos.",REVIEW_MEDIUM
+1.14,Activos intangibles,Balance,,UNKNOWN,UNKNOWN,UNKNOWN,N/A,N/A,NO,ESF,ACT_NC,Activo No Corriente,ESF,MEDIUM,YES,"1.14.xx = intangibles; probable en ALF (marcas, contratos exclusividad).",REVIEW_MEDIUM
+1.15,Activos por derecho de uso IFRS 16 (ROU),Balance,,UNKNOWN,UNKNOWN,UNKNOWN,N/A,N/A,NO,ESF,ACT_NC,Activo No Corriente,ESF,MEDIUM,YES,"1.15.xx = ROU asset IFRS 16. AC-04 confirma 'amortización derecho de uso' en EERR → existe IFRS 16 en ALF.",REVIEW_MEDIUM
+1.16,Otros activos no corrientes,Balance,,UNKNOWN,UNKNOWN,UNKNOWN,N/A,N/A,NO,ESF,ACT_NC,Activo No Corriente,ESF,MEDIUM,YES,"1.16.xx = catch-all ACT_NC. Revisar post-batch.",REVIEW_MEDIUM
+# ============================================================
+# ESF TIER 3: PASIVO CORRIENTE (2.01 – 2.09)
+# ============================================================
+2.01,Proveedores y cuentas por pagar comercial,Balance,,UNKNOWN,UNKNOWN,UNKNOWN,N/A,N/A,NO,ESF,PAS_C,Pasivo Corriente,ESF,HIGH,NO,"2.01.xx = AP corriente. Obligaciones comerciales < 12 meses.",REVIEW_MEDIUM
+2.02,Remuneraciones y provisiones de personal por pagar,Balance,,UNKNOWN,UNKNOWN,UNKNOWN,N/A,N/A,NO,ESF,PAS_C,Pasivo Corriente,ESF,HIGH,NO,"2.02.xx = pasivo laboral corriente. EERR tiene GASTOS DE PERSONAL → provisión de sueldos.",REVIEW_MEDIUM
+2.03,IVA débito fiscal por pagar,Balance,,UNKNOWN,UNKNOWN,UNKNOWN,N/A,N/A,NO,ESF,PAS_C,Pasivo Corriente,ESF,HIGH,NO,"2.03.xx = impuesto corriente IVA.",REVIEW_MEDIUM
+2.04,Impuesto a la renta por pagar corriente,Balance,,UNKNOWN,UNKNOWN,UNKNOWN,N/A,N/A,NO,ESF,PAS_C,Pasivo Corriente,ESF,HIGH,NO,"2.04.xx = pasivo tributario CP. AC-04 EERR confirma 'Impuesto renta' en EGRESOS NO OP.",REVIEW_MEDIUM
+2.05,Créditos bancarios y sobregiros corriente,Balance,,UNKNOWN,UNKNOWN,UNKNOWN,N/A,N/A,NO,ESF,PAS_C,Pasivo Corriente,ESF,HIGH,NO,"2.05.xx = deuda financiera CP. Probable: ALF es empresa operativa activa.",REVIEW_MEDIUM
+2.06,Documentos por pagar corriente,Balance,,UNKNOWN,UNKNOWN,UNKNOWN,N/A,N/A,NO,ESF,PAS_C,Pasivo Corriente,ESF,HIGH,NO,"2.06.xx = documentos comerciales CP.",REVIEW_MEDIUM
+2.07,Préstamos relacionadas corriente,Balance,,UNKNOWN,UNKNOWN,UNKNOWN,N/A,N/A,NO,ESF,PAS_C,Pasivo Corriente,ESF,MEDIUM,YES,"2.07.xx = intercompany CP. Posible deuda con Mediterra Holding (admin fee).",REVIEW_MEDIUM
+2.08,Anticipos de clientes e ingresos diferidos corriente,Balance,,UNKNOWN,UNKNOWN,UNKNOWN,N/A,N/A,NO,ESF,PAS_C,Pasivo Corriente,ESF,MEDIUM,YES,"2.08.xx = anticipos. Probable en exportación: compradores asiáticos pagan adelantos (Zelun/Yiannis/Fresion — FinanzasModule confirma).",REVIEW_MEDIUM
+2.09,Otros pasivos corrientes,Balance,,UNKNOWN,UNKNOWN,UNKNOWN,N/A,N/A,NO,ESF,PAS_C,Pasivo Corriente,ESF,MEDIUM,YES,"2.09.xx = catch-all PAS_C. Revisar post-batch.",REVIEW_MEDIUM
+# ============================================================
+# ESF TIER 4: PASIVO NO CORRIENTE (2.10 – 2.99)
+# ============================================================
+2.10,Créditos bancarios largo plazo,Balance,,UNKNOWN,UNKNOWN,UNKNOWN,N/A,N/A,NO,ESF,PAS_NC,Pasivo No Corriente,ESF,HIGH,NO,"2.10.xx = deuda financiera LP.",REVIEW_MEDIUM
+2.11,Préstamos relacionadas largo plazo,Balance,,UNKNOWN,UNKNOWN,UNKNOWN,N/A,N/A,NO,ESF,PAS_NC,Pasivo No Corriente,ESF,MEDIUM,YES,"2.11.xx = intercompany LP.",REVIEW_MEDIUM
+2.12,Obligaciones arrendamiento LP (IFRS 16 lease liability),Balance,,UNKNOWN,UNKNOWN,UNKNOWN,N/A,N/A,NO,ESF,PAS_NC,Pasivo No Corriente,ESF,MEDIUM,YES,"2.12.xx = lease liability LP IFRS 16. AC-04 EERR confirma 'amortización derecho de uso'.",REVIEW_MEDIUM
+2.13,Provisiones largo plazo,Balance,,UNKNOWN,UNKNOWN,UNKNOWN,N/A,N/A,NO,ESF,PAS_NC,Pasivo No Corriente,ESF,MEDIUM,YES,"2.13.xx = provisiones LP.",REVIEW_MEDIUM
+2.14,Otros pasivos no corrientes,Balance,,UNKNOWN,UNKNOWN,UNKNOWN,N/A,N/A,NO,ESF,PAS_NC,Pasivo No Corriente,ESF,MEDIUM,YES,"2.14.xx = catch-all PAS_NC. Revisar post-batch.",REVIEW_MEDIUM
+# ============================================================
+# ESF TIER 5: PATRIMONIO (3.xx)
+# ============================================================
+3.01,Capital pagado,Balance,,UNKNOWN,UNKNOWN,UNKNOWN,N/A,N/A,NO,ESF,PAT,Patrimonio,ESF,HIGH,NO,"3.01.xx = capital social. PAT por definición.",REVIEW_MEDIUM
+3.02,Reservas de capital,Balance,,UNKNOWN,UNKNOWN,UNKNOWN,N/A,N/A,NO,ESF,PAT,Patrimonio,ESF,HIGH,NO,"3.02.xx = reservas legales/estatutarias. PAT.",REVIEW_MEDIUM
+3.03,Resultados acumulados (ejercicios anteriores),Balance,,UNKNOWN,UNKNOWN,UNKNOWN,N/A,N/A,NO,ESF,PAT,Patrimonio,ESF,HIGH,NO,"3.03.xx = utilidades retenidas. PAT.",REVIEW_MEDIUM
+3.04,Resultado del ejercicio,Balance,,UNKNOWN,UNKNOWN,UNKNOWN,N/A,N/A,NO,ESF,PAT,Patrimonio,ESF,HIGH,NO,"3.04.xx = resultado corriente. PAT — deudor si pérdida.",REVIEW_MEDIUM
+3.05,Diferencia de conversión (OCI IFRS),Balance,,UNKNOWN,UNKNOWN,UNKNOWN,N/A,N/A,NO,ESF,PAT,Patrimonio,ESF,MEDIUM,YES,"3.05.xx = OCI por traducción moneda. ALF funcional USD; si tiene transacciones CLP el OCI existe.",REVIEW_MEDIUM
+# ============================================================
+# ERI TIER 6: INGRESOS (4.xx)
+# Naturaleza Contec: INGRESOS / INGRESOS POR VENTA
+# ============================================================
+4.01,Ventas exportación cerezas (familia),EERR_Periodo+EERR_Acumulado,INGRESOS,UNKNOWN,UNKNOWN,UNKNOWN,NON-ZERO,UNKNOWN,NO,ERI,ING,Ingresos de Actividades Ordinarias,ERI,HIGH,NO,"AC-04 §3.3 confirma 'Ventas exportación' en INGRESOS. 4.01.xx familia completa → ING.",REVIEW_MEDIUM
+4.02,Ventas nacionales / locales,EERR_Periodo+EERR_Acumulado,INGRESOS,UNKNOWN,UNKNOWN,UNKNOWN,UNKNOWN,UNKNOWN,NO,ERI,ING,Ingresos de Actividades Ordinarias,ERI,HIGH,YES,"AC-04 §3.3 confirma 'ventas nacionales' en INGRESOS. Confirmar si ALF tiene ventas locales materiales.",REVIEW_MEDIUM
+4.03,Comisión arándanos Perú (fee Allpa),EERR_Periodo+EERR_Acumulado,INGRESOS,UNKNOWN,UNKNOWN,UNKNOWN,UNKNOWN,UNKNOWN,NO,ERI,ING,Ingresos de Actividades Ordinarias,ERI,MEDIUM,YES,"ALF = 'comisión arándanos Perú' per CLAUDE.md. Cuenta probable en 4.xx. Verificar si existe en EERR.",REVIEW_MEDIUM
+4.09,Otros ingresos operacionales,EERR_Periodo+EERR_Acumulado,INGRESOS,UNKNOWN,UNKNOWN,UNKNOWN,UNKNOWN,UNKNOWN,NO,ERI,ING,Ingresos de Actividades Ordinarias,ERI,MEDIUM,YES,"4.09.xx = catch-all ingresos. Revisar si hay ingresos por servicios u otros.",REVIEW_MEDIUM
+# ============================================================
+# ERI TIER 7: COSTOS DE VENTA (5.xx)
+# Naturaleza Contec: GASTOS OPERACIONALES / COSTOS DE VENTA
+# ============================================================
+5.01,Costo fruta adquirida / liquidaciones a productores,EERR_Periodo+EERR_Acumulado,GASTOS OPERACIONALES,UNKNOWN,UNKNOWN,UNKNOWN,UNKNOWN,UNKNOWN,NO,ERI,COSTO,Costo de Ventas,ERI,HIGH,NO,"AC-04 §3.3 confirma 'Costos de venta / exportación' en GASTOS OPERACIONALES. 5.01.xx costo principal ALF.",REVIEW_MEDIUM
+5.02,Embalaje y materiales de empaque,EERR_Periodo+EERR_Acumulado,GASTOS OPERACIONALES,UNKNOWN,UNKNOWN,UNKNOWN,UNKNOWN,UNKNOWN,NO,ERI,COSTO,Costo de Ventas,ERI,HIGH,NO,"5.02.xx = embalaje exportación cerezas. Costo directo.",REVIEW_MEDIUM
+5.03,Flete marítimo y aéreo exportación,EERR_Periodo+EERR_Acumulado,GASTOS OPERACIONALES,UNKNOWN,UNKNOWN,UNKNOWN,UNKNOWN,UNKNOWN,NO,ERI,COSTO,Costo de Ventas,ERI,HIGH,NO,"5.03.xx = flete internacional. Costo directo ALF.",REVIEW_MEDIUM
+5.04,Mano de obra directa (cosecha/packing),EERR_Periodo+EERR_Acumulado,GASTOS OPERACIONALES,UNKNOWN,UNKNOWN,UNKNOWN,UNKNOWN,UNKNOWN,NO,ERI,COSTO,Costo de Ventas,ERI,HIGH,NO,"5.04.xx = MOD cosecha y empaque. Costo directo.",REVIEW_MEDIUM
+5.05,Gastos COMEX (documentación exportación),EERR_Periodo+EERR_Acumulado,GASTOS OPERACIONALES,UNKNOWN,UNKNOWN,UNKNOWN,UNKNOWN,UNKNOWN,NO,ERI,COSTO,Costo de Ventas,ERI,HIGH,NO,"5.05.xx = COMEX costs. AC-04 §3.4 confirma CC=COMEX en ALF.",REVIEW_MEDIUM
+5.06,Costo de ventas nacionales,EERR_Periodo+EERR_Acumulado,GASTOS OPERACIONALES,UNKNOWN,UNKNOWN,UNKNOWN,UNKNOWN,UNKNOWN,NO,ERI,COSTO,Costo de Ventas,ERI,MEDIUM,YES,"5.06.xx = costo ventas locales si existen.",REVIEW_MEDIUM
+5.09,Otros costos de venta,EERR_Periodo+EERR_Acumulado,GASTOS OPERACIONALES,UNKNOWN,UNKNOWN,UNKNOWN,UNKNOWN,UNKNOWN,NO,ERI,COSTO,Costo de Ventas,ERI,MEDIUM,YES,"5.09.xx = catch-all COSTO. Revisar post-batch.",REVIEW_MEDIUM
+# ============================================================
+# ERI TIER 8: GASTOS ADM. Y VENTAS (6.xx) → GOPEX
+# Naturaleza Contec: GASTOS DE ADM. Y VENTAS
+# Sub-clases observadas: GASTOS DE PERSONAL / GASTOS DE GESTION
+# ============================================================
+6.11,Sueldos y salarios (familia 6.11.01.xxx),EERR_Periodo+EERR_Acumulado,GASTOS DE ADM. Y VENTAS,UNKNOWN,UNKNOWN,UNKNOWN,NON-ZERO,UNKNOWN,YES,ERI,GOPEX,Gastos Operacionales,ERI,HIGH,NO,"AC-04 §3.3/3.4 confirma clase GASTOS DE PERSONAL. 6.11.xx familia completa → GOPEX.",REVIEW_MEDIUM
+6.12,Viajes y representación,EERR_Periodo+EERR_Acumulado,GASTOS DE ADM. Y VENTAS,UNKNOWN,UNKNOWN,UNKNOWN,UNKNOWN,UNKNOWN,UNKNOWN,ERI,GOPEX,Gastos Operacionales,ERI,HIGH,NO,"6.12.xx = gastos de viaje. GOPEX estándar.",REVIEW_MEDIUM
+6.13,Arriendo y utilities,EERR_Periodo+EERR_Acumulado,GASTOS DE ADM. Y VENTAS,UNKNOWN,UNKNOWN,UNKNOWN,UNKNOWN,UNKNOWN,UNKNOWN,ERI,GOPEX,Gastos Operacionales,ERI,HIGH,NO,"6.13.xx = arriendos. AC-04 §3.3 confirma 'arriendos' en GASTOS ADM.",REVIEW_MEDIUM
+6.14,Sistemas y tecnología,EERR_Periodo+EERR_Acumulado,GASTOS DE ADM. Y VENTAS,UNKNOWN,UNKNOWN,UNKNOWN,UNKNOWN,UNKNOWN,UNKNOWN,ERI,GOPEX,Gastos Operacionales,ERI,HIGH,NO,"6.14.xx = sistemas. AC-04 §3.3 confirma 'sistemas' en GASTOS ADM.",REVIEW_MEDIUM
+6.15,Honorarios y servicios profesionales,EERR_Periodo+EERR_Acumulado,GASTOS DE ADM. Y VENTAS,UNKNOWN,UNKNOWN,UNKNOWN,UNKNOWN,UNKNOWN,UNKNOWN,ERI,GOPEX,Gastos Operacionales,ERI,HIGH,NO,"6.15.xx = honorarios externos. GOPEX.",REVIEW_MEDIUM
+6.16,Depreciación y amortización operacional,EERR_Periodo+EERR_Acumulado,GASTOS DE ADM. Y VENTAS,UNKNOWN,UNKNOWN,UNKNOWN,UNKNOWN,UNKNOWN,UNKNOWN,ERI,GOPEX,Gastos Operacionales,ERI,HIGH,NO,"6.16.xx = D&A operacional. GOPEX.",REVIEW_MEDIUM
+6.17,Gastos de gestión varios (catch-all 6.11.07.xxx),EERR_Periodo+EERR_Acumulado,GASTOS DE ADM. Y VENTAS,UNKNOWN,UNKNOWN,UNKNOWN,UNKNOWN,UNKNOWN,YES,ERI,GOPEX,Gastos Operacionales,ERI,HIGH,NO,"6.17.xx = sub-clase GASTOS DE GESTION. Familia donde viven 6.11.07.290 y 6.11.07.310.",REVIEW_MEDIUM
+6.99,Otros gastos admin y ventas,EERR_Periodo+EERR_Acumulado,GASTOS DE ADM. Y VENTAS,UNKNOWN,UNKNOWN,UNKNOWN,UNKNOWN,UNKNOWN,UNKNOWN,ERI,GOPEX,Gastos Operacionales,ERI,MEDIUM,YES,"6.99.xx = catch-all GOPEX. Revisar post-batch.",REVIEW_MEDIUM
+# ============================================================
+# ERI TIER 9: EGRESOS NO OPERACIONALES (7.xx / 8.xx) → FIN
+# Naturaleza Contec: EGRESOS NO OPERACIONALES
+# Observados en AC-04 §3.3: intereses, diferencia de cambio,
+# amortización derecho de uso, resultado inversiones método patrimonio
+# ============================================================
+7.01,Ingresos financieros (intereses ganados),EERR_Periodo+EERR_Acumulado,EGRESOS NO OPERACIONALES,UNKNOWN,UNKNOWN,UNKNOWN,UNKNOWN,UNKNOWN,NO,ERI,FIN,Resultado Financiero,ERI,HIGH,NO,"7.01.xx = intereses ganados → FIN credit. Ingreso financiero.",REVIEW_MEDIUM
+7.02,Diferencia de cambio favorable,EERR_Periodo+EERR_Acumulado,EGRESOS NO OPERACIONALES,UNKNOWN,UNKNOWN,UNKNOWN,NON-ZERO,UNKNOWN,NO,ERI,FIN,Resultado Financiero,ERI,HIGH,NO,"AC-04 §3.3 OBSERVADO: 'diferencia de cambio' en EGRESOS NO OP. ALF funcional USD + costos CLP → FX diffs existen.",REVIEW_MEDIUM
+7.03,Resultado inversiones método patrimonio (Allpa — ingreso),EERR_Periodo+EERR_Acumulado,EGRESOS NO OPERACIONALES,UNKNOWN,UNKNOWN,UNKNOWN,UNKNOWN,UNKNOWN,NO,ERI,FIN,Resultado Financiero,ERI,HIGH,YES,"AC-04 §3.3 OBSERVADO: 'resultado inversiones (método patrimonio)'. ALF tiene Allpa Peru (26%). Confirmar si ALF es who holds the investment or Mediterra Holding.",REVIEW_MEDIUM
+8.01,Gastos financieros (intereses pagados),EERR_Periodo+EERR_Acumulado,EGRESOS NO OPERACIONALES,UNKNOWN,UNKNOWN,UNKNOWN,UNKNOWN,UNKNOWN,NO,ERI,FIN,Resultado Financiero,ERI,HIGH,NO,"AC-04 §3.3 OBSERVADO: 'intereses' en EGRESOS NO OP → FIN debit.",REVIEW_MEDIUM
+8.02,Diferencia de cambio desfavorable,EERR_Periodo+EERR_Acumulado,EGRESOS NO OPERACIONALES,UNKNOWN,UNKNOWN,UNKNOWN,NON-ZERO,UNKNOWN,NO,ERI,FIN,Resultado Financiero,ERI,HIGH,NO,"AC-04 §3.3 OBSERVADO: 'diferencia de cambio' en EGRESOS NO OP → FIN debit.",REVIEW_MEDIUM
+8.03,Amortización derecho de uso (IFRS 16),EERR_Periodo+EERR_Acumulado,EGRESOS NO OPERACIONALES,UNKNOWN,UNKNOWN,UNKNOWN,NON-ZERO,UNKNOWN,NO,ERI,FIN,Resultado Financiero,ERI,MEDIUM,YES,"AC-04 §3.3 OBSERVADO: 'amortización derecho de uso' en EGRESOS NO OP → FIN debit propuesto. Nota: bajo IFRS 16 el interés de arrendamiento va a FIN correcto; pero la amortización del ROU asset va a GOPEX (o COSTO). Si Contec mezcla ambos aquí: revisar separación.",REVIEW_MEDIUM
+8.04,Resultado inversiones método patrimonio (Allpa — pérdida),EERR_Periodo+EERR_Acumulado,EGRESOS NO OPERACIONALES,UNKNOWN,UNKNOWN,UNKNOWN,UNKNOWN,UNKNOWN,NO,ERI,FIN,Resultado Financiero,ERI,MEDIUM,YES,"8.04.xx = pérdida participación Allpa → FIN debit. Requiere confirmar entidad que registra IAS 28.",REVIEW_MEDIUM
+8.09,Otros egresos no operacionales,EERR_Periodo+EERR_Acumulado,EGRESOS NO OPERACIONALES,UNKNOWN,UNKNOWN,UNKNOWN,UNKNOWN,UNKNOWN,NO,ERI,FIN,Resultado Financiero,ERI,MEDIUM,YES,"8.09.xx = catch-all EGRESOS NO OP. Revisar uno a uno post-batch.",REVIEW_MEDIUM
+# ============================================================
+# ERI TIER 10: IMPUESTO A LA RENTA (9.xx) → IMP
+# Naturaleza Contec: EGRESOS NO OPERACIONALES / IMPUESTO A LA RENTA
+# ============================================================
+9.01,Impuesto a la renta corriente,EERR_Periodo+EERR_Acumulado,EGRESOS NO OPERACIONALES,UNKNOWN,UNKNOWN,UNKNOWN,NON-ZERO,UNKNOWN,NO,ERI,IMP,Impuesto a las Ganancias,ERI,HIGH,NO,"AC-04 §3.3 OBSERVADO: 'Impuesto renta' en EGRESOS NO OP → IMP. Chile 25–27% renta empresas.",REVIEW_MEDIUM
+9.02,Impuesto diferido activo (DTA),Balance,,UNKNOWN,UNKNOWN,UNKNOWN,N/A,N/A,NO,ESF,ACT_C,Activo Corriente,ESF,MEDIUM,YES,"9.02.xx DTA = activo si recuperable dentro de 12 meses, ACT_NC si LP. Confirmar post-batch.",REVIEW_LOW
+9.03,Impuesto diferido pasivo (DTL),Balance,,UNKNOWN,UNKNOWN,UNKNOWN,N/A,N/A,NO,ESF,PAS_C,Pasivo Corriente,ESF,MEDIUM,YES,"9.03.xx DTL = pasivo. Corriente o NC según plazo.",REVIEW_LOW
