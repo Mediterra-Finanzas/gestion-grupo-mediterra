@@ -43,15 +43,39 @@ async function dbSaveOsiris(value) {
       if(!window._lastSavedOsiris) window._lastSavedOsiris = {};
       for(const k of protectedKeys) { if(Array.isArray(value[k])) window._lastSavedOsiris[k] = value[k].length; }
     }
-    await fetch(`${SUPA_URL}/rest/v1/calendario_data`, {
+    const body = JSON.stringify({ id: "osiris", value, updated_at: new Date().toISOString() });
+
+    // ── INCIDENTE 2026-08-20 — por qué se quitó `keepalive` ─────────────────────
+    // El estándar Fetch limita el cuerpo de CUALQUIER request con `keepalive` a 64 KiB.
+    // El blob de Osiris pesa ~220 KB, así que el navegador RECHAZABA el envío antes de
+    // que saliera de la máquina: TypeError, capturado por el catch de abajo. Resultado:
+    // desde que se agregó `keepalive` (2c5464e, 2026-06-19) NINGÚN guardado de Osiris
+    // llegó a Supabase. La fila `calendario_data id='osiris'` quedó congelada el
+    // 2026-06-23 y todo lo trabajado después se perdió al cerrar la pestaña.
+    // No se puede reactivar mientras el blob supere 64 KiB: no es una opción de
+    // configuración, es un límite del navegador. Si vuelve a hacer falta sobrevivir al
+    // cierre de pestaña, hay que reducir el payload o avisar al usuario en beforeunload.
+    const bytes = (() => { try { return new TextEncoder().encode(body).length; } catch { return body.length * 2; } })();
+    const LIMITE_KEEPALIVE = 64 * 1024;
+
+    const res = await fetch(`${SUPA_URL}/rest/v1/calendario_data`, {
       method: "POST",
       headers: { apikey: SUPA_KEY, Authorization: `Bearer ${SUPA_KEY}`,
         "Content-Type": "application/json", Prefer: "resolution=merge-duplicates" },
-      body: JSON.stringify({ id: "osiris", value, updated_at: new Date().toISOString() }),
-      keepalive: true   // permite que el guardado complete aunque se cierre/refresque la página
+      body,
+      // Solo si cabe. Con el tamaño actual del blob esto es siempre false.
+      ...(bytes < LIMITE_KEEPALIVE ? { keepalive: true } : {}),
     });
+
+    // Antes esta función devolvía true sin mirar la respuesta: un 401, un 403 o un 500
+    // se reportaban en pantalla como "✅ Guardado". Ahora el fallo se ve.
+    if (!res.ok) {
+      const detalle = await res.text().catch(() => "");
+      console.error(`[Osiris] ❌ NO SE GUARDÓ — HTTP ${res.status} ${detalle.slice(0, 200)}`);
+      return false;
+    }
     const keys = value ? Object.keys(value).filter(k=>(Array.isArray(value[k])&&value[k].length>0)||k==="hubCardsOrder").map(k=>Array.isArray(value[k])?`${k}:${value[k].length}`:k).join(", ") : "VACÍO";
-    console.log(`[Osiris] ✅ Guardado: ${keys||"sin arrays"}`);
+    console.log(`[Osiris] ✅ Guardado (${Math.round(bytes/1024)} KB): ${keys||"sin arrays"}`);
     return true;
   } catch(e) { console.error("[Osiris] Error guardando:", e); return false; }
 }
