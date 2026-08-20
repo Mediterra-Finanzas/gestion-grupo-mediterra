@@ -65,6 +65,10 @@
 --   1907: SEC-ENTITY-SCOPE-001 referenciado como tech debt en función (B7 pilot)
 --   1908: B9 (SoD): T9 solo aplica a adj_journal — PASS for pilot
 --   1909: B10 (Model C): authenticated EXECUTE OK + sin write directo al ledger
+--   1910: PUBLIC no tiene EXECUTE en fn_acc_post_batch (B15 — REVOKE FROM PUBLIC)
+--   1911: anon no tiene EXECUTE en fn_acc_post_batch (B15 — denegado implícito)
+--   1912: P000A guard en prosrc — auth.uid() IS NULL check (B16)
+--   1913: 'system' no aparece como fallback actor en prosrc (B16)
 -- =============================================================================
 -- FIXTURES: TODOS SINTÉTICOS. Sin datos financieros reales.
 -- =============================================================================
@@ -843,6 +847,63 @@ BEGIN
   ELSE
     CALL warn('1908', 'B9 (SoD): trg_sod_adjustment no encontrado. Verificar que T9 de 010 está desplegado.');
   END IF;
+
+  -- 1910: B15 — PUBLIC no tiene EXECUTE en fn_acc_post_batch (REVOKE FROM PUBLIC)
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.routine_privileges
+    WHERE routine_schema = 'public'
+      AND routine_name   = 'fn_acc_post_batch'
+      AND grantee        = 'PUBLIC'
+      AND privilege_type = 'EXECUTE'
+  ) THEN
+    CALL pass('1910', 'B15: PUBLIC no tiene EXECUTE en fn_acc_post_batch — REVOKE FROM PUBLIC OK');
+  ELSE
+    CALL fail('1910', 'SECURITY B15: PUBLIC tiene EXECUTE en fn_acc_post_batch — anon puede ejecutar indirectamente. Re-ejecutar 022 v3.');
+  END IF;
+
+  -- 1911: B15 — anon no tiene EXECUTE (confirmación directa + vía PUBLIC)
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.routine_privileges
+    WHERE routine_schema = 'public'
+      AND routine_name   = 'fn_acc_post_batch'
+      AND grantee        = 'anon'
+      AND privilege_type = 'EXECUTE'
+  ) THEN
+    CALL pass('1911', 'B15: anon no tiene EXECUTE directo en fn_acc_post_batch');
+  ELSE
+    CALL fail('1911', 'SECURITY B15: anon tiene EXECUTE directo en fn_acc_post_batch.');
+  END IF;
+
+  -- 1912: B16 — P000A guard en prosrc (auth.uid() IS NULL → RAISE antes de writes)
+  DECLARE v_has_p000a BOOLEAN; v_has_system_fb BOOLEAN;
+  BEGIN
+    SELECT
+      prosrc LIKE '%P000A%',
+      -- 'system' como fallback silencioso está prohibido (B16)
+      prosrc LIKE '%COALESCE(auth.uid()%''system''%'
+    INTO v_has_p000a, v_has_system_fb
+    FROM pg_proc WHERE proname = 'fn_acc_post_batch';
+
+    IF v_has_p000a THEN
+      CALL pass('1912', 'B16: P000A guard presente en fn_acc_post_batch — auth.uid() NULL → RAISE antes de writes');
+    ELSE
+      CALL fail('1912', 'B16: P000A no encontrado — auth.uid() NULL podría no ser bloqueado. Re-ejecutar 022 v3.');
+    END IF;
+  END;
+
+  -- 1913: B16 — 'system' no es fallback actor en prosrc
+  DECLARE v_has_coalesce_system BOOLEAN;
+  BEGIN
+    SELECT prosrc LIKE '%COALESCE(auth.uid()%'
+    INTO v_has_coalesce_system
+    FROM pg_proc WHERE proname = 'fn_acc_post_batch';
+
+    IF NOT COALESCE(v_has_coalesce_system, false) THEN
+      CALL pass('1913', 'B16: sin COALESCE(auth.uid()) en fn_acc_post_batch — actor desconocido no mapea a ''system''');
+    ELSE
+      CALL warn('1913', 'B16: prosrc contiene COALESCE(auth.uid()) — verificar que no sea fallback silencioso a ''system''');
+    END IF;
+  END;
 
   -- 1909: B10 — Model C: authenticated tiene EXECUTE pero no write directo al ledger
   --        Seguro: entity scope (B7) + auth.uid() (B8) hacen el GRANT seguro.

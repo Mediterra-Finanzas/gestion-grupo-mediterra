@@ -30,7 +30,8 @@
 --   El actor se deriva internamente de auth.uid() — NO del caller.
 --   auth.uid() lee de request.jwt.claims (GUC de sesión, set por PostgREST).
 --   Persiste a través del contexto SECURITY DEFINER porque es session-level.
---   Si auth.uid() es NULL (rol postgres en migración), usa 'system' como fallback.
+--   Si auth.uid() es NULL → RAISE EXCEPTION (P000A). No se acepta 'system' como
+--   fallback silencioso (B16): destruiría confiabilidad del audit trail.
 --
 -- ENTITY SCOPE (B7 — PILOT):
 --   P0000 verifica que el batch pertenezca a ALF (Allegria Foods).
@@ -39,7 +40,9 @@
 --
 -- HARDENING:
 --   * SET search_path = public, pg_temp — previene search_path injection.
+--   * REVOKE ALL FROM PUBLIC antes de GRANT a authenticated (B15) — sin public execute.
 --   * FOR UPDATE NOWAIT — detecta contención concurrente rápido (< 1 ms).
+--   * P000A: auth.uid() IS NULL → RAISE antes de cualquier write (B16 — audit trail).
 --   * Validaciones P0000–P0010 con SQLSTATE P0001 y mensajes descriptivos.
 --   * P0009: protege contra sobreescritura silenciosa de ledger activo.
 --   * Mapping validity usa v_period.date_from/date_to (no CURRENT_DATE) para
@@ -90,9 +93,16 @@ DECLARE
   v_posted_at         TIMESTAMPTZ := now();
 BEGIN
 
-  -- Derivar actor del JWT de sesión (B8)
-  -- auth.uid() lee de request.jwt.claims — persiste en SECURITY DEFINER context.
-  v_actor := COALESCE(auth.uid()::TEXT, 'system');
+  -- P000A: sesión autenticada requerida (B16)
+  -- auth.uid() IS NULL → actor desconocido → audit trail inválido → RAISE antes de cualquier write.
+  -- No existe fallback silencioso ('system' u otro): destruiría trazabilidad del ledger.
+  IF auth.uid() IS NULL THEN
+    RAISE EXCEPTION
+      'P000A: auth.uid() IS NULL — fn_acc_post_batch requiere sesión autenticada activa. '
+      'Audit trail no puede establecerse sin identidad verificada.',
+      USING ERRCODE = 'P0001';
+  END IF;
+  v_actor := auth.uid()::TEXT;
 
   -- ===========================================================
   -- P0001: Batch existe
@@ -426,12 +436,16 @@ $$;
 -- GRANTS
 -- =============================================================================
 
--- Permitir que authenticated (Supabase client) llame al RPC.
--- Seguro porque la función tiene: entity scope guard P0000 + actor = auth.uid().
+-- B15: Remover privilegio PUBLIC primero (PostgreSQL concede EXECUTE a PUBLIC por defecto).
+-- anon/authenticated pertenecen implícitamente a PUBLIC → REVOKE FROM anon solo no es suficiente.
+REVOKE ALL ON FUNCTION fn_acc_post_batch(UUID) FROM PUBLIC;
+
+-- Conceder EXECUTE solo a authenticated.
+-- Seguro porque la función tiene: entity scope P0000 + auth.uid() NOT NULL (P000A).
 GRANT EXECUTE ON FUNCTION fn_acc_post_batch(UUID) TO authenticated;
 
--- anon nunca puede postear
-REVOKE EXECUTE ON FUNCTION fn_acc_post_batch(UUID) FROM anon;
+-- postgres/service_role: acceden como owner/superuser — no requieren GRANT explícito.
+-- anon: denegado implícitamente por el REVOKE FROM PUBLIC anterior.
 
 
 -- =============================================================================
@@ -484,17 +498,28 @@ WHERE specific_schema = 'public'
   AND specific_name LIKE 'fn_acc_post_batch%'
 ORDER BY ordinal_position;
 
--- V5: Confirmar entity scope guard P0000 en cuerpo de la función
---     Esperado: prosrc contiene ALF UUID '3df93d9d-...' y 'P0000'
+-- V5: Confirmar atributos de seguridad en cuerpo de la función
 SELECT
   proname,
-  prosrc LIKE '%3df93d9d-cbc6-446f-b9a5-0a3840692fd8%' AS has_entity_guard,
-  prosrc LIKE '%P0000%'                                  AS has_p0000,
-  prosrc LIKE '%P0009%'                                  AS has_p0009,
-  prosrc LIKE '%auth.uid()%'                             AS uses_auth_uid,
-  prosrc LIKE '%v_period.date_from%'                     AS uses_period_dates,
-  prosrc LIKE '%CURRENT_DATE%'                           AS uses_current_date_bad
+  prosrc LIKE '%3df93d9d-cbc6-446f-b9a5-0a3840692fd8%' AS has_entity_guard,    -- B7
+  prosrc LIKE '%P0000%'                                  AS has_p0000,           -- B7
+  prosrc LIKE '%P000A%'                                  AS has_p000a,           -- B16
+  prosrc LIKE '%P0009%'                                  AS has_p0009,           -- B11
+  prosrc LIKE '%auth.uid()%'                             AS uses_auth_uid,       -- B8
+  prosrc LIKE '%v_period.date_from%'                     AS uses_period_dates,   -- B12
+  prosrc LIKE '%CURRENT_DATE%'                           AS uses_current_date_bad, -- B12 (debe ser f)
+  prosrc LIKE '%system%'                                 AS has_system_fallback_bad -- B16 (debe ser f)
 FROM pg_proc
 WHERE proname = 'fn_acc_post_batch';
--- Esperado: has_entity_guard=t, has_p0000=t, has_p0009=t,
---           uses_auth_uid=t, uses_period_dates=t, uses_current_date_bad=f
+-- Esperado: has_entity_guard=t, has_p0000=t, has_p000a=t, has_p0009=t,
+--           uses_auth_uid=t, uses_period_dates=t,
+--           uses_current_date_bad=f, has_system_fallback_bad=f
+
+-- V6: Confirmar que PUBLIC no tiene EXECUTE (B15)
+--     Esperado: 0 filas para grantee='PUBLIC'
+SELECT grantee, privilege_type
+FROM information_schema.routine_privileges
+WHERE routine_schema = 'public'
+  AND routine_name   = 'fn_acc_post_batch'
+  AND grantee        = 'PUBLIC';
+-- Si retorna filas: REVOKE FROM PUBLIC falló — no desplegar.
