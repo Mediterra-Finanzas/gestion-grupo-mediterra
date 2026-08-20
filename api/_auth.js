@@ -15,7 +15,9 @@
 
 const crypto = require("crypto");
 
-const SUPA_URL = "https://bywovqayuzodbzwsriet.supabase.co";
+// Preview (staging) → SUPABASE_URL apunta a gestion-mediterra-staging.
+// Production → sin SUPABASE_URL, cae al fallback productivo CURRENT (sin cambio de comportamiento).
+const SUPA_URL = process.env.SUPABASE_URL || "https://bywovqayuzodbzwsriet.supabase.co";
 const SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || "";
 const SESSION_SECRET = process.env.SESSION_SECRET || "";
 

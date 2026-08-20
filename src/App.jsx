@@ -5,6 +5,7 @@ import FinanzasModule, { EMPRESAS_KEYS_ALL } from "./FinanzasModule.jsx";
 import AllegriaModule from "./AllegriaModule.jsx";
 import FriskuComercialModule from "./FriskuComercialModule.jsx";
 import ContabilidadModule from "./ContabilidadModule.jsx";
+import AllegriaServiceModule from "./proceso/ui/AllegriaServiceModule.jsx";
 import { theme as C } from "./theme";
 import { ensureSupabaseSession, clearOsirisSession, getOsirisAccessToken, refreshOsirisSession } from "./data/supabase-auth";
 import { installGuard, USE_GUARD, pollRow } from "./guardClient";
@@ -102,10 +103,11 @@ const EMAILJS_TEMPLATE_NOTIF = process.env.REACT_APP_EMAILJS_TEMPLATE_NOTIF;
 const EMAILJS_KEY      = process.env.REACT_APP_EMAILJS_KEY;
 const FECHA_INICIO     = new Date(2026, 3, 13);
 
-const SUPA_URL = "https://bywovqayuzodbzwsriet.supabase.co";
+// DEV/UAT override (F7.8.1-D): env solo en .env.development.local; fallback = prod exacto.
+const SUPA_URL = process.env.REACT_APP_SUPA_URL || "https://bywovqayuzodbzwsriet.supabase.co";
 // Etapa 3 seguridad: si el interruptor está prendido, enruta la base por el guardia.
 installGuard(SUPA_URL);
-const SUPA_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJ5d292cWF5dXpvZGJ6d3NyaWV0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU2ODU1MDgsImV4cCI6MjA5MTI2MTUwOH0.s2x2O_CxE6rl8dBqFuyfQdMyRqSyjJQWXJXesmVGXtk";
+const SUPA_KEY = process.env.REACT_APP_SUPA_KEY || "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJ5d292cWF5dXpvZGJ6d3NyaWV0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU2ODU1MDgsImV4cCI6MjA5MTI2MTUwOH0.s2x2O_CxE6rl8dBqFuyfQdMyRqSyjJQWXJXesmVGXtk";
 
 async function dbLoad() {
   // NO atrapar el error acá: si la lectura falla (red/timeout/HTTP), la
@@ -417,6 +419,7 @@ const MODULOS_DISPONIBLES = [
   {id:"allegria", label:"Allegria Foods",           sublabel:"Exportación Fruta Fresca",  icon:"🍒", color:"#b91c1c", bg:C.dangerBg, grad:"linear-gradient(135deg,#1a0a0a,#b91c1c)"},
   {id:"frisku",   label:"Frisku Foods",             sublabel:"Connecting Quality",          icon:"🔗", color:"#0ea5e9", bg:"#e0f2fe", grad:"linear-gradient(135deg,#0c1929,#0ea5e9)"},
   {id:"contabilidad", label:"Contabilidad",         sublabel:"Sistema Contable Grupo Mediterra", icon:"📒", color:"#a78bfa", bg:"#1e1a2e", grad:"linear-gradient(135deg,#1a1230,#5b21b6)"},
+  {id:"allegria_service", label:"Allegria Service",  sublabel:"Proceso de Fruta Fresca (Planta)", icon:"🏭", color:"#0f766e", bg:C.accent2Bg, grad:"linear-gradient(135deg,#0a2b28,#0f766e)"},
 ];
 
 // Feriados de Chile (fijos + variables conocidos 2026-2031)
@@ -688,6 +691,18 @@ const TABS_PERMISOS_CONFIG = {
     {id:"embarques",     label:"🚢 Embarques"},
     {id:"liquidaciones", label:"💰 Liquidaciones"},
     {id:"maestros",      label:"🗂️ Maestros + TC"},
+  ],
+  allegria_service: [
+    {id:"centro", label:"🏭 Centro de Operaciones"},
+    {id:"recepciones", label:"🚛 Recepciones"},
+    {id:"lotes", label:"📦 Lotes"},
+    {id:"programa", label:"📅 Programa"},
+    {id:"ordenes", label:"🏭 Órdenes"},
+    {id:"pt", label:"📦 Producto Terminado"},
+    {id:"pallets", label:"🏬 Bodega"},
+    {id:"despachos", label:"🚚 Despachos"},
+    {id:"informes", label:"📄 Resultados de Proceso"},
+    {id:"config", label:"⚙️ Configuración"},
   ],
 };
 
@@ -3671,6 +3686,17 @@ Equipo Mediterra`);
         onBack={()=>setModuloActivo(null)}
       />
     </div>
+  );
+
+  if(moduloActivo==="allegria_service") return (
+    <AllegriaServiceModule
+      usuarioActual={usuarioFresco}
+      esAdmin={esAdmin}
+      esSoloConsulta={esSoloConsulta}
+      tabPermisos={getTabPermisosModulo(usuarioFresco,"allegria_service")}
+      onBack={()=>setModuloActivo(null)}
+      onLogout={doLogout}
+    />
   );
 
   if(moduloActivo==="tareas") {
