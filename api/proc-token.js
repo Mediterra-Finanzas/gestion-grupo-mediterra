@@ -10,10 +10,9 @@
 const { supaFetch, faltanSecretos } = require("./_auth.js");
 const { verifyPinPBKDF2 } = require("./_iamToken.js");
 const { makeAdmin } = require("./_supaAdmin.js");
+const { trustedIp, checkAttempt, resetKeys } = require("./_procThrottle.js");
 
 const norm = (s) => (s == null ? "" : String(s)).trim().toLowerCase();
-const clientIp = (req) =>
-  norm((req.headers["x-forwarded-for"] || "").split(",")[0]) || norm(req.headers["x-real-ip"]) || "noip";
 
 async function realGetJSON(path) {
   const r = await supaFetch(path);
@@ -37,7 +36,9 @@ function makeHandler(deps) {
   const { getJSON, rpc, patch, admin, verifyPin } = deps;
   return async function handler(req, res) {
     if (req.method !== "POST") return res.status(405).json({ error: "method_not_allowed" });
-    if (faltanSecretos()) return res.status(503).json({ error: "auth_no_configurado" });
+    // Fail-closed: sin service_role/sesión o sin secreto de throttle no se emite/limita nada.
+    const throttleSecret = process.env.PROC_THROTTLE_SECRET || "";
+    if (faltanSecretos() || !throttleSecret) return res.status(503).json({ error: "auth_no_configurado" });
 
     let body = req.body;
     if (typeof body === "string") { try { body = JSON.parse(body); } catch { body = {}; } }
@@ -46,11 +47,13 @@ function makeHandler(deps) {
     const seleccion = String((body && body.empresa_id) || "").trim();  // solo selección multiempresa
     if (!email || !pin) return res.status(400).json({ error: "faltan_credenciales" });
 
-    const bucket = `${email}|${clientIp(req)}`;
+    let thrKeys = [];
     try {
-      // 0) rate-limit atómico (server-authoritative). Respuesta uniforme al agotarse.
-      const allowed = await rpc("proc_fn_auth_attempt", { p_key: bucket });
-      if (allowed === false) return res.status(429).json({ error: "demasiados_intentos" });
+      // 0) rate-limit por CAPAS (identidad + identidad/IP), claves OPACAS HMAC → la DB no ve email/IP.
+      //    Cualquier capa bloqueada → 429 uniforme. Rotar/spoofear IP no evade la capa de identidad.
+      const thr = await checkAttempt({ rpc }, { secret: throttleSecret, email, ip: trustedIp(req) });
+      thrKeys = thr.keys;
+      if (!thr.allowed) return res.status(429).json({ error: "demasiados_intentos" });
 
       // 1) PIN: SOLO credencial hash autoritativa. Sin hash → FAIL CLOSED. Sin fallback plano.
       const usuarios = (await getJSON(`calendario_data?id=eq.main&select=value`))?.[0]?.value?.usuarios || [];
@@ -66,13 +69,18 @@ function makeHandler(deps) {
       if (!iamU || !iamU.id) return res.status(403).json({ error: "identidad_no_provisionada" });
 
       // 3) binding estable auth.users ↔ iam_usuario. email solo para bootstrap; luego UUID estable.
+      //    Carrera de primer login: PATCH CONDICIONADO (solo si auth_user_id sigue null) + re-fetch
+      //    autoritativo. Dos requests concurrentes convergen al mismo au.id (mismo email); el índice
+      //    único ux_iam_usuario_auth_user_id impide binding inconsistente. Conflicto → FAIL CLOSED.
       const au = await admin.ensureUser(u.email);
       if (!au || !au.id) return res.status(502).json({ error: "auth_provision_falla" });
-      if (!iamU.auth_user_id) {
-        await patch(`iam_usuario?id=eq.${iamU.id}`, { auth_user_id: au.id });
-      } else if (iamU.auth_user_id !== au.id) {
-        return res.status(403).json({ error: "binding_conflicto" });   // FAIL CLOSED
+      let bound = iamU.auth_user_id || null;
+      if (!bound) {
+        await patch(`iam_usuario?id=eq.${iamU.id}&auth_user_id=is.null`, { auth_user_id: au.id });
+        const re = (await getJSON(`iam_usuario?id=eq.${iamU.id}&select=auth_user_id`))?.[0];
+        bound = (re && re.auth_user_id) || null;
       }
+      if (bound !== au.id) return res.status(403).json({ error: "binding_conflicto" });   // FAIL CLOSED
 
       // 4) memberships activas (autorización). 0/1/N.
       const mems = (await getJSON(
@@ -98,7 +106,7 @@ function makeHandler(deps) {
       const sess = await admin.mintSession(u.email);
       if (!sess || !sess.access_token) return res.status(502).json({ error: "sesion_falla" });
 
-      await rpc("proc_fn_auth_reset", { p_key: bucket }).catch(() => {});
+      await resetKeys({ rpc }, thrKeys);   // éxito → limpia ambas capas de throttle
       return res.status(200).json({
         access_token: sess.access_token,
         refresh_token: sess.refresh_token || null,

@@ -3,7 +3,9 @@ import { createRequire } from "module";
 import crypto from "crypto";
 const require = createRequire(import.meta.url);
 process.env.SUPABASE_SERVICE_ROLE_KEY = "svc"; process.env.SESSION_SECRET = "sess"; // faltanSecretos() → false
+process.env.PROC_THROTTLE_SECRET = "test-throttle-secret-0123456789";               // S4: throttle activo
 const { makeHandler } = require("./proc-token.js");
+const AUA = "a0000000-0000-0000-0000-0000000000a1";
 
 const ALS = "5aa10886-2a76-4a9e-9bc3-303fb776cd49", B = "11111111-1111-1111-1111-111111111111";
 function cred(pin) { const salt = crypto.randomBytes(16); const hash = crypto.pbkdf2Sync(pin, salt, 100000, 32, "sha256");
@@ -18,6 +20,7 @@ function deps(scn) {
     getJSON: async (path) => {
       if (path.includes("id=eq.main")) return [{ value: { usuarios: scn.usuarios } }];
       if (path.includes("id=eq.pins")) return [{ value: scn.pins }];
+      if (path.includes("select=auth_user_id")) return [{ auth_user_id: scn.rebind ?? AUA }];  // re-fetch binding (S4)
       if (path.startsWith("iam_usuario?email=")) return scn.iam ? [scn.iam] : [];
       if (path.startsWith("iam_usuario_empresa?")) return scn.mems || [];
       if (path.startsWith("contab_empresas?")) return [{ id: ALS, codigo: "ALS", nombre: "Allegria Service" }, { id: B, codigo: "BET", nombre: "Empresa B" }];
