@@ -94,7 +94,9 @@ function BarraContexto() {
   const inp = { padding: "6px 8px", fontSize: 12.5, border: `1px solid ${C.border}`, borderRadius: 7, background: C.card, color: C.text, fontFamily: C.font };
   return (
     <div style={{ display: "flex", gap: sp.sm, flexWrap: "wrap", alignItems: "center" }}>
-      <input style={{ ...inp, width: 210 }} placeholder="Tenant (empresa_id)" value={empresa || ""} onChange={(e) => setEmpresa(e.target.value.trim() || null)} title="La empresa/tenant provendrá del login autenticado (claim empresa_id). En F7.1/F7.2 se ingresa manual." />
+      {process.env.REACT_APP_PROC_DEV_TENANT === "true" && (
+        <input style={{ ...inp, width: 210 }} placeholder="Tenant (empresa_id) [DEV]" value={empresa || ""} onChange={(e) => setEmpresa(e.target.value.trim() || null)} title="Solo DEV/UAT. En prod el tenant proviene del login autenticado (Identity Bridge Opción C)." />
+      )}
       <select style={inp} value={planta || ""} onChange={(e) => setPlanta(e.target.value || null)}>
         <option value="">Todas las plantas</option>
         {plantas.map((p) => <option key={p.id} value={p.id}>{p.nombre || p.codigo}</option>)}

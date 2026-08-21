@@ -4,9 +4,11 @@
 // UI DELGADA sobre el contrato F1–F6 (consume src/proceso/core). La seguridad
 // efectiva es RLS/RPC; estas props solo REFLEJAN permisos. Bounded context
 // separado: cero dependencia de Frisku/Foods/exp_*.
-import React from "react";
+import React, { useState } from "react";
 import { ServiceProvider } from "./hooks/useServiceContext";
 import ProcShell from "./layout/ProcShell";
+import ProcLoginGate from "./layout/ProcLoginGate";
+import { procAuthActivo } from "../core/procAuth";
 
 export default function AllegriaServiceModule({
   usuarioActual, esAdmin, esSoloConsulta, tabPermisos, empresaId = null, onBack, onLogout,
@@ -15,8 +17,18 @@ export default function AllegriaServiceModule({
   // DEV/UAT (F7.8.1-D): prefill del tenant desde env local para la revisión visual.
   // En prod la env var no existe → empresaId sigue null → tenant manual (F7.1).
   const empInicial = empresaId || process.env.REACT_APP_PROC_DEV_EMPRESA || null;
+
+  // Identity Bridge (Opción C): con el flag ON, resolver la sesión ANTES del shell. El usuario no
+  // digita tenant: 1 membership entra directo, N muestra selector. Flag OFF = baseline (rollback).
+  const authOn = procAuthActivo();
+  const [empresaResuelta, setEmpresaResuelta] = useState(null);
+  if (authOn && !empresaResuelta) {
+    return <ProcLoginGate usuario={usuarioActual} onReady={setEmpresaResuelta} onBack={onBack} />;
+  }
+  const empEfectiva = authOn ? empresaResuelta : empInicial;
+
   return (
-    <ServiceProvider empresaId={empInicial} tabPermisos={tabPermisos || {}} esAdmin={admin} usuario={usuarioActual}>
+    <ServiceProvider empresaId={empEfectiva} tabPermisos={tabPermisos || {}} esAdmin={admin} usuario={usuarioActual}>
       <ProcShell onBack={onBack} onLogout={onLogout} usuario={usuarioActual} />
     </ServiceProvider>
   );

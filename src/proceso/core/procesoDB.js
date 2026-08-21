@@ -15,16 +15,20 @@
 // Deben moverse a un config neutral compartido; no es una dependencia de negocio.
 
 import { SUPA_URL, SUPA_KEY } from "../../friskuHelpers";
-import { getProcToken } from "./procAuth";
+import { getProcToken, getProcEmpresa } from "./procAuth";
 
 function headers(extra) {
   // Identity Bridge (Opción C): si hay token PROC authenticated vigente se usa; si no (flag off
   // o sin sesión), cae a la anon key = comportamiento actual. apikey sigue siendo la publishable.
   const proc = getProcToken();
+  const emp = getProcEmpresa();  // tenant autorizado del contexto (request-scoped por pestaña)
   return {
     apikey: SUPA_KEY,
     Authorization: `Bearer ${proc || SUPA_KEY}`,
     "Content-Type": "application/json",
+    // X-Proc-Empresa: contexto de tenant re-validado por la RLS en cada request (multi-membership).
+    // Single-membership la RLS la auto-deriva del sub → el header es redundante pero inocuo.
+    ...(emp ? { "X-Proc-Empresa": emp } : {}),
     ...(extra || {}),
   };
 }
