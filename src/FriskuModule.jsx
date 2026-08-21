@@ -10,8 +10,9 @@ import {
   TC_PARES_DEFAULT, fechaISO,
   actualizarTCDesdeAPIs, aplicarUpdatesATCData, mergeTCSerie,
   buscarTC, formatearMonto,
-  loadConSeed,
+  loadConSeed, dbLoadGeneric, dbSaveGeneric,
 } from "./friskuHelpers.js";
+import AvisoPersistencia, { construirAviso } from "./AvisoPersistencia";
 import { theme } from "./theme";
 
 const SUPA_URL = "https://bywovqayuzodbzwsriet.supabase.co";
@@ -32,36 +33,15 @@ const C = {
   // purple ya viene del tema central
 };
 
-// ── Persistencia genérica para maestros ──
-async function dbLoadMaestro(id) {
-  try {
-    const res = await fetch(`${SUPA_URL}/rest/v1/calendario_data?id=eq.${id}&select=value`, {
-      headers: { apikey: SUPA_KEY, Authorization: `Bearer ${SUPA_KEY}` }
-    });
-    if(!res.ok) throw new Error(`dbLoadMaestro ${id} HTTP ${res.status}`);
-    const rows = await res.json();
-    if(rows?.[0]?.value) {
-      return typeof rows[0].value === "string" ? JSON.parse(rows[0].value) : rows[0].value;
-    }
-    return null;
-  } catch(e) {
-    // Propagar: el caller no debe habilitar el guardado si la carga falló.
-    console.error(`[Maestro:${id}] Error cargando:`, e);
-    throw e;
-  }
-}
-
-async function dbSaveMaestro(id, value) {
-  try {
-    await fetch(`${SUPA_URL}/rest/v1/calendario_data`, {
-      method: "POST",
-      headers: { apikey: SUPA_KEY, Authorization: `Bearer ${SUPA_KEY}`,
-        "Content-Type":"application/json", Prefer:"resolution=merge-duplicates" },
-      body: JSON.stringify({ id, value, updated_at: new Date().toISOString() })
-    });
-    console.log(`[Maestro:${id}] ✅ Guardado (${Array.isArray(value)?value.length:"?"} items)`);
-  } catch(e) { console.error(`[Maestro:${id}] Error guardando:`, e); }
-}
+// ── Persistencia de maestros ──
+// Este archivo tenía su PROPIA copia de load/save, con el mismo defecto que ya se
+// corrigió en el helper compartido: el guardado no miraba la respuesta, no devolvía
+// nada, y reemplazaba la fila entera sin condición, así que dos personas editando a la
+// vez se pisaban en silencio. Ahora usa dbLoadGeneric/dbSaveGeneric, que traen escritura
+// condicionada, confirmación del servidor y fusión por ítem.
+// Una sola ruta de persistencia en vez de tres copias divergentes.
+const dbLoadMaestro = dbLoadGeneric;
+const dbSaveMaestro = dbSaveGeneric;
 
 // ═══════════════════════════════════════════════════════════════════
 // DATOS PRECARGADOS — PAÍSES (ISO 3166-1 alpha-2)
@@ -2042,6 +2022,7 @@ export default function FriskuMaestrosModule({
   // Si el comercial pasa renderClientesTab, partir en "clientes"; si no, en "paises".
   const [tab, setTab] = useState(renderClientesTab ? "clientes" : "paises");
   const [guardando, setGuardando] = useState({});
+  const [aviso, setAviso] = useState(null);   // resultado del guardado, visible en pantalla
   const [importandoEmbalajes, setImportandoEmbalajes] = useState(false);
 
   // Cargar todos los maestros al montar
@@ -2118,8 +2099,20 @@ export default function FriskuMaestrosModule({
     return ()=>{alive=false;};
   },[]);
 
-  // Auto-save por maestro (debounce 1s)
-  const useAutoSave = (id, valor, listo=true) => {
+  // Nombre en castellano de cada maestro, para no mostrarle al usuario el id de la fila.
+  const ETIQUETA_MAESTRO = {
+    maestro_paises:"Países", maestro_ciudades:"Ciudades", maestro_puertos:"Puertos",
+    maestro_aeropuertos:"Aeropuertos", maestro_shipping_lines:"Shipping Lines",
+    maestro_lineas_aereas:"Líneas aéreas", maestro_tipos_embarque:"Tipos de embarque",
+    maestro_tipos_embalaje:"Tipos de embalaje", maestro_mercados:"Mercados",
+    maestro_monedas:"Monedas", maestro_especies:"Especies", maestro_tc:"Tipo de cambio",
+  };
+
+  // Auto-save por maestro (debounce 1s).
+  // `setter` es obligatorio en las filas fusionables: si el guardado incorporó cambios de
+  // otra persona, el estado en memoria tiene que quedar con el resultado fusionado. Si no,
+  // la copia local queda sin esos ítems y el siguiente guardado los daría por borrados.
+  const useAutoSave = (id, valor, setter, listo=true) => {
     const timer = useRef(null);
     const primero = useRef(true);
     useEffect(()=>{
@@ -2128,23 +2121,27 @@ export default function FriskuMaestrosModule({
       if(timer.current) clearTimeout(timer.current);
       setGuardando(g => ({...g, [id]:true}));
       timer.current = setTimeout(async ()=>{
-        await dbSaveMaestro(id, valor);
+        const r = await dbSaveMaestro(id, valor);
         setGuardando(g => ({...g, [id]:false}));
+        if(r && r.ok && r.fusionado && setter && r.valor) setter(r.valor);
+        const av = construirAviso(id, r, ETIQUETA_MAESTRO[id] || id);
+        if(av) setAviso(av);
+        else setAviso(a => (a && a.id === id) ? null : a);
       }, 1000);
     },[valor]);
   };
-  useAutoSave("maestro_paises", paises);
-  useAutoSave("maestro_ciudades", ciudades);
-  useAutoSave("maestro_puertos", puertos);
-  useAutoSave("maestro_aeropuertos", aeropuertos);
-  useAutoSave("maestro_shipping_lines", shippingLines);
-  useAutoSave("maestro_lineas_aereas", lineasAereas);
-  useAutoSave("maestro_tipos_embarque", tiposEmbarque);
-  useAutoSave("maestro_tipos_embalaje", tiposEmbalaje);
-  useAutoSave("maestro_mercados", mercados);
-  useAutoSave("maestro_monedas", monedas);
-  useAutoSave("maestro_especies", especies);
-  useAutoSave("maestro_tc", tcData);
+  useAutoSave("maestro_paises", paises, setPaises);
+  useAutoSave("maestro_ciudades", ciudades, setCiudades);
+  useAutoSave("maestro_puertos", puertos, setPuertos);
+  useAutoSave("maestro_aeropuertos", aeropuertos, setAeropuertos);
+  useAutoSave("maestro_shipping_lines", shippingLines, setShippingLines);
+  useAutoSave("maestro_lineas_aereas", lineasAereas, setLineasAereas);
+  useAutoSave("maestro_tipos_embarque", tiposEmbarque, setTiposEmbarque);
+  useAutoSave("maestro_tipos_embalaje", tiposEmbalaje, setTiposEmbalaje);
+  useAutoSave("maestro_mercados", mercados, setMercados);
+  useAutoSave("maestro_monedas", monedas, setMonedas);
+  useAutoSave("maestro_especies", especies, setEspecies);
+  useAutoSave("maestro_tc", tcData, setTcData);
   useAutoSave("maestro_checklist_docs", checklistDocs);
   useAutoSave("maestro_temporadas", temporadas);
   useAutoSave("maestro_notify", notify);
@@ -2225,6 +2222,7 @@ export default function FriskuMaestrosModule({
 
   return (
     <div style={{padding:18, background:C.bg, minHeight:"100vh", color:C.text}}>
+      <AvisoPersistencia aviso={aviso} onCerrar={()=>setAviso(null)}/>
       {/* Header */}
       <div style={{display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:18, flexWrap:"wrap", gap:10}}>
         <div>

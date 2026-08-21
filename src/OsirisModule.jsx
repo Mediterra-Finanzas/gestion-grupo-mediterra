@@ -10,18 +10,40 @@ import { snapshotOsiris, isDirty as osirisIsDirty } from "./data/osirisDirty";
 const SUPA_URL = "https://bywovqayuzodbzwsriet.supabase.co";
 const SUPA_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJ5d292cWF5dXpvZGJ6d3NyaWV0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU2ODU1MDgsImV4cCI6MjA5MTI2MTUwOH0.s2x2O_CxE6rl8dBqFuyfQdMyRqSyjJQWXJXesmVGXtk";
 
+// ── Estado de persistencia del módulo ────────────────────────────────────────
+// `osirisVersion` es el `updated_at` que trajo la última lectura o escritura propia.
+// Es la base del bloqueo optimista: si en el servidor cambió, otra persona escribió
+// después que nosotros y NO se puede sobrescribir a ciegas.
+let osirisVersion = null;
+// Regla 9 del proyecto: sin una carga exitosa NO se guarda nunca. Ver dbLoadOsiris.
+let osirisCargaOk = false;
+
+/**
+ * Carga la fila. PROPAGA el error: nunca devuelve null ni defaults ante un fallo de red.
+ *
+ * Antes devolvía `null` tanto si la fila no existía como si la lectura fallaba, y el
+ * llamador no podía distinguir los dos casos: dejaba `osirisData` en {}, fijaba el
+ * baseline en {} y habilitaba el auto-guardado. El primer clic del usuario escribía {}
+ * encima de los 221 KB reales. Es exactamente el fallo que borró la fila `main` el
+ * 2026-06-16 y el motivo de la regla 9 en CLAUDE.md.
+ *
+ * La "protección anti-pérdida" de dbSaveOsiris tampoco cubría ese caso: para un blob
+ * vacío `Array.isArray(value[k])` es false, el contador queda en -1 y la condición
+ * `nc >= 0` nunca se cumple. Además `window._lastSavedOsiris` solo se inicializaba tras
+ * una carga exitosa, así que ante un fallo de carga el guardia quedaba inerte
+ * justamente en el escenario para el que fue escrito.
+ */
 async function dbLoadOsiris() {
-  try {
-    const res = await fetch(`${SUPA_URL}/rest/v1/calendario_data?id=eq.osiris&select=value`, {
-      headers: { apikey: SUPA_KEY, Authorization: `Bearer ${SUPA_KEY}` }
-    });
-    const rows = await res.json();
-    if(rows?.[0]?.value) {
-      const v = typeof rows[0].value === "string" ? JSON.parse(rows[0].value) : rows[0].value;
-      return v;
-    }
-    return null;
-  } catch(e) { console.error("[Osiris] Error cargando:", e); return null; }
+  const res = await fetch(`${SUPA_URL}/rest/v1/calendario_data?id=eq.osiris&select=value,updated_at`, {
+    headers: { apikey: SUPA_KEY, Authorization: `Bearer ${SUPA_KEY}` }
+  });
+  if(!res.ok) throw new Error(`carga fallida: HTTP ${res.status}`);
+  const rows = await res.json();
+  if(!Array.isArray(rows)) throw new Error("respuesta inesperada del servidor al cargar");
+  if(rows.length === 0) return { value: null, updatedAt: null };   // fila ausente: caso legítimo
+  const raw = rows[0].value;
+  const v = typeof raw === "string" ? JSON.parse(raw) : raw;
+  return { value: v || null, updatedAt: rows[0].updated_at || null };
 }
 
 async function dbSaveOsiris(value) {
@@ -38,22 +60,88 @@ async function dbSaveOsiris(value) {
       }
       if(arraysQueCayeron >= 3) {
         console.warn(`[dbSaveOsiris] ⚠️ BLOQUEADO: ${arraysQueCayeron} arrays cayeron simultáneamente.`);
-        return false;
+        return { ok: false, motivo: "guardia" };
       }
       if(!window._lastSavedOsiris) window._lastSavedOsiris = {};
       for(const k of protectedKeys) { if(Array.isArray(value[k])) window._lastSavedOsiris[k] = value[k].length; }
     }
-    await fetch(`${SUPA_URL}/rest/v1/calendario_data`, {
-      method: "POST",
-      headers: { apikey: SUPA_KEY, Authorization: `Bearer ${SUPA_KEY}`,
-        "Content-Type": "application/json", Prefer: "resolution=merge-duplicates" },
-      body: JSON.stringify({ id: "osiris", value, updated_at: new Date().toISOString() }),
-      keepalive: true   // permite que el guardado complete aunque se cierre/refresque la página
-    });
+    // Regla 9: sin carga exitosa no se escribe. Ver el comentario de dbLoadOsiris.
+    if(!osirisCargaOk) {
+      console.error("[Osiris] ❌ GUARDADO BLOQUEADO: no hubo una carga exitosa previa.");
+      return { ok: false, motivo: "sin_carga" };
+    }
+
+    const nuevoTs = new Date().toISOString();
+    const body = JSON.stringify({ value, updated_at: nuevoTs });
+
+    // ── INCIDENTE 2026-08-20 — por qué se quitó `keepalive` ─────────────────────
+    // El estándar Fetch limita el cuerpo de CUALQUIER request con `keepalive` a 64 KiB.
+    // El blob de Osiris pesa ~220 KB, así que el navegador RECHAZABA el envío antes de
+    // que saliera de la máquina: TypeError, capturado por el catch de abajo. Resultado:
+    // desde que se agregó `keepalive` (2c5464e, 2026-06-19) NINGÚN guardado de Osiris
+    // llegó a Supabase. La fila `calendario_data id='osiris'` quedó congelada el
+    // 2026-06-23 y todo lo trabajado después se perdió al cerrar la pestaña.
+    // No se puede reactivar mientras el blob supere 64 KiB: no es una opción de
+    // configuración, es un límite del navegador. Si vuelve a hacer falta sobrevivir al
+    // cierre de pestaña, hay que reducir el payload o avisar al usuario en beforeunload.
+    const bytes = (() => { try { return new TextEncoder().encode(body).length; } catch { return body.length * 2; } })();
+    const LIMITE_KEEPALIVE = 64 * 1024;
+
+    const keepaliveOpt = bytes < LIMITE_KEEPALIVE ? { keepalive: true } : {};
+    const cabeceras = { apikey: SUPA_KEY, Authorization: `Bearer ${SUPA_KEY}`,
+      "Content-Type": "application/json" };
+
+    // ── BLOQUEO OPTIMISTA ───────────────────────────────────────────────────────
+    // El guardado reemplaza la fila ENTERA. Sin condición, dos personas editando a la
+    // vez se pisan en silencio: la última en guardar borra el trabajo de la primera y
+    // nadie se entera. Se condiciona la escritura a que la fila siga en la versión que
+    // cargamos; si cambió, PostgREST no encuentra fila que actualizar, devuelve un
+    // arreglo vacío y NO se sobrescribe nada.
+    let res, filas;
+    if(osirisVersion) {
+      const cond = `${SUPA_URL}/rest/v1/calendario_data?id=eq.osiris&updated_at=eq.${encodeURIComponent(osirisVersion)}`;
+      res = await fetch(cond, { method: "PATCH",
+        headers: { ...cabeceras, Prefer: "return=representation" }, body, ...keepaliveOpt });
+      if(!res.ok) {
+        const detalle = await res.text().catch(() => "");
+        console.error(`[Osiris] ❌ NO SE GUARDÓ — HTTP ${res.status} ${detalle.slice(0, 200)}`);
+        return { ok: false, motivo: "http", status: res.status };
+      }
+      filas = await res.json().catch(() => []);
+      if(!Array.isArray(filas) || filas.length === 0) {
+        console.warn("[Osiris] ⚠️ CONFLICTO: la fila cambió en el servidor desde que la cargaste. No se sobrescribió nada.");
+        return { ok: false, motivo: "conflicto" };
+      }
+    } else {
+      // No hay versión conocida: la fila no existía al cargar. Se crea.
+      res = await fetch(`${SUPA_URL}/rest/v1/calendario_data`, { method: "POST",
+        headers: { ...cabeceras, Prefer: "resolution=merge-duplicates,return=representation" },
+        body: JSON.stringify({ id: "osiris", value, updated_at: nuevoTs }), ...keepaliveOpt });
+      if(!res.ok) {
+        const detalle = await res.text().catch(() => "");
+        console.error(`[Osiris] ❌ NO SE GUARDÓ — HTTP ${res.status} ${detalle.slice(0, 200)}`);
+        return { ok: false, motivo: "http", status: res.status };
+      }
+      filas = await res.json().catch(() => []);
+    }
+
+    // ── PERSISTENCIA VERIFICADA ─────────────────────────────────────────────────
+    // No se declara "Guardado" porque el fetch no lanzó: se declara porque el servidor
+    // devolvió la fila escrita. `updated_at` de esa respuesta pasa a ser nuestra versión.
+    const confirmado = Array.isArray(filas) && filas[0] && filas[0].updated_at;
+    if(!confirmado) {
+      console.error("[Osiris] ❌ El servidor no confirmó la escritura.");
+      return { ok: false, motivo: "sin_confirmacion" };
+    }
+    osirisVersion = filas[0].updated_at;
+
     const keys = value ? Object.keys(value).filter(k=>(Array.isArray(value[k])&&value[k].length>0)||k==="hubCardsOrder").map(k=>Array.isArray(value[k])?`${k}:${value[k].length}`:k).join(", ") : "VACÍO";
-    console.log(`[Osiris] ✅ Guardado: ${keys||"sin arrays"}`);
-    return true;
-  } catch(e) { console.error("[Osiris] Error guardando:", e); return false; }
+    console.log(`[Osiris] ✅ Guardado y confirmado (${Math.round(bytes/1024)} KB · v${String(osirisVersion).slice(11,19)}): ${keys||"sin arrays"}`);
+    return { ok: true };
+  } catch(e) {
+    console.error("[Osiris] ❌ Error de red al guardar:", e);
+    return { ok: false, motivo: "red", detalle: String(e && e.message || e) };
+  }
 }
 
 // ── Paleta ────────────────────────────────────────────────
@@ -10080,45 +10168,81 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
   // (Reemplaza el guard frágil de un-solo-render `primeraCargaRef`.)
   const baselineRef = useRef(null);
 
-  // Cargar al montar
+  // Cargar al montar.
+  // Si la carga FALLA no se fija baseline, no se habilita el guardado y se muestra el
+  // error en pantalla. Antes un parpadeo de red dejaba el módulo vacío y habilitado para
+  // escribir, y el primer clic sobrescribía la fila completa. Ver dbLoadOsiris.
   useEffect(()=>{
     (async()=>{
-      const saved = await dbLoadOsiris();
-      if(saved) {
-        setOsirisData(saved);
-        // Inicializar protección
-        window._lastSavedOsiris = {};
-        ["contratos","obtentores","viveros","clientes","especies","variedades"].forEach(k=>{
-          if(Array.isArray(saved[k])) window._lastSavedOsiris[k] = saved[k].length;
-        });
-        console.log("[Osiris] Cargado. Protección:", JSON.stringify(window._lastSavedOsiris));
+      try {
+        const { value: saved, updatedAt } = await dbLoadOsiris();
+        osirisVersion = updatedAt;
+        osirisCargaOk = true;
+        if(saved) {
+          setOsirisData(saved);
+          // Inicializar protección
+          window._lastSavedOsiris = {};
+          ["contratos","obtentores","viveros","clientes","especies","variedades"].forEach(k=>{
+            if(Array.isArray(saved[k])) window._lastSavedOsiris[k] = saved[k].length;
+          });
+          console.log("[Osiris] Cargado. Protección:", JSON.stringify(window._lastSavedOsiris));
+        }
+        // Baseline = contenido cargado (o {} si no había fila). dirty=false tras load.
+        baselineRef.current = snapshotOsiris(saved || {});
+        setErrorPersistencia("");
+      } catch(e) {
+        osirisCargaOk = false;
+        baselineRef.current = null;
+        setErrorPersistencia("No se pudieron cargar los datos. El guardado está bloqueado para no sobrescribir lo que hay en el servidor. Recarga la página.");
+        console.error("[Osiris] ❌ NO SE PUDO CARGAR — guardado bloqueado:", e);
+      } finally {
+        setCargandoOsiris(false);
       }
-      // Baseline = contenido cargado (o {} si no había fila). dirty=false inmediatamente tras load.
-      baselineRef.current = snapshotOsiris(saved || {});
-      setCargandoOsiris(false);
     })();
   },[]);
 
   // Indicador de guardado: "saved" | "dirty" | "saving"
   const [saveState, setSaveState] = useState("saved");
+  // Texto del problema de persistencia, visible en pantalla. Antes esto solo existía en
+  // la consola del navegador, que nadie mira: por eso un guardado caído pasó dos meses.
+  const [errorPersistencia, setErrorPersistencia] = useState("");
   const [saveTs, setSaveTs] = useState(null);
   // Auto-guardado (debounce 2s) + indicador. Dirty por comparacion SEMANTICA con baseline
   // (no por referencia ni por flag de un solo render): re-sets/hidrataciones sin cambio real
   // de contenido persistible NO marcan "Cambios sin guardar".
+  // Resultado común del guardado, para que el botón y el auto-guardado se comporten igual.
+  const aplicarResultado = (r, snapAtSave)=>{
+    if(r && r.ok){
+      baselineRef.current = snapAtSave; setSaveState("saved"); setSaveTs(new Date());
+      setErrorPersistencia("");
+      return;
+    }
+    const motivo = r && r.motivo;
+    if(motivo === "conflicto"){
+      setSaveState("conflicto");
+      setErrorPersistencia("Otra persona guardó cambios en Osiris después de que abriste esta pantalla. Para no borrar su trabajo, lo tuyo NO se guardó. Anota lo que cambiaste, recarga la página y vuelve a aplicarlo.");
+    } else if(motivo === "sin_carga"){
+      setSaveState("error");
+      setErrorPersistencia("El guardado está bloqueado porque los datos no se cargaron bien. Recarga la página.");
+    } else {
+      setSaveState("error");
+      setErrorPersistencia(`No se pudo guardar${motivo === "http" && r.status ? ` (error ${r.status})` : ""}. Tus cambios siguen en pantalla: no cierres esta pestaña y reintenta.`);
+    }
+  };
+
   useEffect(()=>{
     if(cargandoOsiris) return;
+    if(!osirisCargaOk) return;                 // regla 9: sin carga exitosa, nada de guardar
     if(baselineRef.current == null){ baselineRef.current = snapshotOsiris(dataRef.current); return; }
     if(!osirisIsDirty(dataRef.current, baselineRef.current)){
       setSaveState(s=> s==="saving" ? s : "saved");
       return;
     }
-    setSaveState(s=> s==="saving" ? s : "dirty");
+    setSaveState(s=> (s==="saving"||s==="conflicto") ? s : "dirty");
     const t = setTimeout(async ()=>{
       setSaveState("saving");
       const snapAtSave = snapshotOsiris(dataRef.current);
-      const ok = await dbSaveOsiris(dataRef.current);
-      if(ok){ baselineRef.current = snapAtSave; setSaveState("saved"); setSaveTs(new Date()); }
-      else { setSaveState("dirty"); }
+      aplicarResultado(await dbSaveOsiris(dataRef.current), snapAtSave);
     }, 2000);
     return ()=>clearTimeout(t);
   },[osirisData, cargandoOsiris]);
@@ -10127,29 +10251,51 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
   const guardarAhora = async ()=>{
     setSaveState("saving");
     const snapAtSave = snapshotOsiris(dataRef.current);
-    const ok = await dbSaveOsiris(dataRef.current);
-    if(ok){ baselineRef.current = snapAtSave; setSaveState("saved"); setSaveTs(new Date()); }
-    else { setSaveState("dirty"); }
+    aplicarResultado(await dbSaveOsiris(dataRef.current), snapAtSave);
   };
 
-  // Flush al cerrar/refrescar: guarda lo pendiente para no perder cambios recién hechos.
+  // Aviso al cerrar o refrescar con cambios pendientes.
+  //
+  // Antes esto intentaba un último guardado con `keepalive`, que para un blob de 220 KB
+  // el navegador nunca aceptó: era una garantía imposible. Un guardado normal tampoco
+  // sirve, porque el navegador cancela los requests en vuelo al descargar la página.
+  // Lo único fiable es avisar y dejar que la persona decida.
+  const saveStateRef = useRef(saveState);
+  useEffect(()=>{ saveStateRef.current = saveState; },[saveState]);
   useEffect(()=>{
-    const flush = ()=>{ try{ if(!cargandoOsiris && dataRef.current) dbSaveOsiris(dataRef.current); }catch(e){} };
-    window.addEventListener("beforeunload", flush);
-    return ()=>window.removeEventListener("beforeunload", flush);
-  },[cargandoOsiris]);
+    const avisar = (e)=>{
+      const s = saveStateRef.current;
+      if(s==="dirty" || s==="saving" || s==="error" || s==="conflicto"){
+        e.preventDefault();
+        e.returnValue = "";   // el navegador muestra su propio cuadro de confirmación
+        return "";
+      }
+    };
+    window.addEventListener("beforeunload", avisar);
+    return ()=>window.removeEventListener("beforeunload", avisar);
+  },[]);
 
   // Chip global de guardado (se inyecta en todas las vistas del módulo)
+  const problema = saveState==="error" || saveState==="conflicto";
   const guardadoChip = (
-    <div style={{position:"fixed",right:16,bottom:16,zIndex:99999,display:"flex",alignItems:"center",gap:8,
-      background:"#fff",border:`1px solid ${C.border}`,borderRadius:10,padding:"7px 12px",boxShadow:"0 4px 16px #0003",fontSize:12}}>
-      {saveState==="saving"
-        ? <span style={{color:C.muted,fontWeight:600}}>💾 Guardando…</span>
-        : saveState==="dirty"
-        ? <span style={{color:C.am,fontWeight:800}}>● Cambios sin guardar</span>
-        : <span style={{color:C.success,fontWeight:800}}>✓ Guardado{saveTs?` · ${saveTs.toLocaleTimeString("es-CL",{hour:"2-digit",minute:"2-digit"})}`:""}</span>}
-      <button onClick={guardarAhora} disabled={saveState==="saving"} title="Guardar ahora en el servidor"
-        style={{background:saveState==="dirty"?C.success:C.cardAlt,color:saveState==="dirty"?"#fff":C.sl,border:`1px solid ${saveState==="dirty"?C.success:C.border}`,borderRadius:6,padding:"4px 12px",cursor:saveState==="saving"?"default":"pointer",fontWeight:800,fontSize:11,opacity:saveState==="saving"?0.6:1}}>💾 Guardar ahora</button>
+    <div style={{position:"fixed",right:16,bottom:16,zIndex:99999,maxWidth:problema?420:undefined,
+      background:problema?"#fef2f2":"#fff",border:`${problema?2:1}px solid ${problema?"#dc2626":C.border}`,
+      borderRadius:10,padding:problema?"10px 14px":"7px 12px",boxShadow:"0 4px 16px #0003",fontSize:12}}>
+      <div style={{display:"flex",alignItems:"center",gap:8}}>
+        {saveState==="saving"
+          ? <span style={{color:C.muted,fontWeight:600}}>💾 Guardando…</span>
+          : saveState==="conflicto"
+          ? <span style={{color:"#dc2626",fontWeight:800}}>⚠️ NO se guardó · conflicto</span>
+          : saveState==="error"
+          ? <span style={{color:"#dc2626",fontWeight:800}}>❌ NO se guardó</span>
+          : saveState==="dirty"
+          ? <span style={{color:C.am,fontWeight:800}}>● Cambios sin guardar</span>
+          : <span style={{color:C.success,fontWeight:800}}>✓ Guardado{saveTs?` · ${saveTs.toLocaleTimeString("es-CL",{hour:"2-digit",minute:"2-digit"})}`:""}</span>}
+        <button onClick={guardarAhora} disabled={saveState==="saving"} title="Guardar ahora en el servidor"
+          style={{background:(saveState==="dirty"||problema)?(problema?"#dc2626":C.success):C.cardAlt,color:(saveState==="dirty"||problema)?"#fff":C.sl,border:`1px solid ${(saveState==="dirty"||problema)?(problema?"#dc2626":C.success):C.border}`,borderRadius:6,padding:"4px 12px",cursor:saveState==="saving"?"default":"pointer",fontWeight:800,fontSize:11,opacity:saveState==="saving"?0.6:1}}>
+          {problema?"Reintentar":"💾 Guardar ahora"}</button>
+      </div>
+      {errorPersistencia && <div style={{marginTop:8,color:"#991b1b",fontWeight:600,lineHeight:1.45}}>{errorPersistencia}</div>}
     </div>
   );
 

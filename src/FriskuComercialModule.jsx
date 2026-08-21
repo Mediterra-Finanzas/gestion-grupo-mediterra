@@ -22,6 +22,7 @@ import {
   formatearMonto, buscarTC, convertirMonto,
   uploadArchivoFrisku, pathDesdeUrlStorage,
 } from "./friskuHelpers.js";
+import AvisoPersistencia, { construirAviso } from "./AvisoPersistencia";
 import { FriskuBIProvider, useFriskuBI, FRISKU_DIMS, FRISKU_METRICS, fmtMetric,
          mComFriskuUSD, mVentaUSD, mFobUSD, mComClienteUSD, groupByDims, invertSelection } from "./friskuBI.js";
 import { normalizarNombre, buscarDuplicado } from "./nombreCanonico.js";
@@ -5731,7 +5732,8 @@ function FilterFieldBI({ dimKey, label }) {
   const selectable = [...selected,...possible,...alternative].map(x=>x.value);
   const qq=q.trim().toLowerCase(); const fil=(a)=>qq?a.filter(x=>String(x.label).toLowerCase().includes(qq)):a;
   const Fila=({x,estado})=>{ const on=estado==="sel"; const c=estado==="sel"?C.accent2:estado==="pos"?C.text:estado==="alt"?C.muted:C.muted2; const bg=estado==="sel"?`${C.accent2}18`:estado==="alt"?`${C.muted}10`:"transparent";
-    return <div onClick={()=>toggle(dimKey,x.value)} style={{display:"flex",justifyContent:"space-between",gap:6,alignItems:"center",padding:"2px 7px",cursor:"pointer",fontSize:11,background:bg}}>
+    const estLab = {sel:"Seleccionado",pos:"Posible",alt:"Alternativo",exc:"Excluido"}[estado]||estado;
+    return <div onClick={()=>toggle(dimKey,x.value)} title={`${label}: ${x.label}\nEstado: ${estLab}${x.m!=null?`\nFrecuencia: ${fmtN0(x.m)} embarque(s)`:""}`} style={{display:"flex",justifyContent:"space-between",gap:6,alignItems:"center",padding:"2px 7px",cursor:"pointer",fontSize:11,background:bg}}>
       <span style={{whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",color:c,fontWeight:on?700:400,textDecoration:estado==="exc"?"line-through":"none",opacity:estado==="exc"?0.75:1}}>{on?"☑":"☐"} {x.label}</span>
       {x.m!=null && <span style={{fontSize:9,color:C.muted2}}>{fmtN0(x.m)}</span>}
     </div>; };
@@ -6077,10 +6079,12 @@ function PivotTableBI(_pivotProps={}) {
   const cellTxt = (rows, colValue)=>{ const sub = colValue==null ? rows : rows.filter(r=>r[colDim]===colValue);
     if(isFin && sub.filter(r=>r._nLiq>0).length===0) return "—"; return fmtMetric(M.fmt, M.calc(sub)); };
   // P2.4a: tooltip de celda de Pivot (mismo subconjunto que metric.calc; no suma subtotales).
-  const cellTitle = (rows, colValue, rowLab, colLab)=>{
+  const cellTitle = (rows, colValue, rowLab, colLab, rowDimLab)=>{
     const sub = colValue==null ? rows : rows.filter(r=>r[colDim]===colValue);
     const finSin = isFin && sub.filter(r=>r._nLiq>0).length===0;
-    const lines = [ `${dims.find(d=>d.key===row1)?.lab||row1}: ${rowLab}` ];
+    const lines = [];
+    const rLab = rowDimLab || (dims.find(d=>d.key===row1)?.lab||row1);   // fila 1 por defecto; fila 2 en sub-filas
+    if(rowLab!=null && rowLab!=="") lines.push(`${rLab}: ${rowLab}`);
     if(colValue!=null) lines.push(`${dims.find(d=>d.key===colDim)?.lab||colDim}: ${colLab}`);
     lines.push(`${M.label}: ${finSin?"Sin datos":fmtMetric(M.fmt, M.calc(sub))}`);
     if(!finSin){ const tot=M.calc(filtered); const p=participacionPct(M.calc(sub), tot); if(p!=null) lines.push(`Participación: ${fmtPct(p)}`); }
@@ -6157,16 +6161,16 @@ function PivotTableBI(_pivotProps={}) {
               {op && hasR2 && g.subs.map(s=>{ const isS2=sel[row2]&&sel[row2].has(s.dimValue);
                 return <tr key={s.key} style={{borderTop:`1px solid ${C.border}`}}>
                   <td style={{padding:"3px 9px 3px 12px",whiteSpace:"nowrap",cursor:"pointer",borderLeft:`2px solid ${C.blue}33`}} onClick={()=>toggle(row2,s.dimValue)}><span style={{color:C.muted2,marginRight:5}}>↳</span><span style={{color:isS2?C.accent2:C.muted,fontWeight:isS2?700:400}}>{isS2?"☑ ":""}{s.label}</span></td>
-                  {colVals.map(c=><td key={c.value} style={{...td,color:C.muted}}>{cellTxt(s.rows,c.value)}</td>)}
-                  <td style={{...td,color:C.muted,fontWeight:700}}>{cellTxt(s.rows,null)}</td>
+                  {colVals.map(c=><td key={c.value} title={cellTitle(s.rows,c.value,s.label,c.label,dims.find(d=>d.key===row2)?.lab||row2)} style={{...td,color:C.muted}}>{cellTxt(s.rows,c.value)}</td>)}
+                  <td title={cellTitle(s.rows,null,s.label,"",dims.find(d=>d.key===row2)?.lab||row2)} style={{...td,color:C.muted,fontWeight:700}}>{cellTxt(s.rows,null)}</td>
                 </tr>; })}
             </React.Fragment>; })}
           {groups.length===0 && <tr><td colSpan={colVals.length+2} style={{padding:20,textAlign:"center",color:C.muted2}}>Sin datos para la selección.</td></tr>}
         </tbody>
         {groups.length>0 && <tfoot><tr style={{fontWeight:800}}>
           <td style={{padding:"7px 9px",position:"sticky",bottom:0,background:C.card2,borderTop:`2px solid ${C.border}`}}>TOTAL</td>
-          {colVals.map(c=><td key={c.value} style={{...td,position:"sticky",bottom:0,background:C.card2,borderTop:`2px solid ${C.border}`}}>{cellTxt(filtered,c.value)}</td>)}
-          <td style={{...td,color:C.text,position:"sticky",bottom:0,background:C.card2,borderTop:`2px solid ${C.border}`}}>{cellTxt(filtered,null)}</td>
+          {colVals.map(c=><td key={c.value} title={cellTitle(filtered,c.value,"",c.label)} style={{...td,position:"sticky",bottom:0,background:C.card2,borderTop:`2px solid ${C.border}`}}>{cellTxt(filtered,c.value)}</td>)}
+          <td title={cellTitle(filtered,null,"","")} style={{...td,color:C.text,position:"sticky",bottom:0,background:C.card2,borderTop:`2px solid ${C.border}`}}>{cellTxt(filtered,null)}</td>
         </tr></tfoot>}
       </table>
     </div>
@@ -6604,7 +6608,7 @@ function DrillGroupsBI({ onVerEmbarque, chromeless, panelEl, fullscreen, onExitF
             const pct = tot>0 && !isFin ? (val/tot*100) : null;
             const esHoja = curDim==="contenedor";
             return (<tr key={g.value+"_"+i} onClick={()=>bajar(g)} style={{borderTop:`1px solid ${C.border}`, cursor:"pointer"}}
-              title={esHoja?"Ver embarque":"Bajar un nivel"}>
+              title={[`${dimLab(curDim)}: ${g.label}`, `${M.label}: ${sinDato?"Sin datos":fmtMetric(M.fmt, val)}`, ...(pct!=null?[`Participación: ${fmtPct(pct)}`]:[]), `Fuente: ${fuenteLabel("unificado")}`, esHoja?"clic: ver embarque":"clic: bajar un nivel"].join("\n")}>
               <td style={{padding:"4px 10px", whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis", maxWidth:320}}>
                 <span style={{color:C.blue}}>{esHoja?"→ ":"▸ "}</span>{g.label}</td>
               <td style={{padding:"4px 10px", textAlign:"right", fontFamily:"monospace", color:sinDato?C.muted2:undefined}}>{sinDato?"—":fmtMetric(M.fmt, val)}</td>
@@ -9006,6 +9010,9 @@ export default function FriskuComercialModule({
   const cargaOkRef = useRef(false);
   const [tab, setTab] = useState("clientes");
   const [guardando, setGuardando] = useState({});
+  // Problema de guardado visible EN PANTALLA. Antes esto no existía: un guardado caído
+  // solo dejaba rastro en la consola del navegador, que nadie mira.
+  const [problemaGuardado, setProblemaGuardado] = useState(null);
   const [importando, setImportando] = useState(false);
 
   // UI Clientes
@@ -9164,8 +9171,18 @@ export default function FriskuComercialModule({
     }
   },[tab, cargando, recargarMaestros]);
 
+  // Nombres en castellano para los avisos, para no mostrarle al usuario el id de la fila.
+  const ETIQUETA_FILA = {
+    frisku_clientes: "Clientes", frisku_exportadoras: "Exportadoras",
+    frisku_contratos: "Contratos", frisku_programa: "Programa",
+    frisku_embarques: "Embarques", frisku_liquidaciones: "Liquidaciones", frisku_po: "PO",
+  };
+
   // ── Auto-save genérico ──
-  const useAutoSave = (id, valor, listo=true) => {
+  // `setter` es obligatorio cuando la fila puede fusionarse: si el guardado trajo cambios
+  // de otra persona, el estado en memoria DEBE quedar con el resultado fusionado. Si no,
+  // la copia local queda sin esos ítems y el siguiente guardado los tomaría como borrados.
+  const useAutoSave = (id, valor, setter, listo=true) => {
     const timer = useRef(null);
     const primero = useRef(true);
     useEffect(()=>{
@@ -9174,18 +9191,22 @@ export default function FriskuComercialModule({
       if(timer.current) clearTimeout(timer.current);
       setGuardando(g => ({...g, [id]:true}));
       timer.current = setTimeout(async ()=>{
-        await dbSaveGeneric(id, valor);
+        const r = await dbSaveGeneric(id, valor);
         setGuardando(g => ({...g, [id]:false}));
+        if(r && r.ok && r.fusionado && setter && r.valor) setter(r.valor);
+        const av = construirAviso(id, r, ETIQUETA_FILA[id] || id);
+        if(av) setProblemaGuardado(av);
+        else setProblemaGuardado(p => (p && p.id === id) ? null : p);
       }, 1000);
     },[valor]);
   };
-  useAutoSave("frisku_clientes", clientes);
-  useAutoSave("frisku_exportadoras", exportadoras);
-  useAutoSave("frisku_contratos", contratos);
-  useAutoSave("frisku_programa", programa);
-  useAutoSave("frisku_embarques", embarques);
-  useAutoSave("frisku_liquidaciones", liquidaciones);
-  useAutoSave("frisku_po", pos);
+  useAutoSave("frisku_clientes", clientes, setClientes);
+  useAutoSave("frisku_exportadoras", exportadoras, setExportadoras);
+  useAutoSave("frisku_contratos", contratos, setContratos);
+  useAutoSave("frisku_programa", programa, setPrograma);
+  useAutoSave("frisku_embarques", embarques, setEmbarques);
+  useAutoSave("frisku_liquidaciones", liquidaciones, setLiquidaciones);
+  useAutoSave("frisku_po", pos, setPos);
 
   // ── Filtrado de clientes ──
   const clientesFiltrados = useMemo(()=>{
@@ -9792,6 +9813,7 @@ export default function FriskuComercialModule({
   return (
    <FriskuBIProvider data={{ embarques, liquidaciones, clientes, exportadoras, especies, mercados, tiposEmbalaje, tcData }}>
     <div style={{background:C.bg, minHeight:"100vh", color:C.text}}>
+      <AvisoPersistencia aviso={problemaGuardado} onCerrar={()=>setProblemaGuardado(null)}/>
       {/* Header */}
       <div style={{padding:"14px 20px", borderBottom:"1px solid rgba(255,255,255,0.10)", display:"flex", alignItems:"center", justifyContent:"space-between", flexWrap:"wrap", gap:10, background:"#1E2761", boxShadow:"0 4px 16px rgba(16,24,40,0.20)"}}>
         <div onClick={()=>setTab("resumen")} title="Ir al inicio de Frisku"
