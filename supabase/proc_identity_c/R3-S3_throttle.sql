@@ -4,11 +4,16 @@
 -- DEFINER, server-only). Serverless-safe: el estado vive en Postgres (autoritativo), NO en memoria
 -- de la instancia Vercel. TARGET: gestion-mediterra-staging. Producción bywovqayuzodbzwsriet = HANDS-OFF.
 --
--- PRIVACIDAD: la tabla NO guarda email/IP en claro NI PIN/token/secreto — la clave se persiste como
--- md5(email|ip) (bucketing, no credencial). CONCURRENCIA: contador atómico (UPSERT + FOR UPDATE) →
--- N intentos simultáneos no pierden incrementos ni evaden el lockout por carrera. SEGURIDAD: las RPC
--- son server-only (REVOKE anon/authenticated/PUBLIC; solo service_role ejecuta) → el browser no puede
--- leer/escribir el contador ni resetear el de otro usuario.
+-- PRIVACIDAD (contrato definitivo): la DB NO conoce email ni IP. bucket_key es un IDENTIFICADOR OPACO
+-- generado SERVER-SIDE en el endpoint como HMAC-SHA256(secreto_dedicado_PROC, email_normalizado|ip_autoritativa)
+-- — la DB solo lo trata como token (CHECK de formato hex/base64). El SQL NO computa md5/hash de PII, NO
+-- recibe email/IP, NO guarda PIN/token/secreto. El secreto HMAC vive server-only (Vercel env; nunca
+-- REACT_APP_*/browser/logs/repo/DB/HTTP). DEFENSA POR CAPAS (en el endpoint, carril S4): se llama la RPC
+-- con DOS claves opacas — bucket-identidad (HMAC de solo email) + bucket-identidad/IP — para frenar
+-- brute-force distribuido (rota IP) sin que un IP spoofeado evada el lockout por identidad.
+-- CONCURRENCIA: contador atómico (UPSERT + FOR UPDATE) → N intentos simultáneos no pierden incrementos
+-- ni evaden el lockout por carrera. SEGURIDAD: las RPC son server-only (REVOKE anon/authenticated/PUBLIC;
+-- solo service_role ejecuta) → el browser no puede leer/escribir el contador ni resetear el de otro.
 --
 -- BLINDAJE: UNA transacción (BEGIN…COMMIT) + preflight embebido fail-closed (staging post-S2 pre-S3).
 -- Target equivocado → RAISE → ROLLBACK (no crea objetos).
@@ -58,9 +63,10 @@ BEGIN
 END
 $pre$;
 
--- ── TABLA (deny-browser; NO PII en claro: la clave es md5(email|ip)) ─────────
+-- ── TABLA (deny-browser; bucket_key = token OPACO server-side, la DB no conoce email/IP) ─────────
 CREATE TABLE IF NOT EXISTS proc_auth_throttle (
-  bucket_key   text PRIMARY KEY,           -- md5(lower(email)|ip) — bucketing, no credencial, no PII en claro
+  bucket_key   text PRIMARY KEY
+                 CHECK (bucket_key ~ '^[A-Za-z0-9+/=_-]{32,128}$'),  -- opaco (HMAC hex/base64); nunca email/IP en claro
   intentos     int  NOT NULL DEFAULT 0,
   window_start timestamptz NOT NULL DEFAULT now(),
   locked_until timestamptz
@@ -74,8 +80,12 @@ CREATE OR REPLACE FUNCTION proc_fn_auth_attempt(
   p_key text, p_max int DEFAULT 5, p_window_secs int DEFAULT 300, p_lock_secs int DEFAULT 900
 ) RETURNS boolean
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
-DECLARE r proc_auth_throttle%ROWTYPE; v_now timestamptz := clock_timestamp(); v_k text := md5(coalesce(p_key,''));
+DECLARE r proc_auth_throttle%ROWTYPE; v_now timestamptz := clock_timestamp(); v_k text := p_key;
 BEGIN
+  -- bucket_key es OPACO (HMAC server-side). Fail-closed si no cumple el formato: no bucketea PII cruda.
+  IF v_k IS NULL OR v_k !~ '^[A-Za-z0-9+/=_-]{32,128}$' THEN
+    RAISE EXCEPTION 'proc_fn_auth_attempt: bucket_key opaco inválido (esperado HMAC hex/base64 32-128).';
+  END IF;
   INSERT INTO proc_auth_throttle(bucket_key, intentos, window_start) VALUES (v_k, 0, v_now)
     ON CONFLICT (bucket_key) DO NOTHING;
   SELECT * INTO r FROM proc_auth_throttle WHERE bucket_key = v_k FOR UPDATE;   -- serializa concurrentes
@@ -99,7 +109,7 @@ END $$;
 -- ── RPC reset: éxito de login → limpia el bucket (no penaliza sesiones válidas). ──
 CREATE OR REPLACE FUNCTION proc_fn_auth_reset(p_key text) RETURNS void
 LANGUAGE sql SECURITY DEFINER SET search_path = public AS $$
-  DELETE FROM proc_auth_throttle WHERE bucket_key = md5(coalesce(p_key,''))
+  DELETE FROM proc_auth_throttle WHERE bucket_key = p_key   -- token opaco tal cual (sin hash de PII)
 $$;
 
 -- ── GRANTS: server-only. El browser (anon/authenticated) NUNCA ejecuta. Solo service_role. ──
@@ -146,7 +156,7 @@ BEGIN
   IF v_exec_browser<>0 THEN RAISE EXCEPTION 'R3-S3 POST FAIL: browser (anon/authenticated) puede ejecutar RPC (%). ABORT.', v_exec_browser; END IF;
   IF v_rows<>0 THEN RAISE EXCEPTION 'R3-S3 POST FAIL: throttle no vacía (% filas). ABORT.', v_rows; END IF;
 
-  RAISE NOTICE 'R3-S3 OK: proc_auth_throttle (deny-browser, RLS FORCE, clave md5) + 2 RPC (SECURITY DEFINER, search_path fijo, server-only: anon/authenticated sin EXECUTE); vacía. Commit.';
+  RAISE NOTICE 'R3-S3 OK: proc_auth_throttle (deny-browser, RLS FORCE, bucket_key OPACO con CHECK) + 2 RPC (SECURITY DEFINER, search_path fijo, server-only: anon/authenticated sin EXECUTE); vacía. Commit.';
 END
 $post$;
 
