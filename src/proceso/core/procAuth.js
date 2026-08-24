@@ -43,14 +43,15 @@ export async function fetchProcToken({ email, pin, empresaId }) {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ email, pin, empresa_id: empresaId || undefined }),
   });
-  if (r.status === 401 || r.status === 403 || r.status === 429) {
+  if (!r.ok) {
     clearProcToken();
     const j = await r.json().catch(() => ({}));
-    const err = new Error(j.error || `proc-token HTTP ${r.status}`);
+    // Surface el detalle técnico (DEBUG STAGING) en el mensaje → visible en la pantalla de error.
+    const msg = j.detail ? `${j.error || "error"} — ${j.detail}` : (j.error || `proc-token HTTP ${r.status}`);
+    const err = new Error(msg);
     err.code = j.error; err.status = r.status;
     throw err;
   }
-  if (!r.ok) { clearProcToken(); throw new Error(`proc-token HTTP ${r.status}`); }
   const j = await r.json();
   if (j && j.needs_selection) { return { needsSelection: true, memberships: j.memberships || [] }; }
   setProcSession(j);
