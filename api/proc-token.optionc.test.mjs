@@ -84,6 +84,16 @@ ck("E2E-26 rate limit → 429", r.code === 429, r);
 { const d = deps(angelo); const h = makeHandler(d); const res = resMock();
   await h({ method: "POST", headers: {}, body: { email: "a@x.cl", pin: "1234" } }, res);
   ck("E2E binding bootstrap patch", d._patched.body && d._patched.body.auth_user_id === "a0000000-0000-0000-0000-0000000000a1", d._patched); }
+// REGRESIÓN (staging real): la app guarda `_h` como STRING JSON (JSON.stringify(cred)), no objeto.
+// El endpoint debe parsearlo antes de verifyPinPBKDF2. Sin el parse → 401 (bug que vimos en el Preview).
+const angeloStr = { ...angelo, pins: { Angelo_h: JSON.stringify(cred("1234")) } };
+r = await call(angeloStr, { email: "a@x.cl", pin: "1234" });
+ck("E2E-STR _h string JSON → token (parse)", r.code === 200 && r.body.access_token === "AT", r.body);
+r = await call(angeloStr, { email: "a@x.cl", pin: "9999" });
+ck("E2E-STR _h string + pin malo → 401", r.code === 401, r);
+// `_h` string malformado → FAIL CLOSED (no crashea, no autentica)
+r = await call({ ...angelo, pins: { Angelo_h: "{no-es-json" } }, { email: "a@x.cl", pin: "1234" });
+ck("E2E-STR _h malformado → 401 fail-closed", r.code === 401, r);
 
 console.log(`\nOPTIONC-LOGIC RESULT: PASS=${P} FAIL=${F}`);
 if (F > 0) process.exit(1);

@@ -60,7 +60,10 @@ function makeHandler(deps) {
       const usuarios = (await getJSON(`calendario_data?id=eq.main&select=value`))?.[0]?.value?.usuarios || [];
       const u = usuarios.find((x) => x && norm(x.email) === email && !x.desactivado);
       const pinsRow = (await getJSON(`calendario_data?id=eq.pins&select=value`))?.[0]?.value || {};
-      const credH = u ? pinsRow[u.nombre + "_h"] : null;
+      // La app persiste `_h` como STRING JSON (JSON.stringify(cred)); verifyPinPBKDF2 espera OBJETO.
+      // Parseamos si viene string (retro-compat con entradas ya-objeto). Malformado → cred=null → FAIL CLOSED.
+      let credH = u ? pinsRow[u.nombre + "_h"] : null;
+      if (typeof credH === "string") { try { credH = JSON.parse(credH); } catch { credH = null; } }
       if (!u || !credH || !verifyPin(pin, credH)) return res.status(401).json({ error: "credenciales" });
 
       // 2) identidad IAM activa (SoT). service_role bypassa RLS de iam_*.
