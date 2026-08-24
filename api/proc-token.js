@@ -21,13 +21,14 @@ async function realGetJSON(path) {
   return t ? JSON.parse(t) : null;
 }
 async function realRpc(fn, args) {
-  const r = await supaFetch(`rpc/${fn}`, { method: "POST", body: JSON.stringify(args) });
+  // PostgREST exige Content-Type: application/json para parsear el body del RPC (sin él → 415).
+  const r = await supaFetch(`rpc/${fn}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(args) });
   if (!r.ok) throw new Error(`rpc/${fn} → ${r.status}`);
   const t = await r.text();
   return t ? JSON.parse(t) : null;
 }
 async function realPatch(path, body) {
-  const r = await supaFetch(path, { method: "PATCH", body: JSON.stringify(body) });
+  const r = await supaFetch(path, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
   if (!r.ok) throw new Error(`PATCH ${path} → ${r.status}`);
 }
 
@@ -116,7 +117,10 @@ function makeHandler(deps) {
         empresa_id: empresa,               // contexto autorizado (header X-Proc-Empresa en cada request)
       });
     } catch (e) {
-      return res.status(500).json({ error: "error_interno" });
+      // Log server-side (Vercel Runtime Logs) — sin PIN/token/secreto, solo el error técnico.
+      console.error("[proc-token] error_interno:", (e && (e.stack || e.message)) || String(e));
+      // DEBUG STAGING (quitar antes de Producción — registrado en zero-loss): detalle no sensible para el gate.
+      return res.status(500).json({ error: "error_interno", detail: String((e && e.message) || e).slice(0, 300) });
     }
   };
 }
@@ -127,3 +131,5 @@ module.exports = makeHandler({
   admin: makeAdmin(), verifyPin: verifyPinPBKDF2,
 });
 module.exports.makeHandler = makeHandler;
+module.exports.realRpc = realRpc;      // exportados para test de wiring (Content-Type)
+module.exports.realPatch = realPatch;
