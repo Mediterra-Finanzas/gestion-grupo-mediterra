@@ -8,13 +8,44 @@ const ANON = process.env.SUPABASE_ANON_KEY || "";
 function makeAdmin({ url = SUPA_URL, service = SERVICE, anon = ANON, fetchImpl = fetch } = {}) {
   const admHeaders = { apikey: service, Authorization: `Bearer ${service}`, "Content-Type": "application/json" };
 
-  // Busca un auth.users por email (admin). Devuelve {id} o null.
-  async function findUserByEmail(email) {
-    const r = await fetchImpl(`${url}/auth/v1/admin/users?email=${encodeURIComponent(email)}`, { headers: admHeaders });
-    if (!r.ok) throw new Error(`admin/users ${r.status}`);
+  const normEmail = (e) => String(e == null ? "" : e).trim().toLowerCase();
+
+  // Lee UNA página del listado admin. GoTrue pagina 1-indexado (page/per_page); el filtro
+  // ?email= NO es confiable entre versiones, así que NO se usa: escaneamos y comparamos exacto.
+  async function listUsersPage(page, perPage) {
+    const r = await fetchImpl(`${url}/auth/v1/admin/users?page=${page}&per_page=${perPage}`, { headers: admHeaders });
+    if (!r.ok) throw new Error(`admin/users ${r.status}`);   // API error → propaga → FAIL CLOSED
     const j = await r.json();
-    const arr = Array.isArray(j) ? j : (j && j.users) || [];
-    return arr[0] || null;
+    return Array.isArray(j) ? j : (j && j.users) || [];
+  }
+
+  // Resuelve auth.users por email con IGUALDAD EXACTA normalizada, recorriendo TODAS las páginas.
+  // Contrato fail-closed: 0 exactos → null; 1 → ese; >1 exactos → ERROR (identidad ambigua).
+  // NUNCA infiere por posición (arr[0]) ni devuelve un usuario de otro email. Sólo declara "no existe"
+  // (null → habilita creación) si CONFIRMÓ el fin de la paginación; si no pudo cubrir todo → ERROR.
+  async function findUserByEmail(email) {
+    const norm = normEmail(email);
+    if (!norm) return null;
+    const perPage = 100, maxPages = 100;
+    const exact = [];
+    const seen = new Set();
+    let completed = false;
+    for (let page = 1; page <= maxPages; page++) {
+      const arr = await listUsersPage(page, perPage);
+      if (!arr.length) { completed = true; break; }          // fin de paginación confirmado
+      let progressed = false;
+      for (const u of arr) {
+        if (u && u.id && !seen.has(u.id)) {
+          seen.add(u.id); progressed = true;
+          if (normEmail(u.email) === norm) exact.push(u);
+        }
+      }
+      if (!progressed) { completed = true; break; }           // sin avance (páginas repetidas) → fin
+    }
+    if (!completed) throw new Error("findUserByEmail: pagination_cap");  // no se cubrió todo → FAIL CLOSED
+    if (exact.length === 0) return null;
+    if (exact.length > 1) throw new Error("findUserByEmail: ambiguous_email");  // >1 exacto → FAIL CLOSED
+    return exact[0];
   }
   // Provisiona (idempotente) auth.users para el email. email_confirm:true (sin email al usuario).
   async function ensureUser(email) {
