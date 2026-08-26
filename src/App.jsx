@@ -6,6 +6,7 @@ import AllegriaModule from "./AllegriaModule.jsx";
 import FriskuComercialModule from "./FriskuComercialModule.jsx";
 import ContabilidadModule from "./ContabilidadModule.jsx";
 import AllegriaServiceModule from "./proceso/ui/AllegriaServiceModule.jsx";
+import { clearProcToken } from "./proceso/core/procAuth";
 import { theme as C } from "./theme";
 import { ensureSupabaseSession, clearOsirisSession, getOsirisAccessToken, refreshOsirisSession } from "./data/supabase-auth";
 import { installGuard, USE_GUARD, pollRow } from "./guardClient";
@@ -2726,6 +2727,8 @@ export default function App(){
     sessionStorage.removeItem('mediterra_modulo');
     // E1.5 auth dual: limpiar sesión Supabase de Osiris.
     if(process.env.REACT_APP_AUTH_DUAL === 'true') clearOsirisSession();
+    // F-1: invalidar explícitamente el token PROC en memoria (no dejarlo vivo tras Salir).
+    try { clearProcToken(); } catch {}
     window._auditUsuarioActual = null;
   }
 

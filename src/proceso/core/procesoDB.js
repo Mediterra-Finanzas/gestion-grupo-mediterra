@@ -15,12 +15,13 @@
 // Deben moverse a un config neutral compartido; no es una dependencia de negocio.
 
 import { SUPA_URL, SUPA_KEY } from "../../friskuHelpers";
-import { getProcToken, getProcEmpresa } from "./procAuth";
+import { procAuthGuardToken, getProcEmpresa, ProcAuthRequiredError } from "./procAuth";
+export { ProcAuthRequiredError };  // re-export para consumidores del data-layer
 
 function headers(extra) {
-  // Identity Bridge (Opción C): si hay token PROC authenticated vigente se usa; si no (flag off
-  // o sin sesión), cae a la anon key = comportamiento actual. apikey sigue siendo la publishable.
-  const proc = getProcToken();
+  // F-2 FAIL-CLOSED: con flag ON y token ausente/expirado → procAuthGuardToken() lanza
+  // ProcAuthRequiredError (dispara re-auth) en vez de caer a anon. Con flag OFF devuelve null → anon.
+  const proc = procAuthGuardToken();
   const emp = getProcEmpresa();  // tenant autorizado del contexto (request-scoped por pestaña)
   return {
     apikey: SUPA_KEY,

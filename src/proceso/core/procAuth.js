@@ -6,12 +6,32 @@
 // cae a la anon key (comportamiento actual, sin regresión). NO intercepta /rest/v1 global, NO toca
 // login/roster Mediterra → no reintroduce el lockout histórico. Aislado a src/proceso/**.
 
-const PROC_AUTH_ON = (process.env.REACT_APP_PROC_AUTH === "true");
 let _token = null;
 let _exp = 0;              // epoch segundos
 let _empresa = null;       // contexto de tenant AUTORIZADO (request-scoped por pestaña)
+let _onAuthRequired = null; // callback UI para re-auth cuando falta/expira el token (flag ON)
 
-export function procAuthActivo() { return PROC_AUTH_ON; }
+// Flag leído en cada llamada (en CRA la env var se inlinea → constante en build; lazy = testeable).
+export function procAuthActivo() { return process.env.REACT_APP_PROC_AUTH === "true"; }
+
+// Registro del callback de re-auth (lo pone el módulo PROC; idempotente). null lo desregistra.
+export function setOnProcAuthRequired(fn) { _onAuthRequired = (typeof fn === "function") ? fn : null; }
+// Señala que se requiere re-autenticación PROC (token ausente/expirado con flag ON). Idempotente, sin loop.
+export function notifyProcAuthRequired() { if (_onAuthRequired) { try { _onAuthRequired(); } catch {} } }
+
+// Error distinguible para que la UI dispare re-auth controlado (sin loop) en vez de fallback anon.
+export class ProcAuthRequiredError extends Error {
+  constructor() { super("PROC_AUTH_REQUIRED"); this.name = "ProcAuthRequiredError"; this.code = "PROC_AUTH_REQUIRED"; }
+}
+
+// F-2 FAIL-CLOSED: token a usar en Authorization. Con Identity Bridge ACTIVO (flag ON), token
+// ausente/expirado/inválido → notifica re-auth y LANZA (NO fallback anon). Con flag OFF devuelve
+// null → el caller usa la anon key (baseline/rollback DEV bridge). Es el único punto de decisión.
+export function procAuthGuardToken() {
+  const t = getProcToken();
+  if (procAuthActivo() && !t) { notifyProcAuthRequired(); throw new ProcAuthRequiredError(); }
+  return t;   // null sólo con flag OFF → caller usa SUPA_KEY
+}
 
 export function setProcToken(token, exp) { _token = token || null; _exp = Number(exp) || 0; }
 // Guarda la sesión Option C: access_token + expiración (epoch) + empresa autorizada del login.
@@ -24,13 +44,13 @@ export function clearProcToken() { _token = null; _exp = 0; _empresa = null; }
 
 // Token vigente, o null si flag off / sin token / expirado (margen 15s). Anon fallback en procesoDB.
 export function getProcToken(nowSec) {
-  if (!PROC_AUTH_ON || !_token) return null;
+  if (!procAuthActivo() || !_token) return null;
   const now = nowSec != null ? nowSec : Math.floor(Date.now() / 1000);
   if (_exp && now >= _exp - 15) return null;
   return _token;
 }
 // Empresa autorizada del contexto actual (para el header X-Proc-Empresa; single o selección multi).
-export function getProcEmpresa() { return (PROC_AUTH_ON && getProcToken()) ? _empresa : null; }
+export function getProcEmpresa() { return (procAuthActivo() && getProcToken()) ? _empresa : null; }
 export function setProcEmpresa(empresaId) { _empresa = empresaId || null; }
 
 // Pide sesión al endpoint server-side. Devuelve:

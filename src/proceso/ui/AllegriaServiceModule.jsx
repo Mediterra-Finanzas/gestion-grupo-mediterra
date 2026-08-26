@@ -4,11 +4,11 @@
 // UI DELGADA sobre el contrato F1–F6 (consume src/proceso/core). La seguridad
 // efectiva es RLS/RPC; estas props solo REFLEJAN permisos. Bounded context
 // separado: cero dependencia de Frisku/Foods/exp_*.
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { ServiceProvider } from "./hooks/useServiceContext";
 import ProcShell from "./layout/ProcShell";
 import ProcLoginGate from "./layout/ProcLoginGate";
-import { procAuthActivo } from "../core/procAuth";
+import { procAuthActivo, setOnProcAuthRequired } from "../core/procAuth";
 
 export default function AllegriaServiceModule({
   usuarioActual, esAdmin, esSoloConsulta, tabPermisos, empresaId = null, onBack, onLogout,
@@ -22,6 +22,14 @@ export default function AllegriaServiceModule({
   // digita tenant: 1 membership entra directo, N muestra selector. Flag OFF = baseline (rollback).
   const authOn = procAuthActivo();
   const [empresaResuelta, setEmpresaResuelta] = useState(null);
+  // F-2: si una request PROC detecta token ausente/expirado (fail-closed en procesoDB), volver al
+  // gate para re-auth controlado. setEmpresaResuelta(null) es idempotente → sin loop (el gate no
+  // hace requests proc_*). Se desregistra al desmontar.
+  useEffect(() => {
+    if (!authOn) return undefined;
+    setOnProcAuthRequired(() => setEmpresaResuelta(null));
+    return () => setOnProcAuthRequired(null);
+  }, [authOn]);
   if (authOn && !empresaResuelta) {
     return <ProcLoginGate usuario={usuarioActual} onReady={setEmpresaResuelta} onBack={onBack} />;
   }
