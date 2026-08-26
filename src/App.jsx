@@ -11,6 +11,7 @@ import { ensureSupabaseSession, clearOsirisSession, getOsirisAccessToken, refres
 import { installGuard, USE_GUARD, pollRow } from "./guardClient";
 import { hashPin, verifyPin, pinNuevoValido, normalizarCelular } from "./pinHash";
 
+import { credencialPreservada } from "./data/credencialPreservada";
 // ═══════════════════════════════════════════════════════════════════
 // ErrorBoundary: captura crash por archivos obsoletos tras deploy
 // En vez de pantalla blanca, muestra botón de actualizar
@@ -499,13 +500,30 @@ const SEMAFORO={
 };
 const ORDEN_SEM=["gris","verde","amarillo","rojo","na"];
 
+// SEC-HF1 · Esta lista NO declara `pin`, y no es un olvido.
+//
+// Los PIN literales viajaban en el bundle publicado y en su sourcemap, asi que se
+// descargaban del sitio sin necesidad de ninguna clave: era la unica exposicion que no
+// requeria ni siquiera la clave anonima. Las seis personas tienen credencial cifrada
+// vigente en la fila `pins`, de modo que su login pasa por `verifyPin` contra el hash y
+// nunca llega al respaldo en claro. Retirarlos no le corta el acceso a nadie.
+//
+// La clave se ELIMINA, no se deja en "". El merge de mas abajo hace `...wb`, y el
+// autosave escribe `usuarios` en la fila `main`: un `pin: ""` aca se propagaria al
+// estado y BORRARIA el PIN almacenado de esas seis personas. Retirar credenciales de
+// `main` es trabajo de la migracion SEC, con respaldo y rollback, no un efecto lateral
+// de un deploy de frontend.
+//
+// NO REPONER un PIN literal aca. Hay un detector que falla si alguien lo hace.
+// Y esto NO sustituye la rotacion: los bundles ya publicados y el historial siguen
+// conteniendo los valores.
 const WORKERS_BASE=[
-  {nombre:"Milagros Becerra",cargo:"Sec. Administrativa",     email:"Mbecerra@grupomediterra.cl",pin:"4827",rol:"editor", modulos:["tareas"],                    esCFO:false, rendVerTodas:true},
-  {nombre:"Carol Machuca",   cargo:"Analista Finanzas",       email:"cmachuca@grupomediterra.cl",pin:"3159",rol:"editor", modulos:["tareas","osiris","finanzas","contabilidad"], esCFO:false, rendVerTodas:true, rendPorOtros:true},
-  {nombre:"Michelle Garcia", cargo:"Contadora General",       email:"mgarcia@grupomediterra.cl", pin:"7413",rol:"editor", modulos:["tareas","contabilidad"],     esCFO:false, rendVerTodas:true},
-  {nombre:"Pablo Duran",     cargo:"Asistente Contable",      email:"pduran@grupomediterra.cl",  pin:"2986",rol:"editor", modulos:["tareas","contabilidad"],     esCFO:false, rendVerTodas:true},
-  {nombre:"Angelo Huerta",   cargo:"Gerencia Adm. y Finanzas",email:"ahuerta@grupomediterra.cl", pin:"6054",rol:"admin",  modulos:["tareas","osiris","finanzas","contabilidad"], esCFO:true},
-  {nombre:"Nicolás Fuenzalida",cargo:"Gerente Técnico",       email:"nfuenzalida@osirisplant.com",pin:"8271",rol:"gerente_tecnico",modulos:["osiris"],esCFO:false},
+  {nombre:"Milagros Becerra",cargo:"Sec. Administrativa",     email:"Mbecerra@grupomediterra.cl",rol:"editor", modulos:["tareas"],                    esCFO:false, rendVerTodas:true},
+  {nombre:"Carol Machuca",   cargo:"Analista Finanzas",       email:"cmachuca@grupomediterra.cl",rol:"editor", modulos:["tareas","osiris","finanzas","contabilidad"], esCFO:false, rendVerTodas:true, rendPorOtros:true},
+  {nombre:"Michelle Garcia", cargo:"Contadora General",       email:"mgarcia@grupomediterra.cl", rol:"editor", modulos:["tareas","contabilidad"],     esCFO:false, rendVerTodas:true},
+  {nombre:"Pablo Duran",     cargo:"Asistente Contable",      email:"pduran@grupomediterra.cl",  rol:"editor", modulos:["tareas","contabilidad"],     esCFO:false, rendVerTodas:true},
+  {nombre:"Angelo Huerta",   cargo:"Gerencia Adm. y Finanzas",email:"ahuerta@grupomediterra.cl", rol:"admin",  modulos:["tareas","osiris","finanzas","contabilidad"], esCFO:true},
+  {nombre:"Nicolás Fuenzalida",cargo:"Gerente Técnico",       email:"nfuenzalida@osirisplant.com",rol:"gerente_tecnico",modulos:["osiris"],esCFO:false},
 ];
 
 // Rendiciones vive como pestaña DENTRO de Finanzas y la usa todo el personal
@@ -2069,10 +2087,16 @@ export default function App(){
             const merged=WORKERS_BASE.map(wb=>{
               const saved=d.usuarios.find(u=>u.nombre===wb.nombre || (u.email && wb.email && u.email.toLowerCase()===wb.email.toLowerCase()));
               if(!saved) return wb;
-              // WORKERS_BASE es fuente de verdad para: nombre, cargo, email, pin, esCFO
+              // WORKERS_BASE es fuente de verdad para: nombre, cargo, email, esCFO
               // Supabase es fuente de verdad para: rol, modulos, tab_permisos, desactivado
+              // La CREDENCIAL es de la base, nunca del codigo (SEC-HF1).
               let merged_u = {
-                ...wb,                                    // base: nombre, cargo, email, pin, esCFO
+                ...wb,                                    // base: nombre, cargo, email, esCFO
+                // SEC-HF1 · se PRESERVA la credencial ya guardada. `WORKERS_BASE` dejo de
+                // declarar `pin` porque viajaba en el bundle; sin esta linea el objeto
+                // fusionado saldria sin credencial y el autosave la borraria de `main`.
+                // Mientras dure la transicion legacy, la base manda sobre el codigo.
+                ...credencialPreservada(saved),
                 rol: saved.rol || wb.rol,                 // admin configura rol
                 modulos: (Array.isArray(saved.modulos) && saved.modulos.length > 0)
                   ? saved.modulos : wb.modulos,           // admin configura módulos
