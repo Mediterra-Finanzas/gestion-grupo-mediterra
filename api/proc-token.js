@@ -57,12 +57,13 @@ function makeHandler(deps) {
       if (!thr.allowed) return res.status(429).json({ error: "demasiados_intentos" });
 
       // 1) PIN: SOLO credencial hash autoritativa. Sin hash → FAIL CLOSED. Sin fallback plano.
-      const usuarios = (await getJSON(`calendario_data?id=eq.main&select=value`))?.[0]?.value?.usuarios || [];
-      const u = usuarios.find((x) => x && norm(x.email) === email && !x.desactivado);
-      const pinsRow = (await getJSON(`calendario_data?id=eq.pins&select=value`))?.[0]?.value || {};
+      //    R5-MIN: identidad+cred_h de UN solo usuario vía RPC server-only proc_fn_identity_lookup
+      //    (antes leía el blob main.usuarios + todos los pins). Devuelve 0/1 fila; ambigüedad/inactivo → 0.
+      const row = (await rpc("proc_fn_identity_lookup", { p_email: email }))?.[0];
+      const u = row && !row.desactivado ? { nombre: row.nombre, email: row.email } : null;
       // La app persiste `_h` como STRING JSON (JSON.stringify(cred)); verifyPinPBKDF2 espera OBJETO.
       // Parseamos si viene string (retro-compat con entradas ya-objeto). Malformado → cred=null → FAIL CLOSED.
-      let credH = u ? pinsRow[u.nombre + "_h"] : null;
+      let credH = row ? row.cred_h : null;
       if (typeof credH === "string") { try { credH = JSON.parse(credH); } catch { credH = null; } }
       if (!u || !credH || !verifyPin(pin, credH)) return res.status(401).json({ error: "credenciales" });
 

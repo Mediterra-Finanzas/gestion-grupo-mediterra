@@ -27,6 +27,11 @@ function deps(scn) {
     },
     rpc: async (fn, args) => {
       if (fn === "proc_fn_auth_attempt") { rpcKeys.push(args.p_key); return scn.block ? scn.block(args.p_key) : true; }
+      if (fn === "proc_fn_identity_lookup") {
+        // R5-MIN: identidad+cred_h de UN usuario (reemplaza getJSON main+pins). cred("1234") válido para el PIN.
+        return String((args && args.p_email) || "").trim().toLowerCase() === "a@x.cl"
+          ? [{ nombre: "Angelo", email: "a@x.cl", desactivado: false, cred_h: cred("1234") }] : [];
+      }
       return null;
     },
     patch: async (path, body) => { patched.push({ path, body }); },

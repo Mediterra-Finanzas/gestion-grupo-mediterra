@@ -26,7 +26,19 @@ function deps(scn) {
       if (path.startsWith("contab_empresas?")) return [{ id: ALS, codigo: "ALS", nombre: "Allegria Service" }, { id: B, codigo: "BET", nombre: "Empresa B" }];
       return [];
     },
-    rpc: async (fn) => (fn === "proc_fn_auth_attempt" ? (scn.allowed !== false) : null),
+    rpc: async (fn, args) => {
+      if (fn === "proc_fn_auth_attempt") return scn.allowed !== false;
+      if (fn === "proc_fn_identity_lookup") {
+        // Replica la lógica del SQL proc_fn_identity_lookup: match case-insensitive, solo activos,
+        // ambigüedad (>1) → [] (FAIL CLOSED), cred_h crudo (el endpoint parsea si es string).
+        const em = String((args && args.p_email) || "").trim().toLowerCase();
+        const matches = (scn.usuarios || []).filter((x) => x && String(x.email || "").trim().toLowerCase() === em && !x.desactivado);
+        if (matches.length !== 1) return [];
+        const m = matches[0];
+        return [{ nombre: m.nombre, email: m.email, desactivado: !!m.desactivado, cred_h: (scn.pins || {})[m.nombre + "_h"] ?? null }];
+      }
+      return null;
+    },
     patch: async (path, body) => { patched.path = path; patched.body = body; },
     admin: {
       ensureUser: async () => scn.authUser || { id: "a0000000-0000-0000-0000-0000000000a1" },
@@ -94,6 +106,15 @@ ck("E2E-STR _h string + pin malo → 401", r.code === 401, r);
 // `_h` string malformado → FAIL CLOSED (no crashea, no autentica)
 r = await call({ ...angelo, pins: { Angelo_h: "{no-es-json" } }, { email: "a@x.cl", pin: "1234" });
 ck("E2E-STR _h malformado → 401 fail-closed", r.code === 401, r);
+// R5-MIN: email duplicado/ambiguo (2 usuarios mismo email case-insensitive) → identity_lookup [] → 401
+r = await call({ ...angelo, usuarios: [{ nombre: "Angelo", email: "a@x.cl" }, { nombre: "Otro", email: "A@X.CL" }] }, { email: "a@x.cl", pin: "1234" });
+ck("E2E-AMB email duplicado → 401 fail-closed", r.code === 401, r);
+// R5-MIN: email inexistente → identity_lookup [] → 401
+r = await call({ ...angelo, usuarios: [] }, { email: "a@x.cl", pin: "1234" });
+ck("E2E-MIN email inexistente → 401 fail-closed", r.code === 401, r);
+// R5-MIN: usuario desactivado → identity_lookup [] → 401
+r = await call({ ...angelo, usuarios: [{ nombre: "Angelo", email: "a@x.cl", desactivado: true }] }, { email: "a@x.cl", pin: "1234" });
+ck("E2E-MIN usuario desactivado → 401 fail-closed", r.code === 401, r);
 
 console.log(`\nOPTIONC-LOGIC RESULT: PASS=${P} FAIL=${F}`);
 if (F > 0) process.exit(1);
