@@ -22,6 +22,11 @@ const PIN_FALSO = ["4", "8", "2", "9", "1", "3"].join("");
 // ── el detector ────────────────────────────────────────────────────────────
 const RE_PIN = /[{,\s]pin\s*:\s*["'][0-9]{4,8}["']/g;
 
+// Excluir del corpus PRODUCTIVO los tests: carpetas __tests__ Y archivos con nombre de test
+// (*.test.* / *.spec.*, incl. .mjs/.cjs). Es semántico por scope de test, NO por extensión:
+// cualquier .mjs/.js/.jsx/.ts PRODUCTIVO (no-test) SIGUE siendo escaneado (ver test SCOPE).
+const esRutaDeTest = (p) => /(^|\/)__tests__\//.test(p) || /\.(test|spec)\.[cm]?[jt]sx?$/.test(p);
+
 function escanear(dirs, exts) {
   const hallazgos = [];
   const recorrer = (dir) => {
@@ -53,7 +58,7 @@ function escanear(dirs, exts) {
 describe("SEC-HF1 · 1. no hay PIN literal en ninguna parte", () => {
   test("la fuente está limpia", () => {
     const h = escanear(["src", "api"], [".js", ".jsx", ".mjs", ".ts"])
-      .filter((x) => !/__tests__/.test(x.archivo));
+      .filter((x) => !esRutaDeTest(x.archivo));
     expect(h.length === 0 ? "limpio"
       : "HAY " + h.length + ": " + h.map((x) => x.archivo + ":" + x.linea).join(", ")).toBe("limpio");
   });
@@ -88,6 +93,19 @@ describe("SEC-HF1 · 1. no hay PIN literal en ninguna parte", () => {
       expect(h.length).toBe(1);
       expect(Number.isInteger(h[0].linea) && h[0].linea > 0).toBe(true);
     } finally { fs.unlinkSync(tmp); }
+  });
+
+  // ── SCOPE · el filtro productivo ignora tests co-locados pero SÍ detecta código productivo ──
+  test("SCOPE · fixture con nombre de test se ignora; archivo productivo se detecta (incl. .mjs)", () => {
+    const prod = path.join(RAIZ, "src", "__sec_hf1_prod_sonda.mjs");        // productivo (.mjs, no-test)
+    const tst  = path.join(RAIZ, "src", "__sec_hf1_fixture.test.mjs");     // fixture con nombre de test
+    fs.writeFileSync(prod, "export const w = [{ nombre: \"X\", pin: \"" + PIN_FALSO + "\" }];\n");
+    fs.writeFileSync(tst,  "export const w = [{ nombre: \"Y\", pin: \"" + PIN_FALSO + "\" }];\n");
+    try {
+      const h = escanear(["src"], [".js", ".mjs"]).filter((x) => !esRutaDeTest(x.archivo));
+      expect(h.some((x) => x.archivo === "src/__sec_hf1_prod_sonda.mjs")).toBe(true);   // C: productivo detectado
+      expect(h.some((x) => x.archivo === "src/__sec_hf1_fixture.test.mjs")).toBe(false); // B: fixture de test ignorado
+    } finally { fs.unlinkSync(prod); fs.unlinkSync(tst); }
   });
 
   test("NO FILTRA · el hallazgo dice dónde, nunca qué", () => {
