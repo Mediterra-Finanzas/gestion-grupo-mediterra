@@ -1,0 +1,99 @@
+-- ============================================================================
+-- authz_v1/05_bootstrap_seed.sql — Bootstrap de roles AUTHZ para Allegria Service. DISENO/LOCAL.
+-- NO EJECUTAR remoto sin autorizacion + confirmacion humana de la matriz usuario->rol. Prod HANDS-OFF.
+--
+-- Secuencia prod-safe (cutover fail-closed SIN dejar a nadie afuera):
+--   1) (este script, PASO 0) LISTAR usuarios/memberships ALS actuales — read-only, para decidir.
+--   2) seed catalogo (01_schema_authz.sql ya lo trae, idempotente).
+--   3) (PASO 1) asignar >=1 PROC_ADMIN + roles operacionales conocidos — REQUIERE CONFIRMACION HUMANA.
+--   4) (PASO 2) validar effective caps por usuario.
+--   5) recien DESPUES activar enforcement (03_enforcement_rls.sql + 04_transitions).
+--   6) smoke por rol.
+-- NUNCA activar enforcement antes de tener admins provisionados.
+-- ============================================================================
+
+-- ── PASO 0 (READ-ONLY): quienes son los miembros ALS hoy (para decidir la matriz) ──
+-- Correr esto primero y pegar el resultado; con eso se completa el PASO 1.
+--   SELECT u.id AS usuario_id, u.nombre, u.email, m.activo AS membership_activa
+--   FROM iam_usuario u
+--   JOIN iam_usuario_empresa m ON m.usuario_id=u.id
+--   WHERE m.empresa_id=(SELECT id FROM contab_empresas WHERE codigo='ALS')
+--   ORDER BY u.nombre;
+
+-- ── PASO 1 (MUTANTE, requiere confirmacion humana de la matriz): asignar roles ──
+-- Idempotente (ON CONFLICT) y auditado (trigger trg_audit_uer -> proc_audit_log).
+-- NO se inventan usuarios: cada fila usa el usuario_id REAL del PASO 0.
+-- >>> COMPLETAR con las decisiones de negocio antes de ejecutar. Ejemplo de forma (NO datos reales):
+--
+-- BEGIN;
+-- DO $seed$
+-- DECLARE
+--   v_als uuid := (SELECT id FROM contab_empresas WHERE codigo='ALS');
+--   -- matriz usuario->rol (uuid REAL del PASO 0, rol del catalogo). AL MENOS UN PROC_ADMIN.
+--   asignaciones text[][] := ARRAY[
+--     ['<uuid-admin-1>','PROC_ADMIN'],
+--     ['<uuid-jefe>','PROC_JEFE_PLANTA'],
+--     ['<uuid-recepcion>','PROC_RECEPCION'],
+--     ['<uuid-calidad>','PROC_CALIDAD'],
+--     ['<uuid-produccion>','PROC_PRODUCCION'],
+--     ['<uuid-bodega>','PROC_BODEGA']
+--   ];
+--   i int; v_u uuid; v_r text; v_admins int;
+-- BEGIN
+--   IF v_als IS NULL THEN RAISE EXCEPTION 'BOOTSTRAP ABORT: ALS ausente.'; END IF;
+--   -- guard: al menos un PROC_ADMIN en la matriz (no activar fail-closed sin admin)
+--   v_admins := 0;
+--   FOR i IN 1..array_length(asignaciones,1) LOOP IF asignaciones[i][2]='PROC_ADMIN' THEN v_admins:=v_admins+1; END IF; END LOOP;
+--   IF v_admins < 1 THEN RAISE EXCEPTION 'BOOTSTRAP ABORT: la matriz no incluye ningun PROC_ADMIN. HARD STOP.'; END IF;
+--   FOR i IN 1..array_length(asignaciones,1) LOOP
+--     v_u := asignaciones[i][1]::uuid; v_r := asignaciones[i][2];
+--     -- el usuario debe ser miembro ACTIVO de ALS (no se crea membership aqui)
+--     IF NOT EXISTS (SELECT 1 FROM iam_usuario_empresa WHERE usuario_id=v_u AND empresa_id=v_als AND activo) THEN
+--       RAISE EXCEPTION 'BOOTSTRAP ABORT: % no es miembro activo de ALS.', v_u; END IF;
+--     IF NOT EXISTS (SELECT 1 FROM iam_rol WHERE codigo=v_r) THEN
+--       RAISE EXCEPTION 'BOOTSTRAP ABORT: rol % inexistente.', v_r; END IF;
+--     INSERT INTO iam_usuario_empresa_rol(usuario_id,empresa_id,rol,activo,motivo)
+--     VALUES (v_u,v_als,v_r,true,'bootstrap authz ALS')
+--     ON CONFLICT (usuario_id,empresa_id,rol) DO UPDATE SET activo=true, updated_at=now();
+--   END LOOP;
+--   RAISE NOTICE 'BOOTSTRAP OK: % asignaciones (>=% admin).', array_length(asignaciones,1), v_admins;
+-- END $seed$;
+-- COMMIT;
+
+-- ── PASO 2 (READ-ONLY): validar effective caps por usuario sembrado ──
+--   -- por cada usuario del PASO 1 (con su sub/jwt) proc_effective_caps() debe devolver las esperadas;
+--   -- o server-side: SELECT rol, count(*) FROM iam_usuario_empresa_rol WHERE empresa_id=ALS AND activo GROUP BY rol;
+
+-- ── ROLLBACK del bootstrap (revierte solo las asignaciones, no toca membership/catalogo) ──
+--   UPDATE iam_usuario_empresa_rol SET activo=false
+--    WHERE empresa_id=(SELECT id FROM contab_empresas WHERE codigo='ALS') AND motivo='bootstrap authz ALS';
+-- ============================================================================
+
+-- MATRIZ DE ROLES PROPUESTA (para confirmacion humana; asociar cada persona ALS a un rol).
+-- CAPABILITIES ELEVADAS (critico=true) por rol — lo que separa la SoD:
+--   PROC_ADMIN       -> TODO, incl. usuarios.administrar + config.administrar (catalogos que alteran
+--                       reglas/tarifas/trazabilidad: especie/variedad/vinculo/qc_parametro/tipo_servicio/
+--                       predios/cuartel/cliente_productor/tipo_documento/tipo_envase/formato/reporte_config/
+--                       empresa_config/catalogo_activacion). >=1, tipicamente CFO/jefe TI.
+--   PROC_JEFE_PLANTA -> operacion elevada (proceso.cerrar/reabrir/anular, despacho.confirmar/anular,
+--                       temporada.*, tarifas.aprobar, contratos.aprobar) + config.editar (catalogos
+--                       OPERACIONALES: lineas_proceso/ubicaciones/planta/calibre/color/categorias_calidad/
+--                       condiciones/motivos_*). NO usuarios.administrar. NO config.administrar.
+--   PROC_RECEPCION   -> recepcion + lotes basicos. (sin criticas)
+--   PROC_CALIDAD     -> QC hold/liberar (qc.hold/qc.liberar criticas).
+--   PROC_PRODUCCION  -> proceso ejecutar + inventario mover. (sin criticas; NO cierra/anula)
+--   PROC_BODEGA      -> inventario + repaletizaje + despacho basico. (sin criticas)
+--   PROC_DESPACHO    -> despachos incl. despacho.confirmar (critica).
+--   PROC_COMERCIAL   -> tarifas/contratos EDITAR (NO aprobar = SoD) + reporting.enviar.
+--   PROC_REPORTING   -> reportes incl. reporting.destinatarios (critica).
+--   PROC_VIEWER      -> solo lectura (todas las *.ver + config.ver).
+--
+-- PLANTILLA PERSONA->ROL — [[REQUIERE CONFIRMACION CFO]] — completar con el PASO 0 (NO inventar):
+--   | NOMBRE            | EMAIL               | MEMBERSHIP ALS | ROL PROPUESTO     | JUSTIFICACION            | CAPS ELEVADAS                 |
+--   | (del PASO 0)      | (del PASO 0)        | activa/inactiva| PROC_ADMIN        | admin sistema / CFO      | usuarios.administrar+config.administrar |
+--   | ...               | ...                 | ...            | PROC_JEFE_PLANTA  | jefe de planta           | cerrar/aprobar+config.editar  |
+--   | ...               | ...                 | ...            | PROC_PRODUCCION   | operario proceso         | (ninguna)                     |
+--   | ...               | ...                 | ...            | PROC_VIEWER       | consulta                 | (ninguna)                     |
+-- Regla de negocio: TODO miembro ALS que hoy tiene acceso debe recibir AL MENOS PROC_VIEWER en el
+-- PASO 1 (fail-closed: sin rol => sin caps => no ve/no muta). >=1 PROC_ADMIN obligatorio.
+-- STOP: confirmar quien es cada uno con el negocio antes de ejecutar el PASO 1.
