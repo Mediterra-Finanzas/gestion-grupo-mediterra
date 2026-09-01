@@ -36,6 +36,7 @@ import Tarifario from "../pages/Tarifario";
 import ServiciosFacturables from "../pages/ServiciosFacturables";
 import BasesCobro from "../pages/BasesCobro";
 import BaseCobroDetalle from "../pages/BaseCobroDetalle";
+import UsuariosPermisos from "../pages/UsuariosPermisos";
 
 const NAV = [
   { grupo: null, items: [{ id: "centro", label: "Centro de Operaciones", icon: "🏭" }] },
@@ -68,6 +69,8 @@ const NAV = [
     { id: "servicios", label: "Servicios Facturables" },
     { id: "pendientes", label: "Pendientes de Tarifa" },
     { id: "bases", label: "Bases de Cobro" }] },
+  { grupo: "Administración", items: [
+    { id: "usuarios", label: "Usuarios y permisos", icon: "🔐" }] },
   { grupo: null, items: [
     { id: "reportes_diario", label: "Reportes Automáticos", icon: "📧" },
     { id: "config", label: "Configuración", icon: "⚙️" }] },
@@ -143,6 +146,7 @@ export default function ProcShell({ onBack, onLogout, usuario }) {
       case "pendientes": return <ServiciosFacturables soloPendientes />;
       case "bases": return <BasesCobro />;
       case "base_cobro_detalle": return <BaseCobroDetalle />;
+      case "usuarios": return <UsuariosPermisos />;
       default: {
         const item = TODOS.find((i) => i.id === vista.page);
         return <ProximaFase titulo={item?.label || "Sección"} fase={item?.fase || "próxima fase"} />;
