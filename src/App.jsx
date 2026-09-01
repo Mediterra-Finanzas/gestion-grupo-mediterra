@@ -2734,7 +2734,7 @@ export default function App(){
     return()=>clearTimeout(t);
   },[pinsPersonalizados]); // eslint-disable-line
 
-  function getPinActivo(w){return pinsPersonalizados[w.nombre]||w.pin;}
+  // F0-A1 · helper de credencial plaintext eliminado: login HASH-ONLY. Sin _h => DENY.
 
   // Helper central de logout con auditoría
   function doLogout() {
@@ -2889,7 +2889,7 @@ export default function App(){
 
     // ── Sin código provisorio: validación normal del PIN ──
     const credH=PP[w.nombre+"_h"];        // credencial cifrada (si ya migró)
-    const esOk = credH ? await verifyPin(pinInput, credH) : (pinInput===(PP[w.nombre]||w.pin));
+    const esOk = credH ? await verifyPin(pinInput, credH) : false; // F0-A1 HASH-ONLY: sin _h => DENY
     if(!esOk){
       setLoginError("Correo o PIN incorrecto.");
       window.auditLog("login_fallido", {modulo:"sistema", seccion:"autenticación",
@@ -2978,7 +2978,7 @@ export default function App(){
       const codigoOk = await verificarTemp(pinActual, estTempCambio);
       if(!codigoOk){ setPinError("Código provisorio incorrecto."); return; }
     } else {
-      const actualOk = credH ? await verifyPin(pinActual, credH) : (pinActual===getPinActivo(worker));
+      const actualOk = credH ? await verifyPin(pinActual, credH) : false; // F0-A1 HASH-ONLY: sin _h => DENY
       if(!actualOk){ setPinError("PIN actual incorrecto."); return; }
     }
     // FASE 2b: PIN nuevo de 6 dígitos, no obvio
