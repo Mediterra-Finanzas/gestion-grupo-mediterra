@@ -3998,9 +3998,24 @@ function buildEmpresasConOverrides(empresas, realData, addedLinesGlobal, subLine
 // ═══════════════════════════════════════════════════════════════════
 // CONSOLIDADO — dentro de Flujo Empresas
 // ═══════════════════════════════════════════════════════════════════
-function Consolidado({empresas,saldosBancos,realData={},addedLinesGlobal={},subLinesGlobal={},escenarioNombre=null}) {
+function Consolidado({empresas,saldosBancos,realData={},addedLinesGlobal={},subLinesGlobal={},escenarioNombre=null,paramsPart={},onSaveParamsPart=null}) {
   const empNames=Object.keys(empresas);
-  const empNamesConsolidado = empNames.filter(n => EMPRESAS_KEYS_CONSOLIDADO.includes(n));
+  // Consolidación proporcional de Allpa (opción por empresa): se puede incluir
+  // Allpa Chile, Allpa Perú, o ambas al mismo tiempo — cada una escalada por su
+  // participación de Mediterra. Toggles independientes.
+  const [incAllpaChile,setIncAllpaChile]=useState(false);
+  const [incAllpaPeru,setIncAllpaPeru]=useState(false);
+  const [editPart,setEditPart]=useState(false);
+  const pctChile = Number(paramsPart?.["Allpa Farms"])||0;
+  const pctPeru  = Number(paramsPart?.["Allpa Farms Perú"])||0;
+  const onChile = incAllpaChile && empNames.includes("Allpa Farms");
+  const onPeru  = incAllpaPeru  && empNames.includes("Allpa Farms Perú");
+  const empNamesConsolidadoBase = empNames.filter(n => EMPRESAS_KEYS_CONSOLIDADO.includes(n));
+  const empNamesConsolidado = [
+    ...empNamesConsolidadoBase,
+    ...(onChile && !empNamesConsolidadoBase.includes("Allpa Farms")      ? ["Allpa Farms"]      : []),
+    ...(onPeru  && !empNamesConsolidadoBase.includes("Allpa Farms Perú") ? ["Allpa Farms Perú"] : []),
+  ];
   const [vistaConsolidado,setVistaConsolidado]=useState("sumada");
   // Índice del mes actual en MESES_65 — para no mostrar saldo banco en meses futuros
   const mesIdxHoy = useMemo(()=>{
@@ -4018,10 +4033,28 @@ function Consolidado({empresas,saldosBancos,realData={},addedLinesGlobal={},subL
   const [exportMsg, setExportMsg] = useState(null);
 
   // Construir empresas con overrides aplicados — lógica centralizada en buildEmpresasConOverrides
-  const empresasConOverrides = useMemo(
+  const empresasConOverridesBase = useMemo(
     () => buildEmpresasConOverrides(empresas, realData, addedLinesGlobal, subLinesGlobal),
     [empresas, realData, addedLinesGlobal, subLinesGlobal] // eslint-disable-line
   );
+  // Si la consolidación proporcional de Allpa está activa, se escalan TODAS las
+  // líneas (proy) y el saldo_ini de Allpa Chile/Perú por su % de participación.
+  // Apagado → devuelve la MISMA referencia base (consolidado idéntico al actual).
+  const empresasConOverrides = useMemo(()=>{
+    if(!onChile && !onPeru) return empresasConOverridesBase;
+    // Escala solo las líneas de flujo (proy). El saldo inicial se escala en
+    // saldoIniPorEmp (única fuente), para no arriesgar doble conteo.
+    const scaleEmp = (emp, pct) => {
+      if(!emp) return emp;
+      const c = JSON.parse(JSON.stringify(emp));
+      (c.sections||[]).forEach(sec=>(sec.lines||[]).forEach(l=>{ l.proy = (l.proy||[]).map(v=>(Number(v)||0)*pct); }));
+      return c;
+    };
+    const out = {...empresasConOverridesBase};
+    if(onChile && out["Allpa Farms"])      out["Allpa Farms"]      = scaleEmp(empresasConOverridesBase["Allpa Farms"], pctChile);
+    if(onPeru  && out["Allpa Farms Perú"]) out["Allpa Farms Perú"] = scaleEmp(empresasConOverridesBase["Allpa Farms Perú"], pctPeru);
+    return out;
+  },[empresasConOverridesBase, onChile, onPeru, pctChile, pctPeru]);
 
   const flujoPorEmp=useMemo(()=>{
     const res={};
@@ -4040,10 +4073,14 @@ function Consolidado({empresas,saldosBancos,realData={},addedLinesGlobal={},subL
     const res={};
     empNames.forEach(n=>{
       const v = getSaldoBancoInicial(saldosBancos,n,empresas[n].saldo_ini);
-      res[n] = isNaN(v) ? 0 : v;
+      const base = isNaN(v) ? 0 : v;
+      // Consolidación proporcional: el saldo inicial de Allpa entra escalado por %
+      // solo si su toggle está activo (Chile/Perú independientes).
+      const peso = (n==="Allpa Farms" && onChile) ? pctChile : (n==="Allpa Farms Perú" && onPeru) ? pctPeru : 1;
+      res[n] = base * peso;
     });
     return res;
-  },[saldosBancos,empresas]); // eslint-disable-line
+  },[saldosBancos,empresas,onChile,onPeru,pctChile,pctPeru]); // eslint-disable-line
 
   // Acumulado por empresa. El saldo banco es la posición REAL de HOY, así que
   // el acumulado arranca en el mes actual (mesIdxHoy), no en el inicio del horizonte.
@@ -4358,6 +4395,33 @@ function Consolidado({empresas,saldosBancos,realData={},addedLinesGlobal={},subL
               </div>
             </div>
           )}
+          {/* Consolidación proporcional de Allpa (Chile 50% / Perú 26%, parametrizable) */}
+          <div>
+            <div style={{fontSize:10,color:C.muted,fontWeight:700,textTransform:"uppercase",letterSpacing:1,marginBottom:8}}>Allpa (participación)</div>
+            <div style={{display:"flex",gap:6,alignItems:"center",flexWrap:"wrap"}}>
+              <Btn active={incAllpaChile} onClick={()=>setIncAllpaChile(v=>!v)} color={C.teal}>{incAllpaChile?"✓ ":""}Chile {Math.round(pctChile*100)}%</Btn>
+              <Btn active={incAllpaPeru} onClick={()=>setIncAllpaPeru(v=>!v)} color={C.teal}>{incAllpaPeru?"✓ ":""}Perú {Math.round(pctPeru*100)}%</Btn>
+              {onSaveParamsPart&&<Btn small color={C.muted} onClick={()=>setEditPart(v=>!v)}>⚙️ %</Btn>}
+            </div>
+            {editPart&&onSaveParamsPart&&(
+              <div style={{marginTop:8,background:C.card2,border:`1px solid ${C.border}`,borderRadius:8,padding:"8px 10px",display:"flex",flexDirection:"column",gap:6}}>
+                {[["Allpa Farms","Allpa Chile"],["Allpa Farms Perú","Allpa Perú"]].map(([key,lbl])=>(
+                  <label key={key} style={{display:"flex",alignItems:"center",gap:6,fontSize:11,color:C.text}}>
+                    <span style={{minWidth:78}}>{lbl}</span>
+                    <input type="number" min="0" max="100" step="1"
+                      value={Math.round((Number(paramsPart?.[key])||0)*100)}
+                      onChange={e=>onSaveParamsPart(p=>({...(p||{}),[key]:(Number(e.target.value)||0)/100}))}
+                      style={{width:64,padding:"4px 7px",background:C.card,border:`1px solid ${C.border}`,borderRadius:6,color:C.text,fontSize:11,textAlign:"right",outline:"none"}}/>
+                    <span style={{fontSize:11,color:C.muted}}>%</span>
+                  </label>
+                ))}
+                <div style={{fontSize:9,color:C.muted}}>Participación de Mediterra · se guarda automáticamente</div>
+              </div>
+            )}
+            {(onChile||onPeru)&&!editPart&&(
+              <div style={{fontSize:9,color:C.muted,marginTop:4}}>Incluye: {[onChile?"Chile":null,onPeru?"Perú":null].filter(Boolean).join(" + ")}</div>
+            )}
+          </div>
           </>)}
           <div style={{marginLeft:"auto"}}>
             <div style={{fontSize:10,color:C.muted,fontWeight:700,textTransform:"uppercase",letterSpacing:1,marginBottom:8}}>Exportar</div>
@@ -4616,6 +4680,13 @@ const PARTICIPACION_CONTROLADORA = {
   "Allpa Farms":0.50,
   "Allpa Farms Perú":0.26,
 };
+
+// Participación parametrizable de Mediterra en Allpa (Chile/Perú) para la
+// opción de consolidación proporcional del consolidado. Persistida en el blob
+// finanzas (params_participacion). Default = valores actuales del grupo.
+function defaultParticipacionAllpa(){
+  return { "Allpa Farms":0.50, "Allpa Farms Perú":0.26 };
+}
 
 // Helpers de agregación
 function sumRangeWF(arr, indices) {
@@ -11137,6 +11208,8 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
   const [paramsAP,setParamsAP]=useState(defaultParamsAllpaPeru);
   // paramsOsiris: ingresos Osiris (royalties + fee vivero) — temporal
   const [paramsOsiris,setParamsOsiris]=useState(defaultParamsOsiris);
+  // paramsPart: participación de Mediterra en Allpa Chile/Perú (consolidación proporcional)
+  const [paramsPart,setParamsPart]=useState(defaultParticipacionAllpa);
   // subLines: { empresa: { lineLabel: [nombre1, nombre2, ...] } }
   const [subLines,setSubLines]=useState({});
   // addedLines: { empresa: { cat: [{label, vals:{idx:val}}] } } — filas agregadas por usuario
@@ -11484,6 +11557,7 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
       }
       setParamsOsiris({...defaultParamsOsiris(),...po});
     }
+    if(d?.params_participacion) setParamsPart({...defaultParticipacionAllpa(),...d.params_participacion});
     if(d?.sub_lines)    setSubLines(d.sub_lines);
     if(d?.added_lines)  setAddedLinesGlobal(d.added_lines);
     if(d?.intercompany)   setIntercompany(d.intercompany||[]);
@@ -11589,6 +11663,7 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
   const paramsAFRef     = React.useRef(paramsAF);
   const paramsAPRef     = React.useRef(paramsAP);
   const paramsOsirisRef = React.useRef(paramsOsiris);
+  const paramsPartRef    = React.useRef(paramsPart);
   const subLinesRef      = React.useRef(subLines);
   const addedLinesRef    = React.useRef(addedLinesGlobal);
   const intercompanyRef  = React.useRef(intercompany);
@@ -11609,6 +11684,7 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
   useEffect(()=>{ paramsAFRef.current     = paramsAF;     },[paramsAF]);
   useEffect(()=>{ paramsAPRef.current     = paramsAP;     },[paramsAP]);
   useEffect(()=>{ paramsOsirisRef.current = paramsOsiris; },[paramsOsiris]);
+  useEffect(()=>{ paramsPartRef.current   = paramsPart;   },[paramsPart]);
   useEffect(()=>{ subLinesRef.current     = subLines;     },[subLines]);
   useEffect(()=>{ addedLinesRef.current   = addedLinesGlobal; },[addedLinesGlobal]);
   useEffect(()=>{ intercompanyRef.current = intercompany; },[intercompany]);
@@ -11693,6 +11769,7 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
       params_af:       overrides.params_af       !== undefined ? overrides.params_af       : paramsAFRef.current,
       params_ap:       overrides.params_ap       !== undefined ? overrides.params_ap       : paramsAPRef.current,
       params_osiris:   overrides.params_osiris   !== undefined ? overrides.params_osiris   : paramsOsirisRef.current,
+      params_participacion: overrides.params_participacion !== undefined ? overrides.params_participacion : paramsPartRef.current,
       sub_lines:       overrides.sub_lines       !== undefined ? overrides.sub_lines       : subLinesRef.current,
       added_lines:     overrides.added_lines     !== undefined ? overrides.added_lines     : addedLinesRef.current,
       intercompany:    overrides.intercompany    !== undefined ? overrides.intercompany    : intercompanyRef.current,
@@ -11726,6 +11803,7 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
     params_af: paramsAFRef.current,
     params_ap: paramsAPRef.current,
     params_osiris: paramsOsirisRef.current,
+    params_participacion: paramsPartRef.current,
     sub_lines: subLinesRef.current,
     added_lines: addedLinesRef.current,
     intercompany: intercompanyRef.current,
@@ -11946,6 +12024,17 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
       const next = typeof updater === "function" ? updater(prev) : updater;
       paramsOsirisRef.current = next;
       setTimeout(()=>persistAll({ params_osiris:next })
+        .then(ok=>{setSaved(ok?"✅ Guardado":"⚠️ Error");setTimeout(()=>setSaved(null),2000);}),0);
+      return next;
+    });
+  },[persistAll]);
+
+  // Guardar participación Allpa (consolidación proporcional)
+  const handleSaveParamsPart = useCallback((updater) => {
+    setParamsPart(prev=>{
+      const next = typeof updater === "function" ? updater(prev) : updater;
+      paramsPartRef.current = next;
+      setTimeout(()=>persistAll({ params_participacion:next })
         .then(ok=>{setSaved(ok?"✅ Guardado":"⚠️ Error");setTimeout(()=>setSaved(null),2000);}),0);
       return next;
     });
@@ -12346,6 +12435,7 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
           {/* Consolidado */}
           {empTab==="_consolidado"&&accesoCompletoEmpresas&&(
             <Consolidado empresas={empresas} saldosBancos={saldosBancos} realData={realData} addedLinesGlobal={addedLinesGlobal} subLinesGlobal={subLines}
+              paramsPart={paramsPart} onSaveParamsPart={puedoEdit("flujo")?handleSaveParamsPart:null}
               escenarioNombre={escActivo ? (escenarios.find(e=>e.id===escActivo)?.name || "Escenario") : null}/>
           )}
           {/* Intercompany */}
