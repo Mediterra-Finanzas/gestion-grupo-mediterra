@@ -133,7 +133,9 @@ export function pollRow(id, onChange, intervalMs = 8000) {
               const rows2 = await r2.json();
               let v = rows2 && rows2[0] && rows2[0].value;
               if (typeof v === "string") { try { v = JSON.parse(v); } catch (e) {} }
-              if (v !== undefined && v !== null) onChange(v);
+              // Se pasa también el `updated_at` (versión) para que el caller pueda
+              // enrutar por reconcileIncoming (dirty-guard + optimistic lock).
+              if (v !== undefined && v !== null) onChange(v, upd);
             }
           }
         }

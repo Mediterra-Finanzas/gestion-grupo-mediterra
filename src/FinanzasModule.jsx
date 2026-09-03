@@ -10,6 +10,8 @@ import * as XLSX from 'xlsx-js-style'; // SheetJS (fork con estilos) — ya inst
 import { uploadDocNomina, urlFirmadaNomina } from './friskuHelpers';
 import { esLineaRelacionada, hashArchivo, docsActivos, tieneRespaldo, pathDocNomina, coberturaNomina, siguienteCorrelativo } from './expedienteHelpers';
 import { USE_GUARD, pollRow } from './guardClient';
+import { persist, construirAvisoDesde } from './persistencia/instancia.js';
+import AvisoPersistencia from './AvisoPersistencia.jsx';
 import { computeOverlay, applyOverlay } from './escenarioOverlay';
 
 // ═══════════════════════════════════════════════════════════════════
@@ -79,32 +81,30 @@ async function dbLoad(rowId="finanzas") {
   // propagar para que el caller NO habilite el guardado (que sobrescribiría
   // los 4.6 MB de Finanzas con los defaults vacíos en memoria). Solo se
   // devuelve {} cuando la fila existe pero está vacía (instalación nueva).
-  const r = await fetch(`${SUPA_URL}/rest/v1/calendario_data?id=eq.${rowId}&select=value`,
+  const r = await fetch(`${SUPA_URL}/rest/v1/calendario_data?id=eq.${rowId}&select=value,updated_at`,
     { headers:{ apikey:SUPA_KEY, Authorization:`Bearer ${SUPA_KEY}` }});
   if(!r.ok) throw new Error(`dbLoad ${rowId} HTTP ${r.status}`);
   const d = await r.json();
-  const parsed = d?.[0]?.value ? JSON.parse(d[0].value) : {};
+  const raw = d?.[0]?.value;
+  // Tolerante: la fila histórica guardaba value como STRING (JSON.stringify);
+  // el contrato compartido la reescribe como objeto jsonb. Ambos se leen igual.
+  const parsed = raw ? (typeof raw === "string" ? JSON.parse(raw) : raw) : {};
   console.log("[dbLoad]", rowId, "keys:", Object.keys(parsed));
+  // F0-B: registrar versión/base para saveConfirmed(rowId) con optimistic lock.
+  persist.registrarCarga(rowId, parsed, d?.[0]?.updated_at || null, typeof raw === "string");
   return parsed;
 }
+// F0-B: toda escritura del flujo pasa por el contrato compartido (PATCH
+// condicionado por updated_at + confirmación del servidor + detección de
+// conflicto). Devuelve el objeto-resultado {ok, motivo, ...} (ya NO un boolean):
+// los callers deben mirar `.ok`. Se cubren las filas finanzas, finanzas_esc_*,
+// finanzas_esc_index y finanzas_bancos (todas escritas por esta única función).
 async function dbSave(data, rowId="finanzas") {
   try {
-    const body = JSON.stringify({ id:rowId, value:JSON.stringify(data) });
-    const r = await fetch(`${SUPA_URL}/rest/v1/calendario_data`, {
-      method:"POST",
-      headers:{ apikey:SUPA_KEY, Authorization:`Bearer ${SUPA_KEY}`,
-        "Content-Type":"application/json", "Prefer":"resolution=merge-duplicates" },
-      body,
-    });
-    if(!r.ok) {
-      const txt = await r.text().catch(()=>"");
-      console.error("[dbSave] HTTP",r.status, txt);
-      return false;
-    }
-    return true;
+    return await persist.saveConfirmed(rowId, data, {});
   } catch(e) {
-    console.error("[dbSave] fetch error:", e);
-    return false;
+    console.error("[dbSave] error:", e);
+    return { ok:false, motivo:"red", detalle:String((e&&e.message)||e) };
   }
 }
 
@@ -112,11 +112,15 @@ async function dbSave(data, rowId="finanzas") {
 // Son la posición real de caja → viven fuera del blob del flujo para que
 // Base y TODOS los escenarios usen los mismos saldos (vivos, no congelados).
 async function dbLoadBancos() {
-  const r = await fetch(`${SUPA_URL}/rest/v1/calendario_data?id=eq.finanzas_bancos&select=value`,
+  const r = await fetch(`${SUPA_URL}/rest/v1/calendario_data?id=eq.finanzas_bancos&select=value,updated_at`,
     { headers:{ apikey:SUPA_KEY, Authorization:`Bearer ${SUPA_KEY}` }});
   if(!r.ok) throw new Error(`dbLoadBancos HTTP ${r.status}`);
   const d = await r.json();
-  const v = d?.[0]?.value ? JSON.parse(d[0].value) : null;
+  const raw = d?.[0]?.value;
+  const v = raw ? (typeof raw === "string" ? JSON.parse(raw) : raw) : null;
+  // F0-B: la fila finanzas_bancos también se escribe por dbSave → registrar aquí
+  // su versión/base (el valor de la fila es { saldos }).
+  persist.registrarCarga("finanzas_bancos", v || {}, d?.[0]?.updated_at || null, typeof raw === "string");
   return v?.saldos || null;
 }
 async function dbSaveBancos(saldos) {
@@ -11225,6 +11229,7 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
   const [historialReportes,setHistorialReportes]=useState([]);
   const [loading,setLoading]=useState(true);
   const [saved,setSaved]=useState(null);
+  const [avisoPersist,setAvisoPersist]=useState(null); // F0-B: aviso en pantalla cuando el flujo/escenario/bancos NO se guardó.
   // ── Escenarios (workspaces paralelos del flujo) ──
   // escActivo: null = Base (original, fila "finanzas"); si no, id del escenario.
   const [escenarios,setEscenarios]=useState([]);   // [{id,name,createdAt}]
@@ -11579,7 +11584,7 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
             dbSaveBancos(d.saldos_bancos);
           }
         }).catch(()=>{});
-        cargaOkRef.current = true; setLoading(false); window._finLoadTime = Date.now();
+        cargaOkRef.current = true; setLoading(false);
       })
       .catch(e=>{ console.error("[Finanzas] Carga falló — GUARDADO DESHABILITADO esta sesión (no se sobrescribe Supabase):", e); setLoading(false); });
 
@@ -11590,7 +11595,12 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
 
     if (USE_GUARD) {
       // Solo sincroniza cuando se está en Base (no pisar un escenario abierto)
-      const stop = pollRow("finanzas", (d)=>{ if(d && activeRowRef.current==="finanzas") applyData(d); });
+      const stop = pollRow("finanzas", (d, ver)=>{
+        if(!d || activeRowRef.current!=="finanzas") return;
+        // F0-B: no pisar una edición local sin confirmar (dirty-guard).
+        const dec = persist.reconcileIncoming("finanzas", d, ver===undefined?null:ver);
+        if(dec.apply) applyData(dec.value);
+      });
       return () => stop();
     }
 
@@ -11628,8 +11638,10 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
           const record = msg.payload?.record;
           if(record?.id === "finanzas" && record?.value && activeRowRef.current==="finanzas") {
             try {
-              const d = JSON.parse(record.value);
-              applyData(d);
+              const d = typeof record.value === "string" ? JSON.parse(record.value) : record.value;
+              // F0-B: reconcileIncoming protege la edición local sin confirmar.
+              const dec = persist.reconcileIncoming("finanzas", d, record.updated_at || null);
+              if(dec.apply) applyData(dec.value);
             } catch(err) {}
           }
         }
@@ -11744,18 +11756,17 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
 
   // Helper centralizado - siempre usa los valores mas recientes
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  const persistAll = useCallback((overrides={})=>{
+  const persistAll = useCallback(async (overrides={})=>{
     // GUARD anti-borrado: si la carga inicial falló, NO escribir (evita
-    // sobrescribir Supabase con los defaults vacíos en memoria).
+    // sobrescribir Supabase con los defaults vacíos en memoria). Único gate
+    // (Regla 9). Devuelve {ok:false} — jamás un falso éxito.
     if(!cargaOkRef.current) {
       console.warn("[persistAll] Bloqueado — la carga inicial falló; no se guarda para no borrar datos.");
-      return Promise.resolve(false);
+      return { ok:false, motivo:"sin_carga" };
     }
-    // No guardar durante los primeros 10 segundos después de cargar (evita sobreescribir con datos vacíos)
-    if(window._finLoadTime && (Date.now() - window._finLoadTime) < 10000) {
-      console.log("[persistAll] Bloqueado — app aún cargando");
-      return Promise.resolve(true); // simular éxito para no mostrar error
-    }
+    // F0-B: se ELIMINA la ventana de 10 s que devolvía éxito SIN escribir (R2 del
+    // RCA). El gate real es cargaOkRef (arriba). Nunca se declara guardado sin
+    // escritura confirmada por el servidor.
     const blob = {
       finanzas_real:   overrides.finanzas_real   !== undefined ? overrides.finanzas_real   : realDataRef.current,
       allegria_params: overrides.allegria_params !== undefined ? overrides.allegria_params : paramsRef.current,
@@ -11775,19 +11786,27 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
       intercompany:    overrides.intercompany    !== undefined ? overrides.intercompany    : intercompanyRef.current,
     };
     // Base: guarda el blob completo y actualiza el cache del base vivo.
-    if(activeRowRef.current === "finanzas"){
+    const rowId = activeRowRef.current;
+    let res;
+    if(rowId === "finanzas"){
       baseBlobRef.current = blob;
-      return dbSave(blob, "finanzas");
-    }
-    // Escenario: guarda SOLO su overlay (diff contra el base vivo). Si por
-    // alguna razón no hay base cacheado, NO escribimos (evita guardar un
-    // overlay gigante/erróneo).
-    if(!baseBlobRef.current){
+      res = await dbSave(blob, "finanzas");
+    } else if(!baseBlobRef.current){
+      // Escenario sin base cacheado: NO se escribe y NO se simula éxito (R6 del
+      // RCA). Se reporta como fallo real.
       console.warn("[persistAll] En escenario sin base cacheado — no se guarda el overlay.");
-      return Promise.resolve(true);
+      res = { ok:false, motivo:"sin_base" };
+    } else {
+      // Escenario: guarda SOLO su overlay (diff contra el base vivo).
+      const overlay = computeOverlay(baseBlobRef.current, blob) || {};
+      res = await dbSave({ _overlay:true, data:overlay }, rowId);
     }
-    const overlay = computeOverlay(baseBlobRef.current, blob) || {};
-    return dbSave({ _overlay:true, data:overlay }, activeRowRef.current);
+    // F0-B: si NO se confirmó la persistencia, el usuario se entera (AvisoPersistencia)
+    // y el estado queda en error. Cubre también los persistAll fire-and-forget.
+    if(res && !res.ok){
+      setAvisoPersist(construirAvisoDesde(rowId, res, rowId==="finanzas" ? "el Flujo de Caja" : "el Modelo/Escenario"));
+    }
+    return res;
   },[]); // eslint-disable-line
 
   // Construye el blob completo del estado actual (para cachear el base vivo).
@@ -11851,7 +11870,6 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
       // Bancos: siempre los compartidos/vivos (no los del escenario)
       try { const sb = await dbLoadBancos(); if(sb){ setSaldosBancos(sb); saldosBancosRef.current = sb; } } catch(_){}
       cargaOkRef.current = true;
-      window._finLoadTime = Date.now();
     } catch(e){
       console.error("[escenario] carga falló, se mantiene el actual:", e);
       alert("No se pudo cargar el escenario. Se mantiene el actual.");
@@ -11866,8 +11884,12 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
     setEscBusy(true); cargaOkRef.current = false;
     try {
       const id = String(Date.now());
-      const ok = await dbSave({ _overlay:true, data:{} }, rowIdDe(id));
-      if(!ok) throw new Error("dbSave escenario falló");
+      // Fila nueva (nunca leída): registrar carga vacía para habilitar el
+      // saveConfirmed con optimistic lock (version null → upsert). F0-C: fila
+      // nueva → codificación 'string' (legacy-dominante, seguro para rollback).
+      persist.registrarCarga(rowIdDe(id), null, null, "string");
+      const r = await dbSave({ _overlay:true, data:{} }, rowIdDe(id));
+      if(!r || !r.ok) throw new Error("dbSave escenario falló");
       const next = [...escenariosRef.current, {id, name:nm, createdAt:new Date().toISOString()}];
       escenariosRef.current = next; setEscenarios(next);
       await dbSave({ escenarios: next }, "finanzas_esc_index");
@@ -11877,7 +11899,7 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
       activeRowRef.current = rowIdDe(id); setEscActivo(id);
       applyData(base);
       try { const sb = await dbLoadBancos(); if(sb){ setSaldosBancos(sb); saldosBancosRef.current = sb; } } catch(_){}
-      cargaOkRef.current = true; window._finLoadTime = Date.now();
+      cargaOkRef.current = true;
     } catch(e){ console.error("[escenario] crear falló:", e); alert("No se pudo crear el escenario."); }
     setEscBusy(false);
   },[buildBlob]); // eslint-disable-line
@@ -11898,8 +11920,8 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
     next[empresa][mes][semana]=vals;
     setRealData(next);
     realDataRef.current = next;
-    const ok=await persistAll({ finanzas_real:next });
-    setSaved(ok?"✅ Guardado":"⚠️ Error");
+    const r=await persistAll({ finanzas_real:next });
+    setSaved(r&&r.ok?"✅ Guardado":"⚠️ Error");
     setTimeout(()=>setSaved(null),3000);
   },[persistAll]);
 
@@ -12136,7 +12158,9 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
     setSaved("💾 Guardando…");
     // Guarda en la fila dedicada compartida → visible en Base y en TODOS los
     // escenarios (posición real de caja, no congelada por escenario).
-    const ok=await dbSaveBancos(merged);
+    const r=await dbSaveBancos(merged);
+    const ok=r&&r.ok;
+    if(!ok) setAvisoPersist(construirAvisoDesde("finanzas_bancos", r, "los Saldos de Bancos"));
     setSaved(ok?"✅ Saldos guardados":"⚠️ Error al guardar — ver consola");
     setTimeout(()=>setSaved(null),4000);
   },[usuarioActual]);
@@ -12189,6 +12213,7 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
       maxWidth:"100%",
       overflowX:"hidden",
     }}>
+      <AvisoPersistencia aviso={avisoPersist} onCerrar={()=>setAvisoPersist(null)} />
       {/* ── Header ─────────────────────────────────────────── */}
       <div style={{
         background:C.primary,
@@ -12862,6 +12887,17 @@ async function dbLoadNominas(empresasPermitidas) {
   }
 }
 
+// ⚠️ F0-B DEUDA (NO migrado al contrato compartido, a propósito): las filas
+// `nominas` (blob legacy) y `nominas_<slug>` (v2 por empresa) se dejan en la ruta
+// actual porque el contrato `persist` no replica dos garantías de las que depende
+// nóminas: (1) `keepalive:true` en beforeunload (flushNominas) para que el save
+// del debounce sobreviva a recarga/cierre — el contrato usa fetch normal sin
+// keepalive; y (2) el particionado runtime legacy↔v2 (dbNominasMigrado) escribe N
+// filas por empresa, y esas MISMAS filas las escribe además el one-shot de
+// migración (~línea 15036, con verificación de conteo read-back). Migrar la mitad
+// rompería el optimistic lock por-fila (regla de completitud). La v2 ya verifica
+// res.ok. Migración limpia = incremento dedicado (extender el contrato con
+// keepalive + saveConfirmed por fila nominas_<slug>).
 // Guarda nóminas: si migrado → upsert por empresa;
 // si no migrado → sobreescribe blob legacy.
 // Devuelve true si TODOS los upserts respondieron ok; false si alguno falló.
@@ -12907,22 +12943,22 @@ async function dbSaveNominas(nominas, opts={}) {
 // fila calendario_data id="nominas_tipos_doc" para que queden disponibles en
 // TODAS las nóminas y tras recargar (no solo donde se crearon).
 async function dbLoadTiposDocExtra() {
-  const res = await fetch(`${SUPA_URL}/rest/v1/calendario_data?id=eq.nominas_tipos_doc&select=value`,{
+  const res = await fetch(`${SUPA_URL}/rest/v1/calendario_data?id=eq.nominas_tipos_doc&select=value,updated_at`,{
     headers:{apikey:SUPA_KEY,Authorization:`Bearer ${SUPA_KEY}`}
   });
   if(!res.ok) throw new Error("tipos_doc HTTP "+res.status);
   const data = await res.json();
   const v = data?.[0]?.value;
-  if(!v) return [];
-  const arr = typeof v==="string" ? JSON.parse(v) : v;
-  return Array.isArray(arr) ? arr : [];
+  const arr = (!v) ? [] : (typeof v==="string" ? JSON.parse(v) : v);
+  const val = Array.isArray(arr) ? arr : [];
+  // F0-B: registrar versión/base para saveConfirmed("nominas_tipos_doc").
+  persist.registrarCarga("nominas_tipos_doc", val, data?.[0]?.updated_at || null, typeof v === "string");
+  return val;
 }
 async function dbSaveTiposDocExtra(tipos) {
-  await fetch(`${SUPA_URL}/rest/v1/calendario_data`,{
-    method:"POST",
-    headers:{apikey:SUPA_KEY,Authorization:`Bearer ${SUPA_KEY}`,"Content-Type":"application/json",Prefer:"resolution=merge-duplicates"},
-    body:JSON.stringify({id:"nominas_tipos_doc",value:JSON.stringify(tipos),updated_at:new Date().toISOString()})
-  });
+  // F0-B: escritura confirmada por el servidor (antes era fire-and-forget sin
+  // verificar res.ok). Fila única `nominas_tipos_doc`, único writer.
+  return persist.saveConfirmed("nominas_tipos_doc", tipos, {});
 }
 // Agrega un tipo nuevo al catálogo global (read-modify-write, best-effort).
 // Si la persistencia falla, el tipo igual queda en memoria y en tiposDocExtra

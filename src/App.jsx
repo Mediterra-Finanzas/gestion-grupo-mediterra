@@ -9,6 +9,8 @@ import AllegriaServiceModule from "./proceso/ui/AllegriaServiceModule.jsx";
 import { theme as C } from "./theme";
 import { ensureSupabaseSession, clearOsirisSession, getOsirisAccessToken, refreshOsirisSession } from "./data/supabase-auth";
 import { installGuard, USE_GUARD, pollRow } from "./guardClient";
+import { persist, construirAvisoDesde } from "./persistencia/instancia.js";
+import AvisoPersistencia from "./AvisoPersistencia.jsx";
 import { hashPin, verifyPin, pinNuevoValido, normalizarCelular } from "./pinHash";
 
 import { credencialPreservada } from "./data/credencialPreservada";
@@ -119,13 +121,19 @@ async function dbLoad() {
   // Anti-caché por HEADERS (NO por query param: PostgREST/Supabase rechaza con
   // 400 cualquier parámetro extra en la URL). cache:no-store evita la caché del
   // navegador; Cache-Control/Pragma piden a los intermediarios revalidar.
-  const res = await fetch(`${SUPA_URL}/rest/v1/calendario_data?id=eq.main&select=value`, {
+  const res = await fetch(`${SUPA_URL}/rest/v1/calendario_data?id=eq.main&select=value,updated_at`, {
     headers: { apikey: SUPA_KEY, Authorization: `Bearer ${SUPA_KEY}`, "Cache-Control": "no-cache", "Pragma": "no-cache" },
     cache: "no-store"
   });
   if(!res.ok) throw new Error(`dbLoad HTTP ${res.status}`);
   const data = await res.json();
-  return data?.[0]?.value || null;
+  const row = data?.[0];
+  const value = row?.value || null;
+  // F0-B: registrar esta lectura en el contrato compartido (versión + base)
+  // para habilitar saveConfirmed("main") con concurrencia optimista. Solo se
+  // llega aquí sin excepción (carga EXITOSA), así que respeta la Regla 9.
+  persist.registrarCarga("main", value, row?.updated_at || null, typeof row?.value === "string");
+  return value;
 }
 
 async function dbSave(value) {
@@ -152,17 +160,11 @@ async function dbSave(value) {
         return;
       }
     }
-    await fetch(`${SUPA_URL}/rest/v1/calendario_data`, {
-      method: "POST",
-      headers: {
-        apikey: SUPA_KEY,
-        Authorization: `Bearer ${SUPA_KEY}`,
-        "Content-Type": "application/json",
-        Prefer: "resolution=merge-duplicates"
-      },
-      body: JSON.stringify({ id: "main", value, updated_at: new Date().toISOString() })
-    });
-  } catch(e) { console.error("Error guardando:", e); }
+    // F0-B: la escritura pasa por el contrato compartido → PATCH condicionado
+    // por updated_at (concurrencia optimista) + confirmación por el servidor.
+    // Ya no es fire-and-forget con el error tragado: devuelve {ok,motivo}.
+    return await persist.saveConfirmed("main", value, {});
+  } catch(e) { console.error("Error guardando:", e); return { ok:false, motivo:"red", detalle:String((e&&e.message)||e) }; }
 }
 
 // ── Fila dedicada de PINs (id="pins") ──
@@ -176,25 +178,24 @@ async function dbSave(value) {
 async function dbLoadPins() {
   // Anti-caché por HEADERS (NO por query param: PostgREST rechaza con 400). El
   // login debe leer el PIN vigente, nunca uno viejo cacheado.
-  const res = await fetch(`${SUPA_URL}/rest/v1/calendario_data?id=eq.pins&select=value`, {
+  const res = await fetch(`${SUPA_URL}/rest/v1/calendario_data?id=eq.pins&select=value,updated_at`, {
     headers: { apikey: SUPA_KEY, Authorization: `Bearer ${SUPA_KEY}`, "Cache-Control": "no-cache", "Pragma": "no-cache" },
     cache: "no-store"
   });
   if(!res.ok) throw new Error(`dbLoadPins HTTP ${res.status}`);
   const data = await res.json();
-  return data?.[0]?.value || null;   // null = fila no existe todavía (migración)
+  const row = data?.[0];
+  const value = row?.value || null;   // null = fila no existe todavía (migración)
+  // F0-B: registrar versión/base para habilitar saveConfirmed("pins").
+  persist.registrarCarga("pins", value, row?.updated_at || null, typeof row?.value === "string");
+  return value;
 }
 async function dbSavePins(pins) {
   try {
-    await fetch(`${SUPA_URL}/rest/v1/calendario_data`, {
-      method: "POST",
-      headers: {
-        apikey: SUPA_KEY, Authorization: `Bearer ${SUPA_KEY}`,
-        "Content-Type": "application/json", Prefer: "resolution=merge-duplicates"
-      },
-      body: JSON.stringify({ id: "pins", value: pins, updated_at: new Date().toISOString() })
-    });
-  } catch(e) { console.error("[pins] Error guardando fila dedicada:", e); }
+    // F0-B: escritura confirmada por el servidor con concurrencia optimista
+    // (antes era fire-and-forget con el error tragado + LWW). Fila única `pins`.
+    return await persist.saveConfirmed("pins", pins, {});
+  } catch(e) { console.error("[pins] Error guardando fila dedicada:", e); return { ok:false, motivo:"red", detalle:String((e&&e.message)||e) }; }
 }
 
 // ── Código provisorio de recuperación (HASHEADO + expiración) ──
@@ -2032,6 +2033,7 @@ export default function App(){
   const [guardado,setGuardado]=useState("idle");
   const [cargando,setCargando]=useState(true);
   const [cargaError,setCargaError]=useState(false); // solo UI: se activa si la carga inicial se cuelga (timeout). NO toca datos ni el gate anti-borrado.
+  const [avisoPersist,setAvisoPersist]=useState(null); // F0-B: aviso en pantalla cuando main/pins NO se guardó (construirAvisoDesde).
   // GUARD anti-borrado: el auto-guardado solo se habilita tras una carga
   // EXITOSA desde Supabase. Si dbLoad() falla (red/timeout), este flag queda
   // en false y NO se guarda nada → así un parpadeo de conexión al abrir la app
@@ -2219,14 +2221,11 @@ export default function App(){
                 body:JSON.stringify({id:"osiris",value:d.osirisData,updated_at:new Date().toISOString()})
               });
               console.log("[Migración] ✅ osirisData migrado a fila 'osiris'");
-              // Limpiar osirisData de main
+              // Limpiar osirisData de main — vía contrato compartido para no
+              // romper el optimistic lock de la fila `main` (completitud por-fila).
               const cleanMain = {...d};
               delete cleanMain.osirisData;
-              await fetch(`${SUPA_URL}/rest/v1/calendario_data`, {
-                method:"POST",
-                headers:{apikey:SUPA_KEY,Authorization:`Bearer ${SUPA_KEY}`,"Content-Type":"application/json",Prefer:"resolution=merge-duplicates"},
-                body:JSON.stringify({id:"main",value:cleanMain,updated_at:new Date().toISOString()})
-              });
+              await persist.saveConfirmed("main", cleanMain, {});
               console.log("[Migración] ✅ osirisData eliminado de main");
             } catch(e) { console.warn("[Migración] Error:", e); }
           }
@@ -2337,8 +2336,7 @@ export default function App(){
     Promise.resolve(cargar()).catch(()=>{}).finally(()=>clearTimeout(_cargaTimeout));
 
     // Aplica cambios entrantes de la fila "main" (Tareas) a la pantalla.
-    const aplicarMain = (d) => {
-      if(!d) return;
+    const aplicarCamposMain = (d) => {
       if(d.estados)       setEstados(prev=>({...prev,...d.estados}));
       if(d.comentarios)   setComentarios(d.comentarios);
       if(d.tareasConfig)  setTareasConfig(prev=>({...prev,...d.tareasConfig}));
@@ -2348,6 +2346,14 @@ export default function App(){
       // fila `pins`. Aplicarlos acá revertía cambios recientes (bug histórico).
       if(d.recsDone)      setRecsDone(d.recsDone);
       if(d.recsComentarios) setRecsComentarios(d.recsComentarios);
+    };
+    // F0-B: el estado entrante pasa por reconcileIncoming → NO se aplica encima de
+    // una edición local sin confirmar (dirty-guard); si limpio, se adopta y se
+    // actualiza la versión conocida (para el próximo save con optimistic lock).
+    const aplicarMain = (d, version) => {
+      if(!d) return;
+      const dec = persist.reconcileIncoming("main", d, version === undefined ? null : version);
+      if(dec.apply) aplicarCamposMain(dec.value);
     };
 
     // Con el guardia prendido: sincronización por sondeo autenticado (la
@@ -2381,17 +2387,21 @@ export default function App(){
           if(record?.id === "main" && record?.value) {
             try {
               const d = typeof record.value === "string" ? JSON.parse(record.value) : record.value;
-              // Aplicar solo si el cambio viene de otro usuario (evitar loop)
-              if(d.estados)       setEstados(prev=>({...prev,...d.estados}));
-              if(d.comentarios)   setComentarios(d.comentarios);
-              if(d.tareasConfig)  setTareasConfig(prev=>({...prev,...d.tareasConfig}));
-              if(d.supervisores)  setSupervisores(prev=>({...prev,...d.supervisores}));
-              if(d.tareasExtra)   setTareasExtra(d.tareasExtra);
-              // PINs NO se aplican desde el sync de `main` (fuente de verdad =
-              // fila `pins`). Aplicarlos acá revertía cambios recientes.
-              if(d.recsDone)      setRecsDone(d.recsDone);
-              if(d.recsComentarios) setRecsComentarios(d.recsComentarios);
-              // osirisData se restaura desde su propia fila "osiris"
+              // F0-B: reconcileIncoming protege la edición local sin confirmar.
+              const dec = persist.reconcileIncoming("main", d, record.updated_at || null);
+              if(dec.apply){
+                const v = dec.value;
+                if(v.estados)       setEstados(prev=>({...prev,...v.estados}));
+                if(v.comentarios)   setComentarios(v.comentarios);
+                if(v.tareasConfig)  setTareasConfig(prev=>({...prev,...v.tareasConfig}));
+                if(v.supervisores)  setSupervisores(prev=>({...prev,...v.supervisores}));
+                if(v.tareasExtra)   setTareasExtra(v.tareasExtra);
+                // PINs NO se aplican desde el sync de `main` (fuente de verdad =
+                // fila `pins`). Aplicarlos acá revertía cambios recientes.
+                if(v.recsDone)      setRecsDone(v.recsDone);
+                if(v.recsComentarios) setRecsComentarios(v.recsComentarios);
+                // osirisData se restaura desde su propia fila "osiris"
+              }
             } catch(err) {}
           }
         }
@@ -2689,7 +2699,7 @@ export default function App(){
       anio:         anioRef.current,
 
     })
-    .then(()=>{setGuardado("ok");setTimeout(()=>setGuardado("idle"),2000);})
+    .then((r)=>{ if(r && r.ok===false){ setGuardado("error"); setTimeout(()=>setGuardado("idle"),3000); setAvisoPersist(construirAvisoDesde("main", r, "las Tareas")); } else { setGuardado("ok"); setTimeout(()=>setGuardado("idle"),2000); } })
     .catch(()=>{setGuardado("error");setTimeout(()=>setGuardado("idle"),3000);});
   },[]); // eslint-disable-line
 
@@ -2698,7 +2708,7 @@ export default function App(){
     // PINs (pins) NO se incluyen: su fuente de verdad es la fila `pins`.
     dbSave({estados:est,comentarios:com,tareasConfig:tc,supervisores:sup,tareasExtra:te,
       recsDone:rd,recsComentarios:rc,usuarios:usrs,mes:m,anio:a})
-      .then(()=>{setGuardado("ok");setTimeout(()=>setGuardado("idle"),2000);})
+      .then((r)=>{ if(r && r.ok===false){ setGuardado("error"); setTimeout(()=>setGuardado("idle"),3000); setAvisoPersist(construirAvisoDesde("main", r, "las Tareas")); } else { setGuardado("ok"); setTimeout(()=>setGuardado("idle"),2000); } })
       .catch(()=>{setGuardado("error");setTimeout(()=>setGuardado("idle"),3000);});
   },[]);
 
@@ -2729,7 +2739,7 @@ export default function App(){
     // El login (re-read de PINs frescos) marca este flag para NO re-escribir la
     // fila: el login nunca cambia un PIN, solo lo lee.
     if(skipPinsSaveRef.current){ skipPinsSaveRef.current=false; return; }
-    const t=setTimeout(()=>{ dbSavePins(pinsPersonalizados); }, 500);
+    const t=setTimeout(()=>{ Promise.resolve(dbSavePins(pinsPersonalizados)).then((r)=>{ if(r && r.ok===false) setAvisoPersist(construirAvisoDesde("pins", r, "los PIN")); }); }, 500);
     return()=>clearTimeout(t);
   },[pinsPersonalizados]); // eslint-disable-line
 
@@ -4334,6 +4344,7 @@ Equipo Mediterra`);
 
   return (
     <AppErrorBoundary>
+      <AvisoPersistencia aviso={avisoPersist} onCerrar={()=>setAvisoPersist(null)} />
       {nuevaVersion&&(
         <div style={{position:"fixed",bottom:20,right:20,zIndex:99999,maxWidth:320,background:C.card,color:C.text,padding:"14px 18px",borderRadius:12,boxShadow:"0 8px 32px #0004",border:`1px solid ${C.border}`,display:"flex",flexDirection:"column",gap:8,fontSize:13,fontFamily:"sans-serif"}}>
           <div style={{fontWeight:700,display:"flex",alignItems:"center",gap:8}}>🔄 Nueva versión disponible</div>

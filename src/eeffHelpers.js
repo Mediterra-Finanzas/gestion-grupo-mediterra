@@ -1,5 +1,6 @@
 /* eslint-disable */
 import * as XLSX from 'xlsx-js-style';
+import { persist } from './persistencia/instancia.js';
 
 const SUPA_URL = 'https://bywovqayuzodbzwsriet.supabase.co';
 const SUPA_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJ5d292cWF5dXpvZGJ6d3NyaWV0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU2ODU1MDgsImV4cCI6MjA5MTI2MTUwOH0.s2x2O_CxE6rl8dBqFuyfQdMyRqSyjJQWXJXesmVGXtk';
@@ -250,34 +251,39 @@ export function planObjToMaps(obj) {
   };
 }
 
+// F0-B: la fila COMPARTIDA `maestro_plan_cuentas` la escriben DOS funciones
+// (dbSavePlanMaestro + dbSaveCategoriasAuxiliar) con read-modify-write. Antes se
+// pisaban entre sí (LWW sin lock). Ahora ambas pasan por el contrato compartido
+// con `next` en forma de FUNCIÓN (base fresca)=>{...}: cada una fusiona SOLO sus
+// campos sobre la versión fresca del servidor, así el plan y las categorías
+// coexisten sin clobber. Confirmación por el servidor (Regla 9 + optimistic lock).
 export async function dbSavePlanMaestro(planMaps, cargadoPor) {
-  const value = {
-    mega:       _mapToObj(planMaps.mega),
-    contec:     _mapToObj(planMaps.contec),
+  const mega   = _mapToObj(planMaps.mega);
+  const contec = _mapToObj(planMaps.contec);
+  if (!persist.estado('maestro_plan_cuentas').cargaOk) await dbLoadPlanMaestro();
+  const r = await persist.saveConfirmed('maestro_plan_cuentas', (base) => ({
+    ...(base || {}),
+    mega, contec,
     version:    'v5',
     cargadoEn:  new Date().toISOString(),
     cargadoPor: cargadoPor || '',
-  };
-  const res = await fetch(`${SUPA_URL}/rest/v1/calendario_data`, {
-    method: 'POST',
-    headers: {
-      apikey: SUPA_KEY, Authorization: `Bearer ${SUPA_KEY}`,
-      'Content-Type': 'application/json',
-      Prefer: 'resolution=merge-duplicates',
-    },
-    body: JSON.stringify({ id: 'maestro_plan_cuentas', value, updated_at: new Date().toISOString() }),
-  });
-  if (!res.ok) throw new Error(`Error guardando Plan Maestro: ${res.status}`);
+  }), {});
+  if (!r || !r.ok) throw new Error(`Error guardando Plan Maestro: ${(r && r.motivo) || 'desconocido'}`);
 }
 
 export async function dbLoadPlanMaestro() {
   const res = await fetch(
-    `${SUPA_URL}/rest/v1/calendario_data?id=eq.maestro_plan_cuentas&select=value`,
+    `${SUPA_URL}/rest/v1/calendario_data?id=eq.maestro_plan_cuentas&select=value,updated_at`,
     { headers: { apikey: SUPA_KEY, Authorization: `Bearer ${SUPA_KEY}` } }
   );
+  // Regla 9: propagar el error de red para no habilitar el guardado con defaults.
+  if (!res.ok) throw new Error(`dbLoadPlanMaestro HTTP ${res.status}`);
   const rows = await res.json();
-  if (!rows?.[0]?.value) return null;
-  const val = rows[0].value;
+  const row = rows?.[0];
+  const val = row?.value || null;
+  // F0-B: registrar versión/base para saveConfirmed('maestro_plan_cuentas').
+  persist.registrarCarga('maestro_plan_cuentas', val || {}, row?.updated_at || null, typeof row?.value === "string");
+  if (!val) return null;
   return {
     maps:               planObjToMaps(val),
     meta:               { version: val.version, cargadoEn: val.cargadoEn, cargadoPor: val.cargadoPor },
@@ -777,29 +783,16 @@ export async function dbLoadTercerosMaestro() {
 // ═══════════════════════════════════════════════════════════════════
 
 export async function dbSaveCategoriasAuxiliar(categorias, guardadoPor) {
-  // Leer row actual para no perder mega/contec
-  const res = await fetch(
-    `${SUPA_URL}/rest/v1/calendario_data?id=eq.maestro_plan_cuentas&select=value`,
-    { headers: { apikey: SUPA_KEY, Authorization: `Bearer ${SUPA_KEY}` } }
-  );
-  const rows = await res.json();
-  const val = rows?.[0]?.value || {};
-  const newValue = {
-    ...val,
-    categoriasAuxiliar:      categorias,
-    catAuxActualizadoEn:     new Date().toISOString(),
-    catAuxActualizadoPor:    guardadoPor || '',
-  };
-  const res2 = await fetch(`${SUPA_URL}/rest/v1/calendario_data`, {
-    method: 'POST',
-    headers: {
-      apikey: SUPA_KEY, Authorization: `Bearer ${SUPA_KEY}`,
-      'Content-Type': 'application/json',
-      Prefer: 'resolution=merge-duplicates',
-    },
-    body: JSON.stringify({ id: 'maestro_plan_cuentas', value: newValue, updated_at: new Date().toISOString() }),
-  });
-  if (!res2.ok) throw new Error(`Error guardando categorias auxiliar (${res2.status})`);
+  // F0-B: read-modify-write con lock. `next` en forma de función preserva
+  // mega/contec (y todo lo demás) de la versión fresca del servidor.
+  if (!persist.estado('maestro_plan_cuentas').cargaOk) await dbLoadPlanMaestro();
+  const r = await persist.saveConfirmed('maestro_plan_cuentas', (base) => ({
+    ...(base || {}),
+    categoriasAuxiliar:   categorias,
+    catAuxActualizadoEn:  new Date().toISOString(),
+    catAuxActualizadoPor: guardadoPor || '',
+  }), {});
+  if (!r || !r.ok) throw new Error(`Error guardando categorias auxiliar (${(r && r.motivo) || 'desconocido'})`);
 }
 
 export async function dbLoadMayor(empresa, anio, empresasPermitidas) {
