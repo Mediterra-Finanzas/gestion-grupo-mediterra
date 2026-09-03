@@ -12,6 +12,8 @@ import { installGuard, USE_GUARD, pollRow } from "./guardClient";
 import { persist, construirAvisoDesde } from "./persistencia/instancia.js";
 import AvisoPersistencia from "./AvisoPersistencia.jsx";
 import { hashPin, verifyPin, pinNuevoValido, normalizarCelular } from "./pinHash";
+import { construirRespaldo } from "./data/backupGenerador.js";
+import { sha256Hex } from "./data/sha256Sync.js";
 
 import { credencialPreservada } from "./data/credencialPreservada";
 // ═══════════════════════════════════════════════════════════════════
@@ -2255,38 +2257,83 @@ export default function App(){
       }
       setCargando(false);
 
-      // ── Backup automático diario ──
+      // ── Backup automático diario · auto-v4 (allowlist, fail-closed) ──
+      //
+      // Reemplaza a `auto-v3`, que filtraba por LISTA NEGRA y por eso copiaba `main` y
+      // `pins` enteras: cada respaldo diario era una fotografía de las credenciales del
+      // día. Acá se declara lo que SÍ se copia, por recurso y por campo; lo que nadie
+      // declaró no se copia y se reporta en voz alta.
+      //
+      // TRES CAMBIOS, y ninguno es cosmético:
+      //  1 · allowlist + detector: si algo sensible sobrevive, NO se emite respaldo.
+      //  2 · alta única: el POST va con `resolution=ignore-duplicates`, así dos sesiones
+      //      simultáneas no se pisan. Antes era leer-y-después-escribir, y las dos
+      //      declaraban éxito habiendo escrito copias distintas.
+      //  3 · actor: solo corre para un administrador. Es una reducción de superficie,
+      //      NO autorización: vive en el cliente y la clave pública viaja en el bundle.
+      //      La autorización de verdad exige servidor, y hoy el proxy está retirado.
       try {
         const hoy = new Date().toISOString().slice(0,10);
         const backupId = `backup_${hoy}`;
-        // Verificar si ya existe backup de hoy
+        const corr = (typeof crypto!=="undefined" && crypto.randomUUID) ? crypto.randomUUID()
+                     : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+        const t0 = Date.now();
+        console.log(`[Backup] inicio · id=${backupId} · corr=${corr}`);
         const chk = await fetch(`${SUPA_URL}/rest/v1/calendario_data?id=eq.${backupId}&select=id`,{
           headers:{apikey:SUPA_KEY,Authorization:`Bearer ${SUPA_KEY}`}
         });
         const exists = await chk.json();
         if(!exists || exists.length===0) {
-          // Leer TODAS las filas de datos (backup genérico, 2026-06-16): se
-          // respalda cualquier fila presente y futura — así un módulo nuevo
-          // queda cubierto automáticamente, sin tener que agregarlo a mano.
-          // Se EXCLUYEN: los propios backups (backup_*), los snapshots manuales
-          // de restauración (main_pre_restore_*) y el log de auditoría
-          // (audit_log, que es enorme y tiene su propia retención).
           const backupFiltro = "and=(id.not.like.backup_*,id.not.like.main_pre_restore_*,id.neq.audit_log)";
           const allRes = await fetch(`${SUPA_URL}/rest/v1/calendario_data?${backupFiltro}&select=id,value`,{
             headers:{apikey:SUPA_KEY,Authorization:`Bearer ${SUPA_KEY}`}
           });
           const allData = await allRes.json();
-          const backupData = { fecha:new Date().toISOString(), version:"auto-v3" };
-          (Array.isArray(allData)?allData:[]).forEach(row=>{
-            try { backupData[row.id] = typeof row.value==="string"?JSON.parse(row.value):row.value; }
-            catch { backupData[row.id] = row.value; }
+          const filas = (Array.isArray(allData)?allData:[]).map(row=>{
+            let v = row.value; try { if(typeof v==="string") v = JSON.parse(v); } catch {}
+            return { id: row.id, value: v };
           });
-          await fetch(`${SUPA_URL}/rest/v1/calendario_data`,{
+
+          // Actor. Se resuelve contra el padrón recién leído, sin depender de otro estado.
+          const nombreSesion = (typeof sessionStorage!=="undefined" && sessionStorage.getItem("mediterra_usuario")) || "";
+          const padron = (filas.find(f=>f.id==="main")||{}).value || {};
+          const actor = (padron.usuarios||[]).find(u=>u && u.nombre===nombreSesion);
+          const esAdmin = !!actor && actor.rol==="admin";
+          // El actor viaja ENMASCARADO a los registros: rol en claro (que es lo que
+          // explica la decisión) y un digest corto del nombre, que permite correlacionar
+          // dos corridas sin poner un nombre propio en la consola de nadie.
+          const actorSello = actor ? `${actor.rol}:${sha256Hex(actor.nombre).slice(0,8)}` : "sin_sesion";
+
+          if(!esAdmin){
+            console.log(`[Backup] omitido · actor=${actorSello} sin rol de administrador · corr=${corr}`);
+          } else {
+          const res = construirRespaldo(filas, { digest: sha256Hex, version: "auto-v4" });
+          if(!res.ok){
+            // FAIL-CLOSED: no se escribe un respaldo parcial ni "casi limpio".
+            console.error(`[Backup] ABORTADO · actor=${actorSello} · motivo=${res.motivo} · sensibles=${(res.sensibles||[]).length} · noDeclarados=${(res.noDeclarados||[]).length} · corr=${corr}`);
+          } else {
+          const m = res.manifiesto;
+          const backupData = { fecha:new Date().toISOString(), version:"auto-v4", corr, _manifiesto:m, ...res.payload };
+          const w = await fetch(`${SUPA_URL}/rest/v1/calendario_data`,{
             method:"POST",
-            headers:{apikey:SUPA_KEY,Authorization:`Bearer ${SUPA_KEY}`,"Content-Type":"application/json",Prefer:"resolution=merge-duplicates"},
+            headers:{apikey:SUPA_KEY,Authorization:`Bearer ${SUPA_KEY}`,"Content-Type":"application/json",
+                     Prefer:"resolution=ignore-duplicates,return=representation"},
             body:JSON.stringify({id:backupId, value:backupData, updated_at:new Date().toISOString()})
           });
-          console.log(`[Backup] ✅ Backup automático creado: ${backupId} (${Object.keys(backupData).length-2} filas)`);
+          const escrito = await w.json().catch(()=>[]);
+          const gano = Array.isArray(escrito) && escrito.length===1;
+          const ms = Date.now()-t0;
+          if(!w.ok){
+            console.error(`[Backup] ERROR al escribir · http=${w.status} · corr=${corr} · ${ms}ms`);
+          } else if(!gano){
+            // Cero filas devueltas = otra sesión lo creó primero. No es éxito ni error:
+            // es la carrera resuelta por la base, y se dice con esas palabras.
+            console.log(`[Backup] ya existía · otra sesión ganó la carrera · corr=${corr} · ${ms}ms`);
+          } else {
+            console.log(`[Backup] ✅ ${backupId} v=auto-v4 · actor=${actorSello} · recursos=${m.filas} · excluidos=${m.excluidos.length} · noDeclarados=${m.noDeclarados.length} · sensibles=0 · bytes=${m.bytesTotal} · huella=${String(m.huellaTotal).slice(0,12)} · corr=${corr} · ${ms}ms`);
+            if(m.noDeclarados.length) console.warn(`[Backup] SIN RESPALDAR (no declarados): ${m.noDeclarados.join(", ")}`);
+          }
+          }
 
           // ── Retención de backups ──
           // Conserva: todos los de los últimos 30 días + el del día 1 de cada
@@ -2318,6 +2365,9 @@ export default function App(){
             }
             if(aBorrar.length) console.log(`[Backup] 🧹 Retención: ${aBorrar.length} backup(s) antiguo(s) eliminado(s).`);
           } catch(e){ console.warn("[Backup] Error en retención (no crítico):", e); }
+          // La retención BORRA filas, así que queda dentro del mismo gate que la creación:
+          // un actor que no puede crear un respaldo tampoco puede borrar los que hay.
+          }
         } else {
           console.log(`[Backup] Ya existe backup de hoy: ${backupId}`);
         }
