@@ -178,12 +178,20 @@ export function sanearFila(valor, regla) {
     if (arreglos[k]) {
       const camposElem = new Set(arreglos[k]);
       const arr = Array.isArray(valor[k]) ? valor[k] : [];
+      // Los campos retirados DENTRO de cada elemento tambien se declaran. Antes no:
+      // `main` reportaba 0 retirados mientras quitaba 7 campos por usuario, `pin`
+      // incluido. Un manifiesto que dice cero mientras retira algo miente por omision.
+      const dentro = new Set();
       salida[k] = arr.map((el) => {
         if (!el || typeof el !== "object") return null;
         const o = {};
-        for (const kk of Object.keys(el)) if (camposElem.has(kk)) o[kk] = el[kk];
+        for (const kk of Object.keys(el)) {
+          if (camposElem.has(kk)) o[kk] = el[kk];
+          else dentro.add(kk);
+        }
         return o;
       });
+      for (const kk of [...dentro].sort()) retirados.push(k + "[]." + kk);
       continue;
     }
     retirados.push(k);
