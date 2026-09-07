@@ -107,6 +107,11 @@ const EMAILJS_KEY      = process.env.REACT_APP_EMAILJS_KEY;
 const FECHA_INICIO     = new Date(2026, 3, 13);
 
 // DEV/UAT override (F7.8.1-D): env solo en .env.development.local; fallback = prod exacto.
+// Interruptor del hotfix A. `true` = generador de respaldos suspendido por completo.
+// Volver a `false` reactiva el generador VIEJO (auto-v3), que copia credenciales: no
+// se hace sin reemplazo. El reemplazo es `auto-v4`, y espera autorización server-side.
+const BACKUP_AUTOMATICO_SUSPENDIDO = true;
+
 const SUPA_URL = process.env.REACT_APP_SUPA_URL || "https://bywovqayuzodbzwsriet.supabase.co";
 // Etapa 3 seguridad: si el interruptor está prendido, enruta la base por el guardia.
 installGuard(SUPA_URL);
@@ -2255,73 +2260,27 @@ export default function App(){
       }
       setCargando(false);
 
-      // ── Backup automático diario ──
-      try {
-        const hoy = new Date().toISOString().slice(0,10);
-        const backupId = `backup_${hoy}`;
-        // Verificar si ya existe backup de hoy
-        const chk = await fetch(`${SUPA_URL}/rest/v1/calendario_data?id=eq.${backupId}&select=id`,{
-          headers:{apikey:SUPA_KEY,Authorization:`Bearer ${SUPA_KEY}`}
-        });
-        const exists = await chk.json();
-        if(!exists || exists.length===0) {
-          // Leer TODAS las filas de datos (backup genérico, 2026-06-16): se
-          // respalda cualquier fila presente y futura — así un módulo nuevo
-          // queda cubierto automáticamente, sin tener que agregarlo a mano.
-          // Se EXCLUYEN: los propios backups (backup_*), los snapshots manuales
-          // de restauración (main_pre_restore_*) y el log de auditoría
-          // (audit_log, que es enorme y tiene su propia retención).
-          const backupFiltro = "and=(id.not.like.backup_*,id.not.like.main_pre_restore_*,id.neq.audit_log)";
-          const allRes = await fetch(`${SUPA_URL}/rest/v1/calendario_data?${backupFiltro}&select=id,value`,{
-            headers:{apikey:SUPA_KEY,Authorization:`Bearer ${SUPA_KEY}`}
-          });
-          const allData = await allRes.json();
-          const backupData = { fecha:new Date().toISOString(), version:"auto-v3" };
-          (Array.isArray(allData)?allData:[]).forEach(row=>{
-            try { backupData[row.id] = typeof row.value==="string"?JSON.parse(row.value):row.value; }
-            catch { backupData[row.id] = row.value; }
-          });
-          await fetch(`${SUPA_URL}/rest/v1/calendario_data`,{
-            method:"POST",
-            headers:{apikey:SUPA_KEY,Authorization:`Bearer ${SUPA_KEY}`,"Content-Type":"application/json",Prefer:"resolution=merge-duplicates"},
-            body:JSON.stringify({id:backupId, value:backupData, updated_at:new Date().toISOString()})
-          });
-          console.log(`[Backup] ✅ Backup automático creado: ${backupId} (${Object.keys(backupData).length-2} filas)`);
-
-          // ── Retención de backups ──
-          // Conserva: todos los de los últimos 30 días + el del día 1 de cada
-          // mes (histórico mensual). Borra el resto. Protecciones: nunca toca
-          // los 7 más recientes y borra a lo sumo 20 por corrida. Así se evita
-          // que los backups crezcan sin límite y consuman la cuota de Supabase.
-          try {
-            const lst = await fetch(`${SUPA_URL}/rest/v1/calendario_data?id=like.backup_*&select=id`,{
-              headers:{apikey:SUPA_KEY,Authorization:`Bearer ${SUPA_KEY}`}
-            });
-            const filas = await lst.json();
-            const ids = (Array.isArray(filas)?filas:[]).map(r=>r.id).sort(); // asc por fecha
-            const recientes = new Set(ids.slice(-7)); // los 7 más nuevos: intocables
-            const corte = new Date(); corte.setDate(corte.getDate()-30);
-            const aBorrar = ids.filter(id=>{
-              if(recientes.has(id)) return false;
-              const fecha = id.slice(7);               // "YYYY-MM-DD"
-              const d = new Date(fecha);
-              if(isNaN(d.getTime())) return false;      // formato raro → no tocar
-              if(d >= corte) return false;              // dentro de 30 días → conservar
-              if(fecha.endsWith("-01")) return false;   // día 1 → histórico mensual
-              return true;
-            }).slice(0,20);                             // tope de seguridad por corrida
-            for(const id of aBorrar){
-              await fetch(`${SUPA_URL}/rest/v1/calendario_data?id=eq.${id}`,{
-                method:"DELETE",
-                headers:{apikey:SUPA_KEY,Authorization:`Bearer ${SUPA_KEY}`}
-              });
-            }
-            if(aBorrar.length) console.log(`[Backup] 🧹 Retención: ${aBorrar.length} backup(s) antiguo(s) eliminado(s).`);
-          } catch(e){ console.warn("[Backup] Error en retención (no crítico):", e); }
-        } else {
-          console.log(`[Backup] Ya existe backup de hoy: ${backupId}`);
-        }
-      } catch(e) { console.warn("[Backup] Error en backup automático:", e); }
+      // ── Backup automático diario · SUSPENDIDO (hotfix A, 2026-09-03) ──
+      // El generador `auto-v3` queda DESACTIVADO. No es una pausa cosmética: este bloque
+      // ya no emite ninguna petición a la base, así que ninguna pestaña y ningún usuario
+      // puede crear una fila `backup_*` desde acá.
+      //
+      // POR QUÉ. Filtraba por LISTA NEGRA y copiaba todo lo demás, `main` y `pins`
+      // incluidas: cada respaldo diario era una fotografía de las credenciales del día. Y
+      // corría para cualquier usuario, no sólo para un administrador.
+      //
+      // LO QUE ESTE CAMBIO NO HACE, a propósito:
+      //   · no borra ningún respaldo existente. La RETENCIÓN también queda apagada, porque
+      //     hacía DELETE de filas y este hotfix no toca datos;
+      //   · no escribe en `main`, `pins` ni en ninguna otra fila;
+      //   · no activa el reemplazo `auto-v4`, que espera autorización server-side.
+      //
+      // Reactivar es una línea: BACKUP_AUTOMATICO_SUSPENDIDO = false.
+      if (BACKUP_AUTOMATICO_SUSPENDIDO) {
+        // Registro local. Sin credenciales, sin identidad, sin nombres de filas.
+        console.warn("[Backup] Generador automático SUSPENDIDO. No se crean ni se borran respaldos.");
+        try { sessionStorage.setItem("mediterra_backup_suspendido", "1"); } catch (e) {}
+      }
       // Restaurar sesión después de un reload automático
       const savedNombre = sessionStorage.getItem('mediterra_usuario');
       if(savedNombre) {
@@ -3748,6 +3707,14 @@ Equipo Mediterra`);
 
     return (
       <div style={{fontFamily:"sans-serif",background:C.cardAlt,minHeight:"100vh"}}>
+        {/* Aviso del hotfix A: SOLO administrador. El resto del equipo no necesita verlo
+            y un banner para todos convierte una medida de seguridad en ruido diario. */}
+        {BACKUP_AUTOMATICO_SUSPENDIDO && esAdmin(usuarioActual?.nombre) && (
+          <div style={{background:"#fef3c7",borderBottom:"1px solid #fcd34d",color:"#92400e",padding:"10px 16px",fontSize:13,fontWeight:600,display:"flex",alignItems:"center",gap:8}}>
+            <span>⏸</span>
+            <span>Respaldo automático temporalmente suspendido. Los respaldos existentes están intactos; no se crean nuevos hasta habilitar el reemplazo seguro.</span>
+          </div>
+        )}
         {/* Modal editar comentario */}
         {editComentario&&(
           <div style={{position:"fixed",inset:0,background:"rgba(16,24,40,0.55)",zIndex:300,display:"flex",alignItems:"center",justifyContent:"center"}}>
