@@ -63,12 +63,35 @@ describe("HOTFIX A · generador de respaldos detenido", () => {
     expect(codigo.includes("backupGenerador")).toBe(false);
   });
 
-  test("el aviso es exclusivo del administrador", () => {
-    const i = codigo.indexOf("Respaldo automático temporalmente suspendido");
-    expect(i).toBeGreaterThan(-1);
-    // La condición de render tiene que exigir rol admin, no sólo el interruptor.
-    const antes = codigo.slice(Math.max(0, i - 400), i);
-    expect(/esAdmin\s*\(/.test(antes)).toBe(true);
+  // La version anterior de esta prueba solo pedia que `esAdmin(` apareciera cerca del
+  // aviso, y PASO con el banner puesto en la vista de Tareas — otro `return` del mismo
+  // archivo, donde `esAdmin` tambien esta en alcance. En el Preview el aviso no aparecia.
+  // Lo encontro el gate, no la lectura del diff. Ahora se exige que este DENTRO de
+  // `HubScreen`, que es la pantalla que el administrador ve al entrar.
+  test("el aviso vive dentro de HubScreen", () => {
+    const iniHub = codigo.indexOf("function HubScreen(");
+    expect(iniHub).toBeGreaterThan(-1);
+    // El componente termina donde empieza el siguiente de nivel superior.
+    const sig = codigo.indexOf(String.fromCharCode(10) + "function ", iniHub + 10);
+    const cuerpoHub = codigo.slice(iniHub, sig === -1 ? codigo.length : sig);
+    expect(cuerpoHub.includes("temporalmente suspendido")).toBe(true);
+  });
+
+  test("el aviso exige rol admin, no solo el interruptor", () => {
+    const i = codigo.indexOf("temporalmente suspendido");
+    const antes = codigo.slice(Math.max(0, i - 500), i);
+    const exigeRol = antes.includes(String.fromCharCode(34)+"admin"+String.fromCharCode(34)) || antes.includes("esAdmin(");
+    expect(exigeRol).toBe(true);
+    expect(antes.includes("BACKUP_AUTOMATICO_SUSPENDIDO")).toBe(true);
+  });
+
+  // La version anterior de este caso miraba una ventana de 1.200 caracteres antes de la
+  // vista de Tareas, y PASABA contra el commit roto: el banner estaba mas lejos. Una
+  // ventana arbitraria no es una medicion. Esto si lo es: el aviso aparece UNA vez en
+  // todo el archivo, y el caso de arriba prueba que esa unica vez esta en HubScreen.
+  test("el aviso aparece exactamente una vez en todo el archivo", () => {
+    const veces = codigo.split("temporalmente suspendido").length - 1;
+    expect(veces).toBe(1);
   });
 
   test("el registro local no lleva datos sensibles", () => {

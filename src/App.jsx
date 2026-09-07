@@ -1592,6 +1592,18 @@ function HubScreen({ usuario, modulosPermitidos, onSelectModulo, onLogout, onCam
         </div>
       </div>
 
+      {/* Aviso del hotfix A: SOLO administrador. Va en HubScreen, que es la pantalla
+          que se ve al entrar. El primer intento lo puso en la vista de Tareas —otro
+          `return` del mismo archivo— y en el Preview no aparecia. Lo encontro el gate,
+          no la lectura del diff. */}
+      {BACKUP_AUTOMATICO_SUSPENDIDO && usuario?.rol === "admin" && (
+        <div style={{maxWidth:1120, margin:"0 auto", padding:"14px 32px 0"}}>
+          <div style={{background:"#fef3c7",border:"1px solid #fcd34d",borderRadius:10,color:"#92400e",padding:"10px 14px",fontSize:13,fontWeight:600,display:"flex",alignItems:"center",gap:8}}>
+            <span>⏸</span>
+            <span>Respaldo automático temporalmente suspendido. Los respaldos existentes están intactos; no se crean nuevos hasta habilitar el reemplazo seguro.</span>
+          </div>
+        </div>
+      )}
       {/* Franja de bienvenida ejecutiva */}
       <div style={{maxWidth:1120, margin:"0 auto", padding:"30px 32px 6px"}}>
         <div style={{fontSize:22, fontWeight:800, color:C.text, letterSpacing:"-0.2px"}}>
@@ -3707,14 +3719,6 @@ Equipo Mediterra`);
 
     return (
       <div style={{fontFamily:"sans-serif",background:C.cardAlt,minHeight:"100vh"}}>
-        {/* Aviso del hotfix A: SOLO administrador. El resto del equipo no necesita verlo
-            y un banner para todos convierte una medida de seguridad en ruido diario. */}
-        {BACKUP_AUTOMATICO_SUSPENDIDO && esAdmin(usuarioActual?.nombre) && (
-          <div style={{background:"#fef3c7",borderBottom:"1px solid #fcd34d",color:"#92400e",padding:"10px 16px",fontSize:13,fontWeight:600,display:"flex",alignItems:"center",gap:8}}>
-            <span>⏸</span>
-            <span>Respaldo automático temporalmente suspendido. Los respaldos existentes están intactos; no se crean nuevos hasta habilitar el reemplazo seguro.</span>
-          </div>
-        )}
         {/* Modal editar comentario */}
         {editComentario&&(
           <div style={{position:"fixed",inset:0,background:"rgba(16,24,40,0.55)",zIndex:300,display:"flex",alignItems:"center",justifyContent:"center"}}>
