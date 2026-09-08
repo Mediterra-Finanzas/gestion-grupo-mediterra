@@ -15,9 +15,9 @@
 
 const crypto = require("crypto");
 
-// Preview (staging) → SUPABASE_URL apunta a gestion-mediterra-staging.
-// Production → sin SUPABASE_URL, cae al fallback productivo CURRENT (sin cambio de comportamiento).
-const SUPA_URL = process.env.SUPABASE_URL || "https://bywovqayuzodbzwsriet.supabase.co";
+// SEC-ENV-002 (STG-7b): la URL de Supabase se resuelve FAIL-CLOSED (SUPABASE_URL
+// obligatoria + tripwire por APP_ENV, sin fallback a PROD). Lazy: valida al usarse.
+const { serverSupaUrl } = require("./_serverEnv.js");
 const SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || "";
 const SESSION_SECRET = process.env.SESSION_SECRET || "";
 
@@ -92,7 +92,7 @@ function sesionDeRequest(req) {
 
 // ---- acceso a Supabase con la llave de servicio (solo servidor) ----
 async function supaFetch(path, opts = {}) {
-  const url = `${SUPA_URL}/rest/v1/${path}`;
+  const url = `${serverSupaUrl()}/rest/v1/${path}`;
   const headers = Object.assign({
     apikey: SERVICE_KEY,
     Authorization: `Bearer ${SERVICE_KEY}`,
@@ -105,8 +105,10 @@ function faltanSecretos() {
 }
 
 module.exports = {
-  SUPA_URL, COOKIE_NAME, SESION_HORAS,
+  COOKIE_NAME, SESION_HORAS,
   crearToken, verificarSesion, sesionDeRequest,
   cookieSesion, cookieBorrar, leerCookie,
   supaFetch, faltanSecretos,
 };
+// SEC-ENV-002 (STG-7b): SUPA_URL expuesto como getter lazy fail-closed (sin literal PROD).
+Object.defineProperty(module.exports, "SUPA_URL", { enumerable: true, get: serverSupaUrl });

@@ -3,8 +3,8 @@
 // Helpers de persistencia para tablas anf_* (Análisis Financiero).
 // Usa REST API de Supabase directamente (misma convención que el resto del proyecto).
 
-const SUPA_URL = 'https://bywovqayuzodbzwsriet.supabase.co';
-const SUPA_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJ5d292cWF5dXpvZGJ6d3NyaWV0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU2ODU1MDgsImV4cCI6MjA5MTI2MTUwOH0.s2x2O_CxE6rl8dBqFuyfQdMyRqSyjJQWXJXesmVGXtk';
+// SEC-ENV-001: config única, fail-closed.
+import { SUPA_URL, SUPA_KEY } from '../config/env';
 
 const HDR = () => ({
   apikey: SUPA_KEY,

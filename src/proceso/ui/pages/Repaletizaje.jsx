@@ -7,7 +7,7 @@ import { useService } from "../hooks/useServiceContext";
 import {
   cargarBodega, cargarLineasPallet, crearPallet, repaletizar, cargarUbicacionesActivas, siguienteCorrelativo,
 } from "../../core/procesoF7DB";
-import { traducirError } from "../../core/procesoF7Domain";
+import { traducirError, temporadaParaCrear } from "../../core/procesoF7Domain";
 import {
   ProcPageHeader, ProcCard, ProcButton, ProcField, inputStyle, ProcStatusBadge,
   ProcLoadingState, ProcErrorState, ProcEmptyState,
@@ -55,6 +55,10 @@ export default function Repaletizaje() {
 
   const ejecutar = async () => {
     if (moves.length === 0) return notificar("Agregá al menos un movimiento", "error");
+    // Solo se exige temporada real si hay que crear pallets destino nuevos (correlativo PAL); nunca "s-t".
+    const requiereTemporada = destinos.some((d) => d.tipo !== "existente");
+    const tmp = requiereTemporada ? temporadaParaCrear(temporada) : { codigo: null };
+    if (tmp.error) return notificar(tmp.error, "error");
     setGuardando(true);
     try {
       // crear pallets destino nuevos
@@ -62,8 +66,8 @@ export default function Repaletizaje() {
       for (const d of destinos) {
         if (d.tipo === "existente") { destIds.push(d.pallet_id); }
         else {
-          const codigo = await siguienteCorrelativo({ empresaId: empresa, temporada: temporada || "s-t", tipo: "PAL" });
-          const pid = await crearPallet({ empresaId: empresa, codigo, temporada: temporada || "s-t", plantaId: planta, ubicacionId: d.ubicacion_id || null });
+          const codigo = await siguienteCorrelativo({ empresaId: empresa, temporada: tmp.codigo, tipo: "PAL" });
+          const pid = await crearPallet({ empresaId: empresa, codigo, temporada: tmp.codigo, plantaId: planta, ubicacionId: d.ubicacion_id || null });
           destIds.push(pid);
         }
       }

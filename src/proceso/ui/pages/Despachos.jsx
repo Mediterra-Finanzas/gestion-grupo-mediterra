@@ -4,7 +4,7 @@
 import React, { useEffect, useState, useCallback } from "react";
 import { useService } from "../hooks/useServiceContext";
 import { cargarDespachoListado, crearDespacho, siguienteCorrelativo, cargarVinculosPorRol } from "../../core/procesoF7DB";
-import { traducirError, badgeDe, vistaDespachos } from "../../core/procesoF7Domain";
+import { traducirError, badgeDe, vistaDespachos, temporadaParaCrear } from "../../core/procesoF7Domain";
 import {
   ProcPageHeader, ProcButton, ProcCard, ProcDataTable, ProcStatusBadge, ProcModal, ProcField, inputStyle,
   ProcLoadingState, ProcErrorState, ProcEmptyState, ProcFilters,
@@ -50,8 +50,10 @@ export default function Despachos() {
   };
   const crear = async () => {
     if (!nuevo.cliente) return notificar("Falta cliente del servicio", "error");
+    const tmp = temporadaParaCrear(temporada);
+    if (tmp.error) return notificar(tmp.error, "error");
     try {
-      const folio = await siguienteCorrelativo({ empresaId: empresa, temporada: temporada || "s-t", tipo: "DES" });
+      const folio = await siguienteCorrelativo({ empresaId: empresa, temporada: tmp.codigo, tipo: "DES" });
       const id = await crearDespacho({ empresaId: empresa, folio, plantaId: planta, clienteVinculoId: nuevo.cliente, destinatarioVinculoId: nuevo.destinatario || null });
       setNuevo(null); notificar(`Despacho ${folio} creado`); ir("despacho", { id });
     } catch (e) { notificar(traducirError(e), "error"); }

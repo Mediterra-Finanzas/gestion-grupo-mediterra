@@ -3,7 +3,7 @@
 import React, { useEffect, useState, useCallback } from "react";
 import { useService } from "../hooks/useServiceContext";
 import { cargarOrdenListado, crearOrden, siguienteCorrelativo } from "../../core/procesoF7DB";
-import { traducirError, badgeDe, estadoConciliacion } from "../../core/procesoF7Domain";
+import { traducirError, badgeDe, estadoConciliacion, temporadaParaCrear } from "../../core/procesoF7Domain";
 import {
   ProcPageHeader, ProcButton, ProcCard, ProcDataTable, ProcStatusBadge, ProcModal, ProcField, inputStyle,
   ProcLoadingState, ProcErrorState, ProcEmptyState, ProcFilters,
@@ -38,8 +38,10 @@ export default function Ordenes() {
 
   const crear = async () => {
     if (!nueva.especie_codigo) return notificar("Falta especie", "error");
+    const tmp = temporadaParaCrear(temporada);
+    if (tmp.error) return notificar(tmp.error, "error");
     try {
-      const folio = await siguienteCorrelativo({ empresaId: empresa, temporada: temporada || "s-t", tipo: "ORD" });
+      const folio = await siguienteCorrelativo({ empresaId: empresa, temporada: tmp.codigo, tipo: "ORD" });
       const o = await crearOrden({
         empresa_id: empresa, folio, planta_id: planta || null, estado: "en_proceso",
         especie_codigo: nueva.especie_codigo, variedad_codigo: nueva.variedad_codigo || null, turno: nueva.turno || null,

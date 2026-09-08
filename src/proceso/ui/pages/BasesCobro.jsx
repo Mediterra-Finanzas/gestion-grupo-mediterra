@@ -5,7 +5,7 @@
 import React, { useEffect, useState, useCallback } from "react";
 import { useService } from "../hooks/useServiceContext";
 import { cargarBasesCobro, crearBaseCobro, cargarVinculosPorRol, siguienteCorrelativo } from "../../core/procesoF7DB";
-import { traducirError, badgeDe } from "../../core/procesoF7Domain";
+import { traducirError, badgeDe, temporadaParaCrear } from "../../core/procesoF7Domain";
 import {
   ProcPageHeader, ProcButton, ProcCard, ProcDataTable, ProcStatusBadge, ProcModal, ProcField, inputStyle,
   ProcLoadingState, ProcErrorState, ProcEmptyState, ProcFilters,
@@ -46,10 +46,12 @@ export default function BasesCobro() {
 
   const crear = async () => {
     if (!nueva.cliente_vinculo_id) return notificar("Elegí cliente", "error");
+    const tmp = temporadaParaCrear(temporada);
+    if (tmp.error) return notificar(tmp.error, "error");
     try {
-      const folio = await siguienteCorrelativo({ empresaId: empresa, temporada: temporada || "s-t", tipo: "BCO" });
+      const folio = await siguienteCorrelativo({ empresaId: empresa, temporada: tmp.codigo, tipo: "BCO" });
       const id = await crearBaseCobro({
-        empresaId: empresa, folio, clienteId: nueva.cliente_vinculo_id, temporada: temporada || null,
+        empresaId: empresa, folio, clienteId: nueva.cliente_vinculo_id, temporada: tmp.codigo,
         desde: nueva.desde || null, hasta: nueva.hasta || null, moneda: nueva.moneda || "USD",
       });
       const baseId = Array.isArray(id) ? id[0] : (id?.proc_fn_crear_base_cobro || id);

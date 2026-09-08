@@ -6,11 +6,12 @@
 // ═══════════════════════════════════════════════════════════════════
 
 // ── Persistencia genérica (Supabase calendario_data) ──
-// DEV/UAT override (F7.8.1-D): si REACT_APP_SUPA_URL/KEY están seteadas (solo en
-// .env.development.local local, NUNCA en prod), la app apunta a ese entorno. Sin
-// esas env vars el valor es EXACTAMENTE el productivo → build de prod idéntico.
-export const SUPA_URL = process.env.REACT_APP_SUPA_URL || "https://bywovqayuzodbzwsriet.supabase.co";
-export const SUPA_KEY = process.env.REACT_APP_SUPA_KEY || "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJ5d292cWF5dXpvZGJ6d3NyaWV0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU2ODU1MDgsImV4cCI6MjA5MTI2MTUwOH0.s2x2O_CxE6rl8dBqFuyfQdMyRqSyjJQWXJXesmVGXtk";
+// SEC-ENV-001: la config del cliente Supabase vive en src/config/env.js (fuente
+// única, fail-closed, con tripwire de aislamiento por entorno). friskuHelpers es
+// el hub que re-exporta SUPA_URL/SUPA_KEY para el resto de los módulos (incluye
+// proceso/core/procesoDB y procStorage, deuda PROC-INFRA-001).
+export { SUPA_URL, SUPA_KEY } from "./config/env";
+import { SUPA_URL, SUPA_KEY } from "./config/env";
 
 // FASE 4A — guardia de archivos. Cuando el interruptor está prendido, las
 // operaciones de Storage piden URLs firmadas al servidor (/api/storage) en

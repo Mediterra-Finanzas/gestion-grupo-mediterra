@@ -1,11 +1,12 @@
 // api/_supaAdmin.js — Adaptador server-only para Supabase Auth (GoTrue) admin. Option C.
 // Reutiliza el patrón probado en osiris-auth: admin/generate_link(magiclink) → verify → sesión.
 // NUNCA en browser. service_role solo aquí (server). fetch inyectable para tests.
-const SUPA_URL = process.env.SUPABASE_URL || "https://bywovqayuzodbzwsriet.supabase.co";
+const { serverSupaUrl } = require("./_serverEnv.js"); // SEC-ENV-002 (STG-7b): fail-closed, sin fallback PROD
 const SERVICE = process.env.SUPABASE_SERVICE_ROLE_KEY || "";
 const ANON = process.env.SUPABASE_ANON_KEY || "";
 
-function makeAdmin({ url = SUPA_URL, service = SERVICE, anon = ANON, fetchImpl = fetch } = {}) {
+// url por defecto = serverSupaUrl() (lazy: solo se evalúa si no se inyecta `url` en tests).
+function makeAdmin({ url = serverSupaUrl(), service = SERVICE, anon = ANON, fetchImpl = fetch } = {}) {
   const admHeaders = { apikey: service, Authorization: `Bearer ${service}`, "Content-Type": "application/json" };
 
   const normEmail = (e) => String(e == null ? "" : e).trim().toLowerCase();

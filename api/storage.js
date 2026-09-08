@@ -15,12 +15,14 @@
 
 const { sesionDeRequest, faltanSecretos } = require("./_auth");
 
-const SUPA_URL = "https://bywovqayuzodbzwsriet.supabase.co";
+// SEC-ENV-002 (STG-7b): fail-closed, sin literal PROD. URL vía resolver (lazy).
+const { serverSupaUrl } = require("./_serverEnv.js");
 const SERVICE = process.env.SUPABASE_SERVICE_ROLE_KEY || "";
 const BUCKETS_PERMITIDOS = new Set(["frisku-docs", "nominas-docs"]);
 
 module.exports = async function handler(req, res) {
   if (faltanSecretos()) return res.status(503).json({ error: "no_configurado" });
+  const SUPA_URL = serverSupaUrl();
   if (!sesionDeRequest(req)) return res.status(401).json({ error: "sin_sesion" });
   if (req.method !== "POST") { res.setHeader("Allow", "POST"); return res.status(405).json({ error: "metodo" }); }
 

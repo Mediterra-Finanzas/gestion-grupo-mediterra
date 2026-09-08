@@ -334,6 +334,21 @@ export function temporadaDeFecha(temporadas = [], fecha) {
   return { error: cubren.length === 0 ? "cero" : "multiple" };
 }
 
+// MS-G1 · Mensaje humano estándar cuando el selector de temporada de la barra superior está en
+// "Toda temporada" (value = null) y la acción en curso CREA un registro. La creación necesita una
+// temporada real elegida — nunca el placeholder "s-t".
+export const MSG_TEMPORADA_REQUERIDA =
+  'Seleccioná una temporada en la barra superior antes de crear (no puede ser "Toda temporada").';
+
+// MS-G1 · Valida la temporada elegida en el selector del shell para operaciones de CREACIÓN
+// (correlativos + persistencia). Devuelve { codigo } si hay una temporada real seleccionada;
+// { error } (mensaje humano) si no, para bloquear la creación en vez de caer al placeholder "s-t".
+export function temporadaParaCrear(temporada) {
+  const cod = (temporada == null ? "" : String(temporada)).trim();
+  if (!cod) return { error: MSG_TEMPORADA_REQUERIDA };
+  return { codigo: cod };
+}
+
 // ── PROC-ENVASES-001 · helpers de UI (puros/testeables) ──────────────────────
 export const NATURALEZA_ENVASE_LABEL = { apertura: "Apertura", ingreso: "Ingreso", salida: "Salida / Entrega",
   transferencia: "Transferencia", ajuste: "Ajuste", dano: "Daño", perdida: "Pérdida", baja: "Baja" };

@@ -8,7 +8,7 @@ import {
   cargarResultadoMaterializable, cargarPTOperacional, materializarPT, cargarFormatos,
   cargarBodega, crearPallet, palletizar, cargarUbicacionesActivas, siguienteCorrelativo,
 } from "../../core/procesoF7DB";
-import { traducirError } from "../../core/procesoF7Domain";
+import { traducirError, temporadaParaCrear } from "../../core/procesoF7Domain";
 import {
   ProcPageHeader, ProcCard, ProcButton, ProcDataTable, ProcStatusBadge, ProcModal, ProcField, inputStyle,
   ProcLoadingState, ProcErrorState, ProcEmptyState,
@@ -60,8 +60,10 @@ export default function ProductoTerminado() {
     try {
       let palletId = palForm.pallet_id;
       if (palForm.modo === "nuevo") {
-        const codigo = await siguienteCorrelativo({ empresaId: empresa, temporada: temporada || "s-t", tipo: "PAL" });
-        palletId = await crearPallet({ empresaId: empresa, codigo, temporada: temporada || "s-t", plantaId: planta, formatoId: palForm.pt.formato_id, ubicacionId: palForm.ubicacion_id || null });
+        const tmp = temporadaParaCrear(temporada);
+        if (tmp.error) return notificar(tmp.error, "error");
+        const codigo = await siguienteCorrelativo({ empresaId: empresa, temporada: tmp.codigo, tipo: "PAL" });
+        palletId = await crearPallet({ empresaId: empresa, codigo, temporada: tmp.codigo, plantaId: planta, formatoId: palForm.pt.formato_id, ubicacionId: palForm.ubicacion_id || null });
       }
       if (!palletId) return notificar("Seleccioná o creá un pallet", "error");
       await palletizar({ empresaId: empresa, ptId: palForm.pt.pt_id, palletId, cajas: Number(palForm.cajas) || 0, kg: Number(palForm.kg) });

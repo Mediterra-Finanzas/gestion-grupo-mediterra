@@ -10,9 +10,55 @@ import { clearProcToken } from "./proceso/core/procAuth";
 import { theme as C } from "./theme";
 import { ensureSupabaseSession, clearOsirisSession, getOsirisAccessToken, refreshOsirisSession } from "./data/supabase-auth";
 import { installGuard, USE_GUARD, pollRow } from "./guardClient";
+import { SUPA_URL, SUPA_KEY } from "./config/env"; // SEC-ENV-001: config única, fail-closed
+import { persist, construirAvisoDesde } from "./persistencia/instancia.js";
+import AvisoPersistencia from "./AvisoPersistencia.jsx";
 import { hashPin, verifyPin, pinNuevoValido, normalizarCelular } from "./pinHash";
 
 import { credencialPreservada } from "./data/credencialPreservada";
+
+// ═══════════════════════════════════════════════════════════════════
+// SEC-P0 Fase E · PIN server-side (cierre de la fila `pins` a anon).
+// Con el flag ON, TODO el ciclo de vida del PIN se resuelve en endpoints
+// server-side (service_role); el navegador NUNCA lee ni escribe la fila
+// `pins`. DEFAULT OFF → comportamiento de producción idéntico al actual.
+// Rollback = variable de entorno a "false" (o ausente).
+// CRÍTICO (regla 9): el flag apaga JUNTAS las lecturas (R1 carga inicial,
+// R2 login) y la escritura de auto-save (W2); además dbLoadPins/dbSavePins
+// quedan fail-closed en la fuente, de modo que ningún sitio que aún haga
+// merge de `pinsPersonalizados` (que en modo server queda {}) pueda
+// sobrescribir la fila con un objeto truncado (mismo patrón que borró
+// `main` el 2026-06-16). Ver docs/sec-p0-fase-E-prod-readiness.md.
+export const PIN_SERVER_SIDE = (process.env.REACT_APP_PIN_SERVER === "true");
+
+// POST JSON a un endpoint de PIN (Fase E). Devuelve {status, ok, json}.
+// No lanza: un fallo de red se traduce a status 0 → el llamador es fail-closed.
+async function pinApi(path, body) {
+  try {
+    const r = await fetch(path, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body || {}),
+    });
+    let j = {}; try { j = await r.json(); } catch { j = {}; }
+    return { status: r.status, ok: r.ok, json: j };
+  } catch (e) {
+    return { status: 0, ok: false, json: {} };
+  }
+}
+
+// Credenciales del admin en sesión para autorizar acciones server-side desde
+// componentes que no reciben la identidad por props. adminEmail sale del usuario
+// logueado (ambient `window._auditUsuarioActual`); el PIN se reingresa en un
+// prompt (mismo diseño que docs §3.7). Devuelve null si el admin cancela.
+function pedirCredsAdmin() {
+  const email = (window._auditUsuarioActual && window._auditUsuarioActual.email) || "";
+  if (!email) { window.alert("No hay una sesión de administrador activa."); return null; }
+  const adminPin = window.prompt("Confirma tu PIN de administrador para autorizar esta acción:");
+  if (adminPin == null || !adminPin.trim()) return null;
+  return { adminEmail: String(email).trim().toLowerCase(), adminPin: adminPin.trim() };
+}
+
 // ═══════════════════════════════════════════════════════════════════
 // ErrorBoundary: captura crash por archivos obsoletos tras deploy
 // En vez de pantalla blanca, muestra botón de actualizar
@@ -105,11 +151,10 @@ const EMAILJS_TEMPLATE_NOTIF = process.env.REACT_APP_EMAILJS_TEMPLATE_NOTIF;
 const EMAILJS_KEY      = process.env.REACT_APP_EMAILJS_KEY;
 const FECHA_INICIO     = new Date(2026, 3, 13);
 
-// DEV/UAT override (F7.8.1-D): env solo en .env.development.local; fallback = prod exacto.
-const SUPA_URL = process.env.REACT_APP_SUPA_URL || "https://bywovqayuzodbzwsriet.supabase.co";
-// Etapa 3 seguridad: si el interruptor está prendido, enruta la base por el guardia.
+// SEC-ENV-001: SUPA_URL/SUPA_KEY se importan desde ./config/env (fuente única,
+// fail-closed). Etapa 3 seguridad: si el interruptor está prendido, enruta la base
+// por el guardia.
 installGuard(SUPA_URL);
-const SUPA_KEY = process.env.REACT_APP_SUPA_KEY || "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJ5d292cWF5dXpvZGJ6d3NyaWV0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU2ODU1MDgsImV4cCI6MjA5MTI2MTUwOH0.s2x2O_CxE6rl8dBqFuyfQdMyRqSyjJQWXJXesmVGXtk";
 
 async function dbLoad() {
   // NO atrapar el error acá: si la lectura falla (red/timeout/HTTP), la
@@ -120,13 +165,19 @@ async function dbLoad() {
   // Anti-caché por HEADERS (NO por query param: PostgREST/Supabase rechaza con
   // 400 cualquier parámetro extra en la URL). cache:no-store evita la caché del
   // navegador; Cache-Control/Pragma piden a los intermediarios revalidar.
-  const res = await fetch(`${SUPA_URL}/rest/v1/calendario_data?id=eq.main&select=value`, {
+  const res = await fetch(`${SUPA_URL}/rest/v1/calendario_data?id=eq.main&select=value,updated_at`, {
     headers: { apikey: SUPA_KEY, Authorization: `Bearer ${SUPA_KEY}`, "Cache-Control": "no-cache", "Pragma": "no-cache" },
     cache: "no-store"
   });
   if(!res.ok) throw new Error(`dbLoad HTTP ${res.status}`);
   const data = await res.json();
-  return data?.[0]?.value || null;
+  const row = data?.[0];
+  const value = row?.value || null;
+  // F0-B: registrar esta lectura en el contrato compartido (versión + base)
+  // para habilitar saveConfirmed("main") con concurrencia optimista. Solo se
+  // llega aquí sin excepción (carga EXITOSA), así que respeta la Regla 9.
+  persist.registrarCarga("main", value, row?.updated_at || null, typeof row?.value === "string");
+  return value;
 }
 
 async function dbSave(value) {
@@ -153,17 +204,11 @@ async function dbSave(value) {
         return;
       }
     }
-    await fetch(`${SUPA_URL}/rest/v1/calendario_data`, {
-      method: "POST",
-      headers: {
-        apikey: SUPA_KEY,
-        Authorization: `Bearer ${SUPA_KEY}`,
-        "Content-Type": "application/json",
-        Prefer: "resolution=merge-duplicates"
-      },
-      body: JSON.stringify({ id: "main", value, updated_at: new Date().toISOString() })
-    });
-  } catch(e) { console.error("Error guardando:", e); }
+    // F0-B: la escritura pasa por el contrato compartido → PATCH condicionado
+    // por updated_at (concurrencia optimista) + confirmación por el servidor.
+    // Ya no es fire-and-forget con el error tragado: devuelve {ok,motivo}.
+    return await persist.saveConfirmed("main", value, {});
+  } catch(e) { console.error("Error guardando:", e); return { ok:false, motivo:"red", detalle:String((e&&e.message)||e) }; }
 }
 
 // ── Fila dedicada de PINs (id="pins") ──
@@ -175,27 +220,38 @@ async function dbSave(value) {
 // volvía a su PIN base). Esta fila SOLO se escribe cuando alguien cambia su PIN,
 // nunca en el auto-guardado de Tareas, así ninguna sesión vieja puede revertirla.
 async function dbLoadPins() {
+  // Fase E: con PIN server-side, el navegador NO lee la fila `pins` (la leen los
+  // endpoints con service_role). Devolver null aquí neutraliza R1/R2/W1 en la
+  // fuente, incluso si algún llamador se dejara sin gatear.
+  if (PIN_SERVER_SIDE) return null;
   // Anti-caché por HEADERS (NO por query param: PostgREST rechaza con 400). El
   // login debe leer el PIN vigente, nunca uno viejo cacheado.
-  const res = await fetch(`${SUPA_URL}/rest/v1/calendario_data?id=eq.pins&select=value`, {
+  const res = await fetch(`${SUPA_URL}/rest/v1/calendario_data?id=eq.pins&select=value,updated_at`, {
     headers: { apikey: SUPA_KEY, Authorization: `Bearer ${SUPA_KEY}`, "Cache-Control": "no-cache", "Pragma": "no-cache" },
     cache: "no-store"
   });
   if(!res.ok) throw new Error(`dbLoadPins HTTP ${res.status}`);
   const data = await res.json();
-  return data?.[0]?.value || null;   // null = fila no existe todavía (migración)
+  const row = data?.[0];
+  const value = row?.value || null;   // null = fila no existe todavía (migración)
+  // F0-B (ruta cliente): registrar versión/base para habilitar saveConfirmed("pins").
+  // No se llega aquí en modo server-side (early return arriba).
+  persist.registrarCarga("pins", value, row?.updated_at || null, typeof row?.value === "string");
+  return value;
 }
 async function dbSavePins(pins) {
+  // Fase E: con PIN server-side, el navegador NO escribe la fila `pins` (la
+  // escriben los endpoints con service_role). Este no-op es fail-closed: aunque
+  // un sitio aún llame dbSavePins con un merge del estado vacío `{}`, NUNCA se
+  // sobrescribe la fila con un objeto truncado (regla 9, incidente 2026-06-16).
+  if (PIN_SERVER_SIDE) { console.warn("[pins] dbSavePins ignorado (PIN_SERVER_SIDE=on): las escrituras van por endpoints server-side."); return; }
   try {
-    await fetch(`${SUPA_URL}/rest/v1/calendario_data`, {
-      method: "POST",
-      headers: {
-        apikey: SUPA_KEY, Authorization: `Bearer ${SUPA_KEY}`,
-        "Content-Type": "application/json", Prefer: "resolution=merge-duplicates"
-      },
-      body: JSON.stringify({ id: "pins", value: pins, updated_at: new Date().toISOString() })
-    });
-  } catch(e) { console.error("[pins] Error guardando fila dedicada:", e); }
+    // F0-B (SOLO ruta cliente, PIN_SERVER_SIDE=off): escritura confirmada por el
+    // servidor con concurrencia optimista. En modo server-side esta función es
+    // no-op (arriba) y la fila `pins` la escriben los endpoints con service_role,
+    // así que nunca hay doble-escritura de la fila por dos contratos.
+    return await persist.saveConfirmed("pins", pins, {});
+  } catch(e) { console.error("[pins] Error guardando fila dedicada:", e); return { ok:false, motivo:"red", detalle:String((e&&e.message)||e) }; }
 }
 
 // ── Código provisorio de recuperación (HASHEADO + expiración) ──
@@ -825,8 +881,22 @@ function PanelPermisos({ usuarios, setUsuarios, onClose, pinsPersonalizados = {}
   // entra con el código (su PIN anterior queda INHABILITADO) y crea uno nuevo
   // de 6 dígitos. Es la herramienta para destrabar a cualquiera sin acceso.
   async function resetearPinAdmin(u) {
-    if (!setPinsPersonalizados) return;
     if (!window.confirm(`¿Resetear el PIN de ${u.nombre}?\n\nSe generará un código provisorio (vence en 45 min). Su PIN actual quedará INHABILITADO y deberá crear uno nuevo de 6 dígitos al ingresar.`)) return;
+    // ── Fase E (W3): emisión de `_temp` server-side (E-4 pin-admin-reset) ──
+    if (PIN_SERVER_SIDE) {
+      const creds = pedirCredsAdmin();
+      if (!creds) return;
+      const { status, json: j } = await pinApi('/api/pin-admin-reset', {
+        adminEmail: creds.adminEmail, adminPin: creds.adminPin, targetEmail: u.email,
+      });
+      if (status !== 200 || !j.ok) { window.alert("No se pudo generar el código provisorio (¿PIN de admin correcto?)."); return; }
+      enviarEmail(u.email, u.nombre, "Código provisorio - Mediterra", `Tu código provisorio es: ${j.codigo}\n\nVence en 45 minutos. Al ingresar deberás crear un PIN nuevo de 6 dígitos. Tu PIN anterior quedó inhabilitado.\n\nhttps://gestion-grupo-mediterra.vercel.app`).catch(()=>{});
+      window.auditLog("reset_pin", {modulo:"sistema", seccion:"permisos",
+        descripcion:`Admin reseteó el PIN de ${u.nombre} (código provisorio emitido, server-side)`, registroId:u.nombre});
+      window.alert(`Código provisorio para ${u.nombre}:\n\n        ${j.codigo}\n\nVence en 45 minutos. Compártelo con el usuario (también se envió por correo).`);
+      return;
+    }
+    if (!setPinsPersonalizados) return;
     try {
       const codigo = genCodigo6();
       const tempCred = await crearTempCred(codigo);
@@ -993,6 +1063,26 @@ function PanelPermisos({ usuarios, setUsuarios, onClose, pinsPersonalizados = {}
                           // SEGURIDAD: el panel NUNCA muestra el PIN (van hasheados).
                           // Solo indica el ESTADO y ofrece "Resetear PIN" (emite un
                           // código provisorio para que el usuario cree uno nuevo).
+                          // Fase E (M1): con PIN server-side el navegador no tiene el estado
+                          // en memoria (la fila `pins` no se lee). Badge honesto; el detalle
+                          // (tieneHash/temp) se consulta vía E-7 pin-status (vista de estado).
+                          if(PIN_SERVER_SIDE){
+                            return (
+                              <>
+                                <span title="Las credenciales se gestionan en el servidor (fila `pins` cerrada al navegador)."
+                                  style={{display:"inline-flex",alignItems:"center",gap:5,background:C.cardAlt,
+                                  border:`1px solid ${C.border}`,color:C.muted,borderRadius:8,padding:"2px 9px",fontSize:11,fontWeight:700}}>
+                                  🔒 Gestionado en servidor
+                                </span>
+                                <button onClick={()=>resetearPinAdmin(u)}
+                                  title="Emite un código provisorio para que el usuario cree un PIN nuevo. No expone el PIN."
+                                  style={{background:C.cardAlt,border:`1px solid ${C.border}`,color:C.muted,borderRadius:8,
+                                    padding:"2px 9px",cursor:"pointer",fontSize:11,fontWeight:600}}>
+                                  🔄 Resetear PIN
+                                </button>
+                              </>
+                            );
+                          }
                           const est = estadoTemp(pinsPersonalizados[u.nombre+"_temp"]);
                           const tieneHash = !!pinsPersonalizados[u.nombre+"_h"];
                           let label, color, bg, title;
@@ -1242,8 +1332,22 @@ function NuevoUsuarioForm({setUsuarios, usuarios=[], pinsPersonalizados={}, setP
     const vp=pinNuevoValido(form.pin.trim());
     if(!vp.ok){setErr(vp.msg);return;}
     if(usuarios.find(u=>u.nombre===form.nombre)){setErr("Ya existe un usuario con ese nombre.");return;}
-    const cred=await hashPin(form.pin.trim()); cred.fecha=new Date().toISOString().slice(0,10); cred.pol="6dig";
     const mods=form.rol==="admin"?MODULOS_DISPONIBLES.map(m=>m.id):form.modulos;
+    // ── Fase E (W4): la credencial `_h` la crea el servidor (E-6 pin-create) ──
+    if (PIN_SERVER_SIDE) {
+      const creds = pedirCredsAdmin();
+      if (!creds) return;
+      const { status, json: j } = await pinApi('/api/pin-create', {
+        adminEmail: creds.adminEmail, adminPin: creds.adminPin,
+        nombre: form.nombre.trim(), pin: form.pin.trim(),
+      });
+      if (status !== 200 || !j.ok) { setErr("No se pudo crear la credencial (¿PIN de admin correcto?)."); return; }
+      setUsuarios(prev=>[...prev,{...form,pin:"",modulos:mods,esCFO:form.rol==="admin",desactivado:false}]);
+      setForm({nombre:"",cargo:"",email:"",pin:"",rol:"editor",modulos:["tareas"]});
+      setOpen(false);setErr("");
+      return;
+    }
+    const cred=await hashPin(form.pin.trim()); cred.fecha=new Date().toISOString().slice(0,10); cred.pol="6dig";
     // El usuario se guarda SIN PIN base en claro (pin:""); su credencial es el hash `_h`.
     setUsuarios(prev=>[...prev,{...form,pin:"",modulos:mods,esCFO:form.rol==="admin",desactivado:false}]);
     const next={...pinsPersonalizados,[form.nombre+"_h"]:JSON.stringify(cred)};
@@ -1337,7 +1441,7 @@ function CargaMasivaUsuariosForm({ usuarios, setUsuarios, pinsPersonalizados={},
 
   async function procesar(){
     const lineas=texto.split("\n").map(l=>l.trim()).filter(Boolean);
-    const creados=[], errores=[]; const nuevosH={};
+    const creados=[], errores=[]; const nuevosH={}; const credsBatch=[]; // credsBatch: {nombre,pin} para E-6 (Fase E)
     // Sets para detectar duplicados (existentes + dentro del mismo lote)
     const nombresUsados=new Set(usuarios.map(u=>(u.nombre||"").toLowerCase()));
     const emailsUsados=new Set(usuarios.map(u=>(u.email||"").toLowerCase()));
@@ -1354,19 +1458,36 @@ function CargaMasivaUsuariosForm({ usuarios, setUsuarios, pinsPersonalizados={},
         modulos: soloRend ? [] : ["tareas"], esCFO:false, desactivado:false};
       const u=garantizarAccesoRendiciones(base);
       if(pin && pinNuevoValido(pin).ok){
-        const cred=await hashPin(pin); cred.fecha=new Date().toISOString().slice(0,10); cred.pol="6dig";
-        nuevosH[nombre+"_h"]=JSON.stringify(cred);
+        if(PIN_SERVER_SIDE){
+          credsBatch.push({nombre, pin});   // el hash lo hace E-6 server-side
+        } else {
+          const cred=await hashPin(pin); cred.fecha=new Date().toISOString().slice(0,10); cred.pol="6dig";
+          nuevosH[nombre+"_h"]=JSON.stringify(cred);
+        }
       }
       creados.push(u);
       nombresUsados.add(nombre.toLowerCase());
       emailsUsados.add(email.toLowerCase());
     }
     if(creados.length){
+      // ── Fase E (W5): credenciales `_h` creadas por el servidor en batch (E-6) ──
+      if(PIN_SERVER_SIDE){
+        if(credsBatch.length){
+          const creds = pedirCredsAdmin();
+          if(!creds){ setResultado({creados:[],errores:["Carga cancelada: falta el PIN de administrador."]}); return; }
+          const { status, json: j } = await pinApi('/api/pin-create', {
+            adminEmail: creds.adminEmail, adminPin: creds.adminPin, usuarios: credsBatch,
+          });
+          if(status!==200 || !j.ok){ setResultado({creados:[],errores:["No se pudieron crear las credenciales (¿PIN de admin correcto?)."]}); return; }
+        }
+        setUsuarios(prev=>[...prev,...creados]);
+      } else {
       setUsuarios(prev=>[...prev,...creados]);
       if(Object.keys(nuevosH).length){
         const next={...pinsPersonalizados,...nuevosH};
         if(setPinsPersonalizados) setPinsPersonalizados(next);
         await dbSavePins(next);
+      }
       }
       creados.forEach(u=>window.auditLog("crear_usuario",{modulo:"sistema",seccion:"permisos",
         descripcion:`Creó usuario "${u.nombre}" (carga masiva, ${soloRend?"solo Rendiciones":"con Tareas"})`,
@@ -2033,6 +2154,7 @@ export default function App(){
   const [guardado,setGuardado]=useState("idle");
   const [cargando,setCargando]=useState(true);
   const [cargaError,setCargaError]=useState(false); // solo UI: se activa si la carga inicial se cuelga (timeout). NO toca datos ni el gate anti-borrado.
+  const [avisoPersist,setAvisoPersist]=useState(null); // F0-B: aviso en pantalla cuando main/pins NO se guardó (construirAvisoDesde).
   // GUARD anti-borrado: el auto-guardado solo se habilita tras una carga
   // EXITOSA desde Supabase. Si dbLoad() falla (red/timeout), este flag queda
   // en false y NO se guarda nada → así un parpadeo de conexión al abrir la app
@@ -2196,18 +2318,23 @@ export default function App(){
           if(d.supervisores)setSupervisores(prev=>({...prev,...d.supervisores}));
           if(d.tareasExtra)setTareasExtra(d.tareasExtra);
           if(d.tareasOverrides)setTareasOverrides(prev=>({...prev,...d.tareasOverrides}));
-          if(d.pinsPersonalizados)setPinsPersonalizados(d.pinsPersonalizados);
-          // FUENTE DE VERDAD de PINs: la fila dedicada `pins`. Si existe, manda
-          // sobre la copia (posiblemente revertida) que venga en `main`. Si aún
-          // no existe (primera vez tras el deploy), se siembra desde main.
-          try {
-            const pinsRow = await dbLoadPins();
-            if(pinsRow && typeof pinsRow === "object"){
-              setPinsPersonalizados(pinsRow);
-            } else if(d.pinsPersonalizados){
-              await dbSavePins(d.pinsPersonalizados); // migración: sembrar fila dedicada
-            }
-          } catch(e){ console.warn("[pins] No se pudo leer la fila dedicada (se usa la copia de main):", e); }
+          // Fase E (R1/W1): con PIN server-side el navegador NO puebla ni siembra
+          // la fila `pins`; `pinsPersonalizados` queda {} (seguro, porque W2 no se
+          // monta y dbSavePins es no-op). Los endpoints son la fuente de verdad.
+          if(!PIN_SERVER_SIDE){
+            if(d.pinsPersonalizados)setPinsPersonalizados(d.pinsPersonalizados);
+            // FUENTE DE VERDAD de PINs: la fila dedicada `pins`. Si existe, manda
+            // sobre la copia (posiblemente revertida) que venga en `main`. Si aún
+            // no existe (primera vez tras el deploy), se siembra desde main.
+            try {
+              const pinsRow = await dbLoadPins();
+              if(pinsRow && typeof pinsRow === "object"){
+                setPinsPersonalizados(pinsRow);
+              } else if(d.pinsPersonalizados){
+                await dbSavePins(d.pinsPersonalizados); // migración: sembrar fila dedicada
+              }
+            } catch(e){ console.warn("[pins] No se pudo leer la fila dedicada (se usa la copia de main):", e); }
+          }
           if(d.recsDone)setRecsDone(d.recsDone);
           if(d.recsComentarios)setRecsComentarios(d.recsComentarios);
           if(d.osirisData){
@@ -2220,14 +2347,11 @@ export default function App(){
                 body:JSON.stringify({id:"osiris",value:d.osirisData,updated_at:new Date().toISOString()})
               });
               console.log("[Migración] ✅ osirisData migrado a fila 'osiris'");
-              // Limpiar osirisData de main
+              // Limpiar osirisData de main — vía contrato compartido para no
+              // romper el optimistic lock de la fila `main` (completitud por-fila).
               const cleanMain = {...d};
               delete cleanMain.osirisData;
-              await fetch(`${SUPA_URL}/rest/v1/calendario_data`, {
-                method:"POST",
-                headers:{apikey:SUPA_KEY,Authorization:`Bearer ${SUPA_KEY}`,"Content-Type":"application/json",Prefer:"resolution=merge-duplicates"},
-                body:JSON.stringify({id:"main",value:cleanMain,updated_at:new Date().toISOString()})
-              });
+              await persist.saveConfirmed("main", cleanMain, {});
               console.log("[Migración] ✅ osirisData eliminado de main");
             } catch(e) { console.warn("[Migración] Error:", e); }
           }
@@ -2338,8 +2462,7 @@ export default function App(){
     Promise.resolve(cargar()).catch(()=>{}).finally(()=>clearTimeout(_cargaTimeout));
 
     // Aplica cambios entrantes de la fila "main" (Tareas) a la pantalla.
-    const aplicarMain = (d) => {
-      if(!d) return;
+    const aplicarCamposMain = (d) => {
       if(d.estados)       setEstados(prev=>({...prev,...d.estados}));
       if(d.comentarios)   setComentarios(d.comentarios);
       if(d.tareasConfig)  setTareasConfig(prev=>({...prev,...d.tareasConfig}));
@@ -2349,6 +2472,14 @@ export default function App(){
       // fila `pins`. Aplicarlos acá revertía cambios recientes (bug histórico).
       if(d.recsDone)      setRecsDone(d.recsDone);
       if(d.recsComentarios) setRecsComentarios(d.recsComentarios);
+    };
+    // F0-B: el estado entrante pasa por reconcileIncoming → NO se aplica encima de
+    // una edición local sin confirmar (dirty-guard); si limpio, se adopta y se
+    // actualiza la versión conocida (para el próximo save con optimistic lock).
+    const aplicarMain = (d, version) => {
+      if(!d) return;
+      const dec = persist.reconcileIncoming("main", d, version === undefined ? null : version);
+      if(dec.apply) aplicarCamposMain(dec.value);
     };
 
     // Con el guardia prendido: sincronización por sondeo autenticado (la
@@ -2382,17 +2513,21 @@ export default function App(){
           if(record?.id === "main" && record?.value) {
             try {
               const d = typeof record.value === "string" ? JSON.parse(record.value) : record.value;
-              // Aplicar solo si el cambio viene de otro usuario (evitar loop)
-              if(d.estados)       setEstados(prev=>({...prev,...d.estados}));
-              if(d.comentarios)   setComentarios(d.comentarios);
-              if(d.tareasConfig)  setTareasConfig(prev=>({...prev,...d.tareasConfig}));
-              if(d.supervisores)  setSupervisores(prev=>({...prev,...d.supervisores}));
-              if(d.tareasExtra)   setTareasExtra(d.tareasExtra);
-              // PINs NO se aplican desde el sync de `main` (fuente de verdad =
-              // fila `pins`). Aplicarlos acá revertía cambios recientes.
-              if(d.recsDone)      setRecsDone(d.recsDone);
-              if(d.recsComentarios) setRecsComentarios(d.recsComentarios);
-              // osirisData se restaura desde su propia fila "osiris"
+              // F0-B: reconcileIncoming protege la edición local sin confirmar.
+              const dec = persist.reconcileIncoming("main", d, record.updated_at || null);
+              if(dec.apply){
+                const v = dec.value;
+                if(v.estados)       setEstados(prev=>({...prev,...v.estados}));
+                if(v.comentarios)   setComentarios(v.comentarios);
+                if(v.tareasConfig)  setTareasConfig(prev=>({...prev,...v.tareasConfig}));
+                if(v.supervisores)  setSupervisores(prev=>({...prev,...v.supervisores}));
+                if(v.tareasExtra)   setTareasExtra(v.tareasExtra);
+                // PINs NO se aplican desde el sync de `main` (fuente de verdad =
+                // fila `pins`). Aplicarlos acá revertía cambios recientes.
+                if(v.recsDone)      setRecsDone(v.recsDone);
+                if(v.recsComentarios) setRecsComentarios(v.recsComentarios);
+                // osirisData se restaura desde su propia fila "osiris"
+              }
             } catch(err) {}
           }
         }
@@ -2690,7 +2825,7 @@ export default function App(){
       anio:         anioRef.current,
 
     })
-    .then(()=>{setGuardado("ok");setTimeout(()=>setGuardado("idle"),2000);})
+    .then((r)=>{ if(r && r.ok===false){ setGuardado("error"); setTimeout(()=>setGuardado("idle"),3000); setAvisoPersist(construirAvisoDesde("main", r, "las Tareas")); } else { setGuardado("ok"); setTimeout(()=>setGuardado("idle"),2000); } })
     .catch(()=>{setGuardado("error");setTimeout(()=>setGuardado("idle"),3000);});
   },[]); // eslint-disable-line
 
@@ -2699,7 +2834,7 @@ export default function App(){
     // PINs (pins) NO se incluyen: su fuente de verdad es la fila `pins`.
     dbSave({estados:est,comentarios:com,tareasConfig:tc,supervisores:sup,tareasExtra:te,
       recsDone:rd,recsComentarios:rc,usuarios:usrs,mes:m,anio:a})
-      .then(()=>{setGuardado("ok");setTimeout(()=>setGuardado("idle"),2000);})
+      .then((r)=>{ if(r && r.ok===false){ setGuardado("error"); setTimeout(()=>setGuardado("idle"),3000); setAvisoPersist(construirAvisoDesde("main", r, "las Tareas")); } else { setGuardado("ok"); setTimeout(()=>setGuardado("idle"),2000); } })
       .catch(()=>{setGuardado("error");setTimeout(()=>setGuardado("idle"),3000);});
   },[]);
 
@@ -2725,12 +2860,16 @@ export default function App(){
   // toca en el auto-guardado de Tareas → ninguna sesión vieja puede revertirla.
   // (No corre durante la carga porque `cargando` sigue true mientras se aplica.)
   useEffect(()=>{
+    // Fase E (W2) — CRÍTICO: con PIN server-side este auto-save NO se monta. Es la
+    // única forma de impedir que un `pinsPersonalizados` vacío ({}, porque R1 no
+    // pobló el estado) sobreescriba la fila `pins`. Se retira JUNTO con R1/R2 (§3.0).
+    if(PIN_SERVER_SIDE) return;
     if(cargando) return;
     if(!cargaOkRef.current) return;
     // El login (re-read de PINs frescos) marca este flag para NO re-escribir la
     // fila: el login nunca cambia un PIN, solo lo lee.
     if(skipPinsSaveRef.current){ skipPinsSaveRef.current=false; return; }
-    const t=setTimeout(()=>{ dbSavePins(pinsPersonalizados); }, 500);
+    const t=setTimeout(()=>{ Promise.resolve(dbSavePins(pinsPersonalizados)).then((r)=>{ if(r && r.ok===false) setAvisoPersist(construirAvisoDesde("pins", r, "los PIN")); }); }, 500);
     return()=>clearTimeout(t);
   },[pinsPersonalizados]); // eslint-disable-line
 
@@ -2839,6 +2978,39 @@ export default function App(){
       return;
     }
 
+    // ── Fase E (R2/M2/M3/M4): decisión de login 100% server-side (E-2 pin-login) ──
+    // El navegador NO relee la fila `pins`; el endpoint resuelve código provisorio,
+    // hash-only y política/migración. Fail-closed: no-200/red ⇒ mensaje neutro.
+    if (PIN_SERVER_SIDE) {
+      const { status, json: j } = await pinApi('/api/pin-login', { email: emailInput, pin: pinInput });
+      if (status !== 200) { setLoginError("No se pudo conectar con el servidor. Intenta de nuevo."); return; }
+      if (!j.ok) {
+        setLoginError(j.pinTemporalVencido
+          ? "El código provisorio venció. Solicita uno nuevo con \"¿Olvidaste tu PIN?\"."
+          : "Correo o PIN incorrecto.");
+        window.auditLog("login_fallido", {modulo:"sistema", seccion:"autenticación",
+          descripcion:`Login fallido para ${w.nombre}`, usuario:w.nombre, email:w.email});
+        return;
+      }
+      setLoginError("");
+      if (j.pinTemporal || j.needsMigration) {   // código provisorio o política ⇒ forzar PIN nuevo
+        setWorkerPendiente(w); setModalPin("cambiar"); window._auditUsuarioActual = w;
+        window.auditLog("login_pin_temporal", {modulo:"sistema", seccion:"autenticación",
+          descripcion:`${w.nombre} debe crear/actualizar su PIN`});
+      } else {
+        setUsuarioActual(w); sessionStorage.setItem('mediterra_usuario', w.nombre);
+        window._auditUsuarioActual = w;
+        window.auditLog("login", {modulo:"sistema", seccion:"autenticación",
+          descripcion:`${w.nombre} (${w.rol}) inició sesión`});
+        if(process.env.REACT_APP_AUTH_DUAL === 'true'){
+          ensureSupabaseSession(emailInput, pinInput)
+            .then(r=>{ if(!r.ok) console.warn("[osiris-auth] sin sesión:", r.error); });
+        }
+      }
+      if (window._cargarTrasLogin) { const f = window._cargarTrasLogin; window._cargarTrasLogin = null; setCargando(true); f(); }
+      return;
+    }
+
     // Releer los PINs FRESCOS desde su fila dedicada `pins` (fuente de verdad)
     // por si otro admin/dispositivo reseteó el PIN mientras esta pantalla estaba
     // abierta. Si la red falla, se usa lo que haya en memoria. Esto reemplaza la
@@ -2935,6 +3107,17 @@ export default function App(){
     const emailReset=(resetEmail||loginEmail||"").trim().toLowerCase();
     // FASE 2a/2b — mismo mensaje exista o no la cuenta / coincida o no el celular (anti-enumeración)
     const MSG_NEUTRAL="Si los datos corresponden a una cuenta, te enviamos un PIN temporal al correo.";
+    // ── Fase E (M5/W6): reset self-service 100% server-side (E-5 pin-reset-self) ──
+    // El endpoint valida 2º factor (celular), emite `_temp` HASHEADO y ENVÍA el
+    // correo; nunca devuelve el código. Respuesta neutra siempre (anti-enumeración).
+    if (PIN_SERVER_SIDE) {
+      if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailReset)){setResetMsg("Ingresa un correo válido.");return;}
+      setResetEnviando(true);
+      await pinApi('/api/pin-reset-self', { email: emailReset, tel: (telReset||"").trim() || undefined });
+      setResetMsg(MSG_NEUTRAL);   // neutro pase lo que pase (no confirma existencia)
+      setResetEnviando(false);
+      return;
+    }
     if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailReset)){setResetMsg("Ingresa un correo válido.");return;}
     const w=WORKERS.find(x=>x.email&&x.email.toLowerCase()===emailReset);
     // FASE 2b: si la cuenta ya registró celular, exigir que coincida (segundo factor).
@@ -2969,6 +3152,42 @@ export default function App(){
     // Puede venir de login con PIN temporal (workerPendiente) o desde perfil (usuarioActual)
     const worker = workerPendiente || usuarioActual;
     if(!worker) return;
+    // ── Fase E (M6/M7/M8/W7): cambio/alta de PIN 100% server-side (E-3 pin-change) ──
+    // El endpoint valida la credencial actual (`_temp` vigente o `_h`), el formato
+    // del PIN nuevo, no-repetir-3, escribe `_h`/`_hist`/`_tel` y borra `_temp`.
+    if (PIN_SERVER_SIDE) {
+      const vp0 = pinNuevoValido(pinNuevo);
+      if(!vp0.ok){ setPinError(vp0.msg); return; }
+      if(pinNuevo!==pinConfirm){ setPinError("Los PINs no coinciden."); return; }
+      const { status, json: j } = await pinApi('/api/pin-change', {
+        email: worker.email, actual: pinActual, nuevo: pinNuevo, confirm: pinConfirm,
+        tel: (telNuevo||"").trim() || undefined,
+      });
+      if (status !== 200) { setPinError("No se pudo conectar con el servidor. Intenta de nuevo."); return; }
+      if (!j.ok) {
+        setPinError(
+          j.error==="codigo_vencido" ? "El código provisorio venció. Solicita uno nuevo desde \"¿Olvidaste tu PIN?\"." :
+          (j.error==="pin_invalido"||j.error==="no_coincide"||j.error==="tel_invalido"||j.error==="repetido") ? (j.msg||"Revisa el PIN nuevo.") :
+          "PIN actual o código incorrecto."
+        );
+        return;
+      }
+      setPinActual("");setPinNuevo("");setPinConfirm("");setTelNuevo("");setModalPin(null);
+      if(workerPendiente){
+        setUsuarioActual(workerPendiente);
+        sessionStorage.setItem('mediterra_usuario', workerPendiente.nombre);
+        window._auditUsuarioActual = workerPendiente;
+        if(process.env.REACT_APP_AUTH_DUAL === 'true'){
+          ensureSupabaseSession(workerPendiente.email, pinNuevo)
+            .then(r=>{ if(!r.ok) console.warn("[osiris-auth] sin sesión:", r.error); });
+        }
+        setWorkerPendiente(null);
+      }
+      window.auditLog("cambio_pin", {modulo:"sistema", seccion:"autenticación",
+        descripcion:`${worker.nombre} cambió su PIN`});
+      alert("PIN cambiado exitosamente!");
+      return;
+    }
     const credH=pinsPersonalizados[worker.nombre+"_h"];
     // Si hay un código provisorio vigente, el PIN antiguo NO sirve ni acá:
     // se valida SOLO contra el código (hasheado + expiración).
@@ -3236,6 +3455,28 @@ Equipo Mediterra`);
     if(!vp.ok){alert(vp.msg);return;}
     if(usuarios.find(u=>u.nombre===formUsuario.nombre)){alert("Ya existe un usuario con ese nombre.");return;}
     if(usuarios.find(u=>u.email.toLowerCase()===formUsuario.email.trim().toLowerCase())){alert("Ya existe un usuario con ese email.");return;}
+    // ── Fase E (W8): la credencial `_h` la crea el servidor (E-6 pin-create) ──
+    if (PIN_SERVER_SIDE) {
+      const creds = pedirCredsAdmin();
+      if (!creds) return;
+      const { status, json: j } = await pinApi('/api/pin-create', {
+        adminEmail: creds.adminEmail, adminPin: creds.adminPin,
+        nombre: formUsuario.nombre.trim(), pin: formUsuario.pin.trim(),
+      });
+      if (status !== 200 || !j.ok) { alert("No se pudo crear la credencial (¿PIN de admin correcto?)."); return; }
+      setUsuarios(prev=>[...prev,{...formUsuario,pin:"",modulos:formUsuario.modulos||["tareas"],esCFO:formUsuario.rol==="admin",desactivado:false}]);
+      if(copiarDe){
+        todasTareas().filter(t=>t.responsable===copiarDe).forEach(t=>{
+          const id=`custom_${Date.now()}_${t.id}`;
+          setTareasExtra(prev=>[...prev,{...t,id,responsable:formUsuario.nombre}]);
+          setTareasConfig(prev=>({...prev,[id]:{...getConfig(t.id),bloqueada:false}}));
+        });
+      }
+      enviarEmailBienvenida(formUsuario.nombre.trim(), formUsuario.email.trim(), formUsuario.pin.trim(), formUsuario.rol);
+      alert(`✅ Usuario "${formUsuario.nombre}" creado.\n📧 Se envió email de bienvenida a ${formUsuario.email} con su PIN inicial.`);
+      setFormUsuario({nombre:"",cargo:"",email:"",pin:"",rol:"editor",modulos:["tareas"]});setCopiarDe("");setTabUsuarios("lista");
+      return;
+    }
     const cred=await hashPin(formUsuario.pin.trim()); cred.fecha=new Date().toISOString().slice(0,10); cred.pol="6dig";
     // El usuario se guarda SIN PIN base en claro (pin:""); su credencial es el hash `_h`.
     setUsuarios(prev=>[...prev,{...formUsuario,pin:"",modulos:formUsuario.modulos||["tareas"],esCFO:formUsuario.rol==="admin",desactivado:false}]);
@@ -3269,6 +3510,22 @@ Equipo Mediterra`);
   async function resetPinUsuario(nombre){
     const u = usuarios.find(x=>x.nombre===nombre);
     if(!u) return;
+    // ── Fase E (W9): el reset (emisión de `_temp`) lo hace el servidor (E-4) ──
+    if (PIN_SERVER_SIDE) {
+      const creds = pedirCredsAdmin();
+      if (!creds) return;
+      const { status, json: j } = await pinApi('/api/pin-admin-reset', {
+        adminEmail: creds.adminEmail, adminPin: creds.adminPin, targetEmail: u.email,
+      });
+      if (status !== 200 || !j.ok) { window.alert("No se pudo generar el código (¿PIN de admin correcto?)."); return; }
+      if(u.email){
+        enviarEmail(u.email, nombre, "Código provisorio - Mediterra", `Hola ${nombre},\n\nTu código provisorio es: ${j.codigo}\n\nVence en 45 minutos. Al ingresar deberás crear un PIN nuevo de 6 dígitos. Tu PIN anterior quedó inhabilitado.\n\nhttps://gestion-grupo-mediterra.vercel.app`).catch(()=>{});
+      }
+      window.auditLog("reset_pin", {modulo:"sistema", seccion:"permisos",
+        descripcion:`Admin reseteó el PIN de ${nombre} (código provisorio emitido, server-side)`, registroId:nombre});
+      window.alert(`Código provisorio para ${nombre}:\n\n        ${j.codigo}\n\nVence en 45 minutos. Compártelo con el usuario (también se envió por correo).`);
+      return;
+    }
     // Reset por código PROVISORIO (hasheado + expiración). No fija ni expone PIN.
     const codigo = genCodigo6();
     const tempCred = await crearTempCred(codigo);
@@ -4337,6 +4594,7 @@ Equipo Mediterra`);
 
   return (
     <AppErrorBoundary>
+      <AvisoPersistencia aviso={avisoPersist} onCerrar={()=>setAvisoPersist(null)} />
       {nuevaVersion&&(
         <div style={{position:"fixed",bottom:20,right:20,zIndex:99999,maxWidth:320,background:C.card,color:C.text,padding:"14px 18px",borderRadius:12,boxShadow:"0 8px 32px #0004",border:`1px solid ${C.border}`,display:"flex",flexDirection:"column",gap:8,fontSize:13,fontFamily:"sans-serif"}}>
           <div style={{fontWeight:700,display:"flex",alignItems:"center",gap:8}}>🔄 Nueva versión disponible</div>

@@ -2,11 +2,13 @@
 // Sirve informes técnicos de Osiris como páginas HTML renderizadas
 // URL: /api/informe?id=INFORME_ID
 
-const SUPA_URL = "https://bywovqayuzodbzwsriet.supabase.co";
-const SUPA_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJ5d292cWF5dXpvZGJ6d3NyaWV0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU2ODU1MDgsImV4cCI6MjA5MTI2MTUwOH0.s2x2O_CxE6rl8dBqFuyfQdMyRqSyjJQWXJXesmVGXtk";
+// SEC-ENV-002 (STG-7b): fail-closed, sin literal PROD. URL vía resolver; anon key desde env.
+const { serverSupaUrl } = require("./_serverEnv.js");
 
 module.exports = async function handler(req, res) {
   const { id } = req.query;
+  const SUPA_URL = serverSupaUrl();
+  const SUPA_KEY = process.env.SUPABASE_ANON_KEY || "";
 
   if (!id) {
     res.setHeader("Content-Type", "text/html; charset=utf-8");

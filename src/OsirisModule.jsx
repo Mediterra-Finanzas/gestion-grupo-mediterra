@@ -7,8 +7,7 @@ import React, { useState, useCallback, useMemo, useEffect, useRef } from "react"
 import { theme } from "./theme";
 import { snapshotOsiris, isDirty as osirisIsDirty } from "./data/osirisDirty";
 
-const SUPA_URL = "https://bywovqayuzodbzwsriet.supabase.co";
-const SUPA_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJ5d292cWF5dXpvZGJ6d3NyaWV0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU2ODU1MDgsImV4cCI6MjA5MTI2MTUwOH0.s2x2O_CxE6rl8dBqFuyfQdMyRqSyjJQWXJXesmVGXtk";
+import { SUPA_URL, SUPA_KEY } from "./config/env"; // SEC-ENV-001: config única, fail-closed
 
 // ── Estado de persistencia del módulo ────────────────────────────────────────
 // `osirisVersion` es el `updated_at` que trajo la última lectura o escritura propia.
@@ -4740,8 +4739,8 @@ const TIPOS_VISITA = ["Técnica","Comercial","Recepción","Vivero","Día de camp
 
 // ── Supabase Storage: fotos de informes ──
 // Reutiliza las credenciales de App.jsx (misma instancia Supabase)
-const SUPA_URL_OSIRIS = "https://bywovqayuzodbzwsriet.supabase.co";
-const SUPA_KEY_OSIRIS = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJ5d292cWF5dXpvZGJ6d3NyaWV0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU2ODU1MDgsImV4cCI6MjA5MTI2MTUwOH0.s2x2O_CxE6rl8dBqFuyfQdMyRqSyjJQWXJXesmVGXtk";
+const SUPA_URL_OSIRIS = SUPA_URL;
+const SUPA_KEY_OSIRIS = SUPA_KEY;
 const STORAGE_BUCKET = "osiris-fotos";
 
 // Intenta crear el bucket si no existe (silencioso si ya existe)
@@ -5397,7 +5396,7 @@ ${inf.proximaVisitaFecha?`<div class="section"><h2>Próxima Visita</h2><div clas
     const html = generarHTMLInforme(inf);
     const htmlFinal = html.replace(
       'src="/osiris-logo.jpg"',
-      'src="https://bywovqayuzodbzwsriet.supabase.co/storage/v1/object/public/osiris-fotos/osiris-logo.jpg"'
+      `src="${SUPA_URL_OSIRIS}/storage/v1/object/public/osiris-fotos/osiris-logo.jpg"`
     );
     const fecha = (inf.fecha||new Date().toISOString().slice(0,10)).replace(/-/g,"");
     const fileId = `INF_${fecha}_${String(inf.id||"").slice(-6)}`;

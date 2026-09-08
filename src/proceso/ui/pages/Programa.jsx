@@ -8,7 +8,7 @@ import {
   cargarProgramas, crearPrograma, actualizarPrograma, crearOrden, siguienteCorrelativo, cargarVinculosPorRol,
   clienteHabilitadoParaOperar,
 } from "../../core/procesoF7DB";
-import { traducirError, badgeDe } from "../../core/procesoF7Domain";
+import { traducirError, badgeDe, temporadaParaCrear } from "../../core/procesoF7Domain";
 import {
   ProcPageHeader, ProcCard, ProcButton, ProcDataTable, ProcStatusBadge, ProcModal, ProcField, inputStyle,
   ProcLoadingState, ProcErrorState, ProcEmptyState,
@@ -38,8 +38,10 @@ export default function Programa() {
 
   const guardar = async () => {
     if (!form.especie_codigo) return notificar("Falta especie", "error");
+    const tmp = temporadaParaCrear(temporada);
+    if (tmp.error) return notificar(tmp.error, "error");
     try {
-      const folio = await siguienteCorrelativo({ empresaId: empresa, temporada: temporada || "s-t", tipo: "PROG" });
+      const folio = await siguienteCorrelativo({ empresaId: empresa, temporada: tmp.codigo, tipo: "PROG" });
       await crearPrograma({
         empresa_id: empresa, folio, fecha: form.fecha || fecha, planta_id: planta || null,
         turno: form.turno || null, cliente_servicio_vinculo_id: form.cliente || null,
@@ -61,7 +63,9 @@ export default function Programa() {
           return;
         }
       }
-      const folio = await siguienteCorrelativo({ empresaId: empresa, temporada: temporada || "s-t", tipo: "ORD" });
+      const tmp = temporadaParaCrear(temporada);
+      if (tmp.error) return notificar(tmp.error, "error");
+      const folio = await siguienteCorrelativo({ empresaId: empresa, temporada: tmp.codigo, tipo: "ORD" });
       const o = await crearOrden({
         empresa_id: empresa, folio, programa_id: p.id, planta_id: p.planta_id || planta || null, linea_id: p.linea_id || null,
         turno: p.turno || null, cliente_servicio_vinculo_id: p.cliente_servicio_vinculo_id || null,

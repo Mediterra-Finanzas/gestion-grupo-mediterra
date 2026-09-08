@@ -7,7 +7,7 @@ import { useService } from "../hooks/useServiceContext";
 import {
   cargarInformeListado, cargarOrdenesInformables, crearInforme, generarVersion, siguienteCorrelativo, cargarVinculosPorRol,
 } from "../../core/procesoF7DB";
-import { traducirError, badgeDe } from "../../core/procesoF7Domain";
+import { traducirError, badgeDe, temporadaParaCrear } from "../../core/procesoF7Domain";
 import {
   ProcPageHeader, ProcButton, ProcCard, ProcDataTable, ProcStatusBadge, ProcModal, ProcField, inputStyle,
   ProcLoadingState, ProcErrorState, ProcEmptyState,
@@ -46,9 +46,11 @@ export default function Informes() {
     setClientes(await cargarVinculosPorRol(empresa, "cliente_servicio").catch(() => []));
   };
   const generar = async () => {
+    const tmp = temporadaParaCrear(temporada);
+    if (tmp.error) return notificar(tmp.error, "error");
     try {
-      const folio = await siguienteCorrelativo({ empresaId: empresa, temporada: temporada || "s-t", tipo: "INF" });
-      const infId = await crearInforme({ empresaId: empresa, folio, temporada: temporada || "s-t", plantaId: planta, destinatarioVinculoId: gen.destinatario || null });
+      const folio = await siguienteCorrelativo({ empresaId: empresa, temporada: tmp.codigo, tipo: "INF" });
+      const infId = await crearInforme({ empresaId: empresa, folio, temporada: tmp.codigo, plantaId: planta, destinatarioVinculoId: gen.destinatario || null });
       await generarVersion({ empresaId: empresa, informeId: infId, ordenIds: sel, observaciones: gen.observaciones || null });
       notificar(`Informe ${folio} generado`); setGen(null); setSel([]); ir("informe_detalle", { id: infId });
     } catch (e) { notificar(traducirError(e), "error"); }

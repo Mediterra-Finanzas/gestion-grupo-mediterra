@@ -1,7 +1,7 @@
 /* eslint-disable */
 // Tests de dominio proc_* F7.1 (node). Ejecutar: node src/proceso/core/procesoF7Domain.test.mjs
 import { formatearCorrelativo, compactarTemporada, evaluarQC, badgeDe, traducirError, validarFiltros, calcularNeto, validarPesos, packout, resumenConciliacion, accionesOrden, faltaParaCerrar, ordenTerminal, despachoTerminal, puedeConfirmarDespacho, accionesDespacho, totalKg, montoServicio, especificidadTarifa, vigenciaTarifa, baseEditable, accionesBase, servicioAgregableABase, totalesPorMoneda, filtrosActivos, opcionesRef, limpiarDependencias, labelRef, resumenKgLotes, resumenOrigenes, tonoContractual, copiarOrigen, alertaContractual, transicionesContrato, tonoNivelContractual, qcPorLote, resumenQcRecepcion, rpcFecha, loteSinOrigen, qcListadoResumen, evaluarOrigenLote, textoQcCabecera, kgEntradaPorLote,
-fechaCalendarioTz, ahoraOperacional, temporadaDeFecha, TZ_OPERACIONAL,
+fechaCalendarioTz, ahoraOperacional, temporadaDeFecha, temporadaParaCrear, MSG_TEMPORADA_REQUERIDA, TZ_OPERACIONAL,
 resumenEnvases, NATURALEZA_ENVASE_LABEL, orquestarConfirmarDespacho, vistaDespachos, resolverItemActivo } from "./procesoF7Domain.js";
 
 let pass = 0, fail = 0;
@@ -312,6 +312,19 @@ eq(tm.find((x) => x.moneda === "CLP").total, 100000, "CLP separado");
   eq(temporadaDeFecha([{ codigo: "A", fecha_inicio: "2026-01-01", fecha_fin: "2026-12-31" }, { codigo: "B", fecha_inicio: "2026-06-01", fecha_fin: "2026-09-30" }], "2026-08-01").error, "multiple", "solapadas -> error multiple");
   eq(temporadaDeFecha(cat, "").error, "sin_fecha", "sin fecha -> error sin_fecha");
   ok(!temporadaDeFecha(cat, "2026-06-30").error, "borde inicio/fin inclusivo (2026-06-30 en 2025/2026)");
+}
+
+// MS-G1 · temporadaParaCrear: el selector del shell debe traer una temporada real para CREAR
+// (correlativos + persistencia); "Toda temporada" (null) -> error humano, nunca placeholder "s-t".
+{
+  eq(temporadaParaCrear("2026/2027").codigo, "2026/2027", "MS-G1: temporada real seleccionada -> codigo");
+  eq(temporadaParaCrear(null).error, MSG_TEMPORADA_REQUERIDA, "MS-G1: null (Toda temporada) -> error humano");
+  eq(temporadaParaCrear(undefined).error, MSG_TEMPORADA_REQUERIDA, "MS-G1: undefined -> error humano");
+  eq(temporadaParaCrear("").error, MSG_TEMPORADA_REQUERIDA, "MS-G1: vacío -> error humano");
+  eq(temporadaParaCrear("   ").error, MSG_TEMPORADA_REQUERIDA, "MS-G1: solo espacios -> error humano");
+  eq(temporadaParaCrear("  2526 ").codigo, "2526", "MS-G1: recorta espacios alrededor del codigo");
+  ok(!temporadaParaCrear("2026/2027").error, "MS-G1: temporada real -> sin error");
+  ok(temporadaParaCrear(null).codigo === undefined, "MS-G1: error no trae codigo (nunca cae a s-t)");
 }
 
 // PROC-ENVASES-001 · resumenEnvases (KPIs desde saldos)

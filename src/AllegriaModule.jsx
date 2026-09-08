@@ -1,6 +1,8 @@
 /* eslint-disable */
 import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { theme } from "./theme";
+import { persist, construirAvisoDesde } from "./persistencia/instancia.js";
+import AvisoPersistencia from "./AvisoPersistencia.jsx";
 
 // Componente DateInput: evita re-renders al escribir año en campos date
 function DateInput({value, onChange, disabled, style}) {
@@ -14,8 +16,7 @@ function DateInput({value, onChange, disabled, style}) {
 // Módulos: Clientes, Productores, Embarques, Liquidaciones, Anticipos, Cobranza
 // ═══════════════════════════════════════════════════════════════════
 
-const SUPA_URL = "https://bywovqayuzodbzwsriet.supabase.co";
-const SUPA_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJ5d292cWF5dXpvZGJ6d3NyaWV0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU2ODU1MDgsImV4cCI6MjA5MTI2MTUwOH0.s2x2O_CxE6rl8dBqFuyfQdMyRqSyjJQWXJXesmVGXtk";
+import { SUPA_URL, SUPA_KEY } from "./config/env"; // SEC-ENV-001: config única, fail-closed
 
 // Colores
 // Paleta Allegria — re-exporta tokens del tema central + alias para
@@ -222,12 +223,16 @@ function detectarTemporada(fechaStr) {
 // ── Supabase Load/Save ──
 async function dbLoadAllegria() {
   try {
-    const res = await fetch(`${SUPA_URL}/rest/v1/calendario_data?id=eq.allegria&select=value`, {
+    const res = await fetch(`${SUPA_URL}/rest/v1/calendario_data?id=eq.allegria&select=value,updated_at`, {
       headers: { apikey: SUPA_KEY, Authorization: `Bearer ${SUPA_KEY}` }
     });
     if(!res.ok) throw new Error(`dbLoadAllegria HTTP ${res.status}`);
     const data = await res.json();
-    return data?.[0]?.value ? (typeof data[0].value === "string" ? JSON.parse(data[0].value) : data[0].value) : null;
+    const raw = data?.[0]?.value;
+    const value = raw ? (typeof raw === "string" ? JSON.parse(raw) : raw) : null;
+    // F0-B: registrar versión/base para saveConfirmed("allegria").
+    persist.registrarCarga("allegria", value, data?.[0]?.updated_at || null, typeof raw === "string");
+    return value;
   } catch(e) {
     // Propagar: el caller no debe habilitar el guardado si la carga falló
     // (si no, sobrescribiría Allegria con los defaults vacíos).
@@ -247,17 +252,14 @@ async function dbSaveAllegria(value) {
         const pc = window._lastSavedAllegria?.[k] || 0;
         if(nc >= 0 && pc > 0 && nc < pc) caidas++;
       }
-      if(caidas >= 3) { console.warn(`[dbSaveAllegria] ⚠️ BLOQUEADO: ${caidas} arrays cayeron.`); return; }
+      if(caidas >= 3) { console.warn(`[dbSaveAllegria] ⚠️ BLOQUEADO: ${caidas} arrays cayeron.`); return { ok:false, motivo:"anti_perdida" }; }
       if(!window._lastSavedAllegria) window._lastSavedAllegria = {};
       for(const k of keys) { if(Array.isArray(value[k])) window._lastSavedAllegria[k] = value[k].length; }
     }
-    await fetch(`${SUPA_URL}/rest/v1/calendario_data`, {
-      method: "POST",
-      headers: { apikey: SUPA_KEY, Authorization: `Bearer ${SUPA_KEY}`,
-        "Content-Type": "application/json", Prefer: "resolution=merge-duplicates" },
-      body: JSON.stringify({ id: "allegria", value, updated_at: new Date().toISOString() })
-    });
-  } catch(e) { console.error("Error guardando Allegria:", e); }
+    // F0-B: escritura confirmada por el servidor con concurrencia optimista
+    // (antes era fire-and-forget con el error tragado + LWW). Fila única `allegria`.
+    return await persist.saveConfirmed("allegria", value, {});
+  } catch(e) { console.error("Error guardando Allegria:", e); return { ok:false, motivo:"red", detalle:String((e&&e.message)||e) }; }
 }
 
 // ── Componentes compartidos ──
@@ -2211,6 +2213,7 @@ export default function AllegriaModule({usuarioActual, esAdmin, esSoloConsulta, 
   const [showMaestro, setShowMaestro] = useState(false);
   const [data, setData] = useState({clientes:[],productores:[],programaComercial:[],recepciones:[],stockPT:[],materiales:[],recetas:[],embarques:[],liquidaciones:[],liqCliente:[],anticipos:[],cobranza:[],especiesAllegria:ESPECIES_ALLEGRIA_INIT,variedadesAllegria:[],hubCardsOrder:null});
   const [cargando, setCargando] = useState(true);
+  const [avisoPersist, setAvisoPersist] = useState(null); // F0-B: aviso en pantalla cuando Allegria NO se guardó.
   const [tempSeleccionada, setTempSeleccionada] = useState(temporadaActual());
 
   // Permisos
@@ -2248,7 +2251,7 @@ export default function AllegriaModule({usuarioActual, esAdmin, esSoloConsulta, 
   useEffect(()=>{
     if(cargando) return;
     if(!cargaOkRef.current) return; // no guardar si la carga inicial falló
-    const t=setTimeout(()=>dbSaveAllegria(dataRef.current), 2000);
+    const t=setTimeout(()=>{ Promise.resolve(dbSaveAllegria(dataRef.current)).then((r)=>{ if(r && r.ok===false && r.motivo!=="anti_perdida") setAvisoPersist(construirAvisoDesde("allegria", r, "Allegria Foods")); }); }, 2000);
     return()=>clearTimeout(t);
   },[data, cargando]);
 
@@ -2288,6 +2291,7 @@ export default function AllegriaModule({usuarioActual, esAdmin, esSoloConsulta, 
     const rangoLabel = rango ? `${rango.inicioStr} al ${rango.finStr}` : "";
     return (
       <div style={{fontFamily:"sans-serif",background:C.bg,minHeight:"100vh",padding:"20px 20px 40px"}}>
+        <AvisoPersistencia aviso={avisoPersist} onCerrar={()=>setAvisoPersist(null)} />
         <NavBar breadcrumbItems={[
           {label:"Mediterra", onClick:onBack},
           {label:"Allegria Foods", onClick:()=>setSubApp(null)},
@@ -2342,6 +2346,7 @@ export default function AllegriaModule({usuarioActual, esAdmin, esSoloConsulta, 
   // HOME — Allegria Foods Hub
   return (
     <div style={{fontFamily:"sans-serif",background:C.bg,minHeight:"100vh",padding:"20px 20px 40px"}}>
+      <AvisoPersistencia aviso={avisoPersist} onCerrar={()=>setAvisoPersist(null)} />
       <NavBar breadcrumbItems={[
         {label:"Mediterra", onClick:onBack},
         {label:"Allegria Foods Hub"},

@@ -8,9 +8,9 @@
  * Solo service_role (SQL Editor) puede escribir durante Fase 1.
  */
 
-const SUPA_URL = 'https://bywovqayuzodbzwsriet.supabase.co';
-// anon key — acceso bloqueado por RLS hasta autorización OA
-const SUPA_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJ5d292cWF5dXpvZGJ6d3NyaWV0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDMwMjE5OTEsImV4cCI6MjA1ODU5Nzk5MX0.bBq3vFaIvjwD8tOFTEgDiKHKpXEQWKjDiF9pHISzh0A';
+// SEC-ENV-001: config única, fail-closed (antes usaba una anon key propia; ahora
+// consolida en la fuente única — mismo proyecto, mismo role anon).
+import { SUPA_URL, SUPA_KEY } from '../config/env';
 
 async function supaFetch(path, opts = {}) {
   const res = await fetch(`${SUPA_URL}/rest/v1/${path}`, {
