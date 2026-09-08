@@ -1,4 +1,3 @@
 {
-  "comment": "STG-7 Preview (ALS): sin crons. El cron proc-reporting-daily-cron se reactiva en produccion/plan mayor (su function esta excluida del Preview via .vercelignore para mantener el deployment bajo el limite de functions).",
   "crons": []
 }
