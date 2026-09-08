@@ -8,3 +8,18 @@
 **/*.test.jsx
 **/*.test.ts
 **/*.test.tsx
+
+# STG-7 Preview scope (artefacto quirúrgico ALS): mantener el deployment bajo el
+# límite de functions del plan y solo con lo necesario para login + operación ALS.
+# Estas functions NO participan del UAT de Allegria Service y se excluyen del Preview
+# (siguen en git; NO se borran; se re-incluyen en producción/plan mayor):
+#   - informe.js            -> informe HTML de Osiris (no ALS)
+#   - send-email.js         -> emails (no requerido en el smoke/UAT)
+#   - proc-reporting-daily-cron.js -> cron de reporting (no interactivo)
+#   - auth-password-set.js  -> migración de password (Option A futura; login ALS es por PIN)
+#   - auth-recover.js       -> recuperación de password (idem)
+api/informe.js
+api/send-email.js
+api/proc-reporting-daily-cron.js
+api/auth-password-set.js
+api/auth-recover.js
