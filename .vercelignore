@@ -1,0 +1,10 @@
+# STG-7 (deployment surface): los archivos de test NO son endpoints.
+# Se excluyen de la superficie serverless de Vercel (api/*.test.* se materializaban
+# como funciones sin handler → Build Failed + exposición indebida).
+# Siguen versionados en git y los ejecuta la suite local / CI (npm test / node).
+# Cero pérdida de cobertura; no se mueve ni borra ningún test.
+**/*.test.js
+**/*.test.mjs
+**/*.test.jsx
+**/*.test.ts
+**/*.test.tsx
