@@ -146,9 +146,12 @@ async function corrida({ c, ahora }) {
         method: "PATCH",
         body: JSON.stringify({ objeto_a: rutaA, objeto_b: rutaB, sha_a: sha256(bytesA), sha_b: sha256(bytesB) }),
       });
-      await rpc(c, "respaldo_marcar", { p_lote: lote, p_estado: "FAILED",
-        p_verificacion: "credenciales_sin_identidad:" + par.sinIdentidad.length + " · objetos subidos, lote NO publicado" });
-      return { lote, estado: "FAILED", pasos, creado: true };
+      // INCOMPLETO, no FAILED: los bytes cifrados quedan como EVIDENCIA y sirven
+      // para una recuperación manual, pero el lote no cuenta como respaldo
+      // recuperable y la alarma lo dice con esas palabras.
+      await rpc(c, "respaldo_marcar", { p_lote: lote, p_estado: "INCOMPLETO",
+        p_verificacion: "credenciales_sin_identidad:" + par.sinIdentidad.length + " · objetos cifrados conservados como evidencia, lote NO publicado" });
+      return { lote, estado: "INCOMPLETO", pasos, creado: true, sinIdentidad: par.sinIdentidad.length };
     }
 
     const pub = await rpc(c, "respaldo_publicar", {
