@@ -83,7 +83,10 @@ export default function InformeDetalle() {
       };
       const data = buildResultadoPdfData(snap, meta);
       const blob = await generarResultadoPdf(data);
-      descargarBlob(blob, `${inf.folio}-v${selVer.version}.pdf`);
+      // Nombre del archivo: Cliente_NroProceso_Fecha.pdf (sin acentos ni espacios, seguro para descarga)
+      const _slug = (s) => String(s || "").normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[^A-Za-z0-9]+/g, "_").replace(/^_+|_+$/g, "").slice(0, 40) || "informe";
+      const _fecha = String(selVer.emitido_at || new Date().toISOString()).slice(0, 10);
+      descargarBlob(blob, `${_slug(inf.destinatario || "cliente")}_${_slug(inf.folio)}_${_fecha}.pdf`);
       notificar("PDF generado desde el snapshot");
     } catch (e) { notificar(traducirError(e), "error"); }
   };
