@@ -2039,8 +2039,10 @@ export default function App(){
 
   // ── Detección de nuevo deploy: actualización sin interrumpir ──────
   useEffect(()=>{
-    // URL de producción fija — evita redirigir a URLs internas protegidas de Vercel
-    const PROD_URL = 'https://gestion-grupo-mediterra.vercel.app';
+    // Sondear el PROPIO origin del deployment (Preview→Preview, PROD→PROD): mismo-origen,
+    // sin llamada cross-environment (un Preview NUNCA debe pegar a PROD). El usuario ya
+    // cargó la página desde este origin, así que el fetch same-origin lleva su sesión.
+    const PROD_URL = (typeof window !== "undefined" && window.location && window.location.origin) || '';
     let currentBundle = null;
     let updatePendiente = false;
 

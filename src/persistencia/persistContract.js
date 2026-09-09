@@ -50,10 +50,15 @@ import { fusionarPorId, clonarValor, valoresIguales, esListaFusionable } from ".
 // En el cliente, la config real llega SIEMPRE por opts (instancia.js podría
 // inyectarla) o por las env REACT_APP_* que CRA inline-a. En node el harness
 // inyecta opts.fetch (fake) y la URL/host es irrelevante (se matchea por id=eq.).
-const SUPA_URL_DEFAULT = (typeof process !== "undefined" && process.env &&
-  (process.env.REACT_APP_SUPABASE_URL || process.env.REACT_APP_SUPA_URL)) || "";
-const SUPA_KEY_DEFAULT = (typeof process !== "undefined" && process.env &&
-  (process.env.REACT_APP_SUPABASE_ANON_KEY || process.env.REACT_APP_SUPA_KEY)) || "";
+// Lee las env REACT_APP_* que CRA inline-a como LITERAL en el bundle. Se pasan por
+// argumento (member-access estático) para que el reemplazo de CRA aplique y NO
+// dependa de `typeof process`: en el BROWSER `process` no existe, y una guarda
+// `typeof process !== "undefined"` corta el && ANTES del literal inline → base
+// vacía → fetch relativo al origin (el SPA responde HTML) = bug de guardado.
+// En node (harness) `process.env.*` es acceso real (undefined si no seteado → "").
+function _leerEnv(v) { return typeof v === "string" ? v : ""; }
+const SUPA_URL_DEFAULT = _leerEnv(process.env.REACT_APP_SUPABASE_URL) || _leerEnv(process.env.REACT_APP_SUPA_URL);
+const SUPA_KEY_DEFAULT = _leerEnv(process.env.REACT_APP_SUPABASE_ANON_KEY) || _leerEnv(process.env.REACT_APP_SUPA_KEY);
 
 // Motivos canónicos de fallo (para que la UI y el harness razonen igual).
 export const MOTIVOS = Object.freeze({
@@ -89,6 +94,16 @@ export function crearPersistencia(opts = {}) {
   const log = opts.logger || LOGGER_DEFAULT;
   if (!fetchImpl) throw new Error("persistContract: no hay fetch disponible (inyecta opts.fetch en tests)");
 
+  // Fail-closed (SEC-ENV): en el BROWSER, sin base Supabase resuelta NO se hace
+  // fetch relativo al origin (eso pega al SPA y devuelve HTML → 'Unexpected token <').
+  // Se exige base absoluta. En node (harness, sin `window`) se permite base vacía:
+  // el fake fetch matchea por id=eq. y el host es irrelevante.
+  function _assertBase() {
+    if (!SUPA_URL && typeof window !== "undefined") {
+      throw new Error("persistContract: SUPABASE_URL no resuelta (fail-closed; sin fallback silencioso al origin).");
+    }
+  }
+
   // ── Estado por fila ──────────────────────────────────────────────────────────
   const _version = new Map();  // id -> updated_at con el que leí (base del optimistic lock)
   const _base = new Map();     // id -> valor tal como vino del servidor (para fusión 3-vías)
@@ -110,6 +125,7 @@ export function crearPersistencia(opts = {}) {
 
   // ── Lectura cruda (lanza ante red/HTTP: Regla 9 / req 13) ─────────────────────
   async function _leerFila(id) {
+    _assertBase();
     const res = await fetchImpl(`${SUPA_URL}/rest/v1/calendario_data?id=eq.${encodeURIComponent(id)}&select=value,updated_at`, {
       headers: { ...cab(), "Cache-Control": "no-cache" },
     });
@@ -144,6 +160,7 @@ export function crearPersistencia(opts = {}) {
   // No se declara guardado porque el fetch no lanzó: se declara porque el servidor
   // devolvió la fila escrita con un updated_at nuevo. (req 1/5/6/13/14)
   async function _escribirCondicionado(id, value, version) {
+    _assertBase();
     const nuevoTs = new Date().toISOString();
     // F0-C: preserva la codificación física de ESTA fila (string-encoded vs objeto
     // jsonb). `valueField` es lo que va literalmente a la columna `value`.
