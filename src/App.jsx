@@ -300,17 +300,23 @@ async function verificarTemp(codigo, est) {
 const AUDIT_RETENCION_MESES = 24;
 
 async function auditLoad() {
-  try {
-    const res = await fetch(`${SUPA_URL}/rest/v1/calendario_data?id=eq.audit_log&select=value`, {
-      headers: { apikey: SUPA_KEY, Authorization: `Bearer ${SUPA_KEY}` }
-    });
-    const data = await res.json();
-    const eventos = data?.[0]?.value?.eventos || [];
-    // Filtrar eventos más antiguos que AUDIT_RETENCION_MESES
-    const cutoff = new Date();
-    cutoff.setMonth(cutoff.getMonth() - AUDIT_RETENCION_MESES);
-    return eventos.filter(e => new Date(e.timestamp) >= cutoff);
-  } catch { return []; }
+  // FAIL-CLOSED (Regla 9 / DATA_SAFETY_INVARIANT): esta carga alimenta el
+  // read-modify-write de auditFlush (auditLoad → concat nuevos → auditSave).
+  // Si tragáramos el error como `[]`, un parpadeo de red/403 haría que el
+  // siguiente flush REEMPLAZARA la fila `audit_log` con solo los eventos
+  // recién bufferizados, borrando todo el historial de auditoría. Por eso NO
+  // se atrapa el error: la excepción DEBE propagar para que auditFlush aborte.
+  // `[]` legítimo (fila vacía / sin eventos) SOLO tras una lectura OK.
+  const res = await fetch(`${SUPA_URL}/rest/v1/calendario_data?id=eq.audit_log&select=value`, {
+    headers: { apikey: SUPA_KEY, Authorization: `Bearer ${SUPA_KEY}` }
+  });
+  if (!res.ok) throw new Error(`auditLoad HTTP ${res.status}`);
+  const data = await res.json();
+  const eventos = data?.[0]?.value?.eventos || [];
+  // Filtrar eventos más antiguos que AUDIT_RETENCION_MESES
+  const cutoff = new Date();
+  cutoff.setMonth(cutoff.getMonth() - AUDIT_RETENCION_MESES);
+  return eventos.filter(e => new Date(e.timestamp) >= cutoff);
 }
 
 async function auditSave(eventos) {
@@ -339,7 +345,20 @@ async function auditFlush() {
   if(window._auditBuffer.length === 0) return;
   const nuevos = [...window._auditBuffer];
   window._auditBuffer = [];
-  if(!window._auditAllEvents) window._auditAllEvents = await auditLoad();
+  // GATE fail-closed: solo se puede REEMPLAZAR la fila `audit_log` si primero
+  // cargamos el log existente sin error. Si la carga falla, NO guardamos (un
+  // guardado aquí pisaría el historial con solo `nuevos`); re-encolamos los
+  // eventos y reintentamos en el próximo flush. Mismo espíritu que cargaOkRef.
+  if(!window._auditAllEvents) {
+    try {
+      window._auditAllEvents = await auditLoad();
+    } catch(e) {
+      window._auditBuffer = [...nuevos, ...window._auditBuffer];
+      window._auditAllEvents = null;
+      console.error("[auditFlush] carga del log falló — flush abortado, eventos reencolados (no se sobrescribe audit_log):", e);
+      return;
+    }
+  }
   window._auditAllEvents = [...window._auditAllEvents, ...nuevos];
   await auditSave(window._auditAllEvents);
 }
