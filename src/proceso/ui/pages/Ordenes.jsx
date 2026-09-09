@@ -3,7 +3,7 @@
 import React, { useEffect, useState, useCallback } from "react";
 import { useService } from "../hooks/useServiceContext";
 import { cargarOrdenListado, crearOrden, siguienteCorrelativo } from "../../core/procesoF7DB";
-import { traducirError, badgeDe, estadoConciliacion, temporadaParaCrear } from "../../core/procesoF7Domain";
+import { traducirError, badgeDe, estadoConciliacion, temporadaParaCrear, plantaParaMutar } from "../../core/procesoF7Domain";
 import {
   ProcPageHeader, ProcButton, ProcCard, ProcDataTable, ProcStatusBadge, ProcModal, ProcField, inputStyle,
   ProcLoadingState, ProcErrorState, ProcEmptyState, ProcFilters,
@@ -14,7 +14,7 @@ import { formatNum, formatFecha, normalizarNombre } from "../format";
 const kg = (n) => (n == null ? "—" : formatNum(n));
 
 export default function Ordenes() {
-  const { empresa, planta, temporada, ir, puedeEditar, notificar, vista } = useService();
+  const { empresa, planta, plantas, temporada, ir, puedeEditar, notificar, vista } = useService();
   const [rows, setRows] = useState([]);
   const [estado, setEstado] = useState("idle");
   const [error, setError] = useState(null);
@@ -40,10 +40,13 @@ export default function Ordenes() {
     if (!nueva.especie_codigo) return notificar("Falta especie", "error");
     const tmp = temporadaParaCrear(temporada);
     if (tmp.error) return notificar(tmp.error, "error");
+    // F-01: crear orden MUTA (genera correlativo + estado en_proceso) → planta concreta.
+    const pg = plantaParaMutar(planta, plantas);
+    if (pg.error) return notificar(pg.error, "error");
     try {
       const folio = await siguienteCorrelativo({ empresaId: empresa, temporada: tmp.codigo, tipo: "ORD" });
       const o = await crearOrden({
-        empresa_id: empresa, folio, planta_id: planta || null, estado: "en_proceso",
+        empresa_id: empresa, folio, planta_id: pg.planta, estado: "en_proceso",
         especie_codigo: nueva.especie_codigo, variedad_codigo: nueva.variedad_codigo || null, turno: nueva.turno || null,
       });
       setNueva(null); notificar(`Orden ${folio} creada`); ir("orden", { id: o.id });

@@ -349,6 +349,30 @@ export function temporadaParaCrear(temporada) {
   return { codigo: cod };
 }
 
+// F-01 · Mensaje humano estándar cuando el selector de planta de la barra superior está en
+// "Todas las plantas" (value = null) y la acción en curso MUTA inventario/estado (crear recepción,
+// ingresar lote, crear orden/programa/pallet/despacho/informe). "Todas" es válido para LEER/filtrar,
+// nunca para operar: hay que fijar una planta concreta y autoritativa.
+export const MSG_PLANTA_REQUERIDA =
+  'Seleccioná una planta concreta en la barra superior antes de operar (no puede ser "Todas las plantas").';
+
+// F-01 · Resuelve la planta AUTORITATIVA para una operación que MUTA. Fail-closed ante
+// ausencia/ambigüedad, sin default silencioso a null ni a otra planta:
+//   · selector con una planta concreta            → { planta }
+//   · "Todas" (null) y el tenant tiene EXACTAMENTE una planta operable → { planta } (esa; no es
+//     un default: es la única planta posible, autoritativa y no ambigua)
+//   · "Todas" (null) y hay 0 o >1 plantas operables → { error } (mensaje humano; bloquea la mutación)
+// `plantas` es el catálogo del tenant (proc_planta ya filtrado por deleted_at); opcional (si no se
+// provee, "Todas" siempre bloquea → comportamiento más estricto, nunca menos seguro).
+export function plantaParaMutar(planta, plantas) {
+  const val = (planta == null ? "" : String(planta)).trim();
+  if (val) return { planta: val };
+  const operables = (Array.isArray(plantas) ? plantas : [])
+    .filter((p) => p && p.id && !p.deleted_at && (p.estado == null || p.estado === "activa"));
+  if (operables.length === 1) return { planta: String(operables[0].id) };
+  return { error: MSG_PLANTA_REQUERIDA };
+}
+
 // ── PROC-ENVASES-001 · helpers de UI (puros/testeables) ──────────────────────
 export const NATURALEZA_ENVASE_LABEL = { apertura: "Apertura", ingreso: "Ingreso", salida: "Salida / Entrega",
   transferencia: "Transferencia", ajuste: "Ajuste", dano: "Daño", perdida: "Pérdida", baja: "Baja" };

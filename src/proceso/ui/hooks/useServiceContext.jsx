@@ -4,7 +4,7 @@
 // permisos por pestaña (reflejo, NO seguridad) y toasts. La empresa es el TENANT
 // (Allegria Service es el inicial, NO el único: proc_* es multi-tenant).
 import React, { createContext, useContext, useState, useMemo, useCallback, useEffect } from "react";
-import { procRpc } from "../../core/procesoDB";
+import { procRpc, cargarPlantas } from "../../core/procesoDB";
 
 const Ctx = createContext(null);
 
@@ -16,6 +16,7 @@ function hoyISO() {
 export function ServiceProvider({ children, empresaId = null, tabPermisos = {}, esAdmin = false, usuario = null }) {
   const [empresa, setEmpresa] = useState(empresaId);
   const [planta, setPlanta] = useState(null);
+  const [plantas, setPlantas] = useState([]);   // F-01: catálogo del tenant (autoridad para auto-resolver planta única en mutaciones)
   const [temporada, setTemporada] = useState(null);
   const [fecha, setFecha] = useState(hoyISO());
   const [toast, setToast] = useState(null);
@@ -42,6 +43,16 @@ export function ServiceProvider({ children, empresaId = null, tabPermisos = {}, 
   }, [empresa]);
   const hasCap = useCallback((cap) => caps.has(cap), [caps]);
 
+  // F-01: catálogo de plantas del tenant. Solo alimenta el auto-resolver de planta única en
+  // mutaciones (plantaParaMutar) y el selector del shell. Fallback seguro: si falla, queda [] y
+  // "Todas las plantas" bloquea toda mutación (fail-closed, nunca menos seguro).
+  useEffect(() => {
+    let vivo = true;
+    if (!empresa) { setPlantas([]); return; }
+    cargarPlantas(empresa).then((p) => { if (vivo) setPlantas(Array.isArray(p) ? p : []); }).catch(() => { if (vivo) setPlantas([]); });
+    return () => { vivo = false; };
+  }, [empresa]);
+
   const notificar = useCallback((texto, tipo = "ok") => {
     setToast({ texto, tipo, tono: tipo === "error" ? "danger" : "success" });
     setTimeout(() => setToast(null), 3200);
@@ -55,10 +66,10 @@ export function ServiceProvider({ children, empresaId = null, tabPermisos = {}, 
   const puedeEditar = useCallback((tabId) => permisoDe(tabId) === "editar", [permisoDe]);
 
   const value = useMemo(() => ({
-    empresa, setEmpresa, planta, setPlanta, temporada, setTemporada, fecha, setFecha,
+    empresa, setEmpresa, planta, setPlanta, plantas, temporada, setTemporada, fecha, setFecha,
     toast, notificar, permisoDe, puedeEditar, esAdmin, vista, ir, usuario,
     caps, hasCap,  // AUTHZ (reflejo de UX; autoridad = server-side)
-  }), [empresa, planta, temporada, fecha, toast, notificar, permisoDe, puedeEditar, esAdmin, vista, ir, usuario, caps, hasCap]);
+  }), [empresa, planta, plantas, temporada, fecha, toast, notificar, permisoDe, puedeEditar, esAdmin, vista, ir, usuario, caps, hasCap]);
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }

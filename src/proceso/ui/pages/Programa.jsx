@@ -8,7 +8,7 @@ import {
   cargarProgramas, crearPrograma, actualizarPrograma, crearOrden, siguienteCorrelativo, cargarVinculosPorRol,
   clienteHabilitadoParaOperar,
 } from "../../core/procesoF7DB";
-import { traducirError, badgeDe, temporadaParaCrear } from "../../core/procesoF7Domain";
+import { traducirError, badgeDe, temporadaParaCrear, plantaParaMutar } from "../../core/procesoF7Domain";
 import {
   ProcPageHeader, ProcCard, ProcButton, ProcDataTable, ProcStatusBadge, ProcModal, ProcField, inputStyle,
   ProcLoadingState, ProcErrorState, ProcEmptyState,
@@ -17,7 +17,7 @@ import { C, sp } from "../estilos";
 import { formatKg, formatNum, formatFecha, formatFechaHora, normalizarNombre } from "../format";
 
 export default function Programa() {
-  const { empresa, planta, temporada, fecha, ir, puedeEditar, notificar } = useService();
+  const { empresa, planta, plantas, temporada, fecha, ir, puedeEditar, notificar } = useService();
   const [rows, setRows] = useState([]); const [clientes, setClientes] = useState([]);
   const [estado, setEstado] = useState("idle"); const [error, setError] = useState(null);
   const [form, setForm] = useState(null);
@@ -40,10 +40,13 @@ export default function Programa() {
     if (!form.especie_codigo) return notificar("Falta especie", "error");
     const tmp = temporadaParaCrear(temporada);
     if (tmp.error) return notificar(tmp.error, "error");
+    // F-01: el programa se ancla a una planta concreta (la orden que genera hereda su planta).
+    const pg = plantaParaMutar(planta, plantas);
+    if (pg.error) return notificar(pg.error, "error");
     try {
       const folio = await siguienteCorrelativo({ empresaId: empresa, temporada: tmp.codigo, tipo: "PROG" });
       await crearPrograma({
-        empresa_id: empresa, folio, fecha: form.fecha || fecha, planta_id: planta || null,
+        empresa_id: empresa, folio, fecha: form.fecha || fecha, planta_id: pg.planta,
         turno: form.turno || null, cliente_servicio_vinculo_id: form.cliente || null,
         especie_codigo: form.especie_codigo, variedad_codigo: form.variedad_codigo || null,
         kg_estimado: Number(form.kg_estimado) || null, prioridad: Number(form.prioridad) || 0, estado: "borrador",
@@ -65,9 +68,13 @@ export default function Programa() {
       }
       const tmp = temporadaParaCrear(temporada);
       if (tmp.error) return notificar(tmp.error, "error");
+      // F-01: la orden hereda la planta del programa (autoritativa); si el programa no la fijó,
+      // se resuelve del shell y falla-cerrado si es "Todas" y hay ambigüedad.
+      const pg = p.planta_id ? { planta: p.planta_id } : plantaParaMutar(planta, plantas);
+      if (pg.error) return notificar(pg.error, "error");
       const folio = await siguienteCorrelativo({ empresaId: empresa, temporada: tmp.codigo, tipo: "ORD" });
       const o = await crearOrden({
-        empresa_id: empresa, folio, programa_id: p.id, planta_id: p.planta_id || planta || null, linea_id: p.linea_id || null,
+        empresa_id: empresa, folio, programa_id: p.id, planta_id: pg.planta, linea_id: p.linea_id || null,
         turno: p.turno || null, cliente_servicio_vinculo_id: p.cliente_servicio_vinculo_id || null,
         especie_codigo: p.especie_codigo, variedad_codigo: p.variedad_codigo || null, estado: "en_proceso",
       });

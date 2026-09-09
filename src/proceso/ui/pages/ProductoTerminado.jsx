@@ -8,7 +8,7 @@ import {
   cargarResultadoMaterializable, cargarPTOperacional, materializarPT, cargarFormatos,
   cargarBodega, crearPallet, palletizar, cargarUbicacionesActivas, siguienteCorrelativo,
 } from "../../core/procesoF7DB";
-import { traducirError, temporadaParaCrear } from "../../core/procesoF7Domain";
+import { traducirError, temporadaParaCrear, plantaParaMutar } from "../../core/procesoF7Domain";
 import {
   ProcPageHeader, ProcCard, ProcButton, ProcDataTable, ProcStatusBadge, ProcModal, ProcField, inputStyle,
   ProcLoadingState, ProcErrorState, ProcEmptyState,
@@ -19,7 +19,7 @@ import { formatKg, formatNum, formatFecha, formatFechaHora } from "../format";
 const kg = (n) => formatKg(n);
 
 export default function ProductoTerminado() {
-  const { empresa, planta, temporada, puedeEditar, notificar } = useService();
+  const { empresa, planta, plantas, temporada, puedeEditar, notificar } = useService();
   const [modo, setModo] = useState("materializar"); // materializar | pt
   const [mat, setMat] = useState([]); const [pts, setPts] = useState([]);
   const [estado, setEstado] = useState("idle"); const [error, setError] = useState(null);
@@ -62,8 +62,11 @@ export default function ProductoTerminado() {
       if (palForm.modo === "nuevo") {
         const tmp = temporadaParaCrear(temporada);
         if (tmp.error) return notificar(tmp.error, "error");
+        // F-01: crear un pallet nuevo MUTA inventario → planta concreta (fail-closed).
+        const pg = plantaParaMutar(planta, plantas);
+        if (pg.error) return notificar(pg.error, "error");
         const codigo = await siguienteCorrelativo({ empresaId: empresa, temporada: tmp.codigo, tipo: "PAL" });
-        palletId = await crearPallet({ empresaId: empresa, codigo, temporada: tmp.codigo, plantaId: planta, formatoId: palForm.pt.formato_id, ubicacionId: palForm.ubicacion_id || null });
+        palletId = await crearPallet({ empresaId: empresa, codigo, temporada: tmp.codigo, plantaId: pg.planta, formatoId: palForm.pt.formato_id, ubicacionId: palForm.ubicacion_id || null });
       }
       if (!palletId) return notificar("Seleccioná o creá un pallet", "error");
       await palletizar({ empresaId: empresa, ptId: palForm.pt.pt_id, palletId, cajas: Number(palForm.cajas) || 0, kg: Number(palForm.kg) });

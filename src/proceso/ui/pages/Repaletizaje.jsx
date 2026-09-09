@@ -7,7 +7,7 @@ import { useService } from "../hooks/useServiceContext";
 import {
   cargarBodega, cargarLineasPallet, crearPallet, repaletizar, cargarUbicacionesActivas, siguienteCorrelativo,
 } from "../../core/procesoF7DB";
-import { traducirError, temporadaParaCrear } from "../../core/procesoF7Domain";
+import { traducirError, temporadaParaCrear, plantaParaMutar } from "../../core/procesoF7Domain";
 import {
   ProcPageHeader, ProcCard, ProcButton, ProcField, inputStyle, ProcStatusBadge,
   ProcLoadingState, ProcErrorState, ProcEmptyState,
@@ -19,7 +19,7 @@ const n = (x) => Number(x) || 0;
 const kg = (x) => formatKg(n(x));
 
 export default function Repaletizaje() {
-  const { empresa, planta, temporada, ir, vista, notificar } = useService();
+  const { empresa, planta, plantas, temporada, ir, vista, notificar } = useService();
   const [pallets, setPallets] = useState([]); const [ubis, setUbis] = useState([]);
   const [estado, setEstado] = useState("loading"); const [error, setError] = useState(null);
   const [origenIds, setOrigenIds] = useState(vista?.params?.origen ? [vista.params.origen] : []);
@@ -59,6 +59,9 @@ export default function Repaletizaje() {
     const requiereTemporada = destinos.some((d) => d.tipo !== "existente");
     const tmp = requiereTemporada ? temporadaParaCrear(temporada) : { codigo: null };
     if (tmp.error) return notificar(tmp.error, "error");
+    // F-01: solo se exige planta concreta si hay que CREAR pallets destino nuevos (crearPallet muta).
+    const pg = requiereTemporada ? plantaParaMutar(planta, plantas) : { planta: null };
+    if (pg.error) return notificar(pg.error, "error");
     setGuardando(true);
     try {
       // crear pallets destino nuevos
@@ -67,7 +70,7 @@ export default function Repaletizaje() {
         if (d.tipo === "existente") { destIds.push(d.pallet_id); }
         else {
           const codigo = await siguienteCorrelativo({ empresaId: empresa, temporada: tmp.codigo, tipo: "PAL" });
-          const pid = await crearPallet({ empresaId: empresa, codigo, temporada: tmp.codigo, plantaId: planta, ubicacionId: d.ubicacion_id || null });
+          const pid = await crearPallet({ empresaId: empresa, codigo, temporada: tmp.codigo, plantaId: pg.planta, ubicacionId: d.ubicacion_id || null });
           destIds.push(pid);
         }
       }

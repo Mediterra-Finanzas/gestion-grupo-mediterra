@@ -7,7 +7,7 @@ import { useService } from "../hooks/useServiceContext";
 import {
   cargarInformeListado, cargarOrdenesInformables, crearInforme, generarVersion, siguienteCorrelativo, cargarVinculosPorRol,
 } from "../../core/procesoF7DB";
-import { traducirError, badgeDe, temporadaParaCrear } from "../../core/procesoF7Domain";
+import { traducirError, badgeDe, temporadaParaCrear, plantaParaMutar } from "../../core/procesoF7Domain";
 import {
   ProcPageHeader, ProcButton, ProcCard, ProcDataTable, ProcStatusBadge, ProcModal, ProcField, inputStyle,
   ProcLoadingState, ProcErrorState, ProcEmptyState,
@@ -19,7 +19,7 @@ const kg = (n) => (n == null ? "—" : formatNum(n));
 const pct = (n) => formatPct(n);
 
 export default function Informes() {
-  const { empresa, planta, temporada, ir, puedeEditar, notificar } = useService();
+  const { empresa, planta, plantas, temporada, ir, puedeEditar, notificar } = useService();
   const [modo, setModo] = useState("informes"); // informes | pendientes
   const [informes, setInformes] = useState([]); const [pend, setPend] = useState([]);
   const [estado, setEstado] = useState("idle"); const [error, setError] = useState(null);
@@ -48,9 +48,13 @@ export default function Informes() {
   const generar = async () => {
     const tmp = temporadaParaCrear(temporada);
     if (tmp.error) return notificar(tmp.error, "error");
+    // F-01: el informe se ancla a una planta concreta (su folio/alcance es por planta). Fail-closed
+    // ante "Todas" ambiguo; en tenant de una sola planta se resuelve solo (sin fricción).
+    const pg = plantaParaMutar(planta, plantas);
+    if (pg.error) return notificar(pg.error, "error");
     try {
       const folio = await siguienteCorrelativo({ empresaId: empresa, temporada: tmp.codigo, tipo: "INF" });
-      const infId = await crearInforme({ empresaId: empresa, folio, temporada: tmp.codigo, plantaId: planta, destinatarioVinculoId: gen.destinatario || null });
+      const infId = await crearInforme({ empresaId: empresa, folio, temporada: tmp.codigo, plantaId: pg.planta, destinatarioVinculoId: gen.destinatario || null });
       await generarVersion({ empresaId: empresa, informeId: infId, ordenIds: sel, observaciones: gen.observaciones || null });
       notificar(`Informe ${folio} generado`); setGen(null); setSel([]); ir("informe_detalle", { id: infId });
     } catch (e) { notificar(traducirError(e), "error"); }

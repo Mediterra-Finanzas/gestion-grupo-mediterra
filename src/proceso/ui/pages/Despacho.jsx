@@ -161,7 +161,10 @@ export default function Despacho() {
 
       <Seccion titulo="Auditoría"><ProcAuditInfo registro={raw} /></Seccion>
 
-      {addPallet && <SelectorPalletCarga empresa={empresa} planta={planta} onClose={() => setAddPallet(null)} onAdd={agregarCarga} />}
+      {/* F-01: el selector de pallets se acota a la planta ORIGEN del despacho (autoritativa),
+          no al selector del shell — evita reservar/cargar un pallet de otra planta. Fallback al
+          shell solo para despachos legados sin planta_origen. */}
+      {addPallet && <SelectorPalletCarga empresa={empresa} planta={d.planta_origen_id || planta} onClose={() => setAddPallet(null)} onAdd={agregarCarga} />}
       {reversa && <ProcConfirmAction titulo="Reversar despacho" mensaje="Se restituye el stock (contramovimiento), la línea original queda 'reversada' y el despacho conserva su historia. Exige motivo." textoConfirm="Reversar"
         onConfirm={() => { const m = prompt("Motivo de la reversa:"); if (m) doReversa(m); }} onCancel={() => setReversa(false)} />}
       {cancelar && <ProcConfirmAction titulo="Cancelar despacho" mensaje="Se liberan las reservas activas y el despacho queda cancelado. No genera salida física." textoConfirm="Cancelar despacho"
