@@ -69,7 +69,8 @@ async function auditLoad_DESPUES(f) {
 function makeFlush(auditLoadImpl, useFix) {
   const w = { buffer: [], allEvents: null };
   let saved = null; // último value persistido (lo que quedaría en la fila)
-  async function auditSave(eventos) { saved = eventos; }
+  let saveCalls = 0; // # de veces que se invocó auditSave == # de upserts a audit_log
+  async function auditSave(eventos) { saveCalls++; saved = eventos; }
   async function auditFlush(f) {
     if (w.buffer.length === 0) return;
     const nuevos = [...w.buffer];
@@ -85,7 +86,7 @@ function makeFlush(auditLoadImpl, useFix) {
     w.allEvents = [...w.allEvents, ...nuevos];
     await auditSave(w.allEvents);
   }
-  return { w, auditFlush, getSaved: () => saved };
+  return { w, auditFlush, getSaved: () => saved, getSaveCalls: () => saveCalls };
 }
 
 // ── PART 1 — ANTES: la carga fallida BORRA el historial (demuestra el bug) ────
@@ -101,12 +102,15 @@ function makeFlush(auditLoadImpl, useFix) {
 
 // ── PART 2 — DESPUÉS: cada modo de falla ABORTA el flush (no se guarda nada) ──
 for (const modo of ["http_403", "http_401", "red", "json_parcial"]) {
-  const { w, auditFlush, getSaved } = makeFlush(auditLoad_DESPUES, /*useFix*/true);
+  const { w, auditFlush, getSaved, getSaveCalls } = makeFlush(auditLoad_DESPUES, /*useFix*/true);
   w.buffer.push({ id: "ev_login", timestamp: new Date().toISOString(), accion: "login" });
   let threw = false;
   try { await auditFlush(fakes[modo]); } catch { threw = true; }
   const saved = getSaved();
   ok(`P2 (FIX) ${modo} => NO se persiste (audit_log intacto)`, saved === null);
+  // Prueba EXPLÍCITA del invariante: auditSave (el ÚNICO writer/upsert de audit_log)
+  // no se invocó ni una sola vez. saved===null es el resultado; esto es el conteo de llamadas.
+  ok(`P2 (FIX) ${modo} => auditSave/upsert NO invocado (call count === 0)`, getSaveCalls() === 0);
   ok(`P2 (FIX) ${modo} => eventos re-encolados (no se pierden)`, w.buffer.length === 1 && w.allEvents === null);
   ok(`P2 (FIX) ${modo} => auditFlush no explota (aborta limpio)`, threw === false);
 }
@@ -129,6 +133,45 @@ for (const modo of ["http_403", "http_401", "red", "json_parcial"]) {
   // Vacío legítimo: se guarda el único evento nuevo. Válido SOLO porque la lectura fue OK.
   ok("P4 (FIX) fila vacía con lectura OK => persiste 1 evento (vacío legítimo, no wipe)",
      Array.isArray(saved) && saved.length === 1);
+}
+
+// ── PART 5 — DESPUÉS: CADENA COMPLETA en un solo harness continuo ─────────────
+// Demuestra la cadena exacta que exige la certificación P0-INTEGRITY, paso a paso,
+// SIN reiniciar el estado entre el fallo y la recuperación:
+//   historial existente (5000) → fallo de lectura (403) → eventos buffered
+//   → NO escritura destructiva (auditSave NO invocado / upsert count 0)
+//   → retry/recovery (una lectura posterior EXITOSA)
+//   → historial preservado (5000) + eventos buffered agregados (no perdidos) = 5001
+{
+  const { w, auditFlush, getSaved, getSaveCalls } = makeFlush(auditLoad_DESPUES, /*useFix*/true);
+
+  // Paso 1 — el servidor TIENE 5000 eventos de historial (fakes.ok_con_datos los
+  // devuelve cuando la lectura sea exitosa). Estado de partida no vacío.
+  ok("P5 paso1: historial existente en servidor = 5000 (precondición)", HISTORIAL.length === 5000);
+
+  // Paso 2 — se bufferiza un evento nuevo de la sesión.
+  w.buffer.push({ id: "ev_login", timestamp: new Date().toISOString(), accion: "login" });
+  ok("P5 paso2: 1 evento buffered antes del primer flush", w.buffer.length === 1);
+
+  // Paso 3 — primer flush golpea 403 (fallo de lectura).
+  await auditFlush(fakes.http_403);
+  // Paso 4 — NO escritura destructiva: auditSave (único upsert) jamás se invocó.
+  ok("P5 paso4: fallo de lectura => auditSave/upsert NO invocado (call count === 0)", getSaveCalls() === 0);
+  ok("P5 paso4: fallo de lectura => audit_log NO reemplazado (saved === null)", getSaved() === null);
+  // Paso 5 — los eventos siguen buffered (no se perdieron ni se persistieron truncados).
+  ok("P5 paso5: eventos siguen buffered tras el fallo (no perdidos)", w.buffer.length === 1 && w.allEvents === null);
+
+  // Paso 6 — RETRY/RECOVERY: un flush posterior con lectura EXITOSA.
+  await auditFlush(fakes.ok_con_datos);
+  const saved = getSaved();
+  ok("P5 paso6: recovery => auditSave/upsert invocado exactamente 1 vez", getSaveCalls() === 1);
+  // Paso 7 — historial preservado + evento buffered agregado, sin pérdida.
+  ok("P5 paso7: recovery => persiste 5000 historial + 1 buffered = 5001", Array.isArray(saved) && saved.length === 5001);
+  const idsGuardados = new Set(saved.map(e => e.id));
+  const historialIntacto = HISTORIAL.every(e => idsGuardados.has(e.id));
+  ok("P5 paso7: recovery => los 5000 eventos históricos preservados (ninguno borrado)", historialIntacto);
+  ok("P5 paso7: recovery => el evento buffered quedó agregado (no perdido)", idsGuardados.has("ev_login"));
+  ok("P5 paso7: recovery => buffer drenado tras persistir", w.buffer.length === 0);
 }
 
 console.log(`\nRESULT: PASS=${pass} FAIL=${fail}`);
