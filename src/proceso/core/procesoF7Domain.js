@@ -182,6 +182,53 @@ export function totalKg(lineas = [], filtroEstado = "confirmada") {
   return lineas.filter((l) => !filtroEstado || l.estado === filtroEstado).reduce((a, l) => a + (Number(l.kg) || 0), 0);
 }
 
+// ── F-02 · Reservas de despacho: rehidratación + idempotencia (DB = AUTORIDAD) ──
+// El servidor es la fuente de verdad de cada reserva: un proc_hold activo
+// (tipo='reserva', ref_tipo='despacho', ref_id=<despacho>). La UI NO inventa ni
+// recuerda reservas en localStorage: al montar RECONSTRUYE la lista de carga desde
+// los holds activos del despacho (read-model proc_v_pallet_hold). Sin esto, un F5 /
+// cierre de pestaña dejaba `carga` en [] mientras el hold seguía activo → el pallet
+// quedaba "reservado" invisible (proc_v_pallet_saldos ya le restó el kg a disponible)
+// y el operador no podía verlo ni liberarlo salvo cancelando todo el despacho.
+
+// Mapea holds activos del despacho a filas de carga. kg = SUMA de cantidad de los
+// holds activos de ese pallet (espeja `reservado` de proc_v_pallet_saldos, que también
+// suma todos los holds activos; si por un bug histórico hubiera >1 hold del mismo
+// pallet, el total mostrado sigue cuadrando con el disponible). `codigo` se resuelve
+// desde un mapa pallet_id→codigo (bodega). `cajas` NO se persiste en el hold hoy →
+// se marca rehidratada:true y cajas:0 para que la UI exija reingresarlas antes de
+// confirmar (no fabrica un número de cajas que el backend no conoce).
+export function mapReservasACarga(holds = [], palletCodigo = {}) {
+  const byPallet = new Map();
+  for (const h of holds || []) {
+    if (!h || h.estado !== "activo" || h.tipo !== "reserva" || !h.pallet_id) continue;
+    const kg = Number(h.cantidad) || 0;
+    const prev = byPallet.get(h.pallet_id);
+    if (prev) { prev.kg = Math.round((prev.kg + kg) * 1000) / 1000; prev.holds += 1; }
+    else byPallet.set(h.pallet_id, {
+      palletId: h.pallet_id, codigo: palletCodigo[h.pallet_id] || null,
+      kg, cajas: 0, rehidratada: true, holds: 1,
+    });
+  }
+  return [...byPallet.values()].map((r) => ({ ...r, duplicado: r.holds > 1 }));
+}
+
+// Agrega una reserva a la carga en memoria de forma IDEMPOTENTE: si el pallet ya está
+// en la carga, NO lo duplica (re-entrante ante doble click / doble montaje / carrera).
+// Espeja la unicidad que el backend debe garantizar (un hold activo por pallet+despacho,
+// ver DRAFT F02 del índice único). Devuelve { carga, duplicada }.
+export function agregarReservaIdempotente(carga = [], nueva = {}) {
+  const existe = (carga || []).some((c) => c && c.palletId === nueva.palletId);
+  if (existe) return { carga: carga || [], duplicada: true };
+  return { carga: [...(carga || []), nueva], duplicada: false };
+}
+
+// Quita de la carga en memoria todas las filas de un pallet (tras liberar su reserva
+// en el servidor). Idempotente: si no está, devuelve la misma lista sin error.
+export function quitarReservaDeCarga(carga = [], palletId) {
+  return (carga || []).filter((c) => c && c.palletId !== palletId);
+}
+
 // ── F7.7 Tarifario / Servicios Facturables / Base de Cobro ──────────────────
 // Preview UX; la DB (proc_fn_resolver_tarifa + guards + NUMERIC) es la AUTORIDAD.
 // El monto para decisiones económicas viene del backend (subtotal/total); esto es

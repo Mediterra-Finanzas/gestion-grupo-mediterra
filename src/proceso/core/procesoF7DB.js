@@ -197,6 +197,12 @@ export const cambiarEstadoDespacho = (e, id, estado) =>
 export const cancelarDespacho = (a) => procRpc("proc_fn_cancelar_despacho", { p_empresa: a.empresaId, p_despacho: a.despachoId, p_actor: a.actor || null });
 export const cargarPalletHoldsFolio = (e, palletId) =>
   procSelect("proc_v_pallet_hold", `?empresa_id=eq.${e}&pallet_id=eq.${palletId}&order=created_at.desc`);
+// F-02 · Reservas ACTIVAS de un despacho (rehidratación server-authoritative de la carga).
+// El hold es la SoT de la reserva; al montar la mesa de despacho reconstruimos `carga`
+// desde acá (no desde estado local perdido en un F5). Filtra reserva+despacho+activo.
+export const cargarReservasDespacho = (e, despachoId) =>
+  procSelect("proc_v_pallet_hold",
+    `?empresa_id=eq.${e}&ref_tipo=eq.despacho&ref_id=eq.${despachoId}&tipo=eq.reserva&estado=eq.activo&order=created_at`);
 export const crearDocDespacho = (fila) => crearMaestro("proc_despacho_doc", fila);
 // Re-export de las RPC transaccionales de despacho (F4) para la UI F7.5.
 export { crearDespacho, reservarPallet, liberarReserva, confirmarDespacho, reversarDespacho, cargarDocsDespacho } from "./procesoF4DB.js";
