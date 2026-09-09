@@ -7,6 +7,7 @@ export const MOTIVO = {
   LOTE_DESCONOCIDO: "lote_desconocido",
   NO_PUBLICADO: "lote_no_publicado",
   FALLIDO: "lote_fallido",
+  EVIDENCIA_INCOMPLETA: "evidencia_incompleta",
   REGISTRO_INCOMPLETO: "registro_incompleto",
   OBJETO_AUSENTE: "objeto_ausente",
   SHA_NO_COINCIDE: "sha_no_coincide",
@@ -24,6 +25,10 @@ const rechazo = (motivo, detalle) => ({ ok: false, motivo, detalle: detalle || "
 export async function restaurarLote({ fila, bajar, sha256, descifrar, claves }) {
   if (!fila) return rechazo(MOTIVO.LOTE_DESCONOCIDO);
   if (fila.estado === "FAILED") return rechazo(MOTIVO.FALLIDO, "estado=FAILED");
+  // Hay bytes cifrados, pero les falta el dueno de alguna credencial. Sirven
+  // como evidencia para una recuperacion manual; no como respaldo restaurable.
+  if (fila.estado === "INCOMPLETO")
+    return rechazo(MOTIVO.EVIDENCIA_INCOMPLETA, fila.verificacion || "estado=INCOMPLETO");
   if (fila.estado !== "READY") return rechazo(MOTIVO.NO_PUBLICADO, "estado=" + fila.estado);
 
   // Un lote READY con campos vacios es un registro roto, no un lote bueno.
