@@ -3,10 +3,10 @@
 // Navegación por estado (contexto: vista/ir), barra de contexto operacional
 // (tenant/planta/temporada/fecha) y área de contenido. F7.2 habilita el flujo
 // Recepción + QC + Lotes; el resto muestra estado "próxima fase" honesto.
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useRef } from "react";
 import { useService } from "../hooks/useServiceContext";
 import { cargarPlantas, cargarTemporadas } from "../../core/procesoDB";
-import { resolverItemActivo } from "../../core/procesoF7Domain";
+import { resolverItemActivo, temporadaDeFecha } from "../../core/procesoF7Domain";
 import { ProcButton, ProcToast } from "../components/base";
 import { C, sp } from "../estilos";
 import CentroOperaciones from "../pages/CentroOperaciones";
@@ -94,6 +94,15 @@ function BarraContexto() {
     cargarPlantas(empresa).then(setPlantas).catch(() => setPlantas([]));
     cargarTemporadas(empresa).then(setTemps).catch(() => setTemps([]));
   }, [empresa]);
+  // Default UX (una sola vez): al cargar, el selector muestra la temporada VIGENTE (la que cubre la
+  // fecha operacional) en vez de "Toda temporada". Si no hay una única, no fuerza nada. Tras el
+  // default, el usuario queda libre de elegir "Toda temporada" u otra sin que vuelva a saltar.
+  const _defTemp = useRef(false);
+  useEffect(() => {
+    if (_defTemp.current || temporada || !temps.length) return;
+    const d = temporadaDeFecha(temps, fecha);
+    if (d.codigo) { setTemporada(d.codigo); _defTemp.current = true; }
+  }, [temps, fecha, temporada, setTemporada]);
   const inp = { padding: "6px 8px", fontSize: 12.5, border: `1px solid ${C.border}`, borderRadius: 7, background: C.card, color: C.text, fontFamily: C.font };
   return (
     <div style={{ display: "flex", gap: sp.sm, flexWrap: "wrap", alignItems: "center" }}>

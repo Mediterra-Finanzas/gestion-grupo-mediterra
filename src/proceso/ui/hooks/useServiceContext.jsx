@@ -32,7 +32,7 @@ export function ServiceProvider({ children, empresaId = null, tabPermisos = {}, 
     if (!empresa) { setCaps(new Set()); return; }
     (async () => {
       try {
-        const arr = await procRpc("proc_effective_caps", {});
+        const arr = await procRpc("proc_effective_caps", { p_empresa: empresa });
         if (vivo) setCaps(new Set(Array.isArray(arr) ? arr : []));
       } catch {
         if (vivo) setCaps(new Set());  // authz no desplegada / sin permiso → sin caps (comportamiento previo)

@@ -203,7 +203,7 @@ export default function NuevaRecepcion() {
   // persistidos (reanudación de borrador) NUNCA pasan por acá — no se re-ingresan.
   const ingresarLoteReal = async () => {
     const datos = nl;
-    const tmp = rec?.temporada || null;          // temporada derivada de la fecha operacional
+    const tmp = rec?.temporada || tempDeriv.codigo || null;   // borrador vacío reanudado: cae a la temporada derivada de la fecha (T10C)
     const fechaOp = rec?.fechaOp || null;        // wall-clock operacional (backend convierte tz)
     setConfOrigen(null);
     try {
@@ -215,6 +215,7 @@ export default function NuevaRecepcion() {
         fechaOperacional: fechaOp,   // T10C: la recepción y su ledger comparten la fecha operacional
       });
       setAgregados((a) => [...a, { codigo, kg: Number(datos.kg), persistido: false, ...datos }]);
+      if (!rec?.temporada && tmp) setRec((r) => (r ? { ...r, temporada: tmp } : r));  // fija la temporada del borrador tras el 1er lote (habilita finalizar)
       setNl({ productorId: "", predioId: "", cuartelId: "", especie_codigo: "", variedad_codigo: "", kg: "", ubicacion: "" });
       refrescarConcil();
       notificar(`Lote ${codigo} ingresado`);
@@ -225,8 +226,10 @@ export default function NuevaRecepcion() {
     if (!nl.especie_codigo) return notificar("Elegí especie del lote", "error");
     if (!nl.kg || Number(nl.kg) <= 0) return notificar("Kg del lote debe ser > 0", "error");
     if (!nl.ubicacion) return notificar("Seleccioná ubicación inicial", "error");
-    // T10C: sin temporada derivada no se generan correlativos (evita "s-t"/"LOT--").
-    if (!rec?.temporada) return notificar("La recepción no tiene temporada resuelta; revisá la fecha operacional", "error");
+    // T10C: sin temporada resuelta no se generan correlativos (evita "s-t"/"LOT--"). En un borrador
+    // vacío reanudado, rec.temporada es null (aún no hay movimiento de entrada) → cae a la temporada
+    // DERIVADA de la fecha (única para fechas válidas). Solo se bloquea si NINGUNA resuelve.
+    if (!(rec?.temporada || tempDeriv.codigo)) return notificar("La recepción no tiene temporada resuelta; revisá la fecha operacional", "error");
     const org = evaluarOrigenLote(nl);   // NR-02: origen incompleto → confirmación consciente
     if (!org.completo) { setConfOrigen(org); return; }
     await ingresarLoteReal();
