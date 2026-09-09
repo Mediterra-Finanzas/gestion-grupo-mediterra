@@ -7,7 +7,7 @@ import { useService } from "../hooks/useServiceContext";
 import {
   cargarInformeListado, cargarOrdenesInformables, crearInforme, generarVersion, siguienteCorrelativo, cargarVinculosPorRol,
 } from "../../core/procesoF7DB";
-import { traducirError, badgeDe, temporadaParaCrear, plantaParaMutar } from "../../core/procesoF7Domain";
+import { traducirError, badgeDe, temporadaParaCrear } from "../../core/procesoF7Domain";
 import {
   ProcPageHeader, ProcButton, ProcCard, ProcDataTable, ProcStatusBadge, ProcModal, ProcField, inputStyle,
   ProcLoadingState, ProcErrorState, ProcEmptyState,
@@ -48,13 +48,15 @@ export default function Informes() {
   const generar = async () => {
     const tmp = temporadaParaCrear(temporada);
     if (tmp.error) return notificar(tmp.error, "error");
-    // F-01: el informe se ancla a una planta concreta (su folio/alcance es por planta). Fail-closed
-    // ante "Todas" ambiguo; en tenant de una sola planta se resuelve solo (sin fricción).
-    const pg = plantaParaMutar(planta, plantas);
-    if (pg.error) return notificar(pg.error, "error");
+    // F-01 (excepción reporting, autorizada por CFO): un informe es un DOCUMENTO, no inventario
+    // físico — no crea ni modifica movimientos. Por eso admite alcance EXPLÍCITO por planta concreta
+    // o "Todas" (planta null = alcance multi-planta, queda registrado en el informe). El guard
+    // fail-closed de planta se mantiene íntegro para toda operación que cree/mueva/reserve/despache
+    // inventario físico; esta excepción NO relaja ninguna otra protección F-01.
+    const plantaId = planta || null;
     try {
       const folio = await siguienteCorrelativo({ empresaId: empresa, temporada: tmp.codigo, tipo: "INF" });
-      const infId = await crearInforme({ empresaId: empresa, folio, temporada: tmp.codigo, plantaId: pg.planta, destinatarioVinculoId: gen.destinatario || null });
+      const infId = await crearInforme({ empresaId: empresa, folio, temporada: tmp.codigo, plantaId, destinatarioVinculoId: gen.destinatario || null });
       await generarVersion({ empresaId: empresa, informeId: infId, ordenIds: sel, observaciones: gen.observaciones || null });
       notificar(`Informe ${folio} generado`); setGen(null); setSel([]); ir("informe_detalle", { id: infId });
     } catch (e) { notificar(traducirError(e), "error"); }
