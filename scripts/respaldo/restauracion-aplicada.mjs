@@ -160,7 +160,10 @@ for (const id of ids) {
 }
 chk("recursos restaurados idénticos al origen", difieren.length === 0,
   `${iguales.length} idénticos · ${posteriores.length} escritos después del snapshot · ${difieren.length} difieren`);
-if (fueraDelLote.length) nota(`fuera del lote por allowlist: ${fueraDelLote.join(", ")}`);
+const excluidasDiseno = fueraDelLote.filter((id) => rec.excluidas.includes(id));
+const noDeclaradas = fueraDelLote.filter((id) => !rec.excluidas.includes(id));
+if (excluidasDiseno.length) nota(`excluidos por diseño, viajan vacíos y no se reponen (auditoría y copias): ${excluidasDiseno.length} · ${excluidasDiseno.join(", ")}`);
+if (noDeclaradas.length) nota(`fuera de la allowlist, no viajan: ${noDeclaradas.length} · ${noDeclaradas.join(", ")}`);
 const mainO = origen.get("main").value;
 const mainOSinPin = { ...mainO, usuarios: (mainO.usuarios || []).map(({ pin, ...u }) => u) };
 if (cambioDespues("main")) nota("main cambió después del snapshot: una diferencia puede ser escritura posterior");

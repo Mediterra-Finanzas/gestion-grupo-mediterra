@@ -5,7 +5,12 @@
  * - `pins` = credenciales, historial y teléfono de B, vinculados al usuario por
  *   `llave_hash` (sha256 del nombre exacto), sin consultar la bóveda original. Vale igual en
  *   modo bóveda y en modo legacy: el UUID no participa del vínculo.
- * - el resto de los recursos de negocio, tal como viajan.
+ * - el resto de los recursos de clase NEGOCIO, tal como viajan.
+ *
+ * Excluidos por diseño. Auditoría y copias (`audit_log`, `backup_*`, `main_pre_restore_*`)
+ * viajan en A con el valor vacío, solo como constancia de lo retirado. No se reponen: escribir
+ * esa cáscara en un destino real borraría la bitácora y las copias. Se listan en `excluidas`.
+ * La clase se lee del lote; un lote anterior sin clase se resuelve con la allowlist vigente.
  *
  * Código provisorio. Su material no viaja. Por cada marca de `B.reemisiones` se escribe
  * `<nombre>_temp` = TEMP_REEMISION, un código ya VENCIDO que nadie puede usar. Con él App.jsx
@@ -22,16 +27,20 @@
  *
  * Una entrada cuyo llave_hash no calza con exactamente un usuario del padrón no se
  * asigna: se reporta como sin dueño o ambigua. */
+import { ALLOWLIST, reglaDe, CLASE } from "./backupGenerador.js";
 
 // `exp: 1` es 1970: vencido. salt y hash en cero no salen de ningún código y nunca se comparan,
 // porque App.jsx descarta el código vencido antes de verificarlo.
 export const TEMP_REEMISION = Object.freeze({ v: 1, iter: 100000, salt: "0".repeat(32), hash: "0".repeat(64), exp: 1,
   origen: "restauracion", motivo: "codigo_provisorio_no_respaldado" });
 
-export function reconstruirDesdeLote({ A, B, hashLlave }) {
+export function reconstruirDesdeLote({ A, B, hashLlave, allowlist = ALLOWLIST }) {
   const filas = {};
+  const excluidas = [];
   for (const [id, r] of Object.entries(A?.negocio || {})) {
     if (id === "main") continue;
+    const clase = r.clase || reglaDe(id, allowlist)?.clase;
+    if (clase !== CLASE.NEGOCIO) { excluidas.push(id); continue; }
     filas[id] = { value: r.value, updated_at: r.updated_at || null };
   }
   const tareas = A?.negocio?.main?.value || {};
@@ -81,7 +90,7 @@ export function reconstruirDesdeLote({ A, B, hashLlave }) {
     reemitir.push(n);
   }
   filas.pins = { value: pins, updated_at: null };
-  return { filas, sinDueno, ambiguas, identidadPorNombre, reemitir, huerfanasNoAplicadas: (B?.huerfanas || []).length };
+  return { filas, excluidas, sinDueno, ambiguas, identidadPorNombre, reemitir, huerfanasNoAplicadas: (B?.huerfanas || []).length };
 }
 
 /* ¿Se puede declarar la recuperación COMPLETA con lo reconstruido? Solo si todo lo que viajó

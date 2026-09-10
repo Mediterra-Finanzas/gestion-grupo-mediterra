@@ -410,3 +410,39 @@ describe("Huérfanas · preservadas, nunca asignadas, impiden declarar la recupe
     expect(R.evaluarRecuperacion({ huerfanasNoAplicadas: 0, sinDueno: [], ambiguas: ["y"] }).completa).toBe(false);
   });
 });
+
+describe("Auditoría y copias · viajan como constancia, nunca se reponen", () => {
+  const conExcluidos = () => {
+    const s = snapshot();
+    s.datos.push(
+      { id: "audit_log", value: { eventos: [{ x: 1 }] }, updated_at: "2026-09-10T11:00:00.000Z" },
+      { id: "backup_2026-09-09", value: { main: { usuarios: [] }, fecha: "2026-09-09" }, updated_at: "2026-09-10T11:00:00.000Z" });
+    return s;
+  };
+
+  test("en A van con valor vacío, campos retirados declarados y su clase", () => {
+    const r = par(conExcluidos());
+    expect(r.ok).toBe(true);
+    expect(r.A.negocio.audit_log).toMatchObject({ value: {}, retirados: ["eventos"] });
+    expect(r.A.negocio["backup_2026-09-09"].value).toEqual({});
+    expect(r.A.negocio.osiris.clase).toBe(r.A.negocio.main.clase);
+    expect(r.A.negocio.audit_log.clase).not.toBe(r.A.negocio.osiris.clase);
+  });
+
+  test("CONTRAPRUEBA · la reconstrucción no escribe las cáscaras vacías; los recursos de negocio sí", () => {
+    const r = par(conExcluidos());
+    const rec = R.reconstruirDesdeLote({ A: r.A, B: r.B, hashLlave });
+    expect(rec.filas.audit_log).toBeUndefined();
+    expect(rec.filas["backup_2026-09-09"]).toBeUndefined();
+    expect(rec.excluidas.sort()).toEqual(["audit_log", "backup_2026-09-09"]);
+    expect(rec.filas.osiris.value).toEqual({ contratos: [{ id: "c1" }] });
+  });
+
+  test("un lote anterior sin clase se resuelve con la allowlist vigente", () => {
+    const r = par(conExcluidos());
+    const A = { ...r.A, negocio: Object.fromEntries(Object.entries(r.A.negocio).map(([id, { clase, ...resto }]) => [id, resto])) };
+    const rec = R.reconstruirDesdeLote({ A, B: r.B, hashLlave });
+    expect(rec.filas.audit_log).toBeUndefined();
+    expect(rec.filas.osiris.value).toEqual({ contratos: [{ id: "c1" }] });
+  });
+});

@@ -44,12 +44,14 @@ export function partirSnapshot(snapshot, allowlist = ALLOWLIST) {
       mainNoClasificadas = Object.keys(valor).filter((k) => k !== "usuarios" && !declaradas.has(k)).sort();
       const tareas = {};
       for (const k of Object.keys(valor)) if (declaradas.has(k)) tareas[k] = valor[k];
-      negocio[FILA_PADRON] = { value: tareas, updated_at: f.updated_at, retirados: [], padronEnObjetoA: true };
+      negocio[FILA_PADRON] = { value: tareas, updated_at: f.updated_at, retirados: [], padronEnObjetoA: true, clase: CLASE.NEGOCIO };
       continue;
     }
     if (!regla || regla.clase === CLASE.BLOQUEADA) { bloqueadas.push(f.id); continue; }
     const { valor, retirados } = sanearFila(f.value, regla);
-    negocio[f.id] = { value: valor, updated_at: f.updated_at, retirados };
+    // La clase viaja con el recurso: la reconstrucción solo repone NEGOCIO. Auditoría y copias
+    // viajan vacías como constancia de lo retirado, nunca para escribirse encima.
+    negocio[f.id] = { value: valor, updated_at: f.updated_at, retirados, clase: regla.clase };
   }
   return { negocio, padron, pins, bloqueadas, filas: filas.length, mainNoClasificadas };
 }
