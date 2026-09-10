@@ -10,6 +10,7 @@ import { theme as C } from "./theme";
 import { ensureSupabaseSession, clearOsirisSession, getOsirisAccessToken, refreshOsirisSession } from "./data/supabase-auth";
 import { installGuard, USE_GUARD, pollRow } from "./guardClient";
 import { persist, construirAvisoDesde } from "./persistencia/instancia.js";
+import { crearUsuariosStore } from "./permisos/permisosUsuariosStore.js";
 import AvisoPersistencia from "./AvisoPersistencia.jsx";
 import { hashPin, verifyPin, pinNuevoValido, normalizarCelular } from "./pinHash";
 
@@ -201,6 +202,32 @@ async function dbSavePins(pins) {
     // (antes era fire-and-forget con el error tragado + LWW). Fila única `pins`.
     return await persist.saveConfirmed("pins", pins, {});
   } catch(e) { console.error("[pins] Error guardando fila dedicada:", e); return { ok:false, motivo:"red", detalle:String((e&&e.message)||e) }; }
+}
+
+// ── Fila dedicada de USUARIOS/PERMISOS (id="usuarios") ──────────────────────────
+// PROD-INCIDENT-01 FIX (baseline 27b423b): `usuarios` sale del blob `main`. Antes
+// viajaba junto a Tareas (un save de Tareas con `usuarios` viejo pasaba el OCC de
+// blob y pisaba en silencio un permiso recién otorgado; ver INCIDENT_RCA_27b423b.md).
+// Ahora vive en su propia unidad autoritativa que EXTIENDE el contrato F0 (OCC +
+// confirmación por servidor) con merge de 3 vías por usuario/campo/pestaña.
+const usuariosStore = crearUsuariosStore(persist, { id: "usuarios" });
+// Devuelve { existe, value, version }. Lanza ante red/HTTP (Regla 9). value=null si
+// la fila no existe todavía (pre-migración → se siembra desde main.usuarios).
+async function dbLoadUsuarios() {
+  const res = await fetch(`${SUPA_URL}/rest/v1/calendario_data?id=eq.usuarios&select=value,updated_at`, {
+    headers: { apikey: SUPA_KEY, Authorization: `Bearer ${SUPA_KEY}`, "Cache-Control": "no-cache", "Pragma": "no-cache" },
+    cache: "no-store"
+  });
+  if(!res.ok) throw new Error(`dbLoadUsuarios HTTP ${res.status}`);
+  const data = await res.json();
+  const row = data?.[0];
+  const value = row?.value != null ? (typeof row.value === "string" ? JSON.parse(row.value) : row.value) : null;
+  return { existe: !!row, value: Array.isArray(value) ? value : null, version: row?.updated_at || null };
+}
+// Guardado dirigido con merge de 3 vías + OCC (fila dedicada). Devuelve {ok,motivo,...}.
+async function dbSaveUsuarios(local) {
+  try { return await usuariosStore.guardar(local); }
+  catch(e) { console.error("[usuarios] Error guardando fila dedicada:", e); return { ok:false, motivo:"red", detalle:String((e&&e.message)||e) }; }
 }
 
 // ── Código provisorio de recuperación (HASHEADO + expiración) ──
@@ -2102,9 +2129,13 @@ export default function App(){
       try{
         const d=await dbLoad();
         if(d){
-          if(d.usuarios)setUsuarios(prev=>{
+          // PROD-INCIDENT-01 FIX: la construcción de la lista de usuarios se extrae a
+          // una función pura para poder alimentarla desde la FILA DEDICADA `usuarios`
+          // (fuente de verdad nueva) o, si aún no existe, desde main.usuarios (seed de
+          // migración). Antes esto era un setUsuarios(prev=>{…}) que ignoraba prev.
+          const construirUsuarios=(fuente)=>{
             const merged=WORKERS_BASE.map(wb=>{
-              const saved=d.usuarios.find(u=>u.nombre===wb.nombre || (u.email && wb.email && u.email.toLowerCase()===wb.email.toLowerCase()));
+              const saved=fuente.find(u=>u.nombre===wb.nombre || (u.email && wb.email && u.email.toLowerCase()===wb.email.toLowerCase()));
               if(!saved) return wb;
               // WORKERS_BASE es fuente de verdad para: nombre, cargo, email, esCFO
               // Supabase es fuente de verdad para: rol, modulos, tab_permisos, desactivado
@@ -2167,11 +2198,31 @@ export default function App(){
             // Usuarios extra agregados desde la app (no están en WORKERS_BASE)
             const baseEmails = new Set(WORKERS_BASE.map(wb=>(wb.email||"").toLowerCase()));
             const baseNames = new Set(WORKERS_BASE.map(wb=>wb.nombre));
-            const extras=d.usuarios
+            const extras=fuente
               .filter(u=>!baseNames.has(u.nombre) && !baseEmails.has((u.email||"").toLowerCase()))
               .map(garantizarAccesoRendiciones);
             return[...merged,...extras];
-          });
+          };
+          // Fuente de verdad de usuarios/permisos: la fila dedicada `usuarios`. Si aún
+          // no existe (pre-migración), se usa main.usuarios y se siembra la fila nueva.
+          // La lectura propaga errores de red (Regla 9) → si falla, cae al catch de
+          // cargar() y el auto-guardado queda deshabilitado esta sesión.
+          {
+            let fuenteUsuarios = d.usuarios, filaExiste = false, filaVersion = null;
+            try {
+              const dr = await dbLoadUsuarios();
+              filaExiste = dr.existe; filaVersion = dr.version;
+              if (Array.isArray(dr.value)) fuenteUsuarios = dr.value;
+            } catch(e){ console.warn("[usuarios] No se pudo leer la fila dedicada:", e); throw e; }
+            if (fuenteUsuarios) {
+              const mergedUsuarios = construirUsuarios(fuenteUsuarios);
+              setUsuarios(mergedUsuarios);
+              // Registrar en el contrato F0 (habilita saveConfirmed("usuarios") con OCC).
+              usuariosStore.registrarCarga(mergedUsuarios, filaVersion, false);
+              // Migración: si la fila dedicada no existía, sembrarla desde la lista mergeada.
+              if (!filaExiste) { try { await dbSaveUsuarios(mergedUsuarios); } catch(e){ console.warn("[usuarios] seed migración falló:", e); } }
+            }
+          }
           if(d.estados){
             let estCargados=d.estados;
             // MIGRACIÓN semKey: las marcas viejas usaban clave sin fecha (id_sN),
@@ -2326,13 +2377,24 @@ export default function App(){
       const dec = persist.reconcileIncoming("main", d, version === undefined ? null : version);
       if(dec.apply) aplicarCamposMain(dec.value);
     };
+    // PROD-INCIDENT-01 FIX: rehidratación entrante de la FILA DEDICADA `usuarios`.
+    // Cierra la brecha del baseline (main adelantaba la versión pero nunca re-aplicaba
+    // `usuarios`): acá el cambio ajeno de permisos SÍ se re-aplica al estado, por merge
+    // de 3 vías (nunca overwrite ciego que revierta lo local, nunca drop silencioso).
+    const aplicarUsuarios = (lista, version) => {
+      if(!Array.isArray(lista)) return;
+      const dec = usuariosStore.reconciliar(lista, version === undefined ? null : version, usuariosRef.current);
+      if(dec.apply) setUsuarios(dec.value);
+      else if(dec.motivo) setAvisoPersist(construirAvisoDesde("usuarios", dec, "los permisos"));
+    };
 
     // Con el guardia prendido: sincronización por sondeo autenticado (la
     // puerta vieja del WebSocket anónimo se cierra). Cubre el mismo caso de
     // uso de Tareas, con unos segundos de diferencia en vez de instantáneo.
     if (USE_GUARD) {
       const stop = pollRow("main", aplicarMain);
-      return () => stop();
+      const stopU = pollRow("usuarios", aplicarUsuarios);
+      return () => { stop(); stopU(); };
     }
 
     // ── Supabase Realtime — sincronización instantánea entre usuarios ──
@@ -2372,7 +2434,15 @@ export default function App(){
                 if(v.recsDone)      setRecsDone(v.recsDone);
                 if(v.recsComentarios) setRecsComentarios(v.recsComentarios);
                 // osirisData se restaura desde su propia fila "osiris"
+                // usuarios NO viaja en main (fila dedicada); se sincroniza abajo.
               }
+            } catch(err) {}
+          }
+          // PROD-INCIDENT-01 FIX: sincronización entrante de la fila dedicada `usuarios`.
+          else if(record?.id === "usuarios" && record?.value){
+            try {
+              const lista = typeof record.value === "string" ? JSON.parse(record.value) : record.value;
+              aplicarUsuarios(lista, record.updated_at || null);
             } catch(err) {}
           }
         }
@@ -2665,7 +2735,9 @@ export default function App(){
       // una sesión vieja los revertía. Por eso se quitaron de este payload.
       recsDone:     recsDoneRef.current,
       recsComentarios: recsComRef.current,
-      usuarios:     usuariosRef.current,
+      // PROD-INCIDENT-01 FIX: `usuarios` NO viaja en `main`. Su fuente de verdad es la
+      // fila dedicada `usuarios` (dbSaveUsuarios). Antes iba aquí, y un save de Tareas
+      // con `usuarios` viejo pasaba el OCC de blob y pisaba un permiso en silencio.
       mes:          mesRef.current,
       anio:         anioRef.current,
 
@@ -2677,8 +2749,10 @@ export default function App(){
   const guardar=useCallback((est,com,tc,sup,te,pins,rd,rc,usrs,m,a)=>{
     setGuardado("guardando");
     // PINs (pins) NO se incluyen: su fuente de verdad es la fila `pins`.
+    // `usrs` se ignora a propósito: `usuarios` tiene su fila dedicada (dbSaveUsuarios),
+    // fuera del blob `main` (PROD-INCIDENT-01 FIX).
     dbSave({estados:est,comentarios:com,tareasConfig:tc,supervisores:sup,tareasExtra:te,
-      recsDone:rd,recsComentarios:rc,usuarios:usrs,mes:m,anio:a})
+      recsDone:rd,recsComentarios:rc,mes:m,anio:a})
       .then((r)=>{ if(r && r.ok===false){ setGuardado("error"); setTimeout(()=>setGuardado("idle"),3000); setAvisoPersist(construirAvisoDesde("main", r, "las Tareas")); } else { setGuardado("ok"); setTimeout(()=>setGuardado("idle"),2000); } })
       .catch(()=>{setGuardado("error");setTimeout(()=>setGuardado("idle"),3000);});
   },[]);
@@ -2691,12 +2765,22 @@ export default function App(){
     return()=>clearTimeout(t);
   },[estados,comentarios,tareasConfig,supervisores,tareasExtra,pinsPersonalizados,recsDone,recsComentarios,usuarios,mes,anio,cargando,guardar]);
 
-  // Guardado inmediato al cambiar usuarios (permisos, roles, activar/desactivar)
+  // Guardado inmediato al cambiar usuarios (permisos, roles, activar/desactivar).
+  // PROD-INCIDENT-01 FIX: va a la FILA DEDICADA `usuarios` con merge de 3 vías + OCC
+  // (dbSaveUsuarios), NO al blob `main`. Así un cambio de permiso no puede ser pisado
+  // por un save de Tareas con `usuarios` viejo, y dos admins editando usuarios/campos
+  // distintos se fusionan sin pérdida; el mismo permiso concurrente da conflicto
+  // EXPLÍCITO (aviso), nunca un pisado silencioso.
   useEffect(()=>{
     if(cargando) return;
     if(!cargaOkRef.current) return; // no guardar si la carga inicial falló
-    // Guardar de inmediato con los valores más frescos
-    const t=setTimeout(()=>guardarAhora(), 300);
+    setGuardado("guardando");
+    const t=setTimeout(()=>{
+      Promise.resolve(dbSaveUsuarios(usuariosRef.current)).then((r)=>{
+        if(r && r.ok===false){ setGuardado("error"); setTimeout(()=>setGuardado("idle"),3000); setAvisoPersist(construirAvisoDesde("usuarios", r, "los permisos")); }
+        else { setGuardado("ok"); setTimeout(()=>setGuardado("idle"),2000); }
+      }).catch(()=>{setGuardado("error");setTimeout(()=>setGuardado("idle"),3000);});
+    }, 300);
     return()=>clearTimeout(t);
   },[usuarios,cargando]); // eslint-disable-line
 
