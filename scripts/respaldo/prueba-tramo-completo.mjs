@@ -1,6 +1,12 @@
 /* Tramo COMPLETO del respaldo, ejercido contra staging real con el mismo handler
  * que desplegara Vercel. Aca se invoca en proceso; el disparo por el programador
- * es el tramo aparte que exige el proyecto de Vercel. */
+ * es el tramo aparte que exige el proyecto de Vercel.
+ *
+ * No borra nada: cada sub-prueba usa un prefijo de lote propio (RESPALDO_PREFIJO_LOTE),
+ * asi el lote diario `auto-*` y los lotes anteriores quedan intactos. Los lotes de prueba
+ * se conservan como evidencia. Nota: respaldo_salud cuenta cualquier lote READY; un lote
+ * de prueba verificado refresca la salud de staging (no la observacion B2, que usa las
+ * invocaciones registradas). */
 import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 const require = createRequire(import.meta.url);
@@ -27,49 +33,54 @@ const DSN = G("OSIRIS_STAGING_DATABASE_URL");
 let f = 0; const chk = (e, ok, d) => { if (!ok) f++; console.log("   " + (ok ? "PASS " : "FALLA") + " " + e.padEnd(52) + (d || "")); };
 const resp = () => { const o = { code: 0, body: null }; return { status(c) { o.code = c; return this; }, json(b) { o.body = b; return o; }, _o: o }; };
 const llamar = (headers, method = "GET") => H({ method, headers }, resp());
+const AUT = () => ({ authorization: "Bearer " + process.env.CRON_SECRET });
+const base = "prueba-" + Date.now().toString(36);
+const conPrefijo = (sufijo) => { process.env.RESPALDO_PREFIJO_LOTE = `${base}-${sufijo}`; return `${base}-${sufijo}-${new Date().toISOString().slice(0, 10)}`; };
 
 console.log("== TRAMO COMPLETO · snapshot -> cifrado A/B -> subida -> READY -> verificacion ==");
 
 // autenticacion, con el mismo helper que ya usa el cron productivo
 chk("sin Authorization -> 401", (await llamar({})).code === 401);
 chk("secreto incorrecto -> 401", (await llamar({ authorization: "Bearer " + "z".repeat(40) })).code === 401);
-chk("metodo distinto de GET -> 405", (await llamar({ authorization: "Bearer " + process.env.CRON_SECRET }, "POST")).code === 405);
+chk("metodo distinto de GET -> 405", (await llamar(AUT(), "POST")).code === 405);
 
 // guardia fail-closed contra produccion
 const guardaProd = H.guardia({ url: "https://bywovqayuzodbzwsriet.supabase.co", key: "x", claveA: "a", claveB: "b", permiteProduccion: false });
 chk("guardia: apuntar a produccion sin permiso -> aborta", !!guardaProd, guardaProd);
 chk("guardia: claves A y B iguales -> aborta", !!H.guardia({ url: "https://x.supabase.co", key: "k", claveA: "m", claveB: "m" }), "misma clave");
 
-// limpiar el lote de hoy para poder medir una corrida completa
-const lote = "auto-" + new Date().toISOString().slice(0, 10);
 const c = new Client({ connectionString: DSN, ssl: { rejectUnauthorized: false } }); await c.connect();
-await c.query("delete from public.respaldo_lote where lote_id=$1", [lote]);
 
-const r = await llamar({ authorization: "Bearer " + process.env.CRON_SECRET });
+// corrida completa, en un lote propio
+const lote = conPrefijo("c");
+const r = await llamar(AUT());
 console.log();
-for (const p of r.body.pasos || []) console.log("      " + (p.ok ? "ok   " : "FALLA") + " " + String(p.paso).padEnd(14) + (p.detalle || ""));
+for (const p of r.body.pasos || []) console.log("      " + (p.ok ? "ok   " : "FALLA") + " " + String(p.paso).padEnd(22) + (p.detalle || ""));
 console.log();
 chk("la corrida completa devuelve 200", r.code === 200, "HTTP " + r.code);
-chk("estado final READY_VERIFICADO", r.body.estado === "READY_VERIFICADO", r.body.estado);
-chk("los seis pasos en verde", (r.body.pasos || []).every((p) => p.ok), (r.body.pasos || []).length + " pasos");
+chk("estado final READY_VERIFICADO", r.body.estado === "READY_VERIFICADO", r.body.estado + " · lote " + r.body.lote);
+chk("todos los pasos en verde", (r.body.pasos || []).every((p) => p.ok), (r.body.pasos || []).length + " pasos");
+chk("modo bóveda y las identidades salen del mismo snapshot", (r.body.pasos || []).some((p) => p.paso === "identidad" && /^bóveda · .*misma instantánea/.test(p.detalle || "")));
 
 const { rows: [fila] } = await c.query("select * from public.respaldo_lote where lote_id=$1", [lote]);
 chk("la base registra READY", fila && fila.estado === "READY", fila && fila.estado);
 chk("la base registra verificado_at", !!(fila && fila.verificado_at), fila && fila.verificacion);
-chk("sha de A y B registrados", !!(fila && fila.sha_a && fila.sha_b), fila && (fila.sha_a || "").slice(0, 12) + "… / " + (fila.sha_b || "").slice(0, 12) + "…");
+chk("sha de A y B registrados", !!(fila && fila.sha_a && fila.sha_b));
 
-// segunda corrida el mismo dia: idempotente, no duplica
-const r2 = await llamar({ authorization: "Bearer " + process.env.CRON_SECRET });
-chk("segunda corrida del mismo dia -> no duplica", r2.body.estado === "READY", r2.body.estado + " (" + (r2.body.pasos[0] || {}).detalle + ")");
+// segunda corrida con el mismo prefijo: idempotente, no duplica
+const r2 = await llamar(AUT());
+chk("segunda corrida del mismo lote -> no duplica", r2.body.estado === "READY", r2.body.estado + " (" + (r2.body.pasos[0] || {}).detalle + ")");
 
-// dos corridas simultaneas: la clave primaria resuelve la carrera
-await c.query("delete from public.respaldo_lote where lote_id=$1", [lote]);
-const [a, b] = await Promise.all([llamar({ authorization: "Bearer " + process.env.CRON_SECRET }), llamar({ authorization: "Bearer " + process.env.CRON_SECRET })]);
+// dos corridas simultaneas en un lote nuevo: la clave primaria resuelve la carrera
+conPrefijo("s");
+const [a, b] = await Promise.all([llamar(AUT()), llamar(AUT())]);
 const creadas = [a, b].filter((x) => x.body.creado).length;
 chk("dos corridas simultaneas -> una sola creacion", creadas === 1, a.body.estado + " / " + b.body.estado);
 
+delete process.env.RESPALDO_PREFIJO_LOTE;
 const { rows: [salud] } = await c.query("select veredicto, horas_desde_verificado from public.respaldo_salud");
 chk("la salud pasa a OK con un lote verificado", salud.veredicto === "OK", salud.veredicto + " · " + salud.horas_desde_verificado + " h");
 await c.end();
 console.log();
-console.log("TRAMO: " + (f === 0 ? "PASS" : "FALLA · " + f));
+console.log("TRAMO: " + (f === 0 ? "PASS" : "FALLA · " + f) + " · lotes de prueba conservados: " + base + "-*");
+console.log("Para la restauracion aplicada: node restauracion-aplicada.mjs " + lote);

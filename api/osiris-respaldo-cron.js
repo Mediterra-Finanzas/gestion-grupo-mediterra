@@ -13,10 +13,18 @@
 // verificación (descarga, descifra, restaura en aislamiento) → aviso.
 //
 // Variables esperadas en el proyecto de Vercel:
-//   SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, CRON_SECRET,
+//   SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY (acepta la clave sb_secret_), CRON_SECRET,
 //   BACKUP_ENCRYPTION_KEY_A, BACKUP_ENCRYPTION_KEY_B, BACKUP_KID_A, BACKUP_KID_B,
-//   RESPALDO_BUCKET, RESPALDO_AVISO_TO (coma-separado)
+//   RESPALDO_BUCKET, RESPALDO_AVISO_TO (coma-separado),
+//   RESPALDO_CORREO_PRUEBA, CORREO_PRUEBA_PERMITIDOS,
+//   SMTP_OSIRIS_USER, SMTP_OSIRIS_PASS (send-email.js, modulo "osiris": el aviso y el
+//   correo de prueba salen por esa cuenta, no por la de mediterra).
 //   RESPALDO_PERMITIR_PRODUCCION = "si"  ← sin esto, se niega a correr contra producción.
+//   RESPALDO_MODO_IDENTIDAD = "boveda" (defecto) | "legacy"  ← tiene que coincidir con el
+//   `modo_identidad` que declara el snapshot. "legacy" es para un origen sin bóveda sec_*.
+// No abre conexiones PostgreSQL: reserva, snapshot y publicación van por RPC de PostgREST.
+// Lee además variables de sistema de Vercel (VERCEL_GIT_COMMIT_SHA, VERCEL_GIT_COMMIT_REF,
+// VERCEL_ENV, VERCEL_DEPLOYMENT_ID) para registrar qué deployment corrió.
 
 const crypto = require("crypto");
 const zlib = require("zlib");
@@ -36,6 +44,9 @@ function config() {
     claveB: process.env.BACKUP_ENCRYPTION_KEY_B || "",
     avisoA: (process.env.RESPALDO_AVISO_TO || "").split(",").map((s) => s.trim()).filter(Boolean),
     permiteProduccion: process.env.RESPALDO_PERMITIR_PRODUCCION === "si",
+    // "boveda" por defecto: un origen sin bóveda (producción) queda detenido hasta que alguien
+    // declare "legacy" por escrito. Nunca se infiere del snapshot.
+    modoIdentidad: process.env.RESPALDO_MODO_IDENTIDAD || "boveda",
     // Correo de prueba: solo a direcciones aprobadas una por una. Un dominio
     // .invalid no recibe correo, asi que la entrega real exige un buzon real
     // designado para pruebas.
@@ -52,6 +63,7 @@ function guardia(c) {
     return "el destino es el proyecto productivo y RESPALDO_PERMITIR_PRODUCCION no está en 'si'";
   if (!c.claveA || !c.claveB) return "faltan las claves de cifrado A/B";
   if (c.claveA === c.claveB) return "las claves A y B son la misma: la separación en dos objetos no protegería nada";
+  if (!["boveda", "legacy"].includes(c.modoIdentidad)) return "RESPALDO_MODO_IDENTIDAD debe ser 'boveda' o 'legacy'";
   return null;
 }
 
@@ -83,7 +95,10 @@ const bajar = async (c, ruta) => {
 };
 
 const sha256 = (b) => crypto.createHash("sha256").update(b).digest("hex");
-const loteDeHoy = (ahora) => "auto-" + ahora.toISOString().slice(0, 10);
+// El prefijo permite a las pruebas de staging crear lotes propios SIN borrar el lote
+// diario. Solo acepta minúsculas, dígitos y guiones; cualquier otra cosa vuelve a "auto".
+const prefijoLote = () => (/^[a-z0-9-]{1,40}$/.test(process.env.RESPALDO_PREFIJO_LOTE || "") ? process.env.RESPALDO_PREFIJO_LOTE : "auto");
+const loteDeHoy = (ahora) => prefijoLote() + "-" + ahora.toISOString().slice(0, 10);
 
 // El módulo de identidad es ESM y este archivo es CommonJS: import() dinámico.
 // require() aquí falla en tiempo de ejecución, no de build, y por eso es fácil
@@ -109,18 +124,24 @@ async function corrida({ c, ahora }) {
       throw new Error("snapshot vacío");
 
     const ident = await identidad();
-    const { construirPar } = await import("../src/data/respaldoDesdeSnapshot.js");
+    const { construirPar, resolverDesdeSnapshot, decidirModoIdentidad } = await import("../src/data/respaldoDesdeSnapshot.js");
     const dep = { crypto, zlib };
-    // Resolver de identidad desde la boveda: solo pares (hash del nombre -> uuid).
-    // Ni nombres ni credenciales salen de sec_*.
-    const pares = await rpc(c, "respaldo_identidades", {});
-    const porHash = new Map((pares || []).map((x) => [x.llave_hash, x.identity_id]));
-    const resolverIdentidad = (nombre) => porHash.get(sha256(Buffer.from(String(nombre), "utf8"))) || null;
-    paso("boveda", porHash.size > 0, `${porHash.size} identidades resolubles`);
+    const hashLlave = (nombre) => sha256(Buffer.from(String(nombre), "utf8"));
+    // Modo de identidad: el DECLARADO (RESPALDO_MODO_IDENTIDAD) tiene que coincidir con el que
+    // declara el snapshot. Bóveda a medias o sin alias son errores, nunca modo legacy.
+    // Las identidades vienen del MISMO snapshot que `main` y `pins`
+    // (sql/respaldo/snapshot-consistente.sql): leerlas con otra RPC sería otra transacción.
+    const modo = decidirModoIdentidad({ snapshot: snap, declarado: c.modoIdentidad });
+    if (!paso("identidad", modo.ok, !modo.ok ? `${modo.motivo} · ${modo.detalle}`
+        : modo.modo === "boveda" ? `bóveda · ${snap.identidades.length} identidades · misma instantánea que los datos`
+        : "legacy declarado · origen sin bóveda · vínculo por llave_hash del nombre exacto · sin UUID"))
+      throw new Error(`${modo.motivo}: ${modo.detalle}`);
+    const resolverIdentidad = modo.modo === "boveda" ? resolverDesdeSnapshot(snap, hashLlave) : null;
 
-    const par = construirPar({ snapshot: snap, correlationId, lote, resolverIdentidad });
+    const par = construirPar({ snapshot: snap, correlationId, lote, resolverIdentidad, hashLlave, modoIdentidad: modo.modo });
     if (!paso("objetos", par.ok, par.ok
-        ? `A: ${par.A.recursos} recursos · ${par.A.padron.total} usuarios · B: ${par.B.total} credenciales`
+        ? `A: ${par.A.recursos} recursos · ${par.A.padron.total} usuarios · B: ${par.B.total} credenciales · ` +
+          `${par.basesHuerfanas.length} huérfanas · ${par.reemisiones} códigos provisorios a reemitir`
         : `${par.motivo} ${(par.desconocidos || par.campo || "")}`))
       throw new Error("no se pudieron construir los objetos: " + par.motivo);
 
@@ -250,6 +271,15 @@ module.exports = async function handler(req, res) {
     if (c.correoPrueba) correoPrueba = await enviarCorreoPrueba({ c, ahora, out, enviar: enviarCorreo });
   } catch (e) { aviso = { enviado: false, motivo: String(e.message).slice(0, 120) }; }
 
+  // Identidad del deployment que corrió. Son variables de sistema de Vercel, no
+  // secretos; permiten confirmar después que se ejecutó el commit revisado.
+  const despliegue = {
+    commit_sha: process.env.VERCEL_GIT_COMMIT_SHA || null,
+    commit_ref: process.env.VERCEL_GIT_COMMIT_REF || null,
+    vercel_env: process.env.VERCEL_ENV || null,
+    deployment_id: process.env.VERCEL_DEPLOYMENT_ID || null,
+  };
+
   const registrada = await registrarInvocacion(c, {
     user_agent: h["user-agent"] || null,
     cron_schedule: h["x-vercel-cron-schedule"] || null,
@@ -257,6 +287,7 @@ module.exports = async function handler(req, res) {
     origen_declarado: origen,
     lote_id: out.lote, estado: out.estado,
     correo_prueba: correoPrueba,
+    ...despliegue,
   });
 
   const ok = out.estado === "READY_VERIFICADO" || out.estado === "READY" || out.creado === false;
@@ -264,6 +295,7 @@ module.exports = async function handler(req, res) {
     lote: out.lote, estado: out.estado, creado: out.creado === true, pasos: out.pasos, aviso,
     correoPrueba, invocacionRegistrada: registrada,
     programador: h["x-vercel-cron-schedule"] || null,
+    despliegue,
   });
 };
 
