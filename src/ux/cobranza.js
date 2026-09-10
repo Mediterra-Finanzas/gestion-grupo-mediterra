@@ -26,6 +26,7 @@ export const ESTADO = {
   POR_COBRAR: "por_cobrar",
   VENCIDO: "vencido",
   INFO_PENDIENTE: "informacion_pendiente",
+  CONFLICTO: "dato_en_conflicto",
   CERRADO: "cerrado",
 };
 
@@ -126,8 +127,32 @@ export function tieneFactura(f) {
   return !!txt(f && (f.nFact || f.n_factura || f.numeroFactura));
 }
 
+/* Cuando el contrato y el hecho derivado se contradicen, eso no es un estado de
+ * cobranza: es un dato en conflicto. Elegir uno de los dos en silencio produce
+ * una bandeja que se ve bien y miente. Se reporta y se deja que alguien decida.
+ * Caso real medido en producción: el contrato declara la factura emitida y
+ * pagada, y la fila derivada dice "por cobrar" sin número de factura. */
+export function conflicto(fila) {
+  const c = fila.contrato, f = fila.factura;
+  if (!c || !f) return null;
+  if (fila.flujo !== "feeEntrada") return null;
+  const ctPagado = c.contractFeePagado === true || c.contractFeeEstado === "pagado";
+  const ctFact = txt(c.contractFeeNFact);
+  const hePagado = f.pagado === true;
+  const heFact = txt(f.nFact);
+  if (ctFact && !heFact)
+    return `el contrato declara factura ${ctFact.slice(0, 3)}… y la fila derivada no tiene número`;
+  if (ctPagado && !hePagado)
+    return "el contrato declara el fee pagado y la fila derivada dice por cobrar";
+  if (!ctPagado && hePagado)
+    return "la fila derivada dice pagado y el contrato no lo declara";
+  return null;
+}
+
 /* ── CLASIFICACIÓN ───────────────────────────────────────────────────────── */
 export function clasificar(fila, hoy) {
+  const ch = conflicto(fila);
+  if (ch) return { estado: ESTADO.CONFLICTO, motivo: ch };
   if (!tieneFactura(fila.factura)) {
     // Un hito sin factura: por facturar. Solo si el hito ya se cumplió.
     if (!fila.hito || !fila.hito.fecha) return { estado: ESTADO.INFO_PENDIENTE, motivo: "hito sin fecha" };
@@ -168,7 +193,7 @@ export function filasCobranza(blob, ahora = new Date()) {
       const hito = hitoDe(flujo.clave, h, ct);
       const factura = facturaDe(flujo.clave, h, ct);
       const venc = resolverVencimiento({ factura, contrato: ct, cliente: cli });
-      const base = { flujo: flujo.clave, concepto: flujo.concepto, hito, factura, venc };
+      const base = { flujo: flujo.clave, concepto: flujo.concepto, hito, factura, venc, contrato: ct };
       const cl = clasificar(base, hoy);
       const s = saldoDe(factura);
       filas.push({
@@ -200,6 +225,7 @@ function accionDe(estado) {
            [ESTADO.POR_COBRAR]: "Seguimiento de cobro",
            [ESTADO.VENCIDO]: "Gestionar cobranza",
            [ESTADO.INFO_PENDIENTE]: "Completar vencimiento",
+           [ESTADO.CONFLICTO]: "Conciliar contrato y registro",
            [ESTADO.CERRADO]: "—" }[estado] || "—";
 }
 
@@ -243,24 +269,56 @@ function facturaDe(flujo, h, ct) {
            plazoPagoDias: h.plazoPagoDias, pagos: h.pagos || h.cobros, ajustes: h.ajustes };
 }
 
-/* Los cuatro tableros del inicio ejecutivo. */
-export function resumenCobranza(filas) {
+/* Los tableros del inicio ejecutivo.
+ *
+ * Un cero aquí NO significa que no se deba nada. Significa que ninguna fila
+ * ALCANZADA cayó en ese estado. Por eso cada tablero declara si su monto es
+ * determinable, y el resumen trae la cobertura: cuántos contratos quedaron
+ * fuera de la bandeja y cuánto fee de entrada no está representado. */
+export function resumenCobranza(filas, blob) {
   const de = (e) => filas.filter((f) => f.estado === e);
   const suma = (l) => +l.reduce((s, f) => s + (f.estado === ESTADO.POR_FACTURAR ? f.total : f.saldo), 0).toFixed(2);
-  const porFacturar = de(ESTADO.POR_FACTURAR), porCobrar = de(ESTADO.POR_COBRAR);
-  const vencido = de(ESTADO.VENCIDO), pendiente = de(ESTADO.INFO_PENDIENTE);
+  const tab = (e) => {
+    const l = de(e);
+    // Una fila cuyo monto es 0 y cuyo vencimiento no se resuelve no dice
+    // "no se debe nada": dice que no se puede determinar.
+    const indeterminables = l.filter((f) => f.total === 0 || f.origenVencimiento === ORIGEN_VENCIMIENTO.AUSENTE).length;
+    return { n: l.length, monto: suma(l), filas: l,
+             determinable: l.length > 0 && indeterminables === 0,
+             indeterminables };
+  };
+  const vencido = tab(ESTADO.VENCIDO);
   return {
-    porFacturar: { n: porFacturar.length, monto: suma(porFacturar), filas: porFacturar },
-    porCobrar: { n: porCobrar.length, monto: suma(porCobrar), filas: porCobrar },
-    vencido: { n: vencido.length, monto: suma(vencido), filas: vencido,
-               peorAtraso: vencido.reduce((m, f) => Math.max(m, f.atraso || 0), 0) },
-    informacionPendiente: { n: pendiente.length, monto: suma(pendiente), filas: pendiente },
+    porFacturar: tab(ESTADO.POR_FACTURAR),
+    porCobrar: tab(ESTADO.POR_COBRAR),
+    vencido: { ...vencido, peorAtraso: vencido.filas.reduce((m, f) => Math.max(m, f.atraso || 0), 0) },
+    informacionPendiente: tab(ESTADO.INFO_PENDIENTE),
+    conflicto: tab(ESTADO.CONFLICTO),
+    cobertura: cobertura(filas, blob),
+  };
+}
+
+/* Cuánto del negocio NO llega a la bandeja. Se calcula, no se estima: un
+ * contrato sin hecho de ingreso derivado no produce ninguna fila, y su fee de
+ * entrada impago no aparece en ningún tablero. */
+export function cobertura(filas, blob) {
+  const contratos = blob?.contratos || [];
+  const conHecho = new Set(filas.map((f) => f.contratoId).filter(Boolean));
+  const sinHecho = contratos.filter((c) => !conHecho.has(txt(c.id)));
+  const feeFuera = sinHecho.reduce(
+    (s, c) => s + (c.contractFeePagado === true || c.contractFeeEstado === "pagado" ? 0 : num(c.montoContractFee)), 0);
+  return {
+    contratos: contratos.length,
+    cubiertos: conHecho.size,
+    sinHecho: sinHecho.length,
+    feeEntradaFueraDeAlcance: +feeFuera.toFixed(2),
+    completa: sinHecho.length === 0,
   };
 }
 
 /* Correo diario. Un responsable, un correo; el CFO recibe el consolidado.
  * Sin duplicados: cada fila aparece una sola vez por destinatario. */
-export function agruparParaCorreo(filas) {
+export function agruparParaCorreo(filas, blob) {
   const porResponsable = new Map();
   for (const f of filas) {
     if (f.estado === ESTADO.CERRADO) continue;
@@ -269,5 +327,5 @@ export function agruparParaCorreo(filas) {
     porResponsable.get(k).push(f);
   }
   const consolidado = filas.filter((f) => f.estado !== ESTADO.CERRADO);
-  return { porResponsable, consolidado, resumen: resumenCobranza(filas) };
+  return { porResponsable, consolidado, resumen: resumenCobranza(filas, blob) };
 }

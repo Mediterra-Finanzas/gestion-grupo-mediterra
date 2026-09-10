@@ -16,7 +16,7 @@ import React, { useMemo, useState } from "react";
 import { layout, ink, surface, estado as tonos } from "./tokens";
 import TarjetasKPI from "./TarjetasKPI";
 import TablaDensa from "./TablaDensa";
-import { filasCobranza, resumenCobranza, ESTADO } from "./cobranza";
+import { filasCobranza, resumenCobranza, ESTADO, ORIGEN_VENCIMIENTO } from "./cobranza";
 
 const miles = (n) => Number(n || 0).toLocaleString("es-CL", { maximumFractionDigits: 0 });
 
@@ -33,6 +33,9 @@ const TABLEROS = [
   { clave: "informacionPendiente", id: ESTADO.INFO_PENDIENTE, titulo: "Información pendiente",
     pregunta: "¿A qué le falta un dato para poder clasificarse?",
     fuente: "sin fecha de vencimiento ni plazo documentado", severidad: "alto" },
+  { clave: "conflicto", id: ESTADO.CONFLICTO, titulo: "Dato en conflicto",
+    pregunta: "¿Dónde se contradicen el contrato y su registro derivado?",
+    fuente: "contractFee* del contrato vs la fila de feeEntrada", severidad: "critico" },
 ];
 
 const COLUMNAS = [
@@ -90,14 +93,18 @@ export default function TablerosCobranza({
 }) {
   const [foco, setFoco] = useState(ESTADO.VENCIDO);
   const filas = useMemo(() => filasCobranza(datos, hoy), [datos, hoy]);
-  const resumen = useMemo(() => resumenCobranza(filas), [filas]);
+  const resumen = useMemo(() => resumenCobranza(filas, datos), [filas, datos]);
 
   const kpis = TABLEROS.map((t) => ({
     id: t.id,
     etiqueta: t.titulo,
     pregunta: t.pregunta,
     valor: String(resumen[t.clave].n),
-    detalle: resumen[t.clave].monto > 0 ? "USD " + miles(resumen[t.clave].monto) : "sin monto cargado",
+    // Un cero no dice "no se debe nada". Dice que ninguna fila alcanzada cayo aca.
+    detalle: resumen[t.clave].n === 0 ? "ninguna fila alcanzada"
+           : resumen[t.clave].monto > 0
+             ? "USD " + miles(resumen[t.clave].monto) + (resumen[t.clave].determinable ? "" : " · monto parcial")
+             : "saldo no determinable en " + resumen[t.clave].indeterminables + " de " + resumen[t.clave].n,
     fuente: t.fuente,
     // Solo se pinta de alarma lo que ya perdió su fecha; un tablero en cero no
     // debe verse rojo, porque entonces el rojo deja de significar algo.
@@ -112,6 +119,22 @@ export default function TablerosCobranza({
     <section aria-label="Facturación y cobranza"
              style={{ display: "flex", flexDirection: "column", gap: layout.sp.sm, minWidth: 0 }}>
       <TarjetasKPI kpis={kpis} compacta={compacta} titulo="Facturación y cobranza" />
+
+      {/* Sin esto, un tablero en cero se lee como "no se debe nada". La bandeja
+          solo alcanza los contratos que ya generaron un hecho de ingreso. */}
+      {!resumen.cobertura.completa && (
+        <p style={{ margin: 0, fontSize: 12, color: tonos.alto.fg, background: tonos.alto.bg,
+                    border: `1px solid ${tonos.alto.borde}`, padding: layout.sp.sm,
+                    borderRadius: layout.radio.sm }}>
+          Cobertura parcial: la bandeja alcanza {resumen.cobertura.cubiertos} de{" "}
+          {resumen.cobertura.contratos} contratos. Los {resumen.cobertura.sinHecho} restantes no
+          tienen ningún registro de ingreso generado y no aparecen en ningún tablero
+          {resumen.cobertura.feeEntradaFueraDeAlcance > 0
+            ? `, incluyendo USD ${miles(resumen.cobertura.feeEntradaFueraDeAlcance)} de contract fee sin marcar como pagado`
+            : ""}. Un cero en estos tableros no significa que no se deba nada.
+        </p>
+      )}
+
       <Pestanas opciones={opciones} valor={foco} alCambiar={setFoco} />
 
       <div role="tabpanel" id={`panel-${foco}`} aria-labelledby={`tab-${foco}`} style={{ minWidth: 0 }}>
@@ -128,6 +151,14 @@ export default function TablerosCobranza({
           ordenInicial={{ columna: "atraso", direccion: "desc" }}
         />
       </div>
+
+      {foco === ESTADO.CONFLICTO && visibles.length > 0 && (
+        <p style={{ margin: 0, fontSize: 12, color: ink.soft, background: surface.panelAlt,
+                    padding: layout.sp.sm, borderRadius: layout.radio.sm }}>
+          El contrato y su registro derivado dicen cosas distintas. No se elige uno de los dos:
+          la fila queda acá hasta que alguien concilie.
+        </p>
+      )}
 
       {foco === ESTADO.INFO_PENDIENTE && visibles.length > 0 && (
         <p style={{ margin: 0, fontSize: 12, color: ink.soft, background: surface.panelAlt,
