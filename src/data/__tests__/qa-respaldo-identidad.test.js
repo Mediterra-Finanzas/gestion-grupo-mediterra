@@ -96,10 +96,14 @@ describe("Objeto B · bóveda de credenciales", () => {
     expect(e.sal).toBeTruthy();
   });
 
-  test("ignora `_hist`, `_tel` y todo lo que no sea `_h`", () => {
+  test("`_tel` viaja en B como material de recuperación; un `_hist` ilegible se reporta y no se copia", () => {
+    // Antes B ignoraba `_hist` y `_tel`: el restore perdía el segundo factor y el historial.
     const r = M.construirObjetoB({ pins: PINS, resolverIdentidad });
     expect(r.objeto.total).toBe(2);
-    expect(JSON.stringify(r.objeto)).not.toContain("+56900000000");
+    expect(r.objeto.credenciales.find((c) => c.identity_id === UUID.U1).telefono).toBe("+56900000000");
+    expect(r.noRespaldados).toContainEqual({ base: "U1", llave: "_hist", motivo: M.MOTIVO_PINS.HISTORIAL_ILEGIBLE });
+    const a = M.construirObjetoA({ negocio: {}, padron: PADRON });
+    expect(JSON.stringify(a.objeto)).not.toContain("+56900000000");
   });
 
   test("no adivina: una credencial sin identidad se REPORTA, no se asigna", () => {

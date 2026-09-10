@@ -123,46 +123,164 @@ export function construirObjetoA({ negocio, padron }) {
 }
 
 /* ── OBJETO B · bóveda de credenciales ───────────────────────────────────────
- * `pins` guarda `${nombre}_h` con un JSON {v, iter, salt, hash}. Mientras producción
- * dependa de esa fila, B respalda SU FORMA CIFRADA, sin convertirla en fuente TARGET:
- * no se modifica, no se borra, y la correspondencia con `identity_id` es determinista.
+ * `pins` es la fuente de credenciales mientras producción dependa de esa fila. B respalda
+ * TODO el material recuperable, cifrado, sin convertirlo en fuente TARGET. Cada llave se
+ * clasifica; ninguna se descarta en silencio:
+ *
+ *   `${nombre}_h`     credencial {v, iter, salt, hash, fecha, pol}. Viaja completa. `fecha`
+ *                     decide el vencimiento a 60 días y `pol` el sello de política de 6
+ *                     dígitos: sin ellas, restaurar obliga a todos a cambiar el PIN.
+ *   `${nombre}_hist`  credenciales anteriores (arreglo de {v, iter, salt, hash}) para no
+ *                     repetir las últimas 3. Viaja. Un historial ilegible se reporta y no se
+ *                     copia: la regla de no repetir vuelve a empezar vacía; el login no cambia.
+ *   `${nombre}_tel`   celular normalizado, segundo factor de la recuperación de PIN. Dato
+ *                     personal de recuperación: viaja en B, nunca en A.
+ *   `${nombre}_temp`  código provisorio (hash + expiración de 45 minutos). Su material NO
+ *                     viaja: es transitorio. Viaja la MARCA `reemisiones[{llave_hash}]`,
+ *                     porque mientras exista un `_temp` App.jsx inhabilita el PIN anterior, y
+ *                     restaurar el `_h` sin la marca lo rehabilitaría. La reconstrucción
+ *                     escribe un `_temp` ya vencido (reconstruirDesdeLote.js) y el usuario pide
+ *                     uno nuevo: "¿Olvidaste tu PIN?" o "Resetear PIN" del administrador.
+ *   `${nombre}`       PIN en claro legado. PROHIBIDO. Alternativa: código provisorio.
+ *
+ * Cualquier otra llave DETIENE el respaldo: podría ser material nuevo que se perdería.
+ *
+ * ── VÍNCULO CREDENCIAL ↔ USUARIO ──────────────────────────────────────────────
+ * `llave_hash` = sha256 del nombre EXACTO. Es la llave de enlace LEGADA —la misma que usa el
+ * login, `pins[w.nombre + "_h"]`—, no una identidad canónica. Por eso:
+ *   - no se normaliza: "José" y "Jose" son llaves distintas, igual que en el login;
+ *   - dos usuarios del padrón con el mismo nombre DETIENEN el respaldo: ni el login ni la
+ *     reconstrucción pueden distinguirlos. Dos nombres con la misma huella, también;
+ *   - una llave cuyo nombre base no está en el padrón (renombre, baja física) es HUÉRFANA:
+ *     su material viaja en `huerfanas`, no se asigna a nadie y se reporta.
+ * `nombres` es el ARREGLO del padrón, con repetidos: un Set los escondería.
+ *
+ * ── MODO DE IDENTIDAD · declarado, nunca inferido ────────────────────────────
+ *   "boveda"  cada entrada lleva el identity_id de sec_identidad_alias (staging). Una
+ *             credencial sin alias va a `sinIdentidad` y el lote queda INCOMPLETO.
+ *   "legacy"  origen SIN bóveda sec_* por arquitectura (hoy producción). identity_id = null
+ *             y el vínculo es solo `llave_hash`. No se inventa ningún UUID. Solo aplica si se
+ *             declara y el snapshot confirma que la bóveda no existe
+ *             (respaldoDesdeSnapshot.js · decidirModoIdentidad).
  * ───────────────────────────────────────────────────────────────────────────── */
-export function construirObjetoB({ pins, resolverIdentidad }) {
-  const entradas = [];
-  const sinIdentidad = [];
+export const MODO_IDENTIDAD = { BOVEDA: "boveda", LEGACY: "legacy" };
+export const MOTIVO_PINS = {
+  LLAVE_NO_CLASIFICADA: "llave_de_pins_no_clasificada",
+  CREDENCIAL_ILEGIBLE: "credencial_ilegible",
+  HISTORIAL_ILEGIBLE: "historial_formato_desconocido",
+  TEMP_TRANSITORIO: "codigo_provisorio_transitorio",
+  PIN_EN_CLARO: "pin_en_claro_prohibido",
+  MODO_NO_DECLARADO: "modo_de_identidad_no_declarado",
+  SIN_HASH_LLAVE: "falta_hash_de_llave",
+  NOMBRE_DUPLICADO: "nombre_duplicado_en_padron",
+  COLISION_LLAVE: "colision_de_llave_hash",
+};
+const CAMPOS_CREDENCIAL = new Set(["v", "iter", "salt", "hash", "fecha", "pol"]);
+const PROHIBIDO_EN_B = new Set(["pin", "password", "clave", "token", "jwt", "secret", "secreto"]);
+const leerJson = (x) => { try { return typeof x === "string" ? JSON.parse(x) : x; } catch (e) { return undefined; } };
+const llaveProhibida = (x) => !!x && typeof x === "object" &&
+  Object.entries(x).some(([k, v]) => PROHIBIDO_EN_B.has(k) || llaveProhibida(v));
+const materialDe = (cred) => {
+  const adicionales = Object.fromEntries(Object.entries(cred).filter(([k]) => !CAMPOS_CREDENCIAL.has(k)));
+  return {
+    algoritmo: "PBKDF2-HMAC-SHA256",
+    hash: cred.hash, sal: cred.salt,
+    iteraciones: Number(cred.iter) || 100000,
+    version: Number(cred.v) || 1,
+    fecha: cred.fecha ?? null,
+    pol: cred.pol ?? null,
+    atributosAdicionales: Object.keys(adicionales).length ? adicionales : null,
+  };
+};
+
+export function construirObjetoB({ pins, resolverIdentidad, hashLlave, nombres, modoIdentidad = MODO_IDENTIDAD.BOVEDA }) {
+  if (!Object.values(MODO_IDENTIDAD).includes(modoIdentidad)) return { ok: false, motivo: MOTIVO_PINS.MODO_NO_DECLARADO };
+  const legacy = modoIdentidad === MODO_IDENTIDAD.LEGACY;
+  const huella = typeof hashLlave === "function" ? hashLlave : null;
+  if (legacy && !huella) return { ok: false, motivo: MOTIVO_PINS.SIN_HASH_LLAVE };
+
+  // Sin padrón (uso unitario) no hay huérfanas ni repetidos que detectar.
+  const padronConocido = nombres != null;
+  const lista = padronConocido ? [...nombres] : [];
+  const delPadron = new Set(lista);
+  // Solo conteos: los nombres pueden ser nombres de personas.
+  if (lista.length !== delPadron.size)
+    return { ok: false, motivo: MOTIVO_PINS.NOMBRE_DUPLICADO, desconocidos: `${lista.length - delPadron.size} nombres repetidos` };
+  if (huella && new Set(lista.map(huella)).size !== delPadron.size) return { ok: false, motivo: MOTIVO_PINS.COLISION_LLAVE };
+
+  const porBase = new Map();
+  const desconocidas = [];
+  const noRespaldados = [];
   for (const llave of Object.keys(pins || {})) {
-    if (!llave.endsWith("_h")) continue;                 // `_hist`, `_temp`, `_tel`: fuera
-    const base = llave.slice(0, -2);
-    let c = null;
-    try { c = typeof pins[llave] === "string" ? JSON.parse(pins[llave]) : pins[llave]; } catch (e) { c = null; }
-    if (!c || !c.hash || !c.salt) continue;
+    const m = llave.match(/^(.+)_(h|hist|tel|temp)$/);
+    if (m) {
+      const g = porBase.get(m[1]) || {};
+      g[m[2]] = pins[llave];
+      porBase.set(m[1], g);
+    } else if (delPadron.has(llave)) {
+      noRespaldados.push({ base: llave, llave: "pin", motivo: MOTIVO_PINS.PIN_EN_CLARO });
+    } else {
+      desconocidas.push(llave);
+    }
+  }
+  // No se devuelven los nombres de las llaves: pueden ser nombres de personas.
+  if (desconocidas.length) return { ok: false, motivo: MOTIVO_PINS.LLAVE_NO_CLASIFICADA, desconocidos: `${desconocidas.length} llaves` };
 
-    const identityId = resolverIdentidad ? resolverIdentidad(base) : null;
-    if (!identityId) { sinIdentidad.push(base); continue; }   // no se adivina: se reporta
+  const credenciales = [], complementos = [], huerfanas = [], reemisiones = [], sinIdentidad = [], basesHuerfanas = [];
+  for (const [base, g] of porBase) {
+    const huerfana = padronConocido && !delPadron.has(base);
+    const llave_hash = huella ? huella(base) : null;
+    if (g.temp !== undefined) {
+      noRespaldados.push({ base, llave: "_temp", motivo: MOTIVO_PINS.TEMP_TRANSITORIO });
+      if (!huerfana) reemisiones.push({ llave_hash });
+    }
 
-    entradas.push({
-      identity_id: identityId,
-      algoritmo: "PBKDF2-HMAC-SHA256",
-      hash: c.hash, sal: c.salt,
-      iteraciones: Number(c.iter) || 100000,
-      version: Number(c.v) || 1,
+    let historial = null;
+    if (g.hist !== undefined) {
+      const arr = leerJson(g.hist);
+      const items = Array.isArray(arr) ? arr.map(leerJson) : null;
+      if (items && items.every((x) => x && typeof x === "object" && x.salt && x.hash)) historial = items;
+      else noRespaldados.push({ base, llave: "_hist", motivo: MOTIVO_PINS.HISTORIAL_ILEGIBLE });
+    }
+    const telefono = typeof g.tel === "string" && g.tel.trim() ? g.tel : null;
+
+    let cred = null;
+    if (g.h !== undefined) {
+      const c = leerJson(g.h);
+      if (c && typeof c === "object" && c.hash && c.salt) cred = c;
+      else noRespaldados.push({ base, llave: "_h", motivo: MOTIVO_PINS.CREDENCIAL_ILEGIBLE });
+    }
+    if (huerfana) basesHuerfanas.push(base);
+    if (!cred && !historial && telefono === null) continue;      // solo _temp o material ilegible
+    // Huérfana: el material se conserva, pero no se asigna a nadie ni se le busca identidad.
+    if (huerfana) { huerfanas.push({ llave_hash, credencial: cred ? materialDe(cred) : null, historial, telefono }); continue; }
+
+    const identityId = legacy ? null : resolverIdentidad ? resolverIdentidad(base) : null;
+    if (!legacy && !identityId) { sinIdentidad.push(base); continue; }   // no se adivina: se reporta
+
+    const comunes = { identity_id: identityId, llave_hash, historial, telefono };
+    if (!cred) { complementos.push(comunes); continue; }
+    credenciales.push({
+      ...comunes,
+      ...materialDe(cred),
       estado: "activa",
       auth_user_id: null,
       revocada_at: null, revocada_por: null,
       origen: "calendario_data.pins",
     });
   }
-  // El PIN en claro no puede estar ni en B. Se comprueba, no se supone.
-  for (const e of entradas) {
-    if (Object.prototype.hasOwnProperty.call(e, "pin")) {
-      return { ok: false, motivo: MOTIVO_ID.PIN_PLANO_EN_B };
-    }
-  }
+  // El PIN en claro no puede estar ni en B, en ningún nivel. Se comprueba, no se supone.
+  if ([...credenciales, ...complementos, ...huerfanas].some(llaveProhibida)) return { ok: false, motivo: MOTIVO_ID.PIN_PLANO_EN_B };
+
+  const excluidas = {};
+  for (const x of noRespaldados) excluidas[x.motivo] = (excluidas[x.motivo] || 0) + 1;
   return {
     ok: true,
-    objeto: { tipo: "B", version: "credencial-v1", creado: new Date().toISOString(),
-              credenciales: entradas, total: entradas.length },
+    objeto: { tipo: "B", version: "credencial-v3", modo_identidad: modoIdentidad, creado: new Date().toISOString(),
+              credenciales, complementos, huerfanas, reemisiones, total: credenciales.length, excluidas },
     sinIdentidad,
+    noRespaldados,
+    basesHuerfanas,
   };
 }
 

@@ -22,6 +22,8 @@ const G = (k) => t.match(new RegExp("^" + k + "=(.*)$", "m"))[1].trim();
 const DSN = G("OSIRIS_STAGING_DATABASE_URL"), U = G("OSIRIS_STAGING_SUPABASE_URL"), S = G("OSIRIS_STAGING_SUPABASE_SECRET_KEY");
 if (DSN.includes("bywovqayuzodbzwsriet") || U.includes("bywovqayuzodbzwsriet")) { console.log("ABORT: produccion"); process.exit(2); }
 const correoRecibido = process.argv.includes("--correo-recibido");
+// --sha=<commit completo>: el SHA que se confirmó en el panel antes del Run.
+const shaEsperado = (process.argv.find((a) => a.startsWith("--sha=")) || "").slice(6) || null;
 const ident = await import("file:///" + W + "/src/data/respaldoIdentidad.js");
 const { restaurarLote } = await import("file:///" + W + "/src/data/restaurarLote.js");
 const sha256 = (b) => crypto.createHash("sha256").update(b).digest("hex");
@@ -37,6 +39,19 @@ const estado = (ok, txt) => (ok ? "OBSERVADO   " : "NO OBSERVADO") + " · " + tx
 
 console.log("== RUNTIME REMOTO · verificacion por estados separados ==");
 console.log("invocaciones registradas: " + inv.length);
+console.log();
+
+// 0 · Commit ejecutado: cada invocacion de Vercel registra el SHA del deployment que corrio.
+// Un estado observado con otro commit no cuenta: no es el codigo que se reviso.
+const deVercel = inv.filter((i) => esVercelCron(i.user_agent));
+const conSha = deVercel.filter((i) => i.commit_sha);
+const shas = [...new Set(conSha.map((i) => i.commit_sha))];
+const shaOk = !!shaEsperado && shas.length === 1 && shas[0] === shaEsperado && conSha.length === deVercel.length;
+console.log("0 · COMMIT EJECUTADO");
+console.log("   " + (deVercel.length === 0 ? "sin invocaciones de Vercel todavia"
+  : `${conSha.length} de ${deVercel.length} invocaciones con SHA · distintos: ${shas.map((s) => s.slice(0, 7)).join(", ") || "ninguno"} · ` +
+    (shaEsperado ? `esperado ${shaEsperado.slice(0, 7)}: ${shaOk ? "COINCIDE" : "NO COINCIDE"}` : "falta --sha=<commit> para comparar")));
+if (conSha.length) console.log("   entorno: " + [...new Set(conSha.map((i) => i.vercel_env))].join(", ") + " · rama: " + [...new Set(conSha.map((i) => i.commit_ref))].join(", "));
 console.log();
 
 // 1 · Run manual: invocacion de Vercel fuera de la ventana del horario, o declarada manual.
@@ -70,7 +85,10 @@ for (const lote of lotesRemotos.reverse()) {
                    : `lote ${lote} rechazado: ${res.motivo} ${res.detalle || ""}`;
   break;
 }
-console.log("3 · DESCARGA, DESCIFRADO Y RESTAURACION DEL LOTE REMOTO");
+// Esto es reconstruccion EN MEMORIA. La restauracion aplicada en un destino aislado, con
+// usuarios, permisos, relaciones y login verificados desde lo escrito, es otro script:
+// scripts/respaldo/restauracion-aplicada.mjs. Un PASS aqui no la reemplaza.
+console.log("3 · DESCARGA, DESCIFRADO Y RECONSTRUCCION EN MEMORIA DEL LOTE REMOTO");
 console.log("   " + estado(restauradoOk, detalle));
 
 // 4 · Entrega real del correo de prueba
