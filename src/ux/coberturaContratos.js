@@ -3,36 +3,38 @@
 // OSIRIS · COBERTURA DE LOS CONTRATOS
 // ═══════════════════════════════════════════════════════════════════
 //
-// La bandeja anterior partía de los hechos de ingreso persistidos, y un contrato
-// sin hecho desaparecía. Aquí se parte de los CONTRATOS: los 23 se evalúan, con
-// o sin hecho, y cada uno queda en una de cuatro clases. Ninguno desaparece.
+// Se parte de los CONTRATOS, no de los hechos persistidos: los 23 se evalúan,
+// con o sin hecho, y ninguno desaparece.
 //
 // SOLO LECTURA. No crea facturas, cobros ni hechos, y no modifica importes.
 //
-// Por qué se lee el contrato y no la fila persistida: el código del módulo lo
-// declara ("El contrato es la fuente de verdad", derivarContractFeeDesdeContratos),
-// y la pestaña Contratos es donde se registran factura y pago del fee. Pero la
-// pestaña Fee Entrada muestra la fila persistida de `feeEntrada[]` sin mirar el
-// contrato. Son dos fuentes para el mismo hecho, editadas en dos pantallas que no
-// se sincronizan. Cuando ambas tienen un valor y difieren, NO se elige: es
-// conflicto.
+// El contrato es la fuente canónica del contract fee (así lo declara el código
+// del módulo). La fila persistida de `feeEntrada[]` se conserva como registro
+// histórico: si tiene valor y difiere del contrato, es CONFLICTO y no se elige.
+//
+// "Marcado pagado en el sistema" NO es "pago corroborado". Un contrato con
+// número de factura y estado pagado sólo dice que alguien lo marcó así. Pasa a
+// corroborado únicamente si el registro trae un comprobante o una referencia de
+// conciliación bancaria. Hoy, en producción, no hay ninguno.
 
 export const CLASE = {
   PENDIENTE_CONFIRMADO: "pendiente_confirmado",   // hay factura emitida y no hay pago registrado
-  CERRADO_CON_EVIDENCIA: "cerrado_con_evidencia", // hay factura y pago registrados
+  CERRADO_CON_EVIDENCIA: "cerrado_con_evidencia", // factura y pago MARCADOS en el sistema, sin corroborar
+  PAGO_CORROBORADO: "pago_corroborado",           // factura y pago con comprobante o conciliación
   NO_APLICABLE: "no_aplicable",                   // el contrato no genera este concepto, o aún no tiene base
   INFO_PENDIENTE: "informacion_pendiente",        // falta un dato para poder decir algo
   CONFLICTO: "conflicto",                         // dos registros del mismo hecho se contradicen
 };
 
-// Precedencia para resumir un contrato con varios conceptos: lo que exige
-// atención humana primero.
+// Lo que exige atención humana primero. "Marcado pagado" va antes que
+// "corroborado" porque todavía pide una verificación.
 const PRECEDENCIA = [CLASE.CONFLICTO, CLASE.PENDIENTE_CONFIRMADO, CLASE.INFO_PENDIENTE,
-                     CLASE.CERRADO_CON_EVIDENCIA, CLASE.NO_APLICABLE];
+                     CLASE.CERRADO_CON_EVIDENCIA, CLASE.PAGO_CORROBORADO, CLASE.NO_APLICABLE];
 
 export const ETIQUETA = {
   [CLASE.PENDIENTE_CONFIRMADO]: "Pendiente confirmado",
-  [CLASE.CERRADO_CON_EVIDENCIA]: "Cerrado con evidencia",
+  [CLASE.CERRADO_CON_EVIDENCIA]: "Marcado pagado en el sistema",
+  [CLASE.PAGO_CORROBORADO]: "Pago corroborado",
   [CLASE.NO_APLICABLE]: "No aplicable",
   [CLASE.INFO_PENDIENTE]: "Información pendiente",
   [CLASE.CONFLICTO]: "Conflicto",
@@ -40,6 +42,16 @@ export const ETIQUETA = {
 
 const txt = (v) => (v == null ? "" : String(v)).trim();
 const num = (v) => { const n = Number(v); return Number.isFinite(n) ? n : 0; };
+
+/* Corroboración: un comprobante (ruta + hash) o una referencia de conciliación.
+ * Un texto libre o una casilla marcada no corroboran nada. */
+export function corroboracionDe(o, prefijo = "") {
+  const comp = o && o[prefijo ? prefijo + "Comprobante" : "comprobante"];
+  const conc = o && o[prefijo ? prefijo + "Conciliacion" : "conciliacion"];
+  if (comp && typeof comp === "object" && txt(comp.ruta) && /^[0-9a-f]{64}$/i.test(txt(comp.sha256))) return "documento";
+  if (conc && typeof conc === "object" && txt(conc.referencia) && txt(conc.fecha)) return "conciliacion";
+  return null;
+}
 
 /* ── CONTRACT FEE ─────────────────────────────────────────────────────────── */
 export function evaluarContractFee(ct, persistido) {
@@ -51,8 +63,10 @@ export function evaluarContractFee(ct, persistido) {
   const ctFact = txt(ct.contractFeeNFact);
   const ctPagado = ct.contractFeePagado === true || txt(ct.contractFeeEstado) === "pagado";
   const ctFechaPago = txt(ct.contractFeeFechaPago);
+  const corroboracion = corroboracionDe(ct, "contractFee");
   const base = { concepto: "Contract Fee", importe: monto, moneda: txt(ct.moneda) || "USD",
-                 evidencia: { factura: !!ctFact, pago: ctPagado, fechaPago: ctFechaPago || null, fuente: "contrato" } };
+                 evidencia: { factura: !!ctFact, pago: ctPagado, fechaPago: ctFechaPago || null,
+                              corroboracion: corroboracion || "sin corroborar", fuente: "contrato" } };
 
   // Conflicto solo cuando hay DOS registros con valor y difieren. Una fila
   // persistida que no existe no es una afirmación: es la ausencia de ella.
@@ -69,9 +83,13 @@ export function evaluarContractFee(ct, persistido) {
                registros: { contrato: { factura: !!ctFact, pagado: ctPagado }, feeEntrada: { factura: !!peFact, pagado: pePagado } } };
   }
 
-  if (ctFact && ctPagado)
+  if (ctFact && ctPagado) {
+    if (corroboracion)
+      return { ...base, clase: CLASE.PAGO_CORROBORADO, motivo: `pago corroborado por ${corroboracion}` };
     return { ...base, clase: CLASE.CERRADO_CON_EVIDENCIA,
-             motivo: ctFechaPago ? "factura y pago registrados en el contrato" : "factura y pago registrados, sin fecha de pago" };
+             motivo: ctFechaPago ? "marcado pagado en el sistema, sin comprobante ni conciliación"
+                                 : "marcado pagado en el sistema, sin fecha de pago ni comprobante" };
+  }
   if (ctFact && !ctPagado)
     return { ...base, clase: CLASE.PENDIENTE_CONFIRMADO, motivo: "factura emitida en el contrato, sin pago registrado" };
   if (!ctFact && ctPagado)
@@ -95,12 +113,12 @@ export function evaluarRoyaltyPlanta(ct) {
   }
   const det = cuotas.map((q) => {
     const fact = !!txt(q.nFact), pago = q.pagado === true || !!txt(q.fechaPago) || txt(q.estadoCF) === "pagado";
-    const clase = fact && pago ? CLASE.CERRADO_CON_EVIDENCIA
+    const corr = corroboracionDe(q);
+    const clase = fact && pago ? (corr ? CLASE.PAGO_CORROBORADO : CLASE.CERRADO_CON_EVIDENCIA)
                 : fact ? CLASE.PENDIENTE_CONFIRMADO
-                : !txt(q.fechaEvento) ? CLASE.INFO_PENDIENTE
-                : pago ? CLASE.INFO_PENDIENTE
                 : CLASE.INFO_PENDIENTE;
-    const motivo = fact && pago ? "factura y pago" : fact ? "factura sin pago" : !txt(q.fechaEvento) ? "cuota sin fecha de evento"
+    const motivo = fact && pago ? (corr ? "factura y pago corroborado" : "factura y pago marcados")
+                 : fact ? "factura sin pago" : !txt(q.fechaEvento) ? "cuota sin fecha de evento"
                  : pago ? "pago sin factura" : "evento sin factura";
     return { id: txt(q.id), clase, motivo };
   });
@@ -122,7 +140,8 @@ export function evaluarRoyaltyComercial(ct) {
              motivo: `${comerciales.length} plantaciones comerciales sin mes de cobro definido` };
   const pagos = Array.isArray(ct.rcPagos) ? ct.rcPagos : [];
   if (!pagos.length) return { concepto: "Royalty Comercial", clase: CLASE.INFO_PENDIENTE, motivo: "mes de cobro definido, sin registros de cobro" };
-  const det = pagos.map((p) => (txt(p.nFact) && (p.pagado === true || txt(p.fechaPago)) ? CLASE.CERRADO_CON_EVIDENCIA
+  const det = pagos.map((p) => (txt(p.nFact) && (p.pagado === true || txt(p.fechaPago))
+                                 ? (corroboracionDe(p) ? CLASE.PAGO_CORROBORADO : CLASE.CERRADO_CON_EVIDENCIA)
                               : txt(p.nFact) ? CLASE.PENDIENTE_CONFIRMADO : CLASE.INFO_PENDIENTE));
   return { concepto: "Royalty Comercial", clase: resumir(det), motivo: `${pagos.length} registros de cobro` };
 }
@@ -166,10 +185,11 @@ export function evaluarContratos(blob) {
   }
   const fee = lineas.filter((l) => l.concepto === "Contract Fee");
   const suma = (arr) => +arr.reduce((s, l) => s + num(l.importe), 0).toFixed(2);
+  const marcado = suma(fee.filter((l) => l.clase === CLASE.CERRADO_CON_EVIDENCIA));
 
   return {
     contratos,
-    // Tres cantidades distintas, que no se deben mezclar en un solo número:
+    // Cantidades distintas, que no se deben mezclar en un solo número:
     conteos: {
       contratosEvaluados: contratos.length,
       lineasDeConcepto: lineas.length,
@@ -183,7 +203,9 @@ export function evaluarContratos(blob) {
       // Importes CONTRACTUALES. No son deuda confirmada ni facturación exigible.
       pendienteConfirmado: suma(fee.filter((l) => l.clase === CLASE.PENDIENTE_CONFIRMADO)),
       pendienteDeConciliacion: +fee.reduce((s, l) => s + num(l.pendienteConciliacion), 0).toFixed(2),
-      cerradoConEvidencia: suma(fee.filter((l) => l.clase === CLASE.CERRADO_CON_EVIDENCIA)),
+      marcadoPagadoSinCorroborar: marcado,
+      cerradoConEvidencia: marcado,          // alias histórico del mismo importe; no implica corroboración
+      pagoCorroborado: suma(fee.filter((l) => l.clase === CLASE.PAGO_CORROBORADO)),
       enConflicto: suma(fee.filter((l) => l.clase === CLASE.CONFLICTO)),
       noAplicable: fee.filter((l) => l.clase === CLASE.NO_APLICABLE).length,
     },
