@@ -379,3 +379,34 @@ describe("Reemisión del código provisorio", () => {
     expect(r.noRespaldados).toContainEqual({ base: "Otro", llave: "_temp", motivo: I.MOTIVO_PINS.TEMP_TRANSITORIO });
   });
 });
+
+describe("Huérfanas · preservadas, nunca asignadas, impiden declarar la recuperación completa", () => {
+  test("sin huérfanas ni entradas sin dueño, la recuperación completa es declarable", () => {
+    const r = par();
+    expect(R.evaluarRecuperacion(R.reconstruirDesdeLote({ A: r.A, B: r.B, hashLlave }))).toEqual({ completa: true, motivos: [] });
+  });
+
+  test("una huérfana preservada impide declararla, en los dos modos", () => {
+    const main = { ...TAREAS, usuarios: [usuario("U1 Renombrado"), usuario("U2", { desactivado: true })] };
+    for (const r of [parLegacy(sinBoveda(snapshot(main))), par(snapshot(main))]) {
+      expect(r.B.huerfanas).toHaveLength(1);
+      const ev = R.evaluarRecuperacion(R.reconstruirDesdeLote({ A: r.A, B: r.B, hashLlave }));
+      expect(ev.completa).toBe(false);
+      expect(ev.motivos).toEqual(["1 credenciales huérfanas preservadas sin dueño"]);
+    }
+  });
+
+  test("CONTRAPRUEBA · una huérfana con el nombre de otro usuario en otra capitalización no se le asigna", () => {
+    const r = par(snapshot(MAIN, { ...PINS, u1_h: JSON.stringify({ ...CRED_U1, salt: "9".repeat(32) }) }));
+    expect(r.basesHuerfanas).toEqual(["u1"]);
+    const rec = R.reconstruirDesdeLote({ A: r.A, B: r.B, hashLlave });
+    expect(JSON.parse(rec.filas.pins.value.U1_h)).toEqual(CRED_U1);
+    expect(rec.filas.pins.value.u1_h).toBeUndefined();
+    expect(R.evaluarRecuperacion(rec).completa).toBe(false);
+  });
+
+  test("entradas sin dueño o ambiguas también impiden declararla", () => {
+    expect(R.evaluarRecuperacion({ huerfanasNoAplicadas: 0, sinDueno: ["x"], ambiguas: [] }).completa).toBe(false);
+    expect(R.evaluarRecuperacion({ huerfanasNoAplicadas: 0, sinDueno: [], ambiguas: ["y"] }).completa).toBe(false);
+  });
+});

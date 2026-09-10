@@ -202,8 +202,11 @@ async function corrida({ c, ahora }) {
       await rpc(c, "respaldo_marcar", { p_lote: lote, p_estado: "FAILED", p_verificacion: ver.motivo });
       return { lote, estado: "FAILED", pasos, creado: true };
     }
-    await rpc(c, "respaldo_marcar", { p_lote: lote, p_estado: "VERIFICADO", p_verificacion: "ok" });
-    return { lote, estado: "READY_VERIFICADO", pasos, creado: true, correlationId };
+    // Un lote con huérfanas es restaurable, pero no permite declarar la recuperación completa.
+    const huerfanas = par.basesHuerfanas.length;
+    await rpc(c, "respaldo_marcar", { p_lote: lote, p_estado: "VERIFICADO",
+      p_verificacion: huerfanas ? `ok · ${huerfanas} credenciales huérfanas preservadas sin dueño · recuperación completa no declarable` : "ok" });
+    return { lote, estado: "READY_VERIFICADO", pasos, creado: true, correlationId, huerfanas };
   } catch (e) {
     await rpc(c, "respaldo_marcar", { p_lote: lote, p_estado: "FAILED", p_verificacion: String(e.message).slice(0, 200) });
     paso("error", false, String(e.message).slice(0, 200));

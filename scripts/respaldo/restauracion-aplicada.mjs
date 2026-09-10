@@ -42,7 +42,7 @@ const FIX_EMAIL = G("OSIRIS_RESPALDO_FIXTURE_EMAIL"), FIX_PIN = G("OSIRIS_RESPAL
 
 const ident = await import("file:///" + W + "/src/data/respaldoIdentidad.js");
 const { restaurarLote } = await import("file:///" + W + "/src/data/restaurarLote.js");
-const { reconstruirDesdeLote } = await import("file:///" + W + "/src/data/reconstruirDesdeLote.js");
+const { reconstruirDesdeLote, evaluarRecuperacion } = await import("file:///" + W + "/src/data/reconstruirDesdeLote.js");
 const V = await import("file:///" + W + "/src/data/verificacionCredencialLegacy.js");
 const { verifyPin } = await import("file:///" + W + "/src/pinHash.js");
 
@@ -269,15 +269,22 @@ noEjer("login real por la app contra lo restaurado", "la app lee main y pins del
 await dst.query("rollback to savepoint credenciales");
 const { rows: [q] } = await dst.query(`select count(*)::int as n from ${esquema}.calendario_data where id = 'pins'`);
 chk("tras revertir el savepoint el destino no conserva credenciales", q.n === 0);
+// Una huérfana preservada, una entrada sin dueño, una verificación bloqueada o un tramo no
+// ejercido impiden declarar la recuperación COMPLETA, aunque la restauración aplicada pase.
+const recuperacion = evaluarRecuperacion(rec);
 await dst.query(`insert into ${esquema}.manifiesto (lote_id, correlation_id, tomado_at, sha_a, sha_b, resultado) values ($1,$2,$3,$4,$5,$6)`,
   [fila.lote_id, A.correlationId, A.tomado_at, fila.sha_a, fila.sha_b, JSON.stringify({ fallas, bloqueos, noEjercidos, modo: B.modo_identidad,
     difieren, posteriores, fueraDelLote, clavesMain, difPerm, uuidMal: uuidMal.length, materialMal, huerfanas: huerfanasO.size,
-    reemitir: rec.reemitir.length, ramaMal, ramaDeclarada: ramaDeclarada.length })]);
+    reemitir: rec.reemitir.length, ramaMal, ramaDeclarada: ramaDeclarada.length, recuperacion })]);
 await dst.query("commit");
 await dst.end();
 const api = await fetch(`${U}/rest/v1/calendario_data?select=id&limit=1`, { headers: { apikey: S, Authorization: "Bearer " + S, "Accept-Profile": esquema } });
 chk("la API de staging no publica el esquema aislado", !api.ok, "HTTP " + api.status);
 
-console.log(`\nRESTAURACIÓN APLICADA · ${fallas === 0 && bloqueos === 0 ? "PASS" : "NO CERRADA"} · ${fallas} fallas · ${bloqueos} bloqueos · ${esquema} conservado sin credenciales`);
-console.log(`LOGIN REAL · NO EJERCIDO · lo anterior es verificación de credencial, no login`);
+const motivosNo = [...(fallas ? [`${fallas} fallas`] : []), ...recuperacion.motivos,
+                   ...(bloqueos ? [`${bloqueos} verificaciones bloqueadas`] : []), ...noEjercidos.map((x) => x + ": no ejercido")];
+console.log(`\nRESTAURACIÓN APLICADA · ${fallas === 0 ? "PASS" : "FALLA"} · ${fallas} fallas · ${esquema} conservado sin credenciales`);
+console.log(`VERIFICACIÓN DE CREDENCIAL · ${fallas ? "ver fallas" : bloqueos ? `positiva BLOQUEADA (${bloqueos})` : "PASS"}`);
+console.log(`LOGIN REAL · NO EJERCIDO`);
+console.log(`RECUPERACIÓN COMPLETA · ${motivosNo.length ? "NO DECLARABLE · " + motivosNo.join(" · ") : "DECLARABLE"}`);
 process.exit(fallas ? 1 : 0);

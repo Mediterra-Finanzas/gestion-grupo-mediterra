@@ -83,3 +83,15 @@ export function reconstruirDesdeLote({ A, B, hashLlave }) {
   filas.pins = { value: pins, updated_at: null };
   return { filas, sinDueno, ambiguas, identidadPorNombre, reemitir, huerfanasNoAplicadas: (B?.huerfanas || []).length };
 }
+
+/* ¿Se puede declarar la recuperación COMPLETA con lo reconstruido? Solo si todo lo que viajó
+ * quedó con dueño. Una huérfana preservada es material de una persona que el padrón ya no
+ * nombra: no se asigna a nadie, y mientras exista una persona tiene que resolverla. Lo mismo
+ * vale para una entrada sin dueño o ambigua. */
+export function evaluarRecuperacion(rec) {
+  const motivos = [];
+  if (rec?.huerfanasNoAplicadas) motivos.push(`${rec.huerfanasNoAplicadas} credenciales huérfanas preservadas sin dueño`);
+  if (rec?.sinDueno?.length) motivos.push(`${rec.sinDueno.length} entradas sin dueño`);
+  if (rec?.ambiguas?.length) motivos.push(`${rec.ambiguas.length} entradas ambiguas`);
+  return { completa: motivos.length === 0, motivos };
+}
