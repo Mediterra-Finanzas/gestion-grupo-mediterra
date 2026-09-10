@@ -1,139 +1,126 @@
-# Guía de panel — proyecto de Vercel para el runtime de staging
+# Guía de panel — runtime de pruebas contra staging
 
-Única guía. Todo lo que dependía de mí ya está hecho; esto es lo que solo se
-puede hacer desde el panel, porque no tengo credenciales de Vercel (sin CLI, sin
-`.vercel/`, sin token en ningún `.env*.local`).
-
----
-
-## Por qué hace falta un proyecto aparte
-
-De la documentación de Vercel (Cron Jobs, 2026-08-11):
-
-> "To trigger a cron job, Vercel makes an HTTP GET request to your project's
-> **production deployment URL**."
-
-Los cron corren **solo contra el deployment de Producción de un proyecto**. Un
-Preview publica la función y nadie la llama. Por eso el runtime de pruebas es un
-**segundo proyecto**, cuya Producción apunta a Supabase staging. Así el cron se
-dispara de verdad y el proyecto productivo no se toca en ningún momento.
-
-```
-Proyecto de Vercel            Rama de producción              Supabase
-─────────────────────────────────────────────────────────────────────────────
-(el actual)                   main                            bywovqayuzodbzwsriet   ← intacto
-mediterra-respaldo-staging    runtime/staging-respaldo        nlvfjpwiecgrosjnwwik   ← nuevo
-```
+Única guía. Lo que depende de mí está hecho; lo que sigue solo se puede hacer
+desde el panel de Vercel, porque no tengo credenciales de Vercel.
 
 ---
 
-## Datos para copiar
+## Parte A · Crear el proyecto
+
+Los cron de Vercel llaman solo al deployment de **Producción** de un proyecto
+(documentación de Vercel, Cron Jobs). Por eso el runtime de pruebas es un
+**segundo proyecto**, cuya Producción apunta a Supabase staging. El proyecto
+productivo no se toca.
 
 | Campo | Valor |
 |---|---|
 | Nombre del proyecto | `mediterra-respaldo-staging` |
 | Repositorio | `Mediterra-Finanzas/gestion-grupo-mediterra` |
-| **Production Branch** | `runtime/staging-respaldo` |
-| Framework | Create React App (se detecta solo) |
-| Root Directory | la raíz, sin cambios |
-| Build Command | el que trae el proyecto |
+| Production Branch | `runtime/staging-respaldo` |
+| Framework | Create React App (lo detecta solo) |
+| Root Directory | la raíz |
 
-La rama ya está lista y empujada. Trae su propio `vercel.json` con **un solo
-cron**, el del respaldo, y sin las funciones de los otros carriles.
+**A1.** vercel.com → **Add New…** → **Project** → junto a
+`gestion-grupo-mediterra`, **Import**. En **Project Name** escribe
+`mediterra-respaldo-staging`. **No** pulses Deploy todavía.
 
----
+**A2.** En la misma pantalla, abre **Environment Variables** y agrega las de la
+tabla. Los valores los pegas tú desde `.env.osiris-staging.local`; no pasan por
+el chat. Marca solo **Production**.
 
-## Pasos
-
-**1.** Vercel → Add New → Project → importar `gestion-grupo-mediterra`.
-Nombre: `mediterra-respaldo-staging`.
-
-**2.** Settings → Git → **Production Branch** = `runtime/staging-respaldo`.
-Esto es lo que hace que sus deployments cuenten como Producción **de este
-proyecto** y por lo tanto que el cron los llame. No afecta a `main`.
-
-**3.** Settings → Environment Variables, alcance **Production**. Solo nombres;
-los valores los pegas tú por el canal autorizado, no pasan por el chat.
-
-| Variable | De dónde sale |
+| Variable | Qué va |
 |---|---|
-| `SUPABASE_URL` | URL del proyecto Supabase de staging |
+| `SUPABASE_URL` | URL de Supabase staging |
 | `SUPABASE_SERVICE_ROLE_KEY` | clave `sb_secret_` de staging |
-| `CRON_SECRET` | el que ya está en `.env.osiris-staging.local` |
-| `BACKUP_ENCRYPTION_KEY_A` | el de staging |
-| `BACKUP_ENCRYPTION_KEY_B` | el de staging |
+| `CRON_SECRET` | la de `.env.osiris-staging.local` |
+| `BACKUP_ENCRYPTION_KEY_A` | la de staging |
+| `BACKUP_ENCRYPTION_KEY_B` | la de staging |
 | `BACKUP_KID_A` | `A-stg-82a046f3` |
 | `BACKUP_KID_B` | `B-stg-ef5ee1f5` |
 | `RESPALDO_BUCKET` | `respaldo-osiris-staging` |
-| `RESPALDO_AVISO_TO` | destinatarios **sintéticos**, separados por coma |
-| `SMTP_MEDITERRA_USER` | la misma cuenta que usa el informe diario |
+| `RESPALDO_AVISO_TO` | destinatarios sintéticos para la alarma, separados por coma |
+| `RESPALDO_CORREO_PRUEBA` | `si` |
+| `CORREO_PRUEBA_PERMITIDOS` | **el buzón de prueba que designes** (ver nota) |
+| `SMTP_MEDITERRA_USER` | la cuenta que usa el informe diario |
 | `SMTP_MEDITERRA_PASS` | idem |
 | `REACT_APP_UX_SOLO` | `1` |
-| `REACT_APP_UX_SUPABASE_URL` | URL de staging |
+| `REACT_APP_UX_SUPABASE_URL` | URL de Supabase staging |
 | `REACT_APP_UX_SUPABASE_ANON_KEY` | clave publicable de staging |
 
-**`RESPALDO_PERMITIR_PRODUCCION` no se define.** Sin ella el handler se niega a
-correr contra `bywovqayuzodbzwsriet`, aunque alguien pegue la URL equivocada.
+**No se define `RESPALDO_PERMITIR_PRODUCCION`.** Sin ella el handler se niega a
+correr contra el proyecto productivo.
 
-**`REACT_APP_UX_SOLO` sin definir** deja la pantalla en un aviso y no monta
-nada: falla cerrado en los dos sentidos.
+> **Nota sobre el buzón de prueba.** Un dominio `.invalid` no recibe correo, así
+> que "entrega real" exige un buzón real. El handler solo envía el correo de
+> prueba a las direcciones que pongas en `CORREO_PRUEBA_PERMITIDOS`, y a nadie
+> más. Elige una dirección dedicada a pruebas.
 
-**4.** Deploy. Cuando termine: Settings → **Cron Jobs**. Debe figurar
-`/api/osiris-respaldo-cron` con `0 7 * * *`. Si no aparece, el deployment no es
-de la rama de producción del proyecto (paso 2).
+**A3.** **Deploy**. Espera a que diga **Ready**.
 
-**5.** En esa misma pantalla, botón **Run**. Esa es la prueba del tramo completo
-disparado por la plataforma.
+**A4.** Proyecto → **Settings** → **Git** → **Production Branch**: confirma que
+dice `runtime/staging-respaldo`. Si dice `main`, cámbiala y pulsa **Save**, y
+luego **Deployments** → último → **⋯** → **Redeploy**.
 
-**6.** Pásame la URL de producción del proyecto. Con eso activo el respaldo del
-disparo desde la base, media hora después:
+**A5.** Proyecto → **Settings** → **Cron Jobs**. Debe aparecer
+`/api/osiris-respaldo-cron` con `0 7 * * *`, y **ningún otro**. Si aparece
+también `/api/proc-reporting-daily-cron`, el deployment no salió de la rama
+correcta: vuelve a A4.
 
-```sql
-select cron.schedule('respaldo-osiris-staging-http', '30 7 * * *',
-  $$select public.respaldo_disparar('https://<dominio>/api/osiris-respaldo-cron', '<CRON_SECRET>')$$);
-```
-
-La función y la extensión `http` ya están creadas en staging. Si Vercel pierde
-la corrida, la base la recupera; si no la perdió, la segunda llamada es
-idempotente.
+**A6.** Copia el dominio de Producción del proyecto (**Settings** → **Domains**)
+y pásamelo. Sirve para revisar el diseño en `https://<dominio>/`.
 
 ---
 
-## Que ni el frontend ni el backend llegan a producción — verificado
+## Parte B · Comprobación, en cuatro estados que no se combinan
 
-No basta con configurar variables: la referencia productiva viaja **incrustada
-en el código** de 19 archivos. Lo que se verificó sobre esta rama:
+Cada invocación del handler queda registrada en staging, en una tabla que no se
+puede modificar ni borrar. Con eso separo los cuatro estados. **Uno no se deduce
+de otro.**
 
-**Frontend.** `src/index.js` no importa `App`. Recorriendo el grafo de imports
-desde el punto de entrada: **18 módulos alcanzables, cero URLs de Supabase**.
-Sobre el bundle compilado con `CI=true`: **cero URLs de Supabase**, y la única
-aparición de `bywovqayuzodbzwsriet` es el guardia del propio harness, que se
-niega a leer si le apuntan ahí.
+El horario `0 7 * * *` es UTC. Desde el 2026-09-07 Chile está en UTC−3: el cron
+corre entre **04:00 y 04:59 hora de Chile** (en Hobby, en cualquier minuto de
+esa hora).
 
-**Backend.** `api/` queda en cuatro archivos: `osiris-respaldo-cron.js`,
-`send-email.js`, `_reportingScheduler.js` y su test. Se retiraron `login.js`,
-`informe.js`, `storage.js`, `_auth.js`, `db/` y el endpoint viejo
-`osiris-backup.js`. La única aparición de la referencia productiva en `api/` es
-`REF_PRODUCCION` del guardia fail-closed.
+### B1 · Run manual
 
-**Cron.** Un solo cron. El del informe diario de Allegria Service no viaja: ni
-su entrada en `vercel.json` ni su función.
+1. Fuera de la franja 04:00–04:59 de Chile, ve a **Settings** → **Cron Jobs** →
+   `/api/osiris-respaldo-cron` → **Run**.
+2. Espera un minuto y abre **View Logs**. Debe verse una respuesta `200`.
+3. Avísame "Run hecho". Corro la comprobación y te informo el estado 1.
 
-Todo esto lo cuida `qa-runtime-staging.test.js`, **11/11**, que falla si alguien
-vuelve a meter la aplicación, una función ajena o un cron de otro carril.
+Un Run exitoso **no** demuestra el disparo automático.
+
+### B2 · Disparo automático por horario
+
+1. **No pulses Run entre 04:00 y 04:59 de Chile** del día siguiente. Una
+   ejecución manual en esa franja no se puede distinguir de la automática.
+2. Después de las 05:00, avísame. Busco una invocación de Vercel dentro de la
+   franja que haya terminado en READY.
+
+### B3 · Descarga, descifrado y restauración del lote remoto
+
+No requiere nada tuyo. Cuando exista un lote creado por el runtime remoto, lo
+descargo de Storage, lo descifro con las claves A y B y lo restauro en memoria.
+Solo se declara observado si la restauración pasa las validaciones de lote.
+
+### B4 · Entrega real del correo de prueba
+
+1. Con `RESPALDO_CORREO_PRUEBA=si`, cada invocación envía un correo de prueba al
+   buzón designado.
+2. Revisa ese buzón después del Run de B1. Busca el asunto
+   `Osiris · correo de prueba del respaldo`.
+3. Avísame "correo recibido" o "no llegó". Informo dos cosas por separado:
+   aceptado por SMTP (lo veo yo) y recibido (solo lo puedes confirmar tú).
 
 ---
 
-## Qué queda demostrado después de estos pasos
+## Estado al corte
 
-| Tramo | Hoy | Después |
-|---|---|---|
-| Reserva atómica del lote | EJERCIDO | idem |
-| snapshot → cifrado A/B → subida → READY → verificación | EJERCIDO en proceso | idem |
-| Evidencia incompleta y reintento tras resolver identidad | EJERCIDO, 22/22 | idem |
-| **Disparo del programador sobre el tramo entero** | **NO EJERCIDO** | EJERCIDO |
-| **Entrega SMTP real del aviso** | **NO EJERCIDO** | EJERCIDO |
-| URL compartible del diseño | solo `localhost` | EJERCIDO |
+| Estado | Hoy |
+|---|---|
+| B1 · Run manual | NO OBSERVADO |
+| B2 · Disparo automático | NO OBSERVADO |
+| B3 · Restauración del lote remoto | NO OBSERVADO |
+| B4 · Correo aceptado / recibido | NO OBSERVADO / NO OBSERVADO |
 
-`AUTOMATIZACIÓN COMPLETA` sigue en **NO EJERCIDA** hasta que el programador
-dispare el flujo entero, termine en READY y el resultado se descargue y restaure.
+**AUTOMATIZACIÓN COMPLETA = NO EJERCIDA** hasta observar B2 y B3.

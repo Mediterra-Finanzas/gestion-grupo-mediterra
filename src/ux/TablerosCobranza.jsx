@@ -9,7 +9,8 @@
 //
 // Tres cantidades que no se mezclan: contratos evaluados, líneas de concepto y
 // cuotas. Los importes son CONTRACTUALES: "pendiente de conciliación" no es
-// deuda ni facturación exigible confirmada, y la pantalla lo dice.
+// deuda ni facturación exigible confirmada, y "marcado pagado en el sistema" no
+// es pago corroborado. La pantalla lo dice con esas palabras.
 
 import React, { useMemo, useState } from "react";
 import { layout, ink, surface, estado as tonos } from "./tokens";
@@ -21,20 +22,22 @@ const miles = (n) => Number(n || 0).toLocaleString("es-CL", { maximumFractionDig
 
 const TABLEROS = [
   { id: CLASE.CONFLICTO, pregunta: "¿Dónde se contradicen dos registros del mismo hecho?", severidad: "critico",
-    fuente: "contrato vs registro persistido de Fee Entrada" },
+    fuente: "contrato vs registro histórico de Fee Entrada" },
   { id: CLASE.PENDIENTE_CONFIRMADO, pregunta: "¿Qué tiene factura emitida y ningún pago registrado?", severidad: "alto",
     fuente: "número de factura presente, sin pago" },
   { id: CLASE.INFO_PENDIENTE, pregunta: "¿Qué no se puede clasificar por falta de un dato?", severidad: "info",
     fuente: "sin factura, sin fecha de evento o sin mes de cobro" },
-  { id: CLASE.CERRADO_CON_EVIDENCIA, pregunta: "¿Qué tiene factura y pago registrados?", severidad: "ok",
-    fuente: "factura y pago en el registro fuente" },
+  { id: CLASE.CERRADO_CON_EVIDENCIA, pregunta: "¿Qué figura pagado sin comprobante ni conciliación?", severidad: "info",
+    fuente: "factura y pago marcados en el sistema" },
+  { id: CLASE.PAGO_CORROBORADO, pregunta: "¿Qué pago está respaldado por documento o conciliación?", severidad: "ok",
+    fuente: "comprobante con hash o referencia de conciliación" },
   { id: CLASE.NO_APLICABLE, pregunta: "¿Qué contratos no generan ningún concepto todavía?", severidad: "neutro",
     fuente: "sin contract fee, plantaciones ni base comercial" },
 ];
 
 const abrev = { [CLASE.CONFLICTO]: "Conflicto", [CLASE.PENDIENTE_CONFIRMADO]: "Pend. confirmado",
-                [CLASE.INFO_PENDIENTE]: "Info. pendiente", [CLASE.CERRADO_CON_EVIDENCIA]: "Cerrado",
-                [CLASE.NO_APLICABLE]: "No aplica" };
+                [CLASE.INFO_PENDIENTE]: "Info. pendiente", [CLASE.CERRADO_CON_EVIDENCIA]: "Marcado pagado",
+                [CLASE.PAGO_CORROBORADO]: "Corroborado", [CLASE.NO_APLICABLE]: "No aplica" };
 
 const COLUMNAS = [
   { id: "cliente", etiqueta: "Cliente", anchoMax: 190 },
@@ -49,9 +52,10 @@ const COLUMNAS = [
 
 function accionDe(c) {
   if (c.clase === CLASE.CONFLICTO) return "Conciliar registros";
-  if (!c.responsable && c.clase !== CLASE.CERRADO_CON_EVIDENCIA && c.clase !== CLASE.NO_APLICABLE) return "Asignar responsable";
+  if (!c.responsable && c.clase !== CLASE.PAGO_CORROBORADO && c.clase !== CLASE.NO_APLICABLE) return "Asignar responsable";
   if (c.clase === CLASE.PENDIENTE_CONFIRMADO) return "Seguimiento de cobro";
   if (c.clase === CLASE.INFO_PENDIENTE) return "Completar información";
+  if (c.clase === CLASE.CERRADO_CON_EVIDENCIA) return "Corroborar pago";
   return "—";
 }
 
@@ -99,7 +103,7 @@ export default function TablerosCobranza({ datos, alAbrirContrato, compacta = fa
     severidad: ev.porClase[t.id] === 0 ? "neutro" : t.severidad,
   }));
   const visibles = filas.filter((f) => f.clase === foco);
-  const sinResponsable = filas.filter((f) => f.accion === "Asignar responsable").length;
+  const sinResponsable = filas.filter((f) => !f.responsable && f.clase !== CLASE.PAGO_CORROBORADO && f.clase !== CLASE.NO_APLICABLE).length;
   const cf = ev.contractFee;
 
   return (
@@ -117,13 +121,14 @@ export default function TablerosCobranza({ datos, alAbrirContrato, compacta = fa
                   padding: layout.sp.sm, borderRadius: layout.radio.sm, lineHeight: 1.6 }}>
         Contract fee, importes contractuales: USD {miles(cf.pendienteDeConciliacion)} pendiente de conciliación ·
         USD {miles(cf.pendienteConfirmado)} con factura y sin pago registrado · USD {miles(cf.enConflicto)} en conflicto ·
-        USD {miles(cf.cerradoConEvidencia)} cerrado con evidencia. Ninguna cifra es deuda confirmada ni facturación exigible.
+        USD {miles(cf.marcadoPagadoSinCorroborar)} marcado pagado en el sistema, sin corroborar ·
+        USD {miles(cf.pagoCorroborado)} con pago corroborado. Ninguna cifra es deuda confirmada ni facturación exigible.
       </p>
 
       {sinResponsable > 0 && (
         <p style={{ margin: 0, fontSize: 12, color: ink.soft, background: surface.panelAlt, padding: layout.sp.sm, borderRadius: layout.radio.sm }}>
-          Tarea de configuración: {sinResponsable} contratos con pendientes no tienen responsable interno asignado.
-          Quedan visibles aquí y fuera de los correos por responsable.
+          Tarea de configuración: {sinResponsable} contratos con pendientes no tienen responsable interno asignado
+          ("Sin asignar"). Los correos reales siguen bloqueados hasta completar la asignación.
         </p>
       )}
 
@@ -145,7 +150,7 @@ export default function TablerosCobranza({ datos, alAbrirContrato, compacta = fa
       {foco === CLASE.CONFLICTO && visibles.length > 0 && (
         <p style={{ margin: 0, fontSize: 12, color: ink.soft, background: surface.panelAlt, padding: layout.sp.sm, borderRadius: layout.radio.sm }}>
           Dos registros del mismo hecho dicen cosas distintas. No se elige uno: el contrato queda aquí, fuera de los correos
-          de facturación y cobranza, hasta que alguien concilie.
+          de facturación y cobranza, hasta que alguien coteje factura y comprobante.
         </p>
       )}
     </section>

@@ -36,6 +36,11 @@ function config() {
     claveB: process.env.BACKUP_ENCRYPTION_KEY_B || "",
     avisoA: (process.env.RESPALDO_AVISO_TO || "").split(",").map((s) => s.trim()).filter(Boolean),
     permiteProduccion: process.env.RESPALDO_PERMITIR_PRODUCCION === "si",
+    // Correo de prueba: solo a direcciones aprobadas una por una. Un dominio
+    // .invalid no recibe correo, asi que la entrega real exige un buzon real
+    // designado para pruebas.
+    correoPrueba: process.env.RESPALDO_CORREO_PRUEBA === "si",
+    correoPruebaPara: (process.env.CORREO_PRUEBA_PERMITIDOS || "").split(",").map((s) => s.trim().toLowerCase()).filter(Boolean),
   };
 }
 
@@ -197,6 +202,32 @@ async function avisarSiHaceFalta({ c, enviar, ahora }) {
   });
 }
 
+/* Cada invocacion queda registrada (append-only) para distinguir despues el Run
+ * manual del disparo por horario. No guarda direcciones de correo. */
+async function registrarInvocacion(c, fila) {
+  try {
+    const r = await api(c, "respaldo_invocacion", { method: "POST", headers: { Prefer: "return=minimal" }, body: JSON.stringify(fila) });
+    return r.ok;
+  } catch (e) { return false; }
+}
+
+async function enviarCorreoPrueba({ c, ahora, out, enviar }) {
+  if (!c.correoPruebaPara.length) return { aceptado: false, destinatarios: 0, motivo: "sin destinatario de prueba aprobado" };
+  try {
+    const r = await enviar({
+      to: c.correoPruebaPara,
+      subject: `Osiris · correo de prueba del respaldo · ${ahora.toISOString().slice(0, 16)} UTC`,
+      message: `Correo de prueba del runtime de staging. Lote ${out.lote}, estado ${out.estado}. No requiere accion.`,
+      html: `<p>Correo de prueba del runtime de staging.</p><p>Lote ${out.lote} · estado ${out.estado}.</p><p>No requiere acción.</p>`,
+      modulo: "osiris",
+    });
+    const aceptado = !!(r && (r.ok === true || r.success === true || r.messageId || (Array.isArray(r.accepted) && r.accepted.length)));
+    return { aceptado, destinatarios: c.correoPruebaPara.length, motivo: aceptado ? "aceptado por SMTP" : "SMTP no confirmo aceptacion" };
+  } catch (e) {
+    return { aceptado: false, destinatarios: c.correoPruebaPara.length, motivo: String(e.message).slice(0, 120) };
+  }
+}
+
 module.exports = async function handler(req, res) {
   const c = config();
   if (req.method && req.method !== "GET") return res.status(405).json({ error: "method_not_allowed" });
@@ -207,21 +238,36 @@ module.exports = async function handler(req, res) {
   if (impedimento) return res.status(500).json({ error: "guardia", detalle: impedimento });
 
   const ahora = new Date();
+  const h = req.headers || {};
+  const origen = (req.query && req.query.origen) || (String(req.url || "").match(/[?&]origen=([a-z]+)/) || [])[1] || null;
   const out = await corrida({ c, ahora });
 
   let aviso = { enviado: false, motivo: "no evaluado" };
+  let correoPrueba = null;
   try {
     const { enviarCorreo } = require("./send-email.js");
     aviso = await avisarSiHaceFalta({ c, enviar: enviarCorreo, ahora });
+    if (c.correoPrueba) correoPrueba = await enviarCorreoPrueba({ c, ahora, out, enviar: enviarCorreo });
   } catch (e) { aviso = { enviado: false, motivo: String(e.message).slice(0, 120) }; }
+
+  const registrada = await registrarInvocacion(c, {
+    user_agent: h["user-agent"] || null,
+    cron_schedule: h["x-vercel-cron-schedule"] || null,
+    vercel_id: h["x-vercel-id"] || null,
+    origen_declarado: origen,
+    lote_id: out.lote, estado: out.estado,
+    correo_prueba: correoPrueba,
+  });
 
   const ok = out.estado === "READY_VERIFICADO" || out.estado === "READY" || out.creado === false;
   return res.status(ok ? 200 : 500).json({
     lote: out.lote, estado: out.estado, creado: out.creado === true, pasos: out.pasos, aviso,
-    programador: (req.headers && req.headers["x-vercel-cron-schedule"]) || null,
+    correoPrueba, invocacionRegistrada: registrada,
+    programador: h["x-vercel-cron-schedule"] || null,
   });
 };
 
 module.exports.corrida = corrida;
 module.exports.guardia = guardia;
 module.exports.config = config;
+module.exports.enviarCorreoPrueba = enviarCorreoPrueba;

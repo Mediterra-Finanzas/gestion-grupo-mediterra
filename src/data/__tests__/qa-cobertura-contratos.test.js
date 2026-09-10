@@ -195,3 +195,42 @@ describe("correos · modo prueba, conflictos fuera, sin duplicados, cierre", () 
     expect(claveEnvio("2026-09-10", "a@ejemplo.invalid", l)).not.toBe(claveEnvio("2026-09-10", "a@ejemplo.invalid", { ...l, clase: CLASE.CONFLICTO }));
   });
 });
+
+describe("marcado pagado en el sistema no es pago corroborado", () => {
+  const M = require("../../ux/coberturaContratos.js");
+  const HASH = "a".repeat(64);
+  const pagado = (x) => ct({ contractFeeNFact: "43", contractFeePagado: true, contractFeeFechaPago: "2024-09-25", ...x });
+
+  test("factura y pago marcados, sin comprobante → marcado pagado, sin corroborar", () => {
+    const r = M.evaluarContractFee(pagado({}));
+    expect(r.clase).toBe(M.CLASE.CERRADO_CON_EVIDENCIA);
+    expect(M.ETIQUETA[r.clase]).toBe("Marcado pagado en el sistema");
+    expect(r.evidencia.corroboracion).toBe("sin corroborar");
+    expect(r.motivo).toMatch(/sin comprobante ni conciliación/);
+  });
+  test("comprobante con ruta y hash → pago corroborado por documento", () => {
+    const r = M.evaluarContractFee(pagado({ contractFeeComprobante: { ruta: "osiris/ct/nc.pdf", sha256: HASH } }));
+    expect(r.clase).toBe(M.CLASE.PAGO_CORROBORADO);
+    expect(r.evidencia.corroboracion).toBe("documento");
+  });
+  test("comprobante sin hash válido no corrobora", () => {
+    expect(M.evaluarContractFee(pagado({ contractFeeComprobante: { ruta: "x.pdf", sha256: "123" } })).clase)
+      .toBe(M.CLASE.CERRADO_CON_EVIDENCIA);
+    expect(M.evaluarContractFee(pagado({ contractFeeComprobante: "adjunto" })).clase).toBe(M.CLASE.CERRADO_CON_EVIDENCIA);
+  });
+  test("referencia de conciliación con fecha → pago corroborado por conciliación", () => {
+    const r = M.evaluarContractFee(pagado({ contractFeeConciliacion: { referencia: "CART-2022-07", fecha: "2022-07-31" } }));
+    expect(r.clase).toBe(M.CLASE.PAGO_CORROBORADO);
+    expect(r.evidencia.corroboracion).toBe("conciliacion");
+  });
+  test("los importes marcados y corroborados se suman por separado", () => {
+    const blob = { contratos: [pagado({ id: "a" }), pagado({ id: "b", contractFeeComprobante: { ruta: "r", sha256: HASH } })] };
+    const f = M.evaluarContratos(blob).contractFee;
+    expect(f.marcadoPagadoSinCorroborar).toBe(30000);
+    expect(f.pagoCorroborado).toBe(30000);
+    expect(f.cerradoConEvidencia).toBe(f.marcadoPagadoSinCorroborar);
+  });
+  test("marcado pagado pide atención antes que corroborado", () => {
+    expect(M.resumir([M.CLASE.PAGO_CORROBORADO, M.CLASE.CERRADO_CON_EVIDENCIA])).toBe(M.CLASE.CERRADO_CON_EVIDENCIA);
+  });
+});
