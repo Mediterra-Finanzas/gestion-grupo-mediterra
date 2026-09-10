@@ -189,6 +189,16 @@ Cada invocación queda registrada en staging con su commit, en una tabla que no 
 puede modificar ni borrar. **Ningún estado se deduce de otro**, y un estado
 observado con un commit distinto del confirmado en A7 no cuenta.
 
+**Qué se atribuye al runtime remoto.** Solo las invocaciones que llegan con
+`deployment_id` y `vercel_env`, que pone Vercel. Las pruebas corridas desde una
+computadora (tramo completo, restauración aplicada, login real aislado) quedan con esas
+columnas vacías y **no cuentan** para B1–B4, aunque terminen en READY.
+`verificar-runtime-remoto.mjs` informa las dos cantidades por separado.
+
+**B3 no cierra la recuperación.** Con el lote remoto se corren después, como estados
+propios, la restauración aplicada (`scripts/respaldo/restauracion-aplicada.mjs`) y el login
+real contra lo restaurado (`scripts/respaldo/aislado/`).
+
 El horario `0 7 * * *` es UTC. Desde el 2026-09-07 Chile está en UTC−3: el cron
 corre entre las **04:00 y las 04:59 de Chile**.
 
