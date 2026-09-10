@@ -34,11 +34,16 @@ const enVentana = (d) => d.getUTCHours() === 7;
 const esVercelCron = (ua) => /vercel-cron/i.test(String(ua || ""));
 
 const c = new Client({ connectionString: DSN, ssl: { rejectUnauthorized: false } }); await c.connect();
-const { rows: inv } = await c.query("select * from public.respaldo_invocacion order by recibido_at");
+const { rows: todas } = await c.query("select * from public.respaldo_invocacion order by recibido_at");
+// Solo cuenta lo que corrió EN Vercel: las variables de sistema (deployment y entorno) solo existen
+// allí. Las corridas hechas desde una computadora (prueba-tramo-completo, etc.) quedan con esas
+// columnas vacías y no se atribuyen al runtime remoto, aunque terminen en READY.
+const inv = todas.filter((i) => i.deployment_id && i.vercel_env);
+const locales = todas.length - inv.length;
 const estado = (ok, txt) => (ok ? "OBSERVADO   " : "NO OBSERVADO") + " · " + txt;
 
 console.log("== RUNTIME REMOTO · verificacion por estados separados ==");
-console.log("invocaciones registradas: " + inv.length);
+console.log(`invocaciones registradas: ${todas.length} · con deployment de Vercel: ${inv.length} · locales o sin deployment (no cuentan): ${locales}`);
 console.log();
 
 // 0 · Commit ejecutado: cada invocacion de Vercel registra el SHA del deployment que corrio.

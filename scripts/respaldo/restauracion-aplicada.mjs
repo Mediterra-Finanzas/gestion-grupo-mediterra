@@ -245,8 +245,12 @@ const ENTRAN = [V.DECISION.ENTRA, V.DECISION.ENTRA_CAMBIA];
 if (FIX_EMAIL && FIX_PIN) {
   const fx = UR.find((u) => String(u.email || "").toLowerCase() === FIX_EMAIL.toLowerCase());
   const obtenido = await decidir(estR, FIX_EMAIL, FIX_PIN);
-  const esperado = !fx ? "fixture ausente" : fx.desactivado ? V.DECISION.CORREO : V.DECISION.ENTRA;
-  chk(`fixture con su PIN custodiado → ${esperado}`, !!fx && (fx.desactivado ? obtenido === V.DECISION.CORREO : ENTRAN.includes(obtenido)), obtenido);
+  // Si el fixture tenía código provisorio en el origen, lo restaurado trae la marca vencida: el PIN
+  // anterior tiene que seguir inhabilitado. Esperar "entra" ahí sería exigir que se rehabilite.
+  const conTemp = !!fx && pinsR[fx.nombre + "_temp"] !== undefined;
+  const esperado = !fx ? "fixture ausente" : fx.desactivado ? V.DECISION.CORREO : conTemp ? V.DECISION.CODIGO_VENCIDO : V.DECISION.ENTRA;
+  const okFixture = !!fx && (fx.desactivado ? obtenido === V.DECISION.CORREO : conTemp ? obtenido === V.DECISION.CODIGO_VENCIDO : ENTRAN.includes(obtenido));
+  chk(`fixture con su PIN custodiado → ${esperado}${conTemp ? " (tenía código provisorio)" : ""}`, okFixture, obtenido);
   if (fx && !fx.desactivado && obtenido === V.DECISION.ENTRA_CAMBIA) nota("la credencial verifica, pero la política exige cambio: revisar fecha/pol del fixture");
   chk("fixture con PIN incorrecto → no entra", !ENTRAN.includes(await decidir(estR, FIX_EMAIL, "000000-no")));
   nota("control: la misma verificación contra el origen da " + (await decidir(estO, FIX_EMAIL, FIX_PIN)));
