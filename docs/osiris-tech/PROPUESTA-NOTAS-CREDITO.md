@@ -1,83 +1,112 @@
-# Osiris · Notas de crédito y anulaciones — propuesta
+# Osiris · Notas de crédito y anulaciones — reglas y controles
 
-**Propuesta. No implementada. No altera ningún saldo histórico.**
-Nada de esto detiene la validación visual ni el respaldo.
+**Preparado. No implementado. No cambia ningún saldo histórico.**
+Incorpora tus decisiones del 2026-09-10: la anulación queda visible y trazable, y
+la nota de crédito se vincula a su factura con respaldo documental.
 
 ---
 
 ## Punto de partida medido
 
-En la fila `osiris` de producción, hoy:
+En la fila `osiris` de producción no existe ningún registro de nota de crédito,
+anulación ni cobro parcial. No hay historia que migrar ni saldo que reinterpretar.
 
-- `"notaCredito"`, `"notasCredito"`, `"anulado"`, `"anulada"`: **0 apariciones**.
-- `"cobros"` (cobros parciales): **0 apariciones**, aunque el código de cobros
-  parciales existe en `OsirisModule.jsx` desde la línea ~397.
-- El único mecanismo de neteo hoy es el booleano `pagado`, que es todo o nada.
+Hay además un hallazgo que condiciona el diseño: **el mismo hecho se registra en
+dos lugares**. El factura/pago del contract fee se edita en la pestaña
+Contratos (`contractFeeNFact`, `contractFeePagado`, `contractFeeEstado`) y la
+pestaña Fee Entrada muestra una fila persistida aparte (`feeEntrada[]`) que no
+lee el contrato. Si los ajustes se registran en una sola de las dos, se repite
+el conflicto de Agroextiende. **Los ajustes se anclan al contrato**, que es la
+fuente que el propio código declara ("El contrato es la fuente de verdad").
 
-No hay nada que migrar y no hay historia que reescribir. Eso hace la decisión
-barata **ahora** y cara después.
+## Forma
 
-## Forma propuesta
-
-Un arreglo `ajustes[]` **dentro del hecho de ingreso que ya existe**
-(`feeEntrada`, `royaltyPlanta`, `royaltyComercial`, `feeViveros`), al lado de
-`pagos[]`. No una tabla nueva, no una fila nueva en `calendario_data`, no un
-segundo padrón de facturas.
+Un arreglo `ajustes[]` dentro del registro de factura que ya existe — en el
+contrato para el contract fee, y en la cuota (`rpPlantaCuotas[]`) para royalty
+planta. No es una tabla nueva ni un segundo padrón de facturas.
 
 ```jsonc
 {
-  "id": "aj_1789...",              // identificador propio
-  "tipo": "nota_credito",          // nota_credito | anulacion
-  "facturaRef": "F-4321",          // el nFact al que se aplica, no un id interno
-  "documento": "NC-000123",        // número del documento emitido
-  "moneda": "USD",                 // la del contrato; no se convierte sola
-  "monto": 1500.00,                // positivo; el signo lo pone el `tipo`
-  "fecha": "2026-09-15",           // fecha civil de Chile, del documento
-  "motivo": "descuento por merma acordada",
-  "emitidoPor": "identity_id",     // quién lo registró
+  "id": "aj_…",
+  "tipo": "nota_credito",            // nota_credito | anulacion
+  "facturaRef": "43",                // nFact al que se aplica; obligatorio
+  "documento": "NC-000123",          // número del documento emitido; obligatorio
+  "respaldo": {                      // obligatorio para nota_credito
+    "ruta": "osiris-docs/…/NC-000123.pdf",
+    "sha256": "…",
+    "bytes": 48211
+  },
+  "moneda": "USD",                   // igual a la de la factura
+  "monto": 1500.00,                  // positivo; anulacion = total de la factura
+  "fecha": "2026-09-15",             // fecha civil de Chile, del documento
+  "motivo": "descuento por merma acordada",   // obligatorio, texto libre no vacío
+  "registradoPor": "identity_id",    // actor
   "registradoEn": "2026-09-15T14:02:11-03:00",
-  "anulaTotal": false              // true solo para `tipo: "anulacion"`
+  "revierteA": null                  // id del ajuste que compensa, si es una corrección
 }
 ```
 
-`saldoDe()` **ya lee `ajustes[]` y ya los resta**. Está implementado y probado:
-`resta los ajustes registrados` y `no inventa notas de crédito ausentes`. Lo que
-falta no es el cálculo, es la captura y las reglas de negocio.
+## Reglas
 
-## Reglas que propongo, y que NO implemento hasta que las revises
+1. **Una anulación nunca borra.** La factura sigue existiendo, con su número, su
+   importe y su historia. Queda en clase **cerrado con evidencia**, motivo
+   "anulada por NC-…", visible en la ficha del contrato y en la bandeja bajo
+   cerrados. Actor, fecha y motivo son obligatorios.
+2. **Una nota de crédito se vincula a una factura existente.** Sin `facturaRef`
+   que exista en el contrato o la cuota, se rechaza al capturar.
+3. **Sin respaldo documental no hay nota de crédito.** El PDF se guarda en
+   Storage con su SHA-256; el registro guarda ruta, hash y tamaño. Ese archivo
+   entra en el alcance del respaldo de adjuntos, que coordina PLATFORM SECURITY.
+4. **Un ajuste no deja saldo negativo.** Si `monto > saldo vigente`, se rechaza
+   al capturar, no al calcular.
+5. **Misma moneda que la factura.** Sin conversión automática.
+6. **Inmutable.** Un ajuste mal registrado se compensa con otro que lo cite en
+   `revierteA`; el original no se edita ni se elimina.
+7. **Un contrato en conflicto no admite ajustes** hasta conciliarse. Registrar
+   una nota de crédito sobre dos registros que se contradicen fija cuál de los
+   dos "manda" sin que nadie lo haya decidido.
 
-1. **Una anulación deja la factura en saldo cero y saca la fila de cobranza.**
-   No la borra: la fila queda con `estado: cerrado` y motivo "anulada por NC-…".
-2. **Una nota de crédito parcial reduce el saldo y la fila sigue en cobranza**
-   por la diferencia.
-3. **Ningún ajuste puede dejar el saldo negativo.** Si `monto > saldo`, se
-   rechaza al capturarlo, no al calcularlo.
-4. **La moneda del ajuste debe ser la de la factura.** Sin conversión automática:
-   si difieren, se rechaza. Convertir en silencio es cómo se pierde plata.
-5. **Un ajuste es inmutable.** Si está mal, se registra otro que lo compense.
-   Corregir el original destruye la trazabilidad que justifica el ajuste.
-6. **Fecha civil de Chile**, con las mismas reglas de huso que ya usa la bandeja.
+`saldoDe()` ya resta `ajustes[]` y ya está probado (`resta los ajustes
+registrados`, `no inventa notas de crédito ausentes`). Lo que falta es la
+captura con estas validaciones.
 
 ## Trazabilidad
 
-Cada ajuste se registra además en `window.auditLog` con `modulo: "osiris"`,
-`accion: "ajuste"`, `valorAnterior` = saldo previo, `valorNuevo` = saldo
-resultante. La bitácora productiva ya guarda `valorAnterior` en los 8.164
-eventos que tiene, así que el formato existe y no hay que inventarlo.
+Cada ajuste se escribe también en la bitácora con `modulo: "osiris"`,
+`accion: "ajuste"`, `registroId` = contrato, `campo` = `ajustes`, y el saldo
+previo y resultante.
 
-## Lo que esta propuesta NO hace
+Aviso medido que afecta a esto: **la bitácora corta los valores a 200
+caracteres**. En `osiris / Contratos`, 708 de 1.399 eventos están cortados,
+casi todos sobre campos que son arreglos (`rpPlantaCuotas` 655). Un arreglo de
+ajustes registrado igual quedaría cortado. Para los ajustes la bitácora debe
+guardar el **ajuste individual** (que cabe), no el arreglo completo.
 
-- No toca ningún saldo ya registrado.
-- No convierte devengo en facturable.
-- No crea una tabla de facturas: la factura sigue viviendo en el hecho de
-  ingreso y en los campos `contractFee*` del contrato, como hoy.
-- No decide qué pasa con el caso de conflicto que ya está en la bandeja
-  (contrato dice pagado, registro derivado dice por cobrar). Ese caso se
-  concilia primero; recién después tiene sentido registrar ajustes sobre él.
+## Permisos
 
-## Lo que necesito de ti para implementarlo
+Lo que existe hoy en Osiris:
 
-1. ¿Una anulación cierra la fila o la deja visible como "anulada"?
-2. ¿Quién puede registrar un ajuste? Hoy no hay rol para eso en Osiris.
-3. ¿El documento de la nota de crédito se adjunta? Si sí, entra en el alcance
-   del incidente de adjuntos, que coordina PLATFORM SECURITY.
+| Permiso | Quién edita | Qué habilita |
+|---|---|---|
+| `tabPermisos.contratos = "editar"` | editor, admin, gerente_tecnico | pestaña Contratos, incluidos `contractFee*` |
+| `tabPermisos.royalties = "editar"` | editor, admin, gerente_tecnico | pestañas de ingresos (`canIngresos`) |
+| rol `admin` | admin | todo |
+
+En IAM de staging (`iam_rol_capability`) no hay ninguna capacidad de Osiris,
+facturación ni cobranza.
+
+**Reutilización propuesta, sin conceder nada:** registrar una nota de crédito
+exige `tabPermisos.royalties = "editar"`, igual que hoy exige editar ingresos.
+
+**Brecha identificada:** no existe una capacidad para **aprobar** un ajuste que
+reduce un importe cobrable. Con los permisos actuales, la misma persona que
+registra la nota de crédito la daría por buena. Para anulaciones y notas de
+crédito sobre facturas cobradas propongo separación (quien registra no aprueba),
+lo que requiere una capacidad nueva — por ejemplo `osiris.ingresos.ajuste.aprobar`.
+**No la creo ni la asigno**: es decisión tuya y del carril de identidad.
+
+## Lo que necesito de ti
+
+1. ¿Separación registra/aprueba para todo ajuste, o solo sobre importe mayor a un umbral?
+2. Con los permisos actuales, ¿quién puede registrar mientras no exista la capacidad de aprobación?
+3. ¿Dónde se guarda el PDF de la nota de crédito? Hoy Osiris no usa Storage; los documentos del contrato están en SharePoint.
