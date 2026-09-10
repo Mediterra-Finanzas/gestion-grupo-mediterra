@@ -124,3 +124,92 @@ Inventario de solo lectura (`scripts/respaldo/inventario-lotes.mjs`). Ninguno se
 | `prueba-mtvqdtg2-c-2026-09-10` y `-s-` | READY | identidad-v1 / credencial-v3 | completa, con `clase` por recurso. `-c-` restaurado con PASS |
 
 Los lotes `-s-` salen de la prueba de dos corridas simultáneas: una sola creación.
+
+## 5 · Estados separados · corte 2026-09-10, noche
+
+Cada frente conserva su propio estado. Ninguno se deduce de otro.
+
+| Frente | Estado |
+|---|---|
+| Restauración de los recursos incluidos | **PROBADO EN STAGING** (restauración aplicada) · aplicación sobre un destino existente **PROBADA LOCAL** |
+| Recuperación de usuarios y acceso | login real **PROBADO EN AISLAMIENTO** · **BLOQUEO** para los 5 usuarios sin credencial respaldada |
+| IAM, `sec_*` y Auth | **NO CUBIERTO** |
+| Adjuntos | **NO RESPALDADO** por este paquete |
+| Automatización remota (B1–B4) | **NO OBSERVADO** |
+
+### 5.1 · Restauración de los recursos incluidos
+
+- **Restauración aplicada en staging, 0 fallas:** lote A `prueba-mtw5ku8b-c`, lote B2
+  `prueba-mtw677uu-c` y lote C `prueba-mtw68t2a-c`. El lote B `prueba-mtw65515-c` tuvo 1 falla de
+  expectativa del script: con código provisorio en el origen esperaba "entra". Se corrigió y se
+  repitió en B2.
+- **Preservación sobre un destino existente** (`aislado/prueba-preservacion-destino.mjs`,
+  PostgreSQL local, lote real):
+  - `audit_log` y `backup_*` quedan idénticos en contenido y `updated_at`;
+  - una fila del equipo que el lote no trae queda intacta;
+  - `finanzas` y `main` cambiados después del snapshot no se pisan y quedan como conflicto;
+  - una escritura concurrente del equipo durante la aplicación se conserva;
+  - no se borra ninguna fila.
+
+  La contraprueba ingenua (upsert incondicional de todo el lote) destruye 5 filas. La
+  aplicación sobre un destino real de staging no se ejecutó.
+
+### 5.2 · Recuperación de usuarios y acceso
+
+**Runtime de prueba aislado** (`scripts/respaldo/aislado/`):
+- la app real de `origin/main` (`27b423b`), compilada contra un origen local;
+- un PostgREST local cargado solo desde el lote;
+- un buzón local en lugar de SMTP;
+- `Content-Security-Policy: connect-src 'self'`.
+
+Es el login de App.jsx, no una réplica.
+
+| Caso | Lote | Resultado |
+|---|---|---|
+| Fixture con su PIN custodiado | A | entra |
+| PIN incorrecto | A | "Correo o PIN incorrecto.", sin sesión |
+| Código provisorio vencido tras restaurar | B | "El código provisorio venció…"; el PIN anterior sigue inhabilitado. Reemisión por "¿Olvidaste tu PIN?": código vigente → PIN nuevo `6dig` → entra. Después se rechazan el código usado y el PIN anterior |
+| Usuario desactivado | C | no entra; la recuperación da el mensaje neutro, sin código, sin credencial nueva y con la marca intacta |
+| Los 5 usuarios sin credencial respaldada | A | 5 de 5: código solo al correo registrado (buzón local), `_temp` hasheado a 45 min → PIN nuevo `6dig` → entran; reingreso inmediato con el PIN nuevo; código usado rechazado |
+| Correo desconocido | A | mensaje neutro, sin `_temp` |
+
+**Que no consulta el origen:**
+- 172 solicitudes, todas servidas por el origen aislado; los 110 REST fueron a PostgREST local.
+- 12 intentos bloqueados por el CSP: Supabase productivo 2, `vercel.app` 4, realtime 4 y
+  origen cruzado 2.
+- Huellas de `main` y `pins` en staging y producción sin cambios durante las pruebas de los
+  lotes A y C.
+
+**Defecto medido, no corregido en App.** En el navegador, `persistContract` usa siempre la URL
+productiva fija, porque `typeof process` es `undefined`, aunque el build defina
+`REACT_APP_SUPA_URL`. En el aislamiento se resolvió con un shim servido por el runtime de
+prueba.
+
+**Login inmediato frente a recuperación.**
+- Entran de inmediato quienes tienen `_h` respaldado: en staging, 2 usuarios y el fixture.
+- Los 5 sin `_h` no entran hasta reemitir. El procedimiento probado es "¿Olvidaste tu PIN?":
+  código hasheado entregado solo al correo registrado (y al celular, si lo tuvieran), PIN
+  nuevo con la política vigente, sin PIN en claro y sin reactivar a un desactivado.
+- **El bloqueo se mantiene:** la entrega real por SMTP no se ejerció (buzón local) y cada
+  persona tiene que ejecutarlo.
+
+**Fixture.** Enrolado con las funciones canónicas de SEC-HF2-A (`sec_identidad_enrolar` y
+`sec_alias_resolver`, rol `sec_cred_backend`, alias EXACT) y dado de alta de forma aditiva en
+el padrón y `pins`. Estado final en staging: desactivado y con código provisorio. No se borró.
+
+### 5.3 · Las 29 filas fuera de la allowlist
+
+Ninguna se agrega automáticamente. Verificado por contenido (md5 cruzado, forma y detector de
+llaves sensibles), sin leer valores.
+
+| Filas | Motivo | Dueño | ¿Información recuperable? | Mecanismo alternativo |
+|---|---|---|---|---|
+| `_f0_rt_probe_*` (24) | sondas del round-trip de persistencia F0 (2026-09-03) | carril F0 de persistencia (`f0-prod-rc:tests/persistencia-staging/rt.mjs`, `persist-real.mjs`, `stale-compat.mjs`) | **No**: JSON de 17–108 bytes con formas de prueba; 0 llaves sensibles | regenerables por sus scripts; copiadas en `backup_2026-09-08/09/10`, misma base |
+| `__paridad_test_osiris`, `__restore_test_osiris` | copias de `osiris` para pruebas de paridad y restauración (2026-08-24) | Osiris T3 A3 (`hf2a4-rls-concurrencia:scripts/osiris-t3/a3-*.mjs`) | **Posible, histórica**: idénticas entre sí, con los mismos 23 contratos que el `osiris` vigente pero contenido distinto. No son fuente vigente | presentes en 7 `backup_*` de la misma base; fuera de la base no hay copia. **Decisión del carril Osiris** |
+| `__test_concurrencia` | nota de la prueba de concurrencia de Frisku | Frisku (`scripts/test-frisku-concurrencia-staging.mjs`) | **No**: `{_nota, _vacio}` | regenerable; copiada en 9 `backup_*` |
+| `respaldo_prueba_consistencia_a/_b` | escritor de la prueba de consistencia (2026-09-10) | carril respaldo | **No**: `{n}` | regenerables |
+
+### 5.4 · Automatización remota
+
+B1–B4 siguen NO OBSERVADOS. `verificar-runtime-remoto.mjs` solo atribuye al runtime las
+invocaciones con `deployment_id` y `vercel_env`. Ninguna prueba de esta sección corrió en Vercel.

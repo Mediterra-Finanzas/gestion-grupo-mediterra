@@ -218,3 +218,27 @@ Lotes anteriores y versiones: `COBERTURA-RESPALDO.md` §4. Ninguno se borró.
    allowlist; producción.
 
 Paso 9 (runtime): §7.
+
+## 7 · Paso 9 · runtime integrado y publicado
+
+| Punto | Resultado |
+|---|---|
+| Cambios pendientes del runtime (Node 24, meta `commit-sha`, guardas) | commit `286fb3f` |
+| Merge `--no-ff` de `respaldo/candidato-produccion` (`df0af31`) | `7dd2378`, sin conflictos |
+| Pruebas en el runtime | 7 suites y 168 casos PASS, incluida `qa-runtime-staging` |
+| Build con Node 24.15 (`CI=true REACT_APP_UX_SOLO=1`) | compila; `build/` está excluido de git |
+| Meta `commit-sha` en `build/index.html` | igual al SHA del commit construido |
+| Ref productiva en el JS construido | 1 ocurrencia: la guardia del harness que rechaza apuntar a producción |
+| ¿`src/index.js` monta `App`? | no, en las dos ramas |
+| Publicación | fast-forward, sin force: `respaldo/candidato-produccion` `92b30c0`→`df0af31`; `runtime/staging-respaldo` `9657d06`→`7dd2378` |
+
+**SHA probado: `7dd2378e043535c09366e7f09b458f935a7d6c0c`** (`origin/runtime/staging-respaldo`).
+Esta sección se agrega después, en un commit que solo toca documentación en
+`respaldo/candidato-produccion`; no cambia el SHA probado del runtime.
+
+**Siguiente, fuera de esta sesión:**
+1. Proyecto de Vercel del runtime, según `GUIA-PANEL-VERCEL.md` (acción en el panel): crear el
+   deployment desde `7dd2378…`, confirmar el SHA en Source y en la meta antes de Run, con el cron
+   desactivado hasta entonces. Después, observar B1–B4.
+2. Fixture con el dueño de identidad (§6, pendiente 1).
+3. Decisiones de la sección 4.
