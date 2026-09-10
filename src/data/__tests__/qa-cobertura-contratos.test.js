@@ -134,8 +134,17 @@ describe("correos · modo prueba, conflictos fuera, sin duplicados, cierre", () 
     expect(p.ok).toBe(true);
     for (const c of p.correos) expect(c.html).not.toContain("Conflicto SA");
     const cons = p.correos.find((c) => c.para === cfo);
-    expect(cons.html).toMatch(/1 línea\(s\) en conflicto excluidas/);
-    expect(p.excluidosPorConflicto).toBe(1);
+    expect(cons.html).toMatch(/línea\(s\) de contratos en conflicto excluidas/);
+    expect(p.contratosExcluidos).toBe(1);
+  });
+
+  test("un contrato en conflicto sale ENTERO: tampoco van sus lineas que no estan en conflicto", () => {
+    const b = JSON.parse(JSON.stringify(blob));
+    b.contratos[0].plantaciones = [{}];            // royalty planta: informacion pendiente, no conflicto
+    b.contratos[0].responsableInterno = undefined; // iria a tareas de configuracion si no se excluyera
+    const p = planificarEnvios({ evaluacion: evaluarContratos(b), directorio, cfo, fecha: "2026-09-10" });
+    for (const c of p.correos) expect(c.html).not.toContain("Conflicto SA");
+    expect(p.excluidosPorConflicto).toBeGreaterThanOrEqual(2);
   });
 
   test("sin responsable no hay correo individual: va como tarea de configuración al consolidado", () => {
