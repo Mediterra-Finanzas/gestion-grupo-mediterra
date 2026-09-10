@@ -181,3 +181,40 @@ y `docs/osiris-tech/MATRIZ-CIERRE-OSIRIS.md`.
 
 **Siguiente: paso 3.** `sql/respaldo/snapshot-consistente.sql` sigue **NO aplicado** en staging.
 Aplicarlo es escritura de DDL en staging y espera la autorización del CFO.
+
+## 6 · Tercera sesión, continuación · ejecución en staging
+
+Autorizado por el CFO: solo gestion-mediterra-staging (`nlvfjpwiecgrosjnwwik`). Producción
+solo se leyó por GET para la planilla. Fee Entrada sigue detenida para producción.
+
+| Paso | Resultado |
+|---|---|
+| 3 · destino | ref en el usuario del DSN y en la URL; bóveda y tablas del respaldo presentes; DSN y API ven el mismo último lote |
+| 3 · captura previa | `sql/respaldo/previo/respaldo_snapshot-staging-20260910T160207.sql`: definición anterior (`language sql`, sin identidades), dueño `postgres`, ACL `{postgres, service_role}`, lista para recuperar |
+| 3.1 · aplicación | `aplicar-snapshot-consistente.mjs --aplicar` PASS: el SQL no tiene DROP, DELETE, INSERT, UPDATE ni ALTER; mismo dueño y misma ACL; `calendario_data` 43 filas antes y después; clave publicable 401; servicio 200, modo `boveda`, 7 identidades |
+| 3.2 · consistencia | `prueba-snapshot-consistencia.mjs` PASS: token autenticado 403; 40 snapshots con 0 inconsistencias; contraprueba 12 de 40. Las filas `respaldo_prueba_consistencia_a/_b` no existían; se crearon y se conservan |
+| 4 · fixture | el sintético existente **NO SIRVE**: no está en el padrón, no tiene `_h` ni alias y no hay PIN custodiado. **BLOQUEADO**: enrolarlo exige al dueño de identidad. No se creó ni duplicó ningún usuario |
+| 5 · lote | `prueba-mtvq2x92-c-2026-09-10` READY_VERIFICADO |
+| 6 · restauración | sobre ese lote **FALLÓ** en 11 recursos: `audit_log` y `backup_*` viajan vacíos y se reponían vacíos, lo que en un destino real borraría la bitácora y las copias. Corregido en `36e6259`. Lote nuevo `prueba-mtvqdtg2-c-2026-09-10`: **PASS**, 0 fallas. Se conservan los dos esquemas `restauracion_*` |
+| huérfanas | staging no tiene huérfanas reales. En memoria sobre el snapshot real: 2 inyectadas, preservadas, no asignadas (tampoco a la variante en mayúsculas de un usuario real); recuperación completa no declarable (`prueba-huerfana-snapshot.mjs`, regla en `c84f149`) |
+| 7 · desactivados | NO EJERCIDO: staging no tiene desactivados y el caso depende del fixture |
+| 8 · planilla | `conciliacion-osiris/Osiris-conciliacion-23-contratos-2026-09-10-r2.xlsx`; la anterior se conserva. Cuadres en 0; cifras iguales a la matriz |
+
+Veredicto de la restauración: RESTAURACIÓN APLICADA PASS · VERIFICACIÓN DE CREDENCIAL
+positiva BLOQUEADA · LOGIN REAL NO EJERCIDO · RECUPERACIÓN COMPLETA NO DECLARABLE.
+**RESPALDO COMPLETO = NO-GO.**
+
+Dato de staging confirmado: 5 de 7 usuarios activos entran hoy con PIN en claro (sin `_h`).
+Tras restaurar quedan sin credencial y necesitan código provisorio. Es consecuencia declarada.
+
+Lotes anteriores y versiones: `COBERTURA-RESPALDO.md` §4. Ninguno se borró.
+
+**Pendientes con insumo humano:**
+1. Dueño de identidad (SEC-HF2-A): enrolar la identidad del fixture (`llave_hash` = sha256 del
+   nombre) para la verificación positiva y el caso desactivado. Después:
+   `fixture-restauracion.mjs --crear`, lote nuevo y restauración; luego `--desactivar`.
+2. Decisión de arquitectura: un runtime cuyo origen sea lo restaurado, para ejercer el login real.
+3. Decisiones de la sección 4: IAM, `sec_*` y `auth.users` fuera de la base; filas fuera de la
+   allowlist; producción.
+
+Paso 9 (runtime): §7.
