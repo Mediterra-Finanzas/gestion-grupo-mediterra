@@ -55,9 +55,14 @@ export function planificarEnvios({ evaluacion, directorio = {}, cfo, fecha, hist
   if (modoPrueba) for (const d of destinos) if (!esDestinatarioDePrueba(d)) errores.push("destinatario no sintético en modo prueba: " + d);
   if (errores.length) return { ok: false, errores, correos: [] };
 
+  // Un contrato con CUALQUIER linea en conflicto sale entero de los correos: sus
+  // otras lineas de facturacion descansan sobre registros que se contradicen, y
+  // avisarlas invita a actuar sobre un contrato que nadie concilio todavia.
+  const enConflicto = new Set(evaluacion.contratos
+    .filter((c) => c.conceptos.some((l) => l.clase === CLASE.CONFLICTO)).map((c) => c.contratoId));
   const todas = evaluacion.contratos.flatMap((c) => lineasAccionables(c).map((l) => ({ ...l, responsable: c.responsable })));
-  const conflictos = todas.filter((l) => l.clase === CLASE.CONFLICTO);
-  const operables = todas.filter((l) => l.clase !== CLASE.CONFLICTO);
+  const conflictos = todas.filter((l) => enConflicto.has(l.contratoId));
+  const operables = todas.filter((l) => !enConflicto.has(l.contratoId));
   const sinResponsable = operables.filter((l) => !l.responsable || !directorio[l.responsable]);
   const conResponsable = operables.filter((l) => l.responsable && directorio[l.responsable]);
 
@@ -95,7 +100,8 @@ export function planificarEnvios({ evaluacion, directorio = {}, cfo, fecha, hist
     correos.push(componer({ tipo: "consolidado", para: cfo, fecha, lineas: consolidadoLineas, configuracion,
                             conflictosExcluidos: conflictos.length, cierres, conteos: evaluacion.conteos }));
 
-  return { ok: true, correos, clavesNuevas: nuevas, excluidosPorConflicto: conflictos.length, tareasConfiguracion: sinResponsable.length };
+  return { ok: true, correos, clavesNuevas: nuevas, excluidosPorConflicto: conflictos.length,
+           contratosExcluidos: enConflicto.size, tareasConfiguracion: sinResponsable.length };
 }
 
 function tabla(lineas) {
@@ -120,7 +126,7 @@ export function componer({ tipo, para, fecha, lineas = [], configuracion = [], c
   if (configuracion.length) partes.push(`<h3 style="font-size:14px;margin:14px 0 6px">Tareas de configuración · sin responsable asignado</h3>`, tabla(configuracion));
   if (cierres.length) partes.push(`<h3 style="font-size:14px;margin:14px 0 6px">Cerrados desde el último aviso</h3>`,
     `<ul style="font-size:12px">${cierres.map((c) => `<li>${esc(c.cliente)} · ${esc(c.concepto)} · antes ${esc(ETIQUETA[c.antes])}</li>`).join("")}</ul>`);
-  if (conflictosExcluidos) partes.push(`<p style="font-size:12px;color:#8c2318;margin-top:14px">${conflictosExcluidos} línea(s) en conflicto excluidas de este correo hasta que se concilien.</p>`);
+  if (conflictosExcluidos) partes.push(`<p style="font-size:12px;color:#8c2318;margin-top:14px">${conflictosExcluidos} línea(s) de contratos en conflicto excluidas de este correo hasta que se concilien.</p>`);
   if (conteos) partes.push(`<p style="font-size:11px;color:#888;margin-top:14px">Contratos evaluados: ${conteos.contratosEvaluados} · líneas de concepto: ${conteos.lineasDeConcepto} · cuotas de royalty planta: ${conteos.cuotasRoyaltyPlanta} · hechos persistidos: ${conteos.hechosPersistidos}</p>`);
   partes.push(`</div>`);
   const texto = [asunto, "Importes contractuales, no deuda confirmada.",
