@@ -1,85 +1,78 @@
 /* eslint-disable */
 // ═══════════════════════════════════════════════════════════════════
-// UX EJECUTIVO · FACTURACIÓN Y COBRANZA
+// UX EJECUTIVO · COBERTURA DE CONTRATOS Y COBRANZA
 // ═══════════════════════════════════════════════════════════════════
 //
-// Cuatro tableros y una bandeja. Reusa `TarjetasKPI` y `TablaDensa` tal como
-// están, sin tocarlos: la selección de tablero vive en una fila de pestañas
-// propia en vez de meterle un modo "clickeable" a las tarjetas. Los datos salen
-// de `cobranza.js`, que lee el blob de Osiris. No hay otra fuente.
+// La bandeja parte de los CONTRATOS, no de los hechos persistidos: se evalúan
+// todos, con o sin hecho de ingreso, y ninguno desaparece. Reusa `TarjetasKPI`
+// y `TablaDensa` sin tocarlos.
 //
-// "Por facturar" y "Por cobrar" van separados a propósito: son dos trabajos
-// distintos. "Información pendiente" es un tablero de primera clase y no una
-// nota al pie, porque hoy es donde está casi todo.
+// Tres cantidades que no se mezclan: contratos evaluados, líneas de concepto y
+// cuotas. Los importes son CONTRACTUALES: "pendiente de conciliación" no es
+// deuda ni facturación exigible confirmada, y la pantalla lo dice.
 
 import React, { useMemo, useState } from "react";
 import { layout, ink, surface, estado as tonos } from "./tokens";
 import TarjetasKPI from "./TarjetasKPI";
 import TablaDensa from "./TablaDensa";
-import { filasCobranza, resumenCobranza, ESTADO, ORIGEN_VENCIMIENTO } from "./cobranza";
+import { evaluarContratos, CLASE, ETIQUETA } from "./coberturaContratos";
 
 const miles = (n) => Number(n || 0).toLocaleString("es-CL", { maximumFractionDigits: 0 });
 
 const TABLEROS = [
-  { clave: "porFacturar", id: ESTADO.POR_FACTURAR, titulo: "Por facturar",
-    pregunta: "¿Qué hitos se cumplieron y todavía no se facturan?",
-    fuente: "contratos[].rpPlantaCuotas / contractFee*", severidad: "info" },
-  { clave: "porCobrar", id: ESTADO.POR_COBRAR, titulo: "Por cobrar",
-    pregunta: "¿Qué está emitido y aún no entra?",
-    fuente: "factura con saldo y vencimiento futuro", severidad: "neutro" },
-  { clave: "vencido", id: ESTADO.VENCIDO, titulo: "Vencido",
-    pregunta: "¿Qué pasó su fecha de pago?",
-    fuente: "vencimiento explícito o emisión + plazo documentado", severidad: "critico" },
-  { clave: "informacionPendiente", id: ESTADO.INFO_PENDIENTE, titulo: "Información pendiente",
-    pregunta: "¿A qué le falta un dato para poder clasificarse?",
-    fuente: "sin fecha de vencimiento ni plazo documentado", severidad: "alto" },
-  { clave: "conflicto", id: ESTADO.CONFLICTO, titulo: "Dato en conflicto",
-    pregunta: "¿Dónde se contradicen el contrato y su registro derivado?",
-    fuente: "contractFee* del contrato vs la fila de feeEntrada", severidad: "critico" },
+  { id: CLASE.CONFLICTO, pregunta: "¿Dónde se contradicen dos registros del mismo hecho?", severidad: "critico",
+    fuente: "contrato vs registro persistido de Fee Entrada" },
+  { id: CLASE.PENDIENTE_CONFIRMADO, pregunta: "¿Qué tiene factura emitida y ningún pago registrado?", severidad: "alto",
+    fuente: "número de factura presente, sin pago" },
+  { id: CLASE.INFO_PENDIENTE, pregunta: "¿Qué no se puede clasificar por falta de un dato?", severidad: "info",
+    fuente: "sin factura, sin fecha de evento o sin mes de cobro" },
+  { id: CLASE.CERRADO_CON_EVIDENCIA, pregunta: "¿Qué tiene factura y pago registrados?", severidad: "ok",
+    fuente: "factura y pago en el registro fuente" },
+  { id: CLASE.NO_APLICABLE, pregunta: "¿Qué contratos no generan ningún concepto todavía?", severidad: "neutro",
+    fuente: "sin contract fee, plantaciones ni base comercial" },
 ];
 
+const abrev = { [CLASE.CONFLICTO]: "Conflicto", [CLASE.PENDIENTE_CONFIRMADO]: "Pend. confirmado",
+                [CLASE.INFO_PENDIENTE]: "Info. pendiente", [CLASE.CERRADO_CON_EVIDENCIA]: "Cerrado",
+                [CLASE.NO_APLICABLE]: "No aplica" };
+
 const COLUMNAS = [
-  { id: "cliente", etiqueta: "Cliente", anchoMax: 180 },
-  { id: "contrato", etiqueta: "Contrato", anchoMax: 160 },
-  { id: "concepto", etiqueta: "Concepto" },
-  { id: "nFact", etiqueta: "Factura", render: (f) => f.nFact || "—" },
-  { id: "moneda", etiqueta: "Mon." },
-  { id: "saldo", etiqueta: "Saldo", alineacion: "right",
-    render: (f) => miles(f.estado === ESTADO.POR_FACTURAR ? f.total : f.saldo) },
-  { id: "vencimiento", etiqueta: "Vence",
-    render: (f) => f.vencimiento || "Completar vencimiento" },
-  { id: "atraso", etiqueta: "Atraso", alineacion: "right",
-    render: (f) => (f.atraso != null && f.atraso > 0 ? `${f.atraso} d` : "—") },
-  { id: "responsable", etiqueta: "Responsable" },
+  { id: "cliente", etiqueta: "Cliente", anchoMax: 190 },
+  { id: "firmado", etiqueta: "Firmado", render: (f) => (f.firmado ? "Sí" : "No") },
+  { id: "claseEtiqueta", etiqueta: "Estado" },
+  { id: "cf", etiqueta: "Contract fee", render: (f) => abrev[f.cf.clase] + (f.cf.importe ? " · " + miles(f.cf.importe) : "") },
+  { id: "rp", etiqueta: "Royalty planta", render: (f) => abrev[f.rp.clase] + (f.rp.cuotas ? ` · ${f.rp.cuotas} cuotas` : "") },
+  { id: "rc", etiqueta: "Royalty comercial", render: (f) => abrev[f.rc.clase] },
+  { id: "responsableTxt", etiqueta: "Responsable" },
   { id: "accion", etiqueta: "Acción" },
 ];
 
+function accionDe(c) {
+  if (c.clase === CLASE.CONFLICTO) return "Conciliar registros";
+  if (!c.responsable && c.clase !== CLASE.CERRADO_CON_EVIDENCIA && c.clase !== CLASE.NO_APLICABLE) return "Asignar responsable";
+  if (c.clase === CLASE.PENDIENTE_CONFIRMADO) return "Seguimiento de cobro";
+  if (c.clase === CLASE.INFO_PENDIENTE) return "Completar información";
+  return "—";
+}
+
 function Pestanas({ opciones, valor, alCambiar }) {
   return (
-    <div role="tablist" aria-label="Tablero de cobranza"
-         style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+    <div role="tablist" aria-label="Estado de los contratos" style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
       {opciones.map((o) => {
         const activo = o.id === valor;
         const t = tonos[o.severidad] || tonos.neutro;
         return (
-          <button key={o.id} role="tab" type="button" id={`tab-${o.id}`}
-            aria-selected={activo} aria-controls={`panel-${o.id}`}
-            tabIndex={activo ? 0 : -1}
-            onClick={() => alCambiar(o.id)}
+          <button key={o.id} role="tab" type="button" id={`tab-${o.id}`} aria-selected={activo}
+            aria-controls={`panel-${o.id}`} tabIndex={activo ? 0 : -1} onClick={() => alCambiar(o.id)}
             onKeyDown={(e) => {
               const i = opciones.findIndex((x) => x.id === valor);
               if (e.key === "ArrowRight") alCambiar(opciones[(i + 1) % opciones.length].id);
               if (e.key === "ArrowLeft") alCambiar(opciones[(i - 1 + opciones.length) % opciones.length].id);
             }}
-            style={{
-              font: "inherit", fontSize: 12, fontWeight: activo ? 700 : 500,
-              padding: "5px 11px", cursor: "pointer",
-              color: activo ? t.fg : ink.soft,
-              background: activo ? t.bg : surface.panel,
-              border: `1px solid ${activo ? t.borde : layout.borde}`,
-              borderRadius: 999,
-            }}>
-            {o.titulo} · {o.n}
+            style={{ font: "inherit", fontSize: 12, fontWeight: activo ? 700 : 500, padding: "5px 11px", cursor: "pointer",
+                     color: activo ? t.fg : ink.soft, background: activo ? t.bg : surface.panel,
+                     border: `1px solid ${activo ? t.borde : layout.borde}`, borderRadius: 999 }}>
+            {ETIQUETA[o.id]} · {o.n}
           </button>
         );
       })}
@@ -87,84 +80,72 @@ function Pestanas({ opciones, valor, alCambiar }) {
   );
 }
 
-export default function TablerosCobranza({
-  datos, hoy = new Date(), alAbrirContrato,
-  compacta = false, comoTarjetas = false, nombreDensidad,
-}) {
-  const [foco, setFoco] = useState(ESTADO.VENCIDO);
-  const filas = useMemo(() => filasCobranza(datos, hoy), [datos, hoy]);
-  const resumen = useMemo(() => resumenCobranza(filas, datos), [filas, datos]);
+export default function TablerosCobranza({ datos, alAbrirContrato, compacta = false, comoTarjetas = false, nombreDensidad }) {
+  const ev = useMemo(() => evaluarContratos(datos), [datos]);
+  const [foco, setFoco] = useState(ev.porClase[CLASE.CONFLICTO] ? CLASE.CONFLICTO : CLASE.PENDIENTE_CONFIRMADO);
+
+  const filas = useMemo(() => ev.contratos.map((c) => ({
+    id: c.contratoId, contratoId: c.contratoId, cliente: c.cliente, firmado: c.firmado,
+    clase: c.clase, claseEtiqueta: ETIQUETA[c.clase],
+    cf: c.conceptos[0], rp: c.conceptos[1], rc: c.conceptos[2],
+    responsable: c.responsable, responsableTxt: c.responsable || "Sin asignar",
+    accion: accionDe(c),
+  })), [ev]);
 
   const kpis = TABLEROS.map((t) => ({
-    id: t.id,
-    etiqueta: t.titulo,
-    pregunta: t.pregunta,
-    valor: String(resumen[t.clave].n),
-    // Un cero no dice "no se debe nada". Dice que ninguna fila alcanzada cayo aca.
-    detalle: resumen[t.clave].n === 0 ? "ninguna fila alcanzada"
-           : resumen[t.clave].monto > 0
-             ? "USD " + miles(resumen[t.clave].monto) + (resumen[t.clave].determinable ? "" : " · monto parcial")
-             : "saldo no determinable en " + resumen[t.clave].indeterminables + " de " + resumen[t.clave].n,
-    fuente: t.fuente,
-    // Solo se pinta de alarma lo que ya perdió su fecha; un tablero en cero no
-    // debe verse rojo, porque entonces el rojo deja de significar algo.
-    severidad: resumen[t.clave].n === 0 ? "neutro" : t.severidad,
+    id: t.id, etiqueta: ETIQUETA[t.id], pregunta: t.pregunta, fuente: t.fuente,
+    valor: String(ev.porClase[t.id]),
+    detalle: `contratos de ${ev.conteos.contratosEvaluados}`,
+    severidad: ev.porClase[t.id] === 0 ? "neutro" : t.severidad,
   }));
-
-  const opciones = TABLEROS.map((t) => ({ ...t, n: resumen[t.clave].n }));
-  const visibles = filas.filter((f) => f.estado === foco);
-  const actual = TABLEROS.find((t) => t.id === foco) || TABLEROS[0];
+  const visibles = filas.filter((f) => f.clase === foco);
+  const sinResponsable = filas.filter((f) => f.accion === "Asignar responsable").length;
+  const cf = ev.contractFee;
 
   return (
-    <section aria-label="Facturación y cobranza"
+    <section aria-label="Cobertura de contratos y cobranza"
              style={{ display: "flex", flexDirection: "column", gap: layout.sp.sm, minWidth: 0 }}>
-      <TarjetasKPI kpis={kpis} compacta={compacta} titulo="Facturación y cobranza" />
+      <TarjetasKPI kpis={kpis} compacta={compacta} titulo="Cobertura de contratos" />
 
-      {/* Sin esto, un tablero en cero se lee como "no se debe nada". La bandeja
-          solo alcanza los contratos que ya generaron un hecho de ingreso. */}
-      {!resumen.cobertura.completa && (
-        <p style={{ margin: 0, fontSize: 12, color: tonos.alto.fg, background: tonos.alto.bg,
-                    border: `1px solid ${tonos.alto.borde}`, padding: layout.sp.sm,
-                    borderRadius: layout.radio.sm }}>
-          Cobertura parcial: la bandeja alcanza {resumen.cobertura.cubiertos} de{" "}
-          {resumen.cobertura.contratos} contratos. Los {resumen.cobertura.sinHecho} restantes no
-          tienen ningún registro de ingreso generado y no aparecen en ningún tablero
-          {resumen.cobertura.feeEntradaFueraDeAlcance > 0
-            ? `, incluyendo USD ${miles(resumen.cobertura.feeEntradaFueraDeAlcance)} de contract fee sin marcar como pagado`
-            : ""}. Un cero en estos tableros no significa que no se deba nada.
+      <p style={{ margin: 0, fontSize: 12, color: ink.soft, lineHeight: 1.6 }}>
+        {ev.conteos.contratosEvaluados} contratos evaluados · {ev.conteos.lineasDeConcepto} líneas de concepto ·{" "}
+        {ev.conteos.cuotasRoyaltyPlanta} cuotas de royalty planta · {ev.conteos.hechosPersistidos} hechos de ingreso persistidos.
+      </p>
+
+      {/* Importes contractuales, rotulados por lo que son. */}
+      <p style={{ margin: 0, fontSize: 12, color: tonos.alto.fg, background: tonos.alto.bg, border: `1px solid ${tonos.alto.borde}`,
+                  padding: layout.sp.sm, borderRadius: layout.radio.sm, lineHeight: 1.6 }}>
+        Contract fee, importes contractuales: USD {miles(cf.pendienteDeConciliacion)} pendiente de conciliación ·
+        USD {miles(cf.pendienteConfirmado)} con factura y sin pago registrado · USD {miles(cf.enConflicto)} en conflicto ·
+        USD {miles(cf.cerradoConEvidencia)} cerrado con evidencia. Ninguna cifra es deuda confirmada ni facturación exigible.
+      </p>
+
+      {sinResponsable > 0 && (
+        <p style={{ margin: 0, fontSize: 12, color: ink.soft, background: surface.panelAlt, padding: layout.sp.sm, borderRadius: layout.radio.sm }}>
+          Tarea de configuración: {sinResponsable} contratos con pendientes no tienen responsable interno asignado.
+          Quedan visibles aquí y fuera de los correos por responsable.
         </p>
       )}
 
-      <Pestanas opciones={opciones} valor={foco} alCambiar={setFoco} />
+      <Pestanas opciones={TABLEROS.map((t) => ({ ...t, n: ev.porClase[t.id] }))} valor={foco} alCambiar={setFoco} />
 
       <div role="tabpanel" id={`panel-${foco}`} aria-labelledby={`tab-${foco}`} style={{ minWidth: 0 }}>
         <TablaDensa
-          titulo={`${actual.titulo} · ${visibles.length}`}
+          titulo={`${ETIQUETA[foco]} · ${visibles.length}`}
           columnas={COLUMNAS}
           filas={visibles}
-          // Desde cada fila se llega al contrato. Una alerta sin camino al
-          // documento obliga a buscarlo a mano, y ahí se pierde el seguimiento.
-          alAbrir={(f) => alAbrirContrato && f.contratoId && alAbrirContrato({ tipo: "contrato", id: f.contratoId })}
+          alAbrir={(f) => alAbrirContrato && alAbrirContrato({ tipo: "contrato", id: f.contratoId })}
           columnaTexto="cliente"
           nombreDensidad={nombreDensidad}
           comoTarjetas={comoTarjetas}
-          ordenInicial={{ columna: "atraso", direccion: "desc" }}
+          ordenInicial={{ columna: "cliente", direccion: "asc" }}
         />
       </div>
 
-      {foco === ESTADO.CONFLICTO && visibles.length > 0 && (
-        <p style={{ margin: 0, fontSize: 12, color: ink.soft, background: surface.panelAlt,
-                    padding: layout.sp.sm, borderRadius: layout.radio.sm }}>
-          El contrato y su registro derivado dicen cosas distintas. No se elige uno de los dos:
-          la fila queda acá hasta que alguien concilie.
-        </p>
-      )}
-
-      {foco === ESTADO.INFO_PENDIENTE && visibles.length > 0 && (
-        <p style={{ margin: 0, fontSize: 12, color: ink.soft, background: surface.panelAlt,
-                    padding: layout.sp.sm, borderRadius: layout.radio.sm }}>
-          Estas filas no se clasifican como vencidas porque les falta la fecha de vencimiento o el
-          plazo de pago documentado. No se les asigna un plazo supuesto.
+      {foco === CLASE.CONFLICTO && visibles.length > 0 && (
+        <p style={{ margin: 0, fontSize: 12, color: ink.soft, background: surface.panelAlt, padding: layout.sp.sm, borderRadius: layout.radio.sm }}>
+          Dos registros del mismo hecho dicen cosas distintas. No se elige uno: el contrato queda aquí, fuera de los correos
+          de facturación y cobranza, hasta que alguien concilie.
         </p>
       )}
     </section>
