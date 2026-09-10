@@ -119,3 +119,33 @@ describe("runtime de staging · el cron es solo el del respaldo", () => {
     expect(existe("vercel.staging.json")).toBe(false);
   });
 });
+
+describe("runtime de staging · se sabe que commit corre y por donde sale el correo", () => {
+  test("la invocacion registra el commit, la rama y el entorno del deployment", () => {
+    const s = leer("api/osiris-respaldo-cron.js");
+    for (const v of ["VERCEL_GIT_COMMIT_SHA", "VERCEL_GIT_COMMIT_REF", "VERCEL_ENV", "commit_sha"]) expect(s).toContain(v);
+  });
+
+  test("la pagina publicada expone el commit sin ejecutar ninguna funcion", () => {
+    expect(leer("public/index.html")).toContain("%REACT_APP_VERCEL_GIT_COMMIT_SHA%");
+  });
+
+  test("la version de Node queda fijada en la rama, igual a la de las pruebas locales", () => {
+    expect(JSON.parse(leer("package.json")).engines).toEqual({ node: "24.x" });
+  });
+
+  test("el aviso y el correo de prueba salen por la cuenta del modulo osiris", () => {
+    const handler = leer("api/osiris-respaldo-cron.js") + leer("src/data/avisoRespaldo.js");
+    expect(handler).not.toMatch(/modulo:\s*"(mediterra|allegria|frisku)"/);
+    expect((handler.match(/modulo:\s*"osiris"/g) || []).length).toBeGreaterThanOrEqual(2);
+    expect(leer("api/send-email.js")).toContain("SMTP_OSIRIS_USER");
+    expect(leer("docs/osiris-tech/GUIA-PANEL-VERCEL.md")).toContain("`SMTP_OSIRIS_USER`");
+  });
+
+  test("la guia no despliega main: bloquea otras ramas y crea el deployment desde un commit", () => {
+    const g = leer("docs/osiris-tech/GUIA-PANEL-VERCEL.md");
+    expect(g).toContain('[ "$VERCEL_GIT_COMMIT_REF" != "runtime/staging-respaldo" ]');
+    expect(g).toContain("project add");
+    expect(g).toContain("Create Deployment");
+  });
+});
