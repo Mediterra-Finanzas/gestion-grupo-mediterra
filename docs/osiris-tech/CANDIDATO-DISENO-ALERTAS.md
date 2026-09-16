@@ -48,29 +48,88 @@ productivo. Quedan pendientes de coordinación con sus dueños antes de cualquie
 Del commit `253961a` no se trajo lo del programa de respaldos (`backupGenerador.js`, scripts,
 documentos de cobertura). De `1d797e4` no se trajo `COBERTURA-RESPALDO.md`.
 
-## Pendiente del carril SEC-ENV (no implementado aquí)
+## Destino por entorno en `OsirisModule.jsx` (commit `f94bcf2`)
 
-`OsirisModule.jsx` sigue con destino fijo, y es el que carga los datos del panel:
+La corrección de SEC-ENV-001-CLIENT (`src/config/env.js`, `1f16527`) no es aplicable acotada:
+es fail-closed, usa otras variables y viene en un commit de 52 archivos. Para poder ejercer la
+prueba integrada se aplicó en `OsirisModule.jsx:11-12` y `:4744-4745` el mismo patrón ya
+construido en `persistContract` (`process.env.REACT_APP_SUPA_URL || <valor productivo>`). Sin
+variable el valor es el productivo: el bundle sin variables tiene los mismos hosts que
+`origin/main` (11 referencias a `bywovqayuzodbzwsriet`, 15 a `vercel.app`). Queda para
+coordinación con el carril SEC-ENV. Siguen fijos, fuera del panel: `OsirisModule.jsx:5401`
+(logo del informe), `FinanzasModule.jsx:76`, `AllegriaModule.jsx:19`, `ContabilidadModule.jsx:6`,
+`anf/anfPersistence.js:6`, `currency/store.js:11`, `eeffHelpers.js:5`, `FriskuModule.jsx:18`.
 
-- `src/OsirisModule.jsx:11-12` `SUPA_URL`/`SUPA_KEY` → `dbLoadOsiris` (L38) y `dbSaveOsiris` (L92-118).
-- `src/OsirisModule.jsx:4744-4745` `SUPA_URL_OSIRIS`/`SUPA_KEY_OSIRIS` → fotos de informes (Storage).
-- `src/OsirisModule.jsx:5401` logo del informe HTML.
+## Paquete para autorización productiva
 
-La única corrección existente es `src/config/env.js` del carril SEC-ENV-001-CLIENT (commit
-`1f16527`, rama `sec/staging-als-preview-isolation`, también en `fix/als-*`, `fix/rc-test-infra`).
-No es aplicable acotada: es fail-closed (sin variables la app no arranca, lo que cambia el
-comportamiento productivo actual), usa otras variables (`REACT_APP_SUPABASE_URL`,
-`REACT_APP_SUPABASE_ANON_KEY`, `REACT_APP_APP_ENV`) y viene en un commit de 52 archivos con
-ALS, API y F0. Otros módulos con destino fijo, fuera del panel: `FinanzasModule.jsx:76`,
-`AllegriaModule.jsx:19`, `ContabilidadModule.jsx:6`, `anf/anfPersistence.js:6`,
-`currency/store.js:11`, `eeffHelpers.js:5`, `FriskuModule.jsx:18`.
+**Código:** rama `osiris/candidato-diseno-alertas`, base `origin/main` `27b423b` (vigente al
+2026-09-16), commit de código `edf7436`. 27 archivos, +4706/−8. Fuera de `src/ux`, pruebas y
+documentos cambian solo `src/OsirisModule.jsx` (+10 montaje detrás de bandera, 4 constantes de
+destino), `src/App.jsx` (`PROD_URL` por entorno) y `src/persistencia/persistContract.js`.
+
+**Pruebas.**
+- 22 suites, 704/704. Motor de Fase 0: 32/32. Los 29 bloques económicos de `OsirisModule` iguales.
+- Build `CI=true` sin variables: compila; mismos hosts productivos que `origin/main`.
+- Tres estados del panel (pruebas de render y prueba integrada): cargando no afirma nada; error de
+  carga declara que las alertas no se evaluaron; "No hay nada pendiente de decisión" solo con
+  carga exitosa.
+
+**Prueba integrada (2026-09-16, bandera activa).** Entorno: copia local de staging, lote
+`auto-2026-09-16` en PostgreSQL y PostgREST locales, con la tabla y sus dos triggers de staging;
+CSP `connect-src 'self'`; buzón local. No fue staging mismo: staging tiene RLS sin políticas en
+`calendario_data` (la clave pública no ve filas) y la fila `osiris` solo se escribe por RPC.
+
+| Tramo | Resultado |
+|---|---|
+| Login (recuperación por buzón local y reingreso con PIN) | entra |
+| Usuario sin módulo Osiris | no ve Osiris |
+| Usuario de Osiris sin permiso de Royalties | la vista dice "Sin acceso a esta vista"; no muestra alertas |
+| Navegación hub → Ingresos → Inicio ejecutivo | monta la vista previa; 83 alertas (4 críticas, 35 altas, 44 informativas) |
+| Buscador y ficha 360 | abre ficha; "Marcado pagado en el contrato", "Contrato vs Fee Entrada: Discrepan: pendiente de conciliación"; sin "devengando" |
+| Entrar al panel y abrir la ficha | 0 filas modificadas (hash de todas las filas antes y después) |
+| Carga en curso | "Cargando datos… por ahora no se afirma nada" |
+| Carga fallida | "No se pudieron cargar los datos. Las alertas no se evaluaron: esto NO significa que no haya pendientes." "Guardar ahora" bloqueado: 0 escrituras intentadas, 0 filas cambiadas |
+| Guardado existente de Osiris | con la guarda de staging activa: rechazado (401) y la app avisa "NO se guardó", cambios en pantalla; sin la guarda (como producción): PATCH condicionado a `updated_at` → 200, contenido idéntico |
+| Aislamiento | 151 solicitudes servidas por el origen aislado; 79 REST, todas a PostgREST local; 0 intentos a producción y 0 a staging |
+
+Observaciones fuera del alcance del candidato (comportamiento existente):
+- El encabezado de Ingresos muestra "POR COBRAR" con valores por defecto mientras la carga falla,
+  y el hub muestra conteos y "✓ Guardado" antes de terminar la carga.
+- Un usuario sin permiso de Royalties sigue viendo la tarjeta y el encabezado de Ingresos.
+- Una escritura de `main` desde una sesión con estado en memoria sobrescribió un cambio de permisos
+  hecho fuera de la sesión (patrón del incidente PROD-INCIDENT-01).
+- El canal realtime arma la URL `wss://http//…` (bloqueado por CSP en la prueba).
+
+**Revisión visual.** `http://127.0.0.1:3065` (solo en esta computadora; configuración
+`osiris-candidato-aislado` de `.claude/launch.json`). Entrar con "¿Olvidaste tu PIN?": el código
+llega al buzón local de la prueba. Osiris → Ingresos Osiris → "🧭 Inicio ejecutivo (vista previa)".
+
+**Configuración de la bandera.** `REACT_APP_OSIRIS_UX_PREVIEW=1` en Vercel, proyecto productivo,
+entorno Production. Es de build: se aplica con un deploy nuevo. Antes del deploy, comprobar que
+Production NO define `REACT_APP_SUPA_URL`, `REACT_APP_SUPA_KEY` ni `REACT_APP_PROD_URL` (si
+existieran, cambiarían el destino). La vista queda visible para todo usuario con permiso de
+Royalties distinto de `sin_acceso`, sin filtro por usuario.
+
+**Desactivar la bandera.** Quitar la variable (o dejarla distinta de `1`) y desplegar: la pestaña
+desaparece y el componente del panel no entra al bundle. No toca datos: la vista es de solo lectura
+y no hay migraciones ni cambios de esquema.
+
+**Rollback de código.** Sin tocar datos: en Vercel, Instant Rollback al deployment productivo
+anterior; en Git, `git revert -m 1 <merge>` sobre `main` y deploy. El candidato no escribe datos
+nuevos ni cambia el formato de las filas; el guardado existente de Osiris no cambió.
+
+**Fuera de esta entrega.** Fee Entrada, cambios económicos, inflación E-05 y correos reales. Esta
+primera entrega aún no incluye los tableros completos de facturación y cobranza solicitados;
+siguen en el plan.
 
 ## Salida a producción · bloqueos propios de este candidato
 
-1. Merge solo con `AUTORIZO MERGE osiris/candidato-diseno-alertas → main`.
-2. Prueba integrada (navegación, permisos, carga, cero escrituras, alertas contra la planilla,
-   concurrencia) sin ejecutar; con `OsirisModule.jsx:11` fijo, un build aislado no carga Osiris.
-3. Activar `REACT_APP_OSIRIS_UX_PREVIEW=1` en Vercel Production es un cambio de configuración
-   con autorización propia.
-4. Coordinar con los dueños de F0 y App/SEC-ENV los dos commits de la tabla anterior.
-5. Revisión del CFO de los textos de alertas y de la discrepancia con Fee Entrada.
+1. Autorización del CFO sobre este paquete (merge `AUTORIZO MERGE osiris/candidato-diseno-alertas → main`,
+   bandera y deploy).
+2. Coordinación con los dueños de F0 (`persistContract`), App/SEC-ENV (`App.jsx`, `OsirisModule.jsx`
+   destino por entorno).
+3. Revisión del CFO de los textos de alertas, de la regla de dato insuficiente y de la discrepancia
+   con Fee Entrada (la alerta repite la búsqueda de filas de la pestaña; si esa búsqueda cambia,
+   queda desalineada).
+4. La prueba integrada se hizo sobre la copia local de staging, no sobre staging mismo (RLS sin
+   políticas y guarda RPC de `osiris` en staging).
