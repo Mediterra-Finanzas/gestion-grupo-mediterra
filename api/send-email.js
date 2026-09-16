@@ -44,6 +44,10 @@ function getAccountForModule(modulo) {
 }
 
 module.exports = async function handler(req, res) {
+  // Solo en la rama runtime/staging-respaldo: el endpoint HTTP no existe. El runtime de
+  // respaldo envía por enviarCorreo() del lado servidor, a destinatarios aprobados. Sin este
+  // cierre, con SMTP_OSIRIS cargado cualquiera podría enviar desde esa cuenta a cualquiera.
+  return res.status(404).json({ error: "no disponible en el runtime de respaldo" });
   // CORS
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
