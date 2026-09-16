@@ -74,9 +74,12 @@ console.log("   " + estado(autoOk.length > 0, auto.length + " invocaciones en ve
             auto.filter((i) => i.cron_schedule).length + (autoOk[0] ? " · primera " + new Date(autoOk[0].recibido_at).toISOString().slice(0, 16) + " UTC" : "")));
 if (auto.length && !autoOk.length) console.log("   hubo invocaciones en ventana pero ninguna termino en READY: revisar estado");
 
-// 3 · Descarga, descifrado y restauracion de un lote creado por el runtime remoto
+// 3 · RESTAURACION APLICADA Y VERIFICADA de un lote creado por el runtime remoto.
+// La reconstruccion en memoria es solo el paso previo: no cuenta como estado 3. El estado se
+// cierra con `restauracion-aplicada.mjs`, que escribe el lote en un esquema aislado, lo relee por
+// SQL y deja su manifiesto. Aca se comprueba ese manifiesto, no se vuelve a restaurar.
 const lotesRemotos = [...new Set(inv.filter((i) => esVercelCron(i.user_agent) && i.lote_id).map((i) => i.lote_id))];
-let restauradoOk = false, detalle = "sin lote creado por el runtime remoto";
+let memoriaOk = false, detalleMem = "sin lote creado por el runtime remoto";
 for (const lote of lotesRemotos.reverse()) {
   const { rows: [fila] } = await c.query("select * from public.respaldo_lote where lote_id=$1 and estado='READY'", [lote]);
   if (!fila) continue;
@@ -85,16 +88,38 @@ for (const lote of lotesRemotos.reverse()) {
   const res = await restaurarLote({ fila, bajar, sha256,
     descifrar: (sobre, clave) => ident.descifrar(sobre, { clave, crypto, zlib }),
     claves: { A: Buffer.from(G("BACKUP_ENCRYPTION_KEY_A"), "base64"), B: Buffer.from(G("BACKUP_ENCRYPTION_KEY_B"), "base64") } });
-  restauradoOk = res.ok;
-  detalle = res.ok ? `lote ${lote} · ${Object.keys(res.A.negocio || {}).length} recursos · ${res.A.padron.total} usuarios · ${res.B.total} credenciales · mismo snapshot=${res.A.tomado_at === res.B.tomado_at}`
-                   : `lote ${lote} rechazado: ${res.motivo} ${res.detalle || ""}`;
+  memoriaOk = res.ok;
+  var loteRemoto = lote;
+  detalleMem = res.ok ? `lote ${lote} · ${Object.keys(res.A.negocio || {}).length} recursos · ${res.A.padron.total} usuarios · ${res.B.total} credenciales · mismo snapshot=${res.A.tomado_at === res.B.tomado_at}`
+                      : `lote ${lote} rechazado: ${res.motivo} ${res.detalle || ""}`;
   break;
 }
-// Esto es reconstruccion EN MEMORIA. La restauracion aplicada en un destino aislado, con
-// usuarios, permisos, relaciones y login verificados desde lo escrito, es otro script:
-// scripts/respaldo/restauracion-aplicada.mjs. Un PASS aqui no la reemplaza.
-console.log("3 · DESCARGA, DESCIFRADO Y RECONSTRUCCION EN MEMORIA DEL LOTE REMOTO");
-console.log("   " + estado(restauradoOk, detalle));
+console.log("3 · RESTAURACION APLICADA Y VERIFICADA DEL LOTE REMOTO");
+console.log("   paso previo, en memoria : " + estado(memoriaOk, detalleMem));
+
+// El estado 3 lo cierra el manifiesto que deja restauracion-aplicada.mjs en el esquema aislado:
+// filas escritas y releidas por SQL, usuarios, permisos, relaciones, credenciales y codigo
+// provisorio verificados, y credenciales revertidas al cerrar. Descifrar en memoria no lo cubre.
+let restauradoOk = false, detalle = "sin restauracion aplicada del lote remoto";
+if (typeof loteRemoto === "string") {
+  const esquema = "restauracion_" + loteRemoto.toLowerCase().replace(/[^a-z0-9]/g, "_");
+  const { rows: [hay] } = await c.query("select to_regclass($1) is not null as existe", [esquema + ".manifiesto"]);
+  if (!hay.existe) {
+    detalle = `falta ${esquema}: correr  node scripts/respaldo/restauracion-aplicada.mjs ${loteRemoto}`;
+  } else {
+    const { rows: [m] } = await c.query(`select lote_id, aplicado_at, resultado from ${esquema}.manifiesto order by aplicado_at desc limit 1`);
+    const r = (m && m.resultado) || {};
+    const { rows: [p] } = await c.query(`select count(*)::int as n from ${esquema}.calendario_data where id = 'pins'`);
+    const sinCredenciales = p.n === 0;
+    restauradoOk = !!m && m.lote_id === loteRemoto && Number(r.fallas) === 0 && sinCredenciales;
+    detalle = m
+      ? `${esquema} · ${new Date(m.aplicado_at).toISOString().slice(0, 16)} UTC · fallas ${r.fallas} · bloqueos ${r.bloqueos} · ` +
+        `recuperacion completa ${!r.recuperacion ? "sin dato" : (r.recuperacion.completa && !Number(r.fallas) && !Number(r.bloqueos) && !(r.noEjercidos || []).length) ? "declarable" : "no declarable"} · ` +
+        (sinCredenciales ? "sin credenciales retenidas" : "CREDENCIALES RETENIDAS EN EL DESTINO")
+      : `${esquema} sin manifiesto`;
+  }
+}
+console.log("   restauracion aplicada   : " + estado(restauradoOk, detalle));
 
 // 4 · Entrega real del correo de prueba
 const correos = inv.filter((i) => i.correo_prueba);
