@@ -209,16 +209,18 @@ export function alertasAccionables(blob, hoy = new Date()) {
 
     // Firma: `false` es falta de firma; ausente es dato no registrado.
     const partes = [["el licenciado", ct.firmadoLicenciado], ["Osiris", ct.firmadoOsiris]];
+    // "de el licenciado" → "del licenciado"; "de Osiris" queda igual.
+    const de = (ns) => ns.map((n) => (n.startsWith("el ") ? "del " + n.slice(3) : "de " + n)).join(" y ");
     const faltan = partes.filter(([, v]) => !ausente(v) && !v).map(([n]) => n);
     const sinDatoFirma = partes.filter(([, v]) => ausente(v)).map(([n]) => n);
     if (faltan.length > 0) {
       out.push({
         id: `firma:${ct.id}`,
         severidad: "critico",
-        titulo: `${nombre} · falta la firma de ${faltan.join(" y ")}`,
+        titulo: `${nombre} · falta la firma ${de(faltan)}`,
         porQue:
           "Sin firma completa no se puede facturar lo que el contrato establece." +
-          (sinDatoFirma.length ? ` ${INSUF}no está registrada la firma de ${sinDatoFirma.join(" y ")}.` : ""),
+          (sinDatoFirma.length ? ` ${INSUF}no está registrada la firma ${de(sinDatoFirma)}.` : ""),
         accion: "Solicitar firma",
         entidad: ref,
       });
@@ -226,8 +228,8 @@ export function alertasAccionables(blob, hoy = new Date()) {
       out.push({
         id: `firma_sindato:${ct.id}`,
         severidad: "alto",
-        titulo: `${nombre} · sin dato de firma de ${sinDatoFirma.join(" y ")}`,
-        porQue: `${INSUF}el contrato no registra la firma de ${sinDatoFirma.join(" y ")}; no se puede afirmar que esté firmado ni que falte la firma.`,
+        titulo: `${nombre} · sin dato de firma ${de(sinDatoFirma)}`,
+        porQue: `${INSUF}el contrato no registra la firma ${de(sinDatoFirma)}; no se puede afirmar que esté firmado ni que falte la firma.`,
         accion: "Completar firma",
         entidad: ref,
       });
