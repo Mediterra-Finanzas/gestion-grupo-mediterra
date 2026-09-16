@@ -2302,6 +2302,16 @@ export default function App(){
               // `d.usuarios` ANTES (~2212), en otra ruta, así que quitarlo acá no rompe
               // el bootstrap de una instalación sin fila `usuarios`.
               delete cleanMain.usuarios;
+              // E-SEC (PROD-INCIDENT-01 hardening, análogo a `usuarios`): NO reescribir
+              // la copia rancia de PINs en `main`. La fuente de verdad de PINs es la
+              // fila dedicada `pins` (dbLoadPins/dbSavePins, ver ~185-206 y writers
+              // ~2804-2812). En `main` solo queda una copia legacy anon-legible bajo la
+              // clave `pinsPersonalizados` (los writers de Tareas ya NO la escriben, ver
+              // ~2746/2764). El campo real es `pinsPersonalizados` (NO `pins`); la fila
+              // `pins` es la fila dedicada, no una clave de main. La semilla de migración
+              // lee `d.pinsPersonalizados` ANTES (~2277), en otra ruta sobre `d`, así que
+              // quitarlo de `cleanMain` (una copia) no rompe el bootstrap sin fila `pins`.
+              delete cleanMain.pinsPersonalizados;
               await persist.saveConfirmed("main", cleanMain, {});
               console.log("[Migración] ✅ osirisData eliminado de main");
             } catch(e) { console.warn("[Migración] Error:", e); }
