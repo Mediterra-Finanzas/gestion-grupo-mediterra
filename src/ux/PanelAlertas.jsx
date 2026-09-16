@@ -23,6 +23,25 @@ import { resumenAlertas } from "./selectores";
 
 const NOMBRE_SEV = { critico: "Crítico", alto: "Alto", info: "Informativo", ok: "Al día" };
 
+// Estado de la carga de datos que alimenta las alertas. FAIL-CLOSED: cualquier
+// valor distinto de "ok" (incluido no pasarlo) se trata como "no se puede
+// afirmar nada". Solo con carga exitosa y cero alertas se dice que no hay
+// pendientes; antes, un módulo cargando o con la carga fallida mostraba "No hay
+// nada pendiente de decisión" sobre datos vacíos: un falso verde.
+export const ESTADO_CARGA = { CARGANDO: "cargando", ERROR: "error", OK: "ok" };
+
+export function normalizarEstadoCarga(v) {
+  if (v === ESTADO_CARGA.OK) return ESTADO_CARGA.OK;
+  if (v === ESTADO_CARGA.ERROR) return ESTADO_CARGA.ERROR;
+  return ESTADO_CARGA.CARGANDO;
+}
+
+export const TEXTO_CARGA = {
+  cargando: "Cargando datos. Las alertas se evalúan cuando la carga termine; por ahora no se afirma nada.",
+  error: "No se pudieron cargar los datos. Las alertas no se evaluaron: esto NO significa que no haya pendientes.",
+  vacio: "No hay nada pendiente de decisión.",
+};
+
 function Radio({ nombre, valor, actual, alCambiar, texto, conteo }) {
   const { enfocado, propsFoco } = useFoco();
   const activo = actual === valor;
@@ -59,8 +78,10 @@ function Radio({ nombre, valor, actual, alCambiar, texto, conteo }) {
   );
 }
 
-export default function PanelAlertas({ alertas = [], alAbrirEntidad = () => {}, maximo = 12 }) {
+export default function PanelAlertas({ alertas = [], alAbrirEntidad = () => {}, maximo = 12, estadoCarga }) {
   const [filtro, setFiltro] = useState("todas");
+  const carga = normalizarEstadoCarga(estadoCarga);
+  const cargaOk = carga === ESTADO_CARGA.OK;
   const grupo = useId();
   const conteo = useMemo(() => resumenAlertas(alertas), [alertas]);
 
@@ -73,6 +94,8 @@ export default function PanelAlertas({ alertas = [], alAbrirEntidad = () => {}, 
   return (
     <section
       aria-label="Alertas accionables"
+      aria-busy={carga === ESTADO_CARGA.CARGANDO ? "true" : undefined}
+      data-estado-carga={carga}
       style={{
         background: surface.panel,
         border: `1px solid ${layout.borde}`,
@@ -104,7 +127,7 @@ export default function PanelAlertas({ alertas = [], alAbrirEntidad = () => {}, 
         >
           Qué requiere tu decisión
         </h2>
-        <fieldset
+        {cargaOk && <fieldset
           style={{ border: 0, margin: 0, padding: 0, display: "flex", gap: 5, flexWrap: "wrap" }}
         >
           <legend style={soloLector}>Filtrar alertas por severidad</legend>
@@ -120,12 +143,20 @@ export default function PanelAlertas({ alertas = [], alAbrirEntidad = () => {}, 
               conteo={conteo[s]}
             />
           ))}
-        </fieldset>
+        </fieldset>}
       </header>
 
-      {mostradas.length === 0 ? (
+      {carga === ESTADO_CARGA.CARGANDO ? (
+        <p role="status" style={{ margin: 0, padding: "18px 12px", fontSize: 13, color: ink.soft, textAlign: "center" }}>
+          {TEXTO_CARGA.cargando}
+        </p>
+      ) : carga === ESTADO_CARGA.ERROR ? (
+        <p role="alert" style={{ margin: 0, padding: "18px 12px", fontSize: 13, fontWeight: 600, color: (estado.critico || {}).fg || ink.strong, textAlign: "center" }}>
+          {TEXTO_CARGA.error}
+        </p>
+      ) : mostradas.length === 0 ? (
         <Vacio
-          mensaje={filtro === "todas" ? "No hay nada pendiente de decisión." : `Nada en severidad ${NOMBRE_SEV[filtro]}.`}
+          mensaje={filtro === "todas" ? TEXTO_CARGA.vacio : `Nada en severidad ${NOMBRE_SEV[filtro]}.`}
           sugerencia={filtro === "todas" ? undefined : "Prueba con Todas."}
         />
       ) : (
@@ -170,7 +201,7 @@ export default function PanelAlertas({ alertas = [], alAbrirEntidad = () => {}, 
         </ul>
       )}
 
-      {visibles.length > mostradas.length && (
+      {cargaOk && visibles.length > mostradas.length && (
         <p style={{ margin: 0, padding: "6px 12px", fontSize: 11, color: ink.soft, borderTop: `1px solid ${layout.borde}` }}>
           {visibles.length - mostradas.length} alertas más en este filtro.
         </p>

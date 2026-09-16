@@ -103,7 +103,7 @@ export default function PrototipoUX({ datos, usuario = "Angelo", hoy = new Date(
         }}
       >
         {activo === "osiris" || activo === "inicio" ? (
-          <HomeEjecutivo datos={datos} usuario={usuario} hoy={hoy} />
+          <HomeEjecutivo datos={datos} usuario={usuario} hoy={hoy} estadoCarga="ok" />
         ) : (
           <div
             style={{

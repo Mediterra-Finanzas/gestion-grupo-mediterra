@@ -14574,7 +14574,7 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
         {/* Vista previa: solo lectura. HomeEjecutivo no escribe; respeta el permiso de Royalties. */}
         {process.env.REACT_APP_OSIRIS_UX_PREVIEW==="1" && subTab==="inicioEjecutivo" && (
           canVerRoyalties
-            ? <div data-vista="inicio-ejecutivo-preview"><HomeEjecutivo datos={osirisData||{}} usuario={usuarioActual?.nombre||""}/></div>
+            ? <div data-vista="inicio-ejecutivo-preview"><HomeEjecutivo datos={osirisData||{}} usuario={usuarioActual?.nombre||""} estadoCarga={cargandoOsiris?"cargando":(osirisCargaOk?"ok":"error")}/></div>
             : <div style={{padding:24,color:C.gris,fontSize:13}}>Sin acceso a esta vista.</div>
         )}
         {subTab==="resumen"          &&<Resumen        rpData={rpData} feData={feData} rcData={rcData} fvData={fvData} tpData={tpData}/>}

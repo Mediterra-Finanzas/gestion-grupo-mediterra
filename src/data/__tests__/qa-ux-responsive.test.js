@@ -169,13 +169,13 @@ describe("home · sirve con cualquier ancho sin romperse", () => {
   test.each([320, 390, 768, 900, 1280, 1920])("ancho %ipx renderiza sin lanzar", (px) => {
     anchoVentana(px);
     expect(() =>
-      render(<HomeEjecutivo datos={DATOS_EJEMPLO} usuario="Angelo" hoy={HOY_EJEMPLO} />)
+      render(<HomeEjecutivo datos={DATOS_EJEMPLO} usuario="Angelo" hoy={HOY_EJEMPLO} estadoCarga="ok" />)
     ).not.toThrow();
   });
 
   test("sin datos muestra la pantalla igual, sin caerse", () => {
     anchoVentana(1440);
-    render(<HomeEjecutivo datos={{}} usuario="Angelo" hoy={HOY_EJEMPLO} />);
+    render(<HomeEjecutivo datos={{}} usuario="Angelo" hoy={HOY_EJEMPLO} estadoCarga="ok" />);
     expect(screen.getByRole("heading", { level: 1 })).toBeInTheDocument();
     expect(screen.getByText(/No hay nada pendiente de decisión/)).toBeInTheDocument();
   });

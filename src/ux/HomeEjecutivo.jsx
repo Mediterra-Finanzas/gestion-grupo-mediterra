@@ -30,7 +30,7 @@ import {
   temporadaDe,
 } from "./selectores";
 import TarjetasKPI from "./TarjetasKPI";
-import PanelAlertas from "./PanelAlertas";
+import PanelAlertas, { normalizarEstadoCarga, ESTADO_CARGA } from "./PanelAlertas";
 import TablaDensa from "./TablaDensa";
 import Ficha360 from "./Ficha360";
 import BusquedaGlobal from "./BusquedaGlobal";
@@ -59,8 +59,13 @@ const COLUMNAS_CONTRATOS = [
   { id: "firmado", etiqueta: "Firmado", render: (f) => (f.firmado ? "Sí" : "No") },
 ];
 
-export default function HomeEjecutivo({ datos, usuario = "", hoy = new Date() }) {
+// `estadoCarga` ("cargando" | "error" | "ok") viene del módulo que carga los
+// datos. Sin "ok" la pantalla no muestra indicadores, tabla ni buscador: sobre
+// datos vacíos todos darían cero y parecerían "todo en orden".
+export default function HomeEjecutivo({ datos, usuario = "", hoy = new Date(), estadoCarga }) {
   const bp = useResponsive();
+  const carga = normalizarEstadoCarga(estadoCarga);
+  const cargaOk = carga === ESTADO_CARGA.OK;
   const [seleccion, setSeleccion] = useState(null);
 
   const kpis = useMemo(() => kpisEjecutivos(datos, hoy), [datos, hoy]);
@@ -102,11 +107,11 @@ export default function HomeEjecutivo({ datos, usuario = "", hoy = new Date() })
           </p>
         </div>
         <div style={{ flex: 1, minWidth: 200, display: "flex", justifyContent: "flex-end" }}>
-          <BusquedaGlobal indice={indice} alElegir={abrir} />
+          {cargaOk && <BusquedaGlobal indice={indice} alElegir={abrir} />}
         </div>
       </header>
 
-      <TarjetasKPI kpis={kpis} compacta={!bp.esEscritorio} titulo="Indicadores del negocio" />
+      {cargaOk && <TarjetasKPI kpis={kpis} compacta={!bp.esEscritorio} titulo="Indicadores del negocio" />}
 
       <div
         style={{
@@ -120,8 +125,8 @@ export default function HomeEjecutivo({ datos, usuario = "", hoy = new Date() })
         <div style={{ display: "flex", flexDirection: "column", gap: layout.sp.md, minWidth: 0 }}>
           {/* Candidato diseno + alertas: sin tableros de cobranza (dependen de la
               conciliacion de Fee Entrada, pendiente). */}
-          <PanelAlertas alertas={alertas} alAbrirEntidad={abrir} maximo={bp.esMovil ? 6 : 12} />
-          <TablaDensa
+          <PanelAlertas alertas={cargaOk ? alertas : []} alAbrirEntidad={abrir} maximo={bp.esMovil ? 6 : 12} estadoCarga={carga} />
+          {cargaOk && <TablaDensa
             titulo="Contratos"
             columnas={COLUMNAS_CONTRATOS}
             filas={filas}
@@ -130,10 +135,10 @@ export default function HomeEjecutivo({ datos, usuario = "", hoy = new Date() })
             nombreDensidad={bp.nombreDensidad}
             comoTarjetas={bp.tablaComoTarjetas}
             ordenInicial={{ columna: "diasParaVencer", direccion: "asc" }}
-          />
+          />}
         </div>
         <Ficha360
-          ficha={ficha}
+          ficha={cargaOk ? ficha : null}
           alCerrar={() => setSeleccion(null)}
           alNavegar={abrir}
           comoColumna={dosColumnas}

@@ -108,7 +108,7 @@ describe("contraste · los tokens ilegibles quedan fuera del texto", () => {
 
   test("ningún elemento del prototipo los usa como color de texto", () => {
     const { container } = render(
-      <HomeEjecutivo datos={DATOS_EJEMPLO} usuario="Angelo" hoy={HOY_EJEMPLO} />
+      <HomeEjecutivo datos={DATOS_EJEMPLO} usuario="Angelo" hoy={HOY_EJEMPLO} estadoCarga="ok" />
     );
     const prohibidos = TINTAS_PROHIBIDAS_COMO_TEXTO.map((h) => {
       const [r, g, b] = aRGB(h);
@@ -162,7 +162,7 @@ describe("estructura · landmarks y encabezados", () => {
   });
 
   test("el home tiene un h1 único y los paneles cuelgan de h2", () => {
-    render(<HomeEjecutivo datos={DATOS_EJEMPLO} usuario="Angelo" hoy={HOY_EJEMPLO} />);
+    render(<HomeEjecutivo datos={DATOS_EJEMPLO} usuario="Angelo" hoy={HOY_EJEMPLO} estadoCarga="ok" />);
     expect(screen.getAllByRole("heading", { level: 1 })).toHaveLength(1);
     expect(
       screen.getByRole("heading", { level: 2, name: /Qué requiere tu decisión/i })
@@ -170,7 +170,7 @@ describe("estructura · landmarks y encabezados", () => {
   });
 
   test("los KPI son artículos con nombre accesible tomado de la pregunta", () => {
-    render(<HomeEjecutivo datos={DATOS_EJEMPLO} usuario="Angelo" hoy={HOY_EJEMPLO} />);
+    render(<HomeEjecutivo datos={DATOS_EJEMPLO} usuario="Angelo" hoy={HOY_EJEMPLO} estadoCarga="ok" />);
     expect(
       screen.getByRole("article", { name: "¿Qué contrato no puedo cobrar todavía?" })
     ).toBeInTheDocument();
@@ -394,13 +394,13 @@ describe("filtros de alertas · son controles reales, no botones disfrazados", (
   const alertas = alertasAccionables(DATOS_EJEMPLO, HOY_EJEMPLO);
 
   test("el filtro es un grupo de radios con leyenda", () => {
-    render(<PanelAlertas alertas={alertas} />);
+    render(<PanelAlertas alertas={alertas} estadoCarga="ok" />);
     const grupo = screen.getByRole("group", { name: /Filtrar alertas por severidad/i });
     expect(within(grupo).getAllByRole("radio")).toHaveLength(4);
   });
 
   test("hay exactamente un radio marcado y por defecto es Todas", () => {
-    render(<PanelAlertas alertas={alertas} />);
+    render(<PanelAlertas alertas={alertas} estadoCarga="ok" />);
     const marcados = screen.getAllByRole("radio").filter((r) => r.checked);
     expect(marcados).toHaveLength(1);
     expect(marcados[0]).toBeChecked();
@@ -408,7 +408,7 @@ describe("filtros de alertas · son controles reales, no botones disfrazados", (
   });
 
   test("filtrar por Crítico deja sólo alertas críticas", () => {
-    render(<PanelAlertas alertas={alertas} maximo={99} />);
+    render(<PanelAlertas alertas={alertas} maximo={99} estadoCarga="ok" />);
     const antes = screen.getAllByRole("listitem").length;
     fireEvent.click(screen.getByRole("radio", { name: /Crítico/ }));
     const despues = screen.getAllByRole("listitem").length;
@@ -417,7 +417,7 @@ describe("filtros de alertas · son controles reales, no botones disfrazados", (
   });
 
   test("cada alerta ofrece un botón con el verbo de la acción", () => {
-    render(<PanelAlertas alertas={alertas} maximo={99} />);
+    render(<PanelAlertas alertas={alertas} maximo={99} estadoCarga="ok" />);
     const botones = screen
       .getAllByRole("button")
       .filter((b) => /Solicitar firma|Renovar|Cargar|Definir|Emitir|Adjuntar|Completar|Agendar|Revisar/.test(b.textContent));
@@ -425,7 +425,7 @@ describe("filtros de alertas · son controles reales, no botones disfrazados", (
   });
 
   test("la severidad va también en texto, para que no dependa del color", () => {
-    render(<PanelAlertas alertas={alertas} maximo={99} />);
+    render(<PanelAlertas alertas={alertas} maximo={99} estadoCarga="ok" />);
     expect(screen.getAllByText("Crítico").length).toBeGreaterThan(0);
   });
 });
