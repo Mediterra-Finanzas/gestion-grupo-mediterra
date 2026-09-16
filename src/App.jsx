@@ -11,6 +11,7 @@ import { ensureSupabaseSession, clearOsirisSession, getOsirisAccessToken, refres
 import { installGuard, USE_GUARD, pollRow } from "./guardClient";
 import { persist, construirAvisoDesde } from "./persistencia/instancia.js";
 import { crearUsuariosStore } from "./permisos/permisosUsuariosStore.js";
+import { crearAplicadorUsuarios } from "./permisos/usuariosGlue.js";
 import AvisoPersistencia from "./AvisoPersistencia.jsx";
 import { hashPin, verifyPin, pinNuevoValido, normalizarCelular } from "./pinHash";
 
@@ -2381,12 +2382,16 @@ export default function App(){
     // Cierra la brecha del baseline (main adelantaba la versión pero nunca re-aplicaba
     // `usuarios`): acá el cambio ajeno de permisos SÍ se re-aplica al estado, por merge
     // de 3 vías (nunca overwrite ciego que revierta lo local, nunca drop silencioso).
-    const aplicarUsuarios = (lista, version) => {
-      if(!Array.isArray(lista)) return;
-      const dec = usuariosStore.reconciliar(lista, version === undefined ? null : version, usuariosRef.current);
-      if(dec.apply) setUsuarios(dec.value);
-      else if(dec.motivo) setAvisoPersist(construirAvisoDesde("usuarios", dec, "los permisos"));
-    };
+    // Extraído a src/permisos/usuariosGlue.js (mismo comportamiento línea-a-línea)
+    // para poder ejercer este cableado poll/WS→reconciliar→setUsuarios en un harness
+    // headless contra un PostgREST REAL. usuariosRef.current = edición local sin
+    // confirmar (para el merge de 3 vías); setAvisoPersist = aviso de conflicto.
+    const aplicarUsuarios = crearAplicadorUsuarios({
+      store: usuariosStore,
+      setUsuarios,
+      getUsuariosActual: () => usuariosRef.current,
+      setAviso: setAvisoPersist,
+    });
 
     // Con el guardia prendido: sincronización por sondeo autenticado (la
     // puerta vieja del WebSocket anónimo se cierra). Cubre el mismo caso de
