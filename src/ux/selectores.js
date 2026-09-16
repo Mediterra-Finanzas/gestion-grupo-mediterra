@@ -27,7 +27,13 @@
 // Claves de negocio: clientes, especies, variedades, obtentores, viveros,
 // contratos. Cada contrato lleva `plantaciones[]` y `ordenesCompra[]`.
 
-import { econ4, blobCounts } from "../data/osirisCanonical";
+// CANDIDATO DISENO + ALERTAS (osiris/candidato-diseno-alertas): esta pantalla
+// NO publica cifras economicas derivadas. Se retiraron el KPI "Ingreso
+// devengado" (el modulo no tiene devengo), el KPI "Contract fee por cobrar" y la
+// alerta "contract fee sin cobrar": los tres leen el estado de cobro del
+// contrato, que hoy contradice a la fila de Fee Entrada y esta pendiente de
+// conciliacion. Vuelven cuando el CFO cierre esa conciliacion.
+import { blobCounts } from "../data/osirisCanonical";
 
 const arr = (x) => (Array.isArray(x) ? x : []);
 const txt = (x) => (x == null ? "" : String(x));
@@ -90,21 +96,11 @@ export function temporadaDe(fecha) {
   return `${String(inicio).slice(2)}-${String(inicio + 1).slice(2)}`;
 }
 
-// Contract fee todavía no cobrado. Lectura DIRECTA de campos del contrato
-// (`montoContractFee`, `contractFeePagado`); no re-deriva nada.
-export function contractFeePorCobrar(blob) {
-  return arr((blob || {}).contratos).reduce((a, ct) => {
-    const tiene = txt(ct.tipoContractFee) && ct.tipoContractFee !== "Sin Contract Fee";
-    return tiene && !ct.contractFeePagado ? a + num(ct.montoContractFee) : a;
-  }, 0);
-}
-
 // ── KPIs ───────────────────────────────────────────────────────────
 // Cada KPI responde UNA pregunta, y la pregunta viaja con el dato para que
 // la tarjeta no tenga que inventarse un subtítulo de relleno.
 export function kpisEjecutivos(blob, hoy = new Date()) {
   const b = blob || {};
-  const e = econ4(b);
   const c = blobCounts(b);
   const contratos = arr(b.contratos);
   const obtentores = arr(b.obtentores);
@@ -127,33 +123,7 @@ export function kpisEjecutivos(blob, hoy = new Date()) {
     (ob) => arr(ob.participacionIngresos).length === 0
   ).length;
 
-  const devengado = e.RP + e.RC + e.FE;
-  const porCobrarFee = contractFeePorCobrar(b);
-
   return [
-    {
-      id: "ingreso_devengado",
-      pregunta: "¿Cuánto ingreso tengo comprometido por contrato?",
-      etiqueta: "Ingreso devengado",
-      valor: devengado,
-      formato: "moneda",
-      detalle: `Royalty planta ${formatearValor(e.RP, "moneda")} · comercial ${formatearValor(e.RC, "moneda")} · fee entrada ${formatearValor(e.FE, "moneda")}`,
-      severidad: "info",
-      fuente: "econ4() · motor congelado Fase 0",
-    },
-    {
-      id: "fee_por_cobrar",
-      pregunta: "¿Cuánto fee de entrada tengo sin cobrar?",
-      etiqueta: "Contract fee por cobrar",
-      valor: porCobrarFee,
-      formato: "moneda",
-      detalle:
-        devengado > 0
-          ? `${((porCobrarFee / devengado) * 100).toFixed(1)} % del devengado`
-          : "Sin devengo registrado",
-      severidad: porCobrarFee > 0 ? "alto" : "ok",
-      fuente: "contratos[].montoContractFee sin contractFeePagado",
-    },
     {
       id: "contratos_sin_firma",
       pregunta: "¿Qué contrato no puedo cobrar todavía?",
@@ -208,7 +178,6 @@ export function alertasAccionables(blob, hoy = new Date()) {
   for (const ct of arr(b.contratos)) {
     const nombre = txt(ct.razonSocial) || txt(ct.id);
     const ref = { tipo: "contrato", id: txt(ct.id), nombre };
-    const moneda = txt(ct.moneda) || "USD";
 
     if (!ct.firmadoLicenciado || !ct.firmadoOsiris) {
       const falta = [
@@ -219,7 +188,7 @@ export function alertasAccionables(blob, hoy = new Date()) {
         id: `firma:${ct.id}`,
         severidad: "critico",
         titulo: `${nombre} · falta la firma de ${falta}`,
-        porQue: `Deja en el aire ${formatearValor(ct.montoContractFee, "moneda")} ${moneda} de fee de entrada y todo el royalty asociado.`,
+        porQue: "Sin firma completa no se puede facturar lo que el contrato establece.",
         accion: "Solicitar firma",
         entidad: ref,
       });
@@ -265,18 +234,6 @@ export function alertasAccionables(blob, hoy = new Date()) {
         titulo: `${nombre} · sin mes de facturación del royalty comercial`,
         porQue: "Sin mes definido el cobro no entra a ningún trimestre y se pasa el año.",
         accion: "Definir mes",
-        entidad: ref,
-      });
-    }
-
-    const tieneFee = txt(ct.tipoContractFee) && ct.tipoContractFee !== "Sin Contract Fee";
-    if (tieneFee && !ct.contractFeePagado && num(ct.montoContractFee) > 0) {
-      out.push({
-        id: `fee:${ct.id}`,
-        severidad: "alto",
-        titulo: `${nombre} · contract fee sin cobrar`,
-        porQue: `${formatearValor(ct.montoContractFee, "moneda")} ${moneda} pendientes de cobro.`,
-        accion: "Emitir cobro",
         entidad: ref,
       });
     }

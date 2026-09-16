@@ -172,7 +172,7 @@ describe("estructura · landmarks y encabezados", () => {
   test("los KPI son artículos con nombre accesible tomado de la pregunta", () => {
     render(<HomeEjecutivo datos={DATOS_EJEMPLO} usuario="Angelo" hoy={HOY_EJEMPLO} />);
     expect(
-      screen.getByRole("article", { name: "¿Cuánto ingreso tengo comprometido por contrato?" })
+      screen.getByRole("article", { name: "¿Qué contrato no puedo cobrar todavía?" })
     ).toBeInTheDocument();
   });
 });

@@ -22,10 +22,8 @@ import {
   aFecha,
   diasHasta,
   temporadaDe,
-  contractFeePorCobrar,
   anexoActivo,
 } from "../../ux/selectores";
-import { econ4 } from "../osirisCanonical";
 import { DATOS_EJEMPLO, HOY_EJEMPLO } from "../../ux/ejemploDatos";
 
 const kpi = (id, blob = DATOS_EJEMPLO) =>
@@ -34,9 +32,9 @@ const kpi = (id, blob = DATOS_EJEMPLO) =>
 describe("KPIs · cada uno responde una pregunta y declara su fuente", () => {
   const todos = kpisEjecutivos(DATOS_EJEMPLO, HOY_EJEMPLO);
 
-  test("hay seis KPIs y ninguno repite id", () => {
-    expect(todos).toHaveLength(6);
-    expect(new Set(todos.map((k) => k.id)).size).toBe(6);
+  test("hay cuatro KPIs y ninguno repite id", () => {
+    expect(todos).toHaveLength(4);
+    expect(new Set(todos.map((k) => k.id)).size).toBe(4);
   });
 
   test("todos traen pregunta redactada como pregunta", () => {
@@ -56,53 +54,16 @@ describe("KPIs · cada uno responde una pregunta y declara su fuente", () => {
   });
 });
 
-describe("KPIs · el ingreso devengado NO se recalcula, se delega en el motor congelado", () => {
-  test("coincide exactamente con RP + RC + FE de econ4()", () => {
-    const e = econ4(DATOS_EJEMPLO);
-    // Aritmética explícita para que quede escrita en la prueba:
-    //   RP = 42.000 × 0,85 + 8.000 × 0,85 + 15.000 × 1,00 + 0 × 0 = 57.500
-    //   RC = (10 ha × 3.000) + (4 ha × 3.000) + (3 ha × 3.000) = 51.000
-    //        (la plantación "Prueba" de 2 ha NO paga royalty comercial)
-    //   FE = 30.000 + 30.000 + 0 = 60.000   (ct3 es "Sin Contract Fee")
-    expect(e.RP).toBe(57500);
-    expect(e.RC).toBe(51000);
-    expect(e.FE).toBe(60000);
-    expect(kpi("ingreso_devengado").valor).toBe(57500 + 51000 + 60000);
-    expect(kpi("ingreso_devengado").valor).toBe(168500);
+describe("KPIs · candidato diseno + alertas: sin cifras economicas derivadas", () => {
+  test("no hay KPI de ingreso devengado ni de contract fee por cobrar", () => {
+    const ids = kpisEjecutivos(DATOS_EJEMPLO, HOY_EJEMPLO).map((k) => k.id);
+    expect(ids).not.toContain("ingreso_devengado");
+    expect(ids).not.toContain("fee_por_cobrar");
   });
 
-  test("si el motor cambia, el KPI cambia con él (no hay suma paralela)", () => {
-    const alterado = JSON.parse(JSON.stringify(DATOS_EJEMPLO));
-    alterado.contratos[0].valorRoyaltyPlanta = 1.85;
-    const e = econ4(alterado);
-    expect(kpi("ingreso_devengado", alterado).valor).toBe(e.RP + e.RC + e.FE);
-  });
-
-  test("el IQ del motor NO se publica como moneda: valor es un porcentaje", () => {
-    // econ4 devuelve IQ = 70 + 50 = 120, que son porcentajes sumados. Ningún
-    // KPI puede mostrar eso como plata.
-    expect(econ4(DATOS_EJEMPLO).IQ).toBe(120);
-    const conIQ = kpisEjecutivos(DATOS_EJEMPLO, HOY_EJEMPLO).filter(
-      (k) => k.formato === "moneda" && k.valor === 120
-    );
-    expect(conIQ).toEqual([]);
-  });
-});
-
-describe("KPIs · contract fee por cobrar sale de campos directos del contrato", () => {
-  test("cuenta sólo el que tiene fee y no está pagado", () => {
-    // ct1: 30.000 pero contractFeePagado = true  → no cuenta
-    // ct2: 30.000 sin pagar                      → cuenta
-    // ct3: "Sin Contract Fee"                    → no cuenta
-    expect(contractFeePorCobrar(DATOS_EJEMPLO)).toBe(30000);
-    expect(kpi("fee_por_cobrar").valor).toBe(30000);
-  });
-
-  test("marcarlo pagado lo baja a cero", () => {
-    const b = JSON.parse(JSON.stringify(DATOS_EJEMPLO));
-    b.contratos[1].contractFeePagado = true;
-    expect(contractFeePorCobrar(b)).toBe(0);
-    expect(kpi("fee_por_cobrar", b).severidad).toBe("ok");
+  test("ningun KPI publica moneda", () => {
+    const enMoneda = kpisEjecutivos(DATOS_EJEMPLO, HOY_EJEMPLO).filter((k) => k.formato === "moneda");
+    expect(enMoneda).toEqual([]);
   });
 });
 
@@ -128,7 +89,7 @@ describe("KPIs · conteos de riesgo", () => {
 
   test("con datos vacíos ningún KPI revienta", () => {
     const todos = kpisEjecutivos({}, HOY_EJEMPLO);
-    expect(todos).toHaveLength(6);
+    expect(todos).toHaveLength(4);
     for (const k of todos) expect(Number.isNaN(k.valor)).toBe(false);
   });
 
@@ -182,10 +143,10 @@ describe("alertas · casos concretos del blob de ejemplo", () => {
   const alertas = alertasAccionables(DATOS_EJEMPLO, HOY_EJEMPLO);
   const porId = (id) => alertas.find((a) => a.id === id);
 
-  test("falta de firma es crítica y cifra el fee que queda en el aire", () => {
+  test("falta de firma es crítica y no cifra el contract fee", () => {
     const a = porId("firma:ct2");
     expect(a.severidad).toBe("critico");
-    expect(a.porQue).toContain("30.000");
+    expect(a.porQue).not.toContain("30.000");
   });
 
   test("contrato vencido es crítico y dice hace cuántos días", () => {
@@ -208,10 +169,8 @@ describe("alertas · casos concretos del blob de ejemplo", () => {
     expect(porId("mes_rc:ct2")).toBeTruthy();
   });
 
-  test("contract fee sin cobrar se avisa sólo en el que corresponde", () => {
-    expect(porId("fee:ct2")).toBeTruthy();
-    expect(porId("fee:ct1")).toBeUndefined();
-    expect(porId("fee:ct3")).toBeUndefined();
+  test("candidato diseno + alertas: no hay alerta de contract fee sin cobrar", () => {
+    expect(alertas.filter((a) => a.id.startsWith("fee:"))).toEqual([]);
   });
 
   test("obtentor vencido y sin reglas dispara sus tres alertas", () => {

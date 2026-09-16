@@ -53,7 +53,6 @@ const FUNCIONES = [
   "diasHasta",
   "aFecha",
   "temporadaDe",
-  "contractFeePorCobrar",
   "anexoActivo",
   "pesoSeveridad",
 ];
