@@ -4,6 +4,7 @@
 // Persistencia independiente: fila "osiris" en Supabase
 // ============================================================
 import React, { useState, useCallback, useMemo, useEffect, useRef } from "react";
+import HomeEjecutivo from "./ux/HomeEjecutivo";
 import { theme } from "./theme";
 import { snapshotOsiris, isDirty as osirisIsDirty } from "./data/osirisDirty";
 
@@ -10623,6 +10624,9 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
     {id:"feeViveros",       label:"🏭 Fee Viveros",       badge:0},
     {id:"pagoObtentores",   label:"💳 Pago Obtentores",  badge:0},
     {id:"reconciliacionIQ", label:"🧾 Reconciliación IQ", badge:0},
+    // Vista previa del inicio ejecutivo: solo existe con la bandera de build
+    // REACT_APP_OSIRIS_UX_PREVIEW=1. Sin ella la vista no aparece ni se renderiza.
+    ...(process.env.REACT_APP_OSIRIS_UX_PREVIEW==="1" ? [{id:"inicioEjecutivo", label:"🧭 Inicio ejecutivo (vista previa)", badge:0}] : []),
   ];
 
   // ── Barra de navegación compartida ────────────────────────
@@ -14567,6 +14571,12 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
       </div>}
       {/* Contenido */}
       <div style={{background:C.card,borderRadius:14,padding:20,boxShadow:"0 2px 10px #0001"}}>
+        {/* Vista previa: solo lectura. HomeEjecutivo no escribe; respeta el permiso de Royalties. */}
+        {process.env.REACT_APP_OSIRIS_UX_PREVIEW==="1" && subTab==="inicioEjecutivo" && (
+          canVerRoyalties
+            ? <div data-vista="inicio-ejecutivo-preview"><HomeEjecutivo datos={osirisData||{}} usuario={usuarioActual?.nombre||""}/></div>
+            : <div style={{padding:24,color:C.gris,fontSize:13}}>Sin acceso a esta vista.</div>
+        )}
         {subTab==="resumen"          &&<Resumen        rpData={rpData} feData={feData} rcData={rcData} fvData={fvData} tpData={tpData}/>}
         {subTab==="dashboard"        &&<DashboardAnalitico ctData={ctData} feData={feData} rpData={rpData} rcData={rcData} tpData={tpData} especiesMaestro={especiesMaestro}/>}
         {subTab==="graficos"         &&<GraficosPlantas tpData={tpData} rpData={rpData}/>}
