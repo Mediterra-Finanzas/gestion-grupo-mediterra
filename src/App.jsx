@@ -2294,6 +2294,14 @@ export default function App(){
               // romper el optimistic lock de la fila `main` (completitud por-fila).
               const cleanMain = {...d};
               delete cleanMain.osirisData;
+              // E-SEC (PROD-INCIDENT-01 hardening): NO reescribir la copia legacy de
+              // `usuarios` en `main`. La fuente de verdad de usuarios/permisos es la
+              // fila dedicada `usuarios` (ver ~2207-2226 y writers ~2743/2779); en `main`
+              // solo queda una copia rancia anon-legible de permisos. Al reescribir main
+              // sin este delete se perpetuaría esa copia. La semilla de migración lee
+              // `d.usuarios` ANTES (~2212), en otra ruta, así que quitarlo acá no rompe
+              // el bootstrap de una instalación sin fila `usuarios`.
+              delete cleanMain.usuarios;
               await persist.saveConfirmed("main", cleanMain, {});
               console.log("[Migración] ✅ osirisData eliminado de main");
             } catch(e) { console.warn("[Migración] Error:", e); }
