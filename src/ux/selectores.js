@@ -167,10 +167,38 @@ export function kpisEjecutivos(blob, hoy = new Date()) {
   ];
 }
 
+// Un dato AUSENTE (no cargado) no es lo mismo que un dato en cero o en "no".
+// Cuando la alerta depende de un dato ausente, lo dice en el texto con el
+// prefijo INSUF: no se afirma ni que haya problema ni que no lo haya.
+const ausente = (v) => v === undefined || v === null || (typeof v === "string" && v.trim() === "");
+export const INSUF = "Información insuficiente: ";
+
+// Estado de pago del contract fee visto desde la pestaña Fee Entrada. SOLO
+// LECTURA y sin montos. Replica la búsqueda de esa pestaña (OsirisModule.jsx,
+// `feData`): índice de `feeEntrada[]` por `ctId` y por `id`, luego
+// `edits[ct.id] || edits["fe_" + ct.id]`; sin fila la pestaña muestra "no
+// pagado". Si esa búsqueda cambia (p. ej. la rama de fuente única de Fee
+// Entrada), este selector tiene que seguirla.
+export function feeEntradaDeContrato(blob, ct) {
+  const c = ct || {};
+  const marcadoContrato = !!c.contractFeePagado;
+  const aplica = !!txt(c.tipoContractFee) && c.tipoContractFee !== "Sin Contract Fee";
+  if (!aplica) return { aplica: false, hayFila: false, pagadoFila: false, marcadoContrato, discrepa: false };
+  const edits = {};
+  for (const r of arr((blob || {}).feeEntrada)) {
+    if (!r || typeof r !== "object") continue;
+    if (r.ctId) edits[r.ctId] = r;
+    edits[r.id] = r;
+  }
+  const fila = edits[c.id] || edits[`fe_${c.id}`] || null;
+  const pagadoFila = !!(fila ? (fila.pagado ?? false) : false);
+  return { aplica: true, hayFila: !!fila, pagadoFila, marcadoContrato, discrepa: marcadoContrato !== pagadoFila };
+}
+
 // ── Alertas ────────────────────────────────────────────────────────
 // Regla del carril: una alerta sin acción es decoración. Cada alerta lleva
 // `accion` (el verbo), `entidad` (a dónde lleva) y `porQue` (el impacto en
-// plata o en riesgo). Si no se puede escribir el `porQue`, la alerta no va.
+// riesgo). Si falta el dato para evaluarla, el `porQue` lo declara.
 export function alertasAccionables(blob, hoy = new Date()) {
   const b = blob || {};
   const out = [];
@@ -179,32 +207,55 @@ export function alertasAccionables(blob, hoy = new Date()) {
     const nombre = txt(ct.razonSocial) || txt(ct.id);
     const ref = { tipo: "contrato", id: txt(ct.id), nombre };
 
-    if (!ct.firmadoLicenciado || !ct.firmadoOsiris) {
-      const falta = [
-        !ct.firmadoLicenciado ? "el licenciado" : null,
-        !ct.firmadoOsiris ? "Osiris" : null,
-      ].filter(Boolean).join(" y ");
+    // Firma: `false` es falta de firma; ausente es dato no registrado.
+    const partes = [["el licenciado", ct.firmadoLicenciado], ["Osiris", ct.firmadoOsiris]];
+    const faltan = partes.filter(([, v]) => !ausente(v) && !v).map(([n]) => n);
+    const sinDatoFirma = partes.filter(([, v]) => ausente(v)).map(([n]) => n);
+    if (faltan.length > 0) {
       out.push({
         id: `firma:${ct.id}`,
         severidad: "critico",
-        titulo: `${nombre} · falta la firma de ${falta}`,
-        porQue: "Sin firma completa no se puede facturar lo que el contrato establece.",
+        titulo: `${nombre} · falta la firma de ${faltan.join(" y ")}`,
+        porQue:
+          "Sin firma completa no se puede facturar lo que el contrato establece." +
+          (sinDatoFirma.length ? ` ${INSUF}no está registrada la firma de ${sinDatoFirma.join(" y ")}.` : ""),
         accion: "Solicitar firma",
+        entidad: ref,
+      });
+    } else if (sinDatoFirma.length > 0) {
+      out.push({
+        id: `firma_sindato:${ct.id}`,
+        severidad: "alto",
+        titulo: `${nombre} · sin dato de firma de ${sinDatoFirma.join(" y ")}`,
+        porQue: `${INSUF}el contrato no registra la firma de ${sinDatoFirma.join(" y ")}; no se puede afirmar que esté firmado ni que falte la firma.`,
+        accion: "Completar firma",
         entidad: ref,
       });
     }
 
+    // Vigencia.
     const d = diasHasta(ct.fechaTermino, hoy);
-    if (d != null && d < 0) {
+    if (d == null) {
+      out.push({
+        id: `vigencia_sindato:${ct.id}`,
+        severidad: "info",
+        titulo: ausente(ct.fechaTermino)
+          ? `${nombre} · sin fecha de término registrada`
+          : `${nombre} · fecha de término ilegible`,
+        porQue: `${INSUF}sin una fecha de término válida no se puede evaluar si el contrato está vigente o por vencer.`,
+        accion: "Completar vigencia",
+        entidad: ref,
+      });
+    } else if (d < 0) {
       out.push({
         id: `vencido:${ct.id}`,
         severidad: "critico",
         titulo: `${nombre} · contrato vencido hace ${Math.abs(d)} días`,
-        porQue: "Se sigue devengando royalty sobre un contrato sin vigencia.",
+        porQue: "El contrato ya no está vigente: revisar si se renueva o se da de baja antes de seguir facturando sobre él.",
         accion: "Renovar o dar de baja",
         entidad: ref,
       });
-    } else if (d != null && d <= 90) {
+    } else if (d <= 90) {
       out.push({
         id: `porvencer:${ct.id}`,
         severidad: "alto",
@@ -216,7 +267,16 @@ export function alertasAccionables(blob, hoy = new Date()) {
     }
 
     const plant = arr(ct.plantaciones);
-    if (num(ct.valorRoyaltyPlanta) === 0 && plant.length > 0) {
+    if (plant.length > 0 && ausente(ct.valorRoyaltyPlanta)) {
+      out.push({
+        id: `tarifa_rp:${ct.id}`,
+        severidad: "alto",
+        titulo: `${nombre} · sin tarifa de royalty por planta registrada, con ${plant.length} plantaciones`,
+        porQue: `${INSUF}la tarifa no está cargada; no se puede determinar qué corresponde facturar por esas plantas.`,
+        accion: "Cargar tarifa",
+        entidad: ref,
+      });
+    } else if (plant.length > 0 && num(ct.valorRoyaltyPlanta) === 0) {
       out.push({
         id: `tarifa_rp:${ct.id}`,
         severidad: "alto",
@@ -232,25 +292,61 @@ export function alertasAccionables(blob, hoy = new Date()) {
         id: `mes_rc:${ct.id}`,
         severidad: "alto",
         titulo: `${nombre} · sin mes de facturación del royalty comercial`,
-        porQue: "Sin mes definido el cobro no entra a ningún trimestre y se pasa el año.",
+        porQue: `${INSUF}sin mes definido no se puede ubicar el cobro en un trimestre.`,
         accion: "Definir mes",
         entidad: ref,
       });
     }
 
-    const sinPlantas = plant.filter((p) => num(p.nPlantas) === 0);
-    if (sinPlantas.length > 0) {
+    // Pago del contract fee: Contratos vs Fee Entrada. Solo lectura, sin montos.
+    const fe = feeEntradaDeContrato(b, ct);
+    if (fe.discrepa) {
+      out.push({
+        id: `fee_discrepancia:${ct.id}`,
+        severidad: "alto",
+        titulo: `${nombre} · el pago del contract fee no coincide entre Contratos y Fee Entrada`,
+        porQue:
+          `El contrato lo marca ${fe.marcadoContrato ? "pagado" : "no pagado"} y Fee Entrada ` +
+          `${fe.hayFila ? (fe.pagadoFila ? "lo registra pagado" : "lo registra no pagado") : "no tiene fila (muestra no pagado)"}. ` +
+          "Pendiente de conciliación: no se afirma pago ni deuda.",
+        accion: "Revisar conciliación",
+        entidad: ref,
+      });
+    }
+
+    const plantasCero = plant.filter((p) => !ausente(p.nPlantas) && num(p.nPlantas) === 0);
+    if (plantasCero.length > 0) {
       out.push({
         id: `plantas0:${ct.id}`,
         severidad: "info",
-        titulo: `${nombre} · ${sinPlantas.length} plantaciones sin número de plantas`,
+        titulo: `${nombre} · ${plantasCero.length} plantaciones con 0 plantas`,
         porQue: "El royalty por planta se calcula sobre ese dato; en cero no aporta.",
         accion: "Completar plantaciones",
         entidad: ref,
       });
     }
+    const plantasSinDato = plant.filter((p) => ausente(p.nPlantas));
+    if (plantasSinDato.length > 0) {
+      out.push({
+        id: `plantas_sindato:${ct.id}`,
+        severidad: "info",
+        titulo: `${nombre} · ${plantasSinDato.length} plantaciones sin número de plantas registrado`,
+        porQue: `${INSUF}sin ese dato no se puede evaluar el royalty por planta de esas plantaciones.`,
+        accion: "Completar plantaciones",
+        entidad: ref,
+      });
+    }
 
-    if (!anexoActivo(ct.anexo1)) {
+    if (ausente(ct.anexo1)) {
+      out.push({
+        id: `anexo1:${ct.id}`,
+        severidad: "info",
+        titulo: `${nombre} · sin dato de Anexo 1`,
+        porQue: `${INSUF}el contrato no registra el Anexo 1, que fija variedades y superficie licenciadas.`,
+        accion: "Adjuntar anexo",
+        entidad: ref,
+      });
+    } else if (!anexoActivo(ct.anexo1)) {
       out.push({
         id: `anexo1:${ct.id}`,
         severidad: "info",
@@ -271,14 +367,25 @@ export function alertasAccionables(blob, hoy = new Date()) {
         id: `participacion:${ob.id}`,
         severidad: "alto",
         titulo: `${nombre} · sin reglas de participación`,
-        porQue: "Sin regla no hay forma de calcular cuánto le corresponde de cada ingreso.",
+        porQue: Array.isArray(ob.participacionIngresos)
+          ? "Sin regla no hay forma de calcular cuánto le corresponde de cada ingreso."
+          : `${INSUF}el obtentor no tiene reglas de participación registradas; no se puede evaluar cuánto le corresponde.`,
         accion: "Definir participación",
         entidad: ref,
       });
     }
 
     const d = diasHasta(ob.f_vencimiento, hoy);
-    if (d != null && d < 0) {
+    if (d == null) {
+      out.push({
+        id: `obt_vigencia_sindato:${ob.id}`,
+        severidad: "info",
+        titulo: `${nombre} · sin fecha de vencimiento válida del contrato de obtentor`,
+        porQue: `${INSUF}sin esa fecha no se puede evaluar si la representación está vigente.`,
+        accion: "Completar vigencia",
+        entidad: ref,
+      });
+    } else if (d < 0) {
       out.push({
         id: `obt_vencido:${ob.id}`,
         severidad: "critico",
@@ -287,7 +394,7 @@ export function alertasAccionables(blob, hoy = new Date()) {
         accion: "Renovar contrato",
         entidad: ref,
       });
-    } else if (d != null && d <= 90) {
+    } else if (d <= 90) {
       out.push({
         id: `obt_porvencer:${ob.id}`,
         severidad: "alto",
@@ -303,7 +410,9 @@ export function alertasAccionables(blob, hoy = new Date()) {
         id: `pbr:${ob.id}`,
         severidad: "info",
         titulo: `${nombre} · sin registros PBR cargados`,
-        porQue: "Sin PBR no se puede acreditar la titularidad de la variedad.",
+        porQue: Array.isArray(ob.pbr)
+          ? "Sin PBR no se puede acreditar la titularidad de la variedad."
+          : `${INSUF}el obtentor no tiene registros PBR informados; no se puede acreditar la titularidad.`,
         accion: "Cargar PBR",
         entidad: ref,
       });
@@ -312,8 +421,18 @@ export function alertasAccionables(blob, hoy = new Date()) {
 
   for (const vi of arr(b.viveros)) {
     const nombre = txt(vi.viverista) || txt(vi.razonSocial) || txt(vi.id);
+    const refV = { tipo: "vivero", id: txt(vi.id), nombre };
     const d = diasHasta(vi.f_vencimiento, hoy);
-    if (d != null && d <= 90) {
+    if (d == null) {
+      out.push({
+        id: `viv_vigencia_sindato:${vi.id}`,
+        severidad: "info",
+        titulo: `${nombre} · sin fecha de vencimiento válida del contrato de vivero`,
+        porQue: `${INSUF}sin esa fecha no se puede evaluar si el vivero sigue habilitado.`,
+        accion: "Completar vigencia",
+        entidad: refV,
+      });
+    } else if (d <= 90) {
       out.push({
         id: `viv:${vi.id}`,
         severidad: d < 0 ? "alto" : "info",
@@ -323,7 +442,7 @@ export function alertasAccionables(blob, hoy = new Date()) {
             : `${nombre} · contrato de vivero vence en ${d} días`,
         porQue: "Sin vivero habilitado no hay plantas que despachar la próxima temporada.",
         accion: "Revisar contrato",
-        entidad: { tipo: "vivero", id: txt(vi.id), nombre },
+        entidad: refV,
       });
     }
   }
@@ -446,6 +565,7 @@ function fichaContrato(b, id) {
   if (!ct) return null;
   const plant = arr(ct.plantaciones);
   const firmado = !!ct.firmadoLicenciado && !!ct.firmadoOsiris;
+  const fe = feeEntradaDeContrato(b, ct);
 
   return {
     tipo: "contrato",
@@ -480,7 +600,9 @@ function fichaContrato(b, id) {
         campos: [
           campo("Tipo contract fee", txt(ct.tipoContractFee)),
           campo("Monto contract fee", num(ct.montoContractFee), "moneda"),
-          campo("Contract fee pagado", siNo(ct.contractFeePagado)),
+          campo("Marcado pagado en el contrato", siNo(ct.contractFeePagado)),
+          campo("Fee Entrada (pestaña)", fe.aplica ? (fe.hayFila ? (fe.pagadoFila ? "Pagado" : "No pagado") : "Sin fila (muestra no pagado)") : "No aplica"),
+          campo("Contrato vs Fee Entrada", fe.aplica ? (fe.discrepa ? "Discrepan: pendiente de conciliación" : "Coinciden") : "No aplica"),
           campo("Royalty por planta", num(ct.valorRoyaltyPlanta), "moneda"),
           campo("Royalty comercial (por ha)", num(ct.valorRoyaltyComercial), "moneda"),
           campo("Mes facturación RC", txt(ct.mesFacuracionRC) || "sin definir"),
