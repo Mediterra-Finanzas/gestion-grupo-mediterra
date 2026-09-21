@@ -5818,6 +5818,13 @@ function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit,saldosBanc
   const [modalSem,setModalSem]=useState(null);
   // Overrides de proyección editados por el usuario: { lineLabel: { idx: valor | {_sem0,_sem1,_sem2,_sem3} } }
   const [proyOverrides,  setProyOverrides]  = useState({});
+  // Resoluciones ya registradas (qué mes ambiguo fue asignado a qué categoría).
+  // Va ANTES de getProy: las listas de dependencias se evalúan en el render, así
+  // que declararlo después rompe con "Cannot access before initialization".
+  const resoluciones = useMemo(
+    () => realData?.[empNombre]?._resolucionesOverride || [],
+    [realData, empNombre]
+  );
   const [expandedSubs,   setExpandedSubs]   = useState({});  // ▶ CxC / Préstamos
   const [addedLines,     setAddedLinesLocal]      = useState(addedLinesInit);  // persistido en Supabase
   // Wrapper que persiste en Supabase al cambiar addedLines
@@ -6059,11 +6066,6 @@ function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit,saldosBanc
     return total;
   },[addedLines]);
 
-  // Resoluciones ya registradas (qué mes fue asignado a qué categoría).
-  const resoluciones = useMemo(
-    () => realData?.[empNombre]?._resolucionesOverride || [],
-    [realData, empNombre]
-  );
   // Valores manuales antiguos (clave solo-etiqueta) sobre conceptos que
   // existen en más de una categoría: no se puede saber a cuál pertenecen.
   const ambiguos = useMemo(
