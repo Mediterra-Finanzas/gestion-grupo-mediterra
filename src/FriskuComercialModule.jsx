@@ -9051,6 +9051,7 @@ export default function FriskuComercialModule({
   const [filtroExpLiq,   setFiltroExpLiq]   = useState("");
   const [filtroCliLiq,   setFiltroCliLiq]   = useState("");
   const [filtroTempLiq,  setFiltroTempLiq]  = useState("");
+  const [filtroContLiq,  setFiltroContLiq]  = useState("");   // filtro por N° de contenedor (de la OE)
   // UI Liquidaciones — sub-vista: "liq" (por embarque) | "po" (cobro al cliente)
   const [liqView,        setLiqView]        = useState("liq");
   const [editandoPO,     setEditandoPO]     = useState(null);
@@ -9529,14 +9530,16 @@ export default function FriskuComercialModule({
     return liquidaciones.filter(liq=>{
       if(filtroEstadoLiq && liq.estado !== filtroEstadoLiq) return false;
       if(filtroTempLiq   && liq.temporada !== filtroTempLiq) return false;
-      if(filtroExpLiq || filtroCliLiq) {
+      if(filtroExpLiq || filtroCliLiq || filtroContLiq) {
         const oe = embarques.find(e=>e.id===liq.oeId);
         if(filtroExpLiq && oe?.exportadoraId !== filtroExpLiq) return false;
         if(filtroCliLiq && oe?.clienteId     !== filtroCliLiq) return false;
+        // Contenedor: parcial, sin distinguir may/min, ignorando espacios accidentales. Sobre la OE real.
+        if(filtroContLiq && !String(oe?.numeroContenedor||"").trim().toLowerCase().includes(filtroContLiq.trim().toLowerCase())) return false;
       }
       return true;
     }).sort((a,b)=>(b.fechaLiquidacion||"").localeCompare(a.fechaLiquidacion||""));
-  },[liquidaciones, filtroEstadoLiq, filtroExpLiq, filtroCliLiq, filtroTempLiq, embarques]);
+  },[liquidaciones, filtroEstadoLiq, filtroExpLiq, filtroCliLiq, filtroTempLiq, filtroContLiq, embarques]);
 
   // Total en USD: usa el USD guardado y, si falta, la conversión EN VIVO con el TC disponible.
   const totalComisionFriskuUSD = useMemo(()=>
@@ -10364,9 +10367,15 @@ export default function FriskuComercialModule({
                   <SelectBuscable listId="flt-liq-cli" value={filtroCliLiq} onChange={setFiltroCliLiq}
                     placeholder="🔍 Todos los clientes" style={{...inputSt, maxWidth:180}}
                     options={clientes.filter(c=>c.activo!==false).slice().sort((a,b)=>(a.nombre||"").localeCompare(b.nombre||"")).map(c=>({value:c.id, label:c.nombre}))}/>
-                  {(filtroEstadoLiq||filtroTempLiq||filtroExpLiq||filtroCliLiq) && (
+                  <input value={filtroContLiq} onChange={e=>setFiltroContLiq(e.target.value)}
+                    placeholder="🔍 N° contenedor" title="Filtra por número de contenedor de la OE (parcial)"
+                    style={{...inputSt, maxWidth:150}}/>
+                  {filtroContLiq && (
+                    <button onClick={()=>setFiltroContLiq("")} title="Limpiar solo el filtro de contenedor" style={{...btnSt(C.muted,true), fontSize:11}}>✕ Contenedor</button>
+                  )}
+                  {(filtroEstadoLiq||filtroTempLiq||filtroExpLiq||filtroCliLiq||filtroContLiq) && (
                     <button
-                      onClick={()=>{setFiltroEstadoLiq(""); setFiltroTempLiq(""); setFiltroExpLiq(""); setFiltroCliLiq("");}}
+                      onClick={()=>{setFiltroEstadoLiq(""); setFiltroTempLiq(""); setFiltroExpLiq(""); setFiltroCliLiq(""); setFiltroContLiq("");}}
                       style={{...btnSt(C.muted,true), fontSize:11}}
                     >✕ Limpiar</button>
                   )}
