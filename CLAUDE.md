@@ -44,6 +44,7 @@ Aplicación web interna para la gestión financiera y operativa de **Grupo Medit
 - `AllegriaModule.jsx` — módulo Allegria
 - `FriskuModule.jsx` (~1.500 L) — **Maestros globales de Frisku** (a pesar del nombre del archivo, internamente es `FriskuMaestrosModule`): 11 tabs — Países, Ciudades, Puertos, Aeropuertos, Shipping Lines, Tipos Embarque, **Especies** (Fase 2), Tipos Embalaje, Mercados, Monedas, **Tipo de Cambio histórico** (Fase 2, con APIs), Checklist Docs
 - `FriskuComercialModule.jsx` (~5.900 L) — módulo comercial: Dashboard, **Clientes**/**Exportadoras** (CRUD), Contratos (Business Closure), **Programa** (semanal; cada semana define **semana de ETD (despacho)** y **semana de ETA (llegada)** por N°+año —ambas con rango de fechas y días de tránsito—, **vía marítimo/aéreo** —marítimo lleva **Contenedores/FCL**, aéreo lleva **Pallets**—, y cajas por formato; `fechaSemana`=lunes de la semana ETD. Etiqueta de semana con año ISO. Toolbar con filtros buscables temp/exp/cli/especie + lista desplegable para saltar a un closure), **Embarques** (OE + Packing List + COMEX), **Liquidaciones** + PO, **📈 Reportes** (Fase 8) y embed de Maestros + TC. **Tab Reportes** (`ReportesTab`): selector con 6 reportes BI, todos con export **Excel (ExcelJS, con logo Frisku)** + **PDF (jsPDF/autoTable, con logo)** — (1) Ingreso Frisku por temporada, (2) Rentabilidad por especie/mercado/cliente, (3) Programa vs Real en **FCL** (plan = `contenedoresFCL` del programa por especie del closure; real = OEs marítimas no canceladas, 1 OE = 1 contenedor; agrupa por especie/cliente/ambos), (4) Pipeline de embarques, (5) Ranking de exportadoras, (6) Cobranza/aging de comisión (sobre PO, buckets 0–30/31–60/61–90/>90 días desde emisión). Tabla de hechos = liquidaciones (comisión ya en USD). Helpers de export/logo con prefijo `fr_*` (fr_loadExcelJS, fr_sheetTabla, fr_logoPDF/Excel). **Nota**: el resto del módulo aún exporta el Packing List con XML SpreadsheetML manual; solo el tab Reportes usa ExcelJS.
+- `anticipos.js` (**nuevo sep-2026**) — modelo puro de anticipos con realizaciones (acordado/realizado/pendiente/descuento de liquidación, trazabilidad de cobros y pagos, conciliación contra los saldos bancarios). Lo usan `FinanzasModule.jsx` (pantalla + `calcAllegria`) y `flujoExportExcel.js`.
 - `friskuHelpers.js` (~290 L, **nuevo Fase 2**) — helpers compartidos: persistencia genérica, modelo de comisión Frisku, formateo de montos, búsqueda TC, conversión multimoneda, integración mindicador.cl + frankfurter.app
 - `RendicionesModule.jsx` — **Rendiciones de gasto del personal**: cada trabajador carga sus propios gastos con respaldos (boletas/facturas en Supabase Storage) y workflow de aprobación (borrador → enviada → aprobada/rechazada → pagada). Se renderiza como **pestaña "🧾 Rendiciones" DENTRO de FinanzasModule** (no es un tile aparte del hub). Sub-tabs internos: Mis Rendiciones (todos), Por Aprobar / Pagos / Reportes (solo aprobadores = admin o `esCFO`). Reutiliza `dbLoadGeneric/dbSaveGeneric` y `uploadArchivoFrisku` (bucket `frisku-docs`, prefijo `rendiciones/`) de `friskuHelpers.js`. Persiste en `calendario_data` id=`rendiciones`. Independiente del flujo de caja. **Multimoneda con conversión para pago**: cada rendición tiene `monedaPago` (default CLP) y `fechaTC`; cada gasto se convierte a la moneda de pago **triangulando vía USD** (`convertir()` usa `buscarTC` de `friskuHelpers`, con par inverso). Ej. soles: `PEN→USD→CLP`. Las APIs gratis NO cubren PEN, así que el par `USD-PEN` debe cargarse manual en Maestros → Tipo de Cambio; los gastos sin TC se marcan ⚠ y se excluyen del total. Reportes totaliza en CLP equivalente. **Acceso**: en el merge de usuarios de `App.jsx`, a quien no tenga el módulo `finanzas` se le otorga, pero con TODAS las pestañas financieras en `sin_acceso` y solo `rendiciones` en `editar` → así todo el personal puede cargar gastos sin ver datos financieros sensibles. Quienes ya tenían Finanzas (Angelo, Carol) conservan acceso completo.
 - `emailHelper.js` — utilidades de email
@@ -152,6 +153,99 @@ Las líneas con `formula:true` y "Préstamos" en el label:
 - Las sublines visibles vienen de `calcPrestamosDesglose()` (por acreedor)
 - Mantienen consistencia con el módulo Créditos: una sola fuente de verdad
 
+#### Anticipos con realizaciones — Allegria Foods (sep-2026)
+
+Un anticipo se pacta en US$/kg y se cobra/paga en uno o más eventos reales. Lo ya
+cobrado/pagado **no vuelve a proyectarse** en el flujo (ya está en la caja), pero
+**sigue descontándose** de la liquidación final.
+
+Modelo en `src/anticipos.js` (puro, testeado con `node src/anticipos.test.mjs`):
+
+```
+acordado   = kilos × US$/kg              (recalcula si cambian kilos o tarifa)
+realizado  = Σ realizaciones vigentes    (monto FIJO en USD: histórico, nunca recalcula)
+pendiente  = cerrado ? 0 : MAX(0, acordado − realizado)
+descLiq    = realizado + pendiente       (= MAX(acordado, realizado) si no está cerrado)
+liquidación = MAX(0, total − Σ descLiq)  · excedente = MAX(0, Σ descLiq − total)
+```
+
+Estructura del anticipo (dentro de `anticipos_cliente` / `anticipos_productor`):
+
+```js
+{ id, mes, usd_kg, cerrado:false,
+  realizaciones:[ { id, fecha, usd, nota, usuario, ts,
+                    anulada?, motivoAnulacion?, anuladaPor?, anuladaTs? } ] }
+```
+
+Reglas que no hay que romper:
+
+- **Solo se proyecta el pendiente.** `calcAllegria` suma `antPendiente(a, kg)` en el mes
+  del anticipo y `resumenAnticipos(...).liquidacion` en el mes de liquidación.
+- **Un mes que pasa NO da por cobrado nada.** El pendiente vencido se marca en pantalla
+  y se reprograma a mano; nunca se mueve ni se salda solo.
+- **Un anticipo sin mes válido no se proyecta y tampoco descuenta** de la liquidación
+  (se cobra/paga al liquidar): así la caja no desaparece. Es el comportamiento histórico.
+- **Sobre-anticipo:** la liquidación queda en 0 y el excedente se muestra explícito
+  (pantalla y fila propia en el Excel). No se genera devolución automática.
+- **Realizaciones:** no se borran ni se editan. Corregir = anular con motivo (queda en el
+  historial) y registrar la correcta. Un anticipo con realizaciones vigentes no se puede
+  eliminar.
+- **Conciliación bancaria:** cada cuenta tiene su propia fecha de saldo, así que no se usa
+  una fecha de corte única. `clasificarRealizacionVsSaldos` devuelve `incluida` /
+  `indeterminada` / `no_incluida` / `sin_saldos` / `sin_fecha`, y la pantalla dice
+  explícitamente cuándo **no se puede comprobar**.
+- **Compatibilidad:** un anticipo sin `realizaciones` se comporta exactamente como antes.
+
+Excel (`buildParametrosAllegria`): por cada anticipo van columnas C=cierre, D=US$/kg,
+E=acordado (fórmula), **F=realizado (constante, nunca fórmula)**, G=pendiente
+(`IF(C="Cerrado",0,MAX(0,E−F))`). A la columna de movimiento que lee el flujo por SUMIF va
+solo el pendiente. La liquidación descuenta `Σ (F + IF(mes="",0,G))`, y hay una fila de
+sobre-anticipo `MAX(0,descuento−total)`. Editar kilos o FOB recalcula acordado, pendiente
+y liquidación; el realizado no se mueve.
+
+#### Override manual vs. Excel (sep-2026)
+
+Un mes con override manual (`_proyOverrides`) muestra en pantalla el valor escrito
+a mano, no el calculado. `buildEmpresasConOverrides` anota esos meses en la línea
+(`_ovIdx`) y `catsDeEmpresa` escribe ESA celda del Excel como **valor fijo** en vez
+de la fórmula SUMIF contra la hoja Parametros. Sin esto el archivo mostraba el
+cálculo y la pantalla el override (detectado en la prueba E2E de navegador, con el
+Excel recalculado de verdad). El resto de los meses de la línea sigue vivo por
+fórmula. El export consolidado ya iba por valores estáticos, así que no tenía el
+problema.
+
+#### Saldo inicial del Excel = mes en curso (sep-2026)
+
+Antes el Excel aplicaba el saldo bancario en Apr-26 y acumulaba encima meses ya pasados.
+Ahora `buildStatement` recibe `startAccumIdx` (mes actual, igual que `mesIdxInicioSaldo` en
+pantalla): los meses anteriores muestran su flujo pero quedan **sin** saldo inicial/final,
+y el arrastre parte en el mes en curso. Aplica al export individual y al consolidado (que
+además ancla su fórmula de saldo a la columna de ese mes).
+
+#### Bug preexistente detectado (NO es de esta rama) — Allpa Farms
+
+En `Allpa Farms` hay **14 etiquetas de línea repetidas entre `egr_var` y `egr_fijo`**
+("Electricidad", "Gratificaciones", "Casino - Colaciones", "Gastos De Aseo", …).
+`getProy(label, idx)` resuelve por ETIQUETA recorriendo todas las secciones y
+devuelve la primera coincidencia, así que el subtotal en pantalla de
+"Costos Fijos / SG&A" toma los valores de la línea homónima de Egresos
+Operacionales. Resultado: la pantalla muestra US$107.783 en Apr-26 donde el
+Excel (que usa el valor propio de cada línea) muestra US$99.677,78; el desvío
+se repite en los 63 meses y arrastra Flujo Neto y Saldo Acumulado.
+
+Comprobado idéntico en `main` (126 desvíos por pasada, mismos montos), así que
+es anterior a los anticipos. **El correcto es el Excel; el error está en la
+pantalla.** No se arregló acá para no mezclar un cambio de `getProy` —que
+afecta a todos los módulos y a las claves de `_proyOverrides`, que también son
+por etiqueta— con el trabajo de anticipos. Queda como tarea aparte.
+
+#### Limitación conocida — costos de ciruelas
+
+`calcAllegria` calcula `cost/mat/srv` de ciruelas pero `buildAllegria` no tiene líneas de
+flujo para ellos: los anticipos de productor, saldo, materiales y servicios de ciruelas no
+llegan al flujo ni al Excel. Está avisado en pantalla. Pendiente aparte (decisión contable
+de Angelo), no se arregló en el cambio de anticipos.
+
 #### Bug histórico arreglado (no volver a romper)
 
 El subtotal de categoría debe **incluir** las sublines de líneas con "Préstamos" en el nombre. Antes se excluían y generaba descuadre con el Flujo Neto. La exclusión `!l.label.includes("Préstamos")` fue removida del cálculo de subtotales — no volverla a poner.
@@ -216,6 +310,15 @@ CI=true npm run build                 # bash
 
 # Deploy a Vercel (si tienes Vercel CLI)
 vercel --prod
+
+# Tests
+node src/anticipos.test.mjs                 # modelo de anticipos (puro)
+CI=true npx react-scripts test --watchAll=false     # suite completa (jest)
+CI=true npx react-scripts test --testPathPattern Anticipos --watchAll=false
+node scripts/verif-excel-recalc.mjs         # recálculo REAL del Excel (requiere LibreOffice Calc)
+# E2E en navegador (app real + Supabase falso aislado): ver scripts/e2e/README.md
+cd scripts/e2e && OUT_DIR=/tmp/e2e node e2e.mjs
+OUT_DIR=/tmp/e2e node scripts/e2e/regresion-empresas.mjs   # las 8 empresas: pantalla vs Excel
 
 # Git workflow estándar
 git add .
@@ -282,5 +385,7 @@ export default function MiModulo({ canEdit, ... }) {
 
 ---
 
-**Última actualización**: 2026-06-16 — Fix crítico de persistencia: gate de carga exitosa (`cargaOkRef`) en todos los módulos para que un fallo de red no sobrescriba Supabase con defaults (incidente que borró la fila `main`). Backup diario ahora genérico (cubre cualquier fila/módulo futuro) + retención automática (30 días + mensual). Ver regla 9.
+**Última actualización**: 2026-09-21 — Prueba E2E en navegador (app real, Supabase aislado, Excel recalculado con LibreOffice): 4.036 celdas comparadas pantalla vs Excel, 0 diferencias. Corrige que el Excel individual ignoraba un override manual en una línea calculada. Anticipos de Allegria Foods con realizaciones: lo ya cobrado/pagado deja de proyectarse pero sigue descontándose de la liquidación; trazabilidad de cobros/pagos (anulación con motivo, nunca borrado); avisos de vencido, sobre-anticipo, override manual y conciliación contra los saldos bancarios por cuenta. Excel con acordado/realizado/pendiente/cierre y saldo inicial anclado al mes en curso (igual que pantalla), verificado con recálculo real en LibreOffice. Ver sección "Anticipos con realizaciones".
+
+**Actualización previa**: 2026-06-16 — Fix crítico de persistencia: gate de carga exitosa (`cargaOkRef`) en todos los módulos para que un fallo de red no sobrescriba Supabase con defaults (incidente que borró la fila `main`). Backup diario ahora genérico (cubre cualquier fila/módulo futuro) + retención automática (30 días + mensual). Ver regla 9.
 **Mantener este archivo actualizado** después de cambios mayores en estructura, módulos nuevos, o decisiones de arquitectura importantes.
