@@ -4042,7 +4042,35 @@ const LIQ_ESTADOS = {
 };
 const LIQ_ESTADO_SIG = { borrador:"enviada", enviada:"pagada" };
 
-function LiquidacionForm({ liq, embarques, clientes, exportadoras, especies, monedas, tiposEmbalaje=[], tcData, liquidaciones=[], onGuardar, onCancelar, onEditarExistente }) {
+// ── Borrador local de liquidación (Fase 3) ──────────────────────────────────
+// Red de seguridad contra pérdida de lo escrito en el formulario: si un aviso/errror
+// EXTERNO (p.ej. el banner transversal de "no se guardó ...") lleva a Carolina a recargar
+// la pestaña, lo tipeado se recupera. Se guarda en localStorage por usuario+entidad.
+// entityKey = id de la liquidación (al editar) o `new::<oeId>` (al crear con OE elegida).
+// No contiene credenciales ni datos sensibles: solo cifras comerciales del formulario.
+const LIQ_DRAFT_PREFIX = "frisku_liq_draft_v1";
+const liqDraftKey = (userKey, entityKey) => `${LIQ_DRAFT_PREFIX}::${userKey||"anon"}::${entityKey}`;
+function liqDraftLeer(userKey, entityKey){
+  try { const s = localStorage.getItem(liqDraftKey(userKey, entityKey)); return s ? JSON.parse(s) : null; }
+  catch(e){ return null; }
+}
+function liqDraftGuardar(userKey, entityKey, payload){
+  try { localStorage.setItem(liqDraftKey(userKey, entityKey), JSON.stringify(payload)); } catch(e){}
+}
+function liqDraftBorrar(userKey, entityKey){
+  try { localStorage.removeItem(liqDraftKey(userKey, entityKey)); } catch(e){}
+}
+// Tras un guardado CONFIRMADO por el servidor, limpia los borradores de las liquidaciones
+// que ya quedaron persistidas (por id y por su clave de creación new::<oeId>).
+function liqDraftBorrarConfirmados(userKey, arr){
+  (arr||[]).forEach(l=>{
+    if(!l) return;
+    if(l.id)   liqDraftBorrar(userKey, l.id);
+    if(l.oeId) liqDraftBorrar(userKey, `new::${l.oeId}`);
+  });
+}
+
+function LiquidacionForm({ liq, embarques, clientes, exportadoras, especies, monedas, tiposEmbalaje=[], tcData, liquidaciones=[], userKey="", onGuardar, onCancelar, onEditarExistente }) {
   const hoyISO = new Date().toISOString().slice(0,10);
   const [form, setForm] = useState({
     oeId:             liq?.oeId             || "",
@@ -4074,6 +4102,57 @@ function LiquidacionForm({ liq, embarques, clientes, exportadoras, especies, mon
     [liquidaciones, form.oeId]
   );
   const [verExistenteId, setVerExistenteId] = useState(null); // toggle de vista inline (sin salir del form)
+
+  // ── Borrador local (Fase 3) ──
+  const dirtyRef      = useRef(false);        // hay cambios sin confirmar en el servidor
+  const sesionTsRef   = useRef(Date.now());   // separa "borrador previo" de lo que escribimos ahora
+  const primerDraft   = useRef(true);         // no draftear el estado inicial (evita dirty falso)
+  const [draftRecuperable, setDraftRecuperable] = useState(null); // {entityKey, d} de una sesión anterior
+  const [draftGuardadoTs, setDraftGuardadoTs]   = useState(null); // feedback "borrador guardado hace…"
+  const entityKey = liq?.id ? liq.id : (form.oeId ? `new::${form.oeId}` : null);
+  const armarDraft = () => ({
+    __schema: 1, ts: Date.now(), liqId: draftIdRef.current, oeId: form.oeId,
+    form, ventaPorPallet, mermaPorPallet, gastosDestino, anticipo,
+  });
+
+  // Autosave del borrador (debounce). Solo cuando ya hay OE (algo que resguardar).
+  useEffect(()=>{
+    if(primerDraft.current){ primerDraft.current = false; return; }
+    if(!entityKey) return;
+    dirtyRef.current = true;
+    const t = setTimeout(()=>{ liqDraftGuardar(userKey, entityKey, armarDraft()); setDraftGuardadoTs(Date.now()); }, 600);
+    return ()=> clearTimeout(t);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  },[form, ventaPorPallet, mermaPorPallet, gastosDestino, anticipo]);
+
+  // ¿Hay un borrador de una sesión ANTERIOR para esta entidad? (ts previo al inicio de esta sesión)
+  useEffect(()=>{
+    if(!entityKey){ setDraftRecuperable(null); return; }
+    const d = liqDraftLeer(userKey, entityKey);
+    setDraftRecuperable(d && d.ts && d.ts < sesionTsRef.current ? { entityKey, d } : null);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  },[entityKey]);
+
+  // Aviso nativo al cerrar/recargar la pestaña con cambios sin confirmar.
+  useEffect(()=>{
+    const h = (e)=>{ if(dirtyRef.current){ e.preventDefault(); e.returnValue = ""; } };
+    window.addEventListener("beforeunload", h);
+    return ()=> window.removeEventListener("beforeunload", h);
+  },[]);
+
+  const recuperarDraft = () => {
+    const d = draftRecuperable?.d; if(!d) return;
+    if(d.form)                        setForm(f=>({...f, ...d.form}));
+    if(d.ventaPorPallet)              setVentaPorPallet({...d.ventaPorPallet});
+    if(d.mermaPorPallet)              setMermaPorPallet({...d.mermaPorPallet});
+    if(Array.isArray(d.gastosDestino))setGastosDestino(d.gastosDestino.map(g=>({...g})));
+    if(d.anticipo!=null)              setAnticipo(String(d.anticipo));
+    setDraftRecuperable(null);
+  };
+  const descartarDraft = () => {
+    if(draftRecuperable?.entityKey) liqDraftBorrar(userKey, draftRecuperable.entityKey);
+    setDraftRecuperable(null);
+  };
 
   // Al elegir/cambiar la OE, la moneda de liquidación toma la del cliente
   // (ej. Global Fruit Point → EUR). No pisa la moneda guardada al abrir a editar.
@@ -4188,6 +4267,10 @@ function LiquidacionForm({ liq, embarques, clientes, exportadoras, especies, mon
       fechaCreacion:      liq?.fechaCreacion || new Date().toISOString(),
       fechaActualizacion: new Date().toISOString(),
     });
+    // Guardado local aplicado (el registro ya está en el estado del padre). No borramos el
+    // borrador aquí: lo limpia el padre SOLO tras la confirmación del servidor. Bajamos dirty
+    // para no gatillar el aviso de "cambios sin guardar" al cerrarse el formulario.
+    dirtyRef.current = false;
   };
 
   const fmt = (v) => formatearMonto(v, form.monedaBase, monedasMap);
@@ -4197,6 +4280,20 @@ function LiquidacionForm({ liq, embarques, clientes, exportadoras, especies, mon
       <h3 style={{margin:"0 0 16px", fontSize:14, color:C.text, fontWeight:700}}>
         {liq?.id ? "Editar liquidación" : "Nueva liquidación"}
       </h3>
+
+      {/* Recuperación de borrador de una sesión anterior (Fase 3) */}
+      {draftRecuperable && (
+        <div style={{marginBottom:14, background:`${C.blue}14`, border:`1px solid ${C.blue}66`, borderRadius:10, padding:12, display:"flex", gap:10, alignItems:"center", flexWrap:"wrap"}}>
+          <span style={{fontSize:12, color:C.text}}>
+            💾 Hay un <b>borrador sin guardar</b> de esta liquidación
+            {draftRecuperable.d?.ts ? ` (de ${new Date(draftRecuperable.d.ts).toLocaleString("es-CL")})` : ""}. ¿Recuperar lo que habías ingresado?
+          </span>
+          <div style={{display:"flex", gap:6, marginLeft:"auto"}}>
+            <button type="button" onClick={recuperarDraft} style={{...btnSt(C.blue), fontSize:11}}>Recuperar</button>
+            <button type="button" onClick={descartarDraft} style={{...btnSt(C.muted,true), fontSize:11}}>Descartar</button>
+          </div>
+        </div>
+      )}
       <div style={{display:"grid", gridTemplateColumns:"repeat(auto-fill, minmax(200px,1fr))", gap:12}}>
 
         {/* OE */}
@@ -4502,9 +4599,17 @@ function LiquidacionForm({ liq, embarques, clientes, exportadoras, especies, mon
         </div>
       </div>
 
-      <div style={{display:"flex", gap:8, marginTop:14}}>
+      <div style={{display:"flex", gap:8, marginTop:14, alignItems:"center"}}>
         <button onClick={handleGuardar} style={btnSt(C.green)}>Guardar</button>
-        <button onClick={onCancelar} style={btnSt(C.muted, true)}>Cancelar</button>
+        <button
+          onClick={()=>{ if(dirtyRef.current && !window.confirm("Tienes cambios sin guardar en esta liquidación.\nSe conservan como borrador recuperable.\n\n¿Salir del formulario?")) return; onCancelar(); }}
+          style={btnSt(C.muted, true)}
+        >Cancelar</button>
+        {draftGuardadoTs && (
+          <span style={{fontSize:10, color:C.muted, marginLeft:"auto"}} title="Mientras editas se guarda un borrador local; se limpia solo cuando el servidor confirma el guardado">
+            💾 Borrador local {new Date(draftGuardadoTs).toLocaleTimeString("es-CL")}
+          </span>
+        )}
       </div>
     </div>
   );
@@ -9010,6 +9115,7 @@ export default function FriskuComercialModule({
   // (rol-checkers que reciben el nombre del usuario). Soportar también booleans
   // por si se invoca el componente desde otro contexto (tests, storybook).
   const nombreUsuario = usuarioActual?.nombre;
+  const userKey = nombreUsuario || "anon";   // clave de borradores locales por usuario (Fase 3)
   const admin = typeof esAdmin === "function" ? esAdmin(nombreUsuario) : !!esAdmin;
   const consulta = typeof esSoloConsulta === "function" ? esSoloConsulta(nombreUsuario) : !!esSoloConsulta;
   const canEditGlobal = admin || !consulta;
@@ -9243,7 +9349,7 @@ export default function FriskuComercialModule({
   // `setter` es obligatorio cuando la fila puede fusionarse: si el guardado trajo cambios
   // de otra persona, el estado en memoria DEBE quedar con el resultado fusionado. Si no,
   // la copia local queda sin esos ítems y el siguiente guardado los tomaría como borrados.
-  const useAutoSave = (id, valor, setter, listo=true) => {
+  const useAutoSave = (id, valor, setter, listo=true, onSaved) => {
     const timer = useRef(null);
     const primero = useRef(true);
     useEffect(()=>{
@@ -9258,6 +9364,9 @@ export default function FriskuComercialModule({
         const av = construirAviso(id, r, ETIQUETA_FILA[id] || id);
         if(av) setProblemaGuardado(av);
         else setProblemaGuardado(p => (p && p.id === id) ? null : p);
+        // Callback opcional post-guardado (recibe el resultado del contrato y lo enviado).
+        // Solo el consumidor de liquidaciones lo usa, para limpiar borradores CONFIRMADOS.
+        if(onSaved) onSaved(r, valor);
       }, 1000);
     },[valor]);
   };
@@ -9266,7 +9375,14 @@ export default function FriskuComercialModule({
   useAutoSave("frisku_contratos", contratos, setContratos);
   useAutoSave("frisku_programa", programa, setPrograma);
   useAutoSave("frisku_embarques", embarques, setEmbarques);
-  useAutoSave("frisku_liquidaciones", liquidaciones, setLiquidaciones);
+  useAutoSave("frisku_liquidaciones", liquidaciones, setLiquidaciones, true, (r, enviado)=>{
+    // Guardado CONFIRMADO por el servidor (contrato ok): recién ahí se limpian los borradores
+    // locales de las liquidaciones ya persistidas. Si hubo conflicto/error, el borrador se
+    // conserva y se ofrecerá recuperar al reabrir. Usa la versión autoritativa si hubo fusión.
+    if(!(r && r.ok)) return;
+    const arr = (r.fusionado && Array.isArray(r.valor)) ? r.valor : enviado;
+    liqDraftBorrarConfirmados(userKey, arr);
+  });
   useAutoSave("frisku_po", pos, setPos);
 
   // ── Filtrado de clientes ──
@@ -10409,6 +10525,7 @@ export default function FriskuComercialModule({
                 tiposEmbalaje={tiposEmbalaje}
                 tcData={tcData}
                 liquidaciones={liquidaciones}
+                userKey={userKey}
                 onGuardar={handleGuardarLiq}
                 onCancelar={()=>{setEditandoLiq(null); setCreandoLiq(false);}}
                 onEditarExistente={handleEditarLiq}
