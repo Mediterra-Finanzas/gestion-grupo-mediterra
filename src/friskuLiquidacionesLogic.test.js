@@ -9,7 +9,7 @@ import {
   normalizarEmail, identidadUsuario,
   liqDraftKey, entityBaseDe, draftEntityKey, clavesBorradorDeOp,
   prefijoBorradorEntidad, clavesRecuperablesDeEntidad,
-  evaluarConfirmacion,
+  evaluarConfirmacion, validarUnicidadOE,
 } from "./friskuLiquidacionesLogic";
 import { fusionarPorId } from "./friskuPersistencia";
 
@@ -230,5 +230,41 @@ describe("19. descubrir borradores recuperables por instancia", () => {
       liqDraftKey(user, draftEntityKey(base, "iB")),
     ].sort());
     expect(prefijoBorradorEntidad(user, base)).toBe(`frisku_liq_draft_v1::${user}::new::oe1#`);
+  });
+});
+
+// 20 — validarUnicidadOE (regla del consumidor para el validador opt-in)
+describe("20. validarUnicidadOE", () => {
+  it("rechaza dos activas de ids distintos para la misma OE; idExistente = la del servidor", () => {
+    const cand = [{ id: "B", oeId: "X", estado: "borrador" }, { id: "A", oeId: "X", estado: "enviada" }];
+    const r = validarUnicidadOE(cand, { servidor: [{ id: "A", oeId: "X", estado: "enviada" }] });
+    expect(r.ok).toBe(false);
+    expect(r.motivo).toBe("duplicado_oe");
+    expect(r.idExistente).toBe("A");   // A ya está en el servidor (ganadora)
+    expect(r.oeId).toBe("X");
+  });
+  it("misma liq (mismo id) NO es duplicado; distintas OEs pasan; anuladas/inactivas se ignoran", () => {
+    expect(validarUnicidadOE([{ id: "A", oeId: "X" }, { id: "A", oeId: "X" }]).ok).toBe(true); // mismo id
+    expect(validarUnicidadOE([{ id: "A", oeId: "X" }, { id: "B", oeId: "Y" }]).ok).toBe(true); // OEs distintas
+    expect(validarUnicidadOE([{ id: "A", oeId: "X" }, { id: "B", oeId: "X", estado: "anulada" }]).ok).toBe(true);
+    expect(validarUnicidadOE([{ id: "A", oeId: "X" }, { id: "B", oeId: "X", eliminada: true }]).ok).toBe(true);
+    expect(validarUnicidadOE([]).ok).toBe(true);
+  });
+  it("sin servidor: detecta el duplicado igual (idExistente = primero)", () => {
+    const r = validarUnicidadOE([{ id: "A", oeId: "X" }, { id: "B", oeId: "X" }]);
+    expect(r.ok).toBe(false);
+    expect(r.motivo).toBe("duplicado_oe");
+  });
+});
+
+// 21 — evaluarConfirmacion mapea los motivos nuevos
+describe("21. evaluarConfirmacion: duplicado_oe / fila_ausente", () => {
+  it("duplicado_oe -> estado 'duplicado' con idExistente; fila_ausente -> error", () => {
+    const op = { id: "B", version: "V", entityKey: "B#i1" };
+    const dup = evaluarConfirmacion({ ok: false, motivo: "duplicado_oe", idExistente: "A", oeId: "X" }, op);
+    expect(dup.estado).toBe("duplicado");
+    expect(dup.idExistente).toBe("A");
+    expect(dup.oeId).toBe("X");
+    expect(evaluarConfirmacion({ ok: false, motivo: "fila_ausente" }, op).estado).toBe("error");
   });
 });
