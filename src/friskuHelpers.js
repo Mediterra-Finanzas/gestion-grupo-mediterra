@@ -151,6 +151,27 @@ export async function dbSaveGeneric(id, value, opts = {}) {
         _registrarLectura(id, actual.valor, actual.updatedAt);
       }
 
+      // ── Extensión OPT-IN (default inactivo → comportamiento idéntico al histórico). ──
+      // A. requiereFilaExistente: modo protegido. Si no hay versión (fila ausente), NO se crea
+      //    la fila por upsert no condicionado: se falla de forma segura, sin escribir. El caller
+      //    conserva formulario/borrador y NO interpreta esto como éxito.
+      if (opts.requiereFilaExistente && _version.get(id) == null) {
+        return { ok: false, motivo: "fila_ausente" };
+      }
+      // B. validarCandidato: se ejecuta ANTES de CADA escritura (inicial, post-fusión y cada
+      //    reintento), sobre el candidato EXACTO que se va a escribir. Si rechaza (conflicto de
+      //    negocio), NO se escribe y se devuelve su resultado tal cual. La regla vive en el
+      //    consumidor (no se hardcodea aquí ni en fusionarPorId).
+      if (typeof opts.validarCandidato === "function") {
+        const v = opts.validarCandidato(aGuardar, {
+          fase: fusionado ? "post_fusion" : "inicial",
+          base: _base.get(id),
+          servidor: _base.get(id),   // tras fusión, _base = valor autoritativo del servidor
+          version: _version.get(id),
+        });
+        if (v && v.ok === false) return v;
+      }
+
       const r = await _escribirCondicionado(id, aGuardar, _version.get(id));
       if (r.ok) {
         _version.set(id, r.updatedAt);
