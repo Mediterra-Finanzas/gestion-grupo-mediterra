@@ -91,34 +91,100 @@ function seccionesDeEtiqueta(emp, label) {
   return cats;
 }
 
-// Overrides de UNA línea, resolviendo la clave nueva y, si no existe, la
-// clave antigua SOLO cuando la etiqueta no está repetida en la empresa.
-// Un override antiguo sobre una etiqueta repetida es AMBIGUO: no se puede
-// saber a qué línea pertenece, así que no se migra ni se duplica en
-// silencio (ver overridesAmbiguos + aviso en pantalla).
-export function overridesDeLinea(proyOverrides, emp, cat, label) {
-  const nuevo = proyOverrides?.[claveLinea(cat, label)];
-  if (nuevo !== undefined) return nuevo;
-  const viejo = proyOverrides?.[label];
-  if (viejo === undefined) return undefined;
-  const cats = seccionesDeEtiqueta(emp, label);
-  if (cats.length <= 1) return viejo;              // etiqueta única → compatible
-  return cats[0] === cat ? viejo : undefined;      // ambiguo: se mantiene el
-                                                   // comportamiento histórico
-                                                   // (primera categoría) hasta
-                                                   // que el usuario lo resuelva
-}
-
-// Overrides antiguos cuya etiqueta está repetida: no se puede saber a qué
-// línea pertenecen. Se listan para avisarlo en pantalla.
-export function overridesAmbiguos(proyOverrides, emp) {
-  const out = [];
-  Object.keys(proyOverrides || {}).forEach(clave => {
-    if (clave.includes("::")) return;              // clave nueva: sin ambigüedad
-    const cats = seccionesDeEtiqueta(emp, clave);
-    if (cats.length > 1) out.push({ label: clave, cats, meses: Object.keys(proyOverrides[clave] || {}).length });
+// Meses de una etiqueta que YA fueron asignados a una categoría concreta
+// (existe la clave `cat::etiqueta`). Un mes resuelto deja de leerse de la clave
+// antigua en cualquier categoría, aunque el borrado de la clave vieja no haya
+// alcanzado a guardarse.
+function mesesResueltos(proyOverrides, emp, label) {
+  const out = new Set();
+  seccionesDeEtiqueta(emp, label).forEach(c => {
+    Object.keys(proyOverrides?.[claveLinea(c, label)] || {}).forEach(m => out.add(String(m)));
   });
   return out;
+}
+
+// Overrides de UNA línea. La clave nueva (`cat::etiqueta`) manda mes a mes.
+// La clave antigua (solo etiqueta) se sigue leyendo cuando la etiqueta NO está
+// repetida en la empresa. Si lo está, el dato guardado no dice a qué línea
+// pertenece: se aplica un CRITERIO PROVISIONAL (primera categoría, que es lo
+// que hacía la app antes) que NO es una asignación confirmada, se avisa en
+// pantalla y en el Excel, y se resuelve a mano (ver overridesAmbiguos).
+export function overridesDeLinea(proyOverrides, emp, cat, label) {
+  const nuevo = proyOverrides?.[claveLinea(cat, label)];
+  const viejo = proyOverrides?.[label];
+  if (viejo === undefined) return nuevo;
+  const cats = seccionesDeEtiqueta(emp, label);
+  const provisional = cats.length > 1;
+  if (provisional && cats[0] !== cat) return nuevo;   // provisional: 1ª categoría
+  const resueltos = provisional ? mesesResueltos(proyOverrides, emp, label) : new Set();
+  const viejoVigente = {};
+  Object.entries(viejo).forEach(([m, v]) => { if (!resueltos.has(String(m))) viejoVigente[m] = v; });
+  if (nuevo === undefined) return Object.keys(viejoVigente).length ? viejoVigente : undefined;
+  return { ...viejoVigente, ...nuevo };               // lo resuelto pisa lo provisional
+}
+
+// Overrides antiguos cuya etiqueta está repetida entre categorías: el dato no
+// dice a qué línea pertenecen. Se devuelve el detalle mes a mes (con su monto)
+// para que el usuario los asigne uno por uno; distintos meses pueden ir a
+// categorías distintas.
+export function overridesAmbiguos(proyOverrides, emp, empNombre = "") {
+  const out = [];
+  Object.keys(proyOverrides || {}).forEach(clave => {
+    if (clave.includes("::")) return;                 // clave nueva: sin ambigüedad
+    const cats = seccionesDeEtiqueta(emp, clave);
+    if (cats.length <= 1) return;
+    const resueltos = mesesResueltos(proyOverrides, emp, clave);
+    const meses = Object.entries(proyOverrides[clave] || {})
+      .filter(([m]) => !resueltos.has(String(m)))
+      .map(([m, val]) => ({
+        idx: Number(m),
+        mes: MESES_65[Number(m)] || `#${m}`,
+        valor: (val && typeof val === "object")
+          ? Object.values(val).reduce((a, v) => a + (Number(v) || 0), 0)
+          : Number(val) || 0,
+        porSemana: !!(val && typeof val === "object"),
+      }))
+      .sort((a, b) => a.idx - b.idx);
+    if (!meses.length) return;
+    out.push({ empresa: empNombre, label: clave, cats, catProvisional: cats[0], meses });
+  });
+  return out;
+}
+
+// Texto corto para avisar la imputación provisional (pantalla y Excel).
+export function avisoProvisional(ambiguos) {
+  if (!ambiguos || !ambiguos.length) return null;
+  const celdas = ambiguos.reduce((a, x) => a + x.meses.length, 0);
+  const detalle = ambiguos.map(x =>
+    `"${x.label}" (${x.meses.length} mes${x.meses.length > 1 ? "es" : ""}) → se aplica provisionalmente a ${CAT_LABEL_CORTO[x.catProvisional] || x.catProvisional}`
+  ).join(" · ");
+  return `⚠ ${celdas} valor(es) manual(es) antiguo(s) SIN categoría asignada: ${detalle}. Criterio provisional, no confirmado: resolver en la app (Flujo → aviso sobre la tabla).`;
+}
+
+// cat::etiqueta debe ser única dentro de la empresa. Hoy lo es en las 9
+// (verificado por test); las líneas que agrega el usuario podrían romperlo, y
+// en ese caso hay que avisarlo antes de seguir usando esta identidad.
+// Avisos que deben viajar al Excel: imputación provisional de los valores
+// manuales antiguos sin categoría asignada + claves duplicadas si las hubiera.
+export function avisosDeEmpresa(realData, empresas, nombre) {
+  const emp = empresas?.[nombre];
+  if (!emp) return [];
+  const ov = realData?.[nombre]?._proyOverrides || {};
+  const avisos = [];
+  const a = avisoProvisional(overridesAmbiguos(ov, emp, nombre));
+  if (a) avisos.push(a);
+  const dup = clavesDuplicadas(emp);
+  if (dup.length) avisos.push(`⚠ ${dup.length} línea(s) comparten nombre dentro de una misma categoría: sus valores manuales pueden mezclarse.`);
+  return avisos;
+}
+
+export function clavesDuplicadas(emp) {
+  const cuenta = {};
+  (emp?.sections || []).forEach(sec => (sec.lines || []).forEach(l => {
+    const k = claveLinea(sec.cat, l.label);
+    cuenta[k] = (cuenta[k] || 0) + 1;
+  }));
+  return Object.entries(cuenta).filter(([, n]) => n > 1).map(([clave, n]) => ({ clave, veces: n }));
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -1594,6 +1660,8 @@ const fmtDate = s => {
 const cf = v => v>=0 ? C.green : C.red;
 const CAT_COLOR={ing_op:C.green,ing_nop:"#34d399",egr_var:C.red,egr_fijo:"#f87171",egr_nop:"#fca5a5",imp:C.orange};
 const CAT_SIGNO={ing_op:"+",ing_nop:"+",egr_var:"−",egr_fijo:"−",egr_nop:"−",imp:"−"};
+const CAT_LABEL_CORTO={ing_op:"Ingresos Operacionales",ing_nop:"Ingresos No Operacionales",
+  egr_var:"Egresos Operacionales",egr_fijo:"Costos Fijos / SG&A",egr_nop:"Egresos No Operacionales",imp:"Impuestos"};
 
 function Card({children,style={}}) {
   return <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,padding:"16px 18px",boxShadow:C.shadow,...style}}>{children}</div>;
@@ -4488,11 +4556,17 @@ function Consolidado({empresas,saldosBancos,realData={},addedLinesGlobal={},subL
             <div style={{fontSize:10,color:C.muted,fontWeight:700,textTransform:"uppercase",letterSpacing:1,marginBottom:8}}>Exportar</div>
             <Btn color={C.green} onClick={()=>{
               try{
+                const avisosPorEmp={};
+                empNamesConsolidado.forEach(n=>{
+                  const av=avisosDeEmpresa(realData, empresasConOverrides, n);
+                  if(av.length) avisosPorEmp[n]=av;
+                });
                 const f=exportarFlujoConsolidado({
                   empresasConOverrides,
                   empNames:empNamesConsolidado,
                   saldoIniPorEmp,
                   escenarioNombre,
+                  avisosPorEmp,
                 });
                 setExportMsg("✓ "+f);
               }catch(e){ console.error(e); setExportMsg("✗ Error al exportar"); }
@@ -5427,7 +5501,7 @@ function WaterfallConsolidado({empresas, saldosBancos, saldoIniPorEmp={}, acumPo
 // ═══════════════════════════════════════════════════════════════════
 // FLUJO POR EMPRESA — v2: totales mes/temporada + edición + saldo banco
 // ═══════════════════════════════════════════════════════════════════
-function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit,saldosBancos,onSaveProy,subLines={},onSaveSubLines,addedLinesInit={},onSaveAddedLines,creditosData=CREDITOS_DEFAULT}) {
+function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit,saldosBancos,onSaveProy,onResolverOverride,usuario="",subLines={},onSaveSubLines,addedLinesInit={},onSaveAddedLines,creditosData=CREDITOS_DEFAULT}) {
   const emp=empresas[empNombre];
   const [vista,setVista]=useState("mensual");
   const [openSeason,setOpenSeason]=useState({[SEASON_KEYS[0]]:true,[SEASON_KEYS[1]]:true});
@@ -5676,6 +5750,57 @@ function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit,saldosBanc
     });
     return total;
   },[addedLines]);
+
+  // Valores manuales antiguos (clave solo-etiqueta) sobre conceptos que
+  // existen en más de una categoría: no se puede saber a cuál pertenecen.
+  const ambiguos = useMemo(
+    () => overridesAmbiguos(proyOverrides, emp, empNombre),
+    [proyOverrides, emp, empNombre]
+  );
+  // cat::etiqueta debe ser único; si el usuario agregó líneas con el mismo
+  // nombre en la misma categoría, hay que avisarlo antes de seguir.
+  const dupClaves = useMemo(() => clavesDuplicadas(emp), [emp]);
+
+  // Asignar UN mes de un override ambiguo a una categoría concreta.
+  const resolver = useCallback(async (amb, mes, cat) => {
+    if(!onResolverOverride) return;
+    const destino = claveLinea(cat, amb.label);
+    const yaExiste = proyOverrides?.[destino]?.[mes.idx];
+    if(yaExiste !== undefined){
+      const actual = (yaExiste && typeof yaExiste === "object")
+        ? Object.values(yaExiste).reduce((a,v)=>a+(Number(v)||0),0) : Number(yaExiste)||0;
+      const seguir = window.confirm(
+        `CONFLICTO — ${CAT_LABEL_CORTO[cat]||cat} · ${mes.mes}\n\n` +
+        `Esa línea ya tiene un valor manual propio de ${$$(actual)}.\n` +
+        `El valor antiguo sin asignar es ${$$(mes.valor)}.\n\n` +
+        `Aceptar = reemplazarlo por ${$$(mes.valor)}.\n` +
+        `Cancelar = dejar ${$$(actual)} y descartar el antiguo de esta línea.`);
+      if(!seguir) return;
+    }
+    if(!window.confirm(
+      `Asignar el valor manual de ${amb.label} · ${mes.mes} (${$$(mes.valor)}) ` +
+      `a ${CAT_LABEL_CORTO[cat]||cat}?\n\nQueda registrado con tu nombre y la fecha.`)) return;
+    const r = await onResolverOverride(empNombre, {
+      label: amb.label, idx: mes.idx, mes: mes.mes, cat, cats: amb.cats,
+      valor: proyOverrides?.[amb.label]?.[mes.idx],   // se guarda tal cual (mes o semanas)
+      montoResumen: mes.valor, reemplaza: yaExiste !== undefined,
+    });
+    if(r && r.ok){
+      setProyOverrides(prev => {
+        const next = JSON.parse(JSON.stringify(prev));
+        if(!next[destino]) next[destino] = {};
+        next[destino][String(mes.idx)] = r.valor;
+        if(next[amb.label]){
+          delete next[amb.label][String(mes.idx)];
+          if(Object.keys(next[amb.label]).length===0) delete next[amb.label];
+        }
+        return next;
+      });
+    } else {
+      window.alert(`No se pudo guardar la resolución (${r && r.motivo ? r.motivo : "error"}).\n\n` +
+        `El valor antiguo sigue como estaba: no se movió nada.`);
+    }
+  },[empNombre, onResolverOverride, proyOverrides]);
 
   // Guardar override semanal (o mensual si semIdx no se especifica).
   // La clave es `cat::etiqueta`: dos categorías pueden tener el mismo concepto
@@ -6865,6 +6990,66 @@ function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit,saldosBanc
           💡 Haz click en cualquier valor proyectado para editarlo. Los cambios se guardan automáticamente.
           {Object.keys(proyOverrides).length>0&&
             <span style={{marginLeft:8,color:C.yellow}}>● {Object.keys(proyOverrides).length} línea(s) con valores modificados</span>}
+        </div>
+      )}
+
+      {/* ── Valores manuales antiguos sin categoría asignada ────────── */}
+      {ambiguos.length>0&&(
+        <div style={{background:C.warningBg,border:`1px solid ${C.warning}`,borderRadius:10,padding:"12px 14px"}}>
+          <div style={{fontSize:12,fontWeight:800,color:C.text,marginBottom:6}}>
+            ⚠ {ambiguos.reduce((a,x)=>a+x.meses.length,0)} valor(es) manual(es) antiguo(s) sin categoría asignada — {empNombre}
+          </div>
+          <div style={{fontSize:11,color:C.text,marginBottom:10,lineHeight:1.6}}>
+            Estos valores se escribieron cuando la app identificaba las líneas solo por su nombre. El concepto
+            existe en más de una categoría, así que el dato guardado <strong>no dice a cuál pertenece</strong>.
+            Mientras no lo asignes, se aplica un <strong>criterio provisional</strong> (la primera categoría),
+            que <strong>no es una imputación confirmada</strong>: puede estar en la categoría equivocada tanto en
+            pantalla como en el Excel. Asigna cada mes a su categoría.
+          </div>
+          {ambiguos.map(a=>(
+            <div key={a.label} style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:8,padding:"9px 11px",marginBottom:8}}>
+              <div style={{fontSize:11,fontWeight:700,color:C.text}}>
+                {a.label}
+                <span style={{fontWeight:400,color:C.muted}}>
+                  {"  ·  candidatas: "}{a.cats.map(c=>CAT_LABEL_CORTO[c]||c).join(" / ")}
+                  {"  ·  provisional: "}<em>{CAT_LABEL_CORTO[a.catProvisional]||a.catProvisional}</em> (sin confirmar)
+                </span>
+              </div>
+              <table style={{width:"100%",marginTop:7,borderCollapse:"collapse"}}>
+                <tbody>
+                  {a.meses.map(m=>(
+                    <tr key={m.idx} style={{borderTop:`1px solid ${C.border}55`}}>
+                      <td style={{padding:"5px 6px",fontSize:11,color:C.text,width:90}}>{m.mes}</td>
+                      <td style={{padding:"5px 6px",fontSize:11,fontWeight:700,color:C.text,width:120,textAlign:"right"}}>
+                        {$$(m.valor)}{m.porSemana&&<span style={{fontSize:9,color:C.muted}}> (por semana)</span>}
+                      </td>
+                      <td style={{padding:"5px 6px"}}>
+                        {canEdit&&a.cats.map(c=>(
+                          <button key={c} onClick={()=>resolver(a,m,c)}
+                            style={{marginRight:6,padding:"3px 10px",borderRadius:6,cursor:"pointer",fontSize:10,fontWeight:700,
+                              border:`1px solid ${c===a.catProvisional?C.warning:C.border2}`,
+                              background:"transparent",color:C.text}}>
+                            asignar a {CAT_LABEL_CORTO[c]||c}
+                          </button>
+                        ))}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ))}
+          <div style={{fontSize:10,color:C.muted}}>
+            Al asignar se guarda la resolución con la clave original, el monto, la categoría elegida, tu nombre y la
+            fecha. La clave antigua deja de usarse recién cuando la resolución quedó guardada.
+          </div>
+        </div>
+      )}
+      {dupClaves.length>0&&(
+        <div style={{background:`${C.danger}12`,border:`1px solid ${C.danger}66`,borderRadius:10,padding:"10px 14px",fontSize:11,color:C.text}}>
+          <strong>Atención:</strong> hay {dupClaves.length} línea(s) con el mismo nombre DENTRO de una misma categoría
+          ({dupClaves.map(d=>d.clave.split("::")[1]).join(", ")}). Categoría + nombre deja de identificarlas sin
+          ambigüedad; sus valores manuales pueden mezclarse. Renombra una de ellas o avísame para darles otra identidad.
         </div>
       )}
 
@@ -12035,6 +12220,67 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
     });
   },[persistAll]);
 
+  // Resolver un override antiguo ambiguo: asignarlo a una categoría concreta.
+  // Guarda en DOS pasos para no perder el dato: primero escribe la clave nueva
+  // y el registro de la resolución; solo si eso quedó confirmado por el
+  // servidor retira el mes de la clave antigua. Si el segundo paso falla, el
+  // lector ignora igualmente ese mes en la clave vieja (mesesResueltos), así
+  // que no se duplica ni se pierde.
+  const handleResolverOverride = useCallback(async (empresa, datos) => {
+    const { label, idx, mes, cat, cats, valor, montoResumen, reemplaza } = datos || {};
+    if(!label || cat == null || idx == null) return { ok:false, motivo:"datos incompletos" };
+    const destino = claveLinea(cat, label);
+    const base = JSON.parse(JSON.stringify(realDataRef.current || {}));
+    if(!base[empresa]) base[empresa] = {};
+    if(!base[empresa]._proyOverrides) base[empresa]._proyOverrides = {};
+    const ov = base[empresa]._proyOverrides;
+    const valorFinal = valor !== undefined ? valor : (ov[label] || {})[String(idx)];
+    if(valorFinal === undefined) return { ok:false, motivo:"el valor antiguo ya no existe" };
+
+    // paso 1 — escribir la clave nueva + el registro de la resolución
+    if(!ov[destino]) ov[destino] = {};
+    const anterior = ov[destino][String(idx)];
+    ov[destino][String(idx)] = valorFinal;
+    if(!Array.isArray(base[empresa]._resolucionesOverride)) base[empresa]._resolucionesOverride = [];
+    base[empresa]._resolucionesOverride.push({
+      id: `res_${Date.now().toString(36)}${Math.random().toString(36).slice(2,6)}`,
+      claveOriginal: label, claveDestino: destino,
+      categoriaElegida: cat, categoriasCandidatas: cats || [],
+      mes, idx, valor: valorFinal, monto: montoResumen,
+      reemplazaValorPropio: !!reemplaza,
+      valorReemplazado: reemplaza ? anterior : undefined,
+      usuario: usuarioActual?.nombre || "", ts: new Date().toISOString(),
+    });
+    setRealData(base); realDataRef.current = base;
+    const r1 = await persistAll({ finanzas_real: base });
+    if(!r1 || !r1.ok){
+      // revertir en memoria: no se movió nada
+      const revertir = JSON.parse(JSON.stringify(realDataRef.current));
+      const ov2 = revertir[empresa]._proyOverrides;
+      if(anterior === undefined) delete ov2[destino][String(idx)]; else ov2[destino][String(idx)] = anterior;
+      if(Object.keys(ov2[destino]||{}).length===0) delete ov2[destino];
+      revertir[empresa]._resolucionesOverride.pop();
+      setRealData(revertir); realDataRef.current = revertir;
+      setSaved("⚠️ No se guardó la resolución"); setTimeout(()=>setSaved(null),3000);
+      return { ok:false, motivo: r1?.motivo || "error al guardar" };
+    }
+
+    // paso 2 — recién ahora se retira el mes de la clave antigua
+    const limpio = JSON.parse(JSON.stringify(realDataRef.current));
+    const ovL = limpio[empresa]._proyOverrides;
+    if(ovL[label]){
+      delete ovL[label][String(idx)];
+      if(Object.keys(ovL[label]).length===0) delete ovL[label];
+    }
+    setRealData(limpio); realDataRef.current = limpio;
+    const r2 = await persistAll({ finanzas_real: limpio });
+    if(window.auditLog) window.auditLog("editar", { modulo:"finanzas", seccion:"flujo",
+      descripcion:`Override antiguo "${label}" (${mes}) asignado a ${cat} en ${empresa}`, registroId: destino });
+    setSaved(r2 && r2.ok ? "✅ Resolución guardada" : "⚠️ Resolución guardada, falta limpiar la clave antigua");
+    setTimeout(()=>setSaved(null),3000);
+    return { ok:true, valor: valorFinal, limpiezaOk: !!(r2 && r2.ok) };
+  },[persistAll, usuarioActual]);
+
   // setParamsEmp para una empresa específica
   const handleSaveParamsFrisku = useCallback((updater) => {
     const next = typeof updater === 'function' ? updater(paramsFriskuRef.current) : updater;
@@ -12472,7 +12718,7 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
                   try{
                     const emp=empresasConOverridesMain[empTab];
                     const saldoIni=getSaldoBancoInicial(saldosBancos,empTab,empresas[empTab]?.saldo_ini);
-                    const f=exportarFlujoEmpresa({emp, empName:empTab, saldoIni, params:{paramsAF, paramsIF, paramsAS, paramsAP, paramsAllegria:params, allegraComisionArandanos}});
+                    const f=exportarFlujoEmpresa({emp, empName:empTab, saldoIni, params:{paramsAF, paramsIF, paramsAS, paramsAP, paramsAllegria:params, allegraComisionArandanos}, avisos:avisosDeEmpresa(realData, empresasConOverridesMain, empTab)});
                     setEmpExportMsg("✓ "+f);
                   }catch(e){ console.error(e); setEmpExportMsg("✗ Error al exportar"); }
                   setTimeout(()=>setEmpExportMsg(null),5000);
@@ -12505,6 +12751,7 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
               <FlujoEmpresa key={empTab} empNombre={empTab} empresas={empresas}
                 realData={realData} onSaveReal={handleSaveReal} canEdit={puedoEdit("flujo")}
                 saldosBancos={saldosBancos} onSaveProy={handleSaveProy}
+                onResolverOverride={handleResolverOverride} usuario={usuarioActual?.nombre||""}
                 subLines={subLines?.[empTab]||{}} onSaveSubLines={(lineLabel,list)=>handleSaveSubLines(empTab,lineLabel,list)}
                 addedLinesInit={addedLinesGlobal?.[empTab]||{}} onSaveAddedLines={(al)=>handleSaveAddedLines(empTab,al)}
                 creditosData={creditosData}/>

@@ -15,7 +15,8 @@ import fs from 'fs';
 import path from 'path';
 import os from 'os';
 import * as XLSX from 'xlsx-js-style';
-import { buildEmpresas, buildEmpresasConOverrides, claveLinea, overridesDeLinea, overridesAmbiguos } from '../FinanzasModule.jsx';
+import { buildEmpresas, buildEmpresasConOverrides, claveLinea, overridesDeLinea, overridesAmbiguos,
+         avisoProvisional, clavesDuplicadas, avisosDeEmpresa } from '../FinanzasModule.jsx';
 import { exportarFlujoEmpresa } from '../flujoExportExcel.js';
 
 const MN = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
@@ -121,11 +122,15 @@ describe('overrides con etiquetas repetidas', () => {
   });
 
   test('las claves antiguas ambiguas se reportan para resolverlas a mano', () => {
-    const ov = { 'Electricidad': { [idx]: 4444 }, 'Ventas': { [idx]: 1 },
-                 [claveLinea('egr_fijo', 'Electricidad')]: { [idx]: 2 } };
+    const otro = iM('Jun-26');
+    const ov = { 'Electricidad': { [idx]: 4444, [otro]: 100 }, 'Ventas': { [idx]: 1 },
+                 // May-26 ya resuelto a Costos Fijos: solo debe quedar Jun-26 por resolver
+                 [claveLinea('egr_fijo', 'Electricidad')]: { [idx]: 4444 } };
     const amb = overridesAmbiguos(ov, emp);
     expect(amb).toHaveLength(1);
-    expect(amb[0]).toMatchObject({ label: 'Electricidad', cats: ['egr_var', 'egr_fijo'], meses: 1 });
+    expect(amb[0]).toMatchObject({ label: 'Electricidad', cats: ['egr_var', 'egr_fijo'] });
+    expect(amb[0].meses).toHaveLength(1);
+    expect(amb[0].meses[0]).toMatchObject({ mes: 'Jun-26', valor: 100 });
   });
 });
 
@@ -166,5 +171,88 @@ describe('Excel con etiquetas repetidas', () => {
       const celda = ws[`${colMay}${k.slice(1)}`];
       expect(celda.f).toBeUndefined();            // valor propio, no SUMIF compartido
     });
+  });
+});
+
+describe('resolución de overrides ambiguos', () => {
+  const emp = empDuplicada();
+  const iMay = iM('May-26'), iJun = iM('Jun-26');
+
+  test('el detalle llega mes a mes, con monto y categorías candidatas', () => {
+    const ov = { 'Electricidad': { [iMay]: 4444, [iJun]: { _sem0: 100, _sem2: 50 } } };
+    const amb = overridesAmbiguos(ov, emp, 'Allpa Farms');
+    expect(amb).toHaveLength(1);
+    expect(amb[0]).toMatchObject({ empresa:'Allpa Farms', label:'Electricidad',
+      cats:['egr_var','egr_fijo'], catProvisional:'egr_var' });
+    expect(amb[0].meses).toEqual([
+      { idx:iMay, mes:'May-26', valor:4444, porSemana:false },
+      { idx:iJun, mes:'Jun-26', valor:150,  porSemana:true  },
+    ]);
+  });
+
+  test('meses distintos pueden ir a categorías distintas', () => {
+    const ov = {
+      'Electricidad': { [iJun]: 777 },                       // sin resolver
+      [claveLinea('egr_fijo','Electricidad')]: { [iMay]: 4444 }, // May-26 ya resuelto acá
+    };
+    // May-26: manda la categoría elegida; Jun-26 sigue provisional en egr_var
+    expect(overridesDeLinea(ov, emp, 'egr_fijo','Electricidad')[iMay]).toBe(4444);
+    expect(overridesDeLinea(ov, emp, 'egr_fijo','Electricidad')[iJun]).toBeUndefined();
+    expect(overridesDeLinea(ov, emp, 'egr_var','Electricidad')[iJun]).toBe(777);
+    const amb = overridesAmbiguos(ov, emp);
+    expect(amb[0].meses.map(m => m.mes)).toEqual(['Jun-26']);   // May-26 ya no figura
+  });
+
+  test('un mes resuelto deja de leerse de la clave antigua aunque esta siga ahí', () => {
+    // simula que el paso 2 (borrar la clave vieja) no alcanzó a guardarse
+    const ov = {
+      'Electricidad': { [iMay]: 4444 },
+      [claveLinea('egr_fijo','Electricidad')]: { [iMay]: 4444 },
+    };
+    expect(overridesDeLinea(ov, emp, 'egr_var','Electricidad')).toBeUndefined();  // no se duplica
+    expect(overridesDeLinea(ov, emp, 'egr_fijo','Electricidad')[iMay]).toBe(4444);
+    const cons = buildEmpresasConOverrides({ X: emp }, { X: { _proyOverrides: ov } }, {}, {})['X'];
+    expect(cons.sections.find(s=>s.cat==='egr_var').lines[0].proy[iMay]).toBe(5000);  // su valor propio
+    expect(cons.sections.find(s=>s.cat==='egr_fijo').lines[0].proy[iMay]).toBe(4444);
+  });
+
+  test('el aviso nombra el criterio provisional y dice que no está confirmado', () => {
+    const ov = { 'Electricidad': { [iMay]: 4444 } };
+    const texto = avisoProvisional(overridesAmbiguos(ov, emp));
+    expect(texto).toMatch(/SIN categoría asignada/);
+    expect(texto).toMatch(/provisionalmente a Egresos Operacionales/);
+    expect(texto).toMatch(/no confirmado/);
+  });
+
+  test('cat::label es único dentro de cada empresa del grupo', () => {
+    Object.entries(empresas).forEach(([nombre, e]) => {
+      expect(`${nombre}:${clavesDuplicadas(e).length}`).toBe(`${nombre}:0`);
+    });
+  });
+
+  test('avisosDeEmpresa arma lo que viaja al Excel', () => {
+    const realData = { X: { _proyOverrides: { 'Electricidad': { [iMay]: 4444 } } } };
+    const av = avisosDeEmpresa(realData, { X: emp }, 'X');
+    expect(av).toHaveLength(1);
+    expect(av[0]).toMatch(/provisionalmente/);
+    expect(avisosDeEmpresa({}, { X: emp }, 'X')).toHaveLength(0);
+  });
+});
+
+describe('Excel: aviso de imputación provisional', () => {
+  test('el libro lleva el aviso y la grilla NO se mueve (meses siguen en la fila 3)', () => {
+    fs.mkdirSync(OUT_DIR, { recursive: true });
+    const emp = empDuplicada();
+    const aviso = avisoProvisional(overridesAmbiguos({ 'Electricidad': { [iM('May-26')]: 4444 } }, emp));
+    const file = path.join(OUT_DIR, 'aviso.xlsx');
+    exportarFlujoEmpresa({ emp, empName:'X', saldoIni:0, fileName:file, avisos:[aviso] });
+    const wb = XLSX.readFile(file, { cellFormula:true });
+    const ws = wb.Sheets[wb.SheetNames[0]];
+    // los meses siguen en la fila 3 (si se movieran, se rompen lecturas y pruebas)
+    const enFila3 = Object.keys(ws).filter(k=>/^[A-Z]+3$/.test(k)).map(k=>ws[k].v);
+    expect(enFila3).toContain('May-26');
+    // el aviso aparece en el subtítulo y como nota al pie
+    const textos = Object.keys(ws).map(k=>ws[k]?.v).filter(v=>typeof v==='string');
+    expect(textos.filter(t=>t.includes('provisionalmente')).length).toBeGreaterThanOrEqual(2);
   });
 });
