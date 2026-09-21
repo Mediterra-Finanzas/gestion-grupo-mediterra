@@ -34,6 +34,21 @@ Deja en `OUT_DIR`: capturas por fase, los `.xlsx` descargados por la app,
 `comparaciones.json` (una fila por celda comparada) y el store final.
 Sale con código 1 si hay cualquier diferencia entre pantalla y Excel.
 
+## Verificación con datos reales (copia aislada)
+
+```bash
+node scripts/e2e/snapshot.mjs /tmp/snapshot-real.json   # SOLO GET, no escribe
+OUT_DIR=/tmp/e2e-real node scripts/e2e/real.mjs /tmp/snapshot-real.json
+```
+
+`snapshot.mjs` descarga en solo lectura las filas `finanzas`, `finanzas_bancos`
+y `finanzas_esc_index`. `real.mjs` las carga en el store en memoria y corre la
+app contra ESA COPIA: no registra realizaciones ni edita nada, solo lee
+Parámetros y el Flujo, descarga los dos Excel y los recalcula. Informa además
+los anticipos antiguos (sin realizaciones), los overrides existentes y las
+fechas de cada cuenta bancaria. Si el snapshot no se puede descargar, sirve
+igual el JSON del botón "💾 Respaldo" de la app.
+
 ## Fases
 
 1. Caso base: venta 600.000 / anticipo 100.000 / cobrado 60.000 y
