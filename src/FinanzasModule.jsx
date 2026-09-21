@@ -71,6 +71,57 @@ function ext(arr) { const r=[...(arr||[])]; while(r.length<63) r.push(0); if(r.l
 function mIdx(label) { return MESES_65.indexOf(label); }
 
 // ═══════════════════════════════════════════════════════════════════
+// IDENTIDAD DE UNA LÍNEA DEL FLUJO
+// Dos categorías pueden tener conceptos con el MISMO nombre (Allpa Farms
+// tiene 14: "Electricidad", "Gratificaciones", …). Identificar una línea
+// solo por su etiqueta es ambiguo: la búsqueda devolvía la primera
+// coincidencia de cualquier categoría, así que la fila, el subtotal, el
+// flujo neto y el acumulado de la segunda categoría mostraban el valor de
+// la primera. La identidad correcta es categoría + etiqueta.
+// ═══════════════════════════════════════════════════════════════════
+export const claveLinea = (cat, label) => `${cat}::${label}`;
+
+// ¿Cuántas líneas de la empresa usan esta etiqueta? (para decidir si una
+// clave antigua —solo etiqueta— es interpretable sin ambigüedad).
+function seccionesDeEtiqueta(emp, label) {
+  const cats = [];
+  (emp?.sections || []).forEach(sec => {
+    if ((sec.lines || []).some(l => l.label === label)) cats.push(sec.cat);
+  });
+  return cats;
+}
+
+// Overrides de UNA línea, resolviendo la clave nueva y, si no existe, la
+// clave antigua SOLO cuando la etiqueta no está repetida en la empresa.
+// Un override antiguo sobre una etiqueta repetida es AMBIGUO: no se puede
+// saber a qué línea pertenece, así que no se migra ni se duplica en
+// silencio (ver overridesAmbiguos + aviso en pantalla).
+export function overridesDeLinea(proyOverrides, emp, cat, label) {
+  const nuevo = proyOverrides?.[claveLinea(cat, label)];
+  if (nuevo !== undefined) return nuevo;
+  const viejo = proyOverrides?.[label];
+  if (viejo === undefined) return undefined;
+  const cats = seccionesDeEtiqueta(emp, label);
+  if (cats.length <= 1) return viejo;              // etiqueta única → compatible
+  return cats[0] === cat ? viejo : undefined;      // ambiguo: se mantiene el
+                                                   // comportamiento histórico
+                                                   // (primera categoría) hasta
+                                                   // que el usuario lo resuelva
+}
+
+// Overrides antiguos cuya etiqueta está repetida: no se puede saber a qué
+// línea pertenecen. Se listan para avisarlo en pantalla.
+export function overridesAmbiguos(proyOverrides, emp) {
+  const out = [];
+  Object.keys(proyOverrides || {}).forEach(clave => {
+    if (clave.includes("::")) return;              // clave nueva: sin ambigüedad
+    const cats = seccionesDeEtiqueta(emp, clave);
+    if (cats.length > 1) out.push({ label: clave, cats, meses: Object.keys(proyOverrides[clave] || {}).length });
+  });
+  return out;
+}
+
+// ═══════════════════════════════════════════════════════════════════
 // SUPABASE
 // ═══════════════════════════════════════════════════════════════════
 const SUPA_URL = "https://bywovqayuzodbzwsriet.supabase.co";
@@ -1474,7 +1525,7 @@ function buildAllegria(params, allegraComisionArandanos) {
     ],
   };
 }
-function buildEmpresas(params, allegraComisionArandanos) {
+export function buildEmpresas(params, allegraComisionArandanos) {
   return { ...EMPRESAS_STATIC, "Allegria Foods": buildAllegria(params, allegraComisionArandanos) };
 }
 
@@ -3902,7 +3953,7 @@ function getSaldoBancoInicial(saldosBancos, empNombre, fallback) {
 // Usada tanto en Consolidado como en el componente principal
 // (para pasar datos correctos al Dashboard).
 // ═══════════════════════════════════════════════════════════════════
-function buildEmpresasConOverrides(empresas, realData, addedLinesGlobal, subLinesGlobal) {
+export function buildEmpresasConOverrides(empresas, realData, addedLinesGlobal, subLinesGlobal) {
   const result = {};
   Object.keys(empresas).forEach(n => {
     const emp = JSON.parse(JSON.stringify(empresas[n]));
@@ -3911,13 +3962,19 @@ function buildEmpresasConOverrides(empresas, realData, addedLinesGlobal, subLine
     emp.sections = emp.sections.map(sec => ({
       ...sec,
       lines: sec.lines.map(l => {
-        if (overrides[l.label]) {
+        // La identidad de la línea es `cat::etiqueta`. La clave antigua (solo
+        // etiqueta) se sigue leyendo cuando NO es ambigua; si la etiqueta se
+        // repite entre categorías, se respeta el comportamiento histórico
+        // (primera categoría) para que pantalla y Excel sigan coincidiendo
+        // mientras la ambigüedad no se resuelva a mano.
+        const ovLinea = overridesDeLinea(overrides, emp, sec.cat, l.label);
+        if (ovLinea) {
           const newProy = [...l.proy];
           // Si la línea está controlada por parámetros desde cierto mes
           // (_lockOverrideFromIdx), los overrides manuales en ese rango se ignoran.
           const lockFrom = (typeof l._lockOverrideFromIdx === "number" && l._lockOverrideFromIdx >= 0)
             ? l._lockOverrideFromIdx : null;
-          Object.entries(overrides[l.label]).forEach(([idx, val]) => {
+          Object.entries(ovLinea).forEach(([idx, val]) => {
             const i = Number(idx);
             if (lockFrom !== null && i >= lockFrom) return;
             if (!isNaN(i) && i >= 0 && i < newProy.length) {
@@ -5473,25 +5530,29 @@ function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit,saldosBanc
   //   (las semanas no editadas son 0, el usuario tomó control del mes)
   // Si override es número: usa ese número como total del mes (retrocompatibilidad)
   // Si no hay override: usa el valor base de la fórmula/proyección
-  const getProy = useCallback((lineLabel, idx) => {
-    const ov = proyOverrides[lineLabel]?.[idx];
-    // Obtener valor base
+  // cat + etiqueta identifican la línea sin ambigüedad (hay etiquetas
+  // repetidas entre categorías; ver claveLinea).
+  const getProy = useCallback((cat, lineLabel, idx) => {
+    const ov = overridesDeLinea(proyOverrides, emp, cat, lineLabel);
+    const ovIdx = ov?.[idx];
+    // Obtener valor base — SOLO de la categoría indicada
     let base = 0;
     let lockFrom = null;
-    for(const sec of emp.sections){
-      const l = sec.lines.find(x=>x.label===lineLabel);
-      if(l){ base = l.proy[idx]||0; if(typeof l._lockOverrideFromIdx==="number") lockFrom=l._lockOverrideFromIdx; break; }
+    {
+      const sec = emp.sections.find(x=>x.cat===cat);
+      const l = sec && sec.lines.find(x=>x.label===lineLabel);
+      if(l){ base = l.proy[idx]||0; if(typeof l._lockOverrideFromIdx==="number") lockFrom=l._lockOverrideFromIdx; }
     }
     // Celda controlada por parámetros (ej. Osiris desde 27-28): ignora override manual.
     if(lockFrom !== null && idx >= lockFrom) return base;
-    if(ov === undefined) return base;
-    if(typeof ov === "number") return ov;
-    // ov es objeto con semanas: suma solo las semanas que el usuario ingresó
-    if(typeof ov === "object" && ov !== null) {
+    if(ovIdx === undefined) return base;
+    if(typeof ovIdx === "number") return ovIdx;
+    // ovIdx es objeto con semanas: suma solo las semanas que el usuario ingresó
+    if(typeof ovIdx === "object" && ovIdx !== null) {
       let total = 0;
       for(let s=0; s<4; s++){
         const k = `_sem${s}`;
-        if(ov[k] !== undefined) total += Number(ov[k])||0;
+        if(ovIdx[k] !== undefined) total += Number(ovIdx[k])||0;
       }
       return total;
     }
@@ -5504,13 +5565,14 @@ function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit,saldosBanc
   //   (los parámetros apuntan a un mes específico, no tiene sentido prorratear)
   // - Con override mensual antiguo (number): muestra en última semana
   // - Con override semanal (objeto): solo muestra lo que el usuario ingresó en esa semana específica
-  const getProySemana = useCallback((lineLabel, idx, semIdx, isLastInMonth) => {
-    const ov = proyOverrides[lineLabel]?.[idx];
+  const getProySemana = useCallback((cat, lineLabel, idx, semIdx, isLastInMonth) => {
+    const ov = overridesDeLinea(proyOverrides, emp, cat, lineLabel)?.[idx];
     let base = 0;
     let lockFrom = null;
-    for(const sec of emp.sections){
-      const l = sec.lines.find(x=>x.label===lineLabel);
-      if(l){ base = l.proy[idx]||0; if(typeof l._lockOverrideFromIdx==="number") lockFrom=l._lockOverrideFromIdx; break; }
+    {
+      const sec = emp.sections.find(x=>x.cat===cat);
+      const l = sec && sec.lines.find(x=>x.label===lineLabel);
+      if(l){ base = l.proy[idx]||0; if(typeof l._lockOverrideFromIdx==="number") lockFrom=l._lockOverrideFromIdx; }
     }
     // Celda controlada por parámetros: ignora override, muestra base en la 1ª semana.
     if(ov === undefined || (lockFrom !== null && idx >= lockFrom)) {
@@ -5615,26 +5677,34 @@ function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit,saldosBanc
     return total;
   },[addedLines]);
 
-  // Guardar override semanal (o mensual si semIdx no se especifica)
-  const handleEditProy = useCallback((lineLabel, idx, nuevoVal, semIdx) => {
+  // Guardar override semanal (o mensual si semIdx no se especifica).
+  // La clave es `cat::etiqueta`: dos categorías pueden tener el mismo concepto
+  // y cada una debe poder editarse por separado.
+  const handleEditProy = useCallback((cat, lineLabel, idx, nuevoVal, semIdx) => {
+    const clave = claveLinea(cat, lineLabel);
     setProyOverrides(prev=>{
       const next = JSON.parse(JSON.stringify(prev));
-      if(!next[lineLabel]) next[lineLabel]={};
+      if(!next[clave]) next[clave]={};
       if(semIdx != null) {
         // Override semanal: mantener objeto con claves _sem0.._sem3
-        const current = next[lineLabel][idx];
+        const current = next[clave][idx];
         if(typeof current === "object" && current !== null) {
-          next[lineLabel][idx] = { ...current, [`_sem${semIdx}`]: nuevoVal };
+          next[clave][idx] = { ...current, [`_sem${semIdx}`]: nuevoVal };
         } else {
           // Si había un número (override mensual antiguo) o nada, crear objeto
-          next[lineLabel][idx] = { [`_sem${semIdx}`]: nuevoVal };
+          next[clave][idx] = { [`_sem${semIdx}`]: nuevoVal };
         }
       } else {
         // Override mensual directo (vista mensual)
-        next[lineLabel][idx] = nuevoVal;
+        next[clave][idx] = nuevoVal;
+      }
+      // La clave antigua (solo etiqueta) de esa misma celda deja de aplicar
+      if(next[lineLabel] && next[lineLabel][idx] !== undefined){
+        delete next[lineLabel][idx];
+        if(Object.keys(next[lineLabel]).length===0) delete next[lineLabel];
       }
       // Persistir async
-      if(onSaveProy) onSaveProy(empNombre, lineLabel, idx, next[lineLabel][idx]);
+      if(onSaveProy) onSaveProy(empNombre, cat, lineLabel, idx, next[clave][idx]);
       return next;
     });
   },[empNombre, onSaveProy]);
@@ -5668,7 +5738,7 @@ function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit,saldosBanc
       emp.sections.forEach(sec=>{
         sec.lines.forEach(l=>{
           // Usar getProy que maneja tanto overrides mensuales como objeto por semanas
-          const v = getProy(l.label, i);
+          const v = getProy(sec.cat, l.label, i);
           f += v * sec.signo;
           // Include subLines (CxC/Préstamos sub-items) in flujo
           if(l.subLines)(subLines[l.label]||[]).forEach(sl=>{
@@ -5723,7 +5793,7 @@ function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit,saldosBanc
     let f = 0;
     emp.sections.forEach(sec => {
       sec.lines.forEach(l => {
-        f += getProySemana(l.label, mesIdx, semIdx, isLast) * sec.signo;
+        f += getProySemana(sec.cat, l.label, mesIdx, semIdx, isLast) * sec.signo;
         if (l.subLines) f += sumSubLinesSemana(l.label, mesIdx, semIdx, isLast) * sec.signo;
       });
       f += sumAddedLinesSemana(sec.cat, mesIdx, semIdx) * sec.signo;
@@ -5793,8 +5863,8 @@ function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit,saldosBanc
   },[openSeason,openMonth,vista,emp]); // eslint-disable-line
 
   // ── helper: valor efectivo de una línea en una col ─────────────
-  function getValCol(line, col) {
-    const rawMes = getProy(line.label, col.idx);
+  function getValCol(cat, line, col) {
+    const rawMes = getProy(cat, line.label, col.idx);
     if(col.type==="month_collapsed" || col.type==="month" || col.type==="month_total") {
       return rawMes;
     }
@@ -5962,7 +6032,7 @@ function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit,saldosBanc
                         return a + sec.lines.reduce((b,l)=>{
                           if(l.label.startsWith("  ")) return b;
                           const subSum = l.subLines ? sumSubLinesMes(l.label, i) : 0;
-                          return b + getProy(l.label,i) + subSum;
+                          return b + getProy(sec.cat, l.label,i) + subSum;
                         },0) + sumAddedLinesMes(sec.cat, i);
                       },0);
                       return (
@@ -5978,12 +6048,12 @@ function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit,saldosBanc
                         v = sec.lines.reduce((a,l)=>{
                           if(l.label.startsWith("  ")) return a;
                           const subSum = l.subLines ? sumSubLinesMes(l.label, col.idx) : 0;
-                          return a + getProy(l.label,col.idx) + subSum;
+                          return a + getProy(sec.cat, l.label,col.idx) + subSum;
                         },0) + sumAddedLinesMes(sec.cat, col.idx);
                       } else if(col.type==="week"){
                         v = sec.lines.reduce((a,l)=>{
                           if(l.label.startsWith("  ")) return a;
-                          const propSem = getProySemana(l.label, col.idx, col.semIdx, col.isLastInMonth);
+                          const propSem = getProySemana(sec.cat, l.label, col.idx, col.semIdx, col.isLastInMonth);
                           const subSem = l.subLines
                             ? sumSubLinesSemana(l.label, col.idx, col.semIdx, col.isLastInMonth) : 0;
                           return a + propSem + subSem;
@@ -6048,7 +6118,7 @@ function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit,saldosBanc
                       if(collapsed){
                         // Total temporada incluye valor base + sublines (consolidado en la fila padre)
                         const total=s.indices.reduce((a,i)=>{
-                          const v = getProy(line.label, i);
+                          const v = getProy(sec.cat, line.label, i);
                           const sub = line.subLines ? sumSubLinesMes(line.label, i) : 0;
                           return a + v + sub;
                         },0);
@@ -6065,7 +6135,7 @@ function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit,saldosBanc
                       }
                       return cols.map((col,ci)=>{
                         const isTot=col.isTotalMes;
-                        const valMesProp=getProy(line.label,col.idx);
+                        const valMesProp=getProy(sec.cat, line.label,col.idx);
                         // Si la línea tiene subLines, mostrar el valor consolidado (padre + sublineas)
                         // Esto aplica a TODAS las líneas con subLines, incluyendo Pago Préstamos y Renovaciones
                         const sumSubMes = line.subLines ? sumSubLinesMes(line.label, col.idx) : 0;
@@ -6080,7 +6150,7 @@ function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit,saldosBanc
                           val=(semMap[col.mes]?.[col.semana])||0;
                         } else if(col.type==="week") {
                           // Cada semana tiene su propio valor independiente
-                          const propValSem = getProySemana(line.label, col.idx, col.semIdx, col.isLastInMonth);
+                          const propValSem = getProySemana(sec.cat, line.label, col.idx, col.semIdx, col.isLastInMonth);
                           // Sublines de TODAS las líneas (incluyendo Préstamos) suman al valor del padre
                           const subValSem = line.subLines
                             ? sumSubLinesSemana(line.label, col.idx, col.semIdx, col.isLastInMonth) : 0;
@@ -6121,7 +6191,7 @@ function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit,saldosBanc
                                 color={sec.signo>0?C.green:C.red}
                                 canEdit={canEdit && !formulaBloquea}
                                 real={real}
-                                onSave={v=>handleEditProy(line.label,col.idx,v)}
+                                onSave={v=>handleEditProy(sec.cat,line.label,col.idx,v)}
                               />
                             ) : (
                               <CeldaEditable
@@ -6131,7 +6201,7 @@ function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit,saldosBanc
                                 real={real}
                                 onSave={v=>{
                                   // Guardar valor para esa semana específica (no se prorratea, no se distribuye)
-                                  handleEditProy(line.label, col.idx, v, col.semIdx);
+                                  handleEditProy(sec.cat, line.label, col.idx, v, col.semIdx);
                                 }}
                               />
                             )}
@@ -6497,7 +6567,7 @@ function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit,saldosBanc
                         const linTot = sec.lines.reduce((b,l)=>{
                           if(l.label.startsWith("  ")) return b;
                           const subSum = l.subLines ? sumSubLinesMes(l.label, i) : 0;
-                          return b + getProy(l.label,i) + subSum;
+                          return b + getProy(sec.cat, l.label,i) + subSum;
                         },0);
                         const addSum = sumAddedLinesMes(sec.cat, i);
                         return a + linTot + addSum;
@@ -6520,14 +6590,14 @@ function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit,saldosBanc
                         baseTotal = sec.lines.reduce((a,l)=>{
                           if(l.label.startsWith("  ")) return a;
                           const subSum = l.subLines ? sumSubLinesMes(l.label, col.idx) : 0;
-                          return a + getProy(l.label,col.idx) + subSum;
+                          return a + getProy(sec.cat, l.label,col.idx) + subSum;
                         },0);
                         addedTotal = sumAddedLinesMes(sec.cat, col.idx);
                       } else if(col.type==="week") {
                         // Columna de semana: suma los valores semanales de cada línea + subLines de esa semana
                         baseTotal = sec.lines.reduce((a,l)=>{
                           if(l.label.startsWith("  ")) return a;
-                          const propSem = getProySemana(l.label, col.idx, col.semIdx, col.isLastInMonth);
+                          const propSem = getProySemana(sec.cat, l.label, col.idx, col.semIdx, col.isLastInMonth);
                           const subSem = l.subLines
                             ? sumSubLinesSemana(l.label, col.idx, col.semIdx, col.isLastInMonth) : 0;
                           return a + propSem + subSem;
@@ -6559,7 +6629,7 @@ function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit,saldosBanc
                     let total = 0;
                     s.lines.forEach(l=>{
                       if(l.label.startsWith("  ")) return;
-                      total += getProy(l.label, idx);
+                      total += getProy(catBuscar, l.label, idx);
                       if(l.subLines) {
                         total += sumSubLinesMes(l.label, idx);
                       }
@@ -6573,7 +6643,7 @@ function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit,saldosBanc
                     let total = 0;
                     s.lines.forEach(l=>{
                       if(l.label.startsWith("  ")) return;
-                      total += getProySemana(l.label, idx, semIdx, isLastInMonth);
+                      total += getProySemana(catBuscar, l.label, idx, semIdx, isLastInMonth);
                       if(l.subLines) {
                         total += sumSubLinesSemana(l.label, idx, semIdx, isLastInMonth);
                       }
@@ -6771,7 +6841,7 @@ function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit,saldosBanc
             {Object.keys(proyOverrides).length>0&&(
               <button onClick={()=>{
                   setProyOverrides({});
-                  if(onSaveProy) onSaveProy(empNombre,"_clear_all",0,0);
+                  if(onSaveProy) onSaveProy(empNombre,"_clear_all","_clear_all",0,0);
                 }}
                 style={{padding:"6px 14px",borderRadius:8,border:`1px solid ${C.red}`,
                   background:`${C.red}18`,color:C.red,cursor:"pointer",fontSize:11,fontWeight:600}}>
@@ -8901,13 +8971,15 @@ function reporte_calcSaldoProyectadoMensual_v2(empNombre, realData, empresas, sa
   const addedLines = addedLinesGlobal?.[empNombre] || {};
 
   // 4. getProy: idéntica a la de FlujoEmpresa
-  function getProy(lineLabel, idx) {
-    const ov = proyOverrides[lineLabel]?.[idx];
+  // cat + etiqueta: hay etiquetas repetidas entre categorías (ver claveLinea)
+  function getProy(cat, lineLabel, idx) {
+    const ov = overridesDeLinea(proyOverrides, empData, cat, lineLabel)?.[idx];
     let base = 0;
     let lockFrom = null;
-    for(const sec of empData.sections){
-      const l = sec.lines.find(x=>x.label===lineLabel);
-      if(l){ base = l.proy?.[idx]||0; if(typeof l._lockOverrideFromIdx==="number") lockFrom=l._lockOverrideFromIdx; break; }
+    {
+      const sec = (empData.sections || []).find(x=>x.cat===cat);
+      const l = sec && sec.lines.find(x=>x.label===lineLabel);
+      if(l){ base = l.proy?.[idx]||0; if(typeof l._lockOverrideFromIdx==="number") lockFrom=l._lockOverrideFromIdx; }
     }
     if(lockFrom !== null && idx >= lockFrom) return base;
     if(ov === undefined) return base;
@@ -8928,7 +9000,7 @@ function reporte_calcSaldoProyectadoMensual_v2(empNombre, realData, empresas, sa
     let f = 0;
     empData.sections.forEach(sec=>{
       sec.lines.forEach(l=>{
-        const v = getProy(l.label, i);
+        const v = getProy(sec.cat, l.label, i);
         f += v * sec.signo;
         // Sublines (CxC, Capital Calls, etc)
         if(l.subLines) (subLines[l.label]||[]).forEach(sl=>{
@@ -9004,13 +9076,15 @@ function reporte_calcDetalleMensual(empNombre, realData, empresas, saldosBancos,
   const subLines = subLinesGlobal?.[empNombre] || {};
   const addedLines = addedLinesGlobal?.[empNombre] || {};
 
-  function getProy(lineLabel, idx) {
-    const ov = proyOverrides[lineLabel]?.[idx];
+  // cat + etiqueta: hay etiquetas repetidas entre categorías (ver claveLinea)
+  function getProy(cat, lineLabel, idx) {
+    const ov = overridesDeLinea(proyOverrides, empData, cat, lineLabel)?.[idx];
     let base = 0;
     let lockFrom = null;
-    for(const sec of empData.sections){
-      const l = sec.lines.find(x=>x.label===lineLabel);
-      if(l){ base = l.proy?.[idx]||0; if(typeof l._lockOverrideFromIdx==="number") lockFrom=l._lockOverrideFromIdx; break; }
+    {
+      const sec = (empData.sections || []).find(x=>x.cat===cat);
+      const l = sec && sec.lines.find(x=>x.label===lineLabel);
+      if(l){ base = l.proy?.[idx]||0; if(typeof l._lockOverrideFromIdx==="number") lockFrom=l._lockOverrideFromIdx; }
     }
     if(lockFrom !== null && idx >= lockFrom) return base;
     if(ov === undefined) return base;
@@ -9037,7 +9111,7 @@ function reporte_calcDetalleMensual(empNombre, realData, empresas, saldosBancos,
     empData.sections.forEach(sec => {
       const esIngreso = sec.signo > 0;
       sec.lines.forEach(l => {
-        const v = getProy(l.label, i);
+        const v = getProy(sec.cat, l.label, i);
         if(esIngreso) ingTotal += v;
         else egrTotal += v;
         // Sublines
@@ -9189,13 +9263,15 @@ function reporte_getTopMovimientos(empNombre, realData, empresas, subLinesGlobal
   const subLines = subLinesGlobal?.[empNombre] || {};
   const addedLines = addedLinesGlobal?.[empNombre] || {};
 
-  function getProy(lineLabel, idx) {
-    const ov = proyOverrides[lineLabel]?.[idx];
+  // cat + etiqueta: hay etiquetas repetidas entre categorías (ver claveLinea)
+  function getProy(cat, lineLabel, idx) {
+    const ov = overridesDeLinea(proyOverrides, empData, cat, lineLabel)?.[idx];
     let base = 0;
     let lockFrom = null;
-    for(const sec of empData.sections){
-      const l = sec.lines.find(x=>x.label===lineLabel);
-      if(l){ base = l.proy?.[idx]||0; if(typeof l._lockOverrideFromIdx==="number") lockFrom=l._lockOverrideFromIdx; break; }
+    {
+      const sec = (empData.sections || []).find(x=>x.cat===cat);
+      const l = sec && sec.lines.find(x=>x.label===lineLabel);
+      if(l){ base = l.proy?.[idx]||0; if(typeof l._lockOverrideFromIdx==="number") lockFrom=l._lockOverrideFromIdx; }
     }
     if(lockFrom !== null && idx >= lockFrom) return base;
     if(ov === undefined) return base;
@@ -9216,7 +9292,7 @@ function reporte_getTopMovimientos(empNombre, realData, empresas, subLinesGlobal
   for(const sec of empData.sections) {
     const tipo = sec.signo > 0 ? "ingreso" : "egreso";
     for(const linea of (sec.lines || [])) {
-      const v = getProy(linea.label, mesIdx);
+      const v = getProy(sec.cat, linea.label, mesIdx);
       if(v > 0) todasLineas.push({ label: linea.label, monto: v, tipo });
 
       // SubLines
@@ -9288,12 +9364,13 @@ function reporte_getMovimientos4Semanas(empNombre, realData, empresas, saldosBan
   }
 
   // Función getProySemana idéntica a FlujoEmpresa
-  function getProySemana(lineLabel, idx, semIdx, isLastInMonth) {
-    const ov = proyOverrides[lineLabel]?.[idx];
+  function getProySemana(cat, lineLabel, idx, semIdx, isLastInMonth) {
+    const ov = overridesDeLinea(proyOverrides, empData, cat, lineLabel)?.[idx];
     let base = 0;
-    for(const sec of empData.sections){
-      const l = sec.lines.find(x=>x.label===lineLabel);
-      if(l){ base = l.proy?.[idx]||0; break; }
+    {
+      const sec = (empData.sections || []).find(x=>x.cat===cat);
+      const l = sec && sec.lines.find(x=>x.label===lineLabel);
+      if(l) base = l.proy?.[idx]||0;
     }
     if(ov === undefined) return semIdx === 0 ? base : 0;
     if(typeof ov === "number") return isLastInMonth ? ov : 0;
@@ -9341,7 +9418,7 @@ function reporte_getMovimientos4Semanas(empNombre, realData, empresas, saldosBan
     for(const linea of (sec.lines || [])) {
       // Por cada semana, ver si hay valor
       for(const semInfo of semanas4) {
-        const v = getProySemana(linea.label, semInfo.mesIdx, semInfo.semIdx, semInfo.isLastInMonth);
+        const v = getProySemana(sec.cat, linea.label, semInfo.mesIdx, semInfo.semIdx, semInfo.isLastInMonth);
         if(v === 0) continue;
         const semLabel = `${displayMes(semInfo.mesIdx)} S${semInfo.semIdx + 1}`;
         const item = { mes: semLabel, label: linea.label, monto: Math.abs(v), cat: sec.cat, catLabel };
@@ -11926,16 +12003,28 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
   },[persistAll]);
 
   // Persistir overrides de proyección editados por usuario
-  const handleSaveProy=useCallback((empresa,lineLabel,idx,val)=>{
+  // Las ediciones manuales se guardan con la identidad completa de la línea
+  // (`cat::etiqueta`). Las claves antiguas —solo etiqueta— se siguen leyendo
+  // mientras la etiqueta no esté repetida; las repetidas se avisan en pantalla
+  // y NO se migran solas (no se puede saber a qué línea pertenecían).
+  const handleSaveProy=useCallback((empresa,cat,lineLabel,idx,val)=>{
     setRealData(prev=>{
       const next=JSON.parse(JSON.stringify(prev));
       if(!next[empresa]) next[empresa]={};
-      if(lineLabel==="_clear_all"){
+      if(lineLabel==="_clear_all"||cat==="_clear_all"){
         delete next[empresa]._proyOverrides;
       } else {
+        const clave = claveLinea(cat, lineLabel);
         if(!next[empresa]._proyOverrides) next[empresa]._proyOverrides={};
-        if(!next[empresa]._proyOverrides[lineLabel]) next[empresa]._proyOverrides[lineLabel]={};
-        next[empresa]._proyOverrides[lineLabel][String(idx)]=val;
+        if(!next[empresa]._proyOverrides[clave]) next[empresa]._proyOverrides[clave]={};
+        next[empresa]._proyOverrides[clave][String(idx)]=val;
+        // si existía la clave antigua para esa misma celda y la etiqueta no es
+        // ambigua, se retira para no dejar dos fuentes del mismo valor
+        const viejo = next[empresa]._proyOverrides[lineLabel];
+        if(viejo && viejo[String(idx)] !== undefined){
+          delete viejo[String(idx)];
+          if(Object.keys(viejo).length===0) delete next[empresa]._proyOverrides[lineLabel];
+        }
       }
       realDataRef.current = next;
       setTimeout(()=>{

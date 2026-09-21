@@ -152,6 +152,45 @@ Las líneas con `formula:true` y "Préstamos" en el label:
 - Las sublines visibles vienen de `calcPrestamosDesglose()` (por acreedor)
 - Mantienen consistencia con el módulo Créditos: una sola fuente de verdad
 
+#### Identidad de una línea = categoría + etiqueta (sep-2026)
+
+Dos categorías pueden tener conceptos con el MISMO nombre y es válido:
+`Allpa Farms` tiene 14 así ("Electricidad", "Gratificaciones",
+"Casino - Colaciones", "Gastos De Aseo", …) entre `egr_var` y `egr_fijo`.
+
+Lo que no era válido es identificar la línea solo por su etiqueta.
+`getProy(label, idx)` recorría TODAS las secciones y devolvía la primera
+coincidencia, así que la línea homónima de la segunda categoría mostraba el
+valor de la primera. El desvío no era solo del subtotal: afectaba la **fila**,
+el **subtotal**, el **flujo neto**, el **saldo acumulado**, la vista semanal y
+el reporte semanal. Y el Excel tampoco estaba a salvo: `buildEmpresasConOverrides`
+aplicaba `overrides[label]` a todas las líneas homónimas, así que un valor
+manual se escribía en las dos, en el archivo individual y en el consolidado.
+
+Ahora la identidad es `claveLinea(cat, label)` → `"egr_fijo::Electricidad"`:
+
+- `getProy(cat, label, idx)` y `getProySemana(cat, label, …)` buscan SOLO dentro
+  de la sección indicada (4 copias en el módulo: flujo, reporte semanal y dos
+  auxiliares). Todos los llamadores pasan `sec.cat`.
+- `handleEditProy(cat, label, …)` y `handleSaveProy(empresa, cat, label, …)`
+  guardan con la clave nueva y retiran la clave antigua de esa misma celda.
+- `buildEmpresasConOverrides` aplica el override a la línea de SU categoría.
+- Excel: una etiqueta repetida no recibe la fórmula viva de la hoja Parametros
+  (se escribiría la misma SUMIF en las dos); va con su valor propio.
+
+**Compatibilidad de los overrides ya guardados** (`_proyOverrides` tiene claves
+por etiqueta): `overridesDeLinea` lee primero `cat::label` y, si no existe, la
+clave antigua **solo cuando la etiqueta no está repetida en la empresa**. Si
+está repetida, la clave antigua es AMBIGUA: no se puede saber a qué línea
+pertenecía. No se migra ni se duplica en silencio; se mantiene el
+comportamiento histórico (primera categoría) y `overridesAmbiguos()` las lista
+para resolverlas a mano. Cualquier edición nueva escribe ya la clave completa.
+
+Pendiente de decisión: `subLines` también se guarda por etiqueta
+(`subLines[label]`). Hoy ninguna línea con sublíneas tiene etiqueta repetida y
+hay un test que falla si eso cambia; si alguna vez ocurre, hay que darle la
+misma identidad por categoría.
+
 #### Bug histórico arreglado (no volver a romper)
 
 El subtotal de categoría debe **incluir** las sublines de líneas con "Préstamos" en el nombre. Antes se excluían y generaba descuadre con el Flujo Neto. La exclusión `!l.label.includes("Préstamos")` fue removida del cálculo de subtotales — no volverla a poner.

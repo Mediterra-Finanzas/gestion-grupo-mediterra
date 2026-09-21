@@ -294,13 +294,21 @@ function buildHorizonte(lastSeasonStartYear) {
 // valores mensuales van como FÓRMULA Excel (ej. Allpa: SUMIF a la hoja Parametros)
 // en vez de inputs estáticos. El número cacheado se toma de emp.proy.
 function catsDeEmpresa(emp, months, formulaLines = null) {
+  // Una etiqueta repetida en dos categorías no identifica una línea: en ese
+  // caso la fórmula viva (SUMIF contra la hoja Parametros) se aplicaría a las
+  // dos y una de ellas quedaría con el número de la otra. Esas líneas se
+  // escriben con su valor propio, que es el que muestra la app.
+  const vecesEtiqueta = {};
+  (emp.sections || []).forEach(sec => (sec.lines || []).forEach(l => {
+    vecesEtiqueta[l.label] = (vecesEtiqueta[l.label] || 0) + 1;
+  }));
   return CAT_ORDER.map(cat => {
     const sec = (emp.sections || []).find(s => s.cat === cat);
     const lines = [];
     if (sec) sec.lines.forEach(ln => {
       const vals = months.map(mo => Number(ln.proy[mo.idx]) || 0);
       const hasVal = vals.some(v => v !== 0);
-      const fl = formulaLines && formulaLines[ln.label];
+      const fl = (vecesEtiqueta[ln.label] === 1) && formulaLines && formulaLines[ln.label];
       if (fl) {
         if (!hasVal) return;
         lines.push({
