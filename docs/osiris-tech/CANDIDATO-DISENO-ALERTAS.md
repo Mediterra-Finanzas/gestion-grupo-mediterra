@@ -1,8 +1,21 @@
-# Candidato Osiris · diseño y alertas internas
+# Candidato Osiris · pestaña Inicio ejecutivo y alertas internas
 
-**Rama:** `osiris/candidato-diseno-alertas` (local, sin push). **Base:** `origin/main` `27b423b`
-(verificado con `git fetch` el 2026-09-16: sin cambios nuevos en `main`).
-**Estado:** candidato local. No integrado a `main`, no desplegado, sin prueba integrada.
+**Rama:** `osiris/pestana-inicio-ejecutivo` (local, sin push). **Base:** `origin/main` `27b423b`.
+**Estado (2026-09-21):** rama SOLO VISUAL separada del candidato `osiris/candidato-diseno-alertas`
+(que queda como evidencia, sin cambios). Alcance congelado: pestaña "Inicio ejecutivo" y alertas
+internas de Osiris. Sin funcionalidades nuevas ni cambios económicos.
+
+**Qué contiene:** los commits de diseño y alertas (`13ae76b`, `7216136`, `4d65a9a`, `52afafe`,
+`f94bcf2`, `edf7436`) y la documentación (`256e4b3`, `644dcff`), por cherry-pick `-x`.
+
+**Qué NO contiene (vive en `fix/usuarios-transicion`):** la corrección de permisos
+(PROD-INCIDENT-01 + transición de usuarios con espejo en `main`) y los cambios de destino por
+entorno de `persistContract` (parcial de `253961a`) y de `App.jsx` `PROD_URL` (parcial de
+`1d797e4`). Las secciones de abajo que mencionan esos commits describen el paquete integrado
+(`osiris/candidato-integrado-v2`), no esta rama. `f94bcf2` (destino por entorno en
+`OsirisModule.jsx`) sí está aquí: sin variables el destino es el productivo actual.
+
+---
 
 ## Qué entrega esta primera versión
 
