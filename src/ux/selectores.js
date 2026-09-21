@@ -221,7 +221,7 @@ export function alertasAccionables(blob, hoy = new Date()) {
         porQue:
           "Sin firma completa no se puede facturar lo que el contrato establece." +
           (sinDatoFirma.length ? ` ${INSUF}no está registrada la firma ${de(sinDatoFirma)}.` : ""),
-        accion: "Solicitar firma",
+        accion: "Ver ficha", // solo abre la ficha; la edición llega en la segunda entrega
         entidad: ref,
       });
     } else if (sinDatoFirma.length > 0) {
@@ -295,7 +295,7 @@ export function alertasAccionables(blob, hoy = new Date()) {
         severidad: "alto",
         titulo: `${nombre} · sin mes de facturación del royalty comercial`,
         porQue: `${INSUF}sin mes definido no se puede ubicar el cobro en un trimestre.`,
-        accion: "Definir mes",
+        accion: "Ver ficha", // solo abre la ficha; la edición llega en la segunda entrega
         entidad: ref,
       });
     }

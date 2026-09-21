@@ -420,8 +420,15 @@ describe("filtros de alertas · son controles reales, no botones disfrazados", (
     render(<PanelAlertas alertas={alertas} maximo={99} estadoCarga="ok" />);
     const botones = screen
       .getAllByRole("button")
-      .filter((b) => /Solicitar firma|Renovar|Cargar|Definir|Emitir|Adjuntar|Completar|Agendar|Revisar/.test(b.textContent));
+      .filter((b) => /Ver ficha|Renovar|Cargar|Definir|Emitir|Adjuntar|Completar|Agendar|Revisar/.test(b.textContent));
     expect(botones.length).toBeGreaterThanOrEqual(alertas.length);
+  });
+
+  test("firma y mes de facturación: el botón dice \"Ver ficha\", no promete enviar ni editar", () => {
+    render(<PanelAlertas alertas={alertas} maximo={99} estadoCarga="ok" />);
+    const textos = screen.getAllByRole("button").map((b) => b.textContent);
+    expect(textos.some((x) => /Solicitar firma|Definir mes/.test(x))).toBe(false);
+    expect(alertas.filter((a) => a.id.startsWith("firma:")).every((a) => a.accion === "Ver ficha")).toBe(true);
   });
 
   test("la severidad va también en texto, para que no dependa del color", () => {

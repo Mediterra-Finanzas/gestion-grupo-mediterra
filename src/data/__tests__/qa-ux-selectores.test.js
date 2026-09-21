@@ -123,7 +123,7 @@ describe("alertas · todas son accionables o no existen", () => {
   test("el verbo de la acción es un verbo, no un sustantivo", () => {
     for (const a of alertas) {
       expect(a.accion).toMatch(
-        /^(Solicitar|Renovar|Agendar|Cargar|Definir|Emitir|Completar|Adjuntar|Revisar)/
+        /^(Ver|Solicitar|Renovar|Agendar|Cargar|Definir|Emitir|Completar|Adjuntar|Revisar)/
       );
     }
   });
