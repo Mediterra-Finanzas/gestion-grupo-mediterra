@@ -2294,14 +2294,13 @@ export default function App(){
               // romper el optimistic lock de la fila `main` (completitud por-fila).
               const cleanMain = {...d};
               delete cleanMain.osirisData;
-              // E-SEC (PROD-INCIDENT-01 hardening): NO reescribir la copia legacy de
-              // `usuarios` en `main`. La fuente de verdad de usuarios/permisos es la
-              // fila dedicada `usuarios` (ver ~2207-2226 y writers ~2743/2779); en `main`
-              // solo queda una copia rancia anon-legible de permisos. Al reescribir main
-              // sin este delete se perpetuaría esa copia. La semilla de migración lee
-              // `d.usuarios` ANTES (~2212), en otra ruta, así que quitarlo acá no rompe
-              // el bootstrap de una instalación sin fila `usuarios`.
-              delete cleanMain.usuarios;
+              // COMPATIBILITY MIRROR — WRITE-ONLY: se CONSERVA `cleanMain.usuarios`
+              // (el roster recién cargado de `d`, NO una copia rancia). Antes se borraba,
+              // pero eso hacía que este UPDATE de `main` omitiera emails del roster previo
+              // y el trigger `guard_main_no_user_shrink` lo rechazara (23514 → HTTP 400).
+              // La fuente de verdad de usuarios/permisos sigue siendo la fila dedicada
+              // `usuarios` (dbLoadUsuarios/dbSaveUsuarios); `main.usuarios` es solo espejo
+              // de escritura para el guard de BD y NUNCA se lee como autoridad.
               // E-SEC (PROD-INCIDENT-01 hardening, análogo a `usuarios`): NO reescribir
               // la copia rancia de PINs en `main`. La fuente de verdad de PINs es la
               // fila dedicada `pins` (dbLoadPins/dbSavePins, ver ~185-206 y writers
@@ -2758,9 +2757,17 @@ export default function App(){
       // una sesión vieja los revertía. Por eso se quitaron de este payload.
       recsDone:     recsDoneRef.current,
       recsComentarios: recsComRef.current,
-      // PROD-INCIDENT-01 FIX: `usuarios` NO viaja en `main`. Su fuente de verdad es la
-      // fila dedicada `usuarios` (dbSaveUsuarios). Antes iba aquí, y un save de Tareas
-      // con `usuarios` viejo pasaba el OCC de blob y pisaba un permiso en silencio.
+      // COMPATIBILITY MIRROR — WRITE-ONLY. La fuente de verdad de usuarios/permisos
+      // sigue siendo la fila dedicada `usuarios` (dbLoadUsuarios/dbSaveUsuarios); esto
+      // NO es autoridad y NUNCA se lee como tal. Se reincluye solo para satisfacer el
+      // trigger de BD `guard_main_no_user_shrink` (BEFORE UPDATE en calendario_data),
+      // que rechaza (23514 → HTTP 400) todo UPDATE de `main` que omita un email presente
+      // en el roster previo — lo que bloqueaba cada save de Tareas tras el hotfix. Se
+      // toma SIEMPRE del roster reconciliado autoritativo (usuariosRef.current, mantenido
+      // en sync por el glue poll/WS→reconciliar→setUsuarios), NUNCA de una copia rancia
+      // ni releyendo main.usuarios; si el ref no trae un email que main tiene, el trigger
+      // bloquea ese save ruidosamente (aceptable), sin backfill silencioso.
+      usuarios:     usuariosRef.current,
       mes:          mesRef.current,
       anio:         anioRef.current,
 
@@ -2772,10 +2779,14 @@ export default function App(){
   const guardar=useCallback((est,com,tc,sup,te,pins,rd,rc,usrs,m,a)=>{
     setGuardado("guardando");
     // PINs (pins) NO se incluyen: su fuente de verdad es la fila `pins`.
-    // `usrs` se ignora a propósito: `usuarios` tiene su fila dedicada (dbSaveUsuarios),
-    // fuera del blob `main` (PROD-INCIDENT-01 FIX).
+    // `usrs` (el param) se IGNORA a propósito. `usuarios` conserva su fila dedicada
+    // como única fuente de verdad (dbSaveUsuarios). El campo `usuarios` que va acá es
+    // un COMPATIBILITY MIRROR WRITE-ONLY tomado del roster reconciliado autoritativo
+    // (usuariosRef.current, NO el param `usrs` ni main.usuarios): existe solo para
+    // satisfacer el trigger de BD `guard_main_no_user_shrink` que si no rechaza el
+    // UPDATE de `main` con 23514/HTTP 400. Nunca se lee como autoridad.
     dbSave({estados:est,comentarios:com,tareasConfig:tc,supervisores:sup,tareasExtra:te,
-      recsDone:rd,recsComentarios:rc,mes:m,anio:a})
+      recsDone:rd,recsComentarios:rc,usuarios:usuariosRef.current,mes:m,anio:a})
       .then((r)=>{ if(r && r.ok===false){ setGuardado("error"); setTimeout(()=>setGuardado("idle"),3000); setAvisoPersist(construirAvisoDesde("main", r, "las Tareas")); } else { setGuardado("ok"); setTimeout(()=>setGuardado("idle"),2000); } })
       .catch(()=>{setGuardado("error");setTimeout(()=>setGuardado("idle"),3000);});
   },[]);
