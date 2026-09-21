@@ -29,7 +29,7 @@ import { DATOS_EJEMPLO, HOY_EJEMPLO } from "../../ux/ejemploDatos";
 const kpi = (id, blob = DATOS_EJEMPLO) =>
   kpisEjecutivos(blob, HOY_EJEMPLO).find((k) => k.id === id);
 
-describe("KPIs · cada uno responde una pregunta y declara su fuente", () => {
+describe("KPIs · cada uno responde una pregunta", () => {
   const todos = kpisEjecutivos(DATOS_EJEMPLO, HOY_EJEMPLO);
 
   test("hay cuatro KPIs y ninguno repite id", () => {
@@ -43,8 +43,14 @@ describe("KPIs · cada uno responde una pregunta y declara su fuente", () => {
     }
   });
 
-  test("todos declaran de qué campo sale la cifra", () => {
-    for (const k of todos) expect(k.fuente).toBeTruthy();
+  test("ninguno muestra nombres internos de campos", () => {
+    for (const k of todos) expect(k.fuente).toBeUndefined();
+  });
+
+  test("base productiva: contratos con plantaciones y variedades, con singular y plural", () => {
+    const k = todos.find((x) => x.id === "base_plantada");
+    expect(k.detalle).toMatch(/^\d+ contratos? con plantaciones · \d+ (variedad|variedades)$/);
+    expect(k.detalle).not.toMatch(/1 contratos|1 variedades/);
   });
 
   test("todos traen severidad conocida", () => {

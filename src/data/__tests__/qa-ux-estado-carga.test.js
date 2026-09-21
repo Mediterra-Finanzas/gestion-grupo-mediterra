@@ -108,6 +108,14 @@ describe("textos · alertas y ficha", () => {
     expect(etiquetas).not.toContain("Contract fee pagado");
   });
 
+  test("sin fila en Fee Entrada y contrato no marcado pagado: no se afirma coincidencia", () => {
+    const b = JSON.parse(JSON.stringify(DATOS_EJEMPLO));
+    b.contratos[0].contractFeePagado = false;
+    b.feeEntrada = [];
+    const eco = ficha360(b, "contrato", "ct1").secciones.find((s) => s.titulo === "Economía");
+    expect(eco.campos.find((c) => c.etiqueta === "Contrato vs Fee Entrada").valor).toBe("Sin registro en Fee Entrada");
+  });
+
   test("discrepancia contrato vs Fee Entrada: ct1 marcado pagado, sin fila en Fee Entrada", () => {
     const fe = feeEntradaDeContrato(DATOS_EJEMPLO, DATOS_EJEMPLO.contratos[0]);
     expect(fe).toMatchObject({ aplica: true, hayFila: false, pagadoFila: false, marcadoContrato: true, discrepa: true });

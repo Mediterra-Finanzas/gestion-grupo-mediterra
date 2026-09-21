@@ -99,6 +99,8 @@ export function temporadaDe(fecha) {
 // ── KPIs ───────────────────────────────────────────────────────────
 // Cada KPI responde UNA pregunta, y la pregunta viaja con el dato para que
 // la tarjeta no tenga que inventarse un subtítulo de relleno.
+const plural = (n, uno, varios) => `${n} ${n === 1 ? uno : varios}`;
+
 export function kpisEjecutivos(blob, hoy = new Date()) {
   const b = blob || {};
   const c = blobCounts(b);
@@ -119,6 +121,8 @@ export function kpisEjecutivos(blob, hoy = new Date()) {
     return d != null && d < 0;
   }).length;
 
+  const conPlantaciones = contratos.filter((ct) => arr(ct.plantaciones).length > 0).length;
+
   const sinReglaObtentor = obtentores.filter(
     (ob) => arr(ob.participacionIngresos).length === 0
   ).length;
@@ -132,7 +136,6 @@ export function kpisEjecutivos(blob, hoy = new Date()) {
       formato: "conteo",
       detalle: `de ${contratos.length} contratos`,
       severidad: sinFirma > 0 ? "critico" : "ok",
-      fuente: "firmadoLicenciado / firmadoOsiris",
     },
     {
       id: "contratos_por_vencer",
@@ -142,7 +145,6 @@ export function kpisEjecutivos(blob, hoy = new Date()) {
       formato: "conteo",
       detalle: vencidos > 0 ? `${vencidos} ya vencidos` : "Ninguno vencido",
       severidad: vencidos > 0 ? "critico" : porVencer > 0 ? "alto" : "ok",
-      fuente: "contratos[].fechaTermino",
     },
     {
       id: "obtentores_sin_regla",
@@ -152,7 +154,6 @@ export function kpisEjecutivos(blob, hoy = new Date()) {
       formato: "conteo",
       detalle: `de ${obtentores.length} obtentores`,
       severidad: sinReglaObtentor > 0 ? "alto" : "ok",
-      fuente: "obtentores[].participacionIngresos",
     },
     {
       id: "base_plantada",
@@ -160,9 +161,8 @@ export function kpisEjecutivos(blob, hoy = new Date()) {
       etiqueta: "Plantaciones registradas",
       valor: c.plantaciones,
       formato: "conteo",
-      detalle: `${c.clientes} clientes · ${c.variedades} variedades`,
+      detalle: `${plural(conPlantaciones, "contrato", "contratos")} con plantaciones · ${plural(c.variedades, "variedad", "variedades")}`,
       severidad: c.plantaciones === 0 ? "alto" : "info",
-      fuente: "blobCounts()",
     },
   ];
 }
@@ -604,7 +604,7 @@ function fichaContrato(b, id) {
           campo("Monto contract fee", num(ct.montoContractFee), "moneda"),
           campo("Marcado pagado en el contrato", siNo(ct.contractFeePagado)),
           campo("Fee Entrada (pestaña)", fe.aplica ? (fe.hayFila ? (fe.pagadoFila ? "Pagado" : "No pagado") : "Sin fila (muestra no pagado)") : "No aplica"),
-          campo("Contrato vs Fee Entrada", fe.aplica ? (fe.discrepa ? "Discrepan: pendiente de conciliación" : "Coinciden") : "No aplica"),
+          campo("Contrato vs Fee Entrada", fe.aplica ? (fe.discrepa ? "Discrepan: pendiente de conciliación" : !fe.hayFila ? "Sin registro en Fee Entrada" : "Coinciden") : "No aplica"),
           campo("Royalty por planta", num(ct.valorRoyaltyPlanta), "moneda"),
           campo("Royalty comercial (por ha)", num(ct.valorRoyaltyComercial), "moneda"),
           campo("Mes facturación RC", txt(ct.mesFacuracionRC) || "sin definir"),
