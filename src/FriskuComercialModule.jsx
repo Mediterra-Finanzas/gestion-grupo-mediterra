@@ -24,7 +24,7 @@ import {
 } from "./friskuHelpers.js";
 import {
   liqsActivasOE, upsertPorId, identidadUsuario, evaluarConfirmacion, clavesBorradorDeOp,
-  entityBaseDe, draftEntityKey, clavesRecuperablesDeEntidad,
+  entityBaseDe, draftEntityKey, clavesRecuperablesDeEntidad, validarUnicidadOE,
 } from "./friskuLiquidacionesLogic.js";
 import AvisoPersistencia, { construirAviso } from "./AvisoPersistencia";
 import { FriskuBIProvider, useFriskuBI, FRISKU_DIMS, FRISKU_METRICS, fmtMetric,
@@ -4293,6 +4293,9 @@ function LiquidacionForm({ liq, embarques, clientes, exportadoras, especies, mon
   const saveEstado = saveState?.estado || null;
   const guardando  = saveEstado === "guardando";
   const guardado   = saveEstado === "guardado";
+  const duplicadoSave = saveEstado === "duplicado";   // carrera: la OE ya tiene una liquidación
+  const liqDuplicada = (duplicadoSave && saveState?.idExistente)
+    ? (liquidaciones||[]).find(l => l.id === saveState.idExistente) : null;
   // Al confirmar, ya no hay cambios sin guardar → no avisar al cerrar.
   useEffect(()=>{ if(guardado) dirtyRef.current = false; },[guardado]);
 
@@ -4634,6 +4637,30 @@ function LiquidacionForm({ liq, embarques, clientes, exportadoras, especies, mon
         </>)}
       </div>
 
+      {/* Conflicto de NEGOCIO detectado al guardar (carrera): la OE ya tenía una liquidación activa.
+          La perdedora NO se persistió; el formulario y el borrador se conservan. Se ofrece Ver/Editar
+          la existente (ganadora). No se cierra ni aparece "Guardado". (CROSS-PROJECT: duplicado_oe) */}
+      {duplicadoSave && (
+        <div style={{marginTop:12, background:`${C.accent}14`, border:`1px solid ${C.accent}66`, borderRadius:10, padding:12}}>
+          <div style={{fontSize:12, fontWeight:800, color:C.accent, marginBottom:4}}>
+            ⛔ Ya existe una liquidación activa para esta OE — no se guardó
+          </div>
+          <div style={{fontSize:11, color:C.muted, marginBottom:8}}>
+            Otro usuario registró una liquidación para este embarque mientras editabas. Tu trabajo <b>no se perdió</b> (queda como borrador). Abre la existente para corregirla, o cambia la OE.
+          </div>
+          {liqDuplicada && (
+            <div style={{display:"flex", gap:8, alignItems:"center", flexWrap:"wrap", background:C.bg, border:`1px solid ${C.border}`, borderRadius:8, padding:"8px 10px"}}>
+              <span style={{fontSize:11, color:C.text, fontWeight:700}}>{(LIQ_ESTADOS[liqDuplicada.estado]||{label:liqDuplicada.estado}).label}</span>
+              <span style={{fontSize:11, color:C.muted}}>{liqDuplicada.fechaLiquidacion||"sin fecha"}</span>
+              <span style={{fontSize:11, color:C.green, fontWeight:700}}>{formatearMonto(liqDuplicada.montoComisionFrisku, liqDuplicada.monedaBase, monedasMap)}</span>
+              <div style={{marginLeft:"auto", display:"flex", gap:6}}>
+                {canEdit && onEditarExistente && <button type="button" onClick={()=>onEditarExistente(liqDuplicada)} style={{...btnSt(C.teal,true), fontSize:10, padding:"3px 9px"}}>Editar esta</button>}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
       {!bloqueoDuplicado && (
       <div style={{display:"flex", gap:8, marginTop:14, alignItems:"center", flexWrap:"wrap"}}>
         {guardado ? (
@@ -4654,8 +4681,11 @@ function LiquidacionForm({ liq, embarques, clientes, exportadoras, especies, mon
           </>
         )}
         {/* Estado de PERSISTENCIA en el servidor (distinto del borrador LOCAL) */}
-        {saveEstado==="error"     && <span style={{fontSize:11, fontWeight:700, color:C.accent}}>⚠ Error al guardar — reintenta (tus datos siguen aquí)</span>}
+        {saveEstado==="error" && (saveState?.motivo==="fila_ausente"
+          ? <span style={{fontSize:11, fontWeight:700, color:C.accent}}>⚠ No se pudo confirmar el guardado (fila no disponible). No se guardó; tus datos siguen aquí.</span>
+          : <span style={{fontSize:11, fontWeight:700, color:C.accent}}>⚠ Error al guardar — reintenta (tus datos siguen aquí)</span>)}
         {saveEstado==="conflicto" && <span style={{fontSize:11, fontWeight:700, color:C.accent}}>⚠ Conflicto con otra actualización — no se sobrescribió; reintenta (tus datos siguen aquí)</span>}
+        {duplicadoSave && <span style={{fontSize:11, fontWeight:700, color:C.accent}}>⛔ Ya existe una liquidación activa para esta OE — no se guardó</span>}
         {!saveEstado && dirtyRef.current && <span style={{fontSize:11, color:C.muted}}>Sin guardar</span>}
         <span style={{marginLeft:"auto", display:"flex", gap:10, alignItems:"center"}}>
           {!draftHabilitado && <span style={{fontSize:10, color:C.accent}} title="No hay identidad estable (email): no se guarda borrador local. No cierres la pestaña sin guardar.">⚠ Sin borrador local</span>}
@@ -9410,7 +9440,7 @@ export default function FriskuComercialModule({
   // `setter` es obligatorio cuando la fila puede fusionarse: si el guardado trajo cambios
   // de otra persona, el estado en memoria DEBE quedar con el resultado fusionado. Si no,
   // la copia local queda sin esos ítems y el siguiente guardado los tomaría como borrados.
-  const useAutoSave = (id, valor, setter, listo=true, onSaved) => {
+  const useAutoSave = (id, valor, setter, listo=true, onSaved, saveOpts) => {
     const timer = useRef(null);
     const primero = useRef(true);
     useEffect(()=>{
@@ -9419,7 +9449,8 @@ export default function FriskuComercialModule({
       if(timer.current) clearTimeout(timer.current);
       setGuardando(g => ({...g, [id]:true}));
       timer.current = setTimeout(async ()=>{
-        const r = await dbSaveGeneric(id, valor);
+        // saveOpts es opt-in: undefined → dbSaveGeneric(id, valor) exactamente como antes.
+        const r = await dbSaveGeneric(id, valor, saveOpts);
         setGuardando(g => ({...g, [id]:false}));
         if(r && r.ok && r.fusionado && setter && r.valor) setter(r.valor);
         const av = construirAviso(id, r, ETIQUETA_FILA[id] || id);
@@ -9436,17 +9467,25 @@ export default function FriskuComercialModule({
   useAutoSave("frisku_contratos", contratos, setContratos);
   useAutoSave("frisku_programa", programa, setPrograma);
   useAutoSave("frisku_embarques", embarques, setEmbarques);
+  // Ref espejo de la operación pendiente: el callback async la lee sin cerrar sobre un valor viejo.
+  const liqOpRef = useRef(null);
+  useEffect(()=>{ liqOpRef.current = liqOpPend; },[liqOpPend]);
   useAutoSave("frisku_liquidaciones", liquidaciones, setLiquidaciones, true, (r, enviado)=>{
     // Contrato de confirmación Frisku-local: interpreta el resultado del guardado contra la
-    // operación pendiente y fija el estado del formulario (guardado/error/conflicto/pendiente).
-    // NO asume confirmación por temporizadores; reutiliza r.ok/valor/fusionado/motivo/conflictos.
-    setLiqOpPend(op=>{
-      if(!op) return op;
-      const res = evaluarConfirmacion(r, op, enviado);
-      if(res.estado==="pendiente") return op;   // aún no es la última palabra (superseded)
-      return { ...op, estado:res.estado, motivo:res.motivo };
-    });
-  });
+    // operación pendiente y fija el estado del formulario. NO asume confirmación por temporizadores;
+    // reutiliza r.ok/valor/fusionado/motivo/conflictos/duplicado_oe/fila_ausente.
+    const op = liqOpRef.current;
+    if(!op || op.estado!=="guardando") return;   // sólo actúa sobre una operación en curso
+    const res = evaluarConfirmacion(r, op, enviado);
+    if(res.estado==="pendiente") return;          // superseded: aún no es la última palabra
+    if(res.estado==="duplicado"){
+      // La perdedora NO se persistió (validador la rechazó ANTES del write). Revertimos el alta
+      // optimista local para converger al servidor (que conserva la GANADORA); el borrador de esta
+      // instancia se conserva (no se limpia) y no se toca la ganadora.
+      setLiquidaciones(prev=> prev.filter(l=> l.id!==op.id));
+    }
+    setLiqOpPend({ ...op, estado:res.estado, motivo:res.motivo, idExistente:res.idExistente, oeId:res.oeId });
+  }, { requiereFilaExistente:true, validarCandidato: validarUnicidadOE });
   useAutoSave("frisku_po", pos, setPos);
 
   // Limpieza de borrador ACOTADA a la mutación confirmada: cuando (y sólo cuando) la operación
