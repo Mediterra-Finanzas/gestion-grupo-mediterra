@@ -222,22 +222,35 @@ pantalla): los meses anteriores muestran su flujo pero quedan **sin** saldo inic
 y el arrastre parte en el mes en curso. Aplica al export individual y al consolidado (que
 además ancla su fórmula de saldo a la columna de ese mes).
 
-#### Bug preexistente detectado (NO es de esta rama) — Allpa Farms
+#### Allpa Farms: subtotales inflados por etiquetas repetidas (ARREGLADO)
 
-En `Allpa Farms` hay **14 etiquetas de línea repetidas entre `egr_var` y `egr_fijo`**
-("Electricidad", "Gratificaciones", "Casino - Colaciones", "Gastos De Aseo", …).
-`getProy(label, idx)` resuelve por ETIQUETA recorriendo todas las secciones y
-devuelve la primera coincidencia, así que el subtotal en pantalla de
-"Costos Fijos / SG&A" toma los valores de la línea homónima de Egresos
-Operacionales. Resultado: la pantalla muestra US$107.783 en Apr-26 donde el
-Excel (que usa el valor propio de cada línea) muestra US$99.677,78; el desvío
-se repite en los 63 meses y arrastra Flujo Neto y Saldo Acumulado.
+`Allpa Farms` mostraba US$107.783 de Costos Fijos en Apr-26 donde el valor propio
+de esas líneas suma US$99.677,78, con desvío en los 63 meses y arrastre a Flujo
+Neto y Saldo Acumulado. Causa: 14 etiquetas repetidas entre `egr_var` y
+`egr_fijo` y una búsqueda por etiqueta. Era anterior a los anticipos (idéntico en
+`main`). Arreglado: ver "Identidad de una línea = categoría + etiqueta".
 
-Comprobado idéntico en `main` (126 desvíos por pasada, mismos montos), así que
-es anterior a los anticipos. **El correcto es el Excel; el error está en la
-pantalla.** No se arregló acá para no mezclar un cambio de `getProy` —que
-afecta a todos los módulos y a las claves de `_proyOverrides`, que también son
-por etiqueta— con el trabajo de anticipos. Queda como tarea aparte.
+#### Resolver los valores manuales antiguos sin categoría (sep-2026)
+
+Los `_proyOverrides` guardados con la clave vieja (solo etiqueta) sobre un
+concepto que existe en dos categorías no dicen a cuál pertenecen. La app:
+
+1. los **avisa** sobre la tabla del flujo con empresa, concepto, categorías
+   candidatas y, mes a mes, el monto, con un botón por categoría;
+2. declara el **criterio provisional** (primera categoría, lo que hacía antes)
+   como **no confirmado**, en pantalla y en el Excel (subtítulo + nota al pie,
+   individual y consolidado). Que pantalla y Excel coincidan no prueba que la
+   imputación contable sea la correcta;
+3. al resolver guarda en **dos pasos**: primero la clave `cat::etiqueta` y el
+   registro en `_resolucionesOverride` (clave original, clave destino, valor,
+   monto, categoría elegida, candidatas, si reemplazó un valor propio, usuario
+   y fecha); la clave antigua se retira **recién** cuando el servidor confirmó.
+   Si el segundo paso falla, `mesesResueltos` hace que ese mes se ignore igual
+   en la clave vieja: no se duplica ni se pierde;
+4. si la línea destino ya tenía un valor manual propio, muestra el **conflicto**
+   con ambos montos y no sobrescribe sin decisión explícita.
+
+Meses distintos del mismo concepto pueden ir a categorías distintas.
 
 #### Limitación conocida — costos de ciruelas
 
@@ -245,6 +258,44 @@ por etiqueta— con el trabajo de anticipos. Queda como tarea aparte.
 flujo para ellos: los anticipos de productor, saldo, materiales y servicios de ciruelas no
 llegan al flujo ni al Excel. Está avisado en pantalla. Pendiente aparte (decisión contable
 de Angelo), no se arregló en el cambio de anticipos.
+#### Identidad de una línea = categoría + etiqueta (sep-2026)
+
+Dos categorías pueden tener conceptos con el MISMO nombre y es válido:
+`Allpa Farms` tiene 14 así ("Electricidad", "Gratificaciones",
+"Casino - Colaciones", "Gastos De Aseo", …) entre `egr_var` y `egr_fijo`.
+
+Lo que no era válido es identificar la línea solo por su etiqueta.
+`getProy(label, idx)` recorría TODAS las secciones y devolvía la primera
+coincidencia, así que la línea homónima de la segunda categoría mostraba el
+valor de la primera. El desvío no era solo del subtotal: afectaba la **fila**,
+el **subtotal**, el **flujo neto**, el **saldo acumulado**, la vista semanal y
+el reporte semanal. Y el Excel tampoco estaba a salvo: `buildEmpresasConOverrides`
+aplicaba `overrides[label]` a todas las líneas homónimas, así que un valor
+manual se escribía en las dos, en el archivo individual y en el consolidado.
+
+Ahora la identidad es `claveLinea(cat, label)` → `"egr_fijo::Electricidad"`:
+
+- `getProy(cat, label, idx)` y `getProySemana(cat, label, …)` buscan SOLO dentro
+  de la sección indicada (4 copias en el módulo: flujo, reporte semanal y dos
+  auxiliares). Todos los llamadores pasan `sec.cat`.
+- `handleEditProy(cat, label, …)` y `handleSaveProy(empresa, cat, label, …)`
+  guardan con la clave nueva y retiran la clave antigua de esa misma celda.
+- `buildEmpresasConOverrides` aplica el override a la línea de SU categoría.
+- Excel: una etiqueta repetida no recibe la fórmula viva de la hoja Parametros
+  (se escribiría la misma SUMIF en las dos); va con su valor propio.
+
+**Compatibilidad de los overrides ya guardados** (`_proyOverrides` tiene claves
+por etiqueta): `overridesDeLinea` lee primero `cat::label` y, si no existe, la
+clave antigua **solo cuando la etiqueta no está repetida en la empresa**. Si
+está repetida, la clave antigua es AMBIGUA: no se puede saber a qué línea
+pertenecía. No se migra ni se duplica en silencio; se mantiene el
+comportamiento histórico (primera categoría) y `overridesAmbiguos()` las lista
+para resolverlas a mano. Cualquier edición nueva escribe ya la clave completa.
+
+Pendiente de decisión: `subLines` también se guarda por etiqueta
+(`subLines[label]`). Hoy ninguna línea con sublíneas tiene etiqueta repetida y
+hay un test que falla si eso cambia; si alguna vez ocurre, hay que darle la
+misma identidad por categoría.
 
 #### Bug histórico arreglado (no volver a romper)
 
@@ -385,7 +436,9 @@ export default function MiModulo({ canEdit, ... }) {
 
 ---
 
-**Última actualización**: 2026-09-21 — Prueba E2E en navegador (app real, Supabase aislado, Excel recalculado con LibreOffice): 4.036 celdas comparadas pantalla vs Excel, 0 diferencias. Corrige que el Excel individual ignoraba un override manual en una línea calculada. Anticipos de Allegria Foods con realizaciones: lo ya cobrado/pagado deja de proyectarse pero sigue descontándose de la liquidación; trazabilidad de cobros/pagos (anulación con motivo, nunca borrado); avisos de vencido, sobre-anticipo, override manual y conciliación contra los saldos bancarios por cuenta. Excel con acordado/realizado/pendiente/cierre y saldo inicial anclado al mes en curso (igual que pantalla), verificado con recálculo real en LibreOffice. Ver sección "Anticipos con realizaciones".
+**Última actualización**: 2026-09-21 (integración) — Rama `claude/integracion-anticipos-allpa`: anticipos con realizaciones + identidad de línea (categoría + etiqueta) sobre `origin/main`. Incluye el aviso para resolver a mano los valores manuales antiguos sin categoría, con trazabilidad y advertencia en el Excel.
+
+**Actualización previa**: 2026-09-21 — Prueba E2E en navegador (app real, Supabase aislado, Excel recalculado con LibreOffice): 4.036 celdas comparadas pantalla vs Excel, 0 diferencias. Corrige que el Excel individual ignoraba un override manual en una línea calculada. Anticipos de Allegria Foods con realizaciones: lo ya cobrado/pagado deja de proyectarse pero sigue descontándose de la liquidación; trazabilidad de cobros/pagos (anulación con motivo, nunca borrado); avisos de vencido, sobre-anticipo, override manual y conciliación contra los saldos bancarios por cuenta. Excel con acordado/realizado/pendiente/cierre y saldo inicial anclado al mes en curso (igual que pantalla), verificado con recálculo real en LibreOffice. Ver sección "Anticipos con realizaciones".
 
 **Actualización previa**: 2026-06-16 — Fix crítico de persistencia: gate de carga exitosa (`cargaOkRef`) en todos los módulos para que un fallo de red no sobrescriba Supabase con defaults (incidente que borró la fila `main`). Backup diario ahora genérico (cubre cualquier fila/módulo futuro) + retención automática (30 días + mensual). Ver regla 9.
 **Mantener este archivo actualizado** después de cambios mayores en estructura, módulos nuevos, o decisiones de arquitectura importantes.

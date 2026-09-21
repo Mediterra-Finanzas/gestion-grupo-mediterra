@@ -205,6 +205,33 @@ for (const empresa of EMPRESAS) {
       comparar(`${empresa} · override`, pantalla2, leerHojaFlujo(rec2.wb.Sheets[hoja2]));
       console.log(`  override: Excel recalculado (${rec2.formulasBorradas} fórmulas sin caché)`);
     }
+    // ── guardado + recarga: el override debe sobrevivir ──
+    if (aplicado) {
+      await page.waitForTimeout(2500);                 // que termine el auto-save
+      await page.reload({ waitUntil: 'domcontentloaded' });
+      await page.waitForTimeout(3500);
+      await entrarFinanzas(page).catch(() => {});
+      await irAFlujoEmpresas(page);
+      await elegirEmpresa(page, empresa);
+      await subTab(page, /Flujo de Caja/);
+      await page.waitForTimeout(1500);
+      for (const t of ['T2027', 'T2028', 'T2029', 'T2030']) {
+        const b = page.getByRole('button', { name: new RegExp(`▸ ${t}`) });
+        if (await b.count()) { await b.first().click(); await page.waitForTimeout(200); }
+      }
+      await page.waitForTimeout(500);
+      const pantalla3 = await leerPantalla();
+      const arch3 = await descargar(`${slug}-recarga.xlsx`);
+      const rec3 = recalcular(arch3, DESCARGAS);
+      const hoja3 = rec3.wb.SheetNames.find(n => n !== 'Parametros');
+      comparar(`${empresa} · recarga`, pantalla3, leerHojaFlujo(rec3.wb.Sheets[hoja3]));
+      // el override tiene que seguir ahí después de recargar
+      const cat = Object.keys(pantalla3).find(k => /INGRESOS OPERACIONALES|EGRESOS OPERACIONALES/.test(k.toUpperCase()));
+      const sigue = cat ? Object.values(pantalla3[cat]).some(v => v === 54321) : false;
+      anota(`${empresa} · recarga`, 'el override sobrevive a la recarga', 'May-26', 1, sigue ? 1 : 0,
+            'guardado y releído desde el store');
+      console.log(`  recarga: override ${sigue ? 'conservado' : 'PERDIDO'} · Excel recalculado (${rec3.formulasBorradas} fórmulas)`);
+    }
     await page.screenshot({ path: `${OUT}/emp-${slug}.png`, fullPage: false });
   } catch (e) {
     console.log(`  ✗ ${empresa}: ${String(e).slice(0, 160)}`);

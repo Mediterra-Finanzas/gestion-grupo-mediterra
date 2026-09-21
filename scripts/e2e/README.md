@@ -66,6 +66,22 @@ Hoy reporta 0 diferencias en 7 empresas. Allpa Farms sale con desvío en
 "Costos Fijos / SG&A": es un bug **preexistente de la pantalla** (etiquetas de
 línea repetidas entre categorías; ver CLAUDE.md), idéntico en `main`.
 
+## Etiquetas repetidas y overrides ambiguos
+
+```bash
+OUT_DIR=/tmp/e2e node scripts/e2e/dup-lineas.mjs         # dos líneas homónimas, independientes
+OUT_DIR=/tmp/e2e node scripts/e2e/resolver-ambiguos.mjs  # aviso, resolución por mes y trazabilidad
+node scripts/e2e/cargarSnapshot.test.mjs                 # lector del respaldo (sin navegador)
+```
+
+## Reducir el respaldo antes de la prueba con datos reales
+
+`scripts/e2e/reducir-respaldo.ps1` (PowerShell, en el equipo de Angelo) deja del
+JSON del botón "💾 Respaldo" solo `finanzas`, `finanzas_bancos` y
+`finanzas_esc_index`. No toca el original, no incluye `pins` ni otros módulos, se
+detiene si la fila `finanzas` falta o no es reconocible, y pregunta antes de
+sobrescribir un snapshot anterior.
+
 ## Fases
 
 1. Caso base: venta 600.000 / anticipo 100.000 / cobrado 60.000 y

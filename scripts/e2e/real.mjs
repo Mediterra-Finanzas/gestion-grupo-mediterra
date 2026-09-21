@@ -18,6 +18,7 @@ import path from 'path';
 import { nuevoStore, instalarFake } from './fake.mjs';
 import { abrirApp, login, entrarFinanzas, irAFlujoEmpresas, elegirEmpresa, subTab, num } from './lib.mjs';
 import { recalcular, leerHojaFlujo } from './xls.mjs';
+import { leerSnapshot, SnapshotInvalido } from './cargarSnapshot.mjs';
 
 const OUT = process.env.OUT_DIR || '.';
 const DESCARGAS = path.join(OUT, 'descargas-real');
@@ -30,14 +31,23 @@ if (!ruta || !fs.existsSync(ruta)) {
 }
 
 // ── store aislado con los datos reales ───────────────────────────────
-const crudo = JSON.parse(fs.readFileSync(ruta, 'utf8'));
+// El lector acepta el snapshot reducido y también el JSON crudo del botón
+// "💾 Respaldo"; se detiene si la estructura no es la esperada y avisa qué
+// falta, en vez de seguir con una fila vacía.
+let leido;
+try {
+  leido = leerSnapshot(JSON.parse(fs.readFileSync(ruta, 'utf8')));
+} catch (e) {
+  if (e instanceof SnapshotInvalido) { console.error(`✗ ${e.message}`); process.exit(2); }
+  console.error(`✗ No se pudo leer el archivo: ${e.message}`); process.exit(2);
+}
+leido.avisos.forEach(a => console.log(`  aviso: ${a}`));
 const store = nuevoStore();
 const ts = new Date(Date.now() - 60000).toISOString();
-for (const id of ['finanzas', 'finanzas_bancos', 'finanzas_esc_index']) {
-  const f = crudo[id];
-  if (!f) continue;
-  store[id] = { value: f.value !== undefined ? f.value : f, updated_at: f.updated_at || ts };
-}
+Object.entries(leido.filas).forEach(([id, f]) => {
+  store[id] = { value: f.value, updated_at: f.updated_at || ts };
+});
+console.log(`Filas cargadas en la copia aislada: ${Object.keys(leido.filas).join(', ')}`);
 const val = (id) => {
   const v = store[id]?.value;
   return typeof v === 'string' ? JSON.parse(v) : v;

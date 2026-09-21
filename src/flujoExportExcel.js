@@ -70,6 +70,7 @@ const ref = (r1, c0) => `${L(c0)}${r1}`;
 const thin = { style:'thin', color:{ rgb:BORDERC } };
 const BORD = { top:thin, bottom:thin, left:thin, right:thin };
 const S = {
+  avisoPie: { font:{ name:FONT, sz:10, bold:true, color:{rgb:'C00000'} }, alignment:{ horizontal:'left' } },
   title:    { font:{ name:FONT, sz:13, bold:true, color:{rgb:'FFFFFF'} }, fill:{ fgColor:{rgb:NAVY} }, alignment:{ horizontal:'left', vertical:'center' } },
   titleSub: { font:{ name:FONT, sz:10, italic:true, color:{rgb:'FFFFFF'} }, fill:{ fgColor:{rgb:NAVY} }, alignment:{ horizontal:'left', vertical:'center' } },
   seasonHdr:{ font:{ name:FONT, sz:10, bold:true, color:{rgb:'FFFFFF'} }, fill:{ fgColor:{rgb:BLUE} }, alignment:{ horizontal:'center', vertical:'center' }, border:BORD },
@@ -141,8 +142,11 @@ function fillAdditive(cells, num, r1, cols, sty) {
 // saldo de caja. Igual que en pantalla, el saldo bancario se aplica en el MES
 // EN CURSO: los meses anteriores muestran su flujo pero NO vuelven a
 // acumularse sobre un saldo que ya los contiene (su saldo queda en blanco).
+// avisos: notas de la app que deben viajar al archivo (p. ej. valores manuales
+// antiguos aplicados con un criterio provisional, sin categoría confirmada).
 function buildStatement({ title, subtitle, cols, monthOrder, cats, saldoIniValue,
-                          saldoIniMonth0Formula, saldoIniMonth0Number, startAccumIdx = 0 }) {
+                          saldoIniMonth0Formula, saldoIniMonth0Number, startAccumIdx = 0,
+                          avisos = [] }) {
   // cats: [{ cat, lines:[{label,vals}], monthFormula?(mc)->string }]
   const cells = {}; const rows = []; const merges = []; const num = {};
   let r = 0;
@@ -153,7 +157,10 @@ function buildStatement({ title, subtitle, cols, monthOrder, cats, saldoIniValue
   cells[ref(r+1,0)] = { t:'s', v:title, s:S.title };
   const lastColIdx = cols[cols.length-1].c;
   for (let c=1;c<=lastColIdx;c++) cells[ref(r+1,c)] = { t:'s', v:'', s: c<=4?S.title:S.title };
-  if (subtitle) cells[ref(r+1,5)] = { t:'s', v:subtitle, s:S.titleSub };
+  // Los avisos van en el subtítulo y en una nota al pie: NO se agregan filas
+  // arriba para no mover la grilla (los meses siguen en la fila 3).
+  const subt = avisos && avisos.length ? `${subtitle || ''}${subtitle ? ' · ' : ''}${avisos.join(' · ')}` : subtitle;
+  if (subt) cells[ref(r+1,5)] = { t:'s', v:subt, s:S.titleSub };
   merges.push({ s:{r:r,c:0}, e:{r:r,c: subtitle?4:lastColIdx} });
   rows[r] = { level:0, hpx:22 };
   r++;
@@ -296,6 +303,11 @@ function buildStatement({ title, subtitle, cols, monthOrder, cats, saldoIniValue
     else if (col.kind === 'grand') { const fm=monthOrder[kIni].c; const v=num[ref(saldoIniRow,fm)]||0; num[ref(saldoIniRow,col.c)]=v; cells[ref(saldoIniRow,col.c)]={t:'n',f:`${ref(saldoIniRow,fm)}`,v,s:S.saldoNum}; }
   });
 
+  if (avisos && avisos.length) {
+    r += 2;
+    avisos.forEach(a => { cells[ref(r+1,0)] = { t:'s', v:a, s:S.avisoPie }; rows[r] = { level:0 }; r++; });
+  }
+
   return { cells, rows, merges, num, lastRow:r, lastCol:lastColIdx, catRows, saldoIniRow, flujoRow, saldoFinRow, kIni };
 }
 
@@ -339,13 +351,21 @@ function buildHorizonte(lastSeasonStartYear) {
 // valores mensuales van como FÓRMULA Excel (ej. Allpa: SUMIF a la hoja Parametros)
 // en vez de inputs estáticos. El número cacheado se toma de emp.proy.
 function catsDeEmpresa(emp, months, formulaLines = null) {
+  // Una etiqueta repetida en dos categorías no identifica una línea: en ese
+  // caso la fórmula viva (SUMIF contra la hoja Parametros) se aplicaría a las
+  // dos y una de ellas quedaría con el número de la otra. Esas líneas se
+  // escriben con su valor propio, que es el que muestra la app.
+  const vecesEtiqueta = {};
+  (emp.sections || []).forEach(sec => (sec.lines || []).forEach(l => {
+    vecesEtiqueta[l.label] = (vecesEtiqueta[l.label] || 0) + 1;
+  }));
   return CAT_ORDER.map(cat => {
     const sec = (emp.sections || []).find(s => s.cat === cat);
     const lines = [];
     if (sec) sec.lines.forEach(ln => {
       const vals = months.map(mo => Number(ln.proy[mo.idx]) || 0);
       const hasVal = vals.some(v => v !== 0);
-      const fl = formulaLines && formulaLines[ln.label];
+      const fl = (vecesEtiqueta[ln.label] === 1) && formulaLines && formulaLines[ln.label];
       if (fl) {
         if (!hasVal) return;
         // Meses con override manual (los marca buildEmpresasConOverrides): ahí
@@ -1057,7 +1077,7 @@ const PARAM_BUILDERS = {
   'Allegria Foods':   (p, m) => p.paramsAllegria && buildParametrosAllegria(p.paramsAllegria, p.allegraComisionArandanos, m),
 };
 
-export function exportarFlujoEmpresa({ emp, empName, saldoIni = 0, lastSeasonStartYear = null, fileName, params = null }) {
+export function exportarFlujoEmpresa({ emp, empName, saldoIni = 0, lastSeasonStartYear = null, fileName, params = null, avisos = [] }) {
   if (!emp) throw new Error('Empresa sin datos');
   const { months, cols, monthOrder } = buildHorizonte(lastSeasonStartYear);
 
@@ -1076,6 +1096,7 @@ export function exportarFlujoEmpresa({ emp, empName, saldoIni = 0, lastSeasonSta
     cols, monthOrder, cats,
     saldoIniValue: Number(saldoIni) || 0,
     startAccumIdx: idxMesActual(months),
+    avisos,
   });
 
   const wb = XLSX.utils.book_new();
@@ -1091,7 +1112,7 @@ export function exportarFlujoEmpresa({ emp, empName, saldoIni = 0, lastSeasonSta
 }
 
 // ═══════════════════════════════════════════════════════════════════
-export function exportarFlujoConsolidado({ empresasConOverrides, empNames, saldoIniPorEmp, lastSeasonStartYear = null, fileName, escenarioNombre = null }) {
+export function exportarFlujoConsolidado({ empresasConOverrides, empNames, saldoIniPorEmp, lastSeasonStartYear = null, fileName, escenarioNombre = null, avisosPorEmp = {} }) {
   const allMonths = genMonths();
   // lastSeasonStartYear null → flujo completo (hasta la última temporada proyectada)
   const months = lastSeasonStartYear == null ? allMonths : allMonths.filter(mo => seasonOf(mo) <= lastSeasonStartYear);
@@ -1136,6 +1157,7 @@ export function exportarFlujoConsolidado({ empresasConOverrides, empNames, saldo
       cols, monthOrder, cats,
       saldoIniValue: Number(saldoIniPorEmp?.[n]) || 0,
       startAccumIdx: kIni,
+      avisos: avisosPorEmp[n] || [],
     });
   });
 
