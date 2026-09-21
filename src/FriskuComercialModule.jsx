@@ -4042,7 +4042,7 @@ const LIQ_ESTADOS = {
 };
 const LIQ_ESTADO_SIG = { borrador:"enviada", enviada:"pagada" };
 
-function LiquidacionForm({ liq, embarques, clientes, exportadoras, especies, monedas, tiposEmbalaje=[], tcData, onGuardar, onCancelar }) {
+function LiquidacionForm({ liq, embarques, clientes, exportadoras, especies, monedas, tiposEmbalaje=[], tcData, liquidaciones=[], onGuardar, onCancelar, onEditarExistente }) {
   const hoyISO = new Date().toISOString().slice(0,10);
   const [form, setForm] = useState({
     oeId:             liq?.oeId             || "",
@@ -4062,6 +4062,18 @@ function LiquidacionForm({ liq, embarques, clientes, exportadoras, especies, mon
   const [anticipo,       setAnticipo]       = useState(()=> liq?.anticipo!=null ? String(liq.anticipo) : "");
   const f = k => e => setForm(p=>({...p,[k]:e.target.value}));
   const [buscarOE, setBuscarOE] = useState("");
+
+  // ID estable del borrador: se fija UNA vez por sesión del formulario. Al editar es el id real;
+  // al crear es un id nuevo que NO cambia entre reintentos → guardar dos veces (doble clic o
+  // reintento tras un aviso) hace upsert sobre el MISMO registro, nunca duplica. (Fase 2/3)
+  const esNueva     = !liq?.id;
+  const draftIdRef  = useRef(liq?.id || uid());
+  // Otras liquidaciones que ya existen para la OE elegida (excluye este mismo borrador).
+  const liqsExistentesOE = useMemo(
+    () => (liquidaciones||[]).filter(l => l.oeId===form.oeId && l.id!==draftIdRef.current),
+    [liquidaciones, form.oeId]
+  );
+  const [verExistenteId, setVerExistenteId] = useState(null); // toggle de vista inline (sin salir del form)
 
   // Al elegir/cambiar la OE, la moneda de liquidación toma la del cliente
   // (ej. Global Fruit Point → EUR). No pisa la moneda guardada al abrir a editar.
@@ -4119,13 +4131,20 @@ function LiquidacionForm({ liq, embarques, clientes, exportadoras, especies, mon
   const handleGuardar = () => {
     if(!form.oeId)       { alert("Selecciona una OE"); return; }
     if(!(ventaTotal>0))  { alert("Ingresa la venta (por pallet o base manual)"); return; }
+    // Re-chequeo antidoble JUSTO antes de guardar: si (durante la edición) aparecieron
+    // liquidaciones para esta OE, no crear una segunda en silencio. Confirmación explícita;
+    // si cancela, el formulario y lo ingresado quedan intactos (no se pierde el borrador).
+    if(esNueva && liqsExistentesOE.length>0){
+      const oeTxt = oeSeleccionada?.numero || oeSeleccionada?.numeroContenedor || form.oeId?.slice(-6) || "";
+      if(!window.confirm(`El embarque ${oeTxt} ya tiene ${liqsExistentesOE.length} liquidación(es).\n\nSi querías CORREGIR la existente, cancela y usa "Editar esta" en el aviso de arriba.\n\n¿Crear igualmente una liquidación ADICIONAL para este embarque?`)) return;
+    }
     // Aviso: moneda ≠ USD sin TC → los montos en USD quedarán vacíos (no suman al total ni al BI).
     if(form.monedaBase!=="USD" && tcCalculado==null){
       if(!window.confirm(`No hay tipo de cambio ${form.monedaBase}→USD para la fecha ${form.fechaTC||"(hoy)"}.\n\nLa venta y la comisión en USD quedarán en blanco (no sumarán al Total Frisku ni a la Reportería) hasta que cargues la tasa en Maestros → Tipo de Cambio y vuelvas a guardar esta liquidación.\n\n¿Guardar de todas formas?`)) return;
     }
     onGuardar({
       ...liq,
-      id: liq?.id || uid(),
+      id: draftIdRef.current,
       oeId: form.oeId,
       temporada: oeSeleccionada?.temporada || "",
       estado: form.estado,
@@ -4209,6 +4228,47 @@ function LiquidacionForm({ liq, embarques, clientes, exportadoras, especies, mon
             <div style={{fontSize:11, color:C.muted, marginTop:4}}>
               {exportadoraOE?.nombre} → {clienteOE?.nombre} · {especieOE?.icono} {especieOE?.nombreEs} · T{oeSeleccionada.temporada}
               {!clienteOE && <span style={{color:C.accent}}> — cliente no encontrado, verificar la OE</span>}
+            </div>
+          )}
+
+          {/* Aviso: este embarque YA tiene liquidación(es). Solo al CREAR (no al editar la propia).
+              No bloquea (el modelo admite correcciones/históricos por OE) pero evita el duplicado
+              accidental y la pantalla sin contexto: ofrece Ver (inline, sin perder lo ingresado) y
+              Editar la existente. (Fase 2 — detección por oeId) */}
+          {esNueva && form.oeId && liqsExistentesOE.length>0 && (
+            <div style={{marginTop:8, background:`${C.yellow}14`, border:`1px solid ${C.yellow}66`, borderRadius:10, padding:12}}>
+              <div style={{fontSize:12, fontWeight:800, color:C.yellow, marginBottom:2}}>
+                ⚠ Este embarque ya tiene {liqsExistentesOE.length} liquidación{liqsExistentesOE.length>1?"es":""}
+              </div>
+              <div style={{fontSize:11, color:C.muted, marginBottom:8}}>
+                Si necesitas <b>corregir</b> una liquidación ya hecha, usa <b>Editar esta</b> (no crees una nueva).
+                Si de verdad va una liquidación adicional para el mismo embarque, puedes continuar y se te pedirá confirmación al guardar.
+              </div>
+              <div style={{display:"flex", flexDirection:"column", gap:8}}>
+                {liqsExistentesOE.map(l=>{
+                  const est = LIQ_ESTADOS[l.estado] || {label:l.estado, color:C.muted};
+                  const abierto = verExistenteId===l.id;
+                  return (
+                    <div key={l.id} style={{background:C.bg, border:`1px solid ${C.border}`, borderRadius:8, padding:"8px 10px"}}>
+                      <div style={{display:"flex", gap:8, alignItems:"center", flexWrap:"wrap"}}>
+                        <span style={{fontSize:10, padding:"2px 8px", borderRadius:9, background:`${est.color}22`, color:est.color, fontWeight:700, border:`1px solid ${est.color}44`}}>{est.label}</span>
+                        <span style={{fontSize:11, color:C.text}}>{l.fechaLiquidacion||"sin fecha"}</span>
+                        {l.numeroFactura && <span style={{fontSize:10, color:C.muted}}>· Fact. {l.numeroFactura}</span>}
+                        <span style={{fontSize:11, color:C.green, fontWeight:700}}>{formatearMonto(l.montoComisionFrisku, l.monedaBase, monedasMap)}</span>
+                        <div style={{marginLeft:"auto", display:"flex", gap:6}}>
+                          <button type="button" onClick={()=>setVerExistenteId(abierto?null:l.id)} style={{...btnSt(C.blue,true), fontSize:10, padding:"3px 9px"}}>{abierto?"Ocultar":"Ver"}</button>
+                          {onEditarExistente && <button type="button" onClick={()=>onEditarExistente(l)} style={{...btnSt(C.teal,true), fontSize:10, padding:"3px 9px"}}>Editar esta</button>}
+                        </div>
+                      </div>
+                      {abierto && (
+                        <div style={{marginTop:8, maxWidth:420}}>
+                          <LiquidacionCard liq={l} embarques={embarques} clientes={clientes} exportadoras={exportadoras} especies={especies} monedas={monedas} onEditar={()=>{}} onEliminar={()=>{}} onAvanzarEstado={()=>{}} canEdit={false}/>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
             </div>
           )}
         </div>
@@ -9515,8 +9575,14 @@ export default function FriskuComercialModule({
     setLiquidaciones(prev=>prev.filter(l=>l.id!==liq.id));
   };
   const handleGuardarLiq = (liq) => {
-    if(creandoLiq) setLiquidaciones(prev=>[...prev, liq]);
-    else           setLiquidaciones(prev=>prev.map(l=>l.id===liq.id?liq:l));
+    // Upsert idempotente por id estable sobre el estado MÁS reciente (functional update):
+    // si ya existe un registro con ese id (reintento, doble guardado, o la fila llegó de otra
+    // sesión) se reemplaza en su lugar; si no, se agrega. Nunca duplica y solo toca el registro
+    // correspondiente, preservando el resto. Reemplaza el branch por flag creandoLiq (frágil
+    // ante reintentos). (Fase 2 — guardado idempotente)
+    setLiquidaciones(prev => prev.some(l=>l.id===liq.id)
+      ? prev.map(l=>l.id===liq.id ? liq : l)
+      : [...prev, liq]);
     setEditandoLiq(null); setCreandoLiq(false);
   };
   const handleAvanzarEstadoLiq = (liq, nuevoEstado) => {
@@ -10342,8 +10408,10 @@ export default function FriskuComercialModule({
                 monedas={monedas}
                 tiposEmbalaje={tiposEmbalaje}
                 tcData={tcData}
+                liquidaciones={liquidaciones}
                 onGuardar={handleGuardarLiq}
                 onCancelar={()=>{setEditandoLiq(null); setCreandoLiq(false);}}
+                onEditarExistente={handleEditarLiq}
               />
             )}
 
