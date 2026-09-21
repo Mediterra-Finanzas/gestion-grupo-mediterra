@@ -23,7 +23,7 @@ import {
   uploadArchivoFrisku, pathDesdeUrlStorage,
 } from "./friskuHelpers.js";
 import {
-  liqsActivasOE, upsertPorId,
+  liqsActivasOE, upsertPorId, identidadUsuario, evaluarConfirmacion,
 } from "./friskuLiquidacionesLogic.js";
 import AvisoPersistencia, { construirAviso } from "./AvisoPersistencia";
 import { FriskuBIProvider, useFriskuBI, FRISKU_DIMS, FRISKU_METRICS, fmtMetric,
@@ -4073,7 +4073,8 @@ function liqDraftBorrarConfirmados(userKey, arr){
   });
 }
 
-function LiquidacionForm({ liq, embarques, clientes, exportadoras, especies, monedas, tiposEmbalaje=[], tcData, liquidaciones=[], userKey="", canEdit=false, onGuardar, onCancelar, onEditarExistente }) {
+function LiquidacionForm({ liq, embarques, clientes, exportadoras, especies, monedas, tiposEmbalaje=[], tcData, liquidaciones=[], userKey="", canEdit=false, saveState=null, onGuardar, onCancelar, onEditarExistente }) {
+  const draftHabilitado = !!userKey;   // sólo con identidad estable (email). Sin ella: form en memoria.
   const hoyISO = new Date().toISOString().slice(0,10);
   const [form, setForm] = useState({
     oeId:             liq?.oeId             || "",
@@ -4126,7 +4127,8 @@ function LiquidacionForm({ liq, embarques, clientes, exportadoras, especies, mon
   useEffect(()=>{
     if(primerDraft.current){ primerDraft.current = false; return; }
     if(!entityKey) return;
-    dirtyRef.current = true;
+    dirtyRef.current = true;   // hay cambios sin confirmar (aunque el draft esté deshabilitado)
+    if(!draftHabilitado) return;
     const t = setTimeout(()=>{ liqDraftGuardar(userKey, entityKey, armarDraft()); setDraftGuardadoTs(Date.now()); }, 600);
     return ()=> clearTimeout(t);
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -4134,7 +4136,7 @@ function LiquidacionForm({ liq, embarques, clientes, exportadoras, especies, mon
 
   // ¿Hay un borrador de una sesión ANTERIOR para esta entidad? (ts previo al inicio de esta sesión)
   useEffect(()=>{
-    if(!entityKey){ setDraftRecuperable(null); return; }
+    if(!draftHabilitado || !entityKey){ setDraftRecuperable(null); return; }
     const d = liqDraftLeer(userKey, entityKey);
     setDraftRecuperable(d && d.ts && d.ts < sesionTsRef.current ? { entityKey, d } : null);
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -4224,7 +4226,10 @@ function LiquidacionForm({ liq, embarques, clientes, exportadoras, especies, mon
     if(form.monedaBase!=="USD" && tcCalculado==null){
       if(!window.confirm(`No hay tipo de cambio ${form.monedaBase}→USD para la fecha ${form.fechaTC||"(hoy)"}.\n\nLa venta y la comisión en USD quedarán en blanco (no sumarán al Total Frisku ni a la Reportería) hasta que cargues la tasa en Maestros → Tipo de Cambio y vuelvas a guardar esta liquidación.\n\n¿Guardar de todas formas?`)) return;
     }
-    onGuardar({
+    // `version` = marcador de ESTA mutación (fechaActualizacion). El contrato de confirmación
+    // (padre) espera ver este id con esta versión en el resultado autoritativo del servidor.
+    const version = new Date().toISOString();
+    const liqObj = {
       ...liq,
       id: draftIdRef.current,
       oeId: form.oeId,
@@ -4267,14 +4272,24 @@ function LiquidacionForm({ liq, embarques, clientes, exportadoras, especies, mon
       numeroFactura: form.numeroFactura,
       fechaFactura:  form.fechaFactura,
       observ:        form.observ,
-      fechaCreacion:      liq?.fechaCreacion || new Date().toISOString(),
-      fechaActualizacion: new Date().toISOString(),
-    });
-    // Guardado local aplicado (el registro ya está en el estado del padre). No borramos el
-    // borrador aquí: lo limpia el padre SOLO tras la confirmación del servidor. Bajamos dirty
-    // para no gatillar el aviso de "cambios sin guardar" al cerrarse el formulario.
-    dirtyRef.current = false;
+      fechaCreacion:      liq?.fechaCreacion || version,
+      fechaActualizacion: version,
+    };
+    // (2) Escribir el borrador SINCRÓNICAMENTE antes de cualquier cambio de pantalla (así, si
+    // algo interrumpe entre el click y la confirmación, lo tipeado ya está resguardado).
+    if(draftHabilitado && entityKey) liqDraftGuardar(userKey, entityKey, armarDraft());
+    // El formulario NO se cierra ni se marca "guardado" aquí: eso ocurre sólo cuando el servidor
+    // confirma (vía saveState). No bajamos dirty todavía.
+    const op = { id: draftIdRef.current, version, createKey: esNueva ? `new::${form.oeId}` : null };
+    onGuardar(liqObj, op);
   };
+
+  // Estado de guardado (viene del padre, gobernado por la confirmación del servidor).
+  const saveEstado = saveState?.estado || null;
+  const guardando  = saveEstado === "guardando";
+  const guardado   = saveEstado === "guardado";
+  // Al confirmar, ya no hay cambios sin guardar → no avisar al cerrar.
+  useEffect(()=>{ if(guardado) dirtyRef.current = false; },[guardado]);
 
   const fmt = (v) => formatearMonto(v, form.monedaBase, monedasMap);
 
@@ -4608,17 +4623,36 @@ function LiquidacionForm({ liq, embarques, clientes, exportadoras, especies, mon
       </div>
 
       {!bloqueoDuplicado && (
-      <div style={{display:"flex", gap:8, marginTop:14, alignItems:"center"}}>
-        <button onClick={handleGuardar} style={btnSt(C.green)}>Guardar</button>
-        <button
-          onClick={()=>{ if(dirtyRef.current && !window.confirm("Tienes cambios sin guardar en esta liquidación.\nSe conservan como borrador recuperable.\n\n¿Salir del formulario?")) return; onCancelar(); }}
-          style={btnSt(C.muted, true)}
-        >Cancelar</button>
-        {draftGuardadoTs && (
-          <span style={{fontSize:10, color:C.muted, marginLeft:"auto"}} title="Mientras editas se guarda un borrador local; se limpia solo cuando el servidor confirma el guardado">
-            💾 Borrador local {new Date(draftGuardadoTs).toLocaleTimeString("es-CL")}
-          </span>
+      <div style={{display:"flex", gap:8, marginTop:14, alignItems:"center", flexWrap:"wrap"}}>
+        {guardado ? (
+          <>
+            <span style={{fontSize:13, fontWeight:700, color:C.green}}>✓ Guardado</span>
+            <button onClick={onCancelar} style={btnSt(C.blue)}>Volver</button>
+          </>
+        ) : (
+          <>
+            <button onClick={handleGuardar} disabled={guardando}
+              style={{...btnSt(C.green), opacity:guardando?0.6:1, cursor:guardando?"default":"pointer"}}>
+              {guardando ? "Guardando…" : "Guardar"}
+            </button>
+            <button
+              onClick={()=>{ if(dirtyRef.current && !window.confirm("Tienes cambios sin guardar en esta liquidación.\nSe conservan como borrador recuperable.\n\n¿Salir del formulario?")) return; onCancelar(); }}
+              style={btnSt(C.muted, true)}
+            >Cancelar</button>
+          </>
         )}
+        {/* Estado de PERSISTENCIA en el servidor (distinto del borrador LOCAL) */}
+        {saveEstado==="error"     && <span style={{fontSize:11, fontWeight:700, color:C.accent}}>⚠ Error al guardar — reintenta (tus datos siguen aquí)</span>}
+        {saveEstado==="conflicto" && <span style={{fontSize:11, fontWeight:700, color:C.accent}}>⚠ Conflicto con otra actualización — no se sobrescribió; reintenta (tus datos siguen aquí)</span>}
+        {!saveEstado && dirtyRef.current && <span style={{fontSize:11, color:C.muted}}>Sin guardar</span>}
+        <span style={{marginLeft:"auto", display:"flex", gap:10, alignItems:"center"}}>
+          {!draftHabilitado && <span style={{fontSize:10, color:C.accent}} title="No hay identidad estable (email): no se guarda borrador local. No cierres la pestaña sin guardar.">⚠ Sin borrador local</span>}
+          {draftHabilitado && draftGuardadoTs && (
+            <span style={{fontSize:10, color:C.muted}} title="Borrador LOCAL (no es el guardado en el servidor). Se limpia solo cuando el servidor confirma.">
+              💾 Borrador local {new Date(draftGuardadoTs).toLocaleTimeString("es-CL")}
+            </span>
+          )}
+        </span>
       </div>
       )}
     </div>
@@ -9125,7 +9159,9 @@ export default function FriskuComercialModule({
   // (rol-checkers que reciben el nombre del usuario). Soportar también booleans
   // por si se invoca el componente desde otro contexto (tests, storybook).
   const nombreUsuario = usuarioActual?.nombre;
-  const userKey = nombreUsuario || "anon";   // clave de borradores locales por usuario (Fase 3)
+  // Identidad estable para el namespace de borradores: email corporativo normalizado (único e
+  // inmutable). Sin email → "" → borrador persistente DESHABILITADO (nunca clave "anon" compartida).
+  const userKey = identidadUsuario(usuarioActual) || "";
   const admin = typeof esAdmin === "function" ? esAdmin(nombreUsuario) : !!esAdmin;
   const consulta = typeof esSoloConsulta === "function" ? esSoloConsulta(nombreUsuario) : !!esSoloConsulta;
   const canEditGlobal = admin || !consulta;
@@ -9220,6 +9256,9 @@ export default function FriskuComercialModule({
   // UI Liquidaciones
   const [editandoLiq,    setEditandoLiq]    = useState(null);
   const [creandoLiq,     setCreandoLiq]     = useState(false);
+  // Operación de guardado PENDIENTE de la liquidación abierta (id + version + createKey + estado).
+  // Gobierna el estado del formulario: guardando → guardado/error/conflicto (según confirmación).
+  const [liqOpPend,      setLiqOpPend]      = useState(null);
   const [verLiq,         setVerLiq]         = useState(null);   // detalle (Ver) de una liquidación
   const [vistaLiq,       setVistaLiq]       = useState("lista"); // lista | cliente | exportador | estado | temporada
   const [verPO,          setVerPO]          = useState(null);   // detalle (Ver) de un PO
@@ -9386,12 +9425,15 @@ export default function FriskuComercialModule({
   useAutoSave("frisku_programa", programa, setPrograma);
   useAutoSave("frisku_embarques", embarques, setEmbarques);
   useAutoSave("frisku_liquidaciones", liquidaciones, setLiquidaciones, true, (r, enviado)=>{
-    // Guardado CONFIRMADO por el servidor (contrato ok): recién ahí se limpian los borradores
-    // locales de las liquidaciones ya persistidas. Si hubo conflicto/error, el borrador se
-    // conserva y se ofrecerá recuperar al reabrir. Usa la versión autoritativa si hubo fusión.
-    if(!(r && r.ok)) return;
-    const arr = (r.fusionado && Array.isArray(r.valor)) ? r.valor : enviado;
-    liqDraftBorrarConfirmados(userKey, arr);
+    // Contrato de confirmación Frisku-local: interpreta el resultado del guardado contra la
+    // operación pendiente y fija el estado del formulario (guardado/error/conflicto/pendiente).
+    // NO asume confirmación por temporizadores; reutiliza r.ok/valor/fusionado/motivo/conflictos.
+    setLiqOpPend(op=>{
+      if(!op) return op;
+      const res = evaluarConfirmacion(r, op, enviado);
+      if(res.estado==="pendiente") return op;   // aún no es la última palabra (superseded)
+      return { ...op, estado:res.estado, motivo:res.motivo };
+    });
   });
   useAutoSave("frisku_po", pos, setPos);
 
@@ -9693,22 +9735,22 @@ export default function FriskuComercialModule({
   };
 
   // ── Handlers Liquidaciones ──
-  const handleNuevaLiq = () => { setCreandoLiq(true); setEditandoLiq(null); };
-  const handleEditarLiq = (liq) => { setCreandoLiq(false); setEditandoLiq(liq); };
+  const handleNuevaLiq = () => { setLiqOpPend(null); setCreandoLiq(true); setEditandoLiq(null); };
+  const handleEditarLiq = (liq) => { setLiqOpPend(null); setCreandoLiq(false); setEditandoLiq(liq); };
   const handleEliminarLiq = (liq) => {
     const oe = embarques.find(e=>e.id===liq.oeId);
     if(!window.confirm(`¿Eliminar liquidación de OE "${oe?.numero||liq.oeId?.slice(-6)}"? Esta acción no se puede deshacer.`)) return;
     setLiquidaciones(prev=>prev.filter(l=>l.id!==liq.id));
   };
-  const handleGuardarLiq = (liq) => {
-    // Upsert idempotente por id estable sobre el estado MÁS reciente (functional update):
-    // si ya existe un registro con ese id (reintento, doble guardado, o la fila llegó de otra
-    // sesión) se reemplaza en su lugar; si no, se agrega. Nunca duplica y solo toca el registro
-    // correspondiente, preservando el resto. Reemplaza el branch por flag creandoLiq (frágil
-    // ante reintentos). (Fase 2 — guardado idempotente)
+  const handleGuardarLiq = (liq, op) => {
+    // Upsert idempotente por id estable sobre el estado MÁS reciente (nunca duplica; sólo toca el
+    // registro correspondiente). Registra la operación PENDIENTE y NO cierra el formulario: éste
+    // permanece abierto en "Guardando…" hasta que el servidor confirme (o falle) vía saveState.
+    // (Corrección — persistencia confirmada)
     setLiquidaciones(prev => upsertPorId(prev, liq));
-    setEditandoLiq(null); setCreandoLiq(false);
+    setLiqOpPend(op ? { ...op, estado:"guardando" } : null);
   };
+  const cerrarFormLiq = () => { setEditandoLiq(null); setCreandoLiq(false); setLiqOpPend(null); };
   const handleAvanzarEstadoLiq = (liq, nuevoEstado) => {
     setLiquidaciones(prev=>prev.map(l=>l.id===liq.id
       ? {...l, estado:nuevoEstado, fechaActualizacion:new Date().toISOString()}
@@ -10535,8 +10577,9 @@ export default function FriskuComercialModule({
                 liquidaciones={liquidaciones}
                 userKey={userKey}
                 canEdit={permLiquidaciones.canEdit}
+                saveState={liqOpPend}
                 onGuardar={handleGuardarLiq}
-                onCancelar={()=>{setEditandoLiq(null); setCreandoLiq(false);}}
+                onCancelar={cerrarFormLiq}
                 onEditarExistente={handleEditarLiq}
               />
             )}
