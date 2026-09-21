@@ -23,7 +23,7 @@ import {
   uploadArchivoFrisku, pathDesdeUrlStorage,
 } from "./friskuHelpers.js";
 import {
-  liqsActivasOE, upsertPorId, identidadUsuario, evaluarConfirmacion,
+  liqsActivasOE, upsertPorId, identidadUsuario, evaluarConfirmacion, clavesBorradorDeOp,
 } from "./friskuLiquidacionesLogic.js";
 import AvisoPersistencia, { construirAviso } from "./AvisoPersistencia";
 import { FriskuBIProvider, useFriskuBI, FRISKU_DIMS, FRISKU_METRICS, fmtMetric,
@@ -4063,16 +4063,6 @@ function liqDraftGuardar(userKey, entityKey, payload){
 function liqDraftBorrar(userKey, entityKey){
   try { localStorage.removeItem(liqDraftKey(userKey, entityKey)); } catch(e){}
 }
-// Tras un guardado CONFIRMADO por el servidor, limpia los borradores de las liquidaciones
-// que ya quedaron persistidas (por id y por su clave de creación new::<oeId>).
-function liqDraftBorrarConfirmados(userKey, arr){
-  (arr||[]).forEach(l=>{
-    if(!l) return;
-    if(l.id)   liqDraftBorrar(userKey, l.id);
-    if(l.oeId) liqDraftBorrar(userKey, `new::${l.oeId}`);
-  });
-}
-
 function LiquidacionForm({ liq, embarques, clientes, exportadoras, especies, monedas, tiposEmbalaje=[], tcData, liquidaciones=[], userKey="", canEdit=false, saveState=null, onGuardar, onCancelar, onEditarExistente }) {
   const draftHabilitado = !!userKey;   // sólo con identidad estable (email). Sin ella: form en memoria.
   const hoyISO = new Date().toISOString().slice(0,10);
@@ -9436,6 +9426,17 @@ export default function FriskuComercialModule({
     });
   });
   useAutoSave("frisku_po", pos, setPos);
+
+  // Limpieza de borrador ACOTADA a la mutación confirmada: cuando (y sólo cuando) la operación
+  // pendiente llega a "guardado", se borran EXCLUSIVAMENTE sus claves (id de la liquidación +
+  // su clave de creación new::<oeId>). Nunca se recorre el array del servidor ni se tocan
+  // borradores de otras entidades / otras pestañas. Si el estado es error/conflicto/pendiente,
+  // el borrador se conserva. (Corrección — limpieza acotada a la mutación confirmada)
+  useEffect(()=>{
+    if(userKey && liqOpPend && liqOpPend.estado==="guardado"){
+      clavesBorradorDeOp(liqOpPend).forEach(k=> liqDraftBorrar(userKey, k));
+    }
+  },[liqOpPend, userKey]);
 
   // ── Filtrado de clientes ──
   const clientesFiltrados = useMemo(()=>{
