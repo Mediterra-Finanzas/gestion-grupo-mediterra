@@ -199,6 +199,9 @@ export function feeEntradaDeContrato(blob, ct) {
 // Regla del carril: una alerta sin acción es decoración. Cada alerta lleva
 // `accion` (el verbo), `entidad` (a dónde lleva) y `porQue` (el impacto en
 // riesgo). Si falta el dato para evaluarla, el `porQue` lo declara.
+// Todos los botones de alerta solo abren la ficha de la entidad (PanelAlertas → alAbrirEntidad):
+// por eso dicen "Ver ficha". Lo que falta resolver va en el título de la alerta. La edición
+// (firma, mes de facturación) llega en la segunda entrega.
 export function alertasAccionables(blob, hoy = new Date()) {
   const b = blob || {};
   const out = [];
@@ -221,7 +224,7 @@ export function alertasAccionables(blob, hoy = new Date()) {
         porQue:
           "Sin firma completa no se puede facturar lo que el contrato establece." +
           (sinDatoFirma.length ? ` ${INSUF}no está registrada la firma ${de(sinDatoFirma)}.` : ""),
-        accion: "Ver ficha", // solo abre la ficha; la edición llega en la segunda entrega
+        accion: "Ver ficha",
         entidad: ref,
       });
     } else if (sinDatoFirma.length > 0) {
@@ -230,7 +233,7 @@ export function alertasAccionables(blob, hoy = new Date()) {
         severidad: "alto",
         titulo: `${nombre} · sin dato de firma ${de(sinDatoFirma)}`,
         porQue: `${INSUF}el contrato no registra la firma ${de(sinDatoFirma)}; no se puede afirmar que esté firmado ni que falte la firma.`,
-        accion: "Completar firma",
+        accion: "Ver ficha",
         entidad: ref,
       });
     }
@@ -245,7 +248,7 @@ export function alertasAccionables(blob, hoy = new Date()) {
           ? `${nombre} · sin fecha de término registrada`
           : `${nombre} · fecha de término ilegible`,
         porQue: `${INSUF}sin una fecha de término válida no se puede evaluar si el contrato está vigente o por vencer.`,
-        accion: "Completar vigencia",
+        accion: "Ver ficha",
         entidad: ref,
       });
     } else if (d < 0) {
@@ -254,7 +257,7 @@ export function alertasAccionables(blob, hoy = new Date()) {
         severidad: "critico",
         titulo: `${nombre} · contrato vencido hace ${Math.abs(d)} días`,
         porQue: "El contrato ya no está vigente: revisar si se renueva o se da de baja antes de seguir facturando sobre él.",
-        accion: "Renovar o dar de baja",
+        accion: "Ver ficha",
         entidad: ref,
       });
     } else if (d <= 90) {
@@ -263,7 +266,7 @@ export function alertasAccionables(blob, hoy = new Date()) {
         severidad: "alto",
         titulo: `${nombre} · vence en ${d} días`,
         porQue: "Renegociar antes del vencimiento evita quedar sin tarifa vigente.",
-        accion: "Agendar renegociación",
+        accion: "Ver ficha",
         entidad: ref,
       });
     }
@@ -275,7 +278,7 @@ export function alertasAccionables(blob, hoy = new Date()) {
         severidad: "alto",
         titulo: `${nombre} · sin tarifa de royalty por planta registrada, con ${plant.length} plantaciones`,
         porQue: `${INSUF}la tarifa no está cargada; no se puede determinar qué corresponde facturar por esas plantas.`,
-        accion: "Cargar tarifa",
+        accion: "Ver ficha",
         entidad: ref,
       });
     } else if (plant.length > 0 && num(ct.valorRoyaltyPlanta) === 0) {
@@ -284,7 +287,7 @@ export function alertasAccionables(blob, hoy = new Date()) {
         severidad: "alto",
         titulo: `${nombre} · royalty por planta en cero con ${plant.length} plantaciones`,
         porQue: "Con tarifa en cero no se factura nada aunque haya plantas en tierra.",
-        accion: "Cargar tarifa",
+        accion: "Ver ficha",
         entidad: ref,
       });
     }
@@ -295,7 +298,7 @@ export function alertasAccionables(blob, hoy = new Date()) {
         severidad: "alto",
         titulo: `${nombre} · sin mes de facturación del royalty comercial`,
         porQue: `${INSUF}sin mes definido no se puede ubicar el cobro en un trimestre.`,
-        accion: "Ver ficha", // solo abre la ficha; la edición llega en la segunda entrega
+        accion: "Ver ficha",
         entidad: ref,
       });
     }
@@ -311,7 +314,7 @@ export function alertasAccionables(blob, hoy = new Date()) {
           `El contrato lo marca ${fe.marcadoContrato ? "pagado" : "no pagado"} y Fee Entrada ` +
           `${fe.hayFila ? (fe.pagadoFila ? "lo registra pagado" : "lo registra no pagado") : "no tiene fila (muestra no pagado)"}. ` +
           "Pendiente de conciliación: no se afirma pago ni deuda.",
-        accion: "Revisar conciliación",
+        accion: "Ver ficha",
         entidad: ref,
       });
     }
@@ -323,7 +326,7 @@ export function alertasAccionables(blob, hoy = new Date()) {
         severidad: "info",
         titulo: `${nombre} · ${plantasCero.length} plantaciones con 0 plantas`,
         porQue: "El royalty por planta se calcula sobre ese dato; en cero no aporta.",
-        accion: "Completar plantaciones",
+        accion: "Ver ficha",
         entidad: ref,
       });
     }
@@ -334,7 +337,7 @@ export function alertasAccionables(blob, hoy = new Date()) {
         severidad: "info",
         titulo: `${nombre} · ${plantasSinDato.length} plantaciones sin número de plantas registrado`,
         porQue: `${INSUF}sin ese dato no se puede evaluar el royalty por planta de esas plantaciones.`,
-        accion: "Completar plantaciones",
+        accion: "Ver ficha",
         entidad: ref,
       });
     }
@@ -345,7 +348,7 @@ export function alertasAccionables(blob, hoy = new Date()) {
         severidad: "info",
         titulo: `${nombre} · sin dato de Anexo 1`,
         porQue: `${INSUF}el contrato no registra el Anexo 1, que fija variedades y superficie licenciadas.`,
-        accion: "Adjuntar anexo",
+        accion: "Ver ficha",
         entidad: ref,
       });
     } else if (!anexoActivo(ct.anexo1)) {
@@ -354,7 +357,7 @@ export function alertasAccionables(blob, hoy = new Date()) {
         severidad: "info",
         titulo: `${nombre} · sin Anexo 1`,
         porQue: "El anexo es el que fija variedades y superficie licenciadas.",
-        accion: "Adjuntar anexo",
+        accion: "Ver ficha",
         entidad: ref,
       });
     }
@@ -372,7 +375,7 @@ export function alertasAccionables(blob, hoy = new Date()) {
         porQue: Array.isArray(ob.participacionIngresos)
           ? "Sin regla no hay forma de calcular cuánto le corresponde de cada ingreso."
           : `${INSUF}el obtentor no tiene reglas de participación registradas; no se puede evaluar cuánto le corresponde.`,
-        accion: "Definir participación",
+        accion: "Ver ficha",
         entidad: ref,
       });
     }
@@ -384,7 +387,7 @@ export function alertasAccionables(blob, hoy = new Date()) {
         severidad: "info",
         titulo: `${nombre} · sin fecha de vencimiento válida del contrato de obtentor`,
         porQue: `${INSUF}sin esa fecha no se puede evaluar si la representación está vigente.`,
-        accion: "Completar vigencia",
+        accion: "Ver ficha",
         entidad: ref,
       });
     } else if (d < 0) {
@@ -393,7 +396,7 @@ export function alertasAccionables(blob, hoy = new Date()) {
         severidad: "critico",
         titulo: `${nombre} · contrato de obtentor vencido hace ${Math.abs(d)} días`,
         porQue: "Se están licenciando variedades sin respaldo contractual vigente.",
-        accion: "Renovar contrato",
+        accion: "Ver ficha",
         entidad: ref,
       });
     } else if (d <= 90) {
@@ -402,7 +405,7 @@ export function alertasAccionables(blob, hoy = new Date()) {
         severidad: "alto",
         titulo: `${nombre} · contrato de obtentor vence en ${d} días`,
         porQue: "Perder la representación corta el ingreso de todas sus variedades.",
-        accion: "Agendar renovación",
+        accion: "Ver ficha",
         entidad: ref,
       });
     }
@@ -415,7 +418,7 @@ export function alertasAccionables(blob, hoy = new Date()) {
         porQue: Array.isArray(ob.pbr)
           ? "Sin PBR no se puede acreditar la titularidad de la variedad."
           : `${INSUF}el obtentor no tiene registros PBR informados; no se puede acreditar la titularidad.`,
-        accion: "Cargar PBR",
+        accion: "Ver ficha",
         entidad: ref,
       });
     }
@@ -431,7 +434,7 @@ export function alertasAccionables(blob, hoy = new Date()) {
         severidad: "info",
         titulo: `${nombre} · sin fecha de vencimiento válida del contrato de vivero`,
         porQue: `${INSUF}sin esa fecha no se puede evaluar si el vivero sigue habilitado.`,
-        accion: "Completar vigencia",
+        accion: "Ver ficha",
         entidad: refV,
       });
     } else if (d <= 90) {
@@ -443,7 +446,7 @@ export function alertasAccionables(blob, hoy = new Date()) {
             ? `${nombre} · contrato de vivero vencido hace ${Math.abs(d)} días`
             : `${nombre} · contrato de vivero vence en ${d} días`,
         porQue: "Sin vivero habilitado no hay plantas que despachar la próxima temporada.",
-        accion: "Revisar contrato",
+        accion: "Ver ficha",
         entidad: refV,
       });
     }

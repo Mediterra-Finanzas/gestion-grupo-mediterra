@@ -416,19 +416,11 @@ describe("filtros de alertas · son controles reales, no botones disfrazados", (
     expect(despues).toBe(alertas.filter((a) => a.severidad === "critico").length);
   });
 
-  test("cada alerta ofrece un botón con el verbo de la acción", () => {
+  test("cada alerta ofrece un botón \"Ver ficha\" y ninguno promete enviar ni editar", () => {
     render(<PanelAlertas alertas={alertas} maximo={99} estadoCarga="ok" />);
-    const botones = screen
-      .getAllByRole("button")
-      .filter((b) => /Ver ficha|Renovar|Cargar|Definir|Emitir|Adjuntar|Completar|Agendar|Revisar/.test(b.textContent));
-    expect(botones.length).toBeGreaterThanOrEqual(alertas.length);
-  });
-
-  test("firma y mes de facturación: el botón dice \"Ver ficha\", no promete enviar ni editar", () => {
-    render(<PanelAlertas alertas={alertas} maximo={99} estadoCarga="ok" />);
-    const textos = screen.getAllByRole("button").map((b) => b.textContent);
-    expect(textos.some((x) => /Solicitar firma|Definir mes/.test(x))).toBe(false);
-    expect(alertas.filter((a) => a.id.startsWith("firma:")).every((a) => a.accion === "Ver ficha")).toBe(true);
+    const textos = screen.getAllByRole("button").map((b) => b.textContent.trim());
+    expect(textos.filter((x) => x === "Ver ficha").length).toBeGreaterThanOrEqual(alertas.length);
+    expect(textos.some((x) => /Solicitar|Definir|Cargar|Adjuntar|Completar|Agendar|Renovar|Revisar|Emitir/.test(x))).toBe(false);
   });
 
   test("la severidad va también en texto, para que no dependa del color", () => {

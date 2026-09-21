@@ -120,11 +120,22 @@ describe("alertas · todas son accionables o no existen", () => {
     }
   });
 
-  test("el verbo de la acción es un verbo, no un sustantivo", () => {
+  test("el botón dice lo que hace: solo abre la ficha", () => {
+    for (const a of alertas) expect(a.accion).toBe("Ver ficha");
+  });
+
+  test("toda alerta tiene una entidad que abrir, así \"Ver ficha\" nunca queda vacío", () => {
     for (const a of alertas) {
-      expect(a.accion).toMatch(
-        /^(Ver|Solicitar|Renovar|Agendar|Cargar|Definir|Emitir|Completar|Adjuntar|Revisar)/
-      );
+      expect(a.entidad).toBeTruthy();
+      expect(a.entidad.tipo).toMatch(/^(contrato|cliente|obtentor|vivero)$/);
+      expect(a.entidad.id).toBeTruthy();
+    }
+  });
+
+  test("el título conserva lo que falta resolver", () => {
+    for (const a of alertas) {
+      expect(a.titulo).toMatch(/ · .{6,}/);
+      expect(a.titulo).not.toMatch(/Ver ficha/);
     }
   });
 
