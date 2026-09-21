@@ -14,6 +14,7 @@
 // los números cuadran exactamente con lo que se ve en pantalla.
 // Usa xlsx-js-style (fork de SheetJS con soporte de estilos).
 // ═══════════════════════════════════════════════════════════════════
+import { antRealizado, antPendiente } from './anticipos.js';
 import * as XLSXns from 'xlsx-js-style';
 const XLSX = XLSXns.utils ? XLSXns : (XLSXns.default || XLSXns);
 
@@ -29,6 +30,15 @@ function genMonths() {
   return out;
 }
 function seasonOf(mo) { return mo.m >= 6 ? mo.y : mo.y - 1; }
+
+// Mes en curso dentro del horizonte exportado. El saldo bancario se aplica
+// en ese mes (igual que en pantalla, FinanzasModule → mesIdxInicioSaldo); los
+// meses anteriores se muestran pero ya no se acumulan sobre él.
+function idxMesActual(months, hoy = new Date()) {
+  const label = `${MN[hoy.getMonth()]}-${String(hoy.getFullYear()).slice(2)}`;
+  const i = months.findIndex(mo => mo.label === label);
+  return i >= 0 ? i : 0;
+}
 
 const CAT_ORDER = ['ing_op','ing_nop','egr_var','egr_fijo','egr_nop','imp'];
 const CAT_LABEL = {
@@ -127,7 +137,12 @@ function fillAdditive(cells, num, r1, cols, sty) {
 }
 
 // ── construye una hoja de "estado de flujo" (empresa o consolidado) ──
-function buildStatement({ title, subtitle, cols, monthOrder, cats, saldoIniValue, saldoIniMonth0Formula, saldoIniMonth0Number }) {
+// startAccumIdx: posición dentro de monthOrder desde la cual se arrastra el
+// saldo de caja. Igual que en pantalla, el saldo bancario se aplica en el MES
+// EN CURSO: los meses anteriores muestran su flujo pero NO vuelven a
+// acumularse sobre un saldo que ya los contiene (su saldo queda en blanco).
+function buildStatement({ title, subtitle, cols, monthOrder, cats, saldoIniValue,
+                          saldoIniMonth0Formula, saldoIniMonth0Number, startAccumIdx = 0 }) {
   // cats: [{ cat, lines:[{label,vals}], monthFormula?(mc)->string }]
   const cells = {}; const rows = []; const merges = []; const num = {};
   let r = 0;
@@ -221,24 +236,41 @@ function buildStatement({ title, subtitle, cols, monthOrder, cats, saldoIniValue
 
   // (=) Saldo final caja  (necesita saldo inicial numérico → se calcula primero)
   const saldoFinRow = r + 1;
-  // pre-cálculo numérico del saldo inicial por mes
+  // Índice del mes donde arranca el arrastre de saldo (mes en curso).
+  const kIni = Math.max(0, Math.min(Number(startAccumIdx)||0, monthOrder.length-1));
+  // pre-cálculo numérico del saldo inicial por mes (solo desde kIni)
   const saldoIniNum = {};
   monthOrder.forEach((mc,k) => {
-    if (k === 0) saldoIniNum[mc.c] = saldoIniMonth0Number != null ? saldoIniMonth0Number : (Number(saldoIniValue)||0);
+    if (k < kIni) return;                      // mes histórico: sin arrastre
+    if (k === kIni) saldoIniNum[mc.c] = saldoIniMonth0Number != null ? saldoIniMonth0Number : (Number(saldoIniValue)||0);
     else saldoIniNum[mc.c] = saldoIniNum[monthOrder[k-1].c] + (num[ref(flujoRow,monthOrder[k-1].c)]||0);
   });
   cells[ref(saldoFinRow,0)] = { t:'s', v:'(=) Saldo final caja', s:S.saldoLabel };
-  monthOrder.forEach(mc => { const v=(saldoIniNum[mc.c]||0)+(num[ref(flujoRow,mc.c)]||0); num[ref(saldoFinRow,mc.c)]=v; cells[ref(saldoFinRow,mc.c)] = { t:'n', f:`${ref(saldoIniRow,mc.c)}+${ref(flujoRow,mc.c)}`, v, s:S.saldoNum }; });
+  monthOrder.forEach((mc,k) => {
+    if (k < kIni) { cells[ref(saldoFinRow,mc.c)] = { t:'s', v:'', s:S.saldoNum }; return; }
+    const v=(saldoIniNum[mc.c]||0)+(num[ref(flujoRow,mc.c)]||0); num[ref(saldoFinRow,mc.c)]=v;
+    cells[ref(saldoFinRow,mc.c)] = { t:'n', f:`${ref(saldoIniRow,mc.c)}+${ref(flujoRow,mc.c)}`, v, s:S.saldoNum };
+  });
+  const colsMes = monthOrder.map(mc=>mc.c);
+  const conArrastre = (c) => colsMes.indexOf(c) >= kIni;
   cols.forEach(col => {
-    if (col.kind === 'temp') { const last=col.members[col.members.length-1]; const v=num[ref(saldoFinRow,last)]||0; num[ref(saldoFinRow,col.c)]=v; cells[ref(saldoFinRow,col.c)]={t:'n',f:`${ref(saldoFinRow,last)}`,v,s:S.saldoNum}; }
+    if (col.kind === 'temp') {
+      const conSaldo = col.members.filter(conArrastre);
+      if (!conSaldo.length) { cells[ref(saldoFinRow,col.c)]={t:'s',v:'',s:S.saldoNum}; return; }
+      const last=conSaldo[conSaldo.length-1]; const v=num[ref(saldoFinRow,last)]||0;
+      num[ref(saldoFinRow,col.c)]=v; cells[ref(saldoFinRow,col.c)]={t:'n',f:`${ref(saldoFinRow,last)}`,v,s:S.saldoNum};
+    }
     else if (col.kind === 'grand') { const lm=monthOrder[monthOrder.length-1].c; const v=num[ref(saldoFinRow,lm)]||0; num[ref(saldoFinRow,col.c)]=v; cells[ref(saldoFinRow,col.c)]={t:'n',f:`${ref(saldoFinRow,lm)}`,v,s:S.saldoNum}; }
   });
   setLvl(r,0); r++;
 
-  // Saldo inicial: month0 input/formula; monthK = saldo final mes previo
+  // Saldo inicial: en kIni entra el saldo banco (input/fórmula); después,
+  // saldo final del mes previo. Antes de kIni queda vacío (ya está contenido
+  // en el saldo bancario, no se vuelve a acumular).
   monthOrder.forEach((mc,k) => {
+    if (k < kIni) { cells[ref(saldoIniRow,mc.c)] = { t:'s', v:'', s:S.saldoNum }; return; }
     const v = saldoIniNum[mc.c]||0; num[ref(saldoIniRow,mc.c)]=v;
-    if (k === 0) {
+    if (k === kIni) {
       if (saldoIniMonth0Formula) cells[ref(saldoIniRow,mc.c)] = { t:'n', f:saldoIniMonth0Formula, v, s:S.saldoNum };
       else cells[ref(saldoIniRow,mc.c)] = { t:'n', v, s:S.input };
     } else {
@@ -247,11 +279,16 @@ function buildStatement({ title, subtitle, cols, monthOrder, cats, saldoIniValue
     }
   });
   cols.forEach(col => {
-    if (col.kind === 'temp') { const first=col.members[0]; const v=num[ref(saldoIniRow,first)]||0; num[ref(saldoIniRow,col.c)]=v; cells[ref(saldoIniRow,col.c)]={t:'n',f:`${ref(saldoIniRow,first)}`,v,s:S.saldoNum}; }
-    else if (col.kind === 'grand') { const fm=monthOrder[0].c; const v=num[ref(saldoIniRow,fm)]||0; num[ref(saldoIniRow,col.c)]=v; cells[ref(saldoIniRow,col.c)]={t:'n',f:`${ref(saldoIniRow,fm)}`,v,s:S.saldoNum}; }
+    if (col.kind === 'temp') {
+      const conSaldo = col.members.filter(conArrastre);
+      if (!conSaldo.length) { cells[ref(saldoIniRow,col.c)]={t:'s',v:'',s:S.saldoNum}; return; }
+      const first=conSaldo[0]; const v=num[ref(saldoIniRow,first)]||0;
+      num[ref(saldoIniRow,col.c)]=v; cells[ref(saldoIniRow,col.c)]={t:'n',f:`${ref(saldoIniRow,first)}`,v,s:S.saldoNum};
+    }
+    else if (col.kind === 'grand') { const fm=monthOrder[kIni].c; const v=num[ref(saldoIniRow,fm)]||0; num[ref(saldoIniRow,col.c)]=v; cells[ref(saldoIniRow,col.c)]={t:'n',f:`${ref(saldoIniRow,fm)}`,v,s:S.saldoNum}; }
   });
 
-  return { cells, rows, merges, num, lastRow:r, lastCol:lastColIdx, catRows, saldoIniRow, flujoRow, saldoFinRow };
+  return { cells, rows, merges, num, lastRow:r, lastCol:lastColIdx, catRows, saldoIniRow, flujoRow, saldoFinRow, kIni };
 }
 
 function toSheet({ cells, rows, merges, lastRow, lastCol, cols }) {
@@ -802,8 +839,68 @@ function buildParametrosAllegria(paramsAll, comisionArandanos, months) {
   const secHdr = (txt) => { put(r,0,{ t:'s', v:txt, s:PS.secHdr }); for(let c=1;c<=7;c++) put(r,c,{ t:'s', v:'', s:PS.secHdr }); merges.push({ s:{r:r-1,c:0}, e:{r:r-1,c:7} }); r++; };
   const colHdrs = (arr) => { arr.forEach((h,c)=>put(r,c,{ t:'s', v:h, s:PS.colHdr })); r++; };
 
+  // ── Fila de anticipo ────────────────────────────────────────────
+  // C=cierre · D=US$/kg · E=acordado (=D×kg) · F=realizado (CONSTANTE,
+  // histórico: no se recalcula al cambiar kilos o tarifas) · G=pendiente.
+  // A la columna de movimiento (la que lee el flujo por SUMIF) va SOLO el
+  // pendiente: lo ya cobrado/pagado está en la caja y no se re-proyecta.
+  // Devuelve la expresión de su descuento de liquidación = realizado +
+  // pendiente proyectable (sin mes no se proyecta → se liquida al final).
+  const hdrAnticipo = (etiqueta) => {
+    put(r,1,{ t:'s', v:etiqueta, s:PS.colHdr });
+    [[2,'Cierre'],[3,'US$/kg'],[4,'Acordado'],[5,'Realizado (fijo)'],[6,'Pendiente']]
+      .forEach(([c,t])=>put(r,c,{ t:'s', v:t, s:PS.colHdr }));
+    r++;
+  };
+  const filaAnticipo = (a, kgC, kgNum, mesCol, monCol, etiqueta) => {
+    const rA = r;
+    const cierreC=ref(rA,2), uC=ref(rA,3), acC=ref(rA,4), reC=ref(rA,5), peC=ref(rA,6), mesC=ref(rA,mesCol);
+    const usd = Number(a.usd_kg)||0;
+    const acordado = usd*kgNum, realizado = antRealizado(a), pend = antPendiente(a, kgNum);
+    const proyectable = !!a.mes;
+    put(rA,1,{ t:'s', v:`   ↳ ${etiqueta}`, s:PS.txtSub });
+    put(rA,2,{ t:'s', v:a.cerrado?'Cerrado':'Abierto', s:PS.inTxt });
+    put(rA,3,{ t:'n', v:usd, s:PS.inUsd });
+    put(rA,4,{ t:'n', f:`${uC}*${kgC}`, v:acordado, s:PS.der });
+    put(rA,5,{ t:'n', v:realizado, s:PS.inNum });
+    put(rA,6,{ t:'n', f:`IF(${cierreC}="Cerrado",0,MAX(0,${acC}-${reC}))`, v:pend, s:PS.der });
+    put(rA,mesCol,{ t:'s', v:a.mes||'', s:PS.inTxt });
+    put(rA,monCol,{ t:'n', f:`${peC}`, v:pend, s:PS.movNum });
+    r++;
+    return { f:`${reC}+IF(${mesC}="",0,${peC})`, v:realizado + (proyectable?pend:0) };
+  };
+  // ── Fila de liquidación + fila de sobre-anticipo ────────────────
+  // E=total (venta o costo neto) · F=descuento por anticipos · G=liquidación.
+  // El excedente se muestra en su propia fila: no se compensa solo ni se
+  // esconde detrás del MAX(0).
+  const filasLiquidacion = ({ totalF, totalV, descs, mesLiq, mesCol, monCol, etiqueta, etiquetaTot }) => {
+    // mini-cabecera para que la fila se lea sola
+    put(r,4,{ t:'s', v:etiquetaTot, s:PS.colHdr });
+    put(r,5,{ t:'s', v:'Descuento anticipos', s:PS.colHdr });
+    put(r,6,{ t:'s', v:etiqueta, s:PS.colHdr });
+    r++;
+    const rL = r;
+    const totC=ref(rL,4), desC=ref(rL,5), liqC=ref(rL,6);
+    const descF = descs.length ? descs.map(d=>`(${d.f})`).join('+') : '0';
+    const descV = descs.reduce((x,d)=>x+d.v,0);
+    const liq = Math.max(0, totalV - descV);
+    put(rL,1,{ t:'s', v:`   ↳ ${etiqueta}`, s:PS.txtSub });
+    put(rL,2,{ t:'s', v:'= total − (realizado + pendiente)', s:PS.txtSub });
+    put(rL,4,{ t:'n', f:totalF, v:totalV, s:PS.der });
+    put(rL,5,{ t:'n', f:descF, v:descV, s:PS.der });
+    put(rL,6,{ t:'n', f:`MAX(0,${totC}-${desC})`, v:liq, s:PS.derB });
+    put(rL,mesCol,{ t:'s', v:mesLiq||'', s:PS.inTxt });
+    put(rL,monCol,{ t:'n', f:`${liqC}`, v:liq, s:PS.movNum });
+    r++;
+    // Sobre-anticipo: se muestra SIEMPRE (recalcula si cambian kilos/tarifas)
+    const rE = r;
+    put(rE,1,{ t:'s', v:'   ↳ Sobre-anticipo (no se compensa)', s:PS.txtSub });
+    put(rE,6,{ t:'n', f:`MAX(0,${desC}-${totC})`, v:Math.max(0,descV-totalV), s:PS.der });
+    r++;
+  };
+
   // ══ CEREZAS (4 líneas) ══
-  secHdr('① CEREZAS — anticipos cliente/productor, materiales y packing');
+  secHdr('① CEREZAS — anticipos cliente/productor (acordado · realizado · pendiente), materiales y packing');
   colHdrs(['Temporada','Concepto','kg','FOB/US$·pct','desc%','matUSD','srvUSD']);
   seasonKeys.forEach(sk => {
     const p = paramsAll[sk]?.cerezas; if (!p) return;
@@ -816,34 +913,25 @@ function buildParametrosAllegria(paramsAll, comisionArandanos, months) {
     put(rH,2,{ t:'n', v:kg, s:PS.inKg }); put(rH,3,{ t:'n', v:fob, s:PS.inUsd });
     put(rH,4,{ t:'n', v:desc, s:PS.inPct }); put(rH,5,{ t:'n', v:matU, s:PS.inUsd }); put(rH,6,{ t:'n', v:srvU, s:PS.inUsd });
     r++;
-    // anticipos cliente → Anticipo Cerezas (AC)
-    const antCliCells = []; let sumAntCli = 0;
-    (p.anticipos_cliente||[]).forEach(a => {
-      const u = Number(a.usd_kg)||0; const rA=r; const uC=ref(rA,3);
-      put(rA,1,{ t:'s', v:'   ↳ Ant. cliente', s:PS.txtSub }); put(rA,3,{ t:'n', v:u, s:PS.inUsd });
-      put(rA,AC_M,{ t:'s', v:a.mes||'', s:PS.inTxt }); put(rA,AC_N,{ t:'n', f:`${uC}*${kgC}`, v:u*kg, s:PS.movNum });
-      antCliCells.push(ref(rA,AC_N)); sumAntCli += u*kg; r++;
+    // ── cliente → Anticipo Cerezas (AC) ──
+    const antCli = (p.anticipos_cliente||[]);
+    if (antCli.length) hdrAnticipo('↳ anticipos cliente');
+    const descsCli = antCli.map(a => filaAnticipo(a, kgC, kg, AC_M, AC_N, 'Ant. cliente'));
+    filasLiquidacion({
+      totalF:`${kgC}*${fobC}`, totalV:kg*fob, descs:descsCli,
+      mesLiq:p.mes_liquidacion, mesCol:AC_M, monCol:AC_N,
+      etiqueta:'Liquidación', etiquetaTot:'Venta total',
     });
-    // liquidación cliente
-    { const rL=r; const sumF = antCliCells.length?antCliCells.join('+'):'0';
-      put(rL,1,{ t:'s', v:'   ↳ Liquidación', s:PS.txtSub });
-      put(rL,AC_M,{ t:'s', v:p.mes_liquidacion||'', s:PS.inTxt });
-      put(rL,AC_N,{ t:'n', f:`MAX(0,${kgC}*${fobC}-(${sumF}))`, v:Math.max(0,kg*fob-sumAntCli), s:PS.movNum }); r++; }
-    // anticipos productor → Costo Fruta (CO)
-    const antProdCells = []; let sumAntProd = 0;
-    (p.anticipos_productor||[]).forEach(a => {
-      const u = Number(a.usd_kg)||0; const rA=r; const uC=ref(rA,3);
-      put(rA,1,{ t:'s', v:'   ↳ Ant. productor', s:PS.txtSub }); put(rA,3,{ t:'n', v:u, s:PS.inUsd });
-      put(rA,CO_M,{ t:'s', v:a.mes||'', s:PS.inTxt }); put(rA,CO_N,{ t:'n', f:`${uC}*${kgC}`, v:u*kg, s:PS.movNum });
-      antProdCells.push(ref(rA,CO_N)); sumAntProd += u*kg; r++;
+    // ── productor → Costo Fruta (CO) ──
+    const antProd = (p.anticipos_productor||[]);
+    if (antProd.length) hdrAnticipo('↳ anticipos productor');
+    const descsProd = antProd.map(a => filaAnticipo(a, kgC, kg, CO_M, CO_N, 'Ant. productor'));
+    const netoF = `${kgC}*MAX(0,${fobC}*(1-${descC}/100)-${matC}-${srvC})`;
+    filasLiquidacion({
+      totalF:netoF, totalV:kg*Math.max(0, fob*(1-desc/100)-matU-srvU), descs:descsProd,
+      mesLiq:p.mes_saldo_productor, mesCol:CO_M, monCol:CO_N,
+      etiqueta:'Saldo productor', etiquetaTot:'Costo neto total',
     });
-    // saldo productor
-    { const rS=r; const sumF = antProdCells.length?antProdCells.join('+'):'0';
-      const precioNeto = Math.max(0, fob*(1-desc/100)-matU-srvU);
-      const saldo = Math.max(0, kg*precioNeto - sumAntProd);
-      put(rS,1,{ t:'s', v:'   ↳ Saldo productor', s:PS.txtSub });
-      put(rS,CO_M,{ t:'s', v:p.mes_saldo_productor||'', s:PS.inTxt });
-      put(rS,CO_N,{ t:'n', f:`MAX(0,${kgC}*MAX(0,${fobC}*(1-${descC}/100)-${matC}-${srvC})-(${sumF}))`, v:saldo, s:PS.movNum }); r++; }
     // materiales (dist_mat) → MT: kg×matUSD×pct/100
     (p.dist_mat||[]).forEach(d => {
       const pct = Number(d.pct)||0; const rD=r; const pC=ref(rD,3);
@@ -860,7 +948,10 @@ function buildParametrosAllegria(paramsAll, comisionArandanos, months) {
   r++;
 
   // ══ CIRUELAS (1 línea: Liquidación Ciruelas) ══
-  secHdr('② CIRUELAS — anticipos cliente + liquidación');
+  // NOTA: el flujo de Allegria Foods solo tiene línea de INGRESO para ciruelas.
+  // Sus costos (anticipos productor, saldo, materiales, servicios) se calculan
+  // en la app pero no están conectados a ninguna línea → no se exportan acá.
+  secHdr('② CIRUELAS — anticipos cliente (acordado · realizado · pendiente) + liquidación');
   colHdrs(['Temporada','Concepto','kg','FOB / US$·kg','—','—','—']);
   seasonKeys.forEach(sk => {
     const p = paramsAll[sk]?.ciruelas; if (!p) return;
@@ -869,17 +960,14 @@ function buildParametrosAllegria(paramsAll, comisionArandanos, months) {
     const rH=r; const kgC=ref(rH,2), fobC=ref(rH,3);
     put(rH,0,{ t:'s', v:sk, s:PS.txt }); put(rH,1,{ t:'s', v:'Ciruelas', s:PS.txt });
     put(rH,2,{ t:'n', v:kg, s:PS.inKg }); put(rH,3,{ t:'n', v:fob, s:PS.inUsd }); r++;
-    const antCells=[]; let sumAnt=0;
-    (p.anticipos_cliente||[]).forEach(a => {
-      const u=Number(a.usd_kg)||0; const rA=r; const uC=ref(rA,3);
-      put(rA,1,{ t:'s', v:'   ↳ Ant. cliente', s:PS.txtSub }); put(rA,3,{ t:'n', v:u, s:PS.inUsd });
-      put(rA,LC_M,{ t:'s', v:a.mes||'', s:PS.inTxt }); put(rA,LC_N,{ t:'n', f:`${uC}*${kgC}`, v:u*kg, s:PS.movNum });
-      antCells.push(ref(rA,LC_N)); sumAnt+=u*kg; r++;
+    const ants = (p.anticipos_cliente||[]);
+    if (ants.length) hdrAnticipo('↳ anticipos cliente');
+    const descs = ants.map(a => filaAnticipo(a, kgC, kg, LC_M, LC_N, 'Ant. cliente'));
+    filasLiquidacion({
+      totalF:`${kgC}*${fobC}`, totalV:kg*fob, descs,
+      mesLiq:p.mes_liquidacion, mesCol:LC_M, monCol:LC_N,
+      etiqueta:'Liquidación', etiquetaTot:'Venta total',
     });
-    { const rL=r; const sumF=antCells.length?antCells.join('+'):'0';
-      put(rL,1,{ t:'s', v:'   ↳ Liquidación', s:PS.txtSub });
-      put(rL,LC_M,{ t:'s', v:p.mes_liquidacion||'', s:PS.inTxt });
-      put(rL,LC_N,{ t:'n', f:`MAX(0,${kgC}*${fobC}-(${sumF}))`, v:Math.max(0,kg*fob-sumAnt), s:PS.movNum }); r++; }
   });
   r++;
 
@@ -975,6 +1063,7 @@ export function exportarFlujoEmpresa({ emp, empName, saldoIni = 0, lastSeasonSta
     subtitle: emp.desc || '',
     cols, monthOrder, cats,
     saldoIniValue: Number(saldoIni) || 0,
+    startAccumIdx: idxMesActual(months),
   });
 
   const wb = XLSX.utils.book_new();
@@ -1003,6 +1092,7 @@ export function exportarFlujoConsolidado({ empresasConOverrides, empNames, saldo
   });
   const seasons = Object.values(seasonsMap).sort((a,b)=>a.sy-b.sy);
   const { cols, monthOrder } = buildColumns(months, seasons);
+  const kIni = idxMesActual(months);   // mismo mes de arranque que la pantalla
 
   const wb = XLSX.utils.book_new();
 
@@ -1033,6 +1123,7 @@ export function exportarFlujoConsolidado({ empresasConOverrides, empNames, saldo
       subtitle: emp.desc || '',
       cols, monthOrder, cats,
       saldoIniValue: Number(saldoIniPorEmp?.[n]) || 0,
+      startAccumIdx: kIni,
     });
   });
 
@@ -1046,14 +1137,16 @@ export function exportarFlujoConsolidado({ empresasConOverrides, empNames, saldo
       cellNumber:  (mc) => empBuilt[n].num[ref(empBuilt[n].catRows[cat], mc.c)] || 0,
     })),
   }));
-  const saldoIniCons = monthOrder[0] && empNames.map(n => `'${sheetName[n]}'!${ref(empBuilt[n].saldoIniRow, monthOrder[0].c)}`).join('+');
-  const saldoIniConsNum = monthOrder[0] ? empNames.reduce((a,n)=>a+(empBuilt[n].num[ref(empBuilt[n].saldoIniRow, monthOrder[0].c)]||0),0) : 0;
+  const colIni = monthOrder[kIni] && monthOrder[kIni].c;
+  const saldoIniCons = colIni && empNames.map(n => `'${sheetName[n]}'!${ref(empBuilt[n].saldoIniRow, colIni)}`).join('+');
+  const saldoIniConsNum = colIni ? empNames.reduce((a,n)=>a+(empBuilt[n].num[ref(empBuilt[n].saldoIniRow, colIni)]||0),0) : 0;
   const cons = buildStatement({
     title:`🏛 Consolidado Grupo Mediterra${escenarioNombre?` — Escenario: ${escenarioNombre}`:''}`,
     subtitle:`${escenarioNombre?`🧪 ${escenarioNombre} · `:''}${empNames.length} empresas · Apr-26 → ${months[months.length-1].label}`,
     cols, monthOrder, cats:consCats,
     saldoIniMonth0Formula: saldoIniCons,
     saldoIniMonth0Number: saldoIniConsNum,
+    startAccumIdx: kIni,
   });
   XLSX.utils.book_append_sheet(wb, toSheet({ ...cons, cols }), 'Consolidado');
 

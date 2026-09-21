@@ -13,6 +13,11 @@ import { USE_GUARD, pollRow } from './guardClient';
 import { persist, construirAvisoDesde } from './persistencia/instancia.js';
 import AvisoPersistencia from './AvisoPersistencia.jsx';
 import { computeOverlay, applyOverlay } from './escenarioOverlay';
+import {
+  antAcordado, antRealizado, antPendiente, antDescuentoLiq, realizacionesVigentes,
+  resumenAnticipos, normalizarAnticipo, agregarRealizacion, anularRealizacion,
+  puedeBorrarAnticipo, nuevoIdAnticipo, clasificarRealizacionVsSaldos, conciliacionRealizaciones,
+} from './anticipos.js';
 
 // ═══════════════════════════════════════════════════════════════════
 // TIEMPO: Mar-26 → Jun-31 (65 meses)
@@ -69,6 +74,10 @@ const SEMANAS_MES = {
 const Z65  = () => Array(63).fill(0); // 63 meses: Apr-26 → Jun-31
 function ext(arr) { const r=[...(arr||[])]; while(r.length<63) r.push(0); if(r.length>63) r.splice(63); return r; }
 function mIdx(label) { return MESES_65.indexOf(label); }
+// Un anticipo solo se proyecta si su mes cae dentro del horizonte del flujo.
+// Si no, su pendiente no se descuenta de la liquidación (se cobra/paga al
+// liquidar) — así el dinero nunca desaparece de la proyección.
+const esAntProyectable = (a) => mIdx(a?.mes) >= 0;
 
 // ═══════════════════════════════════════════════════════════════════
 // SUPABASE
@@ -322,12 +331,11 @@ function calcParamsEmp(paramsEmp, lineLabel) {
 // ═══════════════════════════════════════════════════════════════════
 // MOTOR FÓRMULAS — Allegria Foods
 // ═══════════════════════════════════════════════════════════════════
-function calcAllegria(params) {
+export function calcAllegria(params) {
   const ing  = { cerezas:Z65(), ciruelas:Z65(), arandanos:Z65() };
   const cost = { cerezas:Z65(), ciruelas:Z65(), arandanos:Z65() };
   const mat  = { cerezas:Z65(), ciruelas:Z65(), arandanos:Z65() };
   const srv  = { cerezas:Z65(), ciruelas:Z65(), arandanos:Z65() };
-  console.log("[calcAllegria] cerezas 26-27 kg:", params?.["2026-2027"]?.cerezas?.kg);
   SEASON_KEYS.forEach(sk => {
     if (!params?.[sk]) return;
     FRUTAS.forEach(f => {
@@ -352,27 +360,26 @@ function calcAllegria(params) {
         return;
       }
 
-      // Cerezas y Ciruelas: lógica original
-      let totalAntIng = 0;
+      // Cerezas y Ciruelas.
+      // Anticipos con realizaciones: SOLO se proyecta el pendiente (lo ya
+      // cobrado/pagado está en la caja y no vuelve al flujo); la liquidación
+      // descuenta realizado + pendiente proyectado. Ver src/anticipos.js.
       (p.anticipos_cliente||[]).forEach(a => {
         const i = mIdx(a.mes); if(i<0) return;
-        const v = (Number(a.usd_kg)||0)*kg;
-        ing[f][i] += v; totalAntIng += v;
+        ing[f][i] += antPendiente(a, kg);
       });
       if (p.mes_liquidacion) {
         const i = mIdx(p.mes_liquidacion);
-        if (i>=0) ing[f][i] += Math.max(0, kg*fob - totalAntIng);
+        if (i>=0) ing[f][i] += resumenAnticipos(p.anticipos_cliente, kg, kg*fob, {esProyectable:esAntProyectable}).liquidacion;
       }
       const precioNetoProd = Math.max(0, fob*(1-desc) - matUsd - srvUsd);
-      let totalAntProd = 0;
       (p.anticipos_productor||[]).forEach(a => {
         const i = mIdx(a.mes); if(i<0) return;
-        const v = (Number(a.usd_kg)||0)*kg;
-        cost[f][i] += v; totalAntProd += v;
+        cost[f][i] += antPendiente(a, kg);
       });
       if (p.mes_saldo_productor) {
         const i = mIdx(p.mes_saldo_productor);
-        if (i>=0) { const s = kg*precioNetoProd - totalAntProd; if(s>0) cost[f][i] += s; }
+        if (i>=0) cost[f][i] += resumenAnticipos(p.anticipos_productor, kg, kg*precioNetoProd, {esProyectable:esAntProyectable}).liquidacion;
       }
       const totalMat = kg * matUsd;
       if (totalMat > 0) {
@@ -1386,7 +1393,7 @@ function calcRebateAllegria(params) {
   return proy;
 }
 
-function buildAllegria(params, allegraComisionArandanos) {
+export function buildAllegria(params, allegraComisionArandanos) {
   const { ing, cost, mat, srv } = calcAllegria(params);
   const arandanosProy = calcComisionArandanosArr(allegraComisionArandanos);
   const rebateProy    = calcRebateAllegria(params);
@@ -1598,33 +1605,204 @@ function LineChart({months,values,color=C.accentL,h=72}) {
 // ═══════════════════════════════════════════════════════════════════
 // TAB PARÁMETROS
 // ═══════════════════════════════════════════════════════════════════
-function AnticipList({items,onChange,label,meses=MESES_65}) {
-  const addRow=()=>onChange([...(items||[]),{mes:"",usd_kg:0}]);
-  const updRow=(i,field,val)=>{const n=[...(items||[])];n[i]={...n[i],[field]:val};onChange(n);};
-  const delRow=i=>onChange((items||[]).filter((_,j)=>j!==i));
+// ── Etiquetas de conciliación de una realización contra los saldos ──
+// Los saldos bancarios se cargan por cuenta y cada cuenta tiene SU fecha:
+// no se usa una sola fecha para afirmar que algo está conciliado. Cuando el
+// dato no alcanza, se dice explícitamente que no se puede comprobar.
+const CONCILIA_LBL = {
+  incluida:      { t:"ya incluida en los saldos cargados", c:C.success },
+  indeterminada: { t:"no comprobable (hay cuentas con corte anterior)", c:C.warning },
+  no_incluida:   { t:"aún no está en ningún saldo cargado", c:C.warning },
+  sin_saldos:    { t:"sin saldos cargados — no comprobable", c:C.muted2 },
+  sin_fecha:     { t:"sin fecha — no comprobable", c:C.muted2 },
+};
+
+// ═══════════════════════════════════════════════════════════════════
+// ANTICIPOS CON REALIZACIONES (Allegria Foods)
+// Cada fila = un anticipo acordado en US$/kg. Los cobros/pagos ya hechos se
+// registran como "realizaciones" (monto fijo en USD + fecha + nota) y dejan
+// de proyectarse en el flujo, pero siguen descontándose de la liquidación.
+// Ver src/anticipos.js para el modelo y sus reglas.
+// ═══════════════════════════════════════════════════════════════════
+function AnticipList({items,onChange,label,meses=MESES_65,base=0,tipo="cliente",
+                      readOnly=false,usuario="",fechasCuentas=[],mesIdxActual=-1}) {
+  const [formIdx,setFormIdx]=useState(null);        // fila con el formulario abierto
+  const [draft,setDraft]=useState({fecha:"",usd:"",nota:""});
+  const esCli = tipo==="cliente";
+  const verbo = esCli ? "cobro" : "pago";
+  const lista = items||[];
+
+  const addRow=()=>onChange([...lista, normalizarAnticipo({mes:"",usd_kg:0})]);
+  const updRow=(i,field,val)=>{const n=[...lista];n[i]={...normalizarAnticipo(n[i]),[field]:val};onChange(n);};
+  const delRow=i=>{
+    const a=lista[i];
+    if(!puedeBorrarAnticipo(a)){
+      window.alert(`Este anticipo tiene ${verbo}s registrados por ${$$(antRealizado(a))}.\n\n`+
+        `No se puede borrar sin perder el respaldo del flujo. Primero anula cada ${verbo} `+
+        `(queda registrado con su motivo), o marca el anticipo como cerrado si ya no habrá más ${verbo}s.`);
+      return;
+    }
+    onChange(lista.filter((_,j)=>j!==i));
+  };
+  const toggleCerrado=i=>{
+    const a=normalizarAnticipo(lista[i]);
+    const pend=antPendiente(a,base);
+    if(!a.cerrado && pend>0 && !window.confirm(
+      `Cerrar este anticipo: los ${$$(pend)} pendientes dejan de proyectarse en ${a.mes||"su mes"} `+
+      `y pasan a la liquidación final. Lo ya ${esCli?"cobrado":"pagado"} (${$$(antRealizado(a))}) se mantiene descontado.\n\n¿Confirmas?`)) return;
+    updRow(i,"cerrado",!a.cerrado);
+  };
+  const abrirForm=i=>{
+    const hoy=new Date();
+    setDraft({fecha:`${hoy.getFullYear()}-${String(hoy.getMonth()+1).padStart(2,"0")}-${String(hoy.getDate()).padStart(2,"0")}`,usd:"",nota:""});
+    setFormIdx(i);
+  };
+  const guardarRealizacion=i=>{
+    const usd=parseFloat(draft.usd)||0;
+    if(usd<=0){ window.alert(`Ingresa el monto en US$ efectivamente ${esCli?"cobrado":"pagado"}.`); return; }
+    if(!draft.fecha){ window.alert("Ingresa la fecha del movimiento (define si el saldo bancario ya lo incluye)."); return; }
+    const n=[...lista];
+    n[i]=agregarRealizacion(n[i],{fecha:draft.fecha,usd,nota:draft.nota,usuario});
+    onChange(n); setFormIdx(null);
+  };
+  const anular=(i,reaId)=>{
+    const motivo=window.prompt(`Motivo de la anulación (queda registrado en el historial):`,"");
+    if(motivo===null) return;
+    if(!motivo.trim()){ window.alert("La anulación necesita un motivo para conservar la trazabilidad."); return; }
+    const n=[...lista];
+    n[i]=anularRealizacion(n[i],reaId,{motivo:motivo.trim(),usuario});
+    onChange(n);
+  };
+
+  const inSt={padding:"4px 7px",background:C.card2,border:`1px solid ${C.border}`,borderRadius:6,color:C.text,fontSize:11,outline:"none"};
+  const chip=(t,c)=><span style={{fontSize:9,color:c,background:`${c}18`,border:`1px solid ${c}44`,borderRadius:10,padding:"1px 7px",fontWeight:700}}>{t}</span>;
+
   return (
     <div>
       {label&&<div style={{fontSize:10,color:C.muted,marginBottom:5,fontWeight:700}}>{label}</div>}
-      <div style={{display:"flex",flexDirection:"column",gap:5}}>
-        {(items||[]).map((row,i)=>(
-          <div key={i} style={{display:"flex",alignItems:"center",gap:6}}>
-            <select value={row.mes||""} onChange={e=>updRow(i,"mes",e.target.value)}
-              style={{padding:"4px 7px",background:C.card2,border:`1px solid ${C.border}`,borderRadius:6,color:row.mes?C.text:C.muted,fontSize:11,outline:"none"}}>
-              <option value="">— mes —</option>
-              {meses.map(m=><option key={m} value={m}>{m}</option>)}
-              {row.mes&&!meses.includes(row.mes)&&<option value={row.mes}>{row.mes} (fuera de temp.)</option>}
-            </select>
-            <input type="number" value={row.usd_kg||""} placeholder="0"
-              onChange={e=>updRow(i,"usd_kg",parseFloat(e.target.value)||0)}
-              style={{width:80,padding:"4px 7px",background:C.card2,border:`1px solid ${C.border}`,borderRadius:6,color:C.text,fontSize:11,outline:"none",textAlign:"right"}}/>
-            <span style={{fontSize:10,color:C.muted}}>US$/kg</span>
-            <button onClick={()=>delRow(i)} style={{background:"transparent",border:"none",color:C.red,cursor:"pointer",fontSize:14}}>×</button>
-          </div>
-        ))}
-        <button onClick={addRow} style={{alignSelf:"flex-start",padding:"4px 10px",background:`${C.accent}22`,
+      <div style={{display:"flex",flexDirection:"column",gap:8}}>
+        {lista.map((row0,i)=>{
+          const row=normalizarAnticipo(row0);
+          const acordado=antAcordado(row,base), realizado=antRealizado(row);
+          const pendiente=antPendiente(row,base), reas=realizacionesVigentes(row);
+          const anuladas=(row.realizaciones||[]).filter(r=>r&&r.anulada);
+          const idxMes=mIdx(row.mes);
+          const vencido=pendiente>0 && !row.cerrado && idxMes>=0 && mesIdxActual>=0 && idxMes<mesIdxActual;
+          const sinMes=pendiente>0 && idxMes<0;
+          const sobre=realizado>acordado+0.005;
+          return (
+            <div key={row.id||i} style={{border:`1px solid ${C.border}`,borderRadius:8,padding:"7px 9px",background:C.card}}>
+              <div style={{display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}}>
+                <select value={row.mes||""} disabled={readOnly} onChange={e=>updRow(i,"mes",e.target.value)}
+                  style={{...inSt,color:row.mes?C.text:C.muted}}>
+                  <option value="">— mes —</option>
+                  {meses.map(m=><option key={m} value={m}>{m}</option>)}
+                  {row.mes&&!meses.includes(row.mes)&&<option value={row.mes}>{row.mes} (fuera de temp.)</option>}
+                </select>
+                <input type="number" value={row.usd_kg||""} placeholder="0" disabled={readOnly}
+                  onChange={e=>updRow(i,"usd_kg",parseFloat(e.target.value)||0)}
+                  style={{...inSt,width:78,textAlign:"right"}}/>
+                <span style={{fontSize:10,color:C.muted}}>US$/kg</span>
+                {!readOnly&&(
+                  <button onClick={()=>abrirForm(i)} title={`Registrar un ${verbo} ya efectuado`}
+                    style={{padding:"3px 9px",background:`${C.primary}14`,border:`1px solid ${C.primary}55`,borderRadius:6,
+                      color:C.primary,cursor:"pointer",fontSize:10,fontWeight:700}}>
+                    + Registrar {verbo}
+                  </button>
+                )}
+                {!readOnly&&(
+                  <label style={{fontSize:10,color:C.muted,display:"flex",alignItems:"center",gap:4,cursor:"pointer"}}>
+                    <input type="checkbox" checked={!!row.cerrado} onChange={()=>toggleCerrado(i)}/>
+                    cerrado
+                  </label>
+                )}
+                {!readOnly&&<button onClick={()=>delRow(i)} title="Eliminar anticipo"
+                  style={{background:"transparent",border:"none",color:C.danger,cursor:"pointer",fontSize:14,marginLeft:"auto"}}>×</button>}
+              </div>
+
+              {/* Acordado / Realizado / Pendiente */}
+              <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap",marginTop:5,fontSize:10,color:C.muted}}>
+                <span>Acordado <strong style={{color:C.text}}>{$$(acordado)}</strong></span>
+                <span>{esCli?"Cobrado":"Pagado"} <strong style={{color:realizado>0?C.success:C.muted2}}>{$$(realizado)}</strong></span>
+                <span>Pendiente <strong style={{color:pendiente>0?C.warning:C.muted2}}>{$$(pendiente)}</strong></span>
+                {row.cerrado&&chip("cerrado — el saldo pasa a liquidación",C.muted)}
+                {vencido&&chip(`vencido: ${row.mes} ya pasó`,C.danger)}
+                {sinMes&&chip("sin mes: no se proyecta, se liquida al final",C.warning)}
+                {sobre&&chip(`${esCli?"cobrado":"pagado"} > acordado`,C.warning)}
+              </div>
+
+              {/* Vencido: reprogramación MANUAL (nunca automática) */}
+              {vencido&&!readOnly&&mesIdxActual>=0&&(
+                <div style={{marginTop:4,fontSize:9,color:C.danger}}>
+                  Pendiente de {$$(pendiente)} proyectado en un mes ya pasado. No se da por {esCli?"cobrado":"pagado"} ni se mueve solo:
+                  {" "}<button onClick={()=>updRow(i,"mes",MESES_65[mesIdxActual])}
+                    style={{padding:"1px 7px",background:"transparent",border:`1px solid ${C.danger}66`,borderRadius:5,
+                      color:C.danger,cursor:"pointer",fontSize:9,fontWeight:700}}>
+                    reprogramar a {MESES_65[mesIdxActual]}
+                  </button>
+                  {" "}o elige otro mes arriba, o registra el {verbo} si ya ocurrió.
+                </div>
+              )}
+
+              {/* Realizaciones registradas */}
+              {reas.length>0&&(
+                <div style={{marginTop:6,paddingTop:5,borderTop:`1px dashed ${C.border}`,display:"flex",flexDirection:"column",gap:3}}>
+                  {reas.map(r=>{
+                    const est=clasificarRealizacionVsSaldos(r.fecha,fechasCuentas);
+                    const lbl=CONCILIA_LBL[est]||CONCILIA_LBL.sin_fecha;
+                    return (
+                      <div key={r.id} style={{display:"flex",alignItems:"center",gap:7,fontSize:9,flexWrap:"wrap"}}>
+                        <span style={{color:C.muted}}>{fmtDate(r.fecha)}</span>
+                        <strong style={{color:C.success}}>{$$(r.usd)}</strong>
+                        {r.nota&&<span style={{color:C.muted2,fontStyle:"italic"}}>{r.nota}</span>}
+                        <span style={{color:lbl.c}}>· {lbl.t}</span>
+                        {!readOnly&&<button onClick={()=>anular(i,r.id)} title="Anular (queda en el historial con su motivo)"
+                          style={{marginLeft:"auto",background:"transparent",border:"none",color:C.muted,
+                            cursor:"pointer",fontSize:9,textDecoration:"underline"}}>anular</button>}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+              {anuladas.length>0&&(
+                <details style={{marginTop:4}}>
+                  <summary style={{fontSize:9,color:C.muted2,cursor:"pointer"}}>
+                    {anuladas.length} {verbo}{anuladas.length>1?"s":""} anulado{anuladas.length>1?"s":""} (historial)
+                  </summary>
+                  {anuladas.map(r=>(
+                    <div key={r.id} style={{fontSize:9,color:C.muted2,textDecoration:"line-through",marginTop:2}}>
+                      {fmtDate(r.fecha)} · {$$(r.usd)} · anulado{r.motivoAnulacion?`: ${r.motivoAnulacion}`:""}
+                      {r.anuladaPor?` (${r.anuladaPor})`:""}
+                    </div>
+                  ))}
+                </details>
+              )}
+
+              {/* Formulario de registro */}
+              {formIdx===i&&!readOnly&&(
+                <div style={{marginTop:6,padding:"7px 8px",background:C.cardAlt,border:`1px solid ${C.border}`,
+                  borderRadius:7,display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}}>
+                  <span style={{fontSize:10,color:C.muted,fontWeight:700}}>{esCli?"Cobro recibido":"Pago efectuado"}:</span>
+                  <input type="date" value={draft.fecha} onChange={e=>setDraft({...draft,fecha:e.target.value})} style={inSt}/>
+                  <input type="number" value={draft.usd} placeholder="US$" onChange={e=>setDraft({...draft,usd:e.target.value})}
+                    style={{...inSt,width:110,textAlign:"right"}}/>
+                  <input type="text" value={draft.nota} placeholder="nota / referencia"
+                    onChange={e=>setDraft({...draft,nota:e.target.value})} style={{...inSt,flex:1,minWidth:120}}/>
+                  <button onClick={()=>guardarRealizacion(i)}
+                    style={{padding:"4px 11px",background:C.success,border:"none",borderRadius:6,color:"#fff",
+                      cursor:"pointer",fontSize:10,fontWeight:700}}>Guardar</button>
+                  <button onClick={()=>setFormIdx(null)}
+                    style={{padding:"4px 9px",background:"transparent",border:`1px solid ${C.border}`,borderRadius:6,
+                      color:C.muted,cursor:"pointer",fontSize:10}}>Cancelar</button>
+                </div>
+              )}
+            </div>
+          );
+        })}
+        {!readOnly&&<button onClick={addRow} style={{alignSelf:"flex-start",padding:"4px 10px",background:`${C.accent}22`,
           border:`1px solid ${C.accent}55`,borderRadius:6,color:C.accentL,cursor:"pointer",fontSize:11,fontWeight:600}}>
-          + Agregar mes
-        </button>
+          + Agregar anticipo
+        </button>}
       </div>
     </div>
   );
@@ -1742,24 +1920,40 @@ function ParamsRebate({seasonKey, params, setParams}) {
   );
 }
 
-function ParamsFruta({seasonKey,fruta,params,setParams}) {
+export function ParamsFruta({seasonKey,fruta,params,setParams,saldosBancos=null,usuario="",
+                      overridesEmpresa={},readOnly=false}) {
   const p=params?.[seasonKey]?.[fruta]||defaultFruta();
   const mesesSel=mesesTemporada(seasonKey);
-  const upd=(field,val)=>setParams(prev=>{
+  const upd=(field,val)=>{ if(readOnly||!setParams) return; setParams(prev=>{
     const next=JSON.parse(JSON.stringify(prev));
     if(!next[seasonKey]) next[seasonKey]={};
     if(!next[seasonKey][fruta]) next[seasonKey][fruta]=defaultFruta();
     next[seasonKey][fruta][field]=val;
     return next;
-  });
+  }); };
   const kg=Number(p.kg)||0,fob=Number(p.fob_usd_kg)||0;
   const desc=(Number(p.desc_exp_pct)||0)/100;
   const matUsd=Number(p.mat_usd_kg)||0, srvUsd=Number(p.srv_usd_kg)||0;
   const totalIng=kg*fob;
   const precioNet=Math.max(0,fob*(1-desc)-matUsd-srvUsd);
   const totalCost=kg*precioNet;
-  const antIngTot=(p.anticipos_cliente||[]).reduce((s,a)=>s+(Number(a.usd_kg)||0)*kg,0);
-  const antCostTot=(p.anticipos_productor||[]).reduce((s,a)=>s+(Number(a.usd_kg)||0)*kg,0);
+  // Anticipos: acordado / realizado / pendiente — misma función que usa
+  // calcAllegria, así pantalla, consolidado y Excel no pueden divergir.
+  const rIng =resumenAnticipos(p.anticipos_cliente,   kg, totalIng,  {esProyectable:esAntProyectable});
+  const rCost=resumenAnticipos(p.anticipos_productor, kg, totalCost, {esProyectable:esAntProyectable});
+  const mesIdxActual=MESES_65.indexOf(`${MN[new Date().getMonth()]}-${String(new Date().getFullYear()).slice(2)}`);
+  const fechasCuentas=fechasSaldosEmpresa(saldosBancos,"Allegria Foods");
+  const conc=conciliacionRealizaciones([p.anticipos_cliente,p.anticipos_productor],fechasCuentas);
+  // Overrides manuales sobre las líneas que estos parámetros alimentan:
+  // mientras existan, el flujo muestra el valor manual y NO el calculado.
+  const lineasDeFruta = fruta==="cerezas"
+    ? ["Anticipo Cerezas","Costo Fruta Exportación"]
+    : fruta==="ciruelas" ? ["Liquidación Ciruelas"] : [];
+  const overridesActivos = lineasDeFruta.flatMap(lbl =>
+    Object.entries(overridesEmpresa?.[lbl]||{}).map(([idx,val])=>({
+      linea:lbl, mes:MESES_65[Number(idx)]||`#${idx}`,
+      val: (val&&typeof val==="object") ? Object.values(val).reduce((a,v)=>a+(Number(v)||0),0) : Number(val)||0,
+    })).filter(o=>!!o.mes));
   const pctMat=(p.dist_mat||[]).reduce((s,d)=>s+(Number(d.pct)||0),0);
   const pctSrv=(p.dist_srv||[]).reduce((s,d)=>s+(Number(d.pct)||0),0);
   const iSt={width:90,padding:"5px 7px",background:C.card2,border:`1px solid ${C.border}`,borderRadius:6,color:C.text,fontSize:11,outline:"none",textAlign:"right"};
@@ -1824,28 +2018,97 @@ function ParamsFruta({seasonKey,fruta,params,setParams}) {
       </div>
       {fruta !== 'arandanos' && (
       <>
+      {/* Avisos transversales: overrides manuales y conciliación bancaria */}
+      {overridesActivos.length>0&&(
+        <div style={{background:C.warningBg,border:`1px solid ${C.warning}66`,borderRadius:10,padding:"9px 12px",marginBottom:12,fontSize:10,color:C.text}}>
+          <strong>El flujo está usando valores manuales</strong> en {overridesActivos.length} celda{overridesActivos.length>1?"s":""} de
+          {" "}{[...new Set(overridesActivos.map(o=>o.linea))].map(l=>`«${l}»`).join(" y ")}.
+          {" "}Mientras exista el override, lo que definas acá NO se refleja en {overridesActivos.length>1?"esos meses":"ese mes"}:
+          {" "}{overridesActivos.map(o=>`${o.mes} ${$$(o.val)}`).join(" · ")}.
+          {" "}Se limpian desde la vista de flujo (celda → borrar override).
+        </div>
+      )}
+      {(conc.no_incluida>0||conc.indeterminada>0||conc.sin_saldos>0||conc.sin_fecha>0)&&(
+        <div style={{background:C.infoBg,border:`1px solid ${C.info}55`,borderRadius:10,padding:"9px 12px",marginBottom:12,fontSize:10,color:C.text}}>
+          <strong>Conciliación con Saldos Bancos.</strong> Cada cuenta tiene su propia fecha de saldo, así que solo se afirma lo que el dato permite:
+          {conc.incluida>0&&<> {$$(conc.incluida)} ya está incluido en todos los saldos cargados.</>}
+          {conc.indeterminada>0&&<> {$$(conc.indeterminada)} <strong>no se puede comprobar</strong>: cae entre la cuenta con corte más antiguo y la más reciente.</>}
+          {conc.no_incluida>0&&<> {$$(conc.no_incluida)} es posterior a la fecha de todas las cuentas: aún no está en ningún saldo, así que la caja proyectada lo subestima hasta que actualices Saldos Bancos.</>}
+          {conc.sin_saldos>0&&<> {$$(conc.sin_saldos)} no es comprobable: no hay saldos cargados para Allegria Foods.</>}
+          {conc.sin_fecha>0&&<> {$$(conc.sin_fecha)} no es comprobable: la realización no tiene fecha.</>}
+        </div>
+      )}
+
       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14}}>
         <div style={{background:`${C.green}0d`,border:`1px solid ${C.green}33`,borderRadius:10,padding:12}}>
           <div style={{fontSize:11,fontWeight:700,color:C.green,marginBottom:10}}>📥 Cobros al cliente</div>
-          <AnticipList label="Anticipos (US$/kg por mes)" items={p.anticipos_cliente} onChange={v=>upd("anticipos_cliente",v)} meses={mesesSel}/>
+          <AnticipList label="Anticipos (US$/kg por mes) — registra acá los cobros ya recibidos"
+            items={p.anticipos_cliente} onChange={v=>upd("anticipos_cliente",v)} meses={mesesSel}
+            base={kg} tipo="cliente" readOnly={readOnly} usuario={usuario}
+            fechasCuentas={fechasCuentas} mesIdxActual={mesIdxActual}/>
           <div style={{marginTop:10}}>
             <div style={{fontSize:10,color:C.muted,marginBottom:3}}>Mes liquidación final</div>
-            <select value={p.mes_liquidacion||""} onChange={e=>upd("mes_liquidacion",e.target.value)} style={selSt}>
+            <select value={p.mes_liquidacion||""} disabled={readOnly} onChange={e=>upd("mes_liquidacion",e.target.value)} style={selSt}>
               <option value="">— mes —</option>
               {mesesSel.map(m=><option key={m} value={m}>{m}</option>)}
             </select>
-            {antIngTot>0&&totalIng>0&&<div style={{fontSize:10,color:C.muted,marginTop:4}}>Anticipos: {$$(antIngTot)} · Liquidación: {$$(Math.max(0,totalIng-antIngTot))}</div>}
+            {(rIng.acordado>0||totalIng>0)&&(
+              <div style={{fontSize:10,color:C.muted,marginTop:6,lineHeight:1.6}}>
+                Venta total: <strong style={{color:C.text}}>{$$(totalIng)}</strong><br/>
+                Anticipos acordados: {$$(rIng.acordado)} · ya cobrados: <strong style={{color:C.success}}>{$$(rIng.realizado)}</strong> · pendientes: <strong style={{color:C.warning}}>{$$(rIng.pendiente)}</strong><br/>
+                Liquidación final: <strong style={{color:C.text}}>{$$(rIng.liquidacion)}</strong>
+                {" "}<span style={{color:C.muted2}}>(venta − cobrado − pendiente)</span><br/>
+                <strong style={{color:C.success}}>Queda por cobrar: {$$(rIng.flujoPendiente)}</strong>
+                {" "}<span style={{color:C.muted2}}>= {$$(rIng.pendiente)} anticipos + {$$(rIng.liquidacion)} liquidación</span>
+                {rIng.pendienteSinMes>0&&<><br/><span style={{color:C.warning}}>{$$(rIng.pendienteSinMes)} de anticipos sin mes asignado: no se proyectan y se cobran en la liquidación.</span></>}
+                {rIng.excedente>0&&(
+                  <><br/><span style={{color:C.danger,fontWeight:700}}>
+                    Sobre-anticipo: {$$(rIng.excedente)} por sobre la venta.
+                  </span>{" "}<span style={{color:C.muted2}}>
+                    La liquidación queda en $0 y el exceso NO se compensa solo: decide si se devuelve, se imputa a otra temporada o si hay que corregir kilos/FOB.
+                  </span></>
+                )}
+              </div>
+            )}
           </div>
         </div>
         <div style={{background:`${C.red}0d`,border:`1px solid ${C.red}33`,borderRadius:10,padding:12}}>
           <div style={{fontSize:11,fontWeight:700,color:C.red,marginBottom:10}}>📤 Pagos al productor</div>
-          <AnticipList label="Anticipos productor (US$/kg)" items={p.anticipos_productor} onChange={v=>upd("anticipos_productor",v)} meses={mesesSel}/>
+          <AnticipList label="Anticipos productor (US$/kg) — registra acá los pagos ya efectuados"
+            items={p.anticipos_productor} onChange={v=>upd("anticipos_productor",v)} meses={mesesSel}
+            base={kg} tipo="productor" readOnly={readOnly} usuario={usuario}
+            fechasCuentas={fechasCuentas} mesIdxActual={mesIdxActual}/>
           <div style={{marginTop:10}}>
             <div style={{fontSize:10,color:C.muted,marginBottom:3}}>Mes saldo productor</div>
-            <select value={p.mes_saldo_productor||""} onChange={e=>upd("mes_saldo_productor",e.target.value)} style={selSt}>
+            <select value={p.mes_saldo_productor||""} disabled={readOnly} onChange={e=>upd("mes_saldo_productor",e.target.value)} style={selSt}>
               <option value="">— mes —</option>
               {mesesSel.map(m=><option key={m} value={m}>{m}</option>)}
             </select>
+            {(rCost.acordado>0||totalCost>0)&&(
+              <div style={{fontSize:10,color:C.muted,marginTop:6,lineHeight:1.6}}>
+                Costo neto total: <strong style={{color:C.text}}>{$$(totalCost)}</strong><br/>
+                Anticipos acordados: {$$(rCost.acordado)} · ya pagados: <strong style={{color:C.success}}>{$$(rCost.realizado)}</strong> · pendientes: <strong style={{color:C.warning}}>{$$(rCost.pendiente)}</strong><br/>
+                Saldo productor: <strong style={{color:C.text}}>{$$(rCost.liquidacion)}</strong>
+                {" "}<span style={{color:C.muted2}}>(costo − pagado − pendiente)</span><br/>
+                <strong style={{color:C.danger}}>Queda por pagar: {$$(rCost.flujoPendiente)}</strong>
+                {" "}<span style={{color:C.muted2}}>= {$$(rCost.pendiente)} anticipos + {$$(rCost.liquidacion)} saldo</span>
+                {rCost.pendienteSinMes>0&&<><br/><span style={{color:C.warning}}>{$$(rCost.pendienteSinMes)} de anticipos sin mes asignado: no se proyectan y se pagan en el saldo final.</span></>}
+                {rCost.excedente>0&&(
+                  <><br/><span style={{color:C.danger,fontWeight:700}}>
+                    Sobre-anticipo: {$$(rCost.excedente)} por sobre el costo neto.
+                  </span>{" "}<span style={{color:C.muted2}}>
+                    El saldo queda en $0 y el exceso NO se compensa solo: es un saldo a favor con el productor.
+                  </span></>
+                )}
+              </div>
+            )}
+            {fruta==="ciruelas"&&(
+              <div style={{fontSize:9,color:C.warning,marginTop:8,lineHeight:1.5}}>
+                Limitación conocida (pendiente aparte, fuera de este cambio): los costos de ciruelas —anticipos productor,
+                saldo, materiales y servicios— se calculan pero NO están conectados a ninguna línea del flujo de Allegria Foods.
+                Lo que cargues acá no llega al flujo ni al Excel.
+              </div>
+            )}
           </div>
         </div>
       </div>
@@ -3312,6 +3575,9 @@ function TabParametros({empNombre,empColor="#2563eb",
   paramsAP,setParamsAP,       // Allpa Farms Perú (kilos × precio, ingresos)
   paramsOsiris,setParamsOsiris, // Osiris (royalties + fee vivero, ingresos)
   paramsFrisku,setParamsFrisku, // Frisku Foods (contenedores × especie)
+  saldosBancos=null,          // para avisar si un cobro/pago ya está en el saldo
+  usuario="",                 // queda en la trazabilidad de cada realización
+  overridesEmpresa={},        // _proyOverrides: avisa si el flujo usa valor manual
   readOnly=false}) {
 
   const [selSeason,setSelSeason] = useState(SEASON_KEYS[0]);
@@ -3439,7 +3705,9 @@ function TabParametros({empNombre,empColor="#2563eb",
           ) : (
             <ParamsFruta key={`${selSeason}-${selFruta}`}
               seasonKey={selSeason} fruta={selFruta}
-              params={params} setParams={setParams}/>
+              params={params} setParams={setParams}
+              saldosBancos={saldosBancos} usuario={usuario}
+              overridesEmpresa={overridesEmpresa} readOnly={readOnly}/>
           )}
           <ParamsRebate key={`rebate-${selSeason}`}
             seasonKey={selSeason}
@@ -3873,6 +4141,26 @@ function getSaldoBancoParaSemana(saldosBancos, empNombre, mesIdx, semIdx=0) {
   return found?total:null;
 }
 
+// Fechas de los saldos VIGENTES de una empresa: una por cuenta (banco+moneda),
+// la del registro más reciente con fecha <= hoy. Se usa para decir con
+// honestidad si un cobro/pago ya registrado debería estar dentro del saldo:
+// como cada cuenta tiene su propia fecha, no existe una fecha de corte única.
+function fechasSaldosEmpresa(saldosBancos, empNombre) {
+  if(!saldosBancos) return [];
+  const HOY=new Date();
+  const porCuenta={};
+  Object.entries(saldosBancos).forEach(([key,rec])=>{
+    const parts=key.split("||");
+    if(parts[0]!==empNombre) return;
+    if(!rec?.monto||!rec?.fecha) return;
+    const f=new Date(rec.fecha);
+    if(isNaN(f.getTime())||f>HOY) return;
+    const cuentaKey=`${parts[1]}||${parts[2]||rec.moneda||"usd"}`;
+    if(!porCuenta[cuentaKey]||new Date(porCuenta[cuentaKey])<f) porCuenta[cuentaKey]=rec.fecha;
+  });
+  return Object.values(porCuenta);
+}
+
 function getSaldoBancoInicial(saldosBancos, empNombre, fallback) {
   if(!saldosBancos) return fallback;
   const porCuenta={};
@@ -3902,7 +4190,7 @@ function getSaldoBancoInicial(saldosBancos, empNombre, fallback) {
 // Usada tanto en Consolidado como en el componente principal
 // (para pasar datos correctos al Dashboard).
 // ═══════════════════════════════════════════════════════════════════
-function buildEmpresasConOverrides(empresas, realData, addedLinesGlobal, subLinesGlobal) {
+export function buildEmpresasConOverrides(empresas, realData, addedLinesGlobal, subLinesGlobal) {
   const result = {};
   Object.keys(empresas).forEach(n => {
     const emp = JSON.parse(JSON.stringify(empresas[n]));
@@ -12450,6 +12738,9 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
                 setParamsAP={empTab==="Allpa Farms Perú"&&puedoEdit("flujo")?handleSaveParamsAP:undefined}
                 paramsOsiris={empTab==="Osiris"?paramsOsiris:undefined}
                 setParamsOsiris={empTab==="Osiris"&&puedoEdit("flujo")?handleSaveParamsOsiris:undefined}
+                saldosBancos={saldosBancos}
+                usuario={usuarioActual?.nombre||""}
+                overridesEmpresa={realData?.[empTab]?._proyOverrides||{}}
                 readOnly={!puedoEdit("flujo")}
               />
             );
