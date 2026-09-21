@@ -148,6 +148,7 @@ for (const empresa of EMPRESAS) {
     comparar(`${empresa} · base`, pantalla, leerHojaFlujo(rec.wb.Sheets[hojaNombre]));
     console.log(`  base: Excel recalculado (${rec.formulasBorradas} fórmulas sin caché)`);
 
+    let pantalla2 = null;     // pantalla tras aplicar el override (para la recarga)
     // ── override manual sobre una línea calculada ──
     // Solo se puede editar una línea con fórmula en los meses de la primera
     // temporada del horizonte (regla de la app), así que se usa May-26.
@@ -198,7 +199,7 @@ for (const empresa of EMPRESAS) {
         if (await b.count()) { await b.first().click(); await page.waitForTimeout(200); }
       }
       await page.waitForTimeout(500);
-      const pantalla2 = await leerPantalla();
+      pantalla2 = await leerPantalla();
       const arch2 = await descargar(`${slug}-override.xlsx`);
       const rec2 = recalcular(arch2, DESCARGAS);
       const hoja2 = rec2.wb.SheetNames.find(n => n !== 'Parametros');
@@ -206,7 +207,7 @@ for (const empresa of EMPRESAS) {
       console.log(`  override: Excel recalculado (${rec2.formulasBorradas} fórmulas sin caché)`);
     }
     // ── guardado + recarga: el override debe sobrevivir ──
-    if (aplicado) {
+    if (aplicado && pantalla2) {
       await page.waitForTimeout(2500);                 // que termine el auto-save
       await page.reload({ waitUntil: 'domcontentloaded' });
       await page.waitForTimeout(3500);

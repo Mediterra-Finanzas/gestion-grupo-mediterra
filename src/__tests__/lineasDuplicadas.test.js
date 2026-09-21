@@ -256,3 +256,44 @@ describe('Excel: aviso de imputación provisional', () => {
     expect(textos.filter(t=>t.includes('provisionalmente')).length).toBeGreaterThanOrEqual(2);
   });
 });
+
+describe('resuelto = hay resolución registrada (no basta con que exista la clave nueva)', () => {
+  const emp = empDuplicada();
+  const iMay = iM('May-26');
+
+  test('valor propio DISTINTO en la línea destino: el mes sigue pendiente (es un conflicto)', () => {
+    const ov = { 'Electricidad': { [iMay]: 33333 },
+                 [claveLinea('egr_fijo','Electricidad')]: { [iMay]: 999 } };
+    const amb = overridesAmbiguos(ov, emp, 'X', []);
+    expect(amb).toHaveLength(1);
+    expect(amb[0].meses[0]).toMatchObject({ mes:'May-26', valor:33333 });
+    // cada línea muestra lo suyo mientras tanto
+    expect(overridesDeLinea(ov, emp, 'egr_fijo','Electricidad', [])[iMay]).toBe(999);
+    expect(overridesDeLinea(ov, emp, 'egr_var','Electricidad', [])[iMay]).toBe(33333);
+  });
+
+  test('con resolución registrada, el mes deja de estar pendiente', () => {
+    const ov = { 'Electricidad': { [iMay]: 33333 },
+                 [claveLinea('egr_fijo','Electricidad')]: { [iMay]: 33333 } };
+    const res = [{ claveOriginal:'Electricidad', idx:iMay, categoriaElegida:'egr_fijo', usuario:'Angelo', ts:'2026-09-21' }];
+    expect(overridesAmbiguos(ov, emp, 'X', res)).toHaveLength(0);
+    expect(overridesDeLinea(ov, emp, 'egr_var','Electricidad', res)).toBeUndefined();
+    expect(overridesDeLinea(ov, emp, 'egr_fijo','Electricidad', res)[iMay]).toBe(33333);
+  });
+
+  test('mismo valor en ambas claves sin registro: se trata como residuo de una resolución', () => {
+    const ov = { 'Electricidad': { [iMay]: 33333 },
+                 [claveLinea('egr_fijo','Electricidad')]: { [iMay]: 33333 } };
+    expect(overridesAmbiguos(ov, emp, 'X', [])).toHaveLength(0);
+    expect(overridesDeLinea(ov, emp, 'egr_var','Electricidad', [])).toBeUndefined();
+  });
+
+  test('el árbol del consolidado usa el mismo criterio', () => {
+    const realData = { X: { _proyOverrides: {
+        'Electricidad': { [iMay]: 33333 },
+        [claveLinea('egr_fijo','Electricidad')]: { [iMay]: 999 } } } };
+    const cons = buildEmpresasConOverrides({ X: emp }, realData, {}, {})['X'];
+    expect(cons.sections.find(s=>s.cat==='egr_fijo').lines[0].proy[iMay]).toBe(999);
+    expect(cons.sections.find(s=>s.cat==='egr_var').lines[0].proy[iMay]).toBe(33333);
+  });
+});

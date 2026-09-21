@@ -104,10 +104,23 @@ function seccionesDeEtiqueta(emp, label) {
 // (existe la clave `cat::etiqueta`). Un mes resuelto deja de leerse de la clave
 // antigua en cualquier categoría, aunque el borrado de la clave vieja no haya
 // alcanzado a guardarse.
-function mesesResueltos(proyOverrides, emp, label) {
+function mesesResueltos(proyOverrides, emp, label, resoluciones) {
   const out = new Set();
+  // 1) resoluciones efectivamente registradas por el usuario
+  (resoluciones || []).forEach(r => {
+    if (r && r.claveOriginal === label && r.idx != null) out.add(String(r.idx));
+  });
+  // 2) residuo de una resolución cuyo segundo paso (borrar la clave vieja) no
+  //    alcanzó a guardarse: el mes está en la clave nueva con EL MISMO valor.
+  //    Si el valor es distinto, NO es una resolución: es un valor manual propio
+  //    de esa línea conviviendo con uno antiguo sin asignar (conflicto), y el
+  //    mes sigue pendiente.
+  const viejo = proyOverrides?.[label] || {};
   seccionesDeEtiqueta(emp, label).forEach(c => {
-    Object.keys(proyOverrides?.[claveLinea(c, label)] || {}).forEach(m => out.add(String(m)));
+    const nuevo = proyOverrides?.[claveLinea(c, label)] || {};
+    Object.keys(nuevo).forEach(m => {
+      if (viejo[m] !== undefined && JSON.stringify(nuevo[m]) === JSON.stringify(viejo[m])) out.add(String(m));
+    });
   });
   return out;
 }
@@ -118,14 +131,14 @@ function mesesResueltos(proyOverrides, emp, label) {
 // pertenece: se aplica un CRITERIO PROVISIONAL (primera categoría, que es lo
 // que hacía la app antes) que NO es una asignación confirmada, se avisa en
 // pantalla y en el Excel, y se resuelve a mano (ver overridesAmbiguos).
-export function overridesDeLinea(proyOverrides, emp, cat, label) {
+export function overridesDeLinea(proyOverrides, emp, cat, label, resoluciones) {
   const nuevo = proyOverrides?.[claveLinea(cat, label)];
   const viejo = proyOverrides?.[label];
   if (viejo === undefined) return nuevo;
   const cats = seccionesDeEtiqueta(emp, label);
   const provisional = cats.length > 1;
   if (provisional && cats[0] !== cat) return nuevo;   // provisional: 1ª categoría
-  const resueltos = provisional ? mesesResueltos(proyOverrides, emp, label) : new Set();
+  const resueltos = provisional ? mesesResueltos(proyOverrides, emp, label, resoluciones) : new Set();
   const viejoVigente = {};
   Object.entries(viejo).forEach(([m, v]) => { if (!resueltos.has(String(m))) viejoVigente[m] = v; });
   if (nuevo === undefined) return Object.keys(viejoVigente).length ? viejoVigente : undefined;
@@ -136,13 +149,13 @@ export function overridesDeLinea(proyOverrides, emp, cat, label) {
 // dice a qué línea pertenecen. Se devuelve el detalle mes a mes (con su monto)
 // para que el usuario los asigne uno por uno; distintos meses pueden ir a
 // categorías distintas.
-export function overridesAmbiguos(proyOverrides, emp, empNombre = "") {
+export function overridesAmbiguos(proyOverrides, emp, empNombre = "", resoluciones) {
   const out = [];
   Object.keys(proyOverrides || {}).forEach(clave => {
     if (clave.includes("::")) return;                 // clave nueva: sin ambigüedad
     const cats = seccionesDeEtiqueta(emp, clave);
     if (cats.length <= 1) return;
-    const resueltos = mesesResueltos(proyOverrides, emp, clave);
+    const resueltos = mesesResueltos(proyOverrides, emp, clave, resoluciones);
     const meses = Object.entries(proyOverrides[clave] || {})
       .filter(([m]) => !resueltos.has(String(m)))
       .map(([m, val]) => ({
@@ -179,8 +192,9 @@ export function avisosDeEmpresa(realData, empresas, nombre) {
   const emp = empresas?.[nombre];
   if (!emp) return [];
   const ov = realData?.[nombre]?._proyOverrides || {};
+  const res = realData?.[nombre]?._resolucionesOverride || [];
   const avisos = [];
-  const a = avisoProvisional(overridesAmbiguos(ov, emp, nombre));
+  const a = avisoProvisional(overridesAmbiguos(ov, emp, nombre, res));
   if (a) avisos.push(a);
   const dup = clavesDuplicadas(emp);
   if (dup.length) avisos.push(`⚠ ${dup.length} línea(s) comparten nombre dentro de una misma categoría: sus valores manuales pueden mezclarse.`);
@@ -4315,6 +4329,7 @@ export function buildEmpresasConOverrides(empresas, realData, addedLinesGlobal, 
     const emp = JSON.parse(JSON.stringify(empresas[n]));
     // Aplicar overrides de proyección manual (_proyOverrides)
     const overrides = realData?.[n]?._proyOverrides || {};
+    const resoluciones = realData?.[n]?._resolucionesOverride || [];
     emp.sections = emp.sections.map(sec => ({
       ...sec,
       lines: sec.lines.map(l => {
@@ -4323,7 +4338,7 @@ export function buildEmpresasConOverrides(empresas, realData, addedLinesGlobal, 
         // repite entre categorías, se respeta el comportamiento histórico
         // (primera categoría) para que pantalla y Excel sigan coincidiendo
         // mientras la ambigüedad no se resuelva a mano.
-        const ovLinea = overridesDeLinea(overrides, emp, sec.cat, l.label);
+        const ovLinea = overridesDeLinea(overrides, emp, sec.cat, l.label, resoluciones);
         if (ovLinea) {
           const newProy = [...l.proy];
           // Si la línea está controlada por parámetros desde cierto mes
@@ -5900,7 +5915,7 @@ function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit,saldosBanc
   // cat + etiqueta identifican la línea sin ambigüedad (hay etiquetas
   // repetidas entre categorías; ver claveLinea).
   const getProy = useCallback((cat, lineLabel, idx) => {
-    const ov = overridesDeLinea(proyOverrides, emp, cat, lineLabel);
+    const ov = overridesDeLinea(proyOverrides, emp, cat, lineLabel, resoluciones);
     const ovIdx = ov?.[idx];
     // Obtener valor base — SOLO de la categoría indicada
     let base = 0;
@@ -5924,7 +5939,7 @@ function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit,saldosBanc
       return total;
     }
     return base;
-  },[proyOverrides, emp]);
+  },[proyOverrides, emp, resoluciones]);
 
   // Valor proyectado específico de UNA semana (0-3) del mes idx
   // Lógica:
@@ -5933,7 +5948,7 @@ function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit,saldosBanc
   // - Con override mensual antiguo (number): muestra en última semana
   // - Con override semanal (objeto): solo muestra lo que el usuario ingresó en esa semana específica
   const getProySemana = useCallback((cat, lineLabel, idx, semIdx, isLastInMonth) => {
-    const ov = overridesDeLinea(proyOverrides, emp, cat, lineLabel)?.[idx];
+    const ov = overridesDeLinea(proyOverrides, emp, cat, lineLabel, resoluciones)?.[idx];
     let base = 0;
     let lockFrom = null;
     {
@@ -5956,7 +5971,7 @@ function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit,saldosBanc
       return ov[k] !== undefined ? (Number(ov[k])||0) : 0;
     }
     return 0;
-  },[proyOverrides, emp]);
+  },[proyOverrides, emp, resoluciones]);
 
   // ── Helpers para sumar subLines (CxC, Capital Calls, Aportes, etc) ─
   // Soporta formato nuevo "idx_semIdx" y formato antiguo "idx"
@@ -6044,11 +6059,16 @@ function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit,saldosBanc
     return total;
   },[addedLines]);
 
+  // Resoluciones ya registradas (qué mes fue asignado a qué categoría).
+  const resoluciones = useMemo(
+    () => realData?.[empNombre]?._resolucionesOverride || [],
+    [realData, empNombre]
+  );
   // Valores manuales antiguos (clave solo-etiqueta) sobre conceptos que
   // existen en más de una categoría: no se puede saber a cuál pertenecen.
   const ambiguos = useMemo(
-    () => overridesAmbiguos(proyOverrides, emp, empNombre),
-    [proyOverrides, emp, empNombre]
+    () => overridesAmbiguos(proyOverrides, emp, empNombre, resoluciones),
+    [proyOverrides, emp, empNombre, resoluciones]
   );
   // cat::etiqueta debe ser único; si el usuario agregó líneas con el mismo
   // nombre en la misma categoría, hay que avisarlo antes de seguir.
@@ -9451,7 +9471,7 @@ function reporte_calcSaldoProyectadoMensual_v2(empNombre, realData, empresas, sa
   // 4. getProy: idéntica a la de FlujoEmpresa
   // cat + etiqueta: hay etiquetas repetidas entre categorías (ver claveLinea)
   function getProy(cat, lineLabel, idx) {
-    const ov = overridesDeLinea(proyOverrides, empData, cat, lineLabel)?.[idx];
+    const ov = overridesDeLinea(proyOverrides, empData, cat, lineLabel, realData?.[empNombre]?._resolucionesOverride)?.[idx];
     let base = 0;
     let lockFrom = null;
     {
@@ -9556,7 +9576,7 @@ function reporte_calcDetalleMensual(empNombre, realData, empresas, saldosBancos,
 
   // cat + etiqueta: hay etiquetas repetidas entre categorías (ver claveLinea)
   function getProy(cat, lineLabel, idx) {
-    const ov = overridesDeLinea(proyOverrides, empData, cat, lineLabel)?.[idx];
+    const ov = overridesDeLinea(proyOverrides, empData, cat, lineLabel, realData?.[empNombre]?._resolucionesOverride)?.[idx];
     let base = 0;
     let lockFrom = null;
     {
@@ -9743,7 +9763,7 @@ function reporte_getTopMovimientos(empNombre, realData, empresas, subLinesGlobal
 
   // cat + etiqueta: hay etiquetas repetidas entre categorías (ver claveLinea)
   function getProy(cat, lineLabel, idx) {
-    const ov = overridesDeLinea(proyOverrides, empData, cat, lineLabel)?.[idx];
+    const ov = overridesDeLinea(proyOverrides, empData, cat, lineLabel, realData?.[empNombre]?._resolucionesOverride)?.[idx];
     let base = 0;
     let lockFrom = null;
     {
@@ -9843,7 +9863,7 @@ function reporte_getMovimientos4Semanas(empNombre, realData, empresas, saldosBan
 
   // Función getProySemana idéntica a FlujoEmpresa
   function getProySemana(cat, lineLabel, idx, semIdx, isLastInMonth) {
-    const ov = overridesDeLinea(proyOverrides, empData, cat, lineLabel)?.[idx];
+    const ov = overridesDeLinea(proyOverrides, empData, cat, lineLabel, realData?.[empNombre]?._resolucionesOverride)?.[idx];
     let base = 0;
     {
       const sec = (empData.sections || []).find(x=>x.cat===cat);
