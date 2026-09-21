@@ -74,6 +74,48 @@ function _bytesDe(str) {
 }
 function _versionCorta(v) { const s = String(v || ""); return s.length > 8 ? s.slice(11, 19) : s; }
 
+// ── Saneo para jsonb OBJETO (HF-JSONB) ────────────────────────────────────────
+// Postgres jsonb NO admite en texto ni U+0000 ni sustitutos UTF-16 sueltos. Al
+// escribir una fila como OBJETO jsonb (hoy solo `main`), esos caracteres — que
+// llegan del texto tipeado por el usuario (comentarios/estados de Tareas) — hacen
+// que el PATCH falle con HTTP 400 (22P05 "unsupported Unicode escape sequence" o
+// PGRST102 "Empty or invalid json"), y `main` deja de guardarse en CADA ciclo. Las
+// filas string-encoded (usuarios/pins/finanzas) NO sufren esto porque el doble
+// JSON.stringify guarda el escape como texto literal, nunca como carácter jsonb.
+// Se sanea SOLO el camino OBJETO (ver _codificarValue) para no alterar un solo byte
+// de las filas string-encoded ya certificadas. U+0000 se elimina (jsonb no puede
+// almacenarlo de ninguna forma); un sustituto suelto se reemplaza por U+FFFD (el
+// par válido de un emoji se conserva intacto). Devuelve copia; no muta la entrada.
+function _sanearStrJsonb(s) {
+  var necesita = false;
+  for (var j = 0; j < s.length; j++) { var cc = s.charCodeAt(j); if (cc === 0 || (cc >= 0xD800 && cc <= 0xDFFF)) { necesita = true; break; } }
+  if (!necesita) return s;
+  var REPL = String.fromCharCode(0xFFFD); // U+FFFD, sin escapes en fuente
+  var out = "";
+  for (var i = 0; i < s.length; i++) {
+    var c = s.charCodeAt(i);
+    if (c === 0) continue;                                    // U+0000 -> dropear
+    if (c >= 0xD800 && c <= 0xDBFF) {                         // high surrogate
+      var n = s.charCodeAt(i + 1);
+      if (n >= 0xDC00 && n <= 0xDFFF) { out += s[i] + s[i + 1]; i++; continue; } // par valido
+      out += REPL; continue;                                  // high suelto
+    }
+    if (c >= 0xDC00 && c <= 0xDFFF) { out += REPL; continue; } // low suelto
+    out += s[i];
+  }
+  return out;
+}
+function _sanearJsonb(v) {
+  if (typeof v === "string") return _sanearStrJsonb(v);
+  if (Array.isArray(v)) return v.map(_sanearJsonb);
+  if (v && typeof v === "object") {
+    var o = {};
+    for (var k in v) if (Object.prototype.hasOwnProperty.call(v, k)) o[_sanearStrJsonb(k)] = _sanearJsonb(v[k]);
+    return o;
+  }
+  return v; // number/boolean/null/undefined -> tal cual
+}
+
 // ═══════════════════════════════════════════════════════════════════════════════
 // FÁBRICA — una instancia por app (o por test). Estado (versión/base/dirty/cola)
 // vive en la instancia, no en globales de módulo.
@@ -133,7 +175,9 @@ export function crearPersistencia(opts = {}) {
   // por defecto (legacy-dominante, seguro para rollback del frontend).
   function _codificarValue(id, obj) {
     const enc = _encoding.get(id) || "string";
-    return enc === "object" ? obj : JSON.stringify(obj);
+    // HF-JSONB: al escribir como OBJETO jsonb se sanea U+0000 / sustitutos sueltos
+    // (Postgres los rechaza con 400). El camino string queda byte-idéntico.
+    return enc === "object" ? _sanearJsonb(obj) : JSON.stringify(obj);
   }
 
   // ── Escritura CONDICIONADA + CONFIRMADA ───────────────────────────────────────
