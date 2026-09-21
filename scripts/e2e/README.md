@@ -1,0 +1,45 @@
+# Prueba E2E en navegador — anticipos de Allegria Foods
+
+Corre la app REAL (el build de esta rama) en un navegador y comprueba que el
+Excel sea un reflejo fiel del flujo que muestra la pantalla: carga los datos por
+la interfaz, lee la tabla del flujo, descarga los Excel con los botones de la
+app, los **recalcula de verdad** (borra los valores cacheados y los abre con
+LibreOffice Calc) y compara mes por mes.
+
+**Aislamiento**: toda llamada a `bywovqayuzodbzwsriet.supabase.co` se responde
+desde un store en memoria (`fake.mjs`), que emula PostgREST con bloqueo
+optimista por `updated_at`. La base de producción no se lee ni se escribe.
+`aislamiento.mjs` lo verifica contando las peticiones que escapan (debe ser 0).
+El PIN y su hash de `fake.mjs` son de ese store falso; no dan acceso a nada real.
+
+## Requisitos
+
+- `npm i --no-save playwright` (el navegador ya viene en la imagen; si no,
+  `npx playwright install chromium`)
+- LibreOffice **Calc** (`soffice`): sin Calc, el recálculo no funciona
+  (`apt-get install -y --no-install-recommends libreoffice-calc`)
+
+## Uso
+
+```bash
+CI=true npx react-scripts build
+(cd build && python3 -m http.server 4173 --bind 127.0.0.1 &)
+
+cd scripts/e2e
+OUT_DIR=/tmp/e2e-anticipos node aislamiento.mjs    # 0 peticiones escapadas
+OUT_DIR=/tmp/e2e-anticipos node e2e.mjs            # 6 fases, ~7 min
+```
+
+Deja en `OUT_DIR`: capturas por fase, los `.xlsx` descargados por la app,
+`comparaciones.json` (una fila por celda comparada) y el store final.
+Sale con código 1 si hay cualquier diferencia entre pantalla y Excel.
+
+## Fases
+
+1. Caso base: venta 600.000 / anticipo 100.000 / cobrado 60.000 y
+   costo 422.000 / anticipo 100.000 / pagado 70.000.
+2. Recarga de la app (persistencia de las realizaciones).
+3. Anticipo cerrado parcialmente realizado.
+4. Cambio de kilos (el realizado no se mueve).
+5. Anulación de una realización (con motivo, queda en el historial).
+6. Override manual sobre la línea de anticipos.

@@ -189,7 +189,15 @@ function buildStatement({ title, subtitle, cols, monthOrder, cats, saldoIniValue
       const isLink = !!ln.cellFormula;
       cells[ref(r+1,0)] = { t:'s', v:ln.label, s:isLink?S.linkLabel:S.lineLabel };
       monthOrder.forEach((mc,k) => {
-        if (isLink) { const v=ln.cellNumber?ln.cellNumber(mc):0; num[ref(r+1,mc.c)]=v; cells[ref(r+1,mc.c)] = { t:'n', f:ln.cellFormula(mc), v, s:natLink }; }
+        if (isLink) {
+          const v = ln.cellNumber ? ln.cellNumber(mc) : 0;
+          const f = ln.cellFormula(mc);
+          num[ref(r+1,mc.c)] = v;
+          // f === null → ese mes NO va por fórmula (lo manda un override manual
+          // de la app): se escribe el valor fijo que muestra la pantalla, en
+          // estilo de input, para que el Excel no lo recalcule por encima.
+          cells[ref(r+1,mc.c)] = f ? { t:'n', f, v, s:natLink } : { t:'n', v, s:S.input };
+        }
         else { const v=Number(ln.vals[k])||0; num[ref(r+1,mc.c)]=v; cells[ref(r+1,mc.c)] = { t:'n', v, s:S.input }; }
       });
       fillAdditive(cells, num, r+1, cols, isLink?natLink:natFx);
@@ -340,9 +348,13 @@ function catsDeEmpresa(emp, months, formulaLines = null) {
       const fl = formulaLines && formulaLines[ln.label];
       if (fl) {
         if (!hasVal) return;
+        // Meses con override manual (los marca buildEmpresasConOverrides): ahí
+        // el flujo de la app usa el valor escrito a mano, así que el Excel NO
+        // puede recalcularlos desde la hoja Parametros.
+        const ov = new Set(Array.isArray(ln._ovIdx) ? ln._ovIdx : []);
         lines.push({
           label: ln.label,
-          cellFormula: fl.cellFormula,
+          cellFormula: (mc) => (ov.has(mc.monthIdx) ? null : fl.cellFormula(mc)),
           cellNumber: (mc) => Number(ln.proy[mc.monthIdx]) || 0,
         });
       } else if (hasVal) {

@@ -4205,6 +4205,10 @@ export function buildEmpresasConOverrides(empresas, realData, addedLinesGlobal, 
           // (_lockOverrideFromIdx), los overrides manuales en ese rango se ignoran.
           const lockFrom = (typeof l._lockOverrideFromIdx === "number" && l._lockOverrideFromIdx >= 0)
             ? l._lockOverrideFromIdx : null;
+          // Meses efectivamente sustituidos por un valor manual. Se anotan en la
+          // línea para que la exportación a Excel NO los recalcule por fórmula
+          // (si no, el archivo mostraría el cálculo y la pantalla el override).
+          const ovIdx = [];
           Object.entries(overrides[l.label]).forEach(([idx, val]) => {
             const i = Number(idx);
             if (lockFrom !== null && i >= lockFrom) return;
@@ -4214,9 +4218,10 @@ export function buildEmpresasConOverrides(empresas, realData, addedLinesGlobal, 
               } else {
                 newProy[i] = Number(val) || 0;
               }
+              ovIdx.push(i);
             }
           });
-          return { ...l, proy: newProy };
+          return { ...l, proy: newProy, _ovIdx: ovIdx };
         }
         return l;
       })

@@ -256,3 +256,31 @@ describe('Excel consolidado', () => {
     expect(celdaHoy.f).toContain("'Allegria Foods'!");       // referencia viva a la hoja empresa
   });
 });
+
+describe('Excel · override manual', () => {
+  test('el mes con override manual va como valor fijo, no como fórmula', () => {
+    const params = paramsCerezas({ antCli:[{ id:"a1", mes:"Oct-26", usd_kg:0.10, realizaciones:[rea(60000)] }] });
+    const emp = buildAllegria(params, { cobros:[] });
+    const realData = { "Allegria Foods": { _proyOverrides: { "Anticipo Cerezas": { [iM("May-26")]: 12345 } } } };
+    const cons = buildEmpresasConOverrides({ "Allegria Foods": emp }, realData, {}, {});
+    const l = cons["Allegria Foods"].sections.find(s=>s.cat==='ing_op').lines.find(x=>x.label==='Anticipo Cerezas');
+    expect(l._ovIdx).toContain(iM("May-26"));
+
+    fs.mkdirSync(OUT_DIR, { recursive:true });
+    const file = path.join(OUT_DIR, 'override.xlsx');
+    exportarFlujoEmpresa({ emp: cons["Allegria Foods"], empName:'Allegria Foods', saldoIni:0, fileName:file,
+      params:{ paramsAllegria:params, allegraComisionArandanos:{ cobros:[] } } });
+    const wb = XLSX.readFile(file, { cellFormula:true });
+    const hoja = wb.Sheets['Allegria Foods'];
+    const filaAnt = Object.keys(hoja).filter(k=>/^A\d+$/.test(k) && hoja[k].v==='Anticipo Cerezas')[0];
+    const fila = Number(filaAnt.slice(1));
+    const filaMeses = Object.keys(hoja).filter(k=>/^[A-Z]+3$/.test(k));
+    const colDe = (lbl) => { const k = filaMeses.find(k=>hoja[k].v===lbl); return k ? k.replace(/\d+$/,'') : null; };
+    const celdaOv  = hoja[`${colDe('May-26')}${fila}`];
+    const celdaNor = hoja[`${colDe('Oct-26')}${fila}`];
+    expect(celdaOv.v).toBe(12345);
+    expect(celdaOv.f).toBeUndefined();          // valor fijo: el Excel no lo recalcula
+    expect(celdaNor.f).toContain('SUMIF');      // el resto sigue vivo por fórmula
+    expect(celdaNor.v).toBeCloseTo(40000, 2);
+  });
+});

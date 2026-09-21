@@ -203,6 +203,17 @@ solo el pendiente. La liquidación descuenta `Σ (F + IF(mes="",0,G))`, y hay un
 sobre-anticipo `MAX(0,descuento−total)`. Editar kilos o FOB recalcula acordado, pendiente
 y liquidación; el realizado no se mueve.
 
+#### Override manual vs. Excel (sep-2026)
+
+Un mes con override manual (`_proyOverrides`) muestra en pantalla el valor escrito
+a mano, no el calculado. `buildEmpresasConOverrides` anota esos meses en la línea
+(`_ovIdx`) y `catsDeEmpresa` escribe ESA celda del Excel como **valor fijo** en vez
+de la fórmula SUMIF contra la hoja Parametros. Sin esto el archivo mostraba el
+cálculo y la pantalla el override (detectado en la prueba E2E de navegador, con el
+Excel recalculado de verdad). El resto de los meses de la línea sigue vivo por
+fórmula. El export consolidado ya iba por valores estáticos, así que no tenía el
+problema.
+
 #### Saldo inicial del Excel = mes en curso (sep-2026)
 
 Antes el Excel aplicaba el saldo bancario en Apr-26 y acumulaba encima meses ya pasados.
@@ -288,6 +299,8 @@ node src/anticipos.test.mjs                 # modelo de anticipos (puro)
 CI=true npx react-scripts test --watchAll=false     # suite completa (jest)
 CI=true npx react-scripts test --testPathPattern Anticipos --watchAll=false
 node scripts/verif-excel-recalc.mjs         # recálculo REAL del Excel (requiere LibreOffice Calc)
+# E2E en navegador (app real + Supabase falso aislado): ver scripts/e2e/README.md
+cd scripts/e2e && OUT_DIR=/tmp/e2e node e2e.mjs
 
 # Git workflow estándar
 git add .
@@ -354,7 +367,7 @@ export default function MiModulo({ canEdit, ... }) {
 
 ---
 
-**Última actualización**: 2026-09-21 — Anticipos de Allegria Foods con realizaciones: lo ya cobrado/pagado deja de proyectarse pero sigue descontándose de la liquidación; trazabilidad de cobros/pagos (anulación con motivo, nunca borrado); avisos de vencido, sobre-anticipo, override manual y conciliación contra los saldos bancarios por cuenta. Excel con acordado/realizado/pendiente/cierre y saldo inicial anclado al mes en curso (igual que pantalla), verificado con recálculo real en LibreOffice. Ver sección "Anticipos con realizaciones".
+**Última actualización**: 2026-09-21 — Prueba E2E en navegador (app real, Supabase aislado, Excel recalculado con LibreOffice): 4.036 celdas comparadas pantalla vs Excel, 0 diferencias. Corrige que el Excel individual ignoraba un override manual en una línea calculada. Anticipos de Allegria Foods con realizaciones: lo ya cobrado/pagado deja de proyectarse pero sigue descontándose de la liquidación; trazabilidad de cobros/pagos (anulación con motivo, nunca borrado); avisos de vencido, sobre-anticipo, override manual y conciliación contra los saldos bancarios por cuenta. Excel con acordado/realizado/pendiente/cierre y saldo inicial anclado al mes en curso (igual que pantalla), verificado con recálculo real en LibreOffice. Ver sección "Anticipos con realizaciones".
 
 **Actualización previa**: 2026-06-16 — Fix crítico de persistencia: gate de carga exitosa (`cargaOkRef`) en todos los módulos para que un fallo de red no sobrescriba Supabase con defaults (incidente que borró la fila `main`). Backup diario ahora genérico (cubre cualquier fila/módulo futuro) + retención automática (30 días + mensual). Ver regla 9.
 **Mantener este archivo actualizado** después de cambios mayores en estructura, módulos nuevos, o decisiones de arquitectura importantes.
