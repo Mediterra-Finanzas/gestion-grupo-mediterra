@@ -42,8 +42,19 @@ export async function irAFlujoEmpresas(page) {
 }
 
 export async function elegirEmpresa(page, nombre) {
-  await page.getByRole('button', { name: new RegExp(nombre) }).first().click();
-  await page.waitForTimeout(1500);
+  // El nombre puede aparecer en varios botones (miga de pan, otra empresa que
+  // lo contiene). Se elige el botón de la barra de empresas cuyo texto termina
+  // exactamente en el nombre (con o sin el ✦ de "calculado por parámetros").
+  const botones = page.getByRole('button');
+  const n = await botones.count();
+  for (let i = 0; i < n; i++) {
+    const b = botones.nth(i);
+    const t = (await b.innerText().catch(() => '')).replace(/[✦\s]+$/g, '').trim();
+    // el botón de la barra lleva emoji delante ("🏢 Mediterra"); el texto pelado
+    // "Mediterra" es la miga de pan, que sale del módulo.
+    if (t.endsWith(nombre) && t !== nombre) { await b.click(); await page.waitForTimeout(1500); return; }
+  }
+  throw new Error(`No encontré el botón de la empresa "${nombre}"`);
 }
 
 export async function subTab(page, re) {

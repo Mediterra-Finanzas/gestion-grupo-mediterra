@@ -49,6 +49,23 @@ los anticipos antiguos (sin realizaciones), los overrides existentes y las
 fechas de cada cuenta bancaria. Si el snapshot no se puede descargar, sirve
 igual el JSON del botón "💾 Respaldo" de la app.
 
+## Regresión de todas las empresas
+
+```bash
+OUT_DIR=/tmp/e2e-empresas node scripts/e2e/regresion-empresas.mjs
+# una sola: EMPRESAS="Allpa Farms" node scripts/e2e/regresion-empresas.mjs
+```
+
+Por cada empresa lee la tabla del flujo, descarga su Excel, lo recalcula y
+compara mes a mes; después escribe un override manual en una celda calculada y
+repite. Cubre los dos cambios que no son exclusivos de los anticipos (saldo
+inicial en el mes en curso y override respetado) en las 8 empresas, incluidas
+las 5 con hoja Parametros viva.
+
+Hoy reporta 0 diferencias en 7 empresas. Allpa Farms sale con desvío en
+"Costos Fijos / SG&A": es un bug **preexistente de la pantalla** (etiquetas de
+línea repetidas entre categorías; ver CLAUDE.md), idéntico en `main`.
+
 ## Fases
 
 1. Caso base: venta 600.000 / anticipo 100.000 / cobrado 60.000 y

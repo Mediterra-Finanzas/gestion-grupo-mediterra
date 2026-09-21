@@ -222,6 +222,23 @@ pantalla): los meses anteriores muestran su flujo pero quedan **sin** saldo inic
 y el arrastre parte en el mes en curso. Aplica al export individual y al consolidado (que
 además ancla su fórmula de saldo a la columna de ese mes).
 
+#### Bug preexistente detectado (NO es de esta rama) — Allpa Farms
+
+En `Allpa Farms` hay **14 etiquetas de línea repetidas entre `egr_var` y `egr_fijo`**
+("Electricidad", "Gratificaciones", "Casino - Colaciones", "Gastos De Aseo", …).
+`getProy(label, idx)` resuelve por ETIQUETA recorriendo todas las secciones y
+devuelve la primera coincidencia, así que el subtotal en pantalla de
+"Costos Fijos / SG&A" toma los valores de la línea homónima de Egresos
+Operacionales. Resultado: la pantalla muestra US$107.783 en Apr-26 donde el
+Excel (que usa el valor propio de cada línea) muestra US$99.677,78; el desvío
+se repite en los 63 meses y arrastra Flujo Neto y Saldo Acumulado.
+
+Comprobado idéntico en `main` (126 desvíos por pasada, mismos montos), así que
+es anterior a los anticipos. **El correcto es el Excel; el error está en la
+pantalla.** No se arregló acá para no mezclar un cambio de `getProy` —que
+afecta a todos los módulos y a las claves de `_proyOverrides`, que también son
+por etiqueta— con el trabajo de anticipos. Queda como tarea aparte.
+
 #### Limitación conocida — costos de ciruelas
 
 `calcAllegria` calcula `cost/mat/srv` de ciruelas pero `buildAllegria` no tiene líneas de
@@ -301,6 +318,7 @@ CI=true npx react-scripts test --testPathPattern Anticipos --watchAll=false
 node scripts/verif-excel-recalc.mjs         # recálculo REAL del Excel (requiere LibreOffice Calc)
 # E2E en navegador (app real + Supabase falso aislado): ver scripts/e2e/README.md
 cd scripts/e2e && OUT_DIR=/tmp/e2e node e2e.mjs
+OUT_DIR=/tmp/e2e node scripts/e2e/regresion-empresas.mjs   # las 8 empresas: pantalla vs Excel
 
 # Git workflow estándar
 git add .

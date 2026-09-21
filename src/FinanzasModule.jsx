@@ -226,7 +226,7 @@ function defaultParamsEmp() {
 }
 
 // Allegria Service: parámetros por especie (cerezas / ciruelas)
-function defaultParamsAllegriaService() {
+export function defaultParamsAllegriaService() {
   const p = {};
   SEASON_KEYS.forEach(sk => {
     p[sk] = {
@@ -1481,7 +1481,7 @@ export function buildAllegria(params, allegraComisionArandanos) {
     ],
   };
 }
-function buildEmpresas(params, allegraComisionArandanos) {
+export function buildEmpresas(params, allegraComisionArandanos) {
   return { ...EMPRESAS_STATIC, "Allegria Foods": buildAllegria(params, allegraComisionArandanos) };
 }
 
@@ -2324,7 +2324,7 @@ function AnticipListGen({items,onChange,totalUnits=0,label="usd_unit"}) {
 
 // ── Parámetros Allpa Farms ────────────────────────────────────────
 
-function defaultParamsAllpa() {
+export function defaultParamsAllpa() {
   const p = {};
   SEASON_KEYS.forEach(sk => {
     p[sk] = {
@@ -2711,7 +2711,7 @@ function ParamsAllpa({selSeason, paramsAF, setParamsAF, readOnly}) {
 }
 
 // ── Parámetros Allpa Farms Perú (INGRESOS: kilos × precio, por año) ──
-function defaultParamsAllpaPeru() {
+export function defaultParamsAllpaPeru() {
   // { [año]: { precioKg, kgMes:[12] Ene..Dic } } — replica 2026 en cada año
   const p = {};
   for (let y = 2026; y <= 2031; y++) {
@@ -2911,7 +2911,7 @@ function ParamsAllpaPeru({ paramsAP, setParamsAP, readOnly }) {
 }
 
 // ── Parámetros Integrity Farms ────────────────────────────────────
-function defaultParamsIntegrity() {
+export function defaultParamsIntegrity() {
   // { seasonKey: { clientes: [{nombre, ha, usd_ha, mes_cobro}] } }
   const p = {};
   SEASON_KEYS.forEach(sk => { p[sk] = { clientes: [] }; });
