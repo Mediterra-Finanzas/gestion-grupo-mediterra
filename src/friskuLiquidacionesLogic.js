@@ -53,24 +53,41 @@ export function identidadUsuario(user) {
   return em || null;
 }
 
-// ── Fase 3: claves de borrador ──
+// ── Fase 3: claves de borrador (aisladas por usuario + entidad + INSTANCIA) ──
 export const LIQ_DRAFT_PREFIX = "frisku_liq_draft_v1";
 export function liqDraftKey(userKey, entityKey) {
   return `${LIQ_DRAFT_PREFIX}::${userKey}::${entityKey}`;
 }
-// entityKey = id de la liquidación (al editar) o `new::<oeId>` (al crear con OE elegida).
-export function entityKeyDe(liq, oeId) {
+// Entidad BASE del borrador: id de la liquidación (al editar) o `new::<oeId>` (al crear).
+// NO identifica la pestaña: dos pestañas para la misma OE comparten base.
+export function entityBaseDe(liq, oeId) {
   if (liq && liq.id) return liq.id;
   return oeId ? `new::${oeId}` : null;
 }
-// Claves EXACTAS a limpiar tras una mutación CONFIRMADA (id + su clave de creación).
-// Nunca "todas las del array": sólo las de la operación confirmada.
+// entityKey = base + instancia de formulario. Cada pestaña/instancia tiene su propio
+// identificador estable, así dos pestañas de la MISMA OE no comparten clave ni se pisan.
+export function draftEntityKey(base, instanceId) {
+  if (!base) return null;
+  return `${base}#${instanceId}`;
+}
+// Clave EXACTA a limpiar tras una mutación CONFIRMADA: sólo la de ESA operación/instancia.
+// Nunca por prefijo, nunca "todas las de una OE", nunca las de otra pestaña.
 export function clavesBorradorDeOp(op) {
-  if (!op) return [];
-  const out = [];
-  if (op.id) out.push(op.id);
-  if (op.createKey) out.push(op.createKey);
-  return out;
+  return op && op.entityKey ? [op.entityKey] : [];
+}
+// Prefijo de scaneo para descubrir borradores recuperables de una entidad base
+// (todas las instancias/pestañas de esa liquidación/OE), para este usuario.
+export function prefijoBorradorEntidad(userKey, base) {
+  return `${LIQ_DRAFT_PREFIX}::${userKey}::${base}#`;
+}
+// De una lista de claves de localStorage, devuelve las de OTRAS instancias de la misma
+// entidad base (excluye la instancia actual). Puro: el componente lee cada valor aparte.
+export function clavesRecuperablesDeEntidad(storageKeys, userKey, base, instanciaActual) {
+  if (!userKey || !base) return [];
+  const pref = prefijoBorradorEntidad(userKey, base);
+  const propia = draftEntityKey(base, instanciaActual);
+  const propiaKey = propia ? liqDraftKey(userKey, propia) : null;
+  return (storageKeys || []).filter((k) => typeof k === "string" && k.indexOf(pref) === 0 && k !== propiaKey);
 }
 
 // ── Contrato de confirmación Frisku-local ──

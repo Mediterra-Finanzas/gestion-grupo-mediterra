@@ -24,6 +24,7 @@ import {
 } from "./friskuHelpers.js";
 import {
   liqsActivasOE, upsertPorId, identidadUsuario, evaluarConfirmacion, clavesBorradorDeOp,
+  entityBaseDe, draftEntityKey, clavesRecuperablesDeEntidad,
 } from "./friskuLiquidacionesLogic.js";
 import AvisoPersistencia, { construirAviso } from "./AvisoPersistencia";
 import { FriskuBIProvider, useFriskuBI, FRISKU_DIMS, FRISKU_METRICS, fmtMetric,
@@ -4101,19 +4102,21 @@ function LiquidacionForm({ liq, embarques, clientes, exportadoras, especies, mon
   const bloqueoDuplicado = esNueva && !!form.oeId && liqsExistentesOE.length > 0;
   const [verExistenteId, setVerExistenteId] = useState(null); // toggle de vista inline (sin salir del form)
 
-  // ── Borrador local (Fase 3) ──
+  // ── Borrador local (Fase 3 · AISLADO por instancia de formulario) ──
   const dirtyRef      = useRef(false);        // hay cambios sin confirmar en el servidor
   const sesionTsRef   = useRef(Date.now());   // separa "borrador previo" de lo que escribimos ahora
   const primerDraft   = useRef(true);         // no draftear el estado inicial (evita dirty falso)
-  const [draftRecuperable, setDraftRecuperable] = useState(null); // {entityKey, d} de una sesión anterior
-  const [draftGuardadoTs, setDraftGuardadoTs]   = useState(null); // feedback "borrador guardado hace…"
-  const entityKey = liq?.id ? liq.id : (form.oeId ? `new::${form.oeId}` : null);
+  const instanceIdRef = useRef(uid());        // identificador ESTABLE de esta instancia/pestaña
+  const [draftsRecuperables, setDraftsRecuperables] = useState([]); // borradores de OTRAS instancias/sesiones
+  const [draftGuardadoTs, setDraftGuardadoTs]       = useState(null); // feedback "borrador guardado hace…"
+  const entityBase = entityBaseDe(liq, form.oeId);                    // id de la liq o new::<oeId>
+  const entityKey  = entityBase ? draftEntityKey(entityBase, instanceIdRef.current) : null; // base#instancia
   const armarDraft = () => ({
-    __schema: 1, ts: Date.now(), liqId: draftIdRef.current, oeId: form.oeId,
+    __schema: 2, ts: Date.now(), instancia: instanceIdRef.current, liqId: draftIdRef.current, oeId: form.oeId,
     form, ventaPorPallet, mermaPorPallet, gastosDestino, anticipo,
   });
 
-  // Autosave del borrador (debounce). Solo cuando ya hay OE (algo que resguardar).
+  // Autosave del borrador (debounce) bajo la clave de ESTA instancia — no pisa otras pestañas.
   useEffect(()=>{
     if(primerDraft.current){ primerDraft.current = false; return; }
     if(!entityKey) return;
@@ -4124,13 +4127,23 @@ function LiquidacionForm({ liq, embarques, clientes, exportadoras, especies, mon
   // eslint-disable-next-line react-hooks/exhaustive-deps
   },[form, ventaPorPallet, mermaPorPallet, gastosDestino, anticipo]);
 
-  // ¿Hay un borrador de una sesión ANTERIOR para esta entidad? (ts previo al inicio de esta sesión)
+  // Descubrir borradores recuperables de OTRAS instancias/sesiones de la misma entidad base
+  // (ts previo al inicio de esta sesión). Si hay más de uno, se LISTAN para decidir: no se
+  // elige ni se sobrescribe en silencio.
   useEffect(()=>{
-    if(!draftHabilitado || !entityKey){ setDraftRecuperable(null); return; }
-    const d = liqDraftLeer(userKey, entityKey);
-    setDraftRecuperable(d && d.ts && d.ts < sesionTsRef.current ? { entityKey, d } : null);
+    if(!draftHabilitado || !entityBase){ setDraftsRecuperables([]); return; }
+    let keys = [];
+    try { keys = Object.keys(localStorage); } catch(e){ keys = []; }
+    const claves = clavesRecuperablesDeEntidad(keys, userKey, entityBase, instanceIdRef.current);
+    const out = [];
+    claves.forEach(k=>{
+      try { const s = localStorage.getItem(k); const d = s ? JSON.parse(s) : null;
+        if(d && d.ts && d.ts < sesionTsRef.current) out.push({ key:k, d }); } catch(e){}
+    });
+    out.sort((a,b)=> (b.d.ts||0) - (a.d.ts||0));
+    setDraftsRecuperables(out);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  },[entityKey]);
+  },[entityBase]);
 
   // Aviso nativo al cerrar/recargar la pestaña con cambios sin confirmar.
   useEffect(()=>{
@@ -4139,18 +4152,18 @@ function LiquidacionForm({ liq, embarques, clientes, exportadoras, especies, mon
     return ()=> window.removeEventListener("beforeunload", h);
   },[]);
 
-  const recuperarDraft = () => {
-    const d = draftRecuperable?.d; if(!d) return;
+  const recuperarDraft = (d) => {
+    if(!d) return;
     if(d.form)                        setForm(f=>({...f, ...d.form}));
     if(d.ventaPorPallet)              setVentaPorPallet({...d.ventaPorPallet});
     if(d.mermaPorPallet)              setMermaPorPallet({...d.mermaPorPallet});
     if(Array.isArray(d.gastosDestino))setGastosDestino(d.gastosDestino.map(g=>({...g})));
     if(d.anticipo!=null)              setAnticipo(String(d.anticipo));
-    setDraftRecuperable(null);
+    setDraftsRecuperables([]);
   };
-  const descartarDraft = () => {
-    if(draftRecuperable?.entityKey) liqDraftBorrar(userKey, draftRecuperable.entityKey);
-    setDraftRecuperable(null);
+  const descartarDraftKey = (key) => {
+    try { localStorage.removeItem(key); } catch(e){}
+    setDraftsRecuperables(prev=> prev.filter(x=> x.key!==key));
   };
 
   // Al elegir/cambiar la OE, la moneda de liquidación toma la del cliente
@@ -4270,7 +4283,9 @@ function LiquidacionForm({ liq, embarques, clientes, exportadoras, especies, mon
     if(draftHabilitado && entityKey) liqDraftGuardar(userKey, entityKey, armarDraft());
     // El formulario NO se cierra ni se marca "guardado" aquí: eso ocurre sólo cuando el servidor
     // confirma (vía saveState). No bajamos dirty todavía.
-    const op = { id: draftIdRef.current, version, createKey: esNueva ? `new::${form.oeId}` : null };
+    // op.entityKey = clave EXACTA del borrador de esta instancia → la limpieza tras confirmar
+    // borra sólo este borrador, nunca el de otra pestaña de la misma OE.
+    const op = { id: draftIdRef.current, version, entityKey };
     onGuardar(liqObj, op);
   };
 
@@ -4289,16 +4304,23 @@ function LiquidacionForm({ liq, embarques, clientes, exportadoras, especies, mon
         {liq?.id ? "Editar liquidación" : "Nueva liquidación"}
       </h3>
 
-      {/* Recuperación de borrador de una sesión anterior (Fase 3) */}
-      {draftRecuperable && (
-        <div style={{marginBottom:14, background:`${C.blue}14`, border:`1px solid ${C.blue}66`, borderRadius:10, padding:12, display:"flex", gap:10, alignItems:"center", flexWrap:"wrap"}}>
-          <span style={{fontSize:12, color:C.text}}>
-            💾 Hay un <b>borrador sin guardar</b> de esta liquidación
-            {draftRecuperable.d?.ts ? ` (de ${new Date(draftRecuperable.d.ts).toLocaleString("es-CL")})` : ""}. ¿Recuperar lo que habías ingresado?
-          </span>
-          <div style={{display:"flex", gap:6, marginLeft:"auto"}}>
-            <button type="button" onClick={recuperarDraft} style={{...btnSt(C.blue), fontSize:11}}>Recuperar</button>
-            <button type="button" onClick={descartarDraft} style={{...btnSt(C.muted,true), fontSize:11}}>Descartar</button>
+      {/* Recuperación de borrador(es) sin guardar de otras instancias/sesiones (Fase 3).
+          Si hay más de uno, se listan y el usuario elige — no se elige ni sobrescribe en silencio. */}
+      {draftsRecuperables.length>0 && (
+        <div style={{marginBottom:14, background:`${C.blue}14`, border:`1px solid ${C.blue}66`, borderRadius:10, padding:12}}>
+          <div style={{fontSize:12, color:C.text, fontWeight:700, marginBottom:6}}>
+            💾 {draftsRecuperables.length===1 ? "Hay un borrador sin guardar de esta liquidación" : `Hay ${draftsRecuperables.length} borradores sin guardar de esta liquidación`}. Elige cuál recuperar:
+          </div>
+          <div style={{display:"flex", flexDirection:"column", gap:6}}>
+            {draftsRecuperables.map(({key, d})=>(
+              <div key={key} style={{display:"flex", gap:8, alignItems:"center", flexWrap:"wrap", background:C.bg, border:`1px solid ${C.border}`, borderRadius:8, padding:"6px 9px"}}>
+                <span style={{fontSize:11, color:C.muted}}>{d?.ts ? new Date(d.ts).toLocaleString("es-CL") : "sin fecha"}</span>
+                <div style={{display:"flex", gap:6, marginLeft:"auto"}}>
+                  <button type="button" onClick={()=>recuperarDraft(d)} style={{...btnSt(C.blue), fontSize:11}}>Recuperar</button>
+                  <button type="button" onClick={()=>descartarDraftKey(key)} style={{...btnSt(C.muted,true), fontSize:11}}>Descartar</button>
+                </div>
+              </div>
+            ))}
           </div>
         </div>
       )}
