@@ -32,6 +32,32 @@ export function hayLiquidacionActiva(liquidaciones, oeId, excluirId) {
   return liqsActivasOE(liquidaciones, oeId, excluirId).length > 0;
 }
 
+// ── Validador de UNICIDAD por OE (regla del CONSUMIDOR Liquidaciones) ──
+// Se pasa como opts.validarCandidato a dbSaveGeneric: rechaza un candidato que contenga DOS
+// liquidaciones ACTIVAS de IDs DISTINTOS para el mismo oeId (la carrera concurrente). Ignora
+// inactivas/anuladas (semántica real). Editar la misma liq (mismo id) NO es duplicado; distintas
+// OEs pasan. No modifica el candidato, no borra nada. idExistente = la que ya está en el servidor
+// (ganadora), para poder ofrecer Ver/Editar. La regla NO vive en dbSaveGeneric ni en fusionarPorId.
+export function validarUnicidadOE(candidato, contexto) {
+  const arr = Array.isArray(candidato) ? candidato : [];
+  const servidor = contexto && Array.isArray(contexto.servidor) ? contexto.servidor : [];
+  const idsServidor = new Set(servidor.filter(esLiquidacionActiva).map((l) => l.id));
+  const porOE = new Map();                       // oeId -> Set(ids activos)
+  for (const l of arr) {
+    if (!esLiquidacionActiva(l) || !l.oeId) continue;
+    if (!porOE.has(l.oeId)) porOE.set(l.oeId, new Set());
+    porOE.get(l.oeId).add(l.id);
+  }
+  for (const [oeId, ids] of porOE) {
+    if (ids.size > 1) {
+      const arrIds = [...ids];
+      const existente = arrIds.find((id) => idsServidor.has(id)) || arrIds[0];
+      return { ok: false, motivo: "duplicado_oe", conflictoNegocio: true, oeId, idExistente: existente };
+    }
+  }
+  return { ok: true };
+}
+
 // ── Fase 2: upsert idempotente por id estable sobre el estado más reciente ──
 // Reemplaza si el id ya existe; agrega si no. Nunca duplica; sólo toca el registro
 // correspondiente y preserva el resto y el orden.
@@ -110,6 +136,10 @@ export function evaluarConfirmacion(r, op, enviado) {
     return { estado: "conflicto", motivo: "ausente" };
   }
   // !r.ok — mi escritura NO persistió.
+  // Conflicto de NEGOCIO: ya existe una liquidación activa para esa OE (carrera). No reintentable.
+  if (r.motivo === "duplicado_oe") return { estado: "duplicado", motivo: "duplicado_oe", idExistente: r.idExistente, oeId: r.oeId };
+  // Infraestructura: la fila protegida no existe (no se hace upsert ciego). Error, no éxito.
+  if (r.motivo === "fila_ausente") return { estado: "error", motivo: "fila_ausente" };
   const mine = Array.isArray(r.conflictos) && r.conflictos.indexOf(op.id) !== -1;
   if (mine) return { estado: "conflicto", motivo: "conflicto_item" };
   if (r.motivo === "conflicto" || r.motivo === "conflicto_item")
