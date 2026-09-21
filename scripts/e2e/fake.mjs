@@ -71,6 +71,14 @@ export async function instalarFake(context, store, log = () => {}) {
       return json(f ? [{ id, value: f.value, updated_at: f.updated_at }] : []);
     }
 
+    // Interruptor de prueba: simular que el servidor rechaza las escrituras
+    // (para verificar que un guardado fallido no pierde ni marca nada).
+    if (store.__fallarEscrituras && metodo !== 'GET') {
+      log(`${metodo} ${id} → RECHAZADO (simulado)`);
+      return route.fulfill({ status: 500, contentType: 'application/json',
+        headers: { 'access-control-allow-origin': '*' }, body: '{"message":"fallo simulado"}' });
+    }
+
     if (metodo === 'PATCH') {
       const f = id ? store[id] : null;
       if (!f) { log(`PATCH ${id} → fila inexistente`); return json([]); }
