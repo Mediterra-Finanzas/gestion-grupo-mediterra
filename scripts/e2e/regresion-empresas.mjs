@@ -225,12 +225,23 @@ for (const empresa of EMPRESAS) {
       const rec3 = recalcular(arch3, DESCARGAS);
       const hoja3 = rec3.wb.SheetNames.find(n => n !== 'Parametros');
       comparar(`${empresa} · recarga`, pantalla3, leerHojaFlujo(rec3.wb.Sheets[hoja3]));
-      // el override tiene que seguir ahí después de recargar
-      const cat = Object.keys(pantalla3).find(k => /INGRESOS OPERACIONALES|EGRESOS OPERACIONALES/.test(k.toUpperCase()));
-      const sigue = cat ? Object.values(pantalla3[cat]).some(v => v === 54321) : false;
-      anota(`${empresa} · recarga`, 'el override sobrevive a la recarga', 'May-26', 1, sigue ? 1 : 0,
-            'guardado y releído desde el store');
-      console.log(`  recarga: override ${sigue ? 'conservado' : 'PERDIDO'} · Excel recalculado (${rec3.formulasBorradas} fórmulas)`);
+      // La prueba real de la recarga: la pantalla tiene que quedar IGUAL que
+      // antes de recargar, celda por celda. (Buscar el monto del override en
+      // la fila de categoría no sirve: esa fila suma varias líneas, así que el
+      // total no coincide con el valor escrito — daba falsos negativos.)
+      let iguales = 0, distintas = 0;
+      Object.keys(pantalla2).forEach(fila => {
+        if (!pantalla3[fila]) { distintas++; return; }
+        Object.entries(pantalla2[fila]).forEach(([mes, v]) => {
+          const w = pantalla3[fila][mes];
+          if ((v == null ? null : v) === (w == null ? null : w)) iguales++;
+          else { distintas++; anota(`${empresa} · recarga`, `cambió tras recargar: ${fila}`, mes, v, w); }
+        });
+      });
+      anota(`${empresa} · recarga`, 'la pantalla queda idéntica tras recargar', '—', 0, distintas,
+            `${iguales} celdas iguales`);
+      console.log(`  recarga: ${distintas === 0 ? 'pantalla idéntica' : distintas + ' CELDAS DISTINTAS'} ` +
+                  `(${iguales} comparadas) · Excel recalculado (${rec3.formulasBorradas} fórmulas)`);
     }
     await page.screenshot({ path: `${OUT}/emp-${slug}.png`, fullPage: false });
   } catch (e) {
