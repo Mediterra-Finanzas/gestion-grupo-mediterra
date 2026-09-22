@@ -26,6 +26,7 @@ import {
   liqsActivasOE, upsertPorId, identidadUsuario, evaluarConfirmacion, clavesBorradorDeOp,
   entityBaseDe, draftEntityKey, clavesRecuperablesDeEntidad, validarUnicidadOE,
 } from "./friskuLiquidacionesLogic.js";
+import { clasificarReferenciaDoc } from "./friskuDocumentRefs.js";
 import AvisoPersistencia, { construirAviso } from "./AvisoPersistencia";
 import { FriskuBIProvider, useFriskuBI, FRISKU_DIMS, FRISKU_METRICS, fmtMetric,
          mComFriskuUSD, mVentaUSD, mFobUSD, mComClienteUSD, groupByDims, invertSelection } from "./friskuBI.js";
@@ -1413,7 +1414,17 @@ function DocumentosTab({ clientes, embarques=[], exportadoras=[], especies=[], o
     });
     return rows.map(r=>{
       const adjunto = esArchivoSubido(r.url);
-      const estado = adjunto ? "cargado" : (r.url ? "recarga" : "pendiente");
+      // Clasificación derivada (display-only; NO persiste, NO muta el documento):
+      // una referencia SharePoint sincronizada NO es "recarga" (el archivo está online).
+      let estado;
+      if(adjunto) estado = "cargado";                 // http (Supabase o externo) — sin cambios
+      else if(!r.url) estado = "pendiente";
+      else {
+        const cl = clasificarReferenciaDoc(r.url).clase;
+        estado = cl==="sharepoint_synced_pending" ? "sp_pendiente"
+               : cl==="local_real"               ? "recarga"
+               : "revision";                          // unknown / patrón no reconocido
+      }
       const vencido = r.vencimiento && r.vencimiento < hoy;
       return { ...r, adjunto, estado, vencido };
     });
@@ -1424,22 +1435,28 @@ function DocumentosTab({ clientes, embarques=[], exportadoras=[], especies=[], o
   const filtrados = useMemo(()=>filas.filter(d=>{
     if(fEntidad && d.entidadTipo!==fEntidad) return false;
     if(fTipo && d.tipo!==fTipo) return false;
-    if(fEstado==="cargado"   && d.estado!=="cargado") return false;
-    if(fEstado==="recarga"   && d.estado!=="recarga") return false;
-    if(fEstado==="pendiente" && d.estado!=="pendiente") return false;
-    if(fEstado==="vencido"   && !d.vencido) return false;
+    if(fEstado==="cargado"    && d.estado!=="cargado") return false;
+    if(fEstado==="recarga"    && d.estado!=="recarga") return false;
+    if(fEstado==="sp_pendiente"&& d.estado!=="sp_pendiente") return false;
+    if(fEstado==="revision"   && d.estado!=="revision") return false;
+    if(fEstado==="pendiente"  && d.estado!=="pendiente") return false;
+    if(fEstado==="vencido"    && !d.vencido) return false;
     if(qq){ const hay=`${d.tipo} ${d.entidadLabel} ${d.cliente} ${d.especie} ${d.temporada}`.toLowerCase(); if(!hay.includes(qq)) return false; }
     return true;
   }).sort((a,b)=>{
-    // primero los que requieren atención (recarga / vencidos)
-    const wa=(a.estado==="recarga"||a.vencido)?0:1, wb=(b.estado==="recarga"||b.vencido)?0:1;
-    return wa-wb || String(b.fecha||"").localeCompare(String(a.fecha||""));
+    // primero los que requieren atención (recarga / SharePoint pendiente / revisión / vencidos)
+    const at=(x)=> (x.estado==="recarga"||x.estado==="sp_pendiente"||x.estado==="revision"||x.vencido)?0:1;
+    return at(a)-at(b) || String(b.fecha||"").localeCompare(String(a.fecha||""));
   }),[filas, fEntidad, fTipo, fEstado, qq]);
 
-  const nRecarga = filas.filter(d=>d.estado==="recarga").length;
+  const nRecarga   = filas.filter(d=>d.estado==="recarga").length;      // ruta local REAL a resubir
+  const nSpPending = filas.filter(d=>d.estado==="sp_pendiente").length; // referencia SharePoint pendiente de vincular
+  const nRevision  = filas.filter(d=>d.estado==="revision").length;     // patrón no reconocido
   const badge=(estado,vencido)=>{
     if(vencido) return {t:"⚠ Vencido", c:C.accent};
     if(estado==="cargado") return {t:"✓ Cargado", c:C.green};
+    if(estado==="sp_pendiente") return {t:"🔗 Ref. SharePoint pendiente de vincular", c:C.blue};
+    if(estado==="revision") return {t:"⚠ Requiere revisión", c:C.warning};
     if(estado==="recarga") return {t:"⚠ Requiere recarga", c:C.warning};
     return {t:"Pendiente", c:C.muted2};
   };
@@ -1487,7 +1504,7 @@ function DocumentosTab({ clientes, embarques=[], exportadoras=[], especies=[], o
           <div style={{display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(160px,1fr))", gap:12, marginBottom:16}}>
             <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,padding:"12px 15px"}}><div style={{fontSize:10,color:C.muted,fontWeight:600,textTransform:"uppercase"}}>Documentación completa</div><div style={{fontSize:22,fontWeight:800,color:covPct===100?C.green:C.text,marginTop:3}}>{embCompletos}/{embCov.length}</div><div style={{fontSize:11,color:C.muted}}>embarques ({covPct}%)</div></div>
             <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,padding:"12px 15px"}}><div style={{fontSize:10,color:C.muted,fontWeight:600,textTransform:"uppercase"}}>Con documentos faltantes</div><div style={{fontSize:22,fontWeight:800,color:embIncompletos.length>0?C.warning:C.green,marginTop:3}}>{embIncompletos.length}</div><div style={{fontSize:11,color:C.muted}}>embarques (con estos filtros)</div></div>
-            <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,padding:"12px 15px"}}><div style={{fontSize:10,color:C.muted,fontWeight:600,textTransform:"uppercase"}}>Rutas locales a resubir</div><div style={{fontSize:22,fontWeight:800,color:nRecarga>0?C.warning:C.green,marginTop:3}}>{nRecarga}</div><div style={{fontSize:11,color:C.muted}}>documentos (total)</div></div>
+            <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,padding:"12px 15px"}}><div style={{fontSize:10,color:C.muted,fontWeight:600,textTransform:"uppercase"}}>Ref. SharePoint pendientes</div><div style={{fontSize:22,fontWeight:800,color:nSpPending>0?C.blue:C.green,marginTop:3}}>{nSpPending}</div><div style={{fontSize:11,color:C.muted}}>pendientes de vincular</div></div>
           </div>
           <div style={{fontSize:11,color:C.muted2,marginBottom:8}}>Obligatorios COMEX (config): {DOCS_COMEX_OBLIG.join(", ")}. La regla de bloqueo por transición aún no está configurada — solo semáforo/cobertura.</div>
           <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,overflowX:"auto"}}>
@@ -1514,6 +1531,16 @@ function DocumentosTab({ clientes, embarques=[], exportadoras=[], especies=[], o
         </div>
       ) : (
       <div>
+      {nSpPending>0 && (
+        <div style={{background:`${C.blue}11`, border:`1px solid ${C.blue}44`, borderRadius:10, padding:"10px 14px", marginBottom:10, fontSize:12, color:C.blue}}>
+          🔗 {nSpPending} referencia{nSpPending>1?"s":""} a documento{nSpPending>1?"s":""} en <b>SharePoint</b> (biblioteca sincronizada por OneDrive), pendiente{nSpPending>1?"s":""} de vincular. <b>No es necesario volver a subir</b> — los archivos están en línea; queda pendiente conectar el enlace web. Filtra por "SharePoint pendiente".
+        </div>
+      )}
+      {nRevision>0 && (
+        <div style={{background:`${C.warning}11`, border:`1px solid ${C.warning}44`, borderRadius:10, padding:"10px 14px", marginBottom:10, fontSize:12, color:C.warning}}>
+          ⚠ {nRevision} referencia{nRevision>1?"s":""} con un patrón no reconocido — requiere{nRevision>1?"n":""} revisión. Filtra por "Revisión".
+        </div>
+      )}
       {nRecarga>0 && (
         <div style={{background:`${C.warning}11`, border:`1px solid ${C.warning}44`, borderRadius:10, padding:"10px 14px", marginBottom:14, fontSize:12, color:C.warning}}>
           ⚠ {nRecarga} documento{nRecarga>1?"s":""} con ruta local del PC (no accesible por otros usuarios) — requiere{nRecarga>1?"n":""} volver a subirse al storage. Filtra por "Requiere recarga".
@@ -1535,6 +1562,8 @@ function DocumentosTab({ clientes, embarques=[], exportadoras=[], especies=[], o
         <select value={fEstado} onChange={e=>setFEstado(e.target.value)} style={{...inputSt, maxWidth:180}}>
           <option value="todos">Todos los estados</option>
           <option value="cargado">✓ Cargados</option>
+          <option value="sp_pendiente">🔗 SharePoint pendiente</option>
+          <option value="revision">⚠ Revisión</option>
           <option value="recarga">⚠ Requiere recarga</option>
           <option value="pendiente">Pendientes</option>
           <option value="vencido">Vencidos</option>
@@ -1572,7 +1601,9 @@ function DocumentosTab({ clientes, embarques=[], exportadoras=[], especies=[], o
                     <td style={{...td, textAlign:"right", whiteSpace:"nowrap"}}>
                       {d.adjunto
                         ? <button onClick={()=>window.open(d.url,"_blank")} style={{...btnSt(C.teal,true), padding:"3px 8px", fontSize:10, marginRight:3}}>📎 Ver / descargar</button>
-                        : <span style={{fontSize:10, color:d.estado==="recarga"?C.warning:C.muted2, marginRight:6}}>{d.estado==="recarga"?"⚠ recargar":"sin archivo"}</span>}
+                        : d.estado==="sp_pendiente"
+                          ? <button disabled title="El archivo está en SharePoint (biblioteca sincronizada por OneDrive). La vinculación web se habilitará en una fase próxima; no es necesario volver a subirlo." style={{...btnSt(C.blue,true), padding:"3px 8px", fontSize:10, marginRight:3, opacity:0.55, cursor:"default"}}>🔗 Vinculación SharePoint pendiente</button>
+                          : <span style={{fontSize:10, color:(d.estado==="recarga"||d.estado==="revision")?C.warning:C.muted2, marginRight:6}}>{d.estado==="recarga"?"⚠ recargar":d.estado==="revision"?"⚠ revisar":"sin archivo"}</span>}
                       {d.entidadTipo==="Embarque" && onVerEmbarque && (
                         <button onClick={()=>onVerEmbarque(d.oe)} title="Ir al embarque" style={{...btnSt(C.blue,true), padding:"3px 8px", fontSize:10}}>→ Ver embarque</button>
                       )}
@@ -3163,6 +3194,7 @@ function CarpetaComexPanel({ oe, onGuardar, canEdit }) {
   const [dirty,    setDirty]    = useState(false);
   const [uploading,setUploading]= useState(new Set());
   const [subTab,   setSubTab]   = useState("docs");
+  const [spAvisoIdx, setSpAvisoIdx] = useState(null); // idx donde se pegó una ruta SharePoint (rechazada, no persistida)
 
   function updDoc(idx,k,v){ setCx(p=>{ const d=[...p.docs]; d[idx]={...d[idx],[k]:v}; return {...p,docs:d}; }); setDirty(true); }
   function addDoc(){ setCx(p=>({...p,docs:[...p.docs,{id:uid(),tipo:"Otro",nombre:"",url:"",fuente:"manual",fechaCarga:"",estado:"pendiente"}]})); setDirty(true); }
@@ -3237,7 +3269,8 @@ function CarpetaComexPanel({ oe, onGuardar, canEdit }) {
           <div style={{display:"flex",flexDirection:"column",gap:5,marginBottom:10}}>
             {cx.docs.map((doc,idx)=>{
               const adjunto = esArchivoSubido(doc.url);       // archivo real subido (http)
-              const rutaLocal = doc.url && !adjunto;          // pegaron una ruta local del PC
+              const rutaLocal = doc.url && !adjunto;          // referencia no-http (ruta local o SharePoint sync)
+              const spPending = rutaLocal && clasificarReferenciaDoc(doc.url).clase==="sharepoint_synced_pending";
               const oblig = DOCS_COMEX_OBLIG.includes(doc.tipo);
               const estadoEf = adjunto ? (doc.estado==="aprobado"?"aprobado":"cargado") : "pendiente";
               const isUploading = uploading.has(idx);
@@ -3253,7 +3286,9 @@ function CarpetaComexPanel({ oe, onGuardar, canEdit }) {
                       : <div style={{fontSize:11,fontWeight:600,color:C.text,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{doc.tipo}{oblig&&<span title="Obligatorio" style={{color:C.accent,marginLeft:4}}>*</span>}</div>}
                     {doc.nombre&&doc.nombre!==doc.tipo&&adjunto&&<div style={{fontSize:9,color:C.muted,marginTop:1,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{doc.nombre}</div>}
                     {doc.fechaCarga&&adjunto&&<div style={{fontSize:9,color:C.muted2}}>{doc.fechaCarga}</div>}
-                    {rutaLocal&&<div style={{fontSize:9,color:C.accent,marginTop:1,fontWeight:600}}>⚠ Ruta local del PC — vuelve a subir el archivo</div>}
+                    {rutaLocal&&(spPending
+                      ? <div style={{fontSize:9,color:C.blue,marginTop:1,fontWeight:600}} title="Esta es una ruta sincronizada de SharePoint (OneDrive). Quedará pendiente de vinculación; no es necesario volver a subir el archivo.">🔗 Referencia SharePoint — pendiente de vincular</div>
+                      : <div style={{fontSize:9,color:C.accent,marginTop:1,fontWeight:600}}>⚠ Ruta local del PC — vuelve a subir el archivo</div>)}
                   </div>
                   {canEdit && adjunto
                     ? <select value={estadoEf} onChange={e=>updDoc(idx,"estado",e.target.value)}
@@ -3270,8 +3305,20 @@ function CarpetaComexPanel({ oe, onGuardar, canEdit }) {
                       style={{...btnSt(C.teal,true),padding:"3px 8px",fontSize:10,textDecoration:"none",flexShrink:0}}>📎 Ver</a>
                   )}
                   {canEdit && !adjunto && (
-                    <input value={doc.url||""} onChange={e=>{ const v=e.target.value; updDoc(idx,"url",v); updDoc(idx,"fuente","manual"); updDoc(idx,"estado", esArchivoSubido(v)?"cargado":"pendiente"); }}
+                    <input value={doc.url||""} onChange={e=>{ const v=e.target.value;
+                      // Prevención de recurrencia: una ruta local de SharePoint sincronizado NO se
+                      // acepta como enlace ni se persiste por el solo hecho de pegarla. El campo
+                      // (controlado) no la adopta; se muestra un aviso. Los http/otros siguen igual.
+                      if(clasificarReferenciaDoc(v).clase==="sharepoint_synced_pending"){ setSpAvisoIdx(idx); return; }
+                      if(spAvisoIdx===idx) setSpAvisoIdx(null);
+                      updDoc(idx,"url",v); updDoc(idx,"fuente","manual"); updDoc(idx,"estado", esArchivoSubido(v)?"cargado":"pendiente"); }}
                       placeholder="o pega un link http…" style={{...inputSt,width:150,padding:"3px 6px",fontSize:10,flexShrink:0}}/>
+                  )}
+                  {spAvisoIdx===idx && (
+                    <div style={{fontSize:9,color:C.blue,fontWeight:600,flexBasis:"100%",marginTop:2}}
+                      title="No se guarda una ruta local; los archivos están en línea en SharePoint.">
+                      🔗 Esta es una ruta sincronizada de SharePoint. Quedará pendiente de vinculación; no es necesario volver a subir el archivo (no se guardó la ruta).
+                    </div>
                   )}
                   {canEdit && (
                     <>
