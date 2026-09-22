@@ -74,3 +74,20 @@ export function leerSnapshot(crudo) {
   vacias.forEach(v => avisos.push(`la fila '${v}' viene vacía: no se carga.`));
   return { filas, faltan, vacias, avisos };
 }
+
+/** Lee el archivo del disco y lo parsea.
+ *  PowerShell 5.1 (`Set-Content -Encoding UTF8`, que usa reducir-respaldo.ps1)
+ *  antepone un BOM: hay que quitarlo o JSON.parse falla. Y el fallo no es
+ *  inocuo: el error de Node incluye el contenido del archivo, que acá son
+ *  datos financieros. Por eso el parseo va aislado y el mensaje no lo arrastra.
+ */
+export function leerArchivoSnapshot(ruta, fs) {
+  const txt = fs.readFileSync(ruta, 'utf8').replace(/^\uFEFF/, '');
+  let crudo;
+  try { crudo = JSON.parse(txt); }
+  catch (e) {
+    throw new SnapshotInvalido('El archivo no es JSON válido (¿se copió completo?). ' +
+      'No se muestra el contenido porque son datos financieros.');
+  }
+  return leerSnapshot(crudo);
+}

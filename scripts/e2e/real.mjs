@@ -18,7 +18,7 @@ import path from 'path';
 import { nuevoStore, instalarFake } from './fake.mjs';
 import { abrirApp, login, entrarFinanzas, irAFlujoEmpresas, elegirEmpresa, subTab, num } from './lib.mjs';
 import { recalcular, leerHojaFlujo } from './xls.mjs';
-import { leerSnapshot, SnapshotInvalido } from './cargarSnapshot.mjs';
+import { leerArchivoSnapshot, SnapshotInvalido } from './cargarSnapshot.mjs';
 
 const OUT = process.env.OUT_DIR || '.';
 const DESCARGAS = path.join(OUT, 'descargas-real');
@@ -36,7 +36,7 @@ if (!ruta || !fs.existsSync(ruta)) {
 // falta, en vez de seguir con una fila vacía.
 let leido;
 try {
-  leido = leerSnapshot(JSON.parse(fs.readFileSync(ruta, 'utf8')));
+  leido = leerArchivoSnapshot(ruta, fs);
 } catch (e) {
   if (e instanceof SnapshotInvalido) { console.error(`✗ ${e.message}`); process.exit(2); }
   console.error(`✗ No se pudo leer el archivo: ${e.message}`); process.exit(2);
