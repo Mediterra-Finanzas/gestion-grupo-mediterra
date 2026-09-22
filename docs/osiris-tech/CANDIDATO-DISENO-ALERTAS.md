@@ -1,5 +1,7 @@
 # Primera entrega Osiris · integración sobre la base vigente (2026-09-22)
 
+> Rebase posterior: Production y `origin/main` avanzaron durante la preparación a `f39699c09ea0c61e919361c8b73dfc3766b161bc` (Finanzas: campos numéricos; e2e). Sin archivos en común con el paquete. La base vigente del candidato es `f39699c`.
+
 **Rama:** `osiris/entrega1-inicio-ejecutivo` (local, sin push). **Base:** `origin/main` =
 Production = `36b2700ff6e382b46a6c9a2ebc3056d058074a2c` (`dpl_3uaQYG3nDGfjPhyz1qMdKnAGiYAC`), que incluye
 `3d916be` (Allegria Service, incidente de Tareas) y los avances de Flujo de Caja y Allegria.
@@ -8,7 +10,7 @@ usuarios, sin versiones de recuperación, sin hotfix de Tareas y **sin el commit
 en `OsirisModule.jsx` (esas líneas las cambia otra rama, `sec/staging-als-preview-isolation`; para la
 prueba aislada se usó una rama desechable `prueba/entrega1-revision`).
 
-Diff contra la base: 24 archivos, **+4707 / −0**. Solo agrega: `src/ux/*` (nuevo),
+Diff contra la base: 24 archivos, **+4724 / −0**. Solo agrega: `src/ux/*` (nuevo),
 `src/data/osirisCanonical.js` (nuevo; la vista usa solo `blobCounts`), pruebas, documentos y 3 bloques en
 `src/OsirisModule.jsx` (import, pestaña condicionada a `REACT_APP_OSIRIS_UX_PREVIEW==="1"` y render
 de solo lectura). No modifica ni borra nada de la base.
