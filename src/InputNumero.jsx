@@ -107,7 +107,13 @@ export default function InputNumero({
       disabled={disabled}
       title={title}
       style={style}
-      onFocus={() => setTxt(textoDeEdicion(value, formato))}
+      onFocus={(e) => {
+        setTxt(textoDeEdicion(value, formato));
+        // Seleccionar todo: la primera tecla reemplaza en vez de agregarse al
+        // valor que ya estaba, que es lo que uno espera al entrar a corregir.
+        const el = e.currentTarget;
+        setTimeout(() => { try { el.select(); } catch (_) {} }, 0);
+      }}
       onChange={(e) => setTxt(e.target.value)}
       onBlur={confirmar}
       onKeyDown={(e) => {

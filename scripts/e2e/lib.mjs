@@ -74,6 +74,10 @@ export function xq(s) { return s.includes('"') ? `concat('${s.replace(/'/g, "',\
 export async function ponerNumero(page, etiqueta, valor) {
   const el = inputTras(page, etiqueta);
   await el.waitFor({ timeout: 10000 });
+  // Entrar al campo primero: al recibir el foco pasa de "1.000.000" a crudo,
+  // y ese re-render puede pisar lo que se escriba en el mismo instante.
+  await el.click();
+  await page.waitForTimeout(80);
   await el.fill(String(valor));
   // InputNumero confirma al salir del campo, igual que hace el navegador
   // cuando el usuario aprieta otro control (mousedown → blur → click).
