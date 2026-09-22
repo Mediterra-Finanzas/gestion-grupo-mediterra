@@ -1,7 +1,7 @@
 /* eslint-disable */
 // Tests puros de friskuDocumentRefs (S1). Correr desde checkout sin .claude:
 // npm test friskuDocumentRefs
-import { clasificarReferenciaDoc, esSharePointPendiente, hashRutaLegacy, SP_LIBRARIES, decidirAplicacionRef, refTieneContenido, conservarDocsComex } from "./friskuDocumentRefs";
+import { clasificarReferenciaDoc, esSharePointPendiente, hashRutaLegacy, SP_LIBRARIES, esUrlDocumentoValida, avisoRefBorrador, refTieneContenido, conservarDocsComex } from "./friskuDocumentRefs";
 
 const RAIZ = "C:/Users/carolina/INVERSIONES MEDITERRA SPA/Frisku Foods SpA - Documentos";
 const REL_CARPETA = "FRUTA FRESCA/1. Clientes/3. IDEAL FRUITS/1. Exportadoras/COMEX_2026_2027/Agrokasa/Arándanos/HLBU9435288_AGO_2026";
@@ -99,43 +99,59 @@ describe("3. Pureza e invariantes", () => {
   });
 });
 
-// 4. S2.2 — decidirAplicacionRef: el borrador solo se aplica cuando es válido
-describe("4. decidirAplicacionRef (input transitorio)", () => {
-  it("escritura progresiva C / C:\\ / C:\\Users / ruta parcial → NUNCA se aplica", () => {
-    for (const parcial of ["C", "C:", "C:\\", "C:\\Users", "C:\\Users\\x\\INVERSIONES MEDITERRA SPA\\Frisku Foods SpA - Documentos\\FRUTA"]) {
-      const d = decidirAplicacionRef(parcial);
-      expect(d.aplicar).toBe(false);           // ningún parcial llega al modelo
-      expect(d.valorAplicado).toBe(undefined);
-    }
+// 4. S2.3 — esUrlDocumentoValida (validación pura, aplicación explícita) + avisoRefBorrador
+describe("4. esUrlDocumentoValida (validación pura de URL)", () => {
+  it("acepta http/https con hostname", () => {
+    expect(esUrlDocumentoValida("https://ejemplo.com/doc.pdf")).toBe(true);
+    expect(esUrlDocumentoValida("http://ejemplo.com/doc.pdf")).toBe(true);
+    expect(esUrlDocumentoValida("https://tenant.sharepoint.com/sites/Frisku/x.pdf")).toBe(true);
+    expect(esUrlDocumentoValida("https://bywovqayuzodbzwsriet.supabase.co/storage/v1/object/public/frisku-docs/a/b.pdf")).toBe(true);
   });
-  it("ruta SharePoint completa → no se aplica, aviso 'sharepoint'", () => {
-    const d = decidirAplicacionRef(`file:///${RAIZ}/${REL_CARPETA}/x.pdf`);
-    expect(d.aplicar).toBe(false);
-    expect(d.aviso).toBe("sharepoint");
+  it("rechaza esquemas incompletos http:// y https://", () => {
+    expect(esUrlDocumentoValida("http://")).toBe(false);
+    expect(esUrlDocumentoValida("https://")).toBe(false);
   });
-  it("ruta local real → no se aplica, aviso 'local'", () => {
-    const d = decidirAplicacionRef("C:/Users/x/Escritorio/factura.pdf");
-    expect(d.aplicar).toBe(false);
-    expect(d.aviso).toBe("local");
+  it("'https://a' es hostname técnicamente válido (la aplicación explícita es la garantía)", () => {
+    expect(esUrlDocumentoValida("https://a")).toBe(true);
   });
-  it("URL http(s) válida → se aplica tal cual", () => {
-    const d = decidirAplicacionRef("https://ejemplo.com/doc.pdf");
-    expect(d.aplicar).toBe(true);
-    expect(d.valorAplicado).toBe("https://ejemplo.com/doc.pdf");
-    expect(d.aviso).toBe(null);
+  it("rechaza URL con espacios", () => {
+    expect(esUrlDocumentoValida("https://ejemplo.com/a b.pdf")).toBe(false);
+    expect(esUrlDocumentoValida(" https://ejemplo.com/x.pdf")).toBe(false);
+    expect(esUrlDocumentoValida("https://ejemplo.com/x.pdf ")).toBe(false);
   });
-  it("vacío → NO se aplica (no borra la referencia existente; eliminar es acción explícita)", () => {
-    const d = decidirAplicacionRef("");
-    expect(d.aplicar).toBe(false);
-    expect(d.valorAplicado).toBe(undefined);
-    expect(d.aviso).toBe(null);
-    // espacios en blanco también cuentan como vacío
-    expect(decidirAplicacionRef("   ").aplicar).toBe(false);
+  it("rechaza credenciales incrustadas (user / user:pass @)", () => {
+    expect(esUrlDocumentoValida("https://user:pass@ejemplo.com/x.pdf")).toBe(false);
+    expect(esUrlDocumentoValida("https://user@ejemplo.com/x.pdf")).toBe(false);
   });
-  it("orden de eventos: teclear parcial→parcial→SharePoint completo nunca marca aplicar", () => {
-    const seq = ["f", "fi", "file:///C:/Users/x/INVERSIONES MEDITERRA SPA/Frisku Foods SpA - Documentos/FRUTA/doc.pdf"];
-    const aplicados = seq.map(v => decidirAplicacionRef(v).aplicar);
-    expect(aplicados).toEqual([false, false, false]); // ningún paso aplica una ruta
+  it("rechaza otros esquemas y rutas locales/SharePoint/parciales/vacío", () => {
+    expect(esUrlDocumentoValida("")).toBe(false);
+    expect(esUrlDocumentoValida("C")).toBe(false);
+    expect(esUrlDocumentoValida("C:\\")).toBe(false);
+    expect(esUrlDocumentoValida("C:/Users/x/factura.pdf")).toBe(false);
+    expect(esUrlDocumentoValida(`file:///${RAIZ}/${REL_CARPETA}/x.pdf`)).toBe(false);
+    expect(esUrlDocumentoValida("ftp://host/x.pdf")).toBe(false);
+    expect(esUrlDocumentoValida("javascript:alert(1)")).toBe(false);
+  });
+  it("PURA: no transforma el valor (solo devuelve bool) y no lanza con basura", () => {
+    expect(() => esUrlDocumentoValida(null)).not.toThrow();
+    expect(() => esUrlDocumentoValida(undefined)).not.toThrow();
+    expect(() => esUrlDocumentoValida("::::")).not.toThrow();
+    expect(esUrlDocumentoValida("::::")).toBe(false);
+  });
+});
+
+describe("4b. avisoRefBorrador (solo feedback, no decide aplicación)", () => {
+  it("vacío o URL http(s) en curso → sin aviso", () => {
+    expect(avisoRefBorrador("")).toBe(null);
+    expect(avisoRefBorrador("   ")).toBe(null);
+    expect(avisoRefBorrador("https://a")).toBe(null);
+    expect(avisoRefBorrador("http://")).toBe(null);
+  });
+  it("ruta SharePoint sincronizada → 'sharepoint'; local/parcial/desconocida → 'local'", () => {
+    expect(avisoRefBorrador(`file:///${RAIZ}/${REL_CARPETA}/x.pdf`)).toBe("sharepoint");
+    expect(avisoRefBorrador("C:/Users/x/Escritorio/factura.pdf")).toBe("local");
+    expect(avisoRefBorrador("C:\\Users")).toBe("local");
+    expect(avisoRefBorrador("algo raro")).toBe("local");
   });
 });
 

@@ -26,7 +26,7 @@ import {
   liqsActivasOE, upsertPorId, identidadUsuario, evaluarConfirmacion, clavesBorradorDeOp,
   entityBaseDe, draftEntityKey, clavesRecuperablesDeEntidad, validarUnicidadOE,
 } from "./friskuLiquidacionesLogic.js";
-import { clasificarReferenciaDoc, decidirAplicacionRef, conservarDocsComex } from "./friskuDocumentRefs.js";
+import { clasificarReferenciaDoc, esUrlDocumentoValida, avisoRefBorrador, conservarDocsComex } from "./friskuDocumentRefs.js";
 import AvisoPersistencia, { construirAviso } from "./AvisoPersistencia";
 import { FriskuBIProvider, useFriskuBI, FRISKU_DIMS, FRISKU_METRICS, fmtMetric,
          mComFriskuUSD, mVentaUSD, mFobUSD, mComClienteUSD, groupByDims, invertSelection } from "./friskuBI.js";
@@ -3174,28 +3174,38 @@ function comexEstado(oe) {
   return { ok, total, faltan: total - ok, completo: (total - ok)===0 };
 }
 
-// Input transitorio para REEMPLAZAR la referencia de un documento (S2.2 + conservación).
-// Mantiene un BORRADOR local que representa una referencia NUEVA; nunca precarga ni revela
-// la ruta local/SharePoint legacy (esa se explica aparte con "Referencia SharePoint pendiente
-// de vincular"). Sólo llama onAplicar cuando el borrador es un enlace http(s) válido. Un valor
-// parcial (C, C:\, C:\Users…), una ruta local real o una ruta SharePoint sincronizada NO se
-// aplican, y vaciar el campo tampoco aplica (no borra la referencia existente: eso es el ✕
-// explícito). Si cambia el documento (documentKey) o su referencia (valorActual: carga,
-// reemplazo o limpieza), el borrador y su aviso se descartan → jamás se aplica un borrador viejo.
+// Input transitorio para REEMPLAZAR la referencia de un documento (S2.3, aplicación EXPLÍCITA).
+// Teclear SOLO modifica el borrador local: onChange NUNCA llama onAplicar/updDoc/setCx ni
+// dispara guardado. El borrador empieza vacío y no revela la ruta local/SharePoint legacy (esa
+// se explica aparte con "Referencia SharePoint pendiente de vincular"). La URL se aplica solo por
+// acción explícita: botón "Aplicar enlace" (deshabilitado hasta que el borrador sea una URL
+// http(s) válida) o Enter, y una sola vez; recién ahí se limpia el borrador y el aviso. No se
+// aplica al perder foco (sin onBlur). Vaciar el campo NO borra la referencia existente (eso es el
+// ✕ explícito). Rutas locales/SharePoint nunca se aplican y muestran su aviso, sin exponer el
+// username. Si cambia el documento (documentKey) o su referencia (valorActual: carga/reemplazo/
+// limpieza), el borrador y el aviso se descartan → jamás se aplica un borrador viejo.
 export function EntradaRefManual({ valorActual = "", documentKey, onAplicar }) {
   const [draft, setDraft] = useState("");
   const [aviso, setAviso] = useState(null);
   useEffect(() => { setDraft(""); setAviso(null); }, [valorActual, documentKey]);
+  const valida = esUrlDocumentoValida(draft);
+  function aplicar() {
+    if (!esUrlDocumentoValida(draft)) return; // revalida; borrador vacío/ inválido no hace nada
+    onAplicar(draft);                          // URL completa, exactamente una vez
+    setDraft(""); setAviso(null);              // limpiar SOLO después de aplicar
+  }
   return (
     <>
       <input value={draft} placeholder="reemplazar: link http…"
         style={{...inputSt,width:150,padding:"3px 6px",fontSize:10,flexShrink:0}}
-        onChange={e=>{
-          const v = e.target.value; setDraft(v);
-          const d = decidirAplicacionRef(v);   // decisión pura: solo http(s) válido se aplica
-          setAviso(d.aviso);
-          if(d.aplicar) onAplicar(d.valorAplicado);
-        }}/>
+        onChange={e=>{ const v=e.target.value; setDraft(v); setAviso(avisoRefBorrador(v)); }}
+        onKeyDown={e=>{ if(e.key==="Enter"){ e.preventDefault(); aplicar(); } }}/>
+      <button type="button" onClick={aplicar} disabled={!valida}
+        title={valida?"Aplicar este enlace al documento":"Ingresa una URL http(s) válida"}
+        style={{...btnSt(C.teal, false), padding:"3px 8px", fontSize:10, flexShrink:0,
+                cursor:valida?"pointer":"not-allowed", opacity:valida?1:0.5}}>
+        Aplicar enlace
+      </button>
       {aviso==="sharepoint" && (
         <div style={{fontSize:9,color:C.blue,fontWeight:600,flexBasis:"100%",marginTop:2}}
           title="No se guarda una ruta local; los archivos están en línea en SharePoint.">

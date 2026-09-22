@@ -107,24 +107,35 @@ export function esSharePointPendiente(rawUrl) {
   return clasificarReferenciaDoc(rawUrl).clase === "sharepoint_synced_pending";
 }
 
-// ── S2.2: decisión de aplicación de un borrador de campo manual ──
-// El input de reemplazo manual mantiene un BORRADOR local que representa una NUEVA
-// referencia; SOLO se aplica al documento (doc.url) cuando es un enlace válido http(s).
-// Cualquier otra cosa —ruta parcial (C, C:\, C:\Users…), ruta local real o ruta SharePoint
-// sincronizada— NO se aplica: así ningún valor intermedio ni una ruta local llega al modelo
-// por el solo hecho de teclear. El VACÍO tampoco se aplica: un borrador vacío significa
-// "no se ingresó reemplazo", no "borrar la referencia existente"; la eliminación es una
-// acción explícita aparte (botón ✕), nunca un efecto de vaciar el campo transitorio.
-// Función PURA (no muta, no persiste). Devuelve { aplicar, valorAplicado?, aviso }.
-//   aviso ∈ null | "sharepoint" | "local"
-export function decidirAplicacionRef(valor) {
+// ── S2.3: validación de una URL de documento (aplicación EXPLÍCITA) ──
+// El input de reemplazo manual mantiene un BORRADOR local; NADA se aplica al modelo por
+// teclear. La aplicación es una acción explícita (botón "Aplicar enlace" o Enter) y solo
+// procede si el borrador es una URL http(s) válida. Este validador es PURO: usa new URL(),
+// no hace red y NO transforma el valor. Acepta exclusivamente http/https con hostname;
+// rechaza otros esquemas, hosts vacíos, credenciales incrustadas (user:pass@) y espacios.
+// (No restringe dominios: puede ser SharePoint, Supabase u otra referencia HTTPS legítima.)
+export function esUrlDocumentoValida(valor) {
   const v = valor == null ? "" : String(valor);
-  if (v.trim() === "") return { aplicar: false, aviso: null }; // vacío = sin reemplazo; NO borra lo existente
-  if (/^https?:\/\/\S+/i.test(v)) return { aplicar: true, valorAplicado: v, aviso: null }; // http(s) con host → válido
-  if (/^https?:\/\//i.test(v)) return { aplicar: false, aviso: null }; // "http://" aún incompleto: se sigue tecleando
+  if (v === "" || /\s/.test(v)) return false;          // vacío o con cualquier espacio → inválido
+  let u;
+  try { u = new URL(v); } catch (e) { return false; }  // no parseable → inválido (no lanza)
+  if (u.protocol !== "http:" && u.protocol !== "https:") return false; // solo http/https
+  if (!u.hostname) return false;                        // hostname obligatorio ("http://" → sin host)
+  if (u.username || u.password) return false;           // sin credenciales incrustadas
+  return true;
+}
+
+// Aviso de feedback MIENTRAS se teclea el borrador (S2.3). Solo para mostrar; NO decide
+// aplicación ni toca el modelo. null cuando está vacío o se está tecleando una URL http(s);
+// "sharepoint" para una ruta SharePoint sincronizada; "local" para ruta local/parcial/
+// desconocida. PURA (no muta, no persiste). aviso ∈ null | "sharepoint" | "local".
+export function avisoRefBorrador(valor) {
+  const v = valor == null ? "" : String(valor);
+  if (v.trim() === "") return null;
+  if (/^https?:\/\//i.test(v)) return null;             // URL http(s) en curso → sin aviso
   const clase = clasificarReferenciaDoc(v).clase;
-  if (clase === "sharepoint_synced_pending") return { aplicar: false, aviso: "sharepoint" };
-  return { aplicar: false, aviso: "local" }; // local_real / parcial / unknown → NO se aplica
+  if (clase === "sharepoint_synced_pending") return "sharepoint";
+  return "local";                                       // local_real / parcial / unknown
 }
 
 // ── Conservación de referencias documentales legacy (Hallazgo 1) ──
