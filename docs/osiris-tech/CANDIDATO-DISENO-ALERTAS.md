@@ -1,3 +1,20 @@
+# Primera entrega Osiris · integración sobre la base vigente (2026-09-22)
+
+**Rama:** `osiris/entrega1-inicio-ejecutivo` (local, sin push). **Base:** `origin/main` =
+Production = `36b2700ff6e382b46a6c9a2ebc3056d058074a2c` (`dpl_3uaQYG3nDGfjPhyz1qMdKnAGiYAC`), que incluye
+`3d916be` (Allegria Service, incidente de Tareas) y los avances de Flujo de Caja y Allegria.
+Alcance: solo la pestaña Inicio ejecutivo y alertas internas, de solo lectura. Sin transición de
+usuarios, sin versiones de recuperación, sin hotfix de Tareas y **sin el commit de destino por entorno**
+en `OsirisModule.jsx` (esas líneas las cambia otra rama, `sec/staging-als-preview-isolation`; para la
+prueba aislada se usó una rama desechable `prueba/entrega1-revision`).
+
+Diff contra la base: 24 archivos, **+4707 / −0**. Solo agrega: `src/ux/*` (nuevo),
+`src/data/osirisCanonical.js` (nuevo; la vista usa solo `blobCounts`), pruebas, documentos y 3 bloques en
+`src/OsirisModule.jsx` (import, pestaña condicionada a `REACT_APP_OSIRIS_UX_PREVIEW==="1"` y render
+de solo lectura). No modifica ni borra nada de la base.
+
+---
+
 # Candidato Osiris · pestaña Inicio ejecutivo y alertas internas
 
 **Rama:** `osiris/pestana-inicio-ejecutivo` (local, sin push). **Base:** `origin/main` `27b423b`.
@@ -124,7 +141,7 @@ existieran, cambiarían el destino). La vista queda visible para todo usuario co
 Royalties distinto de `sin_acceso`, sin filtro por usuario.
 
 **Desactivar la bandera.** Quitar la variable (o dejarla distinta de `1`) y desplegar: la pestaña
-desaparece y el componente del panel no entra al bundle. No toca datos: la vista es de solo lectura
+desaparece y la vista no se renderiza. El código del panel sí queda en el bundle (medido 2026-09-22), inactivo sin la bandera. No toca datos: la vista es de solo lectura
 y no hay migraciones ni cambios de esquema.
 
 **Rollback de código.** Sin tocar datos: en Vercel, Instant Rollback al deployment productivo
