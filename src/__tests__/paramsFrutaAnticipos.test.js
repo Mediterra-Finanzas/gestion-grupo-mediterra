@@ -121,7 +121,12 @@ test('registrar un cobro deja fecha, monto, nota y usuario', () => {
   const setParams = (fn) => { guardado = typeof fn === 'function' ? fn(params()) : fn; };
   render(<ParamsFruta seasonKey="2026-2027" fruta="cerezas" params={params()} setParams={setParams} usuario="Angelo Huerta"/>);
   fireEvent.click(screen.getAllByText(/Registrar cobro/)[0]);
-  fireEvent.change(screen.getByPlaceholderText('US$'), { target:{ value:'15000' } });
+  // El campo de monto confirma al salir (blur), que es lo que hace el navegador
+  // cuando apretas Guardar: mousedown → blur → click. fireEvent.click no lo emula.
+  const monto = screen.getByPlaceholderText('US$');
+  fireEvent.focus(monto);
+  fireEvent.change(monto, { target:{ value:'15.000' } });   // con separador de miles
+  fireEvent.blur(monto);
   fireEvent.change(screen.getByPlaceholderText('nota / referencia'), { target:{ value:'Transf. BICE' } });
   fireEvent.click(screen.getByText('Guardar'));
   const reas = guardado["2026-2027"].cerezas.anticipos_cliente[0].realizaciones;

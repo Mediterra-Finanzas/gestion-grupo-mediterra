@@ -1,5 +1,6 @@
 /* eslint-disable */
 import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
+import InputNumero from "./InputNumero.jsx";
 import EEFFModule from './EEFFModule.jsx';
 import RendicionesModule from './RendicionesModule.jsx';
 import { theme } from './theme';
@@ -1832,8 +1833,8 @@ function AnticipList({items,onChange,label,meses=MESES_65,base=0,tipo="cliente",
                   {meses.map(m=><option key={m} value={m}>{m}</option>)}
                   {row.mes&&!meses.includes(row.mes)&&<option value={row.mes}>{row.mes} (fuera de temp.)</option>}
                 </select>
-                <input type="number" value={row.usd_kg||""} placeholder="0" disabled={readOnly}
-                  onChange={e=>updRow(i,"usd_kg",parseFloat(e.target.value)||0)}
+                <InputNumero formato="tasa" value={row.usd_kg||""} placeholder="0" disabled={readOnly}
+                  onChange={n=>updRow(i,"usd_kg",n)}
                   style={{...inSt,width:78,textAlign:"right"}}/>
                 <span style={{fontSize:10,color:C.muted}}>US$/kg</span>
                 {!readOnly&&(
@@ -1917,7 +1918,7 @@ function AnticipList({items,onChange,label,meses=MESES_65,base=0,tipo="cliente",
                   borderRadius:7,display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}}>
                   <span style={{fontSize:10,color:C.muted,fontWeight:700}}>{esCli?"Cobro recibido":"Pago efectuado"}:</span>
                   <input type="date" value={draft.fecha} onChange={e=>setDraft({...draft,fecha:e.target.value})} style={inSt}/>
-                  <input type="number" value={draft.usd} placeholder="US$" onChange={e=>setDraft({...draft,usd:e.target.value})}
+                  <InputNumero formato="monto" value={draft.usd} placeholder="US$" onChange={n=>setDraft({...draft,usd:n})}
                     style={{...inSt,width:110,textAlign:"right"}}/>
                   <input type="text" value={draft.nota} placeholder="nota / referencia"
                     onChange={e=>setDraft({...draft,nota:e.target.value})} style={{...inSt,flex:1,minWidth:120}}/>
@@ -1958,8 +1959,8 @@ function DistList({items,onChange,totalMonto=0,esSemanal=false,meses=MESES_65}) 
               {meses.map(m=><option key={m} value={m}>{m}</option>)}
               {row.mes&&!meses.includes(row.mes)&&<option value={row.mes}>{row.mes} (fuera de temp.)</option>}
             </select>
-            <input type="number" min="0" max="100" value={row.pct||""} placeholder="0"
-              onChange={e=>updRow(i,"pct",parseFloat(e.target.value)||0)}
+            <InputNumero formato="tasa" value={row.pct||""} placeholder="0"
+              onChange={n=>updRow(i,"pct",n)}
               style={{width:58,padding:"4px 6px",background:C.card2,border:`1px solid ${C.border}`,borderRadius:6,color:C.text,fontSize:11,outline:"none",textAlign:"right"}}/>
             <span style={{fontSize:10,color:C.muted}}>%</span>
             {monto>0&&(
@@ -2018,15 +2019,15 @@ function ParamsRebate({seasonKey, params, setParams}) {
           <div style={{fontSize:10,color:C.muted,marginBottom:3}}>Rebate US$/kg exportado</div>
           <div style={{display:"flex",alignItems:"center",gap:3}}>
             <span style={{fontSize:11,color:C.muted}}>$</span>
-            <input type="number" step="0.01" disabled={ro} value={r.usdKg??""} placeholder="0.12"
-              onChange={e=>upd("usdKg",parseFloat(e.target.value)||0)} style={iSt}/>
+            <InputNumero formato="tasa" disabled={ro} value={r.usdKg??""} placeholder="0.12"
+              onChange={n=>upd("usdKg",n)} style={iSt}/>
           </div>
         </div>
         <div>
           <div style={{fontSize:10,color:C.muted,marginBottom:3}}>% de kilos con rebate</div>
           <div style={{display:"flex",alignItems:"center",gap:3}}>
-            <input type="number" min="0" max="100" disabled={ro} value={r.pctKilos??""} placeholder="100"
-              onChange={e=>upd("pctKilos",parseFloat(e.target.value)||0)} style={iSt}/>
+            <InputNumero formato="tasa" disabled={ro} value={r.pctKilos??""} placeholder="100"
+              onChange={n=>upd("pctKilos",n)} style={iSt}/>
             <span style={{fontSize:11,color:C.muted}}>%</span>
           </div>
         </div>
@@ -2114,7 +2115,7 @@ export function ParamsFruta({seasonKey,fruta,params,setParams,saldosBancos=null,
                 <div style={{fontSize:10,color:C.muted,marginBottom:3}}>{lbl}</div>
                 <div style={{display:"flex",alignItems:"center",gap:3}}>
                   {pre&&<span style={{fontSize:11,color:C.muted}}>{pre}</span>}
-                  <input type="number" value={p[field]||""} placeholder="0" onChange={e=>upd(field,parseFloat(e.target.value)||0)} style={iSt}/>
+                  <InputNumero formato="monto" value={p[field]||""} placeholder="0" onChange={n=>upd(field,n)} style={iSt}/>
                   {suf&&<span style={{fontSize:11,color:C.muted}}>{suf}</span>}
                 </div>
               </div>
@@ -2141,7 +2142,7 @@ export function ParamsFruta({seasonKey,fruta,params,setParams,saldosBancos=null,
                 <div style={{fontSize:10,color:C.muted,marginBottom:3}}>{lbl}</div>
                 <div style={{display:"flex",alignItems:"center",gap:3}}>
                   {pre&&<span style={{fontSize:11,color:C.muted}}>{pre}</span>}
-                  <input type="number" value={p[field]||""} placeholder="0" onChange={e=>upd(field,parseFloat(e.target.value)||0)} style={iSt}/>
+                  <InputNumero formato="monto" value={p[field]||""} placeholder="0" onChange={n=>upd(field,n)} style={iSt}/>
                   {suf&&<span style={{fontSize:11,color:C.muted}}>{suf}</span>}
                 </div>
               </div>
@@ -2343,8 +2344,8 @@ function ParamsProducto({seasonKey,prodId,paramsEmp,setParamsEmp,empColor="#2563
             <div style={{fontSize:10,color:C.muted,marginBottom:3}}>{lbl}</div>
             <div style={{display:"flex",alignItems:"center",gap:3}}>
               {pre&&<span style={{fontSize:11,color:C.muted}}>{pre}</span>}
-              <input type="number" value={p[field]||""} placeholder="0"
-                onChange={e=>upd(field,parseFloat(e.target.value)||0)} style={iSt}/>
+              <InputNumero formato="monto" value={p[field]||""} placeholder="0"
+                onChange={n=>upd(field,n)} style={iSt}/>
             </div>
           </div>
         ))}
@@ -2438,8 +2439,8 @@ function AnticipListGen({items,onChange,totalUnits=0,label="usd_unit"}) {
             <option value="">— mes —</option>
             {mesesSel.map(m=><option key={m} value={m}>{m}</option>)}
           </select>
-          <input type="number" value={row[label]||""} placeholder="0"
-            onChange={e=>updRow(i,label,parseFloat(e.target.value)||0)}
+          <InputNumero formato="monto" value={row[label]||""} placeholder="0"
+            onChange={n=>updRow(i,label,n)}
             style={{width:80,padding:"4px 7px",background:C.card2,border:`1px solid ${C.border}`,
               borderRadius:6,color:C.text,fontSize:11,outline:"none",textAlign:"right"}}/>
           <span style={{fontSize:10,color:C.muted}}>$/unid</span>
@@ -2666,8 +2667,8 @@ function ParamsAllpa({selSeason, paramsAF, setParamsAF, readOnly}) {
                       <div style={{fontSize:10,color:C.muted,marginBottom:3}}>Retorno US$/kg</div>
                       <div style={{display:"flex",gap:3,alignItems:"center"}}>
                         <span style={{fontSize:10,color:C.muted}}>$</span>
-                        <input type="number" step="0.01" value={v.usd_kg||""} placeholder="0.00"
-                          onChange={e=>updVar(selVar,"usd_kg",e.target.value)}
+                        <InputNumero formato="tasa" value={v.usd_kg||""} placeholder="0.00"
+                          onChange={n=>updVar(selVar,"usd_kg",n)}
                           style={{...iSt,width:90,textAlign:"right"}} disabled={readOnly}/>
                       </div>
                     </div>
@@ -2701,8 +2702,8 @@ function ParamsAllpa({selSeason, paramsAF, setParamsAF, readOnly}) {
                           border:`1px solid ${kg?C.border2:C.border}`}}>
                           <div style={{fontSize:9,color:kg?C.accentL:C.muted,fontWeight:600,marginBottom:3}}>{mes}</div>
                           <div style={{display:"flex",gap:3,alignItems:"center"}}>
-                            <input type="number" value={kg} placeholder="0"
-                              onChange={e=>updVarKg(selVar,mes,e.target.value)}
+                            <InputNumero formato="monto" value={kg} placeholder="0"
+                              onChange={n=>updVarKg(selVar,mes,n)}
                               style={{width:"100%",padding:"3px 5px",background:C.card2,
                                 border:`1px solid ${C.border}`,borderRadius:5,
                                 color:C.text,fontSize:10,outline:"none",textAlign:"right"}}
@@ -2726,8 +2727,8 @@ function ParamsAllpa({selSeason, paramsAF, setParamsAF, readOnly}) {
                         {mesesSel.map(m=><option key={m}>{m}</option>)}
                       </select>
                       <span style={{fontSize:10,color:C.muted}}>$</span>
-                      <input type="number" step="0.01" value={a.usd_kg||""} placeholder="US$/kg"
-                        onChange={e=>updVarAnt(selVar,ai,"usd_kg",e.target.value)}
+                      <InputNumero formato="tasa" value={a.usd_kg||""} placeholder="US$/kg"
+                        onChange={n=>updVarAnt(selVar,ai,"usd_kg",n)}
                         style={{...iSt,width:80,textAlign:"right"}} disabled={readOnly}/>
                       <span style={{fontSize:10,color:C.muted}}>/kg</span>
                       {totalKg>0&&Number(a.usd_kg)>0&&(
@@ -2757,8 +2758,8 @@ function ParamsAllpa({selSeason, paramsAF, setParamsAF, readOnly}) {
               <div style={{fontSize:10,color:C.muted,marginBottom:4}}>US$/kg cosechado</div>
               <div style={{display:"flex",gap:3,alignItems:"center"}}>
                 <span style={{fontSize:10,color:C.muted}}>$</span>
-                <input type="number" step="0.001" value={d.cosecha?.usd_kg||""} placeholder="0.000"
-                  onChange={e=>updCosecha("usd_kg",e.target.value)}
+                <InputNumero formato="tasa" value={d.cosecha?.usd_kg||""} placeholder="0.000"
+                  onChange={n=>updCosecha("usd_kg",n)}
                   style={{...iSt,width:100,textAlign:"right"}} disabled={readOnly}/>
                 <span style={{fontSize:10,color:C.muted}}>/kg</span>
               </div>
@@ -2780,8 +2781,8 @@ function ParamsAllpa({selSeason, paramsAF, setParamsAF, readOnly}) {
                   <option value="">— mes —</option>
                   {mesesSel.map(m=><option key={m}>{m}</option>)}
                 </select>
-                <input type="number" min="0" max="100" value={sp.pct||""} placeholder="%"
-                  onChange={e=>{const arr=[...(d.cosecha?.semanas_pago||[])];arr[i]={...sp,pct:Number(e.target.value)||0};updCosecha("semanas_pago",arr);}}
+                <InputNumero formato="tasa" value={sp.pct||""} placeholder="%"
+                  onChange={n=>{const arr=[...(d.cosecha?.semanas_pago||[])];arr[i]={...sp,pct:n};updCosecha("semanas_pago",arr);}}
                   style={{...iSt,width:60,textAlign:"right"}} disabled={readOnly}/>
                 <span style={{fontSize:10,color:C.muted}}>%</span>
                 {totalKgAll>0&&Number(d.cosecha?.usd_kg)>0&&Number(sp.pct)>0&&(
@@ -2806,14 +2807,14 @@ function ParamsAllpa({selSeason, paramsAF, setParamsAF, readOnly}) {
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:14}}>
             <div>
               <div style={{fontSize:10,color:C.muted,marginBottom:4}}>Costo por persona (US$)</div>
-              <input type="number" value={d.transporte?.costo_persona||""} placeholder="0"
-                onChange={e=>updTransporte("costo_persona",e.target.value)}
+              <InputNumero formato="monto" value={d.transporte?.costo_persona||""} placeholder="0"
+                onChange={n=>updTransporte("costo_persona",n)}
                 style={{...iSt,width:"100%",boxSizing:"border-box",textAlign:"right"}} disabled={readOnly}/>
             </div>
             <div>
               <div style={{fontSize:10,color:C.muted,marginBottom:4}}>N° personas</div>
-              <input type="number" value={d.transporte?.personas||""} placeholder="0"
-                onChange={e=>updTransporte("personas",e.target.value)}
+              <InputNumero formato="entero" value={d.transporte?.personas||""} placeholder="0"
+                onChange={n=>updTransporte("personas",n)}
                 style={{...iSt,width:"100%",boxSizing:"border-box",textAlign:"right"}} disabled={readOnly}/>
             </div>
           </div>
@@ -2945,7 +2946,7 @@ function ParamsAllpaPeru({ paramsAP, setParamsAP, readOnly }) {
         </div>
         <div style={{display:"flex",gap:16,alignItems:"center",flexWrap:"wrap",marginBottom:12}}>
           <label style={{fontSize:12,color:C.muted}}>Precio USD/kg&nbsp;
-            <input type="number" step="0.01" disabled={ro} value={precio||""} onChange={e=>updPrecio(e.target.value)} style={{...inp,width:80}}/>
+            <InputNumero formato="monto" disabled={ro} value={precio||""} onChange={n=>updPrecio(n)} style={{...inp,width:80}}/>
           </label>
           <div style={{fontSize:12,color:C.muted}}>Producción total: <strong style={{color:C.text}}>{Math.round(totKg).toLocaleString("es-CL")} kg</strong></div>
           <div style={{fontSize:12,color:C.muted}}>Ingreso año: <strong style={{color:"#22c55e"}}>{$$(totIng)}</strong></div>
@@ -2961,7 +2962,7 @@ function ParamsAllpaPeru({ paramsAP, setParamsAP, readOnly }) {
                 <td style={{padding:"6px 8px",color:C.muted}}>Kilos</td>
                 {MESN.map((m,mi)=>(
                   <td key={m} style={{padding:"3px 4px"}}>
-                    <input type="number" disabled={ro} value={kgMes[mi]||""} onChange={e=>updKg(mi,e.target.value)} style={inp}/>
+                    <InputNumero formato="monto" disabled={ro} value={kgMes[mi]||""} onChange={n=>updKg(mi,n)} style={inp}/>
                   </td>
                 ))}
               </tr>
@@ -2999,8 +3000,8 @@ function ParamsAllpaPeru({ paramsAP, setParamsAP, readOnly }) {
                       </select>
                     </td>
                     <td style={{padding:"3px 6px"}}>
-                      <input type="number" step="1000" disabled={ro} value={a.monto||""}
-                        onChange={e=>updAnt(ai,"monto",e.target.value)} style={{...inp,width:110}}/>
+                      <InputNumero formato="monto" disabled={ro} value={a.monto||""}
+                        onChange={n=>updAnt(ai,"monto",n)} style={{...inp,width:110}}/>
                     </td>
                     <td style={{padding:"3px 6px",textAlign:"center"}}>
                       {!ro&&<button onClick={()=>delAnt(ai)} style={{background:"none",border:"none",color:C.red,cursor:"pointer",fontSize:12}}>🗑</button>}
@@ -3030,7 +3031,7 @@ function ParamsAllpaPeru({ paramsAP, setParamsAP, readOnly }) {
                   <div style={{fontSize:10,color:C.muted,marginBottom:4}}>{rd.lbl}</div>
                   <div style={{display:"flex",alignItems:"center",gap:4}}>
                     <span style={{fontSize:11,color:C.muted}}>US$</span>
-                    <input type="number" step="0.01" disabled={ro} value={rates[rd.key]??""} onChange={e=>updRate(rd.key,e.target.value)} style={{...inp,width:66}}/>
+                    <InputNumero formato="tasa" disabled={ro} value={rates[rd.key]??""} onChange={n=>updRate(rd.key,n)} style={{...inp,width:66}}/>
                     <span style={{fontSize:10,color:C.muted}}>/kg</span>
                   </div>
                   <div style={{fontSize:10,color:"#f59e0b",marginTop:4,fontWeight:700}}>{cost?$$(cost):"—"}/año</div>
@@ -3165,8 +3166,8 @@ function ParamsOsiris({ selSeason, paramsOsiris, setParamsOsiris, readOnly }) {
                     {mesesSeason.map(m=><option key={m} value={m}>{m}</option>)}
                     {r.mes_cobro&&!mesesSeason.includes(r.mes_cobro)&&<option value={r.mes_cobro}>{r.mes_cobro} (fuera de temporada)</option>}
                   </select>
-                  <input type="number" disabled={ro} value={r.cantidad||""} onChange={e=>upd(sec.key,i,'cantidad',e.target.value)} style={{...inp,textAlign:"right"}}/>
-                  <input type="number" step="0.01" disabled={ro} value={r.tarifa||""} onChange={e=>upd(sec.key,i,'tarifa',e.target.value)} style={{...inp,textAlign:"right"}}/>
+                  <InputNumero formato="monto" disabled={ro} value={r.cantidad||""} onChange={n=>upd(sec.key,i,'cantidad',n)} style={{...inp,textAlign:"right"}}/>
+                  <InputNumero formato="tasa" disabled={ro} value={r.tarifa||""} onChange={n=>upd(sec.key,i,'tarifa',n)} style={{...inp,textAlign:"right"}}/>
                   <div style={{fontSize:12,fontWeight:700,color:ing?"#22c55e":C.muted2,textAlign:"right"}}>{ing?$$(ing):"—"}</div>
                   {!ro&&<button type="button" onClick={()=>del(sec.key,i)} style={{padding:"4px 8px",borderRadius:6,background:"#fee2e2",border:"none",color:"#991b1b",cursor:"pointer",fontSize:11}}>×</button>}
                 </div>
@@ -3253,13 +3254,13 @@ function ParamsIntegrity({selSeason, paramsIF, setParamsIF, readOnly}) {
                       style={{...iSt,width:180}}/>
                   </td>
                   <td style={{padding:"6px 10px",textAlign:"right"}}>
-                    <input type="number" value={cli.ha||""} onChange={e=>updCli(ci,"ha",e.target.value)}
+                    <InputNumero formato="monto" value={cli.ha||""} onChange={n=>updCli(ci,"ha",n)}
                       placeholder="0" disabled={readOnly} style={{...iSt,width:80,textAlign:"right"}}/>
                   </td>
                   <td style={{padding:"6px 10px",textAlign:"right"}}>
                     <div style={{display:"flex",alignItems:"center",gap:3,justifyContent:"flex-end"}}>
                       <span style={{fontSize:10,color:C.muted}}>$</span>
-                      <input type="number" value={cli.usd_ha||""} onChange={e=>updCli(ci,"usd_ha",e.target.value)}
+                      <InputNumero formato="tasa" value={cli.usd_ha||""} onChange={n=>updCli(ci,"usd_ha",n)}
                         placeholder="2000" disabled={readOnly} style={{...iSt,width:80,textAlign:"right"}}/>
                     </div>
                   </td>
@@ -3404,8 +3405,8 @@ function ParamsAllegriaService({selSeason, paramsAS, setParamsAS, readOnly}) {
             <div style={{fontSize:10,color:C.muted,marginBottom:4}}>Tarifa proceso (US$/kg)</div>
             <div style={{display:"flex",alignItems:"center",gap:4}}>
               <span style={{fontSize:11,color:C.muted}}>$</span>
-              <input type="number" step="0.001" value={d.usd_kg||""} placeholder="0.000"
-                onChange={e=>upd("usd_kg",parseFloat(e.target.value)||0)}
+              <InputNumero formato="tasa" value={d.usd_kg||""} placeholder="0.000"
+                onChange={n=>upd("usd_kg",n)}
                 style={iSt} disabled={readOnly}/>
               <span style={{fontSize:10,color:C.muted}}>/kg</span>
             </div>
@@ -3433,8 +3434,8 @@ function ParamsAllegriaService({selSeason, paramsAS, setParamsAS, readOnly}) {
                   <div style={{fontSize:10,color:kg?C.accentL:C.muted,fontWeight:600,marginBottom:6}}>{mes}</div>
                   {/* Kg a procesar */}
                   <div style={{display:"flex",alignItems:"center",gap:4,marginBottom:4}}>
-                    <input type="number" value={kg||""} placeholder="0 kg"
-                      onChange={e=>updKgMes(mes,"kg",e.target.value)}
+                    <InputNumero formato="monto" value={kg||""} placeholder="0 kg"
+                      onChange={n=>updKgMes(mes,"kg",n)}
                       style={{width:"100%",padding:"4px 6px",background:C.card2,
                         border:`1px solid ${C.border}`,borderRadius:6,
                         color:C.text,fontSize:11,outline:"none",textAlign:"right"}}
@@ -3592,8 +3593,8 @@ function AllegriaComisionArandanosPanel({ config, setConfig, readOnly }) {
                 <div style={{fontSize:10,color:C.muted,marginBottom:3}}>{lbl}</div>
                 <div style={{display:"flex",alignItems:"center",gap:3}}>
                   {pre&&<span style={{fontSize:11,color:C.muted}}>{pre}</span>}
-                  <input type="number" value={form[field]||""} placeholder="0"
-                    onChange={e=>updForm(field,parseFloat(e.target.value)||0)} style={iSt}/>
+                  <InputNumero formato="monto" value={form[field]||""} placeholder="0"
+                    onChange={n=>updForm(field,n)} style={iSt}/>
                   {suf&&<span style={{fontSize:11,color:C.muted}}>{suf}</span>}
                 </div>
               </div>
@@ -3623,7 +3624,7 @@ function AllegriaComisionArandanosPanel({ config, setConfig, readOnly }) {
                     <option value="">— mes —</option>
                     {mesesSel.map(m=><option key={m} value={m}>{m}</option>)}
                   </select>
-                  <input type="number" value={p.pct||""} placeholder="%" onChange={e=>updPago(idx,"pct",parseFloat(e.target.value)||0)}
+                  <InputNumero formato="tasa" value={p.pct||""} placeholder="%" onChange={n=>updPago(idx,"pct",n)}
                     style={{...iSt,width:60}}/>
                   <span style={{fontSize:10,color:C.muted}}>%</span>
                   {formTotal > 0 && p.pct > 0 && (
@@ -4128,10 +4129,9 @@ function RealLineInput({label,value,onChange}) {
   return (
     <div style={{display:"grid",gridTemplateColumns:"1fr 120px",gap:8,alignItems:"center",marginBottom:5}}>
       <div style={{fontSize:11,color:C.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{label}</div>
-      <input
-        type="number" min="0" placeholder="0"
+      <InputNumero formato="monto" placeholder="0"
         value={value}
-        onChange={e=>onChange(e.target.value)}
+        onChange={n=>onChange(n)}
         style={{padding:"5px 8px",background:C.card2,border:`1px solid ${C.border}`,
           borderRadius:6,color:C.text,fontSize:11,textAlign:"right",outline:"none",
           width:"100%",boxSizing:"border-box"}}
@@ -4850,9 +4850,9 @@ function Consolidado({empresas,saldosBancos,realData={},addedLinesGlobal={},subL
                 {[["Allpa Farms","Allpa Chile"],["Allpa Farms Perú","Allpa Perú"]].map(([key,lbl])=>(
                   <label key={key} style={{display:"flex",alignItems:"center",gap:6,fontSize:11,color:C.text}}>
                     <span style={{minWidth:78}}>{lbl}</span>
-                    <input type="number" min="0" max="100" step="1"
+                    <InputNumero formato="tasa"
                       value={Math.round((Number(paramsPart?.[key])||0)*100)}
-                      onChange={e=>onSaveParamsPart(p=>({...(p||{}),[key]:(Number(e.target.value)||0)/100}))}
+                      onChange={n=>onSaveParamsPart(p=>({...(p||{}),[key]:(n)/100}))}
                       style={{width:64,padding:"4px 7px",background:C.card,border:`1px solid ${C.border}`,borderRadius:6,color:C.text,fontSize:11,textAlign:"right",outline:"none"}}/>
                     <span style={{fontSize:11,color:C.muted}}>%</span>
                   </label>
@@ -8190,9 +8190,9 @@ function Creditos({empresas, creditosData=CREDITOS_DEFAULT, onSaveCreditos, canE
                     {(cu.modo||"cuota")==="interes"?(
                       <div style={{padding:"6px 8px",borderRadius:6,border:`1px solid ${C.border}`,background:C.card,color:C.muted,fontSize:11,fontStyle:"italic",display:"flex",alignItems:"center"}}>= interés del período (auto)</div>
                     ):(
-                    <input type="number" placeholder={(cu.modo||"cuota")==="cuota"?"cuota total":"amortización"}
+                    <InputNumero formato="monto" placeholder={(cu.modo||"cuota")==="cuota"?"cuota total":"amortización"}
                       value={(cu.modo||"cuota")==="cuota"?(cu.cuota_total||""):(cu.amortizacion||"")}
-                      onChange={e=>updCuotaSocio(ci,(cu.modo||"cuota")==="cuota"?{cuota_total:e.target.value}:{amortizacion:e.target.value})}
+                      onChange={n=>updCuotaSocio(ci,(cu.modo||"cuota")==="cuota"?{cuota_total:n}:{amortizacion:n})}
                       style={{padding:"6px 8px",borderRadius:6,border:`1px solid ${C.border}`,background:C.card2,color:C.text,fontSize:12,outline:"none"}}/>
                     )}
                     <button type="button" onClick={()=>delCuotaSocio(ci)}
@@ -8288,7 +8288,7 @@ function Creditos({empresas, creditosData=CREDITOS_DEFAULT, onSaveCreditos, canE
                         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:10}}>
                           <div>
                             <div style={{fontSize:10,color:C.muted,fontWeight:600,marginBottom:3}}>Monto Nuevo Préstamo (USD)</div>
-                            <input type="number" value={ren.monto||""} onChange={e=>updRen(ri,{monto:e.target.value})}
+                            <InputNumero formato="monto" value={ren.monto||""} onChange={n=>updRen(ri,{monto:n})}
                               placeholder="Ej: 500000"
                               style={{width:"100%",padding:"7px 10px",background:C.card2,border:`1px solid ${C.border}`,borderRadius:8,color:C.text,fontSize:12,outline:"none",boxSizing:"border-box"}}/>
                           </div>
@@ -8302,7 +8302,7 @@ function Creditos({empresas, creditosData=CREDITOS_DEFAULT, onSaveCreditos, canE
                           </div>
                           <div>
                             <div style={{fontSize:10,color:C.muted,fontWeight:600,marginBottom:3}}>Año Ingreso</div>
-                            <input type="number" value={ren.anio_ingreso||""} onChange={e=>updRen(ri,{anio_ingreso:e.target.value})}
+                            <InputNumero formato="entero" value={ren.anio_ingreso||""} onChange={n=>updRen(ri,{anio_ingreso:n})}
                               placeholder={form.f_venc?String(new Date(form.f_venc).getFullYear()):"2026"}
                               style={{width:"100%",padding:"7px 10px",background:C.card2,border:`1px solid ${C.border}`,borderRadius:8,color:C.text,fontSize:12,outline:"none",boxSizing:"border-box"}}/>
                           </div>
@@ -8356,8 +8356,8 @@ function Creditos({empresas, creditosData=CREDITOS_DEFAULT, onSaveCreditos, canE
                               <option value="">— mes —</option>
                               {["Ene","Feb","Mar","Abr","May","Jun","Jul","Ago","Sep","Oct","Nov","Dic"].map(m=><option key={m}>{m}</option>)}
                             </select>
-                            <input type="number" value={cq.anio||""} placeholder="2026"
-                              onChange={e=>updRenCuota(ri,ci,{anio:e.target.value})}
+                            <InputNumero formato="entero" value={cq.anio||""} placeholder="2026"
+                              onChange={n=>updRenCuota(ri,ci,{anio:n})}
                               style={{padding:"6px 8px",borderRadius:6,border:`1px solid ${C.border}`,background:C.card2,color:C.text,fontSize:12,outline:"none"}}/>
                             <div style={{background:C.card2,borderRadius:6,padding:"5px 8px",border:`1px solid ${_esCap?C.blue:C.orange}`}}>
                               <div style={{fontWeight:700,fontSize:12,color:_esCap?C.blue:C.orange}}>{$$(_montoCalc)}</div>
@@ -8376,7 +8376,7 @@ function Creditos({empresas, creditosData=CREDITOS_DEFAULT, onSaveCreditos, canE
                       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
                         <div>
                           <div style={{fontSize:10,color:C.muted,fontWeight:600,marginBottom:3}}>Tasa Anual (%)</div>
-                          <input type="number" step="0.1" value={ren.tasa_anual||""} onChange={e=>updRen(ri,{tasa_anual:e.target.value})}
+                          <InputNumero formato="tasa" value={ren.tasa_anual||""} onChange={n=>updRen(ri,{tasa_anual:n})}
                             placeholder={form.tasa_anual?String(form.tasa_anual):"Ej: 8.5"}
                             style={{width:"100%",padding:"7px 10px",background:C.card2,border:`1px solid ${C.border}`,borderRadius:8,color:C.text,fontSize:12,outline:"none",boxSizing:"border-box"}}/>
                         </div>
@@ -8517,7 +8517,7 @@ function SaldoDeudaPorMes({creditos=[], empresas={}}){
         {moneda==="CLP"&&(
           <label style={{fontSize:10,color:C.muted,display:"flex",alignItems:"center",gap:5}}>
             TC (CLP/USD)
-            <input type="number" value={tc} onChange={e=>setTc(e.target.value)}
+            <InputNumero formato="monto" value={tc} onChange={n=>setTc(n)}
               style={{width:70,padding:"4px 7px",background:C.card2,border:`1px solid ${C.border}`,borderRadius:6,color:C.text,fontSize:11,outline:"none"}}/>
           </label>
         )}
@@ -9002,9 +9002,8 @@ function SaldosBancos({saldos,onSave,canEdit,empresasPermitidas}) {
                             </td>
                             {canEdit&&(
                               <td style={{padding:"5px 10px"}}>
-                                <input
-                                  type="number" value={val} placeholder="0"
-                                  onChange={e=>handleChange(c.key,e.target.value)}
+                                <InputNumero formato="monto" value={val} placeholder="0"
+                                  onChange={n=>handleChange(c.key,n)}
                                   style={{width:120,padding:"6px 9px",
                                     background:isDirty?`${C.yellow}15`:C.card2,
                                     border:`1px solid ${isDirty?C.yellow:C.border}`,
@@ -9315,7 +9314,7 @@ function Intercompany({transferencias=[],onSave,empresas={},canEdit}) {
               </div>
               <div>
                 <label style={{fontSize:11,fontWeight:600,color:C.muted,display:"block",marginBottom:4}}>Monto USD</label>
-                <input type="number" value={form.monto} onChange={e=>setForm(p=>({...p,monto:e.target.value}))}
+                <InputNumero formato="monto" value={form.monto} onChange={n=>setForm(p=>({...p,monto:n}))}
                   placeholder="0"
                   style={{width:"100%",padding:"8px 10px",background:C.card2,border:`1px solid ${C.border}`,
                     borderRadius:8,color:C.text,fontSize:12,outline:"none",boxSizing:"border-box"}}/>
@@ -11588,11 +11587,10 @@ function ReporteUmbralesEditor({umbralesConfig, onSave, canEdit}) {
         {REPORTE_EMPRESAS.map(emp=>(
           <div key={emp} style={{display:"grid",gridTemplateColumns:"1fr 200px 100px",gap:10,alignItems:"center",padding:"8px 12px",background:C.card2,borderRadius:6}}>
             <div style={{fontSize:12,fontWeight:700,color:C.text}}>{emp}</div>
-            <input
-              type="number"
+            <InputNumero formato="monto"
               disabled={!canEdit}
               value={local[emp] || ""}
-              onChange={e=>setLocal(p=>({...p,[emp]:Number(e.target.value)||0}))}
+              onChange={n=>setLocal(p=>({...p,[emp]:n}))}
               placeholder="USD"
               style={{padding:"6px 10px",borderRadius:6,border:`1px solid ${C.border}`,background:C.bg,color:C.text,fontSize:12,textAlign:"right"}}
             />
@@ -13859,27 +13857,27 @@ function TablaItems({items, seccion, onChange, canEdit, tc, moneda="ambas", sema
                 {showCLP&&(
                 <td style={{padding:"3px 6px",minWidth:100,textAlign:"right"}}>
                   {canEdit
-                    ? <input type="number" value={it.montoCLP||""} onChange={e=>updItem(it.id,"montoCLP",Number(e.target.value))} style={{...inputSt,textAlign:"right"}} placeholder="0"/>
+                    ? <InputNumero formato="monto" value={it.montoCLP||""} onChange={n=>updItem(it.id,"montoCLP",n)} style={{...inputSt,textAlign:"right"}} placeholder="0"/>
                     : <span style={{color:it.montoCLP?C.text:C.muted2,fontWeight:it.montoCLP?600:400}}>{it.montoCLP?$$clp(it.montoCLP):"—"}</span>}
                 </td>
                 )}
                 {showPEN&&(
                 <td style={{padding:"3px 6px",minWidth:100,textAlign:"right"}}>
                   {canEdit
-                    ? <input type="number" value={it.montoPEN||""} onChange={e=>updItem(it.id,"montoPEN",Number(e.target.value))} style={{...inputSt,textAlign:"right"}} placeholder="0"/>
+                    ? <InputNumero formato="monto" value={it.montoPEN||""} onChange={n=>updItem(it.id,"montoPEN",n)} style={{...inputSt,textAlign:"right"}} placeholder="0"/>
                     : <span style={{color:it.montoPEN?"#f97316":C.muted2,fontWeight:it.montoPEN?600:400}}>{it.montoPEN?$$pen(it.montoPEN):"—"}</span>}
                 </td>
                 )}
                 {showUSD&&(
                 <td style={{padding:"3px 6px",minWidth:100,textAlign:"right"}}>
                   {canEdit
-                    ? <input type="number" value={it.montoUSD||""} onChange={e=>updItem(it.id,"montoUSD",Number(e.target.value))} style={{...inputSt,textAlign:"right"}} placeholder="0"/>
+                    ? <InputNumero formato="monto" value={it.montoUSD||""} onChange={n=>updItem(it.id,"montoUSD",n)} style={{...inputSt,textAlign:"right"}} placeholder="0"/>
                     : <span style={{color:it.montoUSD?C.blue:C.muted2,fontWeight:it.montoUSD?600:400}}>{it.montoUSD?$$usd(it.montoUSD):"—"}</span>}
                 </td>
                 )}
                 <td style={{padding:"3px 6px",textAlign:"right",minWidth:90}}>
                   {canEdit
-                    ? <input type="number" value={it.anticipo||""} onChange={e=>updItem(it.id,"anticipo",Number(e.target.value)||0)}
+                    ? <InputNumero formato="monto" value={it.anticipo||""} onChange={n=>updItem(it.id,"anticipo",n)}
                         style={{...inputSt,textAlign:"right",width:80}} placeholder="0"/>
                     : <span style={{fontSize:11,color:it.anticipo?C.yellow:C.muted2,fontWeight:it.anticipo?600:400}}>
                         {it.anticipo?(soloPEN?$$pen(it.anticipo):soloUSD||(!soloUSD&&!soloCLP)?$$usd(it.anticipo):$$clp(it.anticipo)):"—"}
@@ -15300,7 +15298,7 @@ function NominaDetalle({nomina, onUpdate, onBack, usuario, canEdit, saldosBancos
               <div>
                 <div className="info-label" style={{fontSize:10,color:C.muted}}>T.C (CLP/USD)</div>
                 {canEdit
-                  ? <input type="number" value={nom.tc||""} onChange={e=>upd("tc",Number(e.target.value))}
+                  ? <InputNumero formato="monto" value={nom.tc||""} onChange={n=>upd("tc",n)}
                       placeholder="886.97" className="no-print"
                       style={{padding:"3px 6px",borderRadius:5,border:`1px solid ${C.border}`,
                         background:C.card,color:C.text,fontSize:12,outline:"none",width:90}}/>
@@ -16996,15 +16994,15 @@ function ParamsFrisku({selSeason, paramsFrisku, setParamsFrisku, readOnly}) {
                     background:cont>0?`${C.teal}08`:"transparent"}}>
                     <td style={{padding:"6px 12px",fontWeight:600,color:C.text}}>{m.mes}</td>
                     <td style={{padding:"4px 8px",textAlign:"right"}}>
-                      <input type="number" min="0" value={m.contenedores||""} readOnly={readOnly}
-                        onChange={e=>updMes(selEsp,mi,"contenedores",e.target.value)}
+                      <InputNumero formato="monto" value={m.contenedores||""} readOnly={readOnly}
+                        onChange={n=>updMes(selEsp,mi,"contenedores",n)}
                         style={{width:70,padding:"4px 6px",textAlign:"right",borderRadius:6,
                           border:`1px solid ${cont>0?C.teal:C.border}`,background:C.card2,
                           color:cont>0?C.teal:C.text,fontSize:11,outline:"none"}}/>
                     </td>
                     <td style={{padding:"4px 8px",textAlign:"right"}}>
-                      <input type="number" min="0" value={m.precio_cont||""} readOnly={readOnly}
-                        onChange={e=>updMes(selEsp,mi,"precio_cont",e.target.value)}
+                      <InputNumero formato="monto" value={m.precio_cont||""} readOnly={readOnly}
+                        onChange={n=>updMes(selEsp,mi,"precio_cont",n)}
                         style={{width:90,padding:"4px 6px",textAlign:"right",borderRadius:6,
                           border:`1px solid ${precio>0?C.blue:C.border}`,background:C.card2,
                           color:precio>0?C.blue:C.text,fontSize:11,outline:"none"}}/>
