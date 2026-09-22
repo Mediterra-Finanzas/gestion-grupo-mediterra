@@ -26,7 +26,7 @@ import {
   liqsActivasOE, upsertPorId, identidadUsuario, evaluarConfirmacion, clavesBorradorDeOp,
   entityBaseDe, draftEntityKey, clavesRecuperablesDeEntidad, validarUnicidadOE,
 } from "./friskuLiquidacionesLogic.js";
-import { clasificarReferenciaDoc } from "./friskuDocumentRefs.js";
+import { clasificarReferenciaDoc, decidirAplicacionRef } from "./friskuDocumentRefs.js";
 import AvisoPersistencia, { construirAviso } from "./AvisoPersistencia";
 import { FriskuBIProvider, useFriskuBI, FRISKU_DIMS, FRISKU_METRICS, fmtMetric,
          mComFriskuUSD, mVentaUSD, mFobUSD, mComClienteUSD, groupByDims, invertSelection } from "./friskuBI.js";
@@ -3174,6 +3174,40 @@ function comexEstado(oe) {
   return { ok, total, faltan: total - ok, completo: (total - ok)===0 };
 }
 
+// Input transitorio para una referencia manual de documento (S2.2). Mantiene un BORRADOR
+// local; sólo llama onAplicar (→ persistir en el documento) cuando el borrador es un enlace
+// http(s) válido o vacío. Un valor parcial (C, C:\, C:\Users…), una ruta local real o una
+// ruta SharePoint sincronizada NO se aplican: nunca llegan al modelo por el solo hecho de
+// teclear, y Guardar no puede persistir un borrador inválido (jamás toca doc.url).
+function EntradaRefManual({ onAplicar }) {
+  const [draft, setDraft] = useState("");
+  const [aviso, setAviso] = useState(null);
+  return (
+    <>
+      <input value={draft} placeholder="o pega un link http…"
+        style={{...inputSt,width:150,padding:"3px 6px",fontSize:10,flexShrink:0}}
+        onChange={e=>{
+          const v = e.target.value; setDraft(v);
+          const d = decidirAplicacionRef(v);   // decisión pura: solo http(s) válido o vacío se aplica
+          setAviso(d.aviso);
+          if(d.aplicar) onAplicar(d.valorAplicado);
+        }}/>
+      {aviso==="sharepoint" && (
+        <div style={{fontSize:9,color:C.blue,fontWeight:600,flexBasis:"100%",marginTop:2}}
+          title="No se guarda una ruta local; los archivos están en línea en SharePoint.">
+          🔗 Esta es una ruta sincronizada de SharePoint. Quedará pendiente de vinculación; no es necesario volver a subir el archivo (no se guardó la ruta).
+        </div>
+      )}
+      {aviso==="local" && (
+        <div style={{fontSize:9,color:C.warning,fontWeight:600,flexBasis:"100%",marginTop:2}}
+          title="Una ruta local del PC no es accesible para otros usuarios.">
+          ⚠ Ruta local: no se guarda como enlace. Usa 📎 Subir para adjuntar el archivo.
+        </div>
+      )}
+    </>
+  );
+}
+
 function CarpetaComexPanel({ oe, onGuardar, canEdit }) {
   const [cx, setCx] = useState(()=>{
     const saved = oe.carpetaComex;
@@ -3194,7 +3228,6 @@ function CarpetaComexPanel({ oe, onGuardar, canEdit }) {
   const [dirty,    setDirty]    = useState(false);
   const [uploading,setUploading]= useState(new Set());
   const [subTab,   setSubTab]   = useState("docs");
-  const [spAvisoIdx, setSpAvisoIdx] = useState(null); // idx donde se pegó una ruta SharePoint (rechazada, no persistida)
 
   function updDoc(idx,k,v){ setCx(p=>{ const d=[...p.docs]; d[idx]={...d[idx],[k]:v}; return {...p,docs:d}; }); setDirty(true); }
   function addDoc(){ setCx(p=>({...p,docs:[...p.docs,{id:uid(),tipo:"Otro",nombre:"",url:"",fuente:"manual",fechaCarga:"",estado:"pendiente"}]})); setDirty(true); }
@@ -3305,20 +3338,10 @@ function CarpetaComexPanel({ oe, onGuardar, canEdit }) {
                       style={{...btnSt(C.teal,true),padding:"3px 8px",fontSize:10,textDecoration:"none",flexShrink:0}}>📎 Ver</a>
                   )}
                   {canEdit && !adjunto && (
-                    <input value={doc.url||""} onChange={e=>{ const v=e.target.value;
-                      // Prevención de recurrencia: una ruta local de SharePoint sincronizado NO se
-                      // acepta como enlace ni se persiste por el solo hecho de pegarla. El campo
-                      // (controlado) no la adopta; se muestra un aviso. Los http/otros siguen igual.
-                      if(clasificarReferenciaDoc(v).clase==="sharepoint_synced_pending"){ setSpAvisoIdx(idx); return; }
-                      if(spAvisoIdx===idx) setSpAvisoIdx(null);
-                      updDoc(idx,"url",v); updDoc(idx,"fuente","manual"); updDoc(idx,"estado", esArchivoSubido(v)?"cargado":"pendiente"); }}
-                      placeholder="o pega un link http…" style={{...inputSt,width:150,padding:"3px 6px",fontSize:10,flexShrink:0}}/>
-                  )}
-                  {spAvisoIdx===idx && (
-                    <div style={{fontSize:9,color:C.blue,fontWeight:600,flexBasis:"100%",marginTop:2}}
-                      title="No se guarda una ruta local; los archivos están en línea en SharePoint.">
-                      🔗 Esta es una ruta sincronizada de SharePoint. Quedará pendiente de vinculación; no es necesario volver a subir el archivo (no se guardó la ruta).
-                    </div>
+                    // Input TRANSITORIO (S2.2): mantiene un borrador local; solo aplica al modelo
+                    // (updDoc) cuando el valor es http(s) válido o vacío. Ningún parcial ni ruta
+                    // local/SharePoint llega a doc.url por el solo hecho de teclear.
+                    <EntradaRefManual onAplicar={(v)=>{ updDoc(idx,"url",v); updDoc(idx,"fuente","manual"); updDoc(idx,"estado", esArchivoSubido(v)?"cargado":"pendiente"); }}/>
                   )}
                   {canEdit && (
                     <>

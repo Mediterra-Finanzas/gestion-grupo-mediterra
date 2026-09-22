@@ -1,7 +1,7 @@
 /* eslint-disable */
 // Tests puros de friskuDocumentRefs (S1). Correr desde checkout sin .claude:
 // npm test friskuDocumentRefs
-import { clasificarReferenciaDoc, esSharePointPendiente, hashRutaLegacy, SP_LIBRARIES } from "./friskuDocumentRefs";
+import { clasificarReferenciaDoc, esSharePointPendiente, hashRutaLegacy, SP_LIBRARIES, decidirAplicacionRef } from "./friskuDocumentRefs";
 
 const RAIZ = "C:/Users/carolina/INVERSIONES MEDITERRA SPA/Frisku Foods SpA - Documentos";
 const REL_CARPETA = "FRUTA FRESCA/1. Clientes/3. IDEAL FRUITS/1. Exportadoras/COMEX_2026_2027/Agrokasa/Arándanos/HLBU9435288_AGO_2026";
@@ -96,5 +96,42 @@ describe("3. Pureza e invariantes", () => {
     expect(h).toBe(hashRutaLegacy(url));
     expect(h.startsWith("lp_")).toBe(true);
     expect(h.includes("carolina")).toBe(false);
+  });
+});
+
+// 4. S2.2 — decidirAplicacionRef: el borrador solo se aplica cuando es válido
+describe("4. decidirAplicacionRef (input transitorio)", () => {
+  it("escritura progresiva C / C:\\ / C:\\Users / ruta parcial → NUNCA se aplica", () => {
+    for (const parcial of ["C", "C:", "C:\\", "C:\\Users", "C:\\Users\\x\\INVERSIONES MEDITERRA SPA\\Frisku Foods SpA - Documentos\\FRUTA"]) {
+      const d = decidirAplicacionRef(parcial);
+      expect(d.aplicar).toBe(false);           // ningún parcial llega al modelo
+      expect(d.valorAplicado).toBe(undefined);
+    }
+  });
+  it("ruta SharePoint completa → no se aplica, aviso 'sharepoint'", () => {
+    const d = decidirAplicacionRef(`file:///${RAIZ}/${REL_CARPETA}/x.pdf`);
+    expect(d.aplicar).toBe(false);
+    expect(d.aviso).toBe("sharepoint");
+  });
+  it("ruta local real → no se aplica, aviso 'local'", () => {
+    const d = decidirAplicacionRef("C:/Users/x/Escritorio/factura.pdf");
+    expect(d.aplicar).toBe(false);
+    expect(d.aviso).toBe("local");
+  });
+  it("URL http(s) válida → se aplica tal cual", () => {
+    const d = decidirAplicacionRef("https://ejemplo.com/doc.pdf");
+    expect(d.aplicar).toBe(true);
+    expect(d.valorAplicado).toBe("https://ejemplo.com/doc.pdf");
+    expect(d.aviso).toBe(null);
+  });
+  it("vacío → se aplica '' (permite limpiar)", () => {
+    const d = decidirAplicacionRef("");
+    expect(d.aplicar).toBe(true);
+    expect(d.valorAplicado).toBe("");
+  });
+  it("orden de eventos: teclear parcial→parcial→SharePoint completo nunca marca aplicar", () => {
+    const seq = ["f", "fi", "file:///C:/Users/x/INVERSIONES MEDITERRA SPA/Frisku Foods SpA - Documentos/FRUTA/doc.pdf"];
+    const aplicados = seq.map(v => decidirAplicacionRef(v).aplicar);
+    expect(aplicados).toEqual([false, false, false]); // ningún paso aplica una ruta
   });
 });

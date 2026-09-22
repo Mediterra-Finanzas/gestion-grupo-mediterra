@@ -106,3 +106,19 @@ export function hashRutaLegacy(rawUrl) {
 export function esSharePointPendiente(rawUrl) {
   return clasificarReferenciaDoc(rawUrl).clase === "sharepoint_synced_pending";
 }
+
+// ── S2.2: decisión de aplicación de un borrador de campo manual ──
+// El input de "pega un link http…" mantiene un BORRADOR local; SOLO se aplica al documento
+// (doc.url) cuando es un enlace válido http(s) o vacío. Cualquier otra cosa —ruta parcial
+// (C, C:\, C:\Users…), ruta local real o ruta SharePoint sincronizada— NO se aplica: así
+// ningún valor intermedio ni una ruta local llega al modelo por el solo hecho de teclear.
+// Función PURA (no muta, no persiste). Devuelve { aplicar, valorAplicado?, aviso }.
+//   aviso ∈ null | "sharepoint" | "local"
+export function decidirAplicacionRef(valor) {
+  const v = valor == null ? "" : String(valor);
+  if (v.trim() === "") return { aplicar: true, valorAplicado: "", aviso: null }; // vacío permitido
+  if (/^https?:\/\//i.test(v)) return { aplicar: true, valorAplicado: v, aviso: null }; // http(s) válido
+  const clase = clasificarReferenciaDoc(v).clase;
+  if (clase === "sharepoint_synced_pending") return { aplicar: false, aviso: "sharepoint" };
+  return { aplicar: false, aviso: "local" }; // local_real / parcial / unknown → NO se aplica
+}
