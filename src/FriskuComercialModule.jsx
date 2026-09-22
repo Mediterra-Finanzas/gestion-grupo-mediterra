@@ -26,7 +26,7 @@ import {
   liqsActivasOE, upsertPorId, identidadUsuario, evaluarConfirmacion, clavesBorradorDeOp,
   entityBaseDe, draftEntityKey, clavesRecuperablesDeEntidad, validarUnicidadOE,
 } from "./friskuLiquidacionesLogic.js";
-import { clasificarReferenciaDoc, decidirAplicacionRef } from "./friskuDocumentRefs.js";
+import { clasificarReferenciaDoc, decidirAplicacionRef, conservarDocsComex } from "./friskuDocumentRefs.js";
 import AvisoPersistencia, { construirAviso } from "./AvisoPersistencia";
 import { FriskuBIProvider, useFriskuBI, FRISKU_DIMS, FRISKU_METRICS, fmtMetric,
          mComFriskuUSD, mVentaUSD, mFobUSD, mComClienteUSD, groupByDims, invertSelection } from "./friskuBI.js";
@@ -3174,21 +3174,25 @@ function comexEstado(oe) {
   return { ok, total, faltan: total - ok, completo: (total - ok)===0 };
 }
 
-// Input transitorio para una referencia manual de documento (S2.2). Mantiene un BORRADOR
-// local; sólo llama onAplicar (→ persistir en el documento) cuando el borrador es un enlace
-// http(s) válido o vacío. Un valor parcial (C, C:\, C:\Users…), una ruta local real o una
-// ruta SharePoint sincronizada NO se aplican: nunca llegan al modelo por el solo hecho de
-// teclear, y Guardar no puede persistir un borrador inválido (jamás toca doc.url).
-function EntradaRefManual({ onAplicar }) {
+// Input transitorio para REEMPLAZAR la referencia de un documento (S2.2 + conservación).
+// Mantiene un BORRADOR local que representa una referencia NUEVA; nunca precarga ni revela
+// la ruta local/SharePoint legacy (esa se explica aparte con "Referencia SharePoint pendiente
+// de vincular"). Sólo llama onAplicar cuando el borrador es un enlace http(s) válido. Un valor
+// parcial (C, C:\, C:\Users…), una ruta local real o una ruta SharePoint sincronizada NO se
+// aplican, y vaciar el campo tampoco aplica (no borra la referencia existente: eso es el ✕
+// explícito). Si cambia el documento (documentKey) o su referencia (valorActual: carga,
+// reemplazo o limpieza), el borrador y su aviso se descartan → jamás se aplica un borrador viejo.
+export function EntradaRefManual({ valorActual = "", documentKey, onAplicar }) {
   const [draft, setDraft] = useState("");
   const [aviso, setAviso] = useState(null);
+  useEffect(() => { setDraft(""); setAviso(null); }, [valorActual, documentKey]);
   return (
     <>
-      <input value={draft} placeholder="o pega un link http…"
+      <input value={draft} placeholder="reemplazar: link http…"
         style={{...inputSt,width:150,padding:"3px 6px",fontSize:10,flexShrink:0}}
         onChange={e=>{
           const v = e.target.value; setDraft(v);
-          const d = decidirAplicacionRef(v);   // decisión pura: solo http(s) válido o vacío se aplica
+          const d = decidirAplicacionRef(v);   // decisión pura: solo http(s) válido se aplica
           setAviso(d.aviso);
           if(d.aplicar) onAplicar(d.valorAplicado);
         }}/>
@@ -3216,10 +3220,12 @@ function CarpetaComexPanel({ oe, onGuardar, canEdit }) {
     const DOCS_DEPRECADOS = ["BL / AWB","Invoice Comercial","Certificado Fitosanitario","Certificado de Origen"];
     // Migración: "Seguro de Carga" → "QC" (preserva el archivo cargado)
     let docsMig = (saved.docs||[]).map(d=> d.tipo==="Seguro de Carga" ? {...d, tipo:"QC"} : d);
-    // Eliminar los deprecados que NO tengan un archivo REAL subido (http). Una ruta
-    // local del PC ("file:///C:\...") es basura, así que también se descarta. Solo se
-    // conserva un deprecado si tiene un archivo de verdad, para no perder nada.
-    docsMig = docsMig.filter(d=> !(DOCS_DEPRECADOS.includes(d.tipo) && !esArchivoSubido(d.url)));
+    // Conservación de referencias legacy: un doc deprecado se descarta SOLO si es un
+    // placeholder verdaderamente vacío. Una referencia legacy no vacía (file:// / SharePoint
+    // sincronizado / desconocida) es un documento REAL que existe en línea y NO se descarta:
+    // eliminarla al abrir el panel dejaría que un guardado posterior persista una colección
+    // incompleta. Decisión centralizada en un helper puro (no muta, no fabrica identidad).
+    docsMig = conservarDocsComex(docsMig, DOCS_DEPRECADOS);
     const savedTipos = docsMig.map(d=>d.tipo);
     const missing = DOCS_COMEX_DEFAULT.filter(t=>!savedTipos.includes(t))
       .map(tipo=>({id:uid(),tipo,nombre:"",url:"",fuente:"manual",fechaCarga:"",estado:"pendiente"}));
@@ -3338,10 +3344,11 @@ function CarpetaComexPanel({ oe, onGuardar, canEdit }) {
                       style={{...btnSt(C.teal,true),padding:"3px 8px",fontSize:10,textDecoration:"none",flexShrink:0}}>📎 Ver</a>
                   )}
                   {canEdit && !adjunto && (
-                    // Input TRANSITORIO (S2.2): mantiene un borrador local; solo aplica al modelo
-                    // (updDoc) cuando el valor es http(s) válido o vacío. Ningún parcial ni ruta
-                    // local/SharePoint llega a doc.url por el solo hecho de teclear.
-                    <EntradaRefManual onAplicar={(v)=>{ updDoc(idx,"url",v); updDoc(idx,"fuente","manual"); updDoc(idx,"estado", esArchivoSubido(v)?"cargado":"pendiente"); }}/>
+                    // Input TRANSITORIO: borrador local que solo aplica al modelo (updDoc) con
+                    // un http(s) válido. valorActual/documentKey resetean el borrador al cambiar
+                    // el documento o su referencia; vaciar el campo NO borra doc.url (eso es ✕).
+                    <EntradaRefManual valorActual={doc.url||""} documentKey={doc.id||`${idx}:${doc.tipo}`}
+                      onAplicar={(v)=>{ updDoc(idx,"url",v); updDoc(idx,"fuente","manual"); updDoc(idx,"estado", esArchivoSubido(v)?"cargado":"pendiente"); }}/>
                   )}
                   {canEdit && (
                     <>

@@ -108,17 +108,48 @@ export function esSharePointPendiente(rawUrl) {
 }
 
 // ── S2.2: decisión de aplicación de un borrador de campo manual ──
-// El input de "pega un link http…" mantiene un BORRADOR local; SOLO se aplica al documento
-// (doc.url) cuando es un enlace válido http(s) o vacío. Cualquier otra cosa —ruta parcial
-// (C, C:\, C:\Users…), ruta local real o ruta SharePoint sincronizada— NO se aplica: así
-// ningún valor intermedio ni una ruta local llega al modelo por el solo hecho de teclear.
+// El input de reemplazo manual mantiene un BORRADOR local que representa una NUEVA
+// referencia; SOLO se aplica al documento (doc.url) cuando es un enlace válido http(s).
+// Cualquier otra cosa —ruta parcial (C, C:\, C:\Users…), ruta local real o ruta SharePoint
+// sincronizada— NO se aplica: así ningún valor intermedio ni una ruta local llega al modelo
+// por el solo hecho de teclear. El VACÍO tampoco se aplica: un borrador vacío significa
+// "no se ingresó reemplazo", no "borrar la referencia existente"; la eliminación es una
+// acción explícita aparte (botón ✕), nunca un efecto de vaciar el campo transitorio.
 // Función PURA (no muta, no persiste). Devuelve { aplicar, valorAplicado?, aviso }.
 //   aviso ∈ null | "sharepoint" | "local"
 export function decidirAplicacionRef(valor) {
   const v = valor == null ? "" : String(valor);
-  if (v.trim() === "") return { aplicar: true, valorAplicado: "", aviso: null }; // vacío permitido
-  if (/^https?:\/\//i.test(v)) return { aplicar: true, valorAplicado: v, aviso: null }; // http(s) válido
+  if (v.trim() === "") return { aplicar: false, aviso: null }; // vacío = sin reemplazo; NO borra lo existente
+  if (/^https?:\/\/\S+/i.test(v)) return { aplicar: true, valorAplicado: v, aviso: null }; // http(s) con host → válido
+  if (/^https?:\/\//i.test(v)) return { aplicar: false, aviso: null }; // "http://" aún incompleto: se sigue tecleando
   const clase = clasificarReferenciaDoc(v).clase;
   if (clase === "sharepoint_synced_pending") return { aplicar: false, aviso: "sharepoint" };
   return { aplicar: false, aviso: "local" }; // local_real / parcial / unknown → NO se aplica
+}
+
+// ── Conservación de referencias documentales legacy (Hallazgo 1) ──
+// ¿La referencia de un documento tiene CONTENIDO que hay que conservar? Un enlace subido
+// (http/Supabase) o CUALQUIER referencia no vacía —ruta legacy file://, SharePoint
+// sincronizado, o desconocida pendiente de revisión— representa un documento real y se
+// conserva. Solo un string vacío/espacios es un placeholder sin contenido. PURA.
+export function refTieneContenido(rawUrl) {
+  return String(rawUrl == null ? "" : rawUrl).trim() !== "";
+}
+
+// Filtra la colección de docs COMEX al abrir el panel SIN descartar ninguna referencia real.
+// Un documento de tipo "deprecado" (que ya no tiene slot propio) se descarta SOLO si es un
+// placeholder verdaderamente vacío (sin enlace y sin ninguna referencia legacy). Cualquier
+// referencia no vacía —subida, file:// legacy, SharePoint sincronizado o desconocida— se
+// conserva intacta: mismos id/tipo/nombre/url/metadatos, sin fabricar webUrl/driveId/itemId
+// ni convertir la URL. Los documentos NO deprecados nunca se descartan (comportamiento
+// histórico). PURA: no muta el array ni los documentos; devuelve un array nuevo con las
+// mismas referencias de objeto.
+export function conservarDocsComex(docs, deprecados) {
+  const lista = Array.isArray(docs) ? docs : [];
+  const dep = Array.isArray(deprecados) ? deprecados : [];
+  return lista.filter((d) => {
+    if (!d) return false;
+    if (!dep.includes(d.tipo)) return true;   // no deprecado → siempre se conserva
+    return refTieneContenido(d.url);          // deprecado → solo si tiene contenido real
+  });
 }
