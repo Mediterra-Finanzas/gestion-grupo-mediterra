@@ -2110,12 +2110,12 @@ export function ParamsFruta({seasonKey,fruta,params,setParams,saldosBancos=null,
         {fruta === 'arandanos' ? (
           // Arándanos Perú: servicio de comercialización
           <>
-            {[["KG exportados por Perú","kg","",""],["FOB estimado US$/kg","fob_usd_kg","$",""],["% Fee Allegria Foods","desc_exp_pct","","%"]].map(([lbl,field,pre,suf])=>(
+            {[["KG exportados por Perú","kg","","","monto"],["FOB estimado US$/kg","fob_usd_kg","$","","tasa"],["% Fee Allegria Foods","desc_exp_pct","","%","tasa"]].map(([lbl,field,pre,suf,fmt])=>(
               <div key={field}>
                 <div style={{fontSize:10,color:C.muted,marginBottom:3}}>{lbl}</div>
                 <div style={{display:"flex",alignItems:"center",gap:3}}>
                   {pre&&<span style={{fontSize:11,color:C.muted}}>{pre}</span>}
-                  <InputNumero formato="monto" value={p[field]||""} placeholder="0" onChange={n=>upd(field,n)} style={iSt}/>
+                  <InputNumero formato={fmt} value={p[field]||""} placeholder="0" onChange={n=>upd(field,n)} style={iSt}/>
                   {suf&&<span style={{fontSize:11,color:C.muted}}>{suf}</span>}
                 </div>
               </div>
@@ -2137,12 +2137,12 @@ export function ParamsFruta({seasonKey,fruta,params,setParams,saldosBancos=null,
         ) : (
           // Cerezas y Ciruelas: parámetros completos
           <>
-            {[["KG a exportar","kg","",""],["FOB US$/kg","fob_usd_kg","$",""],["Desc. exportadora","desc_exp_pct","","%"],["Materiales US$/kg","mat_usd_kg","$",""],["Servicios US$/kg","srv_usd_kg","$",""]].map(([lbl,field,pre,suf])=>(
+            {[["KG a exportar","kg","","","monto"],["FOB US$/kg","fob_usd_kg","$","","tasa"],["Desc. exportadora","desc_exp_pct","","%","tasa"],["Materiales US$/kg","mat_usd_kg","$","","tasa"],["Servicios US$/kg","srv_usd_kg","$","","tasa"]].map(([lbl,field,pre,suf,fmt])=>(
               <div key={field}>
                 <div style={{fontSize:10,color:C.muted,marginBottom:3}}>{lbl}</div>
                 <div style={{display:"flex",alignItems:"center",gap:3}}>
                   {pre&&<span style={{fontSize:11,color:C.muted}}>{pre}</span>}
-                  <InputNumero formato="monto" value={p[field]||""} placeholder="0" onChange={n=>upd(field,n)} style={iSt}/>
+                  <InputNumero formato={fmt} value={p[field]||""} placeholder="0" onChange={n=>upd(field,n)} style={iSt}/>
                   {suf&&<span style={{fontSize:11,color:C.muted}}>{suf}</span>}
                 </div>
               </div>
@@ -2334,17 +2334,17 @@ function ParamsProducto({seasonKey,prodId,paramsEmp,setParamsEmp,empColor="#2563
       {/* Campos numéricos */}
       <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(150px,1fr))",gap:12,marginBottom:14}}>
         {[
-          [`Cantidad (${p.unidad_label||"unid."})`, "unidades", ""],
-          ["Precio US$/unidad",                      "precio_unit","$"],
-          ["Descuento intermediario",                "desc_pct",  "%" ],
-          ["Materiales US$/unidad",                  "mat_unit",  "$" ],
-          ["Servicios US$/unidad",                   "srv_unit",  "$" ],
-        ].map(([lbl,field,pre])=>(
+          [`Cantidad (${p.unidad_label||"unid."})`, "unidades", "",  "monto"],
+          ["Precio US$/unidad",                      "precio_unit","$", "tasa"],
+          ["Descuento intermediario",                "desc_pct",  "%",  "tasa"],
+          ["Materiales US$/unidad",                  "mat_unit",  "$",  "tasa"],
+          ["Servicios US$/unidad",                   "srv_unit",  "$",  "tasa"],
+        ].map(([lbl,field,pre,fmt])=>(
           <div key={field}>
             <div style={{fontSize:10,color:C.muted,marginBottom:3}}>{lbl}</div>
             <div style={{display:"flex",alignItems:"center",gap:3}}>
               {pre&&<span style={{fontSize:11,color:C.muted}}>{pre}</span>}
-              <InputNumero formato="monto" value={p[field]||""} placeholder="0"
+              <InputNumero formato={fmt} value={p[field]||""} placeholder="0"
                 onChange={n=>upd(field,n)} style={iSt}/>
             </div>
           </div>
@@ -2439,7 +2439,7 @@ function AnticipListGen({items,onChange,totalUnits=0,label="usd_unit"}) {
             <option value="">— mes —</option>
             {mesesSel.map(m=><option key={m} value={m}>{m}</option>)}
           </select>
-          <InputNumero formato="monto" value={row[label]||""} placeholder="0"
+          <InputNumero formato="tasa" value={row[label]||""} placeholder="0"
             onChange={n=>updRow(i,label,n)}
             style={{width:80,padding:"4px 7px",background:C.card2,border:`1px solid ${C.border}`,
               borderRadius:6,color:C.text,fontSize:11,outline:"none",textAlign:"right"}}/>
@@ -2946,7 +2946,7 @@ function ParamsAllpaPeru({ paramsAP, setParamsAP, readOnly }) {
         </div>
         <div style={{display:"flex",gap:16,alignItems:"center",flexWrap:"wrap",marginBottom:12}}>
           <label style={{fontSize:12,color:C.muted}}>Precio USD/kg&nbsp;
-            <InputNumero formato="monto" disabled={ro} value={precio||""} onChange={n=>updPrecio(n)} style={{...inp,width:80}}/>
+            <InputNumero formato="tasa" disabled={ro} value={precio||""} onChange={n=>updPrecio(n)} style={{...inp,width:80}}/>
           </label>
           <div style={{fontSize:12,color:C.muted}}>Producción total: <strong style={{color:C.text}}>{Math.round(totKg).toLocaleString("es-CL")} kg</strong></div>
           <div style={{fontSize:12,color:C.muted}}>Ingreso año: <strong style={{color:"#22c55e"}}>{$$(totIng)}</strong></div>
@@ -3254,7 +3254,7 @@ function ParamsIntegrity({selSeason, paramsIF, setParamsIF, readOnly}) {
                       style={{...iSt,width:180}}/>
                   </td>
                   <td style={{padding:"6px 10px",textAlign:"right"}}>
-                    <InputNumero formato="monto" value={cli.ha||""} onChange={n=>updCli(ci,"ha",n)}
+                    <InputNumero formato="tasa" value={cli.ha||""} onChange={n=>updCli(ci,"ha",n)}
                       placeholder="0" disabled={readOnly} style={{...iSt,width:80,textAlign:"right"}}/>
                   </td>
                   <td style={{padding:"6px 10px",textAlign:"right"}}>
@@ -3586,14 +3586,14 @@ function AllegriaComisionArandanosPanel({ config, setConfig, readOnly }) {
               </div>
             </div>
             {(formModo==="usdkg"
-              ? [["KG exportados Perú","kgTotal","",""],["Tarifa US$/kg","usdKg","$",""]]
-              : [["KG exportados Perú","kgTotal","",""],["FOB estimado US$/kg","fobUsdKg","$",""],["% Fee Allegria","feePct","","%"]]
-            ).map(([lbl,field,pre,suf])=>(
+              ? [["KG exportados Perú","kgTotal","","","monto"],["Tarifa US$/kg","usdKg","$","","tasa"]]
+              : [["KG exportados Perú","kgTotal","","","monto"],["FOB estimado US$/kg","fobUsdKg","$","","tasa"],["% Fee Allegria","feePct","","%","tasa"]]
+            ).map(([lbl,field,pre,suf,fmt])=>(
               <div key={field}>
                 <div style={{fontSize:10,color:C.muted,marginBottom:3}}>{lbl}</div>
                 <div style={{display:"flex",alignItems:"center",gap:3}}>
                   {pre&&<span style={{fontSize:11,color:C.muted}}>{pre}</span>}
-                  <InputNumero formato="monto" value={form[field]||""} placeholder="0"
+                  <InputNumero formato={fmt} value={form[field]||""} placeholder="0"
                     onChange={n=>updForm(field,n)} style={iSt}/>
                   {suf&&<span style={{fontSize:11,color:C.muted}}>{suf}</span>}
                 </div>

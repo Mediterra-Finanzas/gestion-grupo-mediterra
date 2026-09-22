@@ -135,3 +135,41 @@ test('registrar un cobro deja fecha, monto, nota y usuario', () => {
   expect(reas[1].fecha).toMatch(/^\d{4}-\d{2}-\d{2}$/);
   expect(reas[1].ts).toBeTruthy();
 });
+
+// ── Regresión: los campos por unidad NO pueden leer el punto como miles ──
+// Al convertir los campos a InputNumero, los bucles de parámetros quedaron
+// todos como formato "monto" porque el nombre del campo es una variable
+// (p[field]). Resultado: un FOB de 0.6 se guardaba como 6 y la venta pasaba
+// de 600.000 a 6.000.000. Lo detectó la prueba de navegador, no las unitarias.
+describe('formato de los campos de parámetros', () => {
+  const guardar = () => { let out = null;
+    return { set: fn => { out = typeof fn === 'function' ? fn(params()) : fn; }, leer: () => out }; };
+
+  const escribir = (etiqueta, texto) => {
+    const lbl = screen.getByText(etiqueta);
+    const input = lbl.parentElement.querySelector('input');
+    fireEvent.focus(input);
+    fireEvent.change(input, { target: { value: texto } });
+    fireEvent.blur(input);
+  };
+
+  test.each([
+    ['FOB US$/kg', 'fob_usd_kg', '0.6', 0.6],
+    ['FOB US$/kg', 'fob_usd_kg', '0,6', 0.6],
+    ['Materiales US$/kg', 'mat_usd_kg', '0.178', 0.178],
+    ['Servicios US$/kg', 'srv_usd_kg', '1.2', 1.2],
+    ['Desc. exportadora', 'desc_exp_pct', '6.5', 6.5],
+  ])('%s: «%s» se guarda como %s, no como miles', (etiqueta, campo, texto, esperado) => {
+    const g = guardar();
+    render(<ParamsFruta seasonKey="2026-2027" fruta="cerezas" params={params()} setParams={g.set}/>);
+    escribir(etiqueta, texto);
+    expect(g.leer()["2026-2027"].cerezas[campo]).toBe(esperado);
+  });
+
+  test('KG a exportar sí acepta separador de miles', () => {
+    const g = guardar();
+    render(<ParamsFruta seasonKey="2026-2027" fruta="cerezas" params={params()} setParams={g.set}/>);
+    escribir('KG a exportar', '1.000.000');
+    expect(g.leer()["2026-2027"].cerezas.kg).toBe(1000000);
+  });
+});
