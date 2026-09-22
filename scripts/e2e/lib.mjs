@@ -75,7 +75,9 @@ export async function ponerNumero(page, etiqueta, valor) {
   const el = inputTras(page, etiqueta);
   await el.waitFor({ timeout: 10000 });
   await el.fill(String(valor));
-  await el.dispatchEvent('change');
+  // InputNumero confirma al salir del campo, igual que hace el navegador
+  // cuando el usuario aprieta otro control (mousedown → blur → click).
+  await el.evaluate(e => e.blur());
   await page.waitForTimeout(150);
 }
 
