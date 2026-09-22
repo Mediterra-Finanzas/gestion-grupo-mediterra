@@ -89,6 +89,20 @@ test('avisa cuando el flujo está usando un override manual', () => {
   verTexto(/Anticipo Cerezas/);
 });
 
+test('el aviso de override solo cubre los meses de ESTA temporada', () => {
+  // idx 1 = May-26, que pertenece a la temporada 2025-2026. Viendo 2026-2027
+  // no debe anunciarse: los parámetros de esta temporada no tocan ese mes.
+  pintar(params(), { overridesEmpresa:{ "Costo Fruta Exportación": { 1: 0 } } });
+  expect(screen.queryByText(/El flujo está usando valores manuales/)).toBeNull();
+});
+
+test('un override del mismo mes sí se avisa en la temporada que lo contiene', () => {
+  render(<ParamsFruta seasonKey="2025-2026" fruta="cerezas" params={params()}
+                      overridesEmpresa={{ "Costo Fruta Exportación": { 1: 0 } }} setParams={()=>{}}/>);
+  verTexto(/El flujo está usando valores manuales/);
+  verTexto(/May-26/);
+});
+
 test('ciruelas: informa que sus costos no llegan al flujo', () => {
   const p = { "2026-2027": { ciruelas:{ kg:100000, fob_usd_kg:1, desc_exp_pct:0, mat_usd_kg:0, srv_usd_kg:0,
     anticipos_cliente:[], anticipos_productor:[], dist_mat:[], dist_srv:[] } } };

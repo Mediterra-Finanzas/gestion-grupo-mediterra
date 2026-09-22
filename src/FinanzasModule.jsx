@@ -2082,11 +2082,16 @@ export function ParamsFruta({seasonKey,fruta,params,setParams,saldosBancos=null,
   const lineasDeFruta = fruta==="cerezas"
     ? ["Anticipo Cerezas","Costo Fruta Exportación"]
     : fruta==="ciruelas" ? ["Liquidación Ciruelas"] : [];
+  // Solo los overrides de los meses de ESTA temporada: un valor manual en un mes
+  // de otra temporada no tiene nada que ver con los parámetros que se editan acá.
+  // Si la temporada no está en SEASONS, mesesTemporada devuelve MESES_65 y el
+  // filtro no descarta nada (comportamiento anterior).
+  const mesesDeLaTemporada = new Set(mesesSel);
   const overridesActivos = lineasDeFruta.flatMap(lbl =>
     Object.entries(overridesEmpresa?.[lbl]||{}).map(([idx,val])=>({
       linea:lbl, mes:MESES_65[Number(idx)]||`#${idx}`,
       val: (val&&typeof val==="object") ? Object.values(val).reduce((a,v)=>a+(Number(v)||0),0) : Number(val)||0,
-    })).filter(o=>!!o.mes));
+    })).filter(o=>!!o.mes && mesesDeLaTemporada.has(o.mes)));
   const pctMat=(p.dist_mat||[]).reduce((s,d)=>s+(Number(d.pct)||0),0);
   const pctSrv=(p.dist_srv||[]).reduce((s,d)=>s+(Number(d.pct)||0),0);
   const iSt={width:90,padding:"5px 7px",background:C.card2,border:`1px solid ${C.border}`,borderRadius:6,color:C.text,fontSize:11,outline:"none",textAlign:"right"};
