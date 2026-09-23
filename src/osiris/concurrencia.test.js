@@ -170,3 +170,97 @@ describe("persistencia tras recarga de los datos nuevos de P1-P5", () => {
     jest.restoreAllMocks();
   });
 });
+
+// ──────────────────────────────────────────────────────────────────
+// Pedidos de Nicolás: anexo de eliminación y asignación de órdenes
+// ──────────────────────────────────────────────────────────────────
+describe("concurrencia y recarga de los pedidos de Nicolás", () => {
+  const { crearAnexoEliminacion, aplicarAsignacionEnViveros } = require("./anexosPlantas");
+  const BASE2 = {
+    contratos: [
+      { id: "ct1", razonSocial: "Cliente Uno", tipoContrato: "Licencia", clienteId: "cli1",
+        plantaciones: [{ id: "p1", nPlantas: 100 }, { id: "p2", nPlantas: 200 }],
+        anexosExtra: [{ id: "axViejo", tipo: "Adenda de precio", activo: true, link: "https://x/viejo.pdf" }] },
+      { id: "ct2", razonSocial: "Cliente Uno", tipoContrato: "Pruebas", clienteId: "cli1" },
+    ],
+    viveros: [{ id: "v1", viverista: "V1", ordenesCompra: [{ id: "oc1", n_oc: "OC-1", cliente_id: "cli1", despachos: [{ id: "d1" }] }] }],
+    clientes: [], especies: [], variedades: [],
+  };
+
+  let srv;
+  beforeEach(() => {
+    srv = servidorSimulado(JSON.parse(JSON.stringify(BASE2)));
+    global.fetch = srv.fetchMock;
+    window._lastSavedOsiris = null;
+    jest.spyOn(console, "log").mockImplementation(() => {});
+    jest.spyOn(console, "warn").mockImplementation(() => {});
+    jest.spyOn(console, "error").mockImplementation(() => {});
+  });
+  afterEach(() => jest.restoreAllMocks());
+
+  async function sesion() {
+    const s = abrirSesion();
+    const { value, updatedAt } = await s.dbLoadOsiris();
+    s.__persistenciaTest.set({ version: updatedAt, cargaOk: true });
+    return { s, value: JSON.parse(JSON.stringify(value)) };
+  }
+
+  test("dos sesiones: una registra el anexo y la otra asigna la orden; la segunda no pisa a la primera", async () => {
+    const A = await sesion();
+    const B = await sesion();
+
+    // A registra el anexo de eliminación vinculado a p1.
+    A.value.contratos[0].anexosExtra.push(crearAnexoEliminacion({
+      id: "axNuevo", link: "https://x/anexo.pdf", fechaEfecto: "2026-03-01",
+      plantasDeclaradas: 100, plantacionIds: ["p1"], usuario: "ana", fecha: "2026-09-23T10:00:00Z",
+    }));
+    expect(await A.s.dbSaveOsiris(A.value)).toEqual({ ok: true });
+
+    // B, que cargó antes, asigna la orden al contrato de pruebas.
+    B.value.viveros = aplicarAsignacionEnViveros(B.value.viveros, "oc1", "ct2", { usuario: "beto" });
+    expect(await B.s.dbSaveOsiris(B.value)).toEqual({ ok: false, motivo: "conflicto" });
+
+    // El anexo de A está; la asignación de B no entró.
+    expect(srv.estado.value.contratos[0].anexosExtra.map((a) => a.id)).toEqual(["axViejo", "axNuevo"]);
+    expect(srv.estado.value.viveros[0].ordenesCompra[0].contrato_id).toBeUndefined();
+    expect(srv.estado.escrituras).toBe(1);
+  });
+
+  test("B recarga, ve el anexo de A y su asignación entra sin perder nada", async () => {
+    const A = await sesion();
+    const B = await sesion();
+    A.value.contratos[0].anexosExtra.push(crearAnexoEliminacion({ id: "axNuevo", link: "https://x/anexo.pdf", plantacionIds: ["p1"], usuario: "ana" }));
+    await A.s.dbSaveOsiris(A.value);
+    await B.s.dbSaveOsiris(B.value); // conflicto
+
+    const fresco = await B.s.dbLoadOsiris();
+    B.s.__persistenciaTest.set({ version: fresco.updatedAt });
+    const fusion = JSON.parse(JSON.stringify(fresco.value));
+    fusion.viveros = aplicarAsignacionEnViveros(fusion.viveros, "oc1", "ct2", { usuario: "beto", fecha: "2026-09-23T11:00:00Z" });
+    expect(await B.s.dbSaveOsiris(fusion)).toEqual({ ok: true });
+
+    const fin = srv.estado.value;
+    expect(fin.contratos[0].anexosExtra.map((a) => a.id)).toEqual(["axViejo", "axNuevo"]);
+    expect(fin.viveros[0].ordenesCompra[0].contrato_id).toBe("ct2");
+    expect(fin.viveros[0].ordenesCompra[0].despachos).toEqual([{ id: "d1" }]);
+  });
+
+  test("los campos nuevos sobreviven al viaje de ida y vuelta", async () => {
+    const s = abrirSesion();
+    const cargado = await s.dbLoadOsiris();
+    s.__persistenciaTest.set({ version: cargado.updatedAt, cargaOk: true });
+    const v = JSON.parse(JSON.stringify(cargado.value));
+    const anx = crearAnexoEliminacion({ id: "ax1", link: "https://x/a.pdf", fechaEfecto: "2026-03-01", plantasDeclaradas: 250, plantacionIds: ["p1", "p2"], observacion: "arranque", usuario: "ana", fecha: "2026-09-23T10:00:00Z" });
+    v.contratos[0].anexosExtra.push(anx);
+    v.contratos[1].tipoContrato = "Pruebas";
+    v.viveros = aplicarAsignacionEnViveros(v.viveros, "oc1", "ct1", { usuario: "ana", fecha: "2026-09-23T10:05:00Z" });
+    expect(await s.dbSaveOsiris(v)).toEqual({ ok: true });
+
+    const releido = await s.dbLoadOsiris();
+    expect(releido.value.contratos[0].anexosExtra[1]).toEqual(anx);
+    expect(releido.value.contratos[0].anexosExtra[0]).toEqual(BASE2.contratos[0].anexosExtra[0]);
+    expect(releido.value.contratos[1].tipoContrato).toBe("Pruebas");
+    expect(releido.value.viveros[0].ordenesCompra[0]).toMatchObject({ contrato_id: "ct1", n_oc: "OC-1" });
+    expect(releido.value.viveros[0].ordenesCompra[0].historialAsignacion).toHaveLength(1);
+  });
+});

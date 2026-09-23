@@ -9,6 +9,14 @@ import { theme } from "./theme";
 import { snapshotOsiris, isDirty as osirisIsDirty } from "./data/osirisDirty";
 import { ubicacionMenuEstado, anclaVisible, ANCHO_MENU_ESTADO } from "./osiris/menuEstado";
 import {
+  TIPO_ANEXO_ELIMINACION, TIPO_CONTRATO_PRUEBAS,
+  AVISO_ANEXO_SIN_EFECTO, AVISO_TIPO_PRUEBAS,
+  catalogoConEliminacion, catalogoConPruebas,
+  esAnexoEliminacion, esContratoDePruebas,
+  vincularPlantaciones, retirarAnexo, tieneRespaldo,
+  resumenEliminaciones, aplicarAsignacionEnViveros,
+} from "./osiris/anexosPlantas";
+import {
   fusionarTandas,
   darDeBajaPlantacion,
   revertirBajaPlantacion,
@@ -7579,10 +7587,10 @@ function ControlContratos({data,setData,clientes,setClientes,variedadesMaestro=[
   const [tiposContratoLocal,setTiposContratoLocal]=useState(TIPOS_CONTRATO_BASE);
   const [tiposAnexoLocal,setTiposAnexoLocal]=useState(TIPOS_ANEXO_BASE);
   // Wrapper: si hay persistidor, usarlo; si no, state local
-  const tiposContrato = Array.isArray(tiposContratoPersist) && tiposContratoPersist.length > 0
-    ? tiposContratoPersist : tiposContratoLocal;
-  const tiposAnexo = Array.isArray(tiposAnexoPersist) && tiposAnexoPersist.length > 0
-    ? tiposAnexoPersist : tiposAnexoLocal;
+  const tiposContrato = catalogoConPruebas(
+    Array.isArray(tiposContratoPersist) && tiposContratoPersist.length > 0 ? tiposContratoPersist : tiposContratoLocal);
+  const tiposAnexo = catalogoConEliminacion(
+    Array.isArray(tiposAnexoPersist) && tiposAnexoPersist.length > 0 ? tiposAnexoPersist : tiposAnexoLocal);
   const setTiposContrato = (updaterOrValue) => {
     const next = typeof updaterOrValue === "function" ? updaterOrValue(tiposContrato) : updaterOrValue;
     if(setTiposContratoPersist) setTiposContratoPersist(next);
@@ -7961,7 +7969,14 @@ function ControlContratos({data,setData,clientes,setClientes,variedadesMaestro=[
           {sec==="contrato"&&(
             <div>
               <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(210px,1fr))",gap:16,marginBottom:20}}>
-                <Campo label="Tipo Contrato" campo="tipoContrato" opts={tiposContrato} r={r}/>
+                <div>
+                  <Campo label="Tipo Contrato" campo="tipoContrato" opts={tiposContrato} r={r}/>
+                  {esContratoDePruebas(r)&&(
+                    <div style={{marginTop:6,fontSize:10,color:C.am||"#854d0e",background:C.amBg||"#fef9c3",border:`1px solid ${C.am||"#ca8a04"}`,borderRadius:6,padding:"6px 8px"}}>
+                      {AVISO_TIPO_PRUEBAS}
+                    </div>
+                  )}
+                </div>
                 <Campo label="Moneda" campo="moneda" opts={MONEDAS} r={r}/>
                 <Campo label="Fecha Contrato" campo="fechaContrato" tipo="date" r={r}/>
                 <Campo label="Fecha Término" campo="fechaTermino" tipo="date" r={r}/>
@@ -8150,8 +8165,22 @@ function ControlContratos({data,setData,clientes,setClientes,variedadesMaestro=[
                       extras[idxExtra] = {...extras[idxExtra], ...cambios};
                       upd(r.id, "anexosExtra", extras);
                     };
+                    // Un anexo con documento o con plantaciones vinculadas NO se borra:
+                    // se retira y queda inactivo, con su documento y su historial.
                     const eliminarExtra = () => {
-                      if(!window.confirm(`¿Eliminar ${label} de este contrato?`)) return;
+                      const actual = (Array.isArray(r.anexosExtra)?r.anexosExtra:[])[idxExtra];
+                      if(tieneRespaldo(actual)){
+                        const motivo = window.prompt(
+                          `${label} tiene documento o plantaciones vinculadas. No se elimina: queda retirado, conservando el documento y el historial.
+
+Motivo del retiro:`, "");
+                        if(motivo===null) return;
+                        const extras = Array.isArray(r.anexosExtra)?[...r.anexosExtra]:[];
+                        extras[idxExtra] = retirarAnexo(actual,{motivo, usuario:usuarioActual?.nombre||usuarioActual?.email||"", fecha:new Date().toISOString()});
+                        upd(r.id, "anexosExtra", extras);
+                        return;
+                      }
+                      if(!window.confirm(`¿Eliminar ${label} de este contrato? No tiene documento ni plantaciones vinculadas.`)) return;
                       const extras = Array.isArray(r.anexosExtra)?r.anexosExtra.filter((_,j)=>j!==idxExtra):[];
                       upd(r.id, "anexosExtra", extras);
                     };
@@ -8206,6 +8235,66 @@ function ControlContratos({data,setData,clientes,setClientes,variedadesMaestro=[
                               <button onClick={()=>{const w=window.open(anx.link,"_blank");w&&setTimeout(()=>w.print(),1500);}}
                                 style={{background:C.purple,color:"#fff",borderRadius:5,padding:"3px 10px",fontSize:11,fontWeight:600,border:"none",cursor:"pointer"}}>🖨️</button>
                             </>}
+                          </div>
+                        )}
+                        {/* Anexo de eliminación de plantas: fecha de efecto, cantidad y plantaciones
+                            afectadas. Es un registro documental: no cambia el royalty. */}
+                        {anx.activo&&esAnexoEliminacion(anx)&&(
+                          <div style={{marginTop:8,paddingTop:8,borderTop:`1px solid ${C.border}`}}>
+                            <div style={{display:"flex",gap:10,flexWrap:"wrap",alignItems:"flex-end"}}>
+                              <div>
+                                <div style={{fontSize:10,color:C.gris,fontWeight:600,marginBottom:2}}>Fecha de efecto</div>
+                                <input type="date" disabled={!can} value={anx.fechaEfecto||""}
+                                  onChange={e=>updExtra({fechaEfecto:e.target.value})}
+                                  style={{padding:"4px 8px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:11}}/>
+                              </div>
+                              <div>
+                                <div style={{fontSize:10,color:C.gris,fontWeight:600,marginBottom:2}}>Plantas declaradas</div>
+                                <input type="number" disabled={!can} value={anx.plantasDeclaradas===undefined?"":anx.plantasDeclaradas}
+                                  onChange={e=>updExtra({plantasDeclaradas:e.target.value===""?"":(parseFloat(e.target.value)||0)})}
+                                  placeholder="0" style={{width:110,padding:"4px 8px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:11}}/>
+                              </div>
+                              <div style={{flex:1,minWidth:200}}>
+                                <div style={{fontSize:10,color:C.gris,fontWeight:600,marginBottom:2}}>Observación</div>
+                                <input disabled={!can} value={anx.observacion||""} onChange={e=>updExtra({observacion:e.target.value})}
+                                  placeholder="motivo, referencia…" style={{width:"100%",padding:"4px 8px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:11,boxSizing:"border-box"}}/>
+                              </div>
+                            </div>
+                            <div style={{marginTop:8}}>
+                              <div style={{fontSize:10,color:C.gris,fontWeight:600,marginBottom:4}}>
+                                Plantaciones afectadas ({(anx.plantacionIds||[]).length} de {(r.plantaciones||[]).length})
+                              </div>
+                              <div style={{display:"flex",flexWrap:"wrap",gap:6,maxHeight:120,overflowY:"auto"}}>
+                                {(r.plantaciones||[]).map(p=>{
+                                  const marcada=(anx.plantacionIds||[]).includes(p.id);
+                                  return (
+                                    <label key={p.id} title={p.nombrePredio||""}
+                                      style={{display:"flex",alignItems:"center",gap:5,fontSize:11,padding:"3px 8px",borderRadius:6,cursor:can?"pointer":"default",
+                                        border:`1px solid ${marcada?C.purple:C.border}`,background:marcada?(C.moBg||"#f5f3ff"):C.card}}>
+                                      <input type="checkbox" checked={marcada} disabled={!can}
+                                        onChange={()=>{
+                                          const ids=(anx.plantacionIds||[]);
+                                          const next= marcada ? ids.filter(x=>x!==p.id) : [...ids,p.id];
+                                          const extras = Array.isArray(r.anexosExtra)?[...r.anexosExtra]:[];
+                                          extras[idxExtra] = vincularPlantaciones(extras[idxExtra], next, {usuario:usuarioActual?.nombre||usuarioActual?.email||"", fecha:new Date().toISOString()});
+                                          upd(r.id,"anexosExtra",extras);
+                                        }}/>
+                                      {p.variedad||p.especie||"(sin variedad)"} · {N(p.nPlantas||0)} pl
+                                      {p.estadoRegistro==="baja"&&<span style={{color:C.am,fontWeight:700}}> · baja</span>}
+                                    </label>
+                                  );
+                                })}
+                                {(r.plantaciones||[]).length===0&&<span style={{fontSize:11,color:C.muted}}>Este contrato no tiene plantaciones cargadas.</span>}
+                              </div>
+                            </div>
+                            <div style={{marginTop:8,fontSize:10,color:C.am||"#854d0e",background:C.amBg||"#fef9c3",border:`1px solid ${C.am||"#ca8a04"}`,borderRadius:6,padding:"6px 8px"}}>
+                              {AVISO_ANEXO_SIN_EFECTO}
+                            </div>
+                          </div>
+                        )}
+                        {anx.estadoRegistro==="retirado"&&(
+                          <div style={{marginTop:6,fontSize:10,color:C.muted}}>
+                            Anexo retirado. El documento y el historial se conservan.
                           </div>
                         )}
                       </div>
@@ -8654,11 +8743,19 @@ function ControlContratos({data,setData,clientes,setClientes,variedadesMaestro=[
                   </tbody>
                 </table>
               </div>
-              {(r.plantaciones||[]).some(esBaja)&&(
-                <div style={{marginTop:12,padding:10,background:C.amBg||"#fef9c3",border:`1px solid ${C.am||"#ca8a04"}`,borderRadius:10,fontSize:11,color:C.am||"#854d0e"}}>
-                  <strong>{(r.plantaciones||[]).filter(esBaja).length} plantación(es) dada(s) de baja.</strong> {AVISO_BAJA_SIN_EFECTO} Siguen incluidas en los totales de abajo.
-                </div>
-              )}
+              {(r.plantaciones||[]).some(esBaja)&&(()=>{
+                const resEl = resumenEliminaciones(r);
+                return (
+                  <div style={{marginTop:12,padding:10,background:C.amBg||"#fef9c3",border:`1px solid ${C.am||"#ca8a04"}`,borderRadius:10,fontSize:11,color:C.am||"#854d0e"}}>
+                    <strong>{(r.plantaciones||[]).filter(esBaja).length} plantación(es) dada(s) de baja.</strong> {AVISO_BAJA_SIN_EFECTO} Siguen incluidas en los totales de abajo.
+                    <div style={{marginTop:6}}>
+                      {resEl.bajasSinAnexo.length>0
+                        ? <>Documentación: <strong>{resEl.bajasSinAnexo.length}</strong> sin anexo de eliminación que las respalde. Se registra en la pestaña 📄 Contrato, agregando un anexo del tipo "{TIPO_ANEXO_ELIMINACION}" y marcando ahí las plantaciones afectadas.</>
+                        : <>Documentación: todas las bajas tienen un anexo de eliminación vinculado ({resEl.anexosActivos} anexo(s), {N(resEl.plantasDeclaradas)} plantas declaradas).</>}
+                    </div>
+                  </div>
+                );
+              })()}
               <div style={{marginTop:12,padding:12,background:C.successBg,borderRadius:10,fontSize:11,color:C.success,borderLeft:"4px solid #16a34a"}}>
                 💡 <strong>Royalty Planta estimado:</strong> {(r.plantaciones||[]).reduce((s,p)=>s+(parseFloat(p.nPlantas)||0),0)} plantas × ${r.valorRoyaltyPlanta||1}/planta = <strong>${N(((r.plantaciones||[]).reduce((s,p)=>s+(parseFloat(p.nPlantas)||0),0)*(r.valorRoyaltyPlanta||1)).toFixed(2))}</strong> (100% facturado, {pct(r.pais)===1?"sin WHT":"15% WHT"})
                 <br/>
@@ -9258,6 +9355,28 @@ ${res.resumen.yaEstabanEnRevision} ya estaba(n) esperando revisión y no se repi
                           <td style={{padding:"4px 6px",textAlign:"right"}}>{N(x.oc.cantidad_plantas||0)} plantas</td>
                           <td style={{padding:"4px 6px",textAlign:"right"}}>${N(Number(x.oc.fee_total_usd||0).toFixed(2))}</td>
                           <td style={{padding:"4px 6px",fontSize:10,color:C.muted}}>{x.motivo}</td>
+                          <td style={{padding:"4px 6px",textAlign:"right"}}>
+                            {can&&(
+                              <select value="" title="Asignar esta orden a un contrato"
+                                onChange={ev=>{
+                                  const destino=ev.target.value; if(!destino) return;
+                                  const ct=(data||[]).find(c=>c.id===destino);
+                                  if(!window.confirm(`Asignar la orden ${x.oc.n_oc||x.oc.id} al contrato "${ct?ct.razonSocial:destino}".
+
+La orden conserva sus despachos, facturas y cuotas. Queda registrado quién la asignó.`)){ ev.target.value=""; return; }
+                                  setViveros&&setViveros(prev=>aplicarAsignacionEnViveros(prev, x.oc.id, destino,
+                                    {usuario:usuarioActual?.nombre||usuarioActual?.email||"", fecha:new Date().toISOString()}));
+                                  ev.target.value="";
+                                }}
+                                style={{padding:"3px 6px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:10,background:C.card}}>
+                                <option value="">Asignar a…</option>
+                                {(x.candidatos||[]).map(cid=>{
+                                  const ct=(data||[]).find(c=>c.id===cid);
+                                  return <option key={cid} value={cid}>{ct?`${ct.razonSocial} · ${ct.tipoContrato||"sin tipo"}`:cid}</option>;
+                                })}
+                              </select>
+                            )}
+                          </td>
                         </tr>
                       ))}
                     </tbody>
