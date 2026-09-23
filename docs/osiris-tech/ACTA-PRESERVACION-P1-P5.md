@@ -247,3 +247,69 @@ Detalle observado: la fila sintética quedó "Pagado" sin factura ni fecha y el 
 emite el evento `scroll` del navegador, así que el seguimiento y el cierre se comprobaron emitiendo
 ese mismo evento. Con la rueda del ratón, en un navegador normal, el evento lo emite el propio
 navegador. Conviene que el CFO lo confirme con un scroll real cuando pruebe.
+
+---
+
+# Pedidos de Nicolás · anexo de eliminación, tipo Pruebas y asignación de órdenes
+
+| | |
+|---|---|
+| Rama | `osiris/nicolas-anexos-pruebas` |
+| Base | `origin/main` = `583ec9f` |
+| Estado | **local, sin push ni despliegue** |
+| Archivos | `src/OsirisModule.jsx`, `src/osiris/anexosPlantas.js` + pruebas, `src/osiris/impactoNicolas.test.js`, dos documentos |
+
+## Qué hace, y qué no
+
+| Pedido | Qué hace | Qué NO hace |
+|---|---|---|
+| Anexo de eliminación de plantas | Tipo nuevo en el catálogo, agregado desde el código sin tocar los datos guardados. El anexo lleva documento, fecha de efecto, plantas declaradas, observación y las plantaciones afectadas marcadas una por una, con historial de vínculos. En Plantaciones se avisa cuántas bajas siguen sin anexo | No cambia ningún royalty. No suspende ningún cálculo |
+| Tipo de contrato "Pruebas" | Se puede elegir, y la ficha avisa que sus condiciones económicas **no están confirmadas** | No aplica exenciones, no cambia ningún cálculo, no convierte ningún contrato existente |
+| Contratos comerciales y de pruebas separados | Desde el panel de pendientes se asigna una orden a un contrato, con confirmación y registro de quién la asignó | No reasigna nada solo. La orden conserva despachos, facturas y cuotas |
+
+Además, preservación: un anexo con documento o con plantaciones vinculadas ya no se borra, se
+**retira** y conserva su documento y su historial.
+
+## Pruebas
+
+- 21 de las reglas nuevas, sintéticas.
+- 3 de concurrencia y recarga: dos sesiones, una registra el anexo y la otra asigna la orden; la
+  segunda recibe conflicto y no pisa a la primera; tras recargar, ambas cosas conviven; los campos
+  nuevos sobreviven al viaje de ida y vuelta.
+- Suite completa: **986 aprobadas, 1 falla, 9 omitidas**. La falla sigue siendo
+  `paramsFrutaAnticipos`, preexistente, del carril Finanzas/anticipos. Las 9 omitidas son las dos
+  tandas de medición de impacto, que corren aparte con una copia de datos.
+- Build `CI=true` en verde.
+
+## Impacto antes / después, sobre copia de los datos reales
+
+| Escenario | Royalty planta | Royalty comercial | Filas RP |
+|---|---|---|---|
+| Línea base | 5.751.215 | 13.504.590 | 53 |
+| Marcando **todos** los contratos como "Pruebas" | 5.751.215 | 13.504.590 | 53 |
+| Con un anexo de eliminación en los 13 contratos con plantaciones | 5.751.215 | 13.504.590 | 53 |
+| Asignando explícitamente las 25 órdenes sin contrato declarado | 5.751.215 | 13.504.590 | 53 |
+
+**Ninguno de los tres mueve un importe.** Limitación de la medición: el contract fee sale en 0 en
+este arnés, así que esa línea no prueba nada sobre el fee; los tres cambios tampoco tocan su lógica.
+
+Estado actual de los datos: 0 contratos con anexo de eliminación, 0 bajas documentadas.
+
+## Revisión en el entorno aislado
+
+| Comprobación | Resultado |
+|---|---|
+| Tipo "Pruebas" en el selector | Aparece junto a Licencia, Exclusiva y No Exclusiva. Al elegirlo sale el aviso de condiciones no confirmadas |
+| Tipo de anexo nuevo | "Eliminación de plantas" aparece al final del catálogo guardado, sin desplazar los 8 anteriores |
+| Campos del anexo | Fecha de efecto, plantas declaradas, observación y las plantaciones con casilla; el contador pasó de "0 de 2" a "2 de 2" |
+| Aviso del anexo | "No cambia el royalty: el efecto económico está pendiente de definición contractual" |
+| Totales tras registrar el anexo | 2.870 plantas y US$2.870, idénticos |
+| Aviso de documentación | Pasó a "todas las bajas tienen un anexo de eliminación vinculado (1 anexo, 2.870 plantas declaradas)" |
+| Asignación de una orden | Con dos contratos del mismo cliente, el panel mostró 11 pendientes y un selector por fila con los dos contratos (uno "· Licencia", otro "· Pruebas"). Al asignar una, quedaron 10 |
+| Persistencia | Leído de la base: la orden quedó con su contrato, 1 entrada de historial y sus 500 plantas; el anexo con documento, 2 plantaciones y 2 entradas de historial; el tipo "Pruebas" guardado |
+
+## Coordinación
+
+Allegria Service confirmó que su rama de integración **no toca** `OsirisModule.jsx` ni `src/osiris/*`
+(toca App.jsx, api/pin-login.js, supabase/ y src/proc/). Frisku y Mediterra One siguen en local. Main
+permanece en `583ec9f`: este paquete no está autorizado a publicar.
