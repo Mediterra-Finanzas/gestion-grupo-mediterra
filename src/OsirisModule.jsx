@@ -8840,13 +8840,15 @@ function ControlContratos({data,setData,clientes,setClientes,variedadesMaestro=[
                   t.push({id:`cuo_${Date.now()}_${t.length}`,descripcion:`OC ${oc.n_oc||""} · ${d.fecha_despacho||""}`,nPlantas:pl,fechaEvento:d.fecha_despacho||""});
                 }));
                 if(t.length===0){alert("No hay despachos con plantas para sugerir.");return;}
-                const res = fusionarTandas(cuotasRP, t);
+                const res = fusionarTandas(cuotasRP, t, revisionRP);
                 const detalle = `Se conservan ${res.resumen.conservadas} tanda(s) ya registrada(s)`+
                   (res.resumen.conAntecedentesConservados?` (${res.resumen.conAntecedentesConservados} con factura, fecha de pago o estado)`:"")+
                   `.
 Se agregan ${res.resumen.agregadas} tanda(s) nueva(s).
 `+
-                  (res.resumen.enRevision?`${res.resumen.enRevision} sugerencia(s) quedan EN REVISIÓN: no suman ni generan obligación hasta que las revises.`:"Sin sugerencias dudosas.")+
+                  (res.resumen.enRevision?`${res.resumen.enRevision} sugerencia(s) quedan EN REVISIÓN: no suman ni generan obligación hasta que las revises.`:"Sin sugerencias dudosas nuevas.")+
+                  (res.resumen.yaEstabanEnRevision?`
+${res.resumen.yaEstabanEnRevision} ya estaba(n) esperando revisión y no se repiten.`:"")+
                   `
 
 ¿Continuar?`;

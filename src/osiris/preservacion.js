@@ -42,9 +42,15 @@ export function tieneAntecedentes(cuota) {
 //               es segura. No son obligación: quedan a la espera de que una
 //               persona decida. Nunca se descartan en silencio.
 // Ninguna cuota existente se modifica ni se elimina, tenga o no antecedentes.
-export function fusionarTandas(existentes, sugeridas) {
+// `enRevision` son las sugerencias que ya esperan decisión de una persona: si se vuelve a pulsar
+// el botón, no se repiten. Repetir la operación no duplica cuotas ni sugerencias.
+export function fusionarTandas(existentes, sugeridas, enRevision) {
   const prev = Array.isArray(existentes) ? existentes.slice() : [];
   const sug = Array.isArray(sugeridas) ? sugeridas : [];
+  const yaEnRevision = Array.isArray(enRevision) ? enRevision : [];
+  const huella = (x) => `${txt(x.fechaEvento)}|${num(x.nPlantas)}|${txt(x.descripcion)}`;
+  const huellasRevision = new Set(yaEnRevision.map(huella));
+  let repetidas = 0;
 
   const usadas = new Set(); // ids de existentes ya emparejadas exactamente
   const nuevas = [];
@@ -53,6 +59,9 @@ export function fusionarTandas(existentes, sugeridas) {
   sug.forEach((s) => {
     const sFecha = txt(s.fechaEvento);
     const sPl = num(s.nPlantas);
+
+    // 0) Ya está esperando revisión por una pasada anterior: no se repite.
+    if (huellasRevision.has(huella(s))) { repetidas++; return; }
 
     // 1) Correspondencia exacta: misma fecha y misma cantidad. Se conserva la
     //    existente tal cual y la sugerencia no aporta nada.
@@ -103,6 +112,7 @@ export function fusionarTandas(existentes, sugeridas) {
       conservadas: prev.length,
       agregadas: nuevas.length,
       enRevision: revision.length,
+      yaEstabanEnRevision: repetidas,
       conAntecedentesConservados: prev.filter(tieneAntecedentes).length,
     },
   };

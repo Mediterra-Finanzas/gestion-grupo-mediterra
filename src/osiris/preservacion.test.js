@@ -86,6 +86,45 @@ describe("P1 · regenerar sugerencias", () => {
     expect(totalPlantas(dos.activas)).toBe(totalPlantas(uno.activas));
   });
 
+  test("repetir la operación no duplica cuotas ni sugerencias", () => {
+    const sug = [
+      { id: "s1", nPlantas: 1200, fechaEvento: "2026-03-01" }, // ambigua: choca con c1
+      { id: "s2", nPlantas: 333, fechaEvento: "2027-01-15" },  // nueva
+    ];
+    const uno = fusionarTandas([facturada], sug, []);
+    expect(uno.resumen.agregadas).toBe(1);
+    expect(uno.revision).toHaveLength(1);
+
+    // Segunda pasada con el mismo origen: la nueva ya es cuota y la ambigua ya espera revisión.
+    const dos = fusionarTandas(uno.activas, sug, uno.revision);
+    expect(dos.resumen.agregadas).toBe(0);
+    expect(dos.revision).toHaveLength(0);
+    expect(dos.resumen.yaEstabanEnRevision).toBe(1);
+    expect(dos.activas).toHaveLength(uno.activas.length);
+    expect(totalPlantas(dos.activas)).toBe(totalPlantas(uno.activas));
+  });
+
+  test("una tercera pasada tampoco acumula nada", () => {
+    const sug = [{ id: "s1", nPlantas: 1200, fechaEvento: "2026-03-01" }];
+    const uno = fusionarTandas([facturada], sug, []);
+    const dos = fusionarTandas(uno.activas, sug, uno.revision);
+    const tres = fusionarTandas(dos.activas, sug, uno.revision.concat(dos.revision));
+    expect(tres.revision).toHaveLength(0);
+    expect(tres.activas).toHaveLength(uno.activas.length);
+  });
+
+  test("las cuotas con antecedentes siguen intactas en cada pasada", () => {
+    const sug = [{ id: "s1", nPlantas: 1200, fechaEvento: "2026-03-01" }];
+    let act = [facturada, sinRespaldo], rev = [];
+    for (let i = 0; i < 3; i++) {
+      const r = fusionarTandas(act, sug, rev);
+      act = r.activas; rev = rev.concat(r.revision);
+    }
+    expect(act.find((c) => c.id === "c1")).toEqual(facturada);
+    expect(act.find((c) => c.id === "c2")).toEqual(sinRespaldo);
+    expect(rev).toHaveLength(1);
+  });
+
   test("tieneAntecedentes distingue lo registrado de lo vacío", () => {
     expect(tieneAntecedentes(facturada)).toBe(true);
     expect(tieneAntecedentes(sinRespaldo)).toBe(false);
