@@ -20,9 +20,13 @@
 
 const A = require("./_friskuSpAuth");
 const G = require("./_friskuSpGraph");
+const RL = require("./_friskuSpRateLimiter");
 
-const RL_LOGIN = { ventanaMs: 5 * 60 * 1000, max: 8 };
-const RL_OP = { ventanaMs: 60 * 1000, max: 60 };
+// Dos capas independientes (defaults conservadores; configurables por env en prod).
+// IP: 30/5min; identidad(email): 8/5min; op(sesión): 60/min. Bloqueo temporal (no permanente).
+const RL_IP = { ventanaMs: 5 * 60 * 1000, max: 30, bloqueoMs: 15 * 60 * 1000, tipo: "ip" };
+const RL_ID = { ventanaMs: 5 * 60 * 1000, max: 8, bloqueoMs: 15 * 60 * 1000, tipo: "identidad" };
+const RL_OP = { ventanaMs: 60 * 1000, max: 60, bloqueoMs: 60 * 1000, tipo: "identidad" };
 const MAX_BODY = 2048;            // bytes
 const MAX_EMAIL = 320, MAX_PIN = 12;
 const CAMPOS = {
@@ -41,24 +45,27 @@ const CAMPOS = {
 function limiterNoConfigurado() {
   return { async golpe() { throw new Error("rate_limiter_no_configurado"); } };
 }
-// SOLO PARA TESTS: limiter en memoria. Nunca usar como protección real en producción.
+// SOLO PARA TESTS: limiter en memoria por clave. Nunca usar como protección real en producción.
 function crearRateLimiterMemoriaSoloTest() {
   const m = new Map();
   return {
     async golpe(key, regla, ahora) {
       const now = Number.isFinite(ahora) ? ahora : Date.now();
       const e = m.get(key);
-      if (!e || now > e.reset) { m.set(key, { n: 1, reset: now + regla.ventanaMs }); return { permitido: true }; }
+      if (!e || now > e.reset) { m.set(key, { n: 1, reset: now + regla.ventanaMs }); return { permitido: true, retry_after_seg: 0 }; }
       e.n++;
-      return { permitido: e.n <= regla.max };
+      const permitido = e.n <= regla.max;
+      return { permitido, retry_after_seg: permitido ? 0 : Math.ceil((regla.bloqueoMs || regla.ventanaMs || 0) / 1000) };
     },
   };
 }
 
+// IP del cliente desde señales de confianza de Vercel. `x-forwarded-for` lo sobrescribe Vercel
+// (no reenvía IPs externas → anti-spoofing); `x-vercel-forwarded-for`/`x-real-ip` son idénticas
+// y no las pisa un proxy encima. Se normaliza (no se persiste ni registra la IP original).
 function ipDe(req) {
-  const xff = (req.headers && (req.headers["x-forwarded-for"] || req.headers["X-Forwarded-For"])) || "";
-  const first = String(xff).split(",")[0].trim();
-  return first || (req.socket && req.socket.remoteAddress) || "0.0.0.0";
+  const raw = hdr(req, "x-vercel-forwarded-for") || hdr(req, "x-real-ip") || hdr(req, "x-forwarded-for");
+  return RL.normalizarIp(raw);
 }
 function hdr(req, k) { return (req.headers && (req.headers[k] || req.headers[k.replace(/(^|-)([a-z])/g, (m) => m.toUpperCase())])) || ""; }
 
@@ -105,7 +112,10 @@ function crearHandler(deps = {}) {
     let r;
     try { r = await rate.golpe(key, regla, ahora()); }
     catch (e) { json(res, 503, { error: "no_disponible" }); return false; }   // fail-closed ANTES de verificar PIN
-    if (!r || r.permitido !== true) { json(res, 429, { error: "rate_limit" }); return false; }
+    if (!r || r.permitido !== true) {
+      const ra = (r && Number.isFinite(r.retry_after_seg)) ? r.retry_after_seg : Math.ceil((regla.bloqueoMs || 0) / 1000);
+      return json(res, 429, { error: "rate_limit" }, { "Retry-After": String(ra) }), false;
+    }
     return true;
   }
 
@@ -146,7 +156,11 @@ function crearHandler(deps = {}) {
     if (typeof body.email !== "string" || email.length > MAX_EMAIL) return json(res, 401, { error: "credenciales" });
     if (typeof pin !== "string" || pin.length > MAX_PIN || pin.length === 0) return json(res, 401, { error: "credenciales" });
     // Rate limit ANTES de tocar datos o verificar PIN (fail-closed si el limiter falla).
-    if (!await limitar(`login:${ipDe(req)}:${email}`, RL_LOGIN, res)) return;
+    // Dos capas independientes: IP (no se resetea por un login exitoso) e identidad(email).
+    const ip = ipDe(req);
+    if (!ip) return json(res, 503, { error: "no_disponible" });   // sin IP confiable → no se puede limitar → cerrado
+    if (!await limitar(ip, RL_IP, res)) return;
+    if (!await limitar(email, RL_ID, res)) return;
     if (!secret) return json(res, 503, { error: "no_configurado" });
     let datos;
     try { datos = await leerDatos(); } catch (e) { return json(res, 503, { error: "no_disponible" }); }
@@ -205,7 +219,14 @@ async function leerDatosProd() {
 
 const handlerProd = crearHandler({
   leerDatos: leerDatosProd,
-  rate: limiterNoConfigurado(),   // PRODUCCIÓN: fail-closed hasta cablear un limiter distribuido.
+  // PRODUCCIÓN: limiter distribuido en Supabase (RPC frisku_sp_rl_consumir). Si falta
+  // FRISKU_SP_RATELIMIT_SECRET o la service key, golpe() lanza → login 503 (fail-closed).
+  rate: RL.crearLimiterSupabase({
+    supaUrl: SUPA_URL,
+    serviceKey: process.env.SUPABASE_SERVICE_ROLE_KEY || "",
+    hmacSecret: process.env.FRISKU_SP_RATELIMIT_SECRET || "",
+    fetchImpl: (typeof fetch === "function" ? fetch : null),
+  }),
   cfg: {
     secret: process.env.FRISKU_SP_SESSION_SECRET || "",
     tenantId: process.env.AZURE_TENANT_ID || "",

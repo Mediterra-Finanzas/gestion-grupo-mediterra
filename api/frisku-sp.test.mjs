@@ -30,11 +30,12 @@ function mkRes() {
     json(o) { this.body = o; return this; }, end() { this.ended = true; return this; },
   };
 }
-function mkReq({ method = "POST", headers = {}, body, cookie, origin = ORIGIN, host = HOST, noOrigin, noHost } = {}) {
+function mkReq({ method = "POST", headers = {}, body, cookie, origin = ORIGIN, host = HOST, noOrigin, noHost, ip = "203.0.113.5", noIp } = {}) {
   const h = Object.assign({ "content-type": "application/json" }, headers);
   if (cookie) h.cookie = cookie;
   if (origin && !noOrigin) h.origin = origin;
   if (host && !noHost) h.host = host;
+  if (ip && !noIp && !("x-vercel-forwarded-for" in h)) h["x-vercel-forwarded-for"] = ip;
   return { method, headers: h, body, socket: { remoteAddress: "1.2.3.4" } };
 }
 function mkFetch({ graphValue = [], graphStatus = 200, capturar, tokenOk = true } = {}) {
@@ -152,10 +153,22 @@ async function run() {
     ok(!("status" in (res.body || {})), `Graph ${gs}: sin estado upstream crudo en respuesta`);
   }
 
-  // rate limit login (max 8) → 9º = 429
+  // rate limit login capa identidad (max 8) → 9º = 429 + Retry-After
   { const hRl = mkHandler(); let last = mkRes();
     for (let i = 0; i < 9; i++) { last = mkRes(); await hRl(mkReq({ body: { op: "login", email: "uno@ejemplo.test", pin: "000000" } }), last); }
-    eq(last.statusCode, 429, "9º login → 429"); }
+    eq(last.statusCode, 429, "9º login → 429");
+    ok(String(last.getHeader("Retry-After") || "").length > 0, "429 incluye Retry-After"); }
+
+  // IP confiable ausente → 503 (no se puede rate-limit por IP) — fail-closed
+  { const hNoIp = mkHandler();
+    res = mkRes(); await hNoIp(mkReq({ noIp: true, body: { op: "login", email: "uno@ejemplo.test", pin: PIN } }), res);
+    eq(res.statusCode, 503, "sin IP confiable → 503"); }
+
+  // Capas independientes: un login exitoso NO resetea la capa IP (buckets distintos).
+  { const hL = mkHandler(); // limiter en memoria por clave: ip y email son claves separadas
+    await loginOk(hL); // consume ip(1) + id(1)
+    const r2 = await loginOk(hL); // consume ip(2) + id(2) — sigue permitido
+    eq(r2.statusCode, 200, "segundo login exitoso permitido (capas independientes, sin reset)"); }
 
   // logout borra cookie con mismos atributos
   res = mkRes(); await h(mkReq({ body: { op: "logout" } }), res);
