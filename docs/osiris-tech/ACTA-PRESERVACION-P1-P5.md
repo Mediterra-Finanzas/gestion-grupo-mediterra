@@ -131,3 +131,64 @@ intacto no equivale a haberlo validado.
 El candidato está listo para que lo revises. No se integra ni se despliega sin tu autorización
 expresa. Quedan fuera, por decisión tuya: el reajuste de Dole (asunto independiente del anexo de
 Huarmey), el anexo de extensión de Huarmey, y las cinco dudas documentales abiertas.
+
+---
+
+# Cierre de las tres comprobaciones pedidas (2026-09-23, tarde)
+
+## A · Concurrencia con dos sesiones reales del navegador
+
+Dos pestañas contra el mismo PostgREST aislado, ambas con el contrato Agroextiende abierto y la
+misma versión cargada. Sesión A cambia el N° de factura de la primera tanda; sesión B, el de la
+segunda.
+
+| Momento | Qué pasó |
+|---|---|
+| A guarda (autoguardado) | `PATCH …updated_at=eq.14:54:40` → escribe. Indicador "Guardado" |
+| B guarda (autoguardado) | `PATCH` con la **misma versión vieja** → PostgREST no encuentra fila, no escribe. Indicador **"NO se guardó · conflicto"** y aviso: *"Otra persona guardó cambios en Osiris después de que abriste esta pantalla. Para no borrar su trabajo, lo tuyo NO se guardó…"* |
+| B conserva lo pendiente | `B-CONC` sigue en pantalla; B todavía ve el valor viejo de la fila de A, porque no recargó |
+| B, segundo intento (edita otra fila y pulsa "Guardar ahora") | Tampoco escribe; el aviso sigue visible y ambos cambios pendientes (`B-CONC`, `B-SEGUNDO`) siguen en pantalla |
+| Estado real en la base | `A-CONC` presente; `B-CONC` y `B-SEGUNDO` **ausentes** |
+
+Las únicas escrituras que acompañan a cada intento son a la fila `audit_log`, no a `osiris`.
+La recuperación (B recarga, ve lo de A y reaplica lo suyo) está cubierta por la prueba automatizada
+de concurrencia; no se repitió a mano.
+
+## B · Sugerencias sin duplicación
+
+| Requisito | Resultado observado |
+|---|---|
+| Nada se incorpora sin confirmación | Cancelar el diálogo deja todo igual: 12 tandas y 2 en revisión antes y después. Las sugerencias nuevas se agregan solo al aceptar un diálogo que dice cuántas son |
+| Las ambiguas quedan separadas y no computables | El total en pantalla, 1.275.150 plantas, es exactamente la suma de las cuotas activas; las 100.000 plantas en revisión no entran |
+| Repetir no duplica | Tres pulsaciones seguidas: cuotas 8 → 12 → 12 → 12; en revisión 2 → 2 → 2. Desde la segunda, el aviso dice "0 nuevas · 2 ya estaban esperando revisión y no se repiten" |
+| Facturas, pagos y estados intactos | 9 facturas en pantalla antes y después de las tres pasadas |
+
+Esto exigió una corrección: antes la lista de revisión se anexaba sin comparar y la misma sugerencia
+ambigua se apilaba en cada pulsación. Corregido en `9470856`, con tres pruebas nuevas (33 en el
+archivo de reglas).
+
+**Matiz para tu decisión**: una sugerencia **sin parecido** con ninguna cuota pasa a ser cuota activa
+al aceptar el diálogo, que declara cuántas se agregan. Las **ambiguas** nunca se activan salvo que se
+pulse "Agregar como tanda" en cada una. Si prefieres confirmación una por una también para las
+nuevas, es un cambio pequeño, pero hoy no está así.
+
+## C · Vuelta al código anterior conservando los datos
+
+Se construyó el código anterior (`3048c8c`, con el destino apuntado al mismo entorno aislado) y se
+sirvió contra **la misma base**, que contenía los tres campos nuevos: baja de plantación con
+historial, `rpPagos` con autor y fecha, y sugerencias en revisión.
+
+| Comprobación con la versión anterior | Resultado |
+|---|---|
+| Abre los contratos y las plantaciones con campos nuevos | Sin errores; misma lista, mismos totales (2.870 plantas, US$2.870) |
+| Guarda una edición propia | "Guardado", y su cambio queda en la base |
+| ¿Se pierden los campos nuevos al guardar? | **No.** Tras el guardado siguen presentes la baja con su historial, `rpPagos` con `confirmadoPor`, y las sugerencias en revisión |
+
+Es decir: volver atrás **no destruye** lo que haya creado esta versión. Lo que sí se pierde al volver
+es el **comportamiento**: reaparece el botón que borra la plantación de verdad, "Sugerir desde
+despachos" vuelve a reemplazar las tandas, desaparecen la marca "revisar" y el editor de las filas
+derivadas de OC (sus datos quedan en la base, pero sin pantalla donde verlos), y las órdenes ambiguas
+vuelven a atribuirse a todos los contratos del cliente.
+
+Procedimiento de vuelta: desplegar el commit anterior (`3048c8c`) desde el panel de Vercel. No hay
+migración que revertir ni dato que borrar.
