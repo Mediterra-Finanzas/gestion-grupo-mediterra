@@ -359,3 +359,33 @@ propia edición y **no perdió nada**: el anexo retirado con documento, vínculo
 Un anexo creado desde el botón "+ Agregar anexo" no registra el evento inicial de alta en su
 historial (sí quedan los vínculos y el retiro). No afecta a la preservación; se puede completar en
 una pasada futura.
+
+### Aclaración del contador (pedida en la revisión)
+
+El aviso decía "1 baja(s) sin respaldo" justo después de mostrar "2 de 2" plantaciones vinculadas.
+**El conteo era correcto; la etiqueta era ambigua.** El contrato de Giddings tiene dos plantaciones,
+MegaCrisp (1.420) y MegaEarly (1.450), ambas con el estado cosmético "Anulado", pero **solo MegaCrisp
+tiene la baja formal** (`estadoRegistro = baja`). El anexo vinculaba las dos. El contador cuenta
+bajas, no vínculos.
+
+Texto nuevo: *"Documentación de las bajas: N de M plantación(es) dada(s) de baja con un anexo de
+eliminación activo y con documento adjunto"*, más, cuando corresponde, cuántas están vinculadas a un
+anexo sin documento, cuántos anexos hay retirados y cuántas plantaciones menciona el anexo que no son
+bajas. Verificado en pantalla tras el retiro: *"0 de 1 plantación(es) dada(s) de baja con un anexo de
+eliminación activo y con documento adjunto. Quedan 1 sin ese respaldo; hay 1 anexo(s) retirado(s),
+que no respaldan."*
+
+Debajo, fijo: *"Con respaldo significa solo que existe ese anexo con su documento. No significa que
+el documento haya sido validado ni que la eliminación se haya ejecutado en el campo."* Son tres cosas
+distintas y el sistema solo comprueba la primera.
+
+Dos pruebas nuevas (26 en el archivo): una recorre **cuatro** bajas con los tres estados posibles
+—anexo activo con documento, anexo retirado, vínculo sin documento y sin anexo— y comprueba que
+respaldadas + sin respaldo = total de bajas, de modo que ninguna se pierde ni se cuenta dos veces;
+la otra, que una plantación vinculada que no está dada de baja se informa aparte y no infla el conteo.
+
+### Pendiente registrado
+
+Un anexo creado desde "+ Agregar anexo" **no registra el evento inicial de alta**: su historial
+empieza en el primer vínculo. El historial de esos anexos **no está completo** y no debe presentarse
+como tal. Queda pendiente, fuera del alcance de este paquete.
