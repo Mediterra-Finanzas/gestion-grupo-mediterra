@@ -8749,12 +8749,19 @@ Motivo del retiro:`, "");
                   <div style={{marginTop:12,padding:10,background:C.amBg||"#fef9c3",border:`1px solid ${C.am||"#ca8a04"}`,borderRadius:10,fontSize:11,color:C.am||"#854d0e"}}>
                     <strong>{(r.plantaciones||[]).filter(esBaja).length} plantación(es) dada(s) de baja.</strong> {AVISO_BAJA_SIN_EFECTO} Siguen incluidas en los totales de abajo.
                     <div style={{marginTop:6}}>
-                      {resEl.bajasSinAnexo.length>0
-                        ? <>Documentación: <strong>{resEl.bajasSinAnexo.length}</strong> baja(s) sin respaldo.
-                            {resEl.bajasVinculadasSinDocumento.length>0&&<> De ellas, <strong>{resEl.bajasVinculadasSinDocumento.length}</strong> están vinculadas a un anexo <strong>sin documento adjunto</strong>: un vínculo por sí solo no es respaldo.</>}
-                            {resEl.anexosRetirados>0&&<> Hay {resEl.anexosRetirados} anexo(s) retirado(s), que no respaldan.</>}
-                            {" "}Se registra en la pestaña 📄 Contrato, agregando un anexo del tipo "{TIPO_ANEXO_ELIMINACION}", adjuntando el documento y marcando ahí las plantaciones afectadas.</>
-                        : <>Documentación: todas las bajas tienen un anexo de eliminación <strong>activo y con documento</strong> ({resEl.anexosConDocumento} de {resEl.anexos} anexo(s), {N(resEl.plantasDeclaradas)} plantas declaradas).</>}
+                      Documentación de las bajas: <strong>{resEl.bajasRespaldadas} de {resEl.bajasTotales}</strong> plantación(es) dada(s) de baja
+                      {" "}con un anexo de eliminación activo y con documento adjunto.
+                      {resEl.bajasSinAnexo.length>0&&<>
+                        {" "}Quedan <strong>{resEl.bajasSinAnexo.length}</strong> sin ese respaldo
+                        {resEl.bajasVinculadasSinDocumento.length>0&&<>, de las cuales {resEl.bajasVinculadasSinDocumento.length} está(n) vinculada(s) a un anexo <strong>sin documento adjunto</strong> (un vínculo por sí solo no es respaldo)</>}
+                        {resEl.anexosRetirados>0&&<>; hay {resEl.anexosRetirados} anexo(s) retirado(s), que no respaldan</>}.
+                        {" "}Se registra en la pestaña 📄 Contrato, agregando un anexo del tipo "{TIPO_ANEXO_ELIMINACION}", adjuntando el documento y marcando ahí las plantaciones afectadas.
+                      </>}
+                      {resEl.vinculadasQueNoSonBaja>0&&<> El anexo también menciona {resEl.vinculadasQueNoSonBaja} plantación(es) que no está(n) dada(s) de baja: no entran en este conteo.</>}
+                      {resEl.plantasDeclaradas>0&&<> Plantas declaradas en anexos con documento: {N(resEl.plantasDeclaradas)}.</>}
+                      <div style={{marginTop:4,fontSize:10,opacity:0.85}}>
+                        "Con respaldo" significa solo que existe ese anexo con su documento. No significa que el documento haya sido validado ni que la eliminación se haya ejecutado en el campo.
+                      </div>
                     </div>
                   </div>
                 );

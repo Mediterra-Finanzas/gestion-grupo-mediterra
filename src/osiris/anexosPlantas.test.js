@@ -109,6 +109,41 @@ describe("anexo de eliminación de plantas", () => {
     expect(retirado.anexosExtra[0].historial.length).toBeGreaterThan(1);
   });
 
+  test("el conteo recorre TODAS las bajas, una por una, con sus tres estados", () => {
+    const conDoc = crearAnexoEliminacion({ id: "a1", link: "https://x/a.pdf", plantacionIds: ["b1"], plantasDeclaradas: 10 });
+    const retirado = retirarAnexo(crearAnexoEliminacion({ id: "a2", link: "https://x/b.pdf", plantacionIds: ["b2"] }), { usuario: "ana" });
+    const sinDoc = crearAnexoEliminacion({ id: "a3", plantacionIds: ["b3"] });
+    const ct = {
+      plantaciones: [
+        { id: "b1", estadoRegistro: "baja" },   // anexo activo con documento  -> respaldada
+        { id: "b2", estadoRegistro: "baja" },   // anexo retirado              -> sin respaldo
+        { id: "b3", estadoRegistro: "baja" },   // anexo activo sin documento  -> sin respaldo
+        { id: "b4", estadoRegistro: "baja" },   // sin ningún anexo            -> sin respaldo
+        { id: "v1" },                            // vigente, no es baja
+      ],
+      anexosExtra: [conDoc, retirado, sinDoc],
+    };
+    const r = resumenEliminaciones(ct);
+    expect(r.bajasTotales).toBe(4);
+    expect(r.bajasRespaldadas).toBe(1);
+    expect(r.bajasSinAnexo.sort()).toEqual(["b2", "b3", "b4"]);
+    expect(r.bajasVinculadasSinDocumento).toEqual(["b3"]); // b2 está vinculada por un anexo retirado, que ya no cuenta como vínculo activo
+    expect(r.bajasSinAnexo.length + r.bajasRespaldadas).toBe(r.bajasTotales); // no se pierde ninguna
+  });
+
+  test("una plantación vinculada que no está dada de baja se informa aparte y no infla el conteo", () => {
+    const anx = crearAnexoEliminacion({ id: "a1", link: "https://x/a.pdf", plantacionIds: ["b1", "v1"] });
+    const r = resumenEliminaciones({
+      plantaciones: [{ id: "b1", estadoRegistro: "baja" }, { id: "v1" }],
+      anexosExtra: [anx],
+    });
+    expect(r.plantacionesVinculadas).toBe(2);
+    expect(r.bajasTotales).toBe(1);
+    expect(r.bajasRespaldadas).toBe(1);
+    expect(r.vinculadasQueNoSonBaja).toBe(1);
+    expect(r.bajasSinAnexo).toEqual([]);
+  });
+
   test("el resumen no toca importes y señala las bajas sin anexo", () => {
     const ct = {
       plantaciones: [

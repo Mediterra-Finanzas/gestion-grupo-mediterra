@@ -105,6 +105,12 @@ export function anexosDeLaPlantacion(plantacionId, anexos) {
 // Una baja está RESPALDADA solo si un anexo **activo y con documento** la vincula.
 // Un vínculo por sí solo no es respaldo: sin documento, o con el anexo retirado,
 // la baja sigue sin documentar.
+//
+// Qué significa y qué NO significa "respaldada": significa únicamente que existe un
+// anexo activo, con documento adjunto, que menciona esa plantación. NO significa que
+// alguien haya validado el contenido del documento, ni que la eliminación de las
+// plantas se haya hecho efectivamente en el campo. Son tres cosas distintas y el
+// sistema solo comprueba la primera.
 export function respaldaBaja(anexo) {
   return esAnexoEliminacion(anexo) && anexo.activo !== false && txt(anexo.link) !== "";
 }
@@ -122,11 +128,18 @@ export function resumenEliminaciones(contrato) {
   conRespaldo.forEach((a) => (a.plantacionIds || []).forEach((x) => respaldadas.add(txt(x))));
   const plantaciones = Array.isArray(c.plantaciones) ? c.plantaciones : [];
   const deBaja = plantaciones.filter((p) => p.estadoRegistro === "baja");
+  // El conteo recorre TODAS las plantaciones dadas de baja del contrato, una por una.
+  // Las plantaciones vinculadas que no están dadas de baja se informan aparte: el anexo
+  // puede mencionarlas, pero no son bajas y no entran en este conteo.
+  const idsBaja = new Set(deBaja.map((p) => txt(p.id)));
   return {
     anexos: anexos.length,
     anexosActivos: activos.length,
     anexosRetirados: anexos.length - activos.length,
     anexosConDocumento: conRespaldo.length,
+    bajasTotales: deBaja.length,
+    bajasRespaldadas: deBaja.filter((p) => respaldadas.has(txt(p.id))).length,
+    vinculadasQueNoSonBaja: [...vinculadas].filter((id) => !idsBaja.has(id)).length,
     plantacionesVinculadas: vinculadas.size,
     plantacionesRespaldadas: respaldadas.size,
     plantasDeclaradas: conRespaldo.reduce((s, a) => s + num(a.plantasDeclaradas), 0),
