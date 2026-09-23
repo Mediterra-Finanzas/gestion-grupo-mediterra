@@ -313,3 +313,49 @@ Estado actual de los datos: 0 contratos con anexo de eliminación, 0 bajas docum
 Allegria Service confirmó que su rama de integración **no toca** `OsirisModule.jsx` ni `src/osiris/*`
 (toca App.jsx, api/pin-login.js, supabase/ y src/proc/). Frisku y Mediterra One siguen en local. Main
 permanece en `583ec9f`: este paquete no está autorizado a publicar.
+
+## Revisión visual del candidato (entorno aislado, 2026-09-23)
+
+Sobre la copia real aislada, con el usuario de prueba. **Los importes que aparecen son resultados
+calculados por el motor, no facturas emitidas ni cobros confirmados.**
+
+### 1 · Registrar el anexo y vincular plantaciones
+Tipo "Eliminación de plantas" al final del catálogo guardado, sin desplazar los 8 anteriores. Se
+cargó documento, fecha de efecto 15-01-2026, 2.870 plantas declaradas y observación, y se marcaron
+las dos plantaciones: el contador pasó de "0 de 2" a "2 de 2". El indicador quedó en *"todas las
+bajas tienen un anexo de eliminación activo y con documento (1 de 1 anexo, 2.870 plantas
+declaradas)"*. El resultado calculado no se movió: 2.870 plantas × US$1 = US$2.870.
+
+### 2 · Retirar el anexo
+El botón de eliminar detectó que el anexo tiene documento y plantaciones vinculadas y pidió motivo:
+*"No se elimina: queda retirado, conservando el documento y el historial"*. Leído de la base: el
+anexo sigue ahí con `activo=false`, `estadoRegistro=retirado`, documento conservado, sus 2
+plantaciones, 3 entradas de historial (`vinculo → vinculo → retiro (cargado por error en la
+revisión)`) y la fecha de efecto.
+
+El indicador cambió a *"1 baja(s) sin respaldo. Hay 1 anexo(s) retirado(s), que no respaldan"*. Los
+resultados calculados no se movieron.
+
+**Criterio ajustado en esta revisión**: una baja se da por respaldada solo con un anexo **activo y
+con documento**. Un vínculo por sí solo no alcanza, y la pantalla lo dice aparte ("vinculadas a un
+anexo sin documento adjunto"). Tres pruebas nuevas cubren los tres estados.
+
+### 3 · Contrato de pruebas y asignación de una orden
+Se creó un segundo contrato para Agrícola Cerro Prieto S.A. con tipo **Pruebas**. El panel mostró
+11 órdenes pendientes de asignación, cada una con un selector que ofrece los dos contratos del
+cliente ("· Licencia" y "· Pruebas"). Al asignar la primera quedaron 10. En la base: la orden con su
+contrato, 1 entrada de historial y sus 500 plantas; las otras 10 sin tocar.
+
+### Permisos
+Con el usuario de solo lectura: ve el anexo y el panel de pendientes, y tiene **0 campos
+habilitados, 0 selectores de asignación**, sin "Agregar anexo" ni "Eliminar".
+
+### Recuperación con el código anterior
+Se sirvió el código anterior (`3048c8c`) contra la misma base con todos los campos nuevos. Guardó su
+propia edición y **no perdió nada**: el anexo retirado con documento, vínculos e historial; el tipo
+"Pruebas"; la orden asignada con su historial; los 24 contratos.
+
+### Observación menor
+Un anexo creado desde el botón "+ Agregar anexo" no registra el evento inicial de alta en su
+historial (sí quedan los vínculos y el retiro). No afecta a la preservación; se puede completar en
+una pasada futura.
