@@ -28,6 +28,7 @@ import {
 } from "./friskuLiquidacionesLogic.js";
 import { clasificarReferenciaDoc, esUrlDocumentoValida, avisoRefBorrador, conservarDocsComex } from "./friskuDocumentRefs.js";
 import AvisoPersistencia, { construirAviso } from "./AvisoPersistencia";
+import FriskuSharePointBuscador from "./FriskuSharePointBuscador.jsx";
 import { FriskuBIProvider, useFriskuBI, FRISKU_DIMS, FRISKU_METRICS, fmtMetric,
          mComFriskuUSD, mVentaUSD, mFobUSD, mComClienteUSD, groupByDims, invertSelection } from "./friskuBI.js";
 import { normalizarNombre, buscarDuplicado } from "./nombreCanonico.js";
@@ -3315,6 +3316,8 @@ function CarpetaComexPanel({ oe, onGuardar, canEdit }) {
       {/* Documentos */}
       {subTab==="docs" && (
         <div>
+          {/* S5B: buscador read-only de documentos en SharePoint (no persiste vínculos). */}
+          <FriskuSharePointBuscador oe={oe} />
           <div style={{display:"flex",flexDirection:"column",gap:5,marginBottom:10}}>
             {cx.docs.map((doc,idx)=>{
               const adjunto = esArchivoSubido(doc.url);       // archivo real subido (http)
