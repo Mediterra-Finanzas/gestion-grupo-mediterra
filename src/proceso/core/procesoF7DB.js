@@ -75,6 +75,20 @@ export const cargarLotesDeRecepcion = (e, recId) =>
 // T10C: catálogo de temporadas activas (para derivar la temporada desde la fecha operacional).
 export const cargarTemporadas = (e) =>
   procSelect("proc_temporada", `?empresa_id=eq.${e}&deleted_at=is.null&order=fecha_inicio`);
+
+// ── MS-G2 · Ciclo de vida de temporada (administración desde la app) ────────
+// Cambio de estado por UPDATE directo (activar/cerrar/anular). La legalidad de la
+// transición y el invariante "una sola activa" se pre-validan en el dominio
+// (validarTransicionTemporada / validarActivacion); el enforcement duro (índice único
+// parcial + guard de escritura) es del backend cuando temporadas_v2/20 esté desplegado.
+export const cambiarEstadoTemporada = (id, empresaId, estado, actor) =>
+  procUpdate("proc_temporada", `?id=eq.${id}&empresa_id=eq.${empresaId}`, { estado, updated_by: actor || null });
+// REAPERTURA controlada: ÚNICO camino para reabrir una temporada 'cerrada' (motivo +
+// permiso + auditoría). Va por el RPC SECURITY DEFINER (proc_fn_reabrir_temporada), nunca
+// por PATCH directo. p_nuevo_estado ∈ {activa, planificada}.
+export const reabrirTemporada = (a) => procRpc("proc_fn_reabrir_temporada", {
+  p_temporada_id: a.temporadaId, p_nuevo_estado: a.nuevoEstado, p_motivo: a.motivo,
+});
 // NR-05 · Lotes persistidos de una recepción para reanudar un borrador: identidad + origen
 // (productor/predio/cuartel) + especie/variedad + ubicación (read-model, read-only). El kg NO sale
 // de acá: se toma del movimiento de entrada del ledger (kgEntradaPorLote), misma autoridad que el

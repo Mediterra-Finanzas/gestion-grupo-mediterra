@@ -390,9 +390,88 @@ export const MSG_TEMPORADA_REQUERIDA =
 // MS-G1 · Valida la temporada elegida en el selector del shell para operaciones de CREACIÓN
 // (correlativos + persistencia). Devuelve { codigo } si hay una temporada real seleccionada;
 // { error } (mensaje humano) si no, para bloquear la creación en vez de caer al placeholder "s-t".
-export function temporadaParaCrear(temporada) {
+// MS-G2 (defensa en profundidad): si se pasa el `catalogo` de temporadas del empresa, además valida
+// que la temporada exista y esté abierta (activa|planificada) — espeja el guard de lifecycle del
+// backend para no depender solo de él (que puede no estar desplegado). Sin catálogo → sólo string.
+export function temporadaParaCrear(temporada, catalogo = null) {
   const cod = (temporada == null ? "" : String(temporada)).trim();
   if (!cod) return { error: MSG_TEMPORADA_REQUERIDA };
+  if (Array.isArray(catalogo) && catalogo.length) return temporadaSeleccionableParaCrear(catalogo, cod);
+  return { codigo: cod };
+}
+
+// ── MS-G2 · Ciclo de vida de temporada (lógica pura; DB = autoridad) ─────────
+// Espeja schema_proc_v1.sql (CHECK de estado) + supabase/temporadas_v2/20_ms_g2.
+// La app pre-valida y ofrece SOLO transiciones legales; el enforcement real (índice
+// único "una activa", guard de escritura, RPC de reapertura) vive en Postgres.
+export const TEMPORADA_ESTADOS = ["planificada", "activa", "cerrada", "anulada"];
+
+// Transiciones que la app aplica por UPDATE directo (maestro). La REAPERTURA
+// (cerrada → activa|planificada) NO está acá a propósito: es el único camino que
+// debe pasar por el RPC controlado (proc_fn_reabrir_temporada) con permiso + motivo
+// + auditoría. 'anulada' es terminal.
+export const TEMPORADA_TRANSICIONES = {
+  planificada: ["activa", "anulada"],
+  activa: ["cerrada", "anulada"],
+  cerrada: [],   // reapertura sólo por RPC controlado
+  anulada: [],   // terminal
+};
+export function transicionesTemporada(estado) { return TEMPORADA_TRANSICIONES[estado] || []; }
+export function temporadaEsTerminal(estado) { return estado === "anulada"; }
+// Reaperturable: sólo una temporada 'cerrada' (nunca 'anulada'), vía RPC controlado.
+export function esReaperturable(estado) { return estado === "cerrada"; }
+// Estado abierto para operar/crear (recibe fruta, emite folios): activa o planificada.
+export function temporadaAbierta(estado) { return estado === "activa" || estado === "planificada"; }
+
+// Valida una transición por UPDATE directo. Devuelve { ok } o { ok:false, error }.
+// La reapertura se rechaza acá con un mensaje que redirige al camino controlado.
+export function validarTransicionTemporada(estadoActual, estadoNuevo) {
+  if (!TEMPORADA_ESTADOS.includes(estadoNuevo)) return { ok: false, error: `Estado inválido: ${estadoNuevo}.` };
+  if (estadoActual === estadoNuevo) return { ok: false, error: "La temporada ya está en ese estado." };
+  if (esReaperturable(estadoActual) && temporadaAbierta(estadoNuevo))
+    return { ok: false, error: "Reabrir una temporada cerrada requiere el camino controlado (motivo + permiso), no una edición directa." };
+  if (!transicionesTemporada(estadoActual).includes(estadoNuevo))
+    return { ok: false, error: `Transición no permitida: ${estadoActual} → ${estadoNuevo}.` };
+  return { ok: true };
+}
+
+// Aísla el catálogo por empresa (tenant) y descarta borradas. Base de todas las
+// resoluciones: nunca se mezcla la temporada de un tenant con la de otro.
+export function temporadasDeEmpresa(catalogo = [], empresaId = null) {
+  return (catalogo || []).filter((t) => t && !t.deleted_at &&
+    (empresaId == null || String(t.empresa_id) === String(empresaId)));
+}
+
+// Resuelve LA temporada activa (estado='activa') del empresa. Espeja el índice único
+// parcial: debe existir exactamente una. cero → {error:'cero'}; varias → {error:'multiple'}
+// (no debería pasar con MS-G2 desplegado, pero la app no asume el índice).
+export function resolverTemporadaActiva(catalogo = [], empresaId = null) {
+  const activas = temporadasDeEmpresa(catalogo, empresaId).filter((t) => t.estado === "activa");
+  if (activas.length === 1) return { codigo: activas[0].codigo, id: activas[0].id, row: activas[0] };
+  return { error: activas.length === 0 ? "cero" : "multiple", conflicto: activas };
+}
+
+// Guard de "una sola activa por empresa" antes de activar `id`: verifica que no haya
+// OTRA temporada activa del mismo empresa. Defensa en profundidad del índice único.
+// Devuelve { ok } o { ok:false, error, conflicto }.
+export function validarActivacion(catalogo = [], { id, empresaId } = {}) {
+  const otras = temporadasDeEmpresa(catalogo, empresaId)
+    .filter((t) => t.estado === "activa" && String(t.id) !== String(id));
+  if (otras.length) return { ok: false, conflicto: otras,
+    error: `Ya hay una temporada activa (${otras[0].codigo}). Cerrala antes de activar otra: sólo puede haber una activa por empresa.` };
+  return { ok: true };
+}
+
+// MS-G2 · Valida el CÓDIGO seleccionado contra el catálogo para CREAR: debe existir
+// (no borrada) y estar abierta (activa|planificada). Espeja el guard de escritura del
+// backend. Devuelve { codigo } o { error } (mensaje humano accionable).
+export function temporadaSeleccionableParaCrear(catalogo, codigo) {
+  const cod = (codigo == null ? "" : String(codigo)).trim();
+  if (!cod) return { error: MSG_TEMPORADA_REQUERIDA };
+  const t = (catalogo || []).find((x) => x && !x.deleted_at && String(x.codigo) === cod);
+  if (!t) return { error: `La temporada "${cod}" no existe en el catálogo de esta empresa.` };
+  if (!temporadaAbierta(t.estado))
+    return { error: `La temporada "${cod}" está ${t.estado}; no admite nuevos registros. Elegí una temporada activa o planificada.` };
   return { codigo: cod };
 }
 

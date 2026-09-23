@@ -111,9 +111,10 @@ function BarraContexto() {
         <option value="">Todas las plantas</option>
         {plantas.map((p) => <option key={p.id} value={p.id}>{p.nombre || p.codigo}</option>)}
       </select>
-      <select style={inp} value={temporada || ""} onChange={(e) => setTemporada(e.target.value || null)}>
+      <select style={inp} value={temporada || ""} onChange={(e) => setTemporada(e.target.value || null)}
+        title="La creación exige una temporada abierta (activa/planificada). Cerradas/anuladas se muestran para consulta.">
         <option value="">Toda temporada</option>
-        {temps.map((t) => <option key={t.id} value={t.codigo}>{t.codigo}</option>)}
+        {temps.map((t) => <option key={t.id} value={t.codigo}>{t.codigo}{t.estado && t.estado !== "activa" ? ` · ${t.estado}` : ""}</option>)}
       </select>
       <input style={inp} type="date" value={fecha} onChange={(e) => setFecha(e.target.value)} />
     </div>
