@@ -2926,8 +2926,11 @@ export default function App(){
       setLoginError("Clave inválida.");
       return;
     }
-    const w=WORKERS.find(x=>x.email&&x.email.toLowerCase()===emailInput);
-    if(!w){
+    const w=WORKERS.find(x=>x.email&&x.email.toLowerCase()===emailInput) || null;
+    // Bajo PIN_SERVER_SIDE el roster cliente puede estar vacío (anon sin SELECT sobre `main`):
+    // NO se aborta por `!w`; el endpoint /api/pin-login decide y devuelve el usuario sanitizado.
+    // Con la ruta legacy/USE_GUARD (PIN_SERVER_SIDE=off) el comportamiento queda EXACTO.
+    if(!w && !PIN_SERVER_SIDE){
       // FASE 2a — Mensaje neutro: no revela si el correo existe (anti-enumeración)
       setLoginError("Correo o PIN incorrecto.");
       window.auditLog("login_fallido", {modulo:"sistema", seccion:"autenticación",
@@ -2991,19 +2994,25 @@ export default function App(){
           ? "El código provisorio venció. Solicita uno nuevo con \"¿Olvidaste tu PIN?\"."
           : "Correo o PIN incorrecto.");
         window.auditLog("login_fallido", {modulo:"sistema", seccion:"autenticación",
-          descripcion:`Login fallido para ${w.nombre}`, usuario:w.nombre, email:w.email});
+          descripcion:`Login fallido para ${w?.nombre || emailInput}`, usuario:w?.nombre || "(desconocido)", email:w?.email || emailInput});
         return;
       }
+      // Usuario efectivo = el que devuelve el endpoint (sanitizado, autoritativo en permisos).
+      // Si además hay match en el roster cliente, se fusiona dando prioridad al endpoint.
+      const uEnd = j.usuario && typeof j.usuario === "object" ? j.usuario : null;
+      const wEff = { ...(w || {}), ...(uEnd || {}) };
+      if (!wEff.nombre) wEff.nombre = j.nombre || emailInput;
+      if (!wEff.email) wEff.email = emailInput;
       setLoginError("");
       if (j.pinTemporal || j.needsMigration) {   // código provisorio o política ⇒ forzar PIN nuevo
-        setWorkerPendiente(w); setModalPin("cambiar"); window._auditUsuarioActual = w;
+        setWorkerPendiente(wEff); setModalPin("cambiar"); window._auditUsuarioActual = wEff;
         window.auditLog("login_pin_temporal", {modulo:"sistema", seccion:"autenticación",
-          descripcion:`${w.nombre} debe crear/actualizar su PIN`});
+          descripcion:`${wEff.nombre} debe crear/actualizar su PIN`});
       } else {
-        setUsuarioActual(w); sessionStorage.setItem('mediterra_usuario', w.nombre);
-        window._auditUsuarioActual = w;
+        setUsuarioActual(wEff); sessionStorage.setItem('mediterra_usuario', wEff.nombre);
+        window._auditUsuarioActual = wEff;
         window.auditLog("login", {modulo:"sistema", seccion:"autenticación",
-          descripcion:`${w.nombre} (${w.rol}) inició sesión`});
+          descripcion:`${wEff.nombre} (${wEff.rol}) inició sesión`});
         if(process.env.REACT_APP_AUTH_DUAL === 'true'){
           ensureSupabaseSession(emailInput, pinInput)
             .then(r=>{ if(!r.ok) console.warn("[osiris-auth] sin sesión:", r.error); });

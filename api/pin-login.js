@@ -24,6 +24,20 @@ const {
   realGetRowValue, findUsuario, faltanSecretos,
 } = require("./_pinsServer.js");
 
+// Proyecta el usuario de `main` a un objeto SEGURO para el cliente: solo permisos/perfil,
+// NUNCA credenciales (pin/_h/_temp/hash/salt/credencial no viven en el usuario, pero por si
+// acaso solo se copian las claves de esta allow-list, y solo cuando existen).
+function sanitizarUsuario(u) {
+  if (!u || typeof u !== "object") return null;
+  const CAMPOS = [
+    "nombre", "email", "rol", "cargo", "esCFO", "modulos", "tab_permisos",
+    "empresas_permitidas", "cadenaAprobacion", "rendVerTodas", "rendPorOtros", "desactivado",
+  ];
+  const out = {};
+  for (const k of CAMPOS) if (u[k] !== undefined) out[k] = u[k];
+  return out;
+}
+
 function makeHandler(deps = {}) {
   const {
     getMainValue = () => realGetRowValue("main"),
@@ -61,7 +75,7 @@ function makeHandler(deps = {}) {
       try { match = !!verificarTemp(pin, est); } catch { match = false; }
       if (!match) return DENY();                       // PIN viejo o código incorrecto → uniforme
       if (est.expirado) return res.status(200).json({ ok: false, pinTemporalVencido: true });
-      return res.status(200).json({ ok: true, nombre: u.nombre, pinTemporal: true });
+      return res.status(200).json({ ok: true, nombre: u.nombre, pinTemporal: true, usuario: sanitizarUsuario(u) });
     }
 
     // ── (3) Validación normal contra `_h` (hash-only; sin `_h` => DENY) ──
@@ -77,8 +91,8 @@ function makeHandler(deps = {}) {
     let pinVencido = false;
     try { if (cred && cred.fecha) pinVencido = (now() - new Date(cred.fecha).getTime()) / 86400000 > 60; } catch {}
     const debeMigrar = !(cred && cred.pol === "6dig") || pinVencido;
-    if (debeMigrar) return res.status(200).json({ ok: true, nombre: u.nombre, needsMigration: true });
-    return res.status(200).json({ ok: true, nombre: u.nombre });
+    if (debeMigrar) return res.status(200).json({ ok: true, nombre: u.nombre, needsMigration: true, usuario: sanitizarUsuario(u) });
+    return res.status(200).json({ ok: true, nombre: u.nombre, usuario: sanitizarUsuario(u) });
   };
 }
 

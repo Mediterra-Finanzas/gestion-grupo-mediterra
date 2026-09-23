@@ -18,6 +18,11 @@ const MAIN = { usuarios: [
   { nombre: "Dan",  email: "dan@x",  rol: "editor", desactivado: false },  // _temp expirado
   { nombre: "Eve",  email: "eve@x",  rol: "editor", desactivado: false },  // sin _h
   { nombre: "Zoe",  email: "zoe@x",  rol: "editor", desactivado: true  },  // desactivada
+  // Fio: perfil rico + campos basura (pin/hash/salt/credencial/_h/_temp) para probar sanitización
+  { nombre: "Fio",  email: "fio@x",  rol: "admin", cargo: "CFO", esCFO: true,
+    modulos: ["finanzas"], tab_permisos: { flujo: "editar" }, empresas_permitidas: ["MH"],
+    cadenaAprobacion: ["Ana"], rendVerTodas: true, rendPorOtros: false, desactivado: false,
+    pin: "999999", hash: "deadbeef", salt: "cafe1234", credencial: "zzz", _h: "yy", _temp: "tt" },
 ] };
 function credCon(pin, extra) { const c = hashPinPBKDF2(pin); return JSON.stringify(Object.assign(c, extra)); }
 const PINS = {
@@ -27,17 +32,18 @@ const PINS = {
   "Cy_temp":  crearTempCredServer("246801"),                 // vigente
   "Dan_temp": (() => { const c = JSON.parse(crearTempCredServer("135790")); c.exp = Date.now() - 1000; return JSON.stringify(c); })(),
   "Zoe_h":  credCon("111213", { pol: "6dig", fecha: hoy }),
+  "Fio_h":  credCon("482913", { pol: "6dig", fecha: hoy }),
 };
 const deps = { getMainValue: async () => MAIN, getPinsValue: async () => PINS, secretsOk: () => true };
 const call = (body, d = deps, method = "POST") => { const h = makeHandler(d); const r = fakeRes(); return h({ method, body }, r).then(() => r); };
 
 test("PIN correcto + pol 6dig vigente => ok:true sin flags", async () => {
   const r = await call({ email: "ana@x", pin: "482913" });
-  assert.deepEqual(r.body, { ok: true, nombre: "Ana" });
+  assert.deepEqual(r.body, { ok: true, nombre: "Ana", usuario: { nombre: "Ana", email: "ana@x", rol: "editor", desactivado: false } });
 });
 test("PIN correcto sin pol => needsMigration", async () => {
   const r = await call({ email: "beto@x", pin: "571902" });
-  assert.deepEqual(r.body, { ok: true, nombre: "Beto", needsMigration: true });
+  assert.deepEqual(r.body, { ok: true, nombre: "Beto", needsMigration: true, usuario: { nombre: "Beto", email: "beto@x", rol: "editor", desactivado: false } });
 });
 test("PIN correcto vencido (>60d) => needsMigration", async () => {
   const r = await call({ email: "vic@x", pin: "640182" });
@@ -45,7 +51,7 @@ test("PIN correcto vencido (>60d) => needsMigration", async () => {
 });
 test("_temp vigente + código correcto => pinTemporal:true", async () => {
   const r = await call({ email: "cy@x", pin: "246801" });
-  assert.deepEqual(r.body, { ok: true, nombre: "Cy", pinTemporal: true });
+  assert.deepEqual(r.body, { ok: true, nombre: "Cy", pinTemporal: true, usuario: { nombre: "Cy", email: "cy@x", rol: "editor", desactivado: false } });
 });
 test("_temp vigente + PIN viejo/incorrecto => {ok:false} uniforme (no revela _temp)", async () => {
   const r = await call({ email: "cy@x", pin: "000000" });
@@ -82,4 +88,22 @@ test("la respuesta nunca contiene credenciales", async () => {
 });
 test("body string JSON se parsea; email con espacios/mayúsculas normaliza", async () => {
   assert.equal((await call(JSON.stringify({ email: "  ANA@X ", pin: "482913" }))).body.ok, true);
+});
+test("éxito incluye `usuario` sanitizado (solo perfil/permisos allow-list)", async () => {
+  const r = await call({ email: "fio@x", pin: "482913" });
+  assert.equal(r.body.ok, true);
+  assert.deepEqual(r.body.usuario, {
+    nombre: "Fio", email: "fio@x", rol: "admin", cargo: "CFO", esCFO: true,
+    modulos: ["finanzas"], tab_permisos: { flujo: "editar" }, empresas_permitidas: ["MH"],
+    cadenaAprobacion: ["Ana"], rendVerTodas: true, rendPorOtros: false, desactivado: false,
+  });
+});
+test("`usuario` NUNCA arrastra credenciales aunque estén en `main`", async () => {
+  const r = await call({ email: "fio@x", pin: "482913" });
+  const s = JSON.stringify(r.body);
+  for (const bad of ["_h", "_temp", "pin", "hash", "salt", "credencial", "999999", "deadbeef", "cafe1234", "zzz"])
+    assert.equal(s.includes(bad), false, `filtró: ${bad}`);
+  // y ninguna clave prohibida dentro del propio objeto usuario
+  for (const bad of ["pin", "hash", "salt", "credencial", "_h", "_temp"])
+    assert.equal(Object.prototype.hasOwnProperty.call(r.body.usuario, bad), false);
 });
