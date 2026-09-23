@@ -7,9 +7,12 @@ import { useService } from "../hooks/useServiceContext";
 import {
   cargarDespachoPorId, cargarDespachoRaw, cargarDespachoLineas, cargarDocsDespacho, cargarBodega,
   cargarVinculosPorRol, actualizarDespacho, cambiarEstadoDespacho, cancelarDespacho,
-  reservarPallet, liberarReserva, confirmarDespacho, reversarDespacho, crearDocDespacho, cargarPalletHoldsFolio,
+  reservarPallet, liberarReserva, confirmarDespacho, reversarDespacho, crearDocDespacho, cargarReservasDespacho,
 } from "../../core/procesoF7DB";
-import { traducirError, orquestarConfirmarDespacho } from "../../core/procesoF7Domain";
+import {
+  traducirError, orquestarConfirmarDespacho,
+  mapReservasACarga, agregarReservaIdempotente, quitarReservaDeCarga,
+} from "../../core/procesoF7Domain";
 import {
   ProcPageHeader, ProcCard, ProcButton, ProcStatusBadge, ProcDataTable, ProcModal, ProcField, inputStyle,
   ProcKpiCard, ProcAuditInfo, ProcLoadingState, ProcErrorState, ProcEmptyState, ProcConfirmAction,
@@ -42,11 +45,16 @@ export default function Despacho() {
     if (!empresa || !id) return;
     setEstado("loading"); setError(null);
     try {
-      const [dd, rw, ln, dc] = await Promise.all([
+      // F-02: rehidratamos la carga desde el servidor (holds activos del despacho) —
+      // la reserva vive en la DB, no en estado local; un F5 no debe olvidarla.
+      const [dd, rw, ln, dc, hd, bg] = await Promise.all([
         cargarDespachoPorId(empresa, id), cargarDespachoRaw(empresa, id), cargarDespachoLineas(empresa, id), cargarDocsDespacho(empresa, id),
+        cargarReservasDespacho(empresa, id), cargarBodega(empresa),
       ]);
       const dsp = (dd && dd[0]) || null;
       setD(dsp); setRaw((rw && rw[0]) || null); setLineas(ln || []); setDocs(dc || []);
+      const codigoMap = {}; (bg || []).forEach((p) => { codigoMap[p.pallet_id] = p.codigo; });
+      setCarga(mapReservasACarga(hd || [], codigoMap));   // server-authoritative
       setEstado("ok");
     } catch (e) { setError(traducirError(e)); setEstado("error"); }
   }, [empresa, id]);
@@ -66,11 +74,16 @@ export default function Despacho() {
   const guardarCampo = async (campo, valor) => { try { await actualizarDespacho(id, empresa, { [campo]: valor || null }); setRaw((x) => ({ ...x, [campo]: valor })); } catch (e) { notificar(traducirError(e), "error"); } };
 
   const agregarCarga = async (palletId, codigo, kgv, cajas) => {
-    try { await reservarPallet({ empresaId: empresa, despachoId: id, palletId, kg: kgv }); // reserva = hold
-      setCarga([...carga, { palletId, codigo, kg: kgv, cajas }]); setAddPallet(null); notificar("Pallet reservado para la carga");
+    // Idempotente: si el pallet ya está reservado en esta carga, no dispara un 2º hold.
+    if (agregarReservaIdempotente(carga, { palletId }).duplicada) {
+      notificar("Ese pallet ya está reservado en esta carga", "error"); setAddPallet(null); return;
+    }
+    try { await reservarPallet({ empresaId: empresa, despachoId: id, palletId, kg: kgv }); // reserva = hold (SoT)
+      setCarga((prev) => agregarReservaIdempotente(prev, { palletId, codigo, kg: kgv, cajas }).carga);
+      setAddPallet(null); notificar("Pallet reservado para la carga");
     } catch (e) { notificar(traducirError(e), "error"); }
   };
-  const quitarCarga = async (c) => { try { await liberarReserva({ empresaId: empresa, despachoId: id, palletId: c.palletId }); setCarga(carga.filter((x) => x !== c)); notificar("Reserva liberada"); } catch (e) { notificar(traducirError(e), "error"); } };
+  const quitarCarga = async (c) => { try { await liberarReserva({ empresaId: empresa, despachoId: id, palletId: c.palletId }); setCarga((prev) => quitarReservaDeCarga(prev, c.palletId)); notificar("Reserva liberada"); } catch (e) { notificar(traducirError(e), "error"); } };
 
   const confirmar = () => orquestarConfirmarDespacho({
     yaConfirmando: confirmando,
@@ -127,14 +140,15 @@ export default function Despacho() {
         <Seccion titulo={`Carga (reservada: ${carga.length})`} extra={<ProcButton onClick={() => setAddPallet(true)}>+ Agregar pallet</ProcButton>}>
           <ProcDataTable
             columnas={[
-              { titulo: "Pallet", render: (c) => <b>{c.codigo}</b> },
-              { titulo: "Cajas", align: "right", render: (c) => c.cajas || 0 },
+              { titulo: "Pallet", render: (c) => <b>{c.codigo || c.palletId}</b> },
+              { titulo: "Cajas", align: "right", render: (c) => c.rehidratada ? <span style={{ color: C.warning }} title="Reserva recuperada del servidor; reingresá las cajas antes de confirmar">⚠ {c.cajas || 0}</span> : (c.cajas || 0) },
               { titulo: "Kg", align: "right", render: (c) => kg(c.kg) },
               { titulo: "", align: "right", render: (c) => <ProcButton kind="ghost" small onClick={() => quitarCarga(c)}>Quitar</ProcButton> },
             ]}
             filas={carga} rowKey="palletId"
             vacio={<ProcEmptyState icono="🧺" titulo="Carga vacía" detalle="Reservá pallets para esta salida (reserva = hold, no cambia stock físico)." />} />
           {carga.length > 0 && <div style={{ marginTop: sp.sm, fontSize: 13, color: C.muted }}>Total carga: <b>{kg(totalCargaKg)}</b> · confirmá para generar la salida física.</div>}
+          {carga.some((c) => c.rehidratada) && <div style={{ marginTop: sp.sm, fontSize: 12.5, color: C.warning, background: C.warningBg, padding: "6px 10px", borderRadius: 6 }}>Reservas recuperadas del servidor tras recargar. El kg está reservado y es correcto; las cajas no se guardan en la reserva, reingresálas antes de confirmar la salida.</div>}
         </Seccion>
       )}
 
