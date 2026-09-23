@@ -14,26 +14,33 @@
 // Ninguna respuesta cruda de Supabase llega al cliente.
 
 const crypto = require("crypto");
+const net = require("net");
 
 // Clave opaca determinista. Mismo (secreto,key) → mismo bucket; distinta key → distinto bucket.
 function bucketHmac(secret, key) {
   return crypto.createHmac("sha256", String(secret)).update(String(key)).digest("hex");
 }
 
-// Normaliza IPv4/IPv6 antes del HMAC (no se persiste ni se registra la IP original):
-// toma la primera de una lista, quita corchetes/puerto y zona IPv6, minúsculas.
+// Normaliza y VALIDA IPv4/IPv6 antes del HMAC (no se persiste ni se registra la IP original).
+// Quita lista/corchetes/puerto/zona; valida con net.isIP (inválida → "" → el endpoint responde
+// 503 fail-closed). IPv6 se CANONICALIZA (comprime ceros) con el parser nativo de URL para que
+// dos formas del mismo host produzcan el MISMO bucket. Sin dependencias nuevas.
+// LÍMITE conocido: la canonicalización IPv6 depende del parser WHATWG-URL (Node 18+, ada); si
+// fallara, se usa la forma ya validada en minúsculas (determinista por texto, sin invento inseguro).
 function normalizarIp(raw) {
   let s = String(raw == null ? "" : raw).trim().toLowerCase();
   if (!s) return "";
   s = s.split(",")[0].trim();                                  // "a, b" → "a"
   if (s.startsWith("[")) { const m = s.match(/^\[([^\]]+)\]/); if (m) s = m[1]; }  // [ipv6]:puerto → ipv6
   else if ((s.match(/:/g) || []).length === 1) { s = s.split(":")[0]; }           // ipv4:puerto → ipv4
-  s = s.split("%")[0];                                         // fe80::1%eth0 → fe80::1
-  return s.trim();
-}
-
-function conTimeout(promesa, ms) {
-  return Promise.race([promesa, new Promise((_, rej) => setTimeout(() => rej(new Error("timeout")), ms))]);
+  s = s.split("%")[0].trim();                                  // fe80::1%eth0 → fe80::1
+  const v = net.isIP(s);
+  if (v === 0) return "";                                      // no es IP válida → rechazar
+  if (v === 6) {
+    try { return new URL("http://[" + s + "]").hostname.replace(/^\[|\]$/g, ""); }
+    catch (e) { return s; }                                    // límite documentado: sin canonicalizar
+  }
+  return s;                                                    // IPv4 válida
 }
 
 // deps = { supaUrl, serviceKey, hmacSecret, fetchImpl, timeoutMs }
@@ -53,14 +60,20 @@ function crearLimiterSupabase(deps = {}) {
         p_bloqueo_seg: Math.max(0, Math.ceil((regla && regla.bloqueoMs || 0) / 1000)),
       };
       const url = `${supaUrl}/rest/v1/rpc/frisku_sp_rl_consumir`;
+      // Timeout REAL: AbortController + signal al fetch. Aborta la petición al vencer el plazo
+      // (no solo deja de esperar). Sin reintentos. El temporizador siempre se limpia.
+      const ac = (typeof AbortController === "function") ? new AbortController() : null;
+      const timer = setTimeout(() => { if (ac) { try { ac.abort(); } catch (e) {} } }, timeoutMs);
       let r;
       try {
-        r = await conTimeout(fetchImpl(url, {
+        r = await fetchImpl(url, {
           method: "POST",
           headers: { apikey: serviceKey, Authorization: `Bearer ${serviceKey}`, "Content-Type": "application/json" },
           body: JSON.stringify(body),
-        }), timeoutMs);
-      } catch (e) { throw new Error("rl_red"); }               // timeout/red → 503 aguas arriba
+          signal: ac ? ac.signal : undefined,
+        });
+      } catch (e) { throw new Error("rl_red"); }               // abort/red → 503 aguas arriba (fail-closed)
+      finally { clearTimeout(timer); }
       if (!r || !r.ok) throw new Error("rl_upstream");         // 401/403/429/5xx → 503
       let j; try { j = await r.json(); } catch (e) { throw new Error("rl_json"); }
       if (!j || typeof j.permitido !== "boolean") throw new Error("rl_forma"); // respuesta inválida → 503

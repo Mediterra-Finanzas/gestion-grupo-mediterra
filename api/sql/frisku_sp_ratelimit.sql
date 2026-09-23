@@ -69,9 +69,13 @@ DECLARE
   v_inicio  timestamptz;
   v_block   timestamptz;
 BEGIN
-  IF p_bucket IS NULL OR length(p_bucket) = 0 OR p_tipo NOT IN ('ip','identidad')
-     OR p_ventana_seg IS NULL OR p_ventana_seg <= 0 OR p_max IS NULL OR p_max <= 0
-     OR p_bloqueo_seg IS NULL OR p_bloqueo_seg < 0 THEN
+  -- Validación defensiva ANTES de cualquier INSERT/UPDATE (parámetros inválidos → excepción,
+  -- ninguna fila tocada). bucket = 64 hex minúsculas (HMAC-SHA256); tipo estricto; límites acotados.
+  IF p_bucket IS NULL OR p_bucket !~ '^[0-9a-f]{64}$'
+     OR p_tipo IS NULL OR p_tipo NOT IN ('ip','identidad')
+     OR p_ventana_seg IS NULL OR p_ventana_seg < 1 OR p_ventana_seg > 86400
+     OR p_max IS NULL OR p_max < 1 OR p_max > 100000
+     OR p_bloqueo_seg IS NULL OR p_bloqueo_seg < 0 OR p_bloqueo_seg > 604800 THEN
     RAISE EXCEPTION 'frisku_sp_rl_consumir: parametros invalidos' USING ERRCODE = 'P0001';
   END IF;
 

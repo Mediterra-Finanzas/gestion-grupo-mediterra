@@ -13,12 +13,20 @@ ok(RL.bucketHmac(SECRET, "ip:1.2.3.4") !== RL.bucketHmac(SECRET, "ip:1.2.3.5"), 
 ok(RL.bucketHmac(SECRET, "x") !== RL.bucketHmac("otro", "x"), "HMAC distinto con secreto distinto");
 ok(/^[0-9a-f]{64}$/.test(RL.bucketHmac(SECRET, "x")), "HMAC es hex de 64 (sin PII)");
 
-// ── normalizarIp ──
+// ── normalizarIp (valida + canonicaliza) ──
 eq(RL.normalizarIp("203.0.113.5:443"), "203.0.113.5", "ipv4:puerto → ipv4");
 eq(RL.normalizarIp("[2001:db8::1]:443"), "2001:db8::1", "[ipv6]:puerto → ipv6");
 eq(RL.normalizarIp("203.0.113.5, 70.1.1.1"), "203.0.113.5", "lista xff → primera");
 eq(RL.normalizarIp("fe80::1%eth0"), "fe80::1", "zona ipv6 removida");
 eq(RL.normalizarIp("  "), "", "vacío → ''");
+// inválidas → "" (fail-closed en el endpoint)
+eq(RL.normalizarIp("abc"), "", "no-IP → ''");
+eq(RL.normalizarIp("999.999.999.999"), "", "ipv4 fuera de rango → ''");
+eq(RL.normalizarIp("2001:zz::1"), "", "ipv6 inválida → ''");
+// IPv6 se CANONICALIZA (comprime ceros): dos formas del mismo host → misma normalización y mismo bucket
+eq(RL.normalizarIp("2001:0db8:0000:0000:0000:0000:0000:0001"), "2001:db8::1", "ipv6 expandida → comprimida");
+eq(RL.normalizarIp("2001:DB8::1"), "2001:db8::1", "ipv6 mayúsculas → minúsculas");
+ok(RL.bucketHmac(SECRET, "ip:" + RL.normalizarIp("2001:0db8::0001")) === RL.bucketHmac(SECRET, "ip:" + RL.normalizarIp("2001:db8::1")), "mismas IPv6 en distinta forma → mismo bucket");
 
 async function run() {
   const cfgOk = { supaUrl: "https://x.supabase.co", serviceKey: "SVCKEY", hmacSecret: SECRET };
@@ -75,6 +83,40 @@ async function run() {
   { const l = RL.crearLimiterSupabase({ ...cfgOk, fetchImpl: async () => ({ ok: false, status: 500, json: async () => ({}) }) });
     let msg = ""; try { await l.golpe("uno@ejemplo.test", { max: 8, ventanaMs: 1000, tipo: "identidad" }); } catch (e) { msg = e.message; }
     ok(!msg.includes("ejemplo.test") && /^rl_/.test(msg), "mensaje de error genérico sin PII"); }
+
+  // ── Timeout con AbortController (fail-closed, sin reintento) ──
+  { // fetch que respeta el signal: rechaza AbortError al abortar; nunca resuelve por sí solo.
+    let cap = { signal: null, calls: 0 };
+    const abortableFetch = (url, opts) => new Promise((_, rej) => {
+      cap.calls++; cap.signal = opts.signal;
+      opts.signal.addEventListener("abort", () => rej(Object.assign(new Error("aborted"), { name: "AbortError" })));
+    });
+    const l = RL.crearLimiterSupabase({ ...cfgOk, timeoutMs: 10, fetchImpl: abortableFetch });
+    let threw = false; try { await l.golpe("k", { max: 8, ventanaMs: 1000, bloqueoMs: 1000, tipo: "ip" }); } catch (e) { threw = true; }
+    ok(threw, "timeout → throw (fail-closed)");
+    ok(cap.signal && cap.signal.aborted === true, "timeout llama abort() sobre el signal");
+    eq(cap.calls, 1, "no hay reintento: fetch se llamó una sola vez");
+  }
+  { // respuesta tardía tras abort no cambia el resultado ni dispara una segunda operación.
+    let cap = { calls: 0 };
+    const tardio = (url, opts) => new Promise((res, rej) => {
+      cap.calls++;
+      opts.signal.addEventListener("abort", () => rej(Object.assign(new Error("aborted"), { name: "AbortError" })));
+      setTimeout(() => res({ ok: true, json: async () => ({ permitido: true, retry_after_seg: 0 }) }), 200); // llega tarde
+    });
+    const l = RL.crearLimiterSupabase({ ...cfgOk, timeoutMs: 5, fetchImpl: tardio });
+    let r = "no", threw = false; try { r = await l.golpe("k", { max: 8, ventanaMs: 1000, bloqueoMs: 1000, tipo: "ip" }); } catch (e) { threw = true; }
+    ok(threw, "respuesta tardía: golpe ya falló cerrado antes (no devuelve permitido)");
+    await new Promise((res) => setTimeout(res, 250)); // dejar pasar la resolución tardía
+    eq(cap.calls, 1, "la respuesta tardía no dispara una segunda operación");
+  }
+  { // camino exitoso rápido: no se aborta.
+    let cap = { signal: null };
+    const okFast = (url, opts) => { cap.signal = opts.signal; return Promise.resolve({ ok: true, json: async () => ({ permitido: true, retry_after_seg: 0 }) }); };
+    const l = RL.crearLimiterSupabase({ ...cfgOk, timeoutMs: 5000, fetchImpl: okFast });
+    const r = await l.golpe("k", { max: 8, ventanaMs: 1000, bloqueoMs: 1000, tipo: "ip" });
+    ok(r.permitido === true && (!cap.signal || cap.signal.aborted === false), "éxito rápido: no se aborta");
+  }
 
   console.log(`\n_friskuSpRateLimiter: ${pass} pass / ${fail} fail`);
   process.exit(fail ? 1 : 0);
