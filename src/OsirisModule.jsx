@@ -7,6 +7,19 @@ import React, { useState, useCallback, useMemo, useEffect, useRef } from "react"
 import HomeEjecutivo from "./ux/HomeEjecutivo";
 import { theme } from "./theme";
 import { snapshotOsiris, isDirty as osirisIsDirty } from "./data/osirisDirty";
+import {
+  fusionarTandas,
+  darDeBajaPlantacion,
+  revertirBajaPlantacion,
+  esBaja,
+  AVISO_BAJA_SIN_EFECTO,
+  detectarInconsistencia,
+  aplicarCambioFila,
+  confirmarEstadoFila,
+  puedeEditarFilaRP,
+  resolverAtribucionOC,
+  repartirOrdenes,
+} from "./osiris/preservacion";
 
 const SUPA_URL = "https://bywovqayuzodbzwsriet.supabase.co";
 const SUPA_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJ5d292cWF5dXpvZGJ6d3NyaWV0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU2ODU1MDgsImV4cCI6MjA5MTI2MTUwOH0.s2x2O_CxE6rl8dBqFuyfQdMyRqSyjJQWXJXesmVGXtk";
@@ -7151,8 +7164,14 @@ async function exportarContratos(filtrado) {
 
 // Enlace robusto OC del vivero ↔ contrato Exp-Prod.
 // 1) contrato_id explícito manda. 2) si no hay, calza por clienteId. 3) fallback por nombre de cliente.
-function ocLigadaAContrato(oc, ct) {
+// P5: cuando se recibe la lista completa de contratos, una OC sin contrato declarado cuyo cliente
+// tenga más de un contrato NO se atribuye a ninguno: queda pendiente de asignación (ver
+// src/osiris/preservacion.js). Sin la lista, se conserva el comportamiento anterior.
+function ocLigadaAContrato(oc, ct, contratos) {
   if(!oc || !ct) return false;
+  if(Array.isArray(contratos) && contratos.length) {
+    return resolverAtribucionOC(oc, contratos).contratoId === ct.id;
+  }
   if(oc.contrato_id) return oc.contrato_id===ct.id;        // explícito (si apunta a otro, no calza)
   if(oc.cliente_id && ct.clienteId && oc.cliente_id===ct.clienteId) return true;
   const norm = s => (s||"").toString().toLowerCase().trim();
@@ -7515,7 +7534,7 @@ function OrdenesCompraSec({r, upd, can, ocsVivero=[]}) {
   );
 }
 
-function ControlContratos({data,setData,clientes,setClientes,variedadesMaestro=[],setVariedadesMaestro,especiesMaestro=[],setEspeciesMaestro,obtentoresData=[],viverosData=[],setViveros,can,tiposAnexoPersist,setTiposAnexoPersist,tiposContratoPersist,setTiposContratoPersist}){
+function ControlContratos({data,setData,clientes,setClientes,variedadesMaestro=[],setVariedadesMaestro,especiesMaestro=[],setEspeciesMaestro,obtentoresData=[],viverosData=[],setViveros,can,tiposAnexoPersist,setTiposAnexoPersist,tiposContratoPersist,setTiposContratoPersist,usuarioActual={}}){
   const [vista,setVista]=useState("tabla");
   const [sel,setSel]=useState(null);
   const [sec,setSec]=useState("empresa");
@@ -8249,7 +8268,7 @@ function ControlContratos({data,setData,clientes,setClientes,variedadesMaestro=[
             {r.modeloIngresos==="oc" ? (()=>{
               // Modelo OC: las plantaciones reales vienen de los despachos de la OC del vivero (informativo).
               const ocsViv=[];
-              (viverosData||[]).forEach(v=>(v.ordenesCompra||[]).forEach(oc=>{ if(ocLigadaAContrato(oc,r)) ocsViv.push(oc); }));
+              (viverosData||[]).forEach(v=>(v.ordenesCompra||[]).forEach(oc=>{ if(ocLigadaAContrato(oc,r,data)) ocsViv.push(oc); }));
               const filas=[];
               ocsViv.forEach(oc=>(oc.despachos||[]).forEach(d=>filas.push({...d, _oc:oc.n_oc})));
               const totPl=filas.reduce((s,d)=>s+(Number(d.cantidad_despachada)||0),0);
@@ -8565,17 +8584,27 @@ function ControlContratos({data,setData,clientes,setClientes,variedadesMaestro=[
                             </select>
                           </td>
                           <td style={{padding:"6px 8px",textAlign:"center"}}>
-                            {can&&<button onClick={()=>{
-                              if(!window.confirm(`¿Eliminar la plantación "${p.especie} · ${p.variedad}"?`))return;
-                              // Si tiene OC vinculada, preguntar si también eliminar la OC del vivero
-                              if(p.vivero_oc_id && p.vivero_id) {
-                                if(window.confirm(`Esta plantación tiene una OC vinculada en el vivero "${p.vivero_nombre||"el vivero"}". ¿Eliminar también esa OC?`)) {
-                                  removerOCDelVivero(p.vivero_id, p.vivero_oc_id);
-                                }
-                              }
-                              const next = (r.plantaciones||[]).filter(x=>x.id!==p.id);
+                            {/* P2 · La baja conserva el registro: nunca se elimina la fila. */}
+                            {can&&!esBaja(p)&&<button onClick={()=>{
+                              const motivo = window.prompt(
+                                `Dar de baja la plantación "${p.especie} · ${p.variedad}".\n\n${AVISO_BAJA_SIN_EFECTO}\n\nEl registro se conserva y se puede reactivar.\n\nMotivo de la baja:`,
+                                ""
+                              );
+                              if(motivo===null) return;
+                              const next = (r.plantaciones||[]).map(x=>x.id===p.id
+                                ? darDeBajaPlantacion(x,{motivo, usuario:usuarioActual?.nombre||usuarioActual?.email||"", fecha:new Date().toISOString()})
+                                : x);
                               upd(r.id,"plantaciones",next);
-                            }} style={{background:C.dangerBg,border:"none",borderRadius:6,padding:"4px 8px",cursor:"pointer",fontSize:11,color:C.danger}}>🗑</button>}
+                            }} title={"Dar de baja (conserva el registro). "+AVISO_BAJA_SIN_EFECTO}
+                              style={{background:C.dangerBg,border:"none",borderRadius:6,padding:"4px 8px",cursor:"pointer",fontSize:11,color:C.danger}}>Baja</button>}
+                            {can&&esBaja(p)&&<button onClick={()=>{
+                              if(!window.confirm("Reactivar esta plantación dada de baja. El historial se conserva."))return;
+                              const next = (r.plantaciones||[]).map(x=>x.id===p.id
+                                ? revertirBajaPlantacion(x,{usuario:usuarioActual?.nombre||usuarioActual?.email||"", fecha:new Date().toISOString()})
+                                : x);
+                              upd(r.id,"plantaciones",next);
+                            }} title={"Dada de baja el "+((p.baja&&p.baja.fecha)||"").slice(0,10)+(p.baja&&p.baja.motivo?" · "+p.baja.motivo:"")+". Reactivar."}
+                              style={{background:C.cardAlt,border:`1px solid ${C.border}`,borderRadius:6,padding:"4px 8px",cursor:"pointer",fontSize:11,color:C.muted}}>↩ Baja</button>}
                           </td>
                         </tr>
                       );
@@ -8591,6 +8620,11 @@ function ControlContratos({data,setData,clientes,setClientes,variedadesMaestro=[
                   </tbody>
                 </table>
               </div>
+              {(r.plantaciones||[]).some(esBaja)&&(
+                <div style={{marginTop:12,padding:10,background:C.amBg||"#fef9c3",border:`1px solid ${C.am||"#ca8a04"}`,borderRadius:10,fontSize:11,color:C.am||"#854d0e"}}>
+                  <strong>{(r.plantaciones||[]).filter(esBaja).length} plantación(es) dada(s) de baja.</strong> {AVISO_BAJA_SIN_EFECTO} Siguen incluidas en los totales de abajo.
+                </div>
+              )}
               <div style={{marginTop:12,padding:12,background:C.successBg,borderRadius:10,fontSize:11,color:C.success,borderLeft:"4px solid #16a34a"}}>
                 💡 <strong>Royalty Planta estimado:</strong> {(r.plantaciones||[]).reduce((s,p)=>s+(parseFloat(p.nPlantas)||0),0)} plantas × ${r.valorRoyaltyPlanta||1}/planta = <strong>${N(((r.plantaciones||[]).reduce((s,p)=>s+(parseFloat(p.nPlantas)||0),0)*(r.valorRoyaltyPlanta||1)).toFixed(2))}</strong> (100% facturado, {pct(r.pais)===1?"sin WHT":"15% WHT"})
                 <br/>
@@ -8749,7 +8783,7 @@ function ControlContratos({data,setData,clientes,setClientes,variedadesMaestro=[
             {(()=>{
               // Cobros del contrato — entrada directa unificada (igual para todos los contratos).
               const ocsViv=[];
-              (viverosData||[]).forEach(v=>(v.ordenesCompra||[]).forEach(oc=>{ if(ocLigadaAContrato(oc,r)) ocsViv.push(oc); }));
+              (viverosData||[]).forEach(v=>(v.ordenesCompra||[]).forEach(oc=>{ if(ocLigadaAContrato(oc,r,data)) ocsViv.push(oc); }));
               const ocsByCt={[r.id]:ocsViv};
               const rcRows=derivarRoyaltyComercialDesdeContratos([r],ocsByCt);
               const rcFact=rcRows.reduce((s,x)=>s+(x.montoFact||0),0), rcCobro=rcRows.reduce((s,x)=>s+(x.montoCobro||0),0);
@@ -8777,7 +8811,50 @@ function ControlContratos({data,setData,clientes,setClientes,variedadesMaestro=[
               const updCuoEstadoRP=(id,v)=>upd(r.id,"rpPlantaCuotas",cuotasRP.map(x=>x.id===id?{...x,estadoCF:v,pagado:v==="pagado"}:x));
               const addTanda=()=>upd(r.id,"rpPlantaCuotas",[...cuotasRP,{id:`cuo_${Date.now()}`,descripcion:"Tanda",nPlantas:"",fechaEvento:""}]);
               const delTanda=(id)=>upd(r.id,"rpPlantaCuotas",cuotasRP.filter(x=>x.id!==id));
-              const sugerirTandas=()=>{ const t=[]; ocsViv.forEach(oc=>(oc.despachos||[]).forEach(d=>{ if(d.tipo==="Prueba")return; const pl=Number(d.cantidad_despachada)||0; if(pl<=0)return; t.push({id:`cuo_${Date.now()}_${t.length}`,descripcion:`OC ${oc.n_oc||""} · ${d.fecha_despacho||""}`,nPlantas:pl,fechaEvento:d.fecha_despacho||""}); })); if(t.length===0){alert("No hay despachos con plantas para sugerir.");return;} if(cuotasRP.length>0&&!window.confirm("Reemplaza las tandas actuales con las de los despachos. ¿Continuar?"))return; upd(r.id,"rpPlantaCuotas",t); };
+              const revisionRP = Array.isArray(r.rpSugerenciasRevision)?r.rpSugerenciasRevision:[];
+              // P3 · Filas de Royalty Planta que nacen de las OC del vivero. Antes se mostraban
+              // sin editor y sus antecedentes (rpPagos) no tenían dónde escribirse.
+              const rpFilasOC = (cuotasRP.length===0 && r.modeloIngresos==="oc" && ocsViv.length>0)
+                ? derivarRoyaltyPlantaDesdeContratos([r], ocsByCt) : [];
+              const pagosOC = (r.rpPagos&&typeof r.rpPagos==="object") ? r.rpPagos : {};
+              const updPagoOC = (clave,cambios)=>upd(r.id,"rpPagos",aplicarCambioFila(pagosOC,clave,cambios));
+              const confirmarPagoOC = (clave,estado)=>upd(r.id,"rpPagos",
+                confirmarEstadoFila(pagosOC,clave,estado,usuarioActual?.nombre||usuarioActual?.email||"",new Date().toISOString()));
+              // P1 · Regenerar NO reemplaza: conserva toda tanda existente y deja en revisión
+              // (sin efecto) las sugerencias cuya correspondencia no es segura.
+              const sugerirTandas=()=>{
+                const t=[];
+                ocsViv.forEach(oc=>(oc.despachos||[]).forEach(d=>{
+                  if(d.tipo==="Prueba")return;
+                  const pl=Number(d.cantidad_despachada)||0; if(pl<=0)return;
+                  t.push({id:`cuo_${Date.now()}_${t.length}`,descripcion:`OC ${oc.n_oc||""} · ${d.fecha_despacho||""}`,nPlantas:pl,fechaEvento:d.fecha_despacho||""});
+                }));
+                if(t.length===0){alert("No hay despachos con plantas para sugerir.");return;}
+                const res = fusionarTandas(cuotasRP, t);
+                const detalle = `Se conservan ${res.resumen.conservadas} tanda(s) ya registrada(s)`+
+                  (res.resumen.conAntecedentesConservados?` (${res.resumen.conAntecedentesConservados} con factura, fecha de pago o estado)`:"")+
+                  `.
+Se agregan ${res.resumen.agregadas} tanda(s) nueva(s).
+`+
+                  (res.resumen.enRevision?`${res.resumen.enRevision} sugerencia(s) quedan EN REVISIÓN: no suman ni generan obligación hasta que las revises.`:"Sin sugerencias dudosas.")+
+                  `
+
+¿Continuar?`;
+                if(!window.confirm(detalle))return;
+                upd(r.id,"rpPlantaCuotas",res.activas);
+                if(res.revision.length) upd(r.id,"rpSugerenciasRevision",[...revisionRP,...res.revision]);
+              };
+              const aceptarSugerenciaRev = (sid)=>{
+                const s2 = revisionRP.find(x=>x.id===sid); if(!s2)return;
+                if(!window.confirm("Convertir esta sugerencia en tanda activa. Las tandas ya registradas no cambian."))return;
+                const {_revision,_motivo,_candidatos,...limpia}=s2;
+                upd(r.id,"rpPlantaCuotas",[...cuotasRP,limpia]);
+                upd(r.id,"rpSugerenciasRevision",revisionRP.filter(x=>x.id!==sid));
+              };
+              const descartarSugerenciaRev = (sid)=>{
+                if(!window.confirm("Descartar esta sugerencia. Las tandas registradas no se tocan."))return;
+                upd(r.id,"rpSugerenciasRevision",revisionRP.filter(x=>x.id!==sid));
+              };
               const inflPct=r.royaltyInflacion?(parseFloat(r.rcInflacionPct)||0):0;
               // Fee Vivero: lo paga el vivero. plantas despachadas × fee_usd_planta de la OC.
               let feeVivTot=0; const feeVivRows=[];
@@ -8865,6 +8942,75 @@ function ControlContratos({data,setData,clientes,setClientes,variedadesMaestro=[
                   <div style={{padding:10,background:excedeRP?C.dangerBg:C.successBg,borderRadius:8,marginBottom:10,fontSize:11,color:excedeRP?C.danger:C.success}}>
                     <strong>US$/planta:</strong> ${valorPP} <span style={{fontSize:9,color:C.muted2}}>(se define en Facturación)</span> · Facturado en tandas: <strong>{N(sumPlRP)} plantas</strong> = <strong>${N((sumPlRP*valorPP).toFixed(2))}</strong>{topePlantas>0?` · tope ${N(topePlantas)} plantas (${totPlantasOC>0?"suma OC del cliente":"base contrato"})`:""}{excedeRP?` ⚠ excede el tope por ${N(sumPlRP-topePlantas)} plantas`:""}
                   </div>
+                  {revisionRP.length>0&&(
+                    <div style={{padding:10,background:C.amBg||"#fef9c3",border:`1px solid ${C.am||"#ca8a04"}`,borderRadius:8,marginBottom:10}}>
+                      <div style={{fontSize:11,fontWeight:800,color:C.am||"#854d0e",marginBottom:6}}>
+                        {revisionRP.length} sugerencia(s) pendiente(s) de revisión · no suman ni generan obligación
+                      </div>
+                      {revisionRP.map(sg=>(
+                        <div key={sg.id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:8,padding:"5px 0",borderTop:`1px solid ${C.border}`,fontSize:11,flexWrap:"wrap"}}>
+                          <div style={{minWidth:0}}>
+                            <div style={{fontWeight:600}}>{sg.descripcion||"Sugerencia"} · {N(sg.nPlantas)} plantas · {sg.fechaEvento||"sin fecha"}</div>
+                            <div style={{fontSize:10,color:C.muted}}>{sg._motivo}{(sg._candidatos||[]).length?` · se parece a: ${(sg._candidatos||[]).map(c=>`${c.descripcion||c.id}${c.conAntecedentes?" (con factura o pago)":""}`).join(", ")}`:""}</div>
+                          </div>
+                          {can&&<div style={{display:"flex",gap:6}}>
+                            <button onClick={()=>aceptarSugerenciaRev(sg.id)} style={{background:C.success,color:"#fff",border:"none",borderRadius:6,padding:"3px 8px",cursor:"pointer",fontSize:10,fontWeight:700}}>Agregar como tanda</button>
+                            <button onClick={()=>descartarSugerenciaRev(sg.id)} style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:6,padding:"3px 8px",cursor:"pointer",fontSize:10}}>Descartar</button>
+                          </div>}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  {rpFilasOC.length>0&&(
+                    <div style={{marginBottom:10}}>
+                      <div style={{fontSize:11,fontWeight:700,color:C.text,marginBottom:6}}>
+                        Filas derivadas de las órdenes de compra del vivero · {rpFilasOC.length}
+                        <span style={{fontWeight:400,color:C.muted}}> · se facturan y cobran fila por fila</span>
+                      </div>
+                      <div style={{overflowX:"auto",minWidth:0,maxWidth:"calc(100vw - 40px)"}}>
+                        <table style={{width:"100%",borderCollapse:"collapse",fontSize:11}}>
+                          <thead><tr style={{background:C.primary}}>
+                            {["Origen","Plantas","Monto Fact.","Estado","Fecha pago","N° Fact.",""].map(h=>(
+                              <th key={h} style={{padding:"6px 8px",textAlign:"left",fontSize:10,fontWeight:700,color:C.primaryText}}>{h}</th>
+                            ))}
+                          </tr></thead>
+                          <tbody>
+                            {rpFilasOC.map(f=>{
+                              const ant = pagosOC[f.cuotaId]||{};
+                              const fila = {...f, ...ant};
+                              const inc = detectarInconsistencia(fila);
+                              const est = fila.estadoCF&&ESTADOS_CF[fila.estadoCF] ? fila.estadoCF : (fila.pagado?"pagado":"porCobrar");
+                              return (
+                                <tr key={f.cuotaId} style={{borderBottom:"1px solid #ecfdf5"}}>
+                                  <td style={{padding:"5px 8px"}}>{f.descripcionCuota||f.cuotaId}</td>
+                                  <td style={{padding:"5px 8px",textAlign:"right"}}>{N(f.nPlantas)}</td>
+                                  <td style={{padding:"5px 8px",textAlign:"right",fontWeight:700}}>${N((f.montoFact||0).toFixed(2))}</td>
+                                  <td style={{padding:"5px 8px",textAlign:"center"}}>
+                                    <BadgeEstadoCF estado={est} onChange={v=>confirmarPagoOC(f.cuotaId,v)} can={puedeEditarFilaRP(can)}/>
+                                    {inc&&<div title={inc.mensaje} style={{fontSize:9,color:C.am||"#854d0e",fontWeight:700,marginTop:2}}>revisar</div>}
+                                  </td>
+                                  <td style={{padding:"5px 8px"}}>
+                                    <input type="date" disabled={!puedeEditarFilaRP(can)} value={fila.fechaPago||""}
+                                      onChange={e=>updPagoOC(f.cuotaId,{fechaPago:e.target.value})} style={inp}/>
+                                  </td>
+                                  <td style={{padding:"5px 8px"}}>
+                                    <input disabled={!puedeEditarFilaRP(can)} value={fila.nFact||""} placeholder="F-000"
+                                      onChange={e=>updPagoOC(f.cuotaId,{nFact:e.target.value})} style={{...inp,width:70}}/>
+                                  </td>
+                                  <td style={{padding:"5px 8px",fontSize:9,color:C.muted2}}>
+                                    {ant.confirmadoPor?`confirmó ${ant.confirmadoPor}`:""}
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+                      <div style={{fontSize:10,color:C.muted,marginTop:4}}>
+                        Escribir la factura o la fecha no cambia el estado: el estado lo confirma una persona, fila por fila, y queda registrado.
+                      </div>
+                    </div>
+                  )}
                   {cuotasRP.length===0?(
                     <div style={{padding:12,background:C.cardAlt,borderRadius:8,fontSize:11,color:C.muted}}>Sin tandas. Agrega una con "+ Tanda" (o "Sugerir desde despachos" si la OC tiene despachos cargados).</div>
                   ):(
@@ -8876,14 +9022,14 @@ function ControlContratos({data,setData,clientes,setClientes,variedadesMaestro=[
                           ))}
                         </tr></thead>
                         <tbody>
-                          {cuotasRP.map(c=>{ const plc=plantasDeRP(c); const monto=plc*valorPP; return (
+                          {cuotasRP.map(c=>{ const plc=plantasDeRP(c); const monto=plc*valorPP; const incRP=detectarInconsistencia(c); return (
                             <tr key={c.id} style={{borderBottom:"1px solid #ecfdf5",background:c.pagado?C.successBg:""}}>
                               <td style={{padding:"5px 8px"}}><input disabled={!can} value={c.descripcion||""} onChange={e=>updCuoRP(c.id,"descripcion",e.target.value)} style={{width:"100%",padding:"4px 6px",borderRadius:4,border:`1px solid ${C.border}`,fontSize:11,boxSizing:"border-box"}}/></td>
                               <td style={{padding:"5px 8px"}}><input type="number" disabled={!can} value={c.nPlantas!==undefined&&c.nPlantas!==""?c.nPlantas:(c.pct?Math.round(plc):"")} placeholder="0" onChange={e=>updTandaPlantas(c.id,e.target.value)} style={{width:90,padding:"4px 6px",borderRadius:4,border:`1px solid ${excedeRP?C.danger:C.border}`,fontSize:11,textAlign:"right"}}/></td>
                               <td style={{padding:"5px 8px",textAlign:"right",fontWeight:700,color:C.text}}>${N(monto.toFixed(2))}</td>
                               <td style={{padding:"5px 8px",textAlign:"right",fontWeight:700,color:C.success}}>${N((monto*pct(r.pais)).toFixed(2))}</td>
                               <td style={{padding:"5px 8px"}}><input type="date" disabled={!can} value={c.fechaEvento||""} onChange={e=>updCuoRP(c.id,"fechaEvento",e.target.value)} style={inp}/></td>
-                              <td style={{padding:"5px 8px",textAlign:"center"}}><BadgeEstadoCF estado={c.estadoCF&&ESTADOS_CF[c.estadoCF]?c.estadoCF:(c.pagado?"pagado":"porCobrar")} onChange={v=>updCuoEstadoRP(c.id,v)} can={can}/></td>
+                              <td style={{padding:"5px 8px",textAlign:"center"}}><BadgeEstadoCF estado={c.estadoCF&&ESTADOS_CF[c.estadoCF]?c.estadoCF:(c.pagado?"pagado":"porCobrar")} onChange={v=>updCuoEstadoRP(c.id,v)} can={can}/>{incRP&&<div title={incRP.mensaje} style={{fontSize:9,color:C.am||"#854d0e",fontWeight:700,marginTop:2}}>revisar</div>}</td>
                               <td style={{padding:"5px 8px"}}><input type="date" disabled={!can} value={c.fechaPago||""} onChange={e=>updCuoRP(c.id,"fechaPago",e.target.value)} style={inp}/></td>
                               <td style={{padding:"5px 8px"}}><input disabled={!can} value={c.nFact||""} onChange={e=>updCuoRP(c.id,"nFact",e.target.value)} placeholder="F-000" style={{...inp,width:70}}/></td>
                               <td style={{padding:"5px 8px"}}>{can&&<button onClick={()=>delTanda(c.id)} style={{background:C.dangerBg,border:"none",borderRadius:4,padding:"3px 6px",cursor:"pointer",fontSize:10,color:C.danger}}>×</button>}</td>
@@ -8907,7 +9053,7 @@ function ControlContratos({data,setData,clientes,setClientes,variedadesMaestro=[
                     const updCohorteRC = (id,campo,val)=>setCohortesRC(cohortesRC.map(c=>c.id===id?{...c,[campo]:val}:c));
                     const delCohorteRC = (id)=>setCohortesRC(cohortesRC.filter(c=>c.id!==id));
                     const comDespRC=[];
-                    (viverosData||[]).forEach(v=>(v.ordenesCompra||[]).forEach(oc=>{ if(!ocLigadaAContrato(oc,r))return; (oc.despachos||[]).forEach(d=>{ if(d.tipo==="Prueba")return; const ha=Number(d.ha_plantadas)||0; if(ha<=0)return; comDespRC.push(d); }); }));
+                    (viverosData||[]).forEach(v=>(v.ordenesCompra||[]).forEach(oc=>{ if(!ocLigadaAContrato(oc,r,data))return; (oc.despachos||[]).forEach(d=>{ if(d.tipo==="Prueba")return; const ha=Number(d.ha_plantadas)||0; if(ha<=0)return; comDespRC.push(d); }); }));
                     const haComDespacho = comDespRC.reduce((s,d)=>s+(Number(d.ha_plantadas)||0),0);
                     const haDeclarada = cohortesRC.reduce((s,c)=>s+(Number(c.ha)||0),0);
                     const prefill = ()=>{
@@ -9036,9 +9182,45 @@ function ControlContratos({data,setData,clientes,setClientes,variedadesMaestro=[
             // OC reales del cliente que viven en el módulo Viveros, ligadas a este contrato.
             const ocsVivero = [];
             (viverosData||[]).forEach(v=>(v.ordenesCompra||[]).forEach(oc=>{
-              if(ocLigadaAContrato(oc, r)) ocsVivero.push({...oc, _viverista:v.viverista});
+              if(ocLigadaAContrato(oc, r, data)) ocsVivero.push({...oc, _viverista:v.viverista});
             }));
-            return <OrdenesCompraSec r={r} upd={upd} can={can} ocsVivero={ocsVivero}/>;
+            // P5 · Órdenes del mismo cliente que no se pueden atribuir con certeza.
+            // No se atribuyen a este contrato ni desaparecen: quedan visibles con su valor.
+            const todasOCs=[];
+            (viverosData||[]).forEach(v=>(v.ordenesCompra||[]).forEach(oc=>todasOCs.push({...oc,_viverista:v.viverista})));
+            const reparto = repartirOrdenes(todasOCs, data);
+            const mismoCliente = (oc)=>{
+              const nm=(x)=>(x||"").toString().toLowerCase().trim();
+              if(oc.cliente_id && r.clienteId && oc.cliente_id===r.clienteId) return true;
+              return !!nm(oc.cliente_nombre) && (nm(oc.cliente_nombre)===nm(r.razonSocial)||nm(oc.cliente_nombre)===nm(r.cliente));
+            };
+            const pendientesCliente = reparto.pendientes.filter(x=>mismoCliente(x.oc));
+            return (<>
+              {pendientesCliente.length>0&&(
+                <div style={{padding:12,background:C.amBg||"#fef9c3",border:`1px solid ${C.am||"#ca8a04"}`,borderRadius:10,marginBottom:12}}>
+                  <div style={{fontSize:12,fontWeight:800,color:C.am||"#854d0e",marginBottom:6}}>
+                    {pendientesCliente.length} orden(es) pendiente(s) de asignación
+                  </div>
+                  <div style={{fontSize:10,color:C.muted,marginBottom:8}}>
+                    No se atribuyen a ningún contrato porque no se puede determinar a cuál pertenecen. Siguen contadas con su valor: no se pierden ni se muestran en cero. Para asignarlas, indica el contrato en la orden, dentro del módulo de Viveros.
+                  </div>
+                  <table style={{width:"100%",borderCollapse:"collapse",fontSize:11}}>
+                    <tbody>
+                      {pendientesCliente.map(x=>(
+                        <tr key={x.oc.id} style={{borderTop:`1px solid ${C.border}`}}>
+                          <td style={{padding:"4px 6px",fontWeight:600}}>{x.oc.n_oc||x.oc.id}</td>
+                          <td style={{padding:"4px 6px"}}>{x.oc.fecha_oc||""}</td>
+                          <td style={{padding:"4px 6px",textAlign:"right"}}>{N(x.oc.cantidad_plantas||0)} plantas</td>
+                          <td style={{padding:"4px 6px",textAlign:"right"}}>${N(Number(x.oc.fee_total_usd||0).toFixed(2))}</td>
+                          <td style={{padding:"4px 6px",fontSize:10,color:C.muted}}>{x.motivo}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+              <OrdenesCompraSec r={r} upd={upd} can={can} ocsVivero={ocsVivero}/>
+            </>);
           })()}
         </div>
       </div>
@@ -10435,7 +10617,7 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
     viveros.forEach(v=>(v.ordenesCompra||[]).forEach(oc=>todasOCs.push({...oc, _viveroId:v.id, _viverista:v.viverista})));
     const map = {};
     (ctData||[]).forEach(ct=>{
-      const ocs = todasOCs.filter(oc=>ocLigadaAContrato(oc, ct));
+      const ocs = todasOCs.filter(oc=>ocLigadaAContrato(oc, ct, ctData));
       if(ocs.length) map[ct.id]=ocs;
     });
     return map;
@@ -10806,6 +10988,7 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
       <div style={{background:C.card,borderRadius:14,padding:20,boxShadow:"0 2px 10px #0001"}}>
         {canVerContratos
         ? <ControlContratos
+            usuarioActual={usuarioActual}
             data={ctData} setData={setCt}
             clientes={clientes} setClientes={setClientes}
             variedadesMaestro={variedadesMaestro} setVariedadesMaestro={setVariedadesMaestro}
@@ -14596,7 +14779,18 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
 // Adición NO funcional: expone funciones puras YA existentes para congelar su
 // comportamiento con tests de caracterización. No altera el export default, la
 // persistencia ni la lógica económica. Ver docs/osiris-fase0/. Reversible.
+// Ventana mínima para que las pruebas puedan simular dos sesiones con su propia
+// versión cargada. No la usa la aplicación.
+const __persistenciaTest = {
+  set({version, cargaOk}={}) {
+    if(version!==undefined) osirisVersion = version;
+    if(cargaOk!==undefined) osirisCargaOk = cargaOk;
+  },
+  get() { return { version: osirisVersion, cargaOk: osirisCargaOk }; },
+};
+
 export {
+  dbLoadOsiris, dbSaveOsiris, __persistenciaTest,
   pct, whtLabel, fechaInicioTrim, fechaAvisoTrim, resolveEstadoCF, calcCobros,
   ingresoMatchRegla, calcMontoObtentor, calcularDeudaObtentor,
   temporadaActual, temporadaDeFecha, temporadasEntre, ocLigadaAContrato,
