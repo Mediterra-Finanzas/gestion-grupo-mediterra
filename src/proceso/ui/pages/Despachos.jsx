@@ -4,7 +4,7 @@
 import React, { useEffect, useState, useCallback } from "react";
 import { useService } from "../hooks/useServiceContext";
 import { cargarDespachoListado, crearDespacho, siguienteCorrelativo, cargarVinculosPorRol } from "../../core/procesoF7DB";
-import { traducirError, badgeDe, vistaDespachos, temporadaParaCrear } from "../../core/procesoF7Domain";
+import { traducirError, badgeDe, vistaDespachos, temporadaParaCrear, plantaParaMutar } from "../../core/procesoF7Domain";
 import {
   ProcPageHeader, ProcButton, ProcCard, ProcDataTable, ProcStatusBadge, ProcModal, ProcField, inputStyle,
   ProcLoadingState, ProcErrorState, ProcEmptyState, ProcFilters,
@@ -15,7 +15,7 @@ import { formatNum, formatFecha, normalizarNombre } from "../format";
 const kg = (n) => (n == null ? "—" : formatNum(n));
 
 export default function Despachos() {
-  const { empresa, planta, temporada, ir, puedeEditar, notificar, vista } = useService();
+  const { empresa, planta, plantas, temporada, ir, puedeEditar, notificar, vista } = useService();
   const [rows, setRows] = useState([]);
   const [estado, setEstado] = useState("idle"); const [error, setError] = useState(null);
   const [fEstado, setFEstado] = useState(vista?.params?.filtroEstado || "");
@@ -52,9 +52,12 @@ export default function Despachos() {
     if (!nuevo.cliente) return notificar("Falta cliente del servicio", "error");
     const tmp = temporadaParaCrear(temporada);
     if (tmp.error) return notificar(tmp.error, "error");
+    // F-01: el despacho saca inventario de UNA planta (planta_origen) → planta concreta (fail-closed).
+    const pg = plantaParaMutar(planta, plantas);
+    if (pg.error) return notificar(pg.error, "error");
     try {
       const folio = await siguienteCorrelativo({ empresaId: empresa, temporada: tmp.codigo, tipo: "DES" });
-      const id = await crearDespacho({ empresaId: empresa, folio, plantaId: planta, clienteVinculoId: nuevo.cliente, destinatarioVinculoId: nuevo.destinatario || null });
+      const id = await crearDespacho({ empresaId: empresa, folio, plantaId: pg.planta, clienteVinculoId: nuevo.cliente, destinatarioVinculoId: nuevo.destinatario || null });
       setNuevo(null); notificar(`Despacho ${folio} creado`); ir("despacho", { id });
     } catch (e) { notificar(traducirError(e), "error"); }
   };

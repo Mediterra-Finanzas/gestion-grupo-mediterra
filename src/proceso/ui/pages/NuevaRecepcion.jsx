@@ -20,6 +20,7 @@ import {
   resumenKgLotes, resumenOrigenes, tonoContractual, copiarOrigen,
   evaluarOrigenLote, textoQcCabecera, kgEntradaPorLote,
   ahoraOperacional, temporadaDeFecha, fechaCalendarioTz, TZ_OPERACIONAL,
+  plantaParaMutar,
 } from "../../core/procesoF7Domain";
 import {
   ProcPageHeader, ProcCard, ProcButton, ProcField, inputStyle, ProcStatusBadge,
@@ -57,7 +58,7 @@ function Metrica({ titulo, valor, tono }) {
 }
 
 export default function NuevaRecepcion() {
-  const { empresa, planta, ir, notificar, vista, usuario, puedeEditar } = useService();
+  const { empresa, planta, plantas, ir, notificar, vista, usuario, puedeEditar } = useService();
   const resumeId = vista?.params?.recepcion_id || null;   // NR-05: reanudar borrador
   const [vinc, setVinc] = useState({ cliente_servicio: [], productor: [], transportista: [] });
   const [mae, setMae] = useState({ especies: [], variedades: [], predios: [], cuarteles: [] });
@@ -105,7 +106,7 @@ export default function NuevaRecepcion() {
         // recepción (no "hoy"): reconstruimos el wall-clock desde r.fecha y tomamos la temporada del ledger.
         const wc = r.fecha ? ahoraOperacional(TZ_OPERACIONAL, new Date(r.fecha)) : null;
         const tempMov = (movs || []).find((m) => m && m.naturaleza === "entrada")?.temporada_codigo || null;
-        setRec({ id: r.id, folio: r.folio, temporada: tempMov, fechaOp: wc ? `${wc.fecha}T${wc.hora}` : null });
+        setRec({ id: r.id, folio: r.folio, temporada: tempMov, plantaId: r.planta_id || null, fechaOp: wc ? `${wc.fecha}T${wc.hora}` : null });
         if (r.especie_codigo) set("especie_qc", r.especie_codigo);
         const kgMap = kgEntradaPorLote(movs);   // NR-05: kg desde el movimiento de entrada, NO on_hand
         setAgregados((lts || []).map((l) => ({
@@ -167,15 +168,18 @@ export default function NuevaRecepcion() {
         : `Hay más de una temporada aplicable a ${f.fecha_op}; corregí el catálogo de temporadas.`, "error");
     }
     if (!pes.ok) return notificar(pes.errores[0], "error");
+    // F-01: la recepción MUTA inventario → exige planta concreta y autoritativa (fail-closed).
+    const pg = plantaParaMutar(planta, plantas);
+    if (pg.error) return notificar(pg.error, "error");
     try {
       const folio = await siguienteCorrelativo({ empresaId: empresa, temporada: tempDeriv.codigo, tipo: "REC" });
       const r = await crearRecepcion({
-        empresa_id: empresa, folio, planta_id: planta || null, cliente_servicio_vinculo_id: f.cliente_servicio,
+        empresa_id: empresa, folio, planta_id: pg.planta, cliente_servicio_vinculo_id: f.cliente_servicio,
         transportista_vinculo_id: f.transportista || null, especie_codigo: f.especie_qc || null,
         kg_bruto: Number(f.kg_bruto) || null, tara: Number(f.tara) || null, kg_neto: pes.neto || null,
         guia_despacho: f.guia_despacho || null, patente: f.patente || null, estado: "borrador",
       });
-      setRec({ id: r.id, folio: r.folio, temporada: tempDeriv.codigo, fechaOp: fechaOpWallClock });
+      setRec({ id: r.id, folio: r.folio, temporada: tempDeriv.codigo, plantaId: pg.planta, fechaOp: fechaOpWallClock });
       refrescarConcil(r.id);
       notificar(`Recepción ${r.folio} creada en borrador (temporada ${tempDeriv.codigo}) — registrá los lotes y finalizá`);
     } catch (e) { notificar(traducirError(e), "error"); }
@@ -205,12 +209,16 @@ export default function NuevaRecepcion() {
     const datos = nl;
     const tmp = rec?.temporada || tempDeriv.codigo || null;   // borrador vacío reanudado: cae a la temporada derivada de la fecha (T10C)
     const fechaOp = rec?.fechaOp || null;        // wall-clock operacional (backend convierte tz)
+    // F-01: el movimiento de entrada del lote MUTA el ledger → planta concreta. La planta de la
+    // recepción (persistida) es autoritativa; si el borrador aún no la tiene, se resuelve del shell.
+    const pg = rec?.plantaId ? { planta: rec.plantaId } : plantaParaMutar(planta, plantas);
+    if (pg.error) return notificar(pg.error, "error");
     setConfOrigen(null);
     try {
       const codigo = await siguienteCorrelativo({ empresaId: empresa, temporada: tmp, tipo: "LOT" });
       await ingresarLoteUbicado({
         empresaId: empresa, recepcionId: rec.id, codigo, especie: datos.especie_codigo, variedad: datos.variedad_codigo || null,
-        kg: Number(datos.kg), plantaId: planta, temporada: tmp, ubicacionId: datos.ubicacion,
+        kg: Number(datos.kg), plantaId: pg.planta, temporada: tmp, ubicacionId: datos.ubicacion,
         productorId: datos.productorId || null, predioId: datos.predioId || null, cuartelId: datos.cuartelId || null,
         fechaOperacional: fechaOp,   // T10C: la recepción y su ledger comparten la fecha operacional
       });

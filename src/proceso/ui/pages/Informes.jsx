@@ -19,7 +19,7 @@ const kg = (n) => (n == null ? "—" : formatNum(n));
 const pct = (n) => formatPct(n);
 
 export default function Informes() {
-  const { empresa, planta, temporada, ir, puedeEditar, notificar } = useService();
+  const { empresa, planta, plantas, temporada, ir, puedeEditar, notificar } = useService();
   const [modo, setModo] = useState("informes"); // informes | pendientes
   const [informes, setInformes] = useState([]); const [pend, setPend] = useState([]);
   const [estado, setEstado] = useState("idle"); const [error, setError] = useState(null);
@@ -48,9 +48,15 @@ export default function Informes() {
   const generar = async () => {
     const tmp = temporadaParaCrear(temporada);
     if (tmp.error) return notificar(tmp.error, "error");
+    // F-01 (excepción reporting, autorizada por CFO): un informe es un DOCUMENTO, no inventario
+    // físico — no crea ni modifica movimientos. Por eso admite alcance EXPLÍCITO por planta concreta
+    // o "Todas" (planta null = alcance multi-planta, queda registrado en el informe). El guard
+    // fail-closed de planta se mantiene íntegro para toda operación que cree/mueva/reserve/despache
+    // inventario físico; esta excepción NO relaja ninguna otra protección F-01.
+    const plantaId = planta || null;
     try {
       const folio = await siguienteCorrelativo({ empresaId: empresa, temporada: tmp.codigo, tipo: "INF" });
-      const infId = await crearInforme({ empresaId: empresa, folio, temporada: tmp.codigo, plantaId: planta, destinatarioVinculoId: gen.destinatario || null });
+      const infId = await crearInforme({ empresaId: empresa, folio, temporada: tmp.codigo, plantaId, destinatarioVinculoId: gen.destinatario || null });
       await generarVersion({ empresaId: empresa, informeId: infId, ordenIds: sel, observaciones: gen.observaciones || null });
       notificar(`Informe ${folio} generado`); setGen(null); setSel([]); ir("informe_detalle", { id: infId });
     } catch (e) { notificar(traducirError(e), "error"); }

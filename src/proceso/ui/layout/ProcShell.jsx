@@ -5,7 +5,7 @@
 // Recepción + QC + Lotes; el resto muestra estado "próxima fase" honesto.
 import React, { useEffect, useState, useRef } from "react";
 import { useService } from "../hooks/useServiceContext";
-import { cargarPlantas, cargarTemporadas } from "../../core/procesoDB";
+import { cargarTemporadas } from "../../core/procesoDB";
 import { resolverItemActivo, temporadaDeFecha } from "../../core/procesoF7Domain";
 import { ProcButton, ProcToast } from "../components/base";
 import { C, sp } from "../estilos";
@@ -86,12 +86,10 @@ function useEsMovil(bp = 900) {
 }
 
 function BarraContexto() {
-  const { empresa, setEmpresa, planta, setPlanta, temporada, setTemporada, fecha, setFecha } = useService();
-  const [plantas, setPlantas] = useState([]);
+  const { empresa, setEmpresa, planta, setPlanta, plantas, temporada, setTemporada, fecha, setFecha } = useService();
   const [temps, setTemps] = useState([]);
   useEffect(() => {
-    if (!empresa) { setPlantas([]); setTemps([]); return; }
-    cargarPlantas(empresa).then(setPlantas).catch(() => setPlantas([]));
+    if (!empresa) { setTemps([]); return; }
     cargarTemporadas(empresa).then(setTemps).catch(() => setTemps([]));
   }, [empresa]);
   // Default UX (una sola vez): al cargar, el selector muestra la temporada VIGENTE (la que cubre la

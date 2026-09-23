@@ -2,6 +2,7 @@
 // Tests de dominio proc_* F7.1 (node). Ejecutar: node src/proceso/core/procesoF7Domain.test.mjs
 import { formatearCorrelativo, compactarTemporada, evaluarQC, badgeDe, traducirError, validarFiltros, calcularNeto, validarPesos, packout, resumenConciliacion, accionesOrden, faltaParaCerrar, ordenTerminal, despachoTerminal, puedeConfirmarDespacho, accionesDespacho, totalKg, montoServicio, especificidadTarifa, vigenciaTarifa, baseEditable, accionesBase, servicioAgregableABase, totalesPorMoneda, filtrosActivos, opcionesRef, limpiarDependencias, labelRef, resumenKgLotes, resumenOrigenes, tonoContractual, copiarOrigen, alertaContractual, transicionesContrato, tonoNivelContractual, qcPorLote, resumenQcRecepcion, rpcFecha, loteSinOrigen, qcListadoResumen, evaluarOrigenLote, textoQcCabecera, kgEntradaPorLote,
 fechaCalendarioTz, ahoraOperacional, temporadaDeFecha, temporadaParaCrear, MSG_TEMPORADA_REQUERIDA, TZ_OPERACIONAL,
+plantaParaMutar, MSG_PLANTA_REQUERIDA,
 resumenEnvases, NATURALEZA_ENVASE_LABEL, orquestarConfirmarDespacho, vistaDespachos, resolverItemActivo } from "./procesoF7Domain.js";
 
 let pass = 0, fail = 0;
@@ -325,6 +326,39 @@ eq(tm.find((x) => x.moneda === "CLP").total, 100000, "CLP separado");
   eq(temporadaParaCrear("  2526 ").codigo, "2526", "MS-G1: recorta espacios alrededor del codigo");
   ok(!temporadaParaCrear("2026/2027").error, "MS-G1: temporada real -> sin error");
   ok(temporadaParaCrear(null).codigo === undefined, "MS-G1: error no trae codigo (nunca cae a s-t)");
+}
+
+// F-01 · plantaParaMutar: "Todas las plantas" (null) es válido para LEER/filtrar, NUNCA para MUTAR.
+// Toda operación que muta (recepción, lote, orden, programa, pallet, despacho, informe) exige una
+// planta concreta y autoritativa; fail-closed ante ausencia/ambigüedad, sin default silencioso.
+{
+  const P1 = { id: "pl-1", estado: "activa" };
+  const P2 = { id: "pl-2", estado: "activa" };
+
+  // Planta concreta seleccionada → se usa esa (independiente del catálogo)
+  eq(plantaParaMutar("pl-9", [P1, P2]).planta, "pl-9", "F-01: planta concreta seleccionada → esa planta");
+  ok(!plantaParaMutar("pl-9", [P1, P2]).error, "F-01: planta concreta → sin error");
+  eq(plantaParaMutar("  pl-7  ", []).planta, "pl-7", "F-01: recorta espacios alrededor del id");
+
+  // "Todas" (null/""/undefined) + catálogo ambiguo o ausente → BLOQUEA la mutación
+  eq(plantaParaMutar(null, [P1, P2]).error, MSG_PLANTA_REQUERIDA, "F-01: null + 2 plantas → error (ambiguo)");
+  ok(plantaParaMutar(null, [P1, P2]).planta === undefined, "F-01: bloqueo NO trae planta (nunca default a null)");
+  eq(plantaParaMutar("", [P1, P2]).error, MSG_PLANTA_REQUERIDA, "F-01: vacío + 2 plantas → error");
+  eq(plantaParaMutar(undefined, [P1, P2]).error, MSG_PLANTA_REQUERIDA, "F-01: undefined + 2 plantas → error");
+  eq(plantaParaMutar("   ", [P1, P2]).error, MSG_PLANTA_REQUERIDA, "F-01: solo espacios + 2 plantas → error");
+  eq(plantaParaMutar(null, []).error, MSG_PLANTA_REQUERIDA, "F-01: null + catálogo vacío → error (ausencia)");
+  eq(plantaParaMutar(null, undefined).error, MSG_PLANTA_REQUERIDA, "F-01: null + sin catálogo → error (fail-closed)");
+
+  // "Todas" (null) + EXACTAMENTE una planta operable → se resuelve a esa (autoritativa, no ambigua).
+  // Es lo que mantiene sin fricción a un tenant mono-planta como Allegria Service hoy.
+  eq(plantaParaMutar(null, [P1]).planta, "pl-1", "F-01: null + 1 sola planta operable → resuelve a esa");
+  ok(!plantaParaMutar(null, [P1]).error, "F-01: mono-planta → sin error (no bloquea al operador)");
+
+  // Plantas no operables (inactiva/archivada/eliminada) NO cuentan para el auto-resolver
+  eq(plantaParaMutar(null, [P1, { id: "pl-x", estado: "inactiva" }]).planta, "pl-1", "F-01: ignora inactiva → queda una operable → resuelve");
+  eq(plantaParaMutar(null, [{ id: "pl-x", estado: "archivada" }]).error, MSG_PLANTA_REQUERIDA, "F-01: única planta archivada → sin operables → error");
+  eq(plantaParaMutar(null, [P1, { id: "pl-y", deleted_at: "2026-01-01" }]).planta, "pl-1", "F-01: ignora eliminada (deleted_at) → resuelve la operable");
+  eq(plantaParaMutar(null, [{ id: "pl-z" }, { id: "pl-w" }]).error, MSG_PLANTA_REQUERIDA, "F-01: estado ausente cuenta como operable → 2 operables → ambiguo → error");
 }
 
 // PROC-ENVASES-001 · resumenEnvases (KPIs desde saldos)
