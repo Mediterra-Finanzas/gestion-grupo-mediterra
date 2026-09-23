@@ -192,3 +192,58 @@ vuelven a atribuirse a todos los contratos del cliente.
 
 Procedimiento de vuelta: desplegar el commit anterior (`3048c8c`) desde el panel de Vercel. No hay
 migración que revertir ni dato que borrar.
+
+---
+
+# Corrección del desplegable de estado (rama aparte, sin publicar)
+
+| | |
+|---|---|
+| Rama | `osiris/fix-desplegable-estado` |
+| SHA | `594c033` |
+| Base | `origin/main` = `74a5d34` (lo publicado hoy) |
+| Diff | 3 archivos: `src/OsirisModule.jsx` (componente `BadgeEstadoCF`), `src/osiris/menuEstado.js` y su archivo de pruebas |
+| Estado | **local, sin push ni despliegue** |
+
+## El defecto
+
+`.osiris-root td, .osiris-root th { overflow: hidden }` en `index.css` recorta el menú, que se
+dibujaba dentro de la celda. Medido en el navegador aislado: el código anterior `3048c8c` ocultaba
+**205 px de 208**; lo publicado hoy, 193 de 208. Es anterior a la entrega de hoy; lo que cambió es
+que la marca "revisar" lleva a usar ese menú.
+
+## La corrección
+
+El menú se posiciona respecto de la ventana (`position:fixed`), con la geometría en una función pura
+(`src/osiris/menuEstado.js`): se abre hacia arriba si no cabe abajo, se recorta contra los cuatro
+bordes, se vuelve desplazable en ventanas muy bajas, sigue al botón al desplazar y se cierra si su
+fila deja de estar a la vista. No toca la regla global de `index.css` ni ninguna regla económica.
+
+Dos defectos de la propia corrección salieron en la revisión y están arreglados: el borde inferior
+podía quedar fuera de la ventana, y el menú se quedaba flotando cuando su fila se iba de la pantalla.
+
+## Pruebas
+
+10 de geometría, sintéticas. Suite completa: **962 aprobadas, 1 falla, 3 omitidas** — la falla sigue
+siendo `paramsFrutaAnticipos`, preexistente y del carril Finanzas/anticipos. Build `CI=true` en verde.
+
+## Revisión en el navegador aislado
+
+| Comprobación | Resultado |
+|---|---|
+| Menú completo y utilizable | Las 6 opciones visibles, 212 px, enteramente dentro de la ventana; el punto central del menú responde al clic |
+| Cerca del borde de pantalla | Con ventana de 1024×420, las 5 filas abren bien: las tres de arriba hacia abajo, las dos últimas hacia arriba. Ninguna se sale |
+| Al desplazar la tabla | El menú sigue al botón; cuando la fila sale de la pantalla, el menú se cierra |
+| Abrir o cerrar no modifica datos | Valores de las 6 filas idénticos antes y después de abrir y de cerrar |
+| Seleccionar cambia solo su fila | Se marcó "Pagado" en una tanda **sintética** creada para la prueba ("PRUEBA SINTETICA — no es un cobro real", 10 plantas). Las cinco filas con datos quedaron idénticas, campo por campo |
+| Persiste tras recargar | Tras F5, la sintética sigue "Pagado" y las cinco conservan factura (36, 36, 36, 36, 86), fechas de pago y plantas |
+| Usuario de solo lectura | 0 badges clicables, el menú no abre, sin "+ Tanda", sin "Sugerir", sin borrar, los campos deshabilitados |
+| Contract Fee | Sigue funcionando: abre las 6 opciones, entero en pantalla, cierra al hacer clic fuera y no cambia el estado al abrir |
+
+Detalle observado: la fila sintética quedó "Pagado" sin factura ni fecha y el sistema la marcó
+**revisar**. Es la otra mitad de P4 funcionando: marcar pagado sin respaldo también se señala.
+
+**Limitación de la prueba**: en este entorno automatizado un desplazamiento hecho por programa no
+emite el evento `scroll` del navegador, así que el seguimiento y el cierre se comprobaron emitiendo
+ese mismo evento. Con la rueda del ratón, en un navegador normal, el evento lo emite el propio
+navegador. Conviene que el CFO lo confirme con un scroll real cuando pruebe.
