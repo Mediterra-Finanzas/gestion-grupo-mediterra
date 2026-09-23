@@ -1,7 +1,7 @@
 /* eslint-disable */
 // Geometría del desplegable de estado. Casos sintéticos: ventanas y posiciones
 // inventadas, ningún dato real.
-import { ubicacionMenuEstado, ANCHO_MENU_ESTADO, MARGEN_VENTANA } from "./menuEstado";
+import { ubicacionMenuEstado, anclaVisible, ANCHO_MENU_ESTADO, MARGEN_VENTANA } from "./menuEstado";
 
 const VENTANA = { alto: 900, ancho: 1400 };
 const OPCIONES = 6;              // los seis estados de cobro
@@ -42,6 +42,24 @@ describe("ubicación del menú de estado", () => {
     const antes = ubicacionMenuEstado({ top: 400, bottom: 422, left: 300 }, VENTANA, OPCIONES);
     const despues = ubicacionMenuEstado({ top: 340, bottom: 362, left: 300 }, VENTANA, OPCIONES);
     expect(despues.top).toBe(antes.top - 60);
+  });
+
+  test("el menú nunca se sale por abajo, aunque el botón quede fuera de vista", () => {
+    const u = ubicacionMenuEstado({ top: 500, bottom: 521, left: 300 }, { alto: 420, ancho: 1024 }, OPCIONES);
+    expect(u.top + u.altoReal).toBeLessThanOrEqual(420);
+    expect(u.top).toBeGreaterThanOrEqual(MARGEN_VENTANA);
+  });
+
+  test("el menú nunca se sale por arriba", () => {
+    const u = ubicacionMenuEstado({ top: -300, bottom: -280, left: 300 }, VENTANA, OPCIONES);
+    expect(u.top).toBeGreaterThanOrEqual(MARGEN_VENTANA);
+  });
+
+  test("anclaVisible distingue la fila a la vista de la que se fue", () => {
+    expect(anclaVisible({ top: 100, bottom: 122 }, { alto: 420 })).toBe(true);
+    expect(anclaVisible({ top: 500, bottom: 521 }, { alto: 420 })).toBe(false);  // se fue por abajo
+    expect(anclaVisible({ top: -40, bottom: -18 }, { alto: 420 })).toBe(false);  // se fue por arriba
+    expect(anclaVisible({ top: -10, bottom: 12 }, { alto: 420 })).toBe(true);    // a medias, todavía cuenta
   });
 
   test("no depende de cuántas opciones tenga el menú: con más, sigue cabiendo", () => {

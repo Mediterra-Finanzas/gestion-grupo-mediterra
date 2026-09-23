@@ -7,7 +7,7 @@ import React, { useState, useCallback, useMemo, useEffect, useRef } from "react"
 import HomeEjecutivo from "./ux/HomeEjecutivo";
 import { theme } from "./theme";
 import { snapshotOsiris, isDirty as osirisIsDirty } from "./data/osirisDirty";
-import { ubicacionMenuEstado, ANCHO_MENU_ESTADO } from "./osiris/menuEstado";
+import { ubicacionMenuEstado, anclaVisible, ANCHO_MENU_ESTADO } from "./osiris/menuEstado";
 import {
   fusionarTandas,
   darDeBajaPlantacion,
@@ -380,11 +380,11 @@ function BadgeEstadoCF({estado, onChange, can}) {
     const b = btnRef.current;
     if(!b) return;
     const r = b.getBoundingClientRect();
-    setPos(ubicacionMenuEstado(
-      { top: r.top, bottom: r.bottom, left: r.left },
-      { alto: window.innerHeight, ancho: window.innerWidth },
-      Object.keys(ESTADOS_CF).length
-    ));
+    const ventana = { alto: window.innerHeight, ancho: window.innerWidth };
+    // Si la fila se fue de la pantalla al desplazar, se cierra el menú: no debe
+    // quedar un menú flotando lejos de la fila a la que pertenece.
+    if (!anclaVisible({ top: r.top, bottom: r.bottom }, ventana)) { setOpen(false); return; }
+    setPos(ubicacionMenuEstado({ top: r.top, bottom: r.bottom, left: r.left }, ventana, Object.keys(ESTADOS_CF).length));
   }, []);
 
   React.useEffect(()=>{
