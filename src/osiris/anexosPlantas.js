@@ -102,23 +102,38 @@ export function anexosDeLaPlantacion(plantacionId, anexos) {
   );
 }
 
+// Una baja está RESPALDADA solo si un anexo **activo y con documento** la vincula.
+// Un vínculo por sí solo no es respaldo: sin documento, o con el anexo retirado,
+// la baja sigue sin documentar.
+export function respaldaBaja(anexo) {
+  return esAnexoEliminacion(anexo) && anexo.activo !== false && txt(anexo.link) !== "";
+}
+
 // Resumen para la pantalla. `sinEfectoEconomico` es siempre true: es un registro
 // documental, no un cálculo.
 export function resumenEliminaciones(contrato) {
   const c = contrato || {};
   const anexos = (Array.isArray(c.anexosExtra) ? c.anexosExtra : []).filter(esAnexoEliminacion);
   const activos = anexos.filter((a) => a.activo !== false);
-  const vinculadas = new Set();
+  const conRespaldo = anexos.filter(respaldaBaja);
+  const vinculadas = new Set();   // mencionadas por un anexo activo, con o sin documento
   activos.forEach((a) => (a.plantacionIds || []).forEach((x) => vinculadas.add(txt(x))));
+  const respaldadas = new Set();  // mencionadas por un anexo activo CON documento
+  conRespaldo.forEach((a) => (a.plantacionIds || []).forEach((x) => respaldadas.add(txt(x))));
   const plantaciones = Array.isArray(c.plantaciones) ? c.plantaciones : [];
   const deBaja = plantaciones.filter((p) => p.estadoRegistro === "baja");
   return {
     anexos: anexos.length,
     anexosActivos: activos.length,
+    anexosRetirados: anexos.length - activos.length,
+    anexosConDocumento: conRespaldo.length,
     plantacionesVinculadas: vinculadas.size,
-    plantasDeclaradas: activos.reduce((s, a) => s + num(a.plantasDeclaradas), 0),
-    // Plantaciones dadas de baja (P2) que todavía no tienen anexo que las respalde.
-    bajasSinAnexo: deBaja.filter((p) => !vinculadas.has(txt(p.id))).map((p) => p.id),
+    plantacionesRespaldadas: respaldadas.size,
+    plantasDeclaradas: conRespaldo.reduce((s, a) => s + num(a.plantasDeclaradas), 0),
+    // Bajas sin respaldo: no basta con estar vinculadas, hace falta anexo activo con documento.
+    bajasSinAnexo: deBaja.filter((p) => !respaldadas.has(txt(p.id))).map((p) => p.id),
+    // Vinculadas pero sin documento: el caso que no se puede dar por respaldado.
+    bajasVinculadasSinDocumento: deBaja.filter((p) => vinculadas.has(txt(p.id)) && !respaldadas.has(txt(p.id))).map((p) => p.id),
     sinEfectoEconomico: true,
   };
 }

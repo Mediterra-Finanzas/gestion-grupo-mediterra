@@ -76,6 +76,39 @@ describe("anexo de eliminación de plantas", () => {
     expect(enc.map((x) => x.id)).toEqual(["a1", "a2"]);
   });
 
+  test("un vínculo sin documento no respalda la baja", () => {
+    const sinDoc = crearAnexoEliminacion({ id: "a1", plantacionIds: ["p1"], plantasDeclaradas: 500 }); // sin link
+    const r = resumenEliminaciones({ plantaciones: [{ id: "p1", estadoRegistro: "baja" }], anexosExtra: [sinDoc] });
+    expect(r.plantacionesVinculadas).toBe(1);
+    expect(r.plantacionesRespaldadas).toBe(0);
+    expect(r.bajasSinAnexo).toEqual(["p1"]);
+    expect(r.bajasVinculadasSinDocumento).toEqual(["p1"]);
+    expect(r.plantasDeclaradas).toBe(0); // no se cuentan plantas de un anexo sin documento
+  });
+
+  test("con documento y activo, la baja queda respaldada", () => {
+    const conDoc = crearAnexoEliminacion({ id: "a1", link: "https://x/a.pdf", plantacionIds: ["p1"], plantasDeclaradas: 500 });
+    const r = resumenEliminaciones({ plantaciones: [{ id: "p1", estadoRegistro: "baja" }], anexosExtra: [conDoc] });
+    expect(r.plantacionesRespaldadas).toBe(1);
+    expect(r.bajasSinAnexo).toEqual([]);
+    expect(r.plantasDeclaradas).toBe(500);
+  });
+
+  test("retirar el anexo devuelve la baja a sin respaldo, y el indicador distingue activo de retirado", () => {
+    const conDoc = crearAnexoEliminacion({ id: "a1", link: "https://x/a.pdf", plantacionIds: ["p1"], plantasDeclaradas: 500 });
+    const ct = { plantaciones: [{ id: "p1", estadoRegistro: "baja" }], anexosExtra: [conDoc] };
+    expect(resumenEliminaciones(ct).bajasSinAnexo).toEqual([]);
+    const retirado = { ...ct, anexosExtra: [retirarAnexo(conDoc, { motivo: "duplicado", usuario: "ana" })] };
+    const r = resumenEliminaciones(retirado);
+    expect(r.anexos).toBe(1);
+    expect(r.anexosActivos).toBe(0);
+    expect(r.anexosRetirados).toBe(1);
+    expect(r.bajasSinAnexo).toEqual(["p1"]);
+    // el documento y el historial siguen ahí
+    expect(retirado.anexosExtra[0].link).toBe("https://x/a.pdf");
+    expect(retirado.anexosExtra[0].historial.length).toBeGreaterThan(1);
+  });
+
   test("el resumen no toca importes y señala las bajas sin anexo", () => {
     const ct = {
       plantaciones: [
@@ -83,7 +116,7 @@ describe("anexo de eliminación de plantas", () => {
         { id: "p2", nPlantas: 1450, estadoRegistro: "baja" },
         { id: "p3", nPlantas: 900 },
       ],
-      anexosExtra: [crearAnexoEliminacion({ id: "a1", plantacionIds: ["p1"], plantasDeclaradas: 1420 })],
+      anexosExtra: [crearAnexoEliminacion({ id: "a1", link: "https://x/a.pdf", plantacionIds: ["p1"], plantasDeclaradas: 1420 })],
     };
     const r = resumenEliminaciones(ct);
     expect(r).toMatchObject({ anexos: 1, anexosActivos: 1, plantacionesVinculadas: 1, plantasDeclaradas: 1420, sinEfectoEconomico: true });
@@ -91,7 +124,7 @@ describe("anexo de eliminación de plantas", () => {
   });
 
   test("un anexo retirado deja de contar como respaldo de la baja", () => {
-    const a = retirarAnexo(crearAnexoEliminacion({ id: "a1", plantacionIds: ["p1"] }), { usuario: "ana" });
+    const a = retirarAnexo(crearAnexoEliminacion({ id: "a1", link: "https://x/a.pdf", plantacionIds: ["p1"] }), { usuario: "ana" });
     const r = resumenEliminaciones({ plantaciones: [{ id: "p1", estadoRegistro: "baja" }], anexosExtra: [a] });
     expect(r.anexos).toBe(1);
     expect(r.anexosActivos).toBe(0);

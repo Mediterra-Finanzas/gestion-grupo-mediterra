@@ -8750,8 +8750,11 @@ Motivo del retiro:`, "");
                     <strong>{(r.plantaciones||[]).filter(esBaja).length} plantación(es) dada(s) de baja.</strong> {AVISO_BAJA_SIN_EFECTO} Siguen incluidas en los totales de abajo.
                     <div style={{marginTop:6}}>
                       {resEl.bajasSinAnexo.length>0
-                        ? <>Documentación: <strong>{resEl.bajasSinAnexo.length}</strong> sin anexo de eliminación que las respalde. Se registra en la pestaña 📄 Contrato, agregando un anexo del tipo "{TIPO_ANEXO_ELIMINACION}" y marcando ahí las plantaciones afectadas.</>
-                        : <>Documentación: todas las bajas tienen un anexo de eliminación vinculado ({resEl.anexosActivos} anexo(s), {N(resEl.plantasDeclaradas)} plantas declaradas).</>}
+                        ? <>Documentación: <strong>{resEl.bajasSinAnexo.length}</strong> baja(s) sin respaldo.
+                            {resEl.bajasVinculadasSinDocumento.length>0&&<> De ellas, <strong>{resEl.bajasVinculadasSinDocumento.length}</strong> están vinculadas a un anexo <strong>sin documento adjunto</strong>: un vínculo por sí solo no es respaldo.</>}
+                            {resEl.anexosRetirados>0&&<> Hay {resEl.anexosRetirados} anexo(s) retirado(s), que no respaldan.</>}
+                            {" "}Se registra en la pestaña 📄 Contrato, agregando un anexo del tipo "{TIPO_ANEXO_ELIMINACION}", adjuntando el documento y marcando ahí las plantaciones afectadas.</>
+                        : <>Documentación: todas las bajas tienen un anexo de eliminación <strong>activo y con documento</strong> ({resEl.anexosConDocumento} de {resEl.anexos} anexo(s), {N(resEl.plantasDeclaradas)} plantas declaradas).</>}
                     </div>
                   </div>
                 );
