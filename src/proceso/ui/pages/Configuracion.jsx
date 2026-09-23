@@ -4,8 +4,9 @@
 // Los vínculos referencian identidad Core; NO se duplican empresas/terceros.
 import React, { useEffect, useState, useCallback } from "react";
 import { useService } from "../hooks/useServiceContext";
-import { cargarMaestro, crearMaestro, actualizarMaestro, desactivarMaestro } from "../../core/procesoF7DB";
-import { traducirError, opcionesRef, limpiarDependencias, labelRef, filtrosActivos } from "../../core/procesoF7Domain";
+import { cargarMaestro, crearMaestro, actualizarMaestro, desactivarMaestro, cambiarEstadoTemporada, reabrirTemporada } from "../../core/procesoF7DB";
+import { traducirError, opcionesRef, limpiarDependencias, labelRef, filtrosActivos,
+  transicionesTemporada, validarTransicionTemporada, validarActivacion, esReaperturable } from "../../core/procesoF7Domain";
 import {
   ProcPageHeader, ProcCard, ProcButton, ProcDataTable, ProcModal, ProcField, inputStyle,
   ProcLoadingState, ProcErrorState, ProcEmptyState, ProcConfirmAction, ProcStatusBadge, ProcFilters,
@@ -35,11 +36,13 @@ const MAESTROS = [
   { key: "plantas", label: "Plantas", tabla: "proc_planta",
     campos: [{ c: "codigo", l: "Código", ...T, req: 1 }, { c: "nombre", l: "Nombre", ...T, req: 1 }],
     cols: ["codigo", "nombre"] },
-  { key: "temporadas", label: "Temporadas", tabla: "proc_temporada",
+  { key: "temporadas", label: "Temporadas", tabla: "proc_temporada", lifecycleTemporada: 1,
     campos: [{ c: "codigo", l: "Código (ej. 2026/2027)", ...T, req: 1 }, { c: "nombre", l: "Nombre", ...T },
       { c: "fecha_inicio", l: "Inicio", k: "date" }, { c: "fecha_fin", l: "Fin", k: "date" },
-      { c: "estado", l: "Estado", ...sel(["planificada", "activa", "cerrada", "anulada"]) }],
-    cols: ["codigo", "nombre", "estado"] },
+      { c: "estado", l: "Estado", ...sel(["planificada", "activa", "cerrada", "anulada"]), ro: 1,
+        hint: "El estado se cambia con las acciones de la fila (Activar/Cerrar/Anular/Reabrir), no editándolo a mano." }],
+    cols: ["codigo", "nombre", { titulo: "Estado", render: (r) => r.estado ? <ProcStatusBadge estado={r.estado} /> : "—" }],
+    nota: "Una temporada por empresa/campaña. Sólo puede haber UNA activa por empresa. El cierre bloquea nuevas escrituras (no borra histórico); reabrir una cerrada exige motivo y permiso (queda en auditoría)." },
   { key: "ubicaciones", label: "Ubicaciones", tabla: "proc_ubicaciones",
     campos: [{ c: "codigo", l: "Código", ...T, req: 1 }, { c: "nombre", l: "Nombre", ...T, req: 1 },
       { c: "tipo", l: "Tipo", ...sel(["camara", "zona", "ubicacion", "patio"]), req: 1 }],
@@ -189,6 +192,7 @@ function MaestroEditor({ d }) {
       const payload = {};
       d.campos.forEach((campo) => {
         if (campo.virtual) return;   // campos sólo-UI (ej. _productor) no se guardan
+        if (campo.ro) return;        // campos de sólo-lectura (ej. estado de temporada) no se editan a mano
         let v = form.valores[campo.c]; if (v === "" || v === undefined) v = null;
         if (campo.k === "number" && v != null) v = Number(v);
         if (CAMPOS_NOMBRE.has(campo.c) && typeof v === "string") v = normalizarNombre(v);
@@ -210,8 +214,48 @@ function MaestroEditor({ d }) {
     } catch (e) { notificar(traducirError(e), "error"); }
   };
   const confirmarBorrar = async () => {
-    try { await desactivarMaestro(d.tabla, borrar.id, empresa); notificar("Registro desactivado"); setBorrar(null); cargar(); }
-    catch (e) { notificar(traducirError(e), "error"); }
+    try {
+      if (borrar._anular) { await cambiarEstadoTemporada(borrar.id, empresa, "anulada"); notificar(`Temporada ${borrar.codigo} anulada`); }
+      else { await desactivarMaestro(d.tabla, borrar.id, empresa); notificar("Registro desactivado"); }
+      setBorrar(null); cargar();
+    } catch (e) { notificar(traducirError(e), "error"); }
+  };
+
+  // ── MS-G2 · Ciclo de vida de temporada (activar/cerrar/anular/reabrir desde la app) ──
+  // Pre-valida en el dominio (transición legal + una-sola-activa) antes de escribir; el
+  // enforcement duro (índice único parcial, guard de escritura, RPC de reapertura) es del
+  // backend. La reapertura NO es un UPDATE directo: va por el RPC controlado (motivo + permiso).
+  const cambiarEstado = async (row, nuevoEstado) => {
+    const v = validarTransicionTemporada(row.estado, nuevoEstado);
+    if (!v.ok) return notificar(v.error, "error");
+    if (nuevoEstado === "activa") {
+      const a = validarActivacion(rows, { id: row.id, empresaId: empresa });
+      if (!a.ok) return notificar(a.error, "error");
+    }
+    try {
+      await cambiarEstadoTemporada(row.id, empresa, nuevoEstado);
+      notificar(`Temporada ${row.codigo}: ${nuevoEstado}`); cargar();
+    } catch (e) { notificar(traducirError(e), "error"); }
+  };
+  const reabrir = async (row) => {
+    const motivo = window.prompt(`Reabrir la temporada ${row.codigo} (queda en auditoría).\nMotivo obligatorio:`);
+    if (motivo == null) return;                       // cancelado
+    if (!motivo.trim()) return notificar("La reapertura exige un motivo.", "error");
+    try {
+      // Reabre a 'planificada' (segura: no colisiona con la activa vigente). Desde ahí se puede Activar.
+      await reabrirTemporada({ temporadaId: row.id, nuevoEstado: "planificada", motivo: motivo.trim() });
+      notificar(`Temporada ${row.codigo} reabierta (planificada)`); cargar();
+    } catch (e) { notificar(traducirError(e), "error"); }
+  };
+  // Botones de lifecycle para una fila de temporada (según transiciones legales del dominio).
+  const accionesTemporada = (row) => {
+    const trans = transicionesTemporada(row.estado);
+    const btns = [];
+    if (trans.includes("activa")) btns.push(<ProcButton key="act" kind="ghost" small onClick={() => cambiarEstado(row, "activa")}>Activar</ProcButton>);
+    if (trans.includes("cerrada")) btns.push(<ProcButton key="cer" kind="ghost" small onClick={() => cambiarEstado(row, "cerrada")}>Cerrar</ProcButton>);
+    if (trans.includes("anulada")) btns.push(<ProcButton key="anu" kind="ghost" small onClick={() => setBorrar({ ...row, _anular: 1 })}>Anular</ProcButton>);
+    if (esReaperturable(row.estado)) btns.push(<ProcButton key="rea" kind="ghost" small onClick={() => reabrir(row)}>Reabrir</ProcButton>);
+    return btns;
   };
 
   // valor de celda: resuelve columnas ref a su label (nunca UUID crudo).
@@ -225,9 +269,10 @@ function MaestroEditor({ d }) {
     ...d.cols.map((c) => (typeof c === "object" && c.render) ? c
       : { titulo: typeof c === "string" ? c.replace(/_/g, " ") : c.titulo, render: (row) => celda(c, row) }),
     editable ? { titulo: "", align: "right", render: (f) => (
-      <span style={{ display: "flex", gap: 6, justifyContent: "flex-end" }}>
+      <span style={{ display: "flex", gap: 6, justifyContent: "flex-end", flexWrap: "wrap" }}>
         <ProcButton kind="ghost" small onClick={() => abrirEditar(f)}>Editar</ProcButton>
-        <ProcButton kind="ghost" small onClick={() => setBorrar(f)}>Desactivar</ProcButton>
+        {d.lifecycleTemporada && accionesTemporada(f)}
+        {!d.lifecycleTemporada && <ProcButton kind="ghost" small onClick={() => setBorrar(f)}>Desactivar</ProcButton>}
       </span>) } : { titulo: "", render: () => null },
   ];
 
@@ -279,8 +324,12 @@ function MaestroEditor({ d }) {
             const depOk = !campo.ref || !campo.ref.dep || !!form.valores[campo.ref.dep];
             return (
               <ProcField key={campo.c} label={campo.l} requerido={campo.req}
-                hint={campo.ref && campo.ref.dep && !depOk ? `Elegí primero ${(d.campos.find((x) => x.c === campo.ref.dep) || {}).l || "el campo anterior"}` : undefined}>
-                {campo.k === "bool" ? (
+                hint={campo.ref && campo.ref.dep && !depOk ? `Elegí primero ${(d.campos.find((x) => x.c === campo.ref.dep) || {}).l || "el campo anterior"}` : campo.hint}>
+                {campo.ro ? (
+                  form.modo === "nuevo"
+                    ? <span style={{ fontSize: 13, color: C.muted }}>Se crea como «planificada».</span>
+                    : (campo.c === "estado" ? <ProcStatusBadge estado={form.valores[campo.c]} /> : <span style={{ fontSize: 13, color: C.text }}>{form.valores[campo.c] ?? "—"}</span>)
+                ) : campo.k === "bool" ? (
                   <input type="checkbox" checked={!!form.valores[campo.c]} onChange={(e) => setCampo(campo.c, e.target.checked)} />
                 ) : campo.k === "ref" ? (
                   <select style={inputStyle} value={form.valores[campo.c] || ""} disabled={!depOk} onChange={(e) => setCampo(campo.c, e.target.value)}>
@@ -300,7 +349,10 @@ function MaestroEditor({ d }) {
           })}
         </ProcModal>
       )}
-      {borrar && <ProcConfirmAction titulo="Desactivar registro" mensaje="El registro se marca como inactivo (no se borra físicamente). ¿Continuar?"
+      {borrar && borrar._anular && <ProcConfirmAction titulo="Anular temporada"
+        mensaje={`La temporada ${borrar.codigo} pasa a «anulada» (estado terminal, no reaperturable). No borra el histórico, pero bloquea nuevas escrituras. ¿Continuar?`}
+        textoConfirm="Anular" onConfirm={confirmarBorrar} onCancel={() => setBorrar(null)} />}
+      {borrar && !borrar._anular && <ProcConfirmAction titulo="Desactivar registro" mensaje="El registro se marca como inactivo (no se borra físicamente). ¿Continuar?"
         textoConfirm="Desactivar" onConfirm={confirmarBorrar} onCancel={() => setBorrar(null)} />}
     </div>
   );

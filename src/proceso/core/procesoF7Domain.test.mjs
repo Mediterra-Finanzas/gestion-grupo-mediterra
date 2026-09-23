@@ -2,6 +2,8 @@
 // Tests de dominio proc_* F7.1 (node). Ejecutar: node src/proceso/core/procesoF7Domain.test.mjs
 import { formatearCorrelativo, compactarTemporada, evaluarQC, badgeDe, traducirError, validarFiltros, calcularNeto, validarPesos, packout, resumenConciliacion, accionesOrden, faltaParaCerrar, ordenTerminal, despachoTerminal, puedeConfirmarDespacho, accionesDespacho, totalKg, montoServicio, especificidadTarifa, vigenciaTarifa, baseEditable, accionesBase, servicioAgregableABase, totalesPorMoneda, filtrosActivos, opcionesRef, limpiarDependencias, labelRef, resumenKgLotes, resumenOrigenes, tonoContractual, copiarOrigen, alertaContractual, transicionesContrato, tonoNivelContractual, qcPorLote, resumenQcRecepcion, rpcFecha, loteSinOrigen, qcListadoResumen, evaluarOrigenLote, textoQcCabecera, kgEntradaPorLote,
 fechaCalendarioTz, ahoraOperacional, temporadaDeFecha, temporadaParaCrear, MSG_TEMPORADA_REQUERIDA, TZ_OPERACIONAL,
+TEMPORADA_ESTADOS, TEMPORADA_TRANSICIONES, transicionesTemporada, temporadaEsTerminal, esReaperturable, temporadaAbierta,
+validarTransicionTemporada, temporadasDeEmpresa, resolverTemporadaActiva, validarActivacion, temporadaSeleccionableParaCrear,
 resumenEnvases, NATURALEZA_ENVASE_LABEL, orquestarConfirmarDespacho, vistaDespachos, resolverItemActivo } from "./procesoF7Domain.js";
 
 let pass = 0, fail = 0;
@@ -325,6 +327,80 @@ eq(tm.find((x) => x.moneda === "CLP").total, 100000, "CLP separado");
   eq(temporadaParaCrear("  2526 ").codigo, "2526", "MS-G1: recorta espacios alrededor del codigo");
   ok(!temporadaParaCrear("2026/2027").error, "MS-G1: temporada real -> sin error");
   ok(temporadaParaCrear(null).codigo === undefined, "MS-G1: error no trae codigo (nunca cae a s-t)");
+}
+
+// MS-G2 · Ciclo de vida de temporada: transiciones legales, reapertura por camino controlado.
+{
+  eq(JSON.stringify(transicionesTemporada("planificada")), JSON.stringify(["activa", "anulada"]), "MS-G2: planificada -> activa|anulada");
+  eq(JSON.stringify(transicionesTemporada("activa")), JSON.stringify(["cerrada", "anulada"]), "MS-G2: activa -> cerrada|anulada");
+  eq(JSON.stringify(transicionesTemporada("cerrada")), JSON.stringify([]), "MS-G2: cerrada no tiene transición directa (reapertura = RPC)");
+  eq(JSON.stringify(transicionesTemporada("anulada")), JSON.stringify([]), "MS-G2: anulada es terminal");
+  ok(temporadaEsTerminal("anulada"), "MS-G2: anulada terminal");
+  ok(!temporadaEsTerminal("cerrada"), "MS-G2: cerrada no terminal (reaperturable)");
+  ok(esReaperturable("cerrada") && !esReaperturable("anulada") && !esReaperturable("activa"), "MS-G2: sólo cerrada reaperturable");
+  ok(temporadaAbierta("activa") && temporadaAbierta("planificada"), "MS-G2: abierta = activa|planificada");
+  ok(!temporadaAbierta("cerrada") && !temporadaAbierta("anulada"), "MS-G2: cerrada/anulada no abiertas");
+  // validarTransicionTemporada
+  ok(validarTransicionTemporada("planificada", "activa").ok, "MS-G2: planificada→activa ok");
+  ok(validarTransicionTemporada("activa", "cerrada").ok, "MS-G2: activa→cerrada ok");
+  ok(!validarTransicionTemporada("activa", "planificada").ok, "MS-G2: activa→planificada NO (retroceso)");
+  ok(!validarTransicionTemporada("cerrada", "activa").ok, "MS-G2: cerrada→activa NO por update directo");
+  ok(/controlado/i.test(validarTransicionTemporada("cerrada", "activa").error), "MS-G2: reapertura redirige a camino controlado");
+  ok(!validarTransicionTemporada("anulada", "activa").ok, "MS-G2: anulada→activa NO (terminal)");
+  ok(!validarTransicionTemporada("activa", "activa").ok, "MS-G2: mismo estado NO");
+  ok(!validarTransicionTemporada("activa", "inexistente").ok, "MS-G2: estado inválido NO");
+}
+
+// MS-G2 · Resolución de temporada ACTIVA + aislamiento por empresa.
+{
+  const cat = [
+    { id: "t1", empresa_id: "E1", codigo: "2025/2026", estado: "cerrada" },
+    { id: "t2", empresa_id: "E1", codigo: "2026/2027", estado: "activa" },
+    { id: "t3", empresa_id: "E1", codigo: "2027/2028", estado: "planificada" },
+    { id: "t4", empresa_id: "E2", codigo: "2026/2027", estado: "activa" },       // otra empresa
+    { id: "t5", empresa_id: "E1", codigo: "2020/2021", estado: "activa", deleted_at: "2021-01-01" }, // borrada
+  ];
+  eq(temporadasDeEmpresa(cat, "E1").length, 3, "aislamiento: E1 tiene 3 (excluye E2 y borrada)");
+  eq(temporadasDeEmpresa(cat, "E2").length, 1, "aislamiento: E2 tiene 1");
+  eq(resolverTemporadaActiva(cat, "E1").codigo, "2026/2027", "activa de E1 = 2026/2027");
+  eq(resolverTemporadaActiva(cat, "E2").codigo, "2026/2027", "activa de E2 (misma etiqueta, distinta fila)");
+  eq(resolverTemporadaActiva(cat, "E2").id, "t4", "activa de E2 es su propia fila (no cross-tenant)");
+  eq(resolverTemporadaActiva([{ id: "a", empresa_id: "E1", codigo: "x", estado: "planificada" }], "E1").error, "cero", "sin activa -> error cero");
+  eq(resolverTemporadaActiva([
+    { id: "a", empresa_id: "E1", codigo: "x", estado: "activa" },
+    { id: "b", empresa_id: "E1", codigo: "y", estado: "activa" },
+  ], "E1").error, "multiple", "dos activas -> error multiple (defensa del índice único)");
+
+  // validarActivacion: una sola activa por empresa
+  ok(!validarActivacion(cat, { id: "t3", empresaId: "E1" }).ok, "activar t3 en E1 choca con t2 activa");
+  ok(/una activa/i.test(validarActivacion(cat, { id: "t3", empresaId: "E1" }).error), "conflicto explica una-activa");
+  ok(validarActivacion(cat, { id: "t2", empresaId: "E1" }).ok, "reactivar la MISMA activa (t2) no choca consigo misma");
+  const solo = [{ id: "t1", empresa_id: "E1", codigo: "2025/2026", estado: "cerrada" }];
+  ok(validarActivacion(solo, { id: "t1", empresaId: "E1" }).ok, "activar cuando no hay ninguna activa -> ok");
+  // aislamiento: la activa de E2 no bloquea activar en E1
+  ok(validarActivacion([{ id: "t4", empresa_id: "E2", codigo: "z", estado: "activa" }], { id: "t9", empresaId: "E1" }).ok, "activa de otra empresa no bloquea");
+}
+
+// MS-G2 · Validación de creación contra catálogo (no crear en cerrada/anulada/inexistente).
+{
+  const cat = [
+    { empresa_id: "E1", codigo: "2026/2027", estado: "activa" },
+    { empresa_id: "E1", codigo: "2027/2028", estado: "planificada" },
+    { empresa_id: "E1", codigo: "2025/2026", estado: "cerrada" },
+    { empresa_id: "E1", codigo: "2024/2025", estado: "anulada" },
+    { empresa_id: "E1", codigo: "2019/2020", estado: "activa", deleted_at: "2020-01-01" },
+  ];
+  eq(temporadaSeleccionableParaCrear(cat, "2026/2027").codigo, "2026/2027", "crear con activa -> ok");
+  eq(temporadaSeleccionableParaCrear(cat, "2027/2028").codigo, "2027/2028", "crear con planificada -> ok");
+  ok(/cerrada/.test(temporadaSeleccionableParaCrear(cat, "2025/2026").error), "crear con cerrada -> error humano");
+  ok(/anulada/.test(temporadaSeleccionableParaCrear(cat, "2024/2025").error), "crear con anulada -> error");
+  ok(/no existe/.test(temporadaSeleccionableParaCrear(cat, "2099/2100").error), "crear con inexistente -> error");
+  ok(/no existe/.test(temporadaSeleccionableParaCrear(cat, "2019/2020").error), "crear con borrada -> tratada como inexistente");
+  eq(temporadaSeleccionableParaCrear(cat, "").error, MSG_TEMPORADA_REQUERIDA, "crear sin código -> requerida");
+  // temporadaParaCrear con catálogo (defensa en profundidad); sin catálogo mantiene compat MS-G1
+  eq(temporadaParaCrear("2026/2027", cat).codigo, "2026/2027", "temporadaParaCrear(cat) activa -> ok");
+  ok(temporadaParaCrear("2025/2026", cat).error, "temporadaParaCrear(cat) cerrada -> error");
+  eq(temporadaParaCrear("2025/2026").codigo, "2025/2026", "temporadaParaCrear sin catálogo -> compat MS-G1 (solo string)");
 }
 
 // PROC-ENVASES-001 · resumenEnvases (KPIs desde saldos)
