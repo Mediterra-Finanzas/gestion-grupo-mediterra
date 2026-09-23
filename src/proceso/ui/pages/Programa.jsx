@@ -17,7 +17,7 @@ import { C, sp } from "../estilos";
 import { formatKg, formatNum, formatFecha, formatFechaHora, normalizarNombre } from "../format";
 
 export default function Programa() {
-  const { empresa, planta, plantas, temporada, fecha, ir, puedeEditar, notificar } = useService();
+  const { empresa, planta, plantas, temporada, temporadas, fecha, ir, puedeEditar, notificar } = useService();
   const [rows, setRows] = useState([]); const [clientes, setClientes] = useState([]);
   const [estado, setEstado] = useState("idle"); const [error, setError] = useState(null);
   const [form, setForm] = useState(null);
@@ -38,7 +38,7 @@ export default function Programa() {
 
   const guardar = async () => {
     if (!form.especie_codigo) return notificar("Falta especie", "error");
-    const tmp = temporadaParaCrear(temporada);
+    const tmp = temporadaParaCrear(temporada, temporadas);
     if (tmp.error) return notificar(tmp.error, "error");
     // F-01: el programa se ancla a una planta concreta (la orden que genera hereda su planta).
     const pg = plantaParaMutar(planta, plantas);
@@ -66,7 +66,7 @@ export default function Programa() {
           return;
         }
       }
-      const tmp = temporadaParaCrear(temporada);
+      const tmp = temporadaParaCrear(temporada, temporadas);
       if (tmp.error) return notificar(tmp.error, "error");
       // F-01: la orden hereda la planta del programa (autoritativa); si el programa no la fijó,
       // se resuelve del shell y falla-cerrado si es "Todas" y hay ambigüedad.

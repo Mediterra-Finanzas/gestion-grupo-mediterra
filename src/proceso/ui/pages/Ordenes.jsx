@@ -14,7 +14,7 @@ import { formatNum, formatFecha, normalizarNombre } from "../format";
 const kg = (n) => (n == null ? "—" : formatNum(n));
 
 export default function Ordenes() {
-  const { empresa, planta, plantas, temporada, ir, puedeEditar, notificar, vista } = useService();
+  const { empresa, planta, plantas, temporada, temporadas, ir, puedeEditar, notificar, vista } = useService();
   const [rows, setRows] = useState([]);
   const [estado, setEstado] = useState("idle");
   const [error, setError] = useState(null);
@@ -38,7 +38,7 @@ export default function Ordenes() {
 
   const crear = async () => {
     if (!nueva.especie_codigo) return notificar("Falta especie", "error");
-    const tmp = temporadaParaCrear(temporada);
+    const tmp = temporadaParaCrear(temporada, temporadas);
     if (tmp.error) return notificar(tmp.error, "error");
     // F-01: crear orden MUTA (genera correlativo + estado en_proceso) → planta concreta.
     const pg = plantaParaMutar(planta, plantas);

@@ -19,7 +19,7 @@ const n = (x) => Number(x) || 0;
 const kg = (x) => formatKg(n(x));
 
 export default function Repaletizaje() {
-  const { empresa, planta, plantas, temporada, ir, vista, notificar } = useService();
+  const { empresa, planta, plantas, temporada, temporadas, ir, vista, notificar } = useService();
   const [pallets, setPallets] = useState([]); const [ubis, setUbis] = useState([]);
   const [estado, setEstado] = useState("loading"); const [error, setError] = useState(null);
   const [origenIds, setOrigenIds] = useState(vista?.params?.origen ? [vista.params.origen] : []);
@@ -57,7 +57,7 @@ export default function Repaletizaje() {
     if (moves.length === 0) return notificar("Agregá al menos un movimiento", "error");
     // Solo se exige temporada real si hay que crear pallets destino nuevos (correlativo PAL); nunca "s-t".
     const requiereTemporada = destinos.some((d) => d.tipo !== "existente");
-    const tmp = requiereTemporada ? temporadaParaCrear(temporada) : { codigo: null };
+    const tmp = requiereTemporada ? temporadaParaCrear(temporada, temporadas) : { codigo: null };
     if (tmp.error) return notificar(tmp.error, "error");
     // F-01: solo se exige planta concreta si hay que CREAR pallets destino nuevos (crearPallet muta).
     const pg = requiereTemporada ? plantaParaMutar(planta, plantas) : { planta: null };

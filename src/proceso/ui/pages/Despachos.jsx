@@ -15,7 +15,7 @@ import { formatNum, formatFecha, normalizarNombre } from "../format";
 const kg = (n) => (n == null ? "—" : formatNum(n));
 
 export default function Despachos() {
-  const { empresa, planta, plantas, temporada, ir, puedeEditar, notificar, vista } = useService();
+  const { empresa, planta, plantas, temporada, temporadas, ir, puedeEditar, notificar, vista } = useService();
   const [rows, setRows] = useState([]);
   const [estado, setEstado] = useState("idle"); const [error, setError] = useState(null);
   const [fEstado, setFEstado] = useState(vista?.params?.filtroEstado || "");
@@ -50,7 +50,7 @@ export default function Despachos() {
   };
   const crear = async () => {
     if (!nuevo.cliente) return notificar("Falta cliente del servicio", "error");
-    const tmp = temporadaParaCrear(temporada);
+    const tmp = temporadaParaCrear(temporada, temporadas);
     if (tmp.error) return notificar(tmp.error, "error");
     // F-01: el despacho saca inventario de UNA planta (planta_origen) → planta concreta (fail-closed).
     const pg = plantaParaMutar(planta, plantas);

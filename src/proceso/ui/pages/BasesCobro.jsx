@@ -17,7 +17,7 @@ const MONEDAS = ["USD", "CLP", "EUR", "PEN"];
 const ESTADOS = ["borrador", "en_revision", "aprobada", "enviada_a_facturacion", "cerrada", "anulada"];
 
 export default function BasesCobro() {
-  const { empresa, temporada, ir, puedeEditar, notificar, vista } = useService();
+  const { empresa, temporada, temporadas, ir, puedeEditar, notificar, vista } = useService();
   const [rows, setRows] = useState([]);
   const [clientes, setClientes] = useState([]);
   const [estado, setEstado] = useState("idle");
@@ -46,7 +46,7 @@ export default function BasesCobro() {
 
   const crear = async () => {
     if (!nueva.cliente_vinculo_id) return notificar("Elegí cliente", "error");
-    const tmp = temporadaParaCrear(temporada);
+    const tmp = temporadaParaCrear(temporada, temporadas);
     if (tmp.error) return notificar(tmp.error, "error");
     try {
       const folio = await siguienteCorrelativo({ empresaId: empresa, temporada: tmp.codigo, tipo: "BCO" });
