@@ -17,6 +17,7 @@ import {
   aplicarCambioFila,
   confirmarEstadoFila,
   puedeEditarFilaRP,
+  tieneAntecedentes,
   resolverAtribucionOC,
   repartirOrdenes,
 } from "./osiris/preservacion";
@@ -8810,7 +8811,16 @@ function ControlContratos({data,setData,clientes,setClientes,variedadesMaestro=[
               };
               const updCuoEstadoRP=(id,v)=>upd(r.id,"rpPlantaCuotas",cuotasRP.map(x=>x.id===id?{...x,estadoCF:v,pagado:v==="pagado"}:x));
               const addTanda=()=>upd(r.id,"rpPlantaCuotas",[...cuotasRP,{id:`cuo_${Date.now()}`,descripcion:"Tanda",nPlantas:"",fechaEvento:""}]);
-              const delTanda=(id)=>upd(r.id,"rpPlantaCuotas",cuotasRP.filter(x=>x.id!==id));
+              // P1 · Una tanda con factura, fecha de pago o estado no se elimina desde aquí.
+              const delTanda=(id)=>{
+                const c0=cuotasRP.find(x=>x.id===id);
+                if(c0&&tieneAntecedentes(c0)){
+                  alert("Esta tanda tiene factura, fecha de pago o estado registrado. No se elimina: corrige los datos en la fila.");
+                  return;
+                }
+                if(!window.confirm("Eliminar esta tanda, que no tiene antecedentes registrados."))return;
+                upd(r.id,"rpPlantaCuotas",cuotasRP.filter(x=>x.id!==id));
+              };
               const revisionRP = Array.isArray(r.rpSugerenciasRevision)?r.rpSugerenciasRevision:[];
               // P3 · Filas de Royalty Planta que nacen de las OC del vivero. Antes se mostraban
               // sin editor y sus antecedentes (rpPagos) no tenían dónde escribirse.
