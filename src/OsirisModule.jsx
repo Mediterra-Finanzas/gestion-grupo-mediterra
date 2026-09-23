@@ -7,6 +7,7 @@ import React, { useState, useCallback, useMemo, useEffect, useRef } from "react"
 import HomeEjecutivo from "./ux/HomeEjecutivo";
 import { theme } from "./theme";
 import { snapshotOsiris, isDirty as osirisIsDirty } from "./data/osirisDirty";
+import { ubicacionMenuEstado, ANCHO_MENU_ESTADO } from "./osiris/menuEstado";
 import {
   fusionarTandas,
   darDeBajaPlantacion,
@@ -358,11 +359,42 @@ function resolveEstadoCF(r) {
   return r.pagado ? "pagado" : "porCobrar";
 }
 
+// ── Desplegable de estado de cobro ──────────────────────────────────────────
+// El menú se posiciona respecto de la VENTANA (position:fixed), no dentro de la
+// celda. Dentro de una tabla quedaba recortado: `.osiris-root td, .osiris-root th`
+// lleva `overflow:hidden` en index.css, así que de los 208 px del menú se veían
+// unos 15 y no se podía elegir ningún estado. Se resuelve acá, en el componente,
+// para no tocar esa regla global (está por otras razones) y para que sirva en
+// todas las tablas del módulo. Si no cabe hacia abajo, se abre hacia arriba.
 function BadgeEstadoCF({estado, onChange, can}) {
   const [open, setOpen] = React.useState(false);
+  const [pos, setPos] = React.useState(null);
   const key = (estado && ESTADOS_CF[estado]) ? estado : "porCobrar";
   const e = ESTADOS_CF[key];
   const ref = React.useRef(null);
+  const btnRef = React.useRef(null);
+
+  // Posición del menú respecto de la ventana. Se recalcula al abrir, al
+  // desplazar cualquier contenedor y al cambiar el tamaño de la ventana.
+  const ubicar = React.useCallback(()=>{
+    const b = btnRef.current;
+    if(!b) return;
+    const r = b.getBoundingClientRect();
+    setPos(ubicacionMenuEstado(
+      { top: r.top, bottom: r.bottom, left: r.left },
+      { alto: window.innerHeight, ancho: window.innerWidth },
+      Object.keys(ESTADOS_CF).length
+    ));
+  }, []);
+
+  React.useEffect(()=>{
+    if(!open) return;
+    ubicar();
+    const alMover = ()=>ubicar();
+    window.addEventListener("scroll", alMover, true);   // true: también contenedores con scroll propio
+    window.addEventListener("resize", alMover);
+    return ()=>{ window.removeEventListener("scroll", alMover, true); window.removeEventListener("resize", alMover); };
+  }, [open, ubicar]);
 
   // Cerrar dropdown al hacer click fuera
   React.useEffect(()=>{
@@ -381,17 +413,18 @@ function BadgeEstadoCF({estado, onChange, can}) {
 
   return (
     <div ref={ref} style={{position:"relative",display:"inline-block"}}>
-      <button onClick={()=>setOpen(v=>!v)} style={{
+      <button ref={btnRef} onClick={()=>setOpen(v=>!v)} style={{
         background:e.bg,color:e.col,border:`1px solid ${e.bdr}`,borderRadius:20,
         padding:"2px 10px",fontSize:11,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap",
         display:"flex",alignItems:"center",gap:4,
       }}>
         {e.icon} {e.lbl} <span style={{fontSize:9,opacity:0.7}}>▾</span>
       </button>
-      {open && (
-        <div style={{position:"absolute",top:"calc(100% + 4px)",left:0,zIndex:300,
-          background:"#fff",borderRadius:10,boxShadow:"0 4px 20px #0002",
-          border:"1px solid #e2e8f0",minWidth:210,overflow:"hidden"}}>
+      {open && pos && (
+        <div data-menu-estado="1" style={{position:"fixed",top:pos.top,left:pos.left,zIndex:3000,
+          background:"#fff",borderRadius:10,boxShadow:"0 4px 20px #0003",
+          border:"1px solid #e2e8f0",minWidth:ANCHO_MENU_ESTADO,
+          maxHeight:pos.maxAlto,overflowY:"auto",overflowX:"hidden"}}>
           {Object.entries(ESTADOS_CF).map(([k,v])=>(
             <div key={k} onClick={()=>{onChange(k);setOpen(false);}}
               style={{padding:"8px 14px",cursor:"pointer",display:"flex",alignItems:"center",gap:8,
