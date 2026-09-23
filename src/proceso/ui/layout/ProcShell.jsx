@@ -15,6 +15,7 @@ import ProximaFase from "../pages/ProximaFase";
 import Recepciones from "../pages/Recepciones";
 import NuevaRecepcion from "../pages/NuevaRecepcion";
 import RecepcionDetalle from "../pages/RecepcionDetalle";
+import PesajeRecepcion from "../pages/PesajeRecepcion";
 import Lotes from "../pages/Lotes";
 import Envases from "../pages/Envases";
 import LoteDetalle from "../pages/LoteDetalle";
@@ -77,7 +78,7 @@ const NAV = [
 ];
 const TODOS = NAV.flatMap((g) => g.items);
 // mapea la vista actual al item de nav para el resaltado
-const NAV_DE_PAGE = { recepcion_nueva: "recepciones", recepcion_detalle: "recepciones", lote_detalle: "lotes", orden: "ordenes", bodega: "pallets", pallet_detalle: "pallets", despacho: "despachos", informe_detalle: "resultados_proc", informes: "resultados_proc", base_cobro_detalle: "bases", cliente_ficha: "clientes" };
+const NAV_DE_PAGE = { recepcion_nueva: "recepciones", recepcion_detalle: "recepciones", recepcion_pesaje: "recepciones", lote_detalle: "lotes", orden: "ordenes", bodega: "pallets", pallet_detalle: "pallets", despacho: "despachos", informe_detalle: "resultados_proc", informes: "resultados_proc", base_cobro_detalle: "bases", cliente_ficha: "clientes" };
 
 function useEsMovil(bp = 900) {
   const [m, setM] = useState(typeof window !== "undefined" && window.innerWidth < bp);
@@ -132,6 +133,7 @@ export default function ProcShell({ onBack, onLogout, usuario }) {
       case "recepciones": return <Recepciones />;
       case "recepcion_nueva": return <NuevaRecepcion />;
       case "recepcion_detalle": return <RecepcionDetalle />;
+      case "recepcion_pesaje": return <PesajeRecepcion />;
       case "lotes": return <Lotes />;
       case "lote_detalle": return <LoteDetalle />;
       case "envases": return <Envases />;

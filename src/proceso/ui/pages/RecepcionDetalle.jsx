@@ -139,11 +139,12 @@ export default function RecepcionDetalle() {
         </div>
       </Seccion>
 
-      <Seccion titulo="Pesos">
+      <Seccion titulo="Pesos" extra={<ProcButton kind="ghost" small onClick={() => ir("recepcion_pesaje", { recepcion_id: id })}>⚖️ Pesajes / bins →</ProcButton>}>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(150px,1fr))", gap: sp.md }}>
           <Dato l="Kg bruto" v={kg(r.kg_bruto)} /><Dato l="Tara" v={kg(r.tara)} /><Dato l="Kg neto" v={kg(r.kg_neto)} />
           <Dato l="Guía" v={r.guia_despacho} /><Dato l="Patente" v={r.patente} />
         </div>
+        <div style={{ fontSize: 12, color: C.muted, marginTop: sp.sm }}>Detalle de pesadas y bins (una pesada agrupa 1..N bins) en la vista de Pesajes.</div>
       </Seccion>
 
       <Seccion titulo="Control de Calidad">
