@@ -80,6 +80,24 @@ async function run() {
   const gThrow = async () => { throw new Error("boom"); };
   eq((await G.graphGet("u", "T", gThrow, 5)).status, 504, "graphGet: excepción/timeout → 504");
 
+  // resolverDriveFrisku: ruta fija allowlisted + validación estricta de identidad/forma.
+  let resolverUrl = "", resolverMetodo = "";
+  const driveOk = async (url, opts) => {
+    resolverUrl = url; resolverMetodo = opts.method;
+    return { ok: true, status: 200, json: async () => ({
+      id: "b!Drive_Exacto", name: "Documentos",
+      webUrl: "https://grupomediterra.sharepoint.com/sites/FriskuFoodsSpA/Documentos%20compartidos",
+    }) };
+  };
+  const rd = await G.resolverDriveFrisku("TOK", driveOk);
+  ok(rd.ok && rd.driveId === "b!Drive_Exacto", "resolverDrive: devuelve ID exacto de Graph");
+  ok(resolverMetodo === "GET" && resolverUrl === G.FRISKU_DRIVE_META, "resolverDrive: solo GET a ruta fija");
+  const driveNombreMalo = async () => ({ ok: true, status: 200, json: async () => ({ id: "D", name: "Otro", webUrl: "https://grupomediterra.sharepoint.com/sites/FriskuFoodsSpA/x" }) });
+  eq((await G.resolverDriveFrisku("TOK", driveNombreMalo)).error, "drive_shape", "resolverDrive: nombre inesperado → cerrado");
+  const driveHostMalo = async () => ({ ok: true, status: 200, json: async () => ({ id: "D", name: "Documentos", webUrl: "https://evil.example/x" }) });
+  eq((await G.resolverDriveFrisku("TOK", driveHostMalo)).error, "drive_shape", "resolverDrive: webUrl fuera del sitio → cerrado");
+  eq((await G.resolverDriveFrisku("TOK", g404)).status, 404, "resolverDrive: error Graph propagado");
+
   console.log(`\n_friskuSpGraph: ${pass} pass / ${fail} fail`);
   process.exit(fail ? 1 : 0);
 }

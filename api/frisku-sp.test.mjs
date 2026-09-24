@@ -41,6 +41,10 @@ function mkReq({ method = "POST", headers = {}, body, cookie, origin = ORIGIN, h
 function mkFetch({ graphValue = [], graphStatus = 200, capturar, tokenOk = true } = {}) {
   return async (url, opts) => {
     if (String(url).includes("oauth2/v2.0/token")) return { ok: tokenOk, status: tokenOk ? 200 : 400, json: async () => (tokenOk ? { access_token: "GRAPH_TOK_SECRETO" } : {}) };
+    if (String(url).includes("/lists/Documentos/drive?")) return { ok: true, status: 200, json: async () => ({
+      id: "DRV", name: "Documentos",
+      webUrl: "https://grupomediterra.sharepoint.com/sites/FriskuFoodsSpA/Documentos%20compartidos",
+    }) };
     if (capturar) capturar({ url, method: opts && opts.method });
     if (graphStatus !== 200) return { ok: false, status: graphStatus, json: async () => ({}) };
     return { ok: true, status: 200, json: async () => ({ value: graphValue }) };
@@ -225,6 +229,10 @@ async function run() {
     // graph_red → el GET a Graph lanza (graphGet devuelve 504/timeout) → 502 graph
     { const fRed = async (url) => {
         if (String(url).includes("oauth2/v2.0/token")) return { ok: true, status: 200, json: async () => ({ access_token: "GRAPH_TOK_SECRETO" }) };
+        if (String(url).includes("/lists/Documentos/drive?")) return { ok: true, status: 200, json: async () => ({
+          id: "DRV", name: "Documentos",
+          webUrl: "https://grupomediterra.sharepoint.com/sites/FriskuFoodsSpA/Documentos%20compartidos",
+        }) };
         throw new Error("red");
       };
       const { rr, spy } = await corrida(fRed);

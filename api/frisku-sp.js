@@ -176,15 +176,18 @@ function crearHandler(deps = {}) {
     const ses = A.verificarSesionSp(A.leerCookieSp(req), secret, ahora());   // cookie dup/ambigua → null → 401
     if (!ses) return json(res, 401, { error: "sin_sesion" });
     if (!await limitar(`op:${ses.sub}`, RL_OP, res)) return;
-    if (!cfg.driveId || !cfg.tenantId || !cfg.clientId) return json(res, 503, { error: "no_configurado" });
-
-    const built = G.construirUrlGraph(op, body, cfg);
-    if (!built.ok) return json(res, 400, { error: built.error });
+    if (!cfg.tenantId || !cfg.clientId) return json(res, 503, { error: "no_configurado" });
 
     const oidc = obtenerTokenOidc(req);   // header inyectado por Vercel; un token forjado por el
     if (!oidc) return json(res, 503, { error: "no_configurado" });  // cliente NO valida en Entra (fail-closed upstream)
     const tok = await G.obtenerTokenGraph({ oidcToken: oidc, tenantId: cfg.tenantId, clientId: cfg.clientId, fetchImpl });
     if (!tok.ok) { console.error("frisku-sp graphdiag:token_exchange"); return json(res, 502, { error: "auth_upstream" }); } // diag privado; respuesta pública sin cambios
+
+    const drive = await G.resolverDriveFrisku(tok.token, fetchImpl);
+    if (!drive.ok) return json(res, drive.status === 403 ? 403 : 502, { error: "graph" });
+    const cfgDrive = { ...cfg, driveId: drive.driveId };
+    const built = G.construirUrlGraph(op, body, cfgDrive);
+    if (!built.ok) return json(res, 400, { error: built.error });
 
     const r = await G.graphGet(built.url, tok.token, fetchImpl);
     if (!r.ok) {
@@ -196,7 +199,7 @@ function crearHandler(deps = {}) {
       const map = { 403: 403, 404: 404, 429: 429 };   // 401 de Graph = problema del proxy, no del usuario
       return json(res, map[r.status] || 502, { error: "graph" });   // sin body/estado upstream crudo
     }
-    return json(res, 200, G.normalizarRespuesta(r.json, cfg));
+    return json(res, 200, G.normalizarRespuesta(r.json, cfgDrive));
   }
 }
 

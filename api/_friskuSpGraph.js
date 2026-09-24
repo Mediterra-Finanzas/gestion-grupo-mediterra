@@ -16,6 +16,7 @@ const GRAPH = "https://graph.microsoft.com/v1.0";
 const GRAPH_SCOPE = "https://graph.microsoft.com/.default";
 const CLIENT_ASSERTION_TYPE = "urn:ietf:params:oauth:client-assertion-type:jwt-bearer";
 const PAGE_DEFAULT = 50, PAGE_MAX = 200, Q_MAX = 128;
+const FRISKU_DRIVE_META = `${GRAPH}/sites/grupomediterra.sharepoint.com:/sites/FriskuFoodsSpA:/lists/Documentos/drive?$select=id,name,webUrl`;
 
 // Intercambio federado: el token OIDC de Vercel actúa como client_assertion (sin secreto).
 async function obtenerTokenGraph({ oidcToken, tenantId, clientId, fetchImpl, timeoutMs = 8000 }) {
@@ -110,6 +111,20 @@ async function graphGet(url, token, fetchImpl, timeoutMs = 8000) {
   return { ok: r.ok, status: r.status, json: j };
 }
 
+// Resuelve el drive desde una ruta fija allowlisted. Evita depender de un ID copiado a mano
+// (los IDs de Graph distinguen mayúsculas/minúsculas). Solo GET y fail-closed.
+async function resolverDriveFrisku(token, fetchImpl, timeoutMs = 8000) {
+  const r = await graphGet(FRISKU_DRIVE_META, token, fetchImpl, timeoutMs);
+  if (!r.ok) return { ok: false, status: r.status, error: "drive_resolve" };
+  const j = r.json;
+  const webUrl = j && typeof j.webUrl === "string" ? j.webUrl : "";
+  if (!j || j.name !== "Documentos" || !validarItemId(j.id)
+    || !webUrl.startsWith("https://grupomediterra.sharepoint.com/sites/FriskuFoodsSpA/")) {
+    return { ok: false, status: 502, error: "drive_shape" };
+  }
+  return { ok: true, driveId: j.id };
+}
+
 // Normaliza un driveItem de Graph a la forma que consume el matcher S5A. Solo metadatos
 // (nada de rutas locales ni usernames: Graph entrega rutas relativas del drive).
 function normalizarDriveItem(item, cfg) {
@@ -152,7 +167,8 @@ function normalizarRespuesta(json, cfg) {
 }
 
 module.exports = {
-  GRAPH, GRAPH_SCOPE, PAGE_DEFAULT, PAGE_MAX, Q_MAX,
+  GRAPH, GRAPH_SCOPE, FRISKU_DRIVE_META, PAGE_DEFAULT, PAGE_MAX, Q_MAX,
   obtenerTokenGraph, drivePermitido, sanearQuery, validarItemId, clampPage,
-  construirUrlGraph, nextLinkPermitido, graphGet, normalizarDriveItem, normalizarRespuesta,
+  construirUrlGraph, nextLinkPermitido, graphGet, resolverDriveFrisku,
+  normalizarDriveItem, normalizarRespuesta,
 };
