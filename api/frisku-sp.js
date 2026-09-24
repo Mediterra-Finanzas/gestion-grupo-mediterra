@@ -108,10 +108,10 @@ function crearHandler(deps = {}) {
   const obtenerTokenOidc = deps.obtenerTokenOidc || ((req) => hdr(req, "x-vercel-oidc-token") || null);
   const leerDatos = deps.leerDatos;
 
-  async function limitar(key, regla, res) {
+  async function limitar(key, regla, res, tag) {
     let r;
     try { r = await rate.golpe(key, regla, ahora()); }
-    catch (e) { json(res, 503, { error: "no_disponible" }); return false; }   // fail-closed ANTES de verificar PIN
+    catch (e) { if (tag) console.error("frisku-sp diag:" + tag); json(res, 503, { error: "no_disponible" }); return false; } // diag privado; respuesta pública sin cambios
     if (!r || r.permitido !== true) {
       const ra = (r && Number.isFinite(r.retry_after_seg)) ? r.retry_after_seg : Math.ceil((regla.bloqueoMs || 0) / 1000);
       return json(res, 429, { error: "rate_limit" }, { "Retry-After": String(ra) }), false;
@@ -159,12 +159,12 @@ function crearHandler(deps = {}) {
     // Dos capas independientes: IP (no se resetea por un login exitoso) e identidad(email).
     const ip = ipDe(req);
     if (!ip) return json(res, 503, { error: "no_disponible" });   // sin IP confiable → no se puede limitar → cerrado
-    if (!await limitar(ip, RL_IP, res)) return;
-    if (!await limitar(email, RL_ID, res)) return;
+    if (!await limitar(ip, RL_IP, res, "rate_ip")) return;
+    if (!await limitar(email, RL_ID, res, "rate_identidad")) return;
     if (!secret) return json(res, 503, { error: "no_configurado" });
     let datos;
-    try { datos = await leerDatos(); } catch (e) { return json(res, 503, { error: "no_disponible" }); }
-    if (!datos || !Array.isArray(datos.usuarios)) return json(res, 503, { error: "no_disponible" });
+    try { datos = await leerDatos(); } catch (e) { console.error("frisku-sp diag:datos_fetch"); return json(res, 503, { error: "no_disponible" }); }
+    if (!datos || !Array.isArray(datos.usuarios)) { console.error("frisku-sp diag:datos_forma"); return json(res, 503, { error: "no_disponible" }); }
     const r = A.evaluarAcceso({ usuarios: datos.usuarios, pins: datos.pins, email, pin, secret });
     if (!r.ok && r.motivo === "sin_capability") return json(res, 403, { error: "sin_capability" });
     if (!r.ok) return json(res, 401, { error: "credenciales" });
