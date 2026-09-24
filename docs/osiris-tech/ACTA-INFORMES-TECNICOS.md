@@ -106,11 +106,15 @@ y el segundo pisa al primero. Corregido con una sola escritura (`a4527fc`) y ver
 6. "Uniformidad establecimiento" tiene como única opción "Comentarios (Segregación de plantas por
    vigor)".
 
-**Del encabezado (3 bloqueantes)**:
-7. Unidad oficial de la densidad de plantación (¿plantas/ha?).
-8. ¿El alcance evaluado es por informe o por variedad? Importa ahora que hay varias.
-9. El campo antiguo "Superficie evaluada (há)" se está leyendo como alcance en hectáreas. Si algún
-   informe viejo cargó plantas ahí, esa lectura sería errónea.
+**Del encabezado**:
+7. Unidad oficial de la densidad de plantación (¿plantas/ha?). **No bloquea**: hoy la unidad se
+   escribe a mano y, si falta, el campo dice "sin definir".
+8. ¿El alcance evaluado es por informe o por variedad? **Bloquea**: el número se imprime en el
+   informe del cliente.
+
+**Cerrado por el CFO el 2026-09-24**: el campo antiguo "Superficie evaluada (há)" es un dato
+**válido en hectáreas** y así se conserva, con su procedencia. Ya no figura como pendiente. No se
+reparte por variedad ni se convierte a plantas; cambiarle el significado sí pide confirmación.
 
 **Opciones que no vienen en el Excel**: sistema productivo y sustrato quedan como texto libre hasta
 que definas sus listas. No inventé ninguna.
