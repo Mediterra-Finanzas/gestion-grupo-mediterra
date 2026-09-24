@@ -5813,8 +5813,9 @@ ${inf.proximaVisitaFecha?`<div class="section"><h2>Próxima Visita</h2><div clas
                                     const act=variedadesDe(inf);
                                     const next = sel ? act.filter(x=>x!==v.variedad) : act.concat([v.variedad]);
                                     const rr = conVariedades(inf, next);
-                                    updInf("variedades", rr.variedades);
-                                    updInf("variedad", rr.variedad);
+                                    // Una sola escritura: dos updInf seguidos parten del mismo
+                                    // estado y el segundo pisa al primero.
+                                    updItem("informes", inf.id, {variedades: rr.variedades, variedad: rr.variedad});
                                   }}/>
                                 {v.nRegistro?`${v.nRegistro} · ${v.variedad}`:v.variedad}
                               </label>);
