@@ -1,0 +1,119 @@
+# Acta de entrega · Informes técnicos (pedidos de Nicolás Fuenzalida)
+
+2026-09-24. Entrega **local y aislada**: sin push, sin merge, sin despliegue, sin cambios
+productivos y **sin ningún envío de correo real**. Paquete separado del tributario.
+
+## 1 · Base y SHA
+
+| | |
+|---|---|
+| Base observada | `origin/main` = `fac6cd0` al momento de ramificar (main sigue avanzando con Frisku) |
+| Rama candidata | `osiris/informes-tecnicos` = **`a4527fc`** |
+| Rama de revisión (NO se integra) | `prueba/informes-revision`, un commit que solo cambia el destino a `127.0.0.1:3070` |
+| Build `CI=true` | compila |
+| Suite | 1.101 pasan · 9 saltadas · 2 fallos **heredados de la base**, ninguno de este paquete |
+
+Los dos fallos heredados: `paramsFrutaAnticipos` (anterior, ajeno a Osiris) y `secHf1`, que empezó a
+fallar en `origin/main` porque los archivos de prueba nuevos de Frisku
+(`friskuSharePointClient.test.js`, `api/frisku-sp.test.mjs`, `api/_friskuSpAuth.test.mjs`) traen
+literales que el guardia SEC-HF1 prohíbe. No es de este paquete ni del tributario; queda avisado
+para el carril Frisku.
+
+## 2 · Reparto del trabajo
+
+Tres agentes en paralelo, cada uno con **archivos propios y nuevos**; nadie tocó `OsirisModule.jsx`
+ni ningún archivo compartido. La integración la hice yo, solo, después.
+
+| Agente | Archivos | Pruebas |
+|---|---|---|
+| Catálogo fenológico | `src/osiris/fenologia.js` + test | 44 |
+| Encabezado y alcance | `src/osiris/informeAlcance.js` + test | 27 |
+| Cuerpo del correo | `src/osiris/correoInforme.js` + test | 25 |
+
+96 pruebas nuevas, todas en verde.
+
+## 3 · Lo entregado
+
+### Excel de estados y labores
+Catálogo de **8 estados** y **60 labores** tomado de la hoja "Hoja1" (la que trae los juegos de
+opciones), con cinco tipos de respuesta: opción única, número, cuadro de macronutrientes,
+observación + recomendación y comentario.
+
+**Se preserva todo lo existente**: los valores guardados que no están en el catálogo nuevo se
+conservan marcados como `legacy` y la pantalla avisa *«Valor histórico "X": no está en el catálogo
+nuevo y se conserva tal cual»*. De las 10 labores culturales antiguas, 8 no tienen equivalente en el
+Excel y se rescatan igual. Nada se renombra ni se borra.
+
+### Informe
+- **Encabezado**: densidad de plantación **con su unidad**, sistema productivo y sustrato.
+- **Variedades**: selección múltiple. El campo `variedad` de siempre se sigue escribiendo con la
+  primera, para que los informes ya emitidos y el PDF antiguo no cambien.
+- **Alcance evaluado**: en hectáreas o en número de plantas, **siempre con la unidad**. Si falta el
+  valor o la unidad dice "sin definir", nunca cero.
+- **Sin conversión**: no hay ninguna función que pase de hectáreas a plantas ni al revés, ni siquiera
+  teniendo la densidad. Hay tres pruebas que lo demuestran.
+- **"Fenología" → "Estado fenológico predominante"** en la pestaña, en la pantalla y en el PDF. Las
+  claves internas (`fenologia`, `fenologiaEstado`) no cambian.
+
+### Correo
+La frase va en el cuerpo, **exacta**, verificada carácter por carácter contra el texto del CFO
+(137 caracteres, coincidencia exacta):
+
+> Tomar todas las recomendaciones realizadas como una guía, la decisión de utilizarlas queda
+> totalmente bajo su criterio y responsabilidad.
+
+Aparece una sola vez, con link y sin link, y el asunto y el resto del cuerpo quedan como estaban.
+
+## 4 · Revisión en el entorno aislado
+
+Copia de los datos reales, servida en 3070. Todas las escrituras se revirtieron al terminar.
+
+| Comprobación | Resultado |
+|---|---|
+| Etiqueta de la sección | "C. Estado fenológico predominante" en pantalla y en el PDF |
+| Estados del Excel en el selector | Los 8, de Establecimiento a Poda |
+| Selección múltiple | "Seleccionadas: T11-719, MegaEarly, MegaCrisp" (T11-719 es el valor histórico, conservado) |
+| Alcance | "8.400 plantas", con la unidad explícita |
+| Densidad | "3.333 plantas/ha" |
+| Sin conversión | Con densidad cargada, el alcance sigue siendo 8.400 plantas: no se convirtió a hectáreas |
+| Guardado y recarga | Tras recargar: variedades, alcance y densidad intactos |
+| PDF | Encabezado con "Especie / Variedades", "Alcance evaluado", "Densidad de plantación", "Sistema productivo" y "Sustrato" |
+| Correo | Vista previa con la frase y las tres variedades, **cero llamadas de red** (intercepté `fetch`: lista vacía) |
+| Permisos (solo lectura) | 36 campos visibles, **0 editables** (solo el buscador), sin botón de Email ni de Aprobar |
+| Concurrencia | La sesión con versión vieja fue **rechazada** ("NO se guardó · conflicto"); en la base quedó el cambio de la primera |
+
+## 5 · Un defecto que encontró la propia revisión
+
+Al marcar una variedad no se guardaba nada. La causa: dos `updInf` seguidos parten del mismo estado
+y el segundo pisa al primero. Corregido con una sola escritura (`a4527fc`) y verificado en pantalla.
+
+## 6 · Definiciones que faltan (solo lo que el Excel no trae)
+
+**Del Excel (13)**, las que más pesan:
+1. Las dos hojas no coinciden: 9 estados en "Manejos por estado" contra 8 en "Hoja1", y 20 labores
+   existen solo en la primera (Deshoje, Ajuste de carga, Control de Botrytis, Malla / sombreo,
+   Amarre / tutoreo, Personal de cosecha, Manejo evergreen…). **Cuál gobierna.**
+2. "Polinización / colmenas" aparece con cuadro de macronutrientes en los estados 4 y 5, que parece
+   copiado de Fertilización.
+3. N/P/K/Ca/Mg solo se enumeran en Establecimiento: si aplica el mismo juego en el resto.
+4. CE, frecuencia de pasadas y número de tocones no traen unidad.
+5. Biometría solo dice "Comentarios", sin campos.
+6. "Uniformidad establecimiento" tiene como única opción "Comentarios (Segregación de plantas por
+   vigor)".
+
+**Del encabezado (3 bloqueantes)**:
+7. Unidad oficial de la densidad de plantación (¿plantas/ha?).
+8. ¿El alcance evaluado es por informe o por variedad? Importa ahora que hay varias.
+9. El campo antiguo "Superficie evaluada (há)" se está leyendo como alcance en hectáreas. Si algún
+   informe viejo cargó plantas ahí, esa lectura sería errónea.
+
+**Opciones que no vienen en el Excel**: sistema productivo y sustrato quedan como texto libre hasta
+que definas sus listas. No inventé ninguna.
+
+## 7 · Lo que no se hizo
+
+- No se envió ningún correo: solo vista previa.
+- No se rediseñó la sección de labores: el Excel queda incorporado como catálogo y los estados ya
+  están en uso; enganchar las respuestas tipadas de cada labor es un paso aparte.
+- No se convirtió ninguna unidad.
+- No se tocó el paquete tributario ni ninguna otra empresa.
