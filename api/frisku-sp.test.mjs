@@ -214,19 +214,19 @@ async function run() {
       ok(JSON.stringify(rr.body) === JSON.stringify({ error: "auth_upstream" }), "token_exchange: body público genérico");
       ok(spy.length === 1 && spy[0] === "frisku-sp graphdiag:token_exchange", "token_exchange: log fijo único");
       ok(sinSensibles(spy), "token_exchange: log sin datos sensibles"); }
-    // graph_401 → 502 graph
+    // op del drive → Graph 401 → 502 graph, log con status exacto op_401
     { const { rr, spy } = await corrida(mkFetch({ graphStatus: 401 }));
-      eq(rr.statusCode, 502, "graphdiag graph_401 → 502");
-      ok(JSON.stringify(rr.body) === JSON.stringify({ error: "graph" }), "graph_401: body público genérico");
-      ok(spy.length === 1 && spy[0] === "frisku-sp graphdiag:graph_401", "graph_401: log fijo único");
-      ok(sinSensibles(spy), "graph_401: log sin datos sensibles"); }
-    // graph_5xx → 502 graph
+      eq(rr.statusCode, 502, "graphdiag op_401 → 502");
+      ok(JSON.stringify(rr.body) === JSON.stringify({ error: "graph" }), "op_401: body público genérico");
+      ok(spy.length === 1 && spy[0] === "frisku-sp graphdiag:op_401", "op_401: log con status exacto");
+      ok(sinSensibles(spy), "op_401: log sin datos sensibles"); }
+    // op del drive → Graph 500 → 502 graph, log op_500
     { const { rr, spy } = await corrida(mkFetch({ graphStatus: 500 }));
-      eq(rr.statusCode, 502, "graphdiag graph_5xx → 502");
-      ok(JSON.stringify(rr.body) === JSON.stringify({ error: "graph" }), "graph_5xx: body público genérico");
-      ok(spy.length === 1 && spy[0] === "frisku-sp graphdiag:graph_5xx", "graph_5xx: log fijo único");
-      ok(sinSensibles(spy), "graph_5xx: log sin datos sensibles"); }
-    // graph_red → el GET a Graph lanza (graphGet devuelve 504/timeout) → 502 graph
+      eq(rr.statusCode, 502, "graphdiag op_500 → 502");
+      ok(JSON.stringify(rr.body) === JSON.stringify({ error: "graph" }), "op_500: body público genérico");
+      ok(spy.length === 1 && spy[0] === "frisku-sp graphdiag:op_500", "op_500: log con status exacto");
+      ok(sinSensibles(spy), "op_500: log sin datos sensibles"); }
+    // op del drive → red/timeout (graphGet devuelve 504) → 502 graph, log op_504
     { const fRed = async (url) => {
         if (String(url).includes("oauth2/v2.0/token")) return { ok: true, status: 200, json: async () => ({ access_token: "GRAPH_TOK_SECRETO" }) };
         if (String(url).includes("/lists/Documentos/drive?")) return { ok: true, status: 200, json: async () => ({
@@ -236,14 +236,36 @@ async function run() {
         throw new Error("red");
       };
       const { rr, spy } = await corrida(fRed);
-      eq(rr.statusCode, 502, "graphdiag graph_red → 502");
-      ok(JSON.stringify(rr.body) === JSON.stringify({ error: "graph" }), "graph_red: body público genérico");
-      ok(spy.length === 1 && spy[0] === "frisku-sp graphdiag:graph_red", "graph_red: log fijo único");
-      ok(sinSensibles(spy), "graph_red: log sin datos sensibles"); }
+      eq(rr.statusCode, 502, "graphdiag op_504 → 502");
+      ok(JSON.stringify(rr.body) === JSON.stringify({ error: "graph" }), "op_504: body público genérico");
+      ok(spy.length === 1 && spy[0] === "frisku-sp graphdiag:op_504", "op_504: log con status exacto");
+      ok(sinSensibles(spy), "op_504: log sin datos sensibles"); }
     // 404/429 NO producen graphdiag (no son 502) ni datos crudos
     { const { rr, spy } = await corrida(mkFetch({ graphStatus: 404 }));
       eq(rr.statusCode, 404, "graph 404 → 404 (no 502)");
       ok(spy.length === 0, "graph 404: sin graphdiag (no es 502)"); }
+    // resolución del drive → Graph 500 (GET a /lists/Documentos/drive) → 502 graph, log resolve_http_500
+    { const fRes = async (url) => {
+        if (String(url).includes("oauth2/v2.0/token")) return { ok: true, status: 200, json: async () => ({ access_token: "GRAPH_TOK_SECRETO" }) };
+        if (String(url).includes("/lists/Documentos/drive?")) return { ok: false, status: 500, json: async () => ({}) };
+        return { ok: true, status: 200, json: async () => ({ value: [] }) };
+      };
+      const { rr, spy } = await corrida(fRes);
+      eq(rr.statusCode, 502, "graphdiag resolve_http_500 → 502");
+      ok(JSON.stringify(rr.body) === JSON.stringify({ error: "graph" }), "resolve_http_500: body público genérico");
+      ok(spy.length === 1 && spy[0] === "frisku-sp graphdiag:resolve_http_500", "resolve_http_500: log con status exacto");
+      ok(sinSensibles(spy), "resolve_http_500: log sin datos sensibles"); }
+    // resolución del drive → 200 pero forma inesperada (nombre) → 502 graph, log resolve_shape
+    { const fShape = async (url) => {
+        if (String(url).includes("oauth2/v2.0/token")) return { ok: true, status: 200, json: async () => ({ access_token: "GRAPH_TOK_SECRETO" }) };
+        if (String(url).includes("/lists/Documentos/drive?")) return { ok: true, status: 200, json: async () => ({ id: "D", name: "Otro", webUrl: "https://grupomediterra.sharepoint.com/sites/FriskuFoodsSpA/x" }) };
+        return { ok: true, status: 200, json: async () => ({ value: [] }) };
+      };
+      const { rr, spy } = await corrida(fShape);
+      eq(rr.statusCode, 502, "graphdiag resolve_shape → 502");
+      ok(JSON.stringify(rr.body) === JSON.stringify({ error: "graph" }), "resolve_shape: body público genérico");
+      ok(spy.length === 1 && spy[0] === "frisku-sp graphdiag:resolve_shape", "resolve_shape: log fijo");
+      ok(sinSensibles(spy), "resolve_shape: log sin datos sensibles"); }
   }
 
   // ── leerDatosProd: lee id="main" (value.usuarios) + id="pins" (value); estricto; SOLO GET ──

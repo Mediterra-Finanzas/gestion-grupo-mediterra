@@ -184,19 +184,24 @@ function crearHandler(deps = {}) {
     if (!tok.ok) { console.error("frisku-sp graphdiag:token_exchange"); return json(res, 502, { error: "auth_upstream" }); } // diag privado; respuesta pública sin cambios
 
     const drive = await G.resolverDriveFrisku(tok.token, fetchImpl);
-    if (!drive.ok) return json(res, drive.status === 403 ? 403 : 502, { error: "graph" });
+    if (!drive.ok) {
+      // Diag privado: etapa de resolución del drive. drive_shape = 200 pero contenido inesperado;
+      // si no, error HTTP de Graph con su status exacto. Solo etapa + número; sin tokens/URL/IDs.
+      const st = Number.isInteger(drive.status) ? drive.status : "x";
+      console.error("frisku-sp graphdiag:" + (drive.error === "drive_shape" ? "resolve_shape" : ("resolve_http_" + st)));
+      return json(res, drive.status === 403 ? 403 : 502, { error: "graph" });
+    }
     const cfgDrive = { ...cfg, driveId: drive.driveId };
     const built = G.construirUrlGraph(op, body, cfgDrive);
     if (!built.ok) return json(res, 400, { error: built.error });
 
     const r = await G.graphGet(built.url, tok.token, fetchImpl);
     if (!r.ok) {
-      // Diag privado SOLO en los casos 502 (código fijo, sin datos): red/timeout, 401 o 5xx.
-      const st = r.status;
-      const code = (st === 504 && r.json && r.json.error === "timeout") ? "graph_red"
-        : (st === 401 ? "graph_401" : (st >= 500 ? "graph_5xx" : null));
-      if (code) console.error("frisku-sp graphdiag:" + code);   // respuesta pública sin cambios
       const map = { 403: 403, 404: 404, 429: 429 };   // 401 de Graph = problema del proxy, no del usuario
+      if (!map[r.status]) {   // diag privado solo en los que colapsan a 502; etapa "op" + status exacto, sin datos
+        const st = Number.isInteger(r.status) ? r.status : "x";
+        console.error("frisku-sp graphdiag:op_" + st);
+      }
       return json(res, map[r.status] || 502, { error: "graph" });   // sin body/estado upstream crudo
     }
     return json(res, 200, G.normalizarRespuesta(r.json, cfgDrive));
