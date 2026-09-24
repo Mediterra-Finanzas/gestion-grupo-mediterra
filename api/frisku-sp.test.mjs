@@ -2,7 +2,7 @@
 // Tests del endpoint frisku-sp (S4.1 hardened) con mocks. Ejecutar: node api/frisku-sp.test.mjs
 import crypto from "node:crypto";
 import mod from "./frisku-sp.js";
-const { crearHandler, crearRateLimiterMemoriaSoloTest, limiterNoConfigurado } = mod;
+const { crearHandler, crearRateLimiterMemoriaSoloTest, limiterNoConfigurado, leerDatosProd } = mod;
 
 let pass = 0, fail = 0;
 const ok = (c, m) => { if (c) pass++; else { fail++; console.error("  ✗ " + m); } };
@@ -187,6 +187,65 @@ async function run() {
     await hL(mkReq({ body: { op: "list" }, cookie: cL }), mkRes());
   } finally { console.error = origErr; console.log = origLog; console.warn = origWarn; }
   ok(spy.length === 0, "el handler no registra nada en consola");
+
+  // ── leerDatosProd: lee id="main" (value.usuarios) + id="pins" (value); estricto; SOLO GET ──
+  {
+    const OLD = process.env.SUPABASE_SERVICE_ROLE_KEY;
+    process.env.SUPABASE_SERVICE_ROLE_KEY = "SVC";
+    const mkSupaFetch = (spec) => {
+      const calls = [];
+      const f = async (url, opts) => {
+        calls.push({ url: String(url), method: (opts && opts.method) || "GET" });
+        const which = String(url).includes("id=eq.main") ? "main" : String(url).includes("id=eq.pins") ? "pins" : null;
+        const s = which && spec[which];
+        if (!s) return { ok: false, status: 404, json: async () => [] };
+        if (s.throw) throw new Error("red");
+        return { ok: s.ok !== false, status: s.status || 200, json: async () => s.rows };
+      };
+      f.calls = calls;
+      return f;
+    };
+    const mainRows = (usrs) => [{ value: { usuarios: usrs, meta: 1 } }];
+    const pinsRows = [{ value: pins }];
+    const lanza = async (f, m) => { let t = false; try { await leerDatosProd(f); } catch (e) { t = true; } ok(t, m); };
+    try {
+      // estructura correcta main + pins
+      { const f = mkSupaFetch({ main: { rows: mainRows(usuarios) }, pins: { rows: pinsRows } });
+        const d = await leerDatosProd(f);
+        ok(Array.isArray(d.usuarios) && d.usuarios.length === 2, "leerDatosProd: usuarios desde main.value.usuarios");
+        ok(d.pins && d.pins["Trabajador Uno_h"], "leerDatosProd: pins desde fila pins.value");
+        ok(f.calls.length === 2 && f.calls.every((c) => c.method === "GET"), "leerDatosProd: solo GET (cero escrituras)");
+        ok(f.calls.some((c) => c.url.includes("id=eq.main")) && !f.calls.some((c) => c.url.includes("id=eq.usuarios")), "leerDatosProd: consulta id=eq.main (no id=eq.usuarios)"); }
+      // main inexistente
+      await lanza(mkSupaFetch({ main: { rows: [] }, pins: { rows: pinsRows } }), "leerDatosProd: main inexistente → throw");
+      // main duplicado
+      await lanza(mkSupaFetch({ main: { rows: [mainRows(usuarios)[0], mainRows(usuarios)[0]] }, pins: { rows: pinsRows } }), "leerDatosProd: main duplicado → throw");
+      // main.value no objeto
+      await lanza(mkSupaFetch({ main: { rows: [{ value: null }] }, pins: { rows: pinsRows } }), "leerDatosProd: main.value no objeto → throw");
+      // value.usuarios ausente
+      await lanza(mkSupaFetch({ main: { rows: [{ value: { meta: 1 } }] }, pins: { rows: pinsRows } }), "leerDatosProd: value.usuarios ausente → throw");
+      // value.usuarios inválido (no array)
+      await lanza(mkSupaFetch({ main: { rows: [{ value: { usuarios: { a: 1 } } }] }, pins: { rows: pinsRows } }), "leerDatosProd: value.usuarios no array → throw");
+      // pins inexistente
+      await lanza(mkSupaFetch({ main: { rows: mainRows(usuarios) }, pins: { rows: [] } }), "leerDatosProd: pins inexistente → throw");
+      // pins duplicado
+      await lanza(mkSupaFetch({ main: { rows: mainRows(usuarios) }, pins: { rows: [pinsRows[0], pinsRows[0]] } }), "leerDatosProd: pins duplicado → throw");
+      // pins inválido (array, no mapa)
+      await lanza(mkSupaFetch({ main: { rows: mainRows(usuarios) }, pins: { rows: [{ value: [1, 2, 3] }] } }), "leerDatosProd: pins.value array → throw");
+      // error HTTP
+      await lanza(mkSupaFetch({ main: { ok: false, status: 500, rows: [] }, pins: { rows: pinsRows } }), "leerDatosProd: HTTP no ok → throw");
+      // error de red
+      await lanza(mkSupaFetch({ main: { throw: true }, pins: { rows: pinsRows } }), "leerDatosProd: error de red → throw");
+      // sin service key → throw y cero requests
+      { process.env.SUPABASE_SERVICE_ROLE_KEY = "";
+        const f = mkSupaFetch({ main: { rows: mainRows(usuarios) }, pins: { rows: pinsRows } });
+        await lanza(f, "leerDatosProd: sin service key → throw");
+        ok(f.calls.length === 0, "leerDatosProd: sin service key → cero requests");
+        process.env.SUPABASE_SERVICE_ROLE_KEY = "SVC"; }
+    } finally {
+      if (OLD === undefined) delete process.env.SUPABASE_SERVICE_ROLE_KEY; else process.env.SUPABASE_SERVICE_ROLE_KEY = OLD;
+    }
+  }
 
   console.log(`\nfrisku-sp endpoint: ${pass} pass / ${fail} fail`);
   process.exit(fail ? 1 : 0);

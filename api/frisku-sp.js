@@ -108,10 +108,10 @@ function crearHandler(deps = {}) {
   const obtenerTokenOidc = deps.obtenerTokenOidc || ((req) => hdr(req, "x-vercel-oidc-token") || null);
   const leerDatos = deps.leerDatos;
 
-  async function limitar(key, regla, res, tag) {
+  async function limitar(key, regla, res) {
     let r;
     try { r = await rate.golpe(key, regla, ahora()); }
-    catch (e) { if (tag) console.error("frisku-sp diag:" + tag); json(res, 503, { error: "no_disponible" }); return false; } // diag privado; respuesta pública sin cambios
+    catch (e) { json(res, 503, { error: "no_disponible" }); return false; }   // fail-closed ANTES de verificar PIN
     if (!r || r.permitido !== true) {
       const ra = (r && Number.isFinite(r.retry_after_seg)) ? r.retry_after_seg : Math.ceil((regla.bloqueoMs || 0) / 1000);
       return json(res, 429, { error: "rate_limit" }, { "Retry-After": String(ra) }), false;
@@ -159,12 +159,12 @@ function crearHandler(deps = {}) {
     // Dos capas independientes: IP (no se resetea por un login exitoso) e identidad(email).
     const ip = ipDe(req);
     if (!ip) return json(res, 503, { error: "no_disponible" });   // sin IP confiable → no se puede limitar → cerrado
-    if (!await limitar(ip, RL_IP, res, "rate_ip")) return;
-    if (!await limitar(email, RL_ID, res, "rate_identidad")) return;
+    if (!await limitar(ip, RL_IP, res)) return;
+    if (!await limitar(email, RL_ID, res)) return;
     if (!secret) return json(res, 503, { error: "no_configurado" });
     let datos;
-    try { datos = await leerDatos(); } catch (e) { console.error("frisku-sp diag:datos_fetch"); return json(res, 503, { error: "no_disponible" }); }
-    if (!datos || !Array.isArray(datos.usuarios)) { console.error("frisku-sp diag:datos_forma"); return json(res, 503, { error: "no_disponible" }); }
+    try { datos = await leerDatos(); } catch (e) { return json(res, 503, { error: "no_disponible" }); }
+    if (!datos || !Array.isArray(datos.usuarios)) return json(res, 503, { error: "no_disponible" });
     const r = A.evaluarAcceso({ usuarios: datos.usuarios, pins: datos.pins, email, pin, secret });
     if (!r.ok && r.motivo === "sin_capability") return json(res, 403, { error: "sin_capability" });
     if (!r.ok) return json(res, 401, { error: "credenciales" });
@@ -197,24 +197,34 @@ function crearHandler(deps = {}) {
 
 // ── Handler de producción (dependencias reales) ──
 const SUPA_URL = "https://bywovqayuzodbzwsriet.supabase.co";
-async function leerDatosProd() {
+// Los usuarios viven en la fila id="main" (value.usuarios); los PIN en id="pins" (value).
+// SOLO lectura (GET). Sin defaults ni fallback a WORKERS_BASE: cualquier ausencia, duplicado,
+// forma inesperada o error de red lanza → 503 aguas arriba (fail-closed). fetchImpl inyectable
+// para test; en producción usa el fetch global (comportamiento intacto).
+async function leerDatosProd(fetchImpl) {
+  const f = fetchImpl || (typeof fetch === "function" ? fetch : null);
+  if (!f) throw new Error("sin_fetch");
   const service = process.env.SUPABASE_SERVICE_ROLE_KEY || "";
   if (!service) throw new Error("sin_service_key");
   const H = { apikey: service, Authorization: `Bearer ${service}` };
-  const [ru, rp] = await Promise.all([
-    fetch(`${SUPA_URL}/rest/v1/calendario_data?id=eq.usuarios&select=value`, { headers: H }),
-    fetch(`${SUPA_URL}/rest/v1/calendario_data?id=eq.pins&select=value`, { headers: H }),
+  const [rm, rp] = await Promise.all([
+    f(`${SUPA_URL}/rest/v1/calendario_data?id=eq.main&select=value`, { headers: H }),
+    f(`${SUPA_URL}/rest/v1/calendario_data?id=eq.pins&select=value`, { headers: H }),
   ]);
-  if (!ru.ok || !rp.ok) throw new Error("supa_no_ok");
-  const ju = await ru.json().catch(() => null);
+  if (!rm.ok || !rp.ok) throw new Error("supa_no_ok");
+  const jm = await rm.json().catch(() => null);
   const jp = await rp.json().catch(() => null);
-  // Respuesta inesperada/duplicada/vacía → error (503 aguas arriba); nunca defaults.
-  if (!Array.isArray(ju) || ju.length !== 1) throw new Error("usuarios_row");
+  // Exactamente una fila por consulta (vacío/duplicado → error).
+  if (!Array.isArray(jm) || jm.length !== 1) throw new Error("main_row");
   if (!Array.isArray(jp) || jp.length !== 1) throw new Error("pins_row");
-  const usuarios = ju[0] && ju[0].value;
+  const mainVal = jm[0] && jm[0].value;
   const pins = jp[0] && jp[0].value;
+  // main.value objeto; usuarios array; pins objeto no-array. Sin defaults.
+  if (!mainVal || typeof mainVal !== "object" || Array.isArray(mainVal)) throw new Error("main_shape");
+  const usuarios = mainVal.usuarios;
   if (!Array.isArray(usuarios)) throw new Error("usuarios_shape");
-  return { usuarios, pins: pins && typeof pins === "object" ? pins : {} };
+  if (!pins || typeof pins !== "object" || Array.isArray(pins)) throw new Error("pins_shape");
+  return { usuarios, pins };
 }
 
 const handlerProd = crearHandler({
@@ -241,3 +251,4 @@ module.exports = handlerProd;
 module.exports.crearHandler = crearHandler;
 module.exports.limiterNoConfigurado = limiterNoConfigurado;
 module.exports.crearRateLimiterMemoriaSoloTest = crearRateLimiterMemoriaSoloTest;
+module.exports.leerDatosProd = leerDatosProd;
