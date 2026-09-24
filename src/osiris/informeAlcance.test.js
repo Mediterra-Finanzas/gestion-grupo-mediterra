@@ -110,11 +110,22 @@ describe("alcance evaluado: siempre con unidad explícita", () => {
     expect(raro.etiqueta).toBe(SIN_DEFINIR);
   });
 
-  test("informe legacy: la superficie evaluada se lee como hectáreas y queda marcada", () => {
+  test("informe legacy: la superficie NO se promueve a alcance, se conserva aparte con su unidad original", () => {
     const a = alcanceEvaluado(INFORME_LEGACY);
-    expect(a.etiqueta).toBe("12,5 ha");
-    expect(a.completo).toBe(true);
-    expect(a.fuente).toBe("superficie");
+    // No se reinterpreta un dato antiguo: el alcance evaluado sigue sin declarar.
+    expect(a.completo).toBe(false);
+    expect(a.etiqueta).toBe(SIN_DEFINIR);
+    expect(a.fuente).toBe("");
+    // Pero el valor histórico no se pierde ni cambia de unidad.
+    expect(a.superficieHistorica).toMatchObject({
+      hay: true, valor: 12.5, unidadDeclarada: "há", etiqueta: "12,5 há",
+      rotuloOriginal: "Superficie evaluada (há)",
+    });
+    expect(a.superficieHistorica.nota).toMatch(/no se toma como alcance evaluado/);
+  });
+
+  test("un informe sin superficie histórica no inventa ninguna", () => {
+    expect(alcanceEvaluado({}).superficieHistorica).toBeNull();
   });
 
   test("alcance incompleto: sin unidad, sin valor o en cero dice «sin definir», nunca cero", () => {
@@ -213,10 +224,10 @@ describe("encabezado listo para pintar", () => {
     expect(r.densidadPlantacion.texto).toBe(SIN_DEFINIR);
     expect(r.sistemaProductivo.texto).toBe(SIN_DEFINIR);
     expect(r.sustrato.texto).toBe(SIN_DEFINIR);
-    expect(r.alcanceEvaluado.texto).toBe("12,5 ha");   // viene de `superficie`
+    expect(r.alcanceEvaluado.texto).toBe(SIN_DEFINIR); // la superficie histórica no lo completa
     expect(r.variedades.texto).toBe("Biloxi");
     expect(r.variedades.etiqueta).toBe("Variedad");
-    expect(r.incompletos).toEqual(["densidadPlantacion", "sistemaProductivo", "sustrato"]);
+    expect(r.incompletos).toEqual(["densidadPlantacion", "sistemaProductivo", "sustrato", "alcanceEvaluado"]);
   });
 
   test("informe vacío: cinco campos y ningún cero inventado", () => {

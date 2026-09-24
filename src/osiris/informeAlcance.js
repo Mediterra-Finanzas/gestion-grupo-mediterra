@@ -138,25 +138,39 @@ export function normalizarUnidadAlcance(u) {
 //
 // No convierte NADA: si el informe declara plantas, el alcance es en plantas
 // aunque venga la densidad cargada, y viceversa.
+// El campo histórico `superficie` NO se promueve a alcance evaluado. Su rótulo
+// original decía "Superficie evaluada (há)", así que ese valor y esa unidad se
+// conservan y se muestran tal como se declararon, pero como dato histórico
+// pendiente de confirmación: darlo por alcance sería reinterpretar un dato
+// antiguo por suposición.
+export function superficieHistorica(informe) {
+  const inf = informe || {};
+  const valor = parsearNumero(inf.superficie);
+  if (valor === null) return { hay: false, valor: null, unidadDeclarada: "", etiqueta: "", rotuloOriginal: "" };
+  return {
+    hay: true,
+    valor: valor,
+    unidadDeclarada: "há",                       // lo que decía el rótulo, literal
+    rotuloOriginal: "Superficie evaluada (há)",
+    etiqueta: formatearNumero(valor) + " há",
+    nota: "Valor histórico del campo \"Superficie evaluada (há)\". Se conserva con la unidad que declaraba ese rótulo y no se toma como alcance evaluado mientras no se confirme.",
+  };
+}
+
 export function alcanceEvaluado(informe) {
   const inf = informe || {};
-  let valor = parsearNumero(inf.alcanceValor);
-  let unidad = normalizarUnidadAlcance(inf.alcanceUnidad);
-  let fuente = valor !== null || unidad ? "declarado" : "";
-
-  // Histórico: antes solo existía `superficie`, rotulada en hectáreas.
-  if (valor === null && !unidad) {
-    const legacy = parsearNumero(inf.superficie);
-    if (legacy !== null) { valor = legacy; unidad = "ha"; fuente = "superficie"; }
-  }
-
+  const valor = parsearNumero(inf.alcanceValor);
+  const unidad = normalizarUnidadAlcance(inf.alcanceUnidad);
   const completo = valor !== null && valor > 0 && unidad !== "";
+  const hist = superficieHistorica(inf);
   return {
     valor: valor,
     unidad: unidad,
     etiqueta: completo ? formatearNumero(valor) + " " + ETIQUETA_UNIDAD[unidad] : SIN_DEFINIR,
     completo: completo,
-    fuente: completo ? fuente : "",
+    fuente: completo ? "declarado" : "",
+    // Lo histórico viaja aparte, visible, sin mezclarse con el alcance nuevo.
+    superficieHistorica: hist.hay ? hist : null,
   };
 }
 
@@ -297,7 +311,7 @@ export function faltantesDefinicion() {
     {
       clave: "alcanceEvaluado.migracionSuperficie",
       pregunta: "¿El campo histórico «Superficie evaluada (há)» se migra a alcance en ha?",
-      contexto: "Hoy se lee como hectáreas (era el rótulo del campo) y se marca fuente=\"superficie\". Si algún informe viejo cargó plantas ahí, la lectura sería incorrecta.",
+      contexto: "El valor se conserva con la unidad que declaraba su rótulo (há) y se muestra aparte como dato histórico. NO se toma como alcance evaluado: darlo por tal sería reinterpretar un dato antiguo por suposición, y si algún informe viejo cargó plantas ahí la lectura sería incorrecta.",
       propuesta: null,
       bloquea: true,
     },

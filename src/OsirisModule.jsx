@@ -5422,6 +5422,7 @@ td{padding:3px 8px;border-bottom:1px solid #f1f5f9}
 <div><div class="label">Especie / Variedades</div><div class="value">${inf.especie||'—'}${etiquetaVariedades(inf)!=='—'?' · '+etiquetaVariedades(inf):''}</div></div>
 <div><div class="label">Mes/Año Plantación</div><div class="value">${inf.mesAnioPlantacion||'—'}</div></div>
 <div><div class="label">Alcance evaluado</div><div class="value">${alcanceEvaluado(inf).etiqueta}</div></div>
+${alcanceEvaluado(inf).superficieHistorica?`<div><div class="label">Superficie (dato histórico)</div><div class="value">${alcanceEvaluado(inf).superficieHistorica.etiqueta}</div></div>`:''}
 <div><div class="label">Densidad de plantación</div><div class="value">${densidadDeclarada(inf).etiqueta}</div></div>
 <div><div class="label">Sistema productivo</div><div class="value">${inf.sistemaProductivo||'—'}</div></div>
 <div><div class="label">Sustrato</div><div class="value">${inf.sustrato||'—'}</div></div>
@@ -5827,7 +5828,7 @@ ${inf.proximaVisitaFecha?`<div class="section"><h2>Próxima Visita</h2><div clas
                       <div>
                         <div style={{fontSize:11,color:C.muted,fontWeight:600,marginBottom:3}}>Alcance evaluado</div>
                         <div style={{display:"flex",gap:6}}>
-                          <input disabled={!puedeEditar} value={inf.alcanceValor!==undefined?inf.alcanceValor:(inf.superficie||"")}
+                          <input disabled={!puedeEditar} value={inf.alcanceValor!==undefined?inf.alcanceValor:""}
                             placeholder="sin definir"
                             onChange={e=>updInf("alcanceValor",e.target.value)}
                             style={{flex:1,padding:"7px 10px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:12,boxSizing:"border-box"}}/>
@@ -5841,6 +5842,12 @@ ${inf.proximaVisitaFecha?`<div class="section"><h2>Próxima Visita</h2><div clas
                         <div style={{fontSize:10,color:alcanceEvaluado(inf).completo?C.muted2:(C.am||"#854d0e"),marginTop:3}}>
                           {alcanceEvaluado(inf).etiqueta}{!alcanceEvaluado(inf).completo?" · falta el valor o la unidad. No se convierte de há a plantas ni al revés.":""}
                         </div>
+                        {alcanceEvaluado(inf).superficieHistorica?(
+                          <div style={{fontSize:10,color:C.muted,marginTop:3,background:C.cardAlt,borderRadius:5,padding:"4px 6px"}}>
+                            Dato histórico: <strong>{alcanceEvaluado(inf).superficieHistorica.etiqueta}</strong> en el campo
+                            &quot;{alcanceEvaluado(inf).superficieHistorica.rotuloOriginal}&quot;. Se conserva con esa unidad y
+                            <strong> no se toma como alcance evaluado</strong> mientras no lo confirmes.
+                          </div>):null}
                       </div>
                       <div>
                         <div style={{fontSize:11,color:C.muted,fontWeight:600,marginBottom:3}}>Densidad de plantación</div>
