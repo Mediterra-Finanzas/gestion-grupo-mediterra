@@ -12,6 +12,7 @@ import { catalogoFenologicoCombinado, estadoFenologicoVigente, laboresDeEstado }
 import {
   ETIQUETA_ESTADO_FENOLOGICO, etiquetaSeccionFenologia, alcanceEvaluado, conAlcance,
   densidadDeclarada, variedadesDe, conVariedades, etiquetaVariedades, UNIDADES_ALCANCE,
+  cambioDeSignificado,
 } from "./osiris/informeAlcance";
 import { asuntoCorreoInforme, cuerpoCorreoInforme, vistaPreviaCorreo, validarDestinatarios } from "./osiris/correoInforme";
 import {
@@ -5422,7 +5423,7 @@ td{padding:3px 8px;border-bottom:1px solid #f1f5f9}
 <div><div class="label">Especie / Variedades</div><div class="value">${inf.especie||'—'}${etiquetaVariedades(inf)!=='—'?' · '+etiquetaVariedades(inf):''}</div></div>
 <div><div class="label">Mes/Año Plantación</div><div class="value">${inf.mesAnioPlantacion||'—'}</div></div>
 <div><div class="label">Alcance evaluado</div><div class="value">${alcanceEvaluado(inf).etiqueta}</div></div>
-${alcanceEvaluado(inf).superficieHistorica?`<div><div class="label">Superficie (dato histórico)</div><div class="value">${alcanceEvaluado(inf).superficieHistorica.etiqueta}</div></div>`:''}
+${alcanceEvaluado(inf).fuente==="historico"?`<div><div class="label">Procedencia del alcance</div><div class="value">${alcanceEvaluado(inf).procedencia}</div></div>`:''}
 <div><div class="label">Densidad de plantación</div><div class="value">${densidadDeclarada(inf).etiqueta}</div></div>
 <div><div class="label">Sistema productivo</div><div class="value">${inf.sistemaProductivo||'—'}</div></div>
 <div><div class="label">Sustrato</div><div class="value">${inf.sustrato||'—'}</div></div>
@@ -5833,7 +5834,11 @@ ${inf.proximaVisitaFecha?`<div class="section"><h2>Próxima Visita</h2><div clas
                             onChange={e=>updInf("alcanceValor",e.target.value)}
                             style={{flex:1,padding:"7px 10px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:12,boxSizing:"border-box"}}/>
                           <select disabled={!puedeEditar} value={inf.alcanceUnidad||""}
-                            onChange={e=>updInf("alcanceUnidad",e.target.value)}
+                            onChange={e=>{
+                              const c=cambioDeSignificado(inf, inf.alcanceValor, e.target.value);
+                              if(c.requiereConfirmacion && !window.confirm(c.motivo+"\n\n¿Confirmas el cambio?")) return;
+                              updInf("alcanceUnidad",e.target.value);
+                            }}
                             style={{padding:"7px 10px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:12}}>
                             <option value="">— unidad —</option>
                             {UNIDADES_ALCANCE.map(u=><option key={u} value={u}>{u==="ha"?"hectáreas (ha)":"número de plantas"}</option>)}
@@ -5842,11 +5847,10 @@ ${inf.proximaVisitaFecha?`<div class="section"><h2>Próxima Visita</h2><div clas
                         <div style={{fontSize:10,color:alcanceEvaluado(inf).completo?C.muted2:(C.am||"#854d0e"),marginTop:3}}>
                           {alcanceEvaluado(inf).etiqueta}{!alcanceEvaluado(inf).completo?" · falta el valor o la unidad. No se convierte de há a plantas ni al revés.":""}
                         </div>
-                        {alcanceEvaluado(inf).superficieHistorica?(
+                        {alcanceEvaluado(inf).fuente==="historico"?(
                           <div style={{fontSize:10,color:C.muted,marginTop:3,background:C.cardAlt,borderRadius:5,padding:"4px 6px"}}>
-                            Dato histórico: <strong>{alcanceEvaluado(inf).superficieHistorica.etiqueta}</strong> en el campo
-                            &quot;{alcanceEvaluado(inf).superficieHistorica.rotuloOriginal}&quot;. Se conserva con esa unidad y
-                            <strong> no se toma como alcance evaluado</strong> mientras no lo confirmes.
+                            Viene del campo histórico &quot;{alcanceEvaluado(inf).procedencia}&quot;: es un dato válido en
+                            hectáreas y así se muestra. No se reparte por variedad ni se convierte a plantas.
                           </div>):null}
                       </div>
                       <div>

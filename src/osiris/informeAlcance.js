@@ -150,27 +150,61 @@ export function superficieHistorica(informe) {
   return {
     hay: true,
     valor: valor,
-    unidadDeclarada: "há",                       // lo que decía el rótulo, literal
+    unidadDeclarada: "ha",                       // el rótulo original decía "há"
     rotuloOriginal: "Superficie evaluada (há)",
-    etiqueta: formatearNumero(valor) + " há",
-    nota: "Valor histórico del campo \"Superficie evaluada (há)\". Se conserva con la unidad que declaraba ese rótulo y no se toma como alcance evaluado mientras no se confirme.",
+    etiqueta: formatearNumero(valor) + " ha",
+    nota: "Dato histórico válido, en hectáreas, tomado del campo \"Superficie evaluada (há)\".",
   };
+}
+
+// Cambiar el significado de un dato histórico sí necesita confirmación: pasarlo
+// a otra unidad, cambiarle el valor o repartirlo por variedad no es lo mismo
+// que conservarlo. Esta función solo lo detecta; no decide nada.
+export function cambioDeSignificado(informe, nuevoValor, nuevaUnidad) {
+  const hist = superficieHistorica(informe);
+  const yaDeclarado = parsearNumero((informe || {}).alcanceValor) !== null
+    || normalizarUnidadAlcance((informe || {}).alcanceUnidad) !== "";
+  if (!hist.hay || yaDeclarado) return { requiereConfirmacion: false, motivo: "" };
+  const v = parsearNumero(nuevoValor);
+  const u = normalizarUnidadAlcance(nuevaUnidad);
+  if (u && u !== "ha")
+    return { requiereConfirmacion: true, motivo: `El alcance histórico de este informe son ${hist.etiqueta}. Pasarlo a ${ETIQUETA_UNIDAD[u]} cambia su significado y no es una conversión: hay que declarar el valor nuevo.` };
+  if (v !== null && v !== hist.valor)
+    return { requiereConfirmacion: true, motivo: `El alcance histórico de este informe son ${hist.etiqueta}. Cambiarlo a ${formatearNumero(v)} ha reemplaza el dato histórico.` };
+  return { requiereConfirmacion: false, motivo: "" };
 }
 
 export function alcanceEvaluado(informe) {
   const inf = informe || {};
   const valor = parsearNumero(inf.alcanceValor);
   const unidad = normalizarUnidadAlcance(inf.alcanceUnidad);
-  const completo = valor !== null && valor > 0 && unidad !== "";
+  const declarado = valor !== null && valor > 0 && unidad !== "";
   const hist = superficieHistorica(inf);
+
+  // Declarado manda. Si no hay declaración nueva pero sí dato histórico, ese
+  // dato vale: son hectáreas y así se muestran, con su procedencia. No se
+  // convierte a plantas ni se reparte por variedad.
+  if (!declarado && hist.hay) {
+    return {
+      valor: hist.valor,
+      unidad: "ha",
+      etiqueta: hist.etiqueta,
+      completo: true,
+      fuente: "historico",
+      procedencia: hist.rotuloOriginal,
+      superficieHistorica: hist,
+      porVariedad: false,
+    };
+  }
   return {
     valor: valor,
     unidad: unidad,
-    etiqueta: completo ? formatearNumero(valor) + " " + ETIQUETA_UNIDAD[unidad] : SIN_DEFINIR,
-    completo: completo,
-    fuente: completo ? "declarado" : "",
-    // Lo histórico viaja aparte, visible, sin mezclarse con el alcance nuevo.
+    etiqueta: declarado ? formatearNumero(valor) + " " + ETIQUETA_UNIDAD[unidad] : SIN_DEFINIR,
+    completo: declarado,
+    fuente: declarado ? "declarado" : "",
+    procedencia: "",
     superficieHistorica: hist.hay ? hist : null,
+    porVariedad: false,
   };
 }
 

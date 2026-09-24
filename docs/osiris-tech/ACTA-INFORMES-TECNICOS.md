@@ -50,6 +50,10 @@ Excel y se rescatan igual. Nada se renombra ni se borra.
   primera, para que los informes ya emitidos y el PDF antiguo no cambien.
 - **Alcance evaluado**: en hectáreas o en número de plantas, **siempre con la unidad**. Si falta el
   valor o la unidad dice "sin definir", nunca cero.
+- **Dato histórico**: los informes con "Superficie evaluada (há)" conservan ese valor como alcance
+  **válido en hectáreas**, con su procedencia a la vista, en pantalla y en el PDF. No se declara
+  indefinido por ser antiguo, no se reparte por variedad y no se convierte a plantas. Cambiarle el
+  significado (otra unidad, otro valor) pide confirmación explícita.
 - **Sin conversión**: no hay ninguna función que pase de hectáreas a plantas ni al revés, ni siquiera
   teniendo la densidad. Hay tres pruebas que lo demuestran.
 - **"Fenología" → "Estado fenológico predominante"** en la pestaña, en la pantalla y en el PDF. Las
@@ -79,6 +83,7 @@ Copia de los datos reales, servida en 3070. Todas las escrituras se revirtieron 
 | Guardado y recarga | Tras recargar: variedades, alcance y densidad intactos |
 | PDF | Encabezado con "Especie / Variedades", "Alcance evaluado", "Densidad de plantación", "Sistema productivo" y "Sustrato" |
 | Correo | Vista previa con la frase y las tres variedades, **cero llamadas de red** (intercepté `fetch`: lista vacía) |
+| Correo, ruta de envío real | El cuerpo que arma el envío lleva la frase exacta, una vez. **Acredita el contenido del cuerpo, no la entrega**: el transporte estaba interceptado y no salió ningún correo |
 | Permisos (solo lectura) | 36 campos visibles, **0 editables** (solo el buscador), sin botón de Email ni de Aprobar |
 | Concurrencia | La sesión con versión vieja fue **rechazada** ("NO se guardó · conflicto"); en la base quedó el cambio de la primera |
 
@@ -117,3 +122,24 @@ que definas sus listas. No inventé ninguna.
   están en uso; enganchar las respuestas tipadas de cada labor es un paso aparte.
 - No se convirtió ninguna unidad.
 - No se tocó el paquete tributario ni ninguna otra empresa.
+
+---
+
+## 8 · Estado al 2026-09-24 (segunda revisión)
+
+Las 18 decisiones quedaron agrupadas en **cuatro bloques** para revisar con Nicolás, con el detalle
+completo como anexo: ver `DECISIONES-INFORME-NICOLAS.md`. De los cuatro, **bloquean publicar**:
+
+1. **Catálogo de estados** — el selector ya está en pantalla; si el listado cambia después, los
+   informes emitidos quedan con un estado que dejó de existir.
+2. **Alcance por informe o por variedad** — el número se imprime en el informe del cliente.
+
+**No bloquean**: las unidades (CE, pasadas, tocones) y los campos dudosos del Excel, porque son
+respuestas de labores que todavía no se muestran en pantalla, no se calculan y no se rellenan con
+supuestos.
+
+Sobre la prueba del correo: acredita que **el cuerpo contiene la frase**. No acredita la entrega: el
+transporte estaba interceptado y no se envió ningún correo.
+
+Siguiente paso acordado: revisión con Nicolás, cierre del catálogo y recién ahí el candidato
+definitivo.

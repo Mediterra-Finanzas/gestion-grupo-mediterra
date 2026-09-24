@@ -10,6 +10,7 @@ import {
   ETIQUETA_ESTADO_FENOLOGICO,
   etiquetaSeccionFenologia,
   alcanceEvaluado,
+  cambioDeSignificado,
   conAlcance,
   densidadDeclarada,
   variedadesDe,
@@ -110,18 +111,33 @@ describe("alcance evaluado: siempre con unidad explícita", () => {
     expect(raro.etiqueta).toBe(SIN_DEFINIR);
   });
 
-  test("informe legacy: la superficie NO se promueve a alcance, se conserva aparte con su unidad original", () => {
+  test("informe legacy: la superficie histórica vale como alcance en hectáreas, con su procedencia", () => {
     const a = alcanceEvaluado(INFORME_LEGACY);
-    // No se reinterpreta un dato antiguo: el alcance evaluado sigue sin declarar.
-    expect(a.completo).toBe(false);
-    expect(a.etiqueta).toBe(SIN_DEFINIR);
-    expect(a.fuente).toBe("");
-    // Pero el valor histórico no se pierde ni cambia de unidad.
-    expect(a.superficieHistorica).toMatchObject({
-      hay: true, valor: 12.5, unidadDeclarada: "há", etiqueta: "12,5 há",
-      rotuloOriginal: "Superficie evaluada (há)",
-    });
-    expect(a.superficieHistorica.nota).toMatch(/no se toma como alcance evaluado/);
+    expect(a.completo).toBe(true);
+    expect(a.unidad).toBe("ha");
+    expect(a.etiqueta).toBe("12,5 ha");
+    expect(a.fuente).toBe("historico");
+    expect(a.procedencia).toBe("Superficie evaluada (há)");
+    expect(a.porVariedad).toBe(false);
+  });
+
+  test("una declaración nueva manda sobre el dato histórico", () => {
+    const a = alcanceEvaluado({ ...INFORME_LEGACY, alcanceValor: "8400", alcanceUnidad: "plantas" });
+    expect(a.etiqueta).toBe("8.400 plantas");
+    expect(a.fuente).toBe("declarado");
+    expect(a.superficieHistorica.valor).toBe(12.5);   // el histórico sigue ahí
+  });
+
+  test("cambiarle el significado al dato histórico pide confirmación; conservarlo no", () => {
+    expect(cambioDeSignificado(INFORME_LEGACY, "12,5", "ha").requiereConfirmacion).toBe(false);
+    const aPlantas = cambioDeSignificado(INFORME_LEGACY, "8400", "plantas");
+    expect(aPlantas.requiereConfirmacion).toBe(true);
+    expect(aPlantas.motivo).toMatch(/no es una conversión/);
+    const otroValor = cambioDeSignificado(INFORME_LEGACY, "20", "ha");
+    expect(otroValor.requiereConfirmacion).toBe(true);
+    expect(otroValor.motivo).toMatch(/reemplaza el dato histórico/);
+    // Sin dato histórico no hay nada que confirmar.
+    expect(cambioDeSignificado({}, "8400", "plantas").requiereConfirmacion).toBe(false);
   });
 
   test("un informe sin superficie histórica no inventa ninguna", () => {
@@ -224,10 +240,10 @@ describe("encabezado listo para pintar", () => {
     expect(r.densidadPlantacion.texto).toBe(SIN_DEFINIR);
     expect(r.sistemaProductivo.texto).toBe(SIN_DEFINIR);
     expect(r.sustrato.texto).toBe(SIN_DEFINIR);
-    expect(r.alcanceEvaluado.texto).toBe(SIN_DEFINIR); // la superficie histórica no lo completa
+    expect(r.alcanceEvaluado.texto).toBe("12,5 ha");   // dato histórico válido, en hectáreas
     expect(r.variedades.texto).toBe("Biloxi");
     expect(r.variedades.etiqueta).toBe("Variedad");
-    expect(r.incompletos).toEqual(["densidadPlantacion", "sistemaProductivo", "sustrato", "alcanceEvaluado"]);
+    expect(r.incompletos).toEqual(["densidadPlantacion", "sistemaProductivo", "sustrato"]);
   });
 
   test("informe vacío: cinco campos y ningún cero inventado", () => {
