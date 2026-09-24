@@ -188,6 +188,56 @@ async function run() {
   } finally { console.error = origErr; console.log = origLog; console.warn = origWarn; }
   ok(spy.length === 0, "el handler no registra nada en consola");
 
+  // ── graphdiag: log privado fijo por etapa 502; respuesta pública genérica sin datos sensibles ──
+  {
+    const capturarConsola = async (fn) => {
+      const spy = []; const oe = console.error, ol = console.log, ow = console.warn;
+      console.error = (...a) => spy.push(a.join(" ")); console.log = (...a) => spy.push(a.join(" ")); console.warn = (...a) => spy.push(a.join(" "));
+      try { await fn(); } finally { console.error = oe; console.log = ol; console.warn = ow; }
+      return spy;
+    };
+    // Nada de esto puede aparecer en un log de diagnóstico.
+    const SENSIBLE = ["GRAPH_TOK_SECRETO", "OIDC_SECRETO", "graph.microsoft.com", "login.microsoftonline.com", "TEN", "CLI", "DRV", "uno@ejemplo.test", "Bearer"];
+    const sinSensibles = (spy) => spy.every((l) => SENSIBLE.every((s) => !l.includes(s)));
+    const corrida = async (fetchImpl) => {
+      const hx = mkHandler({ fetchImpl }); const c = cookieDeSet(await loginOk(hx));
+      let rr; const spy = await capturarConsola(async () => { rr = mkRes(); await hx(mkReq({ body: { op: "list" }, cookie: c }), rr); });
+      return { rr, spy };
+    };
+    // token_exchange → 502 auth_upstream
+    { const { rr, spy } = await corrida(mkFetch({ tokenOk: false }));
+      eq(rr.statusCode, 502, "graphdiag token_exchange → 502");
+      ok(JSON.stringify(rr.body) === JSON.stringify({ error: "auth_upstream" }), "token_exchange: body público genérico");
+      ok(spy.length === 1 && spy[0] === "frisku-sp graphdiag:token_exchange", "token_exchange: log fijo único");
+      ok(sinSensibles(spy), "token_exchange: log sin datos sensibles"); }
+    // graph_401 → 502 graph
+    { const { rr, spy } = await corrida(mkFetch({ graphStatus: 401 }));
+      eq(rr.statusCode, 502, "graphdiag graph_401 → 502");
+      ok(JSON.stringify(rr.body) === JSON.stringify({ error: "graph" }), "graph_401: body público genérico");
+      ok(spy.length === 1 && spy[0] === "frisku-sp graphdiag:graph_401", "graph_401: log fijo único");
+      ok(sinSensibles(spy), "graph_401: log sin datos sensibles"); }
+    // graph_5xx → 502 graph
+    { const { rr, spy } = await corrida(mkFetch({ graphStatus: 500 }));
+      eq(rr.statusCode, 502, "graphdiag graph_5xx → 502");
+      ok(JSON.stringify(rr.body) === JSON.stringify({ error: "graph" }), "graph_5xx: body público genérico");
+      ok(spy.length === 1 && spy[0] === "frisku-sp graphdiag:graph_5xx", "graph_5xx: log fijo único");
+      ok(sinSensibles(spy), "graph_5xx: log sin datos sensibles"); }
+    // graph_red → el GET a Graph lanza (graphGet devuelve 504/timeout) → 502 graph
+    { const fRed = async (url) => {
+        if (String(url).includes("oauth2/v2.0/token")) return { ok: true, status: 200, json: async () => ({ access_token: "GRAPH_TOK_SECRETO" }) };
+        throw new Error("red");
+      };
+      const { rr, spy } = await corrida(fRed);
+      eq(rr.statusCode, 502, "graphdiag graph_red → 502");
+      ok(JSON.stringify(rr.body) === JSON.stringify({ error: "graph" }), "graph_red: body público genérico");
+      ok(spy.length === 1 && spy[0] === "frisku-sp graphdiag:graph_red", "graph_red: log fijo único");
+      ok(sinSensibles(spy), "graph_red: log sin datos sensibles"); }
+    // 404/429 NO producen graphdiag (no son 502) ni datos crudos
+    { const { rr, spy } = await corrida(mkFetch({ graphStatus: 404 }));
+      eq(rr.statusCode, 404, "graph 404 → 404 (no 502)");
+      ok(spy.length === 0, "graph 404: sin graphdiag (no es 502)"); }
+  }
+
   // ── leerDatosProd: lee id="main" (value.usuarios) + id="pins" (value); estricto; SOLO GET ──
   {
     const OLD = process.env.SUPABASE_SERVICE_ROLE_KEY;

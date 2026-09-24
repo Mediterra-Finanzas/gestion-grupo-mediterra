@@ -184,10 +184,15 @@ function crearHandler(deps = {}) {
     const oidc = obtenerTokenOidc(req);   // header inyectado por Vercel; un token forjado por el
     if (!oidc) return json(res, 503, { error: "no_configurado" });  // cliente NO valida en Entra (fail-closed upstream)
     const tok = await G.obtenerTokenGraph({ oidcToken: oidc, tenantId: cfg.tenantId, clientId: cfg.clientId, fetchImpl });
-    if (!tok.ok) return json(res, 502, { error: "auth_upstream" });
+    if (!tok.ok) { console.error("frisku-sp graphdiag:token_exchange"); return json(res, 502, { error: "auth_upstream" }); } // diag privado; respuesta pública sin cambios
 
     const r = await G.graphGet(built.url, tok.token, fetchImpl);
     if (!r.ok) {
+      // Diag privado SOLO en los casos 502 (código fijo, sin datos): red/timeout, 401 o 5xx.
+      const st = r.status;
+      const code = (st === 504 && r.json && r.json.error === "timeout") ? "graph_red"
+        : (st === 401 ? "graph_401" : (st >= 500 ? "graph_5xx" : null));
+      if (code) console.error("frisku-sp graphdiag:" + code);   // respuesta pública sin cambios
       const map = { 403: 403, 404: 404, 429: 429 };   // 401 de Graph = problema del proxy, no del usuario
       return json(res, map[r.status] || 502, { error: "graph" });   // sin body/estado upstream crudo
     }
