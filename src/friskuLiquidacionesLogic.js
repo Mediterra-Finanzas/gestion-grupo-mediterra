@@ -33,23 +33,37 @@ export function hayLiquidacionActiva(liquidaciones, oeId, excluirId) {
 }
 
 // ── Validador de UNICIDAD por OE (regla del CONSUMIDOR Liquidaciones) ──
-// Se pasa como opts.validarCandidato a dbSaveGeneric: rechaza un candidato que contenga DOS
-// liquidaciones ACTIVAS de IDs DISTINTOS para el mismo oeId (la carrera concurrente). Ignora
-// inactivas/anuladas (semántica real). Editar la misma liq (mismo id) NO es duplicado; distintas
-// OEs pasan. No modifica el candidato, no borra nada. idExistente = la que ya está en el servidor
-// (ganadora), para poder ofrecer Ver/Editar. La regla NO vive en dbSaveGeneric ni en fusionarPorId.
+// Se pasa como opts.validarCandidato a dbSaveGeneric. Rechaza SOLO cuando el candidato AUMENTA la
+// duplicación por oeId respecto de lo que ya hay en el servidor: la carrera concurrente real (o un
+// alta nueva que crea el 2º activo para una OE que tenía ≤1). Un duplicado YA persistido en el
+// servidor se TOLERA (grandfathering): de lo contrario un dato legado (p. ej. dos liquidaciones
+// creadas en una carrera antes de existir este guardián) bloquearía TODOS los guardados de la fila
+// —editar cualquier otra liquidación quedaría imposibilitado— que es justo el incidente que esto
+// corrige. Reducir el duplicado siempre pasa. Ignora inactivas/anuladas; editar la misma liq (mismo
+// id) no es duplicado; distintas OEs pasan. No modifica el candidato ni borra nada. idExistente = la
+// ganadora ya en el servidor, para ofrecer Ver/Editar. La regla NO vive en dbSaveGeneric ni en
+// fusionarPorId.
 export function validarUnicidadOE(candidato, contexto) {
   const arr = Array.isArray(candidato) ? candidato : [];
   const servidor = contexto && Array.isArray(contexto.servidor) ? contexto.servidor : [];
+  // oeId -> Set(ids ACTIVOS distintos) en una lista.
+  const activasPorOE = (lista) => {
+    const m = new Map();
+    for (const l of lista) {
+      if (!esLiquidacionActiva(l) || !l.oeId) continue;
+      if (!m.has(l.oeId)) m.set(l.oeId, new Set());
+      m.get(l.oeId).add(l.id);
+    }
+    return m;
+  };
+  const enServidor = activasPorOE(servidor);
+  const enCandidato = activasPorOE(arr);
   const idsServidor = new Set(servidor.filter(esLiquidacionActiva).map((l) => l.id));
-  const porOE = new Map();                       // oeId -> Set(ids activos)
-  for (const l of arr) {
-    if (!esLiquidacionActiva(l) || !l.oeId) continue;
-    if (!porOE.has(l.oeId)) porOE.set(l.oeId, new Set());
-    porOE.get(l.oeId).add(l.id);
-  }
-  for (const [oeId, ids] of porOE) {
-    if (ids.size > 1) {
+  for (const [oeId, ids] of enCandidato) {
+    const nCand = ids.size;
+    const nServ = enServidor.has(oeId) ? enServidor.get(oeId).size : 0;
+    // Solo se bloquea si el candidato introduce/aumenta el duplicado respecto del servidor.
+    if (nCand > 1 && nCand > nServ) {
       const arrIds = [...ids];
       const existente = arrIds.find((id) => idsServidor.has(id)) || arrIds[0];
       return { ok: false, motivo: "duplicado_oe", conflictoNegocio: true, oeId, idExistente: existente };
