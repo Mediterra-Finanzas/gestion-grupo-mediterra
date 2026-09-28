@@ -92,6 +92,33 @@ describe("FriskuSharePointBuscador", () => {
     expect(await screen.findByText(/SharePoint no está disponible/i)).toBeInTheDocument();
   });
 
+  test("iniciar una nueva búsqueda borra las sugerencias anteriores", async () => {
+    let resolver;
+    const buscar = jest.fn()
+      .mockResolvedValueOnce({ ok: true, resultado: RES, porId: { IT1: { webUrl: "https://t.sharepoint.com/BL.pdf", name: "BL.pdf" } } })
+      .mockImplementationOnce(() => new Promise((res) => { resolver = res; }));  // 2ª búsqueda queda en vuelo
+    const cliente = mkCliente({ buscarCandidatos: buscar });
+    render(<FriskuSharePointBuscador oe={OE} cliente={cliente} />);
+    fireEvent.click(screen.getByText("Buscar en SharePoint"));
+    expect(await screen.findByText("BL.pdf")).toBeInTheDocument();   // 1ª búsqueda mostró resultado
+    fireEvent.click(screen.getByText("Buscar en SharePoint"));       // 2ª búsqueda (aún en vuelo)
+    await waitFor(() => expect(screen.queryByText("BL.pdf")).not.toBeInTheDocument());  // sugerencias previas borradas
+    if (resolver) resolver({ ok: true, resultado: { estado: "not_found", requiereConfirmacion: true, candidatos: [] }, porId: {} });
+  });
+
+  test("401/sesión expirada tras tener resultados: borra sugerencias y pide nuevo login", async () => {
+    const buscar = jest.fn()
+      .mockResolvedValueOnce({ ok: true, resultado: RES, porId: { IT1: { webUrl: "https://t.sharepoint.com/BL.pdf", name: "BL.pdf" } } })
+      .mockResolvedValueOnce({ ok: false, motivo: "sin_sesion" });
+    const cliente = mkCliente({ buscarCandidatos: buscar });
+    render(<FriskuSharePointBuscador oe={OE} cliente={cliente} />);
+    fireEvent.click(screen.getByText("Buscar en SharePoint"));
+    expect(await screen.findByText("BL.pdf")).toBeInTheDocument();
+    fireEvent.click(screen.getByText("Buscar en SharePoint"));       // 2ª búsqueda → 401
+    expect(await screen.findByRole("dialog")).toBeInTheDocument();   // solicita nuevo login
+    expect(screen.queryByText("BL.pdf")).not.toBeInTheDocument();    // sugerencias obsoletas borradas
+  });
+
   test("cambio de embarque descarta un resultado tardío (no cambia el OE visible)", async () => {
     let resolver;
     const buscar = jest.fn(() => new Promise((res) => { resolver = res; }));

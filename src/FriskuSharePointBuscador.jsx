@@ -50,13 +50,15 @@ export default function FriskuSharePointBuscador({ oe, clienteNombre, exportador
     if (abortRef.current) { try { abortRef.current.abort(); } catch (e) {} }
     const ac = typeof AbortController === "function" ? new AbortController() : null;
     abortRef.current = ac;
-    setFase("buscando"); setAviso(null);
+    // Al iniciar una búsqueda se borran las sugerencias anteriores (nada de resultados obsoletos).
+    setFase("buscando"); setAviso(null); setResultado(null); setPorId({});
     let r;
     try { r = await C.buscarCandidatos(oe, ctx, { signal: ac && ac.signal }); }
     catch (e) { if (e && e.name === "AbortError") return; r = { ok: false, motivo: "error" }; }
     if (id !== reqIdRef.current) return;              // respuesta obsoleta → ignorar
     if (!r.ok) {
-      if (r.motivo === "sin_sesion") { setModal(true); setFase("idle"); return; }
+      // Sesión ausente/expirada (401): limpiar sugerencias y pedir un nuevo login.
+      if (r.motivo === "sin_sesion") { setResultado(null); setPorId({}); setModal(true); setFase("idle"); return; }
       setAviso(MSG[r.motivo] || MSG.error); setFase("error"); return;
     }
     setResultado(r.resultado); setPorId(r.porId || {}); setFase("resultados");
