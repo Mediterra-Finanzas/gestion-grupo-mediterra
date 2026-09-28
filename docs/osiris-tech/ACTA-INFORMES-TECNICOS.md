@@ -186,24 +186,28 @@ cierran cuando se cableen las respuestas por labor, que es un incremento aparte.
 
 ## 10 · Solicitud de publicación (2026-09-28)
 
+`origin/main` se movió dos veces durante la preparación (9 commits de Frisku y Rendiciones). La
+integración se rehizo **en local** contra la base vigente y se repitieron las pruebas.
+
 ### Identificadores
 
 | | |
 |---|---|
-| **Paquete a autorizar** | la punta de `osiris/informes-integrado` (el commit de esta acta, solo documentación, sobre el código `add4ece177368275ad091bc55bbb09484bd5ed53`) |
+| **Paquete a autorizar** | la punta de `osiris/informes-integrado` (el commit de esta acta, solo documentación) |
 | Código (último commit que toca `src/`) | `add4ece177368275ad091bc55bbb09484bd5ed53` |
-| Base exacta | `origin/main` = `ae886fa841a55524e284af51c97925e45f3cdae0`, revalidada |
-| Production | desplegada desde `ae886fa`, estado `success`, 2026-09-28 11:13 UTC |
-| **Deployment de recuperación** | **`6708483611`** — `ae886fa`, Production, success |
-| Candidato sin integrar (referencia) | `b2f985171473091a33be623fce7af50af7580438` sobre `fac6cd0` |
+| Merge de integración | `7d2bd43341f3407e0379fc3125760d0f01fd948c` |
+| Base exacta | `origin/main` = `13465b4`, revalidada al cerrar |
+| Production | desplegada desde `13465b4`, estado `success`, 2026-09-28 12:03 UTC |
+| **Deployment de recuperación** | **`6709387105`** — `13465b4`, Production, success |
 | Rama de revisión (NO se integra) | `prueba/informes-int-revision` |
 
-### Diff completo contra `ae886fa`
+### Diff completo contra `13465b4`
 
-9 archivos, +2.736 / −33:
+9 archivos, +2.858 / −33. Fuera de `src/osiris/`, `src/OsirisModule.jsx` y `docs/osiris-tech/`
+no se toca **ningún** archivo.
 
 ```
-docs/osiris-tech/ACTA-INFORMES-TECNICOS.md       183 +
+docs/osiris-tech/ACTA-INFORMES-TECNICOS.md       260 +
 docs/osiris-tech/DECISIONES-INFORME-NICOLAS.md   174 +
 src/OsirisModule.jsx                             161 +-
 src/osiris/correoInforme.js                      131 +
@@ -211,22 +215,21 @@ src/osiris/correoInforme.test.js                 238 +
 src/osiris/fenologia.js                          653 +
 src/osiris/fenologia.test.js                     398 +
 src/osiris/informeAlcance.js                     462 +
-src/osiris/informeAlcance.test.js                369 +
+src/osiris/informeAlcance.test.js                414 +
 ```
-
-Fuera de `src/osiris/`, `src/OsirisModule.jsx` y `docs/osiris-tech/` no se toca **ningún** archivo.
 
 ### Se conservan los demás carriles
 
-Los 6 commits que `origin/main` sumó desde la base anterior están presentes en el paquete
-(`ae886fa`, `7b21e2d`, `651471d`, `fed24fd`, `8c3bc7f`, `fad4809`: cinco de Frisku SharePoint y el
-typeahead de Rendiciones), y sus archivos quedan **byte a byte idénticos** a `origin/main`.
+Los 9 commits que `origin/main` sumó desde la base anterior están presentes en el paquete
+(`13465b4`, `55d455e`, `2931c8c`, `ae886fa`, `7b21e2d`, `651471d`, `fed24fd`, `8c3bc7f`,
+`fad4809`: siete de Frisku SharePoint y dos de Rendiciones), y sus archivos quedan **idénticos**
+a `origin/main`.
 
 ### Pruebas sobre la integración
 
-| | Base `ae886fa` sola | Paquete integrado |
+| | Base sola (`ae886fa`) | Paquete integrado sobre `13465b4` |
 |---|---|---|
-| Pasan | 1.005 | **1.114** |
+| Pasan | 1.005 | **1.123** |
 | Fallan | 2 | **2** |
 | Saltadas | 9 | 9 |
 
@@ -246,7 +249,8 @@ del tiempo. Queda declarado igual.
 |---|---|
 | Informe histórico con dos variedades | Muestra **12,5 ha del informe completo**, con su procedencia. Las dos variedades quedan "sin definir": **no se repartió** |
 | Desmarcar y volver a marcar una variedad | MegaEarly vuelve con sus **8.400 plantas**. Nada se pierde en silencio (3 pruebas propias lo fijan) |
-| Recuperación con el código anterior | Se sirvió `ae886fa` contra la misma base. Escribió lo suyo (país de un contrato) y **conservó** `variedades`, `alcanceVariedades` y `superficie`. Ojo: los conserva, **no los usa**: sigue mostrando una sola variedad y la superficie global |
+| Recuperación con el código anterior | Se sirvió `ae886fa` contra la misma base. Escribió lo suyo (país de un contrato, con `updated_at` nuevo) y **conservó** `variedades`, `alcanceVariedades` y `superficie`. Ojo: los conserva, **no los usa**: sigue mostrando una sola variedad y la superficie global |
+| ¿Vale para `13465b4`? | Sí. Entre `ae886fa` y `13465b4` solo cambian `FriskuSharePointBuscador`, `friskuSharePointClient` y `RendicionesModule`: ningún archivo de Osiris ni de la ruta de guardado de la fila `osiris`. La prueba de recuperación se mantiene válida sin repetirla |
 | Correo | La prueba acredita **el contenido del cuerpo**, no la entrega. No se envió ningún correo |
 
 ### Alcance de esta entrega
