@@ -27,6 +27,7 @@ import {
   entityBaseDe, draftEntityKey, clavesRecuperablesDeEntidad, validarUnicidadOE,
 } from "./friskuLiquidacionesLogic.js";
 import { clasificarReferenciaDoc, esUrlDocumentoValida, avisoRefBorrador, conservarDocsComex } from "./friskuDocumentRefs.js";
+import { requisitosDeComex, esVinculoSharePoint, aplicarVinculoComex, quitarVinculoComex } from "./friskuComexVinculo.js";
 import AvisoPersistencia, { construirAviso } from "./AvisoPersistencia";
 import FriskuSharePointBuscador from "./FriskuSharePointBuscador.jsx";
 import { FriskuBIProvider, useFriskuBI, FRISKU_DIMS, FRISKU_METRICS, fmtMetric,
@@ -3223,7 +3224,7 @@ export function EntradaRefManual({ valorActual = "", documentKey, onAplicar }) {
   );
 }
 
-function CarpetaComexPanel({ oe, onGuardar, canEdit }) {
+function CarpetaComexPanel({ oe, onGuardar, canEdit, cargaOk, usuario }) {
   const [cx, setCx] = useState(()=>{
     const saved = oe.carpetaComex;
     if(!saved) return defaultCarpetaComex();
@@ -3287,6 +3288,25 @@ function CarpetaComexPanel({ oe, onGuardar, canEdit }) {
     if(url){ updDocQC(idx,"url",url); updDocQC(idx,"nombre",file.name); updDocQC(idx,"fecha",new Date().toISOString().slice(0,10)); }
   }
 
+  // ── Vinculación de una sugerencia SharePoint a un requisito COMEX (solo metadatos) ──
+  // Anti-borrado: NINGÚN guardado se ejecuta si la carga inicial no fue exitosa (cargaOk()).
+  // Respeta permisos (canEdit). SharePoint queda read-only: solo se escribe el modelo local.
+  const puedeGuardar = () => (typeof cargaOk === "function" ? !!cargaOk() : true);
+  const requisitosComex = requisitosDeComex(cx);
+  const onVincularSp = (ref, docId) => {
+    if (!canEdit) return { ok: false, motivo: "sin_permiso" };
+    if (!puedeGuardar()) return { ok: false, motivo: "carga" };     // gate anti-borrado
+    const r = aplicarVinculoComex(cx, docId, ref, { usuario });
+    if (!r.ok) return { ok: false, motivo: "error" };
+    setCx(r.cx); setDirty(true); onGuardar(r.cx);
+    return { ok: true };
+  };
+  const onDesvincularSp = (docId) => {
+    if (!canEdit || !puedeGuardar()) return;                        // gate anti-borrado + permisos
+    const r = quitarVinculoComex(cx, docId, { usuario });
+    if (r.ok) { setCx(r.cx); setDirty(true); onGuardar(r.cx); }
+  };
+
   const docsCargados = cx.docs.filter(d=>esArchivoSubido(d.url)).length;
   const obligOk = DOCS_COMEX_OBLIG.filter(t=>cx.docs.some(d=>d.tipo===t && esArchivoSubido(d.url))).length;
   const pct = Math.round(obligOk/DOCS_COMEX_OBLIG.length*100);
@@ -3316,8 +3336,8 @@ function CarpetaComexPanel({ oe, onGuardar, canEdit }) {
       {/* Documentos */}
       {subTab==="docs" && (
         <div>
-          {/* S5B: buscador read-only de documentos en SharePoint (no persiste vínculos). */}
-          <FriskuSharePointBuscador oe={oe} />
+          {/* S5B + vinculación manual: buscador read-only + botón Vincular a un requisito COMEX. */}
+          <FriskuSharePointBuscador oe={oe} requisitos={requisitosComex} onVincular={onVincularSp} canEdit={canEdit} />
           <div style={{display:"flex",flexDirection:"column",gap:5,marginBottom:10}}>
             {cx.docs.map((doc,idx)=>{
               const adjunto = esArchivoSubido(doc.url);       // archivo real subido (http)
@@ -3338,6 +3358,7 @@ function CarpetaComexPanel({ oe, onGuardar, canEdit }) {
                       : <div style={{fontSize:11,fontWeight:600,color:C.text,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{doc.tipo}{oblig&&<span title="Obligatorio" style={{color:C.accent,marginLeft:4}}>*</span>}</div>}
                     {doc.nombre&&doc.nombre!==doc.tipo&&adjunto&&<div style={{fontSize:9,color:C.muted,marginTop:1,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{doc.nombre}</div>}
                     {doc.fechaCarga&&adjunto&&<div style={{fontSize:9,color:C.muted2}}>{doc.fechaCarga}</div>}
+                    {esVinculoSharePoint(doc)&&<div style={{fontSize:9,color:C.blue,marginTop:1,fontWeight:600}} title={`Vínculo SharePoint (referencia, no copia del archivo)${doc.spRef&&doc.spRef.usuario?` · por ${doc.spRef.usuario}`:""}${doc.spRef&&doc.spRef.fecha?` · ${doc.spRef.fecha}`:""}`}>🔗 Vínculo SharePoint</div>}
                     {rutaLocal&&(spPending
                       ? <div style={{fontSize:9,color:C.blue,marginTop:1,fontWeight:600}} title="Esta es una ruta sincronizada de SharePoint (OneDrive). Quedará pendiente de vinculación; no es necesario volver a subir el archivo.">🔗 Referencia SharePoint — pendiente de vincular</div>
                       : <div style={{fontSize:9,color:C.accent,marginTop:1,fontWeight:600}}>⚠ Ruta local del PC — vuelve a subir el archivo</div>)}
@@ -3372,10 +3393,14 @@ function CarpetaComexPanel({ oe, onGuardar, canEdit }) {
                         style={{...btnSt(C.purple),padding:"3px 9px",fontSize:10,flexShrink:0,whiteSpace:"nowrap"}}>
                         {isUploading?"⏳ Subiendo…":adjunto?"📎 Reemplazar":"📎 Subir"}
                       </button>
-                      {doc.url && (
-                        <button onClick={()=>{ updDoc(idx,"url",""); updDoc(idx,"nombre",""); updDoc(idx,"fuente","manual"); updDoc(idx,"estado","pendiente"); }}
-                          style={{...btnSt(C.accent,true),padding:"3px 6px",fontSize:10,flexShrink:0}}>✕</button>
-                      )}
+                      {esVinculoSharePoint(doc)
+                        ? <button onClick={()=>onDesvincularSp(doc.id)}
+                            title="Quitar el vínculo con SharePoint. No borra el archivo en SharePoint ni el requisito."
+                            style={{...btnSt(C.blue,true),padding:"3px 8px",fontSize:10,flexShrink:0,whiteSpace:"nowrap"}}>🔗✕ Desvincular</button>
+                        : (doc.url && (
+                          <button onClick={()=>{ updDoc(idx,"url",""); updDoc(idx,"nombre",""); updDoc(idx,"fuente","manual"); updDoc(idx,"estado","pendiente"); }}
+                            style={{...btnSt(C.accent,true),padding:"3px 6px",fontSize:10,flexShrink:0}}>✕</button>
+                        ))}
                       {!isDefault && (
                         <button onClick={()=>delDoc(idx)} style={{...btnSt(C.accent,true),padding:"3px 6px",fontSize:10,flexShrink:0}}>×</button>
                       )}
@@ -3477,7 +3502,7 @@ function CarpetaComexPanel({ oe, onGuardar, canEdit }) {
 // ═══════════════════════════════════════════════════════════════════
 // ORDEN DE EMBARQUE — CARD
 // ═══════════════════════════════════════════════════════════════════
-function OECard({oe, exportadoras, clientes, especies, tiposEmbalaje, onEditar, onEliminar, onGuardarPL, onGuardarCOMEX, canEdit}) {
+function OECard({oe, exportadoras, clientes, especies, tiposEmbalaje, onEditar, onEliminar, onGuardarPL, onGuardarCOMEX, canEdit, cargaOk, usuario}) {
   const [showPL,    setShowPL]    = useState(false);
   const [showCOMEX, setShowCOMEX] = useState(false);
   const exportadora = exportadoras.find(e=>e.id===oe.exportadoraId);
@@ -3613,7 +3638,7 @@ function OECard({oe, exportadoras, clientes, especies, tiposEmbalaje, onEditar, 
           exportadoras={exportadoras} clientes={clientes} onGuardar={onGuardarPL} canEdit={canEdit}/>
       )}
       {showCOMEX && (
-        <CarpetaComexPanel oe={oe} onGuardar={onGuardarCOMEX} canEdit={canEdit}/>
+        <CarpetaComexPanel oe={oe} onGuardar={onGuardarCOMEX} canEdit={canEdit} cargaOk={cargaOk} usuario={usuario}/>
       )}
     </div>
   );
@@ -3671,7 +3696,7 @@ function OERow({oe, exportadoras, clientes, especies, onVer, onEditar, onElimina
 
 // DETALLE DE EMBARQUE — página completa con secciones (General / Packing List /
 // Documentos COMEX + QC / Liquidación). Reemplaza la expansión gigante en la fila.
-function OEDetalle({ oe, exportadoras, clientes, especies, tiposEmbalaje, contratos, liquidaciones, onBack, onEditar, onGuardarPL, onGuardarCOMEX, canEdit }) {
+function OEDetalle({ oe, exportadoras, clientes, especies, tiposEmbalaje, contratos, liquidaciones, onBack, onEditar, onGuardarPL, onGuardarCOMEX, canEdit, cargaOk, usuario }) {
   const [sec, setSec] = useState("general");
   const exportadora = exportadoras.find(e=>e.id===oe.exportadoraId);
   const cliente     = clientes.find(c=>c.id===oe.clienteId);
@@ -3743,7 +3768,7 @@ function OEDetalle({ oe, exportadoras, clientes, especies, tiposEmbalaje, contra
         </div>
       )}
       {sec==="pl"    && <PackingListPanel oe={oe} tiposEmbalaje={tiposEmbalaje} especies={especies} exportadoras={exportadoras} clientes={clientes} onGuardar={onGuardarPL} canEdit={canEdit}/>}
-      {sec==="comex" && <CarpetaComexPanel oe={oe} onGuardar={onGuardarCOMEX} canEdit={canEdit}/>}
+      {sec==="comex" && <CarpetaComexPanel oe={oe} onGuardar={onGuardarCOMEX} canEdit={canEdit} cargaOk={cargaOk} usuario={usuario}/>}
       {sec==="liq"   && (
         <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,overflowX:"auto"}}>
           {liqs.length===0 ? <div style={{padding:24,textAlign:"center",color:C.muted2,fontSize:12}}>Este embarque aún no tiene liquidaciones. Se crean en 💰 Liquidaciones.</div> :
@@ -10563,7 +10588,7 @@ export default function FriskuComercialModule({
                 onEditar={(o)=>{ setVerOE(null); handleEditarOE(o); }}
                 onGuardarPL={(pl)=>{ setEmbarques(prev=>prev.map(e=>e.id===verOE.id?{...e,packingList:pl,estado:pl.pallets?.length>0&&e.estado==="confirmado"?"despachado":e.estado}:e)); setVerOE(v=>v&&({...v,packingList:pl})); }}
                 onGuardarCOMEX={(cx)=>{ setEmbarques(prev=>prev.map(e=>e.id===verOE.id?{...e,carpetaComex:cx}:e)); setVerOE(v=>v&&({...v,carpetaComex:cx})); }}
-                canEdit={permEmbarques.canEdit}/>
+                canEdit={permEmbarques.canEdit} cargaOk={()=>cargaOkRef.current} usuario={nombreUsuario}/>
             )}
 
             {!creandoOE && !editandoOE && !verOE && (
@@ -10656,7 +10681,7 @@ export default function FriskuComercialModule({
                       {embarquesFiltrados.map(oe=>(
                         <OECard key={oe.id} oe={oe} exportadoras={exportadoras} clientes={clientes} especies={especies} tiposEmbalaje={tiposEmbalaje}
                           onEditar={()=>handleEditarOE(oe)} onEliminar={()=>handleEliminarOE(oe)}
-                          onGuardarPL={onPL(oe)} onGuardarCOMEX={onCX(oe)} canEdit={permEmbarques.canEdit}/>
+                          onGuardarPL={onPL(oe)} onGuardarCOMEX={onCX(oe)} canEdit={permEmbarques.canEdit} cargaOk={()=>cargaOkRef.current} usuario={nombreUsuario}/>
                       ))}
                     </div>;
                   }

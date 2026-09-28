@@ -23,8 +23,15 @@ const MSG = {
   error: "No se pudo completar la búsqueda.",
   credenciales: "Correo o PIN incorrectos.",
 };
+// Mensajes del flujo de vinculación (no dependen de la respuesta de SharePoint).
+const MSG_VINC = {
+  carga: "No se puede vincular: la carga del embarque no terminó. Reintenta en unos segundos.",
+  sin_permiso: "No tienes permiso para editar este embarque.",
+  error: "No se pudo vincular.",
+};
 
-export default function FriskuSharePointBuscador({ oe, clienteNombre, exportadorNombre, especieNombre, cliente }) {
+// Props de vinculación (opcionales): si no se pasan onVincular/requisitos, el buscador es solo lectura.
+export default function FriskuSharePointBuscador({ oe, clienteNombre, exportadorNombre, especieNombre, cliente, requisitos = [], onVincular, canEdit = false }) {
   const C = cliente || clienteReal;                 // inyectable para tests
   const [fase, setFase] = useState("idle");          // idle | buscando | resultados | error
   const [resultado, setResultado] = useState(null);
@@ -33,6 +40,8 @@ export default function FriskuSharePointBuscador({ oe, clienteNombre, exportador
   const [modal, setModal] = useState(false);
   const [email, setEmail] = useState("");
   const [pin, setPin] = useState("");
+  const [vinc, setVinc] = useState(null);            // { ref, docId, paso } | null — vinculación en curso
+  const [vincMsg, setVincMsg] = useState(null);      // aviso del flujo de vínculo
   const reqIdRef = useRef(0);
   const abortRef = useRef(null);
 
@@ -41,7 +50,27 @@ export default function FriskuSharePointBuscador({ oe, clienteNombre, exportador
     reqIdRef.current++;
     if (abortRef.current) { try { abortRef.current.abort(); } catch (e) {} }
     setFase("idle"); setResultado(null); setPorId({}); setAviso(null); setModal(false); setPin("");
+    setVinc(null); setVincMsg(null);
   }, [oe && oe.id]);
+
+  const puedeVincular = !!(canEdit && typeof onVincular === "function" && requisitos.length > 0);
+  const refDe = (c) => ({
+    driveId: c.driveId, itemId: c.itemId,
+    nombre: (porId[c.itemId] && porId[c.itemId].name) || "documento",
+    webUrl: (porId[c.itemId] && porId[c.itemId].webUrl) || "",
+  });
+  const reqDe = (docId) => requisitos.find((r) => String(r.docId) === String(docId));
+  const iniciarVinc = (c) => { setVinc({ ref: refDe(c), docId: "", paso: "elegir" }); setVincMsg(null); };
+  const cancelarVinc = () => { setVinc(null); setVincMsg(null); };
+  const continuarVinc = () => {
+    const r = reqDe(vinc.docId); if (!r) return;
+    setVinc((v) => ({ ...v, paso: r.tieneRef ? "reemplazar" : "confirmar" }));  // reemplazo → 2ª confirmación
+  };
+  const confirmarVinc = () => {
+    const res = onVincular(vinc.ref, vinc.docId) || { ok: false, motivo: "error" };
+    if (res.ok) { const t = reqDe(vinc.docId); setVinc(null); setVincMsg("Vinculado a " + (t ? t.tipo : "requisito") + "."); }
+    else { setVincMsg(MSG_VINC[res.motivo] || MSG_VINC.error); }
+  };
 
   const ctx = { clienteNombre, exportadorNombre, especieNombre };
 
@@ -103,17 +132,56 @@ export default function FriskuSharePointBuscador({ oe, clienteNombre, exportador
               {resultado.candidatos.map((c) => {
                 const url = abrible(c.itemId);
                 const nombre = (porId[c.itemId] && porId[c.itemId].name) || "documento";
+                const vinculandoEste = vinc && vinc.ref.itemId === c.itemId && vinc.ref.driveId === c.driveId;
                 return (
-                  <div key={`${c.driveId}:${c.itemId}`} style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", padding: "4px 0", borderTop: "1px solid #e2e8f0" }}>
-                    <span style={{ fontSize: 11, fontWeight: 600 }}>{nombre}</span>
-                    <span style={{ fontSize: 9, padding: "1px 6px", borderRadius: 4, background: "#e0f2fe", color: "#0369a1" }}>Confianza: {CONF_LABEL[c.confianza] || c.confianza}</span>
-                    <span style={{ fontSize: 9, color: "#64748b" }}>{(c.señales || []).filter(s => s.resultado === "match").map(s => s.tipo).join(", ")}</span>
-                    {url
-                      ? <a href={url} target="_blank" rel="noreferrer noopener" style={{ fontSize: 10, color: "#0ea5e9", fontWeight: 600 }}>Abrir en SharePoint</a>
-                      : <span style={{ fontSize: 10, color: "#94a3b8" }}>enlace no disponible</span>}
+                  <div key={`${c.driveId}:${c.itemId}`} style={{ padding: "4px 0", borderTop: "1px solid #e2e8f0" }}>
+                    <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+                      <span style={{ fontSize: 11, fontWeight: 600 }}>{nombre}</span>
+                      <span style={{ fontSize: 9, padding: "1px 6px", borderRadius: 4, background: "#e0f2fe", color: "#0369a1" }}>Confianza: {CONF_LABEL[c.confianza] || c.confianza}</span>
+                      <span style={{ fontSize: 9, color: "#64748b" }}>{(c.señales || []).filter(s => s.resultado === "match").map(s => s.tipo).join(", ")}</span>
+                      {url
+                        ? <a href={url} target="_blank" rel="noreferrer noopener" style={{ fontSize: 10, color: "#0ea5e9", fontWeight: 600 }}>Abrir en SharePoint</a>
+                        : <span style={{ fontSize: 10, color: "#94a3b8" }}>enlace no disponible</span>}
+                      {puedeVincular && !vinculandoEste && (
+                        <button type="button" onClick={() => iniciarVinc(c)} style={{ ...btn(false), padding: "2px 8px", fontSize: 10 }}>Vincular</button>
+                      )}
+                    </div>
+
+                    {vinculandoEste && (
+                      <div role="group" aria-label="Vincular documento a requisito" style={{ marginTop: 6, padding: 8, borderRadius: 6, border: "1px solid #0ea5e9", background: "#f0f9ff" }}>
+                        {vinc.paso === "elegir" && (
+                          <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+                            <span style={{ fontSize: 10, color: "#334155" }}>Vincular «{vinc.ref.nombre}» al requisito:</span>
+                            <select aria-label="requisito COMEX" value={vinc.docId} onChange={(e) => setVinc((v) => ({ ...v, docId: e.target.value }))} style={{ ...inp, width: "auto", fontSize: 11, padding: "3px 6px" }}>
+                              <option value="">— elegir requisito —</option>
+                              {requisitos.map((r) => (
+                                <option key={r.docId} value={r.docId}>{r.tipo}{r.tieneRef ? " (ya tiene referencia)" : ""}</option>
+                              ))}
+                            </select>
+                            <button type="button" disabled={!vinc.docId} onClick={continuarVinc} style={{ ...btn(!vinc.docId), padding: "3px 8px", fontSize: 10 }}>Continuar</button>
+                            <button type="button" onClick={cancelarVinc} style={{ ...btn(false), background: "#fff", color: "#0ea5e9", padding: "3px 8px", fontSize: 10 }}>Cancelar</button>
+                          </div>
+                        )}
+                        {vinc.paso === "reemplazar" && (
+                          <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+                            <span style={{ fontSize: 10, color: "#b45309", fontWeight: 600 }}>⚠ «{reqDe(vinc.docId) ? reqDe(vinc.docId).tipo : ""}» ya tiene una referencia. ¿Reemplazarla?</span>
+                            <button type="button" onClick={() => setVinc((v) => ({ ...v, paso: "confirmar" }))} style={{ ...btn(false), background: "#b45309", borderColor: "#b45309", padding: "3px 8px", fontSize: 10 }}>Sí, reemplazar</button>
+                            <button type="button" onClick={cancelarVinc} style={{ ...btn(false), background: "#fff", color: "#0ea5e9", padding: "3px 8px", fontSize: 10 }}>Cancelar</button>
+                          </div>
+                        )}
+                        {vinc.paso === "confirmar" && (
+                          <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+                            <span style={{ fontSize: 10, color: "#334155" }}>Confirmar: vincular «{vinc.ref.nombre}» → <b>{reqDe(vinc.docId) ? reqDe(vinc.docId).tipo : ""}</b> (referencia SharePoint, no se copia el archivo).</span>
+                            <button type="button" onClick={confirmarVinc} style={{ ...btn(false), padding: "3px 8px", fontSize: 10 }}>Confirmar vínculo</button>
+                            <button type="button" onClick={cancelarVinc} style={{ ...btn(false), background: "#fff", color: "#0ea5e9", padding: "3px 8px", fontSize: 10 }}>Cancelar</button>
+                          </div>
+                        )}
+                      </div>
+                    )}
                   </div>
                 );
               })}
+              {vincMsg && <div role="status" style={{ fontSize: 10, color: "#0369a1", marginTop: 6 }}>{vincMsg}</div>}
             </>
           )}
         </div>
