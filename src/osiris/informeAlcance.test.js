@@ -367,3 +367,48 @@ describe("alcance por variedad", () => {
     expect(NOTA_ESTADO_FENOLOGICO).toMatch(/el mismo para todas las variedades/i);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Cierre de entrega: histórico global y desmarcar/volver a marcar una variedad
+// ---------------------------------------------------------------------------
+describe("cierre de entrega", () => {
+  test("un informe histórico conserva su superficie GLOBAL sin repartirla entre variedades", () => {
+    const hist = { variedades: ["Biloxi", "Ventura"], variedad: "Biloxi", superficie: "12,5" };
+    const r = resumenAlcance(hist);
+    expect(r.modo).toBe("historico");
+    expect(r.etiqueta).toBe("12,5 ha");            // una sola cifra, del informe completo
+    expect(r.filas).toEqual([]);                   // no se creo una fila por variedad
+    // Y ninguna variedad recibió parte de esas hectáreas.
+    alcancePorVariedad(hist).forEach((f) => {
+      expect(f.completo).toBe(false);
+      expect(f.valor).toBeNull();
+    });
+  });
+
+  test("desmarcar una variedad NO borra su alcance: al volver a marcarla, vuelve con su dato", () => {
+    let inf = { variedades: ["Biloxi", "Ventura"], variedad: "Biloxi" };
+    inf = conAlcanceVariedad(inf, "Biloxi", "4", "ha");
+    inf = conAlcanceVariedad(inf, "Ventura", "8400", "plantas");
+    expect(alcanceDeVariedad(inf, "Ventura").etiqueta).toBe("8.400 plantas");
+
+    // Se desmarca Ventura: deja de listarse…
+    const sinVentura = conVariedades(inf, ["Biloxi"]);
+    expect(variedadesDe(sinVentura)).toEqual(["Biloxi"]);
+    expect(alcancePorVariedad(sinVentura).map((f) => f.variedad)).toEqual(["Biloxi"]);
+    // …pero su dato sigue guardado, no se pierde en silencio.
+    expect(sinVentura.alcanceVariedades.Ventura).toEqual({ valor: "8400", unidad: "plantas" });
+
+    // Al volver a marcarla, vuelve con lo suyo y sin tocar a las demás.
+    const otraVez = conVariedades(sinVentura, ["Biloxi", "Ventura"]);
+    expect(alcanceDeVariedad(otraVez, "Ventura").etiqueta).toBe("8.400 plantas");
+    expect(alcanceDeVariedad(otraVez, "Biloxi").etiqueta).toBe("4 ha");
+  });
+
+  test("quitar todas las variedades no borra ningún alcance guardado", () => {
+    let inf = { variedades: ["Biloxi"], variedad: "Biloxi" };
+    inf = conAlcanceVariedad(inf, "Biloxi", "4", "ha");
+    const vacio = conVariedades(inf, []);
+    expect(variedadesDe(vacio)).toEqual([]);
+    expect(vacio.alcanceVariedades.Biloxi).toEqual({ valor: "4", unidad: "ha" });
+  });
+});
