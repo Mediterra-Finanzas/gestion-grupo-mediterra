@@ -131,3 +131,86 @@ describe("FriskuSharePointBuscador", () => {
     expect(screen.queryByText("BL.pdf")).not.toBeInTheDocument();  // resultado obsoleto ignorado
   });
 });
+
+describe("FriskuSharePointBuscador — vinculación manual a requisito COMEX", () => {
+  const REQ = [
+    { docId: "d1", tipo: "Packing List", tieneRef: false },
+    { docId: "d2", tipo: "QC", tieneRef: true },   // ya tiene referencia → 2ª confirmación
+  ];
+  const SP_FRISKU = "https://grupomediterra.sharepoint.com/sites/FriskuFoodsSpA/Documentos%20compartidos/BL.pdf";
+  const conResultado = (over = {}) => mkCliente({
+    buscarCandidatos: jest.fn(async () => ({ ok: true, resultado: RES, porId: { IT1: { webUrl: SP_FRISKU, name: "BL.pdf" } } })),
+    ...over,
+  });
+  const conPorId = (porId) => mkCliente({ buscarCandidatos: jest.fn(async () => ({ ok: true, resultado: RES, porId })) });
+  const buscar = async () => { fireEvent.click(screen.getByText("Buscar en SharePoint")); await screen.findByText("BL.pdf"); };
+
+  test("permisos: sin canEdit no se ofrece Vincular", async () => {
+    render(<FriskuSharePointBuscador oe={OE} cliente={conResultado()} requisitos={REQ} onVincular={jest.fn()} canEdit={false} />);
+    await buscar();
+    expect(screen.queryByText("Vincular")).not.toBeInTheDocument();
+  });
+
+  test("candidato sin enlace válido: NO se ofrece Vincular (webUrl vacío)", async () => {
+    render(<FriskuSharePointBuscador oe={OE} cliente={conPorId({ IT1: { webUrl: "", name: "BL.pdf" } })} requisitos={REQ} onVincular={jest.fn()} canEdit />);
+    await buscar();
+    expect(screen.queryByText("Vincular")).not.toBeInTheDocument();
+  });
+
+  test("candidato con dominio ajeno o http: NO se ofrece Vincular", async () => {
+    render(<FriskuSharePointBuscador oe={OE} cliente={conPorId({ IT1: { webUrl: "https://evil.example/BL.pdf", name: "BL.pdf" } })} requisitos={REQ} onVincular={jest.fn()} canEdit />);
+    await buscar();
+    expect(screen.queryByText("Vincular")).not.toBeInTheDocument();
+  });
+
+  test("vínculo confirmado: elegir requisito → confirmar → onVincular(ref, docId)", async () => {
+    const onVincular = jest.fn(() => ({ ok: true }));
+    render(<FriskuSharePointBuscador oe={OE} cliente={conResultado()} requisitos={REQ} onVincular={onVincular} canEdit />);
+    await buscar();
+    fireEvent.click(screen.getByText("Vincular"));
+    fireEvent.change(screen.getByLabelText("requisito COMEX"), { target: { value: "d1" } });
+    fireEvent.click(screen.getByText("Continuar"));
+    expect(onVincular).not.toHaveBeenCalled();                 // aún no: falta la confirmación
+    fireEvent.click(screen.getByText("Confirmar vínculo"));
+    expect(onVincular).toHaveBeenCalledWith(expect.objectContaining({ driveId: "D", itemId: "IT1", nombre: "BL.pdf", webUrl: SP_FRISKU }), "d1");
+    expect(await screen.findByText(/Vinculado a Packing List/)).toBeInTheDocument();
+  });
+
+  test("cancelación: no guarda nada", async () => {
+    const onVincular = jest.fn(() => ({ ok: true }));
+    render(<FriskuSharePointBuscador oe={OE} cliente={conResultado()} requisitos={REQ} onVincular={onVincular} canEdit />);
+    await buscar();
+    fireEvent.click(screen.getByText("Vincular"));
+    fireEvent.click(screen.getByText("Cancelar"));
+    expect(onVincular).not.toHaveBeenCalled();
+    expect(screen.queryByLabelText("requisito COMEX")).not.toBeInTheDocument();
+  });
+
+  test("reemplazo: exige SEGUNDA confirmación antes de guardar", async () => {
+    const onVincular = jest.fn(() => ({ ok: true }));
+    render(<FriskuSharePointBuscador oe={OE} cliente={conResultado()} requisitos={REQ} onVincular={onVincular} canEdit />);
+    await buscar();
+    fireEvent.click(screen.getByText("Vincular"));
+    fireEvent.change(screen.getByLabelText("requisito COMEX"), { target: { value: "d2" } });  // ya tiene ref
+    fireEvent.click(screen.getByText("Continuar"));
+    // paso extra de reemplazo: onVincular NO se llama todavía
+    expect(screen.getByText(/ya tiene una referencia/)).toBeInTheDocument();
+    expect(onVincular).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByText("Sí, reemplazar"));
+    expect(onVincular).not.toHaveBeenCalled();                 // aún falta la confirmación final
+    fireEvent.click(screen.getByText("Confirmar vínculo"));
+    expect(onVincular).toHaveBeenCalledWith(expect.objectContaining({ itemId: "IT1" }), "d2");
+  });
+
+  test("bloqueo por carga fallida: onVincular devuelve motivo 'carga' → aviso, sin éxito", async () => {
+    const onVincular = jest.fn(() => ({ ok: false, motivo: "carga" }));
+    render(<FriskuSharePointBuscador oe={OE} cliente={conResultado()} requisitos={REQ} onVincular={onVincular} canEdit />);
+    await buscar();
+    fireEvent.click(screen.getByText("Vincular"));
+    fireEvent.change(screen.getByLabelText("requisito COMEX"), { target: { value: "d1" } });
+    fireEvent.click(screen.getByText("Continuar"));
+    fireEvent.click(screen.getByText("Confirmar vínculo"));
+    expect(onVincular).toHaveBeenCalled();
+    expect(await screen.findByText(/la carga del embarque no terminó/)).toBeInTheDocument();
+  });
+});
