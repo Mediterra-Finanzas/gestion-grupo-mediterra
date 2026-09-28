@@ -1,20 +1,33 @@
 # Revisión conjunta con Nicolás · informes técnicos
 
-2026-09-24. Cuatro bloques, no dieciocho preguntas. El detalle completo está en el anexo, al final,
-para consultarlo durante la reunión sin tener que responderlo punto por punto.
+2026-09-25. **Los dos bloques que bloqueaban publicar están cerrados** por Nicolás Fuenzalida.
+Lo que sigue queda como registro de la decisión y de lo que aún no se definió.
 
-**Qué bloquea publicar y qué no:**
+## Respuestas de Nicolás (2026-09-25)
 
-| Bloque | ¿Bloquea publicar? | Por qué |
-|---|---|---|
-| 1 · Catálogo de estados | **SÍ** | El selector de estado fenológico ya está en pantalla. Si el listado cambia después, los informes emitidos quedan con un estado que dejó de existir |
-| 2 · Alcance por informe o por variedad | **SÍ** | El número se imprime en el informe que recibe el cliente. Sin definir qué significa, sale un dato ambiguo |
-| 3 · Unidades (CE, pasadas, tocones) | No | Son respuestas de labores que **todavía no se muestran** en pantalla. Nada las usa ni las imprime |
-| 4 · Campos dudosos del Excel | No para este candidato | Tampoco se muestran aún. Sí hay que cerrarlos antes de cablear las respuestas por labor |
+**Bloque 1 · Catálogo — CERRADO.** *"Lo que vale es la hoja 1, la otra no la consideres."*
+El catálogo operativo son los **8 estados de "Hoja1"**, con Floración y Cuaja en un solo estado
+("4- Floración y cuajado"). Las **19 labores** que solo estaban en "Manejos por estado" quedan
+fuera por decisión suya; siguen listadas por nombre en el anexo A, no se descartan en silencio.
+Lo ya guardado en informes antiguos se conserva igual.
 
-Los bloques 1 y 2 son los que hay que cerrar en la reunión. Los bloques 3 y 4 pueden quedar
-pendientes sin que nada quede mal configurado: lo que falta no se muestra, no se calcula y no se
-rellena con supuestos.
+**Bloque 2 · Alcance — CERRADO.** *"Por variedad (…) cuando use esa opción ideal poder marcar
+varias variedades y se registre la superficie de cada una. El estado fenológico que sea el mismo
+para todas las seleccionadas."*
+
+- El alcance evaluado se registra **por variedad**: cada variedad marcada lleva su propia
+  superficie o cantidad de plantas, con su unidad. No se suma entre unidades, no se convierte y no
+  se reparte nada automáticamente.
+- El **estado fenológico predominante es uno solo por informe**, común a todas las variedades
+  marcadas, y la pantalla lo dice.
+- Los informes antiguos conservan su superficie del informe completo, en hectáreas, con su
+  procedencia. No se reparte por variedad.
+
+## Lo que queda abierto (no bloquea publicar)
+
+**Bloque 3 · Unidades** y **Bloque 4 · Campos dudosos de "Hoja1"**: son respuestas de labores que
+todavía no se muestran en pantalla. Se completan cuando se cableen las respuestas por labor. El
+detalle está más abajo, sin cambios.
 
 ---
 
@@ -48,12 +61,10 @@ Los 9 de la otra hoja quedaron registrados **sin fusionar**: no decidimos nosotr
      (sin opciones)           │              │   (con opciones)
 ```
 
-**Lo que hay que resolver en este bloque:**
-- ¿El catálogo son 9 estados o 8? En concreto, ¿Floración y Cuaja son uno o dos?
-- ¿Las 19 labores que solo están en la primera hoja entran? Si entran, les faltan las opciones.
-- Hay 4 pares que parecen la misma labor con dos nombres y **no los unimos**: Pinchado /
-  Pinchado-despunte · Segregación de plantas / …por vigor · Limpieza de cañas / …basales ·
-  Poda / Poda post-cosecha.
+**CERRADO**: gobierna Hoja1. Las 19 labores de la otra hoja quedan fuera. Los 4 pares que parecen
+la misma labor con dos nombres (Pinchado / Pinchado-despunte · Segregación de plantas / …por vigor
+· Limpieza de cañas / …basales · Poda / Poda post-cosecha) dejan de ser un problema: solo entran
+los nombres de Hoja1.
 
 *(Listado completo de las 19 y las 16 en el anexo A.)*
 

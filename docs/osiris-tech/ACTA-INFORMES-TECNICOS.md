@@ -147,3 +147,37 @@ transporte estaba interceptado y no se envió ningún correo.
 
 Siguiente paso acordado: revisión con Nicolás, cierre del catálogo y recién ahí el candidato
 definitivo.
+
+---
+
+## 9 · Candidato definitivo (2026-09-25 / revisión 2026-09-28)
+
+Con las respuestas de Nicolás, los dos bloques que bloqueaban publicar quedaron cerrados y el
+candidato se completó:
+
+| Decisión de Nicolás | Qué se implementó |
+|---|---|
+| "Lo que vale es la hoja 1, la otra no la consideres" | Catálogo = 8 estados de Hoja1, Floración y Cuaja en uno. Las 19 labores de la otra hoja quedan fuera, listadas por nombre. Lo guardado en informes antiguos se conserva |
+| "Por variedad… se registre la superficie de cada una" | Una fila por variedad marcada, cada una con su valor y su unidad. Sin sumas entre unidades, sin conversión, sin reparto |
+| "El estado fenológico que sea el mismo para todas las seleccionadas" | Uno solo por informe. La pantalla lo dice: "Uno solo por informe: el mismo para todas las variedades seleccionadas" |
+
+### Revisión en el entorno aislado (rearmado)
+
+El entorno aislado se cayó con la sesión anterior. Se rearmó **sin tocar producción**: Postgres y
+PostgREST nuevos, la fila `osiris` sembrada desde la copia ya tomada el 2026-09-24 y `main` con
+solo los dos usuarios sintéticos de prueba.
+
+| Comprobación | Resultado |
+|---|---|
+| Alcance por variedad, unidades distintas | T11-719: **4 ha** · MegaEarly: **8.400 plantas**. No se sumó ni se convirtió |
+| Falta una variedad | "Falta declarar: MegaEarly. No se convierte de há a plantas ni al revés." |
+| Guardado y recarga | Tras recargar, ambos valores intactos |
+| Estado fenológico | Nota visible: uno solo por informe, común a las variedades marcadas |
+| PDF | "Alcance evaluado — T11-719: 4 ha · MegaEarly: 8.400 plantas" |
+
+### Lo que sigue abierto (no bloquea)
+
+Unidades de CE, frecuencia de pasadas y número de tocones, y los campos dudosos de Hoja1
+(polinización con macronutrientes, macronutrientes por estado, Biometría, "Uniformidad
+establecimiento", fecha obligatoria). Son respuestas de labores que **todavía no se muestran**: se
+cierran cuando se cableen las respuestas por labor, que es un incremento aparte.
