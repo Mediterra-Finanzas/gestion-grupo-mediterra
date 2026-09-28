@@ -42,6 +42,9 @@ const SINONIMOS_UNIDAD = {
 // (`fenologia`, `fenologiaEstado`, `fenologiaUniformidad`, `fenologiaObs`)
 // NO se tocan, para no romper los informes guardados.
 export const ETIQUETA_ESTADO_FENOLOGICO = "Estado fenológico predominante";
+// Decisión de Nicolás (2026-09-25): uno solo por informe. Si se agrupan varias
+// variedades es porque comparten estado, así que el estado es común a todas.
+export const NOTA_ESTADO_FENOLOGICO = "Uno solo por informe: el mismo para todas las variedades seleccionadas.";
 export const CLAVE_SECCION_FENOLOGIA = "fenologia";
 
 export function etiquetaSeccionFenologia(prefijo) {
@@ -385,4 +388,75 @@ export function faltantesDefinicion() {
       bloquea: false,
     },
   ];
+}
+
+// ---------------------------------------------------------------------------
+// Alcance POR VARIEDAD (decisión de Nicolás, 2026-09-25)
+// ---------------------------------------------------------------------------
+// Un informe puede agrupar varias variedades y cada una lleva su propia
+// superficie o cantidad de plantas, con su unidad. No se suma entre unidades
+// distintas, no se convierte y no se reparte nada automáticamente.
+
+export function alcanceDeVariedad(informe, variedad) {
+  const inf = informe || {};
+  const mapa = (inf.alcanceVariedades && typeof inf.alcanceVariedades === "object") ? inf.alcanceVariedades : {};
+  const d = mapa[variedad] || {};
+  const valor = parsearNumero(d.valor);
+  const unidad = normalizarUnidadAlcance(d.unidad);
+  const completo = valor !== null && valor > 0 && unidad !== "";
+  return {
+    variedad: variedad,
+    valor: valor,
+    unidad: unidad,
+    etiqueta: completo ? formatearNumero(valor) + " " + ETIQUETA_UNIDAD[unidad] : SIN_DEFINIR,
+    completo: completo,
+  };
+}
+
+export function alcancePorVariedad(informe) {
+  return variedadesDe(informe).map((v) => alcanceDeVariedad(informe, v));
+}
+
+export function conAlcanceVariedad(informe, variedad, valor, unidad) {
+  const inf = informe || {};
+  const mapa = Object.assign({}, (inf.alcanceVariedades && typeof inf.alcanceVariedades === "object") ? inf.alcanceVariedades : {});
+  const previo = mapa[variedad] || {};
+  mapa[variedad] = {
+    valor: valor === undefined ? previo.valor : valor,
+    unidad: unidad === undefined ? previo.unidad : normalizarUnidadAlcance(unidad),
+  };
+  return Object.assign({}, inf, { alcanceVariedades: mapa });
+}
+
+// Qué alcance mostrar y de dónde sale. Tres modos, sin mezclarlos:
+//  · "porVariedad": lo nuevo, una línea por variedad.
+//  · "informe":     una declaración única a nivel de informe (lo que exista).
+//  · "historico":   el campo antiguo "Superficie evaluada (há)", válido en
+//                   hectáreas, del informe completo. No se reparte por variedad.
+export function resumenAlcance(informe) {
+  const inf = informe || {};
+  const porVar = alcancePorVariedad(inf);
+  const algunaConDato = porVar.some((x) => x.completo);
+  if (algunaConDato) {
+    return {
+      modo: "porVariedad",
+      filas: porVar,
+      completo: porVar.every((x) => x.completo),
+      faltan: porVar.filter((x) => !x.completo).map((x) => x.variedad),
+      etiqueta: porVar.map((x) => x.variedad + ": " + x.etiqueta).join(" · "),
+      procedencia: "",
+    };
+  }
+  const general = alcanceEvaluado(inf);
+  if (general.completo) {
+    return {
+      modo: general.fuente === "historico" ? "historico" : "informe",
+      filas: [],
+      completo: true,
+      faltan: [],
+      etiqueta: general.etiqueta,
+      procedencia: general.procedencia || "",
+    };
+  }
+  return { modo: "sinDefinir", filas: porVar, completo: false, faltan: porVar.map((x) => x.variedad), etiqueta: SIN_DEFINIR, procedencia: "" };
 }

@@ -530,14 +530,16 @@ export function faltantesDefinicion() {
   return [
     {
       codigo: "FEN-01",
-      titulo: "Las dos hojas no coinciden: cuál gobierna",
+      titulo: "CERRADO: gobierna la hoja \"Hoja1\"",
       detalle:
-        '"Manejos por estado" trae 9 estados y "Hoja1" trae 8. Hoja1 fusiona Floración con Cuaja ("4- Floración y cuajado") y Llenado con Crecimiento ("5- Crecimiento y Llenado del Fruto"). Además, ' +
+        'Nicolás Fuenzalida, 2026-09-25: "Lo que vale es la hoja 1, la otra no la consideres". El catálogo operativo son los 8 estados de Hoja1, con Floración y Cuaja en un solo estado. Las ' +
         LABORES_SOLO_HOJA_MANEJOS.length +
-        " labores aparecen solo en la hoja simple y quedaron fuera del catálogo operativo.",
-      afecta: ["Manejos por estado", "Hoja1"],
+        ' labores que solo estaban en "Manejos por estado" quedan fuera por decisión suya; los valores ya guardados en informes antiguos se conservan igual.',
+      afecta: ["Hoja1"],
       laboresFuera: LABORES_SOLO_HOJA_MANEJOS.slice(),
       resueltoPorClaude: false,
+      cerrado: true,
+      decidioNicolas: "2026-09-25",
     },
     {
       codigo: "FEN-02",

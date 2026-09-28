@@ -136,9 +136,12 @@ describe("Lo no definido se reporta como pendiente, nunca como valor", () => {
     });
   });
 
-  test("la diferencia entre las dos hojas queda registrada, no zanjada", () => {
+  test("la eleccion de hoja quedo cerrada por Nicolas, con las labores descartadas a la vista", () => {
     const uno = faltantesDefinicion().find((x) => x.codigo === "FEN-01");
-    expect(uno.detalle).toMatch(/9 estados/);
+    expect(uno.cerrado).toBe(true);
+    expect(uno.decidioNicolas).toBe("2026-09-25");
+    expect(uno.detalle).toMatch(/gobierna|vale la hoja 1|hoja 1/i);
+    // Las que quedan fuera siguen listadas: se descartan con nombre, no en silencio.
     expect(uno.laboresFuera).toEqual(expect.arrayContaining(["Deshoje", "Control de Botrytis", "Malla / sombreo"]));
   });
 });

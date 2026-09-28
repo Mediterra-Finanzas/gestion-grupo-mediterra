@@ -302,3 +302,68 @@ describe("formato de números chileno", () => {
     expect(formatearNumero(3)).toBe("3");
   });
 });
+
+// ---------------------------------------------------------------------------
+// Alcance por variedad (decisión de Nicolás, 2026-09-25)
+// ---------------------------------------------------------------------------
+import { alcanceDeVariedad, alcancePorVariedad, conAlcanceVariedad, resumenAlcance, NOTA_ESTADO_FENOLOGICO } from "./informeAlcance";
+
+describe("alcance por variedad", () => {
+  const base = { variedades: ["Biloxi", "Ventura", "Emerald"], variedad: "Biloxi" };
+
+  test("cada variedad lleva su propio valor y su propia unidad", () => {
+    let inf = conAlcanceVariedad(base, "Biloxi", "4", "ha");
+    inf = conAlcanceVariedad(inf, "Ventura", "3,5", "ha");
+    inf = conAlcanceVariedad(inf, "Emerald", "8400", "plantas");
+    const filas = alcancePorVariedad(inf);
+    expect(filas).toHaveLength(3);
+    expect(filas[0].etiqueta).toBe("4 ha");
+    expect(filas[1].etiqueta).toBe("3,5 ha");
+    expect(filas[2].etiqueta).toBe("8.400 plantas");
+  });
+
+  test("no se suma ni se convierte entre variedades ni entre unidades", () => {
+    let inf = conAlcanceVariedad(base, "Biloxi", "4", "ha");
+    inf = conAlcanceVariedad(inf, "Emerald", "8400", "plantas");
+    const r = resumenAlcance(inf);
+    expect(r.modo).toBe("porVariedad");
+    expect(r.etiqueta).toBe("Biloxi: 4 ha · Ventura: sin definir · Emerald: 8.400 plantas");
+    expect(r).not.toHaveProperty("total");
+    expect(r.completo).toBe(false);
+    expect(r.faltan).toEqual(["Ventura"]);
+  });
+
+  test("una variedad sin cargar dice «sin definir», nunca cero", () => {
+    const a = alcanceDeVariedad(base, "Ventura");
+    expect(a.completo).toBe(false);
+    expect(a.etiqueta).toBe(SIN_DEFINIR);
+    expect(a.valor).toBeNull();
+  });
+
+  test("declarar una variedad no toca a las otras ni muta el informe", () => {
+    const uno = conAlcanceVariedad(base, "Biloxi", "4", "ha");
+    const dos = conAlcanceVariedad(uno, "Ventura", "3,5", "ha");
+    expect(alcanceDeVariedad(dos, "Biloxi").etiqueta).toBe("4 ha");
+    expect(base.alcanceVariedades).toBeUndefined();
+    expect(alcanceDeVariedad(uno, "Ventura").completo).toBe(false);
+  });
+
+  test("informe antiguo: sigue mostrando su superficie del informe completo, sin repartirla", () => {
+    const r = resumenAlcance({ variedad: "Biloxi", superficie: "12,5" });
+    expect(r.modo).toBe("historico");
+    expect(r.etiqueta).toBe("12,5 ha");
+    expect(r.procedencia).toBe("Superficie evaluada (há)");
+    expect(r.filas).toEqual([]);          // no se creo una fila por variedad
+  });
+
+  test("informe sin nada: sin definir, con la lista de variedades que faltan", () => {
+    const r = resumenAlcance(base);
+    expect(r.modo).toBe("sinDefinir");
+    expect(r.etiqueta).toBe(SIN_DEFINIR);
+    expect(r.faltan).toEqual(["Biloxi", "Ventura", "Emerald"]);
+  });
+
+  test("el estado fenológico es uno solo para todas las variedades", () => {
+    expect(NOTA_ESTADO_FENOLOGICO).toMatch(/el mismo para todas las variedades/i);
+  });
+});

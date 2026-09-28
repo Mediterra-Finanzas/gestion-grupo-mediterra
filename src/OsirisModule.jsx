@@ -12,7 +12,8 @@ import { catalogoFenologicoCombinado, estadoFenologicoVigente, laboresDeEstado }
 import {
   ETIQUETA_ESTADO_FENOLOGICO, etiquetaSeccionFenologia, alcanceEvaluado, conAlcance,
   densidadDeclarada, variedadesDe, conVariedades, etiquetaVariedades, UNIDADES_ALCANCE,
-  cambioDeSignificado,
+  cambioDeSignificado, alcanceDeVariedad, alcancePorVariedad, conAlcanceVariedad,
+  resumenAlcance, NOTA_ESTADO_FENOLOGICO,
 } from "./osiris/informeAlcance";
 import { asuntoCorreoInforme, cuerpoCorreoInforme, vistaPreviaCorreo, validarDestinatarios } from "./osiris/correoInforme";
 import {
@@ -5422,8 +5423,8 @@ td{padding:3px 8px;border-bottom:1px solid #f1f5f9}
 <div><div class="label">Ubicación</div><div class="value">${inf.ubicacion||'—'}</div></div>
 <div><div class="label">Especie / Variedades</div><div class="value">${inf.especie||'—'}${etiquetaVariedades(inf)!=='—'?' · '+etiquetaVariedades(inf):''}</div></div>
 <div><div class="label">Mes/Año Plantación</div><div class="value">${inf.mesAnioPlantacion||'—'}</div></div>
-<div><div class="label">Alcance evaluado</div><div class="value">${alcanceEvaluado(inf).etiqueta}</div></div>
-${alcanceEvaluado(inf).fuente==="historico"?`<div><div class="label">Procedencia del alcance</div><div class="value">${alcanceEvaluado(inf).procedencia}</div></div>`:''}
+<div><div class="label">Alcance evaluado</div><div class="value">${resumenAlcance(inf).etiqueta}</div></div>
+${resumenAlcance(inf).modo==="historico"?`<div><div class="label">Procedencia del alcance</div><div class="value">${resumenAlcance(inf).procedencia} (informe completo)</div></div>`:''}
 <div><div class="label">Densidad de plantación</div><div class="value">${densidadDeclarada(inf).etiqueta}</div></div>
 <div><div class="label">Sistema productivo</div><div class="value">${inf.sistemaProductivo||'—'}</div></div>
 <div><div class="label">Sustrato</div><div class="value">${inf.sustrato||'—'}</div></div>
@@ -5826,32 +5827,43 @@ ${inf.proximaVisitaFecha?`<div class="section"><h2>Próxima Visita</h2><div clas
                         <div style={{fontSize:10,color:C.muted2,marginTop:3}}>Seleccionadas: {etiquetaVariedades(inf)}</div>
                       </div>
                       <Input label="Mes/Año plantación" value={inf.mesAnioPlantacion} onChange={v=>updInf("mesAnioPlantacion",v)} disabled={!puedeEditar} placeholder="Ej: Marzo 2024"/>
-                      <div>
-                        <div style={{fontSize:11,color:C.muted,fontWeight:600,marginBottom:3}}>Alcance evaluado</div>
-                        <div style={{display:"flex",gap:6}}>
-                          <input disabled={!puedeEditar} value={inf.alcanceValor!==undefined?inf.alcanceValor:""}
-                            placeholder="sin definir"
-                            onChange={e=>updInf("alcanceValor",e.target.value)}
-                            style={{flex:1,padding:"7px 10px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:12,boxSizing:"border-box"}}/>
-                          <select disabled={!puedeEditar} value={inf.alcanceUnidad||""}
-                            onChange={e=>{
-                              const c=cambioDeSignificado(inf, inf.alcanceValor, e.target.value);
-                              if(c.requiereConfirmacion && !window.confirm(c.motivo+"\n\n¿Confirmas el cambio?")) return;
-                              updInf("alcanceUnidad",e.target.value);
-                            }}
-                            style={{padding:"7px 10px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:12}}>
-                            <option value="">— unidad —</option>
-                            {UNIDADES_ALCANCE.map(u=><option key={u} value={u}>{u==="ha"?"hectáreas (ha)":"número de plantas"}</option>)}
-                          </select>
+                      <div style={{gridColumn:"1/-1"}}>
+                        <div style={{fontSize:11,color:C.muted,fontWeight:600,marginBottom:3}}>
+                          Alcance evaluado — una superficie o cantidad de plantas por variedad
                         </div>
-                        <div style={{fontSize:10,color:alcanceEvaluado(inf).completo?C.muted2:(C.am||"#854d0e"),marginTop:3}}>
-                          {alcanceEvaluado(inf).etiqueta}{!alcanceEvaluado(inf).completo?" · falta el valor o la unidad. No se convierte de há a plantas ni al revés.":""}
-                        </div>
-                        {alcanceEvaluado(inf).fuente==="historico"?(
-                          <div style={{fontSize:10,color:C.muted,marginTop:3,background:C.cardAlt,borderRadius:5,padding:"4px 6px"}}>
-                            Viene del campo histórico &quot;{alcanceEvaluado(inf).procedencia}&quot;: es un dato válido en
-                            hectáreas y así se muestra. No se reparte por variedad ni se convierte a plantas.
-                          </div>):null}
+                        {variedadesDe(inf).length===0?(
+                          <div style={{fontSize:11,color:C.muted2}}>Selecciona al menos una variedad para declarar su alcance.</div>
+                        ):(
+                          <div style={{display:"flex",flexDirection:"column",gap:6}}>
+                            {alcancePorVariedad(inf).map(fila=>(
+                              <div key={fila.variedad} style={{display:"flex",gap:6,alignItems:"center"}}>
+                                <div style={{minWidth:150,fontSize:11,fontWeight:600,color:C.text}}>{fila.variedad}</div>
+                                <input disabled={!puedeEditar} value={(inf.alcanceVariedades&&inf.alcanceVariedades[fila.variedad]&&inf.alcanceVariedades[fila.variedad].valor)||""}
+                                  placeholder="sin definir"
+                                  onChange={e=>updInf("alcanceVariedades", conAlcanceVariedad(inf, fila.variedad, e.target.value, undefined).alcanceVariedades)}
+                                  style={{flex:1,padding:"6px 9px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:12,boxSizing:"border-box"}}/>
+                                <select disabled={!puedeEditar} value={fila.unidad||""}
+                                  onChange={e=>updInf("alcanceVariedades", conAlcanceVariedad(inf, fila.variedad, undefined, e.target.value).alcanceVariedades)}
+                                  style={{padding:"6px 9px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:12}}>
+                                  <option value="">— unidad —</option>
+                                  {UNIDADES_ALCANCE.map(u=><option key={u} value={u}>{u==="ha"?"hectáreas (ha)":"número de plantas"}</option>)}
+                                </select>
+                                <div style={{minWidth:110,fontSize:10,color:fila.completo?C.muted2:(C.am||"#854d0e")}}>{fila.etiqueta}</div>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                        {(()=>{ const r=resumenAlcance(inf);
+                          if(r.modo==="historico") return (
+                            <div style={{fontSize:10,color:C.muted,marginTop:5,background:C.cardAlt,borderRadius:5,padding:"4px 6px"}}>
+                              Este informe trae <strong>{r.etiqueta}</strong> del campo histórico &quot;{r.procedencia}&quot;, del informe completo.
+                              Es un dato válido en hectáreas y se conserva así: no se reparte por variedad ni se convierte a plantas.
+                            </div>);
+                          if(r.modo==="informe") return (
+                            <div style={{fontSize:10,color:C.muted,marginTop:5}}>Declarado a nivel de informe: <strong>{r.etiqueta}</strong>.</div>);
+                          if(r.modo==="porVariedad"&&!r.completo) return (
+                            <div style={{fontSize:10,color:(C.am||"#854d0e"),marginTop:5}}>Falta declarar: {r.faltan.join(", ")}. No se convierte de há a plantas ni al revés.</div>);
+                          return null; })()}
                       </div>
                       <div>
                         <div style={{fontSize:11,color:C.muted,fontWeight:600,marginBottom:3}}>Densidad de plantación</div>
@@ -5891,6 +5903,7 @@ ${inf.proximaVisitaFecha?`<div class="section"><h2>Próxima Visita</h2><div clas
                         const vig = estadoFenologicoVigente(inf.fenologiaEstado);
                         return (<div>
                           <Select label={ETIQUETA_ESTADO_FENOLOGICO} value={inf.fenologiaEstado} onChange={v=>updInf("fenologiaEstado",v)} opts={opciones} disabled={!puedeEditar}/>
+                          <div style={{fontSize:10,color:C.muted2,marginTop:3}}>{NOTA_ESTADO_FENOLOGICO}</div>
                           {vig.valor&&!vig.existeEnCatalogoNuevo?(
                             <div style={{fontSize:10,color:(C.am||"#854d0e"),marginTop:3}}>
                               Valor histórico &quot;{vig.valor}&quot;: no está en el catálogo nuevo y se conserva tal cual.
