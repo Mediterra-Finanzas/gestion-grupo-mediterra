@@ -257,6 +257,40 @@ describe("20. validarUnicidadOE", () => {
   });
 });
 
+// 20b — grandfathering: un duplicado YA persistido en el servidor NO bloquea el guardado
+// (incidente Carolina: dos liquidaciones activas para una OE quedaron persistidas y trababan
+// TODO guardado de la fila). Solo se bloquea si el candidato AUMENTA la duplicación.
+describe("20b. validarUnicidadOE — grandfathering de duplicados preexistentes", () => {
+  const A = { id: "A", oeId: "X", estado: "pagada" };
+  const B = { id: "B", oeId: "X", estado: "pagada" };  // dup preexistente para OE X
+  it("servidor ya tiene el duplicado y el candidato lo mantiene → NO bloquea (ok)", () => {
+    const r = validarUnicidadOE([A, B], { servidor: [A, B] });
+    expect(r.ok).toBe(true);
+  });
+  it("editar OTRA liquidación con el duplicado preexistente presente → NO bloquea (caso real)", () => {
+    const C = { id: "C", oeId: "Y", estado: "borrador" };          // edición no relacionada
+    const r = validarUnicidadOE([A, B, C], { servidor: [A, B] });
+    expect(r.ok).toBe(true);
+  });
+  it("aumentar el duplicado preexistente (3ª activa para la OE) → SÍ bloquea", () => {
+    const D = { id: "D", oeId: "X", estado: "borrador" };
+    const r = validarUnicidadOE([A, B, D], { servidor: [A, B] });
+    expect(r.ok).toBe(false);
+    expect(r.motivo).toBe("duplicado_oe");
+    expect(r.oeId).toBe("X");
+  });
+  it("reducir el duplicado (dejar una sola activa) → pasa", () => {
+    const r = validarUnicidadOE([A], { servidor: [A, B] });
+    expect(r.ok).toBe(true);
+  });
+  it("carrera real preservada: servidor 1, candidato 2 para la OE → bloquea", () => {
+    const r = validarUnicidadOE([A, B], { servidor: [A] });
+    expect(r.ok).toBe(false);
+    expect(r.motivo).toBe("duplicado_oe");
+    expect(r.idExistente).toBe("A");
+  });
+});
+
 // 21 — evaluarConfirmacion mapea los motivos nuevos
 describe("21. evaluarConfirmacion: duplicado_oe / fila_ausente", () => {
   it("duplicado_oe -> estado 'duplicado' con idExistente; fila_ausente -> error", () => {

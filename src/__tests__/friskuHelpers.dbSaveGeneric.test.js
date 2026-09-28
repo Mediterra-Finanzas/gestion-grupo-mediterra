@@ -99,3 +99,86 @@ test("T6 el validador corre también ANTES del write inicial (P1)", async () => 
   expect(r.motivo).toBe("duplicado_oe");
   expect(calls.filter(c => c.method !== "GET").length).toBe(0); // ninguna escritura
 });
+
+// ── Fix incidente Carolina: un duplicado YA persistido no debe bloquear el guardado ──
+test("T7 duplicado PREEXISTENTE en el servidor -> NO bloquea; el guardado procede (desbloqueo)", async () => {
+  const A = { id: "A", oeId: "X", estado: "pagada" };
+  const B = { id: "B", oeId: "X", estado: "pagada" };    // dup ya persistido (dato legado)
+  const C = { id: "C", oeId: "Y", estado: "borrador" };  // edición NO relacionada de Carolina
+  const calls = [];
+  mockFetch([
+    resp([{ value: [A, B], updated_at: "V" }]),          // GET load -> servidor ya trae el duplicado
+    resp([{ value: [A, B, C], updated_at: "V2" }]),      // PATCH -> ok (el validador lo tolera)
+  ], calls);
+  await dbLoadGeneric(ID);
+  const r = await dbSaveGeneric(ID, [A, B, C], { requiereFilaExistente: true, validarCandidato: validarUnicidadOE });
+  expect(r.ok).toBe(true);
+  expect(calls.filter(c => c.method === "PATCH").length).toBe(1); // el write SÍ ocurre (ya no bloquea)
+});
+
+test("T8 AUMENTAR el duplicado preexistente (3ª activa misma OE) -> rechazado sin escribir", async () => {
+  const A = { id: "A", oeId: "X" }, B = { id: "B", oeId: "X" }, D = { id: "D", oeId: "X" };
+  const calls = [];
+  mockFetch([ resp([{ value: [A, B], updated_at: "V" }]) ], calls);  // solo GET
+  await dbLoadGeneric(ID);
+  const r = await dbSaveGeneric(ID, [A, B, D], { requiereFilaExistente: true, validarCandidato: validarUnicidadOE });
+  expect(r.ok).toBe(false);
+  expect(r.motivo).toBe("duplicado_oe");
+  expect(calls.filter(c => c.method !== "GET").length).toBe(0);      // no escribe
+});
+
+test("T9 carga fallida PROPAGA (no habilita guardar con defaults) — anti-borrado", async () => {
+  global.fetch = jest.fn(async () => ({ ok: false, status: 500, json: async () => ({}), text: async () => "" }));
+  await expect(dbLoadGeneric(ID)).rejects.toThrow();   // la excepción debe propagar al caller
+});
+
+test("T10 error de Supabase conserva lo local; reintento posterior SÍ guarda", async () => {
+  const Z = { id: "Z", oeId: "Q" }, Z2 = { id: "Z2", oeId: "Q2" };
+  const calls = [];
+  mockFetch([
+    resp([{ value: [Z], updated_at: "V0" }]),            // GET load
+    resp("boom", { ok: false, status: 400 }),            // PATCH -> 400 (rechazo del servidor)
+  ], calls);
+  await dbLoadGeneric(ID);
+  const r1 = await dbSaveGeneric(ID, [Z, Z2]);
+  expect(r1.ok).toBe(false);
+  expect(r1.motivo).toBe("http");
+  expect(r1.status).toBe(400);                           // el error se reporta, no se traga
+  // El error NO corrompió la base ni consumió la versión: el reintento parte de la MISMA versión.
+  const calls2 = [];
+  mockFetch([ resp([{ value: [Z, Z2], updated_at: "V1" }]) ], calls2);  // PATCH reintento -> ok
+  const r2 = await dbSaveGeneric(ID, [Z, Z2]);
+  expect(r2.ok).toBe(true);
+  expect(calls2.filter(c => c.method === "PATCH").length).toBe(1);
+});
+
+test("T11 nunca escribe a un id distinto del indicado", async () => {
+  const calls = [];
+  mockFetch([
+    resp([{ value: [], updated_at: "V" }]),
+    resp([{ value: [{ id: "N", oeId: "O" }], updated_at: "V2" }]),
+  ], calls);
+  await dbLoadGeneric(ID);
+  await dbSaveGeneric(ID, [{ id: "N", oeId: "O" }]);
+  for (const c of calls) {
+    expect(c.url).toContain("calendario_data");
+    if (c.method !== "POST") expect(c.url).toContain("id=eq." + ID);   // siempre la MISMA fila
+    expect(/id=eq\.(?!frisku_liquidaciones)/.test(c.url)).toBe(false); // jamás otro id
+  }
+});
+
+test("T12 payload grande realista se serializa y guarda sin pérdida", async () => {
+  const grande = Array.from({ length: 250 }, (_, i) => ({ id: "L" + i, oeId: "OE" + i, estado: "pagada", detalle: "x".repeat(200) }));
+  let bodyPatch = null;
+  global.fetch = jest.fn(async (url, opts) => {
+    const method = (opts && opts.method) || "GET";
+    if (method === "GET") return resp([{ value: [], updated_at: "V" }]);
+    bodyPatch = JSON.parse(opts.body);
+    return resp([{ value: grande, updated_at: "V2" }]);
+  });
+  await dbLoadGeneric(ID);
+  const r = await dbSaveGeneric(ID, grande, { requiereFilaExistente: true, validarCandidato: validarUnicidadOE });
+  expect(r.ok).toBe(true);
+  expect(Array.isArray(bodyPatch.value)).toBe(true);
+  expect(bodyPatch.value.length).toBe(250);             // sin pérdida ni truncado
+});
