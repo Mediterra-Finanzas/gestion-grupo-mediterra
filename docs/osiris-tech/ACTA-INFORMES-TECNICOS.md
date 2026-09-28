@@ -328,3 +328,45 @@ paquete tributario sigue fuera.
 
 **Salvedad**: Frisku avisó que su hotfix está desplegado pero **falta la prueba real de Carolina**.
 Si de ahí sale un commit más, la base vuelve a moverse y hay que rehacer esta integración.
+
+---
+
+## 12 · Reintegración sobre `ee3ac1a` (2026-09-28, cierre)
+
+Frisku publicó la vinculación manual de SharePoint mientras el paquete esperaba el permiso. Base
+`8e7a078` → **`ee3ac1a`**, dos commits, cinco archivos, todos de Frisku
+(`FriskuComercialModule.jsx`, `FriskuSharePointBuscador.jsx` y su prueba, `friskuComexVinculo.js`
+y su prueba). Merge local limpio, mismo alcance, sin agregar nada.
+
+### Identificadores definitivos
+
+| | |
+|---|---|
+| **Paquete** | la punta de `osiris/informes-integrado` |
+| Merge de integración | `ee9aded2282852269d7b169d91afce2669db51e7` |
+| Código (último commit que toca `src/`) | `add4ece177368275ad091bc55bbb09484bd5ed53` |
+| **Base** | `origin/main` = `ee3ac1a1b32e17f7a1d6874ca2e13ea17aebabc0` |
+| Production | desplegada desde `ee3ac1a`, `success`, 2026-09-28 14:32 UTC |
+| **Deployment de recuperación** | **`6712518118`** |
+
+Diff contra la base: 9 archivos, +2.928 / −33, todos en `src/osiris/`, `src/OsirisModule.jsx` y
+`docs/osiris-tech/`.
+
+### Comprobaciones
+
+| | Base sola (`ee3ac1a`) | Paquete integrado |
+|---|---|---|
+| Pasan | 1.042 | **1.151** |
+| Fallan | 2 | **2** |
+| Saltadas | 9 | 9 |
+
+Diferencia 1.151 − 1.042 = **109**, exactamente las pruebas propias del paquete (44 + 40 + 25).
+Build `CI=true`: `Compiled successfully`. Las dos fallas son las mismas a ambos lados:
+`paramsFrutaAnticipos` y `secHf1`.
+
+### Evidencia reutilizada
+
+`OsirisModule.jsx` no usa ninguno de los cinco archivos que cambiaron ni están en la ruta de
+guardado de la fila `osiris`. Se conservan sin repetir: revisión visual en aislado, comprobación
+del cuerpo del correo (acredita contenido, no entrega) y prueba de recuperación (el código anterior
+conserva los campos nuevos y **no los muestra**).
