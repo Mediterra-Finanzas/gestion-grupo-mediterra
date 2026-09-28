@@ -50,12 +50,34 @@ function escanear(dirs, exts) {
   return hallazgos;
 }
 
+// Un archivo de test NO es código productivo (no entra al bundle publicado; el bundle se
+// escanea aparte en el test siguiente) y usa PINs SINTÉTICOS de fixture de forma legítima. Se
+// excluye tanto la carpeta `__tests__/` como los archivos co-ubicados `*.test.*` / `*.spec.*`.
+// El escaneo de código fuente real (no-test) queda intacto: si un PIN literal aparece en una
+// fuente de producción, se sigue detectando (lo prueba el test de anti-vacuidad, cuya sonda NO
+// es un archivo de test). No es una exclusión amplia: se limita a los archivos de prueba.
+const esArchivoDeTest = (p) =>
+  /(^|\/)__tests__\//.test(p) || /\.(test|spec)\.(js|jsx|mjs|ts|tsx)$/.test(p);
+
 describe("SEC-HF1 · 1. no hay PIN literal en ninguna parte", () => {
-  test("la fuente está limpia", () => {
+  test("la fuente (código productivo, no archivos de test) está limpia", () => {
     const h = escanear(["src", "api"], [".js", ".jsx", ".mjs", ".ts"])
-      .filter((x) => !/__tests__/.test(x.archivo));
+      .filter((x) => !esArchivoDeTest(x.archivo));
     expect(h.length === 0 ? "limpio"
       : "HAY " + h.length + ": " + h.map((x) => x.archivo + ":" + x.linea).join(", ")).toBe("limpio");
+  });
+
+  test("la exclusión es estricta: solo archivos de prueba, nunca código productivo", () => {
+    // Se excluyen: carpeta __tests__/ y co-ubicados *.test.* / *.spec.*
+    expect(esArchivoDeTest("src/data/__tests__/secHf1.test.js")).toBe(true);
+    expect(esArchivoDeTest("src/friskuSharePointClient.test.js")).toBe(true);
+    expect(esArchivoDeTest("api/frisku-sp.test.mjs")).toBe(true);
+    expect(esArchivoDeTest("src/components/Foo.spec.jsx")).toBe(true);
+    // NO se excluye código productivo, aunque el nombre contenga "test":
+    expect(esArchivoDeTest("src/App.jsx")).toBe(false);
+    expect(esArchivoDeTest("src/tester.js")).toBe(false);
+    expect(esArchivoDeTest("src/testUtils.js")).toBe(false);
+    expect(esArchivoDeTest("api/frisku-sp.js")).toBe(false);
   });
 
   test("el bundle publicado y sus source maps están limpios", () => {
