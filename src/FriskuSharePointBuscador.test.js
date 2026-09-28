@@ -137,14 +137,28 @@ describe("FriskuSharePointBuscador — vinculación manual a requisito COMEX", (
     { docId: "d1", tipo: "Packing List", tieneRef: false },
     { docId: "d2", tipo: "QC", tieneRef: true },   // ya tiene referencia → 2ª confirmación
   ];
+  const SP_FRISKU = "https://grupomediterra.sharepoint.com/sites/FriskuFoodsSpA/Documentos%20compartidos/BL.pdf";
   const conResultado = (over = {}) => mkCliente({
-    buscarCandidatos: jest.fn(async () => ({ ok: true, resultado: RES, porId: { IT1: { webUrl: "https://t.sharepoint.com/BL.pdf", name: "BL.pdf" } } })),
+    buscarCandidatos: jest.fn(async () => ({ ok: true, resultado: RES, porId: { IT1: { webUrl: SP_FRISKU, name: "BL.pdf" } } })),
     ...over,
   });
+  const conPorId = (porId) => mkCliente({ buscarCandidatos: jest.fn(async () => ({ ok: true, resultado: RES, porId })) });
   const buscar = async () => { fireEvent.click(screen.getByText("Buscar en SharePoint")); await screen.findByText("BL.pdf"); };
 
   test("permisos: sin canEdit no se ofrece Vincular", async () => {
     render(<FriskuSharePointBuscador oe={OE} cliente={conResultado()} requisitos={REQ} onVincular={jest.fn()} canEdit={false} />);
+    await buscar();
+    expect(screen.queryByText("Vincular")).not.toBeInTheDocument();
+  });
+
+  test("candidato sin enlace válido: NO se ofrece Vincular (webUrl vacío)", async () => {
+    render(<FriskuSharePointBuscador oe={OE} cliente={conPorId({ IT1: { webUrl: "", name: "BL.pdf" } })} requisitos={REQ} onVincular={jest.fn()} canEdit />);
+    await buscar();
+    expect(screen.queryByText("Vincular")).not.toBeInTheDocument();
+  });
+
+  test("candidato con dominio ajeno o http: NO se ofrece Vincular", async () => {
+    render(<FriskuSharePointBuscador oe={OE} cliente={conPorId({ IT1: { webUrl: "https://evil.example/BL.pdf", name: "BL.pdf" } })} requisitos={REQ} onVincular={jest.fn()} canEdit />);
     await buscar();
     expect(screen.queryByText("Vincular")).not.toBeInTheDocument();
   });
@@ -158,7 +172,7 @@ describe("FriskuSharePointBuscador — vinculación manual a requisito COMEX", (
     fireEvent.click(screen.getByText("Continuar"));
     expect(onVincular).not.toHaveBeenCalled();                 // aún no: falta la confirmación
     fireEvent.click(screen.getByText("Confirmar vínculo"));
-    expect(onVincular).toHaveBeenCalledWith(expect.objectContaining({ driveId: "D", itemId: "IT1", nombre: "BL.pdf", webUrl: "https://t.sharepoint.com/BL.pdf" }), "d1");
+    expect(onVincular).toHaveBeenCalledWith(expect.objectContaining({ driveId: "D", itemId: "IT1", nombre: "BL.pdf", webUrl: SP_FRISKU }), "d1");
     expect(await screen.findByText(/Vinculado a Packing List/)).toBeInTheDocument();
   });
 

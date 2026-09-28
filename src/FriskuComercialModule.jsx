@@ -3246,6 +3246,7 @@ function CarpetaComexPanel({ oe, onGuardar, canEdit, cargaOk, usuario }) {
   const [dirty,    setDirty]    = useState(false);
   const [uploading,setUploading]= useState(new Set());
   const [subTab,   setSubTab]   = useState("docs");
+  const [confirmarDesvinc, setConfirmarDesvinc] = useState(null);   // docId pendiente de confirmar desvínculo
 
   function updDoc(idx,k,v){ setCx(p=>{ const d=[...p.docs]; d[idx]={...d[idx],[k]:v}; return {...p,docs:d}; }); setDirty(true); }
   function addDoc(){ setCx(p=>({...p,docs:[...p.docs,{id:uid(),tipo:"Otro",nombre:"",url:"",fuente:"manual",fechaCarga:"",estado:"pendiente"}]})); setDirty(true); }
@@ -3297,7 +3298,7 @@ function CarpetaComexPanel({ oe, onGuardar, canEdit, cargaOk, usuario }) {
     if (!canEdit) return { ok: false, motivo: "sin_permiso" };
     if (!puedeGuardar()) return { ok: false, motivo: "carga" };     // gate anti-borrado
     const r = aplicarVinculoComex(cx, docId, ref, { usuario });
-    if (!r.ok) return { ok: false, motivo: "error" };
+    if (!r.ok) return { ok: false, motivo: r.motivo || "error" };   // propaga el motivo exacto a la UI
     setCx(r.cx); setDirty(true); onGuardar(r.cx);
     return { ok: true };
   };
@@ -3394,9 +3395,17 @@ function CarpetaComexPanel({ oe, onGuardar, canEdit, cargaOk, usuario }) {
                         {isUploading?"⏳ Subiendo…":adjunto?"📎 Reemplazar":"📎 Subir"}
                       </button>
                       {esVinculoSharePoint(doc)
-                        ? <button onClick={()=>onDesvincularSp(doc.id)}
-                            title="Quitar el vínculo con SharePoint. No borra el archivo en SharePoint ni el requisito."
-                            style={{...btnSt(C.blue,true),padding:"3px 8px",fontSize:10,flexShrink:0,whiteSpace:"nowrap"}}>🔗✕ Desvincular</button>
+                        ? (confirmarDesvinc===doc.id
+                            ? <span style={{display:"inline-flex",gap:5,alignItems:"center",flexWrap:"wrap"}}>
+                                <span style={{fontSize:9,color:C.blue,fontWeight:600}} title="Solo se quita la referencia en esta app.">Se quitará solo la referencia; el archivo seguirá en SharePoint.</span>
+                                <button onClick={()=>{ onDesvincularSp(doc.id); setConfirmarDesvinc(null); }}
+                                  style={{...btnSt(C.blue,true),padding:"3px 8px",fontSize:10,flexShrink:0,whiteSpace:"nowrap"}}>Sí, desvincular</button>
+                                <button onClick={()=>setConfirmarDesvinc(null)}
+                                  style={{...btnSt(C.muted2,true),padding:"3px 8px",fontSize:10,flexShrink:0}}>Cancelar</button>
+                              </span>
+                            : <button onClick={()=>setConfirmarDesvinc(doc.id)}
+                                title="Quitar el vínculo con SharePoint. No borra el archivo en SharePoint ni el requisito."
+                                style={{...btnSt(C.blue,true),padding:"3px 8px",fontSize:10,flexShrink:0,whiteSpace:"nowrap"}}>🔗✕ Desvincular</button>)
                         : (doc.url && (
                           <button onClick={()=>{ updDoc(idx,"url",""); updDoc(idx,"nombre",""); updDoc(idx,"fuente","manual"); updDoc(idx,"estado","pendiente"); }}
                             style={{...btnSt(C.accent,true),padding:"3px 6px",fontSize:10,flexShrink:0}}>✕</button>

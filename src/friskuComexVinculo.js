@@ -11,14 +11,36 @@
 
 const hoyISO = () => new Date().toISOString().slice(0, 10);
 
+// SharePoint AUTORIZADO de Grupo Mediterra / Frisku. Solo se aceptan enlaces https del
+// host y sitio Frisku; cualquier otra URL (http, otro dominio, otro sitio, vacía) se rechaza.
+const SP_HOST = "grupomediterra.sharepoint.com";
+const SP_SITE_PREFIJO = "/sites/friskufoodsspa/";   // se compara en minúsculas (host/site case-insensitive)
+export function esWebUrlSharePointFrisku(u) {
+  try {
+    const url = new URL(String(u));
+    if (url.protocol !== "https:") return false;
+    if (url.hostname.toLowerCase() !== SP_HOST) return false;
+    if (!url.pathname.toLowerCase().startsWith(SP_SITE_PREFIJO)) return false;
+    return true;
+  } catch (e) { return false; }
+}
+const esHttp = (u) => /^https?:\/\//i.test(String(u || ""));
+// Un requisito con archivo SUBIDO a Storage (no un vínculo SharePoint) NO es reemplazable por
+// vínculo: reemplazarlo dejaría el archivo huérfano en Storage. Se bloquea (ver aplicarVinculoComex).
+export function esArchivoStorage(doc) {
+  return !!doc && doc.fuente === "storage" && esHttp(doc.url) && !doc.spRef;
+}
+
 // Requisitos COMEX del embarque para el selector del buscador.
-// tieneRef = el requisito ya tiene una referencia (SharePoint o archivo/URL) → exige 2ª confirmación.
+// tieneRef = ya tiene una referencia (SharePoint/URL/archivo) → exige 2ª confirmación.
+// bloqueadoStorage = tiene un archivo subido a Storage → NO reemplazable por vínculo (huérfano).
 export function requisitosDeComex(cx) {
   const docs = cx && Array.isArray(cx.docs) ? cx.docs : [];
   return docs.map((d) => ({
     docId: d.id,
     tipo: d.tipo,
     tieneRef: !!d.spRef || (typeof d.url === "string" && d.url.trim() !== ""),
+    bloqueadoStorage: esArchivoStorage(d),
   }));
 }
 
@@ -35,6 +57,11 @@ export function aplicarVinculoComex(cx, docId, ref, meta = {}) {
   if (idx < 0) return { ok: false, motivo: "requisito_inexistente" };
   const r = ref || {};
   if (!r.driveId || !r.itemId) return { ok: false, motivo: "ref_invalida" };
+  // Fail-closed: solo enlaces https del SharePoint autorizado Frisku (nunca URLs arbitrarias).
+  if (!esWebUrlSharePointFrisku(r.webUrl)) return { ok: false, motivo: "weburl_invalida" };
+  // No reemplazar un archivo subido a Storage (quedaría huérfano): solo vínculos SP o requisitos
+  // sin archivo. La infraestructura de Storage no se toca; se bloquea el reemplazo por ahora.
+  if (esArchivoStorage(cx.docs[idx])) return { ok: false, motivo: "reemplazo_storage_bloqueado" };
   const fecha = meta.fecha || hoyISO();
   const usuario = meta.usuario || "";
   const spRef = {

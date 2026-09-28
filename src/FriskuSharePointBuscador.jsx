@@ -9,6 +9,7 @@
 
 import React, { useState, useRef, useEffect, useCallback } from "react";
 import * as clienteReal from "./friskuSharePointClient.js";
+import { esWebUrlSharePointFrisku } from "./friskuComexVinculo.js";
 
 const box = { marginTop: 8, padding: "8px 10px", borderRadius: 8, border: "1px solid #cbd5e1", background: "#f8fafc" };
 const btn = (dis) => ({ padding: "4px 10px", fontSize: 11, borderRadius: 6, border: "1px solid #0ea5e9", background: dis ? "#e2e8f0" : "#0ea5e9", color: dis ? "#94a3b8" : "#fff", cursor: dis ? "not-allowed" : "pointer", fontWeight: 600 });
@@ -27,6 +28,8 @@ const MSG = {
 const MSG_VINC = {
   carga: "No se puede vincular: la carga del embarque no terminó. Reintenta en unos segundos.",
   sin_permiso: "No tienes permiso para editar este embarque.",
+  weburl_invalida: "Este documento no tiene un enlace válido del SharePoint autorizado de Frisku; no se puede vincular.",
+  reemplazo_storage_bloqueado: "Ese requisito ya tiene un archivo subido. Por ahora no se reemplaza por un vínculo (el archivo quedaría huérfano). Elige un requisito vacío o uno ya vinculado a SharePoint.",
   error: "No se pudo vincular.",
 };
 
@@ -133,6 +136,8 @@ export default function FriskuSharePointBuscador({ oe, clienteNombre, exportador
                 const url = abrible(c.itemId);
                 const nombre = (porId[c.itemId] && porId[c.itemId].name) || "documento";
                 const vinculandoEste = vinc && vinc.ref.itemId === c.itemId && vinc.ref.driveId === c.driveId;
+                // Solo vinculable si el candidato tiene un enlace válido del SharePoint autorizado Frisku.
+                const vinculableEste = puedeVincular && esWebUrlSharePointFrisku((porId[c.itemId] && porId[c.itemId].webUrl) || "");
                 return (
                   <div key={`${c.driveId}:${c.itemId}`} style={{ padding: "4px 0", borderTop: "1px solid #e2e8f0" }}>
                     <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
@@ -142,7 +147,7 @@ export default function FriskuSharePointBuscador({ oe, clienteNombre, exportador
                       {url
                         ? <a href={url} target="_blank" rel="noreferrer noopener" style={{ fontSize: 10, color: "#0ea5e9", fontWeight: 600 }}>Abrir en SharePoint</a>
                         : <span style={{ fontSize: 10, color: "#94a3b8" }}>enlace no disponible</span>}
-                      {puedeVincular && !vinculandoEste && (
+                      {vinculableEste && !vinculandoEste && (
                         <button type="button" onClick={() => iniciarVinc(c)} style={{ ...btn(false), padding: "2px 8px", fontSize: 10 }}>Vincular</button>
                       )}
                     </div>
@@ -155,7 +160,9 @@ export default function FriskuSharePointBuscador({ oe, clienteNombre, exportador
                             <select aria-label="requisito COMEX" value={vinc.docId} onChange={(e) => setVinc((v) => ({ ...v, docId: e.target.value }))} style={{ ...inp, width: "auto", fontSize: 11, padding: "3px 6px" }}>
                               <option value="">— elegir requisito —</option>
                               {requisitos.map((r) => (
-                                <option key={r.docId} value={r.docId}>{r.tipo}{r.tieneRef ? " (ya tiene referencia)" : ""}</option>
+                                <option key={r.docId} value={r.docId} disabled={r.bloqueadoStorage}>
+                                  {r.tipo}{r.bloqueadoStorage ? " (archivo subido — no reemplazable)" : r.tieneRef ? " (ya tiene referencia)" : ""}
+                                </option>
                               ))}
                             </select>
                             <button type="button" disabled={!vinc.docId} onClick={continuarVinc} style={{ ...btn(!vinc.docId), padding: "3px 8px", fontSize: 10 }}>Continuar</button>
