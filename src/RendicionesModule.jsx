@@ -722,6 +722,56 @@ function Field({ label, children, style }) {
   );
 }
 
+// Selector de categoría con BUSCADOR (typeahead). Reemplaza el <select> plano
+// porque ya hay 20+ categorías. Filtra por nombre; el admin puede agregar una nueva.
+function CategoriaPicker({ value, cats, disabled, onChange, onAdd, admin }) {
+  const [open, setOpen] = useState(false);
+  const [q, setQ] = useState("");
+  const ref = useRef(null);
+  const actual = (cats || []).find(c => c.v === value) || CAT_MAP[value] || null;
+  useEffect(() => {
+    if (!open) return;
+    const h = e => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
+    document.addEventListener("mousedown", h);
+    return () => document.removeEventListener("mousedown", h);
+  }, [open]);
+  const ql = q.trim().toLowerCase();
+  const filtered = ql ? (cats || []).filter(c => (c.l || "").toLowerCase().includes(ql)) : (cats || []);
+  return (
+    <div ref={ref} style={{ position: "relative" }}>
+      <button type="button" disabled={disabled} onClick={() => { if (!disabled) { setOpen(o => !o); setQ(""); } }}
+        style={{ ...inputStyle, textAlign: "left", cursor: disabled ? "default" : "pointer", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 6, background: C.card }}>
+        <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{actual ? `${actual.ic} ${actual.l}` : "— elegir —"}</span>
+        <span style={{ color: C.muted2, fontSize: 10 }}>▾</span>
+      </button>
+      {open && (
+        <div style={{ position: "absolute", top: "calc(100% + 4px)", left: 0, right: 0, zIndex: 60, background: C.card, border: `1px solid ${C.border}`, borderRadius: 10, boxShadow: "0 8px 28px #0002", overflow: "hidden", minWidth: 220 }}>
+          <div style={{ padding: 8, borderBottom: `1px solid ${C.border}` }}>
+            <input autoFocus value={q} onChange={e => setQ(e.target.value)} placeholder="Buscar tipo de gasto…" style={{ ...inputStyle, fontSize: 13 }} />
+          </div>
+          <div style={{ maxHeight: 240, overflowY: "auto" }}>
+            {filtered.length === 0 && <div style={{ padding: "10px 12px", fontSize: 12, color: C.muted2 }}>Sin coincidencias.</div>}
+            {filtered.map(c => (
+              <div key={c.v} onClick={() => { onChange(c.v); setOpen(false); }}
+                style={{ padding: "8px 12px", cursor: "pointer", fontSize: 13, display: "flex", gap: 8, alignItems: "center", background: c.v === value ? C.rowAlt : "transparent" }}
+                onMouseEnter={e => e.currentTarget.style.background = C.rowAlt}
+                onMouseLeave={e => e.currentTarget.style.background = c.v === value ? C.rowAlt : "transparent"}>
+                <span>{c.ic}</span><span>{c.l}</span>
+              </div>
+            ))}
+          </div>
+          {admin && onAdd && (
+            <div onClick={() => { setOpen(false); onAdd(); }}
+              style={{ padding: "9px 12px", cursor: "pointer", fontSize: 13, fontWeight: 700, color: C.primary, borderTop: `1px solid ${C.border}` }}>
+              ➕ Agregar categoría…
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // Detecta pantalla angosta (móvil) para reflujo responsivo (sin media queries en JSX).
 function useEsMovil(bp = 680) {
   const [m, setM] = useState(typeof window !== "undefined" ? window.innerWidth < bp : false);
@@ -2089,16 +2139,12 @@ function EditorRendicion({ rend, upsert, onClose, onEnviar, esDueno, esAprobador
               <Field label="Fecha">
                 <input type="date" value={g.fecha} disabled={!editable} onChange={e => setGasto(g.id, "fecha", e.target.value)} style={inputStyle} />
               </Field>
-              <Field label="Categoría">
-                <select value={g.categoria} disabled={!editable}
-                  onChange={e => {
-                    if (e.target.value === "__add__") { setCatGastoId(g.id); setCatForm({ ic: "", l: "" }); setModalCat(true); return; }
-                    setCategoria(g, e.target.value);
-                  }} style={inputStyle}>
-                  {CATS.map(c => <option key={c.v} value={c.v}>{c.ic} {c.l}</option>)}
-                  {admin && <option value="__add__">➕ Agregar categoría…</option>}
-                </select>
-              </Field>
+              <div style={{ display: "flex", flexDirection: "column", gap: 4, minWidth: 0 }}>
+                <span style={{ fontSize: 11.5, fontWeight: 700, color: C.muted }}>Categoría</span>
+                <CategoriaPicker value={g.categoria} cats={CATS} disabled={!editable} admin={admin}
+                  onChange={v => setCategoria(g, v)}
+                  onAdd={() => { setCatGastoId(g.id); setCatForm({ ic: "", l: "" }); setModalCat(true); }} />
+              </div>
               <Field label="Glosa / Detalle" style={esMovil ? { gridColumn: "1 / -1" } : undefined}>
                 <input value={g.glosa} disabled={!editable} onChange={e => setGasto(g.id, "glosa", e.target.value)} style={inputStyle} placeholder="Descripción del gasto" />
               </Field>
