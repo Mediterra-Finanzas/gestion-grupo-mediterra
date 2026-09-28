@@ -262,3 +262,69 @@ correo.
 **No entran las respuestas específicas por labor.** El Excel está incorporado como catálogo de
 estados y labores, pero los campos y opciones de cada labor no están cableados en pantalla: el
 Excel **no** está implementado completo.
+
+---
+
+## 11 · Reintegración sobre la base nueva (2026-09-28, tarde)
+
+La autorización anterior (paquete `8f4e2a7` sobre `13465b4`) quedó sin efecto: el push estaba
+bloqueado por el clasificador de permisos de la sesión y, con prioridad del CFO, Frisku publicó
+antes un hotfix productivo de Liquidaciones. La base cambió.
+
+### Qué cambió en la base
+
+`13465b4` → **`8e7a078`**, un commit: *fix(frisku): liquidaciones no guardaban por duplicado OE
+legado (grandfathering)*. Tres archivos, todos de Frisku:
+`src/friskuLiquidacionesLogic.js`, su prueba, y `src/__tests__/friskuHelpers.dbSaveGeneric.test.js`
+(solo la prueba; `friskuHelpers.js` no se tocó).
+
+### Qué integración hizo falta
+
+Merge local del mismo alcance sobre la base nueva, sin conflictos y sin agregar nada. El diff del
+paquete contra `8e7a078` sigue siendo **9 archivos, +2.862 / −33**, todos de `src/osiris/`,
+`src/OsirisModule.jsx` y `docs/osiris-tech/`.
+
+### Evidencia anterior que sigue valiendo
+
+`OsirisModule.jsx` no usa `dbSaveGeneric`, `friskuHelpers` ni `friskuLiquidacionesLogic`, y el
+hotfix no toca ningún archivo de Osiris ni la ruta de guardado de la fila `osiris`. Por eso se
+conservan sin repetir:
+
+- La revisión visual en aislado: alcance por variedad con unidades distintas, histórico global sin
+  repartir, desmarcar y volver a marcar sin perder el dato, persistencia tras recargar, permisos,
+  concurrencia y el PDF.
+- La comprobación del cuerpo del correo con la frase exacta (acredita contenido, no entrega).
+- La prueba de recuperación con el código anterior: conserva `variedades`, `alcanceVariedades` y
+  `superficie`, y **no los muestra**.
+
+### Comprobaciones sobre la base nueva
+
+| | Base sola (`8e7a078`) | Paquete integrado |
+|---|---|---|
+| Pasan | 1.025 | **1.134** |
+| Fallan | 2 | **2** |
+| Saltadas | 9 | 9 |
+
+Build `CI=true`: `Compiled successfully`. Las dos fallas son las mismas a ambos lados:
+`paramsFrutaAnticipos` y `secHf1` (esta última, según el carril Frisku, son PINs sintéticos en
+archivos `.test` fuera de `/__tests__/`, que es lo único que excluye el guardia; queda como
+follow-up de ese carril). Con `--maxWorkers=2` no reaparece el timeout de
+`FriskuSharePointBuscador`, que en la corrida con paralelismo completo era un falso positivo por
+carga.
+
+### Identificadores para la autorización nueva
+
+| | |
+|---|---|
+| **Paquete** | la punta de `osiris/informes-integrado` |
+| Merge de integración | `d17cc7a6578fc9b79954d40fe75ca8947667313d` |
+| Código (último commit que toca `src/`) | `add4ece177368275ad091bc55bbb09484bd5ed53` |
+| **Base** | `origin/main` = `8e7a0788c22d1d0d92e3e0d15183d8f4af8598a4` |
+| Production | desplegada desde `8e7a078`, `success`, 2026-09-28 13:23 UTC |
+| **Deployment de recuperación** | **`6710975029`** |
+
+La autorización anterior no cubre este par. Alcance idéntico al aprobado: no se agregó nada y el
+paquete tributario sigue fuera.
+
+**Salvedad**: Frisku avisó que su hotfix está desplegado pero **falta la prueba real de Carolina**.
+Si de ahí sale un commit más, la base vuelve a moverse y hay que rehacer esta integración.
