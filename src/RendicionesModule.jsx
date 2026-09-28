@@ -827,11 +827,22 @@ function pasoActual(r) {
   if (!Array.isArray(r?.cadena) || !r.cadena.length) return null;
   return r.cadena[r.nivelActual || 0] || null;
 }
+// Aprobador asignado a la persona de la rendición (maestro config.aprobadores).
+// Modelo: 1 aprobador por persona. Key = email del usuario, o `ext:<id>` si es persona externa.
+// Devuelve la cadena congelable [{email,nombre}] (0 o 1 elemento).
+function aprobadorDe(r, aprobadores, usuarios) {
+  const key = r.trabajadorExtId ? `ext:${r.trabajadorExtId}` : (r.trabajadorEmail || "").toLowerCase();
+  const email = (aprobadores?.[key] || "").toLowerCase();
+  if (!email) return [];
+  const u = (usuarios || []).find(x => (x.email || "").toLowerCase() === email);
+  return [{ email, nombre: u?.nombre || email }];
+}
 // ¿Le toca a este usuario aprobar la rendición ahora?
-function meTocaAprobar(r, miEmail, esAprobador, admin) {
-  if (admin) return true;         // admin/CFO puede aprobar cualquier paso (override de autoridad)
+// Sin aprobador asignado (cadena vacía) → SOLO Admin/CFO. Ya no "cualquier aprobador".
+function meTocaAprobar(r, miEmail, admin, esCFO) {
+  if (admin) return true;              // admin/CFO puede aprobar cualquier paso (override de autoridad)
   const paso = pasoActual(r);
-  if (!paso) return esAprobador;  // sin cadena → cualquier aprobador (legacy)
+  if (!paso) return !!esCFO;           // sin aprobador asignado → solo CFO/admin
   return (paso.email || "").toLowerCase() === (miEmail || "").toLowerCase();
 }
 
@@ -860,7 +871,7 @@ export default function RendicionesModule({ usuarioActual, esAdmin, esSoloConsul
 
   const [rendiciones, setRendiciones] = useState([]);
   const [tcData, setTcData] = useState({});
-  const [config, setConfig] = useState({ valorKm: 0 }); // config global (valor por km, etc.) — solo admin la edita
+  const [config, setConfig] = useState({ valorKm: 0, aprobadores: {} }); // config global (valor por km, aprobador por persona, etc.) — solo admin la edita
   const [cargando, setCargando] = useState(true);
   const [guardando, setGuardando] = useState(false);
   const [aviso, setAviso] = useState(null);   // resultado del guardado, visible en pantalla
@@ -900,7 +911,7 @@ export default function RendicionesModule({ usuarioActual, esAdmin, esSoloConsul
         if (alive) {
           setRendiciones(Array.isArray(data) ? data : []);
           setTcData(tc && typeof tc === "object" ? tc : {});
-          const cfgNext = cfg && typeof cfg === "object" ? { valorKm: 0, personasExternas: [], categoriasExtra: [], ...cfg } : { valorKm: 0, personasExternas: [], categoriasExtra: [] };
+          const cfgNext = cfg && typeof cfg === "object" ? { valorKm: 0, personasExternas: [], categoriasExtra: [], aprobadores: {}, ...cfg } : { valorKm: 0, personasExternas: [], categoriasExtra: [], aprobadores: {} };
           setConfig(cfgNext);
           setCategoriasExtra(cfgNext.categoriasExtra);   // registrar categorías personalizadas (labels en exports/reportes)
           cargaOkRef.current = true; // carga exitosa → habilita auto-save
@@ -1016,6 +1027,16 @@ export default function RendicionesModule({ usuarioActual, esAdmin, esSoloConsul
     setAviso(construirAviso("rendiciones_config", await dbSaveGeneric("rendiciones_config", next), "la configuracion"));
   }, [admin, config]);
 
+  // Maestro de aprobadores: 1 aprobador por persona. { [personKey]: aprobadorEmail }.
+  // personKey = email del usuario o `ext:<id>` para persona externa. Solo admin.
+  const guardarAprobadores = useCallback(async (mapa) => {
+    if (!admin) return;
+    if (!cargaOkRef.current) { console.warn("[Rendiciones] aprobadores no guardados — carga inicial falló."); return; }
+    const next = { ...config, aprobadores: (mapa && typeof mapa === "object") ? mapa : {} };
+    setConfig(next);
+    setAviso(construirAviso("rendiciones_config", await dbSaveGeneric("rendiciones_config", next), "la configuracion"));
+  }, [admin, config]);
+
   const pushHist = (r, accion, comentario = "") => ({
     ...r,
     historial: [...(r.historial || []), { accion, usuario: nombreUsuario, fecha: nowISO(), comentario }],
@@ -1072,11 +1093,10 @@ export default function RendicionesModule({ usuarioActual, esAdmin, esSoloConsul
     if (faltaMonto) { alert("Hay gastos sin monto. Complétalos antes de enviar."); return; }
     const sinRespaldo = r.gastos.filter(g => !g.adjuntoUrl && g.categoria !== "kilometraje").length;
     if (sinRespaldo) { alert(`Hay ${sinRespaldo} gasto(s) sin respaldo adjunto. Cada gasto debe llevar su boleta, factura o comprobante (foto o PDF) antes de enviar.`); return; }
-    // Congelar la cadena de aprobación del TRABAJADOR (no de quien la carga).
-    // Si la cargó una secretaria en nombre de un gerente, usa la cadena del gerente.
-    // Persona externa (no usuario): sin cadena propia → la aprueban los aprobadores/CFO generales.
-    const trabajadorUser = (usuarios || []).find(u => (u.email || "").toLowerCase() === (r.trabajadorEmail || "").toLowerCase()) || usuarioActual;
-    const cadena = r.trabajadorNoUsuario ? [] : resolverCadena(trabajadorUser, usuarios);
+    // Congelar el aprobador ASIGNADO a la persona (maestro config.aprobadores).
+    // 1 aprobador por persona (usuario o externo). Sin aprobador asignado → cadena vacía
+    // → la aprueban SOLO Admin/CFO (se les avisa como pagadores).
+    const cadena = aprobadorDe(r, config.aprobadores, usuarios);
     upsert(pushHist({
       ...r, estado: "enviada", enviadoEn: nowISO(),
       cadena, nivelActual: 0, aprobaciones: [], devuelta: false,
@@ -1181,9 +1201,9 @@ export default function RendicionesModule({ usuarioActual, esAdmin, esSoloConsul
     () => rendiciones.filter(r => {
       if (r.estado !== "enviada") return false;
       if (verTodas) return true;  // supervisor/admin ve todas las pendientes (aprobar lo suyo o reasignar)
-      return meTocaAprobar(r, miEmail, esAprobador, admin);
+      return meTocaAprobar(r, miEmail, admin, esCFO);
     }).sort((a, b) => new Date(a.enviadoEn || 0) - new Date(b.enviadoEn || 0)),
-    [rendiciones, verTodas, miEmail, esAprobador]
+    [rendiciones, verTodas, miEmail, admin, esCFO]
   );
   // Un supervisor que figura en alguna cadena ve la bandeja "Por Aprobar"
   // aunque su nivel de pestaña sea "ver" (solo carga lo suyo).
@@ -1211,6 +1231,7 @@ export default function RendicionesModule({ usuarioActual, esAdmin, esSoloConsul
     { id: "aprobar", label: `✅ Por Aprobar${porAprobar.length ? ` (${porAprobar.length})` : ""}`, show: muestraAprobar },
     { id: "pagos", label: `💵 Pagos${paraPago.length ? ` (${paraPago.length})` : ""}`, show: verTodas },
     { id: "reportes", label: "📊 Reportes", show: verTodas },
+    { id: "maestros", label: "⚙️ Maestros", show: admin },
   ].filter(t => t.show);
 
   if (cargando) {
@@ -1256,7 +1277,7 @@ export default function RendicionesModule({ usuarioActual, esAdmin, esSoloConsul
       )}
       {tab === "aprobar" && muestraAprobar && (
         <BandejaAprobar rends={porAprobar} onAbrir={setEditId} tcData={tcData}
-          miEmail={miEmail} esAprobador={esAprobador} admin={admin}
+          miEmail={miEmail} esAprobador={esAprobador} admin={admin} esCFO={esCFO}
           aprobadasMias={aprobadasMias} onDevolver={devolverParaCorreccion}
           onAprobar={r => { setRevisar({ id: r.id, accion: "aprobar" }); setComentario(""); }}
           onRechazar={r => { setRevisar({ id: r.id, accion: "rechazar" }); setComentario(""); }}
@@ -1270,7 +1291,16 @@ export default function RendicionesModule({ usuarioActual, esAdmin, esSoloConsul
       )}
       {tab === "reportes" && verTodas && (
         <Reportes rends={rendiciones} filtroEstado={filtroEstado} setFiltroEstado={setFiltroEstado}
-          busca={busca} setBusca={setBusca} onAbrir={setEditId} tcData={tcData} />
+          busca={busca} setBusca={setBusca} onAbrir={setEditId} tcData={tcData}
+          usuarios={usuarios} aprobadores={config.aprobadores || {}} />
+      )}
+      {tab === "maestros" && admin && (
+        <MaestrosTab
+          usuarios={usuarios}
+          personasExternas={config.personasExternas || []} onGuardarPersonas={guardarPersonasExternas}
+          aprobadores={config.aprobadores || {}} onGuardarAprobadores={guardarAprobadores}
+          categoriasExtra={config.categoriasExtra || []} onGuardarCategorias={guardarCategorias}
+        />
       )}
 
       {/* Editor de rendición */}
@@ -1473,7 +1503,7 @@ function MisRendiciones({ rends, onCrear, onAbrir, onEliminar, tcData, admin, va
 // ───────────────────────────────────────────────────────────────────
 // Tab: Por Aprobar
 // ───────────────────────────────────────────────────────────────────
-function BandejaAprobar({ rends, onAbrir, onAprobar, onRechazar, onReasignar, tcData, miEmail, esAprobador, admin, aprobadasMias = [], onDevolver }) {
+function BandejaAprobar({ rends, onAbrir, onAprobar, onRechazar, onReasignar, tcData, miEmail, esAprobador, admin, esCFO, aprobadasMias = [], onDevolver }) {
   return (
     <div>
       <div style={{ fontSize: 13, color: C.muted, marginBottom: 14 }}>{rends.length} rendición(es) esperando revisión</div>
@@ -1506,7 +1536,7 @@ function BandejaAprobar({ rends, onAbrir, onAprobar, onRechazar, onReasignar, tc
           const cad = Array.isArray(r.cadena) ? r.cadena : [];
           const idx = r.nivelActual || 0;
           const actual = cad[idx];
-          const miTurno = meTocaAprobar(r, miEmail, esAprobador, admin);
+          const miTurno = meTocaAprobar(r, miEmail, admin, esCFO);
           return (
             <RendCard key={r.id} r={r} onClick={() => onAbrir(r.id)} mostrarTrabajador tcData={tcData}>
               <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
@@ -1572,7 +1602,7 @@ function BandejaPagos({ rends, onAbrir, onPagar, tcData, puedeDevolver, onDevolv
 // ───────────────────────────────────────────────────────────────────
 // Tab: Reportes
 // ───────────────────────────────────────────────────────────────────
-function Reportes({ rends, filtroEstado, setFiltroEstado, busca, setBusca, onAbrir, tcData }) {
+function Reportes({ rends, filtroEstado, setFiltroEstado, busca, setBusca, onAbrir, tcData, usuarios = [], aprobadores = {} }) {
   const filtradas = useMemo(() => {
     const q = busca.trim().toLowerCase();
     return rends
@@ -1647,14 +1677,44 @@ function Reportes({ rends, filtroEstado, setFiltroEstado, busca, setBusca, onAbr
       {/* Dashboard de gráficos */}
       <ReportesDashboard resumen={resumen} nRend={filtradas.length} />
 
-      <div style={{ fontSize: 12.5, fontWeight: 800, color: C.muted, margin: "4px 0 8px" }}>DETALLE ({filtradas.length})</div>
-      <div style={{ display: "grid", gap: 10 }}>
-        {filtradas.map(r => (
-          <RendCard key={r.id} r={r} onClick={() => onAbrir(r.id)} mostrarTrabajador tcData={tcData}>
-            <Btn kind="ghost" small onClick={() => onAbrir(r.id)}>Ver</Btn>
-          </RendCard>
-        ))}
-        {!filtradas.length && <div style={{ textAlign: "center", padding: 40, color: C.muted2 }}>Sin resultados.</div>}
+      <div style={{ fontSize: 12.5, fontWeight: 800, color: C.muted, margin: "4px 0 8px" }}>DETALLE DE TODAS LAS RENDICIONES ({filtradas.length})</div>
+      <div style={{ overflowX: "auto", maxWidth: "calc(100vw - 40px)", border: `1px solid ${C.border}`, borderRadius: 12 }}>
+        <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 840, background: C.card }}>
+          <thead>
+            <tr>
+              {[["Folio", "left"], ["Fecha", "left"], ["Trabajador", "left"], ["Empresa", "left"], ["Estado", "left"], ["Total CLP", "right"], ["Aprobador", "left"], ["", "right"]].map(([h, al], i) => (
+                <th key={i} style={{ padding: "9px 10px", textAlign: al, fontSize: 11, fontWeight: 800, color: C.muted, borderBottom: `1px solid ${C.border}`, textTransform: "uppercase", whiteSpace: "nowrap", position: "sticky", top: 0, background: C.card }}>{h}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {filtradas.map(r => {
+              const tdc = { padding: "8px 10px", fontSize: 12.5, borderBottom: `1px solid ${C.border}`, whiteSpace: "nowrap", verticalAlign: "middle" };
+              const c = totalConvertido(r.gastos, "CLP", r.fechaTC || r.periodo, tcData, r.monedaPago === "CLP" ? r.tcManual : null);
+              const personKey = r.trabajadorExtId ? `ext:${r.trabajadorExtId}` : (r.trabajadorEmail || "").toLowerCase();
+              const aprobEmail = (aprobadores[personKey] || "").toLowerCase();
+              const aprobU = (usuarios || []).find(u => (u.email || "").toLowerCase() === aprobEmail);
+              const aprobLabel = r.revisadoPor || (aprobU ? aprobU.nombre : (aprobEmail || "— sin asignar —"));
+              return (
+                <tr key={r.id} style={{ cursor: "pointer" }} onClick={() => onAbrir(r.id)}
+                  onMouseEnter={e => e.currentTarget.style.background = C.rowAlt} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+                  <td style={{ ...tdc, fontWeight: 700 }}>#{r.folio}</td>
+                  <td style={tdc}>{fmtFecha(r.periodo)}</td>
+                  <td style={{ ...tdc, whiteSpace: "normal" }}>
+                    <div style={{ fontWeight: 700 }}>{r.trabajador}</div>
+                    {r.creadaPor && r.creadaPor !== r.trabajador && <div style={{ fontSize: 10, color: C.muted2 }}>cargada por {r.creadaPor}</div>}
+                  </td>
+                  <td style={tdc}>{r.empresa}</td>
+                  <td style={tdc}><EstadoBadge estado={r.estado} devuelta={r.devuelta} /></td>
+                  <td style={{ ...tdc, textAlign: "right", fontWeight: 700 }}>{fmtMonto(c.total, "CLP")}{c.faltan.length ? " ⚠" : ""}</td>
+                  <td style={{ ...tdc, color: aprobLabel.includes("sin asignar") ? C.warning : C.text }}>{aprobLabel}</td>
+                  <td style={{ ...tdc, textAlign: "right" }}><Btn kind="ghost" small onClick={e => { e.stopPropagation(); onAbrir(r.id); }}>Ver</Btn></td>
+                </tr>
+              );
+            })}
+            {!filtradas.length && <tr><td colSpan={8} style={{ textAlign: "center", padding: 40, color: C.muted2 }}>Sin resultados.</td></tr>}
+          </tbody>
+        </table>
       </div>
     </div>
   );
@@ -1820,6 +1880,126 @@ function ReportesDashboard({ resumen, nRend }) {
 // ───────────────────────────────────────────────────────────────────
 // Editor de una rendición (con gastos + adjuntos)
 // ───────────────────────────────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════════
+// Tab: Maestros (solo admin) — personas que rinden + su aprobador, y categorías
+// ═══════════════════════════════════════════════════════════════════
+function MaestrosTab({ usuarios = [], personasExternas = [], onGuardarPersonas, aprobadores = {}, onGuardarAprobadores, categoriasExtra = [] , onGuardarCategorias }) {
+  const [nuevoExt, setNuevoExt] = useState({ nombre: "", cargo: "", email: "" });
+  const [nuevaCat, setNuevaCat] = useState({ ic: "", l: "" });
+  const [buscaP, setBuscaP] = useState("");
+
+  const personas = [
+    ...(usuarios || []).map(u => ({ key: (u.email || "").toLowerCase(), nombre: u.nombre || u.email, sub: u.cargo || u.rol || "Usuario del sistema", tipo: "usuario" })),
+    ...(personasExternas || []).map(p => ({ key: `ext:${p.id}`, id: p.id, nombre: p.nombre, sub: (p.cargo || "Externo") + " · no usuario", tipo: "externo" })),
+  ].filter(p => p.key && p.key !== "ext:")
+   .sort((a, b) => (a.nombre || "").localeCompare(b.nombre || ""));
+
+  const ql = buscaP.trim().toLowerCase();
+  const personasF = ql ? personas.filter(p => (p.nombre || "").toLowerCase().includes(ql) || (p.sub || "").toLowerCase().includes(ql)) : personas;
+  const sinAprob = personas.filter(p => !(aprobadores[p.key] || "").trim()).length;
+
+  const setAprob = (key, email) => {
+    const next = { ...aprobadores };
+    if ((email || "").trim()) next[key] = email.toLowerCase(); else delete next[key];
+    onGuardarAprobadores(next);
+  };
+  const aprobables = (usuarios || []).slice().sort((a, b) => (a.nombre || a.email || "").localeCompare(b.nombre || b.email || ""));
+
+  const addExterno = () => {
+    const n = (nuevoExt.nombre || "").trim();
+    if (!n) { alert("El nombre es obligatorio."); return; }
+    onGuardarPersonas([...(personasExternas || []), { id: uid("ext"), nombre: n, cargo: (nuevoExt.cargo || "").trim(), email: (nuevoExt.email || "").trim().toLowerCase() }]);
+    setNuevoExt({ nombre: "", cargo: "", email: "" });
+  };
+  const delExterno = (id) => {
+    if (!window.confirm("¿Eliminar esta persona externa del maestro? Las rendiciones ya cargadas a su nombre se conservan.")) return;
+    onGuardarPersonas((personasExternas || []).filter(p => p.id !== id));
+  };
+
+  const addCat = () => {
+    const l = (nuevaCat.l || "").trim();
+    if (!l) { alert("El nombre de la categoría es obligatorio."); return; }
+    onGuardarCategorias([...(categoriasExtra || []), { v: uid("cat"), l, ic: (nuevaCat.ic || "").trim() || "🏷️" }]);
+    setNuevaCat({ ic: "", l: "" });
+  };
+  const delCat = (v) => {
+    if (!window.confirm("¿Eliminar esta categoría? Los gastos que ya la usan conservan su registro.")) return;
+    onGuardarCategorias((categoriasExtra || []).filter(c => c.v !== v));
+  };
+
+  const th = { padding: "8px 10px", textAlign: "left", fontSize: 11, fontWeight: 800, color: C.muted, borderBottom: `1px solid ${C.border}`, textTransform: "uppercase" };
+  const td = { padding: "7px 10px", fontSize: 13, borderBottom: `1px solid ${C.border}`, verticalAlign: "middle" };
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+      {/* Personas que rinden + aprobador */}
+      <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: 16 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, flexWrap: "wrap", marginBottom: 4 }}>
+          <div style={{ fontSize: 14, fontWeight: 800 }}>👥 Personas que rinden y su aprobador</div>
+          <input value={buscaP} onChange={e => setBuscaP(e.target.value)} placeholder="Buscar persona…" style={{ ...inputStyle, width: 200 }} />
+        </div>
+        <div style={{ fontSize: 12, color: C.muted2, marginBottom: 12 }}>
+          Cada persona tiene UN aprobador. Sin aprobador asignado, su rendición solo la puede aprobar el CFO/Admin.
+          {sinAprob > 0 && <span style={{ color: C.warning, fontWeight: 700 }}> · {sinAprob} sin aprobador.</span>}
+        </div>
+        <div style={{ overflowX: "auto", maxWidth: "calc(100vw - 40px)" }}>
+          <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 520 }}>
+            <thead><tr><th style={th}>Persona</th><th style={th}>Tipo</th><th style={th}>Aprobador asignado</th><th style={th}></th></tr></thead>
+            <tbody>
+              {personasF.map(p => (
+                <tr key={p.key}>
+                  <td style={td}><div style={{ fontWeight: 700 }}>{p.nombre}</div><div style={{ fontSize: 11, color: C.muted2 }}>{p.sub}</div></td>
+                  <td style={td}><span style={{ fontSize: 11, fontWeight: 700, color: p.tipo === "externo" ? C.warning : C.primary, background: p.tipo === "externo" ? C.warningBg : C.infoBg, borderRadius: 6, padding: "2px 8px" }}>{p.tipo === "externo" ? "Externo" : "Usuario"}</span></td>
+                  <td style={td}>
+                    <select value={(aprobadores[p.key] || "").toLowerCase()} onChange={e => setAprob(p.key, e.target.value)} style={{ ...inputStyle, minWidth: 180 }}>
+                      <option value="">— Sin aprobador (solo CFO/Admin) —</option>
+                      {aprobables.map(u => <option key={u.email} value={(u.email || "").toLowerCase()}>{u.nombre || u.email}</option>)}
+                    </select>
+                  </td>
+                  <td style={td}>{p.tipo === "externo" && <button onClick={() => delExterno(p.id)} title="Eliminar" style={{ border: "none", background: "none", color: C.danger, cursor: "pointer", fontSize: 15 }}>🗑</button>}</td>
+                </tr>
+              ))}
+              {personasF.length === 0 && <tr><td style={td} colSpan={4}><span style={{ color: C.muted2 }}>Sin resultados.</span></td></tr>}
+            </tbody>
+          </table>
+        </div>
+        {/* Agregar persona externa */}
+        <div style={{ marginTop: 14, paddingTop: 14, borderTop: `1px dashed ${C.border}` }}>
+          <div style={{ fontSize: 12, fontWeight: 800, color: C.muted, marginBottom: 8 }}>➕ Agregar persona externa (no usuario)</div>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "flex-end" }}>
+            <div style={{ flex: "1 1 160px" }}><Field label="Nombre *"><input value={nuevoExt.nombre} onChange={e => setNuevoExt(f => ({ ...f, nombre: e.target.value }))} style={inputStyle} placeholder="Ej: Juan Pérez" /></Field></div>
+            <div style={{ flex: "1 1 140px" }}><Field label="Cargo / rol"><input value={nuevoExt.cargo} onChange={e => setNuevoExt(f => ({ ...f, cargo: e.target.value }))} style={inputStyle} placeholder="Chofer, jornal…" /></Field></div>
+            <div style={{ flex: "1 1 160px" }}><Field label="Email (opcional)"><input value={nuevoExt.email} onChange={e => setNuevoExt(f => ({ ...f, email: e.target.value }))} style={inputStyle} placeholder="opcional" /></Field></div>
+            <Btn kind="success" onClick={addExterno}>Agregar</Btn>
+          </div>
+        </div>
+      </div>
+
+      {/* Categorías / conceptos de gasto */}
+      <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: 16 }}>
+        <div style={{ fontSize: 14, fontWeight: 800, marginBottom: 4 }}>🏷️ Conceptos / ítems de gasto</div>
+        <div style={{ fontSize: 12, color: C.muted2, marginBottom: 12 }}>Las categorías base son fijas. Puedes agregar y eliminar categorías propias del grupo.</div>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 14 }}>
+          {CATEGORIAS_BASE.map(c => (
+            <span key={c.v} style={{ fontSize: 12, background: C.rowAlt, borderRadius: 20, padding: "4px 12px", color: C.muted }}>{c.ic} {c.l}</span>
+          ))}
+          {(categoriasExtra || []).map(c => (
+            <span key={c.v} style={{ fontSize: 12, background: C.infoBg, borderRadius: 20, padding: "4px 8px 4px 12px", color: C.primary, fontWeight: 700, display: "inline-flex", alignItems: "center", gap: 6 }}>
+              {c.ic} {c.l}
+              <button onClick={() => delCat(c.v)} title="Eliminar" style={{ border: "none", background: "none", color: C.danger, cursor: "pointer", fontSize: 14, lineHeight: 1 }}>×</button>
+            </span>
+          ))}
+        </div>
+        <div style={{ display: "flex", gap: 8, alignItems: "flex-end", flexWrap: "wrap" }}>
+          <div style={{ width: 80 }}><Field label="Ícono"><input value={nuevaCat.ic} maxLength={4} onChange={e => setNuevaCat(f => ({ ...f, ic: e.target.value }))} style={{ ...inputStyle, textAlign: "center" }} placeholder="🏷️" /></Field></div>
+          <div style={{ flex: "1 1 220px" }}><Field label="Nombre de la categoría *"><input value={nuevaCat.l} onChange={e => setNuevaCat(f => ({ ...f, l: e.target.value }))} style={inputStyle} placeholder="Ej: Arriendo de maquinaria" /></Field></div>
+          <Btn kind="success" onClick={addCat}>Agregar</Btn>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function EditorRendicion({ rend, upsert, onClose, onEnviar, esDueno, esAprobador, onEliminar, tcData, admin, usuarios = [], puedeRendirPorOtros, valorKm = 0, personasExternas = [], onGuardarPersonas, categoriasExtra = [], onGuardarCategorias, puedeDevolver = false, onDevolver }) {
   const [modalExt, setModalExt] = useState(false);
   const [extForm, setExtForm] = useState({ nombre: "", cargo: "", email: "" });
