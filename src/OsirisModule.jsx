@@ -8,6 +8,14 @@ import HomeEjecutivo from "./ux/HomeEjecutivo";
 import { theme } from "./theme";
 import { snapshotOsiris, isDirty as osirisIsDirty } from "./data/osirisDirty";
 import { ubicacionMenuEstado, anclaVisible, ANCHO_MENU_ESTADO } from "./osiris/menuEstado";
+import { catalogoFenologicoCombinado, estadoFenologicoVigente, laboresDeEstado } from "./osiris/fenologia";
+import {
+  ETIQUETA_ESTADO_FENOLOGICO, etiquetaSeccionFenologia, alcanceEvaluado, conAlcance,
+  densidadDeclarada, variedadesDe, conVariedades, etiquetaVariedades, UNIDADES_ALCANCE,
+  cambioDeSignificado, alcanceDeVariedad, alcancePorVariedad, conAlcanceVariedad,
+  resumenAlcance, NOTA_ESTADO_FENOLOGICO,
+} from "./osiris/informeAlcance";
+import { asuntoCorreoInforme, cuerpoCorreoInforme, vistaPreviaCorreo, validarDestinatarios } from "./osiris/correoInforme";
 import {
   TIPO_ANEXO_ELIMINACION, TIPO_CONTRATO_PRUEBAS,
   AVISO_ANEXO_SIN_EFECTO, AVISO_TIPO_PRUEBAS,
@@ -4841,7 +4849,7 @@ const ENTREGABLES_SUBLICENCIADO = ["Brochure","Presentaciones","Manual técnico"
 const SECCIONES_INFORME_ALL = [
   {id:"encabezado",label:"A. Encabezado"},
   {id:"resumen",label:"B. Resumen"},
-  {id:"fenologia",label:"C. Fenología"},
+  {id:"fenologia",label:etiquetaSeccionFenologia("C. ")},
   {id:"riego",label:"D. Riego"},
   {id:"nutricion",label:"E. Nutrición"},
   {id:"fitosanitario",label:"F. Fitosanitario"},
@@ -5413,15 +5421,19 @@ td{padding:3px 8px;border-bottom:1px solid #f1f5f9}
 <div><div class="label">Cliente</div><div class="value">${ct?.razonSocial||'—'}</div></div>
 <div><div class="label">Campo / Predio</div><div class="value">${inf.lugar||'—'}</div></div>
 <div><div class="label">Ubicación</div><div class="value">${inf.ubicacion||'—'}</div></div>
-<div><div class="label">Especie / Variedad</div><div class="value">${inf.especie||'—'}${inf.variedad?' · '+inf.variedad:''}</div></div>
+<div><div class="label">Especie / Variedades</div><div class="value">${inf.especie||'—'}${etiquetaVariedades(inf)!=='—'?' · '+etiquetaVariedades(inf):''}</div></div>
 <div><div class="label">Mes/Año Plantación</div><div class="value">${inf.mesAnioPlantacion||'—'}</div></div>
-<div><div class="label">Superficie</div><div class="value">${inf.superficie||'—'} há</div></div>
+<div><div class="label">Alcance evaluado</div><div class="value">${resumenAlcance(inf).etiqueta}</div></div>
+${resumenAlcance(inf).modo==="historico"?`<div><div class="label">Procedencia del alcance</div><div class="value">${resumenAlcance(inf).procedencia} (informe completo)</div></div>`:''}
+<div><div class="label">Densidad de plantación</div><div class="value">${densidadDeclarada(inf).etiqueta}</div></div>
+<div><div class="label">Sistema productivo</div><div class="value">${inf.sistemaProductivo||'—'}</div></div>
+<div><div class="label">Sustrato</div><div class="value">${inf.sustrato||'—'}</div></div>
 <div><div class="label">Temporada</div><div class="value">${inf.temporada||'—'}</div></div>
 <div><div class="label">Técnico</div><div class="value">${inf.responsable||'—'}</div></div>
 <div><div class="label">Fecha visita</div><div class="value">${visita?.fecha||inf.fecha||'—'}</div></div>
 </div>
 ${allow.includes("resumen")?secHTML("B. Resumen General",inf.resumenGeneral):""}
-${allow.includes("fenologia")&&inf.fenologiaEstado?`<div class="section"><h2>C. Estado Fenológico</h2><div class="content">Estado: <strong>${inf.fenologiaEstado||"—"}</strong> · Uniformidad: <strong>${inf.fenologiaUniformidad||"—"}</strong>${inf.fenologiaObs?"\n"+inf.fenologiaObs:""}</div></div>`:""}
+${allow.includes("fenologia")&&inf.fenologiaEstado?`<div class="section"><h2>${etiquetaSeccionFenologia("C. ")}</h2><div class="content">Estado: <strong>${inf.fenologiaEstado||"—"}</strong> · Uniformidad: <strong>${inf.fenologiaUniformidad||"—"}</strong>${inf.fenologiaObs?"\n"+inf.fenologiaObs:""}</div></div>`:""}
 ${allow.includes("riego")&&inf.riegoSistema?`<div class="section"><h2>D. Riego y Uso de Agua</h2><div class="content">Sistema: <strong>${inf.riegoSistema||"—"}</strong> · Frecuencia: ${inf.riegoFrecuencia||"—"} · Duración: ${inf.riegoDuracion||"—"} min · Volumen: ${inf.riegoVolumen||"—"}\nHumedad: <strong>${inf.riegoHumedad||"—"}</strong> · Uniformidad: <strong>${inf.riegoUniformidad||"—"}</strong>${inf.riegoObs?"\nObs: "+inf.riegoObs:""}${inf.riegoRec?"\nRec: "+inf.riegoRec:""}</div></div>`:""}
 ${allow.includes("nutricion")&&(inf.nutricionPrograma||getArr("nutricionAplicaciones").length>0)?`<div class="section"><h2>E. Nutrición y Fertilización</h2><div class="content">${inf.nutricionPrograma||""}${inf.nutricionSintomas?"\nSíntomas: "+inf.nutricionSintomas:""}${inf.nutricionRec?"\nRec: "+inf.nutricionRec:""}</div>${getArr("nutricionAplicaciones").length>0?tableHTML(["Fecha","Producto","Dosis","Vía","Objetivo","Obs"],getArr("nutricionAplicaciones").map(a=>[a.fecha,a.producto,a.dosis,a.via,a.objetivo,a.obs])):""}</div>`:""}
 ${allow.includes("fitosanitario")&&getArr("fitoAplicaciones").length>0?`<div class="section"><h2>F. Aplicaciones Fitosanitarias</h2>${tableHTML(["Fecha","Producto","Dosis","Objetivo","Resultado","Rec."],getArr("fitoAplicaciones").map(a=>[a.fecha,a.producto,a.dosis,a.objetivo,a.resultado,a.rec]))}</div>`:""}
@@ -5486,30 +5498,19 @@ ${inf.proximaVisitaFecha?`<div class="section"><h2>Próxima Visita</h2><div clas
     let linkInforme = "";
     try { linkInforme = await uploadInformeHTML(inf); } catch(e) { console.warn("[Upload]", e.message); }
 
-    const emailBody = `📄 INFORME TÉCNICO — Osiris Plant Management
-
-Estimado(a),
-
-Le enviamos el Informe Técnico correspondiente a:
-
-• Título: ${inf.titulo||'—'}
-• Cliente: ${ct?.razonSocial||'—'}
-• Campo: ${inf.lugar||'—'}
-• Especie: ${inf.especie||'—'}${inf.variedad?' · '+inf.variedad:''}
-• Fecha: ${inf.fecha||'—'}
-• Responsable: ${inf.responsable||'—'}
-${linkInforme?`
-📎 Ver y descargar informe completo:
-${linkInforme}
-
-(Para guardar como PDF: Ctrl+P → "Guardar como PDF")`:''}
-
-— Osiris Plant Management · Grupo Mediterra`;
+    // El cuerpo y el asunto los arma src/osiris/correoInforme.js, que incluye
+    // la frase de responsabilidad pedida por el CFO. Misma estructura de siempre.
+    const emailBody = cuerpoCorreoInforme(inf, {
+      cliente: ct?.razonSocial || "",
+      linkInforme,
+      variedades: variedadesDe(inf),
+    });
+    const emailAsunto = asuntoCorreoInforme(inf);
 
     try {
       const res = await fetch("/api/send-email", {
         method:"POST", headers:{"Content-Type":"application/json"},
-        body:JSON.stringify({to, subject:`📄 Informe Técnico: ${inf.titulo||'Visita'} — Osiris`, message:emailBody, modulo:"osiris"})
+        body:JSON.stringify({to, subject:emailAsunto, message:emailBody, modulo:"osiris"})
       });
       if(!res.ok) throw new Error(await res.text());
       console.log(`[Email] ✅ Enviado a ${to}`);
@@ -5524,7 +5525,7 @@ ${linkInforme}
           await fetch("https://api.emailjs.com/api/v1.0/email/send", {
             method:"POST", headers:{"Content-Type":"application/json"},
             body:JSON.stringify({service_id:"service_ahuerta",template_id:"template_notif_tarea",user_id:"bwCBq7JXlEwCTzWNe",
-              template_params:{to_email:email,name:"Osiris Plant Management",subject:`📄 Informe Técnico: ${inf.titulo||'Visita'} — Osiris`,message:emailBody}})
+              template_params:{to_email:email,name:"Osiris Plant Management",subject:emailAsunto,message:emailBody}})
           });
         }
         return true;
@@ -5802,14 +5803,82 @@ ${linkInforme}
                           <option value="">— Seleccionar —</option>
                           {especiesMaestro.filter(e=>e.nombre||e.especie).map(e=>{const n=e.nombre||e.especie;return <option key={e.id} value={n}>{n}</option>;})}
                         </select></div>
-                      <div><div style={{fontSize:11,color:C.muted,fontWeight:600,marginBottom:3}}>Denominación (variedad)</div>
-                        <select disabled={!puedeEditar} value={inf.variedad||""} onChange={e=>updInf("variedad",e.target.value)}
-                          style={{width:"100%",padding:"7px 10px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:12,boxSizing:"border-box"}}>
-                          <option value="">— Seleccionar —</option>
-                          {variedadesMaestro.filter(v=>!inf.especie||v.especie===inf.especie).map(v=><option key={v.id} value={v.variedad}>{v.nRegistro?`${v.nRegistro} · ${v.variedad}`:v.variedad}</option>)}
-                        </select></div>
+                      <div style={{gridColumn:"1/-1"}}>
+                        <div style={{fontSize:11,color:C.muted,fontWeight:600,marginBottom:3}}>Denominación (variedades) — selección múltiple</div>
+                        <div style={{display:"flex",flexWrap:"wrap",gap:6,maxHeight:110,overflowY:"auto",border:`1px solid ${C.border}`,borderRadius:6,padding:8}}>
+                          {variedadesMaestro.filter(v=>!inf.especie||v.especie===inf.especie).map(v=>{
+                            const sel=variedadesDe(inf).includes(v.variedad);
+                            return (
+                              <label key={v.id} style={{display:"flex",alignItems:"center",gap:4,fontSize:11,padding:"2px 6px",borderRadius:5,
+                                border:`1px solid ${sel?C.purple:C.border}`,background:sel?C.cardAlt:"transparent",cursor:puedeEditar?"pointer":"default"}}>
+                                <input type="checkbox" disabled={!puedeEditar} checked={sel}
+                                  onChange={()=>{
+                                    const act=variedadesDe(inf);
+                                    const next = sel ? act.filter(x=>x!==v.variedad) : act.concat([v.variedad]);
+                                    const rr = conVariedades(inf, next);
+                                    // Una sola escritura: dos updInf seguidos parten del mismo
+                                    // estado y el segundo pisa al primero.
+                                    updItem("informes", inf.id, {variedades: rr.variedades, variedad: rr.variedad});
+                                  }}/>
+                                {v.nRegistro?`${v.nRegistro} · ${v.variedad}`:v.variedad}
+                              </label>);
+                          })}
+                        </div>
+                        <div style={{fontSize:10,color:C.muted2,marginTop:3}}>Seleccionadas: {etiquetaVariedades(inf)}</div>
+                      </div>
                       <Input label="Mes/Año plantación" value={inf.mesAnioPlantacion} onChange={v=>updInf("mesAnioPlantacion",v)} disabled={!puedeEditar} placeholder="Ej: Marzo 2024"/>
-                      <Input label="Superficie evaluada (há)" value={inf.superficie} onChange={v=>updInf("superficie",v)} disabled={!puedeEditar}/>
+                      <div style={{gridColumn:"1/-1"}}>
+                        <div style={{fontSize:11,color:C.muted,fontWeight:600,marginBottom:3}}>
+                          Alcance evaluado — una superficie o cantidad de plantas por variedad
+                        </div>
+                        {variedadesDe(inf).length===0?(
+                          <div style={{fontSize:11,color:C.muted2}}>Selecciona al menos una variedad para declarar su alcance.</div>
+                        ):(
+                          <div style={{display:"flex",flexDirection:"column",gap:6}}>
+                            {alcancePorVariedad(inf).map(fila=>(
+                              <div key={fila.variedad} style={{display:"flex",gap:6,alignItems:"center"}}>
+                                <div style={{minWidth:150,fontSize:11,fontWeight:600,color:C.text}}>{fila.variedad}</div>
+                                <input disabled={!puedeEditar} value={(inf.alcanceVariedades&&inf.alcanceVariedades[fila.variedad]&&inf.alcanceVariedades[fila.variedad].valor)||""}
+                                  placeholder="sin definir"
+                                  onChange={e=>updInf("alcanceVariedades", conAlcanceVariedad(inf, fila.variedad, e.target.value, undefined).alcanceVariedades)}
+                                  style={{flex:1,padding:"6px 9px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:12,boxSizing:"border-box"}}/>
+                                <select disabled={!puedeEditar} value={fila.unidad||""}
+                                  onChange={e=>updInf("alcanceVariedades", conAlcanceVariedad(inf, fila.variedad, undefined, e.target.value).alcanceVariedades)}
+                                  style={{padding:"6px 9px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:12}}>
+                                  <option value="">— unidad —</option>
+                                  {UNIDADES_ALCANCE.map(u=><option key={u} value={u}>{u==="ha"?"hectáreas (ha)":"número de plantas"}</option>)}
+                                </select>
+                                <div style={{minWidth:110,fontSize:10,color:fila.completo?C.muted2:(C.am||"#854d0e")}}>{fila.etiqueta}</div>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                        {(()=>{ const r=resumenAlcance(inf);
+                          if(r.modo==="historico") return (
+                            <div style={{fontSize:10,color:C.muted,marginTop:5,background:C.cardAlt,borderRadius:5,padding:"4px 6px"}}>
+                              Este informe trae <strong>{r.etiqueta}</strong> del campo histórico &quot;{r.procedencia}&quot;, del informe completo.
+                              Es un dato válido en hectáreas y se conserva así: no se reparte por variedad ni se convierte a plantas.
+                            </div>);
+                          if(r.modo==="informe") return (
+                            <div style={{fontSize:10,color:C.muted,marginTop:5}}>Declarado a nivel de informe: <strong>{r.etiqueta}</strong>.</div>);
+                          if(r.modo==="porVariedad"&&!r.completo) return (
+                            <div style={{fontSize:10,color:(C.am||"#854d0e"),marginTop:5}}>Falta declarar: {r.faltan.join(", ")}. No se convierte de há a plantas ni al revés.</div>);
+                          return null; })()}
+                      </div>
+                      <div>
+                        <div style={{fontSize:11,color:C.muted,fontWeight:600,marginBottom:3}}>Densidad de plantación</div>
+                        <div style={{display:"flex",gap:6}}>
+                          <input disabled={!puedeEditar} value={inf.densidadPlantacion||""} placeholder="sin definir"
+                            onChange={e=>updInf("densidadPlantacion",e.target.value)}
+                            style={{flex:1,padding:"7px 10px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:12,boxSizing:"border-box"}}/>
+                          <input disabled={!puedeEditar} value={inf.densidadPlantacionUnidad||""} placeholder="unidad (ej. plantas/ha)"
+                            onChange={e=>updInf("densidadPlantacionUnidad",e.target.value)}
+                            style={{flex:1,padding:"7px 10px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:12,boxSizing:"border-box"}}/>
+                        </div>
+                        <div style={{fontSize:10,color:C.muted2,marginTop:3}}>{densidadDeclarada(inf).etiqueta}</div>
+                      </div>
+                      <Input label="Sistema productivo" value={inf.sistemaProductivo} onChange={v=>updInf("sistemaProductivo",v)} disabled={!puedeEditar} placeholder="sin definir"/>
+                      <Input label="Sustrato" value={inf.sustrato} onChange={v=>updInf("sustrato",v)} disabled={!puedeEditar} placeholder="sin definir"/>
                       <div><div style={{fontSize:11,color:C.muted,fontWeight:600,marginBottom:3}}>Temporada</div>
                         <select disabled={!puedeEditar} value={inf.temporada||""} onChange={e=>updInf("temporada",e.target.value)}
                           style={{width:"100%",padding:"7px 10px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:12,boxSizing:"border-box"}}>
@@ -5828,7 +5897,19 @@ ${linkInforme}
                   {/* C. FENOLOGÍA */}
                   {secTab==="fenologia"&&(
                     <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
-                      <Select label="Estado fenológico actual" value={inf.fenologiaEstado} onChange={v=>updInf("fenologiaEstado",v)} opts={ESTADOS_FENOL} disabled={!puedeEditar}/>
+                      {(()=>{
+                        const cat = catalogoFenologicoCombinado([inf.fenologiaEstado].filter(Boolean), []);
+                        const opciones = cat.estados.map(e=>e.nombre);
+                        const vig = estadoFenologicoVigente(inf.fenologiaEstado);
+                        return (<div>
+                          <Select label={ETIQUETA_ESTADO_FENOLOGICO} value={inf.fenologiaEstado} onChange={v=>updInf("fenologiaEstado",v)} opts={opciones} disabled={!puedeEditar}/>
+                          <div style={{fontSize:10,color:C.muted2,marginTop:3}}>{NOTA_ESTADO_FENOLOGICO}</div>
+                          {vig.valor&&!vig.existeEnCatalogoNuevo?(
+                            <div style={{fontSize:10,color:(C.am||"#854d0e"),marginTop:3}}>
+                              Valor histórico &quot;{vig.valor}&quot;: no está en el catálogo nuevo y se conserva tal cual.
+                            </div>):null}
+                        </div>);
+                      })()}
                       <Select label="Uniformidad del huerto" value={inf.fenologiaUniformidad} onChange={v=>updInf("fenologiaUniformidad",v)} opts={UNIFORMIDAD} disabled={!puedeEditar}/>
                       <div style={{gridColumn:"1/-1"}}><Input label="Observaciones fenológicas" value={inf.fenologiaObs} onChange={v=>updInf("fenologiaObs",v)} rows={3} disabled={!puedeEditar}/></div>
                     </div>
@@ -6110,6 +6191,20 @@ ${linkInforme}
             }}>
               <Input label="Emails destino (separados por coma) *" value={emailsEnvio} onChange={v=>setEmailsEnvio(v)} placeholder="cliente@empresa.com, otro@empresa.com"/>
               <div style={{fontSize:11,color:C.muted,marginTop:8}}>💡 Se enviará resumen del informe. Estado cambiará a "Enviado".</div>
+              {(()=>{
+                const ct2=(ctData||[]).find(c=>c.id===inf.ctId);
+                const prev=vistaPreviaCorreo(inf,{cliente:ct2?.razonSocial||"",linkInforme:"",variedades:variedadesDe(inf),destinatarios:emailsEnvio});
+                const val=validarDestinatarios(emailsEnvio);
+                return (<div style={{marginTop:10}}>
+                  <div style={{fontSize:11,fontWeight:700,color:C.text,marginBottom:4}}>Vista previa (no envía nada)</div>
+                  <div style={{fontSize:10,color:val.ok?C.muted2:(C.am||"#854d0e"),marginBottom:4}}>
+                    Para: {val.ok?val.destinatarios.join(", "):(val.motivo||"sin destinatarios válidos")}
+                  </div>
+                  <div style={{fontSize:10,color:C.muted2,marginBottom:4}}>Asunto: {prev.asunto}</div>
+                  <pre style={{whiteSpace:"pre-wrap",fontSize:10,background:C.cardAlt,border:`1px solid ${C.border}`,borderRadius:6,padding:8,maxHeight:220,overflowY:"auto",margin:0,fontFamily:"inherit"}}>{prev.cuerpo}</pre>
+                  <div style={{fontSize:10,color:C.muted2,marginTop:4}}>El enlace al informe se agrega al enviar, cuando el archivo queda publicado.</div>
+                </div>);
+              })()}
             </ModalForm>}
           </div>
         );
