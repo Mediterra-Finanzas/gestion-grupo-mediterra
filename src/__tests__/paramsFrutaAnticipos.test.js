@@ -6,7 +6,7 @@
 import React from 'react';
 import '@testing-library/jest-dom';
 import { render, screen, fireEvent } from '@testing-library/react';
-import { ParamsFruta } from '../FinanzasModule.jsx';
+import { ParamsFruta, fmtDate } from '../FinanzasModule.jsx';
 
 // El texto del panel viene partido en varios nodos (chips, <strong>, etc.),
 // así que se busca sobre el texto renderizado completo.
@@ -43,8 +43,45 @@ test('muestra acordado, cobrado, pendiente y el total por cobrar (540.000)', () 
 
 test('lista la realización con su fecha y dice que no es comprobable sin saldos', () => {
   pintar();
-  verTexto(/10\/08\/2026/);
+  verTexto(/10\/08\/2026/);          // cobro cliente 2026-08-10 (r1), literal, sin corrimiento de zona
+  verTexto(/12\/08\/2026/);          // pago productor 2026-08-12 (r2)
+  expect(texto()).not.toMatch(/09\/08\/2026/);   // no debe retroceder un día (bug UTC→local)
   verTexto(/sin saldos cargados/);
+});
+
+// Regresión de ZONA HORARIA: fmtDate de una fecha-solo "YYYY-MM-DD" debe dar el día LITERAL,
+// idéntico en Chile (UTC-3/-4) y en CI (UTC). Al no construir un Date, es estable por diseño.
+describe('fmtDate — fecha-solo estable en cualquier zona horaria', () => {
+  test.each([
+    ['2026-08-10', '10/08/2026'],
+    ['2026-08-12', '12/08/2026'],
+    ['2026-01-01', '01/01/2026'],
+    ['2026-12-31', '31/12/2026'],
+    ['2026-03-01', '01/03/2026'],   // el caso clásico que retrocedía a feb-28 en zona negativa
+  ])('fmtDate(%s) = %s', (entrada, esperado) => {
+    expect(fmtDate(entrada)).toBe(esperado);
+  });
+
+  test('un timestamp ISO NO entra por la rama de fecha-solo (se resuelve con Date)', () => {
+    const iso = '2026-08-10T02:00:00Z';
+    const d = new Date(iso);   // comportamiento anterior; el resultado depende de la zona, pero
+    // debe COINCIDIR con la rama Date (no con el literal "10/08/2026" de la rama fecha-solo).
+    const esperadoPorDate = `${String(d.getDate()).padStart(2,'0')}/${String(d.getMonth()+1).padStart(2,'0')}/${d.getFullYear()}`;
+    expect(fmtDate(iso)).toBe(esperadoPorDate);
+  });
+
+  test('vacío → guion; entradas nulas seguras', () => {
+    expect(fmtDate('')).toBe('—');
+    expect(fmtDate(null)).toBe('—');
+    expect(fmtDate(undefined)).toBe('—');
+  });
+
+  test('fecha-solo inválida no devuelve una fecha imposible', () => {
+    expect(fmtDate('2026-13-45')).not.toMatch(/45\/13/);   // nunca "45/13/2026"
+    expect(fmtDate('2026-13-45')).toBe('2026-13-45');       // se devuelve el string tal cual
+    expect(fmtDate('2026-02-30')).toBe('2026-02-30');       // 30-feb no existe → string tal cual
+    expect(fmtDate('2026-00-00')).toBe('2026-00-00');
+  });
 });
 
 test('con saldos bancarios, clasifica el cobro contra la fecha de cada cuenta', () => {

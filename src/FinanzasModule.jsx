@@ -1674,10 +1674,26 @@ const $$ = n => {
   const abs=Math.abs(n),s=n<0?"-":"";
   return `${s}$${Math.round(abs).toLocaleString("en-US")}`;
 };
-const fmtDate = s => {
+// Formatea una fecha a dd/mm/aaaa. SOLO una fecha-solo EXACTA "YYYY-MM-DD" (como la de las
+// realizaciones de anticipos) se formatea directo desde el string, sin construir un Date:
+// `new Date("2026-08-10")` se interpreta en UTC y, leído con getDate() en una zona negativa
+// (Chile, UTC-3/-4), retrocedía un día (mostraba 09/08). Con el parseo por string el resultado
+// es idéntico en Chile y en CI (UTC). Un timestamp ISO ("...T..Z") u otro formato NO entra por
+// esta rama: conserva el comportamiento anterior vía Date. Exportado para test de zona horaria.
+export const fmtDate = s => {
   if(!s) return "—";
-  try{const d=new Date(s);return `${String(d.getDate()).padStart(2,"0")}/${String(d.getMonth()+1).padStart(2,"0")}/${d.getFullYear()}`;}
-  catch{return s.slice(0,10);}
+  const str = String(s);
+  const m = str.match(/^(\d{4})-(\d{2})-(\d{2})$/);        // fecha-solo EXACTA (con cierre de string)
+  if(m){
+    const y=+m[1], mo=+m[2], d=+m[3];
+    // Validar que sea una fecha real (evita devolver una fecha imposible como 45/13/2026).
+    const dt=new Date(y, mo-1, d);   // constructor por componentes → sin corrimiento de zona
+    if(dt.getFullYear()===y && dt.getMonth()===mo-1 && dt.getDate()===d) return `${m[3]}/${m[2]}/${m[1]}`;
+    return str;                      // componentes que no forman una fecha real → string tal cual
+  }
+  const dt=new Date(str);            // timestamps u otros formatos: comportamiento anterior (Date)
+  if(isNaN(dt.getTime())) return str.slice(0,10);
+  return `${String(dt.getDate()).padStart(2,"0")}/${String(dt.getMonth()+1).padStart(2,"0")}/${dt.getFullYear()}`;
 };
 const cf = v => v>=0 ? C.green : C.red;
 const CAT_COLOR={ing_op:C.green,ing_nop:"#34d399",egr_var:C.red,egr_fijo:"#f87171",egr_nop:"#fca5a5",imp:C.orange};
