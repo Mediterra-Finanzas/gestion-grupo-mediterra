@@ -183,28 +183,31 @@ function crearHandler(deps = {}) {
     const tok = await G.obtenerTokenGraph({ oidcToken: oidc, tenantId: cfg.tenantId, clientId: cfg.clientId, fetchImpl });
     if (!tok.ok) { console.error("frisku-sp graphdiag:token_exchange"); return json(res, 502, { error: "auth_upstream" }); } // diag privado; respuesta pública sin cambios
 
+    // Resolución del drive por enumeración de bibliotecas (coincidencia exacta y única "Documentos").
     const drive = await G.resolverDriveFrisku(tok.token, fetchImpl);
     if (!drive.ok) {
-      // Diag privado: etapa de resolución del drive. drive_shape = 200 pero contenido inesperado;
-      // si no, error HTTP de Graph con su status exacto. Solo etapa + número; sin tokens/URL/IDs.
       const st = Number.isInteger(drive.status) ? drive.status : "x";
-      console.error("frisku-sp graphdiag:" + (drive.error === "drive_shape" ? "resolve_shape" : ("resolve_http_" + st)));
+      console.error("frisku-sp graphdiag:resolve_" + (drive.error || "err") + "_" + st);   // diag temporal; etapa + status, sin datos
       return json(res, drive.status === 403 ? 403 : 502, { error: "graph" });
     }
     const cfgDrive = { ...cfg, driveId: drive.driveId };
-    const built = G.construirUrlGraph(op, body, cfgDrive);
-    if (!built.ok) return json(res, 400, { error: built.error });
+    const mapErr = { 403: 403, 404: 404, 429: 429 };   // 401 de Graph = problema del proxy, no del usuario
+    const diagOp = (st) => { if (!mapErr[st]) console.error("frisku-sp graphdiag:op_" + (Number.isInteger(st) ? st : "x")); };
 
-    const r = await G.graphGet(built.url, tok.token, fetchImpl);
-    if (!r.ok) {
-      const map = { 403: 403, 404: 404, 429: 429 };   // 401 de Graph = problema del proxy, no del usuario
-      if (!map[r.status]) {   // diag privado solo en los que colapsan a 502; etapa "op" + status exacto, sin datos
-        const st = Number.isInteger(r.status) ? r.status : "x";
-        console.error("frisku-sp graphdiag:op_" + st);
-      }
-      return json(res, map[r.status] || 502, { error: "graph" });   // sin body/estado upstream crudo
+    // "item": lectura puntual por id (GET). "list"/"search": recorrido BFS acotado (sin search());
+    // el filtrado/puntaje lo hace el matcher S5A en el cliente sobre los items devueltos.
+    if (op === "item") {
+      const built = G.construirUrlGraph("item", body, cfgDrive);
+      if (!built.ok) return json(res, 400, { error: built.error });
+      const r = await G.graphGet(built.url, tok.token, fetchImpl);
+      if (!r.ok) { diagOp(r.status); return json(res, mapErr[r.status] || 502, { error: "graph" }); }
+      return json(res, 200, G.normalizarRespuesta(r.json, cfgDrive));
     }
-    return json(res, 200, G.normalizarRespuesta(r.json, cfgDrive));
+
+    const rec = await G.listarBibliotecaBFS(drive.driveId, tok.token, fetchImpl);
+    if (!rec.ok) { diagOp(rec.status); return json(res, mapErr[rec.status] || 502, { error: "graph" }); }
+    const items = rec.items.map((it) => G.normalizarDriveItem(it, cfgDrive)).filter(Boolean);
+    return json(res, 200, { items, nextCursor: undefined, truncated: !!rec.truncated });
   }
 }
 

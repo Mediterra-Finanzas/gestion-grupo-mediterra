@@ -38,13 +38,17 @@ function mkReq({ method = "POST", headers = {}, body, cookie, origin = ORIGIN, h
   if (ip && !noIp && !("x-vercel-forwarded-for" in h)) h["x-vercel-forwarded-for"] = ip;
   return { method, headers: h, body, socket: { remoteAddress: "1.2.3.4" } };
 }
-function mkFetch({ graphValue = [], graphStatus = 200, capturar, tokenOk = true } = {}) {
+const SITE_ID = "grupomediterra.sharepoint.com,11111111-1111-1111-1111-111111111111,22222222-2222-2222-2222-222222222222";
+const DOCS_DRIVE = { id: "DRV", name: "Documentos", webUrl: "https://grupomediterra.sharepoint.com/sites/FriskuFoodsSpA/Documentos%20compartidos" };
+// Mock de Graph: token + resolución (site → drives, con "Documentos") + operación (children/item).
+// `graphStatus`/`graphValue` aplican a la operación (BFS children o item); resolución siempre OK.
+// `drives` permite forzar una lista de bibliotecas anómala para probar la resolución.
+function mkFetch({ graphValue = [], graphStatus = 200, capturar, tokenOk = true, drives } = {}) {
   return async (url, opts) => {
-    if (String(url).includes("oauth2/v2.0/token")) return { ok: tokenOk, status: tokenOk ? 200 : 400, json: async () => (tokenOk ? { access_token: "GRAPH_TOK_SECRETO" } : {}) };
-    if (String(url).includes("/lists/Documentos/drive?")) return { ok: true, status: 200, json: async () => ({
-      id: "DRV", name: "Documentos",
-      webUrl: "https://grupomediterra.sharepoint.com/sites/FriskuFoodsSpA/Documentos%20compartidos",
-    }) };
+    const u = String(url);
+    if (u.includes("oauth2/v2.0/token")) return { ok: tokenOk, status: tokenOk ? 200 : 400, json: async () => (tokenOk ? { access_token: "GRAPH_TOK_SECRETO" } : {}) };
+    if (u.includes(":/sites/FriskuFoodsSpA?")) return { ok: true, status: 200, json: async () => ({ id: SITE_ID }) };
+    if (u.includes("/drives?$select=id,name,webUrl")) return { ok: true, status: 200, json: async () => (drives || { value: [DOCS_DRIVE] }) };
     if (capturar) capturar({ url, method: opts && opts.method });
     if (graphStatus !== 200) return { ok: false, status: graphStatus, json: async () => ({}) };
     return { ok: true, status: 200, json: async () => ({ value: graphValue }) };
@@ -138,10 +142,15 @@ async function run() {
   { const clock = { t: 2e12 }; const hE = mkHandler({ ahora: () => clock.t }); const c2 = cookieDeSet(await loginOk(hE)); clock.t += 31 * 60 * 1000;
     res = mkRes(); await hE(mkReq({ body: { op: "list" }, cookie: c2 }), res); eq(res.statusCode, 401, "cookie expirada / replay tardío → 401"); }
 
-  // op inválidas / driveId ajeno ignorado
-  res = mkRes(); await hG(mkReq({ body: { op: "search", q: "" }, cookie: ck }), res); eq(res.statusCode, 400, "search q vacío → 400");
+  // "search" ya NO usa search() de Graph: lista (BFS) y el cliente filtra. Nunca arma search()/search/query.
+  { let urls = []; const hS = mkHandler({ fetchImpl: mkFetch({ graphValue: [item], capturar: (x) => urls.push(String(x.url)) }) });
+    const ckS = cookieDeSet(await loginOk(hS));
+    res = mkRes(); await hS(mkReq({ body: { op: "search", q: "CGMU1" }, cookie: ckS }), res);
+    eq(res.statusCode, 200, "search → 200 vía listado BFS");
+    ok(res.body.items[0] && res.body.items[0].itemId === "IT1", "search devuelve items para el matcher");
+    ok(!urls.some((u) => u.includes("search(")) && !urls.some((u) => u.includes("/search/query")), "search: nunca llama search() ni /search/query"); }
   res = mkRes(); await hG(mkReq({ body: { op: "item", itemId: "a/b" }, cookie: ck }), res); eq(res.statusCode, 400, "item id inválido → 400");
-  cap = null; res = mkRes(); await hG(mkReq({ body: { op: "list", carpetaId: "OK123" }, cookie: ck }), res); ok(cap.url.includes("/drives/DRV/") , "usa driveId de cfg (allowlist)");
+  cap = null; res = mkRes(); await hG(mkReq({ body: { op: "list" }, cookie: ck }), res); ok(cap.url.includes("/drives/DRV/root/children"), "usa el driveId resuelto (allowlist) y lista por children");
 
   // OIDC ausente → 503
   const hNoOidc = mkHandler({ obtenerTokenOidc: () => null });
@@ -226,14 +235,13 @@ async function run() {
       ok(JSON.stringify(rr.body) === JSON.stringify({ error: "graph" }), "op_500: body público genérico");
       ok(spy.length === 1 && spy[0] === "frisku-sp graphdiag:op_500", "op_500: log con status exacto");
       ok(sinSensibles(spy), "op_500: log sin datos sensibles"); }
-    // op del drive → red/timeout (graphGet devuelve 504) → 502 graph, log op_504
+    // op (BFS children) → red/timeout (graphGet devuelve 504) → 502 graph, log op_504
     { const fRed = async (url) => {
-        if (String(url).includes("oauth2/v2.0/token")) return { ok: true, status: 200, json: async () => ({ access_token: "GRAPH_TOK_SECRETO" }) };
-        if (String(url).includes("/lists/Documentos/drive?")) return { ok: true, status: 200, json: async () => ({
-          id: "DRV", name: "Documentos",
-          webUrl: "https://grupomediterra.sharepoint.com/sites/FriskuFoodsSpA/Documentos%20compartidos",
-        }) };
-        throw new Error("red");
+        const u = String(url);
+        if (u.includes("oauth2/v2.0/token")) return { ok: true, status: 200, json: async () => ({ access_token: "GRAPH_TOK_SECRETO" }) };
+        if (u.includes(":/sites/FriskuFoodsSpA?")) return { ok: true, status: 200, json: async () => ({ id: SITE_ID }) };
+        if (u.includes("/drives?$select=id,name,webUrl")) return { ok: true, status: 200, json: async () => ({ value: [DOCS_DRIVE] }) };
+        throw new Error("red");   // children → red → graphGet 504
       };
       const { rr, spy } = await corrida(fRed);
       eq(rr.statusCode, 502, "graphdiag op_504 → 502");
@@ -244,28 +252,25 @@ async function run() {
     { const { rr, spy } = await corrida(mkFetch({ graphStatus: 404 }));
       eq(rr.statusCode, 404, "graph 404 → 404 (no 502)");
       ok(spy.length === 0, "graph 404: sin graphdiag (no es 502)"); }
-    // resolución del drive → Graph 500 (GET a /lists/Documentos/drive) → 502 graph, log resolve_http_500
+    // resolución: enumeración de /drives falla con 500 → 502 graph, log resolve_drive_resolve_500
     { const fRes = async (url) => {
-        if (String(url).includes("oauth2/v2.0/token")) return { ok: true, status: 200, json: async () => ({ access_token: "GRAPH_TOK_SECRETO" }) };
-        if (String(url).includes("/lists/Documentos/drive?")) return { ok: false, status: 500, json: async () => ({}) };
+        const u = String(url);
+        if (u.includes("oauth2/v2.0/token")) return { ok: true, status: 200, json: async () => ({ access_token: "GRAPH_TOK_SECRETO" }) };
+        if (u.includes(":/sites/FriskuFoodsSpA?")) return { ok: true, status: 200, json: async () => ({ id: SITE_ID }) };
+        if (u.includes("/drives?$select=id,name,webUrl")) return { ok: false, status: 500, json: async () => ({}) };
         return { ok: true, status: 200, json: async () => ({ value: [] }) };
       };
       const { rr, spy } = await corrida(fRes);
-      eq(rr.statusCode, 502, "graphdiag resolve_http_500 → 502");
-      ok(JSON.stringify(rr.body) === JSON.stringify({ error: "graph" }), "resolve_http_500: body público genérico");
-      ok(spy.length === 1 && spy[0] === "frisku-sp graphdiag:resolve_http_500", "resolve_http_500: log con status exacto");
-      ok(sinSensibles(spy), "resolve_http_500: log sin datos sensibles"); }
-    // resolución del drive → 200 pero forma inesperada (nombre) → 502 graph, log resolve_shape
-    { const fShape = async (url) => {
-        if (String(url).includes("oauth2/v2.0/token")) return { ok: true, status: 200, json: async () => ({ access_token: "GRAPH_TOK_SECRETO" }) };
-        if (String(url).includes("/lists/Documentos/drive?")) return { ok: true, status: 200, json: async () => ({ id: "D", name: "Otro", webUrl: "https://grupomediterra.sharepoint.com/sites/FriskuFoodsSpA/x" }) };
-        return { ok: true, status: 200, json: async () => ({ value: [] }) };
-      };
-      const { rr, spy } = await corrida(fShape);
-      eq(rr.statusCode, 502, "graphdiag resolve_shape → 502");
-      ok(JSON.stringify(rr.body) === JSON.stringify({ error: "graph" }), "resolve_shape: body público genérico");
-      ok(spy.length === 1 && spy[0] === "frisku-sp graphdiag:resolve_shape", "resolve_shape: log fijo");
-      ok(sinSensibles(spy), "resolve_shape: log sin datos sensibles"); }
+      eq(rr.statusCode, 502, "graphdiag resolve_drive_resolve_500 → 502");
+      ok(JSON.stringify(rr.body) === JSON.stringify({ error: "graph" }), "resolve_drive_resolve_500: body público genérico");
+      ok(spy.length === 1 && spy[0] === "frisku-sp graphdiag:resolve_drive_resolve_500", "resolve_drive_resolve_500: log con etapa+status");
+      ok(sinSensibles(spy), "resolve_drive_resolve_500: log sin datos sensibles"); }
+    // resolución: no existe "Documentos" en /drives → 502 graph, log resolve_drive_ambiguo_502
+    { const { rr, spy } = await corrida(mkFetch({ drives: { value: [{ id: "b!Teams", name: "Teams Wiki Data", webUrl: "https://grupomediterra.sharepoint.com/sites/FriskuFoodsSpA/Teams%20Wiki%20Data" }] } }));
+      eq(rr.statusCode, 502, "graphdiag resolve_drive_ambiguo → 502");
+      ok(JSON.stringify(rr.body) === JSON.stringify({ error: "graph" }), "resolve_drive_ambiguo: body público genérico");
+      ok(spy.length === 1 && spy[0] === "frisku-sp graphdiag:resolve_drive_ambiguo_502", "resolve_drive_ambiguo: log con etapa+status");
+      ok(sinSensibles(spy), "resolve_drive_ambiguo: log sin datos sensibles"); }
   }
 
   // ── leerDatosProd: lee id="main" (value.usuarios) + id="pins" (value); estricto; SOLO GET ──

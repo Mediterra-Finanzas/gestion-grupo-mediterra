@@ -13,12 +13,10 @@ const list = G.construirUrlGraph("list", {}, cfg);
 ok(list.ok && list.url.includes("/drives/DRV_FRISKU/root/children") && list.url.includes("$top=50"), "url list root");
 ok(G.construirUrlGraph("list", { carpetaId: "ABC123", top: 10 }, cfg).url.includes("/items/ABC123/children"), "url list carpeta");
 ok(G.construirUrlGraph("list", { top: 9999 }, cfg).url.includes("$top=200"), "url list top clamp a 200");
-const search = G.construirUrlGraph("search", { q: "HLBU9435288" }, cfg);
-ok(search.ok && search.url.includes("search(q='HLBU9435288')"), "url search");
+// search() a nivel de drive fue retirado: construirUrlGraph ya no arma esa URL.
+eq(G.construirUrlGraph("search", { q: "HLBU9435288" }, cfg).error, "op_desconocida", "search() retirado (no se construye)");
 ok(G.construirUrlGraph("item", { itemId: "ID_1" }, cfg).url.endsWith("/items/ID_1"), "url item");
 eq(G.construirUrlGraph("list", { carpetaId: "../etc" }, cfg).error, "param_invalido", "list carpeta inválida");
-eq(G.construirUrlGraph("search", { q: "" }, cfg).error, "param_invalido", "search q vacío");
-eq(G.construirUrlGraph("search", { q: "x".repeat(200) }, cfg).error, "param_invalido", "search q demasiado largo");
 eq(G.construirUrlGraph("item", { itemId: "a/b" }, cfg).error, "param_invalido", "item id con / inválido");
 eq(G.construirUrlGraph("otro", {}, cfg).error, "op_desconocida", "op desconocida");
 eq(G.construirUrlGraph("list", {}, {}).error, "no_configurado", "sin driveId → no_configurado");
@@ -80,23 +78,77 @@ async function run() {
   const gThrow = async () => { throw new Error("boom"); };
   eq((await G.graphGet("u", "T", gThrow, 5)).status, 504, "graphGet: excepción/timeout → 504");
 
-  // resolverDriveFrisku: ruta fija allowlisted + validación estricta de identidad/forma.
-  let resolverUrl = "", resolverMetodo = "";
-  const driveOk = async (url, opts) => {
-    resolverUrl = url; resolverMetodo = opts.method;
-    return { ok: true, status: 200, json: async () => ({
-      id: "b!Drive_Exacto", name: "Documentos",
-      webUrl: "https://grupomediterra.sharepoint.com/sites/FriskuFoodsSpA/Documentos%20compartidos",
-    }) };
+  // ── resolverDriveFrisku: enumera /drives del sitio y elige "Documentos" exacto y único ──
+  const SITE_ID = "grupomediterra.sharepoint.com,11111111-1111-1111-1111-111111111111,22222222-2222-2222-2222-222222222222";
+  const DOCS = { id: "b!Docs_Exacto", name: "Documentos", webUrl: "https://grupomediterra.sharepoint.com/sites/FriskuFoodsSpA/Documentos%20compartidos" };
+  const TEAMS = { id: "b!Teams", name: "Teams Wiki Data", webUrl: "https://grupomediterra.sharepoint.com/sites/FriskuFoodsSpA/Teams%20Wiki%20Data" };
+  // fabrica un fetch de resolución: site() y drives() configurables; registra url+método.
+  const mkResolver = (over = {}) => {
+    const calls = [];
+    const f = async (url, opts) => {
+      calls.push({ url: String(url), method: (opts && opts.method) || "GET" });
+      const u = String(url);
+      if (u.includes(":/sites/FriskuFoodsSpA?")) return over.site ? over.site() : { ok: true, status: 200, json: async () => ({ id: SITE_ID }) };
+      if (u.includes("/drives?$select=id,name,webUrl")) return over.drives ? over.drives() : { ok: true, status: 200, json: async () => ({ value: [TEAMS, DOCS] }) };
+      return { ok: false, status: 404, json: async () => ({}) };
+    };
+    f.calls = calls;
+    return f;
   };
-  const rd = await G.resolverDriveFrisku("TOK", driveOk);
-  ok(rd.ok && rd.driveId === "b!Drive_Exacto", "resolverDrive: devuelve ID exacto de Graph");
-  ok(resolverMetodo === "GET" && resolverUrl === G.FRISKU_DRIVE_META, "resolverDrive: solo GET a ruta fija");
-  const driveNombreMalo = async () => ({ ok: true, status: 200, json: async () => ({ id: "D", name: "Otro", webUrl: "https://grupomediterra.sharepoint.com/sites/FriskuFoodsSpA/x" }) });
-  eq((await G.resolverDriveFrisku("TOK", driveNombreMalo)).error, "drive_shape", "resolverDrive: nombre inesperado → cerrado");
-  const driveHostMalo = async () => ({ ok: true, status: 200, json: async () => ({ id: "D", name: "Documentos", webUrl: "https://evil.example/x" }) });
-  eq((await G.resolverDriveFrisku("TOK", driveHostMalo)).error, "drive_shape", "resolverDrive: webUrl fuera del sitio → cerrado");
-  eq((await G.resolverDriveFrisku("TOK", g404)).status, 404, "resolverDrive: error Graph propagado");
+  { const f = mkResolver();
+    const rd = await G.resolverDriveFrisku("TOK", f);
+    ok(rd.ok && rd.driveId === "b!Docs_Exacto", "resolverDrive: elige la biblioteca Documentos por nombre exacto");
+    ok(f.calls.length === 2 && f.calls.every((c) => c.method === "GET"), "resolverDrive: solo GET (site + drives)");
+    ok(f.calls[0].url === G.FRISKU_SITE_META, "resolverDrive: primer GET al sitio Frisku (ruta fija)");
+    ok(f.calls[1].url.includes("/drives?$select=id,name,webUrl"), "resolverDrive: segundo GET enumera /drives"); }
+  // ausencia de "Documentos" → cerrado
+  eq((await G.resolverDriveFrisku("TOK", mkResolver({ drives: () => ({ ok: true, status: 200, json: async () => ({ value: [TEAMS] }) }) }))).error, "drive_ambiguo", "resolverDrive: ausencia → drive_ambiguo");
+  // duplicado de "Documentos" → cerrado
+  eq((await G.resolverDriveFrisku("TOK", mkResolver({ drives: () => ({ ok: true, status: 200, json: async () => ({ value: [DOCS, { ...DOCS, id: "b!Otro" }] }) }) }))).error, "drive_ambiguo", "resolverDrive: duplicado → drive_ambiguo");
+  // webUrl fuera del sitio → no cuenta como Documentos → cerrado
+  eq((await G.resolverDriveFrisku("TOK", mkResolver({ drives: () => ({ ok: true, status: 200, json: async () => ({ value: [{ id: "b!X", name: "Documentos", webUrl: "https://evil.example/x" }] }) }) }))).error, "drive_ambiguo", "resolverDrive: webUrl fuera del sitio → cerrado");
+  // site 404 → propagado; drives 500 → propagado; site con id anómalo → cerrado
+  eq((await G.resolverDriveFrisku("TOK", mkResolver({ site: () => ({ ok: false, status: 404, json: async () => ({}) }) }))).status, 404, "resolverDrive: site error propagado");
+  { const r = await G.resolverDriveFrisku("TOK", mkResolver({ site: () => ({ ok: false, status: 404, json: async () => ({}) }) })); eq(r.error, "site_resolve", "resolverDrive: site error → site_resolve"); }
+  eq((await G.resolverDriveFrisku("TOK", mkResolver({ drives: () => ({ ok: false, status: 500, json: async () => ({}) }) }))).status, 500, "resolverDrive: drives error propagado");
+  eq((await G.resolverDriveFrisku("TOK", mkResolver({ site: () => ({ ok: true, status: 200, json: async () => ({ id: "no-es-un-site-id" }) }) }))).error, "site_shape", "resolverDrive: site id anómalo → site_shape");
+
+  // ── listarBibliotecaBFS: recorrido acotado, subcarpetas, truncamiento, fail-closed, solo GET ──
+  const item = (id, name, folder) => folder ? { id, name, folder: { childCount: 1 } } : { id, name, file: { mimeType: "application/pdf" } };
+  // raíz con 1 archivo + 1 subcarpeta; la subcarpeta tiene 1 archivo → BFS baja y los junta.
+  { const calls = [];
+    const f = async (url, opts) => {
+      calls.push({ url: String(url), method: (opts && opts.method) || "GET" });
+      const u = String(url);
+      if (u.includes("/root/children")) return { ok: true, status: 200, json: async () => ({ value: [item("F1", "raiz.pdf"), item("SUB", "COMEX", true)] }) };
+      if (u.includes("/items/SUB/children")) return { ok: true, status: 200, json: async () => ({ value: [item("F2", "sub.pdf")] }) };
+      return { ok: true, status: 200, json: async () => ({ value: [] }) };
+    };
+    const r = await G.listarBibliotecaBFS("b!Docs_Exacto", "TOK", f);
+    ok(r.ok && r.items.length === 3 && !r.truncated, "BFS: raíz + subcarpeta → junta todos los ítems");
+    ok(r.items.some((x) => x.id === "F2"), "BFS: baja a subcarpetas");
+    ok(calls.every((c) => c.method === "GET") && !calls.some((c) => c.url.includes("search(")) && !calls.some((c) => c.url.includes("/search/query")), "BFS: solo GET y sin search()"); }
+  // truncamiento por límite de ítems
+  { const f = async () => ({ ok: true, status: 200, json: async () => ({ value: [item("A", "a.pdf"), item("B", "b.pdf"), item("C", "c.pdf")] }) });
+    const r = await G.listarBibliotecaBFS("b!Docs_Exacto", "TOK", f, { items: 2 });
+    ok(r.ok && r.items.length === 2 && r.truncated === true, "BFS: límite de ítems → truncated"); }
+  // truncamiento por límite de carpetas (no baja a más subcarpetas)
+  { const f = async (url) => {
+      if (String(url).includes("/root/children")) return { ok: true, status: 200, json: async () => ({ value: [item("S1", "c1", true), item("S2", "c2", true)] }) };
+      return { ok: true, status: 200, json: async () => ({ value: [] }) };
+    };
+    const r = await G.listarBibliotecaBFS("b!Docs_Exacto", "TOK", f, { carpetas: 1 });
+    ok(r.ok && r.truncated === true, "BFS: límite de carpetas → truncated"); }
+  // fail-closed ante 429 / timeout(504) / anómalo
+  eq((await G.listarBibliotecaBFS("b!Docs_Exacto", "TOK", async () => ({ ok: false, status: 429, json: async () => ({}) }))).status, 429, "BFS: 429 → fail-closed");
+  eq((await G.listarBibliotecaBFS("b!Docs_Exacto", "TOK", async () => { throw new Error("red"); })).status, 504, "BFS: timeout/red → fail-closed 504");
+  eq((await G.listarBibliotecaBFS("b!Docs_Exacto", "TOK", async () => ({ ok: true, status: 200, json: async () => ({ noValue: 1 }) }))).status, 502, "BFS: respuesta anómala → fail-closed 502");
+  ok((await G.listarBibliotecaBFS("id/invalido", "TOK", async () => ({ ok: true, status: 200, json: async () => ({ value: [] }) }))).ok === false, "BFS: driveId inválido → cerrado");
+  // truncamiento por tiempo (reloj inyectado que avanza más allá del límite)
+  { let t = 0; const reloj = () => (t += 100000);
+    const f = async () => ({ ok: true, status: 200, json: async () => ({ value: [item("A", "a.pdf")] }) });
+    const r = await G.listarBibliotecaBFS("b!Docs_Exacto", "TOK", f, { tiempoMs: 10 }, reloj);
+    ok(r.ok && r.truncated === true, "BFS: límite de tiempo → truncated"); }
 
   console.log(`\n_friskuSpGraph: ${pass} pass / ${fail} fail`);
   process.exit(fail ? 1 : 0);
