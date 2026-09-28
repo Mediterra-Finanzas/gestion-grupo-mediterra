@@ -11,6 +11,8 @@
 import { evaluarCandidatosSharePoint } from "./friskuSharePointMatcher.js";
 
 const BASE = "/api/frisku-sp";
+const MAX_RESULTADOS_SP = 10;   // tope de candidatos mostrados
+const MARGEN_EMPATE_SP = 12;    // mismo default que el matcher para re-derivar estado tras filtrar
 
 // Mapea el estado HTTP a un motivo genérico de UI (no filtra cuerpos/errores internos).
 function motivoDe(status) {
@@ -75,8 +77,48 @@ export function esWebUrlSharePoint(u) {
   } catch (e) { return false; }
 }
 
+// Filtro de RELEVANCIA sobre la salida del matcher (puro; no muta las entradas):
+//  - deja SOLO archivos con match EXACTO de contenedor u OE (señal fuerte "match");
+//  - excluye carpetas (esCarpeta / mimeType "folder") y accesos directos .lnk;
+//  - descarta candidatos sostenidos solo por temporada/cliente/exportadora/especie/nombre;
+//  - limita a `max` resultados y re-deriva el estado sobre el conjunto filtrado.
+export function filtrarCandidatosRelevantes(resultado, items, max = MAX_RESULTADOS_SP) {
+  if (!resultado || !Array.isArray(resultado.candidatos)) return resultado;
+  const porIdent = new Map();
+  for (const it of (Array.isArray(items) ? items : [])) {
+    if (it && it.itemId != null) porIdent.set(`${it.driveId}::${it.itemId}`, it);
+  }
+  const relevante = (c) => {
+    const matchFuerte = Array.isArray(c.señales) && c.señales.some(
+      (s) => (s.tipo === "contenedor" || s.tipo === "numeroOE") && s.resultado === "match");
+    if (!matchFuerte) return false;                 // solo contenedor/OE exactos
+    const it = porIdent.get(`${c.driveId}::${c.itemId}`);
+    if (it) {
+      if (it.esCarpeta === true) return false;       // sin carpetas
+      if (String(it.mimeType || "").toLowerCase() === "folder") return false;
+      if (/\.lnk$/i.test(String(it.name || ""))) return false;  // sin accesos directos
+    }
+    return true;
+  };
+  const filtrados = resultado.candidatos.filter(relevante);
+  const limitado = filtrados.length > max;
+  const candidatos = filtrados.slice(0, max);
+
+  let estado, recomendacion;
+  if (candidatos.length === 0) {
+    estado = "not_found"; recomendacion = "sin_candidatos_relevantes";
+  } else {
+    const top = candidatos[0], seg = candidatos[1];
+    const empate = !!seg && seg.score > 0 && (top.score - seg.score) < MARGEN_EMPATE_SP;
+    if (empate) { estado = "multiple_candidates"; recomendacion = "revisar_multiples_candidatos"; }
+    else if (top.confianza === "alta") { estado = "exact_candidate"; recomendacion = "sugerir_candidato_top_requiere_confirmacion"; }
+    else { estado = "low_confidence"; recomendacion = "revision_humana_requerida"; }
+  }
+  return { ...resultado, estado, recomendacion, candidatos, ...(limitado ? { limitado: true } : {}) };
+}
+
 // Busca en SharePoint y evalúa candidatos con el matcher S5A. Devuelve el resultado del matcher
-// + un índice itemId→{webUrl,name} para poder abrir (webUrl NO lo produce el matcher).
+// (ya filtrado por relevancia) + un índice itemId→{webUrl,name} para abrir (webUrl NO lo produce el matcher).
 export async function buscarCandidatos(oe, ctx = {}, opts = {}) {
   const ref = construirReferencia(oe, ctx);
   const q = String(ref.tokens.contenedor || ref.tokens.numeroOE || "").trim();
@@ -85,7 +127,7 @@ export async function buscarCandidatos(oe, ctx = {}, opts = {}) {
     : await postSp({ op: "list" }, opts);
   if (!r.ok) return { ok: false, motivo: r.motivo };
   const items = Array.isArray(r.body.items) ? r.body.items : [];
-  const resultado = evaluarCandidatosSharePoint(ref, items);
+  const resultado = filtrarCandidatosRelevantes(evaluarCandidatosSharePoint(ref, items), items);
   const porId = {};
   for (const it of items) {
     if (it && it.itemId != null) porId[String(it.itemId)] = { webUrl: it.webUrl || "", name: it.name || "" };
