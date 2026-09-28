@@ -181,3 +181,80 @@ Unidades de CE, frecuencia de pasadas y número de tocones, y los campos dudosos
 (polinización con macronutrientes, macronutrientes por estado, Biometría, "Uniformidad
 establecimiento", fecha obligatoria). Son respuestas de labores que **todavía no se muestran**: se
 cierran cuando se cableen las respuestas por labor, que es un incremento aparte.
+
+---
+
+## 10 · Solicitud de publicación (2026-09-28)
+
+### Identificadores
+
+| | |
+|---|---|
+| **Paquete a autorizar** | la punta de `osiris/informes-integrado` (el commit de esta acta, solo documentación, sobre el código `add4ece177368275ad091bc55bbb09484bd5ed53`) |
+| Código (último commit que toca `src/`) | `add4ece177368275ad091bc55bbb09484bd5ed53` |
+| Base exacta | `origin/main` = `ae886fa841a55524e284af51c97925e45f3cdae0`, revalidada |
+| Production | desplegada desde `ae886fa`, estado `success`, 2026-09-28 11:13 UTC |
+| **Deployment de recuperación** | **`6708483611`** — `ae886fa`, Production, success |
+| Candidato sin integrar (referencia) | `b2f985171473091a33be623fce7af50af7580438` sobre `fac6cd0` |
+| Rama de revisión (NO se integra) | `prueba/informes-int-revision` |
+
+### Diff completo contra `ae886fa`
+
+9 archivos, +2.736 / −33:
+
+```
+docs/osiris-tech/ACTA-INFORMES-TECNICOS.md       183 +
+docs/osiris-tech/DECISIONES-INFORME-NICOLAS.md   174 +
+src/OsirisModule.jsx                             161 +-
+src/osiris/correoInforme.js                      131 +
+src/osiris/correoInforme.test.js                 238 +
+src/osiris/fenologia.js                          653 +
+src/osiris/fenologia.test.js                     398 +
+src/osiris/informeAlcance.js                     462 +
+src/osiris/informeAlcance.test.js                369 +
+```
+
+Fuera de `src/osiris/`, `src/OsirisModule.jsx` y `docs/osiris-tech/` no se toca **ningún** archivo.
+
+### Se conservan los demás carriles
+
+Los 6 commits que `origin/main` sumó desde la base anterior están presentes en el paquete
+(`ae886fa`, `7b21e2d`, `651471d`, `fed24fd`, `8c3bc7f`, `fad4809`: cinco de Frisku SharePoint y el
+typeahead de Rendiciones), y sus archivos quedan **byte a byte idénticos** a `origin/main`.
+
+### Pruebas sobre la integración
+
+| | Base `ae886fa` sola | Paquete integrado |
+|---|---|---|
+| Pasan | 1.005 | **1.114** |
+| Fallan | 2 | **2** |
+| Saltadas | 9 | 9 |
+
+Las dos fallas son las mismas en los dos lados, comprobadas contra la base actual:
+`paramsFrutaAnticipos` (anterior y ajena a Osiris) y `secHf1` (la rompieron los archivos de prueba
+nuevos de Frisku en `origin/main`).
+
+**Un tercer fallo que NO es tal**: en la corrida con paralelismo completo apareció además
+`FriskuSharePointBuscador` (155 s). Corrido solo sobre el paquete integrado pasa 7/7 en 9 s, y la
+corrida completa con `--maxWorkers=2` da exactamente las 2 fallas de siempre. Es un timeout por
+carga de la máquina, no una regresión: el paquete agrega 4 suites y la corrida en paralelo se pasa
+del tiempo. Queda declarado igual.
+
+### Comprobaciones de cierre
+
+| Comprobación | Resultado |
+|---|---|
+| Informe histórico con dos variedades | Muestra **12,5 ha del informe completo**, con su procedencia. Las dos variedades quedan "sin definir": **no se repartió** |
+| Desmarcar y volver a marcar una variedad | MegaEarly vuelve con sus **8.400 plantas**. Nada se pierde en silencio (3 pruebas propias lo fijan) |
+| Recuperación con el código anterior | Se sirvió `ae886fa` contra la misma base. Escribió lo suyo (país de un contrato) y **conservó** `variedades`, `alcanceVariedades` y `superficie`. Ojo: los conserva, **no los usa**: sigue mostrando una sola variedad y la superficie global |
+| Correo | La prueba acredita **el contenido del cuerpo**, no la entrega. No se envió ningún correo |
+
+### Alcance de esta entrega
+
+Entran: catálogo de estados de Hoja1, encabezado ampliado, variedades múltiples, alcance por
+variedad con unidad explícita, etiqueta "Estado fenológico predominante" y la frase en el cuerpo del
+correo.
+
+**No entran las respuestas específicas por labor.** El Excel está incorporado como catálogo de
+estados y labores, pero los campos y opciones de cada labor no están cableados en pantalla: el
+Excel **no** está implementado completo.
