@@ -38,6 +38,13 @@ export function construirAviso(id, resultado, etiqueta) {
       texto: `No se guardó ${nombre}: otra persona lo modificó mientras tú trabajabas y esta información no se puede combinar automáticamente. ` +
              `Anota tu cambio, recarga la página y vuelve a aplicarlo.` };
   }
+  // Regla de unicidad de liquidaciones (validarUnicidadOE): ya hay otra liquidación activa para
+  // la misma OE. Mensaje claro y accionable, sin exponer montos ni IDs internos. No cambia la
+  // lógica de unicidad/grandfathering: solo traduce el motivo del rechazo para la persona.
+  if (r.motivo === "duplicado_oe") {
+    return { id, tipo: "error",
+      texto: "Ya existe otra liquidación activa para esta Orden de Embarque. Revisa la liquidación existente antes de crear una nueva." };
+  }
   return { id, tipo: "error",
     texto: `No se pudo guardar ${nombre}${r.motivo === "http" && r.status ? ` (error ${r.status})` : ""}. ` +
            `Tus cambios siguen en pantalla: no cierres esta pestaña y reintenta.` };
