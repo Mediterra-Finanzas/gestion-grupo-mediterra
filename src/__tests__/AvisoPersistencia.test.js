@@ -55,6 +55,46 @@ describe("construirAviso · traduce el resultado del guardado", () => {
     expect(a.texto).not.toContain("(error");
   });
 
+  test("duplicado_oe: mensaje específico y accionable, sin IDs ni montos", () => {
+    const a = construirAviso("frisku_liquidaciones", { ok: false, motivo: "duplicado_oe", idExistente: "mu48fmjus69jpj", oeId: "msx7tr5hzybym3" }, "Liquidaciones");
+    expect(a.tipo).toBe("error");
+    expect(a.texto).toBe("Ya existe otra liquidación activa para esta Orden de Embarque. Revisa la liquidación existente antes de crear una nueva.");
+    // no filtra IDs internos que vengan en el resultado, ni montos
+    expect(a.texto).not.toContain("mu48fmjus69jpj");
+    expect(a.texto).not.toContain("msx7tr5hzybym3");
+    expect(a.texto).not.toMatch(/\$|US\$|\d{3,}/);
+  });
+
+  test("duplicado_oe NO usa el mensaje genérico ni un código de error", () => {
+    const a = construirAviso("frisku_liquidaciones", { ok: false, motivo: "duplicado_oe" }, "Liquidaciones");
+    expect(a.texto).not.toContain("No se pudo guardar");
+    expect(a.texto).not.toMatch(/\(error/);
+  });
+
+  test("error HTTP conserva su mensaje/código (no lo pisa el caso duplicado)", () => {
+    const a = construirAviso("frisku_liquidaciones", { ok: false, motivo: "http", status: 400 }, "Liquidaciones");
+    expect(a.tipo).toBe("error");
+    expect(a.texto).toContain("(error 400)");
+    expect(a.texto).toContain("no cierres esta pestaña");
+    expect(a.texto).not.toContain("Orden de Embarque");
+  });
+
+  test("error desconocido mantiene el mensaje genérico", () => {
+    const a = construirAviso("frisku_liquidaciones", { ok: false, motivo: "algo_raro_no_mapeado" }, "Liquidaciones");
+    expect(a.tipo).toBe("error");
+    expect(a.texto).toContain("No se pudo guardar Liquidaciones");
+    expect(a.texto).toContain("Tus cambios siguen en pantalla");
+    expect(a.texto).not.toContain("Orden de Embarque");
+  });
+
+  test("el rechazo duplicado_oe se surfacea (ok:false → aviso de error, no se trata como guardado)", () => {
+    // Un rechazo NUNCA devuelve null (que sería "guardado, nada que avisar"): así la UI muestra el
+    // aviso y NO limpia lo que la persona tiene en pantalla.
+    const a = construirAviso("frisku_liquidaciones", { ok: false, motivo: "duplicado_oe" }, "Liquidaciones");
+    expect(a).not.toBeNull();
+    expect(a.tipo).toBe("error");
+  });
+
   test("sin etiqueta cae al id de la fila, nunca queda vacío", () => {
     expect(construirAviso("frisku_po", { ok: false, motivo: "red" }).texto).toContain("frisku_po");
   });
@@ -103,5 +143,12 @@ describe("AvisoPersistencia · render", () => {
     const a = construirAviso("frisku_embarques", { ok: false, motivo: "conflicto_item", conflictos: ["7"] }, "Embarques");
     render(<AvisoPersistencia aviso={a} onCerrar={() => {}} />);
     expect(screen.getByText(a.texto)).toBeInTheDocument();
+  });
+
+  test("duplicado_oe: el mensaje específico se ve en pantalla", () => {
+    const a = construirAviso("frisku_liquidaciones", { ok: false, motivo: "duplicado_oe" }, "Liquidaciones");
+    render(<AvisoPersistencia aviso={a} onCerrar={() => {}} />);
+    expect(screen.getByText(/Ya existe otra liquidación activa para esta Orden de Embarque/)).toBeInTheDocument();
+    expect(screen.getByText("No se guardó")).toBeInTheDocument();
   });
 });
