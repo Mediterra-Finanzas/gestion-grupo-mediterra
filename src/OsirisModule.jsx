@@ -5245,16 +5245,27 @@ function OperacionTecnica({data, setData, ctData=[], clientes=[], especiesMaestr
   const [emailsEnvio, setEmailsEnvio] = useState("");
 
   // CRUD helpers
+  // El permiso se valida acá, no solo deshabilitando controles: así un guardado
+  // que llegue por cualquier otra vía tampoco escribe.
+  function bloqueadoPorPermiso(accion) {
+    if (can) return false;
+    // eslint-disable-next-line no-console
+    console.warn("[Osiris] " + accion + " ignorado: el usuario no tiene permiso de edición en Operación Técnica.");
+    return true;
+  }
   function addItem(key, item) {
+    if (bloqueadoPorPermiso("alta")) return null;
     const id = `${key.slice(0,3)}_${Date.now()}`;
     upd(key, [...(data?.[key]||[]), {...item, id}]);
     window.auditLog&&window.auditLog("crear",{modulo:"osiris",seccion:`Op. Técnica · ${key}`,descripcion:`Creó ${key}: ${item.titulo||item.nombre||item.tipo||""}`});
     return id;
   }
   function updItem(key, id, changes) {
+    if (bloqueadoPorPermiso("edición")) return;
     upd(key, (data?.[key]||[]).map(x=>x.id===id?{...x,...changes}:x));
   }
   function delItem(key, id, label) {
+    if (bloqueadoPorPermiso("borrado")) return;
     if(!window.confirm(`¿Eliminar "${label}"?`)) return;
     upd(key, (data?.[key]||[]).filter(x=>x.id!==id));
     window.auditLog&&window.auditLog("eliminar",{modulo:"osiris",seccion:`Op. Técnica · ${key}`,descripcion:`Eliminó: ${label}`,registroId:id});
@@ -11040,10 +11051,12 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
   const permRoyalties   = tabPermisos?.royalties || "editar";
   const permObtentores  = tabPermisos?.obtentores || tabPermisos?.contratos || "editar"; // hereda de contratos si no está definido
   const permViveros     = tabPermisos?.viveros    || tabPermisos?.contratos || "editar"; // hereda de contratos si no está definido
+  const permOpTecnica   = tabPermisos?.opTecnica  || tabPermisos?.contratos || "editar"; // hereda de contratos si no está definido
   const canVerContratos  = permContratos  !== "sin_acceso";
   const canVerRoyalties  = permRoyalties  !== "sin_acceso";
   const canVerObtentores = permObtentores !== "sin_acceso";
   const canVerViveros    = permViveros    !== "sin_acceso";
+  const canVerOpTecnica  = permOpTecnica  !== "sin_acceso";
   // Solo puede editar si: no es consulta AND rol editor/admin AND permiso = "editar"
   const canContratos = !esConsulta && esEditorOAdmin &&
     (rolActual === "admin" || permContratos === "editar");
@@ -11053,6 +11066,10 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
     (rolActual === "admin" || permObtentores === "editar");
   const canViveros    = !esConsulta && esEditorOAdmin &&
     (rolActual === "admin" || permViveros === "editar");
+  // Operación Técnica leía solo el rol base e ignoraba su propio permiso: un
+  // usuario con la pestaña en "ver" podía editar informes en borrador.
+  const canOpTecnica  = !esConsulta && esEditorOAdmin &&
+    (rolActual === "admin" || permOpTecnica === "editar");
   const can = canIngresos;
 
   const totPend=
@@ -12622,7 +12639,16 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
   // ── OPERACIÓN TÉCNICA ─────────────────────────────────────
   if(subApp==="opTecnica") {
     const opData = osirisData?.opTecnica || {};
-    const canOp = esEditorOAdmin; // usar mismos permisos base
+    const canOp = canOpTecnica; // respeta tab_permisos.osiris.opTecnica, como las demás pestañas
+    if(!canVerOpTecnica) return (
+      <div className="osiris-root" style={{fontFamily:"sans-serif",background:C.bg,minHeight:"100vh",padding:24}}>
+        <div style={{maxWidth:520,margin:"60px auto",background:C.card,borderRadius:12,padding:24,textAlign:"center"}}>
+          <div style={{fontSize:14,fontWeight:800,color:C.text,marginBottom:6}}>Sin acceso a Operación Técnica</div>
+          <div style={{fontSize:12,color:C.muted,marginBottom:14}}>Tu usuario no tiene esta pestaña habilitada.</div>
+          <button onClick={onBack} style={{padding:"7px 16px",borderRadius:8,border:"none",background:C.primary,color:"#fff",cursor:"pointer",fontSize:12,fontWeight:700}}>Volver</button>
+        </div>
+      </div>
+    );
     return (
       <div className="osiris-root" style={{fontFamily:"sans-serif",background:C.bg,minHeight:"100vh",padding:"20px 20px 40px",maxWidth:"100%",overflowX:"hidden"}}>
         {guardadoChip}
