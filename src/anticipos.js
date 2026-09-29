@@ -109,6 +109,26 @@ export function resumenAnticipos(items, base, total = 0, opts = {}) {
   };
 }
 
+// Pendientes cuyo mes programado ya pasó respecto del corte del flujo.
+// Se siguen proyectando en ese mes anterior, y como el saldo acumulado arranca
+// en el mes en curso, quedan FUERA de la caja proyectada aunque sigan por
+// cobrar/pagar. No se mueven solos: se listan para reprogramarlos a mano.
+// `esVencido(a)` decide qué es "ya pasó" (este módulo no sabe de meses).
+export function pendientesVencidos(items, base, esVencido) {
+  const arr = Array.isArray(items) ? items : [];
+  const fn = typeof esVencido === "function" ? esVencido : () => false;
+  const detalle = [];
+  let total = 0;
+  arr.forEach(a => {
+    if (!a || a.cerrado) return;
+    const pend = antPendiente(a, base);
+    if (pend <= 0 || !fn(a)) return;
+    total += pend;
+    detalle.push({ id: a.id || null, mes: a.mes || "", pendiente: pend });
+  });
+  return { total, detalle };
+}
+
 // ── Alta / corrección de realizaciones (con trazabilidad) ─────────
 // Devuelven un anticipo NUEVO; no mutan el original.
 export function agregarRealizacion(a, { fecha, usd, nota = "", usuario = "" } = {}) {

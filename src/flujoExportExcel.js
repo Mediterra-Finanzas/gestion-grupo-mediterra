@@ -404,6 +404,74 @@ const PS = {
 };
 
 // ═══════════════════════════════════════════════════════════════════
+// ── Filas de anticipo y liquidación, compartidas por las hojas de
+// Allegria Foods y Allpa Farms: una sola definición de las fórmulas, para
+// que las dos hojas no puedan divergir entre sí ni respecto de la app.
+function helpersAnticipo(put, getR, setR) {
+  // ── Fila de anticipo ────────────────────────────────────────────
+  // C=cierre · D=US$/kg · E=acordado (=D×kg) · F=realizado (CONSTANTE,
+  // histórico: no se recalcula al cambiar kilos o tarifas) · G=pendiente.
+  // A la columna de movimiento (la que lee el flujo por SUMIF) va SOLO el
+  // pendiente: lo ya cobrado/pagado está en la caja y no se re-proyecta.
+  // Devuelve la expresión de su descuento de liquidación = realizado +
+  // pendiente proyectable (sin mes no se proyecta → se liquida al final).
+  const hdrAnticipo = (etiqueta) => {
+    const rH = getR();
+    put(rH,1,{ t:'s', v:etiqueta, s:PS.colHdr });
+    [[2,'Cierre'],[3,'US$/kg'],[4,'Acordado'],[5,'Realizado (fijo)'],[6,'Pendiente']]
+      .forEach(([c,t])=>put(rH,c,{ t:'s', v:t, s:PS.colHdr }));
+    setR(getR()+1);
+  };
+  const filaAnticipo = (a, kgC, kgNum, mesCol, monCol, etiqueta) => {
+    const rA = getR();
+    const cierreC=ref(rA,2), uC=ref(rA,3), acC=ref(rA,4), reC=ref(rA,5), peC=ref(rA,6), mesC=ref(rA,mesCol);
+    const usd = Number(a.usd_kg)||0;
+    const acordado = usd*kgNum, realizado = antRealizado(a), pend = antPendiente(a, kgNum);
+    const proyectable = !!a.mes;
+    put(rA,1,{ t:'s', v:`   ↳ ${etiqueta}`, s:PS.txtSub });
+    put(rA,2,{ t:'s', v:a.cerrado?'Cerrado':'Abierto', s:PS.inTxt });
+    put(rA,3,{ t:'n', v:usd, s:PS.inUsd });
+    put(rA,4,{ t:'n', f:`${uC}*${kgC}`, v:acordado, s:PS.der });
+    put(rA,5,{ t:'n', v:realizado, s:PS.inNum });
+    put(rA,6,{ t:'n', f:`IF(${cierreC}="Cerrado",0,MAX(0,${acC}-${reC}))`, v:pend, s:PS.der });
+    put(rA,mesCol,{ t:'s', v:a.mes||'', s:PS.inTxt });
+    put(rA,monCol,{ t:'n', f:`${peC}`, v:pend, s:PS.movNum });
+    setR(getR()+1);
+    return { f:`${reC}+IF(${mesC}="",0,${peC})`, v:realizado + (proyectable?pend:0) };
+  };
+  // ── Fila de liquidación + fila de sobre-anticipo ────────────────
+  // E=total (venta o costo neto) · F=descuento por anticipos · G=liquidación.
+  // El excedente se muestra en su propia fila: no se compensa solo ni se
+  // esconde detrás del MAX(0).
+  const filasLiquidacion = ({ totalF, totalV, descs, mesLiq, mesCol, monCol, etiqueta, etiquetaTot }) => {
+    // mini-cabecera para que la fila se lea sola
+    put(getR(),4,{ t:'s', v:etiquetaTot, s:PS.colHdr });
+    put(getR(),5,{ t:'s', v:'Descuento anticipos', s:PS.colHdr });
+    put(getR(),6,{ t:'s', v:etiqueta, s:PS.colHdr });
+    setR(getR()+1);
+    const rL = getR();
+    const totC=ref(rL,4), desC=ref(rL,5), liqC=ref(rL,6);
+    const descF = descs.length ? descs.map(d=>`(${d.f})`).join('+') : '0';
+    const descV = descs.reduce((x,d)=>x+d.v,0);
+    const liq = Math.max(0, totalV - descV);
+    put(rL,1,{ t:'s', v:`   ↳ ${etiqueta}`, s:PS.txtSub });
+    put(rL,2,{ t:'s', v:'= total − (realizado + pendiente)', s:PS.txtSub });
+    put(rL,4,{ t:'n', f:totalF, v:totalV, s:PS.der });
+    put(rL,5,{ t:'n', f:descF, v:descV, s:PS.der });
+    put(rL,6,{ t:'n', f:`MAX(0,${totC}-${desC})`, v:liq, s:PS.derB });
+    put(rL,mesCol,{ t:'s', v:mesLiq||'', s:PS.inTxt });
+    put(rL,monCol,{ t:'n', f:`${liqC}`, v:liq, s:PS.movNum });
+    setR(getR()+1);
+    // Sobre-anticipo: se muestra SIEMPRE (recalcula si cambian kilos/tarifas)
+    const rE = getR();
+    put(rE,1,{ t:'s', v:'   ↳ Sobre-anticipo (no se compensa)', s:PS.txtSub });
+    put(rE,6,{ t:'n', f:`MAX(0,${desC}-${totC})`, v:Math.max(0,descV-totalV), s:PS.der });
+    setR(getR()+1);
+  };
+
+  return { hdrAnticipo, filaAnticipo, filasLiquidacion };
+}
+
 // HOJA "Parametros" — Allpa Farms (Chile). Inputs vivos + fórmulas.
 // Columnas A-G: inputs y derivados legibles.  Col H: separador.
 // Columnas-fuente (SUMIF del flujo): I/J Ingresos · K/L Cosecha · M/N Transporte.
@@ -438,11 +506,15 @@ function buildParametrosAllpa(paramsAF, months) {
   put(r,0,{ t:'s', v:'① INGRESOS POR VARIEDAD (anticipos + liquidación)', s:PS.secHdr });
   for (let c=1;c<=7;c++) put(r,c,{ t:'s', v:'', s:PS.secHdr });
   merges.push({ s:{r:r-1,c:0}, e:{r:r-1,c:7} }); r++;
-  const IH = ['Temporada','Variedad / Concepto','kg total','US$/kg','Ingreso bruto','Σ Anticipos','Liquidación'];
+  const IH = ['Temporada','Variedad / Concepto','kg total','US$/kg','Ingreso bruto','',''];
   IH.forEach((h,c)=>put(r,c,{ t:'s', v:h, s:PS.colHdr }));
   put(r,ING_MES,{ t:'s', v:'Mes cobro', s:PS.colHdr }); put(r,ING_MON,{ t:'s', v:'Monto US$', s:PS.colHdr });
   r++;
 
+  // Anticipos con cobros parciales: mismas filas y mismas fórmulas que la hoja
+  // de Allegria Foods (helpersAnticipo). A la columna de movimiento va SOLO el
+  // pendiente; el realizado es constante y la liquidación lo descuenta igual.
+  const { hdrAnticipo, filaAnticipo, filasLiquidacion } = helpersAnticipo(put, ()=>r, (v)=>{ r=v; });
   const kgCellsBySeason = {};   // temporada → [celdas kg de sus variedades] (para cosecha viva)
   seasonKeys.forEach(sk => {
     const d = paramsAF[sk] || {};
@@ -450,44 +522,27 @@ function buildParametrosAllpa(paramsAF, months) {
       const usd = Number(v.usd_kg) || 0;
       const totalKg = Object.values(v.kg_mes || {}).reduce((s,k)=>s+(Number(k)||0),0);
       const rV = r;
-      const kgCell = ref(rV, 2), usdCell = ref(rV, 3), ingBrutoCell = ref(rV, 4), sumAntCell = ref(rV, 5), liqCell = ref(rV, 6);
+      const kgCell = ref(rV, 2), usdCell = ref(rV, 3), ingBrutoCell = ref(rV, 4);
       (kgCellsBySeason[sk] || (kgCellsBySeason[sk] = [])).push(kgCell);
-      // anticipos (filas siguientes)
-      const antRows = [];
-      let sumAnt = 0;
-      (v.anticipos || []).forEach(a => {
-        const antUsd = Number(a.usd_kg) || 0;
-        const monto = antUsd * totalKg; sumAnt += monto;
-        antRows.push({ mes:a.mes || '', antUsd, monto });
-      });
       const ingBruto = totalKg * usd;
-      const liq = Math.max(0, ingBruto - sumAnt);
-      // fila variedad
+      // fila variedad: kg, US$/kg e ingreso bruto (sin movimiento propio)
       put(rV,0,{ t:'s', v:sk, s:PS.txt });
       put(rV,1,{ t:'s', v:v.nombre || '(variedad)', s:PS.txt });
       put(rV,2,{ t:'n', v:totalKg, s:PS.inKg });
       put(rV,3,{ t:'n', v:usd, s:PS.inUsd });
       put(rV,4,{ t:'n', f:`${kgCell}*${usdCell}`, v:ingBruto, s:PS.der });
-      // liquidación fuente (en fila variedad): mes_liq + monto liq
-      put(rV,ING_MES,{ t:'s', v:v.mes_liq || '', s:PS.inTxt });
-      put(rV,ING_MON,{ t:'n', f:liqCell, v:liq, s:PS.movNum });
       r++;
-      // filas anticipo
-      antRows.forEach(a => {
-        const rA = r;
-        const antUsdCell = ref(rA, 3);
-        put(rA,0,{ t:'s', v:'', s:PS.txt });
-        put(rA,1,{ t:'s', v:'   ↳ Anticipo', s:PS.txtSub });
-        put(rA,3,{ t:'n', v:a.antUsd, s:PS.inUsd });
-        put(rA,ING_MES,{ t:'s', v:a.mes, s:PS.inTxt });
-        put(rA,ING_MON,{ t:'n', f:`${antUsdCell}*${kgCell}`, v:a.monto, s:PS.movNum });
-        r++;
-      });
-      // Σ anticipos y liquidación (referencian las filas anticipo por columna J)
-      const jCells = antRows.map((_,i)=>ref(rV+1+i, ING_MON));
-      const sumAntF = jCells.length ? jCells.join('+') : '0';
-      put(rV,5,{ t:'n', f:sumAntF, v:sumAnt, s:PS.der });
-      put(rV,6,{ t:'n', f:`MAX(0,${ingBrutoCell}-${sumAntCell})`, v:liq, s:PS.derB });
+      // anticipos del cliente
+      const antis = v.anticipos || [];
+      const descs = [];
+      if (antis.length) {
+        hdrAnticipo('Anticipos cliente');
+        antis.forEach(a => descs.push(filaAnticipo(a, kgCell, totalKg, ING_MES, ING_MON, 'Anticipo')));
+      }
+      // liquidación = ingreso bruto − (realizado + pendiente programado)
+      filasLiquidacion({ totalF:`${ingBrutoCell}`, totalV:ingBruto, descs,
+        mesLiq:v.mes_liq || '', mesCol:ING_MES, monCol:ING_MON,
+        etiqueta:'Liquidación', etiquetaTot:'Ingreso bruto' });
     });
   });
   r++;
@@ -871,65 +926,7 @@ function buildParametrosAllegria(paramsAll, comisionArandanos, months) {
   const secHdr = (txt) => { put(r,0,{ t:'s', v:txt, s:PS.secHdr }); for(let c=1;c<=7;c++) put(r,c,{ t:'s', v:'', s:PS.secHdr }); merges.push({ s:{r:r-1,c:0}, e:{r:r-1,c:7} }); r++; };
   const colHdrs = (arr) => { arr.forEach((h,c)=>put(r,c,{ t:'s', v:h, s:PS.colHdr })); r++; };
 
-  // ── Fila de anticipo ────────────────────────────────────────────
-  // C=cierre · D=US$/kg · E=acordado (=D×kg) · F=realizado (CONSTANTE,
-  // histórico: no se recalcula al cambiar kilos o tarifas) · G=pendiente.
-  // A la columna de movimiento (la que lee el flujo por SUMIF) va SOLO el
-  // pendiente: lo ya cobrado/pagado está en la caja y no se re-proyecta.
-  // Devuelve la expresión de su descuento de liquidación = realizado +
-  // pendiente proyectable (sin mes no se proyecta → se liquida al final).
-  const hdrAnticipo = (etiqueta) => {
-    put(r,1,{ t:'s', v:etiqueta, s:PS.colHdr });
-    [[2,'Cierre'],[3,'US$/kg'],[4,'Acordado'],[5,'Realizado (fijo)'],[6,'Pendiente']]
-      .forEach(([c,t])=>put(r,c,{ t:'s', v:t, s:PS.colHdr }));
-    r++;
-  };
-  const filaAnticipo = (a, kgC, kgNum, mesCol, monCol, etiqueta) => {
-    const rA = r;
-    const cierreC=ref(rA,2), uC=ref(rA,3), acC=ref(rA,4), reC=ref(rA,5), peC=ref(rA,6), mesC=ref(rA,mesCol);
-    const usd = Number(a.usd_kg)||0;
-    const acordado = usd*kgNum, realizado = antRealizado(a), pend = antPendiente(a, kgNum);
-    const proyectable = !!a.mes;
-    put(rA,1,{ t:'s', v:`   ↳ ${etiqueta}`, s:PS.txtSub });
-    put(rA,2,{ t:'s', v:a.cerrado?'Cerrado':'Abierto', s:PS.inTxt });
-    put(rA,3,{ t:'n', v:usd, s:PS.inUsd });
-    put(rA,4,{ t:'n', f:`${uC}*${kgC}`, v:acordado, s:PS.der });
-    put(rA,5,{ t:'n', v:realizado, s:PS.inNum });
-    put(rA,6,{ t:'n', f:`IF(${cierreC}="Cerrado",0,MAX(0,${acC}-${reC}))`, v:pend, s:PS.der });
-    put(rA,mesCol,{ t:'s', v:a.mes||'', s:PS.inTxt });
-    put(rA,monCol,{ t:'n', f:`${peC}`, v:pend, s:PS.movNum });
-    r++;
-    return { f:`${reC}+IF(${mesC}="",0,${peC})`, v:realizado + (proyectable?pend:0) };
-  };
-  // ── Fila de liquidación + fila de sobre-anticipo ────────────────
-  // E=total (venta o costo neto) · F=descuento por anticipos · G=liquidación.
-  // El excedente se muestra en su propia fila: no se compensa solo ni se
-  // esconde detrás del MAX(0).
-  const filasLiquidacion = ({ totalF, totalV, descs, mesLiq, mesCol, monCol, etiqueta, etiquetaTot }) => {
-    // mini-cabecera para que la fila se lea sola
-    put(r,4,{ t:'s', v:etiquetaTot, s:PS.colHdr });
-    put(r,5,{ t:'s', v:'Descuento anticipos', s:PS.colHdr });
-    put(r,6,{ t:'s', v:etiqueta, s:PS.colHdr });
-    r++;
-    const rL = r;
-    const totC=ref(rL,4), desC=ref(rL,5), liqC=ref(rL,6);
-    const descF = descs.length ? descs.map(d=>`(${d.f})`).join('+') : '0';
-    const descV = descs.reduce((x,d)=>x+d.v,0);
-    const liq = Math.max(0, totalV - descV);
-    put(rL,1,{ t:'s', v:`   ↳ ${etiqueta}`, s:PS.txtSub });
-    put(rL,2,{ t:'s', v:'= total − (realizado + pendiente)', s:PS.txtSub });
-    put(rL,4,{ t:'n', f:totalF, v:totalV, s:PS.der });
-    put(rL,5,{ t:'n', f:descF, v:descV, s:PS.der });
-    put(rL,6,{ t:'n', f:`MAX(0,${totC}-${desC})`, v:liq, s:PS.derB });
-    put(rL,mesCol,{ t:'s', v:mesLiq||'', s:PS.inTxt });
-    put(rL,monCol,{ t:'n', f:`${liqC}`, v:liq, s:PS.movNum });
-    r++;
-    // Sobre-anticipo: se muestra SIEMPRE (recalcula si cambian kilos/tarifas)
-    const rE = r;
-    put(rE,1,{ t:'s', v:'   ↳ Sobre-anticipo (no se compensa)', s:PS.txtSub });
-    put(rE,6,{ t:'n', f:`MAX(0,${desC}-${totC})`, v:Math.max(0,descV-totalV), s:PS.der });
-    r++;
-  };
+  const { hdrAnticipo, filaAnticipo, filasLiquidacion } = helpersAnticipo(put, ()=>r, (v)=>{ r=v; });
 
   // ══ CEREZAS (4 líneas) ══
   secHdr('① CEREZAS — anticipos cliente/productor (acordado · realizado · pendiente), materiales y packing');

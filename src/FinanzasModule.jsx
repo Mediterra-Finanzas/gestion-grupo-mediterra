@@ -18,6 +18,7 @@ import {
   antAcordado, antRealizado, antPendiente, antDescuentoLiq, realizacionesVigentes,
   resumenAnticipos, normalizarAnticipo, agregarRealizacion, anularRealizacion,
   puedeBorrarAnticipo, nuevoIdAnticipo, clasificarRealizacionVsSaldos, conciliacionRealizaciones,
+  pendientesVencidos,
 } from './anticipos.js';
 
 // ═══════════════════════════════════════════════════════════════════
@@ -2094,6 +2095,16 @@ export function ParamsFruta({seasonKey,fruta,params,setParams,saldosBancos=null,
   const mesIdxActual=MESES_65.indexOf(`${MN[new Date().getMonth()]}-${String(new Date().getFullYear()).slice(2)}`);
   const fechasCuentas=fechasSaldosEmpresa(saldosBancos,"Allegria Foods");
   const conc=conciliacionRealizaciones([p.anticipos_cliente,p.anticipos_productor],fechasCuentas);
+  // Pendientes con el mes ya pasado: se proyectan antes del corte y por eso
+  // quedan fuera del saldo acumulado. Se listan para reprogramarlos a mano.
+  const esVencidoAnt = (a) => { const i=mIdx(a?.mes); return i>=0 && mesIdxActual>=0 && i<mesIdxActual; };
+  const vencCli  = pendientesVencidos(p.anticipos_cliente,   kg, esVencidoAnt);
+  const vencProd = pendientesVencidos(p.anticipos_productor, kg, esVencidoAnt);
+  const vencTotal = vencCli.total + vencProd.total;
+  const reprogramar = (campo,id,mes) => {
+    if(readOnly) return;
+    upd(campo,(p[campo]||[]).map(a=>{ const n=normalizarAnticipo(a); return n.id===id ? {...n,mes} : n; }));
+  };
   // Overrides manuales sobre las líneas que estos parámetros alimentan:
   // mientras existan, el flujo muestra el valor manual y NO el calculado.
   const lineasDeFruta = fruta==="cerezas"
@@ -2194,6 +2205,36 @@ export function ParamsFruta({seasonKey,fruta,params,setParams,saldosBancos=null,
         </div>
       )}
 
+      {vencTotal>0&&mesIdxActual>=0&&(
+        <div style={{background:`${C.danger}11`,border:`1px solid ${C.danger}55`,borderRadius:10,
+          padding:"9px 12px",marginBottom:12,fontSize:10,color:C.text}}>
+          <strong style={{color:C.danger}}>Anticipos pendientes con el mes ya pasado: {$$(vencTotal)}.</strong>
+          {" "}El saldo acumulado arranca en {MESES_65[mesIdxActual]}, así que estos montos se proyectan
+          antes del corte y <strong>no entran en la caja proyectada</strong>, aunque sigan por cobrar o pagar.
+          {" "}No se dan por realizados ni se mueven solos.
+          <div style={{marginTop:6,display:"flex",flexDirection:"column",gap:3}}>
+            {[["anticipos_cliente","cobrar",vencCli],["anticipos_productor","pagar",vencProd]].map(([campo,verbo,v])=>
+              v.detalle.map(d=>(
+                <div key={`${campo}-${d.id}`} style={{display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}}>
+                  <span style={{color:C.muted}}>Por {verbo}</span>
+                  <strong>{$$(d.pendiente)}</strong>
+                  <span style={{color:C.muted}}>programado en {d.mes}</span>
+                  {!readOnly&&(
+                    <button onClick={()=>reprogramar(campo,d.id,MESES_65[mesIdxActual])}
+                      style={{padding:"1px 7px",background:"transparent",border:`1px solid ${C.danger}66`,
+                        borderRadius:5,color:C.danger,cursor:"pointer",fontSize:9,fontWeight:700}}>
+                      reprogramar a {MESES_65[mesIdxActual]}
+                    </button>
+                  )}
+                </div>
+              ))
+            )}
+          </div>
+          <div style={{marginTop:5,color:C.muted2}}>
+            También puedes elegir otro mes en la fila del anticipo, o registrar el cobro/pago si ya ocurrió.
+          </div>
+        </div>
+      )}
       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14}}>
         <div style={{background:`${C.green}0d`,border:`1px solid ${C.green}33`,borderRadius:10,padding:12}}>
           <div style={{fontSize:11,fontWeight:700,color:C.green,marginBottom:10}}>📥 Cobros al cliente</div>
@@ -2509,7 +2550,7 @@ export function defaultParamsAllpa() {
   return p;
 }
 
-function calcAllpa(paramsAF) {
+export function calcAllpa(paramsAF) {
   const ingArr  = Z65();
   const costArr = Z65(); // remuneración cosecha
   const trspArr = Z65(); // transporte
@@ -2523,16 +2564,18 @@ function calcAllpa(paramsAF) {
       const usd = Number(v.usd_kg)||0;
       const totalKg = Object.values(v.kg_mes||{}).reduce((s,k)=>s+(Number(k)||0),0);
       if(!totalKg||!usd) return;
-      // Anticipos
-      let antTot = 0;
+      // Anticipos: se proyecta SOLO el pendiente. Lo ya cobrado no vuelve al
+      // flujo (ya está en la caja) pero sigue descontándose de la liquidación.
+      // Misma función que usa la pantalla y el Excel. Ver src/anticipos.js.
       (v.anticipos||[]).forEach(a => {
-        const kgAnt = (Number(a.usd_kg)||0)*totalKg;
-        const i = mIdx(a.mes); if(i>=0){ ingArr[i]+=kgAnt; antTot+=kgAnt; }
+        const i = mIdx(a.mes); if(i<0) return;
+        ingArr[i] += antPendiente(a, totalKg);
       });
-      // Liquidación
+      // Liquidación = venta − (realizado + pendiente programado)
       if(v.mes_liq) {
         const i = mIdx(v.mes_liq);
-        if(i>=0) ingArr[i] += Math.max(0, totalKg*usd - antTot);
+        if(i>=0) ingArr[i] += resumenAnticipos(v.anticipos, totalKg, totalKg*usd,
+                                               {esProyectable:esAntProyectable}).liquidacion;
       }
     });
 
@@ -2560,7 +2603,7 @@ function calcAllpa(paramsAF) {
   return {ingArr, costArr, trspArr};
 }
 
-function ParamsAllpa({selSeason, paramsAF, setParamsAF, readOnly}) {
+function ParamsAllpa({selSeason, paramsAF, setParamsAF, readOnly, usuario="", saldosBancos=null}) {
   const [selVar, setSelVar] = useState(null);
   const [subTab, setSubTab] = useState("variedades"); // "variedades" | "cosecha" | "transporte"
   const mesesSel = mesesTemporada(selSeason);
@@ -2584,14 +2627,6 @@ function ParamsAllpa({selSeason, paramsAF, setParamsAF, readOnly}) {
       if(!next[selSeason].variedades[vi].kg_mes) next[selSeason].variedades[vi].kg_mes={};
       if(!val||Number(val)===0) delete next[selSeason].variedades[vi].kg_mes[mes];
       else next[selSeason].variedades[vi].kg_mes[mes]=Number(val)||0;
-      return next;
-    });
-  }
-  function updVarAnt(vi, ai, field, val) {
-    setParamsAF(prev=>{
-      const next=JSON.parse(JSON.stringify(prev));
-      if(!next[selSeason].variedades[vi].anticipos) next[selSeason].variedades[vi].anticipos=[];
-      next[selSeason].variedades[vi].anticipos[ai][field]=field==="usd_kg"?Number(val)||0:val;
       return next;
     });
   }
@@ -2669,7 +2704,15 @@ function ParamsAllpa({selSeason, paramsAF, setParamsAF, readOnly}) {
           {selVar!==null&&variedades[selVar]&&(()=>{
             const v=variedades[selVar];
             const totalKg=Object.values(v.kg_mes||{}).reduce((s,k)=>s+(Number(k)||0),0);
-            const antTot=(v.anticipos||[]).reduce((s,a)=>s+(Number(a.usd_kg)||0)*totalKg,0);
+            const ingBruto=totalKg*(Number(v.usd_kg)||0);
+            // Mismo modelo y misma función que Allegria Foods y que calcAllpa:
+            // pantalla, consolidado y Excel no pueden divergir.
+            const rAnt=resumenAnticipos(v.anticipos, totalKg, ingBruto, {esProyectable:esAntProyectable});
+            const antTot=rAnt.acordado;
+            const mesIdxActual=MESES_65.indexOf(`${MN[new Date().getMonth()]}-${String(new Date().getFullYear()).slice(2)}`);
+            const fechasCuentas=fechasSaldosEmpresa(saldosBancos,"Allpa Farms");
+            const venc=pendientesVencidos(v.anticipos, totalKg,
+              (a)=>{ const i=mIdx(a?.mes); return i>=0 && mesIdxActual>=0 && i<mesIdxActual; });
             return (
               <div style={{flex:1,display:"flex",flexDirection:"column",gap:10}}>
                 <Card>
@@ -2701,7 +2744,7 @@ function ParamsAllpa({selSeason, paramsAF, setParamsAF, readOnly}) {
                     <div style={{marginTop:8,fontSize:11,color:C.green,fontWeight:600}}>
                       Total: {totalKg.toLocaleString()} kg · {$$(totalKg*Number(v.usd_kg))}
                       {antTot>0&&<span style={{color:C.muted,marginLeft:6}}>
-                        (anticipos: {$$(antTot)} · liq: {$$(Math.max(0,totalKg*Number(v.usd_kg)-antTot))})
+                        (anticipos: {$$(antTot)} · liq: {$$(rAnt.liquidacion)})
                       </span>}
                     </div>
                   )}
@@ -2735,29 +2778,27 @@ function ParamsAllpa({selSeason, paramsAF, setParamsAF, readOnly}) {
                 {/* Anticipos */}
                 <Card>
                   <SectionTitle>Anticipos cliente</SectionTitle>
-                  {(v.anticipos||[]).map((a,ai)=>(
-                    <div key={ai} style={{display:"flex",gap:8,alignItems:"center",marginBottom:6}}>
-                      <select value={a.mes||""} onChange={e=>updVarAnt(selVar,ai,"mes",e.target.value)}
-                        style={{...selSt,width:110}} disabled={readOnly}>
-                        <option value="">— mes —</option>
-                        {mesesSel.map(m=><option key={m}>{m}</option>)}
-                      </select>
-                      <span style={{fontSize:10,color:C.muted}}>$</span>
-                      <InputNumero formato="tasa" value={a.usd_kg||""} placeholder="US$/kg"
-                        onChange={n=>updVarAnt(selVar,ai,"usd_kg",n)}
-                        style={{...iSt,width:80,textAlign:"right"}} disabled={readOnly}/>
-                      <span style={{fontSize:10,color:C.muted}}>/kg</span>
-                      {totalKg>0&&Number(a.usd_kg)>0&&(
-                        <span style={{fontSize:10,color:C.yellow}}>{$$(Number(a.usd_kg)*totalKg)}</span>
-                      )}
-                      {!readOnly&&<button onClick={()=>updVar(selVar,"anticipos",(v.anticipos||[]).filter((_,j)=>j!==ai))}
-                        style={{background:"#fee2e2",border:"none",borderRadius:5,padding:"2px 7px",cursor:"pointer",color:"#991b1b",fontSize:11}}>×</button>}
+                  <AnticipList
+                    label="Anticipos (US$/kg por mes) — registra acá los cobros ya recibidos"
+                    items={v.anticipos} onChange={val=>updVar(selVar,"anticipos",val)}
+                    meses={mesesSel} base={totalKg} tipo="cliente"
+                    readOnly={readOnly} usuario={usuario}
+                    fechasCuentas={fechasCuentas} mesIdxActual={mesIdxActual}/>
+                  {(rAnt.acordado>0||ingBruto>0)&&(
+                    <div style={{fontSize:10,color:C.muted,marginTop:8,lineHeight:1.6}}>
+                      Venta total: <strong style={{color:C.text}}>{$$(ingBruto)}</strong><br/>
+                      Anticipos acordados: {$$(rAnt.acordado)} · ya cobrados: <strong style={{color:C.success}}>{$$(rAnt.realizado)}</strong> · pendientes: <strong style={{color:C.warning}}>{$$(rAnt.pendiente)}</strong><br/>
+                      Liquidación ({v.mes_liq||"sin mes"}): <strong style={{color:C.text}}>{$$(rAnt.liquidacion)}</strong>
+                      {" "}<span style={{color:C.muted2}}>(venta − cobrado − pendiente)</span><br/>
+                      <strong style={{color:C.success}}>Queda por cobrar: {$$(rAnt.flujoPendiente)}</strong>
+                      {" "}<span style={{color:C.muted2}}>= {$$(rAnt.pendiente)} anticipos + {$$(rAnt.liquidacion)} liquidación</span>
+                      {rAnt.pendienteSinMes>0&&<><br/><span style={{color:C.warning}}>{$$(rAnt.pendienteSinMes)} de anticipos sin mes asignado: no se proyectan y se cobran en la liquidación.</span></>}
+                      {rAnt.excedente>0&&(<><br/><span style={{color:C.danger,fontWeight:700}}>Sobre-anticipo: {$$(rAnt.excedente)} por sobre la venta.</span>
+                        {" "}<span style={{color:C.muted2}}>La liquidación queda en $0 y el exceso NO se compensa solo.</span></>)}
+                      {venc.total>0&&mesIdxActual>=0&&(<><br/><span style={{color:C.danger,fontWeight:700}}>{$$(venc.total)} pendiente con el mes ya pasado.</span>
+                        {" "}<span style={{color:C.muted2}}>Se proyecta antes de {MESES_65[mesIdxActual]} y queda fuera del saldo acumulado. Reprográmalo en la fila del anticipo; no se mueve solo.</span></>)}
                     </div>
-                  ))}
-                  {!readOnly&&<button onClick={()=>updVar(selVar,"anticipos",[...(v.anticipos||[]),{mes:"",usd_kg:0}])}
-                    style={{padding:"5px 12px",borderRadius:7,border:`1px dashed ${C.border2}`,background:"transparent",color:C.accentL,cursor:"pointer",fontSize:11}}>
-                    + Agregar anticipo
-                  </button>}
+                  )}
                 </Card>
               </div>
             );
@@ -3876,6 +3917,7 @@ function TabParametros({empNombre,empColor="#2563eb",
           selSeason={selSeason}
           paramsAF={paramsAF||defaultParamsAllpa()}
           setParamsAF={setParamsAF||function(){}}
+          usuario={usuario} saldosBancos={saldosBancos}
           readOnly={readOnly}/>
       )}
 
