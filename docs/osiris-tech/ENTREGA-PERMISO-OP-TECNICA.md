@@ -4,7 +4,10 @@ Paquete independiente, listo para publicación. No incluye las respuestas por la
 del paquete económico/tributario.
 
 - **Rama:** `osiris/permiso-op-tecnica`
-- **Candidato:** `42e4d74` (código en `a447f44` + esta acta; la documentación no cambia comportamiento)
+- **Código del paquete:** `a447f44`. El candidato es la punta de la rama (este archivo
+  y las correcciones de su texto son documentación y no cambian comportamiento); el SHA
+  exacto va en la solicitud de autorización, no escrito acá dentro, para que corregir una
+  línea de esta acta no lo invalide.
 - **Base exacta:** `5c0da41` (`origin/main` al 2026-09-30)
 - **Archivos:** 1 (`src/OsirisModule.jsx`), 27 líneas agregadas, 1 modificada
 
@@ -75,7 +78,7 @@ ventana.
 ## 5 · Autorización que se necesita
 
 > `AUTORIZO MERGE osiris/permiso-op-tecnica → main`, push y despliegue del paquete exacto
-> `42e4d74` sobre la base exacta `5c0da41`.
+> <SHA de la punta de la rama, indicado al pedir la ventana> sobre la base exacta `5c0da41`.
 
 Si al momento de publicar `origin/main` ya avanzó, se revalida la base y se vuelve a pedir la
 autorización con el par nuevo.
