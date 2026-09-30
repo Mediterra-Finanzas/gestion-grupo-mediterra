@@ -13613,6 +13613,30 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
       });
   },[persistAll, usuarioActual]);
 
+  // Pago de un vencimiento de crédito confirmado desde una línea de nómina.
+  // "registrar": idempotente por la clave de la línea (reintentar no duplica).
+  // "anular": anula ese pago con motivo (queda en el historial del crédito).
+  // La nómina no se modifica aquí: su estado se lee desde Créditos.
+  const handlePagoCreditoNomina = useCallback(async (accion, d) => {
+    const lista = creditosRef.current || [];
+    const c = lista.find(x => uidCredito(x) === d?.uid);
+    if(!c) return { ok:false, motivo:"el crédito vinculado no existe o no tienes acceso" };
+    let nuevo, pagoId = null;
+    try {
+      if(accion === "registrar"){
+        const r = registrarPagoIdempotente(c, d.pago, usuarioActual?.nombre || "");
+        if(r.duplicado) return { ok:true, pagoId:r.pagoId, duplicado:true };
+        nuevo = r.credito; pagoId = r.pagoId;
+      } else if(accion === "anular"){
+        const p = pagosVigentes(c).find(x => x.id === d.pagoId);
+        if(!p || !p.origen || p.origen.clave !== d.clave) return { ok:false, motivo:"el pago no corresponde a esta línea" };
+        nuevo = anularPago(c, d.pagoId, d.motivo, usuarioActual?.nombre || "");
+      } else return { ok:false, motivo:"acción desconocida" };
+    } catch(e){ return { ok:false, motivo:e.message }; }
+    const res = await handleSaveCreditos(lista.map(x => uidCredito(x) === d.uid ? nuevo : x));
+    return res?.ok ? { ok:true, pagoId } : { ok:false, motivo: res?.motivo || "no se guardó en el servidor" };
+  },[handleSaveCreditos, usuarioActual]);
+
   // Guardar transferencias intercompany
   const handleSaveIntercompany = useCallback((newList) => {
     setIntercompany(newList);
@@ -14122,7 +14146,8 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
       })()}
 
       {tab==="nominas"&&puedoVer("nominas")&&(
-        <NominasModule usuario={usuarioActual} canEdit={puedoEdit("nominas")} saldosBancos={saldosBancos} empresasPermitidas={empresasPermitidas}/>
+        <NominasModule usuario={usuarioActual} canEdit={puedoEdit("nominas")} saldosBancos={saldosBancos} empresasPermitidas={empresasPermitidas}
+          creditosData={creditosData} puedePagarCredito={puedoEdit("creditos")} onPagoCredito={handlePagoCreditoNomina}/>
       )}
 
       {tab==="reporte"&&puedoVer("reporte")&&accesoCompletoEmpresas&&(
@@ -14623,9 +14648,128 @@ function BadgeEstado({estado}) {
 }
 
 // ─────────────────────────────────────────────────────────────────
+// VÍNCULO LÍNEA DE NÓMINA ↔ VENCIMIENTO DE CRÉDITO
+// Vincular NO paga nada. El pago se registra en Créditos solo al confirmar
+// el pago efectivo de la línea (nómina Aprobada CFO), con fecha, monto y
+// desglose. Clave `nomina:<nominaId>:<itemId>`: reintentar no duplica.
+// El estado se lee de Créditos (fuente de verdad), no de la línea.
+// ─────────────────────────────────────────────────────────────────
+const claveOrigenNomina = (nominaId, itemId) => `nomina:${nominaId}:${itemId}`;
+function monedaLineaNomina(it, moneda){
+  if(moneda==="usd") return {mon:"USD", monto:Number(it.montoUSD)||0};
+  if(moneda==="pen") return {mon:"PEN", monto:Number(it.montoPEN)||0};
+  if(moneda==="clp") return {mon:"CLP", monto:Number(it.montoCLP)||0};
+  return Number(it.montoUSD) ? {mon:"USD", monto:Number(it.montoUSD)} : {mon:"CLP", monto:Number(it.montoCLP)||0};
+}
+function CeldaCreditoNomina({it, creditosData, empresa, nominaId, nombreNomina, estadoNomina, canEdit, puedePagar, moneda, onVincular, onPagoCredito, usuario}){
+  const [modo,setModo]=useState(null); // "vincular" | "pagar"
+  const [sel,setSel]=useState("");
+  const [f,setF]=useState(null);
+  const [enviando,setEnviando]=useState(false);
+  const vin = it.creditoVinculo;
+  const cred = vin ? (creditosData||[]).find(c=>uidCredito(c)===vin.uid) : null;
+  const clave = claveOrigenNomina(nominaId, it.id);
+  const pago = cred ? pagoPorOrigen(cred, clave) : null;
+  const est = cred ? estadoCredito(cred) : null;
+  const venc = est ? est.vencimientos.find(v=>v.key===vin.vencKey) : null;
+  const linea = monedaLineaNomina(it, moneda);
+  const opciones = useMemo(()=>{
+    if(modo!=="vincular") return [];
+    return (creditosData||[]).filter(c=>c.empresa===empresa&&!c.anulado).flatMap(c=>
+      estadoCredito(c).vencimientos.filter(v=>v.pendienteTotal>0).map(v=>({key:`${uidCredito(c)}|${v.key}`, c, v})));
+  },[modo, creditosData, empresa]);
+  const btn = (color)=>({padding:"2px 7px",borderRadius:5,border:`1px solid ${color}`,background:"transparent",color,cursor:"pointer",fontSize:10,fontWeight:700,whiteSpace:"nowrap"});
+  function abrirPago(){
+    const mon = cred.moneda||"USD";
+    // Prefill: monto de la línea si es la misma moneda (tope: pendiente),
+    // imputado cargos → intereses → capital. Se puede corregir.
+    let monto = linea.mon===mon ? Math.min(linea.monto, venc.pendienteTotal) : 0;
+    const d = {cargos:0, interes:0, capital:0, sinDesglose:0};
+    [["sinDesglose"],["cargos"],["interes"],["capital"]].forEach(([k])=>{ const q=Math.min(monto, venc.pendiente[k]||0); d[k]=Math.round(q*100)/100; monto-=q; });
+    setF({fecha:hoyISO(), ...d, nota:`${nombreNomina}${it.nDoc?` · doc ${it.nDoc}`:""}`});
+    setModo("pagar");
+  }
+  async function confirmarPago(){
+    const tot = ["capital","interes","cargos","sinDesglose"].reduce((a,k)=>a+(Number(f[k])||0),0);
+    if(!(tot>0)){ alert("Indica el monto pagado."); return; }
+    if(tot - venc.pendienteTotal > 0.005 && !window.confirm(`El pago (${$c(tot,cred.moneda)}) supera lo pendiente del vencimiento (${$c(venc.pendienteTotal,cred.moneda)}). ¿Registrar igual? El exceso quedará informado.`)) return;
+    setEnviando(true);
+    const r = await onPagoCredito("registrar", {uid:vin.uid, pago:{vencKey:vin.vencKey, fecha:f.fecha, capital:f.capital, interes:f.interes, cargos:f.cargos, sinDesglose:f.sinDesglose,
+      nota:f.nota, origen:{tipo:"nomina", clave, nominaId, itemId:it.id, nombreNomina}}});
+    setEnviando(false);
+    if(!r?.ok){ alert(`No se registró el pago: ${r?.motivo||"error"}. Puedes reintentar: no se duplica.`); return; }
+    setModo(null);
+  }
+  async function anular(){
+    const motivo = window.prompt(`Anular el pago registrado en Créditos desde esta línea (${fmtDate(pago.fecha)} · ${$c(totalPago(pago),cred.moneda)}).\nQueda en el historial como anulado y la cuota vuelve a quedar pendiente. Motivo:`);
+    if(motivo===null) return;
+    const r = await onPagoCredito("anular", {uid:vin.uid, pagoId:pago.id, motivo, clave});
+    if(!r?.ok) alert(`No se anuló: ${r?.motivo||"error"}`);
+  }
+  return (
+    <div style={{fontSize:10,minWidth:130,position:"relative"}}>
+      {!vin&&canEdit&&modo!=="vincular"&&<button onClick={()=>setModo("vincular")} style={btn(C.blue)} title="Vincular a un vencimiento de crédito (no registra pago)">🏦 Vincular</button>}
+      {vin&&(
+        <div>
+          <div style={{fontWeight:700,color:C.blue}}>🏦 {vin.acreedor}</div>
+          <div style={{color:C.muted}}>cuota {fmtDate(vin.fecha)}{venc?` · pend. ${$c(venc.pendienteTotal,cred?.moneda)}`:" · ⚠ ya no existe"}</div>
+          {pago
+            ? <div style={{color:C.green,fontWeight:700}}>✓ Pago registrado {fmtDate(pago.fecha)} {$c(totalPago(pago),cred.moneda)}</div>
+            : <div style={{color:C.orange}}>Pago no registrado{estadoNomina!=="aprobada"?" (se confirma con la nómina aprobada)":""}</div>}
+          <div style={{display:"flex",gap:4,marginTop:2,flexWrap:"wrap"}}>
+            {!pago&&canEdit&&<button onClick={()=>onVincular(it.id,null)} style={btn(C.muted)}>Desvincular</button>}
+            {!pago&&puedePagar&&estadoNomina==="aprobada"&&venc&&venc.pendienteTotal>0&&<button onClick={abrirPago} style={btn(C.green)}>Confirmar pago efectivo</button>}
+            {pago&&puedePagar&&<button onClick={anular} style={btn(C.red)}>Anular pago</button>}
+          </div>
+        </div>
+      )}
+      {modo==="vincular"&&(
+        <div style={{position:"fixed",inset:0,background:"rgba(16,24,40,0.45)",zIndex:450,display:"flex",alignItems:"center",justifyContent:"center"}}>
+        <div style={{background:C.bg2,border:`1px solid ${C.blue}`,borderRadius:10,padding:14,width:380,maxWidth:"94vw",boxShadow:"0 12px 32px rgba(0,0,0,0.3)",fontSize:11}}>
+          <div style={{fontWeight:700,marginBottom:6}}>Vincular a vencimiento de crédito ({empresa})</div>
+          <select value={sel} onChange={e=>setSel(e.target.value)} style={{...CR_INP,fontSize:11}}>
+            <option value="">— elegir vencimiento pendiente —</option>
+            {opciones.map(o=><option key={o.key} value={o.key}>{o.c.acreedor} · {fmtDate(o.v.fecha)} · {$c(o.v.pendienteTotal,o.c.moneda||"USD")}{o.v.porConciliar?" · por conciliar":o.v.vencida?" · vencida":""}</option>)}
+          </select>
+          {opciones.length===0&&<div style={{color:C.muted,marginTop:4}}>No hay vencimientos pendientes de créditos de {empresa}.</div>}
+          <div style={{color:C.muted,marginTop:6}}>Vincular no registra ningún pago.</div>
+          <div style={{display:"flex",gap:6,justifyContent:"flex-end",marginTop:8}}>
+            <button onClick={()=>setModo(null)} style={btn(C.muted)}>Cancelar</button>
+            <button disabled={!sel} onClick={()=>{ const o=opciones.find(x=>x.key===sel); onVincular(it.id,{uid:uidCredito(o.c), vencKey:o.v.key, acreedor:o.c.acreedor, fecha:o.v.fecha, vinculadoPor:usuario?.nombre||"", ts:new Date().toISOString()}); setModo(null); }} style={btn(C.blue)}>Vincular</button>
+          </div>
+        </div>
+        </div>
+      )}
+      {modo==="pagar"&&f&&(
+        <div style={{position:"fixed",inset:0,background:"rgba(16,24,40,0.45)",zIndex:450,display:"flex",alignItems:"center",justifyContent:"center"}}>
+        <div style={{background:C.bg2,border:`1px solid ${C.green}`,borderRadius:10,padding:14,width:420,maxWidth:"94vw",boxShadow:"0 12px 32px rgba(0,0,0,0.3)",fontSize:11}}>
+          <div style={{fontWeight:700,marginBottom:4}}>Confirmar pago efectivo · {vin.acreedor} cuota {fmtDate(vin.fecha)}</div>
+          <div style={{color:C.muted,marginBottom:6}}>Pendiente {$c(venc.pendienteTotal,cred.moneda)} · línea {linea.mon} {linea.monto.toLocaleString("en-US")}
+            {linea.mon!==(cred.moneda||"USD")&&<span style={{color:C.red}}> · moneda distinta: ingresa el monto en {cred.moneda||"USD"}</span>}</div>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6}}>
+            <CampoCr label="Fecha efectiva del pago"><input type="date" value={f.fecha} onChange={e=>setF(p=>({...p,fecha:e.target.value}))} style={CR_INP}/></CampoCr>
+            {[["capital","Capital"],["interes","Intereses"],["cargos","Otros cargos"],["sinDesglose","Sin desglose"]].map(([k,l])=>(
+              <CampoCr key={k} label={l}><InputNumero formato="monto" value={f[k]||""} onChange={n=>setF(p=>({...p,[k]:n}))} style={CR_INP}/></CampoCr>
+            ))}
+            <CampoCr label="Nota"><input value={f.nota} onChange={e=>setF(p=>({...p,nota:e.target.value}))} style={CR_INP}/></CampoCr>
+          </div>
+          <div style={{color:C.muted,marginTop:6}}>Total {$c(["capital","interes","cargos","sinDesglose"].reduce((a,k)=>a+(Number(f[k])||0),0),cred.moneda)}. Un pago parcial deja pendiente la diferencia.</div>
+          <div style={{display:"flex",gap:6,justifyContent:"flex-end",marginTop:8}}>
+            <button onClick={()=>setModo(null)} style={btn(C.muted)}>Cancelar</button>
+            <button disabled={enviando} onClick={confirmarPago} style={btn(C.green)}>{enviando?"Guardando…":"Registrar en Créditos"}</button>
+          </div>
+        </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────
 // TABLA ITEMS (por sección)
 // ─────────────────────────────────────────────────────────────────
-function TablaItems({items, seccion, onChange, canEdit, tc, moneda="ambas", semanaNomina, tiposDocExtra=[], onAddTipoDoc, usuario, nominaId, empresa, anioNom, fechaNom}) {
+function TablaItems({items, seccion, onChange, canEdit, tc, moneda="ambas", semanaNomina, tiposDocExtra=[], onAddTipoDoc, usuario, nominaId, empresa, anioNom, fechaNom,
+  creditosData=[], estadoNomina, nombreNomina="", puedePagarCredito=false, onPagoCredito}) {
   // Vista de edición: solo líneas activas (las inactivadas quedan en data y se ven en Vista Auditoría — Fase 3).
   const rows = items.filter(it=>it.seccion===seccion && lineaActiva(it));
   // Modal de documentos de respaldo (Expediente Digital — Fase 1).
@@ -14696,7 +14840,7 @@ function TablaItems({items, seccion, onChange, canEdit, tc, moneda="ambas", sema
   const montoLabel = soloUSD ? "Monto USD" : soloPEN ? "Monto PEN" : soloCLP ? "Monto CLP" : null;
   const headers = ["Tipo Doc","Proveedor / Nombre","RUT","N° Doc","F. Doc","F. Venc","Sem","Concepto",
     ...(soloUSD ? ["Monto USD"] : soloPEN ? ["Monto PEN"] : soloCLP ? ["Monto CLP"] : ["Monto CLP","Monto USD"]),
-    "Anticipo","Saldo a Pagar","Comentario",""];
+    "Anticipo","Saldo a Pagar","Comentario","Crédito",""];
   const colSpanTotal = 8;
   const colSpanEnd = soloUSD||soloCLP ? 2 : 2;
 
@@ -14889,6 +15033,14 @@ function TablaItems({items, seccion, onChange, canEdit, tc, moneda="ambas", sema
                         style={inputSt} placeholder="Obs."/>
                     : <span style={{color:C.muted,fontSize:10}}>{it.comentario||""}</span>}
                 </td>
+                <td style={{padding:"3px 6px"}}>
+                  <CeldaCreditoNomina it={it} creditosData={creditosData} empresa={empresa} nominaId={nominaId} nombreNomina={nombreNomina}
+                    estadoNomina={estadoNomina} canEdit={canEdit} puedePagar={puedePagarCredito} moneda={moneda} usuario={usuario}
+                    onPagoCredito={onPagoCredito}
+                    onVincular={(id,vinc)=>onChange(items.map(x=>x.id===id?{...x, creditoVinculo:vinc||undefined,
+                      historial:[...(x.historial||[]),{accion:vinc?"credito_vinculado":"credito_desvinculado",usuario:usuario?.nombre||"—",fecha:new Date().toISOString(),
+                        detalle:vinc?`${vinc.acreedor} cuota ${vinc.fecha}`:`${x.creditoVinculo?.acreedor||""} cuota ${x.creditoVinculo?.fecha||""}`}]}:x))}/>
+                </td>
                 <td style={{padding:"3px 6px",textAlign:"center",whiteSpace:"nowrap"}}>
                   <button onClick={()=>setDocsItemId(it.id)}
                     title={tieneRespaldo(it)?`${docsActivos(it).length} documento(s) de respaldo`:"Sin respaldo — adjuntar documento"}
@@ -14952,7 +15104,7 @@ function TablaItems({items, seccion, onChange, canEdit, tc, moneda="ambas", sema
                     <>{totalSaldoCLP?<span style={{color:C.green}}>{$$clp(totalSaldoCLP)}</span>:null}{totalSaldoCLP&&totalSaldoUSD?" / ":""}{totalSaldoUSD?<span style={{color:C.green}}>{$$usd(totalSaldoUSD)}</span>:null}{!totalSaldoCLP&&!totalSaldoUSD?"—":""}</>
                   ):(!soloPEN&&!totalSaldoCLP&&!totalSaldoUSD?"—":null)}
                 </td>
-                <td colSpan={2}/>
+                <td colSpan={3}/>
               </tr>
             </tfoot>
           )}
@@ -15402,7 +15554,8 @@ function PanelBancosNomina({empresa, saldosBancos}) {
 // ─────────────────────────────────────────────────────────────────
 // VISTA NÓMINA DETALLE
 // ─────────────────────────────────────────────────────────────────
-function NominaDetalle({nomina, onUpdate, onBack, usuario, canEdit, saldosBancos, nominasHermanas=[], onSwitchNomina, onCrearYAbrir, onCrearNueva, onAplazar}) {
+function NominaDetalle({nomina, onUpdate, onBack, usuario, canEdit, saldosBancos, nominasHermanas=[], onSwitchNomina, onCrearYAbrir, onCrearNueva, onAplazar,
+  creditosData=[], puedePagarCredito=false, onPagoCredito}) {
   const nom = nomina;
   const esCFO = usuario?.rol==="admin" || usuario?.esCFO;
   const [soloVer, setSoloVer] = useState(false);
@@ -16462,6 +16615,11 @@ function NominaDetalle({nomina, onUpdate, onBack, usuario, canEdit, saldosBancos
                 empresa={nom.empresa}
                 anioNom={nom.año}
                 fechaNom={nom.fecha}
+                creditosData={creditosData}
+                estadoNomina={nom.estado}
+                nombreNomina={nombreFormal}
+                puedePagarCredito={puedePagarCredito && !soloVer}
+                onPagoCredito={onPagoCredito}
               />
             </div>
           );
@@ -16946,7 +17104,7 @@ function MigracionNominasPanel({usuario}) {
   );
 }
 
-function NominasModule({usuario, canEdit=false, saldosBancos={}, empresasPermitidas}) {
+function NominasModule({usuario, canEdit=false, saldosBancos={}, empresasPermitidas, creditosData=[], puedePagarCredito=false, onPagoCredito}) {
   const [nominas, setNominas] = useState([]);
   const [cargando, setCargando] = useState(true);
   const [selNomina, setSelNomina] = useState(null); // id nomina abierta
@@ -17218,6 +17376,9 @@ function NominasModule({usuario, canEdit=false, saldosBancos={}, empresasPermiti
       saldosBancos={saldosBancos}
       nominasHermanas={nominasHermanas}
       onSwitchNomina={id=>setSelNomina(id)}
+      creditosData={creditosData}
+      puedePagarCredito={puedePagarCredito}
+      onPagoCredito={onPagoCredito}
       onCrearYAbrir={(empresa, semDest, añoDest, itemAplazado)=>{
         if(semDest && añoDest) {
           // Aplazamiento: buscar o crear nómina en semana destino

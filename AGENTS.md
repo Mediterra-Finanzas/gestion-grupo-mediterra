@@ -173,14 +173,25 @@ Reglas que no hay que romper:
   capital (art. 1595 CC). `pagado:true` antiguo = pagado sin registro.
 - **Créditos** no se borran: `anulado:true` con motivo; no se puede anular uno
   con pagos vigentes. Cada crédito tiene `uid` (los `n` históricos se repetían).
-- **Vencido impago** (fecha < hoy y saldo por pagar) se arrastra al **mes y
-  semana en curso** del flujo con aviso. No desaparece ni se da por pagado.
+- **Vencido impago confirmado** (fecha < hoy, saldo por pagar) se arrastra al
+  **mes y semana en curso** del flujo con aviso y su fecha original.
+- **Por conciliar**: cuota vencida ANTES de `control_desde` (fecha desde la que
+  el crédito se controla en la app; legacy no la tiene, un alta nueva la fija)
+  y sin pago registrado. NO entra a la deuda confirmada ni al flujo; se informa
+  aparte con su impacto potencial. Se concilia registrando el pago real o con
+  `confirmarImpaga` (exige respaldo; anulable con motivo en `c.conciliaciones`).
 - **Fechas** ISO leídas como texto: `new Date("2027-01-01")` en Chile caía en
   diciembre.
-- **Pago Préstamos - Total** y **Renovaciones** tienen `_fuenteCreditos` y
-  `_lockOverrideFromIdx:0`: no se editan en el flujo y los valores manuales
-  antiguos dejan de aplicar (se avisan, no se borran). `_semProy` da la semana
+- **Pago Préstamos - Total** y **Renovaciones** tienen `_fuenteCreditos`: no se
+  editan en el flujo. Un valor manual ANTIGUO sigue aplicando hasta decidir mes a
+  mes en Créditos → 🔎 Conciliación ("Usar Créditos" lo retira; "Mantener" exige
+  motivo). Cada decisión queda en `realData[emp]._resolucionesCreditos`
+  (`handleConciliarOverrideCredito`, una sola escritura). `_semProy` da la semana
   exacta: celda, subtotal, flujo neto y saldo semanal leen lo mismo.
+- **Cuota sin desglosar** (legacy): fuera del saldo de capital identificado,
+  dentro del servicio de deuda. `desglose` exige respaldo contractual.
+- **Tasa variable** = referencia (hipótesis constante) + margen: su interés se
+  marca como proyección (`v.tasaVariable`, columna aparte en servicio de deuda).
 - Moneda ≠ USD sin `tc_flujo` (moneda por 1 US$) **no entra** al flujo y se avisa.
 - **Prepago**: `simularPrepago` no modifica nada; `aplicarPrepago` registra el
   pago (capital + devengado + comisión) y, en contratos, un evento en
@@ -188,8 +199,13 @@ Reglas que no hay que romper:
   Sin tasa, base o condición de prepago → dato faltante / hipótesis explícita.
 - `handleSaveCreditos` devuelve el resultado real y revierte el estado local
   si el servidor no confirma (si no, un pago reintentado se duplicaba).
-- Nóminas NO está integrada con Créditos: pagar una cuota por nómina no la
-  marca pagada; se registra en Créditos → 📅 Pagos.
+- **Nóminas ↔ Créditos**: una línea guarda `creditoVinculo {uid, vencKey}`
+  (vincular NO paga). "Confirmar pago efectivo" solo con la nómina "aprobada" y
+  permiso de Créditos; registra el pago con `origen.clave = nomina:<id>:<línea>`
+  vía `registrarPagoIdempotente` (reintentar no duplica). Anular desde la línea
+  = `anularPago` con motivo. El estado de la línea se LEE de Créditos.
+- Registrar un pago NO escribe en el flujo real (ingreso manual, sin conciliación).
+- Revisión previa al merge y verificación del prepago: `docs/creditos-revision-pre-merge.md`.
 
 #### Bug histórico arreglado (no volver a romper)
 

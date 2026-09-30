@@ -27,6 +27,8 @@ const check = (nombre, cond, extra = '') => { console.log(`${cond ? '✓' : '✗
 const foto = (page, n) => page.screenshot({ path: path.join(OUT, `${n}.png`), fullPage: false });
 
 const store = nuevoStore();
+// Valores manuales ANTIGUOS en Pago Préstamos de Osiris: Oct-26 (idx 6) y Nov-26 (idx 7)
+store.finanzas.value.finanzas_real = { Osiris: { _proyOverrides: { 'egr_nop::Pago Préstamos - Total': { '6': 12345, '7': 5555 } } } };
 const { browser, page } = await abrirApp(store);
 const errores = [];
 page.on('pageerror', e => errores.push(String(e)));
@@ -39,6 +41,26 @@ await subTab(page, /💳 Créditos/);
 await foto(page, '01-creditos');
 check('Pestañas nuevas visibles', await page.getByRole('button', { name: /Análisis CFO/ }).count() > 0 && await page.getByRole('button', { name: /Simular prepago/ }).count() > 0);
 check('Ya no aparece la cifra fija "Deuda Total Q1-2026"', await page.getByText('Deuda Total Q1-2026').count() === 0);
+
+// ── 0. Conciliar valores manuales antiguos ───────────────────────────────
+await subTab(page, /Conciliación/);
+const txt0 = await page.locator('body').innerText();
+check('Conciliación muestra los 2 valores manuales pendientes (12,345 y 5,555)', txt0.includes('$12,345') && txt0.includes('$5,555') && /2 mes\(es\) pendiente/.test(txt0));
+const filaOct = page.locator('tr', { hasText: 'Oct-26' }).filter({ hasText: 'Pago Préstamos' }).first();
+await filaOct.getByRole('button', { name: 'Usar Créditos' }).click();
+await page.waitForTimeout(1500);
+respuestaPrompt = 'Cuota Banco X aún no registrada en Créditos';
+const filaNov = page.locator('tr', { hasText: 'Nov-26' }).filter({ hasText: 'Pago Préstamos' }).first();
+await filaNov.getByRole('button', { name: 'Mantener manual' }).click();
+await page.waitForTimeout(1500);
+respuestaPrompt = 'prueba e2e';
+const real0 = leerFila(store, 'finanzas').finanzas_real.Osiris;
+check('Usar Créditos: se retira el manual de Oct-26 y queda el registro', real0._proyOverrides['egr_nop::Pago Préstamos - Total']['6'] === undefined
+  && real0._resolucionesCreditos.some(r => r.idx === 6 && r.decision === 'creditos' && r.valorManual === 12345));
+check('Mantener: el manual de Nov-26 sigue, con motivo registrado', real0._proyOverrides['egr_nop::Pago Préstamos - Total']['7'] === 5555
+  && real0._resolucionesCreditos.some(r => r.idx === 7 && r.decision === 'mantener' && /no registrada/.test(r.nota)));
+await page.getByRole('button', { name: /💳 Créditos/ }).last().click();   // sub-pestaña (la primera es la del módulo)
+await page.waitForTimeout(800);
 
 // ── 1. Alta ────────────────────────────────────────────────────────────
 await page.getByRole('button', { name: /\+ Nuevo Crédito/ }).click();
@@ -91,7 +113,10 @@ await foto(page, '03-pago-parcial');
 cred = leerFila(store, 'finanzas').creditos_data.find(c => c.acreedor === 'Banco E2E');
 const est = estadoCredito(cred, hoyISO());
 check('Pago guardado: capital 40.000 + interés 8.000', (cred.pagos || []).filter(p => !p.anulado).length === 1 && cred.pagos[0].capital === 40000 && cred.pagos[0].interes === 8000);
-check('Saldo capital 400.000 − 40.000 = 360.000', Math.abs(est.saldoCapital - 360000) < 0.01, `${est.saldoCapital}`);
+// Alta hoy con desembolso pasado: la cuota 10-jul (antes del alta, sin pago) queda POR CONCILIAR.
+// Capital: 400.000 − 40.000 pagado = 360.000 = 260.000 confirmado + 100.000 por conciliar.
+check('Saldo capital confirmado 260.000 + por conciliar 100.000 = 360.000', Math.abs(est.saldoCapital - 260000) < 0.01 && Math.abs(est.porConciliarCapital - 100000) < 0.01,
+  `${est.saldoCapital} + ${est.porConciliarCapital}`);
 const detalle = await page.locator('table').filter({ hasText: 'Pendiente' }).first().innerText();
 check('Detalle muestra 60,000.00 pendiente y "Vencida"', detalle.includes('60,000.00') && /Vencida/.test(detalle));
 await page.getByRole('button', { name: '×' }).first().click();
@@ -122,16 +147,22 @@ let difs = 0, comparados = 0;
 Object.entries(pantalla || {}).forEach(([mes, v]) => {
   const [mn, yy] = mes.split('-'); const idx = (2000 + Number(yy) - 2026) * 12 + (MN.indexOf(mn) - 3);
   if (idx < 0 || idx >= 63) return;
+  if (mes === 'Nov-26') { check('Nov-26 usa el valor manual mantenido (5,555)', v === 5555, `${v}`); return; }
   comparados++;
   if (Math.abs((v || 0) - Math.round(modelo[idx])) > 1) { difs++; console.log(`   ${mes}: pantalla ${v} · modelo ${modelo[idx].toFixed(2)}`); }
 });
 check(`Pantalla = modelo en ${comparados} meses visibles`, comparados > 0 && difs === 0);
 const hoyMes = `${MN[new Date().getMonth()]}-${String(new Date().getFullYear()).slice(2)}`;
 check(`Los 60.000 impagos + vencidos antiguos están en el mes en curso (${hoyMes})`, (pantalla?.[hoyMes] || 0) >= 60000, `${pantalla?.[hoyMes]}`);
-check('Aviso de vencidos impagos visible en el flujo', await page.getByText(/vencimiento\(s\) de créditos impago\(s\)/).count() > 0);
+check('Aviso de vencidas confirmadas visible en el flujo', await page.getByText(/vencida\(s\) impaga\(s\) confirmada\(s\)/).count() > 0);
+check('Aviso de cuotas por conciliar (fuera del flujo) visible', await page.getByText(/histórica\(s\) por conciliar/).count() > 0);
 
 // ── 5. Análisis y prepago ────────────────────────────────────────────────
 await subTab(page, /💳 Créditos/);
+await subTab(page, /Conciliación/);
+await foto(page, '05a-conciliacion');
+const txtConc = await page.locator('body').innerText();
+check('Conciliación lista la cuota 10/07/2026 de Banco E2E', txtConc.includes('Banco E2E') && txtConc.includes('10/07/2026'));
 await subTab(page, /Análisis CFO/);
 await foto(page, '05-analisis');
 check('Análisis: servicio de deuda y exposición a tasas', await page.getByText(/Servicio de deuda por mes/).count() > 0 && await page.getByText(/Exposición a tasas/).count() > 0);
