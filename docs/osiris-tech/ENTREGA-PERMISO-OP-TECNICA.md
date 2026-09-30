@@ -4,7 +4,7 @@ Paquete independiente, listo para publicación. No incluye las respuestas por la
 del paquete económico/tributario.
 
 - **Rama:** `osiris/permiso-op-tecnica`
-- **Candidato:** `5159517` (código en `a447f44` + esta acta; la documentación no cambia comportamiento)
+- **Candidato:** `42e4d74` (código en `a447f44` + esta acta; la documentación no cambia comportamiento)
 - **Base exacta:** `5c0da41` (`origin/main` al 2026-09-30)
 - **Archivos:** 1 (`src/OsirisModule.jsx`), 27 líneas agregadas, 1 modificada
 
@@ -75,7 +75,7 @@ ventana.
 ## 5 · Autorización que se necesita
 
 > `AUTORIZO MERGE osiris/permiso-op-tecnica → main`, push y despliegue del paquete exacto
-> `5159517` sobre la base exacta `5c0da41`.
+> `42e4d74` sobre la base exacta `5c0da41`.
 
 Si al momento de publicar `origin/main` ya avanzó, se revalida la base y se vuelve a pedir la
 autorización con el par nuevo.
