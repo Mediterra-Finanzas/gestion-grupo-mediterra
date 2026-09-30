@@ -108,7 +108,7 @@ Sub-tabs dentro de FinanzasModule:
 1. **Dashboard** — KPIs grupo
 2. **Flujo Empresas** — flujo de caja proyectado por empresa + consolidado
 3. **Saldos Bancos** — saldos por banco/cuenta
-4. **Créditos** — créditos por empresa, cuotas, renovaciones
+4. **Créditos** — registro por empresa (contrato con calendario, registro simple, socio), 📅 pagos por vencimiento, 📊 Análisis CFO, 🧮 Simular prepago, Saldo por Mes
 5. **Nóminas** — nóminas de pago semanales con workflow autorización. **Expediente Digital (Fases 0-6, jun-2026)**: respaldo documental por línea (bucket privado `nominas-docs` + URLs firmadas; helpers en `friskuHelpers.js` y `expedienteHelpers.js`), soft-delete de líneas/documentos/nóminas (nunca borrado físico: `estadoLinea`/`doc.estado`/`estadoNomina="inactiva"`), hash SHA-256 por documento, semáforo 🟢/🔴 + % cobertura por nómina, documento interno autogenerado para líneas de empresas relacionadas (`emp_rel_clp`/`emp_rel_usd`: correlativo `DI-{COD}-{AAAA}-{NNNNN}` + UUID + PDF), trazabilidad (`nomina.historial[]` + `window.auditLog` en transiciones), Vista Auditoría (`AuditoriaNominaModal`), validación de respaldo obligatorio al avanzar a "revision" (`VALIDACION_RESPALDO`, exime `anticipos`), y "Descargar Expediente" (ZIP resumen + documentos). La impresión incluye cobertura, respaldos por línea y anexos.
 6. **Reporte Semanal** — PDF ejecutivo del flujo grupo
 7. **Auditoría** — log de cambios
@@ -143,14 +143,53 @@ Esta lógica está implementada en:
 
 **IMPORTANTE**: no romper esta lógica en cambios futuros. Si necesitas modificar el cálculo, hay logs de debug históricos comentados que ayudan a diagnosticar.
 
-#### Sublines de "Préstamos" — caso especial
+#### Créditos — una sola fuente de verdad (oct-2026)
 
-Las líneas con `formula:true` y "Préstamos" en el label:
-- Cuotas calculadas automáticamente desde `creditosData` (módulo Créditos)
-- `proy[i]` ya incluye las cuotas mensuales
-- `calcPrestamosSemanasEmpresa()` calcula las cuotas por semana exacta
-- Las sublines visibles vienen de `calcPrestamosDesglose()` (por acreedor)
-- Mantienen consistencia con el módulo Créditos: una sola fuente de verdad
+`src/creditos.js` (puro, testeado con `node src/creditos.test.mjs`) calcula el
+calendario de cada crédito, aplica los pagos y entrega al flujo SOLO lo
+pendiente. Pantalla (mensual y semanal), consolidado, reporte semanal y Excel
+leen de ahí vía `flujoCredEmpresa()` / `aplicarCreditosAEmpresas()` en
+`FinanzasModule.jsx`.
+
+Tipos de registro (conviven, sin migración forzada):
+
+- **legacy** (`tipo_credito` vacío o "banco"): 1 fila = 1 vencimiento con `cuota`
+  total (o cuotas mensuales `f_inicio`→`f_venc`). No separa capital de interés:
+  va como **"sin desglose"** hasta que se cargue `desglose:{capital,interes,cargos}`
+  (botón "Desglosar cuota" en 📅 Pagos). Nunca se inventa la división.
+- **socio**: tabla de `creditoSocio.js` (interés efectivo compuesto).
+- **contrato**: calendario generado (cuota fija, capital constante, bullet con
+  intereses periódicos, capital+interés al vencimiento; gracia; tasa fija o
+  variable = referencia hipótesis + margen; base Act/360, Act/365 o 30/360;
+  cargos por cuota y únicos) o **calendario manual** del acreedor.
+- `renovaciones` siguen alimentando la línea "Renovaciones".
+
+Reglas que no hay que romper:
+
+- `total = capital + intereses + otros cargos (+ sin desglose)`.
+- **Pagos** en `c.pagos[]` con fecha, desglose y `vencKey` (`uid@AAAA-MM-DD`).
+  No se borran ni editan: se anulan con motivo. El saldo de capital baja solo
+  por capital pagado. Un pago "sin desglose" se imputa cargos → intereses →
+  capital (art. 1595 CC). `pagado:true` antiguo = pagado sin registro.
+- **Créditos** no se borran: `anulado:true` con motivo; no se puede anular uno
+  con pagos vigentes. Cada crédito tiene `uid` (los `n` históricos se repetían).
+- **Vencido impago** (fecha < hoy y saldo por pagar) se arrastra al **mes y
+  semana en curso** del flujo con aviso. No desaparece ni se da por pagado.
+- **Fechas** ISO leídas como texto: `new Date("2027-01-01")` en Chile caía en
+  diciembre.
+- **Pago Préstamos - Total** y **Renovaciones** tienen `_fuenteCreditos` y
+  `_lockOverrideFromIdx:0`: no se editan en el flujo y los valores manuales
+  antiguos dejan de aplicar (se avisan, no se borran). `_semProy` da la semana
+  exacta: celda, subtotal, flujo neto y saldo semanal leen lo mismo.
+- Moneda ≠ USD sin `tc_flujo` (moneda por 1 US$) **no entra** al flujo y se avisa.
+- **Prepago**: `simularPrepago` no modifica nada; `aplicarPrepago` registra el
+  pago (capital + devengado + comisión) y, en contratos, un evento en
+  `c.prepagos[]` que recalcula el calendario (anular el pago lo revierte).
+  Sin tasa, base o condición de prepago → dato faltante / hipótesis explícita.
+- `handleSaveCreditos` devuelve el resultado real y revierte el estado local
+  si el servidor no confirma (si no, un pago reintentado se duplicaba).
+- Nóminas NO está integrada con Créditos: pagar una cuota por nómina no la
+  marca pagada; se registra en Créditos → 📅 Pagos.
 
 #### Bug histórico arreglado (no volver a romper)
 

@@ -7971,7 +7971,7 @@ function AnalisisCreditos({creditos, empresas}){
         <KPI label="Vencido impago" value={$$(tot.venc)} color={tot.venc>0?C.red:C.green}/>
         <KPI label="Servicio próx. 12 meses" value={$$(s12)} color={C.orange}/>
         <KPI label="Tasa promedio ponderada" value={T.tasaPromedio==null?"—":`${T.tasaPromedio.toFixed(2)}%`} color={C.blue}/>
-        <KPI label="Costo financiero anual est." value={$$(T.costoAnualEstimado)} color={C.orange}/>
+        <KPI label="Costo anual (capital identificado)" value={$$(T.costoAnualEstimado)} color={C.orange}/>
       </div>
       {an.sinTC.length>0&&<div style={{background:C.warningBg,border:`1px solid ${C.warning}66`,borderRadius:8,padding:"8px 12px",fontSize:11}}>
         ⚠ {an.sinTC.length} crédito(s) en otra moneda sin TC quedan fuera de los totales en USD: {an.sinTC.map(e=>`${e.c.acreedor} (${e.c.moneda})`).join(", ")}.</div>}
@@ -8070,7 +8070,11 @@ function AnalisisCreditos({creditos, empresas}){
             Sensibilidad: +100 pb en la tasa variable = <strong>{$$(T.sensibilidad100pb)}</strong> más de interés al año ({$$(T.capVar)} × 1%).
           </div>
           <div style={{fontSize:10,color:C.muted,marginTop:6,lineHeight:1.6}}>
-            <strong>Hipótesis:</strong> costo anual = Σ saldo × tasa nominal registrada (capital + "sin desglose" como base). Tasa variable = referencia
+            {T.sinDesgloseConTasa>0.5&&<div style={{color:C.orange,marginBottom:4}}>
+              El costo anual ({$$(T.costoAnualEstimado)}) considera solo capital identificado. Hay {$$(T.sinDesgloseConTasa)} en cuotas sin desglose con tasa
+              registrada: si todo eso fuera capital, el costo sería {$$(T.costoAnualSiSinDesgloseFueraCapital)} (cota superior; esas cuotas pueden incluir intereses).
+            </div>}
+            <strong>Hipótesis:</strong> costo anual = Σ saldo de capital × tasa nominal registrada. Tasa promedio y exposición ponderan por capital + "sin desglose". Tasa variable = referencia
             vigente cargada como hipótesis + margen, proyectada constante. Créditos de socio usan su tasa efectiva. No incluye comisiones ni seguros.
             Los créditos sin tasa quedan fuera del promedio y del costo.
             {T.sinTasa.length>0&&<div style={{color:C.orange}}>Sin tasa: {T.sinTasa.map(e=>`${e.c.acreedor} (${e.c.empresa})`).filter((x,i,a)=>a.indexOf(x)===i).join(", ")}.</div>}
@@ -8165,7 +8169,7 @@ function SimuladorPrepago({creditos, onSaveOne, canEdit, usuario}){
             </div>
             <div style={{fontSize:11,color:C.text,marginTop:10,lineHeight:1.7,fontVariantNumeric:"tabular-nums"}}>
               <div>Interés devengado = {$c(res.esTotal?res.saldoCapital:res.capital,mon)} × {res.tasa??"?"}% × {res.base==="efectiva365"?"[(1+t)^(días/365) − 1]":`fracción ${BASES[res.base]||"?"}`} desde {fmtDate(res.desde)} hasta {fmtDate(res.fecha)} = {res.devengado==null?"—":$c(res.devengado,mon)}</div>
-              <div>Desembolso = capital {$c(res.capital,mon)} + devengado {res.devengado==null?"—":$c(res.devengado,mon)} + comisión {res.comision==null?"—":$c(res.comision,mon)}{res.vencidosImpagos>0?` + vencidos impagos a regularizar ${$c(res.vencidosImpagos,mon)}`:""} = {res.desembolso==null?"—":$c(res.desembolso,mon)}</div>
+              <div>Desembolso = capital {$c(res.capital,mon)} + devengado {res.devengado==null?"—":$c(res.devengado,mon)} + comisión {res.comision==null?"—":$c(res.comision,mon)}{res.vencidosImpagos>0?` + cuotas con vencimiento hasta esa fecha aún impagas ${$c(res.vencidosImpagos,mon)}`:""} = {res.desembolso==null?"—":$c(res.desembolso,mon)}</div>
               <div>Intereses evitados = futuros originales {$c(res.interesesFuturosOriginal,mon)} − futuros del escenario {$c(res.interesesFuturosEscenario,mon)} − devengado {res.devengado==null?"—":$c(res.devengado,mon)} = {res.interesesEvitados==null?"—":$c(res.interesesEvitados,mon)}</div>
               <div>Ahorro neto = intereses evitados − comisión = {res.ahorroNeto==null?"—":$c(res.ahorroNeto,mon)} <span style={{color:C.muted}}>(sin descontar el costo de oportunidad de la caja usada)</span></div>
               {res.cargosEvitados>0.005&&<div>Además deja de pagar otros cargos futuros por {$c(res.cargosEvitados,mon)} (no incluidos en el ahorro neto).</div>}
@@ -13324,8 +13328,14 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
     // Devuelve el resultado REAL del guardado ({ok}) para que Créditos no
     // confirme un pago que el servidor no recibió. (Antes se evaluaba el objeto
     // como booleano y siempre mostraba "Guardado".)
+    // Si el servidor NO confirma, se vuelve al estado anterior: un pago que no
+    // quedó guardado no puede seguir en pantalla (al reintentar se registraría
+    // dos veces). Solo se revierte si nadie cambió los créditos entretanto.
     return persistAll({ creditos_data: final })
-      .then(res=>{ setSaved(res?.ok?"✅ Guardado":"⚠️ Error"); setTimeout(()=>setSaved(null),2000); return res; });
+      .then(res=>{
+        if(!res?.ok && creditosRef.current===final){ setCreditosData(anterior); creditosRef.current = anterior; }
+        setSaved(res?.ok?"✅ Guardado":"⚠️ Error"); setTimeout(()=>setSaved(null),2000); return res;
+      });
   },[persistAll, usuarioActual]);
 
   // Guardar transferencias intercompany

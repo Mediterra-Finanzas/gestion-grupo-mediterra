@@ -612,7 +612,9 @@ export function analisisCartera(creditos, hoy = hoyISO()) {
   };
   const tipoAcr = (c) => c.tipo_acreedor || (esSocio(c) ? 'Socio' : (c.tipo_inst === 'Banco' ? 'Banco' : (c.tipo_inst || 'Sin clasificar')));
   // Tasas: exposición y costo (solo créditos con saldo de capital y tasa conocida)
-  let capFija = 0, capVar = 0, capSinTasa = 0, sumTasaCap = 0, capConTasa = 0, costoAnual = 0;
+  // Costo: solo sobre capital identificado (lo "sin desglose" puede traer
+  // intereses dentro); aparte, el costo si todo lo sin desglose fuera capital.
+  let capFija = 0, capVar = 0, capSinTasa = 0, sumTasaCap = 0, capConTasa = 0, costoAnual = 0, costoConSD = 0, sdConTasa = 0;
   const sinTasa = [], variables = [];
   estados.forEach(e => {
     if (e.f === null) return;
@@ -620,14 +622,17 @@ export function analisisCartera(creditos, hoy = hoyISO()) {
     if (cap <= EPS) return;
     if (e.tasa.tasa === null) { capSinTasa += cap; sinTasa.push(e); return; }
     if (e.tasa.variable) { capVar += cap; variables.push(e); } else capFija += cap;
-    sumTasaCap += e.tasa.tasa * cap; capConTasa += cap; costoAnual += cap * e.tasa.tasa / 100;
+    sumTasaCap += e.tasa.tasa * cap; capConTasa += cap;
+    costoAnual += e.saldoCapital * e.f * e.tasa.tasa / 100;
+    costoConSD += cap * e.tasa.tasa / 100; sdConTasa += e.sinDesglosePend * e.f;
   });
   return {
     estados,
     porEmpresa: agrupar(c => c.empresa), porAcreedor: agrupar(c => c.acreedor), porMoneda: agrupar(c => c.moneda || 'USD'),
     porTipo: agrupar(c => c.tipo_cr || 'Sin tipo'), porTipoAcreedor: agrupar(tipoAcr),
     tasas: { capFija: r2(capFija), capVar: r2(capVar), capSinTasa: r2(capSinTasa), tasaPromedio: capConTasa > 0 ? sumTasaCap / capConTasa : null,
-      costoAnualEstimado: r2(costoAnual), sensibilidad100pb: r2(capVar * 0.01), sinTasa, variables },
+      costoAnualEstimado: r2(costoAnual), costoAnualSiSinDesgloseFueraCapital: r2(costoConSD), sinDesgloseConTasa: r2(sdConTasa),
+      sensibilidad100pb: r2(capVar * 0.01), sinTasa, variables },
     sinTC: estados.filter(e => e.f === null),
   };
 }

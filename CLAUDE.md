@@ -44,6 +44,7 @@ Aplicación web interna para la gestión financiera y operativa de **Grupo Medit
 - `AllegriaModule.jsx` — módulo Allegria
 - `FriskuModule.jsx` (~1.500 L) — **Maestros globales de Frisku** (a pesar del nombre del archivo, internamente es `FriskuMaestrosModule`): 11 tabs — Países, Ciudades, Puertos, Aeropuertos, Shipping Lines, Tipos Embarque, **Especies** (Fase 2), Tipos Embalaje, Mercados, Monedas, **Tipo de Cambio histórico** (Fase 2, con APIs), Checklist Docs
 - `FriskuComercialModule.jsx` (~5.900 L) — módulo comercial: Dashboard, **Clientes**/**Exportadoras** (CRUD), Contratos (Business Closure), **Programa** (semanal; cada semana define **semana de ETD (despacho)** y **semana de ETA (llegada)** por N°+año —ambas con rango de fechas y días de tránsito—, **vía marítimo/aéreo** —marítimo lleva **Contenedores/FCL**, aéreo lleva **Pallets**—, y cajas por formato; `fechaSemana`=lunes de la semana ETD. Etiqueta de semana con año ISO. Toolbar con filtros buscables temp/exp/cli/especie + lista desplegable para saltar a un closure), **Embarques** (OE + Packing List + COMEX), **Liquidaciones** + PO, **📈 Reportes** (Fase 8) y embed de Maestros + TC. **Tab Reportes** (`ReportesTab`): selector con 6 reportes BI, todos con export **Excel (ExcelJS, con logo Frisku)** + **PDF (jsPDF/autoTable, con logo)** — (1) Ingreso Frisku por temporada, (2) Rentabilidad por especie/mercado/cliente, (3) Programa vs Real en **FCL** (plan = `contenedoresFCL` del programa por especie del closure; real = OEs marítimas no canceladas, 1 OE = 1 contenedor; agrupa por especie/cliente/ambos), (4) Pipeline de embarques, (5) Ranking de exportadoras, (6) Cobranza/aging de comisión (sobre PO, buckets 0–30/31–60/61–90/>90 días desde emisión). Tabla de hechos = liquidaciones (comisión ya en USD). Helpers de export/logo con prefijo `fr_*` (fr_loadExcelJS, fr_sheetTabla, fr_logoPDF/Excel). **Nota**: el resto del módulo aún exporta el Packing List con XML SpreadsheetML manual; solo el tab Reportes usa ExcelJS.
+- `creditos.js` (**nuevo oct-2026**) — modelo puro de créditos: calendario (capital/intereses/cargos), pagos, flujo pendiente, análisis de cartera y simulación de prepago. Ver "Créditos — una sola fuente de verdad".
 - `anticipos.js` (**nuevo sep-2026**) — modelo puro de anticipos con realizaciones (acordado/realizado/pendiente/descuento de liquidación, trazabilidad de cobros y pagos, conciliación contra los saldos bancarios). Lo usan `FinanzasModule.jsx` (pantalla + `calcAllegria`) y `flujoExportExcel.js`.
 - `friskuHelpers.js` (~290 L, **nuevo Fase 2**) — helpers compartidos: persistencia genérica, modelo de comisión Frisku, formateo de montos, búsqueda TC, conversión multimoneda, integración mindicador.cl + frankfurter.app
 - `RendicionesModule.jsx` — **Rendiciones de gasto del personal**: cada trabajador carga sus propios gastos con respaldos (boletas/facturas en Supabase Storage) y workflow de aprobación (borrador → enviada → aprobada/rechazada → pagada). Se renderiza como **pestaña "🧾 Rendiciones" DENTRO de FinanzasModule** (no es un tile aparte del hub). Sub-tabs internos: Mis Rendiciones (todos), Por Aprobar / Pagos / Reportes (solo aprobadores = admin o `esCFO`). Reutiliza `dbLoadGeneric/dbSaveGeneric` y `uploadArchivoFrisku` (bucket `frisku-docs`, prefijo `rendiciones/`) de `friskuHelpers.js`. Persiste en `calendario_data` id=`rendiciones`. Independiente del flujo de caja. **Multimoneda con conversión para pago**: cada rendición tiene `monedaPago` (default CLP) y `fechaTC`; cada gasto se convierte a la moneda de pago **triangulando vía USD** (`convertir()` usa `buscarTC` de `friskuHelpers`, con par inverso). Ej. soles: `PEN→USD→CLP`. Las APIs gratis NO cubren PEN, así que el par `USD-PEN` debe cargarse manual en Maestros → Tipo de Cambio; los gastos sin TC se marcan ⚠ y se excluyen del total. Reportes totaliza en CLP equivalente. **Acceso**: en el merge de usuarios de `App.jsx`, a quien no tenga el módulo `finanzas` se le otorga, pero con TODAS las pestañas financieras en `sin_acceso` y solo `rendiciones` en `editar` → así todo el personal puede cargar gastos sin ver datos financieros sensibles. Quienes ya tenían Finanzas (Angelo, Carol) conservan acceso completo.
@@ -109,7 +110,7 @@ Sub-tabs dentro de FinanzasModule:
 1. **Dashboard** — KPIs grupo
 2. **Flujo Empresas** — flujo de caja proyectado por empresa + consolidado
 3. **Saldos Bancos** — saldos por banco/cuenta
-4. **Créditos** — créditos por empresa, cuotas, renovaciones
+4. **Créditos** — registro por empresa (contrato con calendario, registro simple, socio), 📅 pagos por vencimiento, 📊 Análisis CFO, 🧮 Simular prepago, Saldo por Mes
 5. **Nóminas** — nóminas de pago semanales con workflow autorización. **Expediente Digital (Fases 0-6, jun-2026)**: respaldo documental por línea (bucket privado `nominas-docs` + URLs firmadas; helpers en `friskuHelpers.js` y `expedienteHelpers.js`), soft-delete de líneas/documentos/nóminas (nunca borrado físico: `estadoLinea`/`doc.estado`/`estadoNomina="inactiva"`), hash SHA-256 por documento, semáforo 🟢/🔴 + % cobertura por nómina, documento interno autogenerado para líneas de empresas relacionadas (`emp_rel_clp`/`emp_rel_usd`: correlativo `DI-{COD}-{AAAA}-{NNNNN}` + UUID + PDF), trazabilidad (`nomina.historial[]` + `window.auditLog` en transiciones), Vista Auditoría (`AuditoriaNominaModal`), validación de respaldo obligatorio al avanzar a "revision" (`VALIDACION_RESPALDO`, exime `anticipos`), y "Descargar Expediente" (ZIP resumen + documentos). La impresión incluye cobertura, respaldos por línea y anexos.
 6. **Reporte Semanal** — PDF ejecutivo del flujo grupo
 7. **Auditoría** — log de cambios
@@ -144,14 +145,53 @@ Esta lógica está implementada en:
 
 **IMPORTANTE**: no romper esta lógica en cambios futuros. Si necesitas modificar el cálculo, hay logs de debug históricos comentados que ayudan a diagnosticar.
 
-#### Sublines de "Préstamos" — caso especial
+#### Créditos — una sola fuente de verdad (oct-2026)
 
-Las líneas con `formula:true` y "Préstamos" en el label:
-- Cuotas calculadas automáticamente desde `creditosData` (módulo Créditos)
-- `proy[i]` ya incluye las cuotas mensuales
-- `calcPrestamosSemanasEmpresa()` calcula las cuotas por semana exacta
-- Las sublines visibles vienen de `calcPrestamosDesglose()` (por acreedor)
-- Mantienen consistencia con el módulo Créditos: una sola fuente de verdad
+`src/creditos.js` (puro, testeado con `node src/creditos.test.mjs`) calcula el
+calendario de cada crédito, aplica los pagos y entrega al flujo SOLO lo
+pendiente. Pantalla (mensual y semanal), consolidado, reporte semanal y Excel
+leen de ahí vía `flujoCredEmpresa()` / `aplicarCreditosAEmpresas()` en
+`FinanzasModule.jsx`.
+
+Tipos de registro (conviven, sin migración forzada):
+
+- **legacy** (`tipo_credito` vacío o "banco"): 1 fila = 1 vencimiento con `cuota`
+  total (o cuotas mensuales `f_inicio`→`f_venc`). No separa capital de interés:
+  va como **"sin desglose"** hasta que se cargue `desglose:{capital,interes,cargos}`
+  (botón "Desglosar cuota" en 📅 Pagos). Nunca se inventa la división.
+- **socio**: tabla de `creditoSocio.js` (interés efectivo compuesto).
+- **contrato**: calendario generado (cuota fija, capital constante, bullet con
+  intereses periódicos, capital+interés al vencimiento; gracia; tasa fija o
+  variable = referencia hipótesis + margen; base Act/360, Act/365 o 30/360;
+  cargos por cuota y únicos) o **calendario manual** del acreedor.
+- `renovaciones` siguen alimentando la línea "Renovaciones".
+
+Reglas que no hay que romper:
+
+- `total = capital + intereses + otros cargos (+ sin desglose)`.
+- **Pagos** en `c.pagos[]` con fecha, desglose y `vencKey` (`uid@AAAA-MM-DD`).
+  No se borran ni editan: se anulan con motivo. El saldo de capital baja solo
+  por capital pagado. Un pago "sin desglose" se imputa cargos → intereses →
+  capital (art. 1595 CC). `pagado:true` antiguo = pagado sin registro.
+- **Créditos** no se borran: `anulado:true` con motivo; no se puede anular uno
+  con pagos vigentes. Cada crédito tiene `uid` (los `n` históricos se repetían).
+- **Vencido impago** (fecha < hoy y saldo por pagar) se arrastra al **mes y
+  semana en curso** del flujo con aviso. No desaparece ni se da por pagado.
+- **Fechas** ISO leídas como texto: `new Date("2027-01-01")` en Chile caía en
+  diciembre.
+- **Pago Préstamos - Total** y **Renovaciones** tienen `_fuenteCreditos` y
+  `_lockOverrideFromIdx:0`: no se editan en el flujo y los valores manuales
+  antiguos dejan de aplicar (se avisan, no se borran). `_semProy` da la semana
+  exacta: celda, subtotal, flujo neto y saldo semanal leen lo mismo.
+- Moneda ≠ USD sin `tc_flujo` (moneda por 1 US$) **no entra** al flujo y se avisa.
+- **Prepago**: `simularPrepago` no modifica nada; `aplicarPrepago` registra el
+  pago (capital + devengado + comisión) y, en contratos, un evento en
+  `c.prepagos[]` que recalcula el calendario (anular el pago lo revierte).
+  Sin tasa, base o condición de prepago → dato faltante / hipótesis explícita.
+- `handleSaveCreditos` devuelve el resultado real y revierte el estado local
+  si el servidor no confirma (si no, un pago reintentado se duplicaba).
+- Nóminas NO está integrada con Créditos: pagar una cuota por nómina no la
+  marca pagada; se registra en Créditos → 📅 Pagos.
 
 #### Anticipos con realizaciones — Allegria Foods (sep-2026)
 
@@ -364,6 +404,8 @@ vercel --prod
 
 # Tests
 node src/anticipos.test.mjs                 # modelo de anticipos (puro)
+node src/creditos.test.mjs                  # modelo de créditos (puro)
+OUT_DIR=/tmp/e2e node scripts/e2e/creditos.mjs   # Créditos en navegador (Supabase falso)
 CI=true npx react-scripts test --watchAll=false     # suite completa (jest)
 CI=true npx react-scripts test --testPathPattern Anticipos --watchAll=false
 node scripts/verif-excel-recalc.mjs         # recálculo REAL del Excel (requiere LibreOffice Calc)
