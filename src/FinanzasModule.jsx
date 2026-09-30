@@ -1776,11 +1776,21 @@ const CONCILIA_LBL = {
 // Ver src/anticipos.js para el modelo y sus reglas.
 // ═══════════════════════════════════════════════════════════════════
 function AnticipList({items,onChange,label,meses=MESES_65,base=0,tipo="cliente",
-                      readOnly=false,usuario="",fechasCuentas=[],mesIdxActual=-1}) {
+                      readOnly=false,usuario="",fechasCuentas=[],mesIdxActual=-1,
+                      mesLiquidacion=undefined}) {
   const [formIdx,setFormIdx]=useState(null);        // fila con el formulario abierto
   const [draft,setDraft]=useState({fecha:"",usd:"",nota:""});
   const esCli = tipo==="cliente";
   const verbo = esCli ? "cobro" : "pago";
+  // Textos: distinguir SIEMPRE registrar un movimiento real de trasladar el
+  // pendiente. Y no prometer un mes de liquidación que no esté configurado.
+  const accion  = esCli ? "cobro recibido" : "pago efectuado";
+  const verboFut= esCli ? "cobrará" : "pagará";
+  const destino = esCli ? "liquidación final" : "saldo final al productor";
+  const destinoConMes =
+    mesLiquidacion === undefined ? destino
+    : mesLiquidacion ? `${esCli ? "liquidación" : "saldo al productor"} de ${mesLiquidacion}`
+    : `${destino}, que todavía no tiene mes asignado`;
   const lista = items||[];
 
   const addRow=()=>onChange([...lista, normalizarAnticipo({mes:"",usd_kg:0})]);
@@ -1799,8 +1809,10 @@ function AnticipList({items,onChange,label,meses=MESES_65,base=0,tipo="cliente",
     const a=normalizarAnticipo(lista[i]);
     const pend=antPendiente(a,base);
     if(!a.cerrado && pend>0 && !window.confirm(
-      `Cerrar este anticipo: los ${$$(pend)} pendientes dejan de proyectarse en ${a.mes||"su mes"} `+
-      `y pasan a la liquidación final. Lo ya ${esCli?"cobrado":"pagado"} (${$$(antRealizado(a))}) se mantiene descontado.\n\n¿Confirmas?`)) return;
+      `Pasar el pendiente a liquidación: los ${$$(pend)} que faltan dejan de proyectarse en `+
+      `${a.mes||"su mes"} y se incorporan a la ${destinoConMes}.\n\n`+
+      `Esto NO registra un ${verbo}: no se ${verboFut} como anticipo separado. `+
+      `Lo ya ${esCli?"cobrado":"pagado"} (${$$(antRealizado(a))}) se mantiene descontado.\n\n¿Confirmas?`)) return;
     updRow(i,"cerrado",!a.cerrado);
   };
   const abrirForm=i=>{
@@ -1811,7 +1823,7 @@ function AnticipList({items,onChange,label,meses=MESES_65,base=0,tipo="cliente",
   const guardarRealizacion=i=>{
     const usd=parseFloat(draft.usd)||0;
     if(usd<=0){ window.alert(`Ingresa el monto en US$ efectivamente ${esCli?"cobrado":"pagado"}.`); return; }
-    if(!draft.fecha){ window.alert("Ingresa la fecha del movimiento (define si el saldo bancario ya lo incluye)."); return; }
+    if(!draft.fecha){ window.alert("Ingresa la fecha real del movimiento, no el mes programado del anticipo."); return; }
     const n=[...lista];
     n[i]=agregarRealizacion(n[i],{fecha:draft.fecha,usd,nota:draft.nota,usuario});
     onChange(n); setFormIdx(null);
@@ -1855,16 +1867,18 @@ function AnticipList({items,onChange,label,meses=MESES_65,base=0,tipo="cliente",
                   style={{...inSt,width:78,textAlign:"right"}}/>
                 <span style={{fontSize:10,color:C.muted}}>US$/kg</span>
                 {!readOnly&&(
-                  <button onClick={()=>abrirForm(i)} title={`Registrar un ${verbo} ya efectuado`}
+                  <button onClick={()=>abrirForm(i)}
+                    title={`Registra dinero que ya se movió: fecha e importe reales`}
                     style={{padding:"3px 9px",background:`${C.primary}14`,border:`1px solid ${C.primary}55`,borderRadius:6,
                       color:C.primary,cursor:"pointer",fontSize:10,fontWeight:700}}>
-                    + Registrar {verbo}
+                    + Registrar {accion}
                   </button>
                 )}
                 {!readOnly&&(
-                  <label style={{fontSize:10,color:C.muted,display:"flex",alignItems:"center",gap:4,cursor:"pointer"}}>
+                  <label style={{fontSize:10,color:C.muted,display:"flex",alignItems:"center",gap:4,cursor:"pointer"}}
+                    title={`No se ${verboFut} como anticipo separado. La parte pendiente se incorpora a la ${destino}. Esto no registra un ${verbo}.`}>
                     <input type="checkbox" checked={!!row.cerrado} onChange={()=>toggleCerrado(i)}/>
-                    cerrado
+                    Pasar el pendiente a liquidación
                   </label>
                 )}
                 {!readOnly&&<button onClick={()=>delRow(i)} title="Eliminar anticipo"
@@ -1876,7 +1890,13 @@ function AnticipList({items,onChange,label,meses=MESES_65,base=0,tipo="cliente",
                 <span>Acordado <strong style={{color:C.text}}>{$$(acordado)}</strong></span>
                 <span>{esCli?"Cobrado":"Pagado"} <strong style={{color:realizado>0?C.success:C.muted2}}>{$$(realizado)}</strong></span>
                 <span>Pendiente <strong style={{color:pendiente>0?C.warning:C.muted2}}>{$$(pendiente)}</strong></span>
-                {row.cerrado&&chip("cerrado — el saldo pasa a liquidación",C.muted)}
+                {row.cerrado&&chip(
+                  realizado===0
+                    ? `Sin ${esCli?"cobros":"pagos"} registrados. ${$$(Math.max(0,acordado-realizado))} trasladados a liquidación`
+                    : (acordado-realizado>0.005
+                        ? `${$$(acordado-realizado)} trasladados a liquidación`
+                        : "Sin pendiente por trasladar"),
+                  C.muted)}
                 {vencido&&chip(`vencido: ${row.mes} ya pasó`,C.danger)}
                 {sinMes&&chip("sin mes: no se proyecta, se liquida al final",C.warning)}
                 {sobre&&chip(`${esCli?"cobrado":"pagado"} > acordado`,C.warning)}
@@ -1891,7 +1911,7 @@ function AnticipList({items,onChange,label,meses=MESES_65,base=0,tipo="cliente",
                       color:C.danger,cursor:"pointer",fontSize:9,fontWeight:700}}>
                     reprogramar a {MESES_65[mesIdxActual]}
                   </button>
-                  {" "}o elige otro mes arriba, o registra el {verbo} si ya ocurrió.
+                  {" "}o elige otro mes arriba, o registra el {accion} si ya ocurrió.
                 </div>
               )}
 
@@ -1945,6 +1965,11 @@ function AnticipList({items,onChange,label,meses=MESES_65,base=0,tipo="cliente",
                   <button onClick={()=>setFormIdx(null)}
                     style={{padding:"4px 9px",background:"transparent",border:`1px solid ${C.border}`,borderRadius:6,
                       color:C.muted,cursor:"pointer",fontSize:10}}>Cancelar</button>
+                  <div style={{flexBasis:"100%",fontSize:9,color:C.muted2,marginTop:3,lineHeight:1.5}}>
+                    Registra solo dinero que ya se movió. Usa la <strong>fecha real</strong> del movimiento,
+                    no el mes programado del anticipo. La fecha permite compararlo con los cortes de los saldos
+                    bancarios, pero no demuestra que el saldo ya lo incluya.
+                  </div>
                 </div>
               )}
             </div>
@@ -2241,7 +2266,8 @@ export function ParamsFruta({seasonKey,fruta,params,setParams,saldosBancos=null,
           <AnticipList label="Anticipos (US$/kg por mes) — registra acá los cobros ya recibidos"
             items={p.anticipos_cliente} onChange={v=>upd("anticipos_cliente",v)} meses={mesesSel}
             base={kg} tipo="cliente" readOnly={readOnly} usuario={usuario}
-            fechasCuentas={fechasCuentas} mesIdxActual={mesIdxActual}/>
+            fechasCuentas={fechasCuentas} mesIdxActual={mesIdxActual}
+            mesLiquidacion={p.mes_liquidacion||""}/>
           <div style={{marginTop:10}}>
             <div style={{fontSize:10,color:C.muted,marginBottom:3}}>Mes liquidación final</div>
             <select value={p.mes_liquidacion||""} disabled={readOnly} onChange={e=>upd("mes_liquidacion",e.target.value)} style={selSt}>
@@ -2273,7 +2299,8 @@ export function ParamsFruta({seasonKey,fruta,params,setParams,saldosBancos=null,
           <AnticipList label="Anticipos productor (US$/kg) — registra acá los pagos ya efectuados"
             items={p.anticipos_productor} onChange={v=>upd("anticipos_productor",v)} meses={mesesSel}
             base={kg} tipo="productor" readOnly={readOnly} usuario={usuario}
-            fechasCuentas={fechasCuentas} mesIdxActual={mesIdxActual}/>
+            fechasCuentas={fechasCuentas} mesIdxActual={mesIdxActual}
+            mesLiquidacion={p.mes_saldo_productor||""}/>
           <div style={{marginTop:10}}>
             <div style={{fontSize:10,color:C.muted,marginBottom:3}}>Mes saldo productor</div>
             <select value={p.mes_saldo_productor||""} disabled={readOnly} onChange={e=>upd("mes_saldo_productor",e.target.value)} style={selSt}>
@@ -2783,7 +2810,8 @@ function ParamsAllpa({selSeason, paramsAF, setParamsAF, readOnly, usuario="", sa
                     items={v.anticipos} onChange={val=>updVar(selVar,"anticipos",val)}
                     meses={mesesSel} base={totalKg} tipo="cliente"
                     readOnly={readOnly} usuario={usuario}
-                    fechasCuentas={fechasCuentas} mesIdxActual={mesIdxActual}/>
+                    fechasCuentas={fechasCuentas} mesIdxActual={mesIdxActual}
+                    mesLiquidacion={v.mes_liq||""}/>
                   {(rAnt.acordado>0||ingBruto>0)&&(
                     <div style={{fontSize:10,color:C.muted,marginTop:8,lineHeight:1.6}}>
                       Venta total: <strong style={{color:C.text}}>{$$(ingBruto)}</strong><br/>

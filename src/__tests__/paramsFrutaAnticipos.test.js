@@ -210,3 +210,68 @@ describe('formato de los campos de parámetros', () => {
     expect(g.leer()["2026-2027"].cerezas.kg).toBe(1000000);
   });
 });
+
+// ── Textos: registrar un movimiento real vs trasladar el pendiente ──────
+// "cerrado" se leía como "pagado". Los textos deben decir qué hace cada
+// acción, distinguir cobros de pagos, y no prometer un mes de liquidación
+// que no esté configurado.
+describe('textos de las dos acciones', () => {
+  test('el botón nombra la acción completa y distingue cobro de pago', () => {
+    pintar();
+    verTexto(/\+ Registrar cobro recibido/);
+    verTexto(/\+ Registrar pago efectuado/);
+  });
+
+  test('la casilla ya no se llama «cerrado»', () => {
+    pintar();
+    const casillas = screen.getAllByText('Pasar el pendiente a liquidación');
+    expect(casillas.length).toBe(2);                 // cobros y pagos
+    expect(texto()).not.toMatch(/(^|\s)cerrado(\s|$)/);
+  });
+
+  test('la ayuda de la casilla dice que NO registra un movimiento, con el verbo correcto', () => {
+    pintar();
+    const ayudas = screen.getAllByTitle(/No se (cobrará|pagará) como anticipo separado/);
+    const textos = ayudas.map(e => e.getAttribute('title'));
+    expect(textos.some(t => /No se cobrará.*liquidación final.*no registra un cobro/.test(t))).toBe(true);
+    expect(textos.some(t => /No se pagará.*saldo final al productor.*no registra un pago/.test(t))).toBe(true);
+  });
+
+  test('con el pendiente trasladado y nada registrado, el aviso es informativo', () => {
+    pintar(params({
+      anticipos_cliente:[{ id:"a1", mes:"Sep-26", usd_kg:0.25, cerrado:true, realizaciones:[] }],
+      anticipos_productor:[{ id:"b1", mes:"Nov-26", usd_kg:0.21, cerrado:true, realizaciones:[] }],
+    }));
+    verTexto(/Sin cobros registrados\. \$250,000 trasladados a liquidación/);
+    verTexto(/Sin pagos registrados\. \$210,000 trasladados a liquidación/);
+  });
+
+  test('si ya hay algo registrado, el aviso informa solo lo trasladado', () => {
+    pintar(params({
+      anticipos_cliente:[{ id:"a1", mes:"Sep-26", usd_kg:0.25, cerrado:true,
+        realizaciones:[{ id:"r1", fecha:"2026-09-15", usd:150000 }] }],
+    }));
+    verTexto(/\$100,000 trasladados a liquidación/);
+    expect(texto()).not.toMatch(/Sin cobros registrados/);
+  });
+
+  test('el formulario recuerda usar la fecha real y no promete conciliación', () => {
+    pintar();
+    fireEvent.click(screen.getAllByText(/Registrar cobro recibido/)[0]);
+    verTexto(/Usa la .*fecha real.* del movimiento/s);
+    verTexto(/no demuestra que el saldo ya lo incluya/);
+  });
+});
+
+describe('no prometer un mes de liquidación que no existe', () => {
+  test('con mes configurado, la ayuda lo nombra', () => {
+    pintar();
+    const t = screen.getAllByTitle(/No se cobrará/)[0].getAttribute('title');
+    expect(t).toMatch(/liquidación final/);          // la ayuda de la casilla es genérica
+  });
+
+  test('sin mes de liquidación, el aviso de la pantalla no promete un mes', () => {
+    pintar(params({ mes_liquidacion:"" }));
+    expect(texto()).not.toMatch(/liquidación de\s+\w{3}-\d{2}/);
+  });
+});
